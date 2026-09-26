@@ -72,8 +72,12 @@
 //!
 //! # What reads as "poor" here, and why no new visual language was invented
 //!
-//! This codebase has no wealth or status field. What it does have is a grammar
-//! whose richness is keyed on district: per-lot courtyard plans only on market
+//! This codebase does now have a wealth/status field -- [`gate_quality`],
+//! below, this port's own faubourg-only "standing" gradient (Ruling H,
+//! owner 2026-09-23), `Parcel::gate_quality` -- but only for the faubourg
+//! rows this module builds; every intramural lot still reads `None`. Within
+//! the walls the richness stays keyed on district: per-lot courtyard plans
+//! only on market
 //! and burgher plots (the block-scale perimeter rings of `crate::courtyard`,
 //! added later, are the outer ring's), deeper main ranges there (`logn(11.5)` against `logn(9.5)`), and wings
 //! and outbuildings with age. A faubourg lot gets the bottom of that scale on

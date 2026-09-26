@@ -22,7 +22,8 @@ class_name VaultStore
 ## the difference: *"the format now carrying the civilisation layer, history
 ## and annotations that the flat one dropped on the floor"*. `cartalith-io`'s
 ## `DOCUMENT_SLOTS` (`project.rs`) lists `entities/settlements.json` and its
-## eleven siblings — and `vault.json` beside them.
+## nineteen siblings (`project.rs`'s `DOCUMENT_SLOTS` lists 20 in all today) —
+## `vault.json` among them.
 ##
 ## §26's project-scoped link store is **built and shipping**, and not by this
 ## file: `project_bridge.rs`'s `WorldGen::project_save_with_documents` writes

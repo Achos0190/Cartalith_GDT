@@ -230,10 +230,15 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     d.set("parcel_cls", &par_cls);
     d.set("parcel_district", &par_district);
 
-    // Buildings: the footprints `buildBuildings` puts *inside* the lots, plus
-    // whatever `buildFaithSites` inserted. Always present, even empty -- a town
-    // whose lots all failed the terrain-suitability gate genuinely has none,
-    // and that is now a generated answer rather than a missing milestone.
+    // Buildings: the footprints `buildBuildings` puts *inside* the lots.
+    // `build_faith_sites` touches this same list too, but only to remove --
+    // it clears every building on the parcels it claims as a churchyard and
+    // never inserts one back; the worship building itself lives on
+    // `Town::churches` (`build_faith_sites`' own `Vec<FaithSite>`), not
+    // here, and is not yet crossed by this dictionary. Always present, even
+    // empty -- a town whose lots all failed the terrain-suitability gate
+    // genuinely has none, and that is now a generated answer rather than a
+    // missing milestone.
     let bld_poly: Array<PackedVector2Array> = l.buildings.iter().map(|b| poly(&b.poly)).collect();
     // The ridge is the roof line the reference strokes over every footprint
     // (line 22880) -- one segment per building, so one `draw_multiline`.
@@ -964,11 +969,6 @@ impl WorldGen {
         self.urban_rules = None;
     }
 
-    /// Replaces the active rules with the named rule set
-    /// `cartalith_urban::rules_preset` resolves (`"market_town"`, shaped on
-    /// the owner's town plan), and returns it as [`rules_to_dict`] does. For an
-    /// unknown id, leaves the active rules untouched and returns an empty
-    /// `Dictionary`, so the caller can tell a refusal from a result.
     /// Ruling J's two per-settlement vocabularies, read off their definitions
     /// (`CULTURE_PROFILES`, `RULES_PRESETS`) so the City Viewer's Town plan
     /// cannot offer an id the engine does not have: `cultures` and
@@ -992,6 +992,11 @@ impl WorldGen {
         }
     }
 
+    /// Replaces the active rules with the named rule set
+    /// `cartalith_urban::rules_preset` resolves (`"market_town"`, shaped on
+    /// the owner's town plan), and returns it as [`rules_to_dict`] does. For an
+    /// unknown id, leaves the active rules untouched and returns an empty
+    /// `Dictionary`, so the caller can tell a refusal from a result.
     #[func]
     fn apply_urban_rules_preset(&mut self, id: GString) -> VarDictionary {
         match urban_adapter::rules_preset(&id.to_string()) {

@@ -695,7 +695,7 @@ pub mod btype {
     pub const TRANSFORM: u8 = 5;
 }
 
-/// `classifyBoundary()` (reference HTML line 2818): shear-dominant pairs
+/// `classifyBoundary()` (reference HTML line 2825): shear-dominant pairs
 /// are transforms regardless of crust type; otherwise convergence splits
 /// by ocean/continent combination, divergence is a rift.
 pub(crate) fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {

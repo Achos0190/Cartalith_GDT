@@ -10,14 +10,14 @@
 //! document, and a write that changes one section must leave every other byte
 //! alone.*
 //!
-//! ## The four modules
+//! ## The six modules
 //!
 //! | Module | Owns |
 //! |---|---|
 //! | [`markdown`] | Section spans, section replacement, author-template field lines |
 //! | [`block`] | The machine-owned `CARTALITH:BEGIN/END` block (§23, §24) |
 //! | [`chronos`] | Authored dated events from a note's ` ```chronos ` blocks (SP-3, Ruling AM) |
-//! | [`links`] | [`links::KnowledgeLink`], [`links::LinkStore`], the five status states (§11, §26, §27) |
+//! | [`links`] | [`links::KnowledgeLink`], [`links::LinkStore`], the six status states (§11, §26, §27) |
 //! | [`provider`] | The desktop filesystem vault (§6), path containment, atomic writes |
 //! | [`export`] | The exportable-field registry and the block renderer (§19, §20) |
 //!

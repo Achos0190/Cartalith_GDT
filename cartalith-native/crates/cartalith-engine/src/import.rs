@@ -301,7 +301,7 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         );
     }
 
-    // ---- computeFlow(true) (reference HTML line 6797) ----
+    // ---- computeFlow(true) (reference HTML line 6790) ----
     // Routed over the depression-filled surface when `p.integrate_drainage`
     // (`RC_ENGINE_CHANGES.md` §6g) -- an imported DEM is exactly where
     // unfilled pits are densest.

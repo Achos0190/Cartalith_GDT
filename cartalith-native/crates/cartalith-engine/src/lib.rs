@@ -310,10 +310,15 @@ pub struct CraterParams {
     /// Generate craters from an area density and a size-frequency law instead
     /// of an absolute count.
     ///
-    /// **Defaults to `true`. This diverges from the reference deliberately**,
-    /// on the owner's ruling of 2026-09-02 — see `DECISIONS.md` §7l. The
-    /// reference stamps exactly `count` craters whatever the map represents, so
-    /// the same slider is a negligible density on a 40 000 km world and an
+    /// **Defaults to `true` in the shipped app, on the owner's ruling of
+    /// 2026-09-02 — see `DECISIONS.md` §7l** — but `false` in
+    /// `WorldParams::defaults()` (see that function's own comment on
+    /// `CraterParams`), the baseline the ~28 golden suites mean by "the
+    /// reference's baseline", deliberately kept at the reference's own
+    /// behaviour so those goldens need no re-extraction. This diverges from
+    /// the reference deliberately in the shipped app: the reference stamps
+    /// exactly `count` craters whatever the map represents, so the same
+    /// slider is a negligible density on a 40 000 km world and an
     /// unrenderably dense one on a 5 km region; the two differ in area by
     /// 64 000 000x. Setting this `false` restores the reference's own path byte
     /// for byte, and the import/inversion path keeps using it.
@@ -345,7 +350,7 @@ pub struct PlanetParams {
     pub axial_tilt_deg: f64,
 }
 
-/// `state.climate` (reference HTML line 2280) fields this pipeline's
+/// `state.climate` (reference HTML line 2287) fields this pipeline's
 /// temperature/weather/moisture-corrector stages actually read.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClimateInputParams {
@@ -367,14 +372,18 @@ pub struct ClimateInputParams {
     pub bulk_evap: bool,
     pub w_iters: i32,
     /// `cartalith_climate::WeatherParams::terrain_wind_deflection` passed
-    /// straight through — see that field's own doc comment for why this
-    /// port defaults it `false` where JS has no equivalent flag (always on
-    /// since v1.78).
+    /// straight through. Used to default this port to `false` where JS has
+    /// no equivalent flag (always on since v1.78); since 2026-08-15 this
+    /// defaults `true` here too, matching JS's real, unconditional
+    /// behaviour (`golden_parity_deflect_flow.rs`) -- see
+    /// [`WorldParams::defaults`]'s own comment. `golden_parity_carve.rs`
+    /// still pins both flags off explicitly, by choice, not by the default.
     pub terrain_wind_deflection: bool,
     /// `cartalith_climate::WeatherParams::currents`/`apply_ocean_currents`'s
-    /// own gate, passed straight through — see that field's own doc
-    /// comment for why this port defaults it `false` where JS defaults it
-    /// `true`.
+    /// own gate, passed straight through. Since 2026-08-15 this defaults
+    /// `true`, matching JS's own default (`golden_parity_ocean_current.rs`,
+    /// `golden_parity_weather.rs`'s `currents_case`) -- see
+    /// [`WorldParams::defaults`]'s own comment.
     pub currents: bool,
     pub current_k: f64,
 }
@@ -757,10 +766,12 @@ impl WorldParams {
             // captured by driving the real reference `generate()` under
             // Node with a small grid, bit-exact), and golden_parity_pipeline.rs
             // has been re-extracted against this default (2026-08-15,
-            // cartalith-native/docs/CHANGELOG.md). golden_parity_carve.rs
-            // has NOT been re-extracted yet -- it also covers
-            // terrain_wind_deflection/currents, both still `false`, so
-            // re-extracting it belongs with flipping those too, not here.
+            // cartalith-native/docs/CHANGELOG.md). `terrain_wind_deflection`/
+            // `currents` below were flipped to their own JS-matching
+            // defaults (`true`) the same day; golden_parity_carve.rs pins
+            // both `false` explicitly rather than reading the struct
+            // default, and was not re-extracted since it never claimed to
+            // cover this volcanism default.
             // `exclude_transform: false` is the parity baseline: the
             // reference puts volcanoes on transform margins and the goldens
             // pin that. See `VolcanismParams::exclude_transform`.
@@ -1342,7 +1353,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
     };
 
-    // World-wrap support for warp's GPU kernel (`OUTSTANDING_WORK.md` §2.9,
+    // World-wrap support for warp's GPU kernel (`OUTSTANDING_WORK.md` §2.6,
     // closing GPU_LAYER_INTEGRATION_SCOPE.md milestone 2's own deferral):
     // both branches now dispatch to GPU, with `world` threaded through as
     // the periodic-noise flag rather than forcing CPU whenever it's set.
@@ -2871,7 +2882,7 @@ mod tests {
         }
     }
 
-    /// `OUTSTANDING_WORK.md` §2.9 "World-wrap support for the milestone 1-5
+    /// `OUTSTANDING_WORK.md` §2.6 "World-wrap support for the milestone 1-5
     /// kernels": the positive-reachability check -- `world=true` with
     /// `use_gpu=true` must actually DISPATCH warp and heterogeneity on GPU,
     /// not silently fall back to CPU the way both stages did before this

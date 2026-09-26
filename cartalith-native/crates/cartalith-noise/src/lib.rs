@@ -330,7 +330,7 @@ pub fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md`'s deferred world-wrap slice
-/// (`OUTSTANDING_WORK.md` §2.9 row "World-wrap support for the milestone
+/// (`OUTSTANDING_WORK.md` §2.6 row "World-wrap support for the milestone
 /// 1-5 kernels"): [`gpu_vnoise`]'s periodic sibling, mirroring [`pvnoise`]'s
 /// own x-lattice wrap (Euclidean mod `p_x`) but over [`gpu_hash`] and
 /// all-`f32`, same reasoning as [`gpu_vnoise`] itself (tightest achievable

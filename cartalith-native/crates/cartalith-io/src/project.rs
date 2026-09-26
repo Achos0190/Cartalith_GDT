@@ -406,9 +406,14 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// a mode name, the grid points that were clicked and the reading they
 /// produced; the engine models none of those as retained state — its measure
 /// functions are stateless queries over points *the caller owns*
-/// (`measure_bridge.rs`) — so this slot is written and read by the shell
-/// exactly the way `entities/journeys.json` is, and it is deliberately absent
-/// from `project_bridge.rs`'s `ENGINE_OWNED_SLOTS`.
+/// (`measure_bridge.rs`) — so this slot is written and read by the shell,
+/// and it is deliberately absent from `project_bridge.rs`'s
+/// `ENGINE_OWNED_SLOTS`. **Not** the way `entities/journeys.json` is any
+/// more: `STORY_PLANNING_SCOPE.md` SP-1 moved that slot into
+/// `ENGINE_OWNED_SLOTS` once a real `Journey` type landed
+/// (`project_bridge.rs`'s own "The Journey entity" section has the date and
+/// the reason); this slot is the caller-owned one now, alongside
+/// `library/settlement_types.json`.
 ///
 /// It is under `annotations/` rather than `entities/` by §5.1's own test: a
 /// measurement is a mark the author made on the sheet, not a thing in the

@@ -28,10 +28,18 @@ class_name UrbanLayoutDraw
 ## footprint, with its own generated ridge line, and a lot with no building on
 ## it stays empty ground because the engine left it empty.
 ##
-## Two of the model's layers are still not drawn, and each is absent from the
-## bridge rather than skipped here: the justified crossings (bridge decks and
-## the stippled ford band, `_umDrawLayout` line 22854), and the civic hall and
-## places of worship.
+## Two of the model's layers are still not drawn. The justified crossings
+## (bridge decks and the stippled ford band, `_umDrawLayout` line 22854) are
+## NOT absent from the bridge any more (`"bridges"`/`"ford"` arrived
+## 2026-09-05, `urban_bridge.rs`) -- `_draw_water_mask` below already reads
+## both, just to release the water mask around the crossing point, not to
+## stroke a deck or a stipple pattern -- this file simply has no draw branch
+## for that visual yet. The civic hall and places of worship are still
+## genuinely absent from the bridge: `cartalith_urban::Town::civic` and
+## `Town::churches` (`build_faith_sites`' own `Vec<FaithSite>` -- it only
+## ever *removes* entries from `buildings` for the parcels it claims, never
+## adds a worship building to that list) are both held on `Town` and never
+## crossed by `urban_bridge.rs::layout_dict`.
 ##
 ## **The hinterland clutter is drawn as of 2026-09-23** (Ruling H (a)). Until
 ## then `run_layout` kept only `field`/`pasture` out of `Town::details` and
@@ -202,20 +210,17 @@ const CITADEL_GATE_GAP_M := 9.0
 ## `wall_style` from `"curtain"` to `"bastioned"` and `wall_ring` from a
 ## 289-vertex hull to an 18-vertex gorge polygon (`_bastionwall_probe.gd`).
 ##
-## **What is actually missing is one layer up.** `urban_bridge.rs::
-## layout_dict` never reads `l.wall.fort` (the `Fort` struct carrying
-## `trace`/`bastions`/`ravelins`/`ditch`/`glacis`) onto the dictionary this
-## file receives -- confirmed by the same probe dumping the layout's full key
-## list: `wall_style`/`wall_ring`/`wall_gates`/`wall_water_gates`/
-## `wall_spurs`/`wall_centroid` are the whole wall vocabulary that crosses,
-## and `wall_ring` on a bastioned town is the GORGE (the containment polygon
-## through the bastion throats), not the star-shaped trace the reference
-## strokes -- drawing it as the wall would render the wrong shape, a
-## rounded-off hexagon rather than a star fort. A `bastioned` branch here
-## needs `fort.trace` (and, for parity with `_umDrawLayout`, `fort.ravelins`)
-## added to that dictionary first: a `cartalith-godot` change, out of this
-## lane's reach (no Rust edits, no `cargo build` of `cartalith_godot` while
-## other probes hold the loaded `.dll`).
+## **Fixed 2026-09-22 (`c6dc8bf`).** This used to say the missing piece was
+## one layer up -- `urban_bridge.rs::layout_dict` never reading `l.wall.fort`
+## (the `Fort` struct carrying `trace`/`bastions`/`ravelins`/`ditch`/`glacis`)
+## onto the dictionary this file receives, `wall_ring` on a bastioned town
+## being only the GORGE (the containment polygon through the bastion
+## throats), not the star-shaped trace the reference strokes. That is
+## stale: `urban_bridge.rs::layout_dict` now emits `fort_trace`/
+## `fort_ravelins` (present only when the reference's own guard --
+## `style==='bastioned'&&fort&&fort.trace.length>2` -- passes), and
+## `_draw_bastioned_wall`, below, reads them and strokes the real trace
+## instead of falling back to the gorge.
 
 ## `build_details`' clutter (`"detail_kind"`/`"detail_geom"`/`"detail_r"`/
 ## `"detail_flags"`), ported from `_cvDrawCity`'s "max" tier (v2.11 line

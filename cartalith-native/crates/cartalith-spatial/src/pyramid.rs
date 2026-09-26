@@ -4,7 +4,7 @@
 //! Five pure functions, ported from reference lines 10461-10645:
 //! `pyramidDims` (10461), `pyramidTileBounds` (10594), `pyramidLevelForZoom`
 //! (10600), `tilesInView` (10637), and the `chunkParent`/`chunkChildren` pair
-//! (10933-10934, which the reference keeps beside its chunk-debug overlay but
+//! (10936-10937, which the reference keeps beside its chunk-debug overlay but
 //! which `bakedCover`'s ancestor walk is the real consumer of).
 //!
 //! **Why `cartalith-spatial`, and why not fixed-size tiles.** This is the same
@@ -160,13 +160,13 @@ pub fn tiles_in_view(z: i32, vx0: f64, vy0: f64, vx1: f64, vy1: f64, cw: usize, 
     TilesInView { cols: d.cols, rows: d.rows, c0, c1, r0, r1, count }
 }
 
-/// `chunkParent(z, col, row)` (reference line 10933) — the tile one level
+/// `chunkParent(z, col, row)` (reference line 10936) — the tile one level
 /// shallower that covers the same ground. `None` at the root.
 pub fn chunk_parent(c: ChunkId) -> Option<ChunkId> {
     if c.z == 0 { None } else { Some(ChunkId::new(c.z - 1, c.col >> 1, c.row >> 1)) }
 }
 
-/// `chunkChildren(z, col, row)` (reference line 10934) — the four tiles one
+/// `chunkChildren(z, col, row)` (reference line 10937) — the four tiles one
 /// level deeper, in the reference's own order (NW, NE, SW, SE).
 pub fn chunk_children(c: ChunkId) -> [ChunkId; 4] {
     let n = c.z + 1;

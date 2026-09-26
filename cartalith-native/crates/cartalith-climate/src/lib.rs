@@ -1107,20 +1107,19 @@ pub struct WeatherParams {
     /// around it in `build_wind` (the `block` field, the `DeflectFlowParams`
     /// constants, the elevation-band damping combine) was checked
     /// line-for-line against reference HTML lines 5521-5535 and matches
-    /// exactly. Still `false` regardless: it's a substantial iterative
-    /// algorithm (16 blur+redirect passes) that reshapes wind everywhere
-    /// terrain exists, cascading through every downstream term in this
-    /// function (evaporation, advection, orographic rain) -- flipping it
-    /// would invalidate `golden_parity_weather.rs` and everything built on
-    /// `simulate_weather` unless those are also re-extracted, which hasn't
-    /// happened yet (same reasoning `generate_terrain`'s own doc comment
-    /// gives for `stampVolcanoesProvinces`).
+    /// exactly. **Defaults `true` here since 2026-08-15**
+    /// (`cartalith-engine`'s `WorldParams::defaults()`), matching JS's own
+    /// unconditional (always-on) behaviour: `golden_parity_deflect_flow.rs`
+    /// and the re-extracted `golden_parity_weather.rs`/`golden_parity_pipeline.rs`
+    /// cover it on. `golden_parity_carve.rs` alone still pins it `false`
+    /// explicitly, by choice (see that file), not by any remaining default.
     pub terrain_wind_deflection: bool,
     /// Gates folding `ocean_sst_anomaly` into `tc`/`sst_evap` before
     /// `build_wind` runs (reference HTML: `if(c.currents){...}` in
     /// `simulateWeather`'s own loop 2). JS's own default is `true`
     /// ("ocean currents ON by default... integrated into the weather sim
-    /// before buildWind"); this port defaults to `false`. Now fully
+    /// before buildWind"); **this port has matched it since 2026-08-15**
+    /// (`cartalith-engine`'s `WorldParams::defaults()`). Now fully
     /// verified: `compute_ocean_current` is golden-tested
     /// (`golden_parity_ocean_current.rs`, bit-exact, including the
     /// western-intensification heuristic -- disclosed as "a
@@ -1136,10 +1135,11 @@ pub struct WeatherParams {
     /// verified). One deliberate, already-disclosed gap:
     /// `field[i]-geoAt(i)` (JS) vs. plain `field[i]` (this port) --
     /// correct at `state.planet.geoid.enabled`'s default `false`, same
-    /// reasoning `compute_temperature` already documents. Still `false`
-    /// here regardless of all that: same fixture-cascading reasoning as
-    /// `terrain_wind_deflection` and `stampVolcanoesProvinces` --
-    /// `golden_parity_weather.rs` was captured against this default off.
+    /// reasoning `compute_temperature` already documents. **Defaults `true`
+    /// here since 2026-08-15**, matching JS: `golden_parity_ocean_current.rs`
+    /// and the re-extracted `golden_parity_weather.rs` (its own
+    /// `currents_case`) cover it on. `golden_parity_carve.rs` alone still
+    /// pins it `false` explicitly, by choice, not by any remaining default.
     pub currents: bool,
     pub current_k: f64,
 }
@@ -1159,10 +1159,12 @@ pub struct WeatherParams {
 /// other world-structure deferral in this port so far). Terrain wind
 /// deflection (`build_wind`'s `deflectFlow` block) and ocean-current SST
 /// folding (`ocean_sst_anomaly`) are both ported and reachable via
-/// `p.terrain_wind_deflection`/`p.currents`, but both default to `false`
-/// here, not JS's own defaults (unconditional, and `true`, respectively)
-/// — see their own doc comments (`WeatherParams::terrain_wind_deflection`/
-/// `WeatherParams::currents`) for why. `geoidField` is
+/// `p.terrain_wind_deflection`/`p.currents`; since 2026-08-15 both default
+/// `true` here (`cartalith-engine`'s `WorldParams::defaults()`), matching
+/// JS's own defaults (unconditional, and `true`, respectively) rather than
+/// diverging from them — see their own doc comments
+/// (`WeatherParams::terrain_wind_deflection`/
+/// `WeatherParams::currents`) for the detail. `geoidField` is
 /// also omitted, matching `compute_temperature`'s own reasoning — the
 /// default `state.planet.geoid.enabled=false` never reads it either.
 pub fn simulate_weather(

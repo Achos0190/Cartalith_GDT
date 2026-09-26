@@ -582,8 +582,11 @@ func _ready() -> void:
 	## port keeps -- `URBAN_MORPHOLOGY_SCOPE.md` puts its LRU and its
 	## `setTimeout(...,0)` pump explicitly out of scope (a workaround for the
 	## browser's single thread), and the overlay's own index-keyed dictionary,
-	## dropped whole on every `set_civ_data`, is the only invalidation this
-	## shell needs.
+	## dropped whole on every `set_civ_data`, but that is not the
+	## only invalidation this shell needs: `forget_urban_layout()` below
+	## drops one settlement's cached layout (a Town plan edit) and
+	## `forget_all_urban_layouts()` drops every one (a generation-rules
+	## edit), both wired to real callers.
 	overlay.urban_layouts_needed.connect(_on_urban_layouts_needed)
 
 	## §4.5.1's tool feedback (Region marquee, Measure ruler) -- above
@@ -2238,10 +2241,12 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"landmark_rejects":
 			if overlay.has_method("set_landmark_rejects_visible"):
 				overlay.set_landmark_rejects_visible(shown)
-		## `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01). Reveals only
-		## once a town's 1.7 km site box is worth pixels -- `map_overlay.gd`'s
-		## own "Urban layouts" block owns that gate and states why it is not
-		## the reference's `_umLayoutAlpha` km band.
+		## `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01). `map_overlay.gd`'s
+		## own "Urban layouts" block owns the reveal gate -- since 2026-08-24
+		## that IS the reference's `_umLayoutAlpha` km-band crossfade again,
+		## not a flat pixel-box test (that block's own comment has the
+		## history: a `ZOOM_MAX`-clamped camera used to make the ported km
+		## band unreachable).
 		"urban_layouts": overlay.set_show_urban_layouts(shown)
 		## The river layer. Since the owner's 2026-09-22 ruling a generated
 		## world's rivers exist ONLY as these vector strokes -- the texture no

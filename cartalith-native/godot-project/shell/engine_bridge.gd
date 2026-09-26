@@ -459,14 +459,14 @@ func missing_bindings() -> PackedStringArray:
 #     loads by constructing `WorldGen`; `_has()` proves it is the right one.
 #   * `vault_landmark_entity_id` (`vault_bridge.rs`) -- owner ruling 13
 #     (2026-09-06) made `landmark` a vault entity kind and added this as the
-#     only way to turn a `Landmark::key()` into an `entity_id`. **The shell has
-#     no landmark to hand it.** `vault_window.open_for()` is reached from
-#     `place_editor_window.gd` (settlement) and `civilization_workspace.gd::
-#     _knowledge_row()` (faction, province, continent, culture); there is no
-#     per-landmark panel anywhere -- landmarks are drawn on the map
-#     (`viewport_host.gd` -> `overlay.set_landmarks`), counted in the Data
-#     manager and funnelled in `menus.gd`, and never selected as one entity.
-#     The surface comes first; the wrapper is four lines after it exists.
+#     only way to turn a `Landmark::key()` into an `entity_id`. There IS a
+#     per-landmark panel and a landmark IS selected as one entity --
+#     `right_dock.gd`'s `CTX_LANDMARK` context (`on_landmark_selected()`,
+#     `_build_landmark()`), reached by clicking a landmark on the map. What
+#     it lacks is the knowledge-link row `_knowledge_row()` gives
+#     settlement/faction/province/continent/culture, which is what actually
+#     calls `vault_window.open_for()`. The surface comes first; the wrapper
+#     is four lines after the knowledge row exists on this one too.
 #   * `labels_clear_generated` (`label_bridge/generate.rs`) -- drops the pass
 #     output and leaves hand-placed labels alone. Its own doc says to call it
 #     "when the world moves underneath it", and the three paths that move the

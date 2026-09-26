@@ -356,9 +356,9 @@ struct CivData {
     /// shape). `0` = no province (unowned territory, or a faction that owns
     /// territory here but placed no settlement to seed one -- see
     /// `civ_generate_provinces`'s own doc comment for why that's a real,
-    /// non-error outcome). Data only this pass -- no Godot-side rendering
-    /// wired in yet, deliberately left for a dedicated UI/UX pass rather
-    /// than improvised here (see this field's own CHANGELOG entry).
+    /// non-error outcome). Godot-side rendering exists: `build_province_
+    /// boundary_texture` (below) and `viewport_host.gd`'s `province_view`
+    /// (`a85586c`).
     ///
     /// **Either a whole `gw * gh` grid or empty**, like `territory` above.
     /// Empty is "not known": a reopened project whose archive carried no

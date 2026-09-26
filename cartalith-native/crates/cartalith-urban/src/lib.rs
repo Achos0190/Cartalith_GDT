@@ -36,11 +36,21 @@
 //! the principal street on the organic branch as well as the radial one;
 //! `buildRadialStreets` and the Venus waterway are [`radial`]'s), milestone 9
 //! is [`water`], 10 is [`fortify`], 11 is [`cleanup`], and 13-15 are
-//! [`districts`], [`hinterland`] and [`amenities`]. **What is built is
+//! [`districts`], [`hinterland`] and [`amenities`]. Milestone 16 is
+//! [`generate`] itself — the orchestration below wires every prior stage into
+//! the reference's own call order. **What is built is
 //! `docs/STATUS.md`'s to say, not this file's** — the list above is a map of
 //! what each module *is*, and the previous parenthetical "(8-11 are still
 //! unbuilt)" is exactly the kind of progress claim that goes stale in a
 //! header. It was still there in the file that declares `pub mod radial`.
+//!
+//! Three modules are this port's own, not the reference's ([`generate`]'s own
+//! header has the detail and the owner rulings): [`wallside`] (Ruling H,
+//! 2026-09-22) plats faubourg and wall-backing lots outside the wall,
+//! [`citadel`] (Ruling I, sited by Ruling AC) sets a citadel astride the
+//! curtain of the largest organic towns, and [`courtyard`] (Ruling H, sited
+//! by Ruling AD) re-plats the organic plan's outermost ring as perimeter
+//! blocks round an open court.
 //!
 //! **Wired as of 2026-08-23, and only through one door.**
 //! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies

@@ -3,14 +3,17 @@
 //! Reference HTML lines 5299-5719 (circulationCells/buildWind/simulateWeather/
 //! blurCoarse/bilC/sampleArr/satCap).
 //!
-//! Deferred, matching this port's established pattern -- documented, not silently
-//! dropped (see cartalith-native/docs/CHANGELOG.md):
-//!   - ocean-current SST folding (oceanSSTAnomaly / state.climate.currents)
-//!   - terrain wind deflection (deflectFlow, buildWind's opts.elev branch)
+//! Both ocean-current SST folding (oceanSSTAnomaly / state.climate.currents)
+//! and terrain wind deflection (deflectFlow, buildWind's opts.elev branch) are
+//! ported, golden-tested (case_2/case_3 below cover currents=true; see
+//! `WeatherParams::currents`/`::terrain_wind_deflection`'s own doc comments)
+//! and, since 2026-08-15, on by default -- not deferred any more. Still
+//! deferred, matching this port's established pattern (documented, not
+//! silently dropped, see cartalith-native/docs/CHANGELOG.md):
 //!   - world-structure continental-interior dryness
 //!
 //! MVP_SCOPE.md explicitly names ocean-current terrain coupling a stretch goal;
-//! the other two are deferred under the same reasoning, tracked explicitly here.
+//! this one remains deferred under the same reasoning, tracked explicitly here.
 //!
 //! **Tolerance, not exact equality** -- the one exception among this port's
 //! golden tests so far, and a deliberate one (PARITY_TESTING.md: "give each

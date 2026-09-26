@@ -1,5 +1,5 @@
 // GPU-safe domain warp (GPU_LAYER_INTEGRATION_SCOPE.md milestone 2, world-wrap
-// added per OUTSTANDING_WORK.md §2.9's "World-wrap support for the
+// added per OUTSTANDING_WORK.md §2.6's "World-wrap support for the
 // milestone 1-5 kernels" row).
 //
 // Ports `compute_warp`'s NON-world branch via gpu_fbm, and its world=true

@@ -7556,12 +7556,16 @@ pub struct Province {
     pub name: String,
     /// Stands in for the reference's `capitalTid` (`_civAssignTid`,
     /// reference line 20564) -- a lazy JS-object-identity counter used for
-    /// cross-session save/undo tracking. `compute_civilisation()` is a
-    /// fresh, stateless call every time (no persistent object identity
-    /// across generations to track), so the seed settlement's own index
-    /// into the `settlements` slice passed to `civ_generate_provinces` is
-    /// the direct, sufficient equivalent for "which settlement is this
-    /// province's seed."
+    /// cross-session save/undo tracking. This port does have its own
+    /// persistent-identity equivalent (`NamedSettlement::tid`, assigned at
+    /// the `cartalith-godot` boundary by `timeline::civ_assign_tid` and
+    /// stable across timeline snapshots -- see that field's own doc
+    /// comment), so "no persistent identity to track" is not the reason
+    /// this field is an index rather than a `tid`. It is an index into the
+    /// `settlements` slice passed to `civ_generate_provinces` because that
+    /// slice, and its indices, are what every caller in this same pass
+    /// already has in hand; a `tid` would still resolve to that same
+    /// settlement.
     pub capital_settlement_index: usize,
 }
 
@@ -7591,28 +7595,35 @@ pub struct Province {
 /// domain entirely.
 ///
 /// `territory` must be `assign_territory`'s own per-cell output (Phase 2
-/// milestone 10, `DECISIONS.md` §7b) -- the reference's real `civTerritory`
-/// has no algorithmic production path at all (`PHASE2_SCOPE.md`'s own
-/// "territory/provinces is a dead end here" investigation: the only two
-/// writers in the whole reference are an interactive paint tool and a
-/// save/load deserializer restoring a previously-painted delta), so this
-/// port's own territory algorithm is the only real input available. The
-/// shapes match exactly: `Vec<i32>`/`Uint8Array` per-cell faction id, `0` =
-/// unowned in both.
+/// milestone 10, `DECISIONS.md` §7b). §7b's own 2026-08-19 correction notice
+/// found that the reference is *not* algorithm-free here after all --
+/// `_civAutoPolity` (reference line 20665) writes `civTerritory` with a
+/// multi-source cost-distance flood fill from every settlement -- but the
+/// owner's resolution the same day kept this port's capital-seeded,
+/// population-weighted design as the only mode, un-reconciled against
+/// `_civAutoPolity`. So `assign_territory`'s output is still the only input
+/// this function is given, by decision rather than because no algorithmic
+/// reference exists. The shapes match exactly: `Vec<i32>`/`Uint8Array`
+/// per-cell faction id, `0` = unowned in both.
 ///
 /// Faction iteration order (`BTreeMap`, ascending) is this port's own
-/// choice, not a match to the reference's JS `Map` insertion order --
-/// there is nothing to match it *against* (no golden JS run for this step,
-/// same reason territory itself has none, §7b), and province numbering is
-/// opaque/cosmetic across factions since the Voronoi partition itself is
-/// entirely faction-scoped (a cell's candidate seeds are always filtered to
-/// its own faction first). Within one faction, seed order follows
-/// settlement-list encounter order, matching the reference's own
-/// `arr.push` order.
+/// choice, not a match to the reference's JS `Map` insertion order -- a
+/// golden comparison would need to normalise that first. Province
+/// *numbering* is not, itself, cosmetic: `Province::id` is the identity
+/// `cartalith-vault` links entities by (`cartalith-vault/src/links.rs`,
+/// `EntityKind::Province`), so which integer a province gets is real,
+/// externally-referenced state, even though it is reassigned by every
+/// `civ_recompute()` (that table says so directly) and carries no meaning
+/// across factions. Within one faction, seed order follows settlement-list
+/// encounter order, matching the reference's own `arr.push` order.
 ///
-/// No JS reference to golden-verify the *province* step itself against,
-/// for the same reason milestone 10 had none for territory (§7b) --
-/// verified by the tests below instead: every owned cell's province
+/// Unlike territory, the *province* step has a literal, deterministic JS
+/// reference to golden-verify against -- `_civGenerateProvinces` itself
+/// (reference line 14945, quoted at the top of `Province`'s own doc
+/// comment) reads `civTerritory` and `state.places` with no RNG and no live
+/// DOM state, so nothing here rules out a golden test; none has been
+/// written yet. Verified instead, for now, by the tests below: every owned
+/// cell's province
 /// belongs to that cell's own faction; provinces partition their parent
 /// territory with no gaps; multi-seed and single-fallback-seed cases are
 /// both exercised; a faction with territory but no settlements stays
@@ -7654,6 +7665,11 @@ pub fn civ_generate_provinces(
         if seed_indices.is_empty() {
             // Fallback: single highest-population settlement of this faction
             // (reference: `arr.reduce((a,b)=>(b.p.pop||0)>(a.p.pop||0)?b:a)`).
+            // Tie-break differs on an exact population tie: the JS `reduce`
+            // keeps the FIRST equally-highest element (its condition is
+            // strictly `>`, so a tie leaves the accumulator `a` unchanged);
+            // `Iterator::max_by_key` returns the LAST one. Untested and
+            // unreconciled -- no golden fixture reaches this tie today.
             if let Some(&best) = indices.iter().max_by_key(|&&i| settlements[i].pop) {
                 seed_indices.push(best);
             }

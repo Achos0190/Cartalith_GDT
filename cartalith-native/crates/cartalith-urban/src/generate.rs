@@ -7,7 +7,7 @@
 //! branch conditions and the small amount of arithmetic `generate()` does
 //! between stages (the population clamp, the church count, the head count).
 //!
-//! **One stage is not the reference's, and neither is one exemption.**
+//! **Three stages are not the reference's, and neither is one exemption.**
 //! [`build_wall_lots`] (`crate::wallside`, Ruling H, owner 2026-09-22) plats
 //! lots against the wall — intramural lots backing onto its inner face, and a
 //! faubourg cluster against its outer face — straight after `buildParcels` on

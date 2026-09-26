@@ -2678,15 +2678,17 @@ impl WorldGen {
     ///   `seeded_served` counts the ones that were.
     /// - `restored` names the engine-owned payloads that were applied, in
     ///   push order: `civ`, `landmark settings`, `landmarks`, `labels`,
-    ///   `icons`, `ways`, `region`, `appearance`, `vault`, `paint layers`,
-    ///   `sculpt draft`.
+    ///   `icons`, `ways`, `region`, `journeys`, `conflicts`, `appearance`,
+    ///   `vault`, `paint layers`, `sculpt draft`.
     ///
-    ///   **Eleven, and this list said seven.** It was written before the
-    ///   landmark, paint and sculpt restores existed and was not moved with
-    ///   them; a caller reading it would have concluded a payload that does
-    ///   come back does not. Counted 2026-09-06 with `grep -n 'restored.push'
-    ///   project_bridge.rs`, which returns eleven lines, and `landmarks` is
-    ///   the one this pass added.
+    ///   **Thirteen, and this list once said seven, then eleven.** It was
+    ///   written before the landmark, paint and sculpt restores existed and
+    ///   was not moved with them; a caller reading it would have concluded a
+    ///   payload that does come back does not. Counted 2026-09-06 at eleven
+    ///   with `grep -n 'restored.push' project_bridge.rs`; `journeys`
+    ///   (`STORY_PLANNING_SCOPE.md` SP-1) and `conflicts` (SP-4) landed since
+    ///   and were not added here either -- the same grep now returns
+    ///   thirteen lines.
     ///
     /// - `substrate` is `"complete"` when the archive carried the world
     ///   substrate and this world is its rebuilt `WorldState`, `"absent"` for

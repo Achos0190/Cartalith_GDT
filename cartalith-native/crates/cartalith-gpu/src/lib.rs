@@ -279,7 +279,7 @@ struct WarpParams {
     y_offset: u32,
     /// Rows this dispatch actually writes (`height` for the whole grid).
     band_rows: u32,
-    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.9): reuses the slot that
+    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.6): reuses the slot that
     /// used to be `_pad2` -- same offset, same 32-byte total size, so no
     /// layout change was needed to add it. `0`/`1`, matching the shader's
     /// own `params.world != 0u` check. Warp's periodic branch uses a fixed
@@ -296,7 +296,7 @@ struct HeteroParams {
     width: u32,
     height: u32,
     scale: f32,
-    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.9), `0`/`1`.
+    /// World-wrap flag (`OUTSTANDING_WORK.md` §2.6), `0`/`1`.
     world: u32,
     /// `compute_heterogeneity`'s own `oct = round(hf).max(2)`, passed
     /// through as `pfbm`'s period argument -- caller-supplied, since it
@@ -1162,7 +1162,8 @@ fn init_gpu_with(
 ///   The per-stage figures carried spreads in the test output and lost them
 ///   here — a verifier caught eight such bare estimates in this pass, in the
 ///   very prose written to retire single-sample timings (corrected
-///   2026-09-05). Run `measured_pipeline_build_cost` for the numbers with
+///   2026-09-05). Run `measured_device_handshake_and_per_stage_pipeline_build`
+///   for the numbers with
 ///   their brackets; the conclusion below needs only the order of magnitude,
 ///   and quoting three significant figures for a sub-millisecond timing on a
 ///   noisy device implies a precision the harness does not have.
@@ -3116,7 +3117,7 @@ pub fn gpu_safe_noise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -
 /// this size ([`device_supports_grid`]), or because this dispatch's own
 /// readback failed. Every caller falls back to the CPU function
 /// (`HARDWARE_ACCELERATION.md` §27); none of them may panic.
-/// `world`: `OUTSTANDING_WORK.md` §2.9's world-wrap addition -- `true` runs
+/// `world`: `OUTSTANDING_WORK.md` §2.6's world-wrap addition -- `true` runs
 /// the periodic (`pfbm`-equivalent, fixed p_x=3) branch instead of the
 /// plain-`fbm`-equivalent one, matching `compute_warp`'s own `world` flag.
 pub fn warp_grid_gpu_with(
@@ -3270,7 +3271,7 @@ pub fn warp_grid_gpu_split(
 /// result -- this kernel only computes the raw per-cell value, matching
 /// `compute_heterogeneity`'s own two-phase shape (loop, then a separate
 /// normalize pass over the whole field).
-/// `world`/`p_x`: `OUTSTANDING_WORK.md` §2.9's world-wrap addition --
+/// `world`/`p_x`: `OUTSTANDING_WORK.md` §2.6's world-wrap addition --
 /// `world=true` runs the periodic (`pfbm`-equivalent) branch with period
 /// `p_x`, matching `compute_heterogeneity`'s own `oct = round(hf).max(2)`
 /// passed as `pfbm`'s period argument. Caller-supplied rather than derived
@@ -4003,7 +4004,7 @@ mod tests {
         assert_finite_and_bounded(&gy, -2.0 * amp, 2.0 * amp, "warp_y");
     }
 
-    /// `OUTSTANDING_WORK.md` §2.9 "World-wrap support for the milestone 1-5
+    /// `OUTSTANDING_WORK.md` §2.6 "World-wrap support for the milestone 1-5
     /// kernels": same shape as
     /// [`gpu_warp_matches_cpu_reference_at_real_field_size`], `world=true`.
     /// Same [`WARP_TOLERANCE`] as the non-world case -- the periodic branch
@@ -4142,7 +4143,7 @@ mod tests {
         assert_finite_and_bounded(&gpu, -1.0, 1.0, "heterogeneity (post-normalize)");
     }
 
-    /// `OUTSTANDING_WORK.md` §2.9: same shape as
+    /// `OUTSTANDING_WORK.md` §2.6: same shape as
     /// [`gpu_heterogeneity_matches_cpu_reference_at_real_field_size`],
     /// `world=true` with `p_x` matching `compute_heterogeneity`'s own
     /// `oct = round(hf).max(2)` for this test's `hf` (`1.5 * 12.0 = 18.0`).

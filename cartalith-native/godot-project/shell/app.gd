@@ -3490,16 +3490,20 @@ func save_project_as(then: Callable = Callable()) -> void:
 ##     `project_engine_built_documents()`, whose own doc calls itself "the
 ##     call a Save command should make"; a slot with nothing to write is
 ##     absent rather than empty, so this cannot pad the archive;
-##   * the SHELL's three, `entities/journeys.json` -- a saved journey is a route
-##     index plus a party form, both of which the engine deliberately does not
-##     model -- and, since 2026-09-03, `annotations/measurements.json`, whose
+##   * the SHELL's two: since 2026-09-03, `annotations/measurements.json`, whose
 ##     payload is a mode, the grid points that were clicked and the reading they
-##     produced. The engine models none of those as retained state either: its
+##     produced -- the engine models none of that as retained state: its
 ##     measure functions are stateless queries over points the *caller* owns
 ##     (`measure_bridge.rs`), so `right_dock.gd` is the only thing that has
 ##     them. `library/settlement_types.json` joined 2026-09-21
 ##     (`lazy-riding-piglet.md` Batch D) for the identical reason: a
 ##     settlement type is authored data `SettlementTypeStore` alone models.
+##     `entities/journeys.json` is NOT one of these any more --
+##     `STORY_PLANNING_SCOPE.md` SP-1 gave it a real engine type and moved it
+##     into `ENGINE_OWNED_SLOTS`, so `journey_planner_view.gd::
+##     journeys_document()` below is stubbed to always return `""` and this
+##     merge adds nothing for it (that function's own doc comment has the
+##     detail).
 ##
 ## The two sets never collide (`project_engine_built_documents()`'s own
 ## guarantee: none of its four is a slot GDScript writes), so this is a merge

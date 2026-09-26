@@ -8227,7 +8227,7 @@ mod tests {
 
     /// **The wire format, pinned.**
     ///
-    /// These six strings are a contract between three components written by
+    /// These seven strings are a contract between three components written by
     /// three different passes: this crate emits them, `landmark_bridge.rs`
     /// forwards them into a `VarDictionary`, and
     /// `civilization_workspace.gd`'s `LM_LIMIT_WORD` / `LM_LIMIT_TIP` key off
