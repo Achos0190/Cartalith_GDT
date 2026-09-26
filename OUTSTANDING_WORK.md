@@ -3021,17 +3021,17 @@ owner questions the same day.
 Scheduled by the owner 2026-09-26 ("Add it to the outstanding work"), after the
 proposal and its prototype arrived on `main` (`MAP_CONTEXT_SCOPE.md`,
 `design/map-context-2026-09-25/`). The scope's §10 owner forks F1-F5 each carry a
-recommendation; CM-5 and CM-6 wait on F1 and F2. Order: CM-1 → CM-2 → CM-3 is the
+recommendation; **Ruling AX (2026-09-26) answered F1-F4 with the recommendations** (F5, customisation, stays *later*). CM-2's CARTO settlement card uses one "…in CIVIL ›" row (F4). Order: CM-1 → CM-2 → CM-3 is the
 desktop path, each step shipping alone; CM-4 needs CM-3; CM-7 runs beside any.
 
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | **CM-1 · The request and the broker** | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_requested` emitted with a multi-hit `hits[]`; `context_broker.gd`; the three workspaces and `GlobalTools` implement `context_actions`; CIVIL's five CX-01 rows arrive through it unchanged. **Next step:** build it first — CM-2 and CM-3 both sit on it |
 | **CM-2 · The context card** (the new right-click menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_card.gd` replaces the `PopupMenu` on desktop and tablet: §4.1's sections, header readout, *Select ▸*, disabled-with-reason, inline Tool rows, keyboard and filter; RMB moves from press to release (§6). Needs CM-1 |
-| **CM-3 · The desktop ring** (the wheel menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `radial_ring.gd`; RMB-drag with the no-wait flick, RMB-hold ring+card, Q hold/tap; §5.1's table for all three domains; sub-rings; armed-state fill; finalized greying. Needs CM-1; cardinals per fork F3 |
+| **CM-3 · The desktop ring** (the wheel menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `radial_ring.gd`; RMB-drag with the no-wait flick, RMB-hold ring+card, Q hold/tap; §5.1's table for all three domains; sub-rings; armed-state fill; finalized greying. Needs CM-1; cardinals Inspect / Measure / Undo / Region per Ruling AX (F3) |
 | **CM-4 · Tablet: hold → ring + card with slide-to-select** | `MAP_CONTEXT_SCOPE.md` §11 | medium | Continued tracking, haptics, handedness preference, edge flipping; **the pen barrel button verified on the owner's device** and the result written down (device-bound). Needs CM-3 |
-| **CM-5 · Phone noun surface: long-press → pin → peek card** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **Waits on fork F1** (what long-press does on the phone, and 480 vs 500 ms — it collides today with `map_overlay.gd`'s `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
-| **CM-6 · Phone thumb fan** | `MAP_CONTEXT_SCOPE.md` §11 | small–medium | **Waits on fork F2** (build it or not). §8.2 |
+| **CM-5 · Phone noun surface: long-press → pin → peek card** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **F1 answered by Ruling AX (2026-09-26): long-press drops the pin *and* opens the verbs, at 480 ms** (replacing `map_overlay.gd`'s 500 ms menu-only `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
+| **CM-6 · Phone thumb fan** | `MAP_CONTEXT_SCOPE.md` §11 | small–medium | **F2 answered by Ruling AX: build it, after CM-5.** §8.2 |
 | **CM-7 · New picks and verbs** | `MAP_CONTEXT_SCOPE.md` §11 | medium | §9.2's rows one at a time, each with its card row: landmark and route picks, stamp pick, then way list/delete and river identity/trace downstream. Can run beside any of the above |
 
 ## 3. Blocked, with the blocker named

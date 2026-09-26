@@ -1542,3 +1542,24 @@ derived.**
 What the owner did not ask for is not implied: no unit-by-unit movement and no
 combat rule that resolves battles on its own. Settle any such step with the
 owner before building it.
+
+## 2026-09-26 — Ruling AX: the map-context forks (`MAP_CONTEXT_SCOPE.md` §10)
+
+Asked through the session's question tool the day the owner scheduled the map
+context work; the owner picked the recommended answer to each.
+
+**F1 — phone long-press: drop the sample pin *and* open the verbs, at 480 ms.**
+This settles the collision between `06-phone.md` §7 (pin, 480 ms) and the
+shipped `map_overlay.gd` (`_TOUCH_HOLD_MS := 500`, menu). CM-5 is unblocked.
+
+**F2 — build the phone's thumb fan, after CM-5.** CM-6 is unblocked, ordered
+after CM-5.
+
+**F3 — the ring's cardinals are global: Inspect / Measure / Undo / Region**,
+with each domain's four tool families on the diagonals (§5.1).
+
+**F4 — a settlement right-clicked in CARTO shows one "…in CIVIL ›" row**, not
+CIVIL's verbs inline.
+
+F5 (ring customisation and the tablet edge sliders) was not asked; the scope's
+recommendation, *later*, stands until the owner says otherwise.
