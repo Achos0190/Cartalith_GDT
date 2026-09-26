@@ -12,12 +12,14 @@ class_name FactionRosterWindow
 ## is no longer true: `CivData::faction_roster` owns one, and this window is
 ## the reference's three-part modal over it -- world overview, faction list,
 ## and the Inspector drawer with its five editable fields, its procedural
-## banner, its Territory-fit verdict and its settlement sublist.
+## banner, its Territory-fit verdict and its settlement sublist -- plus, since
+## 2026-09-27, the faction's currency (Ruling AU; `_build_currency`).
 ##
 ## ## What is real, and what is not
 ##
 ## Real: name/culture/religion/government/ag-tech editing (all five persist
-## and all five are validated against the engine's own vocabularies),
+## and all five are validated against the engine's own vocabularies), the
+## currency's name/symbol/rate (user-set, display only -- `_build_currency`),
 ## add/remove faction (with the reference's own revert-to-Unclaimed side
 ## effect), the procedural banner (a port of `_civFactionBannerCanvas`'s
 ## actual composition, not a redesign), Territory fit (a real
@@ -611,6 +613,7 @@ func _rebuild_inspector() -> void:
 	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
+	_build_currency()
 
 	_build_terrain_fit()
 	_build_overview_block(d)
@@ -729,6 +732,114 @@ func _ag_tech_choice(parent: Control, current: String) -> void:
 	if hint != "":
 		DccWidgets.note(parent, hint)
 
+
+# -- Currency (Ruling R, kept by AR; Ruling AU) -----------------------------
+
+## Held so a committed edit can refresh the example line without rebuilding
+## the inspector under the field the user is typing in.
+var _currency_example: Label
+
+## The faction's own money -- Ruling AU: *"Each faction carries its own
+## currency; the user types its rate in the faction roster and the engine only
+## converts. No rate is derived from the economy."* Three free fields in the
+## Identity rows' own shape (the `_colour_row` label column).
+##
+## **An unset member is shown as a placeholder, never as a value.** The field
+## stays empty and its ghost text says what stands in -- "<faction> currency",
+## "¤", "1 (at par, default)" -- so nothing reads as a choice nobody made.
+## Clearing a field is how you get the default back.
+##
+## The rate is sent as typed text: `civ_set_faction_currency` parses it, so
+## "abc" is refused rather than read as 0 by `to_float()`, and a refusal
+## puts the stored value back.
+func _build_currency() -> void:
+	var sec := DccWidgets.section(_inspector_body, "Currency")
+	var cur := bridge.civ_faction_currency(_selected)
+	if cur.is_empty():
+		DccWidgets.note(sec, "Unclaimed land issues no currency: trade into it reads in world price-index units.")
+		return
+	_currency_field(sec, "Name", "name", cur, "The currency's name, shown beside this faction's trade values.")
+	_currency_field(sec, "Symbol", "symbol", cur, "Drawn beside every amount in this currency. Up to six characters.")
+	_currency_field(sec, "Rate", "rate", cur,
+		"Units of this currency per one unit of the world price index -- the scarcity price the trade match gives every good, 1 for a good whose world demand and supply balance. At 12, a balanced good costs 12 of this faction's money. You set it; the engine only converts, and no trade flow changes with it.")
+	_currency_example = DccWidgets.note(sec, "")
+	_refresh_currency_example()
+
+func _currency_field(parent: Control, label_text: String, key: String, cur: Dictionary, tip: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	row.tooltip_text = tip
+	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL, 0)
+	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var le := LineEdit.new()
+	le.name = "Currency_" + key
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	le.tooltip_text = tip
+	le.text = _currency_text(cur, key)
+	le.placeholder_text = _currency_placeholder(cur, key)
+	DccWidgets.well(le)
+	le.text_submitted.connect(func(t: String): _set_currency(key, t, le))
+	## Guarded against its own teardown -- see `_rebuilding` (FR-02).
+	le.focus_exited.connect(func():
+		if _rebuilding:
+			return
+		_set_currency(key, le.text, le))
+	row.add_child(le)
+	parent.add_child(row)
+
+## The stored value, or "" when the member is unset (the placeholder shows the
+## default then).
+static func _currency_text(cur: Dictionary, key: String) -> String:
+	if bool(cur.get(key + "_default", true)):
+		return ""
+	if key == "rate":
+		return _rate_text(float(cur.get("rate", 0.0)))
+	return String(cur.get(key, ""))
+
+static func _currency_placeholder(cur: Dictionary, key: String) -> String:
+	if key == "rate":
+		return "1 (at par, default)"
+	return "%s (default)" % String(cur.get(key, ""))
+
+## `%g`-style: 12.5 not 12.500000, and 0.001 not 0.0.
+static func _rate_text(r: float) -> String:
+	return String.num(r, 6)
+
+## Writes one member, then says what happened. The engine call comes first
+## and `roster_changed` after it, so a listener re-reading the currency sees
+## the new value (`MISTAKES.md`, "Emit a change signal").
+func _set_currency(key: String, value: String, le: LineEdit) -> void:
+	var before := bridge.civ_faction_currency(_selected)
+	if value.strip_edges() == _currency_text(before, key):
+		return
+	if not bridge.civ_set_faction_currency(_selected, key, value):
+		var why := "a number above zero" if key == "rate" else "at most six characters"
+		app.set_status("hint", "Rejected -- a currency %s must be %s. Kept %s." % [
+			key, why, _currency_text(before, key) if _currency_text(before, key) != "" else "the default"], "accent")
+		if is_instance_valid(le):
+			le.text = _currency_text(before, key)
+		return
+	var cur := bridge.civ_faction_currency(_selected)
+	if is_instance_valid(le):
+		le.text = _currency_text(cur, key)
+		le.placeholder_text = _currency_placeholder(cur, key)
+	_refresh_currency_example()
+	roster_changed.emit()
+
+func _refresh_currency_example() -> void:
+	if _currency_example == null or not is_instance_valid(_currency_example):
+		return
+	var p := bridge.civ_price_in_currency(1.0, _selected)
+	if p.is_empty():
+		_currency_example.text = ""
+		return
+	_currency_example.text = "A good at world price 1 costs %s %s here%s. Trade values under Civilization ▸ Economy ▸ Trade flows are shown in the importer's currency." % [
+		_rate_text(float(p.get("amount", 0.0))), String(p.get("symbol", "")),
+		" (at par: no rate set)" if bool(p.get("rate_default", true)) else ""]
 
 # -- Territory fit (`_civTerrainFitHtml`) -----------------------------------
 

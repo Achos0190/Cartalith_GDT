@@ -54,6 +54,8 @@ fn roster(legacy: &LegacyProject) -> FactionRoster {
                     color: d.color,
                     color_override: None,
                     tariffs: Default::default(),
+                    // A legacy archive has no currencies: every member unset.
+                    currency: Default::default(),
                 }
             })
             .collect(),

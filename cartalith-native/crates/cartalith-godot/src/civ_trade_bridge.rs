@@ -425,7 +425,11 @@ impl WorldGen {
     ///   carries `from_faction`/`to_faction`, the good's scarcity `price`
     ///   index (`1.0` = balanced, in `(0, 2)`), the `tariff` rate the
     ///   importer levied (`0.0` when none), and `value` = volume · price,
-    ///   in people-of-demand × price-index units — not a currency.
+    ///   in people-of-demand × world price-index units. The index is the
+    ///   unit every faction currency is quoted against (Ruling AU): the
+    ///   shell shows a value in a faction's own money through
+    ///   [`WorldGen::civ_price_in_currency`], and nothing here depends on
+    ///   any rate.
     /// - `unmet` — one row per settlement with a need nothing can fill.
     /// - `navigability` — per settlement, in settlement order.
     /// - `way_load` — per way, in `get_roads()` order.
@@ -692,6 +696,80 @@ impl WorldGen {
             .get(importer as usize)
             .and_then(|e| e.tariffs.get(&(exporter as usize)).copied())
             .unwrap_or(0.0)
+    }
+
+    /// Writes one member of faction `faction`'s currency (Ruling R, kept by
+    /// AR; Ruling AU: *"the user types its rate in the faction roster and
+    /// the engine only converts"*). `key` is `"name"`, `"symbol"` or
+    /// `"rate"` -- the rate as typed, parsed here so GDScript's lenient
+    /// `to_float()` (which reads `"abc"` as `0`) never decides it. A blank
+    /// `value` clears the member back to its default.
+    ///
+    /// Returns `false`, changing nothing, before any `generate()`, for
+    /// Unclaimed (`0`), an unknown faction or key, a symbol longer than
+    /// `CURRENCY_SYMBOL_MAX` characters, and a rate that is not a finite
+    /// number above zero -- refused, never stored, never replaced by `1`.
+    /// See `FactionRoster::set_currency`. Saved with the roster in
+    /// `entities/factions.json`; nothing in the simulation reads it.
+    #[func]
+    fn civ_set_faction_currency(&mut self, faction: i64, key: GString, value: GString) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        if faction < 0 {
+            return false;
+        }
+        civ.faction_roster.set_currency(faction as usize, &key.to_string(), &value.to_string())
+    }
+
+    /// Faction `faction`'s currency as the shell shows it: `name`, `symbol`
+    /// and `rate` (the one conversions use), each with a `*_default` flag
+    /// that is `true` when the user has not set that member and the value
+    /// is the stand-in -- `"<faction> currency"`, `¤`, and `1.0` (at par
+    /// with the world price index). `{}` for Unclaimed, an unknown faction,
+    /// and before any `generate()`: those have no currency, which is not
+    /// the same as one at par.
+    #[func]
+    fn civ_faction_currency(&self, faction: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
+        if faction <= 0 {
+            return VarDictionary::new();
+        }
+        let Some(e) = civ.faction_roster.0.get(faction as usize) else {
+            return VarDictionary::new();
+        };
+        let (name, name_default) = e.currency.effective_name(&e.name);
+        let (symbol, symbol_default) = e.currency.effective_symbol();
+        let (rate, rate_default) = e.currency.effective_rate();
+        dict! {
+            "name" => name,
+            "name_default" => name_default,
+            "symbol" => symbol,
+            "symbol_default" => symbol_default,
+            "rate" => rate,
+            "rate_default" => rate_default,
+        }
+    }
+
+    /// `index_amount` -- a price or a value in world price-index units, as
+    /// `civ_trade_flows` reports them -- in faction `faction`'s currency:
+    /// [`cartalith_civ::currency::to_currency`] at that faction's rate, and
+    /// nothing else. The dictionary is [`Self::civ_faction_currency`]'s plus
+    /// `amount`. `{}` when the faction has no currency (Unclaimed, unknown,
+    /// no world) or the conversion refuses (a non-finite amount); a caller
+    /// then shows the index value, labelled as the index.
+    #[func]
+    fn civ_price_in_currency(&self, index_amount: f64, faction: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
+        let Some((rate, _)) = civ.faction_roster.currency_rate(faction.max(0) as usize) else {
+            return VarDictionary::new();
+        };
+        let mut d = self.civ_faction_currency(faction);
+        match cartalith_civ::currency::to_currency(index_amount, rate) {
+            Some(v) => {
+                d.set("amount", v);
+                d
+            }
+            None => VarDictionary::new(),
+        }
     }
 
     /// CIVIL ▸ Trade's food half — `_civFoodShed` run for every settlement:

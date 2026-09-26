@@ -84,6 +84,9 @@ pub mod journey_progress;
 /// The faction roster's and place editor's vocabulary tables, plus
 /// `_civFactionColor` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 pub mod roster;
+/// Per-faction currency conversion (Rulings R/AR/AU): the engine converts
+/// at a user-set rate and derives none. Nothing in the simulation reads it.
+pub mod currency;
 pub mod timeline;
 pub mod tools;
 /// `GUI_GAP_REGISTER.md` **IN-13** -- trade *flows*: which settlement

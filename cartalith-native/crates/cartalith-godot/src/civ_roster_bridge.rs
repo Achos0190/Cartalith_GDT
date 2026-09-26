@@ -111,6 +111,70 @@ pub struct FactionEntry {
     /// at `0.0` — [`FactionRoster::set_tariff`] removes it — so an
     /// unedited roster saves exactly as it did before this field existed.
     pub tariffs: std::collections::BTreeMap<usize, f64>,
+    /// This faction's own currency (Ruling R, kept by AR; Ruling AU: the
+    /// user types the rate, the engine only converts). See
+    /// [`FactionCurrency`] for what an unset member means.
+    pub currency: FactionCurrency,
+}
+
+/// A faction's currency: its name, its symbol, and the rate it is quoted at
+/// against Ruling AB's world price index -- units of this currency per one
+/// index unit (`cartalith_civ::currency`'s own doc says why every rate is
+/// quoted against that one unit).
+///
+/// **Every member is `None` until the user types it, and `None` is kept
+/// distinct from any value.** A fresh faction has no currency anyone chose,
+/// so nothing here pretends it does; readers show the derived stand-in
+/// *as* a default ([`FactionCurrency::effective_rate`] and friends say
+/// which), and a save writes no key for a member nobody set. The
+/// stand-ins, and why:
+///
+/// - **name** -- `"<faction name> currency"`. Derived from the faction so
+///   it follows a rename and cannot be mistaken for an authored coin name.
+/// - **symbol** -- `"¤"`, the generic currency sign, which means exactly
+///   "a currency not otherwise specified". A letter taken from the faction
+///   name would collide between factions and read as a real symbol.
+/// - **rate** -- `1.0`, *at par with the world index*: a readout in an
+///   unset currency shows the index value itself, so nothing is invented,
+///   and the label says "at par (default)" rather than printing `1` as if
+///   someone had typed it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FactionCurrency {
+    pub name: Option<String>,
+    pub symbol: Option<String>,
+    pub rate: Option<f64>,
+}
+
+/// The symbol an unset currency is shown with: `¤`, "a currency not
+/// otherwise specified".
+pub const DEFAULT_CURRENCY_SYMBOL: &str = "¤";
+/// The rate an unset currency is shown at: par with the world price index.
+pub const DEFAULT_CURRENCY_RATE: f64 = 1.0;
+
+impl FactionCurrency {
+    /// The name to show, and whether it is the derived default.
+    pub fn effective_name(&self, faction_name: &str) -> (String, bool) {
+        match &self.name {
+            Some(n) => (n.clone(), false),
+            None => (format!("{faction_name} currency"), true),
+        }
+    }
+
+    /// The symbol to show, and whether it is the default `¤`.
+    pub fn effective_symbol(&self) -> (String, bool) {
+        match &self.symbol {
+            Some(s) => (s.clone(), false),
+            None => (DEFAULT_CURRENCY_SYMBOL.to_string(), true),
+        }
+    }
+
+    /// The rate conversions use, and whether it is the default par rate.
+    pub fn effective_rate(&self) -> (f64, bool) {
+        match self.rate {
+            Some(r) => (r, false),
+            None => (DEFAULT_CURRENCY_RATE, true),
+        }
+    }
 }
 
 impl FactionEntry {
@@ -152,6 +216,7 @@ impl FactionEntry {
             color,
             color_override: None,
             tariffs: Default::default(),
+            currency: FactionCurrency::default(),
         }
     }
 }
@@ -263,6 +328,60 @@ impl FactionRoster {
                 })
             })
             .collect()
+    }
+
+    /// Writes one member of faction `fid`'s currency (Ruling AU). `key` is
+    /// `"name"`, `"symbol"` or `"rate"`; a blank `value` (after trimming)
+    /// **clears** the member back to its default, so "unset" has exactly one
+    /// encoding and the user can always get back to it.
+    ///
+    /// Returns `false`, changing nothing, for faction `0` (Unclaimed has no
+    /// government to issue a currency; flows into it read in index units),
+    /// an unknown faction, an unknown key, and a rate that is not a number
+    /// or fails [`cartalith_civ::currency::valid_rate`] (zero, negative,
+    /// `NaN`, infinite) -- refused, never stored and never replaced by `1`.
+    /// A symbol longer than [`CURRENCY_SYMBOL_MAX`] characters is refused
+    /// too: it is drawn beside every amount.
+    pub fn set_currency(&mut self, fid: usize, key: &str, value: &str) -> bool {
+        if fid == 0 {
+            return false;
+        }
+        let Some(entry) = self.0.get_mut(fid) else {
+            return false;
+        };
+        let v = value.trim();
+        let cur = &mut entry.currency;
+        match key {
+            "name" => cur.name = (!v.is_empty()).then(|| v.to_string()),
+            "symbol" => {
+                if v.chars().count() > CURRENCY_SYMBOL_MAX {
+                    return false;
+                }
+                cur.symbol = (!v.is_empty()).then(|| v.to_string());
+            }
+            "rate" => {
+                if v.is_empty() {
+                    cur.rate = None;
+                } else {
+                    match v.parse::<f64>() {
+                        Ok(r) if cartalith_civ::currency::valid_rate(r) => cur.rate = Some(r),
+                        _ => return false,
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// The rate conversions use for faction `fid`, and whether it is the
+    /// default. `None` for Unclaimed and an unknown faction: they have no
+    /// currency, which is not the same as a currency at par.
+    pub fn currency_rate(&self, fid: usize) -> Option<(f64, bool)> {
+        if fid == 0 {
+            return None;
+        }
+        self.0.get(fid).map(|e| e.currency.effective_rate())
     }
 
     /// `1..=count()` — a real, assignable faction id.
@@ -388,6 +507,11 @@ impl FactionRoster {
         (i, Some(trimmed.to_string()))
     }
 }
+
+/// The longest currency symbol [`FactionRoster::set_currency`] accepts, in
+/// characters. Long enough for `"lb."`, `"SPQR"` or `"dn"`; a symbol is drawn
+/// beside every amount, so anything longer is a name.
+pub const CURRENCY_SYMBOL_MAX: usize = 6;
 
 /// The five place-editor fields `NamedSettlement` has no room for. See this
 /// module's own doc comment for why they live beside it rather than on it,
@@ -879,5 +1003,48 @@ mod tests {
         t.set_history(42, "gone");
         t.forget(42);
         assert_eq!(t.get(42).history, "");
+    }
+
+    /// Ruling AU: a fresh faction has no currency anyone chose, and says so.
+    #[test]
+    fn a_fresh_faction_currency_is_unset_and_reads_as_default() {
+        let r = FactionRoster::seeded(3);
+        for e in &r.0 {
+            assert_eq!(e.currency, FactionCurrency::default());
+        }
+        let c = &r.0[1].currency;
+        assert_eq!(c.effective_name("Aurelia"), ("Aurelia currency".to_string(), true));
+        assert_eq!(c.effective_symbol(), ("\u{a4}".to_string(), true));
+        assert_eq!(c.effective_rate(), (1.0, true));
+        assert_eq!(r.currency_rate(1), Some((1.0, true)));
+        assert_eq!(r.currency_rate(0), None, "Unclaimed has no currency, not one at par");
+        assert_eq!(r.currency_rate(9), None);
+    }
+
+    #[test]
+    fn set_currency_validates_refuses_bad_rates_and_blank_clears() {
+        let mut r = FactionRoster::seeded(3);
+        assert!(r.set_currency(2, "name", "  Aurelian denarius "));
+        assert!(r.set_currency(2, "symbol", "dn"));
+        assert!(r.set_currency(2, "rate", "12.5"));
+        assert_eq!(r.0[2].currency.name.as_deref(), Some("Aurelian denarius"), "trimmed");
+        assert_eq!(r.currency_rate(2), Some((12.5, false)));
+        assert_eq!(r.0[2].currency.effective_name("x"), ("Aurelian denarius".to_string(), false));
+
+        for bad in ["0", "-1", "NaN", "inf", "-inf", "abc", "1,5"] {
+            assert!(!r.set_currency(2, "rate", bad), "{bad}");
+        }
+        assert_eq!(r.currency_rate(2), Some((12.5, false)), "a refusal changes nothing");
+        assert!(!r.set_currency(2, "symbol", "SEVENCH"), "longer than CURRENCY_SYMBOL_MAX");
+        assert!(r.set_currency(2, "symbol", "SIXCHR"));
+        assert!(!r.set_currency(0, "rate", "2"), "Unclaimed issues no currency");
+        assert!(!r.set_currency(4, "rate", "2"), "unknown faction");
+        assert!(!r.set_currency(2, "colour", "red"), "unknown key");
+
+        assert!(r.set_currency(2, "rate", "  "), "blank clears");
+        assert_eq!(r.currency_rate(2), Some((1.0, true)));
+        assert!(r.set_currency(2, "name", ""));
+        assert!(r.set_currency(2, "symbol", ""));
+        assert_eq!(r, FactionRoster::seeded(3), "cleared is exactly unset, one encoding");
     }
 }

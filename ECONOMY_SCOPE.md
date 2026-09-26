@@ -568,6 +568,7 @@ an owner decision (`LARGE_ITEM_RULINGS.md`), not a port:
 | **R** | 2026-09-21 | Each faction has its own currency, with an exchange rate between any two. Cross-faction trade converts at the point of exchange; there is no universal unit of account |
 | **AB** | 2026-09-23 | Price is derived from `TradeBalance`'s existing surplus/deficit — scarcity-based, with no authored per-good price table, which the reference has none of to port. The curve from surplus to price was left to the build |
 | **AE** | 2026-09-23 | A cross-faction tariff reads its own new relationship field, not `civ_faction_relations`, whose module doc scopes it away from diplomacy and treaties |
+| **AU** (with **AR**) | 2026-09-24 | R stands on top of AB's pricing (AR). Each faction's rate is **user-set** in the faction roster and quoted against AB's world price index; the engine only converts (`cartalith_civ::currency`) and derives no rate from the economy. A rate changes how a value is shown, never a flow |
 | **AF**, then **AP** | 2026-09-23 | The unit is one aggregate shipment per way (AF). AP then settled what a caravan *is*: a **derived view** — one row per way with active trade load, rebuilt from the live trade match every time, nothing persisted. AP supersedes AF's comparison to a persisted, `Journey`-shaped entity |
 
 Still open under AP: whether a sea trade route counts as a "way" for caravans

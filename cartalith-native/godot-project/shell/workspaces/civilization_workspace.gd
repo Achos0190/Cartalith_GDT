@@ -479,6 +479,10 @@ func _on_roster_changed() -> void:
 	## one, and this signal fires at the rate a roster is edited.
 	if app.viewport.debug_view() == "control":
 		app.viewport.set_debug_layer("control")
+	## A currency edit (Ruling AU) re-labels the held trade match: Trade flows
+	## shows each value in the importer's currency. A redraw of what
+	## `TradeStore` holds, never a re-match -- a rate changes no flow.
+	_infra.refill_flows()
 	_on_civ_edited()
 
 ## Rebuilds every category whose content depends on world data, scoped the way

@@ -3099,6 +3099,39 @@ func civ_clear_faction_color(faction: int) -> bool:
 	mark_world_dirty()
 	return world_gen.civ_clear_faction_color(faction)
 
+## A faction's **currency** (Ruling R, kept by AR; Ruling AU: the user types
+## the rate, the engine only converts). `key` is "name", "symbol" or "rate";
+## the rate goes over as typed text and the engine parses it, so a typo is
+## refused rather than read as 0 by `to_float()`. A blank value clears the
+## member back to its default. False, changing nothing, for Unclaimed, an
+## unknown faction or key, and a rate that is not a number above zero.
+## Display only: nothing in the simulation reads a rate.
+func civ_set_faction_currency(faction: int, key: String, value: String) -> bool:
+	if not _has("civ_set_faction_currency"):
+		return false
+	var ok: bool = world_gen.civ_set_faction_currency(faction, key, value)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+## `{name, symbol, rate}` plus a `*_default` flag per member (true = the
+## user has not set it and the value is the stand-in: "<faction> currency",
+## "¤", 1.0 at par with the world price index). `{}` for Unclaimed, an
+## unknown faction, or no world -- no currency, not one at par.
+func civ_faction_currency(faction: int) -> Dictionary:
+	if not _has("civ_faction_currency"):
+		return {}
+	return world_gen.civ_faction_currency(faction)
+
+## An amount in world price-index units (a flow's `price` or `value` from
+## `civ_trade_flows()`) in `faction`'s currency: `civ_faction_currency()`'s
+## dictionary plus `amount`. `{}` when that faction has no currency; show the
+## index value, labelled as the index, then.
+func civ_price_in_currency(index_amount: float, faction: int) -> Dictionary:
+	if not _has("civ_price_in_currency"):
+		return {}
+	return world_gen.civ_price_in_currency(index_amount, faction)
+
 ## Whether any faction carries a user identity colour.
 ##
 ## **No caller.** The one surface that asks a question of this shape --

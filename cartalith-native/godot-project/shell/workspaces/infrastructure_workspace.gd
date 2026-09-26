@@ -643,21 +643,20 @@ func build_trade_into(parent: Control) -> void:
 ## entry point because Economy's By faction expander sits between it and the
 ## flows above.
 ##
-## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B11). It used to call prices,
-## tariffs and caravans underivable and undecided. What is true: every matched
-## flow carries a scarcity `price` (Ruling AB) and a `tariff` (Ruling AE) --
-## `civ_trade_bridge.rs` returns both, but no panel shows them and there is no
-## `engine_bridge.gd` wrapper for `civ_set_trade_tariff`; caravans are built
-## and listed above (`da51a57`, `_fill_flows_caravans`); Ruling R decided
-## per-faction currencies with exchange rates, which are not built.
+## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B11), and again 2026-09-27 when
+## per-faction currencies landed (Ruling R, kept by AR; Ruling AU): each busiest
+## partner row now shows its value in the importer's currency and its tooltip
+## the unit price and tariff, so "price not shown" and "currencies not built"
+## both stopped being true. Still true: there is no `engine_bridge.gd` wrapper
+## for `civ_set_trade_tariff`, so no control sets a tariff; caravans are built
+## and listed above (`da51a57`, `_fill_flows_caravans`).
 func build_trade_gaps_into(parent: Control) -> void:
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
-		"Not shown yet: each flow's price and tariff. The generator prices every "
-		+ "matched flow by how scarce the good is and applies any tariff between the "
-		+ "two factions, but this panel does not display either, and there is no "
-		+ "control for setting a tariff.\n"
-		+ "Not built: separate currencies per faction with exchange rates (decided, "
-		+ "not yet built), and trade that changes over time.\n"
+		"No control sets a tariff between two factions yet; the generator applies one "
+		+ "where it is set, and a flow's tooltip shows it.\n"
+		+ "Not built: trade that changes over time.\n"
+		+ "Values are in each importer's own currency, at the rate set in the Faction "
+		+ "roster; a rate changes only how a value is shown, never what trades.\n"
 		+ "The flows above are a reading of the world as it stands.")
 
 ## `GUI_GAP_REGISTER.md` **IN-13** -- trade flows as a routed quantity.
@@ -764,23 +763,38 @@ func _fill_flows_partners(d: Dictionary) -> void:
 	for i in range(shown):
 		var row: Dictionary = rows[i]
 		var from_i := int(row.get("from", -1))
+		## What the flow is worth, in the IMPORTER's currency: the importer is
+		## the one paying. Converted by the engine at the rate the user typed in
+		## the faction roster (Ruling AU) -- read fresh here, not from the
+		## match, so a rate edit re-labels the held match without re-running it.
+		var worth := _in_currency(float(row.get("value", 0.0)), int(row.get("to_faction", 0)))
 		## Volume is a count of goods and stays `_thousands`; the carriage
 		## distance is a map length and follows `Preferences ▸ Units`.
-		var b := DccWidgets.action(g, "%s → %s -- %s, %s, %s %s" % [
+		var b := DccWidgets.action(g, "%s → %s -- %s, %s, %s %s, worth %s" % [
 			String(row.get("from_name", "?")), String(row.get("to_name", "?")),
 			String(row.get("good", "?")),
 			FactionRosterWindow._thousands(int(round(float(row.get("volume", 0.0))))),
 			String(row.get("mode", "land")),
-			DccUnits.format(float(row.get("distance_km", 0.0)))],
+			DccUnits.format(float(row.get("distance_km", 0.0))),
+			String(worth["text"])],
 			func():
 				if from_i >= 0:
 					app.right_dock_ctrl.on_settlement_selected(
 						bridge.settlements()[from_i], from_i))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		## The converted amount, unrounded, for anything that checks it.
+		b.set_meta("worth", worth)
+		var unit_price := _in_currency(float(row.get("price", 0.0)), int(row.get("to_faction", 0)))
+		var unit_price_exp := _in_currency(float(row.get("price", 0.0)), int(row.get("from_faction", 0)))
 		b.tooltip_text = ("%s reach; %d%% of the exporter's scale survives the carriage. "
+			+ "Price %s a unit to the importer (%s to the exporter)%s; world price index %.3f. "
 			+ "Opens the exporter in the right dock.") % [
 				String(row.get("reach", "?")),
-				int(round(100.0 * float(row.get("deliverable", 0.0))))]
+				int(round(100.0 * float(row.get("deliverable", 0.0)))),
+				String(unit_price["text"]), String(unit_price_exp["text"]),
+				(", after a %d%% tariff" % int(round(100.0 * float(row.get("tariff", 0.0)))))
+					if float(row.get("tariff", 0.0)) > 0.0 else "",
+				float(row.get("price", 0.0))]
 	if rows.size() > shown:
 		DccWidgets.note(g, "%s more, biggest first."
 			% FactionRosterWindow._thousands(rows.size() - shown))
@@ -789,6 +803,34 @@ func _fill_flows_partners(d: Dictionary) -> void:
 			"%s flows matched in total; the list is capped so a very large world cannot hand "
 			% FactionRosterWindow._thousands(int(d.get("flow_count", 0)))
 			+ "the shell a hundred-thousand-row array. Every total above counts all of them.")
+
+## An amount in world price-index units shown in `faction`'s currency:
+## `{text, amount, symbol, rate_default, faction}`, or the index value labelled as the
+## index when that faction has none (Unclaimed). The conversion is the
+## engine's (`civ_price_in_currency`); this only formats.
+func _in_currency(index_amount: float, faction: int) -> Dictionary:
+	var p := bridge.civ_price_in_currency(index_amount, faction)
+	if p.is_empty():
+		return {"text": "%s (world index)" % _money(index_amount), "amount": index_amount,
+			"symbol": "", "rate_default": true, "faction": faction}
+	var amount := float(p.get("amount", 0.0))
+	return {"text": "%s %s%s" % [_money(amount), String(p.get("symbol", "")),
+			" (at par)" if bool(p.get("rate_default", true)) else ""],
+		"amount": amount, "symbol": String(p.get("symbol", "")),
+		"rate_default": bool(p.get("rate_default", true)), "faction": faction}
+
+## Two decimals below 100, whole thousands-grouped units above.
+static func _money(v: float) -> String:
+	if absf(v) >= 100.0:
+		return FactionRosterWindow._thousands(int(round(v)))
+	return "%.2f" % v
+
+## Re-draws the held match -- no re-match -- after a roster edit that only
+## changes how values are labelled (a currency rate, name or symbol).
+func refill_flows() -> void:
+	if _flows_body != null and is_instance_valid(_flows_body):
+		_clear_body(_flows_body)
+		_fill_flows()
 
 ## § UNSUPPLIED -- a need, and nothing in reach.
 func _fill_flows_unmet(d: Dictionary) -> void:

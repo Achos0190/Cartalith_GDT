@@ -369,6 +369,26 @@ struct FactionDto {
     /// existed, and an older file reads back as "no tariffs".
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     tariffs: std::collections::BTreeMap<usize, f64>,
+    /// This faction's currency (Ruling R/AR/AU; `SAVEFILE_COMPAT.md` §9.2).
+    /// Omitted while the user has set none of its members, so an unedited
+    /// roster writes the `factions.json` it wrote before the member existed,
+    /// and an older file reads back as "no currency set" -- every member
+    /// unset, shown as its default, never as a user choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    currency: Option<CurrencyDto>,
+}
+
+/// One faction's currency as saved: each member present only when the user
+/// set it. See `civ_roster_bridge::FactionCurrency`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+struct CurrencyDto {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    symbol: Option<String>,
+    /// Units of this currency per one unit of the world price index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1638,6 +1658,13 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
                 color: [f.color.0, f.color.1, f.color.2],
                 user_color: f.color_override.map(|c| [c.0, c.1, c.2]),
                 tariffs: f.tariffs.clone(),
+                currency: (f.currency != civ_roster_bridge::FactionCurrency::default()).then(|| {
+                    CurrencyDto {
+                        name: f.currency.name.clone(),
+                        symbol: f.currency.symbol.clone(),
+                        rate: f.currency.rate,
+                    }
+                }),
             })
             .collect(),
     };
@@ -1785,6 +1812,43 @@ fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, valu
 ///
 /// Every element it drops is reported into `warnings` (§6.4a's closing
 /// rule: *"every substitution above is reported, never silent"*).
+/// A saved currency, checked by `FactionRoster::set_currency`'s rules on
+/// read: nothing on faction `0` (Unclaimed issues no currency), a blank name
+/// or symbol is unset, and a rate that fails `cartalith_civ::currency::
+/// valid_rate` is **dropped with a warning** -- never kept, and never
+/// replaced by `1`, which would read as a rate someone chose. An absent
+/// member (every project saved before 2026-09-27) is every member unset.
+fn currency_from_dto(f: &FactionDto, warnings: &mut Vec<String>) -> civ_roster_bridge::FactionCurrency {
+    let Some(c) = f.currency.as_ref() else {
+        return civ_roster_bridge::FactionCurrency::default();
+    };
+    if f.id == 0 {
+        warnings.push("entities/factions.json: a currency on faction 0 (Unclaimed) was ignored".to_string());
+        return civ_roster_bridge::FactionCurrency::default();
+    }
+    let text = |v: &Option<String>| v.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let symbol = text(&c.symbol).filter(|s| s.chars().count() <= civ_roster_bridge::CURRENCY_SYMBOL_MAX);
+    if c.symbol.is_some() && symbol.is_none() && text(&c.symbol).is_some() {
+        warnings.push(format!(
+            "entities/factions.json: faction {}'s currency symbol is longer than {} characters and was ignored",
+            f.id,
+            civ_roster_bridge::CURRENCY_SYMBOL_MAX
+        ));
+    }
+    let rate = match c.rate {
+        Some(r) if cartalith_civ::currency::valid_rate(r) => Some(r),
+        Some(r) => {
+            warnings.push(format!(
+                "entities/factions.json: faction {}'s exchange rate {r} is not a positive number and was ignored; it reads as unset (at par, default)",
+                f.id
+            ));
+            None
+        }
+        None => None,
+    };
+    civ_roster_bridge::FactionCurrency { name: text(&c.name), symbol, rate }
+}
+
 fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut Vec<String>) -> Option<CivData> {
     let settlements_doc: SettlementsDoc = data.parse(SLOT_SETTLEMENTS)?.ok()?;
 
@@ -1958,6 +2022,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
                         })
                         .map(|(&x, &r)| (x, r))
                         .collect(),
+                    currency: currency_from_dto(f, warnings),
                 })
                 .collect(),
         )
@@ -5174,6 +5239,87 @@ mod tests {
             back.faction_roster.tariff_rows(),
             vec![cartalith_civ::trade::Tariff { importer: 4, exporter: 1, rate: 0.2 }]
         );
+    }
+
+    /// Ruling AU's currencies ride `factions.json` (`SAVEFILE_COMPAT.md`
+    /// §9.2): set members survive a real archive round trip, an unset
+    /// currency writes no key at all, a partly-set one writes only what was
+    /// set, and a member `set_currency` would refuse is dropped on read with
+    /// a warning rather than trusted or replaced by a par rate.
+    #[test]
+    fn faction_currencies_survive_a_real_archive_round_trip() {
+        let plain = sample_civ();
+        let mut docs = BTreeMap::new();
+        civ_documents(&plain, None, &mut docs);
+        assert!(!docs[SLOT_FACTIONS].contains("currency"), "nothing set, no key written");
+
+        let mut civ = sample_civ();
+        assert!(civ.faction_roster.set_currency(2, "name", "Aurelian denarius"));
+        assert!(civ.faction_roster.set_currency(2, "symbol", "dn"));
+        assert!(civ.faction_roster.set_currency(2, "rate", "12.5"));
+        assert!(civ.faction_roster.set_currency(3, "rate", "0.25"));
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let doc: serde_json::Value = serde_json::from_str(&docs[SLOT_FACTIONS]).unwrap();
+        assert_eq!(
+            doc["factions"][2]["currency"],
+            serde_json::json!({"name": "Aurelian denarius", "symbol": "dn", "rate": 12.5})
+        );
+        assert_eq!(
+            doc["factions"][3]["currency"],
+            serde_json::json!({"rate": 0.25}),
+            "only the member set is written"
+        );
+        assert!(doc["factions"][1].get("currency").is_none(), "an unset faction writes no key");
+        let back = round_trip(&civ, 4, 3);
+        assert_eq!(back.faction_roster, civ.faction_roster);
+        assert_eq!(back.faction_roster.0[2].currency.rate, Some(12.5));
+        assert_eq!(back.faction_roster.0[2].currency.symbol.as_deref(), Some("dn"));
+        assert_eq!(back.faction_roster.0[3].currency.name, None, "unset stays unset");
+        assert_eq!(back.faction_roster.currency_rate(3), Some((0.25, false)));
+        assert_eq!(back.faction_roster.currency_rate(4), Some((1.0, true)), "unset reads as the default");
+
+        // Members only a hand-edited file could hold.
+        let mut warnings = Vec::new();
+        for (json, want_rate) in [
+            (r#"{"id":2,"currency":{"rate":0}}"#, None),
+            (r#"{"id":2,"currency":{"rate":-3}}"#, None),
+            (r#"{"id":2,"currency":{"rate":4}}"#, Some(4.0)),
+        ] {
+            let dto: FactionDto = serde_json::from_str(json).unwrap();
+            assert_eq!(currency_from_dto(&dto, &mut warnings).rate, want_rate, "{json}");
+        }
+        assert_eq!(warnings.len(), 2, "each dropped rate says so: {warnings:?}");
+        let dto: FactionDto = serde_json::from_str(r#"{"id":0,"currency":{"rate":2}}"#).unwrap();
+        assert_eq!(currency_from_dto(&dto, &mut warnings), civ_roster_bridge::FactionCurrency::default());
+        let dto: FactionDto =
+            serde_json::from_str(r#"{"id":1,"currency":{"name":"  ","symbol":"TOOLONGX"}}"#).unwrap();
+        assert_eq!(currency_from_dto(&dto, &mut warnings), civ_roster_bridge::FactionCurrency::default());
+    }
+
+    /// The real pre-currency archive (the same fixture the substrate tests
+    /// document the provenance of) opens with every faction's currency
+    /// unset, says nothing about it, and re-saves its `factions.json` byte
+    /// for byte: an absent member is written back absent.
+    #[test]
+    fn a_project_saved_before_currencies_opens_with_defaults() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+        let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+        let old = data.text_of(SLOT_FACTIONS).expect("it has a roster").to_string();
+        assert!(!old.contains("currency"), "premise: written before the member existed");
+        let n = data.save.params.gw * data.save.params.gh;
+        let mut warnings = Vec::new();
+        let civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer restores");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(civ.faction_roster.count() >= 2, "premise: real factions to check");
+        for (i, e) in civ.faction_roster.0.iter().enumerate() {
+            assert_eq!(e.currency, civ_roster_bridge::FactionCurrency::default(), "faction {i}");
+        }
+        assert_eq!(civ.faction_roster.currency_rate(1), Some((1.0, true)));
+        assert_eq!(civ.faction_roster.currency_rate(0), None, "Unclaimed has no currency");
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        assert_eq!(docs[SLOT_FACTIONS], old, "factions.json re-serialises byte for byte");
     }
 
     #[test]

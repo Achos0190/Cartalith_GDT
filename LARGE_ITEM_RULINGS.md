@@ -1110,6 +1110,8 @@ Siting itself changes, not just the downstream render binding: a settlement only
 
 *Status note, 2026-09-24:* this ruling is **still unbuilt**. What shipped instead was Ruling AB's single world-wide scarcity price index, with Ruling AE's tariffs (`bbc255f`). No `currency` or `exchange_rate` exists in any crate: the only matches are doc comments saying that a value is *not* a currency. Ruling AR (2026-09-24) confirms that R stands and is not superseded, and that per-faction currencies are built on top of AB's pricing.
 
+*Stale, noted 2026-09-27: built as Ruling AU shaped it* -- a user-set name, symbol and rate per faction on the roster (`civ_roster_bridge.rs::FactionCurrency`), conversion only in `cartalith_civ::currency`, saved in `entities/factions.json` (`SAVEFILE_COMPAT.md` §9.2). Where it stands is `STATUS.md`'s to say.
+
 ## 2026-09-21 — Ruling S: v2.71 half 2, woodland as a spatial area — declined
 
 **The finding is `OUTSTANDING_WORK.md`'s v2.71-half-2 row (`RC_ENGINE_CHANGES.md` §8.2).** This port has zero spatial representation for woodland anywhere — only an abstract `woodland_ha` hectare figure feeding trade/fuel economics. The RC spec states two behavioural rules (arable wins in a conflict; no street-crossing guard, unlike farmland) but names no siting algorithm, polygon shape or density constants, and `Cartalith_RC` was not reachable from this session's filesystem to check the real `buildFarmland` v2.71 code. The row asked the owner to choose between waiting for the real source or building a non-ported placeholder now.
