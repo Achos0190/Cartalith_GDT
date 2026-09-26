@@ -1565,3 +1565,13 @@ CIVIL's verbs inline.
 
 F5 (ring customisation and the tablet edge sliders) was not asked; the scope's
 recommendation, *later*, stands until the owner says otherwise.
+
+## 2026-09-28 — Ruling AY: migrate old conflict anchors on load
+
+Asked through the session's question tool after `36312e2` moved conflict
+anchors from the cell corner to the cell centre. The owner chose the
+recommendation: **when a project saved before that fix is opened, shift each
+stored conflict anchor (`ConflictAnchorDto::at`) by half a cell on both axes**,
+so old conflicts draw exactly where they did, now centred on the pin. Keyed on
+the save's format (an additive marker the new writer sets), tested from a real
+pre-fix archive.
