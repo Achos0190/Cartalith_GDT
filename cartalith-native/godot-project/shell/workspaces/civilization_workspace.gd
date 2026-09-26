@@ -716,7 +716,7 @@ func _on_ctx_id(id: int) -> void:
 				## its substrate, so only a legacy .zip or an older project is
 				## still that case.
 				app.set_status("hint",
-					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included. On a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), Biome reads — there. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
+					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included. On a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), Biome reads — there; that world's imported settlements, labels and icons stay drawn and editable, and regenerating would replace them with a new world's rather than restore what is missing. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
 
 ## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
@@ -1638,7 +1638,9 @@ func _analyse_influence() -> void:
 			"No territory to analyse. Either this world has no capitals to project "
 			+ "territory from, or it was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24): "
 			+ "the analysis needs the terrain behind the borders, which such a save does "
-			+ "not carry even though it keeps its borders and settlements. Regenerate to use it.")
+			+ "not carry even though it keeps its borders and settlements. Regenerate to use it -- "
+			+ "but regenerating replaces that world's imported settlements, labels and icons with a "
+			+ "new world's; nothing carries them across.")
 		## `civ_territory_influence` returns `{}` whenever `sample_refs()` is None,
 		## i.e. on a `WorldSource::Loaded` world. Since Ruling AR (2026-09-24) a
 		## project saved with its substrate reopens complete and answers here;
@@ -1965,7 +1967,13 @@ func _clear_territory() -> void:
 
 func _clear_territory_now() -> void:
 	var r: Dictionary = bridge.civ_clear_territory()
-	var outcome := "Cleared %d claimed cell(s) -- computed borders and paint both." % int(r.get("cleared_cells", 0))
+	## `civ_clear_territory`'s own doc: `cleared_cells` is omitted, not `0`,
+	## when the claim grid was not known before the clear (a reopened
+	## archive that did not carry one) -- how many cells it cleared is then
+	## unknown, never a count of zero.
+	var outcome := ("Cleared %d claimed cell(s) -- computed borders and paint both." % int(r["cleared_cells"])) \
+		if r.has("cleared_cells") else \
+		"Cleared the claim grid -- count unknown, no claim grid was known before the clear. Computed borders and paint both."
 	app.set_status("hint", outcome, "text")
 	_after_civ_layer_replaced()
 
@@ -2562,12 +2570,21 @@ func _fill_faction_economy(parent: Control) -> void:
 	var sec := category_expander(parent, "By faction")
 	var grp := DccWidgets.group(sec, "Territory, food and resources", false)
 	var names := bridge.get_factions()
+	var claims_absent := false
 	for r in rows:
 		var d: Dictionary = r
 		var f := int(d.get("faction", 0))
 		var label := "Faction %d" % f
 		if f < names.size():
 			label = String((names[f] as Dictionary).get("name", label))
+		## `civ_faction_economy`'s own doc: with no claim grid every figure
+		## below except `pop` is omitted, not zero -- the aggregate has no
+		## cells to sum over, and a zero here would read as a real answer.
+		if String(d.get("absent", "")) == "no_claim_grid":
+			claims_absent = true
+			DccWidgets.note(grp, "%s -- %s people. Territory, food and resources: —" % [
+				label, FactionRosterWindow._thousands(int(float(d.get("pop", 0.0))))])
+			continue
 		var surplus := float(d.get("food_surplus", 0.0))
 		## The sign is the whole point of the pair, so it is said in words
 		## rather than left as a leading minus in a run of numbers.
@@ -2584,6 +2601,8 @@ func _fill_faction_economy(parent: Control) -> void:
 			"none" if strat.is_empty() else ", ".join(strat),
 			"none" if ex.is_empty() else ", ".join(ex),
 			"none" if im.is_empty() else ", ".join(im)])
+	if claims_absent:
+		DccWidgets.note(grp, FactionRosterWindow.NO_CLAIM_GRID)
 	DccWidgets.note(grp,
 		"Food capacity is the agrarian carrying capacity of the faction's own cells; the " +
 		"surplus is that against the population actually living on them, so a shortfall means " +
@@ -6206,6 +6225,11 @@ static func garrison_row(g: Dictionary, cursor: int) -> Dictionary:
 			why = "Unclaimed: no faction's standing army is split here."
 		"no_standing":
 			why = "Its faction's standing army could not be split at %s (no settlement with a population)." % when
+		"no_claim_grid":
+			## `civ_settlement_garrison`'s own doc: a live reading with no claim
+			## grid splits no army -- border exposure and the standing army are
+			## both claimed-cell figures -- so this is not `no_standing`.
+			why = FactionRosterWindow.NO_CLAIM_GRID
 		_:
 			why = "No garrison figure."
 	return {"value": "—", "ok": false, "why": why}
@@ -6531,6 +6555,7 @@ func _fill_relationships(parent: Control) -> void:
 		var rows := pairs.duplicate()
 		rows.sort_custom(_by_relation_value)
 		var list := DccWidgets.group(sec, "Every pair")
+		var claims_absent := false
 		for r in rows:
 			var d: Dictionary = r
 			var a := int(d.get("a", 0))
@@ -6542,6 +6567,22 @@ func _fill_relationships(parent: Control) -> void:
 			## real six-faction world). `_build_faction_relations` draws the
 			## marked pair.
 			var other := int(d.get("b", 0))
+			## `civ_faction_relations`' own doc: with no claim grid the border,
+			## trade and rivalry terms -- and the value/stance built from them --
+			## are unknown, not zero. Only the names and the culture/religion
+			## terms (not claimed-cell figures) are carried.
+			if String(d.get("absent", "")) == "no_claim_grid":
+				claims_absent = true
+				var ab := DccWidgets.action(list, "%s ↔ %s -- standing —" % [
+					String(d.get("a_name", "?")), String(d.get("b_name", "?"))],
+					func(): app.right_dock_ctrl.show_faction(a, other))
+				ab.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				ab.tooltip_text = ("culture %+d · faith %+d · border, trade and rivalry unknown (no claim grid). "
+					+ "Opens %s in the right dock, with %s marked among its relations.") % [
+					int(round(30.0 * float(d.get("culture_term", 0.0)))),
+					int(round(20.0 * float(d.get("religion_term", 0.0)))),
+					String(d.get("a_name", "?")), String(d.get("b_name", "?"))]
+				continue
 			var b := DccWidgets.action(list, "%s ↔ %s -- %s (%+d)" % [
 				String(d.get("a_name", "?")), String(d.get("b_name", "?")),
 				String(d.get("stance", "neutral")),
@@ -6561,6 +6602,8 @@ func _fill_relationships(parent: Control) -> void:
 				int(round(25.0 * float(d.get("trade_term", 0.0)))),
 				int(round(100.0 * float(d.get("rivalry_term", 0.0)))),
 				String(d.get("a_name", "?")), String(d.get("b_name", "?"))]
+		if claims_absent:
+			DccWidgets.note(list, FactionRosterWindow.NO_CLAIM_GRID)
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,

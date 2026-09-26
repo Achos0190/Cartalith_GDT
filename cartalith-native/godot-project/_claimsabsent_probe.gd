@@ -17,7 +17,12 @@ extends Node
 ##      reading says `no_claim_grid`; the regional population omits its
 ##      claimed share; the Roster prints dashes with the reason
 ##      and no "0 claimed cells"; Clear territory reports `{}` (count unknown)
-##      and leaves a whole, empty, known grid behind;
+##      and leaves a whole, empty, known grid behind; **and CIVIL's own panels
+##      (`civilization_workspace.gd`) match**: Economy ▸ By faction dashes
+##      territory/food/resources per row, Relationships dashes the standing
+##      value/stance/border per pair, `garrison_row()`'s `no_claim_grid` arm
+##      dashes the value, and Clear territory's status line reports the count
+##      as unknown rather than 0 -- none of the four ever prints a bare zero;
 ##   3. without the province raster: `project_open` warns, there is no
 ##      boundary overlay (no panic), the province list is kept, and one
 ##      committed territory stroke brings the overlay back.
@@ -73,6 +78,27 @@ func _roster_text(app: Node) -> String:
 	var out := PackedStringArray()
 	_texts(app.faction_roster_window, out)
 	app.faction_roster_window.hide()
+	return "\n".join(out)
+
+## The live `CivilizationWorkspace` -- built once at `_register_workspaces()`
+## and kept, not re-instantiated -- so the probe reads the same panels the
+## user would, not a fresh one built off screen.
+func _civ_ws(app: Node) -> Node:
+	for ws in app._workspaces:
+		if ws is CivilizationWorkspace:
+			return ws
+	return null
+
+## The joined text of one CIVIL body Control -- `_economy_faction_body` /
+## `_relations_body` are refilled by `_rebuild_readouts()` on every
+## `on_world_changed()`, which `_load_project` already drives (`app.gd`'s
+## `_refresh_world_dependent()`), so this is a plain read of live state.
+func _body_text(ws: Node, field: String) -> String:
+	var body: Control = ws.get(field)
+	if body == null or not is_instance_valid(body):
+		return ""
+	var out := PackedStringArray()
+	_texts(body, out)
 	return "\n".join(out)
 
 func _all_rows_have(rows: Array, key: String) -> bool:
@@ -159,6 +185,17 @@ func _ready() -> void:
 	var t0: String = await _roster_text(app)
 	_check("control: the roster prints a claimed-cell total", t0.contains(" claimed cells") and not t0.contains("claimed cells —"), "")
 	_check("control: the roster gives no 'not known' reason", not t0.contains(FactionRosterWindow.NO_CLAIM_GRID))
+	var civ_ws: Node = _civ_ws(app)
+	_check("control: the CivilizationWorkspace is registered", civ_ws != null)
+	var econ_text0 := _body_text(civ_ws, "_economy_faction_body")
+	_check("control: Economy By-faction carries no dash and no reason",
+		not econ_text0.contains(FactionRosterWindow.NO_CLAIM_GRID) and not econ_text0.contains(": —"), econ_text0.left(120))
+	var rel_text0 := _body_text(civ_ws, "_relations_body")
+	_check("control: Relationships carries no dash and no reason",
+		not rel_text0.contains(FactionRosterWindow.NO_CLAIM_GRID) and not rel_text0.contains("standing —"), rel_text0.left(120))
+	var g0: Dictionary = CivilizationWorkspace.garrison_row({"garrison": 12.0, "garrison_share": 0.5,
+		"faction_garrison": 24, "garrison_multiplier": 1.0, "border_exposure": 0.1}, 0)
+	_check("control: garrison_row reads a real figure, not a dash", bool(g0["ok"]) and String(g0["value"]) != "—", str(g0))
 
 	# 2. without the claim grid
 	_check("premise: the claim grid entry was taken out", _strip(path, no_terr, "rasters/territory.") == 1)
@@ -207,8 +244,29 @@ func _ready() -> void:
 	_check("no claims: the roster dashes the terrain composition", t1.contains("Composition: —"))
 	_check("no claims: the roster dashes the manpower model", t1.contains("Standing army, field army and levy: —"))
 	_check("no claims: the roster prints no '0 claimed cells'", not t1.contains("  0 claimed cells"))
-	var cleared: Dictionary = wg.civ_clear_territory()
-	_check("no claims: Clear territory reports the count as unknown", cleared.is_empty(), str(cleared))
+
+	## CIVIL's own panels (`civilization_workspace.gd`), not just the roster.
+	var econ_text1 := _body_text(civ_ws, "_economy_faction_body")
+	_check("no claims: Economy By-faction dashes territory/food/resources", econ_text1.contains("Territory, food and resources: —"), econ_text1.left(160))
+	_check("no claims: Economy By-faction gives the reason", econ_text1.contains(FactionRosterWindow.NO_CLAIM_GRID))
+	_check("no claims: Economy By-faction prints no '0 km²'", not econ_text1.contains("0 km²"))
+	var rel_text1 := _body_text(civ_ws, "_relations_body")
+	_check("no claims: Relationships dashes the standing value", rel_text1.contains("standing —"), rel_text1.left(160))
+	_check("no claims: Relationships gives the reason", rel_text1.contains(FactionRosterWindow.NO_CLAIM_GRID))
+	_check("no claims: Relationships prints no neutral/zero stance", not rel_text1.contains("neutral (+0)"))
+	var g1: Dictionary = CivilizationWorkspace.garrison_row({"absent": "no_claim_grid"}, 0)
+	_check("no claims: garrison_row dashes the value and gives the reason",
+		String(g1["value"]) == "—" and not bool(g1["ok"]) and String(g1["why"]) == FactionRosterWindow.NO_CLAIM_GRID, str(g1))
+
+	## The workspace's own status line for the same call -- `_clear_territory_now()`
+	## must not fall back to `r.get("cleared_cells", 0)` and print a false 0. Run
+	## through the workspace itself, not `wg.civ_clear_territory()` directly, so the
+	## call this probe watches also does the one real clear.
+	civ_ws._clear_territory_now()
+	await _frames(2)
+	var hint := String((app._status_labels["hint"] as Label).text)
+	_check("no claims: Clear territory's status line does not print '0 claimed cell'", not hint.contains("0 claimed cell"), hint)
+	_check("no claims: Clear territory's status line says the count is unknown", hint.contains("unknown"), hint)
 	var after: Array = wg.get_factions()
 	_check("no claims: after the clear the claims are known and empty",
 		_all_rows_have(after, "claimed_cells") and int((after[0] as Dictionary)["claimed_cells"]) == 0, str(after.slice(0, 1)))
