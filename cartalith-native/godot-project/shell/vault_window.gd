@@ -714,9 +714,15 @@ func _build_note_data_toggle(sec: Control, empty_note: String) -> void:
 ## reason triggers, because there is no engine-side working copy for it to
 ## round-trip through the way `_build_reader`'s `TextEdit` does via
 ## `vault_set_link_text` — see this window's own state block for why.
-func _build_note_editor(sec: Control) -> void:
+## `as_primary`: the mockup's own "Open to edit" (primary, filled) beside the
+## secondary "Centre on map" -- true only from `_build_browse_preview`, whose
+## one prominent act on a browsed file *is* opening it. `_build_attach`'s own
+## call keeps the quieter text button and its longer, context-setting label,
+## because there the prominent act is Attach, not this.
+func _build_note_editor(sec: Control, as_primary: bool = false) -> void:
 	if _browse_path != _pick_file:
-		var open_btn := DccWidgets.text_button(sec, "Preview & edit this note…", func():
+		var open_btn: Button
+		var on_open := func():
 			var r := bridge.vault_read_file_for_edit(_pick_file)
 			if not bool(r.get("ok", false)):
 				app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
@@ -724,7 +730,11 @@ func _build_note_editor(sec: Control) -> void:
 			_browse_path = _pick_file
 			_browse_text = String(r.get("text", ""))
 			_browse_hash = String(r.get("hash", ""))
-			_rebuild())
+			_rebuild()
+		if as_primary:
+			open_btn = DccWidgets.action(sec, "Open to edit", on_open, true)
+		else:
+			open_btn = DccWidgets.text_button(sec, "Preview & edit this note…", on_open)
 		open_btn.tooltip_text = "Reads the whole file so it can be edited here. Writing back replaces the whole file and refuses if it changed on disk since this read."
 		return
 
@@ -986,16 +996,36 @@ func _strip_frontmatter(text: String) -> String:
 ## own trim. Deliberately not a character-count truncation: a heading or a
 ## blank line at the very top of a note would otherwise dominate a fixed
 ## character budget with nothing readable in it.
+##
+## ATX heading markers (`#` through `######`, then a space) are stripped per
+## line before joining (`OUTSTANDING_WORK.md`'s Vault Browser row: "the
+## excerpt shows raw `## ` markers" against the mockup, which draws prose
+## only). The outline above already shows headings as headings; the excerpt
+## is meant to read as the note's own prose, so a heading line that happens
+## to fall in the first `n` lines reads as text, not as a second, markerless
+## copy of the outline.
 func _first_lines(text: String, n: int) -> String:
 	var out: Array = []
 	for raw in text.split("\n"):
 		var t := String(raw).strip_edges()
 		if t == "":
 			continue
-		out.append(t)
+		out.append(_strip_heading_marker(t))
 		if out.size() >= n:
 			break
 	return " ".join(PackedStringArray(out))
+
+
+## `"## The Old Quarter"` -> `"The Old Quarter"`. Only a real ATX marker (1-6
+## `#` then a space) is stripped, so a line that merely starts with `#` for
+## some other reason (a hashtag in prose) is left alone.
+func _strip_heading_marker(line: String) -> String:
+	var i := 0
+	while i < line.length() and i < 6 and line[i] == "#":
+		i += 1
+	if i > 0 and i < line.length() and line[i] == " ":
+		return line.substr(i + 1).strip_edges()
+	return line
 
 
 ## The right-hand preview: frontmatter as chips, the heading outline as plain
@@ -1004,15 +1034,30 @@ func _first_lines(text: String, n: int) -> String:
 ## toggle. No Markdown rendering here, deliberately — a structured summary,
 ## not a renderer, is the owner's own scope line for this pass.
 ##
-## **Backlinks/unlinked mentions are not shown.** `vault_entity_backlinks` and
-## `vault_entity_mentions` are keyed by `(kind, entity_id)`, and a browsed,
-## unattached file has neither — confirmed by reading both `#[func]`s in
-## `vault_bridge.rs`. `cartalith_vault::backlinks::Backlinks::backlinks_to`
-## *is* path-keyed and exists in the engine, but no `#[func]` wrapper exposes
-## it to GDScript, so this is a real, named gap rather than an invented
-## bridge call — see this window's own handoff note for the one-line wrapper
-## a future pass would add (`backlinks_to(rel) -> Vec<Backlink>` already
-## walks the built index; no new indexing work).
+## **Backlinks/unlinked mentions, closed 2026-09-26** (`OUTSTANDING_WORK.md`
+## "Record approved Vault Browser mockup + close its remaining gaps").
+## `vault_entity_backlinks`/`vault_entity_mentions` are keyed by `(kind,
+## entity_id)`, which a browsed, unattached file has neither of — the gap this
+## header used to describe. `vault_file_backlinks`/`vault_file_mentions`
+## (`vault_bridge.rs`) are the path-keyed wrappers over
+## `cartalith_vault::backlinks::Backlinks::backlinks_to` and the new
+## `cartalith_vault::VaultSession::file_mentions`, both drawn below. Same
+## `built` gate as the Index panel (`_build_index`): with no backlink index,
+## these say so rather than reporting a false zero.
+##
+## **"Centre on map"** (`design/vault-browser-2026-09-21/Cartalith Vault
+## Browser.dc.html`, beside "Open to edit") reuses the one camera call every
+## other window in this shell already reaches through --
+## `app.viewport.move_view_to(gx, gy)` (`place_editor_window.gd`'s "Focus
+## camera on settlement", `faction_roster_window.gd`'s "Focus camera on
+## capital", `global_tools.gd`, `place_search.gd`) -- rather than inventing a
+## second one. There is no entity scope here to read a position off (a
+## browsed file is not `open_for()`'d), so `_build_browse_centre` derives one
+## from the note's own frontmatter (`type: settlement`, `tid: N`) and
+## `bridge.settlements()`, the same list `faction_roster_window.gd::
+## _capital_of` already filters client-side. **Disabled with the reason**,
+## never invented, when the frontmatter names no settlement or that tid is
+## not in the currently generated world.
 func _build_browse_preview(parent: Control) -> void:
 	if _pick_file == "":
 		DccWidgets.note(parent, "Select a file in the tree.")
@@ -1020,10 +1065,11 @@ func _build_browse_preview(parent: Control) -> void:
 	var g := DccWidgets.group(parent, _pick_file.get_file(), true)
 
 	var data := bridge.vault_file_data(_pick_file)
+	var frontmatter: Dictionary = {}
 	if not bool(data.get("ok", false)):
 		DccWidgets.note(g, "Could not read this note: %s" % String(data.get("error", "")))
 	else:
-		var frontmatter: Dictionary = data.get("frontmatter", {})
+		frontmatter = data.get("frontmatter", {})
 		if frontmatter.is_empty():
 			DccWidgets.note(g, "No frontmatter.")
 		else:
@@ -1055,12 +1101,71 @@ func _build_browse_preview(parent: Control) -> void:
 	else:
 		DccWidgets.note(g, "    Could not read: %s" % String(read.get("error", "")))
 
-	## Reason kept, in the user's words rather than two binding names: the
-	## per-entity lookups exist (a place's own KNOWLEDGE block lists them), a
-	## per-file one is not exposed yet -- see this function's header.
-	DccWidgets.note(g, "Backlinks: not shown for a browsed note yet. A place's own Knowledge section lists the notes that link to it.")
+	## Mockup order: the two buttons (Open to edit, Centre on map) directly
+	## under the excerpt, then the backlinks/mentions line beneath them.
+	_build_note_editor(g, true)
+	_build_browse_centre(g, frontmatter)
+	_build_browse_backlinks(g)
 
-	_build_note_editor(g)
+
+## `bridge.settlements()` is the whole vault-side of the mockup's "Centre on
+## map" -- every field it returns (`_capital_of` above), read here instead of
+## invented: a browsed file carries no entity scope of its own, so the only
+## honest position is one this note's own frontmatter names and the current
+## world actually has. `app.viewport.move_view_to` is the same call every
+## other "Focus/Centre" button in this shell already uses -- see this
+## function's own doc comment above `_build_browse_preview` for the roll
+## call -- so this adds no new engine surface, only a new caller of it.
+func _build_browse_centre(g: Control, frontmatter: Dictionary) -> void:
+	var reason := ""
+	var target := {}
+	var kind_str := String(frontmatter.get("type", ""))
+	if kind_str != "settlement":
+		reason = "Only wired for a settlement's own note (frontmatter \"type: settlement\") -- this note's frontmatter says \"%s\"." % (kind_str if kind_str != "" else "(no type field)")
+	else:
+		var tid_str := String(frontmatter.get("tid", ""))
+		if not tid_str.is_valid_int():
+			reason = "This note's frontmatter has no numeric \"tid\" field to resolve a position from."
+		else:
+			var tid := int(tid_str)
+			for s in bridge.settlements():
+				var d: Dictionary = s
+				if int(d.get("tid", -1)) == tid:
+					target = d
+					break
+			if target.is_empty():
+				reason = "No settlement with tid %d exists in the currently generated world -- the note may describe an earlier one, or none has been generated yet." % tid
+
+	var centre := DccWidgets.action(g, "Centre on map", func():
+		app.viewport.move_view_to(float(int(target.get("x", 0))), float(int(target.get("y", 0)))))
+	if target.is_empty():
+		centre.disabled = true
+		centre.tooltip_text = reason
+	else:
+		centre.tooltip_text = "Moves the map view to %s (%d, %d)." % [String(target.get("name", "")), int(target.get("x", 0)), int(target.get("y", 0))]
+
+
+## The backlinks/unlinked-mentions readout for a browsed file (see this
+## file's own handoff note above `_build_browse_preview`). Gated on the same
+## `built` flag `_build_index` reads, so an unbuilt index reads as "not built"
+## rather than as a real zero -- `MISTAKES.md`'s "never encode 'no value' as
+## a plausible value".
+func _build_browse_backlinks(g: Control) -> void:
+	var stats := bridge.vault_backlink_stats()
+	if not bool(stats.get("built", false)):
+		DccWidgets.note(g, "Backlinks: index not built yet -- see Index below to build it.")
+		return
+	var back := bridge.vault_file_backlinks(_pick_file)
+	var mentions := bridge.vault_file_mentions(_pick_file, 12)
+	DccWidgets.note(g, "%d backlink%s · %d unlinked mention%s" % [
+		back.size(), "" if back.size() == 1 else "s",
+		mentions.size(), "" if mentions.size() == 1 else "s"])
+	for b in back:
+		var bd: Dictionary = b
+		DccWidgets.note(g, "    %s → links here (%s)" % [String(bd.get("rel", "")), String(bd.get("form", ""))])
+	for m in mentions:
+		var md: Dictionary = m
+		DccWidgets.note(g, "    %s names it, unlinked · %s" % [String(md.get("rel", "")), String(md.get("excerpt", ""))])
 
 
 # -- Linked notes (§28) -----------------------------------------------------

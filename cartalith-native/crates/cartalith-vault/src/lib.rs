@@ -518,6 +518,56 @@ impl VaultSession {
         out
     }
 
+    /// Every note that links to `rel` directly, with no entity indirection —
+    /// the path-keyed half of VA-01 for a note that is being **browsed**
+    /// rather than attached to anything (`vault_window.gd::_build_browse_
+    /// preview`'s own gap note, 2026-09-23: "`cartalith_vault::backlinks::
+    /// Backlinks::backlinks_to` *is* path-keyed and exists in the engine,
+    /// but no `#[func]` wrapper exposes it"). A thin rename of
+    /// [`BacklinkIndex::backlinks_to`]'s own return shape into the
+    /// `(path, form, count)` tuple [`entity_backlinks`](Self::entity_backlinks)
+    /// already uses, so the two read the same on screen.
+    pub fn file_backlinks(&self, rel: &str) -> Vec<(String, LinkForm, usize)> {
+        self.backlinks.backlinks_to(rel).into_iter().map(|b| (b.source, b.form, b.count)).collect()
+    }
+
+    /// Notes that name this file's own title in prose and do not link to it —
+    /// the file-keyed analogue of [`entity_mentions`](Self::entity_mentions),
+    /// for the same browsed-note gap.
+    ///
+    /// There is no persisted "title" for a browsed file to search by — only
+    /// its path — so the name is derived from the file's own stem, with `-`
+    /// and `_` read as the spaces an author's prose would use
+    /// (`Verenoth-Landing.md` -> `"Verenoth Landing"`). That is a derivation
+    /// from data the file already has, not an invented field: nothing here
+    /// stores or displays a title the vault was never given.
+    pub fn file_mentions(&self, rel: &str, max: usize) -> Vec<(String, String)> {
+        let stem = rel.rsplit('/').next().unwrap_or(rel);
+        let stem = stem.strip_suffix(".md").unwrap_or(stem);
+        let name: String =
+            stem.chars().map(|c| if c == '-' || c == '_' { ' ' } else { c }).collect();
+        if name.trim().len() < 3 || !self.backlinks.is_built() {
+            return Vec::new();
+        }
+        // Everything already linked-from is excluded before any file is
+        // opened, same rule as `entity_mentions`.
+        let mut exclude: Vec<String> =
+            self.file_backlinks(rel).into_iter().map(|(rel2, _, _)| rel2).collect();
+        exclude.push(rel.to_string());
+        let needle = name.trim().to_lowercase();
+        let mut out = Vec::new();
+        for cand in self.backlinks.mention_candidates(&name, &exclude) {
+            if out.len() >= max {
+                break;
+            }
+            let Ok(text) = self.read(&cand) else { continue };
+            let hay = text.to_lowercase();
+            let Some(at) = hay.find(&needle) else { continue };
+            out.push((cand, excerpt(&text, at, needle.len())));
+        }
+        out
+    }
+
     // ------------------------------------------------------------ searching
 
     /// Find notes by name and, where the index allows it, by content.
@@ -1167,6 +1217,80 @@ rows
 
         // A second refresh over an untouched folder opens nothing.
         assert_eq!(s.refresh_backlinks(500).unwrap().reread, 0);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The path-keyed half of VA-01 (`file_backlinks`/`file_mentions`), for a
+    /// note that is being **browsed** and is not attached to any entity —
+    /// `vault_window.gd::_build_browse_preview`'s own named gap, closed here.
+    /// No `attach()` call anywhere in this test: these two must work from the
+    /// path alone.
+    #[test]
+    fn a_browsed_file_finds_its_backlinks_and_mentions_by_path_alone() {
+        let root = scratch("file_backlinks");
+        std::fs::create_dir_all(root.join("Locations")).unwrap();
+        std::fs::write(
+            root.join("Locations/Verenoth-Landing_Docks.md"),
+            "Downstream barge terminus.
+",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Chronicle.md"),
+            "The lords of [[Verenoth-Landing_Docks]] held the ford.
+",
+        )
+        .unwrap();
+        // Both separators the stem carries -- `-` and `_` -- must read as
+        // spaces for the mention to be found: dropping either one drops a
+        // token the fingerprint needs, and `mention_candidates` requires
+        // every token to match. A fixture with only one separator would not
+        // catch a mutant that stopped handling the other (mutation-tested:
+        // dropping the `_` arm alone left this test green until this line
+        // added the third word).
+        std::fs::write(
+            root.join("Journal.md"),
+            "Rode through Verenoth Landing Docks before the thaw and slept badly.
+",
+        )
+        .unwrap();
+        std::fs::write(root.join("Elsewhere.md"), "Nothing to do with any of it.
+").unwrap();
+
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        // Nothing is built until somebody asks -- same rule as the entity half.
+        assert!(!s.backlinks.is_built());
+        assert!(s.file_backlinks("Locations/Verenoth-Landing_Docks.md").is_empty());
+        assert!(s.file_mentions("Locations/Verenoth-Landing_Docks.md", 8).is_empty());
+
+        let stats = s.refresh_backlinks(500).unwrap();
+        assert_eq!(stats.seen, 5, "four notes written here plus `scratch()`'s own Nareth.md fixture");
+
+        let back = s.file_backlinks("Locations/Verenoth-Landing_Docks.md");
+        assert_eq!(back.len(), 1, "exactly one note links to it: {back:?}");
+        assert_eq!(back[0].0, "Chronicle.md");
+        assert_eq!(back[0].1, LinkForm::Wiki);
+        assert_eq!(back[0].2, 1);
+
+        let mentions = s.file_mentions("Locations/Verenoth-Landing_Docks.md", 8);
+        let mpaths: Vec<&str> = mentions.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            mpaths,
+            vec!["Journal.md"],
+            "the `-`- and `_`-separated stem must be read as three words, and only the unlinked prose hit found"
+        );
+        assert!(
+            mentions[0].1.contains("Verenoth"),
+            "the excerpt must show the hit: {:?}",
+            mentions[0].1
+        );
+
+        // The file is not a backlink or a mention of itself.
+        assert!(!back.iter().any(|(p, _, _)| p == "Locations/Verenoth-Landing_Docks.md"));
+        assert!(!mpaths.contains(&"Locations/Verenoth-Landing_Docks.md"));
 
         let _ = std::fs::remove_dir_all(&root);
     }

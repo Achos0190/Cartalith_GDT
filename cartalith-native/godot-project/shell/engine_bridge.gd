@@ -4873,6 +4873,21 @@ func vault_entity_mentions(kind: String, entity_id: int, name: String, max_rows:
 		return []
 	return world_gen.vault_entity_mentions(kind, entity_id, name, max_rows)
 
+## Every note that links to `rel` directly -- `{rel, form, count}` -- for a
+## file being browsed rather than attached to an entity, where
+## `vault_entity_backlinks` above has no `(kind, entity_id)` to look up.
+func vault_file_backlinks(rel: String) -> Array:
+	if not _has("vault_file_backlinks"):
+		return []
+	return world_gen.vault_file_backlinks(rel)
+
+## Notes that name this file's own title in prose and do not link to it --
+## `{rel, excerpt}` -- the path-keyed analogue of `vault_entity_mentions`.
+func vault_file_mentions(rel: String, max_rows: int = 12) -> Array:
+	if not _has("vault_file_mentions"):
+		return []
+	return world_gen.vault_file_mentions(rel, max_rows)
+
 ## `{built, broken: [{source, target}], orphans: [rel]}` -- both halves of
 ## Data ▸ Missing & orphan notes report…, from the one index.
 func vault_backlink_report(limit: int = 200) -> Dictionary:

@@ -25,6 +25,14 @@ extends Node
 ##   6. The conflict guard: open the editor, let an external write land on
 ##      the same file, confirm both the bridge call directly and the real
 ##      Save button refuse and leave the external edit's bytes intact.
+##
+## **2026-09-26**: the standalone entry point's own open button is now
+## labelled "Open to edit" and drawn primary (`OUTSTANDING_WORK.md`'s Vault
+## Browser mockup row, closing that gap) -- `_build_note_editor(g, true)` from
+## `_build_browse_preview` only; `_build_attach`'s own call is unchanged and
+## still says "Preview & edit this note…". §5/§6 below were updated to look
+## for the standalone entry point's real, current label rather than the
+## Attach-section one it never draws.
 
 var _app: Node
 var _fails: Array = []
@@ -199,8 +207,11 @@ func _ready() -> void:
 	vw2._pick_file = NOTE
 	vw2._rebuild()
 	await get_tree().process_frame
-	var open_btn2 := _find_button(vw2, "Preview & edit this note…")
-	_ok("standalone: the same raw-editor button is offered here too", open_btn2 != null)
+	## The standalone entry point's own open button, not the Attach section's
+	## -- `_build_browse_preview` draws it primary and labelled "Open to edit"
+	## (see this file's own header, 2026-09-26).
+	var open_btn2 := _find_button(vw2, "Open to edit")
+	_ok("standalone: the browse-mode raw-editor button is offered here", open_btn2 != null)
 	if open_btn2 != null:
 		open_btn2.pressed.emit()
 		await get_tree().process_frame

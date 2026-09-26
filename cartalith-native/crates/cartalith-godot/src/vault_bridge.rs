@@ -1178,6 +1178,51 @@ impl WorldGen {
             .collect()
     }
 
+    /// Every note that links to `rel` — `{rel, form, count}`, `form` `"wiki"`
+    /// or `"markdown"` — for a note being **browsed** rather than attached to
+    /// an entity, where `vault_entity_backlinks` above has no `(kind,
+    /// entity_id)` to look up.
+    ///
+    /// `vault_window.gd`'s own gap note named this exact absence
+    /// (`_build_browse_preview`, 2026-09-23/26): `cartalith_vault::backlinks::
+    /// Backlinks::backlinks_to` is path-keyed and already exists, and this is
+    /// the one-line `#[func]` wrapper over it (`cartalith_vault::Vault::
+    /// file_backlinks`) that was missing. Empty, not an error, when the
+    /// backlink index has not been built — see `vault_backlink_stats().built`.
+    #[func]
+    fn vault_file_backlinks(&self, rel: GString) -> Array<VarDictionary> {
+        self.vault
+            .file_backlinks(&rel.to_string())
+            .into_iter()
+            .map(|(source, form, count)| {
+                vdict! {
+                    "rel" => source.as_str(),
+                    "form" => match form {
+                        cartalith_vault::LinkForm::Wiki => "wiki",
+                        cartalith_vault::LinkForm::Markdown => "markdown",
+                    },
+                    "count" => count as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Notes that name this file's own title in prose and do not link to it —
+    /// `{rel, excerpt}`, the path-keyed analogue of `vault_entity_mentions`.
+    /// The name searched for is the file's stem with `-`/`_` read as spaces
+    /// (`cartalith_vault::Vault::file_mentions`'s own doc comment); there is
+    /// no other title to search by for an unattached file. Empty under the
+    /// same three conditions `vault_entity_mentions` names.
+    #[func]
+    fn vault_file_mentions(&self, rel: GString, max: i64) -> Array<VarDictionary> {
+        let max = if max > 0 { max as usize } else { 12 };
+        self.vault
+            .file_mentions(&rel.to_string(), max)
+            .into_iter()
+            .map(|(rel, excerpt)| vdict! { "rel" => rel.as_str(), "excerpt" => excerpt.as_str() })
+            .collect()
+    }
+
     /// Links that resolve to no note in this vault, and notes nothing links
     /// to — the two halves of `Data ▸ Missing & orphan notes report…`, from
     /// the one index rather than from a second walk.

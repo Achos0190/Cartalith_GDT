@@ -252,7 +252,11 @@ The `cartalith-vault` crate, its bridge, and the panels. Specifically:
   `vault_window.gd::open_browse()`, a folder tree beside a structured preview —
   has one design authority: the owner-approved **Vault Browser** mockup,
   `https://claude.ai/artifact/9pappbCh7Y5Txmq3QpYBfS` (a Design canvas, one
-  interactive 1280 × 800 artboard), approved 2026-09-21 (`ddaa0b1`). The
+  interactive 1280 × 800 artboard), approved 2026-09-21 (`ddaa0b1`). **A
+  reference copy is filed in this repository**, `design/vault-browser-
+  2026-09-21/Cartalith Vault Browser.dc.html` (2026-09-26, closing
+  `OUTSTANDING_WORK.md`'s "Record approved Vault Browser mockup…" row's first
+  step — the artifact link above had never resolved to a tracked file). The
   browser was rebuilt to its frame on 2026-09-23 (`3736fe7`, which measured
   the tree column at 300 px).
 - **Attach** (§11-§13) — whole document or one heading section, validated at
