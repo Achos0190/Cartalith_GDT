@@ -967,10 +967,9 @@ mod tests {
         let rain: Vec<f32> = vec![0.45; n];
         let flow: Vec<f32> = vec![0.0; n];
         // `assign_territory`'s own convention: 0 = unowned, a faction id
-        // otherwise. Passed through unchanged -- `jp_claimed_at`'s `>= 0`
-        // test is the reference's own (its `civTerritory` is a `Uint8Array`,
-        // so `>= 0` is likewise always true there); this port reproduces the
-        // behaviour rather than "fixing" it into a divergence.
+        // otherwise. Passed through unchanged; `jp_claimed_at` tests `> 0`
+        // (see its doc for why not the reference's always-true `>= 0`), so
+        // this all-unowned grid claims nothing -- asserted below.
         let territory: Vec<i32> = vec![0; n];
         let places = vec![
             NamedSettlement {
@@ -1042,6 +1041,10 @@ mod tests {
         assert_eq!(journey.profile.len(), pts.len(), "one elevation sample per route point");
         assert!(journey.has_land, "a land traverse");
         assert!(journey.stages.iter().all(|s| !s.biome.is_empty() && !s.terrain.is_empty()), "cart_biome/cart_terrain really fed it");
+        // The claim grid WorldGen holds uses 0 for unowned; nothing here is
+        // claimed, so no stage may read as claimed land.
+        let claimed: Vec<f64> = journey.stages.iter().map(|s| s.claimed_frac).collect();
+        assert!(claimed.iter().all(|&c| c == 0.0), "an all-unowned grid claims nothing: {claimed:?}");
         // Both endpoints are settlements the route threads through -- proof
         // that `places` reached `civ_passed_settlements` in the right frame.
         let names: Vec<&str> = journey.stops.iter().map(|s| s.name.as_str()).collect();

@@ -71,6 +71,13 @@ class_name FactionRosterWindow
 ## That silence is not a licence to rebuild them as sheets, so the window shape
 ## is unchanged and the question is recorded instead of guessed.
 
+## The one reason every claim-derived figure here can be missing once a world
+## exists: a project opened from an archive with no `rasters/territory.i32`
+## (`project_bridge.rs::civ_from_project`, which also warns on open). The
+## engine omits those figures rather than report the zero an empty claim grid
+## sums to; this is what the dash beside each one says.
+const NO_CLAIM_GRID := "Not known: this project was opened without its territory map. Paint territory, or run Recompute civilisation, to rebuild it."
+
 var app                       ## `DccApp`
 var bridge: EngineBridge
 
@@ -471,6 +478,10 @@ func _rebuild_overview() -> void:
 	var total_pop := 0
 	var total_settle := 0
 	var total_cells := 0
+	## `claimed_cells` is omitted, not `0`, while the claim grid is unknown
+	## (`get_factions()`' own doc) -- so the total is a dash, not a sum of the
+	## rows that happen to carry it.
+	var cells_known := true
 	var top_name := ""
 	var top_pop := -1
 	for f in factions:
@@ -478,7 +489,10 @@ func _rebuild_overview() -> void:
 		var pop := int(d.get("population", 0))
 		total_pop += pop
 		total_settle += int(d.get("settlement_count", 0))
-		total_cells += int(d.get("claimed_cells", 0))
+		if d.has("claimed_cells"):
+			total_cells += int(d["claimed_cells"])
+		else:
+			cells_known = false
 		if pop > top_pop:
 			top_pop = pop
 			top_name = String(d.get("name", "?"))
@@ -487,9 +501,12 @@ func _rebuild_overview() -> void:
 	if not agr.is_empty():
 		land_line = "  ·  Land sustains ≈ %s across %s km²" % [
 			_thousands(int(agr.get("sustains", 0))), _thousands(int(agr.get("land_km2", 0)))]
-	_overview.text = "%d factions  ·  %s total settled population  ·  %d settlements  ·  %d claimed cells%s\nLargest by population: %s (%s)" % [
-		factions.size(), _thousands(total_pop), total_settle, total_cells, land_line,
+	var cells_text := ("%d claimed cells" % total_cells) if cells_known else "claimed cells —"
+	_overview.text = "%d factions  ·  %s total settled population  ·  %d settlements  ·  %s%s\nLargest by population: %s (%s)" % [
+		factions.size(), _thousands(total_pop), total_settle, cells_text, land_line,
 		top_name, _thousands(top_pop)]
+	if not cells_known:
+		_overview.text += "\n" + NO_CLAIM_GRID
 
 
 # -- Faction list (`_civRenderFactionList`) ---------------------------------
@@ -721,6 +738,11 @@ func _build_terrain_fit() -> void:
 	if fit.is_empty():
 		DccWidgets.note(sec, "Reopen the roster to recompute terrain composition.")
 		return
+	if String(fit.get("absent", "")) == "no_claim_grid":
+		## Composition is a share of the faction's claimed cells; with no claim
+		## grid there is no mix, and an all-zero one would read "no river".
+		DccWidgets.note(sec, "Composition: —   " + NO_CLAIM_GRID)
+		return
 	var mix: Dictionary = fit.get("mix", {})
 	var parts: Array[String] = []
 	for k in ["river", "coast", "arid", "forest", "hills"]:
@@ -775,6 +797,10 @@ func _build_overview_block(d: Dictionary) -> void:
 		DccWidgets.note(sec, "Territory: %s km² over %d claimed cells (%d contested)" % [
 			_thousands(int(float(stats.get("area_km2", 0.0)))),
 			int(stats.get("claimed_cells", 0)), int(stats.get("contested_cells", 0))])
+	else:
+		## With a faction on screen there is a world, so an empty answer has
+		## one cause: `civ_faction_territory_stats`' "unknown" (its Rust doc).
+		DccWidgets.note(sec, "Territory: —   " + NO_CLAIM_GRID)
 	if not cap.is_empty():
 		DccWidgets.action(sec, "Focus camera on capital", func():
 			app.viewport.move_view_to(float(int(cap.get("x", 0))), float(int(cap.get("y", 0))))
@@ -812,6 +838,11 @@ func _build_military_block() -> void:
 		int(row.get("walled_palisade", 0)), int(row.get("walled_ditch", 0))])
 
 	var m: Dictionary = row.get("manpower", {})
+	if String(row.get("absent", "")) == "no_claim_grid":
+		## `civ_military_summary`'s own doc: the manpower model's land capacity
+		## and road density are claimed-cell integrals, so it is withheld.
+		DccWidgets.note(sec, "Standing army, field army and levy: —   " + NO_CLAIM_GRID)
+		return
 	if m.is_empty():
 		return
 	DccWidgets.note(sec, "Standing army %s (professional core %s)   ·   sustainable field army %s   ·   emergency levy %s" % [

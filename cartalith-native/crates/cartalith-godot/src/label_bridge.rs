@@ -94,6 +94,10 @@ use crate::selection::{SelectMode, SelectionSet};
 /// a new file, `label_bridge/generate.rs`, declared here.
 mod generate;
 
+/// The map context request's read-only pick (`label_pick_all`) —
+/// `label_bridge/pick.rs`, a child module for the same reason.
+mod pick;
+
 // Re-exported so `lib.rs` can build a drag loop (`label_resize_size`/
 // `label_rotate_deg`/`label_arc_value` are pure per-call math, no session to
 // hold on this side — the caller keeps `cx`/`cy`/`start_size`/`start_dist`/
@@ -431,6 +435,28 @@ impl LabelBridge {
         self.selection.apply(mode, index);
         self.sync_session();
         Some(index)
+    }
+
+    /// Every label whose box contains `(gx, gy)`, topmost first — the
+    /// **read-only** pick `MAP_CONTEXT_SCOPE.md` CM-1's `hits[]` needs.
+    ///
+    /// [`Self::hit_test`] cannot serve it: it *selects* what it hits and
+    /// answers only the topmost label, so a right-click that asked it
+    /// "what is here" would move the selection and hide every label beneath
+    /// the first. This asks the same question of each box on its own —
+    /// `label_hit_test` over a one-box slice, so the containment rule is that
+    /// function's, not a second copy — and touches neither `selection` nor
+    /// `session`. The order is `label_hit_test`'s own back-to-front scan, so
+    /// the first entry is exactly the label a plain click would select.
+    pub fn pick_all(&self, gx: f64, gy: f64, px_per_cell: f64) -> Vec<usize> {
+        let none = LabelHandles::default();
+        (0..self.labels.len())
+            .rev()
+            .filter(|&i| {
+                let b = [shell_label_box(&self.labels[i], px_per_cell)];
+                cartalith_civ::labels::label_hit_test(&b, &none, gx, gy).is_some_and(|h| h.index.is_some())
+            })
+            .collect()
     }
 
     /// The five on-canvas handle circles for label `index`'s current box —
@@ -785,6 +811,33 @@ mod tests {
         assert_eq!(hit, Some(0));
         assert_eq!(b.session.selected(), Some(0));
         assert_eq!(b.selected(), Some(0));
+    }
+
+    #[test]
+    fn pick_all_lists_every_overlapping_label_topmost_first_and_selects_nothing() {
+        let mut b = LabelBridge::new();
+        b.create(10.0, 10.0, "A"); // 0
+        b.create(10.2, 10.2, "B"); // 1, on top of A
+        b.create(200.0, 200.0, "C"); // 2, far away
+        b.select(2, SelectMode::Replace);
+        assert_eq!(b.pick_all(10.5, 10.5, PX_PER_CELL), vec![1, 0]);
+        // The first entry is what a plain click would have selected.
+        assert_eq!(b.clone_hit(10.5, 10.5), Some(1));
+        assert_eq!(b.selected(), Some(2), "a pick is not a click");
+        assert_eq!(b.session.selected(), Some(2));
+        assert!(b.pick_all(-500.0, -500.0, PX_PER_CELL).is_empty());
+    }
+
+    impl LabelBridge {
+        /// What `hit_test` would answer, run on a throwaway copy so the
+        /// comparison above cannot be satisfied by the pick's own side effects.
+        fn clone_hit(&self, gx: f64, gy: f64) -> Option<usize> {
+            let mut c = LabelBridge::new();
+            for lb in &self.labels {
+                c.create(lb.x, lb.y, &lb.name);
+            }
+            c.hit_test(gx, gy, PX_PER_CELL, SelectMode::Replace)
+        }
     }
 
     #[test]

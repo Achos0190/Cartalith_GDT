@@ -133,10 +133,8 @@ var _infra: InfrastructureWorkspace
 ## thing as an index into `get_settlements()`, which is the identity every
 ## `#[func]` in this area keys on. `-1` for nothing selected. --
 var _selected_index := -1
-## Rebuilt per right click rather than kept: its item list depends on
-## whether a place was hit and what it is called, so a cached menu would be
-## stale on every open but the first.
-var _ctx_menu: PopupMenu
+## The map context row being run (`_run_ctx`). The menu itself moved to
+## `shell/context_broker.gd` with CM-1.
 var _ctx_gx := 0.0
 var _ctx_gy := 0.0
 var _ctx_hit := -1
@@ -622,61 +620,61 @@ func on_deselect() -> bool:
 ## omitted rather than shown disabled, matching how this file's own
 ## `_build_tools()` already treats the POI tool.
 ##
+## **CM-1 (`MAP_CONTEXT_SCOPE.md` §9.1): this was `on_map_right_clicked`, and it
+## built and popped its own `PopupMenu`.** It is now this workspace's
+## `context_actions` provider: it returns CX-01's five rows and
+## `shell/context_broker.gd` presents them -- in the same styled `PopupMenu`,
+## at the same place, or as the same phone L4 sheet. The rows' text, order and
+## enabled state are unchanged, and each row runs the same `_on_ctx_id` arm it
+## always did (`_run_ctx`), which is the milestone's regression test
+## (`_ctxbroker_probe.gd`). The contract is in the broker's header.
+##
 ## The reference gates its menu on "a civ-capable tab is open"; the
-## equivalent gate here is this workspace being the active domain, which
-## `app.gd`'s broadcast does not check -- so it is checked here.
-func on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -> void:
-	if app.active_domain() != "civilization":
-		return
+## equivalent gate here is this workspace being the active domain -- the
+## broker asks every provider, so it is checked here, as it always was. A
+## settlement right-clicked in CARTO reaches these verbs through that
+## workspace's one "…in CIVIL" row (Ruling AX F4), not inline.
+##
+## The settlement is `req.hits`' first `"settlement"` entry, which
+## `map_overlay.gd::hits_at()` guarantees is `_hit_test_settlement`'s own
+## answer -- the one hit the old signal carried.
+func context_actions(req: Dictionary) -> Array:
+	if String(req.get("domain", "")) != "civilization":
+		return []
 	if not bridge.has_world:
-		return
-	_ctx_gx = gx
-	_ctx_gy = gy
-	_ctx_hit = hit
-	if _ctx_menu == null:
-		_ctx_menu = PopupMenu.new()
-		## The one `PopupMenu` in the shell that never went through the shell's
-		## own styling: measured 232x54 on both desktop and tablet in the
-		## 2026-08-25 menu sweep -- Godot's stock panel, stock selection bar and
-		## a 15 px row on a device whose floor is 44. Every program menu beside
-		## it is `#121314` with the accent wash, and this one was not.
-		DccWidgets.style_popup(_ctx_menu)
-		_ctx_menu.id_pressed.connect(_on_ctx_id)
-		add_child(_ctx_menu)
-	_ctx_menu.clear()
+		return []
+	var gx: float = req["gx"]
+	var gy: float = req["gy"]
+	var hit := -1
+	for h in req.get("hits", []):
+		if h["kind"] == "settlement":
+			hit = int(h["id"])
+			break
+	var rows: Array = []
 	if hit >= 0:
 		var s: Dictionary = bridge.settlements()[hit]
 		var nm := String(s.get("name", "(unnamed)"))
-		_ctx_menu.add_item("Edit %s" % nm, 0)
-		_ctx_menu.add_item("Move viewer to %s" % nm, 1)
-		_ctx_menu.add_item("Delete %s" % nm, 2)
-		_ctx_menu.add_separator()
-	_ctx_menu.add_item("Drop settlement here", 3)
-	_ctx_menu.add_separator()
-	_ctx_menu.add_item("Info here (settlement & ecology)", 4)
-	## Phone: the very same menu, re-presented as the canvas's L4 sheet
-	## (`phone_menu.gd`'s `open_sheet`), because a finger has no second button
-	## and a pointer-sized popup at a fingertip is both unreadable and clipped
-	## at a screen edge. `map_overlay.gd` turns the press-and-hold into the
-	## `map_right_clicked` that got us here, so nothing above this line differs
-	## between the two pointers -- one menu definition, two presentations.
-	## Returns false on desktop and tablet, where the stock popup below runs
-	## exactly as it always has.
-	var ctx_title := "Here"
-	if hit >= 0:
-		var picked: Dictionary = bridge.settlements()[hit]
-		ctx_title = String(picked.get("name", "Place"))
-	if app.phone_present_popup(_ctx_menu, ctx_title,
-			"Map · cell %d, %d" % [int(gx), int(gy)]):
-		return
-	## `screen_pos` is `map_overlay`'s own local space, and the overlay sits
-	## under the map camera's zoom; an embedded `PopupMenu` pops in the main
-	## viewport's space. `get_screen_position() + screen_pos` skipped the zoom
-	## and added the OS window offset, so the menu opened ~100 px off the
-	## cursor (measured 2026-09-23: click (583, 425), menu at (506, 323)).
-	_ctx_menu.position = Vector2i(app.viewport.overlay.get_global_transform_with_canvas() * screen_pos)
-	_ctx_menu.reset_size()
-	_ctx_menu.popup()
+		## The phone sheet's title -- `"Place"` for an unnamed one, as before.
+		var head := String(s.get("name", "Place"))
+		rows.append({"id": "civ.edit", "label": "Edit %s" % nm, "section": "object",
+			"enabled": true, "header": head, "callable": _run_ctx.bind(0, hit, gx, gy)})
+		rows.append({"id": "civ.move_viewer", "label": "Move viewer to %s" % nm, "section": "object",
+			"enabled": true, "header": head, "callable": _run_ctx.bind(1, hit, gx, gy)})
+		rows.append({"id": "civ.delete", "label": "Delete %s" % nm, "section": "object",
+			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy)})
+	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
+		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
+	rows.append({"id": "civ.info_here", "label": "Info here (settlement & ecology)", "section": "info",
+		"enabled": true, "callable": _run_ctx.bind(4, hit, gx, gy)})
+	return rows
+
+## The row's context, restored exactly as `on_map_right_clicked` used to leave
+## it before the menu opened, then the same arm of `_on_ctx_id`.
+func _run_ctx(id: int, hit: int, gx: float, gy: float) -> void:
+	_ctx_gx = gx
+	_ctx_gy = gy
+	_ctx_hit = hit
+	_on_ctx_id(id)
 
 func _on_ctx_id(id: int) -> void:
 	match id:
@@ -5182,7 +5180,8 @@ func _lm_run() -> void:
 ## A `PopupPanel` rather than a `PopupMenu`: these are numbers, not actions, and
 ## `layers_popover.gd` is the shell's own precedent for a panel-shaped popover.
 ## Built here rather than in `dcc_widgets.gd`, which this pass may not edit --
-## the same way this file already builds `_ctx_menu` inline.
+## the same way this file built its map context `PopupMenu` inline until
+## CM-1 moved it to `context_broker.gd`.
 func _lm_open_funnel(key: String) -> void:
 	var r: Dictionary = _lm_rows.get(key, {})
 	if r.is_empty():

@@ -689,7 +689,7 @@ func _slot(key: String) -> String:
 
 ## Present ONE arbitrary `PopupMenu` as an L4 sheet with nothing behind it but
 ## the veiled map -- the map context menu's phone form
-## (`civilization_workspace.gd`'s `_ctx_menu`, opened by a press-and-hold
+## (`context_broker.gd`'s `popup` since CM-1, opened by a press-and-hold
 ## rather than a right click).
 ##
 ## Everything the canvas asks of a sheet is already built above and none of it
@@ -2357,9 +2357,9 @@ func _fill_help(body: VBoxContainer) -> void:
 ##     `viewport_host.gd`; what two fingers produce is
 ##     `InputEventPanGesture`, which pans.
 ##   - `LONG-PRESS · sample terrain → pin + chip` — `map_overlay.gd`'s
-##     `_TOUCH_HOLD_MS` (500 ms) turns a hold into `map_right_clicked`, which
-##     `civilization_workspace.gd::on_map_right_clicked()` presents as the L4
-##     sheet. Its `Info here` row is the sampling half; there is no pin-and-chip.
+##     `_TOUCH_HOLD_MS` (500 ms) turns a hold into `context_requested`, which
+##     `context_broker.gd` presents as the L4 sheet (CIVIL's rows come from
+##     `civilization_workspace.gd::context_actions()`). Its `Info here` row is the sampling half; there is no pin-and-chip.
 ##   - `TAB RE-TAP · close the sheet` — `DccShell._pick_phone_tab()` collapses
 ##     it to **peek** instead, and its own comment says why: this sheet is the
 ##     tool options bar and it has no "gone" state on the other two form
@@ -2381,8 +2381,8 @@ const GESTURES: Array = [
 		"viewport_host.gd — InputEventPanGesture; nothing rotates the view"],
 	["Press and hold", "Opens the map menu: edit, move the viewer, delete, drop a "
 		+ "settlement here, or read the terrain here.",
-		"map_overlay.gd — _TOUCH_HOLD_MS 500 → map_right_clicked → "
-			+ "civilization_workspace.gd::on_map_right_clicked()"],
+		"map_overlay.gd — _TOUCH_HOLD_MS 500 → context_requested → "
+			+ "context_broker.gd → civilization_workspace.gd::context_actions()"],
 	["Sheet handle", "Drags the sheet between peek, half and full.",
 		"dcc_shell.gd — _on_phone_sheet_grab_input() / _set_phone_detent()"],
 	["Tab re-tap", "Collapses the sheet to peek. It does not close: the sheet is "

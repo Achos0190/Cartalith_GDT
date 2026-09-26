@@ -121,6 +121,10 @@ mod generate;
 /// above is one.
 mod brush;
 
+/// The map context request's read-only pick (`icon_pick_all`) —
+/// `icon_bridge/pick.rs`, a child module for the same reason.
+mod pick;
+
 /// The reference's own `#carIconBrushR` slider bounds (reference line 1656:
 /// `min="2" max="60" value="12"`), which [`IconBrush::default`] already
 /// matches at 12.
@@ -558,6 +562,23 @@ impl IconEditor {
             }
             _ => None,
         }
+    }
+
+    /// Every icon whose box contains `(gx, gy)`, topmost first — the
+    /// **read-only** pick `MAP_CONTEXT_SCOPE.md` CM-1's `hits[]` needs, and
+    /// [`crate::label_bridge::LabelBridge::pick_all`]'s icon twin, for the
+    /// same reason: [`Self::hit_test`] selects what it hits and answers only
+    /// the topmost. Each box is asked on its own through `icon_hit_test` over
+    /// a one-box slice (no handle), so the containment rule is that
+    /// function's; `selection` and `resize_base_scale` are not touched.
+    pub fn pick_all(&self, gx: f64, gy: f64, env: &IconViewEnv) -> Vec<usize> {
+        (0..self.icons.len())
+            .rev()
+            .filter(|&i| {
+                let b = [icon_box(&self.icons[i], env)];
+                matches!(icon_hit_test(&b, None, gx, gy), Some(IconHit { kind: IconHitKind::Box, .. }))
+            })
+            .collect()
     }
 
     /// Icon `index`'s on-canvas resize-handle circle — see [`icon_handle`].
@@ -1003,6 +1024,22 @@ mod tests {
         assert_eq!(e.selected(), None);
         // And nothing was deleted.
         assert_eq!(e.icons.len(), 1);
+    }
+
+    #[test]
+    fn pick_all_lists_every_overlapping_icon_topmost_first_and_selects_nothing() {
+        let mut e = IconEditor::new();
+        e.arm("feature", 0, 1.0, 0.0, 0.0);
+        e.place(5.0, 5.0, 48, 32); // 0
+        e.place(5.2, 5.2, 48, 32); // 1, on top
+        e.place(40.0, 30.0, 48, 32); // 2, far away, and selected by placing
+        let base = e.resize_base_scale;
+        assert_eq!(e.pick_all(5.5, 5.5, &env()), vec![1, 0]);
+        assert_eq!(e.selected(), Some(2), "a pick is not a click");
+        assert_eq!(e.resize_base_scale, base);
+        assert!(e.pick_all(500.0, 500.0, &env()).is_empty());
+        // The first entry is what a plain click selects.
+        assert_eq!(e.hit_test(5.5, 5.5, &env(), SelectMode::Replace), Some(1));
     }
 
     #[test]

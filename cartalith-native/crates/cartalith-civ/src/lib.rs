@@ -13078,15 +13078,31 @@ pub fn jp_infra_context(
 /// local tracks the generator never places as settlements, so it is the one
 /// real signal that a stage with no town near it is nonetheless inhabited.
 ///
-/// `territory` is `assign_territory`'s output (`-1` = unclaimed); `None` is the
-/// reference's own "no territory solution yet" branch. A slice that is not a
-/// whole `gw x gh` grid takes that branch too: a reopened project whose
-/// archive carried no claim grid has an empty one, and indexing it panicked.
+/// `territory` is the live claim grid (`assign_territory`'s output, then
+/// paint): a faction id per cell, **`0` = unclaimed** -- the reference's own
+/// convention too (`civTerritory` is a `Uint8Array`, and `_civAutoPolity`
+/// writes `terr[i]=fac[i]` only where a faction reaches). `None` is the reference's
+/// "no territory solution yet" branch. A slice that is not a whole `gw x gh`
+/// grid takes that branch too: a reopened project whose archive carried no
+/// claim grid has an empty one, and indexing it panicked.
+///
+/// **`> 0`, not the reference's `>= 0`** (2026-09-26). The reference tests
+/// `civTerritory[i]>=0` on a `Uint8Array`, which is true for every cell, so
+/// its `claimedFrac` is `1` on every stage of every route once territory
+/// exists -- including open sea -- and the two things built on it never
+/// fire: the toll count (`_jpJourneyCost`, "one levy per political
+/// frontier") is always 0 and the claimed-land infrastructure floor
+/// (`_jpStageInfra` rule (a)) applies everywhere. Its own comment says what
+/// it meant: "inside some faction's claimed territory". This port's
+/// milestone-5 golden was captured with a fixture whose unclaimed cells were
+/// `-1`, so the golden verified the discriminating behaviour while the live
+/// grid (`0` = unclaimed) never exhibited it. `> 0` answers the golden's
+/// question on the live convention; the golden's values do not move.
 pub fn jp_claimed_at(territory: Option<&[i32]>, gw: usize, gh: usize, gx: f64, gy: f64) -> bool {
     let Some(t) = territory.filter(|t| t.len() == gw * gh) else { return false };
     let xi = (js_round(gx) as i64).clamp(0, gw as i64 - 1) as usize;
     let yi = (js_round(gy) as i64).clamp(0, gh as i64 - 1) as usize;
-    t[yi * gw + xi] >= 0
+    t[yi * gw + xi] > 0
 }
 
 /// `JP_INFRA_TIERS` (reference line 17593): density ratio to infrastructure
@@ -15886,8 +15902,19 @@ mod tests {
     fn jp_claimed_at_takes_a_partial_grid_as_no_territory() {
         assert!(!jp_claimed_at(Some(&[]), 2, 2, 1.0, 1.0));
         assert!(!jp_claimed_at(None, 2, 2, 1.0, 1.0));
-        assert!(jp_claimed_at(Some(&[-1, -1, -1, 4]), 2, 2, 1.0, 1.0));
-        assert!(!jp_claimed_at(Some(&[4, 4, 4, -1]), 2, 2, 1.0, 1.0));
+        assert!(jp_claimed_at(Some(&[0, 0, 0, 4]), 2, 2, 1.0, 1.0));
+        assert!(!jp_claimed_at(Some(&[4, 4, 4, 0]), 2, 2, 1.0, 1.0));
+    }
+
+    /// The live claim grid's convention is `0` = unclaimed (`assign_territory`,
+    /// paint, the reference's own `Uint8Array`). A `0` cell is not claimed;
+    /// every faction id, including the first, is. Before 2026-09-26 the test
+    /// was `>= 0`, which read an all-unclaimed grid as all claimed.
+    #[test]
+    fn jp_claimed_at_reads_zero_as_unclaimed() {
+        assert!(!jp_claimed_at(Some(&[0; 4]), 2, 2, 0.0, 0.0));
+        assert!(jp_claimed_at(Some(&[1, 0, 0, 0]), 2, 2, 0.0, 0.0));
+        assert!(!jp_claimed_at(Some(&[1, 0, 0, 0]), 2, 2, 1.0, 0.0));
     }
 
     fn tb_map(pairs: &[(&'static str, f64)]) -> std::collections::HashMap<&'static str, f64> {
@@ -21449,7 +21476,12 @@ mod tests {
         let (mut field, mut temp, mut rain, mut flow) =
             (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
         let mut water_bodies = vec![0u8; n];
-        let mut territory = vec![-1i32; n];
+        // `0` = unclaimed, the live grid's convention. This fixture was built
+        // with `-1` until 2026-09-26, which let `jp_claimed_at`'s old `>= 0`
+        // discriminate here while it read every live cell as claimed; the
+        // golden values below were captured on that `-1` grid and are
+        // unchanged under `> 0` on this one.
+        let mut territory = vec![0i32; n];
         for y in 0..M5_GH {
             for x in 0..M5_GW {
                 let i = y * M5_GW + x;

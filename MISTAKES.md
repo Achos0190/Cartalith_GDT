@@ -49,6 +49,7 @@ its rule before you start.
 | **Read `sample_cell()`'s (or any multi-valued optional field's) key with `Dictionary.has(key)`** | `has(key)` means "was this computed at all," never "is the value the notable one." `s.water_body: Option<u8>` is `Some(0)` for **land** — a real classification entry, not a missing one — so `sample_cell`'s wrapper sets `"water"` to `"land"/"ocean"/"lake"` for every classified cell. `d.has("water")` is true almost everywhere and proves nothing about wetness | Check the **value** (`d.get(key) != "land"`), never bare `has(key)`, for any field whose own doc comment lists more than one non-missing outcome |
 | **Cite a test file in a doc comment** | A `pub(crate)` justified by a named test is a load-bearing dependency on that name. `render.rs` cited `tests/geology_micro_and_sky_fields.rs` twice, once as the visibility rationale; the file did not exist | `ls` every test path named in a doc comment in the file you touched |
 | **Write an oracle for a ported function** | The reference's *errors* are part of the contract. A brute-force exact Euclidean transform failed a correct jump-flood port, because the reference jump-flood is exact from one seed and approximate beyond it | Assert the reference's behaviour including its approximations, not the mathematically ideal answer |
+| **Build a fixture for a grid the app also fills** | Encode every "none" sentinel **exactly as the live producer writes it**. A `-1`-for-unclaimed fixture let `jp_claimed_at`'s `>= 0` pass its golden while the live grid (`0` = unowned) read every cell as claimed | Add one test driven by the real producer's output (a generated world), and mutate the sentinel test: both it and the golden must go red |
 | **Re-resolve a citation late in a long pass** | A line number checked at the start can be stale by the end. Measured this session: **148 and 241 lines** of drift in files other lanes were editing; untouched files held exactly | Grep the quoted string. Never jump to the line |
 | **Conclude a thing does not exist from a directory listing** | Absence of a path is not absence of the thing. `crates/cartalith-urban` has no `tests/` directory because the crate puts fixtures at `src/<module>/tests/golden.rs` — the milestone-16 golden was 3 139 lines of it, and a brief scheduled it as unbuilt work | Grep for the **symbol or its content**, never for the conventional location. `grep -rn golden crates/<crate>/src`, or grep the symbol, before concluding |
 | **Write prose about another lane's subsystem in the same batch** | Two lanes ran concurrently: one removed a hardcode, the other shipped a note explaining that the hardcode was why a control was inert. The note was true at dispatch and **false on arrival** — and it reads as freshly checked | State the other lane's file as *of this batch*, or re-verify at the symbol after the batch lands. A cross-lane claim has a shelf life of one wave |
@@ -81,6 +82,7 @@ its rule before you start.
 | **Write a completeness claim into a correction** | *"Nothing was left un-found"* was false in the same edit that said it: the hunt reported 6 sites in 3 files and there were **5 in 4**, one of them in the very file whose zero-consumer status the same lane had just reported. A correction that overstates its own coverage is worse than one that admits a gap | Say what you searched and how, not that you found everything. `git grep -n <name> -- <path>` pasted into the report beats any adjective |
 | **Cite a document as authority for an absence** | **Check the document is still describing the tree.** Thirteen shipped `.gd` comments cited `04-left-dock.md` §0/§9.1's "lost to truncation" as authority for values that are readable — the prototype was re-imported whole in `660cbef` ("Design answered: the files are whole") and §0/§9.1 were never updated. It reached a `LARGE_ITEM_RULINGS.md` consequence I wrote, which instructed a build to *derive* two captions that are quoted verbatim at `Cartalith DCC Environment.dc.html:1937-1940` — following it would have replaced a true provenance with a false one | Before repeating "X is unrecoverable", open the file and check its size and last line. A truncation note outlives the truncation |
 | **Let a lane finish a file another lane is granted** | A lane silently wrote 255 lines into a file assigned to a different lane. Both merged cleanly and both parsed — but the shell build hash moved **between one lane's own probe runs**, so the lane that stayed inside its boundary took all its evidence against a moving tree, and it deliberately left a false citation unfixed because someone else was in that block | A lane needing a second file **asks**, and is granted or refused. Straying silently is what makes a verifier's evidence unattributable, and the cost lands on the lane that behaved |
+| **Brief two concurrent lanes that both write scratch scripts** | Give each lane its **own scratch subfolder**, named in its brief. 2026-09-26: two lanes both wrote `mutate.py` into the same session scratchpad; one's mutation run overwrote the other's harness and the second lane's full-workspace run showed **5 failures that were the first lane's live mutants** (each passed alone) | Every brief names `…/scratchpad/<lane>/`; a failing test that passes in isolation during another lane's mutation sweep is that sweep, not a defect — re-run after it ends |
 | **Resume a workflow lane with `SendMessage` while its workflow still runs** | Two copies of one lane can be live. The resumed copy reported its **own** board's symbols, in its **own** granted files, as evidence of a foreign writer — and reported the file broken when it was mid-save (`_build_timeline_readout` was defined thirty seconds later and both files passed `--check-only`) | Prefer letting a lane finish. When a resume is necessary, tell it explicitly that work already on disk in its own files is its own |
 | **Act on a critic's defect list** | **A critic's defect is a claim, and refusing one is a legitimate outcome.** Two of a design critic's seven survived contact and two did not: *"`poi` is emitted unconditionally"* — it is the true arm of `if p.is_poi`, and every `GeoPlace` is built `is_poi: false`, so adding the chip would have drawn a group that can never populate; and *"no dry-run path exists"* — one is wired on a sibling route, so the defect held only on the route drawn and the fix needed a different justification than the one stated | Open the cited symbol before replacing a value. Record "not real, changed nothing" as a result, and when a defect is real for a **different reason** than stated, write the true reason — not the one you were handed |
 | **Act on a verifier's own fix** | **A verifier's finding is a claim too, and its *fix* is the least-checked part of it.** One reported that widening `_dash_phase_track`'s f32 accumulator took a residual "from 43 differing px to 0 and every case to byte-identical". Re-measured windowed, both ways, same fixtures: **no difference on either probe** — `_segcull_probe` PASSes and `_cull_probe` FAILs 13 of 16 under f32 *and* f64. It was one edit from shipping as fact, sourced from the agent whose job is to stop exactly that | Re-measure a verifier's fix before adopting it, the same way you would a lane's. Keep the change if it is right on its own terms — and then say so, rather than citing a result you did not reproduce |
@@ -1411,3 +1413,31 @@ every motion path converges.
 
 **Verification:** Pan at unchanged zoom and count the culled content on the
 newly revealed ground. It must be there without any other input.
+
+### [2026-09-26] The golden fixture used a "none" value the live producer never writes
+
+**Mistake:** `cartalith_civ::jp_claimed_at` tested `territory[i] >= 0`, copied
+from the reference's `_jpClaimedAt`. The Journey Planner milestone-5 golden was
+built on a fixture whose unclaimed cells were `-1`, so under `>= 0` the golden
+saw claimed and unclaimed stages and passed. The live claim grid, like the
+reference's own `Uint8Array`, uses `0` for unowned. On every real world every
+sampled point read as claimed: `claimedFrac` was 1 on every stage, open sea
+included, tolls were never charged, and the claimed-land infrastructure floor
+applied everywhere. A scope document then defended `>= 0` as "golden-faithful".
+Found 2026-09-24 as a suspicion and confirmed 2026-09-26. Fixed with `> 0` and
+the fixture moved to `0`. No golden value moved.
+
+**Root cause:** The fixture's sentinel for "none" was chosen by the test author
+(`-1`, the usual Rust sentinel), not taken from the grid's live producer
+(`assign_territory`, paint, the reference's `_civAutoPolity`). A golden checks
+the function against the fixture. It cannot tell you the fixture has the shape
+the app feeds it.
+
+**Prevention:** When a fixture stands in for a grid the app fills, encode every
+sentinel exactly as the live producer writes it. Add one test that drives the
+consumer from the real producer's output (a generated world), not only from the
+hand-built grid.
+
+**Verification:** Mutate the consumer's sentinel test (`> 0` to `>= 0`). The
+golden must go red on the corrected fixture, and the live-producer test must go
+red too. Both did.

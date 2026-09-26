@@ -802,6 +802,43 @@ func _build_layer_gaps(parent: Control) -> void:
 
 
 # ===========================================================================
+# Map context (`MAP_CONTEXT_SCOPE.md` CM-1)
+# ===========================================================================
+
+## This workspace's `context_actions` provider -- the contract is in
+## `shell/context_broker.gd`'s header.
+##
+## **One row in CM-1: Ruling AX F4.** A settlement right-clicked in CARTO gets
+## *"Settlement actions in CIVIL ›"*, which switches the domain and re-opens
+## the same request there, so CIVIL's own rows (CX-01) appear at the same spot.
+## Not CIVIL's verbs inline -- that is the fork the owner answered. Before CM-1
+## a right-click in CARTO opened nothing at all.
+##
+## §4.3's other CARTO rows (label Edit text / Delete, icon Properties / Delete,
+## Add label here, View field ▸, Style preset ▸) are not here yet. Their hits
+## already arrive in `req.hits` (`label`, `icon`); the rows need the card's
+## sections and submenus, and presenting them in CX-01's `PopupMenu` would be
+## a CARTO menu the owner has not seen. They land with CM-2.
+func context_actions(req: Dictionary) -> Array:
+	if String(req.get("domain", "")) != "cartography":
+		return []
+	for h in req.get("hits", []):
+		if h["kind"] == "settlement":
+			var raw: Dictionary = req.duplicate()
+			return [{"id": "carto.settlement_in_civil",
+				"label": "Settlement actions in CIVIL ›", "section": "object",
+				"enabled": true, "header": String(h.get("label", "Place")),
+				"callable": _open_in_civil.bind(raw)}]
+	return []
+
+## Deferred: this runs inside the broker's own `id_pressed`, and the re-resolve
+## rebuilds that very popup.
+func _open_in_civil(req: Dictionary) -> void:
+	app.select_domain("civilization")
+	app.context_broker.resolve.call_deferred(req)
+
+
+# ===========================================================================
 # Tool arming / click-drag wiring
 # ===========================================================================
 

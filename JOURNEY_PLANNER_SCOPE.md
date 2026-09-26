@@ -383,11 +383,17 @@ a feature takes five steps. (This section absorbs the former dated sections
      overwrites `road_cells` straight after, deliberately: widening `build`'s
      signature would re-derive `road_cells` for callers that also want the
      world's other tables (`journey_bridge.rs`' module doc).
-   - **`jp_claimed_at` tests `territory[i] >= 0`**, and `assign_territory` uses
-     `0` for unowned, so every cell reads as claimed. That is exactly the
-     reference's behaviour (its `civTerritory` is a `Uint8Array`, so `>= 0` is
-     always true); "correcting" it at the boundary would silently diverge from a
-     golden-verified consumer.
+   - **`jp_claimed_at` tests `territory[i] > 0`** (since 2026-09-26). It
+     tested `>= 0`, copied from the reference, where `civTerritory` is a
+     `Uint8Array` and `>= 0` is always true — so every cell read as claimed,
+     tolls never fired and the claimed-land infra floor applied everywhere,
+     against the reference's own comment ("inside some faction's claimed
+     territory"). This section used to defend that as golden-faithful; it was
+     not what the golden verified. Milestone 5's fixture used `-1` for
+     unclaimed, so the golden checked the *discriminating* behaviour, which the
+     live grid (`0` = unowned, as in the reference) never produced. The fixture
+     now uses `0` and no golden value moved; live journey output did (see
+     `jp_claimed_at`'s doc and `STATUS.md` JP-CLAIM).
 3. **A party form.** `JpPlan` is ~20 fields, ten party counts and a sparse
    per-stage override map — a GUI surface, not a `#[func]` signature. Built as
    `shell/journey_planner_view.gd`, an in-shell takeover laid out per

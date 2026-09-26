@@ -120,6 +120,10 @@ impl WorldGen {
     /// reference's own `_civRegionalPopulation` ("never touches
     /// generate()/render").
     ///
+    /// Keys `total`, `land_km2`, and `claimed` (the share on claimed land) --
+    /// the last omitted when the claim grid is not known (a project opened
+    /// without its `rasters/territory.i32`), rather than reported as 0.
+    ///
     /// Empty with no complete world (none, or a world opened without its substrate
     /// (a legacy `.zip`, or a project saved before 2026-09-24 -- `SAVEFILE_COMPAT.md` §8.3)) or no civilisation layer, matching
     /// `civ_agrarian_regional_total`'s own guard.
@@ -190,11 +194,17 @@ impl WorldGen {
                 claimed += p;
             }
         }
-        vdict! {
+        let mut out = vdict! {
             "total" => total.round() as i64,
             "land_km2" => (land_cells as f64 * cell_km2).round() as i64,
-            "claimed" => claimed.round() as i64,
+        };
+        // Only over a known claim grid: a project opened without its
+        // `rasters/territory.i32` has no claimed share to report, which is
+        // not the same as a share of 0.
+        if has_territory {
+            out.set("claimed", claimed.round() as i64);
         }
+        out
     }
 
     /// `ctx.lineWidth = Math.max(1, sizePx * 0.16)` — the arc-label halo

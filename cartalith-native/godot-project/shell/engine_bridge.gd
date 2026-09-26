@@ -2748,6 +2748,14 @@ func icon_hit_test_mode(gx: float, gy: float, mode: int) -> int:
 		return icon_hit_test(gx, gy)
 	return world_gen.icon_hit_test_mode(gx, gy, mode)
 
+## `label_pick_all`'s icon twin (`icon_bridge/pick.rs`): every placed icon
+## under `(gx, gy)`, topmost first, selecting nothing. Empty against a cdylib
+## without the binding, for the same reason.
+func icon_pick_all(gx: float, gy: float) -> PackedInt64Array:
+	if not _has("icon_pick_all"):
+		return PackedInt64Array()
+	return world_gen.icon_pick_all(gx, gy)
+
 ## Every selected icon's index, ascending. Empty against an older cdylib is a
 ## lie only in the "one icon is selected" case, so it falls back to whatever
 ## `icon_get_selected()` reports rather than to nothing.
@@ -3158,7 +3166,7 @@ func civ_year_in_force(year: int) -> Dictionary:
 ## MM-6 for one settlement by `tid`, read at `year`: `garrison`,
 ## `garrison_share`, `border_exposure`, `garrison_multiplier`,
 ## `faction_garrison` -- or `absent` (`no_reading` / `not_recorded` /
-## `unclaimed` / `no_standing`). Always `reading`. `{}` before a world or on an
+## `unclaimed` / `no_claim_grid` / `no_standing`). Always `reading`. `{}` before a world or on an
 ## older binary.
 func civ_settlement_garrison(tid: int, year: int) -> Dictionary:
 	if not _has("civ_settlement_garrison"):
@@ -3891,6 +3899,17 @@ func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int) ->
 	if not _has("label_hit_test_mode"):
 		return label_hit_test(gx, gy, px_per_cell)
 	return world_gen.label_hit_test_mode(gx, gy, px_per_cell, mode)
+
+## Every label whose box contains `(gx, gy)`, topmost first, **selecting
+## nothing** -- `MAP_CONTEXT_SCOPE.md` CM-1's multi-hit pick
+## (`label_bridge/pick.rs`). Not `label_hit_test`, which selects its hit and
+## answers one. Empty against a cdylib without the binding: that engine has no
+## read-only pick, and falling back to the selecting one would move the
+## selection on every right-click.
+func label_pick_all(gx: float, gy: float, px_per_cell: float) -> PackedInt64Array:
+	if not _has("label_pick_all"):
+		return PackedInt64Array()
+	return world_gen.label_pick_all(gx, gy, px_per_cell)
 
 ## Every selected label's index, ascending. Falls back to whatever
 ## `label_get_selected()` reports against a cdylib without the set.

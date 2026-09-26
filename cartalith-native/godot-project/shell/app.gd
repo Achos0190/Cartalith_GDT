@@ -285,15 +285,15 @@ func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 	if _release_handlers.has(armed_tool):
 		_release_handlers[armed_tool].call(gx, gy, valid)
 
-## `_civCtxShow`'s right click. Unlike the three tool primitives above this
-## is NOT dispatched by armed tool -- the reference's own menu opens
-## regardless of which civ tool is armed (its only gate is "a civ-capable
-## tab is open"), so it is broadcast to every workspace that wants it, the
-## same shape `settlement_selected`/`cursor_sampled` already use.
-func _on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -> void:
-	for ws in _workspaces:
-		if ws.has_method("on_map_right_clicked"):
-			ws.on_map_right_clicked(gx, gy, hit, screen_pos)
+## `_civCtxShow`'s right click, since CM-1 (`MAP_CONTEXT_SCOPE.md` §3). Unlike
+## the three tool primitives above it is NOT dispatched by armed tool -- the
+## reference's own menu opens regardless of which civ tool is armed -- so it
+## goes to `context_broker`, which asks every workspace and `GlobalTools` for
+## rows (`context_actions`) and presents the merge. It replaced a broadcast of
+## `map_right_clicked` to each workspace's `on_map_right_clicked`, which only
+## `civilization_workspace.gd` ever implemented.
+const ContextBroker := preload("res://shell/context_broker.gd")
+var context_broker: ContextBroker
 
 ## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise
 ## disarms back to Inspect." A key, not a mouse button, so it belongs on
@@ -1473,7 +1473,9 @@ func _wire_selection() -> void:
 	viewport.map_clicked.connect(_on_map_clicked)
 	viewport.map_dragged.connect(_on_map_dragged)
 	viewport.map_released.connect(_on_map_released)
-	viewport.map_right_clicked.connect(_on_map_right_clicked)
+	context_broker = ContextBroker.new(self)
+	viewport.overlay.set_context_pick_resolver(context_broker.engine_picks)
+	viewport.context_requested.connect(context_broker.resolve)
 
 
 # -- Contextual chrome --------------------------------------------------------

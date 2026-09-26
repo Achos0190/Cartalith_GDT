@@ -3139,8 +3139,9 @@ func _build_faction(body: Control) -> void:
 	## RD-06: `civ_faction_territory_stats(faction)` is real and live now --
 	## same call `civilization_workspace.gd`'s `_tool_options_territory()`
 	## already reads for the CIVIL ▸ Territory options row. Reads — only when
-	## the faction has committed no territory (an empty dict, not a zeroed
-	## one, so a genuine zero-cells faction doesn't read as "not read here").
+	## the answer is unknown: an empty dict, which is "no world" or "no claim
+	## grid" (a project opened without its territory map), never a zeroed one,
+	## so a genuine zero-cells faction still reads its zero.
 	## `format_area`, not `format`: the linear factor squared, so 100 km² is
 	## 38.6 mi² and not 62.1. Cells and contested cells are counts and carry no
 	## unit, so only the middle term moves. **This is the same sentence, off the
@@ -3156,7 +3157,8 @@ func _build_faction(body: Control) -> void:
 			DccUnits.format_area(float(stats.get("area_km2", 0.0))),
 			int(stats.get("contested_cells", 0))]) if not stats.is_empty() else "—",
 		"" if not stats.is_empty() else
-			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.",
+			(FactionRosterWindow.NO_CLAIM_GRID if not roster.is_empty()
+				else "No world generated -- generate one first."),
 		not stats.is_empty())
 	_field(sec, "Provinces", str(mine.size()))
 	## §6's Faction context asks for "state religion", and it was dashed with a

@@ -111,6 +111,20 @@ static func install(app) -> void:
 	app.register_tool_release_handler("region", func(gx, gy, valid): _region_release(app, gx, gy, valid))
 	app.register_tool_escape_handler("region", func(): _region_escape(app))
 
+## `MAP_CONTEXT_SCOPE.md` CM-1's provider contract (`context_broker.gd`'s own
+## header has it). Static, like everything here: this class has no instance,
+## so the broker passes `app`.
+##
+## **Empty in CM-1, deliberately, not by omission.** The rows that belong to
+## no single domain -- §4.1's *Go / measure* (Measure from here, Cross-section
+## from here) and *Info* (Pin sample here, Copy coordinate ▸) -- are rows the
+## scope places in the card, and CM-1's presenter is still CX-01's
+## `PopupMenu`, which the milestone must not change for the user. Adding them
+## here would put them into CIVIL's menu and open a menu in WORLD, where a
+## right-click has never opened one. They arrive with CM-2.
+static func context_actions(_app, _req: Dictionary) -> Array:
+	return []
+
 # -- Measure ----------------------------------------------------------------
 
 ## The chain's own points, tracked here in parallel with the engine: `

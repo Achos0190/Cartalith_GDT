@@ -359,6 +359,12 @@ struct CivData {
     /// non-error outcome). Data only this pass -- no Godot-side rendering
     /// wired in yet, deliberately left for a dedicated UI/UX pass rather
     /// than improvised here (see this field's own CHANGELOG entry).
+    ///
+    /// **Either a whole `gw * gh` grid or empty**, like `territory` above.
+    /// Empty is "not known": a reopened project whose archive carried no
+    /// `rasters/provinces.i32` (`project_bridge.rs::civ_from_project`, which
+    /// warns). A reader that indexes it tests `len() == gw * gh` first;
+    /// `civ_reprovince` makes it whole again at the next territory commit.
     provinces: Vec<i32>,
     /// Province metadata (id/faction/name/seed settlement index) parallel
     /// to `provinces` above's cell ids.
@@ -2889,6 +2895,39 @@ fn faction_economy_aggregates(
         let places: Vec<cartalith_civ::FactionPlace> =
             civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
         cartalith_civ::civ_faction_aggregates(&input, &places)
+}
+
+/// Faction `f`'s claimed-cell count, or `None` while the claim grid is not
+/// known (not a whole `gw * gh` grid -- `CivData::territory`'s own doc). The
+/// one rule `get_factions()` and the faction aggregates' callers share, so
+/// "unknown" cannot come back as "claims nothing" from either.
+fn faction_claimed_cells(territory: &[i32], gw: usize, gh: usize, f: i32) -> Option<usize> {
+    claim_grid_known(territory, gw, gh).then(|| territory.iter().filter(|&&t| t == f).count())
+}
+
+/// Whether `territory` is a whole claim grid for a `gw x gh` world -- the
+/// test every reader of `CivData::territory` makes before trusting a count.
+fn claim_grid_known(territory: &[i32], gw: usize, gh: usize) -> bool {
+    gw > 0 && gh > 0 && territory.len() == gw * gh
+}
+
+#[cfg(test)]
+mod claim_grid_tests {
+    use super::{claim_grid_known, faction_claimed_cells};
+
+    /// An unknown claim grid is `None`, never `Some(0)`; a known one counts,
+    /// and a faction that claims nothing on a known grid is a real `Some(0)`.
+    #[test]
+    fn an_unknown_claim_grid_counts_as_unknown_not_zero() {
+        let grid = [0, 2, 2, 1, 0, 2];
+        assert_eq!(faction_claimed_cells(&grid, 3, 2, 2), Some(3));
+        assert_eq!(faction_claimed_cells(&grid, 3, 2, 1), Some(1));
+        assert_eq!(faction_claimed_cells(&grid, 3, 2, 5), Some(0), "known and empty is a real zero");
+        assert_eq!(faction_claimed_cells(&[], 3, 2, 2), None, "an unrestored grid");
+        assert_eq!(faction_claimed_cells(&grid[..5], 3, 2, 2), None, "a wrong-sized grid");
+        assert!(claim_grid_known(&grid, 3, 2));
+        assert!(!claim_grid_known(&[], 0, 0), "no world is not a known empty grid");
+    }
 }
 
 fn compute_civilisation(
@@ -7055,33 +7094,46 @@ impl WorldGen {
     /// [`Self::recompute_civilisation`] re-derives the computed borders from
     /// the capitals; nothing restores erased paint.
     ///
-    /// Returns `{"cleared_cells": int}` — claimed cells before the clear.
+    /// Returns `{"cleared_cells": int}` — claimed cells before the clear — or
+    /// `{}` when the claim grid was not known (a reopened archive that did not
+    /// carry one): the count is unknown, not zero. Either way the grid and
+    /// the provinces are whole and empty afterwards.
     #[func]
     fn civ_clear_territory(&mut self) -> VarDictionary {
-        let mut cleared = 0usize;
-        if let Some(civ) = self.civ.as_mut() {
-            cleared = civ.territory.iter().filter(|&&t| t > 0).count();
-            civ.territory.iter_mut().for_each(|t| *t = 0);
-            civ.provinces.iter_mut().for_each(|p| *p = 0);
-            civ.province_list.clear();
-            civ.territory_year = None;
-        }
+        let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
+        // `None` when the claim grid was not known before the clear (a
+        // reopened archive that did not carry one): how many cells it cleared
+        // is unknown, and `cleared_cells` is then omitted rather than `0`.
+        // After the clear both grids ARE known -- nothing claimed, no
+        // province -- so they are made whole either way.
+        let Some(civ) = self.civ.as_mut() else { return dict! { "cleared_cells" => 0i64 } };
+        let cleared = (civ.territory.len() == n).then(|| civ.territory.iter().filter(|&&t| t > 0).count());
+        civ.territory = vec![0; n];
+        civ.provinces = vec![0; n];
+        civ.province_list.clear();
+        civ.territory_year = None;
         // The paint layer *and* the base it merges over, or the next commit
         // silently restores what was just cleared -- see this method's doc.
         if let (Some(tools), Some(civ)) = (self.civ_tools.as_mut(), self.civ.as_mut()) {
             civ_reset_territory_paint(tools, civ);
         }
-        if cleared > 0 {
+        if cleared.is_none_or(|c| c > 0) {
             self.ledger.record(
                 "civ",
                 "Clear territory",
-                format!("{cleared} claimed cell(s), computed and painted"),
+                match cleared {
+                    Some(c) => format!("{c} claimed cell(s), computed and painted"),
+                    None => "the unrestored claim grid (count unknown), and any paint since".to_string(),
+                },
                 undo::EntryKind::Recorded(
                     "the pre-clear claim grid is not retained; Recompute civilisation re-derives the computed borders, and erased paint is gone",
                 ),
             );
         }
-        dict! { "cleared_cells" => cleared as i64 }
+        match cleared {
+            Some(c) => dict! { "cleared_cells" => c as i64 },
+            None => VarDictionary::new(),
+        }
     }
 
     /// The one path every *rebuilding* civ stage shares
@@ -9901,6 +9953,11 @@ impl WorldGen {
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         const LINE_RGBA: [u8; 4] = [35, 24, 9, 235]; // map_overlay.gd's ink tone, alpha nudged up (not to opaque)
+        // No province raster (a reopened archive that did not carry one,
+        // `project_bridge.rs::civ_from_project`): no lines, not an index panic.
+        if civ.provinces.len() != gw * gh {
+            return None;
+        }
 
         // Pass 1: symmetric boundary detection (checks all four neighbours,
         // not just +x/+y) so a boundary is a property of the edge, not of
@@ -11449,9 +11506,17 @@ impl WorldGen {
     /// `_civFactionAggregates`' territory-integrated `foodProductionCapacity`
     /// (that needs the density and resource rasters `compute_civilisation`
     /// frees; still open, see `ECONOMY_SCOPE.md`).
+    ///
+    /// `claimed_cells` is **omitted** while the claim grid is not known -- a
+    /// reopened project whose archive carried no `rasters/territory.i32`
+    /// (`CivData::territory`'s own doc). `0` would say "this faction claims
+    /// nothing", which is a real answer the archive cannot vouch for. That is
+    /// the key's only absence once rows exist, so `has("claimed_cells")` is
+    /// the test.
     #[func]
     fn get_factions(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         (1..civ.faction_roster.0.len() as i32)
             .map(|f| {
                 let settlement_count = civ.settlements.iter().filter(|s| s.placement.faction == f).count();
@@ -11461,10 +11526,9 @@ impl WorldGen {
                     .filter(|s| s.placement.faction == f)
                     .map(|s| u64::from(s.pop))
                     .sum();
-                let claimed_cells = civ.territory.iter().filter(|&&t| t == f).count();
                 let e = &civ.faction_roster.0[f as usize];
                 let (r, g, b) = civ.faction_rgb(f);
-                dict! {
+                let mut d = dict! {
                     "id" => f,
                     "name" => e.name.as_str(),
                     "culture" => e.culture.as_str(),
@@ -11481,8 +11545,11 @@ impl WorldGen {
                     "color_custom" => e.color_override.is_some(),
                     "settlement_count" => settlement_count as i64,
                     "population" => population as i64,
-                    "claimed_cells" => claimed_cells as i64,
+                };
+                if let Some(n) = faction_claimed_cells(&civ.territory, gw, gh, f) {
+                    d.set("claimed_cells", n as i64);
                 }
+                d
             })
             .collect()
     }
@@ -18033,7 +18100,9 @@ impl WorldGen {
     /// identity-flavoured, not terrain-themed, and get **no verdict at all**
     /// rather than a fabricated one — the reference's own discipline,
     /// preserved: `has_verdict` is `false` for those and the shell must say
-    /// "composition only".
+    /// "composition only". With no claim grid (a reopened archive that did
+    /// not carry one) there is no `mix` either: the row is `faction`,
+    /// `culture`, `has_verdict` = `false` and `absent` = `"no_claim_grid"`.
     ///
     /// The aggregate runs with `resources`/`density` absent, which that
     /// function explicitly supports: `compute_civilisation` frees the
@@ -18072,10 +18141,23 @@ impl WorldGen {
         let places: Vec<cartalith_civ::FactionPlace> =
             civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
         let agg = cartalith_civ::civ_faction_aggregates(&input, &places);
+        // No claim grid (a reopened archive that did not carry one): a
+        // faction's terrain mix is a share of its claimed cells, so there is
+        // no mix to report and no verdict to judge -- not the all-zero mix an
+        // empty sum gives, which would read as "no river, no coast".
+        let claims_known = claim_grid_known(&civ.territory, gw, gh);
 
         (1..civ.faction_roster.0.len())
             .map(|f| {
                 let culture = civ.faction_roster.0[f].culture.clone();
+                if !claims_known {
+                    return vdict! {
+                        "faction" => f as i64,
+                        "culture" => culture.as_str(),
+                        "has_verdict" => false,
+                        "absent" => "no_claim_grid",
+                    };
+                }
                 let mix_map = &agg.by_faction[f].terrain_mix;
                 let mut mix = VarDictionary::new();
                 for k in cartalith_civ::CIV_TERRAIN_MIX_KEYS {
@@ -18141,6 +18223,12 @@ impl WorldGen {
     ///
     /// Empty `Array` before any `generate()` and for a loaded save, like
     /// every other civ readout.
+    ///
+    /// With no claim grid (a reopened project whose archive carried no
+    /// `rasters/territory.i32`) each row carries only `faction`, `pop` and
+    /// `world_mean`, plus `absent` = `"no_claim_grid"`: every other figure is
+    /// an integral over the faction's claimed cells, and is omitted rather
+    /// than reported as the zero an empty sum produces.
     #[func]
     fn civ_faction_economy(&self) -> Array<VarDictionary> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
@@ -18156,12 +18244,26 @@ impl WorldGen {
             d
         };
         let world_mean = keyed(&agg.world_mean_resource);
+        // Every per-faction figure below except `pop` is an integral over the
+        // faction's own claimed cells. With no claim grid (a reopened archive
+        // that did not carry one) the aggregate sums over nothing and reports
+        // 0 km², no food, no resources -- a real-looking answer to a question
+        // it could not ask. So those keys are omitted and `absent` says why.
+        let claims_known = claim_grid_known(&civ.territory, self.gw.max(0) as usize, self.gh.max(0) as usize);
         (1..civ.faction_roster.0.len())
             .map(|f| {
                 let a = &agg.by_faction[f];
                 let names = |v: &[&'static str]| -> PackedStringArray {
                     v.iter().map(|s| GString::from(*s)).collect()
                 };
+                if !claims_known {
+                    return vdict! {
+                        "faction" => f as i64,
+                        "pop" => a.pop,
+                        "world_mean" => &world_mean,
+                        "absent" => "no_claim_grid",
+                    };
+                }
                 vdict! {
                     "faction" => f as i64,
                     "territory_km2" => a.territory_km2,

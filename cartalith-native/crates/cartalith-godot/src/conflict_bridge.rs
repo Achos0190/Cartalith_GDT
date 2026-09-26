@@ -63,6 +63,9 @@ fn anchor_name(civ: &CivData, a: ConflictAnchor) -> Option<String> {
 /// the way [`ConflictAnchor::Province`] stores it). When `tid` is itself a
 /// province seed, that province is included even if the raster no longer
 /// puts the seed's own cell in it. Empty for a `tid` no settlement carries.
+/// With no province raster (a reopened archive that did not carry one) the
+/// cell's province is unknown and only the seed rule can match -- `get`
+/// finds nothing, which is not read as a province.
 fn anchors_touching(
     settlements: &[cartalith_civ::NamedSettlement],
     provinces: &[i32],

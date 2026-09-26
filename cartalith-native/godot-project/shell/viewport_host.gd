@@ -32,8 +32,13 @@ signal layers_button_pressed()
 signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
 signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
 signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end primitive.
-## `_civCtxShow`'s right-click (`map_overlay.gd`'s own signal, re-emitted).
+## `_civCtxShow`'s right-click (`map_overlay.gd`'s own signal, re-emitted). A
+## shim since CM-1: nothing in the shell connects to it; `context_requested`
+## below is the live path.
 signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
+## `map_overlay.gd`'s CM-1 `context_requested`, re-emitted -- the request
+## `app.gd` hands to `context_broker.gd` (`MAP_CONTEXT_SCOPE.md` §3).
+signal context_requested(req: Dictionary)
 
 ## Every successful `set_layer_visible()` call, below -- the single write path
 ## all eight layer ids share, whichever of the two arms (a node's own
@@ -569,6 +574,7 @@ func _ready() -> void:
 	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
 	overlay.map_released.connect(func(gx, gy, valid): map_released.emit(gx, gy, valid))
 	overlay.map_right_clicked.connect(func(gx, gy, hit, pos): map_right_clicked.emit(gx, gy, hit, pos))
+	overlay.context_requested.connect(func(req): context_requested.emit(req))
 	## The town-layout layer pulls its own data, one deferred batch at a time,
 	## because generating a town is real engine work and only the overlay knows
 	## which towns are on screen and large enough to be worth drawing. This is

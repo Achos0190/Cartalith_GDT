@@ -3013,6 +3013,16 @@ func _follow_tool_to_its_block(id: String) -> void:
 	## thing §2.4's `armTool` asks for.
 	app.select_domain_category("world", category)
 
+## `MAP_CONTEXT_SCOPE.md` CM-1's provider contract (`shell/context_broker.gd`'s
+## header). **Empty in CM-1, deliberately.** §4.3's WORLD rows are Draft
+## (Commit N strokes · Discard), Tool (radius / mode inline), Object (stamp
+## verbs, which need a stamp pick §9.2 has not built) and Go/Info -- every one a
+## card section, and CM-1's presenter is still CX-01's `PopupMenu`, which must
+## not change what the user sees. A right-click in WORLD opened nothing before
+## CM-1 and opens nothing now. The rows arrive with CM-2's card.
+func context_actions(_req: Dictionary) -> Array:
+	return []
+
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
 ## substrate's own instructions -- `app.gd`'s `_wire_selection` forwards every
 ## viewport cursor sample to any workspace that implements this method.

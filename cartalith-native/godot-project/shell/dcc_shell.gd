@@ -9106,7 +9106,7 @@ func _toggle_overflow() -> void:
 ## with no `is_phone()` branch of its own, and a build with no phone chrome
 ## behaves identically to one that never heard of this function.
 ##
-## Built for `civilization_workspace.gd`'s map context menu, which on a phone
+## Built for the map context menu (`context_broker.gd` since CM-1), which on a phone
 ## is opened by a press-and-hold (`map_overlay.gd`) and cannot use a stock
 ## popup: pointer-sized rows, and clipping rather than nudging when a finger
 ## lands near the screen edge.

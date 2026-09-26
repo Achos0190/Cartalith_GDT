@@ -483,6 +483,13 @@ impl WorldGen {
     /// exact figures CIVIL ▸ Military shows, for a reader outside this file
     /// (`conflict_bridge.rs`, SP-4). Empty with no civ layer.
     pub(crate) fn manpower_by_faction(&self) -> Vec<cartalith_civ::manpower::Manpower> {
+        // No live claim grid, no model: see `military_summary_of`.
+        let known = self.civ.as_ref().is_some_and(|c| {
+            crate::claim_grid_known(&c.territory, self.gw.max(0) as usize, self.gh.max(0) as usize)
+        });
+        if !known {
+            return Vec::new();
+        }
         let defences = self.defences();
         self.aggregates_with_walls(&defences)
             .map(|agg| self.manpower_rows(&agg).into_iter().map(|r| r.manpower).collect())
@@ -684,7 +691,15 @@ impl WorldGen {
         let civ = self.civ.as_ref()?;
         let defences = self.defences_of(view.settlements);
         let agg = self.aggregates_of(view, &defences, true)?;
-        let manpower = self.manpower_rows_of(view, &agg);
+        // No claim grid (a reopened archive that did not carry one): the
+        // manpower model's land capacity and road density, and `overall`'s
+        // political axis, are integrals over claimed cells that cannot be
+        // taken. Omitted, with `absent` saying why -- never the answer an
+        // empty sum gives. `military` reads population, walls and the capital
+        // only, so it stands.
+        let claims_known =
+            crate::claim_grid_known(view.territory, self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let manpower = if claims_known { self.manpower_rows_of(view, &agg) } else { Vec::new() };
         let garrisons = self.garrisons_of(view, &defences, &agg, &manpower);
 
         let factions: Array<VarDictionary> = (1..civ.faction_roster.0.len())
@@ -705,7 +720,6 @@ impl WorldGen {
                     "faction" => f as i64,
                     "name" => entry.name.as_str(),
                     "military" => a.power.military,
-                    "overall" => a.power.overall,
                     "pop" => a.pop,
                     "settlement_count" => a.settlement_count as i64,
                     "fortified_count" => fortified_count,
@@ -726,6 +740,11 @@ impl WorldGen {
                         entry.government.as_str(),
                     ),
                 };
+                if claims_known {
+                    row.set("overall", a.power.overall);
+                } else {
+                    row.set("absent", "no_claim_grid");
+                }
                 // MM-6: this faction's garrisons, summed -- present only when
                 // its standing army was split (§5.6's absences).
                 let mine: Vec<u64> = view
@@ -908,7 +927,11 @@ impl WorldGen {
     ///   this faction, nested (see [`manpower_dict`] for the keys and for
     ///   why it is nested rather than flattened alongside `military`) — and,
     ///   when its standing army was split (MM-6), `garrison_total` (= the
-    ///   rounded standing army, exactly) and `garrisoned_count`.
+    ///   rounded standing army, exactly) and `garrisoned_count`. With no claim
+    ///   grid (a reopened archive that did not carry
+    ///   `rasters/territory.i32`), `overall` is omitted, `manpower` is `{}`
+    ///   and `absent` = `"no_claim_grid"`: both are built on claimed-cell
+    ///   integrals.
     /// - `"settlements"` — one row per settlement: `index` (into the live
     ///   `get_settlements()`), `tid`, `name`, `faction`, `kind`, `pop`,
     ///   `wall_spec` (one of `cartalith_civ::military::WALL_SPECS`),
@@ -1004,9 +1027,10 @@ impl WorldGen {
     ///   whole split, = its rounded standing army) -- or
     /// - `absent` -- why there is no figure: `"no_reading"` (nothing to read
     ///   at this year), `"not_recorded"` (this settlement is not in the
-    ///   recorded year), `"unclaimed"`, or `"no_standing"` (its faction's
-    ///   standing army could not be split, `MILITARY_MANPOWER_SCOPE.md`
-    ///   §5.6).
+    ///   recorded year), `"unclaimed"`, `"no_claim_grid"` (a live reading of a
+    ///   reopened project whose archive carried no claim grid), or
+    ///   `"no_standing"` (its faction's standing army could not be split,
+    ///   `MILITARY_MANPOWER_SCOPE.md` §5.6).
     ///
     /// `{}` before any world.
     #[func]
@@ -1024,9 +1048,17 @@ impl WorldGen {
             out.set("absent", "not_recorded");
             return out;
         };
+        // A live reading with no claim grid (a reopened archive that did not
+        // carry one) splits no army -- border exposure and the standing army
+        // both need the claims -- and that is not `no_standing`.
+        let live_unknown = matches!(reading, Reading::Live)
+            && self.civ.as_ref().is_some_and(|c| {
+                !crate::claim_grid_known(&c.territory, self.gw.max(0) as usize, self.gh.max(0) as usize)
+            });
         out.set("faction", *faction as i64);
         match g {
             _ if *faction <= 0 => out.set("absent", "unclaimed"),
+            None if live_unknown => out.set("absent", "no_claim_grid"),
             None => out.set("absent", "no_standing"),
             Some(g) => {
                 garrison_keys(&mut out, g);
@@ -1048,7 +1080,11 @@ impl WorldGen {
     /// (one of `cartalith_civ::relations::RELATION_STANCES`),
     /// `border_cells`, `border_fraction`, and the four terms
     /// `culture_term`, `religion_term`, `trade_term`, `rivalry_term` so the
-    /// shell can show its working rather than assert a number.
+    /// shell can show its working rather than assert a number. With no claim
+    /// grid (a reopened archive that did not carry one) a pair carries only
+    /// `a`, `b`, the names, `culture_term`, `religion_term` and `absent` =
+    /// `"no_claim_grid"`: the border, trade and rivalry terms, and the value
+    /// and stance built from them, are unknown rather than zero.
     ///
     /// **Derived and recomputed, never stored.** There is no relation on
     /// `CivData`, nothing to save, and no `#[func]` that writes one — the
@@ -1067,10 +1103,17 @@ impl WorldGen {
             civ.faction_roster.0.iter().map(|e| e.culture.as_str()).collect();
         let religions: Vec<&str> =
             civ.faction_roster.0.iter().map(|e| e.religion.as_str()).collect();
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        // No claim grid (a reopened archive that did not carry one): the
+        // border, the trade complement (exports/imports are claimed-cell
+        // means) and the rivalry (`overall`'s political axis) are unknown, and
+        // so is the value built from them. A pair then carries only its names,
+        // the culture and religion terms, and `absent`.
+        let claims_known = crate::claim_grid_known(&civ.territory, gw, gh);
         let input = FactionRelationsInput {
             faction_count: n,
-            gw: self.gw.max(0) as usize,
-            gh: self.gh.max(0) as usize,
+            gw,
+            gh,
             territory: Some(&civ.territory),
             cultures: &cultures,
             religions: &religions,
@@ -1080,6 +1123,17 @@ impl WorldGen {
             .pairs
             .iter()
             .map(|r| {
+                if !claims_known {
+                    return vdict! {
+                        "a" => r.a as i64,
+                        "b" => r.b as i64,
+                        "a_name" => civ.faction_roster.0[r.a].name.as_str(),
+                        "b_name" => civ.faction_roster.0[r.b].name.as_str(),
+                        "culture_term" => r.culture_term,
+                        "religion_term" => r.religion_term,
+                        "absent" => "no_claim_grid",
+                    };
+                }
                 vdict! {
                     "a" => r.a as i64,
                     "b" => r.b as i64,

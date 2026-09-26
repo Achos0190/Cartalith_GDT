@@ -944,7 +944,33 @@ signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a 
 ## `screen_pos` is this control's local position, which is what a `PopupMenu`
 ## needs converted to global -- the receiver owns that conversion, since only
 ## it knows which window it is popping into.
+##
+## **Kept as a shim since CM-1** (`MAP_CONTEXT_SCOPE.md` §9.1: "keep the old
+## signal as a thin shim until every consumer has moved"). Still emitted, with
+## the same single `hit`, immediately before `context_requested` below; the
+## shell's own consumer (`app.gd`) has moved to that signal.
 signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
+
+## `MAP_CONTEXT_SCOPE.md` §3's `ContextRequest`, CM-1's half of it: what this
+## control knows about the gesture, and **every** pick under the pointer rather
+## than the one nearest settlement `map_right_clicked` carries. Emitted from the
+## same two places `map_right_clicked` is (the right-button press, and PH-02's
+## touch hold), with the same point. `request_at()` builds it; its doc comment
+## has the shape. The shell's `context_broker.gd` adds what only the shell
+## knows (domain, armed tool, form) and asks every provider for rows.
+signal context_requested(req: Dictionary)
+
+## The engine half of `hits_at()`: a `Callable(gx, gy, px_per_cell) -> Array`
+## of `{kind, id, label?, x, y}` for the picks only the engine can answer
+## (labels, icons). **A `Callable` and not an `EngineBridge`**, for the reason
+## `set_trait_art_resolver()` gives: this control holds no bridge. The shell's
+## `context_broker.gd` installs `engine_picks`. Invalid (the default) means
+## those kinds are simply not asked, which is what a bare overlay in a probe
+## wants.
+var _context_pick: Callable = Callable()
+
+func set_context_pick_resolver(cb: Callable) -> void:
+	_context_pick = cb
 
 # ── Touch: press-and-hold IS the right click ─────────────────────────────────
 #
@@ -954,8 +980,8 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 # own TARGETS rule says nothing about it because right click is not a phone
 # gesture). Press-and-hold is the platform's answer, and this is where it
 # belongs: the same control that owns the right click owns its touch twin, so
-# `civilization_workspace.gd` receives one signal and never learns which
-# pointer produced it.
+# `context_broker.gd` receives one request and learns which pointer produced
+# it only from its `source` field.
 #
 # **The hard part is not the timer, it is the click that already fired.**
 # `input_devices/pointing/emulate_mouse_from_touch` is on (project.godot), so a
@@ -969,7 +995,8 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 #                                 sculpt/paint stroke starts from its real origin
 #   lifts before the deadline  -> it was a tap: release the press, then release
 #   reaches the deadline       -> it was a hold: discard the press entirely and
-#                                 emit `map_right_clicked`; the lift is swallowed
+#                                 emit `map_right_clicked` and `context_requested`;
+#                                 the lift is swallowed
 #
 # Driven off the *emulated mouse* stream rather than `InputEventScreenTouch`,
 # deliberately: the emulated events are the ones this control is already known
@@ -4289,6 +4316,99 @@ func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
 	return {"s": s, "l": -1} if sd <= float(lh[1]) else {"s": -1, "l": l}
 
 
+## **Everything** under `mouse`, nearest first -- `MAP_CONTEXT_SCOPE.md` §9.1's
+## `hits_at`, CM-1. Each entry is `{kind, id, label?, dist}`:
+##
+##   `kind`  `"settlement"` | `"landmark"` | `"label"` | `"icon"`
+##   `id`    the index each kind is already keyed by: `_settlements` /
+##           `bridge.settlements()`, `_landmarks` / `bridge.landmarks()`,
+##           `label_list()`, `icon_list()`
+##   `label` the name a presenter can show; **omitted, not blanked,** when the
+##           thing has none
+##   `dist`  screen px from `mouse` to the thing's anchor, the sort key
+##
+## The settlement and landmark picks are this file's own -- the same radius
+## and the same refusals (`_settlement_hidden`, off-plate, landmarks layer off)
+## as `_hit_test_settlement` / `_hit_test_landmark`, but every pin that
+## contains the pointer rather than the nearest one. So the first settlement
+## entry is exactly `_hit_test_settlement`'s answer (ties keep index order,
+## which is that function's `<`). Labels and icons come from
+## `_context_pick` -- the engine's read-only picks, which select nothing.
+##
+## `civ_pick_place_at` is deliberately **not** a hit source: `engine_bridge.gd`
+## documents it as "which settlement does this map coordinate belong to", a
+## grid-radius, rank-weighted question, and says it "must not be swapped in"
+## for the pointer hit test.
+##
+## Not capped. §9.1 says "capped at 8", which is the Select ▸ list's length --
+## a presenter's limit (CM-2). Truncating here could drop the one settlement
+## hit CIVIL's rows are about when eight labels sit nearer.
+func hits_at(mouse: Vector2) -> Array:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return []
+	var interior := _interior_rect(rect)
+	var hits: Array = []
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		if not interior.has_point(pos) or _settlement_hidden(s):
+			continue
+		var d := mouse.distance_to(pos)
+		if d <= _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD:
+			hits.append(_hit("settlement", i, s.get("name"), d))
+	if _landmarks_visible:
+		for i in _landmarks.size():
+			var lm: Dictionary = _landmarks[i]
+			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
+			if not interior.has_point(lpos):
+				continue
+			var ld := mouse.distance_to(lpos)
+			if ld <= _landmark_radius(lm) + HOVER_RADIUS_PAD:
+				hits.append(_hit("landmark", i, lm.get("name"), ld))
+	var p := _grid_point(mouse, rect, interior)
+	if _context_pick.is_valid() and p["valid"]:
+		for e in _context_pick.call(p["gx"], p["gy"], label_px_per_cell()):
+			var epos := _cell_to_screen(Vector2(float(e["x"]), float(e["y"])), rect)
+			hits.append(_hit(String(e["kind"]), int(e["id"]), e.get("label"), mouse.distance_to(epos)))
+	## Stable nearest-first: `sort_custom` is not stable, so the order each
+	## kind was collected in (settlement index ascending, then the engine's
+	## topmost-first) is carried as the tie-break explicitly.
+	for n in hits.size():
+		hits[n]["_ord"] = n
+	hits.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if a["dist"] != b["dist"]:
+			return a["dist"] < b["dist"]
+		return a["_ord"] < b["_ord"])
+	for h in hits:
+		h.erase("_ord")
+	return hits
+
+
+static func _hit(kind: String, id: int, name: Variant, dist: float) -> Dictionary:
+	var h := {"kind": kind, "id": id, "dist": dist}
+	if name != null and String(name) != "":
+		h["label"] = String(name)
+	return h
+
+
+## The request `context_requested` carries, for a gesture at `mouse` (this
+## control's local space): `{gx, gy, screen_pos, hits, source}`, or `{}` off
+## the plate -- the same "no world coordinate, no request" rule the right
+## click has always had. `source` is `"mouse"` or `"touch"` (§9.3's
+## `device < 0` rule, decided by the caller that saw the event). Public so a
+## probe can ask what a gesture here would carry without making one.
+func request_at(mouse: Vector2, source: String) -> Dictionary:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return {}
+	var p := _grid_point(mouse, rect, _interior_rect(rect))
+	if not p["valid"]:
+		return {}
+	return {"gx": p["gx"], "gy": p["gy"], "screen_pos": mouse,
+		"hits": hits_at(mouse), "source": source}
+
+
 ## Returns `{valid, gx, gy}` -- the inverse of `_cell_to_screen`, shared by
 ## `cursor_sampled`, `map_clicked` and `map_dragged` so the coordinate math
 ## exists in exactly one place. `valid` is false outside the plate interior
@@ -4356,6 +4476,7 @@ func _gui_input(event: InputEvent) -> void:
 				return
 			map_right_clicked.emit(pt["gx"], pt["gy"],
 				_hit_test_settlement(mb.position, inter, r), mb.position)
+			context_requested.emit(request_at(mb.position, "mouse"))
 			accept_event()
 			return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
@@ -4446,6 +4567,11 @@ func _process(_delta: float) -> void:
 		return
 	map_right_clicked.emit(p["gx"], p["gy"], int(_touch_press.get("hit", -1)),
 		_touch_press.get("pos", Vector2.ZERO))
+	## Picked now, at the point the finger went down on, not at press time: a
+	## tap or a drag -- most touches -- never needs it.
+	var req := request_at(_touch_press.get("pos", Vector2.ZERO), "touch")
+	if not req.is_empty():
+		context_requested.emit(req)
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_MOUSE_EXIT:

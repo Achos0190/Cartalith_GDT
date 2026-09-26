@@ -775,7 +775,7 @@ world. A reader MUST compare the entry's uncompressed length against
 | `rasters/impact_field.f32` | f32 | MAY | Byproduct of the crater stamping pass. | All zero, as above. |
 | `rasters/strahler_order.u8` | u8 | MAY | Strahler stream order. `0` = not a channel. Orders above 255 saturate at 255. | All zero — "no channels". |
 | `rasters/territory.i32` | i32 | MAY | Owning faction id per cell. `0` = unowned (water, or unreachable). Ids index `entities/factions.json`. | No territory. |
-| `rasters/provinces.i32` | i32 | MAY | Province id per cell. `0` = no province. Ids match `entities/provinces.json`. | No provinces. |
+| `rasters/provinces.i32` | i32 | MAY | Province id per cell. `0` = no province. Ids match `entities/provinces.json`. | Province cells unknown. `entities/provinces.json`'s list still restores; a reader MUST NOT substitute a grid of `0` (that says "no cell is in any province") nor write one back on re-save, and SHOULD report the absence. This implementation warns on open and rebuilds the raster at the next territory edit (2026-09-26). |
 | `rasters/water_bodies.u8` | u8 | MAY | `0` = land, `1` = ocean, `2` = lake. | Absent. A reader that needs it MUST recompute it from `heightmap` and `sea_level` rather than assume land. |
 | `rasters/agrarian_density.f32` | f32 | MAY | Carrying-capacity density used by population simulation. | Absent. |
 

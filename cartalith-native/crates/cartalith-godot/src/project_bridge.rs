@@ -2014,12 +2014,6 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         &timeline,
     ));
 
-    let take_i32 = |path: &str| -> Vec<i32> {
-        match data.raster(path) {
-            Some(Raster::I32(v)) if v.len() == n => v.clone(),
-            _ => vec![0; n],
-        }
-    };
     // Ruling AT's held year (§10.1), kept only while it still names a
     // recorded year -- `civ_remove_year`'s own rule for a year gone from the
     // track. Absent (every earlier archive) is `None`, as it always was.
@@ -2047,7 +2041,31 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
             Vec::new()
         }
     };
-    let provinces = take_i32("rasters/provinces.i32");
+    // The province raster, under the same §8.1 rule as the claim grid: absent
+    // (or unreadable) is "provinces not known", held empty -- never a grid of
+    // zeros, which says "no cell is in any province" and which the next save
+    // would write back as if it had been read. Every reader of
+    // `CivData::provinces` tests `len() == gw * gh` (or reads it with `get`,
+    // which finds nothing); the first committed Territory stroke rebuilds it
+    // over a whole claim grid (`civ_reprovince`). The province list itself is
+    // `entities/provinces.json`'s and is kept.
+    let provinces = match data.raster("rasters/provinces.i32") {
+        Some(Raster::I32(v)) if v.len() == n => v.clone(),
+        other => {
+            warnings.push(if other.is_none() {
+                "rasters/provinces.i32: absent -- the province list came back but which cells each province \
+                 covers did not; province boundaries are not drawn until the next territory edit or \
+                 Recompute civilisation rebuilds them"
+                    .to_string()
+            } else {
+                "rasters/provinces.i32: not an i32 grid of this world's size -- province cells were not \
+                 restored; province boundaries are not drawn until the next territory edit or Recompute \
+                 civilisation rebuilds them"
+                    .to_string()
+            });
+            Vec::new()
+        }
+    };
     let water_bodies = match data.raster("rasters/water_bodies.u8") {
         Some(Raster::U8(v)) if v.len() == n => v.clone(),
         _ => Vec::new(),
@@ -6629,6 +6647,41 @@ mod substrate_tests {
         )
     }
 
+    /// The live claim grid, not a fixture: a real generated world's
+    /// `CivData::territory` uses `0` for unowned (never `-1`), and the Journey
+    /// Planner, through the same `JpWorld` construction `jp_compute` uses,
+    /// reads an unowned cell as unclaimed and an owned one as claimed.
+    /// Before 2026-09-26 `jp_claimed_at` tested `>= 0`, which the
+    /// milestone-5 golden (captured on a `-1` grid) could not see: here every
+    /// stage came back `claimed_frac == 1.0`.
+    #[test]
+    fn the_live_claim_grid_reads_unowned_cells_as_unclaimed() {
+        let (_, ws, civ) = world();
+        let n = GW * GH;
+        assert_eq!(civ.territory.len(), n, "premise: a generated world has a whole claim grid");
+        assert!(civ.territory.iter().all(|&t| t >= 0), "the live convention is 0 = unowned, never -1");
+        // This world's capitals reach all of its land, so the unowned cells
+        // are the sea's -- which the planner samples too (the reference's
+        // `_jpDeriveStages` measures `claimedFrac` on sea stages as well). A
+        // run of eight open-ocean cells in one row is a sea stage on unowned
+        // cells.
+        let ocean = |i: usize| civ.water_bodies.get(i) == Some(&1);
+        let u = (0..n)
+            .find(|&i| i % GW + 8 < GW && (0..=8).all(|k| ocean(i + k) && civ.territory[i + k] == 0))
+            .expect("premise: the fixture world has open ocean");
+        let c = (0..n).find(|&i| civ.territory[i] > 0).expect("premise: some land is claimed");
+        let at = |i: usize| ((i % GW) as f64, (i / GW) as f64);
+        let (ux, uy) = at(u);
+        let (cx, cy) = at(c);
+        assert!(!cartalith_civ::jp_claimed_at(Some(&civ.territory), GW, GH, ux, uy), "an unowned cell is not claimed");
+        assert!(cartalith_civ::jp_claimed_at(Some(&civ.territory), GW, GH, cx, cy), "an owned cell is claimed");
+
+        let journey = plan_via(ws, civ, &[(ux, uy), (ux + 8.0, uy)]).expect("an open-ocean route plans");
+        let claimed: Vec<f64> = journey.stages.iter().map(|s| s.claimed_frac).collect();
+        assert!(!claimed.is_empty(), "premise: the route derives a stage");
+        assert!(claimed.iter().all(|&f| f == 0.0), "a route on unowned cells claims nothing: {claimed:?}");
+    }
+
     fn economy(ws: &cartalith_engine::WorldState, civ: &CivData) -> cartalith_civ::FactionAggregates {
         let p = &world().0;
         crate::faction_economy_aggregates(ws, civ, GW, GH, ws.sea_level, p.map_width_km)
@@ -6867,6 +6920,43 @@ mod substrate_tests {
         assert_eq!(civ.territory.len(), n);
         assert_eq!(civ.territory[10 * gw + 10], 2);
         assert!(civ.territory.iter().all(|&t| t == 0 || t == 2), "only the stroke is claimed");
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11: the province raster had the defect
+    /// `an_archive_without_its_claim_grid_...` above fixed for territory -- a
+    /// missing `rasters/provinces.i32` came back as a grid of zeros ("no cell
+    /// is in any province"), which the next save wrote back as if read.
+    #[test]
+    fn an_archive_without_its_province_raster_reopens_with_none_and_says_so() {
+        let data = project::read_project(Cursor::new(PRE_SUBSTRATE)).expect("the fixture reads");
+        let (gw, gh) = (data.save.params.gw, data.save.params.gh);
+        let n = gw * gh;
+        let whole = civ_from_project(&data, n, &mut Vec::new()).expect("its civ layer restores");
+        assert_eq!(whole.provinces.len(), n);
+        assert!(whole.provinces.iter().any(|&p| p > 0), "premise: the fixture holds provinces");
+
+        let stripped = without(PRE_SUBSTRATE, "rasters/provinces.shuffled.i32");
+        let data = project::read_project(Cursor::new(&stripped[..])).expect("still reads");
+        assert!(data.raster("rasters/provinces.i32").is_none(), "premise: the raster is gone");
+        let mut warnings = Vec::new();
+        let mut civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer still restores");
+        assert!(civ.provinces.is_empty(), "absent is unknown, not {} cells of no province", civ.provinces.len());
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].starts_with("rasters/provinces.i32: absent"), "{warnings:?}");
+        assert_eq!(civ.province_list.len(), whole.province_list.len(), "the list is its own document and still restores");
+        assert!(!civ.province_list.is_empty());
+        assert_eq!(civ.territory, whole.territory, "the claim grid is untouched");
+
+        // A re-save leaves it absent rather than writing the unknown as zeros.
+        let mut write = ProjectWrite::new(&data.save.params, &data.save.fields);
+        civ_rasters(&civ, n, &mut write);
+        assert!(!write.rasters.contains_key("rasters/provinces.i32"));
+        assert!(write.rasters.contains_key("rasters/territory.i32"), "premise: the writer ran");
+
+        // A rebuild over the whole claim grid makes it whole again.
+        crate::civ_reprovince(&mut civ, gw, gh);
+        assert_eq!(civ.provinces.len(), n);
+        assert!(civ.provinces.iter().any(|&p| p > 0));
     }
 
     #[test]

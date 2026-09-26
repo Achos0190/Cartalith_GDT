@@ -224,13 +224,15 @@ func _ctx_map_setup() -> void:
 	await _close()
 	app.select_domain("civilization")
 	await _frames(6)
-	var ws: Node = _find(app, func(n: Node) -> bool:
-		var sc: Variant = n.get_script()
-		return sc != null and String(sc.resource_path).ends_with("civilization_workspace.gd"))
-	if ws != null and ws.has_method("on_map_right_clicked"):
-		ws.on_map_right_clicked(120.0, 90.0, -1, Vector2(400, 400))
+	## CM-1 moved the menu from `civilization_workspace.gd`'s own `_ctx_menu`
+	## to `context_broker.gd`; the request is the one a right-click on an empty
+	## cell makes (no hits), exactly what the old direct call passed (`hit -1`).
+	var broker = app.get("context_broker")
+	if broker != null:
+		broker.resolve({"gx": 120.0, "gy": 90.0, "screen_pos": Vector2(400, 400),
+			"hits": [], "source": "mouse"})
 		await _frames(6)
-		var cm = ws.get("_ctx_menu")
+		var cm = broker.popup
 		if cm is PopupMenu:
 			_dump_popup(cm as PopupMenu, "Map right-click (CIVIL)", 0)
 
