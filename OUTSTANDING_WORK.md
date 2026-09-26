@@ -331,7 +331,10 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**80 outstanding items** — 2026-09-26, evening, later (latest). The CIVIL unknown-key
+**80 outstanding items** — 2026-09-26, night (latest). CM-2, the context card, closed
+(`a5e44b3`); its residuals filed as one row. **80 − 1 + 1 = 80**.
+
+**80 outstanding items** — 2026-09-26, evening, later. The CIVIL unknown-key
 readers and the two legacy notes closed (`014cb70`, a Sonnet lane). **82 − 2 = 80**.
 
 **82 outstanding items** — 2026-09-26, evening. CM-1 and the
@@ -3044,7 +3047,8 @@ desktop path, each step shipping alone; CM-4 needs CM-3; CM-7 runs beside any.
 | Item | Owns it | Size | Next step |
 |---|---|---|---|
 | ~~**CM-1 · The request and the broker**~~ — **CLOSED 2026-09-26 (`881ca87`, verified: `_ctxbroker_probe` 32/32; CIVIL's rows byte-identical to before)** | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_requested` emitted with a multi-hit `hits[]`; `context_broker.gd`; the three workspaces and `GlobalTools` implement `context_actions`; CIVIL's five CX-01 rows arrive through it unchanged. **Next step:** build it first — CM-2 and CM-3 both sit on it |
-| **CM-2 · The context card** (the new right-click menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_card.gd` replaces the `PopupMenu` on desktop and tablet: §4.1's sections, header readout, *Select ▸*, disabled-with-reason, inline Tool rows, keyboard and filter; RMB moves from press to release (§6). Needs CM-1 |
+| ~~**CM-2 · The context card** (the new right-click menu)~~ — **CLOSED 2026-09-26 (`a5e44b3`, verified: `_ctxcard_probe` 115/115 desktop and tablet)** | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_card.gd` replaces the `PopupMenu` on desktop and tablet: §4.1's sections, header readout, *Select ▸*, disabled-with-reason, inline Tool rows, keyboard and filter; RMB moves from press to release (§6). Needs CM-1 |
+| **CM-2 residuals: the keyboard opener, pausing the timeline, and CIVIL's extra card rows** | `MAP_CONTEXT_SCOPE.md` §4.2, §6, §9.4, §4.3; `context_card.gd`; `civilization_workspace.gd` | small | Left by `a5e44b3`: the Menu key / Shift+F10 opener; pausing timeline playback while the card is open; CIVIL's optional §4.3 rows (settlement-class Tool param, Open city layout… via `app.open_city_viewer`, Start way/route here, territory draft commit/discard), each gated off the phone; and `civilization_workspace.gd`'s doc comment above `context_actions` still says it presents in a `PopupMenu`. **Next step:** build each against an existing shell function; extend `_ctxcard_probe` |
 | **CM-3 · The desktop ring** (the wheel menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `radial_ring.gd`; RMB-drag with the no-wait flick, RMB-hold ring+card, Q hold/tap; §5.1's table for all three domains; sub-rings; armed-state fill; finalized greying. Needs CM-1; cardinals Inspect / Measure / Undo / Region per Ruling AX (F3) |
 | **CM-4 · Tablet: hold → ring + card with slide-to-select** | `MAP_CONTEXT_SCOPE.md` §11 | medium | Continued tracking, haptics, handedness preference, edge flipping; **the pen barrel button verified on the owner's device** and the result written down (device-bound). Needs CM-3 |
 | **CM-5 · Phone noun surface: long-press → pin → peek card** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **F1 answered by Ruling AX (2026-09-26): long-press drops the pin *and* opens the verbs, at 480 ms** (replacing `map_overlay.gd`'s 500 ms menu-only `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
