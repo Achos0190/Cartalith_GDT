@@ -1629,3 +1629,15 @@ erosion** (needs a scope first).
 
 **The v2.73 footpath class:** the owner will supply the v2.73 (or newer DCC)
 source file; the re-freeze and port wait on that file arriving. *Same day, the owner added: "Version 2.71 seems to be latest, 2.73 doesn't seem to exist." So the v2.73 footpath row, and the v2.72/v2.73 entries in `RC_ENGINE_CHANGES.md`, are unverified until the source folder is checked.*
+
+## 2026-09-28 — Ruling BA: CM-7's two engine rows
+
+Asked through the session's question tool when CM-7 stopped at them; the owner
+chose the recommendation for both.
+
+**Deleting a way from the context card is undoable**: it records an undo step
+like other edits, so Edit ▸ Undo restores the way.
+
+**A picked river is "the branch to its mouth"**: the stretch clicked plus
+everything downstream to where it meets the sea or a lake. That line is what
+the card names and what *Trace downstream* and *Show catchment* act on.
