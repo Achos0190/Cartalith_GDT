@@ -331,7 +331,12 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**76 outstanding items** — 2026-09-24, late (latest). The CARTO Conflict layer closed
+**83 outstanding items** — 2026-09-26 (latest). `main` merged into the working
+branch; the owner scheduled the Map context proposal (right-click context card and
+tool ring) as §2.12, seven rows, CM-1…CM-7. §2.9's engine-item count is now `main`'s
+re-derived 50 across v2.11–v2.73. **76 + 7 = 83**.
+
+**76 outstanding items** — 2026-09-24, late. The CARTO Conflict layer closed
 (`6ccb07a`); one follow-up filed (anchored conflict marks half a cell off). **76 − 1 + 1 = 76**.
 
 **76 outstanding items** — 2026-09-24, late. The legacy `.zip` import closed
@@ -2327,24 +2332,46 @@ Five caveats on that number, stated rather than buried:
    40/54/40" until today, both times because the sizes were counted by hand
    separately from the rows.*
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **46 distinct engine items** across v2.11–v2.71: 27 through v2.52,
-   §6h's three (the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
-   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
-   v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
-   v2.62's navigable-river routing/flow-direction pass (§6n) and v2.67's ward-driven plot grain plus the corner-only parcel water test it exposed (§6s), v2.68's never-rendered farmland fringe (§8.2 — render-only, but a port inherits the invisible-detail-kind defect) v2.69's sea-level clamp on tile refinement (§8.1 — a port that writes its own LOD needs both of its rules before it does) v2.70's style-chain shape (§8.2 — one colour function per surface class is what makes a new map style cost one flag instead of N) and v2.71's water clip (§8.2 — the settlement's water mask exists and never reached the renderer, and the polygon a synthetic fixture clips against is EMPTY by design on the real path) — the last of
-   which is the first place §6k's "key the threshold on catchment AREA"
-   recommendation is actually taken, for a NEW consumer, leaving the three
-   existing `order>=3` consumers alone.
-   **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
-   v2.57 had been added to the total without being added to the breakdown. How
-   many are already ported was not established when this was written, so they
-   were deliberately NOT expanded into 33 rows here. *(2026-09-24: it has been
-   since — §2.9's "Establish which of the specified changes are already ported"
-   row, surveyed 2026-09-21. Several items the survey found unported still have
-   no row of their own; `ALIGNMENT_AUDIT.md` Part 2 D2 lists them.)* Expanding them before the survey would inflate this count with
-   work that may already be done — the opposite error to the one that left them
-   uncounted until 2026-09-17.
+   specifies **50 distinct engine items** across v2.11–v2.73, and the figure is
+   re-derived here item by item so it can be checked rather than inherited:
+   **27** through v2.52; §6h's **3** (the 24-bit height word, the relief-gate
+   floor, the local-contrast rebase); v2.57's plate-base blur (§6i) **1**;
+   v2.58's river selection (§6j) **1**; v2.59's drainage default *and* its ruling
+   on Strahler order (§6k/§7.12) **2**; v2.60's river-continuity fix (§6l) **1**;
+   v2.61's water-paint/lake-gate pass (§6m) **1**; v2.62's navigable-river
+   routing and flow direction (§6n) **1**; v2.63's seven generation constants
+   made runtime parameters (§6o) **1**; v2.64's two site-model vectors with
+   their industry-siting consumer (§6p) **1**; v2.65's explicit status gradient
+   and the second district palette it found (§6q) **1**; v2.66's 22-parameter
+   rules table and the non-terminating region exposing it reached (§6r) **1**;
+   v2.67's ward-driven plot grain *plus* the corner-only parcel water test it
+   exposed (§6s) **2**; v2.68's never-rendered farmland fringe (§8.2 —
+   render-only, but a port inherits the invisible-detail-kind defect) **1**;
+   v2.69's sea-level clamp on tile refinement (§8.1 — a port writing its own LOD
+   needs both of its rules first) **1**; v2.70's style-chain shape (§8.2 — one
+   colour function per surface class is what makes a new map style cost one flag
+   instead of N) **1**; v2.71's water clip (§8.2 — the settlement's water mask
+   exists and never reached the renderer, and the polygon a synthetic fixture
+   clips against is EMPTY by design on the real path) **1**; v2.72's antimeridian
+   seam cut *and* its display bar (§8.1/§7.13 — two independent defects that
+   share a screenshot and nothing else) **2**; v2.73's green/footpath pass
+   (§8.2 — the always-on source exists because the free one is unreachable at
+   the default rules) **1**. v2.62 remains the first place §6k's "key the
+   threshold on catchment AREA" recommendation is actually taken, for a NEW
+   consumer, leaving the three existing `order>=3` consumers alone.
+   **The figure read 31 before 2026-09-17 and 46 after, and neither reconciled
+   against its own breakdown** — v2.57 was added to the total without being
+   added to the list, and v2.63 through v2.66 were counted in the total and
+   never named at all. That is the same append-without-re-reading defect
+   `RC_ENGINE_CHANGES.md` §8 documents about itself; the remedy here is that
+   every contributor is now named with its count, so the next append has to
+   land in both places or fail to add up. Which are already ported was surveyed
+   2026-09-21 (§2.9's "Establish which of the specified changes are already
+   ported" row; several unported items still have no row of their own —
+   `ALIGNMENT_AUDIT.md` Part 2 D2), and they are deliberately NOT expanded into 50 rows here:
+   expanding them before the survey would inflate this count with work that may
+   already be done — the opposite error to the one that left them uncounted
+   until 2026-09-17.
 3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
@@ -2988,6 +3015,24 @@ owner questions the same day.
 | **LOD-D7: deep-zoom tiles for info and debug views** — Ruling AV | `LOD_DETAIL_SCOPE.md` D7; `lod_bridge.rs`, `lod_worker.rs`, `sample_bridge.rs` (`debug_raster_with`) | large | Info views (temperature, rainfall, flow, …) stop at map resolution today. **Next step:** read D7's definition, then synthesise info-view tiles through the same worker and producer-id discipline as terrain tiles; measure memory and synthesis time; windowed probe of a zoomed info view |
 | **False code comments — civilisation and engine** | the crates and shell files named in Part 1 F and Part 2 G | medium | "Unwired/unported/no caller" comments on live code, wrong defaults, misplaced doc blocks, wrong citations (nine cite §2.9 for a §2.6 row), stale GPU-crate prose. Comment-only; `cargo check` and `godot --check-only` per batch |
 | **Smaller gaps the audit found with no row** | see `ALIGNMENT_AUDIT.md` Part 1 D29 and Part 2 H | medium | Economy district fills missing (oreyard, fishery, sawyard, granary, warehouse); generated-but-undrawn urban layers; no prices/tariffs GUI; ~~legacy flat `.zip` drops settlements/labels/icons~~ (imported since `4172dbf`); vault restore failures never surfaced; journey re-snap outcomes invisible; planner list not rebuilt after regenerate; `settlement_types.json` has no format spec; the atlas has no reader; stored LOD pyramids carry no colour space; "Fail with error" refuses generation with the GPU off; `build_water_bodies` has four call sites (cost unmeasured); §6s.4's corner-only parcel water test is present; region export omits `params.json`; `snow_aspect_c` has no control. *(Mutation coverage for `courtyard.rs` and `wallside.rs`: done in `d29aa81`.)* Split into rows as each is taken |
+
+### 2.12 Map context — the right-click context card and the tool ring (wheel menu)
+
+Scheduled by the owner 2026-09-26 ("Add it to the outstanding work"), after the
+proposal and its prototype arrived on `main` (`MAP_CONTEXT_SCOPE.md`,
+`design/map-context-2026-09-25/`). The scope's §10 owner forks F1-F5 each carry a
+recommendation; CM-5 and CM-6 wait on F1 and F2. Order: CM-1 → CM-2 → CM-3 is the
+desktop path, each step shipping alone; CM-4 needs CM-3; CM-7 runs beside any.
+
+| Item | Owns it | Size | Next step |
+|---|---|---|---|
+| **CM-1 · The request and the broker** | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_requested` emitted with a multi-hit `hits[]`; `context_broker.gd`; the three workspaces and `GlobalTools` implement `context_actions`; CIVIL's five CX-01 rows arrive through it unchanged. **Next step:** build it first — CM-2 and CM-3 both sit on it |
+| **CM-2 · The context card** (the new right-click menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `context_card.gd` replaces the `PopupMenu` on desktop and tablet: §4.1's sections, header readout, *Select ▸*, disabled-with-reason, inline Tool rows, keyboard and filter; RMB moves from press to release (§6). Needs CM-1 |
+| **CM-3 · The desktop ring** (the wheel menu) | `MAP_CONTEXT_SCOPE.md` §11 | medium | `radial_ring.gd`; RMB-drag with the no-wait flick, RMB-hold ring+card, Q hold/tap; §5.1's table for all three domains; sub-rings; armed-state fill; finalized greying. Needs CM-1; cardinals per fork F3 |
+| **CM-4 · Tablet: hold → ring + card with slide-to-select** | `MAP_CONTEXT_SCOPE.md` §11 | medium | Continued tracking, haptics, handedness preference, edge flipping; **the pen barrel button verified on the owner's device** and the result written down (device-bound). Needs CM-3 |
+| **CM-5 · Phone noun surface: long-press → pin → peek card** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **Waits on fork F1** (what long-press does on the phone, and 480 vs 500 ms — it collides today with `map_overlay.gd`'s `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
+| **CM-6 · Phone thumb fan** | `MAP_CONTEXT_SCOPE.md` §11 | small–medium | **Waits on fork F2** (build it or not). §8.2 |
+| **CM-7 · New picks and verbs** | `MAP_CONTEXT_SCOPE.md` §11 | medium | §9.2's rows one at a time, each with its card row: landmark and route picks, stamp pick, then way list/delete and river identity/trace downstream. Can run beside any of the above |
 
 ## 3. Blocked, with the blocker named
 

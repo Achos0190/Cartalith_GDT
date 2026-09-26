@@ -1283,6 +1283,15 @@ recorded as proved dead.
 The source engine later split the plaza into a market square and a village green
 (`RC_ENGINE_CHANGES.md` §8.2, v2.73).
 
+> **Merge note, 2026-09-26.** A second, parallel port of milestone 8 landed on
+> `main` (`677977e`, 2026-09-20, from a branch that did not have this one's).
+> At the merge of `main` into this branch it was superseded by the
+> implementation already wired here (`4ec07f5`, `cartalith-urban::radial`),
+> whose consumers and goldens depend on its API. One finding from it is kept:
+> `buildRadialStreets` and `buildWaterway` were diffed between the v2.10 freeze
+> and the source's head (v2.73) and are **byte-identical**, so this port of them
+> carries no drift.
+
 ### Milestone 9 — water infrastructure
 
 Reference lines 28967-29154 (`distToLine` from 28971). `distToLine` (already
