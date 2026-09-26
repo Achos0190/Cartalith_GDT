@@ -28,7 +28,18 @@ use godot::prelude::*;
 
 use crate::{CivData, WorldGen};
 
-/// Where `a` is now, in grid cells, or `None` when it no longer resolves.
+/// Where `a` is now, in grid cells (continuous, cell-*centre* convention --
+/// see below), or `None` when it no longer resolves.
+///
+/// **Cell centre, not corner.** `s.placement.{x,y}` is the settlement's
+/// integer cell index (the corner, `map_overlay.gd`'s `_cell_to_screen`
+/// convention: it adds `+0.5` before projecting). A conflict's `points`,
+/// though, are continuous grid coordinates drawn straight through
+/// `_point_to_screen`, which adds nothing -- the same convention the free
+/// (unanchored) test fixture in `campaign.rs` uses (`(0.5, 0.5)` for the cell
+/// at index `(0, 0)`). Returning the raw index here put an anchored siege's
+/// ring, and SP-4's own marker, half a cell up and left of the settlement's
+/// pin. `+0.5` puts the anchor where the pin actually draws.
 pub(crate) fn anchor_pos(civ: &CivData, a: ConflictAnchor) -> Option<(f64, f64)> {
     let tid = match a {
         ConflictAnchor::Settlement(t) => t,
@@ -41,7 +52,7 @@ pub(crate) fn anchor_pos(civ: &CivData, a: ConflictAnchor) -> Option<(f64, f64)>
     civ.settlements
         .iter()
         .find(|s| s.tid == tid)
-        .map(|s| (s.placement.x as f64, s.placement.y as f64))
+        .map(|s| (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5))
 }
 
 fn province_of_seed(civ: &CivData, seed_tid: u64) -> Option<&cartalith_civ::Province> {
@@ -404,7 +415,8 @@ pub(crate) fn detach_all(store: &mut ConflictStore, civ: Option<&CivData>) {
 
 #[cfg(test)]
 mod tests {
-    use super::anchors_touching;
+    use super::{anchor_pos, anchors_touching};
+    use crate::CivData;
     use cartalith_civ::conflict::ConflictAnchor::{Province as P, Settlement as S};
     use cartalith_civ::{NamedSettlement, Province, SettlementKind, SettlementPlacement};
 
@@ -423,6 +435,68 @@ mod tests {
             name: format!("T{tid}"),
             pop: 100,
         }
+    }
+
+    /// A minimal `CivData` over `settlements` and (optionally) `province_list`
+    /// -- everything else empty/default, matching `lib.rs`'s own test-only
+    /// `empty_civ` helper (private to that module, so duplicated here rather
+    /// than shared across files).
+    fn civ(settlements: Vec<NamedSettlement>, province_list: Vec<Province>) -> CivData {
+        CivData {
+            settlements,
+            ways: Vec::new(),
+            sea_routes: Vec::new(),
+            road_edges: Vec::new(),
+            territory: Vec::new(),
+            provinces: Vec::new(),
+            province_list,
+            continents: Vec::new(),
+            trade_balances: Vec::new(),
+            explanations: Vec::new(),
+            water_bodies: Vec::new(),
+            next_tid: 1,
+            timeline: Vec::new(),
+            year: 0,
+            dens: Vec::new(),
+            faction_roster: crate::civ_roster_bridge::FactionRoster::seeded(6),
+            place_extras: crate::civ_roster_bridge::PlaceExtrasTable::default(),
+            village_tids: Default::default(),
+            belief: Vec::new(),
+            belief_seed_key: Vec::new(),
+            territory_year: None,
+        }
+    }
+
+    /// `OUTSTANDING_WORK.md` §2.11, "Anchored conflict marks sit half a cell
+    /// off their settlement" -- `s.placement.{x,y}` is the settlement's
+    /// integer cell (the corner: `map_overlay.gd::_cell_to_screen` puts the
+    /// pin at `cell + 0.5`), so the anchor must resolve to `cell + 0.5` too,
+    /// or a siege ring/SP-4 marker anchored to it draws half a cell off the
+    /// pin (`_point_to_screen`, which a conflict's points go through, adds
+    /// nothing). Old expectation: `(4.0, 0.0)` (the corner); new: `(4.5, 0.5)`
+    /// (the centre).
+    #[test]
+    fn a_settlement_anchor_resolves_to_the_cell_centre_not_the_corner() {
+        let mut t = town(7, 4);
+        t.placement.y = 0;
+        let world = civ(vec![t], Vec::new());
+        assert_eq!(anchor_pos(&world, S(7)), Some((4.5, 0.5)));
+        // No such settlement: unresolved, not a guess.
+        assert_eq!(anchor_pos(&world, S(99)), None);
+    }
+
+    /// A province anchor resolves through its seed settlement, the same
+    /// cell-centre way.
+    #[test]
+    fn a_province_anchor_resolves_through_its_seed_settlements_centre() {
+        let world = civ(
+            vec![town(7, 4)],
+            vec![Province { id: 1, faction: 1, name: String::new(), capital_settlement_index: 0 }],
+        );
+        assert_eq!(anchor_pos(&world, P(7)), Some((4.5, 0.5)));
+        // Not a seed of any province: unresolved.
+        let world2 = civ(vec![town(7, 4)], Vec::new());
+        assert_eq!(anchor_pos(&world2, P(7)), None);
     }
 
     #[test]

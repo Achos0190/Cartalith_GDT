@@ -177,10 +177,16 @@ func _ready() -> void:
 	var years := Array(_bridge.get_civ_timeline_years())
 	_check("both years are recorded", years.has(y0) and years.has(y0 + 10), str(years))
 
-	# -- 2. A siege between the two, anchored to the town.
+	# -- 2. A siege between the two, anchored to the town. Authored at the
+	## settlement's cell CENTRE (cx+0.5, cy+0.5) -- the convention
+	## `conflict_bridge.rs::anchor_pos` now resolves an anchor to, and the same
+	## point `map_overlay.gd::_cell_to_screen` puts the settlement's own pin at
+	## (`_cell_to_screen` adds the `+0.5`; a conflict's points are already
+	## continuous and go through `_point_to_screen` unchanged).
 	var r: Dictionary = _bridge.conflict_add({"name": "Siege of the probe", "kind": "siege",
 		"start_year": y0, "end_year": y0 + 20, "sides": PackedInt32Array([f1, f2]),
-		"points": PackedVector2Array([Vector2(cx, cy)]), "anchor_kind": "settlement", "anchor_tid": tid})
+		"points": PackedVector2Array([Vector2(cx + 0.5, cy + 0.5)]), "anchor_kind": "settlement",
+		"anchor_tid": tid})
 	_check("the siege was authored", bool(r.get("ok", false)), str(r))
 	var id := int(r.get("id", 0))
 
@@ -195,11 +201,25 @@ func _ready() -> void:
 		(row.get("changed_cells", PackedInt32Array()) as PackedInt32Array).size(), str(siege)])
 	_check("it reads territory at y0+10 against a y0 baseline",
 		int(row.get("territory_year", -99999)) == y0 + 10 and int(row.get("baseline_year", -99999)) == y0)
+	## Old -> new: the corner (cx, cy) -> the cell centre (cx+0.5, cy+0.5) --
+	## `OUTSTANDING_WORK.md` §2.11, "Anchored conflict marks sit half a cell
+	## off their settlement".
 	_check("the siege ring is centred on the town, 2.07 cells wide",
-		siege.get("centre", Vector2(-1, -1)) == Vector2(cx, cy)
+		siege.get("centre", Vector2(-1, -1)) == Vector2(cx + 0.5, cy + 0.5)
 			and absf(float(siege.get("radius_cells", 0.0)) - 2.591042 / 1.25) < 1e-4,
 		str(siege))
 	_check("it names the besieged town", int(siege.get("besieged_tid", 0)) == tid)
+	## The anchored ring's centre and the settlement pin's centre coincide on
+	## screen: the ring's `centre` goes through `_point_to_screen` (no
+	## `+0.5`), the pin goes through `_cell_to_screen` (cell index `+0.5`) --
+	## same screen point only because `siege.centre` is already the cell
+	## centre.
+	var ring_screen := _grid_to_vp(float(siege.get("centre", Vector2(-1, -1)).x),
+		float(siege.get("centre", Vector2(-1, -1)).y))
+	var pin_screen := _grid_to_vp(cx + 0.5, cy + 0.5)
+	_check("the siege ring's screen centre coincides with the settlement pin's",
+		ring_screen.distance_to(pin_screen) < 0.5,
+		"ring=%s pin=%s" % [str(ring_screen), str(pin_screen)])
 	_check("there is a front", int(row.get("front_cell_count", 0)) > 0)
 	var changed: PackedInt32Array = row.get("changed_cells", PackedInt32Array())
 	var to: PackedInt32Array = row.get("changed_to", PackedInt32Array())
@@ -233,7 +253,7 @@ func _ready() -> void:
 	await _frames(4)
 
 	# -- 5. Pixels: on vs off at an in-conflict year, then outside it.
-	var c_vp := _grid_to_vp(cx, cy)
+	var c_vp := _grid_to_vp(cx + 0.5, cy + 0.5)   ## the siege ring's actual centre
 	var ring_box := Rect2i(Vector2i(c_vp) - Vector2i(60, 60), Vector2i(120, 120))
 	var on_in := await _shot()
 	var shot := OS.get_environment("AW_SHOT")
