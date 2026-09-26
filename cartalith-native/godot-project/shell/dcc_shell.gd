@@ -564,6 +564,11 @@ var _phone_menu_bar: Control    ## L1 of the phone disclosure tree -- the bottom
 	## bar. Named handle because `_phone_bottom_reserve()` has to measure it.
 var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
 	## sheet (`GUI_GAP_REGISTER.md` §15).
+## CM-6 (`MAP_CONTEXT_SCOPE.md` §8.2, §11; Ruling AX F2). `preload`, not
+## `class_name` -- `tool_fan.gd`'s own header explains why -- so this is typed
+## against the const below rather than a global class.
+const ToolFan := preload("res://shell/tool_fan.gd")
+var _tool_fan: ToolFan
 var _left_sheet_open := false
 var _right_sheet_open := false
 ## The two dock `ScrollContainer`s, held only so `_set_sheet_open()` can zero
@@ -5635,6 +5640,15 @@ func _build_phone_shell() -> void:
 	_phone_menu = PhoneMenu.new()
 	_phone_root.add_child(_phone_menu)
 	_phone_menu.setup(self)
+
+	## CM-6: the armed-tool pill lives in `_phone_content_gap` (clear of the
+	## tool sheet AND the bottom nav, the same bound `_build_phone_undo_chip()`
+	## chose for the same reason); the fan itself is a top-level overlay
+	## `ToolFan.setup()` parents onto `self` (`app`), drawn above everything
+	## already built by tree order, same as `radial_ring.gd`'s own ring.
+	_tool_fan = ToolFan.new()
+	_tool_fan.setup(self)
+	_tool_fan.mount(_phone_content_gap)
 
 	## Full-height sheets (§13), built by the exact same functions the
 	## desktop/tablet dock uses -- `as_sheet = true` only swaps the header's
