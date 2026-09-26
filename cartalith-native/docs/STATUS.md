@@ -1146,6 +1146,27 @@ this document and does not exist — see *Orientation*.
 The GUI for all of this is `shell/workspaces/render_workspace.gd` (2 140 lines at `919bce1`, counted 2026-09-24; this said 1 055),
 composed into CARTO — see GFP-5.
 
+**Village map style band count, verified 2026-09-28.**
+`OUTSTANDING_WORK.md` §2.11's "harsh (yellow/purple/teal)" row: Ruling AZ
+(`LARGE_ITEM_RULINGS.md`, 2026-09-28) — "more colour bands, softer, matching
+the other presets." `render.rs::quantize_flat_palette`'s `BANDS` moved
+`3.0 → 5.0` (four → six flat levels per channel). Only [`Npr::village`]'s
+recipe ever sets it, and only "Village" among `render_workspace.gd`'s seven
+`STYLE_PRESETS` sets that flag (checked by grep), so no other preset's output
+moved and `BANDS` stayed a single constant rather than becoming a per-preset
+parameter. Chosen by measurement, not taste alone:
+`godot-project/_villagebands_probe.gd` (fixed seed 20260927, 512×328, sRGB,
+windowed) put Village's harsh-transition fraction (adjacent-pixel Euclidean
+RGB distance > 90 of 441.7) at 0.044551 with `BANDS = 3`, against the other
+six presets' own range on the same world, [0.029251, 0.032794]; `BANDS = 5`
+is the smallest band count whose figure (0.031397) lands inside that range
+(`BANDS = 7` gives 0.029340, also inside but not smaller). `tests/village_bands.rs`
+pins the new level spacing (literal `51.0 = 255.0/5.0`) and pins two
+non-village preset recipes as unmoved; mutation-tested once (`BANDS → 4.0`
+fails `village_quantises_to_six_levels_of_51`, killed). No golden or Rust
+render hash reads `Npr::village` (checked by grep over `tests/*.rs`), so
+nothing needed re-baselining.
+
 ### Sculpt live · `SCULPT_LIVE_SCOPE.md`
 
 Five milestones (L0-L4). The sculpt **editor** shipped as tool-plan milestone B;

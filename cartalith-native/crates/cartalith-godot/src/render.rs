@@ -5557,24 +5557,39 @@ fn npr_any(n: &Npr) -> bool {
 /// the two halves of one map style cannot drift onto two different band
 /// counts.
 ///
-/// Deliberately coarser than D-cel's own four divisions (`apply_npr`'s
-/// `n.cel` step, just above this style in the chain): a *slider* style reads
-/// correctly with subtle banding blended in; a *flat-palette replacement*
-/// needs bands coarse enough to actually read as a limited palette rather
-/// than as smoothed toon shading.
-///
 /// **The exact reference constant could not be checked against source.**
 /// `Cartalith_RC` (`hash_gen1.js`'s `landColorCore`/`seaColorCore`) is not
 /// present on this machine — `RC_ENGINE_CHANGES.md`'s v2.70 row gives the
 /// *shape* of the change (quantise the lit colour; water is a replacement,
 /// not a mix-in; turn the hillshade off in the recipe) but not this constant.
-/// Three divisions (four flat levels per channel) is this port's own choice.
+/// Both this port's original choice and its replacement are its own.
+///
+/// **`BANDS = 3.0` (four flat levels per channel) shipped and the owner
+/// reported it harsh** ("yellow/purple/teal"; `OUTSTANDING_WORK.md` §2.11).
+/// **Ruling AZ** (`LARGE_ITEM_RULINGS.md`, 2026-09-28): *"Village map style.
+/// Softer: more colour bands, matching the other presets."* Re-baselined to
+/// **`BANDS = 5.0`** (six flat levels per channel — finer than D-cel's own
+/// four divisions, `apply_npr`'s `n.cel` step above, rather than coarser as
+/// the original choice was) by measurement, not taste alone: the
+/// harsh-transition metric (the fraction of horizontally/vertically adjacent
+/// pixel pairs whose Euclidean RGB distance exceeds 90 of 441.7, on a fixed
+/// seed 20260927, 512×328, sRGB, windowed —
+/// `godot-project/_villagebands_probe.gd`) put Village at **0.044551** with
+/// `BANDS = 3` against the other six `STYLE_PRESETS` entries' own range
+/// **[0.029251, 0.032794]** on the same world; at `BANDS = 5` Village is
+/// **0.031397**, inside that range (`BANDS = 7` gives 0.029340, also inside
+/// but not the smallest count that clears it). The other six presets'
+/// figures do not move with `BANDS`, since `quantize_flat_palette` only ever
+/// runs when [`Npr::village`] is set and no other preset sets it (checked by
+/// grep over `STYLE_PRESETS`) — so `BANDS` did not need to become a
+/// per-preset parameter to keep this a Village-only change.
+///
 /// `js_round`, not `f64::round`, for the same reason [`apply_npr`]'s own
 /// rounding sites use it: a channel can sit fractionally below an exact band
 /// edge after earlier blends, and JS rounds half toward `+∞` where Rust
 /// rounds half away from zero (`cartalith-rust-conventions`).
 fn quantize_flat_palette(c: Rgb) -> Rgb {
-    const BANDS: f64 = 3.0;
+    const BANDS: f64 = 5.0;
     let q = |v: f64| (cartalith_jsmath::js_round((v / 255.0 * BANDS).clamp(0.0, BANDS)) / BANDS * 255.0).clamp(0.0, 255.0);
     (q(c.0), q(c.1), q(c.2))
 }
