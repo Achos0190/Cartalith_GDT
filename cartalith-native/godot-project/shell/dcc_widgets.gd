@@ -2629,8 +2629,25 @@ static func band(parent: Control, pad_x: int, gap: int = 14, height: int = 28) -
 ## build a stacked layout instead of a side-by-side one -- the one thing a
 ## content scale cannot fix, since a 264 px companion column beside a 393 dp
 ## body leaves the body 129 px no matter what it is scaled by.
+##
+## **Ruling AZ** (`LARGE_ITEM_RULINGS.md`, 2026-09-28), "Exit buttons are
+## inconsistent across windows": Close for a window that only shows things or
+## applies changes live; OK / Cancel only where changes are held until a
+## confirm. `ok_button_text = "Close"` used to run on the phone branch only,
+## which is why `faction_roster_window.gd`, `place_editor_window.gd` and
+## `settlement_types_window.gd` -- all three apply every edit live, with no
+## `confirmed` handler of their own -- fell through to `AcceptDialog`'s stock
+## "OK" on desktop and tablet while reading "Close" on a phone. Hoisting the
+## assignment above the branch is the one-helper fix: every plain window that
+## calls `phone_window()` now gets Close everywhere, and every held-change
+## dialog that calls it (`new_world_dialog.gd`'s "Create", the vault's
+## "Write to Markdown", `menus.gd`'s "Save"/"Replace"/"Forget", ...) already
+## sets its own `ok_button_text` (or `get_ok_button().text`) AFTER this call,
+## so the default is simply overwritten there, exactly as it already was on
+## the phone branch.
 static func phone_window(dlg: AcceptDialog, host) -> bool:
 	dlg.wrap_controls = false
+	dlg.ok_button_text = "Close"
 	if host == null or not host.has_method("is_phone") or not host.is_phone():
 		_desktop_window_size(dlg)
 		return false
@@ -2641,7 +2658,6 @@ static func phone_window(dlg: AcceptDialog, host) -> bool:
 	## window carries its own titled header inside the content, which does
 	## scale, and `ok_button_text` gives the explicit way out.
 	dlg.borderless = true
-	dlg.ok_button_text = "Close"
 	## A rotation changes both the screen this fills and the scale it fills it
 	## at. `phone_insets_changed` is the shell's own "the phone layout moved"
 	## signal, already emitted by `_apply_phone_orientation()`.
