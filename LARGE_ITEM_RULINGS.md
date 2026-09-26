@@ -1575,3 +1575,57 @@ stored conflict anchor (`ConflictAnchorDto::at`) by half a cell on both axes**,
 so old conflicts draw exactly where they did, now centred on the pin. Keyed on
 the save's format (an additive marker the new writer sets), tested from a real
 pre-fix archive.
+
+## 2026-09-28 — Ruling AZ: the owner-blocked rows, answered in one sitting
+
+Asked through the session's question tool, in four rounds, to clear every row
+the backlog tiering had marked as waiting on the owner.
+
+**Garrisons.** The border-exposure weight becomes a **user setting**, not a fixed
+value (the owner's own answer, replacing the scale of 1). A faction with no
+settlement marked Capital gets **no capital weight anywhere** — the rule matches
+what the dock shows.
+
+**Exit buttons.** Apply the proposed rule everywhere: **Close** for windows that
+only show or apply changes live; **OK / Cancel** only where changes are held
+until confirmed.
+
+**LOD tile sawtooth.** Not accepted as within tolerance: **keep fixing** the last
+configuration (1.67 against the bar).
+
+**Invisible label fix.** The owner had not (or cannot confirm they had) run
+CARTO ▸ Generate labels, so the fix was likely working as designed: close the
+defect, and make the need to generate labels clearer on screen.
+
+**Mouse clipped after setting a siege status.** Close as not reproducible; the
+owner will re-report with exact steps if it recurs.
+
+**Screens with no design** (phone error and storage-full states, the Data
+manager in the Environment prototype, phone sheets covering the tab bar, a
+touch hint for map drag, two export panes too wide for a phone): **derive them
+from the DCC canvases' own vocabulary**, per the standing rule, build them, and
+show the owner screenshots to approve.
+
+**Village map style.** Softer: **more colour bands**, matching the other presets.
+
+**Performance and platform.** Build now: **phone memory reduction** (the 878 MB
+peak for a default world, R1), **a smaller Android APK** (strip the remaining
+debug symbols), and **a GPU memory pool** kept between generations. Performance
+telemetry stays parked.
+
+**16K/32K export (E4 and the codec).**
+- Overlays in v1: **settlements, labels, roads and ways, icons and borders**.
+- Settlements: **the user picks a minimum tier** (default towns).
+- Rivers: **the vector line**, not the baked ink.
+- Town plans: **drawn above a size** readable at the export's resolution.
+- **No UI freezing** — the per-band 1-2 s freeze is not acceptable for v1;
+  render off the main thread with progress.
+- Codec: **offer JPEG alongside PNG** (amends ruling 26, which set PNG only);
+  the dialog still shows the expected size.
+
+**Research tracks to start:** the **3D viewport** (its three commissioned
+questions), **importance-driven refinement (EF-9)**, and **GPU stream-power
+erosion** (needs a scope first).
+
+**The v2.73 footpath class:** the owner will supply the v2.73 (or newer DCC)
+source file; the re-freeze and port wait on that file arriving. *Same day, the owner added: "Version 2.71 seems to be latest, 2.73 doesn't seem to exist." So the v2.73 footpath row, and the v2.72/v2.73 entries in `RC_ENGINE_CHANGES.md`, are unverified until the source folder is checked.*
