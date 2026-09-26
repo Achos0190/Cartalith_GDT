@@ -2521,6 +2521,121 @@ func _on_feature_button_armed(key: String) -> void:
 	app.arm_tool("sculpt")
 	_build_sculpt(_sculpt_body)
 
+## `MAP_CONTEXT_SCOPE.md` CM-3's ring, WORLD's four diagonals (§5.1). `Cliff`
+## and `Volcano` are pulled out of `FEATURE_KEYS`' own raw order (Mountains,
+## Hills, Ridge, Plateau, Cliff, Canyon, Valley, River, Lake, Basin,
+## Coastline, Volcano, Freehand -- `cartalith-terrain/src/sculpt.rs`) into the
+## Uplift/Carve grouping below -- permitted, and required to go through the
+## feature KEY rather than a position (`SCULPT_FUNCTION_CHART.md` §2:
+## "FEATURE_KEYS' index is a seed input... The ring maps a slot to a feature
+## key and never to a position"). Matches `design/map-context-2026-09-25/
+## Main.dc.html`'s own `DIAG.world` table exactly, which is the newer,
+## concrete source this grouping was checked against.
+const RING_UPLIFT_KEYS := ["mountains", "hills", "ridge", "plateau", "cliff", "volcano"]
+const RING_CARVE_KEYS := ["canyon", "valley", "river", "lake", "basin", "coastline"]
+
+func ring_slots(req: Dictionary) -> Dictionary:
+	if String(req.get("domain", "")) != "world":
+		return {}
+	var finalized := bool(req.get("finalized", false))
+	var armed := String(req.get("armed_tool", ""))
+	if not bridge.has_world:
+		var none := {}
+		for dir in ["NW", "NE", "SE", "SW"]:
+			none[dir] = {"label": "", "enabled": false, "reason": "no world loaded"}
+		return none
+	var out := {}
+	var features := bridge.get_sculpt_features()
+	var current_feature := bridge.sculpt_get_feature()
+	out["NW"] = _ring_feature_group("Uplift", "mountains", RING_UPLIFT_KEYS, features, armed, current_feature, finalized)
+	out["NE"] = _ring_feature_group("Carve", "canyon", RING_CARVE_KEYS, features, armed, current_feature, finalized)
+	out["SE"] = _ring_freehand_group(armed, current_feature, finalized)
+	out["SW"] = _ring_paint_group(armed, finalized)
+	return out
+
+## One diagonal's sub-ring over a fixed set of `FEATURE_KEYS` keys. Each leaf
+## calls exactly what `_on_feature_button_armed()` above calls -- the same
+## feature-grid chip a WORLD dock click already runs -- so the ring is a
+## second presentation of arming, never a second implementation of it.
+func _ring_feature_group(label: String, glyph: String, keys: Array, features: Array,
+		armed: String, current_feature: String, finalized: bool) -> Dictionary:
+	var have := {}
+	for f in features:
+		have[String((f as Dictionary).get("key", ""))] = f
+	var children: Array = []
+	for key in keys:
+		if not have.has(key):
+			continue
+		var meta: Dictionary = have[key]
+		children.append({"label": String(meta.get("label", String(key).capitalize())),
+			"glyph": key, "callable": _on_feature_button_armed.bind(key)})
+	var row := {"label": label, "glyph": glyph, "children": children,
+		"armed": armed == "sculpt" and keys.has(current_feature)}
+	if finalized:
+		row["enabled"] = false
+		row["reason"] = "world finalized"
+	elif children.is_empty():
+		row["enabled"] = false
+		row["reason"] = "no engine feature behind this build"
+	else:
+		row["enabled"] = true
+	return row
+
+## Freehand's own eight sub-modes (`bridge.get_sculpt_freehand_modes()`),
+## armed through the same pair `_on_freehand_mode_changed()` calls --
+## `bridge.sculpt_set_feature("freehand")` first (arming Freehand is arming
+## the sculpt tool with that one feature, `_on_feature_button_armed`'s own
+## pattern), then `sculpt_set_freehand_mode()`.
+func _ring_freehand_group(armed: String, current_feature: String, finalized: bool) -> Dictionary:
+	var modes := bridge.get_sculpt_freehand_modes()
+	var children: Array = []
+	for m in modes:
+		var key := String(m)
+		children.append({"label": key.capitalize(), "callable": _arm_ring_freehand.bind(key)})
+	var row := {"label": "Freehand", "glyph": "freehand", "shortcut": "F", "children": children,
+		"armed": armed == "sculpt" and current_feature == "freehand"}
+	if finalized:
+		row["enabled"] = false
+		row["reason"] = "world finalized"
+	elif children.is_empty():
+		row["enabled"] = false
+		row["reason"] = "no engine freehand modes behind this build"
+	else:
+		row["enabled"] = true
+	return row
+
+func _arm_ring_freehand(mode_key: String) -> void:
+	bridge.sculpt_set_feature("freehand")
+	bridge.sculpt_set_freehand_mode(mode_key)
+	app.arm_tool("sculpt")
+	if is_instance_valid(_sculpt_body):
+		_build_sculpt(_sculpt_body)
+
+## Biome paint's three `PaintStamp` layers (`bridge.get_paint_layers()`),
+## armed through the exact same `_on_paint_layer_changed()` the dock's own
+## "Target field" dropdown calls.
+func _ring_paint_group(armed: String, finalized: bool) -> Dictionary:
+	var layers := bridge.get_paint_layers()
+	var children: Array = []
+	for i in layers.size():
+		var key := String(layers[i])
+		children.append({"label": key.capitalize(), "callable": _arm_ring_paint.bind(i, layers)})
+	var row := {"label": "Paint", "glyph": "tool_paint", "shortcut": "B", "children": children,
+		"armed": armed == "paint"}
+	if finalized:
+		row["enabled"] = false
+		row["reason"] = "world finalized"
+	elif children.is_empty():
+		row["enabled"] = false
+		row["reason"] = "no paint layers in this build"
+	else:
+		row["enabled"] = true
+	return row
+
+func _arm_ring_paint(i: int, layers: PackedStringArray) -> void:
+	_on_paint_layer_changed(i, layers)
+	app.arm_tool("paint")
+
 ## §5.2's `#sculptPresetSeg` -- eight one-click parameter seeds. "A preset
 ## sets the feature and its parameters; it never paints" (§5.2 verbatim), so
 ## this arms the tool the same way a feature button does but draws no stroke.

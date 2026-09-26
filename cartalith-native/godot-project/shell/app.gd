@@ -312,11 +312,39 @@ var context_broker: ContextBroker
 ## Journey planner moved to the CIVIL rail on 2026-09-05, and this is where it
 ## landed so the shortcut did not die with the row.
 func _unhandled_key_input(event: InputEvent) -> void:
+	## CM-3's Q: key-up matters as much as key-down (§6: "Q hold (key down ->
+	## aim -> key up) / Q tap"), so this one branch has to run before the
+	## function-wide `event.pressed` guard below rejects every key-up outright.
+	## Not gated on the ring already being open the way the press branch is --
+	## a key-up with no matching ring is a no-op in `context_broker.gd::
+	## ring_key_release()` regardless.
+	if event is InputEventKey and event.keycode == KEY_Q and not event.pressed:
+		if context_broker != null and context_broker.ring_key_release():
+			get_viewport().set_input_as_handled()
+		return
 	if not (event is InputEventKey and event.pressed):
 		return
 	if event.keycode == KEY_ESCAPE:
+		## An open ring closes on Esc rather than falling through to the
+		## default disarm-to-Inspect (§9.4's "an open surface never commits or
+		## discards... Esc and tap-outside close the surface only" -- the same
+		## rule the card already follows).
+		if context_broker != null and context_broker.ring_is_open():
+			context_broker.ring_close()
+			get_viewport().set_input_as_handled()
+			return
 		_escape_action()
 		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_Q and not event.echo:
+		## The same text-field guard Delete/Backspace/⇧J need below, and for
+		## the same reason: naming something starting with "q" must not pop a
+		## ring mid-keystroke.
+		var typing := get_viewport().gui_get_focus_owner()
+		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+			return
+		if context_broker != null and not context_broker.ring_is_open():
+			context_broker.ring_key_press(viewport.overlay.last_mouse_pos())
+			get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_BACKSPACE:
 		## Same text-field guard Delete needs below, and for the same reason:
 		## Backspace inside a `LineEdit` means "delete a character", never
@@ -1476,6 +1504,14 @@ func _wire_selection() -> void:
 	context_broker = ContextBroker.new(self)
 	viewport.overlay.set_context_pick_resolver(context_broker.engine_picks)
 	viewport.context_requested.connect(context_broker.resolve)
+	## CM-3's ring (`MAP_CONTEXT_SCOPE.md` §5, §6, §9.1): five plain
+	## `Callable`s installed on the overlay, the same seam
+	## `set_context_pick_resolver` above already uses. Q's own press/release
+	## are keyboard, not mouse, so they are wired in `_unhandled_key_input`
+	## below rather than here.
+	viewport.overlay.set_ring_callbacks(
+		context_broker.ring_press, context_broker.ring_pointer,
+		context_broker.ring_release, context_broker.ring_click, context_broker.ring_is_open)
 
 
 # -- Contextual chrome --------------------------------------------------------

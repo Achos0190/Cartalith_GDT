@@ -973,6 +973,49 @@ var _context_pick: Callable = Callable()
 func set_context_pick_resolver(cb: Callable) -> void:
 	_context_pick = cb
 
+## CM-3's ring (`MAP_CONTEXT_SCOPE.md` §5, §6, §9.1). This file never imports
+## `context_broker.gd` or `radial_ring.gd` -- exactly the same reason
+## `_context_pick` above is a `Callable` and not an `EngineBridge`: this
+## control stays ignorant of the tool/ring system entirely, and
+## `set_ring_callbacks()` (installed once by `app.gd`) is the whole seam.
+## Every timing decision in §6's table (the no-wait flick, the still-hold
+## that opens the ring *and* the card, Q's sticky ring) lives in
+## `radial_ring.gd`'s own state machine; this file only forwards the raw
+## press/motion/release/click events its `_gui_input` already sees.
+##
+##   `Callable(pos: Vector2) -> void`  ring_press    RMB went down
+##   `Callable(pos: Vector2) -> void`  ring_pointer  every mouse motion,
+##                                                   regardless of button state
+##                                                   (Q-aim needs it with no
+##                                                   button held at all)
+##   `Callable() -> bool`             ring_release  RMB went up; `true` means
+##                                                   the ring consumed it (no
+##                                                   card should open)
+##   `Callable(pos: Vector2) -> bool` ring_click    a plain LMB press while
+##                                                   `ring_open_check` says a
+##                                                   sticky ring is open
+##   `Callable() -> bool`             ring_open_check
+var _ring_press_cb: Callable = Callable()
+var _ring_pointer_cb: Callable = Callable()
+var _ring_release_cb: Callable = Callable()
+var _ring_click_cb: Callable = Callable()
+var _ring_open_check: Callable = Callable()
+## Q's "ring at the cursor" (§6) needs the last known pointer position with no
+## button held at all -- `app.gd`'s key handler has no motion event of its own
+## to read it from.
+var _last_mouse_local := Vector2.ZERO
+
+func set_ring_callbacks(press_cb: Callable, pointer_cb: Callable, release_cb: Callable,
+		click_cb: Callable, open_check: Callable) -> void:
+	_ring_press_cb = press_cb
+	_ring_pointer_cb = pointer_cb
+	_ring_release_cb = release_cb
+	_ring_click_cb = click_cb
+	_ring_open_check = open_check
+
+func last_mouse_pos() -> Vector2:
+	return _last_mouse_local
+
 # ── Touch: press-and-hold IS the right click ─────────────────────────────────
 #
 # A finger has no second button, so on Android the context menu above had no
@@ -4439,6 +4482,14 @@ func _gui_input(event: InputEvent) -> void:
 		_rmb_press["travel"] = maxf(float(_rmb_press["travel"]),
 			rp.distance_to((event as InputEventMouseMotion).position))
 	if event is InputEventMouseMotion:
+		_last_mouse_local = (event as InputEventMouseMotion).position
+		## Forwarded regardless of button state: Q-aim (§6) has no button held
+		## at all, and CM-3's own ring is what decides whether this is
+		## meaningful right now (`radial_ring.gd::pointer()` no-ops unless a
+		## gesture is outstanding).
+		if _ring_pointer_cb.is_valid():
+			_ring_pointer_cb.call(_last_mouse_local)
+	if event is InputEventMouseMotion:
 		var rect := _displayed_rect()
 		if rect.size.x <= 0.0:
 			cursor_sampled.emit(0.0, 0.0, false)
@@ -4482,18 +4533,27 @@ func _gui_input(event: InputEvent) -> void:
 			## where it went down (`_rmb_press`), motion records how far it
 			## travelled, and the release decides:
 			##
-			##   travel < `_RMB_CLICK_SLOP`  the context card, at the PRESS
-			##                               point (where the user aimed)
-			##   travel >= it                nothing yet -- §6 gives an RMB
-			##                               drag to the tool ring, CM-3
+			##   travel < `_RMB_CLICK_SLOP`, held < 300 ms  the context card,
+			##                               at the PRESS point (where the
+			##                               user aimed)
+			##   travel >= it, or held >= 300 ms still      CM-3's ring
+			##                               (`_ring_release_cb`, below) --
+			##                               a drag or a still hold both open
+			##                               it, and a still hold opens the
+			##                               card beside it too (§6's third
+			##                               row, `radial_ring.gd`'s own
+			##                               `hold_fired` signal)
 			##
-			## §6's third row (a still hold >= 300 ms opens the ring *and* the
-			## card) has no ring to open yet, so a still hold still gets its
-			## card on release. Both halves `accept_event()`, so neither can
-			## fall through to anything behind this control -- the reference's
-			## own `e.preventDefault()`.
+			## Both halves `accept_event()`, so neither can fall through to
+			## anything behind this control -- the reference's own
+			## `e.preventDefault()`.
 			if mb.pressed:
 				_rmb_press = {"pos": mb.position, "travel": 0.0}
+				## CM-3: every RMB press is a candidate ring gesture until the
+				## release proves it a plain click (`radial_ring.gd`'s own
+				## `_armed`/`_active` split makes that decision, not this file).
+				if _ring_press_cb.is_valid():
+					_ring_press_cb.call(mb.position)
 				accept_event()
 				return
 			if _rmb_press.is_empty():
@@ -4502,6 +4562,13 @@ func _gui_input(event: InputEvent) -> void:
 			var travel := maxf(float(_rmb_press["travel"]), at.distance_to(mb.position))
 			_rmb_press = {}
 			accept_event()
+			## The ring's own release decision (§6: pick a slot, open a
+			## sub-ring, go sticky, or -- for a gesture that never travelled
+			## or held long enough to become a real ring -- do nothing at
+			## all). `true` means it WAS a real ring gesture, so the plain
+			## click-to-card path below must not also run.
+			if _ring_release_cb.is_valid() and bool(_ring_release_cb.call()):
+				return
 			if travel >= _RMB_CLICK_SLOP:
 				return
 			var r := _displayed_rect()
@@ -4516,6 +4583,16 @@ func _gui_input(event: InputEvent) -> void:
 			context_requested.emit(request_at(at, "mouse"))
 			return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		## CM-3: a sticky ring or sub-ring open (§6/§7.1's "tap outside to
+		## dismiss", `radial_ring.gd`'s own `_sticky`) claims the next LMB
+		## press outright, before any tool sees it -- the same "an open
+		## surface never lets a click reach the map underneath it" rule the
+		## card already follows.
+		if mb.pressed and _ring_open_check.is_valid() and bool(_ring_open_check.call()):
+			if _ring_click_cb.is_valid():
+				_ring_click_cb.call(mb.position)
+			accept_event()
 			return
 		var rect := _displayed_rect()
 		if rect.size.x <= 0.0:

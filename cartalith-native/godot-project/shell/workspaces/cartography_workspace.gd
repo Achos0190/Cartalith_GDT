@@ -947,6 +947,80 @@ func _open_in_civil(req: Dictionary) -> void:
 	app.select_domain("civilization")
 	app.context_broker.resolve.call_deferred(req)
 
+## `MAP_CONTEXT_SCOPE.md` CM-3's ring, CARTO's four diagonals (§5.1). Matches
+## `design/map-context-2026-09-25/Main.dc.html`'s `DIAG.carto` table.
+##
+## **Icon's real arming vocabulary is 3 families, not the 4 the scope table
+## names.** `ICON_FAMILIES` above only lists settlement/feature/poi -- its own
+## comment says why: "Custom" (a loaded pack's own art, `ManualIconFamily`'s
+## open, two-level vocabulary) "cannot be addressed through this numeric API"
+## `icon_arm()` uses. Built against the 3 families the shell can actually arm;
+## flagged in this pass's report rather than fabricating a fourth slot with no
+## function behind it.
+func ring_slots(req: Dictionary) -> Dictionary:
+	if String(req.get("domain", "")) != "cartography":
+		return {}
+	var finalized := bool(req.get("finalized", false))
+	var armed := String(req.get("armed_tool", ""))
+	if not bridge.has_world:
+		var none := {}
+		for dir in ["NW", "NE", "SE", "SW"]:
+			none[dir] = {"label": "", "enabled": false, "reason": "no world loaded"}
+		return none
+	var out := {}
+	## §5.2 rule 1's lock list keeps Label and Icon live when finalized.
+	out["NW"] = {"label": "Label", "glyph": "tool_label", "shortcut": "L",
+		"armed": armed == "label", "enabled": true,
+		"callable": func() -> void: app.arm_tool("label")}
+
+	var icon_children: Array = []
+	for i in ICON_FAMILIES.size():
+		var fam: Dictionary = ICON_FAMILIES[i]
+		icon_children.append({"label": String(fam.get("label", "")), "callable": _arm_ring_icon_family.bind(i)})
+	out["NE"] = {"label": "Icon", "glyph": "tool_icon", "shortcut": "I", "children": icon_children,
+		"armed": armed == "icon", "enabled": not icon_children.is_empty()}
+	if icon_children.is_empty():
+		out["NE"]["reason"] = "no icon families in this build"
+
+	var view_children: Array = []
+	for v in _view_field_rows():
+		var vd: Dictionary = v
+		view_children.append({"label": String(vd.get("label", "")), "callable": vd.get("callable", Callable())})
+	out["SE"] = {"label": "View", "glyph": "layers", "shortcut": "1-8", "children": view_children,
+		"enabled": not view_children.is_empty()}
+	if view_children.is_empty():
+		out["SE"]["reason"] = "no layer views available"
+	elif finalized:
+		out["SE"]["enabled"] = false
+		out["SE"]["reason"] = "world finalized"
+
+	var style_children: Array = []
+	if _render != null:
+		for i in RenderWorkspace.STYLE_PRESETS.size():
+			style_children.append({"label": String(RenderWorkspace.STYLE_PRESETS[i][0]),
+				"callable": _render._apply_preset.bind(i)})
+	out["SW"] = {"label": "Style", "glyph": "domain_render", "children": style_children,
+		"enabled": not style_children.is_empty()}
+	if style_children.is_empty():
+		out["SW"]["reason"] = "no style presets in this build"
+	elif finalized:
+		out["SW"]["enabled"] = false
+		out["SW"]["reason"] = "world finalized"
+	return out
+
+## Mirrors `_build_icon_tool_options_row()`'s own Family dropdown exactly
+## (`_icon_family_idx`, `_icon_variant_idx`, `_arm_icon_from_ui()`), then arms
+## unconditionally: `app.arm_tool("icon")` no-ops when Icon is already armed
+## (`app.gd::arm_tool`'s own early return), so re-arming from the ring while
+## already on Icon would silently keep stamping the OLD family without this
+## direct call.
+func _arm_ring_icon_family(i: int) -> void:
+	_icon_family_idx = i
+	_icon_variant_idx = 0
+	_arm_icon_from_ui()
+	app.arm_tool("icon")
+	app.set_tool_options(_build_icon_tool_options_row)
+
 
 # ===========================================================================
 # Tool arming / click-drag wiring

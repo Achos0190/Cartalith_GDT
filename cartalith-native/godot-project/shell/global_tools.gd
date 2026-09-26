@@ -171,6 +171,60 @@ static func _coordinate_rows(app, gx: float, gy: float) -> Array:
 			"callable": func() -> void: _copy(app, lat_text)})
 	return out
 
+## `MAP_CONTEXT_SCOPE.md` CM-3's ring cardinals (§5.1): global and identical
+## in every domain -- `context_broker.gd::ring_collect` merges this with each
+## workspace's own `ring_slots(req)` diagonals into the 8-slot compass. `req`
+## is `ContextBroker.ring_domain_req()`'s shape: `domain`, `armed_tool`,
+## `finalized` -- no `hits`, no `gx`/`gy` (the ring arms a tool; it never acts
+## on a picked object).
+static func ring_cardinals(app, req: Dictionary) -> Dictionary:
+	var finalized := bool(req.get("finalized", false))
+	var armed := String(req.get("armed_tool", ""))
+	var out := {}
+	out["N"] = {"label": "Inspect", "glyph": "tool_inspect", "shortcut": "V",
+		"armed": armed == "inspect", "enabled": true,
+		"callable": func() -> void: app.arm_tool("inspect")}
+	out["E"] = {"label": "Measure", "glyph": "tool_measure", "shortcut": "M",
+		"armed": armed == "measure", "enabled": true, "children": _measure_ring_children(app)}
+	out["W"] = {"label": "Region", "glyph": "tool_region", "shortcut": "R",
+		"armed": armed == "region", "enabled": true,
+		"callable": func() -> void: app.arm_tool("region")}
+	## Undo (S). `undo_stats()`'s own `label` is a peek at what the NEXT
+	## `undo_last()` would undo, not a side effect -- see that function's own
+	## doc comment in `engine_bridge.gd` ("depth, max_steps, ... label").
+	var stats: Dictionary = app.bridge.undo_stats() if app.bridge != null else {}
+	var depth := int(stats.get("depth", 0))
+	var undo_label := String(stats.get("label", ""))
+	var undo_row := {"glyph": "sym:undo", "shortcut": "Ctrl+Z", "armed": false}
+	if depth <= 0:
+		undo_row["label"] = "Undo"
+		undo_row["enabled"] = false
+		undo_row["reason"] = "nothing to undo"
+	else:
+		undo_row["label"] = ("Undo %s" % undo_label.to_lower()) if not undo_label.is_empty() else "Undo"
+		undo_row["enabled"] = true
+		undo_row["callable"] = func() -> void: app.undo_last()
+	## §5.2 rule 1's lock list is Inspect / Measure / Region select / Label /
+	## Icon -- Undo is not on it, so it greys when the world is finalized too,
+	## same as every domain diagonal.
+	if finalized and depth > 0:
+		undo_row["enabled"] = false
+		undo_row["reason"] = "world finalized"
+	out["S"] = undo_row
+	return out
+
+## Measure ▸'s sub-ring: every mode `MEASURE_MODES` defines, armed through
+## `set_measure_mode()` -- the same function the Measure tool row's own mode
+## picker calls -- with no point placed (the ring arms a mode; it does not
+## click one in).
+static func _measure_ring_children(app) -> Array:
+	var out: Array = []
+	for m in MEASURE_MODES:
+		var d: Dictionary = m
+		var id := String(d["id"])
+		out.append({"label": String(d["label"]), "callable": func() -> void: set_measure_mode(app, id)})
+	return out
+
 static func _copy(app, text: String) -> void:
 	DisplayServer.clipboard_set(text)
 	app.set_status("hint", "Copied %s" % text, "text_ghost")

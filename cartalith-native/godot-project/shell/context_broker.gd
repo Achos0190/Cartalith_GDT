@@ -78,6 +78,7 @@ extends RefCounted
 ## §4.1's sections after the header, in their fixed order.
 const SECTIONS: Array = ["draft", "tool", "object", "place", "go", "info"]
 const ContextCard := preload("res://shell/context_card.gd")
+const RadialRing := preload("res://shell/radial_ring.gd")
 
 var app
 ## The phone presenter's popup, rebuilt per request (its rows depend on what
@@ -86,6 +87,10 @@ var app
 var popup: PopupMenu
 ## The desktop and tablet presenter. Null until first needed.
 var card: ContextCard
+## CM-3's ring, desktop only. Null until the first RMB-drag, RMB-hold or Q
+## press -- see the "The ring (CM-3)" section below for its whole driver.
+var ring: RadialRing
+var _ring_press_local: Vector2 = Vector2.ZERO
 ## What the last `resolve()` asked and got -- read by `_on_id`, and by probes.
 var last_request: Dictionary = {}
 var last_actions: Array = []
@@ -246,3 +251,132 @@ func _on_id(id: int) -> void:
 	if not bool(a.get("enabled", true)):
 		return
 	(a["callable"] as Callable).call()
+
+
+## ── The ring (CM-3, `MAP_CONTEXT_SCOPE.md` §5, §6, §9.1) ─────────────────────
+##
+## The ring needs none of `resolve()`'s machinery above: it never touches
+## `hits`, never picks an object, and has no phone form (desktop-only, §6).
+## Its request is exactly the three fields §5.1's table actually reads --
+## `ring_domain_req()` -- and its rows come from a parallel provider contract,
+## `ring_slots(req) -> Dictionary` (workspaces) and `GlobalTools.
+## ring_cardinals(app, req) -> Dictionary`, merged by direction (`ring_
+## collect()`) rather than by section (there are no sections on a compass).
+##
+## `map_overlay.gd` never imports this file or `radial_ring.gd`: it is handed
+## five plain `Callable`s (`set_ring_callbacks`, mirroring the existing
+## `set_context_pick_resolver` pattern) and calls whichever one applies to the
+## raw pointer/button event it just saw. That keeps every timing decision
+## (§6's flick/hold/sticky table) inside `radial_ring.gd`'s own state machine,
+## reachable from exactly one file, rather than re-derived at each call site.
+
+func _ensure_ring() -> RadialRing:
+	if ring == null:
+		ring = RadialRing.new()
+		ring.setup(app)
+		ring.hold_fired.connect(_on_ring_hold_fired)
+		app.add_child(ring)
+	return ring
+
+## No `hits`, no `gx`/`gy`: the ring arms a tool, it never acts on a picked
+## object (§5.1's own table has no per-object row anywhere on it).
+func ring_domain_req() -> Dictionary:
+	return {
+		"domain": app.active_domain(),
+		"armed_tool": app.armed_tool,
+		"finalized": app.bridge != null and app.bridge.has_world and app.bridge.is_finalized(),
+	}
+
+## Every provider's ring rows, merged into the 8-slot compass: `GlobalTools.
+## ring_cardinals` first (N/E/S/W, identical in every domain, §5.1), then
+## each workspace's own `ring_slots(req)` (its NW/NE/SE/SW) over it. Public so
+## a probe can ask what a domain's compass looks like without opening a ring.
+func ring_collect(req: Dictionary) -> Dictionary:
+	var slots := GlobalTools.ring_cardinals(app, req)
+	for ws in app._workspaces:
+		if ws.has_method("ring_slots"):
+			var diag: Dictionary = ws.ring_slots(req)
+			for dir in diag:
+				slots[dir] = diag[dir]
+	return slots
+
+## `map_overlay.gd`'s RMB press: local space, converted the same way
+## `present()` converts a card's `screen_pos` above.
+func ring_press(local_pos: Vector2) -> void:
+	_ring_press_local = local_pos
+	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), false)
+
+func ring_pointer(local_pos: Vector2) -> void:
+	if ring == null:
+		return
+	ring.pointer(app.viewport.overlay.get_global_transform_with_canvas() * local_pos)
+
+## Returns whether the ring was open for this release (so `map_overlay.gd`
+## knows not to fall through to the card's own click path) -- runs the picked
+## callable, if any, before returning.
+func ring_release() -> bool:
+	if ring == null:
+		return false
+	var was_open := ring.is_open()
+	var cb: Callable = ring.release()
+	if cb.is_valid():
+		cb.call()
+	return was_open
+
+## The sticky-ring click path (a plain LMB press while the ring is open and
+## sticky). Returns true unconditionally: `map_overlay.gd` only calls this
+## once `ring_is_open()` already said yes, so the click is always the ring's
+## to consume rather than the armed tool's.
+func ring_click(local_pos: Vector2) -> bool:
+	if ring == null:
+		return false
+	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
+	var cb: Callable = ring.click_at(at)
+	if cb.is_valid():
+		cb.call()
+	return true
+
+func ring_is_open() -> bool:
+	return ring != null and ring.is_open()
+
+## Esc, while the ring is open (`app.gd`'s `_unhandled_key_input`): closes the
+## ring only, same rule §9.4 gives the card ("An open surface never commits or
+## discards a draft by being dismissed").
+func ring_close() -> void:
+	if ring != null:
+		ring.close()
+
+## Q key-down (`app.gd`). `pos` is `map_overlay.gd`'s own last-tracked mouse
+## position, local space -- "Ring at the cursor" (§6), not at whatever the
+## RMB press point happened to be.
+func ring_key_press(local_pos: Vector2) -> void:
+	if ring != null and ring.is_open():
+		return
+	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
+	_ring_press_local = local_pos
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true)
+
+## Q key-up. Returns true when the key event should count as handled: either
+## it picked something, or the ring is (still) open, sticky, waiting for a
+## click -- see `radial_ring.gd::q_release()`'s own doc for why a second
+## key-up while sticky is a no-op rather than a second resolve.
+func ring_key_release() -> bool:
+	if ring == null:
+		return false
+	var cb: Callable = ring.q_release()
+	if cb.is_valid():
+		cb.call()
+		return true
+	return ring.is_open()
+
+## The still-hold firing (`radial_ring.gd`'s own `hold_fired` signal, §6's
+## third row): the ring is now visible and sticky; open the card beside it,
+## through the exact same `resolve()` the click path uses -- never a second
+## card-opening path. Needs the real pick-driven request (`hits` included),
+## which only `map_overlay.gd::request_at()` can build, so this is the one
+## place the ring reaches back into the overlay's own picking machinery.
+func _on_ring_hold_fired() -> void:
+	var req: Dictionary = app.viewport.overlay.request_at(_ring_press_local, "mouse")
+	if not req.is_empty():
+		resolve(req)

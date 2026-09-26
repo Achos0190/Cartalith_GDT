@@ -719,6 +719,85 @@ func _on_ctx_id(id: int) -> void:
 					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included. On a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), Biome reads — there; that world's imported settlements, labels and icons stay drawn and editable, and regenerating would replace them with a new world's rather than restore what is missing. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
 
+## `MAP_CONTEXT_SCOPE.md` CM-3's ring, CIVIL's four diagonals (§5.1). Matches
+## `design/map-context-2026-09-25/Main.dc.html`'s `DIAG.civil` table.
+const RING_SETTLE_KINDS := ["metropolis", "city", "town", "village", "hamlet"]
+
+func ring_slots(req: Dictionary) -> Dictionary:
+	if String(req.get("domain", "")) != "civilization":
+		return {}
+	var finalized := bool(req.get("finalized", false))
+	var armed := String(req.get("armed_tool", ""))
+	if not bridge.has_world:
+		var none := {}
+		for dir in ["NW", "NE", "SE", "SW"]:
+			none[dir] = {"label": "", "enabled": false, "reason": "no world loaded"}
+		return none
+	var out := {}
+	var settle_children: Array = []
+	for kind in RING_SETTLE_KINDS:
+		settle_children.append({"label": kind.capitalize(), "callable": _arm_ring_settlement.bind(kind)})
+	out["NW"] = {"label": "Settle", "glyph": "tool_settlement", "shortcut": "S",
+		"children": settle_children, "armed": armed == "settlement", "enabled": not finalized}
+	if finalized:
+		out["NW"]["reason"] = "world finalized"
+
+	var territory_children := [
+		{"label": "Add", "callable": _arm_ring_territory.bind(false)},
+		{"label": "Subtract", "callable": _arm_ring_territory.bind(true)},
+	]
+	out["NE"] = {"label": "Territory", "glyph": "tool_territory", "shortcut": "T",
+		"children": territory_children, "armed": armed == "territory", "enabled": not finalized}
+	if finalized:
+		out["NE"]["reason"] = "world finalized"
+
+	out["SE"] = _ring_way_group(armed, finalized)
+	out["SW"] = {"label": "Route", "glyph": "tool_route", "shortcut": "⇧R",
+		"armed": armed == "route", "enabled": not finalized,
+		"callable": func() -> void: app.arm_tool("route")}
+	if finalized:
+		out["SW"]["reason"] = "world finalized"
+	return out
+
+func _arm_ring_settlement(kind: String) -> void:
+	_settlement_kind = kind
+	app.arm_tool("settlement")
+	_tool_options_settlement()
+
+func _arm_ring_territory(subtract: bool) -> void:
+	_territory_subtract = subtract
+	app.arm_tool("territory")
+	_tool_options_territory()
+
+## **Stop-and-report, per this pass's own brief**: `MAP_CONTEXT_SCOPE.md`
+## §5.1's Way row reads "road · track · trail · bridge", copying `DCC_SHELL_
+## SPEC.md` §4.5.4 -- but `infrastructure_workspace.gd`'s own `WAY_DRAW_TYPES`
+## comment says that four-item list is checked against the Rust source and
+## is WRONG: `way_begin`'s real vocabulary (`infra_tools_bridge::
+## parse_way_type`) is road / track / sea_lane / ancient, and "the engine has
+## no `trail` or `bridge`". Built against the real, tested vocabulary rather
+## than the two names nothing backs; flagged in this pass's own report rather
+## than silently "fixing" a scope document this lane does not own.
+func _ring_way_group(armed: String, finalized: bool) -> Dictionary:
+	var children: Array = []
+	for i in _infra.WAY_DRAW_TYPES.size():
+		var key := String(_infra.WAY_DRAW_TYPES[i])
+		var label := String(_infra.WAY_DRAW_TYPE_LABELS[i])
+		children.append({"label": label, "callable": _arm_ring_way.bind(key)})
+	var row := {"label": "Way", "glyph": "tool_way", "shortcut": "W", "children": children,
+		"armed": armed == "way"}
+	if finalized:
+		row["enabled"] = false
+		row["reason"] = "world finalized"
+	else:
+		row["enabled"] = true
+	return row
+
+func _arm_ring_way(key: String) -> void:
+	_infra._set_way_type(key)
+	app.arm_tool("way")
+	_infra._tool_options_way()
+
 ## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
 ## Delete removes the selected place. Returns `true` when it handled the key,
 ## so `app.gd`'s broadcast stops at the first workspace that did.
