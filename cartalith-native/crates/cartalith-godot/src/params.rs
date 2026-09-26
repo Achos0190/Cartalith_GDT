@@ -128,9 +128,10 @@ pub struct ParamSpec {
 /// It therefore has to keep meaning "what the reference does".
 ///
 /// This function is where the product's own rulings land instead: a divergence
-/// recorded in `DECISIONS.md` turns on here, not there, so it reaches every
-/// generated world without deleting the parity baseline underneath it. Today
-/// that is five flags, each independently revertible by deleting its own line.
+/// recorded in `DECISIONS.md` or `LARGE_ITEM_RULINGS.md` turns on here, not
+/// there, so it reaches every generated world without deleting the parity
+/// baseline underneath it. Today that is six flags, each independently
+/// revertible by deleting its own line.
 pub fn defaults() -> WorldParams {
     let mut p = WorldParams::defaults(0, 0, 0);
     // `DECISIONS.md` §7l (owner ruling, 2026-09-02): craters generate from an
@@ -161,6 +162,14 @@ pub fn defaults() -> WorldParams {
     // polygons. Off in `WorldParams::defaults`, whose goldens were captured
     // from the v2.10/v2.11 reference at 0.35.
     p.tect.narrow_plate_base_blur = true;
+    // Owner Ruling AU (2026-09-24, `LARGE_ITEM_RULINGS.md`; `LOD_DETAIL_SCOPE.md`
+    // owner question 3): new worlds run the glacial erosion pass, so cold
+    // mountains carve U-shaped troughs for LOD-D4's ice to fill. The reference
+    // runs `glacialKernel` only from its `#glacBtn` button, never inside
+    // generation, so this stays off in `WorldParams::defaults` and every
+    // golden. Generation takes longer by the measured cost disclosed in
+    // `GENERATION_PARAMETERS.md` ("The six deliberate divergences").
+    p.passes.glacial = true;
     p
 }
 
@@ -915,7 +924,7 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// in a hand-edited (or future-version) save is clamped or rejected on the
 /// same terms as a GUI write, and never panics.
 pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
-    // The two parameters whose *absence* is information. A save that does not
+    // The three parameters whose *absence* is information. A save that does not
     // carry `integrate_drainage` -- every archive written before it existed,
     // and every reference-app export -- was generated without integrated
     // drainage, so it must reload as that world, not as whatever the session's
@@ -931,6 +940,12 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // is a constant there -- so this follows `integrate_drainage` here, not a
     // source loader.)
     p.tect.narrow_plate_base_blur = false;
+    // And the glacial pass (Ruling AU). Every save this port has written since
+    // `1f7c295` (2026-08-23) carries `passes.glacial`, so the key is missing
+    // only from a reference-app export -- whose world was generated without
+    // it, because the reference runs `glacialKernel` from a button and never
+    // inside generation -- or a native block from before that commit.
+    p.passes.glacial = false;
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };

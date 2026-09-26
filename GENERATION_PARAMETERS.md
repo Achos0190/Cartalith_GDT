@@ -271,10 +271,10 @@ is non-empty, that is a bug in the caller, not user error.
 to be the same call and no longer are, see below), and `generate()` overwrites
 only `gw`/`gh`/`tect.seed`/`map_width_km` before calling `generate_terrain`.
 An instance nobody calls a setter on therefore builds a `WorldParams`
-byte-identical to the one the old code built inline, **except for the five
+byte-identical to the one the old code built inline, **except for the six
 fields below**.
 
-**The five deliberate divergences**, each an owner ruling, all turned on in
+**The six deliberate divergences**, each an owner ruling, all turned on in
 `params::defaults()` and all left `false` in `WorldParams::defaults` — the
 goldens' own parity baseline:
 
@@ -285,12 +285,13 @@ goldens' own parity baseline:
 | `volc.edifice_model` | §7l-ii, ruling 1 (2026-09-02) | shield/strato/cone edifices instead of one power-law profile at every scale |
 | `integrate_drainage` | owner-authorised 2026-09-22 (`RC_ENGINE_CHANGES.md` §6g/§6k) | flow and the channel tree route over the depression-filled surface, so water reaching a local pit carries on to the sea — the source's own default since v2.59 |
 | `tect.narrow_plate_base_blur` | `DECISIONS.md` §7n, carried under Ruling AP (`a74b35c`, 2026-09-24; `RC_ENGINE_CHANGES.md` §6i) | the plate-base blur radius is `max(2, blur_r·0.18)` (source v2.57 `PLATE_BASE_BLUR_K`) instead of `blur_r·0.35`, so coastlines leave the plate polygons |
+| `passes.glacial` | owner Ruling AU (2026-09-24; `LOD_DETAIL_SCOPE.md` question 3) | the glacial erosion pass runs inside every new generation, carving U-shaped troughs above the snowline where it is below freezing. The reference runs `glacialKernel` only from its `#glacBtn` button. **Cost, measured 2026-09-24** (`tests/lod_d4_ice_and_snow.rs::measure_the_glacial_default`, release build, CPU path, 2048×1311, seed 24601, five alternating runs a leg, no other build running): `generate_terrain` median 2.60 s (2.58..2.64) without it, 3.28 s (3.22..3.30) with it; an independent re-run gave 2.59 s (2.57..2.66) and 3.25 s (3.23..3.26). The shell turns `use_gpu` on at boot, which this does not measure |
 
 Those defaults live at this one boundary specifically so the parity baseline
 underneath them stays untouched. Every other parameter is unaffected, and
 `tests/params_mapping.rs::exactly_the_ruled_divergences_ship_at_the_app_boundary`
-asserts that — it neutralises exactly these five and requires the result to
-equal `WorldParams::defaults`, so a sixth divergence added without a ruling
+asserts that — it neutralises exactly these six and requires the result to
+equal `WorldParams::defaults`, so a seventh divergence added without a ruling
 fails there rather than being discovered later.
 
 **One further change of 2026-09-02 is not a divergence but does change behaviour**:
@@ -319,7 +320,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   `state` literal wherever the reference has one — with one exception,
   `passes.evolve_cycles` (`0` = off here; the reference's `stream.cycles` is
   `5`, the slider value for a button). It is **not** what the shipped app
-  generates with at the five ruled divergences above, which
+  generates with at the six ruled divergences above, which
   `params::defaults()` turns on, nor for `use_gpu`, which
   `engine_bridge.gd`'s `_ready` turns on at boot. (Qualified 2026-09-24; this
   said "in every case".)
@@ -332,7 +333,7 @@ check on the table, not (since §7l) a claim that `params::defaults()` equals
   violation, because the default reproduces reference behaviour exactly — but
   the distinction is recorded, not blurred. That holds at
   `WorldParams::defaults`, not at the app boundary: a `—` row that is one of
-  the five ruled divergences, or that only a ruled divergence reads
+  the six ruled divergences, or that only a ruled divergence reads
   (`crater.surface_age_myr` under `crater.physical_model`), does not
   reproduce the reference in the shipped app.
 
@@ -443,11 +444,11 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.physical_model` | `crater.physical_model` | bool | `false`¹ | — | **—** | `DECISIONS.md` §7l (owner ruling, 2026-09-02). Switches crater generation from `crater.count`'s fixed count to an area-density model: `lambda = R20·T·A·(20/Dmin)^b·I` (Poisson-drawn count, truncated `D⁻²` sizes over a resolution-aware `[Dmin, 400 km]`), so density is correct at every map scale instead of a slider whose meaning changes by 64,000,000× between a 5 km region and a 40,000 km world. The reference has neither a density model nor this flag — no reference counterpart at all, not just no control. | Volcanism & Impacts (dispatch: density-law vs. fixed count) | — full regenerate only |
 | `crater.surface_age_myr` | `crater.surface_age_myr` | float | `100.0` | 0.0 .. 4000.0, step 10.0 | **—** | Geological surface exposure age in **millions of years** — feeds `crater.physical_model`'s `T` term. **Not** the civilisation Timeline and **not** `crater.age`'s 0-1 morphological wear: three distinct clocks (`DECISIONS.md` §7l), six-plus orders of magnitude apart and not convertible. No reference counterpart: the reference has no geological-age concept to store one under. | Volcanism & Impacts (crater count AND `crater_degradation_tau`; inert unless `physical_model` on) | — full regenerate only |
 
-¹ All five ¹-marked flags (`integrate_drainage` in the `world` group,
-`tect.narrow_plate_base_blur` in `tectonics`, and the three above) share one shape, and the `Default` column gives
+¹ All six ¹-marked flags (`integrate_drainage` in the `world` group,
+`tect.narrow_plate_base_blur` in `tectonics`, `passes.glacial` in `erosion`, and the three above) share one shape, and the `Default` column gives
 `WorldParams::defaults`' value throughout this document: `false` restores the
 reference's own path byte-for-byte and is the goldens' parity baseline, while
-the **shipped app** defaults all five `true` at the
+the **shipped app** defaults all six `true` at the
 `cartalith-godot::params::defaults()` boundary (see "Zero behaviour change at
 defaults" above for why the two differ, and
 `exactly_the_ruled_divergences_ship_at_the_app_boundary` for the enforced list).
@@ -473,10 +474,14 @@ below, since the only thing that reads it is the Evolve op.
 
 The same group carries the reference's **manual erosion buttons**, which this
 port runs as generation-time passes instead — `cartalith_engine::ErosionPassParams`,
-`GUI_GAP_REGISTER.md` §19. **Every toggle is off by default**, so a default
-generation is bit-identical to one produced before they existed; that is the
-condition `DECISIONS.md` §7d attaches to a superset, and it is asserted
-(`erosion_passes_off_leave_generation_bit_identical`), not assumed.
+`GUI_GAP_REGISTER.md` §19. **Every toggle is off in `WorldParams::defaults`**, so a
+default engine generation is bit-identical to one produced before they existed; that
+is the condition `DECISIONS.md` §7d attaches to a superset, and it is asserted
+(`erosion_passes_off_leave_generation_bit_identical`), not assumed. **One is on in the
+shipped app:** `passes.glacial`, by owner Ruling AU (2026-09-24), is a ruled divergence
+at the `params::defaults()` boundary — see "The six deliberate divergences" above for
+it and its measured cost. (This said "every toggle is off by default" without
+qualification until 2026-09-24.)
 
 They run **at the end of `generate_terrain`, after `carve_rivers`** — "the
 finished field" is what each of these buttons operates on in the reference —
@@ -500,7 +505,7 @@ had one until 2026-09-24).
 | `passes.velo_iters` | `passes.velo_iters` | int | `60` | 10 .. 160, step 1 | `vIt`, raw 10-160 step 1 | Simulation iterations. `veloParams()` clamps to this range itself. | Erosion | — full regenerate only |
 | `passes.velo_strength` | `passes.velo_strength` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `vStr`, raw 0-100, `v/100` | Drives both capacity (`0.5 + 1.5·s`) and erodibility (`0.05 + 0.5·s`). | Erosion | — full regenerate only |
 | `passes.velo_meander` | `passes.velo_meander` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `vMnd`, raw 0-100, `v/100` | Centrifugal bank shear (`1.4·m`). 0 disables outer-bank bias, so channels stay straight. | Erosion | — full regenerate only |
-| `passes.glacial` | `passes.glacial` | bool | `false` | — | — (`#glacialBtn` is a button) | Run `glacialKernel` — ice abrasion carving U-shaped troughs, plus cirque overdeepening where discharge is under 100. **Gated on climate as well as altitude**: a cell erodes only above the snowline *and* below freezing, so a temperate world carves essentially nothing however high the intensity. | Erosion | — full regenerate only |
+| `passes.glacial` | `passes.glacial` | bool | `false`¹ | — | — (`#glacialBtn` is a button) | Run `glacialKernel` — ice abrasion carving U-shaped troughs, plus cirque overdeepening where discharge is under 100. **`true` in the shipped app** (`params::defaults()`, owner Ruling AU, 2026-09-24); a save without the key — a reference export — reloads with it off. **Gated on climate as well as altitude**: a cell erodes only above the snowline *and* below freezing, so a temperate world carves essentially nothing however high the intensity. | Erosion | — full regenerate only |
 | `passes.glacial_snowline` | `passes.glacial_snowline` | float | `0.65` | 0.0 .. 1.0, step 0.01 | `gSnow`, raw 0-100, `v/100` | Snowline as a fraction of the above-sea range: ice forms above `sea + (1−sea)·snowline`. | Erosion | — full regenerate only |
 | `passes.glacial_kg` | `passes.glacial_kg` | float | `0.15` | 0.01 .. 1.0, step 0.01 | `gKg`, raw 1-100, `v/100` | Glacial erodibility, ×planet gravity. | Erosion | — full regenerate only |
 | `passes.glacial_mg` | `passes.glacial_mg` | float | `0.40` | 0.0 .. 2.0, step 0.05 | — | Discharge exponent in `E ∝ Q^mg`. The reference has no slider for it; range is this port's judgement. | Erosion | — full regenerate only |

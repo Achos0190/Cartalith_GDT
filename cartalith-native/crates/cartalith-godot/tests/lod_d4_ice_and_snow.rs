@@ -52,6 +52,12 @@
 #[path = "../src/render.rs"]
 mod render;
 
+// For `measure_the_glacial_default` only: the shipped app's own defaults, not
+// a copy of the divergence list. `params.rs` is `godot`-free for exactly this.
+#[path = "../src/params.rs"]
+#[allow(dead_code)]
+mod params;
+
 use render::{RenderCtx, TerrainAppearance, TileBounds, TileCryo, TileFields};
 
 const GW: usize = 96;
@@ -1072,6 +1078,95 @@ fn measure_the_cost() {
     // should be quoted as one.
     if b_ms[0] <= a_ms[8] && a_ms[0] <= b_ms[8] {
         println!("   the two brackets OVERLAP -- no per-tile difference is established at this sample size");
+    }
+}
+
+/// Owner Ruling AU turned the glacial pass on in `params::defaults()`, and
+/// asked for two things measured: what it costs a default generation, and
+/// whether a *default* world now carries ice for LOD-D4 to draw. Both at the
+/// shipped default size (2048x1311) and the shipped defaults, against the same
+/// defaults with only `passes.glacial` off, the two legs alternating so drift
+/// over the run biases both alike.
+///
+/// Prints, per leg: `generate_terrain` wall time as median (min..max) over
+/// `CARTALITH_GLACIAL_REPS` runs (default 5) on the first seed; then, per
+/// seed, the cells passing `glacial_kernel`'s own gate, the cells whose height
+/// the pass moved, the deepest cut, and the cells at glacier potential >= 0.5.
+///
+/// ```text
+/// cargo test -p cartalith-godot --release --test lod_d4_ice_and_snow -- --ignored --nocapture --test-threads=1 measure_the_glacial_default
+/// ```
+#[test]
+#[ignore = "a timing at 2048x1311; run alone"]
+fn measure_the_glacial_default() {
+    use std::time::Instant;
+    let gw: usize = std::env::var("CARTALITH_D4_GW").ok().and_then(|v| v.parse().ok()).unwrap_or(2048);
+    let gh: usize = std::env::var("CARTALITH_D4_GH").ok().and_then(|v| v.parse().ok()).unwrap_or(1311);
+    let reps: usize = std::env::var("CARTALITH_GLACIAL_REPS").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+    let seeds: Vec<i32> = std::env::var("CARTALITH_D4_SEEDS")
+        .ok()
+        .map(|v| v.split(',').filter_map(|s| s.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![24_601, 1337, 987_654]);
+    let world = |seed: i32, glacial: bool| {
+        let mut p = params::defaults();
+        p.gw = gw;
+        p.gh = gh;
+        p.tect.seed = seed;
+        p.passes.glacial = glacial;
+        p
+    };
+    assert!(world(1, true) != world(1, false), "the two legs must differ");
+    assert!(params::defaults().passes.glacial, "Ruling AU: the shipped default runs the pass");
+
+    let stats = |v: &mut Vec<f64>| {
+        v.sort_by(|a, b| a.total_cmp(b));
+        (v[v.len() / 2], v[0], v[v.len() - 1])
+    };
+    let (mut off_s, mut on_s): (Vec<f64>, Vec<f64>) = (Vec::new(), Vec::new());
+    for _ in 0..reps {
+        for glacial in [false, true] {
+            let p = world(seeds[0], glacial);
+            let t = Instant::now();
+            std::hint::black_box(cartalith_engine::generate_terrain(&p));
+            let s = t.elapsed().as_secs_f64();
+            if glacial { on_s.push(s) } else { off_s.push(s) }
+        }
+    }
+    let (a, b) = (stats(&mut off_s), stats(&mut on_s));
+    println!(
+        "\n=== glacial default, {gw}x{gh}, seed {} ===\ngenerate_terrain without the pass: median {:.2} s ({:.2}..{:.2} over {reps})\n\
+         generate_terrain with the pass:    median {:.2} s ({:.2}..{:.2} over {reps})  = {:+.2} s median",
+        seeds[0], a.0, a.1, a.2, b.0, b.1, b.2, b.0 - a.0
+    );
+    if b.1 <= a.2 && a.1 <= b.2 {
+        println!("   the two brackets OVERLAP -- no cost is established at this sample size");
+    }
+
+    for &seed in &seeds {
+        let (p_on, p_off) = (world(seed, true), world(seed, false));
+        let on = cartalith_engine::generate_terrain(&p_on);
+        let off = cartalith_engine::generate_terrain(&p_off);
+        let n = gw * gh;
+        let sea = on.sea_level as f64;
+        let snow_el = sea + (1.0 - sea) * p_on.passes.glacial_snowline;
+        let gated = |ws: &cartalith_engine::WorldState| {
+            (0..n).filter(|&i| ws.field[i] as f64 >= snow_el && ws.temperature[i] < 0.0).count()
+        };
+        let moved = on.field.iter().zip(off.field.iter()).filter(|(x, y)| x != y).count();
+        let deepest = on.field.iter().zip(off.field.iter()).map(|(x, y)| y - x).fold(0.0f32, f32::max);
+        let km = p_on.map_width_km / gw as f64;
+        let pot = |ws: &cartalith_engine::WorldState| {
+            let g = render::build_glacier_potential(&ws.field, &ws.temperature, Some(&ws.flow_discharge), gw, gh, ws.sea_level as f64, p_on.passes.glacial_snowline, km, p_on.world);
+            (g.iter().filter(|v| **v >= 0.5).count(), g.iter().filter(|v| **v > 0.01).count())
+        };
+        let (on_strong, on_any) = pot(&on);
+        let (off_strong, off_any) = pot(&off);
+        println!(
+            "seed {seed}: sea {sea:.3}, snow_el {snow_el:.3}; gate cells off {} / on {}; the pass moved {moved} of {n} cells, \
+             deepest cut {deepest:.4}; glacier potential >= 0.5: off {off_strong} / on {on_strong} (> 0.01: off {off_any} / on {on_any})",
+            gated(&off),
+            gated(&on)
+        );
     }
 }
 

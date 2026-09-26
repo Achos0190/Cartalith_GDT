@@ -130,7 +130,7 @@
 //! the save. An archive without the substrate -- written before that date, or
 //! a flat legacy one -- still opens as `WorldSource::Loaded`, restores its civ
 //! layer all the same, and every readout that needs the substrate refuses with
-//! `substrate::NEEDS_SUBSTRATE`: recalling the civilisation layer and
+//! `substrate::needs_substrate` (one wording for each case): recalling the civilisation layer and
 //! recomputing over it are still different questions for such a world.
 //!
 //! ## The Journey entity (`STORY_PLANNING_SCOPE.md` SP-1)
@@ -2729,7 +2729,7 @@ impl WorldGen {
         // the save. One that does not -- written before the substrate existed,
         // a flat legacy archive, or one whose substrate is damaged -- stays the
         // `Loaded` world `load_save` just installed, and those readouts refuse
-        // with `substrate::NEEDS_SUBSTRATE`. Before the civ restore, which
+        // with `substrate::needs_substrate`. Before the civ restore, which
         // does not depend on it, and before the sculpt restore, which does.
         let substrate = match self.source.take() {
             Some(WorldSource::Loaded(save)) => match crate::substrate::world_from_project(&mut data, &save) {

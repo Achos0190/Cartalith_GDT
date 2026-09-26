@@ -52,8 +52,12 @@
 //! An archive without the manifest member (every one written before
 //! 2026-09-24, and every flat legacy archive), or with it but missing a raster
 //! it promises, opens exactly as before: `WorldSource::Loaded`, and every
-//! readout that needs the substrate refuses with [`NEEDS_SUBSTRATE`] rather
-//! than claiming the save "carries no civilisation layer".
+//! readout that needs the substrate refuses with [`needs_substrate`] rather
+//! than claiming the save "carries no civilisation layer" -- in one wording
+//! for a tree project ([`NEEDS_SUBSTRATE`], which advises a regenerate and
+//! says what it costs) and another for a flat legacy archive
+//! ([`LEGACY_NEEDS_SUBSTRATE`], which does not, because a regenerate would
+//! discard the records Ruling AU imported).
 
 use cartalith_engine::WorldState;
 use cartalith_io::{ProjectData, ProjectWrite, Raster, SaveData};
@@ -64,13 +68,38 @@ use std::sync::Arc;
 /// writer that changed what the set means must not be read as this one.
 pub(crate) const SUBSTRATE_VERSION: i64 = 1;
 
-/// What every refusing readout says about a world that has no substrate --
-/// true for a legacy archive, a project saved before 2026-09-24, and one whose
-/// substrate rasters were damaged. **Not** "a loaded save carries no
-/// civilisation layer": a project restores its civ layer either way, and that
-/// sentence told the user their settlements were missing while drawing them.
-pub(crate) const NEEDS_SUBSTRATE: &str = "this world was opened from a save that does not carry its hydrology and tectonic rasters \
-     (a project saved before 2026-09-24, or a legacy .zip) -- regenerate the world, then save it again, to use this";
+/// What every refusing readout says about a **project** (tree layout) that
+/// has no substrate -- one saved before 2026-09-24, or one whose substrate
+/// rasters were damaged. **Not** "a loaded save carries no civilisation
+/// layer": a project restores its civ layer either way, and that sentence told
+/// the user their settlements were missing while drawing them.
+///
+/// Regenerating is the only way such a world gains the rasters, and it has a
+/// cost this says out loud: `generate` runs `release_world`, which drops the
+/// restored settlements, labels and icons and places the settlements afresh.
+pub(crate) const NEEDS_SUBSTRATE: &str = "this world was opened from a project saved without its hydrology and tectonic rasters \
+     (saved before 2026-09-24, or with those rasters damaged) -- regenerate the world, then save it again, to use this. \
+     Regenerating places the settlements afresh and does not keep this project's labels and icons";
+
+/// The same refusal for a world imported from a **flat legacy `.zip`** (owner
+/// Ruling AU). That layout never carried the substrate, so nothing about this
+/// file can be fixed by the user; and the advice [`NEEDS_SUBSTRATE`] gives
+/// would throw away the settlements, labels and icons the import just
+/// carried, because `release_world` drops all three on a regenerate and no
+/// path carries imported records across one. So this names what is
+/// unavailable and why, says what a regenerate would cost, and does **not**
+/// advise one.
+pub(crate) const LEGACY_NEEDS_SUBSTRATE: &str = "this world was imported from a legacy .zip, which stores its terrain and climate \
+     but not the hydrology and tectonic rasters this needs, so it is not available on this world. \
+     The imported settlements, labels and icons stay drawn and editable; regenerating would replace them with a new world's, \
+     and nothing carries them across";
+
+/// Which of the two refusals a `Loaded` world gives: `legacy_zip` is
+/// `WorldGen::loaded_legacy_zip`, set from `ProjectData::legacy` when the
+/// archive was read.
+pub(crate) fn needs_substrate(legacy_zip: bool) -> &'static str {
+    if legacy_zip { LEGACY_NEEDS_SUBSTRATE } else { NEEDS_SUBSTRATE }
+}
 
 const FLOW: &str = "rasters/flow_discharge.f32";
 const PLATE_ID: &str = "rasters/plate_id.i32";
@@ -300,4 +329,30 @@ pub(crate) fn world_from_project(data: &mut ProjectData, save: &SaveData) -> Res
     };
     debug_assert_eq!(ws.field.len(), n);
     Ok(Some(ws))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The two refusals, each for its own case. A legacy import must not be
+    /// told to regenerate -- that would discard the settlements, labels and
+    /// icons Ruling AU imported -- and a pre-substrate project must be told
+    /// what a regenerate costs as well as that it is the fix.
+    #[test]
+    fn each_world_without_a_substrate_gets_its_own_refusal() {
+        let tree = needs_substrate(false);
+        let legacy = needs_substrate(true);
+        assert!(tree.contains("opened from a project saved without its hydrology and tectonic rasters"), "{tree}");
+        assert!(tree.contains("regenerate the world, then save it again"), "{tree}");
+        assert!(tree.contains("does not keep this project's labels and icons"), "{tree}");
+        assert!(legacy.contains("imported from a legacy .zip"), "{legacy}");
+        assert!(legacy.contains("hydrology and tectonic rasters"), "{legacy}");
+        assert!(legacy.contains("imported settlements, labels and icons stay drawn and editable"), "{legacy}");
+        assert!(!legacy.contains("regenerate the world"), "a legacy import must not be advised to regenerate: {legacy}");
+        assert!(!legacy.contains("then save it again"), "{legacy}");
+        for s in [tree, legacy] {
+            assert!(!s.contains("civilisation layer"), "the civ layer is restored either way: {s}");
+        }
+    }
 }

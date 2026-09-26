@@ -299,7 +299,14 @@ impl WorldGen {
     #[func]
     fn apply_force_lake(&mut self) -> VarDictionary {
         let Some(sculpt) = self.sculpt.as_ref() else {
-            return refuse("Force lake needs a Sculpt session, which a world opened without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24) does not have -- regenerate to use it.");
+            // A legacy import is not told to regenerate: that discards the
+            // settlements, labels and icons it imported (`substrate::
+            // LEGACY_NEEDS_SUBSTRATE`'s own note).
+            return refuse(if self.loaded_legacy_zip {
+                "Force lake needs a Sculpt session, which a world imported from a legacy .zip does not have: that format stores no hydrology and tectonic rasters. Regenerating would replace the imported settlements, labels and icons, and nothing carries them across."
+            } else {
+                "Force lake needs a Sculpt session, which a world opened from a project saved without its hydrology and tectonic rasters (saved before 2026-09-24) does not have -- regenerate to use it; that places the settlements afresh and does not keep the project's labels and icons."
+            });
         };
         let Some(mask) = sculpt.water.lake_mask.as_ref() else {
             return refuse("No lake has been stamped yet — commit a Lake stamp in Sculpt first.");

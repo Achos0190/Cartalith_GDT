@@ -874,7 +874,7 @@ func _match_trade_flows() -> void:
 		DccWidgets.note(_flows_body,
 			"Nothing to match: this world has no settlements, or it was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24). "
 			+ "Matching trade needs the terrain under the settlements, which such a save "
-			+ "does not carry even though it keeps its settlements and roads. Regenerate to use it.")
+			+ "does not carry even though it keeps its settlements and roads. Regenerating gives it those rasters but builds a new world: a legacy .zip's imported settlements, labels and icons, and a project's labels and icons, are not kept.")
 		## `civ_trade_bridge.rs` returns nothing unless the source is
 		## `WorldSource::Generated`, which since Ruling AR (2026-09-24) includes a
 		## project reopened with its substrate (SAVEFILE_COMPAT.md §8.3).

@@ -26,12 +26,15 @@
 //!
 //! ## What is still genuinely absent
 //!
-//! Garrison **headcounts**, campaigns, unit movement and combat. The
-//! reference has none of them either, and none is derivable from anything
-//! here — a headcount would be a fabricated number wearing a real one's
-//! clothes. The per-settlement figure this module reports is the
-//! reference's own [`civ_place_defensibility`], and the register entry is
-//! narrowed to say so rather than closed.
+//! Campaigns, unit movement and combat. The reference has none of them, and
+//! this module derives none. The per-settlement figure it reports is the
+//! reference's own [`civ_place_defensibility`].
+//!
+//! Garrison **headcounts** were on this list until Ruling AW (2026-09-24):
+//! nothing *here* derives one, and that still holds. They now come from
+//! [`crate::garrison`], which splits the manpower model's standing army by a
+//! stated rule (`MILITARY_MANPOWER_SCOPE.md` §5.6). This module's
+//! `um_infer_walls` verdict is one of that rule's inputs.
 
 use cartalith_jsmath::{js_max, js_min, js_round};
 

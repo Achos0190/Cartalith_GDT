@@ -272,8 +272,20 @@ func _ready() -> void:
 		String(bridge.settlements()[0].get("name", "")))
 	var r: Dictionary = bridge.world_gen.recompute_civilisation()
 	var reason := String(r.get("reason", ""))
-	_check(not bool(r.get("ok", true)) and reason.contains("does not carry its hydrology and tectonic rasters"),
-		"Recompute civilisation refuses with NEEDS_SUBSTRATE", reason.left(160))
+	## The legacy wording (`substrate::LEGACY_NEEDS_SUBSTRATE`), not the tree
+	## project's: it names the missing rasters and must NOT advise the
+	## regenerate that would discard the records this probe just imported.
+	_check(not bool(r.get("ok", true)) and reason.contains("imported from a legacy .zip")
+		and reason.contains("hydrology and tectonic rasters"),
+		"Recompute civilisation refuses with the legacy-import wording", reason.left(200))
+	_check(not reason.contains("regenerate the world") and not reason.contains("save it again"),
+		"and does not advise regenerating an import", reason)
+	_check(reason.contains("settlements, labels and icons stay drawn and editable"),
+		"and says what the import keeps", reason)
+	var fl: Dictionary = bridge.world_gen.apply_force_lake()
+	var fl_reason := String(fl.get("reason", fl.get("error", "")))
+	_check(not bool(fl.get("ok", true)) and fl_reason.contains("legacy .zip") and not fl_reason.contains("regenerate to use it"),
+		"Force lake refuses with the legacy wording too", fl_reason)
 	_check(bridge.settlements().size() == 22, "and the refusal left the settlements alone", str(bridge.settlements().size()))
 
 	_p("---- %s ----" % ("PASS" if _fails == 0 else "%d FAILED" % _fails))

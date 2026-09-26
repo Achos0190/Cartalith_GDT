@@ -4858,6 +4858,16 @@ struct WorldGen {
     /// [`world_origin`]: WorldGen::world_origin
     /// [`get_world_name`]: WorldGen::get_world_name
     world_name: Option<String>,
+    /// Whether the current `WorldSource::Loaded` world was read from a **flat
+    /// legacy `.zip`** (`cartalith_io::ProjectData::legacy` was `Some`) rather
+    /// than from a tree project saved without its substrate. Set by
+    /// `load_save`, the one place a `Loaded` world is first installed, and
+    /// read only by [`Self::full_world_refusal`] and the other refusals that
+    /// explain a `Loaded` world: the two cases need different advice, because
+    /// regenerating a legacy import throws away the settlements, labels and
+    /// icons Ruling AU imported, and nothing carries them across a regenerate
+    /// (`release_world` drops all three). Meaningless for a `Generated` world.
+    loaded_legacy_zip: bool,
     /// Bumped on **every** assignment to [`Self::source`] — the three sites
     /// `git grep -n 'self\.source = ' crates/cartalith-godot/src` finds
     /// (`release_world`, `absorb`, `load_save`).
@@ -5059,6 +5069,7 @@ impl IRefCounted for WorldGen {
             // by `absorb()` once a real seed exists, and before that there
             // is no seed to derive one from.
             world_name: None,
+            loaded_legacy_zip: false,
             urban_rules: None,
             export_session: export_session::ExportSessionCore::default(),
         }
@@ -5350,7 +5361,9 @@ impl WorldGen {
     ///
     /// - no world at all;
     /// - a `Loaded` world: opened from an archive that did not carry the
-    ///   substrate (`substrate::NEEDS_SUBSTRATE`). **Not** "a loaded save
+    ///   substrate -- `substrate::NEEDS_SUBSTRATE` for a tree project,
+    ///   `substrate::LEGACY_NEEDS_SUBSTRATE` for a flat legacy `.zip`, whose
+    ///   imported records a regenerate would discard. **Not** "a loaded save
     ///   carries no civilisation layer" -- a reopened project restores its civ
     ///   layer whether or not it has a substrate, and that sentence was false
     ///   for every one of them (`ALIGNMENT_AUDIT.md` Part 1 A1);
@@ -5363,7 +5376,7 @@ impl WorldGen {
     fn full_world_refusal(&self) -> &'static str {
         match (self.source.as_ref(), self.civ.as_ref()) {
             (None, _) => "no world -- generate one, or open a project, first",
-            (Some(WorldSource::Loaded(_)), _) => substrate::NEEDS_SUBSTRATE,
+            (Some(WorldSource::Loaded(_)), _) => substrate::needs_substrate(self.loaded_legacy_zip),
             (Some(WorldSource::Generated(_)), None) => {
                 "this world has no civilisation layer -- none was placed, or Center landmasses discarded it"
             }
@@ -7577,7 +7590,8 @@ impl WorldGen {
         // `self.seed` above, which the Territory tool's name stream folds.
         // The world stays `Loaded` -- the flat layout has no substrate -- so
         // these are drawn and edited, and every substrate-needing readout
-        // still refuses with `substrate::NEEDS_SUBSTRATE`. What did not map
+        // still refuses, with `substrate::LEGACY_NEEDS_SUBSTRATE` (which does
+        // not advise the regenerate that would discard them). What did not map
         // is `report`, which `project_open` also returns as its `warnings`;
         // it is printed here for the caller that reached this function alone.
         if let Some(legacy) = legacy.as_ref() {
@@ -7594,6 +7608,8 @@ impl WorldGen {
             self.labels = imported.labels;
             self.icons = imported.icons;
         }
+        // Which refusal a substrate-needing readout gives this world.
+        self.loaded_legacy_zip = legacy.is_some();
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
         self.source = Some(WorldSource::Loaded(Box::new(save)));

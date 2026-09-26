@@ -68,6 +68,11 @@ pub mod conflict;
 /// timeline (`MILITARY_MANPOWER_SCOPE.md` §5). Moves no unit, resolves no
 /// battle.
 pub mod campaign;
+/// Ruling AW -- per-settlement garrisons, derived: each faction's
+/// [`manpower`] standing army split across its settlements by the rule
+/// `MILITARY_MANPOWER_SCOPE.md` §5.6 states (walls, capital, border
+/// exposure), largest-remainder exact. STATUS MM-6.
+pub mod garrison;
 /// `STORY_PLANNING_SCOPE.md` SP-2 -- a saved journey's party position,
 /// supply use and arrival over elapsed days, read off a [`JpJourneyPlan`]
 /// (so the Journey Planner's own speed governs), plus the regenerate re-snap

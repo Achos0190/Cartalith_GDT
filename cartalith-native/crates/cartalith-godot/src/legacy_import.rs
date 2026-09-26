@@ -11,8 +11,10 @@
 //! **The world stays `Loaded`.** A flat archive has no substrate (§8.3), so
 //! everything built here sits over a terrain-only world: it is drawn and
 //! edited, and every readout that needs flow, channels or the tectonic grids
-//! refuses with `substrate::NEEDS_SUBSTRATE` exactly as it does for any other
-//! `Loaded` world. Nothing here recomputes anything.
+//! refuses -- with `substrate::LEGACY_NEEDS_SUBSTRATE`, not the tree
+//! project's `NEEDS_SUBSTRATE`, because regenerating would discard what this
+//! module imported (`WorldGen::loaded_legacy_zip` carries which it is).
+//! Nothing here recomputes anything.
 
 use crate::civ_roster_bridge::{FactionEntry, FactionRoster, PlaceExtras, PlaceExtrasTable};
 use crate::{icon_bridge, label_bridge, CivData, CIV_FACTION_COUNT};

@@ -944,9 +944,9 @@ same six factions spread **0.11 … 0.91** and roads carry real weight.
 > over time are not declined. The owner scoped them as territory over time and
 > siege lines in their own Conflict layer under CARTO, with derived
 > per-settlement garrisons. The bullets below are the reasoning as it stood
-> before that ruling; per-settlement garrisons and change over time are now
-> scheduled, and campaigns are scheduled in the form the ruling names (no
-> unit movement or combat resolution) — scoped in **§5**.
+> before that ruling. Per-settlement garrisons are now defined in **§5.6**,
+> change over time in **§5.7**, and campaigns in the form the ruling names (no
+> unit movement or combat resolution) in **§5**.
 
 CV-25's own narrowing, kept, minus the manpower half this document supersedes.
 These are **declined**, with the reason, rather than deferred — nobody should
@@ -1041,6 +1041,19 @@ layer is the `conflict` row of CARTO ▸ Layers, drawn by
   derived garrisons (MM-6) will need to state — and nothing yet states it.
   Scaling the ring by the whole field army would draw Rome's entire field army
   around one town. When MM-6 lands, it can be revisited against that rule.
+- **Revisited once MM-6 landed (2026-09-24): still not scaled — by the
+  besieged garrison either.** §5.6 now states how many men hold the besieged
+  place, so the question became whether the ring's radius should follow that
+  number. It should not, on this scope's own sources: the radius is one
+  attested work's stated circuit, and nothing this scope cites pairs a
+  circuit with the number of people inside it. A scaling law needs at least
+  that relation, and inventing one would fit the ring to nothing — the same
+  objection this section raised against the field army. What the layer does
+  instead is **carry the number**: each siege row gains `garrison`, the
+  besieged settlement's §5.6 garrison in the cursor's year (absent when the
+  siege names no place, or that place has no garrison that year), and the
+  right dock's conflict view shows it as the defenders' starting force. The
+  ring stays the stated scale of "a siege line".
 
 ### 5.2 What a front is drawn from
 
@@ -1092,4 +1105,148 @@ of the war it annotates.
 - **No new clock.** The cursor is `CivData::year` (`STORY_PLANNING_SCOPE.md`
   §5).
 - **Garrisons (MM-6) and manpower across the cursor (MM-8)** are the ruling's
-  other two items and are not part of this layer.
+  other two items. They are not drawn by this layer; they are defined in §5.6
+  and §5.7, and the layer reads only the besieged garrison (§5.1).
+
+### 5.6 Per-settlement garrisons (MM-6)
+
+Ruling AW: *"Each faction's standing army is split across its settlements by a
+stated rule (walls, capital, border exposure)."* This is that rule. It splits
+an existing number. It raises no soldier the model did not already count, and
+it adds no simulation. The code is `cartalith_civ::garrison::civ_garrisons`.
+The bridge reads it into `civ_military_summary[_at]` and
+`civ_settlement_garrison`.
+
+**What is split.** The faction's `standing_army` (§2.4), rounded to a whole
+headcount. That is the figure CIVIL ▸ Military prints. It is not the field army
+or the levy. Those are forces raised for a campaign, and §1 defines the
+standing army as the one "continuously maintained". That is the force a
+garrison is.
+
+**The weight.** For settlement *i* of faction *f*:
+
+```
+weight_i = pop_i
+         × ( 1 + (0.35 / 0.45) × walled_i
+               + (0.20 / 0.45) × capital_i × tier_rank_i / 5 )
+         × ( 1 + exposure_i )
+```
+
+Each term and its reason:
+
+| Term | Value | Reason |
+|---|---|---|
+| `pop_i`, the base | the settlement's own population | **The model's own identity (§2.2).** The standing army is paid out of the non-agricultural population, and that population *is* the settlement sum (`nucleated_pop`). So each settlement's share of the payroll is its share of the base. With every other term at its neutral value, the split follows the money, and the rule assumes nothing further. |
+| walls | `0.35 / 0.45` ≈ 0.778 more, when `um_infer_walls` says walled | **The reference's own military weights, moved from faction to settlement.** `_civFactionAggregates`' military axis is `0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm` (golden-verified, §0). Population is the base here, so walls weigh what the reference weighs them *relative to population*. `walled` is the ladder's own verdict (`cartalith_civ::military`), including the place editor's overrides. |
+| capital | `0.20 / 0.45 × tier_rank / 5` more, on the faction's capital only | **The same formula's third term, on the same terms.** `capitalTierNorm` is the capital's tier rank over the table's top rank (5, `metropolis`), exactly as the aggregate computes it. The capital is the aggregate's own pick (`FactionAggregates::capital`), not a second choice. A walled capital therefore reaches `1 / 0.45` ≈ 2.22× its population weight: the reference's whole military score over its population part. |
+| border exposure | `exposure_i` in 0…1, scale 1 | **Defined from territory; its scale is a modelling choice** (below). |
+
+**Border exposure** is measured on the faction's frontier. The frontier is
+every cell the faction holds that is 4-adjacent to a cell another *faction*
+holds. Unclaimed land is not a frontier, because nothing in this model attacks
+from it. On a wrapping map the seam counts, as in `relations`. Each frontier
+cell is assigned to the faction's settlement nearest it: Euclidean distance
+from the cell's centre, ties to the lower settlement index. A settlement's
+`exposure` is its count divided by the largest count among the faction's
+settlements. So the settlement answering for the most frontier reads 1, and a
+settlement with no frontier nearest to it reads 0. This is relative within the
+faction, the way `relations`' `border_fraction` is relative to the widest
+border on the map. It needs no kilometre constant for "near the border".
+
+**The scale of exposure is the rule's least-grounded number, said here as
+§2.6 says of `oligarchy`.** At `1`, the faction's most exposed settlement weighs
+twice what the same place would weigh in the interior. The multiplier can only
+*add* weight: an interior place keeps its base, and exposure never takes men
+from anywhere except through the normalisation every share goes through. No
+source in this scope gives a frontier-to-interior garrison ratio. `1` is the
+smallest whole-number scale that makes the term a clear multiple rather than a
+rounding error. The owner may want to rule on it.
+
+**The split: largest remainder (Hamilton), exactly.** With `S` the rounded
+standing army and `W = Σ weight`:
+
+1. Each settlement's quota is `S × weight_i / W`.
+2. Each settlement takes the whole part of its quota.
+3. The `S − Σ floors` men left over go one each to the largest fractional
+   remainders. Ties go to the lower settlement index.
+
+The parts sum to `S` exactly, by construction and by test, on every faction.
+Other rules were weighed and rejected:
+
+- **Rounding each quota** can miss the total by up to half the settlement count.
+- **Giving the leftovers to the capital** is a second placement rule hidden in
+  the arithmetic.
+
+**Absent, never zero, where there is no reading.** These cases have no
+garrison and show a dash with the reason:
+
+- a settlement of no faction;
+- a faction whose standing army is not a finite number;
+- a faction with a positive standing army and zero total weight (every place
+  at population 0). The rule cannot place that army, and spreading it evenly
+  would be a second rule;
+- a territory raster that is not the grid's size, where exposure cannot be
+  read.
+
+A real zero is a value: a village whose quota rounds down with no remainder
+won is garrisoned by **0**.
+
+**What this is not.** It is not a deployment. The same men are counted once, in
+the faction's standing army, and a garrison says where they are *quartered*
+when no campaign is running. Nothing moves them, and a conflict does not draw
+on them. The siege row only *reports* the besieged place's garrison (§5.1).
+
+**Tests** (`garrison.rs`) pin literal splits on four fixtures, including a
+remainder tie. They also check:
+
+- a walled capital on a border outranks an interior village of any population
+  up to its own;
+- a one-settlement faction puts everything there;
+- each of the four terms moves the split when it is mutated.
+
+### 5.7 Manpower across the year cursor (MM-8)
+
+**Recomputed from the snapshot in force, not stored per snapshot**, because
+all but one of the model's inputs is either recorded per year or does not vary
+by year. Input by input, from `civ_military_bridge.rs`' `manpower_rows`:
+
+| Input | Where the year's value comes from | Recorded per year? |
+|---|---|---|
+| settlements, their populations, factions and tiers (`nucleated_pop`, the capital, walls) | the snapshot's `settlements` | **yes** |
+| territory (`territory_km2`, `land_capacity`'s cells, border exposure) | `civ_territory_at` on the snapshot | **yes** |
+| roads (`capital_road_reach`, `road_density`) | the snapshot's `ways`, whose endpoint indices are into its own `settlements` | **yes** |
+| land per cell (`CivData::dens`) | live. It is built from terrain (carrying capacity, water access, biome, rain), which no year changes | no, and it need not be |
+| water access (`navigable_share`, `sea_share`) | live terrain, read at the snapshot's settlement positions | no, and it need not be |
+| place-editor overrides (walls, age, traits, specialisation) | live, by `tid` | **no** |
+| ag-tech and government (`farmers_per_urbanite`, `government`) | **the roster as it stands today** | **no** |
+
+**The institutions are the gap.** The roster is not recorded per year, so a
+year's reading uses today's ag-tech and government. Storing them would put a
+new field on `TimelineSnapshot` and on the project format's `TimelineYearDto`
+(`SAVEFILE_COMPAT.md` §10.1). That change was not made in this pass, because
+another lane owned `project_bridge.rs` at the time. It is filed as a follow-up.
+So no snapshot is missing anything this reading needs, and every older project
+reads as before. **The readout says so on screen:** a recorded year's
+headcounts are labelled with the year they were read from, and with the fact
+that ag-tech, government and place edits are today's.
+
+**Which year is read.** This is Ruling AT's model, and `campaign::year_in_force`
+decides it, as it does for the Conflict layer:
+
+- A recorded year reads its own snapshot.
+- An unrecorded year reads the latest recorded year before it. A record holds
+  until the next record changes it.
+- A cursor before the first record, on a non-empty timeline, has **no
+  reading**. The panel says which year is the earliest recorded.
+- An empty timeline reads the live world, labelled as the world as it stands.
+  Most worlds never record a year, and "nothing recorded" is not "no army".
+
+**Live edits and the record.** A paint stroke or a new settlement after a year
+was recorded is not in that year's reading until the year is recorded again
+(Timeline ▸ Add year re-snapshots it). This is the price of reading the
+record. The label says which year is being read.
+
+**Wired.** CIVIL ▸ Military refills when the year in force changes. It does not
+refill on every step of the cursor, because the resource-potential pass behind
+the aggregate is too slow to run per frame. The garrison rows in the right dock
+and the place editor read the same year.

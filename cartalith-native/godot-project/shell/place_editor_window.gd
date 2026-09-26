@@ -1164,8 +1164,8 @@ func _build_layout(parent: Control, s: Dictionary) -> void:
 			+ "cannot tell which applies: the world was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), which carries "
 			+ "no flow rasters to build streets from; or this settlement's site sits in "
 			+ "open water, which urban_layouts() skips rather than errors on (_umModelFor's "
-			+ "own refusal -- there is no shore to build). Regenerate the world, or open a "
-			+ "settlement with dry ground under it.")
+			+ "own refusal -- there is no shore to build). For the first: Regenerating gives it those rasters but builds a new world: a legacy .zip's imported settlements, labels and icons, and a project's labels and icons, are not kept. "
+			+ "For the second, open a settlement with dry ground under it.")
 		return
 	var l: Dictionary = got[0]
 
@@ -1411,6 +1411,14 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 	DccWidgets.choice(sec, "Polity", labels, maxi(0, ids.find(int(s.get("faction", 1)))),
 		func(i: int): _apply({"faction": ids[i]}); _rebuild(),
 		"Which polity this settlement belongs to. Changing it does not repaint the borders by itself; Civilization ▸ Territories ▸ Recalculate territories re-derives them from the current settlements.")
+	## MM-6/MM-8: a read-only line, because the garrison is derived from the
+	## fields around it (polity, class, population, walls), not set.
+	var cursor := bridge.get_civ_year()
+	var gr := CivilizationWorkspace.garrison_row(
+		bridge.civ_settlement_garrison(int(s.get("tid", 0)), cursor), cursor)
+	var gn := DccWidgets.note(sec, "Garrison: %s" % String(gr["value"]))
+	gn.tooltip_text = String(gr["why"])
+	gn.mouse_filter = Control.MOUSE_FILTER_PASS
 	## Corrected 2026-09-24 (audit B18): it said no function re-runs
 	## `assign_territory` and then named the button that does (`civ_recompute`).
 

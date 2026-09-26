@@ -1960,7 +1960,7 @@ func _build_sample(body: Control) -> void:
 		DccWidgets.note(sec,
 			"This world was opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), so it lacks the substrate " +
 			"fields (crust, boundary type, resistance) the Sample panel reads. " +
-			"Regenerate the world to sample it.")
+			"Regenerating gives it those rasters but builds a new world: a legacy .zip's imported settlements, labels and icons, and a project's labels and icons, are not kept.")
 
 ## `sample_cell()` omits a key whose backing data genuinely is not there, so
 ## every read here is `has()`-guarded and an absent key becomes an em dash --
@@ -2040,6 +2040,13 @@ func _build_settlement(body: Control) -> void:
 	_settlement_faction_row(sec, int(s.get("faction", 0)))
 	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
 	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
+	## MM-6/MM-8: this place's share of its faction's standing army, read at
+	## the Timeline cursor like CIVIL ▸ Military (MILITARY_MANPOWER_SCOPE.md
+	## §5.6-5.7). Fresh from the bridge, keyed by tid, for the reason Faith is.
+	var cursor := bridge.get_civ_year()
+	var gr := CivilizationWorkspace.garrison_row(
+		bridge.civ_settlement_garrison(int(s.get("tid", 0)), cursor), cursor)
+	_field(sec, "Garrison", String(gr["value"]), String(gr["why"]), bool(gr["ok"]), bool(gr["ok"]))
 
 	var why: Dictionary = bridge.explain_settlement(_settlement_index)
 	var water := _term_value(why, "water_access")
@@ -2743,6 +2750,7 @@ func _build_conflict(body: Control) -> void:
 				_conflict_set(id, {"sides": PackedInt32Array(next)}))
 
 	_build_conflict_manpower(body, id, sides.is_empty())
+	_build_siege_garrison(body, id)
 
 	var del := DccWidgets.action(sec, "Delete conflict", func():
 		bridge.conflict_delete(id)
@@ -2780,6 +2788,30 @@ func _build_conflict_manpower(body: Control, id: int, no_sides: bool) -> void:
 		"These are the world as it stands now, not as of the conflict's own years: the model reads " +
 		"today's settlements and roster, and moving the Timeline cursor changes only the territory term. " +
 		"Capacity, not outcome -- nothing here decides who wins.")
+
+## MM-6 in a siege (`MILITARY_MANPOWER_SCOPE.md` §5.1): the besieged place's
+## garrison in the cursor's year -- the defenders' starting force. Read from the
+## Conflict layer's own row, so the dock and the layer name the same number.
+## Drawn only for a siege that is active this year and names a place.
+func _build_siege_garrison(body: Control, id: int) -> void:
+	var cursor := bridge.get_civ_year()
+	for row: Dictionary in bridge.conflict_campaigns(cursor):
+		if int(row.get("id", -1)) != id or not row.has("siege"):
+			continue
+		var sg: Dictionary = row["siege"]
+		if not sg.has("besieged_tid"):
+			return
+		var sec := DccWidgets.section(body, "Besieged")
+		var name := String(sg.get("besieged_name", "the besieged place"))
+		if sg.has("garrison"):
+			_field(sec, "Garrison of %s" % name, _thousands(float(sg["garrison"])),
+				"Its share of its faction's standing army in year %d's reading (§5.6): the defenders at the start. The siege ring does not scale with it -- nothing in the scope relates a siege line's length to the number inside." % cursor,
+				true, true)
+		else:
+			_field(sec, "Garrison of %s" % name, "—",
+				"No garrison figure for this place in year %d's reading: it is unclaimed, not in the recorded year, or its faction's army could not be split." % cursor,
+				false)
+		return
 
 func _conflict_set(id: int, fields: Dictionary) -> void:
 	var r := bridge.conflict_update(id, fields)

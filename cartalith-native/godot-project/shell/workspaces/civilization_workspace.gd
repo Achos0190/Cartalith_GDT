@@ -236,6 +236,12 @@ var _religion_head_count: Label
 ## which the roster window already pays on open, and unlike `_influence_body`
 ## above they run no Dijkstra.
 var _military_body: Control
+## MM-8: which reading `_military_body` was last filled from -- the recorded
+## year in force at the cursor plus the number of records -- so a cursor step
+## refills the category only when that changes (`_on_military_cursor`). The
+## aggregate behind it rebuilds the resource passes, which is a click's cost,
+## not a frame's.
+var _military_reading_key := ""
 var _relations_body: Control
 ## CV-23's on-demand influence readout, inside `_territories_body`. Refilled
 ## by `_analyse_influence()` only -- never by `_rebuild_readouts()`, which
@@ -765,6 +771,8 @@ func _build_tools() -> void:
 	## The cursor moved: re-pull the list so `active` answers for the new year.
 	if app.has_signal("timeline_changed"):
 		app.timeline_changed.connect(refresh_conflicts)
+		## MM-8: Military's headcounts and garrisons follow the recorded year.
+		app.timeline_changed.connect(_on_military_cursor)
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
 	## Measure's Area-ring conventions (`global_tools.gd`): click adds a
@@ -6008,9 +6016,11 @@ static func _lm_last_button(parent: Control) -> Button:
 ## producer. It has one now, so these numbers are *closer* to the reference
 ## than the ones any other caller has been getting.
 ##
-## What is still genuinely absent, and stays absent: garrison headcounts,
-## campaigns, unit movement, combat. None is derivable from anything here and
-## the reference has none either -- see the section's own note.
+## What is still genuinely absent, and stays absent: unit movement and combat
+## (Ruling AW excluded both). Garrison headcounts are derived now
+## (`MILITARY_MANPOWER_SCOPE.md` §5.6, MM-6), campaigns are drawn in CARTO ▸
+## Conflict (§5), and the whole category reads at the Timeline cursor (§5.7,
+## MM-8) -- see the section's own note.
 func _build_military() -> void:
 	_military_body = DccWidgets.category(self, "Military", categories)
 	_fill_military(_military_body)
@@ -6033,13 +6043,27 @@ func _fill_military(parent: Control) -> void:
 	## category's own manpower model. ● = active in the cursor's year.
 	_conflicts_section = DccWidgets.section(parent, "Conflicts")
 	_fill_conflicts(_conflicts_section, bridge.conflict_list())
-	var data: Dictionary = bridge.civ_military_summary()
+	## MM-8: read at the Timeline cursor, from the record in force there.
+	var cursor := bridge.get_civ_year()
+	var data: Dictionary = bridge.civ_military_summary_at(cursor)
+	_military_reading_key = _military_key(cursor)
 	var factions: Array = data.get("factions", [])
 	var places: Array = data.get("settlements", [])
 
 	var strength := DccWidgets.section(parent, "Faction strength")
+	var reading := DccWidgets.note(strength, _military_reading_text(data, cursor))
+	reading.tooltip_text = ("Settlements, roads and claims are the recorded year's. "
+		+ "Ag-tech, government and the place editor's overrides are today's: the "
+		+ "timeline does not record them per year (MILITARY_MANPOWER_SCOPE.md §5.7). "
+		+ "Edits made since a year was recorded are not in its reading until you "
+		+ "record it again.")
+	reading.mouse_filter = Control.MOUSE_FILTER_PASS
 	if factions.is_empty():
-		DccWidgets.note(strength, "No factions -- generate a world first.")
+		var why := "No factions -- generate a world first."
+		match String(data.get("reading", "")):
+			"none_in_force", "unreadable":
+				why = "No reading at this year -- see the line above."
+		DccWidgets.note(strength, why)
 	else:
 		DccWidgets.note(strength,
 			"_civFactionAggregates' military axis: 45% relative population, 35% "
@@ -6067,6 +6091,7 @@ func _fill_military(parent: Control) -> void:
 				int(d.get("walled_ditch", 0))]
 
 	_fill_manpower(parent, factions)
+	_fill_garrisons(parent, factions, places)
 
 	var forts := DccWidgets.section(parent, "Fortifications")
 	if places.is_empty():
@@ -6092,7 +6117,8 @@ func _fill_military(parent: Control) -> void:
 		var roster := bridge.settlements()
 		for p in walled:
 			var d: Dictionary = p
-			var idx := int(d.get("index", -1))
+			## Absent for a recorded settlement that is gone from the live list.
+			var idx := int(d["index"]) if d.has("index") else -1
 			var b := DccWidgets.action(list, "%s -- %s wall · defence %d%%" % [
 				String(d.get("name", "?")), String(d.get("wall_spec", "none")),
 				int(round(100.0 * float(d.get("defensibility", 0.0))))],
@@ -6108,15 +6134,132 @@ func _fill_military(parent: Control) -> void:
 	## (`70adb7a`) is superseded by **Ruling AW** (2026-09-24): campaigns over
 	## time are not declined. They are drawn in CARTO ▸ Conflict
 	## (`MILITARY_MANPOWER_SCOPE.md` §5, `conflict_campaigns`), so this panel
-	## points there. Garrisons (MM-6) and manpower across the cursor (MM-8) are
-	## scheduled by the same ruling and not built yet -- said as that, not as
-	## declined. The SP-4 overlay still shows each side's manpower.
+	## points there. Garrisons (MM-6, §5.6) and this panel following the cursor
+	## (MM-8, §5.7) are built; what the ruling excluded is said as excluded.
 	var camp := DccWidgets.section(parent, "Campaigns")
 	DccWidgets.note(camp,
-		"War campaigns over time are drawn on the map in CARTO ▸ Conflict: siege lines, fronts, and the cells that changed hands since each conflict began, following the year cursor. The conflict overlay shows each side's manpower.")
+		"War campaigns over time are drawn on the map in CARTO ▸ Conflict: siege lines, fronts, and the cells that changed hands since each conflict began, following the year cursor. A siege names its besieged place's garrison. The conflict overlay shows each side's manpower.")
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Per-settlement garrisons and manpower across the year cursor are scheduled (Ruling AW) and not built yet.")
+		"Unit movement and battles that resolve themselves: Ruling AW did not ask for them, and nothing here moves a force or decides a fight. Ag-tech and government are not recorded per year, so a past year is read with today's.")
+
+## MM-8: the reading this panel was filled from, as a key -- the recorded year
+## in force at `cursor` and the number of records, so adding or removing a year
+## counts as a change too.
+func _military_key(cursor: int) -> String:
+	var yif: Dictionary = bridge.civ_year_in_force(cursor)
+	return "%s|%d" % [str(yif.get("year", "-")), bridge.get_civ_timeline_years().size()]
+
+## Refill Military when the cursor's reading changes, and only then.
+func _on_military_cursor() -> void:
+	if _military_body == null or not is_instance_valid(_military_body):
+		return
+	if _military_key(bridge.get_civ_year()) == _military_reading_key:
+		return
+	_clear_body(_military_body)
+	_fill_military(_military_body)
+
+## The one line that says what year the headcounts below are, per
+## `civ_military_summary_at`'s `reading`.
+static func _military_reading_text(data: Dictionary, cursor: int) -> String:
+	match String(data.get("reading", "")):
+		"recorded":
+			var y := int(data.get("year_in_force", cursor))
+			if y == cursor:
+				return "Reading: year %d, as recorded." % y
+			return "Reading: year %d, the record in force at the cursor's %d." % [y, cursor]
+		"none_in_force":
+			return ("No reading at year %d: nothing is recorded that early. The earliest "
+				+ "recorded year is %d.") % [cursor, int(data.get("earliest_year", cursor))]
+		"unreadable":
+			return ("No reading at year %d: the claims recorded for year %d cannot be "
+				+ "rebuilt on this map's grid.") % [cursor, int(data.get("year_in_force", cursor))]
+		"live":
+			return "Reading: the world as it stands -- no year is recorded yet."
+	return "Reading: unknown (this build's engine has no year-aware military summary)."
+
+## One settlement's MM-6 garrison as a row: `{value, why, ok}`, from
+## `civ_settlement_garrison(tid, year)`. Shared by the right dock and the place
+## editor so the two cannot word the same figure two ways. An absent figure is
+## a dash with its reason, never a 0 (`MISTAKES.md`).
+static func garrison_row(g: Dictionary, cursor: int) -> Dictionary:
+	var when := "the world as it stands"
+	if String(g.get("reading", "")) == "recorded":
+		when = "year %d, the record in force at the cursor's %d" % [int(g.get("year_in_force", cursor)), cursor]
+	if g.is_empty():
+		return {"value": "—", "ok": false,
+			"why": "No garrison figure: no world yet, or this build's engine has no civ_settlement_garrison()."}
+	if g.has("garrison"):
+		return {"value": _head(float(g["garrison"])), "ok": true,
+			"why": ("Read at %s. %.1f%% of its faction's standing army of %s, by population, "
+				+ "walls and capital (×%.2f) and border exposure %.2f -- "
+				+ "MILITARY_MANPOWER_SCOPE.md §5.6. Where the army is quartered, not a deployment.") % [
+				when, 100.0 * float(g.get("garrison_share", 0.0)),
+				_head(float(g.get("faction_garrison", 0))),
+				float(g.get("garrison_multiplier", 1.0)), float(g.get("border_exposure", 0.0))]}
+	var why := ""
+	match String(g.get("absent", "")):
+		"no_reading":
+			why = "Nothing is recorded at or before year %d, so there is no reading." % cursor
+		"not_recorded":
+			why = "This settlement is not in the settlements recorded for %s." % when
+		"unclaimed":
+			why = "Unclaimed: no faction's standing army is split here."
+		"no_standing":
+			why = "Its faction's standing army could not be split at %s (no settlement with a population)." % when
+		_:
+			why = "No garrison figure."
+	return {"value": "—", "ok": false, "why": why}
+
+## MM-6 (`MILITARY_MANPOWER_SCOPE.md` §5.6): each faction's standing army split
+## across its settlements. The rule is on screen in one sentence, and each row's
+## tooltip shows the terms, because the split has no reference to check it by.
+static func _by_garrison(x, y) -> bool:
+	return int((x as Dictionary).get("garrison", 0)) > int((y as Dictionary).get("garrison", 0))
+
+func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
+	var sec := DccWidgets.section(parent, "Garrisons")
+	if factions.is_empty():
+		DccWidgets.note(sec, "No factions to garrison at this reading.")
+		return
+	DccWidgets.note(sec,
+		"Where each standing army is quartered when no campaign runs. Each place "
+		+ "weighs its population, times the reference's own military weights for "
+		+ "walls and the capital (0.35 and 0.20 against population's 0.45), times "
+		+ "one plus its border exposure: its share of the faction's frontier with "
+		+ "another faction. The parts add up to the standing army exactly.")
+	var rows := factions.duplicate()
+	rows.sort_custom(_by_standing)
+	for r in rows:
+		var d: Dictionary = r
+		var f := int(d.get("faction", 0))
+		var mine: Array = []
+		for p in places:
+			var pd: Dictionary = p
+			if int(pd.get("faction", 0)) == f and pd.has("garrison"):
+				mine.append(pd)
+		mine.sort_custom(_by_garrison)
+		if not d.has("garrison_total"):
+			DccWidgets.note(sec, "%s -- no garrison figure: this faction's standing army could not be split (no settlement with a population)." % String(d.get("name", "?")))
+			continue
+		var g := DccWidgets.group(sec, "%s -- %s in %d places" % [String(d.get("name", "?")),
+			_head(float(d["garrison_total"])), int(d.get("garrisoned_count", mine.size()))], false)
+		for p in mine:
+			var pd: Dictionary = p
+			var idx := int(pd["index"]) if pd.has("index") else -1
+			var b := DccWidgets.action(g, "%s -- %s (%.0f%%)" % [String(pd.get("name", "?")),
+				_head(float(pd["garrison"])), 100.0 * float(pd.get("garrison_share", 0.0))],
+				func():
+					var roster := bridge.settlements()
+					if idx >= 0 and idx < roster.size():
+						_selected_index = idx
+						app.right_dock_ctrl.on_settlement_selected(roster[idx], idx))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.disabled = idx < 0
+			b.tooltip_text = ("Population %d · %s wall · border exposure %.2f · walls/capital "
+				+ "multiplier ×%.2f.%s") % [int(pd.get("pop", 0)), String(pd.get("wall_spec", "none")),
+				float(pd.get("border_exposure", 0.0)), float(pd.get("garrison_multiplier", 1.0)),
+				" Pin it in the right dock." if idx >= 0 else " Not in today's settlement list."]
 
 ## The manpower half of CIVIL ▸ MILITARY (`MILITARY_MANPOWER_SCOPE.md`, built
 ## 2026-08-25 on the owner's own supplied specification).

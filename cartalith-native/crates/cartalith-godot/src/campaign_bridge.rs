@@ -24,8 +24,9 @@ impl WorldGen {
     ///   early;
     /// - `siege` (Siege-kind only): `centre` (`Vector2`, grid cells),
     ///   `radius_cells` (absent without a map scale), and when known
-    ///   `besieged_tid`, `besieged_name`, `defender`, `besiegers`
-    ///   (`PackedInt32Array`);
+    ///   `besieged_tid`, `besieged_name`, `garrison` (the besieged place's
+    ///   MM-6 garrison in `year`'s reading, absent when it has none),
+    ///   `defender`, `besiegers` (`PackedInt32Array`);
     /// - `front_segments` (`PackedVector2Array`, endpoint pairs in grid
     ///   coordinates) and `front_cell_count` -- **absent** when the territory
     ///   in force cannot be read, empty when there is no shared border;
@@ -48,6 +49,10 @@ impl WorldGen {
             km_per_cell,
             year,
         );
+        // MM-6: every garrison in this year's reading, computed at most once
+        // per call and only when a siege names a place -- this query runs on
+        // every cursor step.
+        let garrisons = std::cell::OnceCell::new();
         rows.iter()
             .filter_map(|r| {
                 let c = self.conflicts.get(r.conflict_id)?;
@@ -75,6 +80,17 @@ impl WorldGen {
                         sd.set("besieged_tid", t as i64);
                         if let Some(n) = civ.settlements.iter().find(|p| p.tid == t) {
                             sd.set("besieged_name", n.name.as_str());
+                        }
+                        // MM-6: the besieged place's garrison in this year's
+                        // reading -- the defenders' starting force. Reported,
+                        // not drawn: the ring does not scale with it
+                        // (`MILITARY_MANPOWER_SCOPE.md` §5.1).
+                        let found = garrisons
+                            .get_or_init(|| self.garrisons_by_tid_at(year))
+                            .get(&t)
+                            .copied();
+                        if let Some(g) = found {
+                            sd.set("garrison", g as i64);
                         }
                     }
                     if let Some(f) = s.defender {

@@ -60,9 +60,14 @@ use cartalith_civ::relations::{FactionRelationsInput, civ_faction_relations};
 use cartalith_civ::roster::civ_ag_tech_by_key;
 use cartalith_civ::trade::{NavKind, RoadComponents, place_navigability};
 use cartalith_civ::urban_adapter::UrbanWorld;
-use cartalith_civ::{FactionAggregates, FactionAggregatesInput, FactionPlace, WayType};
+use cartalith_civ::campaign::year_in_force;
+use cartalith_civ::garrison::{Garrison, GarrisonInput, GarrisonPlace, civ_garrisons};
+use cartalith_civ::timeline::civ_territory_at;
+use cartalith_civ::{
+    FactionAggregates, FactionAggregatesInput, FactionPlace, NamedSettlement, Way, WayType,
+};
 
-use crate::{WorldGen, WorldSource};
+use crate::{CivData, WorldGen, WorldSource};
 
 /// How much of a way's own kilometres count toward
 /// [`cartalith_civ::manpower::ManpowerInput::road_density`], by
@@ -105,7 +110,6 @@ const ROAD_DENSITY_REF_KM_PER_1000_KM2: f64 = 10.0;
 /// One settlement's fortification row, built once and reused by both
 /// entry points.
 struct Defence {
-    index: usize,
     tid: u64,
     name: String,
     faction: i32,
@@ -128,15 +132,25 @@ impl WorldGen {
     /// `settlement_layout_with` as a `PlaceOverrides`, so an override
     /// changes the drawn town as well as this card's wall rung.
     fn defences(&self) -> Vec<Defence> {
+        match self.civ.as_ref() {
+            Some(civ) => self.defences_of(&civ.settlements),
+            None => Vec::new(),
+        }
+    }
+
+    /// [`Self::defences`] over any settlement list -- the live one, or a
+    /// recorded year's (MM-8). The place editor's overrides are read by `tid`
+    /// from the live table either way: they are not recorded per year
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7).
+    fn defences_of(&self, settlements: &[NamedSettlement]) -> Vec<Defence> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
             return Vec::new();
         };
         let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
-        civ.settlements
+        settlements
             .iter()
-            .enumerate()
-            .map(|(index, s)| {
+            .map(|s| {
                 let e = civ.place_extras.get(s.tid);
                 let r = civ_relative_elevation(
                     &ws.field,
@@ -162,7 +176,6 @@ impl WorldGen {
                 let spec = um_wall_spec(&p);
                 let walled = um_infer_walls(&p);
                 Defence {
-                    index,
                     tid: s.tid,
                     name: s.name.clone(),
                     faction: s.placement.faction,
@@ -200,11 +213,32 @@ impl WorldGen {
     /// `civ_faction_relations` discounts any good no faction supplies, for
     /// exactly this reason (see its `trade_complement`).
     fn aggregates_with_walls(&self, defences: &[Defence]) -> Option<FactionAggregates> {
+        let civ = self.civ.as_ref()?;
+        self.aggregates_of(&CivView::live(civ), defences, true)
+    }
+
+    /// [`Self::aggregates_with_walls`] over any [`CivView`].
+    ///
+    /// `with_resources = false` skips the three resource passes. That changes
+    /// only the trade half (`imports`/`exports`); `pop`, `capital` and
+    /// `territory_km2` -- everything [`Self::manpower_rows_of`] and the
+    /// garrisons read -- are computed before and apart from `resources` in
+    /// `civ_faction_aggregates`, so a garrison-only read (the right dock, the
+    /// place editor) gets the same headcounts without paying for them.
+    fn aggregates_of(
+        &self,
+        view: &CivView,
+        defences: &[Defence],
+        with_resources: bool,
+    ) -> Option<FactionAggregates> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
             return None;
         };
         let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
+        if !with_resources {
+            return self.aggregate_call(view, defences, None);
+        }
         let biome = cartalith_civ::build_biome_raster(
             &civ.water_bodies,
             &ws.temperature,
@@ -237,6 +271,20 @@ impl WorldGen {
             true,
             false,
         );
+        self.aggregate_call(view, defences, Some(&resources))
+    }
+
+    fn aggregate_call(
+        &self,
+        view: &CivView,
+        defences: &[Defence],
+        resources: Option<&cartalith_civ::ResourcePotentials>,
+    ) -> Option<FactionAggregates> {
+        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
+        else {
+            return None;
+        };
+        let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
         let has_religion = civ.faction_roster.has_religion_flags();
         let input = FactionAggregatesInput {
             faction_count: civ.faction_roster.0.len(),
@@ -245,9 +293,9 @@ impl WorldGen {
             sea,
             map_width_km: self.map_width_km,
             field: &ws.field,
-            territory: Some(&civ.territory),
+            territory: Some(view.territory),
             density: None,
-            resources: Some(&resources),
+            resources,
             // The terrain-mix half of the aggregate; neither readout here
             // reads `terrain_mix`, and `civ_faction_terrain_fits` is the
             // call that pays for those two extra passes.
@@ -257,7 +305,7 @@ impl WorldGen {
             ocean_dist: None,
             faction_has_religion: Some(&has_religion),
         };
-        let places: Vec<FactionPlace> = civ
+        let places: Vec<FactionPlace> = view
             .settlements
             .iter()
             .zip(defences)
@@ -293,6 +341,18 @@ impl WorldGen {
     /// - **Professionalization** — derived inside the model from the two
     ///   above; nothing is read for it here.
     fn manpower_rows(&self, agg: &FactionAggregates) -> Vec<ManpowerRow> {
+        match self.civ.as_ref() {
+            Some(civ) => self.manpower_rows_of(&CivView::live(civ), agg),
+            None => Vec::new(),
+        }
+    }
+
+    /// [`Self::manpower_rows`] over any [`CivView`] -- MM-8 reads a recorded
+    /// year through this. Settlements, ways and territory come from the view;
+    /// `dens` and the water/terrain fields are live, since no year changes
+    /// them; the roster is live because it is not recorded per year
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7).
+    fn manpower_rows_of(&self, view: &CivView, agg: &FactionAggregates) -> Vec<ManpowerRow> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
             return Vec::new();
@@ -305,8 +365,8 @@ impl WorldGen {
         // People each faction's own land sustains -- the same integral
         // `civ_agrarian_regional_total` takes over the whole map.
         let mut land_capacity = vec![0.0f64; n_f];
-        if civ.dens.len() == gw * gh && civ.territory.len() == gw * gh {
-            for (i, &f) in civ.territory.iter().enumerate() {
+        if civ.dens.len() == gw * gh && view.territory.len() == gw * gh {
+            for (i, &f) in view.territory.iter().enumerate() {
                 if f > 0 && (f as usize) < n_f {
                     land_capacity[f as usize] += f64::from(civ.dens[i]) * cell_km2;
                 }
@@ -333,15 +393,15 @@ impl WorldGen {
             world_seed: self.seed,
         };
         let nav: Vec<NavKind> =
-            civ.settlements.iter().map(|s| place_navigability(&world, s).kind).collect();
+            view.settlements.iter().map(|s| place_navigability(&world, s).kind).collect();
 
         // Way length per faction, weighted by tier. A way whose two ends sit
         // in different factions counts for neither: it is a road *between*
         // polities, and crediting both with it would let a shared frontier
         // road make two states look better supplied than either is.
         let mut road_km = vec![0.0f64; n_f];
-        for w in &civ.ways {
-            let (Some(a), Some(b)) = (civ.settlements.get(w.a_idx), civ.settlements.get(w.b_idx))
+        for w in view.ways {
+            let (Some(a), Some(b)) = (view.settlements.get(w.a_idx), view.settlements.get(w.b_idx))
             else {
                 continue;
             };
@@ -351,12 +411,12 @@ impl WorldGen {
             }
         }
 
-        let mut rc = RoadComponents::build(civ.settlements.len(), &civ.ways);
+        let mut rc = RoadComponents::build(view.settlements.len(), view.ways);
 
         let inputs: Vec<ManpowerInput> = (1..n_f)
             .map(|f| {
                 let entry = &civ.faction_roster.0[f];
-                let mine: Vec<usize> = civ
+                let mine: Vec<usize> = view
                     .settlements
                     .iter()
                     .enumerate()
@@ -428,6 +488,296 @@ impl WorldGen {
             .map(|agg| self.manpower_rows(&agg).into_iter().map(|r| r.manpower).collect())
             .unwrap_or_default()
     }
+}
+
+/// Which settlements, roads and claims a reading is taken from -- the live
+/// world, or one recorded year's snapshot (MM-8, `MILITARY_MANPOWER_SCOPE.md`
+/// §5.7). A snapshot's `ways` index into its own `settlements`, so the two
+/// always travel together.
+struct CivView<'a> {
+    settlements: &'a [NamedSettlement],
+    ways: &'a [Way],
+    territory: &'a [i32],
+}
+
+impl<'a> CivView<'a> {
+    fn live(civ: &'a CivData) -> Self {
+        CivView { settlements: &civ.settlements, ways: &civ.ways, territory: &civ.territory }
+    }
+}
+
+/// What a year-cursor reading is taken from (§5.7, Ruling AT's model).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Reading {
+    /// Nothing is recorded at all: the world as it stands. Most worlds never
+    /// record a year, and "nothing recorded" is not "no army".
+    Live,
+    /// The latest recorded year at or before the cursor.
+    Recorded(i64),
+    /// The timeline has records, all of them after the cursor. No reading;
+    /// the payload is the earliest recorded year, for the label.
+    NoneInForce(i64),
+    /// The year in force has a claim raster that cannot be walked or is not
+    /// this grid's size (`civ_territory_at`'s corruption case).
+    Unreadable(i64),
+}
+
+impl Reading {
+    fn key(self) -> &'static str {
+        match self {
+            Reading::Live => "live",
+            Reading::Recorded(_) => "recorded",
+            Reading::NoneInForce(_) => "none_in_force",
+            Reading::Unreadable(_) => "unreadable",
+        }
+    }
+
+    /// The keys every year-aware answer carries: `reading`, and
+    /// `year_in_force` / `earliest_year` only when there is one.
+    fn stamp(self, out: &mut VarDictionary) {
+        out.set("reading", self.key());
+        match self {
+            Reading::Recorded(y) | Reading::Unreadable(y) => out.set("year_in_force", y),
+            Reading::NoneInForce(e) => out.set("earliest_year", e),
+            Reading::Live => {}
+        }
+    }
+}
+
+/// A recorded year's snapshot index and its rebuilt claim raster.
+type Recorded = Option<(usize, Vec<i32>)>;
+
+/// One settlement's `(tid, faction, garrison)` in a reading.
+type GarrisonRow = (u64, i32, Option<Garrison>);
+
+impl WorldGen {
+    /// Which reading `year` gets, plus the recorded year's claims when it is
+    /// one. `None` without a civilisation layer.
+    fn reading_at(&self, year: i64) -> Option<(Reading, Recorded)> {
+        let civ = self.civ.as_ref()?;
+        if civ.timeline.is_empty() {
+            return Some((Reading::Live, None));
+        }
+        let Some(y) = year_in_force(&civ.timeline, year) else {
+            let earliest = civ.timeline.iter().map(|s| s.year).min().unwrap_or(year);
+            return Some((Reading::NoneInForce(earliest), None));
+        };
+        let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
+        match (civ.timeline.iter().position(|s| s.year == y), civ_territory_at(&civ.timeline, y)) {
+            (Some(i), Some(t)) if t.len() == n => Some((Reading::Recorded(y), Some((i, t)))),
+            _ => Some((Reading::Unreadable(y), None)),
+        }
+    }
+
+    /// `f` over the view `reading` names: the live world, or the recorded
+    /// snapshot. `None` when there is nothing to read (no civ layer, no year
+    /// in force, an unreadable record).
+    fn with_view<R>(
+        &self,
+        reading: Reading,
+        recorded: &Recorded,
+        f: impl FnOnce(&CivView) -> R,
+    ) -> Option<R> {
+        let civ = self.civ.as_ref()?;
+        match (reading, recorded) {
+            (Reading::Live, _) => Some(f(&CivView::live(civ))),
+            (Reading::Recorded(_), Some((i, t))) => {
+                let snap = civ.timeline.get(*i)?;
+                Some(f(&CivView { settlements: &snap.settlements, ways: &snap.ways, territory: t }))
+            }
+            _ => None,
+        }
+    }
+
+    /// MM-6: every settlement's garrison in `view`, in its settlement order
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.6). Each faction's parts sum to its
+    /// rounded standing army from `rows` -- the same rows CIVIL ▸ Military
+    /// prints -- so the two can never disagree.
+    fn garrisons_of(
+        &self,
+        view: &CivView,
+        defences: &[Defence],
+        agg: &FactionAggregates,
+        rows: &[ManpowerRow],
+    ) -> Vec<Option<Garrison>> {
+        let Some(civ) = self.civ.as_ref() else { return Vec::new() };
+        if defences.len() != view.settlements.len() {
+            return vec![None; view.settlements.len()];
+        }
+        let places: Vec<GarrisonPlace> = view
+            .settlements
+            .iter()
+            .zip(defences)
+            .enumerate()
+            .map(|(i, (s, d))| {
+                let f = s.placement.faction;
+                let is_capital =
+                    f > 0 && agg.by_faction.get(f as usize).and_then(|a| a.capital) == Some(i);
+                GarrisonPlace {
+                    faction: f,
+                    pop: f64::from(s.pop),
+                    walled: d.walled,
+                    is_capital,
+                    kind: s.placement.kind,
+                    x: s.placement.x as f64,
+                    y: s.placement.y as f64,
+                }
+            })
+            .collect();
+        let n_f = civ.faction_roster.0.len();
+        let standing: Vec<Option<f64>> = (0..n_f)
+            .map(|f| if f == 0 { None } else { rows.get(f - 1).map(|r| r.manpower.standing_army) })
+            .collect();
+        civ_garrisons(&GarrisonInput {
+            places: &places,
+            territory: view.territory,
+            gw: self.gw.max(0) as usize,
+            gh: self.gh.max(0) as usize,
+            wrap_x: self.world,
+            standing: &standing,
+        })
+    }
+
+    /// Every settlement's garrison in the reading `year` gets, by `tid`, plus
+    /// that reading. The resource passes are skipped (see
+    /// [`Self::aggregates_of`]): the headcounts do not read them.
+    fn garrisons_at(&self, year: i64) -> Option<(Reading, Vec<GarrisonRow>)> {
+        let (reading, recorded) = self.reading_at(year)?;
+        let rows = self
+            .with_view(reading, &recorded, |view| {
+                let defences = self.defences_of(view.settlements);
+                let Some(agg) = self.aggregates_of(view, &defences, false) else {
+                    return Vec::new();
+                };
+                let manpower = self.manpower_rows_of(view, &agg);
+                let g = self.garrisons_of(view, &defences, &agg, &manpower);
+                view.settlements
+                    .iter()
+                    .zip(g)
+                    .map(|(s, g)| (s.tid, s.placement.faction, g))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some((reading, rows))
+    }
+
+    /// Every garrisoned settlement's headcount in `year`'s reading, by `tid`
+    /// -- the siege row's `garrison` (`campaign_bridge.rs`,
+    /// `MILITARY_MANPOWER_SCOPE.md` §5.1). A settlement with no garrison is
+    /// not in the map.
+    pub(crate) fn garrisons_by_tid_at(&self, year: i64) -> std::collections::HashMap<u64, u64> {
+        self.garrisons_at(year)
+            .map(|(_, rows)| {
+                rows.into_iter().filter_map(|(t, _, g)| g.map(|g| (t, g.garrison))).collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The whole of `civ_military_summary`'s answer over one view. Each
+    /// settlement row's `index` is into the LIVE list, which is what every
+    /// shell pin reads; a recorded settlement that no longer exists live gets
+    /// no `index`.
+    fn military_summary_of(
+        &self,
+        view: &CivView,
+    ) -> Option<(Array<VarDictionary>, Array<VarDictionary>)> {
+        let civ = self.civ.as_ref()?;
+        let defences = self.defences_of(view.settlements);
+        let agg = self.aggregates_of(view, &defences, true)?;
+        let manpower = self.manpower_rows_of(view, &agg);
+        let garrisons = self.garrisons_of(view, &defences, &agg, &manpower);
+
+        let factions: Array<VarDictionary> = (1..civ.faction_roster.0.len())
+            .filter_map(|f| {
+                let a = agg.by_faction.get(f)?;
+                let count = |spec: &str| {
+                    defences.iter().filter(|d| d.faction == f as i32 && d.spec == spec).count()
+                        as i64
+                };
+                let fortified_count =
+                    defences.iter().filter(|d| d.faction == f as i32 && d.walled).count() as i64;
+                let capital = a
+                    .capital
+                    .and_then(|i| defences.get(i))
+                    .map_or_else(String::new, |d| d.name.clone());
+                let entry = &civ.faction_roster.0[f];
+                let mut row = vdict! {
+                    "faction" => f as i64,
+                    "name" => entry.name.as_str(),
+                    "military" => a.power.military,
+                    "overall" => a.power.overall,
+                    "pop" => a.pop,
+                    "settlement_count" => a.settlement_count as i64,
+                    "fortified_count" => fortified_count,
+                    "fortified_fraction" => a.fortified_fraction,
+                    "walled_stone" => count("stone"),
+                    "walled_palisade" => count("palisade"),
+                    "walled_ditch" => count("ditch"),
+                    "capital" => capital.as_str(),
+                    // Nested rather than flattened, so the two models stay
+                    // visibly separate: `military`/`overall` above are the
+                    // reference's own relative 0-100 heuristic, and this is
+                    // an absolute headcount model with no reference at all.
+                    // Reading one where the other was meant is the mistake
+                    // this nesting exists to make hard.
+                    "manpower" => &manpower_dict(
+                        manpower.get(f - 1),
+                        entry.ag_tech.as_str(),
+                        entry.government.as_str(),
+                    ),
+                };
+                // MM-6: this faction's garrisons, summed -- present only when
+                // its standing army was split (§5.6's absences).
+                let mine: Vec<u64> = view
+                    .settlements
+                    .iter()
+                    .zip(&garrisons)
+                    .filter(|(s, _)| s.placement.faction == f as i32)
+                    .filter_map(|(_, g)| g.map(|g| g.garrison))
+                    .collect();
+                if !mine.is_empty() {
+                    row.set("garrison_total", mine.iter().sum::<u64>() as i64);
+                    row.set("garrisoned_count", mine.len() as i64);
+                }
+                Some(row)
+            })
+            .collect();
+
+        let settlements: Array<VarDictionary> = defences
+            .iter()
+            .zip(&garrisons)
+            .map(|(d, g)| {
+                let mut row = vdict! {
+                    "tid" => d.tid as i64,
+                    "name" => d.name.as_str(),
+                    "faction" => d.faction as i64,
+                    "kind" => d.kind,
+                    "pop" => d.pop as i64,
+                    "wall_spec" => d.spec,
+                    "walled" => d.walled,
+                    "defensibility" => d.defensibility,
+                };
+                if let Some(i) = civ.settlements.iter().position(|s| s.tid == d.tid) {
+                    row.set("index", i as i64);
+                }
+                if let Some(g) = g {
+                    garrison_keys(&mut row, g);
+                }
+                row
+            })
+            .collect();
+        Some((factions, settlements))
+    }
+}
+
+/// The MM-6 keys a settlement row carries when it has a garrison:
+/// `garrison` (headcount), `garrison_share` (0-1 of its faction's),
+/// `border_exposure` (0-1) and `garrison_multiplier` (the walls/capital term).
+fn garrison_keys(row: &mut VarDictionary, g: &Garrison) {
+    row.set("garrison", g.garrison as i64);
+    row.set("garrison_share", g.share);
+    row.set("border_exposure", g.exposure);
+    row.set("garrison_multiplier", g.standing_multiplier);
 }
 
 /// One faction's [`cartalith_civ::manpower::Manpower`], plus the two land
@@ -553,14 +903,20 @@ impl WorldGen {
     ///   `_civFactionAggregates`' own labelled heuristic), `pop`,
     ///   `settlement_count`, `fortified_count`, `fortified_fraction`,
     ///   `walled_stone`/`walled_palisade`/`walled_ditch` counts,
-    ///   `capital` (name, or `""` when the faction seats nobody), and
+    ///   `capital` (name, or `""` when the faction seats nobody),
     ///   `manpower` — the whole of [`cartalith_civ::manpower`]'s answer for
     ///   this faction, nested (see [`manpower_dict`] for the keys and for
-    ///   why it is nested rather than flattened alongside `military`).
-    /// - `"settlements"` — one row per settlement: `index`, `tid`, `name`,
-    ///   `faction`, `kind`, `pop`, `wall_spec` (one of
-    ///   `cartalith_civ::military::WALL_SPECS`), `walled`, and
-    ///   `defensibility` (0-1).
+    ///   why it is nested rather than flattened alongside `military`) — and,
+    ///   when its standing army was split (MM-6), `garrison_total` (= the
+    ///   rounded standing army, exactly) and `garrisoned_count`.
+    /// - `"settlements"` — one row per settlement: `index` (into the live
+    ///   `get_settlements()`), `tid`, `name`, `faction`, `kind`, `pop`,
+    ///   `wall_spec` (one of `cartalith_civ::military::WALL_SPECS`),
+    ///   `walled`, `defensibility` (0-1), and the MM-6 keys
+    ///   ([`garrison_keys`]) when the settlement has a garrison — absent, not
+    ///   `0`, when it has none (`MILITARY_MANPOWER_SCOPE.md` §5.6).
+    /// - `"reading"` — always `"live"` here; see
+    ///   [`Self::civ_military_summary_at`] for the year-cursor reading.
     ///
     /// Empty arrays before the first generate, on a world with no civilisation
     /// layer, or on a world opened without its substrate
@@ -568,86 +924,120 @@ impl WorldGen {
     /// not a fault. A reopened project that carries its substrate answers
     /// exactly as the world it was saved from.
     ///
-    /// **What this deliberately does not report:** garrison headcounts,
-    /// campaigns, or anything that moves. See
-    /// `cartalith_civ::military`'s module doc.
+    /// **What this deliberately does not report:** campaigns, or anything
+    /// that moves. Garrisons are where the standing army is quartered, not a
+    /// deployment (§5.6); campaigns are CARTO ▸ Conflict's (§5).
     #[func]
     fn civ_military_summary(&self) -> VarDictionary {
         let mut out = VarDictionary::new();
-        let defences = self.defences();
         // Both `None` arms are real states (no civilisation layer, or no
-        // substrate behind it),
-        // and neither is an error. No `unwrap`/`expect` anywhere in this
-        // file: a panic here unwinds through a GDExtension callback.
-        let (Some(civ), Some(agg)) = (self.civ.as_ref(), self.aggregates_with_walls(&defences))
-        else {
-            out.set("factions", &Array::<VarDictionary>::new());
-            out.set("settlements", &Array::<VarDictionary>::new());
-            return out;
-        };
-        let manpower = self.manpower_rows(&agg);
-
-        let factions: Array<VarDictionary> = (1..civ.faction_roster.0.len())
-            .filter_map(|f| {
-                let a = agg.by_faction.get(f)?;
-                let count = |spec: &str| {
-                    defences.iter().filter(|d| d.faction == f as i32 && d.spec == spec).count()
-                        as i64
-                };
-                let fortified_count =
-                    defences.iter().filter(|d| d.faction == f as i32 && d.walled).count() as i64;
-                let capital = a
-                    .capital
-                    .and_then(|i| defences.get(i))
-                    .map_or_else(String::new, |d| d.name.clone());
-                let entry = &civ.faction_roster.0[f];
-                Some(vdict! {
-                    "faction" => f as i64,
-                    "name" => entry.name.as_str(),
-                    "military" => a.power.military,
-                    "overall" => a.power.overall,
-                    "pop" => a.pop,
-                    "settlement_count" => a.settlement_count as i64,
-                    "fortified_count" => fortified_count,
-                    "fortified_fraction" => a.fortified_fraction,
-                    "walled_stone" => count("stone"),
-                    "walled_palisade" => count("palisade"),
-                    "walled_ditch" => count("ditch"),
-                    "capital" => capital.as_str(),
-                    // Nested rather than flattened, so the two models stay
-                    // visibly separate: `military`/`overall` above are the
-                    // reference's own relative 0-100 heuristic, and this is
-                    // an absolute headcount model with no reference at all.
-                    // Reading one where the other was meant is the mistake
-                    // this nesting exists to make hard.
-                    "manpower" => &manpower_dict(
-                        manpower.get(f - 1),
-                        entry.ag_tech.as_str(),
-                        entry.government.as_str(),
-                    ),
-                })
-            })
-            .collect();
-
-        let settlements: Array<VarDictionary> = defences
-            .iter()
-            .map(|d| {
-                vdict! {
-                    "index" => d.index as i64,
-                    "tid" => d.tid as i64,
-                    "name" => d.name.as_str(),
-                    "faction" => d.faction as i64,
-                    "kind" => d.kind,
-                    "pop" => d.pop as i64,
-                    "wall_spec" => d.spec,
-                    "walled" => d.walled,
-                    "defensibility" => d.defensibility,
-                }
-            })
-            .collect();
-
+        // substrate behind it), and neither is an error. No `unwrap`/`expect`
+        // anywhere in this file: a panic here unwinds through a GDExtension
+        // callback.
+        let built = self
+            .civ
+            .as_ref()
+            .and_then(|civ| self.military_summary_of(&CivView::live(civ)));
+        let (factions, settlements) = built.unwrap_or_default();
         out.set("factions", &factions);
         out.set("settlements", &settlements);
+        Reading::Live.stamp(&mut out);
+        out
+    }
+
+    /// MM-8 (`MILITARY_MANPOWER_SCOPE.md` §5.7): [`Self::civ_military_summary`]
+    /// read at the Timeline cursor's `year`, recomputed from the recorded
+    /// snapshot in force (the latest recorded year at or before it, Ruling
+    /// AT's model). Same keys, plus:
+    ///
+    /// - `reading` -- `"live"` (nothing recorded: the world as it stands),
+    ///   `"recorded"`, `"none_in_force"` (every record is later than `year`;
+    ///   `factions`/`settlements` empty) or `"unreadable"` (the year in force
+    ///   has a claim raster that cannot be rebuilt at this grid's size;
+    ///   empty);
+    /// - `year_in_force` -- present for `recorded`/`unreadable`;
+    /// - `earliest_year` -- present for `none_in_force`.
+    ///
+    /// Settlements, roads and claims are the record's; the roster (ag-tech,
+    /// government) and the place editor's overrides are today's, because the
+    /// timeline does not record them -- the shell labels the reading so.
+    #[func]
+    fn civ_military_summary_at(&self, year: i64) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        let (factions, settlements, reading) = match self.reading_at(year) {
+            Some((reading, recorded)) => {
+                let built = self
+                    .with_view(reading, &recorded, |v| self.military_summary_of(v))
+                    .flatten()
+                    .unwrap_or_default();
+                (built.0, built.1, Some(reading))
+            }
+            None => Default::default(),
+        };
+        out.set("factions", &factions);
+        out.set("settlements", &settlements);
+        if let Some(r) = reading {
+            r.stamp(&mut out);
+        }
+        out
+    }
+
+    /// The recorded year a reading at `year` would use, as `{"year": int}`;
+    /// `{}` when there is none (nothing recorded, or every record is later).
+    /// Cheap: the shell calls it on every cursor step to decide whether
+    /// CIVIL ▸ Military needs refilling at all.
+    #[func]
+    fn civ_year_in_force(&self, year: i64) -> VarDictionary {
+        match self.civ.as_ref().and_then(|c| year_in_force(&c.timeline, year)) {
+            Some(y) => vdict! { "year" => y },
+            None => VarDictionary::new(),
+        }
+    }
+
+    /// MM-6 for one settlement, by `tid`, read at `year` the way
+    /// [`Self::civ_military_summary_at`] reads it -- the right dock's and the
+    /// place editor's Garrison row. Always carries `reading` (and
+    /// `year_in_force`/`earliest_year` as there); then either
+    ///
+    /// - `garrison`, `garrison_share`, `border_exposure`,
+    ///   `garrison_multiplier`, `faction`, `faction_garrison` (the faction's
+    ///   whole split, = its rounded standing army) -- or
+    /// - `absent` -- why there is no figure: `"no_reading"` (nothing to read
+    ///   at this year), `"not_recorded"` (this settlement is not in the
+    ///   recorded year), `"unclaimed"`, or `"no_standing"` (its faction's
+    ///   standing army could not be split, `MILITARY_MANPOWER_SCOPE.md`
+    ///   §5.6).
+    ///
+    /// `{}` before any world.
+    #[func]
+    fn civ_settlement_garrison(&self, tid: i64, year: i64) -> VarDictionary {
+        let Some((reading, rows)) = self.garrisons_at(year) else {
+            return VarDictionary::new();
+        };
+        let mut out = VarDictionary::new();
+        reading.stamp(&mut out);
+        if !matches!(reading, Reading::Live | Reading::Recorded(_)) {
+            out.set("absent", "no_reading");
+            return out;
+        }
+        let Some((_, faction, g)) = rows.iter().find(|(t, _, _)| *t as i64 == tid) else {
+            out.set("absent", "not_recorded");
+            return out;
+        };
+        out.set("faction", *faction as i64);
+        match g {
+            _ if *faction <= 0 => out.set("absent", "unclaimed"),
+            None => out.set("absent", "no_standing"),
+            Some(g) => {
+                garrison_keys(&mut out, g);
+                let whole: u64 = rows
+                    .iter()
+                    .filter(|(_, f, _)| f == faction)
+                    .filter_map(|(_, _, g)| g.map(|g| g.garrison))
+                    .sum();
+                out.set("faction_garrison", whole as i64);
+            }
+        }
         out
     }
 

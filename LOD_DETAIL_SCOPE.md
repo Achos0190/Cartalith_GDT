@@ -438,11 +438,21 @@ as a seam.
 **Goal:** the Aletsch reading from above: ice filling troughs, snow on high ground
 breaking along aspect and slope, rock on steep faces, vegetation in valleys.
 
-**Confirmed 2026-09-13: a default new world has no glacial troughs.**
-`cartalith_engine::WorldParams::defaults` sets `passes: ErosionPassParams::off()`
-(glacial carving off), and the shell's `cartalith_godot::params::defaults()` does not
-override it. Ice therefore appears only where the user enabled the glacial pass;
-see question 3.
+**Superseded 2026-09-24 by owner Ruling AU: a default new world now runs the glacial
+pass.** The 2026-09-13 note here said a default world had no glacial troughs, because
+`WorldParams::defaults` sets `passes: ErosionPassParams::off()` and the shell's
+`cartalith_godot::params::defaults()` did not override it. It now does (question 3);
+`WorldParams::defaults` and every golden are unchanged. Two things measured on
+2026-09-24 (`tests/lod_d4_ice_and_snow.rs::measure_the_glacial_default`, 2048×1311,
+the shipped defaults, seeds 24601 / 1337 / 987654) correct what this note implied:
+
+- **Ice never depended on the pass.** `build_glacier_potential` gates on height against
+  `glacial_snowline`, temperature and flow, not on whether `passes.glacial` ran, so a
+  default world drew ice before the ruling too: cells at glacier potential ≥ 0.5 were
+  29 270 / 696 / 2 257 with the pass off and 28 153 / 682 / 1 124 with it on.
+- **At the shipped settings the troughs are shallow.** The pass moved 360 873 /
+  62 057 / 125 291 of 2 684 928 cells, but its deepest cut was 0.0007 / 0.0005 /
+  0.0005 of normalised height, about 5 m at the default `peak_m` of 4 000 m.
 
 **Scope.** Three derived stages, all inert under `js_reference()`:
 
@@ -502,7 +512,9 @@ Aletsch zoom target."
 - **Scale.** The Aletsch glacier is 1–1.5 km wide, while the default world is about
   0.39 km per cell, so a trough is 3–4 cells wide and tongues will read soft at deep
   zoom. This is stated, and no geometry is invented.
-- If the glacial pass is off by default, most worlds will show snow and no ice.
+- ~~If the glacial pass is off by default, most worlds will show snow and no ice.~~
+  Did not hold: ice follows `glacial_snowline`, temperature and flow, not the pass
+  (see the superseded note above), and since Ruling AU the pass is on by default.
 
 **Snow's aspect term — owner-ruled, and outside D4.** Built as scoped, D4 gates
 its stages on `TerrainAppearance::ice_strength` (`build_glacier_potential`,
@@ -670,13 +682,16 @@ it must not overlap a GUI verifier's tree.
 2. **Do the Rulings 28/29 stored pyramids become colour tiles** (about 3× raw), or
    does the save slot stay off until D3?
    *Default:* producer id v2, slot off by default, the new size shown at save.
-3. **Glaciation.** Confirmed: the glacial pass is off in both the engine defaults
-   (`ErosionPassParams::off()`) and the shipped shell defaults, so a default world has
-   no troughs to draw ice into. Should new worlds turn it on? That changes generated
-   output in the shell's divergence defaults only; engine defaults and goldens are
-   untouched.
-   *Default:* leave it as shipped. D4 draws snow and rock on every world and ice where
-   the pass ran. Ask again with the D0 comparison sheet in hand.
+3. **Glaciation.** **Answered 2026-09-24, owner Ruling AU: new worlds turn it on.**
+   `cartalith_godot::params::defaults()` sets `passes.glacial = true` (an app-default
+   divergence, on the roster in `tests/params_mapping.rs::exactly_the_ruled_divergences_
+   ship_at_the_app_boundary`); `WorldParams::defaults` keeps `ErosionPassParams::off()`
+   and no golden moves. A save without the `passes.glacial` key (a reference export)
+   reloads with it off. Cost at 2048×1311, measured 2026-09-24 on the CPU path with no
+   other build running, seed 24601, five alternating runs a leg: `generate_terrain`
+   median 2.60 s (2.58..2.64) without the pass, 3.28 s (3.22..3.30) with it; an
+   independent re-run gave 2.59 s (2.57..2.66) and 3.25 s (3.23..3.26). The question as
+   first written assumed ice needed the pass; it does not (see LOD-D4's note).
 4. **Tile synthesis on the GPU (wgpu), or CPU with a worker?**
    *Default:* CPU with a worker (D6), per appearance M6's measured verdict and to stay
    on the golden-verified path.

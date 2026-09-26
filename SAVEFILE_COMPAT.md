@@ -1001,8 +1001,13 @@ and reports `substrate: "complete"`, `"absent"` (no member — every earlier
 archive) or `"incomplete"` (a member it could not honour, with a warning). An
 `"absent"` or `"incomplete"` world opens as before, restores its civilisation
 layer, and every readout that needs the substrate says so — that the save does
-not carry the hydrology and tectonic rasters, and to regenerate — rather than
-that it has no civilisation layer.
+not carry the hydrology and tectonic rasters — rather than that it has no
+civilisation layer. The advice differs by layout (`substrate::needs_substrate`,
+2026-09-24). A tree project is told to regenerate and save again, and that a
+regenerate places the settlements afresh and keeps no labels or icons. A flat
+legacy archive (§15) is **not** told to regenerate: that would discard the
+settlements, labels and icons Ruling AU imported, and no path carries them across
+one. It is told what is unavailable and why.
 
 **What it costs** (measured 2026-09-24, `measure_a_real_save`, the shell's
 default parameters at 2048 × 1311, seed 24601, no civilisation layer): the

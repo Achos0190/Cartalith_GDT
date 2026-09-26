@@ -517,20 +517,68 @@ fn a_save_without_the_v2_57_blur_reloads_without_it() {
     }
 }
 
+/// The glacial pass (owner Ruling AU) takes the same shape again: the
+/// reference never runs `glacialKernel` inside generation, and every save this
+/// port wrote since `1f7c295` carries the key, so a save without it is a world
+/// generated without the pass.
+#[test]
+fn a_save_without_the_glacial_key_reloads_without_the_pass() {
+    assert!(params::defaults().passes.glacial, "the shipped app generates with it on");
+
+    let mut p = params::defaults();
+    let n = params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert_eq!(n, 1);
+    assert!(!p.passes.glacial, "a save without the key must not silently gain the glacial pass");
+
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.passes.glacial = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["passes.glacial"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.passes.glacial = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.passes.glacial, on);
+    }
+}
+
+/// The glacial default is not a dead flag: at the shipped defaults it carves
+/// the world. Same guard as the volcanism test below, for the one divergence
+/// that test leaves on in both worlds.
+#[test]
+fn the_glacial_default_carves_a_default_world() {
+    let mut app = params::defaults();
+    app.gw = 128;
+    app.gh = 82;
+    app.tect.seed = 2026;
+    let mut off = app.clone();
+    off.passes.glacial = false;
+
+    let a = cartalith_engine::generate_terrain(&app);
+    let b = cartalith_engine::generate_terrain(&off);
+    assert_eq!(a.field.len(), 128 * 82, "the probe generated nothing");
+    let moved = a.field.iter().zip(b.field.iter()).filter(|(x, y)| x != y).count();
+    println!("glacial default: {moved} of {} cells differ from the same world without it", a.field.len());
+    assert!(moved > 0, "the shipped glacial default changed nothing -- the flag is dead");
+    assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
+}
+
 /// A save from a future version, a hand-edited one, or a genuine HTML-app
 /// export must never panic or half-apply — the three shapes that can arrive.
 #[test]
 fn a_state_this_port_does_not_recognise_is_survivable() {
     let mut p = params::defaults();
     // A real HTML export: no native block at all. It leaves the table at its
-    // defaults -- except integrated drainage and the v2.57 blur, which a world
-    // that never recorded them was generated without
+    // defaults -- except integrated drainage, the v2.57 blur and the glacial
+    // pass, which a world that never recorded them was generated without
     // (`a_save_without_integrated_drainage_reloads_without_it`,
-    // `a_save_without_the_v2_57_blur_reloads_without_it`).
+    // `a_save_without_the_v2_57_blur_reloads_without_it`,
+    // `a_save_without_the_glacial_key_reloads_without_the_pass`).
     assert_eq!(params::apply_saved_state(&mut p, &serde_json::json!({"tect": {"seed": 1, "plates": 30}})), 0);
     let mut expect = params::defaults();
     expect.integrate_drainage = false;
     expect.tect.narrow_plate_base_blur = false;
+    expect.passes.glacial = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -565,11 +613,13 @@ use cartalith_engine::{WorldParams, WorldState};
 /// quietly appeared in `WorldParams::defaults` instead would break sixteen
 /// `cartalith-civ` suites. Listing them here makes either failure loud.
 ///
-/// Five today: `crater.physical_model` (§7l) and the two volcano flags
+/// Six today: `crater.physical_model` (§7l) and the two volcano flags
 /// (§7l-ii, owner ruling 1), all 2026-09-02; `integrate_drainage`
-/// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k); and
+/// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k);
 /// `tect.narrow_plate_base_blur` (source v2.57, `RC_ENGINE_CHANGES.md` §6i --
-/// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24).
+/// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24); and
+/// `passes.glacial` (owner Ruling AU, 2026-09-24, `LOD_DETAIL_SCOPE.md`
+/// question 3).
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -583,9 +633,10 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
         app.tect.narrow_plate_base_blur && !parity.tect.narrow_plate_base_blur,
         "v2.57 plate-base blur, RC_ENGINE_CHANGES.md §6i"
     );
+    assert!(app.passes.glacial && !parity.passes.glacial, "glacial pass on for new worlds, Ruling AU");
 
-    // And nothing else. Neutralising the five must make the two identical --
-    // which catches a sixth divergence added without a ruling, in either
+    // And nothing else. Neutralising the six must make the two identical --
+    // which catches a seventh divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
     neutral.crater.physical_model = false;
@@ -593,20 +644,23 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.volc.edifice_model = false;
     neutral.integrate_drainage = false;
     neutral.tect.narrow_plate_base_blur = false;
+    neutral.passes.glacial = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         five authorised fields"
+         six authorised fields"
     );
 }
 
-/// Three of the five shipped divergences -- the volcanism/crater ones -- are
+/// Three of the six shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other two, `integrate_drainage` and
-/// `tect.narrow_plate_base_blur`, are left on in both worlds here, so this
-/// measures only the three it names. (The blur flag's own reach is
-/// `cartalith-engine`'s `narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream`.)
+/// path behind it is dead. The other three, `integrate_drainage`,
+/// `tect.narrow_plate_base_blur` and `passes.glacial`, are left on in both
+/// worlds here, so this measures only the three it names. (The blur flag's own
+/// reach is `cartalith-engine`'s
+/// `narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream`; the
+/// glacial pass's is `the_glacial_default_carves_a_default_world` below.)
 #[test]
 fn the_shipped_defaults_generate_a_different_world_from_the_parity_baseline() {
     let mut app = params::defaults();

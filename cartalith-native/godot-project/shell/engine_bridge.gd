@@ -3136,6 +3136,35 @@ func civ_military_summary() -> Dictionary:
 		return {}
 	return world_gen.civ_military_summary()
 
+## MM-8 (`MILITARY_MANPOWER_SCOPE.md` §5.7): the same answer read at the
+## Timeline cursor's `year`, from the recorded snapshot in force. Adds
+## `reading` (`live` / `recorded` / `none_in_force` / `unreadable`),
+## `year_in_force` or `earliest_year`. Settlement rows carry MM-6's `garrison`
+## keys when they have one (absent otherwise, never 0). `{}` on an older
+## binary.
+func civ_military_summary_at(year: int) -> Dictionary:
+	if not _has("civ_military_summary_at"):
+		return {}
+	return world_gen.civ_military_summary_at(year)
+
+## `{"year": int}` -- the recorded year a reading at `year` uses -- or `{}`
+## when there is none. Cheap; CIVIL ▸ Military reads it per cursor step to
+## refill only when the year in force changes.
+func civ_year_in_force(year: int) -> Dictionary:
+	if not _has("civ_year_in_force"):
+		return {}
+	return world_gen.civ_year_in_force(year)
+
+## MM-6 for one settlement by `tid`, read at `year`: `garrison`,
+## `garrison_share`, `border_exposure`, `garrison_multiplier`,
+## `faction_garrison` -- or `absent` (`no_reading` / `not_recorded` /
+## `unclaimed` / `no_standing`). Always `reading`. `{}` before a world or on an
+## older binary.
+func civ_settlement_garrison(tid: int, year: int) -> Dictionary:
+	if not _has("civ_settlement_garrison"):
+		return {}
+	return world_gen.civ_settlement_garrison(tid, year)
+
 
 # conflict_bridge.rs -- `STORY_PLANNING_SCOPE.md` SP-4, the conflict overlay.
 # `conflict_add`/`conflict_update` return `{ok, id, error?}`; see the Rust

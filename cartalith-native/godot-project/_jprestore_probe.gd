@@ -163,6 +163,10 @@ func _ready() -> void:
 		var err := String(r.get("error", ""))
 		_check("it refuses to plan, naming the missing rasters", not bool(r.get("ok", true)) 			and err.contains("hydrology and tectonic rasters") and not err.contains("civilisation layer"), err)
 		_check("and says what to do", err.contains("regenerate"), err)
+		## A tree project, not a legacy import: `substrate::NEEDS_SUBSTRATE`,
+		## which also says what the regenerate costs.
+		_check("with the project wording, not the legacy-import one",
+			not err.contains("legacy .zip") and err.contains("does not keep this project's labels and icons"), err)
 
 	DirAccess.remove_absolute(path)
 	print("JPRESTORE %s  (%d failures)" % ["PASS" if _fails == 0 else "FAIL", _fails])
