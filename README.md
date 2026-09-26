@@ -84,6 +84,7 @@ not to believe:
 `PERFORMANCE_BENCHMARKS.md` (measured CPU/per-GPU/split comparison at 2048²
 and 8192², and what actually decides how the app feels) ·
 `LOD_TILING_BASE_SCOPE.md` · `ANDROID_BUILD_SCOPE.md` ·
+`MAP_CONTEXT_SCOPE.md` (right-click card, tool ring, touch forms — a proposal) ·
 `GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
 `REFERENCES.md` · `SKILLS.md` · `LANDMARK_GENERATION_SCOPE.md`
 (causally-placed landmarks — the inventory of what this engine already had for
