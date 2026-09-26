@@ -331,7 +331,10 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**79 outstanding items** — 2026-09-27, later (latest). The three stale probes closed.
+**79 outstanding items** — 2026-09-27, evening (latest). CM-5 closed (`ba01574`); its
+residuals filed as one row. **79 − 1 + 1 = 79**.
+
+**79 outstanding items** — 2026-09-27, later. The three stale probes closed.
 **80 − 1 = 79**.
 
 **80 outstanding items** — 2026-09-27. CM-4's tablet gesture closed as built
@@ -3069,7 +3072,8 @@ desktop path, each step shipping alone; CM-4 needs CM-3; CM-7 runs beside any.
 | ~~**CM-4 · Tablet: hold → ring + card with slide-to-select**~~ — **CLOSED 2026-09-26 as built (`564270d`, verified: `_ctxtablet_probe` 24/24); the device check is its own row below** | `MAP_CONTEXT_SCOPE.md` §11 | medium | Continued tracking, haptics, handedness preference, edge flipping; **the pen barrel button verified on the owner's device** and the result written down (device-bound). Needs CM-3 |
 | **CM-4 device check: the pen barrel button and haptics on the owner's tablet** | `MAP_CONTEXT_SCOPE.md` §7.2; `map_overlay.gd` | small | Device-bound. `564270d` relies on the stylus barrel button arriving as `MOUSE_BUTTON_RIGHT` (so the pen gets the desktop ring and card), and on `app._haptic` firing on mobile; neither can be observed on the desktop host. **Next step:** on the owner's tablet, press the barrel button over the map and hold a finger; write down what happens in `MAP_CONTEXT_SCOPE.md` §7.2 |
 | **CM-4 residuals: touch-sized ring and a Preferences row for handedness** | `radial_ring.gd`; `menus.gd` Preferences | small | Left by `564270d`: §7.2's 96 dp ring radius on touch (the ring still uses the desktop 60 px); `DccSettings.dominant_hand()` is stored but no Preferences row sets it. **Next step:** scale `RING_RADIUS`/`SLOT_SIZE` by the touch scale on a tablet; add a Left/Right hand row under Preferences; extend `_ctxtablet_probe` |
-| **CM-5 · Phone noun surface: long-press → pin → peek card** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **F1 answered by Ruling AX (2026-09-26): long-press drops the pin *and* opens the verbs, at 480 ms** (replacing `map_overlay.gd`'s 500 ms menu-only `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
+| ~~**CM-5 · Phone noun surface: long-press → pin → peek card**~~ — **CLOSED 2026-09-27 (`ba01574`, verified: `_ctxphone_probe` 31/31 at phone size; tablet, desktop and ring probes unchanged)** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **F1 answered by Ruling AX (2026-09-26): long-press drops the pin *and* opens the verbs, at 480 ms** (replacing `map_overlay.gd`'s 500 ms menu-only `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
+| **CM-5 residuals: the phone's Select chip and the domain rows the phone sheet still omits** | `phone_menu.gd` (`peek_card`'s unused `reselect`); `world_workspace.gd`, `cartography_workspace.gd`, `civilization_workspace.gd` (`card_form()` phone gates) | small | Left by `ba01574`: §8.1.4's multi-hit "Select ▸" chip is threaded but unbuilt (the desktop card's is a submenu; the phone sheet needs its own form); WORLD's draft/tool rows and CARTO's label/icon rows still return nothing for the phone form, so the phone's half card shows fewer rows than the desktop card for the same object. **Next step:** a Select chip that re-resolves the sheet; lift each workspace's phone gate where the row works by touch; extend `_ctxphone_probe` |
 | **CM-6 · Phone thumb fan** | `MAP_CONTEXT_SCOPE.md` §11 | small–medium | **F2 answered by Ruling AX: build it, after CM-5.** §8.2 |
 | **CM-7 · New picks and verbs** | `MAP_CONTEXT_SCOPE.md` §11 | medium | §9.2's rows one at a time, each with its card row: landmark and route picks, stamp pick, then way list/delete and river identity/trace downstream. Can run beside any of the above |
 
