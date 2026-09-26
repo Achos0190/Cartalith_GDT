@@ -288,8 +288,8 @@ pub struct DeflectFlowParams {
 /// coastline rather than only appearing on top of it (linearised
 /// hill-flow theory, Jackson & Hunt 1975). Gap/strait acceleration comes
 /// from the block field's own Laplacian. Pure; shared by `build_wind`'s
-/// terrain deflection and (not yet ported) `computeOceanCurrent`'s hard
-/// coastline.
+/// terrain deflection and `compute_ocean_current`'s hard coastline (both
+/// call sites in this file).
 ///
 /// Every intermediate value here is `f64` arithmetic over `f32`-stored
 /// inputs, rounded to `f32` only at each `Float32Array` write point
@@ -1460,11 +1460,12 @@ pub fn finish_weather_grid(eh: &[f32], mut rain: Vec<f32>, ww: usize, wh: usize,
 }
 
 /// `applyClimateMoistureCorrectors()` (reference HTML lines 5188-5225) —
-/// **unconditional**, unlike `applyOceanCurrents`/`computeSeasons`
-/// (both gated on `state.climate.currents`/`.seasons`, off by default and
-/// not yet ported): `refreshClimate()` always runs this after
-/// `simulateWeather()`, so it's part of the MVP's default rainfall path,
-/// not a stretch-goal deferral.
+/// **unconditional**, unlike `applyOceanCurrents` (ported as
+/// `compute_ocean_current`/`apply_ocean_currents`, gated on
+/// `p.climate.currents`, defaulting `true` since 2026-08-15) and
+/// `computeSeasons` (gated on `state.climate.seasons`, not yet ported):
+/// `refreshClimate()` always runs this after `simulateWeather()`, so it's
+/// part of the MVP's default rainfall path, not a stretch-goal deferral.
 ///
 /// Three sequential, in-place corrections to `rain` (each sees the
 /// previous one's already-written values, same as JS mutating the one

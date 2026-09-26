@@ -615,11 +615,13 @@ pub fn trait_sprite_rect(px: f64, py: f64, r: f64, sw: f64, sh: f64) -> SpriteRe
 /// layout, resolves each key against a loaded pack's `structures.trait` art
 /// and reports [`trait_sprite_rect`]'s box for it. Two things draw from that
 /// one answer: `pack::composite_trait_badges`, which blits into the RGB8 map
-/// buffer and still has no caller, and `WorldGen::civ_trait_badge_row`, which
-/// hands GDScript an `ImageTexture` per badge so `godot-project/
-/// map_overlay.gd` can blit one at a settlement pin's constant on-screen size
-/// (`OUTSTANDING_WORK.md` §2.5, closed on the engine side 2026-09-04 —
-/// nothing installs the resolver on the shell side yet).
+/// buffer and still has no caller outside its own tests, and
+/// `WorldGen::civ_trait_badge_row`, which hands GDScript an `ImageTexture`
+/// per badge so `godot-project/map_overlay.gd` can blit one at a settlement
+/// pin's constant on-screen size (`OUTSTANDING_WORK.md` §2.5, closed on the
+/// engine side 2026-09-04) — `viewport_host.gd` installs the resolver
+/// (`overlay.set_trait_art_resolver(Callable(_bridge, "civ_trait_badge_row"))`),
+/// so this path is wired on the shell side too.
 pub fn trait_badge_layout(px: f64, py: f64, traits: &[String], sz: f64, sc: f64) -> Vec<TraitBadge> {
     let shown = &traits[..traits.len().min(TRAIT_BADGES_SHOWN_MAX)];
     if shown.is_empty() {

@@ -79,17 +79,20 @@
 //! (`project_bridge.rs::civ_tools_for_reopen`), so the stream also runs on
 //! across a save instead of restarting at the seed.
 //!
-//! ## "Contested cell" has no reference or engine meaning — this is new
+//! ## "Contested cell" has no reference meaning — this bridge's own reading
 //!
 //! `DCC_SHELL_SPEC.md` §4.5.3 asks the Territory right dock for "a
 //! contested-cell warning," but `assign_territory` produces a strict
 //! single-owner-per-cell raster with no ambiguity or overlap representation
-//! at all, and nothing in `cartalith-civ` computes one. [`contested_cell_count`]
-//! is this bridge's own reading, flagged as an addition rather than parity
-//! (`DECISIONS.md` §7d): a claimed cell counts as contested when it is
-//! 4-adjacent to a *different* faction's claimed cell — a border-cell
-//! heuristic computed from data that already exists, not a re-run of the
-//! cost-distance Voronoi that would be needed to model genuine overlap.
+//! at all. [`contested_cell_count`] is this bridge's own reading, flagged as
+//! an addition rather than parity (`DECISIONS.md` §7d): a claimed cell
+//! counts as contested when it is 4-adjacent to a *different* faction's
+//! claimed cell — a border-cell heuristic computed from data that already
+//! exists, not a re-run of the cost-distance Voronoi. `cartalith_civ`
+//! separately computes a genuine per-cell contested *fraction*
+//! (`territory_influence`'s `TerritoryInfluence::contested`, the runner-up
+//! ratio from the same Dijkstra sweep `assign_territory` runs) — a
+//! different, continuous measure this bridge's own count does not read.
 
 // `civ_drop_place`/`DropPlace`/`merge_territory_paint`/the pick-radius
 // helpers live in `cartalith_civ::tools` (a real submodule, `pub mod

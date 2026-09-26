@@ -658,12 +658,16 @@ fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
     }
 }
 
-/// `gaussBlur()` (reference HTML line 2513), CPU path only — the GPU path
-/// is unavailable headless, and JS itself falls back to exactly this code
-/// when it is, so parity only needs this branch. Three box-blur passes
-/// (H then V each time) approximate a Gaussian, alternating between two
-/// buffers exactly as JS does (`boxH(a,b,...); boxV(b,a,...)`, three
-/// times, `a` holds the result).
+/// `gaussBlur()` (reference HTML line 2513), the CPU/golden-parity path —
+/// JS's own reference falls back to exactly this code when its GPU path is
+/// unavailable headless, so parity only needs this branch. This port also
+/// has a GPU kernel (`cartalith_gpu::gauss_blur_grid_gpu_with`, dispatched
+/// from `cartalith-engine`'s `generate_terrain_inner` when `p.use_gpu` is
+/// set); this function is that path's own CPU fallback, and the golden-
+/// verified reference for both. Three box-blur passes (H then V each time)
+/// approximate a Gaussian, alternating between two buffers exactly as JS
+/// does (`boxH(a,b,...); boxV(b,a,...)`, three times, `a` holds the
+/// result).
 ///
 /// `r<1` returns an unmodified copy — a real, observable early-exit, not
 /// an optimization to skip.

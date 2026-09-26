@@ -45,8 +45,11 @@
 //!   verified (`compute_ocean_current` golden-tested bit-exact including
 //!   its western-intensification heuristic; the two orchestration
 //!   functions checked line-for-line against JS) — see
-//!   `WeatherParams::currents`'s own doc comment. Still `false` here,
-//!   same fixture-cascading reasoning as the other two items on this list.
+//!   `WeatherParams::currents`'s own doc comment. **Defaults `true` here
+//!   since 2026-08-15**, matching JS: `golden_parity_ocean_current.rs` and
+//!   the re-extracted `golden_parity_weather.rs` (its own `currents_case`)
+//!   cover it on. `golden_parity_carve.rs` alone still pins it `false`
+//!   explicitly, by choice, not by any remaining default.
 //! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
 //!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`,
 //!   now golden-verified — `golden_parity_deflect_flow.rs`, bit-exact) and
@@ -54,10 +57,12 @@
 //!   wiring around it (the `block` field's `land`/`mtn` terms, the
 //!   `DeflectFlowParams` constants, the elevation-band damping combine)
 //!   checked line-for-line against reference HTML lines 5521-5535 — matches
-//!   exactly. Still off by default, same reasoning as `stampVolcanoesProvinces`
-//!   (`generate_terrain`'s own doc comment): flipping it changes the wind
-//!   field every downstream climate/erosion stage reads, which would
-//!   invalidate existing fixtures without also re-extracting them.
+//!   exactly. **Defaults `true` here since 2026-08-15**
+//!   (`WorldParams::defaults()`), matching JS's own unconditional (always-on)
+//!   behaviour: `golden_parity_deflect_flow.rs` and the re-extracted
+//!   `golden_parity_weather.rs`/`golden_parity_pipeline.rs` cover it on.
+//!   `golden_parity_carve.rs` alone still pins it `false` explicitly, by
+//!   choice (see that file), not by any remaining default.
 //! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
 //!   ported and wired in (`recompute_resistance_after_erosion`, gated on
 //!   `p.tect.dynamic_lithology` exactly as JS gates it on the flag of the
@@ -81,8 +86,11 @@
 //!   pipeline stays bit-identical").
 
 /// Cartalith's generation-stage dependency chain as a deferred staleness
-/// graph (`UNIFIED_TOOL_PLAN.md` milestone A). Unwired: the pipeline below
-/// does not consult it yet.
+/// graph (`UNIFIED_TOOL_PLAN.md` milestone A). `generate_terrain_inner`
+/// below does not consult it directly, but it is wired: `cartalith-godot`
+/// (`recompute_stale`, `pipeline_stage_graph`) drives the shell's partial
+/// recompute, reached from `right_dock.gd`/`world_workspace.gd`/`app.gd`/
+/// `menus.gd`/`phone_menu.gd`.
 pub mod staleness;
 
 /// The process-global, ten-stage progress counter the Android spec's staged
@@ -91,12 +99,18 @@ pub mod staleness;
 pub mod progress;
 
 /// `sculptCommit`'s River/Lake water hooks (`UNIFIED_TOOL_PLAN.md`
-/// milestone C). Unwired: the pipeline below does not call it yet.
+/// milestone C). `generate_terrain_inner` below does not call it, but it is
+/// wired: `cartalith-godot::sculpt_bridge` calls `commit_sculpt_pass` from a
+/// real sculpt commit, reached from `viewport_host.gd`/`tool_bar.gd`/
+/// `world_workspace.gd`/`app.gd`/`right_dock.gd`.
 pub mod sculpt_commit;
 
 /// `exportRegionTiles`' assembly of the region-export archive, complete with
 /// its per-tile PNG, gzip and `.zip` steps (`UNIFIED_TOOL_PLAN.md` milestones
-/// E and E2). Unwired: nothing calls it yet.
+/// E and E2). Wired: `cartalith-godot::lib.rs` calls
+/// `export_region_tiles`/`zip_region_export`, reached from
+/// `data_manager_window.gd`/`engine_bridge.gd`/`right_dock.gd`; also used by
+/// the LOD tile bake (`bake.rs`) and slippy export.
 pub mod region_export;
 
 /// The LOD tile-pyramid bake, the persistent atlas it writes into, the
@@ -109,7 +123,8 @@ pub mod bake;
 pub mod slippy_export;
 
 /// `exportGeoJSON` and its two feature builders (`UNIFIED_TOOL_PLAN.md`
-/// milestone E2). Unwired: nothing calls it yet.
+/// milestone E2). Wired: `cartalith-godot::geojson_bridge` calls it from a
+/// real `#[func]`, reached from `data_manager_window.gd`/`engine_bridge.gd`.
 pub mod geojson;
 
 /// Heightmap import + the tectonic-inversion pass that makes an imported
@@ -1000,9 +1015,10 @@ pub struct WorldState {
     pub stream_order: Option<Vec<i16>>,
     pub river_mask: Option<Vec<u8>>,
     pub river_floor: Option<Vec<f32>>,
-    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the
-    /// GPU-eligible substrate stages (`"warp"`, `"heterogeneity"`,
-    /// `"plate_assignment"`, `"stress"`, `"base_field_blur"`) actually ran on GPU this
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the eight
+    /// GPU-eligible stages this file can push (`"warp"`, `"warp_split"`,
+    /// `"plate_assignment"`, `"stress"`, `"base_field_blur"`,
+    /// `"heterogeneity"`, `"flow"`, `"weather"`) actually ran on GPU this
     /// generation. Empty when `p.use_gpu` was `false`, or when every stage
     /// fell back to CPU (`HARDWARE_ACCELERATION.md` §27 -- GPU failure
     /// falls back silently in terms of *correctness*, but the caller can
@@ -1331,8 +1347,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     };
     let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
 
-    // What this generation actually opened, for the Performance window to
-    // report instead of inferring. Recorded HERE and not beside the
+    // What this generation actually opened, for `diagnostic_report.gd` to
+    // report instead of inferring (owner ruling 19, 2026-09-06, deleted the
+    // Performance window this used to be read for; the reading moved to
+    // Diagnostics). Recorded HERE and not beside the
     // `record_usage` call at the tail of this function: that one is inside an
     // `if let Some(set)`, so a CPU-only run would leave the last GPU run's
     // reading standing. Every path through this line has just decided, so
@@ -2382,22 +2400,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 /// on the new surface, then temperature, rainfall, the moisture correctors
 /// and (when enabled) ocean currents over it.
 ///
-/// `GUI_GAP_REGISTER.md` MS-04 named this as the one genuinely missing engine
-/// function: `generate_terrain` used to sequence
-/// `compute_temperature`/`simulate_weather` inline, so nothing could re-derive
-/// climate over a surface that changed afterwards. It is `pub` because that
-/// is the point — any future post-generation op needs exactly this.
-///
-/// **Order matters and is the reference's**: discharge is computed from the
-/// *old* rainfall (that is what `computeFlow(true)` reads), and the moisture
-/// correctors then read the *new* discharge. `computeSeasons()` stays
-/// deferred, as it is in `generate_terrain` itself.
-///
-/// CPU only. `p.use_gpu` selects GPU paths inside `generate_terrain` where a
-/// device handle is in scope; per `HARDWARE_ACCELERATION.md` §27 a CPU path
-/// is always a valid outcome for any stage, and `WorldState.gpu_stages_used`
-/// reports what actually ran rather than what was asked for.
-#[allow(clippy::too_many_arguments)]
 /// The [`ClimateParams`] `generate_terrain` builds, as a function so any
 /// other caller of [`refresh_climate`] gets *the same* struct rather than a
 /// hand-copied second literal that can drift field-by-field. A pure
@@ -2453,6 +2455,22 @@ pub fn weather_params_for(p: &WorldParams, sea_level: f64) -> WeatherParams {
     }
 }
 
+/// `GUI_GAP_REGISTER.md` MS-04 named this as the one genuinely missing engine
+/// function: `generate_terrain` used to sequence
+/// `compute_temperature`/`simulate_weather` inline, so nothing could re-derive
+/// climate over a surface that changed afterwards. It is `pub` because that
+/// is the point — any future post-generation op needs exactly this.
+///
+/// **Order matters and is the reference's**: discharge is computed from the
+/// *old* rainfall (that is what `computeFlow(true)` reads), and the moisture
+/// correctors then read the *new* discharge. `computeSeasons()` stays
+/// deferred, as it is in `generate_terrain` itself.
+///
+/// CPU only. `p.use_gpu` selects GPU paths inside `generate_terrain` where a
+/// device handle is in scope; per `HARDWARE_ACCELERATION.md` §27 a CPU path
+/// is always a valid outcome for any stage, and `WorldState.gpu_stages_used`
+/// reports what actually ran rather than what was asked for.
+#[allow(clippy::too_many_arguments)]
 pub fn refresh_climate(
     p: &WorldParams,
     sea_level: f64,

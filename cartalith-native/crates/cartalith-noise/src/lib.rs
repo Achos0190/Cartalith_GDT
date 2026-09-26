@@ -291,9 +291,8 @@ pub fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
 /// function's arithmetic operation-for-operation against its WGSL
 /// counterpart gives the tightest achievable CPU/GPU agreement, rather
 /// than promoting to `f64` mid-computation and introducing a second,
-/// unrelated precision gap. Not periodic (no `gpu_pfbm` sibling yet) —
-/// `compute_warp`'s `world=true`/`pfbm` branch is deliberately out of
-/// scope for this milestone, see `GPU_LAYER_INTEGRATION_SCOPE.md`.
+/// unrelated precision gap. Not periodic itself — [`gpu_pfbm`] below is
+/// the periodic sibling, for `compute_warp`'s `world=true`/`pfbm` branch.
 pub fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     let mut amp = 0.5f32;
     let mut freq = 1.0f32;

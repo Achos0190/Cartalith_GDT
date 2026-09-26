@@ -124,7 +124,8 @@
 //! why this is one register-resident composite rather than three buffers (and
 //! what those buffers would have cost), and why the shipped image stays
 //! byte-identical **by branch** rather than by arithmetic. That is the
-//! precondition CA-04 named; the panel that drives it is not built.
+//! precondition CA-04 named; the panel that drives it is built
+//! (`render_workspace.gd::_build_layer_stack`, `layer_stack_changed`).
 //!
 //! ## The atlas look (`TERRAIN_APPEARANCE_SCOPE.md` milestone 4, 2026-08-17)
 //!
@@ -862,8 +863,9 @@ impl ElevationRamp {
 // for the same reason. §7's own layer list agrees — Water is its own row, a
 // sibling of Terrain, not one of Terrain's three children.
 //
-// And it is the **precondition, not the controls**: `WorldGen::{get_layer_stack,
-// set_layer_stack, list_blend_modes}` bind it, and no panel draws it yet.
+// And it is the **precondition, not just the controls**: `WorldGen::{get_layer_stack,
+// set_layer_stack, list_blend_modes}` bind it, and `render_workspace.gd`'s
+// layer-stack panel (`_build_layer_stack`, `layer_stack_changed`) draws it.
 
 /// One of the terrain raster's three separable categories.
 ///
@@ -3534,10 +3536,11 @@ pub struct RenderCtx<'a> {
     /// two cannot disagree.
     crest: Cow<'a, [f32]>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
-    /// own doc comment). Settable via `with_appearance` as of milestone 2 —
-    /// still not wired to any UI/`#[func]` (that's `GUI_SHELL_SCOPE.md`'s
-    /// own deferred terrain-appearance panel), but the golden-parity test
-    /// uses it to pin the exact JS path.
+    /// own doc comment). Settable via `with_appearance` as of milestone 2,
+    /// and wired to the shell: `WorldGen::set_appearance` (`lib.rs`) writes
+    /// `appearance_over`, which `render_workspace.gd`'s appearance panel
+    /// drives; the golden-parity test builds a `TerrainAppearance` directly
+    /// to pin the exact JS path.
     appearance: TerrainAppearance,
     /// Real ground-texture channels for splat blending (milestone 7),
     /// `None` by construction — attach with [`Self::with_splat`]. Never set
@@ -3889,14 +3892,6 @@ impl<'a> RenderCtx<'a> {
         self
     }
 
-    /// Attach the world's real rock types (milestone 5, §12). A builder for
-    /// the same reason `with_splat` is one: `golden_parity_render.rs`
-    /// constructs its `RenderCtx` positionally, and three milestones of
-    /// leaving that file untouched is a property worth keeping. `len` is
-    /// checked against the grid rather than trusted — a mismatched field
-    /// would otherwise index out of bounds inside the render loop, and a
-    /// panic there crosses the gdext boundary (`cartalith-rust-conventions`).
-    #[allow(dead_code)]
     /// Attach the water-body classification (`cartalith_civ::build_water_bodies`'
     /// `classification`), so [`cell_color`] draws above-sea lakes as water --
     /// the reference's v0.103 base-map stamp (8460/8580): *"above-sea lakes
@@ -3919,6 +3914,13 @@ impl<'a> RenderCtx<'a> {
         self
     }
 
+    /// Attach the world's real rock types (milestone 5, §12). A builder for
+    /// the same reason `with_splat` is one: `golden_parity_render.rs`
+    /// constructs its `RenderCtx` positionally, and three milestones of
+    /// leaving that file untouched is a property worth keeping. `len` is
+    /// checked against the grid rather than trusted — a mismatched field
+    /// would otherwise index out of bounds inside the render loop, and a
+    /// panic there crosses the gdext boundary (`cartalith-rust-conventions`).
     pub fn with_lithology(mut self, lithology: &'a [u8]) -> Self {
         if lithology.len() == self.gw * self.gh {
             self.lithology = Some(lithology);
@@ -4529,13 +4531,6 @@ pub(crate) struct Weights {
     pub(crate) is_mangrove: bool,
 }
 
-/// Ruling AP's snow-aspect shift, in degrees C: `a.snow_aspect_c` times the
-/// slope's `facing` toward the equator (-1 shaded .. +1 sun-facing), times
-/// slope strength (`slope / 0.04`, as `material_weights` uses). `facing` must
-/// come from the same gradient as `slope`: the LOD tile has its own
-/// sub-cell slope, and pairing that with the coarse grid's facing left snow
-/// uncorrelated with the tile's northness (LOD-D4 bar 1b, measured
-/// 2026-09-24). `0.0` whenever the appearance has the term off.
 /// A tile pixel's facing toward the equator from the tile's own y-gradient
 /// `gy` (coarse units, the one its `slope` was built from): -1 shaded .. +1
 /// sun-facing, flipped south of the equator exactly as `aspect_factor` is.
@@ -4547,6 +4542,13 @@ pub(crate) fn tile_snow_facing(ctx: &RenderCtx, gy: f64, slope: f64, wy: f64) ->
     if ctx.lat_at_f(wy) >= 0.0 { -f } else { f }
 }
 
+/// Ruling AP's snow-aspect shift, in degrees C: `a.snow_aspect_c` times the
+/// slope's `facing` toward the equator (-1 shaded .. +1 sun-facing), times
+/// slope strength (`slope / 0.04`, as `material_weights` uses). `facing` must
+/// come from the same gradient as `slope`: the LOD tile has its own
+/// sub-cell slope, and pairing that with the coarse grid's facing left snow
+/// uncorrelated with the tile's northness (LOD-D4 bar 1b, measured
+/// 2026-09-24). `0.0` whenever the appearance has the term off.
 pub(crate) fn snow_aspect_shift(a: &TerrainAppearance, facing: f64, slope: f64) -> f64 {
     if a.snow_aspect_c <= 0.0 || slope <= 1e-9 {
         return 0.0;

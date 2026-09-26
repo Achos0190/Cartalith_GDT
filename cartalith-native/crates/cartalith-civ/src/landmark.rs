@@ -4305,7 +4305,9 @@ fn pool_military(c: &Ctx<'_>, role: Garrison) -> Option<Pool> {
 ///
 /// The raster has reached this pass since the M8 residual work
 /// ([`LandmarkInputs::volcanism`]) and nothing read it, because §9.3 files this
-/// among the six types whose dominant term is the viewshed. Both halves are
+/// among the seven `needs_viewshed` types whose dominant term is the
+/// viewshed (`peak`, `volcanic_feature`, `fort`, `watchtower`,
+/// `fortified_pass`, `fortified_crossing`, `border_marker`). Both halves are
 /// here now. **Visibility is a term and not a gate**, unlike
 /// [`pool_military`]'s: a volcano nobody can see is still a volcano, and the
 /// honest statement is that it ranks below one that can be seen — which is

@@ -1,13 +1,21 @@
-//! GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`, repo root) -- proves
-//! whether a standalone `wgpu` compute path is viable on this project's
-//! actual hardware, scoped to exactly one kernel: `cartalith_noise::vnoise`.
+//! GPU compute, grown from the original pilot (`GPU_COMPUTE_PILOT_SCOPE.md`,
+//! repo root), which proved whether a standalone `wgpu` compute path was
+//! viable on this project's actual hardware, scoped to exactly one kernel:
+//! `cartalith_noise::vnoise`. Since `GPU_LAYER_INTEGRATION_SCOPE.md` this
+//! crate carries seventeen shaders (`shaders/`, counted 2026-09-26: warp,
+//! JFA plate assignment, stress, heterogeneity, gauss blur, thermal erosion,
+//! resistance, flow, weather, height, biome, carrying capacity, resource
+//! potentials, settlement suitability, noise, plus the two `vnoise` pilot
+//! shaders), and
+//! `use_gpu` is on by default at boot, so the GPU path is what the shipped
+//! app actually runs, not merely an experiment CPU could always outvote.
 //!
 //! No `gdext`/Godot dependency (`ARCHITECTURE.md`'s rule: only
-//! `cartalith-godot` touches Godot). CPU is the reference implementation
-//! (`HARDWARE_ACCELERATION.md` §8) -- this crate never treats the GPU path
-//! as authoritative; it is gated behind [`self_test`] and a documented
-//! tolerance, matching every other golden-parity discipline this project
-//! already holds itself to (`PARITY_TESTING.md`).
+//! `cartalith-godot` touches Godot). CPU stays the reference implementation
+//! for every kernel here (`HARDWARE_ACCELERATION.md` §8) — golden-parity
+//! tests still gate each GPU path behind [`self_test`] and a documented
+//! tolerance (`PARITY_TESTING.md`) — but at the app's own defaults the GPU
+//! result is what the user sees.
 
 use std::time::Instant;
 
@@ -1221,11 +1229,12 @@ pub struct GpuDevice {
 
 /// Sized for the largest bind group among the kernels `generate_terrain`'s
 /// `use_gpu` path reuses this device across -- JFA plate assignment's own
-/// [`JFA_LAYOUT`] (8 storage buffers), the highest of the four reused
-/// kernels (warp needs 2, heterogeneity 4, blur 2). `wgpu` limits can't be
-/// raised after device creation, so this has to be decided up front rather
-/// than derived per-pipeline the way [`init_gpu_with`] derives it for a
-/// single-use device.
+/// [`JFA_LAYOUT`] and weather's [`WEATHER_LAYOUT`] tie for the highest, both
+/// 8 storage buffers, among six reused kernels (warp needs 2, heterogeneity
+/// 4, blur 2, flow 6, JFA 8, weather 8). `wgpu` limits can't be raised after
+/// device creation, so this has to be decided up front rather than derived
+/// per-pipeline the way [`init_gpu_with`] derives it for a single-use
+/// device.
 ///
 /// **This 8 is also what keeps `gpu_height` off the shared device**:
 /// [`HEIGHT_LAYOUT`] needs 9, which is why it is the one milestone-1-to-5

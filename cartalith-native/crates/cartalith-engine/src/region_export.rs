@@ -247,12 +247,14 @@ pub struct RegionAsWorld {
 /// `regionNewWorldBtn`'s non-UI core (reference line 13219, v1.11): resample
 /// the selected region into a world of its own.
 ///
-/// The button itself is a UI action and stays unported — all UI work is on
-/// hold (owner, 2026-08-18, `DCC_SHELL_SCOPE.md`) — but what it *computes* is
-/// not: the new grid size from `tileDims(sel, 1, 1, ts)`, the new map width
-/// from the selection's share of the old one, and the amplified field itself.
-/// The rest of the handler is orchestration over a live world that this port's
-/// shell owns and this crate deliberately does not reach into:
+/// The button itself is a UI action and stays out of this crate on purpose —
+/// this crate holds no Godot/UI dependency — but it is ported and wired:
+/// `File ▸ New world from selection…` (`app.gd`, `engine_bridge.gd`) calls
+/// `ops_bridge.rs::region_new_world`, which is built on what this function
+/// *computes*: the new grid size from `tileDims(sel, 1, 1, ts)`, the new map
+/// width from the selection's share of the old one, and the amplified field
+/// itself. The rest of the handler is orchestration over a live world that
+/// this port's shell owns and this crate deliberately does not reach into:
 /// `allocate()`, clearing `warpX`/`warpY`, `invalidateFieldCaches()`,
 /// `refreshClimate()`, emptying `state.places`/`civWays`/`civJourneys`/
 /// `civTerritory`/`civProvince`/`CIV_PROVINCES`/`state.labels`/

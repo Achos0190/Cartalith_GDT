@@ -226,9 +226,13 @@ pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize,
     }
 }
 
-/// `erodeThermalCPU()` (reference HTML lines 3856-3865), CPU path only —
-/// GPU is unavailable headless and JS falls back to this exact code when
-/// it is. Talus-angle-driven diffusion: any cell steeper than `talus`
+/// `erodeThermalCPU()` (reference HTML lines 3856-3865), the CPU/golden-
+/// parity path — JS's own reference falls back to exactly this code when
+/// its GPU path is unavailable headless. This port also has a GPU kernel
+/// (`cartalith_gpu::thermal_grid_gpu_with`, dispatched from
+/// `cartalith-engine`'s `erode_op.rs` for the Erode tool); this function is
+/// that path's own CPU fallback and golden-verified reference. Talus-angle-
+/// driven diffusion: any cell steeper than `talus`
 /// relative to a 4-connected neighbor sheds the excess, split
 /// proportionally among however many neighbors are over-steep.
 ///

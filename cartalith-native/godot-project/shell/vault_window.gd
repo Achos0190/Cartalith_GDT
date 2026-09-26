@@ -10,7 +10,7 @@ class_name VaultWindow
 ## entry points, and each of them opens *this* window already scoped to that
 ## entity. What lives here is everything §28's sketch cannot fit in a dock
 ## column — the file browser, the reader/working copy (§29), the preview, and
-## the two write actions.
+## the five write actions (see the section below).
 ##
 ## One window, six entity kinds (`cartalith-vault`'s `EntityKind`), because
 ## §11's whole point is a generic `KnowledgeLink`: `open_for("settlement", tid,
@@ -20,12 +20,23 @@ class_name VaultWindow
 ##
 ## ## Every write here is explicit, and every write is previewed
 ##
-## §17: *"Reading can be automatic/on-demand. Writing cannot."* There are
-## exactly four write buttons in this file, each behind a preview whose hash
-## is handed back to the write — so a note edited in the user's own editor
-## between the preview and the confirmation refuses instead of overwriting.
-## The engine enforces that; this window's job is to never offer a write
-## without having shown what it would do.
+## §17: *"Reading can be automatic/on-demand. Writing cannot."* Recounted
+## 2026-09-26 (every `bridge.vault_write_*`/`vault_remove_block` call site in
+## this file): there are exactly **five** buttons that write a Markdown
+## file, each behind a preview whose hash is handed back to the write — so a
+## note edited in the user's own editor between the preview and the
+## confirmation refuses instead of overwriting. They are: **Save** (the raw
+## editor, `_build_note_editor`, `vault_write_file`), **Insert updated
+## section into source…** (`_confirm_section_write`, `vault_write_section`),
+## **Preview & write Cartalith block…** (`_confirm_block_write`,
+## `vault_write_block`), **Fill the note's own fields…**
+## (`_confirm_field_fill`, `vault_write_field_fill`) and **Remove the
+## Cartalith block…** (`_confirm_block_remove`, `vault_remove_block`).
+## "Save local copy" in the reader is not one of them — it calls
+## `vault_set_link_text`, which is memory-only and never touches the
+## Markdown file (its own tooltip says so). The engine enforces the
+## hash guard; this window's job is to never offer a write without having
+## shown what it would do.
 ##
 ## ## "Confirm always" suppresses the dialog and never the guard
 ##

@@ -5662,8 +5662,8 @@ impl WorldGen {
     /// Sets the four golden-verified subsystem flags this instance's
     /// `generate()`/`generate_world_structure()` calls apply from then on.
     ///
-    /// Kept as its own `#[func]` because `main.gd` already drives it, but it
-    /// is now pure sugar over `set_params` — exactly equivalent to
+    /// Kept as its own `#[func]` because `engine_bridge.gd` already drives
+    /// it, but it is now pure sugar over `set_params` — exactly equivalent to
     /// `set_params({"tect.dynamic_lithology": …, "volc.provinces": …,
     /// "climate.terrain_wind_deflection": …, "climate.currents": …})`, and
     /// `get_params()` reads the same four values back.
@@ -6355,8 +6355,8 @@ impl WorldGen {
     /// land/ocean classification rather than just clamping to a sane edge.
     ///
     /// Pure sugar over `set_params({"sea_level": …})`, kept because
-    /// `main.gd` already drives it; the two write the same field and clamp
-    /// identically.
+    /// `engine_bridge.gd` already drives it; the two write the same field
+    /// and clamp identically.
     #[func]
     fn set_sea_level(&mut self, sea_level: f64) {
         self.params.sea_level = sea_level.clamp(0.0, 1.0);
@@ -6379,8 +6379,8 @@ impl WorldGen {
     ///
     /// **Square**: `gh = gw = resolution`. Exactly
     /// `generate_sized(seed, width_km, resolution, resolution)`, kept as its
-    /// own `#[func]` because `main.gd` drives it — and kept square so every
-    /// existing golden-parity fixture stays untouched. Use `generate_sized`
+    /// own `#[func]` because `engine_bridge.gd` drives it — and kept square
+    /// so every existing golden-parity fixture stays untouched. Use `generate_sized`
     /// for any other shape.
     #[func]
     fn generate(&mut self, seed: i32, width_km: f64, resolution: i32) {
@@ -7344,7 +7344,7 @@ impl WorldGen {
     /// consequence: **this port's square default is a divergence from the
     /// reference, not a match** — the reference's maps are never square. It
     /// stays the default here only because every golden-parity fixture and
-    /// every existing `main.gd` call is built on it.
+    /// every existing `engine_bridge.gd` call is built on it.
     ///
     /// Pure function of its arguments; reads and changes no state.
     #[func]
@@ -7384,7 +7384,8 @@ impl WorldGen {
     /// `std::fs::File` satisfies it without any Godot `FileAccess`
     /// involvement. Returns `false` on any read/parse error and leaves the
     /// previous `source` untouched, matching `generate()`'s own
-    /// fail-quietly-check-the-console shape (`main.gd`'s doc comment).
+    /// fail-quietly-check-the-console shape (`engine_bridge.gd`'s doc
+    /// comment).
     #[func]
     fn load_save(&mut self, path: GString) -> bool {
         // Engine init (`cartalith_engine`'s own "CPU worker threads" section):
@@ -13181,16 +13182,11 @@ impl WorldGen {
     /// (already DEFLATE'd internally, so re-compressing them is wasted CPU —
     /// the reference's own `zipStore` note).
     ///
-    /// **Unwired at the UI end**, together with [`Self::atlas_import_zip`]:
-    /// both are wrapped in `engine_bridge.gd` (`func atlas_export_zip`,
-    /// `func atlas_import_zip`) and called
-    /// only by `_bake_probe.gd`. No menu row, no Data-manager route and no
-    /// document mentions either one, so a user has no way to move a baked
-    /// atlas between machines even though the engine can. The natural home
-    /// is two rows in `menus.gd`'s existing `Atlas cache` submenu
-    /// (`_build_atlas_cache_menu`), beside `Clear atlas cache now…`; both
-    /// wrappers already degrade safely on an older binary. Recorded here
-    /// because a binding with a probe and no consumer reads as finished.
+    /// Wired 2026-09-01: `menus.gd`'s `Atlas cache` submenu
+    /// (`_build_atlas_cache_menu`) carries `Export atlas…`, which calls this
+    /// through `engine_bridge.gd`'s wrapper, one call and one file write.
+    /// Both wrappers degrade safely on an older binary (`_engine_has`
+    /// guard).
     #[func]
     fn atlas_export_zip(&self, gzip: bool) -> PackedByteArray {
         let Some(store) = self.bake.store() else { return PackedByteArray::new() };
@@ -13230,8 +13226,8 @@ impl WorldGen {
     ///
     /// Keys: `ok`, `chunks`, `world_key`, `matches_current`, `error`.
     ///
-    /// Unwired at the UI end — see [`Self::atlas_export_zip`] for the pair's
-    /// shared note and where the two rows belong.
+    /// Wired 2026-09-01 — see [`Self::atlas_export_zip`] for the pair's
+    /// shared note; this is `Atlas cache ▸ Import atlas…`'s read half.
     #[func]
     fn atlas_import_zip(&mut self, bytes: PackedByteArray) -> VarDictionary {
         let Some(store) = self.bake.store() else { return bake_error("no atlas root set") };
@@ -13295,13 +13291,16 @@ impl WorldGen {
     /// line 10715), the rule that stops the viewer refining beneath a baked
     /// tile and stops the editor composing an edit into one.
     ///
-    /// # No shell caller, deliberately — `PARITY_AUDIT.md` §23, 2026-08-26
+    /// # Read by the debug overlay only, not (yet) by either job above
     ///
-    /// Both jobs above need a **reader of baked imagery**, and the shell has
-    /// none: [`Self::atlas_tile_png`] is wrapped in `engine_bridge.gd` and
-    /// called by no `.gd` file, and the deep-zoom layer builds every tile from
-    /// `lod_synthesize_tile` (`viewport_host.gd`'s `_build_lod_tile`) — a live
-    /// relief-detail ratio, never the atlas.
+    /// `viewport_host.gd`'s LOD debug layer calls this through
+    /// `engine_bridge.gd`'s wrapper to label each chunk "in atlas"/"not in
+    /// atlas" — a coverage readout, not a gate. Neither job `bakedCover`
+    /// describes is wired to it: [`Self::atlas_tile_png`] (the reader of
+    /// baked imagery either job needs) is called by no `.gd` file, and the
+    /// deep-zoom layer builds every tile from `lod_synthesize_tile`
+    /// (`viewport_host.gd`'s `_build_lod_tile`) — a live relief-detail
+    /// ratio, never the atlas.
     ///
     /// So gating refinement on coverage today would make deep zoom show
     /// *less* detail than it does now, because nothing would draw the baked
@@ -13309,9 +13308,9 @@ impl WorldGen {
     /// gated whole-world by the finalize lock ([`Self::set_finalized`], wired
     /// in `world_workspace.gd`), not per chunk.
     ///
-    /// This is correct, tested engine surface waiting on the atlas *reader* —
-    /// not a wiring gap. Recorded here so the next reachability pass does not
-    /// re-flag it.
+    /// Correct, tested engine surface, now read for a debug label but still
+    /// waiting on the atlas *reader* for either real job — `PARITY_AUDIT.md`
+    /// §23, 2026-08-26; `OUTSTANDING_WORK.md` §2.11 Part 2 C5.
     #[func]
     fn atlas_is_covered(&self, z: i64, col: i64, row: i64) -> bool {
         let Some(store) = self.bake.store() else { return false };
@@ -15383,10 +15382,13 @@ impl WorldGen {
         // under the stage midpoint, or a world mean of zero.
         let forage = |mx: f64, my: f64| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my));
 
-        // `jp_plan_ex` with a live Travel Library resolver, not the plain
+        // `jp_plan_full` with a live Travel Library resolver, not the plain
         // `jp_plan` this called before this dispatch -- `TRAVEL_LIBRARY_
         // SPEC.md` §6, `travel_bridge.rs`'s own module doc's "What a later
-        // `#[func]` layer still needs to add". `animal_overrides()` is empty
+        // `#[func]` layer still needs to add". This has to be `jp_plan_full`
+        // itself, not its `jp_plan_ex` sibling: `jp_plan_ex` hardcodes the
+        // vessel resolver to `None`, and this call carries a real one
+        // (`vessel_resolver`, below). `animal_overrides()` is empty
         // whenever no custom entry duplicates one of the four built-in
         // species, and `resolve_animal_stats`/`resolve_animal_terrain_mod`
         // (`cartalith-civ`) fall back to the built-in table for exactly the
@@ -18199,8 +18201,11 @@ impl WorldGen {
     ///
     /// Both rasters are fed here. `resources` is rebuilt on demand for the
     /// same reason `civ_faction_terrain_fits` rebuilds the biome raster:
-    /// `compute_civilisation` frees nine of the fifteen fields on its way out
-    /// (`MEMORY_OPTIMIZATION_SCOPE.md`), so there is nothing retained to read.
+    /// `compute_civilisation` frees six of the fifteen fields (clay,
+    /// buildstone, flint, obsidian, sulfur, alum — the ones neither
+    /// `build_settlement_suitability`'s mineral term nor anything else
+    /// downstream still needs) on its way out (`MEMORY_OPTIMIZATION_SCOPE.md`),
+    /// so there is nothing retained to read for those six.
     /// `density` costs nothing at all — `CivData::dens` is
     /// `civ_current_agrarian_density`'s output, kept since `TIMELINE_SCOPE.md`
     /// milestone 5.

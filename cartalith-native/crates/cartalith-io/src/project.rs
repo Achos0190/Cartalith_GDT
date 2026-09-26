@@ -1271,9 +1271,10 @@ pub fn write_project<W: Write + Seek>(
     // The drop used to be silent -- `write_project` returned `Result<(),
     // SaveError>` and had nowhere to put a warning, unlike `read_project`'s
     // `ProjectData::warnings`. `OUTSTANDING_WORK.md`'s
-    // "a dropped pyramid is silent" row: nothing assigns
-    // `ProjectWrite::lod_tiles` yet, so no caller can hit this today, but the
-    // channel exists now so the save path is safe once one does.
+    // "a dropped pyramid is silent" row: `cartalith-godot`'s
+    // `project_bridge.rs` now assigns `ProjectWrite::lod_tiles` when
+    // `include_lod_tiles` is set (Owner rulings 28/29), so this channel is
+    // live, not merely future-proofing.
     let mut warnings: Vec<String> = Vec::new();
     if let Some(lod) = &project.lod_tiles {
         let live_key = lod_source_key(project.params, &f.heightmap);

@@ -31,10 +31,13 @@
 //! underwater) and `cartalith_terrain::tile_render::render_height_tile_rgba`
 //! (the same hypsometric-tint × hillshade the Z4 export path already uses,
 //! `region_export_tiles`'s own `visual: true` branch) — just never reachable
-//! from an interactive, camera-driven caller. This module is that caller,
-//! and nothing more: no atlas cache (Z5, milestone M3, deferred), no auto/
+//! from an interactive, camera-driven caller. This module is that caller.
+//! Since: the atlas cache (Z5, milestone M3) has since been built
+//! (`cartalith-io::atlas`, `cartalith-engine::bake`) — write-only today,
+//! nothing reads it back (`OUTSTANDING_WORK.md` §2.11 Part 2 C5) — auto/
 //! manual toggle (auto-on-zoom-threshold is what `viewport_host.gd` ships),
-//! no chunk debug overlay (needs this to exist first).
+//! and a chunk debug overlay now exists (`viewport_host.gd`'s
+//! `_lod_dbg_colors`/`_lod_dbg_grid`/`_lod_dbg_labels`, `_loddbg_probe.gd`).
 //!
 //! # Why not `TiledField`/`QuadTree`, despite the scope doc naming them as
 //! "exactly the shape a Z2 compositor would want"

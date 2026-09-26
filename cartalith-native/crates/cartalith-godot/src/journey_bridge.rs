@@ -85,7 +85,7 @@
 //! ## Wildlife
 //!
 //! `jp_plan` takes `wildlife_forage_mod: &dyn Fn(f64, f64) -> f64`, and it is
-//! **live**: `lib.rs`'s `jp_plan_ex` call site builds it as
+//! **live**: `lib.rs`'s `jp_compute` (its `jp_plan_full` call site) builds it as
 //! `|mx, my| self.wildlife.as_ref().map_or(1.0, |w| w.forage_mod(mx, my))`
 //! over `sample_bridge::WildlifeCache`, which is `cartalith_civ::wildlife` —
 //! real, golden-tested, and the same model behind `wildlife_region_at` and the

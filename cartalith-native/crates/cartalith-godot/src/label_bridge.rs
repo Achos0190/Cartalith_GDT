@@ -59,11 +59,13 @@
 //!   label's origin — hit-testable, just not exactly the rendered
 //!   footprint's *width*). This mirrors `icon_bridge::IconEditor::
 //!   hit_test`'s own honestly-scoped "box hits only" precedent one step
-//!   further: real UI wiring is on hold project-wide (root `CLAUDE.md`,
-//!   2026-08-18) and no caller in this codebase yet has a live font to
-//!   measure with, so inventing a fake width formula here would dress up a
-//!   guess as data. `0.0` is visibly a placeholder; a plausible-looking
-//!   guess would not be.
+//!   further: the project-wide UI hold was lifted the same day it was
+//!   called (root `CLAUDE.md`, 2026-08-18), and this pair is now reachable
+//!   from real shell UI (`map_overlay.gd`, `tool_overlay.gd`,
+//!   `cartography_workspace.gd`), but neither caller hands this bridge a
+//!   live font to measure with, so inventing a fake width formula here
+//!   would dress up a guess as data. `0.0` is visibly a placeholder; a
+//!   plausible-looking guess would not be.
 //! - [`LabelBridge::glyph_layout`] cannot take this shortcut: arc placement
 //!   is fundamentally *about* per-glyph spacing (`labels.rs`'s own note
 //!   that a port summing char widths instead of reading `total_w`

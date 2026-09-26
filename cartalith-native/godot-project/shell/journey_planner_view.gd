@@ -4082,7 +4082,9 @@ func _vessel_matrix_data() -> Dictionary:
 ##
 ## The row that scheduled this expected the reconciliation to be non-zero, on
 ## the premise that only six of a leg's terms are visible to the shell and the
-## rest live inside `jp_plan_ex`. Measured, that premise is false in both
+## rest live inside `jp_plan_full` (the planner's own call is `jp_plan_full`,
+## not its vessel-less `jp_plan_ex` sibling -- see `EngineBridge.jp_compute`).
+## Measured, that premise is false in both
 ## directions and the numbers are worth keeping: **every** term crosses (14 on
 ## a land leg, 8 on a water one), and the six that premise named -- length,
 ## terrain, pace, load, weather, crossing -- account between them for only a
@@ -4305,7 +4307,7 @@ func _build_trace_group(body: Control) -> void:
 	if closes:
 		DccWidgets.note(g, "The chain closes: the %d terms above multiply to this leg's %s exactly, and the length divided by that is the days the stage matrix reports. Nothing in this leg's speed is applied outside the trace." % [trace.size(), _rate_suffix("day")])
 	else:
-		var l := DccWidgets.note(g, "The chain does NOT close. %+.6f d of this leg comes from something jp_plan_ex applied and did not put in land.trace/water.trace, so it cannot be named here -- the gap is real and is not guessed at. It is a defect against the %d terms listed above, not a rounding artefact." % [resid, trace.size()])
+		var l := DccWidgets.note(g, "The chain does NOT close. %+.6f d of this leg comes from a step the planner applied without recording it in the leg's cost breakdown, so it cannot be named here -- the gap is real and is not guessed at. It is a defect against the %d terms listed above, not a rounding artefact." % [resid, trace.size()])
 		l.add_theme_color_override("font_color", DccTheme.c("block"))
 
 # ================================================================ Draw views ====
