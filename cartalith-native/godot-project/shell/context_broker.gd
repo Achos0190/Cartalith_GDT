@@ -200,7 +200,17 @@ func present(req: Dictionary, actions: Array) -> void:
 		## zoom; the card pops in the viewport `app` is in (the measured
 		## correction CX-01's menu made, 2026-09-23).
 		var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * Vector2(req["screen_pos"])
-		card.open(req, actions, at, reselect)
+		## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): on the tablet's touch-hold
+		## gesture only, the card docks on the side away from the dominant
+		## hand rather than always trying the pointer's right side first --
+		## `DccSettings.dominant_hand()` defaults "right", so the default dock
+		## is "left". Every other presentation (desktop RMB, Q, a tablet's
+		## own mouse/pen hover) keeps `_target_rect()`'s plain pointer-relative
+		## placement, which still flips at a screen edge either way.
+		var dock := ""
+		if DccTheme.is_tablet() and String(req.get("source", "")) == "touch":
+			dock = "right" if DccSettings.dominant_hand() == "left" else "left"
+		card.open(req, actions, at, reselect, dock)
 		return
 	_present_phone(req, actions)
 
@@ -275,6 +285,10 @@ func _ensure_ring() -> RadialRing:
 		ring = RadialRing.new()
 		ring.setup(app)
 		ring.hold_fired.connect(_on_ring_hold_fired)
+		## §7.1's own table: "a `tool_arm` pulse on crossing into a slot" --
+		## fired for every hover change, desktop or touch alike; `app._haptic()`
+		## is itself a no-op off Android/iOS; no separate desktop guard needed.
+		ring.hover_entered.connect(_on_ring_hover_entered)
 		app.add_child(ring)
 	return ring
 
@@ -380,3 +394,24 @@ func _on_ring_hold_fired() -> void:
 	var req: Dictionary = app.viewport.overlay.request_at(_ring_press_local, "mouse")
 	if not req.is_empty():
 		resolve(req)
+
+## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1, CM-4): the tablet's touch-hold, called
+## by `map_overlay.gd` once ITS OWN 500 ms still-hold timer fires (that timer
+## already did the waiting §7.1 asks for, so this opens full and immediately --
+## `arm(..., true)` is the same "no flick delay" branch Q's press uses, not a
+## second hold timer stacked on top of the first). The card opens alongside it
+## through the same `resolve()` every other presenter uses -- never a second
+## card-opening path, same rule `_on_ring_hold_fired()` above follows for the
+## desktop RMB hold. `local_pos` is `map_overlay.gd`'s own local space, the
+## same conversion `ring_press()` uses.
+func ring_touch_open(local_pos: Vector2) -> void:
+	_ring_press_local = local_pos
+	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
+	_ensure_ring().arm(at, ring_collect(ring_domain_req()), true)
+	app._haptic("sample")   ## §7.1's own table: "sample haptic pulse (the table has it)"
+	var req: Dictionary = app.viewport.overlay.request_at(local_pos, "touch")
+	if not req.is_empty():
+		resolve(req)
+
+func _on_ring_hover_entered() -> void:
+	app._haptic("tool_arm")

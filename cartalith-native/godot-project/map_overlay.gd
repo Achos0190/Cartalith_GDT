@@ -995,23 +995,36 @@ func set_context_pick_resolver(cb: Callable) -> void:
 ##                                                   `ring_open_check` says a
 ##                                                   sticky ring is open
 ##   `Callable() -> bool`             ring_open_check
+##   `Callable(pos: Vector2) -> void` ring_touch_open  CM-4 (`MAP_CONTEXT_SCOPE.
+##                                                   md` §7.1): the tablet's
+##                                                   touch hold, once this
+##                                                   file's own 500 ms timer
+##                                                   fires -- opens the ring
+##                                                   AND the card together,
+##                                                   full-visible immediately
+##                                                   (the wait already
+##                                                   happened here). Never
+##                                                   called on a phone; see
+##                                                   `_touch_ring_active`
 var _ring_press_cb: Callable = Callable()
 var _ring_pointer_cb: Callable = Callable()
 var _ring_release_cb: Callable = Callable()
 var _ring_click_cb: Callable = Callable()
 var _ring_open_check: Callable = Callable()
+var _ring_touch_open_cb: Callable = Callable()
 ## Q's "ring at the cursor" (§6) needs the last known pointer position with no
 ## button held at all -- `app.gd`'s key handler has no motion event of its own
 ## to read it from.
 var _last_mouse_local := Vector2.ZERO
 
 func set_ring_callbacks(press_cb: Callable, pointer_cb: Callable, release_cb: Callable,
-		click_cb: Callable, open_check: Callable) -> void:
+		click_cb: Callable, open_check: Callable, touch_open_cb: Callable = Callable()) -> void:
 	_ring_press_cb = press_cb
 	_ring_pointer_cb = pointer_cb
 	_ring_release_cb = release_cb
 	_ring_click_cb = click_cb
 	_ring_open_check = open_check
+	_ring_touch_open_cb = touch_open_cb
 
 func last_mouse_pos() -> Vector2:
 	return _last_mouse_local
@@ -1038,9 +1051,17 @@ func last_mouse_pos() -> Vector2:
 #   drifts past `_TOUCH_SLOP`  -> it was a drag: release the press now, so the
 #                                 sculpt/paint stroke starts from its real origin
 #   lifts before the deadline  -> it was a tap: release the press, then release
-#   reaches the deadline       -> it was a hold: discard the press entirely and
-#                                 emit `map_right_clicked` and `context_requested`;
-#                                 the lift is swallowed
+#   reaches the deadline       -> it was a hold: discard the press entirely.
+#                                 **Phone** (CM-1/PH-02, unchanged by CM-4):
+#                                 emit `map_right_clicked` and
+#                                 `context_requested`; the lift is swallowed.
+#                                 **Tablet** (`MAP_CONTEXT_SCOPE.md` §7.1,
+#                                 CM-4): open the ring and the card together
+#                                 through `_ring_touch_open_cb` and keep the
+#                                 finger TRACKED instead -- `_touch_ring_active`
+#                                 below -- so a slide onto a slot can select it
+#                                 and the lift becomes the ring's own release
+#                                 decision rather than a swallowed no-op.
 #
 # Driven off the *emulated mouse* stream rather than `InputEventScreenTouch`,
 # deliberately: the emulated events are the ones this control is already known
@@ -1066,6 +1087,13 @@ const _TOUCH_SLOP := 28.0
 
 var _touch_armed := false        ## a withheld press is outstanding
 var _touch_swallow_up := false   ## the hold fired; the coming lift is not a release
+## CM-4: the hold fired on a TABLET (`DccTheme.is_tablet()`), and the ring plus
+## card are open together with the finger still tracked. Mutually exclusive
+## with `_touch_swallow_up` -- the hold branches to exactly one of the two,
+## never both (see `_process()`). The lift while this is true is forwarded to
+## `_ring_release_cb`, the same release decision the desktop RMB-hold path
+## uses, rather than treated as a drag's end or a swallowed no-op.
+var _touch_ring_active := false
 var _touch_ms := 0
 var _touch_pos := Vector2.ZERO
 var _touch_press: Dictionary = {}
@@ -4518,7 +4546,10 @@ func _gui_input(event: InputEvent) -> void:
 		## to by the time the slop was exceeded.
 		if _touch_armed and mouse.distance_to(_touch_pos) > _TOUCH_SLOP:
 			_release_touch_press()
-		if p["valid"] and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		## CM-4: while the tablet's ring/card gesture is tracking the finger,
+		## the armed tool must not ALSO see this as a drag -- `_ring_pointer_cb`
+		## above already forwarded the same motion to the ring's own slide.
+		if p["valid"] and not _touch_ring_active and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			map_dragged.emit(p["gx"], p["gy"])
 
 	elif event is InputEventMouseButton:
@@ -4618,6 +4649,17 @@ func _gui_input(event: InputEvent) -> void:
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
+			if _touch_ring_active:
+				## CM-4: the finger's lift IS the ring/card gesture's release --
+				## `radial_ring.gd::release()` (via `_ring_release_cb`, the same
+				## Callable the desktop RMB-hold path already uses) decides
+				## slide-to-select, sticky dead-zone-lift, or dismiss. Never a
+				## drag's end and never a swallowed no-op either.
+				_touch_ring_active = false
+				if _ring_release_cb.is_valid():
+					_ring_release_cb.call()
+				set_process(false)
+				return
 			if _touch_swallow_up:
 				## The hold already answered this gesture; the lift is its end,
 				## not a drag's. Emitting `map_released` here would hand a
@@ -4673,8 +4715,16 @@ func _process(_delta: float) -> void:
 	## The hold. The withheld press is **discarded**, never emitted: that is the
 	## whole point -- opening the menu must not also fire the armed tool.
 	_touch_armed = false
-	_touch_swallow_up = true
 	set_process(false)
+	## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): the tablet form takes a different
+	## branch here -- see `_touch_ring_active`'s own doc above the touch state
+	## block. The phone branch below is CM-1/PH-02, unchanged; CM-5 owns it.
+	if DccTheme.is_tablet():
+		_touch_ring_active = true
+		if _ring_touch_open_cb.is_valid():
+			_ring_touch_open_cb.call(_touch_press.get("pos", Vector2.ZERO))
+		return
+	_touch_swallow_up = true
 	var p: Dictionary = _touch_press.get("point", {})
 	if not bool(p.get("valid", false)):
 		return

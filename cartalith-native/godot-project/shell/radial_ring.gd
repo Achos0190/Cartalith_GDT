@@ -23,6 +23,12 @@ extends Control
 
 signal hold_fired  ## §6's "hold >= 300ms, still": the ring is now visible and
 	## sticky; the caller (`context_broker.gd`) opens the card beside it.
+## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1's own table: "a `tool_arm` pulse on
+## crossing into a slot"). Fired the moment `_hover`/`_sub.hover` transitions
+## from empty (or a different slot) to a real one -- never on every sample, or
+## a still finger sitting on one slot would buzz every frame. Top ring and
+## sub-ring share it; `context_broker.gd` does not need to know which.
+signal hover_entered
 
 const RING_RADIUS := 60.0      ## §7.2's own desktop figure: "60 px on desktop"
 const SLOT_SIZE := 46.0        ## drawn slot disc diameter -- tuned, no reference value
@@ -283,6 +289,7 @@ func _open_sub(dir: String, items: Array) -> void:
 
 
 func _update_hover(pos: Vector2) -> void:
+	var prev := _hover
 	if pos.distance_to(_centre) <= DEAD_ZONE:
 		_hover = ""
 		return
@@ -295,12 +302,15 @@ func _update_hover(pos: Vector2) -> void:
 			best_d = d
 			best = dir
 	_hover = best
+	if _hover != "" and _hover != prev:
+		hover_entered.emit()
 
 
 func _update_sub_hover(pos: Vector2) -> void:
 	var c: Vector2 = _sub["centre"]
 	var items: Array = _sub["items"]
 	var n := items.size()
+	var prev := int(_sub.get("hover", -1))
 	if n == 0 or pos.distance_to(c) <= SUB_DEAD_ZONE:
 		_sub["hover"] = -1
 		return
@@ -314,6 +324,8 @@ func _update_sub_hover(pos: Vector2) -> void:
 			best_d = d
 			best = i
 	_sub["hover"] = best
+	if best != prev:
+		hover_entered.emit()
 
 
 ## Keeps the ring's own outer edge, plus room for the caption band under it,

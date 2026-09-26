@@ -56,6 +56,8 @@ const _SEC_LAYOUT := "layout"
 ## §2.5 Tiles & LOD > Atlas cache > Size cap.
 const _SEC_ATLAS := "atlas"
 const _SEC_WINDOWS := "window_sizes"
+## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1) -- the tablet's dominant-hand preference.
+const _SEC_HANDEDNESS := "handedness"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -428,6 +430,31 @@ static func reset_lighting_defaults() -> void:
 	_ensure_loaded()
 	if _cfg.has_section(_SEC_LIGHT):
 		_cfg.erase_section(_SEC_LIGHT)
+	_save()
+
+# -- CM-4 tablet dominant-hand preference --------------------------------------
+##
+## `MAP_CONTEXT_SCOPE.md` §7.1: "The card docks on the side *away from the
+## dominant hand* (a preference, default right-handed -> card on the left)".
+## Machine state, not world state, for the same reason theme/units below are:
+## which hand the person using THIS device favours says nothing about the
+## world a `.zip` carries, and belongs with the rest of this file's per-install
+## preferences rather than in a save. `context_broker.gd`'s tablet touch-hold
+## dock-side choice is the one reader today; no menu row writes it yet (CM-4's
+## own scope names only "a handedness preference, stored" -- a `Preferences`
+## toggle is future work, tracked in `STATUS.md`, not this store).
+const HANDS: Array[String] = ["left", "right"]
+
+static func dominant_hand() -> String:
+	_ensure_loaded()
+	var h := String(_cfg.get_value(_SEC_HANDEDNESS, "hand", "right"))
+	return h if HANDS.has(h) else "right"
+
+static func set_dominant_hand(hand: String) -> void:
+	if not HANDS.has(hand):
+		return
+	_ensure_loaded()
+	_cfg.set_value(_SEC_HANDEDNESS, "hand", hand)
 	_save()
 
 # -- §2.5 Application > Theme --------------------------------------------------

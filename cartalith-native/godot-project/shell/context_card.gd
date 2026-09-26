@@ -88,6 +88,13 @@ var _all_hits: Array = []
 ## re-resolves for that object and calls `open()` again.
 var _on_select: Callable = Callable()
 var _anchor := Vector2.ZERO
+## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): `""` (default) keeps `_target_rect()`'s
+## plain pointer-relative placement (right of the anchor, flipped only at a
+## screen edge) -- every presentation except the tablet's touch-hold. `"left"`
+## / `"right"` is the side away from the dominant hand for that one gesture;
+## still flips to the other side rather than clipping if THAT side does not
+## fit either, so the edge-flip guarantee holds regardless of hand.
+var _dock_side := ""
 ## `{}` for the sections; else `{"title": String, "rows": Array}` -- the one
 ## submenu level §4.2 allows.
 var _sub: Dictionary = {}
@@ -155,12 +162,14 @@ func _m(key: String) -> int:
 
 ## `anchor` is in the space of the viewport this card pops into (the one
 ## `app` is in). `actions` is the broker's merge, already in §4.1's order.
-func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable) -> void:
+func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
+		dock_side: String = "") -> void:
 	_req = req
 	_actions = actions
 	_all_hits = req.get("all_hits", req.get("hits", []))
 	_on_select = on_select
 	_anchor = anchor
+	_dock_side = dock_side
 	_sub = {}
 	_filter = ""
 	_rebuild()
@@ -750,14 +759,29 @@ func _bounds() -> Rect2:
 
 
 ## Where a panel of `panel_size` goes: the canvas's offset, flipped, clamped.
+## `_dock_side` (CM-4, §7.1) picks which side is tried FIRST -- "left"/"right"
+## for the tablet's away-from-the-hand dock, "" for every other presenter's
+## plain pointer-relative offset (unchanged from CM-2). Either way the other
+## side is the fallback when the preferred one does not fit, so the on-screen
+## guarantee is the same regardless of hand.
 func _target_rect(panel_size: Vector2) -> Rect2:
 	var bounds := _bounds()
 	var margin := 8.0
 	var w := panel_size.x
 	var h := panel_size.y
-	var x := _anchor.x + 10.0
-	if x + w > bounds.end.x - margin:
+	var x: float
+	if _dock_side == "left":
 		x = _anchor.x - 10.0 - w
+		if x < bounds.position.x + margin:
+			x = _anchor.x + 10.0
+	elif _dock_side == "right":
+		x = _anchor.x + 10.0
+		if x + w > bounds.end.x - margin:
+			x = _anchor.x - 10.0 - w
+	else:
+		x = _anchor.x + 10.0
+		if x + w > bounds.end.x - margin:
+			x = _anchor.x - 10.0 - w
 	var y := _anchor.y + 6.0
 	if y + h > bounds.end.y - margin:
 		y = _anchor.y - 6.0 - h

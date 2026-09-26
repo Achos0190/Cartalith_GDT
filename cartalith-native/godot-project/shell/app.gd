@@ -1511,7 +1511,10 @@ func _wire_selection() -> void:
 	## below rather than here.
 	viewport.overlay.set_ring_callbacks(
 		context_broker.ring_press, context_broker.ring_pointer,
-		context_broker.ring_release, context_broker.ring_click, context_broker.ring_is_open)
+		context_broker.ring_release, context_broker.ring_click, context_broker.ring_is_open,
+		## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): the tablet's touch-hold, called
+		## once `map_overlay.gd`'s own 500 ms timer fires.
+		context_broker.ring_touch_open)
 
 
 # -- Contextual chrome --------------------------------------------------------
