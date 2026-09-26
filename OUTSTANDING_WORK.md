@@ -72,21 +72,44 @@ Five caveats on that number, stated rather than buried:
    outright, then 42/56/42 once the verification pass closed the §3.2 medium
    duplicate too).
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **46 distinct engine items** across v2.11–v2.71: 27 through v2.52,
-   §6h's three (the 24-bit height word, the relief-gate floor and the
-   local-contrast rebase), v2.57's plate-base blur, v2.58's river selection,
-   v2.59's drainage default plus its ruling on Strahler order (§6k/§7.12), and
-   v2.60's river-continuity fix (§6l), v2.61's water-paint/lake-gate pass (§6m)
-   v2.62's navigable-river routing/flow-direction pass (§6n) and v2.67's ward-driven plot grain plus the corner-only parcel water test it exposed (§6s), v2.68's never-rendered farmland fringe (§8.2 — render-only, but a port inherits the invisible-detail-kind defect) v2.69's sea-level clamp on tile refinement (§8.1 — a port that writes its own LOD needs both of its rules before it does) v2.70's style-chain shape (§8.2 — one colour function per surface class is what makes a new map style cost one flag instead of N) and v2.71's water clip (§8.2 — the settlement's water mask exists and never reached the renderer, and the polygon a synthetic fixture clips against is EMPTY by design on the real path) — the last of
-   which is the first place §6k's "key the threshold on catchment AREA"
-   recommendation is actually taken, for a NEW consumer, leaving the three
-   existing `order>=3` consumers alone.
-   **That arithmetic closes; the figure read 31 before 2026-09-17 and did not** —
-   v2.57 had been added to the total without being added to the breakdown. How
-   many are already ported is not established, so they are deliberately NOT
-   expanded into 33 rows here. Expanding them before the survey would inflate this count with
-   work that may already be done — the opposite error to the one that left them
-   uncounted until 2026-09-17.
+   specifies **50 distinct engine items** across v2.11–v2.73, and the figure is
+   re-derived here item by item so it can be checked rather than inherited:
+   **27** through v2.52; §6h's **3** (the 24-bit height word, the relief-gate
+   floor, the local-contrast rebase); v2.57's plate-base blur (§6i) **1**;
+   v2.58's river selection (§6j) **1**; v2.59's drainage default *and* its ruling
+   on Strahler order (§6k/§7.12) **2**; v2.60's river-continuity fix (§6l) **1**;
+   v2.61's water-paint/lake-gate pass (§6m) **1**; v2.62's navigable-river
+   routing and flow direction (§6n) **1**; v2.63's seven generation constants
+   made runtime parameters (§6o) **1**; v2.64's two site-model vectors with
+   their industry-siting consumer (§6p) **1**; v2.65's explicit status gradient
+   and the second district palette it found (§6q) **1**; v2.66's 22-parameter
+   rules table and the non-terminating region exposing it reached (§6r) **1**;
+   v2.67's ward-driven plot grain *plus* the corner-only parcel water test it
+   exposed (§6s) **2**; v2.68's never-rendered farmland fringe (§8.2 —
+   render-only, but a port inherits the invisible-detail-kind defect) **1**;
+   v2.69's sea-level clamp on tile refinement (§8.1 — a port writing its own LOD
+   needs both of its rules first) **1**; v2.70's style-chain shape (§8.2 — one
+   colour function per surface class is what makes a new map style cost one flag
+   instead of N) **1**; v2.71's water clip (§8.2 — the settlement's water mask
+   exists and never reached the renderer, and the polygon a synthetic fixture
+   clips against is EMPTY by design on the real path) **1**; v2.72's antimeridian
+   seam cut *and* its display bar (§8.1/§7.13 — two independent defects that
+   share a screenshot and nothing else) **2**; v2.73's green/footpath pass
+   (§8.2 — the always-on source exists because the free one is unreachable at
+   the default rules) **1**. v2.62 remains the first place §6k's "key the
+   threshold on catchment AREA" recommendation is actually taken, for a NEW
+   consumer, leaving the three existing `order>=3` consumers alone.
+   **The figure read 31 before 2026-09-17 and 46 after, and neither reconciled
+   against its own breakdown** — v2.57 was added to the total without being
+   added to the list, and v2.63 through v2.66 were counted in the total and
+   never named at all. That is the same append-without-re-reading defect
+   `RC_ENGINE_CHANGES.md` §8 documents about itself; the remedy here is that
+   every contributor is now named with its count, so the next append has to
+   land in both places or fail to add up. How many are already ported is still
+   not established, so they are deliberately NOT expanded into 50 rows here:
+   expanding them before the survey would inflate this count with work that may
+   already be done — the opposite error to the one that left them uncounted
+   until 2026-09-17.
 3. **The `UNWIRED_FUNCTIONS.md` backlog is one row of the 3 "in flight" above,
    not many** — that document is itself a live backlog with a `file:line` per
    row, and re-counting it here would guarantee the two drift (this
@@ -107,12 +130,13 @@ Five caveats on that number, stated rather than buried:
 
 If you stop reading here:
 
-1. **Urban morphology milestones 8–16 and half of 17** — ~28 reference
-   functions, ~1 500 lines, nothing started. `cartalith-urban/src/` holds
+1. **Urban morphology milestones 9–16 and half of 17** — ~26 reference
+   functions, ~1 400 lines, nothing started. `cartalith-urban/src/` holds
    exactly one module per shipped milestone (`astar, blocks, geom, graph,
-   growth, plaza, rng, routes, rules, site`) and not one more. Milestone 10
-   alone is 9 functions and the plan's self-declared largest. This is the
-   biggest single block of work in the project and it has no blocker.
+   growth, plaza, radial, rng, routes, rules, site`) and not one more.
+   Milestone 10 alone is 9 functions and the plan's self-declared largest.
+   This is the biggest single block of work in the project and it has no
+   blocker. (Milestone 8 closed 2026-09-20; `radial` is its module.)
 2. **The GUI/shell replacement, stages 3, 5, 6 and 7** — `00-REPLACEMENT-PLAN.md`
    still opens with a truncated-prototype blocker that was resolved the same
    day (`BUILD_ANSWERS.md` §1). Stages 1, 2 and (as of 2026-09-01, second
@@ -181,7 +205,10 @@ Phase 5. Verified absent by module listing and by a grep for every function
 name across all sixteen crates: the only hit among twenty searched names is
 `build_wall`, which resolves to the no-op `WallBuilder` trait and its
 `RecordingWallBuilder` stub at `growth.rs:202-232`. That stub is the whole of
-milestone 10 today.
+milestone 10 today. **Milestone 8 left this table on 2026-09-20** —
+`build_radial_streets`/`build_waterway` are `cartalith-urban::radial`, 34
+golden scenarios and a 37-mutation sweep at 2 survivors, both diagnosed as
+unkillable rather than untested.
 
 | Milestone | What it is | Size | Note |
 |---|---|---|---|
@@ -191,7 +218,6 @@ milestone 10 today.
 | **11** | Graph cleanup — `_killEdge`, `pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `clearFortZone`, `lanePass` (ref. 30038-30192, 6 fns) | medium | Ordering between these is load-bearing, and `_killEdge`'s `if (k >= 0)` guard must **not** be unified with `splitEdge`. `clearFortZone` is only meaningful after 10 |
 | **14** | Amenities — `buildMarkets`, `buildCivic`, `orientedRect`, `gamesShapeAt`, `buildGames` (ref. 29160-29382, 5 fns) | medium | |
 | **9** | Water infrastructure — `distToLine`, `buildHarbour`, `addRiverBridges`, `detectRiverCrossings` (ref. 28967-29159, 4 fns) | medium | `detectRiverCrossings` must run after milestone 11's cleanup passes |
-| **8** | Radial (Venus) streets and waterway — `buildRadialStreets`, `buildWaterway` (ref. 28835-28939, 2 fns) | small | Only `buildPlaza` from this line range shipped, as 8a |
 | **17a caveat** | Golden-verify the block-2 `_um*` adapter | medium | The one live exception to `PARITY_TESTING.md`'s stage-by-stage rule not covered by `DECISIONS.md` §7a. Covered today by 11 unit tests over synthetic fields. Needs a block-2 capture harness that can run `_um*` inside the host's full civ scope; the existing harness slices block 4 only |
 
 Milestone **16** (`generate()` orchestration + `hashModel`, the whole-subsystem
@@ -405,7 +431,7 @@ owner answer, the question itself is in §4.
 | Item | Owns it | Size | Blocker |
 |---|---|---|---|
 | **Landmark M9** — cultural interpretation and temporal state | `LANDMARK_GENERATION_SCOPE.md` | large | `STORY_PLANNING_SCOPE.md` **SP-4**, which is not started and whose attachment model is undecided, plus open questions 1-2. **Two documents' largest remaining milestones sit behind one unasked question** |
-| Urban **milestone 16** — `generate()` orchestration + `hashModel`, the whole-subsystem golden | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Blocked by definition on milestones 8-15: `hashModel` can only be compared once every stage it hashes exists. Milestone 12 already had to dump state directly for want of it |
+| Urban **milestone 16** — `generate()` orchestration + `hashModel`, the whole-subsystem golden | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Blocked by definition on milestones 9-15 (8 landed 2026-09-20): `hashModel` can only be compared once every stage it hashes exists. Milestone 12 already had to dump state directly for want of it |
 | Urban **milestone 17**'s remaining five `_um*` — `_umWallSpec`, `_umInferWalls`, `_umHarbourScale`, `_umSiteProfile`, `_umOreBearing` | `URBAN_MORPHOLOGY_SCOPE.md` | medium | Each one's only consumer is milestone 9, 10, 13 or 15. Two data gaps compound it: settlements carry no `specialisation` and no `traits`, so the honest fallbacks are `economy: null` / `fortified: false` |
 | Story planning **SP-2** — journey progression over the cursor | `STORY_PLANNING_SCOPE.md` | large | §6's regenerate-semantics question explicitly gates it: whether a journey's route polyline is invalidated, re-snapped, or kept with a staleness mark "needs a ruling before SP-2 ships". The grain question (real date vs fraction of a year) is also unresolved |
 | Story planning **SP-5** — the planning aid, joined up | `STORY_PLANNING_SCOPE.md` | medium | Deliberately last: worth nothing until at least two of SP-1…SP-4 exist. Only SP-1 is partly real |
@@ -655,7 +681,7 @@ recording corrections on 2026-08-23, -24 and -25.
 - Capability 6 lists AO toggles as absent; AO shipped and `render.rs:1515`
   exposes `"ao_strength"`.
 - Capability 13's body says urban milestones 8-17 "remain entirely unbuilt";
-  8a and 12 landed 2026-08-24.
+  8a and 12 landed 2026-08-24, and 8 itself on 2026-09-20.
 
 ### 6.6 The reference freeze has drifted twelve versions, not one
 

@@ -22,14 +22,14 @@ work outstanding.
   with its recommendation made and its own *Status: parked* heading listing
   three unanswered questions. `DECISIONS.md` §4 continues to stand and **no 3D
   work of any kind is scheduled**.
-- **Phase 5** — **milestones 1-7 and 12 are complete**, 8a and 17a shipped out
-  of order, and 17 is 13 of its 20 adapter functions. **Open: the rest of 8,
-  plus 9, 10, 11, 13, 14, 15, 16 and the rest of 17.**
-  `crates/cartalith-urban/src/lib.rs` declares exactly ten modules — `astar`,
-  `blocks`, `geom`, `graph`, `growth`, `plaza`, `rng`, `routes`, `rules`,
-  `site` — and there is no fortification, districts, amenities,
-  water-infrastructure, hinterland or `generate()` module. That is the single
-  largest block of unbuilt work in the project.
+- **Phase 5** — **milestones 1-8 and 12 are complete** (8 landed 2026-09-20),
+  8a and 17a shipped out of order, and 17 is 13 of its 20 adapter functions.
+  **Open: 9, 10, 11, 13, 14, 15, 16 and the rest of 17.**
+  `crates/cartalith-urban/src/lib.rs` declares exactly eleven modules —
+  `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`, `radial`, `rng`,
+  `routes`, `rules`, `site` — and there is no fortification, districts,
+  amenities, water-infrastructure, hinterland or `generate()` module. That is
+  the single largest block of unbuilt work in the project.
 
 | Phase | `ROADMAP.md` says | This file says | The one thing to know |
 |---|---|---|---|
@@ -43,9 +43,9 @@ work outstanding.
 
 **Every "done" above means "done against `reference/Cartalith Gen1 v2.10.html`",
 and the source has moved twelve mainline versions past it.** Measured
-2026-09-17 in the working copy: the source repo holds **164** `Cartalith Gen1
-v*.html` (newest **v2.22**) plus a second line of **49** DCC files (newest
-**v2.71**), and it **forked at v2.22** — every engine change from v2.25 on
+2026-09-20 in the working copy: the source repo holds **164** `Cartalith Gen1
+v*.html` (newest **v2.22**) plus a second line of **51** DCC files (newest
+**v2.73**), and it **forked at v2.22** — every engine change from v2.25 on
 exists only on the DCC line. This does not un-do a milestone; a phase verified
 against v2.10 is still verified against v2.10. It does mean **no row above can
 be read as "matches the source today"**, and seven of the changes in the interval
@@ -59,7 +59,50 @@ highest-leverage constant in the height formula: the coastline is the level set 
 a blur of a piecewise-constant plate Voronoi map, and the pure partition reproduced
 the land mask at IoU 0.813 before the fix. See `RC_ENGINE_CHANGES.md` §6i.
 
-**v2.71 is the newest and is not simulation** — `hash_gen1.js` vs v2.70 ALL IDENTICAL — but its first
+**v2.73 is the newest, and it is not simulation** — `hash_gen1.js` vs v2.72 ALL IDENTICAL, and the
+generated LAYOUT hash is identical too. It adds a village green as a distinct plaza KIND and a
+footpath class, and **both halves carry a finding a port should have before it writes either.**
+(1) **A green is a plaza with a different purpose, not a smaller one.** The plaza builder already
+cuts a widened bay off the principal street — the geometry of a market place and of a village green
+alike — and what separates them is **market right, not size**: a chartered town's plaza is
+commercial and a market CROSS stands in it as the legal marker of the right to trade, while a
+village's green is common land and carries no cross because there is no right to mark. So the
+change is a `kind` field and a branch on it — **the same three street calls, in the same order, at
+the same widths**, which is what keeps blocks, parcels and buildings bit-identical — and the
+threshold is the civic-building pass's own chartered-town line reused, not a second number for the
+same distinction. (2) **The footpath had a free source that never runs, and only measuring it caught
+that.** The alley-privatisation pass models a through-alley taken into the adjoining plots: the edge
+must leave the STREET graph while the foot traffic survives, which is what a snicket is, so
+recording the killed line costs four lines. It is also **unreachable on the profile the app
+generates** — that pass opens `if(!bias) return;` and the default rules set `deadEndBias` to 0,
+with only the medina family's 0.16 floor ever setting it: **0 paths across six populations on the
+default profile.** Shipping that half alone would have been a feature that computes correctly and
+shows nothing. The always-on source invents nothing either — it connects features the engine
+already places (church, wells, the pond) to streets that already exist. **A path may not run
+through a house, and the first cut did**: 11.4% of sampled path length fell inside a building
+footprint at pop 12 000, fixed by a seven-sample rejection, 0.0% after. See
+`RC_ENGINE_CHANGES.md` §8.2.
+
+**v2.72 is the version before it, and it is the one to read before trusting any river harness.** It
+moves no generated value — `hash_gen1.js` vs v2.71 ALL IDENTICAL — and it changes the drawn map
+materially at large extents, which is why the spec files it in §8.1 beside v2.58 rather than with
+the shell rows. Two independent defects, one screenshot of a 40 000 km world, and **both landed on
+the wrong one of two renderers.** (1) **The straight lines across the map are rivers.** The receiver
+tree wraps in X in world mode, so consecutive points of one stem sit at opposite edges and the tile
+renderer stamps a band along every segment — one wrapped step paints a river clean across the map.
+The HTML has had a splitter for exactly this since v1.29 and had applied it at **three of four
+sites**; the fourth is the geometry the RASTER path draws from, **and the raster path is the one
+that draws at the default**, so the renderer that splits is the one nobody was looking at. The
+sharpest part: v2.58 unwrapped the same stem's LENGTH in that very loop while still handing the
+drawer the wrapped points — **fixing a measurement of a quantity is not fixing the thing the
+quantity describes**, which is why this read as fixed for fourteen versions. (2) **A detection ease
+is not a display threshold** — the third consumer of one constant answering three questions, now
+written up as `RC_ENGINE_CHANGES.md` §7.13. **Why every existing harness was blind, which a port's
+test plan should copy**: region mode cannot wrap and its ease is 1, so both fixes are no-ops there
+*by construction* — every river probe runs region mode and the hash battery never sets world mode.
+A field hash would not have caught it either. See `RC_ENGINE_CHANGES.md` §8.1 and §7.13.
+
+**v2.71 is the version before those two, and is likewise not simulation** — `hash_gen1.js` vs v2.70 ALL IDENTICAL — but its first
 half is a rule a port inherits whether or not it copies the feature. The owner asked whether a new
 guidance layer was needed to keep a settlement's drawing off the water; it was not. The adapter has
 always built a 22 m mask of the real sea, lakes and river band, and the engine's own `isWater`
@@ -74,7 +117,7 @@ sea reads 0.14% and looks like antialiasing; a palette match misses an antialias
 entirely), and the honest test renders the town, renders it again with the settlement layer stripped,
 and diffs inside the water. See `RC_ENGINE_CHANGES.md` §8.2.
 
-**v2.70 is the version before it, and is also not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
+**v2.70 is the version before that, and is also not simulation** — a flat limited-palette map style, opt-in, `hash_gen1.js`
 vs v2.69 ALL IDENTICAL. It is worth a line for its SHAPE: the HTML has exactly one land-colour
 function and one water-colour function, each called by the main per-pixel loop, the LOD tile
 renderer and the flat bake, so a whole new map style costs one flag and one step in each chain and
@@ -1065,8 +1108,8 @@ Nineteen rows (milestones 1-17, plus 8a and 17a which shipped out of order).
 **This is the largest block of unbuilt work in the project.**
 
 The single decisive check: `crates/cartalith-urban/src/lib.rs` declares exactly
-ten `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
-`rng`, `routes`, `rules`, `site`. There is **no** fortification, districts,
+eleven `pub mod` lines — `astar`, `blocks`, `geom`, `graph`, `growth`, `plaza`,
+`radial`, `rng`, `routes`, `rules`, `site`. There is **no** fortification, districts,
 amenities, water-infrastructure, hinterland or `generate()`-orchestration
 module. Every "not started" row below rests on that list plus a named
 corroborating comment.
@@ -1081,7 +1124,7 @@ corroborating comment.
 | UM-6 | 6 — anchors and primary routes | done | `routes.rs` — `place_anchors`, `build_primaries`, `build_primaries_from_paths`, `Anchors`, `Route`; called from `urban_adapter.rs` |
 | UM-7 | 7 — organic growth | done | `growth.rs` — `grow`, `GrowOpts`, `Occupancy`, `WallBuilder` / `RecordingWallBuilder`, `WallState`, `WallGeneration`, `supersede_wall`, `estimate_carrying_capacity`, `logistic_ramp`, `ring_crossings`, `dist_to_line`; `growth/tests/golden.rs` is 2 159 lines |
 | UM-8A | 8a — the plaza (`buildPlaza`) | done | `plaza.rs::build_plaza` with `plaza/tests.rs` + `golden.rs`; called from `urban_adapter.rs` on both the organic and radial branches |
-| UM-8 | 8 — radial (Venus) streets, waterway | not started | No module for either. `lib.rs`'s own module doc: "The rest of milestone 8 (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only and is still outstanding" |
+| UM-8 | 8 — radial (Venus) streets, waterway | done | `radial.rs` — `build_radial_streets`, `build_waterway`, `RadialPlan`, `Waterway`, `RADIAL_SUBSTREAM` and the four provenance constants; `radial/tests.rs` (9 tests) + `radial/tests/golden.rs` (34 scenarios, 826 lines). Mutation sweep **2 survivors of 37**, and both are diagnosed in the module doc as unkillable rather than untested — one equivalent mutant (a one-point run lays nothing, asserted directly) and one measure-zero tie (17 737 evaluated points, closest approach to the river guard 3.1 mm). Six earlier survivors were fixture limits and are closed by four boundary scenarios the capture **proves reach their boundary against the reference** before it will write. Not yet called from `urban_adapter.rs` — the branch that selects it is `generate()`, milestone 16 |
 | UM-9 | 9 — water infrastructure (`buildHarbour`, `addRiverBridges`, `detectRiverCrossings`) | not started | No harbour/bridge/crossing code. Corroborated by `urban_adapter.rs`, which skips `_umHarbourScale` because it is "consumed only by `buildHarbour`, milestone 9" |
 | UM-10 | 10 — fortification (`buildWall`, `applyStarFort`, `townBank`, `builtMassHull` …) | not started | No wall-builder module. `urban_adapter.rs` records that `grow`'s own `walls` input is still passed `false` because "the wall *builder* is milestone 10 and a spec is still a value nothing can draw". The spec half (`um_wall_spec`, `um_infer_walls`) landed elsewhere, in `cartalith-civ/src/military.rs`, for a different consumer. **Nine functions; the plan's self-declared largest** |
 | UM-11 | 11 — graph cleanup passes (`pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`, `lanePass` …) | not started | None of the six functions exists; `graph.rs` carries the graph primitives only |
