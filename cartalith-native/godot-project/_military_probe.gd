@@ -158,10 +158,14 @@ func _ready() -> void:
 	## same culture and the same faith, and their value must rise by the
 	## documented +0.30 and +0.20.
 	var before := 0.0
+	var before_culture_term := 0.0
+	var before_religion_term := 0.0
 	for r in pairs:
 		var d: Dictionary = r
 		if int(d.get("a", 0)) == 1 and int(d.get("b", 0)) == 2:
 			before = float(d.get("value", 0.0))
+			before_culture_term = float(d.get("culture_term", 0.0))
+			before_religion_term = float(d.get("religion_term", 0.0))
 	## `get_factions()` is 0-indexed over factions 1..n, so row 0 IS faction 1.
 	var f1: Dictionary = gen.get_factions()[0]
 	if not gen.civ_set_faction_field(2, "culture", String(f1.get("culture", ""))):
@@ -178,9 +182,21 @@ func _ready() -> void:
 			print("REL same culture+faith: %+.3f -> %+.3f  (%s)  cult %+0.1f faith %+0.1f" % [
 				before, same, d.get("stance", "?"), d.get("culture_term", 0.0),
 				d.get("religion_term", 0.0)])
-	if not is_equal_approx(same - before, 0.5):
+	## Predict the shift from what culture_term/religion_term measured
+	## BEFORE the edit, not from an assumed default: culture_term rises to
+	## 1 (weight 0.30) and religion_term rises to 1 (weight 0.20), each from
+	## wherever it started. On a roster that seeds "none" religion this
+	## starts at 0 (silent) -- delta 0.50. Since 2026-09-23 (`d4b736c`,
+	## "Wire fresh factions to a real religion and government") every faction
+	## but Unclaimed seeds a REAL, non-"none" default religion, so two
+	## distinct factions start OPPOSED (religion_term -1, not 0) -- delta
+	## 0.70. Recomputing from the measured "before" rather than hardcoding
+	## either number keeps this discriminating under both.
+	var expect_delta := 0.30 * (1.0 - before_culture_term) + 0.20 * (1.0 - before_religion_term)
+	if not is_equal_approx(same - before, expect_delta):
 		ok = false
-		print("REL !! shared culture + shared faith moved the value by %.4f, not 0.50" % (same - before))
+		print("REL !! shared culture + shared faith moved the value by %.4f, not the expected %.4f (culture_term %.1f -> 1, religion_term %.1f -> 1)" % [
+			same - before, expect_delta, before_culture_term, before_religion_term])
 	## And an opposed faith must move it the other way.
 	if not gen.civ_set_faction_field(2, "religion", "old_gods"):
 		print("REL !! set religion rejected")

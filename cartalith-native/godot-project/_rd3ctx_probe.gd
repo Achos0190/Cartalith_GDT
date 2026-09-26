@@ -456,14 +456,24 @@ func _probe_relations() -> void:
 	rd.show_faction(fid, int(first.get("b", -1)))
 	await _frames(6)
 
-	_check("the faction dock draws a Relations section", _has_text("§ RELATIONS"),
-		"texts=%s" % [_texts().slice(0, 10)])
-
 	var mine: Array = []
 	for p in pairs:
 		var d: Dictionary = p
 		if int(d.get("a", -1)) == fid or int(d.get("b", -1)) == fid:
 			mine.append(d)
+
+	## `right_dock.gd::_build_faction_relations()`'s own heading carries the
+	## row count since `ea196ef` (2026-09-05, "Relations dropped its count
+	## from the heading though mine.size() sits two lines above it") --
+	## `DccWidgets.section(body, "Relations · %d" % mine.size())`, upper-cased
+	## and `§`-prefixed by `DccTheme.header()`. A bare "§ RELATIONS" is what
+	## the heading looked like BEFORE that fix; asserting it verbatim would
+	## fail the corrected heading and pass the regression it fixed, so the
+	## count is recomputed here from `mine`, independently, rather than
+	## trusted from the panel.
+	var want_heading := "§ RELATIONS" if mine.is_empty() else "§ RELATIONS · %d" % mine.size()
+	_check("the faction dock draws a Relations section", _has_text(want_heading),
+		"looking for '%s'; texts=%s" % [want_heading, _texts().slice(0, 10)])
 	_p("relations for faction %d: %d" % [fid, mine.size()])
 
 	var checked := 0

@@ -353,7 +353,13 @@ const PLACEMENTS: Array = [
 	["Economy", "TRADE FLOWS", "", "Button", "Match trade flows", 1],
 	["*", "*", "*", "Label", "§ FLOWS", 0],
 	["Economy", "", "", "Button", "› BY FACTION", -1],
-	["Culture", "PROFILES", "", "Button", "Which faction has which culture → Faction roster…", 1],
+	## `5f111a7` ("Culture profiles window: closes GUI_GAP_REGISTER.md CV-02's
+	## 'no panel draws' gap") repointed this row from the Faction roster modal
+	## to the new CV-02 Culture profiles window -- a more specific destination
+	## for "which faction has which culture" now that one exists
+	## (`civilization_workspace.gd`'s own comment above the button says so).
+	## The roster's picker is unchanged; only the signpost moved.
+	["Culture", "PROFILES", "", "Button", "Which faction has which culture → Culture profiles…", 1],
 	["Timeline", "", "", "Button", "› SIMULATE COLLAPSE / RECOVERY", 1],
 	["Timeline", "", "SIMULATE COLLAPSE / RECOVERY", "Button", "Simulate", 1],
 ]
