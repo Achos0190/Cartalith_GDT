@@ -1515,6 +1515,14 @@ func _wire_selection() -> void:
 		## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): the tablet's touch-hold, called
 		## once `map_overlay.gd`'s own 500 ms timer fires.
 		context_broker.ring_touch_open)
+	## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1): the phone's own hold
+	## drops the sample pin and fires the same "sample" haptic pulse
+	## `context_broker.gd::ring_touch_open()` already fires for the tablet's
+	## equivalent moment (§7.1's table). `map_overlay.gd` stays ignorant of
+	## `DccShell`/haptics -- exactly the reason every other pin/ring seam here
+	## is a signal or a `Callable` rather than a direct call.
+	viewport.overlay.sample_pin_dropped.connect(func(_gx: float, _gy: float) -> void:
+		_haptic("sample"))
 
 
 # -- Contextual chrome --------------------------------------------------------

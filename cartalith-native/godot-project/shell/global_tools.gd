@@ -132,14 +132,22 @@ static func install(app) -> void:
 ##                        (`world_workspace.gd::_build_crs` says so), so no
 ##                        longitude is offered
 ##
-## Not here: §4.1's *Pin sample here* -- there is no sample pin in this shell
-## yet (it is the phone spec's RP-S6 / CM-5), so the row would have nothing
-## behind it. *Cross-section from here* is WORLD's (§4.3), in
-## `world_workspace.gd`, over `measure_from()`.
+## **Since CM-5, these two plain rows are no longer withheld from the
+## phone.** They were withheld because CM-1's phone `PopupMenu` was the only
+## presenter and could not show a §4.1-shaped row at all; CM-5 gives the
+## phone its own peek/half sheet (`context_broker.gd::_present_phone()`),
+## which draws a plain action row exactly as the desktop card does. Only
+## `Copy coordinate ▸` stays off the phone -- it carries `children` (a real
+## submenu), which `_present_phone()`'s own filter still strips there, the
+## same reason it always has.
+##
+## Not here: §4.1's *Pin sample here* -- **now built** (CM-5's sample pin,
+## `map_overlay.gd::_sample_pin`), but it is not a card ROW: the pin drops on
+## the hold itself, before the card exists to offer a row for it, so there is
+## nothing left for this function to add. *Cross-section from here* is
+## WORLD's (§4.3), in `world_workspace.gd`, over `measure_from()`.
 static func context_actions(app, req: Dictionary) -> Array:
-	## `ContextBroker.card_form(req)`, written out: a preload of the broker
-	## here would be a cycle (the broker names this class).
-	if String(req.get("form", "")) == "phone" or app.bridge == null or not app.bridge.has_world:
+	if app.bridge == null or not app.bridge.has_world:
 		return []
 	var gx := float(req.get("gx", 0.0))
 	var gy := float(req.get("gy", 0.0))

@@ -338,6 +338,41 @@ var _sheet_head_trail: Label
 var _sheet_scroll: ScrollContainer
 var _sheet_body: VBoxContainer
 
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, §9.1): the phone's own noun-surface
+## sheet -- peek (chip row) / half (the full sectioned card, 46 dp rows).
+## Shares `_sheet_scrim` above rather than a second scrim: `_close_all_phone_
+## overlays()` already guarantees only one of `_sheet` / `_peek_panel` is ever
+## shown at a time (`phone_present_peek_card()`, `dcc_shell.gd`).
+var _peek_panel: PanelContainer
+var _peek_grab: Control
+var _peek_title: Label
+var _peek_trail: Label
+var _peek_chip_wrap: MarginContainer
+var _peek_chip_row: HBoxContainer
+var _peek_full_scroll: ScrollContainer
+var _peek_full_col: VBoxContainer
+var _peek_open := false
+var _peek_detent := "peek"          ## "peek" or "half".
+var _peek_drag: Dictionary = {}     ## the grab handle's own press/move state.
+var _peek_tween: Tween
+var _peek_actions: Array = []
+var _peek_reselect: Callable = Callable()
+var _peek_dismiss_cb: Callable = Callable()
+## `06-phone.md` §5.2's own peek figure -- the same 66 dp the tool sheet's
+## `DccShell.PHONE_DETENT_PEEK` uses, kept as this file's own constant rather
+## than a cross-file reference so this sheet does not depend on the tool
+## sheet's detent system, which it does not share (this one has two detents,
+## not three, and sizes "half" to the card's own content instead of a screen
+## fraction).
+const _PEEK_CARD_PEEK_DP := 66.0
+## "Sheets stop at 60% height" -- this file's own established rule
+## (`_build_sheet()` above draws it as a fixed `anchor_top = 0.4`); the half
+## detent borrows it as a ceiling instead of a fixed height, so a short list
+## does not leave a wall of empty sheet under it.
+const _PEEK_CARD_HALF_CAP_FRAC := 0.6
+const _PEEK_CARD_ANIM := 0.22
+const _PEEK_CARD_MIN_DRAG_DP := 24.0
+
 # -- Geometry ----------------------------------------------------------------
 #
 # The same two helpers `DccShell` uses for its own phone chrome, over the same
@@ -389,6 +424,9 @@ func setup(shell: DccShell) -> void:
 
 	_sheet = _build_sheet()
 	add_child(_sheet)
+
+	_peek_panel = _build_peek_panel()
+	add_child(_peek_panel)
 
 func _build_screen() -> PanelContainer:
 	var panel := PanelContainer.new()
@@ -541,6 +579,340 @@ func _build_sheet() -> PanelContainer:
 	col.add_child(_sheet_scroll)
 	return panel
 
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, §9.1): the phone's own noun-surface
+## sheet, built the same way `_build_sheet()` above is (a `PanelContainer`
+## anchored to the bottom edge), except its height is not a fixed anchor -- it
+## is an `offset_top` this file animates and drags between the two detents,
+## so a grab-drag can track a finger the same way `dcc_shell.gd`'s tool sheet
+## already does for its own three detents (`_on_phone_sheet_grab_input()`,
+## read for the pattern this reuses).
+func _build_peek_panel() -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"top": 1}))
+	panel.anchor_left = 0.0
+	panel.anchor_right = 1.0
+	panel.anchor_top = 1.0
+	panel.anchor_bottom = 1.0
+	panel.offset_bottom = 0.0
+	panel.offset_top = -_ps(_PEEK_CARD_PEEK_DP)
+	panel.visible = false
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	_peek_grab = Control.new()
+	## Tighter than `_build_sheet()`'s own 18 dp handle strip: at `peek`'s 66 dp
+	## total, the grab strip, the header and the chip row all have to fit in
+	## the SAME band the tool sheet gives a title and one options row (see
+	## `_phone_map_sheet_content_height()`'s own comment in `dcc_shell.gd`) --
+	## there is no room here for a tap-target-sized handle, only a grabbable one.
+	_peek_grab.custom_minimum_size.y = _ps(14)
+	_peek_grab.mouse_filter = Control.MOUSE_FILTER_STOP
+	_peek_grab.gui_input.connect(_on_peek_grab_input)
+	var handle := ColorRect.new()
+	handle.color = Color(DccTheme.c("text_ghost"), 0.55)
+	var hw := _ps(34)
+	var hh := _ps(4)
+	handle.set_anchors_preset(Control.PRESET_CENTER)
+	handle.size = Vector2(hw, hh)
+	handle.position = Vector2(-hw / 2.0, -hh / 2.0)
+	handle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_peek_grab.add_child(handle)
+	col.add_child(_peek_grab)
+
+	## No forced `custom_minimum_size` here (unlike `_build_sheet()`'s own
+	## `_pt(48)` head, which has a whole 60% sheet to spend it in): at `peek`
+	## this row sizes to its two lines of text and nothing more, or the grab
+	## strip + header + chip row together overrun `peek`'s 66 dp budget and
+	## the panel silently grows past it (measured: it did, by 9 px at
+	## 1080x2340, the first time this was built with a `_pt(32)` floor here).
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", _ps(12))
+	var titles := VBoxContainer.new()
+	titles.add_theme_constant_override("separation", _ps(1))
+	titles.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	titles.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	titles.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_peek_title = DccTheme.mono_label("Here", "text_bright", _ps(11), 2, true)
+	_peek_trail = DccTheme.mono_label("", "text_faint", _ps(8), 0)
+	titles.add_child(_peek_title)
+	titles.add_child(_peek_trail)
+	head.add_child(titles)
+	var hp := MarginContainer.new()
+	hp.add_theme_constant_override("margin_left", _ps(16))
+	hp.add_theme_constant_override("margin_right", _ps(12))
+	hp.add_theme_constant_override("margin_top", _ps(2))
+	hp.add_theme_constant_override("margin_bottom", _ps(2))
+	hp.add_child(head)
+	col.add_child(hp)
+
+	## §8.1.2: "one horizontal row of up to four action chips" -- shown at
+	## `peek`, hidden at `half`, where the full sectioned list below replaces it
+	## ("one provider list and one definition in two presentations", PH-02's own
+	## rule, carried forward from the desktop card to this sheet).
+	_peek_chip_row = HBoxContainer.new()
+	_peek_chip_row.add_theme_constant_override("separation", _ps(8))
+	_peek_chip_wrap = MarginContainer.new()
+	_peek_chip_wrap.add_theme_constant_override("margin_left", _ps(16))
+	_peek_chip_wrap.add_theme_constant_override("margin_right", _ps(16))
+	_peek_chip_wrap.add_theme_constant_override("margin_bottom", _ps(4))
+	_peek_chip_wrap.add_child(_peek_chip_row)
+	col.add_child(_peek_chip_wrap)
+
+	## §8.1.3: "the full card appears, in the same sections, as 46 dp rows".
+	_peek_full_scroll = ScrollContainer.new()
+	_peek_full_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_peek_full_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	_peek_full_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_peek_full_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	_peek_full_scroll.visible = false
+	_peek_full_col = VBoxContainer.new()
+	_peek_full_col.add_theme_constant_override("separation", 0)
+	_peek_full_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_peek_full_scroll.add_child(_peek_full_col)
+	col.add_child(_peek_full_scroll)
+	return panel
+
+## Whether the peek/half card is up -- read by `dcc_shell.gd::
+## phone_present_peek_card()` so a re-resolve (the pin dragged to a new spot)
+## updates this SAME sheet's content in place, at whichever detent the user
+## already has it, instead of tearing it down and reopening at `peek` under
+## the finger's drag.
+func peek_card_is_open() -> bool:
+	return _peek_open
+
+## Probe seam, all read-only -- `_ctxphone_probe.gd`'s own introspection,
+## the same reason `_card().panel_rect()`/`drawn_rows()` exist on the desktop
+## card and `RadialRing.debug_state()` exists on the ring.
+func peek_detent() -> String:
+	return _peek_detent
+
+func peek_panel_rect() -> Rect2:
+	return _peek_panel.get_global_rect() if _peek_panel != null else Rect2()
+
+func peek_grab_rect() -> Rect2:
+	return _peek_grab.get_global_rect() if _peek_grab != null else Rect2()
+
+func peek_title_text() -> String:
+	return _peek_title.text if _peek_title != null else ""
+
+func peek_chip_labels() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _peek_chip_row == null:
+		return out
+	for c in _peek_chip_row.get_children():
+		if c is Button:
+			out.append((c as Button).text)
+	return out
+
+func peek_full_row_labels() -> PackedStringArray:
+	var out := PackedStringArray()
+	if _peek_full_col == null:
+		return out
+	for wrap in _peek_full_col.get_children():
+		if wrap is VBoxContainer:
+			for c in (wrap as VBoxContainer).get_children():
+				if c is Button:
+					out.append((c as Button).text)
+	return out
+
+## Probe seam: drives the grab handle's own drag exactly as a real finger
+## would (`_on_peek_grab_input()` is private, and the handle itself is not a
+## public property to push an `InputEvent` through, unlike a `Control` with
+## its own `_gui_input`).
+func peek_grab_input(event: InputEvent) -> void:
+	_on_peek_grab_input(event)
+
+## CM-5's own presenter. `req`/`actions` are `context_broker.gd`'s merged
+## rows (`MAP_CONTEXT_SCOPE.md` §3/§9.1's Action shape); `reselect` is carried
+## for parity with the desktop card's signature and is not yet called from
+## here -- §8.1.4's multi-hit "Select ▸" chip is not built (see this file's own
+## header note above `peek_card_is_open()`'s call site in `dcc_shell.gd`).
+## `on_dismiss` fires exactly once, when the sheet closes by the user's own
+## action (scrim tap, system back, drag below `peek`) -- never when another
+## phone overlay simply replaces this one (`close()` above skips it).
+func peek_card(req: Dictionary, actions: Array, reselect: Callable,
+		on_dismiss: Callable = Callable()) -> void:
+	var was_open := _peek_open
+	_peek_reselect = reselect
+	_peek_dismiss_cb = on_dismiss
+	var title := "Here"
+	for a in actions:
+		if (a as Dictionary).has("header"):
+			title = String(a["header"])
+			break
+	_peek_title.text = title
+	_peek_trail.text = "Map · cell %d, %d" % [int(req.get("gx", 0.0)), int(req.get("gy", 0.0))]
+	_peek_actions = actions
+	_rebuild_peek_chip_row(actions)
+	_rebuild_peek_full_rows(actions)
+	visible = true
+	_peek_open = true
+	_sheet_scrim.visible = true
+	_peek_panel.visible = true
+	## A fresh drop always opens at `peek` (§8.1.1/.2); a re-resolve (the pin
+	## dragged to a new spot) keeps whatever detent the user already had it at
+	## -- re-applied rather than left alone, since `half`'s own height is sized
+	## to the NEW content and may have changed.
+	_set_peek_detent(_peek_detent if was_open else "peek", false)
+
+func _rebuild_peek_chip_row(actions: Array) -> void:
+	for c in _peek_chip_row.get_children():
+		c.queue_free()
+	var enabled: Array = actions.filter(func(a): return bool((a as Dictionary).get("enabled", true)))
+	for a in enabled.slice(0, 4):
+		var row: Dictionary = a
+		var cb: Callable = row.get("callable", Callable())
+		DccWidgets.chip(_peek_chip_row, String(row.get("label", "")), func() -> void:
+			_dismiss_peek_card()
+			if cb.is_valid():
+				cb.call())
+
+func _rebuild_peek_full_rows(actions: Array) -> void:
+	for c in _peek_full_col.get_children():
+		c.queue_free()
+	var prev := ""
+	for n in actions.size():
+		var a: Dictionary = actions[n]
+		var sec := String(a.get("section", ""))
+		if n > 0 and sec != prev:
+			_peek_full_col.add_child(DccTheme.rule())
+		prev = sec
+		_peek_full_col.add_child(_build_peek_row(a))
+
+## §8.1.3's 46 dp row: label left, and a disabled row's reason drawn as a
+## second line under it -- `MAP_CONTEXT_SCOPE.md` §4.2's disabled-with-reason
+## rule, which the phone's card owes the same as the desktop one.
+func _build_peek_row(a: Dictionary) -> Control:
+	var enabled: bool = bool(a.get("enabled", true))
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	var b := Button.new()
+	b.text = String(a.get("label", ""))
+	b.custom_minimum_size.y = _pt(46)
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.focus_mode = Control.FOCUS_NONE
+	b.flat = true
+	b.disabled = not enabled
+	b.add_theme_font_size_override("font_size", _ps(12))
+	if enabled:
+		var cb: Callable = a.get("callable", Callable())
+		b.pressed.connect(func() -> void:
+			_dismiss_peek_card()
+			if cb.is_valid():
+				cb.call())
+	wrap.add_child(b)
+	if not enabled:
+		var reason := DccTheme.mono_label(String(a.get("reason", "")), "text_faint", _ps(9), 0)
+		var rp := MarginContainer.new()
+		rp.add_theme_constant_override("margin_left", _ps(16))
+		rp.add_theme_constant_override("margin_bottom", _ps(6))
+		rp.add_child(reason)
+		wrap.add_child(rp)
+	return wrap
+
+## `peek`'s own fixed height, or `half`'s. `half` is NOT content-measured:
+## `_peek_full_col` sits inside `_peek_full_scroll`, a `ScrollContainer`, and a
+## `ScrollContainer` deliberately does not fold its child's minimum size into
+## its own -- that is the one thing that makes it scroll instead of grow -- so
+## reading `get_combined_minimum_size()` back up through it would report a
+## small constant no matter how many rows the card has, not the card's real
+## height. `half` is instead this file's own established "sheets stop at 60%
+## height" rule (`_build_sheet()` above draws the SAME rule as a fixed
+## `anchor_top = 0.4`), applied as a height rather than an anchor because this
+## panel's own height is a drag target and an anchor cannot be tweened.
+func _peek_detent_height(det: String) -> float:
+	var peek := float(_ps(_PEEK_CARD_PEEK_DP))
+	if det == "peek":
+		return peek
+	return maxf(peek, get_viewport_rect().size.y * _PEEK_CARD_HALF_CAP_FRAC)
+
+func _set_peek_detent(det: String, animate: bool = true) -> void:
+	_peek_detent = det
+	_peek_chip_wrap.visible = (det == "peek")
+	_peek_full_scroll.visible = (det != "peek")
+	var target := _peek_detent_height(det)
+	if _peek_tween != null and _peek_tween.is_valid():
+		_peek_tween.kill()
+	if not animate:
+		_peek_panel.offset_top = -target
+		return
+	_peek_tween = create_tween()
+	_peek_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_peek_tween.tween_property(_peek_panel, "offset_top", -target, _PEEK_CARD_ANIM)
+
+## The grab handle's own drag -- `dcc_shell.gd::_on_phone_sheet_grab_input()`'s
+## press/move/release triple, over this sheet's two detents instead of three.
+## Positions are global `y`, the same reason that function gives: the panel's
+## own origin moves as its height changes, so a local `y` would drift under a
+## finger that has not moved.
+func _on_peek_grab_input(event: InputEvent) -> void:
+	var press_state := 0
+	var moved := false
+	var local_y := 0.0
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		press_state = 1 if mb.pressed else -1
+		local_y = mb.position.y
+	elif event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		press_state = 1 if st.pressed else -1
+		local_y = st.position.y
+	elif event is InputEventMouseMotion:
+		moved = true
+		local_y = (event as InputEventMouseMotion).position.y
+	elif event is InputEventScreenDrag:
+		moved = true
+		local_y = (event as InputEventScreenDrag).position.y
+	else:
+		return
+	var gy: float = _peek_grab.global_position.y + local_y
+	if press_state == 1:
+		if _peek_tween != null and _peek_tween.is_valid():
+			_peek_tween.kill()
+		_peek_drag = {"y0": gy, "h0": -_peek_panel.offset_top}
+		_peek_grab.accept_event()
+		return
+	if _peek_drag.is_empty():
+		return
+	var lo := float(_ps(_PEEK_CARD_PEEK_DP))
+	var hi := _peek_detent_height("half")
+	if moved:
+		var h: float = clampf(float(_peek_drag["h0"]) - (gy - float(_peek_drag["y0"])), lo, maxf(lo, hi))
+		_peek_drag["h"] = h
+		_peek_panel.offset_top = -h
+		## Track which content is drawn mid-drag by nearest detent, so the sheet
+		## does not show an empty gap between the chip row's own height and the
+		## full list's while the finger is between the two.
+		var at_peek := absf(h - lo) <= absf(h - hi)
+		_peek_chip_wrap.visible = at_peek
+		_peek_full_scroll.visible = not at_peek
+		_peek_grab.accept_event()
+		return
+	var final_h: float = float(_peek_drag.get("h", _peek_drag["h0"]))
+	_peek_drag = {}
+	_set_peek_detent("half" if absf(final_h - hi) < absf(final_h - lo) else "peek")
+
+## Closes the card by the user's own action -- scrim tap, system back, or a
+## drag down to `peek` and then further (there is nowhere lower than `peek`,
+## so a drag never dismisses; only the scrim and back do). Fires
+## `_peek_dismiss_cb` exactly once, which is how `context_broker.gd` clears
+## `map_overlay.gd`'s sample pin when its own sheet goes away.
+func _dismiss_peek_card() -> void:
+	if not _peek_open:
+		return
+	_peek_open = false
+	_peek_panel.visible = false
+	_sheet_scrim.visible = false
+	visible = false
+	var cb := _peek_dismiss_cb
+	_peek_dismiss_cb = Callable()
+	if cb.is_valid():
+		cb.call()
+
 ## Canvas TARGETS: "44 dp icon buttons".
 func _icon_button(glyph: String, tip: String, on_press: Callable) -> Button:
 	var b := Button.new()
@@ -584,6 +956,9 @@ func apply_insets(top: float, left: float, bottom: float) -> void:
 	_sheet_scrim.offset_top = top
 	_sheet_scrim.offset_right = 0
 	_sheet_scrim.offset_bottom = -bottom
+	_peek_panel.offset_left = left
+	_peek_panel.offset_right = 0
+	_peek_panel.offset_bottom = -bottom
 
 # -- Navigation ---------------------------------------------------------------
 
@@ -713,11 +1088,29 @@ func open_sheet(popup: PopupMenu, title: String, trail: String) -> void:
 func close() -> void:
 	visible = false
 	_stack.clear()
+	## CM-5: a fresh `open()`/`open_sheet()` while the peek/half card is up
+	## (`_close_all_phone_overlays()` calls this before every phone overlay,
+	## `phone_present_peek_card()` included) must not leave it drawn behind
+	## whatever opens next. Not routed through `_dismiss_peek_card()`: this is
+	## the shell replacing one overlay with another, not the user closing the
+	## card, so its own dismiss callback (map's sample pin) does not fire.
+	if _peek_open:
+		_peek_open = false
+		_peek_panel.visible = false
+		_sheet_scrim.visible = false
+		_peek_dismiss_cb = Callable()
 
 ## Canvas BACK: "System back leaves a sheet, then the L2 screen, then the
 ## viewport -- never the app." Returns true when it consumed the gesture, so
 ## `DccShell._notification()` knows whether to let the request fall through.
+##
+## CM-5: the peek/half card is checked first and dismissed on its own --
+## `_dismiss_peek_card()`, not `close()`, so its dismiss callback (clearing the
+## map's sample pin) actually fires.
 func go_back() -> bool:
+	if _peek_open:
+		_dismiss_peek_card()
+		return true
 	if not visible:
 		return false
 	if _stack.size() <= 1:

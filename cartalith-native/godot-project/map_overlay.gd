@@ -961,6 +961,19 @@ signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 ## knows (domain, armed tool, form) and asks every provider for rows.
 signal context_requested(req: Dictionary)
 
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1): the phone's own hold
+## drops the sample pin at the same moment it opens the verbs
+## (`context_requested` above, emitted in the same `_process()` frame). This
+## signal exists only so `app.gd` can fire the "sample" haptic table
+## `context_broker.gd::ring_touch_open()` already fires for the tablet's own
+## hold -- this control stays ignorant of `DccShell`/haptics, the same reason
+## `_context_pick` below is a `Callable` and not a direct call. The pin's own
+## position lives in `_sample_pin` (grid space), drawn every frame by
+## `_draw_sample_pin()` and dragged by the touch state machine below; nothing
+## outside this file needs the pin's position pushed to it, since a drag's
+## release re-resolves through the ordinary `context_requested` path.
+signal sample_pin_dropped(gx: float, gy: float)
+
 ## The engine half of `hits_at()`: a `Callable(gx, gy, px_per_cell) -> Array`
 ## of `{kind, id, label?, x, y}` for the picks only the engine can answer
 ## (labels, icons). **A `Callable` and not an `EngineBridge`**, for the reason
@@ -1079,6 +1092,14 @@ func last_mouse_pos() -> Vector2:
 # is released on the lift or the first motion, one frame later than it would
 # have been.
 const _TOUCH_HOLD_MS := 500
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1, 2026-09-26): the PHONE's
+## own hold is 480 ms, `06-phone.md`'s own figure -- a separate constant from
+## `_TOUCH_HOLD_MS` above rather than a second meaning for it, because CM-4's
+## tablet hold is still 500 ms and stays that way (that scope states 500 and
+## nothing here re-derives it). `_process()` below picks between the two by
+## `DccTheme.is_tablet()`, the same test that already chooses which of the two
+## gestures a still hold becomes.
+const _PHONE_TOUCH_HOLD_MS := 480
 ## Physical pixels, not dp: this control is laid out in the main viewport,
 ## which carries no content scale. 28 px is ~10 dp on a 400 ppi handset, which
 ## is a finger's idle wobble and comfortably under the distance a deliberate
@@ -1097,6 +1118,46 @@ var _touch_ring_active := false
 var _touch_ms := 0
 var _touch_pos := Vector2.ZERO
 var _touch_press: Dictionary = {}
+
+## CM-5's sample pin (`MAP_CONTEXT_SCOPE.md` §8.1): `{gx, gy}` in GRID space,
+## empty when no pin is down. Grid space, not a screen point, so the pin
+## survives a pan or a zoom the way every other marker here does --
+## `_draw_sample_pin()` reprojects it through `_cell_to_screen()` every frame
+## rather than remembering where it was drawn last.
+var _sample_pin: Dictionary = {}
+## A second touch press that lands on the pin drags it instead of arming the
+## ordinary hold sequence -- see the press branch below. Mutually exclusive
+## with `_touch_armed`/`_touch_ring_active`: a press is claimed by exactly one
+## of the three, in that order.
+var _pin_drag_active := false
+## Drawn radius, physical px (this control carries no content scale, the same
+## reason `_TOUCH_SLOP` above is a bare literal).
+const _SAMPLE_PIN_RADIUS := 9.0
+## The touch HIT radius is bigger than the drawn mark: a fingertip is wider
+## than what it is trying to grab, the same reason `HOVER_RADIUS_PAD` pads
+## every other pick in `hits_at()`.
+const _SAMPLE_PIN_HIT_RADIUS := 30.0
+
+## Whether a sample pin is down -- read by `context_broker.gd` and by probes,
+## so neither has to reach into `_sample_pin`'s own dictionary shape.
+func has_sample_pin() -> bool:
+	return not _sample_pin.is_empty()
+
+## The pin's grid position, or `{}` when there is none -- **omitted, not
+## defaulted to `{gx:0,gy:0}`**, the same "no value is not a plausible value"
+## rule every other absent-state read here follows.
+func sample_pin_grid() -> Dictionary:
+	return _sample_pin.duplicate()
+
+## Clears the pin. Called by `context_broker.gd` when the phone's peek/half
+## sheet is dismissed (§9.4: "an open surface never commits or discards a
+## draft by being dismissed" -- the pin is not a draft, but it is state the
+## sheet's own close should not leave stranded on the map).
+func clear_sample_pin() -> void:
+	if _sample_pin.is_empty():
+		return
+	_sample_pin = {}
+	queue_redraw()
 
 ## The right button's click-vs-drag test (`MAP_CONTEXT_SCOPE.md` §6, CM-2):
 ## "RMB press → release, under 8 px travel" is the card; 8 px or more is a
@@ -2511,7 +2572,9 @@ func _draw() -> void:
 			## would make the layer silently undrawable on the one map worth
 			## drawing it on.
 			and _landmark_rejects.is_empty() and _rivers.is_empty()
-			and _journey_markers.is_empty()):
+			## CM-5: a dropped sample pin, with nothing else on the map yet, must
+			## still draw -- the same reasoning as the rejects layer just above.
+			and _journey_markers.is_empty() and _sample_pin.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -2911,6 +2974,29 @@ func _draw() -> void:
 			["%s (%s)" % [String(lm.get("kind", "")).capitalize(), String(lm.get("class", "")).capitalize()],
 			"Importance %d%%" % roundi(100.0 * float(lm.get("importance", 0.0))),
 			"Click to inspect"], interior)
+
+	## CM-5's sample pin, topmost: it is the phone's own context subject and
+	## must never be occluded by a settlement pin or a label under it.
+	if not _sample_pin.is_empty():
+		_draw_sample_pin(rect)
+
+
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1): the phone's sample pin, drawn as a
+## small ringed dot with a stem, the same two-pass dark-halo-then-colour trick
+## `_draw_landmark_ring()` uses so it survives on pale terrain. No glyph: the
+## pin marks a point, not a kind.
+func _draw_sample_pin(rect: Rect2) -> void:
+	var pos := _cell_to_screen(Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)
+	var r := _SAMPLE_PIN_RADIUS
+	var col: Color = DccTheme.c("accent")
+	var halo: Color = DccTheme.c("bg")
+	var stem_end := pos + Vector2(0.0, r * 1.8)
+	draw_line(pos, stem_end, halo, 3.0, true)
+	draw_line(pos, stem_end, col, 1.4, true)
+	draw_circle(pos, r, halo, true, -1.0, true)
+	draw_arc(pos, r, 0, TAU, 24, halo, 2.4, true)
+	draw_arc(pos, r, 0, TAU, 24, col, 1.4, true)
+	draw_circle(pos, r * 0.4, col, true, -1.0, true)
 
 
 ## Owner ruling 14's `origin`, read back on the draw side.
@@ -4546,6 +4632,15 @@ func _gui_input(event: InputEvent) -> void:
 		## to by the time the slop was exceeded.
 		if _touch_armed and mouse.distance_to(_touch_pos) > _TOUCH_SLOP:
 			_release_touch_press()
+		## CM-5: the pin is being dragged (§8.1.4); it tracks the finger and
+		## nothing else sees this motion as a drag (armed tool, ring) while it
+		## does, the same exclusivity `_touch_ring_active` already has below.
+		if _pin_drag_active:
+			if p["valid"]:
+				_sample_pin["gx"] = p["gx"]
+				_sample_pin["gy"] = p["gy"]
+				queue_redraw()
+			return
 		## CM-4: while the tablet's ring/card gesture is tracking the finger,
 		## the armed tool must not ALSO see this as a drag -- `_ring_pointer_cb`
 		## above already forwarded the same motion to the ring's own slide.
@@ -4630,6 +4725,16 @@ func _gui_input(event: InputEvent) -> void:
 			return
 		var interior := _interior_rect(rect)
 		if mb.pressed:
+			## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1.4): a touch that lands on the
+			## sample pin drags it instead of arming the ordinary hold sequence --
+			## claimed here, before `_pick_mark`/the hold arming below, so the pin
+			## wins over whatever mark happens to sit under the same finger.
+			if (mb.device < 0 or OS.has_feature("mobile")) and not _sample_pin.is_empty() \
+					and mb.position.distance_to(_cell_to_screen(
+						Vector2(float(_sample_pin["gx"]), float(_sample_pin["gy"])), rect)) \
+					<= _SAMPLE_PIN_HIT_RADIUS:
+				_pin_drag_active = true
+				return
 			var pick := _pick_mark(mb.position, interior, rect)
 			var hit: int = pick["s"]
 			var lhit: int = pick["l"]
@@ -4649,6 +4754,22 @@ func _gui_input(event: InputEvent) -> void:
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
+			## CM-5: the pin's own release -- re-resolve the card at its new spot
+			## through the ordinary `context_requested` path (`context_broker.gd`
+			## already listens to it; this is not a second wiring). A drop off the
+			## plate is a no-op: the pin stays exactly where it last had a valid
+			## grid point rather than teleporting to bare paper.
+			if _pin_drag_active:
+				_pin_drag_active = false
+				var pr := _grid_point(mb.position, rect, interior)
+				if pr["valid"]:
+					_sample_pin["gx"] = pr["gx"]
+					_sample_pin["gy"] = pr["gy"]
+				queue_redraw()
+				var req := request_at(mb.position, "touch")
+				if not req.is_empty():
+					context_requested.emit(req)
+				return
 			if _touch_ring_active:
 				## CM-4: the finger's lift IS the ring/card gesture's release --
 				## `radial_ring.gd::release()` (via `_ring_release_cb`, the same
@@ -4710,7 +4831,12 @@ func _process(_delta: float) -> void:
 	if not _touch_armed:
 		set_process(false)
 		return
-	if Time.get_ticks_msec() - _touch_ms < _TOUCH_HOLD_MS:
+	## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1, Ruling AX F1): the phone's own hold
+	## is 480 ms, not the tablet's 500 -- decided by the same `is_tablet()`
+	## test the branch below already uses, so the two never disagree about
+	## which gesture is which.
+	var hold_ms: int = _TOUCH_HOLD_MS if DccTheme.is_tablet() else _PHONE_TOUCH_HOLD_MS
+	if Time.get_ticks_msec() - _touch_ms < hold_ms:
 		return
 	## The hold. The withheld press is **discarded**, never emitted: that is the
 	## whole point -- opening the menu must not also fire the armed tool.
@@ -4718,7 +4844,8 @@ func _process(_delta: float) -> void:
 	set_process(false)
 	## CM-4 (`MAP_CONTEXT_SCOPE.md` §7.1): the tablet form takes a different
 	## branch here -- see `_touch_ring_active`'s own doc above the touch state
-	## block. The phone branch below is CM-1/PH-02, unchanged; CM-5 owns it.
+	## block. The phone branch below is CM-5's: the hold drops the sample pin
+	## AND opens the verbs, in the same frame.
 	if DccTheme.is_tablet():
 		_touch_ring_active = true
 		if _ring_touch_open_cb.is_valid():
@@ -4730,6 +4857,9 @@ func _process(_delta: float) -> void:
 		return
 	map_right_clicked.emit(p["gx"], p["gy"], int(_touch_press.get("hit", -1)),
 		_touch_press.get("pos", Vector2.ZERO))
+	_sample_pin = {"gx": p["gx"], "gy": p["gy"]}
+	queue_redraw()
+	sample_pin_dropped.emit(p["gx"], p["gy"])
 	## Picked now, at the point the finger went down on, not at press time: a
 	## tap or a drag -- most touches -- never needs it.
 	var req := request_at(_touch_press.get("pos", Vector2.ZERO), "touch")

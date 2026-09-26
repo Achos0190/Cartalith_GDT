@@ -9117,6 +9117,26 @@ func phone_present_popup(popup: PopupMenu, title: String, trail: String) -> bool
 	_phone_menu.open_sheet(popup, title, trail)
 	return true
 
+## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1): the map context menu's OWN phone
+## presentation since CM-5 -- peek (chip row) / half (the full sectioned
+## card), replacing the plain `PopupMenu` sheet `phone_present_popup()` above
+## still serves every other transient popup. Same false-on-desktop-and-
+## tablet contract, for the same reason.
+##
+## `_close_all_phone_overlays()` runs only on a FRESH drop, not on a
+## re-resolve (the pin dragged to a new spot): `PhoneMenu.peek_card_is_open()`
+## tells the two apart, so a drag's re-resolve updates the same sheet in
+## place, at whichever detent it already had, instead of that call tearing it
+## down and `peek_card()` reopening it at `peek` under the finger's drag.
+func phone_present_peek_card(req: Dictionary, actions: Array, reselect: Callable,
+		on_dismiss: Callable = Callable()) -> bool:
+	if not _phone or _phone_menu == null:
+		return false
+	if not _phone_menu.peek_card_is_open():
+		_close_all_phone_overlays()
+	_phone_menu.peek_card(req, actions, reselect, on_dismiss)
+	return true
+
 ## Android's back gesture -- the hardware `KEYCODE_BACK` and the edge swipe that
 ## replaced it -- arriving as `NOTIFICATION_WM_GO_BACK_REQUEST` because
 ## `_ready()` turned `quit_on_go_back` off. The canvas's BACK rule is "leaves a

@@ -61,15 +61,19 @@ extends RefCounted
 ##               inline parameter row (§4.1's Tool section)
 ##   `shortcut`  String, drawn right-aligned
 ##
-## **Phone: unchanged since CM-1** -- the same styled `PopupMenu`
-## (`DccWidgets.style_popup`) re-presented by `app.phone_present_popup()` as
-## the L4 sheet. The phone's own noun surface is CM-5. A `PopupMenu` can show
-## neither a submenu row nor a param row, so rows carrying `children` or
-## `param` are left out of it, and the providers keep their CM-2 rows off the
-## phone altogether (`card_form()`), so the sheet a phone user sees is the one
-## CM-1 shipped.
+## **Phone, since CM-5** (`MAP_CONTEXT_SCOPE.md` §8.1): a peek/half sheet
+## (`app.phone_present_peek_card()` -> `PhoneMenu.peek_card()`), not the
+## `PopupMenu` CM-1 shipped -- see this file's own 2026-09-25 history for why
+## that PopupMenu is still built as a fallback below (a harness with no phone
+## chrome at all). Rows carrying `children` or `param` are still left out
+## (peek_card()'s rows are plain buttons, exactly what `PopupMenu` could draw,
+## same reason as before: the providers keep their CM-2-only rows off the
+## phone via `card_form()`). **Not built here:** §8.1.4's multi-hit "Select ▸"
+## chip -- `reselect` is passed through to `peek_card()` but nothing there
+## calls it yet.
 ##
-## **Select ▸.** Picking one object re-resolves the request with `hits`
+## **Select ▸** (desktop/tablet card only, for now). Picking one object
+## re-resolves the request with `hits`
 ## narrowed to that one object and `all_hits` keeping the full list, so every
 ## provider's rows are about the picked object and the card can still list the
 ## rest. Nothing above this section had to change for it: a provider reads
@@ -220,6 +224,17 @@ func _present_phone(req: Dictionary, all_actions: Array) -> void:
 	last_actions = actions
 	if actions.is_empty():
 		return
+	## CM-5: the peek/half sheet, the phone's own noun surface since Ruling
+	## AX F1. `on_dismiss` clears `map_overlay.gd`'s sample pin whenever the
+	## sheet closes by the user's own action (never on a mere re-resolve --
+	## `PhoneMenu.close()` skips the callback for exactly that reason).
+	if app.has_method("phone_present_peek_card"):
+		var overlay = app.viewport.overlay if app.viewport != null else null
+		var on_dismiss := func() -> void:
+			if overlay != null:
+				overlay.clear_sample_pin()
+		if bool(app.phone_present_peek_card(req, actions, reselect, on_dismiss)):
+			return
 	if popup == null:
 		popup = PopupMenu.new()
 		DccWidgets.style_popup(popup)
