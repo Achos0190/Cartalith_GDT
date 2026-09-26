@@ -3184,6 +3184,56 @@ func context_actions(req: Dictionary) -> Array:
 		rows.append(undo_row)
 		rows.append({"id": "world.sculpt_discard", "label": "Discard sculpt draft", "section": "draft",
 			"enabled": true, "danger": true, "callable": _on_sculpt_discard})
+	## §4.3's Sculpt-stamp Object row (**P** + **E-small**, `MAP_CONTEXT_SCOPE.md`
+	## §9.2's cheapest-after-landmark/route pick): the stamp under the cursor,
+	## by its own captured polyline (`sculpt_stamp_points`, the bound accessor
+	## this pass added) buffered by its own captured brush radius
+	## (`sculpt_list_stamps`'s `globals.brush_size`, already **B**). Not one of
+	## `map_overlay.gd`'s `hits[]` -- like CIVIL's route pick, it runs locally
+	## over `req.gx`/`req.gy`.
+	var stamp_hit := _stamp_hit(gx, gy)
+	if stamp_hit >= 0:
+		var srow := _stamp_row(stamp_hit)
+		if not srow.is_empty():
+			var slabel := String(srow.get("label", "stamp"))
+			var shidden := bool(srow.get("hidden", false))
+			## Every row below prefers `right_dock_ctrl`'s own `_on_stamp_*`
+			## handler over calling `bridge` directly -- same "reuse the exact
+			## call the dock control already makes" rule this file's own
+			## `world.sculpt_undo` row follows a few lines up, and it matters
+			## here specifically: those handlers also call `show_sculpt_stack()`,
+			## which is how the right dock's own stamp-stack list (when open)
+			## picks up a hide/reorder/delete made from the card instead of it.
+			rows.append({"id": "world.stamp_select", "label": "Select %s" % slabel, "section": "object",
+				"enabled": true, "callable": func() -> void:
+					if app.right_dock_ctrl.has_method("_on_stamp_select"):
+						app.right_dock_ctrl._on_stamp_select(stamp_hit)
+					else:
+						bridge.sculpt_select_stamp(stamp_hit)})
+			rows.append({"id": "world.stamp_hide", "label": ("Show %s" if shidden else "Hide %s") % slabel,
+				"section": "object", "enabled": true, "callable": func() -> void:
+					if app.right_dock_ctrl.has_method("_on_stamp_toggle_hidden"):
+						app.right_dock_ctrl._on_stamp_toggle_hidden(stamp_hit, shidden)
+					else:
+						bridge.sculpt_set_stamp_hidden(stamp_hit, not shidden)})
+			rows.append({"id": "world.stamp_up", "label": "Move %s up" % slabel, "section": "object",
+				"enabled": true, "callable": func() -> void:
+					if app.right_dock_ctrl.has_method("_on_stamp_move_up"):
+						app.right_dock_ctrl._on_stamp_move_up(stamp_hit)
+					else:
+						bridge.sculpt_move_stamp_up(stamp_hit)})
+			rows.append({"id": "world.stamp_down", "label": "Move %s down" % slabel, "section": "object",
+				"enabled": true, "callable": func() -> void:
+					if app.right_dock_ctrl.has_method("_on_stamp_move_down"):
+						app.right_dock_ctrl._on_stamp_move_down(stamp_hit)
+					else:
+						bridge.sculpt_move_stamp_down(stamp_hit)})
+			rows.append({"id": "world.stamp_delete", "label": "Delete %s" % slabel, "section": "object",
+				"enabled": true, "danger": true, "callable": func() -> void:
+					if app.right_dock_ctrl.has_method("_on_stamp_delete"):
+						app.right_dock_ctrl._on_stamp_delete(stamp_hit)
+					else:
+						bridge.sculpt_delete_stamp(stamp_hit)})
 	var dabs := bridge.paint_draft_count()
 	if dabs > 0:
 		rows.append({"id": "world.paint_commit", "label": "Commit %d paint dab%s" % [dabs, "" if dabs == 1 else "s"],
@@ -3266,6 +3316,42 @@ func _eyedropper_row(gx: float, gy: float) -> Dictionary:
 					if _paint_layer != "biome":
 						_on_paint_layer_changed(li, layers)
 					_on_paint_value_picked_from_dock(idx)}
+	return {}
+
+## `MAP_CONTEXT_SCOPE.md` §9.2's stamp pick: the topmost draft stamp whose own
+## captured stroke polyline (`sculpt_stamp_points`, grid coords) passes within
+## its own captured brush radius (`globals.brush_size / 2`, already in
+## `sculpt_list_stamps`' `globals` dict) of `(gx, gy)`. `sculpt_list_stamps`
+## itself is newest-first, which the reference's own stack always reads
+## top-down, so the first match found IS the topmost -- no separate z-order
+## to track. `-1` for no draft, no hit, or before any `generate()` call.
+func _stamp_hit(gx: float, gy: float) -> int:
+	if bridge.sculpt_stamp_count() <= 0:
+		return -1
+	var p := Vector2(gx, gy)
+	for row in bridge.sculpt_list_stamps():
+		var idx := int((row as Dictionary).get("index", -1))
+		if idx < 0:
+			continue
+		var pts: PackedVector2Array = bridge.sculpt_stamp_points(idx)
+		if pts.is_empty():
+			continue
+		var globals_dict: Dictionary = row.get("globals", {})
+		var radius := float(globals_dict.get("brush_size", 0.0)) * 0.5
+		if radius <= 0.0:
+			continue
+		if Workspace.point_to_polyline_distance(p, pts) <= radius:
+			return idx
+	return -1
+
+## `_stamp_hit`'s own row from `sculpt_list_stamps()` -- re-fetched rather
+## than threaded through, so a row built one card-open ago (before an
+## intervening reorder or delete) is never shown against a stale index.
+## `{}` for an index no longer on the draft.
+func _stamp_row(index: int) -> Dictionary:
+	for row in bridge.sculpt_list_stamps():
+		if int((row as Dictionary).get("index", -1)) == index:
+			return row
 	return {}
 
 ## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming

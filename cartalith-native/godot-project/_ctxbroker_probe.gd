@@ -237,16 +237,22 @@ func _run() -> void:
 	await _frames(4)
 	await _rmb(ov, _pos_of(ov, k))
 	var rows_a := _dump("A_civ_settlement")
-	_ok("A five rows plus two separators", rows_a.size(), 7)
+	## CX-01's five rows plus CM-7's CM-2-residual additions (`MAP_CONTEXT_
+	## SCOPE.md` §11 CM-7): Open city layout… (object) and Start way/route
+	## here (place). Ten rows, three separators.
+	_ok("A eight rows plus two separators", rows_a.size(), 10)
 	_ok("A row order", rows_a, [
-		"Edit %s" % sname, "Move viewer to %s" % sname, "Delete %s" % sname, "----",
-		"Drop settlement here", "----", "Info here (settlement & ecology)"])
+		"Edit %s" % sname, "Move viewer to %s" % sname,
+		"Open city layout for %s…" % sname, "Delete %s" % sname, "----",
+		"Drop settlement here", "Start way here", "Start route here", "----",
+		"Info here (settlement & ecology)"])
 
 	# -- B ------------------------------------------------------------------
 	await _hide_popups()
 	await _rmb(ov, _empty_pos(ov))
 	var rows_b := _dump("B_civ_empty")
-	_ok("B row order", rows_b, ["Drop settlement here", "----", "Info here (settlement & ecology)"])
+	_ok("B row order", rows_b, ["Drop settlement here", "Start way here",
+		"Start route here", "----", "Info here (settlement & ecology)"])
 
 	# -- C ------------------------------------------------------------------
 	await _hide_popups()
@@ -255,7 +261,11 @@ func _run() -> void:
 	var n_before: int = bridge.settlements().size()
 	await _hold(ov, _pos_of(ov, k))
 	var rows_c := _dump("C_civ_touch_hold")
-	_ok("C the hold opened the same rows as A", rows_c, rows_a)
+	## Settlement is armed for this leg, so CM-7's settlement-class Tool
+	## param row is also on screen, ahead of A's own rows -- A itself runs
+	## with no tool armed and does not see it.
+	_ok("C the hold opened the same rows as A, plus the armed Class row",
+		rows_c, ["Class", "----"] + rows_a)
 	await _lift(ov, _pos_of(ov, k))
 	_ok("C the withheld press never dropped a settlement", bridge.settlements().size(), n_before)
 	app.arm_tool("inspect")

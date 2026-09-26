@@ -170,6 +170,25 @@ func _floor_applies() -> bool:
 func floor_category() -> String:
 	return ""
 
+## The shortest distance from `p` to the polyline `pts` (grid-space, either
+## coordinate system as long as both arguments share one) -- a single point
+## is a zero-length "segment" from itself to itself, which the loop below
+## already degenerates to correctly rather than needing a special case.
+## Empty `pts` is an infinite distance (a miss, never a false hit).
+##
+## Shared by CIVIL's route pick and WORLD's sculpt-stamp pick
+## (`MAP_CONTEXT_SCOPE.md` §9.2), so the two card providers hit-test a
+## captured polyline the same way rather than each carrying their own copy.
+static func point_to_polyline_distance(p: Vector2, pts: PackedVector2Array) -> float:
+	if pts.is_empty():
+		return INF
+	if pts.size() == 1:
+		return p.distance_to(pts[0])
+	var best := INF
+	for i in pts.size() - 1:
+		best = minf(best, Geometry2D.get_closest_point_to_segment(p, pts[i], pts[i + 1]).distance_to(p))
+	return best
+
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b

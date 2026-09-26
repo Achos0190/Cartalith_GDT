@@ -280,12 +280,21 @@ func _run() -> void:
 	# -- A ------------------------------------------------------------------------
 	await _rmb(ov, _pos_of(ov, _k))
 	_dump("A_civ_settlement")
+	## CX-01's original five rows, plus CM-7's CM-2-residual additions
+	## (`MAP_CONTEXT_SCOPE.md` §11 CM-7): Open city layout… (object, right
+	## after Move viewer to) and Start way/route here (place, right after
+	## Drop settlement here). CX-01's own five are unchanged in text, order
+	## and section among themselves -- this list only has three more rows
+	## interleaved, which is this milestone's own regression test for CM-1/
+	## CM-2, not a new one.
 	var want_a := [
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
+		"Open city layout for %s… [OBJECT]" % _sname,
 		"Delete %s [OBJECT]" % _sname, "Drop settlement here [PLACE HERE]",
+		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
 		"Info here (settlement & ecology) [INFO]"]
 	var rows_a := _civ_rows()
-	_ok("A CX-01's five rows: text, order, section, enabled", rows_a, want_a)
+	_ok("A CX-01's five rows + CM-7's three: text, order, section, enabled", rows_a, want_a)
 	var titles: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
 	var cls := String(bridge.settlements()[_k].get("kind", ""))
 	_ok("A the header names the settlement and its class",
@@ -317,7 +326,8 @@ func _run() -> void:
 	await _rmb(ov, epos)
 	_dump("B_civ_empty")
 	_ok("B CIVIL on an empty cell", _civ_rows(),
-		["Drop settlement here [PLACE HERE]", "Info here (settlement & ecology) [INFO]"])
+		["Drop settlement here [PLACE HERE]", "Start way here [PLACE HERE]",
+			"Start route here [PLACE HERE]", "Info here (settlement & ecology) [INFO]"])
 	var hb: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
 	_ok("B a bare cell's header is 'Here'", String(hb[0]["text"]) if not hb.is_empty() else "", "Here")
 	await _close()
@@ -335,7 +345,13 @@ func _run() -> void:
 	await get_tree().create_timer(0.8).timeout
 	await _frames(2)
 	_dump("C_civ_touch_hold")
-	_ok("C the hold opened A's rows", _civ_rows(), want_a)
+	## Settlement is armed for this leg (to reach PH-02's touch-hold path on
+	## the settlement tool below), so CM-7's settlement-class Tool param row
+	## (`MAP_CONTEXT_SCOPE.md` §11 CM-7's CM-2-residual addition) is also on
+	## screen here, ahead of `want_a`'s own rows -- A itself runs with no
+	## tool armed and does not see it.
+	var want_c: Array = ["Class [TOOL · SETTLEMENT] {param}"] + want_a
+	_ok("C the hold opened A's rows", _civ_rows(), want_c)
 	var lift := hold.duplicate()
 	lift.pressed = false
 	ov._gui_input(lift)

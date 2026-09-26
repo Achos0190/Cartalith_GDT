@@ -650,10 +650,12 @@ func context_actions(req: Dictionary) -> Array:
 	var gx: float = req["gx"]
 	var gy: float = req["gy"]
 	var hit := -1
+	var landmark_hit := -1
 	for h in req.get("hits", []):
-		if h["kind"] == "settlement":
+		if h["kind"] == "settlement" and hit < 0:
 			hit = int(h["id"])
-			break
+		elif h["kind"] == "landmark" and landmark_hit < 0:
+			landmark_hit = int(h["id"])
 	var rows: Array = []
 	if hit >= 0:
 		var s: Dictionary = bridge.settlements()[hit]
@@ -664,13 +666,175 @@ func context_actions(req: Dictionary) -> Array:
 			"enabled": true, "header": head, "callable": _run_ctx.bind(0, hit, gx, gy)})
 		rows.append({"id": "civ.move_viewer", "label": "Move viewer to %s" % nm, "section": "object",
 			"enabled": true, "header": head, "callable": _run_ctx.bind(1, hit, gx, gy)})
+		## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §4.3 CIVIL row 2): the reference
+		## has no city-layout screen, so this is new-port surface, not a ported
+		## verb -- `app.open_city_viewer` is the same call the left dock's own
+		## settlement row already makes.
+		rows.append({"id": "civ.open_city_layout", "label": "Open city layout for %s…" % nm, "section": "object",
+			"enabled": true, "header": head, "callable": _run_ctx.bind(5, hit, gx, gy)})
 		rows.append({"id": "civ.delete", "label": "Delete %s" % nm, "section": "object",
 			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy)})
+	## §4.3's Landmark row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 1): the hit
+	## itself is already `map_overlay.gd::hits_at`'s own "landmark" kind (CM-1
+	## put it there for the hover/select pair, and a multi-hit hit list makes
+	## no distinction between a hover pick and this one) -- so CM-7 only adds
+	## the card row, no new pick. "Why here?" is the placement funnel
+	## (`landmark_funnels()`, already **B**); this reads it into the status
+	## line rather than opening a second floating popover, the same choice
+	## CX-01's own "Info here" row already made for the same reason.
+	if landmark_hit >= 0:
+		var lms := bridge.landmarks()
+		if landmark_hit < lms.size():
+			var lm: Dictionary = lms[landmark_hit]
+			var lname := String(lm.get("kind", "landmark")).capitalize()
+			rows.append({"id": "civ.landmark_inspect", "label": "Inspect %s" % lname, "section": "object",
+				"enabled": true, "callable": _inspect_landmark.bind(lm)})
+			rows.append({"id": "civ.landmark_why", "label": "Why here?", "section": "object",
+				"enabled": true, "callable": _landmark_why_here.bind(lm)})
+	## §4.3's Route row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 2): point-to-
+	## polyline distance over `route_get(i).points`, in GDScript -- routes are
+	## few, so a linear scan every open is cheap. Not carried in `map_overlay.
+	## gd`'s `hits[]` (that file is another lane's; see this pass's own report
+	## for the exact addition it would need), so this pick runs locally over
+	## `req.gx`/`req.gy` instead, the same way WORLD's eyedropper row already
+	## does its own cell read without a `hits[]` entry.
+	var route_hit := _route_hit(gx, gy)
+	if route_hit >= 0:
+		var r := bridge.route_get(route_hit)
+		## `route_get` always carries a `name` key -- blank until
+		## `route_set_name` is called (`infrastructure_workspace.gd`'s own
+		## `_manual_route_row` placeholder text) -- so `.get()`'s own default
+		## never fires; the blank has to be caught explicitly, the same
+		## "Journey %d" fallback that dock row already shows.
+		var rname := String(r.get("name", ""))
+		if rname.is_empty():
+			rname = "Journey %d" % (route_hit + 1)
+		rows.append({"id": "civ.route_open_planner", "label": "Open “%s” in Journey Planner" % rname,
+			"section": "object", "enabled": true,
+			"callable": func() -> void: app.open_journey_planner_with_route(route_hit)})
+		rows.append({"id": "civ.route_delete", "label": "Delete “%s”" % rname, "section": "object",
+			"enabled": true, "danger": true, "callable": _delete_route_ctx.bind(route_hit)})
 	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
 		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
+	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
+	## moment the tool arms (`_on_infra_tool_armed`), so "start … here" is arm
+	## then place the first point at this cell -- exactly `_settlement_click`'s
+	## own two-step shape for "Drop settlement here" above, over `_infra`'s
+	## click handlers rather than duplicating them.
+	rows.append({"id": "civ.start_way", "label": "Start way here", "section": "place",
+		"enabled": true, "callable": func() -> void:
+			app.arm_tool("way")
+			_infra._way_click(gx, gy)})
+	rows.append({"id": "civ.start_route", "label": "Start route here", "section": "place",
+		"enabled": true, "callable": func() -> void:
+			app.arm_tool("route")
+			_infra._route_click(gx, gy)})
 	rows.append({"id": "civ.info_here", "label": "Info here (settlement & ecology)", "section": "info",
 		"enabled": true, "callable": _run_ctx.bind(4, hit, gx, gy)})
+	## CM-2 residual (§4.3 CIVIL Draft row): shown while Territory is the armed
+	## tool -- there is no bound territory-draft cell count to gate on the way
+	## Sculpt/Paint's own draft rows do (`civ_territory_paint_at`/`_polygon`
+	## stage into `CivTools`' own draft with no `#[func]` that reports its
+	## size), so this follows the tool-options row's OWN rule instead: Commit
+	## and Discard are always offered while Territory is armed, committing or
+	## discarding "nothing" being the documented no-op both engine calls
+	## already have.
+	if String(req.get("armed_tool", "")) == "territory":
+		rows.append({"id": "civ.territory_commit", "label": "Commit territory", "section": "draft",
+			"enabled": true, "callable": _commit_territory})
+		rows.append({"id": "civ.territory_discard", "label": "Discard territory draft", "section": "draft",
+			"enabled": true, "danger": true, "callable": _discard_territory})
+	## CM-2 residual (§4.3 CIVIL Tool row): the settlement-class param, mirrors
+	## `_tool_options_settlement`'s own `Class` choice over the same
+	## `KIND_ORDER`/`_settlement_kind` state, so arming from the ring, the
+	## options bar or this row all agree.
+	if String(req.get("armed_tool", "")) == "settlement":
+		rows.append({"id": "civ.settlement_class", "label": "Class", "section": "tool", "enabled": true,
+			"param": {"value": func() -> String: return String(_settlement_kind).capitalize(),
+				"step": _step_settlement_class}})
 	return rows
+
+## Cycles `_settlement_kind` through `KIND_ORDER`, wrapping -- the card's own
+## step convention (`world_workspace.gd::_step_paint_radius` and friends).
+func _step_settlement_class(dir: int) -> void:
+	var i := KIND_ORDER.find(_settlement_kind)
+	if i < 0:
+		i = 0
+	i = (i + dir) % KIND_ORDER.size()
+	if i < 0:
+		i += KIND_ORDER.size()
+	_settlement_kind = KIND_ORDER[i]
+
+## The honest readout CX-01's own "Info here" row already chose over a second
+## floating panel: this landmark's kind/class/importance/causal chain, into
+## the status line. `lm` is one `landmarks()` row.
+func _inspect_landmark(lm: Dictionary) -> void:
+	var causal: Array = lm.get("causal", [])
+	var why := (" — " + ", ".join(causal)) if not causal.is_empty() else ""
+	app.set_status("hint",
+		"%s (%s) — elevation %.2f, importance %.2f%s." % [
+			String(lm.get("kind", "landmark")).capitalize(),
+			String(lm.get("class", "local")),
+			float(lm.get("elevation", 0.0)),
+			float(lm.get("importance", 0.0)),
+			why],
+		"text_ghost")
+
+## This landmark's kind's placement funnel (`landmark_funnels()`, **B**), read
+## into the status line rather than the dock's anchored popover
+## (`_lm_open_funnel`), which needs a dock row's own `Control` to anchor
+## against and has none here.
+func _landmark_why_here(lm: Dictionary) -> void:
+	var kind := String(lm.get("kind", ""))
+	for f in bridge.landmark_funnels():
+		if String((f as Dictionary).get("kind", "")) == kind:
+			app.set_status("hint",
+				"%s: placed %d of %d candidates (cap %d) — %s. Rejected: %d by constraint, %d by score, %d by spacing, %d at cap." % [
+					kind.capitalize(), int(f.get("placed", 0)), int(f.get("candidates", 0)),
+					int(f.get("cap", 0)), String(f.get("limit", "")),
+					int(f.get("rejected_constraint", 0)), int(f.get("rejected_score", 0)),
+					int(f.get("rejected_spacing", 0)), int(f.get("rejected_cap", 0))],
+				"text_ghost")
+			return
+	app.set_status("hint", "No placement funnel recorded for %s -- run the landmark pass again." % kind.capitalize(), "text_ghost")
+
+## `MAP_CONTEXT_SCOPE.md` §9.2 row 2's route pick: the nearest committed
+## route whose polyline passes within a small screen-pixel tolerance of
+## `(gx, gy)`, or `-1`. `label_px_per_cell()` converts that tolerance into
+## grid units so it stays a constant few pixels regardless of zoom, the same
+## reason `HOVER_RADIUS_PAD` (`map_overlay.gd`) is a pixel constant rather
+## than a grid one; `6.0` is `HOVER_RADIUS_PAD` (4px) plus a little slack for
+## a route's own thin drawn stroke width. Falls back to a fixed 1.5-cell
+## tolerance with no world displayed to measure a pixel-per-cell ratio from
+## (`label_px_per_cell()` returns `0.0` then), so a probe with no viewport
+## on screen can still exercise this.
+const ROUTE_HIT_PX := 6.0
+func _route_hit(gx: float, gy: float) -> int:
+	var n := bridge.route_count()
+	if n <= 0:
+		return -1
+	var ppc := 0.0
+	if app.viewport != null and app.viewport.overlay != null and app.viewport.overlay.has_method("label_px_per_cell"):
+		ppc = app.viewport.overlay.label_px_per_cell()
+	var tol := ROUTE_HIT_PX / ppc if ppc > 0.0 else 1.5
+	var p := Vector2(gx, gy)
+	var best := -1
+	var best_d := INF
+	for i in n:
+		var r := bridge.route_get(i)
+		var pts: PackedVector2Array = r.get("points", PackedVector2Array())
+		var d := Workspace.point_to_polyline_distance(p, pts)
+		if d <= tol and d < best_d:
+			best_d = d
+			best = i
+	return best
+
+func _delete_route_ctx(index: int) -> void:
+	if not bridge.route_delete(index):
+		return
+	if app.viewport != null and app.viewport.has_method("refresh_annotations"):
+		app.viewport.refresh_annotations()
+	_infra._refresh_manual_routes()
 
 ## The row's context, restored exactly as `on_map_right_clicked` used to leave
 ## it before the menu opened, then the same arm of `_on_ctx_id`.
@@ -722,6 +886,12 @@ func _on_ctx_id(id: int) -> void:
 				app.set_status("hint",
 					"Nothing here. This cell's readings are in the Sample panel (right dock) — biome included. On a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), Biome reads — there; that world's imported settlements, labels and icons stay drawn and editable, and regenerating would replace them with a new world's rather than restore what is missing. Wildlife appears in the same dock while Layers ▸ Wildlife is the drawn view.",
 					"text_ghost")
+		5:
+			## CM-2 residual: the same call the left dock's own settlement row
+			## makes (`app.open_city_viewer`, `PARITY_AUDIT.md` §5 item 3's
+			## sibling). New-port surface -- the reference has no city-layout
+			## screen for this to port.
+			app.open_city_viewer(_ctx_hit)
 
 ## `MAP_CONTEXT_SCOPE.md` CM-3's ring, CIVIL's four diagonals (§5.1). Matches
 ## `design/map-context-2026-09-25/Main.dc.html`'s `DIAG.civil` table.

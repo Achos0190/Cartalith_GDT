@@ -2224,6 +2224,15 @@ func sculpt_list_stamps() -> Array:
 		return []
 	return world_gen.sculpt_list_stamps()
 
+## `MAP_CONTEXT_SCOPE.md` §9.2's stamp pick bound accessor: the stamp's own
+## captured stroke polyline (grid coordinates), which `sculpt_list_stamps`'
+## `point_count` cannot answer. Read-only -- selects nothing. Empty for an
+## out-of-range index or before any `generate()` call.
+func sculpt_stamp_points(index: int) -> PackedVector2Array:
+	if not _has("sculpt_stamp_points"):
+		return PackedVector2Array()
+	return world_gen.sculpt_stamp_points(index)
+
 func sculpt_get_selected_stamp() -> int:
 	if not _has("sculpt_get_selected_stamp"):
 		return -1

@@ -4239,6 +4239,62 @@ fn globals_dict(g: &cartalith_terrain::sculpt::SculptGlobals) -> VarDictionary {
     out
 }
 
+/// `sculpt_stamp_points`'s own body, extracted so it is testable without
+/// constructing `WorldGen` (`MISTAKES.md`: `WorldGen` is a cdylib
+/// `GodotClass` and cannot be built in a unit test) -- `SculptEditor` and
+/// `PassBuffer` are both free of any `godot` dependency, so this can take
+/// the editor directly. Empty for an out-of-range index.
+fn stamp_points_grid(s: &sculpt_bridge::SculptEditor, index: usize) -> Vec<cartalith_terrain::sculpt::Point> {
+    s.draft.entries().get(index).map(|e| e.stamp.points.clone()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod stamp_points_grid_tests {
+    use super::*;
+    use cartalith_terrain::sculpt::{Feature, Point, SculptStamp};
+
+    fn editor_with_one_stamp(points: Vec<Point>) -> sculpt_bridge::SculptEditor {
+        let mut ed = sculpt_bridge::SculptEditor::new(64, 64, None, None, 1);
+        let feature = Feature::Mountains;
+        let stamp = SculptStamp::new(feature, ed.seed, points, 0.0);
+        ed.draft.push(stamp);
+        ed
+    }
+
+    /// Built from real geometry -- a three-point stroke -- so the pick
+    /// actually has something to hit-test against, and the literal
+    /// coordinates are asserted rather than round-tripped through the
+    /// stamp: mutating the field this reads (`SculptStamp::points`) or the
+    /// index math (`entries().get(index)`) must turn this red.
+    #[test]
+    fn returns_the_stamps_own_polyline_at_its_draft_index() {
+        let pts = vec![Point::new(3.0, 4.0), Point::new(5.5, 6.5), Point::new(9.0, 1.0)];
+        let ed = editor_with_one_stamp(pts.clone());
+        let got = stamp_points_grid(&ed, 0);
+        assert_eq!(got.len(), 3);
+        assert_eq!(got[0], Point::new(3.0, 4.0));
+        assert_eq!(got[1], Point::new(5.5, 6.5));
+        assert_eq!(got[2], Point::new(9.0, 1.0));
+    }
+
+    #[test]
+    fn out_of_range_index_is_empty_not_a_panic() {
+        let ed = editor_with_one_stamp(vec![Point::new(0.0, 0.0)]);
+        assert_eq!(stamp_points_grid(&ed, 1), Vec::<Point>::new());
+        assert_eq!(stamp_points_grid(&ed, 999), Vec::<Point>::new());
+    }
+
+    /// A tap (one point) is a legal stroke, not a miss -- `sculpt_stamp_
+    /// points`'s own doc comment. Distinguishes "empty because out of
+    /// range" from "one point because that's what was drawn".
+    #[test]
+    fn a_one_point_tap_returns_one_point_not_empty() {
+        let ed = editor_with_one_stamp(vec![Point::new(12.0, 8.0)]);
+        let got = stamp_points_grid(&ed, 0);
+        assert_eq!(got, vec![Point::new(12.0, 8.0)]);
+    }
+}
+
 /// Applies a `Dictionary` of key -> value through `set_one`, collecting
 /// `{rejected, clamped}` the same way `set_params` does for generation
 /// parameters. Shared by `sculpt_set_globals` and `sculpt_set_feature_params`
@@ -10471,6 +10527,25 @@ impl WorldGen {
                 }
             })
             .collect()
+    }
+
+    /// A stamp's captured stroke polyline, in grid coordinates -- the one
+    /// thing `sculpt_list_stamps` cannot answer (its own doc comment:
+    /// `point_count`, not the points). This is `MAP_CONTEXT_SCOPE.md` §9.2's
+    /// stamp pick's bound accessor: a shell hit-tests the cursor against
+    /// this polyline (buffered by the stamp's own `globals.brush_size`,
+    /// already in `sculpt_list_stamps`' `globals` dict) to find the stamp
+    /// under it, the same "read-only, selects nothing" contract
+    /// `label_pick_all`/`icon_pick_all` follow. `index` is the same live
+    /// draft index `sculpt_list_stamps`/`sculpt_select_stamp`/`sculpt_
+    /// delete_stamp` share. Empty for an out-of-range index or before any
+    /// `generate()` call. A single-point stroke (a tap) returns one point,
+    /// which the caller treats as a zero-length polyline -- not a miss.
+    #[func]
+    fn sculpt_stamp_points(&self, index: i32) -> PackedVector2Array {
+        let Some(s) = self.sculpt.as_ref() else { return PackedVector2Array::new() };
+        let Ok(i) = usize::try_from(index) else { return PackedVector2Array::new() };
+        stamp_points_grid(s, i).iter().map(|p| Vector2::new(p.x as f32, p.y as f32)).collect()
     }
 
     /// The stamp a single-selection operation acts on -- the selection set's
