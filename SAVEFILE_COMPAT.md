@@ -309,6 +309,7 @@ rasters/                              one value per grid cell — see §8
   river_intensity.f32         MAY     │
   river_mask.u8               MAY     │
   river_floor.f32             MAY     ┘
+  forced_lakes.u8             MAY       Ruling BO, since 2026-09-28
 
 entities/                             discrete, id-bearing things — see §9
   settlements.json            MAY
@@ -778,6 +779,7 @@ world. A reader MUST compare the entry's uncompressed length against
 | `rasters/provinces.i32` | i32 | MAY | Province id per cell. `0` = no province. Ids match `entities/provinces.json`. | Province cells unknown. `entities/provinces.json`'s list still restores; a reader MUST NOT substitute a grid of `0` (that says "no cell is in any province") nor write one back on re-save, and SHOULD report the absence. This implementation warns on open and rebuilds the raster at the next territory edit (2026-09-26). |
 | `rasters/water_bodies.u8` | u8 | MAY | `0` = land, `1` = ocean, `2` = lake. | Absent. A reader that needs it MUST recompute it from `heightmap` and `sea_level` rather than assume land. |
 | `rasters/agrarian_density.f32` | f32 | MAY | Carrying-capacity density used by population simulation. | Absent. |
+| `rasters/forced_lakes.u8` | u8 | MAY | Ruling BO (2026-09-28): `1` on every cell the user counted as lake with *Count painted lakes as water* (the reference's `forceLake`), `0` elsewhere. A reader applies it over the classification it draws from `heightmap` and `rainfall`: every `1` cell is lake whatever that classification says. Written only when at least one cell is forced. | Nothing is forced. An archive written before 2026-09-28 carries no mask: a lake forced then survives only inside `water_bodies.u8`, where it cannot be told apart from a cell that copy went stale on after a sculpt, so it is **not** migrated -- it keeps its civ-layer classification and is not drawn until forced again. A member that is not a `u8` grid of the world's size MUST be dropped with a warning, never applied. |
 
 The fourteen world-substrate rasters (`flow_discharge.f32` through
 `river_floor.f32`) are §8.3's; they are MAY individually and mean nothing
@@ -1515,7 +1517,18 @@ year is not listed in `timeline.json` MUST be ignored.
 }
 ```
 
-`x`/`y` are fractional grid coordinates. `angle` is the baseline rotation in
+`x`/`y` are fractional grid coordinates: the **point** the label is drawn at,
+where cell `(i, j)` spans `[i, i + 1) x [j, j + 1)` and its centre is
+`(i + 0.5, j + 0.5)`. This implementation has always written hand-placed labels
+in that frame (the click point), so no stored label is migrated. Two producers
+that are not saved here did not use it until 2026-09-28 and were corrected at
+the source: generated labels (anchored at a cell's corner, half a cell up and
+left of their feature; they are re-run, never saved) and the flat-layout
+import (§15), whose reference stores `state.labels` in the frame it draws at
+`x + 0.5` -- the importer now adds the half cell. A project saved from a flat
+import before that date carries those labels half a cell up and left, and
+nothing in the document distinguishes them from hand-placed ones, so they are
+not migrated. `angle` is the baseline rotation in
 radians. `arc` bends the baseline; `0` is straight. `size` is the type size.
 `font` and `color` are `null` for "use the renderer's default" — a reader MUST
 NOT substitute a concrete default on load, because doing so would freeze

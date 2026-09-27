@@ -415,7 +415,9 @@ impl WorldGen {
         // v0.103's above-sea lakes: the same classification `build_color_texture`
         // attaches, so an exported PNG shows the lakes the screen shows (this
         // path had none until 2026-09-24, `OUTSTANDING_WORK.md` §2.5).
-        let lakes = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification;
+        let mut lakes = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification;
+        // Ruling BO: the screen's forced lakes too, so the PNG shows them.
+        crate::apply_forced_lakes(&mut lakes, self.forced_lake_mask());
         let mut ctx = RenderCtx::with_appearance(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);

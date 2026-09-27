@@ -3023,9 +3023,9 @@ func _build_force_lake_row(parent: Control) -> void:
 	DccWidgets.note(grp,
 		"Reclassifies every cell a Lake stamp has deposited as a lake, whether or not its " +
 		"floor ended up below sea level or its basin catches enough rain to pool -- the " +
-		"reference's own forceLake semantic. Affects settlement placement, routing, trade and " +
-		"the Journey Planner, which all read the water-body classification. It does not touch " +
-		"the height field, marks nothing stale, and is undone by the next full civ recompute.")
+		"reference's own forceLake semantic. The map draws them as water, and settlement " +
+		"placement, routing, trade and the Journey Planner read them as water; they are saved " +
+		"with the project and kept by a civ recompute. It does not touch the height field.")
 	var live := bridge._has("apply_force_lake")
 	var btn := DccWidgets.action(grp, "Count painted lakes as water", _on_force_lake)
 	btn.disabled = not live
@@ -3041,6 +3041,14 @@ func _on_force_lake() -> void:
 	if not bool(r.get("ok", false)):
 		app.set_status("hint", "Painted lakes: %s" % String(r.get("reason", "unavailable")), "accent")
 		return
+	## Ruling BO: a forced lake is drawn water now, so the map must be
+	## repainted -- the same two camera-preserving calls `_on_sculpt_commit`
+	## makes: the base texture (which also rebuilds the shore field and the
+	## river mask through `color_texture_rebuilt`) and the LOD tiles, whose
+	## cache key moved with the press (`forced_lakes_epoch`). Without them the
+	## lake would be real only after the next unrelated repaint.
+	app.viewport.map_view.texture = bridge.color_texture()
+	app.viewport.invalidate_lod_tiles()
 	var forced := int(r.get("forced", 0))
 	app.set_status("hint",
 		("Painted lakes: every stamped cell was already water." if forced == 0

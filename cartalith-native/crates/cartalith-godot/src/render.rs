@@ -8897,6 +8897,12 @@ pub struct TileFields<'a> {
     /// it; without it the lake branch falls back to the reference's own
     /// nearest-cell stamp, which is what draws square lakes.
     lake_fill: Cow<'a, [f32]>,
+    /// Ruling BO's forced-lake mask (`WorldGen::forced_lakes`), already
+    /// applied to `lake_class` by [`Self::with_forced_lakes`], kept so the
+    /// smooth band draws a forced lake's edge the way the base map's shore
+    /// field does (`shore_depth_forced`). **Empty by construction** -- a
+    /// world with no forced lake -- and the consumer tests the length.
+    lake_forced: Cow<'a, [u8]>,
     /// The river ink `build_color_texture` composites over its own raster.
     /// `None` renders the terrain alone.
     ink: Option<RiverInk<'a>>,
@@ -8976,6 +8982,7 @@ impl<'a> TileFields<'a> {
             grade_influence: Cow::Owned(grade_influence),
             lake_class: Cow::Owned(wb.classification),
             lake_fill: Cow::Owned(wb.fill_level),
+            lake_forced: Cow::Borrowed(&[]),
             ink: None,
             // LOD-D4 is **opt-in here and not built by `new`**, on the same
             // argument `with_ink` and `with_lithology` already make: the
@@ -9011,6 +9018,9 @@ impl<'a> TileFields<'a> {
             grade_influence: Cow::Borrowed(&self.grade_influence),
             lake_class: Cow::Borrowed(&self.lake_class),
             lake_fill: Cow::Borrowed(&self.lake_fill),
+            // Carried with the classification it was applied to: dropping it
+            // would leave the forced cells lake with no edge to draw.
+            lake_forced: Cow::Borrowed(&self.lake_forced),
             ink: None,
             // Carried, not dropped: the cached `TileFields` is the only place
             // the glacier field is built, and a re-pointed borrow that lost
@@ -9063,6 +9073,29 @@ impl<'a> TileFields<'a> {
     pub fn without_lakes(mut self) -> Self {
         self.lake_class = Cow::Borrowed(&[]);
         self.lake_fill = Cow::Borrowed(&[]);
+        self.lake_forced = Cow::Borrowed(&[]);
+        self
+    }
+
+    /// **Ruling BO: draw forced lakes in the tiles.** Applies `mask`
+    /// (`WorldGen::forced_lakes`) to this field's classification -- the
+    /// reference's `forceLake` post-pass, `apply_forced_lakes` -- and
+    /// keeps it for the smooth band's forced edge (`shore_depth_forced`), so
+    /// a tile draws exactly the water the base map draws.
+    ///
+    /// A builder, like [`Self::with_cryo`], because [`Self::new`] takes a
+    /// `RenderCtx` and the mask is `WorldGen` state no context carries; not
+    /// calling it is the no-forced-lake state, which is why every existing
+    /// caller stays byte-identical. A mask that is not `gw * gh` long, or a
+    /// field whose lakes are off ([`Self::without_lakes`]), is left alone --
+    /// forcing into an empty classification would index past it.
+    #[allow(dead_code)]
+    pub fn with_forced_lakes(mut self, mask: &[u8]) -> Self {
+        let n = self.gw * self.gh;
+        if mask.len() == n && self.lake_class.len() == n {
+            apply_forced_lakes(self.lake_class.to_mut(), Some(mask));
+            self.lake_forced = Cow::Owned(mask.to_vec());
+        }
         self
     }
 
@@ -9076,7 +9109,7 @@ impl<'a> TileFields<'a> {
     /// are not read off one number.
     #[allow(dead_code)]
     pub fn bytes(&self) -> usize {
-        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4 + self.glacier_bytes()
+        self.contrast_d.len() * 4 + self.grade_influence.len() * 4 + self.lake_class.len() + self.lake_fill.len() * 4 + self.lake_forced.len() + self.glacier_bytes()
     }
 
     /// The glacier field's own retained bytes — LOD-D4's `<= 10 MiB` budget.
@@ -10038,8 +10071,20 @@ pub fn shore_depth(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: 
 ///
 /// Cost: one pass, nine neighbour reads per land cell, `rayon` by rows --
 /// linear in cells, the same order as the classification it reads.
-#[allow(clippy::too_many_arguments)]
+/// No shipping caller since Ruling BO (`build_color_texture` calls
+/// [`shore_field_forced`]); kept as the no-forcing form this file's own RV-4
+/// tests pin the field through.
+#[allow(clippy::too_many_arguments, dead_code)]
 pub fn shore_field(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<f32> {
+    shore_field_forced(field, class, fill, rain, None, gw, gh, sea_level, world)
+}
+
+/// [`shore_field`] with Ruling BO's forced lakes: [`shore_depth_forced`] at
+/// every cell. `forced` `None` (or not `gw * gh` long) is exactly
+/// [`shore_field`] -- that function is this one with `None`, so a world with
+/// no forced lake draws the field it always drew.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_field_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<f32> {
     let n = gw * gh;
     if n == 0 || field.len() < n || class.len() < n || fill.len() < n || rain.len() < n {
         return Vec::new();
@@ -10047,10 +10092,113 @@ pub fn shore_field(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: 
     let mut out = vec![0f32; n];
     out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         for (x, v) in row.iter_mut().enumerate() {
-            *v = shore_depth(field, class, fill, rain, gw, gh, sea_level, world, x, y) as f32;
+            *v = shore_depth_forced(field, class, fill, rain, forced, gw, gh, sea_level, world, x, y) as f32;
         }
     });
     out
+}
+
+/// Ruling BO's post-pass on a drawn classification: every cell `forced`
+/// marks becomes a lake (`2`) -- `cartalith_civ::apply_force_lake`, the
+/// reference's `forceLake`, which is its whole body.
+///
+/// A plain function so the drawn map, the sculpt preview, the PNG export, the
+/// LOD tiles and the civ layer apply one rule, and so it is testable without a `Gd<WorldGen>`. A mask
+/// whose length is not the classification's is **ignored rather than
+/// applied**: it was drawn over another grid (`forced_lakes` is reset with the
+/// world, so this is defence, not a live path), and `apply_force_lake`'s own
+/// short-mask tolerance would otherwise force the wrong cells. `None` is a
+/// no-op, which is what keeps every world without a forced lake -- and every
+/// golden -- byte-identical.
+#[allow(dead_code)]
+pub fn apply_forced_lakes(classification: &mut [u8], forced: Option<&[u8]>) {
+    if let Some(m) = forced
+        && m.len() == classification.len()
+    {
+        cartalith_civ::apply_force_lake(classification, m);
+    }
+}
+
+/// **Ruling BO: the signed depth a forced lake's shore is contoured at**, in
+/// height units -- `+` this on a forced cell, `-` this on a land cell whose
+/// only water neighbours are forced ([`shore_depth_forced`]).
+///
+/// Equal and opposite on purpose: the bilinear of `+F` and `-F` crosses zero
+/// exactly halfway, so a forced lake's shore runs midway between its outer
+/// cell centres and the land beside them -- the membership contour of the
+/// painted cells, as smooth as the base map's other shores and the same
+/// outline the reference's nearest-cell stamp for a flat painted lake
+/// (`is_lake_pixel`'s v1.05 fallback) approximates in squares. The magnitude
+/// is labelled judgement, not a measured value: small (a thousandth of the
+/// field's `0..1` range), so where a forced lake touches a natural shore the
+/// natural field's own margins, usually larger, dominate that edge rather
+/// than this number; and far above half-float's smallest subnormal, so the
+/// shell's `RH` copy keeps it exactly ([`f16_bits`]).
+pub const FORCED_SHORE_DEPTH: f64 = 1e-3;
+
+/// [`shore_depth`] with Ruling BO's forced lakes laid over it.
+///
+/// The lake rule [`shore_margins`] reads never made a forced cell water -- a
+/// forced lake is water *because the user said so* (the reference's
+/// `forceLake`), whether or not its basin pools or its rain passes
+/// `LAKE_RAIN` -- so the field alone draws it as a sliver at its cell
+/// centres (the class clamp gives it [`SHORE_EPS`] against land a whole
+/// height step below). Three cases, in order:
+///
+/// - a forced cell: at least [`FORCED_SHORE_DEPTH`] -- more where the natural
+///   field already says deeper water;
+/// - any other water cell: the natural depth, untouched;
+/// - a land cell: exactly `-FORCED_SHORE_DEPTH` when every water cell in its
+///   8-neighbourhood is forced (so the shore between it and the forced lake
+///   runs halfway), and the natural depth when any neighbour is natural
+///   water -- a natural shore keeps its own contour.
+///
+/// `forced` must be the mask already applied to `class` (`class` is `2` on
+/// every forced cell). `None`, or a mask that is not `gw * gh`, is exactly
+/// [`shore_depth`]. `world` wraps the neighbourhood in x, as [`shore_margins`]
+/// does. Must never be used to classify.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_depth_forced(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], forced: Option<&[u8]>, gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
+    let d = shore_depth(field, class, fill, rain, gw, gh, sea_level, world, x, y);
+    let Some(m) = forced.filter(|m| m.len() == gw * gh) else { return d };
+    let i = y * gw + x;
+    if m[i] != 0 {
+        return d.max(FORCED_SHORE_DEPTH);
+    }
+    // A natural water cell: the forcing does not move its surface.
+    if class[i] != 0 {
+        return d;
+    }
+    let mut near_forced = false;
+    for dy in -1i64..=1 {
+        let yy = y as i64 + dy;
+        if yy < 0 || yy >= gh as i64 {
+            continue;
+        }
+        for dx in -1i64..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let mut xx = x as i64 + dx;
+            // A wrapped world's x edge is not an edge (`shore_margins`' rule).
+            if xx < 0 || xx >= gw as i64 {
+                if !world {
+                    continue;
+                }
+                xx = xx.rem_euclid(gw as i64);
+            }
+            let j = yy as usize * gw + xx as usize;
+            if class[j] != 0 {
+                // Natural water beside this land: its shore is the lake
+                // rule's, and a forced neighbour must not drag it.
+                if m[j] == 0 {
+                    return d;
+                }
+                near_forced = true;
+            }
+        }
+    }
+    if near_forced { -FORCED_SHORE_DEPTH } else { d }
 }
 
 /// IEEE 754 half-float bits of `v`, rounded to nearest, for the shore field's
@@ -10206,7 +10354,11 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
     if ctx.appearance.smooth_shores {
         let tx = fx - x0 as f64;
         let ty = fy - y0 as f64;
-        let d = |x: usize, y: usize| shore_depth(ctx.field, lake, &tf.lake_fill, ctx.rainfall, gw, gh, ctx.sea_level, ctx.world, x, y);
+        // Ruling BO: the base map's own forced-lake edge
+        // (`shore_depth_forced`), so a forced lake keeps one outline from fit
+        // zoom into the tiles. `None` for a world with none.
+        let forced = Some(&tf.lake_forced[..]).filter(|m| m.len() == gw * gh);
+        let d = |x: usize, y: usize| shore_depth_forced(ctx.field, lake, &tf.lake_fill, ctx.rainfall, forced, gw, gh, ctx.sea_level, ctx.world, x, y);
         let s = (1.0 - tx) * (1.0 - ty) * d(x0, y0) + tx * (1.0 - ty) * d(x1, y0) + (1.0 - tx) * ty * d(x0, y1) + tx * ty * d(x1, y1);
         return s > 0.0;
     }
@@ -10443,6 +10595,125 @@ mod shore_tests {
                 assert!(differ > 100, "premise: the reference band is another shoreline ({differ})");
             }
         }
+    }
+
+    /// A dry 0.8 plateau (rain 0.1, below `LAKE_RAIN`, so the lake rule makes
+    /// no water anywhere) with cells x 10..=14, y 10..=14 forced -- the
+    /// arid basin a Lake stamp is for -- and its classification with the
+    /// forcing applied, as `drawn_water_bodies` builds it.
+    #[allow(clippy::type_complexity)]
+    fn forced_plateau() -> (Vec<f32>, Vec<f32>, Vec<u8>, cartalith_civ::WaterBodies, usize, usize) {
+        let (gw, gh) = (32usize, 32usize);
+        let field = vec![0.8f32; gw * gh];
+        let rain = vec![0.1f32; gw * gh];
+        let mut mask = vec![0u8; gw * gh];
+        for y in 10..=14 {
+            for x in 10..=14 {
+                mask[y * gw + x] = 1;
+            }
+        }
+        let mut wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        assert!(wb.classification.iter().all(|&c| c == 0), "premise: the plateau has no water of its own");
+        apply_forced_lakes(&mut wb.classification, Some(&mask));
+        (field, rain, mask, wb, gw, gh)
+    }
+
+    /// Protects Ruling BO's forced-lake edge in the base map's shore field
+    /// (`shore_field_forced`): the forced block is water (positive) at every
+    /// cell centre and its shore runs exactly halfway to the land beside it,
+    /// x = 9.5 and 14.5 along row 12 -- literal answers from the block's
+    /// geometry, not from `FORCED_SHORE_DEPTH`. Without the mask the same
+    /// classification draws only a sliver at the centres: the premise, and
+    /// what the map drew before this ruling reached the field.
+    #[test]
+    fn a_forced_lake_is_drawn_to_halfway_between_its_cells_and_the_land() {
+        let (field, rain, mask, wb, gw, gh) = forced_plateau();
+        let sf = shore_field_forced(&field, &wb.classification, &wb.fill_level, &rain, Some(&mask), gw, gh, SL, false);
+        for y in 10..=14 {
+            for x in 10..=14 {
+                assert!(sf[y * gw + x] > 0.0, "forced cell ({x}, {y}) reads {}", sf[y * gw + x]);
+            }
+        }
+        assert!(sf[12 * gw + 20] < 0.0, "far land stays land");
+        let row = |u: f64| bilinear(&sf, gw, u, 12.0);
+        assert!((crossing(row, 9.0, 10.0) - 9.5).abs() < 1e-9);
+        assert!((crossing(row, 14.0, 15.0) - 14.5).abs() < 1e-9);
+        // A diagonal corner is cut, not squared: the block's outer corner
+        // point (14.5, 14.5) is land.
+        assert!(bilinear(&sf, gw, 14.5, 14.5) < 0.0);
+        // The premise: the unforced field over the same classification puts
+        // the shore within a thousandth of a cell of the forced centres.
+        let bare = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        let bare_row = |u: f64| bilinear(&bare, gw, u, 12.0);
+        assert!(crossing(bare_row, 14.0, 15.0) - 14.0 < 1e-3, "premise: without the mask the lake is a sliver");
+    }
+
+    /// Protects `shore_depth_forced`'s two no-op guarantees: `None` is
+    /// `shore_field` bit for bit on a world with a real lake (the bowl), and a
+    /// forced block far from that lake moves no cell of the lake's own
+    /// shore -- a natural shore keeps its contour.
+    #[test]
+    fn forcing_leaves_every_natural_shore_where_it_was() {
+        let (field, rain, gw, gh) = bowl();
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let plain = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        let none = shore_field_forced(&field, &wb.classification, &wb.fill_level, &rain, None, gw, gh, SL, false);
+        assert_eq!(plain.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), none.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        let mut mask = vec![0u8; gw * gh];
+        for (x, y) in [(28, 28), (29, 28), (28, 29), (29, 29)] {
+            mask[y * gw + x] = 1;
+        }
+        let mut class = wb.classification.clone();
+        apply_forced_lakes(&mut class, Some(&mask));
+        let forced = shore_field_forced(&field, &class, &wb.fill_level, &rain, Some(&mask), gw, gh, SL, false);
+        let mut moved = 0;
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let near_block = (26..=30).contains(&x) && (26..=30).contains(&y);
+                if !near_block {
+                    assert_eq!(forced[i].to_bits(), plain[i].to_bits(), "cell ({x}, {y}) moved");
+                } else if forced[i] != plain[i] {
+                    moved += 1;
+                }
+            }
+        }
+        assert!(moved >= 4, "premise: the forced block itself changed the field ({moved})");
+    }
+
+    /// Protects the tiles' half of Ruling BO (`TileFields::with_forced_lakes`
+    /// plus `is_lake_pixel`'s forced edge): the tile says lake exactly where
+    /// the base map's forced shore field is positive, at 14 400 points over
+    /// the block and its surroundings -- one outline from fit zoom to the
+    /// deepest tile. Without the builder the tile draws none of it: the
+    /// premise that this can fail.
+    #[test]
+    fn a_tile_draws_a_forced_lake_where_the_base_map_does() {
+        let (field, rain, mask, wb, gw, gh) = forced_plateau();
+        let temp = vec![15f32; gw * gh];
+        let sf = shore_field_forced(&field, &wb.classification, &wb.fill_level, &rain, Some(&mask), gw, gh, SL, false);
+        let ctx = tile_ctx(&field, &rain, &temp, gw, gh, true);
+        let plain = TileFields::new(&ctx, None);
+        let tf = TileFields::new(&ctx, None).with_forced_lakes(&mask);
+        let (mut water, mut plain_water) = (0, 0);
+        for j in 0..120 {
+            for i in 0..120 {
+                let (u, v) = (6.0 + 14.0 * i as f64 / 119.0, 6.0 + 14.0 * j as f64 / 119.0);
+                let want = bilinear(&sf, gw, u, v) > 0.0;
+                let got = is_lake_pixel(&tf, &ctx, u, v, 0.8, true);
+                assert_eq!(got, want, "tile vs map at ({u:.3}, {v:.3})");
+                water += got as usize;
+                plain_water += is_lake_pixel(&plain, &ctx, u, v, 0.8, true) as usize;
+            }
+        }
+        // The block spans 9.5..14.5 on both axes, 25 square cells less its
+        // four cut corners, and the grid samples 14 x 14 cells at 120 x 120:
+        // 25 / 196 * 14 400 = 1 837 is the uncut upper bound.
+        assert!((1700..1837).contains(&water), "the forced block must draw ({water} lake samples)");
+        assert_eq!(plain_water, 0, "premise: a tile without the mask draws no lake here");
+        // A mask for another grid is refused, not indexed.
+        let refused = TileFields::new(&ctx, None).with_forced_lakes(&mask[..10]);
+        assert!(!is_lake_pixel(&refused, &ctx, 12.0, 12.0, 0.8, true));
     }
 
     /// Protects `shore_depth`'s land clamp: a land cell exactly at sea level

@@ -503,8 +503,6 @@ pub struct CellSample {
     /// `Vec::new()` on the same construction paths.
     pub drainage: Option<f64>,
     pub river_order: Option<i64>,
-    /// `0` land / `1` ocean / `2` lake, `None` without a civilisation layer.
-    pub water_body: Option<u8>,
     pub biome: Option<&'static str>,
     pub soil: Option<f64>,
     /// `assign_territory`'s owner id; `0` is unowned. `None` without a
@@ -639,7 +637,6 @@ pub fn sample_cell(f: &FieldRefs, gx: i64, gy: i64) -> Option<CellSample> {
         precipitation: f.rainfall[i] as f64,
         drainage: f.flow_discharge.get(i).map(|&v| v as f64),
         river_order: f.stream_order.and_then(|s| s.get(i)).map(|&o| o as i64),
-        water_body: wb,
         biome: biome.map(biome_name),
         soil: Some(soil as f64),
         control: f.territory.and_then(|t| t.get(i)).map(|&t| t as i64),
@@ -3002,7 +2999,6 @@ mod tests {
         let s = sample_cell(&view(&o, false), 4, 4).unwrap();
         assert!(s.biome.is_none());
         assert!(s.control.is_none());
-        assert!(s.water_body.is_none());
         // Everything sourced from WorldState is still real.
         assert!(s.elevation > 0.0);
         assert_ne!(s.lithology, "—");

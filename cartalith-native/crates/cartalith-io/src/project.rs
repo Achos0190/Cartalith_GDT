@@ -335,6 +335,15 @@ pub const RASTER_SLOTS: &[RasterSlot] = &[
         path: "rasters/river_floor.f32",
         element: Element::F32,
     },
+    // Ruling BO (2026-09-28, "draw forced lakes"): the cells a user counted
+    // as lake (`1`), which the drawn map applies over its own classification.
+    // MAY; absent means nothing was forced. Registered so an archive carrying
+    // it is this build's own entry rather than a foreign payload, and so no
+    // second name is ever invented for it. `SAVEFILE_COMPAT.md` §8.1.
+    RasterSlot {
+        path: "rasters/forced_lakes.u8",
+        element: Element::U8,
+    },
 ];
 
 /// The world-substrate rasters, in [`RASTER_SLOTS`] order (`SAVEFILE_COMPAT.md`

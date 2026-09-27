@@ -143,8 +143,17 @@ pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
             .labels
             .iter()
             .map(|l| cartalith_civ::labels::MapLabel {
-                x: l.x,
-                y: l.y,
+                // The reference draws a label at `lb.x + 0.5` (v2.11
+                // `_civLabelBox`, whose default `toScreenFn` is `(x, y) =>
+                // [x + 0.5, y + 0.5]`, shared by render and hit-test), and this port
+                // draws `MapLabel::x` as a point (`_point_to_screen`), so the
+                // half cell is added once here, on the way in -- the same
+                // cell-to-point step every generated label takes
+                // (`cartalith_civ::labels::CELL_CENTRE`). Without it an
+                // imported label sat half a cell up and left of where the
+                // reference drew it.
+                x: l.x + cartalith_civ::labels::CELL_CENTRE,
+                y: l.y + cartalith_civ::labels::CELL_CENTRE,
                 name: l.name.clone(),
                 angle: l.angle,
                 arc: l.arc,

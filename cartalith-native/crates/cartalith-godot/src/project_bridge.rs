@@ -1874,6 +1874,46 @@ fn resolve_garrison_exposure_scale(data: &project::ProjectData, applied: f64) ->
         .unwrap_or(applied)
 }
 
+/// `rasters/forced_lakes.u8` (`SAVEFILE_COMPAT.md` §8.1): Ruling BO's
+/// forced-lake mask, `1` on a cell the user counted as lake, `0` elsewhere.
+const RASTER_FORCED_LAKES: &str = "rasters/forced_lakes.u8";
+
+/// Writes `WorldGen::forced_lakes` as [`RASTER_FORCED_LAKES`] -- only when a
+/// lake was forced (`Some`, a whole grid). **Absent, not all-zero**, for a
+/// world with none: an untouched project gains no member, which is what
+/// keeps every existing archive and its round-trip tests byte-for-byte as
+/// they were.
+///
+/// Why it is saved at all: until Ruling BO a forced lake survived a save only
+/// inside `rasters/water_bodies.u8` (the civ copy), where it cannot be told
+/// apart from a cell that copy had merely gone stale on after a sculpt -- so
+/// a reopened project could not draw it. This is the one source of the mask
+/// on reopen.
+fn forced_lakes_raster(mask: Option<&[u8]>, n: usize, write: &mut ProjectWrite<'_>) {
+    if let Some(m) = mask.filter(|m| m.len() == n && m.iter().any(|&c| c != 0)) {
+        write.raster(RASTER_FORCED_LAKES, Raster::U8(m.to_vec()));
+    }
+}
+
+/// [`RASTER_FORCED_LAKES`] read back: `Some` only for a `u8` grid of this
+/// world's `n` cells with at least one forced cell. Absent -- every archive
+/// written before 2026-09-28, and every world nothing was forced on -- is
+/// `None` and says nothing. A present member of the wrong type or size is
+/// dropped **with a warning** (§6.4a: every substitution is reported), since
+/// forcing it onto this grid would flood the wrong cells.
+fn forced_lakes_from_project(data: &project::ProjectData, n: usize, warnings: &mut Vec<String>) -> Option<Vec<u8>> {
+    match data.raster(RASTER_FORCED_LAKES) {
+        None => None,
+        Some(Raster::U8(v)) if v.len() == n => v.iter().any(|&c| c != 0).then(|| v.clone()),
+        Some(_) => {
+            warnings.push(format!(
+                "{RASTER_FORCED_LAKES}: not a u8 grid of this world's size -- the lakes painted and counted as                  water were not restored; press Count painted lakes as water again after a Lake stamp"
+            ));
+            None
+        }
+    }
+}
+
 /// The civ layer's rasters and recorded-year territories, into `write` --
 /// `project_save_with_documents`' own block, a function so the substrate
 /// round-trip test saves a civ layer exactly the way a save does.
@@ -2559,6 +2599,10 @@ impl WorldGen {
             civ_documents(civ, self.civ_tools.as_ref().map(|t| t.name_rng.state()), &mut documents);
             civ_rasters(civ, n, &mut write);
         }
+        // Ruling BO: the forced-lake mask, beside the civ rasters but not
+        // inside them -- it is the drawn map's, and a world without a civ
+        // layer can hold one.
+        forced_lakes_raster(self.forced_lake_mask(), n, &mut write);
 
         // Hand-drawn ways and routes merge into the one ways document, so
         // that §9.3's "one home for every linear route" holds in the file
@@ -3305,6 +3349,15 @@ impl WorldGen {
                      The links already in memory are untouched."
                 ),
             }
+        }
+
+        // Ruling BO: the forced lakes, after `load_save` and the substrate
+        // install (each of which reset the mask with the world) so nothing
+        // clears them again. The civ copy needs nothing: its forcing is
+        // already in the restored `rasters/water_bodies.u8`.
+        if let Some(mask) = forced_lakes_from_project(&data, n, &mut restore_warnings) {
+            self.merge_forced_lakes(&mask);
+            restored.push("forced lakes");
         }
 
         // --- the two drafts -------------------------------------------
@@ -4673,6 +4726,58 @@ mod tests {
         );
         let resolved = resolve_garrison_exposure_scale(&data, cartalith_civ::garrison::EXPOSURE_SCALE);
         assert_eq!(resolved, 2.5, "the legacy factions.json member must win when the new key is absent");
+    }
+
+    /// Protects Ruling BO's persistence: the forced-lake mask a save writes
+    /// (`forced_lakes_raster`) comes back byte for byte on open
+    /// (`forced_lakes_from_project`) through a real in-memory archive; a world
+    /// with nothing forced writes **no** member (absent, not all-zero), and an
+    /// archive without one -- every archive before 2026-09-28 -- restores
+    /// nothing and warns about nothing. A mask for another grid is never
+    /// written.
+    #[test]
+    fn forced_lakes_survive_a_save_and_an_unforced_world_writes_none() {
+        let (gw, gh) = (4usize, 3usize);
+        let n = gw * gh;
+        let save_params = cartalith_io::SaveParams {
+            gw, gh, seed: 4242, map_width_km: 800.0, sea_level: 0.42, world: false,
+            origin: None, name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
+            volcanic_field: vec![0.0; n],
+            impact_field: vec![0.0; n],
+            strahler_order: vec![0; n],
+        };
+        let archive = |mask: Option<&[u8]>| {
+            let mut write = ProjectWrite::new(&save_params, &fields);
+            forced_lakes_raster(mask, n, &mut write);
+            let mut buf = Vec::new();
+            project::write_project(std::io::Cursor::new(&mut buf), &write).unwrap();
+            cartalith_io::read_project(std::io::Cursor::new(&buf)).unwrap()
+        };
+        let mask: Vec<u8> = (0..n).map(|i| u8::from(i == 5 || i == 6)).collect();
+        let data = archive(Some(&mask));
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        let mut warnings = Vec::new();
+        assert_eq!(forced_lakes_from_project(&data, n, &mut warnings), Some(mask.clone()));
+        assert!(warnings.is_empty());
+
+        for none in [None, Some(&vec![0u8; n][..])] {
+            let data = archive(none);
+            assert!(data.raster(RASTER_FORCED_LAKES).is_none(), "nothing forced, no member written");
+            assert_eq!(forced_lakes_from_project(&data, n, &mut warnings), None);
+            assert!(warnings.is_empty());
+        }
+
+        // A mask for another grid never reaches the archive: `write_project`
+        // refuses a raster whose length is not the grid's (`RasterLength`),
+        // and `forced_lakes_raster` never offers one.
+        let short = vec![1u8; n - 1];
+        let data = archive(Some(&short));
+        assert!(data.raster(RASTER_FORCED_LAKES).is_none(), "a short mask is not written");
     }
 
     /// The other half of the same precedence: when *both* the new
@@ -7111,6 +7216,7 @@ mod substrate_tests {
             let civ = crate::compute_civilisation(
                 &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
                 &mut Vec::new(),
+                None,
             );
             (p, ws, civ)
         })

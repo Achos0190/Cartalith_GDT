@@ -44,7 +44,7 @@
 //! `UNIFIED_TOOL_PLAN.md` milestone C wrote it: *"Pass this mask to it after
 //! classifying, and a painted lake is a lake."*
 
-use crate::{undo, CivData, WorldGen, WorldSource};
+use crate::{undo, WorldGen, WorldSource};
 use cartalith_engine::erode_op::{erode_op as run_erode_op, ErodeOpts, ErodeSummary};
 use cartalith_engine::staleness::{recompute_stale, PipelineStage, RecomputeReport};
 use cartalith_engine::{WorldParams, WorldState};
@@ -290,44 +290,38 @@ impl WorldGen {
     ///
     /// The Sculpt editor's **Lake** stamp accumulates a `lake_mask`
     /// (`cartalith_engine::sculpt_commit::WaterState::lake_mask`, built by
-    /// every `sculpt_commit` that deposits one). Nothing consumed it:
-    /// `sculpt_commit` writes `river_mask`/`river_floor` back onto the
-    /// `WorldState` and stops there, and `CivData::water_bodies` — the
-    /// classification the Settlement tool, the route planner, the trade and
-    /// military layers and the Journey Planner all read — was computed once,
-    /// during `compute_civilisation`, from the terrain alone. So a painted
-    /// lake was terrain that happened to be lower, and nothing in the port
-    /// treated it as water.
+    /// every `sculpt_commit` that deposits one). This press reclassifies every
+    /// cell that mask marks as a lake (`2`), unconditionally — the reference's
+    /// own semantic: a user-deposited lake is a lake whether or not its floor
+    /// ends up below sea level or its basin catches enough rain to pool.
     ///
-    /// This is the missing edge. It reclassifies every cell the mask marks as
-    /// a lake (`2`), unconditionally — that is the reference's own semantic:
-    /// a user-deposited lake is a lake whether or not its floor ends up below
-    /// sea level or its basin catches enough rain to pool.
+    /// # Where the forcing goes (Ruling BO, 2026-09-28: "draw forced lakes")
     ///
-    /// **An opt-in op, like [`Self::carve_fjords`].** It never runs during
-    /// `generate()`, changes no height, marks nothing stale, and touches
-    /// nothing a golden test or a `world_key` reads.
+    /// **Into [`WorldGen::forced_lakes`]**, the mask
+    /// [`WorldGen::drawn_water_bodies`] applies — so the forced lake is real
+    /// drawn water: the map texture, the LOD tiles, RV-4's smooth shore field,
+    /// the river mouths (`river_draws` cuts at the drawn water), the lake
+    /// labels, Sample's `water` and the context card all see it. Until this
+    /// ruling the forcing was written only into `CivData::water_bodies`, so
+    /// the civ tools saw a lake the map never drew.
     ///
-    /// Returns `ok` (bool), `forced` (int, cells this call actually changed —
-    /// `0` with `ok: true` means every painted cell was already water),
-    /// `lake_cells` (int, lake cells in the classification afterwards) and
-    /// `reason` (String, only when `ok` is false).
+    /// **And into `CivData::water_bodies`**, as before, when the world has a
+    /// civilisation layer — the copy settlement placement, routing, trade,
+    /// military and the Journey Planner read — with the Paint editor's
+    /// land-only gate refreshed from it. A later `recompute_civilisation`
+    /// re-applies the mask (`compute_civilisation`'s `forced_lakes`), so the
+    /// civ layer no longer loses it there.
     ///
-    /// # What it reaches, and what it does not
+    /// The mask is saved (`rasters/forced_lakes.u8`, `project_bridge.rs`) and
+    /// reset with the world. **An opt-in op, like [`Self::carve_fjords`]**: it
+    /// never runs during `generate()` and changes no height; it marks no stage
+    /// stale, and moves `forced_lakes_epoch` instead, which every drawn-water
+    /// cache key reads.
     ///
-    /// The Biome-paint editor captured its own land-only gate as an
-    /// `Arc<[u8]>` copy of this array at generation time
-    /// (`paint_bridge::PaintEditor::water_mask`, deliberately cached — see
-    /// that field's own doc comment for the 417 ms it saves). That copy used
-    /// **not** to be refreshed, so the brush went on painting a forced lake as
-    /// land; `PARITY_AUDIT.md` §23 recorded it rather than hiding it, and
-    /// [`paint_bridge::PaintEditor::set_water_mask`] now closes it. The cache
-    /// is still a cache — this is the one op that edits the classification, so
-    /// it is the one op that refreshes it.
-    ///
-    /// The forcing is still lost on the next full `compute_civilisation`,
-    /// which rebuilds `water_bodies` from `build_water_bodies` — same ceiling
-    /// every manual civ edit already has.
+    /// Returns `ok` (bool), `forced` (int, cells this call newly made lake in
+    /// the **drawn** classification — `0` with `ok: true` means every painted
+    /// cell was already lake), `lake_cells` (int, lake cells the map draws
+    /// afterwards) and `reason` (String, only when `ok` is false).
     #[func]
     fn apply_force_lake(&mut self) -> VarDictionary {
         let Some(sculpt) = self.sculpt.as_ref() else {
@@ -340,28 +334,40 @@ impl WorldGen {
                 "Force lake needs a Sculpt session, which a world opened from a project saved without its hydrology and tectonic rasters (saved before 2026-09-24) does not have -- regenerate to use it; that places the settlements afresh and does not keep the project's labels and icons."
             });
         };
-        let Some(mask) = sculpt.water.lake_mask.as_ref() else {
+        let Some(mask) = sculpt.water.lake_mask.clone() else {
             return refuse("No lake has been stamped yet — commit a Lake stamp in Sculpt first.");
         };
-        // `self.sculpt` and `self.civ` are disjoint fields, so the mask
-        // borrow stays live across the mutable one. `CivData` is a private
-        // type of the crate root; this module is a descendant of it, which
-        // is the whole reason the `#[godot_api(secondary)]` split works.
-        let Some(civ): Option<&mut CivData> = self.civ.as_mut() else {
-            return refuse("This world has no civilisation layer, so there is no water-body classification to force.");
+        // The counts are over the classification the map draws, so the
+        // status line reports what the user will see change.
+        let Some(before) = self.drawn_water_classification() else {
+            return refuse("No world.");
         };
-        if civ.water_bodies.is_empty() {
-            return refuse("This world's water-body classification is empty.");
+        // Checked before the merge, which would silently ignore it: a mask
+        // over another grid forces the wrong cells, so it is refused aloud.
+        if before.len() != mask.len() {
+            return refuse("The stamped lake mask was drawn over a different grid from this world's.");
         }
-        let (forced, lake_cells) = force_lakes(&mut civ.water_bodies, mask);
-        // The Paint editor's land-only gate is a copy of exactly this array,
-        // taken at `generate()` time (`WorldGen::absorb`). Refreshed here and
-        // only here: this is the one op that edits the classification, so the
-        // per-dab cache stays a cache. A cheap `Arc` allocation once per press
-        // against the 417 ms per stroke that recomputing it would cost.
-        let refreshed: std::sync::Arc<[u8]> = std::sync::Arc::from(civ.water_bodies.as_slice());
-        if let Some(paint) = self.paint.as_mut() {
-            paint.set_water_mask(refreshed);
+        // `false` here only means every stamped cell was already forced; the
+        // counts below say what the map shows either way.
+        self.merge_forced_lakes(&mask);
+        let mut after = before.to_vec();
+        let (forced, lake_cells) = force_lakes(&mut after, &mask);
+        // The civ copy, as before this ruling: `self.civ` is a disjoint field
+        // from everything read above. `CivData` is a private type of the
+        // crate root; this module is a descendant of it, which is the whole
+        // reason the `#[godot_api(secondary)]` split works.
+        if let Some(civ) = self.civ.as_mut().filter(|c| !c.water_bodies.is_empty()) {
+            force_lakes(&mut civ.water_bodies, &mask);
+            // The Paint editor's land-only gate is a copy of exactly this
+            // array, taken at `generate()` time (`WorldGen::absorb`).
+            // Refreshed here and only here: this is the one op that edits the
+            // classification, so the per-dab cache stays a cache. A cheap
+            // `Arc` allocation once per press against the 417 ms per stroke
+            // that recomputing it would cost.
+            let refreshed: std::sync::Arc<[u8]> = std::sync::Arc::from(civ.water_bodies.as_slice());
+            if let Some(paint) = self.paint.as_mut() {
+                paint.set_water_mask(refreshed);
+            }
         }
         vdict! { "ok" => true, "reason" => "", "forced" => forced, "lake_cells" => lake_cells }
     }

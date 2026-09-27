@@ -1346,6 +1346,83 @@ mod civ_merge_tests {
     }
 }
 
+/// Ruling BO ("draw forced lakes") and item 1 of `OUTSTANDING_WORK.md`'s
+/// "Four map-data defects", at the plain-function seams a unit test can
+/// reach (`WorldGen` itself is a `GodotClass` and cannot be built here; the
+/// windowed `_mapdata_probe.gd` drives the `#[func]`s).
+#[cfg(test)]
+mod forced_lake_tests {
+    use super::{apply_forced_lakes, coarse_ocean_wind_fields, compute_civilisation, sample_water_word};
+
+    /// Protects `apply_forced_lakes`' three answers: `None` changes nothing
+    /// (so a world with no forced lake is byte-identical), a whole-grid mask
+    /// makes its cells lake whatever they were (land or ocean -- the
+    /// reference's `forceLake` is unconditional), and a mask for another
+    /// grid is ignored rather than forcing the wrong cells.
+    #[test]
+    fn forcing_is_a_no_op_without_a_mask_and_unconditional_with_one() {
+        let base = vec![0u8, 1, 2, 0];
+        let mut c = base.clone();
+        apply_forced_lakes(&mut c, None);
+        assert_eq!(c, base);
+        apply_forced_lakes(&mut c, Some(&[1, 1, 0, 0]));
+        assert_eq!(c, vec![2, 2, 2, 0]);
+        let mut d = base.clone();
+        apply_forced_lakes(&mut d, Some(&[1, 1, 1]));
+        assert_eq!(d, base, "a mask of the wrong length forces nothing");
+    }
+
+    /// Protects Sample's `water` word for each drawn class (item 1): the
+    /// three `build_water_bodies` classes by literal, so a swapped arm fails.
+    #[test]
+    fn the_sample_water_word_names_each_drawn_class() {
+        assert_eq!(sample_water_word(0), "land");
+        assert_eq!(sample_water_word(1), "ocean");
+        assert_eq!(sample_water_word(2), "lake");
+    }
+
+    /// Protects Ruling BO's civ half: a recompute keeps the forced lakes
+    /// (`compute_civilisation`'s `forced_lakes`), so the civ layer reads the
+    /// water the map draws. The mask covers the 3 x 3 around a settlement
+    /// the unforced run placed -- land by construction -- and the forced run
+    /// must classify it lake and place nothing on it. `None` must reproduce
+    /// the unforced classification exactly (no golden moves).
+    #[test]
+    fn a_recompute_keeps_the_forced_lakes_and_builds_nothing_on_them() {
+        let mut p = crate::params::defaults();
+        p.gw = 192;
+        p.gh = 128;
+        p.tect.seed = 4242;
+        p.use_gpu = false;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let run = |forced: Option<&[u8]>| {
+            let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
+            compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), forced)
+        };
+        let plain = run(None);
+        let s = plain.settlements.first().expect("premise: the fixture world places settlements");
+        let (sx, sy) = (s.placement.x, s.placement.y);
+        assert_eq!(plain.water_bodies[sy * p.gw + sx], 0, "premise: a settlement stands on land");
+        let mut mask = vec![0u8; p.gw * p.gh];
+        let mut block = Vec::new();
+        for y in sy.saturating_sub(1)..=(sy + 1).min(p.gh - 1) {
+            for x in sx.saturating_sub(1)..=(sx + 1).min(p.gw - 1) {
+                mask[y * p.gw + x] = 1;
+                block.push((x, y));
+            }
+        }
+        let forced = run(Some(&mask));
+        for &(x, y) in &block {
+            assert_eq!(forced.water_bodies[y * p.gw + x], 2, "forced cell ({x}, {y}) is lake in the civ layer");
+            assert!(
+                !forced.settlements.iter().any(|t| (t.placement.x, t.placement.y) == (x, y)),
+                "a settlement was placed on forced lake cell ({x}, {y})"
+            );
+        }
+        assert_eq!(run(None).water_bodies, plain.water_bodies, "no mask, no change");
+    }
+}
+
 /// The 2026-09-24 alignment audit's civ-pipeline defects
 /// (`ALIGNMENT_AUDIT.md` Part 1 A2, A3, A4), driven through the real
 /// `compute_civilisation` over a real generated world. That function and the
@@ -1382,6 +1459,7 @@ mod civ_pipeline_tests {
         compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, cultures, None, (&o, &w), false,
             &mut Vec::new(),
+            None,
         )
     }
 
@@ -1510,6 +1588,7 @@ mod civ_pipeline_tests {
             compute_civilisation(
                 ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
                 &mut Vec::new(),
+                None,
             )
         };
         let mut p = base.clone();
@@ -3043,6 +3122,14 @@ fn compute_civilisation(
     // `"resource_potentials"`/`"settlement_suitability"` -- the same
     // report-what-ran rule `WorldState::gpu_stages_used` follows.
     gpu_stages: &mut Vec<String>,
+    // Ruling BO: the world's forced lakes (`WorldGen::forced_lakes`), applied
+    // to the classification straight after `build_water_bodies` -- where the
+    // reference applies `forceLake`, inside `buildWaterBodies` -- so every
+    // stage below (biome, settlement siting, routing) reads the same water
+    // the map draws. `None` for a fresh generation, which has no forced lake
+    // yet, and for every test caller: the civ layer of a world with no forced
+    // lake is byte-identical to before this parameter existed.
+    forced_lakes: Option<&[u8]>,
 ) -> CivData {
     let keeping = keep.is_some();
     // The reference's `wantCounts`. Only the auto-populate path reads it: the
@@ -3050,6 +3137,7 @@ fn compute_civilisation(
     let want = opts.want_counts();
     let sea_level = ws.sea_level;
     let mut wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
+    apply_forced_lakes(&mut wb.classification, forced_lakes);
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
@@ -4709,6 +4797,42 @@ struct WorldGen {
     river_field_stats: std::cell::Cell<(usize, usize)>,
     /// `river_geometry`'s cache: its key and the network built for it.
     river_geom_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>)>>,
+    /// **Forced lakes (Ruling BO, 2026-09-28: "draw forced lakes")** -- the
+    /// cells [`Self::apply_force_lake`] has reclassified as lake, `gw * gh`,
+    /// `1` forced / `0` not. `None` until the first press on this world.
+    ///
+    /// Why it exists: `apply_force_lake` used to write its forcing only into
+    /// `CivData::water_bodies`, so the settlement and route tools saw a lake
+    /// that the map, the LOD tiles, the shore field, the river mouths and the
+    /// lake labels -- all of which read [`Self::drawn_water_bodies`] -- never
+    /// drew. Holding the mask here lets that one function apply it
+    /// (`cartalith_civ::apply_force_lake`, the reference's `forceLake`
+    /// post-pass), so every drawn-water consumer gets it at once.
+    ///
+    /// Reset with the world (`absorb`, `load_save`), restored from
+    /// `rasters/forced_lakes.u8` by `project_open`, written by the save. Must
+    /// never hold anything but the union of committed Lake-stamp masks a user
+    /// pressed "Count painted lakes as water" for: it is an edit, not a
+    /// cache, and nothing recomputes it.
+    forced_lakes: Option<Vec<u8>>,
+    /// Bumped on every change to [`Self::forced_lakes`], and folded into
+    /// every cache key whose value depends on the drawn water
+    /// ([`Self::drawn_water_key`], `lod_cache_key`, `river_network_key_str`):
+    /// a forced lake moves no stage version and no `world_epoch`, so without
+    /// this a cached network or tile would go on drawing the world from
+    /// before the press. Wrapping counter; only equality is ever asked of it.
+    forced_lakes_epoch: u64,
+    /// [`Self::drawn_water_classification`]'s cache: its key and the
+    /// classification. One byte a cell -- the same size as
+    /// `CivData::water_bodies`, which the drawn copy replaces as the source
+    /// for Sample's `water` and the context card's river terminus.
+    ///
+    /// Why a cache: `sample_cell` runs on every mouse-motion event and a
+    /// `build_water_bodies` flood costs 417 ms at 2048x2048 (`absorb`'s own
+    /// measured note), so recomputing per call is not an option.
+    /// `build_color_texture` refreshes it for free, since it builds the same
+    /// classification anyway. Must never be read without comparing the key.
+    drawn_water_cache: std::cell::RefCell<Option<(String, std::sync::Arc<[u8]>)>>,
     /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): per-index
     /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
     /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
@@ -5309,6 +5433,9 @@ impl IRefCounted for WorldGen {
             shore_field_tex: std::cell::RefCell::new(None),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
+            forced_lakes: None,
+            forced_lakes_epoch: 0,
+            drawn_water_cache: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
             sculpt: None,
             icons: None,
@@ -5365,6 +5492,23 @@ fn session_npr() -> render::Npr {
     render::Npr { multi_sun: true, ..render::Npr::default() }
 }
 
+/// `sample_cell`'s `water` word for one drawn classification byte: `1`
+/// ocean, `2` lake, anything else land -- `build_water_bodies`' own three
+/// classes. A function so the mapping is tested without a `Gd<WorldGen>`.
+fn sample_water_word(class: u8) -> &'static str {
+    match class {
+        1 => "ocean",
+        2 => "lake",
+        _ => "land",
+    }
+}
+
+/// Ruling BO's forced-lake post-pass, defined in `render.rs` (so the
+/// integration tests that compile that file on its own see it too) and
+/// re-exported here for the drawn map, the sculpt preview, the PNG export and
+/// `compute_civilisation`.
+pub(crate) use render::apply_forced_lakes;
+
 /// Plain (non-`#[func]`) helpers shared by `generate()` and
 /// `generate_world_structure()` — kept out of the `#[godot_api]` block since
 /// they are Rust-internal, not part of the GDScript surface.
@@ -5382,8 +5526,52 @@ impl WorldGen {
     /// map *shows* (the lake labels, 2026-09-27) reads this instead, so it
     /// cannot name a lake the terrain no longer holds. A loaded save, which
     /// has no civilisation layer at all, still gets its lakes.
-    pub(crate) fn drawn_water_classification(&self) -> Option<Vec<u8>> {
-        self.drawn_water_bodies().map(|wb| wb.classification)
+    ///
+    /// **Forced lakes included** (Ruling BO): [`Self::drawn_water_bodies`]
+    /// applies [`Self::forced_lakes`], so a painted lake the user counted as
+    /// water is `2` here exactly where the map draws it.
+    ///
+    /// Cached under [`Self::drawn_water_key`] (see `drawn_water_cache`), so
+    /// Sample's per-motion read and the context card's river pick cost one
+    /// key comparison, not a flood fill. Since 2026-09-28 also the source for
+    /// `sample_cell`'s `water` key and `river_pick`'s terminus, which read the
+    /// stale `CivData::water_bodies` copy before and could say "lake" over
+    /// ground the map drew as land after a sculpt.
+    pub(crate) fn drawn_water_classification(&self) -> Option<std::sync::Arc<[u8]>> {
+        let key = self.drawn_water_key();
+        if let Some((k, c)) = self.drawn_water_cache.borrow().as_ref()
+            && *k == key
+        {
+            return Some(c.clone());
+        }
+        let c: std::sync::Arc<[u8]> = std::sync::Arc::from(self.drawn_water_bodies()?.classification);
+        *self.drawn_water_cache.borrow_mut() = Some((key, c.clone()));
+        Some(c)
+    }
+
+    /// [`Self::drawn_water_classification`]'s cache key: every input
+    /// [`Self::drawn_water_bodies`] reads, from its definition (`MISTAKES.md`,
+    /// cache keys) -- the source (`world_epoch`), the height field and the
+    /// rainfall (the Height and Climate stage versions, **summed over every
+    /// tile**, `river_network_key_str`'s own rule: a brush stroke marks only
+    /// the tiles it touched), the grid, the sea level, the wrap, and the
+    /// forced-lake mask (`forced_lakes_epoch`). Must never read a stage
+    /// version at one tile only.
+    fn drawn_water_key(&self) -> String {
+        let vsum = |st: PipelineStage| -> u64 {
+            (0..self.stages.tile_count()).fold(0u64, |a, t| a.wrapping_add(self.stages.version(st.id(), t)))
+        };
+        format!(
+            "e{};h{};c{};{}x{};s{};w{};f{}",
+            self.world_epoch,
+            vsum(PipelineStage::Height),
+            vsum(PipelineStage::Climate),
+            self.gw,
+            self.gh,
+            self.sea_level.to_bits(),
+            self.world,
+            self.forced_lakes_epoch,
+        )
     }
 
     /// [`Self::drawn_water_classification`]'s whole `build_water_bodies`
@@ -5391,6 +5579,15 @@ impl WorldGen {
     /// (`render::shore_field`), which contours the same surface that
     /// classification thresholds, so the two must come from one call. The
     /// single place either is computed for the drawn map.
+    ///
+    /// Then the forced-lake post-pass ([`apply_forced_lakes`] over
+    /// [`Self::forced_lakes`]) -- the reference's own order: `forceLake` is
+    /// the last mutation `buildWaterBodies` makes to its classification
+    /// (`cartalith_civ::apply_force_lake`'s doc). `fill_level` is left as the
+    /// flood made it, as the reference leaves `fillOut`; the shore field reads
+    /// the mask itself to draw a forced lake's edge
+    /// (`render::shore_field_forced`). A world with no forced lake gets the
+    /// classification byte-identical to before this post-pass existed.
     pub(crate) fn drawn_water_bodies(&self) -> Option<cartalith_civ::WaterBodies> {
         let (field, rainfall) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice()),
@@ -5400,7 +5597,55 @@ impl WorldGen {
         if gw == 0 || gh == 0 || field.len() < gw * gh {
             return None;
         }
-        Some(cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)))
+        let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall));
+        apply_forced_lakes(&mut wb.classification, self.forced_lakes.as_deref());
+        Some(wb)
+    }
+
+    /// Clears [`Self::forced_lakes`] and moves [`Self::forced_lakes_epoch`],
+    /// for every assignment to `source` -- the one place a world's forcing is
+    /// dropped, so no path can carry a mask onto another world's grid. Must
+    /// not be called for anything but a change of world.
+    fn reset_forced_lakes(&mut self) {
+        self.forced_lakes = None;
+        self.forced_lakes_epoch = self.forced_lakes_epoch.wrapping_add(1);
+    }
+
+    /// Unions `mask` (any non-zero byte forces its cell) into
+    /// [`Self::forced_lakes`] and moves the epoch when anything changed.
+    /// Returns whether it did. A mask that is not a whole grid of this world
+    /// is refused (`false`, nothing written): it was drawn over another grid.
+    /// The one writer of the mask outside a reset, shared by
+    /// `apply_force_lake` and `project_open`'s restore.
+    pub(crate) fn merge_forced_lakes(&mut self, mask: &[u8]) -> bool {
+        let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
+        if n == 0 || mask.len() != n {
+            return false;
+        }
+        let cur = self.forced_lakes.get_or_insert_with(|| vec![0u8; n]);
+        let mut changed = false;
+        for (c, &m) in cur.iter_mut().zip(mask) {
+            if m != 0 && *c == 0 {
+                *c = 1;
+                changed = true;
+            }
+        }
+        // An all-zero mask is the absent state, never a stored value.
+        if !cur.iter().any(|&c| c != 0) {
+            self.forced_lakes = None;
+        }
+        if changed {
+            self.forced_lakes_epoch = self.forced_lakes_epoch.wrapping_add(1);
+        }
+        changed
+    }
+
+    /// [`Self::forced_lakes`] when it is a whole grid of this world, for a
+    /// consumer that draws it (the LOD snapshot, the shore field). `None`
+    /// when nothing is forced -- the absent state, never an all-zero mask.
+    pub(crate) fn forced_lake_mask(&self) -> Option<&[u8]> {
+        let n = (self.gw.max(0) as usize) * (self.gh.max(0) as usize);
+        self.forced_lakes.as_deref().filter(|m| m.len() == n && n > 0)
     }
 
     /// This instance's persistent parameters with the four call-argument
@@ -5583,6 +5828,9 @@ impl WorldGen {
         self.stash_journeys_for_resnap();
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
+        // A new source is a new world: nothing is forced on it (Ruling BO;
+        // `project_open` restores a saved mask after this).
+        self.reset_forced_lakes();
         self.source = None;
         self.civ = None;
         self.sculpt = None;
@@ -5707,6 +5955,9 @@ impl WorldGen {
         let t = sculpt_bridge::SCULPT_TILE_SIZE;
         self.stages = pipeline_stage_graph(gw.div_ceil(t) * gh.div_ceil(t));
         self.world_epoch = self.world_epoch.wrapping_add(1);
+        // A new source is a new world: nothing is forced on it (Ruling BO;
+        // `project_open` restores a saved mask after this).
+        self.reset_forced_lakes();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
     }
 
@@ -5745,6 +5996,9 @@ impl WorldGen {
         self.civ = Some(compute_civilisation(
             &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&ocean_f, &wind_f),
             p.use_gpu, &mut self.gpu_stages_used,
+            // A new world: nothing has been forced on it yet (`absorb` resets
+            // `forced_lakes`).
+            None,
         ));
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
@@ -5900,6 +6154,9 @@ impl WorldGen {
         self.world_origin = Some(origin.to_string());
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
+        // A new source is a new world: nothing is forced on it (Ruling BO;
+        // `project_open` restores a saved mask after this).
+        self.reset_forced_lakes();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
         // A fresh display name for this seed -- see the `world_name` field.
@@ -7476,9 +7733,14 @@ impl WorldGen {
         let cultures = civ.faction_roster.cultures();
         // `gpu_stages_used` describes the last generate(), not a rebuild, so
         // this pass's own GPU report is not kept.
+        // Ruling BO: a recompute keeps the lakes the user forced, rather than
+        // silently dropping them from the civ layer while the map still draws
+        // them (which is what "undone by the next full civ recompute" meant
+        // before the mask was kept on `WorldGen`).
         let computed = compute_civilisation(
             ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &cultures, keep, (&ocean_f, &wind_f),
             p.use_gpu, &mut Vec::new(),
+            self.forced_lake_mask(),
         );
         // SP-4: auto-populate reissues every `tid` from 1, so an anchor kept
         // across it would re-bind to an unrelated town. Detach first, while
@@ -7945,6 +8207,9 @@ impl WorldGen {
         self.loaded_legacy_zip = legacy.is_some();
         // Every assignment to `source` bumps this -- see `world_epoch`.
         self.world_epoch = self.world_epoch.wrapping_add(1);
+        // A new source is a new world: nothing is forced on it (Ruling BO;
+        // `project_open` restores a saved mask after this).
+        self.reset_forced_lakes();
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -9178,14 +9443,20 @@ impl WorldGen {
         // level from the same call feeds RV-4's shore field below.
         let bodies = self.drawn_water_bodies()?;
         let lakes = bodies.classification;
+        // The same classification `drawn_water_classification` answers from
+        // its cache -- refreshed here, where it was built anyway, so Sample's
+        // first motion event after a repaint pays no flood of its own.
+        *self.drawn_water_cache.borrow_mut() = Some((self.drawn_water_key(), std::sync::Arc::from(lakes.as_slice())));
         // RV-4: the smooth shoreline's field, from the classification this
         // texture draws its water from and that call's own fill level, so the
         // shell's contour agrees with these colours at every cell centre
         // (`render::shore_field`). Half-float (`render::f16_bits`), 2 bytes a
         // cell. Only for a look that draws it (`smooth_shores`); otherwise
-        // `None`, and the shell draws the cell coast.
+        // `None`, and the shell draws the cell coast. Ruling BO: a forced
+        // lake's edge comes from its mask (`render::shore_field_forced`),
+        // since the lake rule the field contours never made it water.
         *self.shore_field_tex.borrow_mut() = if appearance.smooth_shores {
-            let fld = render::shore_field(field, &lakes, &bodies.fill_level, rainfall, gw, gh, self.sea_level, self.world);
+            let fld = render::shore_field_forced(field, &lakes, &bodies.fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
             if fld.len() == gw * gh {
                 let bytes: Vec<u8> = fld.iter().flat_map(|&v| render::f16_bits(v).to_le_bytes()).collect();
                 Image::create_from_data(gw as i32, gh as i32, false, Format::RH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
@@ -10293,7 +10564,10 @@ impl WorldGen {
             (0..self.stages.tile_count()).fold(0u64, |a, t| a.wrapping_add(self.stages.version(st.id(), t)))
         };
         format!(
-            "e{};h{};c{};y{};{}x{};s{};w{};km{}",
+            // `f`: the forced-lake mask (Ruling BO). `river_draws` cuts each
+            // stroke at the drawn water (`drawn_water_classification`), which
+            // a forced lake moves without moving any stage version.
+            "e{};h{};c{};y{};{}x{};s{};w{};km{};f{}",
             self.world_epoch,
             vsum(PipelineStage::Height),
             vsum(PipelineStage::Climate),
@@ -10303,6 +10577,7 @@ impl WorldGen {
             self.sea_level.to_bits(),
             self.world,
             self.map_width_km.to_bits(),
+            self.forced_lakes_epoch,
         )
     }
 
@@ -11376,7 +11651,10 @@ impl WorldGen {
         s.draft.preview_into(&ws.field, &mut scratch);
 
         let appearance = self.appearance();
-        let lakes = cartalith_civ::build_water_bodies(&scratch, gw, gh, self.sea_level, self.world, Some(&ws.rainfall)).classification;
+        let mut lakes = cartalith_civ::build_water_bodies(&scratch, gw, gh, self.sea_level, self.world, Some(&ws.rainfall)).classification;
+        // Ruling BO: the forced lakes `build_color_texture` draws, so the
+        // preview does not make a forced lake vanish while a stroke is drafted.
+        apply_forced_lakes(&mut lakes, self.forced_lake_mask());
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,
@@ -15053,6 +15331,9 @@ impl WorldGen {
     ///   ground-tile branches and the paint grids override cells outright.
     ///   Both are covered by content: `paint_epoch()` is the paint layers'
     ///   own change counter and the pack by its id.
+    /// - **The forced lakes** (Ruling BO) -- `forced_lakes_epoch`, bumped on
+    ///   every change to the mask the tiles draw as lake. A press moves no
+    ///   stage version, so without it a built tile kept the old water.
     ///
     /// **One input is deliberately absent:** `seed`. It reaches a tile
     /// through `AmplifyOpts`, not through any cached member, and is passed
@@ -15088,7 +15369,10 @@ impl WorldGen {
             // (`river_geometry`). Their shape is a function of the world and
             // the map width, both keyed above; their style is part of the
             // appearance fingerprint.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{}",
+            // `fl`: the forced-lake mask (Ruling BO), applied to every tile's
+            // classification (`TileFields::with_forced_lakes`) and moving no
+            // stage version, so a press must change the key on its own.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -15109,6 +15393,7 @@ impl WorldGen {
             self.params.climate.lapse_rate.to_bits(),
             self.params.planet.g.to_bits(),
             self.rivers_in_map,
+            self.forced_lakes_epoch,
         )
     }
 
@@ -15243,6 +15528,9 @@ impl WorldGen {
             // The same network `build_color_texture` rasterizes, built once
             // per snapshot and filled into each tile at its own resolution.
             rivers: self.river_geometry(),
+            // Ruling BO: the forced lakes `drawn_water_bodies` applies to the
+            // base map, so a tile draws the same water.
+            forced_lakes: self.forced_lake_mask().map(|m| m.to_vec()),
         })
     }
 }
@@ -16949,8 +17237,12 @@ impl WorldGen {
     ///   cause instead of a bare "—".
     /// * `river_order` -- omitted when river extraction did not run
     ///   (`WorldState::stream_order` is `None`).
-    /// * `water` (`"land"`/`"ocean"`/`"lake"`), `biome`, `control` --
-    ///   omitted without a civilisation layer, i.e. on a loaded save.
+    /// * `water` (`"land"`/`"ocean"`/`"lake"`) -- the water the map draws
+    ///   (`drawn_water_classification`), present whenever this returns
+    ///   anything. Since 2026-09-28; it read the civ layer's stale copy before.
+    /// * `biome`, `control` -- omitted without a civilisation layer. `biome`
+    ///   still reads the civ layer's water copy (`CivData::water_bodies`), so
+    ///   after a sculpt it can lag the map where `water` does not.
     #[func]
     fn sample_cell(&self, gx: i32, gy: i32) -> VarDictionary {
         let Some(f) = self.sample_refs() else { return VarDictionary::new() };
@@ -17005,15 +17297,15 @@ impl WorldGen {
         if let Some(so) = s.soil {
             d.set("soil", so);
         }
-        if let Some(w) = s.water_body {
-            d.set(
-                "water",
-                match w {
-                    1 => "ocean",
-                    2 => "lake",
-                    _ => "land",
-                },
-            );
+        // `water` is the classification the map DRAWS
+        // (`drawn_water_classification`: forced lakes included, rebuilt after
+        // every edit), not `s.water_body`, which is the civ layer's copy --
+        // taken once at generation and stale after a sculpt, so Sample could
+        // say "lake" over ground the map showed as land (`OUTSTANDING_WORK.md`
+        // "Four map-data defects", item 1). Omitted only when there is no
+        // drawn classification at all; never defaulted.
+        if let Some(w) = self.drawn_water_classification().and_then(|c| c.get(s.y as usize * f.gw + s.x as usize).copied()) {
+            d.set("water", sample_water_word(w));
         }
         if let Some(b) = s.biome {
             d.set("biome", b);

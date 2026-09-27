@@ -788,15 +788,15 @@ impl WorldGen {
         let Some((cell, dist)) = nearest_channel_cell(order, gw, gh, self.world, gx, gy, radius_cells) else {
             return VarDictionary::new();
         };
-        let n = gw * gh;
-        let fresh;
-        let classes: &[u8] = match self.civ.as_ref().map(|c| c.water_bodies.as_slice()).filter(|w| w.len() == n) {
-            Some(w) => w,
-            None => {
-                fresh = cartalith_civ::build_water_bodies(&ws.field, gw, gh, self.sea_level, self.world, Some(&ws.rainfall)).classification;
-                &fresh
-            }
-        };
+        // The water the map DRAWS (`drawn_water_classification`, forced
+        // lakes included), so the card's "ends in a lake" names a lake that is
+        // on screen. It read `CivData::water_bodies` first until 2026-09-28 --
+        // a copy taken at generation and never refreshed by a sculpt, so the
+        // card could say "lake" where the map showed land (`OUTSTANDING_WORK.md`
+        // "Four map-data defects", item 1). No world, no classification: the
+        // walk then treats every cell as land, as it did for a missing grid.
+        let drawn = self.drawn_water_classification();
+        let classes: &[u8] = drawn.as_deref().unwrap_or(&[]);
         let water = |i: usize| classes.get(i).copied().unwrap_or(0);
         // The accumulation tree, built only if the channel chain stops on
         // land -- one whole-grid pass, so not paid on a chain that reaches the

@@ -1341,6 +1341,22 @@ pub struct LabelWorld<'a> {
     pub lake_min_cells: usize,
 }
 
+/// Half a cell: the offset from a **cell index** -- the frame every feature
+/// source below is in (a settlement's `placement`, a landmark's `x`/`y`, a
+/// continent's and a lake's centroid of cell indices) -- to the **point** at
+/// that cell's centre, the frame a [`MapLabel`]'s `x`/`y` is drawn in
+/// (`map_overlay.gd::_draw_labels` projects it with `_point_to_screen`, no
+/// `+0.5`, the same continuous grid point a hand-placed label is created at).
+///
+/// Why it exists: every generated label was anchored at its feature's cell
+/// index and drawn as a point, so all five classes sat half a cell up and
+/// left of what they name -- invisible at fit zoom, a visible miss at deep
+/// zoom (`OUTSTANDING_WORK.md` "Four map-data defects", item 3). The value is
+/// the geometry of a unit cell, not a tuning: cell `i` spans `[i, i + 1)`.
+/// Must be added exactly once, here, where a cell becomes a label anchor --
+/// never again downstream, or the label moves half a cell the other way.
+pub const CELL_CENTRE: f64 = 0.5;
+
 /// Sweep a world for everything nameable, one [`LabelCandidate`] per feature.
 ///
 /// Five sources, one per class:
@@ -1370,8 +1386,8 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
         out.push(LabelCandidate {
             class: LabelClass::Continental,
             name: c.name.clone(),
-            x: c.cx,
-            y: c.cy,
+            x: c.cx + CELL_CENTRE,
+            y: c.cy + CELL_CENTRE,
             weight: c.cells as f64,
         });
     }
@@ -1381,8 +1397,8 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
         out.push(LabelCandidate {
             class: LabelClass::Region,
             name: p.name.clone(),
-            x: seat.placement.x as f64,
-            y: seat.placement.y as f64,
+            x: seat.placement.x as f64 + CELL_CENTRE,
+            y: seat.placement.y as f64 + CELL_CENTRE,
             weight: seat.pop as f64,
         });
     }
@@ -1391,8 +1407,8 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
         out.push(LabelCandidate {
             class: LabelClass::Settlement,
             name: s.name.clone(),
-            x: s.placement.x as f64,
-            y: s.placement.y as f64,
+            x: s.placement.x as f64 + CELL_CENTRE,
+            y: s.placement.y as f64 + CELL_CENTRE,
             weight: s.pop as f64,
         });
     }
@@ -1403,8 +1419,8 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
             out.push(LabelCandidate {
                 class: LabelClass::Water,
                 name: lake.name,
-                x: lake.cx,
-                y: lake.cy,
+                x: lake.cx + CELL_CENTRE,
+                y: lake.cy + CELL_CENTRE,
                 weight: lake.cells as f64,
             });
         }
@@ -1415,8 +1431,8 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
         out.push(LabelCandidate {
             class: LabelClass::Landmark,
             name: spec.label.to_string(),
-            x: lm.x as f64,
-            y: lm.y as f64,
+            x: lm.x as f64 + CELL_CENTRE,
+            y: lm.y as f64 + CELL_CENTRE,
             weight: lm.importance,
         });
     }
@@ -2509,11 +2525,14 @@ mod tests {
         assert_eq!(cands.len(), 6);
 
         let region = cands.iter().find(|k| k.class == LabelClass::Region).unwrap();
-        assert_eq!((region.x, region.y), (10.0, 20.0), "a region is labelled at its capital");
+        // The capital sits in cell (10, 20); its label is at that cell's
+        // centre, the point frame `_draw_labels` projects (item 3 of
+        // "Four map-data defects": this was (10, 20), the cell's corner).
+        assert_eq!((region.x, region.y), (10.5, 20.5), "a region is labelled at its capital's cell centre");
         assert_eq!(region.weight, 5000.0);
         let lm = cands.iter().find(|k| k.class == LabelClass::Landmark).unwrap();
         assert_eq!(lm.name, "Waterfall", "no landmark naming pass exists; the kind's own label is used");
-        assert_eq!((lm.x, lm.y), (7.0, 8.0));
+        assert_eq!((lm.x, lm.y), (7.5, 8.5), "landmark cell (7, 8), anchored at its centre");
         assert_eq!(lm.weight, 0.6);
 
         // And the whole chain: candidates in, placed labels out.
@@ -2521,6 +2540,62 @@ mod tests {
         assert_eq!(g.labels.len(), 6);
         assert_eq!(g.counts.iter().map(|c| c.drawn).sum::<usize>(), 6);
         assert_eq!(g.labels[0].name, "Greater Enn");
+    }
+
+    /// Protects item 3 of `OUTSTANDING_WORK.md`'s "Four map-data defects":
+    /// **every one of the five classes** is anchored at its feature's cell
+    /// centre, the point frame `map_overlay.gd::_draw_labels` draws in. Each
+    /// feature sits in a known cell, and each expected anchor is that cell
+    /// plus a literal half -- not `CELL_CENTRE`, so mutating the constant (or
+    /// dropping it from any one class) turns this red. The continent and the
+    /// lake exercise the centroid path: a 5 x 5 lake over cells 1..=5 has its
+    /// centroid at cell 3, whose centre is 3.5.
+    #[test]
+    fn every_class_is_anchored_at_its_cell_centre() {
+        let settlements = vec![settlement("Aldar", 10, 20, 5000)];
+        let continents = vec![crate::Continent {
+            id: 1,
+            name: "Greater Enn".to_string(),
+            cells: 4000,
+            min_x: 0,
+            min_y: 0,
+            max_x: 62,
+            max_y: 62,
+            cx: 31.0,
+            cy: 12.0,
+            faction: 1,
+        }];
+        let provinces = vec![crate::Province { id: 1, faction: 1, name: "Aldar Province".to_string(), capital_settlement_index: 0 }];
+        let landmarks = vec![crate::landmark::Landmark {
+            id: 1,
+            kind: "waterfall".to_string(),
+            class: crate::landmark::LandmarkClass::Regional,
+            x: 7,
+            y: 8,
+            elevation: 300.0,
+            score: 0.8,
+            importance: 0.6,
+            causal: Vec::new(),
+            seed: 1,
+        }];
+        let water = water_grid(16, 16, &(0..5).flat_map(|y| (0..5).map(move |x| (x + 1, y + 1))).collect::<Vec<_>>());
+        let world = LabelWorld {
+            continents: &continents,
+            provinces: &provinces,
+            settlements: &settlements,
+            landmarks: &landmarks,
+            water: Some(&water),
+            gw: 16,
+            gh: 16,
+            lake_min_cells: 0,
+        };
+        let cands = label_candidates(&world);
+        let at = |c: LabelClass| cands.iter().find(|k| k.class == c).map(|k| (k.x, k.y)).expect("one per class");
+        assert_eq!(at(LabelClass::Continental), (31.5, 12.5));
+        assert_eq!(at(LabelClass::Region), (10.5, 20.5));
+        assert_eq!(at(LabelClass::Settlement), (10.5, 20.5));
+        assert_eq!(at(LabelClass::Water), (3.5, 3.5));
+        assert_eq!(at(LabelClass::Landmark), (7.5, 8.5));
     }
 
     #[test]

@@ -311,6 +311,12 @@ pub struct SnapshotInputs {
     /// `Arc` because the geometry is built once per snapshot and read by
     /// every worker tile.
     pub rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
+    /// Ruling BO: the forced-lake mask (`WorldGen::forced_lake_mask`), drawn
+    /// into every tile as lake (`TileFields::with_forced_lakes`) so a tile
+    /// shows the water the base map shows. `None` -- the absent state, never
+    /// an all-zero mask -- for a world where nothing was forced, which keeps
+    /// its tiles byte-identical to before the field existed.
+    pub forced_lakes: Option<Vec<u8>>,
 }
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
@@ -433,6 +439,7 @@ impl SnapshotInputs {
             lapse_rate,
             gravity,
             rivers,
+            forced_lakes,
         } = self;
         let mut d = Digest::new();
         d.word(*gw as u64);
@@ -460,6 +467,12 @@ impl SnapshotInputs {
         // The rivers drawn into the tiles: whether any are, and every
         // point, width, colour and piece of them, so a pyramid stored with
         // the layer on is not seeded under it off, or over another network.
+        // Ruling BO: whether any lake was forced, and which cells -- a
+        // pyramid stored before a press must not seed the world after it.
+        d.tag(forced_lakes.is_some());
+        if let Some(m) = forced_lakes {
+            d.bytes(m);
+        }
         d.tag(rivers.is_some());
         if let Some(g) = rivers {
             d.word(g.runs.len() as u64);
@@ -630,6 +643,7 @@ impl LodSnapshot {
             lapse_rate,
             gravity,
             rivers,
+            forced_lakes,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
@@ -663,7 +677,12 @@ impl LodSnapshot {
                 g: gravity,
                 meters_per_unit: if (1.0 - sea_level).abs() > 1e-9 { peak_m / (1.0 - sea_level) } else { peak_m / 1e-6 },
             };
-            TileFields::new(&ctx, grid_rgb.as_deref()).with_cryo(glacier, cryo)
+            let tf = TileFields::new(&ctx, grid_rgb.as_deref()).with_cryo(glacier, cryo);
+            // Ruling BO: the forced lakes the base map draws, drawn here too.
+            match forced_lakes.as_deref() {
+                Some(m) => tf.with_forced_lakes(m),
+                None => tf,
+            }
         };
         Some(LodSnapshot {
             key,
@@ -1323,6 +1342,7 @@ mod tests {
             lapse_rate: 6.5,
             gravity: 1.0,
             rivers: None,
+            forced_lakes: None,
             }
     }
 
@@ -1993,6 +2013,8 @@ mod tests {
         moved.push(("peak_m", { let mut i = inputs(gw, gh); i.peak_m = 4001.0; i }));
         moved.push(("litho", { let mut i = inputs(gw, gh); let n = gw * gh; i.litho = Some(LithoSource { age: Arc::new(vec![0.1; n]), volcanic: Arc::new(vec![0.1; n]), crust: Arc::new(vec![0.1; n]), resistance: Arc::new(vec![0.1; n]) }); i }));
         moved.push(("grid_rgb under local contrast", { let mut i = inputs(gw, gh); i.appearance.local_contrast = 0.5; i.grid_rgb = Some(vec![9u8; gw * gh * 3]); i }));
+        // Ruling BO: a forced lake, and a different forced lake.
+        moved.push(("forced lakes", { let mut i = inputs(gw, gh); let mut m = vec![0u8; gw * gh]; m[5] = 1; i.forced_lakes = Some(m); i }));
         for (what, i) in moved {
             assert_ne!(i.fingerprint(), base, "{what} did not move the digest");
         }
@@ -2003,5 +2025,46 @@ mod tests {
         let off = i.fingerprint();
         i.grid_rgb = Some(vec![9u8; gw * gh * 3]);
         assert_eq!(i.fingerprint(), off, "grid_rgb must not count while local contrast is off");
+        // Which cells are forced moves it too, not just whether any are.
+        let at = |c: usize| {
+            let mut i = inputs(gw, gh);
+            let mut m = vec![0u8; gw * gh];
+            m[c] = 1;
+            i.forced_lakes = Some(m);
+            i.fingerprint()
+        };
+        assert_ne!(at(5), at(6), "the forced cells must move the digest");
+    }
+
+    /// Protects Ruling BO in the worker path: a snapshot built with a forced
+    /// lake draws it into its tiles. A land block on the test world's
+    /// plateau is forced, and the tile over it must differ from the unforced
+    /// tile there while every pixel away from the block is unchanged -- the
+    /// mask reaches `TileFields` through `LodSnapshot::build` and nowhere else.
+    #[test]
+    fn a_snapshot_with_forced_lakes_draws_them_in_its_tiles() {
+        let (gw, gh) = (96usize, 72usize);
+        let plain = LodSnapshot::build(inputs(gw, gh)).expect("snapshot");
+        let mut i = inputs(gw, gh);
+        // The test field peaks at the centre (0.30 + 0.55 * ...), so the
+        // 5 x 5 around (48, 36) is well above sea level 0.42: land.
+        let mut m = vec![0u8; gw * gh];
+        for y in 34..=38 {
+            for x in 46..=50 {
+                assert!(i.field[y * gw + x] > 0.5, "premise: ({x}, {y}) is land");
+                m[y * gw + x] = 1;
+            }
+        }
+        i.forced_lakes = Some(m);
+        let forced = LodSnapshot::build(i).expect("snapshot");
+        let (a, w, h) = plain.render_tile(0, 0, 0).expect("tile");
+        let (b, _, _) = forced.render_tile(0, 0, 0).expect("tile");
+        // Tile (0, 0, 0) covers the whole grid: grid cell (x, y) is pixel
+        // (x * w / gw, y * h / gh).
+        let px = |x: f64, y: f64| ((y * h as f64 / gh as f64) as usize * w + (x * w as f64 / gw as f64) as usize) * 4;
+        let c = px(48.5, 36.5);
+        assert_ne!(a[c..c + 3], b[c..c + 3], "the forced block's centre must be drawn differently");
+        let far = px(10.5, 10.5);
+        assert_eq!(a[far..far + 4], b[far..far + 4], "far from the block nothing moves");
     }
 }

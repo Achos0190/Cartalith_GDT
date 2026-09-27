@@ -174,7 +174,10 @@ impl ExportSnapshot {
         let flow = i.flow.as_ref().map(|v| v.as_slice());
         let pre = GridPrecompute::build(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km));
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(&i.field, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
-        let lakes = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall)).classification;
+        let mut lakes = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall)).classification;
+        // Ruling BO: the forced lakes the screen draws, carried in the same
+        // snapshot inputs the tiles read, so the export shows them too.
+        crate::apply_forced_lakes(&mut lakes, i.forced_lakes.as_deref());
         let parts = Parts {
             gw,
             gh,
@@ -558,6 +561,7 @@ mod tests {
             lapse_rate: 6.5,
             gravity: 1.0,
             rivers: None,
+            forced_lakes: None,
         }
     }
 
