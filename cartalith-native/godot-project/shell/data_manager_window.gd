@@ -434,9 +434,10 @@ const CRS_NOTE := "The export is in the world's own cell grid. No CRS handling e
 ##   `_draw_labels` / `_draw_manual_icons`, Control-level draw calls
 ## - political tint -> `lib.rs::territory_texture()`, its own TextureRect
 ##   layer under `viewport_host.gd`
-## - rivers -> `map_overlay.gd::_draw_rivers` vector strokes since 2026-09-22
-##   (a loaded save still gets a channel-mask tint inside
-##   `lib.rs::build_color_texture()`)
+## - rivers -> `map_overlay.gd::_draw_rivers`: RV-2's vector strokes, since
+##   2026-09-27 textured with `river_color_texture()` (the map composited at
+##   full river coverage, so the style reaches them); `build_color_texture()`
+##   holds none (a loaded save still gets a channel-mask tint there)
 ##
 ## The *tile* export is a third thing again: `region_export::tile_png_bytes`
 ## calls `render_height_tile_rgba(tile, ...)`, a hillshade of the tile's own
@@ -656,10 +657,11 @@ var _gis_doc_layers: Dictionary = {}
 ## Rewritten 2026-09-24 (ALIGNMENT_AUDIT Part 2 B10). It quoted "a dozen or
 ## so bytes of 8,060,928 differ" against the live viewport -- stale since
 ## `d657091`: `export_raster.rs::screen_river_ink` returns `None` for a
-## generated world (the screen draws `map_overlay.gd::_draw_rivers`' vector
-## strokes) while exports still stamp `river_ink()` into the raster. The
+## generated world (the screen draws the vector strokes over its texture,
+## textured with the style's river colour since 2026-09-27) while exports
+## still stamp `river_ink()` into the raster. The
 ## re-render claim is `render::bake_rect`'s.
-const WD_RASTER_NOTE := "The export re-renders the map at each output pixel's own position -- materials, hillshade, shading, the paper ground and the plate frame -- so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. One visible difference from the screen: on a generated world the screen draws rivers as smooth lines over the map, while an export paints them into the image from the map grid instead, so the two do not match exactly."
+const WD_RASTER_NOTE := "The export re-renders the map at each output pixel's own position -- materials, hillshade, shading, the paper ground and the plate frame -- so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. One visible difference from the screen: on a generated world the screen draws its rivers from smooth vector lines, in the style's own river treatment, while an export stamps them into the image from the map grid instead, so the two do not match exactly."
 const WD_TILES_NOTE := "Writes tile_{row}_{col}.png plus index.json (cartalith_io::build_tile_manifest) instead of one file. The raster is rendered ONCE either way and only the file layout differs, so this cannot change what the map looks like -- unlike the reference, which re-renders per tile because a browser canvas has a hard area cap no native build has."
 const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying capacity in one RGB8 PNG; settlement suitability in another; the fifteen resource potentials three to a file; biome and lithology indices in a third -- plus atlas/index.json documenting which channel of which file holds which field. Data at grid resolution, not a picture. The Köppen channel is documented and left at zero: this port retains no Köppen raster, exactly as the reference leaves it null when state.climate.seasons never built one."
 const WD_LAYERS_NOTE := "layersPreviewChk: the reference's own four human-viewable previews of the f32 data layers -- biome, hillshade, temperature, rainfall -- written into a layers/ folder beside whatever this run just wrote. Each is built from the pass the reference's own layerBytes(mode, debug) branch would have taken: bake_rect for biome, render::hillshade_raster for renderNow's mode==='shade' branch, and the temp/rain debug rasters, which are whole-image palette replacements rather than overlays because the reference's debugOpacity defaults to 1. Always at the GRID's size, not the raster width above: the .f32 blobs these preview are one value per cell, and the README line calls them reference only. Generated worlds only."

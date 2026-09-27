@@ -1,5 +1,8 @@
 extends Node
 ## Rivers and lakes across zoom -- measurement only, no pixel change.
+## (Since 2026-09-27 the switch rebuilds the deep-zoom tiles, which draw rivers, so
+## the ON/OFF pair below is a re-render of both, and each capture waits for the
+## pyramid to settle.)
 ##
 ## MUST run windowed (frame_post_draw / get_image are dead under headless):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _riverzoom_probe.tscn -- --out DIR
@@ -30,7 +33,10 @@ extends Node
 ## `--targets FILE` reuses the target cells of an earlier run's riverzoom.json,
 ## so a before/after pair frames the same ground. `--stats-only` skips the zoom
 ## sweep and its PNGs (grid statistics and draw cost only); `--zooms 1,32`
-## narrows the sweep.
+## narrows the sweep. `--appearance key=v,key=v` sets appearance tunables after
+## generation (e.g. `river_ink=1,river_ink_r=0,river_ink_g=0,river_ink_b=0` to
+## measure the stroke's continuity in a full-contrast ink, independent of how
+## far a style's colour sits from the ground).
 
 var _out := "user://riverzoom/"
 var _seeds: Array[int] = [483920, 24601, 71077345]
@@ -43,6 +49,7 @@ var _br: Node
 var _report: Dictionary = {}
 var _fixed_targets: Dictionary = {}
 var _stats_only := false
+var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
 
 const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",
@@ -67,6 +74,11 @@ func _ready() -> void:
 			"--zooms":
 				_zooms.clear()
 				for zs in args[i + 1].split(","): _zooms.append(float(zs))
+				i += 1
+			"--appearance":
+				for kv in args[i + 1].split(","):
+					var pr := kv.split("=")
+					_appearance[pr[0]] = float(pr[1])
 				i += 1
 			"--targets":
 				_fixed_targets = JSON.parse_string(FileAccess.get_file_as_string(args[i + 1])); i += 1
@@ -103,6 +115,10 @@ func _run_seed(seed_v: int) -> void:
 	for l in HIDE:
 		_vh.set_layer_visible(l, false)
 	_vh.set_layer_visible("rivers", true)
+	if not _appearance.is_empty():
+		var n: int = _br.set_appearance(_appearance)
+		print("  appearance overrides applied: %d of %d %s" % [n, _appearance.size(), str(_appearance)])
+		_vh.map_view.texture = _br.color_texture()
 	var rivers: Array = _br.rivers(1)
 	var drawn := 0
 	for r: Dictionary in rivers:
@@ -143,15 +159,21 @@ func _run_seed(seed_v: int) -> void:
 			_vh.zoom_step(z / _vh.zoom())
 			_vh.move_view_to(t["p"].x, t["p"].y)
 			await _settle(60)
+			await _settle_lod()
 			var on := await _grab()
+			## Since 2026-09-27 the Rivers switch re-renders the base map and
+			## rebuilds every deep-zoom tile (the rivers are IN them), so the
+			## OFF frame must wait for the pyramid, not four frames: a tile
+			## still rebuilding shows its parent, and the diff then reads the
+			## whole terrain as "stroke".
 			_vh.set_layer_visible("rivers", false)
-			await _settle(4)
+			await _settle_lod()
 			var off := await _grab()
 			_vh.set_layer_visible("rivers", true)
-			await _settle(2)
+			await _settle_lod()
 			if on == null or off == null:
 				continue
-			var tag := "s%d_%s_z%03d" % [seed_v, name, int(z)]
+			var tag := "s%d_%s_z%06.2f" % [seed_v, name, z]
 			on.save_png(_out.path_join(tag + "_on.png"))
 			off.save_png(_out.path_join(tag + "_off.png"))
 			var frag := _fragments(on, off)
@@ -615,6 +637,17 @@ func _grab() -> Image:
 	var sub := img.get_region(r)
 	sub.convert(Image.FORMAT_RGBA8)
 	return sub
+
+
+## Until the deep-zoom pyramid has caught up (`lod_pending() == 0` -- a
+## condition, not a frame count) and its per-tile morph has run; 20 s cap.
+func _settle_lod() -> void:
+	await _settle(6)
+	var t0 := Time.get_ticks_msec()
+	while _vh.lod_pending() > 0 and Time.get_ticks_msec() - t0 < 20000:
+		await get_tree().process_frame
+	await get_tree().create_timer(0.6).timeout
+	await _settle(4)
 
 
 func _settle(n: int) -> void:

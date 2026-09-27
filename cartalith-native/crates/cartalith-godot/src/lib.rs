@@ -3968,9 +3968,25 @@ const RIVER_RDP_EPS_CELLS: f64 = 0.5;
 const RIVER_ORDER_RGB: [(u8, u8, u8); 8] =
     [(156, 208, 228), (112, 182, 219), (74, 152, 204), (48, 121, 184), (36, 94, 160), (30, 70, 132), (26, 50, 104), (22, 36, 80)];
 
-fn river_order_color(order: i16) -> Color {
-    let (r, g, b) = RIVER_ORDER_RGB[(order.max(1) as usize - 1).min(RIVER_ORDER_RGB.len() - 1)];
-    Color::from_rgba8(r, g, b, 255)
+fn river_order_rgb(order: i16) -> (u8, u8, u8) {
+    RIVER_ORDER_RGB[(order.max(1) as usize - 1).min(RIVER_ORDER_RGB.len() - 1)]
+}
+
+/// One run's drawn stroke, as [`WorldGen::river_draws`] builds it: the
+/// `get_rivers()` keys of the same names, before marshalling.
+struct RiverDraw {
+    rp: Vec<(f64, f64)>,
+    pieces: Vec<(usize, usize)>,
+    widths: Option<Vec<f32>>,
+    own_order: i64,
+    colors: Vec<(u8, u8, u8)>,
+    /// Per render point: the Strahler order and the `flow_discharge` of the
+    /// traced cell nearest it -- what `river_stroke::river_px_width` is keyed
+    /// on besides the width, so a zoom rule can select and size by them.
+    orders: Vec<i16>,
+    discharge: Vec<f32>,
+    draw_rank: usize,
+    parallel_of: Option<usize>,
 }
 
 /// A river run's drawn curve: [`way_render_polyline`] over the run after
@@ -4018,8 +4034,8 @@ fn river_dict(f: &sample_bridge::FieldRefs<'_>, r: &cartalith_hydrology::River, 
     // `&[]` is passed and the returned breaks are always empty -- kept as a
     // `_` rather than a second dict key for that reason.
     //
-    // This is `map_overlay.gd`'s `_draw_rivers()` fix for the "pixilated,
-    // not flowing" defect: `points` still zigzags cell-to-cell along the D8
+    // This is the drawn river's fix for the "pixilated, not flowing" defect
+    // (the overlay's then, `river_stroke::rasterize`'s since 2026-09-27): `points` still zigzags cell-to-cell along the D8
     // receiver tree it was traced from, and a straight stroke through it
     // reads exactly like the raster river's own stair-stepped disc edge.
     let (render_points, _) = way_render_geometry(&r.pts, &[]);
@@ -4656,6 +4672,23 @@ struct WorldGen {
     /// app, working space = document"*. So this is session state, no save
     /// format changes, and `project_bridge.rs` needed no edit.
     color_space: render::ColorSpace,
+    /// Whether the rivers are drawn -- the Layers panel's Rivers switch
+    /// (`viewport_host.gd::set_layer_visible("rivers")`). Read by the base
+    /// view's river stroke (`river_view_mesh`, empty while off) and by every
+    /// deep-zoom tile (`river_geometry`, `lod_cache_key`). The map texture
+    /// holds no river either way, so the switch never re-renders it.
+    /// `true` on a fresh session, as the layer always was. Session state like
+    /// `color_space`: a view choice, not part of a look.
+    rivers_in_map: bool,
+    /// `build_color_texture`'s river colour texture (`river_color_texture`).
+    /// A `RefCell` because the builder takes `&self`, like the `lod` slot's
+    /// `grid_rgb` beside it.
+    river_color_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// The last colour field's `(covered pixels, allocated bytes)`, for
+    /// `river_field_stats` (a probe's memory reading).
+    river_field_stats: std::cell::Cell<(usize, usize)>,
+    /// `river_geometry`'s cache: its key and the network built for it.
+    river_geom_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>)>>,
     /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): per-index
     /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
     /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
@@ -5250,6 +5283,10 @@ impl IRefCounted for WorldGen {
             appearance_layers: None,
             appearance_preset: None,
             color_space: render::ColorSpace::Srgb,
+            rivers_in_map: true,
+            river_color_tex: std::cell::RefCell::new(None),
+            river_field_stats: std::cell::Cell::new((0, 0)),
+            river_geom_cache: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
             sculpt: None,
             icons: None,
@@ -9062,10 +9099,18 @@ impl WorldGen {
     /// renderer (`render.rs`'s doc comment lists exactly what's ported vs.
     /// deliberately excluded) — no longer the MVP placeholder tint this
     /// method used before. **A generated world's rivers are not in this
-    /// texture**: they are the vector strokes `map_overlay.gd::_draw_rivers`
-    /// draws over it (owner ruling 2026-09-22 — see
-    /// [`WorldGen::screen_river_ink`]). Returns `None` before the first
-    /// `generate()` call.
+    /// texture**, and they are not drawn on top of the style either (owner,
+    /// 2026-09-27: *"they're drawn on top of the style"*). This call also
+    /// builds [`WorldGen::river_color_texture`] -- the same map with every
+    /// river at full coverage in its styled colour, composited through
+    /// `render::land_color` and every stage after -- and the base view draws
+    /// RV-2's vector stroke in screen pixels textured with it
+    /// ([`WorldGen::river_view_mesh`]): the style's colour in the vector's
+    /// shape, smooth at every base-view zoom. The deep-zoom tiles rasterize
+    /// their own (`river_stroke::rasterize`). A loaded save, which has no
+    /// traced network, keeps the stamped ink in this texture
+    /// ([`WorldGen::screen_river_ink`]).
+    /// Returns `None` before the first `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
@@ -9100,6 +9145,13 @@ impl WorldGen {
         // with the lake labels (`drawn_water_classification`), so a label
         // cannot name a lake this texture does not draw.
         let lakes = self.drawn_water_classification()?;
+        // The river colour field (`river_stroke::rasterize_colour_field`):
+        // every river at full coverage in its styled colour, a band wider than
+        // any base-view stroke. Built whether or not the Rivers layer is on
+        // (`river_geometry_any`), so the switch never needs this function
+        // again. `None` for a loaded save, which keeps `chan_mask` instead.
+        let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field(&g, &appearance, gw, gh));
+        self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
         let mut ctx = RenderCtx::with_appearance(
             field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         )
@@ -9245,6 +9297,29 @@ impl WorldGen {
             }
         });
 
+        // **The river colour field**, composited: the map as it is, except at
+        // every pixel the field reached, where the river is laid into the lit
+        // colour by `cell_color_river` at the field's colour and opacity --
+        // before the Painter styles, the paper and the frame. Local contrast
+        // and the grade below then finish it exactly as they finish `bytes`,
+        // measured from `bytes` (the terrain), so no river is the edge local
+        // contrast enhances. Only the field's pixels are re-coloured.
+        let mut river_bytes: Option<Vec<u8>> = field_layer.as_ref().map(|layer| {
+            let mut t = bytes.clone();
+            t.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
+                for x in 0..gw {
+                    if let Some(p) = layer.at(x, y) {
+                        let (r, g, b) = render::cell_color_river(&ctx, x, y, Some(p));
+                        let o = x * 3;
+                        row[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                        row[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                        row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+                    }
+                }
+            });
+            t
+        });
+
         // **The LOD tile path's snapshot** (`LOD_DETAIL_SCOPE.md` LOD-D2),
         // taken here and nowhere else because *here* is the state
         // `apply_local_contrast` is about to read: after the river ink tint,
@@ -9284,7 +9359,7 @@ impl WorldGen {
         // The colour grade (2026-08-24) -- the last stage that is about the
         // *terrain image*. Placed after local contrast, and before the icon
         // pass below for the same reason local contrast is: drawn artwork is
-        // not terrain, and rivers, labels, settlement markers, territory and
+        // not terrain, and labels, settlement markers, territory and
         // the scale bar are Godot overlays composited over this texture, so
         // everything downstream of here is furniture rather than ground.
         // A no-op whenever every grade parameter is at rest.
@@ -9303,7 +9378,13 @@ impl WorldGen {
         let grade_influence = render::build_grade_influence(&ctx, gw, gh);
         let icons = self.asset_pack.is_some();
         let space = if icons { render::ColorSpace::Srgb } else { self.color_space };
-        render::finish_raster(&appearance, &mut bytes, gw, gh, self.world, &grade_influence, space);
+        // `finish_raster` exactly, split so the river colour field is finished
+        // with the SAME local-contrast correction, measured from the terrain.
+        let lc = render::local_contrast_rows(&appearance, &bytes, gw, gh, 0, gh, self.world);
+        if let Some(t) = river_bytes.as_mut() {
+            render::finish_rgb(t, lc.as_ref().map(|l| |i| l.delta(i)), Some((&appearance, &grade_influence)), space);
+        }
+        render::finish_rgb(&mut bytes, lc.as_ref().map(|l| |i| l.delta(i)), Some((&appearance, &grade_influence)), space);
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate
@@ -9334,6 +9415,19 @@ impl WorldGen {
         if icons {
             render::apply_color_space(self.color_space, &mut bytes);
         }
+
+        // The river colour texture, through the same icon pass and encode, for
+        // the base view's river stroke (`river_color_texture`).
+        *self.river_color_tex.borrow_mut() = river_bytes.and_then(|mut t| {
+            if let Some(loaded) = self.asset_pack.as_ref() {
+                pack::composite_map_icons(&mut t, field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
+            }
+            if icons {
+                render::apply_color_space(self.color_space, &mut t);
+            }
+            let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &PackedByteArray::from(t))?;
+            ImageTexture::create_from_image(&image)
+        });
 
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
@@ -9760,8 +9854,8 @@ impl WorldGen {
     /// * `render_points` (`PackedVector2Array`) -- `points` re-sampled through
     ///   a Catmull-Rom curve at render density, `route_get()`'s own
     ///   `render_points`/`render_brks` treatment applied to a river's single
-    ///   run (a river carries no `brks` to remap). Draw this, not `points`,
-    ///   for `map_overlay.gd`'s vector river overlay -- see `river_dict`'s own
+    ///   run (a river carries no `brks` to remap). Draw this, not `points`
+    ///   (`river_stroke::rasterize` does, into the map) -- see `river_dict`'s own
     ///   doc comment for why `points` alone reads as stair-stepped as the
     ///   raster river it is meant to replace. Here (not in `river_at()`) it
     ///   holds only the **drawn** points: those on a lake's water are left
@@ -9808,7 +9902,7 @@ impl WorldGen {
     ///   `channel_disc` law at each traced cell as a running maximum from the
     ///   head, so it never narrows downstream; a tributary's is capped at its
     ///   trunk's width where it joins. **Omitted** when no cell of the run has
-    ///   a width; `_draw_rivers` then draws nothing.
+    ///   a width; the map then draws nothing for it.
     /// * `pieces` (`PackedInt32Array`) -- `[start, end)` pairs into
     ///   `render_points`, one per drawn piece. A stroke is cut only where its
     ///   traced run crosses a drawn lake (or the sea), and each piece ends on
@@ -9816,17 +9910,17 @@ impl WorldGen {
     ///   beside water is carried on to the shore ([`river_stroke::coast_end`]).
     /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
     ///   Strahler order of the nearest traced cell as `RIVER_ORDER_RGB`
-    ///   (light headwater to dark trunk); `_draw_rivers` strokes the river in
+    ///   (light headwater to dark trunk); the map strokes the river in
     ///   these. It changes along a main stem as its order rises, and a
     ///   tributary's junction point takes its own last cell's order, not the
     ///   trunk's `order` above. Only here, not in `river_at()`, whose callers
     ///   do not draw.
     /// * `draw_rank` (int) -- this run's place in the draw order
     ///   ([`river_stroke::draw_ranks`]): every tributary ranks below the run it
-    ///   joins, so `_draw_rivers` paints each trunk over its tributaries' ends.
+    ///   joins, so the map paints each trunk over its tributaries' ends.
     /// * `parallel_of` (int) -- present only on a run that
     ///   [`cartalith_hydrology::river_draw_plan`] found running alongside the
-    ///   heavier run at that index; `_draw_rivers` does not draw it. The run is
+    ///   heavier run at that index; the map does not draw it. The run is
     ///   still returned, so indices stay `river_at()`'s.
     ///
     /// `render_points` of a run that ends on a dry-land pit one D8 step from
@@ -9852,9 +9946,44 @@ impl WorldGen {
     #[func]
     fn get_rivers(&self, min_order: i64) -> Array<VarDictionary> {
         let Some(f) = self.sample_refs() else { return Array::new() };
+        let Some((rivers, draws)) = self.river_draws(min_order) else { return Array::new() };
+        rivers
+            .iter()
+            .zip(draws)
+            .enumerate()
+            .map(|(i, (r, dr))| {
+                let mut d = river_dict(&f, r, i);
+                d.set("render_points", &dr.rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
+                d.set("pieces", &dr.pieces.iter().flat_map(|&(a, b)| [a as i32, b as i32]).collect::<PackedInt32Array>());
+                // `widths`: the full drawn width in grid cells at each render
+                // point. Omitted, like `width_cells`, when the run has no
+                // channel width anywhere; the map then draws nothing for it.
+                if let Some(w) = dr.widths.as_ref() {
+                    d.set("widths", &w.iter().copied().collect::<PackedFloat32Array>());
+                }
+                d.set("own_order", dr.own_order);
+                let colors: PackedColorArray = dr.colors.iter().map(|&(r, g, b)| Color::from_rgba8(r, g, b, 255)).collect();
+                d.set("colors", &colors);
+                d.set("draw_rank", dr.draw_rank as i64);
+                if let Some(j) = dr.parallel_of {
+                    d.set("parallel_of", j as i64);
+                }
+                d
+            })
+            .collect()
+    }
+
+    /// Every traced run's drawn stroke -- the geometry `get_rivers()`
+    /// marshals and [`Self::river_geometry`] rasterizes into the map, built
+    /// once here so the two cannot describe different rivers.
+    ///
+    /// `None` under `get_rivers()`' own empty conditions (no world, a loaded
+    /// save, no stream order or no drawn-water classification).
+    fn river_draws(&self, min_order: i64) -> Option<(Vec<cartalith_hydrology::River>, Vec<RiverDraw>)> {
+        let f = self.sample_refs()?;
         // `rivers_now` is empty unless this is set, so no run ever lacks it.
-        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return Array::new() };
-        let Some(order) = ws.stream_order.as_deref() else { return Array::new() };
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
+        let order = ws.stream_order.as_deref()?;
         let rivers = self.rivers_now(min_order);
         let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
         // The water the map DRAWS (`drawn_water_classification`: 0 land, 1
@@ -9863,7 +9992,7 @@ impl WorldGen {
         // (the reference cuts the stroke there: v2.11 `splitRiverPolylines`,
         // called from `drawRiverWays`); `river_stroke::stroke_pieces` makes
         // that cut once per crossing, on the shoreline (RV-2).
-        let Some(water) = self.drawn_water_classification() else { return Array::new() };
+        let water = self.drawn_water_classification()?;
         let cell_ix = |p: (f64, f64)| -> usize {
             let cx = (p.0.floor().max(0.0) as usize).min(f.gw - 1);
             let cy = (p.1.floor().max(0.0) as usize).min(f.gh - 1);
@@ -9936,15 +10065,12 @@ impl WorldGen {
         river_stroke::settle_join_widths(&mut profiles, &joins);
         let draw_rank = river_stroke::draw_ranks(&joins);
         let recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
-        rivers
-            .iter()
-            .enumerate()
-            .map(|(i, r)| {
-                let mut d = river_dict(&f, r, i);
+        let draws = (0..rivers.len())
+            .map(|i| {
                 // `river_draw_plan`: a run continued past a land pit onto the
                 // next run is smoothed WITH that cell, so the curve meets it;
-                // a run beside a heavier one carries `parallel_of` and
-                // `_draw_rivers` skips it. `points` stays the traced entity.
+                // a run beside a heavier one carries `parallel_of` and is not
+                // drawn. `points` stays the traced entity.
                 let pts = &run_pts[i];
                 let mut rp = river_render_polyline(pts, |p| ends.contains(&cell(p)));
                 let mut u = river_stroke::render_params(&rp, pts);
@@ -9959,19 +10085,9 @@ impl WorldGen {
                 }
                 let traced_wet: Vec<bool> = pts.iter().map(|&p| wet(p)).collect();
                 let s = river_stroke::stroke_pieces(&rp, &u, &traced_wet, wet);
-                d.set("render_points", &s.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
-                d.set("pieces", &s.pieces.iter().flat_map(|&(a, b)| [a as i32, b as i32]).collect::<PackedInt32Array>());
-                // `widths`: the full drawn width in grid cells at each render
-                // point. Omitted, like `width_cells`, when the run has no
-                // channel width anywhere; `_draw_rivers` then draws nothing.
-                if let Some(p) = profiles[i].as_ref() {
-                    d.set(
-                        "widths",
-                        &s.u.iter().map(|&uu| (2.0 * river_stroke::sample_at(p, uu)) as f32).collect::<PackedFloat32Array>(),
-                    );
-                }
+                let widths = profiles[i].as_ref().map(|p| s.u.iter().map(|&uu| (2.0 * river_stroke::sample_at(p, uu)) as f32).collect());
                 // `colors`: the Strahler order of the traced cell nearest each
-                // render point, as `river_order_color` (owner, 2026-09-23). Per
+                // render point, as `river_order_rgb` (owner, 2026-09-23). Per
                 // point, not per run: order rises along a main stem (it is its
                 // first headwater arm continued), so one colour would paint
                 // that arm as trunk. The last point takes its predecessor's
@@ -9986,20 +10102,127 @@ impl WorldGen {
                 // `own_order`: the run's highest order EXCLUDING the junction
                 // cell it ends on -- `order` above counts that cell, so every
                 // headwater trickle that reaches a trunk reads as the trunk.
-                // `_draw_rivers` keys `drawRiverWays`' order-1 de-emphasis
-                // (reference 9512, v0.96/v1.41) on this, for the same reason
-                // `colors` takes the predecessor's order at the end.
-                d.set("own_order", po.iter().copied().max().unwrap_or(1) as i64);
-                let colors: PackedColorArray =
-                    s.u.iter().map(|&uu| river_order_color(po[(uu.round().max(0.0) as usize).min(n - 1)])).collect();
-                d.set("colors", &colors);
-                d.set("draw_rank", draw_rank[i] as i64);
-                if let Some(j) = plan.parallel_of[i] {
-                    d.set("parallel_of", j as i64);
-                }
-                d
+                // The map keys `drawRiverWays`' order-1 de-emphasis (reference
+                // 9512, v0.96/v1.41) on this, for the same reason `colors`
+                // takes the predecessor's order at the end.
+                let own_order = po.iter().copied().max().unwrap_or(1) as i64;
+                // The traced point nearest each render point: the one its
+                // colour, order and discharge are read at.
+                let near: Vec<usize> = s.u.iter().map(|&uu| (uu.round().max(0.0) as usize).min(n - 1)).collect();
+                let colors = near.iter().map(|&k| river_order_rgb(po[k])).collect();
+                let orders = near.iter().map(|&k| po[k]).collect();
+                let discharge = near.iter().map(|&k| f.flow_discharge.get(cell_ix(pts[k])).copied().unwrap_or(f32::NAN)).collect();
+                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i] }
             })
-            .collect()
+            .collect();
+        Some((rivers, draws))
+    }
+
+    /// The drawn network as owned geometry, in draw order, for
+    /// `river_stroke::rasterize` -- the screen texture's rivers
+    /// (`build_color_texture`) and every deep-zoom tile's
+    /// (`lod_snapshot_inputs`). `min_order` 1, every headwater, as the map
+    /// always drew them. Runs `get_rivers()` documents as not drawn (a
+    /// `parallel_of` run, a run with no `widths`) are left out here rather
+    /// than skipped by the consumer.
+    ///
+    /// `None` when rivers are switched off in the Layers panel
+    /// ([`Self::set_rivers_in_map`]) or `river_draws` has none.
+    ///
+    /// **Cached**, unlike `get_rivers()`: building the network costs about as
+    /// much as `get_rivers(1)` itself (measured 360 ms median at 2048x1312,
+    /// `_rivstyle_probe.gd --timing-only`), and every re-render of the map --
+    /// a style preset, a slider, the LOD snapshot -- would otherwise pay it
+    /// again for the same rivers. The key is every input the network is a
+    /// function of, taken from the definition: `river_draws` reads the field,
+    /// the rainfall (`drawn_water_classification`), the flow, the channel
+    /// tree and the stream order, the sea level, the wrap, the grid and the
+    /// map width -- so the world epoch, the height, climate and hydrology
+    /// stage versions (summed over every tile -- see the key), and those four
+    /// scalars.
+    pub(crate) fn river_geometry(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        if !self.rivers_in_map {
+            return None;
+        }
+        self.river_geometry_any()
+    }
+
+    /// [`Self::river_geometry`] whatever the Rivers switch says -- for the
+    /// river colour texture, which is built with the map so the switch never
+    /// has to re-render it.
+    pub(crate) fn river_geometry_any(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        let key = self.river_network_key_str();
+        if let Some((k, g)) = self.river_geom_cache.borrow().as_ref() {
+            if *k == key {
+                return Some(g.clone());
+            }
+        }
+        let g = std::sync::Arc::new(self.river_geometry_uncached()?);
+        *self.river_geom_cache.borrow_mut() = Some((key, g.clone()));
+        Some(g)
+    }
+
+    /// [`Self::river_geometry`]'s cache key -- every input `river_draws`
+    /// reads, taken from the definition (`MISTAKES.md`, cache keys). Must
+    /// never read a stage version at one tile only (see the body).
+    fn river_network_key_str(&self) -> String {
+        // Summed over EVERY tile, not read at tile 0: a brush stroke marks
+        // only the tiles it touched (`mark_and_recompute`), and a key read at
+        // one tile would keep drawing the old rivers after an edit elsewhere.
+        // Versions only ever rise, so any mark anywhere moves the sum.
+        let vsum = |st: PipelineStage| -> u64 {
+            (0..self.stages.tile_count()).fold(0u64, |a, t| a.wrapping_add(self.stages.version(st.id(), t)))
+        };
+        format!(
+            "e{};h{};c{};y{};{}x{};s{};w{};km{}",
+            self.world_epoch,
+            vsum(PipelineStage::Height),
+            vsum(PipelineStage::Climate),
+            vsum(PipelineStage::Hydrology),
+            self.gw,
+            self.gh,
+            self.sea_level.to_bits(),
+            self.world,
+            self.map_width_km.to_bits(),
+        )
+    }
+
+    /// The river network cache's key, for a probe to check it moves with an
+    /// edit (`_rivstyle_probe.gd` section E). Diagnostic; nothing in the shell
+    /// reads it.
+    #[func]
+    fn river_network_key(&self) -> GString {
+        GString::from(self.river_network_key_str().as_str())
+    }
+
+    /// [`Self::river_geometry_any`]'s build: `river_draws(1)` filtered to the
+    /// drawn runs, sorted into draw order, converted to owned `f32` geometry.
+    /// A run whose arrays disagree in length is dropped rather than drawn
+    /// misaligned. Must only be called through the cache.
+    fn river_geometry_uncached(&self) -> Option<river_stroke::RiverGeometry> {
+        let (_, draws) = self.river_draws(1)?;
+        let mut drawn: Vec<RiverDraw> = draws.into_iter().filter(|d| d.parallel_of.is_none() && d.widths.is_some()).collect();
+        drawn.sort_by_key(|d| d.draw_rank);
+        let runs = drawn
+            .into_iter()
+            .filter_map(|d| {
+                let widths = d.widths?;
+                let n = d.rp.len();
+                if widths.len() != n || d.colors.len() != n || d.orders.len() != n || d.discharge.len() != n {
+                    return None;
+                }
+                Some(river_stroke::DrawnRun {
+                    pts: d.rp.iter().map(|&(x, y)| (x as f32, y as f32)).collect(),
+                    widths,
+                    colors: d.colors.iter().map(|&(r, g, b)| [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]).collect(),
+                    orders: d.orders,
+                    discharge: d.discharge,
+                    pieces: d.pieces,
+                    own_order: d.own_order.clamp(1, i16::MAX as i64) as i16,
+                })
+            })
+            .collect();
+        Some(river_stroke::RiverGeometry { runs })
     }
 
     /// Viewport river hit-testing: the river nearest `(gx, gy)` in grid-cell
@@ -14741,7 +14964,11 @@ impl WorldGen {
             // `appearance_fingerprint`, so flipping ice back on changes the
             // key on its own and the next build reads the CURRENT
             // `glacial_snowline`, never a stale one.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{}",
+            // `rv`: whether the rivers are drawn into the tiles
+            // (`river_geometry`). Their shape is a function of the world and
+            // the map width, both keyed above; their style is part of the
+            // appearance fingerprint.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -14761,6 +14988,7 @@ impl WorldGen {
             self.params.peak_m.to_bits(),
             self.params.climate.lapse_rate.to_bits(),
             self.params.planet.g.to_bits(),
+            self.rivers_in_map,
         )
     }
 
@@ -14892,6 +15120,9 @@ impl WorldGen {
             peak_m: self.params.peak_m,
             lapse_rate: self.params.climate.lapse_rate,
             gravity: self.params.planet.g,
+            // The same network `build_color_texture` rasterizes, built once
+            // per snapshot and filled into each tile at its own resolution.
+            rivers: self.river_geometry(),
         })
     }
 }

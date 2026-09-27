@@ -126,10 +126,37 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 const STYLE_PRESETS := [
 	["Natural Vibrant", "Natural Vibrant", {"multi_sun": true}],
 	["Default", "Quality tier", {}],
-	["Antique", "Antique Parchment", {"sepia": 0.35, "multi_sun": true}],
-	["Ink", "Natural Vibrant", {"ink": 0.6, "contours": 0.35, "multi_sun": true}],
-	["Watercolor", "Natural Vibrant", {"watercolor": 0.65, "multi_sun": true}],
-	["Print", "Natural Vibrant", {"risograph": 0.5, "contours": 0.25}],
+	## **The river symbol per preset** (owner, 2026-09-27: *"they're drawn on
+	## top of the style"*). The rivers now go through the style: the tiles
+	## rasterize them and the base view textures its stroke with the map
+	## composited at full river coverage (`river_stroke.rs`), so every preset
+	## below reaches them
+	## through its paper, Painter styles and grade; the `river_*` keys in the
+	## 4th element are the symbol's own treatment on top of that --
+	## `river_ink` (0..1) pulls RV-2's light-headwater-to-dark-trunk palette
+	## toward `river_ink_r/g/b`, `river_width` scales RV-2's width,
+	## `river_opacity` its alpha, and `river_through` 0 lays the river OVER
+	## the Painter styles instead of under them (`render.rs::land_color`).
+	## A preset with no `river_*` key keeps RV-2's own palette, width and
+	## opacity -- the two presets that open the table among them, so the
+	## default map's rivers look as they did. The inks follow
+	## `MAP_STYLE_RESEARCH.md` where it prescribes one (§2.15 Blueprint's
+	## white-on-Prussian linework, §2.8 shan shui's black-ink-no-hue, §2.9/
+	## §2.10 woodcut's black keyline, §2.16 the vintage atlas's muted
+	## palette, §2.19 night's "everything dimmed except what must stand
+	## out") and otherwise the style's own ink (Ink's pen, Print's federal
+	## blue, Antique's iron-gall grey-blue).
+	["Antique", "Antique Parchment", {"sepia": 0.35, "multi_sun": true},
+		{"river_ink": 0.35, "river_ink_r": 58.0, "river_ink_g": 74.0, "river_ink_b": 92.0,
+			"river_width": 0.9}],
+	["Ink", "Natural Vibrant", {"ink": 0.6, "contours": 0.35, "multi_sun": true},
+		{"river_ink": 0.85, "river_ink_r": 34.0, "river_ink_g": 42.0, "river_ink_b": 58.0,
+			"river_width": 0.8}],
+	["Watercolor", "Natural Vibrant", {"watercolor": 0.65, "multi_sun": true},
+		{"river_ink": 0.25, "river_ink_r": 86.0, "river_ink_g": 140.0, "river_ink_b": 180.0,
+			"river_opacity": 0.8, "river_width": 1.1}],
+	["Print", "Natural Vibrant", {"risograph": 0.5, "contours": 0.25},
+		{"river_ink": 0.5, "river_ink_r": 40.0, "river_ink_g": 60.0, "river_ink_b": 150.0}],
 	## v2.70 (`RC_ENGINE_CHANGES.md`): the "Village map" flat limited-palette
 	## style. The row's own two rules, both taken: `village: true` quantises
 	## the *lit* colour (`Npr::village`), and the hillshade weights go to zero
@@ -176,23 +203,35 @@ const STYLE_PRESETS := [
 	## `run_preset_09_blueprint.png` at `biome_sat: -1.0`: the land came out
 	## grey, not blue. `paper_strength: 0.0` alone (the sheet would otherwise
 	## tint the ramp's own blue) is what this preset needs.
+	##
+	## Rivers: white technical linework like the rest of a cyanotype (§2.15),
+	## laid OVER the ink/contour lines (`river_through` 0) so the hatching
+	## does not break the line.
 	["Blueprint", "Quality tier", {"ink": 0.7, "contours": 0.4},
-		{"ramp_strength": 1.0, "paper_strength": 0.0}, "Blueprint"],
+		{"ramp_strength": 1.0, "paper_strength": 0.0,
+			"river_ink": 1.0, "river_ink_r": 236.0, "river_ink_g": 244.0, "river_ink_b": 255.0,
+			"river_width": 0.9, "river_through": 0.0}, "Blueprint"],
 	## Ruling BI #4, §4.4 -- class (a)/(b) over the new `Ink wash` ramp (warm-
 	## grey ink values, not Blueprint's cool blue -- a second small renderer
 	## addition Ruling BI names by name). `crest_strength` up for brush-like
 	## ridge emphasis; `crosshatch` stays at `STYLE_MANAGED`'s own `0.0`
 	## (shan shui is wash, not hatch, per the research).
+	## Rivers: black ink, no hue (§2.8), a little translucent like a wash.
 	["Ink wash", "Quality tier", {"ink": 0.5},
-		{"ramp_strength": 0.9, "crest_strength": 0.4}, "Ink wash"],
+		{"ramp_strength": 0.9, "crest_strength": 0.4,
+			"river_ink": 0.9, "river_ink_r": 40.0, "river_ink_g": 38.0, "river_ink_b": 36.0,
+			"river_opacity": 0.85, "river_width": 0.9}, "Ink wash"],
 	## Ruling BI #5, §4.5 -- class (a), no renderer addition: heavy black
 	## keyline over cross-hatched shading on a plain cream sheet. `sepia: 0.0`
 	## keeps the Antique Parchment look's own palette without its extra warm
 	## cast, so the result reads black-on-cream rather than sepia-toned;
 	## `paper_grain` up and `paper_mottle` down from the look's own 0.065/
 	## 0.075 -- a woodcut sheet is fibrous, not blotchy.
+	## Rivers: the black keyline (§2.10), under the crosshatch like every
+	## other dark ink on the block.
 	["Woodcut", "Antique Parchment", {"crosshatch": 0.5, "ink": 0.4, "sepia": 0.0},
-		{"paper_grain": 0.14, "paper_mottle": 0.02}],
+		{"paper_grain": 0.14, "paper_mottle": 0.02,
+			"river_ink": 1.0, "river_ink_r": 30.0, "river_ink_g": 26.0, "river_ink_b": 22.0}],
 	## Ruling BI #6, §4.6 -- class (a). A 1950s-60s school wall-map: the new
 	## `Vintage atlas` ramp is this document's own reading of the cited
 	## mid-century palette (Philippine Brown/Forest Brown/Muted Bronze/Bleach
@@ -201,9 +240,13 @@ const STYLE_PRESETS := [
 	## the same picture at far less machinery. `paper_wash` moderate and
 	## `paper_grain`/`mottle` low (smoother than parchment), `grade_
 	## temperature` warm, `sepia` light rather than the full antique cast.
+	## Rivers: muted, a greyed teal rather than the palette's saturated
+	## blues (§2.16's "warm, muted" palette).
 	["Vintage atlas", "Antique Parchment", {"sepia": 0.15},
 		{"ramp_strength": 0.6, "paper_wash": 0.22, "paper_grain": 0.02, "paper_mottle": 0.02,
-			"grade_temperature": 0.32}, "Vintage atlas"],
+			"grade_temperature": 0.32,
+			"river_ink": 0.55, "river_ink_r": 96.0, "river_ink_g": 120.0, "river_ink_b": 128.0,
+			"river_width": 0.9}, "Vintage atlas"],
 	## Ruling BI #7, §4.7 -- class (b): the one preset needing the new
 	## `sea_ramp_strength` mechanism (`render.rs`'s `SEA_RAMP_NAUTICAL`), a
 	## depth-banded bathymetric tint blended into the water the same way a
@@ -211,17 +254,30 @@ const STYLE_PRESETS := [
 	## strength per the research's own recipe (re-pitching `sand_desert`
 	## toward tan would need a new look, out of this ruling's small-addition
 	## scope); `contours` reused as isobaths.
+	## Rivers: the chart's conventional water blue.
 	["Nautical", "Quality tier", {"contours": 0.2},
-		{"ramp_strength": 0.25, "sea_ramp_strength": 0.7}, "Atlas"],
+		{"ramp_strength": 0.25, "sea_ramp_strength": 0.7,
+			"river_ink": 0.4, "river_ink_r": 40.0, "river_ink_g": 80.0, "river_ink_b": 140.0}, "Atlas"],
 	## Ruling BI #8, §4.8 -- class (b) over the new `Night` ramp (checked
 	## against `Dark ice`/`Dark atlas` first, per the research's own
 	## question -- both are keyed to a specific biome, not a general dark
 	## read, so a tenth table was warranted). Negative `grade_exposure`/
 	## `grade_gamma` for the low-light read, `haze_strength` reduced (haze
 	## reads muddy in a dark scene), `atmo_desaturation` up.
+	## Rivers: a luminous blue -- the one thing on a dark sheet allowed to
+	## stand out (§2.19). Chosen by measurement, not taste alone: through
+	## this preset's grade (exposure -0.35, gamma -0.2) an ink of
+	## (150, 215, 255) read back (90, 123, 131) -- grey-blue, blue barely
+	## dominant -- and (90, 185, 255) reads (54, 103, 129), blue 75 levels
+	## over red and ~46 luma over the dark ground (`_rivstyle_probe.gd`, seed
+	## 483920, 1024x656). The dimming is the grade's, and stays: Night's
+	## rivers go through its grade like everything else (Ruling BL,
+	## `LARGE_ITEM_RULINGS.md`).
 	["Night", "Quality tier", {},
 		{"ramp_strength": 0.8, "grade_exposure": -0.35, "grade_gamma": -0.2,
-			"haze_strength": 0.05, "atmo_desaturation": 0.35}, "Night"],
+			"haze_strength": 0.05, "atmo_desaturation": 0.35,
+			"river_ink": 1.0, "river_ink_r": 90.0, "river_ink_g": 185.0, "river_ink_b": 255.0,
+			"river_width": 1.1, "river_through": 0.0}, "Night"],
 ]
 
 ## Every appearance key any preset's 4th element writes -- derived from the
@@ -371,9 +427,17 @@ const APPEARANCE_GROUPS := [
 	## same shading `land_color` computes for "Relief & light" above.
 	["Multi-scale detail", ["detail_macro_weight", "detail_meso_weight", "detail_micro_weight"]],
 	## The colour grade -- a presentation-only post-process over the finished
-	## terrain raster, before rivers, labels and icons draw. Its own group
+	## map raster (rivers included, since 2026-09-27), before labels and icons draw. Its own group
 	## because it is a different kind of control from everything above it:
 	## nothing here describes the ground, it describes the print.
+	## The river symbol (2026-09-27): since the rivers are rasterized into the
+	## map, how they are drawn is a look property like any other, and every
+	## style preset sets these (`STYLE_PRESETS`' own river paragraph). A group
+	## of its own because none of it describes the ground. Derived from the
+	## sibling rows' vocabulary -- the owner's "derive from the DCC
+	## vocabulary" ruling -- as the Materials block above records.
+	["Rivers", ["river_width", "river_opacity", "river_ink",
+		"river_ink_r", "river_ink_g", "river_ink_b", "river_through"]],
 	["Colour grade", ["grade_exposure", "grade_gamma", "grade_contrast",
 		"grade_saturation", "grade_temperature", "grade_shadow_tint",
 		"grade_highlight_tint"]],
@@ -402,6 +466,10 @@ const APPEARANCE_UI := {
 	"border_width_frac": {"step": 0.1, "unit": "%", "scale": 100.0},
 	"paper_grain": {"step": 0.5, "unit": "%", "scale": 100.0},
 	"paper_mottle": {"step": 0.5, "unit": "%", "scale": 100.0},
+	"river_width": {"step": 0.05, "unit": "x"},
+	"river_ink_r": {"step": 1.0, "unit": ""},
+	"river_ink_g": {"step": 1.0, "unit": ""},
+	"river_ink_b": {"step": 1.0, "unit": ""},
 }
 
 ## One line per control, in the panel. The engine publishes a label but not a
@@ -441,6 +509,13 @@ const APPEARANCE_HELP := {
 	## the slider moves deep-zoom tiles only. The old text said it was inert on
 	## every world whose glacial pass never ran.
 	"ice_strength": "Glacier ice on the zoomed-in map: how much glacier colour is laid over high, cold ground. Ice forms above the glacial snowline (the Snowline dial under Hydrology ▸ 06 Erosion -- used whether or not glacial erosion is switched on) wherever it is below freezing, weighted by how much ground drains through each spot, so it fills valleys and thins to snow on the ridges between them; steep rock faces stay bare. It only shows once you zoom in far enough for detailed tiles -- the overview map and exports do not draw glacier ice. Nothing shows on a loaded world that carries no drainage data (only snow is drawn then) or on ground below the snowline or above freezing. 0 also turns off the finer tile temperature, so it is the whole feature's off switch, not a fade.",
+	"river_width": "Width of the river symbol, as a multiple of the width each river's own flow gives it. Never drawn thinner than one pixel.",
+	"river_opacity": "How opaque the river symbol is. Below 1 the ground under it shows through.",
+	"river_ink": "How far the rivers move from their light-headwater-to-dark-trunk blues toward the one ink colour below. 0 keeps the blues; 1 draws every river in the ink.",
+	"river_ink_r": "Red of the river ink (0-255).",
+	"river_ink_g": "Green of the river ink (0-255).",
+	"river_ink_b": "Blue of the river ink (0-255).",
+	"river_through": "Whether the Painter styles act on the rivers. 1 draws the rivers under them, so sepia tones them and hatching crosses them like everything else on the map; 0 lays the rivers over them as clean lines. The paper, frame and colour grade reach the rivers either way.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
 	"relief_chroma": "How far the relief lighting keeps the map's colour instead of fading it toward grey. 0 is the reference exactly -- shaded ground is pulled toward one fixed neutral, which costs value as well as chroma. At 1 the shading desaturates about each pixel's own luminance, and shadow cools while sunlight warms, the way a real scene's sky-lit shadow and warm sun differ.",
 	"crest_strength": "Thin bright strokes along convex, steep ridge lines -- the reference's Ridge crests. Costs one whole-grid pass when on and nothing when off.",
@@ -1135,8 +1210,8 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "microtexture, which this note never listed.")
 	else:
 		DccWidgets.note(body,
-			"A post-process over the finished terrain raster, before rivers, labels "
-			+ "and icons draw -- nothing here describes the ground, it describes the "
+			"A post-process over the finished map raster, rivers included, before "
+			+ "labels and icons draw -- nothing here describes the ground, it describes the "
 			+ "print. Every weight in Grade field influence is inert while every "
 			+ "slider above it sits at rest. Reset to quality tier, under Relief & "
 			+ "light, hands these back too: it is one appearance record.")
@@ -2153,8 +2228,8 @@ func _build_color_management() -> void:
 		+ "high-precision pipeline, and it would arrive as a View Transform "
 		+ "beside the grade above, not as a third entry in this picker.")
 	DccWidgets.note(body,
-		"Display P3 re-encodes the map raster only. The overlays drawn over it "
-		+ "-- rivers, labels, settlement markers, territory, the scale bar -- and "
+		"Display P3 re-encodes the map raster only, rivers included. The overlays "
+		+ "drawn over it -- labels, settlement markers, territory, the scale bar -- and "
 		+ "the interface around it stay sRGB, because Godot's compatibility "
 		+ "renderer does no colour management and there is no hook to convert a "
 		+ "colour on its way to the screen.")

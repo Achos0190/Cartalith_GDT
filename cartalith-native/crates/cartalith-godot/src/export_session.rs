@@ -557,6 +557,7 @@ mod tests {
             peak_m: 4000.0,
             lapse_rate: 6.5,
             gravity: 1.0,
+            rivers: None,
         }
     }
 

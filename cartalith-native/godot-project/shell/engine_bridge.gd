@@ -983,6 +983,39 @@ func rivers(min_order: int) -> Array:
 		return []
 	return world_gen.get_rivers(min_order)
 
+## The Layers panel's Rivers switch: whether the base view draws its river
+## stroke and the deep-zoom tiles rasterize theirs (`river_stroke.rs`). The
+## caller redraws and rebuilds the tiles (`viewport_host.gd::set_layer_visible`). Refused mid-generation
+## for the `Gd<T>::bind()` reason `rivers()` above is.
+func set_rivers_in_map(shown: bool) -> void:
+	if generating or not _has("set_rivers_in_map"):
+		return
+	world_gen.set_rivers_in_map(shown)
+
+## The base view's river stroke (`WorldGen::river_view_mesh`): RV-2's
+## triangle strip in screen pixels, with each vertex's UV into
+## `river_color_texture()`. `{}` mid-generation (the `Gd<T>::bind()` reason
+## `rivers()` above gives), and against a binary built before it existed.
+func river_view_mesh(scale: Vector2, offset: Vector2, view: Rect2) -> Dictionary:
+	if generating or not _has("river_view_mesh"):
+		return {}
+	return world_gen.river_view_mesh(scale, offset, view)
+
+## The map with every river at full coverage in its styled colour, built by
+## the last `color_texture()` (`WorldGen::river_color_texture`). `null`
+## mid-generation, for a loaded save, and before any world.
+func river_color_texture() -> Texture2D:
+	if generating or not _has("river_color_texture"):
+		return null
+	return world_gen.river_color_texture()
+
+## Read-back for `set_rivers_in_map()`. `true` against a binary built before
+## it existed, which draws its rivers whatever this says.
+func rivers_in_map() -> bool:
+	if not _has("rivers_in_map"):
+		return true
+	return bool(world_gen.rivers_in_map())
+
 ## Town layouts for the given settlement indices (`urban_bridge.rs`). Shorter
 ## than `indices` whenever the engine refuses a settlement -- a pin in open
 ## water gets no town, which is the reference's own `_umModelFor` refusal. Each

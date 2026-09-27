@@ -304,6 +304,13 @@ pub struct SnapshotInputs {
     pub peak_m: f64,
     pub lapse_rate: f64,
     pub gravity: f64,
+    /// The drawn river network (`WorldGen::river_geometry`), rasterized into
+    /// every tile at the tile's own resolution
+    /// (`lod_bridge::synthesize_tile_rgba_rivers`). `None` with the Rivers
+    /// layer off, for a loaded save, and before any rivers were traced. An
+    /// `Arc` because the geometry is built once per snapshot and read by
+    /// every worker tile.
+    pub rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
 }
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
@@ -425,6 +432,7 @@ impl SnapshotInputs {
             peak_m,
             lapse_rate,
             gravity,
+            rivers,
         } = self;
         let mut d = Digest::new();
         d.word(*gw as u64);
@@ -449,6 +457,28 @@ impl SnapshotInputs {
             }
         }
         d.word(lod_bridge::appearance_fingerprint(appearance));
+        // The rivers drawn into the tiles: whether any are, and every
+        // point, width, colour and piece of them, so a pyramid stored with
+        // the layer on is not seeded under it off, or over another network.
+        d.tag(rivers.is_some());
+        if let Some(g) = rivers {
+            d.word(g.runs.len() as u64);
+            for r in &g.runs {
+                d.f32s(&r.pts.iter().flat_map(|p| [p.0, p.1]).collect::<Vec<f32>>());
+                d.f32s(&r.widths);
+                d.f32s(&r.colors.iter().flat_map(|c| *c).collect::<Vec<f32>>());
+                d.word(r.pieces.len() as u64);
+                for &(a, b) in &r.pieces {
+                    d.word(((a as u64) << 32) | b as u64);
+                }
+                d.word(r.orders.len() as u64);
+                for o in &r.orders {
+                    d.word(*o as u16 as u64);
+                }
+                d.f32s(&r.discharge);
+                d.word(r.own_order as u16 as u64);
+            }
+        }
         // Exhaustive, so a third colour space is a compile error here rather
         // than a silent alias of one of these two.
         d.word(match color_space {
@@ -548,6 +578,7 @@ pub struct LodSnapshot {
     paint_biome: Option<Vec<u8>>,
     paint_terrain: Option<Vec<u8>>,
     paint_splat: Option<Vec<u8>>,
+    rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
 }
 
 /// The whole safety argument for this module in one line the compiler checks.
@@ -598,6 +629,7 @@ impl LodSnapshot {
             peak_m,
             lapse_rate,
             gravity,
+            rivers,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
@@ -660,6 +692,7 @@ impl LodSnapshot {
             paint_biome,
             paint_terrain,
             paint_splat,
+            rivers,
         })
     }
 
@@ -713,7 +746,7 @@ impl LodSnapshot {
             tf = tf.with_ink(ink.as_ink());
         }
         tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba(&ctx, &tf, z, col, row, self.seed)
+        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref())
     }
 
     /// Every tile of levels `0..=z_max`, as storable masks — owner rulings
@@ -1289,6 +1322,7 @@ mod tests {
             peak_m: 4000.0,
             lapse_rate: 6.5,
             gravity: 1.0,
+            rivers: None,
             }
     }
 

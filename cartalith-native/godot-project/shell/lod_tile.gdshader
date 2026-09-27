@@ -99,10 +99,22 @@ void fragment() {
 	// shared edge sample with no overlap -- an overlapping column would be
 	// alpha-blended twice mid-morph, which was a seam.
 	vec4 tile = texture(TEXTURE, UV * (1.0 - TEXTURE_PIXEL_SIZE) + 0.5 * TEXTURE_PIXEL_SIZE);
+	// **The river, drawn from this tile alone** (2026-09-27). The tile is an
+	// opaque picture; since the rivers were rasterized into it at its own
+	// resolution, its alpha is `1 - river coverage`
+	// (`render.rs::render_biome_tile_rgba_rivers`) -- `1.0` wherever no
+	// stroke reached, so every other pixel mixes by `morph` exactly as before.
+	// Where there is river, the mix leans to this tile by its coverage: a
+	// coarser partner's river (the base map's one texel per cell, magnified
+	// and filtered) would otherwise show through at `1 - morph` as a soft
+	// ghost a cell wide around the crisp stroke. The base partner is the map
+	// the map texture, which holds no river (the base view's rivers are the
+	// overlay's textured stroke, `map_overlay.gd::_draw_rivers`).
+	float k = mix(morph, 1.0, 1.0 - tile.a);
 	if (under_parent) {
-		COLOR = vec4(tile.rgb, morph * tile.a);
+		COLOR = vec4(tile.rgb, k);
 	} else {
 		vec4 base = texture(base_tex, mix(base_uv0, base_uv1, UV));
-		COLOR = vec4(mix(base.rgb, tile.rgb, morph * tile.a), 1.0);
+		COLOR = vec4(mix(base.rgb, tile.rgb, k), 1.0);
 	}
 }

@@ -342,14 +342,17 @@ impl WorldGen {
     /// LOD tile snapshot. `None` for a generated world: owner ruling
     /// 2026-09-22 ("keep the smoothline and use that to render the river ...
     /// ditch the texture bake"), so its rivers are `get_rivers()`' smoothed
-    /// polylines drawn by `map_overlay.gd::_draw_rivers`, never pixels in the
-    /// texture. A loaded save keeps [`Self::river_ink`]'s flag, because its
-    /// format stores no channel topology and `get_rivers()` is empty for it —
-    /// without the flag it would have no rivers at all.
+    /// polylines -- drawn over the texture by `map_overlay.gd` until
+    /// 2026-09-27, rasterized into it since (`river_stroke::rasterize`, via
+    /// `WorldGen::river_geometry`), never this stamped ink. A loaded save
+    /// keeps [`Self::river_ink`]'s flag, because its format stores no channel
+    /// topology and `get_rivers()` is empty for it — without the flag it
+    /// would have no rivers at all.
     ///
     /// Exports still read [`Self::river_ink`], so a PNG keeps the stamped
-    /// rivers the screen no longer draws: the vector strokes are a Godot
-    /// draw-time pass that no raster exporter here reaches.
+    /// rivers the screen no longer draws: the vector layer is built at the
+    /// screen texture's and each tile's resolution, and no raster exporter
+    /// here builds one at its own yet.
     pub(crate) fn screen_river_ink(&self) -> Option<RiverInk<'_>> {
         match self.source.as_ref()? {
             WorldSource::Generated(_) => None,

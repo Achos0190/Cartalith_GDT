@@ -6,10 +6,12 @@ extends Node
 ##   Godot_v4.7.1-stable_win64_console.exe --path . [--resolution 1680x1000] _owner5_probe.tscn -- --out DIR [--tag T] [MODE]
 ##
 ## MODE (one of; none = the zoom ladder 1..32 on a town):
+## (`--rivdbg` was removed 2026-09-27: it rewrote `map_overlay.gd`'s river list
+## and read its one-width stroke helpers, which RV-2 retired and the style
+## lane removed; `_riverzoom_probe.gd` and `_rivstyle_probe.gd` measure rivers.)
 ##   --presets  zoom ladder, then Watercolor -> Village -> Natural Vibrant -> Default
 ##   --lake     fixed-ground crops of one lake shore across 2x..12x (flicker)
 ##   --town     largest interior town at 8..200x: urban-layout alpha/cache/reveal
-##   --rivdbg   z=32 on the capital: river/road strokes on vs off, per-width
 ##   --checker  zero each appearance tunable in turn; lattice energy in a crop
 
 var app
@@ -194,129 +196,6 @@ func _ready() -> void:
 			var e1: float = await hf.call()
 			print("CHECK %s %.3f->0 hf=%.5f (%+.1f%%)" % [key, float(v), e1, 100.0 * (e1 - e0) / e0])
 			bridge.set_appearance({key: v})
-		get_tree().quit()
-		return
-	if "--rivdbg" in args:
-		var ov = host.overlay
-		var fpos := Vector2(398, 678)
-		for r in ov._rivers:
-			var near := false
-			for p in r["points"]:
-				if p.distance_to(fpos) < 6.0:
-					near = true
-					break
-			if near:
-				print("NEAR river idx=%d order=%d own=%d width=%s parallel=%s pts=%d rpts=%d" % [int(r["index"]), int(r["order"]), int(r.get("own_order", -1)), str(r.get("width_cells", "none")), str(r.get("parallel_of", "-")), r["points"].size(), r["render_points"].size()])
-		for z in [32.0]:
-			await _zoom_to(host, z, fpos.x, fpos.y)
-			var rect: Rect2 = ov.displayed_rect()
-			ov._visible_local = ov._visible_local_rect()
-			var k: float = maxf(ov._camera_zoom, 0.001)
-			var ppc: float = rect.size.x / float(ov._gw) * k
-			var drawn := 0
-			var widths: Array = []
-			for r in ov._rivers:
-				if not r.has("width_cells") or r.has("parallel_of"):
-					continue
-				var sp: PackedVector2Array = ov._stroke_points(r["render_points"], 0, r["render_points"].size(), rect, k)
-				var w: float = float(r["width_cells"]) * ppc
-				if ov._run_offscreen(sp, k, w * 0.5):
-					continue
-				if ov._segment_chains(sp, k, w * 0.5).size() > 0:
-					drawn += 1
-					widths.append(w)
-			widths.sort()
-			print("RIV z=%.2f cam=%.2f lod=%s rivers=%d drawn=%d median_w=%.2f vis_local=%s show=%s dbg=%s" % [z, ov._camera_zoom, str(host.lod_active()),
-				ov._rivers.size(), drawn, widths[widths.size() / 2] if widths.size() > 0 else -1.0,
-				str(ov._visible_local), str(ov._show_rivers), str(ov._debug_active)])
-			await RenderingServer.frame_post_draw
-			var a := get_viewport().get_texture().get_image()
-			ov.set_show_rivers(false)
-			await _frames(3)
-			await RenderingServer.frame_post_draw
-			var b := get_viewport().get_texture().get_image()
-			ov.set_show_rivers(true)
-			await _frames(3)
-			var diff := 0
-			for yy in range(0, a.get_height(), 2):
-				for xx in range(0, a.get_width(), 2):
-					if a.get_pixel(xx, yy) != b.get_pixel(xx, yy):
-						diff += 1
-			print("RIVDIFF z=%.2f changed_px(1/4 sampled)=%d" % [z, diff])
-			var all_r: Array = ov._rivers
-			var inview: Array = []
-			for r in all_r:
-				if not r.has("width_cells") or r.has("parallel_of"):
-					continue
-				var sp2: PackedVector2Array = ov._stroke_points(r["render_points"], 0, r["render_points"].size(), rect, k)
-				var w2: float = float(r["width_cells"]) * ppc
-				if ov._run_offscreen(sp2, k, w2 * 0.5) or ov._segment_chains(sp2, k, w2 * 0.5).is_empty():
-					continue
-				inview.append(int(r["index"]))
-				var minseg := 1e9
-				var nan := false
-				for qi in range(sp2.size() - 1):
-					minseg = minf(minseg, sp2[qi].distance_to(sp2[qi + 1]))
-					if is_nan(sp2[qi].x) or is_nan(sp2[qi].y):
-						nan = true
-				print("INVIEW %d order=%d rp=%d minseg_px=%.4f nan=%s chains=%s" % [int(r["index"]), int(r["order"]), sp2.size(), minseg, str(nan), str(ov._segment_chains(sp2, k, w2 * 0.5))])
-			for pick in []:
-				for r in all_r:
-					if int(r["index"]) == pick:
-						ov._rivers = [r]
-				ov.queue_redraw()
-				await _frames(3)
-				await RenderingServer.frame_post_draw
-				var c := get_viewport().get_texture().get_image()
-				var d2 := 0
-				for yy in range(0, c.get_height(), 2):
-					for xx in range(0, c.get_width(), 2):
-						if c.get_pixel(xx, yy) != b.get_pixel(xx, yy):
-							d2 += 1
-				var r0: Dictionary = ov._rivers[0]
-				var rp: PackedVector2Array = r0["render_points"]
-				var mn := Vector2(1e9, 1e9)
-				var mx := Vector2(-1e9, -1e9)
-				for q in rp:
-					mn = mn.min(q); mx = mx.max(q)
-				print("ONLY river %d: changed=%d rp_bbox=%s..%s colors=%d rp=%d first=%s" % [pick, d2, str(mn), str(mx), r0["colors"].size(), rp.size(), str(r0["colors"][0])])
-				c.save_png("%s/only_%d.png" % [_out, pick])
-			for scale_w in [0.05, 0.25, 0.5, 1.0]:
-				var mod: Array = []
-				for r in all_r:
-					var r2: Dictionary = r.duplicate()
-					if r2.has("width_cells"):
-						r2["width_cells"] = float(r2["width_cells"]) * scale_w
-					mod.append(r2)
-				ov._rivers = mod
-				ov.queue_redraw()
-				await _frames(3)
-				await RenderingServer.frame_post_draw
-				var c2 := get_viewport().get_texture().get_image()
-				## Road ink: count brownish pixels (roads are the only brown strokes here).
-				var roadpx := 0
-				for yy in range(200, 980, 2):
-					for xx in range(380, 1400, 2):
-						var px := c2.get_pixel(xx, yy)
-						if px.r8 > 120 and px.r8 < 200 and px.g8 < 110 and px.b8 < 70:
-							roadpx += 1
-				print("WIDTHSCALE %.2f road_px=%d" % [scale_w, roadpx])
-				c2.save_png("%s/wscale_%.2f.png" % [_out, scale_w])
-			ov._rivers = []
-			ov.queue_redraw()
-			await _frames(3)
-			await RenderingServer.frame_post_draw
-			var c3 := get_viewport().get_texture().get_image()
-			var roadpx0 := 0
-			for yy in range(200, 980, 2):
-				for xx in range(380, 1400, 2):
-					var px := c3.get_pixel(xx, yy)
-					if px.r8 > 120 and px.r8 < 200 and px.g8 < 110 and px.b8 < 70:
-						roadpx0 += 1
-			print("NORIVERS road_px=%d" % roadpx0)
-			ov._rivers = all_r
-			a.save_png("%s/rivdbg_z%.2f.png" % [_out, z])
-			b.save_png("%s/rivdbg_off_z%.2f.png" % [_out, z])
 		get_tree().quit()
 		return
 	if "--lake" in args:

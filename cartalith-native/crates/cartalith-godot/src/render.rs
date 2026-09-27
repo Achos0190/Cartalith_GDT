@@ -12,17 +12,20 @@
 //! reference renderer supports, all `0`/`false` at JS's own defaults so
 //! omitting them changes nothing about the *default* view.
 //!
-//! Excluded, and now down to one thing rather than four: the **vector river
-//! overlay**. It is `drawRiverWays`, a Catmull-Rom spline over `_riverNet`
-//! drawn *on the canvas after* the raster — not a per-pixel stage, and it does
-//! not belong in this file at all; in this port that layer is
-//! `godot-project/map_overlay.gd`, which since the owner's 2026-09-22 ruling
-//! draws a generated world's only rivers (coloured by Strahler order since
-//! 2026-09-23, at the channel's own width). The channel-mask tint
-//! ([`channel_tint`]) is no
-//! longer baked into the viewport for a generated world — only a loaded
-//! save, which has no channel network to draw, and the raster exports,
-//! which no Godot draw pass reaches (`WorldGen::screen_river_ink`).
+//! Excluded, and now down to one thing rather than four: the reference's
+//! **vector river overlay**, `drawRiverWays`, a Catmull-Rom spline over
+//! `_riverNet` drawn *on the canvas after* the raster. This port drew its
+//! own equivalent (RV-2's strokes) the same way, in `map_overlay.gd`, from
+//! the owner's 2026-09-22 ruling until 2026-09-27, when the owner found them
+//! *"drawn on top of the style"*: since then the same strokes are rasterized
+//! into the map ([`RiverLayer`], `river_stroke::rasterize`) and composited in
+//! [`land_color`] before the Painter styles, the paper and the grade -- a
+//! per-pixel stage after all, but not the reference's, which is why it is
+//! reached only through an attached layer and never by `js_reference()`.
+//! The channel-mask tint ([`channel_tint`]) is no longer baked into the
+//! viewport for a generated world — only a loaded save, which has no
+//! channel network to draw, and the raster exports
+//! (`WorldGen::screen_river_ink`).
 //!
 //! **Struck from this list on 2026-09-03, second pass**: geology microtexture
 //! and dune ripples (`geo_micro`, [`litho_microtexture`]), the SVF and
@@ -1845,6 +1848,42 @@ pub struct TerrainAppearance {
     /// [`SEA_RAMP_NAUTICAL`] sampled at the same `depth` it already carries,
     /// by this fraction.
     pub sea_ramp_strength: f64,
+    /// **The river symbol's style** (owner, 2026-09-27: *"the only issue I
+    /// have with the rivers: they're drawn on top of the style"*). Since then
+    /// a generated world's rivers take the style: the deep-zoom tiles
+    /// rasterize RV-2's strokes into themselves ([`RiverLayer`],
+    /// `river_stroke::rasterize`), and the base view draws the vector stroke
+    /// textured with the map composited at full river coverage
+    /// (`WorldGen::river_color_texture`) -- both through [`land_color`]. So
+    /// every one of the five fields below is a per-preset treatment of that symbol, and
+    /// all five are inert on a render with no river layer attached — every
+    /// JS golden, every export and `js_reference()` among them.
+    ///
+    /// Width multiplier on RV-2's per-point width, before the 1 px floor.
+    /// `1.0` is RV-2's own width.
+    pub river_width: f64,
+    /// The river symbol's alpha multiplier. `1.0` is RV-2's opaque stroke.
+    pub river_opacity: f64,
+    /// How far the per-Strahler-order palette (`lib.rs`'s `RIVER_ORDER_RGB`,
+    /// light headwater to dark trunk) moves toward [`Self::river_ink_r`]/`g`/`b`
+    /// — `0.0` is RV-2's palette untouched, `1.0` draws every river in the
+    /// one ink (a Blueprint's white line, a woodcut's black one).
+    pub river_ink: f64,
+    /// The ink [`Self::river_ink`] pulls toward, `0..=255` per channel.
+    /// Defaults to the palette's own darkest (trunk) stop, `(22, 36, 80)`.
+    pub river_ink_r: f64,
+    pub river_ink_g: f64,
+    pub river_ink_b: f64,
+    /// **Where the river sits relative to the Painter styles**
+    /// ([`apply_npr`]). `1.0`: under them — the river is composited into the
+    /// lit colour before the Painter block, so sepia tones it, crosshatch and
+    /// stipple engrave it, the village quantiser flattens it, exactly as the
+    /// reference's paint-brush tint sits "before the Painter/NPR block so
+    /// hand-drawn styles still apply consistently on top". `0.0`: over them —
+    /// composited after, so a Blueprint's white line is not hatched. The sheet
+    /// (paper, frame), local contrast and the colour grade act on the river
+    /// at every value: they run after this stage whichever way it is set.
+    pub river_through: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -2107,6 +2146,15 @@ impl Default for TerrainAppearance {
             // Ruling BI: off by default, exactly as `js_reference()` pins it
             // below -- see the field's own doc comment.
             sea_ramp_strength: 0.0,
+            // The river symbol at RV-2's own look: its width, opaque, its
+            // palette untouched, under the Painter styles.
+            river_width: 1.0,
+            river_opacity: 1.0,
+            river_ink: 0.0,
+            river_ink_r: 22.0,
+            river_ink_g: 36.0,
+            river_ink_b: 80.0,
+            river_through: 1.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             haze_strength: 0.18,
@@ -2369,6 +2417,18 @@ impl TerrainAppearance {
             // a reference row -- `0.0` here too, so `sea_color_core` takes
             // the reference path exactly.
             sea_ramp_strength: 0.0,
+            // The reference draws no river symbol into its map at all
+            // (`drawRiverWays` is a separate canvas pass), and nothing here
+            // attaches a `RiverLayer`, so these five are unread on the parity
+            // path. Pinned at `default()`'s values so a caller that attaches a
+            // layer to a reference-appearance render still gets RV-2's look.
+            river_width: 1.0,
+            river_opacity: 1.0,
+            river_ink: 0.0,
+            river_ink_r: 22.0,
+            river_ink_g: 36.0,
+            river_ink_b: 80.0,
+            river_through: 1.0,
             // v2.25's `tileShadeExag` (RC_ENGINE_CHANGES.md §4) is on in
             // `default()`; the frozen v2.11 reference shades a tile with the
             // bare `ex = state.exag` (11670), and the golden pins that.
@@ -2614,6 +2674,19 @@ tunables! {
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
     // Ruling BI's "Nautical" preset -- see the field's own doc comment.
     "sea_ramp_strength"     => sea_ramp_strength,     0.0,   1.0,  "Bathymetric sea ramp";
+    // -- The river symbol (owner, 2026-09-27: rivers must go through the
+    //    style, not sit on top of it). Inert without a river layer, which
+    //    only the base view's colour field and the LOD tiles build -- see the
+    //    fields. Ranges are labelled judgements: width 0.25x..3x of RV-2's
+    //    (thinner vanishes under the 1 px floor anyway, wider swamps a
+    //    valley), ink channels the byte range, the rest fractions --
+    "river_width"           => river_width,           0.25,  3.0,  "River width";
+    "river_opacity"         => river_opacity,         0.0,   1.0,  "River opacity";
+    "river_ink"             => river_ink,             0.0,   1.0,  "River ink";
+    "river_ink_r"           => river_ink_r,           0.0, 255.0,  "River ink red";
+    "river_ink_g"           => river_ink_g,           0.0, 255.0,  "River ink green";
+    "river_ink_b"           => river_ink_b,           0.0, 255.0,  "River ink blue";
+    "river_through"         => river_through,         0.0,   1.0,  "River under styles";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
@@ -3681,6 +3754,10 @@ pub struct RenderCtx<'a> {
     /// lake) the base map loop stamps above-sea lakes from (v0.103, 8580).
     /// `None` by construction; attach with [`Self::with_lakes`].
     lake_class: Option<&'a [u8]>,
+    /// The rivers rasterized at THIS raster's resolution ([`RiverLayer`]),
+    /// one pixel per cell. `None` draws no river symbol -- the state of every
+    /// render but the screen texture's (`WorldGen::build_color_texture`).
+    river_layer: Option<&'a RiverLayer>,
 }
 
 /// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
@@ -3868,6 +3945,7 @@ impl<'a> RenderCtx<'a> {
             paint_splat: None,
             ground: GroundTiles::default(),
             lake_class: None,
+            river_layer: None,
         }
     }
 
@@ -3933,6 +4011,7 @@ impl<'a> RenderCtx<'a> {
             paint_splat: None,
             ground: GroundTiles::default(),
             lake_class: None,
+            river_layer: None,
         })
     }
 
@@ -4003,6 +4082,28 @@ impl<'a> RenderCtx<'a> {
     pub fn with_lakes(mut self, lake_class: &'a [u8]) -> Self {
         if lake_class.len() == self.gw * self.gh {
             self.lake_class = Some(lake_class);
+        }
+        self
+    }
+
+    /// The look this context renders with -- read by the tile path to style
+    /// the river layer it builds for the same tile (`lod_bridge`). Reads only.
+    #[allow(dead_code)]
+    pub fn appearance(&self) -> &TerrainAppearance {
+        &self.appearance
+    }
+
+    /// Attach the rivers rasterized at grid resolution ([`RiverLayer`], one
+    /// pixel per cell), read by [`cell_color`]. Refused (left `None`) when the
+    /// layer is not exactly `gw x gh`, so a layer built for another grid cannot
+    /// index past it. The app composites its river colour field per pixel
+    /// instead (`cell_color_river`), so this is the tests' way in
+    /// (`tests/appearance_tiers.rs`); it must never be attached on a golden or
+    /// export path.
+    #[allow(dead_code)]
+    pub fn with_river_layer(mut self, layer: &'a RiverLayer) -> Self {
+        if layer.width() == self.gw && layer.height() == self.gh {
+            self.river_layer = Some(layer);
         }
         self
     }
@@ -4774,7 +4875,7 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
 /// `1.0` is what it is under `js_reference()` and at `default()`, which is a
 /// statement about those two appearance records rather than about this port.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, eco_k: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: f64, y: f64, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride, ground: GroundTiles, glacier: f64, scale: Option<DetailScale>, snow_facing: f64, river: Option<[f32; 4]>) -> Rgb {
     // CA-03/CA-04's one per-pixel test. At the default it selects the original
     // expressions at both composite sites below, so no blend-mode arithmetic
     // exists on the shipped path — see the section above [`RasterLayer`] for
@@ -5354,10 +5455,47 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // here: after every colour and lighting step, before the final
     // `ao * vignette`. See `apply_npr`. Off at every default, and the whole
     // call is skipped rather than entered and no-opped.
-    let l = if r > 0.0 && npr_any(&appearance.npr) {
-        apply_npr(appearance, l, r, slope, curv, grad, x, y, gw)
-    } else {
-        l
+    let npr_on = r > 0.0 && npr_any(&appearance.npr);
+    let l = match river {
+        // No river here -- the path every render without a `RiverLayer`
+        // takes, JS goldens and exports included, unchanged.
+        None => {
+            if npr_on {
+                apply_npr(appearance, l, r, slope, curv, grad, x, y, gw)
+            } else {
+                l
+            }
+        }
+        // The river symbol ([`RiverLayer`]), in the paint brush's own slot
+        // just above: after the light, before the Painter block, so the
+        // hand-drawn styles act on it as on everything else the map draws
+        // -- and before the `ao * vignette`, the paper, the frame, local
+        // contrast and the grade, which all run after this point.
+        // `river_through` below 1 blends toward the river laid over the
+        // Painter styles instead (a Blueprint's white line, unhatched).
+        Some(rv) => {
+            let under = river_over(l, rv);
+            if !npr_on {
+                under
+            } else {
+                let through = apply_npr(appearance, under, r, slope, curv, grad, x, y, gw);
+                if appearance.river_through >= 1.0 {
+                    through
+                } else {
+                    let over = river_over(apply_npr(appearance, l, r, slope, curv, grad, x, y, gw), rv);
+                    mix(over, through, appearance.river_through.clamp(0.0, 1.0))
+                }
+            }
+        }
+    };
+
+    // Terrain occlusion is not applied to the water surface: `ao` is how
+    // enclosed the GROUND is, and a river runs along exactly the valley
+    // floors it darkens most, so the symbol would read darker the deeper its
+    // valley. The vignette is the sheet's, and the river is on the sheet.
+    let ao = match river {
+        Some(rv) => ao + (1.0 - ao) * rv[3] as f64,
+        None => ao,
     };
 
     // `ao * vignette` (7959-7960). `ao` was a hardcoded `1.0` before
@@ -6273,9 +6411,10 @@ pub fn finish_pixel_continuous(c: Rgb, delta: f64, grade: Option<(&TerrainAppear
 // # Where it runs, and why there
 //
 // On the **finished raster**, after [`apply_local_contrast`] and before the
-// Godot overlays draw rivers, labels, settlement icons, territory and the
+// Godot overlays draw labels, settlement icons, territory and the
 // scale bar (`map_overlay.gd` and its siblings, which composite over the
-// `ImageTexture` this raster becomes). That is the reference's own ordering
+// `ImageTexture` this raster becomes). The rivers are in the raster since
+// 2026-09-27, so the grade reaches them -- which is the point. That is the reference's own ordering
 // intent read into this port's split: the grade is a statement about the
 // *terrain image*, and grading the vector furniture on top of it would move
 // a label's ink and a route's colour along with the ground, which is not
@@ -6833,6 +6972,17 @@ pub fn hillshade_raster(ctx: &RenderCtx) -> Vec<u8> {
 /// seaColor(...) : surfaceColor(...)` (`debugBaseColor`'s `'biome'`
 /// branch, 8204; the main renderer's own default mode).
 pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
+    cell_color_river(ctx, x, y, ctx.river_layer.and_then(|l| l.at(x, y)))
+}
+
+/// [`cell_color`] with the river pixel supplied by the caller -- `None` is
+/// the terrain alone under the same context, which is what
+/// `WorldGen::build_color_texture` measures local contrast from (and hands
+/// the deep-zoom tiles as their detail band), so a river is never the edge
+/// that stage enhances: it would ring every river with a halo at the blur's
+/// radius, measured on the tiles as a soft ghost of the grid-resolution river
+/// around the crisp one.
+pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32; 4]>) -> (f64, f64, f64) {
     let i = y * ctx.gw + x;
     let h = ctx.h(x, y);
     let t = ctx.temperature[i] as f64;
@@ -6887,7 +7037,10 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
             None,
             // Ruling AP's snow facing, at the grid's scale -- the same
             // gradient `slope` came from.
-            if slope > 1e-9 { asp / slope } else { 0.0 });
+            if slope > 1e-9 { asp / slope } else { 0.0 },
+            // The river symbol at this cell, when the screen texture attached
+            // its layer (`RenderCtx::with_river_layer`); `None` everywhere else.
+            river);
         // R2 ridge crests (8171) — the reference's own slot, immediately after
         // `landColorCore` and folded with its own `0.7`. `crest` is empty
         // unless the stage is on, so this is a length test everywhere else.
@@ -7185,6 +7338,10 @@ impl BakeFields {
                 None,
                 // Ruling AP's snow facing, at the grid's scale, as `cell_color`.
                 if slope > 1e-9 { asp / slope } else { 0.0 },
+                // No river symbol: the export paths still tint with
+                // `RiverInk` after this call (`bake_rect`), and a vector
+                // layer at export resolution is not built yet.
+                None,
             );
             // R2 ridge crests, the bake's own slot (11971) — `sampleArr` of
             // the same field, folded with the same `0.7`.
@@ -7269,6 +7426,216 @@ impl RiverInk<'_> {
             RiverInk::Flag(v) => v.len(),
         }
     }
+}
+
+/// Side of the square blocks a [`RiverLayer`] allocates on demand. Rivers
+/// cover a small share of a map, so the layer stores only the blocks a stroke
+/// touched; at 2048x1311 a dense layer of `[f32; 4]` would be 43 MB, and at
+/// this port's 8192 ceiling 1 GB. `32` is a labelled judgement (16 KB a
+/// block); measured with it, the base view's colour field at 2048x1312 holds
+/// 20.4 MB (`_rivstyle_probe.gd --grid 2048x1312 --timing-only`).
+const RIVER_BLOCK: usize = 32;
+
+/// **The rivers, rasterized into a raster** (owner, 2026-09-27: *"the only
+/// issue I have with the rivers: they're drawn on top of the style"* and
+/// *"can we put the rivers into the map again with the same vector
+/// approach?"*).
+///
+/// RV-2's strokes are one tapered, antialiased triangle strip per river piece
+/// (`river_stroke::stroke_mesh`). Until this layer they were handed to
+/// `RenderingServer.canvas_item_add_triangle_array` by `map_overlay.gd` and
+/// drawn in one fixed palette *after* the map, so no preset's paper, Painter
+/// style or grade ever reached them. This is the same mesh, filled here into
+/// a coverage layer at the resolution of the raster it belongs to — one pixel
+/// per cell for the screen texture, each tile's own pixels for a deep-zoom
+/// tile, never an upsampled copy of either — and composited inside
+/// [`land_color`] before the Painter block, the paper and the grade.
+///
+/// Each pixel is **premultiplied** RGBA: RGB on `land_color`'s own `0..=255`
+/// scale already multiplied by alpha, alpha in `0..=1`. `None` from [`Self::at`]
+/// is "no stroke reached this pixel", not a transparent colour.
+///
+/// Must never be read by a render path the JS goldens or the exports use --
+/// they attach none, which is what keeps them byte-identical.
+pub struct RiverLayer {
+    w: usize,
+    h: usize,
+    bw: usize,
+    blocks: Vec<Option<Box<[[f32; 4]]>>>,
+}
+
+impl RiverLayer {
+    /// An empty `w x h` layer: no block allocated until a stroke reaches it.
+    pub fn new(w: usize, h: usize) -> Self {
+        let bw = w.div_ceil(RIVER_BLOCK);
+        let bh = h.div_ceil(RIVER_BLOCK);
+        RiverLayer { w, h, bw, blocks: (0..bw * bh).map(|_| None).collect() }
+    }
+
+    /// Width in pixels -- checked by every consumer against its own raster
+    /// before indexing (`with_river_layer`, `render_biome_tile_rgba_rivers`).
+    pub fn width(&self) -> usize {
+        self.w
+    }
+
+    /// Height in pixels; see [`Self::width`].
+    pub fn height(&self) -> usize {
+        self.h
+    }
+
+    /// The premultiplied colour at `(x, y)`, or `None` where no stroke drew.
+    #[inline]
+    pub fn at(&self, x: usize, y: usize) -> Option<[f32; 4]> {
+        if x >= self.w || y >= self.h {
+            return None;
+        }
+        let b = self.blocks[(y / RIVER_BLOCK) * self.bw + x / RIVER_BLOCK].as_ref()?;
+        let p = b[(y % RIVER_BLOCK) * RIVER_BLOCK + x % RIVER_BLOCK];
+        (p[3] > 0.0).then_some(p)
+    }
+
+    /// Scale every pixel, premultiplied colour and alpha together -- a uniform
+    /// opacity applied once to a layer drawn opaque.
+    pub fn scale(&mut self, k: f32) {
+        for b in self.blocks.iter_mut().flatten() {
+            for p in b.iter_mut() {
+                for c in p.iter_mut() {
+                    *c *= k;
+                }
+            }
+        }
+    }
+
+    /// Bytes the allocated blocks hold (the layer's memory, less its index).
+    pub fn allocated_bytes(&self) -> usize {
+        self.blocks.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 4]>()
+    }
+
+    /// Pixels any stroke reached with non-zero alpha.
+    pub fn covered(&self) -> usize {
+        self.blocks.iter().flatten().map(|b| b.iter().filter(|p| p[3] > 0.0).count()).sum()
+    }
+
+    /// The pixel's slot, allocating its block on first touch. Callers bound
+    /// `x`/`y` first; must never be called out of range (it would panic).
+    fn px_mut(&mut self, x: usize, y: usize) -> &mut [f32; 4] {
+        let bi = (y / RIVER_BLOCK) * self.bw + x / RIVER_BLOCK;
+        let b = self.blocks[bi].get_or_insert_with(|| vec![[0.0f32; 4]; RIVER_BLOCK * RIVER_BLOCK].into_boxed_slice());
+        &mut b[(y % RIVER_BLOCK) * RIVER_BLOCK + x % RIVER_BLOCK]
+    }
+
+    /// Fill an indexed triangle list, **in order**, compositing each
+    /// triangle "over" what the earlier ones left — what the GPU did with
+    /// the same mesh, so a trunk still covers its tributaries' ends.
+    ///
+    /// `pts` are in this layer's pixel space with pixel `(x, y)` sampled at
+    /// exactly `(x, y)` (a GPU samples at `x + 0.5`; the caller's transform
+    /// absorbs the half pixel). `colors` are straight (not premultiplied)
+    /// RGBA in `0..=1` per vertex, interpolated linearly across the triangle
+    /// as a GPU interpolates vertex colours.
+    ///
+    /// Coverage is a point sample per pixel under the **top-left rule**, so a
+    /// pixel exactly on an edge two triangles of one strip share is filled by
+    /// one of them, not blended twice. Antialiasing is the strip's own:
+    /// `stroke_mesh` feathers alpha to zero over a fringe outside each edge.
+    pub fn fill_triangles(&mut self, pts: &[(f32, f32)], colors: &[[f32; 4]], idx: &[i32]) {
+        if self.w == 0 || self.h == 0 {
+            return;
+        }
+        let n = pts.len().min(colors.len());
+        for t in idx.chunks_exact(3) {
+            let (Ok(i0), Ok(i1), Ok(i2)) = (usize::try_from(t[0]), usize::try_from(t[1]), usize::try_from(t[2])) else { continue };
+            if i0 >= n || i1 >= n || i2 >= n {
+                continue;
+            }
+            self.fill_one([pts[i0], pts[i1], pts[i2]], [colors[i0], colors[i1], colors[i2]]);
+        }
+    }
+
+    /// One triangle of [`Self::fill_triangles`]: orientation normalised,
+    /// bounding box clipped to the layer, each pixel centre tested by edge
+    /// functions under the top-left rule, colour interpolated barycentrically
+    /// and composited over. Edge functions in `f64` so a thin fringe triangle
+    /// does not lose its pixels to `f32` rounding. Degenerate and non-finite
+    /// triangles draw nothing.
+    fn fill_one(&mut self, mut p: [(f32, f32); 3], mut c: [[f32; 4]; 3]) {
+        let e = |a: (f32, f32), b: (f32, f32), q: (f64, f64)| -> f64 {
+            (b.0 as f64 - a.0 as f64) * (q.1 - a.1 as f64) - (b.1 as f64 - a.1 as f64) * (q.0 - a.0 as f64)
+        };
+        let mut area = e(p[0], p[1], (p[2].0 as f64, p[2].1 as f64));
+        if !area.is_finite() || area == 0.0 {
+            return;
+        }
+        if area < 0.0 {
+            p.swap(1, 2);
+            c.swap(1, 2);
+            area = -area;
+        }
+        // With `area > 0` (edges run one way round), an edge owns the pixels
+        // exactly on it when it is a "top" or "left" edge; the triangle on
+        // the far side of the same edge walks it the other way and does not.
+        let owns = |a: (f32, f32), b: (f32, f32)| -> bool {
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            dy < 0.0 || (dy == 0.0 && dx > 0.0)
+        };
+        let own = [owns(p[1], p[2]), owns(p[2], p[0]), owns(p[0], p[1])];
+        let minx = p.iter().map(|q| q.0).fold(f32::INFINITY, f32::min).ceil().max(0.0);
+        let maxx = p.iter().map(|q| q.0).fold(f32::NEG_INFINITY, f32::max).floor().min((self.w - 1) as f32);
+        let miny = p.iter().map(|q| q.1).fold(f32::INFINITY, f32::min).ceil().max(0.0);
+        let maxy = p.iter().map(|q| q.1).fold(f32::NEG_INFINITY, f32::max).floor().min((self.h - 1) as f32);
+        if !(minx <= maxx && miny <= maxy) {
+            return;
+        }
+        for y in miny as usize..=maxy as usize {
+            for x in minx as usize..=maxx as usize {
+                let q = (x as f64, y as f64);
+                let w = [e(p[1], p[2], q), e(p[2], p[0], q), e(p[0], p[1], q)];
+                if !(0..3).all(|k| w[k] > 0.0 || (w[k] == 0.0 && own[k])) {
+                    continue;
+                }
+                let l = [w[0] / area, w[1] / area, w[2] / area];
+                let ch = |k: usize| (l[0] * c[0][k] as f64 + l[1] * c[1][k] as f64 + l[2] * c[2][k] as f64) as f32;
+                let a = ch(3).clamp(0.0, 1.0);
+                if a <= 0.0 {
+                    continue;
+                }
+                let (r, g, b) = (ch(0).clamp(0.0, 1.0) * 255.0, ch(1).clamp(0.0, 1.0) * 255.0, ch(2).clamp(0.0, 1.0) * 255.0);
+                let d = self.px_mut(x, y);
+                let k = 1.0 - a;
+                *d = [r * a + d[0] * k, g * a + d[1] * k, b * a + d[2] * k, a + d[3] * k];
+            }
+        }
+    }
+}
+
+/// One RV-2 palette colour (straight RGBA, `0..=1`) through the preset's
+/// river treatment: [`TerrainAppearance::river_ink`] toward the ink, alpha
+/// times [`TerrainAppearance::river_opacity`]. At the default (`ink 0`,
+/// `opacity 1`) this returns its input bit for bit, by control flow. Must
+/// never touch width: that is [`TerrainAppearance::river_width`]'s, applied in
+/// `river_stroke::river_px_width`.
+pub fn river_style_color(a: &TerrainAppearance, c: [f32; 4]) -> [f32; 4] {
+    let mut o = c;
+    if a.river_ink > 0.0 {
+        let t = a.river_ink.clamp(0.0, 1.0) as f32;
+        let ink = [a.river_ink_r as f32 / 255.0, a.river_ink_g as f32 / 255.0, a.river_ink_b as f32 / 255.0];
+        for k in 0..3 {
+            o[k] = c[k] + (ink[k] - c[k]) * t;
+        }
+    }
+    if a.river_opacity < 1.0 {
+        o[3] = c[3] * a.river_opacity.clamp(0.0, 1.0) as f32;
+    }
+    o
+}
+
+/// The river pixel composited into a land colour — the one stage
+/// [`land_color`] adds for a [`RiverLayer`]. `rv` is premultiplied. Must never
+/// be applied to a water pixel (the callers only reach it on land).
+#[inline]
+fn river_over(l: Rgb, rv: [f32; 4]) -> Rgb {
+    let k = 1.0 - rv[3] as f64;
+    (rv[0] as f64 + l.0 * k, rv[1] as f64 + l.1 * k, rv[2] as f64 + l.2 * k)
 }
 
 /// `bakeSingle`/`bakeTiled`'s shared inner loop (reference lines 11975 and
@@ -8602,6 +8969,18 @@ pub fn tile_halo_px(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> 
 /// it there.
 #[allow(dead_code)]
 pub fn render_biome_tile_rgba_padded(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields) -> Vec<u8> {
+    render_biome_tile_rgba_rivers(ctx, tile, w, h, pad, bounds, tf, None)
+}
+
+/// [`render_biome_tile_rgba_padded`] with the rivers drawn into it: `rivers`
+/// is the tile's own [`RiverLayer`], `w x h` (the core, no halo), rasterized
+/// at this tile's resolution from the same vector strokes the screen texture
+/// uses (`lod_bridge::synthesize_tile_rgba`). A layer of any other size is
+/// ignored rather than indexed past. `None` is the tile exactly as it was.
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
+pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields, rivers: Option<&RiverLayer>) -> Vec<u8> {
+    let rivers = rivers.filter(|l| l.width() == w && l.height() == h);
     let (gw, gh) = (ctx.gw, ctx.gh);
     let (pw, ph) = (w + 2 * pad, h + 2 * pad);
     let padf = pad as f64;
@@ -8933,6 +9312,10 @@ pub fn render_biome_tile_rgba_padded(ctx: &RenderCtx, tile: &[f32], w: usize, h:
                         // pairing it with the tile slope left snow blind to
                         // the tile's northness (LOD-D4 bar 1b, 2026-09-24).
                         tile_snow_facing(ctx, (d - u) / (2.0 * cy), slope, wy),
+                        // The river symbol at this tile pixel, rasterized at
+                        // the tile's own resolution. Land only, as the
+                        // `water` branch above already decided.
+                        rivers.and_then(|l| l.at(x, y)),
                     );
                     // R2 crest, then the two SDF bands — `applyCrest` and
                     // `applyCoastRiverSDFv`, in the reference's own order and
@@ -9039,6 +9422,23 @@ pub fn render_biome_tile_rgba_padded(ctx: &RenderCtx, tile: &[f32], w: usize, h:
         o[1] = s[1];
         o[2] = s[2];
     });
+    // **The river's coverage, in the alpha.** The tile is opaque everywhere
+    // and its RGB already carries the river; alpha `255 - coverage` tells
+    // `lod_tile.gdshader` which pixels are river, so it draws them from this
+    // tile alone instead of mixing them with a coarser partner by LOD-D3's
+    // `morph` (that mix left a cell-wide ghost of the base map's river around
+    // every crisp one). No river layer,
+    // or a pixel no stroke reached, keeps its `255`: the tile of every
+    // existing caller and golden is byte-identical.
+    if let Some(layer) = rivers {
+        out.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
+            for x in 0..w {
+                if let Some(p) = layer.at(x, y) {
+                    row[x * 4 + 3] = 255 - (p[3].clamp(0.0, 1.0) * 255.0).round() as u8;
+                }
+            }
+        });
+    }
     out
 }
 

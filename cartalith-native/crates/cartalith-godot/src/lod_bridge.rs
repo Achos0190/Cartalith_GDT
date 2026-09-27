@@ -401,6 +401,9 @@ pub fn tile_size_px(gw: usize, gh: usize, z: i32) -> (usize, usize) {
 /// `render_biome_tile_rgba` reports as an empty `Vec`, checked here so a
 /// caller error surfaces as "no tile" rather than as a mis-sized `Image`) —
 /// `cartalith-rust-conventions`: no panic crosses the gdext boundary.
+// The interactive path draws rivers (`synthesize_tile_rgba_rivers`); this
+// river-less form is what the tests and the stored-pyramid helpers call.
+#[allow(dead_code)]
 pub fn synthesize_tile_rgba(
     ctx: &RenderCtx,
     tf: &TileFields,
@@ -409,7 +412,25 @@ pub fn synthesize_tile_rgba(
     row: i32,
     seed: i32,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base())
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None)
+}
+
+/// [`synthesize_tile_rgba`] with the rivers drawn into the tile: `rivers` is
+/// the network [`crate::river_stroke::rasterize`] fills into a layer at THIS
+/// tile's own resolution -- never the screen texture's rivers upsampled --
+/// which `render::render_biome_tile_rgba_rivers` then composites before the
+/// Painter styles, the paper and the grade, exactly as the screen texture
+/// does. `None` is [`synthesize_tile_rgba`].
+pub fn synthesize_tile_rgba_rivers(
+    ctx: &RenderCtx,
+    tf: &TileFields,
+    z: i32,
+    col: i32,
+    row: i32,
+    seed: i32,
+    rivers: Option<&crate::river_stroke::RiverGeometry>,
+) -> Option<(Vec<u8>, usize, usize)> {
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers)
 }
 
 /// [`synthesize_tile_rgba`] with `opts.zBase` supplied rather than taken from
@@ -426,6 +447,7 @@ fn synthesize_tile_rgba_with_z_base(
     row: i32,
     seed: i32,
     zb: i32,
+    rivers: Option<&crate::river_stroke::RiverGeometry>,
 ) -> Option<(Vec<u8>, usize, usize)> {
     let (gw, gh) = (ctx.gw, ctx.gh);
     if ctx.field.len() < gw.checked_mul(gh)? {
@@ -452,7 +474,15 @@ fn synthesize_tile_rgba_with_z_base(
     if (tw, th) != (out_w, out_h) {
         return None;
     }
-    let rgba = render::render_biome_tile_rgba_padded(ctx, &tile, out_w, out_h, pad, tb, tf);
+    // The rivers at this tile's own pixels: pixel `x` sits at sample
+    // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
+    // core size, as `render_biome_tile_rgba_padded` computes it).
+    let layer = rivers.map(|g| {
+        let cx = tb.w / (out_w.max(2) - 1) as f64;
+        let cy = tb.h / (out_h.max(2) - 1) as f64;
+        crate::river_stroke::rasterize(g, ctx.appearance(), out_w, out_h, crate::river_stroke::RasterMap::tile(tb.x, tb.y, cx, cy))
+    });
+    let rgba = render::render_biome_tile_rgba_rivers(ctx, &tile, out_w, out_h, pad, tb, tf, layer.as_ref());
     if rgba.len() != out_w * out_h * 4 {
         return None;
     }
@@ -1065,6 +1095,50 @@ mod tests {
         assert!(rgba.chunks(4).all(|p| p[3] == 255), "every pixel must be opaque");
     }
 
+    /// A tile drawn with rivers carries the river IN its pixels and its
+    /// coverage in its alpha (`lod_tile.gdshader` draws river pixels from the
+    /// tile alone): alpha below 255 exactly where a stroke reached, 255 on
+    /// every other pixel, and the same tile without rivers is all 255.
+    #[test]
+    fn a_river_tile_carries_its_coverage_in_the_alpha() {
+        let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        // One wide stroke straight across tile (2, 1, 1)'s ground.
+        let bounds = tile_bounds(256, 256, 2, 1, 1).unwrap();
+        let y = (bounds.y + bounds.h * 0.5 + 0.5) as f32;
+        let (x0, x1) = (bounds.x as f32 - 4.0, (bounds.x + bounds.w) as f32 + 4.0);
+        let n = 200usize;
+        let pts: Vec<(f32, f32)> = (0..n).map(|i| (x0 + (x1 - x0) * i as f32 / (n - 1) as f32, y)).collect();
+        let g = crate::river_stroke::RiverGeometry {
+            runs: vec![crate::river_stroke::DrawnRun {
+                pts,
+                widths: vec![3.0; n],
+                colors: vec![[0.1, 0.2, 0.6, 1.0]; n],
+                orders: vec![4; n],
+                discharge: vec![f32::NAN; n],
+                pieces: vec![(0, n)],
+                own_order: 4,
+            }],
+        };
+        let tf = tw.fields(&ctx);
+        let (with, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g)).unwrap();
+        let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
+        assert!(without.chunks(4).all(|p| p[3] == 255), "no rivers: opaque everywhere");
+        let covered = with.chunks(4).filter(|p| p[3] < 255).count();
+        assert!(covered > w, "the stroke crosses the tile: {covered} covered pixels of {}", w * h);
+        assert!(covered < w * h / 4, "and covers a band, not the tile: {covered}");
+        // Centre row: fully covered (alpha 0) and the river's colour.
+        let c = &with[((h / 2) * w + w / 2) * 4..][..4];
+        assert_eq!(c[3], 0, "full coverage on the centreline: {c:?}");
+        assert!(c[2] > c[0] + 40, "the centreline pixel is the river's blue: {c:?}");
+        // Pixels no stroke reached are the river-less tile byte for byte.
+        for (p, q) in with.chunks(4).zip(without.chunks(4)) {
+            if p[3] == 255 {
+                assert_eq!(p, q);
+            }
+        }
+    }
+
     #[test]
     fn a_non_square_map_gives_an_aspect_matched_tile() {
         // `tile_dims` keeps the tile's aspect, so a 2:1 map gives 2:1 tiles --
@@ -1163,7 +1237,7 @@ mod tests {
         let tf = tw.fields(&ctx);
         let z = z_base() + 3;
         let (with, _, _) = synthesize_tile_rgba(&ctx, &tf, z, 1, 1, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None).unwrap();
         assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
@@ -1177,7 +1251,7 @@ mod tests {
         let n = 1 << z;
         let (col, row) = (5 * n / 16, 7 * n / 16);
         let (with, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None).unwrap();
         let moved = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a[..3] != b[..3]).count();
         assert!(moved > w * h / 10, "only {moved} of {} pixels moved when the octaves were switched on", w * h);
     }
@@ -1314,7 +1388,7 @@ mod tests {
             let (with, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
             // `zb == z` makes `add_zoom_detail`'s `extra` non-positive, i.e.
             // exactly the pre-2026-08-24 `amplify_region`-only content.
-            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z).unwrap();
+            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None).unwrap();
             // Pixels per coarse cell, from the tile's own bounds rather than
             // from `2^z` -- the two agree, and reading it off the addressing
             // is what makes this survive a `TILE_PX` change.

@@ -126,6 +126,23 @@ fn render_parallel(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
 }
 
 /// Fraction of channel samples that differ by more than `tol` levels.
+/// [`render_serial`] without the finishing pass -- `cell_color` alone, the
+/// stage a `RiverLayer` is composited in.
+fn render_serial_no_finish(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
+    let c = ctx(s, a.clone());
+    let mut out = vec![0u8; GW * GH * 3];
+    for y in 0..GH {
+        for x in 0..GW {
+            let (r, g, b) = render::cell_color(&c, x, y);
+            let o = (y * GW + x) * 3;
+            out[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+            out[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+            out[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+        }
+    }
+    out
+}
+
 fn moved(a: &[u8], b: &[u8], tol: i32) -> f64 {
     let d = a.iter().zip(b).filter(|(p, q)| (**p as i32 - **q as i32).abs() > tol).count();
     d as f64 / a.len() as f64
@@ -404,7 +421,15 @@ fn every_tunable_is_load_bearing() {
     // below is where it is proved load-bearing, and
     // `tests/lod_d5_scale_aware.rs` is where the four stages are held to their
     // identities and their curves.
-    const EXEMPT: [&str; 8] = [
+    //
+    // The seven `river_*` keys (2026-09-27) style the river symbol, and a
+    // render only has one when a `RiverLayer` is attached -- which only the
+    // screen texture and the LOD tiles do, and `render_serial` is neither.
+    // Six are proved below through a hand-filled layer; `river_width` acts
+    // on the stroke geometry before the fill, in the crate's own
+    // `river_stroke::rasterize`, and is proved there
+    // (`river_stroke.rs`'s `every_river_style_key_moves_the_raster`).
+    const EXEMPT: [&str; 15] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -413,6 +438,13 @@ fn every_tunable_is_load_bearing() {
         "grade_field_elevation",
         "grade_field_moisture",
         "grade_field_geology",
+        "river_width",
+        "river_opacity",
+        "river_ink",
+        "river_ink_r",
+        "river_ink_g",
+        "river_ink_b",
+        "river_through",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
@@ -439,6 +471,85 @@ fn every_tunable_is_load_bearing() {
     assert!(render::border_cover(&wide, 1, 1, GW, GH) > render::border_cover(&off, 1, 1, GW, GH),
         "border_width_frac does not reach border_cover");
     assert_eq!(render::border_cover(&off, 1, 1, GW, GH), 0.0, "0 must remove the frame");
+
+    // The river symbol's colour keys and `river_through`, through the stage
+    // that draws them: one hand-filled band of RV-2's headwater colour across the
+    // fixture's land, styled by `river_style_color` exactly as
+    // `river_stroke::rasterize` styles every vertex, composited by
+    // `cell_color`. `river_through` needs a Painter style on to have anything
+    // to go under or over, so its pair runs with crosshatch at 0.6.
+    {
+        let band = |a: &TerrainAppearance| -> render::RiverLayer {
+            let mut l = render::RiverLayer::new(GW, GH);
+            let c = render::river_style_color(a, [156.0 / 255.0, 208.0 / 255.0, 228.0 / 255.0, 1.0]);
+            let pts = [(-1.0f32, 30.0f32), (GW as f32, 30.0), (GW as f32, 40.0), (-1.0, 40.0)];
+            l.fill_triangles(&pts, &[c; 4], &[0, 1, 2, 0, 2, 3]);
+            l
+        };
+        let draw = |a: &TerrainAppearance| -> Vec<u8> {
+            let layer = band(a);
+            let c = ctx(&s, a.clone()).with_river_layer(&layer);
+            let mut out = vec![0u8; GW * GH * 3];
+            for y in 0..GH {
+                for x in 0..GW {
+                    let (r, g, b) = render::cell_color(&c, x, y);
+                    let o = (y * GW + x) * 3;
+                    out[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                    out[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                    out[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+                }
+            }
+            out
+        };
+        let hatch = |a: TerrainAppearance| {
+            let mut a = a;
+            a.npr.crosshatch = 0.6;
+            a
+        };
+        let with_ink = TerrainAppearance { river_ink: 1.0, ..TerrainAppearance::default() };
+        for (key, base, to) in [
+            ("river_opacity", TerrainAppearance::default(), 0.0),
+            ("river_ink", TerrainAppearance::default(), 1.0),
+            ("river_ink_r", with_ink.clone(), 255.0),
+            ("river_ink_g", with_ink.clone(), 255.0),
+            ("river_ink_b", with_ink.clone(), 0.0),
+            ("river_through", hatch(TerrainAppearance::default()), 0.0),
+        ] {
+            let mut a = base.clone();
+            assert!(a.set_tunable(key, to), "{key} is not a tunable");
+            let m = moved(&draw(&base), &draw(&a), 2);
+            assert!(m > 0.001, "{key} at {to} moved {:.4}% of pixels through a river layer", m * 100.0);
+        }
+        // Terrain occlusion does not darken the water surface: under a
+        // full-alpha river the pixel is the same at any `ao_strength`.
+        {
+            let dark = TerrainAppearance { ao_strength: 1.0, ..TerrainAppearance::default() };
+            let none = TerrainAppearance { ao_strength: 0.0, ..TerrainAppearance::default() };
+            let layer = band(&none);
+            let (cd, cn) = (ctx(&s, dark.clone()).with_river_layer(&layer), ctx(&s, none.clone()).with_river_layer(&layer));
+            let mut under = 0;
+            let mut moved_ground = 0;
+            for y in 0..GH {
+                for x in 0..GW {
+                    let (a, b) = (render::cell_color(&cd, x, y), render::cell_color(&cn, x, y));
+                    let full = layer.at(x, y).is_some_and(|p| p[3] >= 1.0);
+                    if full && s.field[y * GW + x] >= 0.42 {
+                        under += 1;
+                        assert!((a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9 && (a.2 - b.2).abs() < 1e-9, "({x},{y}) river darkened by AO");
+                    } else if (a.0 - b.0).abs() > 1e-3 {
+                        moved_ground += 1;
+                    }
+                }
+            }
+            assert!(under > 50, "the band must cover land ({under} pixels)");
+            assert!(moved_ground > 50, "positive control: AO does move the ground ({moved_ground})");
+        }
+        // And the layer itself is load-bearing: with it the band is the
+        // headwater colour, without it the ground.
+        let with = draw(&TerrainAppearance::default());
+        let without = render_serial_no_finish(&s, &TerrainAppearance::default());
+        assert!(moved(&with, &without, 2) > 0.05, "an attached river layer moved almost nothing");
+    }
 
     // `ice_strength`, through the stage that actually draws it: one tile, with
     // a glacier field attached.

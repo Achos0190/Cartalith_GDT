@@ -1961,10 +1961,13 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
-	## `1`: every headwater trickle, as the texture's old disc stamp drew them
-	## -- these strokes are now the map's only rivers. The overlay's own
-	## `_show_rivers` flag gates whether any of this draws, not this call.
-	overlay.set_rivers(_bridge.rivers(1))
+	## A new river network makes a traced branch or a catchment from the old
+	## one describe rivers that are no longer there. The rivers themselves are
+	## drawn by the overlay from the engine (`map_overlay.gd::_draw_rivers`:
+	## the vector stroke textured with the style's river colour) below the
+	## deep-zoom switch, and rasterized into every tile above it.
+	overlay.clear_river_highlight()
+	overlay.set_river_source(_bridge)
 	refresh_faction_colors()
 	refresh_settlement_traits()
 	## A regenerate empties `InfraTools::routes`, so this also *clears* the
@@ -2250,11 +2253,19 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		## history: a `ZOOM_MAX`-clamped camera used to make the ported km
 		## band unreachable).
 		"urban_layouts": overlay.set_show_urban_layouts(shown)
-		## The river layer. Since the owner's 2026-09-22 ruling a generated
-		## world's rivers exist ONLY as these vector strokes -- the texture no
-		## longer bakes them (`WorldGen::screen_river_ink`) -- so switching
-		## this off hides the rivers; there is no raster tint to fall back on.
-		"rivers": overlay.set_show_rivers(shown)
+		## The river layer. Since 2026-09-27 (owner: *"they're drawn on top of
+		## the style"*) the rivers take the style: below the deep-zoom switch
+		## the overlay draws RV-2's vector stroke textured with the engine's
+		## styled river colour, and every deep-zoom tile rasterizes its own.
+		## The engine holds the switch (both read it); the overlay redraws and
+		## the tiles are rebuilt in place (`lod_cache_key` carries it). The
+		## base texture holds no river, so it is not re-rendered, and the
+		## camera does not move.
+		"rivers":
+			_bridge.set_rivers_in_map(shown)
+			overlay.queue_redraw()
+			if _engine_readable():
+				invalidate_lod_tiles()
 		## CARTO ▸ Conflict (Ruling AW). Guarded on the method like the
 		## landmark arms. Off means not drawn *and* not pulled, so turning it
 		## on re-reads the cursor's year rather than showing a stale one.
@@ -2278,6 +2289,8 @@ func layer_visible(layer: String) -> bool:
 	match layer:
 		"territory": return territory_view.visible
 		"provinces": return province_view.visible
+		## Engine state since the rivers moved into the map (2026-09-27).
+		"rivers": return _bridge.rivers_in_map()
 		_: return overlay.layer_visible(layer)
 
 ## Answers `map_overlay.gd`'s one-batch-at-a-time request for town layouts.
@@ -2454,9 +2467,9 @@ func set_preview_patch(patch: Dictionary) -> bool:
 ## highlighted as though it had been.
 ##
 ## Also the single place `overlay.set_debug_active()` is called from --
-## `map_overlay.gd::_debug_active`'s own doc comment -- so the vector river
-## overlay (and anything gated on it later) stays honest with whichever field
-## view is actually drawn, on every path through this function.
+## `map_overlay.gd::_debug_active`'s own doc comment -- so the base view's
+## river stroke, which the overlay draws, stays under whichever field view is
+## actually drawn, on every path through this function.
 func set_debug_layer(view: String) -> void:
 	if _bridge == null or view == "off" or not _bridge.has_world:
 		_debug_view = "off"
@@ -3768,6 +3781,9 @@ func _set_lod_active(active: bool) -> void:
 	if active == _lod_active:
 		return
 	_lod_active = active
+	## The overlay draws the base view's river stroke only while the
+	## deep-zoom tiles are down: above the switch every tile draws its own.
+	overlay.set_lod_active(active)
 	if not active:
 		_clear_lod_tiles()
 	_lod_layer.modulate.a = 1.0 if active else 0.0

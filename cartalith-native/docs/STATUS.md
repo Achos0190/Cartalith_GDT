@@ -2236,7 +2236,7 @@ Probes: `_ctxring_probe.gd` gained legs **K**/**K2** (one continuous RMB drag th
 - **Joins.** `river_stroke::settle_join_widths` caps a tributary at its trunk's width where it joins. A run bridged onto another run's head (a continuation) raises that run instead. `river_stroke::draw_ranks` draws every tributary before the run it joins; this is emitted as `draw_rank`. A first build sorted by `own_order`, and the probe refuted it: an order-3 run can end on an order-1 run.
 - **Cuts.** The per-point `lake_mask` and its cutting loop in `map_overlay.gd::_draw_rivers` are removed. `river_stroke::stroke_pieces` cuts a stroke only where the *traced* run crosses drawn water, once per crossing, on the shoreline. The cut points are exact, found by bisection. The result is emitted as `pieces`. Ocean (class 1) cuts as well as lakes. This is a deliberate departure from the reference's lakes-only `splitRiverPolylines` rule (§7p): the old stroke was drawn across carved sea inlets.
 - **Coast ends.** `river_stroke::coast_end` carries a mouth on dry land to the shore. For the sea this is the field's sea-level crossing; for a lake it is the cell edge.
-- **Drawing.** `WorldGen.river_strokes_mesh` builds every stroke in one native call, as a tapered triangle strip. `_draw_rivers` hands it to `RenderingServer.canvas_item_add_triangle_array`. Strokes are never narrower than 1 px (`MIN_STROKE_PX`). The stroke is solid to its edge, with a 1 px fringe outside. A first build centred the fringe on the edge, and the ×1 PNGs showed dark trunks washed pale.
+- **Drawing** (superseded 2026-09-27; see "Rivers through the style" below). `WorldGen.river_strokes_mesh` built every stroke in one native call, as a tapered triangle strip. `_draw_rivers` handed it to `RenderingServer.canvas_item_add_triangle_array`. Strokes are never narrower than 1 px (`MIN_STROKE_PX`). The stroke is solid to its edge, with a 1 px fringe outside. A first build centred the fringe on the edge, and the ×1 PNGs showed dark trunks washed pale.
 
 `_riverzoom_probe.gd` was extended so one probe reads both data shapes. Its new options are `--targets`, `--stats-only` and `--zooms`; it now has a no-pixels positive control and stroke statistics. It was run on HEAD, built from a `git archive` copy in scratch, and on this build. Same 3 seeds, before → after:
 - **Rivers in 3+ pieces:** 45/71/65 → 11/18/16. The probe's original lake-mask count gave 65/101/77.
@@ -2259,6 +2259,87 @@ What remains is not RV-2's to fix:
 - A LOD-tile hairline visible in the rivers-off frame.
 
 Rust: 13 new tests. 16 mutants (3 in `river_half_width_profile`, 13 in `river_stroke.rs`), all killed after two tests were added for the first-round survivors. `cargo test --workspace --no-fail-fast`: **3971 passed, 0 failed, 42 ignored**. No JS golden moved.
+
+**Rivers through the style (owner, 2026-09-27: *"the only issue I have with the rivers: they're drawn on top of the style"*; *"can we put the rivers into the map again with the same vector approach?"*) — built 2026-09-27, verified by the main loop 2026-09-27 (`_rivstyle` 0 failures, `_riverstroke` ALL PASS, `_rivlake` PASS re-run; the staged tree built and tested alone in a worktree without the GF-2 lane's engine files).** RV-2's strokes keep their vector shape and now take every preset's colour, Painter styles, paper and grade. What changed:
+- **One geometry.** `lib.rs::WorldGen::river_draws` builds every run's drawn stroke: render points, pieces, per-point widths, colours, Strahler order and discharge, and draw rank. `get_rivers()` marshals it. `river_geometry()` is the cached, owned copy in draw order. Its key is the world epoch; the Height, Climate and Hydrology stage versions summed over every tile; the grid; sea level; wrap; and map width (`river_network_key`).
+- **One width seam.** Width and visibility go through `river_stroke::river_px_width(point {width, order, own_order, discharge}, px_per_cell, preset)`. Today its body is RV-2's rule: the reference's order-1 de-emphasis (v2.11 9577-9578) keyed on raster density, and the 1 px floor. The zoom-sensitive-rivers lane replaces the body.
+- **Deep-zoom tiles** rasterize the strokes at the tile's own resolution. `river_stroke::rasterize` fills a `render::RiverLayer` (premultiplied, sparse 32-px blocks, top-left rule, composited in draw order), and `render::land_color` composites it before the Painter block. The tile carries river coverage in its alpha, and `lod_tile.gdshader` draws river pixels from the tile alone. Culling grows each segment by its width and fringe, so strokes don't seam at tile edges.
+- **Base view (below the deep-zoom switch).** The map texture holds no river. `build_color_texture` also builds `river_color_texture`: the same map with every river composited at full coverage, in its styled colour, through `land_color` and every stage after it. `rasterize_colour_field` builds this over a band `colour_field_pad_cells` wider than the river (two passes, so each river keeps its own colour on its own cells). `map_overlay.gd::_draw_rivers` draws RV-2's stroke in screen pixels (`WorldGen::river_view_mesh`, through the same seam at the screen's density), textured with that texture. So the shape and antialiasing are the vector's, at screen resolution, and the colour is the style's. The overlay draws nothing while tiles are up, under a field view, or with the layer off.
+- **A one-texel-per-cell raster in the base texture was built first and refused.** Nearest-filtered below the switch, it was stair-stepped, which was the coordinator's blocker.
+- **Where the river sits.** It is composited into the lit colour just before the Painter block (the paint brush's slot), so sepia, crosshatch, stipple, risograph and the village quantiser all act on it. `river_through` at 0 lays it over the Painter styles instead. Paper, frame, local contrast (measured from the river-free terrain), the grade and the colour space follow. Terrain AO is not applied under the water. Sea and lake pixels are untouched. The export, `js_reference` and golden paths attach no layer, so exports still stamp `river_ink`. No JS golden moved.
+- **Per-preset treatment.** Seven new tunables: `river_width`, `river_opacity`, `river_ink` (toward `river_ink_r/g/b`), and `river_through`. They are grouped as a "Rivers" group in the render workspace. 10 of the 15 `STYLE_PRESETS` carry a `river_*` bundle.
+- **Layer switch.** It sets the engine flag, redraws the overlay and rebuilds the tiles; `lod_cache_key` carries the flag. The base texture is not re-rendered. `river_strokes_mesh`, `_show_rivers` and the overlay's `_rivers` copy are gone, and `refresh()` no longer marshals `get_rivers(1)`.
+
+Measured windowed on this machine, with the DLL rebuilt after the last `.rs` change:
+- **`_riverzoom_probe`, ×1 and ×1.4, seed 483920, same targets, old overlay (HEAD from `git archive`) → now.** Diff-mask components:
+
+  | Grid | ×1 | ×1.4 |
+  |---|---|---|
+  | 384×288 | 101 → 102 | 73 → 75 |
+  | 1024×656 | 235 → 243 | 174 → 176 |
+  | 2048×1312 | 186 → 195 | 163 → 176 |
+
+  With a full-contrast black ink (`--appearance river_ink=1,...`) the same frames read:
+
+  | Grid | ×1 | ×1.4 |
+  |---|---|---|
+  | 384×288 | 100 | 74 |
+  | 1024×656 | 237 | 175 |
+  | 2048×1312 | 181 | 162 |
+
+  So the geometry is within ±2 of the overlay's (and below it at 2048). The excess in the default look is the paper-toned headwater colour falling under the probe's 24-level diff threshold, not breaks. Screenshots show smooth, continuous strokes on both grids.
+- **Continuity metrics.** Rivers in 3+ pieces **2/0/0**. Ocean on path **0/0/0**. Opening-view frame with rivers on: 16.6 ms (vsync) at 1024 against the overlay's 21.9 ms, and 32.1 ms against 33.9 ms at 2048.
+- **`_rivstyle_probe.gd` (new): 0 failures.**
+  - The river colour texture carries the rivers on 9 presets, and the map texture is byte-identical with the layer off.
+  - Blueprint is white (luma 237), Woodcut black (11), Ink 53, Ink wash grey (chroma 4). Vintage atlas is muted (15 against 96 chroma). Antique is sepia (b−r −13). Night is blue (b−r 75, +47 luma over the ground).
+  - z16 tiles match the texture at the same cell within 0.3–1.7 levels.
+  - A sculpt far from tile 0 moves the river network key, and all 80 fresh river cells are drawn.
+- **Costs**, median (min..max) of 5:
+
+  | | 1024×656 | 2048×1312 |
+  |---|---|---|
+  | `color_texture()` (map + river colour texture) | 294 ms (292..301) | 1182 ms (1164..1203) |
+  | Earlier rivers-off build, same machine | 224–226 ms | 925–927 ms |
+  | Colour field | 7.1 MB in blocks, 146k px | 20.4 MB in blocks, 519k px |
+  | Base-view mesh per overlay redraw | 9.3 ms (422k triangles) | 19.2 ms (837k triangles) |
+
+  From the earlier build, the river texture therefore adds about +70 ms at 1024 and +256 ms at 2048. It also adds one more `gw×gh` RGB texture (8 MB at 2048). The switch itself is under 0.1 ms plus the tile rebuild.
+- **`_riverstroke_probe`: ALL PASS.**
+  - Width bar, restated from first principles. The chord is the ground width W plus a raster constant c: the fringe and bilinear reconstruction, sized in *tile* pixels. At zooms exactly 2× apart the pyramid moves one level and the magnification is identical (measured 1.181 at both). So w2 − w1 = W2 − W1 is the bar; the ratio (2W+c)/(W+c) is 2 only if c = 0. Measured: difference 7.0 px against 7.00. c = 3.0 px, inside its bound of 0..4·mag = 4.7.
+  - Colour bar: the centre pixel against the river colour texture at the same point must be within the bank's tile-vs-map drift (the control) + 4 levels. Measured 2.8 against 1.3 + 4 and 2.8 against 2.0 + 4.
+  - Unbroken: 809/809 and 397/397.
+- **`_riverstroke_probe` leg D, re-derived after the verifier's run** (19.5 here, 20.5 there, against the old bar 0.3 × 67 = 20.1).
+  - Stable, not flaky: three runs on the same DLL all read 19.5.
+  - Not ink: HEAD's own tile renderer, on the same world (HEAD plus the GF-2 lane's uncommitted engine files, from `git archive`), reads 19.0 with no river anywhere in its tiles. The world moved under GF-2, and its chosen trunk sits in a valley whose own blue shift is ~19 levels (the near-channel wetness tint and wet ground).
+  - The old bar assumed that valley share was small. The new bar measures it on the one raster that holds no river by construction, the map texture, at the same ground points: 21.4. OFF must read ≤ that + 4: 19.5 passes.
+  - Positive control added: the same measure with the layer ON reads 136.5, far above.
+  - Leg D now waits for the pyramid (`lod_pending() == 0`) instead of 90 frames.
+- **`_riverstroke_probe` continuity.** On the new world the chosen trunk runs into the plate frame. The neatline correctly hides it there, and samples under the frame read as breaks: 1199 of 1342 here, and 1200 of 1442 for HEAD's overlay on the same frame. The check now keeps to the neatline's interior: 1177 of 1177 and 762 of 762. All pass, three runs.
+- **`_rivlake_probe`: PASS.** Its "> 2 levels" tolerance is replaced by a control: the same state re-rendered after a round trip of the switch. Both switch and control read 0.0 levels over the lake once each frame waits for the pyramid; the earlier 1 level was an unsettled frame. The river reads 113 levels.
+- **Seam 1.90 on 71077345/pan is not this change.** `_lodsweep_probe` (512×384, pan, rivers hidden unless noted):
+  - `git archive` builds of HEAD and 8c2b11d (pre-GF-1): both 1.92.
+  - 5665137 (pre-RV-1): **1.06**. dd836f6 (RV-1): **1.92**.
+  - This tree, rivers on: 1.89.
+  - So RV-1's carve, which changes that world, moved it, not GF-1. It is reported, not fixed here.
+- **`_stylepresets_probe`**: 0 failures, 15 presets. Before and after sheets were compared.
+
+Known costs:
+- **Night is dimmer** than the old overlay's cyan: its river goes through the preset's −0.35 exposure. That is ruled, not open: Night's rivers go through the grade (Ruling BL, `LARGE_ITEM_RULINGS.md`).
+- **Contrast in the default look.** The default look's headwaters are paper-toned, so they are lower-contrast than the overlay's raw palette.
+- **Stored pyramids.** A stored LOD pyramid drops the tile alpha.
+- **Narrow views.** A fit view narrower than 800 px on a very large grid lets a 1 px stroke reach past the colour band. There it samples terrain and reads thinner.
+- **Exports** still stamp `river_ink`.
+
+Probes and shell:
+- `_owner5_probe --rivdbg` was removed: it rewrote the overlay's river list and read its retired one-width helpers.
+- `_rivervec_shot` was updated.
+- `_riverzoom_probe` gained `--appearance` and fractional-zoom file names.
+- `_lodsweep_probe` gained `--rivers-on`.
+
+`cargo test --workspace --no-fail-fast`: **4040 passed, 0 failed, 44 ignored** over 181 result lines. The baseline at the start of this lane was 4016/4/44 over 180 lines; its 4 failures were the concurrent GF-1 lane's then-uncommitted tests. Mutants:
+- 18 of 20 were killed in round one, and the two survivors were killed after a test was added.
+- 9 of 9 were killed on the colour field.
+- One equivalent mutant survives: the seam's `None` split, unreachable while the seam never declines a point.
 
 **RV-1, the carve no longer leaves pits (Ruling BD) — built 2026-09-27, verified by the main loop 2026-09-27 (workspace 3998/0/42; the recovery test's +50 km margin replaced by a strict inequality plus a searched exact-branch seed, and its duplicate/drop mutants re-killed).** `generate_terrain` no longer runs `enforce_channel_descent` once per traced run. It runs `cartalith_hydrology::carve_channel_network` once over the whole network. `enforce_channel_descent` remains the reference port and the Sculpt River stamp's carve (`sculpt_commit.rs`), and generation no longer calls it. A scratch harness isolated four mechanisms on the probe's worlds, and each has a fixture:
 - **Diagonal steps (the largest).** Runs are D8, but `build_water_bodies` uses 4-connected components and a 4-connected flood. A trench cell reached only diagonally was sealed on four sides. Below a half-width of 1 cell, which is the norm above 800 km, every diagonal step did this. Each diagonal step now also cuts the lower of its two orthogonal connectors to the downstream floor.

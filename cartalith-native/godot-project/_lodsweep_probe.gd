@@ -41,6 +41,11 @@ extends Node
 ##   --plant            run the planted-defect positive controls INSTEAD of the
 ##                      baseline sweep.  Every metric must detect its defect.
 ##   --no-sheet         skip the Aletsch comparison sheet.
+##   --rivers-on        keep the Rivers layer ON.  Since 2026-09-27 the rivers
+##                      are rasterized INTO the tiles (`river_stroke.rs`), so
+##                      they are tile content, not an overlay, and this is how
+##                      the seam bar is measured with them in.  Default off, so
+##                      a run without the flag reads what every earlier run read.
 ##
 ## ## Exit status (this project's convention)
 ##   0  every assertion held
@@ -92,7 +97,11 @@ const LOD_PX_PER_CELL_THRESHOLD := 1.0
 ## boundary's column step at 0.351 L* against 0.14 for its neighbours, while
 ## the same frame with rivers hidden read 0.146 / 0.164 at the boundary --
 ## no seam in the tiles at all. The scope's own wording is *"with overlays
-## hidden"*.
+## hidden"*. **Since 2026-09-27 the rivers are no longer an overlay**: they
+## are rasterized into every tile at the tile's own resolution, so `rivers`
+## stays in this list only so a default run reads the terrain alone, as every
+## earlier baseline did; `--rivers-on` keeps them, which is the bar for the
+## tiles as the user sees them.
 const OVERLAY_LAYERS: PackedStringArray = [
 	"territory", "provinces", "settlements", "roads", "sea_routes",
 	"landmarks", "landmark_rejects", "urban_layouts", "rivers", "conflict",
@@ -115,6 +124,7 @@ var _tests: Array[String] = []
 var _want_dark := true
 var _plant := false
 var _sheet := true
+var _rivers_on := false
 var _report: Dictionary = {}
 
 
@@ -236,6 +246,7 @@ func _parse_args() -> bool:
 				i += 1
 			"--plant": _plant = true
 			"--no-sheet": _sheet = false
+			"--rivers-on": _rivers_on = true
 			_:
 				printerr("PROBE-CANNOT-RUN: unknown argument '%s'. See this file's header." % a)
 				return false
@@ -338,10 +349,10 @@ func _load_world(seed_v: int, grid: Vector2i) -> bool:
 		return false
 	await get_tree().create_timer(1.0).timeout
 	for l in OVERLAY_LAYERS:
-		_vh.set_layer_visible(l, false)
+		_vh.set_layer_visible(l, _rivers_on and l == "rivers")
 	await _settle()
-	print("  generated in %.1f s; overlays hidden; zoom_max = %.1f"
-		% [(Time.get_ticks_msec() - t0) / 1000.0, _vh._zoom_max])
+	print("  generated in %.1f s; overlays hidden%s; zoom_max = %.1f"
+		% [(Time.get_ticks_msec() - t0) / 1000.0, " (rivers ON, in the tiles)" if _rivers_on else "", _vh._zoom_max])
 	return true
 
 

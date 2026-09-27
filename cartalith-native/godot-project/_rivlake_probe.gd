@@ -45,22 +45,56 @@ func _zoom_to(host, z: float, gx: float, gy: float) -> void:
 func _screen_of(ov: Control, g: Vector2) -> Vector2i:
 	return Vector2i(ov.get_global_transform_with_canvas() * ov._point_to_screen(g, ov.displayed_rect()))
 
+## Until the deep-zoom pyramid has caught up (`lod_pending() == 0`) and the
+## per-tile morph has run -- a condition, not a frame count.
+func _settle_lod(host: Node) -> void:
+	await _frames(6)
+	var t0 := Time.get_ticks_msec()
+	while host.lod_pending() > 0 and Time.get_ticks_msec() - t0 < 20000:
+		await get_tree().process_frame
+	await get_tree().create_timer(0.6).timeout
+	await RenderingServer.frame_post_draw
+
+
+## Worst per-channel difference at one pixel, in 0-255 levels.
+func _worst(a: Image, b: Image, x: int, y: int) -> float:
+	var pa := a.get_pixel(x, y)
+	var pb := b.get_pixel(x, y)
+	return maxf(absf(pa.r - pb.r), maxf(absf(pa.g - pb.g), absf(pa.b - pb.b))) * 255.0
+
+
+## Pixels in the box that the Rivers switch moves by MORE than an identical
+## re-render moves them. Three settled frames: `a` rivers on, `b` off, `c` on
+## again. The switch rebuilds every deep-zoom tile, so `a` vs `c` is the
+## control -- the same state rendered twice -- and a pixel counts only where
+## `|a - b|` exceeds that pixel's own `|a - c|`. No tolerance is chosen: the
+## control measures it.
 func _box_diff(ov: Control, g: Vector2, half: int) -> int:
 	var c := _screen_of(ov, g)
 	print("RIVLAKE   grid %s -> screen %s" % [g, c])
-	await RenderingServer.frame_post_draw
+	var host: Node = ov.get_parent()
+	while host != null and not host.has_method("set_layer_visible"):
+		host = host.get_parent()
+	await _settle_lod(host)
 	var a := get_viewport().get_texture().get_image()
-	ov.set_show_rivers(false)
-	await _frames(3)
-	await RenderingServer.frame_post_draw
+	host.set_layer_visible("rivers", false)
+	await _settle_lod(host)
 	var b := get_viewport().get_texture().get_image()
-	ov.set_show_rivers(true)
-	await _frames(3)
+	host.set_layer_visible("rivers", true)
+	await _settle_lod(host)
+	var cc := get_viewport().get_texture().get_image()
 	var d := 0
+	var worst := 0.0
+	var noise := 0.0
 	for y in range(c.y - half, c.y + half + 1):
 		for x in range(c.x - half, c.x + half + 1):
-			if a.get_pixel(x, y) != b.get_pixel(x, y):
+			var dm := _worst(a, b, x, y)
+			var dn := _worst(a, cc, x, y)
+			worst = maxf(worst, dm)
+			noise = maxf(noise, dn)
+			if dm > dn:
 				d += 1
+	print("RIVLAKE   worst channel change in the box: switch %.1f levels, identical re-render (control) %.1f" % [worst, noise])
 	return d
 
 func _ready() -> void:
@@ -90,10 +124,12 @@ func _ready() -> void:
 	var ov: Control = host.overlay
 
 	# 1. the longest lake stretch of any drawn river, in traced cells
+	## The engine's own list (the overlay no longer holds one since 2026-09-27).
+	var rivers: Array = bridge.rivers(1)
 	var best_len := 0
 	var best: Dictionary = {}
 	var crossing := 0
-	for r in ov._rivers:
+	for r in rivers:
 		var rd: Dictionary = r
 		if not rd.has("widths") or rd.has("parallel_of"):
 			continue
@@ -121,7 +157,7 @@ func _ready() -> void:
 	## x = 0.87, under the frame, and read 0 px).
 	var dry := Vector2(-1, -1)
 	var dry_w := -1.0
-	for r in ov._rivers:
+	for r in rivers:
 		var rd: Dictionary = r
 		if not rd.has("widths") or rd.has("parallel_of"):
 			continue
