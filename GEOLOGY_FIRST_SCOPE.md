@@ -2,9 +2,17 @@
 
 **What this is.** The scope for owner **Ruling BH** (2026-09-27,
 `LARGE_ITEM_RULINGS.md`, *"geology first; every landform process reads it"*).
-It defines milestones **GF-0 to GF-7** and gives the reasoning for each. The
+It defines milestones **GF-0 to GF-9** and gives the reasoning for each. The
 backlog row is `OUTSTANDING_WORK.md`'s *"Geology first: lithology, layering and
 age drive every landform process"*.
+
+**Amended 2026-09-27 for owner Ruling BJ**, which answered four of §9's
+questions: 11 rock types (Q1); lithology painting **in this build** (Q2, now
+§4.13 and GF-8); the coastal pass on in the app at GF-4 (Q7, confirmed); and
+**a simple geological clock** (Q4, now §4.12 and GF-7), which reverses this
+document's original "no clock". The milestones were renumbered: the old GF-7
+(re-baseline and scrub) is now **GF-9**, and it still comes last. §5.4 records
+GF-0's measured baseline.
 
 **What this is not.** It does not track progress. Status lives only in
 `cartalith-native/docs/STATUS.md`. A ruling on any owner question in §9 is
@@ -185,9 +193,16 @@ What it **does** provide, and this scope builds on it:
    faster and strong rock stands proud. It cannot make absolute relief grow.
    That is enough for this ruling, and uplift stays that scope's question.
 
-So BH **runs on the existing pass structure** and adds no clock. Rock
-**formation age** is carried as a relative stratigraphic order (§2.4), not in
-years. §9 Q4 asks the owner to confirm this reading of the ruling.
+So BH **runs on the existing pass structure**. Rock **formation age** is
+carried as a relative stratigraphic order (§2.4), not in years.
+
+*Amended for Ruling BJ (2026-09-27).* The owner answered §9 Q4: **add a simple
+clock.** The ruling says the 2026-09-02 decline covered the geological-time
+scope's larger design, and that the owner now wants a simple one. §4.12
+specifies it. It is one dimensionless parameter that scales how many
+passes and iterations each process runs, within the stability wall in point 2
+above. It adds no uplift, no years and no second anchor, so that scope's §8
+questions 1 and 3–5 stay unruled and are not needed here.
 
 ### 1.5 Where rock already reaches the product
 
@@ -230,7 +245,7 @@ These consumers already read rock, and will read the new model instead:
    because both are valid normalised elevations. Readers go through an
    accessor that returns `Option`.
 
-### 2.2 Rock types (proposed: 11; §9 Q1)
+### 2.2 Rock types (11; Ruling BJ answered §9 Q1)
 
 | # | Rock | Where it comes from (setting) | Projects to legacy class (civ, render) |
 |---|---|---|---|
@@ -360,8 +375,9 @@ any figure it cannot verify, and says so. The bibliography is in §11.
    - Arc setting → andesite at the edifice core, tuff at the outer radius.
    - Cap thickness is proportional to volcanic intensity × edifice height.
 5. **Formation age.** A relative ordinal per unit, with no years:
-   basement < cover < volcanic < regolith. It is what "age layers" means here
-   until a clock is ruled (§9 Q4).
+   basement < cover < volcanic < regolith. It is what "age layers" means here.
+   The §4.12 clock does not change it: the clock scales how long the processes
+   have run, not when each unit formed.
 
 ### 2.5 The column
 
@@ -377,10 +393,20 @@ Per cell:
 **The exposure rule**, used by every process, is:
 
 ```
-exposed(i) = Unconsolidated          if regolith[i] > 0
+exposed(i) = Unconsolidated          if regolith[i] > R_EXPOSE
            = rock_top[i]              if single-layer, or field[i] ≥ contact[i]
            = rock_sub[i]              otherwise
 ```
+
+*Amended for Ruling BJ.* The threshold was `regolith > 0`. The clock (§4.12)
+adds weathered mantle everywhere, a few metres thick, and at `> 0` that would
+hide every bedrock cell under "unconsolidated". `R_EXPOSE` is **5 m**,
+converted to normalised units by `(1 − sea) / peak_m`. It is a **judgement**:
+it sits above the weathering mantle's largest value at the clock's maximum
+(2.7 m, arithmetic in §4.12), so weathering alone never hides the rock, and
+below the thickness of the deposits that should (alluvium, talus aprons and
+marine sediment, which at map scale are tens of metres and more). GF-2 reports
+the share of land where `regolith` lies between 0 and `R_EXPOSE`.
 
 Erosion strips regolith first, then the cap. Once the cap is breached, the
 substrate is exposed. Nothing else is needed for scarps to emerge: the weak
@@ -392,8 +418,85 @@ Contact geometry is horizontal, plus a gentle low-frequency warp so that the
 outcrop line is irregular. Dip is §9 Q8.
 
 **Memory**, by arithmetic: 1 + 1 + 4 + 4 = 10 B per cell, plus 1 B per cell for
-`volcanic_setting`. At 2048 × 1311 that is 29.5 MB. It is stored in the save
-(`substrate.rs`, `SAVEFILE_COMPAT.md`, GF-1).
+`volcanic_setting`. At 2048 × 1311 that is 29.5 MB. The painting provenance
+mask (§4.13) adds 1 B per cell when anything has been painted, which makes 32.2
+MB. It is stored in the save, as §2.6 specifies.
+
+### 2.6 The save format (GF-1 writes it; GF-8 adds the painted mask)
+
+Ruling BJ requires the painted layer to persist and the change to be backward
+compatible, so the format is specified here rather than left to GF-1. It
+follows `SAVEFILE_COMPAT.md` §8.3's substrate set in every rule. It is a
+**separate set with its own manifest member**, not a new version of the
+substrate member. §8.3 says a reader MUST refuse a substrate `version` it does
+not know, so bumping that version would make every older build drop the flow
+and channel grids of a new save. A separate member costs an older build
+nothing.
+
+| Path | Element | Meaning | Present when |
+|---|---|---|---|
+| `rasters/rock_top.u8` | u8 | Uppermost bedrock unit, `0 … 10` (§2.2's index). A reader MUST refuse the set if a value is above 10 | the set is written |
+| `rasters/rock_sub.u8` | u8 | The unit beneath the contact, `0 … 10`, or **255 = no second layer** (`NO_LAYER`). Any other value: refuse the set | the set is written |
+| `rasters/rock_contact.f32` | f32 | Absolute normalised elevation of the contact. A writer MUST write **NaN** where `rock_sub` is 255, so a reader that forgets the gate reads NaN, never a plausible elevation. A reader MUST ignore it there, and MUST refuse the set if a two-layer cell's contact is NaN | the set is written |
+| `rasters/regolith.f32` | f32 | Unconsolidated thickness, in the heightmap's normalised units. `0.0` is a real value: bare rock | the set is written |
+| `rasters/volcanic_setting.u8` | u8 | `0` none, `1` arc, `2` rift, `3` hotspot. Anything else: refuse the set | the set is written |
+| `rasters/rock_painted.u8` | u8 | `1` where the user painted any of rock, substrate or cap (§4.13); `0` where the column is as generated | `geology.painted` is true |
+
+**The manifest member.** `project.json`'s top-level `geology`:
+
+```json
+"geology": {
+  "version": 1,
+  "age": 1.0,
+  "painted": true
+}
+```
+
+- `version` is this set's own version. A reader MUST refuse any it does not
+  know, and then opens the world as having no column.
+- `age` is the clock value (§4.12) the column and the terrain were produced
+  with. It belongs here for the reason `integrated_drainage` belongs in the
+  substrate member: it is a property of these grids, and the parameter may
+  since have moved. The parameter itself is also saved with the other
+  generation parameters (`params.rs` `PARAMS` and `JS_PATHS` rows).
+- `painted` says whether `rock_painted.u8` is present. **Absent is recorded
+  absent**: a world nobody painted writes no mask, and a reader MUST NOT
+  substitute an all-zero one on re-save.
+
+**Writer obligations.** Write the member and every raster it promises in one
+save, or neither. A world with no column (opened from an older save, or an
+import before GF-1's single-layer import column) writes neither. It does not
+invent a column.
+
+**Reader obligations.** Treat the set as complete only when the member is
+present, its `version` is known, and every raster it promises was read at the
+right length and in range. Anything less is **no column**:
+- every rock reader is dashed with the reason *"saved before geology"*;
+- civ falls back to `build_lithology`, as GF-1 specifies;
+- the Rock paint target (§4.13) is disabled with the same reason.
+
+**Backward compatibility, both directions.** `format_version` stays 2, on
+§8.3's own reasoning: the change is additive.
+- **An old save in a new build** has no `geology` member, so it opens with no
+  column, as above. Its clock is read as **1.0**. That is not a guessed
+  default: τ = 1 reproduces the pre-clock pass counts by control flow (§4.12),
+  so 1.0 is exactly the value that world was generated with. It is the loader
+  convention `integrate_drainage` already set: an absent key reloads the world
+  as it was.
+- **A new save in an old build**: the old reader finds the new `rasters/`
+  names, carries them as foreign entries (§6.2) and reads the terrain as
+  before. Its re-save keeps the rasters but not the member. A new reader then
+  sees rasters with no member and treats the world as having no column. That
+  is §8.3's safe direction: a world may lose its paint in an old build, but it
+  is never read wrong.
+- A round-trip test is built from a **real prior-format archive**
+  (`git show <sha>:` of a save written before GF-1), not from an empty fixture
+  (`MISTAKES.md`, *"Write a backward-compatibility test"*). It asserts that
+  the archive opens, reads as having no column, and re-saves with no
+  `geology` member and no `rock_*` rasters.
+
+`SAVEFILE_COMPAT.md` gains this table as a new §8.4 in GF-1. The
+`rock_painted.u8` row is added in GF-8.
 
 ---
 
@@ -467,8 +570,9 @@ volcanism (+ setting kept) ─ craters ─ clamp ─ sea level ◄────�
 6. **`dynamic_lithology` is superseded.** The explicit column replaces the
    exhumation heuristic. §9 Q9 asks the owner to confirm removing the toggle
    (§7p).
-7. **No clock** (§1.4). Pass counts stay as they are, except where §4 adds a
-   pass and GF-0 measures its cost.
+7. **The clock scales pass counts; it adds no stage** (§4.12, Ruling BJ). At
+   its default of 1.0 every pass count is today's, by control flow. §4 adds
+   passes where it says so, and GF-0's B9 measures their cost.
 
 ---
 
@@ -563,7 +667,13 @@ estuary:   cut_i × ρ(exposed_i)^c
 ```
 
 The coastal pass is **off at both boundaries** today. Rock-aware cliff
-retreat, and BG's sea stacks, need it on in the app (§9 Q7).
+retreat, and BG's sea stacks, need it on in the app. **Ruling BJ confirms the
+default of §9 Q7: GF-4 turns it on in `cartalith_godot::params::defaults()`**
+(`p.passes.coastal = true`), in the same change that makes cliff retreat read
+rock, so hard headlands and soft bays follow the geology. It stays off in
+`WorldParams::defaults`, like glacial under Ruling AU. Its measured cost is
+disclosed in `GENERATION_PARAMETERS.md`'s *"The six deliberate divergences"*,
+which becomes seven.
 
 ### 4.6 Karst and permeability (GF-5)
 
@@ -641,6 +751,247 @@ style = ridged        where J is massive or columnar
 
 `DECISIONS.md` §7q already exempts landmarks from parity.
 
+### 4.12 The geological clock (GF-7; Ruling BJ)
+
+**What the owner asked for.** *"Scope a geological-time parameter that scales
+how far each process runs."* Simple, and not the geological-time scope's
+larger design, which the owner declined on 2026-09-02.
+
+**The parameter.** One number, **geological age τ**, dimensionless:
+- range 0.25 to 4.0, step 0.05, default **1.0**;
+- `WorldParams::geo_age`, the same default at both boundaries. It is **not a
+  divergence**: at 1.0 every process takes today's expressions by control
+  flow (`if τ == 1.0 { today } else { scaled }`), so neither boundary's output
+  moves and no golden can;
+- `params.rs`: a `PARAMS` row (`geo.age`, group `erosion`, `Kind::Float`, unit
+  `×`, no reference control) and a `JS_PATHS` row.
+
+**Why dimensionless, not millions of years.** The pipeline has no calibrated
+time. `EROSION_GEOLOGICAL_TIME_SCOPE.md` §8 Q2 (a second self-referential
+anchor) is unruled, and the owner declined that design. A slider labelled in
+Myr would claim a calibration nothing supports. τ is *relative* age: 2.0 means
+"the processes have run twice as long as a default world's". The UI says so.
+
+**How it acts: on pass and iteration counts, never on rate constants.** That
+is the geological-time scope's stability wall (§1.4, point 2): explicit
+kernels cannot take a larger coefficient, so duration means more passes.
+Each process `p` has a response `f_p(τ)` with `f_p(1) = 1`:
+
+```
+N_p(τ) = N_p(1)                            if τ == 1.0   (by control flow)
+       = max(N_min_p, round(N_p(1) · f_p(τ)))  otherwise
+```
+
+where `N_p(1)` is the count the process runs today.
+
+**Two response shapes, chosen per process by whether the kernel already
+contains the physics that slows the process down.**
+
+- **Linear, `f(τ) = τ`**, where the kernel's own dynamics already saturate, or
+  where the column bounds the process. Imposing a second saturation on top
+  would count the slowdown twice.
+- **Saturating, `f_sat(τ) = (1 − e^(−kτ)) / (1 − e^(−k))`, with `k = 0.5`**,
+  where the real process decelerates for a reason the kernel does not model.
+  - `k` is a **judgement**. It gives `f_sat(0.25) = 0.30`, against 0.25
+    linear, and `f_sat(4) = 2.20`, against 4 linear (arithmetic).
+  - B12 measures whether the kernels' own output still grows with τ under
+    it (§5.2).
+
+| Process | What τ scales | Today at τ = 1 | Response | Why that shape | Literature |
+|---|---|---|---|---|---|
+| **Incision depth** (stream power, light pass and `evolve_cycles`/`sediment_fill`) | the iteration count: `max(4, round(iters·0.6·τ))` for the light pass, `iters·τ` for the sediment fill | 9 iterations (arithmetic from `iters: 15`) | **linear** | Detachment-limited stream power with no uplift lowers channels toward base level. As they lower, their slope falls, so the lowering rate falls with it: the saturation is *in the kernel*. The geological-time scope measured it as equilibration past about 360 iterations (§1.4, point 3). A second saturation would double-count it | Whipple & Tucker (1999) on response time; Baldwin, Whipple & Tucker (2003) on post-orogenic decay timescales |
+| **Threshold hillslope** (§4.3) | `N_h` passes | GF-3's measured `N_h` | **linear** | It moves only the excess over the critical slope. Once slopes fall below `θc` it moves nothing, so it saturates by construction | Roering, Kirchner & Dietrich (1999); Selby (1993) |
+| **Karst dissolution fraction** (§4.6) | the dissolution budget: `Δz = −min(k_k·σ·rain·τ, soluble thickness above the next insoluble contact)` | `k_k·σ·rain` | **linear, bounded by the column** | Carbonate denudation is proportional to runoff, so it is constant under a fixed climate. The limit is how much soluble rock there is: once a limestone cap is consumed, the substrate is exposed and `σ = 0`. The column supplies that limit, so time needs none | Ford & Williams (2007) |
+| **Cliff retreat** (§4.5) | coastal passes | 4 (`coastal_passes`) | **saturating** | A retreating cliff leaves a widening shore platform, and waves spend their energy crossing it before they reach the cliff. Retreat therefore slows toward an equilibrium platform width. `coastal_process` has no platform term | Sunamura (1992); Trenhaile (2000) |
+| **Glacial depth** (§4.4) | glacial passes | 8 (`glacial_passes`) | **saturating** | A trough's cross-section tends toward a steady U-form, and long-profile overdeepening decelerates as the trough deepens. `glacial_kernel` runs a fixed per-pass abrasion law with neither effect | Harbor (1992); MacGregor et al. (2000) |
+| **Regolith production** (new with the clock) | the weathered mantle added to `regolith` on land where bedrock is exposed | `h(1) = h₁` | **logarithmic**: `h(τ) = h₀ · ln(1 + τ·(e^(h₁/h₀) − 1))` | Soil production decays exponentially with soil depth, `P = P₀·e^(−h/h₀)`. With no erosion, integrating it gives `h(t) = h₀·ln(1 + P₀t/h₀)`: logarithmic growth. Anchoring the curve at `h(1) = h₁` absorbs the unknown `P₀·t` into a judgement | Heimsath, Dietrich, Nishiizumi & Finkel (1997) |
+
+- **Regolith constants.** `h₀ = 0.5 m` is Heimsath et al.'s e-folding depth
+  for soil production. It is a literature value and is **verified at the
+  source before GF-7 pins it**, as §2.3 requires of every table value. `h₁ =
+  2 m` is a **judgement**. With both, `h(0.25) = 1.33 m` and `h(4) = 2.69 m`
+  (arithmetic). That is why §2.5's `R_EXPOSE` is 5 m.
+- **Floors.** `N_min` is 4 for stream power (today's own `max(4, …)` floor) and
+  1 for every pass. At the default `iters: 15` the light pass runs
+  `max(4, round(9·τ))` iterations, so any τ below 0.5 runs 4 (arithmetic:
+  `round(9·τ)` is at most 4 there, and the floor lifts anything lower). The
+  rounding is `js_round`, as today's expression uses. The UI says when the
+  floor binds; the clamp is not hidden.
+- **Rebound** is not scaled separately. It follows each erosion call, as it
+  does today, so it follows the scaled counts.
+- **The clock does not touch** the priming climate, the hydrology trace, the
+  river carve (RV-1's guarantees are per-geometry, not per-time), volcanism or
+  craters. Crater degradation already has its own `crater_degradation_tau`,
+  and the clock does not feed it. Feeding it is left as an open question
+  (§9 Q11), not done silently.
+- **Cost.** Linear in the stream-power iterations. At τ = 4 the light pass
+  runs 36 iterations instead of 9 (arithmetic). B9's bar is set at τ = 1. GF-7
+  measures and discloses the cost at 0.5, 2 and 4, as a median with min..max,
+  and gates nothing on it: choosing an old world is choosing its cost.
+- **Interaction with the existing counts.** τ multiplies them; it does not
+  replace them. The Erosion stage's own iteration and pass controls keep
+  their meaning ("iterations at τ = 1"), and the effective counts are shown
+  beside them.
+
+**The UI**, derived from the DCC vocabulary:
+- Stage **06 Erosion**'s key controls (`DCC_SHELL_SPEC.md` §5.1) gain one row
+  at the top of the stage, above the per-process groups, because it scales all
+  of them. It is written the way that table writes its other multipliers
+  ("drift ×1.00"):
+  **`geological age ×1.00`** — a slider, 0.25 to 4.00, step 0.05.
+- Its readout line underneath shows the effective counts, e.g. *"stream power
+  9 it · glacial 8 passes · coastal 4 passes · mantle 2.0 m"*. It updates as
+  the slider moves, and a floored count is marked as floored.
+- Its tooltip: *"How long the landscape has been eroding, relative to a
+  default world. Higher is older: deeper valleys, wider bays, deeper glacial
+  troughs, thicker weathered mantle. Not in years: the generator has no
+  calibrated time."*
+- It is a generation parameter, so moving it marks the world stale like any
+  other stage-06 control (header correction #2 of `DCC_SHELL_SPEC.md`: the
+  product regenerates; it does not re-run a single stage).
+- `DCC_CONTROL_INDEX.md` gains its row in GF-7. The phone and tablet sheets
+  take it wherever they list stage-06 controls (`ANDROID_UI_SPEC.md`,
+  `TABLET_UI_SPEC.md`).
+
+### 4.13 Lithology painting (GF-8; Ruling BJ)
+
+**What the owner asked for.** *"Hand-painting rock types (like biome painting)
+is part of BH, not a later GF-8. Erosion responds to the painted rock."* (The
+ruling's "GF-8" is the *old* deferred number; this scope's GF-8 is this
+milestone, in this build.)
+
+**What exists to build on, opened 2026-09-27:**
+- `cartalith_spatial::paint`: `PaintStamp` (a categorical disc over a `u8`
+  grid, with a caller's exclusion mask and the `with_falloff` edge),
+  `PaintLayer` (`0` = unpainted, else a 1-based palette index), and
+  `encode_sparse`/`decode_sparse`.
+- `cartalith_godot::paint_bridge::PaintEditor`: one
+  `PassBuffer<PaintStamp>` draft per layer, `commit_all`/`discard_all`, one
+  shared `DirtyTracker`.
+- `WorldGen::paint_commit`: it records a **non-reversible** ledger row
+  (`EntryKind::Recorded`), then `mark_and_recompute(PipelineStage::Civ, …)`.
+- `DCC_SHELL_SPEC.md` §4.5.2's Biome-paint tool, whose target selector lists
+  exactly three targets (biome, terrain, splat). It says soil and lithology
+  have "no override array behind them, so offering them would be inventing a
+  feature". Ruling BJ makes it one. That sentence is updated in GF-8.
+
+**What does not exist, checked at the symbols.** No edit re-runs erosion
+today:
+- `sculpt_commit` pushes a height undo, then `mark_and_recompute(Height)`,
+  which re-runs hydrology and climate but **not** erosion
+  (`DCC_SHELL_SPEC.md` header correction #1).
+- Erosion after generation is the manual **Erode** op
+  (`erode_bridge::run_erode_with_recompute`). It runs `recompute_stale`, then
+  the op, then marks `Height` changed over the whole map, then
+  `recompute_stale` again.
+- `cartalith_erosion::tile::tile_erode` re-erodes a window with a pinned
+  boundary ring and seeded upstream area. It **has no production caller**.
+
+So "the same way it does after other edits" is read as **the Erode op's
+pattern**, because that is the one edit path that runs erosion. GF-8 is
+`tile_erode`'s first production caller.
+
+**The tool.**
+- Biome paint's target selector gains a fourth target, **Rock**.
+  - The tool-options row, in §4.5.2's grammar: `PAINT · ROCK` · layer
+    (**Surface** / **Beneath** / **Cap thickness**) · value swatch from the
+    11-rock legend (Beneath adds **none — single layer**) · thickness *m*
+    (Cap thickness only) · radius · hardness · softness · land only ·
+    ✓ Commit.
+  - The right dock shows the painted-cell count, the rock legend with painted
+    counts per class, the re-erosion window's size, and Commit / Discard.
+- **Three new `PaintLayer`s** in `PaintEditor`, drafted and committed with
+  the other three by the same `commit_all`/`discard_all`, so a layer switch
+  never drops a draft:
+  - `rock_top` (value = rock index + 1);
+  - `rock_sub` (value = rock index + 1, or **255 = none, single layer**);
+  - `rock_cap`: the thickness in **10 m classes**, value `k` ∈ 1 … 255 meaning
+    `10·k` m, so 10 m to 2 550 m. Reusing the `u8` categorical layer keeps one
+    brush, one sparse encoding and one falloff. The 10 m step and the 2 550 m
+    ceiling are **judgements**: a flood-basalt pile can reach about 2 km,
+    which fits, and 10 m is well under one cell's relief at the default
+    extent. Painting a cap thickness is a categorical write of a class; no
+    two thicknesses are ever blended, which is `paint.rs`'s own
+    categorical-blending rule.
+- **Erase (⇧) is disabled for the Rock target**, with the reason on the
+  control: *"a committed rock is reverted with Undo; the column has no
+  unpainted state to fall back to"*. Discard still drops an uncommitted
+  draft. This is because the commit **bakes** the paint into the column, as a
+  sculpt commit bakes into the heightmap, rather than keeping an override over
+  a stored generated column. Baking keeps one column, one save set and one
+  undo mechanism.
+
+**The commit** (`WorldGen::paint_commit`, the Rock branch). It is refused while
+the world is finalized, like every height edit (`bake.check(HeightEdit)`), and
+refused with the §2.6 reason when the world has no column.
+1. **Undo first.** Push one undo step holding the field **and** the column:
+   `rock_top`, `rock_sub`, `contact`, `regolith` and `rock_painted`. Record one
+   ledger row, `subsystem: "geology"`, label *"Rock paint commit"*,
+   `EntryKind::HeightSnapshot`.
+   - `undo::HeightUndo` gains an optional column snapshot on a step, charged
+     to the same byte budget (`DEFAULT_BUDGET_BYTES`, 256 MiB). A step is
+     4 + 11 = 15 B per cell, 40.3 MB at 2048 × 1311 (arithmetic).
+   - `undo_one` and `redo_one` restore both, or neither.
+   - The redo tail carries the column the same way.
+   - A step without a column (every existing kind) is unchanged, so the
+     existing undo tests are untouched.
+2. **Bake.**
+   - Painted `rock_top` and `rock_sub` cells overwrite the column's.
+   - A painted cap thickness `t` sets `contact = bedrock_surface − t·(1 −
+     sea)/peak_m`, where `bedrock_surface = field − regolith` at commit time.
+     So the contact is **absolute**, as §2.5 requires, and later lowering
+     breaches it.
+   - A thickness dab on a cell whose effective `rock_sub` is none is
+     **skipped and counted** (`stamps_skipped`, which `CommitSummary` already
+     reports). A cap needs something beneath it, and inventing a substrate
+     would be a silent choice.
+   - Painting `rock_sub = none` makes the cell single-layer, and its contact
+     becomes NaN, per §2.6.
+   - Every baked cell sets `rock_painted = 1`.
+3. **Re-erode, differentially, over a padded window.** Let `W` be the
+   bounding box of the committed dabs' dirty tiles, padded by `P` cells on
+   each side, and clipped to the map.
+   - Run the rock-reading landform chain on `W` **twice**: once with the
+     pre-commit column (`E_before`) and once with the baked column
+     (`E_after`).
+   - Add `E_after − E_before` to `field` inside `W`.
+   - The chain is stream power through `tile_erode` with the κ slice; then
+     the threshold hillslope; then karst. Glacial and coastal join it when
+     their passes are on and `W` holds ice or coast. Every count is the
+     generation's, scaled by the world's own τ (§4.12), so the painted rock
+     has eroded for the same geological age as its surroundings.
+   - **Why differential.** Re-running erosion on an already-eroded surface
+     would erode everything in `W` a second time. The difference cancels that
+     to first order, keeps every earlier sculpt and Erode edit, and leaves
+     exactly the response to the rock change.
+   - A rock painted to be the same as the rock already there gives
+     `E_after = E_before` bit for bit, so the field moves by zero bytes. That
+     is identity by control flow, and B11 asserts it.
+   - `P` is a **judgement**, set in GF-8 from `tile_erode`'s own measured ring
+     lip (`ef3_tile_erosion.rs`, which holds it under 2 % of relief). It is
+     reported in the right dock.
+4. **Refresh.** Mark `Height` changed over `W`'s tiles, and `Civ` over the
+   painted tiles (lithology feeds soil and resources). Then
+   `mark_and_recompute`, as the Erode op does. Every consumer of rock reads
+   the new column on its next read: the Sample panel, render, civ and
+   landmarks.
+
+**Persistence.** The baked column is the column, so it persists in §2.6's
+rasters with no new mechanism. `rock_painted.u8` and `geology.painted` record
+provenance, so the Sample panel can say *"Granite (painted)"* rather than pass
+paint off as generated. The three draft layers persist in `drafts/paint.json`
+beside the existing three, as more sparse `[index, value, …]` lists under new
+keys (`rock_top`, `rock_sub`, `rock_cap`):
+- An older reader ignores keys it does not know. GF-8 checks that it does,
+  against `project_bridge.rs`'s reader, before relying on it.
+- A document whose `gw`/`gh` are not the world's is refused, as
+  `SAVEFILE_COMPAT.md` already requires of `paint.json`.
+
+**Regeneration** replaces the column and the paint together, as it replaces a
+sculpted heightmap. The shell already asks before a regenerate that would
+discard hand-authored work (`_authored_inventory()`, which lists sculpt
+stamps and paint among others). GF-8 adds painted rock to that inventory.
+
 ---
 
 ## 5. Measurement proving landforms now track rock
@@ -648,7 +999,9 @@ style = ridged        where J is massive or columnar
 ### 5.1 The harness (GF-0)
 
 A Rust test-side harness, run `--ignored` and alone, prints each metric per
-seed and extent.
+seed and extent. It is `crates/cartalith-godot/tests/gf0_geology_harness.rs`.
+It lives in `cartalith-godot` because it needs `params::defaults()`, which it
+pulls in by `#[path]`, as `params_mapping.rs` does. The commands are in §5.4.
 
 - **Seeds:** 483920, 24601 and 71077345, which are `_riverzoom_probe`'s and
   the RV-1 measurement's. Plus 12345 and 314159, the golden seeds.
@@ -722,13 +1075,24 @@ raised, and the change is disclosed.
 **B6 — glacial reads jointing.**
 - **Metric:** at matched ice discharge (Q decile bands), the median glacial
   lowering on γ ≥ 1.5 rock divided by the median on γ ≤ 0.6 rock.
-- **Bar:** ≥ 1.5 in the treatment, against about 1 in the control.
+- **Bar:** ≥ 1.5 in the treatment, and ≥ 1.5 × the control's ratio.
+  - *Amended 2026-09-27 from GF-0's measurement:* the bar read "against about
+    1 in the control". That expectation is withdrawn. A kernel that reads no
+    rock measured 1.32 to 6.58 at 800 km against the stand-in strength map
+    (§5.4), because rock and ice discharge are both tied to geography.
+    Only a comparison with the measured control arm can separate the
+    kernel's doing from the map's.
 
 **B7 — coastal retreat reads rock.**
 - **Metric:** land cells lost to the sea per coastline cell, weak rock (ρ ≥ 1.5)
   ÷ strong rock (ρ ≤ 0.3), over the default passes.
-- **Bar:** ≥ 3.
-- It is only measurable once §9 Q7 turns the pass on.
+- **Bar:** ≥ 3, and ≥ 2 × the control's ratio. *(The relative half was added
+  2026-09-27: a coastal pass that reads no rock measured 0.13 to 2.10 on the
+  stand-in map, §5.4, so an absolute bar alone could be met, or missed, by
+  geography.)*
+- Ruling BJ turns the pass on in the app at GF-4 (§4.5), so the bar is
+  measured from GF-4 on. GF-0 measures its baseline on an extra arm with the
+  pass forced on (§5.4).
 
 **B8 — no hydrology regression**, against RV-1's own metrics
 (`_riverzoom_probe`):
@@ -749,12 +1113,201 @@ raised, and the change is disclosed.
   inert on real worlds, and GF-1 re-tunes before GF-2 starts.
 - Each rock type's share is printed.
 
+**B11 — painting is exact where nothing changed, and local where it did**
+(GF-8, §4.13).
+- Painting a region with the rock already there, then committing, moves the
+  field by **0 bytes**, and it moves the column by 0 bytes apart from
+  `rock_painted`. This is exact. A mutation that makes the two re-erosion runs
+  differ, such as dropping the κ slice from one of them, must turn it red.
+- Painting shale into a granite interior on a fixed seed at 800 km:
+  - the painted cells' mean lowering exceeds that of the unpainted cells in
+    the same window;
+  - no cell outside the padded window `W` moves;
+  - the step at `W`'s ring is under 2 % of `W`'s relief, which is
+    `tile_erode`'s own lip bar.
+- Undo restores the field and the column byte-identically, and redo
+  re-applies them byte-identically.
+- The painted column survives a save and a reopen byte-identically.
+
+**B12 — the clock scales what it says it scales** (GF-7, §4.12).
+- At τ = 1, every world is byte-identical to one generated without the clock
+  parameter, on all five seeds. This is identity by control flow.
+- At τ ∈ {0.5, 2, 4}, on all five seeds at 800 km:
+  - mean incision depth (the pre-erosion surface minus the final surface, over
+    channel cells) rises strictly with τ;
+  - coastal land lost and mean glacial lowering each rise with τ, and each
+    rises by less than τ's own ratio between τ = 2 and τ = 4. That is the
+    saturation, measured rather than assumed;
+  - the weathered mantle equals `h(τ)` to within 1e-6 m on bare-rock cells.
+    This is asserted against the literal values 1.333 m at τ = 0.25 and
+    2.686 m at τ = 4, never against the constants.
+- The cost at 0.5, 2 and 4 is reported as a median with min..max. It is
+  disclosed and not gated.
+
 ### 5.3 What the numbers are for
 
 - B1–B3 are the owner's question: *"how strong they are carved"*.
 - B4 is the precondition BG needs.
 - B5–B7 are the per-process claims of Ruling BH item 3.
 - B8–B10 are the guards.
+- B11 and B12 are Ruling BJ's painting and clock.
+
+### 5.4 GF-0 findings: the arm-1 baseline (measured 2026-09-27)
+
+**What was run.** Arm 1 only: today's pipeline at `params::defaults()`,
+2048 × 1311, on the five seeds and three extents of §5.1, in a release build.
+Arm 2 needs GF-1's column and does not exist yet.
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf0_bars
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf0_b9_cost
+```
+
+**The strength map is a stand-in, not the control arm.** It is
+`resistance_field` (`compute_resistance`), with "strong" its top quartile and
+"weak" its bottom quartile over each bar's own population. §7's GF-0 entry
+prescribes this stand-in. The scope's control arm, the GF-1 column with
+`c = 0`, will replace it.
+
+**How each bar is computed.** These are the harness's definitions, where §5.2
+left a choice open:
+- **Populations.**
+  - B1 to B3: water-body class 0 (`build_water_bodies`, the classification
+    `sample_cell` reads), excluding any cell with an ocean cell within
+    Chebyshev distance 4.
+  - Relief is max − min over 9 × 9, clipped at the map edge, in metres by
+    `peak_m / (1 − sea)`.
+  - Slope is the Sample panel's `grade` formula, through
+    `build_slope_field`.
+- **B3** is **undefined** whenever either mean depth is ≤ 0. A non-positive
+  mean is net raising (rebound, deposition), and a ratio with it is a sign,
+  not a contrast. The pre-erosion surface is the same world generated with
+  `carve_rivers = false` and every pass off: nothing after the volcanism clamp
+  writes `field` on that path. The harness asserts that the two runs share
+  `age_field` and `plate_id`.
+- **B6.**
+  - The lowering is `glacial_kernel` **alone**, re-run on the pre-glacial
+    field and temperature (the same world with `passes.glacial = false`). So
+    it excludes the rebound after it. The harness asserts that kernel +
+    `isostatic_rebound` + the passes' clamp reproduces the generated world
+    **bit for bit**.
+  - Ice cells are land at or above the snowline and below 0 °C, the kernel's
+    own gate.
+  - Discharge is a stand-in: unit upstream area over the depression-filled
+    surface (`compute_flow` over `build_routing_surface`). The kernel's own
+    `Q` is the same quantity on its own tree, which it does not return.
+  - The bands are **equal-count** deciles of the ice cells ranked by that
+    discharge. The first run used value deciles, which collapsed to 1 band of
+    10 on seed 24601, because unit area is heavily tied.
+  - The reported value is the median of per-band ratios, over the bands with
+    at least 10 cells in each group and a positive strong median.
+- **B7** runs an extra arm: arm 1 with `passes.coastal = true`.
+  - The coastline is arm-1 land that is 4-adjacent to ocean.
+  - A cell counts as lost if it was arm-1 land and is below sea after the
+    pass.
+- **B8** walks every run of `river_entities` at min order 1, over the same
+  classification. It counts every point of each run except the last, as
+  `_riverzoom_probe` does. That probe also skips runs the Godot draw plan marks
+  `parallel_of`, a plan no test can construct. So these path counts are over
+  a **superset** of the probe's.
+
+**Validity controls.** They are ordinary tests in the same file, so they run
+in every `cargo test --workspace`.
+- **Positive control.** A synthetic fixture: 64-cell strong and weak blocks
+  in a checkerboard, with roughness proportional to strength, and weak rock
+  lowered more.
+  - It must give B1 ρ > 0.5, and the inverted map ρ < −0.5.
+  - B2 must exceed 1.5.
+  - B3 must recover the built ratio, 0.034 / 0.013.
+  - It controls the **metric code**. There is no treatment to run it through
+    until GF-2, which re-runs it through the rock-reading kernel.
+- **Negative control.** On every real world, the stand-in is permuted over
+  the population. **Measured |B1| ≤ 0.001 on all 15 worlds** (bar: < 0.05).
+  B2 and B3 on the permuted map read 0.95 to 1.04.
+
+**The baseline at 800 km**, where §5.2's bars apply:
+
+| Seed | B1 ρ | B2 slope strong ÷ weak (medians, °) | B3 depth weak ÷ strong (means, m) | B6 glacial weak ÷ strong (ice cells; bands) | B7 coastal weak ÷ strong | B8 ocean on paths · lake % of path cells · 1–3-cell lakes |
+|---|---|---|---|---|---|---|
+| 483920 | −0.4611 | 0.2172 (0.290 / 1.335) | **undefined** (−0.28 / 1.86) | 3.7644 (6 343; 10/10) | 1.5055 | 0 · 1.177 % of 23 533 · 46 |
+| 24601 | −0.4656 | 0.4298 (0.276 / 0.643) | 0.7874 (0.80 / 1.02) | 6.5833 (227 295; 10/10) | 0.1334 | 0 · 2.232 % of 31 368 · 65 |
+| 71077345 | −0.3429 | 0.3677 (0.298 / 0.811) | **undefined** (−0.23 / 0.22) | 1.3229 (5 165; 10/10) | 1.4550 | 0 · 1.419 % of 23 746 · 26 |
+| 12345 | −0.4860 | 0.1391 (0.315 / 2.266) | 1.4047 (0.64 / 0.46) | 3.1294 (10 832; 9/10) | 0.4524 | 0 · 4.661 % of 21 905 · 105 |
+| 314159 | −0.3294 | 0.3244 (0.324 / 0.998) | 0.5238 (0.97 / 1.85) | 1.9380 (33 904; 10/10) | 2.1049 | 0 · 9.347 % of 27 325 · 81 |
+
+Every B1–B3 population is at least 312 089 cells. Every B7 coastline group is
+at least 1 076 cells.
+
+**The other extents** (ranges over the five seeds):
+
+| Extent | B1 ρ | B2 | B3 | B6 | B8 ocean · lake % · 1–3-cell lakes |
+|---|---|---|---|---|---|
+| 80 km | −0.3770 … −0.1025 | 0.2864 … 1.0967 | 1.9913 … 5.2360 | 0.3168 … 1.5343 | 0 · 8.776 … 25.365 · 238 … 621 |
+| 8 000 km | −0.4649 … −0.3207 | 0.1685 … 0.4182 | 0.3247 … 0.8384 | 0.9517 … 4.8333 | 0 · 2.385 … 16.775 · 19 … 62 |
+
+**The bars that cannot be measured yet**, each for its stated reason:
+- B4: there is no two-layer column before GF-1, and its input-selected twin
+  needs the same column.
+- B5: there is no dissolution pass before GF-5.
+- B10's rock-type count and two-layer share: there is no model before GF-1.
+  The harness prints the legacy `build_lithology` land shares, labelled as
+  post-erosion labels and not the model.
+
+**B9 (cost).** `generate_terrain`, seed 483920, 800 km, 2048 × 1311, the app's
+defaults, CPU path; one warm-up, then five timed runs:
+- **median 3.115 s (3.089 … 3.124)**;
+- an independent re-run in a separate process: **3.095 s (3.068 …
+  3.140)**, inside the first bracket.
+- Two Godot processes from another lane were resident, and idle by their
+  memory, during both runs.
+
+**B10 (determinism).** The same seed twice gave byte-identical `field`,
+`temperature`, `rainfall`, `flow_discharge`, `river_mask` and
+`resistance_field` on all five seeds at 800 km.
+
+**Land-slope distribution, which settles §4.3's expectation:**
+
+| Extent | p50 | p90 | p99 | p99.9 | max | share of land > 40° |
+|---|---|---|---|---|---|---|
+| 80 km | 12.4 … 13.5° | 46.8 … 53.8° | 77.2 … 80.5° | 84.6 … 86.0° | 87.9 … 88.6° | 14.1 … 18.3 % |
+| 800 km | 0.44 … 0.56° | 2.75 … 6.56° | 26.8 … 33.8° | 40.6 … 45.3° | 56.9 … 70.3° | 0.13 … 0.37 % |
+| 8 000 km | 0.048 … 0.061° | 0.29 … 0.61° | 2.8 … 3.9° | 4.9 … 5.8° | 11.9 … 17.8° | 0 |
+
+**What the baseline says.**
+1. **The stand-in is confounded with geography, as §5.1 predicted of any map
+   not built from causes.**
+   - `compute_resistance` makes rock hardest in old interiors far from any
+     margin, and those are flat. So on a pipeline whose only rock-reading
+     process is a 1.36× stream-power factor, relief and slope correlate
+     *negatively* with strength (B1 −0.33 to −0.49, B2 0.14 to 0.43 at
+     800 km).
+   - §2.4's granite is also "old interior". The GF-1 control arm will
+     probably inherit part of this, which would put B1's absolute half (ρ ≥
+     0.25) further away than its relative half (Δρ ≥ 0.15).
+   - The bars are left as they are: §5.2 sets them before measurement. GF-1
+     measures the control arm, and any change is disclosed then.
+2. **"About 1 in the control" was wrong for B6, and plausibly for B7.** A
+   kernel that reads no rock gave 1.32 to 6.58 (B6) and 0.13 to 2.10 (B7)
+   against the stand-in. Both bars now also require a multiple of the
+   measured control (§5.2).
+3. **B3 is undefined on 2 of 5 seeds at 800 km.** At the app's default extent,
+   generation lowers weak rock by about a metre on average, and net lowering
+   is negative in places, where rebound and the carve outweigh the light
+   stream-power pass. At 80 km the same means are 36 to 281 m. GF-2 should
+   consider measuring B3 on the stream-power call alone, before rebound, as
+   B6 now measures the glacial kernel alone. The clock (§4.12) also bears on
+   it: τ > 1 deepens the incision.
+4. **§4.3's expectation holds at 800 km, and the other extents behave very
+   differently.**
+   - At 800 km, 0.13 to 0.37 % of land is steeper than 40°. The threshold
+     hillslope will bind only on a small share, mostly the cap edges it
+     exists for.
+   - At 80 km, 14 to 18 % is. The threshold will be a dominant process there,
+     and GF-3's cost and B8 need checking at that extent.
+   - At 8 000 km no land cell is steeper than 17.8°, so the stage is inert at
+     continental extent for every θc in §2.3's table.
+5. **RV-1's hard guarantee holds everywhere measured.** There are 0 ocean
+   cells on river paths on all 15 worlds.
 
 ---
 
@@ -777,7 +1330,7 @@ themselves.
   `stream_order`, `channels` and the river-intensity stamp move too, and
   RV-1's identity check fails for a reason that is not a defect.
 
-### 6.1 During the build (GF-1 to GF-6)
+### 6.1 During the build (GF-1 to GF-8)
 
 - The model ships behind a switch. It is **false** in
   `WorldParams::defaults` and **true** in `cartalith_godot::params::defaults`.
@@ -785,8 +1338,18 @@ themselves.
 - No JS-parity golden moves mid-build, and GF-0's two arms run on one binary.
 - The switch gets **no GUI control**. There is no user-facing legacy mode
   (§7p).
+- **The clock (GF-7) needs no switch.** At τ = 1.0, its default at both
+  boundaries, every process takes today's expressions by control flow, so no
+  golden can move. B12 asserts it.
+- **Painting (GF-8) cannot move a generated world**: it acts only on a user's
+  commit.
+- **The coastal default (GF-4)** is an app-boundary divergence of the Ruling
+  AU kind (`p.passes.coastal = true` in `params::defaults()` only).
+  `params_mapping.rs`'s
+  `exactly_the_ruled_divergences_ship_at_the_app_boundary` gains it as the
+  seventh divergence in the same change.
 
-### 6.2 The final disposition (GF-7); recommended route A (§9 Q6)
+### 6.2 The final disposition (GF-9); recommended route A (§9 Q6)
 
 **Untouched by construction.** Each must be asserted bit-identical in the
 milestone that could move it:
@@ -825,7 +1388,7 @@ generate a world and then test a civ port against a reference capture:
   hashes (RV-1 already records its old and new pairs in the file).
 - `cartalith-engine/tests/world_structure_orogeny.rs`'s generated-world hashes.
 - Any test that runs `cartalith_godot::params::defaults` with a value
-  assertion. GF-7 opens each candidate and classifies it:
+  assertion. GF-9 opens each candidate and classifies it:
   - `lod_d4_ice_and_snow.rs`
   - `pass_relief_measure.rs`
   - `appearance_ab_dump.rs`
@@ -870,17 +1433,19 @@ existing divergences do. See §9 Q6 for the trade-off.
 - The harness runs on all five seeds and three extents, and prints every
   metric with its population.
 - The positive control passes and the negative control reads |ρ| < 0.05.
-- The first run's numbers are recorded in `STATUS.md` with the command that
-  produced them.
+- The first run's numbers are recorded in §5.4 with the commands that
+  produced them. `STATUS.md` records the milestone.
 
 ### GF-1 — the lithology model and column, read by no process
 
 - §2.4's derivation.
 - `volcanic_setting` stored.
 - The column of §2.5 on `WorldState`, behind §6.1's switch.
-- Save format: new `rasters/` entries, and `SAVEFILE_COMPAT.md` updated. An
-  old save has no column. Every reader dashes it with the reason "saved before
-  geology", and civ falls back to `build_lithology`.
+- Save format: §2.6's `geology` set, its manifest member and its reader and
+  writer obligations, with `SAVEFILE_COMPAT.md` gaining it as §8.4. An old
+  save has no column. Every reader dashes it with the reason "saved before
+  geology", and civ falls back to `build_lithology`. The backward-compatibility
+  test is built from a real prior-format archive (§2.6).
 - The import path (`cartalith_engine::import`) and Ruling M's substrate rebuild
   build a single-layer column from the inferred plates. A layered import is
   not in scope.
@@ -923,9 +1488,12 @@ existing divergences do. See §9 Q6 for the trade-off.
 §4.4, §4.5, §3.2 item 2.
 
 **Done means:**
-- B6 passes. B7 passes if Q7 is ruled yes; otherwise it is reported as not
-  measurable, with that reason.
-- B8 still passes.
+- B6 passes. B7 passes: Ruling BJ turned the coastal pass on in the app
+  (§4.5), in this milestone.
+- `params::defaults()` sets `p.passes.coastal = true`. `params_mapping.rs`
+  gains it as the seventh ruled divergence, and `GENERATION_PARAMETERS.md`
+  discloses its measured cost as a median with min..max.
+- B8 still passes, now with the coastal pass on.
 - `golden_parity_passes.rs` is bit-identical.
 
 ### GF-5 — karst and permeability
@@ -951,7 +1519,59 @@ existing divergences do. See §9 Q6 for the trade-off.
   Its positive control must move pixels.
 - *Cave* is buildable on karst, and its `not_built` reason is removed.
 
-### GF-7 — re-baseline, projection and scrub
+### GF-7 — the geological clock (Ruling BJ)
+
+§4.12.
+
+- `WorldParams::geo_age` (τ), default 1.0 at both boundaries, with its
+  `PARAMS` and `JS_PATHS` rows.
+- The per-process responses: linear for stream power, the threshold
+  hillslope and karst; saturating for coastal and glacial; logarithmic for
+  the new weathered mantle.
+- The floors, and §2.5's `R_EXPOSE`.
+- The stage-06 row, `geological age ×1.00`, with its effective-count readout
+  and tooltip. The `DCC_CONTROL_INDEX.md` row. The phone and tablet sheets.
+- `h₀` verified at its source (Heimsath et al. 1997) before it is pinned.
+
+**Done means:**
+- B12 passes.
+- At τ = 1, every golden is bit-identical and every app-default world is
+  byte-identical to one generated without the parameter.
+- The mantle's tests assert the literal values of §5.2's B12, never
+  `h(τ)` against itself. Mutating `k`, `h₀` or `h₁` turns them red.
+- The cost at τ ∈ {0.5, 2, 4} is disclosed in `GENERATION_PARAMETERS.md`.
+- `--check-only` on every touched `.gd`, plus `shell/app.gd`.
+
+### GF-8 — lithology painting (Ruling BJ)
+
+§4.13, §2.6's `rock_painted.u8` row.
+
+- The Rock target and its three layers in `PaintEditor`, and the tool-options
+  row and right dock of §4.13.
+- The commit: undo first, then bake, then the differential re-erosion over
+  `W` through `tile_erode` (its first production caller), then the refresh.
+- `HeightUndo`'s optional column snapshot, and the redo tail's.
+- Persistence: the column rasters (GF-1), `rock_painted.u8`,
+  `geology.painted`, and the three draft layers in `drafts/paint.json`.
+- `DCC_SHELL_SPEC.md` §4.5.2's "soil and lithology have no override array"
+  sentence, and the target list below it, are updated in the same change
+  (`MISTAKES.md`: *"Change behaviour"*).
+- `_authored_inventory()` lists painted rock.
+
+**Done means:**
+- B11 passes, including its mutation.
+- A windowed probe paints shale into granite, commits, and shows the painted
+  patch lower than its surroundings in the rendered relief. Its positive
+  control must move pixels.
+- Undo and redo are exact for the field and the column. The existing undo
+  tests are unchanged.
+- The save round trip is byte-identical for the column and the mask. The
+  prior-format archive test of §2.6 still passes.
+- `cargo test --workspace`, and `--check-only` on every touched `.gd` plus
+  `shell/app.gd`.
+- The DLL and `.rs` mtimes are stated at the end of the run.
+
+### GF-9 — re-baseline, projection and scrub
 
 - §6.2 per Q6's ruling.
 - The civ projection to the 7 legacy classes, used by soil, resources, render
@@ -970,7 +1590,8 @@ existing divergences do. See §9 Q6 for the trade-off.
   against the previous floor.
 - `STATUS.md` is updated.
 
-*A possible GF-8, lithology painting, is §9 Q2's; it is not scheduled here.*
+*Ruling BJ moved lithology painting into this build as GF-8, above; §9 Q2
+records the answer.*
 
 ---
 
@@ -1004,21 +1625,28 @@ These are from `MISTAKES.md`'s preflight table, matched to this work:
 
 ## 9. Owner questions, each with a recommended default
 
-`LARGE_ITEM_RULINGS.md` was searched on 2026-09-27 for each of these. None is
-already ruled.
+`LARGE_ITEM_RULINGS.md` was searched on 2026-09-27 for each of these. None
+was ruled when this scope was written. **Ruling BJ (2026-09-27) answered Q1,
+Q2, Q4 and Q7**, marked below. The others keep their defaults, as the ruling
+says. Q11 is new with the clock.
 
-1. **How many rock types?** **Default: the 11 in §2.2.** They project to the 7
+1. **How many rock types?** **Answered by Ruling BJ: 11**, the table in §2.2.
+   (The recommended default was the same.) They project to the 7
    legacy classes for civ, soil and resources until those tables are extended.
    - The alternatives are 7, reusing the legacy classes, which cannot express
      a strong cap over weak rock inside the sedimentary group, or about 16:
      adding quartzite, dolomite, chalk, evaporite, conglomerate and impactite.
-2. **Can the user paint lithology?** **Default: not in this build.** A later
-   GF-8 "Geology paint" tool would paint the top rock and cap thickness, with
-   the processes re-run over the painted column. It needs its own short scope,
-   for how painting interacts with sculpt and regeneration.
-   - Until then, sculpting down exposes the substrate automatically through
-     the exposure rule. Sculpting up extends the top rock.
-   - Ruling M's drawn plates inform resources only, so they would not feed
+2. **Can the user paint lithology?** **Answered by Ruling BJ: yes, in this
+   build**, reversing the recommended default ("not in this build"). §4.13
+   specifies it and GF-8 builds it: the surface rock, the rock beneath, and
+   cap thickness; a baked commit with an undo step; persistence in §2.6's
+   set; and a differential re-erosion over the painted window, so erosion
+   responds to the painted rock.
+   - The interactions the old default deferred are settled there. Sculpting
+     down still exposes the substrate through the exposure rule, and sculpting
+     up extends the top rock. Regeneration replaces paint as it replaces
+     sculpting, and the regenerate confirmation names it.
+   - Ruling M's drawn plates still inform resources only, and do not feed
      this.
 3. **How does the Sample panel show lithology?** **Default:**
    - **Rock (surface)**: the exposed rock.
@@ -1030,9 +1658,14 @@ already ruled.
    - The legacy *Lithology* row becomes the surface rock name.
    - The lithology map view gets an 11-colour palette.
 4. **The clock.** Ruling BH names the geological-time scope's clock, and that
-   scope has none (§1.4). **Default: BH builds no clock.** Formation age is
-   relative, and a clock remains its own ruling, with that scope's §8
-   prerequisites.
+   scope has none (§1.4). **Answered by Ruling BJ: add a simple clock**,
+   reversing the default ("BH builds no clock"). §4.12 specifies one
+   dimensionless parameter, geological age τ, that scales pass and iteration
+   counts. It is linear where the kernel or the column already limits the
+   process, saturating where the real process slows for a reason the kernel
+   does not model, and logarithmic for the weathered mantle. GF-7 builds it.
+   Formation age stays relative. The geological-time scope's larger design
+   stays declined, and its §8 prerequisites are not needed.
 5. **Contrast control.** **Default:** repurpose the existing "Rock resistance"
    slider (`tect.resist`) as the contrast exponent `c`. Its default is set by
    GF-2's measurement. There are no per-rock sliders; the table is editable in
@@ -1046,15 +1679,23 @@ already ruled.
      the six existing divergences. It is cheaper to maintain, and it keeps a
      parity-baseline generation path in the engine.
 7. **Turn the coastal pass on in the app?** It is off at both boundaries
-   today. Rock-aware cliff retreat and BG's sea stacks need it. **Default: yes,
-   at GF-4**, with its measured cost disclosed, as Ruling AU did for glacial.
+   today. Rock-aware cliff retreat and BG's sea stacks need it. **Answered by
+   Ruling BJ: yes, at GF-4**, confirming the default, with its measured cost
+   disclosed as Ruling AU did for glacial (§4.5, GF-4).
 8. **Layer dip?** **Default: horizontal with a gentle low-frequency warp.**
    Per-province dip, which gives cuestas and hogbacks, can come later.
 9. **Remove `tect.dynamic_lithology`?** The explicit column supersedes the
-   exhumation heuristic. **Default: yes, at GF-7** (§7p). Its GUI row goes and
+   exhumation heuristic. **Default: yes, at GF-9** (§7p). Its GUI row goes and
    the parameter is dropped.
 10. **Impact breccia as a rock type?** **Default: no.** `impact_field` stays a
     marker. It can join Q1's extended set later.
+11. **Should the clock age craters too?** `crater_degradation_tau` already
+    degrades craters by the hillslope diffusivity (`DECISIONS.md` §7l-ii
+    ruling 2). The clock could also scale it, so an old world's craters are
+    more degraded. **Default: no, not in GF-7.** The crater model has its own
+    ruling and its own calibration, and coupling it to τ changes crater
+    output, which B12's identity-at-τ = 1 would not catch at other values of
+    τ. It can be ruled on separately.
 
 ---
 
@@ -1096,10 +1737,15 @@ hillslope and before the final trace (§3.1). It writes its debris to
 ## 11. Bibliography
 
 Cited as known. GF-1's lane verifies the page, table or figure for every value
-before it is pinned, and replaces any reference it cannot verify.
+before it is pinned, and replaces any reference it cannot verify. The five
+added for the clock (Baldwin et al., Harbor, Heimsath et al., MacGregor et
+al., Trenhaile) are verified the same way by GF-7's lane.
 
 - Ballantyne, C.K. (2002). Paraglacial geomorphology. *Quaternary Science
   Reviews* 21, 1935–2017.
+- Baldwin, J.A., Whipple, K.X. & Tucker, G.E. (2003). Implications of the
+  shear stress river incision model for the timescale of postorogenic decay
+  of topography. *Journal of Geophysical Research* 108(B3), 2158.
 - Braun, J. & Willett, S.D. (2013). A very efficient O(n), implicit and
   parallel method to solve the stream power equation governing fluvial
   incision and landscape evolution. *Geomorphology* 180–181, 170–179.
@@ -1121,15 +1767,24 @@ before it is pinned, and replaces any reference it cannot verify.
   Glaciology* 23(89), 39–50.
 - Hallet, B. (1996). Glacial quarrying: a simple theoretical model. *Annals of
   Glaciology* 22, 1–8.
+- Harbor, J.M. (1992). Numerical modeling of the development of U-shaped
+  valleys by glacial erosion. *Geological Society of America Bulletin* 104,
+  1364–1375.
 - Harel, M.-A., Mudd, S.M. & Attal, M. (2016). Global analysis of the stream
   power law parameters based on worldwide ¹⁰Be denudation rates.
   *Geomorphology* 268, 184–196.
+- Heimsath, A.M., Dietrich, W.E., Nishiizumi, K. & Finkel, R.C. (1997). The
+  soil production function and landscape equilibrium. *Nature* 388, 358–361.
+  The source of §4.12's exponential soil-production law and `h₀`.
 - Hoek, E. & Brown, E.T. (1980). Empirical strength criterion for rock masses.
   *Journal of the Geotechnical Engineering Division, ASCE* 106(GT9),
   1013–1035.
 - Krabbendam, M. & Glasser, N.F. (2011). Glacial erosion and bedrock
   properties in NW Scotland: abrasion and plucking, hardness and joint
   spacing. *Geomorphology* 130, 374–383.
+- MacGregor, K.R., Anderson, R.S., Anderson, S.P. & Waddington, E.D. (2000).
+  Numerical simulations of glacial-valley longitudinal profile evolution.
+  *Geology* 28(11), 1031–1034.
 - Marinos, P. & Hoek, E. (2000). GSI: a geologically friendly tool for rock
   mass strength estimation. *Proc. GeoEng2000*, Melbourne (the `mi` table).
 - Montgomery, D.R. & Gran, K.B. (2001). Downstream variations in the width of
@@ -1156,5 +1811,7 @@ before it is pinned, and replaces any reference it cannot verify.
 - Sunamura, T. (1977). A relationship between wave-induced cliff erosion and
   erosive force of waves. *Journal of Geology* 85, 613–618.
 - Sunamura, T. (1992). *Geomorphology of Rocky Coasts.* Wiley.
+- Trenhaile, A.S. (2000). Modeling the development of wave-cut shore
+  platforms. *Marine Geology* 166, 163–178.
 - Whipple, K.X. & Tucker, G.E. (1999). Dynamics of the stream-power river
   incision model. *Journal of Geophysical Research* 104(B8), 17661–17674.

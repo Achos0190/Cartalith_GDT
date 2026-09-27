@@ -320,7 +320,62 @@ re-checked against the tree rather than copied from the commit message.
     present rainfall, so no shaping process could read it causally.
   - `EROSION_GEOLOGICAL_TIME_SCOPE.md` has no clock for the ruling to run on.
 
-  Next: GF-0, the two-arm measurement harness.
+  *Superseded the same day by the two entries below*: the milestones are now
+  GF-0 to GF-9, and GF-0 is built.
+- **`GEOLOGY_FIRST_SCOPE.md` amended for Ruling BJ.** It is a documentation
+  change. The milestones are renumbered:
+  - GF-0 to GF-6 are unchanged;
+  - **GF-7 is the geological clock** (§4.12): one dimensionless parameter,
+    `geological age ×1.00`, that scales pass and iteration counts. It is
+    linear for stream power, the threshold hillslope and karst; saturating
+    for coastal and glacial; and logarithmic for a new weathered mantle;
+  - **GF-8 is lithology painting** (§4.13): a Rock target in Biome paint,
+    baked commit, a field-and-column undo step, and a differential re-erosion
+    through `tile_erode`;
+  - **GF-9 is the re-baseline and scrub**, formerly GF-7.
+
+  The save format is specified as a separate `geology` set (§2.6). GF-4 turns
+  the coastal pass on in the app. §9 marks Q1, Q2, Q4 and Q7 as answered, and
+  adds Q11. **GF-1 to GF-9 are unstarted.**
+- **GF-0 built: the geology-first measurement harness**
+  (`crates/cartalith-godot/tests/gf0_geology_harness.rs`). Pending independent
+  verification. It changes no generated output: it is a test target, plus a
+  test-only `cartalith-erosion` dev-dependency of `cartalith-godot`.
+  - **The fast controls** run in every workspace test:
+    `positive_control_b1_b2_b3_see_a_built_in_effect`,
+    `negative_control_a_permuted_rock_map_reads_no_effect` and
+    `metric_helpers_hold_on_hand_checked_inputs`.
+  - **The measurement** is `--ignored`: `gf0_bars` (15 worlds, 168 s in a
+    release build) and `gf0_b9_cost`. The commands are in the scope's §5.4.
+  - **It is arm 1 only**, with `resistance_field` quartiles standing in for
+    rock strength, and labelled as a stand-in. Arm 2 needs GF-1's column.
+  - **Baseline at 800 km, five seeds:**
+    - B1 ρ −0.49 to −0.33;
+    - B2 0.14 to 0.43;
+    - B3 0.52 to 1.40, and undefined on 2 seeds, where weak-rock mean depth is
+      net raising;
+    - B6 1.32 to 6.58;
+    - B7 0.13 to 2.10, on an extra arm with coastal on;
+    - B8: 0 ocean cells on river paths on all 15 worlds;
+    - B9: `generate_terrain` median 3.115 s (3.089..3.124), with an
+      independent re-run of 3.095 s (3.068..3.140);
+    - B10: deterministic on all five seeds.
+  - **Not measurable yet:** B4 and B5, and B10's rock-type counts, each with
+    its reason.
+  - **Negative control:** |B1| ≤ 0.001 on all 15 worlds.
+  - **Mutation testing:** 3 of 3 metric mutants turned the fast controls red:
+    the strong/weak split, the permutation and the ranking. The source was
+    restored hash-identical afterwards.
+  - **Findings recorded in §5.4.**
+    - A rock-blind pipeline reads far from 1 on B6 and B7, so both bars now
+      also require a multiple of the measured control.
+    - Above 40°, land is 0.13–0.37 % at 800 km, 14–18 % at 80 km, and 0 % at
+      8 000 km.
+  - **Workspace suite:** 4 004 passed before the change, and 4 007 after it,
+    the three new controls. 0 failed and 42 ignored before; 44 ignored after,
+    the two measurements. 179 result lines before, 180 after.
+
+  Next: GF-1, the lithology model and column.
 
 ### 2026-09-25
 

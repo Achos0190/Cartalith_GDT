@@ -231,6 +231,7 @@ dependencies = [
  "cartalith-civ",
  "cartalith-climate",
  "cartalith-engine",
+ "cartalith-erosion",
  "cartalith-gpu",
  "cartalith-hydrology",
  "cartalith-io",

@@ -107,6 +107,12 @@ tiff = { version = "0.11.3", default-features = false, features = ["deflate"] }
 # `tests/export_stream.rs`' own PNG and BigTIFF decoders inflate with it;
 # already in the lockfile through `png`/`zip`.
 flate2 = "1"
+# `tests/gf0_geology_harness.rs` (GEOLOGY_FIRST_SCOPE.md GF-0, bar B6)
+# re-runs `glacial_kernel` alone on the pre-glacial field, so it measures the
+# kernel's lowering without the isostatic rebound that follows it, and checks
+# kernel + rebound reproduces the generated world bit for bit. Test-only: the
+# shipping crate still reaches erosion through `cartalith-engine` alone.
+cartalith-erosion = { path = "../cartalith-erosion" }
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
 # `simulate_weather`/`apply_climate_moisture_correctors` directly to measure
