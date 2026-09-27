@@ -1907,3 +1907,11 @@ verifying.
 **Existing code** gets a separate annotation-audit pass later. It is a
 backlog row, not in scope for current lanes, except for code a lane already
 touches.
+
+## 2026-09-27 — Ruling BL: Night's rivers stay dimmer
+
+With rivers now drawn through the style (the per-style rivers lane), Night's
+rivers pass through the preset's −0.35 exposure grade and read dimmer than
+the old overlay's bright cyan. The owner was asked whether to keep them
+luminous (draw them after the grade) or leave them as part of the image:
+*"Stay dimmer."* Night's rivers go through the grade like the rest of the map.
