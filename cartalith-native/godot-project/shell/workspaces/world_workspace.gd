@@ -3130,7 +3130,24 @@ func _follow_tool_to_its_block(id: String) -> void:
 
 ## `MAP_CONTEXT_SCOPE.md`'s provider contract (`shell/context_broker.gd`'s
 ## header). Empty in CM-1; **since CM-2, §4.3's WORLD rows that something in
-## this file already does**, on the card only (the phone's sheet is CM-5's):
+## this file already does**:
+##
+## **CM-5 residual, closed:** this used to `return []` outright whenever
+## `req["form"] == "phone"`, on the theory that every row below was a card-only
+## affordance -- true while the phone's own presenter was still CM-1's
+## `PopupMenu` (`context_broker.gd::_present_phone()`'s pre-CM-5 fallback), and
+## stale the moment CM-5 gave the phone `PhoneMenu.peek_card()`, which draws a
+## plain action row exactly as the desktop card does (the same finding
+## `global_tools.gd::context_actions()`'s own header already recorded for its
+## two rows). Every Draft row below (Commit/Discard/Undo) and every Object row
+## (stamp Select/Hide/Move/Delete, the river rows, the eyedropper) is a plain
+## tap, so the blanket exclusion was hiding rows that work by touch. The rows
+## that genuinely do not belong on the phone are the Tool section's `param`
+## rows (`world.brush_size`, `world.paint_radius`, `world.paint_erase`) --
+## an inline −/value/+ stepper the phone sheet has no row type for -- and
+## those are still excluded, but by `context_broker.gd::_present_phone()`'s
+## own `children`/`param` filter, the same mechanism that strips `Copy
+## coordinate ▸` there, not by a second gate here:
 ##
 ##   Draft   Commit N stamps · Undo last stamp ·      `_on_sculpt_commit` /
 ##           Discard sculpt draft                     `_on_sculpt_discard`, the
@@ -3158,7 +3175,7 @@ func _follow_tool_to_its_block(id: String) -> void:
 ## river pick and trace (CM-7, **E**); *Regenerate from this stage* is excluded
 ## by the scope itself.
 func context_actions(req: Dictionary) -> Array:
-	if String(req.get("domain", "")) != "world" or String(req.get("form", "")) == "phone":
+	if String(req.get("domain", "")) != "world":
 		return []
 	if not bridge.has_world:
 		return []

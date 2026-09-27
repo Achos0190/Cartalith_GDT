@@ -836,9 +836,22 @@ func _build_layer_gaps(parent: Control) -> void:
 ## Not CIVIL's verbs inline -- that is the fork the owner answered. Before CM-1
 ## a right-click in CARTO opened nothing at all.
 ##
-## **Since CM-2, §4.3's other CARTO rows that this file already does**, on the
-## card only (the phone's sheet is still CM-1's; CM-5 owns it). Each row runs
-## the function the dock's own control runs:
+## **Since CM-2, §4.3's other CARTO rows that this file already does.**
+##
+## **CM-5 residual, closed:** every row below the settlement-handoff one used
+## to be withheld from the phone outright (`req["form"] == "phone"` returned
+## early), on the same stale "the phone has no presenter for a §4.1 row" theory
+## `world_workspace.gd::context_actions()`'s own note records -- true only
+## while CM-1's `PopupMenu` was the phone's sheet. CM-5's `PhoneMenu.
+## peek_card()` draws a plain action row exactly as the desktop card does, and
+## Edit text / Delete label / Delete icon / Label this / Add label here /
+## Stamp armed icon / Start export region are all plain taps, so they are no
+## longer gated here. `View field ▸` and `Style preset ▸` genuinely do not
+## reach the phone -- both carry `children` (a real submenu the sheet has no
+## row type for), and `context_broker.gd::_present_phone()`'s own filter
+## strips them there, the same mechanism that strips `Copy coordinate ▸` and
+## WORLD's `param` rows. Each row runs the function the dock's own control
+## runs:
 ##
 ##   label hit    Edit text of "…"…    the label list's `edit` button
 ##                                     (`label_select` + the edit form)
@@ -882,7 +895,7 @@ func context_actions(req: Dictionary) -> Array:
 			"label": "Settlement actions in CIVIL ›", "section": "object",
 			"enabled": true, "header": String(h.get("label", "Place")),
 			"callable": _open_in_civil.bind(raw)})
-	if String(req.get("form", "")) == "phone" or not bridge.has_world:
+	if not bridge.has_world:
 		return rows
 	var gx := float(req.get("gx", 0.0))
 	var gy := float(req.get("gy", 0.0))

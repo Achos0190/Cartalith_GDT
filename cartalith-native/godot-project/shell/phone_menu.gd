@@ -358,6 +358,20 @@ var _peek_tween: Tween
 var _peek_actions: Array = []
 var _peek_reselect: Callable = Callable()
 var _peek_dismiss_cb: Callable = Callable()
+## CM-5 residual (`OUTSTANDING_WORK.md`'s "CM-5 residuals" row): §8.1.4's
+## multi-hit "Select ▸" chip. `_peek_all_hits` is `req.get("all_hits", ...)`,
+## the same field `context_card.gd::open()` reads for its own Select ▸ list;
+## `_peek_primary` is `req["hits"][0]`, marking which hit the sheet is
+## currently about. `_peek_select_mode` swaps `_peek_full_col` from the
+## action rows to the hit list -- forced to the `half` detent, since a
+## `peek`-height sheet has no room for a list.
+var _peek_all_hits: Array = []
+var _peek_primary: Dictionary = {}
+var _peek_select_mode := false
+## `context_card.gd`'s own SELECT_CAP (§9.1: "nearest first, capped at 8") --
+## read off that script rather than a re-declared literal, so the two lists
+## cannot drift apart.
+const _ContextCard := preload("res://shell/context_card.gd")
 ## `06-phone.md` §5.2's own peek figure -- the same 66 dp the tool sheet's
 ## `DccShell.PHONE_DETENT_PEEK` uses, kept as this file's own constant rather
 ## than a cross-file reference so this sheet does not depend on the tool
@@ -706,6 +720,11 @@ func peek_chip_labels() -> PackedStringArray:
 			out.append((c as Button).text)
 	return out
 
+## Probe seam: whether the sheet is showing §8.1.4's hit list rather than the
+## ordinary action rows.
+func peek_in_select() -> bool:
+	return _peek_select_mode
+
 func peek_full_row_labels() -> PackedStringArray:
 	var out := PackedStringArray()
 	if _peek_full_col == null:
@@ -725,26 +744,49 @@ func peek_grab_input(event: InputEvent) -> void:
 	_on_peek_grab_input(event)
 
 ## CM-5's own presenter. `req`/`actions` are `context_broker.gd`'s merged
-## rows (`MAP_CONTEXT_SCOPE.md` §3/§9.1's Action shape); `reselect` is carried
-## for parity with the desktop card's signature and is not yet called from
-## here -- §8.1.4's multi-hit "Select ▸" chip is not built (see this file's own
-## header note above `peek_card_is_open()`'s call site in `dcc_shell.gd`).
-## `on_dismiss` fires exactly once, when the sheet closes by the user's own
-## action (scrim tap, system back, drag below `peek`) -- never when another
+## rows (`MAP_CONTEXT_SCOPE.md` §3/§9.1's Action shape). `reselect` is
+## `context_broker.gd::reselect()`, called from `_reselect_from_peek()` when
+## the user picks one entry off §8.1.4's Select ▸ list (`_open_peek_select()`,
+## `_build_peek_select_row()`) -- the phone form of the desktop card's own
+## Select ▸ submenu, built as a §8.1.3 half-detent row list rather than a
+## card-in-card submenu, since the sheet has no second disclosure level to
+## put one in. `on_dismiss` fires exactly once, when the sheet closes by the
+## user's own action (scrim tap, system back, drag below `peek`) -- never when
+## another
 ## phone overlay simply replaces this one (`close()` above skips it).
 func peek_card(req: Dictionary, actions: Array, reselect: Callable,
 		on_dismiss: Callable = Callable()) -> void:
 	var was_open := _peek_open
 	_peek_reselect = reselect
 	_peek_dismiss_cb = on_dismiss
+	## CM-5 residual: this used to stop at a provider's own `header` string,
+	## reading "Here" whenever nothing set one -- fine for a single settlement
+	## hit (its rows always set `header`), wrong the moment §8.1.4's Select ▸
+	## list (below) re-resolves to a label or icon, whose rows
+	## (`cartography_workspace.gd`'s `carto.label_edit` etc.) set no `header`
+	## at all. Falls back to the picked hit's own name -- `req["hits"][0]`,
+	## which `context_broker.gd::reselect()` narrows to exactly the chosen
+	## object -- rather than reading "Here" for a re-resolve that plainly did
+	## land on something.
+	var hits: Array = req.get("hits", [])
 	var title := "Here"
 	for a in actions:
 		if (a as Dictionary).has("header"):
 			title = String(a["header"])
 			break
+	if title == "Here" and not hits.is_empty():
+		title = String(hits[0].get("label", "Here"))
 	_peek_title.text = title
 	_peek_trail.text = "Map · cell %d, %d" % [int(req.get("gx", 0.0)), int(req.get("gy", 0.0))]
 	_peek_actions = actions
+	## Every fresh resolve (a new drop, or a Select ▸ pick re-resolving) lands
+	## back in the action rows -- `_reselect_from_peek()` below is the only
+	## other writer of `_peek_select_mode` and it always clears it itself, but
+	## a re-drop while a select list happened to be open must not leave a
+	## stale one showing for the NEW hit's own `all_hits`.
+	_peek_select_mode = false
+	_peek_all_hits = req.get("all_hits", req.get("hits", []))
+	_peek_primary = hits[0] if not hits.is_empty() else {}
 	_rebuild_peek_chip_row(actions)
 	_rebuild_peek_full_rows(actions)
 	visible = true
@@ -757,11 +799,22 @@ func peek_card(req: Dictionary, actions: Array, reselect: Callable,
 	## to the NEW content and may have changed.
 	_set_peek_detent(_peek_detent if was_open else "peek", false)
 
+## §8.1.4 (`design/map-context-2026-09-25/Phone.dc.html`'s own
+## `head.multi`/`openSelect` chip): a multi-hit drop shows *Select ▸ N* as the
+## FIRST chip, ahead of the ordinary action chips, which yield one slot for it
+## (3 of them, not 4) so the row still fits the same peek band. A single-hit
+## drop is unchanged -- the chip is absent and all 4 slots go to actions,
+## exactly as before this residual.
 func _rebuild_peek_chip_row(actions: Array) -> void:
 	for c in _peek_chip_row.get_children():
 		c.queue_free()
 	var enabled: Array = actions.filter(func(a): return bool((a as Dictionary).get("enabled", true)))
-	for a in enabled.slice(0, 4):
+	var take := 4
+	if _peek_all_hits.size() >= 2:
+		take = 3
+		DccWidgets.chip(_peek_chip_row, "Select ▸ %d" % _peek_all_hits.size(),
+			_open_peek_select, true)
+	for a in enabled.slice(0, take):
 		var row: Dictionary = a
 		var cb: Callable = row.get("callable", Callable())
 		DccWidgets.chip(_peek_chip_row, String(row.get("label", "")), func() -> void:
@@ -772,6 +825,18 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 func _rebuild_peek_full_rows(actions: Array) -> void:
 	for c in _peek_full_col.get_children():
 		c.queue_free()
+	if _peek_select_mode:
+		_peek_full_col.add_child(_build_peek_back_row())
+		var cap: int = _ContextCard.SELECT_CAP
+		for n in mini(_peek_all_hits.size(), cap):
+			_peek_full_col.add_child(_build_peek_select_row(_peek_all_hits[n]))
+		if _peek_all_hits.size() > cap:
+			_peek_full_col.add_child(_build_peek_row({
+				"label": "… and %d more" % (_peek_all_hits.size() - cap),
+				"enabled": false,
+				"reason": "the list shows the %d nearest -- zoom in to separate the rest" % cap,
+			}))
+		return
 	var prev := ""
 	for n in actions.size():
 		var a: Dictionary = actions[n]
@@ -780,6 +845,63 @@ func _rebuild_peek_full_rows(actions: Array) -> void:
 			_peek_full_col.add_child(DccTheme.rule())
 		prev = sec
 		_peek_full_col.add_child(_build_peek_row(a))
+
+## §8.1.4's own row, the phone-sheet form of `context_card.gd`'s Select ▸
+## submenu (`_activate_focused()`'s `"select"` arm there): capped list of
+## the hits under the drop, nearest first, the currently-shown one marked.
+## Tapping one calls `_peek_reselect` (`context_broker.gd::reselect()`),
+## which re-resolves the whole request narrowed to that hit and re-opens this
+## SAME sheet (`peek_card()` above) with the new content -- there is nothing
+## for this row to close itself, unlike an ordinary action row.
+func _build_peek_select_row(h: Dictionary) -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	var b := Button.new()
+	var mark := " %s" % DccIcons.SYMBOLS["on"] if _same_peek_hit(h, _peek_primary) else ""
+	b.text = "%s · %s%s" % [String(h.get("label", "(unnamed)")), String(h.get("kind", "")), mark]
+	b.custom_minimum_size.y = _pt(46)
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.focus_mode = Control.FOCUS_NONE
+	b.flat = true
+	b.add_theme_font_size_override("font_size", _ps(12))
+	b.pressed.connect(func() -> void:
+		_reselect_from_peek(h))
+	wrap.add_child(b)
+	return wrap
+
+## The list's own `‹ Back` -- returns to the action rows without picking, the
+## phone form of the desktop card's `back` row (`_activate_focused()`'s
+## `"back"` arm). Distinct from the sheet's scrim/drag dismissal: this leaves
+## the sheet open, on the SAME hit, and only steps out of the sub-list.
+func _build_peek_back_row() -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	var b := Button.new()
+	b.text = "‹ Back"
+	b.custom_minimum_size.y = _pt(46)
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.focus_mode = Control.FOCUS_NONE
+	b.flat = true
+	b.add_theme_font_size_override("font_size", _ps(12))
+	b.add_theme_color_override("font_color", DccTheme.c("accent"))
+	b.pressed.connect(func() -> void:
+		_peek_select_mode = false
+		_rebuild_peek_full_rows(_peek_actions))
+	wrap.add_child(b)
+	return wrap
+
+func _open_peek_select() -> void:
+	_peek_select_mode = true
+	_rebuild_peek_full_rows(_peek_actions)
+	_set_peek_detent("half")
+
+func _reselect_from_peek(h: Dictionary) -> void:
+	_peek_select_mode = false
+	if _peek_reselect.is_valid():
+		_peek_reselect.call(h)
+
+static func _same_peek_hit(a: Dictionary, b: Dictionary) -> bool:
+	return not b.is_empty() and a.get("kind") == b.get("kind") and int(a.get("id", -1)) == int(b.get("id", -2))
 
 ## §8.1.3's 46 dp row: label left, and a disabled row's reason drawn as a
 ## second line under it -- `MAP_CONTEXT_SCOPE.md` §4.2's disabled-with-reason

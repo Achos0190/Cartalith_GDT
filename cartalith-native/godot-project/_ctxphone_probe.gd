@@ -25,6 +25,25 @@ extends Node
 ##   R  the peek panel's and the half card's own rects stay inside the phone
 ##      viewport, measured in both px and dp
 ##   X  a scrim tap dismisses the sheet AND clears the map's sample pin
+##
+## CM-5 residuals (`OUTSTANDING_WORK.md`'s "CM-5 residuals" row, left by
+## `ba01574`): the three legs below.
+##
+##   SEL  a stacked multi-hit spot (a settlement + a label + an icon on the
+##        same cell) draws §8.1.4's "Select ▸ N" chip; opening it forces the
+##        `half` detent and shows one row per hit; picking one re-resolves the
+##        sheet to that object and the select list closes
+##   PW   WORLD, a live sculpt draft: the phone's shown rows are compared
+##        against `context_broker.gd::collect()`'s own live merge for the SAME
+##        request, opened in a real `ContextCard` instance (`_card_row_labels`)
+##        rather than read off a constant -- every row missing from the phone
+##        is checked to carry `children` or `param`, its own stated touch
+##        reason
+##   PC   CARTOGRAPHY, the same stacked settlement/label/icon cell: the same
+##        comparison, for the label and icon rows this residual named
+##   STL   a settlement tap (a short press, not a hold) opens the phone's
+##        right sheet (`right_dock.gd::_show_on_phone()`), the same way a
+##        landmark or icon tap already did (`19d3ba8`)
 
 const SEED := 552017
 
@@ -49,6 +68,16 @@ func _ok(what: String, got: Variant, want: Variant) -> void:
 
 func _menu():
 	return app._phone_menu
+
+
+## Diagnostic only, gated on an env var so a normal CI run does not write
+## files: `CTXPHONE_SHOT_DIR` set -> saves the live viewport as a PNG there.
+func _shot(tag: String) -> void:
+	var dir := OS.get_environment("CTXPHONE_SHOT_DIR")
+	if dir == "":
+		return
+	var img: Image = _vp.get_texture().get_image()
+	img.save_png(dir.path_join("ctxphone_%s.png" % tag))
 
 
 ## `InputEvent.DEVICE_ID_EMULATION`: `map_overlay.gd`'s own `mb.device < 0`
@@ -110,6 +139,29 @@ func _grab_drag(menu, dy_target: float) -> void:
 	up.position = Vector2(0.0, dy_target)
 	menu.peek_grab_input(up)
 	await _frames(6)
+
+
+## CM-5 residual (`PW`/`PC`): the labels a real `ContextCard` would draw for
+## `req`/`actions` -- `_build_main()`'s own loop draws every action regardless
+## of `children`/`param` (verified by reading it: `_row_for()` calls
+## `_param_row()`/`_disabled_row()`/the plain action branch for every entry
+## that matches the empty filter, and all three set the SAME `card_row` meta
+## key `drawn_rows()` reads), so this opens one for real rather than asserting
+## that fact against itself. Read as evidence for the desktop/tablet side of a
+## parity check, never as the phone side -- the phone's own live
+## `_menu().peek_full_row_labels()` is that.
+func _card_row_labels(req: Dictionary, actions: Array) -> PackedStringArray:
+	var card = load("res://shell/context_card.gd").new()
+	card.setup(app)
+	app.add_child(card)
+	card.open(req, actions, Vector2(80, 80), Callable())
+	var out := PackedStringArray()
+	for r in card.drawn_rows():
+		if String(r.get("kind", "")) in ["action", "disabled", "param"]:
+			out.append(String(r.get("text", "")))
+	card.hide()
+	card.queue_free()
+	return out
 
 
 func _run() -> void:
@@ -251,6 +303,203 @@ func _run() -> void:
 	await _frames(6)
 	_ok("X scrim tap: the sheet closed", _menu().peek_card_is_open(), false)
 	_ok("X scrim tap: the sample pin was cleared", ov.has_sample_pin(), false)
+
+	# -- SEL: a stacked multi-hit spot shows Select ▸; picking re-resolves -------
+	## Fixture: a label and an icon dropped on the settlement's own cell, the
+	## same recipe `_ctxcard_probe.gd`'s own "S" leg uses for the desktop card.
+	app.select_domain("cartography")
+	await _frames(2)
+	var bridge = app.bridge
+	var s_k: Dictionary = bridge.settlements()[sk]
+	var lbl_id: int = bridge.label_create(float(s_k["x"]) + 0.5, float(s_k["y"]) + 0.5, "CTXPHONE FIXTURE")
+	var pack_path: String = ProjectSettings.globalize_path("res://") \
+		+ "../crates/cartalith-assets/tests/fixtures/reference_pack.zip"
+	var pack_ok: bool = bridge.world_gen.load_asset_pack(pack_path)
+	var icon_id := -1
+	if pack_ok and bridge.icon_arm("feature", 0, 1.0, 0.0, 0.0):
+		icon_id = bridge.icon_place(float(s_k["x"]) + 0.5, float(s_k["y"]) + 0.5)
+	bridge.icon_disarm()
+	_ok("SEL fixture: a label and an icon land on the settlement", lbl_id >= 0 and icon_id >= 0, true)
+	app.viewport.refresh_annotations()
+	await _frames(4)
+	var stack_hits: Array = ov.request_at(spos, "touch").get("hits", [])
+	print("SEL stack hits=%s" % [stack_hits])
+	_ok("SEL the stack really is 3+ hits (settlement, label, icon)", stack_hits.size() >= 3, true)
+
+	await _hold_wait(ov, spos, 0.85)
+	_touch_release(ov, spos)
+	await _frames(6)
+	_ok("SEL a fresh drop over the stack opens the sheet", _menu().peek_card_is_open(), true)
+	var sel_chips: PackedStringArray = _menu().peek_chip_labels()
+	print("SEL chips=%s" % [sel_chips])
+	_ok("SEL the FIRST chip is Select ▸ N (§8.1.4)",
+		sel_chips.size() > 0 and String(sel_chips[0]) == "Select ▸ %d" % stack_hits.size(), true)
+	_ok("SEL not yet in the select list before it is opened", _menu().peek_in_select(), false)
+	_shot("sel_peek_chip")
+
+	var chip_row: HBoxContainer = _menu().get("_peek_chip_row")
+	var sel_btn: Button = null
+	for c in chip_row.get_children():
+		if c is Button and String((c as Button).text).begins_with("Select ▸"):
+			sel_btn = c
+			break
+	_ok("SEL found the Select chip's own node", sel_btn != null, true)
+	if sel_btn != null:
+		sel_btn.pressed.emit()
+	await _frames(4)
+	_ok("SEL opening the chip forces the half detent (no room for a list at peek)",
+		_menu().peek_detent(), "half")
+	_ok("SEL the sheet is now showing §8.1.4's hit list, not the action rows",
+		_menu().peek_in_select(), true)
+	_shot("sel_half_list")
+	var sel_rows: PackedStringArray = _menu().peek_full_row_labels()
+	print("SEL rows=%s" % [sel_rows])
+	_ok("SEL one row per hit, plus the ‹ Back row", sel_rows.size(), stack_hits.size() + 1)
+
+	var full_col: VBoxContainer = _menu().get("_peek_full_col")
+	var label_btn: Button = null
+	for wrap in full_col.get_children():
+		if wrap is VBoxContainer:
+			for c in (wrap as VBoxContainer).get_children():
+				if c is Button and String((c as Button).text).begins_with("CTXPHONE FIXTURE"):
+					label_btn = c
+	_ok("SEL found the label's own row in the list", label_btn != null, true)
+	if label_btn != null:
+		label_btn.pressed.emit()
+	await _frames(6)
+	_ok("SEL picking the label re-resolves the sheet -- its own name is the header now",
+		_menu().peek_title_text(), "CTXPHONE FIXTURE")
+	_ok("SEL the select list closed on re-resolve (a fresh `peek_card()` call)",
+		_menu().peek_in_select(), false)
+	var after_rows: PackedStringArray = _menu().peek_full_row_labels()
+	print("SEL rows after pick=%s" % [after_rows])
+	var has_label_edit := false
+	for r in after_rows:
+		if String(r).begins_with("Edit text of “CTXPHONE FIXTURE”"):
+			has_label_edit = true
+	_ok("SEL the resolved sheet now carries the LABEL's own rows (Edit text of...)", has_label_edit, true)
+
+	_menu().go_back()
+	await _frames(6)
+	ov.clear_sample_pin()
+	await _frames(2)
+
+	# -- PW: WORLD, a live sculpt draft -- phone rows vs. the card's own merge ---
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("sculpt")
+	await _frames(3)
+	bridge.sculpt_begin_stroke()
+	bridge.sculpt_add_point(256.0, 192.0)
+	bridge.sculpt_add_point(260.0, 195.0)
+	bridge.sculpt_end_stroke()
+	await _frames(2)
+	_ok("PW fixture: a sculpt draft is live", bridge.sculpt_stamp_count() > 0, true)
+	var draft_pos: Vector2 = ov._cell_to_screen(Vector2(256.0, 192.0), rect)
+	await _hold_wait(ov, draft_pos, 0.85)
+	_touch_release(ov, draft_pos)
+	await _frames(6)
+	_ok("PW the hold opened the phone sheet over the draft", _menu().peek_card_is_open(), true)
+	var pw_req: Dictionary = app.context_broker.last_request
+	var pw_actions: Array = app.context_broker.last_actions
+	_ok("PW the broker's own live merge has rows for this request", pw_actions.size() > 0, true)
+	var pw_desktop := _card_row_labels(pw_req, pw_actions)
+	var pw_phone: PackedStringArray = _menu().peek_full_row_labels()
+	print("PW desktop=%s" % [pw_desktop])
+	print("PW phone=%s" % [pw_phone])
+	var pw_missing: Array = []
+	for l in pw_desktop:
+		if not pw_phone.has(l):
+			pw_missing.append(l)
+	print("PW missing from phone=%s" % [pw_missing])
+	var pw_reasoned := true
+	for l in pw_missing:
+		var found := false
+		for a in pw_actions:
+			if String((a as Dictionary).get("label", "")) == l \
+					and ((a as Dictionary).has("children") or (a as Dictionary).has("param")):
+				found = true
+		if not found:
+			pw_reasoned = false
+	_ok("PW every row missing from the phone form has a stated touch reason " +
+		"(children/param -- an inline stepper or a submenu the sheet has no row type for)",
+		pw_reasoned, true)
+	var pw_draft_rows := 0
+	for l in pw_phone:
+		if String(l).begins_with("Commit") or String(l).begins_with("Undo") or String(l).begins_with("Discard"):
+			pw_draft_rows += 1
+	_ok("PW the phone shows the Draft section's Commit/Undo/Discard (plain taps, not gated)",
+		pw_draft_rows >= 2, true)
+	_menu().go_back()
+	await _frames(4)
+	ov.clear_sample_pin()
+	bridge.sculpt_discard()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- PC: CARTOGRAPHY, the same stacked cell -- label/icon rows vs. the card --
+	app.select_domain("cartography")
+	await _frames(2)
+	await _hold_wait(ov, spos, 0.85)
+	_touch_release(ov, spos)
+	await _frames(6)
+	_ok("PC the hold opened the phone sheet over the stack", _menu().peek_card_is_open(), true)
+	var pc_req: Dictionary = app.context_broker.last_request
+	var pc_actions: Array = app.context_broker.last_actions
+	var pc_desktop := _card_row_labels(pc_req, pc_actions)
+	var pc_phone: PackedStringArray
+	## The stack's own Select ▸ chip is at `peek`; swap to the hit list, then
+	## back out is not needed -- `peek_full_row_labels()` at `peek` still reads
+	## whichever content is currently drawn, so swipe to `half` first to read
+	## the CARD's own full row list rather than the chip row's four labels.
+	await _grab_drag(_menu(), -900.0)
+	pc_phone = _menu().peek_full_row_labels()
+	print("PC desktop=%s" % [pc_desktop])
+	print("PC phone=%s" % [pc_phone])
+	var pc_missing: Array = []
+	for l in pc_desktop:
+		if not pc_phone.has(l):
+			pc_missing.append(l)
+	print("PC missing from phone=%s" % [pc_missing])
+	var pc_reasoned := true
+	for l in pc_missing:
+		var found := false
+		for a in pc_actions:
+			if String((a as Dictionary).get("label", "")) == l \
+					and ((a as Dictionary).has("children") or (a as Dictionary).has("param")):
+				found = true
+		if not found:
+			pc_reasoned = false
+	_ok("PC every row missing from the phone form has a stated touch reason " +
+		"(View field ▸ / Style preset ▸ carry `children`, a submenu the sheet has no row for)",
+		pc_reasoned, true)
+	var has_edit_label := false
+	var has_delete_icon := false
+	for l in pc_phone:
+		if String(l).begins_with("Edit text of"):
+			has_edit_label = true
+		if String(l).begins_with("Delete icon"):
+			has_delete_icon = true
+	_ok("PC the phone form carries CARTO's label row (Edit text of...)", has_edit_label, true)
+	_ok("PC the phone form carries CARTO's icon row (Delete icon...)", has_delete_icon, true)
+	_menu().go_back()
+	await _frames(4)
+	ov.clear_sample_pin()
+
+	# -- STL: a settlement TAP (not a hold) opens the phone's right sheet -------
+	app.right_dock.visible = false
+	await _frames(2)
+	_ok("STL precondition: the right dock sheet is closed", app.right_dock.visible, false)
+	_touch_press(ov, spos)
+	await _frames(2)
+	_touch_release(ov, spos)
+	await _frames(6)
+	_ok("STL a settlement tap opens the phone's right sheet " +
+		"(`right_dock.gd::_show_on_phone()`, same as a landmark/icon tap)",
+		app.right_dock.visible, true)
+	_shot("stl_right_sheet")
+	_ok("STL the right dock's own context is Settlement",
+		String(app.right_dock_ctrl.get("_context")), "settlement")
 
 
 func _ready() -> void:

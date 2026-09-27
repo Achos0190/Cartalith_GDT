@@ -800,6 +800,16 @@ func on_settlement_selected(data: Variant, index: int) -> void:
 		_settlement_data = data
 		_settlement_index = index
 	_rebuild()
+	## CM-5 residual (`OUTSTANDING_WORK.md`'s "Four map-data defects" row 4):
+	## `on_landmark_selected` / `on_icon_selected` below already open the
+	## phone's right sheet on a pick (`_show_on_phone()`, added `19d3ba8`), for
+	## the same reason this call needs it too -- a settlement tap otherwise
+	## sets `_context` to `CTX_SETTLEMENT` on a dock nothing on a phone screen
+	## draws. Only on an actual pick: a deselect (`data == null`) must not pull
+	## the sheet up over whatever the user was doing when they tapped empty
+	## ground.
+	if data != null:
+		_show_on_phone()
 
 ## The engine's settlement list changed under a live Settlement context: push
 ## the entry again so this panel stops drawing a snapshot of how that town used
