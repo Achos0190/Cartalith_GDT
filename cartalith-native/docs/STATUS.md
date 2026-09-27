@@ -1615,6 +1615,46 @@ literal bathymetry) saturates around the low-mid stops in every crop tried
 here. Not re-verified against a world/seed with genuinely open, far-offshore
 water. Files: `godot-project/_stylepresets_probe.gd`.
 
+**Cel / Toon style preset — built 2026-09-27, pending independent
+verification.** `OUTSTANDING_WORK.md`'s "Cel / Toon" row (owner: *"cel
+shading for a bit of a more stylized look 'cartoonish'"*). A new stage, not a
+rework of the Painter `D-cel` (`Npr::cel`), which posterises the finished
+colour and is pinned by `golden_parity_npr.rs`; its slider is relabelled
+"Posterize" so the two are not one name. Two new appearance tunables in
+`render.rs`: `toon_strength` bands the **light** — `toon_band` cuts the
+combined hillshade into 4 flat steps (`TOON_BANDS`) with a `smoothstep`
+terminator 0.03 shade units wide (`TOON_EDGE`), the ladder anchored on the rig's
+own flat-ground shade (`toon_flat_shade`, so flat ground keeps its exact light
+and exactly 4 levels exist on a full ramp at any sun or under multi-sun) — and
+flattens the albedo (`ramp3` position to its middle stop, grain faded, biome
+jitter faded, and the six-material blend sharpened by `toon_sharpen_weights`,
+power 8); `toon_outline` draws a slate keyline (`TOON_INK`) on the land side of
+coasts and lake shores within radius 2 (`toon_outline_cover`, a neighbourhood
+water test in `cell_color`, `BakeFields::pixel` and the tile renderer — cells
+on screen/export, tile pixels at deep zoom). The ink/`D-ink` stage was not
+reused for the outline: it is curvature×slope with an fbm wobble, so it does
+not see coasts at all. No separate ridge line: ridges read through the hard
+light terminator. New preset "Cel / Toon" (last in `render_workspace.gd`
+`STYLE_PRESETS`, gallery only; ring unchanged): the Natural Vibrant look,
+`biome_sat` 0.45, `bio_blend` 1, every texture/gradient stage zeroed, bright
+blue river (`river_ink` 0.75 toward (40,150,235), width 1.15). `default()`,
+`js_reference()` and both named looks are bit-identical on the grid, export and
+tile paths: 12 FNV-1a digests measured before the change and pinned
+(`tests/cel_toon.rs`, 18 tests); no other preset sets a `toon_*` key. Mutation:
+31 mutants, all killed (6 only after tests were added for them). Windowed
+(`_stylepresets_probe.gd --cel-only --grid 1024x656`, seed 483920, DLL
+`2a2e96de1f8d9411`): flat-land mottle (median 3×3 luma sd) 0.229 vs Default
+2.617; grey-light land 99.5% in two levels (this seed's relief only reaches
+flat and one shadow step at grid resolution), deep-zoom tile 4 levels holding
+94% of its land vs Default's 209 distinct values; full preset loop 0 failures.
+**Known:** biome edges now follow the climate raster exactly, which exposes a
+~200-cell straight vertical forest edge on this seed that Default's noise
+hides; the fit-view river overlay draws white under every preset, Default
+included — not this change. Files: `crates/cartalith-godot/src/render.rs`,
+`crates/cartalith-godot/tests/cel_toon.rs`,
+`godot-project/shell/workspaces/render_workspace.gd`,
+`godot-project/_stylepresets_probe.gd`.
+
 ### Sculpt live · `SCULPT_LIVE_SCOPE.md`
 
 Five milestones (L0-L4). The sculpt **editor** shipped as tool-plan milestone B;

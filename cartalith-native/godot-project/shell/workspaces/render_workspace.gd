@@ -68,7 +68,12 @@ const STYLES := [
 	["contours", "Contour veins", "Constant-width elevation isolines; every fifth is an index line."],
 	["ink", "Ink linework", "Pen outlines on strong landform edges, with hand-drawn weight wobble."],
 	["hachure", "Hachure", "Downslope hatching, denser and darker on steeper ground."],
-	["cel", "Cel / toon", "Posterized flat colour bands."],
+	## Relabelled from "Cel / toon" 2026-09-27: this slider is the reference's
+	## colour posterizer (texture noise and all), and the "Cel / Toon" style
+	## preset below is a different stage -- banded light over flat colour
+	## (`render.rs`'s `toon_strength`). Two controls under one name would read as
+	## one feature that behaves differently depending on where it is switched on.
+	["cel", "Posterize", "Posterized flat colour bands, texture included (the reference's cel style). The Cel / Toon style preset bands the light instead."],
 	["crosshatch", "Engraving", "Antique cross-hatch; more hatch directions as the ground darkens."],
 	["stipple", "Stipple", "Pen dot-density shading, denser in darker regions."],
 	["sepia", "Sepia", "Antique warm brown toning."],
@@ -278,6 +283,43 @@ const STYLE_PRESETS := [
 			"haze_strength": 0.05, "atmo_desaturation": 0.35,
 			"river_ink": 1.0, "river_ink_r": 90.0, "river_ink_g": 185.0, "river_ink_b": 255.0,
 			"river_width": 1.1, "river_through": 0.0}, "Night"],
+	## Cel / Toon (owner, 2026-09-27: *"cel shading for a bit of a more
+	## stylized look 'cartoonish'"*). `MAP_STYLE_RESEARCH.md` has no toon
+	## section, so every number here is this port's own labelled judgement.
+	##
+	## * The light: `toon_strength` 1.0 bands the hillshade into four flat
+	##   steps (`render.rs`'s `toon_band`) and flattens each material to one
+	##   colour. NOT the Painter `cel` slider (now labelled Posterize), which
+	##   bands the finished colour texture and all -- the 2026-09-27 preview of
+	##   exactly that was mottled blotches.
+	## * Everything that puts a smooth gradient or a per-pixel texture back
+	##   under the bands goes to 0: the micro detail band (a per-pixel jitter
+	##   INTO the light), surface/ridged texture, crest strokes, curvature
+	##   shading, occlusion, the near-channel halo, bedrock exposure, forest
+	##   stipple, the paper's grain/mottle/wash, local contrast and the haze.
+	##   The paper tint itself stays at half strength so the plate still reads
+	##   as printed on a sheet rather than as a screen.
+	## * The palette: the "Natural Vibrant" look's re-pitched ramps, plus
+	##   `biome_sat` 0.45 and `bio_blend` 1.0 (no pull toward grey) -- flat and
+	##   saturated. `relief_chroma` stays at the look's 1.0, so the lit steps
+	##   run warm and the shadow steps cool, the classic two-tone toon split.
+	## * The outline: `toon_outline` 0.9, a slate keyline on coasts and lake
+	##   shores (`render.rs`'s `toon_outline_cover`).
+	## * Rivers: a clean, bright saturated blue, a touch wider so it reads
+	##   beside the keyline. The river is composited after the banded light,
+	##   so it is never stepped; `river_through` 0 keeps it over any Painter
+	##   style a user then adds on top. The keyline is drawn after the river,
+	##   so the last two cells of a river mouth take the slate ink.
+	["Cel / Toon", "Natural Vibrant", {},
+		{"toon_strength": 1.0, "toon_outline": 0.9,
+			"detail_micro_weight": 0.0, "tex_strength": 0.0, "ridged_strength": 0.0,
+			"crest_strength": 0.0, "curve_shade": 0.0, "ao_strength": 0.0,
+			"hydro_wet_strength": 0.0, "litho_exposure": 0.0, "stipple_strength": 0.0,
+			"paper_strength": 0.5, "paper_grain": 0.0, "paper_mottle": 0.0, "paper_wash": 0.0,
+			"local_contrast": 0.0, "haze_strength": 0.0,
+			"biome_sat": 0.45, "bio_blend": 1.0,
+			"river_ink": 0.75, "river_ink_r": 40.0, "river_ink_g": 150.0, "river_ink_b": 235.0,
+			"river_width": 1.15, "river_through": 0.0}],
 ]
 
 ## Every appearance key any preset's 4th element writes -- derived from the
@@ -333,6 +375,14 @@ const MANAGED_LABEL := {
 	"village": "Village map",
 }
 
+## The two cel-shading appearance keys a tile's bundle line names, labelled
+## as the engine's own `TUNABLE` table labels them (`render.rs`), so a tile
+## and the slider it points at say the same words.
+const TOON_LABEL := {
+	"toon_strength": "Toon light bands",
+	"toon_outline": "Toon outline",
+}
+
 ## What a preset resets before applying itself -- the reference's own
 ## `STYLE_MANAGED_NUM`/`STYLE_MANAGED_BOOL`, intersected with what this port
 ## binds. `contour_m` is 0 = the reference's own automatic interval.
@@ -360,10 +410,15 @@ const APPEARANCE_GROUPS := [
 	## rather than in a group of their own, because the engine multiplies all
 	## three into one field (`render.rs`'s `fold_lighting_fields`, which is the
 	## reference's own `aoC`). Both are `0.0` in the shipped default.
+	## `toon_strength`/`toon_outline` (2026-09-27, the Cel / Toon preset) end
+	## this group rather than opening one of their own: a new group ahead of
+	## index 6 would move `build_relief_into`'s positional slice (its own comment
+	## records that happening once already), and banded light IS relief lighting.
 	["Relief & light", ["relief_lights", "relief_directionality", "relief_ambient",
 		"relief_gain", "relief_chroma", "ao_strength", "ao_radius_frac",
 		"svf_strength", "shadow_strength",
-		"crest_strength", "curve_shade", "ridged_strength"]],
+		"crest_strength", "curve_shade", "ridged_strength",
+		"toon_strength", "toon_outline"]],
 	["The sheet", ["paper_strength", "paper_grain", "paper_mottle", "paper_wash",
 		"stipple_strength", "border_width_frac"]],
 	## `rock_slope`, `wetness` and `sea_grain_warp` joined this group 2026-09-03
@@ -519,6 +574,8 @@ const APPEARANCE_HELP := {
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
 	"relief_chroma": "How far the relief lighting keeps the map's colour instead of fading it toward grey. 0 is the reference exactly -- shaded ground is pulled toward one fixed neutral, which costs value as well as chroma. At 1 the shading desaturates about each pixel's own luminance, and shadow cools while sunlight warms, the way a real scene's sky-lit shadow and warm sun differ.",
 	"crest_strength": "Thin bright strokes along convex, steep ridge lines -- the reference's Ridge crests. Costs one whole-grid pass when on and nothing when off.",
+	"toon_strength": "Cel shading: cuts the hillshade into four flat light steps with a crisp edge between them, and flattens each biome to one colour per step by removing its fine texture. 0 is the smooth map; 1 is fully banded. Unlike the Posterize style, which bands the finished colour, this bands only the light.",
+	"toon_outline": "A dark keyline along every coastline and lake shore, drawn on the land side: two map cells wide on the overview and in exports, two pixels wide on zoomed-in detail. 0 turns it off.",
 	"curve_shade": "Sun-independent lighting straight from the surface curvature: convex ridges brighten, concave valleys darken. Keeps a landform legible where it happens to run parallel to the sun. The reference's Curvature shading.",
 	"ridged_strength": "Folded creases from a ridged multifractal, weighted by elevation squared so they concentrate in the highlands and leave the lowlands alone. The reference's Ridged relief.",
 	"biome_sat": "How colourful the material mix is, about its own luminance -- so it can never make one material lighter or darker relative to its neighbour, only more or less saturated. Negative is toward grey. No reference counterpart: the reference's only chroma control is Relief <-> biome, which pulls toward a fixed grey and therefore flattens as it desaturates.",
@@ -1031,6 +1088,13 @@ func _bundle_line(index: int) -> String:
 	for key in ["waves", "multi_sun", "village"]:
 		if over.has(key) and bool(over[key]):
 			parts.append(String(MANAGED_LABEL[key]))
+	## The Cel / Toon preset's two defining keys live in the appearance bundle
+	## (`entry[3]`), not the Painter one, so without this its tile read "No
+	## Painter styles -- the quality tier's own image", which is false.
+	var app_over: Dictionary = STYLE_PRESETS[index][3] if STYLE_PRESETS[index].size() > 3 else {}
+	for key in TOON_LABEL:
+		if float(app_over.get(key, 0.0)) > 0.0:
+			parts.append("%s %d%%" % [String(TOON_LABEL[key]), int(round(float(app_over[key]) * 100.0))])
 	if parts.is_empty():
 		## Not a dash and not a blank: an empty override dictionary is a real,
 		## deliberate value here -- `STYLE_MANAGED` has already put every

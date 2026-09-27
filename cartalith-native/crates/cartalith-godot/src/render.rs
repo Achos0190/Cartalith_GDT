@@ -477,7 +477,12 @@ pub struct Npr {
     pub hachure: f64,
     /// `state.viz.watercolor` — pigment pooling, paper granulation, edge blooms.
     pub watercolor: f64,
-    /// `state.viz.cel` — posterised flat toon bands.
+    /// `state.viz.cel` — posterises the **finished colour**, per channel, into
+    /// four levels, texture noise included. A literal port pinned by
+    /// `golden_parity_npr.rs`, kept as it is. It is **not** the "Cel / Toon"
+    /// style preset: that one bands the light and flattens the albedo instead
+    /// ([`TerrainAppearance::toon_strength`]), because posterising the colour
+    /// measured as mottled blotches rather than a toon look (2026-09-27).
     pub cel: f64,
     /// `state.viz.crosshatch` — antique engraving; more hatch directions the
     /// darker the cell.
@@ -1905,6 +1910,41 @@ pub struct TerrainAppearance {
     /// toward the same neutral, which is what makes a `bio_blend` under 1
     /// read as "the map faded" rather than "the light changed".
     pub relief_chroma: f64,
+    /// **Cel / toon shading** (owner, 2026-09-27: *"cel shading for a bit of a
+    /// more stylized look 'cartoonish'"*; `OUTSTANDING_WORK.md`'s "Cel / Toon"
+    /// row). No reference counterpart.
+    ///
+    /// What: at `1.0` the hillshade term is cut into [`TOON_BANDS`] flat light
+    /// steps with a hard terminator ([`toon_band`]), the six-material blend is
+    /// sharpened toward its dominant material ([`toon_sharpen_weights`]), and
+    /// the material colour loses its within-material noise (the `ramp3`
+    /// micro-ramp position and the fine grain) — so each biome reads as one
+    /// flat colour per light step, with a crisp edge to the next biome.
+    /// Between `0` and `1` both blend linearly from the smooth light and the
+    /// textured colour.
+    ///
+    /// Why a new stage and not the Painter block's `D-cel`
+    /// ([`Npr::cel`]): `D-cel` posterises the **finished colour**, texture
+    /// noise included, which the 2026-09-27 preview measured as mottled
+    /// pink/tan/olive blotches rather than a toon look — and it is a literal
+    /// port pinned by `golden_parity_npr.rs`, so it cannot be reworked. Toon
+    /// shading bands the **light**, not the colour.
+    ///
+    /// Never: this does not touch water, the colour grade or any Painter style,
+    /// and at `0.0` (`default()`, `js_reference()`, every tier and look) its
+    /// branches are never entered, so those images are bit-identical to the
+    /// tree before it existed (`tests/cel_toon.rs` pins the digests).
+    pub toon_strength: f64,
+    /// Opacity of the **toon outline**: a dark keyline on the land side of
+    /// every coast and lake shore, [`TOON_OUTLINE_R`] cells (screen/export) or
+    /// tile pixels (deep zoom) wide — see [`toon_outline_cover`]. `0.0` is off
+    /// and costs nothing: the neighbourhood is never read.
+    ///
+    /// Why its own key rather than part of [`Self::toon_strength`]: the outline
+    /// is a separate stage in a separate place (after `land_color`, where the
+    /// neighbouring cells can be asked whether they are water), and a keyline
+    /// over a smoothly lit map is a legitimate look of its own.
+    pub toon_outline: f64,
     /// Strength of the edge-of-plate atmospheric haze (HTML 7880-7882). The
     /// reference's own literal `0.18`, hoisted out of `land_color` so a look
     /// can dial it back; the haze *colour* (208, 218, 230) stays the
@@ -2157,6 +2197,9 @@ impl Default for TerrainAppearance {
             river_through: 1.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
+            // Cel / toon: off, by branch -- see the fields.
+            toon_strength: 0.0,
+            toon_outline: 0.0,
             haze_strength: 0.18,
             // §19: an added stage, at rest -- see the field doc comments.
             atmo_desaturation: 0.0,
@@ -2429,6 +2472,11 @@ impl TerrainAppearance {
             river_ink_g: 36.0,
             river_ink_b: 80.0,
             river_through: 1.0,
+            // Cel / toon shading is a port-only style with no reference row:
+            // pinned off here explicitly rather than inherited, so a future
+            // change to `default()` cannot reach the parity path through it.
+            toon_strength: 0.0,
+            toon_outline: 0.0,
             // v2.25's `tileShadeExag` (RC_ENGINE_CHANGES.md §4) is on in
             // `default()`; the frozen v2.11 reference shades a tile with the
             // bare `ex = state.exag` (11670), and the golden pins that.
@@ -2691,6 +2739,11 @@ tunables! {
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
     "relief_chroma"         => relief_chroma,         0.0,   1.0,  "Chroma-preserving light";
+    // -- Cel / toon (owner, 2026-09-27; no reference counterpart). Both are
+    //    0..1 fractions: `toon_strength` blends smooth light to banded light,
+    //    `toon_outline` is the keyline's opacity --
+    "toon_strength"         => toon_strength,         0.0,   1.0,  "Toon light bands";
+    "toon_outline"          => toon_outline,          0.0,   1.0,  "Toon outline";
     "haze_strength"         => haze_strength,         0.0,   0.6,  "Atmospheric haze";
     // -- §19: the other two atmospheric-perspective axes research asked for,
     //    over the same plate-edge distance factor as the haze above --
@@ -4858,6 +4911,190 @@ pub(crate) fn apply_wetness(c: Rgb, twi: f64, k: f64) -> Rgb {
     (c.0 * dk * 0.95, c.1 * dk, c.2 * dk * 1.05)
 }
 
+// ===========================================================================
+// Cel / toon shading ([`TerrainAppearance::toon_strength`],
+// [`TerrainAppearance::toon_outline`])
+// ===========================================================================
+
+/// How many flat light steps [`toon_band`] cuts the hillshade into.
+///
+/// Provenance: the owner's row asks for *"3-4 steps"*; this port's own
+/// judgement picks **4**, because three steps put the flat-ground level at the
+/// top or the bottom of the ladder for most sun elevations (so one side of every
+/// ridge had no step to go to), while four leave a step above flat ground for
+/// sun-facing slopes and two below it for the shadowed side. `MAP_STYLE_
+/// RESEARCH.md` does not cover toon shading, so there is no document value to
+/// follow.
+pub const TOON_BANDS: usize = 4;
+
+/// Width of the softened terminator between two light steps, in **shade units**
+/// (the hillshade's own `0..1` scale), centred on the edge.
+///
+/// Provenance: a judgement, stated in the units it acts in. `0.03` is 12% of a
+/// band (`1 / TOON_BANDS = 0.25`): wide enough that a slope whose shade crosses
+/// an edge over a single pixel still gets one intermediate value instead of a
+/// stair-step alias, narrow enough that the edge reads as a hard terminator.
+/// On the map, a gentle slope (shade changing ~0.01 per pixel) spreads it over
+/// ~3 px; a steep one (~0.05 per pixel) collapses it under one pixel.
+pub const TOON_EDGE: f64 = 0.03;
+
+/// The light step containing shade value `s`, for a ladder anchored on `flat` —
+/// the shade flat ground receives under the current light rig ([`toon_flat_shade`]).
+///
+/// **Anchored, not fixed at quarters.** Band edges sit at `flat ± band/2 +
+/// k·band`, so flat ground is always the dead centre of a band. A fixed
+/// quarter ladder put flat ground *on* an edge whenever the sun elevation made
+/// `sin(alt)` a multiple of `0.25` (30° gives exactly `0.5`) and under the
+/// multi-sun rig (flat ground `0.755`, a hair off the `0.75` edge): every
+/// millimetre of relief on a plain then flickered between two steps, which is
+/// the mottle this style exists to remove.
+///
+/// **Always exactly [`TOON_BANDS`] levels over the whole `0..1` range.** The
+/// ladder is clamped to the lowest band centre strictly above `0` and the
+/// highest at or below `1`; with `band = 1 / TOON_BANDS` that is
+/// `(ceil(f/b) - 1) + floor((1-f)/b) + 1 = TOON_BANDS` for every `flat` in
+/// `(0, 1]`. A partial band at either end joins its neighbour rather than
+/// becoming a fifth, sliver-thin level.
+///
+/// The step itself is `smoothstep`-softened over [`TOON_EDGE`] around each
+/// edge, so the value is continuous and monotone in `s`, and exactly flat
+/// everywhere more than `TOON_EDGE / 2` from an edge.
+///
+/// Never returns a value outside `[0, 1]`.
+pub fn toon_band(s: f64, flat: f64) -> f64 {
+    let b = 1.0 / TOON_BANDS as f64;
+    // Half the terminator width, in band units (the coordinate `fr` is in).
+    let e = TOON_EDGE / (2.0 * b);
+    // `t` counts bands from the one centred on `flat`; its integer part is the
+    // band, its fraction the position inside it, edges at whole numbers.
+    let t = (s - flat) / b + 0.5;
+    let i = t.floor();
+    let fr = t - i;
+    // `i - 1` plus the two half-steps: the lower edge's upper half (`fr` just
+    // above 0) and the upper edge's lower half (`fr` just below 1). Mid-band
+    // both are 1 and 0, so the level is exactly `i`.
+    let q = i - 1.0 + smoothstep(-e, e, fr) + smoothstep(1.0 - e, 1.0 + e, fr);
+    // `max(0.0)` on the lower count: only reachable at `flat == 0` (every
+    // detail weight zeroed), where `ceil(0) - 1` would otherwise put the lowest
+    // level ABOVE flat ground.
+    let lo = flat - b * ((flat / b).ceil() - 1.0).max(0.0);
+    let hi = flat + b * ((1.0 - flat) / b).floor();
+    // `f64::clamp` panics on `lo > hi` or a NaN bound, and a panic here would
+    // cross the gdext boundary (`cartalith-rust-conventions`). Unreachable for
+    // any finite `flat` in `[0, 1]`, which `toon_flat_shade` guarantees; a
+    // non-finite one falls back to the unbanded shade rather than aborting.
+    if !(lo <= hi) {
+        return clamp01(s);
+    }
+    (flat + b * q).clamp(lo, hi).clamp(0.0, 1.0)
+}
+
+/// The combined shade flat ground receives — the anchor [`toon_band`] centres a
+/// band on — for the light rig `a` describes and the three detail-band weights
+/// `land_color` is blending with.
+///
+/// Derived, not measured per pixel: a flat normal is `(0, 0, 1)`, so the single
+/// sun and every one of `build_lights`' evenly weighted directions (weights
+/// normalised to 1, all at `sun_alt_deg`) give `sin(alt)`, and the multi-sun
+/// rig gives its own [`multi_sun_from_normal`] of that normal. The multi-sun rig
+/// replaces the **macro** shade only (`RenderCtx::shade`'s own `step == 1`
+/// rule, and the tile renderer's `sh`), and the micro band is a zero-mean
+/// jitter of the macro one, so both take the macro value; the meso band is
+/// always single-sun.
+pub fn toon_flat_shade(a: &TerrainAppearance, w_macro: f64, w_meso: f64, w_micro: f64) -> f64 {
+    let single = a.sun_alt_deg.to_radians().sin();
+    // Multi-sun is the one rig whose flat response is not `sin(alt)`: its two
+    // suns sit at fixed 45°/35° and it adds a zenith light and an ambient floor.
+    let macro_flat = if a.npr.multi_sun { multi_sun_from_normal(a, 0.0, 0.0, 1.0) } else { single };
+    clamp01(w_macro * macro_flat + w_meso * single + w_micro * macro_flat)
+}
+
+/// The exponent [`toon_sharpen_weights`] raises each material weight to.
+///
+/// Provenance: a judgement, checked by arithmetic rather than taste alone.
+/// Two materials at `0.6 / 0.4` (well inside a smooth hand-over) become
+/// `0.6^8 / (0.6^8 + 0.4^8) = 0.9624` -- the dominant one's colour -- while an
+/// exact `0.5 / 0.5` tie stays `0.5`, so the edge keeps a sub-pixel-to-few-pixel
+/// soft seam instead of a hard aliased step. `2` left the airbrushed wash
+/// visibly in place (`0.69` at `0.6 / 0.4`); `8` is the smallest power of two
+/// that puts that pair above `0.95`.
+pub const TOON_MATERIAL_POW: i32 = 8;
+
+/// Sharpen `material_weights`' six blend weights toward their largest:
+/// `w_i^P / Σ w_j^P` with `P =` [`TOON_MATERIAL_POW`]. The result sums to 1,
+/// like its input, and keeps the input's ordering.
+///
+/// Never divides by zero: an all-zero input (unreachable -- `grass` takes
+/// whatever budget the others leave) is returned unchanged rather than as NaN.
+pub fn toon_sharpen_weights(w: [f64; 6]) -> [f64; 6] {
+    let p = w.map(|v| v.max(0.0).powi(TOON_MATERIAL_POW));
+    let sum: f64 = p.iter().sum();
+    if sum <= 0.0 {
+        return w;
+    }
+    p.map(|v| v / sum)
+}
+
+/// Radius of the toon outline, in **cells** on the screen and export paths and
+/// in **tile pixels** on the deep-zoom path — so the keyline is a constant
+/// width on screen at every zoom rather than a constant width of ground.
+///
+/// Provenance: a judgement. `2.0` draws a line about two units wide on the land
+/// side: bold enough to read as a cartoon keyline at the fit zoom the owner
+/// looks at (~1.4 screen px per cell), thin enough not to swallow a one-cell
+/// isthmus. It must stay `<= 2`: the tile halo (`tile_halo_px`) is at least
+/// the meso step, which is never below 2, and a wider disc would read past it
+/// and seam at every tile edge.
+pub const TOON_OUTLINE_R: f64 = 2.0;
+
+/// The keyline's ink, `0..255` sRGB. Provenance: a judgement — a very dark
+/// slate rather than pure black, which reads as a printed keyline over the
+/// saturated toon palette instead of as a hole in it.
+pub const TOON_INK: Rgb = (30.0, 34.0, 46.0);
+
+/// How much toon-outline ink a **land** sample carries, `[0, 1]`, given a
+/// predicate that says whether the sample `(dx, dy)` units away is water.
+///
+/// The coverage is the nearest water neighbour's distance `d` inside the disc
+/// of radius [`TOON_OUTLINE_R`], mapped to `clamp01(R + 0.5 - d)`: `1` for an
+/// edge-adjacent or diagonal neighbour, `0.5` at the rim. The half-coverage rim
+/// is the anti-aliasing: a binary disc drew a stair-stepped line.
+///
+/// Why a neighbourhood test and not the relative elevation `r` the land
+/// branch already has: `r` is height above **sea** level, so it says nothing
+/// about a lake shore, and a band of `r` is wide on a gentle coast and
+/// vanishing on a cliff. Asking the neighbours is the definition of an edge.
+///
+/// Never called on water: the outline is drawn on the land side only, so the
+/// sea and lake colours are untouched.
+pub fn toon_outline_cover(is_water: impl Fn(i64, i64) -> bool) -> f64 {
+    let r = TOON_OUTLINE_R as i64;
+    let mut best = f64::INFINITY;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            // `d == 0` is the sample itself (land, by the caller's contract);
+            // `d > R` is outside the disc.
+            if d == 0.0 || d > TOON_OUTLINE_R || d >= best {
+                continue;
+            }
+            if is_water(dx, dy) {
+                best = d;
+            }
+        }
+    }
+    if best.is_finite() { clamp01(TOON_OUTLINE_R + 0.5 - best) } else { 0.0 }
+}
+
+/// Blend `c` toward [`TOON_INK`] by `cover · strength`. `0` returns `c` itself.
+pub fn apply_toon_outline(c: Rgb, cover: f64, strength: f64) -> Rgb {
+    let k = clamp01(cover * strength);
+    if k <= 0.0 {
+        return c;
+    }
+    (c.0 + (TOON_INK.0 - c.0) * k, c.1 + (TOON_INK.1 - c.1) * k, c.2 + (TOON_INK.2 - c.2) * k)
+}
+
 /// `landColorCore`'s unconditional core (7720-7960): eco-jitter, the
 /// six-material blend with canopy understory shadow, the beach rim, fine
 /// noise grain, multi-scale hillshade, the `bioBlend` grey blend, the edge
@@ -4894,7 +5131,39 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     // same float. Multiplying unconditionally would have re-associated the
     // shipped and golden-pinned expression to buy nothing at the default —
     // identity by control flow, the rule this file follows everywhere else.
-    let (te, me, twi_e) = if eco_k == 1.0 {
+    // Cel / toon: the biome jitter fades with `toon_strength`. The jitter is
+    // what makes a biome edge ragged, and ragged is right for a smooth blend
+    // -- but once [`toon_sharpen_weights`] turns the blend into a crisp edge,
+    // the jitter drags that edge back and forth wherever two materials are
+    // near balance. Measured on `tests/cel_toon.rs`'s flat temperate fixture
+    // (median 3x3 luma sd, default -> toon):
+    //
+    // * jitter kept whole: 5.38 -> 9.06 at 128 wide -- MORE mottle than the
+    //   smooth map, as speckle;
+    // * only its fine octaves faded (`bio_jitter`'s `vnoise(150/gw)` and
+    //   `n_hi`), its broad `vnoise(44/gw)` and `n_low` kept: 1.86 -> 1.30 at
+    //   512 wide -- the thresholded value-noise lattice shows as a checker of
+    //   ~12-cell SQUARES, which is worse than speckle;
+    // * faded whole (this arm): the edge follows the climate's own smooth
+    //   contour, a clean toon shape.
+    //
+    // The known cost of the third, stated rather than hidden: an edge now
+    // shows the climate raster exactly as it is, and where that raster has an
+    // artefact the ragged blend used to hide, it shows too -- on seed 483920 a
+    // ~200-cell dead-straight vertical forest edge at the west of the map
+    // (`_stylepresets_probe.gd`'s Cel texture, 2026-09-27), which Default
+    // draws as a blocky rectangle under its noise.
+    //
+    // First arm, so the two below -- `default()`'s path among them -- are
+    // exactly the expressions they were.
+    let (te, me, twi_e) = if appearance.toon_strength > 0.0 {
+        let j = eco_k * (1.0 - clamp01(appearance.toon_strength));
+        (
+            t + j * ((n_bio - 0.5) * 7.0 + (n_low - 0.5) * 2.5),
+            clamp01(m + j * ((n_bio - 0.5) * 0.15 + (n_hi - 0.5) * 0.05)),
+            twi + j * ((n_bio - 0.5) * 0.7),
+        )
+    } else if eco_k == 1.0 {
         (
             t + (n_bio - 0.5) * 7.0 + (n_low - 0.5) * 2.5,
             clamp01(m + (n_bio - 0.5) * 0.15 + (n_hi - 0.5) * 0.05),
@@ -4911,6 +5180,12 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
 
     let w = material_weights(te, me, slope, r, twi_e, asp_e, curv, snow_aspect_shift(appearance, snow_facing, slope));
     let tt = clamp01(0.5 + (n_low - 0.5) * 1.1 + (n_hi - 0.5) * 0.5);
+    // Cel / toon: flat albedo. `tt` is where each material sits on its own
+    // three-stop ramp, driven by two noise octaves -- the within-material
+    // mottle. Pulled toward the ramp's middle stop so a biome is one colour
+    // per light step. A branch, not a `* (1 - 0)`, so the default path keeps
+    // the exact `tt` it always had.
+    let tt = if appearance.toon_strength > 0.0 { 0.5 + (tt - 0.5) * (1.0 - clamp01(appearance.toon_strength)) } else { tt };
 
     // `LOD_DETAIL_SCOPE.md` LOD-D4 stage 3. `glacier` is the caller's already
     // strength-scaled glacier potential — `0.0` at every grid-resolution call
@@ -5009,6 +5284,32 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
             c.1 = c.1 * (1.0 - k) + (acc.1 / cov) * k;
             c.2 = c.2 * (1.0 - k) + (acc.2 / cov) * k;
         }
+    }
+
+    // Cel / toon: flat biome regions with crisp edges. `material_weights`
+    // blends its six materials over deliberately wide smooth ramps (§30's "no
+    // hard biome borders"), which under banded light still reads as a soft
+    // airbrushed wash between grass and forest -- the opposite of a toon
+    // fill. Each weight is sharpened by [`toon_sharpen_weights`], so a pixel
+    // takes its dominant material's colour and the hand-over narrows to a thin
+    // soft edge. After the splat block, so under full toon a loaded pack's
+    // ground texture is flattened too: texture is what this style removes.
+    if appearance.toon_strength > 0.0 {
+        let k = clamp01(appearance.toon_strength);
+        let ws = toon_sharpen_weights([w.snow, w.rock, w.sand, w.wetland, w.canopy, w.grass]);
+        let cols = [
+            snow_c,
+            rock_material_col(appearance, te, me, r, tt, lith),
+            sand_col(appearance, te, me, tt),
+            wetland_col(appearance, te, w.is_mangrove, tt),
+            forest_col(appearance, te, w.meff, tt),
+            grass_col(appearance, te, me, r, tt),
+        ];
+        let mut flat = (0.0, 0.0, 0.0);
+        for (wi, ci) in ws.iter().zip(cols.iter()) {
+            add(&mut flat, *ci, *wi);
+        }
+        c = (c.0 + (flat.0 - c.0) * k, c.1 + (flat.1 - c.1) * k, c.2 + (flat.2 - c.2) * k);
     }
 
     // R2 slope-material refinement (reference HTML 7788-7790) — extra
@@ -5213,6 +5514,9 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     }
 
     let g = (n_hi - 0.5) * 9.0;
+    // Cel / toon: the fine grain is texture noise too, faded with the same
+    // strength as the `tt` flattening above. Branch for the same reason.
+    let g = if appearance.toon_strength > 0.0 { g * (1.0 - clamp01(appearance.toon_strength)) } else { g };
     c.0 += g;
     c.1 += g;
     c.2 += g;
@@ -5319,7 +5623,21 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     };
     let sh_micro = clamp01(sh + (n_micro - 0.5) * 0.20);
     let sh_combined = w_macro * sh + w_meso * sh_m + w_micro * sh_micro;
-    let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
+    let shade = clamp01(sh_combined);
+    // Cel / toon: band the LIGHT, not the colour -- see
+    // [`TerrainAppearance::toon_strength`]. Before the `0.85` light curve, so
+    // the ambient floor and gain still shape the steps exactly as they shape a
+    // smooth hillshade, and before every stage below that reads `light`
+    // (relief chroma's warm-sun/cool-shadow split then bands with it). Skipped
+    // entirely at `0.0`, so the default light is the expression it always was.
+    let shade = if appearance.toon_strength > 0.0 {
+        let k = clamp01(appearance.toon_strength);
+        let banded = toon_band(shade, toon_flat_shade(appearance, w_macro, w_meso, w_micro));
+        shade + (banded - shade) * k
+    } else {
+        shade
+    };
+    let light = appearance.relief_ambient + appearance.relief_gain * shade.powf(0.85);
     // The stack's second and last composite site. The default arm is the line
     // this file has always had; the other arm is the only place a blend mode
     // or a reordering can take effect. Everything below — bio_blend,
@@ -5638,7 +5956,8 @@ pub fn apply_npr(
         }
     }
 
-    // D-cel: posterize the lit colour into flat toon bands.
+    // D-cel: posterize the lit colour into flat bands (the reference's own,
+    // colour not light -- the "Cel / Toon" preset uses `toon_strength`).
     if n.cel > 0.0 {
         let q = |c: f64| cartalith_jsmath::js_round(c / 255.0 * 4.0) / 4.0 * 255.0;
         l0 = l0 * (1.0 - n.cel) + q(l0) * n.cel;
@@ -6968,6 +7287,37 @@ pub fn hillshade_raster(ctx: &RenderCtx) -> Vec<u8> {
     out
 }
 
+/// Is grid cell `(x, y)` water for the toon outline — sea (`h < sea_level`) or
+/// an above-sea lake (`lake_class == 2`), exactly the two tests `cell_color`
+/// uses to leave the land branch.
+///
+/// Off the grid is **not** water, and x never wraps even in world mode: the
+/// plate edge is not a coast, and [`BakeFields::pixel`]'s twin
+/// ([`toon_water_f`]) cannot wrap either (`sample_arr` clamps), so wrapping
+/// here would make the export disagree with the screen at the seam.
+fn toon_water_cell(ctx: &RenderCtx, x: i64, y: i64) -> bool {
+    if x < 0 || y < 0 || x >= ctx.gw as i64 || y >= ctx.gh as i64 {
+        return false;
+    }
+    let (xu, yu) = (x as usize, y as usize);
+    ctx.h(xu, yu) < ctx.sea_level || ctx.lake_class.is_some_and(|l| l[yu * ctx.gw + xu] == 2)
+}
+
+/// [`toon_water_cell`] at a fractional grid position, for the export bake:
+/// `sample_arr`'s bilinear height and [`bake_lake_at`]'s lake rule — the two
+/// tests [`BakeFields::pixel`] itself branches on. At an integer position both
+/// reduce to the cell's own value, so an export at the grid's resolution draws
+/// the screen's keyline cell for cell.
+fn toon_water_f(ctx: &RenderCtx, gx: f64, gy: f64) -> bool {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    // Off the plate is not water -- the same rule as the grid twin, and not
+    // `sample_arr`'s clamp, which would repeat the edge cell outward.
+    if gx < 0.0 || gy < 0.0 || gx > (gw - 1) as f64 || gy > (gh - 1) as f64 {
+        return false;
+    }
+    sample_arr(ctx.field, gx, gy, gw, gh) < ctx.sea_level || ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh))
+}
+
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?
 /// seaColor(...) : surfaceColor(...)` (`debugBaseColor`'s `'biome'`
 /// branch, 8204; the main renderer's own default mode).
@@ -7053,7 +7403,17 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         // `applyCoastRiverSDFv` call on that same line, in its own order
         // (coast first, then rivers, so a river mouth reads as river over
         // beach and not the other way round).
-        if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, ctx.river_sdf[i] as f64, ctx.appearance.sdf_rivers, ctx.gw) }
+        let c = if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, ctx.river_sdf[i] as f64, ctx.appearance.sdf_rivers, ctx.gw) };
+        // Cel / toon keyline on coasts and lake shores, last of the land
+        // stages so it sits over the bands above and under the sheet below
+        // (the paper tints it like everything else printed on the plate).
+        // Off at `0.0`: the neighbourhood is never read.
+        if ctx.appearance.toon_outline > 0.0 {
+            let (xi, yi) = (x as i64, y as i64);
+            apply_toon_outline(c, toon_outline_cover(|dx, dy| toon_water_cell(ctx, xi + dx, yi + dy)), ctx.appearance.toon_outline)
+        } else {
+            c
+        }
     };
 
     // B4 coastal wave lines (8555-8558): foam contours hugging the shore and
@@ -7355,7 +7715,16 @@ impl BakeFields {
             // B3 river bands, the bake's own slot (12011) — the reference's
             // comment there is *"bake SDF coast/river bands to match the
             // screen"*, and the plural is the whole point.
-            if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, sample_arr(&ctx.river_sdf, gx, gy, gw, gh), ctx.appearance.sdf_rivers, gw) }
+            let c = if ctx.river_sdf.is_empty() { c } else { apply_river_sdf(c, sample_arr(&ctx.river_sdf, gx, gy, gw, gh), ctx.appearance.sdf_rivers, gw) };
+            // The toon keyline, in `cell_color`'s slot and in **cell** units
+            // (neighbours one grid cell away, not one output pixel), so an 8K
+            // export is the screen's picture with the keyline at the same
+            // width of ground, rather than a hairline four times thinner.
+            if ctx.appearance.toon_outline > 0.0 {
+                apply_toon_outline(c, toon_outline_cover(|dx, dy| toon_water_f(ctx, gx + dx as f64, gy + dy as f64)), ctx.appearance.toon_outline)
+            } else {
+                c
+            }
         };
 
         let (r, g, b) = if h < ctx.sea_level && !ctx.coast_d.is_empty() {
@@ -9113,6 +9482,22 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
 
     let lakes = tf.lake_class.len() == gw * gh;
     let lake_fill_ok = tf.lake_fill.len() == gw * gh;
+    // The toon keyline's water mask, over the halo too so a shore just past
+    // the tile edge still inks the edge pixel (the halo is >= 2, which is why
+    // `TOON_OUTLINE_R` may not exceed it). The two tests are the loop's own
+    // `water` branch below, at the same world position. Empty -- and never
+    // built -- while the outline is off.
+    let toon_water: Vec<bool> = if a.toon_outline > 0.0 {
+        (0..pw * ph)
+            .map(|k| {
+                let ht = tile[k] as f64;
+                let (xx, yy) = ((k % pw) as f64 - padf, (k / pw) as f64 - padf);
+                ht < sl || (lakes && is_lake_pixel(tf, ctx, bounds.x + xx * cx, bounds.y + yy * cy, ht, lake_fill_ok))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let ink = tf.ink.filter(|m| m.cells() >= gw * gh);
     let has_grade_influence = tf.grade_influence.len() == gw * gh;
     // LOD-D4's two gates, both length/`Option` tests rather than a re-read of
@@ -9322,7 +9707,19 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
                     // with its own `0.7` (11767-11772).
                     let cc = if crest_b.is_empty() { cc } else { apply_crest(cc, crest_b[i] as f64 * a.crest_strength * 0.7) };
                     let cc = if coast_b.is_empty() { cc } else { apply_coast_sdf(cc, coast_b[i] as f64 * cx, a.sdf_coast, gw) };
-                    if river_b.is_empty() { cc } else { apply_river_sdf(cc, river_b[i] as f64 * cx, a.sdf_rivers, gw) }
+                    let cc = if river_b.is_empty() { cc } else { apply_river_sdf(cc, river_b[i] as f64 * cx, a.sdf_rivers, gw) };
+                    // The toon keyline, in `cell_color`'s slot, in TILE pixels
+                    // (so it stays the same width on screen at every zoom).
+                    if toon_water.is_empty() {
+                        cc
+                    } else {
+                        let cover = toon_outline_cover(|dx, dy| {
+                            let (qx, qy) = (xp as i64 + dx, yp as i64 + dy);
+                            // Past the halo is unknown ground, not water.
+                            qx >= 0 && qy >= 0 && (qx as usize) < pw && (qy as usize) < ph && toon_water[qy as usize * pw + qx as usize]
+                        });
+                        apply_toon_outline(cc, cover, a.toon_outline)
+                    }
                 }
             };
 

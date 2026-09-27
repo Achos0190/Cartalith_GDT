@@ -20,6 +20,26 @@ extends Node
 ##      previous preset's by more than a stated pixel-fraction threshold;
 ##   4. saves the screenshot.
 ## Then builds one contact-sheet PNG of every preset in `STYLE_PRESETS` order.
+##
+## **Cel / Toon section** (2026-09-27, `render.rs`'s `toon_strength` /
+## `toon_outline`), always run after the loop, or alone with `--cel-only`:
+##   5. the Cel tile's bundle line names its toon keys (it read "No Painter
+##      styles -- the quality tier's own image" before, which is false for it);
+##   6. **mottle**: the median 3x3 luma standard deviation of the raw map
+##      texture over flat land (land cells whose `slope_n` is in the lowest
+##      quarter, windows wholly on land) must be under half of Default's --
+##      protects the flat-albedo half of the style;
+##   7. **bands**: with `bio_blend` and `relief_chroma` forced to 0 (the land
+##      is then `185 * light`, grey) and the keyline and river symbol off (ink,
+##      not light), vignette-corrected land luma must put at least 85% of land
+##      pixels within +-3 levels of its four most common values, the steepest
+##      land row must cross 2..4 levels, and the deep-zoom tile over the
+##      steepest cell must show 2..4 -- protects the banded-light half; Default
+##      measured the same way is the control and must score lower / show more;
+##   8. saves `cel_*`/`default_*` raw textures, the flat-land/water mask and a
+##      fit and a zoomed screenshot of each, for the before/after sheet.
+## `--grid WxH` generates at that size instead of 384x288 (the app's own
+## working size is 1024x656).
 
 var app: Node
 var bridge
@@ -34,8 +54,13 @@ var _tag := "run"
 ## small lake -- `render.rs`'s `sea_ramp_strength` only tints true ocean.
 var _focus_auto := false
 var _fzoom := 3.0
+## `--cel-only`: skip the per-preset loop and the contact sheet, run only the
+## Cel / Toon section (the loop is ~16 windowed re-renders).
+var _cel_only := false
+## `--grid WxH`: the generated world's grid. 384x288 unless given.
+var _grid := Vector2i(384, 288)
 
-const KNOWN_FLAGS := ["--out", "--tag", "--focus", "--fzoom"]
+const KNOWN_FLAGS := ["--out", "--tag", "--focus", "--fzoom", "--cel-only", "--grid"]
 ## Fraction of RGB bytes that must differ by more than 2 levels between two
 ## consecutive presets' screenshots for them to count as visibly distinct --
 ## the same threshold shape `render_serial`'s Rust-side `moved()` uses in
@@ -94,6 +119,14 @@ func _parse_args() -> bool:
 			_focus_auto = true
 		if String(args[i]) == "--fzoom" and i + 1 < args.size():
 			_fzoom = float(args[i + 1])
+		if String(args[i]) == "--cel-only":
+			_cel_only = true
+		if String(args[i]) == "--grid" and i + 1 < args.size():
+			var wh := String(args[i + 1]).split("x")
+			if wh.size() != 2 or int(wh[0]) < 16 or int(wh[1]) < 16:
+				print("STYLEPRESETS  BAD --grid %s -- want WxH, e.g. 1024x656" % String(args[i + 1]))
+				return false
+			_grid = Vector2i(int(wh[0]), int(wh[1]))
 	if _out == "":
 		print("STYLEPRESETS  NO --out DIR given.")
 		return false
@@ -107,8 +140,8 @@ func _parse_args() -> bool:
 ## deep water, not a coastal pixel or a lake that only looks like one at a
 ## glance. `Vector2(-1, -1)` if the coarse scan finds no ocean cell at all.
 func _find_open_sea() -> Vector2:
-	var gw := 384
-	var gh := 288
+	var gw := _grid.x
+	var gh := _grid.y
 	var step := 8
 	## A margin off every edge: a corner/edge ocean cell zooms the camera
 	## in on the map texture's own boundary, showing blank canvas past it
@@ -158,7 +191,7 @@ func _apply_focus(sea: Vector2) -> void:
 
 func _generate() -> void:
 	bridge.generate({
-		"seed": 483920, "width_km": 2400.0, "grid_w": 384, "grid_h": 288,
+		"seed": 483920, "width_km": 2400.0, "grid_w": _grid.x, "grid_h": _grid.y,
 		"archetype": "", "villages": true, "sea_level": 0.45,
 	})
 	while bridge.generating:
@@ -259,7 +292,10 @@ func _ready() -> void:
 	var prev_name := ""
 	var shots: Array = []  # [[name, Image]]
 
-	for i in RenderWorkspace.STYLE_PRESETS.size():
+	## `--cel-only` runs none of the loop -- and so builds no contact sheet,
+	## whose guard is `shots` being non-empty.
+	var n_loop := 0 if _cel_only else RenderWorkspace.STYLE_PRESETS.size()
+	for i in n_loop:
 		var entry: Array = RenderWorkspace.STYLE_PRESETS[i]
 		var name := String(entry[0])
 		var btn: Button = tiles[i]["button"]
@@ -337,5 +373,277 @@ func _ready() -> void:
 		sheet.save_png(sheet_path)
 		_p("saved contact sheet %s (%dx%d, %d cells)" % [sheet_path, sheet.get_width(), sheet.get_height(), shots.size()])
 
+	await _cel_section(tiles)
+
 	_p("=== SUMMARY: %d failures ===" % _fail)
 	get_tree().quit(1 if _fail > 0 else 0)
+
+
+## Index of the `STYLE_PRESETS` entry named `name`, or -1.
+func _preset_index(name: String) -> int:
+	for i in RenderWorkspace.STYLE_PRESETS.size():
+		if String(RenderWorkspace.STYLE_PRESETS[i][0]) == name:
+			return i
+	return -1
+
+
+## Presses preset tile `i` the way a click does and waits for the re-render.
+func _press(tiles: Array, i: int) -> void:
+	(tiles[i]["button"] as Button).emit_signal("pressed")
+	await _frames(4)
+	await get_tree().create_timer(0.3).timeout
+
+
+## Rec.709-ish luma of one pixel, 0..255 -- the weights `render.rs`'s own
+## `luma` uses, so a level here is a level there.
+func _luma(c: Color) -> float:
+	return (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) * 255.0
+
+
+## `render.rs`'s `vignette_at`, so the band measurement can divide the
+## plate's own corner darkening back out of the grey image.
+func _vignette(x: int, y: int, gw: int, gh: int) -> float:
+	var vx := float(x) / float(maxi(gw, 2) - 1) - 0.5
+	var vy := float(y) / float(maxi(gh, 2) - 1) - 0.5
+	var d := sqrt(vx * vx + vy * vy)
+	var t := clampf((d - 0.34) / (0.74 - 0.34), 0.0, 1.0)
+	return 1.0 - t * t * (3.0 - 2.0 * t) * 0.42
+
+
+## Median 3x3 luma standard deviation over `flat` cells whose whole window is
+## land -- the mottle metric. `land`/`flat` are per-cell bools.
+func _mottle(img: Image, land: PackedByteArray, flat: PackedByteArray, gw: int, gh: int) -> float:
+	var sds := PackedFloat32Array()
+	for y in range(1, gh - 1):
+		for x in range(1, gw - 1):
+			if flat[y * gw + x] == 0:
+				continue
+			var ok := true
+			var s := 0.0
+			var s2 := 0.0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					if land[(y + dy) * gw + x + dx] == 0:
+						ok = false
+					var l := _luma(img.get_pixel(x + dx, y + dy))
+					s += l
+					s2 += l * l
+			if not ok:
+				continue
+			var m := s / 9.0
+			sds.append(sqrt(maxf(s2 / 9.0 - m * m, 0.0)))
+	if sds.is_empty():
+		return -1.0
+	sds.sort()
+	return sds[sds.size() / 2]
+
+
+## Fraction of land pixels whose vignette-corrected luma lies within +-3 of one
+## of the image's four most common (binned-to-1) values -- 1.0 for a picture
+## lit by exactly four light levels, low for a smooth hillshade.
+func _band_share(img: Image, land: PackedByteArray, gw: int, gh: int) -> Array:
+	var hist := PackedInt32Array()
+	hist.resize(400)
+	var vals := PackedInt32Array()
+	for y in gh:
+		for x in gw:
+			if land[y * gw + x] == 0:
+				continue
+			var v := clampi(int(round(_luma(img.get_pixel(x, y)) / _vignette(x, y, gw, gh))), 0, 399)
+			hist[v] += 1
+			vals.append(v)
+	## The four highest peaks, each at least 7 levels from the ones taken, so
+	## one wide band cannot claim two of the four slots.
+	var peaks: Array = []
+	var h2 := hist.duplicate()
+	for k in 4:
+		var best := -1
+		for v in 400:
+			if best < 0 or h2[v] > h2[best]:
+				best = v
+		peaks.append(best)
+		for v in range(maxi(0, best - 6), mini(400, best + 7)):
+			h2[v] = -1
+	var inside := 0
+	for v in vals:
+		for p in peaks:
+			if absi(v - int(p)) <= 3:
+				inside += 1
+				break
+	return [float(inside) / float(maxi(vals.size(), 1)), peaks]
+
+
+## Distinct shading levels along the steepest land row segment: the row
+## through the steepest land cell, +-40 cells, vignette-corrected luma of the
+## grey image, runs of >= 2 cells whose neighbours differ by <= 2 levels,
+## then those runs' levels merged within 4. Printed, and for Cel asserted to be
+## at most `TOON_BANDS` (4): the transect need not cross every step.
+func _transect_levels(img: Image, land: PackedByteArray, slope: PackedFloat32Array, gw: int, gh: int) -> Array:
+	var bi := -1
+	for i in gw * gh:
+		var x := i % gw
+		if land[i] == 1 and x > 45 and x < gw - 45 and (bi < 0 or slope[i] > slope[bi]):
+			bi = i
+	if bi < 0:
+		return [-1, []]
+	var y := bi / gw
+	var seq := PackedFloat32Array()
+	for x in range(bi % gw - 40, bi % gw + 41):
+		if land[y * gw + x] == 1:
+			seq.append(_luma(img.get_pixel(x, y)) / _vignette(x, y, gw, gh))
+	var levels: Array = []
+	var run := 1
+	for k in range(1, seq.size()):
+		if absf(seq[k] - seq[k - 1]) <= 2.0:
+			run += 1
+			if run == 2:
+				var fresh := true
+				for l in levels:
+					if absf(float(l) - seq[k]) <= 4.0:
+						fresh = false
+				if fresh:
+					levels.append(snappedf(seq[k], 0.1))
+		else:
+			run = 1
+	return [levels.size(), levels]
+
+
+## Distinct light levels on the deep-zoom tile over grid cell `(cx, cy)`, at
+## the pyramid level `lod_level_for_zoom(8)` picks (about 8 screen px per
+## cell). Counts luma values holding at least 0.5% of the tile's non-water
+## pixels (water = blue-dominant, `b > r + 20`), merging values within 2 into
+## one level. Saves the tile as `<tag>_<name>_tile_grey.png`. Returns
+## `[levels, share of non-water pixels those levels hold]`; `[-1, 0.0]` when
+## this build has no LOD tiles.
+func _tile_levels(cx: int, cy: int, gw: int, gh: int, name: String) -> Array:
+	var z: int = bridge.lod_level_for_zoom(8.0)
+	var n: int = bridge.lod_tiles_per_axis(z)
+	if n <= 0:
+		return [-1, 0.0]
+	var tex: Texture2D = bridge.lod_synthesize_tile(z, clampi(cx * n / gw, 0, n - 1), clampi(cy * n / gh, 0, n - 1))
+	if tex == null:
+		return [-1, 0.0]
+	await _frames(2)
+	var img := tex.get_image()
+	img.save_png("%s/%s_%s_tile_grey.png" % [_out, _tag, name])
+	var hist := PackedInt32Array()
+	hist.resize(256)
+	var total := 0
+	for y in img.get_height():
+		for x in img.get_width():
+			var c := img.get_pixel(x, y)
+			if c.b * 255.0 > c.r * 255.0 + 20.0:
+				continue
+			hist[clampi(int(round(_luma(c))), 0, 255)] += 1
+			total += 1
+	var levels := 0
+	var last := -10
+	var in_levels := 0
+	for v in 256:
+		if total > 0 and hist[v] >= 0.005 * total:
+			if v - last > 2:
+				levels += 1
+			last = v
+			in_levels += hist[v]
+	## The share of pixels those levels hold is the control that separates the
+	## two presets: a smooth hillshade spreads over ~200 values, so its few
+	## >= 0.5% values hold a small share, and a count alone cannot say so
+	## (measured: Default's tile counted 3 such "levels" to Cel's 4).
+	return [levels, float(in_levels) / float(maxi(total, 1))]
+
+
+## The Cel / Toon section -- see this file's header, items 5-8.
+func _cel_section(tiles: Array) -> void:
+	var ic := _preset_index("Cel / Toon")
+	var idf := _preset_index("Default")
+	_ok(ic >= 0, "a 'Cel / Toon' preset is in STYLE_PRESETS")
+	if ic < 0 or idf < 0:
+		return
+	var entry: Array = RenderWorkspace.STYLE_PRESETS[ic]
+	## 5. The tile names its own style.
+	var blurb := String(rw.call("_bundle_line", ic))
+	_p("Cel tile bundle line: %s" % blurb)
+	_ok(blurb.contains("Toon light bands") and not blurb.begins_with("No Painter styles"),
+		"Cel tile's bundle line names its toon keys")
+
+	## Per-cell land / flat masks from the engine's own sample.
+	var probe_img: Image = bridge.color_texture().get_image()
+	var gw := probe_img.get_width()
+	var gh := probe_img.get_height()
+	var land := PackedByteArray()
+	land.resize(gw * gh)
+	var slope := PackedFloat32Array()
+	slope.resize(gw * gh)
+	var land_slopes := PackedFloat32Array()
+	for y in gh:
+		for x in gw:
+			var s: Dictionary = bridge.sample_cell(x, y)
+			var is_land := String(s.get("water", "")) == "land"
+			land[y * gw + x] = 1 if is_land else 0
+			slope[y * gw + x] = float(s.get("slope_n", 0.0))
+			if is_land:
+				land_slopes.append(float(s.get("slope_n", 0.0)))
+	land_slopes.sort()
+	_ok(land_slopes.size() > 1000, "the world has land to measure (%d cells)" % land_slopes.size())
+	if land_slopes.size() <= 1000:
+		return
+	var flat_cut := land_slopes[land_slopes.size() / 4]
+	var flat := PackedByteArray()
+	flat.resize(gw * gh)
+	var mask := Image.create(gw, gh, false, Image.FORMAT_RGB8)
+	for i in gw * gh:
+		flat[i] = 1 if (land[i] == 1 and slope[i] <= flat_cut) else 0
+		mask.set_pixel(i % gw, i / gw, Color(float(land[i]), float(flat[i]), 0.0))
+	mask.save_png("%s/%s_mask_land_r_flat_g.png" % [_out, _tag])
+	_p("grid %dx%d, land cells %d, flat cut slope_n <= %.5f" % [gw, gh, land_slopes.size(), flat_cut])
+
+	## A steep land cell to zoom on, for the zoomed screenshots.
+	var steep := -1
+	for i in gw * gh:
+		if land[i] == 1 and (steep < 0 or slope[i] > slope[steep]):
+			steep = i
+	var results := {}
+	for pair in [["default", idf], ["cel", ic]]:
+		var tag := String(pair[0])
+		await _press(tiles, int(pair[1]))
+		var tex: Image = bridge.color_texture().get_image()
+		tex.save_png("%s/%s_%s_texture.png" % [_out, _tag, tag])
+		var fit := await _shot()
+		fit.save_png("%s/%s_%s_fit.png" % [_out, _tag, tag])
+		_apply_focus(Vector2(steep % gw, steep / gw))
+		await _frames(6)
+		await get_tree().create_timer(1.5).timeout
+		var zoom := await _shot()
+		zoom.save_png("%s/%s_%s_zoom.png" % [_out, _tag, tag])
+		var mot := _mottle(tex, land, flat, gw, gh)
+		## 7's grey image: the same preset with the colour taken out of the light.
+		## The keyline and the river symbol are dark ink, not light: both off
+		## here, or the four "most common values" would include the ink.
+		bridge.set_appearance({"bio_blend": 0.0, "relief_chroma": 0.0, "toon_outline": 0.0, "river_opacity": 0.0})
+		var grey: Image = bridge.color_texture().get_image()
+		grey.save_png("%s/%s_%s_grey.png" % [_out, _tag, tag])
+		var bs: Array = _band_share(grey, land, gw, gh)
+		var tr: Array = _transect_levels(grey, land, slope, gw, gh)
+		## The same grey light on the deep-zoom tile over the steepest cell --
+		## the tile path synthesizes sub-cell relief the grid does not have, so
+		## this is where more than the flat step and one shadow step can show.
+		var tl: Array = await _tile_levels(steep % gw, steep / gw, gw, gh, tag)
+		results[tag] = [mot, bs[0], tr[0], tl[0], tl[1]]
+		_p("%s: mottle (median 3x3 luma sd, flat land) = %.3f; band share = %.4f at peaks %s; steepest-row transect levels = %d %s; deep-zoom tile light levels = %d holding %.4f of its land"
+			% [tag, mot, float(bs[0]), str(bs[1]), int(tr[0]), str(tr[1]), int(tl[0]), float(tl[1])])
+	## 6. / 7.
+	_ok(float(results["cel"][0]) >= 0.0 and float(results["cel"][0]) < 0.5 * float(results["default"][0]),
+		"Cel mottle %.3f < half of Default's %.3f" % [float(results["cel"][0]), float(results["default"][0])])
+	_ok(float(results["cel"][1]) >= 0.85, "Cel band share %.4f >= 0.85" % float(results["cel"][1]))
+	_ok(float(results["cel"][1]) > float(results["default"][1]),
+		"Cel band share %.4f > Default's %.4f (the control)" % [float(results["cel"][1]), float(results["default"][1])])
+	_ok(int(results["cel"][2]) >= 2 and int(results["cel"][2]) <= 4,
+		"Cel steepest-row transect crosses 2..4 light levels (got %d)" % int(results["cel"][2]))
+	## `-1` is "this build has no LOD tiles", reported rather than passed.
+	_ok(int(results["cel"][3]) >= 2 and int(results["cel"][3]) <= 4,
+		"Cel deep-zoom tile shows 2..4 light levels (got %d)" % int(results["cel"][3]))
+	_ok(float(results["cel"][4]) >= 0.85 and float(results["default"][4]) < float(results["cel"][4]),
+		"Cel's tile levels hold %.4f of its land (>= 0.85); Default's hold %.4f (the control, lower)"
+		% [float(results["cel"][4]), float(results["default"][4])])
+	## Leave the map as the Cel preset draws it, not the grey measurement.
+	await _press(tiles, ic)
