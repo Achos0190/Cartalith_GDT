@@ -1886,6 +1886,51 @@ What remains is not RV-2's to fix:
 
 Rust: 13 new tests. 16 mutants (3 in `river_half_width_profile`, 13 in `river_stroke.rs`), all killed after two tests were added for the first-round survivors. `cargo test --workspace --no-fail-fast`: **3971 passed, 0 failed, 42 ignored**. No JS golden moved.
 
+**RV-1, the carve no longer leaves pits (Ruling BD) — built 2026-09-27, verified by the main loop 2026-09-27 (workspace 3998/0/42; the recovery test's +50 km margin replaced by a strict inequality plus a searched exact-branch seed, and its duplicate/drop mutants re-killed).** `generate_terrain` no longer runs `enforce_channel_descent` once per traced run. It runs `cartalith_hydrology::carve_channel_network` once over the whole network. `enforce_channel_descent` remains the reference port and the Sculpt River stamp's carve (`sculpt_commit.rs`), and generation no longer calls it. A scratch harness isolated four mechanisms on the probe's worlds, and each has a fixture:
+- **Diagonal steps (the largest).** Runs are D8, but `build_water_bodies` uses 4-connected components and a 4-connected flood. A trench cell reached only diagonally was sealed on four sides. Below a half-width of 1 cell, which is the norm above 800 km, every diagonal step did this. Each diagonal step now also cuts the lower of its two orthogonal connectors to the downstream floor.
+- **Confluences.** The trunk is carved first. A tributary that arrived with a lower floor then sank the confluence below everything downstream. Floors are now settled over the network before anything is cut: last-traced runs first, and a confluence takes the minimum of its inflows.
+- **Runs that stop short.** A channel ends where the next cell fails the slope-area test, usually on a depression's flat lip. The run's accumulated `drop` had already cut its last reach below that uncarved receiver. This left 10–30-cell channel-shaped "lakes". No run is now floored below the level it drains to: its receiver's terrain, its confluence's settled floor, or the surface of any lake it crosses downstream.
+- **Cutting land under sea level.** The floor limit was `sea - 0.06` everywhere, so long lowland trunks cut below sea level, and at the coast the ocean flooded the valley. No cut now takes a land cell below `sea + CARVE_LAND_MARGIN` (1e-4).
+
+Lakes that runs cross are now kept. The integrated-drainage routing surface (`lake_surface`) marks every depression deeper than `CARVE_KEEP_LAKE_DEPTH`. This is `build_water_bodies`' own 0.004. The run's floor there is the lake surface, and no disc is cut there. The reference's carve trenched these outlets.
+
+`_riverzoom_probe` (extended with map-wide lake totals, a channel-shaped/basin split and ocean-on-path). It was run windowed, from `git archive` copies of `1750821` (before) and the same tree plus this change (after), with each DLL built from its copy. Seeds 483920 / 24601 / 71077345 at 1024×656, before → after:
+- **Traced river cells that are lake:** 18.3% / 11.9% / 11.4% → 10.8% / 2.3% / 0.8%. What remains on 483920 is trunks crossing its two interior seas, which are 14 650 and 41 688 cells.
+- **Lake runs of 1–3 cells on channels:** 149 / 103 / 114 → 58 / 7 / 13.
+- **1–3-cell lakes, map-wide:** 346 / 607 / 534 → 29 / 26 / 16.
+- **Ocean cells on channels:** 191 / 129 / 0 → 0 / 0 / 0.
+- **Channel-shaped lakes of 10+ cells:** 28 / 35 / 23 → 5 / 2 / 0.
+- **Basins of 100+ cells survive:**
+  - 483920: [14557, 41799] → [466, 14650, 41688]
+  - 24601: [101, 134, 147, 294, 410] → [150, 234, 308, 319, 1382, 1544, 1971]
+  - 71077345: [141, 202, 223, 2851] → [140, 202, 231, 257, 2817]
+- **Total lakes:** 434 / 727 / 625 → 54 / 54 / 32. Total area: 59 412 / 4 856 / 5 607 → 58 193 / 6 539 / 4 005. The area lost is the artefacts above.
+- **Rivers in 3+ pieces:** 11 / 18 / 16 → 2 / 0 / 0.
+
+Seed 1 was run as well. Lake cells on the path went from 20.4% to 5.4%, and channel-shaped lakes from 23 (6 311 cells) to 1 (11 cells). A comb of lake strips at ×8, where the trunk vanished, is now continuous rivers. An 11 596-cell basin that the old carve half-drained is now one lake.
+
+PNGs looked at by the lane:
+- At ×8 and ×32, stepped teal lake strips along rivers are gone, and the strokes run through.
+- At ×1 on 483920, the dark one-cell specks are gone.
+- On 71077345 at ×32, the trunk is continuous.
+- Parallel straight runs across flat basins remain. They are a routing-surface artefact, not RV-1's.
+
+Goldens:
+- **Re-recorded, as the ruling says.**
+  - `golden_parity_carve.rs`: the carved world is now pinned as exact FNV hashes of this port's output. 14×11: field `840b6f763f0a08d5` → `dc93cab994c3d56a` (47/154 cells, max |Δ| 0.064); river_mask 58 → 54 cells. 16×12 wrap: field `bf4fa3d78f04cc70` → `e60433adbe7b4830` (37/192, max 0.067); river_mask 54 → 50. temperature, rainfall and flow_discharge hashes also moved; the old and new values are in the file.
+  - `world_structure_orogeny.rs`: `0x916a11930abef69e` → `0x82a370d51c2cb23a`, and `0x34ab5acc582af633` → `0x93ed9ddf927390ad`. Only the carve moved them.
+- **Not re-recorded: pinned instead.** 16 civ JS-parity suites under `cartalith-civ/tests/golden_parity_*.rs` are pinned to the reference's world: affordance, biome, carrying capacity, civ tools, faction aggregates, hierarchical network, resource potentials, road consolidation, road network, sea routes, settlement naming, placement, prereqs and suitability, smelting/salt, and water bodies.
+  - They test civ ports against JS captures taken on the reference's world. Re-recording them from the new world would make each a snapshot of itself, which is the outcome this file already refused for craters (§7l).
+  - `cartalith-engine/tests/fixtures/pre_rv1_world.rs` (+ `pre_rv1_worlds.bin`, 164 KB) holds the six arrays the carve changes: field, temperature, rainfall, flow_discharge, river_mask and river_floor. They were captured from `1750821` for all 7 configurations those suites generate. Every other `WorldState` field was hash-compared and is identical.
+  - `pin()` asserts the world's pre-carve `stream_order` hash, and `golden_parity_carve.rs` asserts the capture against the reference's own arrays, within its old tolerance.
+  - Without the pin, 27 tests in 14 of these files failed, on the lane's first build of this change. That run was not repeated on the final build.
+- **Flagged, not changed:** `cartalith-godot` `civ_pipeline_tests::recovery_keeps_every_road_on_the_settlements_it_joined`. Its premise `rebuilt > filtered + 50 km` was measured on its one world. Before: 5 abandoned nodes, 1124.7 → 1242.9 km (+118.2). After: 4 nodes, 1412.4 → 1454.4 km (+42.0). The invariant "rebuild never draws less" still holds. Lowering the margin would loosen a test, so it is left red for a decision.
+
+Rust:
+- 12 new tests: 7 `carve_network_*` in `cartalith-hydrology`, 4 in `cartalith-civ/tests/carve_leaves_no_pits.rs` (the real classifier), and the capture check. Each fixture has a positive control: the old per-run carve must show the lake or pit.
+- 12 mutants on `carve_channel_network`, all killed. They were run by Python exact-replace, restored in `finally`, the file hash-checked and no residue left. A 13th mutant was equivalent: the centreline land clamp duplicated the cut's. It was removed rather than kept.
+- `cargo test --workspace --no-fail-fast`: **3997 passed, 1 failed (the flagged test), 42 ignored.**
+
 ### Superseded desktop shell · `GUI_SHELL_SCOPE.md`
 
 Four rows. **History only.** The shell this document built no longer exists;

@@ -8,6 +8,16 @@
 //! against the carved field (carveRiverValleys's own step 3, reference HTML
 //! line 8784: `computeFlow(true); refreshClimate();`).
 //!
+//! **Split by RV-1 (`LARGE_ITEM_RULINGS.md` Ruling BD, 2026-09-29).** The
+//! carve is this port's own now (`cartalith_hydrology::carve_channel_network`:
+//! no pits at confluences or diagonal steps, no land cut under sea level, and
+//! the lakes a run crosses kept), so `generate_terrain`'s carved arrays no
+//! longer match the reference's and are re-recorded below as exact hashes of
+//! this port's output. The reference's arrays stay, and are now asserted
+//! against the world this port produced before RV-1 (`fixtures/
+//! pre_rv1_world.rs`), within the same tolerance as ever: that is what keeps
+//! the civ golden suites, which pin their worlds to it, honest parity tests.
+//!
 //! **Regenerated 2026-08-15 with `WorldParams::defaults`'s real values**
 //! (`volc.provinces`/`terrain_wind_deflection`/`currents` all `true`,
 //! matching JS -- cartalith-native/docs/CHANGELOG.md) -- the previous
@@ -38,6 +48,35 @@
 //! it's a discrete decision (`target < fld[i]`), and both cases matched it
 //! exactly even with the underlying floats off by ~1e-7, which is itself
 //! evidence the divergence is float noise, not a wrong carve decision.
+#[path = "fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
+fn fnv_f32(v: &[f32]) -> u64 {
+    fnv_u8(&v.iter().flat_map(|x| x.to_bits().to_le_bytes()).collect::<Vec<u8>>())
+}
+
+fn fnv_u8(v: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for &b in v {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+/// The capture `pre_rv1_world.rs` reads is whole: every configuration is
+/// there, non-constant, carved, and finite.
+#[test]
+fn pre_rv1_capture_is_whole_and_not_empty() {
+    for &(w, h, s, wo, _) in &pre_rv1_world::CONFIGS {
+        let f = pre_rv1_world::frozen(w, h, s, wo);
+        assert_eq!(f.field.len(), w * h);
+        assert!(f.field.iter().any(|&v| v != f.field[0]), "{w}x{h}: field is not constant");
+        assert!(f.river_mask.iter().any(|&m| m != 0), "{w}x{h}: the capture carved rivers");
+        assert!(f.rainfall.iter().all(|v| v.is_finite()) && f.flow_discharge.iter().all(|&v| v >= 0.0));
+    }
+}
+
 fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     const ATOL: f32 = 1e-4;
     const RTOL: f32 = 1e-4;
@@ -72,11 +111,33 @@ fn generate_terrain_carve_case_0_region() {
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 
-    assert_close(&ws.field, &expected_field, "field");
-    assert_close(&ws.temperature, &expected_temperature, "temperature");
-    assert_close(&ws.rainfall, &expected_rainfall, "rainfall");
-    assert_close(&ws.flow_discharge, &expected_flow_discharge, "flow_discharge");
-    assert_eq!(ws.river_mask.unwrap(), expected_river_mask, "river_mask");
+    // The reference's per-run carve, as this port computed it before RV-1:
+    // still the reference's world, within this suite's tolerance. This is the
+    // evidence behind `fixtures/pre_rv1_world.rs`, which the civ golden suites
+    // pin their worlds back to.
+    let old = pre_rv1_world::frozen(14, 11, 24601, false);
+    assert_close(&old.field, &expected_field, "pre-RV-1 field");
+    assert_close(&old.temperature, &expected_temperature, "pre-RV-1 temperature");
+    assert_close(&old.rainfall, &expected_rainfall, "pre-RV-1 rainfall");
+    assert_close(&old.flow_discharge, &expected_flow_discharge, "pre-RV-1 flow_discharge");
+    assert_eq!(old.river_mask, expected_river_mask, "pre-RV-1 river_mask");
+
+    // RV-1 (Ruling BD, 2026-09-29): the carve is `carve_channel_network` now,
+    // not the reference's, so the carved world is re-recorded as this port's
+    // own -- exact FNV-1a hashes of each array's `f32` bits. Before RV-1 they
+    // were field 840b6f763f0a08d5, temperature 5cbec2fcb0f882a5, rainfall
+    // 1c375dd0bec932fb, flow_discharge a23ea0590cc4b966, river_mask 958c96c1565c9ef7.
+    assert_eq!(fnv_f32(&ws.field), 0xdc93cab994c3d56a, "field");
+    assert_eq!(fnv_f32(&ws.temperature), 0xcd507c7153900310, "temperature");
+    assert_eq!(fnv_f32(&ws.rainfall), 0x09918311cdd33b87, "rainfall");
+    assert_eq!(fnv_f32(&ws.flow_discharge), 0x97dfa10f8e3094d9, "flow_discharge");
+    assert_eq!(fnv_u8(ws.river_mask.as_ref().unwrap()), 0xe6a3d95da1d0fd25, "river_mask");
+    // And what the re-recording is for: no land cell carved under sea level.
+    for (i, (&a, &b)) in old.field.iter().zip(ws.field.iter()).enumerate() {
+        if (a as f64) >= ws.sea_level {
+            assert!((b as f64) >= ws.sea_level, "land cell {i} was carved under sea level: {a} -> {b}");
+        }
+    }
 }
 
 #[test]
@@ -100,9 +161,31 @@ fn generate_terrain_carve_case_1_world_wrap() {
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 
-    assert_close(&ws.field, &expected_field, "field");
-    assert_close(&ws.temperature, &expected_temperature, "temperature");
-    assert_close(&ws.rainfall, &expected_rainfall, "rainfall");
-    assert_close(&ws.flow_discharge, &expected_flow_discharge, "flow_discharge");
-    assert_eq!(ws.river_mask.unwrap(), expected_river_mask, "river_mask");
+    // The reference's per-run carve, as this port computed it before RV-1:
+    // still the reference's world, within this suite's tolerance. This is the
+    // evidence behind `fixtures/pre_rv1_world.rs`, which the civ golden suites
+    // pin their worlds back to.
+    let old = pre_rv1_world::frozen(16, 12, 314159, true);
+    assert_close(&old.field, &expected_field, "pre-RV-1 field");
+    assert_close(&old.temperature, &expected_temperature, "pre-RV-1 temperature");
+    assert_close(&old.rainfall, &expected_rainfall, "pre-RV-1 rainfall");
+    assert_close(&old.flow_discharge, &expected_flow_discharge, "pre-RV-1 flow_discharge");
+    assert_eq!(old.river_mask, expected_river_mask, "pre-RV-1 river_mask");
+
+    // RV-1 (Ruling BD, 2026-09-29): the carve is `carve_channel_network` now,
+    // not the reference's, so the carved world is re-recorded as this port's
+    // own -- exact FNV-1a hashes of each array's `f32` bits. Before RV-1 they
+    // were field bf4fa3d78f04cc70, temperature ce73683a4497d741, rainfall
+    // 2eeabf96aa3d950d, flow_discharge 323d366df3bb5b1e, river_mask 30d9c440874e633d.
+    assert_eq!(fnv_f32(&ws.field), 0xe60433adbe7b4830, "field");
+    assert_eq!(fnv_f32(&ws.temperature), 0xb02cd2a72505b0ba, "temperature");
+    assert_eq!(fnv_f32(&ws.rainfall), 0x708a0313efd4fdec, "rainfall");
+    assert_eq!(fnv_f32(&ws.flow_discharge), 0x6d09157fa4316909, "flow_discharge");
+    assert_eq!(fnv_u8(ws.river_mask.as_ref().unwrap()), 0x0da221675252668d, "river_mask");
+    // And what the re-recording is for: no land cell carved under sea level.
+    for (i, (&a, &b)) in old.field.iter().zip(ws.field.iter()).enumerate() {
+        if (a as f64) >= ws.sea_level {
+            assert!((b as f64) >= ws.sea_level, "land cell {i} was carved under sea level: {a} -> {b}");
+        }
+    }
 }

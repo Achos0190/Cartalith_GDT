@@ -1459,6 +1459,293 @@ pub fn enforce_channel_descent(
     out
 }
 
+/// How far above sea level [`carve_channel_network`] may cut a channel through
+/// land: a land cell is never carved below `sea + CARVE_LAND_MARGIN`.
+///
+/// The margin exists only so the carved floor survives the `f32` store and
+/// `build_water_bodies`' strict `field < sea` test as land. `f32` resolves
+/// ~3e-8 at sea level 0.42, so `1e-4` is three orders of magnitude clear of
+/// rounding and well under `build_water_bodies`' 0.004 lake depth — a reach
+/// flattened onto this floor reads as land at depth 0, never as water.
+pub const CARVE_LAND_MARGIN: f64 = 1e-4;
+
+/// How deep a depression must be, on the routing surface handed to
+/// [`carve_channel_network`], for a run crossing it to leave it standing as a
+/// lake rather than trench through its rim. `0.004` is the same depth
+/// `cartalith_civ::build_water_bodies` requires before it calls an above-sea
+/// depression a lake (its `lake_depth`), so the carve keeps exactly the
+/// depressions that classifier would show as water, and trenches only the
+/// shallower ones it would not.
+pub const CARVE_KEEP_LAKE_DEPTH: f64 = 0.004;
+
+/// Carves a whole traced river network at once — the port's replacement for
+/// calling [`enforce_channel_descent`] once per run (`LARGE_ITEM_RULINGS.md`
+/// Ruling BD, RV-1; `DECISIONS.md` §7p). The cross-section, the per-point
+/// `drop` and the `sea - 0.06` bed limit inside water are the reference's; what
+/// changes is that the carve no longer leaves closed depressions along the
+/// channels it cuts, which `cartalith_civ::build_water_bodies` then reads as
+/// lakes. Four sources of those, each measured on generated worlds before
+/// this existed:
+///
+/// 1. **Junctions.** Runs were carved one at a time, trunk first
+///    ([`trace_river_polylines`] orders sources main-stem first), each with
+///    its own descending floor. A tributary whose own floor had fallen below
+///    the trunk's at the confluence cut the confluence cell — and its own
+///    lower reach — below everything the trunk had already carved downstream:
+///    a pit. Here floors are settled over the whole network before anything is
+///    cut: runs are visited last-traced first, so every tributary reports the
+///    floor it arrives at before the run that owns its confluence cell is
+///    floored, and that run's floor there is the minimum of its own and every
+///    inflow. Floors therefore never rise downstream across a confluence.
+/// 2. **Diagonal steps.** The channel tree is D8, but water bodies are found
+///    with 4-connected components and a 4-connected priority flood. A diagonal
+///    step between two carved cells whose shared orthogonal neighbours were
+///    not cut as deep left the downstream cell sealed on all four sides; below
+///    one cell of half-width (ordinary above 800 km, where
+///    [`river_width_scale_k`] drops under 1) the disc cuts only the centre
+///    cell, so every diagonal step did this. Each diagonal step here also cuts
+///    one orthogonal connector — the lower of the two — to the downstream
+///    point's floor.
+/// 3. **Cutting below sea level through land.** The reference's floor limit is
+///    `sea - 0.06` everywhere, and `drop` accumulates per point, so a long
+///    lowland trunk walked its floor under sea level: an inland strip of
+///    below-sea cells (a string of lakes) or, where it reached the coast, a
+///    valley the ocean flooded. Here no cut -- centreline, disc or diagonal
+///    connector -- takes a cell whose terrain is land below
+///    `sea + CARVE_LAND_MARGIN`. A point whose own terrain is already water
+///    (the run crossing a real lake, or its mouth) keeps the reference's
+///    `sea - 0.06` bed limit; the carve can deepen water there but never turn
+///    land into water.
+/// 4. **Runs that stop short of their outlet.** A traced run ends where the
+///    next cell fails the channel test -- most often on the flat lip of a
+///    depression, where the routing surface's slope vanishes -- and that next
+///    cell is never carved. The run's accumulated `drop` had already cut its
+///    last reach below it: a closed trench, typically 10-30 cells long, that
+///    classified as one long channel-shaped lake. Here no run is floored below
+///    the level it drains to: a dead-end run's own receiver's terrain, or, for
+///    a tributary, its confluence's settled floor (runs are visited trunk
+///    first for this). Where that bound is above the terrain the run is not cut
+///    at all, and a depression that was there before the carve stays one.
+///
+/// **Lakes a run crosses are kept.** Under integrated drainage a run is routed
+/// straight through filled depressions; the reference's carve then trenched
+/// every one of their rims, draining lakes the routing surface's own doc
+/// comment says stay lakes. Where `lake_surface` stands more than
+/// [`CARVE_KEEP_LAKE_DEPTH`] above a point's terrain the run's floor is that
+/// surface, no disc is cut there, and the next point's floor falls from the
+/// lake's level -- so the outlet is cut by one `drop` at most.
+///
+/// Floors are read from the terrain as it stood before this call, not from the
+/// field part-way through carving, so the result does not depend on the order
+/// in which neighbouring runs' discs happen to be stamped.
+///
+/// `half_ws[r]` is run `r`'s disc half-width. `recv` is the channel tree's
+/// receiver grid the runs were traced along (`-1` for none). `lake_surface` is
+/// the routing surface the runs were routed over, or `None` when routing used
+/// the raw field (there are then no filled depressions to keep). `world` wraps
+/// the x axis for the diagonal-step test only; the disc itself clamps at the
+/// edge, as [`enforce_channel_descent`]'s does. Returns every lowered cell
+/// index (with repeats, as [`enforce_channel_descent`] returns them) for the
+/// caller to lock.
+#[allow(clippy::too_many_arguments)]
+pub fn carve_channel_network(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    world: bool,
+    polys: &[Vec<(f64, f64)>],
+    half_ws: &[f64],
+    recv: &[i32],
+    lake_surface: Option<&[f32]>,
+    sea: f64,
+    drop: f64,
+) -> Vec<usize> {
+    use std::collections::{HashMap, HashSet};
+    // A point standing in a depression `lake_surface` fills deeper than
+    // `CARVE_KEEP_LAKE_DEPTH` is in a lake that was there before the carve.
+    let in_lake = |i: usize, terrain: f64| -> Option<f64> {
+        let s = lake_surface?[i] as f64;
+        (s - terrain > CARVE_KEEP_LAKE_DEPTH).then_some(s)
+    };
+    let mut kept: HashSet<usize> = HashSet::new();
+    assert_eq!(polys.len(), half_ws.len(), "one half-width per run");
+    let water_floor = sea - 0.06;
+    let land_floor = sea + CARVE_LAND_MARGIN;
+    let cell = |&(px_f, py_f): &(f64, f64)| -> (usize, usize) {
+        ((px_f as i64).clamp(0, w as i64 - 1) as usize, (py_f as i64).clamp(0, h as i64 - 1) as usize)
+    };
+
+    // A run's last point is a confluence when some run passes THROUGH that
+    // cell (holds it as a non-last point): the tracer stopped there because an
+    // earlier run had already claimed it.
+    let mut through: HashSet<usize> = HashSet::new();
+    for pts in polys {
+        for p in &pts[..pts.len().saturating_sub(1)] {
+            let (x, y) = cell(p);
+            through.insert(y * w + x);
+        }
+    }
+
+    // ---- pass 1: floors over the whole network, before anything is cut ----
+    let mut floor: HashMap<usize, f64> = HashMap::new();
+    let mut inflow: HashMap<usize, f64> = HashMap::new();
+    for pts in polys.iter().rev() {
+        let mut prev = f64::INFINITY;
+        let last = pts.len().saturating_sub(1);
+        for (k, p) in pts.iter().enumerate() {
+            let (x, y) = cell(p);
+            let i = y * w + x;
+            let want = if k > 0 { prev - drop } else { prev };
+            if k == last && k > 0 && through.contains(&i) {
+                // Report the floor this run arrives at; the run that owns the
+                // confluence floors it (it is visited later in this loop).
+                let e = inflow.entry(i).or_insert(f64::INFINITY);
+                if want < *e {
+                    *e = want;
+                }
+                continue;
+            }
+            let terrain = fld[i] as f64;
+            if let Some(level) = in_lake(i, terrain) {
+                // The run crosses a lake: its floor is the lake's own surface,
+                // and nothing is cut here or at the lake's outlet below it.
+                kept.insert(i);
+                floor.insert(i, level);
+                prev = level;
+                continue;
+            }
+            let mut f = terrain.min(want);
+            if let Some(&inf) = inflow.get(&i) {
+                f = f.min(inf);
+            }
+            if let Some(&g) = floor.get(&i) {
+                // A cell two runs both END on (neither passes through it).
+                f = f.min(g);
+            }
+            // In water the reference's bed limit holds. On land the floor may
+            // run on below sea level here -- it is only a level to descend
+            // from -- because the cut itself is what never goes below
+            // `land_floor` on a land cell (pass 2), the one place that rule is
+            // enforced.
+            if terrain < sea {
+                f = f.max(water_floor);
+            }
+            floor.insert(i, f);
+            prev = f;
+        }
+    }
+
+    // ---- pass 1b: never below the level a run can drain to ----
+    //
+    // A run's descending floor is only a channel if something downstream
+    // takes the water at that level. Trunk first (trace order), so the floor
+    // a tributary must stay above -- its confluence's, already settled -- is
+    // known when it is visited. A run that ends on land where the channel
+    // network simply stops (the next cell failed the slope-area test, most
+    // often on the flat lip of a depression) drains through that next cell,
+    // its receiver, which the carve does not touch: its terrain is the floor.
+    // Walking the run back upstream, every kept lake it crosses raises that
+    // floor to the lake's surface: upstream of a lake the run drains INTO the
+    // lake, and a trench cut below the lake's bed on its shallow margin (too
+    // shallow to be kept itself) was measured sealing 173-cell lakes of its own.
+    for pts in polys {
+        let last = pts.len().saturating_sub(1);
+        let (tx, ty) = cell(&pts[last]);
+        let t = ty * w + tx;
+        let bound = if last > 0 && through.contains(&t) {
+            floor.get(&t).copied()
+        } else if (fld[t] as f64) < sea {
+            None
+        } else {
+            match recv.get(t).copied().unwrap_or(-1) {
+                r if r >= 0 => {
+                    let r = r as usize;
+                    let rt = fld[r] as f64;
+                    let rt = floor.get(&r).map_or(rt, |&g| g.min(rt));
+                    (rt >= sea).then_some(rt)
+                }
+                _ => None,
+            }
+        };
+        let mut bound = bound.unwrap_or(f64::NEG_INFINITY);
+        let end = if last > 0 && through.contains(&t) { last } else { last + 1 };
+        for p in pts[..end].iter().rev() {
+            let (x, y) = cell(p);
+            let i = y * w + x;
+            if kept.contains(&i) {
+                if let Some(&level) = floor.get(&i) {
+                    bound = bound.max(level);
+                }
+                continue;
+            }
+            if let Some(f) = floor.get_mut(&i)
+                && *f < bound
+            {
+                *f = bound;
+            }
+        }
+    }
+
+    // ---- pass 2: cut the discs and the diagonal connectors ----
+    let mut out = Vec::new();
+    for (pts, &half_w) in polys.iter().zip(half_ws) {
+        let r = half_w.ceil() as i64;
+        let mut prev_cell: Option<(usize, usize)> = None;
+        for p in pts {
+            let (px, py) = cell(p);
+            let f = floor[&(py * w + px)];
+            if let Some((ax, ay)) = prev_cell {
+                let dx = px as i64 - ax as i64;
+                let dy = py as i64 - ay as i64;
+                let diag = dy.abs() == 1 && (dx.abs() == 1 || (world && dx.abs() == w as i64 - 1));
+                if diag {
+                    // The two cells sharing an edge with both A and B.
+                    let c1 = ay * w + px;
+                    let c2 = py * w + ax;
+                    let c = if fld[c2] < fld[c1] { c2 } else { c1 };
+                    let cur = fld[c] as f64;
+                    let target = if cur >= sea { f.max(land_floor) } else { f };
+                    if target < cur {
+                        fld[c] = target as f32;
+                        out.push(c);
+                    }
+                }
+            }
+            prev_cell = Some((px, py));
+            if kept.contains(&(py * w + px)) {
+                // No channel inside a lake: the run is on its surface.
+                continue;
+            }
+            let x0 = (px as i64 - r).max(0) as usize;
+            let x1 = (px as i64 + r).min(w as i64 - 1) as usize;
+            let y0 = (py as i64 - r).max(0) as usize;
+            let y1 = (py as i64 + r).min(h as i64 - 1) as usize;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    // `Math.hypot`, for the reason `enforce_channel_descent`
+                    // gives at the same line.
+                    let d = js_hypot(x as f64 - px as f64, y as f64 - py as f64);
+                    if d > half_w {
+                        continue;
+                    }
+                    let t = d / half_w;
+                    let i = y * w + x;
+                    let cur = fld[i] as f64;
+                    let mut target = f + (cur - f) * t * t;
+                    if cur >= sea {
+                        target = target.max(land_floor);
+                    }
+                    if target < cur {
+                        fld[i] = target as f32;
+                        out.push(i);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// `enforceRiverChannels()` (reference HTML lines 8742-8745): clamp every
 /// locked river cell back down to its carved floor.
 ///
@@ -2996,6 +3283,350 @@ mod tests {
         let inside = (py + 1) * w + px + 1;
         assert!(fld[inside] < 0.5 && carved.contains(&inside), "cells well inside the rim are still carved");
         assert!(fld[py * w + px] <= 0.2, "the centreline is never raised");
+    }
+
+    // ---- RV-1 (Ruling BD): the carve must not leave closed depressions ----
+    //
+    // Each fixture below reaches one mechanism, and each is run through BOTH
+    // carves: the per-run `enforce_channel_descent` loop generation used to
+    // call must show the defect (the positive control that the fixture
+    // reaches it), and `carve_channel_network` must not. "Closed depression"
+    // is measured the way `cartalith_civ::build_water_bodies` measures an
+    // above-sea lake -- a 4-connected priority flood seeded from the map edge
+    // and every sub-sea cell, depth > 0.004 -- re-implemented here because
+    // this crate cannot see `cartalith-civ`; the civ-side test
+    // (`cartalith-civ/tests/carve_leaves_no_pits.rs`) runs the real classifier.
+
+    const RV1_SEA: f64 = 0.42;
+
+    /// Cells whose 4-connected fill level stands more than `0.004` above them.
+    fn rv1_pits(fld: &[f32], w: usize, h: usize, sea: f64) -> Vec<usize> {
+        use std::cmp::Reverse;
+        use std::collections::BinaryHeap;
+        let n = w * h;
+        let key = |v: f32| (v as f64 * 1e9) as i64;
+        let mut fill: Vec<f32> = fld.to_vec();
+        let mut done = vec![false; n];
+        let mut heap = BinaryHeap::new();
+        for i in 0..n {
+            let (x, y) = (i % w, i / w);
+            if x == 0 || y == 0 || x + 1 == w || y + 1 == h || (fld[i] as f64) < sea {
+                done[i] = true;
+                heap.push(Reverse((key(fill[i]), i)));
+            }
+        }
+        while let Some(Reverse((_, i))) = heap.pop() {
+            let (x, y) = (i % w, i / w);
+            let mut nb = Vec::with_capacity(4);
+            if x > 0 { nb.push(i - 1) }
+            if x + 1 < w { nb.push(i + 1) }
+            if y > 0 { nb.push(i - w) }
+            if y + 1 < h { nb.push(i + w) }
+            for j in nb {
+                if !done[j] {
+                    done[j] = true;
+                    fill[j] = fill[j].max(fill[i]);
+                    heap.push(Reverse((key(fill[j]), j)));
+                }
+            }
+        }
+        (0..n).filter(|&i| fill[i] as f64 - fld[i] as f64 > 0.004).collect()
+    }
+
+    /// A fixture: terrain, width, height, and the runs over it.
+    type Rv1Fixture = (Vec<f32>, usize, usize, Vec<Vec<(f64, f64)>>);
+
+    fn rv1_centres(cells: &[(usize, usize)]) -> Vec<(f64, f64)> {
+        cells.iter().map(|&(x, y)| (x as f64 + 0.5, y as f64 + 0.5)).collect()
+    }
+
+    /// The receiver grid the runs were traced along: each point's receiver is
+    /// the next point, and every run's last point drains east (every fixture
+    /// here runs east to its sea or on to its outlet).
+    fn rv1_recv(w: usize, h: usize, polys: &[Vec<(f64, f64)>]) -> Vec<i32> {
+        let mut recv = vec![-1i32; w * h];
+        let at = |p: &(f64, f64)| p.1 as usize * w + p.0 as usize;
+        for p in polys {
+            for k in 0..p.len() - 1 {
+                recv[at(&p[k])] = at(&p[k + 1]) as i32;
+            }
+            let (x, y) = (p[p.len() - 1].0 as usize, p[p.len() - 1].1 as usize);
+            if recv[y * w + x] < 0 && x + 1 < w {
+                recv[y * w + x] = (y * w + x + 1) as i32;
+            }
+        }
+        recv
+    }
+
+    /// The old generation carve: one `enforce_channel_descent` per run, in
+    /// trace order.
+    fn rv1_old_carve(fld: &mut [f32], w: usize, h: usize, polys: &[Vec<(f64, f64)>], half_w: f64) {
+        for p in polys {
+            super::enforce_channel_descent(fld, w, h, p, RV1_SEA, half_w, 0.0006);
+        }
+    }
+
+    /// Mechanism 2: a lowland valley stepping diagonally. Its floor falls
+    /// 0.0002 a step, slower than the carve's own 0.0006 `drop`, and its walls
+    /// stand only 0.001 high -- under the 0.004 lake depth, so the untouched
+    /// terrain holds no lake at all. The old carve trenches the centre cells
+    /// alone (half-width 0.5), and a trench cell reached only diagonally is
+    /// sealed on all four sides once the trench is 0.004 deep.
+    fn rv1_diagonal_fixture() -> Rv1Fixture {
+        let (w, h) = (20usize, 20usize);
+        let mut fld = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                // The x > y wall stands 0.0005 higher than the x < y one, so
+                // the two orthogonal cells of every diagonal step differ and
+                // the carve's choice between them is observable.
+                let wall = if x > y { 0.0015 } else { 0.001 };
+                let diag = 0.50 - 0.0002 * x.max(y) as f64 + wall * (x as f64 - y as f64).abs();
+                let east = 0.50 - 0.0002 * x as f64 + 0.001 * (y as f64 - 16.0).abs();
+                fld[y * w + x] = if x == w - 1 { 0.30 } else { diag.min(if x >= 16 { east } else { f64::INFINITY }) as f32 };
+            }
+        }
+        let mut cells: Vec<(usize, usize)> = (1..=16).map(|k| (k, k)).collect();
+        cells.extend([(17, 16), (18, 16)]);
+        (fld, w, h, vec![rv1_centres(&cells)])
+    }
+
+    /// Mechanism 1: a tributary crosses a deep hole, so the floor it arrives
+    /// at the confluence with is far below the trunk's there. Trunk traced
+    /// (and so carved) first, exactly as `trace_river_polylines` orders them.
+    fn rv1_junction_fixture() -> Rv1Fixture {
+        let (w, h) = (16usize, 12usize);
+        let mut fld = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let trunk = 0.60 - 0.005 * x as f64 + 0.03 * (y as f64 - 6.0).abs();
+                let trib = if y < 6 { 0.56 + 0.004 * (6 - y) as f64 + 0.03 * (x as f64 - 8.0).abs() } else { f64::INFINITY };
+                fld[y * w + x] = if x == w - 1 { 0.30 } else { trunk.min(trib) as f32 };
+            }
+        }
+        fld[2 * w + 8] = 0.50; // the hole on the tributary
+        let trunk: Vec<(usize, usize)> = (1..=14).map(|x| (x, 6)).collect();
+        let trib: Vec<(usize, usize)> = (0..=6).map(|y| (8, y)).collect();
+        (fld, w, h, vec![rv1_centres(&trunk), rv1_centres(&trib)])
+    }
+
+    /// Mechanism 3: a long trunk across a coastal plain 0.005 above sea
+    /// level, falling slower than `drop`, so its accumulated floor walks under
+    /// sea level well before the coast.
+    fn rv1_lowland_fixture() -> Rv1Fixture {
+        let (w, h) = (32usize, 9usize);
+        let mut fld = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                fld[y * w + x] = if x == w - 1 { 0.30 } else { (0.425 - 0.00005 * x as f64 + 0.01 * (y as f64 - 4.0).abs()) as f32 };
+            }
+        }
+        // The last point is the sea cell itself, as a run reaching the coast
+        // ends: its disc reaches back onto the land it leaves.
+        let trunk: Vec<(usize, usize)> = (1..=31).map(|x| (x, 4)).collect();
+        (fld, w, h, vec![rv1_centres(&trunk)])
+    }
+
+    #[test]
+    fn carve_network_opens_every_diagonal_step() {
+        let (base, w, h, polys) = rv1_diagonal_fixture();
+        assert!(rv1_pits(&base, w, h, RV1_SEA).is_empty(), "the uncarved valley holds no lake");
+
+        let mut old = base.clone();
+        rv1_old_carve(&mut old, w, h, &polys, 0.5);
+        let old_pits = rv1_pits(&old, w, h, RV1_SEA);
+        assert!(old_pits.len() >= 4, "positive control: the per-run carve seals diagonal trench cells, got {old_pits:?}");
+
+        let mut new = base.clone();
+        let carved = super::carve_channel_network(&mut new, w, h, false, &polys, &[0.5], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        assert!(!carved.is_empty(), "the network carve still cuts the trench");
+        assert_eq!(rv1_pits(&new, w, h, RV1_SEA), Vec::<usize>::new(), "no closed depression along the carved channel");
+        // The trench is as deep as the old one: the fix opens it, it does not fill it.
+        let end = 16 * w + 16;
+        assert_eq!(new[end], old[end], "the centreline floor itself is unchanged");
+        // Each step cuts the LOWER of its two connectors -- (k, k+1) here --
+        // and leaves the higher wall, (k+1, k), as it was.
+        // (Steps up to (15,15); past x = 15 the east valley's own floor
+        // makes the other side the lower one.)
+        for k in 1..15 {
+            assert_eq!(new[k * w + k + 1], base[k * w + k + 1], "higher connector ({}, {k}) untouched", k + 1);
+            assert!(new[(k + 1) * w + k] < base[(k + 1) * w + k], "lower connector ({k}, {}) is cut", k + 1);
+        }
+    }
+
+    #[test]
+    fn carve_network_floors_a_confluence_at_its_lowest_inflow() {
+        let (base, w, h, polys) = rv1_junction_fixture();
+        let mut old = base.clone();
+        rv1_old_carve(&mut old, w, h, &polys, 0.5);
+        let old_pits = rv1_pits(&old, w, h, RV1_SEA);
+        let junction = 6 * w + 8;
+        assert!(old_pits.contains(&junction), "positive control: the tributary sinks the confluence below the trunk, got {old_pits:?}");
+
+        let mut new = base.clone();
+        super::carve_channel_network(&mut new, w, h, false, &polys, &[0.5, 0.5], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        assert_eq!(rv1_pits(&new, w, h, RV1_SEA), Vec::<usize>::new(), "no pit at or above the confluence");
+        // The trunk below the confluence carries the tributary's floor on
+        // down to the coast, falling `drop` a step.
+        for x in 8..14 {
+            let (a, b) = (new[6 * w + x], new[6 * w + x + 1]);
+            assert!(b < a, "trunk floor must fall below the confluence: x={x} {a} -> {b}");
+        }
+        assert!((new[junction] as f64) < 0.5, "the confluence is cut to the tributary's floor, not the trunk's 0.56");
+    }
+
+    #[test]
+    fn carve_network_never_cuts_land_below_sea_level() {
+        let (base, w, h, polys) = rv1_lowland_fixture();
+        let mut old = base.clone();
+        rv1_old_carve(&mut old, w, h, &polys, 1.2);
+        let sunk = (0..w * h).filter(|&i| (base[i] as f64) >= RV1_SEA && (old[i] as f64) < RV1_SEA).count();
+        assert!(sunk >= 10, "positive control: the per-run carve drowns the lowland trunk, {sunk} land cells went under");
+
+        let mut new = base.clone();
+        let carved = super::carve_channel_network(&mut new, w, h, false, &polys, &[1.2], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        assert!(!carved.is_empty());
+        for i in 0..w * h {
+            if (base[i] as f64) >= RV1_SEA {
+                assert!((new[i] as f64) >= RV1_SEA, "land cell {i} carved to {} under sea level {RV1_SEA}", new[i]);
+            }
+        }
+        // It is the margin, not an untouched cell, that holds the line: the
+        // lower trunk is flattened onto sea + 1e-4.
+        let mouth = 4 * w + 30;
+        assert!((new[mouth] as f64 - (RV1_SEA + 1e-4)).abs() < 1e-6, "mouth floor {} is sea + 1e-4", new[mouth]);
+        assert_eq!(rv1_pits(&new, w, h, RV1_SEA), Vec::<usize>::new());
+    }
+
+    /// Mechanism 4: a run that stops short of its outlet. The channel ends at
+    /// x = 15 (the next cell failed the channel test), and the valley carries
+    /// on down to the sea uncarved. The run's own floor falls `drop` a step --
+    /// faster than this valley -- so the old carve left its last reach below
+    /// the receiver it drains through: a closed trench.
+    #[test]
+    fn carve_network_never_floors_a_run_below_its_outlet() {
+        let (w, h) = (24usize, 9usize);
+        let mut base = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let v = 0.50 - 0.0002 * x as f64 + 0.01 * (y as f64 - 4.0).abs();
+                base[y * w + x] = if x == w - 1 { 0.30 } else { v as f32 };
+            }
+        }
+        assert!(rv1_pits(&base, w, h, RV1_SEA).is_empty(), "the uncarved valley drains");
+        let polys = vec![rv1_centres(&(1..=15).map(|x| (x, 4)).collect::<Vec<_>>())];
+
+        let mut old = base.clone();
+        rv1_old_carve(&mut old, w, h, &polys, 0.5);
+        assert!(rv1_pits(&old, w, h, RV1_SEA).contains(&(4 * w + 15)), "positive control: the per-run carve dead-ends in a pit");
+
+        let mut new = base.clone();
+        super::carve_channel_network(&mut new, w, h, false, &polys, &[0.5], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        assert_eq!(rv1_pits(&new, w, h, RV1_SEA), Vec::<usize>::new(), "the run drains through its receiver");
+        let outlet = base[4 * w + 16];
+        assert_eq!(new[4 * w + 15], outlet, "the run's last cell is floored exactly at its receiver's terrain");
+        assert!(new[4 * w + 8] < base[4 * w + 8], "upstream the run is still cut");
+    }
+
+    /// A run crossing a kept lake is floored at the lake's surface upstream of
+    /// it, not only inside it. The valley falls 0.0002 a cell, slower than
+    /// `drop`, so by the time a 40-cell run reaches a basin 0.006 deep its own
+    /// floor is 0.016 under the terrain -- under the basin's bed. Cut there, the
+    /// trench above the lake is a pit the lake cannot drain.
+    #[test]
+    fn carve_network_drains_into_a_crossed_lake_at_its_surface() {
+        let (w, h) = (60usize, 9usize);
+        let mut base = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let mut v = 0.50 - 0.0002 * x as f64 + 0.01 * (y as f64 - 4.0).abs();
+                if (42..=46).contains(&x) && (3..=5).contains(&y) {
+                    v -= 0.006;
+                }
+                base[y * w + x] = if x == w - 1 { 0.30 } else { v as f32 };
+            }
+        }
+        let lake_before = rv1_pits(&base, w, h, RV1_SEA);
+        assert!(!lake_before.is_empty(), "fixture: the basin is a lake");
+        let polys = vec![rv1_centres(&(1..=57).map(|x| (x, 4)).collect::<Vec<_>>())];
+        let surface = super::build_routing_surface(&base, w, h, RV1_SEA, false);
+
+        let mut new = base.clone();
+        super::carve_channel_network(&mut new, w, h, false, &polys, &[0.5], &rv1_recv(w, h, &polys), Some(&surface), RV1_SEA, 0.0006);
+        let after = rv1_pits(&new, w, h, RV1_SEA);
+        assert!(after.iter().all(|&i| (42..=46).contains(&(i % w))), "no pit outside the basin: {after:?}");
+        assert!(!after.is_empty(), "the basin itself is still a lake");
+        let level = surface[4 * w + 44] as f64;
+        assert!(new[4 * w + 41] as f64 >= level, "the run is floored at the lake's surface just above it");
+    }
+
+    /// The same rule for the diagonal connectors: a lowland run stepping
+    /// diagonally across a plain 0.003 above sea level walks its floor under
+    /// sea level within a few steps, and the connector it cuts at every step
+    /// is land.
+    #[test]
+    fn carve_network_connectors_never_cut_land_below_sea_level() {
+        let (w, h) = (24usize, 24usize);
+        let mut base = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let v = 0.423 - 0.00002 * x.max(y) as f64 + 0.002 * (x as f64 - y as f64).abs();
+                base[y * w + x] = if x == w - 1 || y == h - 1 { 0.30 } else { v as f32 };
+            }
+        }
+        let polys = vec![rv1_centres(&(1..=22).map(|k| (k, k)).collect::<Vec<_>>())];
+        let mut new = base.clone();
+        let carved = super::carve_channel_network(&mut new, w, h, false, &polys, &[0.5], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        let connectors = carved.iter().filter(|&&i| i % w != i / w).count();
+        assert!(connectors >= 10, "the run cut its diagonal connectors ({connectors})");
+        for i in 0..w * h {
+            if (base[i] as f64) >= RV1_SEA {
+                assert!((new[i] as f64) >= RV1_SEA, "land cell ({},{}) cut to {} under sea level", i % w, i / w, new[i]);
+            }
+        }
+    }
+
+    /// Real lakes survive: a run routed THROUGH a depression (integrated
+    /// drainage) leaves it standing when handed the routing surface, and
+    /// trenches through its rim -- the old behaviour -- without one.
+    #[test]
+    fn carve_network_keeps_a_lake_the_run_crosses() {
+        let (w, h) = (24usize, 9usize);
+        let mut base = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let mut v = 0.60 - 0.004 * x as f64 + 0.03 * (y as f64 - 4.0).abs();
+                if (8..=12).contains(&x) && (3..=5).contains(&y) {
+                    v -= 0.05; // a basin 0.05 deep on the valley floor
+                }
+                base[y * w + x] = if x == w - 1 { 0.30 } else { v as f32 };
+            }
+        }
+        let polys = vec![rv1_centres(&(1..=22).map(|x| (x, 4)).collect::<Vec<_>>())];
+        let lake_before = rv1_pits(&base, w, h, RV1_SEA).len();
+        assert!(lake_before >= 10, "fixture: the basin is a lake before any carve ({lake_before} cells)");
+
+        let surface = super::build_routing_surface(&base, w, h, RV1_SEA, false);
+        let mut kept = base.clone();
+        super::carve_channel_network(&mut kept, w, h, false, &polys, &[0.8], &rv1_recv(w, h, &polys), Some(&surface), RV1_SEA, 0.0006);
+        let lake_after = rv1_pits(&kept, w, h, RV1_SEA).len();
+        assert!(lake_after >= lake_before - 1, "the crossed lake survives: {lake_before} -> {lake_after} cells");
+
+        // No disc is cut from a point on the lake: at half-width 2.5, (10,2)
+        // and (10,6) are shore cells only the lake's own points reach. (That
+        // wide a disc does cut into the outlet from the points just below it,
+        // lowering the spill a little: measured here, 11 lake cells -> 9. The
+        // lake stays; its shallowest margin does not.)
+        let mut wide = base.clone();
+        super::carve_channel_network(&mut wide, w, h, false, &polys, &[2.5], &rv1_recv(w, h, &polys), Some(&surface), RV1_SEA, 0.0006);
+        for &(x, y) in &[(10usize, 2usize), (10, 6)] {
+            assert_eq!(wide[y * w + x], base[y * w + x], "shore ({x},{y}) beside the lake is not cut");
+        }
+        assert_eq!(rv1_pits(&wide, w, h, RV1_SEA).len(), 9, "the wide disc costs the lake its two shallowest cells, no more");
+
+        let mut drained = base.clone();
+        super::carve_channel_network(&mut drained, w, h, false, &polys, &[0.8], &rv1_recv(w, h, &polys), None, RV1_SEA, 0.0006);
+        assert!(rv1_pits(&drained, w, h, RV1_SEA).len() < lake_before / 2, "without the surface the run trenches the rim");
     }
 
     /// The channel-width law, bit-for-bit against reference lines 4532-4537 —

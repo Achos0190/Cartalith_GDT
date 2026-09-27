@@ -1466,21 +1466,37 @@ mod civ_pipeline_tests {
     /// instead of silently testing one branch.
     #[test]
     fn recovery_keeps_every_road_on_the_settlements_it_joined() {
-        let mut second = crate::params::defaults();
-        second.gw = 256;
-        second.gh = 192;
-        second.tect.seed = 2;
-        second.use_gpu = false;
-        let second_ws = cartalith_engine::generate_terrain(&second);
-
         let main = recovery_road_lengths(&world().0, &world().1);
         let (_, nodes, filtered, rebuilt) = main[0];
         assert!(nodes > 0, "premise: phase I abandons a network node on the main world");
-        // Measured 2026-09-29: 1124.7 km kept by filtering, 1242.9 km rebuilt.
-        assert!(rebuilt > filtered + 50.0, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+        // Measured: 1124.7 km kept by filtering vs 1242.9 km rebuilt (2026-09-29),
+        // then 1412.4 vs 1454.4 after RV-1's carve changed the world. The
+        // margin tracks the world, not the rule, so it is not asserted. What
+        // matters is that a rebuild draws strictly more than filtering once a
+        // node is abandoned. The filter-instead-of-rebuild mutant gives exactly
+        // equal lengths, and this still fails it.
+        assert!(rebuilt > filtered + 1e-6, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
 
-        let exact = recovery_road_lengths(&second_ws, &second);
-        assert_eq!(exact[1].1, 0, "premise: phase II abandons no network node on seed 2");
+        // The exact branch needs a world whose phase II abandons no network
+        // node. Seed 2 was one until RV-1's carve changed the worlds
+        // (2026-09-27), so the first qualifying seed from a fixed range is
+        // searched for. That keeps the branch running as worlds drift, and the
+        // premise is still asserted: a range with no such world fails loudly.
+        // The exact branch alone kills the duplicate-a-way mutant.
+        let mut exact_seed = None;
+        for seed in 2u64..=12 {
+            let mut p = crate::params::defaults();
+            p.gw = 256;
+            p.gh = 192;
+            p.tect.seed = seed as _;
+            p.use_gpu = false;
+            let ws = cartalith_engine::generate_terrain(&p);
+            if recovery_road_lengths(&ws, &p)[1].1 == 0 {
+                exact_seed = Some(seed);
+                break;
+            }
+        }
+        assert!(exact_seed.is_some(), "premise: some seed in 2..=12 has a phase II that abandons no network node");
     }
 
     /// The A3 invariants for phases I and II over one world; returns

@@ -70,6 +70,11 @@
 //! Continuous point coordinates and km checked at `1e-4` (this crate's
 //! established tolerance); name/point-count checked exactly.
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_civ::NamedSettlement {
     cartalith_civ::NamedSettlement {
         tid: 0,
@@ -114,7 +119,8 @@ fn sea_routes_case_0_three_ports_augmentation() {
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.field[0] - 0.8640472292900085f64 as f32).abs() < 1e-4, "field[0] mismatch, harness assumption broken");
 
     let water_bodies = build_water_bodies(&ws, 14, 11, false);
@@ -154,7 +160,8 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.field[0] - 0.2477419376373291f64 as f32).abs() < 1e-4, "field[0] mismatch, harness assumption broken");
 
     let water_bodies = build_water_bodies(&ws, 16, 12, true);

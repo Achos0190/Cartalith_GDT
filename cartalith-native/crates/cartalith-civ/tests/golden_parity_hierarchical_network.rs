@@ -65,6 +65,11 @@
 //! checked exactly) -- no float tolerance needed here, unlike the affordance
 //! fields upstream.
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 fn settlement(x: usize, y: usize, faction: i32) -> cartalith_civ::SettlementPlacement {
     cartalith_civ::SettlementPlacement {
         x,
@@ -101,7 +106,8 @@ fn hierarchical_network_case_0_region_unreachable_place() {
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
     assert!((ws.field[0] - 0.8640472292900085f64 as f32).abs() < 1e-4, "field[0] mismatch, harness assumption broken");
 
@@ -134,7 +140,8 @@ fn hierarchical_network_case_1_world_wrap_complete_graph() {
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
     assert!((ws.field[0] - 0.2477419376373291f64 as f32).abs() < 1e-4, "field[0] mismatch, harness assumption broken");
 

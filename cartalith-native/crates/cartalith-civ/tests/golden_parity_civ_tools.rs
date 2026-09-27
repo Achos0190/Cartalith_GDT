@@ -85,6 +85,11 @@
 //! and water routes come back with a seam break (`brks`), which is the
 //! wrap-aware smoothing path nothing else in this file's fixtures reaches.
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 use cartalith_civ::tools::*;
 use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
 
@@ -113,7 +118,8 @@ fn build(gw: usize, gh: usize, seed: i32, world: bool, field0: f64) -> World {
     let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
     p.world = world;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-12, "sea_level mismatch, harness assumption broken");
     assert_eq!(ws.field[0] as f64, field0, "field[0] mismatch, harness assumption broken");
     assert_eq!(p.map_width_km, 800.0, "map_width_km mismatch, harness assumption broken");

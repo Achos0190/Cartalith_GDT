@@ -40,6 +40,11 @@
 //! (`world=false`) is untouched by either ruling. Re-run and confirmed
 //! against this crate's own current actual output.
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 #[test]
 fn biome_raster_case_0_region() {
     // case 0: region: gw=14 gh=11 seed=24601 world=false.
@@ -53,7 +58,8 @@ fn biome_raster_case_0_region() {
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
 
     let wb = cartalith_civ::build_water_bodies(&ws.field, 14, 11, ws.sea_level, false, Some(&ws.rainfall));
@@ -78,7 +84,8 @@ fn biome_raster_case_1_world_wrap() {
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
 
     let wb = cartalith_civ::build_water_bodies(&ws.field, 16, 12, ws.sea_level, true, Some(&ws.rainfall));

@@ -100,6 +100,11 @@
 //! the salt means 0.1448 / 0.2690 / 0.3310 straddle the 0.25 threshold from
 //! both sides.
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 use cartalith_civ::trade::{civ_place_smelting, civ_salt_access, NavKind, PlaceWorld};
 use cartalith_civ::{ResourcePotentials, SettlementKind};
 
@@ -192,7 +197,8 @@ fn build_real(gw: usize, gh: usize, seed: i32, world: bool) -> Case {
     let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
     p.world = world;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42).abs() < 1e-9, "sea_level: harness assumption broken");
     assert!((p.map_width_km - 800.0).abs() < 1e-9, "map_width_km: harness assumption broken");
     let wb =

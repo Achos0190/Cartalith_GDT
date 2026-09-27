@@ -166,7 +166,7 @@ use cartalith_erosion::{
     GlacialParams, StreamPowerParams, VelocityParams,
 };
 use cartalith_hydrology::{
-    build_channels_routed, compute_flow, compute_flow_routed, enforce_channel_descent, river_width_scale_k,
+    build_channels_routed, compute_flow, compute_flow_routed, carve_channel_network, river_width_scale_k,
     routing_view, strahler_from_receivers, trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
@@ -2009,7 +2009,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             p.river_density,
             p.map_width_km,
         );
-        drop(route);
+        // Kept past the channel build for one more reader: the carve below
+        // leaves the depressions this surface fills standing as lakes rather
+        // than trenching their rims (`carve_channel_network`, Ruling BD). Only
+        // the integrated surface is an owned fill; without integration it is
+        // the field itself, and there are no filled depressions to keep.
+        let lake_surface: Option<Vec<f32>> = match route {
+            std::borrow::Cow::Owned(v) => Some(v),
+            std::borrow::Cow::Borrowed(_) => None,
+        };
         // `MEMORY_OPTIMIZATION_SCOPE.md` R2: `ChannelResult::slope` has no
         // reader anywhere in this workspace -- `strahler_from_receivers` and
         // `trace_river_polylines` below take `recv`/`chan` only, and the
@@ -2058,18 +2066,28 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let half_w_cap = 4.0 * width_k;
         let mut rmask = vec![0u8; gw * gh];
         let mut rfloor = vec![0f32; gw * gh];
-        for poly in &polys {
-            let &(lx, ly) = poly.last().expect("trace_river_polylines only returns polylines with >=2 points");
-            let li = ((ly as i64) * gw as i64 + lx as i64).clamp(0, (gw * gh) as i64 - 1) as usize;
-            let o_raw = order[li];
-            let o = if o_raw != 0 { o_raw as f64 } else { 1.0 };
-            let mut half_w = (0.8 + 0.5 * (o - 1.0)) * width_k;
-            if half_w > half_w_cap {
-                half_w = half_w_cap;
-            }
-            let carved = enforce_channel_descent(&mut field, gw, gh, poly, sea_level, half_w, 0.0006);
-            for i in carved {
-                rmask[i] = 1;
+        let half_ws: Vec<f64> = polys
+            .iter()
+            .map(|poly| {
+                let &(lx, ly) = poly.last().expect("trace_river_polylines only returns polylines with >=2 points");
+                let li = ((ly as i64) * gw as i64 + lx as i64).clamp(0, (gw * gh) as i64 - 1) as usize;
+                let o_raw = order[li];
+                let o = if o_raw != 0 { o_raw as f64 } else { 1.0 };
+                let half_w = (0.8 + 0.5 * (o - 1.0)) * width_k;
+                if half_w > half_w_cap { half_w_cap } else { half_w }
+            })
+            .collect();
+        // `carveRiverValleys`' per-run `enforceChannelDescent` loop, replaced
+        // by one carve over the whole network (Ruling BD, RV-1): the per-run
+        // loop left pits at confluences, on every diagonal step and wherever a
+        // lowland floor walked under sea level, and `build_water_bodies`
+        // classified each one as a lake. See `carve_channel_network`.
+        for i in carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006) {
+            rmask[i] = 1;
+        }
+        drop(lake_surface);
+        for (i, &m) in rmask.iter().enumerate() {
+            if m != 0 {
                 rfloor[i] = field[i];
             }
         }
@@ -2686,7 +2704,7 @@ mod tests {
     /// Several seeds and both `world` modes, because the carve block's
     /// reads are what the claim rests on and a wrapped world takes
     /// different branches through `compute_flow`, `build_channels` and
-    /// `enforce_channel_descent`. The `carve_rivers = false` case is here
+    /// `carve_channel_network`. The `carve_rivers = false` case is here
     /// too: there the call is **not** dead, so `force_precarve_flow` must
     /// make no difference for the opposite reason, and a skip that leaked
     /// into that path would show up as an empty `flow_discharge`.

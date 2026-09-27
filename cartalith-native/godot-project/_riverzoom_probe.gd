@@ -24,6 +24,8 @@ extends Node
 ##    width ever narrows downstream, confluence gap and width ratio, stroke ends
 ##    beside water that stop short of it, and headwaters under 1 px at x1.
 ##  - draw cost: median frame interval at the opening view, rivers on vs off.
+##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
+##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
 ## `--targets FILE` reuses the target cells of an earlier run's riverzoom.json,
 ## so a before/after pair frames the same ground. `--stats-only` skips the zoom
@@ -113,6 +115,8 @@ func _run_seed(seed_v: int) -> void:
 
 	sr["channel_lakes"] = _channel_lakes(rivers)
 	print("  channel lakes: ", sr["channel_lakes"])
+	sr["lakes"] = _lake_totals(rivers)
+	print("  lakes: ", sr["lakes"])
 	_vh.reset_view()
 	await _settle(3)
 	var ppc_fit: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
@@ -443,7 +447,7 @@ func _inner(p: Vector2) -> bool:
 ## they form. Also counts how many pieces the drawn stroke's lake_mask cuts
 ## each river into (map_overlay.gd::_draw_rivers breaks the stroke there).
 func _channel_lakes(rivers: Array) -> Dictionary:
-	var cells := 0; var lake := 0; var runs := 0; var short_runs := 0
+	var cells := 0; var lake := 0; var ocean := 0; var runs := 0; var short_runs := 0
 	var toggles := 0; var split_rivers := 0; var drawn := 0; var pieces_hist := {}
 	for r: Dictionary in rivers:
 		if not r.has("width_cells") or r.has("parallel_of"):
@@ -454,6 +458,8 @@ func _channel_lakes(rivers: Array) -> Dictionary:
 		for k in pts.size() - 1:   ## last point is the trunk's / sea cell
 			var d: Dictionary = _br.sample_cell(int(pts[k].x), int(pts[k].y))
 			cells += 1
+			if String(d.get("water", "")) == "ocean":
+				ocean += 1
 			if String(d.get("water", "")) == "lake":
 				lake += 1; cur += 1
 			else:
@@ -476,9 +482,67 @@ func _channel_lakes(rivers: Array) -> Dictionary:
 			inrun = m[k] == 0
 		if pieces >= 3: split_rivers += 1
 		pieces_hist[pieces] = int(pieces_hist.get(pieces, 0)) + 1
-	return {"drawn": drawn, "traced_cells": cells, "lake_cells_on_path": lake, "lake_runs": runs,
+	return {"drawn": drawn, "traced_cells": cells, "lake_cells_on_path": lake, "ocean_cells_on_path": ocean, "lake_runs": runs,
 		"lake_runs_len_le3": short_runs, "mask_toggles": toggles, "rivers_cut_into_3plus_pieces": split_rivers,
 		"pieces_hist": pieces_hist}
+
+
+## RV-1 (Ruling BD): every lake on the map, not just the ones a river crosses,
+## so a carve fix can be seen not to drain the real ones. Lake-class cells from
+## `sample_cell` (the drawn classification), split into 4-connected bodies --
+## the connectivity `build_water_bodies` itself uses. A body of 10+ cells with
+## at least 60% of them within one cell of a traced river cell is counted as
+## channel-shaped: a trench the carve sealed, not a basin.
+func _lake_totals(rivers: Array) -> Dictionary:
+	var n := _grid.x * _grid.y
+	var near := PackedByteArray(); near.resize(n)
+	for r: Dictionary in rivers:
+		for p: Vector2 in (r["points"] as PackedVector2Array):
+			for dy in [-1, 0, 1]:
+				for dx in [-1, 0, 1]:
+					var nx: int = int(p.x) + dx; var ny: int = int(p.y) + dy
+					if nx >= 0 and ny >= 0 and nx < _grid.x and ny < _grid.y:
+						near[ny * _grid.x + nx] = 1
+	var chan := 0; var chan_area := 0; var basin_ge100 := PackedInt32Array()
+	var lake := PackedByteArray(); lake.resize(n)
+	for y in _grid.y:
+		for x in _grid.x:
+			if String(_br.sample_cell(x, y).get("water", "land")) == "lake":
+				lake[y * _grid.x + x] = 1
+	var sizes := PackedInt32Array()
+	var stack := PackedInt32Array()
+	for s in n:
+		if lake[s] != 1:
+			continue
+		lake[s] = 2
+		stack.append(s)
+		var k := 0; var kn := 0
+		while not stack.is_empty():
+			var i: int = stack[stack.size() - 1]; stack.remove_at(stack.size() - 1)
+			k += 1
+			kn += near[i]
+			var x := i % _grid.x; var y := i / _grid.x
+			for d: Vector2i in [Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1), Vector2i(0, 1)]:
+				var nx := x + d.x; var ny := y + d.y
+				if nx < 0 or ny < 0 or nx >= _grid.x or ny >= _grid.y: continue
+				var j := ny * _grid.x + nx
+				if lake[j] == 1:
+					lake[j] = 2; stack.append(j)
+		sizes.append(k)
+		if k >= 10 and kn * 10 >= k * 6:
+			chan += 1; chan_area += k
+		elif k >= 100:
+			basin_ge100.append(k)
+	var area := 0; var le3 := 0; var ge10 := 0; var ge10_area := 0; var ge100 := 0
+	for k in sizes:
+		area += k
+		if k <= 3: le3 += 1
+		if k >= 10: ge10 += 1; ge10_area += k
+		if k >= 100: ge100 += 1
+	basin_ge100.sort()
+	return {"count": sizes.size(), "area_cells": area, "count_le3": le3, "count_ge10": ge10,
+		"area_ge10": ge10_area, "count_ge100": ge100, "channel_shaped_ge10": chan,
+		"channel_shaped_area": chan_area, "basins_ge100": Array(basin_ge100)}
 
 
 func _elev(p: Vector2) -> float:

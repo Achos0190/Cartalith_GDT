@@ -77,22 +77,26 @@ fn ws_world() -> WorldParams {
 /// **Re-baselined by Ruling AS (2026-09-24)**: with the pre-ruling hardcoded
 /// `OrogenyParams { fold_k: 0.16, trench_k: 1.0, fault_block_k: 0.0 }` this
 /// same world hashed `0xe8fa_007d_9d7d_50cb`; with the reference's derivation it
-/// hashes the literal below. No hash of a World-Structure world existed before this test.
+/// hashed `0x916a_1193_0abe_f69e`. No hash of a World-Structure world existed before this test.
+/// **Re-baselined again by RV-1 (Ruling BD, 2026-09-29)**: the river carve is
+/// `carve_channel_network` now, which moves every carved world's field;
+/// `0x916a_1193_0abe_f69e` -> the literal below. The orogeny knobs are unchanged.
 #[test]
 fn a_world_structure_world_uses_the_derived_knobs() {
     let got = fnv1a_field(&generate_terrain(&ws_world()).field);
     println!("ws world hash {got:#018x}");
-    assert_eq!(got, 0x916a_1193_0abe_f69e);
+    assert_eq!(got, 0x82a3_70d5_1c2c_b23a);
 }
 
 /// The same world with World Structure off takes no orogeny path at all, so
 /// Ruling AS cannot have moved it: measured `0x34ab_5acc_582a_f633` both with
-/// the pre-ruling hardcoded knobs and with the derivation.
+/// the pre-ruling hardcoded knobs and with the derivation. RV-1 (Ruling BD,
+/// 2026-09-29) moved it to the literal below, through the river carve alone.
 #[test]
 fn a_world_without_world_structure_is_untouched() {
     let mut p = ws_world();
     p.world_structure.enabled = false;
     let got = fnv1a_field(&generate_terrain(&p).field);
     println!("non-ws world hash {got:#018x}");
-    assert_eq!(got, 0x34ab_5acc_582a_f633);
+    assert_eq!(got, 0x93ed_9ddf_9273_90ad);
 }

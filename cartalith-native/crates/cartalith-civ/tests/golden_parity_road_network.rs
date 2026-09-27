@@ -45,6 +45,11 @@
 //! note describes finding elsewhere in this crate. case1's 5 places
 //! produce exactly 4 edges (fully connected, all mutually reachable).
 
+// RV-1 (Ruling BD): this suite proves parity on the reference's world; see
+// `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+#[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
+mod pre_rv1_world;
+
 const F32_TOLERANCE: f32 = 1e-4;
 
 fn assert_close(actual: f32, expected: f32, label: &str) {
@@ -76,7 +81,8 @@ fn road_network_case_0_region() {
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
 
     let expected_field0_5 = [0.8640562295913696f32, 0.7786418199539185, 0.6850417256355286, 0.6560115814208984, 0.6181289553642273];
@@ -121,7 +127,8 @@ fn road_network_case_1_world_wrap() {
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;
-    let ws = cartalith_engine::generate_terrain(&p);
+    let mut ws = cartalith_engine::generate_terrain(&p);
+    pre_rv1_world::pin(&mut ws, p.gw, p.gh, p.tect.seed, p.world);
     assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
 
     let expected_field0_5 = [0.24780429899692535f32, 0.2490912228822708, 0.678697407245636, 0.7500452399253845, 0.6631426811218262];
