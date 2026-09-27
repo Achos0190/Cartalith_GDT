@@ -1801,3 +1801,44 @@ Sea stacks use the same rule on coastal cliffs.
 It is scoped first: rock-strength source, slump model with its literature,
 a measurement proving it fires only where geology supports it, and the
 milestones.
+
+## 2026-09-27 — Ruling BH: geology first; every landform process reads it
+
+Owner: *"I believe it's important for landforms and terrain to be informed by
+the geology layer and age layers and lithology layer. Can we order the
+generator in such a way all this informs the geological features and how strong
+they are carved and created by the simulator."*
+
+Where the code stood when this was ruled (checked 2026-09-27):
+- `build_age_field` derives rock age from the plates.
+- `compute_resistance` sets resistance to 0.6 × crust type + 0.4 × age.
+- Resistance drives **only** `stream_power_kernel` (with
+  `recompute_resistance_after_erosion`).
+- Lithology is a derived label that informs no shaping process, except the
+  optional `dynamic_lithology`, which is off by default.
+- Thermal, glacial, coastal, the river carve and volcanism do not read
+  rock.
+
+The ruling:
+1. **Lithology is a real model computed before any erosion.** Each cell gets a
+   rock type from its plate setting, age, volcanism and deposition. Each type
+   carries properties: strength, erodibility, jointing and layering,
+   solubility and permeability.
+2. **Layering is explicit.** Caprock over a weak substrate is recorded as such.
+3. **Every shaping process reads it:**
+   - stream-power incision (already partly);
+   - the thermal talus angle;
+   - glacial erodibility;
+   - coastal cliff retreat;
+   - karst in soluble rock;
+   - landslip susceptibility;
+   - where pinnacles and stacks survive.
+   Resistant rock stands as ridges, scarps and cliffs; weak rock becomes
+   lowland.
+4. **Stages are reordered** so geology is complete before any process that
+   reads it. `EROSION_GEOLOGICAL_TIME_SCOPE.md`'s geological time is the
+   clock they run on.
+
+It moves every generated world, so it re-baselines with every old → new
+disclosed (DECISIONS §7p). It is scoped first. **Ruling BG (landslips and
+pinnacles) builds on this model**, so the order is: BH scope, BH build, BG.
