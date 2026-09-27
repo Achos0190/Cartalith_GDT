@@ -431,7 +431,9 @@ pub struct StreamParams {
 /// over the finished field followed by `computeFlow(true); refreshClimate()`.
 /// This port takes the §7d route: the *same* kernels, run at the *end* of
 /// generation (after `carve_rivers`, which is where the reference's finished
-/// field is), followed by the same flow+climate refresh — [`refresh_climate`].
+/// field is), followed by the flow+climate refresh — [`refresh_climate`], which
+/// since 2026-09-29 routes flow *after* its weather step rather than before
+/// it (its own doc says why).
 /// Growing the reference's opt-in buttons on top of these is still open and
 /// costs nothing extra, since the run path now exists.
 ///
@@ -2427,7 +2429,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 /// `computeFlow(true); refreshClimate();` (reference HTML line 5154) — the
 /// tail every terrain-changing op in the reference runs: re-derive discharge
 /// on the new surface, then temperature, rainfall, the moisture correctors
-/// and (when enabled) ocean currents over it.
+/// and (when enabled) ocean currents over it. [`refresh_climate`] is that
+/// tail, with the discharge step moved after the weather (its doc says why).
 ///
 /// The [`ClimateParams`] `generate_terrain` builds, as a function so any
 /// other caller of [`refresh_climate`] gets *the same* struct rather than a
@@ -2490,10 +2493,34 @@ pub fn weather_params_for(p: &WorldParams, sea_level: f64) -> WeatherParams {
 /// climate over a surface that changed afterwards. It is `pub` because that
 /// is the point — any future post-generation op needs exactly this.
 ///
-/// **Order matters and is the reference's**: discharge is computed from the
-/// *old* rainfall (that is what `computeFlow(true)` reads), and the moisture
-/// correctors then read the *new* discharge. `computeSeasons()` stays
+/// **A function of the surface and the parameters, and nothing else.** The
+/// three `&mut` fields are outputs only: nothing here reads the values they
+/// arrive with.
+///
+/// **A deliberate divergence from the reference's order** (`DECISIONS.md`
+/// §7p). The reference's tail is `computeFlow(true); refreshClimate();`, and
+/// `computeFlow(true)` weights discharge by the rain field *already in the
+/// module global* -- the rainfall from before this refresh, i.e. from
+/// whatever ran last. This port did the same until 2026-09-29, and it made
+/// every recompute depend on history: an `erode_op`, an undo that restores
+/// the height field alone, and the same `erode_op` again gave a different
+/// `flow_discharge` on every cell and a different rainfall on thousands, with
+/// the elevation bit-identical (`GPU_STREAM_POWER_SCOPE.md` §7;
+/// `staleness.rs`'s `erode_undo_erode_recomputes_bit_identical_drainage_and_climate`).
+///
+/// So the weather runs first and discharge is routed with **this** surface's
+/// uncorrected rainfall. That breaks the one real cycle cleanly: the moisture
+/// correctors then read the new discharge, exactly as before, and nothing
+/// reads a value this call has not produced. `computeSeasons()` stays
 /// deferred, as it is in `generate_terrain` itself.
+///
+/// What it moves: every caller of this function. `generate_terrain` calls it
+/// only when an erosion pass is on (`ErosionPassParams::any`), which
+/// `WorldParams::defaults` -- and so every golden -- leaves off, so the
+/// reference path is bit-identical by control flow. The shipped default
+/// (`passes.glacial`, Ruling AU) does end here, and its drainage and rainfall
+/// move. The carve block's own inline climate in `generate_terrain` keeps the
+/// reference order, because it is golden-pinned; see `STATUS.md`.
 ///
 /// CPU only. `p.use_gpu` selects GPU paths inside `generate_terrain` where a
 /// device handle is in scope; per `HARDWARE_ACCELERATION.md` §27 a CPU path
@@ -2511,10 +2538,12 @@ pub fn refresh_climate(
     flow_discharge: &mut Vec<f32>,
 ) {
     let (gw, gh, world) = (p.gw, p.gh, p.world);
-    *flow_discharge =
-        compute_flow_routed(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage);
     *temperature = compute_temperature(gw, gh, field, None, climate_params);
     *rainfall = simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, weather_params);
+    // Routed with the rainfall computed one line up, never the one this call
+    // was handed -- see this function's own doc for why.
+    *flow_discharge =
+        compute_flow_routed(gw, gh, field, Some(rainfall), true, world, sea_level, p.integrate_drainage);
     apply_climate_moisture_correctors(
         gw,
         gh,

@@ -170,9 +170,11 @@ pub struct RecomputeReport {
 ///
 /// - **Hydrology and climate together, via one [`crate::refresh_climate`].**
 ///   That function *is* the reference's own post-edit tail (`computeFlow(true);
-///   refreshClimate();`, reference HTML line 5154): its first statement
-///   rewrites `flow_discharge` — hydrology's output — and the rest rewrites
-///   `temperature` and `rainfall`. Running the two stages as two calls would
+///   refreshClimate();`, reference HTML line 5154): it rewrites
+///   `flow_discharge` — hydrology's output — as well as `temperature` and
+///   `rainfall`, and reads none of the three (since 2026-09-29; before, it
+///   routed discharge with the rainfall it was handed, which made every
+///   recompute depend on history — `refresh_climate`'s own doc). Running the two stages as two calls would
 ///   pay for a second whole-grid `compute_flow` (~489 ms at 2048² on CPU,
 ///   `cartalith-native/docs/CHANGELOG.md`) to produce a value the first call
 ///   already produced. So one call, two `mark_recomputed`s, in dependency
@@ -489,6 +491,120 @@ mod tests {
                 gen_time.as_secs_f64() / re_time.as_secs_f64().max(1e-9)
             );
         }
+    }
+
+    // ---- the erode-recompute determinism defect (GPU_STREAM_POWER_SCOPE.md §7) ----
+
+    /// One `erode_op` followed by the shell's own tail (`erode_bridge.rs`'s
+    /// `mark_and_recompute`): mark height changed, run `recompute_stale`.
+    /// Thermal-only (`droplets: 0`), as the windowed probe that found the
+    /// defect was: the droplets spawn through `ws.rainfall`, which is an
+    /// *input* of the op, so with droplets on a changed rain field would
+    /// legitimately change the elevation and hide the recompute's own fault.
+    fn erode_then_recompute(p: &WorldParams, ws: &mut WorldState, opts: &crate::erode_op::ErodeOpts) {
+        crate::erode_op::erode_op(ws, p, opts);
+        let mut g = pipeline_stage_graph(1);
+        g.mark_changed(PipelineStage::Height.id(), 0, "erode");
+        assert_eq!(recompute_stale(&mut g, p, ws).ran, vec!["hydrology", "climate"]);
+    }
+
+    fn derived(ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
+        (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone())
+    }
+
+    /// The probe's exact shape, without Godot: erode, recompute, **undo**
+    /// (which in `WorldGen::undo_last` restores `ws.field` and nothing else,
+    /// then marks height stale), erode again, recompute again. The elevation
+    /// is bit-identical across the two runs -- asserted, as a precondition --
+    /// so the recompute, which claims to be a function of the surface, must
+    /// produce bit-identical drainage, rainfall and temperature too.
+    ///
+    /// It did not: `refresh_climate` routed `flow_discharge` with whatever
+    /// `rainfall` the world already held, which after an undo is the *first*
+    /// run's output rather than the generation's.
+    #[test]
+    fn erode_undo_erode_recomputes_bit_identical_drainage_and_climate() {
+        let mut p = WorldParams::defaults(64, 40, 1234);
+        p.integrate_drainage = true; // the shipped default path, too
+        let mut ws = crate::generate_terrain(&p);
+        let f0 = ws.field.as_ref().clone();
+        let opts = crate::erode_op::ErodeOpts { droplets: 0, ..Default::default() };
+
+        erode_then_recompute(&p, &mut ws, &opts);
+        let f1 = ws.field.as_ref().clone();
+        let d1 = derived(&ws);
+        assert_ne!(f1, f0, "the thermal passes must actually move the surface");
+
+        // `undo_one`: the height field comes back, every derived field stays.
+        ws.field = Arc::new(f0);
+        erode_then_recompute(&p, &mut ws, &opts);
+        assert_eq!(ws.field.as_ref(), &f1, "precondition: the same op on the same surface");
+        let d2 = derived(&ws);
+
+        let differ = |a: &[f32], b: &[f32]| a.iter().zip(b).filter(|(x, y)| x.to_bits() != y.to_bits()).count();
+        assert_eq!(differ(&d1.2, &d2.2), 0, "flow_discharge depends on history");
+        assert_eq!(differ(&d1.1, &d2.1), 0, "rainfall depends on history");
+        assert_eq!(differ(&d1.0, &d2.0), 0, "temperature depends on history");
+    }
+
+    /// The probe's **passes-0 control**: an op that changes no elevation at
+    /// all must change nothing the recompute derives from elevation.
+    ///
+    /// On a world whose generation *ends* in `refresh_climate` -- any world
+    /// with an erosion pass on, which includes the shipped default
+    /// (`cartalith_godot::params::defaults` turns `passes.glacial` on, Ruling
+    /// AU) -- the stored climate already is `refresh_climate` of this surface,
+    /// so recomputing it over the same surface must return it bit for bit.
+    #[test]
+    fn a_passes_zero_erode_leaves_a_shipped_default_world_bit_identical() {
+        let mut p = WorldParams::defaults(64, 40, 1234);
+        p.integrate_drainage = true;
+        p.passes.glacial = true;
+        let mut ws = crate::generate_terrain(&p);
+        let (f0, d0) = (ws.field.as_ref().clone(), derived(&ws));
+        assert!(d0.2.iter().any(|&q| q > 0.0) && d0.1.iter().any(|&r| r > 0.0), "a world with no water proves nothing");
+
+        let opts = crate::erode_op::ErodeOpts { droplets: 0, thermal_passes: 0, ..Default::default() };
+        erode_then_recompute(&p, &mut ws, &opts);
+        assert_eq!(ws.field.as_ref(), &f0, "precondition: passes-0 moves no elevation");
+        let d1 = derived(&ws);
+        assert!(d1.2 == d0.2, "flow_discharge changed under a no-op");
+        assert!(d1.1 == d0.1, "rainfall changed under a no-op");
+        assert!(d1.0 == d0.0, "temperature changed under a no-op");
+    }
+
+    /// The unit-level statement of the contract both tests above rest on:
+    /// `refresh_climate`'s three `&mut` fields are **outputs only**. Two calls
+    /// over the same surface, handed two different histories -- the
+    /// generation's fields, and the fields a recompute of a *different*
+    /// surface left behind -- must agree bit for bit.
+    #[test]
+    fn refresh_climate_ignores_the_values_it_is_about_to_overwrite() {
+        let (p, edited, _) = edited_world();
+        let pristine = crate::generate_terrain(&p);
+        // A real history rather than invented numbers: the climate of the
+        // *edited* surface, as a recompute would have left it.
+        let mut stale = edited;
+        let mut g = pipeline_stage_graph(1);
+        g.mark_changed(PipelineStage::Height.id(), 0, "sculpt");
+        recompute_stale(&mut g, &p, &mut stale);
+        assert_ne!(stale.rainfall.as_ref(), pristine.rainfall.as_ref(), "the two histories must differ");
+
+        let run = |from: &WorldState| {
+            let (mut t, mut r, mut q) = derived(from);
+            crate::refresh_climate(
+                &p,
+                pristine.sea_level,
+                &pristine.field,
+                &climate_params_for(&p, pristine.sea_level),
+                &weather_params_for(&p, pristine.sea_level),
+                &mut t,
+                &mut r,
+                &mut q,
+            );
+            (t, r, q)
+        };
+        assert!(run(&pristine) == run(&stale), "refresh_climate read a field it only claims to write");
     }
 
     #[test]

@@ -1435,18 +1435,78 @@ mod civ_pipeline_tests {
     /// are dropped and the list re-indexed; afterwards every way and raw edge
     /// must join the same two settlements it joined in the Stable run, and
     /// every road between two survivors must still be there.
+    ///
+    /// Plus the drawn-length rule that says the network was **rebuilt, not
+    /// filtered**, stated on what the fixture actually abandons rather than
+    /// on the phase number. Consolidation gives some corridor cells of
+    /// surviving roads to an abandoned *network node*'s edges, so merely
+    /// dropping that node's ways would leave gaps in roads between survivors:
+    ///
+    /// - no Stable network node abandoned ⇒ the rebuild draws exactly what
+    ///   filtering keeps (nothing was reassigned);
+    /// - otherwise the rebuild never draws *less* than filtering keeps.
+    ///
+    /// Until 2026-09-29 this asserted "phase II abandons only villages, whose
+    /// tracks own no network cell" as a fact about phase II. It was a fact
+    /// about one world. `civ_apply_recovery` drops any place that is neither
+    /// urban nor a port when its scaled population falls under 18 -- the
+    /// reference's `_civApplyRecovery` anchor rule -- and that includes
+    /// hamlets the placement pass made network nodes. When `refresh_climate`
+    /// stopped reading stale rainfall (`staleness.rs`), this world's phase II
+    /// began abandoning one: a non-coastal Hamlet (pop 134) with roads to three
+    /// towns. A 12-seed survey of the shipped defaults at this size found
+    /// phase II abandoning a network node in 5 worlds and none in 7, with the
+    /// two rules above holding in all 24 phase runs.
+    ///
+    /// So two worlds, chosen so both branches run: this one (phase I abandons
+    /// network nodes -- the positive control that the rebuild restores real
+    /// length) and seed 2, where phase II abandons none (the exact branch).
+    /// Each premise is asserted, so a world that drifts fails loudly here
+    /// instead of silently testing one branch.
     #[test]
     fn recovery_keeps_every_road_on_the_settlements_it_joined() {
-        let mut p = world().1.clone();
+        let mut second = crate::params::defaults();
+        second.gw = 256;
+        second.gh = 192;
+        second.tect.seed = 2;
+        second.use_gpu = false;
+        let second_ws = cartalith_engine::generate_terrain(&second);
+
+        let main = recovery_road_lengths(&world().0, &world().1);
+        let (_, nodes, filtered, rebuilt) = main[0];
+        assert!(nodes > 0, "premise: phase I abandons a network node on the main world");
+        // Measured 2026-09-29: 1124.7 km kept by filtering, 1242.9 km rebuilt.
+        assert!(rebuilt > filtered + 50.0, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+
+        let exact = recovery_road_lengths(&second_ws, &second);
+        assert_eq!(exact[1].1, 0, "premise: phase II abandons no network node on seed 2");
+    }
+
+    /// The A3 invariants for phases I and II over one world; returns
+    /// `(phase, abandoned network nodes, filtered km, rebuilt km)` per phase.
+    fn recovery_road_lengths(
+        ws: &cartalith_engine::WorldState,
+        base: &cartalith_engine::WorldParams,
+    ) -> Vec<(i32, usize, f64, f64)> {
+        let run = |p: &cartalith_engine::WorldParams| {
+            let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
+            compute_civilisation(
+                ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
+                &mut Vec::new(),
+            )
+        };
+        let mut p = base.clone();
         p.civ.villages = true;
-        let stable = civ(&p, &[]);
+        let stable = run(&p);
         let mut before: HashSet<(Key, Key)> = stable.road_edges.iter().map(|e| pair(&stable, e.a, e.b)).collect();
         before.extend(stable.ways.iter().map(|w| pair(&stable, w.a_idx, w.b_idx)));
         assert!(!before.is_empty(), "fixture has no roads");
+        let network_nodes: HashSet<usize> = stable.road_edges.iter().flat_map(|e| [e.a, e.b]).collect();
 
+        let mut out = Vec::new();
         for phase in [1, 2] {
             p.civ.recovery_phase = phase;
-            let rec = civ(&p, &[]);
+            let rec = run(&p);
             assert!(
                 rec.settlements.len() < stable.settlements.len(),
                 "premise: phase {phase} must abandon something ({} of {})",
@@ -1465,28 +1525,29 @@ mod civ_pipeline_tests {
                     assert!(after.contains(&(a.clone(), b.clone())), "phase {phase}: the road {a:?} -> {b:?} was lost");
                 }
             }
-            // Rebuilt, not filtered: consolidation had given some corridor
-            // cells of surviving roads to an abandoned place's edge, so merely
-            // dropping that edge's ways would leave gaps in roads between
-            // survivors. Drawn length is where that shows. On this world
-            // (215 settlements, 200 of them villages) phase I abandons five of
-            // the fifteen towns and every village, and filtering would keep
-            // 1492.6 km of network road where the rebuild draws 1611.9 km
-            // (measured 2026-09-24); phase II abandons only the villages, whose
-            // tracks own no network cell, so the two agree exactly.
             let survives = |s: &NamedSettlement| survivors.contains(&key(s));
+            let abandoned_nodes = network_nodes.iter().filter(|&&i| !survives(&stable.settlements[i])).count();
             let drawn = |c: &CivData, keep: &dyn Fn(&Way) -> bool| -> f64 {
                 c.ways.iter().filter(|w| !w.hidden && w.way_type != WayType::Ancient && keep(w)).map(|w| w.km).sum()
             };
             let filtered =
                 drawn(&stable, &|w| survives(&stable.settlements[w.a_idx]) && survives(&stable.settlements[w.b_idx]));
             let rebuilt = drawn(&rec, &|_| true);
-            if phase == 1 {
-                assert!(rebuilt > filtered + 50.0, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+            assert!(filtered > 0.0, "phase {phase}: no surviving network road to measure");
+            if abandoned_nodes == 0 {
+                assert!(
+                    (rebuilt - filtered).abs() < 1e-9,
+                    "phase {phase} abandons no network node, so nothing was reassigned: {rebuilt} vs {filtered}"
+                );
             } else {
-                assert!((rebuilt - filtered).abs() < 1e-9, "phase 2 abandons no network node: {rebuilt} vs {filtered}");
+                assert!(
+                    rebuilt >= filtered - 1e-9,
+                    "phase {phase}: the rebuild draws {rebuilt:.1} km, less than filtering's {filtered:.1} km"
+                );
             }
+            out.push((phase, abandoned_nodes, filtered, rebuilt));
         }
+        out
     }
 
     fn way(a: usize, b: usize) -> Way {

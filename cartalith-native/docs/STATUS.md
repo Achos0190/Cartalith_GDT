@@ -1396,6 +1396,49 @@ for them.*
 2026-09-23; GLI-D2 was corrected to done the same day (it landed 2026-09-21);
 GLI-E was added the same day (it landed 2026-09-23 and had no row).
 
+**The erode-recompute determinism defect (`GPU_STREAM_POWER_SCOPE.md` §7) —
+fixed 2026-09-29; verified by the main loop (engine 187/0/8, the staleness
+tests and the rewritten recovery test re-run green); the workspace ran
+3 956/0/42 in the lane.** Root cause, confirmed at
+`cartalith_engine::refresh_climate`: it routed `flow_discharge` with the
+`rainfall` it was handed (the previous run's), so after an undo that restores
+`ws.field` alone the same op recomputed different drainage. Reproduced without
+Godot at 64×40: drainage differed on 2 560 of 2 560 cells. The fix runs the
+weather first and routes flow with this surface's uncorrected rainfall
+(§7p divergence from the reference's `computeFlow(true); refreshClimate();`).
+Tests in `staleness.rs`: `erode_undo_erode_recomputes_bit_identical_drainage_and_climate`,
+`a_passes_zero_erode_leaves_a_shipped_default_world_bit_identical`,
+`refresh_climate_ignores_the_values_it_is_about_to_overwrite`. All three go red
+with the fix reverted. `WorldParams::defaults` generation, and so every golden,
+is unchanged by control flow. The shipped default (`passes.glacial`) ends in
+`refresh_climate`, so its drainage and rainfall do move. That turned
+`cartalith-godot`'s `civ_pipeline_tests::recovery_keeps_every_road_on_the_settlements_it_joined`
+red (phase 2: 1376.6 vs 1340.2 km). **Settled as a world-dependent premise, not a
+recovery defect.** The new world's phase II abandons one network node: a
+non-coastal Hamlet (pop 134, placed by `place_settlements`, not an addon village)
+with roads to three towns. `civ_apply_recovery` drops any place that is neither
+urban nor a port when its scaled population falls under 18. That is the
+reference's `_civApplyRecovery` rule. A 12-seed survey at this size found this in
+5 of 12 phase-II worlds. The test now states the rule on what is actually
+abandoned: no network node abandoned ⇒ rebuilt km == filtered km, else rebuilt ≥
+filtered. It runs over two asserted fixtures (seed 12345, and seed 2, where
+phase II abandons none). Three mutants of `remap_after_recovery` were all killed:
+filter instead of rebuild, drop a way, duplicate a way. The last is caught only
+by the seed-2 exact branch.
+
+Still open:
+- **Still owed: a windowed Godot probe.**
+- **The carve block keeps the reference order on purpose.** With every erosion
+  pass off (`WorldParams::defaults`), generation's final climate is still the
+  carve block's inline tail in `generate_terrain`. That tail routes discharge
+  with the priming rainfall. It is golden-pinned, so it stays. The first
+  recompute after such a generation therefore differs from the stored values.
+- **Droplet erosion reads stale rainfall after an undo.** `erode_op` spawns
+  droplets through `ws.rainfall`, and an undo restores only the height field.
+  So an erode with droplets on, run after an undo and before a recompute, reads
+  the rainfall of the undone surface. Nothing recomputes stale stages before
+  the op.
+
 **The seven zero-caller public `cartalith-gpu` functions are deleted**
 (corrected 2026-09-23: this paragraph still called them live and blocked on an
 owner decision). `init_gpu_f64` went on 2026-09-06 under `LARGE_ITEM_RULINGS.md`

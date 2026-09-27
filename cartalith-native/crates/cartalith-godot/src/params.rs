@@ -1059,8 +1059,10 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 /// - a climate dial ⇒ mark `Hydrology` ⇒ climate **and** civ go stale, and
 ///   `recompute_stale`'s `any_stale(clim)` gate fires, so one
 ///   `refresh_climate` runs. Not a fiction for the weather half —
-///   `refresh_climate`'s first statement recomputes `flow_discharge` from the
-///   new rainfall, which *is* hydrology's output. It is one node coarser than
+///   `refresh_climate` recomputes `flow_discharge` from the new rainfall,
+///   which *is* hydrology's output. (True since 2026-09-29; until then it
+///   routed with the rainfall it was handed, so a weather dial moved
+///   discharge only on the *next* recompute.) It is one node coarser than
 ///   the truth for the few temperature-only dials (`lapse_rate`, `albedo_k`),
 ///   where discharge does not in fact move; representing those exactly would
 ///   need a fifth, `params` source node, which SG-03 was briefed against the
