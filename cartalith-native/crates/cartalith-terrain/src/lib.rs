@@ -1224,11 +1224,16 @@ fn add_rounded(field: &mut [f32], i: usize, delta: f64) {
 /// classifies and then discards, a summit depression that is a genuine
 /// collapse, and two-scale flank relief.
 ///
-/// **Gated, and default-off at both boundaries.** It moves the height field, so
-/// lithology, biomes, carrying capacity, settlements, roads and sea routes move
-/// with it — the same blast radius `DECISIONS.md` §7l had to authorise for
-/// craters, and that authorisation was *for craters*. Turning this on needs its
-/// own owner ruling.
+/// **Gated, and the two boundaries default differently.**
+/// `cartalith_engine::WorldParams::defaults()` keeps `edifice_model: false` —
+/// every golden pins the reference's single-cone profile, so the engine
+/// crate's own default cannot move it. `cartalith_godot::params::defaults()`
+/// — what the shipping app actually generates with — sets it `true`.
+/// It moves the height field, so lithology, biomes, carrying capacity,
+/// settlements, roads and sea routes move with it — the same blast radius
+/// `DECISIONS.md` §7l had to authorise for craters, and that authorisation
+/// was *for craters*. Corrected 2026-09-27: this previously said "default-off
+/// at both boundaries", which stopped being true once the app turned it on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EdificeModel {
     /// `stampOneVolcano` exactly.

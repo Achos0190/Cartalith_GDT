@@ -486,13 +486,22 @@ pub struct CellSample {
     pub on_boundary: bool,
     pub boundary_type: &'static str,
     pub boundary_dist_cells: Option<f64>,
-    pub stress: f64,
+    /// `None` when `WorldState::stress_field` genuinely does not cover this
+    /// cell (it is `Vec::new()` on several construction paths -- see
+    /// `elevation.rs`/`erode_op.rs`'s default `WorldState`s) -- never `0.0`,
+    /// which is also a real convergent/divergent reading.
+    pub stress: Option<f64>,
     pub age: f64,
-    pub resistance: f64,
+    /// `None` under the same "genuinely absent, not just zero" rule as
+    /// [`Self::stress`] -- `resistance_field` is `Vec::new()` on the same
+    /// construction paths.
+    pub resistance: Option<f64>,
     pub lithology: &'static str,
     pub temperature_c: f64,
     pub precipitation: f64,
-    pub drainage: f64,
+    /// `None` under the same rule as [`Self::stress`] -- `flow_discharge` is
+    /// `Vec::new()` on the same construction paths.
+    pub drainage: Option<f64>,
     pub river_order: Option<i64>,
     /// `0` land / `1` ocean / `2` lake, `None` without a civilisation layer.
     pub water_body: Option<u8>,
@@ -583,12 +592,20 @@ pub fn sample_cell(f: &FieldRefs, gx: i64, gy: i64) -> Option<CellSample> {
     // One-element slices: both of these are strictly per-cell functions, so
     // this is bit-identical to indexing the full-grid result -- and it
     // restates none of their golden-tested branches here. See the module doc.
+    //
+    // `resistance_field.get(i)` rather than `[i]`: `resistance_field` is
+    // genuinely `Vec::new()` on some `WorldState` construction paths
+    // (`elevation.rs`/`erode_op.rs`), so a direct index would panic before
+    // this function ever reaches the `resistance:` field below that already
+    // treats a short field as absent. `0.0` here feeds `build_lithology`'s
+    // own per-cell computation only -- it is never read back as the Sample
+    // panel's "resistance" value, which stays `None` (see `CellSample::resistance`).
     let lith = build_lithology(
         &[f.field[i]],
         &[f.age_field[i]],
         &[f.volcanic_field[i]],
         &[f.crust_field[i]],
-        &[f.resistance_field[i]],
+        &[f.resistance_field.get(i).copied().unwrap_or(0.0)],
         &[f.rainfall[i]],
         f.sea_level,
     )[0];
@@ -614,13 +631,13 @@ pub fn sample_cell(f: &FieldRefs, gx: i64, gy: i64) -> Option<CellSample> {
         on_boundary: f.boundary_mask.get(i).copied().unwrap_or(0) != 0,
         boundary_type: boundary_type_name(f.boundary_type.get(i).copied().unwrap_or(0)),
         boundary_dist_cells: boundary_dist_cells(f, x, y),
-        stress: f.stress_field.get(i).map(|&v| v as f64).unwrap_or(0.0),
+        stress: f.stress_field.get(i).map(|&v| v as f64),
         age: f.age_field[i] as f64,
-        resistance: f.resistance_field.get(i).map(|&v| v as f64).unwrap_or(0.0),
+        resistance: f.resistance_field.get(i).map(|&v| v as f64),
         lithology: LITH_NAMES.get(lith as usize).copied().unwrap_or("—"),
         temperature_c: f.temperature[i] as f64,
         precipitation: f.rainfall[i] as f64,
-        drainage: f.flow_discharge.get(i).map(|&v| v as f64).unwrap_or(0.0),
+        drainage: f.flow_discharge.get(i).map(|&v| v as f64),
         river_order: f.stream_order.and_then(|s| s.get(i)).map(|&o| o as i64),
         water_body: wb,
         biome: biome.map(biome_name),
@@ -2989,6 +3006,68 @@ mod tests {
         // Everything sourced from WorldState is still real.
         assert!(s.elevation > 0.0);
         assert_ne!(s.lithology, "—");
+    }
+
+    /// A world whose `stress_field`/`resistance_field`/`flow_discharge` are
+    /// genuinely absent (`Vec::new()`, the real shape on some `WorldState`
+    /// construction paths -- `elevation.rs`/`erode_op.rs`'s default states)
+    /// reads `None`, never `0.0`. The old code indexed `resistance_field[i]`
+    /// directly inside the lithology build, which would have panicked here
+    /// before this fixture existed; `lithology`/`soil` must still come out
+    /// real, since they are strictly per-cell and do not depend on any of
+    /// the three.
+    #[test]
+    fn short_substrate_fields_read_as_absent_not_zero() {
+        let mut o = owned(8, 8);
+        o.stress.clear();
+        o.resist.clear();
+        o.flow.clear();
+        let s = sample_cell(&view(&o, true), 4, 4).unwrap();
+        assert!(s.stress.is_none());
+        assert!(s.resistance.is_none());
+        assert!(s.drainage.is_none());
+        // Unrelated fields, including the ones lithology's one-element call
+        // reads a resistance value for internally, are unaffected.
+        assert_ne!(s.lithology, "—");
+        assert!(s.soil.is_some());
+        assert!(s.elevation > 0.0);
+    }
+
+    /// Each of the three can be short independently -- this is not one flag
+    /// that clears all three together.
+    #[test]
+    fn each_short_substrate_field_is_independently_absent() {
+        let mut stress_only = owned(8, 8);
+        stress_only.stress.clear();
+        let s = sample_cell(&view(&stress_only, true), 4, 4).unwrap();
+        assert!(s.stress.is_none());
+        assert!(s.resistance.is_some());
+        assert!(s.drainage.is_some());
+
+        let mut resist_only = owned(8, 8);
+        resist_only.resist.clear();
+        let s = sample_cell(&view(&resist_only, true), 4, 4).unwrap();
+        assert!(s.stress.is_some());
+        assert!(s.resistance.is_none());
+        assert!(s.drainage.is_some());
+
+        let mut flow_only = owned(8, 8);
+        flow_only.flow.clear();
+        let s = sample_cell(&view(&flow_only, true), 4, 4).unwrap();
+        assert!(s.stress.is_some());
+        assert!(s.resistance.is_some());
+        assert!(s.drainage.is_none());
+    }
+
+    /// The mirror of the above: with full-length fields, all three are real
+    /// values (never spuriously omitted).
+    #[test]
+    fn full_length_substrate_fields_read_as_present() {
+        let o = owned(8, 8);
+        let s = sample_cell(&view(&o, true), 4, 4).unwrap();
+        assert!(s.stress.is_some());
+        assert!(s.resistance.is_some());
+        assert!(s.drainage.is_some());
     }
 
     /// GF-1's rock rows: a two-layer cell reads its substrate and contact

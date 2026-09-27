@@ -16580,15 +16580,22 @@ impl WorldGen {
     ///   `slope_deg` (real ground angle), `slope_n` (`slopeAt*GW`, the
     ///   engine's own unit), `plate` (int), `plate_type`
     ///   (`"oceanic"`/`"continental"`), `boundary` (bool), `boundary_type`
-    ///   (String), `stress`, `age`, `resistance`, `lithology` (String),
-    ///   `temperature_c`, `precipitation`, `drainage` (flow discharge),
-    ///   `soil` -- all from `WorldState`, always present.
+    ///   (String), `age`, `lithology` (String), `temperature_c`,
+    ///   `precipitation`, `soil` -- all from `WorldState`, always present.
     /// * `aspect_deg` + `aspect` (16-point compass) -- omitted on flat
     ///   ground, where an aspect is undefined rather than zero.
     /// * `boundary_dist_cells` -- omitted when no tagged boundary lies
     ///   within `sample_bridge::BOUNDARY_SEARCH_MAX` cells (the search is
     ///   capped so a world with no boundary at all cannot turn one
     ///   mouse-motion event into a full-grid scan).
+    /// * `stress`, `resistance`, `drainage` -- omitted when
+    ///   `WorldState::stress_field`/`resistance_field`/`flow_discharge`
+    ///   genuinely does not cover this cell (each is `Vec::new()` on some
+    ///   `WorldState` construction paths). Never `0.0`, which is also a real
+    ///   reading for each of the three. Each omission carries a paired
+    ///   `stress_reason`/`resistance_reason`/`drainage_reason` key, the same
+    ///   idiom `rock_reason` uses below, so a caller can dash with a stated
+    ///   cause instead of a bare "—".
     /// * `river_order` -- omitted when river extraction did not run
     ///   (`WorldState::stream_order` is `None`).
     /// * `water` (`"land"`/`"ocean"`/`"lake"`), `biome`, `control` --
@@ -16608,13 +16615,10 @@ impl WorldGen {
             "plate_type" => if s.plate_oceanic { "oceanic" } else { "continental" },
             "boundary" => s.on_boundary,
             "boundary_type" => s.boundary_type,
-            "stress" => s.stress,
             "age" => s.age,
-            "resistance" => s.resistance,
             "lithology" => s.lithology,
             "temperature_c" => s.temperature_c,
             "precipitation" => s.precipitation,
-            "drainage" => s.drainage,
         };
         if let Some(a) = s.aspect_deg {
             d.set("aspect_deg", a);
@@ -16622,6 +16626,27 @@ impl WorldGen {
         }
         if let Some(bd) = s.boundary_dist_cells {
             d.set("boundary_dist_cells", bd);
+        }
+        // Omitted, never zero-filled: each is a genuine "no value" when the
+        // backing WorldState field is Vec::new() (`sample_bridge::CellSample`'s
+        // own doc comment on these three). A `*_reason` key stands in, the
+        // same idiom `rock_reason`/`rock_beneath_reason` already use below,
+        // so the dock can dash with a stated cause rather than a bare "—".
+        const SUBSTRATE_ABSENT: &str = "substrate not computed for this cell";
+        if let Some(v) = s.stress {
+            d.set("stress", v);
+        } else {
+            d.set("stress_reason", SUBSTRATE_ABSENT);
+        }
+        if let Some(v) = s.resistance {
+            d.set("resistance", v);
+        } else {
+            d.set("resistance_reason", SUBSTRATE_ABSENT);
+        }
+        if let Some(v) = s.drainage {
+            d.set("drainage", v);
+        } else {
+            d.set("drainage_reason", SUBSTRATE_ABSENT);
         }
         if let Some(o) = s.river_order {
             d.set("river_order", o);

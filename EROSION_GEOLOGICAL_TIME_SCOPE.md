@@ -29,10 +29,17 @@ iterations at the default `iters: 15`, then one `isostatic_rebound`, inside the
 
 Everything else is **off by default**. `ErosionPassParams::off()` sets every
 toggle false and `evolve_cycles: 0`, so the whole second block — velocity,
-glacial, coastal, hillslope, sediment routing, tidal — is skipped, and the app
-boundary (`cartalith_godot::params::defaults`) turns none of them on.
-`droplet_kernel` and `erode_thermal` are not in `generate_terrain` at all; they
-exist only in `cartalith-engine/src/erode_op.rs`, the manual Erode op.
+glacial, coastal, hillslope, sediment routing, tidal — is skipped in the
+engine crate's own default. **Corrected 2026-09-27, superseded by Ruling AU
+(2026-09-24, `LARGE_ITEM_RULINGS.md`): the app boundary is not "none of
+them"** — `cartalith_godot::params::defaults()` sets `passes.glacial = true`
+(`params.rs`), an app-default divergence the ruling records deliberately
+("new worlds turn the glacial erosion pass on"); `WorldParams::defaults()`
+and every golden stay off. Every other second-block toggle (velocity,
+coastal, hillslope, sediment routing, tidal) is still off at both
+boundaries. `droplet_kernel` and `erode_thermal` are not in `generate_terrain`
+at all; they exist only in `cartalith-engine/src/erode_op.rs`, the manual
+Erode op.
 
 So the twelve-kernel API is largely dormant, and a geological clock would
 attach to one nine-iteration loop. (Outside generation, `cartalith-erosion::tile`

@@ -2046,6 +2046,11 @@ func _sample_field_text(key: String, cell: Dictionary) -> String:
 			return "— %s" % String(cell["rock_beneath_reason"])
 		if key in ["rock", "rock_beneath", "rock_strength", "rock_soluble", "regolith_m"] and cell.has("rock_reason"):
 			return "— %s" % String(cell["rock_reason"])
+		## Same idiom as the rock rows above: `sample_cell()` pairs an omitted
+		## `stress`/`resistance`/`drainage` with a `<key>_reason` key rather
+		## than leaving the dash unexplained.
+		if key in ["stress", "resistance", "drainage"] and cell.has("%s_reason" % key):
+			return "— %s" % String(cell["%s_reason" % key])
 		return "—"
 	match key:
 		"slope_deg":

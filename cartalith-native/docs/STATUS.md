@@ -415,6 +415,47 @@ re-checked against the tree rather than copied from the commit message.
     GF-8), the single-layer import column, and the lithology map view.
   - **Probe:** `_gf1sample_probe.tscn` (windowed): 27 checks green, with a
     screenshot.
+- **Code and doc drift found by the geology scope, fixed — pending independent
+  verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
+  the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s
+  `stress`/`resistance`/`drainage` are `Option<f64>`, omitted (never `0.0`)
+  when the backing `WorldState` field is genuinely short; the lithology build
+  now reads `resistance_field` with `.get(i)` instead of indexing it directly,
+  removing the panic risk. `lib.rs`'s `sample_cell` omits the same three keys
+  and pairs an omission with a `*_reason` key (`right_dock.gd` dashes with it,
+  mirroring the rock rows). (2) `EdificeModel`'s doc comment in
+  `cartalith-terrain/src/lib.rs` corrected: the engine crate's own default
+  stays off (golden-pinned), but `cartalith_godot::params::defaults()` turns it
+  on — "default-off at both boundaries" was wrong. (3)
+  `EROSION_GEOLOGICAL_TIME_SCOPE.md` §1 corrected with a dated note: glacial
+  erosion has been an app-default divergence since Ruling AU (2026-09-24), not
+  "none" of the second-block passes. (4) `README.md`'s scope list gained the
+  eight `*_SCOPE.md` files it was missing (`EROSION_GEOLOGICAL_TIME`, `EXPORT`,
+  `GUI_SHELL`, `MILITARY_MANPOWER`, `RELIGION_DIFFUSION`, `SCULPT_LIVE`,
+  `STORY_PLANNING`, `TIMELINE`) — every `*_SCOPE.md` at the repository root now
+  appears there. (5) The nine misfiled `OUTSTANDING_WORK.md` rows (river
+  styling, zoom-sensitive rivers, the four drawing techniques, geology first,
+  this drift row, landslip/pinnacle) moved out of §2.4 (Vault) unchanged: six
+  rendering/drawing-technique rows into §2.5, and geology-first/this row/
+  landslip-pinnacle into a new §2.13 "Terrain generation" — no row text, no
+  headline count, no closure.
+  - **Tests:** four new Rust tests in `sample_bridge.rs`
+    (`short_substrate_fields_read_as_absent_not_zero`,
+    `each_short_substrate_field_is_independently_absent`,
+    `full_length_substrate_fields_read_as_present`, and the existing
+    `civ_sourced_fields_are_absent_without_a_civ_layer`). `cargo test
+    --workspace --no-fail-fast`: 181 result lines, 4037 passed, 0 failed
+    (re-run from a clean full workspace build after every edit in this
+    entry).
+  - **Probe:** `_dashreason_probe.tscn` (new, windowed): 11/11 green — a
+    positive control on a real generated world (Resistance/Drainage read real
+    numbers), the reasoned-dash path driven directly against
+    `right_dock.gd::_sample_field_text` with synthetic dictionaries, and a
+    zero-is-not-absent control (a real `0.0` reading is never mistaken for a
+    dash).
+  - **Not independently verified yet** — this entry records what was built
+    and measured; a second pass should re-open each item at its symbol before
+    this line is trusted as fact.
 
 ### 2026-09-25
 

@@ -77,8 +77,23 @@ the design reasoning behind both. **They no longer carry status** — as of
 not to believe:
 
 `MVP_SCOPE.md` · `PHASE2_SCOPE.md` · `JOURNEY_PLANNER_SCOPE.md` ·
-`ECONOMY_SCOPE.md` · `ASSET_LIBRARY_SCOPE.md` · `URBAN_MORPHOLOGY_SCOPE.md` ·
+`ECONOMY_SCOPE.md` · `MILITARY_MANPOWER_SCOPE.md` (standing/field/emergency
+armies and war duration, from five variables — carries the owner's supplied
+specification verbatim, since the reference has no model to check it against) ·
+`RELIGION_DIFFUSION_SCOPE.md` (a quantitative religion-diffusion model scoped
+from an owner-supplied paper, preserved verbatim for the same reason — new
+scope, not a port) · `TIMELINE_SCOPE.md` (the timeline / collapse-recovery
+simulation, its reference function list re-verified line by line) ·
+`STORY_PLANNING_SCOPE.md` (settlement timelines, the conflict overlay and the
+Journey entity over the Timeline's year cursor; carries the owner's three
+2026-08-25 forks) ·
+`ASSET_LIBRARY_SCOPE.md` · `URBAN_MORPHOLOGY_SCOPE.md` ·
 `TERRAIN_APPEARANCE_SCOPE.md` · `UNIFIED_TOOL_PLAN.md` ·
+`SCULPT_LIVE_SCOPE.md` (live sculpt manipulation, tiers L1-L3, owner ruling
+2026-08-18 — replaces the reference's deliberately cheap draft overlay) ·
+`EROSION_GEOLOGICAL_TIME_SCOPE.md` (geological time as a forcing framework for
+the erosion kernels; partial by its own account, and its §7 names what is
+missing) ·
 `GPU_LAYER_INTEGRATION_SCOPE.md` · `GPU_COMPUTE_PILOT_SCOPE.md` ·
 `GPU_STREAM_POWER_SCOPE.md` (stream-power erosion on the GPU as an algorithm
 change, SP-G0 to SP-G6, opening with a measurement go/no-go) ·
@@ -89,6 +104,10 @@ and 8192², and what actually decides how the app feels) ·
 `LOD_DETAIL_SCOPE.md` (scale-dependent terrain detail, LOD-D0 to D6) · `ANDROID_BUILD_SCOPE.md` ·
 `MAP_CONTEXT_SCOPE.md` (right-click card, tool ring, touch forms — scheduled 2026-09-26) ·
 `GEOLOGY_FIRST_SCOPE.md` (Ruling BH: a pre-erosion lithology model and caprock column that every landform process reads, GF-0 to GF-7, opening with a measurement harness) ·
+`EXPORT_SCOPE.md` (16K/32K single-image export; shelved by the owner
+2026-08-25, un-shelved 2026-09-06 and resumed by Ruling AP 2026-09-23 — its
+header carries the current scope) ·
+`GUI_SHELL_SCOPE.md` (the superseded panel-browser shell; history only) ·
 `GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
 `REFERENCES.md` · `SKILLS.md` · `LANDMARK_GENERATION_SCOPE.md`
 (causally-placed landmarks — the inventory of what this engine already had for
