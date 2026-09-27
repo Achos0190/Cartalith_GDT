@@ -4459,12 +4459,12 @@ class _RouteMapView extends Control:
 			return
 		var fit := _fit(rect, minv, maxv)
 		## `tile_bounds`'s own definition (`lod_bridge.rs`): `[0,gw-1]x[0,gh-1]`
-		## split `n` ways per axis, tiles sharing their edge sample. No half-
-		## texel inset (`_lod_tile_rect`'s own `half`/`tw/(tw-1)` refinement,
-		## for a continuously zooming camera keeping every texel centred on
-		## its sample at any depth) -- this panel draws one static crop, not a
-		## live zoom, and that difference really is sub-texel. `ponytail:` a
-		## deliberate simplification, not an oversight.
+		## split `n` ways per axis, tiles sharing their edge sample. Each sprite
+		## covers exactly its tile's sample span -- the same layout
+		## `viewport_host.gd`'s `_lod_tile_rect` uses since 2026-09-27 -- and
+		## `lod_tile.gdshader` pulls the UVs in by half a texel, so the first and
+		## last texel centres sit on the rect's edges and neighbours meet on
+		## their shared sample.
 		##
 		## **`_lod_tile_rect`'s OTHER term is not optional, and is kept.**
 		## `TILE_OFFSET` below is its `+ Vector2(0.5, 0.5)`, which is half a

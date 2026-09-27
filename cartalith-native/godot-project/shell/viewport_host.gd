@@ -3175,23 +3175,32 @@ func _sink_lod_parents() -> void:
 		if idx.x >= 0 and idx.x < _lod_child_level:
 			_lod_layer.move_child(s, 0)
 
-## The screen rect one chunk occupies, in `_camera`-local space.
+## The screen rect one chunk occupies, in `_camera`-local space: **exactly the
+## chunk's sample span**, first sample centre to last, with
+## `lod_tile.gdshader` pulling its UVs in by half a texel so texel `0`'s centre
+## lands on the rect's left edge and texel `tw-1`'s on its right.
 ##
-## Not simply "the chunk's cell footprint mapped through the map rect": the
-## two grids use different conventions and at deep zoom the difference is
-## most of a screen. `amplify_region` maps output texel `ox` to sample
-## coordinate `b.x + ox/(tw-1) * b.w` -- endpoints inclusive, texel *centres*
-## on sample coordinates -- while the base raster's own texel `i` covers the
-## span `[i, i+1)` cells, so sample coordinate `c` sits at cell `c + 0.5`. A
-## sprite of width `W` puts its texel `j`'s centre at `(j+0.5)/tw * W`.
-## Solving those three for the rect that lands every tile texel centre on its
-## own ground gives the half-texel inset below; at the deepest level, where a
-## chunk covers half a cell, dropping it would offset the tile by more than
-## its own width.
+## The two grids use different conventions. `amplify_region` maps output texel
+## `ox` to sample coordinate `b.x + ox/(tw-1) * b.w` -- endpoints inclusive,
+## texel *centres* on sample coordinates -- while the base raster's own texel
+## `i` covers `[i, i+1)` cells, so sample coordinate `c` sits at cell `c + 0.5`.
+## Hence the `+ 0.5` below. Neighbouring chunks share their edge sample
+## (`pyramid_tile_bounds`, `w = (gw-1)/n`), so the rects **abut** on that
+## shared sample, and a level is tiled with no overlap and no gap; a parent's
+## rect is exactly the union of its four children's.
 ##
-## Adjacent chunks therefore overlap by exactly one texel, which is correct
-## and not a seam: the pyramid has them *share* that edge sample
-## (`pyramid_tile_bounds`, `w = (gw-1)/n`), so both draw the same value there.
+## **Why not the half-texel-outset rect this used until 2026-09-27.** That rect
+## put the texel centres on the same ground with no shader help, but it made
+## neighbours overlap by one texel and left half a texel at each edge
+## clamp-flat. Both were harmless while tiles were opaque; since LOD-D3 a child
+## mid-morph is drawn at alpha `t` over its parent, so the overlap column was
+## blended TWICE -- a one-pixel stripe at every tile edge with the parent's
+## weight `(1-t)^2` instead of `1-t`. Measured on `_lodsweep_probe.gd`'s
+## constant-zoom pan (seed 71077345, 512x384, zoom 16.1, child morph 0.356):
+## child-only boundary columns scored seam ratios up to 2.04 against about 1.2
+## with the parent level hidden. The parent was also laid out by its CHILD's
+## half texel to hide the same overlap, which squeezed it by `1/(2tw)`;
+## abutting rects need neither.
 ##
 ## `null` (not a `Rect2`) for a degenerate texture, the same "no tile" answer
 ## `_build_lod_tile` gives for a `null` synthesis result.
@@ -3202,51 +3211,15 @@ func _sink_lod_parents() -> void:
 func _lod_tile_rect(idx: Vector3i, tex: Texture2D, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> Variant:
 	if tex == null:
 		return null
-	var tw := tex.get_width()
-	var th := tex.get_height()
-	if tw < 2 or th < 2:
+	if tex.get_width() < 2 or tex.get_height() < 2:
 		return null
 	var n: int = _bridge.lod_tiles_per_axis(idx.x)
 	if n <= 0:
 		return null
 	var step := _lod_step(g, n)
 	var b := Vector2(idx.y * step.x, idx.z * step.y)
-	## Cell-space span of the drawn rect: half a texel out from the first and
-	## last sample, and hence `tw/(tw-1)` of the chunk's own sample span.
-	var half := Vector2(0.5 * step.x / float(tw - 1), 0.5 * step.y / float(th - 1))
-	var span := Vector2(step.x * tw / float(tw - 1), step.y * th / float(th - 1))
-	## **A parent is inset by its CHILD's half texel, not its own** -- LOD-D3,
-	## and it is worth the four lines because it was measured, not reasoned.
-	##
-	## The inset above is half of *this* tile's texel, which is correct for a
-	## tile drawn on its own. A parent's texel is twice a child's, so a parent
-	## laid out that way overhangs the union of the four children it stands
-	## behind by half a child texel on every side. While the children are
-	## opaque that overhang is invisible -- it is covered by the neighbouring
-	## children. The moment the morph makes a child partly transparent it is
-	## not: every parent boundary paints a band of pure parent, about a pixel
-	## wide, offset from the child boundary it is supposed to sit under.
-	##
-	## Measured on `_lodsweep_probe.gd`'s constant-zoom pan (seed 483920,
-	## 512x384, seam ratio, median of 120 frames, reproduced to the digit
-	## across two runs): **3.4707 with the parent laid out by its own texel,
-	## 1.2327 laid out by its child's.** Suppressing the parent level entirely
-	## gives 1.3179, so this is not the morph's seam and it is not the
-	## parent's content -- it is the quarter of a texel between two rects that
-	## are supposed to cover the same ground.
-	##
-	## The cost is that a parent's texel centres land half a child texel off
-	## their own ground. That is a sub-pixel resample of the *blend partner*,
-	## which is what a parent is; a hard band at a tile edge is not.
-	##
-	## The child path is left arithmetically untouched -- same expressions,
-	## same order -- so nothing about the level being drawn moves by an ULP.
-	if idx.x == _lod_parent_level and _lod_child_level == idx.x + 1:
-		half *= 0.5
-		span = step + half * 2.0
-	var c0 := b + Vector2(0.5, 0.5) - half
 	var scale_v := displayed_size / Vector2(g)
-	return Rect2(displayed_origin + c0 * scale_v, span * scale_v)
+	return Rect2(displayed_origin + (b + Vector2(0.5, 0.5)) * scale_v, step * scale_v)
 
 ## Puts one tile sprite over `rect`, which is in `_camera`-local space.
 ##
@@ -3887,8 +3860,8 @@ func _chunk_hue(z: int, col: int, row: int) -> Color:
 
 ## The rect a live tile actually occupies, read back off the `Sprite2D` rather
 ## than recomputed from `_lod_tile_rect()`'s inputs. Deliberate: a
-## recomputation is a second implementation of the half-texel inset that
-## function's own 20-line comment exists to justify, and a debug overlay that
+## recomputation is a second implementation of the sample-span layout that
+## function's own comment exists to justify, and a debug overlay that
 ## disagrees with the tiles it annotates is worse than no overlay.
 func _lod_sprite_rect(sprite: Sprite2D) -> Rect2:
 	var tex_size := sprite.texture.get_size() if sprite.texture != null else Vector2.ONE

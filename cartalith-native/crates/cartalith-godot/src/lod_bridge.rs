@@ -194,7 +194,7 @@
 //! the atlas can only ever serve the shallow levels, where live synthesis is
 //! already a few milliseconds. Recorded as its own milestone, not folded in.
 
-use cartalith_engine::bake::pyramid_tile;
+use cartalith_engine::bake::pyramid_tile_padded;
 use cartalith_spatial::pyramid::{
     pyramid_dims, pyramid_level_for_zoom, pyramid_tile_bounds, ChunkId,
 };
@@ -433,24 +433,26 @@ fn synthesize_tile_rgba_with_z_base(
     }
     let bounds = tile_bounds(gw, gh, z, col, row)?;
     let opts = AmplifyOpts { seed, sea: ctx.sea_level, z_base: zb, ..AmplifyOpts::default() };
-    let tile = pyramid_tile(ctx.field, gw, gh, ChunkId::new(z as u32, col as u32, row as u32), TILE_PX, &opts);
     // `pyramid_tile` sizes itself with the same `tile_dims` call; taking the
     // dimensions from `tile_size_px` and checking rather than reading them
     // off the result is what lets a caller (`viewport_host.gd`'s tile rect,
     // and the tests) ask for the size *without* synthesising a tile first,
     // with no second formula that could drift.
     let (out_w, out_h) = tile_size_px(gw, gh, z);
-    if (tile.w, tile.h) != (out_w, out_h) {
+    let tb = TileBounds { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h };
+    // **The halo.** The colouriser's shading stencils (macro normal, meso
+    // step, crest) read up to `pad` texels past the tile edge; given the
+    // neighbouring ground there they shade a shared edge sample the same way
+    // from both sides, and given nothing they clamp and the two tiles
+    // disagree along every boundary -- `OUTSTANDING_WORK.md`'s LOD-tile
+    // "sawtooth" row. The core of the padded height is `pyramid_tile`'s own
+    // data bit for bit, so the atlas and this tile still agree on height.
+    let pad = render::tile_halo_px(ctx, out_w, out_h, tb);
+    let (tw, th, tile) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col as u32, row as u32), TILE_PX, pad, &opts);
+    if (tw, th) != (out_w, out_h) {
         return None;
     }
-    let rgba = render::render_biome_tile_rgba(
-        ctx,
-        &tile.data,
-        out_w,
-        out_h,
-        TileBounds { x: bounds.x, y: bounds.y, w: bounds.w, h: bounds.h },
-        tf,
-    );
+    let rgba = render::render_biome_tile_rgba_padded(ctx, &tile, out_w, out_h, pad, tb, tf);
     if rgba.len() != out_w * out_h * 4 {
         return None;
     }
@@ -760,6 +762,7 @@ pub fn synthesize_pyramid_masks(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cartalith_engine::bake::pyramid_tile;
 
     /// Same shape amplify.rs's own `synthetic_field` test helper uses (pure
     /// arithmetic, a quantised term so distinct tiles are actually distinct)
@@ -801,7 +804,7 @@ mod tests {
         // The pyramid convention `pyramid_tile_bounds` states: `[0, gw-1]`
         // split `2^z` ways, adjacent tiles sharing the edge sample. Both
         // halves matter downstream -- the shared sample is what makes the
-        // seam exact, and the `gw-1` (not `gw`) is what the half-texel rect
+        // seam exact, and the `gw-1` (not `gw`) is what the sample-span rect
         // in `viewport_host.gd`'s `_lod_tile_rect` is written against.
         let a = tile_bounds(257, 257, 2, 0, 0).unwrap();
         let b = tile_bounds(257, 257, 2, 1, 0).unwrap();
@@ -1065,8 +1068,8 @@ mod tests {
     #[test]
     fn a_non_square_map_gives_an_aspect_matched_tile() {
         // `tile_dims` keeps the tile's aspect, so a 2:1 map gives 2:1 tiles --
-        // which is what `_lod_tile_rect`'s half-texel maths reads back off the
-        // real texture rather than assuming square.
+        // which is why `lod_tile.gdshader`'s half-texel UV pull-in reads the
+        // texel size off the real texture rather than assuming square.
         let tw = TestWorld::new(synthetic_field(257, 129), 257, 129);
         let ctx = tw.ctx();
         let (rgba, w, h) = synthesize_tile_rgba(&ctx, &tw.fields(&ctx), 2, 1, 1, 1234).unwrap();
@@ -1097,6 +1100,49 @@ mod tests {
         assert!(distinct.len() > 16, "only {} distinct colours", distinct.len());
         assert!(rgba.chunks(4).any(|p| p[0] != p[2]), "every pixel is grey -- this is a mask, not a picture");
         assert!(rgba.chunks(4).all(|p| p[3] == 255), "every pixel must be opaque");
+    }
+
+    /// **The LOD-tile "sawtooth"** (`OUTSTANDING_WORK.md`): two neighbouring
+    /// tiles share their edge sample, so they must COLOUR it the same. Before
+    /// the halo they did not — the meso normal, the macro normal and the crest
+    /// all clamped at the tile edge, each from its own side — and the
+    /// difference was a line down every tile boundary on screen.
+    ///
+    /// Measured against the unpadded render of the very same heights, so the
+    /// test also shows the defect it guards against is real on this fixture
+    /// (a halo that silently did nothing would pass an absolute bar alone).
+    #[test]
+    fn neighbouring_tiles_colour_their_shared_edge_sample_alike() {
+        let tw = TestWorld::new(synthetic_field(256, 256), 256, 256);
+        let ctx = tw.ctx();
+        let tf = tw.fields(&ctx);
+        let (z, row) = (4, 7);
+        let zb = z_base();
+        let edge_delta = |col_l: i32| -> (f64, f64) {
+            let (l, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col_l, row, 1234).unwrap();
+            let (r, _, _) = synthesize_tile_rgba(&ctx, &tf, z, col_l + 1, row, 1234).unwrap();
+            let opts = AmplifyOpts { seed: 1234, sea: ctx.sea_level, z_base: zb, ..AmplifyOpts::default() };
+            let plain = |c: i32| {
+                let t = pyramid_tile(ctx.field, 256, 256, ChunkId::new(z as u32, c as u32, row as u32), TILE_PX, &opts);
+                let b = tile_bounds(256, 256, z, c, row).unwrap();
+                render::render_biome_tile_rgba(&ctx, &t.data, w, h, TileBounds { x: b.x, y: b.y, w: b.w, h: b.h }, &tf)
+            };
+            let (pl, pr) = (plain(col_l), plain(col_l + 1));
+            let seam = |a: &[u8], b: &[u8]| -> f64 {
+                let mut acc = 0.0;
+                for y in 0..h {
+                    let (o, p) = ((y * w + w - 1) * 4, y * w * 4);
+                    acc += (0..3).map(|k| (a[o + k] as f64 - b[p + k] as f64).abs()).fold(0.0, f64::max);
+                }
+                acc / h as f64
+            };
+            (seam(&l, &r), seam(&pl, &pr))
+        };
+        // Land with relief, east of the synthetic field's coast.
+        let (halo, clamped) = edge_delta(11);
+        eprintln!("shared-edge colour delta, mean of per-row max channel: halo {halo:.4}, clamped {clamped:.4} levels");
+        assert!(clamped > 1.0, "the fixture must show the clamped seam to be a test of anything: {clamped:.3}");
+        assert!(halo < 0.25 * clamped, "halo seam {halo:.3} vs clamped {clamped:.3} levels");
     }
 
     #[test]

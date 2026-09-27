@@ -8458,8 +8458,54 @@ pub fn tile_shade_exag(exag: f64, bounds_w: f64, w: usize) -> f64 {
 /// bridge on every zoom notch.
 #[allow(dead_code)]
 pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, bounds: TileBounds, tf: &TileFields) -> Vec<u8> {
+    render_biome_tile_rgba_padded(ctx, tile, w, h, 0, bounds, tf)
+}
+
+/// How many texels of halo [`render_biome_tile_rgba_padded`] needs around a
+/// `w × h` tile covering `bounds` so that **no shading stencil clamps at the
+/// tile edge**: the widest of the macro normal's 1, the meso step `ms` and the
+/// crest stencil `crest_step` — the three neighbourhood reads that take their
+/// neighbours from the tile's own height. Computed by the same two
+/// expressions the renderer uses, from the same arguments, so the halo and
+/// the stencils cannot disagree.
+///
+/// The per-tile SDFs (coast, river, biome boundary) also read the halo, but
+/// their range is many cells and is not what this is sized for; measured on
+/// `_lodsweep_probe.gd`'s pan they were not a seam contributor at the halo's
+/// absence (`OUTSTANDING_WORK.md`'s LOD-tile sawtooth row).
+pub fn tile_halo_px(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> usize {
+    if w < 2 || h < 2 {
+        return 0;
+    }
+    let cx = bounds.w / (w - 1) as f64;
+    let cy = bounds.h / (h - 1) as f64;
+    let ms = ((w.min(h) as f64 / MESO_STEP_DIV).trunc() as usize).max(2);
+    let crest = crest_step_for_scale((cx * cy).sqrt(), ctx.appearance.detail_scale_strength, w.min(h));
+    ms.max(crest).max(1)
+}
+
+/// [`render_biome_tile_rgba`] over a tile that carries a **halo** of `pad`
+/// texels on every side (`cartalith_engine::bake::pyramid_tile_padded`):
+/// `tile` is `(w + 2·pad) × (h + 2·pad)`, `w`/`h`/`bounds` describe the tile
+/// **without** it, and the result is the `w × h` core only.
+///
+/// Every per-tile constant (`cx`, `cy`, the meso step, the crest step, the
+/// scaled exaggeration) is computed from the core `w`/`h`, so the halo changes
+/// nothing but what a stencil reads past the edge: with it, the macro normal,
+/// the meso normal and the crest take real neighbours where they used to
+/// clamp, and two tiles either side of a boundary shade their shared edge
+/// sample identically. Without it the meso normal — `ms` texels a side, with
+/// no `/ms` — halved its gradient over an `ms`-wide band at every tile edge,
+/// which `_lodsweep_probe.gd`'s pan measured as the dominant seam at 512×384
+/// (`OUTSTANDING_WORK.md`'s LOD-tile sawtooth row). `pad == 0` is the
+/// reference's `renderBiomeTileRGBA`, and `golden_parity_tile_biome.rs` pins
+/// it there.
+#[allow(dead_code)]
+pub fn render_biome_tile_rgba_padded(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields) -> Vec<u8> {
     let (gw, gh) = (ctx.gw, ctx.gh);
-    if w == 0 || h == 0 || tile.len() < w * h || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
+    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    let padf = pad as f64;
+    if w == 0 || h == 0 || tile.len() < pw * ph || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
         return Vec::new();
     }
     let a = &ctx.appearance;
@@ -8515,12 +8561,12 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     // the curvature and the slope gate are still read in coarse-cell units and
     // `CREST_SLOPE_HI` still means what it meant. Passing one without the
     // other would silently re-scale the gate by the step.
-    let crest_b = build_crest(tile, w, h, sl, cx * crest_step as f64, cy * crest_step as f64, crest_step, a);
+    let crest_b = build_crest(tile, pw, ph, sl, cx * crest_step as f64, cy * crest_step as f64, crest_step, a);
 
     // B5 coast SDF, from the tile's own height. `buildCoastSDF` and this are
     // the same function over the same mask; `build_river_sdf`'s doc comment
     // carries the term-by-term proof for the sibling case.
-    let coast_b = if a.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(tile, w, h, sl) } else { Vec::new() };
+    let coast_b = if a.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(tile, pw, ph, sl) } else { Vec::new() };
 
     // B3 river SDF, from flow sampled at the tile's world coordinates, with
     // the **grid's** `riverFlowThresh(GW, GH)` — the reference's own argument
@@ -8529,11 +8575,13 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     // that is the off state rather than a guessed threshold.
     let river_b = match ctx.flow {
         Some(flow) if a.sdf_rivers > 0.0 && ctx.river_thresh > 0.0 => {
-            let mut tfl = vec![0f32; w * h];
-            for yy in 0..h {
-                let wyy = bounds.y + yy as f64 * cy;
-                for xx in 0..w {
-                    tfl[yy * w + xx] = sample_arr(flow, bounds.x + xx as f64 * cx, wyy, gw, gh) as f32;
+            // Over the halo too, so the SDF sees channels just past the edge.
+            // `yy as f64 - padf` is exactly `yy as f64` at `pad == 0`.
+            let mut tfl = vec![0f32; pw * ph];
+            for yy in 0..ph {
+                let wyy = bounds.y + (yy as f64 - padf) * cy;
+                for xx in 0..pw {
+                    tfl[yy * pw + xx] = sample_arr(flow, bounds.x + (xx as f64 - padf) * cx, wyy, gw, gh) as f32;
                 }
             }
             // LOD-D5 stage 4: the grid's threshold at grid resolution, and
@@ -8543,7 +8591,7 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
             // reference's own argument (11683) is preserved where it bites —
             // `tile_river_thresh` never returns more than `ctx.river_thresh`,
             // so a tile can still only ever agree with the map or add to it.
-            build_river_sdf(&tfl, w, h, tile_river_thresh(ctx.river_thresh, cells_per_px, scale_k))
+            build_river_sdf(&tfl, pw, ph, tile_river_thresh(ctx.river_thresh, cells_per_px, scale_k))
         }
         _ => Vec::new(),
     };
@@ -8556,22 +8604,22 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     // same breath; matching its raster is what keeps the ecotone widths a tile
     // draws the same ones the reference draws.
     let biome_bd = if a.sdf_biomes > 0.0 {
-        let mut bio = vec![0u8; w * h];
-        for yy in 0..h {
-            let wyy = bounds.y + yy as f64 * cy;
-            for xx in 0..w {
-                let hh = tile[yy * w + xx] as f64;
-                bio[yy * w + xx] = if hh < sl {
+        let mut bio = vec![0u8; pw * ph];
+        for yy in 0..ph {
+            let wyy = bounds.y + (yy as f64 - padf) * cy;
+            for xx in 0..pw {
+                let hh = tile[yy * pw + xx] as f64;
+                bio[yy * pw + xx] = if hh < sl {
                     0
                 } else {
-                    let wxx = bounds.x + xx as f64 * cx;
+                    let wxx = bounds.x + (xx as f64 - padf) * cx;
                     // `BIOME_INDEX[classifyBiome(t, m)]` — `classify_biome`
                     // already returns that 1-based index (`0` is ocean).
                     cartalith_civ::classify_biome(sample_arr(ctx.temperature, wxx, wyy, gw, gh), sample_arr(ctx.rainfall, wxx, wyy, gw, gh))
                 };
             }
         }
-        build_biome_boundary_dist(&bio, w, h)
+        build_biome_boundary_dist(&bio, pw, ph)
     } else {
         Vec::new()
     };
@@ -8621,17 +8669,21 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
     // across pixels. The result does not depend on the schedule.
     rgb.par_chunks_mut(w * 3).enumerate().for_each(|(y, out)| {
         let wy = bounds.y + y as f64 * cy;
-        let ro = y * w;
+        // `i` indexes the (halo-carrying) height buffer and every per-tile
+        // field built over it; `x`/`y` stay core coordinates for the world
+        // position and the output.
+        let (yp, ro) = (y + pad, (y + pad) * pw);
         for x in 0..w {
-            let i = ro + x;
+            let xp = x + pad;
+            let i = ro + xp;
             let ht = tile[i] as f64;
             let wx = bounds.x + x as f64 * cx;
 
             // --- 1. the macro normal, from the tile's own height (11714) ----
-            let l = cartalith_terrain::tile_render::edge_l(tile, w, x, ro);
-            let r = cartalith_terrain::tile_render::edge_r(tile, w, x, ro);
-            let u = cartalith_terrain::tile_render::edge_u(tile, w, h, x, y);
-            let d = cartalith_terrain::tile_render::edge_d(tile, w, h, x, y);
+            let l = cartalith_terrain::tile_render::edge_l(tile, pw, xp, ro);
+            let r = cartalith_terrain::tile_render::edge_r(tile, pw, xp, ro);
+            let u = cartalith_terrain::tile_render::edge_u(tile, pw, ph, xp, yp);
+            let d = cartalith_terrain::tile_render::edge_d(tile, pw, ph, xp, yp);
             let (mut nx, mut ny, mut nz) = (-(r - l) * ex, -(d - u) * ex, 1.0f64);
             let il = 1.0 / cartalith_jsmath::js_hypot3(nx, ny, nz);
             nx *= il;
@@ -8696,7 +8748,7 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                     // departure 2 in the section comment; that normaliser is
                     // `shadeFactor2`'s, and the reference's tile does not
                     // carry it.
-                    let l2 = tile[ro + if x >= ms { x - ms } else { x }] as f64;
+                    let l2 = tile[ro + if xp >= ms { xp - ms } else { xp }] as f64;
                     // `x + ms < w`, not `x < w - ms`: the reference's `usize`
                     // is a double and `W - ms` is simply negative on a tile
                     // narrower than the step, while here it UNDERFLOWS to
@@ -8704,9 +8756,9 @@ pub fn render_biome_tile_rgba(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize,
                     // the end. Same value on every tile the bridge builds, and
                     // the difference is a panic across the gdext boundary on a
                     // 1x1 one (`malformed_calls_return_empty_rather_than_panicking`).
-                    let r2 = tile[ro + if x + ms < w { x + ms } else { x }] as f64;
-                    let u2 = tile[(if y >= ms { y - ms } else { y }) * w + x] as f64;
-                    let d2 = tile[(if y + ms < h { y + ms } else { y }) * w + x] as f64;
+                    let r2 = tile[ro + if xp + ms < pw { xp + ms } else { xp }] as f64;
+                    let u2 = tile[(if yp >= ms { yp - ms } else { yp }) * pw + xp] as f64;
+                    let d2 = tile[(if yp + ms < ph { yp + ms } else { yp }) * pw + xp] as f64;
                     let (mut mx, mut my, mut mz) = (-(r2 - l2) * ex, -(d2 - u2) * ex, 1.0f64);
                     let iml = 1.0 / cartalith_jsmath::js_hypot3(mx, my, mz);
                     mx *= iml;

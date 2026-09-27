@@ -81,9 +81,21 @@ const LOD_PX_PER_CELL_THRESHOLD := 1.0
 ## re-scaled by `map_overlay.gd`'s `_civ_zoom_k()` on every zoom notch, which is
 ## a real screen change that no camera warp can undo, so it would read as a pop
 ## at every frame of the sweep.
+##
+## **`rivers` and `conflict` were missing until 2026-09-27** -- both arms are
+## newer than this list, and nothing re-derived it when they landed. `rivers`
+## is the one that mattered: since the owner's 2026-09-22 ruling a generated
+## world's rivers are vector strokes drawn OVER the tile layer, so they are an
+## overlay like the rest, and metric 2 read them as seams. Measured on the
+## constant-zoom pan (seed 71077345, 512x384, frame 65): a wide river stroke
+## with a straight vertical edge one pixel from a tile boundary put that
+## boundary's column step at 0.351 L* against 0.14 for its neighbours, while
+## the same frame with rivers hidden read 0.146 / 0.164 at the boundary --
+## no seam in the tiles at all. The scope's own wording is *"with overlays
+## hidden"*.
 const OVERLAY_LAYERS: PackedStringArray = [
 	"territory", "provinces", "settlements", "roads", "sea_routes",
-	"landmarks", "landmark_rejects", "urban_layouts",
+	"landmarks", "landmark_rejects", "urban_layouts", "rivers", "conflict",
 ]
 
 const WATCHDOG_S := 3600
@@ -845,8 +857,8 @@ func _to_crop(local: Rect2, cap: Dictionary) -> Rect2:
 ##
 ## Read off the live `Sprite2D`s exactly as `viewport_host.gd::_lod_sprite_rect`
 ## does, and for its stated reason: recomputing them would be a second
-## implementation of the half-texel inset that function's own comment exists to
-## justify, and a harness that disagrees with the tiles it is measuring is worse
+## implementation of the sample-span layout that function's own comment exists
+## to justify, and a harness that disagrees with the tiles it is measuring is worse
 ## than no harness.
 func _tile_rects(cap: Dictionary) -> Dictionary:
 	var flat := PackedFloat32Array()

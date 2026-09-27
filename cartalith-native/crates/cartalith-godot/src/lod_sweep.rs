@@ -318,8 +318,8 @@ fn column_step(plane: &[f64], w: usize, h: usize, x: usize) -> f64 {
 /// neighbours, per boundary column, summarised as `(max, median, n)`.
 ///
 /// `cols` are crop-local screen columns where a tile edge falls; the probe reads
-/// them off the live `Sprite2D` rects rather than recomputing the half-texel
-/// inset `viewport_host.gd::_lod_tile_rect` exists to justify.
+/// them off the live `Sprite2D` rects rather than recomputing the sample-span
+/// layout `viewport_host.gd::_lod_tile_rect` exists to justify.
 ///
 /// A boundary is **dropped** — not scored zero — when it is too near the crop
 /// edge to have four neighbours a side, when fewer than

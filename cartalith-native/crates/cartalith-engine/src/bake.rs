@@ -63,7 +63,7 @@ use cartalith_spatial::pyramid::{
     baked_cover, pyramid_dims, pyramid_tile_bounds, pyramid_tile_count, ChunkId,
 };
 use cartalith_spatial::{tile_dims, Region};
-use cartalith_terrain::amplify::{add_zoom_detail, refine_tile, AmplifyOpts};
+use cartalith_terrain::amplify::{add_zoom_detail_padded, refine_tile_padded, AmplifyOpts};
 use rayon::prelude::*;
 use std::collections::BTreeSet;
 
@@ -111,6 +111,27 @@ pub fn pyramid_tile(
     tile_size: usize,
     opts: &AmplifyOpts,
 ) -> PyramidTile {
+    let (w, h, data) = pyramid_tile_padded(coarse, cw, ch, id, tile_size, 0, opts);
+    PyramidTile { id, w, h, data }
+}
+
+/// [`pyramid_tile`] with a halo of `pad` texels on every side
+/// (`cartalith_terrain::amplify::amplify_region_padded`): returns `(w, h,
+/// data)`, where `w`/`h` are the tile's **own** size, as [`pyramid_tile`]
+/// reports them, and `data` is `(w + 2·pad) × (h + 2·pad)` with its inner
+/// `w × h` equal to [`pyramid_tile`]'s `data` bit for bit. The halo is the neighbouring tiles' own texels,
+/// so a consumer that reads a few texels past the edge (the deep-zoom
+/// colouriser's shading stencils) sees the ground that is really there rather
+/// than a clamp. `pad == 0` is [`pyramid_tile`]'s own data.
+pub fn pyramid_tile_padded(
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    id: ChunkId,
+    tile_size: usize,
+    pad: usize,
+    opts: &AmplifyOpts,
+) -> (usize, usize, Vec<f32>) {
     let d = pyramid_dims(id.z as i32);
     // The reference's own `region={x:0, y:0, w:cW-1, h:cH-1}` -- the inset is
     // the sample-coordinate convention, see `pyramid`'s module docs.
@@ -121,13 +142,13 @@ pub fn pyramid_tile(
         d.rows as usize,
         tile_size,
     );
-    let mut data = refine_tile(
+    let mut padded = refine_tile_padded(
         coarse, cw, ch, &region, d.cols as usize, d.rows as usize, id.col as usize,
-        id.row as usize, td.w, td.h, opts,
+        id.row as usize, td.w, td.h, pad, opts,
     );
     let b = pyramid_tile_bounds(cw, ch, id.z as i32, id.col, id.row);
-    add_zoom_detail(&mut data, td.w, td.h, coarse, cw, ch, &b, id.z as i32, opts);
-    PyramidTile { id, w: td.w, h: td.h, data }
+    add_zoom_detail_padded(&mut padded, td.w, td.h, pad, coarse, cw, ch, &b, id.z as i32, opts);
+    (td.w, td.h, padded)
 }
 
 /// Everything a bake needs that is not the tile list.

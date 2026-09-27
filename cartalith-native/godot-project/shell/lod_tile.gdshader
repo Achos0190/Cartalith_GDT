@@ -92,7 +92,13 @@ uniform float morph : hint_range(0.0, 1.0) = 1.0;
 uniform bool under_parent = false;
 
 void fragment() {
-	vec4 tile = texture(TEXTURE, UV);
+	// The sprite's rect is the chunk's SAMPLE span (`viewport_host.gd`'s
+	// `_lod_tile_rect`, and `journey_planner_view.gd`'s crop), so UV 0 and 1 are
+	// the first and last texel CENTRES, not the texture's outer edges: pull
+	// the lookup in by half a texel. Neighbouring tiles then meet on their
+	// shared edge sample with no overlap -- an overlapping column would be
+	// alpha-blended twice mid-morph, which was a seam.
+	vec4 tile = texture(TEXTURE, UV * (1.0 - TEXTURE_PIXEL_SIZE) + 0.5 * TEXTURE_PIXEL_SIZE);
 	if (under_parent) {
 		COLOR = vec4(tile.rgb, morph * tile.a);
 	} else {

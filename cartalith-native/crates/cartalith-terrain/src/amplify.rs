@@ -219,6 +219,33 @@ pub fn amplify_region(
     out_h: usize,
     opts: &AmplifyOpts,
 ) -> Vec<f32> {
+    amplify_region_padded(src, src_w, src_h, region, out_w, out_h, 0, opts)
+}
+
+/// [`amplify_region`] with a **halo** of `pad` extra texels on every side:
+/// the result is `(out_w + 2·pad) × (out_h + 2·pad)`, and its texel
+/// `(ox + pad, oy + pad)` is [`amplify_region`]'s texel `(ox, oy)` **bit for
+/// bit** — the same expression with the same operands, since a halo texel is
+/// only the same mapping evaluated at `ox = -pad..0` and `out_w..out_w+pad`.
+/// The detail is sampled in continuous coarse coordinates, so the halo holds
+/// exactly the texels the neighbouring tile has at those positions.
+///
+/// It exists for the deep-zoom tile colouriser (`cartalith-godot`'s
+/// `lod_bridge::synthesize_tile_rgba`), whose shading reads neighbours up to a
+/// few texels away: without a halo it had to clamp at the tile edge, and the
+/// two tiles either side of a boundary shaded their shared edge differently.
+/// `pad == 0` is [`amplify_region`] itself.
+#[allow(clippy::too_many_arguments)]
+pub fn amplify_region_padded(
+    src: &[f32],
+    src_w: usize,
+    src_h: usize,
+    region: &FloatRegion,
+    out_w: usize,
+    out_h: usize,
+    pad: usize,
+    opts: &AmplifyOpts,
+) -> Vec<f32> {
     assert!(src_w > 0 && src_h > 0, "amplify_region needs a non-empty source field");
     assert!(
         src.len() >= src_w * src_h,
@@ -227,7 +254,9 @@ pub fn amplify_region(
         src_w * src_h
     );
     let FloatRegion { x: rx, y: ry, w: rw, h: rh } = *region;
-    let mut out = vec![0.0f32; out_w * out_h];
+    let (pw, ph) = (out_w + 2 * pad, out_h + 2 * pad);
+    let padf = pad as f64;
+    let mut out = vec![0.0f32; pw * ph];
     // Row-parallel (`CPU_MULTITHREADING_SCOPE.md`'s own `output[i] = f(input, i)`
     // bar): every output pixel is a pure function of the frozen `src` and its
     // own `(ox, oy)`, so the arithmetic per pixel is untouched and unreordered
@@ -243,15 +272,18 @@ pub fn amplify_region(
     // ~25% is ever wanted: a batch entry point on `WorldGen` taking the whole
     // `build_keys` set, with `viewport_host.gd`'s per-tile loop calling it once
     // -- `LOD_TILING_INTEGRATION_SCOPE.md`'s milestone, and a shell change.
-    out.par_chunks_mut(out_w).enumerate().for_each(|(oy, out_row)| {
+    out.par_chunks_mut(pw).enumerate().for_each(|(oy, out_row)| {
+        // `oy - pad` as a float: exactly `oy` at `pad == 0`.
+        let oy = oy as f64 - padf;
         let cy = if rh > 1.0 {
-            ry + (oy as f64 / (out_h as f64 - 1.0)) * (rh - 1.0)
+            ry + (oy / (out_h as f64 - 1.0)) * (rh - 1.0)
         } else {
             ry
         };
         for (ox, o) in out_row.iter_mut().enumerate() {
+            let ox = ox as f64 - padf;
             let cx = if rw > 1.0 {
-                rx + (ox as f64 / (out_w as f64 - 1.0)) * (rw - 1.0)
+                rx + (ox / (out_w as f64 - 1.0)) * (rw - 1.0)
             } else {
                 rx
             };
@@ -314,6 +346,25 @@ pub fn refine_tile(
     tile_h: usize,
     opts: &AmplifyOpts,
 ) -> Vec<f32> {
+    refine_tile_padded(src, src_w, src_h, region, cols, rows, col, row, tile_w, tile_h, 0, opts)
+}
+
+/// [`refine_tile`] with [`amplify_region_padded`]'s halo of `pad` texels.
+#[allow(clippy::too_many_arguments)]
+pub fn refine_tile_padded(
+    src: &[f32],
+    src_w: usize,
+    src_h: usize,
+    region: &FloatRegion,
+    cols: usize,
+    rows: usize,
+    col: usize,
+    row: usize,
+    tile_w: usize,
+    tile_h: usize,
+    pad: usize,
+    opts: &AmplifyOpts,
+) -> Vec<f32> {
     let step_x = region.w / cols as f64;
     let step_y = region.h / rows as f64;
     let sub = FloatRegion {
@@ -322,7 +373,7 @@ pub fn refine_tile(
         w: step_x + 1.0,
         h: step_y + 1.0,
     };
-    amplify_region(src, src_w, src_h, &sub, tile_w, tile_h, opts)
+    amplify_region_padded(src, src_w, src_h, &sub, tile_w, tile_h, pad, opts)
 }
 
 /// `addZoomDetail(data, W, H, coarse, cW, cH, b, z, opts)` (reference line
@@ -433,7 +484,30 @@ pub fn add_zoom_detail(
     z: i32,
     opts: &AmplifyOpts,
 ) {
-    assert!(data.len() >= w * h, "add_zoom_detail data is too short");
+    add_zoom_detail_padded(data, w, h, 0, coarse, cw, ch, b, z, opts)
+}
+
+/// [`add_zoom_detail`] over a tile carrying [`amplify_region_padded`]'s halo:
+/// `data` is `(w + 2·pad) × (h + 2·pad)`, `w`/`h`/`b` describe the tile
+/// **without** it, and every texel — halo included — gets the octaves at the
+/// same coarse coordinate `b.x + (ox/(w-1))·b.w` extends to. The core texels
+/// are [`add_zoom_detail`]'s own, bit for bit; `pad == 0` is that function.
+#[allow(clippy::too_many_arguments)]
+pub fn add_zoom_detail_padded(
+    data: &mut [f32],
+    w: usize,
+    h: usize,
+    pad: usize,
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    b: &FloatRegion,
+    z: i32,
+    opts: &AmplifyOpts,
+) {
+    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    let padf = pad as f64;
+    assert!(data.len() >= pw * ph, "add_zoom_detail data is too short");
     assert!(cw > 0 && ch > 0 && coarse.len() >= cw * ch, "add_zoom_detail coarse is too short");
     let extra = i32::min(6, z - opts.z_base);
     if extra <= 0 {
@@ -451,14 +525,16 @@ pub fn add_zoom_detail(
     // only its own `data[i]` and the frozen `coarse`, and writes only `data[i]`.
     // This is the term that grows with depth (up to 6 extra fbm octaves per
     // pixel), so it is most of a deep tile's cost.
-    data[..w * h].par_chunks_mut(w).enumerate().for_each(|(oy, row)| {
-        let cy = b.y + if h > 1 { oy as f64 / (h as f64 - 1.0) * b.h } else { 0.0 };
+    data[..pw * ph].par_chunks_mut(pw).enumerate().for_each(|(oy, row)| {
+        let oy = oy as f64 - padf;
+        let cy = b.y + if h > 1 { oy / (h as f64 - 1.0) * b.h } else { 0.0 };
         for (ox, cell) in row.iter_mut().enumerate() {
             let base = *cell as f64;
             if base < sea {
                 continue;
             }
-            let cx = b.x + if w > 1 { ox as f64 / (w as f64 - 1.0) * b.w } else { 0.0 };
+            let ox = ox as f64 - padf;
+            let cx = b.x + if w > 1 { ox / (w as f64 - 1.0) * b.w } else { 0.0 };
             let gx = (samp(coarse, cw, ch, cx + 1.0, cy) - samp(coarse, cw, ch, cx - 1.0, cy)) * 0.5;
             let gy = (samp(coarse, cw, ch, cx, cy + 1.0) - samp(coarse, cw, ch, cx, cy - 1.0)) * 0.5;
             let relief = js_min(1.0, js_hypot(gx, gy) * 8.0);
@@ -748,6 +824,52 @@ mod tests {
         for x in 0..tw {
             assert_eq!(top[(th - 1) * tw + x].to_bits(), bottom[x].to_bits(), "seam mismatch at col {x}");
         }
+    }
+
+    /// The halo is only more of the same mapping: the padded tile's core is
+    /// the unpadded tile **bit for bit**, through both the refine and the zoom
+    /// octaves, so a halo can never move a texel the atlas already has.
+    #[test]
+    fn a_padded_tiles_core_is_the_unpadded_tile_bit_for_bit() {
+        let src = synthetic_field(48, 32, 5);
+        let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
+        let o = AmplifyOpts { seed: 4242, z_base: 1, ..Default::default() };
+        let (tw, th, pad) = (16, 12, 3);
+        let b = FloatRegion { x: 16.0, y: 4.0, w: 12.0, h: 8.0 };
+        let mut plain = refine_tile(&src, 48, 32, &reg, 2, 2, 1, 0, tw, th, &o);
+        add_zoom_detail(&mut plain, tw, th, &src, 48, 32, &b, 4, &o);
+        let mut padded = refine_tile_padded(&src, 48, 32, &reg, 2, 2, 1, 0, tw, th, pad, &o);
+        add_zoom_detail_padded(&mut padded, tw, th, pad, &src, 48, 32, &b, 4, &o);
+        let pw = tw + 2 * pad;
+        assert_eq!(padded.len(), pw * (th + 2 * pad));
+        for y in 0..th {
+            for x in 0..tw {
+                assert_eq!(plain[y * tw + x].to_bits(), padded[(y + pad) * pw + x + pad].to_bits(), "texel {x},{y}");
+            }
+        }
+    }
+
+    /// …and the halo holds the **neighbour's** texels: the left tile's halo
+    /// past its right edge is the right tile's first columns. Not to the bit —
+    /// the two evaluate the same coarse coordinate by different sums — but to
+    /// well under one `f32` step of anything a shader could see.
+    #[test]
+    fn a_tiles_halo_is_its_neighbours_own_texels() {
+        let src = synthetic_field(48, 32, 5);
+        let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
+        let o = AmplifyOpts { seed: 4242, ..Default::default() };
+        let (tw, th, pad) = (16, 12, 3);
+        let left = refine_tile_padded(&src, 48, 32, &reg, 2, 2, 0, 0, tw, th, pad, &o);
+        let right = refine_tile(&src, 48, 32, &reg, 2, 2, 1, 0, tw, th, &o);
+        let pw = tw + 2 * pad;
+        let mut worst = 0.0f32;
+        for y in 0..th {
+            for k in 0..=pad {
+                let a = left[(y + pad) * pw + pad + tw - 1 + k];
+                worst = worst.max((a - right[y * tw + k]).abs());
+            }
+        }
+        assert!(worst < 1e-6, "halo differs from the neighbour by {worst}");
     }
 
     #[test]
