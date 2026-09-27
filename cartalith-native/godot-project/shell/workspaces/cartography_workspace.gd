@@ -709,7 +709,10 @@ func _build_feature_style(parent: Control) -> void:
 			app.viewport.set_debug_layer("contested")
 			app.layers_popover.open())
 	contested.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	contested.tooltip_text = "territory_influence(): how evenly the owner and its nearest rival reach each cell. Secure interiors keep a dimmed owner tint, frontiers hatch into the rival's colour, and the popover carries the ramp's own legend. Built on demand from the capitals -- one Dijkstra per capital -- and held nowhere."
+	## `territory_influence()`: how evenly the owner and its nearest rival reach
+	## each cell, computed on demand from the capitals (one shortest-path search
+	## per capital) and held nowhere.
+	contested.tooltip_text = "How evenly a faction and its nearest rival reach each cell. Secure interiors keep a dimmed owner tint, frontiers hatch into the rival's colour, and the popover carries the ramp's own legend. Recomputed each time you open this, not stored."
 	DccWidgets.note(gaps,
 		"Border line width and style (GUI_GAP_REGISTER.md CA-17). The faction "
 		+ "wash has no outline at all -- build_territory_texture() is a per-cell "
@@ -2555,8 +2558,12 @@ func _build_label_classes(parent: Control) -> void:
 	_label_role_apply = DccWidgets.action(defaults, "Apply to this role's labels",
 		_apply_role_defaults_to_labels)
 
+	## There is no role-level font-family setting to hold: a label's own
+	## typography record only carries size/halo/tracking/italic/ink, and the
+	## per-label font choice lives on the label's own edit form
+	## (`map_overlay.gd::_label_font_for()`), not here.
 	_dead_text_row(defaults, "Font family",
-		"No field to hold a ROLE-level default -- LabelTypography is size/halo/tracking/italic/ink and set_field() has three arms. The per-label field is a different thing and is no longer dead: see the Font picker on the label's own edit form below, and map_overlay.gd::_label_font_for().")
+		"There is no role-level default for this yet. Set a font for an individual label on its own edit form below.")
 	_dead_text_row(defaults, "Weight",
 		"The same two gaps: no weight field on LabelTypography or MapLabel, and every loaded face this picker offers has no weight axis to select from.")
 	_dead_text_row(defaults, "Case",

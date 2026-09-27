@@ -2103,10 +2103,13 @@ func _build_npr() -> void:
 	_npr_slider(water, "Wave reach", "wave_dist", 3.0, 0.05, "×",
 		"How far the foam reaches offshore. 1× is the reference's own reach.",
 		npr, 0.25)
+	## Drawn as a shader overlay on the map (`water_anim_layer.gd`), not baked
+	## into the raster -- it costs nothing to turn off and on, and an export
+	## bake never carries it.
 	_anim_check = DccWidgets.toggle(water, "Animate water", bool(npr.get("animate_water", false)),
 		_on_animate_water,
-		"A travelling shimmer along river channels. Drawn as a shader overlay "
-		+ "on the map, not baked into the raster -- see water_anim_layer.gd.")
+		"A travelling shimmer along river channels. This is a screen effect, "
+		+ "not part of the map itself -- it never appears in an exported image.")
 	## v2.70 (`RC_ENGINE_CHANGES.md`): a flat limited-palette look, land and
 	## water both -- see `render.rs`'s `Npr::village`. An on/off replacement,
 	## not a slider, so it gets a checkbox like the two above rather than an

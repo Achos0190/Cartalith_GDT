@@ -798,6 +798,69 @@ func _counterfactual(w: Node, win: Window, foot: Container) -> void:
 		"the counterfactual left the window as it found it (min_size=%s, picker shown=%.3f)"
 			% [str(win.min_size), _shown(picker)])
 
+## Walks every visible `Control` under `root` and asserts its global rect lies
+## inside BOTH the window's own client rect (`_client_rect`, the "window body"
+## room this whole probe measures against) and the app's own viewport
+## (`get_viewport().get_visible_rect()`). Two separate terms because they are
+## not always the same rect: an embedded sub-`Window` wider than the viewport
+## it is embedded in can pass a window-local containment check while sitting
+## partly outside the viewport that actually gets drawn (`_counterfactual()`'s
+## own root-vs-window-local distinction, one level up).
+##
+## **Protects**: a route whose body overflows the phone room (the defect this
+## leg exists for) puts at least one control's `end.x` past both rects, which
+## this leg counts and fails on -- proven by running it against `HEAD~<this
+## batch>` (the `_row`/`_pattern_row` phone stack not yet applied), where it
+## fails on `export_maps` and `export_gis` and passes on every other route at
+## the same density.
+func _check_controls_in_bounds(root: Control, route: String, win: Window) -> void:
+	var win_rect := Rect2(Vector2.ZERO, _client_rect(win).size)
+	var vp_rect := Rect2(Vector2.ZERO, get_viewport().get_visible_rect().size)
+	var bad_win := 0
+	var bad_vp := 0
+	var n := 0
+	var worst: Control = null
+	var worst_over := 0.0
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var c: Control = stack.pop_back()
+		for ch in c.get_children():
+			if ch is Control and (ch as Control).is_visible_in_tree():
+				stack.append(ch as Control)
+		if c == root:
+			continue
+		var g := c.get_global_rect()
+		if g.size.x <= 0.0 or g.size.y <= 0.0:
+			continue
+		n += 1
+		## Global rect is window-local space already (an embedded `Window`'s
+		## children report their rects in that window's own coordinate space,
+		## the same space `win_rect` is built in here) -- add `win.position` to
+		## reach root-viewport space for the second check.
+		var over_win := maxf(0.0, g.end.x - win_rect.end.x)
+		if g.position.x < win_rect.position.x - 0.5 or g.end.x > win_rect.end.x + 0.5:
+			bad_win += 1
+			if over_win > worst_over:
+				worst_over = over_win
+				worst = c
+		var g_root := Rect2(g.position + Vector2(win.position), g.size)
+		if g_root.position.x < vp_rect.position.x - 0.5 or g_root.end.x > vp_rect.end.x + 0.5:
+			bad_vp += 1
+	if worst != null:
+		var wt := ""
+		if worst is Label:
+			wt = (worst as Label).text
+		elif worst is Button:
+			wt = (worst as Button).text
+		_log("    exportpanes worst: %s(%s) \"%s\" over the window body by %.0f px"
+			% [worst.name, worst.get_class(), wt.substr(0, 60), worst_over])
+	_check(bad_win == 0,
+		"%s: every one of %d visible controls is inside the window body (%d outside)"
+			% [route, n, bad_win])
+	_check(bad_vp == 0,
+		"%s: every one of %d visible controls is inside the app viewport (%d outside)"
+			% [route, n, bad_vp])
+
 func _ready() -> void:
 	_tag = _arg("--tag", "panemin")
 	_only = _arg("--route", "")
@@ -930,6 +993,21 @@ func _ready() -> void:
 		_check(cmin.x <= room + 0.5,
 			"%s: the route's contents fit the window it opens at (%.0f <= %.0f)"
 				% [route, cmin.x, room])
+		## **EXPORTPANES (`OUTSTANDING_WORK.md`, "Two handset route panes still
+		## overflow"): every visible child Control of this route's pane body,
+		## checked against BOTH the window's own client rect and the app's
+		## viewport, not just the aggregate `cmin.x` above.** The aggregate check
+		## says the pane as a whole is too wide; it cannot say which control pays
+		## for that, and a control could in principle sit inside an oversized
+		## body while itself being pushed off the edge, or vice versa -- the
+		## brief for this leg asks for the per-control claim directly rather than
+		## inferring it from the total. Phone only (`route == "export_maps"` or
+		## `"export_gis"` are named because those are the two rows the backlog
+		## item names, but the walk runs for every route reached at this
+		## density -- cheap, and a third route overflowing the same way would
+		## otherwise go unnoticed until it, too, got its own row).
+		if DccTheme.is_phone() and body != null:
+			await _check_controls_in_bounds(body, route, win)
 		## Only the routes that actually carry a picker -- the A/B's assertion
 		## is about a picker being pushed off the edge, and a route with none
 		## would make it unsatisfiable.

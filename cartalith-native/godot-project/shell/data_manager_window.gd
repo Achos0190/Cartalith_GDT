@@ -1198,14 +1198,34 @@ func _col_header(parent: Control, text: String, tip: String = "") -> Label:
 
 ## The canvas's `display:flex;align-items:center;gap:10px;padding:4px 0` row,
 ## with its `width:120px` label column. Returns the row to fill.
-func _row(parent: Control, label_text: String) -> HBoxContainer:
+##
+## **Phone: stacked, not the fixed-width side-by-side row.** `_build_pane()`'s
+## body sits in a `ScrollContainer` with horizontal scroll DISABLED, so this
+## row's own minimum width folds straight out to the window with no
+## scrollbar to hide an overflow behind (`MISTAKES.md`'s unclipped-rect row).
+## Measured at `--vp 500x1080 --force-touch` (`_panemin_probe.gd
+## --route export_maps --verbose`): Export ▸ Maps' Scheme row alone demands
+## `W_ROW_LABEL` (120) + 10 px separation + a 256 px segment group = 386 px
+## against 376 px of room -- the same trade `_build_tile_export_pane()`'s
+## two-column -> one-column swap already makes at this density, one level
+## down. Returning a plain `BoxContainer` rather than `HBoxContainer` is
+## deliberate: every caller only calls `add_child()`/passes the row into
+## `_segments()`/`_well_label()`/`DccWidgets.chip()`, none reads an
+## `HBoxContainer`-only member (checked at every call site, 2026-09-27).
+func _row(parent: Control, label_text: String) -> BoxContainer:
 	var p := DccWidgets.pad(parent, 0, 4, 0, 4)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	var row: BoxContainer
+	if _phone:
+		row = VBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+	else:
+		row = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
 	p.add_child(row)
 	if label_text != "":
 		var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
-		l.custom_minimum_size.x = W_ROW_LABEL
+		if not _phone:
+			l.custom_minimum_size.x = W_ROW_LABEL
 		l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 		row.add_child(l)
 	return row
@@ -1463,15 +1483,29 @@ func _pattern_rule(parent: Control, top: int, bottom: int) -> void:
 ## The artboard's form row: a `width:74px` mono label at `--m2` / `.1em` /
 ## `--faint`, then the control. A *different, narrower* label column from the
 ## Export ▸ Maps pane's `W_ROW_LABEL` 120 -- both are drawn, from two artboards.
+##
+## **Phone: stacked, not the fixed-width side-by-side row** -- the same trade
+## `_row()` above makes and for the same reason. Measured on `export_gis`'
+## EXTENT row at `--vp 500x1080 --force-touch` (`_panemin_probe.gd
+## --route export_gis --verbose`): `PATTERN_LABEL_W` (74) + 10 px separation +
+## an unwrapped 316 px hint label = 476 px against 376 px of room. Returns a
+## plain `BoxContainer`; every caller only calls `add_child()` on the result
+## (checked at every call site, 2026-09-27).
 func _pattern_row(parent: Control, label_text: String, top: int = 0,
-		top_align: bool = false) -> HBoxContainer:
+		top_align: bool = false) -> BoxContainer:
 	var p := DccWidgets.pad(parent, 0, top, 0, 0)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	var row: BoxContainer
+	if _phone:
+		row = VBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+	else:
+		row = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
 	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	p.add_child(row)
 	var l := DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1)
-	l.custom_minimum_size.x = PATTERN_LABEL_W
+	if not _phone:
+		l.custom_minimum_size.x = PATTERN_LABEL_W
 	l.vertical_alignment = VERTICAL_ALIGNMENT_TOP if top_align else VERTICAL_ALIGNMENT_CENTER
 	if top_align:
 		l.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -1712,6 +1746,21 @@ func _pattern_form(col: Control, id: String) -> void:
 				"· the Region marquee narrows Export ▸ Maps, not this route",
 				"text_ghost", DccTheme.FS_MICRO)
 			hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			## Phone only: this single-line hint is what actually drives
+			## `export_gis`' 476 px overflow (`_panemin_probe.gd`'s widest leaf
+			## at `--vp 500x1080 --force-touch`). `_pattern_row()`'s own phone
+			## stack removes the competing 74 px label column, but at 316 px
+			## unwrapped the hint alone still crowds a 376 px body next to
+			## "whole world" -- so it wraps and gives up its width claim, the
+			## same `autowrap_mode` + `SIZE_EXPAND_FILL` pair `_pattern_heading()`
+			## already uses for the purpose line above. **Expand flag is
+			## load-bearing, not the wrap alone**: `MISTAKES.md` records a wrap
+			## with no expand flag collapsing a label's minimum to 1 px and
+			## making it vanish beside an `EXPAND_FILL` sibling -- the same trap
+			## `clip_text` sets, in a different property.
+			if _phone:
+				hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+				hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			ext.add_child(hint)
 
 ## The route's own paragraph(s): what it really is -- the live description, the
@@ -1951,7 +2000,9 @@ func _pattern_actions(route: Dictionary) -> void:
 			var go := DccWidgets.modal_safe(_pane_footer, "Export", func():
 				_run_geojson_export_here())
 			go.disabled = _bridge == null or not _bridge.has_world
-			go.tooltip_text = ("export_geojson -> cartalith_engine::geojson, written with FileAccess. Choose the destination with Browse… if none is set."
+			## `export_geojson` -> `cartalith_engine::geojson`, written straight to
+			## disk with Godot's `FileAccess`.
+			go.tooltip_text = ("Writes the GeoJSON document to the destination above. Choose one with Browse… if none is set."
 				if not go.disabled else "No world is loaded, so there are no entities to describe.")
 		"export_assets":
 			_footer_note("routes to the Asset library")

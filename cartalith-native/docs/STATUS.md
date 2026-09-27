@@ -251,6 +251,57 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-27
 
+- **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
+  **(1) "Two handset route panes still overflow — and it is the BODY, not the
+  footer" (re-routed to `DataManagerWindow`).** Re-measured before touching
+  anything (`_panemin_probe.gd --route export_maps/export_gis --verbose
+  --force-touch --vp 500x1080`): `export_maps`' Scheme row (`_row()`, Tiles
+  column) demands 386 px against 376 px of room, driven by its 120 px fixed
+  label plus a 256 px segment group; `export_gis`' EXTENT row (`_pattern_row()`)
+  demands 476 px, driven by a 316 px unwrapped hint label beside a 74 px fixed
+  label — both bodies, confirmed against the window's own client rect, not the
+  footer (last batch's footer wrap). Fix, on phone only: `_row()` and
+  `_pattern_row()` (`data_manager_window.gd`) stack their label above the
+  control instead of beside it at a fixed width, the same trade
+  `_build_tile_export_pane()`'s two-column collapse already makes at this
+  density; the EXTENT hint label gets `autowrap_mode` + `SIZE_EXPAND_FILL`
+  (mirroring `_pattern_heading()`'s existing purpose-line idiom — a wrap
+  without the expand flag was tried and rejected by an earlier pass, per
+  `MISTAKES.md`'s clip_text-collapse trap). Ruling AZ (design from DCC
+  vocabulary, screenshots for approval) — both panes screenshotted at
+  1080×2340 (`_exportpanes_probe.gd`) and opened; no overflow, every control
+  reachable, `INCLUDE` chips and the EXTENT hint wrap cleanly. `_panemin_probe.gd`
+  extended with a per-control `_check_controls_in_bounds()` leg (every visible
+  control's global rect against both the window body and the app viewport);
+  run before the fix it failed as expected (`export_gis`: 30/53 controls
+  outside the window body, worst 82 px over; `export_maps`' aggregate
+  `contents_min` also over at 430 vs 412, though its per-control leg happened
+  to pass — the 18 px gap there never reached a real rendered control). After
+  the fix: `panemin` `fail=0 skipped=33` at both `--vp 500x1080` and `--vp
+  1080x2340` (both `--force-touch`), and `fail=0 skipped=15` unchanged at
+  desktop `--vp 1152x648`. **(2) "Developer code names are shown to users",
+  the 4 remaining tooltip hits** the 2026-09-27 tooltip sweep (below) could
+  not reach because this file set was held by the per-style rivers lane, now
+  released: `territory_influence()`/Dijkstra and `LabelTypography`/
+  `set_field()`/`map_overlay.gd::_label_font_for()` in
+  `cartography_workspace.gd`; `water_anim_layer.gd` in `render_workspace.gd`;
+  `cartalith_engine::geojson` in `data_manager_window.gd`. Each rewritten in
+  plain words with its provenance kept as a `##` comment above the line (the
+  `ad883b5` pattern) — no logic/signature changes. `_codenames_probe.gd`
+  re-run windowed: the tooltip pass now flags exactly one remaining distinct
+  hit, `data_manager_window.gd`'s `val_check` route ("There is a warning
+  collection…", naming `project_open()`) — not one of the four this batch was
+  scoped to, still inside a file the probe's own `SKIPPED_SOURCES` list
+  carries, left as the next tooltip-sweep row's finding rather than folded in
+  here. The visible-label pass is unchanged at its one known remaining hit
+  (`world_workspace.gd`'s `cartalith-spatial` note, out of scope — belongs to
+  the other lane, per this batch's brief). Regression: `_ctxphone_probe -- --vp
+  1080x2340 --force-touch` 56/56, `_ctxring_probe` 132/132, both unchanged.
+  `--check-only --script` clean on `data_manager_window.gd`,
+  `workspaces/cartography_workspace.gd`, `workspaces/render_workspace.gd` and
+  `_panemin_probe.gd`. **Not yet independently re-verified by the main loop or
+  a second session** — mark this row resolved only after that pass.
+
 - **`OUTSTANDING_WORK.md`'s "Developer code names are shown to users" row,
   tooltip sweep — done\*, verified by the main loop 2026-09-27 (`--check-only` on touched files, format-placeholder counts compared per file, the right_dock diff read).** Owner Ruling AQ
   (`LARGE_ITEM_RULINGS.md`, 2026-09-24): rewrite every developer code name
