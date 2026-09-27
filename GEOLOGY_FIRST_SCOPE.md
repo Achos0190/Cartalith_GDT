@@ -2,7 +2,7 @@
 
 **What this is.** The scope for owner **Ruling BH** (2026-09-27,
 `LARGE_ITEM_RULINGS.md`, *"geology first; every landform process reads it"*).
-It defines milestones **GF-0 to GF-9** and gives the reasoning for each. The
+It defines milestones **GF-0 to GF-13** and gives the reasoning for each. The
 backlog row is `OUTSTANDING_WORK.md`'s *"Geology first: lithology, layering and
 age drive every landform process"*.
 
@@ -14,14 +14,45 @@ document's original "no clock". The milestones were renumbered: the old GF-7
 (re-baseline and scrub) is now **GF-9**, and it still comes last. §5.4 records
 GF-0's measured baseline.
 
+**Amended 2026-09-27 for owner Ruling BM** (*"relief tracks rock by
+construction and by uplift-driven erosion"*). GF-2, GF-3 and GF-7 were built
+and measured (§5.6–§5.8): no setting of them makes relief track rock (B1, B2
+and B4 fail on every world), because under zero uplift the light pass lowers
+land by metres, rebound returns most of that, and the carve sets channel
+depth. The owner chose **both** remedies, and this amendment scopes them:
+- **§4.14, rock-aware construction.** After the column is derived, a
+  layer-through lowering of the pre-erosion surface by a rock-blind budget,
+  read through the column: a cap holds as a plateau until its thickness is
+  spent, weak rock goes down faster, and the breach line becomes a scarp. The
+  contact never moves, so the column and the surface stay consistent by
+  construction.
+- **§4.15, uplift-driven erosion.** An uplift field derived from the existing
+  tectonics, and an implicit stream-power stage run toward the steady state
+  in which relief is set by uplift ÷ erodibility (Whipple & Tucker 1999). The
+  clock scales its model time rather than its iteration count, so cost does
+  not grow with τ.
+- **§4.16**, how the two combine and in what order.
+- **§5.2's B1, B2 and B4 are revised**, and B8 and B12 extended, with the
+  evidence for each change in §5.9. B13–B15 are new.
+- **Milestones GF-10 to GF-13** (§7). GF-8 (painting) and GF-9 (re-baseline)
+  keep their numbers; GF-9 still comes last. The first new milestone, GF-10,
+  is a measurement only: a harness prototype showing that the proposed terms
+  can move B1, B2 and B4 at all.
+- Owner questions 12–19 (§9), each with a default.
+
+**Nothing of Ruling BM is built.** No figure in the BM sections was measured
+for this amendment; every figure there is either cited from §5.4–§5.8 or
+labelled as arithmetic.
+
 **What this is not.** It does not track progress. Status lives only in
 `cartalith-native/docs/STATUS.md`. A ruling on any owner question in §9 is
 recorded in `LARGE_ITEM_RULINGS.md`, not here.
 
 **How it was checked.** Every symbol cited in §1 was opened for this document on
 2026-09-27. Symbols are named instead of line numbers, because line numbers in
-this tree drift within a day. **No timing or landform figure in this document
-was measured.** Figures derived by arithmetic from a constant in the code are
+this tree drift within a day. **No timing or landform figure in §1–§4 was
+measured when it was written**; the measured figures are §5.4–§5.8's, each
+with its command. Figures derived by arithmetic from a constant in the code are
 labelled as arithmetic. Each literature value is cited, and each value that is
 a judgement is labelled as one, with the measurement that will tune it.
 
@@ -195,6 +226,13 @@ What it **does** provide, and this scope builds on it:
 
 So BH **runs on the existing pass structure**. Rock **formation age** is
 carried as a relative stratigraphic order (§2.4), not in years.
+
+*Superseded in part by Ruling BM (2026-09-27).* Point 4's "that is enough for
+this ruling" was measured false: §5.6–§5.8 found relative relief moving by
+metres, not the hundreds of metres B1, B2 and B4 read. Ruling BM makes uplift a
+real forcing inside this scope (§4.15), which the geological-time scope's §8
+left as its question. That scope's larger design stays declined; §4.15 takes
+only the uplift field and the implicit stage it needs.
 
 *Amended for Ruling BJ (2026-09-27).* The owner answered §9 Q4: **add a simple
 clock.** The ruling says the 2026-09-02 decline covered the geological-time
@@ -573,6 +611,12 @@ volcanism (+ setting kept) ─ craters ─ clamp ─ sea level ◄────�
 7. **The clock scales pass counts; it adds no stage** (§4.12, Ruling BJ). At
    its default of 1.0 every pass count is today's, by control flow. §4 adds
    passes where it says so, and GF-0's B9 measures their cost.
+8. **Ruling BM adds two stages, behind their own switch** (§4.16 gives the
+   full order). *Construction* (§4.14) runs right after the geology stage and
+   before the priming flow, so climate, rain and the first flow already see
+   the rock-shaped surface. *The uplift-driven stage* (§4.15) replaces the
+   light pass's stream power and rebound, and GF-3's threshold hillslope
+   still follows it before the trace.
 
 ---
 
@@ -992,6 +1036,383 @@ sculpted heightmap. The shell already asks before a regenerate that would
 discard hand-authored work (`_authored_inventory()`, which lists sculpt
 stamps and paint among others). GF-8 adds painted rock to that inventory.
 
+*Amended for Ruling BM.* When the relief switch (§4.16) is on, the painted
+window's chain gains the §4.14 construction delta and runs the §4.15 stage
+in place of the light stream-power call. The construction delta needs the
+lowering budget, which is recomputable from stored fields (`stress_field`,
+`boundary_mask`, `crust_field`; flexure is `compute_flexure` of the first
+two), and the structural surface, which is **not** stored today. GF-11
+decides whether to store the structural surface or the construction depth
+(4 B per cell either way, arithmetic), and discloses the memory. GF-8 is built
+after GF-12, so it inherits whichever chain exists.
+
+### 4.14 Rock-aware construction (GF-11; Ruling BM, part 1)
+
+**How the height is built today, read at its symbols.** In
+`generate_terrain_inner`:
+- `compute_warp` displaces the noise coordinates by up to
+  `0.18·tect.warp·gw` cells (arithmetic at the default `warp = 0.45`: 0.081 of
+  the map width).
+- `compute_height` writes, per cell,
+  `0.5 + α·(0.40·base + 0.50·t) + fwt·flex + hwt·hetero + β·(n − 0.5)·(0.25 + 0.75·rug)`,
+  where `base` is the blurred plate base, `t` is `stress_field` (or, with
+  world-structure on, `oro + min(σ, 0)`), `flex` is `compute_flexure`,
+  `hetero` is `compute_heterogeneity`, `n` is ridged or fBm noise at
+  frequency `5·terrain_detail_k`, and `rug = exp(−age·(1 + 6·age_inf))`.
+  The defaults are α 0.85, β 0.22, `flexure` 0.20, `hetero` 0.08 and
+  `age_inf` 0.6 (`WorldParams::defaults`).
+- Orogeny (`build_orogeny_field`, `smooth_orogeny`) runs only with
+  world-structure on, which is off at both boundaries. **The app has no
+  orogeny.**
+- `normalize_field` stretches the result min-max to 0–1. Volcanism and
+  craters are stamped on it, it is clamped to 0–1, and sea level is fixed.
+  Only then does `build_geology` derive the column from this surface.
+
+Two properties of that formula matter here:
+- **Nothing in it reads rock.** Its only lithology-like input is `age`,
+  which is margin distance, and it enters as roughness damping. At the
+  default `age_inf` the noise term's multiplier falls from 1.0 at a margin to
+  `0.25 + 0.75·e^(−4.6)` = 0.258 at the most distant cell (arithmetic). That
+  is where §5.4's negative B1 comes from: `compute_resistance` and §2.4's
+  granite both mark the old interior as strong, and the formula makes the old
+  interior smooth.
+- **The column is derived from its output.** The cover's structural lows and
+  its contact (`surface − CAP_FRACTION·cover`), the rift cap
+  (`surface − RIFT_CAP_M`) and the volcanic caps (`surface − vf·h`) are all
+  measured from this surface (`build_geology`). So any rock term applied
+  *before* `build_geology` would change the surface the column is read from:
+  the circularity the ruling warns of.
+
+**The options, and the choice.**
+1. *A multiplicative relief term inside `compute_height`*, scaling the noise
+   amplitude by strength. **Rejected.** It would write "relief ∝ strength"
+   into the surface directly, so B1 would pass by fiat, the same flaw §5.1
+   found in using `build_lithology` as a baseline. Noise amplitude is not the
+   relief a rock holds up. It would also need the column before the surface
+   it is derived from, so only the basement (which `build_geology` could
+   derive from plates alone) would be available, without caps.
+2. *An additive term by strength*, `z −= D·f(s)`. **Accepted in a
+   specific form**: as a lowering, not a raising; applied *after* the column;
+   and read through the layers, which is option 3.
+3. **A caprock-plateau construction through the column.** **Chosen.** It is a
+   stripping model: a rock-blind budget of denudation is spent through the
+   column at each unit's own erodibility. A cap is lowered slowly until it is
+   gone; then the substrate beneath goes fast.
+
+**The construction.** For each land cell `i` (structural surface
+`z₀(i) > sea`), with a lowering budget `B(i)` in metres (below), `k_t =
+κ(top)^c`, `k_s = κ(sub)^c` (§4.1's contrast `c`), and cap thickness
+`h(i) = z₀(i) − contact(i)` in metres:
+
+```
+single-layer:                         D = B·k_t
+two-layer, cap survives  (B·k_t ≤ h): D = B·k_t
+two-layer, cap breached  (B·k_t > h): D = B·k_s        (the cap is gone)
+z(i) = z₀(i) − m_to_norm(D)
+```
+
+- **At `c = 0` every `k` is 1 and `D = B` everywhere**, whatever the rock.
+  That is the rock-blind control arm of §5.1, exactly: the same budget, the
+  same surface, no rock. Every relative bar compares against it.
+- **Where the cap survives, the surface is lowered uniformly and stays a
+  plateau.** Where it is breached, the whole budget is spent at the
+  substrate's rate. The breach line is where `h` crosses `B·k_t`, and the
+  surface steps down across it by `B·(k_s − k_t)` (arithmetic): that is the
+  scarp, and its height is set by the budget and the contrast, not chosen.
+  With sandstone over shale at `c = 0.5`, `k_s − k_t = 1.581 − 0.894 = 0.687`
+  (arithmetic from §2.3's κ), so a 100 m budget gives a 69 m step: 10° across
+  one 390.6 m cell at 800 km.
+- **Why "breached means all of it at the substrate's rate", a judgement.**
+  The obvious vertical rule, `D = h + (B − h/k_t)·k_s` once the cap is
+  spent, is **continuous at the breach line** (both branches give `D = h`
+  where `h = B·k_t`, arithmetic), so it makes a slope break and no scarp. A
+  real cap edge retreats laterally, undermined as the weak rock beneath it is
+  removed, much faster than it is lowered from above; the cells behind the
+  retreating face have spent most of their history as substrate. Treating
+  that retreat as instantaneous against the budget is the modelling
+  simplification. GF-10 measures both rules, so the choice is evidence, not
+  assertion.
+- **The contact is never written.** Construction is erosion in the past, and
+  erosion does not move a contact (§4.2). So `build_geology`'s column is read
+  exactly as derived, the exposure rule (§2.5) reads the new surface
+  correctly, and a breached cap reads as its substrate with no further
+  bookkeeping. **This is how construction and column stay consistent**: the
+  column is derived once, from the structural surface; construction reads the
+  column and never re-derives it; nothing downstream re-derives it either.
+  The order structure → column → construction is also the geological order:
+  deposit, then denude.
+- **Arc edifices are exempt** (§9 Q17). Where the exposed rock is andesite
+  or tuff, `D = 0`. Their relief is the stamper's, and young. Plateau basalt
+  is not exempt: flood-basalt provinces are dissected (the Trotternish case
+  is one).
+- **Land stays land** (§9 Q14). `z` is floored at `sea + m_to_norm(1 m)`
+  for a cell that was land. The share of land floored is reported.
+- **No new closed depression.** Differential lowering of a weak patch inside
+  strong rock would make a pit, and pits are what B8 counts. So both
+  surfaces are priority-flood filled (`build_routing_surface`'s rule), giving
+  a fill depth `f(z) − z` per cell. Wherever the lowered surface's fill depth
+  exceeds the structural surface's, the cell is raised by the excess, and
+  **the raise is added to `regolith`**: a basin that differential erosion
+  opens is a basin that fills with sediment (alluvium, lake beds).
+  Depressions that already existed on `z₀`, today's lakes among them, keep
+  their depth. So construction creates no new depression by construction
+  (B14). One pass is not guaranteed to be enough, because raising one pit can
+  change another's spill point; GF-11 repeats it until no excess remains and
+  reports the pass count.
+- **Scarp sharpness comes from jointing, through θc, and nothing new.**
+  §2.3's θc column already carries jointing (massive granite and columnar
+  basalt 60°, bedded sandstone 50°, foliated schist 40°, fissile shale 30°).
+  GF-3's threshold hillslope, which runs after both BM stages (§4.16), sheds
+  anything steeper than the exposed rock's θc. A cap face stands at θc(cap)
+  and the slope below it at θc(sub): the free face over a debris slope of a
+  cliff-and-slope scarp. No second jointing constant is added; bedded
+  benches below cell scale are GF-6's LOD terrace (§4.10).
+
+**The budget `B(i)`.** Denudation follows uplift, so the budget is the same
+uplift pattern §4.15 derives, spatially smoothed:
+
+```
+B(i) = τ · D₁ · clamp(Ū(i) / mean_land(Ū), w_min, w_max)
+```
+
+- `Ū` is §4.15's uplift field, blurred at `3·tect.blur_r` (the flexure
+  blur's scale), so the budget varies over the plate-scale and the rock map
+  supplies all the short-wavelength contrast.
+- `w_min = 0.25`, `w_max = 4`: **judgements**, so that no land is exempt from
+  denudation (cratons strip their covers too) and no belt gets an unbounded
+  budget.
+- **`D₁` is pre-registered, not tuned against the bars:** the median land
+  cap thickness `h` over two-layer cells on the world's own column. At
+  `c = 0` that breaches about half the caps where `Ū` is average, which
+  maximises the breach lines B4 needs, and it scales itself with GF-1's cover
+  constants. It is a **judgement** of the rule, not of a number. GF-10 prints
+  the cap-thickness distribution; the arithmetic floor is 10 m
+  (`CAP_FRACTION · COVER_MIN_M`) for cover caps and 150 m (`RIFT_CAP_M`) for
+  rift caps.
+- **τ scales it linearly**, bounded by base level (the sea floor above, and
+  the fill): §4.12's rule for a process the kernel does not saturate but a
+  limit does.
+
+**Scale awareness (80, 800, 8 000 km).**
+- `B` and `D` are **metres**, converted by `m_to_norm`, so the lowering is
+  the same physical depth at every extent. A step of `D` metres across one
+  cell is a slope of `atan(D / cell_m)`: at 390.6 m cells (800 km over 2 048,
+  arithmetic) a 100 m step is 14°; at 39 m cells (80 km) it is 69°, which
+  GF-3's threshold then spreads over several cells at θc; at 3 906 m cells
+  (8 000 km) it is 1.5°. That is the right behaviour: the same scarp is a
+  cliff on a local map and a gentle break on a continental one.
+- **The rock map itself is extent-blind.** §2.4's belt widths are multiples
+  of `tect.blur_r` in cells, so a collision belt is the same fraction of the
+  map at every extent (at the default 18 cells, `W_OROGEN` is 54 cells: 2.1 km
+  at 80 km, 211 km at 8 000 km, arithmetic). Construction does not change
+  that; it is GF-1's property, disclosed here because it sets the wavelength
+  of every rock-controlled step.
+- B4 is therefore expected to pass at 800 km, is reported at 80 km, and is
+  not expected at 8 000 km, where a cap edge is sub-grid (§5.2).
+
+### 4.15 Uplift-driven erosion (GF-12; Ruling BM, part 2)
+
+**Why zero-uplift erosion cannot do it, from the kernel.** The rock kernel's
+update, per cell per iteration, is
+`z' = (z + dt·u + c·z_r) / (1 + c)`, with `c = dt·C`,
+`C = K·g·κ^c·(1 + 2·ck·rain)·A^m / L`, `m = 0.5` and `dt = 1.0`
+(`stream_power_core`). Two consequences follow by arithmetic:
+- **Its fixed point is `z* = z_r + u/C`**, whatever `dt` is: the
+  steady-state gradient of the detachment-limited stream-power law with
+  `n = 1`, `S = U/(K·A^m)` (Whipple & Tucker 1999). With `u = 0` the fixed
+  point is `z_r`: every channel grades to base level, and **rock drops out of
+  the steady state entirely**. Rock can only show in the transient, as
+  §5.6–§5.8 measured, by metres.
+- **Its deviation from the fixed point shrinks by `1/(1 + c)` per
+  iteration** (with the receiver held). On a unit-area hillslope cell at the
+  defaults, `C = 0.012·(1 + rain)` (arithmetic from `k = 0.012`,
+  `climate_k = 0.5`, `g = 1`, `L = 1`), so nine iterations close 10 % of the
+  gap at `rain = 0` and 19 % at `rain = 1` (`1 − 1.012^−9`, `1 − 1.024^−9`). That is why the light pass is transient everywhere off the
+  channels.
+
+With uplift, the fixed point is `S = U/(K·A^m)`: **at matched uplift and
+drainage area, weak rock holds a gentler slope, and strong rock a steeper
+one, in the ratio of their erodibilities**, `S_strong/S_weak =
+(κ_weak/κ_strong)^c`. Relief scales with `(U/K)^(1/n)` (Whipple & Tucker
+1999; the channel-steepness form is Kirby & Whipple 2012). That is the
+relation B1 and B2 test, and it needs `U > 0`.
+
+**The uplift field.** Derived from the tectonics that already exist, all of
+it available before the geology stage:
+
+```
+U(i) = U₀ · ( max(σ_i, 0) + a_φ·max(φ_i, 0) + a_o·max(oro_i, 0) ) + U_bg·[crust_i ≥ 0]
+```
+
+- `σ` is `stress_field` (convergence positive; `compute_stress` normalises it
+  by its absolute maximum, so it is relative per map). The legacy kernel's own
+  `u` is `max(σ, 0)/max · stream.uplift`, so this generalises the term the
+  kernel already has.
+- `φ` is `compute_flexure`: stress seeded at boundary cells and blurred at
+  `3·blur_r`. Its positive part is the broad flexural uplift behind a
+  convergent margin. `a_φ = 0.5` is a **judgement**.
+- `oro` is `smooth_orogeny`'s field, present only with world-structure on,
+  `a_o = 1` a **judgement**. Zero in the app.
+- `U_bg` is a background epeirogenic rate on continental crust, so a craton's
+  rivers keep a gradient rather than grading to sea level (the `u = 0`
+  failure above). **Judgement**: `U_bg = 0.1·U₀`, measured in GF-10.
+- **No negative uplift in the first build.** Subsidence (rift axes, forearc
+  basins) is burial, which is deposition's business, and it would lower land
+  under the sea. Rift-shoulder uplift from `min(σ, 0)` is left out and
+  disclosed (§9 Q12).
+- **Units: metres per unit model time**, converted with `m_to_norm`. The
+  kernel's `A^0.5/L` is scale-free (§1.4 point 1), so a steady-state step of
+  `U/C` metres per cell gives a physical slope `∝ 1/(A_cells^0.5 · cell_m)`,
+  which is `(U/K)·A^(−0.5)` with `A` in m²: the law is dimensionally
+  consistent at every extent once `U` is in metres (arithmetic).
+- **`U₀` is calibrated by mean balance, not by the bars.** On the
+  rock-blind arm (`c = 0`) at τ = 1, `U₀` is set so that the land-mean surface
+  change over the stage is zero: at steady state denudation equals uplift, and
+  this keeps the world's hypsometry and land share where the structural
+  surface put them. GF-10 measures it per seed; GF-12 fixes the rule (a
+  per-world solve or one constant) from that measurement.
+- It is not `stream.uplift`. That slider (0–0.4, `sUp`) stays the legacy
+  kernel's, in normalised units per iteration (§9 Q13).
+
+**The stage.** It replaces the light pass's `rock.stream_power` and
+`rock.rebound` when the relief switch is on (§4.16):
+
+```
+for k in 0..N_BM:
+    route: fill, receivers, drainage area over the current surface
+    one implicit update: dt_k = T(τ) / N_BM, uplift U·dt_k, rock κ(exposed)^c,
+                         contact += U·dt_k (the existing rule), lakes and ocean pinned
+account regolith once, on the stage's net change (§4.9)
+```
+
+- **Implicit, so `dt` may be large.** Braun & Willett (2013)'s scheme is
+  unconditionally stable for `n = 1`, and the kernel is that scheme. §4.12's
+  rule "on counts, never on rate constants" rests on the stability wall of
+  the *explicit* kernels (§1.4 point 2), which does not bind here. So the
+  clock scales model time `T`, not `N_BM`, and **the cost is the same at
+  every τ**. This amends §4.12 for this stage only (§9 Q16).
+- **The routing is refreshed every step.** The legacy kernel freezes the
+  fill, receivers and area across its iterations (`stream_power_core`), which
+  is harmless at `dt = 1`, where a surface moves by metres. With `dt ≫ 1` the
+  surface moves by far more than the fill's `1e-5` epsilon, and a frozen tree
+  can leave a cell draining "uphill" into a pit it has itself cut. **This is
+  the leading hypothesis for §5.8's small-lake growth at τ > 1, which was not
+  diagnosed**; GF-10 tests it before GF-12 relies on it. Braun & Willett
+  recompute the stack at every step.
+- **`N_BM`**: a **judgement**, 8, set in GF-10 from B8 against B9.
+- **Lakes and the ocean are pinned** (`stream_power_kernel_bounded`'s
+  `pinned` mask, which the rock entry point does not take today). A pinned
+  cell is one whose depression is deeper than the lake classifier's 0.004
+  (`build_water_bodies`' `lake_depth`) on the stage's input surface. The
+  classifier also requires rain ≥ 0.22 to call it a lake; the pin ignores
+  rain, so it holds a superset (dry pans too), deliberately. Pinning holds
+  existing lakes at their level; without it, the implicit update raises a pit
+  cell toward `z_r + U/C` above its receiver and fills it (the kernel already does this partly at `dt = 1`; §5.6 records the
+  effect).
+- **Deposition is off in the stage** (`deposit = 0`). The deposition
+  sub-loop's capacity rule, `0.005·A^0.5·slope`, is per iteration and not
+  scaled by `dt`, so a large step would misstate it. The steady-state analysis
+  above is detachment-limited in any case. `sediment_fill` stays the
+  transport pass.
+- **The clamp.** The kernel clamps to 0–1 at the end. With uplift a summit
+  can exceed 1 and would be silently flattened, which is "no value" (a
+  clamped height) encoded as a plausible one. The stage reports the count of
+  cells it clamps at 1; B15 requires 0.
+
+**Model time `T(τ)`, pre-registered.** `T(τ) = τ·T₁`, and `T₁` is set by a
+rule that does not read B1, B2 or B4: three e-folding times of a channel-head
+cell, `T₁ = 3 / C_head`, where `C_head` is `C` at `κ = 1`, `rain = 0`,
+`L = 1` and `A` = the channel-initiation area `build_channels_routed` uses at
+the world's river density. At τ = 1 the channel network is then within about
+5 % of steady state (`e^(−3)`, arithmetic) and interfluves, whose `A` is
+smaller, are still transient: a mature drainage on young divides. τ = 4
+brings most of the landscape near steady state; τ = 0.25 leaves it young.
+
+**How rebound interacts: it is not applied after this stage** (§9 Q15). `U`
+is **rock uplift net of isostasy**, the quantity England & Molnar (1990)
+distinguish from surface uplift and exhumation. Adding `isostatic_rebound`
+on top would count isostasy twice. Two further facts, one measured and one
+arithmetic, say rebound is the wrong tool here:
+- it returned 78–93 % of the light pass's mean lowering (§5.8);
+- its blur radius is `max(tect.blur_r, 8)` **cells**, so at the default 18
+  cells it spreads the removed mass back over a radius of 7.0 km at 800 km
+  and 0.70 km at 80 km (arithmetic). Flexural isostasy acts over a regional
+  wavelength that does not shrink with the map, so this hands much of a
+  valley's own incision back to that valley. (How much of §5.8's 78–93 % is
+  due to the radius was not measured.)
+Rebound stays exactly as it is after the glacial pass and in `evolve_cycles`,
+where it is today's behaviour and no BM bar reads it.
+
+**Hillslopes under uplift.** At high `U` the steady-state slope `U/(K·A^m)`
+on small-area cells can exceed the rock's θc. GF-3's threshold hillslope,
+which follows the stage, then caps it at θc(exposed rock). That is the
+threshold-hillslope regime in which relief saturates with uplift and is set
+by rock-mass strength (Schmidt & Montgomery 1995; Montgomery & Brandon 2002),
+so in the most active belts relief tracks θc directly. `hillslope_diffuse`
+stays off, as in the app today.
+
+**How B8 is protected**, given that τ > 1 failed it (§5.8, 1.9–7.7× at τ = 2
+and 4, cause unmeasured):
+1. GF-10 diagnoses §5.8's failure first, on the GF-7 τ = 4 worlds, with
+   `gf2_small_lake_diag`'s method: are the new 1–3-cell lakes pits against
+   the frozen receiver tree, unconsolidated-regolith feedback (the §5.6
+   mechanism), or the carve?
+2. The stage refreshes the routing every step, pins existing lakes, runs no
+   deposition, and accounts regolith once per stage (§4.9). That is designed
+   to remove the first two candidates; GF-12's B8 run at every τ is what
+   shows whether it does.
+3. Construction creates no new depression (§4.14, B14).
+4. B8's thresholds are unchanged, and it must hold at **every** τ in
+   {0.5, 1, 2, 4}, not only at τ = 1 (§5.2).
+
+### 4.16 How the two combine, and in what order (Ruling BM)
+
+**Why both, and not one.** The steady state forgets its starting surface: at
+`T → ∞` the stage's output depends only on `U`, `κ` and base level. Where `U`
+is small, which is every craton, that steady state is near base level, so
+running erosion alone long enough to make rock show would erase the plate
+structure the tectonic surface built. So:
+- **Construction supplies the big shapes where uplift is slow**: stripped
+  plateaus, breached caps, weak-rock lowlands on the cratons. Rock shows there
+  as a transient that the budget, not a steady state, sets. Cuesta and
+  scarpland country is this kind of landscape.
+- **The uplift-driven stage supplies the detail and the active belts**:
+  graded, drainage-integrated relief whose steepness follows `U/K`, with θc
+  capping the slopes where uplift is fast.
+
+**They agree by sharing their inputs.** Both use the same `U` (construction
+through its smoothed `Ū`), the same `κ^c` from §2.3's table, the same
+exposure rule and the same column. Construction lowers weak rock further;
+the stage then keeps weak rock gentler under uplift. Both push the same way,
+so the second refines the first instead of undoing it.
+
+**The order:**
+
+```
+structure: compute_height → normalize → volcanism → craters → clamp → sea level   (unchanged)
+GEOLOGY (GF-1): the column, from the structural surface                           (unchanged)
+CONSTRUCTION (GF-11): layer-through lowering by B(i); fill → regolith              [BM]
+priming flow → temperature → weather → correctors (→ currents)                     (reads the constructed surface)
+UPLIFT-DRIVEN STAGE (GF-12): N_BM implicit steps, U, κ, routing refreshed           [BM; replaces light SP + rebound]
+threshold hillslope (GF-3)                                                          (unchanged; sets scarp angles)
+routing → channels → Strahler → trace → intensity → carve (RV-1)                    (unchanged)
+climate refresh; passes (glacial + its rebound, …)                                  (unchanged)
+```
+
+**The switch.** `WorldParams::relief_model`, off in `WorldParams::defaults`
+and in `cartalith_godot::params::defaults()` until GF-13 decides; a
+`PARAMS` and `JS_PATHS` row; a save without the key reloads off; no GUI
+control (like `geology_processes`). It acts only when `geology_model` **and**
+`geology_processes` are on too. With it off, every call is today's by control
+flow.
+
+**The clock under BM.** τ scales the construction budget and the stage's
+model time, both linearly (§4.14, §4.15). GF-3's threshold hillslope and the
+glacial and coastal passes keep §4.12's count laws. So under BM, **τ = 1 is
+not identity**: it is the calibrated default age of a BM world. §4.12's
+identity-at-τ-1 rule, and B12's first half, still hold for every world with
+the switch off.
+
 ---
 
 ## 5. Measurement proving landforms now track rock
@@ -1042,12 +1463,47 @@ raised, and the change is disclosed.
   elevation in metres over a 9 × 9 window). Land cells at least 5 cells from
   the coast.
 - **Bar:** treatment ρ ≥ 0.25, and ρ_treatment − ρ_control ≥ 0.15.
+- ***Revised 2026-09-27 for Ruling BM*** (the evidence is §5.9). The
+  thresholds are unchanged; the population and the control are not:
+  - **Stratified by uplift.** ρ is computed within each of ten equal-count
+    bands of §4.15's `U` (input, pre-erosion), and the reading is the median
+    of the per-band ρ over bands holding ≥ 100 cells of each of the strongest
+    and weakest thirds of `s`. Relief tracks uplift first and strength second
+    (steady-state relief ∝ `(U/K)^(1/n)`), so only at matched uplift is the
+    strength signal the thing measured.
+  - **Constructional edifices excluded**: cells with `volcanic_field > V_TH`
+    are left out of both groups and reported on their own line.
+  - **`s` is read on the rock-blind arm's constructed surface** (§4.14 at
+    `c = 0`, before its erosion stage): the rock the landscape would expose if
+    rock did not matter. It is the same input map for every arm, it depends
+    on no rock-dependent process, and unlike §5.6's pre-erosion map it
+    contains exposed substrate (shale) wherever a uniform budget breaches a
+    cap.
+  - **The control for the relative half is the rock-blind BM arm** (the
+    switch on, `c = 0`), not today's world. Gneiss and schist sit in the
+    collision belts, where `U` is highest, so a comparison with today's world
+    would credit uplift with rock's doing.
+  - The legacy form (all interior land, today's world as control) is still
+    printed, labelled as such, so §5.4–§5.8 stay comparable.
 
 **B2 — slope tracks strength.**
 - **Metric:** median physical slope in degrees (the Sample panel's `grade`
   formula) on strong rock (s ≥ 0.7), divided by the median on weak rock
   (s ≤ 0.4). Selected by the **input** s.
 - **Bar:** the ratio ≥ 1.5, and ≥ 1.25 × the control's ratio.
+- ***Revised 2026-09-27 for Ruling BM*** (evidence §5.9): the same
+  thresholds, with B1's four changes (uplift bands, reading the median of
+  per-band ratios; edifices excluded; `s` on the rock-blind constructed
+  surface; the rock-blind arm as control).
+  - **Why 1.5 is principled.** At steady state under the stage, at matched
+    `U` and `A`, `S_strong/S_weak = (κ_weak/κ_strong)^c` (§4.15). The
+    least-contrasting pair across B2's thresholds is limestone (s 0.70,
+    κ 0.6) against tuff (s 0.35, κ 2.0): `(2.0/0.6)^0.5` = 1.83 at the
+    default `c = 0.5`; the most contrasting, granite against unconsolidated,
+    is `(4.0/0.3)^0.5` = 3.65 (arithmetic). So 1.5 is below every steady-state
+    pair ratio and asks the landscape to be about two-thirds of the way there
+    in log terms (`ln 1.5 / ln 1.83` = 0.67, arithmetic). It was not set to
+    be met; it was set below what the physics predicts.
 
 **B3 — weak rock becomes lowland.**
 - **Metric:** mean erosion depth (pre-erosion minus final surface, in metres)
@@ -1065,6 +1521,35 @@ raised, and the change is disclosed.
   input-selected twin: all two-layer cells against single-layer cells of the
   same top rock. That twin must move the same way.
 - Reported at 80 km as well.
+- ***Revised 2026-09-27 for Ruling BM*** (evidence §5.9):
+  - **A cap edge is a breach line**: a land two-layer cell exposing its
+    **cap**, with a 4-neighbour that is two-layer and exposes its
+    **substrate**. The legacy definition (a two-layer cell whose exposed rock
+    differs from *any* neighbour's) counts the lateral margin of a
+    sedimentary cover against the granite around it, which is not a caprock
+    scarp.
+  - **The ratio bar stays ≥ 2.0.** Its basis: a breach-line cell carries the
+    step `B·(k_s − k_t)` (§4.14) across one cell, against a substrate slope of
+    `U/(K_sub·A^m)`. At 800 km a 69 m step is 10° (§4.14's arithmetic), while
+    the control's median strong-rock slope is about 0.4° (§5.7). The bar asks
+    for a small fraction of that contrast.
+  - **The top-decile share stays ≥ 40 %**, read over breach-line cells whose
+    input cap thickness `h` is at least the height one top-decile slope of
+    the rock-blind arm needs across one cell (`tan(p90)·cell_m`); the
+    population is printed. A cap thinner than that cannot, by itself, hold a
+    top-decile face (for example the thinnest cover cap, 10 m, is 1.5° over a
+    390.6 m cell, against a land p90 of 2.75–6.56° at 800 km, §5.4;
+    arithmetic).
+  - **The twin, input-selected: thin caps against thick caps.** Two-layer
+    land cells in the lowest quartile of input `h` against those in the
+    highest quartile, ratio of median slopes. Thin caps are where breaches
+    and scarps form; thick caps stay plateaus. Bar: ≥ 1.25, and ≥ 1.2 × the
+    rock-blind arm's (where a uniform budget makes no step, so it should read
+    near 1). The legacy twin is unmeasurable by design (§5.5) and is dropped.
+  - **Extents.** The bar applies at 800 km. It is reported at 80 km, where
+    θc binds (§5.4: 14–18 % of land is above 40°) and caps the face, and at
+    8 000 km, where a cap edge is sub-grid and **no pass is expected**
+    (§4.14).
 
 **B5 — karst only on soluble rock.**
 - 100 % of cells lowered by the dissolution pass have σ > 0. This is exact, and
@@ -1099,6 +1584,11 @@ raised, and the change is disclosed.
 - ocean cells on channels = **0** (hard);
 - river cells that are lake ≤ control + 2 percentage points;
 - 1–3-cell lakes ≤ 1.25 × control.
+- ***Extended 2026-09-27 for Ruling BM:*** with the relief switch on, all
+  three hold at **every** τ in {0.5, 1, 2, 4}, against today's app world as
+  control. The thresholds are unchanged. §5.8 found B8 failing at every
+  τ > 1 under GF-7; under BM, τ is a first-class knob, so a pass at τ = 1
+  alone is not a pass.
 
 **B9 — cost.**
 - **Metric:** median generation time of at least 5 runs at 2048 × 1311, run
@@ -1143,6 +1633,47 @@ raised, and the change is disclosed.
     2.686 m at τ = 4, never against the constants.
 - The cost at 0.5, 2 and 4 is reported as a median with min..max. It is
   disclosed and not gated.
+- ***Extended 2026-09-27 for Ruling BM*** (the switch on):
+  - The channel-incision half is **not used** for BM worlds. §5.8 showed it
+    fails for a reason that is not a defect: channels are re-traced on the
+    new surface, and at τ = 4 only 53–58 % of the control's channel cells are
+    still channels. Under uplift it also mixes uplift with incision.
+  - In its place: in the top uplift band (B1's banding), median 9 × 9 relief
+    rises with τ from 0.5 to 4, and B1's and B2's readings do not fall from
+    τ = 1 to τ = 4. The theory predicts both: the stage approaches a steady
+    state whose relief is `U/K`-set, so relief grows and its rock contrast
+    sharpens with model time.
+  - The cost at τ ∈ {0.5, 2, 4} must equal τ = 1's within the brackets of
+    two independent runs, because τ scales `dt`, not `N_BM` (§4.15).
+
+**B13 — the stage reaches the steady state the theory predicts** (GF-12;
+the positive control through the BM stage, which §5.6 could not assert for
+the zero-uplift kernel).
+- A synthetic fixture: a tilted plane, uniform `U`, two rock blocks, no rain.
+- After the stage at `T ≥ 10/C` for the fixture's smallest channel `C`
+  (arithmetic: `e^(−10)` of the initial deviation left), at channel cells of
+  matched `A`, the slope ratio equals `(κ_weak/κ_strong)^c` within 5 %, and
+  equals 1 within 5 % at `c = 0`.
+- Asserted against literals: at `c = 0.5`, granite against shale is
+  `(2.5/0.3)^0.5` = 2.887 (arithmetic), never against the table read back.
+- A mutation that drops `κ` from the stage, or `U`, turns it red.
+
+**B14 — construction is consistent with the column and makes no pits**
+(GF-11).
+- The `contact` array is **bit-identical** before and after construction.
+- No land cell of the structural surface becomes sea.
+- Construction creates **zero** new closed depressions deeper than the lake
+  classifier's 0.004 (exact: §4.14's fill rule makes it so by construction).
+- Every cell the fill raised has its `regolith` raised by the same amount,
+  exactly.
+- At `c = 0` the constructed surface equals `z₀ − m_to_norm(B)` (before the
+  sea floor and the fill) on every cell, bit for bit.
+
+**B15 — uplift headroom and balance** (GF-12).
+- Cells clamped at 1.0 by the stage: **0** on all fifteen worlds (hard).
+- The land-mean surface change over the stage on the rock-blind arm at τ = 1
+  is within the brackets of the `U₀` calibration (§4.15), printed with its
+  population. This is the calibration's own check, not a landform bar.
 
 ### 5.3 What the numbers are for
 
@@ -1151,6 +1682,9 @@ raised, and the change is disclosed.
 - B5–B7 are the per-process claims of Ruling BH item 3.
 - B8–B10 are the guards.
 - B11 and B12 are Ruling BJ's painting and clock.
+- B13–B15 are Ruling BM's mechanism checks: the stage does what the theory
+  says, construction stays consistent with the column, and uplift neither
+  clips summits nor drifts the hypsometry.
 
 ### 5.4 GF-0 findings: the arm-1 baseline (measured 2026-09-27)
 
@@ -1940,6 +2474,56 @@ readout's clauses, reason and forced gate, and the loader's reset to 1.0. One
 survived the first round and was killed after a test was added: the readout
 gate dropping `geology_model`.
 
+### 5.9 Why B1, B2 and B4 were revised for Ruling BM (2026-09-27)
+
+No threshold was lowered. Each change is to *what is measured*, and each is
+for a reason found in the code or in §5.4–§5.8, not in a wish to pass.
+
+**B1 and B2 measured tectonic setting, not rock.**
+- Evidence: the control arm reads B1 −0.32 to −0.46 at 800 km on every seed
+  (§5.5, §5.6), with no rock-reading process at all. Granite is 0.57–0.75 of
+  land (§5.5) and, by §2.4, the old interior; `compute_height` damps the old
+  interior's roughness to 0.258 of a margin's (§4.14, arithmetic). So the
+  global ρ is dominated by margin distance.
+- That is not a defect of the world. In nature relief is set by uplift first:
+  steady-state relief scales as `(U/K)^(1/n)` (Whipple & Tucker 1999), and
+  erosion rate tracks relief in active ranges (Montgomery & Brandon 2002). A
+  strong, slowly uplifting shield is low; a bar that demanded a positive
+  global ρ would demand rugged cratons, which is wrong. The strength signal
+  lives at matched uplift, which is what the band stratification reads.
+  §5.4's B6 fix was the same move (at matched ice discharge).
+- The weak class was almost all volcano flank. §5.5: "Weak rock here is
+  mostly tuff on volcano flanks", and §5.6: pre-erosion exposed shale is 0.
+  So B2's control ratio, 0.039–0.050 (§5.6), compared granite interiors with
+  stamped cones, whose steepness is the stamper's. Excluding edifices, and
+  reading `s` where the rock-blind budget has exposed the substrate, puts
+  shale and breached caps into the weak group, which is what B2 is about.
+- The control changes because uplift is now a process. Rock and uplift are
+  correlated by construction in §2.4 (gneiss and schist are collision-belt
+  rocks, `U` peaks at convergence), so only a rock-blind arm under the same
+  `U` isolates the rock term.
+
+**B4 measured the wrong edge.**
+- Evidence, from the harness (`b4` in `gf0_geology_harness.rs`): an edge is a
+  two-layer cell whose exposed rock differs from **any** 4-neighbour's. With
+  GF-1's derivation the covers lie in structural lows
+  (`build_geology`, step 3), so such a cell is, by the derivation, mostly a
+  sandstone or limestone cover cell beside the granite around its basin, not
+  a cap beside its own exposed substrate. (Read from the code, not measured;
+  GF-10 prints the split.) The substrate population near edges is the
+  0.12–0.21 % of land where a cap is breached (§5.6).
+- A breach line is the scarp the scope meant (§2.5: "once the cap is
+  breached, the substrate is exposed ... the cap edge keeps a steep face").
+  The revised definition reads exactly that.
+- The share half is restricted by an input quantity (cap thickness) and a
+  control-arm quantity (the rock-blind p90), never by the treatment's own
+  slope.
+- The legacy twin could not be measured on any of 15 worlds, by design
+  (§5.5); its replacement is measurable wherever there is any cover.
+
+**What is not revised.** B3 (it passes, and §5.5 already recorded that its
+absolute half is not evidence), B5–B7, B9's 1.20 at τ = 1, B10 and B11.
+
 ---
 
 ## 6. Re-baseline plan
@@ -2045,6 +2629,42 @@ from before GF-1. `dynamic_lithology` and its GUI row go, pending Q9.
 
 **Route B** is the alternative. It keeps §6.1's split permanently, as the six
 existing divergences do. See §9 Q6 for the trade-off.
+
+### 6.3 Ruling BM's re-baseline (GF-10 to GF-13, then GF-9)
+
+Ruling BM: *"They re-baseline app worlds when switched on, with disclosure."*
+
+- **During GF-10 to GF-12 nothing moves.** `relief_model` is off at both
+  boundaries; GF-10 adds only harness code; GF-11 and GF-12 are control-flow
+  gated. Each asserts, by hash, that `WorldParams::defaults()` and the
+  app-default world are bit-identical to the HEAD it started from (the
+  §5.6–§5.8 practice: `field`, climate, flow, rivers, stream order,
+  resistance, volcanic field and every column array, two seeds, in a
+  worktree built from HEAD).
+- **The kernel goldens stay bit-identical by construction.** The stage's
+  new inputs (an uplift slice, `dt`, a pinned mask on the rock entry point,
+  per-step routing) are `Option`s or new entry points; `stream_power_kernel`
+  and `stream_power_kernel_bounded` are untouched, as GF-2 left them.
+- **GF-13 is the switch-on**, and it is where app worlds move. It turns
+  `geology_processes` and `relief_model` on in
+  `cartalith_godot::params::defaults()` only if every bar of §7's GF-13 entry
+  passes. It records old → new for every figure other documents quote from an
+  app world, the same list §6.2 gives (RV-1's `_riverzoom_probe` numbers, the
+  LOD-D4 bars, `PERFORMANCE_BENCHMARKS.md`'s generation times,
+  `GENERATION_PARAMETERS.md`'s divergence costs), and it names the change
+  in `GENERATION_PARAMETERS.md`'s deliberate-divergence list.
+  `params_mapping.rs`'s `exactly_the_ruled_divergences_ship_at_the_app_boundary`
+  gains the two flags in the same change.
+- **A regenerate warns.** An existing saved world does not change on open
+  (its parameters are saved), but regenerating it with the new defaults
+  does. The shell already confirms before a regenerate that discards
+  authored work (`_authored_inventory()`); GF-13 checks that a save without
+  `relief_model` reloads **off**, so an old world regenerates as it was
+  generated unless the user asks otherwise.
+- **The JS-parity suites are untouched** at GF-13 (they run
+  `WorldParams::defaults`, where the switch stays off). GF-9 then does what
+  §6.2 says, with BM's stages inside the one pipeline under route A, or
+  behind the split under route B.
 
 ---
 
@@ -2224,6 +2844,138 @@ existing divergences do. See §9 Q6 for the trade-off.
 *Ruling BJ moved lithology painting into this build as GF-8, above; §9 Q2
 records the answer.*
 
+**Build order after Ruling BM** (§9 Q18). The numbers are names, not an
+order. The recommended order is **GF-10 → GF-11 → GF-12 → GF-13**, then
+GF-4, GF-5, GF-6 and GF-8, then **GF-9 last**. BM comes first because every
+later milestone's bars are measured on the relief model it settles; GF-8
+comes after GF-12 because its re-erosion chain includes BM's stages (§4.13's
+BM note).
+
+### GF-10 — the BM prototype measurement (Ruling BM; measurement only)
+
+The question it answers: **can the proposed terms move B1, B2 and B4 at
+all**, before anything is built into the pipeline? It adds harness code only
+(`gf0_geology_harness.rs`, `#[ignore]`d tests run `--release`, alone), and no
+production code.
+
+- **The prototype.** Test-side functions, over a generated app world with the
+  processes off:
+  - §4.15's uplift field from the stored `stress_field`, `boundary_mask` and
+    `crust_field` (flexure by `compute_flexure`);
+  - §4.14's construction, **both** breach rules (§4.14's "judgement" note),
+    with the fill-to-regolith step;
+  - the uplift-driven stage approximated with the **existing**
+    `stream_power_kernel_rock`: its uplift enters through the `stress` slice
+    and `stream.uplift`, one call per step so the routing is refreshed each
+    step, and `dt` emulated by the step count where the kernel's `dt = 1` is
+    fixed. Pinning is emulated by restoring lake cells after each call. The
+    prototype says which of these emulations differs from §4.15 and how.
+- **Arms, on the same seeds and pre-erosion world:** A (today's app world),
+  B (BM on, `c = 0`: rock-blind), C (BM on, `c = 0.5`). Construction alone,
+  the stage alone, and both.
+- **Settings:** `D₁` at 0.5, 1 and 2 × §4.14's pre-registered rule (the
+  median cap thickness), and two model times (`T₁` by §4.15's rule, and
+  4·`T₁`). Every setting is reported. GF-11 and GF-12 build the
+  pre-registered rules; if GF-10 shows those cannot move the bars and another
+  setting can, changing the rule is a coordinator or owner decision made on
+  the printed numbers, and disclosed as such.
+- **Readings:** revised B1, B2, B4 (with the twin), B3, B8 and B15's clamp
+  count, on five seeds at 800 km, and B4 and B8 at 80 km; plus the
+  cap-thickness distribution, the legacy-B4 edge split (cover-margin cells
+  against breach-line cells), the `U₀` mean-balance solve per seed, and the
+  share of land floored at sea.
+- **The τ > 1 diagnosis** (§4.15, B8 item 1): §5.8's new small lakes at τ = 4,
+  classified as frozen-tree pits, unconsolidated feedback or carve products.
+- **Cost:** the prototype stage's time at 2048 × 1311 against the light pass,
+  as a median with min..max over two independent runs, to size `N_BM`
+  against B9.
+
+**Done means:**
+- A table of every reading above, per seed and arm, in a new §5.10, with the
+  commands.
+- **A go/no-go stated against a rule written before the run:** GF-11 and
+  GF-12 proceed only if arm C beats arm B on the revised B1, B2 and B4 by at
+  least half of each bar's relative margin (Δρ ≥ 0.075 for B1; ≥ 1.125 × for
+  B2; ≥ 1.1 × on B4's twin) on at least three of five seeds at the
+  pre-registered setting, with B8 holding there. If only another setting
+  meets it, that is the decision the settings item above describes. If none
+  does, the scope goes back to the owner with the numbers, and nothing is
+  built.
+- The τ > 1 small-lake cause is stated from measurement, or stated as not
+  found.
+- The positive and negative controls (§5.1) still pass. `STATUS.md` records
+  the milestone.
+
+### GF-11 — rock-aware construction (Ruling BM, part 1)
+
+§4.14, behind `relief_model` (§4.16), off at both boundaries.
+
+- The construction stage between the geology stage and the priming flow; the
+  budget from §4.15's smoothed uplift; the breach rule GF-10 chose, and why.
+- The fill-to-regolith step; land floored at sea (§9 Q14); arc edifices
+  exempt (§9 Q17).
+- `WorldParams::relief_model` with its `PARAMS` and `JS_PATHS` rows; a save
+  without the key reloads off.
+- The storage decision §4.13's BM note leaves to it (the structural surface or
+  the construction depth), with its memory measured by `_memlane_peak`.
+
+**Done means:**
+- B14 passes, including the `c = 0` bit-identity and its mutation (drop the
+  fill, drop the regolith write, drop the breach branch: each turns a test
+  red).
+- The switch-off identity of §6.3, by hash.
+- Construction's share of the B1, B2 and B4 movement GF-10 measured is
+  re-measured on the built stage and matches GF-10 within its spread.
+- `cargo test --workspace`, with the result-line count checked against the
+  previous floor. Annotated per Ruling BK.
+
+### GF-12 — the uplift field and the uplift-driven stage (Ruling BM, part 2)
+
+§4.15, behind the same switch.
+
+- The uplift field; `U₀` by the mean-balance rule GF-10 fixed; `U_bg`.
+- The stage: `N_BM` implicit steps with per-step routing, `dt = T(τ)/N_BM`,
+  lakes and ocean pinned, no deposition, contact lifted by uplift; replacing
+  the light pass's stream power and rebound when the switch is on.
+- The rock entry point gains the uplift slice, `dt` and the pinned mask as
+  `Option`s; the legacy entry points are untouched.
+- The clock scales `T` and the construction budget (§4.16); GF-7's readout
+  line says so when the switch is on.
+
+**Done means:**
+- B13 and B15 pass, with their mutations.
+- With GF-11: **revised B1, B2 and B4 pass at 800 km on all five seeds**;
+  B3 and B8 pass at every τ in {0.5, 1, 2, 4}; B8 and B4 are reported at 80
+  and 8 000 km; B9 ≤ 1.20 × control at τ = 1, and the cost at other τ equals
+  τ = 1's within brackets (B12's BM extension).
+- The kernel goldens and every legacy entry point are bit-identical; the
+  switch-off identity of §6.3 holds by hash.
+- The DLL and `.rs` mtimes are stated at the end of the run.
+
+### GF-13 — combine, look, and decide the app switch (Ruling BM)
+
+- Windowed screenshots (`_gf2relief_shot.tscn`, which gains a `--relief`
+  flag that aborts if the key is rejected), seeds 483920 and 314159 at
+  800 km, arm A against arm C at τ = 1 and 4, **opened and looked at** at fit
+  and at deep zoom (`MISTAKES.md`, "Verify a visual change"). The question they
+  answer: do caps stand as plateaus behind scarps, do weak-rock lowlands open,
+  and do active belts read steeper on strong rock?
+- If every GF-12 bar holds, `geology_processes` and `relief_model` go on in
+  `cartalith_godot::params::defaults()`, with §6.3's disclosure; if any bar
+  fails, they stay off and the finding goes to the owner.
+- The weathered mantle (§5.8's open contradiction) is wired under the switch
+  if §9 Q19 is answered that way.
+- The stage-06 age row is seen rendered in a running shell (§5.8 still owes
+  it), now reading the model-time wording under BM.
+
+**Done means:**
+- The screenshots are in the commit's evidence and described in §5.
+- The app-boundary divergence list, `GENERATION_PARAMETERS.md` and
+  `params_mapping.rs` agree.
+- `cargo test --workspace` green with the line count checked, and
+  `--check-only` on every touched `.gd` plus `shell/app.gd`.
+- `STATUS.md` is updated.
+
 ---
 
 ## 8. Constraints any lane on this scope must carry
@@ -2328,6 +3080,62 @@ says. Q11 is new with the clock.
     output, which B12's identity-at-τ = 1 would not catch at other values of
     τ. It can be ruled on separately.
 
+*Questions 12–19 are new with Ruling BM (2026-09-27). None is ruled. Each
+default is what GF-10 to GF-13 build if the owner says nothing.*
+
+12. **Which tectonic settings uplift?** **Default:** convergence (`stress`),
+    the flexural bulge behind it (`compute_flexure`), orogeny where
+    world-structure is on, and a small continental background (§4.15). **No
+    subsidence and no rift-shoulder uplift** in the first build: subsidence
+    would lower land under the sea, and it is deposition's business.
+    - The alternative adds rift shoulders from `min(σ, 0)` near `RIFT`
+      boundaries, which gives the flanking highlands of a rift valley.
+13. **The existing "Uplift" slider (`stream.uplift`, reference control
+    `sUp`).** **Default: leave it the legacy kernel's**, in its normalised
+    per-iteration units, and give BM's field its own parameters, with no GUI
+    control until GF-13. Its magnitude is calibrated (§4.15), so a slider
+    would mostly let a user break the mean balance.
+    - The alternative repurposes the slider as a multiplier on BM's `U₀`.
+      That gives the user a "more active tectonics" control, at the cost of a
+      slider whose meaning depends on a switch.
+14. **May construction move the coastline?** **Default: no.** Land stays land
+    (§4.14), so the land share and every coastal consumer keep their
+    meaning, and B8's ocean-on-paths guarantee is not tested by a moving
+    sea.
+    - The alternative lets weak coastal rock go under, which makes drowned
+      valleys and embayments in soft rock. It would move the land share and
+      is better scoped with GF-4's coastal pass.
+15. **Rebound after the uplift-driven stage?** **Default: none** (§4.15):
+    `U` is net rock uplift, and rebound returned 78–93 % of the light pass's
+    lowering over an 18-cell radius that does not scale with the map.
+    Rebound stays after the glacial pass and in `evolve_cycles`.
+    - The alternative keeps rebound and raises `U₀` to compensate. It would
+      keep the extent-blind radius and re-open the metres-scale result of
+      §5.8.
+16. **The clock under BM: model time, not counts.** **Default: yes.** Under
+    the switch, τ scales the stage's model time `T` and the construction
+    budget, at a fixed step count, so the cost does not grow with τ
+    (§4.15). This amends §4.12's "never on rate constants" for this one
+    stage, because its kernel is implicit and unconditionally stable (Braun &
+    Willett 2013), and §4.12's reason was the explicit kernels' stability
+    wall. Every other process keeps §4.12's count laws.
+17. **Arc volcanoes exempt from construction?** **Default: yes.** Their relief
+    is the stamper's and young; plateau basalt is not exempt.
+18. **Build BM before GF-4, GF-5, GF-6 and GF-8?** **Default: yes** (§7's
+    build order). Their bars are measured on whatever relief model exists; if
+    BM lands after them, each would need re-measuring.
+19. **Wire the weathered mantle under BM?** §5.8 left it unwired because
+    §4.12 anchors it at 2 m at τ = 1, which contradicts τ = 1 identity.
+    Under the BM switch τ = 1 is not identity (§4.16), so that objection does
+    not apply there. **Default: yes, under `relief_model` only, in GF-13.**
+    Its maximum (2.69 m) stays below `R_EXPOSE`, so it cannot change the
+    exposed rock on its own.
+
+*Not a question, recorded so it is not mistaken for one:* B9 stays at
+≤ 1.20 × control at τ = 1 under BM. If GF-10 shows that the step count B8
+needs costs more, the trade comes back to the owner as a new question; the
+bar is not moved to fit it.
+
 ---
 
 ## 10. How Ruling BG slots in
@@ -2370,7 +3178,11 @@ hillslope and before the final trace (§3.1). It writes its debris to
 Cited as known. GF-1's lane verifies the page, table or figure for every value
 before it is pinned, and replaces any reference it cannot verify. The five
 added for the clock (Baldwin et al., Harbor, Heimsath et al., MacGregor et
-al., Trenhaile) are verified the same way by GF-7's lane.
+al., Trenhaile) are verified the same way by GF-7's lane. The three added for
+Ruling BM (England & Molnar, Kirby & Whipple, Montgomery & Brandon) are
+verified by GF-10's lane; §4.15 relies on Whipple & Tucker (1999) and Braun &
+Willett (2013), already listed, for the steady-state balance and the implicit
+scheme, and GF-10's lane checks both at the source for the equations quoted.
 
 - Ballantyne, C.K. (2002). Paraglacial geomorphology. *Quaternary Science
   Reviews* 21, 1935–2017.
@@ -2387,6 +3199,10 @@ al., Trenhaile) are verified the same way by GF-7's lane.
 - Dühnforth, M., Anderson, R.S., Ward, D. & Stock, G.M. (2010). Bedrock
   fracture control of glacial erosion processes and rates. *Geology* 38(5),
   423–426.
+- England, P. & Molnar, P. (1990). Surface uplift, uplift of rocks, and
+  exhumation of rocks. *Geology* 18, 1173–1177. The rock-uplift versus
+  surface-uplift distinction §4.15 uses for rebound. (Added for Ruling BM;
+  already cited by `isostatic_rebound`'s doc comment.)
 - Ford, D.C. & Williams, P.W. (2007). *Karst Hydrogeology and Geomorphology.*
   Wiley.
 - Forte, A.M., Yanites, B.J. & Whipple, K.X. (2016). Complexities of landscape
@@ -2410,6 +3226,10 @@ al., Trenhaile) are verified the same way by GF-7's lane.
 - Hoek, E. & Brown, E.T. (1980). Empirical strength criterion for rock masses.
   *Journal of the Geotechnical Engineering Division, ASCE* 106(GT9),
   1013–1035.
+- Kirby, E. & Whipple, K.X. (2012). Expression of active tectonics in
+  erosional landscapes. *Journal of Structural Geology* 44, 54–75. The
+  channel-steepness form of the steady-state balance, `k_s = (U/K)^(1/n)`.
+  (Added for Ruling BM.)
 - Krabbendam, M. & Glasser, N.F. (2011). Glacial erosion and bedrock
   properties in NW Scotland: abrasion and plucking, hardness and joint
   spacing. *Geomorphology* 130, 374–383.
@@ -2418,6 +3238,10 @@ al., Trenhaile) are verified the same way by GF-7's lane.
   *Geology* 28(11), 1031–1034.
 - Marinos, P. & Hoek, E. (2000). GSI: a geologically friendly tool for rock
   mass strength estimation. *Proc. GeoEng2000*, Melbourne (the `mi` table).
+- Montgomery, D.R. & Brandon, M.T. (2002). Topographic controls on erosion
+  rates in tectonically active mountain ranges. *Earth and Planetary Science
+  Letters* 201, 481–489. Erosion rate tracks relief, and saturates where
+  hillslopes reach their threshold angle. (Added for Ruling BM.)
 - Montgomery, D.R. & Gran, K.B. (2001). Downstream variations in the width of
   bedrock channels. *Water Resources Research* 37(6), 1841–1846.
 - Perne, M., Covington, M.D., Thaler, E.A. & Myre, J.M. (2017). Steady state,

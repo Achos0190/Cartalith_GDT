@@ -620,6 +620,7 @@ re-checked against the tree rather than copied from the commit message.
     clocked call site runs the clock's count); `params_mapping.rs` and
     `erode_bridge.rs` additions. Mutation testing ran in a scratch copy:
     31 of 31 mutants killed, one of them after a test was added.
+- **Ruling BM scoped, nothing built (2026-09-27):** `GEOLOGY_FIRST_SCOPE.md` amended with rock-aware construction (§4.14), uplift-driven erosion (§4.15), revised B1/B2/B4 (§5.2, §5.9) and milestones GF-10…GF-13; next is GF-10, a harness-only prototype measurement.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s
