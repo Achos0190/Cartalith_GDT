@@ -338,7 +338,7 @@ re-checked against the tree rather than copied from the commit message.
   the coastal pass on in the app. §9 marks Q1, Q2, Q4 and Q7 as answered, and
   adds Q11. **GF-1 to GF-9 are unstarted.**
 - **GF-0 built: the geology-first measurement harness**
-  (`crates/cartalith-godot/tests/gf0_geology_harness.rs`). Pending independent
+  (`crates/cartalith-godot/tests/gf0_geology_harness.rs`). Verified by the main loop 2026-09-27 (controls 3/0; `gf0_bars` re-run in release, 800 km values match to 4 dp); was pending independent
   verification. It changes no generated output: it is a test target, plus a
   test-only `cartalith-erosion` dev-dependency of `cartalith-godot`.
   - **The fast controls** run in every workspace test:
