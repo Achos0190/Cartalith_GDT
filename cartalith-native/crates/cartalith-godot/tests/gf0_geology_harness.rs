@@ -64,6 +64,14 @@
 //! treatment is GF-2 plus GF-3, and it prints B4 (cap-edge scarps) for both
 //! arms, each on its own final column and surface. The command is unchanged.
 //!
+//! **Since GF-10** (Rulings BM and BN; `GEOLOGY_FIRST_SCOPE.md` §5.10) the
+//! file also holds the BM prototype: test-side construction, uplift field and
+//! uplift-driven stage built from existing kernels, a replay of the
+//! pipeline's tail that is asserted bit-identical to `generate_terrain`, the
+//! revised B1/B2/B4 and B13/B14 as fast tests, and three ignored runs
+//! (`gf10_bm_prototype`, `gf10_small_lake_diag`, `gf10_b9_cost`). See the
+//! "GF-10" section at the end for the commands. It changes no production code.
+//!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
 //! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
@@ -1828,4 +1836,1873 @@ fn gf7_b9_cost() {
         let (m, l, h) = stat(&tt[k]);
         println!("  tau {a:4.2}       median {m:.3} s ({l:.3} .. {h:.3}); ratio of medians {:.3}", m / mc);
     }
+}
+
+// ===========================================================================
+// GF-10: the Ruling BM prototype (`GEOLOGY_FIRST_SCOPE.md` §4.14-§4.16, §5.2,
+// §5.10, §7 GF-10; owner Rulings BM and BN). Harness code only.
+// ===========================================================================
+//
+// **What it is.** Test-side functions that build Ruling BM's two terms out of
+// kernels that already exist, over a generated app world, so that §7's
+// question -- *can the proposed terms move B1, B2 and B4 at all?* -- is
+// answered before anything is built into `generate_terrain`:
+// - [`uplift_shape`]: §4.15's uplift field, with Ruling BN's rift shoulders and
+//   rift-basin subsidence (§4.15, as amended);
+// - [`construct`]: §4.14's layer-through lowering, both breach rules, with the
+//   ocean-seeded fill-to-regolith step that Ruling BN's moving coast needs;
+// - [`bm_stage`]: §4.15's uplift-driven stage, emulated with the existing
+//   `stream_power_kernel_rock` (one call per step, so routing is refreshed
+//   every step);
+// - [`tail`]: the rest of `generate_terrain_inner` after the erosion stage,
+//   replayed from public functions, so each arm is a whole world with rivers,
+//   lakes and the glacial pass. [`replica_reproduces_generate_terrain`] proves
+//   the replay is `generate_terrain`, bit for bit, on both the app path and the
+//   processes-on path.
+//
+// **What it must never do.** Change production behaviour: nothing here is
+// called by the engine, and no golden reads it. It must never tune a
+// pre-registered value after seeing a bar ([`GO_B1_DRHO`] and its siblings
+// are fixed in code before the first run), and never report "not measurable"
+// as a number.
+//
+// **The arms** (§7 GF-10), on the same seed and pre-erosion world:
+// - **A**: today's app world, `generate_terrain(params::defaults())`;
+// - **B**: BM on at `c = 0`, rock-blind: the same budget and uplift, and every
+//   rock the same to both terms. (GF-3's threshold hillslope still reads θc,
+//   in B as in C, because "BM on" includes the processes switch, §4.16.)
+// - **C**: BM on at `c = 0.5` ([`C_TREAT`]).
+// Each is also run with construction alone and the stage alone, on the
+// settings grid of §7 (`D₁` × {0.5, 1, 2}, `T` × {1, 4}), with the continuous
+// breach rule, and over the τ sweep.
+//
+// Commands (release, run alone):
+//
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_bm_prototype
+//   GF10_EXTENTS=80,8000 cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_bm_prototype
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_small_lake_diag
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_b9_cost
+//
+// `GF10_DUMP=<dir>` writes hillshade PNGs of arms A, B and C at the
+// pre-registered setting for `GF10_DUMP_SEEDS` (default 483920, 314159).
+
+use cartalith_terrain::geology::{GeologyColumn, Rock};
+
+/// GF-10's go/no-go margins (§7 GF-10 "Done means"), **pre-registered: fixed
+/// here before the first run and never moved after it.** Each is half of the
+/// relative margin of its bar in §5.2:
+/// - B1's relative half is `ρ_C − ρ_B ≥ 0.15`; half is 0.075;
+/// - B2's is `≥ 1.25 ×`; half of the 0.25 above parity is `1.125 ×`;
+/// - B4's twin is `≥ 1.2 ×` the rock-blind arm's; half is `1.1 ×`.
+///
+/// The rule: arm C beats arm B by all three on at least [`GO_SEEDS`] of the five
+/// seeds at the pre-registered setting (`D₁` by its rule, `T = T₁`, τ = 1, the
+/// step breach rule), **and** B8 holds for arm C there on all five seeds (B8's
+/// own "all five seeds", §5.2). Anything else is NO-GO.
+const GO_B1_DRHO: f64 = 0.075;
+const GO_B2_RATIO: f64 = 1.125;
+const GO_B4_TWIN_RATIO: f64 = 1.1;
+/// §7 GF-10: "on at least three of five seeds".
+const GO_SEEDS: usize = 3;
+
+/// The treatment's rock contrast `c` (§4.1's default, §9 Q5; the value §5.2's
+/// B2 and B13 arithmetic is written at).
+const C_TREAT: f64 = 0.5;
+/// §4.15: weight of the flexural bulge's positive part. **Judgement** (scope).
+const A_PHI: f64 = 0.5;
+/// Ruling BN (§4.15 as amended): weight of the rift term (shoulders up, axis
+/// down). **Judgement**, set equal to `A_PHI`: both are the flexural response
+/// of the same lithosphere to a boundary load, so neither is given more
+/// authority than the other.
+const A_RIFT: f64 = 0.5;
+/// §4.15: the continental background rate as a share of `U₀`. **Judgement**
+/// (scope: `U_bg = 0.1·U₀`).
+const U_BG: f64 = 0.1;
+/// §4.14: the budget weight's clamp. **Judgements** (scope).
+const W_MIN: f64 = 0.25;
+const W_MAX: f64 = 4.0;
+/// §4.15: the stage's implicit step count. **Judgement** (scope: 8).
+const N_BM: usize = 8;
+/// §4.15: `T₁ = 3 / C_head`, three e-folding times of a channel head.
+const T1_EFOLDS: f64 = 3.0;
+/// `build_water_bodies`' `lake_depth`, the depth below which a filled
+/// depression is not a lake; §4.15 pins cells deeper than it, and B14 counts
+/// new depressions deeper than it.
+const PIN_DEPTH: f64 = 0.004;
+/// Fill-loop tolerance in normalised units: an excess below it is float
+/// rounding, not a pit. 1e-6 is 7 mm at the app's 4 000 m peak and 0.42 sea
+/// (arithmetic: 1e-6 × 4000 / 0.58).
+const FILL_TOL: f64 = 1e-6;
+
+/// §4.14's two breach rules. `Step` is the scope's construction (the breached
+/// cell has spent the whole budget as substrate); `Continuous` is the
+/// vertical rule the scope rejects because it makes no scarp. GF-10 measures
+/// both so that the choice is evidence.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Breach {
+    Step,
+    Continuous,
+}
+
+/// A total order on `f32` for the priority flood below (`total_cmp`), so the
+/// heap's order is defined for every bit pattern.
+#[derive(Clone, Copy, PartialEq)]
+struct OrdF32(f32);
+impl Eq for OrdF32 {}
+impl PartialOrd for OrdF32 {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for OrdF32 {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.0.total_cmp(&o.0)
+    }
+}
+
+/// The map's real outlets: every cell on a non-wrapping edge (on a world map,
+/// only the polar rows). A drop off the map edge is an outlet in every routing
+/// this engine does, so a depression is measured against it too.
+fn boundary_cells(gw: usize, gh: usize, world: bool) -> Vec<bool> {
+    (0..gw * gh)
+        .map(|i| {
+            let (x, y) = (i % gw, i / gw);
+            y == 0 || y + 1 == gh || (!world && (x == 0 || x + 1 == gw))
+        })
+        .collect()
+}
+
+/// A priority-flood fill over **4-neighbours**, seeded at `seed`: each cell's
+/// value is the lowest level at which water standing in it could leave for a
+/// seed, so `fill − z` is the depression depth.
+///
+/// Why 4-neighbours: `build_water_bodies` joins below-sea water 4-connected,
+/// so a bay the fill calls open must be one the classifier calls ocean; an
+/// 8-neighbour fill would pass a diagonal-only mouth the classifier calls a
+/// lake. Must never be used as a routing surface (the engine's is
+/// `build_routing_surface`: 8-neighbour, with an ε tilt).
+fn flood4(z: &[f32], seed: &[bool], gw: usize, gh: usize, world: bool) -> Vec<f32> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let n = gw * gh;
+    let mut f = z.to_vec();
+    let mut done = seed.to_vec();
+    let mut heap = BinaryHeap::new();
+    for i in 0..n {
+        if seed[i] {
+            heap.push(Reverse((OrdF32(f[i]), i)));
+        }
+    }
+    while let Some(Reverse((OrdF32(fi), i))) = heap.pop() {
+        let (x, y) = (i % gw, i / gw);
+        let mut nb = [usize::MAX; 4];
+        if x > 0 {
+            nb[0] = i - 1;
+        } else if world {
+            nb[0] = i + gw - 1;
+        }
+        if x + 1 < gw {
+            nb[1] = i + 1;
+        } else if world {
+            nb[1] = i + 1 - gw;
+        }
+        if y > 0 {
+            nb[2] = i - gw;
+        }
+        if y + 1 < gh {
+            nb[3] = i + gw;
+        }
+        for j in nb {
+            if j == usize::MAX || done[j] {
+                continue;
+            }
+            done[j] = true;
+            if f[j] < fi {
+                f[j] = fi;
+            }
+            heap.push(Reverse((OrdF32(f[j]), j)));
+        }
+    }
+    f
+}
+
+/// §4.15's uplift field without its scale: `U(i) = U₀ · shape(i)`, with
+///
+/// `shape = max(σ, 0) + A_PHI·max(φ, 0) + A_RIFT·R + U_BG·[crust ≥ 0]`
+///
+/// where `σ` is `stress_field`, `φ` is `compute_flexure`, and `R` is Ruling
+/// BN's rift term. Signed: negative where a rift basin subsides. Returns the
+/// shape and the number of rift source cells.
+///
+/// **The rift term (Ruling BN, Q12: "rift shoulders and basin
+/// subsidence").** Its source is the divergence `max(−σ, 0)` on
+/// `boundary_type == RIFT` boundary cells. `R` is that source blurred at
+/// `3·blur_r` (the flexure's wavelength, as `compute_flexure` uses) minus the
+/// same source blurred at `blur_r` (the stress wavelength), divided by its
+/// largest magnitude. A difference of two mass-preserving blurs integrates to
+/// about zero: negative on the axis, where the narrow blur peaks higher (the
+/// subsiding basin), and positive on the flanks, where the wide blur reaches
+/// further (the shoulders) -- the shape of a flexural rift profile.
+/// **Judgement**: the two radii are the scope's own two blur scales, not new
+/// constants.
+///
+/// The orogeny term (§4.15's `a_o·max(oro, 0)`) is zero here, and asserted so:
+/// `oro` exists only with world-structure on, which is off in the app (§4.14),
+/// and `WorldState` does not store it.
+///
+/// Must never be read as a rate: it has no units until `U₀` is solved.
+fn uplift_shape(p: &WorldParams, ws: &WorldState) -> (Vec<f64>, usize) {
+    assert!(!p.world_structure.enabled, "GF-10 has no orogeny field: world-structure must be off, as in the app");
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let n = gw * gh;
+    let phi = cartalith_terrain::compute_flexure(gw, gh, &ws.boundary_mask, &ws.stress_field, p.tect.blur_r, world);
+    let src: Vec<f32> = (0..n)
+        .map(|i| {
+            if ws.boundary_mask[i] != 0 && ws.boundary_type[i] == cartalith_terrain::btype::RIFT {
+                (-ws.stress_field[i]).max(0.0)
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let rift_src_cells = src.iter().filter(|&&v| v > 0.0).count();
+    let narrow = cartalith_terrain::gauss_blur(&src, p.tect.blur_r, gw, gh, world);
+    let wide = cartalith_terrain::gauss_blur(&src, 3.0 * p.tect.blur_r, gw, gh, world);
+    let dog: Vec<f64> = (0..n).map(|i| wide[i] as f64 - narrow[i] as f64).collect();
+    let mx = dog.iter().fold(1e-12f64, |m, v| m.max(v.abs()));
+    let shape = (0..n)
+        .map(|i| {
+            (ws.stress_field[i] as f64).max(0.0)
+                + A_PHI * (phi[i] as f64).max(0.0)
+                + A_RIFT * dog[i] / mx
+                + if ws.crust_field[i] >= 0.0 { U_BG } else { 0.0 }
+        })
+        .collect();
+    (shape, rift_src_cells)
+}
+
+/// §4.14's construction budget in metres, per land cell of the structural
+/// surface (0 elsewhere): `B = τ·D₁·clamp(Ū / mean_land(Ū), W_MIN, W_MAX)`,
+/// `Ū` the uplift shape blurred at `3·blur_r` so the budget varies over the
+/// plate scale and the rock map supplies all the short-wavelength contrast.
+/// Separate from [`construct`] so B14's `c = 0` identity can be checked
+/// against it rather than restated.
+fn budget_m(p: &WorldParams, pre: &WorldState, shape: &[f64], d1_m: f64, tau: f64) -> Vec<f64> {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let n = gw * gh;
+    let sea = pre.sea_level;
+    let shape_f: Vec<f32> = shape.iter().map(|&v| v as f32).collect();
+    let ubar = cartalith_terrain::gauss_blur(&shape_f, 3.0 * p.tect.blur_r, gw, gh, world);
+    let land: Vec<f64> = (0..n).filter(|&i| pre.field[i] as f64 > sea).map(|i| ubar[i] as f64).collect();
+    let m = mean(&land).expect("the world has land");
+    (0..n)
+        .map(|i| if pre.field[i] as f64 > sea { tau * d1_m * (ubar[i] as f64 / m).clamp(W_MIN, W_MAX) } else { 0.0 })
+        .collect()
+}
+
+/// One construction's product and its B14 bookkeeping.
+struct Constructed {
+    field: Vec<f32>,
+    col: GeologyColumn,
+    /// The surface before the fill step (B14's `c = 0` identity reads it).
+    pre_fill: Vec<f32>,
+    fill_passes: usize,
+    raised_cells: usize,
+    /// Land cells of the structural surface now at or below sea (Ruling BN's
+    /// bays).
+    land_to_sea: usize,
+    /// Land cells the old "land stays land" floor would have caught
+    /// (`z < sea + 1 m` before the fill), so Q14's reversal is visible.
+    would_floor: usize,
+    /// Two-layer land cells whose budget breached the cap (`B·k_t > h`).
+    breached: usize,
+    two_layer_land: usize,
+    arc_exempt: usize,
+    land: usize,
+    /// Land cells whose depression is still deeper than on the structural
+    /// surface by more than [`PIN_DEPTH`] after the loop (B14: must be 0).
+    new_pits: usize,
+}
+
+/// §4.14's rock-aware construction, with Ruling BN's coast (§9 Q14 answered
+/// yes). For each land cell of the structural surface `z0`:
+///
+/// ```text
+/// B = budget_m(...)                                        (metres)
+/// k_t = κ(top)^c, k_s = κ(sub)^c, h = z0 − contact         (metres)
+/// single layer:              D = B·k_t
+/// cap survives (B·k_t ≤ h):  D = B·k_t
+/// cap breached, Step:        D = B·k_s
+/// cap breached, Continuous:  D = h + (B − h/k_t)·k_s
+/// arc edifice (exposed andesite or tuff, §9 Q17): D = 0
+/// z = z0 − D
+/// ```
+///
+/// Then the fill step: both surfaces are filled from the ocean ([`flood4`],
+/// seeded at the structural surface's ocean cells and the map's outlets), and
+/// every cell whose depression is deeper than it was on `z0` is raised by the
+/// excess, which is added to `regolith`: a basin differential erosion opens is
+/// a basin sediment fills. Repeated until no excess remains.
+///
+/// **Ruling BN's coast.** There is no floor at sea level. A land cell may end
+/// below sea, but only where the fill leaves it there, i.e. where it is
+/// 4-connected through below-sea cells to the ocean: a new bay or inlet. An
+/// inland cell lowered below sea is a closed depression and is filled back to
+/// its spill point like any other pit, so construction still makes no inland
+/// pit, and a hard headland stands because strong rock is lowered least.
+///
+/// Must never write `contact` (construction is erosion in the past, and
+/// erosion does not move a contact, §4.14), and must never touch an ocean
+/// cell.
+#[allow(clippy::too_many_arguments)]
+fn construct(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], d1_m: f64, tau: f64, c: f64, rule: Breach) -> Constructed {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let n = gw * gh;
+    let sea = pre.sea_level;
+    let mpu = p.peak_m / (1.0 - sea);
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let z0: &[f32] = &pre.field;
+    let col0 = pre.geology.column().expect("the app world has the GF-1 column");
+    let mut col = col0.clone();
+    let land0: Vec<bool> = (0..n).map(|i| z0[i] as f64 > sea).collect();
+    let budget = budget_m(p, pre, shape, d1_m, tau);
+    let kc = |r: Rock| (r.props().kappa as f64).powf(c);
+    let mut z: Vec<f32> = z0.to_vec();
+    let (mut breached, mut two, mut arc, mut land) = (0usize, 0usize, 0usize, 0usize);
+    for i in 0..n {
+        if !land0[i] {
+            continue;
+        }
+        land += 1;
+        let top = col0.top(i).expect("every cell has a top rock");
+        let exposed = col0.exposed(i, z0[i], r_expose).expect("every cell exposes a rock");
+        // §9 Q17 (default kept by Ruling BN): an arc edifice's relief is the
+        // stamper's, and young.
+        if matches!(exposed, Rock::Andesite | Rock::Tuff) {
+            arc += 1;
+            continue;
+        }
+        let b = budget[i];
+        let kt = kc(top);
+        let d = match col0.substrate(i) {
+            None => b * kt,
+            Some((sub, contact)) => {
+                two += 1;
+                let h = (z0[i] as f64 - contact as f64) * mpu;
+                if b * kt <= h {
+                    b * kt
+                } else {
+                    breached += 1;
+                    match rule {
+                        Breach::Step => b * kc(sub),
+                        Breach::Continuous => h + (b - h / kt) * kc(sub),
+                    }
+                }
+            }
+        };
+        z[i] = (z0[i] as f64 - d / mpu) as f32;
+    }
+    let pre_fill = z.clone();
+    let would_floor = (0..n).filter(|&i| land0[i] && (z[i] as f64) < sea + 1.0 / mpu).count();
+    let edge = boundary_cells(gw, gh, world);
+    let seed: Vec<bool> = (0..n).map(|i| ocean0[i] || edge[i]).collect();
+    let f0 = flood4(z0, &seed, gw, gh, world);
+    let d_old: Vec<f64> = (0..n).map(|i| f0[i] as f64 - z0[i] as f64).collect();
+    let mut passes = 0usize;
+    let mut raised = vec![false; n];
+    loop {
+        let f = flood4(&z, &seed, gw, gh, world);
+        let mut any = false;
+        for i in 0..n {
+            if !land0[i] {
+                continue;
+            }
+            let excess = (f[i] as f64 - z[i] as f64) - d_old[i];
+            if excess > FILL_TOL {
+                let before = z[i];
+                z[i] = (z[i] as f64 + excess) as f32;
+                // §4.14: the raise is regolith, exactly what was added.
+                col.regolith[i] = (col.regolith[i] as f64 + (z[i] as f64 - before as f64)) as f32;
+                raised[i] = true;
+                any = true;
+            }
+        }
+        passes += 1;
+        // 64 passes is a guard against a loop that never settles, never a
+        // result: `new_pits` below reports whatever it left.
+        if !any || passes >= 64 {
+            break;
+        }
+    }
+    let f = flood4(&z, &seed, gw, gh, world);
+    let new_pits = (0..n).filter(|&i| land0[i] && (f[i] as f64 - z[i] as f64) - d_old[i] > PIN_DEPTH).count();
+    let land_to_sea = (0..n).filter(|&i| land0[i] && (z[i] as f64) <= sea).count();
+    Constructed {
+        field: z,
+        col,
+        pre_fill,
+        fill_passes: passes,
+        raised_cells: raised.iter().filter(|&&r| r).count(),
+        land_to_sea,
+        would_floor,
+        breached,
+        two_layer_land: two,
+        arc_exempt: arc,
+        land,
+        new_pits,
+    }
+}
+
+/// `generate_terrain_inner`'s priming climate ("structural drainage ->
+/// climate -> discharge-weighted drainage"), replayed on `field`: unit-area
+/// flow over the routing view, temperature, weather, the moisture
+/// correctors. Under BM it runs on the constructed surface (§4.16's order).
+/// [`replica_reproduces_generate_terrain`] asserts that it reproduces the
+/// pre-erosion world's own rainfall and temperature bit for bit.
+fn priming_climate(p: &WorldParams, sea: f64, field: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    assert!(!p.use_gpu, "the replica covers the app's CPU path");
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, p.integrate_drainage);
+    let flow_area = cartalith_hydrology::compute_flow(gw, gh, &route, None, false, world);
+    let cp = cartalith_engine::climate_params_for(p, sea);
+    let mut temp = cartalith_climate::compute_temperature(gw, gh, field, None, &cp);
+    let wp = cartalith_engine::weather_params_for(p, sea);
+    let mut rain = cartalith_climate::simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, &wp);
+    cartalith_climate::apply_climate_moisture_correctors(gw, gh, field, &flow_area, &mut rain, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+    currents(p, sea, field, &mut temp, &mut rain);
+    (temp, rain)
+}
+
+/// `apply_ocean_currents` exactly as `generate_terrain_inner` calls it, gated
+/// on `p.climate.currents` as it is there.
+fn currents(p: &WorldParams, sea: f64, field: &[f32], temp: &mut [f32], rain: &mut [f32]) {
+    if p.climate.currents {
+        let c = &p.climate;
+        cartalith_climate::apply_ocean_currents(
+            p.gw,
+            p.gh,
+            field,
+            temp,
+            rain,
+            sea,
+            p.world,
+            c.lat_n,
+            c.lat_s,
+            c.equator_temp,
+            c.pole_temp,
+            p.planet.axial_tilt_deg,
+            p.planet.rotation_hours,
+            c.wind_manual,
+            c.wind_dir_deg,
+            c.press_k,
+            c.current_k,
+        );
+    }
+}
+
+/// GF-3's threshold hillslope exactly as `RockContext::threshold_hillslope`
+/// runs it: clock-scaled passes, then §4.9's regolith rule on the net change.
+fn hillslope(p: &WorldParams, sea: f64, field: &mut [f32], col: &mut GeologyColumn, clock: &cartalith_engine::geo_clock::GeoClock) {
+    let before = field.to_vec();
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    cartalith_erosion::threshold_hillslope(
+        field,
+        p.gw,
+        p.gh,
+        clock.hillslope_passes(cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES).n,
+        p.world,
+        &cartalith_erosion::ThresholdHillslope { column: &*col, r_expose, cell_m: p.map_width_km * 1000.0 / p.gw as f64, sea, peak_m: p.peak_m },
+    );
+    cartalith_erosion::account_regolith(col, &before, field, true);
+}
+
+/// The rest of `generate_terrain_inner` after the erosion stage, replayed from
+/// public functions: routing, channels, Strahler order, the trace, the
+/// river-intensity stamp, the carve (RV-1), the climate refresh, the glacial
+/// pass and its rebound, the passes' clamp and the final refresh. `rain` is
+/// the priming rainfall the pipeline still holds at that point.
+///
+/// `col` is `Some` exactly when the processes are on; then the carve and
+/// glacial strip regolith and the rebound lifts the contact (`RockContext`'s
+/// `strip` and `rebound`). Why it exists: an arm is judged on B8, which needs
+/// the rivers and lakes the pipeline would draw on its surface, and the only
+/// way to put a test-side surface through them is to replay them.
+/// [`replica_reproduces_generate_terrain`] proves this is `generate_terrain`.
+///
+/// Must never be given a `p` with a pass other than glacial on (asserted):
+/// the replay covers the app's own passes and no others.
+fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, mut col: Option<GeologyColumn>, clock: &cartalith_engine::geo_clock::GeoClock) -> WorldState {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let sea = pre.sea_level;
+    let q = &p.passes;
+    assert!(p.carve_rivers && !p.tect.dynamic_lithology, "the replica covers the app's path");
+    let mut others = q.clone();
+    others.glacial = false;
+    assert!(!others.any(), "the replica covers the glacial pass only");
+    let integrate = p.integrate_drainage;
+    let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
+    let flow_net = cartalith_hydrology::compute_flow(gw, gh, &route, Some(&rain), true, world);
+    let mut ch = cartalith_hydrology::build_channels_routed(&field, &route, &flow_net, gw, gh, sea, world, p.river_density, p.map_width_km);
+    let lake_surface: Option<Vec<f32>> = match route {
+        std::borrow::Cow::Owned(v) => Some(v),
+        std::borrow::Cow::Borrowed(_) => None,
+    };
+    ch.slope = Vec::new();
+    let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, &flow_net, &ch.chan);
+    let polys = cartalith_hydrology::trace_river_polylines(&order, &ch.recv, gw, gh, 1);
+    let width_k = cartalith_hydrology::river_width_scale_k(p.map_width_km);
+    ch.intensity = cartalith_hydrology::stamp_river_intensity(
+        &field,
+        &flow_net,
+        &ch.chan,
+        &ch.recv,
+        &order,
+        gw,
+        gh,
+        world,
+        cartalith_hydrology::river_flow_thresh(gw, gh, gw, p.map_width_km),
+        width_k,
+        cartalith_hydrology::river_render_area_bar(p.map_width_km),
+    );
+    let cap = 4.0 * width_k;
+    let half_ws: Vec<f64> = polys
+        .iter()
+        .map(|poly| {
+            let &(lx, ly) = poly.last().expect("trace_river_polylines returns polylines with >= 2 points");
+            let li = ((ly as i64) * gw as i64 + lx as i64).clamp(0, (gw * gh) as i64 - 1) as usize;
+            let o = if order[li] != 0 { order[li] as f64 } else { 1.0 };
+            let hw = (0.8 + 0.5 * (o - 1.0)) * width_k;
+            if hw > cap {
+                cap
+            } else {
+                hw
+            }
+        })
+        .collect();
+    let pre_carve = col.as_ref().map(|_| field.clone());
+    let mut rmask = vec![0u8; gw * gh];
+    for i in cartalith_hydrology::carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea, 0.0006) {
+        rmask[i] = 1;
+    }
+    if let (Some(c), Some(b)) = (col.as_mut(), pre_carve.as_ref()) {
+        cartalith_erosion::account_regolith(c, b, &field, false);
+    }
+    drop(lake_surface);
+    let rfloor: Vec<f32> = (0..gw * gh).map(|i| if rmask[i] != 0 { field[i] } else { 0.0 }).collect();
+    let mut flow = {
+        let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
+        cartalith_hydrology::compute_flow(gw, gh, &route, Some(&rain), true, world)
+    };
+    let cp = cartalith_engine::climate_params_for(p, sea);
+    let wp = cartalith_engine::weather_params_for(p, sea);
+    let mut temperature = cartalith_climate::compute_temperature(gw, gh, &field, None, &cp);
+    let mut rainfall = cartalith_climate::simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &wp);
+    cartalith_climate::apply_climate_moisture_correctors(gw, gh, &field, &flow, &mut rainfall, sea, world, p.climate.lat_n, p.climate.lat_s, p.climate.zonal_k);
+    currents(p, sea, &field, &mut temperature, &mut rainfall);
+    if q.glacial {
+        let before = field.clone();
+        cartalith_erosion::glacial_kernel(
+            &mut field,
+            &temperature,
+            gw,
+            gh,
+            &cartalith_erosion::GlacialParams {
+                kg: q.glacial_kg,
+                mg: q.glacial_mg,
+                snowline: q.glacial_snowline,
+                u_factor: q.glacial_u_factor,
+                passes: clock.glacial_passes(q.glacial_passes).n,
+                g: p.planet.g,
+                sea,
+                world,
+            },
+        );
+        if let Some(c) = col.as_mut() {
+            cartalith_erosion::account_regolith(c, &before, &field, false);
+        }
+        let before_rb = field.clone();
+        cartalith_erosion::isostatic_rebound(&mut field, &before, gw, gh, p.tect.blur_r, world);
+        if let Some(c) = col.as_mut() {
+            cartalith_erosion::lift_column(c, &before_rb, &field);
+        }
+    }
+    if q.any() {
+        // `generate_terrain_inner`'s own two-statement clamp, transcribed.
+        #[allow(clippy::manual_clamp)]
+        for v in field.iter_mut() {
+            if *v < 0.0 {
+                *v = 0.0;
+            } else if *v > 1.0 {
+                *v = 1.0;
+            }
+        }
+        cartalith_engine::refresh_climate(p, sea, &field, &cp, &wp, &mut temperature, &mut rainfall, &mut flow);
+    }
+    let column = match col {
+        Some(c) => c,
+        None => pre.geology.column().expect("column").clone(),
+    };
+    WorldState {
+        sea_level: sea,
+        field: std::sync::Arc::new(field),
+        plate_id: pre.plate_id.clone(),
+        boundary_mask: pre.boundary_mask.clone(),
+        stress_field: pre.stress_field.clone(),
+        age_field: pre.age_field.clone(),
+        resistance_field: pre.resistance_field.clone(),
+        crust_field: pre.crust_field.clone(),
+        boundary_type: pre.boundary_type.clone(),
+        shear_field: pre.shear_field.clone(),
+        volcanic_field: pre.volcanic_field.clone(),
+        impact_field: pre.impact_field.clone(),
+        temperature: std::sync::Arc::new(temperature),
+        rainfall: std::sync::Arc::new(rainfall),
+        flow_discharge: std::sync::Arc::new(flow),
+        integrated_drainage: integrate,
+        channels: Some(ch),
+        stream_order: Some(order),
+        river_mask: Some(rmask),
+        river_floor: Some(rfloor),
+        gpu_stages_used: Vec::new(),
+        geology: cartalith_engine::Geology::Column(Box::new(column)),
+    }
+}
+
+/// The pre-erosion world: carve off, every pass off. `generate_terrain_inner`
+/// writes nothing to `field` after the volcanism clamp on that path (this
+/// file's module doc), so its field is the structural surface, its column is
+/// GF-1's as derived, and its rainfall and temperature are the priming
+/// climate's.
+fn pre_erosion(p: &WorldParams) -> WorldState {
+    let mut pp = p.clone();
+    pp.carve_rivers = false;
+    pp.passes = cartalith_engine::ErosionPassParams::off();
+    generate_terrain(&pp)
+}
+
+/// The light pass as `generate_terrain_inner` runs it on `pre` at age `tau`:
+/// stream power, its rebound and, with the processes on, GF-3's hillslope.
+/// Returns `(surface the tail starts from, column when the processes are on,
+/// surface after stream power, surface after rebound)`.
+///
+/// `refresh_every` splits the rock kernel's iterations into single-iteration
+/// calls (routing refreshed each), and `regolith = false` skips §4.9's
+/// accounting: both are the §5.8 diagnosis's variants, and the replica check
+/// runs neither.
+fn light_pass(p: &WorldParams, pre: &WorldState, processes: bool, tau: f64, refresh_every: bool, regolith: bool) -> (Vec<f32>, Option<GeologyColumn>, Vec<f32>, Vec<f32>) {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let sea = pre.sea_level;
+    let clock = cartalith_engine::geo_clock::GeoClock::new(processes, tau);
+    let sp = cartalith_erosion::StreamPowerParams { iters: clock.light_pass_iters(p.stream.iters).n, ..light_stream_params(p, sea) };
+    let mut field = pre.field.to_vec();
+    let rain: &[f32] = &pre.rainfall;
+    if !processes {
+        cartalith_erosion::stream_power_kernel(&mut field, &pre.stress_field, &pre.resistance_field, rain, gw, gh, &sp);
+        let after_sp = field.clone();
+        cartalith_erosion::isostatic_rebound(&mut field, &pre.field, gw, gh, p.tect.blur_r, world);
+        let after_rb = field.clone();
+        return (field, None, after_sp, after_rb);
+    }
+    let mut col = pre.geology.column().expect("column").clone();
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let before = field.clone();
+    let calls = if refresh_every { sp.iters } else { 1 };
+    let per_call = cartalith_erosion::StreamPowerParams { iters: if refresh_every { 1 } else { sp.iters }, ..sp };
+    for _ in 0..calls {
+        cartalith_erosion::stream_power_kernel_rock(
+            &mut field,
+            &pre.stress_field,
+            rain,
+            gw,
+            gh,
+            &per_call,
+            &mut cartalith_erosion::StreamPowerRock { column: &mut col, contrast: p.tect.resist, r_expose },
+        );
+    }
+    if regolith {
+        cartalith_erosion::account_regolith(&mut col, &before, &field, true);
+    }
+    let after_sp = field.clone();
+    let b = field.clone();
+    cartalith_erosion::isostatic_rebound(&mut field, &pre.field, gw, gh, p.tect.blur_r, world);
+    cartalith_erosion::lift_column(&mut col, &b, &field);
+    let after_rb = field.clone();
+    if regolith {
+        hillslope(p, sea, &mut field, &mut col, &clock);
+    } else {
+        // The same stage with its regolith write dropped, so no cell can read
+        // as unconsolidated from anything this pass deposited.
+        cartalith_erosion::threshold_hillslope(
+            &mut field,
+            gw,
+            gh,
+            clock.hillslope_passes(cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES).n,
+            world,
+            &cartalith_erosion::ThresholdHillslope { column: &col, r_expose, cell_m: p.map_width_km * 1000.0 / gw as f64, sea, peak_m: p.peak_m },
+        );
+    }
+    (field, Some(col), after_sp, after_rb)
+}
+
+/// Bit-identity of two worlds on every array the bars and B8 read.
+fn same_world(a: &WorldState, b: &WorldState) -> bool {
+    let bits = |x: &[f32], y: &[f32]| x.len() == y.len() && x.iter().zip(y).all(|(u, v)| u.to_bits() == v.to_bits());
+    let (ca, cb) = (a.geology.column().unwrap(), b.geology.column().unwrap());
+    bits(&a.field, &b.field)
+        && bits(&a.temperature, &b.temperature)
+        && bits(&a.rainfall, &b.rainfall)
+        && bits(&a.flow_discharge, &b.flow_discharge)
+        && a.river_mask == b.river_mask
+        && a.stream_order == b.stream_order
+        && bits(a.river_floor.as_deref().unwrap_or(&[]), b.river_floor.as_deref().unwrap_or(&[]))
+        && bits(&ca.regolith, &cb.regolith)
+        && bits(&ca.contact, &cb.contact)
+}
+
+/// Protects every GF-10 number: **the test-side replay of the pipeline
+/// ([`priming_climate`], [`light_pass`], [`tail`]) is `generate_terrain`**, bit
+/// for bit, on the app's own path (processes off) and on the processes-on path
+/// at τ = 1 and τ = 4 (GF-7's clock reaches the light pass, the hillslope and
+/// glacial). If it drifted, an arm's B8 would be measured on a pipeline the
+/// app does not run. Small grid, so it runs in the ordinary suite.
+#[test]
+fn replica_reproduces_generate_terrain() {
+    for &seed in &[483_920, 314_159] {
+        let p = app_params(seed, 800.0, 192, 123);
+        let pre = pre_erosion(&p);
+        let (t, r) = priming_climate(&p, pre.sea_level, &pre.field);
+        assert!(t == *pre.temperature && r == *pre.rainfall, "priming climate replay diverged on seed {seed}");
+        let off = cartalith_engine::geo_clock::GeoClock::new(false, 1.0);
+        let (f, _, _, _) = light_pass(&p, &pre, false, 1.0, false, true);
+        let a = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+        assert!(same_world(&a, &generate_terrain(&p)), "app-path replay diverged on seed {seed}");
+        for tau in [1.0, 4.0] {
+            let clock = cartalith_engine::geo_clock::GeoClock::new(true, tau);
+            let (f, col, _, _) = light_pass(&p, &pre, true, tau, false, true);
+            let t = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &clock);
+            assert!(same_world(&t, &treated_at(&p, tau)), "processes-on replay diverged on seed {seed} at tau {tau}");
+        }
+    }
+}
+
+/// One uplift-driven stage's report.
+struct StageOut {
+    /// Cells below 1.0 on the stage's input that the kernel's final clamp
+    /// held at 1.0 in any step (B15: must be 0).
+    clamped: usize,
+    /// Unpinned cells already at the 1.0 ceiling on the stage's input (the
+    /// structural surface's own clamped summits). Reported apart from
+    /// `clamped`: the stage did not put them there. A first recorded run
+    /// counted them in `clamped`, and §5.10 discloses it.
+    at_ceiling_in: usize,
+    pinned: usize,
+    /// Land-mean surface change over the stage, metres (B15's balance, and
+    /// the quantity [`solve_u0`] zeroes).
+    land_mean_change_m: f64,
+    /// Cells the subsidence basin fill raised (Ruling BN).
+    basin_filled: usize,
+}
+
+/// §4.15's uplift-driven stage, **emulated with the existing
+/// `stream_power_kernel_rock`**, `steps` steps of `dt = T/steps`:
+///
+/// ```text
+/// pin: cells below sea, and cells whose depression on the input surface is
+///      deeper than PIN_DEPTH (build_routing_surface's fill)
+/// each step:
+///   subsidence (U < 0): z += U·dt and contact += U·dt, before the call
+///   one kernel call, iters = 1 (so fill, receivers and area are recomputed
+///   every step), k = K·dt, uplift = max(U⁺)·dt, stress = U⁺ / max(U⁺),
+///   deposit = 0, contrast = c
+///   restore every pinned cell's height and contact
+/// regolith: §4.9's rule once, on the net change less the uplift (U·T)
+/// basin fill (Ruling BN): new closed depressions inside the subsiding
+///   footprint are filled to spill, the fill added to regolith
+/// ```
+///
+/// How each emulation differs from §4.15, and why each is acceptable:
+/// - **`dt` by scaling `k` and the uplift, not by the step count.** The
+///   kernel's update is `(z + dt·u + c·z_r) / (1 + c)` with `c = dt·C` and
+///   `dt = 1` fixed; `k' = k·dt` and `uplift' = U·dt` give exactly that update
+///   at the scope's `dt` (arithmetic). §7 suggested the step count, which at a
+///   `T₁` of order 10² would cost ~10² routing refreshes per stage; this is the
+///   same equation in `steps` of them.
+/// - **Pinning by restore-after-call.** The rock entry point takes no `pinned`
+///   mask. A donor of a pinned cell reads that cell's *moved* height within a
+///   call, for one step at a time; height and contact are restored before the
+///   next.
+/// - **Subsidence split out of the implicit update.** The kernel's `u` is
+///   `max(stress, 0)`. Subtracting `U⁻·dt` first gives exactly the kernel's
+///   formula with a signed `u` (the term enters only as `z + dt·u`), except that
+///   the step's routing is computed on the subsided surface rather than the
+///   pre-step one.
+/// - **Deposition off** (`deposit = 0`), as §4.15 specifies.
+///
+/// Must never apply rebound (§4.15, §9 Q15: `U` is rock uplift net of isostasy).
+#[allow(clippy::too_many_arguments)]
+fn bm_stage(p: &WorldParams, sea: f64, field: &mut Vec<f32>, col: &mut GeologyColumn, u_norm: &[f64], rain: &[f32], c: f64, t_model: f64, steps: usize) -> StageOut {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let n = gw * gh;
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let z_in = field.clone();
+    let route = cartalith_hydrology::build_routing_surface(&z_in, gw, gh, sea, world);
+    let pinned: Vec<bool> = (0..n).map(|i| (z_in[i] as f64) < sea || route[i] as f64 - z_in[i] as f64 > PIN_DEPTH).collect();
+    let pin_c: Vec<f32> = col.contact.clone();
+    let dt = t_model / steps as f64;
+    let umax = u_norm.iter().fold(0f64, |m, &v| m.max(v));
+    // The kernel scales its stress slice by its own maximum, so a unit-max
+    // slice times `uplift = umax·dt` gives each cell exactly `U⁺·dt`.
+    let stress: Vec<f32> = u_norm.iter().map(|&v| if umax > 0.0 { (v.max(0.0) / umax) as f32 } else { 0.0 }).collect();
+    let mut clamped = vec![false; n];
+    for _ in 0..steps {
+        for i in 0..n {
+            if !pinned[i] && u_norm[i] < 0.0 {
+                let d = u_norm[i] * dt;
+                field[i] = (field[i] as f64 + d) as f32;
+                if !col.contact[i].is_nan() {
+                    col.contact[i] = (col.contact[i] as f64 + d) as f32;
+                }
+            }
+        }
+        let sp = cartalith_erosion::StreamPowerParams {
+            k: p.stream.k * dt,
+            uplift: umax * dt,
+            deposit: 0.0,
+            climate_k: p.stream.climate_k,
+            iters: 1,
+            resist: c,
+            g: p.planet.g,
+            world,
+            sea,
+        };
+        cartalith_erosion::stream_power_kernel_rock(field, &stress, rain, gw, gh, &sp, &mut cartalith_erosion::StreamPowerRock { column: &mut *col, contrast: c, r_expose });
+        for i in 0..n {
+            if pinned[i] {
+                field[i] = z_in[i];
+                col.contact[i] = pin_c[i];
+            } else if field[i] >= 1.0 && z_in[i] < 1.0 {
+                clamped[i] = true;
+            }
+        }
+    }
+    // §4.9 on the erosional part only: uplift raises the column, it deposits
+    // nothing.
+    let adj: Vec<f32> = (0..n).map(|i| if pinned[i] { z_in[i] } else { (z_in[i] as f64 + u_norm[i] * t_model) as f32 }).collect();
+    cartalith_erosion::account_regolith(col, &adj, &field[..], true);
+    // Ruling BN: subsidence makes accommodation, and accommodation fills.
+    let edge = boundary_cells(gw, gh, world);
+    let seed: Vec<bool> = (0..n).map(|i| (z_in[i] as f64) < sea || edge[i]).collect();
+    let f_in = flood4(&z_in, &seed, gw, gh, world);
+    let mut basin = vec![false; n];
+    for _ in 0..64 {
+        let f = flood4(&field[..], &seed, gw, gh, world);
+        let mut any = false;
+        for i in 0..n {
+            if pinned[i] || u_norm[i] >= 0.0 {
+                continue;
+            }
+            let excess = (f[i] as f64 - field[i] as f64) - (f_in[i] as f64 - z_in[i] as f64);
+            if excess > FILL_TOL {
+                let before = field[i];
+                field[i] = (field[i] as f64 + excess) as f32;
+                col.regolith[i] = (col.regolith[i] as f64 + (field[i] as f64 - before as f64)) as f32;
+                basin[i] = true;
+                any = true;
+            }
+        }
+        if !any {
+            break;
+        }
+    }
+    let mpu = p.peak_m / (1.0 - sea);
+    let land: Vec<f64> = (0..n).filter(|&i| z_in[i] as f64 > sea).map(|i| (field[i] as f64 - z_in[i] as f64) * mpu).collect();
+    StageOut {
+        clamped: clamped.iter().filter(|&&v| v).count(),
+        at_ceiling_in: (0..n).filter(|&i| !pinned[i] && z_in[i] >= 1.0).count(),
+        pinned: pinned.iter().filter(|&&v| v).count(),
+        land_mean_change_m: mean(&land).unwrap_or(f64::NAN),
+        basin_filled: basin.iter().filter(|&&v| v).count(),
+    }
+}
+
+/// Protects §5.2's B13 on the prototype stage: on a tilted plane under
+/// uniform uplift and no rain, a granite block beside a shale block, the stage
+/// reaches the steady state stream power predicts. At matched drainage area
+/// (the same row of each block's interior, which a plane under uniform uplift
+/// makes equal) the ratio of granite's slope to shale's is
+/// `(κ_shale/κ_granite)^c`: **2.887 at c = 0.5** (`(2.5/0.3)^0.5`, a literal)
+/// and 1 at c = 0, each within 5 %. Dropping `κ` from the stage (the contrast
+/// ignored) or its uplift (no steady relief) turns it red.
+#[test]
+fn b13_the_prototype_stage_reaches_the_stream_power_steady_state() {
+    let (gw, gh) = (128usize, 48usize);
+    let n = gw * gh;
+    let mut p = params::defaults();
+    p.gw = gw;
+    p.gh = gh;
+    p.world = true;
+    p.map_width_km = 800.0;
+    p.stream.k = 0.012;
+    p.planet.g = 1.0;
+    let sea = 0.0;
+    let col = GeologyColumn {
+        rock_top: (0..n).map(|i| if i % gw < gw / 2 { Rock::Granite as u8 } else { Rock::Shale as u8 }).collect(),
+        rock_sub: vec![cartalith_terrain::geology::NO_LAYER; n],
+        contact: vec![f32::NAN; n],
+        regolith: vec![0.0; n],
+        volcanic_setting: vec![0; n],
+    };
+    let z0: Vec<f32> = (0..n).map(|i| (0.3 + 0.004 * (i / gw) as f64) as f32).collect();
+    let rain = vec![0f32; n];
+    // Smallest channel C: a head cell (A = 1) on granite at c = 0.5,
+    // 0.012 · 0.3^0.5 = 0.006573 (arithmetic); §5.2 asks T ≥ 10 / C.
+    let t = 10.0 / (0.012 * 0.3f64.powf(0.5));
+    let run = |c: f64| {
+        let mut f = z0.clone();
+        let mut cc = col.clone();
+        let u = vec![1e-4f64; n];
+        let out = bm_stage(&p, sea, &mut f, &mut cc, &u, &rain, c, t, 64);
+        assert_eq!(out.clamped, 0, "the fixture's relief must stay under the ceiling");
+        // Median over interior rows (away from the outlet row, the top row
+        // and each block's edges) of the row-to-row drop.
+        let drop = |x: usize, y: usize| f[y * gw + x] as f64 - f[(y - 1) * gw + x] as f64;
+        let mut ratios = Vec::new();
+        for y in 8..gh - 4 {
+            let g: Vec<f64> = (16..gw / 2 - 16).map(|x| drop(x, y)).collect();
+            let s: Vec<f64> = (gw / 2 + 16..gw - 16).map(|x| drop(x, y)).collect();
+            ratios.push(median(&g).unwrap() / median(&s).unwrap());
+        }
+        median(&ratios).unwrap()
+    };
+    let r = run(0.5);
+    assert!((r / 2.887 - 1.0).abs() < 0.05, "B13: granite/shale slope ratio at c = 0.5 must be 2.887 within 5 %; got {r}");
+    let r0 = run(0.0);
+    assert!((r0 - 1.0).abs() < 0.05, "B13: at c = 0 the ratio must be 1 within 5 %; got {r0}");
+}
+
+/// A hand-built pre-erosion world for [`construct`]'s fixture test: every
+/// array the construction reads, the rest inert.
+fn fixture_world(z0: Vec<f32>, col: GeologyColumn, sea: f64) -> WorldState {
+    let n = z0.len();
+    WorldState {
+        sea_level: sea,
+        field: std::sync::Arc::new(z0),
+        plate_id: vec![0; n],
+        boundary_mask: vec![0; n],
+        stress_field: vec![0.0; n],
+        age_field: std::sync::Arc::new(vec![0.0; n]),
+        resistance_field: std::sync::Arc::new(vec![0.0; n]),
+        crust_field: std::sync::Arc::new(vec![1.0; n]),
+        boundary_type: vec![0; n],
+        shear_field: vec![0.0; n],
+        volcanic_field: std::sync::Arc::new(vec![0.0; n]),
+        impact_field: vec![0.0; n],
+        temperature: std::sync::Arc::new(vec![10.0; n]),
+        rainfall: std::sync::Arc::new(vec![0.5; n]),
+        flow_discharge: std::sync::Arc::new(vec![0.0; n]),
+        integrated_drainage: true,
+        channels: None,
+        stream_order: None,
+        river_mask: None,
+        river_floor: None,
+        gpu_stages_used: Vec::new(),
+        geology: cartalith_engine::Geology::Column(Box::new(col)),
+    }
+}
+
+/// Protects §5.2's B14 on [`construct`], on a fixture whose answer is known: a
+/// sandstone-over-shale basin in granite beside an ocean strip (a 20 m cap in
+/// its seaward half that the budget breaches, 400 m in its landward half), and
+/// an inland 10 m-cap patch whose breach would be a pit below sea level. Checks: `contact`
+/// bit-identical; at `c = 0` the unfilled surface is `z0 − m_to_norm(B)` bit
+/// for bit; no new closed depression deeper than the lake threshold; every
+/// raised cell's regolith rose by exactly its raise; the inland pit was filled;
+/// and Ruling BN's coast -- no land cell ends below sea without being joined
+/// to the ocean, and the breached coastal basin does open a bay.
+#[test]
+fn b14_construction_keeps_the_column_and_makes_no_inland_pits() {
+    let (gw, gh) = (96usize, 64usize);
+    let n = gw * gh;
+    let mut p = params::defaults();
+    p.gw = gw;
+    p.gh = gh;
+    p.world = false;
+    let sea = 0.42f64;
+    let mpu = p.peak_m / (1.0 - sea);
+    let m = |x: f64| x / mpu;
+    let mut top = vec![Rock::Granite as u8; n];
+    let mut sub = vec![cartalith_terrain::geology::NO_LAYER; n];
+    let mut contact = vec![f32::NAN; n];
+    let mut z0 = vec![0f32; n];
+    for i in 0..n {
+        let (x, y) = (i % gw, i / gw);
+        // Ocean strip at x < 8; land rises gently inland (0.0002 per cell,
+        // 1.4 m at this sea and peak).
+        z0[i] = if x < 8 { 0.40 } else { (sea + 0.0005 + 0.0002 * x as f64) as f32 };
+        let cap_m = if (8..60).contains(&x) && (16..48).contains(&y) {
+            Some(if x < 34 { 20.0 } else { 400.0 })
+        } else if (62..69).contains(&x) && (52..60).contains(&y) {
+            // Inland, ringed by granite: at c = 0.5 its breach drops it about
+            // 2 m below sea (93 m up, 94.9 m of shale budget: arithmetic),
+            // while the granite around it stays ~60 m up. An inland pit
+            // below sea, which the ocean-seeded fill must refill.
+            Some(10.0)
+        } else {
+            None
+        };
+        if let Some(h) = cap_m {
+            top[i] = Rock::Sandstone as u8;
+            sub[i] = Rock::Shale as u8;
+            contact[i] = (z0[i] as f64 - m(h)) as f32;
+        }
+    }
+    let col = GeologyColumn { rock_top: top, rock_sub: sub, contact: contact.clone(), regolith: vec![0.0; n], volcanic_setting: vec![0; n] };
+    let pre = fixture_world(z0.clone(), col, sea);
+    let ocean0: Vec<bool> = (0..n).map(|i| (z0[i] as f64) < sea).collect();
+    let shape = vec![1.0f64; n];
+    let d1 = 60.0;
+    let bits = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits());
+    let budget = budget_m(&p, &pre, &shape, d1, 1.0);
+    for (c, rule) in [(0.0, Breach::Step), (0.5, Breach::Step), (0.5, Breach::Continuous)] {
+        let out = construct(&p, &pre, &shape, &ocean0, d1, 1.0, c, rule);
+        assert!(bits(&out.col.contact, &contact), "B14: construction wrote the contact (c {c}, {rule:?})");
+        let rock_blind: Vec<f32> = (0..n).map(|i| (z0[i] as f64 - budget[i] / mpu) as f32).collect();
+        assert_eq!(bits(&out.pre_fill, &rock_blind), c == 0.0, "B14: the unfilled surface is z0 - m_to_norm(B) exactly when c = 0 (c {c}, {rule:?})");
+        assert_eq!(out.new_pits, 0, "B14: construction made a closed depression (c {c}, {rule:?})");
+        for i in 0..n {
+            let raise = out.field[i] as f64 - out.pre_fill[i] as f64;
+            assert!((out.col.regolith[i] as f64 - raise.max(0.0)).abs() < 1e-7, "B14: cell {i}: regolith must rise by exactly the raise");
+        }
+        let cls = cartalith_civ::build_water_bodies(&out.field, gw, gh, sea, false, Some(&pre.rainfall)).classification;
+        let stranded = (0..n).filter(|&i| !ocean0[i] && (out.field[i] as f64) < sea && cls[i] != 1).count();
+        assert_eq!(stranded, 0, "Ruling BN: a land cell went below sea without opening onto the ocean (c {c}, {rule:?})");
+        if c == 0.5 {
+            // The breach rule, against literals (§4.14 arithmetic with B = 60 m
+            // and §2.3's κ): a surviving 400 m sandstone cap is lowered
+            // 60·0.8^0.5 = 53.666 m; a breached 20 m cap 60·2.5^0.5 = 94.868 m
+            // under Step, and 20 + (60 − 20/0.8^0.5)·2.5^0.5 = 79.510 m under
+            // Continuous.
+            let low = |x: usize, y: usize| (z0[y * gw + x] as f64 - out.pre_fill[y * gw + x] as f64) * mpu;
+            assert!((low(45, 30) - 53.666).abs() < 0.01, "a surviving cap must lower by B·k_t; got {}", low(45, 30));
+            let want = if rule == Breach::Step { 94.868 } else { 79.510 };
+            assert!((low(20, 30) - want).abs() < 0.01, "a breached cap under {rule:?} must lower by {want} m; got {}", low(20, 30));
+            assert!(out.land_to_sea > 0, "the breached coastal basin must open a bay at c = 0.5, or the coast rule is not exercised");
+            assert!(out.raised_cells > 0, "the inland breach must be filled at c = 0.5, or the fill is not exercised");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GF-10's revised bars (§5.2 as revised for Ruling BM, §5.9)
+// ---------------------------------------------------------------------------
+
+/// Ten equal-count bands of `pop` ranked by `u` (ties by index), as B6 bands
+/// by discharge: `u` is heavily tied (every craton cell carries only `U_BG`),
+/// and value deciles would collapse.
+fn uplift_bands(u: &[f64], pop: &[usize]) -> Vec<Vec<usize>> {
+    let mut r = pop.to_vec();
+    r.sort_by(|&a, &b| u[a].total_cmp(&u[b]).then(a.cmp(&b)));
+    (0..10).map(|d| r[d * r.len() / 10..(d + 1) * r.len() / 10].to_vec()).collect()
+}
+
+/// Revised B1: the median over uplift bands of Spearman ρ(s, 9 × 9 relief),
+/// over bands holding ≥ [`MIN_POP`] cells of each of the strongest and
+/// weakest thirds of `s` (tertiles over the whole population). `s` takes
+/// eleven values, so the tertiles can tie: when the lower cut reaches the
+/// upper, the weak third is `s <` the upper cut, and `detail` says so.
+fn b1_rev(s: &[f32], relief: &[f32], u: &[f64], pop: &[usize]) -> Reading {
+    let vals: Vec<f64> = pop.iter().map(|&i| s[i] as f64).collect();
+    let (Some(q1), Some(q2)) = (quantile(&vals, 1.0 / 3.0), quantile(&vals, 2.0 / 3.0)) else {
+        return Reading::none("empty population", vec![("pop", 0)]);
+    };
+    let tied = q1 >= q2;
+    let weak = |v: f64| if tied { v < q2 } else { v <= q1 };
+    let mut rhos = Vec::new();
+    for band in uplift_bands(u, pop) {
+        let ns = band.iter().filter(|&&i| s[i] as f64 >= q2).count();
+        let nw = band.iter().filter(|&&i| weak(s[i] as f64)).count();
+        if ns < MIN_POP || nw < MIN_POP {
+            continue;
+        }
+        let x: Vec<f64> = band.iter().map(|&i| s[i] as f64).collect();
+        let y: Vec<f64> = band.iter().map(|&i| relief[i] as f64).collect();
+        if let Some(r) = spearman(&x, &y) {
+            rhos.push(r);
+        }
+    }
+    let pops = vec![("pop", pop.len()), ("bands used", rhos.len())];
+    match median(&rhos) {
+        Some(v) => {
+            let mut r = Reading::ok(v, pops);
+            r.detail = format!(
+                "tertiles {q1:.2}/{q2:.2}{}; per band {}",
+                if tied { " (tied: weak = s < upper)" } else { "" },
+                rhos.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ")
+            );
+            r
+        }
+        None => Reading::none("not measurable on this seed: no uplift band holds >= 100 strong-third and >= 100 weak-third cells", pops),
+    }
+}
+
+/// Revised B2: the median over uplift bands of (median slope, `s ≥ 0.7`) ÷
+/// (median slope, `s ≤ 0.4`), over bands holding ≥ [`MIN_POP`] of each group.
+fn b2_rev(s: &[f32], slope: &[f32], u: &[f64], pop: &[usize]) -> Reading {
+    let mut ratios = Vec::new();
+    for band in uplift_bands(u, pop) {
+        let st: Vec<f64> = band.iter().filter(|&&i| s[i] >= S_STRONG).map(|&i| slope[i] as f64).collect();
+        let wk: Vec<f64> = band.iter().filter(|&&i| s[i] <= S_WEAK).map(|&i| slope[i] as f64).collect();
+        if st.len() < MIN_POP || wk.len() < MIN_POP {
+            continue;
+        }
+        if let (Some(a), Some(b)) = (median(&st), median(&wk)) {
+            if b > 0.0 {
+                ratios.push(a / b);
+            }
+        }
+    }
+    let pops = vec![("pop", pop.len()), ("bands used", ratios.len())];
+    match median(&ratios) {
+        Some(v) => {
+            let mut r = Reading::ok(v, pops);
+            r.detail = format!("per band {}", ratios.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" "));
+            r
+        }
+        None => Reading::none("not measurable on this seed: no uplift band holds >= 100 cells with s >= 0.7 and >= 100 with s <= 0.4", pops),
+    }
+}
+
+/// Revised B4 (§5.2): `(ratio, share, share population, twin, legacy edge
+/// cells, legacy edge cells that are breach lines)`.
+/// - A **breach line** is a land two-layer cell exposing its cap with a
+///   4-neighbour that is land, two-layer and exposing its substrate.
+/// - `ratio`: median slope at breach lines ÷ median slope of substrate-exposed
+///   cells within 5 cells of one.
+/// - `share`: of breach-line cells whose input cap thickness is at least
+///   `tan(p90_blind)·cell_m` (the face one rock-blind top-decile slope needs),
+///   the fraction in this arm's own land top slope decile.
+/// - `twin` (input-selected): two-layer land cells in the lowest quartile of
+///   input `h` ÷ those in the highest, ratio of median slopes.
+/// - `twin_tb`: **a diagnostic, not the pre-registered twin.** The same ratio
+///   with edifices (`volcanic_field > V_TH`, `edifice`) left out, as B1 and B2
+///   leave them out, and with strict cuts (`h < q1`, `h > q3`) when the
+///   quartiles tie. Added after a 512-wide smoke run, before the recorded
+///   run, found the scope's twin unmeasurable: rift caps are all exactly
+///   `RIFT_CAP_M` (150 m) and fill the middle half of the distribution. It
+///   never enters the go/no-go.
+/// - The legacy edge (a two-layer cell whose exposed rock differs from any
+///   4-neighbour's) is counted and split, as §7 GF-10 asks.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn b4_rev(
+    col: &GeologyColumn,
+    exposed: &[u8],
+    slope: &[f32],
+    land: &[bool],
+    h_in: &[f64],
+    edifice: &[bool],
+    p90_blind: f64,
+    cell_m: f64,
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> (Reading, Option<f64>, usize, Reading, Reading, usize, usize) {
+    let n = gw * gh;
+    let nbs = |i: usize| {
+        let (x, y) = (i % gw, i / gw);
+        let mut v = Vec::with_capacity(4);
+        if x > 0 {
+            v.push(i - 1);
+        } else if world {
+            v.push(i + gw - 1);
+        }
+        if x + 1 < gw {
+            v.push(i + 1);
+        } else if world {
+            v.push(i + 1 - gw);
+        }
+        if y > 0 {
+            v.push(i - gw);
+        }
+        if y + 1 < gh {
+            v.push(i + gw);
+        }
+        v
+    };
+    let shows_sub = |j: usize| col.substrate(j).is_some_and(|(r, _)| exposed[j] == r as u8);
+    let shows_cap = |j: usize| col.substrate(j).is_some() && exposed[j] == col.rock_top[j];
+    let mut edge = vec![false; n];
+    let (mut legacy, mut legacy_breach) = (0usize, 0usize);
+    for i in 0..n {
+        if !land[i] || col.substrate(i).is_none() {
+            continue;
+        }
+        let nb = nbs(i);
+        let breach = shows_cap(i) && nb.iter().any(|&j| land[j] && shows_sub(j));
+        edge[i] = breach;
+        if nb.iter().any(|&j| exposed[j] != u8::MAX && exposed[j] != exposed[i]) {
+            legacy += 1;
+            legacy_breach += breach as usize;
+        }
+    }
+    let edge_f: Vec<f32> = edge.iter().map(|&e| if e { 1.0 } else { 0.0 }).collect();
+    let (mut rmax, mut s1) = (vec![0f32; n], vec![0f32; n]);
+    sliding_1d(&edge_f, &mut rmax, &mut s1, gw, gh, 5, true, world);
+    let (mut near, mut s2) = (vec![0f32; n], vec![0f32; n]);
+    sliding_1d(&rmax, &mut near, &mut s2, gw, gh, 5, false, false);
+    let es: Vec<f64> = (0..n).filter(|&i| edge[i]).map(|i| slope[i] as f64).collect();
+    let ss: Vec<f64> = (0..n).filter(|&i| land[i] && !edge[i] && near[i] > 0.0 && shows_sub(i)).map(|i| slope[i] as f64).collect();
+    let ratio = ratio_reading(&es, &ss, vec![("breach-line cells", es.len()), ("substrate cells within 5", ss.len())], "median slope deg breach/substrate", false);
+    let land_s: Vec<f64> = (0..n).filter(|&i| land[i]).map(|i| slope[i] as f64).collect();
+    let h_min = p90_blind.to_radians().tan() * cell_m;
+    let qual: Vec<usize> = (0..n).filter(|&i| edge[i] && h_in[i] >= h_min).collect();
+    let share = quantile(&land_s, 0.9)
+        .filter(|_| qual.len() >= MIN_POP)
+        .map(|p90| qual.iter().filter(|&&i| slope[i] as f64 >= p90).count() as f64 / qual.len() as f64);
+    let two: Vec<usize> = (0..n).filter(|&i| land[i] && h_in[i].is_finite()).collect();
+    let hv: Vec<f64> = two.iter().map(|&i| h_in[i]).collect();
+    let twin = match (quantile(&hv, 0.25), quantile(&hv, 0.75)) {
+        (Some(q1), Some(q3)) if q1 < q3 => {
+            let lo: Vec<f64> = two.iter().filter(|&&i| h_in[i] <= q1).map(|&i| slope[i] as f64).collect();
+            let hi: Vec<f64> = two.iter().filter(|&&i| h_in[i] >= q3).map(|&i| slope[i] as f64).collect();
+            ratio_reading(&lo, &hi, vec![("thin-cap quartile", lo.len()), ("thick-cap quartile", hi.len())], "median slope deg thin/thick cap", false)
+        }
+        _ => Reading::none("input cap thickness quartiles coincide, or no two-layer land", vec![("two-layer land", two.len())]),
+    };
+    let two_ne: Vec<usize> = two.iter().copied().filter(|&i| !edifice[i]).collect();
+    let hv: Vec<f64> = two_ne.iter().map(|&i| h_in[i]).collect();
+    let twin_tb = match (quantile(&hv, 0.25), quantile(&hv, 0.75)) {
+        (Some(q1), Some(q3)) => {
+            let tied = q1 >= q3;
+            let lo: Vec<f64> = two_ne.iter().filter(|&&i| if tied { h_in[i] < q1 } else { h_in[i] <= q1 }).map(|&i| slope[i] as f64).collect();
+            let hi: Vec<f64> = two_ne.iter().filter(|&&i| if tied { h_in[i] > q3 } else { h_in[i] >= q3 }).map(|&i| slope[i] as f64).collect();
+            let mut r = ratio_reading(&lo, &hi, vec![("thin", lo.len()), ("thick", hi.len())], "median slope deg thin/thick, edifices out", false).floored();
+            if tied {
+                r.detail = format!("{} (quartiles tied at {q1:.1} m: strict cuts)", r.detail);
+            }
+            r
+        }
+        _ => Reading::none("no two-layer land off the edifices", vec![("two-layer land off edifices", two_ne.len())]),
+    };
+    (ratio.floored(), share, qual.len(), twin, twin_tb, legacy, legacy_breach)
+}
+
+/// Everything an arm needs from its seed, computed once.
+struct SeedCtx {
+    p: WorldParams,
+    a: WorldState,
+    pre: WorldState,
+    shape: Vec<f64>,
+    ocean0: Vec<bool>,
+    d1_m: f64,
+    t1: f64,
+    u0_m: f64,
+    /// `U₀` solve residual (land-mean change, metres) and evaluations.
+    u0_residual_m: f64,
+    u0_evals: usize,
+    mpu: f64,
+    cell_m: f64,
+    /// Input cap thickness in metres; NaN where single-layer or not land.
+    h_in: Vec<f64>,
+}
+
+/// One arm's settings. `tau` multiplies the budget and the model time, and
+/// sets GF-3's and glacial's counts through the clock (§4.16).
+#[derive(Clone, Copy)]
+struct ArmCfg {
+    construct: bool,
+    stage: bool,
+    c: f64,
+    d_mult: f64,
+    t_mult: f64,
+    tau: f64,
+    rule: Breach,
+}
+
+struct ArmOut {
+    ws: WorldState,
+    /// The constructed surface and column before the stage (`None` without
+    /// construction): the rock-blind arm's is B1's and B2's `s` map (§5.2).
+    constructed: Option<(Vec<f32>, GeologyColumn)>,
+    cons: Option<Constructed>,
+    stage: Option<StageOut>,
+}
+
+/// One BM arm, in §4.16's order: construction, the priming climate on the
+/// constructed surface, the stage, GF-3's hillslope, then the pipeline's tail.
+fn run_arm(ctx: &SeedCtx, cfg: ArmCfg) -> ArmOut {
+    let p = &ctx.p;
+    let sea = ctx.pre.sea_level;
+    let clock = cartalith_engine::geo_clock::GeoClock::new(true, cfg.tau);
+    let (mut field, mut col, cons) = if cfg.construct {
+        let mut c = construct(p, &ctx.pre, &ctx.shape, &ctx.ocean0, ctx.d1_m * cfg.d_mult, cfg.tau, cfg.c, cfg.rule);
+        let f = std::mem::take(&mut c.field);
+        let col = c.col.clone();
+        (f, col, Some(c))
+    } else {
+        (ctx.pre.field.to_vec(), ctx.pre.geology.column().unwrap().clone(), None)
+    };
+    let constructed = cfg.construct.then(|| (field.clone(), col.clone()));
+    let rain = if cfg.construct { priming_climate(p, sea, &field).1 } else { ctx.pre.rainfall.to_vec() };
+    let stage = cfg.stage.then(|| {
+        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * ctx.u0_m / ctx.mpu).collect();
+        bm_stage(p, sea, &mut field, &mut col, &u, &rain, cfg.c, cfg.tau * cfg.t_mult * ctx.t1, N_BM)
+    });
+    hillslope(p, sea, &mut field, &mut col, &clock);
+    let ws = tail(p, &ctx.pre, field, rain, Some(col), &clock);
+    ArmOut { ws, constructed, cons, stage }
+}
+
+/// §4.15's `U₀` rule: on the rock-blind arm (`c = 0`) at τ = 1, the land-mean
+/// surface change over the stage is zero. A secant solve on the stage (after
+/// construction at the rule's `D₁`, as the arm runs it), from the no-erosion
+/// guess `U₀ = −f(0) / (T₁ · mean_land(shape))`, stopping within 0.01 m or at
+/// 8 evaluations. Returns `(U₀ in metres per unit model time, residual in
+/// metres, evaluations)`.
+fn solve_u0(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], d1: f64, t1: f64, mpu: f64) -> (f64, f64, usize) {
+    let sea = pre.sea_level;
+    let c = construct(p, pre, shape, ocean0, d1, 1.0, 0.0, Breach::Step);
+    let (_, rain) = priming_climate(p, sea, &c.field);
+    let eval = |u0: f64| {
+        let mut f = c.field.clone();
+        let mut col = c.col.clone();
+        let u: Vec<f64> = shape.iter().map(|&s| s * u0 / mpu).collect();
+        bm_stage(p, sea, &mut f, &mut col, &u, &rain, 0.0, t1, N_BM).land_mean_change_m
+    };
+    let land: Vec<f64> = (0..p.gw * p.gh).filter(|&i| c.field[i] as f64 > sea).map(|i| shape[i]).collect();
+    let ms = mean(&land).expect("land");
+    let (mut x0, mut f0) = (0.0, eval(0.0));
+    let mut x1 = -f0 / (t1 * ms);
+    let mut f1 = eval(x1);
+    let mut evals = 2;
+    while f1.abs() > 0.01 && evals < 8 && f1 != f0 {
+        let x2 = x1 - f1 * (x1 - x0) / (f1 - f0);
+        x0 = x1;
+        f0 = f1;
+        x1 = x2;
+        f1 = eval(x1);
+        evals += 1;
+    }
+    (x1, f1, evals)
+}
+
+fn build_ctx(seed: i32, km: f64, gw: usize, gh: usize) -> SeedCtx {
+    let p = app_params(seed, km, gw, gh);
+    assert!(p.geology_model && !p.geology_processes, "arm A is the app's world");
+    let a = generate_terrain(&p);
+    let pre = pre_erosion(&p);
+    assert_eq!(*pre.age_field, *a.age_field, "pre-erosion run diverged before erosion");
+    let sea = pre.sea_level;
+    let mpu = p.peak_m / (1.0 - sea);
+    let cell_m = km * 1000.0 / gw as f64;
+    let (shape, _) = uplift_shape(&p, &pre);
+    let class0 = cartalith_civ::build_water_bodies(&pre.field, gw, gh, sea, p.world, Some(&pre.rainfall)).classification;
+    let ocean0: Vec<bool> = class0.iter().map(|&c| c == 1).collect();
+    let col = pre.geology.column().unwrap();
+    let h_in: Vec<f64> = (0..gw * gh)
+        .map(|i| match col.substrate(i) {
+            Some((_, c)) if pre.field[i] as f64 > sea => (pre.field[i] as f64 - c as f64) * mpu,
+            _ => f64::NAN,
+        })
+        .collect();
+    // §4.14's pre-registered D₁: the median land cap thickness over two-layer
+    // cells of the world's own column.
+    let hv: Vec<f64> = h_in.iter().copied().filter(|v| v.is_finite()).collect();
+    let d1_m = median(&hv).expect("the world has two-layer land");
+    // §4.15's T₁ = 3 / C_head: C at κ = 1, rain = 0, L = 1 and A = the
+    // channel-initiation area at the world's river density (the slope-free
+    // threshold `river_flow_thresh / density`, read as cells).
+    let a_head = cartalith_hydrology::river_flow_thresh(gw, gh, gw, km) / p.river_density;
+    let c_head = p.stream.k * p.planet.g * a_head.sqrt();
+    let t1 = T1_EFOLDS / c_head;
+    let (u0_m, u0_residual_m, u0_evals) = solve_u0(&p, &pre, &shape, &ocean0, d1_m, t1, mpu);
+    SeedCtx { p, a, pre, shape, ocean0, d1_m, t1, u0_m, u0_residual_m, u0_evals, mpu, cell_m, h_in }
+}
+
+/// B8 of `ws` against arm A's `(ocean, lake %, small lakes)`: `(ocean on
+/// paths, lake %, small lakes, holds)`. `None` when either lake share is not
+/// measurable, never a pass.
+fn b8_vs(ws: &WorldState, class: &[u8], a: (usize, Option<f64>, usize), gw: usize, gh: usize, km: f64) -> (usize, Option<f64>, usize, Option<bool>) {
+    let (o, l, s, _) = b8(ws, class, gw, gh, km);
+    let ok = l.zip(a.1).map(|(t, c)| o == 0 && t <= c + 2.0 && (s as f64) <= 1.25 * a.2 as f64);
+    (o, l, s, ok)
+}
+
+/// Writes a hillshade PNG of `field` for the GF-10 look (NW light at 45°,
+/// vertical exaggeration `vx`, water tinted blue). Scratch output only: the
+/// exaggeration is the same for every arm, so arms compare, but it is not the
+/// app's look.
+#[allow(clippy::too_many_arguments)]
+fn write_hillshade(path: &str, field: &[f32], class: &[u8], gw: usize, gh: usize, mpu: f64, cell_m: f64, vx: f64, crop: Option<(usize, usize, usize, usize)>) {
+    let (x0, y0, w, h) = crop.unwrap_or((0, 0, gw, gh));
+    let (az, alt) = (315f64.to_radians(), 45f64.to_radians());
+    let at = |xx: usize, yy: usize| field[yy.min(gh - 1) * gw + xx.min(gw - 1)] as f64 * mpu * vx;
+    let mut rgb = Vec::with_capacity(w * h * 3);
+    for y in y0..y0 + h {
+        for x in x0..x0 + w {
+            let i = y * gw + x;
+            let dzdx = (at(x + 1, y) - at(x.saturating_sub(1), y)) / (2.0 * cell_m);
+            let dzdy = (at(x, y + 1) - at(x, y.saturating_sub(1))) / (2.0 * cell_m);
+            let slope = dzdx.hypot(dzdy).atan();
+            let aspect = dzdy.atan2(-dzdx);
+            let hs = (alt.cos() * slope.cos() + alt.sin() * slope.sin() * (az - aspect).cos()).max(0.0);
+            let g = (40.0 + 215.0 * hs).min(255.0);
+            if class[i] != 0 {
+                rgb.extend_from_slice(&[(g * 0.35) as u8, (g * 0.5) as u8, (60.0 + g * 0.6).min(255.0) as u8]);
+            } else {
+                rgb.extend_from_slice(&[g as u8, g as u8, g as u8]);
+            }
+        }
+    }
+    let file = std::fs::File::create(path).expect("create png");
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w as u32, h as u32);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    enc.write_header().expect("png header").write_image_data(&rgb).expect("png data");
+}
+
+/// The GF-10 measurement (§7 GF-10's readings), per seed and extent: the
+/// cap-thickness distribution and `D₁`, `T₁`, the `U₀` solve, then arms A, B
+/// and C at every setting, each line a revised bar; `ROW` lines are the
+/// summary. At 800 km it states GO or NO-GO against the pre-registered rule
+/// ([`GO_B1_DRHO`] and siblings). It measures and asserts nothing about the
+/// bars; "not measurable" prints as `--` with its reason.
+#[test]
+#[ignore = "GF-10 measurement: tens of minutes at 2048x1311; run alone in release"]
+fn gf10_bm_prototype() {
+    let (gw, gh) = grid();
+    let seeds = env_list("GF0_SEEDS", &SEEDS);
+    let extents = env_list("GF10_EXTENTS", &[800.0f64]);
+    let dump = std::env::var("GF10_DUMP").ok();
+    let dump_seeds = env_list("GF10_DUMP_SEEDS", &[483_920i32, 314_159]);
+    println!("GF-10 BM prototype, grid {gw}x{gh}. Arms: A = app world; B = BM at c = 0; C = BM at c = {C_TREAT}.");
+    println!(
+        "Pre-registered GO rule: on >= {GO_SEEDS} of 5 seeds at the pre-registered setting, C - B on revised B1 >= {GO_B1_DRHO}, C/B on revised B2 >= {GO_B2_RATIO}, C/B on B4's twin >= {GO_B4_TWIN_RATIO}; and B8 holds for C on all five seeds."
+    );
+    for &km in &extents {
+        let full = km == 800.0;
+        let (mut go_seeds, mut measured, mut b8_all) = (0usize, 0usize, true);
+        for &seed in &seeds {
+            let t0 = std::time::Instant::now();
+            let ctx = build_ctx(seed, km, gw, gh);
+            let (p, sea, world) = (&ctx.p, ctx.pre.sea_level, ctx.p.world);
+            let col0 = ctx.pre.geology.column().unwrap();
+            println!("\n==== GF-10 seed {seed} extent {km} km (cell {:.1} m, sea {sea:.3}, m per unit {:.1}) ====", ctx.cell_m, ctx.mpu);
+            // The cap-thickness distribution, by kind.
+            let (dist, nearest) = cartalith_terrain::geology::labelled_boundary_distance(gw, gh, world, &ctx.pre.boundary_mask);
+            let mut kinds: [(&str, Vec<f64>); 3] = [("cover", vec![]), ("rift", vec![]), ("volcanic", vec![])];
+            for i in 0..gw * gh {
+                let h = ctx.h_in[i];
+                if !h.is_finite() {
+                    continue;
+                }
+                let k = if matches!(col0.top(i).unwrap(), Rock::PlateauBasalt | Rock::Andesite | Rock::Tuff) {
+                    2
+                } else if nearest[i] != u32::MAX
+                    && ctx.pre.boundary_type[nearest[i] as usize] == cartalith_terrain::btype::RIFT
+                    && (dist[i] as f64) < cartalith_terrain::geology::W_RIFT * p.tect.blur_r
+                {
+                    1
+                } else {
+                    0
+                };
+                kinds[k].1.push(h);
+            }
+            let all: Vec<f64> = ctx.h_in.iter().copied().filter(|v| v.is_finite()).collect();
+            let qs = |v: &[f64]| {
+                format!(
+                    "n={} p5 {} p25 {} p50 {} p75 {} p95 {} max {}",
+                    v.len(),
+                    fmt_opt(quantile(v, 0.05)),
+                    fmt_opt(quantile(v, 0.25)),
+                    fmt_opt(quantile(v, 0.5)),
+                    fmt_opt(quantile(v, 0.75)),
+                    fmt_opt(quantile(v, 0.95)),
+                    fmt_opt(quantile(v, 1.0))
+                )
+            };
+            println!("cap thickness h (m), two-layer land: all {}", qs(&all));
+            for (name, v) in &kinds {
+                println!("   {name:9} {}", qs(v));
+            }
+            let (_, rift_src) = uplift_shape(p, &ctx.pre);
+            let a_head = cartalith_hydrology::river_flow_thresh(gw, gh, gw, km) / p.river_density;
+            println!(
+                "D1 (median cap thickness) {:.2} m; A_head {a_head:.1} cells; T1 {:.3}; U0 {:.5} m per unit time (U_bg {:.5}), solve residual {:.4} m after {} evaluations; rift source cells {rift_src}",
+                ctx.d1_m,
+                ctx.t1,
+                ctx.u0_m,
+                U_BG * ctx.u0_m,
+                ctx.u0_residual_m,
+                ctx.u0_evals
+            );
+            let land_shape: Vec<f64> = (0..gw * gh).filter(|&i| ctx.pre.field[i] as f64 > sea).map(|i| ctx.shape[i]).collect();
+            println!(
+                "uplift shape over land: mean {} p50 {} p99 {} min {}; land cells subsiding {} of {}",
+                fmt_opt(mean(&land_shape)),
+                fmt_opt(quantile(&land_shape, 0.5)),
+                fmt_opt(quantile(&land_shape, 0.99)),
+                fmt_opt(quantile(&land_shape, 0.0)),
+                land_shape.iter().filter(|&&v| v < 0.0).count(),
+                land_shape.len()
+            );
+
+            let class_a = cartalith_civ::build_water_bodies(&ctx.a.field, gw, gh, sea, world, Some(&ctx.a.rainfall)).classification;
+            let b8a = b8(&ctx.a, &class_a, gw, gh, km);
+            println!("A  B8 ocean on paths {}; lake {} % of {}; 1-3-cell lakes {}", b8a.0, fmt_opt(b8a.1), b8a.3, b8a.2);
+            let b8a3 = (b8a.0, b8a.1, b8a.2);
+            let pre_s = s_of_exposed(col0, &ctx.pre.field, sea, p.peak_m);
+            let base = ArmCfg { construct: true, stage: true, c: 0.0, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
+            let mut settings: Vec<(String, ArmCfg)> = vec![("prereg".into(), base)];
+            if full {
+                for d in [0.5, 1.0, 2.0] {
+                    for t in [1.0, 4.0] {
+                        if d == 1.0 && t == 1.0 {
+                            continue;
+                        }
+                        settings.push((format!("D{d}xT{t}"), ArmCfg { d_mult: d, t_mult: t, ..base }));
+                    }
+                }
+                settings.push(("continuous".into(), ArmCfg { rule: Breach::Continuous, ..base }));
+                settings.push(("construct-only".into(), ArmCfg { stage: false, ..base }));
+                settings.push(("stage-only".into(), ArmCfg { construct: false, ..base }));
+            }
+            for (label, cfg) in &settings {
+                let ob = run_arm(&ctx, ArmCfg { c: 0.0, ..*cfg });
+                let oc = run_arm(&ctx, ArmCfg { c: C_TREAT, ..*cfg });
+                // §5.2: `s` of the rock the rock-blind arm's constructed
+                // surface exposes; the pre-erosion map without construction.
+                let s_map: Vec<f32> = match &ob.constructed {
+                    Some((f, c)) => s_of_exposed(c, f, sea, p.peak_m),
+                    None => pre_s.clone(),
+                };
+                let class_b = cartalith_civ::build_water_bodies(&ob.ws.field, gw, gh, sea, world, Some(&ob.ws.rainfall)).classification;
+                let class_c = cartalith_civ::build_water_bodies(&oc.ws.field, gw, gh, sea, world, Some(&oc.ws.rainfall)).classification;
+                let ia = interior_land(&class_a, gw, gh, world, COAST_MARGIN);
+                let ib = interior_land(&class_b, gw, gh, world, COAST_MARGIN);
+                let ic = interior_land(&class_c, gw, gh, world, COAST_MARGIN);
+                let vth = cartalith_terrain::geology::V_TH as f32;
+                // One population for every arm of a setting: interior land in
+                // A, B and C alike, so no arm is judged on cells another lost.
+                let pop: Vec<usize> = (0..gw * gh).filter(|&i| ia[i] && ib[i] && ic[i] && ctx.pre.volcanic_field[i] <= vth).collect();
+                let pop_ed: Vec<usize> = (0..gw * gh).filter(|&i| ia[i] && ib[i] && ic[i] && ctx.pre.volcanic_field[i] > vth).collect();
+                let pop_legacy = pop_of(&ia);
+                let edifice: Vec<bool> = ctx.pre.volcanic_field.iter().map(|&v| v > vth).collect();
+                let slope_b = slope_deg(&ob.ws.field, gw, gh, world, ctx.mpu, ctx.cell_m);
+                let land_b: Vec<f64> = (0..gw * gh).filter(|&i| class_b[i] == 0).map(|i| slope_b[i] as f64).collect();
+                let p90_b = quantile(&land_b, 0.9).unwrap_or(f64::NAN);
+                let mut rows = Vec::new();
+                for (arm, o, class) in [("B", &ob, &class_b), ("C", &oc, &class_c)] {
+                    let relief = relief_m(&o.ws.field, gw, gh, world, RELIEF_HALF, ctx.mpu);
+                    let slope = slope_deg(&o.ws.field, gw, gh, world, ctx.mpu, ctx.cell_m);
+                    let r1 = b1_rev(&s_map, &relief, &ctx.shape, &pop);
+                    let r2 = b2_rev(&s_map, &slope, &ctx.shape, &pop);
+                    let r1e = b1(&s_map, &relief, &pop_ed);
+                    let r1l = b1(&pre_s, &relief, &pop_legacy);
+                    // B3 is not revised (§5.9): its own form, on the
+                    // pre-erosion map over all interior land.
+                    let r3 = b3_model(&pre_s, &ctx.pre.field, &o.ws.field, &pop_legacy, ctx.mpu);
+                    let col = o.ws.geology.column().unwrap();
+                    let exp = exposed_map(col, &o.ws.field, sea, p.peak_m);
+                    let land: Vec<bool> = class.iter().map(|&c| c == 0).collect();
+                    let (r4, share, nq, twin, twin_tb, leg, legb) = b4_rev(col, &exp, &slope, &land, &ctx.h_in, &edifice, p90_b, ctx.cell_m, gw, gh, world);
+                    let (o8, l8, s8, ok8) = b8_vs(&o.ws, class, b8a3, gw, gh, km);
+                    println!("  [{label}] {arm} B1rev {}", r1.show());
+                    println!("  [{label}] {arm} B2rev {}", r2.show());
+                    println!("  [{label}] {arm} B1 on edifice cells (own line) {}; B1 legacy form (all interior land, pre-erosion s) {}", r1e.show(), r1l.show());
+                    println!("  [{label}] {arm} B3 {}", r3.show());
+                    println!(
+                        "  [{label}] {arm} B4rev {}; top-decile share {} of {nq} qualifying (h >= tan(p90_B {p90_b:.3} deg) x cell); twin {}; diagnostic twin (not pre-registered) {}; legacy edge cells {leg}, of which breach lines {legb}",
+                        r4.show(),
+                        fmt_opt(share),
+                        twin.show(),
+                        twin_tb.show()
+                    );
+                    println!("  [{label}] {arm} B8 ocean {o8}; lake {} %; 1-3-cell lakes {s8} (A {}) [{}]", fmt_opt(l8), b8a.2, verdict(ok8));
+                    if let Some(c) = &o.cons {
+                        let bits = c.col.contact.iter().zip(col0.contact.iter()).all(|(x, y)| x.to_bits() == y.to_bits());
+                        println!(
+                            "  [{label}] {arm} construction: land {}, two-layer {}, breached {} ({:.3}), arc-exempt {}, fill passes {}, raised cells {}, land now at/below sea {} ({:.5} of land), old 1 m floor would catch {}; B14 contact bit-identical {bits}, new pits > 0.004 {} [{}]",
+                            c.land,
+                            c.two_layer_land,
+                            c.breached,
+                            c.breached as f64 / c.two_layer_land.max(1) as f64,
+                            c.arc_exempt,
+                            c.fill_passes,
+                            c.raised_cells,
+                            c.land_to_sea,
+                            c.land_to_sea as f64 / c.land.max(1) as f64,
+                            c.would_floor,
+                            c.new_pits,
+                            verdict(Some(bits && c.new_pits == 0))
+                        );
+                    }
+                    if let Some(s) = &o.stage {
+                        println!(
+                            "  [{label}] {arm} stage: pinned {}, clamped at 1.0 {} [B15 {}] (already at 1.0 on input {}), land-mean change {:.3} m, subsidence basin cells filled {}",
+                            s.pinned,
+                            s.clamped,
+                            verdict(Some(s.clamped == 0)),
+                            s.at_ceiling_in,
+                            s.land_mean_change_m,
+                            s.basin_filled
+                        );
+                    }
+                    rows.push((r1.value, r2.value, twin.value, r4.value, share, r3.value, ok8, l8, s8, twin_tb.value));
+                }
+                let (b, c) = (&rows[0], &rows[1]);
+                let d1 = c.0.zip(b.0).map(|(c, b)| c - b);
+                let q2 = c.1.zip(b.1).filter(|(_, b)| *b > 0.0).map(|(c, b)| c / b);
+                let q4 = c.2.zip(b.2).filter(|(_, b)| *b > 0.0).map(|(c, b)| c / b);
+                // The pre-registered per-seed test: all three margins, each
+                // measurable. A margin that cannot be computed is a fail.
+                let seed_go = matches!((d1, q2, q4), (Some(a), Some(b), Some(c)) if a >= GO_B1_DRHO && b >= GO_B2_RATIO && c >= GO_B4_TWIN_RATIO);
+                let bar1 = c.0.zip(d1).map(|(t, d)| t >= 0.25 && d >= 0.15);
+                let bar2 = c.1.zip(q2).map(|(t, q)| t >= 1.5 && q >= 1.25);
+                let bar4 = c.3.zip(c.4).map(|(r, s)| r >= 2.0 && s >= 0.40);
+                let bar4t = c.2.zip(q4).map(|(t, q)| t >= 1.25 && q >= 1.2);
+                let q4tb = c.9.zip(b.9).filter(|(_, b)| *b > 0.0).map(|(c, b)| c / b);
+                println!(
+                    "ROW seed={seed} km={km} setting={label} B1_B={} B1_C={} dB1={} B2_B={} B2_C={} qB2={} twin_B={} twin_C={} qTwin={} B4ratio_C={} share_C={} B3_C={} B8_C={} small_C={} small_A={} lake_C={} lake_A={} seed_margins={} full_bars: B1 {} B2 {} B4 {} B4twin {} | diagnostic tie-broken twin B={} C={} q={}",
+                    fmt_opt(b.0),
+                    fmt_opt(c.0),
+                    fmt_opt(d1),
+                    fmt_opt(b.1),
+                    fmt_opt(c.1),
+                    fmt_opt(q2),
+                    fmt_opt(b.2),
+                    fmt_opt(c.2),
+                    fmt_opt(q4),
+                    fmt_opt(c.3),
+                    fmt_opt(c.4),
+                    fmt_opt(c.5),
+                    verdict(c.6),
+                    c.8,
+                    b8a.2,
+                    fmt_opt(c.7),
+                    fmt_opt(b8a.1),
+                    verdict(Some(seed_go)),
+                    verdict(bar1),
+                    verdict(bar2),
+                    verdict(bar4),
+                    verdict(bar4t),
+                    fmt_opt(b.9),
+                    fmt_opt(c.9),
+                    fmt_opt(q4tb)
+                );
+                if label == "prereg" {
+                    measured += 1;
+                    go_seeds += seed_go as usize;
+                    b8_all &= c.6 == Some(true);
+                    if let (Some(dir), true) = (dump.as_ref(), dump_seeds.contains(&seed)) {
+                        // Crop: the 512 x 512 window (stride 128) holding the
+                        // most breach-line cells in arm C.
+                        let colc = oc.ws.geology.column().unwrap();
+                        let expc = exposed_map(colc, &oc.ws.field, sea, p.peak_m);
+                        let (cw, chh) = (512.min(gw), 512.min(gh));
+                        let mut best = (0usize, 0usize, 0usize);
+                        let mut y = 0;
+                        while y + chh <= gh {
+                            let mut x = 0;
+                            while x + cw <= gw {
+                                let mut k = 0;
+                                for yy in y..y + chh {
+                                    for xx in x..(x + cw).min(gw - 1) {
+                                        let i = yy * gw + xx;
+                                        let cap = class_c[i] == 0 && colc.substrate(i).is_some() && expc[i] == colc.rock_top[i];
+                                        k += (cap && colc.substrate(i + 1).is_some_and(|(r, _)| expc[i + 1] == r as u8)) as usize;
+                                    }
+                                }
+                                if k > best.2 {
+                                    best = (x, y, k);
+                                }
+                                x += 128;
+                            }
+                            y += 128;
+                        }
+                        for (arm, ws, class) in [("A", &ctx.a, &class_a), ("B", &ob.ws, &class_b), ("C", &oc.ws, &class_c)] {
+                            write_hillshade(&format!("{dir}/gf10_{seed}_{arm}_full.png"), &ws.field, class, gw, gh, ctx.mpu, ctx.cell_m, 10.0, None);
+                            write_hillshade(&format!("{dir}/gf10_{seed}_{arm}_crop.png"), &ws.field, class, gw, gh, ctx.mpu, ctx.cell_m, 5.0, Some((best.0, best.1, cw, chh)));
+                        }
+                        println!("  dumped hillshades to {dir} (crop at x {} y {}, {} east-facing breach pairs in C)", best.0, best.1, best.2);
+                    }
+                }
+            }
+            if full {
+                // B8 at every τ (§5.2's BM extension), arm C against A, and
+                // B12's BM replacement readings.
+                for tau in [0.5, 2.0, 4.0] {
+                    let o = run_arm(&ctx, ArmCfg { c: C_TREAT, tau, ..base });
+                    let class = cartalith_civ::build_water_bodies(&o.ws.field, gw, gh, sea, world, Some(&o.ws.rainfall)).classification;
+                    let (o8, l8, s8, ok8) = b8_vs(&o.ws, &class, b8a3, gw, gh, km);
+                    let st = o.stage.as_ref().unwrap();
+                    println!(
+                        "ROWTAU seed={seed} tau={tau} B8_C ocean {o8} lake {} small {s8} (A {}) [{}]; clamped {} (at 1.0 on input {}); land-mean change {:.3} m",
+                        fmt_opt(l8),
+                        b8a.2,
+                        verdict(ok8),
+                        st.clamped,
+                        st.at_ceiling_in,
+                        st.land_mean_change_m
+                    );
+                }
+            }
+            println!("seed {seed} took {:.1} s", t0.elapsed().as_secs_f64());
+        }
+        let verdict_text = if full && measured == 5 {
+            if go_seeds >= GO_SEEDS && b8_all {
+                "GO"
+            } else {
+                "NO-GO"
+            }
+        } else {
+            "(the rule is defined at 800 km on the five seeds; this run is a report)"
+        };
+        println!("\nGF-10 VERDICT at {km} km: seeds where C beats B by every pre-registered margin {go_seeds} of {measured}; B8 holds for C on every seed: {b8_all}; => {verdict_text}");
+    }
+}
+
+/// §5.8's τ > 1 small-lake failure, diagnosed (§4.15, B8 item 1). On the GF-7
+/// worlds (processes on), counts 1-3-cell lakes stage by stage -- after the
+/// rock stream-power call, after its rebound, after the hillslope (the
+/// pre-carve surface) and in the final world -- for:
+/// - the app world (A), and GF-7 at τ = 1 and τ = 4, as built (each checked
+///   bit for bit against `generate_terrain` / `treated_at`);
+/// - τ = 4 with the routing **refreshed every iteration** (36 single-iteration
+///   calls in place of one 36-iteration call): the fixed-routing hypothesis;
+/// - τ = 4 with **no regolith accounting**, so nothing can read
+///   unconsolidated: the §5.6 feedback hypothesis.
+/// The pre-carve count against the final count is the carve's share.
+/// Intermediate surfaces are classified with the priming rainfall, the final
+/// one with its own.
+#[test]
+#[ignore = "GF-10 diagnostic: tau > 1 small lakes; run alone in release"]
+fn gf10_small_lake_diag() {
+    let (gw, gh) = grid();
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let p = app_params(seed, 800.0, gw, gh);
+        let pre = pre_erosion(&p);
+        let sea = pre.sea_level;
+        let small = |f: &[f32], rain: &[f32]| {
+            let c = cartalith_civ::build_water_bodies(f, gw, gh, sea, p.world, Some(rain)).classification;
+            let mut seen = vec![false; gw * gh];
+            let mut n_small = 0usize;
+            for s0 in 0..gw * gh {
+                if c[s0] != 2 || seen[s0] {
+                    continue;
+                }
+                seen[s0] = true;
+                let mut st = vec![s0];
+                let mut k = 0;
+                while let Some(i) = st.pop() {
+                    k += 1;
+                    let (x, y) = (i % gw, i / gw);
+                    for j in [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)].into_iter().flatten() {
+                        if c[j] == 2 && !seen[j] {
+                            seen[j] = true;
+                            st.push(j);
+                        }
+                    }
+                }
+                n_small += (k <= 3) as usize;
+            }
+            n_small
+        };
+        let rain0: &[f32] = &pre.rainfall;
+        println!("\n==== GF-10 small-lake diagnosis, seed {seed}, 800 km ====  pre-erosion surface: {} small lakes", small(&pre.field, rain0));
+        let variants: [(&str, bool, f64, bool, bool); 5] = [
+            ("A (app, processes off)", false, 1.0, false, true),
+            ("GF-7 tau 1", true, 1.0, false, true),
+            ("GF-7 tau 4", true, 4.0, false, true),
+            ("tau 4, routing refreshed every iteration", true, 4.0, true, true),
+            ("tau 4, no regolith accounting", true, 4.0, false, false),
+        ];
+        for (label, proc_on, tau, refresh, regolith) in variants {
+            let t0 = std::time::Instant::now();
+            let (f, col, after_sp, after_rb) = light_pass(&p, &pre, proc_on, tau, refresh, regolith);
+            let n_sp = small(&after_sp, rain0);
+            let n_rb = small(&after_rb, rain0);
+            let n_pre_carve = small(&f, rain0);
+            let clock = cartalith_engine::geo_clock::GeoClock::new(proc_on, tau);
+            let ws = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &clock);
+            let n_final = small(&ws.field, &ws.rainfall);
+            // Only the as-built rows describe a world the pipeline makes.
+            let check = if !refresh && regolith {
+                let want = if proc_on { treated_at(&p, tau) } else { generate_terrain(&p) };
+                if same_world(&ws, &want) {
+                    "replica == generate_terrain"
+                } else {
+                    "REPLICA DIVERGED"
+                }
+            } else {
+                "variant, not a pipeline world"
+            };
+            println!(
+                "  {label:42} 1-3-cell lakes: after stream power {n_sp}; after rebound {n_rb}; after hillslope (pre-carve) {n_pre_carve}; final {n_final}   [{check}; {:.1} s]",
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+}
+
+/// B9 for GF-10 (§7: "the prototype stage's time at 2048 × 1311 against the
+/// light pass"): per run, the app world, the light pass (legacy kernel +
+/// rebound), construction, the BM stage and the hillslope, in one process,
+/// one untimed warm-up. The projected BM generation is the app's minus the
+/// light pass plus the three BM pieces. Run it twice, as separate processes,
+/// alone, and quote both brackets.
+#[test]
+#[ignore = "GF-10 B9: timing; run ALONE in release"]
+fn gf10_b9_cost() {
+    let (gw, gh) = grid();
+    let seed = env_list("GF0_SEEDS", &SEEDS)[0];
+    let runs: usize = std::env::var("GF10_RUNS").ok().map(|v| v.parse().expect("GF10_RUNS")).unwrap_or(5);
+    let ctx = build_ctx(seed, 800.0, gw, gh);
+    let p = &ctx.p;
+    let sea = ctx.pre.sea_level;
+    let (mut tg, mut tl, mut tc, mut ts, mut th) = (vec![], vec![], vec![], vec![], vec![]);
+    for k in 0..=runs {
+        let t = std::time::Instant::now();
+        let _ = generate_terrain(p);
+        let g = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        let _ = light_pass(p, &ctx.pre, false, 1.0, false, true);
+        let l = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        let c = construct(p, &ctx.pre, &ctx.shape, &ctx.ocean0, ctx.d1_m, 1.0, C_TREAT, Breach::Step);
+        let cc = t.elapsed().as_secs_f64();
+        let mut f = c.field.clone();
+        let mut col = c.col.clone();
+        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * ctx.u0_m / ctx.mpu).collect();
+        let t = std::time::Instant::now();
+        let _ = bm_stage(p, sea, &mut f, &mut col, &u, &ctx.pre.rainfall, C_TREAT, ctx.t1, N_BM);
+        let s = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        hillslope(p, sea, &mut f, &mut col, &cartalith_engine::geo_clock::GeoClock::new(true, 1.0));
+        let h = t.elapsed().as_secs_f64();
+        if k > 0 {
+            tg.push(g);
+            tl.push(l);
+            tc.push(cc);
+            ts.push(s);
+            th.push(h);
+        }
+    }
+    let stat = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let show = |name: &str, v: &[f64]| {
+        let (m, l, h) = stat(v);
+        println!("  {name:28} median {m:.3} s ({l:.3} .. {h:.3})");
+        m
+    };
+    println!("GF-10 B9 seed {seed} 800 km {gw}x{gh}, {runs} runs each after one warm-up");
+    let g = show("generate_terrain (app, A)", &tg);
+    let l = show("light pass (SP + rebound)", &tl);
+    let c = show("construction", &tc);
+    let s = show("BM stage (8 steps)", &ts);
+    let h = show("threshold hillslope", &th);
+    let proj = g - l + c + s + h;
+    println!("  projected BM generation = A - light pass + construction + stage + hillslope = {proj:.3} s; ratio to A {:.3} (B9 bar <= 1.20)", proj / g);
 }

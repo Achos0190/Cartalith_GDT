@@ -40,9 +40,24 @@ depth. The owner chose **both** remedies, and this amendment scopes them:
   can move B1, B2 and B4 at all.
 - Owner questions 12–19 (§9), each with a default.
 
-**Nothing of Ruling BM is built.** No figure in the BM sections was measured
-for this amendment; every figure there is either cited from §5.4–§5.8 or
-labelled as arithmetic.
+**Amended 2026-09-27 for owner Ruling BN**, which answered three of those
+questions and reversed two defaults:
+- **Q14: construction may move the coastline.** Weak coastal rock may be
+  lowered below sea into new bays and inlets, and hard headlands stay, but
+  construction still makes no inland pit. §4.14's "land stays land" floor is
+  replaced by an ocean-seeded fill (§4.14, *The coast*), and B14 is reworded
+  to match (§5.2).
+- **Q12: the uplift field includes rift shoulders and rift-basin
+  subsidence.** §4.15 gains a signed rift term, and the stage handles
+  negative uplift, with the basins it opens filled as sediment (§4.15, *Rift
+  shoulders and basin subsidence*).
+- **Q18: relief first**, GF-10 → GF-13, then GF-4, GF-5, GF-6 and GF-8, with
+  GF-9 last. That was already §7's recommended order.
+
+**Nothing of Ruling BM is built into the pipeline.** GF-10's harness
+prototype has been measured (§5.10). No other figure in the BM sections was
+measured when they were written: each is cited from §5.4–§5.8 or labelled as
+arithmetic.
 
 **What this is not.** It does not track progress. Status lives only in
 `cartalith-native/docs/STATUS.md`. A ruling on any owner question in §9 is
@@ -1145,12 +1160,33 @@ z(i) = z₀(i) − m_to_norm(D)
   or tuff, `D = 0`. Their relief is the stamper's, and young. Plateau basalt
   is not exempt: flood-basalt provinces are dissected (the Trotternish case
   is one).
-- **Land stays land** (§9 Q14). `z` is floored at `sea + m_to_norm(1 m)`
-  for a cell that was land. The share of land floored is reported.
+- **The coast may move** (§9 Q14; **Ruling BN** reversed the default "land
+  stays land"). There is no floor at sea level. A land cell may end below
+  sea, but only where the fill below leaves it there, which is exactly where
+  it is joined through below-sea cells to the ocean: a new bay or inlet. An
+  inland cell lowered below sea is a closed depression like any other and is
+  filled back to its spill point. So construction moves the coast and still
+  makes no inland pit. A hard headland stands because strong rock is
+  lowered least, with no rule of its own. The share of land that goes under
+  is reported, beside the share the old 1 m floor would have caught.
+  - **How it changes this section.** Under the old default the fill could
+    use the routing rule, which treats every below-sea cell as an outlet.
+    That rule cannot be used here: an inland cell pushed below sea would read
+    as an outlet rather than a pit. So the fill is seeded only at the
+    structural surface's **ocean** cells (`build_water_bodies` class 1) and
+    the map's real outlets (its non-wrapping edges). It joins cells
+    **4-connected**, the way `build_water_bodies` joins below-sea water, so
+    a bay the fill leaves open is one the classifier calls ocean. An
+    8-connected fill would pass a diagonal-only mouth that the classifier
+    calls a lake.
+  - **Consequences.** The land share falls where weak rock meets the sea.
+    Every coastal consumer (the coastal pass at GF-4, settlement siting, the
+    classifier) sees a new coast, and B8's ocean-on-paths guarantee now runs
+    on a moving sea (it is re-checked on every arm, §5.10).
 - **No new closed depression.** Differential lowering of a weak patch inside
   strong rock would make a pit, and pits are what B8 counts. So both
-  surfaces are priority-flood filled (`build_routing_surface`'s rule), giving
-  a fill depth `f(z) − z` per cell. Wherever the lowered surface's fill depth
+  surfaces are priority-flood filled from the ocean (the coast bullet above),
+  giving a fill depth `f(z) − z` per cell. Wherever the lowered surface's fill depth
   exceeds the structural surface's, the cell is raised by the excess, and
   **the raise is added to `regolith`**: a basin that differential erosion
   opens is a basin that fills with sediment (alluvium, lake beds).
@@ -1241,8 +1277,11 @@ relation B1 and B2 test, and it needs `U > 0`.
 it available before the geology stage:
 
 ```
-U(i) = U₀ · ( max(σ_i, 0) + a_φ·max(φ_i, 0) + a_o·max(oro_i, 0) ) + U_bg·[crust_i ≥ 0]
+U(i) = U₀ · ( max(σ_i, 0) + a_φ·max(φ_i, 0) + a_o·max(oro_i, 0) + a_r·R_i ) + U_bg·[crust_i ≥ 0]
 ```
+
+(`R` is Ruling BN's signed rift term, defined below. Before the ruling the
+bracket had no `R` and `U` was never negative.)
 
 - `σ` is `stress_field` (convergence positive; `compute_stress` normalises it
   by its absolute maximum, so it is relative per map). The legacy kernel's own
@@ -1256,10 +1295,39 @@ U(i) = U₀ · ( max(σ_i, 0) + a_φ·max(φ_i, 0) + a_o·max(oro_i, 0) ) + U_bg
 - `U_bg` is a background epeirogenic rate on continental crust, so a craton's
   rivers keep a gradient rather than grading to sea level (the `u = 0`
   failure above). **Judgement**: `U_bg = 0.1·U₀`, measured in GF-10.
-- **No negative uplift in the first build.** Subsidence (rift axes, forearc
-  basins) is burial, which is deposition's business, and it would lower land
-  under the sea. Rift-shoulder uplift from `min(σ, 0)` is left out and
-  disclosed (§9 Q12).
+- **Rift shoulders and basin subsidence** (§9 Q12; **Ruling BN** reversed
+  the default "no subsidence and no rift-shoulder uplift"). `R` is built from
+  the divergence `max(−σ, 0)` on boundary cells typed `RIFT`. That source is
+  blurred twice, at `3·blur_r` (the flexure's own wavelength, as
+  `compute_flexure` uses it) and at `blur_r` (the stress wavelength). `R` is
+  the wide blur minus the narrow one, divided by its largest magnitude.
+  - **Why this shape.** Both blurs preserve mass, so their difference
+    integrates to about zero. It is **negative on the axis**, where the narrow
+    blur peaks higher: the subsiding basin, or graben. It is **positive on the
+    flanks**, where the wide blur reaches further: the uplifted shoulders.
+    That is the shape of a flexural rift profile. The two radii are this
+    scope's own two blur scales, not new constants.
+  - `a_r = 0.5`, a **judgement**, set equal to `a_φ`. Both terms are the same
+    lithosphere's flexural response to a boundary load, so neither is given
+    more weight than the other.
+  - **How the stage takes negative `U`.** A subsiding cell is lowered by
+    `U·dt` each step, with its contact, so the whole column goes down.
+    Subsidence is burial, and the accommodation it makes fills. After the
+    stage, any closed depression inside the subsiding footprint that is
+    deeper than it was on the stage's input surface is filled to its spill
+    point, and the fill is added to `regolith`. This is the same rule as
+    construction's fill (§4.14) and uses the same ocean-seeded fill. Ocean
+    and lake cells stay pinned. So subsidence can deepen an existing sea or
+    lake bed only through its pinned level, which it cannot move, and it
+    makes no new inland pit. Where a subsiding basin meets the sea it may
+    flood, as §4.14's coast allows.
+  - **Not modelled:** forearc and foreland basins. No existing field marks
+    them. `φ` is positive near convergence throughout, and nothing in the
+    tectonics distinguishes a flexural moat.
+  - **Before Ruling BN** the default was no subsidence, on the ground that
+    it lowers land under the sea and is deposition's business. The ruling
+    keeps that reasoning in the basin fill above, and allows the sea where it
+    connects.
 - **Units: metres per unit model time**, converted with `m_to_norm`. The
   kernel's `A^0.5/L` is scale-free (§1.4 point 1), so a steady-state step of
   `U/C` metres per cell gives a physical slope `∝ 1/(A_cells^0.5 · cell_m)`,
@@ -1282,8 +1350,14 @@ for k in 0..N_BM:
     route: fill, receivers, drainage area over the current surface
     one implicit update: dt_k = T(τ) / N_BM, uplift U·dt_k, rock κ(exposed)^c,
                          contact += U·dt_k (the existing rule), lakes and ocean pinned
-account regolith once, on the stage's net change (§4.9)
+                         (U < 0 where a rift basin subsides: Ruling BN)
+account regolith once, on the stage's net change less the uplift U·T (§4.9)
+fill new closed depressions in the subsiding footprint to spill, as regolith (Ruling BN)
 ```
+
+(Accounting "less the uplift" is a correction, not a Ruling BN change. The
+line read "on the stage's net change". Under uplift, a cell that rises
+without being eroded would then be counted as deposit.)
 
 - **Implicit, so `dt` may be large.** Braun & Willett (2013)'s scheme is
   unconditionally stable for `n = 1`, and the kernel is that scheme. §4.12's
@@ -1661,7 +1735,11 @@ the zero-uplift kernel).
 **B14 — construction is consistent with the column and makes no pits**
 (GF-11).
 - The `contact` array is **bit-identical** before and after construction.
-- No land cell of the structural surface becomes sea.
+- No land cell of the structural surface ends below sea unless it is joined
+  to the ocean. *Reworded for Ruling BN (§9 Q14): the coast may move, so
+  the check is that every new below-sea cell is ocean by `build_water_bodies`
+  (a bay), never a stranded inland depression. It read "No land cell of the
+  structural surface becomes sea".*
 - Construction creates **zero** new closed depressions deeper than the lake
   classifier's 0.004 (exact: §4.14's fill rule makes it so by construction).
 - Every cell the fill raised has its `regolith` raised by the same amount,
@@ -2524,6 +2602,325 @@ for a reason found in the code or in §5.4–§5.8, not in a wish to pass.
 **What is not revised.** B3 (it passes, and §5.5 already recorded that its
 absolute half is not evidence), B5–B7, B9's 1.20 at τ = 1, B10 and B11.
 
+### 5.10 GF-10 findings: the BM prototype, measured (2026-09-27) — **NO-GO**
+
+**Verdict: NO-GO. GF-11 and GF-12 should not be built as scoped.** The
+pre-registered rule (§7 GF-10) needs arm C to beat arm B by half of each
+relative margin on B1, B2 and B4's twin on at least 3 of 5 seeds, with B8
+holding. At 800 km and the pre-registered setting, **0 of 5 seeds** meet it:
+- B1's margin is met on 0 of 5 seeds;
+- B4's twin margin is met on 0 of 5;
+- B2's margin is met on 5 of 5;
+- B8 fails for arm C on 4 of 5 seeds.
+
+No other setting rescues it either. No setting of the grid meets B1's margin
+on any seed (the table under *Every setting*). So there is no "another
+setting" decision to put to anyone (§7). The scope goes back to the owner
+with the numbers below.
+- The rule was written into the harness as constants before the first run
+  (`GO_B1_DRHO` 0.075, `GO_B2_RATIO` 1.125, `GO_B4_TWIN_RATIO` 1.1,
+  `GO_SEEDS` 3). No pre-registered value was changed after a result was seen.
+  No bar was loosened.
+- B8's part of the rule was read as its own §5.2 condition: all five seeds.
+
+**What was built.** Harness code only: a new "GF-10" section at the end of
+`crates/cartalith-godot/tests/gf0_geology_harness.rs`. No production file
+changed. The pieces:
+- `uplift_shape`: §4.15's field, with Ruling BN's rift term.
+- `construct`: §4.14's construction, both breach rules, with Ruling BN's
+  ocean-seeded fill.
+- `bm_stage`: §4.15's stage, emulated with the existing
+  `stream_power_kernel_rock`.
+- `solve_u0`: the mean-balance rule.
+- `tail`: a replay of the rest of `generate_terrain_inner`, so each arm is a
+  whole world with rivers, lakes and the glacial pass.
+- The revised B1, B2 and B4, as `b1_rev`, `b2_rev` and `b4_rev`.
+
+**How the prototype differs from §4.14–§4.15**, each difference stated in its
+doc comment:
+- **`dt` is emulated by scaling `k` and the uplift by `dt`, not by the step
+  count.** The kernel's update `(z + dt·u + c·z_r)/(1 + c)`, with `c = dt·C`,
+  is then exact at the scope's `dt` (arithmetic).
+- **Pinning is restore-after-call.** The rock entry point takes no mask.
+- **Subsidence is applied before each call.** This equals a signed `u` in the
+  kernel's formula, except that the step's routing is computed on the
+  subsided surface.
+- **Regolith is accounted on the net change less `U·T`** (the §4.15
+  correction above).
+- **`T₁`'s channel-head area is `river_flow_thresh / river_density`**, the
+  slope-free initiation threshold, read as cells. At 800 km and 2048 × 1311
+  it is 1 074 cells, so `T₁` = 7.629.
+- **"BM on" includes GF-3's hillslope**, which reads θc, so arm B is
+  rock-blind in construction and in the stage but not in the hillslope.
+
+**The replay is `generate_terrain`.** `replica_reproduces_generate_terrain`
+is a fast test at 192 × 123: the replay (priming climate, light pass, tail)
+equals `generate_terrain` bit for bit, on the app path and with the processes
+on at τ = 1 and 4. `gf10_small_lake_diag` checks the same at 2048 × 1311 on
+all five seeds: 15 of 15 as-built worlds read *replica == generate_terrain*.
+
+**Commands** (release, run alone, in a `git archive` copy of HEAD `7ac41a4`
+plus the harness):
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_bm_prototype
+GF10_EXTENTS=80,8000 cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_bm_prototype
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_small_lake_diag
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf10_b9_cost
+```
+
+The 800 km run was made twice, as separate processes. Every ROW line (every
+setting, every seed) is identical between the two runs.
+
+**The pre-registered constants, per seed (800 km).** `D₁` is the median cap
+thickness; `U₀` is solved on arm B at τ = 1, with a residual under 0.01 m in 3
+evaluations on every seed:
+
+| Seed | `D₁` (m) | `U₀` (m per unit time) | two-layer land cells | breached at `c = 0.5` |
+|---|---|---|---|---|
+| 483920 | 150.00 | 7.665 | 232 851 | 41.2 % |
+| 24601 | 80.91 | 8.414 | 307 021 | 54.1 % |
+| 71077345 | 104.15 | 6.112 | 335 413 | 59.6 % |
+| 12345 | 150.00 | 7.216 | 329 112 | 37.7 % |
+| 314159 | 150.00 | 10.242 | 370 211 | 31.7 % |
+
+**The cap-thickness distribution explains `D₁`.**
+- Rift caps are all exactly `RIFT_CAP_M`, 150 m, and they are 28–63 % of
+  two-layer land. So on three seeds the median is 150 m, and the rule gives
+  the rift cap's own thickness.
+- Cover caps are thin: medians of 35–72 m, p95 of 82–219 m.
+- Volcanic caps are thick: medians of 760–2 603 m.
+- The consequence: "the median cap" is mostly one constant, not a property of
+  the world's covers.
+
+**Arm by arm at the pre-registered setting** (800 km, 2048 × 1311, step rule,
+τ = 1; B → C, with the margin in brackets):
+
+| Seed | B1 rev (Δ ≥ 0.075) | B2 rev (C/B ≥ 1.125) | B4 twin (C/B ≥ 1.1) | B4 ratio · share, C | B8 small lakes C / A | B15 clamped, C |
+|---|---|---|---|---|---|---|
+| 483920 | −0.031 → −0.058 (−0.027) ✗ | 1.165 → 1.818 (1.560) ✓ | 0.077 → 0.040 (0.513) ✗ | 0.802 · 0.841 | 105 / 46 ✗ | 2 ✗ |
+| 24601 | −0.006 → −0.060 (−0.054) ✗ | 1.165 → 1.606 (1.379) ✓ | 0.091 → 0.067 (0.735) ✗ | 0.868 · 0.748 | 223 / 65 ✗ | 31 ✗ |
+| 71077345 | 0.056 → 0.041 (−0.015) ✗ | 1.260 → 1.692 (1.343) ✓ | 0.068 → 0.050 (0.726) ✗ | 2.078 · 0.566 | 52 / 26 ✗ | 36 ✗ |
+| 12345 | 0.077 → −0.035 (−0.112) ✗ | 1.279 → 1.615 (1.263) ✓ | 0.106 → 0.073 (0.694) ✗ | 1.049 · 0.467 | 348 / 105 ✗ | 72 ✗ |
+| 314159 | −0.010 → −0.070 (−0.059) ✗ | 1.275 → 2.779 (2.180) ✓ | 0.152 → 0.069 (0.452) ✗ | 0.764 · 0.638 | 69 / 81 ✓ | 59 ✗ |
+
+Against the full §5.2 bars, arm C:
+- **passes B2 on all five seeds** (≥ 1.5 and ≥ 1.25 × B);
+- fails B1 on all five;
+- fails the B4 twin on all five;
+- passes B4's ratio and share on one seed (71077345);
+- fails B15 on all five.
+
+On B8:
+- **ocean cells on river paths are 0 on every arm and every world**, the
+  moving coast included;
+- the failures are the 1–3-cell lakes, and on some seeds the lake share of
+  river cells.
+
+**Ruling BN's coast, measured.**
+- At `c = 0.5`, construction took 0.24–2.26 % of land below sea as
+  ocean-connected bays. The old 1 m floor would have caught about the same
+  cells (for example 28 400 cells against 28 571 on 483920).
+- No construction on any world left a new closed depression deeper than
+  0.004: B14 PASS on every arm printed.
+- The contact was bit-identical after construction on every arm.
+
+**The rift term, measured.** 1.2–1.6 % of land subsides (21 416–32 132 cells
+per seed). The stage's basin fill raised 823–1 533 cells per arm at the
+pre-registered setting.
+
+**Every setting** (800 km; seeds meeting each go/no-go margin, out of 5; B8
+for arm C):
+
+| Setting | B1 margin | B2 margin | twin margin | B4 bar (C) | B8 (C) |
+|---|---|---|---|---|---|
+| pre-registered (`D₁`, `T₁`) | 0 | 5 | 0 | 1 | 1 |
+| `D₁`×0.5, `T₁` | 0 | 2 | 0 | 0 | 1 |
+| `D₁`×0.5, 4`T₁` | 0 | 0 | 1 | 0 | 0 |
+| `D₁`, 4`T₁` | 0 | 1 | 0 | 0 | 0 |
+| `D₁`×2, `T₁` | 0 | 3 | 0 | 0 | 0 |
+| `D₁`×2, 4`T₁` | 0 | 0 | 0 | 0 | 0 |
+| continuous breach rule | 0 | 5 | 0 | 3 | 1 |
+| construction alone | 0 | 5 | 0 | 3 | 4 |
+| stage alone | 0 | not measurable | 0 | 0 | 1 |
+
+About B1 across the grid:
+- ΔB1 is under 0.075 on all 45 setting-seed pairs. It is negative on 40 of
+  them, and the largest value is +0.029 (construction alone, 483920).
+- Stage alone has no weak class for B2 (without construction nothing but
+  edifices is weak, and edifices are excluded).
+- Its B4 twin is 0.98–1.01 × B: the stage alone does not read rock at the
+  scale of a cap.
+
+**Where the effect lives: construction makes scarps, and the stage takes
+them away.**
+- Construction alone gives a breach-line to substrate slope ratio of 3.68,
+  7.27, 11.93, 8.17 and 1.50 in arm C. The B4 bar passes on 3 of 5 seeds,
+  and B8 holds on 4 of 5 (small lakes 15, 51, 11, 108 and 10, against 46,
+  65, 26, 105 and 81).
+- Adding the stage takes the ratio to 0.76–2.08 and fails B8 on 4 of 5.
+- The continuous breach rule, which §4.14 expected to make no scarp,
+  measures 11.7–15.4 on three seeds under the full model. That is the only
+  full-model setting where B4's ratio passes on three seeds; its B1 and twin
+  fail as the step rule's do.
+
+**τ sweep (arm C, B8, 800 km).** At τ = 0.5 B8 passes on 3 of 5 seeds; at
+τ = 2 and 4 it fails on all five:
+
+| τ | small lakes, C (A) per seed |
+|---|---|
+| 0.5 | 25 (46), 82 (65), 26 (26), 198 (105), 22 (81) |
+| 2 | 520, 574, 226, 723, 641 |
+| 4 | 1 721, 2 117, 1 086, 1 757, 3 083 |
+
+**80 and 8 000 km** (the pre-registered setting, reported as §5.2 asks; the
+rule is not applied at these extents):
+- **80 km:** ΔB1 is +0.016 to +0.045, the only extent where it is positive
+  on every seed, still under 0.075. B2 is 1.05–1.22 × B, and the twin is
+  0.997–1.244 × B. B4's ratio is 1.20–1.78, with a share of 0.18–0.26. B8
+  fails on 4 of 5 (small lakes 373/284, 830/621, 235/312, 434/238 and
+  734/519).
+- **8 000 km:** ΔB1 is negative on all five. B4's ratio is 0.53–1.33, with
+  no pass, as §4.14 expected at this cell size. B8 fails on all five (small
+  lakes 126/38, 271/57, 173/19, 133/35 and 297/62).
+
+**What limits it.** These are readings of the numbers above; the causes
+marked *hypothesis* were not isolated.
+1. **The stage fails B8 and B15 on its own.** Stage alone raises the small
+   lakes on 4 of 5 seeds, and the lakes grow steeply with model time. It
+   clamps 2–72 cells at 1.0 at τ = 1, and 2–287 at τ = 4.
+   - *Hypothesis:* each step routes once and then moves the surface by
+     `dt·U`, so within a step the tree is frozen, the same mechanism the
+     diagnosis below confirms for the light pass. Eight steps per `T` means a
+     longer `T` freezes a larger move.
+   - Refreshing more often costs more steps, and B9 is already failed.
+2. **B1 does not see rock at matched uplift.** Granite is more than
+   two-thirds of the B1 population on every seed, so the tertiles tie at
+   0.85: "strong" is granite and "weak" is everything else.
+   - C − B is negative on every seed.
+   - *Hypothesis:* construction puts shale in scarp-foot positions next to
+     caps, where a 9 × 9 relief window straddles the step, so weak rock gains
+     window relief.
+3. **B4's twin measures geography.** The thin-cap quartile is cover sitting
+   in structural lows. The thick quartile is 150 m rift caps along rift
+   troughs, plus volcanic caps. So the twin reads 0.04–0.15 in both arms,
+   and rock makes the thin covers flatter still.
+   - The not-pre-registered diagnostic twin moves the same way (C/B
+     0.47–0.74 at the pre-registered setting). It leaves edifices out, and
+     cuts strictly when the quartiles tie.
+4. **Cost.** B9 fails by far:
+
+   | Piece, median of 5 (min..max) | Run 1 | Run 2 |
+   |---|---|---|
+   | app generation | 3.244 s (3.224..3.955) | 4.391 s (3.857..11.806) |
+   | light pass | 1.130 s | 1.629 s |
+   | construction | 1.030 s | 1.338 s |
+   | BM stage, 8 steps | 5.338 s (5.193..5.455) | 7.732 s (6.091..8.119) |
+
+   Projected BM generation is **2.648 ×** the app in run 1 and **2.726 ×** in
+   run 2, against B9's ≤ 1.20. The two runs' absolute brackets are disjoint,
+   because the machine was busier in run 2, so no absolute time is claimed.
+   Both ratios exceed the bar by more than 2 ×.
+
+**B13 and B14** (fast tests, part of the ordinary suite):
+- `b13_the_prototype_stage_reaches_the_stream_power_steady_state`: the
+  granite/shale slope ratio at matched area is 2.887 within 5 % at
+  `c = 0.5`, and 1 within 5 % at `c = 0`.
+- `b14_construction_keeps_the_column_and_makes_no_inland_pits`:
+  - `contact` is bit-identical;
+  - at `c = 0` the unfilled surface is `z0 − m_to_norm(B)` bit for bit, and
+    at `c = 0.5` it is not;
+  - no new depression;
+  - regolith rises by exactly the raise;
+  - the breach lowerings match literals: 53.666, 94.868 and 79.510 m;
+  - no land cell goes below sea without joining the ocean, and an inland
+    breach below sea is refilled.
+
+So the prototype stage reaches the steady state the theory predicts on a
+fixture. The failure on real worlds is not a failure of the kernel's steady
+state.
+
+**Mutation testing** (scratch copy only; Python exact replacement, restore in
+`finally`, hash checked):
+- **10 of 11 mutants were killed.** Among them: dropping κ, the uplift or `dt`
+  from the stage; the breach branch; the continuous rule; the fill; the
+  regolith write; ocean seeding (the old "every below-sea cell" rule); a
+  contact write; and the tail's glacial strip.
+- The breach-branch mutant survived the first round. It was killed after the
+  literal lowerings were added to B14.
+- **One survivor:** dropping the ocean currents from the tail's post-carve
+  climate is invisible at 192 × 123. The final `refresh_climate` overwrites
+  climate, and only the glacial pass reads that temperature. The full-size
+  replica check (15 of 15) covers it.
+
+**The τ > 1 small-lake failure of §5.8: found — the frozen routing.**
+`gf10_small_lake_diag` counts 1–3-cell lakes stage by stage on the GF-7
+worlds. Per seed, 483920 / 24601 / 71077345 / 12345 / 314159:
+
+| Case | final small lakes |
+|---|---|
+| app world (A) | 46 / 65 / 26 / 105 / 81 |
+| τ = 4 as built | 355 / 352 / 175 / 438 / 498 |
+| τ = 4, routing refreshed each of its 36 iterations | 62 / 99 / 43 / 53 / 88 |
+| τ = 4 with no regolith accounting | 355 / 353 / 175 / 438 / 498 |
+
+- **The excess appears in the stream-power call itself.** Right after the
+  call, τ = 4 has 473 / 598 / 251 / 569 / 608 small lakes, against A's 67 /
+  83 / 44 / 118 / 106. Rebound and the hillslope barely change the count.
+- **The carve lowers the count** (pre-carve 453 → final 355 on 483920), so it
+  is not the cause.
+- **Regolith feedback is ruled out.** With no regolith accounting the counts
+  are identical to as-built, bar one lake on one seed.
+- **Refreshing the routing removes 88–98 % of the τ = 4 excess** over A on
+  four seeds, and all of it on 12345 (53 against A's 105). It does not
+  remove all of it: 3 of 5 seeds stay above 1.25 × A (62 against 57.5, 99
+  against 81.3, 43 against 32.5).
+
+So the §4.15 hypothesis holds for the light pass, and the per-step refresh
+that §4.15 designs in is necessary but, on this evidence, not sufficient.
+
+**Disclosed, in the order it happened.**
+- **A 512-wide smoke run** on one seed, before the recorded run, found two
+  harness problems:
+  - B3 over the edifice-excluded population had no weak rock. B3 is
+    unrevised, so it was moved to its own form (all interior land,
+    pre-erosion map).
+  - The scope's twin was unmeasurable at 512, because the quartiles tied at
+    150 m. The diagnostic twin was added, labelled not pre-registered and
+    kept out of the rule. At 2048 the scope's twin is measurable on every
+    seed.
+  - No pre-registered constant changed.
+- **B15's first recorded count included cells already at 1.0 on the stage's
+  input.** Those are stamped summits, 646–3 224 per seed. The definition was
+  corrected to "below 1.0 on input, held at 1.0 by the stage", and the
+  800 km run was made again. Every ROW line was identical; only the B15
+  column changed.
+- **The B14 fixture's inland patch was moved below sea**, and the literal
+  lowerings added, after the first mutation round. Both changes were made so
+  that Ruling BN's seeding and the breach branch are pinned.
+
+**The images** (`GF10_DUMP`; hillshade, NW light, ×10 vertical exaggeration at
+full frame and ×5 on a 512 × 512 crop at the densest breach lines; arms A, B,
+C on seeds 483920 and 314159; scratch output, not committed). They were
+opened and looked at:
+- **B and C** are more finely gullied than A. On 314159, C has new
+  elongated lakes north of centre that A lacks.
+- **In C**, the rift troughs gain thin parallel step lines along both flanks.
+  They are one cell wide, and they are the breach lines. B has none of them.
+  So rock does control where steps sit.
+- **No plateau stands behind a scarp.** The steps have no bench-and-face
+  relief at this scale.
+- **No weak-rock lowland opens** that is visible against B.
+- The coastline differs from A in a few places, as Ruling BN allows.
+
+**Identity (GF-10 changes no production behaviour).**
+- The change is one test file, plus this document and `STATUS.md`. No file
+  under `crates/*/src` and no `Cargo.toml` or `Cargo.lock` was touched, so
+  `WorldParams::defaults()` and the app's defaults generate what they
+  generated at HEAD by construction.
+- `cargo test --workspace --no-fail-fast` in the scratch copy passed before
+  and after the change. The counts are in `STATUS.md`'s line.
+
 ---
 
 ## 6. Re-baseline plan
@@ -2861,9 +3258,11 @@ production code.
 - **The prototype.** Test-side functions, over a generated app world with the
   processes off:
   - §4.15's uplift field from the stored `stress_field`, `boundary_mask` and
-    `crust_field` (flexure by `compute_flexure`);
+    `crust_field` (flexure by `compute_flexure`), with Ruling BN's rift term
+    from `boundary_type`, and the stage's subsidence and basin fill;
   - §4.14's construction, **both** breach rules (§4.14's "judgement" note),
-    with the fill-to-regolith step;
+    with the fill-to-regolith step seeded from the ocean, so the coast may
+    move (Ruling BN);
   - the uplift-driven stage approximated with the **existing**
     `stream_power_kernel_rock`: its uplift enters through the `stress` slice
     and `stream.uplift`, one call per step so the routing is refreshed each
@@ -2912,8 +3311,8 @@ production code.
 
 - The construction stage between the geology stage and the priming flow; the
   budget from §4.15's smoothed uplift; the breach rule GF-10 chose, and why.
-- The fill-to-regolith step; land floored at sea (§9 Q14); arc edifices
-  exempt (§9 Q17).
+- The fill-to-regolith step, seeded from the ocean so the coast may move
+  and no inland pit forms (§9 Q14, Ruling BN); arc edifices exempt (§9 Q17).
 - `WorldParams::relief_model` with its `PARAMS` and `JS_PATHS` rows; a save
   without the key reloads off.
 - The storage decision §4.13's BM note leaves to it (the structural surface or
@@ -2933,7 +3332,9 @@ production code.
 
 §4.15, behind the same switch.
 
-- The uplift field; `U₀` by the mean-balance rule GF-10 fixed; `U_bg`.
+- The uplift field, with Ruling BN's rift term (shoulders and basin
+  subsidence, and the basin fill); `U₀` by the mean-balance rule GF-10 fixed;
+  `U_bg`.
 - The stage: `N_BM` implicit steps with per-step routing, `dt = T(τ)/N_BM`,
   lakes and ocean pinned, no deposition, contact lifted by uplift; replacing
   the light pass's stream power and rebound when the switch is on.
@@ -3080,10 +3481,16 @@ says. Q11 is new with the clock.
     output, which B12's identity-at-τ = 1 would not catch at other values of
     τ. It can be ruled on separately.
 
-*Questions 12–19 are new with Ruling BM (2026-09-27). None is ruled. Each
-default is what GF-10 to GF-13 build if the owner says nothing.*
+*Questions 12–19 are new with Ruling BM (2026-09-27). **Ruling BN
+(2026-09-27) answered Q12, Q14 and Q18**, marked below, and kept the
+defaults of Q13, Q15, Q16, Q17 and Q19. Each default is what GF-10 to GF-13
+build.*
 
-12. **Which tectonic settings uplift?** **Default:** convergence (`stress`),
+12. **Which tectonic settings uplift?** **Answered by Ruling BN: all of
+    them**, which reverses the default below. Convergence, flexure and the
+    continental background, **plus rift shoulders (uplift) and basin
+    subsidence**: §4.15's signed rift term `R`, with the stage's basin fill.
+    GF-10 measured it (§5.10). The default was: convergence (`stress`),
     the flexural bulge behind it (`compute_flexure`), orogeny where
     world-structure is on, and a small continental background (§4.15). **No
     subsidence and no rift-shoulder uplift** in the first build: subsidence
@@ -3098,7 +3505,12 @@ default is what GF-10 to GF-13 build if the owner says nothing.*
     - The alternative repurposes the slider as a multiplier on BM's `U₀`.
       That gives the user a "more active tectonics" control, at the cost of a
       slider whose meaning depends on a switch.
-14. **May construction move the coastline?** **Default: no.** Land stays land
+14. **May construction move the coastline?** **Answered by Ruling BN: yes**,
+    which reverses the default below. Weak coastal rock may go below sea into
+    bays and inlets, hard headlands stay, and there is still no inland pit:
+    §4.14's coast bullet (an ocean-seeded 4-connected fill in place of the
+    floor) and B14's reworded check. GF-10 measured it (§5.10). The default
+    was: **no.** Land stays land
     (§4.14), so the land share and every coastal consumer keep their
     meaning, and B8's ocean-on-paths guarantee is not tested by a moving
     sea.
@@ -3121,7 +3533,9 @@ default is what GF-10 to GF-13 build if the owner says nothing.*
     wall. Every other process keeps §4.12's count laws.
 17. **Arc volcanoes exempt from construction?** **Default: yes.** Their relief
     is the stamper's and young; plateau basalt is not exempt.
-18. **Build BM before GF-4, GF-5, GF-6 and GF-8?** **Default: yes** (§7's
+18. **Build BM before GF-4, GF-5, GF-6 and GF-8?** **Answered by Ruling BN:
+    relief first**, GF-10 → GF-13, then GF-4, GF-5, GF-6 and GF-8, with GF-9
+    last. That confirms the default. **Default: yes** (§7's
     build order). Their bars are measured on whatever relief model exists; if
     BM lands after them, each would need re-measuring.
 19. **Wire the weathered mantle under BM?** §5.8 left it unwired because

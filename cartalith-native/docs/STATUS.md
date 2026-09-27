@@ -621,6 +621,34 @@ re-checked against the tree rather than copied from the commit message.
     `erode_bridge.rs` additions. Mutation testing ran in a scratch copy:
     31 of 31 mutants killed, one of them after a test was added.
 - **Ruling BM scoped, nothing built (2026-09-27):** `GEOLOGY_FIRST_SCOPE.md` amended with rock-aware construction (§4.14), uplift-driven erosion (§4.15), revised B1/B2/B4 (§5.2, §5.9) and milestones GF-10…GF-13; next is GF-10, a harness-only prototype measurement.
+- **GF-10 measured: NO-GO. verified by the main loop 2026-09-27 (harness fast tests 7/0 re-run); NO-GO (2026-09-27).**
+  The Ruling BM prototype is harness code only: a new "GF-10" section of
+  `tests/gf0_geology_harness.rs`, with no production change.
+  `GEOLOGY_FIRST_SCOPE.md` §5.10 has the tables. Ruling BN's Q12 (rift
+  shoulders and subsidence) and Q14 (a moving coast) are written into §4.14,
+  §4.15 and B14.
+  - **The verdict against the pre-registered rule:** at 800 km, 0 of 5 seeds.
+    B1's margin is met on 0 of 5, the B4 twin's on 0 of 5 and B2's on 5 of 5,
+    and B8 fails for arm C on 4 of 5. No setting of the grid meets B1's
+    margin on any seed.
+  - **Also failing:** B15 (the stage clamps 2–72 cells at 1.0), and B9 (a
+    projected 2.65–2.73 × the app's generation time, against ≤ 1.20).
+  - **What does work:** construction alone makes scarps (a breach-line slope
+    ratio of 1.5–11.9) and keeps B8 on 4 of 5 seeds. The stage erases the
+    scarps and adds small lakes.
+  - **§5.8's τ > 1 small lakes: the cause is found.** It is the routing,
+    frozen for the call's iterations. Refreshing it every iteration removes
+    88 % or more of the excess. Regolith accounting and the carve are ruled
+    out.
+  - **Tests:** 3 new fast tests (the replay is bit-identical to
+    `generate_terrain`; B13; B14). 10 of 11 mutants killed, the survivor
+    explained in §5.10.
+  - `cargo test --workspace --no-fail-fast`, run in a `git archive` copy of
+    HEAD `7ac41a4` plus the harness:
+    - **before:** 186 result lines, 4 100 passed, 1 failed, 49 ignored. The
+      failure was the copy lacking `reference/`, which was then added;
+    - **after:** 186 lines, 4 104 passed, 0 failed, 52 ignored.
+  - The scope goes back to the owner. `OUTSTANDING_WORK.md` is not touched.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s
