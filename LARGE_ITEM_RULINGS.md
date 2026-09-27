@@ -1674,3 +1674,23 @@ that is correct as built. Where the mockup's contrast refinement (its README,
 "What the 2026-09-25 refinement changed") sets a contrast relationship, such as
 disc opacity or disabled-label contrast, keep the relationship in the theme's
 tokens.
+
+## 2026-09-29 — Ruling BD: the river carve is fixed at its source, and the valley is shaded along the smooth line
+
+Asked through the session's question tool after `_riverzoom_probe` measured the
+causes (commit `19d3ba8`).
+
+**RV-1: fix it, and re-baseline.** The carve (`enforce_channel_descent`) must
+stop leaving junction pits that classify as lakes. Measured: 11-18% of traced
+river cells are lake-class, and about half of those "lakes" are 1-3 cells. The
+generated rivers and lakes change in every world. The golden values are
+re-recorded, and each old → new is disclosed in the same commit.
+
+**RV-3: re-cut the valley on the line.** Keep the carve for hydrology, but shade
+the terrain from a smooth valley cut along the vector river. Today the stepped
+carve shows as dark grooves, and about 30% of them have no river drawn on
+them. How terrain looks near rivers changes; the render and tile golden
+values are re-recorded and disclosed.
+
+Both follow DECISIONS §7p: the port's improved behaviour wins over matching the
+legacy HTML.
