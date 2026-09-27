@@ -33,6 +33,10 @@ extends Node
 ## still says "Preview & edit this note…". §5/§6 below were updated to look
 ## for the standalone entry point's real, current label rather than the
 ## Attach-section one it never draws.
+##
+## **2026-09-27, Ruling BE**: §3's entity view draws the browser layout, so its
+## open button is "Open to edit" too, and the editor behind it is
+## `markdown_editor.gd` (whose `text_edit` is still `vw._browse_edit`).
 
 var _app: Node
 var _fails: Array = []
@@ -156,8 +160,11 @@ func _ready() -> void:
 	vw._rebuild()
 	await get_tree().process_frame
 
-	var open_btn := _find_button(vw, "Preview & edit this note…")
-	_ok("attach: the raw-editor button is offered for a picked, unattached file", open_btn != null)
+	## Ruling BE (2026-09-27): the entity view is the browser layout now, and
+	## its one open button is the browser's "Open to edit" -- the Attach form
+	## and its "Preview & edit this note…" are gone. Same editor behind it.
+	var open_btn := _find_button(vw, "Open to edit")
+	_ok("attach: the editor button is offered for a picked, unattached file", open_btn != null)
 	if open_btn == null:
 		_finish()
 		return

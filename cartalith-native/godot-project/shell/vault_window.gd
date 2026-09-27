@@ -18,15 +18,34 @@ class_name VaultWindow
 ## name)`, and the same for `faction`, `culture` and `landmark`.
 ## Opened with no entity it shows the whole link store instead.
 ##
+## ## One layout for browsing and for an entity (owner Ruling BE, 2026-09-27)
+##
+## `open_browse()` and `open_for(kind, id, label)` used to draw two different
+## windows -- a tree with a raw `TextEdit`, and a long form (Vault / Find /
+## Attach / Knowledge / Map snapshot / Write confirmations). With a vault
+## connected they now draw the same one (`_build_browse`): the tree and its
+## search on the left, attached notes marked; on the right an **Attached to**
+## block (every link on the picked note, with Show on map / Open place editor
+## / Detach, plus a frontmatter match offered as "by frontmatter, not
+## attached"), the note itself -- a read-only rendering until **Open to edit**
+## turns the same pane into `markdown_editor.gd` -- and a collapsed **More**
+## holding the working copy, the map snapshot, the Cartalith block, field
+## fill, the write confirmations, the index and Disconnect. `open_for`
+## preselects the entity's first attached note, or shows its attach flow when
+## it has none. With no vault connected, and for the overview, the old form
+## is still what draws: there is no tree to put on the left.
+##
 ## ## Every write here is explicit, and every write is previewed
 ##
 ## §17: *"Reading can be automatic/on-demand. Writing cannot."* Recounted
-## 2026-09-26 (every `bridge.vault_write_*`/`vault_remove_block` call site in
+## 2026-09-27 (every `bridge.vault_write_*`/`vault_remove_block` call site in
 ## this file): there are exactly **five** buttons that write a Markdown
 ## file, each behind a preview whose hash is handed back to the write — so a
 ## note edited in the user's own editor between the preview and the
-## confirmation refuses instead of overwriting. They are: **Save** (the raw
-## editor, `_build_note_editor`, `vault_write_file`), **Insert updated
+## confirmation refuses instead of overwriting. They are: **Save** (the
+## Markdown editor, `_save_note`, `vault_write_file` -- its "preview" is the
+## editor itself, and its hash is the one `vault_read_file_for_edit` returned
+## when the note was opened), and, under **More**: **Insert updated
 ## section into source…** (`_confirm_section_write`, `vault_write_section`),
 ## **Preview & write Cartalith block…** (`_confirm_block_write`,
 ## `vault_write_block`), **Fill the note's own fields…**
@@ -77,6 +96,8 @@ class_name VaultWindow
 ## - **No POI.** Not a ported concept — the same absence
 ##   `place_editor_window.gd`'s own footer states.
 
+const MdEditor := preload("res://shell/markdown_editor.gd")
+
 var app                       ## `DccApp`
 var bridge: EngineBridge
 
@@ -92,30 +113,54 @@ var _reader_edit: TextEdit
 ## The New-note-from-a-template picker's current template (VA-02).
 var _pick_template := ""
 
-## The attach form's current pick, and whether its "what does this note say?"
-## readout is open. Closed by default because opening it opens the file: §31's
-## rule is that browsing never reads, so a per-rebuild disk read has to be
-## something the user asked for.
+## The picked note (the tree's selection, and the note pane's subject) and
+## the section an attach copies ("" = the whole document).
 var _pick_file := ""
 var _pick_heading := ""
-var _pick_data := false
 
-## The raw-text preview+edit panel (owner request, 2026-09-21):
-## `_build_note_editor`'s own state, shared by Attach a note and the
-## standalone browse view. `_browse_path` is the file the panel is open on
-## and `"" ` means closed; it is deliberately not the same variable as
-## `_pick_file`, because picking a *different* file in the dropdown must
-## close a stale editor rather than silently keep showing the old one's text
-## under the new one's name.
+## The Markdown editor's file state (`_open_editor`, `_save_note`).
+## `_browse_path` is the file the editor is open on and `""` means closed; it
+## is deliberately not the same variable as `_pick_file`, so picking a
+## *different* note closes a stale editor rather than showing the old one's
+## text under the new one's name. `_browse_hash` is what Save hands back to
+## `vault_write_file`'s guard. `_browse_edit` is the editor's own `TextEdit`.
 ##
-## `_browse_text` is held here rather than re-read from `_reader_edit`-style
-## engine state on every `_rebuild()`, because there is no working copy for
-## an unattached file to round-trip through the way `_build_reader` does via
-## `vault_set_link_text` — see `_build_note_editor`'s own header.
+## `_browse_text` is held here rather than read back from the editor on every
+## `_rebuild()`, because there is no working copy for a whole file to
+## round-trip through the way `_build_reader` does via `vault_set_link_text`.
 var _browse_path := ""
 var _browse_hash := ""
 var _browse_text := ""
 var _browse_edit: TextEdit
+
+## Ruling BE's editor state. `_browse_saved` is the text the file held when it
+## was opened or last saved -- what "unsaved" is measured against, so a
+## rebuild (which recreates the editor from `_browse_text`) does not forget
+## that the buffer is dirty. `_editor_mode` is Write or Preview, kept across a
+## rebuild for the same reason.
+var _browse_saved := ""
+var _editor: Control
+var _editor_mode := "write"
+
+## The "Attach to…" picker (`_build_attach_picker`): open or not, the kind it
+## lists, and its name filter.
+var _attach_open := false
+var _attach_kind := "settlement"
+var _attach_query := ""
+var _attach_list: VBoxContainer
+
+## Whether the collapsed **More** section is open. Held here because every
+## state change rebuilds the window, and a section that snapped shut on every
+## press inside it would be unusable.
+var _more_open := false
+
+## The entity the More section's writes act on: the active link's entity when
+## a note with links is picked, otherwise the window's own scope. The five
+## guarded writes and the snapshot read these, never `_kind` directly, because
+## a browsed note is not scoped to anything and may be attached to several.
+var _lk := ""
+var _lid := 0
+var _llabel := ""
 
 ## The tree+preview split (owner request, 2026-09-21, "a Markdown Vault
 ## browser"): which pane is showing on a phone, where the split folds to a
@@ -237,28 +282,86 @@ func setup(a, b: EngineBridge) -> void:
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pad.add_child(_body)
+	visibility_changed.connect(_on_visibility_changed)
+	size_changed.connect(_on_size_changed)
 
 
 ## Opens scoped to one entity. `kind` is `"settlement"`, `"province"` or
 ## `"continent"`; `entity_id` is that kind's own id (a settlement's **tid**,
 ## not its index — the index shifts when another settlement is deleted and a
 ## link must survive that).
+##
+## Ruling BE: with a vault connected this is the browser layout with the
+## entity's first attached note preselected -- or, when it has none, its attach
+## flow (`_build_attach_flow_empty`).
 func open_for(kind: String, entity_id: int, label: String) -> void:
+	if _is_dirty():
+		_guard_dirty(func(): open_for(kind, entity_id, label))
+		return
 	_kind = kind
 	_entity_id = entity_id
 	_entity_label = label
 	_browse_only = false
+	_reset_note_state()
+	_selected_fields = {}
+	if kind != "":
+		var links := bridge.vault_links_for(kind, entity_id)
+		if not links.is_empty():
+			_pick_file = String((links[0] as Dictionary).get("path", ""))
+			_reader_link = String((links[0] as Dictionary).get("link_id", ""))
+		## Preselected, so the phone opens on the note rather than the files.
+		_browse_phone_pane = "preview"
+	_rebuild()
+	if not DccWidgets.phone_present(self, app):
+		if kind != "" and bool(bridge.vault_info().get("bound", false)):
+			_size_as_browser()
+		popup_centered()
+
+
+## The browser folds to one pane (FILES / NOTE, the phone's switcher) when
+## the window is narrower than the two panes' minimum. Measured by
+## `_vaultgone_probe`'s width sweep: side by side, the browser's body needs
+## 499 px, and the window may be dragged down to its 380 px `min_size`. 640 is
+## that 499 plus the window's padding and the split's grabber, rounded up.
+const TWO_PANE_MIN_W := 640
+
+
+func _one_pane() -> bool:
+	return _phone or size.x < TWO_PANE_MIN_W
+
+
+## A drag across the fold width rebuilds, once per crossing.
+func _on_size_changed() -> void:
+	if not visible or _phone or not _unified():
+		return
+	var one := size.x < TWO_PANE_MIN_W
+	if one != bool(get_meta("one_pane", one)):
+		set_meta("one_pane", one)
+		_rebuild.call_deferred()
+	set_meta("one_pane", one)
+
+
+## The editor, picker and link state every entry point starts from.
+func _reset_note_state() -> void:
 	_reader_link = ""
 	_pick_file = ""
 	_pick_heading = ""
-	_pick_data = false
 	_browse_path = ""
 	_browse_text = ""
 	_browse_hash = ""
-	_selected_fields = {}
-	_rebuild()
-	if not DccWidgets.phone_present(self, app):
-		popup_centered()
+	_browse_saved = ""
+	_editor_mode = "write"
+	_attach_open = false
+	_attach_query = ""
+	_more_open = false
+
+
+## The approved mockup's frame (1280x800), never larger than 90% of the screen
+## it opens on, and never smaller than a size the user already dragged it to
+## this session.
+func _size_as_browser() -> void:
+	var room: Vector2 = app.get_viewport_rect().size * 0.9
+	size = Vector2i(maxi(size.x, mini(1280, int(room.x))), maxi(size.y, mini(800, int(room.y))))
 
 
 ## Opens the overview: the vault connection and every link in the store.
@@ -279,26 +382,19 @@ func open_overview() -> void:
 ## `DccTheme` helper this file already leans on would otherwise have to be
 ## duplicated into a second script for one extra body variant.
 func open_browse() -> void:
+	if _is_dirty():
+		_guard_dirty(open_browse)
+		return
 	_kind = ""
 	_entity_id = 0
 	_entity_label = ""
 	_browse_only = true
-	_reader_link = ""
-	_pick_file = ""
-	_pick_heading = ""
-	_pick_data = false
-	_browse_path = ""
-	_browse_text = ""
-	_browse_hash = ""
+	_reset_note_state()
 	_browse_phone_pane = "tree"
 	_selected_fields = {}
 	_rebuild()
 	if not DccWidgets.phone_present(self, app):
-		## The approved mockup's frame (1280x800), never larger than 90% of the
-		## screen it opens on, and never smaller than a size the user already
-		## dragged it to this session.
-		var room: Vector2 = app.get_viewport_rect().size * 0.9
-		size = Vector2i(maxi(size.x, mini(1280, int(room.x))), maxi(size.y, mini(800, int(room.y))))
+		_size_as_browser()
 		popup_centered()
 
 
@@ -308,6 +404,8 @@ func _clear() -> void:
 		c.queue_free()
 	_reader_edit = null
 	_browse_edit = null
+	_editor = null
+	_attach_list = null
 	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
 	## callback that outlives the rebuild that freed the box it was writing into.
 	_search_box = null
@@ -327,51 +425,49 @@ func _rebuild() -> void:
 
 	var info := bridge.vault_info()
 	var bound := bool(info.get("bound", false))
-	## Browse on desktop/tablet is a two-pane browser, not a form: the window
-	## scroll stops scrolling so `_build_browse()`'s split can take the window's
-	## whole remaining height, and each pane scrolls on its own (the mockup's
-	## shape). Every other mode -- and the phone's one-pane fold -- is still a
-	## single scrolling column.
-	var split := _browse_only and bound and not _phone
+	## The More section's writes act on the scope entity until a picked note's
+	## link says otherwise (`_build_more`).
+	_lk = _kind
+	_lid = _entity_id
+	_llabel = _entity_label
+	## Ruling BE: browse and entity view are one layout whenever there is a
+	## vault to browse. `_reader_link` naming a link on another file (a caller
+	## that set it directly, or the overview's rows) moves the pick to that
+	## file rather than being silently ignored.
+	var unified := bound and (scoped or _browse_only)
+	if unified and _reader_link != "" and not _editing():
+		var lp := _link_rel(_reader_link)
+		if lp != "" and lp != _pick_file:
+			_pick_file = lp
+	## The browser is a two-pane layout, not a form: the window scroll stops
+	## scrolling so `_build_browse()`'s split can take the window's whole
+	## remaining height, and each pane scrolls on its own (the mockup's
+	## shape). On the phone the one-pane fold still scrolls as a column --
+	## except while editing, where the editor has to fill the sheet and
+	## scrolls its own text.
+	var split := unified and (not _one_pane() or _editing())
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED if split \
 		else ScrollContainer.SCROLL_MODE_AUTO
 	_build_connection(info)
-	## Search sits directly under the connection and above everything else in
-	## every mode except the standalone browser: the owner's sentence starts
-	## with finding the note, and in the scoped view "find it, then attach it"
-	## is the order the two acts happen in. The standalone browser's own
-	## search is `_build_browse_search()`, drawn at the head of the tree
-	## column inside `_build_browse()` instead — the owner-approved
-	## 2026-09-21 mockup (`design/vault-browser-2026-09-21/`) draws nothing
-	## here in that mode, and the newer canvas wins over this file's older
-	## "search always sits up top" layout for that one mode only.
-	if bound and not _browse_only:
-		_build_search()
-	if scoped:
-		if bound:
-			_build_create()
-			_build_attach()
+	if unified:
+		_build_browse()
+	elif scoped:
+		## No vault on this device: no tree to browse, so the scoped form --
+		## the links and their cached text stay readable (§27 "Unbound").
 		_build_links()
-		## Above the reader, and deliberately not inside it: a snapshot is a
-		## picture of the *place*, so it exists whether or not a note is open,
-		## and the Map checkboxes in `_build_feedback` appear only once one has
-		## been generated. Ordering it here is what makes that sequence visible.
-		if bound:
-			_build_snapshots()
 		if _reader_link != "":
-			_build_reader()
-			_build_feedback()
-	elif _browse_only:
+			_build_reader(_body)
+			_build_feedback(_body)
+	elif not _browse_only:
+		## Search sits directly under the connection in the overview: the
+		## owner's sentence starts with finding the note.
 		if bound:
-			_build_browse()
-	else:
+			_build_search()
 		_build_overview()
-	## Browse mode's one write -- the raw editor's Save -- goes through
-	## `vault_write_file`, which none of the three confirmation preferences
-	## govern, so drawing them under the browser only pushed the panes up.
-	## The footer is the same: it describes the entity view.
-	if not _browse_only:
-		_build_write_prefs()
+	## The browser keeps these under More; the overview and the unbound form
+	## still draw them at the foot.
+	if not unified and not _browse_only:
+		_build_write_prefs(_body)
 		_build_footer()
 	if _phone:
 		app.phone_fit(self, 1.0)
@@ -387,7 +483,7 @@ func _build_connection(info: Dictionary) -> void:
 	## Connect/Disconnect block. Unbound still falls through to the full
 	## section below — there is nothing to browse yet, and that block is
 	## where "Connect vault…" lives.
-	if _browse_only and bound:
+	if bound and (_browse_only or _kind != ""):
 		_build_connection_header(info)
 		return
 	var sec := DccWidgets.section(_body, "Vault")
@@ -433,7 +529,11 @@ func _build_connection_header(info: Dictionary) -> void:
 	var count := bridge.vault_list_files(2000).size()
 	var head_text := "%s · %d note%s" % [
 		name if name != "" else "vault", count, "" if count == 1 else "s"]
-	if _phone:
+	## Opened from an entity (Ruling BE): say which, in the header's own
+	## right-hand slot, so the preselected note is not a mystery.
+	var hint := "read-only preview · open to edit" if _kind == "" \
+		else "opened from %s · %s" % [_entity_label, _kind]
+	if _one_pane():
 		var col := VBoxContainer.new()
 		col.add_theme_constant_override("separation", 4)
 		_body.add_child(col)
@@ -443,7 +543,7 @@ func _build_connection_header(info: Dictionary) -> void:
 		row1.add_child(DccTheme.mono_label(head_text, "text_dim", DccTheme.FS_SMALL, 1))
 		var change := DccWidgets.text_button(row1, "Change vault…", _browse_vault)
 		change.tooltip_text = "Connect a different folder. Cartalith reads only the folder you choose, and never writes to it without an explicit action and a preview."
-		col.add_child(DccTheme.mono_label("read-only preview · open to edit", "text_ghost", DccTheme.FS_MICRO, 1))
+		col.add_child(DccTheme.mono_label(hint, "text_ghost", DccTheme.FS_MICRO, 1))
 		return
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -453,7 +553,7 @@ func _build_connection_header(info: Dictionary) -> void:
 	var change := DccWidgets.text_button(row, "Change vault…", _browse_vault)
 	change.tooltip_text = "Connect a different folder. Cartalith reads only the folder you choose, and never writes to it without an explicit action and a preview."
 	row.add_child(DccTheme.spacer())
-	row.add_child(DccTheme.mono_label("read-only preview · open to edit", "text_ghost", DccTheme.FS_MICRO, 1))
+	row.add_child(DccTheme.mono_label(hint, "text_ghost", DccTheme.FS_MICRO, 1))
 
 
 func _browse_vault() -> void:
@@ -522,15 +622,10 @@ func _run_search() -> void:
 	var q := _search_query.strip_edges()
 	_search_open_rel = ""
 	_search_result = {} if q == "" else bridge.vault_search(q, 0, 0)
-	## Browse mode's file tree (`_build_browse_tree`) filters on `_search_query`
-	## at build time — no separate filter field, per the owner's mockup — so a
-	## full `_rebuild()` is what makes a run search also narrow the tree. The
-	## scoped/Attach path keeps the cheap `_fill_search_results()`-only refresh
-	## unchanged: this branch is reached only when `_browse_only`.
-	if _browse_only:
-		_rebuild()
-	else:
-		_fill_search_results()
+	## The tree already narrows live on names (`_refresh_browse_tree`), so a
+	## run search -- Enter in the tree's field, which is what looks INSIDE the
+	## notes -- only refills its results box, and never frees the field.
+	_fill_search_results()
 
 
 func _fill_search_results() -> void:
@@ -540,8 +635,12 @@ func _fill_search_results() -> void:
 		_search_box.remove_child(c)
 		c.queue_free()
 
+	var in_browser := _unified()
 	if _search_result.is_empty():
-		DccWidgets.note(_search_box, "Nothing searched yet. Type a note's name, or — once the content index exists — a word from inside one, and press Enter.")
+		## The browser's field filters names as it is typed; its box stays
+		## empty until Enter asks for more, rather than repeating the hint.
+		if not in_browser:
+			DccWidgets.note(_search_box, "Nothing searched yet. Type a note's name, or — once the content index exists — a word from inside one, and press Enter.")
 		_fit_search_box()
 		return
 	if not bool(_search_result.get("ok", false)):
@@ -591,11 +690,17 @@ func _fill_search_results() -> void:
 		## first, every menu the second. Not a new glyph pair.
 		var mark: String = DccIcons.SYMBOLS["caret"] if _search_open_rel == rel \
 			else DccIcons.SYMBOLS["expand"]
+		## In the browser a hit opens the note in the pane beside it -- the
+		## pane already shows everything the old inline readout did.
 		var open := DccWidgets.action(_search_box, "%s %s" % [mark, rel], func():
+			if in_browser:
+				_select_file(rel)
+				return
 			_search_open_rel = "" if _search_open_rel == rel else rel
 			_fill_search_results())
 		open.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		open.tooltip_text = "Shows what this note holds — its frontmatter and its filled-in fields — without attaching anything."
+		open.tooltip_text = "Opens this note beside the tree." if in_browser \
+			else "Shows what this note holds — its frontmatter and its filled-in fields — without attaching anything."
 		## `in_name` is the certain half: a name hit cost no read at all, a text
 		## hit was confirmed by opening the file. Saying which is not decoration
 		## — it is the difference between a match the engine is sure of and one
@@ -607,14 +712,12 @@ func _fill_search_results() -> void:
 			var g := DccWidgets.group(_search_box, "what this note holds", true)
 			_build_note_data(g, bridge.vault_file_data(rel),
 				"No frontmatter and no filled-in template fields — this note is prose, which Cartalith reads and does not model.")
-			if _kind != "":
-				var use := DccWidgets.action(g, "Attach this one to %s…" % _entity_label, func():
-					_pick_file = rel
-					_pick_heading = ""
-					_pick_data = false
-					_rebuild())
-				use.tooltip_text = "Selects it in Attach a note below, where the section and the attach itself are still yours to confirm. Nothing is attached by this button."
 	_fit_search_box()
+
+
+## Whether the window is drawing Ruling BE's browser layout right now.
+func _unified() -> bool:
+	return (_kind != "" or _browse_only) and bool(bridge.vault_info().get("bound", false))
 
 
 ## The results are built after `_rebuild()` has already run `phone_fit` over the
@@ -669,11 +772,11 @@ func _build_note_data(parent: Control, data: Dictionary, empty_note: String) -> 
 ## Templates come from the vault, not from this program. There is no registry
 ## and no bundled content: a `.md` with "template" in its path is a template,
 ## which is exactly how the owner's own `design/vault-templates/` names them.
-func _build_create() -> void:
+func _build_create(parent: Control, open: bool = false) -> void:
 	var templates := bridge.vault_templates()
 	if templates.is_empty():
 		return
-	var sec := DccWidgets.group(_body, "New note from a template", false)
+	var sec := DccWidgets.group(parent, "New note from a template", open)
 	var labels: Array = []
 	var rels: Array = []
 	for t in templates:
@@ -721,185 +824,58 @@ func _build_create() -> void:
 		else:
 			app.set_status("hint", "%s created, but could not be linked: %s" % [rel, String(a.get("error", ""))], "accent")
 		_pick_file = rel
+		_browse_phone_pane = "preview"
 		_rebuild())
 	create.tooltip_text = "Copies the template verbatim with %s substituted for its name placeholder, then links it to this entity. Refuses if that path already exists -- nothing is ever overwritten." % _entity_label
 
 
-# -- Attaching (§11, §12, §13) ---------------------------------------------
+# -- The browser: one layout for browsing and for an entity (Ruling BE) -----
 
-## The file dropdown shared by Attach a note and the standalone browse view
-## (`_build_browse`) — one `_pick_file` state variable and one
-## `vault_list_files` call, so the two entry points can never list different
-## files or disagree about which one is selected. Returns the file list so a
-## caller with nothing else to show can bail out on "no .md files" without a
-## second `vault_list_files` round trip.
+## The bound body for both `open_browse()` and `open_for()`: a folder tree over
+## the vault's flat file list on the left (search at its head, attached notes
+## marked), and on the right the note pane (`_build_note_pane`) -- or, while
+## editing, the Markdown editor filling that pane.
 ##
-## Picking a different file closes a stale `_build_note_editor` panel rather
-## than leaving it showing the old file's text under the new file's name —
-## see `_browse_path`'s own header for why the two variables are distinct.
-func _build_file_picker(sec: Control) -> PackedStringArray:
-	var files := bridge.vault_list_files(2000)
-	if files.is_empty():
-		return files
-	if _pick_file == "" or not Array(files).has(_pick_file):
-		_pick_file = files[0]
-	var labels: Array = []
-	for f in files:
-		labels.append(f)
-	DccWidgets.choice(sec, "File", labels, maxi(0, Array(files).find(_pick_file)),
-		func(i: int):
-			_pick_file = files[i]
-			_pick_heading = ""
-			_pick_data = false
-			_browse_path = ""
-			_rebuild(),
-		"Listed lazily and capped — the vault is never fully read into memory.")
-	return files
-
-
-## §17's reading half, at the one moment it is worth the read: what a picked
-## note actually holds. Opened by request rather than drawn always, because
-## `vault_file_data` opens the file and the caller's section is rebuilt on
-## every unrelated change to this window, not only on a pick change.
-func _build_note_data_toggle(sec: Control, empty_note: String) -> void:
-	if _pick_data:
-		var g := DccWidgets.group(sec, "what %s holds" % _pick_file.get_file(), true)
-		_build_note_data(g, bridge.vault_file_data(_pick_file), empty_note)
-	else:
-		DccWidgets.text_button(sec, "What does this note hold?", func():
-			_pick_data = true
-			_rebuild())
-
-
-## The raw-text preview+edit panel (owner request, 2026-09-21), shared by
-## Attach a note and the standalone browse view: `vault_read_file`'s own text,
-## made editable and written straight back through `vault_write_file`'s hash
-## guard. No working copy and no local-copy-vs-source distinction the way
-## `_build_reader` has — there is no link here for either of those ideas to
-## be *about*, so a browsed-but-unattached note is simpler: read, edit, Save.
+## Before Ruling BE this was the standalone browser only, and `open_for()` drew
+## a separate form below a file dropdown. What that form held and where each
+## piece went (`MISTAKES.md`'s "delete a surface" inventory, 2026-09-27):
 ##
-## Gated behind an explicit button for the same §31 reason `_pick_data` is:
-## `_rebuild()` runs for reasons that have nothing to do with this pick, and
-## reading the file on every one of them would be exactly the casual-read
-## this vault's own doc comments keep warning against.
+## | the form's item | now |
+## |---|---|
+## | File dropdown (`_build_file_picker`) | the tree |
+## | "What does this note hold?" | the frontmatter and field chips, always shown |
+## | "Preview & edit this note…" (`_build_note_editor`) | Open to edit -> the Markdown editor |
+## | Section dropdown + "Attach to X" (`_build_attach`) | Attached to: "Attach to X", with its Section choice |
+## | Find a note (`_build_search`) | the tree's field: typing filters names, Enter searches inside notes |
+## | Knowledge rows: status, Open, Detach, Reload, Compare | Attached to (status, Detach, Reload, Compare); Open -> More ▸ Working copy |
+## | What the notes say (`_build_entity_data`) | More |
+## | New note from a template | the attach flow (no notes yet) or More |
+## | Map snapshot, Cartalith feedback, Write confirmations | More |
+## | Vault: Connect a different folder / Disconnect | the header's "Change vault…"; More ▸ Disconnect |
 ##
-## `_browse_text` carries the in-progress edit across a `_rebuild()` that
-## reason triggers, because there is no engine-side working copy for it to
-## round-trip through the way `_build_reader`'s `TextEdit` does via
-## `vault_set_link_text` — see this window's own state block for why.
-## `as_primary`: the mockup's own "Open to edit" (primary, filled) beside the
-## secondary "Centre on map" -- true only from `_build_browse_preview`, whose
-## one prominent act on a browsed file *is* opening it. `_build_attach`'s own
-## call keeps the quieter text button and its longer, context-setting label,
-## because there the prominent act is Attach, not this.
-func _build_note_editor(sec: Control, as_primary: bool = false) -> void:
-	if _browse_path != _pick_file:
-		var open_btn: Button
-		var on_open := func():
-			var r := bridge.vault_read_file_for_edit(_pick_file)
-			if not bool(r.get("ok", false)):
-				app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
-				return
-			_browse_path = _pick_file
-			_browse_text = String(r.get("text", ""))
-			_browse_hash = String(r.get("hash", ""))
-			_rebuild()
-		if as_primary:
-			open_btn = DccWidgets.action(sec, "Open to edit", on_open, true)
-		else:
-			open_btn = DccWidgets.text_button(sec, "Preview & edit this note…", on_open)
-		open_btn.tooltip_text = "Reads the whole file so it can be edited here. Writing back replaces the whole file and refuses if it changed on disk since this read."
-		return
-
-	var g := DccWidgets.group(sec, "%s — preview & edit" % _browse_path.get_file(), true)
-	_browse_edit = TextEdit.new()
-	_browse_edit.text = _browse_text
-	_browse_edit.custom_minimum_size.y = 200
-	_browse_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	_browse_edit.text_changed.connect(func(): _browse_text = _browse_edit.text)
-	g.add_child(_browse_edit)
-
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	g.add_child(row)
-	var save := DccWidgets.action(row, "Save", func():
-		var r := bridge.vault_write_file(_browse_path, _browse_edit.text, _browse_hash)
-		if bool(r.get("ok", false)):
-			_browse_text = _browse_edit.text
-			_browse_hash = String(r.get("hash", ""))
-			app.set_status("hint", "%s saved." % _browse_path.get_file(), "text_ghost")
-		else:
-			app.set_status("hint", "Save refused: %s" % String(r.get("error", "")), "accent")
-		_rebuild())
-	save.tooltip_text = "Writes this file's whole text back to the vault. Refuses and changes nothing if the file was edited outside Cartalith since it was opened here — reopen it with Preview & edit to see the current version."
-	var close := DccWidgets.text_button(row, "Close without saving", func():
-		_browse_path = ""
-		_browse_text = ""
-		_browse_hash = ""
-		_rebuild())
-	close.tooltip_text = "Discards this edit. The file on disk is untouched either way until Save is pressed."
-
-
-func _build_attach() -> void:
-	var sec := DccWidgets.section(_body, "Attach a note")
-	var files := _build_file_picker(sec)
-	if files.is_empty():
-		DccWidgets.note(sec, "No .md files found in this vault folder.")
-		return
-
-	_build_note_data_toggle(sec,
-		"No frontmatter and no filled-in template fields. Attaching still copies the prose — this readout is about the parts a program can read back.")
-	_build_note_editor(sec)
-
-	## §11's own priority order: whole document first, then a heading section.
-	var headings := bridge.vault_file_headings(_pick_file)
-	var h_labels: Array = ["Whole document"]
-	var h_values: Array = [""]
-	for h in headings:
-		var d: Dictionary = h
-		var lvl := int(d.get("level", 1))
-		h_labels.append("%s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
-		h_values.append(String(d.get("title", "")))
-	DccWidgets.choice(sec, "Section", h_labels, maxi(0, h_values.find(_pick_heading)),
-		func(i: int): _pick_heading = String(h_values[i]),
-		"Arbitrary text ranges are not offered: a byte offset stops pointing at the right paragraph the moment the author edits the text above it.")
-
-	var attach := DccWidgets.action(sec, "Attach to %s" % _entity_label, func():
-		var r := bridge.vault_attach(_kind, _entity_id, _entity_label, _pick_file, _pick_heading)
-		if not bool(r.get("ok", false)):
-			app.set_status("hint", "Attach: %s" % String(r.get("error", "refused")), "accent")
-		else:
-			_reader_link = String(r.get("link_id", ""))
-			store_changed.emit()
-		_rebuild(), true)
-	attach.tooltip_text = "Reads the selection now and records the source's timestamp and content hash, so Cartalith can tell later whether the note changed."
-
-
-# -- Standalone browse (owner request, 2026-09-21, `open_browse`) -----------
-
-## The `_browse_only` body (owner-approved mockup, 2026-09-21): a folder tree
-## over the vault's flat file list on the left, and a structured preview —
-## frontmatter chips, a heading outline, a short excerpt, "Open to edit" —
-## on the right. Not `_build_file_picker`'s flat dropdown any more: this is
-## the first `Tree` control anywhere in this shell (there is real hierarchy
-## to browse and `Tree` gives keyboard nav and expand/collapse for free,
-## rather than hand-rolling either).
-##
-## `_pick_file` stays the one selection variable — the same one
-## `_build_attach` uses via `_build_file_picker` — so `_build_note_editor`
-## (below, reused verbatim through `_build_browse_preview`) needs no browse-
-## specific branch of its own. No new bridge call: the tree is built client-
-## side from `vault_list_files()`'s flat paths, split on `/`.
+## `_pick_file` stays the one selection variable. No new bridge call: the tree
+## is built client-side from `vault_list_files()`'s flat paths, split on `/`.
 func _build_browse() -> void:
-	var sec := DccWidgets.section(_body, "Browse a note")
+	var sec := DccWidgets.section(_body, "Browse a note" if _kind == "" else "Notes")
 	var files := bridge.vault_list_files(2000)
 	if files.is_empty():
 		DccWidgets.note(sec, "No .md files found in this vault folder.")
 		return
-	if _pick_file == "" or not Array(files).has(_pick_file):
+	if _pick_file != "" and not Array(files).has(_pick_file):
+		_pick_file = ""
+	## Browsing opens on the first note, as it always has. An entity with no
+	## note opens on its attach flow instead (`_build_note_pane`).
+	if _pick_file == "" and _kind == "":
 		_pick_file = files[0]
 
-	if _phone:
+	if _one_pane():
+		if _editing():
+			## The editor fills the sheet: no switcher, no tree, and the outer
+			## scroll is off (`_rebuild`), so EXPAND reaches it.
+			sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			sec.get_parent().size_flags_vertical = Control.SIZE_EXPAND_FILL
+			_build_editor_pane(sec)
+			return
 		_build_browse_phone_switcher(sec)
 		if _browse_phone_pane == "tree":
 			_build_browse_search(sec)
@@ -909,78 +885,82 @@ func _build_browse() -> void:
 			_browse_tree_col = tree_wrap
 			_build_browse_tree(tree_wrap, files)
 		else:
-			_build_browse_preview(sec)
-	else:
-		## The section takes the window's remaining height (`_rebuild()` stopped
-		## the outer scroll for this), and the two panes split it with Godot's
-		## own draggable divider -- the mockup's 300 px tree column, resizable.
-		sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		sec.get_parent().size_flags_vertical = Control.SIZE_EXPAND_FILL
-		var row := HSplitContainer.new()
-		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		## Measured on 4.7.1 with this child layout (tree column not expanding,
-		## preview expanding): the offset lands as the tree column's WIDTH -- 80
-		## drew it at its 220 px floor, a 150 px drag from there read back 370 --
-		## so the mockup's 300 is 300, not +80. Applied on the first
-		## real-width layout, not here: a split sorted while the window is still
-		## hidden clamps a stored offset to its zero width and keeps the clamp.
-		## Held on the window, because `_rebuild()` makes a new split on every
-		## pick and a divider that jumped back each click would not be one.
-		row.resized.connect(func():
-			if row.size.x > 520.0 and not row.has_meta("placed"):
-				row.set_meta("placed", true)
-				row.set_deferred("split_offsets", PackedInt32Array([_browse_split])))
-		row.dragged.connect(func(offset: int): _browse_split = offset)
-		sec.add_child(row)
-		var tree_col := VBoxContainer.new()
-		tree_col.name = "VaultTreeCol"
-		tree_col.custom_minimum_size.x = 220
-		tree_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		row.add_child(tree_col)
-		## Mockup order: the search box sits at the very head of the tree
-		## column, above the tree itself (`design/vault-browser-2026-09-21/
-		## Cartalith Vault Browser.dc.html`'s left pane). `tree_wrap` is a
-		## separate child so `_refresh_browse_tree()` can clear and rebuild
-		## just the tree on every keystroke without freeing the `LineEdit`
-		## `_build_browse_search()` just built above it.
-		_build_browse_search(tree_col)
-		var tree_wrap := VBoxContainer.new()
-		tree_wrap.name = "VaultTreeWrap"
-		tree_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		tree_col.add_child(tree_wrap)
-		_browse_tree_col = tree_wrap
-		_build_browse_tree(tree_wrap, files)
-		var preview_scroll := ScrollContainer.new()
-		preview_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-		preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		preview_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		preview_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
-		row.add_child(preview_scroll)
-		var preview_col := VBoxContainer.new()
-		preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		preview_scroll.add_child(preview_col)
-		_build_browse_preview(preview_col)
+			_build_note_pane(sec)
+		return
+
+	## The section takes the window's remaining height (`_rebuild()` stopped
+	## the outer scroll for this), and the two panes split it with Godot's
+	## own draggable divider -- the mockup's 300 px tree column, resizable.
+	sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sec.get_parent().size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var row := HSplitContainer.new()
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	## Measured on 4.7.1 with this child layout (tree column not expanding,
+	## preview expanding): the offset lands as the tree column's WIDTH -- 80
+	## drew it at its 220 px floor, a 150 px drag from there read back 370 --
+	## so the mockup's 300 is 300, not +80. Applied on the first
+	## real-width layout, not here: a split sorted while the window is still
+	## hidden clamps a stored offset to its zero width and keeps the clamp.
+	## Held on the window, because `_rebuild()` makes a new split on every
+	## pick and a divider that jumped back each click would not be one.
+	row.resized.connect(func():
+		if row.size.x > 520.0 and not row.has_meta("placed"):
+			row.set_meta("placed", true)
+			row.set_deferred("split_offsets", PackedInt32Array([_browse_split])))
+	row.dragged.connect(func(offset: int): _browse_split = offset)
+	sec.add_child(row)
+	var tree_col := VBoxContainer.new()
+	tree_col.name = "VaultTreeCol"
+	tree_col.custom_minimum_size.x = 220
+	tree_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	row.add_child(tree_col)
+	## Mockup order: the search box sits at the very head of the tree
+	## column, above the tree itself. `tree_wrap` is a separate child so
+	## `_refresh_browse_tree()` can clear and rebuild just the tree on every
+	## keystroke without freeing the `LineEdit` above it.
+	_build_browse_search(tree_col)
+	var tree_wrap := VBoxContainer.new()
+	tree_wrap.name = "VaultTreeWrap"
+	tree_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tree_col.add_child(tree_wrap)
+	_browse_tree_col = tree_wrap
+	_build_browse_tree(tree_wrap, files)
+	if _editing():
+		## Edit switches the SAME pane to the editor, and it fills it: no
+		## scroller around it, the text area scrolls its own lines.
+		var ed_col := VBoxContainer.new()
+		ed_col.name = "VaultEditorPane"
+		ed_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		ed_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		row.add_child(ed_col)
+		_build_editor_pane(ed_col)
+		return
+	var preview_scroll := ScrollContainer.new()
+	preview_scroll.name = "VaultNoteScroll"
+	preview_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	row.add_child(preview_scroll)
+	var preview_col := VBoxContainer.new()
+	preview_col.name = "VaultNotePane"
+	preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_scroll.add_child(preview_col)
+	_build_note_pane(preview_col)
 
 
-## The mockup's own "Search notes…" field, at the head of the tree column
-## (owner-approved mockup, `design/vault-browser-2026-09-21/Cartalith Vault
-## Browser.dc.html`'s left pane) — replacing `_build_search()`'s fuller
-## content-search UI in this one mode (`_rebuild()`'s own note on that), which
-## has no natural home in a slot the mockup draws as a bare filter box.
+## The mockup's own "Search notes…" field, at the head of the tree column.
 ##
-## Filters live, on every keystroke, straight into `_refresh_browse_tree()` —
-## not a full `_rebuild()`, which would free this very `LineEdit` mid-type and
-## take the caret with it. That is `_build_search()`'s own reason for waiting
-## on Enter (a content search opens files, so a keystroke must not trigger
-## one) and it does not apply here: `_build_browse_tree`'s filter is a
-## client-side substring match over paths already in memory, the same
-## `text_changed` -> partial-refresh idiom `travel_library_window.gd::
-## _refresh_rail()` already uses for its own rail filter. Shares
-## `_search_query` with `_build_search()`'s field (both search the vault, and
-## `_build_browse_tree`'s own doc comment already names this variable as its
-## filter) — never live at once, since only one of the two modes is ever
-## built.
+## Typing filters the tree live, on names, straight into
+## `_refresh_browse_tree()` -- not a full `_rebuild()`, which would free this
+## very `LineEdit` mid-type and take the caret with it. That is a client-side
+## substring match over paths already in memory, so a keystroke costs no read.
+## **Enter** runs `vault_search` -- the search that looks INSIDE notes, with
+## its indexed/scanned/truncated honesty -- into `_search_box` under the field,
+## the same results `_build_search()` draws in the overview. That keeps §9's
+## content search in the browser without the separate "Find a note" section
+## the mockup does not draw.
 func _build_browse_search(parent: Control) -> void:
 	var wrap := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
@@ -990,11 +970,622 @@ func _build_browse_search(parent: Control) -> void:
 	field.placeholder_text = "Search notes…"
 	field.text = _search_query
 	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.tooltip_text = "Typing narrows the tree by name. Enter also searches inside the notes -- once the content index exists; the results say when it does not."
 	DccWidgets.well(field)
 	field.text_changed.connect(func(t: String):
 		_search_query = t
 		_refresh_browse_tree())
+	field.text_submitted.connect(func(t: String):
+		_search_query = t
+		_run_search())
 	wrap.add_child(field)
+	_search_box = VBoxContainer.new()
+	_search_box.name = "VaultSearchResults"
+	_search_box.add_theme_constant_override("separation", 2)
+	_search_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_search_box)
+	_fill_search_results()
+
+
+# -- The note pane ------------------------------------------------------------
+
+## The right-hand pane (Ruling BE): the **Attached to** block, the note itself
+## (read-only until Open to edit), then the collapsed **More**. An entity
+## opened with no note gets its attach flow in the note's place.
+func _build_note_pane(parent: Control) -> void:
+	if _pick_file == "":
+		if _kind != "":
+			_build_attach_flow_empty(parent)
+		else:
+			DccWidgets.note(parent, "Select a file in the tree.")
+		_build_more(parent)
+		return
+	var data := bridge.vault_file_data(_pick_file)
+	var fm: Dictionary = data.get("frontmatter", {}) if bool(data.get("ok", false)) else {}
+	_build_attached_to(parent, fm)
+	_build_browse_preview(parent, data)
+	_build_more(parent)
+
+
+## `open_for()` on an entity with no note yet: what to do about it, in the
+## note's own place, plus the template flow (the one act that needs no note to
+## exist first).
+func _build_attach_flow_empty(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Attach a note")
+	sec.name = "VaultAttachFlow"
+	DccWidgets.note(sec, "%s has no note attached yet. Pick one in the tree -- its Attached to block then offers Attach to %s -- or start a new one from a template." % [_entity_label, _entity_label])
+	_build_create(sec, true)
+
+
+## True while the note pane is the Markdown editor on the picked file.
+func _editing() -> bool:
+	return _browse_path != "" and _browse_path == _pick_file
+
+
+## Whether the editor holds text that is not on disk. Measured against
+## `_browse_saved`, not against the editor, so it survives a rebuild.
+func _is_dirty() -> bool:
+	return _browse_path != "" and _browse_text != _browse_saved
+
+
+## Runs `then` once any unsaved edit is dealt with: at once when there is
+## none, otherwise only after the user chooses to discard it. Keeping the
+## edits is the dialog's Cancel, which runs `on_keep` and loses nothing.
+func _guard_dirty(then: Callable, on_keep: Callable = Callable()) -> void:
+	if not _is_dirty():
+		then.call()
+		return
+	DccWidgets.confirm(app, "Unsaved edits",
+		"%s has edits that are not saved. Discard them?" % _browse_path.get_file(),
+		"Discard edits", func():
+			_close_editor()
+			then.call(), on_keep)
+
+
+func _close_editor() -> void:
+	_browse_path = ""
+	_browse_text = ""
+	_browse_hash = ""
+	_browse_saved = ""
+	_editor_mode = "write"
+
+
+## Picks a note (the tree, a search hit). A dirty editor asks first; keeping
+## the edits rebuilds, which puts the tree's highlight back where it was.
+func _select_file(rel: String) -> void:
+	if rel == _pick_file:
+		return
+	_guard_dirty(func():
+		_pick_file = rel
+		_pick_heading = ""
+		_reader_link = ""
+		_attach_open = false
+		_browse_path = ""
+		_browse_phone_pane = "preview"
+		_rebuild(), _rebuild)
+
+
+# -- Attached to --------------------------------------------------------------
+
+## Every link on the picked note, then a frontmatter match that is not a link,
+## then the ways to make one. Read from the link store (`vault_all_links`,
+## filtered to this path) -- the same store the old KNOWLEDGE list read through
+## `vault_links_for`, seen from the note's side rather than the entity's.
+func _build_attached_to(parent: Control, fm: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Attached to")
+	sec.name = "VaultAttachedTo"
+	var links := _links_for_file(_pick_file)
+	var linked := {}
+	for l in links:
+		var d: Dictionary = l
+		linked["%s:%d" % [String(d.get("entity_kind", "")), int(d.get("entity_id", 0))]] = true
+		_build_attached_row(sec, d)
+
+	var fm_ent := _frontmatter_entity(fm)
+	var fm_key := "" if fm_ent.is_empty() else "%s:%d" % [String(fm_ent["kind"]), int(fm_ent["id"])]
+	if fm_key != "" and not linked.has(fm_key):
+		_build_frontmatter_row(sec, fm_ent)
+	if links.is_empty() and (fm_key == "" or linked.has(fm_key)):
+		DccWidgets.note(sec, "Not attached to anything. A note does not know about a place until it is attached to it.")
+
+	var quick := _kind != "" and not linked.has("%s:%d" % [_kind, _entity_id]) and fm_key != "%s:%d" % [_kind, _entity_id]
+	if quick or _attach_open:
+		_build_section_choice(sec)
+	if quick:
+		var at := DccWidgets.action(sec, "Attach to %s" % _entity_label, func():
+			_attach_entity(_kind, _entity_id, _entity_label), true)
+		at.tooltip_text = "Reads the selection now and records the source's timestamp and content hash, so Cartalith can tell later whether the note changed."
+	_build_attach_picker(sec)
+
+
+## One link: the entity (name, kind, faction), the link's status, and what can
+## be done from here.
+func _build_attached_row(sec: Control, d: Dictionary) -> void:
+	var kind := String(d.get("entity_kind", ""))
+	var eid := int(d.get("entity_id", 0))
+	var lid := String(d.get("link_id", ""))
+	var ent := _resolve_entity(kind, eid)
+	var name := String(ent.get("name", d.get("entity_label", "")))
+	var box := VBoxContainer.new()
+	box.name = "AttachedRow"
+	box.set_meta("entity", "%s:%d" % [kind, eid])
+	box.add_theme_constant_override("separation", 3)
+	sec.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	box.add_child(head)
+	head.add_child(DccTheme.label(name, "text_bright", DccTheme.FS_BODY + 1))
+	head.add_child(DccTheme.mono_label(_entity_line(kind, ent), "text_dim", DccTheme.FS_SMALL, 1))
+	var sel := String(d.get("selection_label", ""))
+	DccWidgets.note(box, "%s · %s" % [
+		String(STATUS_TEXT.get(String(d.get("status", "")), String(d.get("status", "")))),
+		sel if sel != "" else "whole document"])
+	var acts := HFlowContainer.new()
+	acts.add_theme_constant_override("h_separation", 6)
+	acts.add_theme_constant_override("v_separation", 6)
+	box.add_child(acts)
+	_build_show_on_map(acts, kind, ent)
+	if kind == "settlement":
+		var pe := DccWidgets.action(acts, "Open place editor", func():
+			app.open_place_editor(int(ent.get("index", 0))))
+		if not ent.has("index"):
+			pe.disabled = true
+			pe.tooltip_text = "No settlement with tid %d exists in the currently generated world." % eid
+		else:
+			pe.tooltip_text = "Opens %s in the place editor." % name
+	if String(d.get("status", "")) == "stale":
+		## §14's three-way prompt: Reload and Compare are buttons; Keep is
+		## pressing neither.
+		var reload := DccWidgets.action(acts, "Reload source", func(): _reload_link(lid))
+		reload.tooltip_text = "Discards the Cartalith working copy and re-reads the section from the vault. The vault is not written."
+		var link_rel := String(d.get("path", ""))
+		var compare := DccWidgets.action(acts, "Compare…", func(): _compare_link(lid, link_rel))
+		compare.tooltip_text = "A line-by-line diff between %s as it is right now and your working copy, so you can judge before choosing Reload or Keep." % link_rel.get_file()
+	var detach := DccWidgets.action(acts, "Detach", func():
+		bridge.vault_detach(lid)
+		if lid == _reader_link:
+			_reader_link = ""
+		store_changed.emit()
+		_rebuild())
+	detach.tooltip_text = "Removes the link. The Markdown file is not touched — including any Cartalith block already written into it, which stays until you remove it explicitly."
+	sec.add_child(DccTheme.rule())
+
+
+## A frontmatter `type` + `tid` (or `id`) that names a real entity of this
+## world, and no link to it: shown for what it is -- a claim the note makes
+## about itself, which Cartalith has not acted on -- with the one press that
+## makes it a link.
+func _build_frontmatter_row(sec: Control, fm_ent: Dictionary) -> void:
+	var kind := String(fm_ent["kind"])
+	var eid := int(fm_ent["id"])
+	var ent: Dictionary = fm_ent["entity"]
+	var name := String(ent.get("name", ""))
+	var box := VBoxContainer.new()
+	box.name = "FrontmatterRow"
+	box.add_theme_constant_override("separation", 3)
+	sec.add_child(box)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 10)
+	box.add_child(head)
+	head.add_child(DccTheme.label(name, "text", DccTheme.FS_BODY + 1))
+	head.add_child(DccTheme.mono_label(_entity_line(kind, ent), "text_dim", DccTheme.FS_SMALL, 1))
+	DccWidgets.note(box, "by frontmatter, not attached -- this note's own type/%s fields name it, but no link exists, so Cartalith has copied nothing from it." % ("tid" if kind == "settlement" else "id"))
+	var acts := HFlowContainer.new()
+	acts.add_theme_constant_override("h_separation", 6)
+	box.add_child(acts)
+	var at := DccWidgets.action(acts, "Attach", func(): _attach_entity(kind, eid, name), true)
+	at.tooltip_text = "Attaches this whole note to %s." % name
+	_build_show_on_map(acts, kind, ent)
+	sec.add_child(DccTheme.rule())
+
+
+## "SETTLEMENT · Kaldrune Dominion". The faction is named, never numbered, and
+## a kind without one says nothing rather than inventing "unclaimed".
+func _entity_line(kind: String, ent: Dictionary) -> String:
+	var parts: Array = [kind.to_upper()]
+	if ent.is_empty():
+		parts.append("not in the current world")
+	elif ent.has("faction"):
+		parts.append(_faction_name(int(ent["faction"])))
+	return " · ".join(PackedStringArray(parts))
+
+
+func _build_show_on_map(parent: Control, kind: String, ent: Dictionary) -> void:
+	var b := DccWidgets.action(parent, "Show on map", func():
+		app.viewport.move_view_to(float(ent.get("x", 0.0)), float(ent.get("y", 0.0))))
+	if ent.has("x"):
+		b.tooltip_text = "Moves the map view to %s." % String(ent.get("name", ""))
+		return
+	b.disabled = true
+	if ent.is_empty():
+		b.tooltip_text = "Nothing by this id exists in the currently generated world, so there is no place to show."
+	elif kind in ["culture", "landmark"]:
+		b.tooltip_text = "This window resolves map positions for settlements, provinces, continents and factions only; a %s is not looked up here." % kind
+	else:
+		b.tooltip_text = "This %s has no position this window can read (a province needs a capital settlement, a faction a capital)." % kind
+
+
+func _build_section_choice(parent: Control) -> void:
+	## §11's own priority order: whole document first, then a heading section.
+	var headings := bridge.vault_file_headings(_pick_file)
+	var h_labels: Array = ["Whole document"]
+	var h_values: Array = [""]
+	for h in headings:
+		var d: Dictionary = h
+		var lvl := int(d.get("level", 1))
+		h_labels.append("%s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
+		h_values.append(String(d.get("title", "")))
+	DccWidgets.choice(parent, "Section", h_labels, maxi(0, h_values.find(_pick_heading)),
+		func(i: int): _pick_heading = String(h_values[i]),
+		"What the attach copies. Arbitrary text ranges are not offered: a byte offset stops pointing at the right paragraph the moment the author edits the text above it.")
+
+
+## "Attach to…": any entity of this world, by kind and name.
+func _build_attach_picker(sec: Control) -> void:
+	if not _attach_open:
+		var b := DccWidgets.text_button(sec, "Attach to…", func():
+			_attach_open = true
+			_rebuild())
+		b.name = "AttachToOpen"
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = "Attach this note to any settlement, province, continent or faction."
+		return
+	var g := VBoxContainer.new()
+	g.name = "AttachPicker"
+	g.add_theme_constant_override("separation", 4)
+	sec.add_child(g)
+	g.add_child(DccTheme.mono_label("ATTACH TO…", "text_faint", DccTheme.FS_HEADER, 2))
+	var kinds := bridge.vault_entity_kinds()
+	var seg := HFlowContainer.new()
+	seg.add_theme_constant_override("h_separation", 4)
+	g.add_child(seg)
+	for k in ["settlement", "province", "continent", "faction"]:
+		if not kinds.has(k):
+			continue
+		var kk := String(k)
+		var sb := DccWidgets.segment(seg, kk.capitalize(), func():
+			_attach_kind = kk
+			_rebuild())
+		DccWidgets.set_segment_on(sb, kk == _attach_kind)
+	var field := LineEdit.new()
+	field.placeholder_text = "name"
+	field.text = _attach_query
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(field)
+	field.text_changed.connect(func(t: String):
+		_attach_query = t
+		_fill_attach_list())
+	g.add_child(field)
+	_attach_list = VBoxContainer.new()
+	_attach_list.name = "AttachPickerList"
+	_attach_list.add_theme_constant_override("separation", 2)
+	g.add_child(_attach_list)
+	_fill_attach_list()
+	DccWidgets.text_button(g, "Cancel", func():
+		_attach_open = false
+		_rebuild())
+
+
+## Refilled in place on every keystroke -- a rebuild would free the field.
+func _fill_attach_list() -> void:
+	if _attach_list == null or not is_instance_valid(_attach_list):
+		return
+	for c in _attach_list.get_children():
+		_attach_list.remove_child(c)
+		c.queue_free()
+	var ents := _entity_list(_attach_kind)
+	if ents.is_empty():
+		DccWidgets.note(_attach_list, "No %s in the current world -- generate one first." % _attach_kind)
+		return
+	var linked := {}
+	for l in _links_for_file(_pick_file):
+		linked["%s:%d" % [String((l as Dictionary).get("entity_kind", "")), int((l as Dictionary).get("entity_id", 0))]] = true
+	var q := _attach_query.strip_edges().to_lower()
+	var shown := 0
+	var matched := 0
+	for e in ents:
+		var d: Dictionary = e
+		var nm := String(d["name"])
+		if q != "" and nm.to_lower().find(q) < 0:
+			continue
+		matched += 1
+		if shown >= 12:
+			continue
+		var eid := int(d["id"])
+		var already := linked.has("%s:%d" % [_attach_kind, eid])
+		var kind := _attach_kind
+		var b := DccWidgets.action(_attach_list, nm + ("  (attached)" if already else ""), func():
+			_attach_entity(kind, eid, nm))
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.disabled = already
+		shown += 1
+	if matched == 0:
+		DccWidgets.note(_attach_list, "No %s matches \"%s\"." % [_attach_kind, _attach_query.strip_edges()])
+	elif matched > shown:
+		DccWidgets.note(_attach_list, "%d more -- type to narrow." % (matched - shown))
+	if _phone:
+		app.phone_fit(_attach_list, 1.0)
+
+
+func _attach_entity(kind: String, eid: int, label: String) -> void:
+	var r := bridge.vault_attach(kind, eid, label, _pick_file, _pick_heading)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Attach: %s" % String(r.get("error", "refused")), "accent")
+	else:
+		_reader_link = String(r.get("link_id", ""))
+		store_changed.emit()
+		app.set_status("hint", "%s attached to %s." % [_pick_file.get_file(), label], "text")
+	_attach_open = false
+	_rebuild()
+
+
+func _links_for_file(rel: String) -> Array:
+	var out: Array = []
+	if rel == "":
+		return out
+	for l in bridge.vault_all_links():
+		if String((l as Dictionary).get("path", "")) == rel:
+			out.append(l)
+	return out
+
+
+## The file a link points at, `""` for a link id the store does not hold.
+func _link_rel(link_id: String) -> String:
+	for l in bridge.vault_all_links():
+		var d: Dictionary = l
+		if String(d.get("link_id", "")) == link_id:
+			return String(d.get("path", ""))
+	return ""
+
+
+## `{kind, id, entity}` when the note's own frontmatter names an entity this
+## world has -- `type:` one of the vault's entity kinds, and `tid:` (or `id:`)
+## an integer that resolves. `{}` otherwise, never a guess.
+func _frontmatter_entity(fm: Dictionary) -> Dictionary:
+	var kind := String(fm.get("type", "")).strip_edges().to_lower()
+	if kind == "" or not bridge.vault_entity_kinds().has(kind):
+		return {}
+	var id_str := String(fm.get("tid", fm.get("id", ""))).strip_edges()
+	if not id_str.is_valid_int():
+		return {}
+	var ent := _resolve_entity(kind, int(id_str))
+	if ent.is_empty():
+		return {}
+	return {"kind": kind, "id": int(id_str), "entity": ent}
+
+
+## One entity of the current world: `{name, faction, x, y, index}`, each key
+## present only when this world actually has it (`x`/`y` a map position,
+## `index` an index into `bridge.settlements()` for the place editor). `{}` when
+## nothing by that id exists -- which is also the answer for a kind this window
+## does not look up (culture, landmark), and the callers say which.
+func _resolve_entity(kind: String, id: int) -> Dictionary:
+	match kind:
+		"settlement":
+			var ss := bridge.settlements()
+			for i in ss.size():
+				var s: Dictionary = ss[i]
+				if int(s.get("tid", -1)) == id:
+					return {"name": String(s.get("name", "")), "faction": int(s.get("faction", 0)),
+						"x": float(s.get("x", 0)), "y": float(s.get("y", 0)), "index": i}
+		"province":
+			for p in bridge.provinces():
+				var d: Dictionary = p
+				if int(d.get("id", -1)) == id:
+					var out := {"name": String(d.get("name", "")), "faction": int(d.get("faction", 0))}
+					var ci := int(d.get("capital_settlement_index", -1))
+					var ss := bridge.settlements()
+					if ci >= 0 and ci < ss.size():
+						out["x"] = float((ss[ci] as Dictionary).get("x", 0))
+						out["y"] = float((ss[ci] as Dictionary).get("y", 0))
+					return out
+		"continent":
+			for c in bridge.continents():
+				var d: Dictionary = c
+				if int(d.get("id", -1)) == id:
+					return {"name": String(d.get("name", "")), "faction": int(d.get("faction", 0)),
+						"x": float(d.get("cx", 0.0)), "y": float(d.get("cy", 0.0))}
+		"faction":
+			for f in bridge.get_factions():
+				var d: Dictionary = f
+				if int(d.get("id", -1)) == id:
+					var out := {"name": String(d.get("name", "")), "faction": id}
+					for s in bridge.settlements():
+						var sd: Dictionary = s
+						if int(sd.get("faction", -1)) == id and bool(sd.get("capital", false)):
+							out["x"] = float(sd.get("x", 0))
+							out["y"] = float(sd.get("y", 0))
+							break
+					return out
+	return {}
+
+
+## `[{id, name}]` for the Attach-to picker.
+func _entity_list(kind: String) -> Array:
+	var out: Array = []
+	match kind:
+		"settlement":
+			for s in bridge.settlements():
+				out.append({"id": int((s as Dictionary).get("tid", 0)), "name": String((s as Dictionary).get("name", "?"))})
+		"province":
+			for p in bridge.provinces():
+				out.append({"id": int((p as Dictionary).get("id", 0)), "name": String((p as Dictionary).get("name", "?"))})
+		"continent":
+			for c in bridge.continents():
+				out.append({"id": int((c as Dictionary).get("id", 0)), "name": String((c as Dictionary).get("name", "?"))})
+		"faction":
+			for f in bridge.get_factions():
+				out.append({"id": int((f as Dictionary).get("id", 0)), "name": String((f as Dictionary).get("name", "?"))})
+	return out
+
+
+## A faction's roster name. `0` is the engine's "held by no faction"
+## (`get_continents()`' own doc), said as such; an id the roster does not
+## carry is said as that too, never as a plausible name.
+func _faction_name(fid: int) -> String:
+	if fid <= 0:
+		return "no faction"
+	for f in bridge.get_factions():
+		var d: Dictionary = f
+		if int(d.get("id", -1)) == fid:
+			return String(d.get("name", "faction %d" % fid))
+	return "faction %d (not in the roster)" % fid
+
+
+# -- The editor (Ruling BE) -----------------------------------------------------
+
+## Reads the whole file (`vault_read_file_for_edit`, which returns its hash)
+## and turns the note pane into the editor. The hash is what Save hands back.
+func _open_editor() -> void:
+	var r := bridge.vault_read_file_for_edit(_pick_file)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Read: %s" % String(r.get("error", "")), "accent")
+		return
+	_browse_path = _pick_file
+	_browse_text = String(r.get("text", ""))
+	_browse_saved = _browse_text
+	_browse_hash = String(r.get("hash", ""))
+	_editor_mode = "write"
+	_browse_phone_pane = "preview"
+	_rebuild()
+
+
+func _build_editor_pane(parent: Control) -> void:
+	var ed = MdEditor.new()
+	ed.name = "VaultMarkdownEditor"
+	parent.add_child(ed)
+	var self_rel := _browse_path
+	## The note-link picker's list: every other note in the vault.
+	var others_source := func() -> PackedStringArray:
+		var others := PackedStringArray()
+		for f in bridge.vault_list_files(2000):
+			if String(f) != self_rel:
+				others.append(String(f))
+		return others
+	ed.setup(_browse_path, _browse_text, _browse_saved, _phone, others_source, _editor_mode)
+	_editor = ed
+	_browse_edit = ed.text_edit
+	ed.edited.connect(func(): _browse_text = ed.text_edit.text)
+	ed.mode_changed.connect(func(m: String): _editor_mode = m)
+	ed.save_requested.connect(_save_note)
+	ed.cancel_requested.connect(func():
+		_close_editor()
+		_rebuild())
+	ed.reload_requested.connect(func():
+		_close_editor()
+		_open_editor())
+	if _is_dirty():
+		ed.set_status("Unsaved edits.", false)
+
+
+## The first of the five guarded writes. The hash is the one the file had when
+## it was opened (or last saved) here; the engine compares it against the file
+## it is about to replace and refuses on any difference, so a note edited in
+## another program meanwhile is never overwritten. A refusal keeps the text in
+## the editor -- nothing typed is lost to a refused write.
+func _save_note() -> void:
+	if _editor == null or _browse_edit == null:
+		return
+	var text: String = _browse_edit.text
+	var r := bridge.vault_write_file(_browse_path, text, _browse_hash)
+	if bool(r.get("ok", false)):
+		_browse_text = text
+		_browse_saved = text
+		_browse_hash = String(r.get("hash", ""))
+		_editor.mark_saved(text)
+		app.set_status("hint", "%s saved." % _browse_path.get_file(), "text_ghost")
+	else:
+		var err := String(r.get("error", ""))
+		_editor.set_status("Save refused -- nothing was written. %s Your text is still here; copy what you need, then reload the file to see the version on disk." % err, true)
+		app.set_status("hint", "Save refused: %s" % err, "accent")
+
+
+## A close with unsaved edits: the window comes straight back and asks. Every
+## way out of an `AcceptDialog` -- Close, the title bar's X, Escape -- ends in
+## a hide, so this one handler covers all of them.
+func _on_visibility_changed() -> void:
+	if visible or not _is_dirty():
+		return
+	_warn_unsaved.call_deferred()
+
+
+func _warn_unsaved() -> void:
+	if visible or not _is_dirty():
+		return
+	if not DccWidgets.phone_present(self, app):
+		popup()
+	DccWidgets.confirm(app, "Unsaved edits",
+		"%s has edits that are not saved. Close anyway and discard them?" % _browse_path.get_file(),
+		"Discard and close", func():
+			_close_editor()
+			hide())
+
+
+# -- More ------------------------------------------------------------------------
+
+## Screenshot 3's advanced sections, folded (Ruling BE). They act on ONE link
+## -- the entity whose block, fields, working copy and snapshot these are --
+## chosen here when the note carries several.
+func _build_more(parent: Control) -> void:
+	var more := DccWidgets.group(parent, "More", _more_open)
+	more.name = "VaultMore"
+	var hdr := parent.get_child(parent.get_child_count() - 2) as Button
+	if hdr != null:
+		hdr.name = "VaultMoreHeader"
+		## Connected after `group()`'s own toggle, so it reads the new state.
+		hdr.pressed.connect(func(): _more_open = more.visible)
+
+	var links := _links_for_file(_pick_file)
+	if not links.is_empty():
+		var active := {}
+		for l in links:
+			if String((l as Dictionary).get("link_id", "")) == _reader_link:
+				active = l
+		if active.is_empty():
+			for l in links:
+				var d: Dictionary = l
+				if String(d.get("entity_kind", "")) == _kind and int(d.get("entity_id", 0)) == _entity_id:
+					active = d
+		if active.is_empty():
+			active = links[0]
+		_reader_link = String(active.get("link_id", ""))
+		_lk = String(active.get("entity_kind", ""))
+		_lid = int(active.get("entity_id", 0))
+		_llabel = String(active.get("entity_label", ""))
+		if links.size() > 1:
+			var labels: Array = []
+			var ids: Array = []
+			for l in links:
+				var d: Dictionary = l
+				labels.append("%s (%s) — %s" % [String(d.get("entity_label", "")),
+					String(d.get("entity_kind", "")), String(d.get("selection_label", ""))])
+				ids.append(String(d.get("link_id", "")))
+			DccWidgets.choice(more, "Acts on", labels, maxi(0, ids.find(_reader_link)),
+				func(i: int):
+					_reader_link = String(ids[i])
+					_rebuild(),
+				"This note is attached to more than one entity; everything in More acts on the link picked here.")
+		DccWidgets.note(more, "Acts on the link to %s (%s)." % [_llabel, _lk])
+		_build_reader(more)
+		_build_entity_data(more)
+		_build_snapshots(more)
+		_build_feedback(more)
+	else:
+		DccWidgets.note(more, "The working copy, the Cartalith block, field fill and section insert act on a link -- attach this note to an entity (Attached to, above) to reach them.")
+		## A snapshot is a picture of the place, not of a note, so an entity
+		## view offers it with no note attached.
+		if _kind != "":
+			_build_snapshots(more)
+	if _kind != "" and _pick_file != "":
+		_build_create(more)
+	_build_write_prefs(more)
+	_build_index(more)
+	var vs := DccWidgets.section(more, "Vault")
+	var dis := DccWidgets.action(vs, "Disconnect", func():
+		bridge.vault_disconnect()
+		store_changed.emit()
+		_rebuild())
+	dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."
 
 
 ## Clears and rebuilds only the tree column's tree — not the search field
@@ -1017,14 +1608,16 @@ func _refresh_browse_tree() -> void:
 ## The phone fold: `culture_profiles_window.gd::_build_phone_switcher()`'s
 ## segmented-row look, wired through `_rebuild()` rather than persistent-pane
 ## visibility — this file rebuilds `_body` from scratch on every state change
-## already (`_search_open_rel`, `_pick_data`, `_browse_path`, …), so a third
+## already (`_search_open_rel`, `_attach_open`, `_browse_path`, …), so a third
 ## toggle following the same idiom is the small addition, not a second
 ## show/hide mechanism living beside it.
 func _build_browse_phone_switcher(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 0)
 	parent.add_child(row)
-	for spec in [["tree", "FILES"], ["preview", "PREVIEW"]]:
+	## "NOTE", not "PREVIEW", since Ruling BE: the pane holds the note's
+	## attachments and its editor as well as the read-only view.
+	for spec in [["tree", "FILES"], ["preview", "NOTE"]]:
 		var key := String(spec[0])
 		var b := Button.new()
 		b.text = String(spec[1])
@@ -1081,6 +1674,17 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 	tree.add_theme_color_override("font_selected_color", DccTheme.c("text_bright"))
 	tree.add_theme_color_override("guide_color", Color(0, 0, 0, 0))
 	tree.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	## Ruling BE's link marker: an accent dot on every note the link store
+	## holds a link for, with the entities named in its tooltip. The mockup's
+	## own file dot, spent on the one fact about a file this window adds.
+	var linked := {}   # rel -> Array of "Label (kind)"
+	for l in bridge.vault_all_links():
+		var ld: Dictionary = l
+		var lrel := String(ld.get("path", ""))
+		if not linked.has(lrel):
+			linked[lrel] = []
+		(linked[lrel] as Array).append("%s (%s)" % [String(ld.get("entity_label", "")), String(ld.get("entity_kind", ""))])
+	var dot: Texture2D = DccWidgets._round_dot(8, DccTheme.c("accent")) if not linked.is_empty() else null
 	var root := tree.create_item()
 	var folders := {"": root}    # folder path ("" = root) -> TreeItem
 	for rel in shown:
@@ -1098,6 +1702,9 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		var leaf := tree.create_item(cur_item)
 		leaf.set_text(0, String(parts[parts.size() - 1]))
 		leaf.set_metadata(0, rel)
+		if linked.has(rel):
+			leaf.set_icon(0, dot)
+			leaf.set_tooltip_text(0, "Attached to %s" % ", ".join(PackedStringArray(linked[rel])))
 		if rel == _pick_file:
 			leaf.select(0)
 	tree.item_selected.connect(func():
@@ -1107,11 +1714,9 @@ func _build_browse_tree(parent: Control, files: PackedStringArray) -> void:
 		var rel := String(it.get_metadata(0))
 		if rel == "" or rel == _pick_file:
 			return
-		_pick_file = rel
-		_pick_heading = ""
-		_pick_data = false
-		_browse_path = ""
-		_rebuild())
+		## Synchronous, as it always was: the rebuild frees this Tree with
+		## `queue_free()`, which waits for the signal to return.
+		_select_file(rel))
 	parent.add_child(tree)
 	if shown.is_empty():
 		DccWidgets.note(parent, "No file matches \"%s\"." % _search_query.strip_edges())
@@ -1170,11 +1775,12 @@ func _strip_heading_marker(line: String) -> String:
 	return line
 
 
-## The right-hand preview: frontmatter as chips, the heading outline as plain
-## rows, a short excerpt, then the raw editor (`_build_note_editor`, reused
-## verbatim — not duplicated) behind its own "Preview & edit this note…"
-## toggle. No Markdown rendering here, deliberately — a structured summary,
-## not a renderer, is the owner's own scope line for this pass.
+## The note itself, read-only: frontmatter (and the author's filled-in
+## template fields) as chips, the heading outline beside a short excerpt that
+## keeps headings out, **Open to edit** and Centre on map, the backlinks line,
+## and then the whole note rendered (`markdown_editor.gd::to_bbcode`, the same
+## renderer the editor's Preview uses). Ruling BE asked for a rendered note;
+## the 2026-09-21 pass had kept this a structured summary only.
 ##
 ## **Backlinks/unlinked mentions, closed 2026-09-26** (`OUTSTANDING_WORK.md`
 ## "Record approved Vault Browser mockup + close its remaining gaps").
@@ -1200,13 +1806,10 @@ func _strip_heading_marker(line: String) -> String:
 ## _capital_of` already filters client-side. **Disabled with the reason**,
 ## never invented, when the frontmatter names no settlement or that tid is
 ## not in the currently generated world.
-func _build_browse_preview(parent: Control) -> void:
-	if _pick_file == "":
-		DccWidgets.note(parent, "Select a file in the tree.")
-		return
+func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 	var g := DccWidgets.group(parent, _pick_file.get_file(), true)
+	g.name = "VaultNote"
 
-	var data := bridge.vault_file_data(_pick_file)
 	var frontmatter: Dictionary = {}
 	if not bool(data.get("ok", false)):
 		DccWidgets.note(g, "Could not read this note: %s" % String(data.get("error", "")))
@@ -1224,6 +1827,19 @@ func _build_browse_preview(parent: Control) -> void:
 				## leaves the chip inert rather than silently wired to nothing.
 				DccWidgets.chip(flow, "%s: %s" % [String(k), String(frontmatter[k])], Callable())
 			g.add_child(flow)
+		## The author's filled-in template fields (`**Type:** City`), the other
+		## half of what the removed "What does this note hold?" readout showed.
+		## A second chip row and never merged with the first: the two can
+		## disagree, and deciding between them is the author's.
+		var fields: Dictionary = data.get("fields", {})
+		if not fields.is_empty():
+			var fflow := HFlowContainer.new()
+			fflow.name = "VaultFieldChips"
+			fflow.add_theme_constant_override("h_separation", 6)
+			fflow.add_theme_constant_override("v_separation", 6)
+			for k in fields:
+				DccWidgets.chip(fflow, "%s: %s" % [String(k), String(fields[k])], Callable())
+			g.add_child(fflow)
 
 	var headings := bridge.vault_file_headings(_pick_file)
 	var read := bridge.vault_read_file_for_edit(_pick_file)
@@ -1237,15 +1853,15 @@ func _build_browse_preview(parent: Control) -> void:
 	## content. Named nodes (`VaultOutlineCol`/`VaultExcerptCol`) so a probe
 	## can measure their rects directly rather than guessing which `Control`
 	## is which from the tree shape.
-	var cols: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	var cols: BoxContainer = VBoxContainer.new() if _one_pane() else HBoxContainer.new()
 	cols.name = "VaultOutlineExcerptRow"
-	cols.add_theme_constant_override("separation", 12 if _phone else 24)
+	cols.add_theme_constant_override("separation", 12 if _one_pane() else 24)
 	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	g.add_child(cols)
 
 	var outline_col := VBoxContainer.new()
 	outline_col.name = "VaultOutlineCol"
-	if not _phone:
+	if not _one_pane():
 		outline_col.custom_minimum_size.x = 180
 		outline_col.size_flags_horizontal = Control.SIZE_FILL
 	else:
@@ -1290,9 +1906,33 @@ func _build_browse_preview(parent: Control) -> void:
 	## Mockup order: the two buttons (Open to edit, Centre on map) directly
 	## under the excerpt, then the backlinks/mentions line beneath them — all
 	## in the excerpt column, matching the mockup's own right-hand stack.
-	_build_note_editor(excerpt_col, true)
+	var open_btn := DccWidgets.action(excerpt_col, "Open to edit", _open_editor, true)
+	open_btn.tooltip_text = "Turns this pane into the Markdown editor. Reads the whole file; Save writes it back and refuses if it changed on disk since this read."
 	_build_browse_centre(excerpt_col, frontmatter)
 	_build_browse_backlinks(excerpt_col)
+
+	## The note, rendered. `border-left:2px` + `padding-left:14px` is the
+	## mockup's own excerpt treatment (`ENV:106`), reused for the full body.
+	if bool(read.get("ok", false)):
+		DccWidgets.note(g, "Note")
+		var body := RichTextLabel.new()
+		body.name = "VaultNoteRendered"
+		body.bbcode_enabled = true
+		body.fit_content = true
+		body.selection_enabled = true
+		body.scroll_active = false
+		body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		MdEditor.style_rendered(body)
+		var edge := StyleBoxFlat.new()
+		edge.bg_color = Color(0, 0, 0, 0)
+		edge.border_width_left = 2
+		edge.border_color = DccTheme.c("border")
+		edge.content_margin_left = 14
+		edge.content_margin_top = 4
+		edge.content_margin_bottom = 4
+		body.add_theme_stylebox_override("normal", edge)
+		body.text = MdEditor.to_bbcode(MdEditor.strip_frontmatter(String(read.get("text", ""))))
+		g.add_child(body)
 
 
 ## `bridge.settlements()` is the whole vault-side of the mockup's "Centre on
@@ -1340,7 +1980,7 @@ func _build_browse_centre(g: Control, frontmatter: Dictionary) -> void:
 func _build_browse_backlinks(g: Control) -> void:
 	var stats := bridge.vault_backlink_stats()
 	if not bool(stats.get("built", false)):
-		DccWidgets.note(g, "Backlinks: index not built yet -- see Index below to build it.")
+		DccWidgets.note(g, "Backlinks: index not built yet -- More ▸ Index builds it.")
 		return
 	var back := bridge.vault_file_backlinks(_pick_file)
 	var mentions := bridge.vault_file_mentions(_pick_file, 12)
@@ -1415,7 +2055,7 @@ func _build_links() -> void:
 ##   engine defaults the field rather than bumping a format version, so an old
 ##   sidecar loads and simply has nothing here yet.
 func _build_entity_data(sec: Control) -> void:
-	var rows := bridge.vault_entity_data(_kind, _entity_id)
+	var rows := bridge.vault_entity_data(_lk, _lid)
 	if rows.is_empty():
 		return
 	var g := DccWidgets.group(sec, "what the notes say", false)
@@ -1680,12 +2320,18 @@ func _diff_row(container: Control, d: Dictionary) -> void:
 
 # -- Reader / working copy (§29) -------------------------------------------
 
-func _build_reader() -> void:
-	var sec := DccWidgets.section(_body, "Working copy")
+func _build_reader(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Working copy")
 	_reader_edit = TextEdit.new()
 	_reader_edit.text = bridge.vault_link_text(_reader_link)
 	_reader_edit.custom_minimum_size.y = 200
 	_reader_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	## The shell's field ground, not Godot's stock grey slab (Ruling BE's "no
+	## grey box" applies to the working copy under More too).
+	for st in ["normal", "focus", "read_only"]:
+		_reader_edit.add_theme_stylebox_override(st, DccTheme.field_box(st, 12, 8))
+	_reader_edit.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+	_reader_edit.add_theme_color_override("caret_color", DccTheme.c("accent"))
 	## Commit on focus-loss rather than per keystroke, the same reason
 	## `place_editor_window.gd`'s name field gives: every commit is a
 	## `Dictionary` round trip into the engine, and a rebuild mid-word would
@@ -1784,11 +2430,11 @@ func _confirm_section_write() -> void:
 ## so the act is putting it back, and the row says what that changes — a note
 ## pointing at it currently shows nothing, and Cartalith feedback offers no
 ## Map checkbox for it until it exists again.
-func _build_snapshots() -> void:
-	var radii := bridge.vault_snapshot_radii(_kind, _entity_id)
+func _build_snapshots(parent: Control) -> void:
+	var radii := bridge.vault_snapshot_radii(_lk, _lid)
 	if radii.is_empty():
 		return
-	var sec := DccWidgets.group(_body, "Map snapshot", false)
+	var sec := DccWidgets.group(parent, "Map snapshot", false)
 	## `cells` is 0 when the world does not say how wide it is in km, which is
 	## the one case a radius cannot be scaled honestly. Said out loud rather
 	## than silently falling back to a cell count that would mean a different
@@ -1863,7 +2509,7 @@ func _build_snapshots() -> void:
 
 
 func _generate_snapshot(radius: String, subdir: String) -> void:
-	var r := bridge.vault_snapshot(_kind, _entity_id, radius, subdir, SNAPSHOT_PX)
+	var r := bridge.vault_snapshot(_lk, _lid, radius, subdir, SNAPSHOT_PX)
 	if not bool(r.get("ok", false)):
 		app.set_status("hint", "Snapshot: %s" % String(r.get("error", "refused")), "accent")
 		return
@@ -1875,13 +2521,13 @@ func _generate_snapshot(radius: String, subdir: String) -> void:
 	_rebuild()
 
 
-func _build_feedback() -> void:
-	var sec := DccWidgets.section(_body, "Cartalith feedback")
-	var fields := bridge.vault_export_fields(_kind, _entity_id)
+func _build_feedback(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Cartalith feedback")
+	var fields := bridge.vault_export_fields(_lk, _lid)
 	if fields.is_empty():
 		DccWidgets.note(sec, "Nothing to export for this entity — generate a world first, or this entity no longer resolves.")
 		return
-	var values := bridge.vault_entity_values(_kind, _entity_id)
+	var values := bridge.vault_entity_values(_lk, _lid)
 	DccWidgets.note(sec, "Cartalith owns a delimited block in the note and nothing outside it. Only fields this entity actually has are listed.")
 
 	var group := ""
@@ -1925,20 +2571,18 @@ func _selected_keys() -> PackedStringArray:
 	return out
 
 
+## The active link's file. Through `_link_rel`, which reads the whole store:
+## the More section's link can belong to any entity, not only the scope.
 func _link_path() -> String:
-	for l in bridge.vault_links_for(_kind, _entity_id):
-		var d: Dictionary = l
-		if String(d.get("link_id", "")) == _reader_link:
-			return String(d.get("path", ""))
-	return ""
+	return _link_rel(_reader_link)
 
 
 func _confirm_block_write() -> void:
 	var rel := _link_path()
 	if rel == "":
 		return
-	var body := bridge.vault_block_body(_kind, _entity_id, _selected_keys())
-	var p := bridge.vault_preview_block(rel, _kind, _entity_id, body)
+	var body := bridge.vault_block_body(_lk, _lid, _selected_keys())
+	var p := bridge.vault_preview_block(rel, _lk, _lid, body)
 	if not bool(p.get("ok", false)):
 		app.set_status("hint", "Preview: %s" % String(p.get("error", "")), "accent")
 		return
@@ -1947,7 +2591,7 @@ func _confirm_block_write() -> void:
 		("A new block will be inserted below the note's title." if action == "inserted"
 			else "The existing Cartalith block will be replaced. Nothing outside it changes."),
 		func():
-			var r := bridge.vault_write_block(rel, _kind, _entity_id, body, String(p.get("hash", "")))
+			var r := bridge.vault_write_block(rel, _lk, _lid, body, String(p.get("hash", "")))
 			if bool(r.get("ok", false)):
 				app.set_status("hint", "Cartalith block %s." % String(r.get("action", "written")), "text_ghost")
 			else:
@@ -1960,7 +2604,7 @@ func _confirm_field_fill() -> void:
 	var rel := _link_path()
 	if rel == "":
 		return
-	var p := bridge.vault_preview_field_fill(rel, _kind, _entity_id, false)
+	var p := bridge.vault_preview_field_fill(rel, _lk, _lid, false)
 	if not bool(p.get("ok", false)):
 		app.set_status("hint", "Preview: %s" % String(p.get("error", "")), "accent")
 		return
@@ -1974,7 +2618,7 @@ func _confirm_field_fill() -> void:
 	_preview_dialog("Fill the note's own fields", String(p.get("preview", "")),
 		"\n".join(PackedStringArray(lines)) + "\n\nA field you had already filled is skipped, never overwritten.",
 		func():
-			var r := bridge.vault_write_field_fill(rel, _kind, _entity_id, false, String(p.get("hash", "")))
+			var r := bridge.vault_write_field_fill(rel, _lk, _lid, false, String(p.get("hash", "")))
 			if bool(r.get("ok", false)):
 				app.set_status("hint", "Template fields filled.", "text_ghost")
 			else:
@@ -2011,28 +2655,28 @@ func _confirm_block_remove() -> void:
 	var rel := _link_path()
 	if rel == "":
 		return
-	var body := bridge.vault_block_body(_kind, _entity_id, _selected_keys())
-	var p := bridge.vault_preview_block(rel, _kind, _entity_id, body)
+	var body := bridge.vault_block_body(_lk, _lid, _selected_keys())
+	var p := bridge.vault_preview_block(rel, _lk, _lid, body)
 	if not bool(p.get("ok", false)):
 		app.set_status("hint", "Preview: %s" % String(p.get("error", "")), "accent")
 		return
 	if String(p.get("action", "")) == "inserted":
-		app.set_status("hint", "%s holds no Cartalith block for %s — there is nothing to remove." % [rel, _entity_label], "text_ghost")
+		app.set_status("hint", "%s holds no Cartalith block for %s — there is nothing to remove." % [rel, _llabel], "text_ghost")
 		return
 	var text := bridge.vault_read_file(rel)
 	var span := _block_span(text, String(p.get("entity_key", "")))
 	_preview_dialog("Remove the Cartalith block",
 		span if span != "" else text,
 		("These are the bytes that will be removed. Everything else in %s is written back unchanged." % rel) if span != ""
-			else ("Cartalith could not locate the block's markers in %s to show them on their own, so the whole note is above. The removal itself is the engine's, and it takes out only the delimited block for %s." % [rel, _entity_label]),
+			else ("Cartalith could not locate the block's markers in %s to show them on their own, so the whole note is above. The removal itself is the engine's, and it takes out only the delimited block for %s." % [rel, _llabel]),
 		func():
-			var r := bridge.vault_remove_block(rel, _kind, _entity_id, String(p.get("hash", "")))
+			var r := bridge.vault_remove_block(rel, _lk, _lid, String(p.get("hash", "")))
 			if not bool(r.get("ok", false)):
 				app.set_status("hint", "Removal refused: %s" % String(r.get("error", "")), "accent")
 			elif bool(r.get("removed", false)):
 				app.set_status("hint", "Cartalith block removed from %s." % rel, "text_ghost")
 			else:
-				app.set_status("hint", "%s held no Cartalith block for %s." % [rel, _entity_label], "text_ghost")
+				app.set_status("hint", "%s held no Cartalith block for %s." % [rel, _llabel], "text_ghost")
 			_rebuild(),
 		"", "Remove from Markdown")
 
@@ -2176,7 +2820,7 @@ const PREF_LABELS := {
 ## machine-owned block and writing into the author's own template lines are
 ## three different risks — a person may well never want to be asked about the
 ## middle one and always want to be asked about the last.
-func _build_write_prefs() -> void:
+func _build_write_prefs(parent: Control) -> void:
 	var prefs := bridge.vault_write_prefs()
 	## Empty means an engine without the preference surface at all. Drawing
 	## three toggles that silently do nothing would be worse than drawing none.
@@ -2187,7 +2831,7 @@ func _build_write_prefs() -> void:
 	## to see without going looking; three unticked boxes are not.
 	var any_off := bool(prefs.get("section", false)) or bool(prefs.get("block", false)) \
 		or bool(prefs.get("field_fill", false))
-	var sec := DccWidgets.group(_body, "Write confirmations", any_off)
+	var sec := DccWidgets.group(parent, "Write confirmations", any_off)
 	DccWidgets.note(sec, "Ticked means Cartalith stops showing the preview before that write. It does not stop checking: a note edited since Cartalith last read it still refuses, asked or not. These stay on this device — one person's \"stop asking me\" does not travel with a project.")
 	for key in ["section", "block", "field_fill"]:
 		DccWidgets.toggle(sec, String(PREF_LABELS[key]), bool(prefs.get(key, false)),
@@ -2226,7 +2870,7 @@ func _save_prefs() -> void:
 # -- Overview ---------------------------------------------------------------
 
 func _build_overview() -> void:
-	_build_index()
+	_build_index(_body)
 	_build_pick_entity()
 	var sec := DccWidgets.section(_body, "All linked notes")
 	var links := bridge.vault_all_links()
@@ -2246,11 +2890,11 @@ func _build_overview() -> void:
 
 
 ## Reaches `_build_create()` — the template-creation flow (`GUI_GAP_REGISTER.md`
-## VA-02) — and `_build_attach()` from the unscoped overview, for an entity that
+## VA-02) — and the attach flow from the unscoped overview, for an entity that
 ## does not have a note linked yet, which "All linked notes" above cannot show
-## (it lists links, not entities). Both blocks only build when `_rebuild()` sees
-## `scoped`, so picking any row here and re-entering through `open_for()` is
-## what makes them reachable, not a duplicate of them.
+## (it lists links, not entities). Both only build when `_rebuild()` sees an
+## entity scope, so picking any row here and re-entering through `open_for()`
+## is what makes them reachable, not a duplicate of them.
 ##
 ## Provinces and continents are listed in full — the same two dictionaries and
 ## the same `id`/`name` keys `civilization_workspace.gd::_fill_knowledge()`
@@ -2343,11 +2987,11 @@ func _build_pick_entity() -> void:
 ## Everything on this panel is a number the engine measured on this vault --
 ## no estimates, and no progress bar for a pass that is over before one could
 ## draw.
-func _build_index() -> void:
+func _build_index(parent: Control) -> void:
 	var info := bridge.vault_info()
 	if not bool(info.get("bound", false)):
 		return
-	var sec := DccWidgets.section(_body, "Index")
+	var sec := DccWidgets.section(parent, "Index")
 	var st := bridge.vault_backlink_stats()
 	if not bool(st.get("built", false)):
 		DccWidgets.note(sec,
@@ -2373,9 +3017,9 @@ func _build_index() -> void:
 		bridge.vault_rebuild_backlinks()
 		_refresh_index())
 	rebuild.tooltip_text = "Throws the index away and reads every note again. Only needed if the index was written by an older build that parsed links differently."
-	_body.add_child(row)
+	parent.add_child(row)
 	if bool(st.get("built", false)):
-		_build_index_report()
+		_build_index_report(parent)
 
 func _refresh_index() -> void:
 	var r := bridge.vault_refresh_backlinks(2000)
@@ -2392,13 +3036,13 @@ func _refresh_index() -> void:
 ## `Data ▸ Missing & orphan notes report…`, which VA-01 has had disabled
 ## waiting for exactly this index. One index answers both questions, so there
 ## is one panel and not two walks.
-func _build_index_report() -> void:
+func _build_index_report(parent: Control) -> void:
 	var rep := bridge.vault_backlink_report(40)
 	var broken: Array = rep.get("broken", [])
 	var orphans: PackedStringArray = rep.get("orphans", PackedStringArray())
 	if broken.is_empty() and orphans.is_empty():
 		return
-	var g := DccWidgets.group(_body, "Missing & orphan notes", false)
+	var g := DccWidgets.group(parent, "Missing & orphan notes", false)
 	if not broken.is_empty():
 		DccWidgets.note(g, "Links that point at no note:")
 		for b in broken:
