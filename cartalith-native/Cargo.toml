@@ -16,11 +16,25 @@ opt-level = 1
 # `llvm-strip --strip-debug` it by hand (400 MB -> 18 MB, 22x, no behaviour
 # change) before every export. This profile makes that permanent.
 #
-# `debug = "line-tables-only"` keeps panic backtraces resolvable to file and
-# line, which is what on-device diagnosis actually needs (`ANDROID_BUILD_
-# SCOPE.md`'s own logcat workflow), while dropping the type and variable
-# debuginfo that produced the bulk. Inherits `dev`'s `opt-level = 1`, so
-# generation speed on device is unchanged.
+# Owner Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): build the remaining
+# strip. `debug = "line-tables-only"` alone (measured 2026-09-27 at ~199.9 MB,
+# up from the 156-171 MB range recorded through 2026-08-25 as the workspace
+# grew) kept panic backtraces resolvable to file and line but left most of the
+# line-table DWARF in the shipped `.so`, which is what actually carried the
+# bulk of the 400 MB -> 156-199 MB range; there is no further Cargo `debug`
+# level between "line tables" and "none" to trim it with. `strip = "debuginfo"`
+# instead drops `debug` back to its `dev`-inherited default and removes the
+# DWARF post-link, keeping the `.symtab` (mangled function names) so a panic
+# or a native crash still names a function in logcat/`ndk-stack`, but losing
+# the source file and line that `debug = "line-tables-only"` used to add.
+# ANDROID_BUILD_SCOPE.md's own comment (`OUTSTANDING_WORK.md` §5) named this
+# exact trade before it was made: "if size ever becomes the binding
+# constraint, drop `debug` and set `strip` together, and say in the comment
+# that backtraces lose file and line" — that constraint is this ruling.
+# Measured 2026-09-27: `.so` 199 937 792 -> 35 464 168 bytes (5.6x).
+#
+# Inherits `dev`'s `opt-level = 1`, so generation speed on device is
+# unchanged.
 #
 # Use with: cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot
 # (`--profile` is a `cargo build` flag, so it must follow `build`, not precede
@@ -33,4 +47,4 @@ opt-level = 1
 # not behaviour.
 [profile.android-dev]
 inherits = "dev"
-debug = "line-tables-only"
+strip = "debuginfo"

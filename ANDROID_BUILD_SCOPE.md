@@ -47,14 +47,35 @@ stale: the debug entry once read `…/debug/`, which only a hand-copy refreshed
 because no documented step ran `--release` (fixed 2026-08-24). The orphaned
 `…/debug/` hand-copy was deleted.
 
-`[profile.android-dev]` (`cartalith-native/Cargo.toml`) inherits `dev`
-(`opt-level = 1`) with `debug = "line-tables-only"`: panic backtraces still
-resolve to file and line, which on-device diagnosis needs, without the full
-debuginfo that made the plain debug `.so` 400 MB. It is still large — §3.9 has
-the sizes — because line tables for this workspace are large and Godot stores
-`.so` files uncompressed. Adding `strip = "debuginfo"` would recover the size
-and delete the file/line information; if size becomes binding, drop `debug` and
-set `strip` together, and say in the comment that backtraces lose file and line.
+`[profile.android-dev]` (`cartalith-native/Cargo.toml`) inherited `dev`
+(`opt-level = 1`) with `debug = "line-tables-only"` from 2026-08-18 through
+2026-09-27: panic backtraces resolved to file and line, which on-device
+diagnosis wanted, without the full debuginfo that made the plain debug `.so`
+400 MB. It stayed large regardless — measured 156-199 MB across passes as the
+workspace grew — because line tables for this workspace are large on their
+own and Godot stores `.so` files uncompressed.
+
+**Owner Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): build the remaining
+strip.** `[profile.android-dev]` now drops `debug` (back to `dev`'s default)
+and sets `strip = "debuginfo"` instead, exactly the fallback this section had
+already named. Measured 2026-09-27 (verified 2026-09-28): the
+`.so` went from 199 937 792 bytes (this session's own `line-tables-only`
+rebuild, up from the 156-171 MB the 2026-08-18 through 2026-08-25 passes
+recorded, as the workspace grew) to 35 464 168 bytes with the new profile —
+5.6x smaller, and closer to — though still above — the ~18 MB a from-scratch
+full strip gave the 2026-08-18 `debug = true` build. The resulting
+`--export-debug` APK, built only with the new profile (no before/after APK
+pair taken this session — §3.9's 207 MB figure is the last APK measured
+against the old profile, on 2026-08-20), came to 68 134 680 bytes. **The
+trade-off, paid in full: a panic or a
+native crash now names a function (the `.symtab` is kept) but no longer
+resolves to a source file and line** — `debug = "line-tables-only"`'s whole
+purpose is gone from the on-device build. If file/line resolution is needed
+again, it has to come from a host-side copy of the pre-strip `.so` (built
+without `strip`, e.g. by temporarily reverting this profile) symbolicating a
+capture logcat/tombstone address off-device; nothing on this device build can
+give it back. Verified byte-identical, both `.so`s: the built file's sha256
+matches the one unzipped back out of the exported APK.
 
 ### 1.3 Export, sign, verify
 
@@ -75,8 +96,11 @@ set `strip` together, and say in the comment that backtraces lose file and line.
   fails at *"Code Signing: Could not find release keystore"*, and **the unsigned
   APK it leaves is the good one.** The 2026-09-07 drop signed that APK with
   Godot's own debug keystore (`apksigner`, verified `CN=Godot`) — ~57 MB, from
-  the release `.so`. `--export-debug` signs in one step but packs the
-  `android-dev` `.so` and yields a ~207 MB APK.
+  the release `.so`. `--export-debug` signs in one step and packs the
+  `android-dev` `.so`; that yielded a ~207 MB APK through 2026-09-27, when
+  `[profile.android-dev]` still carried `debug = "line-tables-only"` alone.
+  **Since Ruling AZ's strip (§1.2), it yields a ~68 MB APK instead** —
+  verified 2026-09-28.
 - **Verify the library inside the APK, not the timestamp**: sha256
   `lib/arm64-v8a/libcartalith_godot.so` out of the archive against the file just
   built, and keep a control — the previous APK should carry a *different* hash.
@@ -524,6 +548,9 @@ a supportable comparison. The 2026-09-07 row is `OUTSTANDING_WORK.md`'s archived
 | 2026-08-24 | `android-dev` `.so` / release `.so` | 161 004 536 / 21 577 640 |
 | 2026-08-25 | `android-dev` `.so` | 171 644 632 |
 | 2026-09-07 | release `.so` / debug-keystore-signed release APK | 27 123 240 / 57 610 259 |
+| 2026-09-27 | `android-dev` `.so`, `debug = "line-tables-only"` (pre-Ruling-AZ baseline, rebuilt this pass) | 199 937 792 |
+| 2026-09-27 | `android-dev` `.so` / `--export-debug` APK, `strip = "debuginfo"` (Ruling AZ) — **verified 2026-09-28** | 35 464 168 / 68 134 680 |
+| 2026-09-27 | release `.so` / signed release APK (unaffected by Ruling AZ; recipe re-run to confirm) — **verified 2026-09-28** | 29 660 088 / 60 511 545 |
 
 ### 3.10 After 2026-08-25
 
