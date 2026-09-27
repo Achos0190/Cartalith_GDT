@@ -1762,12 +1762,26 @@ func _begin_label_handle_drag(index: int, mode: int, gx: float, gy: float) -> vo
 ## `(side/2, side/2)` regardless of the label's rotation, so its distance
 ## from the box centre is always `side/2 * sqrt(2)` -- solved back out here
 ## rather than adding a new Rust accessor for one derived number.
+##
+## The box centre here is `(lb.x, lb.y)`, **not** `_label_drag_cx`/`_cy` --
+## those carry the OTHER drag math's own `+0.5` (`label_resize_size`/
+## `label_rotate_deg`/`label_arc_value`'s internal `gx + 0.5 - cx`, a
+## reference-ported constant unrelated to how a box is drawn; see
+## `_begin_label_handle_drag`'s own doc comment). The resize handle this
+## function measures against comes from `shell_label_box`'s box instead
+## (`label_handles` -> `handle_circles(lb, box_, ..)`), which since
+## 2026-09-28 sits at `(lb.x, lb.y)` with no added half cell
+## (`OUTSTANDING_WORK.md` "Map-data residuals", item 1) -- mixing the two
+## conventions here would put every centre half a cell off the handle it is
+## meant to measure.
 func _label_side_from_handles(index: int) -> float:
 	var h := bridge.label_handles(index, app.viewport.zoom(), app.viewport.label_px_per_cell())
 	var resize_h: Dictionary = h.get("resize", {})
 	if resize_h.is_empty():
 		return 40.0
-	return Vector2(resize_h["x"], resize_h["y"]).distance_to(Vector2(_label_drag_cx, _label_drag_cy)) * sqrt(2.0)
+	var lb := bridge.label_get(index)
+	var centre := Vector2(float(lb.get("x", 0.0)), float(lb.get("y", 0.0)))
+	return Vector2(resize_h["x"], resize_h["y"]).distance_to(centre) * sqrt(2.0)
 
 
 func _on_label_drag(gx: float, gy: float) -> void:

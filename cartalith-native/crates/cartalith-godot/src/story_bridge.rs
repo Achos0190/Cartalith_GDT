@@ -366,7 +366,8 @@ impl WorldGen {
         // The same context `route_commit`/`jp_reroute` build, over the new
         // world (a fresh generate has no hand-drawn ways yet).
         let ctx_for = |mode: RouteMode, f: &mut dyn FnMut(&RouteContext)| {
-            let inputs = infra_tools_bridge::RouteInputs::build(ws, gw, gh, world, map_width_km, river_density, mode);
+            let inputs =
+                infra_tools_bridge::RouteInputs::build(ws, gw, gh, world, map_width_km, river_density, mode, self.forced_lakes.as_deref());
             f(&RouteContext {
                 field: &ws.field,
                 water_bodies: &inputs.water_bodies,

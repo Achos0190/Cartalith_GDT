@@ -1352,7 +1352,7 @@ mod civ_merge_tests {
 /// windowed `_mapdata_probe.gd` drives the `#[func]`s).
 #[cfg(test)]
 mod forced_lake_tests {
-    use super::{apply_forced_lakes, coarse_ocean_wind_fields, compute_civilisation, sample_water_word};
+    use super::{apply_forced_lakes, coarse_ocean_wind_fields, compute_civilisation, sample_biome_word, sample_water_word};
 
     /// Protects `apply_forced_lakes`' three answers: `None` changes nothing
     /// (so a world with no forced lake is byte-identical), a whole-grid mask
@@ -1420,6 +1420,25 @@ mod forced_lake_tests {
             );
         }
         assert_eq!(run(None).water_bodies, plain.water_bodies, "no mask, no change");
+    }
+
+    /// Protects Sample's `biome` word for the map's LIVE water classification
+    /// (item 2, `OUTSTANDING_WORK.md` "Map-data residuals"): ocean/lake
+    /// override climate outright, whatever the temperature/rainfall say --
+    /// mirroring `build_biome_raster_water_overrides_climate` (`cartalith-
+    /// civ/src/lib.rs`) at this crate's own seam. A hot, wet cell (which
+    /// `classify_biome` alone would call something like rainforest) must
+    /// still read "ocean"/"lake" once the map draws it as one.
+    #[test]
+    fn the_sample_biome_word_lets_live_water_override_climate() {
+        assert_eq!(sample_biome_word(1, 30.0, 3.0), "ocean", "class 1 is ocean regardless of climate");
+        assert_eq!(sample_biome_word(2, 30.0, 3.0), "lake", "class 2 is lake regardless of climate");
+        // Land (anything else) falls through to `classify_biome` -- assert an
+        // INDEPENDENT thing the value must equal (`MISTAKES.md`, "write a
+        // test that pins a constant"), not the constant against itself: a
+        // literal from `cartalith_civ::classify_biome`'s own published
+        // thresholds (t < -7 => ice).
+        assert_eq!(sample_biome_word(0, -10.0, 0.5), "ice", "land falls through to classify_biome");
     }
 }
 
@@ -5501,6 +5520,28 @@ fn sample_water_word(class: u8) -> &'static str {
         2 => "lake",
         _ => "land",
     }
+}
+
+/// `sample_cell`'s `biome` when a live [`WorldGen::drawn_water_classification`]
+/// byte is available for the cell: water overrides climate exactly as
+/// `build_biome_raster` does grid-wide (pinned by `cartalith_civ::lib.rs`'s
+/// own `build_biome_raster_water_overrides_climate` test), so a cell the map
+/// draws as a forced or sculpted lake reads "lake" here too rather than the
+/// grassland/tundra/etc `classify_biome` alone would give it. A function so
+/// the mapping is tested without a `Gd<WorldGen>` (`sample_water_word`'s own
+/// reason). `class` is `drawn_water_classification`'s encoding: `1` ocean,
+/// `2` lake, anything else land. Found 2026-09-28 (`OUTSTANDING_WORK.md`
+/// "Map-data residuals", item 2, left by `fd54736`): `sample_cell` used to
+/// take `biome` outright from `CellSample::biome`, which is
+/// `build_biome_raster` over `CivData::water_bodies` -- the same stale
+/// civ-layer copy `water` no longer reads, since `fd54736`.
+fn sample_biome_word(class: u8, temperature_c: f64, precipitation: f64) -> &'static str {
+    let code = match class {
+        1 => cartalith_civ::BIOME_OCEAN,
+        2 => cartalith_civ::BIOME_LAKE,
+        _ => cartalith_civ::classify_biome(temperature_c, precipitation),
+    };
+    sample_bridge::biome_name(code)
 }
 
 /// Ruling BO's forced-lake post-pass, defined in `render.rs` (so the
@@ -13107,6 +13148,7 @@ impl WorldGen {
         };
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+            self.forced_lakes.as_deref(),
         );
         // An owned clone, not a borrow of `self.infra.ways` -- so that
         // borrow ends right here, before `way_commit` below needs
@@ -13196,6 +13238,7 @@ impl WorldGen {
         };
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+            self.forced_lakes.as_deref(),
         );
         let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
         let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
@@ -16547,6 +16590,7 @@ impl WorldGen {
         let mode = cartalith_civ::jp_reroute_mode(&transport.to_string(), forced.as_deref());
         let inputs = infra_tools_bridge::RouteInputs::build(
             ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+            self.forced_lakes.as_deref(),
         );
         let manual_ways = self.infra.as_ref().map(|t| t.ways.clone()).unwrap_or_default();
         let mut way_refs: Vec<cartalith_civ::tools::WayRef> =
@@ -17241,8 +17285,14 @@ impl WorldGen {
     ///   (`drawn_water_classification`), present whenever this returns
     ///   anything. Since 2026-09-28; it read the civ layer's stale copy before.
     /// * `biome`, `control` -- omitted without a civilisation layer. `biome`
-    ///   still reads the civ layer's water copy (`CivData::water_bodies`), so
-    ///   after a sculpt it can lag the map where `water` does not.
+    ///   now reads the same live `drawn_water_classification` `water` above
+    ///   does (ocean/lake override `classify_biome`, matching
+    ///   `build_biome_raster`'s own precedence), falling back to the civ
+    ///   layer's copy (`CivData::water_bodies`, via `s.biome`) only when no
+    ///   live classification is available. Since 2026-09-28; it read only
+    ///   the civ copy before, which could lag the map after a sculpt or a
+    ///   forced lake where `water` did not (`OUTSTANDING_WORK.md` "Map-data
+    ///   residuals", item 2, left by `fd54736`).
     #[func]
     fn sample_cell(&self, gx: i32, gy: i32) -> VarDictionary {
         let Some(f) = self.sample_refs() else { return VarDictionary::new() };
@@ -17304,10 +17354,26 @@ impl WorldGen {
         // say "lake" over ground the map showed as land (`OUTSTANDING_WORK.md`
         // "Four map-data defects", item 1). Omitted only when there is no
         // drawn classification at all; never defaulted.
-        if let Some(w) = self.drawn_water_classification().and_then(|c| c.get(s.y as usize * f.gw + s.x as usize).copied()) {
+        let live_water = self.drawn_water_classification().and_then(|c| c.get(s.y as usize * f.gw + s.x as usize).copied());
+        if let Some(w) = live_water {
             d.set("water", sample_water_word(w));
         }
-        if let Some(b) = s.biome {
+        // `biome` used to read `s.biome` outright, which is `build_biome_raster`
+        // over `CivData::water_bodies` -- the same stale civ-layer copy `water`
+        // above no longer reads, for the same reason: a sculpted lake or a
+        // forced one changes what the map draws without moving `CivData`,
+        // so this could call a drawn lake "grassland" (`OUTSTANDING_WORK.md`
+        // "Map-data residuals", item 2, left by `fd54736`). Where the live
+        // classification is available it wins outright (ocean/lake override
+        // climate, exactly as `build_biome_raster` itself orders the two:
+        // `cartalith_civ::lib.rs`'s own `build_biome_raster_water_overrides_
+        // climate` test) and land recomputes `classify_biome` from this same
+        // cell's temperature/rainfall -- the one input `s.biome`'s civ-layer
+        // path and this path agree on. Falls back to `s.biome` only when there
+        // is no live classification to ask (mirrors `water`'s own gate).
+        if let Some(w) = live_water {
+            d.set("biome", sample_biome_word(w, s.temperature_c, s.precipitation));
+        } else if let Some(b) = s.biome {
             d.set("biome", b);
         }
         if let Some(c) = s.control {

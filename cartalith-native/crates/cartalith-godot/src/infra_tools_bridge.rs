@@ -543,6 +543,20 @@ pub fn parse_route_mode(s: &str) -> Option<RouteMode> {
 /// comment says so directly: "`RouteMode::Land`/`Water` grids ignore them
 /// entirely" — building them for a way (which is never `Mixed`) would be
 /// pure waste.
+///
+/// **Forced lakes** (`WorldGen::forced_lakes`, Ruling BO) are folded in via
+/// [`Self::build`]'s `forced_lakes` parameter, applied with the same
+/// `render::apply_forced_lakes` post-pass `WorldGen::drawn_water_bodies`
+/// uses — "fresh, not cached" above is about staying independent of
+/// `compute_civilisation`'s copy, not about ignoring a forced lake, which is
+/// no less part of "the water the map draws" than the height field is.
+/// Found 2026-09-28 (`OUTSTANDING_WORK.md` "Map-data residuals"): before this,
+/// a road or route drawn straight over a stamped-and-forced lake, or a `Mixed`
+/// biome raster built for one, both used the lake's plain `build_water_bodies`
+/// reading (dry, since a forced lake need not clear the rain gate) — the
+/// water pathfinding avoids and the water the map paints disagreed. `apply_forced_lakes`
+/// is a no-op when `forced_lakes` is `None` or all-zero, so a world with no
+/// forced lake computes exactly what it did before.
 pub struct RouteInputs {
     pub water_bodies: Vec<u8>,
     pub biome: Option<Vec<u8>>,
@@ -555,6 +569,11 @@ pub struct RouteInputs {
 }
 
 impl RouteInputs {
+    /// `forced_lakes`: `WorldGen::forced_lakes.as_deref()` — the same mask
+    /// `WorldGen::drawn_water_bodies` applies. `None` (no world has ever had
+    /// one forced) or all-zero leaves `wb.classification` exactly as
+    /// `build_water_bodies` returned it — see this `impl` block's own doc
+    /// comment.
     #[allow(clippy::too_many_arguments)]
     pub fn build(
         ws: &cartalith_engine::WorldState,
@@ -564,9 +583,11 @@ impl RouteInputs {
         map_width_km: f64,
         river_density: f64,
         mode: RouteMode,
+        forced_lakes: Option<&[u8]>,
     ) -> Self {
         let sea_level = ws.sea_level;
-        let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
+        let mut wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
+        crate::apply_forced_lakes(&mut wb.classification, forced_lakes);
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
             let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);
@@ -1075,13 +1096,42 @@ mod tests {
         }
     }
 
+    /// Protects `RouteInputs::build`'s forced-lake plumbing
+    /// (`OUTSTANDING_WORK.md` "Map-data residuals", item 3): a cell the
+    /// caller forces reads `2` (lake) in the returned `water_bodies`, the
+    /// same class [`crate::apply_forced_lakes`] gives it in
+    /// `WorldGen::drawn_water_bodies` -- so a way/route no longer routes
+    /// straight through a forced lake the map draws as water. `None`
+    /// reproduces the plain build exactly, protecting "no change to worlds
+    /// with no forced lake".
+    #[test]
+    fn route_inputs_build_applies_a_forced_lake_mask() {
+        let mut p = crate::params::defaults();
+        p.gw = 64;
+        p.gh = 64;
+        p.tect.seed = 777;
+        p.use_gpu = false;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let plain = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None);
+        let land_idx = plain.water_bodies.iter().position(|&c| c == 0).expect("premise: some land exists in the fixture world");
+        let mut mask = vec![0u8; p.gw * p.gh];
+        mask[land_idx] = 1;
+        let forced = RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, Some(&mask));
+        assert_eq!(forced.water_bodies[land_idx], 2, "the forced cell routes as lake");
+        assert_eq!(
+            RouteInputs::build(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, RouteMode::Land, None).water_bodies,
+            plain.water_bodies,
+            "no mask, no change"
+        );
+    }
+
     #[test]
     fn route_inputs_mixed_mode_flag_gates_biome_and_river_order() {
-        // RouteInputs::build itself needs a live WorldState and is exercised
-        // end to end by `cargo test -p cartalith-godot` only through
-        // `lib.rs`'s own commit paths (no cheap WorldState fixture exists
-        // at this crate boundary) -- this instead pins the cheap, pure part
-        // of the contract: the `Option` shape callers rely on.
+        // `cartalith_engine::generate_terrain` (used just above, in
+        // `route_inputs_build_applies_a_forced_lake_mask`) is a real, if not
+        // free, `WorldState` fixture -- this test predates that discovery and
+        // still pins the cheap, pure part of the contract directly: the
+        // `Option` shape callers rely on, with no generation cost at all.
         let inputs_land = RouteInputs { water_bodies: vec![0; 4], biome: None, river_order: None, corridors: None };
         assert!(inputs_land.biome.is_none() && inputs_land.river_order.is_none());
         let inputs_mixed = RouteInputs { water_bodies: vec![0; 4], biome: Some(vec![1; 4]), river_order: Some(vec![0; 4]), corridors: Some(vec![0.0; 4]) };

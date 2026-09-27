@@ -534,6 +534,27 @@ pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
 /// this crate (the module doc's "text measurement" section), so the box
 /// narrows to a font-height square, exactly as it already did through
 /// `label_font_size`.
+///
+/// **`px`/`py` are `lb.x`/`lb.y` exactly, with no added half cell.**
+/// `map_overlay.gd::_draw_labels` and `_draw_icon_glyph`'s own doc comment
+/// (`_point_to_screen`, "continuous full-resolution coordinates ... no
+/// `+0.5` centering, unlike `_cell_to_screen`'s settlement markers") is what
+/// actually draws a label: `_point_to_screen(Vector2(lb["x"], lb["y"]),
+/// rect)`, an identity mapping with no offset of its own. This function used
+/// to add `+0.5` here, which put the hit box and every handle half a cell
+/// down-right of the glyph the shell had just drawn — found 2026-09-28
+/// (`OUTSTANDING_WORK.md` "Map-data residuals", item 1, left by `fd54736`).
+/// That commit already fixed the *drawn* half of this: a generated or
+/// legacy-imported label's `x`/`y` bakes `cartalith_civ::labels::
+/// CELL_CENTRE` (0.5) in once, at creation
+/// (`labels.rs::generate`/`legacy_import.rs`), and a hand-placed one is
+/// created from the click's own continuous grid position
+/// (`cartography_workspace.gd::_on_label_click` -> `label_create`) — neither
+/// needs a second half cell added downstream. `cartalith_civ::labels::
+/// label_box`'s own `lb.x + 0.5` is a *different* function serving the
+/// reference's `_civLabelBox` identity-mapped hit-test path (see that
+/// function's own doc comment) and is not called from this shell; the two
+/// must not be unified by adding this crate's own `+0.5` back.
 pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64) -> LabelBox {
     let raw = match lb.size_mode {
         LabelSizeMode::Fixed => lb.size,
@@ -543,7 +564,7 @@ pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64) -> LabelBox {
     // floor is positive, so truncation and `floor` agree.
     let fsz = raw.clamp(SHELL_LABEL_FONT_PX_MIN, SHELL_LABEL_FONT_PX_MAX).floor();
     let side = f64::max(0.0, fsz * LABEL_BOX_LINE_HEIGHT) * 1.25;
-    LabelBox { px: lb.x + 0.5, py: lb.y + 0.5, side, fsz }
+    LabelBox { px: lb.x, py: lb.y, side, fsz }
 }
 
 /// The reference's `drawCivLayer` selection-box handle geometry (lines
@@ -709,6 +730,20 @@ mod tests {
     /// they always did rather than picking a value that happens to still
     /// pass.
     const PX_PER_CELL: f64 = 2.0;
+
+    /// Protects the fix at `shell_label_box`'s own doc comment
+    /// (`OUTSTANDING_WORK.md` "Map-data residuals", item 1, left by
+    /// `fd54736`): the box centre is `lb.x`/`lb.y` exactly, matching
+    /// `map_overlay.gd::_draw_labels`'s `_point_to_screen(Vector2(lb["x"],
+    /// lb["y"]), rect)` -- an identity mapping with no `+0.5` of its own.
+    /// Before the fix this asserted `11.5, 21.5`; the mutant that restores
+    /// `+ 0.5` must fail this.
+    #[test]
+    fn shell_label_box_centre_has_no_added_half_cell() {
+        let lb = MapLabel::new(11.0, 21.0, "Whitfell");
+        let box_ = shell_label_box(&lb, PX_PER_CELL);
+        assert_eq!((box_.px, box_.py), (11.0, 21.0), "the box sits exactly where _point_to_screen draws the glyph");
+    }
 
     // ---- LabelBridge: create / delete / clear_all ----
 

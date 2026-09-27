@@ -259,6 +259,15 @@ func _ready() -> void:
 		return
 	await _leg_labels()
 	await _leg_sample()
+	## H and R run BEFORE `_leg_forced()`: that leg's own `load_save()` (a
+	## flat/tree `load_save`, not `project_open`) drops `labels`/`infra`/`civ`
+	## without regenerating them (`lib.rs::load_save`'s own doc comment on
+	## each field it clears -- restoring them is `project_open`'s job, which
+	## this probe's `load_save` calls do not go through), so `label_create`/
+	## `way_begin`/`way_commit` would refuse on the world `_leg_forced` leaves
+	## behind. Running here keeps `self.source` a fresh `Generated` world.
+	await _leg_hitbox()
+	await _leg_routing()
 	await _leg_forced()
 	_finish()
 
@@ -498,6 +507,184 @@ func _leg_forced() -> void:
 	_crop(deep3, at, "F_reopened_z16")
 	var mv3 := await _water_move(at)
 	_ok(mv3 > WATER_MOVES, "F17 and draws it as water at z%d after the reopen (water-move %d)" % [int(DEEP), mv3])
+
+
+# ---- H: a hand-placed label's hit box/handles sit ON the drawn glyph, not
+# half a cell down-right of it (item 1, `OUTSTANDING_WORK.md` "Map-data
+# residuals", `label_bridge.rs::shell_label_box`) ---------------------------
+
+func _leg_hitbox() -> void:
+	var lx := 96.0
+	var ly := 72.0
+	var idx: int = _br.label_create(lx, ly, "Whitfell Cairn")
+	_ok(idx >= 0, "H0 hand-placed label created")
+	if idx < 0:
+		return
+	## `map_overlay.gd`'s own `_labels` (what `_draw_labels` reads) is a copy
+	## `set_labels()` pushes; `label_create` alone does not refresh it (the
+	## real shell's Label tool relies on `refresh_annotations()`'s drag-path
+	## tail, `viewport_host.gd::refresh_annotations`, `overlay.set_labels(
+	## _bridge.labels_render_list())`) -- without this the crop below draws
+	## no glyph at all.
+	_vh.refresh_annotations()
+	await _view(Vector2(lx, ly), true)
+	var ov: Control = _vh.overlay
+	var rect: Rect2 = ov.displayed_rect()
+	var xf: Transform2D = ov.get_global_transform_with_canvas()
+	var ppc: float = (xf * ov._point_to_screen(Vector2(1, 0), rect) - xf * ov._point_to_screen(Vector2(0, 0), rect)).x
+	## The engine's own drawn anchor -- exactly what `_draw_labels` projects
+	## (`_point_to_screen(Vector2(lb["x"], lb["y"]), rect)`, no added offset).
+	var anchor_grid := Vector2(lx, ly)
+	var anchor_screen: Vector2 = xf * ov._point_to_screen(anchor_grid, rect)
+
+	var px_per_cell: float = ov.label_px_per_cell()
+	var h: Dictionary = _br.label_handles(idx, _vh.zoom(), px_per_cell)
+	var resize: Dictionary = h.get("resize", {})
+	_ok(not resize.is_empty(), "H1 label_handles returns a resize handle")
+	if resize.is_empty():
+		_br.label_delete(idx)
+		return
+	var resize_grid := Vector2(float(resize["x"]), float(resize["y"]))
+	## Unrotated (angle 0): the resize handle sits at local (side/2, side/2)
+	## from the box centre, so its distance from the box centre is always
+	## `side/2 * sqrt(2)` -- `_label_side_from_handles`'s own identity,
+	## solved back out here since the box centre (this fix's own subject) is
+	## exactly what is under test.
+	var side_half := resize_grid.distance_to(anchor_grid) / sqrt(2.0)
+	_ok(side_half > 0.05, "H2 premise: the box has real size to test a corner inside it (side/2=%.3f cells)" % side_half)
+
+	## What the PRE-FIX `shell_label_box` centred the box on: the reference's
+	## own extra `+0.5` cell, which this fix removed (see that function's own
+	## doc comment) -- reconstructed analytically (same technique
+	## `_labelboxmodel_probe.gd`'s `_old_side` already uses), not by reverting
+	## code, since the box is otherwise identical (same `side`).
+	var old_centre := anchor_grid + Vector2(0.5, 0.5)
+	var old_resize_grid := old_centre + Vector2(side_half, side_half)
+	var old_resize_screen: Vector2 = xf * ov._point_to_screen(old_resize_grid, rect)
+	var new_resize_screen: Vector2 = xf * ov._point_to_screen(resize_grid, rect)
+	_p("H3 resize handle vs drawn anchor at z%d (%.1f px/cell): NEW %.2f px from anchor %s -- OLD (pre-fix, reconstructed) %.2f px from anchor %s" % [
+		int(DEEP), ppc, anchor_screen.distance_to(new_resize_screen), new_resize_screen.round(),
+		anchor_screen.distance_to(old_resize_screen), old_resize_screen.round()])
+	_ok(anchor_screen.distance_to(old_resize_screen) > anchor_screen.distance_to(new_resize_screen),
+		"H4 the pre-fix (reconstructed) handle sits farther from the drawn anchor than the fixed one, at z%d" % int(DEEP))
+
+	## The regression this fixes, made concrete: a click just inside the
+	## FIXED box's own top-left corner. It must hit the label (H5) -- and the
+	## reconstructed pre-fix box, centred 0.5 cells further down-right, always
+	## misses this exact point on both axes (H6): the corner is
+	## `side_half - eps` cells outside the fixed box, so it is
+	## `side_half + 0.5 - eps` outside the pre-fix one, which exceeds
+	## `side_half` for any `eps < 0.5`.
+	var eps := minf(0.1, side_half * 0.1)
+	var corner_grid := anchor_grid - Vector2(side_half - eps, side_half - eps)
+	var hit: int = _br.label_hit_test_mode(corner_grid.x, corner_grid.y, px_per_cell, 0)
+	_ok(hit == idx, "H5 a click just inside the drawn box's own top-left corner hits the label",
+		"hit=%d idx=%d corner=%s" % [hit, idx, corner_grid])
+	var old_hit := absf(corner_grid.x - old_centre.x) <= side_half and absf(corner_grid.y - old_centre.y) <= side_half
+	_ok(not old_hit, "H6 the SAME point would have missed the pre-fix (reconstructed) box, half a cell down-right of the glyph")
+
+	## "labels" is in `HIDE` for the water pixel legs above -- shown here only
+	## for this crop, so the screenshot actually has a glyph in it to look at.
+	_vh.set_layer_visible("labels", true)
+	await _repaint()
+	var img := await _grab()
+	_crop(img, anchor_grid, "H_label_hitbox_z16", 160)
+	_vh.set_layer_visible("labels", false)
+	_br.label_hit_test_mode(-1e9, -1e9, px_per_cell, 0)   ## deselect, tidy for any legs added after this one
+	_br.label_delete(idx)
+
+
+# ---- R: infrastructure routing avoids a FORCED lake, not just a natural one
+# (item 3, `OUTSTANDING_WORK.md` "Map-data residuals",
+# `infra_tools_bridge.rs::RouteInputs::build`) ------------------------------
+
+func _leg_routing() -> void:
+	var spot := Vector2i(-1, -1)
+	for gy in range(40, GRID.y - 40, 8):
+		for gx in range(70, GRID.x - 70, 8):
+			if spot.x < 0 and _dry(Vector2i(gx, gy), 20, 300.0, true):
+				spot = Vector2i(gx, gy)
+	_ok(spot.x >= 0, "R0 premise: arid dry ground for a routing test (same search as F1)")
+	if spot.x < 0:
+		return
+	var a := Vector2(spot.x - 24, spot.y)
+	var b := Vector2(spot.x + 24, spot.y)
+	## Force a lake wide enough that a straight A-B road would cross its
+	## centre -- same stamp technique as `_leg_forced`.
+	_br.sculpt_set_feature("lake")
+	_br.sculpt_set_globals({"brush_size": 12.0})
+	_br.sculpt_begin_stroke()
+	_br.sculpt_add_point(spot.x, spot.y)
+	_br.sculpt_end_stroke()
+	_br.sculpt_commit("mapdata probe routing lake stamp")
+	await _repaint()
+	_ok(not _drawn_water(_mask(), spot), "R1 premise: the stamped bowl is still arid land before the force (unforced)")
+
+	var ww := _find(_app, "world_workspace.gd")
+	_ok(ww != null and ww.has_method("_on_force_lake"), "R2 the World workspace's force-lake handler is reachable")
+	if ww == null:
+		return
+	ww._on_force_lake()
+	await _settle()
+	_ok(String(_br.sample_cell(spot.x, spot.y).get("water", "")) == "lake",
+		"R3 the forced spot now samples as lake (this leg depends on item 2's own fix to see it)")
+
+	## A Land-mode way (`road`) straight across the forced lake's centre.
+	## Before the fix, `RouteInputs::build` never applied `forced_lakes`, so
+	## this exact stretch of "dry" (per its own unforced `build_water_bodies`
+	## reading) flat ground was the cheapest path and the road went straight
+	## through -- this leg is the one that would have caught it.
+	_ok(_br.way_begin("road"), "R4 a road way begins")
+	_br.way_append_point(a.x, a.y)
+	_br.way_append_point(b.x, b.y)
+	var idx: int = _br.way_commit()
+	_ok(idx >= 0, "R5 the road commits")
+	if idx < 0:
+		return
+	## The overlay's own road-drawing data is a copy `set_civ_data()` pushes
+	## (`viewport_host.gd::refresh()`); `way_commit()` alone does not refresh
+	## it, so the crops below would draw no road at all without this.
+	_vh.refresh()
+	## `way_commit`'s own doc: its returned index counts every committed way
+	## (roads and sea lanes together), so it is NOT an offset into
+	## `roads()`'s array -- the manual road just committed is instead the
+	## LAST `manual: true` "road"-type entry `roads()` returns (it is the
+	## only one this probe has committed). `EngineBridge.roads()` is the real
+	## shell's own name for `WorldGen::get_roads()` (`engine_bridge.gd`).
+	var roads: Array = _br.roads()
+	var way: Dictionary = {}
+	for r: Dictionary in roads:
+		if bool(r.get("manual", false)) and String(r.get("way_type", "")) == "road":
+			way = r
+	var pts: PackedVector2Array = way.get("points", PackedVector2Array())
+	_ok(pts.size() > 0, "R6 premise: the committed road has real points", "way=%s" % [way])
+	var closest := INF
+	var crossed := false
+	for p in pts:
+		var w := String(_br.sample_cell(int(round(p.x)), int(round(p.y))).get("water", ""))
+		if w == "lake":
+			crossed = true
+		closest = minf(closest, p.distance_to(Vector2(spot)))
+	_ok(not crossed, "R7 the committed road does not cross the forced lake (no route point samples 'lake')")
+	_p("R routing: spot=%s a=%s b=%s road points=%d closest approach to spot=%.1f cells crossed=%s" % [
+		spot, a, b, pts.size(), closest, crossed])
+
+	## "roads" is in `HIDE` for the water pixel legs above -- shown here only
+	## for these crops, so the screenshots actually have the detour in them.
+	_vh.set_layer_visible("roads", true)
+	await _view(Vector2(spot), true)
+	var img := await _grab()
+	_crop(img, Vector2(spot), "R_routing_forced_lake_z16", 200)
+	## A wider view at a shallower zoom, since the detour itself (10 cells'
+	## closest approach, printed above) is bigger than one z16 crop.
+	_vh.reset_view()
+	await _frames(3)
+	_vh.zoom_step(6.0 / _vh.zoom())
+	_vh.move_view_to(spot.x - 0.5, spot.y - 0.5)
+	await _settle()
+	var wide := await _grab()
+	_crop(wide, Vector2(spot), "R_routing_detour_wide", 260)
+	_vh.set_layer_visible("roads", false)
 
 
 func _finish() -> void:
