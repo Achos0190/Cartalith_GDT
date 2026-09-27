@@ -649,6 +649,29 @@ re-checked against the tree rather than copied from the commit message.
       failure was the copy lacking `reference/`, which was then added;
     - **after:** 186 lines, 4 104 passed, 0 failed, 52 ignored.
   - The scope goes back to the owner. `OUTSTANDING_WORK.md` is not touched.
+- **Stream-power routing refresh measured: it changes app worlds, so it is
+  NOT adopted — owner call. verified by the main loop 2026-09-28 (stream_power_refresh 5/0 re-run) (2026-09-28).**
+  `GEOLOGY_FIRST_SCOPE.md` §5.11 has the tables.
+  - **Built:** `cartalith_erosion::stream_power_kernel_refreshed` and
+    `stream_power_kernel_rock_refreshed`. They rebuild routing every `k`
+    iterations, from the ported setup moved into `stream_power_routing`.
+    There is no production caller.
+  - **Effect on app worlds** (5 seeds, 800 km, 9 iterations): every interval
+    below 9 changes 96.8–99.1 % of cells, and small lakes move either way by
+    seed. Ocean on path stays 0, and relief and slope fall slightly.
+  - **Cost:** 1.14–2.30 × generation.
+  - **At τ = 4 on the gated path:** every-iteration refresh reproduces
+    §5.10's 62 / 99 / 43 / 53 / 88 small lakes.
+  - **Recommendation:** don't adopt it for the app. Wire it to the gated path
+    only if a long-run path is ever built.
+  - **Identity:** whole-world hashes are identical before and after, 15 of
+    15 (app, app with processes, `WorldParams::defaults`; 5 seeds each).
+  - **Tests:** 5 fast tests, and 7 of 7 mutants killed.
+  - `cargo test --workspace --no-fail-fast` in a `git archive` copy of HEAD
+    `f607262`:
+    - **before:** 186 result lines, 4 336 passed / 0 failed / 52 ignored;
+    - **after:** 187 lines, 4 341 / 0 / 54.
+  - `OUTSTANDING_WORK.md` is not touched.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s

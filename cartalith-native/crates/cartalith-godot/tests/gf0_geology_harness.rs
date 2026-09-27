@@ -3706,3 +3706,239 @@ fn gf10_b9_cost() {
     let proj = g - l + c + s + h;
     println!("  projected BM generation = A - light pass + construction + stage + hillslope = {proj:.3} s; ratio to A {:.3} (B9 bar <= 1.20)", proj / g);
 }
+
+// ===========================================================================
+// §5.11: refreshing the stream-power routing (the small-lake cause)
+// ===========================================================================
+//
+// `GEOLOGY_FIRST_SCOPE.md` §5.11 and the `OUTSTANDING_WORK.md` row "Refresh
+// drainage routing inside the stream-power call". Measurement only: nothing
+// here is called by the engine. Commands (release, run alone):
+//
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact rr_routing_refresh
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact rr_routing_refresh_cost
+//
+// `RR_EVERY` (comma list of refresh intervals) and `RR_TAUS` (comma list of
+// geological ages for the gated rows) override the default sets.
+
+/// The light pass (stream power, then rebound, then GF-3's hillslope when the
+/// processes are on) with the stream-power routing refreshed every `every`
+/// iterations; `None` is the kernel `generate_terrain_inner` calls today.
+/// Returns `(surface the tail starts from, column when on, seconds spent in
+/// the stream-power call alone)`.
+///
+/// Why: §5.11 asks whether the refresh changes today's app worlds, and the
+/// only way to put a refreshed light pass through the rest of the pipeline is
+/// [`tail`], the replay [`replica_reproduces_generate_terrain`] pins. Must
+/// never be read as the pipeline when `every` is `Some`: those rows are
+/// variants (labelled so where they print).
+fn light_pass_rr(p: &WorldParams, pre: &WorldState, processes: bool, tau: f64, every: Option<std::num::NonZeroUsize>) -> (Vec<f32>, Option<GeologyColumn>, f64) {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let sea = pre.sea_level;
+    let clock = cartalith_engine::geo_clock::GeoClock::new(processes, tau);
+    let sp = cartalith_erosion::StreamPowerParams { iters: clock.light_pass_iters(p.stream.iters).n, ..light_stream_params(p, sea) };
+    let mut field = pre.field.to_vec();
+    let rain: &[f32] = &pre.rainfall;
+    if !processes {
+        let t = std::time::Instant::now();
+        match every {
+            None => cartalith_erosion::stream_power_kernel(&mut field, &pre.stress_field, &pre.resistance_field, rain, gw, gh, &sp),
+            Some(k) => cartalith_erosion::stream_power_kernel_refreshed(&mut field, &pre.stress_field, &pre.resistance_field, rain, gw, gh, &sp, k),
+        }
+        let secs = t.elapsed().as_secs_f64();
+        cartalith_erosion::isostatic_rebound(&mut field, &pre.field, gw, gh, p.tect.blur_r, world);
+        return (field, None, secs);
+    }
+    let mut col = pre.geology.column().expect("column").clone();
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let before = field.clone();
+    let t = std::time::Instant::now();
+    {
+        let mut rock = cartalith_erosion::StreamPowerRock { column: &mut col, contrast: p.tect.resist, r_expose };
+        match every {
+            None => cartalith_erosion::stream_power_kernel_rock(&mut field, &pre.stress_field, rain, gw, gh, &sp, &mut rock),
+            Some(k) => cartalith_erosion::stream_power_kernel_rock_refreshed(&mut field, &pre.stress_field, rain, gw, gh, &sp, &mut rock, k),
+        }
+    }
+    let secs = t.elapsed().as_secs_f64();
+    cartalith_erosion::account_regolith(&mut col, &before, &field, true);
+    let b = field.clone();
+    cartalith_erosion::isostatic_rebound(&mut field, &pre.field, gw, gh, p.tect.blur_r, world);
+    cartalith_erosion::lift_column(&mut col, &b, &field);
+    hillslope(p, sea, &mut field, &mut col, &clock);
+    (field, Some(col), secs)
+}
+
+/// Rivers cut into 3 or more pieces, on the traced cells: a river's pieces
+/// are its maximal runs of at least two consecutive dry traced points
+/// (water-body class 0), the cuts being spans of lake or ocean cells.
+///
+/// A **proxy** for `_riverzoom_probe`'s "rivers in 3+ pieces", which reads
+/// `river_stroke::stroke_pieces` on the render curve (it drops spans the
+/// spline never touches, so it counts fewer); the two are not the same number
+/// and must never be compared across. Counts every run `river_entities`
+/// traces, as [`b8`] does. Returns `(rivers, rivers in 3+ pieces)`.
+fn rivers_3plus_pieces(ws: &WorldState, class: &[u8], gw: usize, gh: usize, km: f64) -> (usize, usize) {
+    let (Some(order), Some(ch)) = (ws.stream_order.as_ref(), ws.channels.as_ref()) else {
+        return (0, 0);
+    };
+    let rivers = cartalith_hydrology::river_entities(
+        order,
+        &ch.recv,
+        &ws.flow_discharge,
+        &ws.field,
+        gw,
+        gh,
+        1,
+        cartalith_hydrology::river_flow_thresh(gw, gh, gw, km),
+        cartalith_hydrology::river_width_scale_k(km),
+        false,
+    );
+    let mut n3 = 0;
+    for r in &rivers {
+        let (mut pieces, mut run) = (0usize, 0usize);
+        for &(x, y) in &r.pts {
+            let i = (y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1);
+            if class[i] == 0 {
+                run += 1;
+            } else {
+                pieces += (run >= 2) as usize;
+                run = 0;
+            }
+        }
+        pieces += (run >= 2) as usize;
+        n3 += (pieces >= 3) as usize;
+    }
+    (rivers.len(), n3)
+}
+
+/// One world's §5.11 row: B8's three numbers, the pieces proxy, and relief
+/// and slope over interior land (B1's population: land at least 5 cells from
+/// the ocean), each as median and p90.
+fn rr_row(p: &WorldParams, ws: &WorldState) -> String {
+    let (gw, gh, world, km) = (p.gw, p.gh, p.world, p.map_width_km);
+    let sea = ws.sea_level;
+    let class = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall)).classification;
+    let (ocean, lake_pct, small, cells) = b8(ws, &class, gw, gh, km);
+    let (rivers, p3) = rivers_3plus_pieces(ws, &class, gw, gh, km);
+    let mpu = p.peak_m / (1.0 - sea);
+    let pop = pop_of(&interior_land(&class, gw, gh, world, COAST_MARGIN));
+    let relief = relief_m(&ws.field, gw, gh, world, RELIEF_HALF, mpu);
+    let slope = slope_deg(&ws.field, gw, gh, world, mpu, km * 1000.0 / gw as f64);
+    let rv: Vec<f64> = pop.iter().map(|&i| relief[i] as f64).collect();
+    let sv: Vec<f64> = pop.iter().map(|&i| slope[i] as f64).collect();
+    format!(
+        "small lakes {small:4}  lake% on path {}  ocean on path {ocean}  (path cells {cells})  rivers 3+ pieces {p3}/{rivers}  relief m med {} p90 {}  slope deg med {} p90 {}",
+        fmt_opt(lake_pct),
+        fmt_opt(median(&rv)),
+        fmt_opt(quantile(&rv, 0.9)),
+        fmt_opt(median(&sv)),
+        fmt_opt(quantile(&sv, 0.9)),
+    )
+}
+
+/// How far a variant's final field is from the as-built world's: cells whose
+/// bits differ, and the largest difference in metres.
+fn field_delta(p: &WorldParams, a: &WorldState, b: &WorldState) -> String {
+    let mpu = p.peak_m / (1.0 - a.sea_level);
+    let diff = a.field.iter().zip(b.field.iter()).filter(|(x, y)| x.to_bits() != y.to_bits()).count();
+    let maxd = a.field.iter().zip(b.field.iter()).map(|(x, y)| ((x - y).abs() as f64) * mpu).fold(0.0, f64::max);
+    format!("field cells changed {diff} of {} ({:.2} %), max |dz| {maxd:.2} m", a.field.len(), 100.0 * diff as f64 / a.field.len() as f64)
+}
+
+/// §5.11's measurement: today's app world against the routing refreshed
+/// every `k` iterations, on every seed at 800 km; then the gated
+/// `geology_processes` path at each τ in `RR_TAUS` (default 4, the
+/// diagnosis's case), as built against refreshed every 1 and every 4. Prints, per world, whether the replayed as-built world is
+/// `generate_terrain` (it must be, or no row means anything), whether each
+/// variant is bit-identical to it, and the §5.11 row.
+#[test]
+#[ignore = "§5.11 measurement: minutes at 2048x1311; run alone in release"]
+fn rr_routing_refresh() {
+    let (gw, gh) = grid();
+    let everys: Vec<usize> = env_list("RR_EVERY", &[1usize, 2, 3, 5, 9]);
+    let taus: Vec<f64> = env_list("RR_TAUS", &[4.0]);
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let p = app_params(seed, 800.0, gw, gh);
+        let pre = pre_erosion(&p);
+        let off = cartalith_engine::geo_clock::GeoClock::new(false, 1.0);
+        let iters = off.light_pass_iters(p.stream.iters).n;
+        println!("\n==== §5.11 seed {seed}, 800 km, {gw}x{gh}: app path, light pass {iters} iterations ====");
+        let (f, _, secs) = light_pass_rr(&p, &pre, false, 1.0, None);
+        let base = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+        let check = if same_world(&base, &generate_terrain(&p)) { "replica == generate_terrain" } else { "REPLICA DIVERGED" };
+        println!("  today (frozen)       [{check}; SP call {secs:.3} s]  {}", rr_row(&p, &base));
+        for &k in &everys {
+            let (f, _, secs) = light_pass_rr(&p, &pre, false, 1.0, std::num::NonZeroUsize::new(k));
+            let v = tail(&p, &pre, f, pre.rainfall.to_vec(), None, &off);
+            let same = if same_world(&v, &base) { "BIT-IDENTICAL to today" } else { "differs from today" };
+            println!("  refresh every {k:<2}     [{same}; {}; SP call {secs:.3} s]  {}", field_delta(&p, &base, &v), rr_row(&p, &v));
+        }
+        for &tau in &taus {
+            let on = cartalith_engine::geo_clock::GeoClock::new(true, tau);
+            println!("  -- gated path, geology_processes on, tau {tau} ({} iterations) --", on.light_pass_iters(p.stream.iters).n);
+            let (f, col, secs) = light_pass_rr(&p, &pre, true, tau, None);
+            let built = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &on);
+            let check = if same_world(&built, &treated_at(&p, tau)) { "replica == generate_terrain" } else { "REPLICA DIVERGED" };
+            println!("  tau {tau} as built       [{check}; SP call {secs:.3} s]  {}", rr_row(&p, &built));
+            for k in [1usize, 4] {
+                let (f, col, secs) = light_pass_rr(&p, &pre, true, tau, std::num::NonZeroUsize::new(k));
+                let v = tail(&p, &pre, f, pre.rainfall.to_vec(), col, &on);
+                println!("  tau {tau} refresh {k:<2}     [variant; SP call {secs:.3} s]  {}", rr_row(&p, &v));
+            }
+        }
+    }
+}
+
+/// §5.11's cost: `generate_terrain` on the app path, and the light pass's
+/// stream-power call alone at each refresh interval, one warm-up then
+/// `RR_RUNS` (default 5) runs each, medians with min..max. The projected
+/// generation for interval `k` is the app's plus (call at `k` − call
+/// frozen), since nothing else in the pipeline changes cost. Run it twice, as
+/// separate processes, alone.
+#[test]
+#[ignore = "§5.11 timing; run ALONE in release"]
+fn rr_routing_refresh_cost() {
+    let (gw, gh) = grid();
+    let seed = env_list("GF0_SEEDS", &SEEDS)[0];
+    let runs: usize = std::env::var("RR_RUNS").ok().map(|v| v.parse().expect("RR_RUNS")).unwrap_or(5);
+    let everys: Vec<usize> = env_list("RR_EVERY", &[1usize, 2, 3, 5]);
+    let p = app_params(seed, 800.0, gw, gh);
+    let pre = pre_erosion(&p);
+    let stat = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let mut tg = vec![];
+    for k in 0..=runs {
+        let t = std::time::Instant::now();
+        let _ = generate_terrain(&p);
+        if k > 0 {
+            tg.push(t.elapsed().as_secs_f64());
+        }
+    }
+    let (g, gl, gh_) = stat(&tg);
+    println!("§5.11 cost, seed {seed}, 800 km, {gw}x{gh}, {runs} runs after one warm-up");
+    println!("  generate_terrain (app)   median {g:.3} s ({gl:.3} .. {gh_:.3})");
+    let time_call = |every: Option<std::num::NonZeroUsize>| {
+        let mut v = vec![];
+        for k in 0..=runs {
+            let (_, _, s) = light_pass_rr(&p, &pre, false, 1.0, every);
+            if k > 0 {
+                v.push(s);
+            }
+        }
+        stat(&v)
+    };
+    let (f0, fl, fh) = time_call(None);
+    println!("  SP call, frozen (today)  median {f0:.3} s ({fl:.3} .. {fh:.3})");
+    for &k in &everys {
+        let (m, l, h) = time_call(std::num::NonZeroUsize::new(k));
+        println!(
+            "  SP call, refresh every {k:<2} median {m:.3} s ({l:.3} .. {h:.3}); projected generation {:.3} s, {:.3} x today",
+            g + m - f0,
+            (g + m - f0) / g
+        );
+    }
+}

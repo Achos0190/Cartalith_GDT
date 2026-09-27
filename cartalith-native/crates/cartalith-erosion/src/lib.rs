@@ -623,7 +623,7 @@ pub fn stream_power_kernel_bounded(
     pinned: Option<&[bool]>,
     area_seed: Option<&[f32]>,
 ) {
-    stream_power_core(fld, stress, resist, rain, w, h, p, pinned, area_seed, None);
+    stream_power_core(fld, stress, resist, rain, w, h, p, pinned, area_seed, None, None);
 }
 
 /// GF-2's rock input to stream power (`GEOLOGY_FIRST_SCOPE.md` §4.1, owner
@@ -637,8 +637,10 @@ pub fn stream_power_kernel_bounded(
 /// substrate at the substrate's rate.
 ///
 /// **What it must never do.** It never changes the kernel's routing (fill,
-/// receivers, drainage area are frozen before the iterations, exactly as on
-/// the legacy path), and it never reads `resistance_field`: with a rock input
+/// receivers, drainage area are built from the surface exactly as on the
+/// legacy path: once per call through [`stream_power_kernel_rock`], or every
+/// `k` iterations through [`stream_power_kernel_rock_refreshed`], §5.11),
+/// and it never reads `resistance_field`: with a rock input
 /// the legacy factor is gone, not multiplied in (§4.1's formula has no
 /// `resist` term). **It never writes `regolith`**: §4.9 says "the kernels do
 /// not change; the caller adds `max(0, field_after − field_before)` to
@@ -706,13 +708,88 @@ pub fn stream_power_kernel_rock(
     rock: &mut StreamPowerRock,
 ) {
     assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
-    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock));
+    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), None);
+}
+
+/// [`stream_power_kernel`] with its drainage routing rebuilt from the current
+/// surface every `refresh_every` iterations (`GEOLOGY_FIRST_SCOPE.md` §5.11).
+///
+/// **What it does.** Iteration `0` routes as the reference does; iterations
+/// `every`, `2·every`, ... re-run the fill, receivers, drainage area and `Cc`
+/// on the surface the previous iterations left, then carry on. Everything
+/// else -- the uplift field, the update, the deposition, the final clamp -- is
+/// the legacy kernel's. A refresh interval of at least `p.iters` never
+/// refreshes, so it is [`stream_power_kernel`] bit for bit.
+///
+/// **Why.** With routing frozen for a whole call, every iteration follows the
+/// tree of the surface the call started from, however far the surface has
+/// moved since. GF-10 found that the cause of the excess 1-3-cell lakes on
+/// long runs (τ = 4, 36 iterations; §5.10). The mechanism inside the frozen
+/// call was not isolated. At the app's 9 iterations §5.11 measured refreshing
+/// every iteration as moving about 98 % of cells and the small-lake count
+/// either way by seed (fewer on 3 of 5, more on 2), so this is a tool for long
+/// runs, not a general fix.
+///
+/// **What it must never do.** It is not the app's or the parity path's
+/// kernel: refreshing moves generated output (§5.11 measures by how much), so
+/// no caller on `WorldParams::defaults()` or on the app's gated-off defaults
+/// may reach it. `NonZeroUsize` because "refresh every 0 iterations" has no
+/// meaning, and a `0` read as "never" would be a plausible-looking sentinel.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_power_kernel_refreshed(
+    fld: &mut [f32],
+    stress: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    refresh_every: std::num::NonZeroUsize,
+) {
+    stream_power_core(fld, stress, resist, rain, w, h, p, None, None, None, Some(refresh_every));
+}
+
+/// [`stream_power_kernel_rock`] with the routing refreshed every
+/// `refresh_every` iterations, as [`stream_power_kernel_refreshed`] does for
+/// the legacy kernel (`GEOLOGY_FIRST_SCOPE.md` §5.11).
+///
+/// **What it does.** The GF-2 rock kernel (κ lookup, in-loop contact switch,
+/// uplift lifting the contact), with the fill, receivers, area and the
+/// rock-free part of `Cc` rebuilt from the current surface at iterations
+/// `every`, `2·every`, .... The rock multiplier is still read per iteration.
+///
+/// **Why.** The `geology_processes` path runs this kernel for `τ`-scaled
+/// iteration counts (GF-7's clock), and a frozen tree over 36 iterations at
+/// `τ = 4` was GF-10's measured small-lake cause.
+///
+/// **What it must never do.** Write `regolith` (the caller accounts the net
+/// change, §4.9, as for [`stream_power_kernel_rock`]); or be reached with the
+/// processes gated off.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_power_kernel_rock_refreshed(
+    fld: &mut [f32],
+    stress: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    rock: &mut StreamPowerRock,
+    refresh_every: std::num::NonZeroUsize,
+) {
+    assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
+    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock), Some(refresh_every));
 }
 
 /// The body shared by [`stream_power_kernel_bounded`] (legacy, `rock =
-/// None`) and [`stream_power_kernel_rock`]. With `rock = None` every
-/// statement below is the legacy port's, unchanged: the rock branches are
-/// separate arms, so the kernel goldens stay bit-identical by construction.
+/// None`), [`stream_power_kernel_rock`] and the two `_refreshed` entry points.
+/// With `rock = None` and `refresh_every = None` every statement below is the
+/// legacy port's, unchanged: the rock branches are separate arms and the
+/// routing is built exactly once ([`stream_power_routing`] is the ported
+/// setup, moved), so the kernel goldens stay bit-identical by construction.
+///
+/// `refresh_every`: `None` routes once (the reference's frozen tree);
+/// `Some(k)` rebuilds the routing before iterations `k`, `2k`, .... Must never
+/// be passed `Some` by a caller on the parity path or the app's defaults.
 #[allow(clippy::too_many_arguments)]
 fn stream_power_core(
     fld: &mut [f32],
@@ -725,6 +802,7 @@ fn stream_power_core(
     pinned: Option<&[bool]>,
     area_seed: Option<&[f32]>,
     mut rock: Option<&mut StreamPowerRock>,
+    refresh_every: Option<std::num::NonZeroUsize>,
 ) {
     let n = w * h;
     if let Some(m) = pinned {
@@ -747,9 +825,217 @@ fn stream_power_core(
     // a pin type; it is not worth the duplication in a golden-parity kernel for
     // a number this size.
     let is_pinned = |i: usize| pinned.is_some_and(|m| m[i]);
-    let wrap = p.world;
     let sea = p.sea;
+
+    // NOT parallelized: `ss` is a running SUM (not a max), and unlike
+    // max/min, floating-point summation is order-dependent -- a parallel
+    // reduction could round differently and, in a rare edge case, flip
+    // the `ss < 1e-3` branch below. Cheap (O(n), trivial per-cell work),
+    // not worth risking bit-exactness for.
+    let mut u = vec![0f32; n];
+    let mut ss = 0.0f64;
+    for i in 0..n {
+        let s = stress[i];
+        if s > 0.0 {
+            u[i] = s;
+        }
+        ss += (s as f64).abs();
+    }
+    if ss < 1e-3 {
+        // Per-cell, independent -- safe.
+        u.par_iter_mut().enumerate().for_each(|(i, uv)| {
+            *uv = ((fld[i] as f64 - 0.3).max(0.0)) as f32;
+        });
+    }
+    // Max is associative/commutative for real values -- a parallel
+    // reduction gives the exact same result as the sequential running-max
+    // (same reasoning `cartalith-climate::build_wind`'s own `mx` uses).
+    let u_max = u.par_iter().map(|&uv| uv as f64).reduce(|| 1e-6f64, f64::max);
+    u.par_iter_mut().for_each(|uv| {
+        *uv = ((*uv as f64 / u_max) * p.uplift) as f32;
+    });
+
+    let dt = 1.0f64;
+    let dep = p.deposit;
+
+    // `kc[k]` = κ_k^c for each rock, looked up by the exposed rock's index.
+    let kc: Option<[f64; cartalith_terrain::geology::ROCK_COUNT]> = rock
+        .as_ref()
+        .map(|r| cartalith_terrain::geology::Rock::ALL.map(|k| kappa_multiplier(k, r.contrast)));
+    // The routing: built once, as the reference does, and rebuilt from the
+    // current surface every `refresh_every` iterations when a caller asks
+    // (`None` never rebuilds, so the legacy and GF-2 callers are the frozen
+    // kernel by control flow).
+    let StreamPowerRouting { mut order, mut rcv, mut rdist, mut area, mut cc } =
+        stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
+    // The rock multiplier at cell `i`, read at its current height through
+    // §2.5's exposure rule (`GeologyColumn::exposed`). A column always has a
+    // top rock (GF-1 writes one per cell). An out-of-range code is refused
+    // loudly rather than read as some plausible rock (`MISTAKES.md`: never
+    // encode "no value" as a plausible value); `build_geology` cannot write
+    // one.
+    let rock_mult = |col: &cartalith_terrain::geology::GeologyColumn, kc: &[f64; cartalith_terrain::geology::ROCK_COUNT], r_expose: f32, i: usize, z: f32| -> f64 {
+        let k = col.exposed(i, z, r_expose).expect("GF-2: the rock column holds a code that is not a rock");
+        kc[k as usize]
+    };
+
+    // NOT parallelized, this whole loop: a genuine donor-receiver
+    // wavefront dependency, not just across `p.iters` iterations but
+    // WITHIN a single iteration too -- `fld[i]`'s update reads `fld[r]`,
+    // which the receivers-before-donors comment below confirms was
+    // *already updated earlier in this same pass*. The deposition
+    // sub-loop below has the identical shape in reverse (scatters into
+    // `sed[r]`). Same category as `area`'s flow accumulation above.
+    for it in 0..p.iters {
+        if let Some(every) = refresh_every {
+            if it > 0 && it as usize % every.get() == 0 {
+                StreamPowerRouting { order, rcv, rdist, area, cc } =
+                    stream_power_routing(fld, resist, rain, w, h, p, area_seed, kc.is_some());
+            }
+        }
+        let old_h: Option<Vec<f32>> = if dep > 0.0 { Some(fld.to_vec()) } else { None };
+        // receivers-before-donors: `order` runs low-to-high fill order,
+        // so a cell's receiver (always lower) is updated before it is.
+        #[allow(clippy::needless_range_loop)]
+        for k in 0..n {
+            let i = order[k] as usize;
+            let r = rcv[i];
+            if r < 0 || is_pinned(i) {
+                continue;
+            }
+            let r = r as usize;
+            match (rock.as_deref_mut(), kc.as_ref()) {
+                (Some(rk), Some(kc)) => {
+                    // GF-2: the contact switch (§4.1) is this read -- the
+                    // exposed rock at the height the previous iteration left.
+                    let c = cc[i] * rock_mult(&*rk.column, kc, rk.r_expose, i, fld[i]);
+                    let lifted = fld[i] as f64 + dt * u[i] as f64;
+                    let val = (lifted + c * fld[r] as f64) / (1.0 + c);
+                    let new = val as f32;
+                    // Tectonic uplift raises the whole column, contact with
+                    // it (the rebound rule of §4.2 applied to uplift; zero at
+                    // the default `stream.uplift = 0`). NaN stays NaN on a
+                    // single-layer cell.
+                    if u[i] != 0.0 {
+                        rk.column.contact[i] = (rk.column.contact[i] as f64 + dt * u[i] as f64) as f32;
+                    }
+                    fld[i] = new;
+                }
+                _ => {
+                    let c = cc[i];
+                    let val = (fld[i] as f64 + dt * u[i] as f64 + c * fld[r] as f64) / (1.0 + c);
+                    fld[i] = val as f32;
+                }
+            }
+        }
+        if dep > 0.0 {
+            let old_h = old_h.expect("old_h is Some whenever dep > 0.0");
+            let mut sed = vec![0f32; n];
+            for i in 0..n {
+                sed[i] = ((old_h[i] as f64 + dt * u[i] as f64 - fld[i] as f64).max(0.0)) as f32;
+            }
+            for k in (0..n).rev() {
+                let i = order[k] as usize;
+                let r = rcv[i];
+                if r < 0 {
+                    continue;
+                }
+                let r = r as usize;
+                let rd = if rdist[i] != 0.0 { rdist[i] as f64 } else { 1.0 };
+                let slope = ((fld[i] as f64 - fld[r] as f64) / rd).max(1e-6);
+                let cap = 0.005 * (area[i] as f64).powf(0.5) * slope;
+                let ceil = old_h[i] as f64 + dt * u[i] as f64;
+
+                // A pinned cell deposits nothing (its height is fixed) and
+                // therefore keeps all of its sediment, which the carry below
+                // then passes downstream unchanged -- mass conserving, and the
+                // two `sed[i]` decrements are inside the same guard as the
+                // `fld[i]` writes they pay for.
+                if !is_pinned(i) {
+                    if sed[i] as f64 > cap {
+                        let mut d = (sed[i] as f64 - cap) * dep;
+                        if fld[i] as f64 + d > ceil {
+                            d = (ceil - fld[i] as f64).max(0.0);
+                        }
+                        fld[i] = (fld[i] as f64 + d) as f32;
+                        sed[i] = (sed[i] as f64 - d) as f32;
+                    }
+                    if fld[i] as f64 <= sea && sed[i] as f64 > 0.0 {
+                        let mut d = sed[i] as f64 * dep * 0.8;
+                        if fld[i] as f64 + d > ceil {
+                            d = (ceil - fld[i] as f64).max(0.0);
+                        }
+                        fld[i] = (fld[i] as f64 + d) as f32;
+                        sed[i] = (sed[i] as f64 - d) as f32;
+                    }
+                }
+                sed[r] = (sed[r] as f64 + sed[i] as f64) as f32;
+            }
+        }
+    }
+
+    fld.par_iter_mut().enumerate().for_each(|(i, v)| {
+        if !is_pinned(i) {
+            *v = v.clamp(0.0, 1.0)
+        }
+    });
+}
+
+/// One pass's routing, as [`stream_power_routing`] builds it. Every vector is
+/// `w * h` long. `rcv[i]` is `-1` for a cell with no lower neighbour (a pit
+/// or the fill's own boundary), and such a cell's `cc[i]` is `0.0` and is
+/// never read.
+struct StreamPowerRouting {
+    /// Cell indices in priority-flood order, lowest filled height first, so a
+    /// receiver is always updated before its donors.
+    order: Vec<i32>,
+    rcv: Vec<i32>,
+    /// D8 distance to `rcv[i]` (1 or √2), `1.0` where there is no receiver.
+    rdist: Vec<f32>,
+    /// Multiple-flow drainage area in cells (or the tile's seed units).
+    area: Vec<f32>,
+    /// `K·dt·A^m/L` with the legacy strength and climate factors, or, with a
+    /// rock input, everything but the per-iteration rock multiplier.
+    cc: Vec<f64>,
+}
+
+
+/// The drainage routing one stream-power pass reads, and the per-cell incision
+/// coefficient built on it: priority-flood fill order, D8 steepest-descent
+/// receivers and their distances, Freeman (1991) multiple-flow drainage area,
+/// and `Cc`.
+///
+/// **What it does.** Exactly the setup `streamPowerKernel()` (reference HTML
+/// lines 4082-4194) runs once before its iterations, moved into one function
+/// so [`stream_power_core`] can run it again when a caller asks for a routing
+/// refresh. The statements are the ported ones, unchanged and in the same
+/// order: a caller that builds it once gets the frozen-routing kernel bit for
+/// bit (the golden fixtures in `tests/golden_parity_streampower.rs` pin that).
+///
+/// **Why it exists.** GF-10's diagnosis (`GEOLOGY_FIRST_SCOPE.md` §5.10) found
+/// the routing frozen across a long call to be the cause of its excess small
+/// lakes; §5.11 measures rebuilding it mid-call, which needs this setup
+/// callable more than once.
+///
+/// **What it must never do.** It never writes `fld` (it reads the surface as
+/// it stands), never reads the rock column (the rock multiplier stays per
+/// iteration, in the caller's loop), and never skips the `area_seed` a tile
+/// supplies: a refreshed tile must still mean the world's drained area.
+#[allow(clippy::too_many_arguments)]
+fn stream_power_routing(
+    fld: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    area_seed: Option<&[f32]>,
+    rock_on: bool,
+) -> StreamPowerRouting {
+    let n = w * h;
+    let wrap = p.world;
     let d8 = d8_table();
+
 
     let mut order = vec![0i32; n];
     let mut rdist = vec![0f32; n];
@@ -813,38 +1099,9 @@ fn stream_power_core(
     }
     let dist = rdist; // renamed for clarity below (matches JS's `dist`, reused as `rdist` after receiver computation overwrites it)
 
-    // NOT parallelized: `ss` is a running SUM (not a max), and unlike
-    // max/min, floating-point summation is order-dependent -- a parallel
-    // reduction could round differently and, in a rare edge case, flip
-    // the `ss < 1e-3` branch below. Cheap (O(n), trivial per-cell work),
-    // not worth risking bit-exactness for.
-    let mut u = vec![0f32; n];
-    let mut ss = 0.0f64;
-    for i in 0..n {
-        let s = stress[i];
-        if s > 0.0 {
-            u[i] = s;
-        }
-        ss += (s as f64).abs();
-    }
-    if ss < 1e-3 {
-        // Per-cell, independent -- safe.
-        u.par_iter_mut().enumerate().for_each(|(i, uv)| {
-            *uv = ((fld[i] as f64 - 0.3).max(0.0)) as f32;
-        });
-    }
-    // Max is associative/commutative for real values -- a parallel
-    // reduction gives the exact same result as the sequential running-max
-    // (same reasoning `cartalith-climate::build_wind`'s own `mx` uses).
-    let u_max = u.par_iter().map(|&uv| uv as f64).reduce(|| 1e-6f64, f64::max);
-    u.par_iter_mut().for_each(|uv| {
-        *uv = ((*uv as f64 / u_max) * p.uplift) as f32;
-    });
-
     let m = 0.5f64;
     let k_coef = p.k * p.g;
     let dt = 1.0f64;
-    let dep = p.deposit;
     let ck = p.climate_k;
 
     let mut rcv = vec![-1i32; n];
@@ -964,11 +1221,7 @@ fn stream_power_core(
     // -- and the loop multiplies in `κ(exposed)^c` per iteration, because the
     // exposed rock changes as the cell is lowered through its contact. The
     // legacy arm below is the ported expression, untouched.
-    // `kc[k]` = κ_k^c for each rock, looked up by the exposed rock's index.
-    let kc: Option<[f64; cartalith_terrain::geology::ROCK_COUNT]> = rock
-        .as_ref()
-        .map(|r| cartalith_terrain::geology::Rock::ALL.map(|k| kappa_multiplier(k, r.contrast)));
-    if kc.is_some() {
+    if rock_on {
         cc.par_iter_mut().enumerate().for_each(|(i, cc_i)| {
             let r = rcv[i];
             if r < 0 {
@@ -989,111 +1242,7 @@ fn stream_power_core(
             *cc_i = ki * dt * (area[i] as f64).powf(m) / l;
         });
     }
-    // The rock multiplier at cell `i`, read at its current height through
-    // §2.5's exposure rule (`GeologyColumn::exposed`). A column always has a
-    // top rock (GF-1 writes one per cell). An out-of-range code is refused
-    // loudly rather than read as some plausible rock (`MISTAKES.md`: never
-    // encode "no value" as a plausible value); `build_geology` cannot write
-    // one.
-    let rock_mult = |col: &cartalith_terrain::geology::GeologyColumn, kc: &[f64; cartalith_terrain::geology::ROCK_COUNT], r_expose: f32, i: usize, z: f32| -> f64 {
-        let k = col.exposed(i, z, r_expose).expect("GF-2: the rock column holds a code that is not a rock");
-        kc[k as usize]
-    };
-
-    // NOT parallelized, this whole loop: a genuine donor-receiver
-    // wavefront dependency, not just across `p.iters` iterations but
-    // WITHIN a single iteration too -- `fld[i]`'s update reads `fld[r]`,
-    // which the receivers-before-donors comment below confirms was
-    // *already updated earlier in this same pass*. The deposition
-    // sub-loop below has the identical shape in reverse (scatters into
-    // `sed[r]`). Same category as `area`'s flow accumulation above.
-    for _ in 0..p.iters {
-        let old_h: Option<Vec<f32>> = if dep > 0.0 { Some(fld.to_vec()) } else { None };
-        // receivers-before-donors: `order` runs low-to-high fill order,
-        // so a cell's receiver (always lower) is updated before it is.
-        #[allow(clippy::needless_range_loop)]
-        for k in 0..n {
-            let i = order[k] as usize;
-            let r = rcv[i];
-            if r < 0 || is_pinned(i) {
-                continue;
-            }
-            let r = r as usize;
-            match (rock.as_deref_mut(), kc.as_ref()) {
-                (Some(rk), Some(kc)) => {
-                    // GF-2: the contact switch (§4.1) is this read -- the
-                    // exposed rock at the height the previous iteration left.
-                    let c = cc[i] * rock_mult(&*rk.column, kc, rk.r_expose, i, fld[i]);
-                    let lifted = fld[i] as f64 + dt * u[i] as f64;
-                    let val = (lifted + c * fld[r] as f64) / (1.0 + c);
-                    let new = val as f32;
-                    // Tectonic uplift raises the whole column, contact with
-                    // it (the rebound rule of §4.2 applied to uplift; zero at
-                    // the default `stream.uplift = 0`). NaN stays NaN on a
-                    // single-layer cell.
-                    if u[i] != 0.0 {
-                        rk.column.contact[i] = (rk.column.contact[i] as f64 + dt * u[i] as f64) as f32;
-                    }
-                    fld[i] = new;
-                }
-                _ => {
-                    let c = cc[i];
-                    let val = (fld[i] as f64 + dt * u[i] as f64 + c * fld[r] as f64) / (1.0 + c);
-                    fld[i] = val as f32;
-                }
-            }
-        }
-        if dep > 0.0 {
-            let old_h = old_h.expect("old_h is Some whenever dep > 0.0");
-            let mut sed = vec![0f32; n];
-            for i in 0..n {
-                sed[i] = ((old_h[i] as f64 + dt * u[i] as f64 - fld[i] as f64).max(0.0)) as f32;
-            }
-            for k in (0..n).rev() {
-                let i = order[k] as usize;
-                let r = rcv[i];
-                if r < 0 {
-                    continue;
-                }
-                let r = r as usize;
-                let rd = if rdist[i] != 0.0 { rdist[i] as f64 } else { 1.0 };
-                let slope = ((fld[i] as f64 - fld[r] as f64) / rd).max(1e-6);
-                let cap = 0.005 * (area[i] as f64).powf(0.5) * slope;
-                let ceil = old_h[i] as f64 + dt * u[i] as f64;
-
-                // A pinned cell deposits nothing (its height is fixed) and
-                // therefore keeps all of its sediment, which the carry below
-                // then passes downstream unchanged -- mass conserving, and the
-                // two `sed[i]` decrements are inside the same guard as the
-                // `fld[i]` writes they pay for.
-                if !is_pinned(i) {
-                    if sed[i] as f64 > cap {
-                        let mut d = (sed[i] as f64 - cap) * dep;
-                        if fld[i] as f64 + d > ceil {
-                            d = (ceil - fld[i] as f64).max(0.0);
-                        }
-                        fld[i] = (fld[i] as f64 + d) as f32;
-                        sed[i] = (sed[i] as f64 - d) as f32;
-                    }
-                    if fld[i] as f64 <= sea && sed[i] as f64 > 0.0 {
-                        let mut d = sed[i] as f64 * dep * 0.8;
-                        if fld[i] as f64 + d > ceil {
-                            d = (ceil - fld[i] as f64).max(0.0);
-                        }
-                        fld[i] = (fld[i] as f64 + d) as f32;
-                        sed[i] = (sed[i] as f64 - d) as f32;
-                    }
-                }
-                sed[r] = (sed[r] as f64 + sed[i] as f64) as f32;
-            }
-        }
-    }
-
-    fld.par_iter_mut().enumerate().for_each(|(i, v)| {
-        if !is_pinned(i) {
-            *v = v.clamp(0.0, 1.0)
-        }
-    });
+    StreamPowerRouting { order, rcv, rdist, area, cc }
 }
 
 /// `isostaticRebound()` (reference HTML lines 4426-4432): erosional

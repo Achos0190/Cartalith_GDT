@@ -2921,6 +2921,160 @@ opened and looked at:
 - `cargo test --workspace --no-fail-fast` in the scratch copy passed before
   and after the change. The counts are in `STATUS.md`'s line.
 
+### 5.11 Refreshing the stream-power routing: measured on today's app worlds (2026-09-28) — **not adopted; owner call**
+
+The `OUTSTANDING_WORK.md` row "Refresh drainage routing inside the
+stream-power call (the small-lake cause)". §5.10 found that the kernel routes
+once per call and that a per-iteration refresh removes most of τ = 4's excess
+small lakes. The question here: does refreshing change **today's app worlds**
+(`cartalith_godot::params::defaults()`, `geology_processes` off, a 9-iteration
+light pass)?
+
+**Answer: yes, on every seed and every interval below 9.** So it is a
+re-baseline and is **not adopted**. Nothing in the engine calls it.
+
+**What was built** (no production caller):
+- `cartalith_erosion::stream_power_kernel_refreshed` and
+  `stream_power_kernel_rock_refreshed`. They rebuild the fill, receivers,
+  drainage area and `Cc` from the current surface before iterations `k`,
+  `2k`, and so on. `k` is a `NonZeroUsize`.
+- The ported setup moved, statement for statement, into
+  `stream_power_routing`. `stream_power_core` calls it once, then again
+  only when a refresh interval is given. Every existing entry point passes
+  `None`, so the legacy and GF-2 kernels are unchanged by control flow.
+- Harness section "§5.11" in `crates/cartalith-godot/tests/gf0_geology_harness.rs`:
+  `light_pass_rr`, `rr_row`, the ignored `rr_routing_refresh` and
+  `rr_routing_refresh_cost`.
+
+**Commands** (release, alone, in a `git archive` copy of HEAD `f607262` plus
+the change):
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact rr_routing_refresh
+RR_TAUS=1 RR_EVERY=1 cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact rr_routing_refresh
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact rr_routing_refresh_cost   # twice, separate processes
+```
+
+Each as-built row was checked against `generate_terrain` in the same run: "replica ==
+generate_terrain" on all 5 seeds, app path and gated path. The second run
+reproduced every "refresh every 1" app row of the first exactly.
+
+**How each measure is defined:**
+- *Small lakes*, *lake % on path* and *ocean on path* are B8's (§5.2).
+- *3+ pieces* is a **traced-cell proxy**: a river's maximal dry runs of at
+  least 2 traced points, counted over every run `river_entities` traces. It
+  is not `_riverzoom_probe`'s stroke count, which cuts on the render curve,
+  and the two must not be compared.
+- *Relief* is B1's 9 × 9 window and *slope* is the Sample panel's grade.
+  Both are taken over interior land, with the median and p90 shown.
+
+**App path, 800 km, 2048 × 1311, light pass 9 iterations.** Today → refresh
+every 1 / 2 / 3 / 5. Refresh every 9 is today's world bit for bit on all five
+seeds.
+
+| Seed | small lakes | lake % on path | 3+ pieces (proxy) | relief m, median | slope °, p90 |
+|---|---|---|---|---|---|
+| 483920 | 46 → 65 / 58 / 64 / 85 | 1.18 → 0.98 / 1.33 / 1.26 / 1.11 | 1/1120 → 2/1297 / 1/1254 / 1/1145 / 1/1071 | 30.96 → 29.81 / 29.86 / 30.76 / 30.79 | 3.83 → 3.72 / 3.76 / 3.76 / 3.78 |
+| 24601 | 65 → 50 / 64 / 86 / 80 | 2.23 → 3.54 / 3.36 / 2.56 / 2.63 | 1/1298 → 5/1577 / 3/1436 / 5/1312 / 6/1289 | 31.24 → 30.56 / 30.51 / 31.25 / 31.30 | 2.64 → 2.59 / 2.58 / 2.66 / 2.66 |
+| 71077345 | 26 → 18 / 21 / 32 / 31 | 1.42 → 0.72 / 1.85 / 1.01 / 1.29 | 2/1044 → 3/1216 / 2/1160 / 3/1049 / 1/1061 | 29.82 → 28.96 / 29.33 / 29.35 / 29.47 | 2.84 → 2.74 / 2.78 / 2.78 / 2.80 |
+| 12345 | 105 → 107 / 97 / 80 / 93 | 4.66 → 5.41 / 4.60 / 4.80 / 3.80 | 7/952 → 6/1176 / 6/1123 / 5/1015 / 6/1002 | 37.28 → 35.80 / 35.95 / 37.01 / 37.22 | 5.70 → 5.63 / 5.62 / 5.71 / 5.73 |
+| 314159 | 81 → 60 / 83 / 100 / 88 | 9.35 → 9.63 / 9.75 / 9.07 / 9.99 | 2/1358 → 3/1508 / 5/1481 / 1/1334 / 2/1308 | 36.42 → 35.50 / 35.38 / 36.22 / 36.65 | 5.02 → 4.87 / 4.87 / 4.95 / 4.93 |
+
+What the table shows:
+- **Ocean on path is 0 on every row.**
+- **How much moves:** at every interval below 9, 96.8–99.1 % of field cells
+  change. The largest single-cell difference is 570–1 524 m.
+- **More rivers are traced**, for example 1120 → 1297 on 483920 at every-1.
+- **Relief and slope fall a little.** At every-1 the median relief drops
+  0.7–1.5 m, and p90 slope drops 0.05–0.15°.
+- **There is no small-lake benefit at 9 iterations.** At every-1 the count
+  falls on 3 seeds and rises on 2. Every-3 and every-5 each raise it on 4
+  of 5 seeds.
+- Lake share on the path moves either way.
+
+**The gated path (`geology_processes` on).** Small lakes, as built → every 1 /
+every 4:
+
+| τ (iterations) | 483920 | 24601 | 71077345 | 12345 | 314159 |
+|---|---|---|---|---|---|
+| 4 (36) | 355 → 62 / 127 | 352 → 99 / 200 | 175 → 43 / 84 | 438 → 53 / 90 | 498 → 88 / 162 |
+| 1 (9) | 50 → 71 / 69 | 72 → 67 / 84 | 24 → 30 / 33 | 106 → 88 / 75 | 54 → 51 / 65 |
+
+- **At τ = 4, the in-kernel refresh reproduces §5.10's emulation exactly:**
+  62 / 99 / 43 / 53 / 88. Over the app world's counts, every-1 removes
+  88–98 % of the τ = 4 excess on four seeds and all of it on 12345.
+  Every-4 removes 53–81 % on four seeds and all of it on 12345.
+- **At τ = 1 the count moves either way,** as on the app path. So the refresh
+  pays only on long runs.
+- At τ = 4 every-1 also lowers median relief by 1.5–2.8 m, and raises the
+  proxy 3+ pieces count on all 5 seeds (by 2–4).
+
+**Cost** (seed 483920, 5 runs after one warm-up, two separate processes, run
+alone, median with min..max). Nothing else in the pipeline changes cost, so
+the projection is the app's generation plus the difference in the call.
+
+| | Run 1 | Run 2 |
+|---|---|---|
+| `generate_terrain` (app) | 3.251 s (3.219..3.302) | 3.191 s (3.153..3.228) |
+| light-pass SP call, frozen | 1.081 s (1.067..1.102) | 1.017 s (1.011..1.034) |
+| every 1 | 5.206 s → projected 2.27 × | 5.167 s → 2.30 × |
+| every 2 | 3.089 s → 1.62 × | 3.067 s → 1.64 × |
+| every 3 | 2.058 s → 1.30 × | 2.054 s → 1.33 × |
+| every 5 | 1.522 s → 1.14 × | 1.526 s → 1.16 × |
+
+Each refresh adds about 0.5 s at 2048 × 1311: (5.206 − 1.081) / 8
+refreshes and (3.089 − 1.081) / 4 in run 1.
+
+**Recommendation.**
+1. **App: do not adopt.** It re-baselines every app world, with no
+   small-lake benefit at the app's 9 iterations, and costs 1.14–2.30 ×
+   generation.
+2. **Gated path: not wired either.** §5.8 and §5.10 leave the
+   `geology_processes` path off and GF-11/GF-12 at NO-GO. At its only
+   shipped age (τ = 1), the refresh measures as noise. The owner may want it
+   later, if a long-run path (τ > 1, or §4.15's stage) is built. Then the
+   evidence favours refreshing every iteration **only when the clock
+   lengthens the run**:
+   - It removes 88–98 % of τ = 4's excess small lakes on four seeds, and
+     all of it on 12345.
+   - Its cost is about 6.5 × the frozen call at 36 iterations (27.6 s
+     against 4.3 s on 483920). That is one sample inside the measurement
+     run, not a timing.
+3. **No golden moved.** App, app-with-processes and `WorldParams::defaults`
+   worlds hash identically before and after the change (below).
+
+**Identity.**
+- `cartalith-engine` is untouched. Every existing kernel entry point passes
+  `refresh_every = None`.
+- `golden_parity_streampower` passes. Its two cases fail under the mutant
+  that makes the frozen entry refresh, which proves they can see the
+  difference.
+- Whole-world hashes were compared, HEAD `f607262` against the change, in
+  two `git archive` copies with separate target dirs, release. The hash
+  covers field, rainfall, temperature, discharge and river mask.
+  **15 of 15 were identical:**
+  - 5 seeds × app defaults at 2048 × 1311;
+  - 5 seeds × app defaults with `geology_processes` on;
+  - 5 seeds × `WorldParams::defaults(512, 328, seed)`.
+  - A first attempt's comparison was vacuous: the hash test did not compile,
+    so both outputs were empty. It was caught by counting lines and redone.
+
+**Tests** (`crates/cartalith-erosion/tests/stream_power_refresh.rs`, 5 fast
+tests):
+- The oracle: every-`k` over 12 iterations equals `12/k` back-to-back
+  frozen calls of `k` iterations. This holds bit for bit, for `k` = 1–4
+  and for the rock entry at `k` = 1 and 3.
+- An interval ≥ the iteration count is the frozen kernel.
+- The fixture is one the refresh changes.
+- Literal pit counts at 36 iterations: 182 → 34 frozen, → 31 refreshed.
+- Mutation testing in a scratch copy, 7 of 7 mutants killed:
+  - the refresh never fires;
+  - the wrong schedule;
+  - the rebuilt routing shadowed rather than assigned;
+  - the rock flag dropped on refresh;
+  - each `_refreshed` entry passing `None`;
+  - the frozen entry refreshing.
+
 ---
 
 ## 6. Re-baseline plan
