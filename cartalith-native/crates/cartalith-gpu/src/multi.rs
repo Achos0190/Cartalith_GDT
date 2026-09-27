@@ -734,13 +734,16 @@ pub fn device_grid_limit_bytes(gpu: &GpuDevice) -> u64 {
 
 /// A real, measured memory reading for one live device.
 ///
-/// Read the two numbers together. Every dispatch in this crate frees its
-/// buffers as it returns, so a reading taken *after* a generation shows
-/// `allocated_bytes` back near the device's idle baseline while
-/// `reserved_bytes` shows what the allocator actually took from the driver
-/// and still holds — measured on this machine: 524 KB allocated against
-/// 256 MB reserved after a full 256-grid generation. The reserved figure is
-/// the one that answers "how much of this card is this app holding".
+/// Read the two numbers together. `reserved_bytes` shows what the allocator
+/// took from the driver and still holds; it is the one that answers "how much
+/// of this card is this app holding". The 256-grid figure once measured here
+/// (524 KB allocated against 256 MB reserved) predates the buffer pool
+/// (`pool.rs`, 2026-09-27): dispatches used to free every buffer as they
+/// returned, and now hand them back to the device's pool, which keeps up to
+/// [`crate::pool_retention_cap_bytes`] of them live between generations -- so
+/// `allocated_bytes` after a generation now includes the retained buffers
+/// (`GpuDevice::buffer_pool().stats().retained_bytes`), not only the idle
+/// baseline. Not re-measured.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GpuMemoryUse {
     /// Bytes this process has live in GPU allocations at the moment of the
@@ -1222,6 +1225,7 @@ impl RawGpuDevice {
             device: self.device,
             queue: self.queue,
             lost: self.lost,
+            pool: self.pool,
         }
     }
 }

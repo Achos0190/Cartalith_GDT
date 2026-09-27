@@ -1435,7 +1435,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             .and_then(|gpu| {
                 cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y, world)
             })
-            .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
+            // Any unassigned cell => treat as a failed dispatch, fall back. So is
+            // an id past the last plate: the CPU stress loop indexes `plates` by
+            // it, and an out-of-range index is a panic in the Godot process, not
+            // a wrong map (seen once, `cartalith_gpu::read_back`'s lost-device note).
+            .filter(|ids| ids.iter().all(|&id| id >= 0 && (id as usize) < plates.len()))
             .map(|ids| {
                 gpu_stages_used.push("plate_assignment".to_string());
                 ids.into_iter().map(|id| id as u16).collect::<Vec<u16>>()

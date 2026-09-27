@@ -233,6 +233,35 @@ Where multiple GPUs are available, inspect the adapters rather than blindly sele
 
 Do not continuously allocate and destroy GPU buffers during simulation. GPU resources must be pooled/reused where possible (allocate -> reuse -> rewrite -> reuse, not allocate -> compute -> destroy repeated). Large Cartalith fields (heightField, temperatureField, rainField, flowField, moistureField, erosionField, biomeField) should use persistent GPU storage buffers or textures depending on access pattern.
 
+> **Port note, 2026-09-27 (Ruling AZ, `LARGE_ITEM_RULINGS.md`) — built as a
+> buffer pool; not the owner's text above.** `cartalith-gpu/src/pool.rs`.
+> Every `dispatch_gpu_*` takes its buffers from its device's `BufferPool`
+> (keyed by exact byte size and a canonical usage) and returns them on drop,
+> across stages and across generations. **Retention policy, conservative by
+> default:** (1) only buffers for the current grid size — a dispatch declaring
+> a different cell count releases everything first; (2) released with the
+> device — the pool is shared by `Arc` with the device, so the device cache
+> replacing a device drops it, and a lost device retains nothing; (3) at most
+> `GPU_GRID_BUFFERS` (10) full `f32` grids retained — the heaviest
+> `generate_terrain` stage's concurrent working set as `multi.rs` already
+> derives it, so the pool never holds more idle than one stage just needed at
+> once; (4) with `vram_budget_bytes` set, the cap drops to `budget - working
+> set`. **What the cap cannot be:** a fraction of the card's VRAM — `wgpu` 30
+> cannot report VRAM size, so whether that room is still free between
+> generations (another process may have taken it) is a guess, stated rather
+> than hidden; and the in-generation peak can rise by up to the cap.
+> **Correctness:** a reused buffer is either rewritten in full or cleared.
+> Derived from the shaders, three needed clearing — `gpu_flow`'s `delta`,
+> `gpu_weather`'s `rain`, and `gpu_resources`' absent optional planes — and
+> each has an equivalence test (pooled vs unpooled, two different inputs, then a
+> garbage-filled pool) that goes red when its clear is removed.
+> **Measured**, run alone on an RX 7800 XT (`cartalith-engine/examples/gpu_pool_bench.rs`,
+> medians of 10): buffers allocated per `use_gpu` generation fall from 104-106
+> to 2; generation time is unchanged at 1024² and 2048² (inside run-to-run
+> noise), and **2.6-2.7% faster at 4096²** in two separate runs with
+> non-overlapping ranges (10.22 s vs 10.49 s). §15 (keeping fields resident
+> across stages) remains the larger, architectural saving and is not this.
+
 ### 15. Avoid Unnecessary GPU <-> CPU Transfers
 
 This is critical. Do not ping-pong CPU/GPU for every simulation stage. Prefer: upload initial data once, run terrain/erosion/hydrology/climate/biome/derived-fields on GPU in sequence, read back only required results. Keep intermediate fields on the GPU when several successive operations can use them; only synchronize/read back when the CPU genuinely needs the data.

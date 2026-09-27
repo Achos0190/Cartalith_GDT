@@ -30,8 +30,7 @@
 //! comparison in `examples/affordance_gpu_compare.rs` runs against the real
 //! `cartalith-civ` functions, which is what catches a drifted constant.
 
-use wgpu::util::DeviceExt;
-
+use super::pool::{Kind, PooledBuffer};
 use super::{
     build_pipeline_shared, device_grid_limit_bytes, device_is_unusable, read_back_vec, storage_entry,
     uniform_entry, GpuContext, GpuDevice,
@@ -148,24 +147,32 @@ fn pack_u8(src: &[u8]) -> Vec<u32> {
     out
 }
 
-fn storage_init(ctx: &GpuContext, label: &str, bytes: &[u8]) -> wgpu::Buffer {
-    ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(label),
-        contents: bytes,
-        usage: wgpu::BufferUsages::STORAGE,
-    })
+fn storage_init(ctx: &GpuContext, label: &str, bytes: &[u8]) -> PooledBuffer {
+    ctx.pool.init(label, bytes, Kind::Storage)
 }
 
 /// One storage buffer holding `planes.len()` planes of `plane_bytes` each,
-/// written plane by plane (no host-side concatenation). `None` planes stay
-/// zero -- `wgpu` zero-initialises new buffers.
-fn planar_buffer(ctx: &GpuContext, label: &str, plane_bytes: u64, planes: &[Option<&[u8]>]) -> wgpu::Buffer {
-    let buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: plane_bytes * planes.len() as u64,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
+/// written plane by plane (no host-side concatenation). `None` planes must
+/// read as zero -- the shaders carry no presence flags, and "an absent optional
+/// input is an all-zero plane" is `gpu_resources.wgsl`'s own contract. A fresh
+/// buffer was zero; a pooled one holds its last user's data, so the absent
+/// planes are **cleared** here (`pool.rs`).
+///
+/// The clear is submitted on its own before the present planes are written:
+/// `write_buffer` data is applied at the start of the *next* submit, so writes
+/// queued after this submit land after the clear, never under it. The ranges
+/// are disjoint in any case.
+fn planar_buffer(ctx: &GpuContext, label: &str, plane_bytes: u64, planes: &[Option<&[u8]>]) -> PooledBuffer {
+    let buf = ctx.pool.empty(label, plane_bytes * planes.len() as u64, Kind::Storage);
+    if planes.iter().any(Option::is_none) {
+        let mut enc = ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("absent planes") });
+        for (k, p) in planes.iter().enumerate() {
+            if p.is_none() {
+                enc.clear_buffer(&buf, k as u64 * plane_bytes, Some(plane_bytes));
+            }
+        }
+        ctx.queue.submit(Some(enc.finish()));
+    }
     for (k, p) in planes.iter().enumerate() {
         if let Some(bytes) = p {
             ctx.queue.write_buffer(&buf, k as u64 * plane_bytes, bytes);
@@ -174,22 +181,14 @@ fn planar_buffer(ctx: &GpuContext, label: &str, plane_bytes: u64, planes: &[Opti
     buf
 }
 
-fn out_buffer(ctx: &GpuContext, label: &str, bytes: u64) -> wgpu::Buffer {
-    ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some(label),
-        size: bytes,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    })
+/// Pooled, not cleared: every kernel here writes each of its output cells
+/// (or packed words) unconditionally once past its bounds check.
+fn out_buffer(ctx: &GpuContext, label: &str, bytes: u64) -> PooledBuffer {
+    ctx.pool.empty(label, bytes, Kind::Storage)
 }
 
-fn staging(ctx: &GpuContext, bytes: u64) -> wgpu::Buffer {
-    ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("affordance staging"),
-        size: bytes,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    })
+fn staging(ctx: &GpuContext, bytes: u64) -> PooledBuffer {
+    ctx.pool.empty("affordance staging", bytes, Kind::Staging)
 }
 
 /// Encode one compute pass over `items` invocations and, if `copy` is given,
@@ -225,12 +224,8 @@ fn run(
     ctx.queue.submit(Some(encoder.finish()));
 }
 
-fn uniform<T: bytemuck::Pod>(ctx: &GpuContext, v: &T) -> wgpu::Buffer {
-    ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("affordance params"),
-        contents: bytemuck::bytes_of(v),
-        usage: wgpu::BufferUsages::UNIFORM,
-    })
+fn uniform<T: bytemuck::Pod>(ctx: &GpuContext, v: &T) -> PooledBuffer {
+    ctx.pool.init("affordance params", bytemuck::bytes_of(v), Kind::Uniform)
 }
 
 /// [`super::on_grid`]'s gate, plus the one it cannot know: this stage's
@@ -241,6 +236,7 @@ fn gate<T>(gpu: &GpuDevice, cells: usize, largest_binding: u64, dispatch: impl F
     if cells == 0 || device_is_unusable(gpu, cells as u64) || largest_binding > device_grid_limit_bytes(gpu) {
         return None;
     }
+    gpu.pool.begin_grid(cells as u64);
     dispatch()
 }
 
@@ -292,7 +288,7 @@ pub fn biome_raster_grid_gpu_with(gpu: &GpuDevice, water_bodies: &[u8], temp: &[
         let out_bytes = (w * 4) as u64;
         let out = out_buffer(&ctx, "biome out", out_bytes);
         let stage = staging(&ctx, out_bytes);
-        run(&ctx, &pbuf, &[&wb, &tb, &rb, &out], w as u32, Some((&out, &stage, out_bytes)));
+        run(&ctx, &pbuf, &[&*wb, &*tb, &*rb, &*out], w as u32, Some((&*out, &*stage, out_bytes)));
         let words: Vec<u32> = read_back_vec(&ctx, &stage, n as u64)?;
         Some(bytemuck::cast_slice::<u32, u8>(&words)[..n].to_vec())
     })
@@ -359,7 +355,7 @@ pub fn carrying_capacity_grid_gpu_with(
         let out_bytes = (n * 4) as u64;
         let out = out_buffer(&ctx, "carry out", out_bytes);
         let stage = staging(&ctx, out_bytes);
-        run(&ctx, &pbuf, &[&sb, &wab, &bb, &tb, &fb, &wetb, &out], n as u32, Some((&out, &stage, out_bytes)));
+        run(&ctx, &pbuf, &[&*sb, &*wab, &*bb, &*tb, &*fb, &*wetb, &*out], n as u32, Some((&*out, &*stage, out_bytes)));
         read_back_vec(&ctx, &stage, n as u64)
     })
 }
@@ -467,7 +463,7 @@ pub fn resource_potentials_grid_gpu_with(gpu: &GpuDevice, inp: &ResourceGpuInput
         let byte_planes: Vec<Option<&[u8]>> = packed.iter().map(|p| p.as_deref().map(bytemuck::cast_slice)).collect();
         let bytes = planar_buffer(&ctx, "res bytes", (w * 4) as u64, &byte_planes);
         let out = out_buffer(&ctx, "res out", plane * 15);
-        run(&ctx, &pbuf, &[&fin, &bytes, &out], n as u32, None);
+        run(&ctx, &pbuf, &[&*fin, &*bytes, &*out], n as u32, None);
 
         let stage = staging(&ctx, plane);
         let mut fields: [Vec<f32>; 15] = Default::default();
@@ -622,7 +618,7 @@ pub fn settlement_suitability_grid_gpu_with(
         let wb = storage_init(&ctx, "suit wb", bytemuck::cast_slice(&pack_u8(inp.water_bodies)));
         let out = out_buffer(&ctx, "suit out", plane);
         let stage = staging(&ctx, plane);
-        run(&ctx, &pbuf, &[&fin, &wb, &out], n as u32, Some((&out, &stage, plane)));
+        run(&ctx, &pbuf, &[&*fin, &*wb, &*out], n as u32, Some((&*out, &*stage, plane)));
         read_back_vec(&ctx, &stage, n as u64)
     })
 }

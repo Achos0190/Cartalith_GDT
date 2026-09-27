@@ -20,6 +20,9 @@
 use std::time::Instant;
 
 use bytemuck::{Pod, Zeroable};
+// Only the tests still call `create_buffer_init` directly; every dispatch goes
+// through the pool (`pool.rs`), which carries its own import.
+#[cfg(test)]
 use wgpu::util::DeviceExt;
 
 /// Multi-GPU enumeration, selection, VRAM budgeting and split-tiles
@@ -35,6 +38,13 @@ pub use affordance::*;
 /// `HARDWARE_ACCELERATION.md` §4's `ComputeTier` classifier.
 mod tier;
 pub use tier::*;
+
+/// The VRAM buffer pool every dispatch draws from (`HARDWARE_ACCELERATION.md`
+/// §14, Ruling AZ). Its module doc carries the retention policy and the list
+/// of buffers that must be cleared on reuse, and why each one.
+mod pool;
+use pool::Kind;
+pub use pool::{BufferPool, BufferPoolStats, pool_retention_cap_bytes};
 
 /// Shared by this crate's unit tests and by `tests/multi_gpu.rs`, which pulls
 /// the same file in with `#[path]`. Test-only, so it never reaches the crate's
@@ -460,6 +470,8 @@ impl std::error::Error for GpuInitError {}
 /// this pilot needs. Created once, reused across dispatches -- not
 /// allocate/destroy-per-call (`HARDWARE_ACCELERATION.md` §14, scoped down
 /// here to "one persistent pipeline" since this pilot has only one kernel).
+/// §14's *buffer* half is the device's [`BufferPool`] (`pool.rs`), which every
+/// context built on a device shares.
 pub struct GpuContext {
     pub adapter_name: String,
     pub adapter_vendor: u32,
@@ -476,6 +488,9 @@ pub struct GpuContext {
     lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// This device's buffer pool (`pool.rs`), shared by `Arc` with the device
+    /// and every context built on it.
+    pool: std::sync::Arc<BufferPool>,
 }
 
 /// `HARDWARE_ACCELERATION.md` §3/5/31: enumerate hardware at runtime,
@@ -659,6 +674,9 @@ pub struct GpuBlurContext {
     box_h_pipeline: wgpu::ComputePipeline,
     box_v_pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// This device's buffer pool (`pool.rs`), shared by `Arc` with the device
+    /// and every context built on it.
+    pool: std::sync::Arc<BufferPool>,
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7: `simulate_weather`'s
@@ -691,6 +709,9 @@ pub struct GpuWeatherContext {
     advect_pipeline: wgpu::ComputePipeline,
     deposit_pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// This device's buffer pool (`pool.rs`), shared by `Arc` with the device
+    /// and every context built on it.
+    pool: std::sync::Arc<BufferPool>,
 }
 
 /// `_with` sibling pattern (milestone 8): builds on an already-created
@@ -735,6 +756,7 @@ pub fn init_gpu_weather_with(gpu: &GpuDevice) -> GpuWeatherContext {
         advect_pipeline: make_pipeline("advect pipeline", "advect_main"),
         deposit_pipeline: make_pipeline("deposit pipeline", "deposit_main"),
         bind_group_layout,
+        pool: std::sync::Arc::clone(&gpu.pool),
     }
 }
 
@@ -765,6 +787,9 @@ pub struct GpuFlowContext {
     scatter_pipeline: wgpu::ComputePipeline,
     merge_pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// This device's buffer pool (`pool.rs`), shared by `Arc` with the device
+    /// and every context built on it.
+    pool: std::sync::Arc<BufferPool>,
 }
 
 /// `_with` sibling pattern (milestone 8): builds on an already-created
@@ -809,6 +834,7 @@ pub fn init_gpu_flow_with(gpu: &GpuDevice) -> GpuFlowContext {
         scatter_pipeline: make_pipeline("flow scatter pipeline", "scatter_main"),
         merge_pipeline: make_pipeline("flow merge pipeline", "merge_main"),
         bind_group_layout,
+        pool: std::sync::Arc::clone(&gpu.pool),
     }
 }
 
@@ -880,14 +906,16 @@ pub fn init_gpu_gauss_blur() -> Result<GpuBlurContext, GpuInitError> {
         cache: None,
     });
 
+    let lost = std::sync::Arc::<std::sync::atomic::AtomicBool>::default();
     Ok(GpuBlurContext {
         adapter_name: info.name,
         adapter_vendor: info.vendor,
         adapter_backend: info.backend,
         device_type: info.device_type,
+        pool: BufferPool::new(device.clone(), queue.clone(), std::sync::Arc::clone(&lost)),
         device,
         queue,
-        lost: std::sync::Arc::default(),
+        lost,
         box_h_pipeline,
         box_v_pipeline,
         bind_group_layout,
@@ -946,6 +974,9 @@ struct RawGpuDevice {
     /// own in flight at all, which matters now that [`multi::init_gpu_device_set`]
     /// can hand the same device back across several `generate_terrain` calls.
     lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// This device's buffer pool (`pool.rs`), shared by `Arc` with the device
+    /// and every context built on it.
+    pool: std::sync::Arc<BufferPool>,
 }
 
 /// `HARDWARE_ACCELERATION.md` §10: request the minimum actually needed,
@@ -1054,6 +1085,7 @@ fn request_gpu_device_from(
         adapter_vendor: info.vendor,
         adapter_backend: info.backend,
         device_type: info.device_type,
+        pool: BufferPool::new(device.clone(), queue.clone(), std::sync::Arc::clone(&lost)),
         device,
         queue,
         lost,
@@ -1108,6 +1140,7 @@ fn build_pipeline(
         lost: raw.lost,
         pipeline,
         bind_group_layout,
+        pool: raw.pool,
     }
 }
 
@@ -1225,6 +1258,20 @@ pub struct GpuDevice {
     /// across calls: a device this flag names lost is never reused, only
     /// re-acquired fresh.
     lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Buffers kept between dispatches and between generations (`pool.rs`).
+    /// Every clone of this device -- the process-wide device cache's included
+    /// -- shares this one `Arc`, so the pool is released exactly when the
+    /// device is.
+    pool: std::sync::Arc<BufferPool>,
+}
+
+impl GpuDevice {
+    /// This device's buffer pool: its counters, and the switch the
+    /// with/without-pool measurement uses. Shared with every clone.
+    #[must_use]
+    pub fn buffer_pool(&self) -> &BufferPool {
+        &self.pool
+    }
 }
 
 /// Sized for the largest bind group among the kernels `generate_terrain`'s
@@ -1263,6 +1310,7 @@ pub fn init_gpu_shared_device() -> Result<GpuDevice, GpuInitError> {
         device: raw.device,
         queue: raw.queue,
         lost: raw.lost,
+        pool: raw.pool,
     })
 }
 
@@ -1280,6 +1328,7 @@ fn build_pipeline_shared(
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
         lost: std::sync::Arc::clone(&gpu.lost),
+        pool: std::sync::Arc::clone(&gpu.pool),
     };
     build_pipeline(raw, shader_src, label, layout_entries)
 }
@@ -1355,6 +1404,7 @@ pub fn init_gpu_gauss_blur_with(gpu: &GpuDevice) -> GpuBlurContext {
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
         lost: std::sync::Arc::clone(&gpu.lost),
+        pool: std::sync::Arc::clone(&gpu.pool),
         box_h_pipeline,
         box_v_pipeline,
         bind_group_layout,
@@ -1470,6 +1520,22 @@ fn read_back<R>(
         Ok(Err(e)) => fail(&format!("buffer map failed ({e:?})"))?,
         Err(e) => fail(&format!("map_async channel closed ({e})"))?,
     }
+    // A device that reported loss while this dispatch was in flight (the
+    // `set_device_lost_callback` fires during the poll above) may have dropped
+    // the submit and still let the map succeed. What is mapped is then not this
+    // dispatch's output -- and since `pool.rs`, a reused staging buffer holds
+    // its last user's bytes rather than a fresh buffer's zeros, which turned a
+    // silently-wrong-but-in-range plate id into an out-of-range one once in a
+    // parallel `multi_gpu` run at 8192² on the integrated GPU (not reproduced
+    // since). Discard it: the caller falls back to CPU.
+    if ctx.lost().load(std::sync::atomic::Ordering::Relaxed) {
+        staging.unmap();
+        eprintln!(
+            "cartalith-gpu: device {name} reported lost during a dispatch at {cells} cells -- discarding the \
+             readback, falling back to CPU (HARDWARE_ACCELERATION.md §27)"
+        );
+        return None;
+    }
     let data = match slice.get_mapped_range() {
         Ok(d) => d,
         Err(e) => {
@@ -1521,26 +1587,12 @@ fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32
     let count = (width * height) as usize;
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
+    ctx.pool.begin_grid(count as u64);
     let params = Params { seed, width, height, scale };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-
-    let storage_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("vnoise out (storage)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("vnoise out (staging/readback)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let params_buf = ctx.pool.init("params", bytemuck::bytes_of(&params), Kind::Uniform);
+    // Pooled, not cleared: the kernel writes every cell before the copy reads it.
+    let storage_buf = ctx.pool.empty("vnoise out (storage)", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("vnoise out (staging/readback)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("vnoise bind group"),
@@ -1643,32 +1695,15 @@ fn dispatch_gpu_warp_band_into(
     assert_eq!(out_warp_y.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
+    // The grid is the whole one this band belongs to, not the band itself.
+    ctx.pool.begin_grid(u64::from(width) * u64::from(height));
     let params = WarpParams { seed, width, height, wf, amp, y_offset, band_rows, world: world as u32 };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("warp params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let make_storage = |label: &str| {
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: byte_len,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        })
-    };
-    let out_x = make_storage("warp_x (storage)");
-    let out_y = make_storage("warp_y (storage)");
-    let make_staging = |label: &str| {
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: byte_len,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        })
-    };
-    let staging_x = make_staging("warp_x (staging)");
-    let staging_y = make_staging("warp_y (staging)");
+    let params_buf = ctx.pool.init("warp params", bytemuck::bytes_of(&params), Kind::Uniform);
+    // Pooled, not cleared: the kernel writes every band cell of both outputs.
+    let out_x = ctx.pool.empty("warp_x (storage)", byte_len, Kind::Storage);
+    let out_y = ctx.pool.empty("warp_y (storage)", byte_len, Kind::Storage);
+    let staging_x = ctx.pool.empty("warp_x (staging)", byte_len, Kind::Staging);
+    let staging_y = ctx.pool.empty("warp_y (staging)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("warp bind group"),
@@ -1731,34 +1766,16 @@ fn dispatch_gpu_heterogeneity(
     assert_eq!(warp_y.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
+    ctx.pool.begin_grid(count as u64);
     let params = HeteroParams { seed: hetero_seed, width, height, scale, world: world as u32, p_x, _pad0: 0, _pad1: 0 };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("hetero params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let make_input = |label: &str, data: &[f32]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(data),
-            usage: wgpu::BufferUsages::STORAGE,
-        })
-    };
+    let params_buf = ctx.pool.init("hetero params", bytemuck::bytes_of(&params), Kind::Uniform);
+    let make_input = |label: &str, data: &[f32]| ctx.pool.init(label, bytemuck::cast_slice(data), Kind::Storage);
     let age_buf = make_input("hetero age (storage)", age);
     let warp_x_buf = make_input("hetero warp_x (storage)", warp_x);
     let warp_y_buf = make_input("hetero warp_y (storage)", warp_y);
-    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("hetero out (storage)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("hetero out (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    // Pooled, not cleared: written in full by the kernel.
+    let out_buf = ctx.pool.empty("hetero out (storage)", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("hetero out (staging)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("hetero bind group"),
@@ -1909,18 +1926,9 @@ fn dispatch_gpu_height(
         has_oro: has_oro as u32,
         _pad0: 0.0,
     };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("height params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let make_input = |label: &str, data: &[f32]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(data),
-            usage: wgpu::BufferUsages::STORAGE,
-        })
-    };
+    ctx.pool.begin_grid(count as u64);
+    let params_buf = ctx.pool.init("height params", bytemuck::bytes_of(&params), Kind::Uniform);
+    let make_input = |label: &str, data: &[f32]| ctx.pool.init(label, bytemuck::cast_slice(data), Kind::Storage);
     let base_buf = make_input("height base (storage)", base_field);
     let stress_buf = make_input("height stress (storage)", stress);
     let flex_buf = make_input("height flex (storage)", flex);
@@ -1929,18 +1937,9 @@ fn dispatch_gpu_height(
     let warp_x_buf = make_input("height warp_x (storage)", warp_x);
     let warp_y_buf = make_input("height warp_y (storage)", warp_y);
     let oro_buf = make_input("height oro (storage)", oro);
-    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("height out (storage)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("height out (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    // Pooled, not cleared: written in full by the kernel.
+    let out_buf = ctx.pool.empty("height out (storage)", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("height out (staging)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("height bind group"),
@@ -1992,39 +1991,16 @@ fn dispatch_gpu_resistance(
     assert_eq!(age.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
+    ctx.pool.begin_grid(count as u64);
     let params = ResistanceParams { width, height, _pad0: 0, _pad1: 0 };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("resistance params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let plate_id_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("resistance plate_id (storage)"),
-        contents: bytemuck::cast_slice(plate_id),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let age_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("resistance age (storage)"),
-        contents: bytemuck::cast_slice(age),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let crustal_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("resistance crustal_per_plate (storage)"),
-        contents: bytemuck::cast_slice(crustal_per_plate),
-        usage: wgpu::BufferUsages::STORAGE,
-    });
-    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("resistance out (storage)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-        mapped_at_creation: false,
-    });
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("resistance out (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let params_buf = ctx.pool.init("resistance params", bytemuck::bytes_of(&params), Kind::Uniform);
+    let plate_id_buf = ctx.pool.init("resistance plate_id (storage)", bytemuck::cast_slice(plate_id), Kind::Storage);
+    let age_buf = ctx.pool.init("resistance age (storage)", bytemuck::cast_slice(age), Kind::Storage);
+    let crustal_buf =
+        ctx.pool.init("resistance crustal_per_plate (storage)", bytemuck::cast_slice(crustal_per_plate), Kind::Storage);
+    // Pooled, not cleared: written in full by the kernel.
+    let out_buf = ctx.pool.empty("resistance out (storage)", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("resistance out (staging)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("resistance bind group"),
@@ -2084,44 +2060,18 @@ fn dispatch_gpu_gauss_blur(
 
     let params_h = BlurParams { width, height, radius: pr, wrap: wrap_x as u32 };
     let params_v = BlurParams { width, height, radius: pr, wrap: 0 }; // box_v never wraps, matching the CPU box_v
-    let params_h_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("blur params (h)"),
-        contents: bytemuck::bytes_of(&params_h),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let params_v_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("blur params (v)"),
-        contents: bytemuck::bytes_of(&params_v),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
+    ctx.pool.begin_grid(count as u64);
+    let params_h_buf = ctx.pool.init("blur params (h)", bytemuck::bytes_of(&params_h), Kind::Uniform);
+    let params_v_buf = ctx.pool.init("blur params (v)", bytemuck::bytes_of(&params_v), Kind::Uniform);
 
     // Ping-pong between two storage buffers across the 6 dispatches (3x
     // box_h, 3x box_v), same alternation `gauss_blur` itself does with its
     // own `a`/`b` CPU arrays.
-    let make_rw = |label: &str, contents: Option<&[f32]>| {
-        if let Some(c) = contents {
-            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: bytemuck::cast_slice(c),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-            })
-        } else {
-            ctx.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: byte_len,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        }
-    };
-    let buf_a = make_rw("blur buf a", Some(src));
-    let buf_b = make_rw("blur buf b", None);
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("blur out (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let buf_a = ctx.pool.init("blur buf a", bytemuck::cast_slice(src), Kind::Storage);
+    // Pooled, not cleared: the first `box_h` pass writes every cell of `b`
+    // before the first `box_v` pass reads it.
+    let buf_b = ctx.pool.empty("blur buf b", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("blur out (staging)", byte_len, Kind::Staging);
 
     let make_bind_group = |label: &str, params_buf: &wgpu::Buffer, in_buf: &wgpu::Buffer, out_buf: &wgpu::Buffer| {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -2214,55 +2164,27 @@ fn dispatch_gpu_weather(
         step,
         _pad: 0.0,
     };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("weather params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
+    // No `begin_grid`: this is the coarse weather grid, a function of the
+    // world grid, so its buffers ride under the world grid's epoch (`pool.rs`,
+    // policy 1) rather than flushing it.
+    let params_buf = ctx.pool.init("weather params", bytemuck::bytes_of(&params), Kind::Uniform);
 
-    let make_ro = |label: &str, contents: &[f32]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(contents),
-            usage: wgpu::BufferUsages::STORAGE,
-        })
-    };
+    let make_ro = |label: &str, contents: &[f32]| ctx.pool.init(label, bytemuck::cast_slice(contents), Kind::Storage);
     let eh_buf = make_ro("weather eh", eh);
     let tc_buf = make_ro("weather tc", tc);
     let sst_evap_buf = make_ro("weather sst_evap", sst_evap);
     let wx_buf = make_ro("weather wx", wx);
     let wy_buf = make_ro("weather wy", wy);
 
-    let w_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("weather w"),
-        contents: bytemuck::cast_slice(w_init),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    });
-    let w2_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("weather w2"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::STORAGE,
-        mapped_at_creation: false,
-    });
-    let rain_init = vec![0f32; n];
-    let rain_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("weather rain"),
-        contents: bytemuck::cast_slice(&rain_init),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    });
+    let w_buf = ctx.pool.init("weather w", bytemuck::cast_slice(w_init), Kind::Storage);
+    // Pooled, not cleared: `advect_main` writes every cell of `w2` before
+    // `deposit_main` reads it, and `evap_main` never touches it.
+    let w2_buf = ctx.pool.empty("weather w2", byte_len, Kind::Storage);
+    // Cleared below: `deposit_main` reads `rain` before writing it.
+    let rain_buf = ctx.pool.empty("weather rain", byte_len, Kind::Storage);
 
-    let staging_w = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("weather w (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let staging_rain = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("weather rain (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let staging_w = ctx.pool.empty("weather w (staging)", byte_len, Kind::Staging);
+    let staging_rain = ctx.pool.empty("weather rain (staging)", byte_len, Kind::Staging);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("weather bind group"),
@@ -2284,6 +2206,10 @@ fn dispatch_gpu_weather(
     let wg_y = wh.div_ceil(8);
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("weather encoder") });
+    // `rain` must start at zero: `deposit_main` computes `rain * 0.55 + ...`,
+    // and with `iters == 0` the buffer is read back untouched. A fresh buffer
+    // was zero; a pooled one holds its last user's data (`pool.rs`).
+    encoder.clear_buffer(&rain_buf, 0, None);
     for _ in 0..iters {
         {
             let mut pass = encoder
@@ -2440,62 +2366,28 @@ fn dispatch_gpu_assign_plates(
         step_u >>= 1;
     }
 
-    let make_i32 = |label: &str, contents: &[i32]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(contents),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        })
-    };
-    let make_f32 = |label: &str, contents: &[f32]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents: bytemuck::cast_slice(contents),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-        })
-    };
-    let make_i32_empty = |label: &str| {
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: byte_len_i32,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    };
-    let make_f32_empty = |label: &str| {
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: byte_len_f32,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        })
-    };
+    ctx.pool.begin_grid(n as u64);
+    let make_i32 = |label: &str, contents: &[i32]| ctx.pool.init(label, bytemuck::cast_slice(contents), Kind::Storage);
+    let make_f32 = |label: &str, contents: &[f32]| ctx.pool.init(label, bytemuck::cast_slice(contents), Kind::Storage);
 
     let nearest_a = make_i32("jfa nearest a", &nearest0);
-    let nearest_b = make_i32_empty("jfa nearest b");
+    // Pooled, not cleared: pass 0 reads only `a` and writes every cell of
+    // both `b` buffers, before pass 1 reads them.
+    let nearest_b = ctx.pool.empty("jfa nearest b", byte_len_i32, Kind::Storage);
     let best_d2_a = make_f32("jfa best_d2 a", &best_d20);
-    let best_d2_b = make_f32_empty("jfa best_d2 b");
+    let best_d2_b = ctx.pool.empty("jfa best_d2 b", byte_len_f32, Kind::Storage);
     let plate_x_buf = make_f32("jfa plate_x", plate_x);
     let plate_y_buf = make_f32("jfa plate_y", plate_y);
     let warp_x_buf = make_f32("jfa warp_x", warp_x);
     let warp_y_buf = make_f32("jfa warp_y", warp_y);
 
-    let staging_nearest = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("jfa nearest (staging)"),
-        size: byte_len_i32,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let staging_nearest = ctx.pool.empty("jfa nearest (staging)", byte_len_i32, Kind::Staging);
 
-    let param_bufs: Vec<wgpu::Buffer> = steps
+    let param_bufs: Vec<pool::PooledBuffer> = steps
         .iter()
         .map(|&step| {
             let params = JfaParams { width, height, step, world: u32::from(world) };
-            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("jfa params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            })
+            ctx.pool.init("jfa params", bytemuck::bytes_of(&params), Kind::Uniform)
         })
         .collect();
 
@@ -2711,35 +2603,24 @@ pub fn dispatch_gpu_flow(
 
     let byte_len_u32 = (n * std::mem::size_of::<u32>()) as u64;
 
-    let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
-    let make_init = |label: &str, contents: &[u8]| {
-        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage: storage })
-    };
-    let make_empty = |label: &str| {
-        ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(label),
-            size: byte_len_u32,
-            usage: storage,
-            mapped_at_creation: false,
-        })
-    };
+    ctx.pool.begin_grid(n as u64);
+    let make_init = |label: &str, contents: &[u8]| ctx.pool.init(label, contents, Kind::Storage);
+    let make_empty = |label: &str| ctx.pool.empty(label, byte_len_u32, Kind::Storage);
 
     let field_buf = make_init("flow field", bytemuck::cast_slice(field));
-    // `recv`/`ptr` are both written by `dir_main` before anything reads
-    // them; `delta` must start at zero, which `wgpu` guarantees for a
-    // freshly-created buffer.
+    // Pooled, not cleared: `recv`/`ptr` are both written by `dir_main`, and
+    // `ptr_next` by every `scatter_main`, before anything reads them. `delta`
+    // is read (`atomicAdd`) before it is written and must start at zero -- a
+    // fresh buffer was, a pooled one is not -- so it is cleared on the encoder
+    // below, ahead of the first pass (`pool.rs`).
     let recv_buf = make_empty("flow recv");
     let ptr_buf = make_empty("flow ptr");
     let ptr_next_buf = make_empty("flow ptr_next");
     let acc_buf = make_init("flow acc", bytemuck::cast_slice(&acc0));
-    let delta_buf = make_init("flow delta", bytemuck::cast_slice(&vec![0u32; n]));
+    let delta_buf = make_empty("flow delta");
 
     let params = FlowGpuParams { width, height, world: u32::from(world), _pad0: 0 };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("flow params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
+    let params_buf = ctx.pool.init("flow params", bytemuck::bytes_of(&params), Kind::Uniform);
 
     let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("flow bind group"),
@@ -2755,24 +2636,15 @@ pub fn dispatch_gpu_flow(
         ],
     });
 
-    let staging_acc = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("flow acc (staging)"),
-        size: byte_len_u32,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-    let staging_recv = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("flow recv (staging)"),
-        size: byte_len_u32,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let staging_acc = ctx.pool.empty("flow acc (staging)", byte_len_u32, Kind::Staging);
+    let staging_recv = ctx.pool.empty("flow recv (staging)", byte_len_u32, Kind::Staging);
 
     let rounds = (n as f64).log2().ceil().max(1.0) as u32;
     let (gx, gy) = (width.div_ceil(8), height.div_ceil(8));
 
     let mut encoder =
         ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("flow encoder") });
+    encoder.clear_buffer(&delta_buf, 0, None);
     {
         let mut pass = encoder
             .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("flow dir"), timestamp_writes: None });
@@ -3335,30 +3207,14 @@ fn dispatch_gpu_thermal(ctx: &GpuContext, src: &[f32], width: u32, height: u32, 
         return Some(src.to_vec());
     }
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+    ctx.pool.begin_grid(count as u64);
     let params = ThermalParams { width, height, talus, _pad: 0 };
-    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("thermal params"),
-        contents: bytemuck::bytes_of(&params),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let rw = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
-    let buf_a = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("thermal buf a"),
-        contents: bytemuck::cast_slice(src),
-        usage: rw,
-    });
-    let buf_b = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("thermal buf b"),
-        size: byte_len,
-        usage: rw,
-        mapped_at_creation: false,
-    });
-    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("thermal out (staging)"),
-        size: byte_len,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let params_buf = ctx.pool.init("thermal params", bytemuck::bytes_of(&params), Kind::Uniform);
+    let buf_a = ctx.pool.init("thermal buf a", bytemuck::cast_slice(src), Kind::Storage);
+    // Pooled, not cleared: pass 0 (`passes >= 1` here) writes every cell of
+    // `b` before any later pass reads it.
+    let buf_b = ctx.pool.empty("thermal buf b", byte_len, Kind::Storage);
+    let staging_buf = ctx.pool.empty("thermal out (staging)", byte_len, Kind::Staging);
     let bind = |label: &str, input: &wgpu::Buffer, output: &wgpu::Buffer| {
         ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(label),
@@ -3455,25 +3311,14 @@ pub fn stress_gather_grid_gpu_with(
             .collect();
         let ids: Vec<u32> = plate_id.iter().map(|&p| u32::from(p)).collect();
         let params = StressParams { width, height, world: u32::from(world), n_plates: n_plates as u32 };
-        let init = |label: &str, contents: &[u8], usage| {
-            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage })
-        };
-        let params_buf = init("stress params", bytemuck::bytes_of(&params), wgpu::BufferUsages::UNIFORM);
-        let ids_buf = init("stress plate ids", bytemuck::cast_slice(&ids), wgpu::BufferUsages::STORAGE);
-        let pairs_buf = init("stress pair table", bytemuck::cast_slice(&table), wgpu::BufferUsages::STORAGE);
+        ctx.pool.begin_grid(count as u64);
+        let params_buf = ctx.pool.init("stress params", bytemuck::bytes_of(&params), Kind::Uniform);
+        let ids_buf = ctx.pool.init("stress plate ids", bytemuck::cast_slice(&ids), Kind::Storage);
+        let pairs_buf = ctx.pool.init("stress pair table", bytemuck::cast_slice(&table), Kind::Storage);
         let out_len = (3 * count * std::mem::size_of::<u32>()) as u64;
-        let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("stress out"),
-            size: out_len,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("stress out (staging)"),
-            size: out_len,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
+        // Pooled, not cleared: every cell writes its word in all three planes.
+        let out_buf = ctx.pool.empty("stress out", out_len, Kind::Storage);
+        let staging_buf = ctx.pool.empty("stress out (staging)", out_len, Kind::Staging);
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("stress bg"),
             layout: &ctx.bind_group_layout,
