@@ -481,6 +481,109 @@ pub fn stream_power_kernel_bounded(
     pinned: Option<&[bool]>,
     area_seed: Option<&[f32]>,
 ) {
+    stream_power_core(fld, stress, resist, rain, w, h, p, pinned, area_seed, None);
+}
+
+/// GF-2's rock input to stream power (`GEOLOGY_FIRST_SCOPE.md` §4.1, owner
+/// Rulings BH and BJ): the column the kernel reads.
+///
+/// **What it does.** It replaces the legacy strength factor
+/// `max(0.05, 1 − 0.7·resist·R_i)` with `κ(exposed_i)^c`, where the exposed
+/// rock follows §2.5's rule at the cell's *current* height, so it is
+/// re-read after every iteration. That is the scope's in-loop contact switch:
+/// once a cap is incised below its contact, the next iteration erodes the
+/// substrate at the substrate's rate.
+///
+/// **What it must never do.** It never changes the kernel's routing (fill,
+/// receivers, drainage area are frozen before the iterations, exactly as on
+/// the legacy path), and it never reads `resistance_field`: with a rock input
+/// the legacy factor is gone, not multiplied in (§4.1's formula has no
+/// `resist` term). **It never writes `regolith`**: §4.9 says "the kernels do
+/// not change; the caller adds `max(0, field_after − field_before)` to
+/// regolith", so the caller accounts the call's net change
+/// ([`account_regolith`]). A first build wrote regolith inside the
+/// iterations; measured, it fed back (a pit filled in one iteration read as
+/// unconsolidated, κ = 4, in the next) and roughly doubled the 1-3-cell lake
+/// count against the control on all five GF-0 seeds at 800 km
+/// (`GEOLOGY_FIRST_SCOPE.md` §5.6), so it was replaced by the scope's own
+/// design.
+pub struct StreamPowerRock<'a> {
+    /// The GF-1 column. Read: `rock_top`, `rock_sub`, `contact`, `regolith`
+    /// (§2.5's exposure rule). Written: only `contact`, and only by tectonic
+    /// uplift (`dt·u`, the whole column rising), which is zero at the default
+    /// `stream.uplift = 0`.
+    pub column: &'a mut cartalith_terrain::geology::GeologyColumn,
+    /// The rock contrast `c` of §4.1 (0 = uniform rock). The engine passes
+    /// `tect.resist`, which §4.1 repurposes as `c` (§9 Q5).
+    pub contrast: f64,
+    /// §2.5's `R_EXPOSE`, already in normalised height units
+    /// (`geology::m_to_norm(R_EXPOSE_M, sea, peak_m)`).
+    pub r_expose: f32,
+}
+
+/// The stream-power `K` multiplier of one rock at contrast `c`: `κ^c`
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.1). `κ` is `ROCK_PROPS`' judgement column
+/// (§2.3). At `c = 0` it is exactly `1.0` for every rock (`powf(0) = 1`), so
+/// uniform rock is uniform by arithmetic identity.
+///
+/// Must never be clamped or floored: §4.1 dropped the legacy `0.05` floor
+/// with the legacy factor, and `κ` is positive for every rock (asserted in
+/// `cartalith_terrain::geology`'s table tests).
+pub fn kappa_multiplier(rock: cartalith_terrain::geology::Rock, contrast: f64) -> f64 {
+    (rock.props().kappa as f64).powf(contrast)
+}
+
+/// [`stream_power_kernel`] reading the GF-2 rock column instead of the legacy
+/// resistance factor (`GEOLOGY_FIRST_SCOPE.md` §4.1, §4.9).
+///
+/// Why a separate entry point rather than a flag on the old one: the legacy
+/// body is a golden-verified port (`tests/golden_parity_streampower.rs`), and
+/// with no rock input the shared core takes the legacy arithmetic **by
+/// control flow**, never by an identity of arithmetic (`MISTAKES.md`,
+/// "Change generated output"). The whole-world path only: `tile_erode` gains
+/// a rock input when EF-3 gains a production caller (§4.1).
+///
+/// Inside the iterations, per cell:
+/// - the coefficient is `K·g·κ(exposed)^c·(1 + 2·ck·rain)·dt·A^m/L`, the
+///   exposed rock read at the cell's height *before* this update -- i.e.
+///   after the previous iteration, which is §4.1's "after it updates
+///   `fld[i]`, if `fld[i] < contact[i]`, set `Cc[i] ← Cc_sub[i]`";
+/// - the regolith thickness is the one the call started with (§4.9: the
+///   caller accounts deposits and stripping once, on the call's net change).
+///
+/// Must never be called with a column shorter than the grid (it panics on
+/// the index, which is the right failure: a mismatched column describes a
+/// different world).
+pub fn stream_power_kernel_rock(
+    fld: &mut [f32],
+    stress: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    rock: &mut StreamPowerRock,
+) {
+    assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
+    stream_power_core(fld, stress, &[], rain, w, h, p, None, None, Some(rock));
+}
+
+/// The body shared by [`stream_power_kernel_bounded`] (legacy, `rock =
+/// None`) and [`stream_power_kernel_rock`]. With `rock = None` every
+/// statement below is the legacy port's, unchanged: the rock branches are
+/// separate arms, so the kernel goldens stay bit-identical by construction.
+#[allow(clippy::too_many_arguments)]
+fn stream_power_core(
+    fld: &mut [f32],
+    stress: &[f32],
+    resist: &[f32],
+    rain: &[f32],
+    w: usize,
+    h: usize,
+    p: &StreamPowerParams,
+    pinned: Option<&[bool]>,
+    area_seed: Option<&[f32]>,
+    mut rock: Option<&mut StreamPowerRock>,
+) {
     let n = w * h;
     if let Some(m) = pinned {
         assert!(m.len() == n, "pinned mask is {} cells, needs exactly {n} ({w}x{h})", m.len());
@@ -714,16 +817,46 @@ pub fn stream_power_kernel_bounded(
     // pass (reads only `rcv[i]`/`rdist[i]`/`resist[i]`/`rain[i]`/`area[i]`,
     // all already frozen).
     let mut cc = vec![0f64; n];
-    cc.par_iter_mut().enumerate().for_each(|(i, cc_i)| {
-        let r = rcv[i];
-        if r < 0 {
-            return;
-        }
-        let l = rdist[i] as f64;
-        let res = p.resist * 0.7 * resist[i] as f64;
-        let ki = k_coef * (1.0 - res).max(0.05) * (1.0 + ck * 2.0 * rain[i] as f64);
-        *cc_i = ki * dt * (area[i] as f64).powf(m) / l;
-    });
+    // GF-2 (§4.1): with a rock input, `cc` holds everything in the
+    // coefficient except the rock multiplier -- `K·g·(1 + 2·ck·rain)·dt·A^m/L`
+    // -- and the loop multiplies in `κ(exposed)^c` per iteration, because the
+    // exposed rock changes as the cell is lowered through its contact. The
+    // legacy arm below is the ported expression, untouched.
+    // `kc[k]` = κ_k^c for each rock, looked up by the exposed rock's index.
+    let kc: Option<[f64; cartalith_terrain::geology::ROCK_COUNT]> = rock
+        .as_ref()
+        .map(|r| cartalith_terrain::geology::Rock::ALL.map(|k| kappa_multiplier(k, r.contrast)));
+    if kc.is_some() {
+        cc.par_iter_mut().enumerate().for_each(|(i, cc_i)| {
+            let r = rcv[i];
+            if r < 0 {
+                return;
+            }
+            let l = rdist[i] as f64;
+            *cc_i = k_coef * (1.0 + ck * 2.0 * rain[i] as f64) * dt * (area[i] as f64).powf(m) / l;
+        });
+    } else {
+        cc.par_iter_mut().enumerate().for_each(|(i, cc_i)| {
+            let r = rcv[i];
+            if r < 0 {
+                return;
+            }
+            let l = rdist[i] as f64;
+            let res = p.resist * 0.7 * resist[i] as f64;
+            let ki = k_coef * (1.0 - res).max(0.05) * (1.0 + ck * 2.0 * rain[i] as f64);
+            *cc_i = ki * dt * (area[i] as f64).powf(m) / l;
+        });
+    }
+    // The rock multiplier at cell `i`, read at its current height through
+    // §2.5's exposure rule (`GeologyColumn::exposed`). A column always has a
+    // top rock (GF-1 writes one per cell). An out-of-range code is refused
+    // loudly rather than read as some plausible rock (`MISTAKES.md`: never
+    // encode "no value" as a plausible value); `build_geology` cannot write
+    // one.
+    let rock_mult = |col: &cartalith_terrain::geology::GeologyColumn, kc: &[f64; cartalith_terrain::geology::ROCK_COUNT], r_expose: f32, i: usize, z: f32| -> f64 {
+        let k = col.exposed(i, z, r_expose).expect("GF-2: the rock column holds a code that is not a rock");
+        kc[k as usize]
+    };
 
     // NOT parallelized, this whole loop: a genuine donor-receiver
     // wavefront dependency, not just across `p.iters` iterations but
@@ -744,9 +877,29 @@ pub fn stream_power_kernel_bounded(
                 continue;
             }
             let r = r as usize;
-            let c = cc[i];
-            let val = (fld[i] as f64 + dt * u[i] as f64 + c * fld[r] as f64) / (1.0 + c);
-            fld[i] = val as f32;
+            match (rock.as_deref_mut(), kc.as_ref()) {
+                (Some(rk), Some(kc)) => {
+                    // GF-2: the contact switch (§4.1) is this read -- the
+                    // exposed rock at the height the previous iteration left.
+                    let c = cc[i] * rock_mult(&*rk.column, kc, rk.r_expose, i, fld[i]);
+                    let lifted = fld[i] as f64 + dt * u[i] as f64;
+                    let val = (lifted + c * fld[r] as f64) / (1.0 + c);
+                    let new = val as f32;
+                    // Tectonic uplift raises the whole column, contact with
+                    // it (the rebound rule of §4.2 applied to uplift; zero at
+                    // the default `stream.uplift = 0`). NaN stays NaN on a
+                    // single-layer cell.
+                    if u[i] != 0.0 {
+                        rk.column.contact[i] = (rk.column.contact[i] as f64 + dt * u[i] as f64) as f32;
+                    }
+                    fld[i] = new;
+                }
+                _ => {
+                    let c = cc[i];
+                    let val = (fld[i] as f64 + dt * u[i] as f64 + c * fld[r] as f64) / (1.0 + c);
+                    fld[i] = val as f32;
+                }
+            }
         }
         if dep > 0.0 {
             let old_h = old_h.expect("old_h is Some whenever dep > 0.0");
@@ -828,6 +981,53 @@ pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, b
     field.par_iter_mut().zip(b.par_iter()).for_each(|(f, bi)| {
         let v = *f as f64 + 0.8 * *bi as f64;
         *f = v.clamp(0.0, 1.0) as f32;
+    });
+}
+
+/// GF-2 (`GEOLOGY_FIRST_SCOPE.md` §4.2, §3.2 item 4): **rebound lifts the
+/// column.** Adds to every contact the increment the rebound actually applied
+/// to the field (`after − before`, so `isostatic_rebound`'s own 0..1 clamp is
+/// honoured rather than re-derived from the blur).
+///
+/// Why: rebound raises the bedrock and whatever lies in it. Without this a
+/// rebounded cap would read as having risen *through* its own contact,
+/// re-burying a substrate erosion had exposed, or exposing one erosion never
+/// reached. Regolith is untouched: it rides on the bedrock, so its thickness
+/// does not change.
+///
+/// Must never be applied to any change except a rebound's (or another
+/// whole-column uplift): an erosional lowering does not lower the contact.
+/// A single-layer cell's contact is NaN and stays NaN.
+pub fn lift_column(column: &mut cartalith_terrain::geology::GeologyColumn, before: &[f32], after: &[f32]) {
+    column.contact.par_iter_mut().enumerate().for_each(|(i, c)| {
+        let inc = after[i] as f64 - before[i] as f64;
+        if inc != 0.0 {
+            *c = (*c as f64 + inc) as f32;
+        }
+    });
+}
+
+/// GF-2 (`GEOLOGY_FIRST_SCOPE.md` §4.9, §2.5): **regolith is consumed before
+/// bedrock, and deposition becomes regolith.** For a process that changed the
+/// field from `before` to `after`:
+/// - a lowering first strips regolith (never below `0.0`, bare rock);
+/// - a rise is added to regolith when `gains_are_deposit` -- a stream-power
+///   call's net gain (its internal deposition and the pits it fills) and
+///   sediment routing (`route_sediment`) are; a rebound is not, and must go
+///   through [`lift_column`] instead.
+///
+/// This is §4.9's caller-side rule, applied once per call on the call's net
+/// change: "the kernels do not change; the caller adds `max(0, field_after −
+/// field_before)` to regolith for each deposition step".
+///
+/// Must never be called for a whole-column uplift (it would bury the rock
+/// under a regolith that was never deposited).
+pub fn account_regolith(column: &mut cartalith_terrain::geology::GeologyColumn, before: &[f32], after: &[f32], gains_are_deposit: bool) {
+    column.regolith.par_iter_mut().enumerate().for_each(|(i, r)| {
+        let dz = after[i] as f64 - before[i] as f64;
+        if dz < 0.0 || (gains_are_deposit && dz > 0.0) {
+            *r = ((*r as f64 + dz).max(0.0)) as f32;
+        }
     });
 }
 

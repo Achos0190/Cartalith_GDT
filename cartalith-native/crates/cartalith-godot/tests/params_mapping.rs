@@ -564,6 +564,29 @@ fn a_save_without_the_glacial_key_reloads_without_the_pass() {
     }
 }
 
+/// GF-2's switch (`GEOLOGY_FIRST_SCOPE.md` §5.6): a save without the key
+/// reloads with the processes off even when the session had them on -- the
+/// world was generated before they existed -- and a save with it round-trips
+/// either value. The session is forced on first, because the shipped default
+/// is already off and a test starting there could not fail.
+#[test]
+fn a_save_without_the_geology_processes_key_reloads_with_them_off() {
+    let mut p = params::defaults();
+    p.geology_processes = true;
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert!(!p.geology_processes, "a save without the key must not silently gain rock-reading processes");
+    for on in [true, false] {
+        let mut src = params::defaults();
+        src.geology_processes = on;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["geology_processes"], serde_json::json!(on));
+        let mut back = params::defaults();
+        back.geology_processes = !on;
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.geology_processes, on);
+    }
+}
+
 /// The glacial default is not a dead flag: at the shipped defaults it carves
 /// the world. Same guard as the volcanism test below, for the one divergence
 /// that test leaves on in both worlds.
@@ -603,6 +626,7 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.passes.glacial = false;
     // And the geology model (Ruling BH): a save without the key predates it.
     expect.geology_model = false;
+    expect.geology_processes = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -659,6 +683,9 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     );
     assert!(app.passes.glacial && !parity.passes.glacial, "glacial pass on for new worlds, Ruling AU");
     assert!(app.geology_model && !parity.geology_model, "geology-first model, Ruling BH (GEOLOGY_FIRST_SCOPE.md §6.1)");
+    // GF-2's processes are NOT a divergence yet: off at both boundaries until
+    // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
+    assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");
 
     // And nothing else. Neutralising the seven must make the two identical --
     // which catches a seventh divergence added without a ruling, in either

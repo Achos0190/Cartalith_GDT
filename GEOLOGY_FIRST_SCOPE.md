@@ -1409,6 +1409,150 @@ and says so); the lithology map view's 11-colour palette.
 the generation peak **486.50 → 513.94 MiB (+27.44 MiB)**. The allocator count
 is deterministic, so one run each.
 
+### 5.6 GF-2 findings: control against treatment (measured 2026-09-27)
+
+**What was built.** `cartalith_erosion::stream_power_kernel_rock` (§4.1:
+`κ(exposed)^c` in place of the legacy factor, the exposed rock re-read before
+every iteration, which is the contact switch), `kappa_multiplier`,
+`lift_column` (§4.2) and `account_regolith` (§4.9). `generate_terrain_inner`
+routes every stream-power call (light pass, evolve cycles, sediment fill),
+every rebound (light pass, glacial, evolve), the sediment routing, and the
+regolith stripping of the glacial pass and the RV-1 carve through one gate,
+`RockContext`. It is on only when **both** `geology_model` and a second
+switch, `WorldParams::geology_processes`, are on; otherwise every legacy call
+runs verbatim. The control arm (§5.1) is the same parameters with
+`geology_processes` off: the world GF-1 shipped.
+
+**Gated off in the app, pending the bars** (coordinator decision, 2026-09-27,
+on the measurement below). `geology_processes` is off in
+`WorldParams::defaults()` **and** in `cartalith_godot::params::defaults()`,
+with a `PARAMS` and `JS_PATHS` row and the same rule as `geology_model` for a
+save without the key (it reloads off). The reason: B8's small-lake rise (1.28×
+and 1.26× against 1.25×) is the regression RV-1 fixed, and B1 and B2 show no
+gain. So the app keeps GF-1's inert column and today's worlds, and the harness
+and the GF-2 tests turn the switch on explicitly. **GF-3 and GF-7 must
+re-measure B1, B2 and B8 with the switch on** (`gf2_arms`) before anyone
+turns it on in `params::defaults()`.
+
+**Choices where §4 left one, each with its reason.**
+- `c` is `tect.resist`, as §4.1 and §9 Q5 say; at the app default that is
+  0.5, so κ spans 0.55 (granite) to 2.0 (unconsolidated). Not tuned.
+- The legacy term `max(0.05, 1 − 0.7·resist·R)` is dropped, not multiplied in:
+  §4.1's formula has no `resist` term.
+- **Regolith is accounted by the caller, on each call's net change** (§4.9:
+  "the kernels do not change. The caller adds `max(0, field_after −
+  field_before)` to regolith"; a net lowering strips regolith first). The
+  kernel reads regolith through §2.5's exposure rule and never writes it.
+  *A first build wrote regolith inside the iterations* (every rise, including
+  a pit the implicit scheme fills, became regolith at once). Measured on the
+  same five seeds at 800 km it roughly doubled the 1–3-cell lakes against the
+  control (46 → 99, 65 → 183, 26 → 72, 105 → 193, 81 → 159): a pit filled in
+  one iteration read as unconsolidated (κ = 4) in the next and was incised
+  harder. The diagnostic (`gf2_small_lake_diag`) found the new small lakes
+  sitting on cells that read unconsolidated, tens of metres below the control.
+  The scope's own caller-side design replaced it; no constant was changed.
+- Tectonic uplift raises the contact with the field inside the kernel (the
+  §4.2 rule applied to uplift). It is zero at `stream.uplift = 0`, so it moves
+  nothing on either boundary today.
+- The glacial pass and the carve only **strip** regolith (they read rock at
+  GF-4 and GF-6). Tidal flats, the marsh, coastal debris and hillslope
+  transport do not write regolith yet: §4.9 assigns them to GF-4 (and the
+  threshold hillslope to GF-3), and all are off in the app.
+- The harness judges both arms against **one input map**: `s` of the rock
+  exposed on the pre-erosion surface (the carve-off, passes-off world), over
+  the control's interior land. §5.1 requires the same pre-erosion rock map;
+  exposure on each arm's own final surface would select by the output.
+
+**Commands** (release, run alone):
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_arms
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_b9_cost
+```
+
+**At 800 km** (control → treatment). B3 "SP alone" is §5.4 item 3's
+advice: the light stream-power call replayed alone on the pre-erosion world,
+before rebound, the carve and glacial.
+
+| Seed | B1 ρ | B2 | B3 full | B3 SP alone | B8 lake % | B8 1–3-cell lakes |
+|---|---|---|---|---|---|---|
+| 483920 | −0.4600 → −0.4617 | 0.0501 → 0.0506 | 3.73 → 8.79 | 12.71 → 27.63 | 1.177 → 1.154 | 46 → **59** |
+| 24601 | −0.3155 → −0.3141 | 0.0475 → 0.0480 | 5.94 → 13.47 | 16.25 → 33.81 | 2.232 → 2.522 | 65 → **82** |
+| 71077345 | −0.3922 → −0.3900 | 0.0491 → 0.0492 | 1.22 → 3.43 | 14.14 → 29.40 | 1.419 → 1.581 | 26 → 28 |
+| 12345 | −0.4232 → −0.4321 | 0.0487 → 0.0488 | 4.15 → 8.36 | 10.00 → 19.67 | 4.661 → 4.077 | 105 → 111 |
+| 314159 | −0.4268 → −0.4272 | 0.0394 → 0.0395 | 5.94 → 13.98 | 15.62 → 32.65 | 9.347 → 9.312 | 81 → 59 |
+
+Every B1–B3 population is at least 1 248 307 interior-land cells; the weak
+group (`s ≤ 0.4` on the pre-erosion map) is 4 589 to 25 180 of them. Ocean
+cells on river paths are 0 in both arms on all 15 worlds.
+
+**The bars.**
+- **B1 fails** on all five (ρ ≥ 0.25 and Δρ ≥ 0.15): Δρ is −0.009 to +0.002.
+- **B2 fails** on all five (≥ 1.5 and ≥ 1.25 × control): the ratio moves by
+  under 1.3 %.
+- **B3 passes** on all five, both halves, full (2.02 to 2.80 × control) and
+  on the stream-power call alone (1.97 to 2.17 × control, each ≥ 2.0 in
+  absolute value on the SP-alone line too). §5.5 already said B3's absolute
+  half is not evidence here; the relative half is, and it holds.
+- **B8 fails on 2 of 5**: lake share holds everywhere (within +0.29 pp), but
+  the 1–3-cell lakes rise 1.28× (483920) and 1.26× (24601) against the 1.25×
+  bar; the other three are 1.08×, 1.06× and 0.73×. At 80 km and 8 000 km B8
+  passes on all ten worlds.
+- **B9 passes, no difference established.** Seed 483920, 800 km, seven
+  alternating runs per arm in one process: control 3.309 s (3.246 … 3.954),
+  treatment 3.434 s (3.399 … 3.880), ratio of medians 1.038. An independent
+  re-run: 3.287 s (3.148 … 3.734) against 3.333 s (3.284 … 3.733), 1.014. The
+  brackets overlap both times.
+- **B10 passes**: deterministic on all five (field, river mask, regolith,
+  contact byte-identical run to run), 10–11 rock types exposed on land,
+  two-layer share 0.143–0.280.
+
+**Why B1 and B2 do not move: the effect is metres, the relief is hundreds of
+metres.** Treatment minus control on land (seeds 483920 and 314159): median
+−0.01 m, 1st to 99th percentile −10 to +15 m and −7 to +11 m. By pre-erosion
+rock, the mean change is +0.04 m and +0.10 m on granite (0.75 and 0.62 of
+land), −4.9 m and −7.3 m on tuff, −0.6 m and −1.9 m on schist, +3.9 m and
++5.4 m on andesite. The difference map shows the change confined to channel
+lines (some incised deeper, some shallower) and volcano flanks; interfluves do
+not move. This is §1.4 point 3 and 4 made concrete: nine iterations of
+transient incision under zero uplift lower channels by metres, and a 2.9×
+κ contrast between granite and shale changes metres into more metres, which
+no 9 × 9 relief statistic at 390 m cells can see. The weak class is also
+tiny on the input map (tuff and andesite flanks; pre-erosion exposed shale
+is 0), and it sits on volcano flanks that are steep for reasons that are not
+rock, which is why B2's control ratio is 0.04–0.05 in the first place.
+Neither is fixable by tuning inside §4.1 without the scope's procedure: GF-7's
+clock (more passes) and GF-3's threshold hillslope are the scope's own levers
+on landform scale, and B1/B2 need re-measuring after them.
+
+**The positive control through the kernel** (`positive_control_through_the_rock_kernel`,
+granite and shale checkerboard on a tilted plateau, contrast 0 against 0.5):
+B3 0.998 → 2.495 (asserted ≥ 2.0 and ≥ 1.6 × control), a permuted map near 1
+(asserted). B1 reads −0.020 → 0.209 and B2 0.994 → 1.062: §5.1's "the
+treatment must give B1's ρ > 0.5" is **not met** by the kernel on this
+fixture, so that sentence of §5.1 is not asserted. The same reason as above:
+nine iterations deepen the channels in weak rock, which raises the local
+relief of weak rock as much as it lowers its surface.
+
+**The column after generation** (land, 800 km): regolith between 0 and
+`R_EXPOSE` on 0.049–0.088, thicker (reads unconsolidated) on 0.005–0.014; the
+substrate is exposed on 0.12–0.21 % of land, against 0 on the pre-erosion
+surface -- caps are breached, in few places.
+
+**What moved, and what did not.** No golden moved and no test was
+re-recorded. The parity path is switch-off (`WorldParams::defaults`), so the
+16 civ suites on `pre_rv1_world`, the kernel goldens and
+`golden_parity_pipeline.rs` pass unchanged; §6.2's `pre_bh_world` capture is
+a GF-9 action (it is needed only when the switch is deleted) and is not built.
+With the processes gated off in the app, **the app-default world is
+bit-identical to HEAD (`2cf0143`)**: a scratch test hashed `field`,
+`temperature`, `rainfall`, `flow_discharge`, `river_mask`, `river_floor`,
+`stream_order`, `resistance_field` and all five column arrays of
+`params::defaults()` at 2048 × 1311, 800 km, seeds 483920 and 314159, in a
+worktree built from HEAD and in the working tree; every hash matched.
+`geology_gf1.rs`'s GF-1 identity (app-like parameters, model on against model
+off, every array) runs on the app's own parameters again and passes.
+
 ---
 
 ## 6. Re-baseline plan

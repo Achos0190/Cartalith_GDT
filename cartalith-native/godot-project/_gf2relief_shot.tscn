@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://_gf2relief_shot.gd" id="1"]
+
+[node name="Gf2ReliefShot" type="Node"]
+script = ExtResource("1")

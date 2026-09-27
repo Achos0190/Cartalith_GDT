@@ -738,11 +738,31 @@ pub struct WorldParams {
     /// [`WorldState::geology`].
     ///
     /// **`false` here and `true` in the shipped app** (§6.1's switch, the
-    /// standing convention for the build's duration). At GF-1 no shaping
-    /// process reads the column, so this moves no other array either way --
-    /// asserted by `geology_stage_leaves_every_other_array_bit_identical`. It
+    /// standing convention for the build's duration). Building the column
+    /// alone moves no other array (GF-1, asserted by
+    /// `geology_stage_leaves_every_other_array_bit_identical`). The processes
+    /// read it only with [`Self::geology_processes`] on as well
+    /// (`tests/geology_gf2.rs`). It
     /// gets no GUI control (§6.1) and no `PARAMS` row: GF-9 removes it.
     pub geology_model: bool,
+    /// GF-2's landform processes read the column (`GEOLOGY_FIRST_SCOPE.md`
+    /// §4.1, §4.2, §4.9): stream power takes κ of the exposed rock with the
+    /// in-loop contact switch, rebound lifts the contact, deposition writes
+    /// regolith and lowering strips it first. Takes effect only with
+    /// [`Self::geology_model`] on (without a column there is nothing to read).
+    ///
+    /// **`false` here and `false` in the shipped app, for now** (coordinator
+    /// decision, 2026-09-27, on GF-2's measurement): with it on, B1 and B2 did
+    /// not move on any of five seeds at 800 km and B8's 1-3-cell lakes rose
+    /// 1.28x and 1.26x against a 1.25x bar on two of them -- the regression
+    /// RV-1 fixed (`GEOLOGY_FIRST_SCOPE.md` §5.6). It stays off until GF-3
+    /// (threshold hillslope) and GF-7 (the clock) bring B1, B2 and B8 over
+    /// their bars with it on. Must never be turned on in
+    /// `cartalith_godot::params::defaults()` without that re-measurement.
+    ///
+    /// A save without the key reloads with it off (`params::apply_saved_state`),
+    /// as `geology_model` does.
+    pub geology_processes: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -794,6 +814,9 @@ impl WorldParams {
             integrate_drainage: false,
             // Off: the parity baseline. On at the app boundary (§6.1).
             geology_model: false,
+            // Off: the parity baseline, and off in the app too until §5.6's
+            // bars pass (the field's doc comment).
+            geology_processes: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -1064,7 +1087,10 @@ pub struct WorldState {
     /// always tell which path actually ran by reading this).
     pub gpu_stages_used: Vec<String>,
     /// The GF-1 rock column (`GEOLOGY_FIRST_SCOPE.md` §2.5), or why there is
-    /// none. Read by no shaping process at GF-1.
+    /// none. With [`WorldParams::geology_processes`] on (GF-2), stream power
+    /// reads it and rebound and deposition update `contact` and `regolith`
+    /// (`GEOLOGY_FIRST_SCOPE.md` §4.1, §4.2, §4.9); the rock types themselves
+    /// are never re-derived. Off (the app today), it is GF-1's inert column.
     pub geology: Geology,
 }
 
@@ -1101,6 +1127,16 @@ pub enum Geology {
 
 impl Geology {
     pub fn column(&self) -> Option<&cartalith_terrain::geology::GeologyColumn> {
+        match self {
+            Geology::Column(c) => Some(c),
+            Geology::Absent(_) => None,
+        }
+    }
+
+    /// The column, writable -- GF-2's processes update `regolith` and
+    /// `contact` in place (`GEOLOGY_FIRST_SCOPE.md` §4.2, §4.9). `None` when
+    /// absent; never invents a column.
+    pub fn column_mut(&mut self) -> Option<&mut cartalith_terrain::geology::GeologyColumn> {
         match self {
             Geology::Column(c) => Some(c),
             Geology::Absent(_) => None,
@@ -1312,6 +1348,97 @@ pub(crate) fn compute_stress_gpu(
     })
 }
 
+/// GF-2's switch point inside `generate_terrain_inner` (`GEOLOGY_FIRST_SCOPE.md`
+/// §4.1, §4.2, §4.9; owner Rulings BH and BJ): each landform call site goes
+/// through one of these methods, which take the rock-reading form when `on`
+/// and the legacy call **verbatim** otherwise.
+///
+/// Why one gate for every site: §6.1 ships the model behind
+/// `WorldParams::geology_model`, and GF-2's processes behind
+/// `WorldParams::geology_processes` (off at both boundaries until §5.6's bars
+/// pass). The parity path and today's app worlds must stay bit-identical by
+/// control flow: with `on` false every method is exactly the pre-GF-2
+/// statement it replaced.
+///
+/// Must never be `on` without a column (the constructor derives `on` from
+/// the column's presence), and must never make a process read rock that its
+/// milestone has not reached: glacial and the carve only *strip* regolith
+/// here; they read rock at GF-4 and GF-6.
+struct RockContext {
+    on: bool,
+    /// §4.1's rock contrast `c`: `tect.resist`, repurposed (§9 Q5's default).
+    contrast: f64,
+    /// §2.5's `R_EXPOSE` (5 m) in normalised units for this world.
+    r_expose: f32,
+}
+
+impl RockContext {
+    /// Stream power: `stream_power_kernel_rock` (κ lookup, in-loop contact
+    /// switch) when on, then §4.9's caller-side regolith rule on the call's
+    /// net change (gains are deposit, losses strip regolith first); the
+    /// legacy kernel otherwise.
+    #[allow(clippy::too_many_arguments)]
+    fn stream_power(
+        &self,
+        geology: &mut Geology,
+        field: &mut [f32],
+        stress: &[f32],
+        resistance: &[f32],
+        rain: &[f32],
+        gw: usize,
+        gh: usize,
+        sp: &StreamPowerParams,
+    ) {
+        match geology.column_mut().filter(|_| self.on) {
+            Some(column) => {
+                let before = field.to_vec();
+                cartalith_erosion::stream_power_kernel_rock(
+                    field,
+                    stress,
+                    rain,
+                    gw,
+                    gh,
+                    sp,
+                    &mut cartalith_erosion::StreamPowerRock { column, contrast: self.contrast, r_expose: self.r_expose },
+                );
+                cartalith_erosion::account_regolith(column, &before, field, true);
+            }
+            None => stream_power_kernel(field, stress, resistance, rain, gw, gh, sp),
+        }
+    }
+
+    /// Isostatic rebound; when on, the contact rises by the same increment
+    /// (§4.2, `cartalith_erosion::lift_column`).
+    #[allow(clippy::too_many_arguments)]
+    fn rebound(&self, geology: &mut Geology, field: &mut [f32], pre: &[f32], gw: usize, gh: usize, blur_r: f64, world: bool) {
+        match geology.column_mut().filter(|_| self.on) {
+            Some(column) => {
+                let before = field.to_vec();
+                isostatic_rebound(field, pre, gw, gh, blur_r, world);
+                cartalith_erosion::lift_column(column, &before, field);
+            }
+            None => isostatic_rebound(field, pre, gw, gh, blur_r, world),
+        }
+    }
+
+    /// A lowering process that does not read rock yet: strip regolith first
+    /// (§4.9). `before` is `None` exactly when off (the caller skips the
+    /// snapshot then), so off costs nothing.
+    fn strip(&self, geology: &mut Geology, before: Option<&[f32]>, after: &[f32]) {
+        if let (Some(column), Some(before)) = (geology.column_mut().filter(|_| self.on), before) {
+            cartalith_erosion::account_regolith(column, before, after, false);
+        }
+    }
+
+    /// A depositing process (sediment routing): gains become regolith,
+    /// losses strip it (§4.9).
+    fn deposit(&self, geology: &mut Geology, before: Option<&[f32]>, after: &[f32]) {
+        if let (Some(column), Some(before)) = (geology.column_mut().filter(|_| self.on), before) {
+            cartalith_erosion::account_regolith(column, before, after, true);
+        }
+    }
+}
+
 /// Runs the full ported pipeline once, from a seed to (when
 /// `p.carve_rivers`, the JS default) carved river valleys. See the module
 /// doc comment for the exact JS functions this mirrors and what's
@@ -1319,6 +1446,7 @@ pub(crate) fn compute_stress_gpu(
 pub fn generate_terrain(p: &WorldParams) -> WorldState {
     generate_terrain_inner(p, false)
 }
+
 
 /// `generate_terrain`'s body, with one test-only escape hatch:
 /// `force_precarve_flow` restores the reference's own literal call order
@@ -1835,8 +1963,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // flow. Every input is final here and none is a product of erosion or of
     // climate -- which is what makes this the model and not the legacy
     // `build_lithology` label (defined on the finished, eroded, rained-on
-    // surface). Nothing below reads the column at GF-1.
-    let geology = if p.geology_model {
+    // surface). With `geology_processes` on (GF-2) the landform calls below
+    // read it through `RockContext` (§4.1, §4.2, §4.9).
+    let mut geology = if p.geology_model {
         let row_lat: Vec<f64> =
             (0..gh).map(|y| cartalith_climate::lat_at(y, gh, world, p.climate.lat_n, p.climate.lat_s)).collect();
         Geology::Column(Box::new(cartalith_terrain::geology::build_geology(&cartalith_terrain::geology::GeologyInputs {
@@ -1859,6 +1988,15 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         Geology::Absent(GeologyAbsent::ModelOff)
     };
     drop(volcano_trace);
+    // GF-2: whether the landform processes below read the column. Off
+    // whenever the column is absent (`geology_model` off: the parity path) or
+    // `geology_processes` is off (the app today, §5.6) -- and then every call
+    // below is the legacy statement, verbatim.
+    let rock = RockContext {
+        on: p.geology_processes && geology.column().is_some(),
+        contrast: p.tect.resist,
+        r_expose: cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea_level, p.peak_m) as f32,
+    };
 
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
@@ -2064,8 +2202,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             world,
             sea: sea_level,
         };
-        stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
-        isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+        rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
+        rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
         if p.tect.dynamic_lithology {
             // recomputeResistanceAfterErosion(reference HTML line 3144):
             // JS's own call site (`eroFinish`) passes no `opts`, so `k`
@@ -2181,9 +2319,13 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // loop left pits at confluences, on every diagonal step and wherever a
         // lowland floor walked under sea level, and `build_water_bodies`
         // classified each one as a lake. See `carve_channel_network`.
+        // GF-2 (§4.9): the carve lowers the surface, so it strips regolith
+        // before bedrock like any erosion. It does not read rock yet (GF-6).
+        let pre_carve = rock.on.then(|| field.clone());
         for i in carve_channel_network(&mut field, gw, gh, world, &polys, &half_ws, &ch.recv, lake_surface.as_deref(), sea_level, 0.0006) {
             rmask[i] = 1;
         }
+        rock.strip(&mut geology, pre_carve.as_deref(), &field);
         drop(lake_surface);
         for (i, &m) in rmask.iter().enumerate() {
             if m != 0 {
@@ -2340,9 +2482,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     world,
                 },
             );
+            // GF-2 (§4.9): glacial lowering strips regolith first. The kernel
+            // itself reads no rock until GF-4.
+            rock.strip(&mut geology, Some(&pre), &field);
             // glacialErode()'s own `eroFinish(pre)` tail -- glacial is the one
             // of these the reference follows with an isostatic rebound.
-            isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+            rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
             if p.tect.dynamic_lithology {
                 recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
             }
@@ -2394,8 +2539,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 world,
                 sea: sea_level,
             };
-            stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
-            isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+            rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
+            rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
             if p.tect.dynamic_lithology {
                 recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
             }
@@ -2424,7 +2569,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 world,
                 sea: sea_level,
             };
-            stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
+            rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
             // the eroded column *is* the sediment supply
             let mut supply = vec![0f32; gw * gh];
             for i in 0..gw * gh {
@@ -2435,7 +2580,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             }
             // discharge on the carved surface, before routing
             flow_discharge = compute_flow_routed(gw, gh, &field, Some(&rainfall), true, world, sea_level, integrate);
+            // GF-2 (§4.9): what routing deposits is regolith.
+            let pre_route = rock.on.then(|| field.clone());
             route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
+            rock.deposit(&mut geology, pre_route.as_deref(), &field);
         }
         // ---- applyTidalSedimentation() (reference HTML lines 4324-4334) ----
         // Last, as it is in the reference's own source order (immediately

@@ -458,6 +458,50 @@ re-checked against the tree rather than copied from the commit message.
     GF-8), the single-layer import column, and the lithology map view.
   - **Probe:** `_gf1sample_probe.tscn` (windowed): 27 checks green, with a
     screenshot.
+- **GF-2 mechanism built, gated off in the app pending bars — pending
+  independent verification.** Stream power and rebound read rock and
+  deposition becomes regolith, behind a new switch,
+  `WorldParams::geology_processes`, which is **off in `WorldParams::defaults()`
+  and in `params::defaults()`** (coordinator decision 2026-09-27: B8's
+  small-lake rise is the regression RV-1 fixed, and B1/B2 show no gain). The
+  app keeps GF-1's inert column; its default world hashes bit-identical to
+  HEAD `2cf0143` on two seeds at 2048 × 1311. GF-3 and GF-7 re-measure B1, B2
+  and B8 with the switch on before it can ship. See
+  `GEOLOGY_FIRST_SCOPE.md` §5.6.
+  - **What:** `cartalith_erosion::stream_power_kernel_rock` (κ of the exposed
+    rock to the power `c = tect.resist`, re-read every iteration, which is the
+    contact switch), `lift_column` (rebound lifts the contact) and
+    `account_regolith` (net gains become regolith, lowering strips it first,
+    applied by the caller as §4.9 specifies). `generate_terrain` routes every
+    stream-power call, rebound, the sediment routing and the glacial and carve
+    lowering through one gate that needs both `geology_model` and
+    `geology_processes`. The switch has a `PARAMS`/`JS_PATHS` row and reloads
+    off from a save without the key. The harness and the GF-2 tests turn it
+    on explicitly; the control arm is the app's own world.
+  - **Bars at 800 km, five seeds, switch on (control → treatment):** B3 passes, full
+    (2.02–2.80 × control) and on the stream-power call alone (1.97–2.17 ×).
+    B9 passes (ratio of medians 1.038 and 1.014 on two runs; brackets overlap,
+    so no difference is established). B10 passes. **B1 and B2 fail on all five**
+    (Δρ −0.009 to +0.002; B2 moves under 1.3 %): the treatment changes heights
+    by metres (1st–99th percentile −10 to +15 m), mostly along channels, which
+    no relief statistic at 390 m cells sees. **B8 fails on 2 of 5**: 1–3-cell
+    lakes 1.28× and 1.26× against a 1.25× bar; lake share and ocean-on-path
+    hold everywhere, and B8 passes on all ten 80 km and 8 000 km worlds.
+  - **Design disclosed:** a first build wrote regolith inside the kernel's
+    iterations and doubled the small-lake count; it was replaced by the
+    scope's own caller-side rule, with no constant tuned.
+  - **Goldens:** none moved and none re-recorded; app worlds do not move
+    either. `pre_bh_world` (§6.2) is a GF-9 action and is not built.
+  - **Tests:** `cartalith-erosion/tests/gf2_rock_stream_power.rs` (7, literal
+    values) and `cartalith-engine/tests/geology_gf2.rs` (7, including exact
+    replays of the light pass, the carve, the glacial strip and the sediment
+    routing), plus a `params_mapping` test for the switch's save rule. 21
+    mutants over the new code and the switch, all killed (three after replay
+    tests were added for first-round survivors).
+  - **Probe:** `_gf2relief_shot.tscn` (windowed), before and after at 800 km on
+    seeds 483920 and 314159, taken with the switch on (before the gate). The
+    broad relief does not visibly change; the differences are in which
+    channel gullies are drawn and how deep.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s

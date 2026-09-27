@@ -3,7 +3,9 @@
 //!
 //! - **Identity by control flow.** With `geology_model` on, every array
 //!   `generate_terrain` produced before GF-1 is bit-identical to the switch
-//!   off (done-means, §7 GF-1).
+//!   off (done-means, §7 GF-1). GF-2's processes read the column only with
+//!   `geology_processes` on, which is off at both boundaries (§5.6), so this
+//!   identity is the app's own world. GF-2's tests are `geology_gf2.rs`.
 //! - **Not circular.** The column is built from pre-erosion causes only, so
 //!   changing erosion or climate must not move a single byte of it -- the
 //!   property the legacy `build_lithology` label lacks (§1.2).
@@ -110,11 +112,18 @@ fn simple_volcanism_path_is_identity_and_marks_unclassified() {
 /// The fix for `build_lithology`'s circularity: the column is a function of
 /// pre-erosion causes only. Erosion off, every pass on, the stream-power
 /// constants and the whole climate moved -- the column must not change.
+///
+/// With GF-2's processes on, the stored column also carries what erosion did
+/// to it (regolith, and contacts lifted by rebound), so the whole column is
+/// compared with them off, and with them on the **derivation** -- which rock
+/// is where (`rock_top`, `rock_sub`, `volcanic_setting`) -- must still not
+/// move.
 #[test]
 fn the_column_does_not_depend_on_erosion_or_climate() {
     let mut base = params(483920, true);
     base.geology_model = true;
     let ref_ws = generate_terrain(&base);
+    let ref_live = generate_terrain(&WorldParams { geology_processes: true, ..base.clone() });
     let reference = column(&ref_ws);
 
     let mut no_erosion = base.clone();
@@ -131,6 +140,11 @@ fn the_column_does_not_depend_on_erosion_or_climate() {
     other_climate.climate.wind_dir_deg = 200.0;
 
     for (label, p) in [("no erosion", no_erosion), ("more erosion", more_erosion), ("other climate", other_climate)] {
+        let live = generate_terrain(&WorldParams { geology_processes: true, ..p.clone() });
+        let (a, b) = (column(&ref_live), column(&live));
+        assert_eq!(a.rock_top, b.rock_top, "{label}: rock_top moved with the processes on");
+        assert_eq!(a.rock_sub, b.rock_sub, "{label}: rock_sub moved with the processes on");
+        assert_eq!(a.volcanic_setting, b.volcanic_setting, "{label}: volcanic_setting moved with the processes on");
         let ws = generate_terrain(&p);
         // The variant really did change the finished terrain or climate --
         // otherwise this test could not fail.
@@ -158,6 +172,8 @@ fn real_worlds_have_a_live_consistent_column() {
     for seed in [483920, 24601, 71077345, 12345, 314159] {
         let mut p = params(seed, true);
         p.geology_model = true;
+        // The column as derived (GF-1's regolith = 0 everywhere; processes
+        // off). GF-2's evolved column is checked in `geology_gf2.rs`.
         let ws = generate_terrain(&p);
         let c = column(&ws);
         let n = GW * GH;

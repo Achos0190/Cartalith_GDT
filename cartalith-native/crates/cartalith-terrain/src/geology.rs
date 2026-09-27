@@ -8,9 +8,11 @@
 //! `cartalith-engine`'s `generate_terrain` builds it in a new geology stage,
 //! after volcanism, craters and sea level and before the first flow.
 //!
-//! **At GF-1 no shaping process reads any of it.** It is stored on
-//! `WorldState` and shown in the Sample panel. GF-2 onward makes the kernels
-//! read the table.
+//! It is stored on `WorldState` and shown in the Sample panel. **Since GF-2**
+//! stream power reads κ of the exposed rock, rebound lifts `contact` and
+//! deposition writes `regolith` (`cartalith-erosion`'s
+//! `stream_power_kernel_rock`, `lift_column`, `account_regolith`). Later
+//! milestones make the other kernels read the table.
 //!
 //! # Why it is not `cartalith_civ::build_lithology`
 //!
@@ -484,7 +486,8 @@ pub struct GeologyColumn {
     pub contact: Vec<f32>,
     /// Unconsolidated thickness on bedrock, normalised height units. `0.0` is
     /// a real value: bare rock. GF-1 writes 0 everywhere (§3.1); deposition
-    /// becomes regolith at GF-2.
+    /// becomes regolith since GF-2 (`account_regolith`), and lowering strips
+    /// it before bedrock.
     pub regolith: Vec<f32>,
     /// [`setting_code`] of the edifice that won the cell's `volcanic_field`.
     pub volcanic_setting: Vec<u8>,

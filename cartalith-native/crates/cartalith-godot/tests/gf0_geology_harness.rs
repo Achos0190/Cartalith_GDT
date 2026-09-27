@@ -43,6 +43,22 @@
 //! cannot populate), and B10's rock-type count and two-layer share. The
 //! stand-in lines above are unchanged, byte for byte.
 //!
+//! **Since GF-2** the processes can read the column, behind
+//! `WorldParams::geology_processes`, which is off in `params::defaults()`
+//! until §5.6's bars pass. So arm 1 (`gf0_bars`, `gf0_b9_cost`) is the app's
+//! own world -- the GF-1 column, built and read by nothing -- and keeps
+//! printing exactly what it printed at GF-1. Arm 2, the treatment, turns the
+//! switch on ([`treated`]): `gf2_arms` (B1-B3 on the
+//! pre-erosion rock map for both arms, B3 on the stream-power call alone too,
+//! B8, B10 and the column's evolution) and `gf2_b9_cost`;
+//! `positive_control_through_the_rock_kernel` is the fast controlled check
+//! that the rock kernel's effect is visible to the metrics.
+//!
+//!   ```text
+//!   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_arms
+//!   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_b9_cost
+//!   ```
+//!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
 //! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
@@ -827,6 +843,7 @@ fn gf0_bars() {
     println!("strength stand-in: resistance_field; strong = top quartile, weak = bottom quartile of each bar's population");
     println!("NOT the scope's control arm (that needs GF-1's column with c = 0).");
     println!("GF-1: the column exists and no process reads it, so every 'control arm' line below IS the control arm (c = 0, no new stages).");
+    println!("GF-2: arm 1 is params::defaults() with geology_processes off (the GF-1 world); the treatment arm is gf2_arms.");
     for &km in &extents {
         for &seed in &seeds {
             let p = app_params(seed, km, gw, gh);
@@ -1061,6 +1078,450 @@ fn gf0_bars() {
             }
         }
     }
+}
+
+// ===========================================================================
+// GF-2: arm 2, the treatment (processes read rock)
+// ===========================================================================
+//
+// `GEOLOGY_FIRST_SCOPE.md` §5.1's two arms on one binary (§6.1):
+// - **control** = `params::defaults()` as shipped, `geology_processes` off:
+//   the GF-1 column is built and stored, no process reads it -- the world the
+//   app generates, and the arm §5.5 measured;
+// - **treatment** = the same with `geology_processes` on ([`treated`]):
+//   stream power reads κ of the exposed
+//   rock with the in-loop contact switch, rebound lifts the column,
+//   deposition writes regolith (§4.1, §4.2, §4.9).
+//
+// **The strength map both arms are judged by is the same input map**: `s` of
+// the rock exposed on the *pre-erosion* surface (the carve-off, passes-off
+// world, which holds the column exactly as derived). §5.1: "Both arms use the
+// same pre-erosion rock map, so every difference is the processes' doing";
+// and it is an input, never selected by the value under test (`MISTAKES.md`).
+// The population (interior land) is the control's, so the two arms are
+// compared over the same cells.
+
+/// The GF-2 treatment: `p` with `geology_processes` on. It is off in
+/// `params::defaults()` until `GEOLOGY_FIRST_SCOPE.md` §5.6's bars pass, so
+/// the harness turns it on explicitly here and nowhere else.
+fn treated(p: &WorldParams) -> WorldState {
+    generate_terrain(&WorldParams { geology_processes: true, ..p.clone() })
+}
+
+/// §5.2's bars, evaluated on one seed. `None` in, "not measurable" out --
+/// never a pass.
+fn verdict(ok: Option<bool>) -> &'static str {
+    match ok {
+        Some(true) => "PASS",
+        Some(false) => "FAIL",
+        None => "not measurable",
+    }
+}
+
+/// `s` of the rock the column exposes on `field` (NaN where no column cell),
+/// through §2.5's rule.
+fn s_of_exposed(col: &cartalith_terrain::geology::GeologyColumn, field: &[f32], sea: f64, peak_m: f64) -> Vec<f32> {
+    exposed_map(col, field, sea, peak_m)
+        .iter()
+        .map(|&k| cartalith_terrain::geology::ROCK_PROPS.get(k as usize).map_or(f32::NAN, |r| r.s))
+        .collect()
+}
+
+/// The light stream-power pass's parameters exactly as
+/// `generate_terrain_inner` builds them (`light_iters = max(4,
+/// round(iters·0.6))`, `js_round` = round-half-up on these positive values).
+fn light_stream_params(p: &WorldParams, sea: f64) -> cartalith_erosion::StreamPowerParams {
+    cartalith_erosion::StreamPowerParams {
+        k: p.stream.k,
+        uplift: p.stream.uplift,
+        deposit: p.stream.deposit,
+        climate_k: p.stream.climate_k,
+        iters: ((p.stream.iters as f64 * 0.6 + 0.5).floor() as i32).max(4),
+        resist: p.tect.resist,
+        g: p.planet.g,
+        world: p.world,
+        sea,
+    }
+}
+
+/// §5.4 item 3's advice, taken: B3 on the stream-power call **alone**, before
+/// rebound, the carve and glacial. Replays the light pass on the pre-erosion
+/// world (field, priming rainfall, stress, resistance, column), legacy kernel
+/// for the control and the rock kernel for the treatment. Returns
+/// `(control after, treatment after)`.
+fn stream_power_alone(p: &WorldParams, pre: &WorldState) -> (Vec<f32>, Vec<f32>) {
+    let (gw, gh) = (p.gw, p.gh);
+    let sp = light_stream_params(p, pre.sea_level);
+    let mut ctrl = pre.field.to_vec();
+    cartalith_erosion::stream_power_kernel(&mut ctrl, &pre.stress_field, &pre.resistance_field, &pre.rainfall, gw, gh, &sp);
+    let mut treat = pre.field.to_vec();
+    let mut col = pre.geology.column().expect("pre-erosion world has the column").clone();
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, pre.sea_level, p.peak_m) as f32;
+    cartalith_erosion::stream_power_kernel_rock(
+        &mut treat,
+        &pre.stress_field,
+        &pre.rainfall,
+        gw,
+        gh,
+        &sp,
+        &mut cartalith_erosion::StreamPowerRock { column: &mut col, contrast: p.tect.resist, r_expose },
+    );
+    (ctrl, treat)
+}
+
+/// The synthetic positive control of §5.1, now run **through the kernels**
+/// (§5.4: "GF-2 re-runs it through the rock-reading kernel"): 64-cell
+/// checkerboard blocks of granite (strong, s = 0.85) and shale (weak,
+/// s = 0.30) on a tilted, noisy plateau under uniform rain. Control = the
+/// rock kernel at contrast 0 (uniform rock); treatment = contrast 0.5, the
+/// app default `tect.resist`. Returns `(s, pre, control after, treatment
+/// after)`.
+fn rock_fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
+    let n = gw * gh;
+    let mut rng = Mix(0x6f2);
+    let mut col = GeologyColumn {
+        rock_top: vec![0; n],
+        rock_sub: vec![NO_LAYER; n],
+        contact: vec![f32::NAN; n],
+        regolith: vec![0.0; n],
+        volcanic_setting: vec![0; n],
+    };
+    let (mut s, mut pre) = (vec![0f32; n], vec![0f32; n]);
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let rock = if ((x / 64) + (y / 64)) % 2 == 0 { Rock::Granite } else { Rock::Shale };
+            col.rock_top[i] = rock as u8;
+            s[i] = rock.props().s;
+            let u = (rng.next() >> 11) as f64 / (1u64 << 53) as f64;
+            pre[i] = (0.5 + 0.3 * y as f64 / gh as f64 + 0.01 * u) as f32;
+        }
+    }
+    let zeros = vec![0f32; n];
+    let rain = vec![0.5f32; n];
+    let sp = cartalith_erosion::StreamPowerParams {
+        k: 0.012,
+        uplift: 0.0,
+        deposit: 0.3,
+        climate_k: 0.5,
+        iters: 9,
+        resist: 0.5,
+        g: 1.0,
+        world: false,
+        sea: 0.42,
+    };
+    let run = |contrast: f64| {
+        let mut f = pre.clone();
+        let mut c = col.clone();
+        cartalith_erosion::stream_power_kernel_rock(
+            &mut f,
+            &zeros,
+            &rain,
+            gw,
+            gh,
+            &sp,
+            &mut cartalith_erosion::StreamPowerRock { column: &mut c, contrast, r_expose: 0.001 },
+        );
+        f
+    };
+    (s, pre.clone(), run(0.0), run(0.5))
+}
+
+/// Protects the GF-2 metric chain end to end on a fixture whose answer is
+/// known: through the rock kernel, weak rock must be lowered more than strong
+/// (B3 ≥ 2.0, and ≥ 1.6 × the uniform-rock control's), and a permuted map must
+/// read no contrast. B1 and B2 are printed, not asserted: see the scope's
+/// §5.6 for what they read on this fixture.
+#[test]
+fn positive_control_through_the_rock_kernel() {
+    let (gw, gh) = (256, 192);
+    let (s, pre, ctrl, treat) = rock_fixture(gw, gh);
+    let mpu = 4000.0 / (1.0 - 0.42);
+    let class = vec![0u8; gw * gh];
+    let pop = pop_of(&interior_land(&class, gw, gh, false, COAST_MARGIN));
+    let b3c = b3_model(&s, &pre, &ctrl, &pop, mpu).value.expect("control B3 measurable");
+    let b3t = b3_model(&s, &pre, &treat, &pop, mpu).value.expect("treatment B3 measurable");
+    let rel_t = relief_m(&treat, gw, gh, false, RELIEF_HALF, mpu);
+    let rel_c = relief_m(&ctrl, gw, gh, false, RELIEF_HALF, mpu);
+    let slope_t = slope_deg(&treat, gw, gh, false, mpu, 390.625);
+    let slope_c = slope_deg(&ctrl, gw, gh, false, mpu, 390.625);
+    println!(
+        "rock-kernel fixture: B3 control {b3c:.4} treatment {b3t:.4}; B1 control {:?} treatment {:?}; B2 control {:?} treatment {:?}",
+        b1(&s, &rel_c, &pop).value,
+        b1(&s, &rel_t, &pop).value,
+        b2_model(&s, &slope_c, &pop).value,
+        b2_model(&s, &slope_t, &pop).value
+    );
+    assert!((b3c - 1.0).abs() < 0.05, "uniform rock (contrast 0) must lower both rocks alike; got {b3c}");
+    assert!(b3t >= 2.0 && b3t >= 1.6 * b3c, "the rock kernel must lower shale more than granite; got {b3t} vs control {b3c}");
+    let sp = permuted(&s, &pop, 29);
+    let b3p = b3_model(&sp, &pre, &treat, &pop, mpu).value.expect("permuted B3 measurable");
+    assert!((b3p - 1.0).abs() < 0.1, "a permuted rock map must read B3 near 1; got {b3p}");
+}
+
+#[test]
+#[ignore = "GF-2 measurement: control vs treatment; minutes at 2048x1311; run alone in release"]
+fn gf2_arms() {
+    let (gw, gh) = grid();
+    let seeds = env_list("GF0_SEEDS", &SEEDS);
+    let extents = env_list("GF0_EXTENTS", &EXTENTS_KM);
+    println!("GF-2 arms, grid {gw}x{gh}: control = params::defaults() (geology_processes off), treatment = the same with geology_processes on");
+    println!("strength map for BOTH arms: s of the rock exposed on the PRE-EROSION surface (§5.1); population = control's interior land");
+    for &km in &extents {
+        for &seed in &seeds {
+            let p = app_params(seed, km, gw, gh);
+            assert!(p.geology_model, "params::defaults() must run the geology model");
+            assert!(!p.geology_processes, "the control arm is the app's world: processes off (§5.6)");
+            let world = p.world;
+            let ctrl = generate_terrain(&p);
+            let treat = treated(&p);
+            let mut pp = p.clone();
+            pp.carve_rivers = false;
+            pp.passes = cartalith_engine::ErosionPassParams::off();
+            let pre = generate_terrain(&pp);
+            assert_eq!(*pre.age_field, *treat.age_field, "pre-erosion run diverged before erosion");
+            assert_eq!(pre.sea_level.to_bits(), treat.sea_level.to_bits());
+            let sea = treat.sea_level;
+            let mpu = p.peak_m / (1.0 - sea);
+            let cell_m = km * 1000.0 / gw as f64;
+            let pre_col = pre.geology.column().expect("column");
+            let s_in = s_of_exposed(pre_col, &pre.field, sea, p.peak_m);
+            let class_c = cartalith_civ::build_water_bodies(&ctrl.field, gw, gh, sea, world, Some(&ctrl.rainfall)).classification;
+            let class_t = cartalith_civ::build_water_bodies(&treat.field, gw, gh, sea, world, Some(&treat.rainfall)).classification;
+            let pop = pop_of(&interior_land(&class_c, gw, gh, world, COAST_MARGIN));
+
+            println!("\n==== GF-2 seed {seed}  extent {km} km  (cell {cell_m:.1} m) ====");
+            let arm = |label: &str, f: &[f32]| {
+                let relief = relief_m(f, gw, gh, world, RELIEF_HALF, mpu);
+                let slope = slope_deg(f, gw, gh, world, mpu, cell_m);
+                let r1 = b1(&s_in, &relief, &pop);
+                let r2 = b2_model(&s_in, &slope, &pop);
+                let r3 = b3_model(&s_in, &pre.field, f, &pop, mpu);
+                println!("  {label:9} B1 {}", r1.show());
+                println!("  {label:9} B2 {}", r2.show());
+                println!("  {label:9} B3 {}", r3.show());
+                (r1.value, r2.value, r3.value)
+            };
+            let (c1, c2, c3) = arm("control", &ctrl.field);
+            let (t1, t2, t3) = arm("treatment", &treat.field);
+            let (sp_c, sp_t) = stream_power_alone(&p, &pre);
+            let b3sp_c = b3_model(&s_in, &pre.field, &sp_c, &pop, mpu);
+            let b3sp_t = b3_model(&s_in, &pre.field, &sp_t, &pop, mpu);
+            println!("  control   B3 stream power alone {}", b3sp_c.show());
+            println!("  treatment B3 stream power alone {}", b3sp_t.show());
+            let both = |a: Option<f64>, b: Option<f64>| a.zip(b);
+            println!(
+                "  BAR B1 (t >= 0.25 and t - c >= 0.15): {}   B2 (t >= 1.5 and t >= 1.25 c): {}   B3 full (t >= 2.0 and t >= 1.6 c): {}   B3 stream power alone: {}",
+                verdict(both(t1, c1).map(|(t, c)| t >= 0.25 && t - c >= 0.15)),
+                verdict(both(t2, c2).map(|(t, c)| t >= 1.5 && t >= 1.25 * c)),
+                verdict(both(t3, c3).map(|(t, c)| t >= 2.0 && t >= 1.6 * c)),
+                verdict(both(b3sp_t.value, b3sp_c.value).map(|(t, c)| t >= 2.0 && t >= 1.6 * c)),
+            );
+
+            // B8, each arm on its own classification.
+            let (oc, lc, sc, nc) = b8(&ctrl, &class_c, gw, gh, km);
+            let (ot, lt, st, nt) = b8(&treat, &class_t, gw, gh, km);
+            println!("  control   B8 ocean on paths {oc}; lake {} % of {nc}; 1-3-cell lakes {sc}", fmt_opt(lc));
+            println!("  treatment B8 ocean on paths {ot}; lake {} % of {nt}; 1-3-cell lakes {st}", fmt_opt(lt));
+            let b8ok = both(lt, lc).map(|(t, c)| ot == 0 && t <= c + 2.0 && (st as f64) <= 1.25 * sc as f64);
+            println!("  BAR B8 (ocean 0; lake% <= c + 2 pp; small lakes <= 1.25 c): {}", verdict(b8ok));
+
+            // B10 and the column's evolution, treatment arm.
+            if km == 800.0 {
+                let again = treated(&p);
+                let tc = treat.geology.column().unwrap();
+                let ac = again.geology.column().unwrap();
+                let same = *again.field == *treat.field
+                    && again.river_mask == treat.river_mask
+                    && tc.regolith.iter().map(|v| v.to_bits()).eq(ac.regolith.iter().map(|v| v.to_bits()))
+                    && tc.contact.iter().map(|v| v.to_bits()).eq(ac.contact.iter().map(|v| v.to_bits()));
+                assert!(same, "treatment is not deterministic on seed {seed}");
+                let land: Vec<usize> = (0..gw * gh).filter(|&i| class_t[i] == 0).collect();
+                let nl = land.len().max(1) as f64;
+                let exp = exposed_map(tc, &treat.field, sea, p.peak_m);
+                let mut counts = [0usize; cartalith_terrain::geology::ROCK_COUNT];
+                for &i in &land {
+                    if let Some(c) = counts.get_mut(exp[i] as usize) {
+                        *c += 1;
+                    }
+                }
+                let types = counts.iter().filter(|&&c| c > 0).count();
+                let two = land.iter().filter(|&&i| tc.substrate(i).is_some()).count() as f64 / nl;
+                let r_exp = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+                let thin = land.iter().filter(|&&i| tc.regolith[i] > 0.0 && tc.regolith[i] <= r_exp).count() as f64 / nl;
+                let thick = land.iter().filter(|&&i| tc.regolith[i] > r_exp).count() as f64 / nl;
+                let breached = land
+                    .iter()
+                    .filter(|&&i| tc.substrate(i).is_some_and(|(r, _)| exp[i] == r as u8))
+                    .count() as f64
+                    / nl;
+                let pre_exp = exposed_map(pre_col, &pre.field, sea, p.peak_m);
+                let pre_sub = land.iter().filter(|&&i| pre_col.substrate(i).is_some_and(|(r, _)| pre_exp[i] == r as u8)).count() as f64 / nl;
+                println!(
+                    "  B10 deterministic: {same}; rock types exposed on land {types} ({}); two-layer share {two:.4} ({})",
+                    verdict(Some(types >= 4)),
+                    verdict(Some(two >= 0.05))
+                );
+                println!(
+                    "  column: land with regolith in (0, R_EXPOSE] {thin:.4}; > R_EXPOSE (reads unconsolidated) {thick:.4}; substrate exposed {breached:.4} (pre-erosion {pre_sub:.4})"
+                );
+                println!(
+                    "  exposed-rock land shares: {}",
+                    counts
+                        .iter()
+                        .enumerate()
+                        .map(|(k, &v)| format!("{} {:.4}", cartalith_terrain::geology::ROCK_PROPS[k].name, v as f64 / nl))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                // Arrays for the screenshots' companion render (scratch only).
+                if let Ok(dir) = std::env::var("GF2_DUMP") {
+                    let w = |name: &str, bytes: Vec<u8>| std::fs::write(format!("{dir}/{seed}_{name}.bin"), bytes).expect("dump");
+                    let f32b = |v: &[f32]| v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+                    w("ctrl_field", f32b(&ctrl.field));
+                    w("treat_field", f32b(&treat.field));
+                    w("pre_exposed", pre_exp.clone());
+                    w("class", class_c.clone());
+                }
+            }
+        }
+    }
+}
+
+/// GF-2 diagnostic for B8's small-lake count: where are the 1-3-cell lakes
+/// the treatment has and the control does not? Prints, over those cells, the
+/// exposed rock (pre-erosion input map and the final column), whether the
+/// final column reads unconsolidated, and whether the cell touches a
+/// different input rock (a rock boundary). Measures only.
+#[test]
+#[ignore = "GF-2 diagnostic; run alone in release"]
+fn gf2_small_lake_diag() {
+    let (gw, gh) = grid();
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let mut p = app_params(seed, 800.0, gw, gh);
+        // `GF2_RESIST` overrides `tect.resist` (= the contrast c) in BOTH arms,
+        // for isolating what moves the count. At 0 the two arms' stream-power
+        // coefficients are equal by arithmetic, so the fields must agree.
+        if let Ok(v) = std::env::var("GF2_RESIST") {
+            p.tect.resist = v.parse().unwrap_or_else(|_| panic!("GF2_RESIST: cannot parse `{v}`"));
+        }
+        let ctrl = generate_terrain(&p);
+        let treat = treated(&p);
+        let mut pp = p.clone();
+        pp.carve_rivers = false;
+        pp.passes = cartalith_engine::ErosionPassParams::off();
+        let pre = generate_terrain(&pp);
+        let sea = treat.sea_level;
+        let lakes = |ws: &WorldState| {
+            let class = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, p.world, Some(&ws.rainfall)).classification;
+            // Label 4-connected lake bodies, keep those of 1-3 cells.
+            let mut lab = vec![0u32; gw * gh];
+            let mut small = vec![false; gw * gh];
+            let mut next = 1u32;
+            for s0 in 0..gw * gh {
+                if class[s0] != 2 || lab[s0] != 0 {
+                    continue;
+                }
+                let mut stack = vec![s0];
+                let mut cells = vec![];
+                lab[s0] = next;
+                while let Some(i) = stack.pop() {
+                    cells.push(i);
+                    let (x, y) = (i % gw, i / gw);
+                    for j in [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)].into_iter().flatten() {
+                        if class[j] == 2 && lab[j] == 0 {
+                            lab[j] = next;
+                            stack.push(j);
+                        }
+                    }
+                }
+                if cells.len() <= 3 {
+                    for &i in &cells {
+                        small[i] = true;
+                    }
+                }
+                next += 1;
+            }
+            small
+        };
+        let same = ctrl.field.iter().zip(treat.field.iter()).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+        println!("seed {seed}: resist {} -- cells whose final height differs between arms: {same}", p.tect.resist);
+        let sc = lakes(&ctrl);
+        let st = lakes(&treat);
+        let pre_col = pre.geology.column().unwrap();
+        let pre_exp = exposed_map(pre_col, &pre.field, sea, p.peak_m);
+        let tcol = treat.geology.column().unwrap();
+        let t_exp = exposed_map(tcol, &treat.field, sea, p.peak_m);
+        let new: Vec<usize> = (0..gw * gh).filter(|&i| st[i] && !sc[i]).collect();
+        let mut by_in = [0usize; 11];
+        let mut by_out = [0usize; 12];
+        let (mut boundary, mut unc, mut near_river) = (0, 0, 0);
+        let rm = treat.river_mask.as_ref().unwrap();
+        for &i in &new {
+            by_in[pre_exp[i] as usize] += 1;
+            by_out[(t_exp[i] as usize).min(11)] += 1;
+            let (x, y) = (i % gw, i / gw);
+            let mut b = false;
+            let mut r = false;
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    let (nx, ny) = (x as i64 + dx, y as i64 + dy);
+                    if nx < 0 || ny < 0 || nx >= gw as i64 || ny >= gh as i64 {
+                        continue;
+                    }
+                    let j = ny as usize * gw + nx as usize;
+                    b |= pre_exp[j] != pre_exp[i];
+                    r |= rm[j] != 0;
+                }
+            }
+            boundary += b as usize;
+            near_river += r as usize;
+            unc += (tcol.regolith[i] > 0.0 && t_exp[i] == 10) as usize;
+        }
+        let depth: Vec<f64> = new.iter().map(|&i| (ctrl.field[i] as f64 - treat.field[i] as f64) * p.peak_m / (1.0 - sea)).collect();
+        println!(
+            "seed {seed}: small-lake cells control {} treatment {}; new in treatment {} -- input rock {:?}; final exposed {:?}; on an input rock boundary {boundary}; final reads unconsolidated {unc}; within 1 of a river cell {near_river}; treatment minus control height m median {:?}",
+            sc.iter().filter(|&&v| v).count(),
+            st.iter().filter(|&&v| v).count(),
+            new.len(),
+            by_in,
+            by_out,
+            median(&depth).map(|v| -v)
+        );
+    }
+}
+
+/// B9 for GF-2: control and treatment timed in the same process, alternating
+/// run by run so drift lands on both, one untimed warm-up each.
+#[test]
+#[ignore = "GF-2 B9: timing; run ALONE in release"]
+fn gf2_b9_cost() {
+    let (gw, gh) = grid();
+    let seed = env_list("GF0_SEEDS", &SEEDS)[0];
+    let p = app_params(seed, 800.0, gw, gh);
+    let _ = generate_terrain(&p);
+    let _ = treated(&p);
+    let (mut tc, mut tt) = (Vec::new(), Vec::new());
+    for _ in 0..7 {
+        let t0 = std::time::Instant::now();
+        let _ = generate_terrain(&p);
+        tc.push(t0.elapsed().as_secs_f64());
+        let t0 = std::time::Instant::now();
+        let _ = treated(&p);
+        tt.push(t0.elapsed().as_secs_f64());
+    }
+    let stat = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let (mc, lc, hc) = stat(&tc);
+    let (mt, lt, ht) = stat(&tt);
+    println!("B9 seed {seed} 800 km {gw}x{gh}, 7 alternating runs each");
+    println!("  control   median {mc:.3} s ({lc:.3} .. {hc:.3})");
+    println!("  treatment median {mt:.3} s ({lt:.3} .. {ht:.3})");
+    println!("  ratio of medians {:.3} (bar <= 1.20)", mt / mc);
 }
 
 #[test]
