@@ -292,6 +292,14 @@ pub struct StrokePieces {
     pub u: Vec<f64>,
     /// `[start, end)` into `pts`, one per piece, each at least two points.
     pub pieces: Vec<(usize, usize)>,
+    /// One per piece: `(starts on a shore, ends on a shore)` -- whether the
+    /// piece opens at a lake outlet's shoreline crossing and whether it closes
+    /// at an inlet's (or a mouth's) shoreline crossing. [`extend_shore_ends`]
+    /// carries exactly these ends on into the water; nothing else reads them.
+    /// A caller that moves an end onto a shore itself ([`coast_end`]) sets the
+    /// flag for it. Must never be set for an end that meets another river or
+    /// stops inland: those must not be extended.
+    pub shore: Vec<(bool, bool)>,
 }
 
 /// Cut the render curve `rp` (with its [`render_params`] `u`) only where the
@@ -353,7 +361,7 @@ pub fn stroke_pieces(rp: &[(f64, f64)], u: &[f64], traced_wet: &[bool], wet: imp
         }
     }
 
-    let mut out = StrokePieces { pts: Vec::new(), u: Vec::new(), pieces: Vec::new() };
+    let mut out = StrokePieces { pts: Vec::new(), u: Vec::new(), pieces: Vec::new(), shore: Vec::new() };
     let lerp = |a: (f64, f64), b: (f64, f64), t: f64| (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
     // Dry intervals between gaps, as inclusive ranges, with the shoreline
     // point (if any) that opens and closes each.
@@ -377,6 +385,9 @@ pub fn stroke_pieces(rp: &[(f64, f64)], u: &[f64], traced_wet: &[bool], wet: imp
         }
         if out.pts.len() - s >= 2 {
             out.pieces.push((s, out.pts.len()));
+            // A shoreline crossing opened / closed this piece exactly when
+            // one was handed in: `open` is an outlet, `close` an inlet.
+            out.shore.push((open.is_some(), close.is_some()));
         } else {
             out.pts.truncate(s);
             out.u.truncate(s);
@@ -403,6 +414,325 @@ pub fn stroke_pieces(rp: &[(f64, f64)], u: &[f64], traced_wet: &[bool], wet: imp
         emit(start, Some(n - 1), open, None);
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// River mouths: the stroke carried on into the water it meets
+//
+// Owner, 2026-09-27: *"When rivers end into the ocean or lake they should be
+// drawn a bit longer to make sure they actually end in the ocean/lake. And the
+// ocean texture should be drawn above the river graphic."* Before this, a
+// stroke ended ON the shoreline (a lake inlet, [`stroke_pieces`]) or at the
+// field's sea-level crossing ([`coast_end`]), and `_riverzoom_probe` measured
+// 76-100 free ends per world stopping short of the water beside them (median
+// 0.31-0.37 cells): with a flat end cap, any end that meets the shore at an
+// angle, or a shore drawn a little further out than the cut, leaves a sliver
+// of land between the river and the sea.
+//
+// The fix has two halves. Here, every end that meets water is carried on
+// into it, far enough that the stroke's WHOLE end -- its width and its
+// antialiasing fringe -- lies on water on every drawing path. And every path
+// draws water above the river, so the part carried into the water is never
+// seen: the deep-zoom tiles colour a water pixel as water whatever the river
+// layer holds (`render::render_biome_tile_rgba_rivers`), and the base view
+// discards the stroke on water pixels (`map_overlay.gd::_draw_rivers`, with
+// [`WorldGen::river_water_mask`]).
+//
+// **Where "on water on every path" is.** The three paths draw the shoreline
+// at three sub-cell positions: the base view draws whole cells
+// (nearest-filtered, `drawn_water_classification != 0`); a tile draws the sea
+// where the BILINEAR field is below sea level (the amplifier never moves a
+// sample across it -- `cartalith_terrain::amplify`'s `clamp_toward_sea`), and
+// a lake where all four surrounding cell centres are lake, or by a
+// marching-squares rule in the band between (`render::is_lake_pixel`). Every
+// one of them draws water wherever **all four cell centres around a point are
+// water**: a convex combination of four below-sea values is below sea, four
+// lake centres is the tile's "lake outright" case, and the point's own cell
+// is one of the four. So that region -- [`REGION_OPEN`] -- is where an end is
+// safe on every path, and the one-cell band between it and the drawn cells is
+// exactly the sub-cell uncertainty of the shoreline. A small lake that has no
+// such region falls back to the drawn cells ([`REGION_DRAWN`]).
+
+/// The grid offset of the squares [`REGION_DRAWN`] is made of: whole cells,
+/// `[i, i+1)` in river space.
+const REGION_DRAWN: f64 = 0.0;
+/// The grid offset of the squares [`REGION_OPEN`] is made of: the squares
+/// BETWEEN cell centres, `[i + 0.5, i + 1.5)`, each member when all four of
+/// its corner cells are water.
+const REGION_OPEN: f64 = 0.5;
+
+/// How far along a ray from `p` (river space, unit direction `d`) the ray
+/// stays inside a region made of unit squares on the grid offset by `origin`
+/// (`square(i, j)`: whether square `[i+origin, i+1+origin) x [j+origin,
+/// j+1+origin)` is a member), up to `limit`. `None` when `p` itself is not
+/// inside. Exact: membership can change only where the ray crosses a grid
+/// line, and it walks exactly those crossings (a grid DDA). A ray through a
+/// square's corner steps into the diagonal square too, which can only end the
+/// run earlier -- the conservative side.
+fn inside_run(p: (f64, f64), d: (f64, f64), limit: f64, origin: f64, square: &impl Fn(i64, i64) -> bool) -> Option<f64> {
+    let (x, y) = (p.0 - origin, p.1 - origin);
+    let (mut i, mut j) = (x.floor() as i64, y.floor() as i64);
+    if !square(i, j) {
+        return None;
+    }
+    // Per axis: which way the ray steps, the ray length per whole square, and
+    // the ray length to the first line it crosses. An axis the ray does not
+    // move along never crosses a line (`INFINITY`).
+    let axis = |pos: f64, cell: i64, dir: f64| -> (i64, f64, f64) {
+        if dir > 0.0 {
+            (1, 1.0 / dir, ((cell + 1) as f64 - pos) / dir)
+        } else if dir < 0.0 {
+            (-1, -1.0 / dir, (pos - cell as f64) / -dir)
+        } else {
+            (0, f64::INFINITY, f64::INFINITY)
+        }
+    };
+    let (si, di, mut ti) = axis(x, i, d.0);
+    let (sj, dj, mut tj) = axis(y, j, d.1);
+    loop {
+        let t = ti.min(tj);
+        if t >= limit {
+            return Some(limit);
+        }
+        if ti < tj {
+            i += si;
+            ti += di;
+        } else {
+            j += sj;
+            tj += dj;
+        }
+        if !square(i, j) {
+            return Some(t);
+        }
+    }
+}
+
+/// The half-length of the widest cap, centred on `p` across the unit normal
+/// `n`, that lies wholly inside the region (see [`inside_run`]), up to
+/// `limit`; `None` when `p` is not inside. The narrower of the two sides.
+fn cap_fit(p: (f64, f64), n: (f64, f64), limit: f64, origin: f64, square: &impl Fn(i64, i64) -> bool) -> Option<f64> {
+    let a = inside_run(p, n, limit, origin, square)?;
+    let b = inside_run(p, (-n.0, -n.1), limit, origin, square)?;
+    Some(a.min(b))
+}
+
+/// The march step along an end's direction, in cells. **Labelled judgement**:
+/// a sixteenth of the one-cell band the shoreline's sub-cell position varies
+/// in. It sets only how finely the least overshoot is found; a coarser step
+/// can only carry an end further into water, which every path hides. At the
+/// deepest zoom tested (~25 px per cell at z16) one step is ~1.6 px of that
+/// hidden overshoot.
+pub const REACH_STEP_CELLS: f64 = 1.0 / 16.0;
+
+/// How far one river end must be carried past where it stops to put a cap of
+/// a given half-extent wholly on water. Built once per end by [`shore_reach`]
+/// (grid space, independent of zoom and preset); read per raster by
+/// [`ShoreReach::extra`] with the cap that raster draws. Must never be
+/// attached to an end that does not meet water ([`StrokePieces::shore`]).
+#[derive(Clone, Debug, Default)]
+pub struct ShoreReach {
+    /// Unit direction the end is carried in, river space: the stroke's own
+    /// last segment, continued.
+    pub dir: (f64, f64),
+    /// `(distance, widest cap that fits)` pairs, both in cells: the first
+    /// distance past the drawn end at which a cap of that half-extent lies
+    /// wholly in [`REGION_OPEN`] (water on every path). The fit only ever
+    /// rises down the list -- each entry is where the running best improved.
+    pub open: Vec<(f32, f32)>,
+    /// The same against [`REGION_DRAWN`] (the base view's whole cells): the
+    /// fallback for a lake too small to hold any open region.
+    pub drawn: Vec<(f32, f32)>,
+}
+
+impl ShoreReach {
+    /// The distance, in cells, to carry this end past the drawn one so that
+    /// a cap of half-extent `h` cells (the raster's half-width plus fringe,
+    /// in cells) lies wholly on water: the first distance at which it fits in
+    /// the open region; failing that, in the drawn cells; failing both --
+    /// a lake too small, or a shore met at a grazing angle within the march
+    /// ([`shore_reach`]) -- the distance of the widest fit found, the best
+    /// this water allows (a floor the probe counts rather than hides).
+    /// `0.0` for an end with no table. Never negative.
+    pub fn extra(&self, h: f32) -> f32 {
+        let first = |t: &[(f32, f32)]| t.iter().find(|e| e.1 >= h).map(|e| e.0);
+        let best = || {
+            // The widest fit of either table; the drawn cells' on a tie,
+            // since the open region is a subset of them.
+            let o = self.open.last().copied();
+            let d = self.drawn.last().copied();
+            match (o, d) {
+                (Some(o), Some(d)) => Some(if o.1 > d.1 { o.0 } else { d.0 }),
+                (a, b) => a.or(b).map(|e| e.0),
+            }
+        };
+        first(&self.open).or_else(|| first(&self.drawn)).or_else(best).unwrap_or(0.0).max(0.0)
+    }
+}
+
+/// Builds the [`ShoreReach`] of one end: marches from `end` along the unit
+/// `dir` in [`REACH_STEP_CELLS`], recording at each step the widest cap
+/// (across `dir`) that fits in each region, and keeps each step where the
+/// running best improves.
+///
+/// - `limit_h`: the widest cap half-extent any raster will ask about at this
+///   end, in cells; the march stops once the open region holds it.
+/// - `wet(i, j)`: whether grid cell `(i, j)` is drawn water; out of the grid
+///   is not (a stroke is never carried off the map).
+///
+/// **Where the march stops, and why** (every bound derived, one labelled):
+/// - before the centreline has reached a drawn water cell, after `sqrt(2)`
+///   cells -- the farthest any point of a cell lies from a neighbouring cell,
+///   so an end that has not met water by then was not beside any;
+/// - once it has, the moment the centreline leaves drawn water again: past
+///   that is the far shore of a lake, and a stroke carried there would draw on
+///   land;
+/// - after `2 * (limit_h + 1)` cells in all. **Labelled judgement**: a cap of
+///   half-extent `H` crossing a straight shore at an incidence `phi` clears
+///   it `H * tan(phi)` past the centreline's crossing, plus the one-cell band
+///   the shoreline's sub-cell position varies in; the bound admits every
+///   incidence up to `tan(phi) = 2` (63 deg). A river meeting the shore more
+///   obliquely than that runs along the coast rather than into it, and its
+///   end takes the widest fit found ([`ShoreReach::extra`]).
+pub fn shore_reach(end: (f64, f64), dir: (f64, f64), limit_h: f64, wet: impl Fn(i64, i64) -> bool) -> ShoreReach {
+    let mut r = ShoreReach { dir, ..ShoreReach::default() };
+    let n = (-dir.1, dir.0);
+    let open_sq = |i: i64, j: i64| wet(i, j) && wet(i + 1, j) && wet(i, j + 1) && wet(i + 1, j + 1);
+    let limit_h = limit_h.max(0.0);
+    let s_max = 2.0 * (limit_h + 1.0);
+    let (mut best_o, mut best_d) = (-1.0f64, -1.0f64);
+    let mut entered = false;
+    let mut k = 0usize;
+    loop {
+        let s = k as f64 * REACH_STEP_CELLS;
+        if s > s_max {
+            break;
+        }
+        let p = (end.0 + dir.0 * s, end.1 + dir.1 * s);
+        let on_water = wet(p.0.floor() as i64, p.1.floor() as i64);
+        if on_water {
+            entered = true;
+        } else if entered || s > std::f64::consts::SQRT_2 {
+            break;
+        }
+        if let Some(h) = cap_fit(p, n, limit_h, REGION_DRAWN, &wet) {
+            if h > best_d {
+                best_d = h;
+                r.drawn.push((s as f32, h as f32));
+            }
+        }
+        if let Some(h) = cap_fit(p, n, limit_h, REGION_OPEN, &open_sq) {
+            if h > best_o {
+                best_o = h;
+                r.open.push((s as f32, h as f32));
+            }
+            if h >= limit_h {
+                break;
+            }
+        }
+        k += 1;
+    }
+    r
+}
+
+/// Carries every shore end of `s` ([`StrokePieces::shore`]) on to where its
+/// centreline first stands on water on every path -- the zero-width cap's
+/// [`ShoreReach::extra`] -- as one more drawn point, and returns, per piece,
+/// `(head, tail)` reaches measured from those new ends, for a raster to carry
+/// its own cap the rest of the way ([`for_each_span`]).
+///
+/// The new point takes the `u` of the end it extends, so it is drawn at the
+/// river's width and colour there. A head is carried backwards (a lake
+/// outlet's stroke starts inside the lake); a tail forwards (an inlet or a
+/// mouth ends inside the water).
+///
+/// `limit_h(u)`: the widest cap half-extent, in cells, any raster draws at
+/// the point with that `u` ([`reach_limit_cells`]). `wet` as in
+/// [`shore_reach`]. Pieces keep their count and order; only ends that meet
+/// water move, so a confluence and an inland end are untouched. Must never
+/// run on pieces whose `shore` flags were not set from real shoreline
+/// crossings.
+pub fn extend_shore_ends(
+    s: &StrokePieces,
+    limit_h: impl Fn(f64) -> f64,
+    wet: impl Fn(i64, i64) -> bool,
+) -> (StrokePieces, Vec<(Option<ShoreReach>, Option<ShoreReach>)>) {
+    let mut out = StrokePieces { pts: Vec::new(), u: Vec::new(), pieces: Vec::new(), shore: s.shore.clone() };
+    let mut reach = Vec::with_capacity(s.pieces.len());
+    let unit = |a: (f64, f64), b: (f64, f64)| -> Option<(f64, f64)> {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let l = (dx * dx + dy * dy).sqrt();
+        (l > 0.0).then(|| (dx / l, dy / l))
+    };
+    // One end: its reach table, re-based at the zero-width fit, and the point
+    // that fit is at (`None` when the end does not move).
+    let end_reach = |p: (f64, f64), dir: (f64, f64), uu: f64| -> (ShoreReach, Option<(f64, f64)>) {
+        let mut r = shore_reach(p, dir, limit_h(uu), &wet);
+        let s0 = r.extra(0.0) as f64;
+        for e in r.open.iter_mut().chain(r.drawn.iter_mut()) {
+            e.0 = (e.0 - s0 as f32).max(0.0);
+        }
+        (r, (s0 > 0.0).then(|| (p.0 + dir.0 * s0, p.1 + dir.1 * s0)))
+    };
+    // The direction a piece's end points in: from the nearest point before it
+    // that is not the same point. A shoreline crossing at `t == 0` lands on
+    // the dry point it started from, so a piece can end on a repeated point;
+    // its last step then has no direction, and the one before it does.
+    // Measured: 5 ends on one world stayed short for exactly this reason.
+    let end_dir = |range: &mut dyn Iterator<Item = usize>, end: (f64, f64)| {
+        for j in range {
+            if let Some(d) = unit(s.pts[j], end) {
+                return Some(d);
+            }
+        }
+        None
+    };
+    for (k, &(a, b)) in s.pieces.iter().enumerate() {
+        let (head, tail) = s.shore.get(k).copied().unwrap_or((false, false));
+        let start = out.pts.len();
+        let mut hr = None;
+        // A head on a shore: carried backwards, against the piece's first step.
+        if head && b >= a + 2 {
+            if let Some(dir) = end_dir(&mut (a + 1..b), s.pts[a]) {
+                let (r, q) = end_reach(s.pts[a], dir, s.u[a]);
+                if let Some(q) = q {
+                    out.pts.push(q);
+                    out.u.push(s.u[a]);
+                }
+                hr = Some(r);
+            }
+        }
+        out.pts.extend_from_slice(&s.pts[a..b]);
+        out.u.extend_from_slice(&s.u[a..b]);
+        let mut tr = None;
+        if tail && b >= a + 2 {
+            if let Some(dir) = end_dir(&mut (a..b - 1).rev(), s.pts[b - 1]) {
+                let (r, q) = end_reach(s.pts[b - 1], dir, s.u[b - 1]);
+                if let Some(q) = q {
+                    out.pts.push(q);
+                    out.u.push(s.u[b - 1]);
+                }
+                tr = Some(r);
+            }
+        }
+        out.pieces.push((start, out.pts.len()));
+        reach.push((hr, tr));
+    }
+    (out, reach)
+}
+
+/// The widest cap half-extent, in cells, that any raster draws at a river
+/// point of full width `width_cells`, on a `gw`-cell-wide map -- the bound
+/// [`shore_reach`] marches to. The widest raster is the base view's colour
+/// field ([`rasterize_colour_field`]): one pixel per cell, the stroke widened
+/// by [`colour_field_pad_cells`] each side, plus the fringe; its width is the
+/// seam's largest ([`RIVER_WIDTH_GUARD`] times the width, floored at
+/// [`MIN_STROKE_PX`]). Every other raster draws at a higher density, so a
+/// narrower cap in cells -- down to the lowest screen density the pad is
+/// derived for ([`FIELD_VIEW_PX`]); below that, an end takes the widest fit
+/// its table holds.
+pub fn reach_limit_cells(width_cells: f64, gw: usize) -> f64 {
+    let full = (width_cells * RIVER_WIDTH_GUARD as f64).max(MIN_STROKE_PX as f64);
+    0.5 * full + colour_field_pad_cells(gw) as f64 + EDGE_FRINGE_PX as f64
 }
 
 /// A tapered, antialiased stroke as one indexed triangle list, which
@@ -575,6 +905,11 @@ pub struct DrawnRun {
     pub discharge: Vec<f32>,
     /// `[start, end)` into `pts`, one per drawn piece.
     pub pieces: Vec<(usize, usize)>,
+    /// Per piece, `(head, tail)`: how much further each end meeting water is
+    /// carried into it at a given raster's cap ([`ShoreReach`], built by
+    /// [`extend_shore_ends`]); `None` for an end that meets no water. Shorter
+    /// than `pieces` (a test's hand-built run) reads as no reach at all.
+    pub reach: Vec<(Option<ShoreReach>, Option<ShoreReach>)>,
     /// The run's highest order excluding the junction cell it ends on
     /// (`get_rivers()`' `own_order`); `1` is a headwater trickle.
     pub own_order: i16,
@@ -619,11 +954,17 @@ pub struct RiverPoint {
 /// equal ones.
 pub fn river_px_width(p: RiverPoint, px_per_cell: f32, a: &render::TerrainAppearance) -> Option<(f32, f32)> {
     let (wm, am) = if p.own_order <= 1 { o1_deemphasis(px_per_cell) } else { (1.0, 1.0) };
-    // `16`: a guard against a hand-edited look file, far above the tunable's
-    // own 3.0 ceiling (`render.rs`'s `tunables!`) -- labelled judgement.
-    let k = px_per_cell * wm * a.river_width.clamp(0.0, 16.0) as f32;
+    let k = px_per_cell * wm * a.river_width.clamp(0.0, RIVER_WIDTH_GUARD as f64) as f32;
     Some(((p.width_cells * k).max(MIN_STROKE_PX), am))
 }
+
+/// The largest preset width multiplier [`river_px_width`] honours: a guard
+/// against a hand-edited look file, far above the `river_width` tunable's own
+/// 3.0 ceiling (`render.rs`'s `tunables!`) -- labelled judgement, unchanged
+/// since RV-2 (it was the literal `16.0` there). Named since 2026-09-27
+/// because [`reach_limit_cells`] must bound the same widest stroke the seam
+/// can return; one constant keeps the two from disagreeing.
+pub const RIVER_WIDTH_GUARD: f32 = 16.0;
 
 /// The whole drawn network, **in draw order** (`draw_ranks`: every
 /// tributary before the run it joins), so a rasterizer compositing in order
@@ -711,7 +1052,10 @@ impl RasterMap {
 /// into the target's pixels; `style(palette colour, seam alpha)` is the
 /// vertex colour; `widen` adds to every point's full width, in pixels, after
 /// the seam. A point the seam declines (`None`) splits the piece there, so a
-/// stroke is only ever drawn between points drawn at this scale.
+/// stroke is only ever drawn between points drawn at this scale. A piece end
+/// that meets water ([`DrawnRun::reach`]) gets one more point, carried on
+/// until this raster's own cap lies on water (river mouths, 2026-09-27) --
+/// the point where this raster's density is known.
 ///
 /// Exists so the three consumers (tile raster, base-view colour field, base
 /// view screen mesh) cannot walk the network three different ways. Must never
@@ -738,8 +1082,9 @@ fn for_each_span(
                 river_px_width(p, ppc, a)
             })
             .collect();
-        for &(s0, e0) in &run.pieces {
+        for (pk, &(s0, e0)) in run.pieces.iter().enumerate() {
             let e0 = e0.min(n);
+            let (head, tail) = run.reach.get(pk).map_or((None, None), |r| (r.0.as_ref(), r.1.as_ref()));
             let mut s = s0;
             while s < e0 {
                 while s < e0 && seam[s].is_none() {
@@ -750,12 +1095,33 @@ fn for_each_span(
                     e += 1;
                 }
                 if e >= s + 2 {
-                    let sp: Vec<(f32, f32)> = run.pts[s..e].iter().map(|&q| to_raster(q)).collect();
+                    let mut sp: Vec<(f32, f32)> = run.pts[s..e].iter().map(|&q| to_raster(q)).collect();
                     // Every entry in `s..e` is `Some` by construction of the
                     // span, so the `flatten` drops nothing.
                     let drawn: Vec<(f32, f32)> = seam[s..e].iter().flatten().copied().collect();
-                    let hw: Vec<f32> = drawn.iter().map(|&(wpx, _)| (wpx + widen) * 0.5).collect();
-                    let cc: Vec<[f32; 4]> = run.colors[s..e].iter().zip(&drawn).map(|(k, &(_, am))| style(*k, am)).collect();
+                    let mut hw: Vec<f32> = drawn.iter().map(|&(wpx, _)| (wpx + widen) * 0.5).collect();
+                    let mut cc: Vec<[f32; 4]> = run.colors[s..e].iter().zip(&drawn).map(|(k, &(_, am))| style(*k, am)).collect();
+                    // **River mouths.** An end that meets water is carried on
+                    // until THIS raster's cap -- its half-width plus the fringe,
+                    // in cells at this density -- lies wholly on water
+                    // ([`ShoreReach::extra`]). Only at the piece's own ends: a
+                    // span the seam split mid-piece meets no shore there.
+                    let cells = |h_px: f32| if ppc > 0.0 { (h_px + EDGE_FRINGE_PX) / ppc } else { 0.0 };
+                    let carried = |from: (f32, f32), r: &ShoreReach, h_px: f32| -> Option<(f32, f32)> {
+                        let x = r.extra(cells(h_px));
+                        (x > 0.0).then(|| to_raster((from.0 + r.dir.0 as f32 * x, from.1 + r.dir.1 as f32 * x)))
+                    };
+                    if let Some(q) = head.filter(|_| s == s0).and_then(|r| carried(run.pts[s], r, hw[0])) {
+                        sp.insert(0, q);
+                        hw.insert(0, hw[0]);
+                        cc.insert(0, cc[0]);
+                    }
+                    let last = hw.len() - 1;
+                    if let Some(q) = tail.filter(|_| e == e0).and_then(|r| carried(run.pts[e - 1], r, hw[last])) {
+                        sp.push(q);
+                        hw.push(hw[last]);
+                        cc.push(cc[last]);
+                    }
                     sink(stroke_mesh(&sp, &hw, &cc, view));
                 }
                 s = e.max(s + 1);
@@ -971,6 +1337,26 @@ impl WorldGen {
     fn river_color_texture(&self) -> Option<Gd<godot::classes::ImageTexture>> {
         self.river_color_tex.borrow().clone()
     }
+
+    /// **Water above rivers, in the base view** (owner, 2026-09-27: *"the
+    /// ocean texture should be drawn above the river graphic"*): a `gw x gh`
+    /// `L8` texture, 255 on every cell the map texture draws as water
+    /// (`drawn_water_classification() != 0` -- the classification
+    /// `render::cell_color` draws its ocean and lakes from), 0 on land. Built
+    /// by the last `build_color_texture` beside [`Self::river_color_texture`].
+    ///
+    /// `map_overlay.gd::_draw_rivers` hands it to the stroke's shader, which
+    /// samples it NEAREST at the stroke's own UV -- the same texel the base
+    /// map's nearest-filtered `TextureRect` shows at that screen pixel -- and
+    /// discards the stroke there. So the river is hidden exactly on the pixels
+    /// drawn as water, and the end carried into the water
+    /// ([`extend_shore_ends`]) never shows. `null` whenever the river colour
+    /// texture is (a loaded save, before any world). Must never be drawn
+    /// itself.
+    #[func]
+    fn river_water_mask(&self) -> Option<Gd<godot::classes::ImageTexture>> {
+        self.river_water_mask_tex.borrow().clone()
+    }
 }
 
 #[cfg(test)]
@@ -1067,11 +1453,15 @@ mod tests {
         let s = stroke_pieces(&rp, &u, &tw, sea);
         assert_eq!(s.pieces.len(), 1);
         assert!((s.pts[s.pts.len() - 1].0 - 6.0).abs() < 1e-9);
+        // Protects: the shore flags `extend_shore_ends` reads -- a mouth's
+        // end, and (below) an outlet's start, are marked; nothing else is.
+        assert_eq!(s.shore, vec![(false, true)]);
         let lake = |p: (f64, f64)| p.0 < 2.0;
         let tw: Vec<bool> = pts.iter().map(|&p| lake(p)).collect();
         let s = stroke_pieces(&rp, &u, &tw, lake);
         assert_eq!(s.pieces.len(), 1);
         assert!((s.pts[0].0 - 2.0).abs() < 1e-9, "{:?}", s.pts[0]);
+        assert_eq!(s.shore, vec![(true, false)]);
     }
 
     #[test]
@@ -1227,6 +1617,7 @@ mod tests {
                 orders: vec![order; n],
                 discharge: vec![f32::NAN; n],
                 pieces: vec![(0, n)],
+                reach: Vec::new(),
                 own_order: order,
             }],
         }
@@ -1448,5 +1839,181 @@ mod tests {
         // And the floored stroke is a solid pixel with its fringe outside it.
         let m = stroke_mesh(&[(0.0, 0.0), (10.0, 0.0)], &hw[..1].repeat(2), &[[0.0, 0.0, 0.0, 1.0]; 2], None);
         assert_eq!((m.pts[0].1.abs(), m.pts[1].1.abs()), (1.5, 0.5));
+    }
+
+    // ---- river mouths (2026-09-27) ----------------------------------------
+
+    /// Cell predicate for the mouth tests: water where `f(x, y)`, inside a
+    /// 40 x 20 grid; off the grid is dry (as `river_draws`' own is).
+    fn cells(f: impl Fn(i64, i64) -> bool) -> impl Fn(i64, i64) -> bool {
+        move |x, y| (0..40).contains(&x) && (0..20).contains(&y) && f(x, y)
+    }
+
+    /// The region walk is exact: it stops on the grid line where membership
+    /// changes, on either grid (cells, or the squares between centres).
+    ///
+    /// Protects: `inside_run`'s DDA (step, first-line distance, the
+    /// open-region offset).
+    #[test]
+    fn the_region_walk_stops_on_the_changing_grid_line() {
+        let wet = cells(|x, _| x >= 10);
+        // From x = 12.25 walking -x, the drawn cells end at x = 10.
+        assert_eq!(inside_run((12.25, 5.5), (-1.0, 0.0), 50.0, REGION_DRAWN, &wet), Some(2.25));
+        // The open region (all four centres wet) ends half a cell further in.
+        let open = |i: i64, j: i64| wet(i, j) && wet(i + 1, j) && wet(i, j + 1) && wet(i + 1, j + 1);
+        assert_eq!(inside_run((12.25, 5.5), (-1.0, 0.0), 50.0, REGION_OPEN, &open), Some(1.75));
+        // Capped at the limit, and `None` from outside.
+        assert_eq!(inside_run((12.25, 5.5), (1.0, 0.0), 3.0, REGION_DRAWN, &wet), Some(3.0));
+        // The limit is where the walk stops looking, even with dry ground
+        // just past it: water x in [10, 15), limit 2 from x = 12.25.
+        let strip = cells(|x, _| (10..15).contains(&x));
+        assert_eq!(inside_run((12.25, 5.5), (1.0, 0.0), 2.0, REGION_DRAWN, &strip), Some(2.0));
+        assert_eq!(inside_run((9.5, 5.5), (1.0, 0.0), 3.0, REGION_DRAWN, &wet), None);
+        // Along y, to the grid's own edge (row 20 is off it).
+        assert_eq!(inside_run((12.5, 18.5), (0.0, 1.0), 50.0, REGION_DRAWN, &wet), Some(1.5));
+    }
+
+    /// Straight into a straight coast: the centreline stands on water on every
+    /// path half a cell past the drawn shore (the open region), and a cap
+    /// needs no more there. Met at 45 degrees, a cap of half-extent `H` needs
+    /// `H * tan(45 deg) = H` more -- plus that half cell over `cos(45 deg)` --
+    /// found to within one march step.
+    ///
+    /// Protects: the march, the cap fit, and the geometry the margin is
+    /// derived from (half-width + fringe, and the shoreline band).
+    #[test]
+    fn a_mouth_is_carried_until_its_whole_cap_is_on_water() {
+        let wet = cells(|x, _| x >= 10);
+        let r = shore_reach((10.0, 5.5), (1.0, 0.0), 3.0, &wet);
+        assert_eq!(r.extra(0.0), 0.5, "centreline on open water half a cell past the shore");
+        assert_eq!(r.extra(2.0), 0.5, "a straight-on cap fits as soon as the centreline does");
+        let d = std::f64::consts::FRAC_1_SQRT_2;
+        let r = shore_reach((10.0, 5.5), (d, d), 3.0, &wet);
+        // Corner at P - H n, n = (-d, d): x = 10 + s d - H d >= 10.5.
+        let want = |h: f64| 0.5 / d + h;
+        for h in [0.0f32, 1.0, 2.0] {
+            let got = r.extra(h) as f64;
+            let lo = want(h as f64);
+            assert!(got >= lo - 1e-6 && got <= lo + REACH_STEP_CELLS + 1e-6, "H {h}: {got} vs {lo}");
+        }
+    }
+
+    /// A bay: the open region is narrower than the drawn cells, so a wide cap
+    /// falls back to the drawn cells, and one wider than both takes the widest
+    /// fit found -- the floor, never a guess.
+    ///
+    /// Protects: `ShoreReach::extra`'s three answers, in order.
+    #[test]
+    fn a_cap_too_wide_for_open_water_falls_back_to_the_drawn_cells() {
+        // Water: x >= 10, rows 3..=7 (y in [3, 8)); centre y = 5.5.
+        let wet = cells(|x, y| x >= 10 && (3..8).contains(&y));
+        let r = shore_reach((10.0, 5.5), (1.0, 0.0), 4.0, &wet);
+        // Open rows: y in [3.5, 7.5) -> a cap of 2.0 fits.
+        assert_eq!(r.extra(2.0), 0.5);
+        // Drawn rows: y in [3, 8) -> 2.5 fits at once, on the shore.
+        assert_eq!(r.extra(2.5), 0.0);
+        // Nothing holds 3.0: the widest fit found (drawn, 2.5) is where it goes.
+        assert_eq!(r.extra(3.0), 0.0);
+        assert_eq!(r.open.last().map(|e| e.1), Some(2.0));
+        assert_eq!(r.drawn.last().map(|e| e.1), Some(2.5));
+        // Off-centre, near the bay's top row (rows 3..=8, centre y = 7.5): the
+        // open region ends at y = 8.5 (its squares need the row BELOW them
+        // too), half a cell short of the drawn cells' 9.
+        let bay = cells(|x, y| x >= 10 && (3..9).contains(&y));
+        let r = shore_reach((10.0, 7.5), (1.0, 0.0), 4.0, &bay);
+        assert_eq!(r.open.last().map(|e| e.1), Some(1.0));
+        assert_eq!(r.drawn.last().map(|e| e.1), Some(1.5));
+    }
+
+    /// A lake two cells across: the march stops where the centreline would
+    /// reach its far shore, so no stroke is ever carried onto the land beyond.
+    ///
+    /// Protects: the march's stop on leaving water after entering it.
+    #[test]
+    fn a_stroke_is_never_carried_across_a_lake_to_the_far_shore() {
+        let wet = cells(|x, _| (10..12).contains(&x));
+        let r = shore_reach((10.0, 5.5), (1.0, 0.0), 40.0, &wet);
+        let far = r.open.iter().chain(&r.drawn).map(|e| e.0).fold(0.0f32, f32::max);
+        assert!(far < 2.0, "never past x = 12: {r:?}");
+        assert!(r.extra(30.0) < 2.0, "the floor stays in the lake too");
+        // A lake a tenth of a cell deep along the walk, then one dry cell, then
+        // a wide water body: the march stops on leaving the first, even though
+        // the second is closer than the sqrt(2) allowed for FINDING water.
+        let two = cells(|x, y| (x == 10 && (9..12).contains(&y)) || x >= 12);
+        let r = shore_reach((10.9, 10.5), (1.0, 0.0), 6.0, &two);
+        assert!(r.drawn.iter().chain(&r.open).all(|e| e.0 < 0.2), "{r:?}");
+        // An end with no water ahead is not moved at all.
+        let r = shore_reach((5.0, 5.5), (-1.0, 0.0), 3.0, &wet);
+        assert!(r.open.is_empty() && r.drawn.is_empty() && r.extra(0.0) == 0.0, "{r:?}");
+    }
+
+    /// Only ends flagged as shore ends move; each moves along its own last
+    /// step (a head backwards), keeps its `u`, and a piece that ends on a
+    /// repeated point takes the step before it -- which is what left five
+    /// ends on one world short before it was handled.
+    ///
+    /// Protects: `extend_shore_ends`' flags, directions and `u`.
+    #[test]
+    fn only_shore_ends_are_carried_and_each_along_its_own_step() {
+        let wet = cells(|x, _| x >= 10 || x < 2);
+        let s = StrokePieces {
+            // Piece 0: 2 -> 10 (a mouth at x = 10, last point repeated).
+            // Piece 1: 5 -> 8 (an inland stretch, no shore flags).
+            pts: vec![(2.0, 5.5), (6.0, 5.5), (10.0, 5.5), (10.0, 5.5), (5.0, 9.5), (8.0, 9.5)],
+            u: vec![0.0, 1.0, 2.0, 2.0, 5.0, 6.0],
+            pieces: vec![(0, 4), (4, 6)],
+            shore: vec![(true, true), (false, false)],
+        };
+        let (out, reach) = extend_shore_ends(&s, |_| 3.0, &wet);
+        assert_eq!(out.pieces, vec![(0, 6), (6, 8)], "one point each end of piece 0, none on piece 1");
+        // Open water behind the head is x < 1.5 (x = 1.5 itself belongs to the
+        // square [1.5, 2.5), whose right-hand cell is dry): the first march
+        // step past it, 1/16 cell further.
+        assert_eq!(out.pts[0], (1.4375, 5.5), "the head goes back into the water behind it");
+        assert_eq!(out.pts[5], (10.5, 5.5), "the tail on, past the repeated point");
+        assert_eq!((out.u[0], out.u[5]), (0.0, 2.0), "each new point keeps its end's u");
+        assert!(reach[0].0.is_some() && reach[0].1.is_some() && reach[1].0.is_none() && reach[1].1.is_none());
+        // The tables are measured from the NEW ends: a zero-width cap needs
+        // nothing more there.
+        assert_eq!(reach[0].1.as_ref().map(|r| r.extra(0.0)), Some(0.0));
+        assert_eq!(reach[0].0.as_ref().map(|r| r.extra(0.0)), Some(0.0));
+        assert_eq!(&out.pts[6..], &s.pts[4..], "the inland piece is untouched");
+    }
+
+    /// The widest cap any raster asks about: the colour field's, at one pixel
+    /// per cell -- the widest seam width, the pad either side, the fringe.
+    ///
+    /// Protects: `reach_limit_cells`' terms.
+    #[test]
+    fn the_reach_limit_is_the_colour_fields_cap() {
+        // 1 cell x 16 = 16 wide; pad 3 (800 cells); fringe 1.
+        assert_eq!(reach_limit_cells(1.0, 800), 8.0 + 3.0 + 1.0);
+        // A trickle is floored at one pixel: 0.5 + 6 (1600 cells) + 1.
+        assert_eq!(reach_limit_cells(0.01, 1600), 0.5 + 6.0 + 1.0);
+    }
+
+    /// A raster carries a shore end on by its OWN cap: the grid raster (one
+    /// pixel per cell) draws past the end exactly as far as the table says for
+    /// a cap of half-width plus fringe, and not at all without a table.
+    ///
+    /// Protects: `for_each_span`'s use of the reach, at the piece's end.
+    #[test]
+    fn a_raster_carries_the_end_by_its_own_cap() {
+        let a = render::TerrainAppearance::default();
+        // Ends at x = 10.0.
+        let pts: Vec<(f32, f32)> = (0..=30).map(|i| (2.5 + i as f32 * 0.25, 12.5)).collect();
+        let mut g = one_run(pts, 1.0, [0.2, 0.4, 0.8], false);
+        let bare = rasterize(&g, &a, 32, 32, RasterMap::grid());
+        // Pixel 10 samples river x = 10.5: past the bare end, not drawn.
+        assert!(bare.at(10, 12).is_none(), "{:?}", bare.at(10, 12));
+        // 1 px wide at 1 px/cell: cap = 0.5 + 1 fringe = 1.5 cells.
+        // The table fits 0.75 at 2 cells on and 1.5 at 3: the fringe is what
+        // makes the cap 1.5, so the end goes 3 cells on, to x = 13.
+        let reach = ShoreReach { dir: (1.0, 0.0), open: vec![(0.0, 0.25), (2.0, 0.75), (3.0, 1.5), (6.0, 4.0)], drawn: Vec::new() };
+        g.runs[0].reach = vec![(None, Some(reach))];
+        let carried = rasterize(&g, &a, 32, 32, RasterMap::grid());
+        let p = carried.at(12, 12).expect("carried three cells on");
+        assert!((p[3] - 1.0).abs() < 1e-6, "solid there: {p:?}");
+        assert!(carried.at(14, 12).is_none(), "and no further than the cap needs");
     }
 }

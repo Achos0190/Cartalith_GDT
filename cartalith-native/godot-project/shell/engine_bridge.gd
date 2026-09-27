@@ -1030,6 +1030,18 @@ func river_color_texture() -> Texture2D:
 		return null
 	return world_gen.river_color_texture()
 
+## Which cells the map draws as water, one byte per cell (255 water), built by
+## the last `color_texture()` beside the river colour texture
+## (`WorldGen::river_water_mask`). The base view's river stroke discards itself
+## on those cells, so water sits above the river (`map_overlay.gd::_draw_rivers`).
+## `null` mid-generation, whenever `river_color_texture()` is, and against a
+## binary built before it existed -- the stroke is then drawn unmasked, as it
+## was.
+func river_water_mask() -> Texture2D:
+	if generating or not _has("river_water_mask"):
+		return null
+	return world_gen.river_water_mask()
+
 ## Read-back for `set_rivers_in_map()`. `true` against a binary built before
 ## it existed, which draws its rivers whatever this says.
 func rivers_in_map() -> bool:

@@ -138,6 +138,15 @@ func _run_seed(seed_v: int) -> void:
 	var ppc_fit: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
 	sr["stroke"] = _stroke_stats(rivers, ppc_fit)
 	print("  stroke: ", sr["stroke"])
+	## River mouths (owner, 2026-09-27): every free end beside water is carried
+	## into it (`river_stroke::extend_shore_ends`). Protects: no drawn end stops
+	## short of the sea or lake it meets -- 76-100 per world did before.
+	var short_n := int(sr["stroke"]["free_ends_short_of_adjacent_water"])
+	if short_n > 0:
+		printerr("PROBE-FAIL: %d free ends stop short of adjacent water (seed %d)" % [short_n, seed_v])
+		_report["fail"] = true
+	else:
+		print("  PROBE-OK: no free end stops short of adjacent water")
 	sr["draw_cost_ms"] = await _draw_cost()
 	print("  draw cost (median frame ms, rivers on/off): ", sr["draw_cost_ms"])
 	var targets := {} if _stats_only else _pick_targets(rivers)
@@ -266,6 +275,7 @@ func _stroke_stats(rivers: Array, ppc_fit: float) -> Dictionary:
 				if not grid.has(key): grid[key] = []
 				grid[key].append(Vector2i(ri, i))
 	var short_gap := PackedFloat32Array()
+	var short_where: Array = []
 	## Draw rank: RV-2 draws by `get_rivers()`' `draw_rank`; the build before
 	## it drew in list order.
 	var rank := {}
@@ -367,6 +377,9 @@ func _stroke_stats(rivers: Array, ppc_fit: float) -> Dictionary:
 							var q := Vector2(clampf(E.x, c.x, c.x + 1.0), clampf(E.y, c.y, c.y + 1.0))
 							g = minf(g, E.distance_to(q))
 				short_gap.append(g)
+				## Where, for reading: the end, its direction and piece count.
+				if short_where.size() < 8:
+					short_where.append([E, D, pcs.size()])
 	return {"drawn": drawn, "pieces_hist": hist, "rivers_2plus_pieces": r2, "rivers_3plus_pieces": r3,
 		"breaks": breaks, "breaks_with_water_past_them": breaks_wet,
 		"width_narrowing_steps": narrows, "rivers_that_narrow": narrow_rivers, "rivers_one_width": const_rivers,
@@ -375,7 +388,7 @@ func _stroke_stats(rivers: Array, ppc_fit: float) -> Dictionary:
 		"joins": joins, "join_gap_max_cells": join_gap_max, "joins_trib_wider_than_trunk": join_wider,
 		"joins_joined_river_drawn_last": join_trunk_drawn_over, "join_width_ratio": _stats(ratio),
 		"free_ends_on_shore": ends_on_shore, "free_ends_short_of_adjacent_water": ends_short,
-		"short_end_gap_cells": _stats(short_gap)}
+		"short_end_gap_cells": _stats(short_gap), "short_ends_where": str(short_where)}
 
 
 ## Median frame interval over 30 frames at the opening view, rivers on vs off.

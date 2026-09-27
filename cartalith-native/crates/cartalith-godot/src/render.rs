@@ -9827,10 +9827,26 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
     // every crisp one). No river layer,
     // or a pixel no stroke reached, keeps its `255`: the tile of every
     // existing caller and golden is byte-identical.
+    //
+    // **Land pixels only** (river mouths, 2026-09-27). A water pixel's RGB is
+    // the water whatever the layer holds (stage 3's early return), and since
+    // every end meeting water is carried on into it
+    // (`river_stroke::extend_shore_ends`) the layer covers water pixels at
+    // every mouth. Marking those as river would draw them from this tile
+    // alone mid-morph while the water beside them mixes with the parent -- a
+    // river-shaped seam in the water, the stroke showing through the water
+    // that must sit above it. The test is stage 3's own, at the same
+    // position.
     if let Some(layer) = rivers {
         out.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
+            let wy = bounds.y + y as f64 * cy;
             for x in 0..w {
                 if let Some(p) = layer.at(x, y) {
+                    let ht = tile[(y + pad) * pw + x + pad] as f64;
+                    let wx = bounds.x + x as f64 * cx;
+                    if ht < sl || (lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok)) {
+                        continue;
+                    }
                     row[x * 4 + 3] = 255 - (p[3].clamp(0.0, 1.0) * 255.0).round() as u8;
                 }
             }

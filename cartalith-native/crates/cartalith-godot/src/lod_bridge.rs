@@ -1117,6 +1117,7 @@ mod tests {
                 orders: vec![4; n],
                 discharge: vec![f32::NAN; n],
                 pieces: vec![(0, n)],
+                reach: Vec::new(),
                 own_order: 4,
             }],
         };
@@ -1137,6 +1138,42 @@ mod tests {
                 assert_eq!(p, q);
             }
         }
+    }
+
+    /// Water above rivers on the tiles (river mouths, 2026-09-27): a stroke
+    /// lying on open water leaves the tile exactly the river-less tile, alpha
+    /// included. The RGB was always the water's; the alpha is what this pins
+    /// -- marked as river, a water pixel under a mouth's overshoot drew from
+    /// this tile alone mid-morph while the water beside it blended with the
+    /// parent, a river-shaped seam in the water.
+    ///
+    /// Protects: `render_biome_tile_rgba_rivers`' land-only alpha pass.
+    #[test]
+    fn a_stroke_on_open_water_leaves_the_tile_untouched() {
+        // Every sample below sea level: the whole tile is ocean.
+        let tw = TestWorld::new(vec![0.2f32; 256 * 256], 256, 256);
+        let ctx = tw.ctx();
+        let bounds = tile_bounds(256, 256, 2, 1, 1).unwrap();
+        let y = (bounds.y + bounds.h * 0.5 + 0.5) as f32;
+        let (x0, x1) = (bounds.x as f32 - 4.0, (bounds.x + bounds.w) as f32 + 4.0);
+        let n = 200usize;
+        let pts: Vec<(f32, f32)> = (0..n).map(|i| (x0 + (x1 - x0) * i as f32 / (n - 1) as f32, y)).collect();
+        let g = crate::river_stroke::RiverGeometry {
+            runs: vec![crate::river_stroke::DrawnRun {
+                pts,
+                widths: vec![3.0; n],
+                colors: vec![[0.1, 0.2, 0.6, 1.0]; n],
+                orders: vec![4; n],
+                discharge: vec![f32::NAN; n],
+                pieces: vec![(0, n)],
+                reach: Vec::new(),
+                own_order: 4,
+            }],
+        };
+        let tf = tw.fields(&ctx);
+        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g)).unwrap();
+        let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
+        assert_eq!(with, without, "a river on open water changes no byte of the tile");
     }
 
     #[test]

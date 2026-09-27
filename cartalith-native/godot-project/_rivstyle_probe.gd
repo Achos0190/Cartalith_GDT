@@ -35,6 +35,9 @@ extends Node
 ##      Sections A-C read textures; only this one reads what a user sees,
 ##      which is why white rivers on screen (OUTSTANDING_WORK.md, "Rivers draw
 ##      WHITE at fit zoom", a regression from 2cf0143) passed A-C.
+##   M. river MOUTHS on SCREEN (see `_mouth_leg`): at fit and at z16, for
+##      MOUTH_PRESETS, no river pixel on water, and the stroke reaching the
+##      water at every shore end -- the owner's 2026-09-27 request.
 ##
 ## Crops of the base texture around a trunk are saved per preset, on and off,
 ## magnified 4x nearest, for looking at.
@@ -51,6 +54,10 @@ extends Node
 ##   --grid WxH    world size (default 1024x656)
 ##   --timing-only only section D, the Rivers switch's cost
 ##   --screen-only only section S, the drawn river on screen
+##   --mouth-only  only section M, river mouths on screen
+##   --mouths FILE section M's z16 visits from an earlier run's mouths.json
+##   --mask FILE   section M's drawn-water mask from an earlier run's
+##                 water_mask.png (for a build without the binding)
 ##
 ## Exit status: 0 every assertion held, 1 one failed, 2 could not run.
 
@@ -74,6 +81,19 @@ var _zoom_check := true
 var _only: PackedStringArray = []
 var _timing_only := false
 var _screen_only := false
+var _mouth_only := false
+## `--mouths FILE`: a previous run's `mouths.json`, so the z16 views and the
+## crops of a before/after pair frame the same ground.
+var _mouth_file := ""
+## Section M's presets: the default look and a dark pen line (a second,
+## far-apart river colour, so a leak is visible whatever the palette).
+const MOUTH_PRESETS := ["Default", "Ink"]
+## Section M's deep-zoom visits per preset (each costs a tile settle).
+const MOUTH_VISITS := 8
+var _water_cache := {}
+## Section M's drawn-water mask (see `_water`), and `--mask FILE`.
+var _mask_img: Image = null
+var _mask_file := ""
 var _fail := 0
 var _app: Node
 var _vh: Control
@@ -119,6 +139,12 @@ func _parse_args() -> bool:
 				_timing_only = true
 			"--screen-only":
 				_screen_only = true
+			"--mouth-only":
+				_mouth_only = true
+			"--mouths":
+				_mouth_file = args[i + 1]; i += 1
+			"--mask":
+				_mask_file = args[i + 1]; i += 1
 			"--grid":
 				var p := args[i + 1].split("x"); GRID = Vector2i(int(p[0]), int(p[1])); i += 1
 			_:
@@ -191,6 +217,10 @@ func _ready() -> void:
 		await _screen_leg(tiles)
 		_finish()
 		return
+	if _mouth_only:
+		await _mouth_leg(tiles)
+		_finish()
+		return
 
 	var results := {}
 	for pname in PRESETS:
@@ -228,6 +258,8 @@ func _ready() -> void:
 	_judge(results)
 	## S. what the user sees -- after A-C, whose texture reads cannot see it.
 	await _screen_leg(tiles)
+	## M. river mouths: the stroke reaches the water and never shows on it.
+	await _mouth_leg(tiles)
 
 	## D. the cost of the switch, back on the default preset.
 	(tiles[0]["button"] as Button).emit_signal("pressed")
@@ -372,6 +404,521 @@ func _edit_check(samples: Array) -> void:
 		_ok(gone_clear == gone, "E: every river cell the edit removed is clear of river ink (%d of %d)" % [gone_clear, gone])
 	else:
 		print("RIVSTYLE  E: the edit removed no sample river near it -- the 'left' half is not exercised")
+
+
+## **Section M: river mouths, read off the SCREEN** (owner, 2026-09-27:
+## *"When rivers end into the ocean or lake they should be drawn a bit longer
+## to make sure they actually end in the ocean/lake. And the ocean texture
+## should be drawn above the river graphic."*). For each of MOUTH_PRESETS:
+##
+##  M1. fit view, the whole viewport: no pixel the Rivers layer changes
+##      (|ON - OFF| above the control) lies on OPEN water -- a pixel the map
+##      draws as water whose four neighbours it also draws as water.
+##      Protects: water drawn above the base view's stroke
+##      (`map_overlay.gd::_draw_rivers`' water mask).
+##  M2. fit view, every shore end on screen: walking the stroke's end
+##      direction, the last land pixel before the first water pixel carries
+##      the stroke. Protects: the stroke reaching the shoreline pixel.
+##  M3. z16 at up to MOUTH_VISITS mouths (sea and lake): no pixel the layer
+##      changes lies where all four surrounding cell centres are water -- the
+##      region every drawing path draws as water (`river_stroke.rs`, "River
+##      mouths"). Protects: the tiles keeping water above the overshoot.
+##
+## **No z16 reach leg, and why** (tried three ways, each refuted by its own
+## trace): the tile's shoreline cannot be read off its pixels. Its sea is the
+## bilinear field below sea level and its shallows are coloured like beach, so
+## a "looks like water" test called shallow water land; its lake band is drawn
+## by a marching-squares rule, so the cell grid is not its shore either; and
+## the one thing that inks its own shore (`toon_outline`) needs a tile
+## rebuild, which moved open-water pixels past the control. The z16 reach is
+## covered instead by construction -- the stroke is carried into the region
+## every path draws as water (`river_stroke::shore_reach`), and the tile hides
+## the river on its own water pixels -- and by the z16 crops, looked at.
+##
+## "The layer changes it" is judged against a CONTROL, never a chosen number:
+## the largest per-pixel difference between two captures with the layer off
+## at the same view (and at z16 also the largest change on pixels far from
+## every river, see `REACH_FAR`). Water at fit is the SCREEN's own mask (the
+## drawn-water mask shown through the map's `TextureRect`); open water at z16
+## is read from the drawn-water mask (`_mask_img`: this build's
+## `WorldGen::river_water_mask`, or `--mask` for HEAD, which has no binding).
+## Crops are saved for looking at:
+## `m_<preset>_<i>_<kind>_fit_{on,off}.png` (8x nearest) and `..._z16_on.png`.
+func _mouth_leg(tiles: Array) -> void:
+	## The drawn-water mask: this build's binding, else a saved one (`--mask`,
+	## for HEAD, which has no binding -- the world is the same seed and the
+	## mask is generation output, which nothing in this change touches).
+	var mt: Texture2D = _br.river_water_mask() if _br.has_method("river_water_mask") else null
+	if mt != null:
+		_mask_img = mt.get_image().duplicate()
+		_mask_img.save_png(_out.path_join("water_mask.png"))
+	elif _mask_file != "":
+		_mask_img = Image.load_from_file(_mask_file)
+	if _mask_img == null or _mask_img.get_size() != GRID:
+		_ok(false, "M: a drawn-water mask of the grid's size (binding, or --mask FILE)")
+		return
+	_mask_img.convert(Image.FORMAT_L8)
+	var rivers: Array = _br.rivers(1)
+	var ends := _shore_ends(rivers)
+	var n_sea := 0; var n_lake := 0
+	for e: Dictionary in ends:
+		if e["kind"] == "ocean":
+			n_sea += 1
+		else:
+			n_lake += 1
+	print("RIVSTYLE  M: %d shore ends (%d sea, %d lake)" % [ends.size(), n_sea, n_lake])
+	_ok(n_sea >= 4 and n_lake >= 4, "M: shore ends of both kinds to measure (sea %d, lake %d, each >= 4)" % [n_sea, n_lake])
+	var visits: Array = []
+	if _mouth_file != "":
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(_mouth_file))
+		for v: Dictionary in (parsed as Array):
+			visits.append({"p": Vector2(v["p"][0], v["p"][1]), "d": Vector2(v["d"][0], v["d"][1]), "kind": v["kind"], "w": v["w"]})
+	else:
+		visits = _pick_visits(ends)
+	var js: Array = []
+	for v: Dictionary in visits:
+		js.append({"p": [v["p"].x, v["p"].y], "d": [v["d"].x, v["d"].y], "kind": v["kind"], "w": v["w"]})
+	var f := FileAccess.open(_out.path_join("mouths.json"), FileAccess.WRITE)
+	f.store_string(JSON.stringify(js, "  "))
+	f = null
+	_report["mouth_ends"] = {"sea": n_sea, "lake": n_lake, "visits": js}
+	for pname in MOUTH_PRESETS:
+		var idx := -1
+		for i in RenderWorkspace.STYLE_PRESETS.size():
+			if String(RenderWorkspace.STYLE_PRESETS[i][0]) == pname:
+				idx = i
+		if idx < 0:
+			_ok(false, "M: preset %s is in STYLE_PRESETS" % pname)
+			continue
+		(tiles[idx]["button"] as Button).emit_signal("pressed")
+		await _frames(6)
+		await _mouth_fit(pname, ends, visits)
+		var bad3 := 0; var seen := 0
+		for vi in visits.size():
+			var r: Dictionary = await _mouth_deep(pname, vi, visits[vi])
+			## A view where the layer moved nothing measured nothing (the
+			## positive control): it is not counted as a pass.
+			if r.is_empty() or int(r["changed"]) == 0:
+				continue
+			seen += 1
+			bad3 += int(r["water_px"] > 0)
+		_ok(seen >= 4, "M3 %s: enough mouths measured at z%d (%d >= 4)" % [pname, int(ZOOM), seen])
+		_ok(bad3 == 0, "M3 %s: no river pixel on open water at z%d (%d of %d mouths had some)" % [pname, int(ZOOM), bad3, seen])
+	_vh.reset_view()
+	await _frames(3)
+
+
+## Labels would cover mouths (a lake's name sits on the lake): cleared before
+## every capture this section takes, which judges only the river against the
+## water. Any repaint that re-lists them (`viewport_host.gd::refresh_overlay`,
+## on a preset change) brings them back, hence per capture and not once.
+func _no_labels() -> void:
+	_vh.overlay.set("_labels", [])
+	_vh.overlay.queue_redraw()
+
+
+## 0 land, 1 ocean, 2 lake, -1 off the grid: `sample_cell`'s `water` key,
+## cached (a `has()` of it is meaningless -- land is a value too, MISTAKES.md).
+##
+## **Whether** a cell is water comes from `_mask_img` -- the drawn-water mask
+## the map colours its water from (`WorldGen::river_water_mask`, or the PNG of
+## it a run saved, `--mask`) -- never from `sample_cell`, whose `water` is
+## `CivData::water_bodies`: measured to disagree with what the map draws on
+## some cells (the first run of this section counted river pixels "on water"
+## that the map draws as land). `sample_cell` only names the kind.
+func _water(c: Vector2i) -> int:
+	if c.x < 0 or c.y < 0 or c.x >= GRID.x or c.y >= GRID.y:
+		return -1
+	if _water_cache.has(c):
+		return _water_cache[c]
+	var v := 0
+	if _mask_img.get_pixel(c.x, c.y).r8 > 127:
+		var w := String(_br.sample_cell(c.x, c.y).get("water", "land"))
+		v = 2 if w == "lake" else 1
+	_water_cache[c] = v
+	return v
+
+
+## Whether all four cell centres around river-space `p` are water: where
+## every drawing path draws water (`river_stroke.rs`, "River mouths").
+func _open_water(p: Vector2) -> bool:
+	var i := int(floor(p.x - 0.5)); var j := int(floor(p.y - 0.5))
+	return _water(Vector2i(i, j)) > 0 and _water(Vector2i(i + 1, j)) > 0 \
+		and _water(Vector2i(i, j + 1)) > 0 and _water(Vector2i(i + 1, j + 1)) > 0
+
+
+## Every drawn piece end that meets water, from `get_rivers(1)`: a piece's
+## last point (or first, for a lake outlet) whose cell, or the cell 0.75 of a
+## cell further along its own direction, is water. `d` points into the water.
+## Both HEAD (ends on the shore) and the extended build (ends inside the
+## water) qualify, so the two are sampled alike.
+##
+## An end another drawn river's stroke passes through (within 0.05 cells --
+## `_riverzoom_probe`'s own join test) is left out: a confluence, a
+## continuation onto the next run's head, or two runs sharing an end. Those
+## meet a river, not the water, and are never carried into it.
+func _shore_ends(rivers: Array) -> Array:
+	var out: Array = []
+	var grid := {}
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not r.has("widths") or r.has("parallel_of"):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		for i in rp.size():
+			var key := Vector2i(int(floor(rp[i].x)), int(floor(rp[i].y)))
+			if not grid.has(key):
+				grid[key] = []
+			grid[key].append(Vector2i(ri, i))
+	var on_other := func(ri: int, e: Vector2) -> bool:
+		var c := Vector2i(int(floor(e.x)), int(floor(e.y)))
+		for dy in [-1, 0, 1]:
+			for dx in [-1, 0, 1]:
+				for h: Vector2i in grid.get(c + Vector2i(dx, dy), []):
+					if h.x == ri:
+						continue
+					var orp: PackedVector2Array = (rivers[h.x] as Dictionary)["render_points"]
+					for j in [h.y - 1, h.y]:
+						if j < 0 or j + 1 >= orp.size():
+							continue
+						if _seg_d(e, orp[j], orp[j + 1]) < 0.05:
+							return true
+		return false
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not r.has("widths") or r.has("parallel_of"):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		var w: PackedFloat32Array = r["widths"]
+		var pc: PackedInt32Array = r["pieces"]
+		for k in range(0, pc.size() - 1, 2):
+			var a := pc[k]; var b := pc[k + 1]
+			if b - a < 2:
+				continue
+			for tail in [true, false]:
+				var e: Vector2 = rp[b - 1] if tail else rp[a]
+				var q: Vector2 = rp[b - 2] if tail else rp[a + 1]
+				if e.distance_to(q) < 1e-6:
+					continue
+				var d := (e - q).normalized()
+				if e.x < 20 or e.y < 20 or e.x > GRID.x - 20 or e.y > GRID.y - 20:
+					continue
+				if on_other.call(ri, e):
+					continue
+				var here := _water(Vector2i(int(floor(e.x)), int(floor(e.y))))
+				var ahead_p := e + d * 0.75
+				var ahead := _water(Vector2i(int(floor(ahead_p.x)), int(floor(ahead_p.y))))
+				var kind := here if here > 0 else ahead
+				if kind <= 0:
+					continue
+				## `pts`: the piece's last (or first) four points, end last, for
+				## reading a miss.
+				var near_pts: Array = []
+				for t in 4:
+					var j: int = (b - 4 + t) if tail else (a + 3 - t)
+					if j >= a and j < b:
+						near_pts.append(rp[j].snapped(Vector2(0.001, 0.001)))
+				var plen := 0.0
+				for j in range(a, b - 1):
+					plen += rp[j].distance_to(rp[j + 1])
+				out.append({"p": e, "d": d, "kind": "ocean" if kind == 1 else "lake", "w": float(w[b - 1] if tail else w[a]),
+					"tail": tail, "pts": near_pts, "len": plen})
+	return out
+
+
+## Distance from `p` to segment `a`-`b`.
+func _seg_d(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-12), 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
+## Up to MOUTH_VISITS/2 sea and MOUTH_VISITS/2 lake ends, widest first, at
+## least 25 cells apart (so one z16 view never holds two), for M3 and the
+## screenshots.
+func _pick_visits(ends: Array) -> Array:
+	var sorted := ends.duplicate()
+	sorted.sort_custom(func(x: Dictionary, y: Dictionary) -> bool: return x["w"] > y["w"])
+	var out: Array = []
+	var per := {"ocean": 0, "lake": 0}
+	for e: Dictionary in sorted:
+		if per[e["kind"]] >= MOUTH_VISITS / 2:
+			continue
+		var far := true
+		for o: Dictionary in out:
+			if (o["p"] as Vector2).distance_to(e["p"]) < 25.0:
+				far = false
+		if far:
+			out.append(e)
+			per[e["kind"]] += 1
+	return out
+
+
+## How far past a drawn river's half-width a pixel must lie to be "far" from
+## it (M3's control), in cells. **Labelled judgement**: past the stroke's
+## own fringe (a pixel), its end's carry into the water at z16 (a cap of a few
+## hundredths of a cell plus the march's sixteenth-cell steps, and at most the
+## one-cell band to open water) with two cells to spare.
+const REACH_FAR := 4.0
+
+## Cells within half a river's width plus REACH_FAR of any drawn render point
+## of `get_rivers(1)`, over the river-space box `lo`..`hi` (grown by 8 cells).
+func _near_rivers(lo: Vector2, hi: Vector2) -> Dictionary:
+	var out := {}
+	var box := Rect2(lo, hi - lo).abs().grow(8.0)
+	for r: Dictionary in _br.rivers(1):
+		if not r.has("widths") or r.has("parallel_of"):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		var w: PackedFloat32Array = r["widths"]
+		for i in rp.size():
+			if not box.has_point(rp[i]):
+				continue
+			var rad := int(ceil(w[i] * 0.5 + REACH_FAR))
+			var c := Vector2i(int(floor(rp[i].x)), int(floor(rp[i].y)))
+			for dy in range(-rad, rad + 1):
+				for dx in range(-rad, rad + 1):
+					out[c + Vector2i(dx, dy)] = true
+	return out
+
+
+## River space -> viewport pixel, through the overlay's own mapping
+## (`move_view_to`: cell centre `x + 0.5` at `(x + 0.5) / g` of the rect).
+func _to_screen(p: Vector2, xf: Transform2D, rect: Rect2, g: Vector2i) -> Vector2:
+	return xf * (rect.position + p / Vector2(g) * rect.size)
+
+
+func _to_river(px: Vector2i, inv: Transform2D, rect: Rect2, g: Vector2i) -> Vector2:
+	var local: Vector2 = inv * (Vector2(px) + Vector2(0.5, 0.5))
+	return (local - rect.position) / rect.size * Vector2(g)
+
+
+## Sum of absolute channel differences at `i` (byte offset) of two RGB8 buffers.
+func _dd(a: PackedByteArray, b: PackedByteArray, i: int) -> int:
+	return absi(a[i] - b[i]) + absi(a[i + 1] - b[i + 1]) + absi(a[i + 2] - b[i + 2])
+
+
+## M1 and M2 at the fit view, plus the fit crops.
+func _mouth_fit(pname: String, ends: Array, visits: Array) -> void:
+	_vh.reset_view()
+	_no_labels()
+	await _frames(6)
+	_ok(not _vh.lod_active(), "M %s: fit is below the deep-zoom switch" % pname)
+	var ov: Control = _vh.overlay
+	var rect: Rect2 = ov.displayed_rect()
+	var g: Vector2i = _br.grid_size()
+	var xf: Transform2D = ov.get_global_transform_with_canvas()
+	var inv := xf.affine_inverse()
+	var on_img := await _grab_full()
+	_vh.set_layer_visible("rivers", false)
+	await _frames(3)
+	var off_img := await _grab_full()
+	await _frames(2)
+	var off2 := await _grab_full()
+	## **The screen's own water mask.** The drawn-water mask shown in place of
+	## the map, through the map's own nearest-filtered `TextureRect`, with
+	## every overlay hidden: each viewport pixel then reads exactly whether
+	## the map draws water THERE. Mapping a pixel to its cell by arithmetic
+	## instead was tried first and misread pixels on cell edges (the drawn
+	## rect is pixel-snapped; measured up to ~0.05 cells off), counting a
+	## land pixel as water.
+	var map_tex: Texture2D = _vh.map_view.texture
+	_vh.map_view.texture = ImageTexture.create_from_image(_mask_img)
+	_vh.overlay.visible = false
+	await _frames(3)
+	var mask_img := await _grab_full()
+	mask_img.save_png("%s/m_%s_fit_screenmask.png" % [_out, pname.to_snake_case()])
+	on_img.save_png("%s/m_%s_fit_full_on.png" % [_out, pname.to_snake_case()])
+	off_img.save_png("%s/m_%s_fit_full_off.png" % [_out, pname.to_snake_case()])
+	_vh.overlay.visible = true
+	_vh.map_view.texture = map_tex
+	_vh.set_layer_visible("rivers", true)
+	await _frames(3)
+	var W := on_img.get_width()
+	var host := Rect2i(Vector2i(_vh.global_position.round()), Vector2i(_vh.size.round())).intersection(Rect2i(Vector2i.ZERO, on_img.get_size()))
+	var A := on_img.get_data(); var B := off_img.get_data(); var C := off2.get_data()
+	var M := mask_img.get_data()
+	## The mask reaches the screen as exactly 0 and one water level (255 on
+	## this shell), except where something is drawn OVER the map: measured, a
+	## translucent readout chip read 174 and the river showed through it. So
+	## a pixel counts as water only where it reads the water level exactly in
+	## all three channels, as land only where it reads exactly 0, and as
+	## neither elsewhere (chrome, or an edge the screen blends): excluded from
+	## both M1 and M2 rather than guessed.
+	var hist := PackedInt32Array(); hist.resize(256)
+	for y in range(host.position.y, host.end.y, 3):
+		for x in range(host.position.x, host.end.x, 3):
+			hist[M[(y * W + x) * 3]] += 1
+	var hi := 128
+	for v in range(128, 256):
+		if hist[v] > hist[hi]:
+			hi = v
+	var exact := func(q: Vector2i, v: int) -> bool:
+		var i: int = (q.y * W + q.x) * 3
+		return M[i] == v and M[i + 1] == v and M[i + 2] == v
+	var wet_px := func(q: Vector2i) -> bool: return exact.call(q, hi)
+	var dry_px := func(q: Vector2i) -> bool: return exact.call(q, 0)
+	print("RIVSTYLE  M %s fit: screen water level %d (land 0)" % [pname, hi])
+	var ctl := 0
+	for y in range(host.position.y, host.end.y):
+		for x in range(host.position.x, host.end.x):
+			ctl = maxi(ctl, _dd(B, C, (y * W + x) * 3))
+	## M1: every changed pixel, against the cell it shows.
+	var changed := 0; var on_water := 0
+	var worst: Array = []
+	for y in range(host.position.y, host.end.y):
+		for x in range(host.position.x, host.end.x):
+			if _dd(A, B, (y * W + x) * 3) <= ctl:
+				continue
+			changed += 1
+			var p := _to_river(Vector2i(x, y), inv, rect, g)
+			## OPEN water: this pixel and its four neighbours all read water.
+			## A pixel on the water's edge is left out: the stroke's shader
+			## and the map's `TextureRect` each sample the mask nearest at
+			## their own interpolated UV, and on a pixel whose centre lies
+			## within float noise of a texel edge they can round opposite
+			## ways (measured: single pixels, every one on the mask's edge).
+			var q := Vector2i(x, y)
+			if wet_px.call(q) and wet_px.call(q + Vector2i.LEFT) and wet_px.call(q + Vector2i.RIGHT) 					and wet_px.call(q + Vector2i.UP) and wet_px.call(q + Vector2i.DOWN):
+				on_water += 1
+				if worst.size() < 8:
+					## The pixel, its ground position and how far the layer moved it.
+					worst.append([Vector2i(x, y), p.snapped(Vector2(0.01, 0.01)), _dd(A, B, (y * W + x) * 3)])
+	print("RIVSTYLE  M1 %-8s fit: control %d, river pixels %d, of them on water %d  e.g. %s" % [pname, ctl, changed, on_water, str(worst)])
+	_ok(changed > 1000, "M1 %s: the Rivers layer draws at fit (positive control, %d px > 1000)" % [pname, changed])
+	_ok(on_water == 0, "M1 %s: no river pixel on an open-water pixel at fit (%d)" % [pname, on_water])
+	## Where the map's `TextureRect` really draws the texture: Godot truncates
+	## a KEEP_ASPECT_CENTERED fit to whole pixels (measured here: a pixel the
+	## overlay's fit rect puts in cell row 30 shows row 29). Used only to find
+	## a pixel's distance from a texel edge below; derived here from Godot's
+	## rule and the map view's own size, not read from the overlay.
+	var ms: Vector2 = _vh.map_view.size
+	var tw := int(float(g.x) * ms.y / float(g.y)); var th := int(ms.y)
+	if float(tw) > ms.x:
+		tw = int(ms.x); th = int(float(g.y) * float(tw) / float(g.x))
+	var tex_rect := Rect2((ms.x - tw) / 2.0, (ms.y - th) / 2.0, tw, th)
+	## M2: the last land pixel before the water, along each end's direction.
+	var ppc: float = (_to_screen(Vector2(1, 0), xf, rect, g) - _to_screen(Vector2.ZERO, xf, rect, g)).length()
+	var tried := 0; var reached := 0; var missed: Array = []
+	var short_pieces := 0
+	for e: Dictionary in ends:
+		var p0: Vector2 = e["p"]; var d: Vector2 = e["d"]
+		## The walk starts 1.5 cells back from the end, so a piece shorter than
+		## that (a sliver between two water crossings) has no stroke along
+		## the walk to find: counted, not judged.
+		if float(e.get("len", 99.0)) < 1.5:
+			short_pieces += 1
+			continue
+		var last_dry := Vector2i(-1, -1); var hit := false; var prev := Vector2i(-99999, -99999)
+		var s := -1.5
+		while s <= 3.0:
+			var sp := _to_screen(p0 + d * s, xf, rect, g)
+			var px := Vector2i(int(floor(sp.x)), int(floor(sp.y)))
+			s += 0.25 / maxf(ppc, 0.01)
+			if px == prev:
+				continue
+			prev = px
+			if not host.grow(-2).has_point(px):
+				last_dry = Vector2i(-1, -1)
+				break
+			if wet_px.call(px):
+				hit = true
+				break
+			## The last land pixel, but never one whose centre sits within a
+			## quarter pixel of a texel edge: there the stroke's shader and the
+			## map's `TextureRect` may round the nearest texel opposite ways
+			## (measured: up to ~0.13 px, so a quarter pixel is twice that --
+			## labelled judgement), and "land" would be the map's word against
+			## the shader's.
+			var rq := _to_river(px, inv, tex_rect, g)
+			var edge := minf(absf(rq.x - roundf(rq.x)), absf(rq.y - roundf(rq.y))) * ppc
+			if dry_px.call(px) and edge >= 0.25:
+				last_dry = px
+		if not hit or last_dry.x < 0:
+			continue
+		tried += 1
+		if _dd(A, B, (last_dry.y * W + last_dry.x) * 3) > ctl:
+			reached += 1
+		elif missed.size() < 6:
+			missed.append([e["kind"], p0, last_dry, "tail" if e.get("tail", true) else "head", e.get("pts", [])])
+	print("RIVSTYLE  M2 %-8s fit: shore ends on screen %d, stroke on the last land pixel %d (pieces under 1.5 cells, not judged: %d), missed e.g. %s" % [pname, tried, reached, short_pieces, str(missed)])
+	_ok(tried >= 20, "M2 %s: enough shore ends on screen at fit (%d >= 20)" % [pname, tried])
+	_ok(reached == tried, "M2 %s: the stroke reaches the shoreline pixel at every end at fit (%d of %d)" % [pname, reached, tried])
+	_report["M_fit_" + pname] = {"control": ctl, "river_px": changed, "on_water": on_water, "ends": tried, "reached": reached}
+	## Crops for looking at.
+	for vi in visits.size():
+		var v: Dictionary = visits[vi]
+		var c := Vector2i(_to_screen(v["p"], xf, rect, g).round())
+		var half := int(ceil(12.0 * ppc))
+		var r := Rect2i(c - Vector2i(half, half), Vector2i(2 * half, 2 * half)).intersection(host)
+		if r.size.x < 4 or r.size.y < 4:
+			continue
+		for pair in [[on_img, "on"], [off_img, "off"]]:
+			var sub: Image = (pair[0] as Image).get_region(r)
+			sub.resize(sub.get_width() * 8, sub.get_height() * 8, Image.INTERPOLATE_NEAREST)
+			sub.save_png("%s/m_%s_%d_%s_fit_%s.png" % [_out, pname.to_snake_case(), vi, v["kind"], pair[1]])
+
+
+## M3 at one mouth at z16, plus its crop. `{}` when the view could not
+## be measured (the mouth off screen, the tiles not up).
+func _mouth_deep(pname: String, vi: int, v: Dictionary) -> Dictionary:
+	var p0: Vector2 = v["p"]; var d: Vector2 = v["d"]
+	_vh.reset_view()
+	await _frames(3)
+	_vh.zoom_step(ZOOM / _vh.zoom())
+	_vh.move_view_to(p0.x - 0.5, p0.y - 0.5)
+	_no_labels()
+	await _settle_tiles()
+	if not _vh.lod_active():
+		_ok(false, "M %s: z%d is above the deep-zoom switch" % [pname, int(ZOOM)])
+		return {}
+	var ov: Control = _vh.overlay
+	var rect: Rect2 = ov.displayed_rect()
+	var g: Vector2i = _br.grid_size()
+	var xf: Transform2D = ov.get_global_transform_with_canvas()
+	var inv := xf.affine_inverse()
+	var on_img := await _grab_full()
+	_vh.set_layer_visible("rivers", false)
+	await _settle_tiles()
+	var off_img := await _grab_full()
+	await _frames(2)
+	var off2 := await _grab_full()
+	_vh.set_layer_visible("rivers", true)
+	await _settle_tiles()
+	var W := on_img.get_width()
+	var host := Rect2i(Vector2i(_vh.global_position.round()), Vector2i(_vh.size.round())).intersection(Rect2i(Vector2i.ZERO, on_img.get_size()))
+	var A := on_img.get_data(); var B := off_img.get_data(); var C := off2.get_data()
+	## The control. Toggling the layer rebuilds every tile, and that moves
+	## pixels no stroke reaches by 1-6 levels (measured on HEAD, whole frame),
+	## so "the layer changed it" is judged against the largest change on
+	## pixels FAR from every drawn river -- more than half its width plus
+	## `REACH_FAR` cells from any render point -- as well as against two
+	## layer-off captures.
+	var near := _near_rivers(_to_river(host.position, inv, rect, g), _to_river(host.end, inv, rect, g))
+	var ctl := 0
+	for y in range(host.position.y, host.end.y, 2):
+		for x in range(host.position.x, host.end.x, 2):
+			var i := (y * W + x) * 3
+			ctl = maxi(ctl, _dd(B, C, i))
+			var q := _to_river(Vector2i(x, y), inv, rect, g)
+			if not near.has(Vector2i(int(floor(q.x)), int(floor(q.y)))):
+				ctl = maxi(ctl, _dd(A, B, i))
+	## M3: changed pixels on open water, over the whole view.
+	var changed := 0; var on_open := 0
+	for y in range(host.position.y, host.end.y):
+		for x in range(host.position.x, host.end.x):
+			if _dd(A, B, (y * W + x) * 3) <= ctl:
+				continue
+			changed += 1
+			if _open_water(_to_river(Vector2i(x, y), inv, rect, g)):
+				on_open += 1
+	print("RIVSTYLE  M3 %-8s z%d mouth %d (%s, w %.2f): control %d, river px %d, on open water %d"
+		% [pname, int(ZOOM), vi, v["kind"], v["w"], ctl, changed, on_open])
+	var c := Vector2i(_to_screen(p0, xf, rect, g).round())
+	var r := Rect2i(c - Vector2i(300, 220), Vector2i(600, 440)).intersection(host)
+	on_img.get_region(r).save_png("%s/m_%s_%d_%s_z%d_on.png" % [_out, pname.to_snake_case(), vi, v["kind"], int(ZOOM)])
+	off_img.get_region(r).save_png("%s/m_%s_%d_%s_z%d_off.png" % [_out, pname.to_snake_case(), vi, v["kind"], int(ZOOM)])
+	return {"water_px": on_open, "changed": changed}
 
 
 ## **Section S: the drawn river, read off the SCREEN.** For each of

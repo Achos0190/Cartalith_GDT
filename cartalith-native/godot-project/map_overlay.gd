@@ -2611,6 +2611,11 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 
 
 func _draw() -> void:
+	## The river stroke's own item (`_river_item`) is not cleared by this
+	## redraw; the returns below skip `_draw_rivers`, which clears it, so clear
+	## it here too or a stroke from an earlier draw would stay on screen.
+	if _river_ci.is_valid():
+		RenderingServer.canvas_item_clear(_river_ci)
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()
 			and _manual_routes.is_empty() and _landmarks.is_empty()
@@ -3919,9 +3924,27 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## overlay (`set_river_source`'s subscription). Both, since 2026-09-27: without
 ## them every repaint that did not also redraw the overlay turned the rivers
 ## pure white under every preset.
+##
+## **Water above rivers** (owner, 2026-09-27: *"the ocean texture should be
+## drawn above the river graphic"*). Every end of the stroke that meets water
+## is carried on into it (`river_stroke::extend_shore_ends`), and the stroke is
+## drawn into its own child canvas item (`_river_item`) whose shader
+## (`shell/river_under_water.gdshader`) discards every fragment on a cell the
+## map draws as water (`WorldGen::river_water_mask`, sampled nearest -- the
+## same texel the nearest-filtered base map shows at that pixel). So water
+## covers the stroke exactly where water is drawn, the end carried into it is
+## never seen, and a river through a lake still stops at the inlet and resumes
+## at the outlet. Chosen over clipping the geometry at a shoreline: the base
+## map's shoreline IS its cell edges at this zoom, and a mask test reproduces
+## it pixel for pixel where a clipped polygon would have to rebuild it from
+## squares. Without a mask (an older binary, a test double) the stroke is
+## drawn unmasked, as before.
 func _draw_rivers(rect: Rect2) -> void:
-	## A redraw has already cleared the previous draw's commands, so the old
-	## texture can go now whichever way this returns.
+	## The stroke lives on `_river_item`, which no `queue_redraw` clears: clear
+	## it first, every call, so a stroke never outlives the draw that made it.
+	## Then the old texture can go whichever way this returns.
+	var ci := _river_item()
+	RenderingServer.canvas_item_clear(ci)
 	_river_tex = null
 	if _river_source == null or _lod_up or _debug_active:
 		return
@@ -3929,7 +3952,18 @@ func _draw_rivers(rect: Rect2) -> void:
 	if tex == null:
 		return
 	_river_tex = tex
-	var k := _crisp_begin()
+	var mask: Texture2D = _river_source.river_water_mask() if _river_source.has_method("river_water_mask") else null
+	## Held by the material for as long as this draw stands, as `_river_tex`
+	## is held for the colour texture (the canvas command keeps only RIDs).
+	_river_material.set_shader_parameter("water_mask", mask)
+	var tr := _map_texture_rect()
+	if tr.size.x > 0.0 and tr.size.y > 0.0:
+		_river_material.set_shader_parameter("mask_map", Vector4((rect.position.x - tr.position.x) / tr.size.x,
+			(rect.position.y - tr.position.y) / tr.size.y, rect.size.x / tr.size.x, rect.size.y / tr.size.y))
+	RenderingServer.canvas_item_set_material(ci, _river_material.get_rid() if mask != null else RID())
+	var k := maxf(_camera_zoom, 0.001)
+	## `_crisp_begin`'s own transform, on the child item.
+	RenderingServer.canvas_item_add_set_transform(ci, Transform2D(0.0, Vector2(1.0 / k, 1.0 / k), 0.0, Vector2.ZERO))
 	## Screen px per grid cell times the crisp `k`: a width in cells times
 	## this is a width on the ground in screen pixels.
 	var scale := Vector2(rect.size.x / maxf(1.0, float(_gw)), rect.size.y / maxf(1.0, float(_gh))) * k
@@ -3938,9 +3972,54 @@ func _draw_rivers(rect: Rect2) -> void:
 	var mesh: Dictionary = _river_source.river_view_mesh(scale, offset, view)
 	var idx: PackedInt32Array = mesh.get("indices", PackedInt32Array())
 	if not idx.is_empty():
-		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), idx, mesh["points"], mesh["colors"],
+		RenderingServer.canvas_item_add_triangle_array(ci, idx, mesh["points"], mesh["colors"],
 			mesh["uvs"], PackedInt32Array(), PackedFloat32Array(), tex.get_rid())
-	_crisp_end()
+
+
+## The base view's river stroke's own canvas item, created on first use: a
+## child of this overlay's item, drawn BEHIND it (so under the roads, pins and
+## labels this overlay draws, where the stroke always sat), carrying the
+## water-mask material only the stroke must get. Linear texture filtering,
+## which is what the overlay's own item resolved to (the viewport default)
+## when the stroke was drawn there. Freed with the overlay (`_notification`).
+## Must never receive anything but the river stroke: the shader discards on
+## water.
+var _river_ci := RID()
+var _river_material: ShaderMaterial = null
+const RIVER_UNDER_WATER := preload("res://shell/river_under_water.gdshader")
+
+## Where the base map's `TextureRect` (`viewport_host.gd::_raster`,
+## `STRETCH_KEEP_ASPECT_CENTERED`, same size and origin as this control) really
+## draws the map, in this control's local space: Godot's own arithmetic for that
+## mode, which truncates the fitted width and height to whole pixels
+## (`int tex_width = ...`) and centres the result. `_displayed_rect()` does not
+## truncate, so the two differ by up to a pixel -- measured on the 1024x656
+## world at 1600x1000: rows the map draws as cell 29 read as cell 30 through
+## `_displayed_rect()`. The river stroke's water mask is read through THIS rect
+## (`river_under_water.gdshader`'s `mask_map`) so the water that hides the
+## stroke is exactly the water on screen. Must track Godot's TextureRect: if a
+## Godot upgrade stops truncating, `_rivstyle_probe.gd` section M (M1/M2 at
+## fit) is what fails.
+func _map_texture_rect() -> Rect2:
+	if _gw <= 0 or _gh <= 0 or size.x <= 0.0 or size.y <= 0.0:
+		return Rect2()
+	var tex_w := int(float(_gw) * size.y / float(_gh))
+	var tex_h := int(size.y)
+	if float(tex_w) > size.x:
+		tex_w = int(size.x)
+		tex_h = int(float(_gh) * float(tex_w) / float(_gw))
+	return Rect2((size.x - float(tex_w)) / 2.0, (size.y - float(tex_h)) / 2.0, float(tex_w), float(tex_h))
+
+
+func _river_item() -> RID:
+	if not _river_ci.is_valid():
+		_river_ci = RenderingServer.canvas_item_create()
+		RenderingServer.canvas_item_set_parent(_river_ci, get_canvas_item())
+		RenderingServer.canvas_item_set_draw_behind_parent(_river_ci, true)
+		RenderingServer.canvas_item_set_default_texture_filter(_river_ci, RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_LINEAR)
+		_river_material = ShaderMaterial.new()
+		_river_material.shader = RIVER_UNDER_WATER
+	return _river_ci
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
@@ -4951,6 +5030,10 @@ func _process(_delta: float) -> void:
 		context_requested.emit(req)
 
 func _notification(what: int) -> void:
+	## `_river_item()`'s canvas item is a raw RID, which nothing else frees.
+	if what == NOTIFICATION_PREDELETE and _river_ci.is_valid():
+		RenderingServer.free_rid(_river_ci)
+		_river_ci = RID()
 	if what == NOTIFICATION_MOUSE_EXIT:
 		cursor_sampled.emit(0.0, 0.0, false)
 		if _hover_index != -1:

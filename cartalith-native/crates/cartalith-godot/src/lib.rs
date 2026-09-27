@@ -3987,6 +3987,11 @@ struct RiverDraw {
     discharge: Vec<f32>,
     draw_rank: usize,
     parallel_of: Option<usize>,
+    /// Per piece, `(head, tail)`: each end that meets water and how much
+    /// further a raster carries it into that water
+    /// (`river_stroke::extend_shore_ends`). Passed on to
+    /// `river_stroke::DrawnRun::reach`; `get_rivers()` does not marshal it.
+    reach: Vec<(Option<river_stroke::ShoreReach>, Option<river_stroke::ShoreReach>)>,
 }
 
 /// A river run's drawn curve: [`way_render_polyline`] over the run after
@@ -4684,6 +4689,12 @@ struct WorldGen {
     /// A `RefCell` because the builder takes `&self`, like the `lod` slot's
     /// `grid_rgb` beside it.
     river_color_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// `build_color_texture`'s water mask for the base view's river stroke
+    /// (`river_water_mask`): one byte per cell, 255 where the map draws water.
+    /// Built beside `river_color_tex` and replaced with it, so the two always
+    /// describe the same world. Must never be read as anything but the
+    /// drawn-water classification it is copied from.
+    river_water_mask_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
     /// The last colour field's `(covered pixels, allocated bytes)`, for
     /// `river_field_stats` (a probe's memory reading).
     river_field_stats: std::cell::Cell<(usize, usize)>,
@@ -5285,6 +5296,7 @@ impl IRefCounted for WorldGen {
             color_space: render::ColorSpace::Srgb,
             rivers_in_map: true,
             river_color_tex: std::cell::RefCell::new(None),
+            river_water_mask_tex: std::cell::RefCell::new(None),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
@@ -9416,6 +9428,18 @@ impl WorldGen {
             render::apply_color_space(self.color_space, &mut bytes);
         }
 
+        // The base view's water mask (`river_water_mask`), from the SAME
+        // classification `cell_color` just drew its water from (`lakes`:
+        // below sea level is ocean or lake, an above-sea lake is lake), so a
+        // stroke discarded where the mask says water is discarded exactly on
+        // the cells this texture paints as water. Built only beside a river
+        // colour texture: without one the base view draws no stroke.
+        *self.river_water_mask_tex.borrow_mut() = if river_bytes.is_some() {
+            let mask: Vec<u8> = lakes.iter().map(|&c| if c != 0 { 255 } else { 0 }).collect();
+            Image::create_from_data(gw as i32, gh as i32, false, Format::L8, &PackedByteArray::from(mask)).and_then(|i| ImageTexture::create_from_image(&i))
+        } else {
+            None
+        };
         // The river colour texture, through the same icon pass and encode, for
         // the base view's river stroke (`river_color_texture`).
         *self.river_color_tex.borrow_mut() = river_bytes.and_then(|mut t| {
@@ -9905,9 +9929,14 @@ impl WorldGen {
     ///   a width; the map then draws nothing for it.
     /// * `pieces` (`PackedInt32Array`) -- `[start, end)` pairs into
     ///   `render_points`, one per drawn piece. A stroke is cut only where its
-    ///   traced run crosses a drawn lake (or the sea), and each piece ends on
-    ///   the shoreline ([`river_stroke::stroke_pieces`]); a mouth on land
-    ///   beside water is carried on to the shore ([`river_stroke::coast_end`]).
+    ///   traced run crosses a drawn lake (or the sea), at the shoreline
+    ///   ([`river_stroke::stroke_pieces`]); a mouth on land beside water is
+    ///   carried on to the shore ([`river_stroke::coast_end`]). Since
+    ///   2026-09-27 every end that meets water then goes one point further,
+    ///   into the water, to where its centreline stands on water on every
+    ///   drawing path ([`river_stroke::extend_shore_ends`]) -- the map draws
+    ///   water above rivers, so that stretch is never seen; a raster carries
+    ///   it on again as far as its own stroke width needs.
     /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
     ///   Strahler order of the nearest traced cell as `RIVER_ORDER_RGB`
     ///   (light headwater to dark trunk); the map strokes the river in
@@ -10064,6 +10093,10 @@ impl WorldGen {
         // a run bridged onto another's head widens that run instead.
         river_stroke::settle_join_widths(&mut profiles, &joins);
         let draw_rank = river_stroke::draw_ranks(&joins);
+        // Runs another run is carried onto at their head (`k == 0`, a
+        // `river_draw_plan` continuation): their head meets that river, so it
+        // is never carried back into water beside it.
+        let continued_into: std::collections::HashSet<usize> = joins.iter().flatten().filter(|&&(_, k)| k == 0).map(|&(j, _)| j).collect();
         let recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
         let draws = (0..rivers.len())
             .map(|i| {
@@ -10077,14 +10110,62 @@ impl WorldGen {
                 // A mouth on dry land beside the sea or a lake ends half a cell
                 // short of the shore, at its cell centre: carry the stroke on
                 // to the shoreline (RV-2).
+                let mut coasted = false;
                 if joins[i].is_none() && plan.bridge[i].is_none() {
                     if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, recv, f.gw, f.gh) {
                         rp.push(p);
                         u.push((pts.len() - 1) as f64);
+                        coasted = true;
+                    }
+                }
+                // The head's twin (river mouths, 2026-09-27: "a lake outlet's
+                // start, symmetrically"): a run whose first traced cell is dry
+                // land beside water -- a river leaving a lake from the cell
+                // below its outflow -- started half a cell short of that
+                // water, at its cell centre. `coast_end` on the reversed run
+                // finds the shore behind the head the same way it finds one
+                // ahead of a mouth (the straight-on rule, against the first
+                // step; no `recv`, which names where a cell drains TO). Not
+                // for a head another run is carried onto (`joins` with `k ==
+                // 0`): that head meets a river, not the water.
+                let mut headed = false;
+                if !continued_into.contains(&i) {
+                    let rev: Vec<(f64, f64)> = pts.iter().rev().copied().collect();
+                    if let Some(p) = river_stroke::coast_end(&rev, &water, f.field, f.sea_level, None, f.gw, f.gh) {
+                        rp.insert(0, p);
+                        u.insert(0, 0.0);
+                        headed = true;
                     }
                 }
                 let traced_wet: Vec<bool> = pts.iter().map(|&p| wet(p)).collect();
-                let s = river_stroke::stroke_pieces(&rp, &u, &traced_wet, wet);
+                let mut s = river_stroke::stroke_pieces(&rp, &u, &traced_wet, wet);
+                // As for the mouth below: nothing cuts before a dry first
+                // traced point, so the head's shore point opens the first piece.
+                if headed && s.pieces.first().is_some_and(|f0| f0.0 == 0) {
+                    if let Some(f0) = s.shore.first_mut() {
+                        f0.0 = true;
+                    }
+                }
+                // `coast_end` moved the run's last point onto the shore, and
+                // `stroke_pieces` never cuts after a dry last traced point, so
+                // that point closes the last piece: its end meets water.
+                if coasted && s.pieces.last().is_some_and(|l| l.1 == s.pts.len()) {
+                    if let Some(l) = s.shore.last_mut() {
+                        l.1 = true;
+                    }
+                }
+                // River mouths (owner, 2026-09-27): every end that meets water
+                // is carried on into it (`extend_shore_ends`) -- to where its
+                // centreline stands on water on every drawing path here, and
+                // at raster time as far as that raster's cap needs.
+                let cell_wet = |x: i64, y: i64| {
+                    x >= 0 && y >= 0 && (x as usize) < f.gw && (y as usize) < f.gh && water[y as usize * f.gw + x as usize] != 0
+                };
+                let limit = |uu: f64| {
+                    let w = profiles[i].as_ref().map_or(0.0, |p| 2.0 * river_stroke::sample_at(p, uu));
+                    river_stroke::reach_limit_cells(w, f.gw)
+                };
+                let (s, reach) = river_stroke::extend_shore_ends(&s, limit, cell_wet);
                 let widths = profiles[i].as_ref().map(|p| s.u.iter().map(|&uu| (2.0 * river_stroke::sample_at(p, uu)) as f32).collect());
                 // `colors`: the Strahler order of the traced cell nearest each
                 // render point, as `river_order_rgb` (owner, 2026-09-23). Per
@@ -10112,7 +10193,7 @@ impl WorldGen {
                 let colors = near.iter().map(|&k| river_order_rgb(po[k])).collect();
                 let orders = near.iter().map(|&k| po[k]).collect();
                 let discharge = near.iter().map(|&k| f.flow_discharge.get(cell_ix(pts[k])).copied().unwrap_or(f32::NAN)).collect();
-                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i] }
+                RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach }
             })
             .collect();
         Some((rivers, draws))
@@ -10218,6 +10299,7 @@ impl WorldGen {
                     orders: d.orders,
                     discharge: d.discharge,
                     pieces: d.pieces,
+                    reach: d.reach,
                     own_order: d.own_order.clamp(1, i16::MAX as i64) as i16,
                 })
             })
