@@ -398,6 +398,7 @@ func _build() -> void:
 	app.place_editor_window.place_changed.connect(_on_civ_edited)
 	app.place_editor_window.place_deleted.connect(_on_civ_edited)
 	app.faction_roster_window.roster_changed.connect(_on_roster_changed)
+	app.faction_roster_window.tariff_changed.connect(_on_tariff_changed)
 
 	## `GUI_GAP_REGISTER.md` RF-01. Everything above ran ONCE, at launch, from
 	## `app.gd`'s `_register_workspaces` -- before any world exists -- so every
@@ -484,6 +485,17 @@ func _on_roster_changed() -> void:
 	## `TradeStore` holds, never a re-match -- a rate changes no flow.
 	_infra.refill_flows()
 	_on_civ_edited()
+
+## A tariff edit (Ruling AE, `faction_roster_window.gd::_set_tariff`) changes
+## real matched volume, unlike the currency/colour edits `_on_roster_changed`
+## above re-labels -- so this re-runs the match rather than just redrawing it,
+## and only when one is already held: `TradeStore.refresh` costs a real match
+## over every settlement pair, and a tariff typed before anyone has pressed
+## "Match trade flows" has nothing yet to refresh.
+func _on_tariff_changed() -> void:
+	if TradeStore.is_matched():
+		TradeStore.refresh(bridge)
+		_infra.refill_flows()
 
 ## Rebuilds every category whose content depends on world data, scoped the way
 ## `_rebuild_timeline` already scopes its own -- one held body node per

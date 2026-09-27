@@ -115,6 +115,13 @@ var _head_banner: FactionBanner
 ## removed faction reverts settlements and territory to Unclaimed).
 signal roster_changed
 
+## Emitted after a tariff edit (Ruling AE). Deliberately its own signal, not
+## folded into `roster_changed`: `civilization_workspace.gd::_on_roster_changed`
+## documents that signal as "a rate changes no flow" and only re-labels the
+## held trade match -- true for currency and colour, false for a tariff, which
+## changes real matched volume. This one re-runs the match when one is held.
+signal tariff_changed
+
 
 func setup(a, b: EngineBridge) -> void:
 	app = a
@@ -614,6 +621,7 @@ func _rebuild_inspector() -> void:
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
 	_build_currency()
+	_build_tariffs()
 
 	_build_terrain_fit()
 	_build_overview_block(d)
@@ -840,6 +848,121 @@ func _refresh_currency_example() -> void:
 	_currency_example.text = "A good at world price 1 costs %s %s here%s. Trade values under Civilization ▸ Economy ▸ Trade flows are shown in the importer's currency." % [
 		_rate_text(float(p.get("amount", 0.0))), String(p.get("symbol", "")),
 		" (at par: no rate set)" if bool(p.get("rate_default", true)) else ""]
+
+
+# -- Tariffs (Ruling AE) ------------------------------------------------------
+
+## `OUTSTANDING_WORK.md`'s "Tariffs have no control": the rate THIS faction,
+## as importer, levies on goods arriving from every other faction --
+## `cartalith_civ::trade::Tariff` is directional and stored on the
+## *importer's* row (`civ_roster_bridge.rs::FactionEntry::tariffs`), so the
+## importer's own inspector pane is the natural home: one row per possible
+## exporter, in the Currency block's own label-column shape, right below it
+## -- both are a faction's own economic policy over the trade match.
+##
+## Unclaimed (`_selected == 0`) cannot levy one -- `FactionRoster::set_tariff`
+## refuses it outright ("Unclaimed... has no government to levy with") -- so
+## the section says that rather than drawing rows nobody could fill in.
+##
+## A rate is typed as a percentage (0-100) and stored as the engine's `0..=1`
+## fraction. Blank is "no tariff", which is also the engine's own encoding --
+## `set_tariff`'s own doc: "rate 0.0 removes the row, so 'no tariff' has
+## exactly one encoding" -- so an empty field is the real absent state, never
+## a fake zero standing in for one (`MISTAKES.md`).
+func _build_tariffs() -> void:
+	var sec := DccWidgets.section(_inspector_body, "Tariffs")
+	if _selected <= 0:
+		DccWidgets.note(sec, "Unclaimed levies no tariffs: it has no government to levy with.")
+		return
+	var others: Array = []
+	for f in bridge.get_factions():
+		var d: Dictionary = f
+		if int(d.get("id", -1)) != _selected:
+			others.append(d)
+	if others.is_empty():
+		DccWidgets.note(sec, "No other faction to tax yet -- add one first.")
+		return
+	for d in others:
+		_tariff_row(sec, int(d.get("id", -1)), String(d.get("name", "?")))
+	DccWidgets.note(sec,
+		"The rate this faction charges on goods crossing in FROM the faction named, as importer -- "
+		+ "the reverse direction is that faction's own row, not this one. Applied by the trade match "
+		+ "(Civilization ▸ Economy ▸ Trade flows); the busiest-partners readout below re-matches "
+		+ "itself on an edit when a match is already held, so its numbers move without a manual re-run.")
+
+func _tariff_row(parent: Control, exporter_id: int, exporter_name: String) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	row.tooltip_text = ("The fraction of every flow's volume this faction's customs removes when it "
+		+ "arrives from %s. Blank or 0 is no tariff; 100 is an embargo -- the flow's volume reaches "
+		+ "zero and it drops out of the match entirely.") % exporter_name
+	var l := DccTheme.mono_label(exporter_name, "text_dim", DccTheme.FS_SMALL, 0)
+	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var le := LineEdit.new()
+	le.name = "Tariff_%d" % exporter_id
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	le.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	le.tooltip_text = row.tooltip_text
+	le.placeholder_text = "0 (none)"
+	le.text = _tariff_text(bridge.civ_trade_tariff(_selected, exporter_id))
+	DccWidgets.well(le)
+	le.text_submitted.connect(func(t: String): _set_tariff(exporter_id, t, le))
+	## Guarded against its own teardown -- see `_rebuilding` (FR-02), the same
+	## guard `_currency_field`'s `focus_exited` uses.
+	le.focus_exited.connect(func():
+		if _rebuilding:
+			return
+		_set_tariff(exporter_id, le.text, le))
+	row.add_child(le)
+	parent.add_child(row)
+
+## `""` for no tariff (the engine's own zero, and the field's own blank
+## state), else the percentage with no trailing zeros -- `12` not
+## `12.000000`, `0.5` not `0.005`.
+static func _tariff_text(rate: float) -> String:
+	if rate <= 0.0:
+		return ""
+	return String.num(rate * 100.0, 4)
+
+## Writes one tariff row, then says what happened. Percentage in, `0..=1`
+## fraction out to the engine; a blank field means 0 (no tariff), the
+## engine's own encoding for "unset" -- never a fake number standing in for
+## it. The engine call comes first and `tariff_changed` after it, so a
+## listener re-reading the tariff sees the new value (`MISTAKES.md`, "Emit a
+## change signal").
+func _set_tariff(exporter_id: int, value: String, le: LineEdit) -> void:
+	var before := bridge.civ_trade_tariff(_selected, exporter_id)
+	var text := value.strip_edges()
+	if text == _tariff_text(before):
+		return
+	var pct := 0.0
+	if text != "":
+		if not text.is_valid_float():
+			app.set_status("hint",
+				"Rejected -- a tariff must be a number from 0 to 100. Kept %s." % _tariff_display(before),
+				"accent")
+			if is_instance_valid(le):
+				le.text = _tariff_text(before)
+			return
+		pct = text.to_float()
+	var rate := pct / 100.0
+	if not bridge.civ_set_trade_tariff(_selected, exporter_id, rate):
+		app.set_status("hint",
+			"Rejected -- a tariff must be 0 to 100%%. Kept %s." % _tariff_display(before), "accent")
+		if is_instance_valid(le):
+			le.text = _tariff_text(before)
+		return
+	var after := bridge.civ_trade_tariff(_selected, exporter_id)
+	if is_instance_valid(le):
+		le.text = _tariff_text(after)
+	tariff_changed.emit()
+
+static func _tariff_display(rate: float) -> String:
+	return _tariff_text(rate) if rate > 0.0 else "0"
+
 
 # -- Territory fit (`_civTerrainFitHtml`) -----------------------------------
 

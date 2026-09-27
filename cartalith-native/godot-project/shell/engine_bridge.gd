@@ -3145,6 +3145,29 @@ func civ_price_in_currency(index_amount: float, faction: int) -> Dictionary:
 		return {}
 	return world_gen.civ_price_in_currency(index_amount, faction)
 
+## Sets the IN-13 tariff `importer` levies on goods from `exporter` (Ruling
+## AE, `LARGE_ITEM_RULINGS.md`): a `0..=1` fraction of every crossing flow's
+## volume; `0.0` clears it, `1.0` is an embargo. Directional -- the reverse
+## pair is its own row. `false`, changing nothing, before any `generate()`,
+## for an unknown faction on either side, for Unclaimed (`0`) as importer,
+## for a faction taxing itself, and for a rate outside `0..=1`. Saved with
+## the roster in `entities/factions.json`; nothing is recomputed here -- the
+## next `civ_trade_flows()` read is what applies it.
+func civ_set_trade_tariff(importer: int, exporter: int, rate: float) -> bool:
+	if not _has("civ_set_trade_tariff"):
+		return false
+	var ok: bool = world_gen.civ_set_trade_tariff(importer, exporter, rate)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+## The rate `importer` levies on goods from `exporter`; `0.0` when no tariff
+## is set, for an unknown faction, and before any `generate()`.
+func civ_trade_tariff(importer: int, exporter: int) -> float:
+	if not _has("civ_trade_tariff"):
+		return 0.0
+	return world_gen.civ_trade_tariff(importer, exporter)
+
 ## Whether any faction carries a user identity colour.
 ##
 ## **No caller.** The one surface that asks a question of this shape --

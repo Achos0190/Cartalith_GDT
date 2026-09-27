@@ -643,17 +643,20 @@ func build_trade_into(parent: Control) -> void:
 ## entry point because Economy's By faction expander sits between it and the
 ## flows above.
 ##
-## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B11), and again 2026-09-27 when
-## per-faction currencies landed (Ruling R, kept by AR; Ruling AU): each busiest
-## partner row now shows its value in the importer's currency and its tooltip
-## the unit price and tariff, so "price not shown" and "currencies not built"
-## both stopped being true. Still true: there is no `engine_bridge.gd` wrapper
-## for `civ_set_trade_tariff`, so no control sets a tariff; caravans are built
-## and listed above (`da51a57`, `_fill_flows_caravans`).
+## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B11), 2026-09-27 when per-faction
+## currencies landed (Ruling R, kept by AR; Ruling AU): each busiest partner
+## row now shows its value in the importer's currency and its tooltip the
+## unit price and tariff, so "price not shown" and "currencies not built" both
+## stopped being true. Rewritten again the same day: `civ_set_trade_tariff` now
+## has an `engine_bridge.gd` wrapper and a control -- Faction roster ▸
+## Tariffs, one row per exporting faction on the importer's own inspector
+## pane -- so "no control sets a tariff" is no longer true either. Caravans
+## are built and listed above (`da51a57`, `_fill_flows_caravans`).
 func build_trade_gaps_into(parent: Control) -> void:
 	DccWidgets.note(DccWidgets.section(parent, "Not built"),
-		"No control sets a tariff between two factions yet; the generator applies one "
-		+ "where it is set, and a flow's tooltip shows it.\n"
+		"A tariff between two factions is set in Faction roster ▸ Tariffs (the importer's own "
+		+ "pane); the generator applies it and a flow's tooltip shows it, and editing one "
+		+ "re-matches the readout above when a match is already held.\n"
 		+ "Not built: trade that changes over time.\n"
 		+ "Values are in each importer's own currency, at the rate set in the Faction "
 		+ "roster; a rate changes only how a value is shown, never what trades.\n"
