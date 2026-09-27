@@ -1937,3 +1937,18 @@ Asked how relief should come to track rock, the owner chose **both**:
 Scope both before building. They re-baseline app worlds when switched on,
 with disclosure. The clock (GF-7) should then act on uplift plus erosion, as
 the scope originally intended.
+
+## 2026-09-27 — Ruling BN: the Ruling BM scope's owner questions
+
+Asked after `GEOLOGY_FIRST_SCOPE.md` was amended for Ruling BM (`14c53a4`):
+- **Q14, coastline: yes.** Rock-aware construction may move the coastline.
+  Weak coastal rock can be lowered below sea level into new bays and inlets,
+  and hard headlands stay. This reverses the scope's default ("land stays
+  land") and must still make no inland pits.
+- **Q12, uplift sources: all of them.** Convergence, flexure and the
+  continental background, **plus rift shoulders (uplift) and basin
+  subsidence**. This reverses the scope's narrower default.
+- **Q18, order: relief first** (GF-10 → GF-13), then GF-4, GF-5, GF-6 and
+  GF-8, with GF-9 last.
+
+The other questions (Q13, Q15, Q16, Q17, Q19) keep the scope's defaults.
