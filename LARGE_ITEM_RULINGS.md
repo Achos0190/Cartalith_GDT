@@ -1952,3 +1952,21 @@ Asked after `GEOLOGY_FIRST_SCOPE.md` was amended for Ruling BM (`14c53a4`):
   GF-8, with GF-9 last.
 
 The other questions (Q13, Q15, Q16, Q17, Q19) keep the scope's defaults.
+
+## 2026-09-27 — Ruling BO: overnight standing answers
+
+Given before the owner stepped away, so work can continue without them:
+- **Geology relief (GF-10 → GF-13):** if every measurement bar passes,
+  **switch `geology_processes` (and the relief model) ON in the app**, and
+  disclose the world change in the commit. If any bar fails, leave it off.
+- **UI designs derived from the DCC vocabulary** (for example, the planner
+  sheet covering the tab bar, the map-drag hint, phone failure states):
+  **build them, commit, and leave screenshots for the owner to review
+  later.**
+- **Forced lakes** (the lake tool): **draw them.** A forced lake is real water
+  on the map, and labels and rivers respect it.
+- **The stale checkout** (`cartalith_wt_route`, in the user folder): if its
+  uncommitted edits have already landed, delete it; otherwise report it.
+  *Done the same day: its `way_render_geometry` / `render_brks` edit had
+  already landed in `cartalith-godot/src/lib.rs`, so the checkout was
+  removed.*
