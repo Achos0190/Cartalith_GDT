@@ -895,9 +895,20 @@ signal settlement_selected(data: Variant, index: int)
 ## `landmark_selected` fires on every left press, `null`/`-1` when no landmark
 ## was hit -- emitted AFTER `settlement_selected` and BEFORE `map_clicked`, so a
 ## listener sees the same order a settlement click has always produced. At most
-## one of the two ever carries a hit: see `_pick_mark()` for who wins.
+## one of these two and `icon_selected` below ever carries a hit: see
+## `_pick_mark()` for who wins.
 signal landmark_hovered(data: Variant, index: int)
 signal landmark_selected(data: Variant, index: int)
+
+## The icon twin (owner, 2026-09-27: *"the POI markers aren't clickable for
+## more information in the right pane"*). A drawn icon glyph -- a PLACES square,
+## a TREES triangle, a SEA MARKS target, a POI diamond whose landmark is gone, or
+## a hand-placed icon -- had no left-click target at all: the click fell through
+## to the river pick under it. `data` is one `_manual_icons` row, `index` its
+## `icon_list()` index. Fires on every left press, `null`/`-1` on a miss, after
+## `landmark_selected` and before `map_clicked`; `_pick_mark()` decides which of
+## the three kinds of mark, if any, the press hit.
+signal icon_selected(data: Variant, index: int)
 
 ## DCC shell milestone 1: emitted on every mouse motion with the grid-cell
 ## position under the cursor (`valid` false when the cursor is off the
@@ -3265,7 +3276,7 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 ## the interior test; this only draws.
 func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 	var color: Color = ICON_FAMILY_COLORS.get(ic["family"], Color(0.7, 0.7, 0.7))
-	var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
+	var r: float = _icon_radius(ic)
 	match ic["family"]:
 		"settlement":
 			var half := r * 0.85
@@ -3285,6 +3296,13 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 			draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
 			draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
 			draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+
+
+## The drawn glyph radius in this control's local pixels -- the ONE definition
+## `_draw_icon_glyph` and `_hit_test_icon` share, as `_landmark_radius` is for
+## rings, so the click target is exactly the glyph on screen.
+func _icon_radius(ic: Dictionary) -> float:
+	return ICON_BASE_RADIUS * maxf(0.2, float(ic.get("scale", 1.0)))
 
 
 ## Generated landmarks — `LANDMARK_GENERATION_RESEARCH.md` §23's four classes,
@@ -4541,7 +4559,34 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 	return [closest, closest_dist]
 
 
-## The one pick both hover and click use: `{s, l}`, at most one of them `>= 0`.
+## Nearest DRAWN icon glyph whose radius plus `HOVER_RADIUS_PAD` contains
+## `mouse`, as `[index, distance]` (`-1`, `INF` on a miss). "Drawn" is exactly
+## `_draw_annotation_marks`' own three refusals -- hidden by the Landmarks
+## layer, shadowed by a landmark ring (the ring is the mark there, and it has its
+## own target), off the plate -- so nothing invisible can be clicked and nothing
+## visible is missed.
+func _hit_test_icon(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
+	var closest := -1
+	var closest_dist := INF
+	var ringed := _ringed_cells()
+	for i in _manual_icons.size():
+		var ic: Dictionary = _manual_icons[i]
+		if _icon_layer_hidden(ic) or _icon_shadowed_by_ring(ic, ringed):
+			continue
+		var pos := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
+		if not interior.has_point(pos):
+			continue
+		var d := mouse.distance_to(pos)
+		if d <= _icon_radius(ic) + HOVER_RADIUS_PAD and d < closest_dist:
+			closest = i
+			closest_dist = d
+	return [closest, closest_dist]
+
+
+## The one pick both hover and click use: `{s, l, i}`, at most one of them
+## `>= 0`. `i` (an icon glyph, 2026-09-27) joins by the same nearest-centre
+## rule; an exact tie keeps the older order -- settlement, then landmark, then
+## icon -- so no pair that resolved before resolves differently now.
 ##
 ## **Where a settlement pin and a landmark ring both contain the pointer, the
 ## NEARER CENTRE wins, and an exact tie goes to the settlement.** Not "settlement
@@ -4554,12 +4599,20 @@ func _hit_test_landmark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Array:
 func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
 	var s := _hit_test_settlement(mouse, interior, rect)
 	var lh := _hit_test_landmark(mouse, interior, rect)
+	var ih := _hit_test_icon(mouse, interior, rect)
 	var l: int = lh[0]
-	if s == -1 or l == -1:
-		return {"s": s, "l": l}
-	var st: Dictionary = _settlements[s]
-	var sd := mouse.distance_to(_cell_to_screen(Vector2(st["x"], st["y"]), rect))
-	return {"s": s, "l": -1} if sd <= float(lh[1]) else {"s": -1, "l": l}
+	var sd := INF
+	if s != -1:
+		var st: Dictionary = _settlements[s]
+		sd = mouse.distance_to(_cell_to_screen(Vector2(st["x"], st["y"]), rect))
+	var out := {"s": -1, "l": -1, "i": -1}
+	if s != -1 and sd <= float(lh[1]) and sd <= float(ih[1]):
+		out["s"] = s
+	elif l != -1 and float(lh[1]) <= float(ih[1]):
+		out["l"] = l
+	elif int(ih[0]) != -1:
+		out["i"] = int(ih[0])
+	return out
 
 
 ## **Everything** under `mouse`, nearest first -- `MAP_CONTEXT_SCOPE.md` §9.1's
@@ -4832,6 +4885,7 @@ func _gui_input(event: InputEvent) -> void:
 			var pick := _pick_mark(mb.position, interior, rect)
 			var hit: int = pick["s"]
 			var lhit: int = pick["l"]
+			var ihit: int = pick["i"]
 			var p := _grid_point(mb.position, rect, interior)
 			## Touch: hold the press back until the gesture identifies itself.
 			## See the `_TOUCH_HOLD_MS` block above for the four outcomes.
@@ -4840,11 +4894,12 @@ func _gui_input(event: InputEvent) -> void:
 				_touch_swallow_up = false
 				_touch_ms = Time.get_ticks_msec()
 				_touch_pos = mb.position
-				_touch_press = {"hit": hit, "lm": lhit, "point": p, "pos": mb.position}
+				_touch_press = {"hit": hit, "lm": lhit, "ic": ihit, "point": p, "pos": mb.position}
 				set_process(true)
 				return
 			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
+			icon_selected.emit(_manual_icons[ihit] if ihit != -1 else null, ihit)
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
@@ -4915,6 +4970,10 @@ func _release_touch_press() -> void:
 	## Guarded: the landmark array can be replaced during a held press.
 	lhit = lhit if lhit < _landmarks.size() else -1
 	landmark_selected.emit(_landmarks[lhit] if lhit != -1 else null, lhit)
+	## Guarded the same way: `refresh_annotations()` can replace the icon list.
+	var ihit: int = int(_touch_press.get("ic", -1))
+	ihit = ihit if ihit < _manual_icons.size() else -1
+	icon_selected.emit(_manual_icons[ihit] if ihit != -1 else null, ihit)
 	if bool(p.get("valid", false)):
 		map_clicked.emit(p["gx"], p["gy"])
 

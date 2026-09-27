@@ -147,14 +147,19 @@ impl WorldGen {
     /// (which carries no civilisation layer at all — `CivData`'s own doc
     /// comment), yields a run whose counts are honestly zero, which is a
     /// different and more useful answer than a refusal.
-    fn label_world(&self, want_water: bool, lake_min_cells: usize) -> LabelWorld<'_> {
+    ///
+    /// `water` is [`Self::drawn_water_classification`], passed in because it
+    /// is built fresh and owned by the caller: the lakes are named off what
+    /// the map draws, not off `CivData::water_bodies`, which goes stale after
+    /// a sculpt (see that helper's doc comment).
+    fn label_world<'a>(&'a self, water: Option<&'a [u8]>, lake_min_cells: usize) -> LabelWorld<'a> {
         let civ = self.civ.as_ref();
         LabelWorld {
             continents: civ.map_or(&[][..], |c| c.continents.as_slice()),
             provinces: civ.map_or(&[][..], |c| c.province_list.as_slice()),
             settlements: civ.map_or(&[][..], |c| c.settlements.as_slice()),
             landmarks: self.landmark_store.last.as_ref().map_or(&[][..], |r| r.landmarks.as_slice()),
-            water: if want_water { civ.map(|c| c.water_bodies.as_slice()) } else { None },
+            water,
             gw: self.gw.max(0) as usize,
             gh: self.gh.max(0) as usize,
             lake_min_cells,
@@ -227,8 +232,10 @@ impl WorldGen {
     /// "nothing to label" is an answer.
     ///
     /// **The water class is the one that costs a sweep.** Naming lakes needs a
-    /// connected-component pass over the whole `build_water_bodies` raster
-    /// (`labels::lake_features`), so it is skipped outright when that class is
+    /// fresh `build_water_bodies` over the current heightfield (the same
+    /// classification the map draws — `drawn_water_classification`) and a
+    /// connected-component pass over it (`labels::lake_features`), so both are
+    /// skipped outright when that class is
     /// disabled — which is why a panel should re-run this on a slider's
     /// *release* rather than on every drag sample.
     #[func]
@@ -289,7 +296,8 @@ impl WorldGen {
         let t0 = std::time::Instant::now();
         // Assembled before the mutable borrow: `label_world` reads `self.civ`
         // and `self.landmark_store`, and `regenerate` writes `self.labels`.
-        let candidates = label_candidates(&self.label_world(want_water, lake_min_cells));
+        let water = if want_water { self.drawn_water_classification() } else { None };
+        let candidates = label_candidates(&self.label_world(water.as_deref(), lake_min_cells));
         let bridge = self.labels.as_mut().expect("checked above");
         let g = bridge.place(&candidates);
         let classes: Array<VarDictionary> = g.counts.iter().map(count_dict).collect();

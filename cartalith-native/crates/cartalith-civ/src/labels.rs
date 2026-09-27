@@ -1159,7 +1159,9 @@ pub fn generate_labels(
 #[derive(Debug, Clone, PartialEq)]
 pub struct LakeFeature {
     pub name: String,
-    /// Cell-space centroid.
+    /// Cell-space label anchor: the body's centroid, or, when the centroid
+    /// falls off the body (a crescent or ring lake), the body's own cell
+    /// nearest it — [`lake_label_anchors`].
     pub cx: f64,
     pub cy: f64,
     pub cells: usize,
@@ -1248,22 +1250,73 @@ pub fn lake_features(water: &[u8], gw: usize, gh: usize, min_cells: usize) -> Ve
     // depend on sort stability -- `civ_continents`' own rule.
     order.sort_by(|&a, &b| acc[b].0.cmp(&acc[a].0).then(a.cmp(&b)));
 
+    let anchors = lake_label_anchors(&comp, &acc, &order, gw, gh);
     let mut rng = civ_lake_name_rng();
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     order
         .into_iter()
-        .map(|c| {
-            let (cells, sx, sy) = acc[c];
-            LakeFeature {
-                name: crate::naming::decorate(
-                    &crate::naming::civ_settle_name_bounded(&mut rng, 1, &mut seen),
-                    crate::naming::FeatureKind::Lake,
-                    &mut rng,
-                ),
-                cx: sx / cells as f64,
-                cy: sy / cells as f64,
-                cells,
+        .zip(anchors)
+        .map(|(c, (cx, cy))| LakeFeature {
+            name: crate::naming::decorate(
+                &crate::naming::civ_settle_name_bounded(&mut rng, 1, &mut seen),
+                crate::naming::FeatureKind::Lake,
+                &mut rng,
+            ),
+            cx,
+            cy,
+            cells: acc[c].0,
+        })
+        .collect()
+}
+
+/// Where each lake in `order` is labelled: its centroid, **unless the centroid
+/// is not on the lake**, in which case the lake's own cell nearest to it.
+///
+/// A crescent, ring or branched lake has a centroid on the land it curls
+/// round, and a label anchored there names a lake the map does not show under
+/// it — one cause of the owner's "lakes get labelled when there isn't a lake
+/// visible" (2026-09-27). Measured that day on 16 worlds generated with
+/// `cartalith_engine::WorldParams::defaults(512, 320, seed)`, CPU (seeds 1, 2,
+/// 3, 7, 42, 1234, 9999, 31337, each bounded and wrapped): 2 of 93 named
+/// lakes had their centroid on land. A lake whose centroid is its own cell keeps it exactly,
+/// so a compact lake's label does not move.
+///
+/// Nearest by squared Euclidean distance, ties to the lower cell index, so
+/// the answer is total. One pass over the grid covers every lake that needs
+/// it, and none runs when none does.
+fn lake_label_anchors(comp: &[i32], acc: &[(usize, f64, f64)], order: &[usize], gw: usize, gh: usize) -> Vec<(f64, f64)> {
+    let centroid = |c: usize| (acc[c].1 / acc[c].0 as f64, acc[c].2 / acc[c].0 as f64);
+    let on_lake = |c: usize| {
+        let (cx, cy) = centroid(c);
+        let (x, y) = ((cx.round() as usize).min(gw - 1), (cy.round() as usize).min(gh - 1));
+        comp[y * gw + x] == c as i32
+    };
+    // Per component: `None` keeps the centroid; `Some((best d2, best cell))`
+    // is being searched.
+    let mut search: Vec<Option<(f64, usize)>> = vec![None; acc.len()];
+    for &c in order {
+        if !on_lake(c) {
+            search[c] = Some((f64::INFINITY, usize::MAX));
+        }
+    }
+    if search.iter().any(Option::is_some) {
+        for (i, &id) in comp.iter().enumerate() {
+            let Some(c) = usize::try_from(id).ok() else { continue };
+            let Some((best, cell)) = search[c].as_mut() else { continue };
+            let (cx, cy) = centroid(c);
+            let (dx, dy) = ((i % gw) as f64 - cx, (i / gw) as f64 - cy);
+            let d2 = dx * dx + dy * dy;
+            if d2 < *best {
+                *best = d2;
+                *cell = i;
             }
+        }
+    }
+    order
+        .iter()
+        .map(|&c| match search[c] {
+            Some((_, cell)) if cell != usize::MAX => ((cell % gw) as f64, (cell / gw) as f64),
+            _ => centroid(c),
         })
         .collect()
 }
@@ -2252,6 +2305,27 @@ mod tests {
         assert_eq!(lakes[1].cells, 1);
         assert!((lakes[0].cx - 2.0).abs() < 1e-12 && (lakes[0].cy - 2.0).abs() < 1e-12);
         assert!((lakes[1].cx - 4.0).abs() < 1e-12);
+    }
+
+    /// A U-shaped lake's centroid is on the land inside the U; its label must
+    /// sit on the lake instead. A compact lake alongside keeps its fractional
+    /// centroid exactly — the snap is for bodies that need it, not a rounding.
+    #[test]
+    fn a_crescent_lake_is_labelled_on_its_own_water_not_its_centroid() {
+        let mut cells: Vec<(usize, usize)> = (1..=7).map(|x| (x, 1)).collect(); // the bar
+        for y in 2..=6 {
+            cells.push((1, y));
+            cells.push((7, y));
+        }
+        // 17 cells; centroid (4, 47/17 = 2.76), which rounds to (4, 3): land.
+        cells.extend([(9, 5), (10, 5), (9, 6), (10, 6)]); // 2x2, centroid (9.5, 5.5)
+        let w = water_grid(12, 9, &cells);
+        let lakes = lake_features(&w, 12, 9, 1);
+        assert_eq!(lakes.len(), 2);
+        assert_eq!(lakes[0].cells, 17);
+        assert_eq!((lakes[0].cx, lakes[0].cy), (4.0, 1.0), "nearest lake cell to (4, 2.76)");
+        assert_eq!(w[lakes[0].cy as usize * 12 + lakes[0].cx as usize], 2, "the anchor is lake");
+        assert_eq!((lakes[1].cx, lakes[1].cy), (9.5, 5.5), "a compact lake keeps its centroid");
     }
 
     #[test]

@@ -26,6 +26,7 @@ signal settlement_selected(data: Variant, index: int)
 signal settlement_hovered(data: Variant, index: int)
 ## Ruling AL: `map_overlay.gd`'s landmark twins of the two above, re-emitted.
 signal landmark_selected(data: Variant, index: int)
+signal icon_selected(data: Variant, index: int)   ## `map_overlay.gd`'s own, forwarded.
 signal landmark_hovered(data: Variant, index: int)
 signal cursor_sampled(gx: float, gy: float, valid: bool)
 signal layers_button_pressed()
@@ -568,6 +569,7 @@ func _ready() -> void:
 	overlay.settlement_selected.connect(func(d, i): settlement_selected.emit(d, i))
 	overlay.settlement_hovered.connect(_on_hovered)
 	overlay.landmark_selected.connect(func(d, i): landmark_selected.emit(d, i))
+	overlay.icon_selected.connect(func(d, i): icon_selected.emit(d, i))
 	overlay.landmark_hovered.connect(func(d, i): landmark_hovered.emit(d, i))
 	overlay.cursor_sampled.connect(_on_sampled)
 	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))

@@ -38,6 +38,9 @@ const CTX_ROUTE := "route"
 const CTX_RIVER := "river"
 ## Ruling AL: a generated landmark clicked on the map (`on_landmark_selected`).
 const CTX_LANDMARK := "landmark"
+## A drawn icon glyph clicked on the map (`on_icon_selected`, 2026-09-27) -- the
+## owner's "POI markers aren't clickable for more information in the right pane".
+const CTX_ICON := "icon"
 ## `STORY_PLANNING_SCOPE.md` SP-4: a drawn conflict, selected from CIVIL ▸
 ## Military ▸ Conflicts or just committed by the Conflict tool. A selection,
 ## so a context -- the tool itself appends nothing here.
@@ -400,6 +403,12 @@ var _river: Dictionary = {}
 ## snapshot, so it is dropped whenever the landmark list can have been
 ## replaced: a regenerate, a world load, and a landmark pass (see `setup()`).
 var _landmark: Dictionary = {}
+## The picked icon: the `icon_list()` index and the row as it was clicked. The
+## row is re-read from `bridge.icon_get()` on every rebuild and the context
+## shows a note if that index no longer holds the same icon -- the same test
+## `refresh_settlement()` applies to a settlement index.
+var _icon_index := -1
+var _icon_data: Dictionary = {}
 ## `CTX_CONFLICT`'s selection: an id, re-read from `conflict_get()` on every
 ## rebuild so the form can never show a copy the engine has moved past.
 var _conflict_id := -1
@@ -593,7 +602,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## right -- an imported heightmap is a new world.
 		if ok:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON:
 			_context = CTX_SAMPLE
 		## And the pinned settlement, which had no clause here at all until
 		## 2026-09-05 and kept drawing a town out of the world that was just
@@ -631,7 +640,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## `journey_planner_view.gd` already draws for its own list.
 		if not bridge.has_world:
 			clear_measurements()
-		if _context == CTX_RIVER or _context == CTX_LANDMARK:
+		if _context == CTX_RIVER or _context == CTX_LANDMARK or _context == CTX_ICON:
 			_context = CTX_SAMPLE
 		## Unconditional, unlike the measurements two lines up, and that is a
 		## decision rather than an oversight: this signal's emitters split in
@@ -916,6 +925,30 @@ func on_landmark_selected(data: Variant, _index: int) -> void:
 	_context = CTX_LANDMARK
 	_landmark = data
 	_rebuild()
+	_show_on_phone()
+
+## `map_overlay.gd::icon_selected`, forwarded by `app.gd::_wire_selection()` --
+## `on_landmark_selected`'s twin for a drawn icon glyph. A `null` changes
+## nothing, for the same reason.
+func on_icon_selected(data: Variant, index: int) -> void:
+	if not (data is Dictionary) or index < 0:
+		return
+	_context = CTX_ICON
+	_icon_index = index
+	_icon_data = data
+	_rebuild()
+	_show_on_phone()
+
+## The phone has no right dock on screen: its right dock is the edge-swipe
+## right sheet (`MAP_CONTEXT_SCOPE.md` §8.1.5's "the edge-swipe inspector is
+## its detail"), closed by default. A tap that selects a mark therefore has to
+## open it, or the selection lands in a sheet nobody can see -- measured
+## 2026-09-27 (`_poiclick_probe.gd`, 1080x2340 `--force-touch`): a landmark tap
+## set this dock's context to Landmark and put nothing on screen. Desktop and
+## tablet draw the dock already, so this is a no-op there.
+func _show_on_phone() -> void:
+	if app != null and DccTheme.is_phone() and app.has_method("phone_show_right_sheet"):
+		app.phone_show_right_sheet()
 
 ## SP-4. Called by `civilization_workspace.gd::select_conflict`.
 func show_conflict(id: int) -> void:
@@ -1218,7 +1251,7 @@ func _forget_way_draft() -> void:
 const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
-	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark",
+	CTX_WILDLIFE: "Ecoregion", CTX_HISTORY: "History", CTX_LANDMARK: "Landmark", CTX_ICON: "Icon",
 	CTX_CONFLICT: "Conflict",
 }
 
@@ -1381,6 +1414,8 @@ func _dock_readout_text() -> String:
 			return _measure_readout()
 		CTX_LANDMARK:
 			return _landmark_label(String(_landmark.get("kind", ""))) if not _landmark.is_empty() else "no landmark"
+		CTX_ICON:
+			return _icon_title(_icon_data) if not _icon_data.is_empty() else "no icon"
 		CTX_CONFLICT:
 			var cf := bridge.conflict_get(_conflict_id)
 			if cf.is_empty():
@@ -1411,6 +1446,8 @@ func _dispatch(body: Control) -> void:
 			_build_river(body)
 		CTX_LANDMARK:
 			_build_landmark(body)
+		CTX_ICON:
+			_build_icon(body)
 		CTX_CONFLICT:
 			_build_conflict(body)
 		CTX_FACTION:
@@ -3069,6 +3106,93 @@ func _build_landmark(body: Control) -> void:
 	## values the engine wrote into it -- this is what 'inspect' is for.
 	for i in chain.size():
 		DccWidgets.note(why, "%d. %s" % [i + 1, String(chain[i])])
+
+# -- Icon (2026-09-27) -------------------------------------------------
+
+## The icon family's name as the Icon tool and CARTO's automatic-placement
+## chips say it. Only the keys whose `capitalize()` reads wrong are spelled
+## out; a family this build does not know is still named, from its own key.
+func _icon_family_label(key: String) -> String:
+	match key:
+		"poi": return "POI"
+		"seamarks": return "Sea marks"
+	return key.capitalize()
+
+## What the glyph is, by its own `slot` ("hamlet", "conifer", ...).
+func _icon_title(ic: Dictionary) -> String:
+	var slot := String(ic.get("slot", ""))
+	return slot.capitalize() if slot != "" else _icon_family_label(String(ic.get("family", "")))
+
+## The live row at `_icon_index`, or `{}` when that index no longer holds the
+## icon that was clicked (a delete, a clear, a re-run of placement).
+func _live_icon() -> Dictionary:
+	var live: Dictionary = bridge.icon_get(_icon_index) if _icon_index >= 0 else {}
+	if live.is_empty():
+		return {}
+	for k in ["x", "y", "family", "slot"]:
+		if live.get(k) != _icon_data.get(k):
+			return {}
+	return live
+
+## Every field `icon_get()` carries for the icon, what it was placed for, and
+## the ground it stands on. Nothing is invented: a generated icon's source is
+## found by its cell (the `floori` cell `map_overlay.gd::_mark_cell` keys
+## marks by), and a row with no source says so instead of guessing one.
+func _build_icon(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Icon")
+	var ic := _live_icon()
+	if ic.is_empty():
+		DccWidgets.note(sec, "That icon is no longer in the icon list -- it was deleted, " +
+			"cleared or replaced since it was clicked. Click it again on the map.")
+		return
+	var fam := String(ic.get("family", ""))
+	var generated := String(ic.get("origin", "")) == "generated"
+	_accent_readout(sec, "Kind", _icon_title(ic),
+		"The icon's slot -- '%s' in the %s family." % [String(ic.get("slot", "")), _icon_family_label(fam)])
+	_field(sec, "Family", _icon_family_label(fam),
+		"Which icon family the glyph belongs to; the family decides its shape on the map.")
+	_field(sec, "Placed by", "Automatic placement" if generated else "Icon tool, by hand",
+		"Generated icons come from CARTO's automatic placement; hand-placed ones from the Icon tool.")
+	var gx := floori(float(ic.get("x", 0.0)))
+	var gy := floori(float(ic.get("y", 0.0)))
+	_field(sec, "Cell", "%d, %d" % [gx, gy], "Grid cell (x, y) the icon stands in.", true, true)
+	_field(sec, "Scale", "%.2f×" % float(ic.get("scale", 1.0)), "The glyph's size multiplier.", true, true)
+	var cell: Dictionary = bridge.sample_cell(gx, gy)
+	_field(sec, "Elevation", _elevation_text(cell),
+		"The ground under the icon, as the Sample panel reads it.", true, true)
+	_field(sec, "Biome", _sample_field_text("biome", cell), "The biome at the icon's cell.")
+
+	## What it stands for. Only the two families whose placement copies a
+	## source's own cell can be traced back: PLACES (a settlement) and POI (a
+	## landmark) -- `icon_bridge/generate.rs::icon_candidates`. Trees and sea
+	## marks are scatter; they stand for their slot.
+	var src := DccWidgets.group(sec, "Placed for")
+	if not generated:
+		DccWidgets.note(src, "Placed by hand -- it stands for whatever its author meant.")
+		return
+	match fam:
+		"settlement":
+			var sets: Array = bridge.settlements()
+			for i in sets.size():
+				var st: Dictionary = sets[i]
+				if int(st.get("x", -1)) == gx and int(st.get("y", -1)) == gy:
+					_field(src, "Settlement", String(st.get("name", "")),
+						"The settlement at this icon's cell, which automatic placement put it on.")
+					DccWidgets.action(src, "Show settlement", func(): on_settlement_selected(st, i))
+					return
+			DccWidgets.note(src, "No settlement stands at this cell any more.")
+		"poi":
+			for lm: Dictionary in bridge.landmarks():
+				if int(lm.get("x", -1)) == gx and int(lm.get("y", -1)) == gy:
+					_field(src, "Landmark", _landmark_label(String(lm.get("kind", ""))),
+						"The landmark at this icon's cell, which automatic placement put it on.")
+					DccWidgets.action(src, "Show landmark", func(): on_landmark_selected(lm, -1))
+					return
+			DccWidgets.note(src, "The landmark this was placed for is gone: a later landmark " +
+				"pass replaced the list. Re-run POI placement to match the current landmarks.")
+		_:
+			DccWidgets.note(src, "Scattered over the terrain by automatic placement; it " +
+				"stands for its kind, not for a single feature.")
 
 # -- Faction ------------------------------------------------------------
 

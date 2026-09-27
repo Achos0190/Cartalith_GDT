@@ -9263,6 +9263,14 @@ func _back_exhausted() -> void:
 func _close_requested() -> void:
 	get_tree().quit()
 
+## Opens the phone's right sheet -- its right dock -- from outside the shell.
+## `right_dock.gd` calls it when a map tap selects a mark (a landmark ring, an
+## icon glyph), whose detail lands in that sheet and would otherwise stay
+## closed. A no-op off the phone.
+func phone_show_right_sheet() -> void:
+	if DccTheme.is_phone():
+		_set_sheet_open("right", true)
+
 func _set_sheet_open(side: String, open: bool) -> void:
 	if open:
 		_close_all_phone_overlays()

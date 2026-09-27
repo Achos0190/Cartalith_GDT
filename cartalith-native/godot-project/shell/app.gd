@@ -1475,6 +1475,12 @@ func _wire_selection() -> void:
 		for ws in _workspaces:
 			if ws.has_method("on_landmark_selected"):
 				ws.on_landmark_selected(data, index))
+	## And an icon glyph (2026-09-27), the same fan-out; emitted after
+	## `landmark_selected` for the same click.
+	viewport.icon_selected.connect(func(data, index):
+		for ws in _workspaces:
+			if ws.has_method("on_icon_selected"):
+				ws.on_icon_selected(data, index))
 	viewport.cursor_sampled.connect(func(gx, gy, valid):
 		for ws in _workspaces:
 			if ws.has_method("on_cursor_sampled"):

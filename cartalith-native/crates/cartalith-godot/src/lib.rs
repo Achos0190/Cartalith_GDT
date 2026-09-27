@@ -5293,6 +5293,31 @@ fn session_npr() -> render::Npr {
 /// `generate_world_structure()` — kept out of the `#[godot_api]` block since
 /// they are Rust-internal, not part of the GDScript surface.
 impl WorldGen {
+    /// The water-body classification the map **draws** (`0` land, `1` ocean,
+    /// `2` lake): `build_water_bodies` over the current heightfield, exactly
+    /// what [`Self::build_color_texture`] attaches with `with_lakes` and what
+    /// `render::TileFields::new` rebuilds for the LOD tiles. `None` before
+    /// any world exists.
+    ///
+    /// **Not `CivData::water_bodies`.** That copy is taken once, in
+    /// `compute_civilisation`, and nothing refreshes it after a sculpt or an
+    /// erode short of `recompute_civilisation` — while the screen recomputes
+    /// this on every texture build. Anything that names or points at what the
+    /// map *shows* (the lake labels, 2026-09-27) reads this instead, so it
+    /// cannot name a lake the terrain no longer holds. A loaded save, which
+    /// has no civilisation layer at all, still gets its lakes.
+    pub(crate) fn drawn_water_classification(&self) -> Option<Vec<u8>> {
+        let (field, rainfall) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice()),
+            WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice()),
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 || field.len() < gw * gh {
+            return None;
+        }
+        Some(cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification)
+    }
+
     /// This instance's persistent parameters with the four call-argument
     /// fields filled in. The single place `gw`/`gh`/`seed`/`map_width_km`
     /// enter a `WorldParams` — everything else comes from `self.params`
@@ -9054,8 +9079,10 @@ impl WorldGen {
         };
         // v0.103's above-sea lakes (`RenderCtx::with_lakes`): the same
         // classification the LOD tiles draw from (`TileFields::new`), so the
-        // screen and a tile agree on where a lake is.
-        let lakes = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification;
+        // screen and a tile agree on where a lake is. One definition shared
+        // with the lake labels (`drawn_water_classification`), so a label
+        // cannot name a lake this texture does not draw.
+        let lakes = self.drawn_water_classification()?;
         let mut ctx = RenderCtx::with_appearance(
             field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         )
