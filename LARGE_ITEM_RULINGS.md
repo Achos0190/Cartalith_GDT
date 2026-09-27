@@ -1650,3 +1650,27 @@ generated labels stay where they were until the user presses Generate labels,
 and the Labels panel's "The terrain has changed since labels were last
 generated" cue is the signal. `engine_bridge.gd`'s note that the re-run is "a UI
 decision, not a binding decision" is now answered.
+
+## 2026-09-29 — Ruling BC: the tool ring matches the mockup's style and shape, in the theme's colours
+
+Owner, after seeing the tablet ring screenshots: *"The ring BTW doesn't look like
+1-to-1 the mockup"*, then: *"It's the style and shape, that the ring follows the
+color scheme of the set theme is correct."*
+
+So `design/map-context-2026-09-25/` (`Main`, `Tablet`, `Phone`) is the reference
+for the ring's **style and shape**, 1-to-1:
+- the scrim behind an open ring and the disc behind the slots;
+- slot size, with the label inside the slot;
+- the hover wedge toward the hovered direction;
+- the 46 px centre button, and the accent `‹ BACK` with its glow at a sub-ring's
+  centre;
+- the caption pill;
+- the sub-ring layout;
+- the phone thumb fan's equivalents.
+
+Its **colours do not carry over**. The mockup's dark hex values are one theme's
+rendering; the shipped ring takes the active theme's tokens (`DccTheme`), and
+that is correct as built. Where the mockup's contrast refinement (its README,
+"What the 2026-09-25 refinement changed") sets a contrast relationship, such as
+disc opacity or disabled-label contrast, keep the relationship in the theme's
+tokens.
