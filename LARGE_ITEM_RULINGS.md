@@ -1694,3 +1694,42 @@ values are re-recorded and disclosed.
 
 Both follow DECISIONS §7p: the port's improved behaviour wins over matching the
 legacy HTML.
+
+## 2026-09-27 — Ruling BE: one vault window, with a real Markdown editor
+
+Owner, after the vault showcase screenshots: *"can we consolidate screenshot 2
+and 3 into a single window and give the editor basic word editor functions,
+bold, understriped, text size, header, like a functional markdown editor."*
+
+**One window.** Screenshot 2 was browse and edit (`open_browse`). Screenshot 3
+was the entity-scoped view (`open_for`). They become one layout:
+- The tree and search on the left. Attached notes carry a link marker.
+- On the right, an **Attached to** block listing each link: entity name, kind
+  and faction, plus Show on map, Open place editor, Attach and Detach. A
+  frontmatter `tid` that resolves to a real entity is shown as "by frontmatter,
+  not attached", with an Attach action.
+- Below it, the note pane. It is a read-only preview until **Edit** switches
+  that same pane to the editor. There is no separate form underneath.
+- Opening from an entity preselects that entity's notes.
+- Screenshot 3's advanced actions move into a collapsed **More** section: map
+  snapshot, Cartalith block, field fill, and write confirmations.
+
+**The editor** is a functional Markdown editor:
+- A toolbar with Bold, Italic, Underline, Strikethrough, a heading/size picker
+  (Normal, H1, H2, H3), bullet and numbered lists, quote, code, and a
+  note link (`[[…]]`).
+- Ctrl+B, Ctrl+I and Ctrl+U shortcuts. A button wraps the selection, or inserts
+  the markup at the cursor.
+- A Write / Preview toggle.
+- Themed; it fills the pane.
+- Save keeps the existing hash guard, which refuses when the file changed on
+  disk.
+- On the phone, the toolbar is a scrollable row above the keyboard.
+
+**Defaults taken, stated to the owner:**
+- Markdown has no underline, so Underline writes `<u>…</u>`, which Obsidian
+  renders.
+- Markdown stores no arbitrary font size, so "text size" is the heading level.
+
+Build it from the DCC vocabulary and the approved Vault Browser mockup
+(`design/vault-browser-2026-09-21/`); screenshots go to the owner for approval.
