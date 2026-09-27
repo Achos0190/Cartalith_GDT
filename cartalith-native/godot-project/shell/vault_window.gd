@@ -144,6 +144,14 @@ var _search_result := {}
 var _search_box: VBoxContainer
 var _search_open_rel := ""
 
+## The standalone browser's own tree container (`_build_browse`), refreshed in
+## place by `_refresh_browse_tree()` on every keystroke in
+## `_build_browse_search()`'s field — distinct from `_search_box` above (the
+## scoped Attach flow's content-search results) so a live keystroke in one
+## mode can never free a node the other mode owns. `null` when no tree pane
+## is on screen (the phone's preview pane, or before the first `_rebuild()`).
+var _browse_tree_col: Control
+
 ## Whether the device-local write preferences have been pulled off disk yet.
 var _prefs_loaded := false
 
@@ -303,6 +311,10 @@ func _clear() -> void:
 	## Nulled, not left dangling: `_fill_search_results()` can be reached from a
 	## callback that outlives the rebuild that freed the box it was writing into.
 	_search_box = null
+	## Same reason: `_refresh_browse_tree()` (the tree-column search field's
+	## live filter) is reached from a `LineEdit.text_changed` callback the
+	## field's own owner keeps firing after a `_rebuild()` has freed this.
+	_browse_tree_col = null
 
 
 func _rebuild() -> void:
@@ -325,9 +337,15 @@ func _rebuild() -> void:
 		else ScrollContainer.SCROLL_MODE_AUTO
 	_build_connection(info)
 	## Search sits directly under the connection and above everything else in
-	## every mode: the owner's sentence starts with finding the note, and in the
-	## scoped view "find it, then attach it" is the order the two acts happen in.
-	if bound:
+	## every mode except the standalone browser: the owner's sentence starts
+	## with finding the note, and in the scoped view "find it, then attach it"
+	## is the order the two acts happen in. The standalone browser's own
+	## search is `_build_browse_search()`, drawn at the head of the tree
+	## column inside `_build_browse()` instead — the owner-approved
+	## 2026-09-21 mockup (`design/vault-browser-2026-09-21/`) draws nothing
+	## here in that mode, and the newer canvas wins over this file's older
+	## "search always sits up top" layout for that one mode only.
+	if bound and not _browse_only:
 		_build_search()
 	if scoped:
 		if bound:
@@ -362,8 +380,17 @@ func _rebuild() -> void:
 # -- Connection (§7) --------------------------------------------------------
 
 func _build_connection(info: Dictionary) -> void:
-	var sec := DccWidgets.section(_body, "Vault")
 	var bound: bool = bool(info.get("bound", false))
+	## The standalone browser, connected: the owner-approved 2026-09-21
+	## mockup draws a one-line connection header (`vault/ · 42 notes …
+	## read-only preview · open to edit`) in place of this section's full
+	## Connect/Disconnect block. Unbound still falls through to the full
+	## section below — there is nothing to browse yet, and that block is
+	## where "Connect vault…" lives.
+	if _browse_only and bound:
+		_build_connection_header(info)
+		return
+	var sec := DccWidgets.section(_body, "Vault")
 	var name := String(info.get("display_name", ""))
 	if bound:
 		DccWidgets.note(sec, "✓ Connected — %s\n%s" % [name, String(info.get("root", ""))])
@@ -381,6 +408,52 @@ func _build_connection(info: Dictionary) -> void:
 			store_changed.emit()
 			_rebuild())
 		dis.tooltip_text = "Drops this device's binding. The links themselves survive — that is the difference between disconnecting and detaching."
+
+
+## The standalone browser's one-line connection header (owner-approved
+## mockup, `design/vault-browser-2026-09-21/Cartalith Vault Browser.dc.html`
+## title bar: `vault/ · 42 notes` beside a right-aligned `read-only preview ·
+## open to edit`). "Change vault…" is not in the mockup's own drawing, which
+## has no other window to reach `_browse_vault()` from — `open_vault_browse()`
+## is this window's only menu entry point (`menus.gd`), so a bound vault with
+## no way to swap it here would have none anywhere. Kept to a single
+## `text_button` so the desktop row stays one line.
+##
+## **On phone, two lines, not one** — measured (`_vaultlayout_probe.gd`'s own
+## phone screenshot): the desktop row's four items (name+count, "Change
+## vault…", a spacer, then the full "read-only preview · open to edit"
+## sentence) at phone-scaled font ran past the right edge of a 1080-physical-
+## px viewport, the same overflow `MISTAKES.md`'s "read a layout that
+## overflows the screen" row warns about. `HBoxContainer` never wraps or
+## clips a sibling on its own — splitting the row in two, the same
+## `VBoxContainer` fold the outline/excerpt columns use above, is what keeps
+## every word on screen rather than shrinking type until it happens to fit.
+func _build_connection_header(info: Dictionary) -> void:
+	var name := String(info.get("display_name", ""))
+	var count := bridge.vault_list_files(2000).size()
+	var head_text := "%s · %d note%s" % [
+		name if name != "" else "vault", count, "" if count == 1 else "s"]
+	if _phone:
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 4)
+		_body.add_child(col)
+		var row1 := HBoxContainer.new()
+		row1.add_theme_constant_override("separation", 10)
+		col.add_child(row1)
+		row1.add_child(DccTheme.mono_label(head_text, "text_dim", DccTheme.FS_SMALL, 1))
+		var change := DccWidgets.text_button(row1, "Change vault…", _browse_vault)
+		change.tooltip_text = "Connect a different folder. Cartalith reads only the folder you choose, and never writes to it without an explicit action and a preview."
+		col.add_child(DccTheme.mono_label("read-only preview · open to edit", "text_ghost", DccTheme.FS_MICRO, 1))
+		return
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_body.add_child(row)
+	row.add_child(DccTheme.mono_label(head_text, "text_dim", DccTheme.FS_SMALL, 1))
+	var change := DccWidgets.text_button(row, "Change vault…", _browse_vault)
+	change.tooltip_text = "Connect a different folder. Cartalith reads only the folder you choose, and never writes to it without an explicit action and a preview."
+	row.add_child(DccTheme.spacer())
+	row.add_child(DccTheme.mono_label("read-only preview · open to edit", "text_ghost", DccTheme.FS_MICRO, 1))
 
 
 func _browse_vault() -> void:
@@ -829,7 +902,12 @@ func _build_browse() -> void:
 	if _phone:
 		_build_browse_phone_switcher(sec)
 		if _browse_phone_pane == "tree":
-			_build_browse_tree(sec, files)
+			_build_browse_search(sec)
+			var tree_wrap := VBoxContainer.new()
+			tree_wrap.name = "VaultTreeWrap"
+			sec.add_child(tree_wrap)
+			_browse_tree_col = tree_wrap
+			_build_browse_tree(tree_wrap, files)
 		else:
 			_build_browse_preview(sec)
 	else:
@@ -856,10 +934,23 @@ func _build_browse() -> void:
 		row.dragged.connect(func(offset: int): _browse_split = offset)
 		sec.add_child(row)
 		var tree_col := VBoxContainer.new()
+		tree_col.name = "VaultTreeCol"
 		tree_col.custom_minimum_size.x = 220
 		tree_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		row.add_child(tree_col)
-		_build_browse_tree(tree_col, files)
+		## Mockup order: the search box sits at the very head of the tree
+		## column, above the tree itself (`design/vault-browser-2026-09-21/
+		## Cartalith Vault Browser.dc.html`'s left pane). `tree_wrap` is a
+		## separate child so `_refresh_browse_tree()` can clear and rebuild
+		## just the tree on every keystroke without freeing the `LineEdit`
+		## `_build_browse_search()` just built above it.
+		_build_browse_search(tree_col)
+		var tree_wrap := VBoxContainer.new()
+		tree_wrap.name = "VaultTreeWrap"
+		tree_wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		tree_col.add_child(tree_wrap)
+		_browse_tree_col = tree_wrap
+		_build_browse_tree(tree_wrap, files)
 		var preview_scroll := ScrollContainer.new()
 		preview_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -870,6 +961,57 @@ func _build_browse() -> void:
 		preview_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		preview_scroll.add_child(preview_col)
 		_build_browse_preview(preview_col)
+
+
+## The mockup's own "Search notes…" field, at the head of the tree column
+## (owner-approved mockup, `design/vault-browser-2026-09-21/Cartalith Vault
+## Browser.dc.html`'s left pane) — replacing `_build_search()`'s fuller
+## content-search UI in this one mode (`_rebuild()`'s own note on that), which
+## has no natural home in a slot the mockup draws as a bare filter box.
+##
+## Filters live, on every keystroke, straight into `_refresh_browse_tree()` —
+## not a full `_rebuild()`, which would free this very `LineEdit` mid-type and
+## take the caret with it. That is `_build_search()`'s own reason for waiting
+## on Enter (a content search opens files, so a keystroke must not trigger
+## one) and it does not apply here: `_build_browse_tree`'s filter is a
+## client-side substring match over paths already in memory, the same
+## `text_changed` -> partial-refresh idiom `travel_library_window.gd::
+## _refresh_rail()` already uses for its own rail filter. Shares
+## `_search_query` with `_build_search()`'s field (both search the vault, and
+## `_build_browse_tree`'s own doc comment already names this variable as its
+## filter) — never live at once, since only one of the two modes is ever
+## built.
+func _build_browse_search(parent: Control) -> void:
+	var wrap := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		wrap.add_theme_constant_override("margin_" + side, 6)
+	parent.add_child(wrap)
+	var field := LineEdit.new()
+	field.placeholder_text = "Search notes…"
+	field.text = _search_query
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(field)
+	field.text_changed.connect(func(t: String):
+		_search_query = t
+		_refresh_browse_tree())
+	wrap.add_child(field)
+
+
+## Clears and rebuilds only the tree column's tree — not the search field
+## beside it, and not the rest of the window — so `_build_browse_search()`'s
+## field survives its own `text_changed` signal. `null` (no tree pane on
+## screen: the phone's preview pane, or a state before the first `_rebuild()`)
+## is a no-op, not an error: `_clear()` nulls this on every rebuild and the
+## phone's preview pane never sets it.
+func _refresh_browse_tree() -> void:
+	if _browse_tree_col == null or not is_instance_valid(_browse_tree_col):
+		return
+	for c in _browse_tree_col.get_children():
+		_browse_tree_col.remove_child(c)
+		c.queue_free()
+	_build_browse_tree(_browse_tree_col, bridge.vault_list_files(2000))
+	if _phone:
+		app.phone_fit(_browse_tree_col, 1.0)
 
 
 ## The phone fold: `culture_profiles_window.gd::_build_phone_switcher()`'s
@@ -1084,28 +1226,57 @@ func _build_browse_preview(parent: Control) -> void:
 			g.add_child(flow)
 
 	var headings := bridge.vault_file_headings(_pick_file)
-	DccWidgets.note(g, "Outline")
+	var read := bridge.vault_read_file_for_edit(_pick_file)
+
+	## Outline and excerpt side by side (owner-approved mockup: `grid-
+	## template-columns:220px 1fr`), stacked on phone — the same
+	## `BoxContainer`-axis-swap idiom `culture_profiles_window.gd::
+	## _build_body()` already uses for its own desktop/phone fold
+	## (`VBoxContainer.new() if _phone else HBoxContainer.new()`), so one call
+	## site builds both instead of a separate phone branch duplicating the
+	## content. Named nodes (`VaultOutlineCol`/`VaultExcerptCol`) so a probe
+	## can measure their rects directly rather than guessing which `Control`
+	## is which from the tree shape.
+	var cols: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
+	cols.name = "VaultOutlineExcerptRow"
+	cols.add_theme_constant_override("separation", 12 if _phone else 24)
+	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	g.add_child(cols)
+
+	var outline_col := VBoxContainer.new()
+	outline_col.name = "VaultOutlineCol"
+	if not _phone:
+		outline_col.custom_minimum_size.x = 180
+		outline_col.size_flags_horizontal = Control.SIZE_FILL
+	else:
+		outline_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(outline_col)
+	DccWidgets.note(outline_col, "Outline")
 	if headings.is_empty():
-		DccWidgets.note(g, "    (no headings)")
+		DccWidgets.note(outline_col, "    (no headings)")
 	else:
 		for h in headings:
 			var d: Dictionary = h
 			var lvl := int(d.get("level", 1))
-			DccWidgets.note(g, "    %s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
+			DccWidgets.note(outline_col, "    %s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
 
-	var read := bridge.vault_read_file_for_edit(_pick_file)
-	DccWidgets.note(g, "Excerpt")
+	var excerpt_col := VBoxContainer.new()
+	excerpt_col.name = "VaultExcerptCol"
+	excerpt_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.add_child(excerpt_col)
+	DccWidgets.note(excerpt_col, "Excerpt")
 	if bool(read.get("ok", false)):
 		var excerpt := _first_lines(_strip_frontmatter(String(read.get("text", ""))), 3)
-		DccWidgets.note(g, "    %s" % (excerpt if excerpt != "" else "(empty note)"))
+		DccWidgets.note(excerpt_col, "    %s" % (excerpt if excerpt != "" else "(empty note)"))
 	else:
-		DccWidgets.note(g, "    Could not read: %s" % String(read.get("error", "")))
+		DccWidgets.note(excerpt_col, "    Could not read: %s" % String(read.get("error", "")))
 
 	## Mockup order: the two buttons (Open to edit, Centre on map) directly
-	## under the excerpt, then the backlinks/mentions line beneath them.
-	_build_note_editor(g, true)
-	_build_browse_centre(g, frontmatter)
-	_build_browse_backlinks(g)
+	## under the excerpt, then the backlinks/mentions line beneath them — all
+	## in the excerpt column, matching the mockup's own right-hand stack.
+	_build_note_editor(excerpt_col, true)
+	_build_browse_centre(excerpt_col, frontmatter)
+	_build_browse_backlinks(excerpt_col)
 
 
 ## `bridge.settlements()` is the whole vault-side of the mockup's "Centre on
