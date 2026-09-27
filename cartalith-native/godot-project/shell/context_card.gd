@@ -98,6 +98,12 @@ var _dock_side := ""
 ## Coordinator review, 2026-09-27 -- see `open()`'s own doc. 0.0 outside the
 ## ring+card-together presentations.
 var _ring_clear := 0.0
+## Coordinator review, 2026-09-27 (overlap follow-up) -- see `set_ring_clear()`'s
+## own doc. `_sub_x` is the open SUB-ring's own centre-x, in the same space as
+## `_anchor`; `_sub_clear` is its `radius + slot * 0.5`. Both 0.0 whenever no
+## sub-ring is open beside this card.
+var _sub_x := 0.0
+var _sub_clear := 0.0
 ## `{}` for the sections; else `{"title": String, "rows": Array}` -- the one
 ## submenu level §4.2 allows.
 var _sub: Dictionary = {}
@@ -171,7 +177,8 @@ func _m(key: String) -> int:
 ## (default) is the plain-click case with no ring open beside this card,
 ## which keeps `_target_rect()`'s original 10/6 px offset exactly as it was.
 func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
-		dock_side: String = "", ring_clear: float = 0.0) -> void:
+		dock_side: String = "", ring_clear: float = 0.0, sub_x: float = 0.0,
+		sub_clear: float = 0.0) -> void:
 	_req = req
 	_actions = actions
 	_all_hits = req.get("all_hits", req.get("hits", []))
@@ -179,10 +186,34 @@ func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
 	_anchor = anchor
 	_dock_side = dock_side
 	_ring_clear = ring_clear
+	_sub_x = sub_x
+	_sub_clear = sub_clear
 	_sub = {}
 	_filter = ""
 	_rebuild()
 	_place()
+
+
+## Coordinator review, 2026-09-27 (overlap follow-up). A sub-ring re-centres
+## on its own parent slot (`radial_ring.gd::_open_sub()`), which can reach
+## past the top-level ring's own footprint toward this card -- `open()`'s
+## `ring_clear` alone only ever widened the dock offset for the MAIN ring,
+## centred at `_anchor`. `context_broker.gd` calls this the moment a sub-ring
+## opens while the card is already showing (the only transition that matters:
+## `radial_ring.gd` never closes a sub-ring without closing the whole ring, so
+## there is no "sub closed, ring still open" case to react to). `_reclamp()`
+## re-targets the ALREADY-OPEN card at its own current size -- a translate,
+## not a rebuild -- so a call that does not actually need to move the card
+## (the sub landed on a side the card was never near) is a no-op in practice,
+## not just skipped by this early-return on an unchanged input.
+func set_ring_clear(ring_clear: float, sub_x: float, sub_clear: float) -> void:
+	if _ring_clear == ring_clear and _sub_x == sub_x and _sub_clear == sub_clear:
+		return
+	_ring_clear = ring_clear
+	_sub_x = sub_x
+	_sub_clear = sub_clear
+	if visible:
+		_reclamp()
 
 
 # -- Probe-facing readouts ----------------------------------------------------
@@ -785,25 +816,39 @@ func _bounds() -> Rect2:
 ## outside `anchor.x ± gap`, every point in the card is farther than `gap`
 ## from `anchor` (distance >= |dx| >= gap) for ANY y, so the y offset below
 ## (unchanged since CM-2) never needs its own widening.
+##
+## Overlap follow-up, same review: a SUB-ring re-centres on its own parent
+## slot (`radial_ring.gd::_open_sub()`), a different point up to the ring's
+## own radius away from `_anchor` -- `_sub_x`/`_sub_clear` (`set_ring_clear()`'s
+## own doc) are ITS centre-x and `radius + slot * 0.5`, zero whenever none is
+## open. `left_edge`/`right_edge` below are the widest either obstacle's own
+## `x ± (10 + clear)` square reaches; two rectangles can only overlap if BOTH
+## their x-ranges and y-ranges intersect, so keeping the card's entire x-range
+## outside `[left_edge, right_edge]` clears BOTH obstacles' shapes for any y --
+## the same proof above, generalised from one obstacle to the union of two.
 func _target_rect(panel_size: Vector2) -> Rect2:
 	var bounds := _bounds()
 	var margin := 8.0
 	var w := panel_size.x
 	var h := panel_size.y
-	var gap := 10.0 + _ring_clear
+	var left_edge := _anchor.x - 10.0 - _ring_clear
+	var right_edge := _anchor.x + 10.0 + _ring_clear
+	if _sub_clear > 0.0:
+		left_edge = minf(left_edge, _sub_x - 10.0 - _sub_clear)
+		right_edge = maxf(right_edge, _sub_x + 10.0 + _sub_clear)
 	var x: float
 	if _dock_side == "left":
-		x = _anchor.x - gap - w
+		x = left_edge - w
 		if x < bounds.position.x + margin:
-			x = _anchor.x + gap
+			x = right_edge
 	elif _dock_side == "right":
-		x = _anchor.x + gap
+		x = right_edge
 		if x + w > bounds.end.x - margin:
-			x = _anchor.x - gap - w
+			x = left_edge - w
 	else:
-		x = _anchor.x + gap
+		x = right_edge
 		if x + w > bounds.end.x - margin:
-			x = _anchor.x - gap - w
+			x = left_edge - w
 	var y := _anchor.y + 6.0
 	if y + h > bounds.end.y - margin:
 		y = _anchor.y - 6.0 - h

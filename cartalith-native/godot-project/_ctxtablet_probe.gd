@@ -151,6 +151,36 @@ func _card_overlaps_ring(rect: Rect2) -> bool:
 	return false
 
 
+## Leg O's own follow-up (coordinator review, 2026-09-27, "the context card
+## can overlap an open sub-ring") -- `_ctxring_probe.gd`'s own twin helper,
+## same shape: the sub-ring's own live slot rects off `debug_state()`'s
+## `sub_centre`/`sub_radius`/`sub_slot_size`/`sub_count`, `[]` when no
+## sub-ring is open.
+func _sub_slot_rects() -> Array[Rect2]:
+	var st := _ring_state()
+	if not bool(st.get("sub_open", false)):
+		return []
+	var c: Vector2 = st.get("sub_centre", Vector2.ZERO)
+	var radius: float = st.get("sub_radius", 0.0)
+	var slot: float = st.get("sub_slot_size", 0.0)
+	var n: int = int(st.get("sub_count", 0))
+	var out: Array[Rect2] = []
+	for i in n:
+		var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
+		var p: Vector2 = c + Vector2(cos(ang), sin(ang)) * radius
+		out.append(Rect2(p - Vector2.ONE * slot * 0.5, Vector2.ONE * slot))
+	return out
+
+
+func _card_overlaps_sub(rect: Rect2) -> bool:
+	var slots := _sub_slot_rects()
+	for i in slots.size():
+		if rect.intersects(slots[i]):
+			print("O sub-overlap: card=%s hits sub slot #%d=%s" % [rect, i, slots[i]])
+			return true
+	return false
+
+
 func _card_close() -> void:
 	var c = _card()
 	if c != null and c.visible:
@@ -340,6 +370,40 @@ func _run() -> void:
 	app.arm_tool("inspect")
 	await _frames(2)
 
+	# -- O (sub-ring follow-up, both hands): a sub-ring opened WHILE the card
+	# is already showing must not overlap it either -- the defect the
+	# "context card can overlap an open sub-ring" backlog row named. Leg D
+	# above only ever checked the TOP-level ring's own footprint; a sub-ring
+	# re-centres on its own parent slot (`radial_ring.gd::_open_sub()`),
+	# reaching past that. `world`'s own NW slot (Uplift) has `children` on
+	# every domain the D-table above already established.
+	for hand in ["right", "left"]:
+		DccSettings.set_dominant_hand(hand)
+		await _touch_hold(ov, centre)
+		_ok("O %s-handed: the ring opened" % hand, _ring_state().get("visible", false), true)
+		_ok("O %s-handed: the card opened alongside it" % hand, _card_open(), true)
+		var r_o: float = _ring_state().get("radius", 0.0)
+		var nw_pos_o := centre + _dir_vec("NW") * r_o
+		_touch_move(ov, nw_pos_o)
+		await _frames(2)
+		_touch_release(ov, nw_pos_o)   ## Uplift has children -> release() opens its sub-ring.
+		await _frames(4)
+		_ok("O %s-handed: release opened Uplift's sub-ring" % hand,
+			_ring_state().get("sub_open", false), true)
+		_ok("O %s-handed: nothing armed yet (a children slot only opens a sub-ring)" % hand,
+			app.armed_tool, "inspect")
+		var card_rect_o: Rect2 = _card().panel_rect() if _card() != null else Rect2()
+		print("O %s-handed: card=%s" % [hand, card_rect_o])
+		_ok("O %s-handed: the card still does not overlap the MAIN ring's slots" % hand,
+			_card_overlaps_ring(card_rect_o), false)
+		_ok("O %s-handed: the card does not overlap the SUB-ring's own slots" % hand,
+			_card_overlaps_sub(card_rect_o), false)
+		await _ring_close()
+		await _card_close()
+		app.arm_tool("inspect")
+		await _frames(2)
+	DccSettings.set_dominant_hand(orig_hand)
+
 	# -- E: the ring's AND the card's own rects stay on screen at the edges -----
 	## Aimed at the PLATE's own edges (`_interior_rect()`), not the raw
 	## viewport's: at this grid's aspect ratio the displayed map is
@@ -443,18 +507,17 @@ func _run() -> void:
 		await _frames(2)
 
 	# -- L: every label sits inside its own circle, on the TOUCH geometry -------
-	## Card closed before sampling in both halves below: the tablet's
-	## touch-hold opens the ring AND the card together (leg H), and the
-	## card's own dock offset (`ring_clear`, `context_broker.gd::present()`)
-	## is sized to the TOP-level ring's own footprint only -- it does not
-	## widen further for an open SUB-ring's own reach in a different
-	## direction. `context_broker.gd` is this task's off-limits file, so
-	## that is not this pass's fix; leg L cares whether a LABEL stays inside
-	## its own circle, not whether the card (a separate, already-tracked
-	## surface) happens to overlap a sub-slot on some run -- measured once,
-	## sub #4 ("Cliff / Escarpment"): the "failing" pixel was byte-identical
-	## to the SAME screen point captured with no sub-ring open at all, i.e.
-	## the card's own corner, not this slot's own label.
+	## Coordinator review, 2026-09-27 (overlap follow-up): the card is no
+	## longer closed before sampling. It used to be -- the tablet's touch-hold
+	## opens the ring AND the card together (leg H), and the card's own dock
+	## offset (`ring_clear`) was sized to the TOP-level ring's own footprint
+	## only, so it could sit over a slot's label once a SUB-ring opened in a
+	## different direction (measured once, sub #4 "Cliff / Escarpment": the
+	## "failing" pixel was the card's own corner). `context_broker.gd::
+	## _sync_card_ring_clear()` now re-docks the card the moment a sub-ring
+	## opens beside it (`_ctxring_probe.gd`'s own leg O, and this file's leg O
+	## above, both assert the card never overlaps a live sub-slot rect), so
+	## the card can stay open here and still not touch a label.
 	await _touch_hold(ov, centre)
 	var st_l := _ring_state()
 	var l_centre: Vector2 = st_l.get("centre", Vector2.ZERO)
@@ -462,7 +525,6 @@ func _run() -> void:
 	var l_slot: float = st_l.get("slot", 0.0)
 	_touch_release(ov, centre)   ## dead-zone release: sticky, hover stays "" -- no wedge.
 	await _frames(4)
-	await _card_close()
 	await _frames(2)
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
@@ -485,7 +547,6 @@ func _run() -> void:
 	await _frames(2)
 	_touch_release(ov, nw_pos_l)
 	await _frames(4)
-	await _card_close()
 	await _frames(2)
 	var st_l2 := _ring_state()
 	if bool(st_l2.get("sub_open", false)):

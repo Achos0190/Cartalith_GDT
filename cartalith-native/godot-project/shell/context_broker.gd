@@ -288,11 +288,22 @@ func present(req: Dictionary, actions: Array) -> void:
 		## rather than a new formula, without that function's trailing
 		## `+ 40.0` (which clears the ring/caption of the SCREEN edge, a
 		## different concern from clearing the card).
-		var ring_clear := 0.0
-		if ring != null and ring.is_open():
-			var rs := ring.debug_state()
-			ring_clear = float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5
-		card.open(req, actions, at, reselect, dock, ring_clear)
+		##
+		## Overlap follow-up, same review (`OUTSTANDING_WORK.md`: "the context
+		## card can overlap an open sub-ring"): a sub-ring re-centres on its own
+		## parent slot (`radial_ring.gd::_open_sub()`), reaching past this
+		## top-level footprint toward the card -- `_ring_clearance()` below
+		## also reads its live centre-x and `radius + slot * 0.5` whenever one
+		## is open, so the card can be opened with a sub-ring already showing.
+		## The sub-ring can also open LATER, after this card is already on
+		## screen (a hold-then-drag-to-a-children-slot never reopens the card) --
+		## `_sync_card_ring_clear()` is what reacts to that; it is called from
+		## every ring path that can call `radial_ring.gd::_open_sub()`
+		## (`ring_release()`, `ring_click()`, `ring_key_release()`), not from
+		## here.
+		var cc := _ring_clearance()
+		card.open(req, actions, at, reselect, dock,
+			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
 		return
 	_present_phone(req, actions)
 
@@ -373,6 +384,41 @@ func _on_id(id: int) -> void:
 ## (§6's flick/hold/sticky table) inside `radial_ring.gd`'s own state machine,
 ## reachable from exactly one file, rather than re-derived at each call site.
 
+## The card's own obstacle geometry to clear, read off the ring's LIVE state
+## (never a re-declared constant, `MISTAKES.md`'s preflight rule) -- `{}`'s
+## worth of zeros when no ring is open, so `present()`'s plain-click path is
+## unaffected. `sub_x`/`sub_clear` stay 0.0 unless a sub-ring is ALSO open
+## (`debug_state()`'s own `sub_open`); `context_card.gd::_target_rect()`'s own
+## doc has the "x-range clears both obstacles' shapes" proof this feeds.
+func _ring_clearance() -> Dictionary:
+	if ring == null or not ring.is_open():
+		return {"ring_clear": 0.0, "sub_x": 0.0, "sub_clear": 0.0}
+	var rs := ring.debug_state()
+	var out := {
+		"ring_clear": float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5,
+		"sub_x": 0.0, "sub_clear": 0.0,
+	}
+	if bool(rs.get("sub_open", false)):
+		var sc: Vector2 = rs.get("sub_centre", Vector2.ZERO)
+		out["sub_x"] = sc.x
+		out["sub_clear"] = float(rs.get("sub_radius", 0.0)) + float(rs.get("sub_slot_size", 0.0)) * 0.5
+	return out
+
+
+## Called from every ring path that can reach `radial_ring.gd::_open_sub()`
+## (`release()`, via `ring_release()`/`ring_click()`; `q_release()`, via
+## `ring_key_release()`) -- the only transition the card needs to react to
+## once it is already open (`radial_ring.gd` never closes a sub-ring without
+## closing the whole ring, so there is no "sub closed, ring still open" case).
+## A no-op when the card is not showing, or when nothing actually changed
+## (`context_card.gd::set_ring_clear()`'s own early return).
+func _sync_card_ring_clear() -> void:
+	if card == null or not card.visible:
+		return
+	var cc := _ring_clearance()
+	card.set_ring_clear(float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
+
+
 func _ensure_ring() -> RadialRing:
 	if ring == null:
 		ring = RadialRing.new()
@@ -427,6 +473,11 @@ func ring_release() -> bool:
 		return false
 	var was_open := ring.is_open()
 	var cb: Callable = ring.release()
+	## `ring.release()` is one of the two paths that can call `radial_ring.gd::
+	## _open_sub()` (a `children` slot's release opens a sub-ring rather than
+	## returning a valid `cb`) -- sync unconditionally, not only in the
+	## `cb.is_valid()` branch below.
+	_sync_card_ring_clear()
 	if cb.is_valid():
 		cb.call()
 	return was_open
@@ -440,6 +491,9 @@ func ring_click(local_pos: Vector2) -> bool:
 		return false
 	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
 	var cb: Callable = ring.click_at(at)
+	## `click_at()` re-aims and calls `release()` -- the same `_open_sub()` path
+	## as `ring_release()` above, same unconditional sync.
+	_sync_card_ring_clear()
 	if cb.is_valid():
 		cb.call()
 	return true
@@ -472,6 +526,9 @@ func ring_key_release() -> bool:
 	if ring == null:
 		return false
 	var cb: Callable = ring.q_release()
+	## `q_release()` calls `release()` -- the same `_open_sub()` path, same
+	## unconditional sync, before either return below.
+	_sync_card_ring_clear()
 	if cb.is_valid():
 		cb.call()
 		return true

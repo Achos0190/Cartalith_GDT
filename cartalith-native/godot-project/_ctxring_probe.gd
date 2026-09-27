@@ -146,6 +146,37 @@ func _card_overlaps_ring(rect: Rect2) -> bool:
 	return false
 
 
+## Leg O's own follow-up (coordinator review, 2026-09-27, "the context card
+## can overlap an open sub-ring"): the sub-ring's own live slot rects, off
+## `debug_state()`'s `sub_centre`/`sub_radius`/`sub_slot_size`/`sub_count` --
+## `[]` when no sub-ring is open, same shape as `_ring_slot_rects()` but at
+## `_open_sub()`'s own angle formula (`-90 + 360*i/n`, straight up for item 0),
+## reproduced here rather than imported, same reason the main-ring angles are.
+func _sub_slot_rects() -> Array[Rect2]:
+	var st := _ring_state()
+	if not bool(st.get("sub_open", false)):
+		return []
+	var c: Vector2 = st.get("sub_centre", Vector2.ZERO)
+	var radius: float = st.get("sub_radius", 0.0)
+	var slot: float = st.get("sub_slot_size", 0.0)
+	var n: int = int(st.get("sub_count", 0))
+	var out: Array[Rect2] = []
+	for i in n:
+		var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
+		var p: Vector2 = c + Vector2(cos(ang), sin(ang)) * radius
+		out.append(Rect2(p - Vector2.ONE * slot * 0.5, Vector2.ONE * slot))
+	return out
+
+
+func _card_overlaps_sub(rect: Rect2) -> bool:
+	var slots := _sub_slot_rects()
+	for i in slots.size():
+		if rect.intersects(slots[i]):
+			print("O sub-overlap: card=%s hits sub slot #%d=%s" % [rect, i, slots[i]])
+			return true
+	return false
+
+
 func _card_open() -> bool:
 	var c = _card()
 	return c != null and c.visible
@@ -403,6 +434,52 @@ func _run() -> void:
 	_ok("H releasing in the dead zone leaves the ring open (sticky)", _ring_state().get("active", false), true)
 	await _ring_close()
 	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- O (sub-ring follow-up): a sub-ring opened WHILE the card is already
+	# showing must not overlap it either -- the defect the "context card can
+	# overlap an open sub-ring" backlog row named: a sub-ring re-centres on
+	# its own parent slot (`radial_ring.gd::_open_sub()`), reaching past the
+	# top-level ring's own footprint the plain `H`/`O` check above covers.
+	# Exercised on every WORLD direction with a `children` slot (`D`'s own
+	# table above: NW=Uplift, E=Measure) so this is not a single-direction
+	# coincidence, and in both orders the sub can appear relative to an
+	# already-open card: opened AFTER the card (still-hold, then drag onto
+	# the slot and release) and opened BEFORE the card would exist at all
+	# were it not for `present()`'s own live re-check on open.
+	for sub_dir in ["NW", "E"]:
+		app.select_domain("world")
+		await _frames(4)
+		app.arm_tool("inspect")
+		await _frames(2)
+		_rmb_press(ov, centre)
+		await get_tree().create_timer(0.35).timeout
+		await _frames(2)
+		_ok("O %s: still hold opened the ring" % sub_dir, _ring_state().get("visible", false), true)
+		_ok("O %s: the card opened alongside it" % sub_dir, _card_open(), true)
+		var r_sub: float = _ring_state().get("radius", 0.0)
+		var sub_dir_pos := centre + _dir_vec(sub_dir) * r_sub
+		_move(ov, sub_dir_pos, MOUSE_BUTTON_MASK_RIGHT)
+		await _frames(2)
+		_ok("O %s: hovering the children slot" % sub_dir, _ring_state().get("hover", ""), sub_dir)
+		_rmb_release(ov, sub_dir_pos)
+		await _frames(4)
+		_ok("O %s: release opened its sub-ring" % sub_dir, _ring_state().get("sub_open", false), true)
+		_ok("O %s: nothing armed yet (a children slot only opens a sub-ring)" % sub_dir,
+			app.armed_tool, "inspect")
+		var card_node_o = _card()
+		_ok("O %s: the card still does not overlap the MAIN ring's slots" % sub_dir,
+			_card_overlaps_ring(card_node_o.panel_rect()) if card_node_o != null else true, false)
+		_ok("O %s: the card does not overlap the SUB-ring's own slots" % sub_dir,
+			_card_overlaps_sub(card_node_o.panel_rect()) if card_node_o != null else true, false)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		_vp.get_texture().get_image().save_png("res://_ctxring_sub_%s.png" % sub_dir)
+		await _ring_close()
+		await _card_close()
+		app.arm_tool("inspect")
+		await _frames(2)
 
 	# -- Q: tap leaves it open sticky; hold picks the aimed slot -----------------
 	_move(ov, centre)
