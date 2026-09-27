@@ -365,6 +365,87 @@ impl WorldGen {
         }
         vdict! { "ok" => true, "reason" => "", "forced" => forced, "lake_cells" => lake_cells }
     }
+
+    /// GF-7's stage-06 readout (`GEOLOGY_FIRST_SCOPE.md` §4.12 "The UI"): the
+    /// effective counts the world's processes would run at geological age
+    /// `tau`, from the live parameters, and whether the clock acts at all.
+    /// See [`geo_clock_readout_parts`] for the keys and the wording.
+    ///
+    /// Why it lives here: this file is the erosion ops' own bridge, and the
+    /// GUI must ask the engine's one copy of the count laws
+    /// (`cartalith_engine::geo_clock`) rather than re-derive them in GDScript.
+    /// Read-only: it never writes a parameter or regenerates.
+    #[func]
+    fn geo_clock_readout(&self, tau: f64) -> VarDictionary {
+        let (active, counts, reason) = geo_clock_readout_parts(&self.params, tau);
+        vdict! { "active" => active, "counts" => counts.as_str(), "reason" => reason }
+    }
+}
+
+/// The reason the geological-age row is inert while the processes are off.
+/// One copy, read by the GUI through [`WorldGen::geo_clock_readout`].
+pub(crate) const GEO_CLOCK_INERT_REASON: &str = "Inert in this build: geological age scales only the landform processes that read the rock column, and those are off in the app (GEOLOGY_FIRST_SCOPE.md §5.6, pending their bars). Moving it changes nothing until they are turned on.";
+
+/// `(active, counts, reason)` for the stage-06 readout.
+///
+/// - `active`: whether the clock acts on this world (`geology_model` and
+///   `geology_processes` both on, the engine's own gate).
+/// - `counts`: the counts at `tau` **as the clock would run them once
+///   active** (with the gate forced on), one clause per process that runs,
+///   a floored count marked "(floor)" (§4.12: "the clamp is not hidden").
+///   The glacial, coastal and sediment-fill clauses appear only when their
+///   pass is on, since a count for a pass that does not run says nothing.
+///   The weathered mantle is **not** listed: §4.12's mantle term is unwired
+///   (`cartalith_engine::geo_clock::mantle_thickness_m`'s doc), and a
+///   readout must not show a thickness no world has.
+/// - `reason`: empty when active; [`GEO_CLOCK_INERT_REASON`] otherwise.
+///
+/// Must never report counts for a gate state the engine does not use: it
+/// derives both from `cartalith_engine::geo_clock::effective_counts`.
+pub(crate) fn geo_clock_readout_parts(p: &cartalith_engine::WorldParams, tau: f64) -> (bool, String, &'static str) {
+    use cartalith_engine::geo_clock::{effective_counts, Count};
+    let active = effective_counts(p, tau).active;
+    let forced = WorldParams { geology_model: true, geology_processes: true, ..p.clone() };
+    let c = effective_counts(&forced, tau);
+    let show = |n: Count, unit: &str| format!("{} {unit}{}", n.n, if n.floored { " (floor)" } else { "" });
+    let mut parts = vec![format!("stream power {}", show(c.stream_power, "it")), format!("hillslope {}", show(c.hillslope, "passes"))];
+    if p.passes.glacial {
+        parts.push(format!("glacial {}", show(c.glacial, "passes")));
+    }
+    if p.passes.coastal {
+        parts.push(format!("coastal {}", show(c.coastal, "passes")));
+    }
+    if p.passes.sediment_fill {
+        parts.push(format!("sediment fill {}", show(c.sediment_fill, "it")));
+    }
+    (active, parts.join(" \u{b7} "), if active { "" } else { GEO_CLOCK_INERT_REASON })
+}
+
+#[cfg(test)]
+mod geo_clock_readout_tests {
+    use super::{geo_clock_readout_parts, GEO_CLOCK_INERT_REASON};
+
+    /// Protects GF-7's readout (§4.12 "The UI") on the app's own parameters:
+    /// inert with its reason while `geology_processes` is off (the app
+    /// today), the would-be counts still shown so the slider says what it
+    /// will do, glacial listed because the app runs that pass and coastal not
+    /// because it does not, and a floor marked. Literal strings, so a changed
+    /// count law or a dropped clause turns this red.
+    #[test]
+    fn readout_on_the_app_parameters() {
+        let mut p = crate::params::defaults();
+        let (active, counts, reason) = geo_clock_readout_parts(&p, 4.0);
+        assert!(!active);
+        assert_eq!(reason, GEO_CLOCK_INERT_REASON);
+        assert_eq!(counts, "stream power 36 it \u{b7} hillslope 32 passes \u{b7} glacial 18 passes");
+        p.geology_processes = true;
+        let (active, counts, reason) = geo_clock_readout_parts(&p, 0.25);
+        assert!(active);
+        assert_eq!(reason, "");
+        assert_eq!(counts, "stream power 4 it (floor) \u{b7} hillslope 2 passes \u{b7} glacial 2 passes");
+        let (_, counts, _) = geo_clock_readout_parts(&p, 1.0);
+        assert_eq!(counts, "stream power 9 it \u{b7} hillslope 8 passes \u{b7} glacial 8 passes");
+    }
 }
 
 #[cfg(test)]

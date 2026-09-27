@@ -389,6 +389,7 @@ third decomposition of ten *dialogs*. None of the three partition identically.
 | 05 — provinces on | §5.1 | `volcProv` | `volc.provinces` (bool) | wired | Proxied onto the New World checkbox. |
 | 05 — craters 100 | §5.1 | `crat` | `crater.count` (0–200, step 2) | wired | |
 | — 05, engine-only: crater age 0.50 | §5.1 | `crata` | `crater.age` (0–1) | wired | Real, exposed, absent from the spec. |
+| **06 Erosion** — `geological age ×1.00` (GF-7) | `GEOLOGY_FIRST_SCOPE.md` §4.12 (not in the DCC spec; derived from §5.1's "drift ×1.00" form) | — (the reference has no clock) | `geo.age` (0.25–4.00, step 0.05) | wired, inert in the app | Scales pass and iteration counts, never rates, and only with `geology_processes` on, which is off in the app, so the row is drawn dimmed with its reason and a readout of the counts it would run (`world_workspace.gd` `_refresh_geo_age_row`, `WorldGen.geo_clock_readout`). Added 2026-09-27. |
 | **06 Erosion** — stream-power | §5.1 | `sUp`, `sK`, `sIt`, `sDep`, `sClim` | `stream.{uplift,k,iters,deposit,climate_k}` | wired | The only erosion pass this engine runs, at `max(4, round(iters·0.6))` iterations inside `generate()`. |
 | 06 — droplet hydraulic | §5.1 | `drops`, `estr`, `edep`, `ethr`, `etal` | **none** | engine gap | Unported. A separate *manual* op in the reference. Five parameters. |
 | 06 — hillslope diffuse | §5.1 | `edD`, `edPas` | **none** | engine gap | Unported. Manual op. |

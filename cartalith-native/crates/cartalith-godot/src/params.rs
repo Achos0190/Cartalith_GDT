@@ -179,8 +179,10 @@ pub fn defaults() -> WorldParams {
     // deposition becomes regolith) stay OFF in the app for now: measured, B1
     // and B2 did not move and B8's small lakes rose past their bar on two of
     // five seeds (`GEOLOGY_FIRST_SCOPE.md` §5.6; coordinator decision
-    // 2026-09-27). GF-3 and GF-7 re-measure with it on. Written out, though
-    // it equals `WorldParams::defaults`, so the decision is visible here.
+    // 2026-09-27). GF-3 re-measured with it on (§5.7), and GF-7's clock sweep
+    // (§5.8) found no geological age that passes B1, B2 or B4, with B8 failing
+    // above age 1. Written out, though it equals `WorldParams::defaults`, so
+    // the decision is visible here. It also gates the clock (`geo.age`).
     p.geology_processes = false;
     p
 }
@@ -361,6 +363,16 @@ pub const PARAMS: &[ParamSpec] = &[
         get_fn: |p| Value::Num(p.crater.surface_age_myr), set_fn: |p, v| p.crater.surface_age_myr = v },
 
     // ---- erosion (the stream-power pass carveRiverValleys runs) ----------
+    // GF-7's geological clock (`GEOLOGY_FIRST_SCOPE.md` §4.12, Ruling BJ):
+    // first in the group because it scales every process below ("at the top
+    // of the stage, above the per-process groups"). 1.0 at both boundaries,
+    // which is the identity by control flow, and it acts only with
+    // `geology_processes` on. No reference control: the reference has no
+    // clock. The stage-06 row dims it with its reason while the processes are
+    // off (`world_workspace.gd`), and shows the effective counts beneath it.
+    ParamSpec { key: "geo.age", group: "erosion", kind: Kind::Float, min: 0.25, max: 4.0, step: 0.05,
+        label: "Geological age", unit: "\u{d7}", reference_control: "",
+        get_fn: |p| Value::Num(p.geo_age), set_fn: |p, v| p.geo_age = v },
     ParamSpec { key: "stream.uplift", group: "erosion", kind: Kind::Float, min: 0.0, max: 0.4, step: 0.004,
         label: "Uplift", unit: "", reference_control: "sUp",
         get_fn: |p| Value::Num(p.stream.uplift), set_fn: |p, v| p.stream.uplift = v },
@@ -721,6 +733,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("geology_model", ""),
     // Port-only (GF-2); the reference has no lithology model.
     ("geology_processes", ""),
+    // Port-only (GF-7); the reference has no geological clock.
+    ("geo.age", ""),
     // No reference equivalent: this port's own GPU switch.
     ("use_gpu", ""),
 
@@ -999,6 +1013,10 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // And GF-2's processes, the same way: a save without the key was generated
     // with no process reading rock.
     p.geology_processes = false;
+    // And GF-7's geological age: a save without the key was generated before
+    // the clock, and τ = 1 reproduces exactly those pass counts by control
+    // flow (`GEOLOGY_FIRST_SCOPE.md` §2.6: "Its clock is read as 1.0").
+    p.geo_age = cartalith_engine::geo_clock::GEO_AGE_DEFAULT;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

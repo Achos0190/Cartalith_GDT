@@ -587,6 +587,33 @@ fn a_save_without_the_geology_processes_key_reloads_with_them_off() {
     }
 }
 
+/// GF-7's clock (`GEOLOGY_FIRST_SCOPE.md` §2.6, §4.12): a save without
+/// `geo.age` reloads at 1.0 even when the session held another age -- the
+/// world was generated before the clock, and 1.0 reproduces its counts -- and
+/// a save with it round-trips; the row clamps to 0.25..4.0 like any GUI write.
+/// The session is moved off 1.0 first, so the test could fail.
+#[test]
+fn a_save_without_the_geo_age_key_reloads_at_age_one() {
+    let mut p = params::defaults();
+    p.geo_age = 3.0;
+    params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
+    assert_eq!(p.geo_age, 1.0, "a save without the key predates the clock");
+    for age in [0.25, 2.35, 4.0] {
+        let mut src = params::defaults();
+        src.geo_age = age;
+        let state = params::save_state(&src);
+        assert_eq!(state[params::NATIVE_PARAMS_KEY]["geo.age"], serde_json::json!(age));
+        let mut back = params::defaults();
+        params::apply_saved_state(&mut back, &state);
+        assert_eq!(back.geo_age, age);
+    }
+    let mut q = params::defaults();
+    assert_eq!(params::set(&mut q, "geo.age", Value::Num(9.0)), Outcome::Clamped);
+    assert_eq!(q.geo_age, 4.0);
+    assert_eq!(params::set(&mut q, "geo.age", Value::Num(0.1)), Outcome::Clamped);
+    assert_eq!(q.geo_age, 0.25);
+}
+
 /// The glacial default is not a dead flag: at the shipped defaults it carves
 /// the world. Same guard as the volcanism test below, for the one divergence
 /// that test leaves on in both worlds.
@@ -686,6 +713,9 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     // GF-2's processes are NOT a divergence yet: off at both boundaries until
     // GEOLOGY_FIRST_SCOPE.md §5.6's bars pass.
     assert!(!app.geology_processes && !parity.geology_processes, "GF-2 processes stay off in the app (§5.6)");
+    // GF-7's clock is not a divergence either: the identity age at both ends
+    // (GEOLOGY_FIRST_SCOPE.md §4.12). A literal, not the constant.
+    assert!(app.geo_age == 1.0 && parity.geo_age == 1.0, "geological age defaults to 1.0 at both boundaries");
 
     // And nothing else. Neutralising the seven must make the two identical --
     // which catches a seventh divergence added without a ruling, in either

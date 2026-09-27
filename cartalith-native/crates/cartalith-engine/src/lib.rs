@@ -155,6 +155,12 @@ pub mod elevation;
 /// `cartalith-godot`'s `render::bake_rect`.
 pub mod channel_atlas;
 
+/// GF-7's geological clock (`GEOLOGY_FIRST_SCOPE.md` §4.12, Ruling BJ): the
+/// response laws and the effective pass/iteration counts for
+/// [`WorldParams::geo_age`]. Scales nothing unless `geology_processes` is on
+/// and τ ≠ 1; see the module's own doc for what it must never do.
+pub mod geo_clock;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
@@ -760,13 +766,27 @@ pub struct WorldParams {
     /// Since GF-3 it also runs the threshold hillslope stage (§4.3,
     /// `cartalith_erosion::threshold_hillslope`). Measured with both on
     /// (§5.7): B8 passes on all fifteen worlds, B1 and B2 still do not move.
-    /// It stays off until the main loop decides on that measurement and GF-7
-    /// (the clock) re-measures B1 and B2. Must never be turned on in
+    /// Since GF-7 it also gates the geological clock ([`Self::geo_age`]); the
+    /// clock's sweep (§5.8) found no age at which B1, B2 or B4 pass, and B8
+    /// failing at every age above 1. It stays off until the main loop decides
+    /// on that measurement. Must never be turned on in
     /// `cartalith_godot::params::defaults()` without that decision.
     ///
     /// A save without the key reloads with it off (`params::apply_saved_state`),
     /// as `geology_model` does.
     pub geology_processes: bool,
+    /// GF-7's geological age τ (`GEOLOGY_FIRST_SCOPE.md` §4.12, Ruling BJ):
+    /// how long the landform processes have run, relative to a default world.
+    /// Dimensionless, 0.25 to 4.0; it scales pass and iteration counts
+    /// ([`geo_clock::GeoClock`]), never rate constants.
+    ///
+    /// **1.0 at both boundaries, and not a divergence**: at 1.0 every count is
+    /// today's expression by control flow, and the clock acts only with
+    /// [`Self::geology_processes`] on, so neither boundary's output moves.
+    /// A save without the key reloads at 1.0, which is exactly the age an
+    /// older world was generated at (§2.6). Must never scale anything while
+    /// `geology_processes` is off.
+    pub geo_age: f64,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -821,6 +841,8 @@ impl WorldParams {
             // Off: the parity baseline, and off in the app too until §5.6's
             // bars pass (the field's doc comment).
             geology_processes: false,
+            // GF-7 (§4.12): the identity age; see the field's doc comment.
+            geo_age: geo_clock::GEO_AGE_DEFAULT,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -1374,6 +1396,10 @@ struct RockContext {
     contrast: f64,
     /// §2.5's `R_EXPOSE` (5 m) in normalised units for this world.
     r_expose: f32,
+    /// GF-7's clock (§4.12), built with the same `on` as this context, so it
+    /// scales nothing while the processes are gated off. Every count call
+    /// site reads it; at τ = 1 each returns today's expression.
+    clock: geo_clock::GeoClock,
 }
 
 impl RockContext {
@@ -1427,7 +1453,8 @@ impl RockContext {
 
     /// GF-3 (`GEOLOGY_FIRST_SCOPE.md` §4.3, §3.1): the threshold hillslope
     /// stage, `cartalith_erosion::threshold_hillslope` for
-    /// `THRESHOLD_HILLSLOPE_PASSES` passes, then §4.9's caller-side regolith
+    /// `THRESHOLD_HILLSLOPE_PASSES` passes (scaled linearly by GF-7's clock
+    /// when it acts, §4.12), then §4.9's caller-side regolith
     /// rule on the stage's net change: the talus a cell receives becomes
     /// regolith (§4.3: "the moved mass becomes regolith where it lands"), and
     /// what it sheds strips its regolith before its bedrock.
@@ -1463,7 +1490,7 @@ impl RockContext {
             field,
             gw,
             gh,
-            cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES,
+            self.clock.hillslope_passes(cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES).n,
             world,
             &cartalith_erosion::ThresholdHillslope {
                 column: &*column,
@@ -2048,10 +2075,14 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // whenever the column is absent (`geology_model` off: the parity path) or
     // `geology_processes` is off (the app today, §5.6) -- and then every call
     // below is the legacy statement, verbatim.
+    let rock_on = p.geology_processes && geology.column().is_some();
     let rock = RockContext {
-        on: p.geology_processes && geology.column().is_some(),
+        on: rock_on,
         contrast: p.tect.resist,
         r_expose: cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea_level, p.peak_m) as f32,
+        // GF-7 (§4.12): the clock shares the rock gate, so with the processes
+        // off (the app today) or at τ = 1 every count below is today's.
+        clock: geo_clock::GeoClock::new(rock_on, p.geo_age),
     };
 
     // ---- natural order: structural drainage -> climate -> discharge-
@@ -2246,7 +2277,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // JS computed above; refreshClimate() doesn't run again until
         // step (3), exactly matching the reference's own read order.
         let pre = field.clone();
-        let light_iters = (js_round(p.stream.iters as f64 * 0.6) as i32).max(4);
+        // `max(4, round(iters·0.6))` today; GF-7's clock scales it by τ
+        // (linear, §4.12) only with the processes on and τ ≠ 1.
+        let light_iters = rock.clock.light_pass_iters(p.stream.iters).n;
         let stream_params = StreamPowerParams {
             k: p.stream.k,
             uplift: p.stream.uplift,
@@ -2538,7 +2571,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     mg: q.glacial_mg,
                     snowline: q.glacial_snowline,
                     u_factor: q.glacial_u_factor,
-                    passes: q.glacial_passes,
+                    // Saturating in τ when GF-7's clock acts (§4.12).
+                    passes: rock.clock.glacial_passes(q.glacial_passes).n,
                     g: p.planet.g,
                     sea: sea_level,
                     world,
@@ -2567,7 +2601,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                     wave_str: q.wave_str,
                     estuary_depth: q.estuary_depth,
                     marsh_band: q.marsh_band,
-                    passes: q.coastal_passes,
+                    // Saturating in τ when GF-7's clock acts (§4.12). The
+                    // pass reads no rock until GF-4; the count is scaled now
+                    // because cliff retreat's duration is independent of that.
+                    passes: rock.clock.coastal_passes(q.coastal_passes).n,
                 },
             );
         }
@@ -2594,8 +2631,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 uplift: p.stream.uplift,
                 deposit: p.stream.deposit,
                 climate_k: p.stream.climate_k,
-                // evolveCoupled's own `Math.max(4,Math.round(iters*0.6))`.
-                iters: (js_round(p.stream.iters as f64 * 0.6) as i32).max(4),
+                // evolveCoupled's own `Math.max(4,Math.round(iters*0.6))`,
+                // scaled by GF-7's clock only when it acts (§4.12).
+                iters: rock.clock.light_pass_iters(p.stream.iters).n,
                 resist: p.tect.resist,
                 g: p.planet.g,
                 world,
@@ -2625,7 +2663,9 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 uplift: p.stream.uplift,
                 deposit: p.stream.deposit,
                 climate_k: p.stream.climate_k,
-                iters: p.stream.iters,
+                // `iters` today; `max(4, round(iters·τ))` when GF-7's clock
+                // acts (§4.12).
+                iters: rock.clock.sediment_fill_iters(p.stream.iters).n,
                 resist: p.tect.resist,
                 g: p.planet.g,
                 world,
@@ -2933,7 +2973,7 @@ mod tests {
     #[test]
     fn gf3_threshold_stage_off_touches_nothing() {
         let (mut geo, mut f) = gf3_row();
-        let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001 };
+        let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(false, 1.0) };
         // 390.625 m cells: with the stage on, this step would shed (the next
         // test), so "untouched" here is the gate's doing, not the geometry's.
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
@@ -2950,7 +2990,7 @@ mod tests {
     #[test]
     fn gf3_threshold_stage_on_relaxes_and_records_talus_as_regolith() {
         let (mut geo, mut f) = gf3_row();
-        let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0 };
+        let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0) };
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0, 0.42, 4000.0);
         let t = cartalith_erosion::critical_talus(30.0, 800_000.0 / 2.0, 0.42, 4000.0);
         // Two cells over 800 km: 400 km cells, so t is huge and nothing sheds.
@@ -2987,12 +3027,38 @@ mod tests {
             };
             let mut geo = Geology::Column(Box::new(col));
             let mut f = vec![0.5f32, 0.5, 0.6];
-            let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0 };
+            let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0) };
             rock.threshold_hillslope(&mut geo, &mut f, 3, 1, world, 3.0 * 390.625 / 1000.0, 0.42, 4000.0);
             f
         };
         let (open, wrapped) = (run(false), run(true));
         assert!(wrapped[0] > open[0], "the 2 -> 0 wrap neighbour must receive talus: open {open:?} wrapped {wrapped:?}");
+    }
+
+    /// GF-7 (§4.12) reaches the hillslope stage: at τ = 4 the stage runs
+    /// `round(8·4) = 32` passes, leaving `0.75^32 ≈ 1.004e-4` of a lone
+    /// step's excess (arithmetic), against `0.75^8` at τ = 1. And with the
+    /// gate off, τ = 4 is today's 8 passes. Protects the clock's wiring into
+    /// `RockContext::threshold_hillslope`, not just the count function.
+    #[test]
+    fn gf7_clock_scales_the_threshold_stage_only_when_on() {
+        let ratio_at = |on: bool, tau: f64| {
+            let (mut geo, mut f) = gf3_row();
+            let rock = RockContext { on, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(on, tau) };
+            rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
+            let t = cartalith_erosion::critical_talus(30.0, 390.625, 0.42, 4000.0);
+            ((f[0] - f[1]) as f64 - t) / (0.1 - t)
+        };
+        let r4 = ratio_at(true, 4.0);
+        assert!((r4 - 1.004_074_2e-4).abs() < 2e-5, "32 passes leave 0.75^32 of the excess; got {r4}");
+        let r1 = ratio_at(true, 1.0);
+        assert!((r1 - 0.100_112_915_039_062_5).abs() < 1e-4, "tau = 1 is today's 8 passes; got {r1}");
+        // Gate off: the stage does not run at any tau, so the row is untouched
+        // bit for bit (a ratio would read f32 rounding of 0.6 - 0.5).
+        let (mut geo, mut f) = gf3_row();
+        let rock = RockContext { on: false, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(false, 4.0) };
+        rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
+        assert_eq!(f, vec![0.6f32, 0.5]);
     }
 
     /// `ErosionPassParams`' whole contract: **off is bit-identical**. Not a

@@ -603,6 +603,9 @@ func _on_generation_finished(ok: bool) -> void:
 	## property writes per row, no rebuild, and `world_structure.enabled` is
 	## re-read live rather than trusted from any argument here.
 	_refresh_ws_override_rows()
+	## GF-7: `geology_processes` reaches its value only through set_params or a
+	## load, so the geological-age row re-gates here too.
+	_refresh_geo_age_row()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
@@ -622,6 +625,7 @@ func _on_world_loaded() -> void:
 	## real, separate gap this call does not attempt to close; see this file's
 	## `_ws_override_sliders` doc for why only these three are handled here.
 	_refresh_ws_override_rows()
+	_refresh_geo_age_row()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 	_fill_ecology(_ecology_body)
@@ -1927,6 +1931,9 @@ func _on_portrait_changed() -> void:
 		else:
 			_mount_wide(entry)
 	_refresh_ws_override_rows()
+	## GF-7's row can be a tablet reflow entry too; re-dim whichever shape is
+	## mounted now.
+	_refresh_geo_age_row()
 	for nl in _stage_name_labels:
 		var lbl := nl as Label
 		if lbl == null:
@@ -2066,6 +2073,78 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 			_wire_row_reset(s, revert, [row_ref["wide"], row_ref["line1"]])
 		else:
 			_wire_row_reset(s, revert)
+	if key == GEO_AGE_KEY:
+		_attach_geo_age_readout(parent, s, row_ref, hint)
+
+## GF-7's geological clock row (`GEOLOGY_FIRST_SCOPE.md` §4.12 "The UI"):
+## `params.rs` puts `geo.age` first in the `erosion` group, so `_build_param_row`
+## draws it at the top of stage 06 like every other row; this adds the two
+## things §4.12 asks for beyond a plain slider -- a readout line of the
+## effective counts underneath, updated as the slider moves, and the row dimmed
+## with its reason while the clock cannot act.
+##
+## The counts and the reason come from the engine
+## (`WorldGen.geo_clock_readout`, `erode_bridge.rs`), never re-derived here, so
+## the count laws have one copy. Why dimmed rather than hidden: the World
+## Structure override rows set this dock's vocabulary for "a real dial that
+## has no effect right now" (`WS_OVERRIDE_REASON`, `WS_OVERRIDE_DIM`), and a
+## hidden row would say nothing about why the scope's control is missing.
+## Must never let the slider be dragged while inert: a drag would mark the
+## world stale and regenerate an identical world.
+const GEO_AGE_KEY := "geo.age"
+## §4.12's tooltip, less its "thicker weathered mantle" clause: the mantle
+## term is unwired (`cartalith_engine::geo_clock::mantle_thickness_m`'s doc),
+## and a tooltip must not promise an effect no world has.
+const GEO_AGE_TOOLTIP := "How long the landscape has been eroding, relative to a default world. Higher is older: deeper valleys, wider bays, deeper glacial troughs. Not in years: the generator has no calibrated time."
+var _geo_age_slider: HSlider = null
+var _geo_age_row = null ## `row_ref`'s shape: a Control, or a tablet reflow entry.
+var _geo_age_note: Label = null
+var _geo_age_base_hint := ""
+
+func _attach_geo_age_readout(parent: Control, s: HSlider, row_ref, base_hint: String) -> void:
+	_geo_age_slider = s
+	_geo_age_row = row_ref
+	_geo_age_base_hint = base_hint
+	_geo_age_note = DccWidgets.note(parent, "")
+	## `value_changed`, not `drag_ended`: §4.12 says the readout "updates as the
+	## slider moves". The call is a read of the live parameters, no recompute.
+	s.value_changed.connect(func(_v: float): _refresh_geo_age_row())
+	_refresh_geo_age_row()
+
+## Re-reads the gate and the counts from the engine. Called at build, on every
+## slider move, and wherever `_refresh_ws_override_rows` re-gates after a
+## generate, a load or a rotation, because `geology_processes` has no row of
+## its own and reaches its value only through those paths.
+func _refresh_geo_age_row() -> void:
+	if _geo_age_slider == null or not is_instance_valid(_geo_age_slider):
+		return
+	var s := _geo_age_slider
+	var wg = bridge.world_gen
+	if wg == null or not wg.has_method("geo_clock_readout"):
+		## An engine build without GF-7: say so rather than show a dial that
+		## pretends to work.
+		s.editable = false
+		if _geo_age_note != null and is_instance_valid(_geo_age_note):
+			_geo_age_note.text = "Unavailable: this engine build has no geological clock."
+		return
+	var r: Dictionary = wg.geo_clock_readout(s.value)
+	var active := bool(r.get("active", false))
+	var counts := String(r.get("counts", ""))
+	var reason := String(r.get("reason", ""))
+	s.editable = active
+	var tip := ("%s %s" % [GEO_AGE_TOOLTIP, _geo_age_base_hint]).strip_edges()
+	if not active:
+		tip = "%s %s" % [reason, tip]
+	s.tooltip_text = tip
+	if _geo_age_note != null and is_instance_valid(_geo_age_note):
+		_geo_age_note.text = counts if active else "%s At ×%.2f it would run: %s." % [reason, s.value, counts]
+	var row: Control = null
+	if _geo_age_row != null:
+		row = _current_row_ctl(_geo_age_row)
+	if row != null and is_instance_valid(row):
+		## Same ratio and reasoning as the World Structure override rows.
+		row.modulate = Color.WHITE if active else Color(1.0, 1.0, 1.0, WS_OVERRIDE_DIM)
+		row.tooltip_text = tip
 
 ## Right-click on a parameter row -> `revert`. Connected to the CONTROL rather
 ## than to the row `HBoxContainer`: `HSlider` and `CheckBox` both default to

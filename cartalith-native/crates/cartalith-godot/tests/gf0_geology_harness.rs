@@ -1581,3 +1581,251 @@ fn gf0_b9_cost() {
         t.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>()
     );
 }
+
+// ===========================================================================
+// GF-7: the geological clock (`GEOLOGY_FIRST_SCOPE.md` §4.12, §5.2 B12)
+// ===========================================================================
+//
+// The sweep §5.7 asked for: with `geology_processes` on, τ ∈ {0.5, 1, 2, 4}
+// (`GF7_AGES` overrides), 800 km, the five seeds, each τ against the same
+// control (the app's own world, processes off, where τ is inert by the gate)
+// and judged on the same pre-erosion rock map as `gf2_arms`.
+//
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf7_clock_sweep
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf7_b9_cost
+
+/// The GF-7 treatment: processes on at geological age `age`.
+fn treated_at(p: &WorldParams, age: f64) -> WorldState {
+    generate_terrain(&WorldParams { geology_processes: true, geo_age: age, ..p.clone() })
+}
+
+/// Measures (never asserts a bar): per τ, B1, B2, B3, B4, B8, B10 against
+/// the control, and B12's three rise-with-τ clauses -- mean incision over the
+/// control's channel cells on the generated worlds, and the glacial and
+/// coastal kernels replayed alone on the control's final surface at the
+/// clock's pass counts (so their saturation is the count law's plus the
+/// kernels' own response, isolated from everything generation does after).
+/// The channel population is the control's, fixed across τ, so it is never
+/// selected by the output under test.
+#[test]
+#[ignore = "GF-7 measurement: tau sweep; many minutes at 2048x1311; run alone in release"]
+fn gf7_clock_sweep() {
+    let (gw, gh) = grid();
+    let seeds = env_list("GF0_SEEDS", &SEEDS);
+    let extents = env_list("GF0_EXTENTS", &[800.0f64]);
+    let ages = env_list("GF7_AGES", &[0.5f64, 1.0, 2.0, 4.0]);
+    println!("GF-7 sweep, grid {gw}x{gh}: control = params::defaults() (processes off); treatment = processes on at each tau");
+    for &km in &extents {
+        for &seed in &seeds {
+            let p = app_params(seed, km, gw, gh);
+            assert!(p.geology_model && !p.geology_processes && p.geo_age == 1.0, "control is the app's world");
+            let world = p.world;
+            let ctrl = generate_terrain(&p);
+            let mut pp = p.clone();
+            pp.carve_rivers = false;
+            pp.passes = cartalith_engine::ErosionPassParams::off();
+            let pre = generate_terrain(&pp);
+            let sea = pre.sea_level;
+            let mpu = p.peak_m / (1.0 - sea);
+            let cell_m = km * 1000.0 / gw as f64;
+            let pre_col = pre.geology.column().expect("column");
+            let s_in = s_of_exposed(pre_col, &pre.field, sea, p.peak_m);
+            let class_c = cartalith_civ::build_water_bodies(&ctrl.field, gw, gh, sea, world, Some(&ctrl.rainfall)).classification;
+            let pop = pop_of(&interior_land(&class_c, gw, gh, world, COAST_MARGIN));
+            let channels: Vec<usize> = ctrl
+                .river_mask
+                .as_ref()
+                .map(|m| (0..gw * gh).filter(|&i| m[i] != 0).collect())
+                .unwrap_or_default();
+            println!("\n==== GF-7 seed {seed}  extent {km} km  (cell {cell_m:.1} m; control channel cells {}) ====", channels.len());
+
+            let relief_c = relief_m(&ctrl.field, gw, gh, world, RELIEF_HALF, mpu);
+            let slope_c = slope_deg(&ctrl.field, gw, gh, world, mpu, cell_m);
+            let c1 = b1(&s_in, &relief_c, &pop).value;
+            let c2 = b2_model(&s_in, &slope_c, &pop).value;
+            let c3 = b3_model(&s_in, &pre.field, &ctrl.field, &pop, mpu).value;
+            let (oc, lc, sc, _) = b8(&ctrl, &class_c, gw, gh, km);
+            let ctrl_col = ctrl.geology.column().expect("column");
+            let (b4c, b4ctop, _) = b4(ctrl_col, &exposed_map(ctrl_col, &ctrl.field, sea, p.peak_m), &slope_c, &class_c, gw, gh, world);
+            println!(
+                "  control      B1 {}  B2 {}  B3 {}  B4 {} top {}  B8 ocean {oc} lake% {} small {sc}",
+                fmt_opt(c1),
+                fmt_opt(c2),
+                fmt_opt(c3),
+                fmt_opt(b4c.value),
+                fmt_opt(b4ctop),
+                fmt_opt(lc)
+            );
+
+            let mut incision = Vec::new();
+            for &age in &ages {
+                let t = treated_at(&p, age);
+                let class_t = cartalith_civ::build_water_bodies(&t.field, gw, gh, sea, world, Some(&t.rainfall)).classification;
+                let relief = relief_m(&t.field, gw, gh, world, RELIEF_HALF, mpu);
+                let slope = slope_deg(&t.field, gw, gh, world, mpu, cell_m);
+                let t1 = b1(&s_in, &relief, &pop).value;
+                let t2 = b2_model(&s_in, &slope, &pop).value;
+                let t3 = b3_model(&s_in, &pre.field, &t.field, &pop, mpu).value;
+                let tcol = t.geology.column().expect("column");
+                let exp = exposed_map(tcol, &t.field, sea, p.peak_m);
+                let (b4t, b4top, _) = b4(tcol, &exp, &slope, &class_t, gw, gh, world);
+                let (ot, lt, st, _) = b8(&t, &class_t, gw, gh, km);
+                let inc = channels.iter().map(|&i| (pre.field[i] as f64 - t.field[i] as f64) * mpu).sum::<f64>()
+                    / channels.len().max(1) as f64;
+                incision.push(inc);
+                let both = |a: Option<f64>, b: Option<f64>| a.zip(b);
+                let v1 = verdict(both(t1, c1).map(|(t, c)| t >= 0.25 && t - c >= 0.15));
+                let v2 = verdict(both(t2, c2).map(|(t, c)| t >= 1.5 && t >= 1.25 * c));
+                let v3 = verdict(both(t3, c3).map(|(t, c)| t >= 2.0 && t >= 1.6 * c));
+                let v4 = verdict(b4t.value.zip(b4top).map(|(r, s)| r >= 2.0 && s >= 0.40));
+                let v8 = verdict(both(lt, lc).map(|(t, c)| ot == 0 && t <= c + 2.0 && (st as f64) <= 1.25 * sc as f64));
+                println!(
+                    "  tau {age:4.2}     B1 {} [{v1}]  B2 {} [{v2}]  B3 {} [{v3}]  B4 {} top {} [{v4}]  B8 ocean {ot} lake% {} small {st} [{v8}]  B12 channel incision {inc:.2} m",
+                    fmt_opt(t1),
+                    fmt_opt(t2),
+                    fmt_opt(t3),
+                    fmt_opt(b4t.value),
+                    fmt_opt(b4top),
+                    fmt_opt(lt)
+                );
+                if km == 800.0 {
+                    let again = treated_at(&p, age);
+                    let ac = again.geology.column().unwrap();
+                    let same = *again.field == *t.field
+                        && again.river_mask == t.river_mask
+                        && tcol.regolith.iter().map(|v| v.to_bits()).eq(ac.regolith.iter().map(|v| v.to_bits()))
+                        && tcol.contact.iter().map(|v| v.to_bits()).eq(ac.contact.iter().map(|v| v.to_bits()));
+                    let land: Vec<usize> = (0..gw * gh).filter(|&i| class_t[i] == 0).collect();
+                    let mut counts = [0usize; cartalith_terrain::geology::ROCK_COUNT];
+                    for &i in &land {
+                        if let Some(c) = counts.get_mut(exp[i] as usize) {
+                            *c += 1;
+                        }
+                    }
+                    let types = counts.iter().filter(|&&c| c > 0).count();
+                    let nl = land.len().max(1) as f64;
+                    let two = land.iter().filter(|&&i| tcol.substrate(i).is_some()).count() as f64 / nl;
+                    let breached =
+                        land.iter().filter(|&&i| tcol.substrate(i).is_some_and(|(r, _)| exp[i] == r as u8)).count() as f64 / nl;
+                    println!(
+                        "               B10 deterministic {same}; rock types {types} [{}]; two-layer share {two:.4} [{}]; substrate exposed {breached:.4}",
+                        verdict(Some(types >= 4)),
+                        verdict(Some(two >= 0.05))
+                    );
+                    assert!(same, "tau {age} is not deterministic on seed {seed}");
+                }
+            }
+            let rising = incision.windows(2).all(|w| w[1] > w[0]);
+            println!("  B12 channel incision rises strictly with tau: {}", verdict(Some(rising)));
+
+            // B12 glacial and coastal: the kernels alone, on the control's
+            // final surface, at the clock's counts for each tau.
+            let q = &p.passes;
+            let land0: Vec<usize> = (0..gw * gh).filter(|&i| ctrl.field[i] as f64 > sea).collect();
+            let (mut glac, mut coast) = (Vec::new(), Vec::new());
+            for &age in &ages {
+                let clock = cartalith_engine::geo_clock::GeoClock::new(true, age);
+                let mut g = ctrl.field.to_vec();
+                cartalith_erosion::glacial_kernel(
+                    &mut g,
+                    &ctrl.temperature,
+                    gw,
+                    gh,
+                    &cartalith_erosion::GlacialParams {
+                        kg: q.glacial_kg,
+                        mg: q.glacial_mg,
+                        snowline: q.glacial_snowline,
+                        u_factor: q.glacial_u_factor,
+                        passes: clock.glacial_passes(q.glacial_passes).n,
+                        g: p.planet.g,
+                        sea,
+                        world,
+                    },
+                );
+                let gl = land0.iter().map(|&i| (ctrl.field[i] as f64 - g[i] as f64) * mpu).sum::<f64>() / land0.len().max(1) as f64;
+                let mut c = ctrl.field.to_vec();
+                cartalith_erosion::coastal_process(
+                    &mut c,
+                    &ctrl.flow_discharge,
+                    gw,
+                    gh,
+                    sea,
+                    world,
+                    p.planet.g,
+                    &cartalith_erosion::CoastalParams {
+                        wave_str: q.wave_str,
+                        estuary_depth: q.estuary_depth,
+                        marsh_band: q.marsh_band,
+                        passes: clock.coastal_passes(q.coastal_passes).n,
+                    },
+                );
+                let lost = land0.iter().filter(|&&i| c[i] as f64 <= sea).count();
+                println!(
+                    "  B12 tau {age:4.2}: glacial passes {} mean land lowering {gl:.4} m; coastal passes {} land cells lost {lost}",
+                    clock.glacial_passes(q.glacial_passes).n,
+                    clock.coastal_passes(q.coastal_passes).n
+                );
+                glac.push((age, gl));
+                coast.push((age, lost as f64));
+            }
+            let sat = |v: &[(f64, f64)]| {
+                let rises = v.windows(2).all(|w| w[1].1 > w[0].1);
+                let a2 = v.iter().find(|x| x.0 == 2.0).map(|x| x.1);
+                let a4 = v.iter().find(|x| x.0 == 4.0).map(|x| x.1);
+                (rises, a2.zip(a4).filter(|(a, _)| *a > 0.0).map(|(a, b)| b / a))
+            };
+            let (gr, gu) = sat(&glac);
+            let (cr, cu) = sat(&coast);
+            println!(
+                "  B12 glacial rises [{}]; 2->4 ratio {} (< 2: {})   coastal rises [{}]; 2->4 ratio {} (< 2: {})",
+                verdict(Some(gr)),
+                fmt_opt(gu),
+                verdict(gu.map(|r| r < 2.0)),
+                verdict(Some(cr)),
+                fmt_opt(cu),
+                verdict(cu.map(|r| r < 2.0))
+            );
+        }
+    }
+}
+
+/// B9 for GF-7: the control against the treatment at each τ, alternating in
+/// one process, one untimed warm-up each. Disclosed, not gated, except at
+/// τ = 1, which is B9's own bar (§4.12 "Cost").
+#[test]
+#[ignore = "GF-7 B9: timing; run ALONE in release"]
+fn gf7_b9_cost() {
+    let (gw, gh) = grid();
+    let seed = env_list("GF0_SEEDS", &SEEDS)[0];
+    let ages = env_list("GF7_AGES", &[0.5f64, 1.0, 2.0, 4.0]);
+    let runs: usize = std::env::var("GF7_RUNS").ok().and_then(|v| v.parse().ok()).unwrap_or(5);
+    let p = app_params(seed, 800.0, gw, gh);
+    let _ = generate_terrain(&p);
+    for &a in &ages {
+        let _ = treated_at(&p, a);
+    }
+    let mut tc = Vec::new();
+    let mut tt = vec![Vec::new(); ages.len()];
+    for _ in 0..runs {
+        let t0 = std::time::Instant::now();
+        let _ = generate_terrain(&p);
+        tc.push(t0.elapsed().as_secs_f64());
+        for (k, &a) in ages.iter().enumerate() {
+            let t0 = std::time::Instant::now();
+            let _ = treated_at(&p, a);
+            tt[k].push(t0.elapsed().as_secs_f64());
+        }
+    }
+    let stat = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let (mc, lc, hc) = stat(&tc);
+    println!("GF-7 B9 seed {seed} 800 km {gw}x{gh}, {runs} alternating runs each");
+    println!("  control        median {mc:.3} s ({lc:.3} .. {hc:.3})");
+    for (k, &a) in ages.iter().enumerate() {
+        let (m, l, h) = stat(&tt[k]);
+        println!("  tau {a:4.2}       median {m:.3} s ({l:.3} .. {h:.3}); ratio of medians {:.3}", m / mc);
+    }
+}

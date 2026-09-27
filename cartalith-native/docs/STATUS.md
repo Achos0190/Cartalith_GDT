@@ -580,6 +580,46 @@ re-checked against the tree rather than copied from the commit message.
     tests, literal values), three engine unit tests, and `geology_gf2.rs`'s
     light-pass replay extended to the stage. 20 mutants, run in a scratch
     copy: all 20 killed, four of them after tests were added.
+- **GF-7 built: the geological clock, behind the same gate and inert in the
+  app — verified by the main loop 2026-09-27 (geology_gf7 4/0, geo_clock 6/0, params_mapping 36/0, gf0 controls 4/0 re-run; world_workspace.gd parse-checked; staged tree built alone in a worktree). The stage-06 row is not yet seen in a running shell.** It is
+  `cartalith_engine::geo_clock`, with `WorldParams::geo_age` (τ, 0.25–4, 1.0 at
+  both boundaries) and a `geo.age` `PARAMS`/`JS_PATHS` row; a save without the
+  key reloads at 1.0. It scales pass and iteration counts only: linear for
+  stream power (light pass, evolve, sediment fill) and the threshold
+  hillslope; saturating (`k = 0.5`) for glacial and coastal. It acts only with
+  `geology_model` **and** `geology_processes` on and τ ≠ 1; otherwise every
+  call site runs today's expression. The weathered-mantle law is built and
+  tested but **not wired**: §4.12 anchors it at 2 m at τ = 1, which contradicts
+  its own τ = 1 identity, so that needs an owner call. There is no karst hook
+  before GF-5. The app-default, processes-on-at-τ-1, parity and
+  every-clocked-site worlds hash bit-identical to HEAD `ec4e078`: 102 of 102
+  arrays, two seeds. See `GEOLOGY_FIRST_SCOPE.md` §5.8.
+  - **Sweep with the switch on (800 km, five seeds, τ 0.5 / 1 / 2 / 4):**
+    - **No τ passes B1, B2 or B4.** B1 and B2 move by at most 0.013 and 0.002
+      across τ, and B4 does not rise with τ.
+    - **B8 fails at every τ above 1**: at τ = 2 the 1–3-cell lakes are
+      1.9–2.7× the control's, and at τ = 4 they are 4.2–7.7×. It passes at 0.5
+      and 1.
+    - B3 and B10 pass at τ ≥ 1. Glacial and coastal output rise with τ and
+      saturate. Incision over a fixed channel set does not rise.
+    - **Recommendation:** the default stays 1.0, and `geology_processes`
+      should stay off. The limit is that the kernel alone lowers land by
+      metres even at 36 iterations, and isostatic rebound returns 78–93 % of
+      that.
+    - **B9:** 1.08× at τ = 1, 1.32× at τ = 2 and 1.82× at τ = 4. The cost is
+      disclosed, not gated.
+    - **Screenshots** (τ 1 against 4, windowed, two seeds): channels, small
+      lakes, volcano flanks and coastlines change. **Relief does not visibly
+      track rock.**
+  - **UI:** stage 06 gets `geological age ×` at the top of its erosion group,
+    with a readout of the effective counts from `WorldGen.geo_clock_readout`
+    (`erode_bridge.rs`). While the processes are off the row is dimmed and
+    non-editable, with its reason. `DCC_CONTROL_INDEX.md` has its row. Parse-checked; **not yet seen rendered in the shell** (§5.8).
+  - **Tests:** 6 `geo_clock` unit tests with literal laws and counts; 1 engine
+    unit test; `tests/geology_gf7.rs` (4 tests, including one that every
+    clocked call site runs the clock's count); `params_mapping.rs` and
+    `erode_bridge.rs` additions. Mutation testing ran in a scratch copy:
+    31 of 31 mutants killed, one of them after a test was added.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s

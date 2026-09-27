@@ -1709,6 +1709,237 @@ survived the first round and were killed after tests were added: the per-cell
 index, the right-edge wrap, the engine gate and the engine's `world`
 pass-through.
 
+### 5.8 GF-7 findings: the geological clock, swept (measured 2026-09-27)
+
+**What was built.** `cartalith_engine::geo_clock` (§4.12): `WorldParams::geo_age`
+(τ, 1.0 at both boundaries), the response laws `f_linear`, `f_saturating`
+(`k = 0.5`) and `mantle_thickness_m`, and `GeoClock`, which returns each
+process's effective count with its floor recorded. `RockContext` carries the
+clock, built with the same gate as GF-2 (`geology_model` **and**
+`geology_processes`), so it scales nothing in the app, where the processes are
+off. Every count call site reads it: the light pass and each `evolve_cycles`
+cycle (`max(4, round(iters·0.6·τ))`), the sediment fill (`max(4,
+round(iters·τ))`), GF-3's threshold hillslope (`max(1, round(8τ))`), glacial and
+coastal (`max(1, round(N·f_sat(τ)))`). When the clock does not act (τ = 1, or
+the gate off), each call site runs today's expression by control flow. The
+`PARAMS` row is `geo.age` (group `erosion`, first in it, 0.25–4.00, step
+0.05, unit ×, no reference control), with a `JS_PATHS` row, and a save without
+the key reloads at 1.0 (§2.6).
+
+**Choices where §4.12 left one, or could not be followed, each with its reason.**
+- **The weathered mantle is not wired.** The law is built and pinned by test
+  (1.3336 m at τ = 0.25, 2.6862 m at τ = 4, 2.0 m at τ = 1), but nothing writes
+  it into `regolith`. §4.12 anchors it at `h(1) = h₁ = 2 m`, and that mantle does
+  not exist in today's pipeline. Writing it at τ = 1 would move every
+  processes-on world at the default age, which contradicts §4.12's "at 1.0
+  every process takes today's expressions" and B12's τ = 1 identity. Writing
+  it only at τ ≠ 1 would make τ = 0.95 and τ = 1 differ by a whole 1.9 m
+  mantle. **That contradiction is §4.12's own, and it needs an owner or
+  coordinator call.** The mantle also cannot move B1, B2 or B4: its maximum,
+  2.69 m, is below `R_EXPOSE` (5 m), so it never changes the exposed rock on
+  its own. `h₀ = 0.5 m` is **not yet verified at the source**: the search
+  reached Heimsath et al.'s abstract, not the fitted coefficient.
+- **Karst (§4.6) has no hook.** There is no dissolution pass before GF-5, and
+  §4.12's karst term is τ inside GF-5's own budget expression, so GF-5 writes
+  it with `GeoClock::age()`. A hook with no caller would be dead code.
+- **Coastal is scaled now, though it reads no rock until GF-4.** How long a
+  cliff has retreated does not depend on whether the pass reads rock. The pass
+  is off in the app.
+- **Rebound is not scaled separately** (§4.12): it follows each scaled call.
+- **Non-finite τ** is refused (today's counts); `params::set` already rejects
+  it, so it is reachable only from a hand-built `WorldParams`.
+
+**Commands** (release, run alone):
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf7_clock_sweep
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf7_b9_cost
+```
+
+The sweep's control is `params::defaults()` (processes off, where τ is inert).
+Every τ is judged on the same pre-erosion rock map and population as
+`gf2_arms`. The τ = 1 row reproduces §5.7's treatment figures exactly (for
+example B3 8.84, 13.47, 3.52, 8.36, 13.99 and small lakes 50, 72, 24, 106, 54).
+
+**At 800 km, 2048 × 1311, processes on** (B4 is edge ÷ substrate · top-decile
+share; B8 is lake % · 1–3-cell lakes; ✗ marks a failed bar):
+
+| Seed | τ | B1 ρ | B2 | B3 full | B4 | B8 |
+|---|---|---|---|---|---|---|
+| 483920 | control | −0.460 | 0.050 | 3.73 | 0.243 · 0.294 | 1.177 · 46 |
+| | 0.5 | −0.469 ✗ | 0.050 ✗ | 5.82 ✗ | 0.339 · 0.338 ✗ | 1.197 · 18 |
+| | 1 | −0.462 ✗ | 0.051 ✗ | 8.84 | 0.253 · 0.325 ✗ | 1.146 · 50 |
+| | 2 | −0.467 ✗ | 0.050 ✗ | 20.31 | 0.060 · 0.344 ✗ | 1.219 · 119 ✗ |
+| | 4 | −0.459 ✗ | 0.050 ✗ | 26.76 | 0.072 · 0.351 ✗ | 1.009 · 355 ✗ |
+| 24601 | control | −0.316 | 0.048 | 5.94 | 0.035 · 0.286 | 2.232 · 65 |
+| | 0.5 | −0.314 ✗ | 0.047 ✗ | 10.37 | 0.130 · 0.268 ✗ | 2.942 · 43 |
+| | 1 | −0.314 ✗ | 0.048 ✗ | 13.47 | 0.050 · 0.306 ✗ | 2.531 · 72 |
+| | 2 | −0.317 ✗ | 0.049 ✗ | 23.89 | 0.038 · 0.346 ✗ | 2.054 · 162 ✗ |
+| | 4 | −0.318 ✗ | 0.049 ✗ | 28.48 | 0.044 · 0.362 ✗ | 1.926 · 352 ✗ |
+| 71077345 | control | −0.392 | 0.049 | 1.22 | 0.213 · 0.254 | 1.419 · 26 |
+| | 0.5 | −0.396 ✗ | 0.049 ✗ | 2.56 | 0.829 · 0.294 ✗ | 1.926 · 20 |
+| | 1 | −0.390 ✗ | 0.049 ✗ | 3.52 | 0.119 · 0.286 ✗ | 1.585 · 24 |
+| | 2 | −0.396 ✗ | 0.049 ✗ | 6.25 | 0.078 · 0.296 ✗ | 1.249 · 70 ✗ |
+| | 4 | −0.401 ✗ | 0.051 ✗ | 12.32 | 0.075 · 0.299 ✗ | 0.622 · 175 ✗ |
+| 12345 | control | −0.423 | 0.049 | 4.15 | 0.036 · 0.200 | 4.661 · 105 |
+| | 0.5 | −0.432 ✗ | 0.049 ✗ | 5.26 ✗ | 0.156 · 0.205 ✗ | 5.028 · 87 |
+| | 1 | −0.432 ✗ | 0.049 ✗ | 8.36 | 0.068 · 0.211 ✗ | 4.072 · 106 |
+| | 2 | −0.432 ✗ | 0.048 ✗ | 17.35 | 0.044 · 0.238 ✗ | 5.220 · 201 ✗ |
+| | 4 | −0.419 ✗ | 0.049 ✗ | 11.03 | 0.053 · 0.271 ✗ | 3.507 · 438 ✗ |
+| 314159 | control | −0.427 | 0.039 | 5.94 | 0.156 · 0.251 | 9.347 · 81 |
+| | 0.5 | −0.429 ✗ | 0.040 ✗ | 9.69 | 0.720 · 0.187 ✗ | 9.207 · 32 |
+| | 1 | −0.427 ✗ | 0.040 ✗ | 13.99 | 0.166 · 0.213 ✗ | 9.307 · 54 |
+| | 2 | −0.429 ✗ | 0.038 ✗ | 51.13 | 0.138 · 0.195 ✗ | 9.125 · 171 ✗ |
+| | 4 | −0.426 ✗ | 0.038 ✗ | 73.39 | 0.093 · 0.213 ✗ | 9.005 · 498 ✗ |
+
+Ocean cells on river paths: 0 on all 25 worlds. B10 passes on all 20
+treatment worlds: each is byte-identical to a second run of itself (field,
+river mask, regolith, contact), 10–11 rock types, two-layer share 0.143–0.280.
+
+**B12.**
+- **τ = 1 identity: holds** (the hash comparison below).
+- **Channel incision** (pre-erosion minus final surface, mean over the
+  control's channel cells, a population fixed across τ): **fails on all five**.
+  It does not rise strictly with τ: 28.2 → 27.5 → 20.0 → 13.9 m on 483920, and
+  on the others it peaks at τ = 1 or 2. See the reason below.
+- **Glacial**, replayed alone on each control's final surface at the clock's
+  counts (4, 8, 13, 18 passes): mean land lowering rises with τ on all five, and
+  the τ = 2 → 4 ratio is 1.384 on every seed, under τ's own 2. That is 18/13
+  exactly (arithmetic), so the kernel's lowering is linear in its pass count
+  on these worlds: the saturation measured is the count law's, and the kernel
+  adds none.
+- **Coastal**, replayed the same way (2, 4, 6, 9 passes): land cells lost rise
+  with τ on all five, and the τ = 2 → 4 ratio is 1.072–1.210.
+- **Mantle**: not measurable, because it is not wired (above). The law's
+  literals are asserted by unit test.
+
+**B9 (cost; disclosed, gated only at τ = 1).** Seed 483920, five alternating
+runs per arm in one process, run alone. Run 1: control 3.189 s (3.155 … 3.271);
+τ 0.5 3.077 s (3.020 … 3.100), ratio 0.965; τ 1 3.454 s (3.423 … 3.555), 1.083;
+τ 2 4.239 s (4.158 … 4.330), 1.329; τ 4 5.775 s (5.744 … 5.913), 1.811. An
+independent re-run: control 3.123 s (3.111 … 3.161); ratios 0.969, 1.082,
+1.323 and 1.824, each inside or at the edge of run 1's bracket. τ = 1 passes
+B9's 1.20 bar. That is GF-3's cost, and the clock adds nothing at τ = 1.
+
+**The verdict. No τ makes B1, B2 and B4 pass. B8 fails at every τ above 1.**
+- B1's ρ moves by at most 0.013 and B2's ratio by at most 0.002 across τ = 0.5
+  to 4 on any seed. Both fail on all 20 worlds.
+- B4 fails on all 20 worlds and does not rise with τ. Its cap-edge ratio is
+  largest at τ = 0.5 on all five seeds (0.339, 0.130, 0.829, 0.156, 0.720)
+  and falls at τ ≥ 2. The top-decile share is 0.213–0.362 at τ = 4 and never
+  reaches 0.40.
+- B8 passes at τ = 0.5 and 1 on all five seeds. At τ = 2 the 1–3-cell lakes
+  are 1.9–2.7× the control's (70 … 201), and at τ = 4 they are 4.2–7.7× (175 …
+  498). That is the regression RV-1 fixed, and it is worse than GF-2's. **Why
+  was not measured.**
+- B3 still passes at τ ≥ 1 on all five, and fails its relative half at τ = 0.5
+  on two seeds (483920, 12345).
+
+So the recommended default stays **τ = 1**, and **`geology_processes` should
+not ship on** on this evidence: no τ passes B1, B2 or B4 at 1, and B8 fails
+everywhere above 1. Nothing was switched on.
+
+**What limits it: the clock multiplies a metres-scale effect, and rebound
+takes most of it back.** A scratch diagnostic replayed the light pass alone on
+the pre-erosion world at the clock's counts (seeds 483920 and 314159):
+- The rock stream-power kernel alone lowers land by a mean of 0.85, 1.50, 2.89
+  and 5.45 m at 5, 9, 18 and 36 iterations on 483920, and by 1.18, 2.04, 3.84
+  and 7.03 m on 314159. That is roughly linear in τ, as §4.12's linear
+  response intends, and it is still metres against relief of hundreds of
+  metres (§5.6).
+- `isostatic_rebound` after it returns land to a mean lowering of 0.06, 0.11,
+  0.23 and 0.45 m on 483920 (0.26 … 1.31 m on 314159), and it lifts the control's channel cells
+  above their pre-erosion height on 483920 (−0.65 … −1.60 m). Measured, 78–93 %
+  of the kernel's mean land lowering is returned.
+- Channel depth in the final world (21 to 45 m over each world's own
+  channels) is therefore set by what runs after the light pass, of which
+  RV-1's carve is the step the clock does not touch (§4.12). The carve's own
+  share was not isolated. The channels are re-traced on the lowered surface,
+  and at τ = 4 only 53–58 % of the control's channel cells are still channels. That is why incision
+  over a fixed channel set does not rise.
+
+So more passes of the same kernel under zero uplift cannot reach the hundreds
+of metres of differential relief B1, B2 and B4 read at 800 km. Nothing in
+§4.12's procedure changes that without tuning a rate constant, which §4.12
+forbids and which was not done. No bar was loosened.
+
+**Screenshots** (`_gf2relief_shot.tscn`, windowed, 800 km, 2048 × 1311, seeds
+483920 and 314159, `--processes on`, with a new `--age` flag that aborts if the
+key is rejected or clamped). They were taken in a scratch Godot project that
+loads a DLL built from a copy of this working tree, so the live `target/`
+another lane was using was not touched. τ = 1 against τ = 4: 168 684 and
+196 437 pixels move by more than 8 levels of 255, out of 2 684 928. Where the
+changes are:
+- along every channel line, which are darker and more hatched at τ = 4;
+- small lakes, several of which disappear or shrink at τ = 4 (a
+  lake west of the central inlet on 483920; lakes on the east of 314159);
+- volcano cones and one fault ridge, whose flanks gain fine gully hatching;
+- coastlines, in a thin band.
+
+**Relief does not visibly track rock.** No scarp appears at a cap edge. No
+weak-rock lowland opens up. Granite interiors and the sedimentary basins read
+as they do at τ = 1.
+
+**Identity.** A scratch test hashed `field`, `temperature`, `rainfall`,
+`flow_discharge`, `river_mask`, `river_floor`, `stream_order`,
+`resistance_field`, `volcanic_field` and all five column arrays, on seeds
+483920 and 314159, for four arms:
+- the app default (`params::defaults()`, 2048 × 1311, 800 km);
+- the app default with the processes on (τ = 1);
+- `WorldParams::defaults` at 512 × 328;
+- the app default at 512 × 328 with the processes on and coastal, the
+  sediment fill and two evolve cycles all on. That reaches every clocked call
+  site.
+
+It ran in a `git archive` copy of HEAD `ec4e078` and in a copy of the working
+tree. **102 of 102 hashes matched.** In the same binary,
+`geology_gf7.rs::with_the_processes_off_age_changes_nothing` asserts that τ =
+0.25 and 4 equal τ = 1 bit for bit with the processes off. No golden moved and
+none was re-recorded.
+
+**The UI** (stage 06, `world_workspace.gd`). `geo.age` is the first row of the
+stage's erosion group, as a `geological age ×` slider. Beneath it,
+`_refresh_geo_age_row` draws a readout line from `WorldGen.geo_clock_readout`
+(`erode_bridge.rs`), so the count laws have one copy. The line reads, for
+example, "stream power 36 it · hillslope 32 passes · glacial 18 passes",
+marks a floored count "(floor)", and lists glacial, coastal and sediment fill
+only when their pass is on. With the processes off (the app) the row is
+non-editable and dimmed at the World Structure override's 0.55. Its tooltip
+and readout give the reason and the counts it would run. The weathered mantle
+is left out of the readout and of §4.12's tooltip text, since no world has it.
+**Not yet seen running:** the GDScript parse-checks clean, and the readout's
+Rust side is unit-tested by literal string. But the row was not rendered in
+the shell: the live project loads `target/debug`, which another lane was
+building, and this lane did not replace that DLL. A windowed probe of the row
+is still owed.
+
+**Tests.**
+- `geo_clock.rs` (6 unit tests): the saturating law, the mantle law, and each
+  process's count and floor, against literals; τ = 1 and the gate being off
+  both give today's counts; the constructor's clamp and its refusal of a
+  non-finite τ; the readout's gate.
+- One engine unit test: the clock reaches `RockContext::threshold_hillslope`
+  (0.75³² at τ = 4, 0.75⁸ at τ = 1, untouched with the gate off).
+- `cartalith-engine/tests/geology_gf7.rs` (4 tests):
+  - with the processes off, τ changes nothing;
+  - with them on, τ = 4 moves the world and land lowering rises with τ;
+  - every clocked call site runs the clock's count. At τ = 0.25 the floors
+    make different raw counts equal, so two worlds must be identical, while at
+    τ = 1 each knob must be live;
+  - a scaled age is deterministic.
+- `params_mapping.rs`: a save without `geo.age` reloads at 1.0; the key round
+  trips; it clamps to its range; it defaults to 1.0 at both boundaries.
+- `erode_bridge.rs`: the readout's literal strings on the app's parameters.
+
+**Mutation testing** ran in a scratch copy, never the live tree, with Python
+exact replacement, a pattern that occurs exactly once, restore in `finally`,
+and a hash check after. **31 of 31 mutants were killed.** They cover
+every constant in `geo_clock.rs`, each response shape, each floor and its
+flag, the clamp, the non-finite refusal, the gate, every engine call site, the
+readout's clauses, reason and forced gate, and the loader's reset to 1.0. One
+survived the first round and was killed after a test was added: the readout
+gate dropping `geology_model`.
+
 ---
 
 ## 6. Re-baseline plan

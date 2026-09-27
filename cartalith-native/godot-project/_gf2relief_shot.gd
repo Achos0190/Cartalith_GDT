@@ -14,6 +14,12 @@ extends Node
 ## cannot silently draw the app's gated-off world. GF-3 (§5.7) takes its
 ## before and after shots with `--processes on`:
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag gf3_before --processes on
+## `--age TAU` (optional, GF-7, `GEOLOGY_FIRST_SCOPE.md` §4.12) sets the
+## geological age `geo.age` the same way, and aborts if the key is rejected or
+## clamped, so a shot labelled with an age is that age. Omitted, it is left at
+## the default 1.0. It acts only with `--processes on` (the clock is gated
+## with the processes), which is why §5.8's shots pass both:
+##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag gf7_age4 --processes on --age 4
 ## An unknown argument aborts (exit 2) rather than being ignored
 ## (`MISTAKES.md`, "Write a probe's usage header").
 ## Held fixed across tags: seeds, extent, grid, the app's default parameters
@@ -39,6 +45,10 @@ func _ready() -> void:
 
 	var tag := ""
 	var processes := false
+	## -1.0 = "not given": outside `geo.age`'s 0.25..4 range, so never a real
+	## age; the probe then leaves the parameter alone rather than writing a
+	## value nobody asked for.
+	var age := -1.0
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
@@ -48,8 +58,11 @@ func _ready() -> void:
 		elif args[i] == "--processes" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
 			processes = args[i + 1] == "on"
 			i += 2
+		elif args[i] == "--age" and i + 1 < args.size() and args[i + 1].is_valid_float():
+			age = float(args[i + 1])
+			i += 2
 		else:
-			print("[FATAL] unknown argument %s (only --tag NAME is read)" % args[i])
+			print("[FATAL] unknown argument %s (read: --tag NAME, --processes on|off, --age TAU)" % args[i])
 			get_tree().quit(2); return
 	if tag == "":
 		print("[FATAL] --tag NAME is required"); get_tree().quit(2); return
@@ -65,6 +78,12 @@ func _ready() -> void:
 		if not (rep.get("rejected", PackedStringArray()) as PackedStringArray).is_empty():
 			print("[FATAL] set_params rejected geology_processes: %s" % [rep])
 			get_tree().quit(2); return
+		if age >= 0.0:
+			var rep_age: Dictionary = wg.set_params({"geo.age": age})
+			if not (rep_age.get("rejected", PackedStringArray()) as PackedStringArray).is_empty() \
+					or not (rep_age.get("clamped", PackedStringArray()) as PackedStringArray).is_empty():
+				print("[FATAL] set_params did not take geo.age %s as given: %s" % [age, rep_age])
+				get_tree().quit(2); return
 		wg.generate_sized(sd, WIDTH_KM, GRID_W, GRID_H)
 		var tex: Texture2D = wg.build_color_texture()
 		if tex == null:
@@ -78,5 +97,6 @@ func _ready() -> void:
 			continue
 		var path := "%s/%s_%d.png" % [out_dir, tag, sd]
 		img.save_png(path)
-		print("[SHOT] %s seed %d processes %s -> %s" % [tag, sd, "on" if processes else "off", ProjectSettings.globalize_path(path)])
+		print("[SHOT] %s seed %d processes %s age %s -> %s" % [tag, sd, "on" if processes else "off",
+			("%.2f" % age) if age >= 0.0 else "default", ProjectSettings.globalize_path(path)])
 	get_tree().quit(1 if failed else 0)
