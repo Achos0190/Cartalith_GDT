@@ -19,6 +19,11 @@ extends Node
 ##   WR  CM-2 residual: Start way here / Start route here rows
 ##   TR  CM-2 residual: Commit territory / Discard territory draft rows
 ##   REG regression -- `_ctxcard_probe.gd`'s own CX-01 rows (A) still land
+##   WY  way pick + Inspect / Delete, and Edit ▸ Undo restoring the way exactly
+##       (Ruling BA), for a generated way and a hand-drawn one
+##   RV  river pick as the branch to its mouth (Ruling BA); Trace downstream
+##       measured on screen against the engine's own branch; Show catchment
+##       against the engine's own upstream mask; Clear river highlight
 
 const SEED := 719004
 
@@ -437,6 +442,441 @@ func _run() -> void:
 		_ok_true("REG Delete row still lands", _row("Delete ") != null)
 		await _close()
 
+	await _run_ways(ov)
+	await _run_rivers(ov)
+
+
+## Every disabled row on the open card carries a non-empty reason.
+func _disabled_have_reasons(tag: String) -> void:
+	var c = _card()
+	if c == null or not c.visible:
+		return
+	var n := 0
+	var bad := 0
+	for r in c.drawn_rows():
+		if String(r["kind"]) == "disabled":
+			n += 1
+			if String(r.get("reason", "")).strip_edges() == "":
+				bad += 1
+	_ok("%s every disabled row (%d) carries a reason" % [tag, n], bad, 0)
+
+
+func _header_text() -> String:
+	var c = _card()
+	if c == null:
+		return ""
+	for r in c.drawn_rows():
+		if String(r["kind"]) == "header":
+			return String(r["text"])
+	return ""
+
+
+## The drawn curve's middle, for a way from `bridge.roads()`.
+func _mid(points: PackedVector2Array) -> Vector2:
+	return points[points.size() / 2]
+
+
+## WY: way pick, Inspect / Delete rows, an undoable delete (Ruling BA), for a
+## generated way and a hand-drawn one.
+func _run_ways(ov: Control) -> void:
+	var bridge = app.bridge
+	app.select_domain("civilization")
+	app.arm_tool("inspect")
+	await _frames(4)
+	var ppc: float = ov.label_px_per_cell()
+	var tol := 6.0 / ppc if ppc > 0.0 else 1.5
+
+	## A generated way: the longest drawn road, at the middle of its curve.
+	var best: Dictionary = {}
+	for r in bridge.roads():
+		if bool((r as Dictionary).get("manual", false)):
+			continue
+		if best.is_empty() or (r["points"] as PackedVector2Array).size() > (best["points"] as PackedVector2Array).size():
+			best = r
+	_ok_true("WY a generated road exists", not best.is_empty())
+	if best.is_empty():
+		return
+	var gp := _mid(best["points"])
+	var picked: Dictionary = bridge.way_pick(gp.x, gp.y, tol)
+	_ok_true("WY way_pick hits the road at its own drawn midpoint", not picked.is_empty())
+	if picked.is_empty():
+		return
+	print("WY picked %s" % str(picked))
+	_ok("WY the pick lands on the line (dist < 0.05 cells)", float(picked["dist"]) < 0.05, true)
+	var store := String(picked["store"])
+	var widx := int(picked["index"])
+	_ok("WY the longest drawn road is a generated way", store, "generated")
+	var before: Dictionary = bridge.way_get(store, widx)
+	var title: String = CivilizationWorkspace.way_title(before)
+	var rp: Vector2 = ov._point_to_screen(gp, ov._displayed_rect())
+	var req: Dictionary = ov.request_at(rp, "mouse")
+	var way_hits: Array = (req.get("hits", []) as Array).filter(func(h): return String(h["kind"]) == "way")
+	_ok_true("WY hits[] carries the way (so Select ▸ lists it)", way_hits.size() == 1)
+	if way_hits.size() == 1:
+		_ok("WY the hit carries the engine's store", String(way_hits[0].get("store", "")), store)
+		_ok("WY the hit carries the engine's index", int(way_hits[0].get("index", -1)), widx)
+	await _rmb(ov, rp)
+	_dump("WY_generated")
+	_disabled_have_reasons("WY generated card")
+	_ok_true("WY Inspect row is drawn", _row("Inspect %s" % title) != null)
+	var del := _row("Delete %s — generated; Generate roads brings it back" % title)
+	_ok_true("WY Delete row says a generated way comes back with Generate roads", del != null)
+	await _click_row(_row("Inspect %s" % title))
+	var hint := String(app._status_labels["hint"].text)
+	_ok_true("WY Inspect wrote the way's km and origin into the hint", hint.contains("generated network"))
+	rp = ov._point_to_screen(gp, ov._displayed_rect())
+	await _rmb(ov, rp)
+	var n_roads: int = bridge.roads().size()
+	var n_drawn: int = (ov.get("_roads") as Array).size()
+	await _click_row(_row("Delete %s" % title))
+	_ok("WY Delete removed one drawn road (engine)", bridge.roads().size(), n_roads - 1)
+	_ok("WY Delete removed one drawn road (overlay re-read)", (ov.get("_roads") as Array).size(), n_drawn - 1)
+	var after_del: Dictionary = bridge.way_get(store, widx)
+	_ok_true("WY the index now holds a different way (or none)", after_del.is_empty() or
+		(after_del["points"] as PackedVector2Array) != (before["points"] as PackedVector2Array))
+	var rows: Array = bridge.undo_ledger()
+	var last: Dictionary = rows[rows.size() - 1] if rows.size() > 0 else {}
+	_ok("WY the ledger's newest row is a way row", String(last.get("kind", "")), "way")
+	_ok("WY ...and it is reversible", bool(last.get("reversible", false)), true)
+	_ok("WY ...labelled for the way", String(last.get("label", "")), "Delete %s" % title)
+	_ok("WY Undo would revert the way next", bridge.undo_next_subsystem(), "civ")
+	_ok("WY Undo's label names it", bridge.undo_label(), "Delete %s" % title)
+	## Edit ▸ Undo's own destination (`menus.gd` ID_UNDO -> `app.undo_last()`).
+	app.undo_last()
+	await _frames(3)
+	var restored: Dictionary = bridge.way_get(store, widx)
+	_ok("WY Undo restored the same points", restored.get("points"), before.get("points"))
+	_ok("WY Undo restored the same breaks", restored.get("brks"), before.get("brks"))
+	_ok("WY Undo restored the same type", restored.get("way_type"), before.get("way_type"))
+	_ok("WY Undo restored the same km", restored.get("km"), before.get("km"))
+	_ok("WY Undo restored the same tid", restored.get("tid"), before.get("tid"))
+	_ok("WY Undo restored the same name", restored.get("name"), before.get("name"))
+	var pts: PackedVector2Array = restored.get("points", PackedVector2Array())
+	var bpts: PackedVector2Array = before.get("points", PackedVector2Array())
+	if pts.size() > 0 and bpts.size() > 0:
+		_ok("WY same first endpoint", pts[0], bpts[0])
+		_ok("WY same last endpoint", pts[pts.size() - 1], bpts[bpts.size() - 1])
+	_ok("WY the road is drawn again (overlay)", (ov.get("_roads") as Array).size(), n_drawn)
+	var rows2: Array = bridge.undo_ledger()
+	_ok_true("WY the way row left the ledger with the undo",
+		rows2.filter(func(r): return String(r.get("kind", "")) == "way").is_empty())
+	_ok("WY nothing way-shaped is left to undo", bridge.undo_next_subsystem() != "civ", true)
+
+	## A settlement takes the card; the road ending on it is reached through
+	## Select ▸, which narrows the request to the way alone.
+	var srect: Rect2 = ov._displayed_rect()
+	var sinter: Rect2 = ov._interior_rect(srect)
+	var ss: Array = ov.get("_settlements")
+	var s_pos := Vector2.ZERO
+	var s_way: Dictionary = {}
+	for i in ss.size():
+		var cand: Vector2 = ov._cell_to_screen(Vector2(ss[i]["x"], ss[i]["y"]), srect)
+		if not sinter.grow(-80.0).has_point(cand):
+			continue
+		var hs: Array = ov.request_at(cand, "mouse").get("hits", [])
+		var ws: Array = hs.filter(func(h): return String(h["kind"]) == "way")
+		if not ws.is_empty() and not hs.filter(func(h): return String(h["kind"]) == "settlement").is_empty():
+			s_pos = cand
+			s_way = ws[0]
+			break
+	_ok_true("WY a settlement with a road under its pin exists", not s_way.is_empty())
+	if not s_way.is_empty():
+		var swt := String(s_way.get("label", ""))
+		await _rmb(ov, s_pos)
+		_dump("WY_settlement")
+		_ok_true("WY on a settlement the road's Delete row is not drawn", _row("Delete %s" % swt) == null)
+		var sel := _row("Select — ", ["select"])
+		_ok_true("WY ...but Select ▸ is offered", sel != null)
+		await _click_row(sel)
+		var pick_row := _row("%s · way" % swt, ["action"])
+		_ok_true("WY Select ▸ lists the road", pick_row != null)
+		await _click_row(pick_row)
+		_dump("WY_selected_way")
+		_ok("WY picking it re-resolves the header to the way", _header_text(), "%s · way" % swt)
+		_ok_true("WY ...with the way's Inspect row", _row("Inspect %s" % swt) != null)
+		_ok_true("WY ...and its Delete row", _row("Delete %s" % swt) != null)
+		_ok_true("WY ...and not the settlement's Edit row", _row("Edit ") == null)
+		await _close()
+
+	## A hand-drawn way: committed here, over two land cells ~20 cells apart.
+	var g: Vector2i = bridge.grid_size()
+	var a := Vector2(-1, -1)
+	var b := Vector2(-1, -1)
+	for tries in 200:
+		var x := int(g.x * 0.2) + tries
+		var y := int(g.y * 0.55)
+		if x + 20 >= g.x:
+			break
+		if String(bridge.sample_cell(x, y).get("water", "")) == "land" \
+				and String(bridge.sample_cell(x + 20, y).get("water", "")) == "land":
+			a = Vector2(x + 0.5, y + 0.5)
+			b = Vector2(x + 20.5, y + 0.5)
+			break
+	_ok_true("WY two land cells for a hand-drawn way", a.x >= 0.0)
+	if a.x < 0.0:
+		return
+	bridge.way_begin("track")
+	bridge.way_append_point(a.x, a.y)
+	bridge.way_append_point(b.x, b.y)
+	var midx: int = bridge.way_commit()
+	_ok_true("WY a hand-drawn way committed", midx >= 0)
+	if midx < 0:
+		return
+	civ_refresh()
+	await _frames(3)
+	var mb: Dictionary = bridge.way_get("manual", midx)
+	var mroad: Dictionary = {}
+	for r in bridge.roads():
+		if bool((r as Dictionary).get("manual", false)):
+			mroad = r
+	var mp := _mid(mroad["points"])
+	var mpick: Dictionary = bridge.way_pick(mp.x, mp.y, tol)
+	_ok("WY the hand-drawn way picks as manual", String(mpick.get("store", "")), "manual")
+	_ok("WY ...at its own index", int(mpick.get("index", -1)), midx)
+	var mtitle: String = CivilizationWorkspace.way_title(mb)
+	_ok("WY an unnamed way is described, not named", mtitle, "unnamed track")
+	var mrp: Vector2 = ov._point_to_screen(mp, ov._displayed_rect())
+	await _rmb(ov, mrp)
+	_dump("WY_manual")
+	_disabled_have_reasons("WY manual card")
+	var mdel := _row("Delete %s" % mtitle)
+	_ok_true("WY manual Delete row is drawn", mdel != null)
+	if mdel != null:
+		_ok_true("WY ...and does not claim a rebuild brings it back",
+			not String(mdel.get_meta("card_row", {}).get("text", "")).contains("generated"))
+	await _click_row(mdel)
+	_ok_true("WY manual Delete removed it", bridge.way_get("manual", midx).is_empty())
+	app.undo_last()
+	await _frames(3)
+	var mr: Dictionary = bridge.way_get("manual", midx)
+	_ok("WY manual Undo restored the same points", mr.get("points"), mb.get("points"))
+	_ok("WY manual Undo restored the same type", mr.get("way_type"), "track")
+	_ok("WY manual Undo restored the same km", mr.get("km"), mb.get("km"))
+	## The history panel's revert-to on a way row (`undo_revert_to`, the same
+	## unified step as Edit ▸ Undo).
+	_ok_true("WY a second delete of the hand-drawn way", bridge.way_delete("manual", midx))
+	var lrows: Array = bridge.undo_ledger()
+	var wrow: Dictionary = lrows[lrows.size() - 1]
+	_ok("WY its ledger row offers exactly one step", int(wrow.get("steps", 0)), 1)
+	_ok("WY revert-to that row reverts one step", bridge.undo_revert_to(int(wrow["seq"])), 1)
+	_ok("WY ...and the way is back", bridge.way_get("manual", midx).get("points"), mb.get("points"))
+	civ_refresh()
+	await _close()
+
+
+func civ_refresh() -> void:
+	var civ_ws = _ws("civilization_workspace.gd")
+	if civ_ws != null:
+		civ_ws.on_ways_changed()
+
+
+## Is `c` the trace ink (within a margin for antialiasing)?
+func _is_trace_ink(c: Color, ink: Color) -> bool:
+	return absf(c.r - ink.r) < 0.12 and absf(c.g - ink.g) < 0.12 and absf(c.b - ink.b) < 0.12
+
+
+## Any trace-ink pixel within +-r px of `p`.
+func _ink_near(img: Image, p: Vector2, ink: Color, r: int = 1) -> bool:
+	for dy in range(-r, r + 1):
+		for dx in range(-r, r + 1):
+			var x := int(p.x) + dx
+			var y := int(p.y) + dy
+			if x >= 0 and y >= 0 and x < img.get_width() and y < img.get_height():
+				if _is_trace_ink(img.get_pixel(x, y), ink):
+					return true
+	return false
+
+
+## RV: river pick as the branch to its mouth (Ruling BA), Trace downstream
+## measured on screen against the engine's own path, Show catchment against
+## the engine's own upstream set.
+func _run_rivers(ov: Control) -> void:
+	var bridge = app.bridge
+	app.select_domain("world")
+	app.arm_tool("inspect")
+	await _frames(4)
+	var ppc: float = ov.label_px_per_cell()
+	var tol := 6.0 / ppc if ppc > 0.0 else 1.5
+	## The longest order >= 2 river, a third of the way down it -- far enough
+	## from its head that there is a real branch below.
+	var best: Dictionary = {}
+	for r in bridge.rivers(1):
+		if int(r.get("order", 0)) < 2 or r.has("parallel_of"):
+			continue
+		if best.is_empty() or (r["points"] as PackedVector2Array).size() > (best["points"] as PackedVector2Array).size():
+			best = r
+	_ok_true("RV an order >= 2 river exists", not best.is_empty())
+	if best.is_empty():
+		return
+	var rpts: PackedVector2Array = best["points"]
+	var gp: Vector2 = rpts[rpts.size() / 3]
+	var t0 := Time.get_ticks_usec()
+	var pick: Dictionary = bridge.river_pick(gp.x, gp.y, tol)
+	var pick_us := Time.get_ticks_usec() - t0
+	print("RV river_pick took %d us at %s (terminus %s, %d cells)" % [pick_us, str(gp), pick.get("terminus", "?"), int(pick.get("cells", 0))])
+	_ok_true("RV river_pick hits the traced river at one of its own cells", not pick.is_empty())
+	if pick.is_empty():
+		return
+	var g: Vector2i = bridge.grid_size()
+	_ok("RV the picked cell is the clicked river cell", int(pick["cell"]), int(gp.y) * g.x + int(gp.x))
+	var branch: PackedVector2Array = pick["branch"]
+	_ok("RV the branch starts at the clicked cell", branch[0], gp)
+	_ok_true("RV the branch runs downstream (more than one cell)", branch.size() > 1)
+	var term := String(pick["terminus"])
+	if term == "sea" or term == "lake":
+		var last := branch[branch.size() - 1]
+		var w := String(bridge.sample_cell(int(last.x), int(last.y)).get("water", ""))
+		_ok("RV the branch's last cell is the water it names", w, "ocean" if term == "sea" else "lake")
+	## The river's own traced run continues downstream along the same
+	## receivers, so the branch contains the rest of that run's points in order.
+	var k := rpts.size() / 3
+	var run_ok := true
+	for i in range(k, rpts.size()):
+		if i - k >= branch.size() or branch[i - k] != rpts[i]:
+			run_ok = false
+			break
+	_ok_true("RV the branch follows the river's own traced run to that run's end", run_ok)
+
+	var rect: Rect2 = ov._displayed_rect()
+	var sp: Vector2 = ov._point_to_screen(gp, rect)
+	var req: Dictionary = ov.request_at(sp, "mouse")
+	var rh: Array = (req.get("hits", []) as Array).filter(func(h): return String(h["kind"]) == "river")
+	_ok_true("RV hits[] carries the river", rh.size() == 1)
+	var want_title: String = load("res://shell/context_broker.gd").river_title(pick)
+	if rh.size() == 1:
+		_ok("RV the hit is described, not named", String(rh[0].get("label", "")), want_title)
+		_ok_true("RV ...as 'River (order N, …)'", want_title.begins_with("River (order %d, " % int(pick["order"])))
+	await _rmb(ov, sp)
+	_dump("RV_river")
+	_disabled_have_reasons("RV card")
+	_ok("RV the card's header names the river's description", _header_text().begins_with(want_title), true)
+	_ok_true("RV Inspect river row is drawn", _row("Inspect river") != null)
+	_ok_true("RV Trace downstream row is drawn", _row("Trace downstream") != null)
+	_ok_true("RV Show catchment row is drawn", _row("Show catchment") != null)
+	await _click_row(_row("Inspect river"))
+	var rd = app.right_dock_ctrl
+	_ok("RV Inspect river opened the right dock's River context", String(rd.get("_context")), String(rd.CTX_RIVER))
+	_ok("RV ...on a traced run through the clicked cell (its points include it)",
+		(rd.get("_river").get("points", PackedVector2Array()) as PackedVector2Array).has(gp), true)
+	await _frames(3)
+	## Re-resolved after Inspect: the right dock's context change can move the
+	## map's rect. Then the screen before any highlight -- the control state
+	## the trace must move.
+	rect = ov._displayed_rect()
+	sp = ov._point_to_screen(gp, rect)
+	var xf: Transform2D = ov.get_global_transform_with_canvas()
+	var img0: Image = _vp.get_texture().get_image()
+	var ink: Color = ov.RIVER_TRACE_INK
+	var screen_pts: Array = []
+	for i in range(1, branch.size() - 1):
+		screen_pts.append(xf * ov._point_to_screen(branch[i], rect))
+	var pre_hits := 0
+	for p in screen_pts:
+		if _ink_near(img0, p, ink):
+			pre_hits += 1
+	await _rmb(ov, sp)
+	await _click_row(_row("Trace downstream"))
+	_ok("RV the overlay's trace is exactly the engine's branch", ov.river_trace(), branch)
+	await _frames(3)
+	var img_lab: Image = _vp.get_texture().get_image()
+	var lab_hits := 0
+	for p in screen_pts:
+		if _ink_near(img_lab, p, ink):
+			lab_hits += 1
+	## The trace is drawn over every mark and under the labels only
+	## (`map_overlay.gd::_draw_river_trace`'s own placement), so a label's
+	## glyphs legitimately cover some of it. The line-vs-path measurement is
+	## taken with the label layer emptied, and the labelled figure is reported
+	## beside it rather than folded into the threshold.
+	ov.set_labels([])
+	await _frames(3)
+	var img1: Image = _vp.get_texture().get_image()
+	var on_hits := 0
+	for p in screen_pts:
+		if _ink_near(img1, p, ink):
+			on_hits += 1
+	## The same river ABOVE the clicked cell is not part of the branch and
+	## must not be inked -- the trace is the stretch downstream, not the river.
+	var up_pts: Array = []
+	for i in range(1, k - 1):
+		up_pts.append(xf * ov._point_to_screen(rpts[i], rect))
+	var up_hits := 0
+	for p in up_pts:
+		if _ink_near(img1, p, ink, 0):
+			up_hits += 1
+	var frac := float(on_hits) / maxf(1.0, float(screen_pts.size()))
+	print("RV trace ink at %d of %d interior branch points on screen (%.1f%%) with labels hidden; %d with labels drawn; %d before the trace; %d of %d upstream points of the same river" % [
+		on_hits, screen_pts.size(), 100.0 * frac, lab_hits, pre_hits, up_hits, up_pts.size()])
+	_ok_true("RV trace ink was absent on the branch before the trace (control)", pre_hits == 0)
+	_ok_true("RV trace ink covers >= 95% of the branch's own points on screen", frac >= 0.95)
+	_ok_true("RV the river upstream of the click is not inked (upstream points exist)", up_pts.size() > 0 and up_hits == 0)
+	ov.set_labels(bridge.labels_render_list())
+	await _frames(2)
+	## Off the line: 8 local px perpendicular to the first segment.
+	if branch.size() >= 3:
+		var a: Vector2 = ov._point_to_screen(branch[1], rect)
+		var b: Vector2 = ov._point_to_screen(branch[2], rect)
+		var nrm: Vector2 = (b - a).orthogonal().normalized()
+		var off_px: Vector2 = xf * a + nrm * 8.0
+		_ok_true("RV no trace ink 8 px off the line", not _ink_near(img1, off_px, ink, 0))
+
+	## Show catchment: the engine's own upstream set, and its shading on screen.
+	var cell := int(pick["cell"])
+	var mask: PackedByteArray = bridge.river_catchment(cell)
+	_ok("RV river_catchment is one byte per cell", mask.size(), g.x * g.y)
+	var n_up := mask.count(1)
+	print("RV catchment: %d cells upstream of cell %d" % [n_up, cell])
+	_ok("RV the clicked cell is in its own catchment", mask[cell] if mask.size() > cell else -1, 1)
+	_ok_true("RV the catchment is more than the cell itself", n_up > 1)
+	var img_pre: Image = _vp.get_texture().get_image()
+	sp = ov._point_to_screen(gp, ov._displayed_rect())
+	await _rmb(ov, sp)
+	_ok_true("RV Clear river highlight is offered once something is drawn", _row("Clear river highlight") != null)
+	await _click_row(_row("Show catchment"))
+	_ok_true("RV the overlay holds a catchment", ov.has_river_catchment())
+	await _frames(3)
+	var img2: Image = _vp.get_texture().get_image()
+	## Sample every cell of the grid at its centre, away from the branch line:
+	## a masked cell's pixel must move toward the catchment ink, an unmasked
+	## one must not move at all.
+	var moved_in := 0
+	var n_in := 0
+	var moved_out := 0
+	var n_out := 0
+	var trace_px: Dictionary = {}
+	for p in branch:
+		trace_px[Vector2i(int(p.x), int(p.y))] = true
+	var step := maxi(1, int(sqrt(float(g.x * g.y) / 4000.0)))
+	for y in range(0, g.y, step):
+		for x in range(0, g.x, step):
+			if trace_px.has(Vector2i(x, y)):
+				continue
+			var q: Vector2 = xf * ov._cell_to_screen(Vector2(x, y), rect)
+			if q.x < 0 or q.y < 0 or q.x >= img2.get_width() or q.y >= img2.get_height():
+				continue
+			var c0 := img_pre.get_pixelv(Vector2i(q))
+			var c2 := img2.get_pixelv(Vector2i(q))
+			var moved := (c2.r - c0.r) > 0.02 or (c0.g - c2.g) > 0.02
+			if mask[y * g.x + x] == 1:
+				n_in += 1
+				if moved:
+					moved_in += 1
+			else:
+				n_out += 1
+				if (absf(c2.r - c0.r) + absf(c2.g - c0.g) + absf(c2.b - c0.b)) > 0.02:
+					moved_out += 1
+	print("RV catchment shading: %d of %d masked samples moved toward the ink; %d of %d unmasked samples moved" % [
+		moved_in, n_in, moved_out, n_out])
+	_ok_true("RV masked cells were sampled", n_in > 0)
+	_ok_true("RV >= 90% of masked samples shaded", n_in > 0 and float(moved_in) / float(n_in) >= 0.9)
+	_ok_true("RV <= 2% of unmasked samples moved", n_out > 0 and float(moved_out) / float(n_out) <= 0.02)
+
+	sp = ov._point_to_screen(gp, ov._displayed_rect())
+	await _rmb(ov, sp)
+	await _click_row(_row("Clear river highlight"))
+	_ok_true("RV Clear river highlight cleared both", not ov.river_highlight_active())
+	await _close()
+
 
 func _ready() -> void:
 	var vp_size := Vector2i(1600, 900)
@@ -455,6 +895,17 @@ func _ready() -> void:
 	app = load("res://shell/app.tscn").instantiate()
 	_vp.add_child(app)
 	await get_tree().create_timer(1.0).timeout
+	if DisplayServer.get_name() == "headless":
+		print("### CTXPICKS ABORT: headless -- the RV leg reads the framebuffer. Run windowed. ###")
+		get_tree().quit(2)
+		return
+	## `MISTAKES.md` "Assert on pixels": force the palette rather than name it.
+	## The trace/catchment inks are fixed map inks, but the frame they are read
+	## from is not.
+	if DccTheme.is_dark():
+		DccTheme.apply_theme(false)
+		app.rebuild_theme(true)
+	print("palette forced: %s" % ("dark" if DccTheme.is_dark() else "light"))
 
 	var bridge = app.bridge
 	bridge.generate({

@@ -25,6 +25,7 @@ mod civ_roster_bridge;
 mod civ_tools_bridge;
 mod conflict_bridge;
 mod civ_trade_bridge;
+mod context_pick_bridge;
 mod erode_bridge;
 mod export_options;
 mod export_raster;
@@ -4702,6 +4703,11 @@ struct WorldGen {
     /// committed operation, not only the reversible ones. See
     /// `undo::HistoryLedger` for why it records more than `undo` can revert.
     ledger: undo::HistoryLedger,
+    /// The held half of every way delete (Ruling BA): the deleted way and its
+    /// index, per [`undo::EntryKind::WayDelete`] ledger row. See
+    /// `context_pick_bridge.rs` for why a fingerprint, not a clear-on-every-
+    /// writer rule, decides which of these can still be put back.
+    way_undo: context_pick_bridge::WayUndo,
     /// The live pipeline staleness graph (`cartalith_engine::staleness::
     /// pipeline_stage_graph`): height → hydrology → climate → civ, over the
     /// same tiling the Sculpt draft's `PassBuffer`/`DirtyTracker` pair uses,
@@ -5137,6 +5143,7 @@ impl IRefCounted for WorldGen {
             undo: undo::HeightUndo::new(),
             redo: RedoTail::new(),
             ledger: undo::HistoryLedger::new(),
+            way_undo: context_pick_bridge::WayUndo::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
@@ -5375,6 +5382,7 @@ impl WorldGen {
         // clears anyway and which are meaningless over the next world.
         self.undo.clear();
         self.redo.clear();
+        self.way_undo.clear();
         // F12: memory hygiene only. The cache carries its own fingerprint and
         // would refuse itself over the next world regardless; this returns its
         // one `i32`-per-cell buffer while there is no world to plan over.
@@ -5606,6 +5614,8 @@ impl WorldGen {
         // The forward half of the cursor holds the same wrong-world field,
         // for the same reason.
         self.redo.clear();
+        // ...and a held way belongs to the previous world's way list.
+        self.way_undo.clear();
         // ED-02: a generate is the ledger's **floor**, and clears it for the
         // same reason `undo.clear()` above does -- nothing before it can be
         // reverted to, so drawing it would be an offer the engine cannot
@@ -7654,6 +7664,7 @@ impl WorldGen {
         // possibly the wrong length over a loaded save.
         self.undo.clear();
         self.redo.clear();
+        self.way_undo.clear();
         // ED-02: a load is the ledger's other floor, for the same reason.
         self.ledger.record(
             "world",
@@ -18910,16 +18921,25 @@ fn discard_tail(redo: &mut RedoTail, undo_depth: usize) -> usize {
 impl WorldGen {
     /// Whether `undo_last()` would do anything — the reference's
     /// `undoBtn.disabled = undoStack.length === 0`.
+    ///
+    /// **Two reversible kinds since Ruling BA (2026-09-28):** a height
+    /// snapshot, or a way deleted from the context card whose held entry is
+    /// still live (`context_pick_bridge::WayUndo`). `next_undo_step` picks the
+    /// newer of the two.
     #[func]
     fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
+        self.next_undo_step().is_some()
     }
 
     /// The operation `undo_last()` would revert, for an
     /// "Undo <operation>" menu row. Empty string when the stack is empty.
     #[func]
     fn undo_label(&self) -> GString {
-        GString::from(self.undo.next_label().unwrap_or_default())
+        GString::from(&match self.next_undo_step() {
+            Some(context_pick_bridge::UndoPick::Height(l)) => l,
+            Some(context_pick_bridge::UndoPick::Way { label, .. }) => label,
+            None => String::new(),
+        })
     }
 
     /// Pop the newest snapshot back over the live height field — the
@@ -18956,8 +18976,20 @@ impl WorldGen {
     ///
     /// Call `build_color_texture()` again afterwards to see the result —
     /// the same contract [`Self::sculpt_commit`] documents.
+    ///
+    /// # A way delete is the other thing it can revert
+    ///
+    /// When the newest reversible step is a way deleted from the context card
+    /// (Ruling BA), this puts that way back at its index instead and returns
+    /// that row's label; the height field, the staleness graph and the redo
+    /// tail are untouched (a way restore is not redoable -- the tail holds
+    /// height fields only, so the menu offers no redo after it rather than a
+    /// wrong one). `undo_next_subsystem()` says in advance which it will be.
     #[func]
     fn undo_last(&mut self) -> GString {
+        if let Some(context_pick_bridge::UndoPick::Way { .. }) = self.next_undo_step() {
+            return GString::from(&self.undo_way_step().unwrap_or_default());
+        }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
             return GString::new();
         };
@@ -19119,8 +19151,10 @@ impl WorldGen {
     #[func]
     fn undo_ledger(&self) -> Array<VarDictionary> {
         let depth = self.undo.depth();
+        let way_live = self.way_undo.live_seqs(&|s| self.way_fp(s));
+        let way_live = |seq: u64| way_live.contains(&seq);
         self.ledger
-            .rows(depth)
+            .rows_with(depth, &way_live)
             .into_iter()
             .map(|(e, live)| {
                 let (kind, reason) = match e.kind {
@@ -19131,6 +19165,10 @@ impl WorldGen {
                     ),
                     undo::EntryKind::Recorded(r) => ("recorded", r),
                     undo::EntryKind::Floor => ("floor", "history starts here"),
+                    // Ruling BA: `kind` "way", reversible while the held way
+                    // still fits its store.
+                    undo::EntryKind::WayDelete if live => ("way", ""),
+                    undo::EntryKind::WayDelete => ("way", context_pick_bridge::STALE_REASON),
                 };
                 dict! {
                     "seq" => e.seq as i64,
@@ -19141,7 +19179,7 @@ impl WorldGen {
                     "kind" => kind,
                     "reversible" => live,
                     "reason" => reason,
-                    "steps" => self.ledger.steps_to_revert_to(e.seq, depth).unwrap_or(0) as i64,
+                    "steps" => self.ledger.steps_to_revert_to_with(e.seq, depth, &way_live).unwrap_or(0) as i64,
                 }
             })
             .collect()
@@ -19168,17 +19206,31 @@ impl WorldGen {
             return 0;
         }
         let seq = seq as u64;
-        let Some(steps) = self.ledger.steps_to_revert_to(seq, self.undo.depth()) else {
+        let way_live = self.way_undo.live_seqs(&|s| self.way_fp(s));
+        let Some(steps) = self.ledger.steps_to_revert_to_with(seq, self.undo.depth(), &|q| way_live.contains(&q)) else {
             return 0;
         };
-        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return 0 };
         let mut done = 0i64;
         for _ in 0..steps {
+            // Whichever reversible kind is newest, one step at a time -- the
+            // same choice `undo_last()` makes (Ruling BA's way rows interleave
+            // with height rows in commit order).
+            if let Some(context_pick_bridge::UndoPick::Way { .. }) = self.next_undo_step() {
+                if self.undo_way_step().is_none() {
+                    break;
+                }
+                done += 1;
+                continue;
+            }
+            let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { break };
             // Through the cursor, so a multi-step rollback is as redoable as
             // a single `undo_last()` is -- one `redo_last()` per step.
             if undo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()).is_none() {
                 break;
             }
+            // The row goes with the snapshot, as in `undo_last()`, so the next
+            // `next_undo_step()` compares against the row below it.
+            self.ledger.pop_newest_height();
             done += 1;
         }
         if done > 0 {
@@ -19245,7 +19297,10 @@ impl WorldGen {
             "bytes" => self.undo.bytes() as i64,
             "budget_bytes" => self.undo.budget_bytes() as i64,
             "step_bytes" => step_bytes as i64,
-            "label" => self.undo.next_label().unwrap_or_default(),
+            "label" => &self.undo_label(),
+            // Ruling BA: held way deletes that can still be put back. Not in
+            // `depth`, which stays the height stack's (the Memory row's).
+            "way_depth" => self.way_undo.live_seqs(&|s| self.way_fp(s)).len() as i64,
             "redo_depth" => self.redo.steps.depth() as i64,
             "redo_bytes" => self.redo.steps.bytes() as i64,
         };
@@ -19289,6 +19344,8 @@ impl WorldGen {
     fn clear_undo(&mut self) {
         self.undo.clear();
         self.redo.clear();
+        // The held way deletes go with the rows that name them, below.
+        self.way_undo.clear();
         // The ledger's rows go with the snapshots. Leaving them would show a
         // history of operations none of which could be reverted, which is
         // worse than an empty panel: the panel would look like it works.

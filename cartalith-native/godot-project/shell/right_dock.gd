@@ -4249,7 +4249,10 @@ func _build_region(body: Control) -> void:
 
 ## One glyph per `undo_ledger()` row kind. Shape carries the state and the
 ## row's own text repeats it -- nothing here is distinguished by colour alone.
-const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼"}
+## `way` (Ruling BA, 2026-09-28): a way deleted from the map context card,
+## held so Undo can put it back -- reversible while the way list it came out
+## of is unchanged (`context_pick_bridge.rs`).
+const HISTORY_GLYPH := {"height": "▲", "recorded": "·", "floor": "◼", "way": "◆"}
 
 ## The ledger, drawn in the two tiers `DCC_SHELL_SPEC.md` §7.1 proposal 2
 ## names -- and which are this engine's own draft/commit seam rather than an
@@ -4476,8 +4479,10 @@ func _history_row(parent: Control, entry: Variant, ordinal: int,
 
 	var tip := "%s · %s" % [String(d.get("subsystem", "")), String(d.get("detail", ""))]
 	if reversible:
-		tip += ". Click to move the cursor here: the height field goes back to the "
-		tip += "state before this operation, and the %d step%s after it %s dropped -- " % [
+		tip += (". Click to move the cursor here: the deleted way is put back where it was, "
+			if kind == "way" else
+			". Click to move the cursor here: the height field goes back to the state before this operation, ")
+		tip += "and the %d step%s after it %s dropped -- " % [
 			steps - 1, "" if steps == 2 else "s", "is" if steps == 2 else "are"]
 		tip += "history here is linear, so there is no branch to come back to."
 		row.mouse_filter = Control.MOUSE_FILTER_STOP

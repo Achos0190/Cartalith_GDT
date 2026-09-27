@@ -2351,6 +2351,10 @@ func sculpt_discard() -> int:
 # pop a stamp off an uncommitted draft, these pop a whole committed height
 # field. The reference keeps the same two apart under the same names.
 #
+# Since Ruling BA (2026-09-28) the same Undo also puts back a way deleted from
+# the map context card (`way_delete` below) when that is the newer step --
+# `undo_next_subsystem()` says which a press will revert.
+#
 # Same degrade-rather-than-crash `has_method` guard every wrapper here uses --
 # an older cdylib without these five `#[func]`s reports "nothing to undo"
 # rather than erroring.
@@ -3533,6 +3537,59 @@ func route_delete(index: int) -> bool:
 		return false
 	mark_world_dirty()
 	return world_gen.route_delete(index)
+
+## CM-7 (`MAP_CONTEXT_SCOPE.md` §9.2, Ruling BA): the way under a grid point,
+## within `radius_cells` of its drawn curve -- `{store, index, way_type, km,
+## manual, x, y, dist}` plus `name` when it has one, or `{}`. Read-only.
+## `store` is "generated", "sea_lane" or "manual"; `way_get`/`way_delete` take
+## the same pair. `context_pick_bridge.rs` carries the rest.
+func way_pick(gx: float, gy: float, radius_cells: float) -> Dictionary:
+	if not _has("way_pick"):
+		return {}
+	return world_gen.way_pick(gx, gy, radius_cells)
+
+## One way, whole, with its stored control points -- `{}` for an unknown pair.
+func way_get(store: String, index: int) -> Dictionary:
+	if not _has("way_get"):
+		return {}
+	return world_gen.way_get(store, index)
+
+## Deletes one way and records an undo step for it (Ruling BA): Edit ▸ Undo
+## puts it back at the same index. Later indices in the same store shift down.
+func way_delete(store: String, index: int) -> bool:
+	if not _has("way_delete"):
+		return false
+	var ok: bool = world_gen.way_delete(store, index)
+	if ok:
+		mark_world_dirty()
+	return ok
+
+## CM-7 / Ruling BA: the river under a grid point as "the branch to its
+## mouth" -- `{cell, x, y, order, dist, branch, cells, km, terminus}`, or `{}`.
+## No `name`: rivers are unnamed in this engine.
+func river_pick(gx: float, gy: float, radius_cells: float) -> Dictionary:
+	if not _has("river_pick"):
+		return {}
+	return world_gen.river_pick(gx, gy, radius_cells)
+
+## Every cell draining into `cell`, as a `gw * gh` byte mask (1 = drains here).
+func river_catchment(cell: int) -> PackedByteArray:
+	if not _has("river_catchment"):
+		return PackedByteArray()
+	return world_gen.river_catchment(cell)
+
+## A `w * h` 0/1 mask as an RGBA image, `color` where set -- for the overlay's
+## catchment highlight. Null against an older cdylib or a mask of the wrong size.
+func mask_rgba_image(mask: PackedByteArray, w: int, h: int, color: Color) -> Image:
+	if not _has("mask_rgba_image"):
+		return null
+	return world_gen.mask_rgba_image(mask, w, h, color)
+
+## What `undo_last()` would revert next: "height", "civ" (a way delete) or "".
+func undo_next_subsystem() -> String:
+	if not _has("undo_next_subsystem"):
+		return "height" if can_undo() else ""
+	return String(world_gen.undo_next_subsystem())
 
 func route_set_name(index: int, name: String) -> bool:
 	if not _has("route_set_name"):

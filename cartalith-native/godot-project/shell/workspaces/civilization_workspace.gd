@@ -651,11 +651,14 @@ func context_actions(req: Dictionary) -> Array:
 	var gy: float = req["gy"]
 	var hit := -1
 	var landmark_hit := -1
+	var way_hit: Dictionary = {}
 	for h in req.get("hits", []):
 		if h["kind"] == "settlement" and hit < 0:
 			hit = int(h["id"])
 		elif h["kind"] == "landmark" and landmark_hit < 0:
 			landmark_hit = int(h["id"])
+		elif h["kind"] == "way" and way_hit.is_empty():
+			way_hit = h
 	var rows: Array = []
 	if hit >= 0:
 		var s: Dictionary = bridge.settlements()[hit]
@@ -714,6 +717,37 @@ func context_actions(req: Dictionary) -> Array:
 			"callable": func() -> void: app.open_journey_planner_with_route(route_hit)})
 		rows.append({"id": "civ.route_delete", "label": "Delete “%s”" % rname, "section": "object",
 			"enabled": true, "danger": true, "callable": _delete_route_ctx.bind(route_hit)})
+	## §4.3's Way row (**P** + **E**, `MAP_CONTEXT_SCOPE.md` §9.2 row 4; Ruling
+	## BA): the way is a `hits[]` entry (`context_broker.gd::engine_picks`, over
+	## `WorldGen::way_pick`), so Select ▸ lists it and a Select pick narrows
+	## the card to it. Re-read by `(store, index)` rather than trusted from the
+	## hit, so the row names the way as it is now.
+	##
+	## **A settlement pin takes precedence.** Every generated road ends on a
+	## settlement's own cell, so a right-click on any town also lands within
+	## the way pick's 6 px of one or more roads: measured by
+	## `_ctxcard_probe.gd` leg A and `_ctxbroker_probe.gd` leg A, whose
+	## settlements both carried a road's Inspect/Delete pair before this gate.
+	## A danger row for a road beside the town's own Delete is a misclick
+	## waiting to happen, so with a settlement under the pointer the way is
+	## left to Select ▸ -- it is still in `hits[]`, and picking it there
+	## narrows the request to the way alone, which shows these rows.
+	if not way_hit.is_empty() and hit < 0:
+		var wstore := String(way_hit.get("store", ""))
+		var widx := int(way_hit.get("index", -1))
+		var w := bridge.way_get(wstore, widx)
+		if not w.is_empty():
+			var wtitle := way_title(w)
+			var generated := wstore != "manual"
+			rows.append({"id": "civ.way_inspect", "label": "Inspect %s" % wtitle, "section": "object",
+				"enabled": true, "callable": _inspect_way.bind(w)})
+			## A generated way comes back with the next network rebuild -- said
+			## on the row itself, not left for the user to discover.
+			rows.append({"id": "civ.way_delete",
+				"label": ("Delete %s — generated; Generate roads brings it back" % wtitle) if generated
+					else ("Delete %s" % wtitle),
+				"section": "object", "enabled": true, "danger": true,
+				"callable": _delete_way_ctx.bind(wstore, widx, wtitle, generated)})
 	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
 		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
 	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
@@ -828,6 +862,46 @@ func _route_hit(gx: float, gy: float) -> int:
 			best_d = d
 			best = i
 	return best
+
+## A way described from `way_get()`: `road “Old Mill Road”`, or `unnamed
+## track` -- never a made-up name (rivers and hand-drawn ways often have none).
+static func way_title(w: Dictionary) -> String:
+	var kind := String(w.get("way_type", "way")).replace("_", " ")
+	if w.has("name"):
+		return "%s “%s”" % [kind, String(w["name"])]
+	return "unnamed %s" % kind
+
+func _inspect_way(w: Dictionary) -> void:
+	var origin := "hand-drawn" if bool(w.get("manual", false)) else \
+		"generated network -- Generate roads rebuilds it"
+	var t := way_title(w)
+	app.set_status("hint", "%s — %s, %s." % [t.left(1).to_upper() + t.substr(1),
+		DccUnits.format(float(w.get("km", 0.0))), origin], "text_ghost")
+
+## Ruling BA: an undoable delete. The engine records the undo step; this only
+## repaints, after the engine call, and says how to get it back.
+func _delete_way_ctx(store: String, index: int, title: String, generated: bool) -> void:
+	if not bridge.way_delete(store, index):
+		app.set_status("hint", "That way is no longer there -- the way list changed after the card opened.", "accent")
+		return
+	app.notify_ways_changed()
+	app.set_status("pass", "deleted %s" % title, "text_dim")
+	app.set_status("hint", "Edit ▸ Undo puts it back." + (
+		" A generated way also returns with the next Generate roads." if generated else ""), "text_ghost")
+	if app.right_dock_ctrl != null:
+		app.right_dock_ctrl.refresh_history()
+
+## `app.notify_ways_changed()`'s receiver: a way was deleted, or put back by
+## Undo. The map's road layers and the hand-drawn list re-read, and the trade
+## match is dropped -- it is keyed by way index, and every index after the
+## change moved (`app.gd::_refresh_world_dependent`'s own reason for clearing
+## it on a new world).
+func on_ways_changed() -> void:
+	_refresh_civ_data()
+	_infra._refresh_manual_ways()
+	TradeStore.clear()
+	if app.viewport != null and app.viewport.overlay != null:
+		app.viewport.overlay.set_trade_load(PackedFloat32Array())
 
 func _delete_route_ctx(index: int) -> void:
 	if not bridge.route_delete(index):

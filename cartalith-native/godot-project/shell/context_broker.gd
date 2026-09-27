@@ -128,7 +128,62 @@ func engine_picks(gx: float, gy: float, px_per_cell: float) -> Array:
 			continue
 		out.append({"kind": "icon", "id": int(i), "label": ic.get("slot"),
 			"x": float(ic.get("x", gx)), "y": float(ic.get("y", gy))})
+	## CM-7's two engine picks (Ruling BA). Each is asked only in the domain
+	## whose card carries its verbs -- ways in CIVIL, rivers in WORLD, the
+	## domains `MAP_CONTEXT_SCOPE.md` §4.3 puts their rows in -- because a hit
+	## with no row of its own on this card would only take the header and a
+	## Select ▸ slot from the things that do have rows. `x`/`y` are the nearest
+	## point on the way / the picked cell's centre, so `hits_at()`'s distance
+	## sort measures to the line, not to an arbitrary anchor.
+	var tol := PICK_LINE_PX / px_per_cell if px_per_cell > 0.0 else PICK_LINE_FALLBACK_CELLS
+	var domain := String(app.active_domain()) if app.has_method("active_domain") else ""
+	if domain == "civilization":
+		var w: Dictionary = bridge.way_pick(gx, gy, tol)
+		if not w.is_empty():
+			var store := String(w.get("store", ""))
+			var widx := int(w.get("index", -1))
+			var title := CivilizationWorkspaceScript.way_title(w)
+			out.append({"kind": "way", "id": WAY_ID_BASE.get(store, 0) + widx, "label": title,
+				"store": store, "index": widx,
+				"x": float(w.get("x", gx)), "y": float(w.get("y", gy))})
+	elif domain == "world":
+		var r: Dictionary = bridge.river_pick(gx, gy, tol)
+		if not r.is_empty():
+			out.append({"kind": "river", "id": int(r["cell"]), "label": river_title(r),
+				"x": float(r.get("x", gx)), "y": float(r.get("y", gy))})
 	return out
+
+
+## The pick tolerance for a line (a way, a river), in this control's local
+## pixels -- `civilization_workspace.gd::ROUTE_HIT_PX`'s own 6 px, so a way and
+## a route are equally easy to hit. With no world on screen to measure a
+## pixel-per-cell ratio from, a fixed 1.5 cells, the same fallback.
+const PICK_LINE_PX := 6.0
+const PICK_LINE_FALLBACK_CELLS := 1.5
+const CivilizationWorkspaceScript := preload("res://shell/workspaces/civilization_workspace.gd")
+## A way's hit `id` must be unique across its three stores (the Select ▸ list
+## and `context_card.gd::_same_hit` compare by kind and id), so each store gets
+## its own range; the real `(store, index)` ride on the hit beside it.
+const WAY_ID_BASE := {"generated": 0, "sea_lane": 1000000, "manual": 2000000}
+
+
+## A river described, never named -- rivers are unnamed in this engine
+## (`right_dock.gd`'s River context gives the reason). Order is the picked
+## cell's own Strahler order; the length is Ruling BA's branch, clicked cell to
+## where the walk stopped, and the words say where that was.
+static func river_title(r: Dictionary) -> String:
+	var km := DccUnits.format(float(r.get("km", 0.0)))
+	var where := ""
+	match String(r.get("terminus", "")):
+		"sea":
+			where = "%s to the sea" % km
+		"lake":
+			where = "%s to a lake" % km
+		"edge":
+			where = "%s, then off the map edge" % km
+		_:
+			where = "%s, then ends inland" % km
+	return "River (order %d, %s)" % [int(r.get("order", 0)), where]
 
 
 func build_request(raw: Dictionary) -> Dictionary:

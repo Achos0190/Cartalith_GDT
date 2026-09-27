@@ -8622,17 +8622,20 @@ func _phone_revert_history(seq: int) -> void:
 		_phone_undo_chip, 2.4)
 
 ## Tap. "Undo: ... map edits only" -- `can_undo()`/`undo_last()` are the
-## GLOBAL heightmap undo (`engine_bridge.gd`'s "Global heightmap undo" block:
-## "Deliberately NOT the same thing as `sculpt_undo`/`sculpt_redo`... those
-## pop a stamp off an uncommitted draft, these pop a whole committed height
-## field"), never a civilisation/settlement/route edit -- so "map edits only"
-## already holds without this file narrowing anything further. Checked
-## against that block's own comment rather than assumed true.
+## GLOBAL undo (`engine_bridge.gd`'s "Global heightmap undo" block: "Deliberately
+## NOT the same thing as `sculpt_undo`/`sculpt_redo`... those pop a stamp off an
+## uncommitted draft, these pop a whole committed height field"). Since Ruling BA
+## (2026-09-28) the one civilisation edit it also reverts is a way deleted from
+## the map context card -- still a map edit -- and the overlay is told when that
+## is what came back.
 func _do_phone_undo() -> void:
 	var bridge := _find_engine_bridge()
 	if bridge == null or not bridge.can_undo():
 		return
+	var kind: String = bridge.undo_next_subsystem()
 	var reverted: String = bridge.undo_last()
+	if kind == "civ" and reverted != "" and has_method("notify_ways_changed"):
+		call("notify_ways_changed")
 	_refresh_phone_undo_chip()
 	if reverted != "":
 		_show_phone_toast("Undid: %s" % reverted, _phone_undo_chip, 2.4)

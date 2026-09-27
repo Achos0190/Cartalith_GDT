@@ -4275,9 +4275,22 @@ func _browse_root(key: String, readout: Label) -> void:
 ## `undo.rs` -- so the status hint says which stages are now behind the height
 ## field rather than leaving that to be discovered.
 func undo_last() -> void:
+	## Ruling BA: the next step may be a way deleted from the context card
+	## rather than a height snapshot. Asked before the call, since after it the
+	## answer is about the step below.
+	var kind := bridge.undo_next_subsystem()
 	var label := bridge.undo_last()
 	if label == "":
 		set_status("hint", "Nothing to undo.", "text_ghost")
+		return
+	if kind == "civ":
+		notify_ways_changed()
+		var st: Dictionary = bridge.undo_stats()
+		var left := int(st.get("depth", 0)) + int(st.get("way_depth", 0))
+		set_status("pass", "undid %s" % label.to_lower(), "text_dim")
+		set_status("hint", "%d undo step%s left · the way is back where it was" % [left, "" if left == 1 else "s"], "text_ghost")
+		if right_dock_ctrl != null:
+			right_dock_ctrl.refresh_history()
 		return
 	if viewport != null:
 		viewport.map_view.texture = bridge.color_texture()
@@ -4295,6 +4308,15 @@ func undo_last() -> void:
 	## unless History is the live context.
 	if right_dock_ctrl != null:
 		right_dock_ctrl.refresh_history()
+
+## A way list changed under the overlay (a way deleted from the context card,
+## or put back by Undo -- Ruling BA): every workspace that draws or lists ways
+## re-reads them. Public for `dcc_shell.gd`'s phone Undo chip, which calls
+## `bridge.undo_last()` itself.
+func notify_ways_changed() -> void:
+	for ws in _workspaces:
+		if ws.has_method("on_ways_changed"):
+			ws.on_ways_changed()
 
 ## The mirror of `undo_last()`, and the destination the menu bar's `↷` square
 ## calls (`DccShell._menu_bar_redo()`). Same two lines of repaint, same reason:

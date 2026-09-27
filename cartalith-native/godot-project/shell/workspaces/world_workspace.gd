@@ -3234,6 +3234,33 @@ func context_actions(req: Dictionary) -> Array:
 						app.right_dock_ctrl._on_stamp_delete(stamp_hit)
 					else:
 						bridge.sculpt_delete_stamp(stamp_hit)})
+	## §4.3's river rows (**P** + **E**, `MAP_CONTEXT_SCOPE.md` §9.2 row 5;
+	## Ruling BA): a river is "the branch to its mouth" -- the clicked stretch
+	## and everything downstream to the sea or a lake -- and that line is what
+	## the header names and what both highlight rows act on. The hit is a
+	## `hits[]` entry (`context_broker.gd::engine_picks`, WORLD only); its `id`
+	## is the picked channel cell, re-picked at that cell's own centre so the
+	## row acts on exactly the cell the header described.
+	var river_cell := -1
+	for h in req.get("hits", []):
+		if String(h["kind"]) == "river":
+			river_cell = int(h["id"])
+			break
+	if river_cell >= 0:
+		var gsz := bridge.grid_size()
+		var rcx := float(river_cell % gsz.x) + 0.5
+		var rcy := float(river_cell / gsz.x) + 0.5
+		rows.append({"id": "world.river_inspect", "label": "Inspect river", "section": "object",
+			"enabled": true, "callable": _inspect_river_ctx.bind(rcx, rcy)})
+		rows.append({"id": "world.river_trace", "label": "Trace downstream", "section": "object",
+			"enabled": true, "callable": _trace_river_ctx.bind(rcx, rcy)})
+		rows.append({"id": "world.river_catchment", "label": "Show catchment", "section": "object",
+			"enabled": true, "callable": _catchment_river_ctx.bind(river_cell)})
+	if app.viewport != null and app.viewport.overlay != null \
+			and app.viewport.overlay.has_method("river_highlight_active") \
+			and app.viewport.overlay.river_highlight_active():
+		rows.append({"id": "world.river_clear", "label": "Clear river highlight", "section": "object",
+			"enabled": true, "callable": func() -> void: app.viewport.overlay.clear_river_highlight()})
 	var dabs := bridge.paint_draft_count()
 	if dabs > 0:
 		rows.append({"id": "world.paint_commit", "label": "Commit %d paint dab%s" % [dabs, "" if dabs == 1 else "s"],
@@ -3343,6 +3370,43 @@ func _stamp_hit(gx: float, gy: float) -> int:
 		if Workspace.point_to_polyline_distance(p, pts) <= radius:
 			return idx
 	return -1
+
+## CM-7's river rows. Inspect opens the right dock's existing River context
+## (`show_river`, over `river_at()`, the entity the Inspect tool already picks).
+func _inspect_river_ctx(cx: float, cy: float) -> void:
+	var ent: Dictionary = bridge.world_gen.river_at(cx, cy, 0.75, 1) \
+		if bridge.world_gen != null and bridge.world_gen.has_method("river_at") else {}
+	if ent.is_empty():
+		app.set_status("hint", "No traced river run passes this cell -- the River panel reads traced runs only.", "accent")
+		return
+	if app.right_dock_ctrl != null and app.right_dock_ctrl.has_method("show_river"):
+		app.right_dock_ctrl.show_river(ent)
+
+## Ruling BA's line: the branch from this cell to its mouth, drawn over the map.
+func _trace_river_ctx(cx: float, cy: float) -> void:
+	var r := bridge.river_pick(cx, cy, 0.5)
+	if r.is_empty():
+		app.set_status("hint", "This cell no longer carries a channel -- the river network changed after the card opened.", "accent")
+		return
+	app.viewport.overlay.set_river_trace(r.get("branch", PackedVector2Array()))
+	app.set_status("hint", "%s — traced over %d cells." % [
+		ContextBrokerScript.river_title(r), int(r.get("cells", 0))], "text_ghost")
+
+## Every cell whose flow passes through this one, shaded over the map.
+func _catchment_river_ctx(cell: int) -> void:
+	var mask := bridge.river_catchment(cell)
+	var g := bridge.grid_size()
+	if mask.size() != g.x * g.y or mask.is_empty():
+		app.set_status("hint", "No catchment to show -- this world has no flow field (a loaded save).", "accent")
+		return
+	var img: Image = bridge.mask_rgba_image(mask, g.x, g.y, app.viewport.overlay.RIVER_CATCHMENT_INK)
+	app.viewport.overlay.set_river_catchment(img)
+	var n := mask.count(1)
+	var ck := float(bridge.world_crs().get("cell_km", 0.0))
+	var area := (" (%s)" % DccUnits.format_area(n * ck * ck)) if ck > 0.0 else ""
+	app.set_status("hint", "Catchment: %d cells%s drain through this cell, along the flow-accumulation tree." % [n, area], "text_ghost")
+
+const ContextBrokerScript := preload("res://shell/context_broker.gd")
 
 ## `_stamp_hit`'s own row from `sculpt_list_stamps()` -- re-fetched rather
 ## than threaded through, so a row built one card-open ago (before an

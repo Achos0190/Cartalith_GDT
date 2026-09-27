@@ -2189,7 +2189,73 @@ func set_show_sea_routes(shown: bool) -> void:
 ## Empty (not an error) before any `generate()` and after `load_save()` --
 ## see `get_rivers()`'s own doc comment on the engine side -- so a world with
 ## no traced network simply draws no rivers.
+## CM-7 / Ruling BA: the river the WORLD card's *Trace downstream* and *Show
+## catchment* rows act on. `_river_trace` is the branch from the clicked cell
+## to its mouth (`WorldGen::river_pick`'s `branch`, cell centres in grid
+## coordinates); `_river_catchment` is `river_catchment()`'s mask expanded to
+## an RGBA image by `mask_rgba_image()`. Either can be shown alone. Shell
+## state, like `_sample_pin`: cleared by `clear_river_highlight()`, by the
+## card's own row, and by `set_rivers()` (a new river network makes both
+## describe rivers that are no longer there).
+var _river_trace := PackedVector2Array()
+var _river_catchment: ImageTexture = null
+## Fixed inks, deliberately not theme tokens: the highlight sits on the map,
+## whose paper does not change with the UI theme. A saturated rose that no
+## terrain, water or road ink uses, with a dark casing so it reads on both
+## light land and deep sea.
+const RIVER_TRACE_INK := Color(1.0, 0.16, 0.52)
+const RIVER_TRACE_CASING := Color(0.08, 0.02, 0.06, 0.85)
+const RIVER_TRACE_W := 3.0
+const RIVER_CATCHMENT_INK := Color(1.0, 0.16, 0.52, 0.34)
+
+func set_river_trace(branch: PackedVector2Array) -> void:
+	_river_trace = branch
+	queue_redraw()
+
+func set_river_catchment(img: Image) -> void:
+	_river_catchment = ImageTexture.create_from_image(img) if img != null else null
+	queue_redraw()
+
+func clear_river_highlight() -> void:
+	_river_trace = PackedVector2Array()
+	_river_catchment = null
+	queue_redraw()
+
+func river_highlight_active() -> bool:
+	return not _river_trace.is_empty() or _river_catchment != null
+
+func river_trace() -> PackedVector2Array:
+	return _river_trace
+
+func has_river_catchment() -> bool:
+	return _river_catchment != null
+
+func _draw_river_catchment(rect: Rect2) -> void:
+	if _river_catchment != null:
+		draw_texture_rect(_river_catchment, rect, false)
+
+func _draw_river_trace(rect: Rect2) -> void:
+	if _river_trace.size() < 2 or _gw <= 0:
+		return
+	## Split where a step jumps more than half the map: a wrapped world's
+	## branch crosses the seam as one cell, which drawn straight would streak
+	## back across the whole sheet.
+	var run := PackedVector2Array([_point_to_screen(_river_trace[0], rect)])
+	var runs: Array = []
+	for i in range(1, _river_trace.size()):
+		if absf(_river_trace[i].x - _river_trace[i - 1].x) > _gw * 0.5:
+			runs.append(run)
+			run = PackedVector2Array()
+		run.append(_point_to_screen(_river_trace[i], rect))
+	runs.append(run)
+	for r: PackedVector2Array in runs:
+		if r.size() >= 2:
+			draw_polyline(r, RIVER_TRACE_CASING, RIVER_TRACE_W + 2.0, true)
+			draw_polyline(r, RIVER_TRACE_INK, RIVER_TRACE_W, true)
+
 func set_rivers(rivers: Array) -> void:
+	_river_trace = PackedVector2Array()
+	_river_catchment = null
 	_rivers = rivers
 	queue_redraw()
 
@@ -2574,7 +2640,8 @@ func _draw() -> void:
 			and _landmark_rejects.is_empty() and _rivers.is_empty()
 			## CM-5: a dropped sample pin, with nothing else on the map yet, must
 			## still draw -- the same reasoning as the rejects layer just above.
-			and _journey_markers.is_empty() and _sample_pin.is_empty()):
+			and _journey_markers.is_empty() and _sample_pin.is_empty()
+			and not river_highlight_active()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -2606,6 +2673,12 @@ func _draw() -> void:
 	## behind it (this is reason 1 of 3 the first build was reverted for).
 	if _show_rivers and not _debug_active:
 		_draw_rivers(rect)
+	## CM-7 / Ruling BA: the catchment shading, over the rivers and under the
+	## civil layer -- an area, so roads, pins and marks stay readable on it.
+	## Not gated on `_show_rivers`: it was asked for from a card, and hiding
+	## the river layer should not hide the answer. The traced line is drawn
+	## much later (`_draw_river_trace`), over the marks.
+	_draw_river_catchment(rect)
 
 	if _show_sea_routes:
 		for route: Dictionary in _sea_routes:
@@ -2966,6 +3039,12 @@ func _draw() -> void:
 	## Under the labels and over everything else. Labels are text and lose
 	## legibility the moment anything crosses them; an annotation mark does not.
 	_draw_annotation_marks(rect, interior)
+	## CM-7 / Ruling BA: the traced branch, over every mark and under the
+	## labels only. Measured on the probe world (`_ctxpicks_probe.gd` RV): drawn
+	## under the civil layer, 35 of its 36 on-screen points were covered by
+	## landmark rings -- a highlight the user asked for must not be hidden by
+	## the map's own symbols.
+	_draw_river_trace(rect)
 	_draw_labels(rect, interior)
 	## Ruling AL's hover card, after the labels so no name can cover it.
 	if _landmarks_visible and _lm_hover_index >= 0 and _lm_hover_index < _landmarks.size():
@@ -4486,7 +4565,10 @@ func _pick_mark(mouse: Vector2, interior: Rect2, rect: Rect2) -> Dictionary:
 ## **Everything** under `mouse`, nearest first -- `MAP_CONTEXT_SCOPE.md` §9.1's
 ## `hits_at`, CM-1. Each entry is `{kind, id, label?, dist}`:
 ##
-##   `kind`  `"settlement"` | `"landmark"` | `"label"` | `"icon"`
+##   `kind`  `"settlement"` | `"landmark"` | `"label"` | `"icon"` | `"way"`
+##           (CIVIL only) | `"river"` (WORLD only) -- the last two since CM-7,
+##           from `context_broker.gd::engine_picks`, which also attaches a
+##           way's `store` and `index`
 ##   `id`    the index each kind is already keyed by: `_settlements` /
 ##           `bridge.settlements()`, `_landmarks` / `bridge.landmarks()`,
 ##           `label_list()`, `icon_list()`
@@ -4536,8 +4618,20 @@ func hits_at(mouse: Vector2) -> Array:
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:
 		for e in _context_pick.call(p["gx"], p["gy"], label_px_per_cell()):
-			var epos := _cell_to_screen(Vector2(float(e["x"]), float(e["y"])), rect)
-			hits.append(_hit(String(e["kind"]), int(e["id"]), e.get("label"), mouse.distance_to(epos)))
+			## A line pick (CM-7's `way`, `river`) reports the nearest point on
+			## the line itself, already in continuous grid coordinates -- so it
+			## goes through `_point_to_screen`, not the cell-centring
+			## `_cell_to_screen` a label or icon anchor uses.
+			var line_kind := String(e["kind"]) == "way" or String(e["kind"]) == "river"
+			var anchor := Vector2(float(e["x"]), float(e["y"]))
+			var epos := _point_to_screen(anchor, rect) if line_kind else _cell_to_screen(anchor, rect)
+			var h := _hit(String(e["kind"]), int(e["id"]), e.get("label"), mouse.distance_to(epos))
+			## Anything else the resolver attached (a way's `store`/`index`)
+			## rides on the hit, so a provider need not pick a second time.
+			for k in e:
+				if not h.has(k) and not ["x", "y", "label"].has(k):
+					h[k] = e[k]
+			hits.append(h)
 	## Stable nearest-first: `sort_custom` is not stable, so the order each
 	## kind was collected in (settlement index ascending, then the engine's
 	## topmost-first) is carried as the tie-break explicitly.

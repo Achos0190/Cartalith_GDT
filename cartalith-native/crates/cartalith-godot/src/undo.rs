@@ -484,6 +484,13 @@ pub enum EntryKind {
     Recorded(&'static str),
     /// A generate or a load: everything before it is gone.
     Floor,
+    /// A way deleted from the map context card (Ruling BA, 2026-09-28): the
+    /// deleted way itself is held in `context_pick_bridge::WayUndo` under this
+    /// row's `seq`, so reverting is real **while that entry is live** -- a
+    /// property of the way store it came out of, asked at read time exactly as
+    /// a height row asks the height stack's depth. See
+    /// [`HistoryLedger::rows_with`].
+    WayDelete,
 }
 
 /// One row of the ledger.
@@ -678,10 +685,20 @@ impl HistoryLedger {
     /// because the stack evicts oldest-first. This is the only place the two
     /// structures meet, and they meet at read time so they cannot drift.
     pub fn rows(&self, height_depth: usize) -> Vec<(&LedgerEntry, bool)> {
+        self.rows_with(height_depth, &|_| false)
+    }
+
+    /// [`Self::rows`] with the second reversible kind: an
+    /// [`EntryKind::WayDelete`] row is live exactly when `way_live(seq)`
+    /// says its held way can still be put back. The height half is
+    /// unchanged. Two sources of liveness, each asked at read time, and
+    /// still one answer per row.
+    pub fn rows_with(&self, height_depth: usize, way_live: &dyn Fn(u64) -> bool) -> Vec<(&LedgerEntry, bool)> {
         let mut seen = 0usize;
         let mut flags: Vec<bool> = Vec::with_capacity(self.entries.len());
         for e in self.entries.iter().rev() {
-            let live = e.kind == EntryKind::HeightSnapshot && seen < height_depth;
+            let live = (e.kind == EntryKind::HeightSnapshot && seen < height_depth)
+                || (e.kind == EntryKind::WayDelete && way_live(e.seq));
             if e.kind == EntryKind::HeightSnapshot {
                 seen += 1;
             }
@@ -701,12 +718,40 @@ impl HistoryLedger {
     /// an operation is still in effect after the field under it was rolled
     /// back would be the worse lie.
     pub fn steps_to_revert_to(&self, seq: u64, height_depth: usize) -> Option<usize> {
-        let rows = self.rows(height_depth);
+        self.steps_to_revert_to_with(seq, height_depth, &|_| false)
+    }
+
+    /// [`Self::steps_to_revert_to`] over [`Self::rows_with`]: the count is
+    /// every **live** row at or above `seq`, of either reversible kind -- one
+    /// unified undo step each. A way row that is no longer live is passed over
+    /// exactly as a `Recorded` row is (there is nothing to put back), and
+    /// [`Self::truncate_to`] drops it all the same.
+    pub fn steps_to_revert_to_with(&self, seq: u64, height_depth: usize, way_live: &dyn Fn(u64) -> bool) -> Option<usize> {
+        let rows = self.rows_with(height_depth, way_live);
         let idx = rows.iter().position(|(e, _)| e.seq == seq)?;
         if !rows[idx].1 {
             return None;
         }
-        Some(rows[idx..].iter().filter(|(e, _)| e.kind == EntryKind::HeightSnapshot).count())
+        Some(rows[idx..].iter().filter(|(_, live)| *live).count())
+    }
+
+    /// `seq` of the newest [`EntryKind::HeightSnapshot`] row, or `None` when
+    /// the ledger holds none -- what the unified undo compares against the
+    /// newest live way row to decide which of the two a plain `Edit ▸ Undo`
+    /// reverts.
+    pub fn newest_height_seq(&self) -> Option<u64> {
+        self.entries.iter().rev().find(|e| e.kind == EntryKind::HeightSnapshot).map(|e| e.seq)
+    }
+
+    /// Drop the one row carrying `seq` -- the way-restore half of a plain
+    /// undo, [`Self::pop_newest_height`]'s twin. `false` when no row has it.
+    /// Invalidates the `COMMITTED` mark by the same rule the other two removal
+    /// paths use.
+    pub fn remove_seq(&mut self, seq: u64) -> bool {
+        let Some(pos) = self.entries.iter().position(|e| e.seq == seq) else { return false };
+        self.entries.remove(pos);
+        self.invalidate_mark_at_or_below(seq);
+        true
     }
 
     /// Drop `seq` and everything after it -- what a successful revert leaves
@@ -1063,6 +1108,46 @@ mod ledger_tests {
         lost.pop_newest_height();
         assert_eq!(lost.saved_seq(), None, "seq 5 was the rule and it was just undone");
         assert!(lost.saved_reverted_past());
+    }
+
+    /// Ruling BA's way row: live only while `way_live` says so, and counted
+    /// by a revert-to exactly like a height row. `ledger()` is seqs 1..=5;
+    /// the way delete below is seq 6, above the Sculpt commit (5).
+    #[test]
+    fn a_way_delete_row_is_reversible_while_its_way_is_held() {
+        let mut l = ledger();
+        let way = l.record("civ", "Delete way", "Old Road", EntryKind::WayDelete);
+        assert_eq!(way, 6);
+        let held = |s: u64| s == 6;
+        let live: Vec<bool> = l.rows_with(2, &held).iter().map(|(_, b)| *b).collect();
+        assert_eq!(live, vec![false, false, true, false, true, true]);
+        // Not held: the row is drawn and not offered, like a Recorded row.
+        let gone: Vec<bool> = l.rows_with(2, &|_| false).iter().map(|(_, b)| *b).collect();
+        assert_eq!(gone, vec![false, false, true, false, true, false]);
+        // `rows()` alone never offers a way row.
+        assert!(!l.rows(2)[5].1);
+        // Reverting to the fjords row (seq 3): fjords, sculpt, the way -- 3.
+        assert_eq!(l.steps_to_revert_to_with(3, 2, &held), Some(3));
+        assert_eq!(l.steps_to_revert_to_with(3, 2, &|_| false), Some(2));
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &held), Some(1));
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &|_| false), None);
+        assert_eq!(l.newest_height_seq(), Some(5), "a way row is not a height row");
+    }
+
+    #[test]
+    fn remove_seq_drops_one_row_and_respects_the_boundary() {
+        let mut l = ledger();
+        l.mark_saved(Some(WRITTEN_AT)); // mark at 5
+        let way = l.record("civ", "Delete way", "", EntryKind::WayDelete); // 6
+        assert!(l.remove_seq(way));
+        assert_eq!(l.len(), 5);
+        assert_eq!(l.saved_seq(), Some(5), "row 6 was above the rule");
+        assert!(!l.remove_seq(way), "already gone");
+        assert!(l.remove_seq(2));
+        assert_eq!(l.saved_seq(), None, "row 2 was inside the file");
+        assert!(l.saved_reverted_past());
+        let left: Vec<&str> = l.rows(0).iter().map(|(e, _)| e.label.as_str()).collect();
+        assert_eq!(left, vec!["Generate world", "Carve fjords", "Paint commit", "Sculpt commit"]);
     }
 
     #[test]
