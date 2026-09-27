@@ -331,7 +331,10 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**74 outstanding items** — 2026-09-28, late night (latest). The Android debug-size row
+**74 outstanding items** — 2026-09-29 (latest). CM-7 closed, so the whole map-context
+scope (CM-1…CM-7) is built; one undo follow-up filed. **74 − 1 + 1 = 74**.
+
+**74 outstanding items** — 2026-09-28, late night. The Android debug-size row
 closed. **75 − 1 = 74**.
 
 **75 outstanding items** — 2026-09-28, late, later. The exit-button rule closed.
@@ -3109,7 +3112,8 @@ desktop path, each step shipping alone; CM-4 needs CM-3; CM-7 runs beside any.
 | ~~**CM-5 · Phone noun surface: long-press → pin → peek card**~~ — **CLOSED 2026-09-27 (`ba01574`, verified: `_ctxphone_probe` 31/31 at phone size; tablet, desktop and ring probes unchanged)** | `MAP_CONTEXT_SCOPE.md` §11 | medium | **F1 answered by Ruling AX (2026-09-26): long-press drops the pin *and* opens the verbs, at 480 ms** (replacing `map_overlay.gd`'s 500 ms menu-only `_TOUCH_HOLD_MS`). Lands with or before RP-S6. Needs CM-1 |
 | **CM-5 residuals: the phone's Select chip and the domain rows the phone sheet still omits** | `phone_menu.gd` (`peek_card`'s unused `reselect`); `world_workspace.gd`, `cartography_workspace.gd`, `civilization_workspace.gd` (`card_form()` phone gates) | small | Left by `ba01574`: §8.1.4's multi-hit "Select ▸" chip is threaded but unbuilt (the desktop card's is a submenu; the phone sheet needs its own form); WORLD's draft/tool rows and CARTO's label/icon rows still return nothing for the phone form, so the phone's half card shows fewer rows than the desktop card for the same object. **Next step:** a Select chip that re-resolves the sheet; lift each workspace's phone gate where the row works by touch; extend `_ctxphone_probe` |
 | ~~**CM-6 · Phone thumb fan**~~ — **CLOSED 2026-09-27 (`de2d4da`, verified: `_ctxfan_probe` 30/30 at phone size; CM-3/4/5 probes unchanged)** | `MAP_CONTEXT_SCOPE.md` §11 | small–medium | **F2 answered by Ruling AX: build it, after CM-5.** §8.2 |
-| **CM-7 · New picks and verbs** — *partial 2026-09-28 (`45c8733`, verified: `_ctxpicks_probe` 37/37): landmark, route and stamp picks and CIVIL's extra rows built. **Remaining, ruled by Ruling BA:** way list and an undoable delete; river pick = the branch to its mouth, with trace downstream and catchment* | `MAP_CONTEXT_SCOPE.md` §11 | medium | §9.2's rows one at a time, each with its card row: landmark and route picks, stamp pick, then way list/delete and river identity/trace downstream. Can run beside any of the above |
+| ~~**CM-7 · New picks and verbs**~~ — **CLOSED 2026-09-28 (`45c8733`, `3bfbe0f`, verified: `_ctxpicks_probe` 122/122 — landmark, route, stamp, way with undoable delete, river trace and catchment)**| `MAP_CONTEXT_SCOPE.md` §11 | medium | §9.2's rows one at a time, each with its card row: landmark and route picks, stamp pick, then way list/delete and river identity/trace downstream. Can run beside any of the above |
+| **Two undo quirks outside the way work** | `lib.rs::undo_revert_to`; `dcc_shell.gd` phone Undo chip | small | Found 2026-09-28 building `3bfbe0f`, both pre-existing: `undo_revert_to` does not mark the height stage stale after reverting; the phone Undo chip does not repaint the height texture after a height undo (only the way case was wired). **Next step:** decide whether revert-to should invalidate downstream stages (compare with `undo_last`), and repaint after a phone height undo; a probe for each |
 
 ## 3. Blocked, with the blocker named
 
