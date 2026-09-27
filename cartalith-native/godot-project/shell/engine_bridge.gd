@@ -1033,7 +1033,10 @@ func river_color_texture() -> Texture2D:
 ## Which cells the map draws as water, one byte per cell (255 water), built by
 ## the last `color_texture()` beside the river colour texture
 ## (`WorldGen::river_water_mask`). The base view's river stroke discards itself
-## on those cells, so water sits above the river (`map_overlay.gd::_draw_rivers`).
+## on those cells, so water sits above the river (`map_overlay.gd::_draw_rivers`)
+## -- when the map draws the cell coast; with RV-4's smooth shoreline it hides
+## under `shore_field_texture()`'s water instead, and this stays the
+## classification the probes read.
 ## `null` mid-generation, whenever `river_color_texture()` is, and against a
 ## binary built before it existed -- the stroke is then drawn unmasked, as it
 ## was.
@@ -1041,6 +1044,20 @@ func river_water_mask() -> Texture2D:
 	if generating or not _has("river_water_mask"):
 		return null
 	return world_gen.river_water_mask()
+
+## The smooth shoreline's field (RV-4), one float per cell, built by the last
+## `color_texture()` beside the map texture (`WorldGen::shore_field_texture`,
+## `render::shore_field`): positive on every cell the map draws as water,
+## negative on every land cell, crossing zero on the sub-cell shoreline. Read
+## by `map_shore.gdshader` (the base map) and `river_under_water.gdshader`
+## (the stroke hiding under the water). `null` mid-generation, when the look
+## draws the reference's cell coast (`TerrainAppearance::smooth_shores` off),
+## and against a binary built before it existed -- both shaders then draw the
+## cell coast they always did.
+func shore_field_texture() -> Texture2D:
+	if generating or not _has("shore_field_texture"):
+		return null
+	return world_gen.shore_field_texture()
 
 ## Read-back for `set_rivers_in_map()`. `true` against a binary built before
 ## it existed, which draws its rivers whatever this says.

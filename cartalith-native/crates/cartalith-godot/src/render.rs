@@ -1418,6 +1418,29 @@ pub struct TerrainAppearance {
     /// check and LOD entry are untouched either way.
     pub tile_shade_exag_scaled: bool,
 
+    /// **RV-4: a smooth, sub-cell shoreline** (owner, 2026-09-27: coasts and
+    /// lake shores were *"pixel-stepped"*; `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`'s
+    /// bar, no square artefacts at any zoom). When `true`:
+    ///
+    /// - `WorldGen::build_color_texture` also builds [`shore_field`], which the
+    ///   shell's base map (`map_shore.gdshader`) contours at zero, below the
+    ///   deep-zoom switch;
+    /// - a deep-zoom tile's lake band ([`is_lake_pixel`]) is water where the
+    ///   tile's own ground lies below the same field's surface, on the wet
+    ///   side of its rain margin ([`shore_margins`]), instead of the
+    ///   reference's `fq > 0.35`
+    ///   membership cut and its flat-lake nearest-cell stamp, which drew the
+    ///   z16 lake shore as square steps.
+    ///
+    /// Classification never changes either way: which cells are lake and
+    /// sea is `cartalith_civ::build_water_bodies`' answer, and every cell
+    /// centre keeps its class (the field's clamp, [`SHORE_EPS`]). A `bool`
+    /// rather than a strength: a shoreline is where it is, there is nothing
+    /// between. `true` in `default()`; `false` in [`Self::js_reference`], whose
+    /// tile lake band `tests/golden_parity_tile_biome.rs` pins to the
+    /// reference's v1.05 rule byte for byte.
+    pub smooth_shores: bool,
+
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
     /// `0.0` disables AO entirely (and skips its precompute); the
@@ -2117,6 +2140,9 @@ impl Default for TerrainAppearance {
             // v2.25 `tileShadeExag` (RC_ENGINE_CHANGES.md §4, Ruling AP): on
             // in the shipped look. `js_reference()` pins `false`.
             tile_shade_exag_scaled: true,
+            // RV-4: the smooth shoreline, on in the shipped look.
+            // `js_reference()` pins `false`.
+            smooth_shores: true,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2481,6 +2507,11 @@ impl TerrainAppearance {
             // `default()`; the frozen v2.11 reference shades a tile with the
             // bare `ex = state.exag` (11670), and the golden pins that.
             tile_shade_exag_scaled: false,
+            // RV-4's smooth shoreline is a port-only drawing: the reference
+            // cuts its tile lake band by bilinear membership (`fq > 0.35`,
+            // 11717-11740) and its map draws whole cells, and the tile golden
+            // pins that. Off by control flow (`is_lake_pixel`'s branch).
+            smooth_shores: false,
             ..TerrainAppearance::default()
         }
     }
@@ -9855,6 +9886,237 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
     out
 }
 
+/// **RV-4's clamp**, in height units: [`shore_depth`] never returns less than
+/// this on a water cell nor more than its negative on a land one, so every
+/// cell centre keeps the class `build_water_bodies` gave it however the
+/// ground lies. Labelled judgement, not a measured value: it binds only where
+/// the margins and the classification disagree (a tie at exactly zero -- a
+/// cell exactly at sea level is land; a land cell between two waters measured
+/// against the higher one), and is small enough there that the shoreline stays
+/// within a few thousandths of a cell of the land centre. It must stay above half-float's smallest
+/// subnormal (`2^-24`, about `6e-8`), since the shell's copy of the field is
+/// half-float ([`f16_bits`]) and a zero would lose the sign.
+pub const SHORE_EPS: f64 = 1e-5;
+
+/// [`shore_depth`] on a land cell with no water in its 8-neighbourhood. Such a
+/// cell is never a corner of a square that holds water (the four corners of a
+/// square are each within the others' 8-neighbourhood), so the value is read
+/// by nothing that contours; any negative would do, and a whole unit of
+/// height (the field's full range) says plainly "far from any water". (Its
+/// sign is also forced by [`shore_depth`]'s land clamp, so a mutation of it
+/// survives the tests: the value is documentation of intent, not load.)
+pub const SHORE_FAR_LAND: f64 = -1.0;
+
+/// **RV-4: the two margins of the lake rule at cell (`x`, `y`)**, unclamped:
+/// `(depth, rain)`, each positive where that half of the rule says water.
+///
+/// `build_water_bodies` makes an above-sea cell lake where BOTH its pooled
+/// depth exceeds [`cartalith_civ::LAKE_DEPTH`] AND its rainfall reaches
+/// [`cartalith_civ::LAKE_RAIN`]; below sea level everything is water. So a
+/// shoreline is the zero line of one of two smooth fields, and which one is a
+/// fact about the place: where the ground rises out of the water it is the
+/// terrain, and where the pooled surface runs on into drier country the
+/// rainfall threshold cuts the lake off (measured on seed 483920's lake at
+/// cell 671,97: land cells 0.02 below the water beside them, kept dry by the
+/// rain gate -- the edge the membership cut then drew as steps).
+///
+/// - `depth`: the surface of the water (for a land cell, of the water beside
+///   it) minus the ground, in height units. The surface is `sea_level` for the
+///   ocean; for a lake the larger of `sea_level` and `fill - LAKE_DEPTH`, the
+///   level the classification thresholds. A land cell takes the highest
+///   surface among the water cells in its 8-neighbourhood (the water it is the
+///   shore of), and [`SHORE_FAR_LAND`] when there is none. On a sea coast the
+///   zero line is the height field's own coastline -- the one
+///   `cartalith_terrain::vector::trace_coastline` traces.
+/// - `rain`: `SHORE_RAIN_SCALE * (rainfall - LAKE_RAIN)` where that surface
+///   is an above-sea lake's (the only water the rain gate applies to), and
+///   [`SHORE_RAIN_UNGATED`] elsewhere.
+///
+/// `class`/`fill` are one `build_water_bodies` call's
+/// `classification`/`fill_level`, `rain` the rainfall it was given, all `gw *
+/// gh` (the caller checks). `world` wraps the neighbourhood in x, as that
+/// call's own flood does. Must never be used to classify.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_margins(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> (f64, f64) {
+    // `(surface, rain-gated)` of water cell `j`.
+    // No ocean branch: the flood seeds every ocean cell at its own (below-sea)
+    // height, so its `fill - LAKE_DEPTH` is below sea level and the second
+    // arm already answers `sea_level` for it (a separate `class == 1` arm was
+    // written first and survived mutation as the same answer).
+    let surface = |j: usize| -> (f64, bool) {
+        let lake = fill[j] as f64 - cartalith_civ::LAKE_DEPTH;
+        // Above sea level the flood pass (and its rain gate) made this lake;
+        // at or below it the cell is water whatever the rain.
+        if lake > sea_level { (lake, true) } else { (sea_level, false) }
+    };
+    let i = y * gw + x;
+    let h = field[i] as f64;
+    let (level, gated) = if class[i] != 0 {
+        surface(i)
+    } else {
+        let mut best: Option<(f64, bool)> = None;
+        for dy in -1i64..=1 {
+            let yy = y as i64 + dy;
+            if yy < 0 || yy >= gh as i64 {
+                continue;
+            }
+            for dx in -1i64..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let mut xx = x as i64 + dx;
+                // A wrapped world's x edge is not an edge (the flood's own rule).
+                if xx < 0 || xx >= gw as i64 {
+                    if !world {
+                        continue;
+                    }
+                    xx = xx.rem_euclid(gw as i64);
+                }
+                let j = yy as usize * gw + xx as usize;
+                if class[j] != 0 {
+                    let s = surface(j);
+                    if best.is_none_or(|b| s.0 > b.0) {
+                        best = Some(s);
+                    }
+                }
+            }
+        }
+        match best {
+            Some(b) => b,
+            None => return (SHORE_FAR_LAND, SHORE_RAIN_UNGATED),
+        }
+    };
+    let r = if gated { SHORE_RAIN_SCALE * (rain[i] as f64 - cartalith_civ::LAKE_RAIN) } else { SHORE_RAIN_UNGATED };
+    (level - h, r)
+}
+
+/// Height units per unit of rainfall margin in [`shore_margins`]' `rain`.
+/// Both fields are the engine's normalised `0..1` rasters, so `1.0` keeps
+/// them on one footing. Labelled judgement, and a weak one to get wrong: the
+/// zero line of `min(depth, k * rain)` is the same for every `k > 0` at the
+/// cell centres; `k` only weighs the two where they are interpolated across
+/// one cell square that holds both kinds of edge.
+pub const SHORE_RAIN_SCALE: f64 = 1.0;
+
+/// [`shore_margins`]' `rain` where no rain gate applies (the sea, water below
+/// sea level, a land cell with no water beside it): larger than any real
+/// margin, `SHORE_RAIN_SCALE * (1 - LAKE_RAIN)` = 0.78, so the `min` in
+/// [`shore_depth`] always takes `depth` there.
+pub const SHORE_RAIN_UNGATED: f64 = 1.0;
+
+/// **RV-4: the signed water depth at cell (`x`, `y`)** -- the smaller of the
+/// two [`shore_margins`], so positive where the lake rule (or the sea) says
+/// water and negative where it says land, and zero on the smooth shoreline
+/// between cell centres. The shore field ([`shore_field`]) is this at every
+/// cell.
+///
+/// Then clamped by class, `>= SHORE_EPS` on water and `<= -SHORE_EPS` on land,
+/// which is what makes the drawn water agree with the classification at every
+/// cell centre and makes a point between four water centres always water
+/// (bilinear of positives). The margins already agree with the class at every
+/// cell the rule classifies; the clamp is for the rest (a tie at exactly zero,
+/// and the neighbour-surface choice on a land cell between two waters). The
+/// water half never binds today -- a water cell's margins are strictly
+/// positive by the rule that made it water (`LAKE_RAIN` is not an `f32`, so
+/// the rain margin cannot be exactly zero) -- and survives mutation for that
+/// reason; it is kept as the stated guarantee the shader relies on. Why
+/// it exists: the base map drew whole-cell water -- square steps (owner,
+/// 2026-09-27). Must never be used to classify: it moves no cell between land
+/// and water, and it is not written back to anything.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_depth(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, x: usize, y: usize) -> f64 {
+    let (d, r) = shore_margins(field, class, fill, rain, gw, gh, sea_level, world, x, y);
+    let v = d.min(r);
+    if class[y * gw + x] != 0 { v.max(SHORE_EPS) } else { v.min(-SHORE_EPS) }
+}
+
+/// **RV-4: the shore field** -- [`shore_depth`] at every cell, row-major,
+/// `gw * gh`; empty when any input is shorter than that. The shell contours
+/// its bilinear interpolation at zero to draw the base map's coast at
+/// sub-cell precision (`shell/map_shore.gdshader`, and the river stroke's
+/// `river_under_water.gdshader`, which must hide under exactly that water).
+///
+/// Cost: one pass, nine neighbour reads per land cell, `rayon` by rows --
+/// linear in cells, the same order as the classification it reads.
+#[allow(clippy::too_many_arguments)]
+pub fn shore_field(field: &[f32], class: &[u8], fill: &[f32], rain: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<f32> {
+    let n = gw * gh;
+    if n == 0 || field.len() < n || class.len() < n || fill.len() < n || rain.len() < n {
+        return Vec::new();
+    }
+    let mut out = vec![0f32; n];
+    out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for (x, v) in row.iter_mut().enumerate() {
+            *v = shore_depth(field, class, fill, rain, gw, gh, sea_level, world, x, y) as f32;
+        }
+    });
+    out
+}
+
+/// IEEE 754 half-float bits of `v`, rounded to nearest, for the shore field's
+/// `RH` texture (2 bytes a cell where `RF` would take 4 -- at the 8192-wide
+/// ceiling, 86 MB instead of 172). **Never rounds a non-zero value to zero**:
+/// a value below half-float's smallest subnormal comes back as that subnormal
+/// with its sign, because the shader reads the sign of every cell as its class
+/// ([`SHORE_EPS`]). Overflow saturates to infinity; NaN stays NaN. No crate:
+/// the workspace carries no half-float type, and this is the one caller.
+pub fn f16_bits(v: f32) -> u16 {
+    let b = v.to_bits();
+    let sign = ((b >> 16) & 0x8000) as u16;
+    let exp = ((b >> 23) & 0xff) as i32;
+    let man = b & 0x007f_ffff;
+    if exp == 0xff {
+        return sign | 0x7c00 | if man != 0 { 0x0200 } else { 0 };
+    }
+    if exp == 0 && man == 0 {
+        return sign;
+    }
+    // Rebias 127 -> 15.
+    let e = exp - 127 + 15;
+    if e >= 0x1f {
+        return sign | 0x7c00;
+    }
+    if e <= 0 {
+        // Subnormal: shift the full significand (implicit 1 restored) down.
+        let m = man | 0x0080_0000;
+        let shift = (14 - e) as u32;
+        let r = if shift >= 32 { 0 } else { (m + (1u32 << (shift - 1))) >> shift };
+        // The sign is the class: never let a non-zero value become zero.
+        return sign | (r.max(1) as u16);
+    }
+    // Normal: round the 23-bit mantissa to 10 bits; a carry rolls into the
+    // exponent, which is the right answer -- and from the top exponent (`e`
+    // is at most 0x1e here) it lands exactly on 0x7c00, infinity, so no
+    // separate saturation is needed (one was written and survived mutation).
+    let out = ((e as u32) << 10) + ((man + 0x0000_1000) >> 13);
+    sign | out as u16
+}
+
+/// Whether an export-bake pixel at grid position (`gx`, `gy`) lies in an
+/// above-sea lake (class `2`): all four surrounding cells lake -> yes, none ->
+/// no, mixed -> the nearest cell decides. [`is_lake_pixel`]'s rule for a tile
+/// with no lake-fill surface, so the export's shoreline is the one a tile
+/// drawn without that surface has.
+fn bake_lake_at(lake: &[u8], gx: f64, gy: f64, gw: usize, gh: usize) -> bool {
+    let fx = gx.clamp(0.0, gw as f64 - 1.001);
+    let fy = gy.clamp(0.0, gh as f64 - 1.001);
+    let (x0, y0) = (fx as usize, fy as usize);
+    let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
+    let n = [lake[y0 * gw + x0], lake[y0 * gw + x1], lake[y1 * gw + x0], lake[y1 * gw + x1]]
+        .iter()
+        .filter(|&&c| c == 2)
+        .count();
+    match n {
+        4 => true,
+        0 => false,
+        _ => {
+            let ix = gx.round().clamp(0.0, (gw - 1) as f64) as usize;
+            let iy = gy.round().clamp(0.0, (gh - 1) as f64) as usize;
+            lake[iy * gw + ix] == 2
+        }
+    }
+}
+
 /// The v1.05 lake shoreline (reference 11717-11740), issue #96 *"square lakes
 /// when LOD zooming"*.
 ///
@@ -9882,31 +10144,34 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
 /// so it is reachable only through a length mismatch, and it is kept rather
 /// than dropped because the alternative to a stated fallback is silently
 /// drawing squares.
-/// Whether an export-bake pixel at grid position (`gx`, `gy`) lies in an
-/// above-sea lake (class `2`): all four surrounding cells lake -> yes, none ->
-/// no, mixed -> the nearest cell decides. [`is_lake_pixel`]'s rule for a tile
-/// with no lake-fill surface, so the export's shoreline is the one a tile
-/// drawn without that surface has.
-fn bake_lake_at(lake: &[u8], gx: f64, gy: f64, gw: usize, gh: usize) -> bool {
-    let fx = gx.clamp(0.0, gw as f64 - 1.001);
-    let fy = gy.clamp(0.0, gh as f64 - 1.001);
-    let (x0, y0) = (fx as usize, fy as usize);
-    let (x1, y1) = ((x0 + 1).min(gw - 1), (y0 + 1).min(gh - 1));
-    let n = [lake[y0 * gw + x0], lake[y0 * gw + x1], lake[y1 * gw + x0], lake[y1 * gw + x1]]
-        .iter()
-        .filter(|&&c| c == 2)
-        .count();
-    match n {
-        4 => true,
-        0 => false,
-        _ => {
-            let ix = gx.round().clamp(0.0, (gw - 1) as f64) as usize;
-            let iy = gy.round().clamp(0.0, (gh - 1) as f64) as usize;
-            lake[iy * gw + ix] == 2
-        }
-    }
-}
-
+///
+/// **RV-4 (2026-09-27): the smooth band, `TerrainAppearance::smooth_shores`.**
+/// Both fallbacks above draw squares -- the membership cut is a curve between
+/// cell centres of a 0/1 field, so a staircase of lake cells stays a staircase
+/// with its corners cut, and the flat-lake stamp is the cell itself; the z16
+/// lake shores the owner saw (2026-09-27) were exactly those. With the flag
+/// on, the band pixel is water where the base map's own shore field says so:
+/// the bilinear of [`shore_depth`] at the pixel's four corners is positive.
+/// That field reads `build_water_bodies`' lake rule smoothly -- the ground
+/// rising through the pooled surface less [`cartalith_civ::LAKE_DEPTH`], and
+/// the rainfall crossing [`cartalith_civ::LAKE_RAIN`] ([`shore_margins`]) --
+/// so the shore is a smooth curve, and a lake keeps exactly one outline from
+/// fit zoom to the deepest tile.
+///
+/// **The tile's own detail (`ht`) does not move it**, unlike the sea's
+/// `ht < sl` and the v1.05 band. Tried first and measured on seed 483920: with
+/// `ht` the lake shores went ragged tile pixel by tile pixel wherever the
+/// ground is nearly as high as the water (the added noise decides every pixel
+/// there), which is a pixel artefact of its own, and a river running beside
+/// such a shore showed through the tatters (`_rivstyle_probe.gd` M3, 4-7 px
+/// at two lake mouths). A lake surface is flat, so its outline at this scale
+/// is the field's contour; the sea keeps the reference's rule, which HEAD
+/// already drew smooth.
+///
+/// All four corners lake is water outright, as before (the region
+/// `river_stroke.rs` carries a river mouth into; the field is positive there
+/// anyway), and no lake corner is land. `smooth_shores` false
+/// (`js_reference()`) runs the v1.05 body untouched.
 fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fill_ok: bool) -> bool {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let lake = &tf.lake_class;
@@ -9921,6 +10186,8 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
     if n_l == 4 {
         return true;
     }
+    // No lake corner: land, on both bands. (The smooth band's own rule could
+    // not say water here anyway: every corner's `shore_depth` is negative.)
     if n_l == 0 {
         return false;
     }
@@ -9929,6 +10196,19 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
     let ni = iy * gw + ix;
     if !fill_ok {
         return lake[ni] == 2;
+    }
+    // RV-4: the smooth band (see this function's doc) -- the base map's own
+    // shoreline: water where the bilinear of the four corners' `shore_depth`
+    // is positive, the same number `map_shore.gdshader` contours. `ht`, the
+    // tile's added detail, does not move it. Never reached with
+    // `smooth_shores` false, which is what keeps the reference's own band
+    // below byte-identical.
+    if ctx.appearance.smooth_shores {
+        let tx = fx - x0 as f64;
+        let ty = fy - y0 as f64;
+        let d = |x: usize, y: usize| shore_depth(ctx.field, lake, &tf.lake_fill, ctx.rainfall, gw, gh, ctx.sea_level, ctx.world, x, y);
+        let s = (1.0 - tx) * (1.0 - ty) * d(x0, y0) + tx * (1.0 - ty) * d(x1, y0) + (1.0 - tx) * ty * d(x0, y1) + tx * ty * d(x1, y1);
+        return s > 0.0;
     }
     let fill = &tf.lake_fill;
     let mut s = -1.0f64;
@@ -9951,4 +10231,279 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
         return true;
     }
     lake[ni] == 2 && (fill[ni] as f64 - ctx.field[ni] as f64) <= LAKE_FLAT_EPS
+}
+
+/// RV-4's smooth shoreline (`shore_margins`, `shore_depth`, `shore_field`,
+/// `f16_bits`, and `is_lake_pixel`'s smooth band), each pinned against an
+/// independent answer: an analytic shoreline the test worlds are built with,
+/// or a literal bit pattern -- never against the constants under test.
+#[cfg(test)]
+mod shore_tests {
+    use super::*;
+
+    const SL: f64 = 0.42;
+
+    /// Bilinear between cell centres at cell-index coordinates `(u, v)`
+    /// (centres at integers) -- the shader's `shore_value`, in Rust.
+    fn bilinear(f: &[f32], gw: usize, u: f64, v: f64) -> f64 {
+        let (x0, y0) = (u.floor() as usize, v.floor() as usize);
+        let (tx, ty) = (u - x0 as f64, v - y0 as f64);
+        let g = |x: usize, y: usize| f[y * gw + x] as f64;
+        (1.0 - tx) * (1.0 - ty) * g(x0, y0) + tx * (1.0 - ty) * g(x0 + 1, y0) + (1.0 - tx) * ty * g(x0, y0 + 1) + tx * ty * g(x0 + 1, y0 + 1)
+    }
+
+    /// A tilted plane crossing sea level along a 27-degree line: no lakes,
+    /// one ocean, and a coastline known exactly.
+    #[allow(clippy::type_complexity)]
+    fn plane() -> (Vec<f32>, Vec<f32>, usize, usize, Box<dyn Fn(f64, f64) -> f64>) {
+        let (gw, gh) = (32usize, 32usize);
+        let (c, s) = (27f64.to_radians().cos(), 27f64.to_radians().sin());
+        let h = move |u: f64, v: f64| SL + 0.004 * ((u - 15.3) * c + (v - 15.7) * s);
+        let field = (0..gw * gh).map(|i| h((i % gw) as f64, (i / gw) as f64) as f32).collect();
+        (field, vec![0.5f32; gw * gh], gw, gh, Box::new(h))
+    }
+
+    /// A bowl (radius 8 cells, floor 0.6) in a 0.8 plateau: the priority
+    /// flood pools it to 0.8, so it is lake where `0.8 - h > LAKE_DEPTH`,
+    /// r < 7.92 -- and rainfall `0.22 + 0.02 * (18.3 - x)` falls below the
+    /// rain gate at x = 18.3, cutting the bowl's east side off dry.
+    fn bowl() -> (Vec<f32>, Vec<f32>, usize, usize) {
+        let (gw, gh) = (32usize, 32usize);
+        let mut field = vec![0f32; gw * gh];
+        let mut rain = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                let r = ((x as f64 - 16.0).powi(2) + (y as f64 - 16.0).powi(2)).sqrt();
+                field[y * gw + x] = if r < 8.0 { 0.6 + 0.2 * (r / 8.0).powi(2) } else { 0.8 } as f32;
+                rain[y * gw + x] = (0.22 + 0.02 * (18.3 - x as f64)) as f32;
+            }
+        }
+        (field, rain, gw, gh)
+    }
+
+    /// The zero crossing of `f` between `a` and `b`, by bisection (the
+    /// function changes sign once there in every case below).
+    fn crossing(f: impl Fn(f64) -> f64, mut a: f64, mut b: f64) -> f64 {
+        assert!(f(a) * f(b) < 0.0, "no crossing between {a} and {b}");
+        for _ in 0..60 {
+            let m = 0.5 * (a + b);
+            if (f(m) > 0.0) == (f(a) > 0.0) {
+                a = m
+            } else {
+                b = m
+            }
+        }
+        0.5 * (a + b)
+    }
+
+    /// Protects `shore_margins`' sea branch: the base map's coast is the
+    /// height field's own contour at sea level, sub-cell, not a cell edge.
+    /// At every sample point the sign of the bilinear field is the side of
+    /// the analytic line, and (premise) the nearest cell's class is wrong at
+    /// a good share of those same points -- the step the field removes.
+    #[test]
+    fn the_sea_shore_is_the_height_fields_own_contour() {
+        let (field, rain, gw, gh, h) = plane();
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let sf = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        assert_eq!(sf.len(), gw * gh);
+        let (mut n, mut nearest_wrong) = (0, 0);
+        for j in 0..200 {
+            for i in 0..200 {
+                let (u, v) = (3.0 + 25.0 * i as f64 / 199.0, 3.0 + 25.0 * j as f64 / 199.0);
+                let truth = SL - h(u, v);
+                // f32 storage of the heights: within a few 1e-8 of the line
+                // either answer is right.
+                if truth.abs() < 1e-6 {
+                    continue;
+                }
+                n += 1;
+                assert_eq!(bilinear(&sf, gw, u, v) > 0.0, truth > 0.0, "wrong side at ({u:.3}, {v:.3})");
+                let near = wb.classification[(v.round() as usize) * gw + u.round() as usize] != 0;
+                nearest_wrong += (near != (truth > 0.0)) as usize;
+            }
+        }
+        assert!(n > 39_000);
+        // The cell coast is wrong in a sliver along the line (measured 411
+        // of the 40 000 samples); what matters is that it is wrong at all
+        // where the field is right everywhere.
+        assert!(nearest_wrong > 200, "premise: the cell coast is off the line somewhere ({nearest_wrong})");
+    }
+
+    /// Protects `shore_depth`'s clamp and both of `shore_margins`' lake
+    /// halves: over a real `build_water_bodies` answer (the producer the app
+    /// uses), every cell centre keeps its class -- water positive, land
+    /// negative -- with a lake that has both a terrain edge and a rain edge.
+    #[test]
+    fn every_cell_centre_keeps_its_class() {
+        let (field, rain, gw, gh) = bowl();
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let lake = wb.classification.iter().filter(|&&c| c == 2).count();
+        // Premise: a lake cut by the rain gate on its east side, not a whole bowl.
+        assert!(lake > 100, "the bowl pools ({lake} lake cells)");
+        assert_eq!(wb.classification[16 * gw + 18], 2, "west of the rain line is lake");
+        assert_eq!(wb.classification[16 * gw + 19], 0, "east of it is dry although the bowl is deep there");
+        let sf = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        for (i, &v) in sf.iter().enumerate() {
+            assert_eq!(v > 0.0, wb.classification[i] != 0, "cell {i}: field {v} against class {}", wb.classification[i]);
+            assert!(v != 0.0, "cell {i} sits on the shoreline");
+        }
+    }
+
+    /// Protects `shore_margins`' rain half and its depth half on a lake
+    /// shore: along the bowl's middle row the drawn shoreline crosses where
+    /// the ground rises through the lake's surface (`0.8 - LAKE_DEPTH`) and
+    /// where the rainfall crosses the gate (x = 18.3) -- sub-cell, where the
+    /// cell coast would sit on the edges at 8.5 and 18.5.
+    #[test]
+    fn a_lake_shore_follows_the_ground_and_the_rain_line() {
+        let (field, rain, gw, gh) = bowl();
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let sf = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        let row = |u: f64| bilinear(&sf, gw, u, 16.0);
+        let west = crossing(row, 7.5, 9.5);
+        let east = crossing(row, 17.5, 19.5);
+        // The ground between centres 8 (0.8, the plateau) and 9 (0.6 + 0.2 *
+        // (7/8)^2 = 0.753125) crosses the surface 0.796 at t = 0.004 / 0.046875
+        // = 0.0853 past centre 8.
+        assert!((west - 8.0853).abs() < 0.001, "west shore at {west}");
+        assert!((east - 18.3).abs() < 0.001, "east shore at {east}");
+    }
+
+    fn tile_ctx<'a>(field: &'a [f32], rain: &'a [f32], temp: &'a [f32], gw: usize, gh: usize, smooth: bool) -> RenderCtx<'a> {
+        let a = TerrainAppearance { smooth_shores: smooth, ..TerrainAppearance::default() };
+        RenderCtx::with_appearance(field, temp, rain, None, gw, gh, SL, false, 70.0, -70.0, a)
+    }
+
+    /// Protects `is_lake_pixel`'s smooth band against the reference rule it
+    /// replaces: along the bowl's middle row, with the tile's ground exactly
+    /// the bilinear grid (no added detail), the smooth band's shores sit on
+    /// the analytic ones (8.0853, 18.3); the reference's `fq > 0.35` cut puts
+    /// them 0.35 of a cell from the lake centre (8.35, 18.65) -- the premise
+    /// that this test can tell the two apart.
+    #[test]
+    fn the_tile_lake_band_is_the_smooth_shore_and_the_reference_is_not() {
+        let (field, rain, gw, gh) = bowl();
+        let temp = vec![15f32; gw * gh];
+        for (smooth, west_want, east_want) in [(true, 8.0853, 18.3), (false, 8.35, 18.65)] {
+            let ctx = tile_ctx(&field, &rain, &temp, gw, gh, smooth);
+            let tf = TileFields::new(&ctx, None);
+            let lake_at = |u: f64| {
+                let ht = bilinear(&field, gw, u, 16.0);
+                if is_lake_pixel(&tf, &ctx, u, 16.0, ht, true) {
+                    1.0
+                } else {
+                    -1.0
+                }
+            };
+            let west = crossing(lake_at, 7.5, 9.5);
+            let east = crossing(lake_at, 17.5, 19.5);
+            assert!((west - west_want).abs() < 0.002, "smooth {smooth}: west shore at {west}, want {west_want}");
+            assert!((east - east_want).abs() < 0.002, "smooth {smooth}: east shore at {east}, want {east_want}");
+        }
+    }
+
+    /// Protects the smooth band's identity with the base map: at every
+    /// sample point around the bowl lake, the tile says lake exactly where the
+    /// base map's shore field (`shore_field`, bilinear, the shader's rule) is
+    /// positive -- whatever the tile's own ground `ht` does there, 0.05 above
+    /// or below the grid's. (The reference band, run as the premise, disagrees
+    /// with the field somewhere, so the comparison can fail.)
+    #[test]
+    fn the_tile_lake_band_is_the_base_maps_shoreline() {
+        let (field, rain, gw, gh) = bowl();
+        let temp = vec![15f32; gw * gh];
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let sf = shore_field(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, SL, false);
+        for smooth in [true, false] {
+            let ctx = tile_ctx(&field, &rain, &temp, gw, gh, smooth);
+            let tf = TileFields::new(&ctx, None);
+            let (mut n, mut differ) = (0, 0);
+            for j in 0..120 {
+                for i in 0..120 {
+                    let (u, v) = (6.0 + 20.0 * i as f64 / 119.0, 6.0 + 20.0 * j as f64 / 119.0);
+                    let want = bilinear(&sf, gw, u, v) > 0.0;
+                    let hb = bilinear(&field, gw, u, v);
+                    for ht in [hb - 0.05, hb + 0.05] {
+                        // Below sea level the tile's sea test runs first; not this band.
+                        if ht < SL {
+                            continue;
+                        }
+                        n += 1;
+                        let got = is_lake_pixel(&tf, &ctx, u, v, ht, true);
+                        if smooth {
+                            assert_eq!(got, want, "tile vs map at ({u:.3}, {v:.3}), ht {ht:.3}");
+                        }
+                        differ += (got != want) as usize;
+                    }
+                }
+            }
+            assert!(n > 20_000);
+            if !smooth {
+                assert!(differ > 100, "premise: the reference band is another shoreline ({differ})");
+            }
+        }
+    }
+
+    /// Protects `shore_depth`'s land clamp: a land cell exactly at sea level
+    /// has a zero margin, and the field must still read it as land (the
+    /// classification: below sea level only is water), never as the shoreline
+    /// itself.
+    #[test]
+    fn a_cell_exactly_at_sea_level_is_drawn_land() {
+        let (gw, gh) = (8usize, 8usize);
+        // West half below sea level, one cell of the east half exactly at it.
+        let mut field: Vec<f32> = (0..gw * gh).map(|i| if i % gw < 4 { 0.3 } else { 0.5 }).collect();
+        field[3 * gw + 4] = SL as f32;
+        let sl = field[3 * gw + 4] as f64;
+        let rain = vec![0.5f32; gw * gh];
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, sl, false, Some(&rain));
+        assert_eq!(wb.classification[3 * gw + 4], 0, "premise: at sea level is land");
+        assert_eq!(wb.classification[3 * gw + 3], 1, "premise: beside the sea");
+        let d = shore_depth(&field, &wb.classification, &wb.fill_level, &rain, gw, gh, sl, false, 4, 3);
+        assert!(d < 0.0, "the sea-level cell reads {d}");
+    }
+
+    /// Protects `shore_margins`' neighbour rule: a land cell between the sea
+    /// and an above-sea lake is the shore of the HIGHER water -- the lake
+    /// (surface `0.8 - LAKE_DEPTH` = 0.796, rain-gated) -- not the sea
+    /// (0.42). Literal answers from a hand-made three-cell strip.
+    #[test]
+    fn a_land_cell_is_the_shore_of_the_higher_water_beside_it() {
+        let class = [1u8, 0, 2];
+        let field = [0.3f32, 0.79, 0.7];
+        let fill = [0.3f32, 0.79, 0.8];
+        let rain = [0.5f32; 3];
+        let (d, r) = shore_margins(&field, &class, &fill, &rain, 3, 1, SL, false, 1, 0);
+        assert!((d - (0.796 - 0.79f32 as f64)).abs() < 1e-7, "depth margin {d}");
+        assert!((r - (0.5f32 as f64 - 0.22)).abs() < 1e-7, "rain margin {r}");
+        // The sea beside it alone: surface 0.42, no rain gate.
+        let (d2, r2) = shore_margins(&field, &[1u8, 0, 0], &fill, &rain, 3, 1, SL, false, 1, 0);
+        assert!((d2 - (0.42 - 0.79f32 as f64)).abs() < 1e-7, "sea depth margin {d2}");
+        assert_eq!(r2, 1.0, "no rain gate beside the sea");
+    }
+
+    /// Protects `f16_bits`: literal IEEE half-float patterns, and the one
+    /// property the shader depends on -- a tiny non-zero value keeps its sign.
+    #[test]
+    fn half_floats_are_exact_and_never_lose_a_sign() {
+        assert_eq!(f16_bits(1.0), 0x3c00);
+        assert_eq!(f16_bits(-2.0), 0xc000);
+        assert_eq!(f16_bits(0.5), 0x3800);
+        // 1.0007: 0.7168 of the last mantissa step, rounded up, not cut.
+        assert_eq!(f16_bits(1.0007), 0x3c01);
+        assert_eq!(f16_bits(65504.0), 0x7bff);
+        assert_eq!(f16_bits(1.0e6), 0x7c00);
+        assert_eq!(f16_bits(0.0), 0x0000);
+        assert_eq!(f16_bits(-0.0), 0x8000);
+        // 2^-14, the smallest normal; 2^-24, the smallest subnormal.
+        assert_eq!(f16_bits(6.103515625e-5), 0x0400);
+        assert_eq!(f16_bits(5.960464477539063e-8), 0x0001);
+        // 1e-5 is subnormal in half precision: 1e-5 / 2^-24 = 167.77 -> 168.
+        assert_eq!(f16_bits(1.0e-5), 168);
+        assert_eq!(f16_bits(-1.0e-5), 0x8000 | 168);
+        // Below the smallest subnormal: rounded away from zero, sign kept.
+        assert_eq!(f16_bits(1.0e-12), 0x0001);
+        assert_eq!(f16_bits(-1.0e-12), 0x8001);
+    }
 }

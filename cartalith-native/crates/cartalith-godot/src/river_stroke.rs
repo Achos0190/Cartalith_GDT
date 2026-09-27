@@ -438,20 +438,27 @@ pub fn stroke_pieces(rp: &[(f64, f64)], u: &[f64], traced_wet: &[bool], wet: imp
 // discards the stroke on water pixels (`map_overlay.gd::_draw_rivers`, with
 // [`WorldGen::river_water_mask`]).
 //
-// **Where "on water on every path" is.** The three paths draw the shoreline
-// at three sub-cell positions: the base view draws whole cells
-// (nearest-filtered, `drawn_water_classification != 0`); a tile draws the sea
-// where the BILINEAR field is below sea level (the amplifier never moves a
-// sample across it -- `cartalith_terrain::amplify`'s `clamp_toward_sea`), and
-// a lake where all four surrounding cell centres are lake, or by a
-// marching-squares rule in the band between (`render::is_lake_pixel`). Every
-// one of them draws water wherever **all four cell centres around a point are
-// water**: a convex combination of four below-sea values is below sea, four
-// lake centres is the tile's "lake outright" case, and the point's own cell
-// is one of the four. So that region -- [`REGION_OPEN`] -- is where an end is
-// safe on every path, and the one-cell band between it and the drawn cells is
-// exactly the sub-cell uncertainty of the shoreline. A small lake that has no
-// such region falls back to the drawn cells ([`REGION_DRAWN`]).
+// **Where "on water on every path" is.** The paths draw the shoreline at
+// different sub-cell positions: the base view draws the zero line of RV-4's
+// shore field (`render::shore_field`, bilinear between cell centres, positive
+// on every water cell -- `map_shore.gdshader`; or, for a look without it, whole
+// nearest-filtered cells, `drawn_water_classification != 0`); a tile draws the
+// sea where its field is below sea level (the amplifier never moves a sample
+// across it -- `cartalith_terrain::amplify`'s `clamp_toward_sea`), and a lake
+// where all four surrounding cell centres are lake, or by the same shore
+// field in the band between (the reference look: a marching-squares rule,
+// `render::is_lake_pixel`). Every one of them draws water wherever **all four
+// cell centres around a point are water**: a convex combination of four
+// positive shore-field values, or of four below-sea values, is positive or
+// below sea; four lake centres is the tile's "lake outright" case; and the
+// point's own cell is one of the four. So that region -- [`REGION_OPEN`] -- is
+// where an end is safe on every path, and the one-cell band between it and
+// the drawn cells is exactly the sub-cell uncertainty of the shoreline. A
+// small lake that has no such region falls back to its cells
+// ([`REGION_DRAWN`]) -- which the smooth shoreline draws a little smaller than
+// the cells (a one-cell lake as a rounded blob), so there a stroke end can
+// stop a fraction of a cell past the water's edge: known, not yet handled
+// (RV-4, 2026-09-27).
 
 /// The grid offset of the squares [`REGION_DRAWN`] is made of: whole cells,
 /// `[i, i+1)` in river space.
@@ -1353,9 +1360,35 @@ impl WorldGen {
     /// ([`extend_shore_ends`]) never shows. `null` whenever the river colour
     /// texture is (a loaded save, before any world). Must never be drawn
     /// itself.
+    ///
+    /// **Since RV-4 (2026-09-27) the stroke's shader uses this only as the
+    /// fallback**: when the map draws its smooth shoreline
+    /// ([`Self::shore_field_texture`]) the shader hides the stroke under that
+    /// water instead, and this mask stays the classification the probes read
+    /// open water from (`_rivstyle_probe.gd` section M, `_shorestep_probe.gd`).
     #[func]
     fn river_water_mask(&self) -> Option<Gd<godot::classes::ImageTexture>> {
         self.river_water_mask_tex.borrow().clone()
+    }
+
+    /// **RV-4: the base map's smooth shoreline** -- a `gw x gh` half-float
+    /// (`RH`) texture of `render::shore_field`: per cell, the water surface
+    /// minus the ground, positive on every cell the map draws as water and
+    /// negative on every land cell, so its bilinear interpolation crosses zero
+    /// on a sub-cell shoreline (the height field's own coastline at sea level,
+    /// a lake's pooled surface on a lake shore). Built by the last
+    /// `build_color_texture`, beside the map texture it describes.
+    ///
+    /// `viewport_host.gd::_apply_shore_field` gives it to the base map's
+    /// `map_shore.gdshader`, which redraws only the pixels between a water and
+    /// a land cell centre along that contour, antialiased; the river stroke's
+    /// shader (`river_under_water.gdshader`) reads the same field so the water
+    /// still sits above the river. `null` for a look drawing the reference's
+    /// cell coast (`TerrainAppearance::smooth_shores` false) and before any
+    /// world. Must never be drawn itself, nor read as a classification.
+    #[func]
+    fn shore_field_texture(&self) -> Option<Gd<godot::classes::ImageTexture>> {
+        self.shore_field_tex.borrow().clone()
     }
 }
 

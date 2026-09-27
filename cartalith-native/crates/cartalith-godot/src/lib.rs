@@ -4695,6 +4695,15 @@ struct WorldGen {
     /// describe the same world. Must never be read as anything but the
     /// drawn-water classification it is copied from.
     river_water_mask_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// RV-4's shore field (`render::shore_field`) as a `gw x gh` half-float
+    /// `RH` texture, for the base map's smooth shoreline
+    /// (`shore_field_texture`). Built by `build_color_texture` from the same
+    /// water bodies its colours are drawn from, and replaced with it; `None`
+    /// when the look draws the reference's cell coast
+    /// (`TerrainAppearance::smooth_shores` false) or before any world. Must
+    /// never be read as a classification: it only says where between two cell
+    /// centres of different class the shore runs.
+    shore_field_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
     /// The last colour field's `(covered pixels, allocated bytes)`, for
     /// `river_field_stats` (a probe's memory reading).
     river_field_stats: std::cell::Cell<(usize, usize)>,
@@ -5297,6 +5306,7 @@ impl IRefCounted for WorldGen {
             rivers_in_map: true,
             river_color_tex: std::cell::RefCell::new(None),
             river_water_mask_tex: std::cell::RefCell::new(None),
+            shore_field_tex: std::cell::RefCell::new(None),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
@@ -5373,6 +5383,15 @@ impl WorldGen {
     /// cannot name a lake the terrain no longer holds. A loaded save, which
     /// has no civilisation layer at all, still gets its lakes.
     pub(crate) fn drawn_water_classification(&self) -> Option<Vec<u8>> {
+        self.drawn_water_bodies().map(|wb| wb.classification)
+    }
+
+    /// [`Self::drawn_water_classification`]'s whole `build_water_bodies`
+    /// answer, the pooled `fill_level` included -- for RV-4's shore field
+    /// (`render::shore_field`), which contours the same surface that
+    /// classification thresholds, so the two must come from one call. The
+    /// single place either is computed for the drawn map.
+    pub(crate) fn drawn_water_bodies(&self) -> Option<cartalith_civ::WaterBodies> {
         let (field, rainfall) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.rainfall.as_slice()),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.rainfall.as_slice()),
@@ -5381,7 +5400,7 @@ impl WorldGen {
         if gw == 0 || gh == 0 || field.len() < gw * gh {
             return None;
         }
-        Some(cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification)
+        Some(cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)))
     }
 
     /// This instance's persistent parameters with the four call-argument
@@ -9155,8 +9174,27 @@ impl WorldGen {
         // classification the LOD tiles draw from (`TileFields::new`), so the
         // screen and a tile agree on where a lake is. One definition shared
         // with the lake labels (`drawn_water_classification`), so a label
-        // cannot name a lake this texture does not draw.
-        let lakes = self.drawn_water_classification()?;
+        // cannot name a lake this texture does not draw. The pooled fill
+        // level from the same call feeds RV-4's shore field below.
+        let bodies = self.drawn_water_bodies()?;
+        let lakes = bodies.classification;
+        // RV-4: the smooth shoreline's field, from the classification this
+        // texture draws its water from and that call's own fill level, so the
+        // shell's contour agrees with these colours at every cell centre
+        // (`render::shore_field`). Half-float (`render::f16_bits`), 2 bytes a
+        // cell. Only for a look that draws it (`smooth_shores`); otherwise
+        // `None`, and the shell draws the cell coast.
+        *self.shore_field_tex.borrow_mut() = if appearance.smooth_shores {
+            let fld = render::shore_field(field, &lakes, &bodies.fill_level, rainfall, gw, gh, self.sea_level, self.world);
+            if fld.len() == gw * gh {
+                let bytes: Vec<u8> = fld.iter().flat_map(|&v| render::f16_bits(v).to_le_bytes()).collect();
+                Image::create_from_data(gw as i32, gh as i32, false, Format::RH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         // The river colour field (`river_stroke::rasterize_colour_field`):
         // every river at full coverage in its styled colour, a band wider than
         // any base-view stroke. Built whether or not the Rivers layer is on

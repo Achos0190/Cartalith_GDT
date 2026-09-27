@@ -462,6 +462,38 @@ func setup(bridge: EngineBridge) -> void:
 	## Cartography afterwards and drag an icon. A caller that forgets is the
 	## bug; a caller that cannot forget is the fix.
 	bridge.landmark_finished.connect(func(_r: Dictionary): refresh_annotations())
+	## RV-4: every repaint (`EngineBridge.color_texture()`, the one door every
+	## `map_view.texture = ...` line goes through) rebuilds the shore field
+	## beside the map texture, so the base map's shoreline follows it here.
+	if bridge.has_signal("color_texture_rebuilt"):
+		bridge.color_texture_rebuilt.connect(_apply_shore_field)
+
+## **The base map's smooth shoreline** (RV-4, and "Coastlines and lake shores
+## are pixel-stepped", 2026-09-27). `map_view` draws the map NEAREST, so its
+## coast used to follow cell edges -- a stair-step at fit zoom and x1.4.
+## `map_shore.gdshader` redraws only the pixels between a water cell centre and
+## a land one, splitting them along `WorldGen::shore_field_texture`'s
+## sub-cell shoreline with an antialiased edge; every other pixel is the
+## nearest texel as before, so land keeps its crisp cells and every style
+## preset's colours (the texture's bytes are untouched).
+##
+## Called after each map rebuild (`color_texture_rebuilt`) and once from
+## `_ready`. Must never leave the material on with a field from another world:
+## no field (a binary without the binding, mid-generation, or the reference
+## look, which builds none) turns it off, and the shader itself ignores a
+## field whose size is not the texture's.
+const MAP_SHORE := preload("res://shell/map_shore.gdshader")
+func _apply_shore_field() -> void:
+	if map_view == null:
+		return
+	var mat := map_view.material as ShaderMaterial
+	if mat == null:
+		mat = ShaderMaterial.new()
+		mat.shader = MAP_SHORE
+		map_view.material = mat
+	var fld: Texture2D = _bridge.shore_field_texture() if _bridge != null and _bridge.has_method("shore_field_texture") else null
+	mat.set_shader_parameter("shore_field", fld)
+	mat.set_shader_parameter("shore_on", fld != null)
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -479,6 +511,8 @@ func _ready() -> void:
 
 	map_view = _raster()
 	_camera.add_child(map_view)
+	## The smooth shoreline's material, off until a field arrives.
+	_apply_shore_field()
 
 	## Deep-zoom tile overlay (`LOD_TILING_INTEGRATION_SCOPE.md` milestone
 	## M1): directly over `map_view` and under *every* overlay, because a

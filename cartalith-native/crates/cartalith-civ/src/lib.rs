@@ -561,6 +561,23 @@ fn largest_component(sizes: &[usize]) -> Option<usize> {
     best_idx
 }
 
+/// The pooled depth past which [`build_water_bodies`]' priority-flood pass
+/// makes an above-sea cell a lake: `fill_level - field > LAKE_DEPTH` (with
+/// the rainfall gate). The reference's own `lakeDepth` (`buildWaterBodies`),
+/// unchanged -- a name, not a new value, so the drawn shoreline
+/// (`cartalith_godot::render::shore_depth`) contours the same surface this
+/// classification thresholds, `fill_level - LAKE_DEPTH`. Must never be
+/// changed for a drawing reason: it moves the `buildWaterBodies` goldens.
+pub const LAKE_DEPTH: f64 = 0.004;
+
+/// The rainfall below which [`build_water_bodies`] leaves a pooled
+/// above-sea cell dry: lake only where `rain >= LAKE_RAIN`. The reference's
+/// own `lakeRain` gate, unchanged -- named so the drawn shoreline
+/// (`cartalith_godot::render::shore_margins`) cuts a lake off where this
+/// classification does, along the rainfall's own contour. Must never be
+/// changed for a drawing reason: it moves the `buildWaterBodies` goldens.
+pub const LAKE_RAIN: f64 = 0.22;
+
 /// `buildWaterBodies` (reference HTML line 5753 for the raster's presence
 /// and shape). For a **bounded** map (`world == false`) the reference's own
 /// SIZE-PRIMARY ocean/lake rule is REPLACED by a TOPOLOGY-PRIMARY one, per
@@ -838,8 +855,8 @@ pub fn build_water_bodies(
         );
     }
 
-    let lake_depth = 0.004_f64;
-    let lake_rain = 0.22_f64;
+    let lake_depth = LAKE_DEPTH;
+    let lake_rain = LAKE_RAIN;
     for i in 0..n {
         if out[i] == 0 {
             let depth = filled[i] as f64 - field[i] as f64;

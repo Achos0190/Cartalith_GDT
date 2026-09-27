@@ -401,7 +401,13 @@ fn the_lake_branch_draws_a_lake_and_follows_the_terrain() {
     }
     assert!(field.iter().all(|&h| (h as f64) >= fx::SEA_LEVEL), "the fixture has ocean in it; this test is about an above-sea pool");
 
-    let a = TerrainAppearance { exag: 0.0, ..TerrainAppearance::default() };
+    // `smooth_shores: false`: this test is about the reference's v1.05 band,
+    // and since RV-4 (2026-09-28) `default()` draws the smooth band instead,
+    // whose shore is the base map's field and deliberately ignores the tile's
+    // own height (`render::is_lake_pixel`'s doc says why) -- so (3) below is
+    // a v1.05 property, not a shipped-look one. The smooth band has its own
+    // tests (`render::shore_tests`).
+    let a = TerrainAppearance { exag: 0.0, smooth_shores: false, ..TerrainAppearance::default() };
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, None, N, N, fx::SEA_LEVEL, false, fx::LAT_N, fx::LAT_S, a);
 
     // The precondition, checked rather than assumed: the classifier must

@@ -3934,11 +3934,18 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## same texel the nearest-filtered base map shows at that pixel). So water
 ## covers the stroke exactly where water is drawn, the end carried into it is
 ## never seen, and a river through a lake still stops at the inlet and resumes
-## at the outlet. Chosen over clipping the geometry at a shoreline: the base
-## map's shoreline IS its cell edges at this zoom, and a mask test reproduces
-## it pixel for pixel where a clipped polygon would have to rebuild it from
-## squares. Without a mask (an older binary, a test double) the stroke is
-## drawn unmasked, as before.
+## at the outlet. Chosen over clipping the geometry at a shoreline: a mask test
+## reproduces the map's own shoreline pixel for pixel, where a clipped polygon
+## would have to rebuild it. Without a mask (an older binary, a test double)
+## the stroke is drawn unmasked, as before.
+##
+## **Since RV-4 (2026-09-27) that shoreline is smooth**: the base map draws its
+## coast along `WorldGen::shore_field_texture`'s sub-cell contour
+## (`viewport_host.gd::_apply_shore_field`, `shell/map_shore.gdshader`), and
+## the stroke's shader reads the same field through the same function and fades
+## as the water's coverage rises, discarding where it is full. With no field
+## (the reference look, an older binary) both fall back to the cell coast and
+## the nearest-sampled mask above.
 func _draw_rivers(rect: Rect2) -> void:
 	## The stroke lives on `_river_item`, which no `queue_redraw` clears: clear
 	## it first, every call, so a stroke never outlives the draw that made it.
@@ -3956,11 +3963,17 @@ func _draw_rivers(rect: Rect2) -> void:
 	## Held by the material for as long as this draw stands, as `_river_tex`
 	## is held for the colour texture (the canvas command keeps only RIDs).
 	_river_material.set_shader_parameter("water_mask", mask)
+	## RV-4: the map's smooth shoreline, when it draws one (the same field
+	## `viewport_host.gd::_apply_shore_field` hands the map), so the water that
+	## hides the stroke is the water on screen.
+	var fld: Texture2D = _river_source.shore_field_texture() if _river_source.has_method("shore_field_texture") else null
+	_river_material.set_shader_parameter("shore_field", fld)
+	_river_material.set_shader_parameter("shore_on", fld != null)
 	var tr := _map_texture_rect()
 	if tr.size.x > 0.0 and tr.size.y > 0.0:
 		_river_material.set_shader_parameter("mask_map", Vector4((rect.position.x - tr.position.x) / tr.size.x,
 			(rect.position.y - tr.position.y) / tr.size.y, rect.size.x / tr.size.x, rect.size.y / tr.size.y))
-	RenderingServer.canvas_item_set_material(ci, _river_material.get_rid() if mask != null else RID())
+	RenderingServer.canvas_item_set_material(ci, _river_material.get_rid() if mask != null or fld != null else RID())
 	var k := maxf(_camera_zoom, 0.001)
 	## `_crisp_begin`'s own transform, on the child item.
 	RenderingServer.canvas_item_add_set_transform(ci, Transform2D(0.0, Vector2(1.0 / k, 1.0 / k), 0.0, Vector2.ZERO))
@@ -3979,7 +3992,8 @@ func _draw_rivers(rect: Rect2) -> void:
 ## The base view's river stroke's own canvas item, created on first use: a
 ## child of this overlay's item, drawn BEHIND it (so under the roads, pins and
 ## labels this overlay draws, where the stroke always sat), carrying the
-## water-mask material only the stroke must get. Linear texture filtering,
+## water-mask material only the stroke must get (the mask, and since RV-4 the
+## smooth shoreline's field, whichever the map draws by). Linear texture filtering,
 ## which is what the overlay's own item resolved to (the viewport default)
 ## when the stroke was drawn there. Freed with the overlay (`_notification`).
 ## Must never receive anything but the river stroke: the shader discards on
