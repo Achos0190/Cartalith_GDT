@@ -27,8 +27,15 @@ var rw: Node
 var _fail := 0
 var _out := ""
 var _tag := "run"
+## OUTSTANDING_WORK.md "Style preset follow-ups", Nautical's offshore look:
+## `--focus auto` finds an open-sea grid cell (coarse-scanned, `ocean`
+## classified and far from any non-ocean sample) rather than whatever the
+## default cover view happens to land on, which can be mostly land or a
+## small lake -- `render.rs`'s `sea_ramp_strength` only tints true ocean.
+var _focus_auto := false
+var _fzoom := 3.0
 
-const KNOWN_FLAGS := ["--out", "--tag"]
+const KNOWN_FLAGS := ["--out", "--tag", "--focus", "--fzoom"]
 ## Fraction of RGB bytes that must differ by more than 2 levels between two
 ## consecutive presets' screenshots for them to count as visibly distinct --
 ## the same threshold shape `render_serial`'s Rust-side `moved()` uses in
@@ -83,11 +90,70 @@ func _parse_args() -> bool:
 			_out = String(args[i + 1])
 		if String(args[i]) == "--tag" and i + 1 < args.size():
 			_tag = String(args[i + 1])
+		if String(args[i]) == "--focus" and i + 1 < args.size() and String(args[i + 1]) == "auto":
+			_focus_auto = true
+		if String(args[i]) == "--fzoom" and i + 1 < args.size():
+			_fzoom = float(args[i + 1])
 	if _out == "":
 		print("STYLEPRESETS  NO --out DIR given.")
 		return false
 	DirAccess.make_dir_recursive_absolute(_out)
 	return true
+
+
+## `--focus auto`: a coarse grid scan (`bridge.sample_cell()`'s own "water"
+## key -- "land"/"ocean"/"lake") that picks the sampled ocean cell farthest
+## (Chebyshev, in scan steps) from the nearest sampled non-ocean cell --
+## deep water, not a coastal pixel or a lake that only looks like one at a
+## glance. `Vector2(-1, -1)` if the coarse scan finds no ocean cell at all.
+func _find_open_sea() -> Vector2:
+	var gw := 384
+	var gh := 288
+	var step := 8
+	## A margin off every edge: a corner/edge ocean cell zooms the camera
+	## in on the map texture's own boundary, showing blank canvas past it
+	## rather than open water -- measured on this machine (first attempt
+	## landed on `(376, 0)`, one step from the grid's own edge, and the
+	## saved screenshot was blank).
+	var margin := 40
+	var pts: Array = []       # [Vector2i, is_ocean]
+	for gy in range(margin, gh - margin, step):
+		for gx in range(margin, gw - margin, step):
+			var s: Dictionary = bridge.sample_cell(gx, gy)
+			pts.append([Vector2i(gx, gy), String(s.get("water", "land")) == "ocean"])
+	var best := Vector2(-1, -1)
+	var best_d := -1
+	for p in pts:
+		if not bool(p[1]):
+			continue
+		var pos: Vector2i = p[0]
+		var d := 1 << 30
+		for q in pts:
+			if bool(q[1]):
+				continue
+			var qpos: Vector2i = q[0]
+			var dd := maxi(absi(pos.x - qpos.x), absi(pos.y - qpos.y))
+			if dd < d:
+				d = dd
+		if d > best_d:
+			best_d = d
+			best = Vector2(pos.x, pos.y)
+	_p("open-sea scan: best=%s, chebyshev dist to nearest non-ocean sample=%d steps" % [best, best_d])
+	return best
+
+
+## Pans/zooms the live camera onto grid cell `sea` -- `move_view_to()` alone
+## is not enough: `_zoom_at()`/`reset_view()` both write `_camera.scale`
+## alongside `_zoom`, and `move_view_to()`'s own position math is computed
+## FROM `_zoom`. Writing `_zoom` without `_camera.scale` leaves the visible
+## scale at whatever `reset_view()` left it while the computed position
+## assumes the new one -- measured on this machine: a blank saved screenshot,
+## the camera parked off every rendered pixel.
+func _apply_focus(sea: Vector2) -> void:
+	var vp = app.viewport
+	vp._zoom = _fzoom
+	vp._camera.scale = Vector2(_fzoom, _fzoom)
+	vp.move_view_to(sea.x, sea.y)
 
 
 func _generate() -> void:
@@ -171,6 +237,11 @@ func _ready() -> void:
 	await _generate()
 	if app.open_project_dialog:
 		app.open_project_dialog.hide()
+	var _sea := Vector2(-1, -1)
+	if _focus_auto:
+		_sea = _find_open_sea()
+		if _sea.x < 0.0:
+			_p("--focus auto found no ocean cell in the coarse scan -- leaving the default view")
 	await _frames(8)
 
 	app.select_domain_category("cartography", "Style")
@@ -198,6 +269,14 @@ func _ready() -> void:
 		btn.emit_signal("pressed")
 		await _frames(4)
 		await get_tree().create_timer(0.3).timeout
+		## `_apply_preset()`'s own `_refresh_map()` calls `ViewportHost.
+		## refresh()`, which calls `reset_view()` -- so every preset click
+		## snaps the camera back to the default cover fit, undoing `--focus
+		## auto`'s pan from before the loop. Re-applied every iteration, not
+		## once, for that reason.
+		if _sea.x >= 0.0:
+			_apply_focus(_sea)
+			await _frames(4)
 
 		## §2: live knobs vs. the preset's own definition.
 		_ok(bridge.look() == String(entry[1]), "%s: live look == '%s'" % [name, String(entry[1])])

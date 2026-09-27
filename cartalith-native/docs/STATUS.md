@@ -1378,6 +1378,47 @@ similar picture more cheaply. Files: `crates/cartalith-godot/src/render.rs`,
 `godot-project/shell/workspaces/render_workspace.gd`,
 `godot-project/_stylepresets_probe.gd`, `godot-project/_stylepresets_probe.tscn`.
 
+**Style preset follow-ups (2026-09-27), verified by the main loop 2026-09-27 (`_ctxring` 114/114 re-run).**
+Two items closed from the row above.
+
+*Ring density.* `cartography_workspace.gd::ring_slots()`'s CARTO ▸ Style▸
+sub-ring built one wedge per `STYLE_PRESETS` entry (grown to 15 by Ruling
+BI), and `radial_ring.gd`'s sub-ring divides 360° over however many it is
+given — 15 wedges at `SUB_RING_RADIUS`/`SSLOT` (Ruling BC's 84px/56px) crowd
+past the geometry's own ~9-slot non-overlap ceiling
+(`2*84*sin(pi/n) >= 56` fails past n≈9), measured directly off the live
+drawn rects at 112/114 `_ctxring_probe.gd` checks (both new legs red, 14
+pairwise overlaps logged). Capped to the mockup's own six
+(`design/map-context-2026-09-25/Main.dc.html`'s `STYLES` array — literally
+`STYLE_PRESETS`' first six rows, unchanged) plus a seventh "All styles..."
+wedge (`app.select_domain_category("cartography", "Style")`) for the eight
+Ruling BI additions, rather than an invented "most-used" ranking this build
+has no telemetry to support. `_ctxring_probe.gd` 114/114 after (fail-first
+confirmed: 112/114 before), `_ctxtablet_probe.gd` 67/67 unaffected. Files:
+`godot-project/shell/workspaces/cartography_workspace.gd`,
+`godot-project/_ctxring_probe.gd`.
+
+*Nautical, ocean-framed.* The row above's own "worth a second pass" note
+closed: `_stylepresets_probe.gd` gained `--focus auto`/`--fzoom` (a coarse
+`bridge.sample_cell()` scan for an interior, margin-clear ocean cell farthest
+from any sampled non-ocean one, re-applied every preset iteration since
+`_apply_preset()`'s own `_refresh_map()` → `ViewportHost.refresh()` →
+`reset_view()` snaps the camera back each click). Pixel-sampled
+(`ocean4_preset_13_nautical.png` vs. `ocean4_preset_01_default.png`, same
+framing, seed 483920): Nautical shows a clear green-toward-navy transition
+within ~60px of the coastline (e.g. `(101,128,98)` at the shore edge fading
+to a stable `(44,71,88)` further out) matching `SEA_RAMP_NAUTICAL`'s own
+`0.00 (130,178,122)` → `0.15 (36,78,138)` stops, visibly distinct from
+Default's more cyan-toned water at the same pixels — the depth-banded tint
+is real and rendering, not a `render.rs::sea_color_core` defect. This
+particular crop (and a zoomed-out re-check, `ocean5_preset_13_nautical.png`)
+never reaches the ramp's pale-blue/abyss stops (`0.45`/`1.00`): this seed's
+visible sea near the scanned point is a strait/inlet rather than open
+ocean far from every coast, so "depth" (distance-from-shore-derived, not
+literal bathymetry) saturates around the low-mid stops in every crop tried
+here. Not re-verified against a world/seed with genuinely open, far-offshore
+water. Files: `godot-project/_stylepresets_probe.gd`.
+
 ### Sculpt live · `SCULPT_LIVE_SCOPE.md`
 
 Five milestones (L0-L4). The sculpt **editor** shipped as tool-plan milestone B;

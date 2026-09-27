@@ -1044,11 +1044,34 @@ func ring_slots(req: Dictionary) -> Dictionary:
 		out["SE"]["enabled"] = false
 		out["SE"]["reason"] = "world finalized"
 
+	## OUTSTANDING_WORK.md "Style preset follow-ups": `STYLE_PRESETS` grew from
+	## 7 to 15 in `de0a5b1`, and `radial_ring.gd`'s sub-ring places `n` items
+	## evenly around `SUB_RING_RADIUS` (84 px, Ruling BC) with `SSLOT` (56 px)
+	## slots -- the chord between neighbours only clears 56 px up to about
+	## n=9 (`2*84*sin(pi/9) ≈ 57.5px`; n=10 drops to `≈ 51.9px`, an overlap;
+	## measured 15 for 15 pairwise-overlapping at 15, `_ctxring_probe.gd` V2).
+	## `design/map-context-2026-09-25/Main.dc.html`'s own `STYLES` array (the
+	## mockup this ring's geometry is taken from verbatim, per Ruling BC) has
+	## exactly six entries -- `['Vibrant','Default','Antique','Ink',
+	## 'Watercolor','Print']` -- and those six are, unchanged, `STYLE_PRESETS`'
+	## own first six rows in the same order. So the ring keeps the mockup's
+	## own six literally (no invented "most-used" metric -- this build has no
+	## usage telemetry to rank by) and adds a seventh "All styles..." wedge for
+	## the eight Ruling BI presets the mockup predates, matching the DCC
+	## vocabulary's own overflow shape (Icon NE's disabled-with-reason
+	## "Custom" fallback) rather than paging or a bare length cap with nothing
+	## behind it. Seven total sits well inside the ~9-slot geometric ceiling,
+	## with the same margin Freehand's own 8-exactly sub-ring already uses.
+	const STYLE_RING_CAP := 6
 	var style_children: Array = []
 	if _render != null:
-		for i in RenderWorkspace.STYLE_PRESETS.size():
+		var n: int = mini(STYLE_RING_CAP, RenderWorkspace.STYLE_PRESETS.size())
+		for i in n:
 			style_children.append({"label": String(RenderWorkspace.STYLE_PRESETS[i][0]),
 				"callable": _render._apply_preset.bind(i)})
+		if RenderWorkspace.STYLE_PRESETS.size() > STYLE_RING_CAP:
+			style_children.append({"label": "All styles...",
+				"callable": func() -> void: app.select_domain_category("cartography", "Style")})
 	out["SW"] = {"label": "Style", "glyph": "domain_render", "children": style_children,
 		"enabled": not style_children.is_empty()}
 	if style_children.is_empty():

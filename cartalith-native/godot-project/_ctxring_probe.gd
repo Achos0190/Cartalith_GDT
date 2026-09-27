@@ -867,6 +867,23 @@ func _run() -> void:
 	var st_style := _ring_state()
 	_ok("V Style opened its own sub-ring", st_style.get("sub_open", false), true)
 	if bool(st_style.get("sub_open", false)):
+		## OUTSTANDING_WORK.md "Style preset follow-ups": STYLE_PRESETS grew to
+		## 15 (`de0a5b1`) but the sub-ring's own geometry (Ruling BC: SUB_RING_
+		## RADIUS 84px, sub-slot 56px) only clears non-overlap up to n≈9
+		## (`2*84*sin(pi/n) >= 56`). Measured off the LIVE drawn rects
+		## (`_sub_slot_rects()`), not a re-declared count -- `MISTAKES.md`'s
+		## "never assert a constant against itself".
+		var style_rects := _sub_slot_rects()
+		_ok("V2 Style's sub-ring slot count fits the sub-ring's own geometry",
+			style_rects.size() <= 9, true)
+		var style_overlap := false
+		for i in style_rects.size():
+			for j in range(i + 1, style_rects.size()):
+				if style_rects[i].intersects(style_rects[j]):
+					style_overlap = true
+					print("V2 overlap: slot %d=%s hits slot %d=%s" %
+						[i, style_rects[i], j, style_rects[j]])
+		_ok("V2 no two live Style sub-ring slots overlap", style_overlap, false)
 		var style_pt := _at_to_local(ov, _sub_item_at(st_style, 2))   ## index 2 -- Antique
 		await _lmb_click(ov, style_pt)
 		await _frames(4)
