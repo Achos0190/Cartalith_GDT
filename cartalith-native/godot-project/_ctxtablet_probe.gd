@@ -39,9 +39,17 @@ extends Node
 
 const SEED := 719203
 
-## `radial_ring.gd`'s own geometry constants, duplicated here rather than
-## imported -- `_ctxring_probe.gd`'s own header gives the reason: this probe
-## measures the SHIPPED geometry, not an assumption it stays in sync.
+## `radial_ring.gd`'s own DESKTOP geometry constants, duplicated here rather
+## than imported -- `_ctxring_probe.gd`'s own header gives the reason: this
+## probe measures the SHIPPED geometry, not an assumption it stays in sync.
+## **Not used for the touch pad below any more** -- CM-4 residual
+## (`OUTSTANDING_WORK.md`): the tablet ring's radius/slot are touch-scaled
+## (`radial_ring.gd::_apply_touch_scale()`), and asserting the edge check
+## against these bare desktop figures would be exactly the "assert a constant
+## against itself" mistake `MISTAKES.md`'s preflight table opens with -- it
+## would silently under-size `pad` and let a real off-screen ring pass leg E.
+## Kept only for leg H/T's own radius-floor assertion, which explicitly
+## compares the LIVE value to this desktop one.
 const RING_RADIUS := 60.0
 const SLOT_SIZE := 46.0
 const DIR_DEG := {
@@ -101,6 +109,38 @@ func _card():
 func _card_open() -> bool:
 	var c = _card()
 	return c != null and c.visible
+
+
+## Leg O (coordinator review, 2026-09-27): the 8 slot rects the LIVE ring is
+## actually drawing at, one per `DIR_DEG` direction -- centred at
+## `debug_state()`'s own `centre`, at its own live `radius`, each `slot` px
+## square. Never a re-derived formula off the desktop consts: this is
+## precisely the "assert a constant against itself" trap the whole CM-4
+## residual exists to close, one level up (the CARD's placement, not just
+## the ring's own size).
+func _ring_slot_rects() -> Array[Rect2]:
+	var st := _ring_state()
+	var c: Vector2 = st.get("centre", Vector2.ZERO)
+	var radius: float = st.get("radius", 0.0)
+	var slot: float = st.get("slot", 0.0)
+	var out: Array[Rect2] = []
+	for dir in DIR_DEG:
+		var p: Vector2 = c + _dir_vec(dir) * radius
+		out.append(Rect2(p - Vector2.ONE * slot * 0.5, Vector2.ONE * slot))
+	return out
+
+
+## True (with a printed reason) the first time `rect` intersects any of the
+## ring's own live slot rects -- so a caller gets which direction collided,
+## not just a bare pass/fail.
+func _card_overlaps_ring(rect: Rect2) -> bool:
+	var slots := _ring_slot_rects()
+	var dirs := DIR_DEG.keys()
+	for i in slots.size():
+		if rect.intersects(slots[i]):
+			print("O overlap: card=%s hits slot %s=%s" % [rect, dirs[i], slots[i]])
+			return true
+	return false
 
 
 func _card_close() -> void:
@@ -165,6 +205,18 @@ func _run() -> void:
 	## The withheld press must not have resolved as a plain tap/click either --
 	## nothing armed changed just from opening the surfaces.
 	_ok("H opening the ring+card armed nothing by itself", app.armed_tool, "inspect")
+	## CM-4 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §7.2:
+	## "Slots sit at 96 dp on touch (60 px on desktop)"). Measured from the
+	## LIVE node (`debug_state()`'s `radius`, `radial_ring.gd::_r_ring`) rather
+	## than re-declaring the constant and asserting it against itself
+	## (`MISTAKES.md`'s preflight rule) -- this is the whole reason CM-4's
+	## residual row asked for it.
+	var live_radius: float = _ring_state().get("radius", 0.0)
+	print("T touch ring radius: live=%.2f px  desktop_const=%.1f px  spec_floor=96 dp" %
+		[live_radius, RING_RADIUS])
+	_ok("T touch ring radius is >= 96 dp", live_radius >= 96.0, true)
+	_ok("T touch ring radius actually grew off the desktop 60 px figure",
+		live_radius > RING_RADIUS, true)
 	_touch_release(ov, centre)
 	await _frames(2)
 
@@ -209,6 +261,13 @@ func _run() -> void:
 	print("D right-handed: touch=%s anchor=%s card=%s" % [centre, anchor, pr_right_handed])
 	_ok("D right-handed (default): the card docks LEFT of the anchor",
 		pr_right_handed.end.x <= anchor.x + 1.0, true)
+	_ok("O right-handed: the card does not overlap any ring slot",
+		_card_overlaps_ring(pr_right_handed), false)
+	## CM-4 residual: one framebuffer PNG per hand, tablet size -- the ring and
+	## card as actually drawn, not a re-derived rect.
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	_vp.get_texture().get_image().save_png("res://_ctxtablet_ring_right.png")
 	_touch_release(ov, centre)
 	await _ring_close()
 	await _card_close()
@@ -219,6 +278,20 @@ func _run() -> void:
 	print("D left-handed: touch=%s anchor=%s card=%s" % [centre, anchor, pr_left_handed])
 	_ok("D left-handed: the card docks RIGHT of the anchor",
 		pr_left_handed.position.x >= anchor.x - 1.0, true)
+	_ok("O left-handed: the card does not overlap any ring slot",
+		_card_overlaps_ring(pr_left_handed), false)
+	## `context_broker.gd::present()`'s own dock choice is read straight off
+	## `DccSettings.dominant_hand()` (its own header comment names the exact
+	## line) -- these two D checks, both against the live setting rather than
+	## a mocked value, are what "the ring's edge flipping/handedness actually
+	## reads the setting" means for the card half. The ring itself has no
+	## handedness-dependent geometry of its own (§7.2 names only screen-edge
+	## clamping for the ring; handedness picks the CARD's side), so there is
+	## nothing further to flip on the ring beyond what `_clamp_centre()`
+	## already does and leg E already covers.
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	_vp.get_texture().get_image().save_png("res://_ctxtablet_ring_left.png")
 	_touch_release(ov, centre)
 	await _ring_close()
 	await _card_close()
@@ -235,7 +308,16 @@ func _run() -> void:
 	## every edge printed the SAME stale card rect left over from leg D. The
 	## ring still opens regardless (it needs no grid pick), which is why
 	## `_ctxring_probe.gd`'s own desktop leg E can use the raw viewport edges.
-	var pad := RING_RADIUS + SLOT_SIZE * 0.5 + 40.0
+	## Live, touch-scaled geometry -- NOT `RING_RADIUS`/`SLOT_SIZE` above.
+	## `radial_ring.gd::_clamp_centre()` pads by its own live `_r_ring`/
+	## `_r_slot`, which on a tablet are the touch-scaled figures
+	## `_apply_touch_scale()` computes, larger than the bare desktop consts.
+	## Padding this check with the smaller desktop figures would under-size
+	## `ring_rect` and let a real off-screen ring pass -- exactly the "assert a
+	## constant against itself" failure this residual exists to close.
+	var live: Dictionary = _ring_state()
+	var pad: float = float(live.get("radius", RING_RADIUS)) \
+		+ float(live.get("slot", SLOT_SIZE)) * 0.5 + 40.0
 	var disp: Rect2 = ov.displayed_rect()
 	var inter: Rect2 = ov._interior_rect(disp)
 	var inset := 24.0

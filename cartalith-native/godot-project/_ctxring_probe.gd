@@ -109,6 +109,32 @@ func _card():
 	return b.card if b != null else null
 
 
+## Leg O (coordinator review, 2026-09-27) -- `_ctxtablet_probe.gd`'s own twin
+## helper, same shape: the 8 live slot rects off `debug_state()`'s own
+## `centre`/`radius`/`slot`, never the bare desktop consts above (which this
+## probe's own header already disclaims for the same reason).
+func _ring_slot_rects() -> Array[Rect2]:
+	var st := _ring_state()
+	var c: Vector2 = st.get("centre", Vector2.ZERO)
+	var radius: float = st.get("radius", 0.0)
+	var slot: float = st.get("slot", 0.0)
+	var out: Array[Rect2] = []
+	for dir in DIR_DEG:
+		var p: Vector2 = c + _dir_vec(dir) * radius
+		out.append(Rect2(p - Vector2.ONE * slot * 0.5, Vector2.ONE * slot))
+	return out
+
+
+func _card_overlaps_ring(rect: Rect2) -> bool:
+	var slots := _ring_slot_rects()
+	var dirs := DIR_DEG.keys()
+	for i in slots.size():
+		if rect.intersects(slots[i]):
+			print("O overlap: card=%s hits slot %s=%s" % [rect, dirs[i], slots[i]])
+			return true
+	return false
+
+
 func _card_open() -> bool:
 	var c = _card()
 	return c != null and c.visible
@@ -306,6 +332,13 @@ func _run() -> void:
 	await _frames(2)
 	_ok("H still hold >= 300ms: the ring is visible", _ring_state().get("visible", false), true)
 	_ok("H still hold >= 300ms: the card opened alongside it", _card_open(), true)
+	## Coordinator review, 2026-09-27: same "ring and card open together"
+	## overlap `_ctxtablet_probe.gd`'s own leg O found on the 96 dp touch
+	## ring -- checked here at desktop's 60 px ring too, since
+	## `context_broker.gd::present()`'s `ring_clear` fix is shared by both.
+	var card_node = _card()
+	_ok("O desktop: the card does not overlap any ring slot",
+		_card_overlaps_ring(card_node.panel_rect()) if card_node != null else true, false)
 	_rmb_release(ov, centre)
 	await _frames(2)
 	_ok("H releasing in the dead zone leaves the ring open (sticky)", _ring_state().get("active", false), true)

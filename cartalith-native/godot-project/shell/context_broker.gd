@@ -269,7 +269,30 @@ func present(req: Dictionary, actions: Array) -> void:
 		var dock := ""
 		if DccTheme.is_tablet() and String(req.get("source", "")) == "touch":
 			dock = "right" if DccSettings.dominant_hand() == "left" else "left"
-		card.open(req, actions, at, reselect, dock)
+		## **Found by coordinator review, 2026-09-27.** CM-3's desktop RMB-hold
+		## and CM-4's tablet touch-hold open the ring and the card SIDE BY SIDE
+		## at the same anchor, but `_target_rect()`'s own offset was a bare
+		## 10/6 px -- right for the plain-click, no-ring case (CM-2), and never
+		## widened for the two "ring and card together" paths. On the CM-4
+		## residual's 96 dp touch ring this put the card overlapping the
+		## ring's own lower slots and centre caption (screenshotted); desktop's
+		## smaller 60 px ring has the identical defect, just less visibly.
+		##
+		## `ring_clear` is read off the ring's own LIVE geometry --
+		## `debug_state()`'s `radius`/`slot`, never a re-declared constant --
+		## and stays 0.0 whenever no ring is open beside this card, which keeps
+		## CM-2's plain-click placement byte-for-byte unchanged. `radius +
+		## slot * 0.5` is "the farthest any slot's own bounding square reaches
+		## from centre", the same first two terms `radial_ring.gd::
+		## _clamp_centre()` already computes into its own `pad` -- reused
+		## rather than a new formula, without that function's trailing
+		## `+ 40.0` (which clears the ring/caption of the SCREEN edge, a
+		## different concern from clearing the card).
+		var ring_clear := 0.0
+		if ring != null and ring.is_open():
+			var rs := ring.debug_state()
+			ring_clear = float(rs.get("radius", 0.0)) + float(rs.get("slot", 0.0)) * 0.5
+		card.open(req, actions, at, reselect, dock, ring_clear)
 		return
 	_present_phone(req, actions)
 

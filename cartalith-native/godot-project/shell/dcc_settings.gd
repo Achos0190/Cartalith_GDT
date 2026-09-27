@@ -440,9 +440,9 @@ static func reset_lighting_defaults() -> void:
 ## which hand the person using THIS device favours says nothing about the
 ## world a `.zip` carries, and belongs with the rest of this file's per-install
 ## preferences rather than in a save. `context_broker.gd`'s tablet touch-hold
-## dock-side choice is the one reader today; no menu row writes it yet (CM-4's
-## own scope names only "a handedness preference, stored" -- a `Preferences`
-## toggle is future work, tracked in `STATUS.md`, not this store).
+## dock-side choice is the one reader; `menus.gd`'s `Preferences ▸ Handedness`
+## (`_build_handedness_submenu`) is the writer -- the CM-4 residual
+## `OUTSTANDING_WORK.md` left, closed alongside the touch ring-radius scaling.
 const HANDS: Array[String] = ["left", "right"]
 
 static func dominant_hand() -> String:

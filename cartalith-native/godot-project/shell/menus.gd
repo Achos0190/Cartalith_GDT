@@ -141,6 +141,14 @@ const ID_PREF_UNITS_MI := 55
 const ID_PREF_STORAGE := 56
 const ID_PREF_THEME_SYSTEM := 58
 const ID_PREF_CLEAR_CACHES := 59
+## CM-4 residual (`OUTSTANDING_WORK.md`, `MAP_CONTEXT_SCOPE.md` §7.1):
+## `DccSettings.dominant_hand()` was stored with no Preferences row to set it.
+## 717/718 are free -- the highest ID this file used was 716
+## (`ID_VAULT_BROWSE`), and 714 is the one earlier freed slot
+## (`ID_TABLET_TOGGLE_THEME`'s own note above), already spoken for by a live
+## row rather than sitting open.
+const ID_PREF_HAND_LEFT := 717
+const ID_PREF_HAND_RIGHT := 718
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -370,6 +378,9 @@ var _lod_debug_popup: PopupMenu   ## `Help ▸ LOD debug` -- see
 	## `_build_lod_debug_submenu()`. Holds no state of its own; the check
 	## marks are read back off `ViewportHost` each time it opens.
 var _theme_popup: PopupMenu
+var _hand_popup: PopupMenu   ## `Preferences ▸ Handedness` -- CM-4's touch-hold
+	## ring/card dock side (`MAP_CONTEXT_SCOPE.md` §7.1), read by
+	## `context_broker.gd`'s tablet path via `DccSettings.dominant_hand()`.
 var _units_popup: PopupMenu   ## `Preferences ▸ Units` -- see the block right
 	## after `_theme_popup`'s own build in `_preferences()`. Unlike theme,
 	## which mirrors its choice into `_theme_mode` for `_apply_theme_mode()`
@@ -2969,6 +2980,48 @@ func _build_units_submenu(p: PopupMenu, tablet: bool = false) -> void:
 			p.set_item_text(units_idx,
 				"Units" if picked == "" else "Units — " + picked.to_lower()))
 
+## `Preferences ▸ Handedness` -- the CM-4 residual `OUTSTANDING_WORK.md` left:
+## `DccSettings.dominant_hand()`/`set_dominant_hand()` have existed since CM-4
+## landed, read by `context_broker.gd`'s tablet touch-hold dock choice
+## (§7.1: "the card docks on the side *away from* the dominant hand"), but no
+## menu row ever wrote the setting -- it could only ever read back its own
+## "right" default. Built the same shape as `_build_units_submenu` right above:
+## a two-item radio submenu, no dialog, because the whole choice is binary.
+##
+## Unconditional in `_preferences()` -- not gated on `full`/`include_theme`
+## the way Units/Theme are -- because a tablet is the only device the setting
+## does anything on today, and the tablet's own `_preferences(p, false, true)`
+## call must still reach this row; gating it on `full` would hide it from the
+## one form factor it matters to.
+func _build_handedness_submenu(p: PopupMenu) -> void:
+	_hand_popup = PopupMenu.new()
+	_hand_popup.name = "HandChoice"
+	_hand_popup.add_radio_check_item("Left", ID_PREF_HAND_LEFT)
+	_hand_popup.add_radio_check_item("Right", ID_PREF_HAND_RIGHT)
+	_hand_popup.set_item_tooltip(0,
+		"The tablet's touch-hold ring and card dock on the side away from this hand, so the palm does not cover the card (MAP_CONTEXT_SCOPE.md §7.1). No effect on desktop or phone.")
+	_hand_popup.set_item_tooltip(1, _hand_popup.get_item_tooltip(0))
+	_refresh_handedness_menu()
+	_hand_popup.id_pressed.connect(_on_handedness_choice)
+	_shell.style_popup(_hand_popup)
+	p.add_child(_hand_popup)
+	p.add_submenu_item("Handedness", "HandChoice")
+
+func _refresh_handedness_menu() -> void:
+	var hand := DccSettings.dominant_hand()
+	_hand_popup.set_item_checked(0, hand == "left")
+	_hand_popup.set_item_checked(1, hand == "right")
+
+func _on_handedness_choice(id: int) -> void:
+	var hand: String
+	match id:
+		ID_PREF_HAND_LEFT: hand = "left"
+		ID_PREF_HAND_RIGHT: hand = "right"
+		_:
+			return
+	DccSettings.set_dominant_hand(hand)
+	_refresh_handedness_menu()
+
 ## `full=false` on the tablet omits Units (and, unless `include_theme` says
 ## otherwise, Theme too), both of which the ☰ overflow promotes elsewhere:
 ## Units to its own top-level submenu (unchanged position, `TABLET_UI_SPEC.md`
@@ -3264,6 +3317,9 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 		_build_theme_submenu(p)
 	if full:
 		_build_units_submenu(p)
+	## CM-4 residual: unconditional, unlike the two rows above -- see this
+	## function's own header comment for why.
+	_build_handedness_submenu(p)
 	## **Built.** This row was a `_todo` reading "SS2.5 asks for an editable,
 	## per-context table... what is missing is rebinding: a per-context store
 	## in DccSettings that both the menu accelerators here and app.gd's own

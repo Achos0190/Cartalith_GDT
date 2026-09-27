@@ -95,6 +95,9 @@ var _anchor := Vector2.ZERO
 ## still flips to the other side rather than clipping if THAT side does not
 ## fit either, so the edge-flip guarantee holds regardless of hand.
 var _dock_side := ""
+## Coordinator review, 2026-09-27 -- see `open()`'s own doc. 0.0 outside the
+## ring+card-together presentations.
+var _ring_clear := 0.0
 ## `{}` for the sections; else `{"title": String, "rows": Array}` -- the one
 ## submenu level §4.2 allows.
 var _sub: Dictionary = {}
@@ -162,14 +165,20 @@ func _m(key: String) -> int:
 
 ## `anchor` is in the space of the viewport this card pops into (the one
 ## `app` is in). `actions` is the broker's merge, already in §4.1's order.
+## `ring_clear` (coordinator review, 2026-09-27): how far, in px, `_target_rect()`
+## must additionally clear `anchor` before it starts offsetting the card --
+## `context_broker.gd::present()`'s own header has the full reasoning. 0.0
+## (default) is the plain-click case with no ring open beside this card,
+## which keeps `_target_rect()`'s original 10/6 px offset exactly as it was.
 func open(req: Dictionary, actions: Array, anchor: Vector2, on_select: Callable,
-		dock_side: String = "") -> void:
+		dock_side: String = "", ring_clear: float = 0.0) -> void:
 	_req = req
 	_actions = actions
 	_all_hits = req.get("all_hits", req.get("hits", []))
 	_on_select = on_select
 	_anchor = anchor
 	_dock_side = dock_side
+	_ring_clear = ring_clear
 	_sub = {}
 	_filter = ""
 	_rebuild()
@@ -764,24 +773,37 @@ func _bounds() -> Rect2:
 ## plain pointer-relative offset (unchanged from CM-2). Either way the other
 ## side is the fallback when the preferred one does not fit, so the on-screen
 ## guarantee is the same regardless of hand.
+##
+## `gap` (coordinator review, 2026-09-27) replaces the bare `10.0` the canvas's
+## own offset names: `_ring_clear` widens it whenever a ring is open beside
+## this card (`open()`'s own doc), so the card starts clear of the ring's own
+## footprint instead of overlapping its lower slots. **X alone is enough**:
+## `radius + slot * 0.5` (what `_ring_clear` carries) is the farthest any of
+## the ring's 8 slot squares reaches from the anchor in ANY direction -- the
+## ring's own bounding shape is therefore fully inside the square
+## `anchor ± _ring_clear` on both axes. Once the card's entire x-range sits
+## outside `anchor.x ± gap`, every point in the card is farther than `gap`
+## from `anchor` (distance >= |dx| >= gap) for ANY y, so the y offset below
+## (unchanged since CM-2) never needs its own widening.
 func _target_rect(panel_size: Vector2) -> Rect2:
 	var bounds := _bounds()
 	var margin := 8.0
 	var w := panel_size.x
 	var h := panel_size.y
+	var gap := 10.0 + _ring_clear
 	var x: float
 	if _dock_side == "left":
-		x = _anchor.x - 10.0 - w
+		x = _anchor.x - gap - w
 		if x < bounds.position.x + margin:
-			x = _anchor.x + 10.0
+			x = _anchor.x + gap
 	elif _dock_side == "right":
-		x = _anchor.x + 10.0
+		x = _anchor.x + gap
 		if x + w > bounds.end.x - margin:
-			x = _anchor.x - 10.0 - w
+			x = _anchor.x - gap - w
 	else:
-		x = _anchor.x + 10.0
+		x = _anchor.x + gap
 		if x + w > bounds.end.x - margin:
-			x = _anchor.x - 10.0 - w
+			x = _anchor.x - gap - w
 	var y := _anchor.y + 6.0
 	if y + h > bounds.end.y - margin:
 		y = _anchor.y - 6.0 - h

@@ -41,6 +41,25 @@ const SUB_RING_RADIUS := 50.0
 ## DEAD(22): the path back toward the parent ring's own centre should not
 ## read as an accidental cancel of the sub-ring.
 const SUB_DEAD_ZONE := 30.0
+
+## CM-4 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §7.2): "Ring
+## radius scales with the finger. Slots sit at 96 dp on touch (60 px on
+## desktop) ... 96 dp leaves generous gaps and a clear angular sector per
+## slot." This file drew the desktop `RING_RADIUS`/`SLOT_SIZE` unconditionally
+## until now -- a tablet's touch-hold gesture (`MAP_CONTEXT_SCOPE.md` §7.1)
+## opened the same 60 px ring a mouse gets, well under the 96 dp target.
+##
+## `_r*` below are what every drawing/hit-test function in this file actually
+## reads; the `RING_RADIUS`/etc. consts above stay as the authored desktop
+## figures the scaling is computed FROM, exactly as `DccTheme.TABLET`'s own
+## header keeps a figure's desktop key beside its touch value rather than
+## overwriting it.
+var _r_ring := RING_RADIUS
+var _r_slot := SLOT_SIZE
+var _r_dead := DEAD_ZONE
+var _r_sub_ring := SUB_RING_RADIUS
+var _r_sub_dead := SUB_DEAD_ZONE
+
 const HOLD_MS := 300     ## §6: "hold >= 300ms, still" -> ring + card
 ## §6: "the ring appears only if the button is still held after 150ms" --
 ## measured from the moment travel first exceeded the click slop, not from
@@ -87,6 +106,33 @@ func setup(app_ref) -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	visible = false
 	set_process(false)
+	_apply_touch_scale()
+
+
+## §7.2's touch figures, computed once -- `DccShell._compute_layout_mode()`'s
+## own header is why: "Phone-vs-tablet is decided once ... a device's own form
+## factor is not something that changes at runtime," so there is no resize
+## hook to re-run this from, the same way `_phone_scale` itself is set once at
+## boot and never revisited.
+##
+## `DccTheme.TOUCH_SCALE` (1.53) is this shell's one documented general-
+## purpose touch multiplier -- reused here rather than inventing a ring-only
+## factor, per its own header: "the fallback for any figure the table [below
+## it] does not name." Applied plainly it turns the desktop 60 px ring into
+## 91.8, short of the 96 dp §7.2 names outright, so the ring radius alone
+## additionally takes 96 as a floor -- the same shape `DccShell._ptap()`
+## already uses for its own named touch-target floor (scale, then never let
+## the result fall under the figure the spec states). Every other figure here
+## (slot size, dead zones, the sub-ring) has no such named target, so plain
+## `TOUCH_SCALE` is all they take.
+func _apply_touch_scale() -> void:
+	if not DccTheme.is_tablet():
+		return
+	_r_ring = maxf(96.0, RING_RADIUS * DccTheme.TOUCH_SCALE)
+	_r_slot = SLOT_SIZE * DccTheme.TOUCH_SCALE
+	_r_dead = DEAD_ZONE * DccTheme.TOUCH_SCALE
+	_r_sub_ring = SUB_RING_RADIUS * DccTheme.TOUCH_SCALE
+	_r_sub_dead = SUB_DEAD_ZONE * DccTheme.TOUCH_SCALE
 
 
 func is_open() -> bool:
@@ -103,6 +149,12 @@ func debug_state() -> Dictionary:
 		"sub_centre": _sub.get("centre", Vector2.ZERO),
 		"sub_hover": int(_sub.get("hover", -1)),
 		"sub_count": (_sub.get("items", []) as Array).size(),
+		## CM-4 residual: the LIVE, possibly touch-scaled geometry
+		## (`_apply_touch_scale()`) -- so a probe measures what this node
+		## actually drew rather than re-declaring the desktop constants and
+		## asserting them against themselves (`MISTAKES.md`'s preflight rule).
+		"radius": _r_ring, "slot": _r_slot, "dead": _r_dead,
+		"sub_radius": _r_sub_ring, "sub_dead": _r_sub_dead,
 	}
 
 
@@ -280,7 +332,7 @@ func close() -> void:
 
 func _open_sub(dir: String, items: Array) -> void:
 	var ang := deg_to_rad(ANGLES[dir])
-	var sub_centre: Vector2 = _centre + Vector2(cos(ang), sin(ang)) * RING_RADIUS
+	var sub_centre: Vector2 = _centre + Vector2(cos(ang), sin(ang)) * _r_ring
 	_sub = {"dir": dir, "items": items, "centre": _clamp_centre(sub_centre), "hover": -1}
 	_visible = true
 	visible = true
@@ -290,7 +342,7 @@ func _open_sub(dir: String, items: Array) -> void:
 
 func _update_hover(pos: Vector2) -> void:
 	var prev := _hover
-	if pos.distance_to(_centre) <= DEAD_ZONE:
+	if pos.distance_to(_centre) <= _r_dead:
 		_hover = ""
 		return
 	var ang := rad_to_deg(atan2(pos.y - _centre.y, pos.x - _centre.x))
@@ -311,7 +363,7 @@ func _update_sub_hover(pos: Vector2) -> void:
 	var items: Array = _sub["items"]
 	var n := items.size()
 	var prev := int(_sub.get("hover", -1))
-	if n == 0 or pos.distance_to(c) <= SUB_DEAD_ZONE:
+	if n == 0 or pos.distance_to(c) <= _r_sub_dead:
 		_sub["hover"] = -1
 		return
 	var ang := rad_to_deg(atan2(pos.y - c.y, pos.x - c.x))
@@ -332,7 +384,7 @@ func _update_sub_hover(pos: Vector2) -> void:
 ## inside the viewport at all four screen edges (§5's "the ring stays on
 ## screen at the four edges" -- the probe's own check).
 func _clamp_centre(pos: Vector2) -> Vector2:
-	var pad := RING_RADIUS + SLOT_SIZE * 0.5 + 40.0
+	var pad := _r_ring + _r_slot * 0.5 + 40.0
 	var sz := size
 	if sz.x <= 0.0 or sz.y <= 0.0:
 		return pos
@@ -346,7 +398,7 @@ func _clamp_centre(pos: Vector2) -> Vector2:
 func _draw() -> void:
 	if not _active or not _visible:
 		return
-	_draw_ring(_centre, RING_RADIUS, DEAD_ZONE, _slots, _hover, _sub.is_empty())
+	_draw_ring(_centre, _r_ring, _r_dead, _slots, _hover, _sub.is_empty())
 	if not _sub.is_empty():
 		_draw_sub_ring(_sub["centre"], _sub["items"], int(_sub.get("hover", -1)))
 	_draw_caption()
@@ -375,34 +427,34 @@ func _draw_ring(centre: Vector2, radius: float, dead: float, slots: Dictionary,
 		var hovered := top_active and present and String(dir) == hover_dir
 		var alpha := 1.0 if enabled else 0.35
 		var ground := DccTheme.c("accent") if armed else DccTheme.c("sunken")
-		draw_circle(pos, SLOT_SIZE * 0.5, Color(ground.r, ground.g, ground.b, ground.a * alpha))
+		draw_circle(pos, _r_slot * 0.5, Color(ground.r, ground.g, ground.b, ground.a * alpha))
 		var border := DccTheme.c("accent") if (hovered or armed) else DccTheme.c("line")
-		draw_arc(pos, SLOT_SIZE * 0.5, 0.0, TAU, 28,
+		draw_arc(pos, _r_slot * 0.5, 0.0, TAU, 28,
 			Color(border.r, border.g, border.b, alpha), 2.0 if hovered else 1.0, true)
 		if not present:
 			continue
 		## MN-21: reversed, paper-coloured ink on the filled accent surface.
 		var ink := DccTheme.c("accent_ink") if armed else DccTheme.c("text_bright")
 		ink.a = alpha
-		_draw_glyph(String(row.get("glyph", "")), pos, SLOT_SIZE * 0.52, ink)
-		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, SLOT_SIZE * 0.5 + 11.0), ink)
+		_draw_glyph(String(row.get("glyph", "")), pos, _r_slot * 0.52, ink)
+		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, _r_slot * 0.5 + 11.0), ink)
 
 
 func _draw_sub_ring(centre: Vector2, items: Array, hover_i: int) -> void:
-	draw_circle(centre, SUB_DEAD_ZONE, DccTheme.c("panel_alt"))
-	draw_arc(centre, SUB_DEAD_ZONE, 0.0, TAU, 24, DccTheme.c("accent"), 2.0, true)
+	draw_circle(centre, _r_sub_dead, DccTheme.c("panel_alt"))
+	draw_arc(centre, _r_sub_dead, 0.0, TAU, 24, DccTheme.c("accent"), 2.0, true)
 	var n := items.size()
 	for i in n:
 		var row: Dictionary = items[i]
 		var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
-		var pos: Vector2 = centre + Vector2(cos(ang), sin(ang)) * SUB_RING_RADIUS
+		var pos: Vector2 = centre + Vector2(cos(ang), sin(ang)) * _r_sub_ring
 		var hovered := i == hover_i
 		var ground := DccTheme.c("accent") if hovered else DccTheme.c("sunken")
-		draw_circle(pos, SLOT_SIZE * 0.44, ground)
-		draw_arc(pos, SLOT_SIZE * 0.44, 0.0, TAU, 24, DccTheme.c("line"), 1.0, true)
+		draw_circle(pos, _r_slot * 0.44, ground)
+		draw_arc(pos, _r_slot * 0.44, 0.0, TAU, 24, DccTheme.c("line"), 1.0, true)
 		var ink := DccTheme.c("accent_ink") if hovered else DccTheme.c("text_bright")
-		_draw_glyph(String(row.get("glyph", "")), pos, SLOT_SIZE * 0.42, ink)
-		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, SLOT_SIZE * 0.44 + 10.0), ink)
+		_draw_glyph(String(row.get("glyph", "")), pos, _r_slot * 0.42, ink)
+		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, _r_slot * 0.44 + 10.0), ink)
 
 
 ## §5.2 rule 4: "the centre shows the hovered slot's full label and shortcut,
@@ -430,7 +482,7 @@ func _draw_caption() -> void:
 	var font := DccTheme.mono()
 	var fs := DccTheme.FS_SMALL
 	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-	var cap_centre := below_centre + Vector2(0.0, RING_RADIUS + 30.0)
+	var cap_centre := below_centre + Vector2(0.0, _r_ring + 30.0)
 	var pad := Vector2(9.0, 5.0)
 	var rect := Rect2(cap_centre - ts * 0.5 - pad, ts + pad * 2.0)
 	draw_rect(rect, DccTheme.c("panel"))
