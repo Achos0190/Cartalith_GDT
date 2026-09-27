@@ -10,7 +10,8 @@ extends Node
 ##      control: the export must be much bluer than the screen at channel cells,
 ##      and identical to it elsewhere
 ##   C. the strokes: flip the layer and diff the framebuffer; the stroke width
-##      measured on screen equals `width_cells * px_per_cell` at two zooms (so
+##      measured on screen equals `widths[i] * px_per_cell` (RV-2's per-point
+##      width; `width_cells` until 2026-09-29) at two zooms (so
 ##      it scales with zoom), its centre pixel is the run's own Strahler
 ##      `colors` entry at that render point, and
 ##      every on-screen centreline sample lies in ONE connected component
@@ -157,7 +158,9 @@ func _ready() -> void:
 	print("\n== C. the stroke: width on the ground, Strahler colour, no breaks ==")
 	var best: Dictionary = {}
 	for r: Dictionary in rivers:
-		if int(r.get("order", 0)) >= 3 and r.has("width_cells") and float(r.get("km", 0.0)) > float(best.get("km", 0.0)):
+		## One piece (`pieces` a single pair): a run cut at a lake is several
+		## strokes, and the connectivity check below is about ONE stroke.
+		if int(r.get("order", 0)) >= 3 and r.has("widths") and (r["pieces"] as PackedInt32Array).size() == 2 				and float(r.get("km", 0.0)) > float(best.get("km", 0.0)):
 			best = r
 	if best.is_empty():
 		_ok(false, "an order>=3 run with a width exists")
@@ -165,8 +168,10 @@ func _ready() -> void:
 		var rp: PackedVector2Array = best["render_points"]
 		var mid_i := rp.size() / 2
 		var mid: Vector2 = rp[mid_i]
-		var wc: float = float(best["width_cells"])
-		print("  run: order %d, %.1f km, width_cells %.2f, %d render points, mid %s"
+		## RV-2: the stroke's width at THIS point (`widths`), not the run's one
+		## mouth reading `width_cells` it used to be drawn at.
+		var wc: float = float((best["widths"] as PackedFloat32Array)[mid_i])
+		print("  run: order %d, %.1f km, width at mid %.2f cells, %d render points, mid %s"
 			% [int(best["order"]), float(best["km"]), wc, rp.size(), str(mid)])
 		var ov: Control = vh.overlay
 		var ppc1: float = ov._displayed_rect().size.x / float(g.x)   ## control px per cell at zoom 1
@@ -213,7 +218,7 @@ func _ready() -> void:
 			print("  chords (px) %s" % str(chords))
 			widths.append(w_meas)
 			wants.append(want)
-			print("  zoom %.2f: measured stroke width %.1f px across the normal, expected width_cells*px_per_cell = %.2f px"
+			print("  zoom %.2f: measured stroke width %.1f px across the normal, expected widths[mid]*px_per_cell = %.2f px"
 				% [vh.zoom(), w_meas, want])
 			_ok(absf(w_meas - want) <= maxf(2.0, want * 0.2), "stroke width is the channel's width on the ground at zoom %.2f" % vh.zoom())
 			var cpx := on.get_pixelv(Vector2i(p.round()))

@@ -2,7 +2,10 @@ extends Node
 ## Windowed proof that a river is no longer stroked across an above-sea lake
 ## (`OUTSTANDING_WORK.md` §2.5, 2026-09-24; the reference's
 ## `splitRiverPolylines`). Pixels, rivers on vs off:
-##   1. non-vacuous: some river's `lake_mask` marks points inside a lake;
+##   1. non-vacuous: some drawn river's traced cells run through a lake
+##      (`sample_cell`'s `water == "lake"`). Since RV-2 (2026-09-29) the cut is
+##      `get_rivers()`' `pieces`, made once per crossing on the shoreline; the
+##      per-point `lake_mask` this probe first read is gone;
 ##   2. at the middle of the longest lake stretch, rivers on/off changes ~no
 ##      pixels in a small box -- nothing is drawn over the open water;
 ##   3. control: at a dry point of the same river the same box DOES change,
@@ -86,48 +89,53 @@ func _ready() -> void:
 	var host: Node = app.viewport
 	var ov: Control = host.overlay
 
-	# 1. the longest lake stretch of any drawn river
+	# 1. the longest lake stretch of any drawn river, in traced cells
 	var best_len := 0
 	var best: Dictionary = {}
 	var crossing := 0
 	for r in ov._rivers:
 		var rd: Dictionary = r
-		if not rd.has("width_cells") or rd.has("parallel_of"):
+		if not rd.has("widths") or rd.has("parallel_of"):
 			continue
-		var mask: PackedByteArray = rd.get("lake_mask", PackedByteArray())
-		var pts: PackedVector2Array = rd["render_points"]
-		if mask.size() != pts.size():
-			continue
-		if mask.count(1) > 0:
-			crossing += 1
+		var tp: PackedVector2Array = rd["points"]
 		var run := 0
-		for i in mask.size():
-			run = run + 1 if mask[i] == 1 else 0
+		var crossed := false
+		for i in tp.size():
+			var wet := String(bridge.sample_cell(int(tp[i].x), int(tp[i].y)).get("water", "")) == "lake"
+			run = run + 1 if wet else 0
+			crossed = crossed or wet
 			if run > best_len:
 				best_len = run
-				best = {"lake": pts[i - run / 2], "pts": pts, "mask": mask}
-	_check("some river crosses an above-sea lake", crossing > 0 and best_len >= 5,
-		"%d rivers cross a lake; longest stretch %d points" % [crossing, best_len])
+				best = {"lake": tp[i - run / 2]}
+		if crossed:
+			crossing += 1
+	_check("some river crosses an above-sea lake", crossing > 0 and best_len >= 3,
+		"%d rivers cross a lake; longest stretch %d traced cells" % [crossing, best_len])
 	if best.is_empty():
 		get_tree().quit(1)
 		return
-	## Control: a dry point (mask 0 for 3 points either side) on the widest
-	## drawn river that has one, so the stroke is thick enough to see at z12.
+	## Control: a point well inside a drawn piece (3 render points from either
+	## end) of the widest drawn river, so the stroke is thick enough to see at z12
+	## -- and 10% of the grid in from every edge, where the map's frame is drawn
+	## over the terrain (the widest point on this world first found sat at
+	## x = 0.87, under the frame, and read 0 px).
 	var dry := Vector2(-1, -1)
 	var dry_w := -1.0
 	for r in ov._rivers:
 		var rd: Dictionary = r
-		if not rd.has("width_cells") or rd.has("parallel_of"):
+		if not rd.has("widths") or rd.has("parallel_of"):
 			continue
-		var m: PackedByteArray = rd.get("lake_mask", PackedByteArray())
+		var ws: PackedFloat32Array = rd["widths"]
 		var ps: PackedVector2Array = rd["render_points"]
-		if m.size() != ps.size() or float(rd["width_cells"]) <= dry_w:
-			continue
-		for i in range(3, m.size() - 3):
-			if m[i - 3] == 0 and m[i] == 0 and m[i + 3] == 0:
-				dry = ps[i]
-				dry_w = float(rd["width_cells"])
-				break
+		var pc: PackedInt32Array = rd["pieces"]
+		for k in range(0, pc.size() - 1, 2):
+			for i in range(pc[k] + 3, pc[k + 1] - 3):
+				var q: Vector2 = ps[i]
+				if q.x < ov._gw * 0.1 or q.x > ov._gw * 0.9 or q.y < ov._gh * 0.1 or q.y > ov._gh * 0.9:
+					continue
+				if ws[i] > dry_w:
+					dry = ps[i]
+					dry_w = ws[i]
 
 	# 2. over the lake: nothing drawn
 	var lp: Vector2 = best["lake"]

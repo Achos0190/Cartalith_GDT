@@ -17,6 +17,18 @@ extends Node
 ##    render polyline, in cells.
 ##  - carve cross-section: elevation at the traced cell vs +-1..+-4 cells
 ##    perpendicular (sample_cell's elevation_m).
+##  - RV-2 stroke data (`_stroke_stats`, grid data, no pixels), readable from
+##    both the pre-RV-2 `get_rivers` (`lake_mask`, one `width_cells`) and the
+##    RV-2 one (`pieces`, per-point `widths`), so one probe measures both:
+##    pieces per drawn river, whether each break has water past it, whether the
+##    width ever narrows downstream, confluence gap and width ratio, stroke ends
+##    beside water that stop short of it, and headwaters under 1 px at x1.
+##  - draw cost: median frame interval at the opening view, rivers on vs off.
+##
+## `--targets FILE` reuses the target cells of an earlier run's riverzoom.json,
+## so a before/after pair frames the same ground. `--stats-only` skips the zoom
+## sweep and its PNGs (grid statistics and draw cost only); `--zooms 1,32`
+## narrows the sweep.
 
 var _out := "user://riverzoom/"
 var _seeds: Array[int] = [483920, 24601, 71077345]
@@ -27,6 +39,9 @@ var _app: Node
 var _vh: Control
 var _br: Node
 var _report: Dictionary = {}
+var _fixed_targets: Dictionary = {}
+var _stats_only := false
+var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
 
 const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",
 	"landmarks", "landmark_rejects", "urban_layouts", "conflict"]
@@ -46,6 +61,13 @@ func _ready() -> void:
 				i += 1
 			"--grid":
 				var p := args[i + 1].split("x"); _grid = Vector2i(int(p[0]), int(p[1])); i += 1
+			"--stats-only": _stats_only = true
+			"--zooms":
+				_zooms.clear()
+				for zs in args[i + 1].split(","): _zooms.append(float(zs))
+				i += 1
+			"--targets":
+				_fixed_targets = JSON.parse_string(FileAccess.get_file_as_string(args[i + 1])); i += 1
 			_:
 				printerr("unknown arg ", args[i]); get_tree().quit(2); return
 		i += 1
@@ -91,12 +113,25 @@ func _run_seed(seed_v: int) -> void:
 
 	sr["channel_lakes"] = _channel_lakes(rivers)
 	print("  channel lakes: ", sr["channel_lakes"])
-	var targets := _pick_targets(rivers)
+	_vh.reset_view()
+	await _settle(3)
+	var ppc_fit: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
+	sr["stroke"] = _stroke_stats(rivers, ppc_fit)
+	print("  stroke: ", sr["stroke"])
+	sr["draw_cost_ms"] = await _draw_cost()
+	print("  draw cost (median frame ms, rivers on/off): ", sr["draw_cost_ms"])
+	var targets := {} if _stats_only else _pick_targets(rivers)
+	if not _stats_only and _fixed_targets.has(str(seed_v)):
+		targets = {}
+		var ft: Dictionary = _fixed_targets[str(seed_v)]["targets"]
+		for name: String in ft.keys():
+			var c: Array = ft[name]["cell"]
+			targets[name] = {"p": Vector2(c[0], c[1]), "idx": -1, "w": -1.0}
 	for name: String in targets.keys():
 		var t: Dictionary = targets[name]
 		print("  target %s at cell %.1f,%.1f (river %d, width_cells %.2f)" % [name, t["p"].x, t["p"].y, t["idx"], t["w"]])
 		var rows: Array = []
-		for z: float in [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]:
+		for z: float in _zooms:
 			if z > _vh._zoom_max + 1e-6:
 				continue
 			_vh.reset_view()
@@ -122,8 +157,218 @@ func _run_seed(seed_v: int) -> void:
 			print("    z %6.1f  lod=%s  ppc %.1f  stroke_px %d  comps %d  interior %d  small(<40px) %d"
 				% [frag["zoom"], str(frag["lod"]), frag["px_per_cell"], frag["px"], frag["comps"], frag["interior"], frag["small"]])
 			rows.append(frag)
+			## Positive control: the river layer must move pixels. A shell that
+			## fails to draw them (a bad bridge call) reads 0 here, and every
+			## "fewer fragments" figure would then be vacuous.
+			if name == "trunk" and int(frag["px"]) == 0:
+				printerr("PROBE-FAIL: rivers drew no pixels at zoom %.1f" % z)
+				_report["fail"] = true
 		sr["targets"][name] = {"cell": [t["p"].x, t["p"].y], "rows": rows}
 	_report[str(seed_v)] = sr
+
+
+## A river's drawn pieces as `[start, end)` into `render_points`: RV-2's
+## `pieces`, or -- for the pre-RV-2 data -- the dry runs of >= 2 points the old
+## `_draw_rivers` stroked between `lake_mask` points.
+func _pieces_of(r: Dictionary) -> Array[Vector2i]:
+	var rp: PackedVector2Array = r["render_points"]
+	var out: Array[Vector2i] = []
+	if r.has("pieces"):
+		var pc: PackedInt32Array = r["pieces"]
+		for i in range(0, pc.size() - 1, 2):
+			out.append(Vector2i(pc[i], pc[i + 1]))
+		return out
+	var m: PackedByteArray = r.get("lake_mask", PackedByteArray())
+	if m.size() != rp.size():
+		out.append(Vector2i(0, rp.size()))
+		return out
+	var a := -1
+	for idx in range(0, rp.size() + 1):
+		var dry := idx < rp.size() and m[idx] == 0
+		if dry:
+			if a < 0:
+				a = idx
+		elif a >= 0:
+			if idx - a >= 2:
+				out.append(Vector2i(a, idx))
+			a = -1
+	return out
+
+
+func _width_at(r: Dictionary, i: int) -> float:
+	if r.has("widths"):
+		return float((r["widths"] as PackedFloat32Array)[i])
+	return float(r["width_cells"])
+
+
+func _drawable(r: Dictionary) -> bool:
+	return (r.has("widths") or (r.has("width_cells") and not r.has("pieces"))) and not r.has("parallel_of")
+
+
+func _is_wet(p: Vector2) -> bool:
+	var x := int(floor(p.x)); var y := int(floor(p.y))
+	if x < 0 or y < 0 or x >= _grid.x or y >= _grid.y:
+		return false
+	var w := String(_br.sample_cell(x, y).get("water", "land"))
+	return w == "lake" or w == "ocean"
+
+
+func _stroke_stats(rivers: Array, ppc_fit: float) -> Dictionary:
+	var drawn := 0; var hist := {}; var r3 := 0; var r2 := 0
+	var breaks := 0; var breaks_wet := 0
+	var narrows := 0; var narrow_rivers := 0; var const_rivers := 0
+	var sub_px := 0
+	var ends_on_shore := 0; var ends_short := 0
+	## Spatial index of every drawn point: cell -> [river, point index].
+	## `ends` marks each river's own first and last drawn point, so a join is
+	## matched to the river whose stroke passes THROUGH the end, not to a
+	## sibling tributary ending on the same confluence point.
+	var grid := {}
+	var ends := {}
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not _drawable(r):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		var all_pcs := _pieces_of(r)
+		if not all_pcs.is_empty():
+			ends[Vector2i(ri, all_pcs[0].x)] = true
+			ends[Vector2i(ri, all_pcs[all_pcs.size() - 1].y - 1)] = true
+		for pc in all_pcs:
+			for i in range(pc.x, pc.y):
+				var key := Vector2i(int(floor(rp[i].x)), int(floor(rp[i].y)))
+				if not grid.has(key): grid[key] = []
+				grid[key].append(Vector2i(ri, i))
+	var short_gap := PackedFloat32Array()
+	## Draw rank: RV-2 draws by `get_rivers()`' `draw_rank`; the build before
+	## it drew in list order.
+	var rank := {}
+	for k in rivers.size():
+		rank[k] = int((rivers[k] as Dictionary).get("draw_rank", k))
+	var continuations := 0; var continuation_narrows := 0; var shared_ends := 0
+	var joins := 0; var join_gap_max := 0.0; var join_wider := 0; var join_trunk_drawn_over := 0
+	var ratio := PackedFloat32Array()
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not _drawable(r):
+			continue
+		drawn += 1
+		var rp: PackedVector2Array = r["render_points"]
+		var pcs := _pieces_of(r)
+		hist[pcs.size()] = int(hist.get(pcs.size(), 0)) + 1
+		if pcs.size() >= 3: r3 += 1
+		if pcs.size() >= 2: r2 += 1
+		for k in range(pcs.size() - 1):
+			breaks += 1
+			var e := rp[pcs[k].y - 1]
+			var s := rp[pcs[k + 1].x]
+			if _is_wet(e + (s - e).normalized() * 0.05):
+				breaks_wet += 1
+		## Width along the whole drawn stroke, head to mouth.
+		var prev := -1.0; var nr := 0; var wmin := INF; var wmax := 0.0
+		for pc in pcs:
+			for i in range(pc.x, pc.y):
+				var wv := _width_at(r, i)
+				if prev >= 0.0 and wv < prev - 1e-5: nr += 1
+				prev = wv
+				wmin = minf(wmin, wv); wmax = maxf(wmax, wv)
+		narrows += nr
+		if nr > 0: narrow_rivers += 1
+		if wmax - wmin < 1e-6: const_rivers += 1
+		var mul := 0.55 if int(r.get("own_order", r.get("order", 2))) <= 1 else 1.0
+		if wmin * ppc_fit * mul < 1.0: sub_px += 1
+		if pcs.is_empty():
+			continue
+		var last: Vector2i = pcs[pcs.size() - 1]
+		if last.y - last.x < 2:
+			continue
+		var E := rp[last.y - 1]
+		var D := (E - rp[last.y - 2]).normalized()
+		## Join: another drawn river's stroke passes through E.
+		var best := INF; var best_w := 0.0; var best_ri := -1
+		var ce := Vector2i(int(floor(E.x)), int(floor(E.y)))
+		for dy in [-1, 0, 1]:
+			for dx in [-1, 0, 1]:
+				for h: Vector2i in grid.get(ce + Vector2i(dx, dy), []):
+					if h.x == ri or ends.has(h): continue
+					var o: Dictionary = rivers[h.x]
+					var orp: PackedVector2Array = o["render_points"]
+					for j in [h.y - 1, h.y]:
+						if j < 0 or j + 1 >= orp.size(): continue
+						var d := _seg_dist(E, orp[j], orp[j + 1])
+						if d < best:
+							## The joined river's width AT the join: interpolated
+							## along the segment, as the stroke is drawn.
+							var ab := orp[j + 1] - orp[j]
+							var tt := clampf((E - orp[j]).dot(ab) / maxf(ab.length_squared(), 1e-12), 0.0, 1.0)
+							best = d; best_w = lerpf(_width_at(o, j), _width_at(o, j + 1), tt); best_ri = h.x
+		var o_first: Vector2 = (rivers[best_ri]["render_points"] as PackedVector2Array)[0] if best_ri >= 0 else Vector2.INF
+		var o_last: Vector2 = (rivers[best_ri]["render_points"] as PackedVector2Array)[-1] if best_ri >= 0 else Vector2.INF
+		if best < 0.05 and E.distance_to(o_last) < 0.05:
+			## Two runs ending on one point (both run off the map edge there, or
+			## meet end to end): neither is the other's trunk.
+			shared_ends += 1
+			continue
+		if best < 0.05 and E.distance_to(o_first) < 0.05:
+			continuations += 1
+			if _width_at(r, last.y - 1) > _width_at(rivers[best_ri], 0) + 1e-5: continuation_narrows += 1
+			continue
+		if best < 0.05:
+			joins += 1
+			join_gap_max = maxf(join_gap_max, best)
+			var tw := _width_at(r, last.y - 1)
+			ratio.append(tw / maxf(best_w, 1e-6))
+			if tw > best_w + 1e-5: join_wider += 1
+			if int(rank[best_ri]) > int(rank[ri]):
+				join_trunk_drawn_over += 1
+			continue
+		## Not a join: does it end on water, or stop short of water beside it?
+		if _is_wet(E + D * 0.05):
+			ends_on_shore += 1
+		else:
+			var near_wet := false
+			for dy in [-1, 0, 1]:
+				for dx in [-1, 0, 1]:
+					if _is_wet(Vector2(ce) + Vector2(dx + 0.5, dy + 0.5)): near_wet = true
+			if near_wet:
+				ends_short += 1
+				## How far short: distance from E to the nearest wet cell's square.
+				var g := INF
+				for dy in [-1, 0, 1]:
+					for dx in [-1, 0, 1]:
+						var c := Vector2(ce) + Vector2(dx, dy)
+						if _is_wet(c + Vector2(0.5, 0.5)):
+							var q := Vector2(clampf(E.x, c.x, c.x + 1.0), clampf(E.y, c.y, c.y + 1.0))
+							g = minf(g, E.distance_to(q))
+				short_gap.append(g)
+	return {"drawn": drawn, "pieces_hist": hist, "rivers_2plus_pieces": r2, "rivers_3plus_pieces": r3,
+		"breaks": breaks, "breaks_with_water_past_them": breaks_wet,
+		"width_narrowing_steps": narrows, "rivers_that_narrow": narrow_rivers, "rivers_one_width": const_rivers,
+		"rivers_under_1px_at_x1": sub_px,
+		"continuations": continuations, "continuations_that_narrow": continuation_narrows, "shared_ends": shared_ends,
+		"joins": joins, "join_gap_max_cells": join_gap_max, "joins_trib_wider_than_trunk": join_wider,
+		"joins_joined_river_drawn_last": join_trunk_drawn_over, "join_width_ratio": _stats(ratio),
+		"free_ends_on_shore": ends_on_shore, "free_ends_short_of_adjacent_water": ends_short,
+		"short_end_gap_cells": _stats(short_gap)}
+
+
+## Median frame interval over 30 frames at the opening view, rivers on vs off.
+func _draw_cost() -> Dictionary:
+	var out := {}
+	for on in [true, false]:
+		_vh.set_layer_visible("rivers", on)
+		await _settle(5)
+		var dt := PackedFloat32Array()
+		var t0 := Time.get_ticks_usec()
+		for f in 30:
+			_vh.overlay.queue_redraw()
+			await RenderingServer.frame_post_draw
+			var t1 := Time.get_ticks_usec()
+			dt.append((t1 - t0) / 1000.0)
+			t0 = t1
+		out["on" if on else "off"] = _stats(dt)["median"]
+	_vh.set_layer_visible("rivers", true)
+	return out
 
 
 func _pick_targets(rivers: Array) -> Dictionary:

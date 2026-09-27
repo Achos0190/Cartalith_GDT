@@ -50,6 +50,7 @@ mod params;
 mod progress_bridge;
 mod project_bridge;
 mod render;
+mod river_stroke;
 mod sample_bridge;
 mod sculpt_bridge;
 mod selection;
@@ -9746,7 +9747,9 @@ impl WorldGen {
     ///   run (a river carries no `brks` to remap). Draw this, not `points`,
     ///   for `map_overlay.gd`'s vector river overlay -- see `river_dict`'s own
     ///   doc comment for why `points` alone reads as stair-stepped as the
-    ///   raster river it is meant to replace.
+    ///   raster river it is meant to replace. Here (not in `river_at()`) it
+    ///   holds only the **drawn** points: those on a lake's water are left
+    ///   out, and shoreline points are added where `pieces` start and end.
     /// * `order` (int) -- Strahler, `drawRiverWays`' `maxO`.
     /// * `km` (float) -- routed length, `length_cells * cell_km`.
     /// * `cells` (int) -- point count.
@@ -9782,8 +9785,19 @@ impl WorldGen {
     ///   `river_width_scale_k` grows as the map's extent shrinks, so
     ///   multiplying it out reads ~8 km on an 800 km / 192-cell world.
     ///   **Omitted** (not zeroed) when the mouth carries no positive flow.
-    ///   `map_overlay.gd::_draw_rivers` draws the river at exactly this width
-    ///   on the ground, so it scales with zoom like any other ground feature.
+    ///   The River dock's reading. The stroke is drawn from `widths`, below.
+    /// * `widths` (`PackedFloat32Array`) -- the drawn full width in grid cells
+    ///   at every `render_points` entry (RV-2):
+    ///   [`cartalith_hydrology::river_half_width_profile`], i.e. the same
+    ///   `channel_disc` law at each traced cell as a running maximum from the
+    ///   head, so it never narrows downstream; a tributary's is capped at its
+    ///   trunk's width where it joins. **Omitted** when no cell of the run has
+    ///   a width; `_draw_rivers` then draws nothing.
+    /// * `pieces` (`PackedInt32Array`) -- `[start, end)` pairs into
+    ///   `render_points`, one per drawn piece. A stroke is cut only where its
+    ///   traced run crosses a drawn lake (or the sea), and each piece ends on
+    ///   the shoreline ([`river_stroke::stroke_pieces`]); a mouth on land
+    ///   beside water is carried on to the shore ([`river_stroke::coast_end`]).
     /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
     ///   Strahler order of the nearest traced cell as `RIVER_ORDER_RGB`
     ///   (light headwater to dark trunk); `_draw_rivers` strokes the river in
@@ -9791,6 +9805,9 @@ impl WorldGen {
     ///   tributary's junction point takes its own last cell's order, not the
     ///   trunk's `order` above. Only here, not in `river_at()`, whose callers
     ///   do not draw.
+    /// * `draw_rank` (int) -- this run's place in the draw order
+    ///   ([`river_stroke::draw_ranks`]): every tributary ranks below the run it
+    ///   joins, so `_draw_rivers` paints each trunk over its tributaries' ends.
     /// * `parallel_of` (int) -- present only on a run that
     ///   [`cartalith_hydrology::river_draw_plan`] found running alongside the
     ///   heavier run at that index; `_draw_rivers` does not draw it. The run is
@@ -9824,22 +9841,23 @@ impl WorldGen {
         let Some(order) = ws.stream_order.as_deref() else { return Array::new() };
         let rivers = self.rivers_now(min_order);
         let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
+        // The water the map DRAWS (`drawn_water_classification`: 0 land, 1
+        // ocean, 2 lake), which is what a stroke must stop at the shore of.
+        // A traced chain runs straight across a lake's surface to its outflow
+        // (the reference cuts the stroke there: v2.11 `splitRiverPolylines`,
+        // called from `drawRiverWays`); `river_stroke::stroke_pieces` makes
+        // that cut once per crossing, on the shoreline (RV-2).
+        let Some(water) = self.drawn_water_classification() else { return Array::new() };
+        let cell_ix = |p: (f64, f64)| -> usize {
+            let cx = (p.0.floor().max(0.0) as usize).min(f.gw - 1);
+            let cy = (p.1.floor().max(0.0) as usize).min(f.gh - 1);
+            cy * f.gw + cx
+        };
+        let wet = |p: (f64, f64)| water.get(cell_ix(p)).is_some_and(|&c| c != 0);
+        let cell = |p: (f64, f64)| (p.0.floor() as i64, p.1.floor() as i64);
         // Every cell a drawn stroke ends on: a trunk's curve must keep these as
         // control points (`river_render_polyline`'s pins). By cell, not by
         // float, so a traced point and a bridge target compare the same.
-        // v0.103's above-sea lakes, the classification the screen draws them
-        // from (`build_color_texture`). A traced chain runs straight across a
-        // lake's surface to its outflow; the reference cuts the stroke there
-        // (v2.11 `splitRiverPolylines`, called from `drawRiverWays`: a point
-        // in a lake, class 2, ends the run). `lake_mask` below marks those
-        // render points so `map_overlay.gd` can break the stroke (2026-09-24).
-        let lakes = cartalith_civ::build_water_bodies(f.field, f.gw, f.gh, f.sea_level, f.world, Some(f.rainfall)).classification;
-        let in_lake = |x: f64, y: f64| -> u8 {
-            let cx = (x.floor().max(0.0) as usize).min(f.gw - 1);
-            let cy = (y.floor().max(0.0) as usize).min(f.gh - 1);
-            u8::from(lakes.get(cy * f.gw + cx) == Some(&2))
-        };
-        let cell = |p: (f64, f64)| (p.0.floor() as i64, p.1.floor() as i64);
         let ends: std::collections::HashSet<(i64, i64)> = rivers
             .iter()
             .enumerate()
@@ -9847,6 +9865,61 @@ impl WorldGen {
             .filter_map(|(i, r)| plan.bridge[i].or_else(|| r.pts.last().copied()))
             .map(cell)
             .collect();
+        // Each run's drawn points: its traced cells plus any bridge target.
+        let run_pts: Vec<Vec<(f64, f64)>> = rivers
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let mut pts = r.pts.clone();
+                pts.extend(plan.bridge[i]);
+                pts
+            })
+            .collect();
+        // Cell -> (drawn run, point index), first writer in trace order: the
+        // `river_draw_plan` rule, so a tributary's end resolves to its trunk.
+        let mut drawn_at: std::collections::HashMap<usize, (usize, usize)> = std::collections::HashMap::new();
+        for (i, r) in rivers.iter().enumerate() {
+            if plan.parallel_of[i].is_some() {
+                continue;
+            }
+            for (k, &p) in r.pts.iter().enumerate() {
+                drawn_at.entry(cell_ix(p)).or_insert((i, k));
+            }
+        }
+        // Where each run's stroke ends on ANOTHER drawn run: that run and the
+        // point index it meets it at.
+        let joins: Vec<Option<(usize, usize)>> = run_pts
+            .iter()
+            .enumerate()
+            .map(|(i, pts)| {
+                let last = *pts.last()?;
+                drawn_at.get(&cell_ix(last)).copied().filter(|&(j, _)| j != i)
+            })
+            .collect();
+        // RV-2: a width at every traced point, `channel_disc`'s own law as a
+        // running maximum (`river_half_width_profile`). A run's own points
+        // stop before a junction cell -- that is its trunk's water -- and
+        // before a bridge target, which is not the run's water either.
+        let (thresh, width_k) = (
+            cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, self.map_width_km),
+            cartalith_hydrology::river_width_scale_k(self.map_width_km),
+        );
+        let mut profiles: Vec<Option<Vec<f64>>> = run_pts
+            .iter()
+            .enumerate()
+            .map(|(i, pts)| {
+                let joins_trunk = plan.bridge[i].is_none() && joins[i].is_some();
+                let own = rivers[i].pts.len() - usize::from(joins_trunk);
+                cartalith_hydrology::river_half_width_profile(
+                    pts, own, f.field, f.flow_discharge, order, f.gw, f.gh, self.world, thresh, width_k,
+                )
+            })
+            .collect();
+        // A tributary is never drawn wider than its trunk where it meets it;
+        // a run bridged onto another's head widens that run instead.
+        river_stroke::settle_join_widths(&mut profiles, &joins);
+        let draw_rank = river_stroke::draw_ranks(&joins);
+        let recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
         rivers
             .iter()
             .enumerate()
@@ -9856,10 +9929,31 @@ impl WorldGen {
                 // next run is smoothed WITH that cell, so the curve meets it;
                 // a run beside a heavier one carries `parallel_of` and
                 // `_draw_rivers` skips it. `points` stays the traced entity.
-                let mut pts = r.pts.clone();
-                pts.extend(plan.bridge[i]);
-                let rp = river_render_polyline(&pts, |p| ends.contains(&cell(p)));
-                d.set("render_points", &rp.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
+                let pts = &run_pts[i];
+                let mut rp = river_render_polyline(pts, |p| ends.contains(&cell(p)));
+                let mut u = river_stroke::render_params(&rp, pts);
+                // A mouth on dry land beside the sea or a lake ends half a cell
+                // short of the shore, at its cell centre: carry the stroke on
+                // to the shoreline (RV-2).
+                if joins[i].is_none() && plan.bridge[i].is_none() {
+                    if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, recv, f.gw, f.gh) {
+                        rp.push(p);
+                        u.push((pts.len() - 1) as f64);
+                    }
+                }
+                let traced_wet: Vec<bool> = pts.iter().map(|&p| wet(p)).collect();
+                let s = river_stroke::stroke_pieces(&rp, &u, &traced_wet, wet);
+                d.set("render_points", &s.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect::<PackedVector2Array>());
+                d.set("pieces", &s.pieces.iter().flat_map(|&(a, b)| [a as i32, b as i32]).collect::<PackedInt32Array>());
+                // `widths`: the full drawn width in grid cells at each render
+                // point. Omitted, like `width_cells`, when the run has no
+                // channel width anywhere; `_draw_rivers` then draws nothing.
+                if let Some(p) = profiles[i].as_ref() {
+                    d.set(
+                        "widths",
+                        &s.u.iter().map(|&uu| (2.0 * river_stroke::sample_at(p, uu)) as f32).collect::<PackedFloat32Array>(),
+                    );
+                }
                 // `colors`: the Strahler order of the traced cell nearest each
                 // render point, as `river_order_color` (owner, 2026-09-23). Per
                 // point, not per run: order rises along a main stem (it is its
@@ -9878,24 +9972,12 @@ impl WorldGen {
                 // headwater trickle that reaches a trunk reads as the trunk.
                 // `_draw_rivers` keys `drawRiverWays`' order-1 de-emphasis
                 // (reference 9512, v0.96/v1.41) on this, for the same reason
-                // `colors` below takes the predecessor's order at the end.
+                // `colors` takes the predecessor's order at the end.
                 d.set("own_order", po.iter().copied().max().unwrap_or(1) as i64);
-                // Render points run head to mouth, so the nearest traced
-                // point only ever moves forward.
-                let mut near = 0;
-                let colors: PackedColorArray = rp
-                    .iter()
-                    .map(|&(x, y)| {
-                        let d2 = |k: usize| (pts[k].0 - x).powi(2) + (pts[k].1 - y).powi(2);
-                        while near + 1 < n && d2(near + 1) <= d2(near) {
-                            near += 1;
-                        }
-                        river_order_color(po[near])
-                    })
-                    .collect();
+                let colors: PackedColorArray =
+                    s.u.iter().map(|&uu| river_order_color(po[(uu.round().max(0.0) as usize).min(n - 1)])).collect();
                 d.set("colors", &colors);
-                let lake_mask: PackedByteArray = rp.iter().map(|&(x, y)| in_lake(x, y)).collect();
-                d.set("lake_mask", &lake_mask);
+                d.set("draw_rank", draw_rank[i] as i64);
                 if let Some(j) = plan.parallel_of[i] {
                     d.set("parallel_of", j as i64);
                 }

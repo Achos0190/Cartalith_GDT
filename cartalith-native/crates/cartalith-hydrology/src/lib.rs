@@ -1589,6 +1589,72 @@ pub fn channel_disc(
     Some(ChannelDisc { half_w, amp, mag })
 }
 
+/// A drawn river's half-width at **every** point of `pts`, head to mouth, in
+/// grid cells (RV-2, owner 2026-09-29: *"rivers must always be smooth"*).
+///
+/// Until this existed a river was stroked at one width, [`River::half_width_cells`],
+/// read at its mouth — so a trunk was as wide at its source as at the sea, and
+/// a long headwater arm continued as trunk drew as wide as the trunk.
+///
+/// **No new width law.** Each of the first `own` points reads [`channel_disc`]'s
+/// `half_w` at its own cell — the width law the intensity stamp and
+/// `half_width_cells` already use — and the profile is the running maximum of
+/// those readings from the head down. The running maximum is what makes the
+/// drawn river taper *monotonically*: `half_w` depends on `flow`, and on a
+/// traced run `flow` is **not** monotone downstream ([`River::discharge`]'s doc
+/// comment measures a run falling from 11.29 to 3.32, because the trace follows
+/// `build_channels`' D∞ receiver tree while `flow` accumulated along D8), and on
+/// the local slope, which varies cell to cell. A river does not get narrower
+/// downstream; its drawn symbol should not either. No smoothing constant is
+/// involved: the running maximum is parameter-free.
+///
+/// Points past `own` — a tributary's last point, which is its trunk's cell, or a
+/// `river_draw_plan` bridge target — are not the run's own water, so they
+/// carry the last own reading rather than the trunk's.
+///
+/// A cell `channel_disc` answers `None` for (no positive flow) takes the
+/// running maximum so far, or, before the first real reading, that first
+/// reading. **`None` when no own point has a reading at all**, rather than a
+/// profile of a plausible-looking floor: the caller then draws nothing, as it
+/// always has for a run without `half_width_cells`.
+#[allow(clippy::too_many_arguments)]
+pub fn river_half_width_profile(
+    pts: &[(f64, f64)],
+    own: usize,
+    fld: &[f32],
+    flow: &[f32],
+    order: &[i16],
+    w: usize,
+    h: usize,
+    wrap: bool,
+    thresh: f64,
+    width_k: f64,
+) -> Option<Vec<f64>> {
+    let n = w * h;
+    if n == 0 || pts.is_empty() {
+        return None;
+    }
+    let own = own.min(pts.len());
+    let lmax = channel_lmax(n);
+    let cell_of = |p: (f64, f64)| -> usize { (p.1.max(0.0) as usize).min(h - 1) * w + (p.0.max(0.0) as usize).min(w - 1) };
+    let raw: Vec<Option<f64>> = pts[..own]
+        .iter()
+        .map(|&p| channel_disc(fld, flow, order, w, h, wrap, thresh, width_k, lmax, cell_of(p)).map(|d| d.half_w))
+        .collect();
+    let mut m = raw.iter().flatten().copied().next()?;
+    let mut out: Vec<f64> = raw
+        .iter()
+        .map(|r| {
+            if let Some(v) = *r {
+                m = m.max(v);
+            }
+            m
+        })
+        .collect();
+    out.resize(pts.len(), m);
+    Some(out)
+}
+
 /// Each channel cell's own upstream drainage, counted in **channel cells**
 /// off the `recv`/`chan` receiver tree — the reference's `buildMainStems`
 /// Kahn accumulation (v2.72's `st.area`), never `flow`
@@ -2176,6 +2242,53 @@ mod tests {
         let mid = ((rivers[ti].pts[0].0 + p.0) * 0.5, (rivers[ti].pts[0].1 + p.1) * 0.5);
         assert_eq!(super::pick_river(&rivers, mid.0, mid.1, 0.4), Some(ti));
         assert_eq!(super::pick_river(&rivers, 0.5, 0.5, 0.5), None, "bare ground selects nothing");
+    }
+
+    /// RV-2: the drawn width at every point is `channel_disc`'s own `half_w`
+    /// where that is a new high, and holds the high through every dip, gap and
+    /// junction point -- so it never narrows downstream.
+    #[test]
+    fn river_half_width_profile_is_the_running_maximum_of_channel_disc() {
+        // 64x64 so `lmax = ln(204.8)`: `mag` does not saturate below ~200 flow
+        // and different flows really give different widths. Flat field, so
+        // `slope_fac` is 1 and only discharge moves the width.
+        let (w, h) = (64usize, 64usize);
+        let n = w * h;
+        let fld = vec![0.5f32; n];
+        let order = vec![1i16; n];
+        let mut flow = vec![0f32; n];
+        // Head with no flow, rises, a dip, a no-flow gap, another dip, rises.
+        // The last point is a junction cell (not the run's own) carrying more.
+        let q = [0.0, 3.0, 12.0, 6.0, 40.0, 0.0, 25.0, 90.0, 150.0, 400.0];
+        let pts: Vec<(f64, f64)> = (0..q.len()).map(|x| (x as f64 + 0.5, 1.5)).collect();
+        for (x, &f) in q.iter().enumerate() {
+            flow[w + x] = f;
+        }
+        let lmax = super::channel_lmax(n);
+        let disc = |x: usize| super::channel_disc(&fld, &flow, &order, w, h, false, 1.0, 1.0, lmax, w + x).map(|d| d.half_w);
+        // The fixture must really dip, or "holds through a dip" tests nothing.
+        assert!(disc(3).unwrap() < disc(2).unwrap() && disc(6).unwrap() < disc(4).unwrap());
+        assert!(disc(9).unwrap() > disc(8).unwrap(), "the junction cell must be wider, or the tail rule is untested");
+
+        let p = super::river_half_width_profile(&pts, 9, &fld, &flow, &order, w, h, false, 1.0, 1.0).unwrap();
+        assert_eq!(p.len(), pts.len());
+        // A no-flow head takes the first real reading, not a floor.
+        assert_eq!(p[0], disc(1).unwrap());
+        assert_eq!(p[1], disc(1).unwrap());
+        assert_eq!(p[2], disc(2).unwrap());
+        assert_eq!(p[3], disc(2).unwrap(), "a dip holds the high");
+        assert_eq!(p[4], disc(4).unwrap());
+        assert_eq!(p[5], disc(4).unwrap(), "a no-flow cell holds the high");
+        assert_eq!(p[6], disc(4).unwrap());
+        assert_eq!(p[8], disc(8).unwrap());
+        assert_eq!(p[9], disc(8).unwrap(), "the junction point carries the last OWN reading");
+        assert!(p.windows(2).all(|v| v[1] >= v[0]), "never narrows downstream: {p:?}");
+        // Widths genuinely differ along the run (not one number per run).
+        assert!(p[8] > p[0] * 1.5, "{p:?}");
+
+        // No reading anywhere -> no profile, never a made-up floor.
+        let dry = vec![0f32; n];
+        assert!(super::river_half_width_profile(&pts, 9, &fld, &dry, &order, w, h, false, 1.0, 1.0).is_none());
     }
 
     /// A world with no channels at all must produce no rivers and refuse a

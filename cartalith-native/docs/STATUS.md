@@ -1813,6 +1813,35 @@ Probe counts after the correction: `_ctxring_probe.gd` (updated geometry consts,
 - At fit zoom, headwaters are drawn sub-pixel.
 - Export still stamps raster rivers, against Ruling AZ.
 
+**RV-2, smooth river strokes — built 2026-09-27; verified by the main loop 2026-09-27 (river_stroke 12/0, cartalith-hydrology 32/0, cartalith-godot lib 774/0, `_rivlake` and `_riverstroke` PASS; before/after sheets inspected at ×1/×8/×32).** RV-4, RV-5, RV-1 and RV-3 are not touched. What changed:
+- **Width is per point.** `cartalith_hydrology::river_half_width_profile` applies `channel_disc`'s existing width law at every traced cell. It keeps a running maximum from the head, so the width never narrows downstream. There is no new width constant. `get_rivers` emits `widths` (full width in cells) per render point. `width_cells` stays as the River dock's mouth reading.
+- **Joins.** `river_stroke::settle_join_widths` caps a tributary at its trunk's width where it joins. A run bridged onto another run's head (a continuation) raises that run instead. `river_stroke::draw_ranks` draws every tributary before the run it joins; this is emitted as `draw_rank`. A first build sorted by `own_order`, and the probe refuted it: an order-3 run can end on an order-1 run.
+- **Cuts.** The per-point `lake_mask` and its cutting loop in `map_overlay.gd::_draw_rivers` are removed. `river_stroke::stroke_pieces` cuts a stroke only where the *traced* run crosses drawn water, once per crossing, on the shoreline. The cut points are exact, found by bisection. The result is emitted as `pieces`. Ocean (class 1) cuts as well as lakes. This is a deliberate departure from the reference's lakes-only `splitRiverPolylines` rule (§7p): the old stroke was drawn across carved sea inlets.
+- **Coast ends.** `river_stroke::coast_end` carries a mouth on dry land to the shore. For the sea this is the field's sea-level crossing; for a lake it is the cell edge.
+- **Drawing.** `WorldGen.river_strokes_mesh` builds every stroke in one native call, as a tapered triangle strip. `_draw_rivers` hands it to `RenderingServer.canvas_item_add_triangle_array`. Strokes are never narrower than 1 px (`MIN_STROKE_PX`). The stroke is solid to its edge, with a 1 px fringe outside. A first build centred the fringe on the edge, and the ×1 PNGs showed dark trunks washed pale.
+
+`_riverzoom_probe.gd` was extended so one probe reads both data shapes. Its new options are `--targets`, `--stats-only` and `--zooms`; it now has a no-pixels positive control and stroke statistics. It was run on HEAD, built from a `git archive` copy in scratch, and on this build. Same 3 seeds, before → after:
+- **Rivers in 3+ pieces:** 45/71/65 → 11/18/16. The probe's original lake-mask count gave 65/101/77.
+- **Breaks with water past them:** 47 of 214, 101/365 and 85/348 → 89/92, 110/111 and 111/114.
+- **Width narrowing steps downstream:** 0 in both. Before, every run had one width. After, 27/40/29 runs taper; the rest sit on `channel_disc`'s 0.5-cell half-width floor at this map scale.
+- **Confluences:** gap 0.0 cells in both. Tributary wider than trunk at the join: 1/0/3 → 0/0/0. Trunk drawn over the tributary's end: 14/313, 20/362 and 14/252 → 300/303, 354/360 and 251/253. Continuations that narrow: 9/4/1 → 0/0/0.
+- **Free ends beside water that stop short:** 229/258/234 → 77/76/110. The remaining gap has a median of 0.23–0.36 cells; these are mostly sea crossings inside the land cell, as the per-cell metric counts them.
+- **×1 diff-mask components:** 664/571/546/804/501/552 → 292/239/220/336/248/221 for the six targets.
+- **Median frame at the opening view with rivers on:** 56/67/42 ms → 23/28/19 ms. The rivers-off baseline is 16.7 ms. This is one run each, and the figures are vsync-quantised.
+
+`_rivlake_probe.gd` and `_riverstroke_probe.gd` were ported off `lake_mask`/`width_cells`, and both pass. `_lodsweep_probe` was run with rivers hidden: all 18 seam medians are ≤ 1.40, and there was 1 pop in 2736 frames (483920/512 pan). The pop cannot come from this change, because rivers are hidden in that probe.
+
+PNGs, before/after, looked at by the lane:
+- At ×1, headwaters are continuous 1 px lines instead of dotted ones.
+- At ×8 and ×32, a river meeting a bead of one-cell lakes stops at the first lake and resumes after the last. Before, it broke into stubs between them.
+- At ×240, strokes are smooth.
+
+What remains is not RV-2's to fix:
+- The beads of square lakes themselves (RV-4, RV-1/3).
+- A LOD-tile hairline visible in the rivers-off frame.
+
+Rust: 13 new tests. 16 mutants (3 in `river_half_width_profile`, 13 in `river_stroke.rs`), all killed after two tests were added for the first-round survivors. `cargo test --workspace --no-fail-fast`: **3971 passed, 0 failed, 42 ignored**. No JS golden moved.
+
 ### Superseded desktop shell · `GUI_SHELL_SCOPE.md`
 
 Four rows. **History only.** The shell this document built no longer exists;

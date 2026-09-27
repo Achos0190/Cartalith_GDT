@@ -459,23 +459,23 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ## thinned by `civ_rdp_simplify` (as a road's are), keeping every cell another
 ## stroke ends on, so the curve leaves the D8 staircase and confluences still
 ## meet exactly (`river_render_polyline`). `_draw_rivers()` below draws that
-## resampled curve. The lake-surface cut
-## (the reference's `_inLake` skip, reference lines 9524-9532) is still not
-## reproduced: `cartalith_hydrology::river_entities()` runs
-## `split_river_polylines` with `skip: None` -- "a lake reach is real
-## hydrology" is that function's own doc reasoning -- and nothing reaches
-## this file with a per-cell water-body classification to redo the cut with.
-## A river here can draw a short stroke across a lake's own fill; it is not
-## corrupted or misplaced, just not clipped there.
+## resampled curve. The lake-surface cut (the reference's `_inLake` skip,
+## reference lines 9524-9532) is made engine-side since RV-2 (2026-09-29):
+## `get_rivers()`' `pieces` cut a stroke once where its traced run crosses a
+## drawn lake or the sea, on the shoreline (`river_stroke::stroke_pieces`).
 ##
 ## **Owner ruling, 2026-09-22: these strokes ARE the map's rivers.** "Keep the
 ## smoothline and use that to render the river ... ditch the texture bake",
 ## and "its width scale with the zoom". So the reference's `drawRiverWays`
 ## screen-constant width and order-1 de-emphasis are gone, and each run is
 ## drawn from two engine values instead:
-## - **width** = `width_cells`, the half-width `channel_disc` already gave the
-##   texture's old disc stamp (Strahler order, discharge and slope), doubled
-##   -- a width on the GROUND, so it grows with zoom as a lake's shore does.
+## - **width** = `widths`, one per render point since RV-2 (2026-09-29): the
+##   half-width `channel_disc` already gave the texture's old disc stamp
+##   (Strahler order, discharge and slope) at each traced cell, doubled, as a
+##   running maximum from the head so it only ever widens downstream -- a
+##   width on the GROUND, so it grows with zoom as a lake's shore does, floored
+##   at 1 px on screen. It used to be the single `width_cells` read at the
+##   mouth, which `get_rivers()` still reports for the River dock.
 ## - **colour** = `colors`, opaque, one per render point from `lib.rs`'s
 ##   `RIVER_ORDER_RGB`: light blue headwaters to dark blue trunks, keyed on the
 ##   Strahler order of each point's own cell, so a main stem darkens where its
@@ -1184,7 +1184,8 @@ var _roads: Array = []
 var _sea_routes: Array = []
 ## `WorldGen.get_rivers(min_order)` entities -- see `set_rivers()`. Each
 ## entry's `render_points` (`PackedVector2Array`, grid-cell space, Catmull-Rom
-## resampled) is drawn by `_draw_rivers()` at its `width_cells` in its `colors`.
+## resampled) is drawn by `_draw_rivers()`, piece by piece (`pieces`), at its
+## per-point `widths` in its per-point `colors`.
 var _rivers: Array = []
 var _gw := 0
 var _gh := 0
@@ -3936,12 +3937,30 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## composites into the base map render, `drawCivLayer`'s ways/routes/pins are
 ## a later, separate pass over it.
 ##
-## Reuses `_run_offscreen`/`_segment_chains` -- the same per-run-then-per-
-## segment culling `_draw_way_segment` needs and for the same reason: a world
-## can carry hundreds of traced runs (784 at `min_order=1`, measured on a
-## 192x144 world -- `right_dock.gd`'s own count), most of them short headwater
-## trickles, and every one would otherwise be walked and stroked however far
-## outside the window it lay.
+## RV-2 (owner, 2026-09-29: rivers always smooth, never *"nonsensical partial
+## lines"*). Each river is one tapered triangle strip per piece, built by
+## `WorldGen.river_stroke_mesh` (`river_stroke.rs`) and handed straight to
+## `RenderingServer.canvas_item_add_triangle_array`, because `draw_polyline`
+## takes one width per call and a river's width now changes at every point:
+##
+## - **width** is `widths` -- `channel_disc`'s own width law at each traced
+##   cell, as a running maximum from the head, so a river never narrows
+##   downstream -- times the on-screen size of a cell, **never below 1 px**
+##   (`river_stroke::MIN_STROKE_PX`), so a headwater does not drop to a
+##   fraction of a pixel's coverage and flicker in and out between zooms;
+## - **pieces** are cut only where the traced run crosses a drawn lake or the
+##   sea, ending on the shore (`river_stroke::stroke_pieces`). The per-point
+##   lake mask this used to cut on is gone: it broke 65-101 rivers per world
+##   into three or more pieces wherever the spline grazed a lake cell;
+## - **confluences**: a tributary ends on a control point of its trunk's curve
+##   and is capped at the trunk's width there (`get_rivers`), and runs are
+##   drawn in `draw_rank` order -- every tributary before the run it joins
+##   (`river_stroke::draw_ranks`) -- so each trunk is drawn over its
+##   tributaries' ends. The join is the trunk's own bank.
+##
+## Culling is per segment, inside the mesh builder, against the same visible
+## rectangle `_segment_chains` uses, so a long river whose box crosses the
+## window emits only the segments near it.
 func _draw_rivers(rect: Rect2) -> void:
 	if _rivers.is_empty():
 		return
@@ -3950,6 +3969,9 @@ func _draw_rivers(rect: Rect2) -> void:
 	## `rect.size / _gw`, times the `k` `_stroke_points` multiplies by. A width
 	## in cells times this is a width on the ground.
 	var px_per_cell: float = rect.size.x / maxf(1.0, float(_gw)) * k
+	var scale := Vector2(rect.size.x / maxf(1.0, float(_gw)), rect.size.y / maxf(1.0, float(_gh))) * k
+	var offset := rect.position * k
+	var view := Rect2(_visible_local.position * k, _visible_local.size * k)
 	## `drawRiverWays`' anti-barcode rule (reference 9512, v0.96 + v1.41),
 	## which this overlay shipped without: the network carries hundreds of
 	## order-1 trickles, and on a smooth slope they run downhill side by side
@@ -3961,54 +3983,22 @@ func _draw_rivers(rect: Rect2) -> void:
 	## counterpart of the reference's LOD zoom factor, 1 at the default view.
 	## Keyed on `own_order` (the run excluding the trunk cell it joins), not
 	## `order`, which counts that cell and would read every trickle as trunk.
+	## The 1 px floor applies after this, so a de-emphasised trickle is still
+	## drawn -- fainter, never absent.
 	var zk := maxf(1.0, _camera_zoom / _lod_zoom_base())
 	var de_emph := clampf(1.0 - (zk - 1.0) / 7.0, 0.0, 1.0)
 	var o1_alpha := 0.4 + 0.6 * (1.0 - de_emph)
 	var o1_width := 0.55 + 0.45 * (1.0 - de_emph)
-	for river: Dictionary in _rivers:
-		## No `width_cells` means `channel_disc` found no flow at the run's
-		## last own cell (`get_rivers()`' doc) --
-		## the old disc stamp painted nothing there either.
-		## `parallel_of`: this run hugs a heavier one that is drawn instead
-		## (`WorldGen.get_rivers()`' doc, `river_draw_plan`).
-		if not river.has("width_cells") or river.has("parallel_of"):
-			continue
-		var pts: PackedVector2Array = river["render_points"]
-		## `colors`: one Strahler-order colour per render point (`get_rivers()`'
-		## doc), so the stroke steps from headwater to trunk along its length.
-		var colors: PackedColorArray = river["colors"]
-		if pts.size() < 2 or colors.size() != pts.size():
-			continue
-		var width_px: float = float(river["width_cells"]) * px_per_cell
-		if int(river.get("own_order", river.get("order", 2))) <= 1 and o1_alpha < 1.0:
-			width_px *= o1_width
-			colors = colors.duplicate()
-			for ci in colors.size():
-				colors[ci].a *= o1_alpha
-		var screen_points := _stroke_points(pts, 0, pts.size(), rect, k)
-		var pad := width_px * 0.5
-		if _run_offscreen(screen_points, k, pad):
-			continue
-		## `lake_mask` (`get_rivers`, 2026-09-24): 1 where a render point lies on
-		## an above-sea lake. The stroke breaks there -- the reference's
-		## `splitRiverPolylines` -- so a river enters and leaves a lake without
-		## being drawn across its open water. Absent or mis-sized -> unbroken.
-		var mask: PackedByteArray = river.get("lake_mask", PackedByteArray())
-		var masked := mask.size() == pts.size()
-		for chain in _segment_chains(screen_points, k, pad):
-			if not masked:
-				draw_polyline_colors(screen_points.slice(chain.x, chain.y + 1), colors.slice(chain.x, chain.y + 1), width_px, true)
-				continue
-			var a := -1
-			for idx in range(chain.x, chain.y + 2):
-				var dry := idx <= chain.y and mask[idx] == 0
-				if dry:
-					if a < 0:
-						a = idx
-				elif a >= 0:
-					if idx - a >= 2:
-						draw_polyline_colors(screen_points.slice(a, idx), colors.slice(a, idx), width_px, true)
-					a = -1
+	## `WorldGen.river_strokes_mesh` walks `_rivers` natively, in `draw_rank`
+	## order (trunks after their tributaries), skipping a run with no `widths` (`channel_disc` found no flow anywhere
+	## on it -- the old disc stamp painted nothing there either) or with
+	## `parallel_of` (it hugs a heavier run drawn instead, `river_draw_plan`),
+	## and applies the order-1 de-emphasis above by `own_order`.
+	var mesh: Dictionary = WorldGen.river_strokes_mesh(_rivers, scale, offset, px_per_cell,
+		o1_width, o1_alpha, view)
+	var idx: PackedInt32Array = mesh["indices"]
+	if not idx.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(get_canvas_item(), idx, mesh["points"], mesh["colors"])
 	_crisp_end()
 
 
