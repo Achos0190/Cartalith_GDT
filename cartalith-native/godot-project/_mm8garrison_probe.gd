@@ -15,7 +15,14 @@ extends Node
 ##   - SHELL: CIVIL ▸ Military's reading line names the year in force, and a
 ##     cursor move across a record refills it (and a move inside one does
 ##     not); the right dock's Settlement section draws a Garrison row;
-##   - the Conflict layer's siege row carries the besieged town's garrison.
+##   - the Conflict layer's siege row carries the besieged town's garrison;
+##   - Ruling AZ (2026-09-28): the border-exposure scale is a user setting.
+##     Starts at the rule's old fixed value (1.0); moving it changes a border
+##     town's garrison to exactly the headcount the formula predicts
+##     (recomputed here from the pop/multiplier/exposure the *old* reading
+##     already exposed -- none of those three depend on the scale, only the
+##     weight does); the right dock and the place editor agree at the new
+##     scale too.
 ##
 ## Windowed (the shell path), per `MISTAKES.md`:
 ##
@@ -71,6 +78,50 @@ func _garrison_of(d: Dictionary, tid: int) -> int:
 		if int(s["tid"]) == tid:
 			return int(s["garrison"]) if s.has("garrison") else -1
 	return -2
+
+
+## `cartalith_civ::garrison::civ_garrisons`'s own formula and largest-remainder
+## split, ported here so a probe can predict the headcount a new
+## `garrison_exposure_scale` produces without touching Rust. `mine` is one
+## faction's settlement rows from a `civ_military_summary_at` reading (must
+## carry `pop`/`garrison_multiplier`/`border_exposure`/`garrison`/`tid`, in
+## the reading's own order -- that order is `civ_garrisons`' own tie-break).
+## `pop`/`garrison_multiplier`/`border_exposure` do not depend on the scale,
+## only the weight does, so a reading taken at the *old* scale is enough to
+## predict every place's headcount at a *new* one.
+func _expected_split(mine: Array, total: int, scale: float) -> Dictionary:
+	var weights: Array = []
+	for s: Dictionary in mine:
+		weights.append(float(s["pop"]) * float(s["garrison_multiplier"])
+			* (1.0 + scale * float(s["border_exposure"])))
+	var wsum := 0.0
+	for w in weights:
+		wsum += w
+	var quotas: Array = []
+	var floors: Array = []
+	var given := 0
+	for w in weights:
+		var q: float = float(total) * float(w) / wsum
+		quotas.append(q)
+		var f := int(floor(q))
+		floors.append(f)
+		given += f
+	var left := total - given
+	var order := range(mine.size())
+	order.sort_custom(func(a, b):
+		var ra: float = quotas[a] - floors[a]
+		var rb: float = quotas[b] - floors[b]
+		return ra > rb if not is_equal_approx(ra, rb) else a < b)
+	var parts: Array = floors.duplicate()
+	var i := 0
+	while left > 0:
+		parts[order[i % order.size()]] = int(parts[order[i % order.size()]]) + 1
+		left -= 1
+		i += 1
+	var out := {}
+	for k in mine.size():
+		out[int(mine[k]["tid"])] = int(parts[k])
+	return out
 
 
 func _labels_text(root: Node) -> String:
@@ -255,12 +306,90 @@ func _ready() -> void:
 	_check("the siege row carries the besieged town's y0+10 garrison",
 		bool(r.get("ok", false)) and int(sg.get("garrison", -1)) == _garrison_of(b, tid), str(sg))
 
+	# -- 6. Ruling AZ: the border-exposure scale is a user setting. `b`
+	# above (y0+10's reading, captured before any of this) already exposed
+	# every faction-f1 place's pop/multiplier/exposure, none of which
+	# depends on the scale -- only the weight does -- so this predicts the
+	# new headcounts without touching Rust at all.
+	var default_scale: float = _bridge.get_garrison_exposure_scale()
+	_check("the setting starts at the rule's old fixed value (1.0)",
+		is_equal_approx(default_scale, 1.0), str(default_scale))
+
+	var mine: Array = []
+	for s: Dictionary in b.get("settlements", []):
+		if int(s.get("faction", 0)) == f1 and s.has("garrison"):
+			mine.append(s)
+	var border_tid := -1
+	for s: Dictionary in mine:
+		if float(s.get("border_exposure", 0.0)) > 0.0:
+			border_tid = int(s["tid"])
+			break
+	_check("faction %d has a border settlement to test the dial on" % f1, border_tid >= 0, str(mine))
+
+	var total_f1 := int(sb.get(f1, -1))
+	var new_scale := 3.0
+	_bridge.set_garrison_exposure_scale(new_scale)
+	_check("the setting reads back what was just set", is_equal_approx(_bridge.get_garrison_exposure_scale(), new_scale))
+	var expected := _expected_split(mine, total_f1, new_scale)
+	var b2: Dictionary = _bridge.civ_military_summary_at(y0 + 10)
+	var got_border := _garrison_of(b2, border_tid)
+	_check("moving the border-exposure dial to %.1f changes the border town's garrison to the predicted headcount" % new_scale,
+		border_tid >= 0 and got_border == int(expected.get(border_tid, -1)),
+		"predicted %s got %s" % [str(expected.get(border_tid, "?")), str(got_border)])
+	var all_match := true
+	var mismatches := []
+	for s: Dictionary in b2.get("settlements", []):
+		if int(s.get("faction", 0)) == f1 and s.has("garrison"):
+			var t := int(s["tid"])
+			if expected.has(t) and int(s["garrison"]) != int(expected[t]):
+				all_match = false
+				mismatches.append("%d: got %d want %d" % [t, int(s["garrison"]), int(expected[t])])
+	_check("every one of faction %d's places matches the predicted split at the new scale" % f1,
+		all_match, str(mismatches))
+	_check("the total is unchanged: the dial only reweighs, it never raises or disbands anyone",
+		int(sb.get(f1, -1)) == total_f1)
+
+	# -- 6b. SHELL: the right dock and the place editor agree at the new scale.
+	var border_idx := -1
+	for s: Dictionary in b2.get("settlements", []):
+		if int(s.get("tid", -1)) == border_tid and s.has("index"):
+			border_idx = int(s["index"])
+	if border_idx >= 0:
+		var roster2: Array = _bridge.settlements()
+		_app.right_dock_ctrl.on_settlement_selected(roster2[border_idx], border_idx)
+		await _frames(4)
+		var dock2 := _labels_text(_app.right_dock_body)
+		_check("the right dock's Garrison figure matches the new scale",
+			dock2.contains(CivilizationWorkspace._head(float(got_border))), dock2)
+		var pe2 = _app.place_editor_window
+		pe2.open_for(border_idx)
+		await _frames(8)
+		var pet2 := _labels_text(pe2)
+		var want2 := "Garrison: %s" % CivilizationWorkspace._head(float(got_border))
+		_check("the place editor's Garrison figure matches the new scale too", pet2.contains(want2), pet2)
+		pe2.hide()
+	else:
+		_check("border_idx resolved to a live settlement index", false, "border_tid=%d" % border_tid)
+
+	# Leave the setting as this run found it.
+	_bridge.set_garrison_exposure_scale(default_scale)
+
 	_p("RESULT %s (%d failed)" % ["PASS" if _fail == 0 else "FAIL", _fail])
 	get_tree().quit(0 if _fail == 0 else 1)
 
 
 ## Pinned from the first run of this probe on seed 5521 (see the report).
+## Re-pinned 2026-09-28 (Ruling AZ): faction 1's real capital seat is
+## `Sevjuniana` (tid 1, kind demoted to "city" by centrality feedback but the
+## seat flag stays -- `civ_iterative_network`'s own doc), not `Arcjunjunlucforum`
+## (tid 2, this probe's pinned town, faction 1's *highest-population* place,
+## which `FactionAggregates::capital`'s fallback used to hand the capital
+## weight to instead). The garrison rule no longer reads that fallback
+## (`garrison_is_capital`, `civ_military_bridge.rs`), so the pinned town's
+## own garrison drops from the pre-fix 2194/3679 to the correct 1940/3425 --
+## less than before because it no longer carries a capital weight that was
+## never really its due.
 const STANDING_F1_Y0 := 4741
 const STANDING_F1_Y10 := 5292
-const GARRISON_TOWN_Y0 := 2194
-const GARRISON_TOWN_Y10 := 3679
+const GARRISON_TOWN_Y0 := 1940
+const GARRISON_TOWN_Y10 := 3425

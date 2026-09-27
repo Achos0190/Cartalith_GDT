@@ -5051,6 +5051,30 @@ struct WorldGen {
     /// from its own `ExportSnapshot`, so editing the world while it is open
     /// cannot change the export.
     export_session: export_session::ExportSessionCore,
+    /// Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the garrison rule's
+    /// border-exposure scale (`cartalith_civ::garrison::GarrisonInput::
+    /// exposure_scale`, `MILITARY_MANPOWER_SCOPE.md` §5.6) is a user setting
+    /// now, not the fixed `1.0` it shipped with. Read fresh by every
+    /// `civ_military_bridge.rs` garrison computation -- there is nothing to
+    /// invalidate, since a garrison is a derived readout, not a generation
+    /// stage (its own module doc): changing this re-reads garrisons the next
+    /// time one is asked for, and regenerates nothing.
+    ///
+    /// **Not `WorldParams`.** It would belong there by every other
+    /// convention in this codebase (`params.rs`'s flat `PARAMS`/`JS_PATHS`
+    /// table), but `WorldParams`/`CivParams` are owned by a concurrent lane
+    /// for the batch this setting shipped in and could not be touched
+    /// (`MISTAKES.md`: a lane edits only the files its brief names). It
+    /// lives here instead, beside `civ`, with its own `#[func]` getter/setter
+    /// (`get_garrison_exposure_scale`/`set_garrison_exposure_scale`,
+    /// `civ_military_bridge.rs`) and its own save path -- `factions.json`'s
+    /// `garrison_exposure_scale` member (`project_bridge.rs`) -- rather than
+    /// `params::save_state`'s. Defaults to `cartalith_civ::garrison::
+    /// EXPOSURE_SCALE` (`1.0`), so a `WorldGen` nobody has called the setter
+    /// on computes garrisons exactly as it did before this setting existed.
+    /// A future pass may fold it into `WorldParams` once that lock lifts;
+    /// nothing about its shape here would need to change to do that.
+    garrison_exposure_scale: f64,
 }
 
 /// The one piece of LOD-D2's tile-context cache that **cannot** move to a
@@ -5174,6 +5198,7 @@ impl IRefCounted for WorldGen {
             loaded_legacy_zip: false,
             urban_rules: None,
             export_session: export_session::ExportSessionCore::default(),
+            garrison_exposure_scale: cartalith_civ::garrison::EXPOSURE_SCALE,
         }
     }
 }

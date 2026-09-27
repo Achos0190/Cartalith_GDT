@@ -6576,8 +6576,25 @@ func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 		"Where each standing army is quartered when no campaign runs. Each place "
 		+ "weighs its population, times the reference's own military weights for "
 		+ "walls and the capital (0.35 and 0.20 against population's 0.45), times "
-		+ "one plus its border exposure: its share of the faction's frontier with "
-		+ "another faction. The parts add up to the standing army exactly.")
+		+ "one plus its border exposure times the dial below: its share of the "
+		+ "faction's frontier with another faction. The parts add up to the "
+		+ "standing army exactly.")
+	## Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the border-exposure
+	## scale is a user setting now, not the fixed `1.0` the rule shipped with
+	## (`MILITARY_MANPOWER_SCOPE.md` §5.6). `0` turns the border term off; the
+	## slider's own tooltip carries the reason for its upper end.
+	DccWidgets.slider(sec, "Border-exposure weight", 0.0, 5.0, 0.1,
+		bridge.get_garrison_exposure_scale(), "×",
+		func(v: float): bridge.set_garrison_exposure_scale(v),
+		"How much more a faction's most-exposed place garrisons than the same "
+		+ "place would in the interior. 0 removes the border term; 1 is the "
+		+ "reference figure this rule shipped with (double); above 5 the "
+		+ "border term alone would already outweigh the whole walls/capital "
+		+ "multiplier, so the split stops being about emphasis and starts "
+		+ "being decided by this dial alone.",
+		func():
+			_clear_body(_military_body)
+			_fill_military(_military_body))
 	var rows := factions.duplicate()
 	rows.sort_custom(_by_standing)
 	for r in rows:

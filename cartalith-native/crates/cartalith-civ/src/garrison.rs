@@ -9,12 +9,32 @@
 //! ## The rule, in one line
 //!
 //! `weight = pop × (1 + 0.35/0.45·walled + 0.20/0.45·capital·tier/5) ×
-//! (1 + exposure)`, then a largest-remainder split of the rounded standing
-//! army. The three weights are `_civFactionAggregates`' own military-axis
-//! weights with population as the unit ([`POP_WEIGHT`]); exposure is the
-//! share of the faction's foreign frontier nearest to the place, relative to
-//! the faction's most exposed place ([`border_exposure`]). The scope carries
-//! the reason for every term.
+//! (1 + scale × exposure)`, then a largest-remainder split of the rounded
+//! standing army. The three weights are `_civFactionAggregates`' own
+//! military-axis weights with population as the unit ([`POP_WEIGHT`]);
+//! exposure is the share of the faction's foreign frontier nearest to the
+//! place, relative to the faction's most exposed place ([`border_exposure`]).
+//! The scope carries the reason for every term.
+//!
+//! **`scale`, Ruling AZ (`LARGE_ITEM_RULINGS.md`, 2026-09-28):** a user
+//! setting ([`GarrisonInput::exposure_scale`]), not the fixed value this rule
+//! shipped with. [`EXPOSURE_SCALE`] is only its default, at `1.0` -- the
+//! value every caller used before the setting existed. `0` removes the
+//! border term entirely (every place keeps its base weight, whatever its
+//! exposure); this function does not itself constrain `scale` to be
+//! non-negative or finite -- the caller does (`cartalith-godot`'s setter
+//! clamps it before it ever reaches here).
+//!
+//! **`is_capital`, same ruling:** true only for the settlement actually
+//! flagged as its faction's seat (`SettlementPlacement::capital`), never a
+//! fallback pick such as `_civFactionAggregates`' own "highest-pop of any
+//! kind when there is no marked capital" (`FactionAggregates::capital`,
+//! shared with the capital-tier term of the aggregate's own military score
+//! and with the manpower model's `capital_road_reach` -- this rule no longer
+//! reads that pick at all). A faction whose real seat was lost to conquest,
+//! or was never placed, gets no capital weight anywhere: no settlement of
+//! its is `is_capital`, matching the dock's own "Capital: no" for each of
+//! them.
 //!
 //! ## No-value discipline (`MISTAKES.md`)
 //!
@@ -38,14 +58,17 @@ pub const CAPITAL_WEIGHT: f64 = 0.20;
 /// `capitalTierNorm`'s denominator: the tier table's top rank (`metropolis`),
 /// the value `civ_faction_aggregates` divides by.
 pub const MAX_TIER_RANK: f64 = 5.0;
-/// How much the faction's most exposed settlement gains over the same place in
-/// the interior: `weight × (1 + EXPOSURE_SCALE × exposure)`.
+/// The *default* of [`GarrisonInput::exposure_scale`] -- what every caller
+/// used before Ruling AZ made it a user setting: `weight × (1 + EXPOSURE_SCALE
+/// × exposure)`, so the faction's most exposed settlement gained double its
+/// interior weight.
 ///
 /// **The rule's least-grounded number**, and said as such
 /// (`MILITARY_MANPOWER_SCOPE.md` §5.6): nothing the scope cites gives a
 /// frontier-to-interior garrison ratio. `1` -- the most exposed place counts
-/// double -- is the smallest whole-number scale at which the term is a clear
-/// multiple rather than a rounding error.
+/// double -- was the smallest whole-number scale at which the term was a
+/// clear multiple rather than a rounding error; it is kept as the default a
+/// reader gets before touching the setting, not as a claim that it is right.
 pub const EXPOSURE_SCALE: f64 = 1.0;
 
 /// One settlement as the rule reads it. Positions are grid cells, continuous
@@ -57,7 +80,11 @@ pub struct GarrisonPlace {
     pub pop: f64,
     /// `cartalith_civ::military::um_infer_walls`' verdict for this place.
     pub walled: bool,
-    /// Whether this is its faction's capital (`FactionAggregates::capital`).
+    /// Whether this settlement is actually its faction's marked capital seat
+    /// (`SettlementPlacement::capital`) -- **never** a fallback pick. Ruling
+    /// AZ: a faction with no such settlement gets no capital weight
+    /// anywhere, so this must be `false` for every one of its places rather
+    /// than true for a stand-in.
     pub is_capital: bool,
     pub kind: SettlementKind,
     pub x: f64,
@@ -80,6 +107,10 @@ pub struct GarrisonInput<'a> {
     /// non-finite value or an index past the end means "no standing army to
     /// split", and that faction's places are `None`.
     pub standing: &'a [Option<f64>],
+    /// The border-exposure term's scale, Ruling AZ (2026-09-28,
+    /// `LARGE_ITEM_RULINGS.md`): `weight × (1 + exposure_scale × exposure)`.
+    /// [`EXPOSURE_SCALE`] is only this value's default. `0` removes the term.
+    pub exposure_scale: f64,
 }
 
 /// One settlement's garrison and the terms behind it, so the shell can show
@@ -273,7 +304,7 @@ pub fn civ_garrisons(input: &GarrisonInput) -> Vec<Option<Garrison>> {
             .map(|(&k, m)| {
                 let p = &input.places[k];
                 let pop = if p.pop.is_finite() { p.pop.max(0.0) } else { 0.0 };
-                pop * m * (1.0 + EXPOSURE_SCALE * exposure[k])
+                pop * m * (1.0 + input.exposure_scale * exposure[k])
             })
             .collect();
         let Some(parts) = largest_remainder(total, &weights) else { continue };
@@ -306,10 +337,18 @@ mod tests {
     }
 
     fn garrisons(places: &[GarrisonPlace], t: &[i32], standing: &[Option<f64>]) -> Vec<Option<u64>> {
-        civ_garrisons(&GarrisonInput { places, territory: t, gw: 8, gh: 4, wrap_x: false, standing })
-            .iter()
-            .map(|g| g.map(|g| g.garrison))
-            .collect()
+        garrisons_scaled(places, t, standing, EXPOSURE_SCALE)
+    }
+
+    /// [`garrisons`] with an explicit border-exposure scale, for the tests
+    /// that check the setting itself rather than the rest of the rule.
+    fn garrisons_scaled(places: &[GarrisonPlace], t: &[i32], standing: &[Option<f64>], scale: f64) -> Vec<Option<u64>> {
+        civ_garrisons(&GarrisonInput {
+            places, territory: t, gw: 8, gh: 4, wrap_x: false, standing, exposure_scale: scale,
+        })
+        .iter()
+        .map(|g| g.map(|g| g.garrison))
+        .collect()
     }
 
     #[test]
@@ -344,6 +383,55 @@ mod tests {
         assert_eq!(g, vec![Some(7), Some(5), Some(2), Some(3)]);
     }
 
+    /// Ruling AZ (2026-09-28): the border-exposure scale is a user setting,
+    /// not the fixed `1.0` it used to be. The parts still sum to the
+    /// standing army exactly at every scale, and `0` removes the border term
+    /// -- fixture 1 above ([`the_sum_is_exact_on_literal_fixtures`]) is this
+    /// same faction at `scale = 1.0` (`895/84/21`), kept as the middle point
+    /// a reader can cross-check against.
+    #[test]
+    fn the_split_still_sums_exactly_at_several_exposure_scales() {
+        let t = two_halves();
+        let p1 = [
+            place(1, 5000.0, true, true, SettlementKind::Capital, 3.5, 1.5),
+            place(1, 2000.0, false, false, SettlementKind::Town, 0.5, 0.5),
+            place(1, 500.0, false, false, SettlementKind::Village, 0.5, 3.5),
+        ];
+        // `0`: the border term drops out entirely -- only walls/capital and
+        // population separate the three places.
+        let g = garrisons_scaled(&p1, &t, &[None, Some(1000.0)], 0.0);
+        assert_eq!(g, vec![Some(810), Some(152), Some(38)]);
+        assert_eq!(g.iter().flatten().sum::<u64>(), 1000);
+
+        // A fractional setting, not one of the round numbers a wiring bug
+        // could produce by accident.
+        let g = garrisons_scaled(&p1, &t, &[None, Some(1000.0)], 0.6);
+        assert_eq!(g, vec![Some(872), Some(102), Some(26)]);
+        assert_eq!(g.iter().flatten().sum::<u64>(), 1000);
+
+        // Well past the default: the border capital's share keeps climbing.
+        let g = garrisons_scaled(&p1, &t, &[None, Some(1000.0)], 2.5);
+        assert_eq!(g, vec![Some(937), Some(50), Some(13)]);
+        assert_eq!(g.iter().flatten().sum::<u64>(), 1000);
+    }
+
+    /// Ruling AZ: `is_capital` is only ever true for a settlement actually
+    /// flagged as its faction's seat, never a fallback pick. A faction with
+    /// no such settlement -- its seat lost to conquest, or simply never
+    /// marked -- gets no capital weight anywhere, not even on the place a
+    /// "best guess" (highest population) would have picked.
+    #[test]
+    fn no_marked_capital_gives_no_settlement_the_capital_weight() {
+        let biggest = place(1, 9000.0, false, false, SettlementKind::Metropolis, 0.5, 1.5);
+        let smallest = place(1, 100.0, false, false, SettlementKind::Hamlet, 0.5, 2.5);
+        assert_eq!(standing_multiplier(&biggest), 1.0, "no capital term despite being the largest place");
+        assert_eq!(standing_multiplier(&smallest), 1.0);
+        let t = two_halves();
+        let g = garrisons(&[biggest, smallest], &t, &[None, Some(910.0)]);
+        // Population alone: 9000/9100 and 100/9100 of 910.
+        assert_eq!(g, vec![Some(900), Some(10)]);
+    }
+
     #[test]
     fn a_remainder_tie_goes_to_the_lower_index() {
         // Three equal weights and 10 men: quotas 3.333 each, one leftover.
@@ -362,7 +450,10 @@ mod tests {
             place(1, 800.0, false, false, SettlementKind::Village, 0.5, 1.5),
             place(1, 800.0, true, true, SettlementKind::Capital, 3.5, 1.5),
         ];
-        let g = civ_garrisons(&GarrisonInput { places: &p, territory: &t, gw: 8, gh: 4, wrap_x: false, standing: &[None, Some(500.0)] });
+        let g = civ_garrisons(&GarrisonInput {
+            places: &p, territory: &t, gw: 8, gh: 4, wrap_x: false,
+            standing: &[None, Some(500.0)], exposure_scale: EXPOSURE_SCALE,
+        });
         let (v, c) = (g[0].unwrap(), g[1].unwrap());
         assert_eq!((v.garrison, c.garrison), (95, 405));
         assert_eq!((v.exposure, c.exposure), (0.0, 1.0));
@@ -391,7 +482,10 @@ mod tests {
         // Non-finite standing army.
         assert_eq!(garrisons(&p, &t, &[None, Some(f64::NAN), None])[1], None);
         // A raster of the wrong size reads nothing at all.
-        let g = civ_garrisons(&GarrisonInput { places: &p, territory: &t[..31], gw: 8, gh: 4, wrap_x: false, standing: &[None, Some(10.0), Some(10.0)] });
+        let g = civ_garrisons(&GarrisonInput {
+            places: &p, territory: &t[..31], gw: 8, gh: 4, wrap_x: false,
+            standing: &[None, Some(10.0), Some(10.0)], exposure_scale: EXPOSURE_SCALE,
+        });
         assert!(g.iter().all(Option::is_none));
         // A real zero is a value: zero men split is zero each.
         assert_eq!(garrisons(&p, &t, &[None, Some(0.0), None])[1], Some(0));

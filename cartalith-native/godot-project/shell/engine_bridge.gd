@@ -3220,6 +3220,23 @@ func civ_settlement_garrison(tid: int, year: int) -> Dictionary:
 	return world_gen.civ_settlement_garrison(tid, year)
 
 
+## Ruling AZ (2026-09-28): the garrison rule's border-exposure scale
+## (`MILITARY_MANPOWER_SCOPE.md` §5.6), CIVIL ▸ Military ▸ Garrisons' own
+## slider. `1.0` -- the rule's old fixed value -- on a binary too old to have
+## the setter, so a stale build reads the same figure the rule always used.
+func get_garrison_exposure_scale() -> float:
+	if not _has("get_garrison_exposure_scale"):
+		return 1.0
+	return world_gen.get_garrison_exposure_scale()
+
+
+## Re-reads garrisons the next time one is asked for; regenerates nothing.
+func set_garrison_exposure_scale(scale: float) -> void:
+	if not _has("set_garrison_exposure_scale"):
+		return
+	world_gen.set_garrison_exposure_scale(scale)
+
+
 # conflict_bridge.rs -- `STORY_PLANNING_SCOPE.md` SP-4, the conflict overlay.
 # `conflict_add`/`conflict_update` return `{ok, id, error?}`; see the Rust
 # doc comments for the field keys and the store's lifecycle.

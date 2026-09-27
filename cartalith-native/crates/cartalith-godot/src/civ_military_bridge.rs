@@ -557,6 +557,36 @@ type Recorded = Option<(usize, Vec<i32>)>;
 /// One settlement's `(tid, faction, garrison)` in a reading.
 type GarrisonRow = (u64, i32, Option<Garrison>);
 
+/// Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the garrison rule's own
+/// `is_capital` predicate -- true only for a settlement actually flagged as
+/// its faction's seat, never a fallback pick. A free function (not a
+/// `WorldGen` method) so it is unit-testable without a live gdext runtime
+/// (`cargo test` cannot construct a `Base<RefCounted>`, `MISTAKES.md`).
+///
+/// `FactionAggregates::capital` -- the pick this no longer reads -- falls
+/// back to the highest-population settlement of any kind when a faction has
+/// no `Capital`/`Metropolis` place, which is right for its own callers (the
+/// aggregate's own capital-tier military score, `capital_road_reach` in the
+/// manpower model, and the faction summary's display name) but wrong here: a
+/// garrison rule that gave the capital weight to a "best guess" would carry
+/// it on a settlement the dock itself marks `Capital: no`.
+fn garrison_is_capital(faction: i32, seat: bool) -> bool {
+    faction > 0 && seat
+}
+
+#[cfg(test)]
+mod garrison_is_capital_tests {
+    use super::garrison_is_capital;
+
+    #[test]
+    fn true_only_for_a_real_seat_of_a_claimed_place() {
+        assert!(garrison_is_capital(1, true));
+        assert!(!garrison_is_capital(1, false), "not marked -- no fallback pick");
+        assert!(!garrison_is_capital(0, true), "unclaimed carries no faction's seat");
+        assert!(!garrison_is_capital(-1, true), "an invalid faction id is not claimed either");
+    }
+}
+
 impl WorldGen {
     /// Which reading `year` gets, plus the recorded year's claims when it is
     /// one. `None` without a civilisation layer.
@@ -604,7 +634,6 @@ impl WorldGen {
         &self,
         view: &CivView,
         defences: &[Defence],
-        agg: &FactionAggregates,
         rows: &[ManpowerRow],
     ) -> Vec<Option<Garrison>> {
         let Some(civ) = self.civ.as_ref() else { return Vec::new() };
@@ -615,20 +644,14 @@ impl WorldGen {
             .settlements
             .iter()
             .zip(defences)
-            .enumerate()
-            .map(|(i, (s, d))| {
-                let f = s.placement.faction;
-                let is_capital =
-                    f > 0 && agg.by_faction.get(f as usize).and_then(|a| a.capital) == Some(i);
-                GarrisonPlace {
-                    faction: f,
-                    pop: f64::from(s.pop),
-                    walled: d.walled,
-                    is_capital,
-                    kind: s.placement.kind,
-                    x: s.placement.x as f64,
-                    y: s.placement.y as f64,
-                }
+            .map(|(s, d)| GarrisonPlace {
+                faction: s.placement.faction,
+                pop: f64::from(s.pop),
+                walled: d.walled,
+                is_capital: garrison_is_capital(s.placement.faction, s.placement.capital),
+                kind: s.placement.kind,
+                x: s.placement.x as f64,
+                y: s.placement.y as f64,
             })
             .collect();
         let n_f = civ.faction_roster.0.len();
@@ -642,6 +665,7 @@ impl WorldGen {
             gh: self.gh.max(0) as usize,
             wrap_x: self.world,
             standing: &standing,
+            exposure_scale: self.garrison_exposure_scale,
         })
     }
 
@@ -657,7 +681,7 @@ impl WorldGen {
                     return Vec::new();
                 };
                 let manpower = self.manpower_rows_of(view, &agg);
-                let g = self.garrisons_of(view, &defences, &agg, &manpower);
+                let g = self.garrisons_of(view, &defences, &manpower);
                 view.settlements
                     .iter()
                     .zip(g)
@@ -700,7 +724,7 @@ impl WorldGen {
         let claims_known =
             crate::claim_grid_known(view.territory, self.gw.max(0) as usize, self.gh.max(0) as usize);
         let manpower = if claims_known { self.manpower_rows_of(view, &agg) } else { Vec::new() };
-        let garrisons = self.garrisons_of(view, &defences, &agg, &manpower);
+        let garrisons = self.garrisons_of(view, &defences, &manpower);
 
         let factions: Array<VarDictionary> = (1..civ.faction_roster.0.len())
             .filter_map(|f| {
@@ -1151,4 +1175,44 @@ impl WorldGen {
             })
             .collect()
     }
+
+    /// Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the garrison rule's
+    /// border-exposure scale (`MILITARY_MANPOWER_SCOPE.md` §5.6), the CIVIL ▸
+    /// Military ▸ Garrisons slider drives. Not clamped to a lower bound of
+    /// `0` alone: a negative scale would make an exposed place garrison
+    /// *less* than an interior one of equal weight, which is a real,
+    /// legible (if contrarian) setting, not nonsense to refuse -- so the
+    /// clamp only keeps the dial finite and inside the range the slider
+    /// itself offers. `NaN`/`inf` from a GDScript `SpinBox` mid-edit are
+    /// caught the same way `set_sea_level` catches its own.
+    ///
+    /// Takes effect on the *next* read: a garrison is `civ_military_bridge.rs`'s
+    /// own derived readout, recomputed from `self.civ`'s live settlements and
+    /// the standing army every time one is asked for, never cached -- so
+    /// nothing here regenerates the world, and nothing needs invalidating.
+    #[func]
+    fn set_garrison_exposure_scale(&mut self, scale: f64) {
+        self.garrison_exposure_scale = if scale.is_finite() {
+            scale.clamp(GARRISON_EXPOSURE_SCALE_MIN, GARRISON_EXPOSURE_SCALE_MAX)
+        } else {
+            cartalith_civ::garrison::EXPOSURE_SCALE
+        };
+    }
+
+    #[func]
+    fn get_garrison_exposure_scale(&self) -> f64 {
+        self.garrison_exposure_scale
+    }
 }
+
+/// [`WorldGen::set_garrison_exposure_scale`]'s range. `0` turns the border
+/// term off entirely. The upper end is this port's own judgement, not a
+/// reference figure (the reference has no such control at all,
+/// `MILITARY_MANPOWER_SCOPE.md` §5.6's own "the owner may want to rule on
+/// it"): beyond `5`, the border term alone would already outweigh the whole
+/// walls+capital multiplier (`1 .. 1/POP_WEIGHT`, at most `≈2.22`), at which
+/// point the dial is no longer adding emphasis to a border place so much as
+/// deciding the split by itself -- a wide enough range to explore that
+/// without a slider whose far end is meaningless.
+const GARRISON_EXPOSURE_SCALE_MIN: f64 = 0.0;
+const GARRISON_EXPOSURE_SCALE_MAX: f64 = 5.0;

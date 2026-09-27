@@ -1138,8 +1138,41 @@ Each term and its reason:
 |---|---|---|
 | `pop_i`, the base | the settlement's own population | **The model's own identity (§2.2).** The standing army is paid out of the non-agricultural population, and that population *is* the settlement sum (`nucleated_pop`). So each settlement's share of the payroll is its share of the base. With every other term at its neutral value, the split follows the money, and the rule assumes nothing further. |
 | walls | `0.35 / 0.45` ≈ 0.778 more, when `um_infer_walls` says walled | **The reference's own military weights, moved from faction to settlement.** `_civFactionAggregates`' military axis is `0.45·normPop + 0.35·fortifiedFraction + 0.20·capitalTierNorm` (golden-verified, §0). Population is the base here, so walls weigh what the reference weighs them *relative to population*. `walled` is the ladder's own verdict (`cartalith_civ::military`), including the place editor's overrides. |
-| capital | `0.20 / 0.45 × tier_rank / 5` more, on the faction's capital only | **The same formula's third term, on the same terms.** `capitalTierNorm` is the capital's tier rank over the table's top rank (5, `metropolis`), exactly as the aggregate computes it. The capital is the aggregate's own pick (`FactionAggregates::capital`), not a second choice. A walled capital therefore reaches `1 / 0.45` ≈ 2.22× its population weight: the reference's whole military score over its population part. |
-| border exposure | `exposure_i` in 0…1, scale 1 | **Defined from territory; its scale is a modelling choice** (below). |
+| capital | `0.20 / 0.45 × tier_rank / 5` more, on the faction's real capital seat only | **The same formula's third term, on the same terms.** `capitalTierNorm` is the capital's tier rank over the table's top rank (5, `metropolis`), exactly as the aggregate computes it. **Not the aggregate's own pick** (`FactionAggregates::capital`) any more -- see Ruling AZ below. A walled capital therefore reaches `1 / 0.45` ≈ 2.22× its population weight: the reference's whole military score over its population part. |
+| border exposure | `exposure_i` in 0…1, × a user setting | **Defined from territory; the setting is a modelling choice** (below), no longer a fixed value. |
+
+**Ruling AZ (`LARGE_ITEM_RULINGS.md`, 2026-09-28) answered both open questions
+this section used to carry:**
+
+- **The border-exposure scale is a user setting**, not the fixed `1.0` above
+  it shipped with (`cartalith_civ::garrison::GarrisonInput::exposure_scale`,
+  default `cartalith_civ::garrison::EXPOSURE_SCALE` = `1.0`, so an untouched
+  world computes exactly as before). CIVIL ▸ Military ▸ Garrisons carries a
+  slider, `0..5` (`0` removes the border term; beyond `5` it would already
+  outweigh the whole walls/capital multiplier on its own). It lives on
+  `WorldGen` (`cartalith_godot::civ_military_bridge`'s
+  `get_garrison_exposure_scale`/`set_garrison_exposure_scale`), saved in
+  `entities/factions.json`'s `garrison_exposure_scale` member (absent at the
+  default) rather than through `params::PARAMS` -- `WorldParams`/`CivParams`
+  were locked to a concurrent batch when this shipped, not an architectural
+  choice; a later pass may fold it in. Changing it re-reads garrisons the
+  next time one is asked for (they are recomputed on every read, never
+  cached) and regenerates nothing.
+- **A faction with no marked capital gets no capital weight anywhere.** The
+  capital term above no longer reads `FactionAggregates::capital` -- that
+  pick falls back to the highest-population settlement of *any* kind when a
+  faction has no `Capital`/`Metropolis` place, which is right for its own
+  callers (the aggregate's own capital-tier military score, the manpower
+  model's `capital_road_reach`, and the faction summary's display name) but
+  was wrong here: it could carry the capital weight on a settlement the dock
+  itself marks `Capital: no`. The garrison rule now reads
+  `SettlementPlacement::capital` directly (the real per-settlement seat
+  flag, which survives a tier demotion -- `civ_iterative_network`'s own
+  design) through a small pure predicate, `garrison_is_capital` in
+  `civ_military_bridge.rs`, unit-tested on its own. A faction whose seat was
+  lost to conquest, or never placed, now gets no capital weight on any of
+  its settlements -- matching what the dock already showed for every one of
+  them.
 
 **Border exposure** is measured on the faction's frontier. The frontier is
 every cell the faction holds that is 4-adjacent to a cell another *faction*
@@ -1153,14 +1186,16 @@ settlement with no frontier nearest to it reads 0. This is relative within the
 faction, the way `relations`' `border_fraction` is relative to the widest
 border on the map. It needs no kilometre constant for "near the border".
 
-**The scale of exposure is the rule's least-grounded number, said here as
-§2.6 says of `oligarchy`.** At `1`, the faction's most exposed settlement weighs
-twice what the same place would weigh in the interior. The multiplier can only
-*add* weight: an interior place keeps its base, and exposure never takes men
-from anywhere except through the normalisation every share goes through. No
-source in this scope gives a frontier-to-interior garrison ratio. `1` is the
-smallest whole-number scale that makes the term a clear multiple rather than a
-rounding error. The owner may want to rule on it.
+**The scale of exposure was the rule's least-grounded number, said here as
+§2.6 says of `oligarchy` -- Ruling AZ above answered it by making it a
+setting rather than by sourcing a figure.** At its default of `1`, the
+faction's most exposed settlement weighs twice what the same place would
+weigh in the interior. The multiplier can only *add* weight at a positive
+scale: an interior place keeps its base, and exposure never takes men from
+anywhere except through the normalisation every share goes through. No
+source in this scope gives a frontier-to-interior garrison ratio, which is
+exactly why this is a dial the owner (or a reader) can set, not a constant
+this scope asserts.
 
 **The split: largest remainder (Hamilton), exactly.** With `S` the rounded
 standing army and `W = Σ weight`:
@@ -1202,7 +1237,16 @@ remainder tie. They also check:
 - a walled capital on a border outranks an interior village of any population
   up to its own;
 - a one-settlement faction puts everything there;
-- each of the four terms moves the split when it is mutated.
+- each of the four terms moves the split when it is mutated;
+- Ruling AZ: the split still sums exactly at several `exposure_scale` values
+  (`0`, `0.6`, `2.5`), `0` removes the border term, and a faction with no
+  settlement actually flagged its capital seat gets the capital weight
+  nowhere, not even on its largest place (`garrison_is_capital`,
+  `civ_military_bridge.rs`, unit-tested on its own since it is pure);
+  `_mm8garrison_probe` (windowed) additionally moves the live setting through
+  the real shell and checks a border town's new garrison against the formula
+  recomputed independently in GDScript, and that the right dock and the
+  place editor still agree with it.
 
 ### 5.7 Manpower across the year cursor (MM-8)
 
