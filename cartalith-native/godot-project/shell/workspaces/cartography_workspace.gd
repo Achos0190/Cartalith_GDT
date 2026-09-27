@@ -438,6 +438,20 @@ func _build() -> void:
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
 	bridge.world_loaded.connect(_on_world_changed)
+	## Ruling AZ (`OUTSTANDING_WORK.md` "Make the need to run CARTO ▸ Generate
+	## labels visible on screen"): `engine_bridge.gd`'s own forwarder-audit
+	## comment names the gap this closes -- `sculpt_commit()` emits only
+	## `sculpt_draft_changed`, never `generation_finished`/`world_loaded`, so
+	## `_regenerate_labels()` was never re-run after a sculpt and the map kept
+	## drawing labels placed against the pre-commit height field, with nothing
+	## on screen saying so. That doc explicitly leaves the re-run unwired ("a UI
+	## decision, not a binding decision"); this is that UI decision -- flag the
+	## run stale rather than silently re-running it (a re-run here would be one
+	## more hidden cost per brush stroke), and let `_refresh_label_gen_cue()`
+	## say so where the labels are shown.
+	bridge.sculpt_draft_changed.connect(func():
+		_label_terrain_stale = true
+		_refresh_label_gen_cue())
 	## A layer flipped from OUTSIDE this dock -- the landmark funnel's "Show
 	## rejected" chip (`civilization_workspace.gd::_lm_show_rejects()`) is the
 	## one real caller today -- now reaches these checkboxes live rather than
@@ -2077,6 +2091,31 @@ var _label_class_counts: Dictionary = {}
 var _label_gen_ran := false
 var _label_class_summary: Label
 
+## Ruling AZ's cue -- "no generated labels" said where the labels are shown,
+## distinct from "generated and legitimately found nothing to name".
+##
+## **The distinguishing signal is `_label_gen_ran`, not a count.** `labels_
+## generate()` (`label_bridge/generate.rs`) answers `ok: false` in exactly one
+## case -- no world exists yet (`self.labels.is_none()`) -- and `ok: true` with
+## five zeroed rows for a world that has nothing to name, which its own doc
+## comment calls "a different and more useful answer than a refusal". Reading
+## `total == 0` here instead would conflate the two: an ocean-only world with
+## real settlements-but-zero-landmarks is `ok: true`, and MISTAKES.md's own
+## rule is not to encode "no value" as a plausible one. `bridge.has_world`
+## gates the cue itself off before any world exists, where the summary label
+## already carries the engine's own refusal sentence and a Generate button
+## would have nothing to run against.
+##
+## `_label_terrain_stale` is the second half: a sculpt commit invalidates the
+## drawn run without dropping it (`engine_bridge.gd`'s own audit comment on
+## `labels_clear_generated`), so `_label_gen_ran` alone would stay true over a
+## run that no longer matches the terrain beneath it. Cleared by the same
+## `_regenerate_labels()` that would otherwise leave it stuck.
+var _label_terrain_stale := false
+var _label_gen_cue: Control
+var _label_gen_cue_note: Label
+var _label_gen_cue_btn: Button
+
 ## The `collision culling` toggle's state.
 ##
 ## **This declaration was missing**, and its absence took the whole file down:
@@ -2151,6 +2190,19 @@ func _build_label_classes(parent: Control) -> void:
 		+ "Region labels you place by hand are the section below and are never "
 		+ "replaced by a run -- they take their class's halo and tracking, and "
 		+ "keep their own size, font and colour.")
+
+	## Ruling AZ. Built once, hidden until `_refresh_label_gen_cue()` has
+	## something to say -- exactly the shape `_build_icon_placement()`'s own
+	## "no generated placement pass" note uses one screen up, a note beside the
+	## action that answers it rather than a separate dialog.
+	_label_gen_cue = HBoxContainer.new()
+	_label_gen_cue.add_theme_constant_override("separation", 8)
+	_label_gen_cue.visible = false
+	sec.add_child(_label_gen_cue)
+	_label_gen_cue_note = DccWidgets.note(_label_gen_cue, "")
+	_label_gen_cue_btn = DccWidgets.action(_label_gen_cue, "Generate labels",
+		_regenerate_labels, true)
+	_label_gen_cue_btn.tooltip_text = "Runs the labelling pass now, over the world as it stands -- the same pass a class dial's release already re-runs."
 
 	var rows := DccWidgets.group(sec, "Classes", true)
 	## The two count columns' own heading, at the widths the cells below use
@@ -2786,7 +2838,42 @@ func _regenerate_labels() -> void:
 	## moved has also just moved how many labels still match the base, so the
 	## second column and the tally line go stale on exactly this event.
 	_label_role_recount()
+	## Ruling AZ: this run is current now, whatever it found -- clear the
+	## staleness flag `sculpt_draft_changed` sets, on the same call that just
+	## re-read the terrain.
+	_label_terrain_stale = false
+	_refresh_label_gen_cue()
 	app.viewport.refresh_annotations()
+
+
+## Ruling AZ's cue, refreshed after every `_regenerate_labels()` and after
+## every `sculpt_draft_changed`. Three states, in the order checked:
+##
+## 1. No world -- hidden. `_label_class_summary` already carries the engine's
+##    own refusal sentence, and a Generate button would have nothing to run
+##    against.
+## 2. Never generated for this world (`not _label_gen_ran`) -- shown, plain
+##    words, no code names (Ruling AQ).
+## 3. Generated, but a sculpt committed since (`_label_terrain_stale`) --
+##    shown, a different sentence: this run is not wrong, it is old.
+##
+## Otherwise hidden -- a legitimately-empty run (`ok: true`, every class at
+## zero) says so in `_label_class_summary`'s own "0 drawn" line, which is a
+## fact about this world, not a call to action.
+func _refresh_label_gen_cue() -> void:
+	if _label_gen_cue == null or not is_instance_valid(_label_gen_cue):
+		return
+	if not bridge.has_world:
+		_label_gen_cue.visible = false
+		return
+	if not _label_gen_ran:
+		_label_gen_cue_note.text = "Labels haven't been generated for this world yet."
+		_label_gen_cue.visible = true
+	elif _label_terrain_stale:
+		_label_gen_cue_note.text = "The terrain has changed since labels were last generated."
+		_label_gen_cue.visible = true
+	else:
+		_label_gen_cue.visible = false
 
 
 ## The four placement families -- **read from the engine now, not transcribed.**

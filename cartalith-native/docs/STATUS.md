@@ -1303,6 +1303,46 @@ actually scoped by any A-E2 milestone, so it is future work, not a broken
 promise. `STRANDED_TOOLS.md`'s own stale "44 methods… not one wired" claim is
 annotated false in place, dated, rather than silently rewritten.
 
+**`OUTSTANDING_WORK.md` "Make the need to run CARTO ▸ Generate labels visible
+on screen" (Ruling AZ), 2026-09-28, verified 2026-09-29.** The
+owner's report ("a label fix looked invisible") traced to a documented, already
+-registered gap: `engine_bridge.gd`'s own forwarder-audit comment on
+`labels_clear_generated` names `sculpt_commit()` as the one path that leaves
+CARTO's generated labelling pass stale — it emits `sculpt_draft_changed`, never
+`generation_finished`/`world_loaded`, so `cartography_workspace.gd::
+_regenerate_labels()` (already auto-run on world build/change and on a class
+dial's release) does not re-run, and the map keeps drawing labels placed
+against the pre-commit height field with nothing on screen saying so. That
+comment explicitly left the re-run itself unwired ("a UI decision, not a
+binding decision"); this closes the UI half only, deliberately not the
+auto-rerun. `cartography_workspace.gd`'s Labels panel now shows a cue plus its
+own "Generate labels" button in two cases, each gated on `bridge.has_world` so
+it never appears before a world exists (the engine's own refusal sentence
+already covers that case) and never conflates a genuinely empty run with an
+absent one — `labels_generate()` answers `ok: false` only when no world has
+ever existed, and `ok: true` with five zeroed rows for a world with nothing to
+name (`label_bridge/generate.rs`'s own doc comment calls that "a different and
+more useful answer than a refusal"), so the cue reads `_label_gen_ran`
+(mirroring that distinction), never a count: (1) never generated for this
+world, and (2) generated, but a sculpt committed since (a new
+`_label_terrain_stale` flag, set by a `bridge.sculpt_draft_changed` listener
+and cleared by `_regenerate_labels()` itself). New windowed probe
+`godot-project/_labelgencue_probe.gd`/`.tscn` (18/18): the cue hidden before
+any world exists, a positive control (a fresh generate's automatic
+`_regenerate_labels()` run leaves it hidden), both cue states reachable and
+correctly worded, its own "Generate labels" button proven wired (pressing it
+clears either state), and the real, reachable trigger — emitting
+`sculpt_draft_changed` — shown to raise the stale cue and the button to clear
+it. One mutation (inverting the never-generated branch's condition) killed —
+6 of 18 checks failed as expected, file hash-verified restored. Regression:
+`_ctxcard_probe.tscn` 115/115 unchanged (its CARTO "Add label here…" row is
+untouched). `godot --headless --check-only`, from the `godot-project` root,
+clean on `cartography_workspace.gd`, `shell/app.gd` and the new probe. **Not
+touched**: the "Layers popover" candidate location (`layers_popover.gd`) —
+its `LIVE_LAYERS` toggle list carries no "labels" row to attach a cue to, so
+the message lives only where the Labels controls themselves are, per the row's
+own first candidate.
+
 ### GPU compute pilot · `GPU_COMPUTE_PILOT_SCOPE.md`
 
 Six "done means" criteria. All met. The document gained a resolution section,
