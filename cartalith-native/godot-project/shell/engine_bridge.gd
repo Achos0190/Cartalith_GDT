@@ -71,6 +71,16 @@ signal landmark_finished(result: Dictionary)
 ## Emitted only when `set_layer_stack()` returns 3. A refusal changes nothing,
 ## so there is nothing to re-read and no repaint to spend.
 signal layer_stack_changed()
+## `color_texture()` just rebuilt the base map texture and, with it, the river
+## colour texture (`river_color_texture()`). Listened to by
+## `map_overlay.gd::set_river_source`, whose base-view river stroke is textured
+## with the river colour texture and must redraw against the new one. Added
+## 2026-09-27 for the white-rivers regression from `2cf0143`: half the shell
+## repaints with `map_view.texture = bridge.color_texture()` and never redraws
+## the overlay, and the stroke's recorded texture was the one just replaced
+## (freed), which the renderer draws as white. Emitted after the rebuild, so a
+## listener reading `river_color_texture()` gets the new texture.
+signal color_texture_rebuilt()
 
 ## What a click does to a selection set -- the wire codes
 ## `icon_hit_test_mode()`/`label_hit_test_mode()` take, matching
@@ -883,8 +893,19 @@ func reference_grid_height(grid_w: int, world: bool) -> int:
 		return world_gen.reference_grid_height(grid_w, world)
 	return grid_w
 
+## Builds the base map texture (`WorldGen::build_color_texture`), which also
+## replaces the river colour texture (`river_color_texture()`), and then says
+## so through `color_texture_rebuilt`. Every repaint in the shell comes through
+## here -- `viewport_host.gd::refresh()` and the dozen direct
+## `map_view.texture = bridge.color_texture()` lines in `app.gd`, `tool_bar.gd`,
+## `menus.gd`, `right_dock.gd`, `world_workspace.gd`, `dcc_shell.gd` -- so this
+## is the one place the base view's river stroke can learn its texture moved.
+## Must never skip the emit: without it the overlay keeps drawing with the
+## texture this call just replaced (white rivers, see the signal's comment).
 func color_texture() -> Texture2D:
-	return world_gen.build_color_texture()
+	var t: Texture2D = world_gen.build_color_texture()
+	color_texture_rebuilt.emit()
+	return t
 
 ## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
 ## `sized_api`'s own reasoning above: a binary built before this milestone

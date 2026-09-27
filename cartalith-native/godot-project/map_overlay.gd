@@ -1165,6 +1165,16 @@ var _show_sea_routes := true
 ## lives in the engine (`set_rivers_in_map`), which answers an empty mesh
 ## while it is off.
 var _river_source: Node = null
+## The river colour texture the last `_draw_rivers` drew with, held for as
+## long as that draw is on screen. `canvas_item_add_triangle_array` records
+## only the texture's RID; the only other owner, `WorldGen::river_color_tex`,
+## drops it on the next `build_color_texture`, the texture is freed, and the
+## renderer draws a freed texture RID as its default WHITE texture -- the
+## white rivers of `OUTSTANDING_WORK.md` (a regression from `2cf0143`),
+## measured by `_rivstyle_probe.gd` section S. Must never be cleared while the
+## canvas item still holds a command that samples it: it is replaced only by
+## the next draw, which clears those commands first.
+var _river_tex: Texture2D = null
 ## Pushed by `viewport_host.gd::_set_lod_active()`: above the deep-zoom switch
 ## every tile rasterizes its own rivers, and a stroke drawn here too would sit
 ## on top of them.
@@ -2213,8 +2223,22 @@ func _draw_river_trace(rect: Rect2) -> void:
 ## of (`_draw_rivers`); `viewport_host.gd::refresh()` calls it per world. Must
 ## never be handed `WorldGen` directly: the bridge's wrappers refuse
 ## mid-generation, which a direct call would not.
+##
+## Also subscribes this overlay to the source's `color_texture_rebuilt`, so a
+## repaint that never asks for an overlay redraw (`map_view.texture =
+## bridge.color_texture()`, a dozen places in the shell) still redraws the
+## stroke against the new river colour texture. Without it the stroke kept the
+## previous preset's colour -- or white, see `_river_tex` -- until the next
+## pan or zoom. A source without the signal (a test double) is taken as is.
 func set_river_source(source: Node) -> void:
+	if _river_source != null and _river_source != source \
+			and _river_source.has_signal("color_texture_rebuilt") \
+			and _river_source.color_texture_rebuilt.is_connected(queue_redraw):
+		_river_source.color_texture_rebuilt.disconnect(queue_redraw)
 	_river_source = source
+	if source != null and source.has_signal("color_texture_rebuilt") \
+			and not source.color_texture_rebuilt.is_connected(queue_redraw):
+		source.color_texture_rebuilt.connect(queue_redraw)
 	queue_redraw()
 
 
@@ -3889,12 +3913,22 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## their own rivers at their own resolution, so this draws nothing then
 ## (`_lod_up`), nor under a field view (`_debug_active`), nor with the Rivers
 ## layer off (the engine answers an empty mesh).
+##
+## The texture is kept alive in `_river_tex` for as long as this draw stands
+## (the canvas command holds only its RID), and a rebuild of it redraws this
+## overlay (`set_river_source`'s subscription). Both, since 2026-09-27: without
+## them every repaint that did not also redraw the overlay turned the rivers
+## pure white under every preset.
 func _draw_rivers(rect: Rect2) -> void:
+	## A redraw has already cleared the previous draw's commands, so the old
+	## texture can go now whichever way this returns.
+	_river_tex = null
 	if _river_source == null or _lod_up or _debug_active:
 		return
 	var tex: Texture2D = _river_source.river_color_texture()
 	if tex == null:
 		return
+	_river_tex = tex
 	var k := _crisp_begin()
 	## Screen px per grid cell times the crisp `k`: a width in cells times
 	## this is a width on the ground in screen pixels.

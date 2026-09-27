@@ -25,6 +25,16 @@ extends Node
 ##   D. the Rivers switch's cost: `set_layer_visible("rivers", ...)` timed
 ##      end to end (engine + base re-render), and `color_texture()` alone with
 ##      rivers on vs off, each a median with min..max over REPS runs.
+##   S. the DRAWN river on SCREEN (see `_screen_leg`): at fit and at x1.4, for
+##      SCREEN_PRESETS, the viewport's own pixels on the stroke's solid core
+##      carry the river colour texture's colour, within a tolerance measured
+##      from a control (the same pixels with the Rivers layer off against the
+##      map texture), and meet the preset's intent bar -- both right after the
+##      preset is applied and after a repaint the way half the shell does it
+##      (`map_view.texture = bridge.color_texture()`, no overlay redraw).
+##      Sections A-C read textures; only this one reads what a user sees,
+##      which is why white rivers on screen (OUTSTANDING_WORK.md, "Rivers draw
+##      WHITE at fit zoom", a regression from 2cf0143) passed A-C.
 ##
 ## Crops of the base texture around a trunk are saved per preset, on and off,
 ## magnified 4x nearest, for looking at.
@@ -40,6 +50,7 @@ extends Node
 ##   --presets a,b only these presets (names as in PRESETS); default all
 ##   --grid WxH    world size (default 1024x656)
 ##   --timing-only only section D, the Rivers switch's cost
+##   --screen-only only section S, the drawn river on screen
 ##
 ## Exit status: 0 every assertion held, 1 one failed, 2 could not run.
 
@@ -50,12 +61,19 @@ const HIDE := ["territory", "provinces", "settlements", "roads", "sea_routes",
 var GRID := Vector2i(1024, 656)
 const REPS := 5
 const ZOOM := 16.0
+## Section S's presets: the brief's four -- the default look (RV-2's blue), a
+## white line, a dark pen line, and the one whose grade darkens everything.
+const SCREEN_PRESETS := ["Default", "Blueprint", "Ink", "Night"]
+## Section S's zooms, as multiples of the fit (`reset_view`) zoom: the opening
+## view, and x1.4, the owner's reported range below the deep-zoom switch.
+const SCREEN_ZOOMS := [1.0, 1.4]
 
 var _out := ""
 var _seed := 483920
 var _zoom_check := true
 var _only: PackedStringArray = []
 var _timing_only := false
+var _screen_only := false
 var _fail := 0
 var _app: Node
 var _vh: Control
@@ -99,6 +117,8 @@ func _parse_args() -> bool:
 				_only = args[i + 1].split(","); i += 1
 			"--timing-only":
 				_timing_only = true
+			"--screen-only":
+				_screen_only = true
 			"--grid":
 				var p := args[i + 1].split("x"); GRID = Vector2i(int(p[0]), int(p[1])); i += 1
 			_:
@@ -167,6 +187,11 @@ func _ready() -> void:
 		return
 	var tiles: Array = rw.get("_preset_tiles")
 
+	if _screen_only:
+		await _screen_leg(tiles)
+		_finish()
+		return
+
 	var results := {}
 	for pname in PRESETS:
 		if not _only.is_empty() and not _only.has(pname):
@@ -201,6 +226,8 @@ func _ready() -> void:
 		if _zoom_check and pname in ["Natural Vibrant", "Blueprint", "Woodcut", "Night"]:
 			await _zoom_tile_check(pname, on, samples)
 	_judge(results)
+	## S. what the user sees -- after A-C, whose texture reads cannot see it.
+	await _screen_leg(tiles)
 
 	## D. the cost of the switch, back on the default preset.
 	(tiles[0]["button"] as Button).emit_signal("pressed")
@@ -345,6 +372,202 @@ func _edit_check(samples: Array) -> void:
 		_ok(gone_clear == gone, "E: every river cell the edit removed is clear of river ink (%d of %d)" % [gone_clear, gone])
 	else:
 		print("RIVSTYLE  E: the edit removed no sample river near it -- the 'left' half is not exercised")
+
+
+## **Section S: the drawn river, read off the SCREEN.** For each of
+## SCREEN_PRESETS at each of SCREEN_ZOOMS (below the deep-zoom switch, where
+## `map_overlay.gd::_draw_rivers` is what draws the rivers), twice: right after
+## the preset is applied ("applied"), and after one more repaint the way
+## `app.gd`, `tool_bar.gd`, `menus.gd`, `right_dock.gd` and
+## `world_workspace.gd` all do it -- `map_view.texture = bridge.color_texture()`
+## with no overlay redraw ("repainted"). Then a deep-zoom screenshot per preset,
+## for looking at only.
+##
+## Why: sections A-C read the river colour TEXTURE, which was right while the
+## screen drew the rivers pure white (OUTSTANDING_WORK.md, "Rivers draw WHITE
+## at fit zoom", a regression from 2cf0143). Must never judge the texture
+## here -- the point of this section is that it reads the viewport.
+func _screen_leg(tiles: Array) -> void:
+	for pname in SCREEN_PRESETS:
+		if not _only.is_empty() and not _only.has(pname):
+			continue
+		var idx := -1
+		for i in RenderWorkspace.STYLE_PRESETS.size():
+			if String(RenderWorkspace.STYLE_PRESETS[i][0]) == pname:
+				idx = i
+		if idx < 0:
+			_ok(false, "S: preset %s is in STYLE_PRESETS" % pname)
+			continue
+		(tiles[idx]["button"] as Button).emit_signal("pressed")
+		await _frames(6)
+		for z: float in SCREEN_ZOOMS:
+			_vh.reset_view()
+			await _frames(3)
+			## `zoom_step` multiplies about the viewport centre; 1.0 is skipped
+			## so the fit case is exactly `reset_view`'s own zoom.
+			if z != 1.0:
+				_vh.zoom_step(z)
+			await _frames(4)
+			_ok(not _vh.lod_active(), "S: %s x%.1f is below the deep-zoom switch (the overlay draws the rivers)" % [pname, z])
+			await _screen_case(pname, z, "applied")
+			_vh.map_view.texture = _br.color_texture()
+			await _frames(4)
+			await _screen_case(pname, z, "repainted")
+		## Deep zoom, for looking at: the tiles draw the rivers there.
+		_vh.reset_view()
+		await _frames(3)
+		_vh.zoom_step(ZOOM / _vh.zoom())
+		await _settle_tiles()
+		var deep := await _grab()
+		if deep != null:
+			deep.save_png("%s/screen_%s_z%d.png" % [_out, pname.to_snake_case(), int(ZOOM)])
+	_vh.reset_view()
+	await _frames(3)
+
+
+## One case of section S. Takes the solid core of the stroke the overlay drew
+## (`_solid_core_pixels`, off the same `river_view_mesh` call `_draw_rivers`
+## makes), grabs the viewport with the Rivers layer on and then off, and judges
+## the ON pixels:
+##
+##  - **against the river colour texture** at each pixel's cell: the stroke is
+##    textured with it, so the drawn pixel must be that colour. The tolerance
+##    is the CONTROL's 90th percentile: the same pixels with the layer off
+##    against the map texture at the same cells -- the display path's own
+##    error (filtering, resampling) measured on this run, not a number chosen.
+##  - **against the preset's intent**, the same literal bars `_judge` holds the
+##    texture to (Default: blue, not white; Blueprint: white; Ink: dark; Night:
+##    luminous blue over dark ground), applied to the screen median.
+##
+## Saves the ON and OFF viewport crops for looking at.
+func _screen_case(pname: String, z: float, when: String) -> void:
+	var tag := "%s x%.1f %s" % [pname, z, when]
+	var ov: Control = _vh.overlay
+	var rect: Rect2 = ov.displayed_rect()
+	var g: Vector2i = _br.grid_size()
+	## The same arguments `_draw_rivers` passes (its crisp `k` is the camera
+	## zoom, `_crisp_begin`).
+	var k: float = maxf(float(ov.get("_camera_zoom")), 0.001)
+	var vis: Rect2 = ov.get("_visible_local")
+	var sc := Vector2(rect.size.x / float(g.x), rect.size.y / float(g.y)) * k
+	var mesh: Dictionary = _br.river_view_mesh(sc, rect.position * k, Rect2(vis.position * k, vis.size * k))
+	var xf: Transform2D = ov.get_global_transform_with_canvas()
+	var on_img := await _grab_full()
+	_vh.set_layer_visible("rivers", false)
+	await _frames(3)
+	var off_img := await _grab_full()
+	_vh.set_layer_visible("rivers", true)
+	await _frames(3)
+	var riv := _river_image()
+	var map := _tex_image()
+	if on_img == null or off_img == null or riv == null or map == null:
+		_ok(false, "S: %s: viewport and textures readable" % tag)
+		return
+	var host := Rect2i(Vector2i(_vh.global_position.round()), Vector2i(_vh.size.round())).intersection(Rect2i(Vector2i.ZERO, on_img.get_size()))
+	var fname := "%s/screen_%s_x%s_%s" % [_out, pname.to_snake_case(), str(z).replace(".", "p"), when]
+	on_img.get_region(host).save_png(fname + "_on.png")
+	off_img.get_region(host).save_png(fname + "_off.png")
+	var pix := _solid_core_pixels(mesh, xf, k, host.grow(-2))
+	var inv := xf.affine_inverse()
+	var d_river := []; var d_ctrl := []; var d_white := []
+	var ch := [[], [], []]; var lum_on := []; var lum_off := []
+	for p: Vector2i in pix:
+		var local: Vector2 = inv * (Vector2(p) + Vector2(0.5, 0.5))
+		var gp := (local - rect.position) / rect.size * Vector2(g)
+		var c := Vector2i(clampi(int(floor(gp.x)), 0, g.x - 1), clampi(int(floor(gp.y)), 0, g.y - 1))
+		var a := _px(on_img, p); var b := _px(off_img, p)
+		var r := _px(riv, c); var m := _px(map, c)
+		d_river.append((absf(a.x - r.x) + absf(a.y - r.y) + absf(a.z - r.z)) / 3.0)
+		d_ctrl.append((absf(b.x - m.x) + absf(b.y - m.y) + absf(b.z - m.z)) / 3.0)
+		d_white.append((765.0 - a.x - a.y - a.z) / 3.0)
+		for q in 3:
+			ch[q].append(a[q])
+		lum_on.append(_luma(a)); lum_off.append(_luma(b))
+	_ok(pix.size() >= 200, "S: %s: enough solid-core stroke pixels on screen (%d >= 200)" % [tag, pix.size()])
+	if pix.size() < 200:
+		return
+	var tol := _pct(d_ctrl, 0.9)
+	var med := _median(d_river)
+	var on := Vector3(_median(ch[0]), _median(ch[1]), _median(ch[2]))
+	var luma := _luma(on)
+	print("RIVSTYLE  S %-26s px %5d  screen median %s luma %.0f  |screen-rivtex| median %.1f  tol (control p90) %.1f  |screen-white| median %.1f  luma over ground %.0f"
+		% [tag, pix.size(), str(on), luma, med, tol, _median(d_white), _median(lum_on) - _median(lum_off)])
+	_ok(med <= tol, "S: %s: the drawn river is the river colour texture's colour (median %.1f <= control p90 %.1f)" % [tag, med, tol])
+	match pname:
+		"Default":
+			## Labelled judgement: RV-2's palette is blue (b well over r);
+			## white has b - r = 0, which is the regression.
+			_ok(on.z - on.x >= 30.0, "S: %s: blue, not white (b-r %.0f >= 30)" % [tag, on.z - on.x])
+		"Blueprint":
+			var mn: float = minf(on.x, minf(on.y, on.z))
+			_ok(luma >= 200.0 and mn >= 185.0, "S: %s: white line (luma %.0f >= 200, min channel %.0f >= 185)" % [tag, luma, mn])
+		"Ink":
+			_ok(luma <= 90.0, "S: %s: dark pen line (luma %.0f <= 90)" % [tag, luma])
+		"Night":
+			var lg: float = _median(lum_on) - _median(lum_off)
+			_ok(on.z - on.x >= 40.0 and on.z - on.y >= 12.0 and lg >= 45.0,
+				"S: %s: luminous blue over dark ground (b-r %.0f >= 40, b-g %.0f >= 12, luma over ground %.0f >= 45)"
+				% [tag, on.z - on.x, on.z - on.y, lg])
+
+
+## The viewport pixels the stroke's SOLID core covers: every triangle of
+## `river_view_mesh` whose three vertices are fully opaque (not the 1 px
+## fringe, not an order-1 run's de-emphasised alpha), taken to viewport pixels
+## (`xf * (point / k)`, the inverse of `_draw_rivers`' crisp scale), and every
+## pixel whose CENTRE falls inside it -- the rasterizer's own coverage rule,
+## so these pixels are drawn with the stroke's colour and nothing blended.
+## Inside `clip` only. At most ~4000, evenly thinned.
+func _solid_core_pixels(mesh: Dictionary, xf: Transform2D, k: float, clip: Rect2i) -> Array:
+	var pts: PackedVector2Array = mesh.get("points", PackedVector2Array())
+	var cols: PackedColorArray = mesh.get("colors", PackedColorArray())
+	var idx: PackedInt32Array = mesh.get("indices", PackedInt32Array())
+	var seen := {}
+	for t in range(0, idx.size() - 2, 3):
+		var i0 := idx[t]; var i1 := idx[t + 1]; var i2 := idx[t + 2]
+		if cols[i0].a < 0.999 or cols[i1].a < 0.999 or cols[i2].a < 0.999:
+			continue
+		var a: Vector2 = xf * (pts[i0] / k)
+		var b: Vector2 = xf * (pts[i1] / k)
+		var c: Vector2 = xf * (pts[i2] / k)
+		var area := (b - a).cross(c - a)
+		if absf(area) < 1e-6:
+			continue
+		var x0 := maxi(clip.position.x, int(floor(minf(a.x, minf(b.x, c.x)))))
+		var x1 := mini(clip.end.x - 1, int(ceil(maxf(a.x, maxf(b.x, c.x)))))
+		var y0 := maxi(clip.position.y, int(floor(minf(a.y, minf(b.y, c.y)))))
+		var y1 := mini(clip.end.y - 1, int(ceil(maxf(a.y, maxf(b.y, c.y)))))
+		for y in range(y0, y1 + 1):
+			for x in range(x0, x1 + 1):
+				var p := Vector2(x + 0.5, y + 0.5)
+				var w0 := (b - a).cross(p - a) * signf(area)
+				var w1 := (c - b).cross(p - b) * signf(area)
+				var w2 := (a - c).cross(p - c) * signf(area)
+				if w0 >= 0.0 and w1 >= 0.0 and w2 >= 0.0:
+					seen[Vector2i(x, y)] = true
+	var all: Array = seen.keys()
+	var step := maxi(1, all.size() / 4000)
+	var out: Array = []
+	for i in range(0, all.size(), step):
+		out.append(all[i])
+	return out
+
+
+## The whole viewport as RGB8, after the frame has drawn.
+func _grab_full() -> Image:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	if img == null:
+		return null
+	img.convert(Image.FORMAT_RGB8)
+	return img
+
+
+## The `q` quantile (nearest rank) of `a`; NAN when empty.
+func _pct(a: Array, q: float) -> float:
+	if a.is_empty():
+		return NAN
+	var b := a.duplicate(); b.sort()
+	return float(b[clampi(int(q * float(b.size() - 1)), 0, b.size() - 1)])
 
 
 func _finish() -> void:
