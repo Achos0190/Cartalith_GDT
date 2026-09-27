@@ -376,6 +376,45 @@ re-checked against the tree rather than copied from the commit message.
     the two measurements. 179 result lines before, 180 after.
 
   Next: GF-1, the lithology model and column.
+- **GF-1 built: the lithology model and column, read by no process.
+  verified by the main loop 2026-09-27 (geology_gf1 5/0, terrain geology 13/0, gf0 controls 3/0, params_mapping 34/0, sample 39/0 re-run; staged tree built alone in a worktree).**
+  - **What:** `cartalith-terrain/src/geology.rs` holds the 11-type rock table
+    (`ROCK_PROPS`) and the derivation (`build_geology`) from pre-erosion causes
+    only: plate crust, a labelled boundary distance (wraps in x), structural
+    lows, latitude, facies noise and the volcanic setting. The setting is no
+    longer discarded: `stamp_volcanoes_*_traced` record the winning edifice per
+    cell. `generate_terrain` runs the new geology stage after sea level and
+    stores `WorldState::geology` (the column, or `GeologyAbsent` with a reason
+    for imports, restored saves and the switch off). The switch,
+    `WorldParams::geology_model`, is off in `WorldParams::defaults` and on in
+    `params::defaults()`; it has a `PARAMS` and `JS_PATHS` row, no GUI control,
+    and a save without the key reloads with it off. The Sample dock gains Rock
+    (surface), Beneath (contact depth in metres), Strength, Soluble ·
+    permeable and Regolith rows, each dashed with the engine's reason when
+    there is no value.
+  - **Bit-identity:** `geology_gf1.rs` asserts every pre-existing array
+    bit-identical with the switch on and off (4 worlds, plus the simple
+    volcanism path), and that the column does not move when erosion or
+    climate does. `gf0_bars`' §5.4 lines are byte-identical before and after
+    on all 15 worlds. `golden_parity_pipeline.rs` is untouched.
+  - **First values (scope §5.5):** B10 passes on all five seeds at 800 km,
+    9–10 rock types and a two-layer share of 0.14–0.28 of land. B4's control
+    arm reads 0.035–0.243 at 800 km, and its input-selected twin cannot be
+    measured with this derivation. The control arm already reads B3 at
+    7.9–108, above the treatment bar.
+  - **Sources:** Hoek–Brown `mi` verified in Marinos & Hoek (2000) Table 2,
+    with two corrections to the scope. The Selby bands, the Freeze & Cherry
+    ordering and the angle of repose are cited, not verified. Every other
+    value is a labelled judgement.
+  - **Mutation testing:** 191 mutants over the table and the classifier; 185
+    were killed at first, and the 6 survivors were killed after new
+    assertions. Sources were restored hash-identical.
+  - **Memory:** the generation peak at 2048 × 1311 rises from 486.50 to
+    513.94 MiB (+27.44 MiB). `WorldState` grows by 11.0 B/cell.
+  - **Not built, against the scope's GF-1 list:** the §2.6 save set (moved to
+    GF-8), the single-layer import column, and the lithology map view.
+  - **Probe:** `_gf1sample_probe.tscn` (windowed): 27 checks green, with a
+    screenshot.
 
 ### 2026-09-25
 

@@ -739,6 +739,7 @@ mod tests {
             climate: &w.params.climate,
             g: 9.81,
             seed: 1,
+            geology: Err("test fixture: no rock column"),
         }
     }
 

@@ -10,6 +10,7 @@ pub mod amplify;
 pub mod analysis;
 pub mod center;
 pub mod fjord;
+pub mod geology;
 pub mod infer;
 pub mod landform;
 pub mod sculpt;
@@ -1257,6 +1258,49 @@ pub enum VolcanicSetting {
     Unclassified,
 }
 
+/// One stamped edifice, as the GF-1 geology stage needs it: where it is, how
+/// big, how tall (the normalised height `stamp_one_volcano` computed), and
+/// the setting it was placed in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlacedEdifice {
+    pub setting: VolcanicSetting,
+    pub cx: f64,
+    pub cy: f64,
+    /// Radius in cells, after `stamp_one_volcano`'s own `max(2)`.
+    pub r: f64,
+    /// Summit height in normalised units, `stamp_one_volcano`'s own `h`.
+    pub h: f64,
+}
+
+/// What the volcano stampers record when asked (`*_traced`): every edifice,
+/// and per cell the index of the one that won `volcanic_field`'s max.
+/// Transient -- the engine builds the geology column from it and drops it.
+#[derive(Clone, Debug)]
+pub struct VolcanoTrace {
+    pub edifices: Vec<PlacedEdifice>,
+    /// Index into `edifices`, or [`VolcanoTrace::NONE`] where no edifice
+    /// raised `volcanic_field` above 0.
+    pub winner: Vec<u32>,
+}
+
+impl VolcanoTrace {
+    /// No edifice won this cell. Not an index: the stampers place at most
+    /// `volc_count` (an `i32`) edifices, far below `u32::MAX`.
+    pub const NONE: u32 = u32::MAX;
+
+    pub fn new(n: usize) -> Self {
+        VolcanoTrace { edifices: Vec::new(), winner: vec![Self::NONE; n] }
+    }
+
+    /// The edifice that won cell `i`, if any.
+    pub fn winner_at(&self, i: usize) -> Option<&PlacedEdifice> {
+        match self.winner.get(i).copied() {
+            Some(Self::NONE) | None => None,
+            Some(k) => self.edifices.get(k as usize),
+        }
+    }
+}
+
 /// The three edifice morphologies this model distinguishes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum EdificeKind {
@@ -1861,6 +1905,7 @@ mod edifice_tests {
                 0.1,
                 setting,
                 EdificeModel::Morphological,
+                None,
             );
             (field, volc)
         };
@@ -1905,9 +1950,17 @@ fn stamp_one_volcano(
     height_m: f64,
     age: f64,
     shape: Option<EdificeShape>,
+    setting: VolcanicSetting,
+    mut trace: Option<&mut VolcanoTrace>,
 ) {
     let h = (height_m / peak_m) * 0.9 * (1.0 - age * 0.5);
     let r = rad_cells.max(2.0);
+    // GF-1: record this edifice so the geology stage can recover which one won
+    // each cell's `volcanic_field` max. Recording only; nothing below reads it.
+    let trace_id = trace.as_deref_mut().map(|t| {
+        t.edifices.push(PlacedEdifice { setting, cx, cy, r, h });
+        (t.edifices.len() - 1) as u32
+    });
     let caldera = height_m > 1000.0;
     // The morphological model gives *every* edifice a summit depression, so it
     // does not consult `caldera`. That is not a loosened threshold, it is the
@@ -1954,6 +2007,13 @@ fn stamp_one_volcano(
                 field[i]
             };
             let candidate = (1.0 - t) * (1.0 - age);
+            if let (Some(tr), Some(id)) = (trace.as_deref_mut(), trace_id) {
+                // Strictly greater: on a tie the earlier edifice keeps the
+                // cell, and the stored value is the same either way.
+                if candidate > volcanic_field[i] as f64 {
+                    tr.winner[i] = id;
+                }
+            }
             let vv = candidate.max(volcanic_field[i] as f64);
             volcanic_field[i] = vv as f32;
         }
@@ -1986,6 +2046,7 @@ fn place_sized_volcano(
     age: f64,
     setting: VolcanicSetting,
     model: EdificeModel,
+    trace: Option<&mut VolcanoTrace>,
 ) -> Option<(f64, f64)> {
     if x < 0.0 || y < 0.0 || x >= gw as f64 - 1.0 || y >= gh as f64 - 1.0 {
         return None;
@@ -2021,6 +2082,8 @@ fn place_sized_volcano(
         h_m,
         age,
         shape,
+        setting,
+        trace,
     );
     Some((x, y))
 }
@@ -2087,6 +2150,42 @@ pub fn stamp_volcanoes_simple_shaped(
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
 ) {
+    stamp_volcanoes_simple_traced(
+        gw,
+        gh,
+        seed,
+        map_width_km,
+        peak_m,
+        boundary_mask,
+        volc_count,
+        volc_age,
+        field,
+        volcanic_field,
+        edifice,
+        None,
+    )
+}
+
+/// [`stamp_volcanoes_simple_shaped`] that also records, in `trace`, every
+/// edifice it stamps and which one won each cell's `volcanic_field` max
+/// (GF-1, `GEOLOGY_FIRST_SCOPE.md` §2.4). `None` is the untraced function by
+/// control flow; with `Some`, `field` and `volcanic_field` are bit-identical
+/// too, because the trace is only written, never read, here.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_simple_traced(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    edifice: EdificeModel,
+    mut trace: Option<&mut VolcanoTrace>,
+) {
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let bc: Vec<usize> = (0..boundary_mask.len())
         .filter(|&i| boundary_mask[i] != 0)
@@ -2123,6 +2222,7 @@ pub fn stamp_volcanoes_simple_shaped(
             age,
             VolcanicSetting::Unclassified,
             edifice,
+            trace.as_deref_mut(),
         )
         .is_some()
         {
@@ -2229,6 +2329,7 @@ fn place_province_volcanoes(
     cell_km: f64,
     volc_age: f64,
     edifice: EdificeModel,
+    mut trace: Option<&mut VolcanoTrace>,
 ) {
     // The province `kind` the reference draws and then uses only for placement.
     // This is the whole of "the volcanic setting the placement lane classifies"
@@ -2267,6 +2368,7 @@ fn place_province_volcanoes(
                 age,
                 setting,
                 edifice,
+                trace.as_deref_mut(),
             );
         }
         return;
@@ -2307,6 +2409,7 @@ fn place_province_volcanoes(
                 age,
                 setting,
                 edifice,
+                trace.as_deref_mut(),
             );
         }
         return;
@@ -2357,6 +2460,7 @@ fn place_province_volcanoes(
             age,
             setting,
             edifice,
+            trace.as_deref_mut(),
         );
         pc += 1;
     }
@@ -2384,6 +2488,7 @@ fn place_province_volcanoes(
             age,
             setting,
             edifice,
+            trace.as_deref_mut(),
         );
         pc += 1;
     }
@@ -2470,6 +2575,52 @@ pub fn stamp_volcanoes_provinces_shaped(
     volcanic_field: &mut [f32],
     edifice: EdificeModel,
 ) {
+    stamp_volcanoes_provinces_traced(
+        gw,
+        gh,
+        seed,
+        map_width_km,
+        peak_m,
+        boundary_mask,
+        stress_field,
+        boundary_type,
+        plate_id,
+        plates,
+        volc_count,
+        volc_age,
+        field,
+        volcanic_field,
+        edifice,
+        None,
+    )
+}
+
+/// [`stamp_volcanoes_provinces_shaped`] that also records every edifice and
+/// its **setting** in `trace` -- the arc/rift/hotspot roll this function
+/// already makes per province and, untraced, throws away after placement.
+/// `GEOLOGY_FIRST_SCOPE.md` §2.4 and §4.8 (GF-1): storing it is plumbing, not
+/// new classification. `None` is the untraced function by control flow; with
+/// `Some`, `field` and `volcanic_field` are bit-identical, because the trace is
+/// only written here, never read.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_provinces_traced(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    stress_field: &[f32],
+    boundary_type: Option<&[u8]>,
+    plate_id: &[u16],
+    plates: &[Plate],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    edifice: EdificeModel,
+    mut trace: Option<&mut VolcanoTrace>,
+) {
     let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
     let (conv, div) = classify_boundaries(boundary_mask, stress_field, boundary_type);
     let cell_km = map_width_km / gw as f64;
@@ -2541,6 +2692,7 @@ pub fn stamp_volcanoes_provinces_shaped(
             cell_km,
             volc_age,
             edifice,
+            trace.as_deref_mut(),
         );
         remaining -= sub;
     }
@@ -4393,5 +4545,53 @@ mod crater_degradation_tests {
         assert_eq!(a, b, "physical_model: false must be byte-identical at any surface age");
         assert_eq!(a_impact, b_impact);
         assert!(a.iter().any(|&v| v != 0.5), "the reference probe stamped nothing");
+    }
+}
+
+/// GF-1: the volcano trace records the edifice that won each cell's
+/// `volcanic_field` max, and recording changes neither output.
+#[cfg(test)]
+mod volcano_trace_tests {
+    use super::*;
+
+    #[test]
+    fn trace_keeps_the_max_winner_and_moves_no_output() {
+        let (gw, gh) = (64usize, 64usize);
+        let run = |traced: bool| {
+            let mut field = vec![0.3f32; gw * gh];
+            let mut volc = vec![0f32; gw * gh];
+            let mut trace = VolcanoTrace::new(gw * gh);
+            let mut t = traced.then_some(&mut trace);
+            // A big young edifice, then a small old one overlapping its flank.
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 32.0, 32.0, 10.0, 2000.0, 0.0, None,
+                VolcanicSetting::Arc, t.as_deref_mut());
+            stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 38.0, 32.0, 4.0, 500.0, 0.9, None,
+                VolcanicSetting::Hotspot, t.as_deref_mut());
+            (field, volc, trace)
+        };
+        let (f0, v0, _) = run(false);
+        let (f1, v1, tr) = run(true);
+        assert_eq!(f0.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), f1.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        assert_eq!(v0.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), v1.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+        assert_eq!(tr.edifices.len(), 2);
+        assert_eq!(tr.edifices[1].setting, VolcanicSetting::Hotspot);
+        // (36, 32): the first scores (1 - 0.4) * 1 = 0.6, the second
+        // (1 - 0.5) * 0.1 = 0.05 -- the first keeps it.
+        assert_eq!(tr.winner[32 * gw + 36], 0);
+        // (38, 32), the second's summit: first 0.4, second 1 * 0.1 = 0.1.
+        assert_eq!(tr.winner[32 * gw + 38], 0);
+        // (41, 32): outside the first (d 9 < 10: 0.1), second (d 3 / 4: 0.025).
+        assert_eq!(tr.winner[32 * gw + 41], 0);
+        // (43, 32): d 11 from the first (radius 10), d 5 from the second
+        // (radius 4) -- inside neither, so no winner.
+        assert_eq!(tr.winner[32 * gw + 43], VolcanoTrace::NONE);
+        assert!(tr.winner_at(32 * gw + 43).is_none());
+        // An isolated edifice wins its own summit and carries its setting.
+        let mut field = vec![0.3f32; gw * gh];
+        let mut volc = vec![0f32; gw * gh];
+        let mut t2 = VolcanoTrace::new(gw * gh);
+        stamp_one_volcano(gw, gh, &mut field, &mut volc, 4000.0, 10.0, 10.0, 4.0, 500.0, 0.5, None,
+            VolcanicSetting::Rift, Some(&mut t2));
+        assert_eq!(t2.winner_at(10 * gw + 10).map(|e| e.setting), Some(VolcanicSetting::Rift));
     }
 }

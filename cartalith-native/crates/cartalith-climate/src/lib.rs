@@ -56,7 +56,9 @@ pub(crate) fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
 
 /// `latAt()` (reference HTML line 4965): world mode spans the whole
 /// planet pole-to-pole; a region uses the configured `latN`/`latS` band.
-pub(crate) fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
+/// `pub` for `cartalith-engine`'s geology stage (GF-1), which reads the same
+/// latitude the climate does rather than a second copy of this formula.
+pub fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
     let denom = (gh.max(2) - 1) as f64;
     if world {
         90.0 - (y as f64 / denom) * 180.0

@@ -36,10 +36,16 @@
 //! population. It is not the control arm the scope defines (that arm runs the
 //! GF-1 geology stage with `c = 0`).
 //!
-//! Bars that need something only the model or a later milestone provides are
-//! printed as **not measurable, with the reason** -- never as a number:
-//! B4 (no two-layer column), B5 (no dissolution pass), B10's rock-type and
-//! two-layer counts (no model). B7 is measured on an extra, labelled arm with
+//! **Since GF-1** the app's parameters build the rock column and no process
+//! reads it, so the harness also prints the control arm: B1 to B3 on the
+//! model's own `s` (§5.2's strong `s >= 0.7` / weak `s <= 0.4` split), B4
+//! (cap-edge scarps, and its input-selected twin, which this derivation
+//! cannot populate), and B10's rock-type count and two-layer share. The
+//! stand-in lines above are unchanged, byte for byte.
+//!
+//! Bars that need something only a later milestone provides are printed as
+//! **not measurable, with the reason** -- never as a number: B5 (no
+//! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
 //! the coastal pass forced on, because arm 1 has it off (Ruling BJ turns it on
 //! at GF-4).
 //!
@@ -373,6 +379,144 @@ fn b3(s: &[f32], pre: &[f32], post: &[f32], pop: &[usize], m_per_unit: f64) -> R
     }
 }
 
+// ===========================================================================
+// GF-1: the column's own bars (control arm: the column exists, no process
+// reads it)
+// ===========================================================================
+
+/// §5.2's own strong/weak split of the model's `s`: strong `s ≥ 0.7`, weak
+/// `s ≤ 0.4` (B2's definition). Fixed thresholds, not quartiles: the model's
+/// `s` takes eleven values, and its quartiles can coincide.
+const S_STRONG: f32 = 0.7;
+const S_WEAK: f32 = 0.4;
+
+fn ratio_reading(num: &[f64], den: &[f64], pops: Vec<(&'static str, usize)>, what: &str, use_mean: bool) -> Reading {
+    let (a, b) = if use_mean { (mean(num), mean(den)) } else { (median(num), median(den)) };
+    match (a, b) {
+        (Some(a), Some(b)) if a > 0.0 && b > 0.0 => {
+            let mut r = Reading::ok(a / b, pops).floored();
+            r.detail = format!("{what} {a:.3} / {b:.3}");
+            r
+        }
+        (Some(a), Some(b)) => Reading::none(format!("ratio undefined: {what} {a:.3} / {b:.3} (non-positive)"), pops),
+        _ => Reading::none("empty population", pops),
+    }
+}
+
+/// B2 on the model's `s`, §5.2's split.
+fn b2_model(s: &[f32], slope: &[f32], pop: &[usize]) -> Reading {
+    let strong: Vec<f64> = pop.iter().filter(|&&i| s[i] >= S_STRONG).map(|&i| slope[i] as f64).collect();
+    let weak: Vec<f64> = pop.iter().filter(|&&i| s[i] <= S_WEAK).map(|&i| slope[i] as f64).collect();
+    let pops = vec![("strong s>=0.7", strong.len()), ("weak s<=0.4", weak.len())];
+    ratio_reading(&strong, &weak, pops, "median slope deg strong/weak", false)
+}
+
+/// B3 on the model's `s`, §5.2's split.
+fn b3_model(s: &[f32], pre: &[f32], post: &[f32], pop: &[usize], m_per_unit: f64) -> Reading {
+    let depth = |i: usize| (pre[i] as f64 - post[i] as f64) * m_per_unit;
+    let weak: Vec<f64> = pop.iter().filter(|&&i| s[i] <= S_WEAK).map(|&i| depth(i)).collect();
+    let strong: Vec<f64> = pop.iter().filter(|&&i| s[i] >= S_STRONG).map(|&i| depth(i)).collect();
+    let pops = vec![("weak s<=0.4", weak.len()), ("strong s>=0.7", strong.len())];
+    ratio_reading(&weak, &strong, pops, "mean depth m weak/strong", true)
+}
+
+/// The exposed rock index per cell (`u8::MAX` where the column has none),
+/// through the column's own exposure rule.
+fn exposed_map(col: &cartalith_terrain::geology::GeologyColumn, field: &[f32], sea: f64, peak_m: f64) -> Vec<u8> {
+    let r = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, peak_m) as f32;
+    (0..field.len()).map(|i| col.exposed(i, field[i], r).map_or(u8::MAX, |k| k as u8)).collect()
+}
+
+/// B4: median slope at cap-edge cells ÷ median slope of substrate-exposed
+/// cells within 5 cells of one; the share of cap-edge cells in land's top
+/// slope decile; and the input-selected twin (two-layer against single-layer
+/// cells of the same top rock, median over rocks of the per-rock ratio of
+/// median slopes). Land is water-body class 0.
+fn b4(
+    col: &cartalith_terrain::geology::GeologyColumn,
+    exposed: &[u8],
+    slope: &[f32],
+    class: &[u8],
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> (Reading, Option<f64>, Reading) {
+    let n = gw * gh;
+    let land = |i: usize| class[i] == 0;
+    let mut edge = vec![false; n];
+    for i in 0..n {
+        if !land(i) || col.substrate(i).is_none() {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let mut nb = Vec::with_capacity(4);
+        if x > 0 {
+            nb.push(i - 1);
+        } else if world {
+            nb.push(i + gw - 1);
+        }
+        if x + 1 < gw {
+            nb.push(i + 1);
+        } else if world {
+            nb.push(i + 1 - gw);
+        }
+        if y > 0 {
+            nb.push(i - gw);
+        }
+        if y + 1 < gh {
+            nb.push(i + gw);
+        }
+        edge[i] = nb.iter().any(|&j| exposed[j] != u8::MAX && exposed[j] != exposed[i]);
+    }
+    let edge_f: Vec<f32> = edge.iter().map(|&e| if e { 1.0 } else { 0.0 }).collect();
+    let (mut rmax, mut s1) = (vec![0f32; n], vec![0f32; n]);
+    sliding_1d(&edge_f, &mut rmax, &mut s1, gw, gh, 5, true, world);
+    let (mut near, mut s2) = (vec![0f32; n], vec![0f32; n]);
+    sliding_1d(&rmax, &mut near, &mut s2, gw, gh, 5, false, false);
+    let edge_slope: Vec<f64> = (0..n).filter(|&i| edge[i]).map(|i| slope[i] as f64).collect();
+    let sub_slope: Vec<f64> = (0..n)
+        .filter(|&i| land(i) && !edge[i] && near[i] > 0.0 && col.substrate(i).is_some_and(|(r, _)| exposed[i] == r as u8))
+        .map(|i| slope[i] as f64)
+        .collect();
+    let main = ratio_reading(
+        &edge_slope,
+        &sub_slope,
+        vec![("cap-edge cells", edge_slope.len()), ("substrate cells within 5", sub_slope.len())],
+        "median slope deg edge/substrate",
+        false,
+    );
+    let land_slopes: Vec<f64> = (0..n).filter(|&i| land(i)).map(|i| slope[i] as f64).collect();
+    let top_decile = quantile(&land_slopes, 0.9)
+        .filter(|_| edge_slope.len() >= MIN_POP)
+        .map(|p90| edge_slope.iter().filter(|&&v| v >= p90).count() as f64 / edge_slope.len() as f64);
+    // The twin, selected by input only.
+    let mut ratios = Vec::new();
+    let mut used = Vec::new();
+    for k in 0..cartalith_terrain::geology::ROCK_COUNT as u8 {
+        let two: Vec<f64> =
+            (0..n).filter(|&i| land(i) && col.rock_top[i] == k && col.substrate(i).is_some()).map(|i| slope[i] as f64).collect();
+        let one: Vec<f64> =
+            (0..n).filter(|&i| land(i) && col.rock_top[i] == k && col.substrate(i).is_none()).map(|i| slope[i] as f64).collect();
+        if two.len() >= MIN_POP && one.len() >= MIN_POP {
+            if let (Some(a), Some(b)) = (median(&two), median(&one)) {
+                if b > 0.0 {
+                    ratios.push(a / b);
+                    used.push(format!("{} {:.3}", cartalith_terrain::geology::ROCK_PROPS[k as usize].name, a / b));
+                }
+            }
+        }
+    }
+    let twin = match median(&ratios) {
+        Some(v) => {
+            let mut r = Reading::ok(v, vec![("rocks with both groups >= 100", ratios.len())]);
+            r.detail = used.join("; ");
+            r
+        }
+        None => Reading::none("no top rock has >= 100 two-layer and >= 100 single-layer land cells", vec![("rocks", 0)]),
+    };
+    (main.floored(), top_decile, twin)
+}
+
 /// B6: at matched discharge, the median glacial lowering on weak (stand-in
 /// for γ ≥ 1.5) ÷ strong (stand-in for γ ≤ 0.6) rock; reported as the median
 /// of the per-band ratios over the bands where both groups hold at least 10
@@ -682,6 +826,7 @@ fn gf0_bars() {
     println!("GF-0 baseline, arm 1 (today's pipeline, cartalith_godot::params::defaults), grid {gw}x{gh}");
     println!("strength stand-in: resistance_field; strong = top quartile, weak = bottom quartile of each bar's population");
     println!("NOT the scope's control arm (that needs GF-1's column with c = 0).");
+    println!("GF-1: the column exists and no process reads it, so every 'control arm' line below IS the control arm (c = 0, no new stages).");
     for &km in &extents {
         for &seed in &seeds {
             let p = app_params(seed, km, gw, gh);
@@ -692,6 +837,12 @@ fn gf0_bars() {
             let cell_m = km * 1000.0 / gw as f64;
             let class = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall)).classification;
             let s: &[f32] = &ws.resistance_field;
+            let col = ws.geology.column().expect("params::defaults() runs the geology model (Ruling BH)");
+            let exposed = exposed_map(col, &ws.field, sea, p.peak_m);
+            let s_model: Vec<f32> = exposed
+                .iter()
+                .map(|&k| cartalith_terrain::geology::ROCK_PROPS.get(k as usize).map_or(f32::NAN, |r| r.s))
+                .collect();
 
             // Pre-erosion surface: carve off, passes off.
             let mut pp = p.clone();
@@ -712,6 +863,10 @@ fn gf0_bars() {
             println!("B1 rho(strength, 9x9 relief m)      {}", r1.show());
             println!("B2 median slope strong/weak         {}", r2.show());
             println!("B3 mean erosion depth weak/strong   {}", r3.show());
+            println!("   control arm (GF-1 model s of the exposed rock; strong s>=0.7, weak s<=0.4):");
+            println!("   B1 {}", b1(&s_model, &relief, &pop).show());
+            println!("   B2 {}", b2_model(&s_model, &slope, &pop).show());
+            println!("   B3 {}", b3_model(&s_model, &pre_ws.field, &ws.field, &pop, mpu).show());
             // Negative control on the real world: the same bars on a permuted
             // rock map.
             let sp = permuted(s, &pop, seed as u64 ^ 0x6f0);
@@ -733,7 +888,10 @@ fn gf0_bars() {
             if let Some(false) = n1_ok {
                 panic!("negative control failed on seed {seed} at {km} km: B1 permuted rho {:?}", n1.value);
             }
-            println!("B4 cap-edge scarps                  --  (not measurable: no two-layer column exists before GF-1; its input-selected twin needs the same column)");
+            let (r4, r4_decile, r4_twin) = b4(col, &exposed, &slope, &class, gw, gh, world);
+            println!("B4 cap-edge scarps (control arm)    {}", r4.show());
+            println!("   share of cap-edge cells in land's top slope decile: {}", fmt_opt(r4_decile));
+            println!("   input-selected twin, two-layer/single-layer same top rock: {}", r4_twin.show());
             println!("B5 karst on soluble rock            --  (not measurable: no dissolution pass exists before GF-5)");
 
             // B6: glacial lowering at matched discharge.
@@ -839,7 +997,48 @@ fn gf0_bars() {
                     && *again.resistance_field == *ws.resistance_field;
                 println!("B10 same seed twice byte-identical (field, temperature, rainfall, flow, river_mask, resistance): {same}");
                 assert!(same, "generation is not deterministic on seed {seed}");
-                println!("B10 rock types present / two-layer share  --  (not measurable: no lithology model before GF-1)");
+                let col2 = again.geology.column().expect("column");
+                let same_col = col.rock_top == col2.rock_top
+                    && col.rock_sub == col2.rock_sub
+                    && col.contact.iter().map(|v| v.to_bits()).eq(col2.contact.iter().map(|v| v.to_bits()))
+                    && col.regolith.iter().map(|v| v.to_bits()).eq(col2.regolith.iter().map(|v| v.to_bits()))
+                    && col.volcanic_setting == col2.volcanic_setting;
+                println!("B10 same seed twice byte-identical column (top, sub, contact, regolith, setting): {same_col}");
+                assert!(same_col, "the column is not deterministic on seed {seed}");
+                let land_cells: Vec<usize> = (0..gw * gh).filter(|&i| class[i] == 0).collect();
+                let nl = land_cells.len().max(1) as f64;
+                let mut exp_counts = [0usize; cartalith_terrain::geology::ROCK_COUNT];
+                let mut top_counts = [0usize; cartalith_terrain::geology::ROCK_COUNT];
+                let mut two = 0usize;
+                for &i in &land_cells {
+                    if let Some(c) = exp_counts.get_mut(exposed[i] as usize) {
+                        *c += 1;
+                    }
+                    top_counts[col.rock_top[i] as usize] += 1;
+                    if col.substrate(i).is_some() {
+                        two += 1;
+                    }
+                }
+                let types = exp_counts.iter().filter(|&&c| c > 0).count();
+                let share = two as f64 / nl;
+                println!(
+                    "B10 rock types exposed on land: {types} (bar >= 4: {}); two-layer share of land {share:.4} (bar >= 0.05: {})",
+                    if types >= 4 { "PASS" } else { "FAIL" },
+                    if share >= 0.05 { "PASS" } else { "FAIL" }
+                );
+                let fmt_shares = |c: &[usize]| {
+                    c.iter()
+                        .enumerate()
+                        .map(|(k, &v)| format!("{} {:.4}", cartalith_terrain::geology::ROCK_PROPS[k].name, v as f64 / nl))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                println!("    exposed-rock land shares: {}", fmt_shares(&exp_counts));
+                println!("    top-unit land shares:     {}", fmt_shares(&top_counts));
+                let settings: Vec<String> = (0..5u8)
+                    .map(|k| format!("{k}:{}", col.volcanic_setting.iter().filter(|&&v| v == k).count()))
+                    .collect();
+                println!("    volcanic_setting cell counts (0 none, 1 arc, 2 rift, 3 hotspot, 4 unclassified): {}", settings.join(" "));
                 let lith = cartalith_civ::build_lithology(
                     &ws.field,
                     &ws.age_field,

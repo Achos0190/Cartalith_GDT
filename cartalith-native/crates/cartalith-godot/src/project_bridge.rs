@@ -7740,6 +7740,7 @@ mod substrate_tests {
             river_mask: ws.river_mask.clone(),
             river_floor: ws.river_floor.clone(),
             gpu_stages_used: Vec::new(),
+            geology: ws.geology.clone(),
         }
     }
 }

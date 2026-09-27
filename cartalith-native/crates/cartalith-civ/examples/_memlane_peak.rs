@@ -6,12 +6,13 @@
 //! cargo run --release -p cartalith-civ --example _memlane_peak -- <gw> <gh> [seed] [km]
 //! MEMLANE_HASH=1 ...   # also print FNV fingerprints of every output
 //! MEMLANE_REF=1 ...    # WorldParams::defaults (the goldens' baseline) instead of the app's
+//! MEMLANE_NO_GEOLOGY=1 ...  # the app's params with the GF-1 geology model off
 //! ```
 //!
 //! Reproduces `cartalith-godot::compute_civilisation`'s default auto-populate
 //! path (keep None, fixed counts off, villages/metropolis/biome_k off,
 //! recovery Stable, CPU) call for call. Terrain parameters are the shipped
-//! app's `cartalith_godot::params::defaults()` (its six divergence flags on)
+//! app's `cartalith_godot::params::defaults()` (its seven divergence flags on)
 //! unless MEMLANE_REF is set. Sea routes get no ocean/wind field (a <=240-wide
 //! coarse grid, negligible memory).
 
@@ -121,14 +122,17 @@ fn main() {
 
     let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
     if !reference {
-        // cartalith_godot::params::defaults()' six divergence flags.
+        // cartalith_godot::params::defaults()' seven divergence flags (the seventh below).
         p.crater.physical_model = true;
         p.volc.exclude_transform = true;
         p.volc.edifice_model = true;
         p.integrate_drainage = true;
         p.tect.narrow_plate_base_blur = true;
         p.passes.glacial = true;
+        // The seventh (Ruling BH, GF-1): the geology stage and its column.
+        p.geology_model = std::env::var("MEMLANE_NO_GEOLOGY").is_err();
     }
+    println!("geology_model {}", p.geology_model);
     p.map_width_km = km;
     let ws = cartalith_engine::generate_terrain(&p);
     cp("generate_terrain", &t0);
@@ -166,6 +170,13 @@ fn main() {
     }
     if let Some(f) = ws.river_floor.as_ref() {
         row("river_floor f32", f.len() * 4);
+    }
+    if let Some(c) = ws.geology.column() {
+        row("geology.rock_top u8", c.rock_top.len());
+        row("geology.rock_sub u8", c.rock_sub.len());
+        row("geology.contact f32", c.contact.len() * 4);
+        row("geology.regolith f32", c.regolith.len() * 4);
+        row("geology.volcanic_setting u8", c.volcanic_setting.len());
     }
     println!("  WS TOTAL {:9.2} MiB ({:.1} B/cell); allocator live {:.2}", mib(resident), resident as f64 / n as f64, live());
     reset_peak();

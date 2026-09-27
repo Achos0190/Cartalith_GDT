@@ -1309,6 +1309,106 @@ defaults, CPU path; one warm-up, then five timed runs:
 5. **RV-1's hard guarantee holds everywhere measured.** There are 0 ocean
    cells on river paths on all 15 worlds.
 
+### 5.5 GF-1 findings: the column's first values (measured 2026-09-27)
+
+**What was run.** The same `gf0_bars` command as §5.4, in release, on the
+GF-1 tree, where `params::defaults()` now runs the geology stage and stores its
+column (`WorldState::geology`), and no process reads it. So every
+"control arm" line the harness now prints **is** §5.1's control arm (`c = 0`,
+no new stages).
+
+**Identity.** Every §5.4 line (B1 to B3 stand-in, the negative control, B6, B7,
+B8, the slope distribution, B10's array determinism and the legacy shares)
+is **byte-identical** to the pre-GF-1 run on all 15 worlds (the two outputs
+were diffed line for line). `cartalith-engine/tests/geology_gf1.rs` asserts
+the same bit for bit on every pre-existing `WorldState` array, switch on
+against switch off.
+
+**Where the model lives.** The table (§2.3) and the derivation (§2.4) are
+`cartalith-terrain/src/geology.rs` (`ROCK_PROPS`, `build_geology`); this
+scope named no file. The setting is kept by `stamp_volcanoes_*_traced`, which
+record the edifice that won each cell's `volcanic_field` max
+(`VolcanoTrace`); the engine reads it in the geology stage and drops it.
+
+**B10 at 800 km** (land = water-body class 0):
+
+| Seed | Rock types exposed on land | Two-layer share of land |
+|---|---|---|
+| 483920 | 9 | 0.1530 |
+| 24601 | 9 | 0.1431 |
+| 71077345 | 10 | 0.2375 |
+| 12345 | 10 | 0.2786 |
+| 314159 | 10 | 0.1967 |
+
+Both B10 bars pass on all five (≥ 4 types, ≥ 5 % two-layer), and the column
+is byte-identical run to run. Granite is 0.57–0.75 of land, sandstone
+0.10–0.18, oceanic basalt 0.004–0.22, limestone 0.03–0.06, schist
+0.05–0.08; gneiss, plateau basalt,
+andesite, tuff and shale are each under 0.03. Exposed shale is the cover's
+substrate, where the pre-erosion surface already lies below the contact.
+
+**B4 (control arm).** Cap-edge ÷ substrate median slope: 0.035–0.243 at
+800 km, 0.436–1.213 at 80 km, 0.020–0.621 at 8 000 km; the share of cap-edge
+cells in land's top slope decile: 0.20–0.29 at 800 km. **Its input-selected
+twin is not measurable** on any of the 15 worlds, and cannot be with this
+derivation: every rock type is either always two-layer (sandstone, limestone,
+the volcanic caps) or always single-layer (granite, gneiss, schist, oceanic
+basalt), so no top rock has both groups. GF-2 needs either a different twin
+(for example two-layer cells against single-layer cells of the same
+*substrate*) or a derivation that puts one rock in both groups.
+
+**B1 to B3 on the model's own `s`** (the control arm, §5.2's split, strong
+`s ≥ 0.7`, weak `s ≤ 0.4`), at 800 km:
+- B1 ρ −0.46 to −0.32; B2 0.041 to 0.051.
+- **B3 7.9 to 108**, already far above the treatment bar of 2.0. Weak rock
+  here is mostly tuff on volcano flanks, which the existing kernels erode
+  hardest because they are steep, not because they are weak. Under §5.2's own
+  rule ("if the control already meets a bar, that bar is not evidence") B3's
+  absolute half is not evidence at GF-2; its relative half (≥ 1.6 × control)
+  is the one that can speak. Not changed here: a bar change is the owner's.
+
+**The property table, checked at its sources for GF-1:**
+- **Verified:** Hoek–Brown `mi`, Marinos & Hoek (2000) Table 2 (opened in the
+  paper as Rocscience publishes it): granite 32 ± 3, gneiss 28 ± 5, schists
+  12 ± 3, andesite 25 ± 5, sandstones 17 ± 4; and, as the table's own
+  parenthesised estimates, basalt (25 ± 5), tuff (13 ± 5), micritic limestone
+  (9 ± 2), shales (6 ± 2). **Two corrections to §2.3's column:** limestone is
+  pinned at micritic 9 ± 2 (sparitic is 10 ± 2); and "mudstone 4" is not in
+  the table, whose 4 ± 2 is *claystone*.
+- **Cited, not verified** (the source could not be opened for GF-1): Selby's
+  (1980) class boundaries, which the code uses as labels only, with each `s`
+  asserted inside its quoted band; Freeze & Cherry (1979) Table 2.2's
+  permeability ordering; the angle of repose (Carson & Kirkby 1972) behind
+  unconsolidated θc 33°.
+- **Judgements, as §2.3 labels them:** every `s`, κ, θc, γ, ρ, the jointing
+  classes, and every §2.4 derivation constant (belt widths, low depth, cover
+  and cap thicknesses, `V_TH`, the arc core radius, the 30° carbonate band).
+
+**Departures from §2.4, disclosed.**
+- The cover and volcanic contacts are **surface-parallel** (the pre-erosion
+  surface minus a smooth thickness), not horizontal plus a warp. In a
+  structural low the pre-erosion surface is near-flat, and the facies noise
+  already makes the outcrop line irregular.
+- An arc edifice's cap and a hotspot or rift plateau-basalt cap are both
+  `vf · h` thick (the edifice's own normalised height times its intensity),
+  an approximation of the stamped height.
+- `stamp_volcanoes_simple` (`volc.provinces = false`, off at both
+  boundaries) rolls no setting. Its cells are stored as setting **4,
+  unclassified**, which §2.6's table has no code for; §2.6 needs that row
+  before GF-8 writes the set. Such a volcano is read as basaltic next to a
+  rift and as an arc otherwise.
+
+**Not built in GF-1, against §7's list:** the §2.6 save set and
+`SAVEFILE_COMPAT.md` §8.4 (moved to GF-8 by the brief; a reopened world has
+no column and says so); the single-layer import column (an import has none
+and says so); the lithology map view's 11-colour palette.
+
+**Memory**, measured with `_memlane_peak` (2048 × 1311, seed 483920,
+800 km, the app's parameters, `MEMLANE_NO_GEOLOGY=1` for the before):
+`WorldState` 153.63 → 181.80 MiB (+11.0 B/cell, the §2.5 arithmetic), and
+the generation peak **486.50 → 513.94 MiB (+27.44 MiB)**. The allocator count
+is deterministic, so one run each.
+
 ---
 
 ## 6. Re-baseline plan

@@ -338,6 +338,7 @@ mod tests {
             river_mask: None,
             river_floor: None,
             gpu_stages_used: Vec::new(),
+            geology: crate::Geology::Absent(crate::GeologyAbsent::ModelOff),
         }
     }
 

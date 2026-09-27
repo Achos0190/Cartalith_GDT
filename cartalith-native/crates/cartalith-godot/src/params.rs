@@ -170,6 +170,12 @@ pub fn defaults() -> WorldParams {
     // golden. Generation takes longer by the measured cost disclosed in
     // `GENERATION_PARAMETERS.md` ("The six deliberate divergences").
     p.passes.glacial = true;
+    // Owner Ruling BH (2026-09-27; `GEOLOGY_FIRST_SCOPE.md` §6.1): the
+    // geology-first lithology model runs in the app and stays off in
+    // `WorldParams::defaults`, the goldens' baseline. At GF-1 no process reads
+    // its column, so this moves no generated array (asserted in
+    // `cartalith-engine`); GF-2 on is where it starts to shape terrain.
+    p.geology_model = true;
     p
 }
 
@@ -199,6 +205,13 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "integrate_drainage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Integrated drainage (route over filled depressions)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.integrate_drainage), set_fn: |p, v| p.integrate_drainage = v != 0.0 },
+    // Ruling BH's switch (`GEOLOGY_FIRST_SCOPE.md` §6.1): ON at the app
+    // boundary, OFF in `WorldParams::defaults`. A row so a save records which
+    // model its world was generated with; **no GUI control** (§6.1) -- no
+    // workspace lists this key. GF-9 deletes it.
+    ParamSpec { key: "geology_model", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Geology-first lithology model", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.geology_model), set_fn: |p, v| p.geology_model = v != 0.0 },
     ParamSpec { key: "use_gpu", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "GPU acceleration", unit: "", reference_control: "gpuToggle",
         get_fn: |p| Value::Bool(p.use_gpu), set_fn: |p, v| p.use_gpu = v != 0.0 },
@@ -692,6 +705,8 @@ const JS_PATHS: &[(&str, &str)] = &[
     // source's whole block (the `state.erosion` hazard in the module note).
     // Travels in `state.cartalith` only.
     ("integrate_drainage", ""),
+    // Port-only (Ruling BH); the reference has no lithology model.
+    ("geology_model", ""),
     // No reference equivalent: this port's own GPU switch.
     ("use_gpu", ""),
 
@@ -964,6 +979,9 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // it, because the reference runs `glacialKernel` from a button and never
     // inside generation -- or a native block from before that commit.
     p.passes.glacial = false;
+    // And the geology model (Ruling BH, GF-1): every save without the key was
+    // generated before the model existed, so it reloads without it.
+    p.geology_model = false;
     // And the garrison border-exposure scale (Ruling AZ): a save without
     // `civ.garrison_exposure_scale` at all is either a genuine reference-app
     // export or one written between 382945a and the `CivParams` fold-in --

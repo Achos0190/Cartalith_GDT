@@ -342,6 +342,9 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
         river_floor: None,
         // Nothing here takes a GPU path.
         gpu_stages_used: Vec::new(),
+        // GF-1 scopes a single-layer import column; not built yet, so the
+        // world says so rather than carrying a made-up one.
+        geology: crate::Geology::Absent(crate::GeologyAbsent::Imported),
     }
 }
 

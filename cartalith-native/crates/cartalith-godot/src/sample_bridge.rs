@@ -294,6 +294,10 @@ pub struct FieldRefs<'a> {
     /// noise are seeded from it, so a different world gets a different
     /// geoid rather than the same one everywhere.
     pub seed: i32,
+    /// GF-1's rock column (`GEOLOGY_FIRST_SCOPE.md` §2.5), or the reason this
+    /// world has none (`cartalith_engine::GeologyAbsent::reason`). An `Err`
+    /// is shown as a dash with that reason, never as a rock.
+    pub geology: Result<&'a cartalith_terrain::geology::GeologyColumn, &'static str>,
 }
 
 impl FieldRefs<'_> {
@@ -497,6 +501,62 @@ pub struct CellSample {
     /// `assign_territory`'s owner id; `0` is unowned. `None` without a
     /// civilisation layer.
     pub control: Option<i64>,
+    /// GF-1's rock reading (`GEOLOGY_FIRST_SCOPE.md` §9 Q3), or the reason
+    /// the world has no column.
+    pub rock: Result<RockReading, &'static str>,
+}
+
+/// The Sample panel's rock rows (`GEOLOGY_FIRST_SCOPE.md` §9 Q3's default).
+pub struct RockReading {
+    /// The exposed rock (§2.5's exposure rule at the current surface).
+    pub surface: &'static str,
+    /// The unit beneath and the contact depth in metres, or the reason there
+    /// is none ("single-layer column", "cap eroded through").
+    pub beneath: Result<(&'static str, f64), &'static str>,
+    /// Selby class name of the exposed rock.
+    pub strength_class: &'static str,
+    pub soluble: bool,
+    /// Permeability class name of the exposed rock.
+    pub permeability: &'static str,
+    /// Regolith thickness in metres. `0.0` is a real reading: bare rock.
+    pub regolith_m: f64,
+    /// The volcanic setting kept from the stamper, `None` where no edifice
+    /// reached the cell.
+    pub volcanic_setting: Option<&'static str>,
+}
+
+/// One cell's rock reading from a column.
+pub fn rock_reading(f: &FieldRefs, col: &cartalith_terrain::geology::GeologyColumn, i: usize) -> Result<RockReading, &'static str> {
+    use cartalith_terrain::geology::{m_to_norm, setting_code, Beneath, R_EXPOSE_M};
+    if i >= col.len() {
+        return Err("rock column does not cover this cell");
+    }
+    let surface = f.field[i];
+    let r_expose = m_to_norm(R_EXPOSE_M, f.sea_level, f.peak_m) as f32;
+    let Some(exposed) = col.exposed(i, surface, r_expose) else { return Err("rock column has no unit here") };
+    let m_per_unit = if (1.0 - f.sea_level) == 0.0 { f.peak_m / 1e-6 } else { f.peak_m / (1.0 - f.sea_level) };
+    let beneath = match col.beneath(i, surface, r_expose) {
+        Beneath::Unit { rock, depth } => Ok((rock.props().name, depth as f64 * m_per_unit)),
+        Beneath::SingleLayer => Err("single-layer column"),
+        Beneath::CapEroded => Err("cap eroded through: the substrate is exposed"),
+        Beneath::NoData => Err("rock column does not cover this cell"),
+    };
+    let p = exposed.props();
+    Ok(RockReading {
+        surface: p.name,
+        beneath,
+        strength_class: p.selby.name(),
+        soluble: p.soluble,
+        permeability: p.permeability.name(),
+        regolith_m: col.regolith[i] as f64 * m_per_unit,
+        volcanic_setting: match col.volcanic_setting.get(i).copied() {
+            Some(setting_code::ARC) => Some("arc"),
+            Some(setting_code::RIFT) => Some("rift"),
+            Some(setting_code::HOTSPOT) => Some("hotspot"),
+            Some(setting_code::UNCLASSIFIED) => Some("unclassified"),
+            _ => None,
+        },
+    })
 }
 
 /// The one entry point `lib.rs`'s `sample_cell` `#[func]` wraps. `None` for
@@ -566,6 +626,7 @@ pub fn sample_cell(f: &FieldRefs, gx: i64, gy: i64) -> Option<CellSample> {
         biome: biome.map(biome_name),
         soil: Some(soil as f64),
         control: f.territory.and_then(|t| t.get(i)).map(|&t| t as i64),
+        rock: f.geology.and_then(|col| rock_reading(f, col, i)),
     })
 }
 
@@ -2861,6 +2922,7 @@ mod tests {
             climate: &TEST_CLIMATE,
             g: 1.0,
             seed: 24601,
+            geology: Err("test fixture: no rock column"),
         }
     }
 
@@ -2927,6 +2989,62 @@ mod tests {
         // Everything sourced from WorldState is still real.
         assert!(s.elevation > 0.0);
         assert_ne!(s.lithology, "—");
+    }
+
+    /// GF-1's rock rows: a two-layer cell reads its substrate and contact
+    /// depth in metres; a single-layer cell reads a reason; a world with no
+    /// column reads its reason and no rock at all.
+    #[test]
+    fn rock_reading_reports_values_or_reasons_never_placeholders() {
+        use cartalith_terrain::geology::{GeologyColumn, NO_LAYER};
+        let o = owned(8, 8);
+        let n = 64;
+        let i2 = 4 * 8 + 4; // two-layer
+        let i1 = 4 * 8 + 5; // single-layer
+        let mut col = GeologyColumn {
+            rock_top: vec![0; n],
+            rock_sub: vec![NO_LAYER; n],
+            contact: vec![f32::NAN; n],
+            regolith: vec![0.0; n],
+            volcanic_setting: vec![0; n],
+        };
+        col.rock_top[i2] = 3; // plateau basalt
+        col.rock_sub[i2] = 9; // over shale
+        // 0.0145 normalised below the surface: 0.0145 * 4000 / 0.58 = 100 m.
+        col.contact[i2] = o.field[i2] - 0.0145;
+        col.volcanic_setting[i2] = 3;
+        let mut f = view(&o, false);
+        f.geology = Ok(&col);
+
+        let r = sample_cell(&f, 4, 4).unwrap().rock.expect("a column");
+        assert_eq!(r.surface, "Plateau (flood) basalt");
+        let (sub, depth) = r.beneath.expect("two-layer");
+        assert_eq!(sub, "Shale / mudstone");
+        assert!((depth - 100.0).abs() < 0.01, "{depth}");
+        assert_eq!(r.strength_class, "strong");
+        assert!(!r.soluble);
+        assert_eq!(r.permeability, "high");
+        assert_eq!(r.regolith_m, 0.0);
+        assert_eq!(r.volcanic_setting, Some("hotspot"));
+
+        let r1 = sample_cell(&f, 5, 4).unwrap().rock.expect("a column");
+        assert_eq!(r1.surface, "Granite / granitoid");
+        assert_eq!(r1.beneath.err(), Some("single-layer column"));
+        assert_eq!(r1.volcanic_setting, None);
+        assert_eq!(i1, 37);
+
+        // Eroded through the cap: the substrate is exposed and "beneath" is a
+        // reason, not a unit.
+        col.contact[i2] = o.field[i2] + 0.01;
+        let mut f = view(&o, false);
+        f.geology = Ok(&col);
+        let r = sample_cell(&f, 4, 4).unwrap().rock.expect("a column");
+        assert_eq!(r.surface, "Shale / mudstone");
+        assert_eq!(r.beneath.err(), Some("cap eroded through: the substrate is exposed"));
+
+        // No column: the fixture's own reason, no rock.
+        let s = sample_cell(&view(&o, false), 4, 4).unwrap();
+        assert_eq!(s.rock.err(), Some("test fixture: no rock column"));
     }
 
     #[test]
@@ -2999,6 +3117,7 @@ mod tests {
             climate: &TEST_CLIMATE,
             g: 1.0,
             seed: 24601,
+            geology: Err("test fixture: no rock column"),
         };
         let s = sample_cell(&f, 4, 4).unwrap();
         assert!(s.aspect_deg.is_none());
@@ -3062,6 +3181,7 @@ mod tests {
             climate: &TEST_CLIMATE,
             g: 1.0,
             seed: 24601,
+            geology: Err("test fixture: no rock column"),
         };
         let d = boundary_dist_cells(&f, 16, 16).expect("a seed exists within the cap");
         assert!((d - 4.0).abs() < 1e-12, "expected the true nearest 4.0, got {d}");
@@ -3117,6 +3237,7 @@ mod tests {
             climate: &TEST_CLIMATE,
             g: 1.0,
             seed: 24601,
+            geology: Err("test fixture: no rock column"),
         };
         assert!(boundary_dist_cells(&f, 4, 4).is_none());
     }

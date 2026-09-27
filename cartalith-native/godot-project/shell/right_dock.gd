@@ -300,7 +300,21 @@ const SAMPLE_FIELDS := [
 	{"label": "Resistance", "key": "resistance",
 		"tip": "WorldState::resistance_field -- the erosion-resistance input, retained since the lithology port needed it."},
 	{"label": "Lithology", "key": "lithology",
-		"tip": "buildLithology() evaluated at this one cell. It is strictly per-cell (its own doc comment: \"Pure, single-pass, no neighbour reads\"), so it is called on one-element slices rather than restating any of its golden-tested branches here."},
+		"tip": "The LEGACY label: buildLithology() evaluated at this one cell, from the finished (eroded) terrain and present rainfall. The civilisation layer still reads it until the geology build's final milestone. It is not the rock model -- see Rock (surface) below. Strictly per-cell, so it is called on one-element slices rather than restating any of its golden-tested branches here."},
+	## GF-1 (`GEOLOGY_FIRST_SCOPE.md` §9 Q3): the rock model's rows. Each key is
+	## omitted when there is no value, and the row then shows a dash with the
+	## engine's own reason (`rock_reason`, `rock_beneath_reason`) -- never a
+	## zero or "none".
+	{"label": "Rock (surface)", "key": "rock",
+		"tip": "The exposed rock of the geology model (11 types), built before erosion from plate crust, the nearest plate boundary's type and distance, structural lows, latitude and the volcanic setting. A volcanic setting (arc, rift, hotspot) is appended where a volcano reached this cell. No erosion process reads it yet."},
+	{"label": "Beneath", "key": "rock_beneath",
+		"tip": "The unit under the cap and how far down its contact lies, in metres. Dashed with the reason on a single-layer column, or where the cap is already eroded through."},
+	{"label": "Strength", "key": "rock_strength",
+		"tip": "Selby rock-mass strength class of the exposed rock (very weak to very strong)."},
+	{"label": "Soluble · permeable", "key": "rock_soluble",
+		"tip": "Whether the exposed rock dissolves (karst: limestone only), and its permeability class."},
+	{"label": "Regolith", "key": "regolith_m",
+		"tip": "Unconsolidated material on bedrock, in metres. 0 m is a real reading: bare rock. Deposition does not write it yet, so every cell reads bare rock in this build."},
 	{"label": "Temperature", "key": "temperature_c",
 		"tip": "WorldState::temperature, degrees Celsius."},
 	{"label": "Precipitation", "key": "precipitation",
@@ -356,6 +370,14 @@ const SAMPLE_STAGE := {
 	"Temperature": "climate",
 	"Precipitation": "climate",
 	"Lithology": "climate",
+	## The rock model reads the height field (the exposure rule compares it
+	## with the contact) and a column built at generation, so it is gated on
+	## `height` -- which, as above, never reports stale.
+	"Rock (surface)": "height",
+	"Beneath": "height",
+	"Strength": "height",
+	"Soluble · permeable": "height",
+	"Regolith": "height",
 	"Soil": "climate",
 	"Biome": "civ",
 	"Control": "civ",
@@ -910,7 +932,7 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 		## river network, flat ground, no boundary inside the search cap --
 		## not when it is merely off-map.
 		row.add_theme_color_override("font_color",
-			DccTheme.c("text" if text != "—" else "text_ghost"))
+			DccTheme.c("text_ghost" if text.begins_with("—") else "text"))
 
 ## Called by `infrastructure_workspace.gd` when a road or sea-route row is
 ## clicked. `kind` is `"road"` or `"sea"` -- the two calls this dock's Route
@@ -2014,7 +2036,16 @@ func _build_sample(body: Control) -> void:
 ## never `get(key, 0.0)`, which would report a real-looking zero for
 ## something that was never computed.
 func _sample_field_text(key: String, cell: Dictionary) -> String:
-	if cell.is_empty() or not cell.has(key):
+	if cell.is_empty():
+		return "—"
+	if not cell.has(key):
+		## The rock rows dash with the engine's reason rather than a bare dash:
+		## a world with no column says why, and so does a column with no
+		## second layer here.
+		if key == "rock_beneath" and cell.has("rock_beneath_reason"):
+			return "— %s" % String(cell["rock_beneath_reason"])
+		if key in ["rock", "rock_beneath", "rock_strength", "rock_soluble", "regolith_m"] and cell.has("rock_reason"):
+			return "— %s" % String(cell["rock_reason"])
 		return "—"
 	match key:
 		"slope_deg":
@@ -2029,6 +2060,27 @@ func _sample_field_text(key: String, cell: Dictionary) -> String:
 			return "%.3f" % float(cell["resistance"])
 		"lithology":
 			return String(cell["lithology"])
+		"rock":
+			var rock := String(cell["rock"])
+			if cell.has("volcanic_setting"):
+				rock += " · %s volcanic" % String(cell["volcanic_setting"])
+			return rock
+		"rock_beneath":
+			## The engine sets the depth whenever it sets the unit; the guard is
+			## for a dict that breaks that pairing, which then shows the name only.
+			if not cell.has("rock_contact_depth_m"):
+				return String(cell["rock_beneath"])
+			## Depth first: the dock clips a long value, and the number is the
+			## part a clipped rock name would otherwise take with it.
+			return "%.0f m down · %s" % [float(cell["rock_contact_depth_m"]), String(cell["rock_beneath"])]
+		"rock_strength":
+			return String(cell["rock_strength"])
+		"rock_soluble":
+			return "%s · %s" % ["soluble" if bool(cell["rock_soluble"]) else "insoluble",
+				String(cell.get("rock_permeability", "?"))]
+		"regolith_m":
+			var reg := float(cell["regolith_m"])
+			return "0 m · bare rock" if reg == 0.0 else "%.1f m" % reg
 		"temperature_c":
 			return "%.1f °C" % float(cell["temperature_c"])
 		"precipitation":

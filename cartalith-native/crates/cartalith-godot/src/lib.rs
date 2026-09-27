@@ -16645,6 +16645,33 @@ impl WorldGen {
         if let Some(c) = s.control {
             d.set("control", c);
         }
+        // GF-1 (`GEOLOGY_FIRST_SCOPE.md` §9 Q3). With a column: `rock`,
+        // `rock_strength`, `rock_soluble` (bool), `rock_permeability`,
+        // `regolith_m` (0.0 is bare rock, a real reading), and either
+        // `rock_beneath` + `rock_contact_depth_m` or `rock_beneath_reason`;
+        // `volcanic_setting` only where an edifice reached the cell. Without
+        // one: only `rock_reason`. A missing value is an omitted key, never
+        // 0 or "none".
+        match &s.rock {
+            Ok(r) => {
+                d.set("rock", r.surface);
+                d.set("rock_strength", r.strength_class);
+                d.set("rock_soluble", r.soluble);
+                d.set("rock_permeability", r.permeability);
+                d.set("regolith_m", r.regolith_m);
+                match r.beneath {
+                    Ok((name, depth_m)) => {
+                        d.set("rock_beneath", name);
+                        d.set("rock_contact_depth_m", depth_m);
+                    }
+                    Err(why) => d.set("rock_beneath_reason", why),
+                }
+                if let Some(v) = r.volcanic_setting {
+                    d.set("volcanic_setting", v);
+                }
+            }
+            Err(why) => d.set("rock_reason", *why),
+        }
         d
     }
 
@@ -17189,6 +17216,8 @@ impl WorldGen {
             climate: &self.params.climate,
             g: self.params.planet.g,
             seed: self.params.tect.seed,
+            // GF-1: the rock column, or why this world has none.
+            geology: ws.geology.column().ok_or_else(|| ws.geology.absent_reason().unwrap_or("no rock column")),
         })
     }
 }

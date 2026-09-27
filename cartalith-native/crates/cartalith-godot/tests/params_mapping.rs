@@ -601,6 +601,8 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
     expect.integrate_drainage = false;
     expect.tect.narrow_plate_base_blur = false;
     expect.passes.glacial = false;
+    // And the geology model (Ruling BH): a save without the key predates it.
+    expect.geology_model = false;
     assert_eq!(p, expect, "a reference export must leave the table at its defaults");
 
     // Unknown keys, wrong types, and out-of-range values side by side.
@@ -656,8 +658,9 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
         "v2.57 plate-base blur, RC_ENGINE_CHANGES.md §6i"
     );
     assert!(app.passes.glacial && !parity.passes.glacial, "glacial pass on for new worlds, Ruling AU");
+    assert!(app.geology_model && !parity.geology_model, "geology-first model, Ruling BH (GEOLOGY_FIRST_SCOPE.md §6.1)");
 
-    // And nothing else. Neutralising the six must make the two identical --
+    // And nothing else. Neutralising the seven must make the two identical --
     // which catches a seventh divergence added without a ruling, in either
     // function, without this test needing to know what it is.
     let mut neutral = app.clone();
@@ -667,10 +670,11 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     neutral.integrate_drainage = false;
     neutral.tect.narrow_plate_base_blur = false;
     neutral.passes.glacial = false;
+    neutral.geology_model = false;
     assert_eq!(
         neutral, parity,
         "the app boundary diverges from the parity baseline somewhere other than the \
-         six authorised fields"
+         seven authorised fields"
     );
 }
 

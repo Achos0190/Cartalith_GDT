@@ -173,7 +173,7 @@ use cartalith_terrain::{
     apply_world_structure_sea_level, assign_plates, build_age_field, build_orogeny_field, build_plates,
     compute_flexure, compute_height, compute_heterogeneity, compute_resistance, compute_stress, compute_warp,
     gauss_blur, generate_continentality_field, normalize_field, smooth_orogeny, stamp_craters,
-    stamp_volcanoes_provinces_shaped, stamp_volcanoes_simple_shaped, tag_boundary_types, trace_boundaries,
+    tag_boundary_types, trace_boundaries,
     HeightParams, OrogenyParams, WorldStructure,
 };
 
@@ -733,6 +733,16 @@ pub struct WorldParams {
     /// without the key to off — a world generated without integration must
     /// reload as the world it was.
     pub integrate_drainage: bool,
+    /// The geology-first lithology model (`GEOLOGY_FIRST_SCOPE.md`, owner
+    /// Rulings BH and BJ): run the geology stage and store its column on
+    /// [`WorldState::geology`].
+    ///
+    /// **`false` here and `true` in the shipped app** (§6.1's switch, the
+    /// standing convention for the build's duration). At GF-1 no shaping
+    /// process reads the column, so this moves no other array either way --
+    /// asserted by `geology_stage_leaves_every_other_array_bit_identical`. It
+    /// gets no GUI control (§6.1) and no `PARAMS` row: GF-9 removes it.
+    pub geology_model: bool,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
@@ -782,6 +792,8 @@ impl WorldParams {
             // Off: the reference this baseline reproduces has no fill. On at
             // the app boundary -- see the field's own doc comment.
             integrate_drainage: false,
+            // Off: the parity baseline. On at the app boundary (§6.1).
+            geology_model: false,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -1051,6 +1063,56 @@ pub struct WorldState {
     /// falls back silently in terms of *correctness*, but the caller can
     /// always tell which path actually ran by reading this).
     pub gpu_stages_used: Vec<String>,
+    /// The GF-1 rock column (`GEOLOGY_FIRST_SCOPE.md` §2.5), or why there is
+    /// none. Read by no shaping process at GF-1.
+    pub geology: Geology,
+}
+
+/// Why a world has no geology column. Each is a reason a reader shows; none
+/// is a value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeologyAbsent {
+    /// Generated with [`WorldParams::geology_model`] off (the parity baseline).
+    ModelOff,
+    /// An imported heightmap (`import::infer_tectonics`). GF-1's scope asks
+    /// for a single-layer import column; not built yet.
+    Imported,
+    /// Rebuilt from a saved substrate: the column is not in the save format
+    /// yet (`GEOLOGY_FIRST_SCOPE.md` §2.6).
+    Restored,
+}
+
+impl GeologyAbsent {
+    pub fn reason(self) -> &'static str {
+        match self {
+            GeologyAbsent::ModelOff => "geology model off for this world",
+            GeologyAbsent::Imported => "imported heightmap: no rock column is built for imports yet",
+            GeologyAbsent::Restored => "opened from a save: rock columns are not saved yet",
+        }
+    }
+}
+
+/// [`WorldState::geology`]: the column, or the reason it is absent.
+#[derive(Clone, Debug)]
+pub enum Geology {
+    Column(Box<cartalith_terrain::geology::GeologyColumn>),
+    Absent(GeologyAbsent),
+}
+
+impl Geology {
+    pub fn column(&self) -> Option<&cartalith_terrain::geology::GeologyColumn> {
+        match self {
+            Geology::Column(c) => Some(c),
+            Geology::Absent(_) => None,
+        }
+    }
+
+    pub fn absent_reason(&self) -> Option<&'static str> {
+        match self {
+            Geology::Column(_) => None,
+            Geology::Absent(a) => Some(a.reason()),
+        }
+    }
 }
 
 // -- CPU worker threads (owner ruling, `LARGE_ITEM_RULINGS.md` "CPU worker
@@ -1654,6 +1716,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     crate::progress::advance(crate::progress::VOLCANISM);
     let mut volcanic_field = vec![0f32; gw * gh];
     let mut impact_field = vec![0f32; gw * gh];
+    // GF-1: with the geology model on, the stampers also record each edifice
+    // and its setting (arc/rift/hotspot), which they otherwise discard after
+    // placement. Recording only -- `field` and `volcanic_field` are the same
+    // bytes either way. Dropped once the geology stage has read it.
+    let mut volcano_trace = (p.geology_model && volc_count > 0).then(|| cartalith_terrain::VolcanoTrace::new(gw * gh));
     if volc_count > 0 {
         // `EdificeModel::Reference` is `stampOneVolcano` exactly; the
         // morphological model is opt-in and needs its own owner ruling before
@@ -1666,7 +1733,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // stampVolcanoes() (reference HTML lines 3474-3478): dispatches on
         // state.volc.provinces, JS default true.
         if p.volc.provinces {
-            stamp_volcanoes_provinces_shaped(
+            cartalith_terrain::stamp_volcanoes_provinces_traced(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -1682,9 +1749,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut field,
                 &mut volcanic_field,
                 edifice,
+                volcano_trace.as_mut(),
             );
         } else {
-            stamp_volcanoes_simple_shaped(
+            cartalith_terrain::stamp_volcanoes_simple_traced(
                 gw,
                 gh,
                 p.tect.seed as u32,
@@ -1696,6 +1764,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
                 &mut field,
                 &mut volcanic_field,
                 edifice,
+                volcano_trace.as_mut(),
             );
         }
     }
@@ -1760,6 +1829,36 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     } else {
         p.sea_level
     };
+
+    // ---- GEOLOGY (GF-1, `GEOLOGY_FIRST_SCOPE.md` §2.4, §3.1) ----
+    // After volcanism, craters, the clamp and sea level; before the first
+    // flow. Every input is final here and none is a product of erosion or of
+    // climate -- which is what makes this the model and not the legacy
+    // `build_lithology` label (defined on the finished, eroded, rained-on
+    // surface). Nothing below reads the column at GF-1.
+    let geology = if p.geology_model {
+        let row_lat: Vec<f64> =
+            (0..gh).map(|y| cartalith_climate::lat_at(y, gh, world, p.climate.lat_n, p.climate.lat_s)).collect();
+        Geology::Column(Box::new(cartalith_terrain::geology::build_geology(&cartalith_terrain::geology::GeologyInputs {
+            gw,
+            gh,
+            world,
+            seed: p.tect.seed,
+            field: &field,
+            sea_level,
+            peak_m: p.peak_m,
+            crust: &base_raw,
+            boundary_mask: &stress.boundary_mask,
+            boundary_type: &stress.boundary_type,
+            volcanic_field: &volcanic_field,
+            volcano: volcano_trace.as_ref(),
+            row_lat_deg: &row_lat,
+            blur_r: p.tect.blur_r,
+        })))
+    } else {
+        Geology::Absent(GeologyAbsent::ModelOff)
+    };
+    drop(volcano_trace);
 
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
@@ -2441,6 +2540,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         river_mask,
         river_floor,
         gpu_stages_used,
+        geology,
     }
 }
 

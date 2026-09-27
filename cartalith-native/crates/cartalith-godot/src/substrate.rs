@@ -326,6 +326,9 @@ pub(crate) fn world_from_project(data: &mut ProjectData, save: &SaveData) -> Res
         river_mask: if m.river_mask { Some(take_u8(data, RIVER_MASK)?) } else { None },
         river_floor: if m.river_floor { Some(take_f32(data, RIVER_FLOOR)?) } else { None },
         gpu_stages_used: Vec::new(),
+        // Not in the save format yet (`GEOLOGY_FIRST_SCOPE.md` §2.6): a
+        // restored world has no column, and says why.
+        geology: cartalith_engine::Geology::Absent(cartalith_engine::GeologyAbsent::Restored),
     };
     debug_assert_eq!(ws.field.len(), n);
     Ok(Some(ws))
