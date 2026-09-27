@@ -1842,3 +1842,27 @@ The ruling:
 It moves every generated world, so it re-baselines with every old → new
 disclosed (DECISIONS §7p). It is scoped first. **Ruling BG (landslips and
 pinnacles) builds on this model**, so the order is: BH scope, BH build, BG.
+
+## 2026-09-27 — Ruling BI: map style presets and new drawing techniques
+
+Asked after `MAP_STYLE_RESEARCH.md` (`6f8b303`).
+
+**Build all eight researched presets:**
+- Atlas, Imhof relief and Blueprint, all buildable from today's knobs;
+- Ink wash and Woodcut, which need small renderer additions;
+- Vintage atlas;
+- Nautical and Night, which need new ramps.
+
+Each follows the research document's knob values. They join
+`render_workspace.gd`'s `STYLE_PRESETS` and take their colours from the
+preset itself.
+
+**Schedule all four new techniques**, each scoped first, since each is a
+new rendering method:
+- true Tanaka illuminated contours;
+- Raisz physiographic pictograms;
+- mappa-mundi figurative icons;
+- Ordnance Survey-style symbology.
+
+Where the research flagged the existing `hachure` field's drawing as
+unverified, verify it before any preset relies on it.
