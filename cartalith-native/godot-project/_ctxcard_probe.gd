@@ -286,15 +286,19 @@ func _run() -> void:
 	## Drop settlement here). CX-01's own five are unchanged in text, order
 	## and section among themselves -- this list only has three more rows
 	## interleaved, which is this milestone's own regression test for CM-1/
-	## CM-2, not a new one.
+	## CM-2, not a new one. The CM-2-residuals batch adds a fourth: the
+	## vault-note row (§4.3 CIVIL Info row), right before "Info here" in the
+	## same INFO section -- "Attach…" here since the fixture settlement has
+	## no vault link.
 	var want_a := [
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
 		"Open city layout for %s… [OBJECT]" % _sname,
 		"Delete %s [OBJECT]" % _sname, "Drop settlement here [PLACE HERE]",
 		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
+		"Attach vault note to %s… [INFO]" % _sname,
 		"Info here (settlement & ecology) [INFO]"]
 	var rows_a := _civ_rows()
-	_ok("A CX-01's five rows + CM-7's three: text, order, section, enabled", rows_a, want_a)
+	_ok("A CX-01's five rows + CM-7's three + the vault note row: text, order, section, enabled", rows_a, want_a)
 	var titles: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
 	var cls := String(bridge.settlements()[_k].get("kind", ""))
 	_ok("A the header names the settlement and its class",

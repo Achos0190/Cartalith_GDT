@@ -793,6 +793,15 @@ func peek_card(req: Dictionary, actions: Array, reselect: Callable,
 	_peek_open = true
 	_sheet_scrim.visible = true
 	_peek_panel.visible = true
+	## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4: "the card, ring, peek sheet
+	## and thumb fan all lack it"). Guarded on `was_open` so a re-resolve (the
+	## pin dragged to a new spot, same sheet) does not pause a second time --
+	## `_shell` is typed `DccShell`, which does not declare these methods
+	## (they are `app.gd`'s `DccApp`, the one subclass that ever constructs
+	## this control), so `has_method`/`call` reach them dynamically rather
+	## than widening the base class for one caller.
+	if not was_open and _shell.has_method("pause_for_context_surface"):
+		_shell.call("pause_for_context_surface")
 	## A fresh drop always opens at `peek` (§8.1.1/.2); a re-resolve (the pin
 	## dragged to a new spot) keeps whatever detent the user already had it at
 	## -- re-applied rather than left alone, since `half`'s own height is sized
@@ -1030,6 +1039,9 @@ func _dismiss_peek_card() -> void:
 	_peek_panel.visible = false
 	_sheet_scrim.visible = false
 	visible = false
+	## CM-2 residual (§9.4) -- the resume matching `peek_card()`'s own pause.
+	if _shell.has_method("resume_from_context_surface"):
+		_shell.call("resume_from_context_surface")
 	var cb := _peek_dismiss_cb
 	_peek_dismiss_cb = Callable()
 	if cb.is_valid():
@@ -1221,6 +1233,10 @@ func close() -> void:
 		_peek_panel.visible = false
 		_sheet_scrim.visible = false
 		_peek_dismiss_cb = Callable()
+		## CM-2 residual (§9.4) -- the sheet is genuinely going away here too,
+		## same resume as `_dismiss_peek_card()`'s.
+		if _shell.has_method("resume_from_context_surface"):
+			_shell.call("resume_from_context_surface")
 
 ## Canvas BACK: "System back leaves a sheet, then the L2 screen, then the
 ## viewport -- never the app." Returns true when it consumed the gesture, so

@@ -278,6 +278,34 @@ func _qkey(down: bool) -> void:
 	await _frames(2)
 
 
+## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §4.2, §6): a full key press+release,
+## same shape as `_ctxcard_probe.gd::_key()`, for the Menu key / Shift+F10
+## opener -- `app.gd::_unhandled_key_input` only fires for genuine viewport
+## input, same reason `_qkey()` above pushes through `_vp` rather than calling
+## a method directly.
+func _key(code: int, shift: bool = false) -> void:
+	for down in [true, false]:
+		var ev := InputEventKey.new()
+		ev.keycode = code
+		ev.physical_keycode = code
+		ev.shift_pressed = shift
+		ev.pressed = down
+		_vp.push_input(ev)
+		await _frames(1)
+	await _frames(2)
+
+
+## The workspace the CM-2 residual's timeline-pause row lives in, found by
+## capability the same way `app.gd::_world_workspace()` and this file's own
+## `_find_infra()` are -- never `CivilizationWorkspace` by name, since nothing
+## here should need to know where the timeline lives either.
+func _find_civ_workspace() -> Node:
+	for ws in app._workspaces:
+		if ws.has_method("pause_playback_for_context"):
+			return ws
+	return null
+
+
 ## §6's no-wait flick: press, drag past the slop, release before 150 ms --
 ## the ring must never have become visible.
 func _flick(ov: Control, from: Vector2, dir: String) -> Vector2:
@@ -971,6 +999,99 @@ func _run() -> void:
 		_ok("W ...with sea_lane the live way type",
 			String(infra.get("_way_type")) if infra != null else "<no infra workspace>", "sea_lane")
 	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- M: the Menu key / Shift+F10 opener (`MAP_CONTEXT_SCOPE.md` §4.2, §6) ----
+	## "opens the card at the cursor... or at the map centre if the cursor is
+	## off the map, exactly as a right-click would." `context_broker.gd::
+	## last_request["screen_pos"]` is the same value `present()` anchors the
+	## card on, so this asserts the request the keyboard built, not pixels.
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	_ok("M before the key: no card open", _card_open(), false)
+	var cursor_pt := centre + Vector2(37.0, -19.0)   ## off-centre, so this leg cannot pass by accident matching the M2 fallback below
+	_move(ov, cursor_pt)
+	await _frames(1)
+	await _key(KEY_MENU)
+	_ok("M Menu key opened the card", _card_open(), true)
+	_ok("M ...anchored at the cursor's own last-tracked position",
+		Vector2(_broker().last_request.get("screen_pos", Vector2(-9999, -9999))), cursor_pt)
+	await _frames(1)
+	_vp.get_texture().get_image().save_png("res://_cm2res_keyboard_card.png")
+	await _key(KEY_ESCAPE)
+	await _frames(2)
+	_ok("M Esc closed it", _card_open(), false)
+
+	## Shift+F10, same behaviour, and off the map this time: a position well
+	## outside `map_overlay.gd`'s interior rect, so `request_at()` returns `{}`
+	## and `_open_context_card_from_keyboard()` falls back to the overlay's
+	## own centre -- `overlay.size * 0.5`, read live rather than re-declared.
+	_move(ov, Vector2(-2000.0, -2000.0))
+	await _frames(1)
+	await _key(KEY_F10, true)
+	_ok("M Shift+F10 opened the card with the cursor off the map", _card_open(), true)
+	_ok("M ...anchored at the map's own centre",
+		Vector2(_broker().last_request.get("screen_pos", Vector2(-9999, -9999))), ov.size * 0.5)
+	await _key(KEY_ESCAPE)
+	await _frames(2)
+	_ok("M Esc closed it (2)", _card_open(), false)
+
+	# -- T: the world pauses under an open surface (`MAP_CONTEXT_SCOPE.md` §9.4) -
+	## "If the timeline is playing, an open card or ring holds the tick and
+	## resumes on close." Read entirely off the live `CivilizationWorkspace`
+	## state (`_tl_playing`, the Timer's own `paused`/`time_left`) -- never a
+	## re-declared expectation -- so this fails first without the pause wired,
+	## the same discipline the brief asks for.
+	app.select_domain("civilization")
+	await _frames(4)
+	var civ := _find_civ_workspace()
+	_ok("T fixture: the timeline workspace exists", civ != null, true)
+	if civ != null:
+		bridge.civ_add_year(0)
+		bridge.civ_add_year(200)
+		civ.call("_tl_start_play")
+		await _frames(2)
+		_ok("T fixture: playback actually started", civ.get("_tl_playing"), true)
+		var timer: Timer = civ.get("_tl_play_timer")
+		_ok("T fixture: the play timer exists and is not paused", timer != null and not timer.paused, true)
+
+		# Ring: Q tap opens it sticky with no domain gesture at all.
+		_move(ov, centre)
+		await _frames(1)
+		await _qkey(true)
+		await _qkey(false)
+		await _frames(2)
+		_ok("T ring open pauses the timer", timer.paused, true)
+		_ok("T ...still reads as playing (held, not stopped)", civ.get("_tl_playing"), true)
+		_vp.get_texture().get_image().save_png("res://_cm2res_ring_paused.png")
+		var held_left := timer.time_left
+		await get_tree().create_timer(0.3).timeout   ## Longer than the pause would tick if it were live.
+		_ok("T paused: time_left does not advance while the ring is open",
+			timer.time_left, held_left)
+		await _ring_close()
+		await _frames(2)
+		_ok("T ring close resumes the timer", timer.paused, false)
+
+		# Card: RMB click opens it over a bare cell (no domain rows needed).
+		timer.paused = false
+		await _frames(1)
+		_rmb_press(ov, centre)
+		await _frames(1)
+		_rmb_release(ov, centre)
+		await _frames(4)
+		_ok("T fixture: the card actually opened", _card_open(), true)
+		_ok("T card open pauses the timer", timer.paused, true)
+		await _key(KEY_ESCAPE)
+		await _frames(2)
+		_ok("T card close (Esc) resumes the timer", timer.paused, false)
+		_ok("T ...playback state untouched by the pause/resume itself",
+			civ.get("_tl_playing"), true)
+		civ.call("_tl_stop_play")
+		await _frames(2)
+	app.select_domain("world")
 	app.arm_tool("inspect")
 	await _frames(2)
 

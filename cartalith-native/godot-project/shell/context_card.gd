@@ -135,6 +135,15 @@ func setup(p_app) -> void:
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_body)
 	window_input.connect(_on_window_input)
+	## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): "The world pauses under an
+	## open surface." `about_to_popup`/`popup_hide` are `Window`'s own signals
+	## (this is a `PopupPanel`), so they fire for every path that shows or
+	## hides the card -- `_place()`'s `popup()` call and whatever closes it
+	## (Esc via the `Popup`'s own `ui_cancel`, a row's `callable`, tap-outside,
+	## `context_broker.gd::present()` reopening it for Select ▸) -- with no
+	## second bookkeeping var needed here.
+	about_to_popup.connect(func(): app.pause_for_context_surface())
+	popup_hide.connect(func(): app.resume_from_context_surface())
 
 
 ## Accent-coloured TEXT (Select ▸, BACK, a param's value). `accent` itself

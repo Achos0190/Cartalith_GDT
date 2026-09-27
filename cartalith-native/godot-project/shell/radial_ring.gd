@@ -187,6 +187,25 @@ func is_open() -> bool:
 	return _active
 
 
+## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): "The world pauses under an
+## open surface" -- `_active`, not `visible`/`_visible`, is the ring's own
+## "genuinely open" state (this class's own doc comment above `_active`:
+## "whether or not it is currently *drawn*"), so this is the one place every
+## `_active` write goes through, guarded on an actual change so `arm()`'s own
+## reset-to-false-then-true (Q path) or a `_process()` transition mid-gesture
+## never double-counts against `app.gd`'s ref-counted depth.
+func _set_active(v: bool) -> void:
+	if _active == v:
+		return
+	_active = v
+	if app == null:
+		return
+	if v:
+		app.pause_for_context_surface()
+	else:
+		app.resume_from_context_surface()
+
+
 ## Probe-only introspection (`_ctxring_probe.gd`) -- everything a test needs
 ## to assert through the real state machine rather than by re-deriving it.
 func debug_state() -> Dictionary:
@@ -242,13 +261,13 @@ func arm(pos: Vector2, slots: Dictionary, q: bool) -> void:
 	_sticky = false
 	if q:
 		_armed = false
-		_active = true
+		_set_active(true)
 		_visible = true
 		visible = true
 		set_process(false)
 	else:
 		_armed = true
-		_active = false
+		_set_active(false)
 		_visible = false
 		visible = false
 		set_process(true)
@@ -275,7 +294,7 @@ func pointer(pos: Vector2) -> void:
 		## a drag, and the ring itself now exists (though not necessarily
 		## drawn yet -- see `_process()`'s flick-delay branch).
 		_armed = false
-		_active = true
+		_set_active(true)
 		_moved_ms = Time.get_ticks_msec()
 		_update_hover(pos)
 		queue_redraw()
@@ -293,7 +312,7 @@ func _process(_dt: float) -> void:
 		## `_sticky` still false to know this is the gesture's FIRST release
 		## rather than a later click into an already-sticky ring).
 		_armed = false
-		_active = true
+		_set_active(true)
 		_visible = true
 		visible = true
 		hold_fired.emit()
@@ -379,7 +398,7 @@ func click_at(pos: Vector2) -> Callable:
 
 func close() -> void:
 	_armed = false
-	_active = false
+	_set_active(false)
 	_visible = false
 	_sticky = false
 	_sub = {}

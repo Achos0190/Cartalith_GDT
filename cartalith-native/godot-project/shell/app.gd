@@ -362,6 +362,23 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if delete_selection():
 			get_viewport().set_input_as_handled()
 			return
+	elif event.keycode == KEY_MENU or (event.keycode == KEY_F10 and event.shift_pressed \
+			and not (event.ctrl_pressed or event.alt_pressed or event.meta_pressed)):
+		## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §4.2, §6): "The Menu key /
+		## Shift+F10 opens the card for the current selection, anchored at the
+		## selection, or at the cursor when nothing is selected." This build has
+		## no persistent object *selection* separate from the pointer (settlement
+		## click selects for the dock, not for the card), so "the cursor" is the
+		## only anchor a keyboard press can offer -- `_open_context_card_from_keyboard()`
+		## falls back to the map's own centre when the cursor is off the plate,
+		## per this row's own brief. Neither keycode collides with anything else
+		## on this branch (`KEY_MENU` unused; `Shift+F10` unbound -- checked
+		## against every `elif` here and `DccSettings`' shortcut table).
+		var typing := get_viewport().gui_get_focus_owner()
+		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+			return
+		_open_context_card_from_keyboard()
+		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_J and event.shift_pressed \
 			and not (event.ctrl_pressed or event.alt_pressed or event.meta_pressed):
 		## **⇧J, which used to be a menu accelerator.** `Data ▸ Journey
@@ -480,6 +497,25 @@ func clear_selection() -> bool:
 ## `armed_tool` would never reach `inspect`, and the exit below would be
 ## unreachable with Measure armed. A back press must always leave a level, so
 ## it runs the handler's cleanup *and then* disarms.
+## CM-2 residual, keyboard opener (`MAP_CONTEXT_SCOPE.md` §4.2, §6): the same
+## request an RMB release builds (`map_overlay.gd::request_at`), at the
+## cursor's own last-tracked position -- or at the overlay's centre when
+## `request_at` says there is no world coordinate there (`{}`, the same "no
+## world coordinate, no request" rule the right click has always had: off the
+## plate interior, or the pointer has never entered the map this session).
+## Routed through `context_broker.resolve()`, never a second card-opening
+## path, the same discipline `context_broker.gd::_on_ring_hold_fired()` and
+## `ring_touch_open()` already follow.
+func _open_context_card_from_keyboard() -> void:
+	if context_broker == null or viewport == null or viewport.overlay == null:
+		return
+	var overlay = viewport.overlay
+	var req: Dictionary = overlay.request_at(overlay.last_mouse_pos(), "keyboard")
+	if req.is_empty():
+		req = overlay.request_at(overlay.size * 0.5, "keyboard")
+	if not req.is_empty():
+		context_broker.resolve(req)
+
 func _escape_action(force_disarm := false) -> void:
 	if _escape_handlers.has(armed_tool):
 		_escape_handlers[armed_tool].call()
@@ -1440,6 +1476,36 @@ func _world_workspace() -> WorldWorkspace:
 		if ws is WorldWorkspace:
 			return ws
 	return null
+
+## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): "The world pauses under an
+## open surface. If the timeline is playing, an open card or ring holds the
+## tick and resumes on close." Ref-counted, not a bool, because CM-3's ring
+## and CM-2's card can be open TOGETHER (the RMB-hold and tablet touch-hold
+## rows in §6/§7.1 open both at the same anchor) -- the second surface to
+## open must not steal the first's resume, and the tick must not resume until
+## the LAST surface closes. Fanned out to every workspace with the method
+## (capability pattern, same as `on_world_changed()` above) rather than
+## reaching into `CivilizationWorkspace` by name: the timeline lives there
+## today, but nothing here should need to know that.
+var _context_surface_depth := 0
+
+func pause_for_context_surface() -> void:
+	_context_surface_depth += 1
+	if _context_surface_depth != 1:
+		return
+	for ws in _workspaces:
+		if ws.has_method("pause_playback_for_context"):
+			ws.pause_playback_for_context()
+
+func resume_from_context_surface() -> void:
+	if _context_surface_depth <= 0:
+		return
+	_context_surface_depth -= 1
+	if _context_surface_depth != 0:
+		return
+	for ws in _workspaces:
+		if ws.has_method("resume_playback_for_context"):
+			ws.resume_playback_for_context()
 
 ## Called by `world_workspace._refresh_finalize()`, the single owner of whether
 ## baking is currently possible. See `_tool_options_generate()` for why the

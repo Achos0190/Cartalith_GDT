@@ -112,6 +112,13 @@ var _tl_body: VBoxContainer
 var _tl_add_year := 100                 ## Reference default (`#civTlYear` value="100").
 var _tl_playing := false
 var _tl_play_timer: Timer
+## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): true only while `app.gd`'s
+## `pause_for_context_surface()`/`resume_from_context_surface()` are the
+## reason `_tl_play_timer.paused` is set -- so a resume never un-pauses a
+## timer this workspace stopped for its own reasons (there are none today,
+## but the guard costs nothing and means the two pause sources can never
+## fight).
+var _tl_paused_by_context := false
 var _tl_sim_mode := "collapse"          ## "collapse" | "recovery"
 var _tl_sim_character := "mixed"        ## "mixed" | "trade" | "disease" | "conflict"
 var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/100
@@ -639,11 +646,14 @@ func on_deselect() -> bool:
 ## **CM-1 (`MAP_CONTEXT_SCOPE.md` §9.1): this was `on_map_right_clicked`, and it
 ## built and popped its own `PopupMenu`.** It is now this workspace's
 ## `context_actions` provider: it returns CX-01's five rows and
-## `shell/context_broker.gd` presents them -- in the same styled `PopupMenu`,
-## at the same place, or as the same phone L4 sheet. The rows' text, order and
-## enabled state are unchanged, and each row runs the same `_on_ctx_id` arm it
-## always did (`_run_ctx`), which is the milestone's regression test
-## (`_ctxbroker_probe.gd`). The contract is in the broker's header.
+## `shell/context_broker.gd` presents them -- CM-2 (`a5e44b3`) replaced the
+## `PopupMenu` on desktop and tablet with `shell/context_card.gd`'s sectioned
+## card; the phone keeps a `PopupMenu` re-presented as CM-5's peek/half sheet
+## (`shell/phone_menu.gd::peek_card()`), not this file's old one. The rows'
+## text, order and enabled state are unchanged from before CM-2, and each row
+## runs the same `_on_ctx_id` arm it always did (`_run_ctx`), which is the
+## milestone's regression test (`_ctxbroker_probe.gd`). The contract is in the
+## broker's header.
 ##
 ## The reference gates its menu on "a civ-capable tab is open"; the
 ## equivalent gate here is this workspace being the active domain -- the
@@ -689,6 +699,23 @@ func context_actions(req: Dictionary) -> Array:
 			"enabled": true, "header": head, "callable": _run_ctx.bind(5, hit, gx, gy)})
 		rows.append({"id": "civ.delete", "label": "Delete %s" % nm, "section": "object",
 			"enabled": true, "danger": true, "header": head, "callable": _run_ctx.bind(2, hit, gx, gy)})
+		## CM-2 residual (§4.3 CIVIL Info row): "Open vault note / Attach vault
+		## note… (for a vault-kind hit)". `open_vault()`'s own doc says
+		## `entity_id` is the entity's **tid**, not its index into
+		## `bridge.settlements()` -- `place_editor_window.gd`'s own
+		## `app.open_vault("settlement", tid, name)` is the precedent this
+		## follows. The label switches on whether a link already exists, the
+		## same `vault_entity_summary()`/`link_count` reading `_knowledge_row()`
+		## (this file's dock row for continents etc.) already does -- one row,
+		## since `vault_window.gd::open_for()` handles both the "open the
+		## existing note" and "nothing linked yet, attach one" cases itself.
+		var tid := int(s.get("tid", hit))
+		var vsum := bridge.vault_entity_summary("settlement", tid)
+		var vlabel := ("Open vault note for %s" % nm) if int(vsum.get("link_count", 0)) > 0 \
+			else ("Attach vault note to %s…" % nm)
+		rows.append({"id": "civ.vault_note", "label": vlabel, "section": "info",
+			"enabled": true, "header": head,
+			"callable": func() -> void: app.open_vault("settlement", tid, nm)})
 	## §4.3's Landmark row (**P**, `MAP_CONTEXT_SCOPE.md` §9.2 row 1): the hit
 	## itself is already `map_overlay.gd::hits_at`'s own "landmark" kind (CM-1
 	## put it there for the hover/select pair, and a multi-hit hit list makes
@@ -6976,6 +7003,7 @@ func _fill_relationships(parent: Control) -> void:
 ## `_rebuild()` already applies on the same two signals.
 func _tl_on_world_changed() -> void:
 	_tl_playing = false
+	_tl_paused_by_context = false
 	if _tl_play_timer != null:
 		_tl_play_timer.stop()
 	_tl_sim_out = ""
@@ -7177,9 +7205,35 @@ func _tl_start_play() -> void:
 
 func _tl_stop_play() -> void:
 	_tl_playing = false
+	_tl_paused_by_context = false
 	if _tl_play_timer != null:
 		_tl_play_timer.stop()
 	_rebuild_timeline()
+
+## CM-2 residual (`MAP_CONTEXT_SCOPE.md` §9.4): "If the timeline is playing,
+## an open card or ring holds the tick and resumes on close" -- called from
+## `app.gd::pause_for_context_surface()`'s fan-out, once, the moment the
+## FIRST context surface of a group opens. `Timer.paused` (not `stop()`,
+## which is `_tl_stop_play()`'s own call and resets `time_left`) holds the
+## timer exactly where it was, so the resume lands on the same point in the
+## 1200 ms interval it was holding at, not a fresh one. A no-op when nothing
+## is playing (the guard the row itself asks for: "whatever the scope says
+## should pause... pauses while the card is open" -- there is nothing to
+## pause if `_tl_playing` is false).
+func pause_playback_for_context() -> void:
+	if _tl_playing and _tl_play_timer != null and not _tl_play_timer.paused:
+		_tl_play_timer.paused = true
+		_tl_paused_by_context = true
+
+## The matching resume, from `app.gd::resume_from_context_surface()`'s fan-out
+## once the LAST context surface closes. Only un-pauses a timer THIS function
+## paused (`_tl_paused_by_context`) -- Stop/the world-changed reset
+## (`_tl_on_world_changed()`) already clear `_tl_playing` and stop the timer
+## outright while a surface was open, and this must not un-stop it.
+func resume_playback_for_context() -> void:
+	if _tl_paused_by_context and _tl_play_timer != null:
+		_tl_play_timer.paused = false
+	_tl_paused_by_context = false
 
 func _tl_on_play_tick() -> void:
 	var years := _tl_years()

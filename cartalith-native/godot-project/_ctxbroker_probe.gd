@@ -239,13 +239,16 @@ func _run() -> void:
 	var rows_a := _dump("A_civ_settlement")
 	## CX-01's five rows plus CM-7's CM-2-residual additions (`MAP_CONTEXT_
 	## SCOPE.md` §11 CM-7): Open city layout… (object) and Start way/route
-	## here (place). Ten rows, three separators.
-	_ok("A eight rows plus two separators", rows_a.size(), 10)
+	## here (place), plus the CM-2-residuals batch's own vault-note row
+	## (§4.3 CIVIL Info row -- "Open vault note / Attach vault note…"), which
+	## reads "Attach…" here because the probe's fixture settlement has no
+	## vault link yet. Eleven rows, three separators.
+	_ok("A eight rows plus two separators", rows_a.size(), 11)
 	_ok("A row order", rows_a, [
 		"Edit %s" % sname, "Move viewer to %s" % sname,
 		"Open city layout for %s…" % sname, "Delete %s" % sname, "----",
 		"Drop settlement here", "Start way here", "Start route here", "----",
-		"Info here (settlement & ecology)"])
+		"Attach vault note to %s…" % sname, "Info here (settlement & ecology)"])
 
 	# -- B ------------------------------------------------------------------
 	await _hide_popups()
