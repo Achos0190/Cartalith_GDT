@@ -1771,3 +1771,33 @@ Cartalith must read identically in Obsidian, and the reverse.
 
 Underline stays `<u>…</u>`, since Obsidian has no native underline. Ctrl+E
 toggles Write/Preview, as Obsidian's reading-view shortcut does.
+
+## 2026-09-27 — Ruling BG: landslip and pinnacle landforms
+
+Asked by the owner with a photograph of the Trotternish ridge and the Old Man of
+Storr (Isle of Skye), and whether the generator could make it. It can already
+make the glacial lochs, the moorland and the stepped basalt escarpments. It
+cannot make the landslip (rotational slump blocks tilted back beneath a
+ragged scarp) or the pinnacles, which are far below one cell. The owner:
+*"I want the landslip and pinnacle forms."*
+
+**Landslips** are a generation process. They act on steep escarpments where
+a strong caprock lies over a weak substrate. Each one:
+- cuts a ragged arcuate scarp back into the plateau edge;
+- rotates and back-tilts the detached blocks downslope;
+- leaves hummocky ground whose hollows fill with small lochans.
+
+There is also a sculpt stamp to place a landslip by hand. The process moves
+generated output, so it re-baselines with every old → new golden value
+disclosed.
+
+**Pinnacles** exist at two scales:
+- as placed, named landmarks with their own marker, on slipped blocks and
+  sea cliffs;
+- as spires that appear in the LOD tile detail at deep zoom (ties to EF-9).
+
+Sea stacks use the same rule on coastal cliffs.
+
+It is scoped first: rock-strength source, slump model with its literature,
+a measurement proving it fires only where geology supports it, and the
+milestones.
