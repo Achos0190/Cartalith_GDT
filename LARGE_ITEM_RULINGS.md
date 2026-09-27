@@ -1641,3 +1641,12 @@ like other edits, so Edit ▸ Undo restores the way.
 **A picked river is "the branch to its mouth"**: the stretch clicked plus
 everything downstream to where it meets the sea or a lake. That line is what
 the card names and what *Trace downstream* and *Show catchment* act on.
+
+## 2026-09-29 — Ruling BB: labels do not regenerate automatically after a sculpt
+
+Asked through the session's question tool after `09858bd` added the CARTO ▸
+Labels cue. The owner chose **"No, keep the cue"**: after a sculpt commit the
+generated labels stay where they were until the user presses Generate labels,
+and the Labels panel's "The terrain has changed since labels were last
+generated" cue is the signal. `engine_bridge.gd`'s note that the re-run is "a UI
+decision, not a binding decision" is now answered.
