@@ -331,7 +331,10 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**75 outstanding items** — 2026-09-28, late, later (latest). The exit-button rule closed.
+**74 outstanding items** — 2026-09-28, late night (latest). The Android debug-size row
+closed. **75 − 1 = 74**.
+
+**75 outstanding items** — 2026-09-28, late, later. The exit-button rule closed.
 **76 − 1 = 75**.
 
 **76 outstanding items** — 2026-09-28, late. The Village style closed. **77 − 1 = 76**.
@@ -2945,7 +2948,7 @@ independently verified — this row is closed.** |
 | The default 2048×1311 new world costs ~878 MB peak on the phone — *Ruling AZ: build it — start the R1 phone-memory reduction.* | `STATUS.md` | medium | The "no progress indication" half is stale — a staged 10-stage readout ships off `cartalith-engine::progress`. The memory cost stands |
 | The left-panel sheet retains its scroll offset across close/reopen and will not scroll back up — **NEITHER HALF REPRODUCES IN THE SHELL; STILL UNCONFIRMED ON GLASS** | `ANDROID_BUILD_SCOPE.md` | small | **Investigated 2026-09-06 and reproduced by the verifier at both densities, windowed — the two claims were separated and each has its own answer.** *Retains the offset*: **not reproducible.** `_set_sheet_open` calls `_reset_dock_scroll(_left_dock_scroll)` on every open, writing `scroll_vertical = 0` synchronously and again deferred; scrolled to 1234 → reopened at 0 at `_phone_scale` 1.0000, and 2658 → 0 at 2.6214. That landed in `0fc9d1c` on 2026-08-24 12:25:18, **2h31m after the device observation** in `2abf8df` at 09:54:18. *Will not scroll back up*: **also not reproducible, and a different cause** — 21 up-flicks of +251 and 21 down-flicks of −252 at 2.6214, 12 x positions across a row all at full delta, so there is no dead band; the likely fix is `phone_fit()`'s `MOUSE_FILTER_PASS` branches, whose bare-`Control` spacer arm landed `afe9016` on 2026-08-25, **a day after** the observation. **Do not read this as fixed on glass.** Both findings rest on synthesised input in the shell, and the first synthesised flick after a (re)open is a warm-up artefact (`delta=+0`, then full delta). **The next device pass is what closes this**, and the APK-rebuild row already gates it **2026-09-13, desktop re-check (verifier):** `_sheetscroll_probe --resolution 393x852 -- --force-touch --nowelcome` — left sheet 5 299 → 0 and right 3 859 → 0 after close and reopen; "retains offset" still does not reproduce in the shell at one density. **Device pass owed — the 6T is connected again** |
 | Exercise **R1**'s Godot-side hunk inside a running Godot process on the handset | `MEMORY_OPTIMIZATION_SCOPE.md` | small | The case for R1 is four arguments, not a screenshot |
-| The Android debug `.so` residue — 156 MB, 207 MB APK | `STATUS.md` | small | Reduced from 400 MB; still not the 18 MB a full strip gives. See §5 for why it stays |
+| ~~The Android debug `.so` residue — 156 MB, 207 MB APK~~ — **CLOSED 2026-09-28 (Ruling AZ): debuginfo stripped; the debug .so is 35.5 MB and the debug APK 68 MB; backtraces keep function names, lose file and line** | `STATUS.md` | small | Reduced from 400 MB; still not the 18 MB a full strip gives. See §5 for why it stays |
 
 ### 2.8 Discipline debts
 
