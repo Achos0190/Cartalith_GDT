@@ -4,7 +4,7 @@ extends Node
 ##
 ## New World's Create, one case per run mode:
 ##   phone   + 2048 (region aspect, 2048 x 1311)  -> no question; generates at once
-##   phone   + 4096 (region aspect)               -> a question quoting ~2.41 GiB;
+##   phone   + 4096 (region aspect)               -> a question quoting ~1.90 GiB;
 ##                                                  Cancel generates nothing and
 ##                                                  brings the form back; OK generates
 ##   desktop + 4096                               -> no question; generates at once
@@ -20,7 +20,7 @@ extends Node
 ## nothing and does NOT bring the form back (only Create's route does), OK
 ## generates once. Desktop: every route generates at once at both sizes.
 ##
-## **Generation is recorded, not run.** A 4096 generate is ~2.4 GiB and minutes
+## **Generation is recorded, not run.** A 4096 generate is ~1.9 GiB and minutes
 ## of work, so the dialog's `bridge` is swapped for `RecBridge`, an
 ## `EngineBridge` subclass whose `generate()` only appends the request. The grid
 ## is sized BEFORE the swap, because `_derived_grid_h()` asks the real engine
@@ -193,9 +193,9 @@ func _ready() -> void:
 	text += q.dialog_text
 	_log("  question text: %s" % text.strip_edges().replace("\n", " | "))
 	## Literals, not the dialog's constants read back: 4096 x 2621/2622 at the
-	## measured 241.3 B/cell is 2.41 GiB -- `MEMORY_OPTIMIZATION_SCOPE.md`'s
+	## measured 190.0 B/cell is 1.90 GiB -- `MEMORY_OPTIMIZATION_SCOPE.md`'s
 	## own table row.
-	_check(text.contains("2.41 GiB"), "phone 4096: the question quotes 2.41 GiB")
+	_check(text.contains("1.90 GiB"), "phone 4096: the question quotes 1.90 GiB")
 	_check(text.contains("2048 × 1311"), "phone 4096: the question names the 2048 x 1311 ceiling")
 	_check(q.ok_button_text == "Generate anyway", "phone 4096: OK reads `%s`" % q.ok_button_text)
 	## Width: `MISTAKES.md`'s ScrollContainer row -- the question must fit the phone.
@@ -304,7 +304,7 @@ func _routes(dlg: NewWorldDialog, real_bridge: EngineBridge, phone: bool) -> voi
 				var t := _question_text(dlg)
 				_check(t.contains("2048 × 1311"), "%s: the question names the ceiling" % label)
 				if kind == "generate":
-					_check(t.contains("2.41 GiB"), "%s: the question quotes 2.41 GiB" % label)
+					_check(t.contains("1.90 GiB"), "%s: the question quotes 1.90 GiB" % label)
 				if _question_up(dlg):
 					dlg._memory_confirm.get_cancel_button().pressed.emit()
 				await _frames(10)

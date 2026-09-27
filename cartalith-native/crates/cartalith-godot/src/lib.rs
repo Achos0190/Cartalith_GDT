@@ -2971,7 +2971,7 @@ fn compute_civilisation(
     // SG-02 keep path places nothing.
     let want = opts.want_counts();
     let sea_level = ws.sea_level;
-    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
+    let mut wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
@@ -2997,6 +2997,10 @@ fn compute_civilisation(
         &soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea_level,
         if opts.biome_k { 1.0 } else { 0.0 }, wetland.as_deref(),
     );
+    // Its only reader. Memory only (`MEMORY_OPTIMIZATION_SCOPE.md`, the
+    // 2026-09-27 pass): every early release in this function frees a raster
+    // after its last reader, so no value computed here can change.
+    drop(wetland);
 
     // The same device gate `generate_terrain` applies (`cartalith-engine`),
     // and the same process-wide device cache (Ruling Y), so this reopens
@@ -3055,6 +3059,8 @@ fn compute_civilisation(
             false,
         ),
     };
+    // Soil and the resource kernel were its last two readers.
+    drop(lithology);
     // `ResourcePotentials` carries all 15 fields (`build_resource_potentials`
     // computes them together in one shared per-cell loop -- not splittable
     // without real restructuring, `MEMORY_OPTIMIZATION_SCOPE.md`). Only 9
@@ -3076,10 +3082,12 @@ fn compute_civilisation(
     let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh);
     let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea_level, world);
     // `coast_sdf` is no longer the suitability coastal term's input -- Ruling
-    // N's coastal half replaced that with `coast_reach` below. It is still
-    // built here for the `coast_dist_cells` reading in the settlement panel,
-    // which is the only thing left in this function that reads it.
-    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea_level);
+    // N's coastal half replaced that with `coast_reach` below. Its one reader
+    // is the settlement panel's `coast_dist_cells`, so it is built beside the
+    // explanations further down, after the six extra resource grids are
+    // freed, rather than here: held from here it sat 10.24 MiB (at 2048x1311)
+    // under the civ pass's peak, and its jump-flood scratch spiked 46 MiB on
+    // top of the plateau (`MEMORY_OPTIMIZATION_SCOPE.md`, 2026-09-27 pass).
     // Ruling N's coastal half: proximity to a real traced OCEAN coastline
     // (EF-6's tracer, intersected with `build_water_bodies`' ocean class),
     // not distance to the nearest water cell of any kind.
@@ -3098,19 +3106,30 @@ fn compute_civilisation(
     let river_reach = cartalith_civ::build_river_reach(&river_polys, &river_order, gw, gh);
     drop(river_polys);
 
-    let ctx = cartalith_civ::SuitabilityCtx {
-        water_bodies: Some(&wb.classification),
-        corridor: Some(&corridors),
-        landmass: Some(&landmass.quality),
-        flow: Some(&ws.flow_discharge),
-        river_reach: Some(&river_reach),
-        coast_reach: Some(&coast_reach),
-        resources: Some(&resources),
-        rain: Some(&ws.rainfall),
-        flood: Some(&flood),
-        slope_raw: Some(&raw_slope),
-        flow_thresh,
-    };
+    // One definition, built twice: here for the suitability grid, and again
+    // for the per-settlement explanations below, after the six extra
+    // resource grids have been freed (a live `ctx` borrows `resources`, so
+    // the free cannot happen while this one is still in use). A macro rather
+    // than two literals so the explanations can never read a different
+    // context from the one that placed the towns.
+    macro_rules! suitability_ctx {
+        () => {
+            cartalith_civ::SuitabilityCtx {
+                water_bodies: Some(&wb.classification),
+                corridor: Some(&corridors),
+                landmass: Some(&landmass.quality),
+                flow: Some(&ws.flow_discharge),
+                river_reach: Some(&river_reach),
+                coast_reach: Some(&coast_reach),
+                resources: Some(&resources),
+                rain: Some(&ws.rainfall),
+                flood: Some(&flood),
+                slope_raw: Some(&raw_slope),
+                flow_thresh,
+            }
+        };
+    }
+    let ctx = suitability_ctx!();
 
     // The reference names its own two slope reads separately (`currentSoil`'s
     // `slopeN` and the suitability pass's), and this port had followed it into
@@ -3161,7 +3180,7 @@ fn compute_civilisation(
             },
         )
     });
-    let suit = match suit_gpu {
+    let mut suit = match suit_gpu {
         Some(s) => {
             gpu_stages.push("settlement_suitability".to_string());
             s
@@ -3215,6 +3234,15 @@ fn compute_civilisation(
             )
         }
     };
+    // Village seeding is the only reader of `suit` and `wb.fill_level` after
+    // placement, so without it both are freed here, before the road network
+    // (the civ pass's highest spike). One flag for both sites, so the free and
+    // the seeding cannot disagree about whether the grids are still wanted.
+    let seeding_villages = opts.villages && !keeping;
+    if !seeding_villages {
+        suit = Vec::new();
+        wb.fill_level = Vec::new();
+    }
 
     // Real auto-populate road network, not `build_road_network` (that's
     // `buildRoadNetwork`, the reference's *manual*-placement-tool
@@ -3354,7 +3382,7 @@ fn compute_civilisation(
     // assigned further down. Rebuilt through the recovery pass below, which
     // can drop entries and so invalidates any index range captured here.
     let mut is_village = vec![false; settlements.len()];
-    if opts.villages && !keeping {
+    if seeding_villages {
         // `civ_seed_villages` needs the downsampled routing grid's
         // (rw, sc) that `civ_hierarchical_network_topology` builds
         // internally (`civ_routing_grid`, private to `cartalith-civ`) --
@@ -3553,6 +3581,23 @@ fn compute_civilisation(
             cartalith_civ::civ_resource_trade_balance(&ctx_mean, &world_mean_resources)
         })
         .collect();
+    // See the comment on `build_resource_potentials`'s own call site: this
+    // free used to happen immediately after that call, before the economy
+    // wiring above needed the full 15-key vocabulary through settlement
+    // placement. The trade balances just above are the last reader of these
+    // six; the explanations below read only `SUIT_RESOURCE_KEYS`. Freed
+    // before the explanations rather than after them so that `coast_sdf`'s
+    // jump-flood scratch, built next, lands on the lower plateau.
+    resources.clay = Vec::new();
+    resources.buildstone = Vec::new();
+    resources.flint = Vec::new();
+    resources.obsidian = Vec::new();
+    resources.sulfur = Vec::new();
+    resources.alum = Vec::new();
+    // The panel's `coast_dist_cells` -- see where it used to be built, above.
+    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea_level);
+    // The same context the suitability grid was built from (the macro above).
+    let ctx = suitability_ctx!();
     // Causal-chain explainer (`VISION.md`): decompose the suitability score
     // at each settlement's own cell into its real weighted terms, so the UI
     // can answer "why is this town here?" from the actual arithmetic that
@@ -3561,7 +3606,8 @@ fn compute_civilisation(
     // Computed HERE, and per-settlement rather than per-cell, for a real
     // reason: every raster this needs (soil/water/carrying-capacity/coast
     // SDF/river order/flow/corridor/landmass/flood/slope/resources) is a
-    // local of this function and dies at its end. Answering "why here?" for
+    // local of this function and dies inside it -- most of them straight
+    // after this pass, below. Answering "why here?" for
     // an arbitrary cell later would mean retaining all of them -- hundreds
     // of MB at 2048x2048, straight back into what
     // `MEMORY_OPTIMIZATION_SCOPE.md` spent real measurement getting out of.
@@ -3603,16 +3649,12 @@ fn compute_civilisation(
         })
         .collect();
 
-    // See the comment on `build_resource_potentials`'s own call site: this
-    // free used to happen immediately after that call, before the economy
-    // wiring above needed the full 15-key vocabulary through settlement
-    // placement. Nothing after this point reads `resources` at all.
-    resources.clay = Vec::new();
-    resources.buildstone = Vec::new();
-    resources.flint = Vec::new();
-    resources.obsidian = Vec::new();
-    resources.sulfur = Vec::new();
-    resources.alum = Vec::new();
+    // Every raster below was read for the last time by the explanations
+    // above -- the suitability inputs, the six-field-lighter `resources`, the
+    // deferred `coast_sdf` and the river grids. Released before the territory
+    // sweep rather than at function exit, so its heap and distance grids do
+    // not stack on top of them (`MEMORY_OPTIMIZATION_SCOPE.md`, 2026-09-27).
+    drop((soil, soil_slope, raw_slope, corridors, coast_sdf, coast_reach, flood, river_reach, river_order, suit, resources));
 
     // Territory (`DECISIONS.md` §7b): reuses the same real terrain
     // travel-cost field the road network above already computed --

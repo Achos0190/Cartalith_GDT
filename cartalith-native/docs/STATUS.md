@@ -1453,16 +1453,21 @@ since `4ec07f5` on 2026-09-02).
 | MEM-13 | R7 — `road_dijkstra`'s discarded `prev` | done | `road_dijkstra(..., want_prev: bool)` with an R7 doc comment; the sweep that only read `dist` passes `want_prev: false`, and a test asserts `prev` is not written. Landed in `4ec07f5` |
 | MEM-14 | R8 — chunk `civ_hierarchical_network_topology`'s parallel Dijkstras | done | `civ_hierarchical_network_topology` carries R8 comments: each settlement's `dist` is kept as a per-settlement probe row rather than a whole grid, and `res1` is released after pass 1. Landed in `4ec07f5` |
 | MEM-15 | Per-segment overlay culling (still open after `_run_offscreen`) | done | `map_overlay.gd::_segment_chains` returns the maximal runs of on-screen segments, so a long way crossing the window is no longer dashed in full. Probe `godot-project/_segcull_probe.gd`. Landed `af28882` (2026-09-05) |
+| MEM-16 | Ruling AZ's phone-memory reduction (2026-09-27): release the civ pass's rasters after their last reader | done — **verified 2026-09-29** | `compute_civilisation` (`cartalith-godot/src/lib.rs`): `drop(lithology)` after the resource kernel, `drop(wetland)` after carrying capacity, `suit`/`wb.fill_level` freed after placement unless `seeding_villages`, `coast_sdf` built after the six-grid free beside the explanations, `suitability_ctx!` rebuilding the context there, and the explanation-only rasters dropped before `assign_territory`. Measured on the desktop, `cartalith-civ/examples/_memlane_peak.rs`: 2048 × 1311 peak **519.42 → 486.50 MiB** (202.9 → 190.0 B/cell); 4096 × 2622 2 028.48 → 1 937.46. The phone figure is **projected, not measured**. Bit-identical: 588/588 `CivData` fingerprints match across 42 configurations against `HEAD` `09858bd`, with a positive control. `new_world_dialog.gd::PEAK_BYTES_PER_CELL` is 241.3 → 190.0, and `_nwmem_probe.gd` literals now read 1.90 GiB |
 
-**Group total: 15 — 13 done, 1 not started, 1 declined.** Corrected
+**Group total: 16 — 14 done (MEM-16 verified 2026-09-29), 1 not started, 1 declined.** Corrected
 2026-09-23: MEM-10, -11, -13, -14 and -15 each said "not started" for about
 three weeks after they landed; each was re-opened at its symbol for this
 correction.
 
 §6's walk-down table projects 618.28 → 469.56 MiB for all eight R-changes.
-R1-R5, R7 and R8 have landed; R6 has not. No after-figure for the landed set
-has been re-measured here. The last measured point this file carries is
-R1-R3's 518.92 MiB.
+R1-R5, R7 and R8 have landed; R6 has not. Re-measured 2026-09-27, on the
+desktop with the pipeline allocator probe: the landed set stood at **519.42 MiB**
+at 2048 × 1311, not at the walk-down's 469.56, because the civ pass has since
+grown. MEM-16 takes that to **486.50 MiB (190.0 B/cell)**, and the phone figure
+is projected rather than measured. Three stages now tie at 484-487 MiB, which
+is the floor for a change that moves no value. What lies below that floor, with
+sizes, is in `MEMORY_OPTIMIZATION_SCOPE.md`'s *The 2026-09-27 pass*.
 ### LOD and tiling · `LOD_TILING_BASE_SCOPE.md` + `LOD_TILING_INTEGRATION_SCOPE.md`
 
 `ROADMAP.md` files this under "Not a phase"; that section *originally ended*

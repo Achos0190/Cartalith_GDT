@@ -794,8 +794,9 @@ and it is not the binding constraint on whether a session survives.**
   `LARGE_ITEM_RULINGS.md` Ruling AH keeps 2048 × 1311 as the Android ceiling,
   higher presets desktop-only. Ruling AS, 2026-09-24, refined it: the phone
   keeps 4K and 8K, and `new_world_dialog.gd::_on_create()` asks for
-  confirmation above 2048 × 1311 cells, quoting this section's 241.3 B/cell
-  slope.)
+  confirmation above 2048 × 1311 cells. It quoted this section's 241.3 B/cell
+  slope until 2026-09-27, and now quotes 190.0; see *The 2026-09-27 pass*
+  below.)
 
 **What "supported" would take, in order.** R1 and R2 are free and remove
 269 MiB from the common case and 40.96 MiB from every case; R3 is +40 ms and is
@@ -1049,7 +1050,193 @@ either way.
   inside a running Godot process — the case for it is the four points above,
   not a screenshot.
 
+## The 2026-09-27 pass: 519.42 → 486.50 MiB, bit-identical (Ruling AZ)
+
+Owner Ruling AZ (`LARGE_ITEM_RULINGS.md`, 2026-09-28) said to build "phone
+memory reduction (the 878 MB peak for a default world, R1)". **§6's R1 had
+already landed** (`release_world`, 2026-08-25; `STATUS.md` MEM-7), and so had
+R2-R5, R7 and R8. The brief's fallback applied: re-measure, then take the
+largest contributor that can be reduced without changing a generated value.
+Pending independent verification.
+
+### Method
+
+`_peakaudit_peak.rs` restored from `0bba2f9^` and brought up to today's
+`compute_civilisation` as `cartalith-civ/examples/_memlane_peak.rs`. The civ
+pass has grown since August: `coast_reach`, `river_reach`, the three-pass
+`civ_iterative_network`, trade balances, explanations, provinces, continents,
+sea routes, `dens`. The probe runs the default auto-populate path (CPU; no
+villages, metropolis, `biome_k` or fixed counts; recovery Stable) with the
+shipped app's six divergence flags (`cartalith_godot::params::defaults()`) at
+800 km, the New World dialog's default width. Sea routes get no ocean or wind
+field, which is a ≤240-wide coarse grid and negligible. All figures are desktop
+allocator peaks (Windows, 31 GB), **measured** on this machine, each process
+run alone, seed 483920 unless stated.
+
+**The configuration does not move the peak.** Reference parameters at 1 200 km,
+which is the August configuration, measured 519.06-519.78 MiB before and
+486.05-486.14 MiB after. Seeds 12345 and 999001 measured 519.77-519.78 MiB
+before and 486.49 MiB after.
+
+### Before: where the 519 MiB is
+
+| grid | runs | peak MiB, median (min..max) | B/cell |
+|---|---:|---:|---:|
+| 1024 × 655 | 3 | 163.95 (163.70..164.42) | 256.3 |
+| **2048 × 1311** | 10 | **519.42 (518.79..519.78)** | **202.9** |
+| 4096 × 2622 | 3 | 2 028.48 (all three) | 198.1 |
+
+**The dialog's 241.3 B/cell was already stale.** It was the pre-R3 audit's
+figure. The R1-R3 section above measured 518.92 MiB, which is 202.7 B/cell, on
+the same day, and R4, R5, R7 and R8 then landed without it being re-measured.
+The civ pass added about as much as those four took away.
+
+`WorldState` is now **153.63 MiB, 60.0 B/cell**: R2 and R4 took it down from
+82.0. That is `field`, `stress`, `age`, `resistance`, `crust`, `shear`,
+`volcanic`, `impact`, `temperature`, `rainfall`, `flow_discharge`,
+`channels.recv` and `river_floor` at 10.24 each; `plate_id` (u16) and
+`stream_order` at 5.12; `boundary_mask`, `boundary_type`, `channels.chan` and
+`river_mask` at 2.56; `channels.slope` released. The allocator reads
+163.99 MiB live when `generate_terrain` returns. The 10.36 MiB gap is the
+Arc'd fields' bookkeeping plus non-grid state, and is not a missing grid.
+
+At the `SuitabilityCtx` point the civ side holds **299.58 MiB (117.0 B/cell)**.
+It is the fifteen resource grids at **153.63**, then `wb.fill_level`,
+`soil_slope`, `soil`, `water_access`, `carrying_cap`, `raw_slope`,
+`corridors`, `landmass.quality`, `landmass.comp`, `coast_sdf`, `coast_reach`,
+`flood` and `river_reach` at 10.24 each, `river_order` at 5.12, and
+`wb.classification`, `biome` and `lithology` at 2.56.
+
+The heap during each stage (live after / ceiling during, MiB):
+
+| stage | live | ceiling |
+|---|---:|---:|
+| `generate_terrain` | 163.99 | 330.42 |
+| `build_resource_potentials` | 376.51 | 431.24 |
+| `build_coast_sdf` | 427.73 | 473.82 |
+| `fresh_river_network` | 453.90 | 497.30 |
+| `build_settlement_suitability` | 473.82 | 473.82 |
+| seeds + placement | 473.82 | 496.87 |
+| **`civ_iterative_network`** | 474.03 | **519.06-519.42** |
+| trade balances | 484.35 | 500.34 |
+| `assign_territory` | 433.22 | 507.47 |
+
+### What was released, and why it cannot change a value
+
+Every change is a `drop` or a reordering of pure functions over inputs that
+nothing mutates. No arithmetic is touched. All of it is in
+`cartalith-godot/src/lib.rs::compute_civilisation`:
+
+1. **`lithology`** is dropped after `build_resource_potentials`, its last
+   reader: 2.56 MiB.
+2. **`wetland`**, built only when `biome_k` is on, is dropped after
+   `build_carrying_capacity`, its only reader.
+3. **`suit` and `wb.fill_level` are released after placement, unless villages
+   are being seeded**: 20.48 MiB. Village seeding was their only later reader.
+   A single `seeding_villages` flag now gates both the free and the seeding.
+4. **`coast_sdf` is deferred**: 10.24 MiB off the plateau, plus its
+   jump-flood scratch. Its only reader is the explanations'
+   `coast_dist_cells`. It is now built after the trade balances and the free
+   of the six extra resource grids, so its 46 MiB spike lands on a 389 MiB
+   plateau instead of a 417 MiB one.
+5. **The six-grid free moved ahead of the explanations**, which read only
+   `SUIT_RESOURCE_KEYS`. The borrow checker needed the explanations'
+   `SuitabilityCtx` rebuilt after the free. One `macro_rules!` builds it at
+   both sites, so the explanations cannot read a different context from the
+   one that placed the towns.
+6. **The explanation-only rasters are released straight after the
+   explanations** rather than at function exit. That is `soil`,
+   `soil_slope`, `raw_slope`, `corridors`, `coast_sdf`, `coast_reach`,
+   `flood`, `river_reach`, `river_order`, `suit` and the nine remaining
+   resource grids. This takes the territory sweep's ceiling from 507 to
+   305 MiB.
+
+### After
+
+| grid | runs | peak MiB, median (min..max) | B/cell | saved |
+|---|---:|---:|---:|---:|
+| 1024 × 655 | 3 | 155.37 (154.66..155.73) | 242.9 | 8.58 |
+| **2048 × 1311** | 5 | **486.50 (486.12..486.50)** | **190.0** | **32.92 MiB, 12.9 B/cell, −6.3 %** |
+| 4096 × 2622 | 3 | 1 937.46 (all three) | 189.2 | 91.02 |
+
+The before and after binaries were interleaved run for run. What stays resident
+after `compute_civilisation` is unchanged at 197.56 MiB (77.2 B/cell). The
+change is transient only.
+
+**Three ceilings now tie, and they are the floor for a change that moves no
+value.** `civ_iterative_network` is at 486.50, `fresh_river_network` at 484.49
+and seeds + placement at 484.06. The last two sit on the suitability plateau,
+461 MiB, which holds exactly what `build_settlement_suitability` reads.
+Lowering them means lowering that plateau, and every way to do that changes
+values or costs time.
+
+### What is left, for the owner
+
+These have sizes at 2048 × 1311. None is taken here, because each either moves
+a generated value or buys memory with compute.
+
+- **Recompute the six non-suitability resource grids for the trade balances**
+  instead of holding them from `build_resource_potentials` through placement.
+  They are 61.45 MiB on the suitability plateau. They come out of one shared
+  per-cell kernel, so recomputing them means running that kernel again. §7
+  measured it at 470 ms on the handset, and on the desktop the whole stage
+  measured about 160 ms in this pass. The values would be bit-identical and
+  the cost is time. It would also lower the peak only as far as the next
+  binding stage, `civ_iterative_network`'s own transient on the new plateau.
+- **Quantise the fifteen resource grids to `u8`**: −115.2 MiB. This changes
+  values. §7 already rules it out, because settlement placement is an argmax.
+- **`landmass.comp`** (10.24 MiB) rides the whole plateau for the continents
+  at the end. Splitting it from `landmass.quality` means a second flood fill.
+- **R6** (MEM-12) is still not started. It only reaches `assign_territory`'s
+  transient, which is now far below the peak.
+
+### Phone, projected rather than measured
+
+No handset was attached (`adb devices` listed none). On the 2026-08-25
+finding that desktop and handset agree to 0.01-0.15 %, a default
+2048 × 1311 generate's **pipeline heap is projected at ≈ 486.5 MiB on the
+phone, down from ≈ 519.4**. That is the Rust side only. The app's peak adds
+Godot's own ~420 MB no-world `TOTAL PSS` (§5's reconstruction), so a first
+generate projects at roughly **930 MB against 965 MB**. That is still above the
+878 MB the Ruling AZ row quotes, which is a retired 2026-08-20 figure with no
+fixed seed (see *The baseline … is retired*). **A handset pass is needed to
+turn any of this into a measurement.**
+
+`new_world_dialog.gd`'s `PEAK_BYTES_PER_CELL` is now **190.0**, the 2048
+figure, which is the larger of the two measured here. 4096 × 2621 now quotes
+1.90 GiB, down from 2.41. `_nwmem_probe.gd`'s literals moved with it: it
+reports `fail=0` in both modes, and restoring 241.3 turns three of its checks
+red.
+
+### Verification
+
+- **Bit-identity, on the real function rather than the probe.** A throwaway
+  `#[cfg(test)]` module, included by `#[path]` and never committed, runs
+  `compute_civilisation` itself and fingerprints every `CivData` product with
+  FNV-1a over raw bytes or `Debug`: settlements, ways, sea routes, road
+  edges, territory, provinces, province list, continents, trade balances,
+  every explanation field, water bodies, `dens`, `next_tid` and village tids.
+  It covers 42 configurations: 384 × 256, 512 × 328 and 1024 × 655, each with
+  the default, villages, `biome_k`, metropolis, recovery phase 1, recovery 3
+  with villages, and fixed counts, and each of those again through the SG-02
+  keep path. It was run on a `git worktree` of `HEAD` (`09858bd`) and on the
+  changed tree: **588 of 588 lines identical**. As a positive control,
+  flipping the sign of `coast_dist_cells` on the `HEAD` side changed exactly
+  the 42 explanation hashes and nothing else.
+- `cargo test --workspace --no-fail-fast`, on the changed tree: 177 test
+  binaries, 3 946 passed, 0 failed, 42 ignored. No golden or test was edited.
+
 ## Probes
+
+`_memlane_peak.rs` (`cartalith-civ/examples/`, 2026-09-27) is the current
+probe, and it is throwaway in the same way. It mirrors `compute_civilisation`
+call for call, so it drifts whenever that function changes: re-check it
+against the function before trusting a number from it.
+
+```text
+cargo run --release -p cartalith-civ --example _memlane_peak -- <gw> <gh> [seed] [km]
+MEMLANE_REF=1 …   # WorldParams::defaults (the goldens' baseline) instead of the app's six flags
+```
 
 The three `_peakaudit_*` examples were throwaway by design — none called by
 anything, none a test, all named for deletion when the audit closed — and were

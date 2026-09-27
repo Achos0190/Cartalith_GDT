@@ -1206,14 +1206,17 @@ func confirm_phone_memory_then(gw: int, gh: int, proceed: Callable, on_cancel: C
 ## ceiling itself -- asks nothing, and a 2K grid at a taller custom aspect,
 ## which costs more than the ceiling was measured at, does.
 const PHONE_CEILING_CELLS := 2048 * 1311
-## The measured slope, not a guess: 241.3 bytes of peak per cell, taken from
-## four grid sizes (512 to 4096, three of them on the handset) in the same §3.
-## Its table is where the row's quoted figures come from -- 4096 × 2621 at
-## 2.41 GiB and 8192 × 5243 at 9.65 GiB -- and the 4096 row is also a direct
-## measurement (2 470.63 MiB on the handset, run as a bare process). The 8192
-## figure is that slope extrapolated; nothing that size has been run on a
-## phone, and the section says 8192 "is not reachable on any phone".
-const PEAK_BYTES_PER_CELL := 241.3
+## The measured slope, not a guess: 190.0 bytes of peak per cell, the
+## pipeline's allocator peak at 2048 × 1311 on the desktop after the
+## 2026-09-27 pass (`MEMORY_OPTIMIZATION_SCOPE.md`, "The 2026-09-27 pass");
+## 4096 × 2622 measured 189.2 in the same pass, so the larger figure is kept.
+## It gives 4096 × 2621 at 1.90 GiB and 8192 × 5243 at 7.60 GiB. **Projected
+## for the phone, not measured there**: the 2026-08-25 section found desktop
+## and handset agreeing to 0.01-0.15 %, and no handset pass has re-run it
+## since. The 8192 figure is the slope extrapolated; nothing that size has
+## been run on a phone. Was 241.3 until 2026-09-27 -- the pre-R3 audit's
+## figure, stale since R1-R3 landed the same day (202.7 B/cell measured then).
+const PEAK_BYTES_PER_CELL := 190.0
 ## What the same section measured beneath the pipeline, and the headroom it
 ## had: `~420 MB` of Godot process on a handset reporting 2.38 GB available.
 const PHONE_APP_BASE_MB := 420
