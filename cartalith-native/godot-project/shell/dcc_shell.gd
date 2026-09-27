@@ -8958,6 +8958,23 @@ func _show_phone_toast(text: String, near: Control, seconds: float = 2.8) -> voi
 	if not _phone or _phone_root == null:
 		return
 	var wrap := PanelContainer.new()
+	## Investigated (not assumed) after an owner report that a toast read
+	## "faint, with a map label drawn on top": `wrap` is `_phone_root.add_child
+	## (wrap)`'d below, and `_phone_root`'s FIRST child is the map viewport
+	## (`_build_phone_shell()`, `_phone_root.add_child(vp)` before anything
+	## else) -- every toast is already a LATER sibling than the map, which
+	## Godot draws in tree order at equal `z_index`, so the map cannot already
+	## be drawing over it by ordinary sibling order. The report's real cause
+	## was a screenshot taken mid-fade-in (`modulate.a` between 0 and 1, which
+	## fades the whole toast -- background AND text -- letting the map show
+	## through), fixed at the capture site (`_pandraghint_probe.gd`), not here.
+	## `z_index` is still set, defensively: nothing in this codebase sets a
+	## `z_index` above `2` (`_export_grid_layer.gd`, `viewport_host.gd`) and
+	## `_navpad`/journey markers/etc. all rely on sibling order the same way
+	## this file's own toasts did -- so `50` costs nothing and removes "does a
+	## future map layer's z_index change put it back on top of a toast" as a
+	## question anyone has to re-derive from source again.
+	wrap.z_index = 50
 	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var box := DccTheme.panel("raised")
 	box.set_corner_radius_all(_pscale(14))
@@ -9000,14 +9017,33 @@ func _position_phone_toast(wrap: Control, near: Control) -> void:
 		clampf(cy - size.y * 0.5, _pscale(12), maxf(_pscale(12), screen.y - size.y - _pscale(12))))
 	wrap.size = size
 
-## Coach marks (§13 chrome: "two subtle toasts, persisted"). The two
-## highest-value first-run hints into what THIS file itself builds and can
-## point a toast at with a real node: the bottom bar's disclosure model
-## (`_phone_menu_bar`) and the tool sheet's drag handle (`_phone_sheet_grab`).
-## Long-press-to-sample -- the third candidate the assigning brief named -- is
-## deliberately not one of the two: it is `map_overlay.gd`'s gesture, a file
-## this pass does not own and has no node handle on, so a toast pointed at it
-## would be a guess rather than an anchored hint.
+## Coach marks (§13 chrome: "two subtle toasts, persisted" -- now three, see
+## `pan_drag_hint` below). First-run hints into what THIS file itself builds
+## and can point a toast at with a real node: the bottom bar's disclosure
+## model (`_phone_menu_bar`) and the tool sheet's drag handle
+## (`_phone_sheet_grab`).
+## Long-press-to-sample -- the third candidate the ORIGINAL assigning brief
+## named -- is deliberately not one of these: it is `map_overlay.gd`'s
+## gesture, a file this pass does not own and has no node handle on, so a
+## toast pointed at it would be a guess rather than an anchored hint.
+##
+## **`pan_drag_hint`** -- Ruling BO / `OUTSTANDING_WORK.md` ("a drag on the
+## map does nothing until the hand tool is armed, with no on-screen cue").
+## `viewport_host.gd`'s navpad ✋ already paints its OWN armed state (accent
+## fill when `pan_mode()` is true, `_navpad_paint()`), which answers "is it
+## armed right now" for someone already looking at the button -- what was
+## missing is anything that tells a first-time user the button exists and
+## that a bare drag needs it. That gap is exactly this coach mark's job, and
+## it is deliberately NOT anchored to the navpad: `_navpad`/`_pan_btn` are
+## private locals of `viewport_host.gd` (a file this task may not edit, per
+## brief), so this points at nothing (`near = null`, which
+## `_position_phone_toast()` already centres) rather than reaching into that
+## file for a rect this pass has no right to add a getter for. Text and glyph
+## (✋) are the SAME vocabulary the navpad button and `tool_fan.gd`'s pill
+## already use (`pill_label()`), not a new coined term. Must never assume
+## `viewport_host`/`_navpad` exists here -- if a future pass wants this
+## anchored, that is a `viewport_host.gd` change (a public rect getter),
+## made by whoever owns that file, not a reach-around from this one.
 const _COACH_MARKS := [
 	## Rewritten against `PHONE_TABS`, which is what the bar has actually drawn
 	## since the tab migration. The old text named WORLD/CIVIL/CARTO and PANELS
@@ -9016,6 +9052,14 @@ const _COACH_MARKS := [
 	{"id": "bottombar_tabs",
 		"text": "MAP · GENERATE · PLAN switch tasks here — MORE reaches everything else."},
 	{"id": "sheet_handle", "text": "Drag this handle to expand tool options."},
+	## Shown last (after the two that already existed) rather than first: the
+	## nav-bar and sheet-handle hints are about controls that are on screen the
+	## instant the app opens, while this one is about a gesture a user might
+	## not attempt for several minutes -- ordering it after the other two shows
+	## it in the same first-run session without competing with them for the
+	## very first thing painted.
+	{"id": "pan_drag_hint",
+		"text": "A one-finger drag only moves the map while Pan (✋) is armed."},
 ]
 
 ## Probe seam: a GDScript `const` is not an instance property, so
@@ -9055,7 +9099,14 @@ func _show_next_coach_mark(i: int) -> void:
 	if id == "sheet_handle" and _landscape:
 		_show_next_coach_mark(i + 1)
 		return
-	var near: Control = _phone_menu_bar if id == "bottombar_tabs" else _phone_sheet_grab
+	## `pan_drag_hint` has no anchor by design (see `_COACH_MARKS`'s own doc
+	## comment above it) -- `near` stays `null`, which `_position_phone_toast()`
+	## already treats as "centre on screen" for exactly this reason.
+	var near: Control = null
+	if id == "bottombar_tabs":
+		near = _phone_menu_bar
+	elif id == "sheet_handle":
+		near = _phone_sheet_grab
 	_show_phone_toast(String(mark.get("text", "")), near, 3.2)
 	_set_coach_mark_seen(id)
 	get_tree().create_timer(3.6).timeout.connect(_show_next_coach_mark.bind(i + 1))

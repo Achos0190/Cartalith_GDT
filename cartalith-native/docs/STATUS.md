@@ -2333,6 +2333,57 @@ survived.
 
 **Group total: 6 — 5 done, 1 unverified.**
 
+**2026-09-28, Ruling BO's two phone touch-design rows — pending independent
+verification, screenshots await owner review.** `OUTSTANDING_WORK.md`'s "the
+planner fix lands the user on a sheet that covers the tab bar" was found
+**already fixed** at its symbol: `dcc_shell.gd::_apply_phone_orientation()`
+(landed `9dd41c6c`, 2026-09-08) already sets `left_dock`/`right_dock`'s
+`offset_bottom` to clear the phone bottom bar, and `_navbarfix_probe.gd` (live
+`godot-project/_navbarfix_probe.gd`) passes today, 0 failures, against both
+dock sheets; `_leftsheet_shot_probe.gd` (new, this pass) confirms the same
+through the real PLAN-tab entry point (`app.gd::open_journey_planner()`).
+**No code changed for this row** — the backlog row is stale, not the shell.
+The second row, "a drag on the map does nothing until the hand tool is armed,
+with no on-screen cue", got a new **third coach-mark toast**,
+`pan_drag_hint`, added to `dcc_shell.gd`'s existing `_COACH_MARKS` /
+`_show_next_coach_mark()` framework (the same primitive the bottom-bar and
+sheet-handle first-run hints already use) — text: "A one-finger drag only
+moves the map while Pan (✋) is armed.", centred (`near = null`) rather than
+anchored to the navpad ✋, since that button is a private local of
+`viewport_host.gd`, a file this pass was not permitted to edit.
+
+**First screenshot round was illegible** (owner-caller review, same day): the
+toast read faint with a map label drawn through it. Investigated rather than
+assumed — `_show_phone_toast()`'s own style was never translucent
+(`DccTheme.panel("raised")` carries no alpha; `text_bright`-on-`raised` is
+18:1 in this world's light theme). The actual cause was **the screenshot,
+not the toast**: it was captured mid fade-in (`modulate.a` between 0 and 1,
+which fades background and text together and lets the map show through). Two
+things came out of the fix: `_show_phone_toast()` now also sets
+`wrap.z_index = 50`, defensively (tree order already put every toast above
+the map by sibling order — `_phone_root`'s FIRST child is the map viewport —
+so this was never a live ordering bug, only cheap insurance against a future
+map-layer `z_index` change); and `_pandraghint_probe.gd` now waits for full
+opacity before sampling anything, and adds two objective checks per toast —
+text-vs-background contrast (WCAG relative-luminance formula, >= 4.5:1;
+measured 18.00:1 for all three marks) and a background-purity sample (the
+rendered pixel must resemble a theme `raised` token, not whatever is behind
+the toast). **A real, pre-existing, unrelated finding surfaced along the
+way**: at natural cold boot, the FIRST coach mark (`bottombar_tabs`, not
+touched by either pass) fires before any world exists, while
+`phone_project_picker.gd`'s full-screen picker is still the only thing on
+screen — so on every fresh launch that toast paints, correctly, underneath an
+already-open modal. Not a regression from this row and not fixed here; noted
+for whoever next touches `_maybe_show_coach_marks()`'s call site.
+
+Both new probes pass (`_navbarfix_probe.gd` unmodified and still green;
+`_ctxphone_probe.gd` re-run clean, 56/56; `_pandraghint_probe.gd` 18/18,
+including the new contrast/purity checks for all three marks). Screenshots
+(re-captured at full opacity): `pan_drag_hint.png`,
+`coach_bottombar_tabs.png`, `coach_sheet_handle.png`, and
+`planner_sheet_tabbar.png`, left for the owner under this session's
+scratchpad — not yet committed or reviewed.
+
 ### GUI feature parity · `GUI_FEATURE_PARITY_SCOPE.md`
 
 Eight milestones. **Seven are done and one, GFP-2, is partial.** GFP-2's
