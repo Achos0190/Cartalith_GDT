@@ -1907,7 +1907,6 @@ func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 	excerpt_col.name = "VaultExcerptCol"
 	excerpt_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(excerpt_col)
-	DccWidgets.note(excerpt_col, "Excerpt")
 	## The mockup's excerpt body is `font:13.5px/1.7 'Inter'` (`ENV:106`) --
 	## prose, not a caption. Godot sizes are integers and this codebase's own
 	## convention (`dcc_theme.gd`'s `fs_shortcut`/`fs_timeline` comments) rounds
@@ -1915,11 +1914,21 @@ func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 	## inventing a literal, so `FS_BODY` (12) is the closest existing
 	## `DccTheme` token below 13.5 -- the same one `DccWidgets.modal_prose()`
 	## already reads prose in elsewhere.
-	if bool(read.get("ok", false)):
-		var excerpt := _first_lines(_strip_frontmatter(String(read.get("text", ""))), 3)
-		DccWidgets.note(excerpt_col, "    %s" % (excerpt if excerpt != "" else "(empty note)")) \
-			.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
-	else:
+	##
+	## **Shown only when the read failed (`OUTSTANDING_WORK.md`'s Vault editor
+	## polish row).** The 2026-09-21 mockup drew outline + excerpt because it
+	## predates Ruling BE, which is what added the whole rendered note below
+	## (`ENV:106` never anticipated that section existing at all). Once the
+	## read succeeds, the full render a few rows down already carries this
+	## excerpt's exact opening sentence -- same words, same order -- so the
+	## excerpt stopped being a preview of something not yet shown and became a
+	## second, plainer copy of the first few lines of the thing directly
+	## beneath it. The mockup's *outline* column is unaffected and still
+	## always drawn; only the now-redundant excerpt text is dropped. A failed
+	## read has no full render to fall back on, so the excerpt (as "Could not
+	## read: …") still does real work there and stays.
+	if not bool(read.get("ok", false)):
+		DccWidgets.note(excerpt_col, "Excerpt")
 		DccWidgets.note(excerpt_col, "    Could not read: %s" % String(read.get("error", ""))) \
 			.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 

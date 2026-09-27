@@ -268,6 +268,16 @@ func _ready() -> void:
 	_ok("the note is rendered, heading as a heading and not as '#'",
 		rendered != null and rendered.text.find("[b]Founding legend[/b]") >= 0 and rendered.text.find("# Founding") < 0,
 		rendered.text.substr(0, 200) if rendered != null else "<none>")
+	## Vault editor polish (`OUTSTANDING_WORK.md`): the browse excerpt used to
+	## repeat this note's own opening sentence directly above the full
+	## rendered note just checked above. `_labels()` only walks `Label`
+	## nodes, which is exactly what the excerpt was drawn as (`DccWidgets.
+	## note()`) and exactly what `VaultNoteRendered` (a `RichTextLabel`) is
+	## not, so this cannot pass by accidentally matching the render instead.
+	var excerpt_col := _find_named(vw, "VaultExcerptCol")
+	_ok("the excerpt column carries no duplicate of the note's own opening once the full note renders below it",
+		excerpt_col != null and _labels(excerpt_col).find("The old song claims the ford chose its own name") < 0,
+		_labels(excerpt_col) if excerpt_col != null else "<none>")
 	await _shot("2_browse_note.png")
 
 	# == 2. Attach through the frontmatter row's own button ===================
@@ -353,6 +363,21 @@ func _ready() -> void:
 		if not (ed.buttons as Dictionary).has(k):
 			missing.append(k)
 	_ok("the toolbar carries every ruled control", missing.is_empty(), str(missing))
+	## Vault editor polish (`OUTSTANDING_WORK.md`): the U and S toolbar chips
+	## read as underline/strikethrough, word-processor style, not a bare
+	## capital letter -- checked at the live node (`markdown_editor.gd::
+	## _style_glyph_chip`'s `GlyphOverlay`), not by asserting the helper
+	## exists (`MISTAKES.md`: never assert a constant against itself).
+	var u_overlay := _find_named(ed.buttons["underline"], "GlyphOverlay") as RichTextLabel
+	_ok("the U chip's rendered glyph carries [u]", u_overlay != null and u_overlay.text.find("[u]U[/u]") >= 0,
+		u_overlay.text if u_overlay != null else "<no overlay>")
+	var s_overlay := _find_named(ed.buttons["strike"], "GlyphOverlay") as RichTextLabel
+	_ok("the S chip's rendered glyph carries [s]", s_overlay != null and s_overlay.text.find("[s]S[/s]") >= 0,
+		s_overlay.text if s_overlay != null else "<no overlay>")
+	_ok("the underline/strike chips kept their tooltip", ed.buttons["underline"].tooltip_text.find("Underline") >= 0
+		and ed.buttons["strike"].tooltip_text.find("Strikethrough") >= 0)
+	_ok("the underline/strike chips kept their hit size (>= 28px min width, unchanged by the overlay)",
+		ed.buttons["underline"].custom_minimum_size.x >= 28.0 and ed.buttons["strike"].custom_minimum_size.x >= 28.0)
 	## Type: caret to the end, insert a line the way a keyboard does.
 	te.set_caret_line(te.get_line_count() - 1)
 	te.set_caret_column(te.get_line(te.get_line_count() - 1).length())

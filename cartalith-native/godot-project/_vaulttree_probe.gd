@@ -66,6 +66,16 @@ func _find_all(n: Node, cls, out: Array) -> void:
 		_find_all(c, cls, out)
 
 
+func _find_named(n: Node, target: String) -> Node:
+	if n.name == target:
+		return n
+	for c in n.get_children():
+		var r := _find_named(c, target)
+		if r != null:
+			return r
+	return null
+
+
 func _find_button(n: Node, text: String) -> Button:
 	if n is Button and String((n as Button).text) == text:
 		return n
@@ -248,9 +258,21 @@ func _ready() -> void:
 			_ok("preview: every heading matches a direct vault_file_headings call", true)
 		_ok("preview: headings were non-empty to check against", not direct_headings.is_empty(), str(direct_headings))
 
+		## Vault editor polish (`OUTSTANDING_WORK.md`, closed 2026-09-27): once
+		## a read succeeds, `VaultExcerptCol` drops this same text rather than
+		## repeating it above the full rendered note (`VaultNoteRendered`)
+		## a few rows down, which already carries it. Checked at the column,
+		## not at `joined`, since `joined` (labels/buttons only) never held
+		## the RichTextLabel's rendered text anyway -- this was previously
+		## checking the excerpt against itself.
 		var excerpt: String = vw._first_lines(vw._strip_frontmatter(String(direct_read.get("text", ""))), 3)
-		_ok("preview: the excerpt is drawn from the same read_for_edit text",
-			excerpt != "" and joined.find(excerpt) >= 0, excerpt)
+		var excerpt_col := _find_named(vw, "VaultExcerptCol")
+		var excerpt_col_texts: Array = []
+		if excerpt_col != null:
+			_collect_texts(excerpt_col, excerpt_col_texts)
+		var excerpt_col_joined := "\n".join(PackedStringArray(excerpt_col_texts))
+		_ok("preview: the excerpt column carries no duplicate of the note's own opening once it renders in full",
+			excerpt != "" and excerpt_col != null and excerpt_col_joined.find(excerpt) < 0, excerpt_col_joined)
 
 	# -- §6 "Open to edit" reaches the real editor ----------------------------
 	## The tree preview's button has been "Open to edit" since 2026-09-26; this

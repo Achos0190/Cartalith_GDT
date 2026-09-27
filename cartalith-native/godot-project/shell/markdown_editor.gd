@@ -238,7 +238,9 @@ func _build_toolbar() -> void:
 	buttons["italic"].add_theme_font_override("font", FONT_ITALIC)
 	_tool(bar, "underline", "U", "Underline (Ctrl+U) -- Markdown has none, so this writes <u>…</u>, which Obsidian renders.",
 		func(): apply_inline("<u>", "</u>"))
+	_style_glyph_chip(buttons["underline"], "[u]U[/u]")
 	_tool(bar, "strike", "S", "Strikethrough -- ~~…~~", func(): apply_inline("~~", "~~"))
+	_style_glyph_chip(buttons["strike"], "[s]S[/s]")
 	_tool(bar, "highlight", "==H==", "Highlight -- ==…==, Obsidian's highlight.", func(): apply_inline("==", "=="))
 	_sep(bar)
 	## The "text size" picker. Markdown stores no font size, so size is the
@@ -284,6 +286,43 @@ func _tool(bar: Control, key: String, label_text: String, tip: String, cb: Calla
 	b.custom_minimum_size.x = maxf(b.custom_minimum_size.x, 28)
 	buttons[key] = b
 	return b
+
+
+## Draws a chip's glyph the way a word processor draws its own U/S buttons --
+## underlined, struck through -- rather than a bare capital letter (Vault
+## editor polish, `OUTSTANDING_WORK.md`). `DccWidgets.chip()`/`segment()` build
+## a plain `Button`, and `Button.text` is not BBCode -- there is no Godot
+## `Label`/`Button` property for "draw this text underlined" short of a custom
+## font, so the glyph is drawn by a `RichTextLabel` overlaid on the button
+## instead. The overlay's `mouse_filter = MOUSE_FILTER_IGNORE` sends every
+## click straight through to the `Button` beneath it, so the press callback,
+## the tooltip and the hit rect are all still the button's own -- accessible
+## the same way every other chip is, `custom_minimum_size` untouched, no probe
+## coordinate needs to move. The button's own text is kept (not cleared): it
+## still sizes the chip and still carries the accessible name, only its ink is
+## made transparent so the plain "U"/"S" it would otherwise draw does not show
+## through beneath the styled glyph.
+func _style_glyph_chip(b: Button, bbcode: String) -> void:
+	var col: Color = b.get_theme_color("font_color")
+	var transparent := Color(col.r, col.g, col.b, 0.0)
+	b.add_theme_color_override("font_color", transparent)
+	b.add_theme_color_override("font_hover_color", transparent)
+	b.add_theme_color_override("font_disabled_color", transparent)
+	var rt := RichTextLabel.new()
+	rt.name = "GlyphOverlay"
+	rt.bbcode_enabled = true
+	rt.text = bbcode
+	rt.fit_content = false
+	rt.scroll_active = false
+	rt.selection_enabled = false
+	rt.focus_mode = Control.FOCUS_NONE
+	rt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rt.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	rt.add_theme_font_size_override("normal_font_size", b.get_theme_font_size("font_size"))
+	rt.add_theme_color_override("default_color", col)
+	b.add_child(rt)
 
 
 func _sep(bar: Control) -> void:
