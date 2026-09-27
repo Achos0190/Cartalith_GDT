@@ -109,7 +109,11 @@ exists; the menu-naming audit),
 documents (`TERRAIN_ARCHITECTURE_RESEARCH.md`,
 `HETEROGENEOUS_COMPUTE_RESEARCH.md`, `TERRAIN_APPEARANCE_RESEARCH.md`,
 `LANDMARK_GENERATION_RESEARCH.md`), each annotated with how much of it
-applies to this port today.
+applies to this port today, and `MAP_STYLE_RESEARCH.md` (agent-produced,
+2026-09-27 — a catalogue of real cartographic and illustrative graphic
+styles, cited, mapped onto the render workspace's existing preset/look/ramp/
+NPR vocabulary, and ranked into concrete preset proposals for the owner to
+choose from; not a scope, no status column).
 
 ## Other directories
 
