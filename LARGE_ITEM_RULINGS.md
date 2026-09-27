@@ -1733,3 +1733,41 @@ was the entity-scoped view (`open_for`). They become one layout:
 
 Build it from the DCC vocabulary and the approved Vault Browser mockup
 (`design/vault-browser-2026-09-21/`); screenshots go to the owner for approval.
+
+## 2026-09-27 — Ruling BF: vault templates and Markdown follow Obsidian exactly
+
+Owner: *"I do have a templates folder in my obsidian vault. Maybe we should
+implement the same structure as obsidian to use templates. (same for how
+bold/links/etc work in markdown. I'd like to keep that syntax aligned. Same as
+for example with the chronos timeline plugging and formatting we did before."*
+
+This is the same rule as Ruling AM (Chronos): **Obsidian's own syntax and
+structure, exactly, with no Cartalith variant.** A note written or created in
+Cartalith must read identically in Obsidian, and the reverse.
+
+**Templates** (Obsidian core Templates plugin):
+- **The template folder** is read from `.obsidian/templates.json` (`folder`),
+  then from the Templater plugin's `templates_folder` if that plugin is
+  present. `template::discover`'s "the path contains *template*" rule is
+  kept only as the fallback when neither setting exists.
+- **Placeholders:** `{{title}}`, `{{date}}`, `{{time}}`, `{{date:FORMAT}}` and
+  `{{time:FORMAT}}` are filled.
+  - Formats use Moment.js tokens; the defaults come from `templates.json`'s
+    `dateFormat`/`timeFormat`, else Obsidian's own defaults (`YYYY-MM-DD`,
+    `HH:mm`).
+  - `{{date}}` means **today's real date**, as in Obsidian.
+  - The existing `{{…_Name}}` tokens (`template::fill_title`) keep working.
+  - This reverses `fill_title`'s deliberate "leave `{{title}}` and `{{date}}`
+    alone" — Obsidian fills them.
+- **Templater's `<% … %>`** is JavaScript only Templater can run. It is left
+  verbatim, never executed or imitated.
+- **The editor** gains **Insert template** at the caret, as Obsidian's command
+  does.
+
+**Markdown** — the editor's toolbar and Preview match Obsidian's syntax:
+- `**bold**`, `*italic*`, `~~strike~~`, `==highlight==`;
+- `[[note]]`, `[[note|alias]]`, `[[note#heading]]`, `![[embed]]`;
+- `#tag`, `- [ ]` tasks, `> [!note]` callouts, headings, lists, quotes, code.
+
+Underline stays `<u>…</u>`, since Obsidian has no native underline. Ctrl+E
+toggles Write/Preview, as Obsidian's reading-view shortcut does.
