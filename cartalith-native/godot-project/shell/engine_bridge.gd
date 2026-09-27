@@ -2680,6 +2680,23 @@ func icon_arm(family: String, variant: int, scale: float, rotation: float, jitte
 		return false
 	return world_gen.icon_arm(family, variant, scale, rotation, jitter)
 
+## CM-3 residual (`MAP_CONTEXT_SCOPE.md` §5.1, CARTO's Icon▸ sub-ring): arms a
+## `Custom`-family icon by explicit `slot`/`set` -- `icon_arm`'s numeric
+## `variant` cannot address it (see that function's own Rust doc comment).
+func icon_arm_custom(slot: String, set_name: String, scale: float, rotation: float, jitter: float) -> bool:
+	if not _has("icon_arm_custom"):
+		return false
+	return world_gen.icon_arm_custom(slot, set_name, scale, rotation, jitter)
+
+## The read side of `icon_arm_custom`: every `(set, slot)` pair the loaded
+## pack actually carries at least one image for. `[]` before any pack is
+## loaded, once one is loaded with no custom art, or against a GDExtension
+## with no binding yet.
+func icon_custom_slots() -> Array:
+	if not _has("icon_custom_slots"):
+		return []
+	return world_gen.icon_custom_slots()
+
 func icon_armed() -> Dictionary:
 	if not _has("icon_armed"):
 		return {}

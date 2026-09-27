@@ -503,6 +503,35 @@ impl IconEditor {
         true
     }
 
+    /// CM-3 residual (`MAP_CONTEXT_SCOPE.md` §5.1, CARTO's Icon▸ sub-ring):
+    /// arms a [`ManualIconFamily::Custom`] icon by its explicit `set`/`slot`
+    /// strings, the two-level address the module doc's "`ManualIconFamily::
+    /// Custom` cannot be armed through this call" names as [`Self::arm`]'s own
+    /// gap. Whether `set`/`slot` actually name a real, filled custom icon in
+    /// the loaded pack is the **caller's** job — `lib.rs`'s own
+    /// `icon_arm_custom` checks the pack's `custom` map before ever calling
+    /// this, the same division `icon_arm`'s `#[func]` already draws against
+    /// this module (pack access lives in `lib.rs`, this module stays free of
+    /// any pack/library dependency — see the module doc's "What this module
+    /// is built on"). This method only rejects an empty `set` or `slot`,
+    /// exactly the "typo is visibly rejected, not silently applied" shape
+    /// [`Self::arm`] already follows for the numeric path.
+    pub fn arm_custom(&mut self, slot: &str, set: &str, scale: f64, rotation: f64, jitter: f64) -> bool {
+        if slot.is_empty() || set.is_empty() {
+            return false;
+        }
+        let scale = if scale.is_finite() && scale > 0.0 { scale.clamp(ICON_SCALE_MIN, ICON_SCALE_MAX) } else { 1.0 };
+        let rotation = if rotation.is_finite() { rotation } else { 0.0 };
+        let jitter = if jitter.is_finite() { jitter } else { 0.0 };
+        self.armed = Some(ArmedSelection {
+            icon: ArmedIcon { family: ManualIconFamily::Custom, slot: slot.to_string(), set: Some(set.to_string()) },
+            scale,
+            rotation,
+            jitter,
+        });
+        true
+    }
+
     /// Disarms — the next `place()` call does nothing until `arm()` is
     /// called again. Matches the reference's own `_carIconArmed=null`
     /// (fired on Escape, switching family, or arming a different tool —

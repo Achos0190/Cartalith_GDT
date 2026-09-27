@@ -273,7 +273,7 @@ the reason for this split rather than a coincidence it exploits.
 | **W** | Region select | Region select | Region select |
 | **NW** | **Uplift ▸** Mountains · Hills · Ridge · Plateau · Cliff · Volcano | **Settlement ▸** metropolis · city · town · village · hamlet | **Label** |
 | **NE** | **Carve & water ▸** Canyon · Valley · River · Lake · Basin · Coastline | **Territory ▸** add · subtract | **Icon ▸** Settlement · Feature · POI · Custom (`ManualIconFamily`) |
-| **SE** | **Freehand ▸** Raise · Lower · Smooth · Cliff · Ridge · Canyon · Mesa · Volcano | **Way ▸** road · track · trail · bridge | **View field ▸** the eight Layers views |
+| **SE** | **Freehand ▸** Raise · Lower · Smooth · Cliff · Ridge · Canyon · Mesa · Volcano | **Way ▸** Road · Track · Sea lane · Ancient | **View field ▸** the eight Layers views |
 | **SW** | **Biome paint ▸** Biome · Terrain · Splat | **Route** | **Style preset ▸** Natural Vibrant · Default · Antique · Ink · Watercolor · Print |
 
 Measure ▸ holds the five modes `global_tools.gd` already defines (segment /

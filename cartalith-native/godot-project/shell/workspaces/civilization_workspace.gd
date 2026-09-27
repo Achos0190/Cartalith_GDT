@@ -1029,15 +1029,14 @@ func _arm_ring_territory(subtract: bool) -> void:
 	app.arm_tool("territory")
 	_tool_options_territory()
 
-## **Stop-and-report, per this pass's own brief**: `MAP_CONTEXT_SCOPE.md`
-## §5.1's Way row reads "road · track · trail · bridge", copying `DCC_SHELL_
-## SPEC.md` §4.5.4 -- but `infrastructure_workspace.gd`'s own `WAY_DRAW_TYPES`
-## comment says that four-item list is checked against the Rust source and
-## is WRONG: `way_begin`'s real vocabulary (`infra_tools_bridge::
-## parse_way_type`) is road / track / sea_lane / ancient, and "the engine has
-## no `trail` or `bridge`". Built against the real, tested vocabulary rather
-## than the two names nothing backs; flagged in this pass's own report rather
-## than silently "fixing" a scope document this lane does not own.
+## Built against `infra_tools_bridge::parse_way_type`'s real, tested
+## vocabulary -- road / track / sea_lane / ancient (`infrastructure_workspace.
+## gd`'s own `WAY_DRAW_TYPES`) -- not `DCC_SHELL_SPEC.md` §4.5.4's "road ·
+## track · trail · bridge", which names two types the engine has never had.
+## CM-3 residual (`OUTSTANDING_WORK.md`): a prior pass found this and flagged
+## `MAP_CONTEXT_SCOPE.md` §5.1's Way row as copying that same wrong list
+## rather than fixing the scope document it did not own; that row now reads
+## Road · Track · Sea lane · Ancient, matching this function.
 func _ring_way_group(armed: String, finalized: bool) -> Dictionary:
 	var children: Array = []
 	for i in _infra.WAY_DRAW_TYPES.size():

@@ -236,6 +236,14 @@ var _icon_variant_idx := 0
 var _icon_scale := 1.0
 var _icon_rotation := 0.0
 var _icon_jitter := 0.0
+## CM-3 residual: `{}` for the ordinary `ICON_FAMILIES`-indexed path;
+## `{"slot":.., "set":..}` once the ring's Icon▸ Custom entry has armed a
+## `ManualIconFamily::Custom` icon -- `_arm_icon_from_ui()` checks this first
+## on every re-arm (a tool re-armed, a regenerate, a slider nudge) so a
+## Custom arm survives exactly as long as a family/variant one already does,
+## rather than being silently clobbered by the next `tool_armed` signal's
+## own `_arm_icon_from_ui()` call (`_on_any_tool_armed`'s "icon" branch).
+var _icon_custom_armed := {}
 
 # -- Density brush (`icon_bridge/brush.rs`, `UNIFIED_TOOL_PLAN.md` milestone
 # E's last open half). The reference's own `_carIconBrush={on,r,density,
@@ -964,13 +972,20 @@ func _open_in_civil(req: Dictionary) -> void:
 ## `MAP_CONTEXT_SCOPE.md` CM-3's ring, CARTO's four diagonals (§5.1). Matches
 ## `design/map-context-2026-09-25/Main.dc.html`'s `DIAG.carto` table.
 ##
-## **Icon's real arming vocabulary is 3 families, not the 4 the scope table
-## names.** `ICON_FAMILIES` above only lists settlement/feature/poi -- its own
-## comment says why: "Custom" (a loaded pack's own art, `ManualIconFamily`'s
-## open, two-level vocabulary) "cannot be addressed through this numeric API"
-## `icon_arm()` uses. Built against the 3 families the shell can actually arm;
-## flagged in this pass's report rather than fabricating a fourth slot with no
-## function behind it.
+## **CM-3 residual, closed**: the Icon▸ sub-ring now offers a fourth entry,
+## Custom, alongside `ICON_FAMILIES`' settlement/feature/poi -- the previous
+## pass's own comment here explained why it could not (`icon_arm()`'s numeric
+## `family`/`variant` cannot address `ManualIconFamily::Custom`'s open,
+## two-level `set -> slot` vocabulary) and flagged it rather than fabricating
+## a slot with no function behind it. `icon_arm_custom(slot, set, ...)`
+## (`icon_bridge.rs`) is that function now: Custom arms the first FILLED
+## custom slot the loaded pack actually carries (`icon_custom_slots()`, read
+## off `self.asset_pack`, never the editing-session library --
+## `icon_custom_slots`'s own Rust doc comment says why), the same "click
+## arms this family's own first slot" shape every other family entry here
+## already has (`_arm_ring_icon_family`'s `_icon_variant_idx = 0`). Disabled
+## with its reason, per §4.2's disabled-with-reason rule, when the pack has
+## no custom art at all.
 func ring_slots(req: Dictionary) -> Dictionary:
 	if String(req.get("domain", "")) != "cartography":
 		return {}
@@ -991,6 +1006,14 @@ func ring_slots(req: Dictionary) -> Dictionary:
 	for i in ICON_FAMILIES.size():
 		var fam: Dictionary = ICON_FAMILIES[i]
 		icon_children.append({"label": String(fam.get("label", "")), "callable": _arm_ring_icon_family.bind(i)})
+	var custom_slots: Array = bridge.icon_custom_slots()
+	if custom_slots.is_empty():
+		icon_children.append({"label": "Custom", "enabled": false,
+			"reason": "no custom icons imported"})
+	else:
+		var first: Dictionary = custom_slots[0]
+		icon_children.append({"label": "Custom",
+			"callable": _arm_ring_custom_icon.bind(String(first.get("slot", "")), String(first.get("set", "")))})
 	out["NE"] = {"label": "Icon", "glyph": "tool_icon", "shortcut": "I", "children": icon_children,
 		"armed": armed == "icon", "enabled": not icon_children.is_empty()}
 	if icon_children.is_empty():
@@ -1029,8 +1052,23 @@ func ring_slots(req: Dictionary) -> Dictionary:
 ## already on Icon would silently keep stamping the OLD family without this
 ## direct call.
 func _arm_ring_icon_family(i: int) -> void:
+	_icon_custom_armed = {}  ## See `_icon_custom_armed`'s own doc comment.
 	_icon_family_idx = i
 	_icon_variant_idx = 0
+	_arm_icon_from_ui()
+	app.arm_tool("icon")
+	app.set_tool_options(_build_icon_tool_options_row)
+
+## The ring's Custom entry (CM-3 residual): arms an explicit `set`/`slot`
+## pair -- `ManualIconFamily::Custom` is not one of `ICON_FAMILIES`' three
+## families and has no `_icon_family_idx` to set, so this goes through
+## `_icon_custom_armed` and `_arm_icon_from_ui()`'s own priority check rather
+## than calling `icon_arm_custom` here directly, the same one-writer shape
+## `_arm_ring_icon_family` already uses for the numeric path (so a later
+## regenerate's own `_arm_icon_from_ui()` call re-arms the SAME custom icon,
+## not silently reverts to the last numeric family).
+func _arm_ring_custom_icon(slot: String, set_name: String) -> void:
+	_icon_custom_armed = {"slot": slot, "set": set_name}
 	_arm_icon_from_ui()
 	app.arm_tool("icon")
 	app.set_tool_options(_build_icon_tool_options_row)
@@ -1217,6 +1255,16 @@ func _sync_layers() -> void:
 func _arm_icon_from_ui() -> void:
 	if not bridge.has_asset_pack():
 		return
+	## CM-3 residual: a Custom arm made from the ring takes priority over the
+	## ordinary family/variant path until something explicitly clears it
+	## (`_arm_ring_icon_family`, or the Family dropdown -- both do) -- see
+	## `_icon_custom_armed`'s own doc comment for why this has to be checked
+	## on every re-arm rather than only when the ring itself is clicked.
+	if not _icon_custom_armed.is_empty():
+		bridge.icon_arm_custom(String(_icon_custom_armed.get("slot", "")),
+			String(_icon_custom_armed.get("set", "")), _icon_scale, _icon_rotation, _icon_jitter)
+		bridge.icon_brush_set(_icon_brush_on, _icon_brush_r, _icon_brush_density)
+		return
 	var fam: Dictionary = ICON_FAMILIES[_icon_family_idx]
 	bridge.icon_arm(fam.key, _icon_variant_idx, _icon_scale, _icon_rotation, _icon_jitter)
 	## The brush's three settings ride along on every re-arm rather than only on
@@ -1278,6 +1326,11 @@ func _build_icon_tool_options_row(row: HBoxContainer) -> void:
 	for f in ICON_FAMILIES:
 		fam_labels.append(String(f.label))
 	DccWidgets.choice(row, "Family", fam_labels, _icon_family_idx, func(i: int):
+		## Switching family from the ordinary dropdown always means "arm one
+		## of the three numeric families", so a Custom arm made from the
+		## ring (CM-3 residual) must not silently keep overriding it --
+		## see `_arm_icon_from_ui()`'s own doc comment for the priority rule.
+		_icon_custom_armed = {}
 		_icon_family_idx = i
 		_icon_variant_idx = 0
 		_arm_icon_from_ui()

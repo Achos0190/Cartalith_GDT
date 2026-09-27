@@ -299,8 +299,9 @@ func present(req: Dictionary, actions: Array) -> void:
 		## screen (a hold-then-drag-to-a-children-slot never reopens the card) --
 		## `_sync_card_ring_clear()` is what reacts to that; it is called from
 		## every ring path that can call `radial_ring.gd::_open_sub()`
-		## (`ring_release()`, `ring_click()`, `ring_key_release()`), not from
-		## here.
+		## (`ring_release()`, `ring_click()`, `ring_key_release()`, and now
+		## `ring_pointer()` too -- the continuous nested flick lets a drag alone
+		## reach `_open_sub()`, CM-3 residual), not from here.
 		var cc := _ring_clearance()
 		card.open(req, actions, at, reselect, dock,
 			float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
@@ -407,7 +408,8 @@ func _ring_clearance() -> Dictionary:
 
 ## Called from every ring path that can reach `radial_ring.gd::_open_sub()`
 ## (`release()`, via `ring_release()`/`ring_click()`; `q_release()`, via
-## `ring_key_release()`) -- the only transition the card needs to react to
+## `ring_key_release()`; `pointer()`, via `ring_pointer()` -- the continuous
+## nested flick, CM-3 residual) -- the only transition the card needs to react to
 ## once it is already open (`radial_ring.gd` never closes a sub-ring without
 ## closing the whole ring, so there is no "sub closed, ring still open" case).
 ## A no-op when the card is not showing, or when nothing actually changed
@@ -460,10 +462,19 @@ func ring_press(local_pos: Vector2) -> void:
 	var at: Vector2 = app.viewport.overlay.get_global_transform_with_canvas() * local_pos
 	_ensure_ring().arm(at, ring_collect(ring_domain_req()), false)
 
+## CM-3 residual, continuous nested flick: `radial_ring.gd::pointer()` can now
+## call its own `_open_sub()` directly (dragging PAST a `▸` slot, §5.2 rule 2),
+## not only through a release -- so this is now a FOURTH path that can reach
+## `_open_sub()`, beside the three `_sync_card_ring_clear()`'s own doc comment
+## already names. Synced unconditionally, same as those three: a card open
+## beside a still-hold ring (§6's third row) must not keep clearing space for
+## a top-level ring once a drag has re-centred it onto a sub-ring, and this is
+## the only call site that can see that transition happen mid-gesture.
 func ring_pointer(local_pos: Vector2) -> void:
 	if ring == null:
 		return
 	ring.pointer(app.viewport.overlay.get_global_transform_with_canvas() * local_pos)
+	_sync_card_ring_clear()
 
 ## Returns whether the ring was open for this release (so `map_overlay.gd`
 ## knows not to fall through to the card's own click path) -- runs the picked

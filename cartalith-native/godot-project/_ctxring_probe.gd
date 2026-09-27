@@ -40,6 +40,19 @@ extends Node
 ##      a slot's label draws INSIDE it (nothing bleeds past the slot's own
 ##      edge), the caption pill is drawn, and a sub-ring's own centre fills
 ##      in the theme accent (the "‹ BACK" button)
+##   K  CM-3 residual, the continuous nested flick (`MAP_CONTEXT_SCOPE.md`
+##      §5.2 rule 2): ONE RMB drag -- press, past Uplift, past the ring's own
+##      radius (opening the sub-ring mid-gesture, no release yet), onto a
+##      sub-slot, release -- picks that sub-slot directly, no second click
+##   V  CARTO's View and Style diagonals, picked through a ring gesture
+##      (`_view_field_rows()`/`RenderWorkspace.STYLE_PRESETS`, previously only
+##      reachable through the dock)
+##   U  CM-3 residual, the Icon▸ Custom entry: disabled with its reason
+##      before any custom icon exists, then armed through the ring once one is
+##      imported and applied (`icon_arm_custom`/`icon_custom_slots`)
+##   W  the Way▸ sub-ring offers the engine's real vocabulary (road / track /
+##      sea lane / ancient, `infra_tools_bridge::parse_way_type`), not the
+##      stale "trail"/"bridge" pair `MAP_CONTEXT_SCOPE.md` §5.1 used to name
 
 const SEED := 483920
 
@@ -175,6 +188,35 @@ func _card_overlaps_sub(rect: Rect2) -> bool:
 			print("O sub-overlap: card=%s hits sub slot #%d=%s" % [rect, i, slots[i]])
 			return true
 	return false
+
+
+## A sub-ring's item `i`-of-`n`'s own live position (`_open_sub()`/
+## `_draw_sub_ring()`'s own `-90 + 360*i/n` angle formula, reproduced here for
+## the same reason the main-ring angles already are), off `_ring_state()`'s
+## LIVE `sub_centre`/`sub_radius`/`sub_count` rather than a re-derived guess --
+## `MISTAKES.md`'s "never assert a constant against itself" applies just as
+## much to a probe's own click target as to an assertion.
+func _sub_item_at(st: Dictionary, i: int) -> Vector2:
+	var c: Vector2 = st.get("sub_centre", Vector2.ZERO)
+	var r: float = st.get("sub_radius", 60.0)
+	var n: int = int(st.get("sub_count", 1))
+	var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
+	return c + Vector2(cos(ang), sin(ang)) * r
+
+
+## Leg W: `InfrastructureWorkspace` is composed INTO `CivilizationWorkspace`
+## as a plain `_infra` field (`civilization_workspace.gd`'s own doc comment:
+## "a real `InfrastructureWorkspace` instance"), not registered in
+## `app._workspaces` under its own entry the way `RenderWorkspace` is nested
+## in `CartographyWorkspace` for the identical reason -- so this walks
+## `_workspaces` for whichever one CARRIES an `_infra` property, rather than
+## `has_method()` on the wrong (outer) object.
+func _find_infra() -> Node:
+	for ws in app._workspaces:
+		var v = ws.get("_infra")
+		if v != null:
+			return v
+	return null
 
 
 func _card_open() -> bool:
@@ -740,6 +782,177 @@ func _run() -> void:
 	else:
 		_ok("L Uplift opened its own sub-ring (precondition for the sub-slot label check)",
 			st_l2.get("sub_open", false), true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- K: the continuous nested flick -- ONE RMB drag, no release in between --
+	# `MAP_CONTEXT_SCOPE.md` §5.2 rule 2 / mockup `ringHover`'s own
+	# `dist>RR+18` gate: drag onto Uplift (NW), keep going PAST the ring's own
+	# radius (opens the sub-ring in place, still mid-drag, no release), keep
+	# dragging onto its first sub-slot (Mountains), release there -- one
+	# continuous gesture, no intermediate release/click.
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	_rmb_press(ov, centre)
+	_move(ov, centre + _dir_vec("NW") * 20.0, MOUSE_BUTTON_MASK_RIGHT)   ## past the slop, short of push-past
+	await _frames(1)
+	_ok("K mid-drag, short of push-past: no sub-ring yet", _ring_state().get("sub_open", false), false)
+	var st_k0 := _ring_state()
+	var push_r: float = float(st_k0.get("radius", RING_RADIUS)) + float(st_k0.get("push_past", 18.0)) + 6.0
+	_move(ov, centre + _dir_vec("NW") * push_r, MOUSE_BUTTON_MASK_RIGHT)
+	await _frames(2)
+	_ok("K dragging PAST the ring opened Uplift's sub-ring -- still mid-drag, RMB never released",
+		_ring_state().get("sub_open", false), true)
+	_ok("K ...and nothing armed yet", app.armed_tool, "inspect")
+	var st_k1 := _ring_state()
+	var item0_at := _sub_item_at(st_k1, 0)   ## index 0 -- Mountains
+	var item0_local := _at_to_local(ov, item0_at)
+	_move(ov, item0_local, MOUSE_BUTTON_MASK_RIGHT)   ## still the SAME drag
+	await _frames(2)
+	_ok("K ...hovering the sub-ring's own first item", int(_ring_state().get("sub_hover", -1)), 0)
+	_rmb_release(ov, item0_local)   ## the ONE release for the whole gesture
+	await _frames(4)
+	_ok("K one continuous release picked it: Sculpt armed", app.armed_tool, "sculpt")
+	_ok("K ...with Mountains the live feature", bridge.sculpt_get_feature(), "mountains")
+	_ok("K ...and the ring closed itself", _ring_state().get("active", false), false)
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## K2: releasing in the sub-ring's own dead zone, still inside the SAME
+	## continuous drag, must keep today's behaviour -- the ring stays open and
+	## sticky, exactly as a release-then-second-click into the dead zone
+	## already does (`release()`'s own `_sticky` branch, unchanged by this
+	## pass). Proves the continuous path did not bypass that rule.
+	_rmb_press(ov, centre)
+	_move(ov, centre + _dir_vec("NW") * push_r, MOUSE_BUTTON_MASK_RIGHT)
+	await _frames(2)
+	var st_k2 := _ring_state()
+	_ok("K2 same drag opens the sub-ring again", st_k2.get("sub_open", false), true)
+	var sub_c_k2: Vector2 = st_k2.get("sub_centre", Vector2.ZERO)
+	var dead_local := _at_to_local(ov, sub_c_k2)   ## the sub-ring's own centre -- its dead zone
+	_move(ov, dead_local, MOUSE_BUTTON_MASK_RIGHT)
+	await _frames(2)
+	_rmb_release(ov, dead_local)
+	await _frames(4)
+	_ok("K2 releasing in the sub-ring's dead zone: nothing armed", app.armed_tool, "inspect")
+	_ok("K2 ...and the ring stays open, sticky", _ring_state().get("active", false), true)
+	_ok("K2 ...sticky specifically", _ring_state().get("sticky", false), true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- V: CARTO's View and Style diagonals, picked through a ring gesture ------
+	app.select_domain("cartography")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	var before_view = app.viewport.debug_view()
+	await _held_drag(ov, centre, "SE")
+	var st_view := _ring_state()
+	_ok("V View opened its own sub-ring", st_view.get("sub_open", false), true)
+	if bool(st_view.get("sub_open", false)):
+		var view_pt := _at_to_local(ov, _sub_item_at(st_view, 1))
+		await _lmb_click(ov, view_pt)
+		await _frames(2)
+		_ok("V picking View's sub-item #1 changed the active debug view",
+			app.viewport.debug_view() != before_view, true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	await _held_drag(ov, centre, "SW")
+	var st_style := _ring_state()
+	_ok("V Style opened its own sub-ring", st_style.get("sub_open", false), true)
+	if bool(st_style.get("sub_open", false)):
+		var style_pt := _at_to_local(ov, _sub_item_at(st_style, 2))   ## index 2 -- Antique
+		await _lmb_click(ov, style_pt)
+		await _frames(4)
+		_ok("V picking Style's sub-item #2 (Antique) applied its look",
+			bridge.look(), "Antique Parchment")
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- U: CM-3 residual -- Icon's Custom entry ---------------------------------
+	var req_u: Dictionary = _broker().ring_domain_req()
+	var slots_u: Dictionary = _broker().ring_collect(req_u)
+	var icon_children_before: Array = (slots_u.get("NE", {}) as Dictionary).get("children", [])
+	_ok("U before any custom icon, Icon's sub-ring carries a Custom entry",
+		icon_children_before.size() >= 1, true)
+	if not icon_children_before.is_empty():
+		var custom_before: Dictionary = icon_children_before[icon_children_before.size() - 1]
+		_ok("U ...disabled with its own reason",
+			bool(custom_before.get("enabled", true)), false)
+		_ok("U ...naming the missing custom art",
+			String(custom_before.get("reason", "")), "no custom icons imported")
+
+	bridge.as_set_pack_info("Ring probe pack", "probe", "CC0")
+	var cslot: Dictionary = bridge.as_add_custom_slot("Ring probe icon", "")
+	var cimg := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+	cimg.fill(Color(0.5, 0.5, 0.9, 1.0))
+	var cimp: Dictionary = bridge.as_import_item(String(cslot.get("uid", "")), "probe.png",
+		cimg.save_png_to_buffer())
+	_ok("U fixture: the probe's own custom item imported", bool(cimp.get("ok", false)), true)
+	var capplied: Dictionary = bridge.as_apply_to_map()
+	_ok("U fixture: the library compiled into the live pack", bool(capplied.get("ok", false)), true)
+	await _frames(2)
+
+	var custom_live: Array = bridge.icon_custom_slots()
+	_ok("U icon_custom_slots now reports the imported custom icon", custom_live.size() >= 1, true)
+
+	var req_u2: Dictionary = _broker().ring_domain_req()
+	var slots_u2: Dictionary = _broker().ring_collect(req_u2)
+	var icon_children_after: Array = (slots_u2.get("NE", {}) as Dictionary).get("children", [])
+	if not icon_children_after.is_empty():
+		var custom_after: Dictionary = icon_children_after[icon_children_after.size() - 1]
+		_ok("U Icon's Custom entry is enabled once a custom icon exists",
+			bool(custom_after.get("enabled", true)), true)
+
+	await _held_drag(ov, centre, "NE")
+	var st_u := _ring_state()
+	_ok("U Icon opened its own sub-ring", st_u.get("sub_open", false), true)
+	if bool(st_u.get("sub_open", false)):
+		var custom_i: int = int(st_u.get("sub_count", 1)) - 1
+		var custom_pt := _at_to_local(ov, _sub_item_at(st_u, custom_i))
+		await _lmb_click(ov, custom_pt)
+		await _frames(2)
+		_ok("U picking Custom armed the icon tool", app.armed_tool, "icon")
+		var armed_u: Dictionary = bridge.icon_armed()
+		_ok("U ...with family 'custom'", String(armed_u.get("family", "")), "custom")
+		_ok("U ...and a real, non-empty set/slot pair",
+			String(armed_u.get("slot", "")) != "" and String(armed_u.get("set", "")) != "", true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- W: the Way▸ sub-ring offers the engine's real vocabulary ----------------
+	app.select_domain("civilization")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	var req_w: Dictionary = _broker().ring_domain_req()
+	var slots_w: Dictionary = _broker().ring_collect(req_w)
+	var way_children: Array = (slots_w.get("SE", {}) as Dictionary).get("children", [])
+	var way_labels: Array = []
+	for c in way_children:
+		way_labels.append(String((c as Dictionary).get("label", "")))
+	_ok("W Way's sub-ring offers exactly the engine's real vocabulary",
+		way_labels, ["Road", "Track", "Sea lane", "Ancient"])
+
+	await _held_drag(ov, centre, "SE")
+	var st_w := _ring_state()
+	_ok("W Way opened its own sub-ring", st_w.get("sub_open", false), true)
+	if bool(st_w.get("sub_open", false)):
+		var seal_pt := _at_to_local(ov, _sub_item_at(st_w, 2))   ## index 2 -- Sea lane
+		await _lmb_click(ov, seal_pt)
+		await _frames(2)
+		_ok("W picking Sea lane armed the way tool", app.armed_tool, "way")
+		var infra := _find_infra()
+		_ok("W ...with sea_lane the live way type",
+			String(infra.get("_way_type")) if infra != null else "<no infra workspace>", "sea_lane")
 	await _ring_close()
 	app.arm_tool("inspect")
 	await _frames(2)

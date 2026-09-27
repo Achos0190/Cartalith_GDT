@@ -11234,17 +11234,72 @@ impl WorldGen {
         icons.arm(&family.to_string(), variant, scale, rotation, jitter)
     }
 
+    /// CM-3 residual (`MAP_CONTEXT_SCOPE.md` §5.1, CARTO's Icon▸ sub-ring):
+    /// arms a `Custom`-family icon by explicit `slot`/`set` strings
+    /// (`icon_bridge::IconEditor::arm_custom`) -- the two-level address
+    /// `icon_arm`'s numeric `variant` cannot express (see that function's own
+    /// doc comment and `icon_bridge`'s module doc). Requires a loaded pack
+    /// (`has_asset_pack`) whose own `custom` map names this `set`/`slot` pair
+    /// with at least one image -- `icon_custom_slots` is the read side that
+    /// lists exactly the pairs that will pass this check, so a caller never
+    /// has to guess. `false` and nothing armed otherwise, matching `icon_arm`'s
+    /// own "reject visibly" policy.
+    #[func]
+    fn icon_arm_custom(&mut self, slot: GString, set: GString, scale: f64, rotation: f64, jitter: f64) -> bool {
+        let Some(pack) = self.asset_pack.as_ref() else { return false };
+        let slot_s = slot.to_string();
+        let set_s = set.to_string();
+        let has_images = pack
+            .manifest
+            .custom_paths(&set_s, &slot_s)
+            .map(|paths| !paths.is_empty())
+            .unwrap_or(false);
+        if !has_images {
+            return false;
+        }
+        let Some(icons) = self.icons.as_mut() else { return false };
+        icons.arm_custom(&slot_s, &set_s, scale, rotation, jitter)
+    }
+
+    /// Every `Custom`-family `(set, slot)` pair the **loaded pack**
+    /// (`self.asset_pack`, not the editing-session asset library
+    /// `as_family_slots("custom")` reads) actually carries at least one
+    /// image for -- what the ring's Icon▸ Custom entry (`MAP_CONTEXT_SCOPE.md`
+    /// §5.1) offers, so a slot the library knows about but has not yet been
+    /// `as_apply_to_map`'d into `self.asset_pack` is correctly absent rather
+    /// than offered-and-then-rejected by `icon_arm_custom`. Empty before any
+    /// pack is loaded, or once one is loaded with no custom art.
+    #[func]
+    fn icon_custom_slots(&self) -> Array<VarDictionary> {
+        let Some(pack) = self.asset_pack.as_ref() else { return Array::new() };
+        let mut out: Array<VarDictionary> = Array::new();
+        for (set_name, slots) in pack.manifest.custom.iter() {
+            for (slot_id, paths) in slots.iter() {
+                if paths.is_empty() {
+                    continue;
+                }
+                out.push(&vdict! {
+                    "set" => set_name,
+                    "slot" => slot_id,
+                    "count" => paths.len() as i64,
+                });
+            }
+        }
+        out
+    }
+
     /// The armed selection's chip contents (`DCC_SHELL_SPEC.md` §4.5.5:
-    /// "the armed icon is shown as a chip") -- `family`, `slot`, `scale`,
-    /// `rotation`, `jitter` (`set` omitted: arming can never reach
-    /// `Custom`, see `icon_arm`). Empty `Dictionary` when nothing is
-    /// armed or before any `generate()` call.
+    /// "the armed icon is shown as a chip") -- `family`, `slot`, `set`
+    /// (empty string outside `Custom` -- see `icon_arm_custom`), `scale`,
+    /// `rotation`, `jitter`. Empty `Dictionary` when nothing is armed or
+    /// before any `generate()` call.
     #[func]
     fn icon_armed(&self) -> VarDictionary {
         let Some(a) = self.icons.as_ref().and_then(|i| i.armed.as_ref()) else { return VarDictionary::new() };
         vdict! {
             "family" => a.icon.family.key(),
             "slot" => a.icon.slot.as_str(),
+            "set" => a.icon.set.clone().unwrap_or_default().as_str(),
             "scale" => a.scale,
             "rotation" => a.rotation,
             "jitter" => a.jitter,

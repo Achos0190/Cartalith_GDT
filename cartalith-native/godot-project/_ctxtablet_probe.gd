@@ -35,6 +35,14 @@ extends Node
 ##      the disc and the centre button both scale up alongside the already-
 ##      probed 96 dp ring radius (leg T), rather than staying at their
 ##      desktop figure while the ring around them grows
+##   K  CM-3 residual, the continuous nested flick, on touch: the SAME
+##      withheld-press-then-tracked-slide gesture leg S already drives, but
+##      sliding PAST Uplift (not just onto it) opens its sub-ring mid-slide
+##      (`radial_ring.gd::pointer()` -- CM-3's own change, reached identically
+##      here because `map_overlay.gd`'s `_touch_ring_active` branch forwards
+##      every touch move to the SAME `_ring_pointer_cb`/`ring.pointer()` the
+##      desktop RMB drag uses), and lifting on a sub-slot picks it -- one
+##      hold+slide+lift, no second tap
 ##
 ## Haptics (§7.1's "sample"/"tool_arm" pulses, `DccShell._haptic()`) are a
 ## no-op off Android/iOS by that function's own guard (`OS.has_feature
@@ -107,6 +115,22 @@ func _ring_close() -> void:
 	if r != null:
 		r.close()
 	await _frames(2)
+
+
+## `_ctxring_probe.gd`'s own `_at_to_local()`, duplicated for the same reason
+## every geometry helper in this file is: `debug_state()`'s own `sub_centre`
+## (and every point derived from it) lives in the SAME converted space
+## `context_broker.gd` builds it in -- `get_global_transform_with_canvas() *
+## local_pos` -- not `ov`'s own local space real touch events arrive in. Every
+## OTHER point this file feeds `_touch_move`/`_touch_release` is computed from
+## the probe's own local `centre` var (already local space, needs no
+## conversion) -- this is only needed once a point is read back off a SUB-
+## ring's own live geometry, which `_open_sub()` computes and clamps in the
+## converted space. Leg D's own `anchor` line proves the two spaces really do
+## differ on this tablet-sized viewport (not the identity they happen to be
+## on the desktop probe's smaller one).
+func _at_to_local(ov: Control, at: Vector2) -> Vector2:
+	return ov.get_global_transform_with_canvas().affine_inverse() * at
 
 
 func _card():
@@ -314,6 +338,59 @@ func _run() -> void:
 	await _frames(4)
 	_ok("S slide-to-select: lifting on W armed Region", app.armed_tool, "region")
 	_ok("S slide-to-select: the ring closed (a real pick, not sticky)", _ring_state().get("active", false), false)
+	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- K: the continuous nested flick, on touch --------------------------------
+	# One hold+slide+lift: hold to open the ring (finger still tracked), slide
+	# onto Uplift (NW) and PAST the ring's own radius (opens its sub-ring
+	# mid-slide, finger still down), slide onto a sub-slot, lift there -- picks
+	# it. No intermediate lift, no second tap.
+	await _touch_hold(ov, centre)
+	_touch_move(ov, centre + _dir_vec("NW") * 20.0)   ## past the slop, short of push-past
+	await _frames(1)
+	_ok("K touch mid-slide, short of push-past: no sub-ring yet", _ring_state().get("sub_open", false), false)
+	var st_k0 := _ring_state()
+	var push_r: float = float(st_k0.get("radius", RING_RADIUS)) + float(st_k0.get("push_past", 18.0)) + 6.0
+	_touch_move(ov, centre + _dir_vec("NW") * push_r)
+	await _frames(2)
+	_ok("K touch: sliding PAST the ring opened Uplift's sub-ring, finger still down",
+		_ring_state().get("sub_open", false), true)
+	_ok("K touch: nothing armed yet", app.armed_tool, "inspect")
+	var st_k1 := _ring_state()
+	var sub_c_k: Vector2 = st_k1.get("sub_centre", Vector2.ZERO)
+	var sub_r_k: float = st_k1.get("sub_radius", 0.0)
+	var item0_at: Vector2 = sub_c_k + Vector2(0, -1) * sub_r_k   ## index 0 -- Mountains
+	var item0_k := _at_to_local(ov, item0_at)
+	_touch_move(ov, item0_k)   ## still the SAME slide, no lift yet
+	await _frames(2)
+	_ok("K touch: hovering the sub-ring's own first item", int(_ring_state().get("sub_hover", -1)), 0)
+	_touch_release(ov, item0_k)   ## the ONE lift for the whole gesture
+	await _frames(4)
+	_ok("K touch: one continuous lift picked it -- Sculpt armed", app.armed_tool, "sculpt")
+	_ok("K touch: ...with Mountains the live feature", app.bridge.sculpt_get_feature(), "mountains")
+	_ok("K touch: ...and the ring closed itself", _ring_state().get("active", false), false)
+	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## K2: lifting in the sub-ring's own dead zone, same continuous slide, keeps
+	## today's behaviour -- both stay open, sticky.
+	await _touch_hold(ov, centre)
+	_touch_move(ov, centre + _dir_vec("NW") * push_r)
+	await _frames(2)
+	var st_k2 := _ring_state()
+	_ok("K2 touch: same slide re-opens the sub-ring", st_k2.get("sub_open", false), true)
+	var sub_c_k2 := _at_to_local(ov, st_k2.get("sub_centre", Vector2.ZERO))
+	_touch_move(ov, sub_c_k2)   ## the sub-ring's own centre -- its dead zone
+	await _frames(2)
+	_touch_release(ov, sub_c_k2)
+	await _frames(4)
+	_ok("K2 touch: lifting in the sub-ring's dead zone -- nothing armed", app.armed_tool, "inspect")
+	_ok("K2 touch: ...and the ring stays open, sticky", _ring_state().get("active", false), true)
+	_ok("K2 touch: ...sticky specifically", _ring_state().get("sticky", false), true)
+	await _ring_close()
 	await _card_close()
 	app.arm_tool("inspect")
 	await _frames(2)

@@ -54,6 +54,17 @@ const SUB_SLOT_RATIO := 56.0 / 60.0
 ## `46/60`, which for the same reason now resolves to a literal 46.
 const CENTRE_RATIO := 46.0 / 60.0
 
+## CM-3 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §5.2 rule 2):
+## the mockup's own `ringHover`'s `dist>RR+18` gate -- how far PAST the main
+## ring's own radius a continuous RMB drag must travel, while hovering a
+## `▸` slot, before that slot's sub-ring opens in place. Named and
+## touch-scaled the same way every other mockup-absolute figure above is;
+## kept as its own constant rather than folded into `DISC_MARGIN` (12.0)
+## because the mockup uses two different literals for two different
+## purposes -- the disc's own drawn edge vs. this gesture threshold -- and
+## a future re-tune of one must not silently move the other.
+const PUSH_PAST := 18.0
+
 ## CM-4 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §7.2): "Ring
 ## radius scales with the finger. Slots sit at 96 dp on touch (60 px on
 ## desktop) ... 96 dp leaves generous gaps and a clear angular sector per
@@ -73,6 +84,7 @@ var _r_sub_ring := SUB_RING_RADIUS
 var _r_sub_dead := SUB_DEAD_ZONE
 var _r_disc_margin := DISC_MARGIN
 var _r_sub_disc_margin := SUB_DISC_MARGIN
+var _r_push_past := PUSH_PAST
 
 const HOLD_MS := 300     ## §6: "hold >= 300ms, still" -> ring + card
 ## §6: "the ring appears only if the button is still held after 150ms" --
@@ -150,6 +162,7 @@ func _apply_touch_scale() -> void:
 	_r_sub_dead = SUB_DEAD_ZONE * DccTheme.TOUCH_SCALE
 	_r_disc_margin = DISC_MARGIN * DccTheme.TOUCH_SCALE
 	_r_sub_disc_margin = SUB_DISC_MARGIN * DccTheme.TOUCH_SCALE
+	_r_push_past = PUSH_PAST * DccTheme.TOUCH_SCALE
 
 
 ## The disc's own radius (mockup `RD=RR+SLOT/2+12`) -- the panel-toned ground
@@ -196,6 +209,10 @@ func debug_state() -> Dictionary:
 		## assert a constant against itself").
 		"disc_radius": _disc_radius(), "sub_disc_radius": _sub_disc_radius(),
 		"sub_slot_size": _sub_slot_size(), "centre_size": _centre_size(),
+		## CM-3 residual (continuous nested flick): the live push-past
+		## threshold a probe presses out to, rather than re-declaring
+		## `PUSH_PAST` and asserting it against itself.
+		"push_past": _r_push_past,
 	}
 
 
@@ -383,7 +400,8 @@ func _open_sub(dir: String, items: Array) -> void:
 
 func _update_hover(pos: Vector2) -> void:
 	var prev := _hover
-	if pos.distance_to(_centre) <= _r_dead:
+	var dist := pos.distance_to(_centre)
+	if dist <= _r_dead:
 		_hover = ""
 		return
 	var ang := rad_to_deg(atan2(pos.y - _centre.y, pos.x - _centre.x))
@@ -394,6 +412,23 @@ func _update_hover(pos: Vector2) -> void:
 		if d < best_d:
 			best_d = d
 			best = dir
+	## CM-3 residual, continuous nested flick (`MAP_CONTEXT_SCOPE.md` §5.2
+	## rule 2; mockup `ringHover`'s own `if(hv&&dist>RR+18){... if(def.
+	## children){... sub:this.subFor(r,hv) ...}}`): dragging PAST a `▸`
+	## slot -- not merely onto it -- opens its sub-ring in place, re-centred,
+	## in the SAME RMB-down gesture, rather than waiting for a release and a
+	## second click. Only a slot that is both present and `enabled` opens
+	## this way: the mockup's own `ringHover` has no such guard, but every
+	## OTHER path in this file that can open a sub-ring (`release()` below)
+	## closes on a disabled slot instead, per its own `slotDisabled` check --
+	## letting a drag alone bypass that would be a second, inconsistent rule
+	## for the exact same slot.
+	if best != "" and dist > _r_ring + _r_push_past:
+		var row: Dictionary = _slots.get(best, {})
+		if not row.is_empty() and row.has("children") and bool(row.get("enabled", true)):
+			_hover = best
+			_open_sub(best, row["children"])
+			return
 	_hover = best
 	if _hover != "" and _hover != prev:
 		hover_entered.emit()
