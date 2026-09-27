@@ -1915,3 +1915,25 @@ rivers pass through the preset's −0.35 exposure grade and read dimmer than
 the old overlay's bright cyan. The owner was asked whether to keep them
 luminous (draw them after the grade) or leave them as part of the image:
 *"Stay dimmer."* Night's rivers go through the grade like the rest of the map.
+
+## 2026-09-27 — Ruling BM: relief tracks rock by construction and by uplift-driven erosion
+
+GF-2, GF-3 and GF-7 (`22ec647`, `ec4e078`, `5875636`) built rock-aware stream
+power, a threshold hillslope and a geological clock, all behind
+`geology_processes`, which is off in the app. None made relief track rock
+(B1/B2/B4, `GEOLOGY_FIRST_SCOPE.md` §5.6–§5.8). The light pass lowers land by
+1–7 m, rebound returns 78–93 % of that, and the carve sets channel depth.
+With no ongoing uplift there is nothing for differential erosion to act
+against.
+
+Asked how relief should come to track rock, the owner chose **both**:
+1. **Rock-aware construction.** Rock strength enters how the heightmap is
+   built, before erosion, for the big shapes: hard caps held up as plateaus
+   and scarps, weak rock lowered.
+2. **Uplift-driven erosion.** An ongoing uplift field, derived from the
+   existing tectonics, lets differential erosion wear weak rock faster and
+   leave hard rock standing, for the detail.
+
+Scope both before building. They re-baseline app worlds when switched on,
+with disclosure. The clock (GF-7) should then act on uplift plus erosion, as
+the scope originally intended.
