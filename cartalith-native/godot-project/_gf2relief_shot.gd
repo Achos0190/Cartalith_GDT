@@ -7,14 +7,21 @@ extends Node
 ## (`MISTAKES.md`), so a headless run could save stale or empty pixels:
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag before
 ##
-## `--tag` is the only argument read, and names the output files so a before
-## and an after set sit side by side. An unknown argument aborts (exit 2)
-## rather than being ignored (`MISTAKES.md`, "Write a probe's usage header").
-## Held fixed across tags: seeds, extent, grid, the app's default parameters.
-## The only variable is the engine build the probe loads. Since the GF-2
-## processes are gated off in `params::defaults()` (`geology_processes`,
-## `GEOLOGY_FIRST_SCOPE.md` §5.6), a current build draws the GF-1 world; the
-## recorded "after" shots were taken before that gate, with them on.
+## `--tag NAME` (required) names the output files so a before and an after
+## set sit side by side. `--processes on|off` (optional, default off: the
+## app's own world) sets `geology_processes` through `set_params` before each
+## generation, and aborts if the key is rejected, so a shot labelled "on"
+## cannot silently draw the app's gated-off world. GF-3 (§5.7) takes its
+## before and after shots with `--processes on`:
+##   Godot_v4.7.1-stable_win64_console.exe --path . _gf2relief_shot.tscn -- --tag gf3_before --processes on
+## An unknown argument aborts (exit 2) rather than being ignored
+## (`MISTAKES.md`, "Write a probe's usage header").
+## Held fixed across tags: seeds, extent, grid, the app's default parameters
+## (plus the `--processes` value). The other variable is the engine build the
+## probe loads. The GF-2 processes are gated off in `params::defaults()`
+## (`geology_processes`, `GEOLOGY_FIRST_SCOPE.md` §5.6), so without
+## `--processes on` a current build draws the GF-1 world; GF-2's recorded
+## "after" shots were taken before that gate, with them on.
 ##
 ## Exit status: 0 both shots written; 1 a shot failed; 2 could not run.
 
@@ -31,11 +38,15 @@ func _ready() -> void:
 		print("[FATAL] extension did not load"); get_tree().quit(2); return
 
 	var tag := ""
+	var processes := false
 	var args := OS.get_cmdline_user_args()
 	var i := 0
 	while i < args.size():
 		if args[i] == "--tag" and i + 1 < args.size():
 			tag = args[i + 1]
+			i += 2
+		elif args[i] == "--processes" and i + 1 < args.size() and args[i + 1] in ["on", "off"]:
+			processes = args[i + 1] == "on"
 			i += 2
 		else:
 			print("[FATAL] unknown argument %s (only --tag NAME is read)" % args[i])
@@ -48,6 +59,12 @@ func _ready() -> void:
 	var failed := false
 	for sd in SEEDS:
 		var wg: Object = ClassDB.instantiate("WorldGen")
+		# Set explicitly either way, so the shot's world is the one its flag
+		# names; a rejected key aborts rather than drawing the default world.
+		var rep: Dictionary = wg.set_params({"geology_processes": processes})
+		if not (rep.get("rejected", PackedStringArray()) as PackedStringArray).is_empty():
+			print("[FATAL] set_params rejected geology_processes: %s" % [rep])
+			get_tree().quit(2); return
 		wg.generate_sized(sd, WIDTH_KM, GRID_W, GRID_H)
 		var tex: Texture2D = wg.build_color_texture()
 		if tex == null:
@@ -61,5 +78,5 @@ func _ready() -> void:
 			continue
 		var path := "%s/%s_%d.png" % [out_dir, tag, sd]
 		img.save_png(path)
-		print("[SHOT] %s seed %d -> %s" % [tag, sd, ProjectSettings.globalize_path(path)])
+		print("[SHOT] %s seed %d processes %s -> %s" % [tag, sd, "on" if processes else "off", ProjectSettings.globalize_path(path)])
 	get_tree().quit(1 if failed else 0)

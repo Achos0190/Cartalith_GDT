@@ -59,6 +59,11 @@
 //!   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_b9_cost
 //!   ```
 //!
+//! **Since GF-3** the same switch also runs the threshold hillslope stage
+//! (`cartalith_erosion::threshold_hillslope`, §4.3), so `gf2_arms`'
+//! treatment is GF-2 plus GF-3, and it prints B4 (cap-edge scarps) for both
+//! arms, each on its own final column and surface. The command is unchanged.
+//!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
 //! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
@@ -1317,6 +1322,32 @@ fn gf2_arms() {
                 verdict(both(t2, c2).map(|(t, c)| t >= 1.5 && t >= 1.25 * c)),
                 verdict(both(t3, c3).map(|(t, c)| t >= 2.0 && t >= 1.6 * c)),
                 verdict(both(b3sp_t.value, b3sp_c.value).map(|(t, c)| t >= 2.0 && t >= 1.6 * c)),
+            );
+
+            // B4 (GF-3's bar, §5.2): each arm on its own final column and
+            // surface, since a cap edge is where *that* surface exposes two
+            // rocks. The main metric selects by the output, so its
+            // input-selected twin is printed beside it (§5.2); §5.5 found the
+            // twin unpopulated by this derivation, and it is reported, never
+            // replaced by a number.
+            let b4_arm = |label: &str, ws: &WorldState, class: &[u8]| {
+                let col = ws.geology.column().expect("column");
+                let exp = exposed_map(col, &ws.field, sea, p.peak_m);
+                let slope = slope_deg(&ws.field, gw, gh, world, mpu, cell_m);
+                let (main, top, twin) = b4(col, &exp, &slope, class, gw, gh, world);
+                println!(
+                    "  {label:9} B4 cap-edge/substrate {}; cap-edge share in land top slope decile {}; twin {}",
+                    main.show(),
+                    fmt_opt(top),
+                    twin.show()
+                );
+                (main.value, top)
+            };
+            let _ = b4_arm("control", &ctrl, &class_c);
+            let (b4t, b4top) = b4_arm("treatment", &treat, &class_t);
+            println!(
+                "  BAR B4 (t >= 2.0 and >= 40 % of cap-edge cells in the top decile): {}",
+                verdict(b4t.zip(b4top).map(|(r, s)| r >= 2.0 && s >= 0.40))
             );
 
             // B8, each arm on its own classification.

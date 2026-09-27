@@ -755,10 +755,14 @@ pub struct WorldParams {
     /// decision, 2026-09-27, on GF-2's measurement): with it on, B1 and B2 did
     /// not move on any of five seeds at 800 km and B8's 1-3-cell lakes rose
     /// 1.28x and 1.26x against a 1.25x bar on two of them -- the regression
-    /// RV-1 fixed (`GEOLOGY_FIRST_SCOPE.md` §5.6). It stays off until GF-3
-    /// (threshold hillslope) and GF-7 (the clock) bring B1, B2 and B8 over
-    /// their bars with it on. Must never be turned on in
-    /// `cartalith_godot::params::defaults()` without that re-measurement.
+    /// RV-1 fixed (`GEOLOGY_FIRST_SCOPE.md` §5.6).
+    ///
+    /// Since GF-3 it also runs the threshold hillslope stage (§4.3,
+    /// `cartalith_erosion::threshold_hillslope`). Measured with both on
+    /// (§5.7): B8 passes on all fifteen worlds, B1 and B2 still do not move.
+    /// It stays off until the main loop decides on that measurement and GF-7
+    /// (the clock) re-measures B1 and B2. Must never be turned on in
+    /// `cartalith_godot::params::defaults()` without that decision.
     ///
     /// A save without the key reloads with it off (`params::apply_saved_state`),
     /// as `geology_model` does.
@@ -1419,6 +1423,58 @@ impl RockContext {
             }
             None => isostatic_rebound(field, pre, gw, gh, blur_r, world),
         }
+    }
+
+    /// GF-3 (`GEOLOGY_FIRST_SCOPE.md` §4.3, §3.1): the threshold hillslope
+    /// stage, `cartalith_erosion::threshold_hillslope` for
+    /// `THRESHOLD_HILLSLOPE_PASSES` passes, then §4.9's caller-side regolith
+    /// rule on the stage's net change: the talus a cell receives becomes
+    /// regolith (§4.3: "the moved mass becomes regolith where it lands"), and
+    /// what it sheds strips its regolith before its bedrock.
+    ///
+    /// Why it is a stage only when on: it is new to generation (§1.3: thermal
+    /// erosion "is not in generation at all" today), so off there is **no
+    /// statement** to keep verbatim -- the method returns without touching
+    /// `field`, and the parity path and the app's gated-off world are
+    /// bit-identical by control flow.
+    ///
+    /// Must never be followed by `isostatic_rebound`: the stage moves mass
+    /// downslope within a few cells, and rebound is one-sided (it counts only
+    /// net removal), so it would lift every shedding cell and ignore the
+    /// cells that received the same mass -- uplift from a process that
+    /// removed nothing from the column.
+    #[allow(clippy::too_many_arguments)]
+    fn threshold_hillslope(
+        &self,
+        geology: &mut Geology,
+        field: &mut [f32],
+        gw: usize,
+        gh: usize,
+        world: bool,
+        map_width_km: f64,
+        sea_level: f64,
+        peak_m: f64,
+    ) {
+        let Some(column) = geology.column_mut().filter(|_| self.on) else {
+            return;
+        };
+        let before = field.to_vec();
+        cartalith_erosion::threshold_hillslope(
+            field,
+            gw,
+            gh,
+            cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES,
+            world,
+            &cartalith_erosion::ThresholdHillslope {
+                column: &*column,
+                r_expose: self.r_expose,
+                // §4.3: `cell_m = map_width_km·1000/gw`.
+                cell_m: map_width_km * 1000.0 / gw as f64,
+                sea: sea_level,
+                peak_m,
+            },
+        );
+        cartalith_erosion::account_regolith(column, &before, field, true);
     }
 
     /// A lowering process that does not read rock yet: strip regolith first
@@ -2204,6 +2260,12 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         };
         rock.stream_power(&mut geology, &mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
         rock.rebound(&mut geology, &mut field, &pre, gw, gh, p.tect.blur_r, world);
+        // GF-3 (§4.3): the threshold hillslope, in §3.1's order -- after
+        // stream power and its rebound, before the channels are traced, so the
+        // network and the carve describe the relaxed surface. It runs only
+        // with `geology_processes` on, and only here: §3.1 places it once, in
+        // the light pass that `carve_rivers` already gates (§3.2 item 2).
+        rock.threshold_hillslope(&mut geology, &mut field, gw, gh, world, p.map_width_km, sea_level, p.peak_m);
         if p.tect.dynamic_lithology {
             // recomputeResistanceAfterErosion(reference HTML line 3144):
             // JS's own call site (`eroFinish`) passes no `opts`, so `k`
@@ -2848,6 +2910,90 @@ pub fn refresh_climate(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A two-cell shale row with a 0.1 step at 800 km over 2048 cells (sea
+    /// 0.42, peak 4000 m): steeper than shale's θc of 30°, so GF-3's stage
+    /// sheds it.
+    fn gf3_row() -> (Geology, Vec<f32>) {
+        use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
+        let col = GeologyColumn {
+            rock_top: vec![Rock::Shale as u8; 2],
+            rock_sub: vec![NO_LAYER; 2],
+            contact: vec![f32::NAN; 2],
+            regolith: vec![0.0, 0.0],
+            volcanic_setting: vec![0; 2],
+        };
+        (Geology::Column(Box::new(col)), vec![0.6, 0.5])
+    }
+
+    /// GF-3's gate (`GEOLOGY_FIRST_SCOPE.md` §4.3, §6.1): with the processes
+    /// off the stage does not exist -- `field` and the column are untouched,
+    /// bit for bit -- which is what keeps the app's gated-off world and the
+    /// parity path identical by control flow.
+    #[test]
+    fn gf3_threshold_stage_off_touches_nothing() {
+        let (mut geo, mut f) = gf3_row();
+        let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001 };
+        // 390.625 m cells: with the stage on, this step would shed (the next
+        // test), so "untouched" here is the gate's doing, not the geometry's.
+        rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
+        assert_eq!(f, vec![0.6f32, 0.5]);
+        assert_eq!(geo.column().unwrap().regolith, vec![0.0f32, 0.0]);
+    }
+
+    /// GF-3 on: the stage relaxes a lone step by `THRESHOLD_HILLSLOPE_PASSES`
+    /// passes (each removes a quarter of the excess, so 8 leave `0.75^8 ≈
+    /// 0.1001` of it, arithmetic), and §4.3's "the moved mass becomes regolith
+    /// where it lands": the lower cell's regolith is exactly its height gain,
+    /// and the shedding cell, bare rock, stays at `0.0` (a loss strips
+    /// regolith first and never drives it negative).
+    #[test]
+    fn gf3_threshold_stage_on_relaxes_and_records_talus_as_regolith() {
+        let (mut geo, mut f) = gf3_row();
+        let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0 };
+        rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0, 0.42, 4000.0);
+        let t = cartalith_erosion::critical_talus(30.0, 800_000.0 / 2.0, 0.42, 4000.0);
+        // Two cells over 800 km: 400 km cells, so t is huge and nothing sheds.
+        // The stage's `cell_m` is `map_width_km·1000/gw`; this pins that.
+        assert!(t > 1.0, "400 km cells: nothing is over-steep ({t})");
+        assert_eq!(f, vec![0.6f32, 0.5], "at 400 km cells a 0.1 step is flat");
+
+        // The same row at 2048 cells' width: 390.625 m cells.
+        let (mut geo, mut f) = gf3_row();
+        rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0 * 2.0 / 2048.0, 0.42, 4000.0);
+        let t = cartalith_erosion::critical_talus(30.0, 390.625, 0.42, 4000.0);
+        let excess = (f[0] - f[1]) as f64 - t;
+        let ratio = excess / (0.1 - t);
+        assert!((ratio - 0.1001129150390625).abs() < 1e-4, "8 passes leave 0.75^8 of the excess; got {ratio}");
+        let reg = &geo.column().unwrap().regolith;
+        assert_eq!(reg[0], 0.0, "the shedding cell was bare rock and stays bare");
+        assert!((reg[1] as f64 - (f[1] as f64 - 0.5)).abs() < 1e-7, "talus landed as regolith: {} vs gain {}", reg[1], f[1] - 0.5);
+        assert!(reg[1] > 0.0);
+    }
+
+    /// GF-3 on a world map: the stage passes `world` through as the kernel's
+    /// x-wrap, so the drop from the last cell of a row to the first sheds.
+    /// A three-cell shale row, 390.625 m cells, the high cell last.
+    #[test]
+    fn gf3_threshold_stage_wraps_on_world_maps() {
+        use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
+        let run = |world: bool| {
+            let col = GeologyColumn {
+                rock_top: vec![Rock::Shale as u8; 3],
+                rock_sub: vec![NO_LAYER; 3],
+                contact: vec![f32::NAN; 3],
+                regolith: vec![0.0; 3],
+                volcanic_setting: vec![0; 3],
+            };
+            let mut geo = Geology::Column(Box::new(col));
+            let mut f = vec![0.5f32, 0.5, 0.6];
+            let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0 };
+            rock.threshold_hillslope(&mut geo, &mut f, 3, 1, world, 3.0 * 390.625 / 1000.0, 0.42, 4000.0);
+            f
+        };
+        let (open, wrapped) = (run(false), run(true));
+        assert!(wrapped[0] > open[0], "the 2 -> 0 wrap neighbour must receive talus: open {open:?} wrapped {wrapped:?}");
+    }
 
     /// `ErosionPassParams`' whole contract: **off is bit-identical**. Not a
     /// tolerance — `assert_eq!` on the raw `f32`s, plus temperature, rainfall

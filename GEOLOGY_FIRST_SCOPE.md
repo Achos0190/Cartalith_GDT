@@ -1553,6 +1553,162 @@ worktree built from HEAD and in the working tree; every hash matched.
 `geology_gf1.rs`'s GF-1 identity (app-like parameters, model on against model
 off, every array) runs on the app's own parameters again and passes.
 
+### 5.7 GF-3 findings: the threshold hillslope, control against treatment (measured 2026-09-27)
+
+**What was built.** `cartalith_erosion::threshold_hillslope` (§4.3):
+`erode_thermal`'s move rule with a per-cell threshold
+`critical_talus(θc) = tan(θc)·cell_m·(1 − sea)/peak_m`, `θc` from
+`ROCK_PROPS` for the rock each cell exposes. `erode_thermal` and the new stage
+share one body, `thermal_core`, whose `per_cell = None, wrap = false` arm is the
+legacy port's statements, so `golden_parity_thermal.rs` is bit-identical by
+control flow. The engine runs it through `RockContext::threshold_hillslope`,
+behind the same gate as GF-2 (`geology_model` **and** `geology_processes`),
+which stays **off in the app**. So the treatment arm below is GF-2 plus GF-3,
+and the control is the app's own world, as in §5.6.
+
+**Choices where §4.3 left one, each with its reason.**
+- **Placement:** once, in the light pass, after stream power and its rebound
+  and before the channels are traced (§3.1's order; §3.2 item 2 keeps that
+  block gated by `carve_rivers`). It does not follow the `evolve_cycles` or
+  `sediment_fill` calls: §3.1 lists the stage once.
+- **No rebound after it.** The stage moves mass a few cells downslope, and
+  `isostatic_rebound` counts only net removal, so it would lift every shedding
+  cell and ignore the cells that received the same mass.
+- **Whose threshold:** the shedding cell's (§4.3 indexes `talus_i` by the cell
+  whose excess moves).
+- **When rock is read:** the exposed rock is re-read at the start of every
+  pass (a cap lowered through its contact sheds at the substrate's angle from
+  the next pass), but regolith is the stage's starting thickness, and the net
+  change is accounted once, afterwards, by §4.9's caller-side rule
+  (`account_regolith(..., gains_are_deposit = true)`): the talus a cell
+  receives becomes regolith (§4.3), and what it sheds strips regolith first.
+  §5.6 measured that writing regolith inside the iterations feeds back.
+- **World maps wrap in x**, as a generation stage must; the manual Erode op
+  keeps the reference's no-wrap `erode_thermal`.
+- **`N_h = 8`** (`THRESHOLD_HILLSLOPE_PASSES`), by §4.3's own procedure, B4
+  and B9. At 800 km on the five seeds, `N_h` of 0, 8, 16 and 32 were measured
+  (a scratch copy with the count read from an environment variable; 0 is GF-2
+  alone):
+  - **B4 fails at every count** and does not separate them (treatment
+    0.035–0.261; top-decile share 0.197–0.325).
+  - **B1 and B2 read the same to four decimals at every count.**
+  - **B8's 1–3-cell lakes:** at 0, 59 / 82 / 28 / 111 / 59, which reproduces
+    §5.6's GF-2 figures exactly; at 8, 50 / 72 / 24 / 106 / 54; at 16, 48 / 66 /
+    24 / 107 / 53; at 32, 49 / 69 / 25 / 108 / 53. Control: 46 / 65 / 26 / 105
+    / 81. Every count ≥ 8 passes.
+  - **B9 decided it.** At 16 passes the live tree read 1.202 (control 3.220 s,
+    3.182 … 3.290; treatment 3.871 s, 3.731 … 4.028) and 1.132 against the
+    1.20 bar; 8 is the smallest count measured that keeps B8 passing. Eight
+    passes leave `0.75^8 ≈ 0.100` of a lone step's excess over `θc`
+    (arithmetic): the stage relaxes toward `θc` and does not reach it.
+
+**Commands** (release, run alone; unchanged from §5.6):
+
+```text
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_arms
+cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf2_b9_cost
+```
+
+`gf2_arms` now also prints B4 for both arms, each on its own final column
+and surface.
+
+**At 800 km** (control → treatment, `N_h = 8`):
+
+| Seed | B1 ρ | B2 | B3 full | B3 SP alone | B4 edge ÷ substrate · top-decile share | B8 lake % | B8 1–3-cell lakes |
+|---|---|---|---|---|---|---|---|
+| 483920 | −0.4600 → −0.4617 | 0.0501 → 0.0506 | 3.73 → 8.84 | 12.71 → 27.63 | 0.243 → 0.253 · 0.294 → 0.325 | 1.177 → 1.146 | 46 → 50 |
+| 24601 | −0.3155 → −0.3141 | 0.0475 → 0.0480 | 5.94 → 13.47 | 16.25 → 33.81 | 0.035 → 0.050 · 0.286 → 0.306 | 2.232 → 2.531 | 65 → 72 |
+| 71077345 | −0.3922 → −0.3900 | 0.0491 → 0.0492 | 1.22 → 3.52 | 14.14 → 29.40 | 0.213 → 0.119 · 0.254 → 0.286 | 1.419 → 1.585 | 26 → 24 |
+| 12345 | −0.4232 → −0.4320 | 0.0487 → 0.0488 | 4.15 → 8.36 | 10.00 → 19.67 | 0.036 → 0.068 · 0.200 → 0.211 | 4.661 → 4.072 | 105 → 106 |
+| 314159 | −0.4268 → −0.4272 | 0.0394 → 0.0395 | 5.94 → 13.99 | 15.62 → 32.65 | 0.156 → 0.166 · 0.251 → 0.213 | 9.347 → 9.307 | 81 → 54 |
+
+Ocean cells on river paths: 0 in both arms on all 15 worlds.
+
+**At the other extents** (ranges over the five seeds, treatment unless stated):
+- **80 km:** B1 −0.2505 … −0.0674 (Δρ +0.0003 … +0.022); B2 0.2239 … 0.3411;
+  B3 full 2.60 … 4.21, **failing its relative half** on all five (0.91 …
+  1.01 × control); B3 SP alone passes; B4 0.646 … 1.403, top-decile share
+  0.101 … 0.137; B8 passes on all five (small lakes 284 → 320, 621 → 631,
+  312 → 213, 238 → 246, 519 → 444).
+- **8 000 km:** B1 −0.4472 … −0.2947; B2 0.0085 … 0.0113 where measurable
+  (not measurable on 24601 and 71077345, as in §5.6); B3 passes where
+  measurable; B4 0.026 … 0.694; B8 passes on all five (worst 57 → 68, 1.19×).
+
+**The bars.**
+- **B1 fails** on all five at 800 km: Δρ −0.009 … +0.002, the same as GF-2
+  alone.
+- **B2 fails** on all five: the ratio moves by under 1.3 %.
+- **B3 passes** on all five at 800 km, both halves, full (2.01 … 2.88 ×
+  control) and SP alone.
+- **B4 fails** on all five at 800 km (0.050 … 0.253 against ≥ 2.0; top-decile
+  share 0.211 … 0.325 against ≥ 0.40), and on all five at 80 km. Its
+  input-selected twin is still unmeasurable (§5.5): no top rock has both
+  groups.
+- **B8 passes on all 15 worlds.** GF-2's two failures (1.28× and 1.26×) are
+  now 1.09× and 1.11×. The stage is the cause of the difference, since
+  `N_h = 0` reproduces §5.6's counts exactly. **Why** it removes small lakes
+  was not measured.
+- **B9 passes, and the cost is real.** Seed 483920, 800 km, seven alternating
+  runs per arm, run alone: control 3.300 s (3.233 … 3.326), treatment 3.651 s
+  (3.597 … 3.667), ratio 1.106; an independent re-run: 3.268 s (3.194 …
+  3.312) against 3.619 s (3.598 … 3.645), 1.107. The brackets do not overlap,
+  so this is a measured cost of about 10 %, against GF-2's 1.014–1.038.
+- **B10 passes:** deterministic on all five, 10–11 rock types, two-layer
+  share 0.143–0.280.
+
+**Why B1, B2 and B4 do not move: the stage can only lower slopes, and at
+800 km there are almost none to lower.** A threshold pass removes excess over
+`θc`; it never steepens anything. GF-0 measured 0.13–0.37 % of land above 40°
+at 800 km (§5.4), and the slopes these bars compare are far below every `θc`
+in §2.3: cap-edge medians 0.76–1.13°, strong-rock medians about 0.4°. So the
+stage binds on a few cells, and B1 and B2 did not change in the fourth decimal
+between 0 and 32 passes. B4 asks cap edges to be *steeper* than the
+substrate near them, which only a process that lowers the substrate faster
+than the cap can make. That is stream power at a time scale the default
+pass does not reach (§5.6), i.e. GF-7's clock. At 80 km the stage does bind
+(14–18 % of land is above 40°, §5.4), and it raises B4 there (0.44–1.21 →
+0.65–1.40) without reaching 2.0. No constant was tuned outside §4.3's `N_h`
+procedure, and no bar was changed.
+
+**Screenshots** (`_gf2relief_shot.tscn`, windowed, seeds 483920 and 314159,
+800 km, 2048 × 1311, now with `--processes on`, which sets the switch through
+`set_params` and aborts if the key is rejected). "Before" is HEAD `22ec647`'s
+engine (GF-2 only), "after" is GF-3 at `N_h = 8`. 671 and 725 pixels change by
+more than 8 levels of 255, out of 2 684 928. The changes lie along one river
+line and a steep shoreline strip per seed. **Relief does not visibly track
+rock more than it did.** Granite interiors and the sedimentary lowlands look
+as they did under GF-2.
+
+**Identity.** `WorldParams::defaults()` and the app-default world are
+bit-identical to HEAD `22ec647`. A scratch test hashed `field`, `temperature`,
+`rainfall`, `flow_discharge`, `river_mask`, `river_floor`, `stream_order`,
+`resistance_field`, `volcanic_field` and all five column arrays, for
+`params::defaults()` at 2048 × 1311, 800 km, and `WorldParams::defaults` at
+512 × 328, on seeds 483920 and 314159. It ran in a `git archive` copy of HEAD
+and in a copy of the working tree: 48 of 48 hashes matched. No golden moved
+and none was re-recorded.
+
+**Tests.**
+- `cartalith-erosion/tests/gf3_threshold_hillslope.rs` (11 tests): the talus
+  at 80 and 800 km against hand-worked literals; the refusal of a
+  non-positive peak; granite holding what shale sheds, to literal heights;
+  the shedding cell's own rock, both orientations; the cap and its contact,
+  including a breach in the middle of the stage; regolith reading
+  unconsolidated; the same angle at two extents; wrap at both edges; the
+  column never written; 0.75ⁿ relaxation.
+- Three `cartalith-engine` unit tests on `RockContext::threshold_hillslope`:
+  off touches nothing; on relaxes by `0.75^8` and records talus as regolith;
+  world maps wrap.
+- `geology_gf2.rs`'s light-pass replay now replays the stage, at 800 km and at
+  20 km, where it must move cells.
+
+**Mutation testing** was done in a scratch copy, never the live tree. It used
+Python exact-replace, a pattern that occurs exactly once, restore in
+`finally`, and a hash check after. **20 of 20 mutants were killed.** Four
+survived the first round and were killed after tests were added: the per-cell
+index, the right-edge wrap, the engine gate and the engine's `world`
+pass-through.
+
 ---
 
 ## 6. Re-baseline plan

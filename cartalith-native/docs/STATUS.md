@@ -502,6 +502,33 @@ re-checked against the tree rather than copied from the commit message.
     seeds 483920 and 314159, taken with the switch on (before the gate). The
     broad relief does not visibly change; the differences are in which
     channel gullies are drawn and how deep.
+- **GF-3 built: the threshold hillslope stage, behind the same gate and still
+  off in the app — verified by the main loop 2026-09-27 (gf3_threshold_hillslope 11/0, golden_parity_thermal 2/0, geology_gf2 7/0, gf0 controls 4/0 re-run; the staged tree built alone in a worktree).** It is
+  `cartalith_erosion::threshold_hillslope`: `erode_thermal`'s rule with a
+  per-cell threshold, `tan(θc)·cell_m·(1 − sea)/peak_m`, taken from the exposed
+  rock and re-read every pass. It runs 8 passes (`THRESHOLD_HILLSLOPE_PASSES`)
+  once in the light pass, after stream power and rebound and before the
+  trace. The net change becomes regolith. It runs only with `geology_model`
+  **and** `geology_processes` on, and `geology_processes` stays off in
+  `params::defaults()`. The app-default and parity worlds hash bit-identical
+  to HEAD `22ec647`: 48 of 48 arrays, two seeds. `golden_parity_thermal.rs`
+  is untouched. See `GEOLOGY_FIRST_SCOPE.md` §5.7.
+  - **Bars with the switch on (800 km, five seeds):**
+    - **B8 now passes on all 15 worlds.** GF-2's two failures, 1.28× and
+      1.26×, are now 1.09× and 1.11×.
+    - **B1, B2 and B4 fail on every seed.** B1 and B2 read the same to four
+      decimals at 0, 8, 16 and 32 passes, because the stage only lowers
+      slopes above `θc`, and at 800 km almost none are.
+    - B3 and B10 pass.
+    - **B9 passes with a real cost:** ratio of medians 1.106 and 1.107, with
+      non-overlapping brackets. 16 passes read 1.202 and 1.132, which is why
+      the count is 8.
+    - Screenshots with processes on: 671 and 725 pixels change by more than 8
+      levels. Relief does not visibly track rock more than under GF-2.
+  - **Tests:** `cartalith-erosion/tests/gf3_threshold_hillslope.rs` (11
+    tests, literal values), three engine unit tests, and `geology_gf2.rs`'s
+    light-pass replay extended to the stage. 20 mutants, run in a scratch
+    copy: all 20 killed, four of them after tests were added.
 - **Code and doc drift found by the geology scope, fixed — pending independent
   verification.** `OUTSTANDING_WORK.md` §2.13's "Code and doc drift found by
   the geology scope" row, all five items: (1) `sample_bridge::CellSample`'s

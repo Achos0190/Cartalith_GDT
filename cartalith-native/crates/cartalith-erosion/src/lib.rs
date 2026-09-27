@@ -246,6 +246,25 @@ pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize,
 /// for, just with the accumulation spread across *different cells* within
 /// one pass here instead of multiple terms at *one* cell.
 pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64) {
+    thermal_core(fld, w, h, passes, talus, None, false);
+}
+
+/// The body shared by [`erode_thermal`] (the golden-verified reference port:
+/// scalar `talus`, `per_cell = None`, `wrap = false`) and
+/// [`threshold_hillslope`] (GF-3: one pass at a time with a per-cell
+/// threshold, wrapping in x on world maps).
+///
+/// Why one body: `GEOLOGY_FIRST_SCOPE.md` §4.3 defines the threshold
+/// hillslope as "`erode_thermal`'s rule with a per-cell threshold", and says
+/// the thermal golden stays untouched "because the per-cell form is an
+/// `Option`". With `per_cell = None` and `wrap = false` every statement below
+/// is the legacy port's, so `golden_parity_thermal.rs` holds by control flow,
+/// not by an arithmetic coincidence.
+///
+/// Must never change the move rule (`0.5·0.25` of the summed excess, split by
+/// each neighbour's share, clamped to 0..1) for either caller: that rule is the
+/// reference's, and §4.3 changes only the threshold.
+fn thermal_core(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64, per_cell: Option<&[f64]>, wrap: bool) {
     for _ in 0..passes {
         let mut delta = vec![0f32; w * h];
         // NOT parallelized: this loop writes `delta[i]` (its own cell) AND
@@ -263,6 +282,12 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
             for x in 0..w {
                 let i = y * w + x;
                 let hh = fld[i] as f64;
+                // The threshold belongs to the cell that sheds (§4.3's
+                // `talus_i`): it is the upper cell's rock that fails.
+                let talus = match per_cell {
+                    Some(t) => t[i],
+                    None => talus,
+                };
                 let mut excess = 0.0f64;
                 let mut nb: Vec<(usize, f64)> = Vec::new();
                 let ne: [(i64, i64); 4] = [
@@ -272,6 +297,15 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
                     (x as i64, y as i64 + 1),
                 ];
                 for &(nx, ny) in &ne {
+                    // A world map wraps in longitude (x) only; the legacy
+                    // reference kernel (`wrap = false`) never wraps.
+                    let nx = if wrap && nx < 0 {
+                        nx + w as i64
+                    } else if wrap && nx >= w as i64 {
+                        nx - w as i64
+                    } else {
+                        nx
+                    };
                     if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
                         continue;
                     }
@@ -302,6 +336,114 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
                 stored
             };
         });
+    }
+}
+
+/// GF-3's pass count `N_h` for the threshold hillslope stage
+/// (`GEOLOGY_FIRST_SCOPE.md` §4.3: "the number of passes, `N_h`, is a
+/// **judgement**. GF-3 measures it against the cap-edge bar (B4) and the cost
+/// bar (B9)").
+///
+/// Provenance of **8**, from that measurement (§5.7, 800 km, five seeds, the
+/// GF-0 harness's `gf2_arms` and `gf2_b9_cost`): at 0, 8, 16 and 32 passes B4
+/// fails on every seed and does not discriminate between them, and B1 and B2
+/// read the same to four decimals; B8's 1-3-cell lakes pass at 8, 16 and 32
+/// (and fail at 0, which is GF-2 alone). So B9 decides: the stage is one
+/// sequential full-grid scan per pass, and at 16 passes B9 read 1.202 and
+/// 1.132 against its 1.20 bar. 8 is the smallest count measured that keeps B8
+/// passing. What 8 means physically: the move rule sheds `0.5·0.25` of a
+/// cell's summed excess per pass, so on an isolated over-steep pair the
+/// excess falls by a quarter each pass, and 8 passes leave `0.75^8 ≈ 0.100`
+/// of it (arithmetic): the stage relaxes toward `θc`, it does not reach it.
+/// The clock (§4.12, GF-7) scales it linearly.
+pub const THRESHOLD_HILLSLOPE_PASSES: i32 = 8;
+
+/// The rock-aware threshold hillslope's per-world inputs (GF-3,
+/// `GEOLOGY_FIRST_SCOPE.md` §4.3).
+pub struct ThresholdHillslope<'a> {
+    /// The GF-1 column. **Read only**: the exposed rock at each pass
+    /// (§2.5's rule, so a cap eroded through its contact mid-stage sheds at
+    /// the substrate's angle from the next pass on). The caller accounts the
+    /// stage's net change to regolith afterwards (§4.3: "the moved mass
+    /// becomes regolith where it lands"; §4.9's caller-side rule), exactly as
+    /// GF-2 does for stream power.
+    pub column: &'a cartalith_terrain::geology::GeologyColumn,
+    /// §2.5's `R_EXPOSE`, in normalised height units.
+    pub r_expose: f32,
+    /// The real cell width in metres, `map_width_km·1000/gw` (§4.3).
+    pub cell_m: f64,
+    /// Sea level, normalised: `1 − sea` of height spans `peak_m`.
+    pub sea: f64,
+    /// Peak altitude in metres (`metersPerUnit`'s anchor).
+    pub peak_m: f64,
+}
+
+/// §4.3's critical height step for one cell: the largest 4-neighbour height
+/// difference, in **normalised** units, that a slope at `theta_c_deg` spans
+/// over one cell of `cell_m` metres:
+///
+/// ```text
+/// talus = tan(θc) · cell_m · (1 − sea) / peak_m
+/// ```
+///
+/// Why: `erode_thermal`'s scalar `talus = 0.012` is a raw normalised height
+/// difference, so the angle it stands for changes with extent (7° at 800 km,
+/// 87° at 5 km: `EROSION_GEOLOGICAL_TIME_SCOPE.md` §2). Scaling by the real
+/// cell size and `peak_m` makes the threshold an angle at every extent.
+///
+/// Must never be called with `peak_m <= 0` or a non-positive `cell_m`
+/// (asserted): either would turn the threshold into 0 (every slope fails) or
+/// a negative number, both plausible-looking and wrong.
+pub fn critical_talus(theta_c_deg: f64, cell_m: f64, sea: f64, peak_m: f64) -> f64 {
+    assert!(peak_m > 0.0 && cell_m > 0.0, "critical_talus needs a positive peak_m and cell_m (got {peak_m}, {cell_m})");
+    theta_c_deg.to_radians().tan() * cell_m * (1.0 - sea) / peak_m
+}
+
+/// GF-3, `GEOLOGY_FIRST_SCOPE.md` §4.3 (owner Rulings BH, BJ): **the
+/// threshold hillslope stage.** `passes` passes of `erode_thermal`'s move rule
+/// with a per-cell threshold, [`critical_talus`] of the critical angle `θc`
+/// (`ROCK_PROPS`) of the rock each cell exposes *at the start of that pass*.
+///
+/// So strong rock (granite 60°) keeps steep faces that weak rock (shale 30°,
+/// unconsolidated 33°) cannot hold: the excess over each rock's own angle
+/// moves downslope, and a cap edge keeps a steeper face than the substrate
+/// below it (§2.5, "the cap edge keeps a steep face (θc)").
+///
+/// Choices, each from the scope:
+/// - the threshold is the **shedding** cell's (§4.3 indexes `talus_i` by the
+///   cell whose excess moves);
+/// - the exposed rock is re-read every pass (the contact switch of §4.1,
+///   applied per pass), but the regolith thickness is the one the stage
+///   started with, and the caller accounts the net change once, afterwards
+///   (§4.9). GF-2 measured that writing regolith inside the iterations feeds
+///   back (§5.6), so this stage does not;
+/// - world maps wrap in x, as every generation stage does (`wrap`); the
+///   manual Erode op's `erode_thermal` keeps the reference's no-wrap.
+///
+/// Must never write the column (it only reads it), and must never be used in
+/// place of `erode_thermal` for the manual Erode op, whose golden is the
+/// reference's scalar rule (§4.3). Panics if the column does not match the
+/// grid or holds a rock byte that is not a [`cartalith_terrain::geology::Rock`]:
+/// a threshold for "no rock" would have to be invented, and a mismatched
+/// column describes a different world.
+pub fn threshold_hillslope(fld: &mut [f32], w: usize, h: usize, passes: i32, wrap: bool, rock: &ThresholdHillslope) {
+    use cartalith_terrain::geology::{Rock, ROCK_COUNT};
+    assert!(rock.column.len() == w * h, "rock column is {} cells, needs exactly {} ({w}x{h})", rock.column.len(), w * h);
+    // One threshold per rock type: `tan` once per rock, not once per cell.
+    let mut by_rock = [0f64; ROCK_COUNT];
+    for r in Rock::ALL {
+        by_rock[r as usize] = critical_talus(r.props().theta_c_deg as f64, rock.cell_m, rock.sea, rock.peak_m);
+    }
+    let mut talus = vec![0f64; w * h];
+    for _ in 0..passes {
+        talus.par_iter_mut().enumerate().for_each(|(i, t)| {
+            let r = rock
+                .column
+                .exposed(i, fld[i], rock.r_expose)
+                .unwrap_or_else(|| panic!("cell {i}: the column holds no valid rock (rock_top {})", rock.column.rock_top[i]));
+            *t = by_rock[r as usize];
+        });
+        thermal_core(fld, w, h, 1, 0.0, Some(&talus), wrap);
     }
 }
 

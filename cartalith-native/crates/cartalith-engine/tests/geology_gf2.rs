@@ -16,8 +16,13 @@
 //!   (rebound lifts; nothing in GF-2 lowers a contact), and the derivation
 //!   itself untouched.
 //!
+//! - Since GF-3, the same switch runs the threshold hillslope stage (§4.3);
+//!   the light-pass replay below replays it too, at an extent where it must
+//!   move cells.
+//!
 //! The kernel's literal behaviour (κ lookup, contact switch, stripping) is
-//! pinned in `cartalith-erosion/tests/gf2_rock_stream_power.rs`.
+//! pinned in `cartalith-erosion/tests/gf2_rock_stream_power.rs`, and the
+//! threshold stage's in `cartalith-erosion/tests/gf3_threshold_hillslope.rs`.
 
 use cartalith_engine::{generate_terrain, WorldParams};
 
@@ -167,13 +172,26 @@ fn glacial_lowering_strips_regolith_first_exactly() {
 /// stripping (§4.9), by exact replay from the pre-erosion world (carve off,
 /// passes off: nothing after the geology stage writes the field or the column
 /// there). Replayed: the rock kernel, §4.9's net-change accounting, rebound
-/// with the column lifted (§4.2). The world with passes off then differs from
-/// that replay only by the carve, so the carve's lowering must have stripped
-/// regolith exactly as `account_regolith` would.
+/// with the column lifted (§4.2), and since GF-3 the threshold hillslope
+/// stage (§4.3: `THRESHOLD_HILLSLOPE_PASSES` passes at `cell_m =
+/// map_width_km·1000/gw`, its net change accounted as regolith). The world
+/// with passes off then differs from that replay only by the carve, so the
+/// carve's lowering must have stripped regolith exactly as `account_regolith`
+/// would.
+///
+/// Run at the default 800 km and at 20 km. At 800 km over 256 cells (3.1 km
+/// cells) the threshold stage has nothing over-steep to move; at 20 km (78 m
+/// cells) it must move cells, or its call site is not what is being replayed.
 #[test]
 fn the_light_pass_and_the_carve_replay_exactly() {
+    light_pass_and_carve_replay(800.0, false);
+    light_pass_and_carve_replay(20.0, true);
+}
+
+fn light_pass_and_carve_replay(km: f64, threshold_must_move: bool) {
     let mut p = app_params(483920);
     p.geology_model = true;
+    p.map_width_km = km;
     p.passes = cartalith_engine::ErosionPassParams::off();
     let mut pre_p = p.clone();
     pre_p.carve_rivers = false;
@@ -210,6 +228,21 @@ fn the_light_pass_and_the_carve_replay_exactly() {
     let before_rebound = field.clone();
     cartalith_erosion::isostatic_rebound(&mut field, &start, GW, GH, p.tect.blur_r, p.world);
     cartalith_erosion::lift_column(&mut col, &before_rebound, &field);
+    // GF-3's threshold hillslope, as `RockContext::threshold_hillslope` runs it.
+    let before_threshold = field.clone();
+    cartalith_erosion::threshold_hillslope(
+        &mut field,
+        GW,
+        GH,
+        cartalith_erosion::THRESHOLD_HILLSLOPE_PASSES,
+        p.world,
+        &cartalith_erosion::ThresholdHillslope { column: &col, r_expose, cell_m: km * 1000.0 / GW as f64, sea, peak_m: p.peak_m },
+    );
+    let moved = before_threshold.iter().zip(field.iter()).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+    if threshold_must_move {
+        assert!(moved > 0, "{km} km: the threshold stage moved nothing, so its replay cannot fail");
+    }
+    cartalith_erosion::account_regolith(&mut col, &before_threshold, &field, true);
     // Everything off the carve's footprint must already match, or the replay
     // is not the pass the world ran.
     let mask = w.river_mask.as_ref().unwrap();
