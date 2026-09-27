@@ -1837,7 +1837,7 @@ The ruling:
    lowland.
 4. **Stages are reordered** so geology is complete before any process that
    reads it. `EROSION_GEOLOGICAL_TIME_SCOPE.md`'s geological time is the
-   clock they run on.
+   clock they run on. *Correction, same day, from `GEOLOGY_FIRST_SCOPE.md`: that scope has no clock (the owner declined one on 2026-09-02), so BH builds none; see the scope's owner question 4.*
 
 It moves every generated world, so it re-baselines with every old → new
 disclosed (DECISIONS §7p). It is scoped first. **Ruling BG (landslips and

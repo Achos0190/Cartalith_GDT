@@ -88,6 +88,7 @@ and 8192², and what actually decides how the app feels) ·
 `LOD_TILING_BASE_SCOPE.md` · `LOD_TILING_INTEGRATION_SCOPE.md` ·
 `LOD_DETAIL_SCOPE.md` (scale-dependent terrain detail, LOD-D0 to D6) · `ANDROID_BUILD_SCOPE.md` ·
 `MAP_CONTEXT_SCOPE.md` (right-click card, tool ring, touch forms — scheduled 2026-09-26) ·
+`GEOLOGY_FIRST_SCOPE.md` (Ruling BH: a pre-erosion lithology model and caprock column that every landform process reads, GF-0 to GF-7, opening with a measurement harness) ·
 `GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
 `REFERENCES.md` · `SKILLS.md` · `LANDMARK_GENERATION_SCOPE.md`
 (causally-placed landmarks — the inventory of what this engine already had for

@@ -310,6 +310,17 @@ re-checked against the tree rather than copied from the commit message.
     1080x2340 `--force-touch`, all green. All 14 existing vault probes are
     green. `_vaulttree_probe` had been red at HEAD before this change.
   - **Not yet re-run by a separate verifying pass.**
+- **Ruling BH scoped: `GEOLOGY_FIRST_SCOPE.md` written. Nothing in it is
+  built, and GF-0 to GF-7 are all unstarted.** It is a documentation change
+  only, and no code moved. Checked at the symbols, it records three facts:
+  - `resistance_field` gives stream power a `K` factor of 0.65–1.0. That is
+    at most 1.36× on continental land, derived by arithmetic from
+    `compute_resistance` and `stream_power_kernel_bounded`.
+  - `build_lithology` classifies sediment from the post-erosion surface and
+    present rainfall, so no shaping process could read it causally.
+  - `EROSION_GEOLOGICAL_TIME_SCOPE.md` has no clock for the ruling to run on.
+
+  Next: GF-0, the two-arm measurement harness.
 
 ### 2026-09-25
 
