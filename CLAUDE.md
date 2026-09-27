@@ -254,6 +254,18 @@ got. Status for everything below is in `STATUS.md`.
 | `design/` | owner-supplied UI mockups and design canvases, imported verbatim |
 | `skills/` | vendored project skills (installed, with third-party ones, under `.claude/skills/`) |
 
+## Code is annotated for a human auditor (Ruling BK, owner, 2026-09-27)
+
+A standing rule for every change. Every function, module and type gets a doc
+comment covering what it does, why, and what it must never do. Every
+non-obvious constant names its source: a measurement, a citation, the
+reference, or a labelled judgement. Every non-obvious branch or divergence
+says why and cites its ruling or commit. Every test says what it protects.
+Comments match the code, and a change fixes the prose it makes stale. Put this
+in every agent brief, and check it when verifying. Annotating existing code is
+its own backlog row (`OUTSTANDING_WORK.md`); it is not part of unrelated
+lanes.
+
 ## Working rules this port learned the hard way
 
 Recorded here because they are cheap to state and expensive to rediscover; each

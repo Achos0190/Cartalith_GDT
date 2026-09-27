@@ -1882,3 +1882,28 @@ their defaults.
   how far each process runs. This reverses the "no clock" default. The
   2026-09-02 decline covered the erosion-time scope's larger design; the
   owner now wants a simple one.
+
+## 2026-09-27 — Ruling BK: code is annotated so a human can audit it
+
+Owner: *"I'd also like the code to be properly annotated so it can be easily
+audited by a human. Take this with you for work to be done and all the code
+that is done we'll do later."*
+
+**Standing, from now on:** every change leaves its code auditable.
+- Every function, module and type has a doc comment saying what it does, why
+  it exists, and what it must never do.
+- Every non-obvious constant says where its value comes from: a measurement
+  (with the command or probe that measured it), a citation, the reference
+  (with the v2.11 function), or a labelled judgement.
+- Every non-obvious branch, workaround or deliberate divergence says why,
+  and names the ruling or commit behind it.
+- Every test says what it protects and what would make it fail.
+- Comments describe the code as it is. Prose that a change makes stale is
+  fixed in the same change (MISTAKES: "Change behaviour → hunt the prose").
+
+This is part of "done" for every lane, and the main loop checks it when
+verifying.
+
+**Existing code** gets a separate annotation-audit pass later. It is a
+backlog row, not in scope for current lanes, except for code a lane already
+touches.
