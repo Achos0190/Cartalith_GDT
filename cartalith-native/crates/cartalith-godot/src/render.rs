@@ -783,7 +783,76 @@ pub const RAMP_PRESETS: &[(&str, &[(f64, (u8, u8, u8))])] = &[
     ("Dark ice", &[(0.00, (18, 28, 40)), (0.35, (44, 68, 88)), (0.70, (104, 138, 158)), (1.00, (198, 218, 230))]),
     ("Desert", &[(0.00, (198, 168, 112)), (0.25, (214, 178, 118)), (0.52, (196, 144, 96)), (0.76, (168, 112, 84)), (1.00, (226, 206, 186))]),
     ("Dark atlas", &[(0.00, (26, 38, 34)), (0.24, (44, 62, 50)), (0.50, (78, 84, 62)), (0.74, (104, 92, 78)), (1.00, (176, 172, 164))]),
+    // Ruling BI (`LARGE_ITEM_RULINGS.md`, 2026-09-27): four presets'
+    // land ramps, from `MAP_STYLE_RESEARCH.md` §4. Each is this document's own
+    // reading of the cited palette, the same standing every other ramp in
+    // this table already has -- none is a measured value.
+    //
+    // "Blueprint" -- §4.3: a cyanotype's Prussian-blue field, dark at the
+    // shoreline toward a pale cyan at the summit, so the elevation gradient
+    // still reads once `biome_sat` is driven low and the ramp takes over the
+    // hue entirely.
+    ("Blueprint", &[(0.00, (10, 34, 66)), (1.00, (206, 232, 248))]),
+    // "Ink wash" -- §4.4: shan-shui's warm-grey ink values, not Blueprint's
+    // cool blue -- the two share a two-stop mono shape but not a palette.
+    ("Ink wash", &[(0.00, (54, 48, 42)), (1.00, (236, 226, 208))]),
+    // "Night" -- §4.8: a dark-mode base distinct from `Dark ice`/`Dark
+    // atlas` (both keyed to a specific biome, not a general night read) --
+    // near-black lowlands rising only to a deep slate at the peaks, so the
+    // map stays legibly dark at every elevation rather than blowing out at
+    // the summits the way lightening toward white would.
+    ("Night", &[(0.00, (9, 13, 20)), (0.30, (17, 25, 36)), (0.60, (29, 41, 54)), (1.00, (68, 84, 100))]),
+    // "Vintage atlas" -- §4.6, the cited mid-century palette in stop order:
+    // Philippine Brown `#582119`, Forest Brown `#906c54`, Muted Bronze
+    // `#d0a772`, Bleach White `#fef1d7`.
+    ("Vintage atlas", &[(0.00, (88, 33, 25)), (0.35, (144, 108, 84)), (0.65, (208, 167, 114)), (1.00, (254, 241, 215))]),
 ];
+
+/// Ruling BI's "Nautical" preset (`MAP_STYLE_RESEARCH.md` §3/§4.7) — the one
+/// genuinely new table the eight researched presets need: a depth-banded
+/// bathymetric tint, in the same `(relative depth, RGB)` stop shape
+/// [`RAMP_PRESETS`] uses, but blended into [`sea_color_core`] by
+/// [`TerrainAppearance::sea_ramp_strength`] rather than into `land_color` by
+/// `ramp_strength` — water's ramp, not land's.
+///
+/// Depth is `sea_color_core`'s own `depth` parameter: `0.0` at the shoreline,
+/// `1.0` in the abyss. Colours follow §2.17's own reading of a real chart's
+/// depth convention (NOAA/Amnautical, cited there) rather than the intuitive
+/// "dark = deep": intertidal green at the coast, darkening through the very
+/// shallow band, then lightening back through pale blue toward white in open
+/// water, exactly as the source describes it.
+pub const SEA_RAMP_NAUTICAL: &[(f64, (u8, u8, u8))] = &[
+    (0.00, (130, 178, 122)),
+    (0.15, (36, 78, 138)),
+    (0.45, (118, 176, 214)),
+    (1.00, (238, 246, 250)),
+];
+
+/// Linear interpolation over a static `(position, RGB)` stop table — the same
+/// curve [`ElevationRamp::sample`] under [`RampMode::Linear`] would give, but
+/// without building an [`ElevationRamp`] (an allocation and a sort) for a
+/// fixed, already-sorted table sampled per pixel. Flat beyond both ends,
+/// matching every other ramp in this file.
+fn sample_ramp_table(stops: &[(f64, (u8, u8, u8))], t: f64) -> Rgb {
+    let to_rgb = |c: (u8, u8, u8)| (c.0 as f64, c.1 as f64, c.2 as f64);
+    let Some(&(first_at, first_c)) = stops.first() else { return (0.0, 0.0, 0.0) };
+    if t <= first_at {
+        return to_rgb(first_c);
+    }
+    let Some(&(last_at, last_c)) = stops.last() else { return (0.0, 0.0, 0.0) };
+    if t >= last_at {
+        return to_rgb(last_c);
+    }
+    for w in stops.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        if t >= a.0 && t <= b.0 {
+            let span = b.0 - a.0;
+            let k = if span <= 0.0 { 1.0 } else { (t - a.0) / span };
+            return mix(to_rgb(a.1), to_rgb(b.1), k);
+        }
+    }
+    to_rgb(last_c)
+}
 
 impl ElevationRamp {
     /// One named preset by exact name, or `None` — an unknown name is the
@@ -1761,6 +1830,21 @@ pub struct TerrainAppearance {
     /// strength [`sea_grain`] was written to reach — half a lattice cell of
     /// warp, its "fully broken-up" end of the slider.
     pub sea_grain_warp: f64,
+    /// **Ruling BI** (`LARGE_ITEM_RULINGS.md`, 2026-09-27), the "Nautical"
+    /// preset's own small renderer addition, flagged by
+    /// `MAP_STYLE_RESEARCH.md` §3/§4 as the one genuinely new table among the
+    /// eight researched presets: a depth-banded bathymetric tint blended over
+    /// [`sea_color_core`]'s existing material-based shelf/deep/abyss mix, the
+    /// same way [`TerrainAppearance::ramp_strength`] blends a land ramp over
+    /// `material_weights` — same mechanism, water side.
+    ///
+    /// `0.0` (default, and [`TerrainAppearance::js_reference`]'s own value) is
+    /// untouched: `sea_color_core` takes exactly the path it always did, so
+    /// neither the shipped default nor a single JS golden moves. Above zero,
+    /// [`sea_color_core`] mixes its computed colour toward
+    /// [`SEA_RAMP_NAUTICAL`] sampled at the same `depth` it already carries,
+    /// by this fraction.
+    pub sea_ramp_strength: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -2020,6 +2104,9 @@ impl Default for TerrainAppearance {
             // full strength `sea_grain` was written for. `js_reference()` pins
             // `0.0`, the reference's own lattice.
             sea_grain_warp: 1.0,
+            // Ruling BI: off by default, exactly as `js_reference()` pins it
+            // below -- see the field's own doc comment.
+            sea_ramp_strength: 0.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             haze_strength: 0.18,
@@ -2278,6 +2365,10 @@ impl TerrainAppearance {
             // lattice here rather than inheriting it. `sea_grain` returns the
             // reference expression from a dedicated branch at `0.0`.
             sea_grain_warp: 0.0,
+            // Ruling BI: the bathymetric ramp is a shipped-look addition, not
+            // a reference row -- `0.0` here too, so `sea_color_core` takes
+            // the reference path exactly.
+            sea_ramp_strength: 0.0,
             // v2.25's `tileShadeExag` (RC_ENGINE_CHANGES.md §4) is on in
             // `default()`; the frozen v2.11 reference shades a tile with the
             // bare `ex = state.exag` (11670), and the golden pins that.
@@ -2521,6 +2612,8 @@ tunables! {
     //    at `1.0` in the shipped look; `0.0` is the reference exactly. See
     //    the field's doc comment --
     "sea_grain_warp"        => sea_grain_warp,        0.0,   1.0,  "Ocean grain warp";
+    // Ruling BI's "Nautical" preset -- see the field's own doc comment.
+    "sea_ramp_strength"     => sea_ramp_strength,     0.0,   1.0,  "Bathymetric sea ramp";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";
@@ -5665,6 +5758,13 @@ fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64
     let surf = smoothstep(0.03, 0.0, depth);
     if surf > 0.0 {
         wc = mix(wc, (176.0, 214.0, 221.0), surf * 0.5);
+    }
+    // Ruling BI's "Nautical" preset -- see `sea_ramp_strength`'s own doc.
+    // `<= 0.0` early-returns exactly like every other stage in this function,
+    // so the default and `js_reference()` path never evaluate `mix` at all.
+    if appearance.sea_ramp_strength > 0.0 {
+        let ramp_c = sample_ramp_table(SEA_RAMP_NAUTICAL, depth);
+        wc = mix(wc, ramp_c, appearance.sea_ramp_strength);
     }
     let tex = (n_low - 0.5) * 5.0;
     let sh2 = 0.82 + 0.18 * clamp01(sh);

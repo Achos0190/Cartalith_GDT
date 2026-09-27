@@ -110,10 +110,19 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ## styles". A preset whose look this cdylib does not have simply keeps the look
 ## that is already selected -- `EngineBridge.set_look` returns false and the
 ## Painter half still applies.
-## `entry[3]`, present only on "Village" below, is an **appearance**-tunable
-## override bundle (`bridge.set_appearance()`'s own keys) rather than an NPR
-## one -- see `_apply_preset`'s own comment for why this one preset needs a
-## fourth element the other five do not.
+## `entry[3]`, present only on "Village" below (and now on Ruling BI's eight),
+## is an **appearance**-tunable override bundle (`bridge.set_appearance()`'s
+## own keys) rather than an NPR one -- see `_apply_preset`'s own comment for
+## why this one preset needs a fourth element the other five do not.
+##
+## **2026-09-27, Ruling BI** (`LARGE_ITEM_RULINGS.md`, `MAP_STYLE_RESEARCH.md`
+## §4): eight researched map graphic styles, each following the research
+## document's own knob values. `entry[4]`, present on every one of the eight
+## that names a ramp, is the elevation ramp preset name
+## (`bridge.load_ramp_preset()`'s own list) -- absolute like every other
+## element: `_apply_preset` loads it (or resets to "Earth" when a preset
+## names none) before applying the rest, so no preset's ramp choice outlives
+## it the way an unmanaged one would.
 const STYLE_PRESETS := [
 	["Natural Vibrant", "Natural Vibrant", {"multi_sun": true}],
 	["Default", "Quality tier", {}],
@@ -139,6 +148,80 @@ const STYLE_PRESETS := [
 	["Village", "Quality tier", {"village": true},
 		{"detail_macro_weight": 0.0, "detail_meso_weight": 0.0, "detail_micro_weight": 0.0,
 			"relief_ambient": 1.0}],
+	## Ruling BI #1, `MAP_STYLE_RESEARCH.md` §4.1 -- class (a), no renderer
+	## addition. The bright, legible reference-atlas physical map: the
+	## `Atlas` ramp (already shipped, `ramp_strength: 0.0` in every preset
+	## until now) finally turned on, plus the plate-edge aerial-perspective
+	## read §4.1 asks for.
+	["Atlas", "Natural Vibrant", {},
+		{"ramp_strength": 0.35, "haze_strength": 0.28, "atmo_desaturation": 0.15}, "Atlas"],
+	## Ruling BI #2, §4.2 -- class (a). This port's own Swiss-style warm-
+	## lowland/cool-summit `Imhof` ramp, at last turned on over crisper
+	## illuminated-slope contrast than the tier's own ambient/gain balance.
+	["Imhof relief", "Quality tier", {},
+		{"ramp_strength": 0.5, "relief_ambient": 0.22, "relief_gain": 1.4, "haze_strength": 0.30}, "Imhof"],
+	## Ruling BI #3, §4.3 -- class (a) over the new `Blueprint` ramp (a
+	## renderer addition per Ruling BI's own instruction: a cyanotype's
+	## Prussian-blue field, dark at the shoreline toward pale cyan at the
+	## summit). `ramp_strength: 1.0` with every `Blueprint` stop opaque
+	## (`RAMP_PRESETS`' own rule) already replaces the material colour
+	## entirely, so the ramp alone is the whole land picture; `ink` and
+	## `contours` draw the white/cyan technical linework over it.
+	##
+	## **`biome_sat` is deliberately NOT set here.** `land_color` applies
+	## `ramp_strength`'s mix before `biome_sat`'s desaturation
+	## (`render.rs`'s own pipeline order), so a negative `biome_sat` acts on
+	## the *already-blue* ramped colour and desaturates it to grey --
+	## measured on this machine, 2026-09-27, `_stylepresets_probe.gd`'s own
+	## `run_preset_09_blueprint.png` at `biome_sat: -1.0`: the land came out
+	## grey, not blue. `paper_strength: 0.0` alone (the sheet would otherwise
+	## tint the ramp's own blue) is what this preset needs.
+	["Blueprint", "Quality tier", {"ink": 0.7, "contours": 0.4},
+		{"ramp_strength": 1.0, "paper_strength": 0.0}, "Blueprint"],
+	## Ruling BI #4, §4.4 -- class (a)/(b) over the new `Ink wash` ramp (warm-
+	## grey ink values, not Blueprint's cool blue -- a second small renderer
+	## addition Ruling BI names by name). `crest_strength` up for brush-like
+	## ridge emphasis; `crosshatch` stays at `STYLE_MANAGED`'s own `0.0`
+	## (shan shui is wash, not hatch, per the research).
+	["Ink wash", "Quality tier", {"ink": 0.5},
+		{"ramp_strength": 0.9, "crest_strength": 0.4}, "Ink wash"],
+	## Ruling BI #5, §4.5 -- class (a), no renderer addition: heavy black
+	## keyline over cross-hatched shading on a plain cream sheet. `sepia: 0.0`
+	## keeps the Antique Parchment look's own palette without its extra warm
+	## cast, so the result reads black-on-cream rather than sepia-toned;
+	## `paper_grain` up and `paper_mottle` down from the look's own 0.065/
+	## 0.075 -- a woodcut sheet is fibrous, not blotchy.
+	["Woodcut", "Antique Parchment", {"crosshatch": 0.5, "ink": 0.4, "sepia": 0.0},
+		{"paper_grain": 0.14, "paper_mottle": 0.02}],
+	## Ruling BI #6, §4.6 -- class (a). A 1950s-60s school wall-map: the new
+	## `Vintage atlas` ramp is this document's own reading of the cited
+	## mid-century palette (Philippine Brown/Forest Brown/Muted Bronze/Bleach
+	## White) substituting for re-pitching the four base material ramps --
+	## the ramp mechanism already blends land-only, pre-lighting, which is
+	## the same picture at far less machinery. `paper_wash` moderate and
+	## `paper_grain`/`mottle` low (smoother than parchment), `grade_
+	## temperature` warm, `sepia` light rather than the full antique cast.
+	["Vintage atlas", "Antique Parchment", {"sepia": 0.15},
+		{"ramp_strength": 0.6, "paper_wash": 0.22, "paper_grain": 0.02, "paper_mottle": 0.02,
+			"grade_temperature": 0.32}, "Vintage atlas"],
+	## Ruling BI #7, §4.7 -- class (b): the one preset needing the new
+	## `sea_ramp_strength` mechanism (`render.rs`'s `SEA_RAMP_NAUTICAL`), a
+	## depth-banded bathymetric tint blended into the water the same way a
+	## land ramp blends into `land_color`. Land takes the `Atlas` ramp at low
+	## strength per the research's own recipe (re-pitching `sand_desert`
+	## toward tan would need a new look, out of this ruling's small-addition
+	## scope); `contours` reused as isobaths.
+	["Nautical", "Quality tier", {"contours": 0.2},
+		{"ramp_strength": 0.25, "sea_ramp_strength": 0.7}, "Atlas"],
+	## Ruling BI #8, §4.8 -- class (b) over the new `Night` ramp (checked
+	## against `Dark ice`/`Dark atlas` first, per the research's own
+	## question -- both are keyed to a specific biome, not a general dark
+	## read, so a tenth table was warranted). Negative `grade_exposure`/
+	## `grade_gamma` for the low-light read, `haze_strength` reduced (haze
+	## reads muddy in a dark scene), `atmo_desaturation` up.
+	["Night", "Quality tier", {},
+		{"ramp_strength": 0.8, "grade_exposure": -0.35, "grade_gamma": -0.2,
+			"haze_strength": 0.05, "atmo_desaturation": 0.35}, "Night"],
 ]
 
 ## Every appearance key any preset's 4th element writes -- derived from the
@@ -926,6 +1009,16 @@ func _apply_preset(index: int) -> void:
 	bridge.drop_appearance_overrides(_preset_appearance_keys())
 	if STYLE_PRESETS[index].size() > 3:
 		bridge.set_appearance(Dictionary(STYLE_PRESETS[index][3]))
+	## The optional 5th element (Ruling BI, 2026-09-27): the elevation ramp
+	## preset. Absolute like every other element -- a preset that names none
+	## resets to "Earth" (`ElevationRamp::default`'s own ramp) rather than
+	## leaving the previous tile's ramp selected, the same "every managed key
+	## goes back to its own default first" rule `STYLE_MANAGED` and
+	## `_preset_appearance_keys()` already follow. `load_ramp_preset` never
+	## fails on either name -- both are always in `RAMP_PRESETS` -- so the
+	## return value is not checked here, unlike `set_look`'s deliberately
+	## survivable failure.
+	bridge.load_ramp_preset(String(STYLE_PRESETS[index][4]) if STYLE_PRESETS[index].size() > 4 else "Earth")
 	_sync_appearance()
 	_refresh_map()
 	for key in values:

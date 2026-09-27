@@ -1240,6 +1240,89 @@ fails `village_quantises_to_six_levels_of_51`, killed). No golden or Rust
 render hash reads `Npr::village` (checked by grep over `tests/*.rs`), so
 nothing needed re-baselining.
 
+**Ruling BI — the eight researched map style presets, built; verified by the
+main loop (`ruling_bi_style_presets` 6/0, tile-biome golden 12/0, `_stylepresets` 0 failures; contact sheet inspected).** `LARGE_ITEM_RULINGS.md` Ruling BI (2026-09-27),
+routing `MAP_STYLE_RESEARCH.md` §4: Atlas, Imhof relief, Blueprint, Ink wash,
+Woodcut, Vintage atlas, Nautical and Night all joined
+`render_workspace.gd`'s `STYLE_PRESETS` (now 15 tiles, up from 7), each an
+absolute bundle exactly like the existing six — a look name, an NPR
+dictionary, an appearance-override dictionary and (new, a 5th element) a
+named elevation ramp, loaded through `EngineBridge.load_ramp_preset()` and
+reset to `"Earth"` by any preset that names none.
+
+*Hachure verified first, per the research's own question.* `render.rs`'s
+`hachure` `Npr` branch (`apply_npr`, the "D-hachure" stage) already draws
+real Lehmann-style hachures: strokes run along the local gradient direction,
+in rows spaced perpendicular to it, with stroke frequency and darkness both
+scaled by slope steepness. It is class (b)/tunable as shipped, not a stub —
+none of the eight presets needed it promoted to a new technique, and none of
+the eight uses it (the research's own recipes did not call for it).
+
+*Renderer additions, all opt-in at `0.0`/absent.* Four new `RAMP_PRESETS`
+rows (`Blueprint`, `Ink wash`, `Night`, `Vintage atlas` — land-only,
+pre-lighting tints, the same mechanism `Atlas`/`Imhof` already used at
+`ramp_strength: 0.0`); one new mechanism, `TerrainAppearance::
+sea_ramp_strength` (default `0.0` in both `default()` and `js_reference()`)
+blending `SEA_RAMP_NAUTICAL`'s depth-banded stops into `sea_color_core` for
+"Nautical". `cargo test --workspace --no-fail-fast`: 3998 passed / 0 failed
+before this work's own new test file, 4004 passed / 0 failed after (the six
+new tests in `crates/cartalith-godot/tests/ruling_bi_style_presets.rs`) —
+no existing count moved, so no `js_reference()`/golden output moved either,
+asserted directly by `sea_ramp_strength_is_zero_in_default_and_js_reference`
+and `sea_ramp_strength_at_zero_moves_nothing`. Two mutations were run against
+the new tests (Python exact-replace, run alone, restore, `git diff --stat`
+confirmed only the intended 100 lines survived): gating `sea_ramp_strength`'s
+`if` to `false` was caught by `sea_ramp_strength_above_zero_moves_the_sea`;
+collapsing `Night`'s four ramp stops to one colour was caught by
+`ruling_bi_ramp_presets_are_registered`'s own stop-distinctness assertion
+(the render-diff test alone did not catch it — recorded in the test file's
+own comment).
+
+*Probe:* `godot-project/_stylepresets_probe.gd`/`.tscn` (windowed), on the
+same generated world `_presetgal_probe.gd` uses. Applies each of the 15
+tiles through its own `button`'s `pressed` signal (the real click path),
+reads the live look/NPR/appearance/ramp back from the bridge and asserts
+each against the preset's own definition, screenshots the viewport, asserts
+each preset's frame differs from the previous one by more than 1% of RGB
+bytes (actual range measured: 10.4%-23.6%), and builds one contact sheet of
+all 15. Two full runs, 0 failures each (the first run's contact sheet had a
+harmless `Image.blit_rect` format-mismatch bug, fixed before the pixels were
+judged).
+
+*Visual read, judged against the intended style, this machine, this world
+(seed 483920):* Atlas and Vintage atlas both read convincingly as their
+target (bright reference-atlas and warm mid-century wall-map respectively).
+Woodcut and Night are the strongest of the eight — visible cross-hatch
+texture on the former, a genuinely legible dark-mode map on the latter.
+Blueprint's first build was wrong: `biome_sat: -1.0` was applied by
+`land_color` **after** the ramp mix (`ramp_strength`'s blend runs, then
+`biome_sat`'s desaturation runs over the already-blue result), so the land
+rendered grey rather than Prussian blue — found from the probe's own
+screenshot, fixed by dropping `biome_sat` from the preset (the ramp's opaque
+stops already replace the material colour at `ramp_strength: 1.0`, so it was
+never needed), re-verified visually. Imhof relief is real but subtle next to
+Atlas at this preset's `ramp_strength: 0.5` — the warm/cool read is present,
+not dramatic. Ink wash reads as intended for land (warm ink-grey) but lakes
+stay their own blue, since the land ramp does not touch water — an accepted
+limitation, not a bug. Nautical's depth-banded sea ramp is verified correct
+by the Rust tests and by the live appearance readback (`sea_ramp_strength:
+0.7` applied), but this probe's crop shows inland lakes rather than open
+ocean, so the characteristic multi-band offshore read is not clearly visible
+in the saved screenshot — worth a second pass with an ocean-framed crop
+before calling the visual side fully checked.
+
+*Deferred, per Ruling BI's own instruction:* the four new drawing
+techniques (Tanaka illuminated contours, Raisz physiographic pictograms,
+mappa-mundi figurative icons, Ordnance Survey symbology) are scheduled, not
+built — each needs its own scoping pass first. Vintage atlas's ramp
+substitutes for re-pitching the four base material ramps (`grass_temp` etc.
+via a new look), which would have been a larger addition than this ruling's
+"small renderer addition" scope; the ramp mechanism reaches a materially
+similar picture more cheaply. Files: `crates/cartalith-godot/src/render.rs`,
+`crates/cartalith-godot/tests/ruling_bi_style_presets.rs`,
+`godot-project/shell/workspaces/render_workspace.gd`,
+`godot-project/_stylepresets_probe.gd`, `godot-project/_stylepresets_probe.tscn`.
+
 ### Sculpt live · `SCULPT_LIVE_SCOPE.md`
 
 Five milestones (L0-L4). The sculpt **editor** shipped as tool-plan milestone B;
