@@ -4784,12 +4784,30 @@ func vault_list_files(limit: int = 2000) -> PackedStringArray:
 	return world_gen.vault_list_files(limit)
 
 ## The templates in the connected vault (`GUI_GAP_REGISTER.md` VA-02), each
-## `{rel, label}`. A `.md` with "template" in its path -- Cartalith ships
+## `{rel, label}`. Ruling BF: the files under the folder Obsidian's Templates
+## plugin is set to (`.obsidian/templates.json`), else Templater's; only when
+## neither is set, every `.md` with "template" in its path. Cartalith ships
 ## none of its own.
 func vault_templates() -> Array:
 	if not _has("vault_templates"):
 		return []
 	return world_gen.vault_templates()
+
+## Where `vault_templates()` looked: `{ok, source, describe}` and `folder` when
+## a setting named one (absent for the fallback). `source` is `obsidian`,
+## `templater` or `fallback`.
+func vault_template_source() -> Dictionary:
+	if not _has("vault_template_source"):
+		return {"ok": false, "error": "this engine build predates Ruling BF"}
+	return world_gen.vault_template_source()
+
+## Obsidian's Insert template: `{ok, text, caret}` -- `note_text` with the
+## filled template inserted at `caret` (characters) and its properties merged
+## into the note's. Writes nothing.
+func vault_insert_template(template_rel: String, note_text: String, caret: int, title: String) -> Dictionary:
+	if not _has("vault_insert_template"):
+		return {"ok": false, "error": "this engine build has no Insert template"}
+	return world_gen.vault_insert_template(template_rel, note_text, caret, title)
 
 ## Where a new note for this entity goes -- v3's `Settlements/{name}.md`
 ## convention, generalised to every kind. A suggestion, not a rule.
@@ -4798,8 +4816,10 @@ func vault_suggested_path(kind: String, name: String) -> String:
 		return ""
 	return world_gen.vault_suggested_path(kind, name)
 
-## Creates a note from a template, substituting `name` for the template's own
-## name placeholder and nothing else. Refuses an existing path; never
+## Creates a note from a template with Obsidian's placeholders filled
+## (`{{title}}` = the new file's name, `{{date}}`/`{{time}}` = now, in the
+## vault's formats) and `name` in the template's `{{…Name}}`/`[Name]` tokens;
+## Templater's `<% %>` is left as written. Refuses an existing path; never
 ## overwrites. `{ok, path, text}` or `{ok: false, error}`.
 func vault_create_from_template(template_rel: String, rel: String, name: String) -> Dictionary:
 	if not _has("vault_create_from_template"):

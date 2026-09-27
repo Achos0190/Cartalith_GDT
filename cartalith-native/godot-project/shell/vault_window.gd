@@ -765,18 +765,30 @@ func _build_note_data(parent: Control, data: Dictionary, empty_note: String) -> 
 ## already exist and refuses a heading that does not -- deliberately". That
 ## boundary is about *editing*: the machine block is the only thing Cartalith
 ## rewrites unattended (§23). Creating a file is a different act, and this one
-## copies the author's own template verbatim, substituting nothing but the
-## entity's name -- every `[If applicable]` and `[Optional]` prompt survives
-## for the author to answer.
+## copies the author's own template with Obsidian's placeholders filled
+## (Ruling BF: `{{title}}` is the new note's name, `{{date}}`/`{{time}}` today
+## in the vault's own formats) and the entity's name in the owner's
+## `{{…Name}}`/`[Name]` tokens -- every `[If applicable]` and `[Optional]`
+## prompt, and Templater's `<% %>`, survives for the author.
 ##
 ## Templates come from the vault, not from this program. There is no registry
-## and no bundled content: a `.md` with "template" in its path is a template,
-## which is exactly how the owner's own `design/vault-templates/` names them.
+## and no bundled content: the folder is the one Obsidian's Templates plugin is
+## set to (`.obsidian/templates.json`), else Templater's; only a vault with
+## neither falls back to "a `.md` with *template* in its path", which is how
+## the owner's own `design/vault-templates/` names them. The line under the
+## heading says which applied.
 func _build_create(parent: Control, open: bool = false) -> void:
 	var templates := bridge.vault_templates()
 	if templates.is_empty():
 		return
 	var sec := DccWidgets.group(parent, "New note from a template", open)
+	var src := bridge.vault_template_source()
+	if bool(src.get("ok", false)):
+		var src_label := DccTheme.label(String(src.get("describe", "")), "text_ghost", DccTheme.FS_SMALL)
+		src_label.name = "TemplateSource"
+		src_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		src_label.custom_minimum_size.x = 160
+		sec.add_child(src_label)
 	var labels: Array = []
 	var rels: Array = []
 	for t in templates:
@@ -787,7 +799,7 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		_pick_template = String(rels[0])
 	DccWidgets.choice(sec, "Template", labels, maxi(0, rels.find(_pick_template)),
 		func(i: int): _pick_template = String(rels[i]),
-		"Every .md in this vault whose path contains \"template\". Cartalith ships none of its own -- your templates are yours.")
+		"The notes in the template folder your Obsidian settings name -- or, when none is set, every .md whose path contains \"template\". Cartalith ships none of its own -- your templates are yours.")
 
 	var suggested := bridge.vault_suggested_path(_kind, _entity_label)
 	var path_edit := LineEdit.new()
@@ -826,7 +838,7 @@ func _build_create(parent: Control, open: bool = false) -> void:
 		_pick_file = rel
 		_browse_phone_pane = "preview"
 		_rebuild())
-	create.tooltip_text = "Copies the template verbatim with %s substituted for its name placeholder, then links it to this entity. Refuses if that path already exists -- nothing is ever overwritten." % _entity_label
+	create.tooltip_text = "Copies the template as Obsidian would -- {{title}} becomes the new note's name, {{date}} and {{time}} today's -- with %s in its name placeholders, then links it to this entity. Refuses if that path already exists -- nothing is ever overwritten." % _entity_label
 
 
 # -- The browser: one layout for browsing and for an entity (Ruling BE) -----
@@ -1462,7 +1474,15 @@ func _build_editor_pane(parent: Control) -> void:
 			if String(f) != self_rel:
 				others.append(String(f))
 		return others
-	ed.setup(_browse_path, _browse_text, _browse_saved, _phone, others_source, _editor_mode)
+	## Insert template (Ruling BF): the vault's templates, and an inserter whose
+	## `{{title}}` is this note's own name, as Obsidian's is. It writes
+	## nothing; the result waits in the editor for Save's hash-guarded write.
+	var note_title := self_rel.get_file().get_basename()
+	var templates_source := func() -> Array: return bridge.vault_templates()
+	var inserter := func(rel: String, text: String, caret: int) -> Dictionary:
+		return bridge.vault_insert_template(rel, text, caret, note_title)
+	ed.setup(_browse_path, _browse_text, _browse_saved, _phone, others_source, _editor_mode,
+		templates_source, inserter)
 	_editor = ed
 	_browse_edit = ed.text_edit
 	ed.edited.connect(func(): _browse_text = ed.text_edit.text)

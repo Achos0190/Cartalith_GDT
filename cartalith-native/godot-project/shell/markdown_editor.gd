@@ -24,6 +24,22 @@ extends VBoxContainer
 ##   picker is Normal / H1 / H2 / H3 -- it rewrites the caret line's `#`
 ##   prefix and nothing else.
 ##
+## ## Obsidian's syntax, exactly (owner Ruling BF, 2026-09-27)
+##
+## Every mark the toolbar writes is Obsidian's own, so a note edited here reads
+## identically there: `**bold**`, `*italic*`, `~~strike~~`, `==highlight==`,
+## `[[note]]` / `[[note|shown text]]`, `#tag`, `- [ ] ` tasks and
+## `> [!note]` callouts. Underline stays `<u>…</u>` because Obsidian has none of
+## its own. Preview reads the same set plus `[[note#heading]]` (shown as
+## "note > heading", as Obsidian's reading view shows it) and `![[embed]]`,
+## which is drawn as a labelled placeholder ("embedded: name"), **not** the
+## embedded note or image -- disclosed, not hidden. A callout is drawn in one
+## colour whatever its type; Obsidian varies colour and icon by type.
+## **Ctrl+E** flips Write / Preview, as Obsidian's reading-view toggle does.
+## **Insert template** puts one of the vault's templates at the caret, filled
+## and with its properties merged (`cartalith_vault::template::insert`, reached
+## through the `template_inserter` the host passes to `setup`).
+##
 ## Every transform is a `static func` over a plain `String` and two character
 ## offsets, returning `{"text", "from", "to"}`. That is what lets
 ## `_mdedit_probe.gd` pin each one with exact strings and no UI at all, and it
@@ -55,8 +71,9 @@ var save_button: Button
 var cancel_button: Button
 
 ## Every toolbar control, by key -- `bold`, `italic`, `underline`, `strike`,
-## `h0`..`h3`, `bullet`, `number`, `quote`, `code`, `code_block`, `link`,
-## `write`, `preview`. A probe presses the real button through this map.
+## `highlight`, `h0`..`h3`, `bullet`, `number`, `task`, `quote`, `callout`,
+## `code`, `code_block`, `link`, `tag`, `template`, `write`, `preview`. A probe
+## presses the real button through this map.
 var buttons := {}
 
 var _files_source: Callable
@@ -66,15 +83,25 @@ var _saved_text := ""
 var _link_popup: PopupMenu
 var _link_files: PackedStringArray = PackedStringArray()
 var _reload_button: Button
+var _templates_source: Callable
+var _template_inserter: Callable
+var _template_popup: PopupMenu
+var _template_rels: PackedStringArray = PackedStringArray()
 
 
 ## `initial` is the working text; `saved` is what the file held when it was
 ## last read or written (the dirty check compares against it). `files_source`
 ## returns the vault's `.md` paths for the note-link picker.
+## `templates_source` returns the vault's templates (`[{rel, label}]`) and
+## `template_inserter(rel, text, caret)` returns `{ok, text, caret}` or
+## `{ok: false, error}`; without both, Insert template says so when pressed.
 func setup(file_label: String, initial: String, saved: String, phone: bool,
-		files_source: Callable, mode: String = "write") -> void:
+		files_source: Callable, mode: String = "write",
+		templates_source: Callable = Callable(), template_inserter: Callable = Callable()) -> void:
 	_phone = phone
 	_files_source = files_source
+	_templates_source = templates_source
+	_template_inserter = template_inserter
 	_saved_text = saved
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -126,10 +153,16 @@ func mode() -> String:
 func set_mode(m: String) -> void:
 	_mode = "preview" if m == "preview" else "write"
 	var writing := _mode == "write"
+	## Ctrl+E is read from whichever of the two has focus, so the one on screen
+	## must take it -- but only when the editor already had focus (asked before
+	## hiding, which drops it); a rebuild must not steal focus from the window.
+	var had_focus := text_edit.has_focus() or preview.has_focus()
 	text_edit.visible = writing
 	preview.visible = not writing
 	if not writing:
 		preview.text = to_bbcode(text_edit.text)
+	if had_focus:
+		(text_edit if writing else preview).grab_focus.call_deferred()
 	for k in ["write", "preview"]:
 		if buttons.has(k):
 			DccWidgets.set_segment_on(buttons[k], k == _mode)
@@ -206,6 +239,7 @@ func _build_toolbar() -> void:
 	_tool(bar, "underline", "U", "Underline (Ctrl+U) -- Markdown has none, so this writes <u>…</u>, which Obsidian renders.",
 		func(): apply_inline("<u>", "</u>"))
 	_tool(bar, "strike", "S", "Strikethrough -- ~~…~~", func(): apply_inline("~~", "~~"))
+	_tool(bar, "highlight", "==H==", "Highlight -- ==…==, Obsidian's highlight.", func(): apply_inline("==", "=="))
 	_sep(bar)
 	## The "text size" picker. Markdown stores no font size, so size is the
 	## heading level of the caret's line.
@@ -216,11 +250,16 @@ func _build_toolbar() -> void:
 	_sep(bar)
 	_tool(bar, "bullet", "• List", "Bulleted list -- every selected line.", func(): apply_lines("bullet"))
 	_tool(bar, "number", "1. List", "Numbered list -- every selected line.", func(): apply_lines("number"))
+	_tool(bar, "task", "☐ Task", "Task -- writes - [ ] on every selected line, Obsidian's checkbox.", func(): apply_lines("task"))
 	_tool(bar, "quote", "Quote", "Quote -- every selected line.", func(): apply_lines("quote"))
+	_tool(bar, "callout", "[!note]", "Callout -- Obsidian's > [!note] block, around the selected lines.", func(): apply_callout())
 	_sep(bar)
 	_tool(bar, "code", "`code`", "Inline code -- `…`", func(): apply_inline("`", "`"))
 	_tool(bar, "code_block", "```", "Code block -- fences the selected lines.", func(): apply_code_block())
 	_tool(bar, "link", "[[ ]]", "Link to another note in this vault -- pick one from the list.", func(): _open_link_picker())
+	_tool(bar, "tag", "#", "Tag -- #tag. Obsidian's tags hold no spaces, so a selected phrase is hyphenated.", func(): apply_tag())
+	_sep(bar)
+	_tool(bar, "template", "Insert template", "Insert one of this vault's templates at the caret, as Obsidian's Insert template does: {{title}}, {{date}} and {{time}} filled, its properties merged into this note's.", func(): _open_template_picker())
 
 	_link_popup = PopupMenu.new()
 	_link_popup.name = "EditorLinkPicker"
@@ -229,6 +268,14 @@ func _build_toolbar() -> void:
 		if id >= 0 and id < _link_files.size():
 			insert_note_link(_link_files[id]))
 	add_child(_link_popup)
+
+	_template_popup = PopupMenu.new()
+	_template_popup.name = "EditorTemplatePicker"
+	DccWidgets.style_popup(_template_popup)
+	_template_popup.id_pressed.connect(func(id: int):
+		if id >= 0 and id < _template_rels.size():
+			insert_template(_template_rels[id]))
+	add_child(_template_popup)
 
 
 func _tool(bar: Control, key: String, label_text: String, tip: String, cb: Callable) -> Button:
@@ -285,6 +332,8 @@ func _build_body(initial: String) -> void:
 	var pv := DccTheme.field_box("read_only", 14, 10)
 	preview.add_theme_stylebox_override("normal", pv)
 	preview.visible = false
+	preview.focus_mode = Control.FOCUS_ALL
+	preview.gui_input.connect(_on_preview_input)
 	add_child(preview)
 
 
@@ -385,6 +434,54 @@ func insert_note_link(rel: String) -> void:
 	_commit(note_link(text_edit.text, s.x, s.y, rel))
 
 
+func apply_callout() -> void:
+	var s := selection_offsets()
+	_commit(callout(text_edit.text, s.x, s.y))
+
+
+func apply_tag() -> void:
+	var s := selection_offsets()
+	_commit(tag(text_edit.text, s.x, s.y))
+
+
+## Inserts the template at `rel` at the caret through the host's inserter --
+## the engine fills it and merges its properties; this file only places the
+## result, as one undoable edit. A selection is replaced, as typing over it
+## would be.
+func insert_template(rel: String) -> void:
+	if not _template_inserter.is_valid():
+		set_status("Insert template is not available here.", false)
+		return
+	var s := selection_offsets()
+	var base := text_edit.text.substr(0, s.x) + text_edit.text.substr(s.y)
+	var r: Dictionary = _template_inserter.call(rel, base, s.x)
+	if not bool(r.get("ok", false)):
+		set_status("Insert template: %s" % String(r.get("error", "refused")), false)
+		return
+	var c := int(r.get("caret", s.x))
+	_commit({"text": String(r.get("text", base)), "from": c, "to": c})
+	set_status("Inserted %s -- not saved yet." % rel.get_file(), false)
+
+
+## The picker's rows, `[{rel, label}]` exactly as offered.
+func template_choices() -> Array:
+	return _templates_source.call() if _templates_source.is_valid() else []
+
+
+func _open_template_picker() -> void:
+	var ts := template_choices()
+	_template_popup.clear()
+	_template_rels = PackedStringArray()
+	if ts.is_empty():
+		_template_popup.add_item("No templates in this vault")
+		_template_popup.set_item_disabled(0, true)
+	for i in ts.size():
+		var d: Dictionary = ts[i]
+		_template_rels.append(String(d.get("rel", "")))
+		_template_popup.add_item(String(d.get("label", d.get("rel", "?"))), i)
+	DccWidgets.popup_anchored(_template_popup, anchor_rect(buttons["template"]), 320)
+
+
 func _open_link_picker() -> void:
 	_link_files = _files_source.call() if _files_source.is_valid() else PackedStringArray()
 	_link_popup.clear()
@@ -393,9 +490,32 @@ func _open_link_picker() -> void:
 		_link_popup.set_item_disabled(0, true)
 	for i in _link_files.size():
 		_link_popup.add_item(String(_link_files[i]), i)
-	var b: Button = buttons["link"]
-	var r := b.get_global_rect()
-	DccWidgets.popup_anchored(_link_popup, r, 320)
+	DccWidgets.popup_anchored(_link_popup, anchor_rect(buttons["link"]), 320)
+
+
+## `c`'s rect in the space its popups open in. A popup under an embedded
+## window (the vault window is one) is embedded one level up, beside that
+## window, so the window's own position has to be added -- a bare
+## `get_global_rect()` is window-local and put both pickers up and to the left
+## of their buttons by exactly the window's offset (seen in `_vaultbf_probe`'s
+## screenshot, 2026-09-27).
+static func anchor_rect(c: Control) -> Rect2:
+	var r := c.get_global_rect()
+	var w := c.get_window()
+	if w != null and w.is_embedded():
+		r.position += Vector2(w.position)
+	return r
+
+
+## Ctrl+E from the rendered view goes back to the source (Obsidian's
+## reading-view toggle is the same key both ways).
+func _on_preview_input(ev: InputEvent) -> void:
+	var k := ev as InputEventKey
+	if k == null or not k.pressed or k.echo:
+		return
+	if (k.ctrl_pressed or k.meta_pressed) and not k.alt_pressed and not k.shift_pressed and k.keycode == KEY_E:
+		set_mode("write")
+		preview.accept_event()
 
 
 func _on_source_input(ev: InputEvent) -> void:
@@ -405,6 +525,8 @@ func _on_source_input(ev: InputEvent) -> void:
 	if not (k.ctrl_pressed or k.meta_pressed) or k.alt_pressed or k.shift_pressed:
 		return
 	match k.keycode:
+		KEY_E:
+			set_mode("preview")
 		KEY_B:
 			apply_inline("**", "**")
 		KEY_I:
@@ -561,6 +683,9 @@ static func set_heading(text: String, from: int, to: int, level: int) -> Diction
 const _BULLET_RE := "^(\\s*)[-*+] "
 const _NUMBER_RE := "^(\\s*)\\d+[.)] "
 const _QUOTE_RE := "^> ?"
+## Obsidian's task: a list marker, then a one-character box -- `[ ]` open, any
+## other character (`[x]`, `[/]`, …) a status.
+const _TASK_RE := "^(\\s*)[-*+] \\[.\\] "
 
 
 ## Toggles a list or quote prefix on every line `[from, to]` touches. Blank
@@ -583,7 +708,8 @@ static func prefix_lines(text: String, from: int, to: int, kind: String) -> Dict
 	var bullet := RegEx.create_from_string(_BULLET_RE)
 	var number := RegEx.create_from_string(_NUMBER_RE)
 	var quote := RegEx.create_from_string(_QUOTE_RE)
-	var mine: RegEx = {"bullet": bullet, "number": number, "quote": quote}[kind]
+	var task := RegEx.create_from_string(_TASK_RE)
+	var mine: RegEx = {"bullet": bullet, "number": number, "quote": quote, "task": task}[kind]
 	var all_have := true
 	var any := false
 	for l in lines:
@@ -594,7 +720,7 @@ static func prefix_lines(text: String, from: int, to: int, kind: String) -> Dict
 			all_have = false
 	## The caret on an empty line: start the list (or quote) there.
 	if not any:
-		var p: String = {"bullet": "- ", "number": "1. ", "quote": "> "}[kind]
+		var p: String = {"bullet": "- ", "number": "1. ", "quote": "> ", "task": "- [ ] "}[kind]
 		var t1 := text.substr(0, ls) + p + block + text.substr(le)
 		return {"text": t1, "from": ls + p.length() + block.length(), "to": ls + p.length() + block.length()}
 	var out := PackedStringArray()
@@ -616,7 +742,7 @@ static func prefix_lines(text: String, from: int, to: int, kind: String) -> Dict
 		## Swap list styles rather than stacking them.
 		var indent := ""
 		var rest := s
-		for rx in [bullet, number]:
+		for rx in [task, bullet, number]:
 			var m2: RegExMatch = (rx as RegEx).search(s)
 			if m2 != null:
 				indent = m2.get_string(1)
@@ -628,7 +754,8 @@ static func prefix_lines(text: String, from: int, to: int, kind: String) -> Dict
 				k += 1
 			indent = s.substr(0, k)
 			rest = s.substr(k)
-		out.append(indent + ("- " if kind == "bullet" else "%d. " % n) + rest)
+		var marker: String = {"bullet": "- ", "task": "- [ ] "}.get(kind, "%d. " % n)
+		out.append(indent + marker + rest)
 	var new_block := "\n".join(out)
 	var t := text.substr(0, ls) + new_block + text.substr(le)
 	return {"text": t, "from": ls, "to": ls + new_block.length()}
@@ -682,6 +809,80 @@ static func note_link(text: String, from: int, to: int, rel: String) -> Dictiona
 	return {"text": t, "from": from + link.length(), "to": from + link.length()}
 
 
+## A callout's header line: `> [!type]`, the space after `>` optional.
+const _CALLOUT_RE := "^> ?\\[!([^\\]]+)\\]([+-]?)\\s*(.*)$"
+
+
+## Obsidian's callout. On an empty line it writes `> [!note] ` with the caret
+## after it, for a title. Over lines it writes a `> [!note]` header line and
+## quotes every line below it. With the caret anywhere in an existing callout
+## (a `> [!…]` header joined to the caret line by `>` lines) it removes the
+## header and the quoting -- the same toggle every other button makes.
+static func callout(text: String, from: int, to: int) -> Dictionary:
+	if from > to:
+		var t0 := from
+		from = to
+		to = t0
+	var head_re := RegEx.create_from_string(_CALLOUT_RE)
+	var ls := _line_start(text, from)
+	var top := ls
+	var head := -1
+	while true:
+		var line := text.substr(top, _line_end(text, top) - top)
+		if not line.begins_with(">"):
+			break
+		if head_re.search(line) != null:
+			head = top
+			break
+		if top == 0:
+			break
+		top = _line_start(text, top - 1)
+	if head >= 0:
+		var end := _line_end(text, head)
+		while end < text.length():
+			var nxt := end + 1
+			var ne := _line_end(text, nxt)
+			if not text.substr(nxt, ne - nxt).begins_with(">"):
+				break
+			end = ne
+		var rows := text.substr(head, end - head).split("\n")
+		var body := PackedStringArray()
+		for i in range(1, rows.size()):
+			var r := String(rows[i]).substr(1)
+			if r.begins_with(" "):
+				r = r.substr(1)
+			body.append(r)
+		var inner := "\n".join(body)
+		return {"text": text.substr(0, head) + inner + text.substr(end), "from": head, "to": head + inner.length()}
+	var end_pos := to
+	if to > from and text[to - 1] == "\n":
+		end_pos = to - 1
+	var le := _line_end(text, end_pos)
+	var block := text.substr(ls, le - ls)
+	if block.strip_edges() == "":
+		var h := "> [!note] "
+		return {"text": text.substr(0, ls) + h + text.substr(le), "from": ls + h.length(), "to": ls + h.length()}
+	var out := PackedStringArray(["> [!note]"])
+	for l in block.split("\n"):
+		out.append("> " + String(l))
+	var nb := "\n".join(out)
+	return {"text": text.substr(0, ls) + nb + text.substr(le), "from": ls, "to": ls + nb.length()}
+
+
+## `#tag` at the caret, or over a selection. Obsidian's tags hold no spaces
+## (its help suggests camelCase, snake_case or kebab-case), so whitespace in a
+## selected phrase becomes `-`. The selection stays on the tag's text.
+static func tag(text: String, from: int, to: int) -> Dictionary:
+	if from > to:
+		var t0 := from
+		from = to
+		to = t0
+	var sel := text.substr(from, to - from).strip_edges()
+	var tag_name := RegEx.create_from_string("\\s+").sub(sel, "-", true)
+	var t := text.substr(0, from) + "#" + tag_name + text.substr(to)
+	return {"text": t, "from": from + 1, "to": from + 1 + tag_name.length()}
+
+
 # -- Rendering (Markdown -> BBCode) -------------------------------------------
 
 ## Drops a leading YAML frontmatter block -- the vault window shows it as
@@ -701,18 +902,24 @@ static func _esc(s: String) -> String:
 
 
 ## A small Markdown subset rendered as `RichTextLabel` BBCode: ATX headings,
-## bold, italic, bold-italic, `<u>` underline, `~~` strikethrough, inline code,
-## fenced code, bulleted and numbered lists, quotes, rules, `[[wikilinks]]`
-## and `[text](url)` links. It is a reading view, not a CommonMark renderer;
-## anything it does not recognise is shown as the text it is.
-static func to_bbcode(md: String) -> String:
-	var accent := DccTheme.c("accent").to_html(false)
-	var dim := DccTheme.c("text_dim").to_html(false)
+## bold, italic, bold-italic, `<u>` underline, `~~` strikethrough,
+## `==highlight==`, inline code, fenced code, bulleted and numbered lists,
+## `- [ ]`/`- [x]` tasks, quotes, `> [!type] title` callouts, rules,
+## `[[wikilinks]]` (with `|alias` and `#heading`), `![[embeds]]` as a labelled
+## placeholder, `#tags` and `[text](url)` links. It is a reading view, not a
+## CommonMark renderer; anything it does not recognise is shown as the text it
+## is. `accent_hex`/`dim_hex` default to the theme's; a probe passes literals.
+static func to_bbcode(md: String, accent_hex: String = "", dim_hex: String = "") -> String:
+	var accent := accent_hex if accent_hex != "" else DccTheme.c("accent").to_html(false)
+	var dim := dim_hex if dim_hex != "" else DccTheme.c("text_dim").to_html(false)
 	var out := PackedStringArray()
 	var in_code := false
+	var in_callout := false
 	var code_buf := PackedStringArray()
 	var bullet := RegEx.create_from_string("^(\\s*)[-*+] (.*)$")
 	var number := RegEx.create_from_string("^(\\s*)(\\d+)[.)] (.*)$")
+	var task := RegEx.create_from_string("^(\\s*)[-*+] \\[(.)\\] (.*)$")
+	var callout_head := RegEx.create_from_string(_CALLOUT_RE)
 	md = md.replace("\r\n", "\n")
 	## A leading YAML block is data, not prose: shown dim and monospaced, as
 	## written, rather than as two rules around a paragraph.
@@ -732,6 +939,19 @@ static func to_bbcode(md: String) -> String:
 		if in_code:
 			code_buf.append(line)
 			continue
+		## A callout: the header line names its type and optional title (the
+		## `+`/`-` fold marker is dropped -- there is nothing to fold here), and
+		## the `>` lines under it are its body, drawn as prose, not as a quote.
+		var ch := callout_head.search(line)
+		if ch != null:
+			var title := ch.get_string(3).strip_edges()
+			if title == "":
+				title = ch.get_string(1).strip_edges().capitalize()
+			out.append("[indent][color=#%s][b]%s[/b][/color][/indent]" % [accent, inline_bbcode(title, accent)])
+			in_callout = true
+			continue
+		if not line.begins_with(">"):
+			in_callout = false
 		var hp := _heading_prefix(line)
 		if hp.x > 0:
 			out.append("[font_size=%d][b]%s[/b][/font_size]" % [HEADING_PX[hp.x], inline_bbcode(line.substr(hp.y), accent)])
@@ -740,7 +960,19 @@ static func to_bbcode(md: String) -> String:
 			var q := line.substr(1)
 			if q.begins_with(" "):
 				q = q.substr(1)
-			out.append("[indent][color=#%s][i]%s[/i][/color][/indent]" % [dim, inline_bbcode(q, accent)])
+			if in_callout:
+				out.append("[indent]%s[/indent]" % inline_bbcode(q, accent))
+			else:
+				out.append("[indent][color=#%s][i]%s[/i][/color][/indent]" % [dim, inline_bbcode(q, accent)])
+			continue
+		## Before the bullet test, which a task line also matches.
+		var mt := task.search(line)
+		if mt != null:
+			var tdepth := mt.get_string(1).length() / 2
+			if mt.get_string(2) == " ":
+				out.append("%s  ☐  %s" % ["    ".repeat(tdepth), inline_bbcode(mt.get_string(3), accent)])
+			else:
+				out.append("%s  ☑  [color=#%s][s]%s[/s][/color]" % ["    ".repeat(tdepth), dim, inline_bbcode(mt.get_string(3), accent)])
 			continue
 		var mb := bullet.search(line)
 		if mb != null:
@@ -781,15 +1013,35 @@ static func inline_bbcode(s: String, accent_hex: String = "") -> String:
 	return out
 
 
+## What a wikilink shows, as Obsidian's reading view shows it: the alias when
+## there is one; else `note > heading` for `[[note#heading]]` (the heading
+## alone for a same-note `[[#heading]]`); else the note's name.
+static func _wiki_shown(target: String, alias: String) -> String:
+	if alias != "":
+		return alias
+	var hash := target.find("#")
+	if hash < 0:
+		return target
+	var note := target.substr(0, hash)
+	var sub := target.substr(hash + 1).replace("#", " > ")
+	return sub if note == "" else "%s > %s" % [note, sub]
+
+
 static func _inline_text(s: String, accent_hex: String) -> String:
 	var links: Array = []
+	var embed := RegEx.create_from_string("!\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]")
 	var wiki := RegEx.create_from_string("\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]")
 	var md_link := RegEx.create_from_string("\\[([^\\]]+)\\]\\(([^)\\s]+)\\)")
-	for m in wiki.search_all(s):
-		var shown := m.get_string(2) if m.get_string(2) != "" else m.get_string(1)
-		links.append("[color=#%s][url=%s]%s[/url][/color]" % [accent_hex, _esc(m.get_string(1)), _esc(shown)])
 	var k := 0
+	## `![[embed]]` first -- `[[…]]` inside it would otherwise read as a link.
+	## Drawn as a labelled placeholder, not the embedded note or image.
+	for m in embed.search_all(s):
+		links.append("[color=#%s][i]embedded: %s[/i][/color]" % [accent_hex, _esc(m.get_string(1))])
+		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
+		k += 1
 	for m in wiki.search_all(s):
+		var shown := _wiki_shown(m.get_string(1), m.get_string(2))
+		links.append("[color=#%s][url=%s]%s[/url][/color]" % [accent_hex, _esc(m.get_string(1)), _esc(shown)])
 		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
 		k += 1
 	for m in md_link.search_all(s):
@@ -797,7 +1049,13 @@ static func _inline_text(s: String, accent_hex: String) -> String:
 		s = s.replace(m.get_string(0), "\u0001%d\u0001" % k)
 		k += 1
 	s = _esc(s)
+	## `#tag`: Obsidian's rule -- letters, digits, `_`, `-`, `/`, at least one
+	## of them not a digit, and not glued to a word before it (`x#y` is text).
+	## Before the emphasis pass, whose BBCode would otherwise carry a `#`.
+	s = RegEx.create_from_string("(?<![\\w#&/])#([\\p{L}\\p{N}_/-]*[\\p{L}_/-][\\p{L}\\p{N}_/-]*)") \
+		.sub(s, "[color=#%s]#$1[/color]" % accent_hex, true)
 	for pair in [
+			["==(?=\\S)(.+?)(?<=\\S)==", "[bgcolor=#%s59]$1[/bgcolor]" % accent_hex],
 			["\\*\\*\\*(.+?)\\*\\*\\*", "[b][i]$1[/i][/b]"],
 			["\\*\\*(.+?)\\*\\*", "[b]$1[/b]"],
 			["__(.+?)__", "[b]$1[/b]"],

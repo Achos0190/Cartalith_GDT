@@ -5370,6 +5370,16 @@ corpus has two byte-identical `Landmark template.md` files.
 instructions to the author. Path convention is v3's `Settlements/{name}.md`,
 generalised per kind and editable in the field.
 
+> **Superseded in part, 2026-09-27 (owner Ruling BF, `LARGE_ITEM_RULINGS.md`).**
+> The two paragraphs above describe VA-02 as built. Templates now come from the
+> folder Obsidian's Templates plugin is set to (`.obsidian/templates.json`), else
+> Templater's `templates_folder`; the "template in the path" rule survives only as
+> the fallback for a vault with neither. `fill_title` became `template::fill`,
+> which also fills Obsidian's `{{title}}`, `{{date}}`, `{{time}}` and
+> `{{date:FORMAT}}`/`{{time:FORMAT}}` (Moment.js tokens) — the "leave them alone"
+> choice is reversed — and still leaves Templater's `<% %>` verbatim. The
+> `cartalith-vault` `template.rs` module doc is the current account.
+
 ### Still open, sharpened
 
 Each was checked against the crates too; what changed is what is known, not the

@@ -251,6 +251,36 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-27
 
+- **Owner Ruling BF: vault templates and Markdown follow Obsidian exactly. Built
+  2026-09-27, verified by the main loop 2026-09-27 (cartalith-vault 129/0, `_mdedit` 58/0, `_vaultbf` 28/0, `_vaultbe` 50/0 re-run; preview screenshot inspected).** `cartalith-vault`
+  `template.rs`: `Config::read` takes the template folder from
+  `.obsidian/templates.json` (`folder`), else Templater's
+  `.obsidian/plugins/templater-obsidian/data.json` (`templates_folder`), else
+  the old "path contains *template*" rule (`Source::Fallback`); absent,
+  malformed or blank JSON is "not configured". `discover(files, &cfg)` offers
+  only the folder's files. `fill_title` became `template::fill`: Obsidian's
+  `{{title}}` (the note's basename), `{{date}}`/`{{time}}` (today, in the
+  vault's `dateFormat`/`timeFormat`, else `YYYY-MM-DD`/`HH:mm`) and
+  `{{date:FORMAT}}`/`{{time:FORMAT}}` through `format_moment` (Moment's
+  tokenizer order, English locale incl. `L`/`LL`/`LT`…), plus the owner's
+  `{{…Name}}`/`[Name]`; Templater `<% %>` is copied verbatim. The clock is a
+  seam (`template::DateTime`); the bridge passes Godot's local time.
+  `template::insert` is Obsidian's Insert template: body at the caret,
+  properties merged (lists unioned, scalars take the template's value, new keys
+  appended). Bridge: `vault_template_source`, `vault_insert_template`; the
+  vault window's create section says where templates came from. Editor
+  (`markdown_editor.gd`): Highlight `==…==`, Task `- [ ] `, Callout
+  `> [!note]`, Tag `#`, Insert template (picker), Ctrl+E Write/Preview;
+  Preview renders highlight, `[[note|alias]]`, `[[note#heading]]` (as "note >
+  heading"), `![[embed]]` (a labelled placeholder, not the embed), `#tags`,
+  tasks and callouts (one colour for every type). Also fixed: both editor
+  pickers opened offset by the vault window's position (`anchor_rect`).
+  Evidence: `cartalith-vault` 129 unit tests; mutation 20/20 Rust, 10/10
+  `_mdedit`, 1/1 picker anchor killed; `_mdedit` 58/0; new windowed
+  `_vaultbf_probe` 28/0 desktop, 26/0 at 1080x2340 touch; `_vaultbe` 50/0 and
+  49/0; the other `_vault*` probes pass; `cargo test --workspace` 3998 passed,
+  0 failed.
+
 - **Owner Ruling BE: one vault window, with a Markdown editor. Built; verified by the
   main loop (`_mdedit` 37/0, `_vaultbe` 50/0, `_vault` passes; screenshots inspected and
   sent to the owner).** Once a vault is bound, `vault_window.gd`'s

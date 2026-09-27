@@ -2731,12 +2731,13 @@ func _build_settlement_vault(parent: Control) -> void:
 	DccWidgets.note(sec,
 		("A settlement with no note yet can be created from one of your own "
 		+ "templates, in the vault panel: %s. Cartalith copies the template "
-		+ "verbatim with the settlement's name substituted, at "
+		+ "as Obsidian would -- {{title}}, {{date}} and {{time}} filled, the "
+		+ "settlement's name in its own name placeholders -- at "
 		+ "Settlements/{name}.md, and refuses if that path already exists -- it "
 		+ "never overwrites a note. Author-field population is separate and "
 		+ "previewed: OnlyIfEmpty by default, reporting what it skipped.")
 		% ("%d found in this vault" % n_templates if n_templates > 0
-			else "none found yet -- a template is any .md with \"template\" in its path"))
+			else "none found yet -- templates are the notes in the folder your Obsidian Templates settings name, or, with none set, any .md with \"template\" in its path"))
 
 	## `GUI_GAP_REGISTER.md` **VA-01**, built 2026-08-25. What was a "Not
 	## built" note is now a live readout: the index answers both halves, and

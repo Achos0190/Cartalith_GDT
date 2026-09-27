@@ -745,16 +745,29 @@ impl VaultSession {
         Ok(provider::content_hash(&next))
     }
 
-    /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**),
-    /// filtered out of the same bounded listing the file picker uses -- no
-    /// second walk, and still no file opened.
-    pub fn templates(&self, limit: usize) -> Result<Vec<template::Template>, Error> {
-        Ok(template::discover(&self.list(limit)?))
+    /// The bound vault's template settings (Ruling BF): the folder from
+    /// `.obsidian/templates.json`, else Templater's, else none -- and the
+    /// `{{date}}`/`{{time}}` formats. Reads at most those two small files.
+    pub fn template_config(&self) -> Result<template::Config, Error> {
+        let v = self.bound()?;
+        Ok(template::Config::read(|p| v.read(p).ok()))
     }
 
-    /// Creates `rel` from the template at `template_rel`, with `name`
-    /// substituted for the template's own name placeholders and **nothing
-    /// else touched** (`template::fill_title`).
+    /// The templates in the bound vault (`GUI_GAP_REGISTER.md` **VA-02**,
+    /// Ruling BF): the `.md` files under the configured template folder, or
+    /// -- only when no folder is configured -- every file whose path contains
+    /// "template". Filtered out of the same bounded listing the file picker
+    /// uses, so no second walk and no template file opened.
+    pub fn templates(&self, limit: usize) -> Result<Vec<template::Template>, Error> {
+        let cfg = self.template_config()?;
+        Ok(template::discover(&self.list(limit)?, &cfg))
+    }
+
+    /// Creates `rel` from the template at `template_rel`, with Obsidian's
+    /// placeholders filled (`{{title}}` is `rel`'s basename; `{{date}}` and
+    /// `{{time}}` are `now` in the vault's formats) and the owner's
+    /// `{{…Name}}`/`[Name]` tokens given `name` (`template::fill`).
+    /// Templater's `<% … %>` and every other prompt survive verbatim.
     ///
     /// Refuses rather than overwrites: an existing `rel` is
     /// [`Error::AlreadyExists`], because the one thing that makes creating a
@@ -764,14 +777,37 @@ impl VaultSession {
     /// Deliberately does **not** attach the new note. Attaching is a
     /// separate, already-previewed act with its own validation, and folding
     /// it in here would make one button do two writes.
-    pub fn create_from_template(&self, template_rel: &str, rel: &str, name: &str) -> Result<String, Error> {
+    pub fn create_from_template(&self, template_rel: &str, rel: &str, name: &str, now: template::DateTime) -> Result<String, Error> {
         let v = self.bound()?;
         if v.exists(rel) {
             return Err(Error::AlreadyExists(rel.to_string()));
         }
-        let body = template::fill_title(&v.read(template_rel)?, name);
+        let cfg = self.template_config()?;
+        let fill = template::Fill { title: template::title_of(rel), name, now, cfg: &cfg };
+        let body = template::fill(&v.read(template_rel)?, &fill);
         v.write(rel, &body)?;
         Ok(body)
+    }
+
+    /// Obsidian's **Insert template** (Ruling BF): the template at
+    /// `template_rel`, filled with `title` as `{{title}}` (and as the name
+    /// tokens), inserted into `note_text` at `caret` (characters), its
+    /// properties merged into the note's (`template::insert`). Writes
+    /// nothing -- the editor holds the result until the author saves, through
+    /// the same hash-guarded write as any other edit.
+    pub fn insert_template(
+        &self,
+        template_rel: &str,
+        note_text: &str,
+        caret: usize,
+        title: &str,
+        now: template::DateTime,
+    ) -> Result<(String, usize), Error> {
+        let v = self.bound()?;
+        let cfg = self.template_config()?;
+        let fill = template::Fill { title, name: title, now, cfg: &cfg };
+        let filled = template::fill(&v.read(template_rel)?, &fill);
+        Ok(template::insert(note_text, caret, &filled))
     }
 
     /// The heading titles in one file, for the attach dialog's section list.
@@ -1324,13 +1360,13 @@ rows
 
         let rel = template::suggested_path(EntityKind::Settlement, "Kel Var");
         assert_eq!(rel, "Settlements/Kel Var.md");
-        let body = s.create_from_template(&ts[0].rel, &rel, "Kel Var").unwrap();
+        let body = s.create_from_template(&ts[0].rel, &rel, "Kel Var", clock()).unwrap();
         assert!(body.starts_with("## Settlement Profile: Kel Var"));
         assert!(body.contains("[If applicable]"), "the author's own prompt is untouched");
         assert_eq!(s.read(&rel).unwrap(), body, "what was returned is what is on disk");
 
         // Refused, not overwritten -- and the file is byte-identical after.
-        assert!(matches!(s.create_from_template(&ts[0].rel, &rel, "Someone Else"), Err(Error::AlreadyExists(_))));
+        assert!(matches!(s.create_from_template(&ts[0].rel, &rel, "Someone Else", clock()), Err(Error::AlreadyExists(_))));
         assert_eq!(s.read(&rel).unwrap(), body);
         // The template itself is untouched too.
         assert!(s.read("Settlement Template.md").unwrap().contains("[Name]"));
@@ -1344,7 +1380,7 @@ rows
 
         // And a faction, the kind CV-22 added, goes to its own folder.
         let frel = template::suggested_path(EntityKind::Faction, "Draumr League");
-        s.create_from_template(&ts[0].rel, &frel, "Draumr League").unwrap();
+        s.create_from_template(&ts[0].rel, &frel, "Draumr League", clock()).unwrap();
         assert!(s.read(&frel).unwrap().contains("Draumr League"));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -1352,8 +1388,51 @@ rows
     #[test]
     fn creating_a_note_needs_a_bound_vault() {
         let s = VaultSession::new();
-        assert!(matches!(s.create_from_template("T.md", "Settlements/X.md", "X"), Err(Error::NotBound)));
+        assert!(matches!(s.create_from_template("T.md", "Settlements/X.md", "X", clock()), Err(Error::NotBound)));
         assert!(matches!(s.templates(10), Err(Error::NotBound)));
+        assert!(matches!(s.insert_template("T.md", "", 0, "X", clock()), Err(Error::NotBound)));
+    }
+
+    /// A fixed instant for every template test: Sunday 2010-02-14 15:25:50.
+    fn clock() -> template::DateTime {
+        template::DateTime::new(2010, 2, 14, 15, 25, 50).unwrap()
+    }
+
+    /// Ruling BF end to end on a real directory: the folder comes from a
+    /// real `.obsidian/templates.json`, a file named "template" outside it is
+    /// NOT offered, `{{title}}`/`{{date}}` fill with the vault's format, and
+    /// Templater's `<% %>` survives -- read back from disk.
+    #[test]
+    fn obsidian_settings_choose_the_folder_and_the_date_format() {
+        let root = scratch("obsidian-templates");
+        std::fs::create_dir_all(root.join(".obsidian")).unwrap();
+        std::fs::create_dir_all(root.join("Templates")).unwrap();
+        std::fs::write(root.join(".obsidian/templates.json"), r#"{"folder":"Templates","dateFormat":"DD MMMM YYYY"}"#).unwrap();
+        std::fs::write(root.join("Templates/Place.md"), "---\ntags: [place]\n---\n# {{title}}\nMade {{date}} {{time}} for {{Place_Name}}. <% tp.file.title %>\n").unwrap();
+        std::fs::write(root.join("Old Template.md"), "not in the folder").unwrap();
+        let mut s = VaultSession::new();
+        s.connect(root.to_str().unwrap(), None).unwrap();
+
+        let cfg = s.template_config().unwrap();
+        assert_eq!(cfg.source, template::Source::Obsidian);
+        let ts = s.templates(100).unwrap();
+        let rels: Vec<&str> = ts.iter().map(|t| t.rel.as_str()).collect();
+        assert_eq!(rels, ["Templates/Place.md"]);
+
+        let body = s.create_from_template("Templates/Place.md", "Settlements/Kel-Var.md", "Kel/Var", clock()).unwrap();
+        let want = "---\ntags: [place]\n---\n# Kel-Var\nMade 14 February 2010 15:25 for Kel/Var. <% tp.file.title %>\n";
+        assert_eq!(body, want);
+        assert_eq!(std::fs::read_to_string(root.join("Settlements/Kel-Var.md")).unwrap(), want, "what is on disk");
+
+        let note = "---\ntags: [town]\n---\nIntro\n";
+        let (text, caret) = s.insert_template("Templates/Place.md", note, note.chars().count(), "Aldenmoor", clock()).unwrap();
+        assert_eq!(
+            text,
+            "---\ntags:\n  - town\n  - place\n---\nIntro\n# Aldenmoor\nMade 14 February 2010 15:25 for Aldenmoor. <% tp.file.title %>\n"
+        );
+        assert_eq!(caret, text.chars().count());
+        assert_eq!(std::fs::read_to_string(root.join("Templates/Place.md")).unwrap().lines().nth(3).unwrap(), "# {{title}}", "the template is untouched");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

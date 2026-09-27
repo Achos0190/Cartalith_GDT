@@ -55,6 +55,22 @@ pub(crate) fn err(message: impl std::fmt::Display) -> VarDictionary {
     vdict! { "ok" => false, "error" => message.to_string() }
 }
 
+/// The clock seam's live side (Ruling BF): the system's **local** date and
+/// time, as Obsidian's `{{date}}`/`{{time}}` use it. `None` only if Godot
+/// hands back something that is not a real date.
+fn local_now() -> Option<cartalith_vault::template::DateTime> {
+    let d = godot::classes::Time::singleton().get_datetime_dict_from_system();
+    let g = |k: &str| d.get(k).and_then(|v| v.try_to::<i64>().ok());
+    cartalith_vault::template::DateTime::new(
+        g("year")? as i32,
+        g("month")? as u32,
+        g("day")? as u32,
+        g("hour")? as u32,
+        g("minute")? as u32,
+        g("second")? as u32,
+    )
+}
+
 pub(crate) fn ok() -> VarDictionary {
     vdict! { "ok" => true, "error" => "" }
 }
@@ -595,10 +611,10 @@ impl WorldGen {
     /// The templates in the bound vault, `{rel, label}` each, or an empty
     /// `Array` when no vault is connected.
     ///
-    /// A template is a `.md` file with "template" in its path — the way the
-    /// owner's own corpus names them (`design/vault-templates/`), and the
-    /// only convention that needs no registry compiled into the binary. See
-    /// `cartalith_vault::template`'s module doc for why that matters.
+    /// Ruling BF: the `.md` files under the folder Obsidian's Templates
+    /// plugin is set to (`.obsidian/templates.json`), else Templater's
+    /// `templates_folder`; only when neither is set, every `.md` with
+    /// "template" in its path. [`Self::vault_template_source`] says which.
     #[func]
     fn vault_templates(&self) -> Array<VarDictionary> {
         self.vault
@@ -618,8 +634,11 @@ impl WorldGen {
         GString::from(cartalith_vault::template::suggested_path(k, &name.to_string()).as_str())
     }
 
-    /// Creates `rel` from `template_rel`, substituting `name` for the
-    /// template's own name placeholders and touching nothing else.
+    /// Creates `rel` from `template_rel` with Obsidian's placeholders filled
+    /// -- `{{title}}` is `rel`'s basename, `{{date}}`/`{{time}}` are the
+    /// system's local date and time in the vault's formats -- and `name` in
+    /// the owner's `{{…Name}}`/`[Name]` tokens. Templater's `<% %>` and every
+    /// other prompt are left as written (`cartalith_vault::template::fill`).
     ///
     /// `{ok, path, text}` or `{ok: false, error}`. **Refuses an existing
     /// path** rather than overwriting it — the one thing that makes creating
@@ -629,8 +648,46 @@ impl WorldGen {
     /// doing two writes is how a "create" quietly becomes an "overwrite".
     #[func]
     fn vault_create_from_template(&mut self, template_rel: GString, rel: GString, name: GString) -> VarDictionary {
-        match self.vault.create_from_template(&template_rel.to_string(), &rel.to_string(), &name.to_string()) {
+        let Some(now) = local_now() else { return err("the system clock did not give a valid local date") };
+        match self.vault.create_from_template(&template_rel.to_string(), &rel.to_string(), &name.to_string(), now) {
             Ok(text) => vdict! { "ok" => true, "path" => &rel, "text" => text.as_str() },
+            Err(e) => err(e.to_string()),
+        }
+    }
+
+    /// Where [`Self::vault_templates`] found its templates: `{ok, source,
+    /// describe}` plus `folder` when a setting named one (the key is absent
+    /// for the fallback, never an empty string). `source` is `obsidian`,
+    /// `templater` or `fallback`.
+    #[func]
+    fn vault_template_source(&self) -> VarDictionary {
+        match self.vault.template_config() {
+            Ok(cfg) => {
+                let mut d = vdict! { "ok" => true, "source" => cfg.source.as_str(), "describe" => cfg.describe().as_str() };
+                if let Some(f) = cfg.folder.as_deref() {
+                    d.set("folder", f);
+                }
+                d
+            }
+            Err(e) => err(e.to_string()),
+        }
+    }
+
+    /// Obsidian's **Insert template**: `{ok, text, caret}` -- `note_text`
+    /// with the filled template inserted at `caret` (a character offset) and
+    /// its properties merged into the note's; `caret` is just after the
+    /// inserted body. Writes nothing: the editor keeps the result until Save.
+    #[func]
+    fn vault_insert_template(&self, template_rel: GString, note_text: GString, caret: i64, title: GString) -> VarDictionary {
+        let Some(now) = local_now() else { return err("the system clock did not give a valid local date") };
+        match self.vault.insert_template(
+            &template_rel.to_string(),
+            &note_text.to_string(),
+            caret.max(0) as usize,
+            &title.to_string(),
+            now,
+        ) {
+            Ok((text, c)) => vdict! { "ok" => true, "text" => text.as_str(), "caret" => c as i64 },
             Err(e) => err(e.to_string()),
         }
     }
