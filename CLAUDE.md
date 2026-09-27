@@ -199,6 +199,7 @@ got. Status for everything below is in `STATUS.md`.
 | `EROSION_GEOLOGICAL_TIME_SCOPE.md` | geological time as a forcing framework for the erosion kernels; partial by its own account, and its §7 names what is missing |
 | `GPU_LAYER_INTEGRATION_SCOPE.md` | per-layer GPU work, 9 milestones |
 | `GPU_COMPUTE_PILOT_SCOPE.md` | the original `wgpu` feasibility pilot |
+| `GPU_STREAM_POWER_SCOPE.md` | stream-power erosion on the GPU as an algorithm change, not a port (Ruling AZ): the kernel's phases read at their symbols, the finding that fill order is only a topological order, a candidate parallel algorithm per serial phase with citations, the principled-equivalence bar and how it is measured, milestones SP-G0-SP-G6 opening with a measurement go/no-go, and owner questions |
 | `CPU_MULTITHREADING_SCOPE.md` | Rayon parallelisation, 3 milestones |
 | `MEMORY_OPTIMIZATION_SCOPE.md` | the measured memory pass |
 | `LOD_TILING_BASE_SCOPE.md` | `cartalith-spatial`'s tiling/quadtree base |

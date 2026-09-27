@@ -80,6 +80,8 @@ not to believe:
 `ECONOMY_SCOPE.md` · `ASSET_LIBRARY_SCOPE.md` · `URBAN_MORPHOLOGY_SCOPE.md` ·
 `TERRAIN_APPEARANCE_SCOPE.md` · `UNIFIED_TOOL_PLAN.md` ·
 `GPU_LAYER_INTEGRATION_SCOPE.md` · `GPU_COMPUTE_PILOT_SCOPE.md` ·
+`GPU_STREAM_POWER_SCOPE.md` (stream-power erosion on the GPU as an algorithm
+change, SP-G0 to SP-G6, opening with a measurement go/no-go) ·
 `CPU_MULTITHREADING_SCOPE.md` · `MEMORY_OPTIMIZATION_SCOPE.md` ·
 `PERFORMANCE_BENCHMARKS.md` (measured CPU/per-GPU/split comparison at 2048²
 and 8192², and what actually decides how the app feels) ·
