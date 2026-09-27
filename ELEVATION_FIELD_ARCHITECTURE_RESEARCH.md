@@ -6,8 +6,11 @@ have high detail on zoom, where rivers and mountains are more detailed when
 you zoom in. Without upsampling data."* And, on scope: *"If this breaks
 compatibility with the html, that's not an issue at this moment."*
 
-This is **research and a proposed design, not a scope document** — no
-milestone here is scheduled. It follows `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md`'s
+This is **research and a proposed design, not a scope document**. It was
+written with no milestone scheduled; EF-0, EF-1, EF-3, EF-6 and Ruling N's
+two halves have since been built from it, and EF-9 was authorised by Ruling
+AZ — its build plan is §8. Status is `cartalith-native/docs/STATUS.md`'s, not
+this file's. It follows `REFERENCE_MAP_RECONSTRUCTION_RESEARCH.md`'s
 own shape: findings checked at the symbol, a numbered design, then owner
 questions.
 
@@ -60,6 +63,12 @@ structure — rather than a smoother rendering of the same coarse samples.
   function of the coarse field, a region, and `fbm`/`ridged`'s existing
   seeding), golden-tested, and **elevation-only** — zero references to flow,
   river or discharge fields anywhere in it (checked by grep, not assumed).
+- *(Corrected 2026-09-27, at the symbol: `QuadTree` and `TiledField` no
+  longer exist. Both were retired from `cartalith-spatial` in `5c99cc9`
+  (2026-09-22, "Retire QuadTree and TiledField; DirtyTracker kept (has real
+  callers)"); `cartalith_godot::lod_bridge`'s module doc keeps the reasoning.
+  `DirtyTracker` remains, called from `cartalith-engine/src/sculpt_commit.rs`.
+  The bullet below is kept as written.)*
 - **`cartalith_spatial::{QuadTree<T>, TiledField<T>, DirtyTracker}`** are
   real, generic, tested primitives — and **unwired**. `LOD_TILING_INTEGRATION_SCOPE.md`
   says so itself: *"no quadtree-driven viewport exists at all... zero [live
@@ -117,9 +126,11 @@ not invented for this document, applied to it.
 
 **Owner, 2026-09-20: "whatever happens we get a worldmap that is always
 correctly detailed and have no pixilated/square artifacts, no matter the
-zoom."** Turned into numbers, the way `LOD_DETAIL_SCOPE.md`'s own bar is:
+zoom."** Turned into numbers, the way `LOD_DETAIL_SCOPE.md`'s own bar is.
+The three bars are labelled **A1–A3** (labels added 2026-09-27 so §8 can cite
+them; the text is unchanged):
 
-- **Elevation/terrain surface: unconditional, at any zoom depth.**
+- **A1 — Elevation/terrain surface: unconditional, at any zoom depth.**
   Achievable by construction, not by luck — `fbm`/`ridged` have no inherent
   resolution floor (a noise function can always be evaluated finer, unlike a
   stored image running out of pixels), linear sampling holds at every level
@@ -128,7 +139,7 @@ zoom."** Turned into numbers, the way `LOD_DETAIL_SCOPE.md`'s own bar is:
   loading tile from popping or seaming. Test: one continuous zoom, three
   seeds, sampled at a dense sequence of depths, zero flat/blocky runs at any
   depth.
-- **Rivers: real detail, not manufactured detail, and that has a floor —
+- **A2 — Rivers: real detail, not manufactured detail, and that has a floor —
   stated honestly rather than promised away.** A river's structure comes
   from actual computed hydrology (EF-1). Past the physical scale where no
   more real drainage exists, there is no more river to reveal — and there
@@ -136,7 +147,7 @@ zoom."** Turned into numbers, the way `LOD_DETAIL_SCOPE.md`'s own bar is:
   the *ground* at that scale is still fully detailed (EF-0/EF-2 keep
   synthesizing regardless of what hydrology has left to say), it simply has
   no additional river drawn on it, which is correct, not a defect.
-- **The one real, named limit is a device budget, not a mathematical one.**
+- **A3 — The one real, named limit is a device budget, not a mathematical one.**
   Synthesis takes real time; `LOD_DETAIL_SCOPE.md` D6 (off-main-thread,
   budgeted per device) and the existing `QualityTier` system are what keep a
   slow device showing a frame-rate cost instead of a visible artifact. This
@@ -155,7 +166,9 @@ byte-identical. This is `amplify_region` generalized from "one Region-select
 export operation" into "the thing every deep-zoom tile asks for," addressed
 through the already-built, currently-unwired `QuadTree`/pyramid machinery
 (`cartalith_spatial::pyramid`'s `ChunkId{z,col,row}` addressing already
-exists and matches the reference's own `(z,col,row)` scheme).
+exists and matches the reference's own `(z,col,row)` scheme). *(2026-09-27:
+`QuadTree` was retired in `5c99cc9`; the pyramid addressing is what remains,
+and it is what EF-0 was built on — see §2's correction.)*
 
 **Built, tested, verified — `cartalith-engine/src/elevation.rs`.** The seam
 property (adjacent tiles agree bit-for-bit at a shared coarse-column edge)
@@ -433,9 +446,14 @@ The new work is a subdivision rule (a screen-space-error-style test,
 weighted by which of the above a tile's footprint contains) deciding *when*
 to call EF-0/EF-1/EF-6, not a new field to compute. Proposed, not designed in
 detail — this is the least de-risked piece here and the one most likely to
-need iteration once EF-0/EF-1 exist to measure against. **Not yet asked about
-the owner** — §7 asked about the old, now-superseded EF-7 framing; this
-specific question is still open.
+need iteration once EF-0/EF-1 exist to measure against. ~~**Not yet asked about
+the owner**~~ — *answered by Ruling AZ (`LARGE_ITEM_RULINGS.md`, 2026-09-28):
+"Research tracks to start: … importance-driven refinement (EF-9)". The build
+plan is §8.* Two claims above were re-opened at the symbol for §8 and are
+narrower than written: `slope`/`curvature`/`tpi` are functions computed on
+demand, not fields retained every generation; and settlement/road positions
+are held in `cartalith-godot`'s private `CivData`, not by `cartalith-civ` or
+`WorldState`. §8.1 has both.
 
 ## 6. What this document deliberately does not propose
 
@@ -489,12 +507,451 @@ specific question is still open.
    not GUI. The owner has since run GUI and engine batches in parallel
    (2026-09-20), which answers this in practice; stated here for the record
    rather than left implicit.
-3. **EF-9 (importance-driven refinement — a river corridor or a settlement
+3. *(Resolved by Ruling AZ, 2026-09-28: schedule it. §8 is the plan, and its
+   first milestone measures whether zoom depth alone would have been enough.)*
+   **EF-9 (importance-driven refinement — a river corridor or a settlement
    refines sooner than open plain):** design it in detail once EF-0/EF-1
    exist, or is "refine by zoom depth alone" enough? Not yet asked — this is
    the one question from the original six that the owner's EF-7 answer did
    not actually address, because it answered a different, related question
    instead (see above).
 
-**Not scheduled**, except where a Ruling says otherwise. No build rows exist
-for EF-0 through EF-9 beyond what Ruling N (§5, EF-7) explicitly authorises.
+~~**Not scheduled**, except where a Ruling says otherwise. No build rows exist
+for EF-0 through EF-9 beyond what Ruling N (§5, EF-7) explicitly authorises.~~
+*(Stale as of 2026-09-27: EF-0, EF-1, EF-3 and EF-6 were built from this
+document, and Ruling AZ authorised EF-9. What is built is `STATUS.md`'s
+answer; what is left is `OUTSTANDING_WORK.md`'s.)*
+
+## 8. EF-9 build plan
+
+Written 2026-09-27 after Ruling AZ (`LARGE_ITEM_RULINGS.md`, dated 2026-09-28:
+*"Research tracks to start: … importance-driven refinement (EF-9)"*). EF-9.0 …
+EF-9.5 below. The plan stays in this document, not a new scope file. EF-0,
+EF-1, EF-3 and EF-6 were all built from sections of this document. The
+backlog row routes here. The plan's acceptance bars are this document's own
+§4.
+
+### 8.1 What exists, re-opened at the symbol (2026-09-27)
+
+Each row was re-opened in the code for this plan. The research text in §5
+was not taken on trust, and two of its EF-9 claims turned out narrower than
+written (flagged below).
+
+**The inputs EF-9 would weigh**
+
+| Input | Symbol | Crate | Retained per world? | What "absent" looks like |
+|---|---|---|---|---|
+| slope | `analysis::slope(field, gw, gh)`: central differences, `js_hypot`, ×`gw` | `cartalith-terrain` | **No.** A function computed on demand. Its only non-test caller is `cartalith-civ/src/landmark.rs`. *§5 says "already computed"; true only in the sense that one pass computes it* | — (always computable from `field`) |
+| curvature | `analysis::curvature` (one-cell Laplacian ×`gw`); `analysis::curvature_at(…, smooth, world)` is the multi-scale form. Its own doc says the raw form "should not be thresholded directly on a noisy field" | `cartalith-terrain` | No | — |
+| TPI | `analysis::tpi(field, gw, gh, radius, world)`; also `tpi_multiscale`, `local_relief`. Height units, **not** ×`gw`, unlike slope and curvature | `cartalith-terrain` | No | — |
+| channel order | `WorldState::stream_order: Option<Vec<i16>>`, filled in `generate_terrain` from `cartalith_hydrology::strahler_from_receivers` | `cartalith-engine` / `cartalith-hydrology` | Yes | `None` (e.g. `elevation.rs`'s own test worlds). Must stay absent. It must never become order 0 |
+| plate-boundary type | `WorldState::boundary_type: Vec<u8>` | `cartalith-engine` | Yes | **Empty `Vec` on a `Loaded` save.** `cartalith-godot/src/lib.rs`'s `CivData` doc: *"a `Loaded` save lacks the substrate fields (`crust_field`, `boundary_type`, `shear_field`, `age_field`)"*. Empty means absent, not "no boundary here" |
+| volcanic field | `WorldState::volcanic_field: Arc<Vec<f32>>` | `cartalith-engine` | Yes | empty `Vec` |
+| settlements | `cartalith_civ::NamedSettlement { placement: SettlementPlacement { x: usize, y: usize, kind, capital, … }, pop, … }` | `cartalith-civ` | **Held in `cartalith-godot`'s private `CivData.settlements`**, not on `WorldState`. *§5 says "known to `cartalith-civ`"; `cartalith-civ` computes them but does not hold them* | `CivData` is `None` before the first `generate()` and on a save with no civ layer |
+| roads | `cartalith_civ::Way { pts: Vec<(f64, f64)>, way_type, hidden, … }` | `cartalith-civ` | Same: `CivData.ways` | same |
+
+`cartalith-civ` depends on `cartalith-engine` (`crates/cartalith-civ/Cargo.toml`),
+so an importance scorer in `cartalith-engine` cannot name `NamedSettlement` or
+`Way`. It takes positions and polylines as plain slices.
+
+**The primitive EF-9 would drive, and how the live display drives it today**
+
+- **EF-0:** `cartalith_engine::elevation::{world_elevation_tile,
+  world_sample_elevation, world_amplify_opts}`. Composition:
+  `cartalith_engine::bake::pyramid_tile`. Point query:
+  `cartalith_terrain::amplify::sample_elevation`. Built (`2373c08`). No
+  non-test caller of the `world_*` entry points.
+- **The live LOD tile** (`cartalith_godot::lod_bridge::synthesize_tile_rgba`)
+  calls `bake::pyramid_tile` directly. EF-0's test
+  `the_world_query_is_the_bake_composition_with_the_worlds_own_numbers`
+  asserts that this is the same composition. So EF-0's field is what the
+  viewport already draws.
+- **Level choice is one level for the whole view.** `viewport_host.gd` calls
+  `EngineBridge.lod_level_for_zoom` (which calls
+  `lod_bridge::level_for_zoom` and then
+  `cartalith_spatial::pyramid::pyramid_level_for_zoom`). It then clamps by
+  `lod_max_level()` and by LOD-D6's per-tier `max_level`.
+- **Synthesis order** is `viewport_host.gd`'s `_nearest_tiles`: the preferred
+  level first, then squared distance to the view centre, trimmed to the
+  tier's `tiles_per_update` budget.
+- **What EF-9 replaces:** the single `z` and the centre-distance order.
+- **EF-0's harness:** the unit tests in `cartalith-engine/src/elevation.rs`,
+  chiefly `a_deep_tile_is_not_a_bilinear_upsample_of_the_coarse_tile` and
+  `a_continuous_zoom_keeps_adding_structure_at_every_depth`.
+  - Their measure is the test-private `curvature_energy`, plus
+    `max |refined − upsampled|` and peak-to-peak.
+  - **They run on a 48×32 synthetic dome** (`synthetic_field`/`seeded`), not
+    on a generated world.
+  - Their seam guarantee (`adjacent_tiles_agree_bit_for_bit_on_their_shared_edge`)
+    covers **same-level neighbours only**.
+  - Their recorded octave-saturation knee is at `z_base + 6`
+    (`add_zoom_detail`'s `min(6, z − z_base)`). The sweep's doc comment
+    records it as measured there, not re-measured here.
+- **EF-1:** `cartalith_hydrology::tile::{TilePlacement, tile_flow,
+  tile_rivers, tile_channel_thresh}`. Harness:
+  `crates/cartalith-hydrology/tests/tile_hydrology.rs`. **No non-test
+  caller.** Rivers on LOD tiles still come from `render.rs`'s
+  `tile_river_seeds`. `TilePlacement` is coarse-cell-aligned. §5 EF-1 already
+  notes it cannot express a fractional pyramid footprint in general.
+- **EF-3:** `cartalith_erosion::tile::tile_erode` over
+  `stream_power_kernel_bounded`. Harness:
+  `crates/cartalith-engine/tests/ef3_tile_erosion.rs`. No non-test caller.
+- **EF-6:** `cartalith_terrain::vector::{trace_coastline, trace_fault_lines,
+  trace_ridgelines}` and `cartalith_spatial::contour_polylines`. They run at
+  world resolution only, and nothing calls them per tile.
+- **Pyramid machinery:** `cartalith_spatial::pyramid::{ChunkId,
+  pyramid_tile_bounds, tiles_in_view, chunk_parent, chunk_children,
+  baked_cover}` and `cartalith_spatial::DirtyTracker`. `QuadTree` and
+  `TiledField` were retired in `5c99cc9`.
+
+**What that means for the scope.** §5 describes EF-9 as deciding *"when to
+call EF-0/EF-1/EF-6"*. Of those three, only EF-0's field is on screen today.
+EF-1 and EF-6 have no per-tile display path to trigger. The buildable EF-9 is
+therefore **a per-tile choice of level, and of synthesis order, for the
+elevation/colour tile path**. Driving EF-1 and EF-6 per tile is Q4.
+
+**A structural fact that shapes EF-9.0.** The synthesis already weights detail
+by coarse gradient:
+
+- `relief = js_min(1.0, js_hypot(gx, gy) * 8.0)` appears in `amplify_region`,
+  `add_zoom_detail` and `sample_elevation`.
+- `add_zoom_detail` adds nothing below sea level (`b < opts.sea`).
+
+So the elevation gain from refining a tile is partly relief-weighted by
+construction. That leads to two predictions, **not measurements**:
+
+- a slope term may be redundant with the synthesis itself;
+- sea tiles may gain nearly nothing from a deeper level.
+
+EF-9.0 exists to replace both predictions with numbers.
+
+### 8.2 Bars
+
+Every milestone below is graded against §4's **A1–A3** and one bar borrowed
+from `LOD_DETAIL_SCOPE.md`. Together they give four invariants that hold for
+every milestone:
+
+- **I1 (from A1).** Importance changes **which level** a tile is drawn at and
+  **when** it is synthesized. It never changes the content of a tile at a
+  given `(z, col, row)`. Every tile drawn still passes EF-0's harness bars:
+  ratio against the upsample > 5×, `max |refined − upsampled|` > 0.003, and
+  peak-to-peak > 0.001. These are `a_continuous_zoom_keeps_adding_structure_at_every_depth`'s
+  own asserts.
+- **I2 (from A2).** Importance never moves `tile_channel_thresh`, or any
+  river threshold. It decides when, never what counts as a river.
+- **I3 (from A3).** No tile is drawn deeper than `lod_max_level()` or the
+  LOD-D6 tier's `max_level`. Synthesis per update stays within the tier's
+  `tiles_per_update`.
+- **I4 (mixed levels).** `LOD_DETAIL_SCOPE.md` D3's own bar: *"Seam ratio ≤ 1.5
+  with adjacent-level tiles on screen together"*, measured by
+  `cartalith_godot::lod_sweep::seam_ratio`. EF-9 makes mixed levels the
+  normal case rather than a transition, so this bar stops being occasional.
+
+### 8.3 Milestones
+
+#### EF-9.0 · What "refines sooner" buys — measurement only, no output change
+
+**What it is.** A re-runnable example:
+`crates/cartalith-civ/examples/ef9_refinement_gain.rs`.
+
+- It lives in `cartalith-civ` because that is the lowest crate that can build
+  settlements and ways and still reach `cartalith-engine`. The generation
+  chain copies `examples/_memlane_peak.rs`.
+- It needs EF-0's `curvature_energy`. That function moves out of
+  `elevation.rs`'s test module to a documented `pub fn` in
+  `cartalith_engine::elevation`, so the harness and the example share one
+  definition rather than two.
+
+**Worlds.** Three seeds × two grid sizes, the D0 harness's own shape, all
+generated by `generate_terrain` plus the civ chain.
+
+**Levels and tiles.** For each level `z` from the LOD entry level to
+`z_base + 6` (the recorded knee) and **every** tile, sea included, it records
+four gains:
+
+- **G_pt:** RMS and max over the tile's texels of
+  `|world_sample_elevation(z) − world_sample_elevation(z−1)|`. This is the
+  octave refinement adds, isolated.
+- **G_scr:** the tile against its parent's texels, bilinearly resampled to
+  the tile's grid. This is what the screen shows if the tile is *not*
+  refined.
+- **G_grad:** the RMS gradient difference behind G_scr. A top-down map shows
+  relief through shading, so this is the gain a viewer can actually see.
+- **G_curv:** EF-0's own curvature-energy ratio against the parent upsample.
+
+**River gain, engine-only, labelled "not drawn".** On a coarse-aligned
+`TilePlacement` covering each footprint, it records `tile_rivers` polyline
+length at refine `2^(z − z_entry)` minus the coarse polyline length clipped
+to the same box. Because the box is coarse-aligned rather than the true
+footprint, every river number carries that caveat.
+
+**Per-tile inputs** (§8.1's table, aggregated over the footprint):
+
+- mean and max slope;
+- mean `|curvature_at(smooth = 2)|`;
+- mean `|tpi|` at `landmark.rs`'s fine radius;
+- max stream order;
+- land fraction;
+- fraction of `boundary_type ≠ 0`;
+- max `volcanic_field`;
+- settlement count;
+- way length.
+
+Every absent input is recorded as absent (§8.1's last column), never as 0.
+
+**Outputs:**
+
+- Each input's Spearman ρ against each gain.
+- **Gain-capture curves.** At budgets of 10, 25 and 50 % of a level's tiles,
+  the share of total G_scr captured by:
+  - (a) today's order, `_nearest_tiles`'s centre distance, reproduced in Rust
+    from its GDScript;
+  - (b) the oracle order, sorted by measured G_scr;
+  - (c) each input on its own.
+- Median with min..max across the six worlds. Timings are **not** part of
+  EF-9.0.
+
+**Controls.** Both must behave as stated, or the harness is broken:
+
+- **Positive control:** a world with one planted ridge on a flat plain must
+  rank the ridge's tiles first under (b) and under slope in (c).
+- **Negative control:** the same tiles with `detail_amp = 0` must measure
+  G_pt = 0 exactly.
+
+**Done means:**
+
+- the example is committed and prints the tables;
+- the numbers are pasted into §8.4 with the command that produced them;
+- both controls behave as stated.
+
+**Measurement bar:**
+
+- The gains are measured in **A1's own quantities** (EF-0's ratio, max
+  deviation and peak-to-peak). "Refines sooner" is scored on the same axis
+  as "correctly detailed".
+- **Go/no-go gate:** EF-9.1 onward proceeds only if (b) captures materially
+  more than (a) at the 25 % budget. The threshold is Q3.
+- Below the threshold, EF-9 closes with the answer "zoom depth alone is
+  enough" to §7's question 3, and the measurement is the evidence.
+
+**Files:**
+
+- `crates/cartalith-civ/examples/ef9_refinement_gain.rs` (new);
+- `crates/cartalith-engine/src/elevation.rs` (`curvature_energy` becomes
+  public; the tests call it unchanged).
+
+#### EF-9.1 · Importance weights, fitted by measurement
+
+**What it is.** A new module, `cartalith-engine/src/importance.rs`, with:
+
+- `TileImportanceInputs`: every input an `Option`. An empty `Vec` from a
+  `Loaded` save maps to `None`, never to zeros.
+- `tile_features(…)`: footprint aggregates, reusing EF-9.0's definitions.
+- `importance(features, &weights) -> Importance { score, terms_used }`.
+
+**How the weights are set.** The terrain, hydrology and geology terms are
+**fitted, not picked**:
+
+- non-negative least squares of standardised features against `ln G_scr`,
+  fitted on two seeds and scored on the held-out third, then again across
+  grid size;
+- a term whose bootstrap 95 % interval over tiles includes 0 is **dropped**,
+  not kept at a small hand-picked weight;
+- the fitted literals go into `importance.rs` with a doc comment naming the
+  command, the seeds and the held-out score.
+
+The settlement and road terms **cannot** be fitted this way: they predict
+what the owner cares about, not geometric gain. They enter as a policy bias
+whose size is Q2, and the code keeps them separate from the fitted terms.
+
+**Done means:**
+
+- **Held-out capture.** At the 25 % budget, the fitted combination captures
+  at least as much held-out gain as the best single input from EF-9.0 (c).
+  Otherwise the fit is rejected and the best single input ships alone. The
+  bar comes from EF-9.0's own numbers.
+- **Weight tests.** Tests assert the weights as **literals**.
+- **Mutation-tested.** Each weight is mutated in turn, and the held-out
+  capture test must go red for every one (`MISTAKES.md`'s constant rule).
+- **Absence tests.** A world with `stream_order: None` and a `Loaded` world
+  with an empty `boundary_type` both report those terms missing from
+  `terms_used`. Neither scores a tile as though it had order 0 or no
+  boundary.
+
+**Bar:** A1, via G_scr.
+
+**Files:**
+
+- `crates/cartalith-engine/src/importance.rs` (new);
+- `crates/cartalith-engine/src/lib.rs` (module line);
+- the EF-9.0 example (fit mode).
+
+#### EF-9.2 · The subdivision rule, engine-side — no display change
+
+**What it is.** `select_tiles(view, z0, z_cap, budget, &importance) ->
+Selection { tiles: Vec<ChunkId>, order: Vec<usize> }`. Here `z0` is today's
+`level_for_zoom` and `z_cap = min(lod_max_level, tier max_level)`. The rule:
+
+- Each tile in view may be promoted to its four children at `z0 + 1` when
+  its importance clears the threshold. Promotions are taken in importance
+  order until `budget`.
+- **Restricted quadtree:** neighbours differ by at most one level.
+- **Never below `z0`** unless Q1 says otherwise.
+
+**Tests:**
+
+- **Exact cover.** The selection covers the view exactly once, with no gap and
+  no overlap. `cartalith_spatial::pyramid::baked_cover` answers it.
+- **2:1 balance.** No two neighbouring tiles differ by more than one level.
+- **Limits.** The budget and `z_cap` are respected.
+- **Determinism.** The same input always gives the same selection.
+- **Identity by control flow.** With uniform importance, or with EF-9
+  disabled, the selection and its order are *identical* to today's zoom-only
+  set and centre-distance order. This is `MISTAKES.md`'s "identity by control
+  flow beats identity by arithmetic".
+
+**Bar:** I1 (never below `z0`) and I3 (cap and budget).
+
+**Files:**
+
+- `crates/cartalith-engine/src/importance.rs`;
+- possibly `crates/cartalith-spatial/src/pyramid.rs`, if a neighbour-at-level
+  helper is missing. Grep for one before adding it.
+
+#### EF-9.3 · Mixed-level edges, engine-side
+
+**The problem.** EF-0's seam test holds only between same-level neighbours. A
+tile at `z` and its neighbour at `z + 1` run different octave counts
+(`min(6, z − z_base)`), so their shared edge is two different fields.
+
+**Measure first.** On EF-9.0's six worlds, record the maximum `|Δ|` along
+every mixed-level shared edge that EF-9.2 selects.
+
+**Then choose the fix by measurement.** The candidates:
+
+- (a) blend the finer tile's border texels toward the coarser level's field
+  (CDLOD-style), or
+- (b) rely on LOD-D3's parent fallback and morph, if (a) proves unnecessary.
+
+**Done means:** a new test beside
+`adjacent_tiles_agree_bit_for_bit_on_their_shared_edge`, over three seeds and
+both axes. It asserts that a mixed-level shared edge agrees bit for bit
+(option a) or within a bound derived from the measurement (option b).
+
+**Bar:** I4's engine-side proxy, and A1.
+
+**Files:**
+
+- `crates/cartalith-engine/src/bake.rs` or
+  `crates/cartalith-godot/src/lod_bridge.rs`, depending on where the blend
+  belongs. **Both have uncommitted changes from another lane as of
+  2026-09-27.** Re-read them at `HEAD` before scheduling.
+
+#### EF-9.4 · Wire it into the viewport, behind a setting
+
+**What it is.**
+
+- A `#[func]` on the bridge returns EF-9.2's selection and order.
+- The importance features are cached per world.
+- `viewport_host.gd` draws the returned mixed-level set instead of one `z`,
+  and uses the returned order instead of `_nearest_tiles`'s.
+- A toggle beside LOD-D6's budget values turns it on and off.
+
+**Depends on** the LOD tile sawtooth row closing. Ruling AZ: *"keep fixing
+the last configuration (1.67 against the bar)"*. Until that row closes, I4
+cannot separate EF-9's seams from the existing ones.
+
+**Done means:**
+
+- **Toggle off:** the framebuffer is bit-identical to today.
+- **Positive control:** toggle on moves pixels on a river-corridor view.
+- **D0 harness** (`_lodsweep_probe.gd`), three seeds × two grid sizes, both
+  toggle states:
+  - zero pops;
+  - zero hole pixels after the first built frame;
+  - seam ratio ≤ 1.5 with mixed levels on screen (I4);
+  - no tile deeper than the tier cap (I3);
+  - detail per screen pixel over high-importance tiles ≥ the toggle-off
+    value at the same budget. This is the payoff, measured on screen.
+- **Timings:** tile synthesis and worst frame, as median with min..max, with
+  the harness running alone.
+- **Green:** `cargo test --workspace` passes, and every `.gd` touched,
+  plus `shell/app.gd`, parse-checks.
+
+**Bar:** A1, A3 and I4.
+
+**Files:**
+
+- `crates/cartalith-godot/src/lod_bridge.rs`;
+- `crates/cartalith-godot/src/lib.rs`;
+- `godot-project/shell/viewport_host.gd`;
+- the LOD-D6 budget table;
+- `godot-project/_lodsweep_probe.gd`.
+
+#### EF-9.5 · Keep importance current after an edit
+
+**What it is.**
+
+- A sculpt commit re-derives features for the tiles its `DirtyTracker`
+  marks.
+- A civ regeneration refreshes the settlement and road terms.
+
+**Done means:**
+
+- sculpting a ridge onto a plain raises that tile's importance;
+- undo restores every feature bit for bit;
+- a world regenerated with no civ layer reports the human terms missing from
+  `terms_used`, not zero.
+
+**Bar:** I1. Importance may change a tile's level, but the tile at a given
+level stays EF-0's.
+
+**Files:**
+
+- `crates/cartalith-engine/src/importance.rs`;
+- `crates/cartalith-godot/src/lib.rs`;
+- `crates/cartalith-engine/src/sculpt_commit.rs` (read only, unless a hook is
+  missing).
+
+### 8.4 Findings
+
+Empty until EF-9.0 runs. No number enters this section that was not
+produced by the command printed beside it.
+
+### 8.5 Owner questions — each with the default the plan assumes
+
+1. **Q1. Promote only, or promote and demote?** Demoting open plain below
+   today's level frees budget for important tiles. It also draws less than
+   today on some tiles.
+   - **Default:** promote only, at most `+1` level. A1 then cannot regress
+     anywhere.
+   - Revisit only if EF-9.0 shows that budget, not level, is what binds.
+2. **Q2. Settlement and road terms.** These express what matters to the
+   owner, not measured geometric gain.
+   - **Default:** they raise synthesis *order*, so those tiles build first at
+     the level they already get. They do not promote a level on their own.
+   - They promote only if EF-9.0 shows that settlement or road tiles have
+     above-median G_scr anyway.
+3. **Q3. EF-9.0's go/no-go threshold.**
+   - **Default:** proceed if the oracle order captures **≥ 1.5×** today's
+     centre-distance order's G_scr at the 25 % budget, median across the six
+     worlds.
+   - Below that, EF-9 closes as "zoom depth alone is enough", with the
+     measurement as evidence.
+4. **Q4. Rivers and vectors per tile.** EF-1's `tile_rivers` and EF-6's
+   tracers have no per-tile display path, so EF-9 as planned drives only the
+   elevation/colour tile.
+   - **Default:** file "EF-1 on the LOD tiles" as its own row. EF-9 still
+     uses channel order as a *predictor*.
+   - The integration needs a self-consistent `field`/`flow_discharge` pair,
+     and §5 EF-1 notes that `carve_rivers = true` breaks it. That is a reason
+     to keep it out of EF-9.
+5. **Q5. Shipping default.**
+   - **Default:** off until EF-9.4 passes every bar.
+   - Then on for the desktop tiers, and off for the Android Performance tier
+     unless EF-9.4's phone timing shows no frame over one vsync per level
+     change. That is LOD-D3's own phone budget.
+6. **Q6. Where the plan lives.**
+   - **Default:** here, for the reasons in §8's opening paragraph.
+   - A separate scope file only if EF-9.4's display work grows past this
+     section.
