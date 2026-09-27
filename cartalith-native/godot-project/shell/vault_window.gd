@@ -1252,24 +1252,40 @@ func _build_browse_preview(parent: Control) -> void:
 		outline_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(outline_col)
 	DccWidgets.note(outline_col, "Outline")
+	## The mockup draws the heading list itself at `font:12px` (`ENV:99`), not
+	## the section label's `10.5px` -- `note()`'s own default (`FS_MICRO`, 9)
+	## is that caption size, right for "Outline" above but too small for the
+	## rows read as prose here. `_vaultfont_probe`-equivalent: measured live
+	## against the mockup by `_vaultlayout_probe.gd`'s font-size block.
 	if headings.is_empty():
-		DccWidgets.note(outline_col, "    (no headings)")
+		DccWidgets.note(outline_col, "    (no headings)") \
+			.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 	else:
 		for h in headings:
 			var d: Dictionary = h
 			var lvl := int(d.get("level", 1))
-			DccWidgets.note(outline_col, "    %s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))])
+			DccWidgets.note(outline_col, "    %s%s" % ["  ".repeat(maxi(0, lvl - 1)), String(d.get("title", ""))]) \
+				.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 
 	var excerpt_col := VBoxContainer.new()
 	excerpt_col.name = "VaultExcerptCol"
 	excerpt_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cols.add_child(excerpt_col)
 	DccWidgets.note(excerpt_col, "Excerpt")
+	## The mockup's excerpt body is `font:13.5px/1.7 'Inter'` (`ENV:106`) --
+	## prose, not a caption. Godot sizes are integers and this codebase's own
+	## convention (`dcc_theme.gd`'s `fs_shortcut`/`fs_timeline` comments) rounds
+	## a fractional mockup figure down to the nearest token rather than
+	## inventing a literal, so `FS_BODY` (12) is the closest existing
+	## `DccTheme` token below 13.5 -- the same one `DccWidgets.modal_prose()`
+	## already reads prose in elsewhere.
 	if bool(read.get("ok", false)):
 		var excerpt := _first_lines(_strip_frontmatter(String(read.get("text", ""))), 3)
-		DccWidgets.note(excerpt_col, "    %s" % (excerpt if excerpt != "" else "(empty note)"))
+		DccWidgets.note(excerpt_col, "    %s" % (excerpt if excerpt != "" else "(empty note)")) \
+			.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 	else:
-		DccWidgets.note(excerpt_col, "    Could not read: %s" % String(read.get("error", "")))
+		DccWidgets.note(excerpt_col, "    Could not read: %s" % String(read.get("error", ""))) \
+			.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
 
 	## Mockup order: the two buttons (Open to edit, Centre on map) directly
 	## under the excerpt, then the backlinks/mentions line beneath them — all
