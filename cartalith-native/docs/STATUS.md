@@ -457,6 +457,35 @@ re-checked against the tree rather than copied from the commit message.
     and measured; a second pass should re-open each item at its symbol before
     this line is trusted as fact.
 
+- **Phone left/right dock sheet scroll, checked with a real touch drag —
+  verified by the main loop 2026-09-27 (`_phonesheets` 0 failures re-run at 1080x2340 touch).** `OUTSTANDING_WORK.md`'s row was last
+  checked with `_sheetscroll_probe.gd`, which drives `--resolution` rather
+  than the `--vp` SubViewport convention every other phone probe uses, so it
+  never actually reached phone mode (its own output printed `phone=false`)
+  and it set `scroll_vertical` directly rather than dragging, so it never
+  exercised the touch path the "will not scroll back up" half of the row is
+  about. New `_phonesheets_probe.gd`/`.tscn` boots the real phone shell via
+  `--vp 1080x2340 --force-touch`, drags the left and right dock sheets down
+  and up through the SubViewport's own hit-test (mouse-emulated touch, the
+  `_rangeswipe_probe.gd` pattern), and reads `scroll_vertical` live off the
+  `ScrollContainer` at each step. **11/11 checks pass against HEAD, no code
+  change needed** — `dcc_shell.gd::_reset_dock_scroll` (called from
+  `_set_sheet_open`) already zeroes the offset on every reopen, and a touch
+  drag can always bring it back to 0 within an open sheet. Mutation-tested:
+  commenting out `_reset_dock_scroll`'s body reproduces the old "retains
+  offset" defect (2 checks go red); restoring it is green again.
+  Setting `PHONE_SCROLL_DEADZONE` far above its authored `10` reproduces a
+  "will not scroll back up" defect (3 checks go red, including the drag-down
+  check going false-negative); restoring `10` is green again. Screenshots at
+  `left_scrolled_before_close.png` / `left_reopened.png` (and the `right_*`
+  pair) in the session scratchpad show the sheet blank-scrolled, then back at
+  its `WORLD` header on reopen. `_ctxphone_probe` re-run for regression:
+  56/56. **The two handset route panes that still overflow**
+  (`export_maps`/`export_gis` bodies in `data_manager_window.gd`,
+  `ANDROID_UI_SPEC.md` row) were **not touched**: that file is the other
+  lane's, mid-edit for rivers, and the row's own body lives nowhere else —
+  left for that lane or a follow-up pass with the file free.
+
 ### 2026-09-25
 
 - **`MAP_CONTEXT_SCOPE.md` written, as a proposal and not a schedule.** It
