@@ -1499,15 +1499,16 @@ func _refresh_menu_squares() -> void:
 		and bridge.world_gen.has_method("redo_available")
 	var can_redo: bool = bound and bridge.redo_available()
 	_menu_redo_btn.disabled = not can_redo
+	## The disabled-state messages name the missing/false `WorldGen.redo_available()` binding.
 	if not bound:
-		_menu_redo_btn.tooltip_text = ("Redo. This GDExtension build predates the global "
-			+ "redo binding (WorldGen.redo_available is missing) -- almost always a native "
-			+ "library older than this shell. Rebuild it.")
+		_menu_redo_btn.tooltip_text = ("Redo. This build of the app is missing the redo "
+			+ "feature -- almost always because the native library is older than this shell. "
+			+ "Rebuild it.")
 	elif can_redo:
 		_menu_redo_btn.tooltip_text = "Redo %s (Ctrl+Shift+Z)" % bridge.redo_label()
 	else:
-		_menu_redo_btn.tooltip_text = ("Nothing to redo (WorldGen.redo_available() is "
-			+ "false). Edit > Undo history... shows what the ledger is holding.")
+		_menu_redo_btn.tooltip_text = ("Nothing to redo. "
+			+ "Edit > Undo history... shows what the ledger is holding.")
 	_paint_menu_square(_menu_redo_btn, can_redo)
 	## The reason each square is live or dead, carried to a screen reader as
 	## well as to a pointer. Written from the tooltips just set above rather
@@ -4899,7 +4900,8 @@ func tl_available() -> bool:
 	var bridge := _find_engine_bridge()
 	return bridge != null and bridge.has_world
 
-const TL_UNAVAILABLE := "Generate a world first. The year cursor is civilisation state, and civ_goto_year is a no-op before any generate -- moving it now would silently do nothing."
+## Names the underlying no-op: `civ_goto_year` before any generate.
+const TL_UNAVAILABLE := "Generate a world first. The year cursor is civilisation state, so moving it now would silently do nothing."
 
 ## The cursor. `0` with no engine and before any generate, which is
 ## `CivData::year`'s own init value rather than a stand-in for it.
@@ -7566,11 +7568,12 @@ func _build_phone_overflow() -> Control:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	panel.add_child(col)
+	## Both absent-reason strings name the missing `DccApp.save_project`/`close_project` methods.
 	_phone_overflow_saved = _phone_overflow_row(col, "Save project", "save_project",
-		"There is no save path on this build (DccApp.save_project is missing).")
+		"This build of the app can't save.")
 	_phone_overflow_theme = _phone_overflow_row(col, "Theme", "toggle_theme", "")
 	_phone_overflow_row(col, "Close world", "close_project",
-		"There is no close path on this build (DccApp.close_project is missing).")
+		"This build of the app can't close the world.")
 
 	overlay.add_child(panel)
 	overlay.visible = false

@@ -1443,9 +1443,13 @@ func _build_economy(parent: Control, s: Dictionary, details: Dictionary) -> void
 			keys.append(String(d.get("key", "none")))
 			labels.append(String(d.get("label", "?")))
 		var cur := String(details.get("specialisation", "none"))
+		## `CIV_SPECIALISATIONS`, the reference's own vocabulary. Stored on the
+		## settlement but NOT fed back into `civ_faction_aggregates`' sector
+		## output (`GUI_GAP_REGISTER.md` ED-03) -- doing so would change
+		## already-golden economy numbers on a user edit.
 		DccWidgets.choice(sec, "Economy", labels, maxi(0, keys.find(cur)),
 			func(i: int): _apply({"specialisation": keys[i]}),
-			"CIV_SPECIALISATIONS, the reference's own vocabulary. Stored on the settlement but NOT fed back into civ_faction_aggregates' sector output -- doing so would change already-golden economy numbers on a user edit. See GUI_GAP_REGISTER.md ED-03.")
+			"Stored on this settlement, but does not change the faction-wide economy totals shown elsewhere -- editing it here is local to this settlement only.")
 
 
 # -- Trade ------------------------------------------------------------------
@@ -1753,7 +1757,8 @@ func _build_urban(parent: Control, details: Dictionary) -> void:
 		func(i: int):
 			_apply({"age": -1 if i == 0 else clampi(inferred if inferred > 0 else 30, 30, 1000)})
 			_rebuild(),
-		"Auto infers age from population, as the reference's _umInferAge does. Set overrides it.")
+		## The reference's own `_umInferAge`.
+		"Auto infers the settlement's age from its population, the same way the reference does. Set overrides it.")
 	if age >= 0:
 		## Step 1 for the same reason Population above uses it -- see there.
 		DccWidgets.number(sec, "Age (yr)", 30.0, 1000.0, 1.0, float(age),
@@ -1923,7 +1928,9 @@ func _build_actions(parent: Control, s: Dictionary) -> void:
 		if app.has_method("open_city_viewer"):
 			app.open_city_viewer(idx))
 	cv.disabled = not app.has_method("open_city_viewer")
-	cv.tooltip_text = "The reference's peCityOpen. peCityPreview (the layout thumbnail inline in this popup) is still open -- it needs a rendered layout at icon size, not a modal."
+	## The reference's `peCityOpen`. `peCityPreview`, the layout thumbnail
+	## inline in this popup, is a separate, still-open item.
+	cv.tooltip_text = "Opens a full, interactive view of this settlement's street layout. The small thumbnail already shown in this panel is a preview only, not this full view."
 	var del := DccWidgets.action(sec, "Delete place", func(): confirm_delete(_index))
 	del.add_theme_color_override("font_color", DccTheme.c("accent"))
 	del.tooltip_text = "The reference confirms first (its own v1.24 data-loss fix); so does this."

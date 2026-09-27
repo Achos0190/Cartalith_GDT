@@ -64,7 +64,8 @@ const WS_OVERRIDDEN_KEYS: Array[String] = ["tect.plates", "tect.vel", "volc.coun
 ## own row actually draws ("Enable continental steering",
 ## `params.rs`' `world_structure.enabled` -- World structure category, above)
 ## rather than its dotted key.
-const WS_OVERRIDE_REASON := "World Structure is on (Enable continental steering, above) -- deriveFromWorldStructure() replaces this value from the archetype every Generate, so this dial has no effect until World Structure is turned off."
+## `deriveFromWorldStructure()` overwrites this value from the archetype.
+const WS_OVERRIDE_REASON := "World Structure is on (Enable continental steering, above) -- the archetype replaces this value every Generate, so this dial has no effect until World Structure is turned off."
 
 ## `editable = false` stops the drag; it does not reliably say so -- this
 ## dock's own slider skin (`DccWidgets._style_slider`) draws the filled
@@ -924,7 +925,9 @@ func _build_import(parent: Control) -> void:
 	load_btn.tooltip_text = "The reference's #loadBtn. Opens Data ▸ Import, whose Heightmaps route decodes a PNG, takes it as the elevation field and infers tectonics under it."
 	var infer := DccWidgets.action(sec, "Infer tectonics from heightmap…",
 		func(): app.open_data_manager("Import"))
-	infer.tooltip_text = "The reference's #inferTectBtn. Runs as part of the heightmap import (cartalith_engine::import::infer_tectonics) -- there is no separate #[func] to re-run it over an already-imported surface, so this opens the import that performs it."
+	## Tectonics inference runs as part of the import (`cartalith_engine::import::infer_tectonics`);
+	## there is no separate entry point to re-run it over an already-imported surface.
+	infer.tooltip_text = "The reference's #inferTectBtn. Tectonics inference happens automatically during heightmap import -- there is no way to re-run it on a surface you already imported, so this opens the import dialog again."
 	DccWidgets.note(sec,
 		"An imported heightmap replaces the generated surface, and tectonics are "
 		+ "inferred from it rather than kept -- which is why both rows above open "
@@ -977,7 +980,8 @@ func _fill_ecology(parent: Control) -> void:
 			app.viewport.set_debug_layer("npp")
 			app.set_status("hint", "Analysis field: Net primary productivity (g/m²/yr).", "text"))
 	npp.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	npp.tooltip_text = "build_npp(): 0-3000 g/m²/yr of dry matter, land only. One of the Layers popover's analysis fields -- this is a shortcut onto that one picker, not a second copy of it."
+	## Backed by `cartalith_civ::build_npp`.
+	npp.tooltip_text = "Net primary productivity: 0-3000 g/m²/yr of dry matter, land only. One of the Layers popover's analysis fields -- this is a shortcut onto that one picker, not a second copy of it."
 
 	var fauna := DccWidgets.section(parent, "Fauna")
 	var regions: Array = eco.get("regions", [])
@@ -1015,7 +1019,8 @@ func _fill_ecology(parent: Control) -> void:
 			app.viewport.set_debug_layer("wildlife")
 			app.set_status("hint", "Analysis field: Wildlife -- click a region marker for its roster.", "text"))
 	wild.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	wild.tooltip_text = "current_wildlife(): ecoregions coloured by species richness. Clicking a marker fills the right dock with that region's guilds and per-species population estimates."
+	## Backed by the engine's `current_wildlife()` call.
+	wild.tooltip_text = "Fauna: ecoregions coloured by species richness. Clicking a marker fills the right dock with that region's guilds and per-species population estimates."
 
 	var sec2 := DccWidgets.section(parent, "Not parameterised")
 	DccWidgets.note(sec2,
@@ -1597,9 +1602,10 @@ func _build_droplet_erosion(grp: Control) -> void:
 
 	var btn := DccWidgets.action(grp, "Erode (droplet)", _run_erode, true)
 	btn.disabled = not live
+	## The disabled-state message names `WorldGen.erode_op()`, the missing binding.
 	btn.tooltip_text = ("The reference's #erodeBtn. Runs over the whole map and pushes one " +
 		"undo step; 60k droplets is not instant at 2048².") if live else \
-		"This build's GDExtension has no WorldGen.erode_op()."
+		"This build of the app is missing the droplet-erosion binding -- rebuild it to enable this button."
 
 	## Writing `HSlider.value` re-emits `value_changed`, which is what updates
 	## both the readout and `_erode_op` -- so the dictionary is restored by the
@@ -1609,14 +1615,17 @@ func _build_droplet_erosion(grp: Control) -> void:
 		var d := _erode_defaults()
 		for i in rows.size():
 			(sliders[i] as HSlider).value = float(d[String((rows[i] as Array)[0])]))
+	## Both branches describe where the reset values come from: the engine's
+	## own `ErodeOpts::default()`, or (when that binding is unavailable) the
+	## shell's own transcribed copy of the legacy defaults.
 	if _erode_defaults_from_engine:
-		reset.tooltip_text = ("Back to ErodeOpts::default() -- read from the engine's own "
+		reset.tooltip_text = ("Back to the built-in defaults -- read from the engine's own "
 			+ "parameter table.")
 	else:
-		reset.tooltip_text = ("Back to ErodeOpts::default(), which is state.erosion's own "
-			+ "defaults (reference HTML line 2268). ErodeOpts is not part of the engine's "
-			+ "parameter table -- droplet erosion is an op over the finished field, not a "
-			+ "generation stage -- so these are the shell's transcribed copies.")
+		reset.tooltip_text = ("Back to the built-in defaults, which are this panel's own copy "
+			+ "of the original defaults (reference HTML line 2268), not read from the engine -- "
+			+ "droplet erosion is an operation on the finished field, not a generation stage, "
+			+ "so these are transcribed rather than looked up.")
 
 func _on_erode_param(v: float, key: String, is_int: bool) -> void:
 	_erode_op[key] = int(round(v)) if is_int else v
@@ -2941,8 +2950,10 @@ func _build_force_lake_row(parent: Control) -> void:
 	var live := bridge._has("apply_force_lake")
 	var btn := DccWidgets.action(grp, "Count painted lakes as water", _on_force_lake)
 	btn.disabled = not live
-	btn.tooltip_text = "cartalith_civ::apply_force_lake, over this world's live classification." \
-		if live else "This build's GDExtension has no WorldGen.apply_force_lake()."
+	## Backed by `cartalith_civ::apply_force_lake`; the disabled message names
+	## the missing `WorldGen.apply_force_lake()` binding.
+	btn.tooltip_text = "Reclassifies painted lake cells over this world's live water-body classification." \
+		if live else "This build of the app is missing the painted-lake binding -- rebuild it to enable this button."
 
 func _on_force_lake() -> void:
 	if not bridge.has_world or not bridge._has("apply_force_lake"):
@@ -3523,14 +3534,16 @@ func _build_paint(parent: Control) -> void:
 	## that as its own defect on top of the falloff being unwired -- resolved
 	## by deleting that copy rather than this one, since this dock owns the
 	## actual `_paint_brush` state and is where Softness already lived too.
+	## Cites `paint_bridge.rs`'s own module doc and `DECISIONS.md` §7k.
 	DccWidgets.slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
-		"At 1.0, with Softness at 0.0, every cell inside Radius paints solid -- the historical hard disc, unchanged. Lower it to open a mottled, probabilistic edge band instead of a sharp circle; no palette index is ever blended (paint_bridge.rs's own module doc, DECISIONS.md §7k).")
+		"At 1.0, with Softness at 0.0, every cell inside Radius paints solid -- the historical hard disc, unchanged. Lower it to open a mottled, probabilistic edge band instead of a sharp circle; no palette index is ever blended.")
 	DccWidgets.slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed,
 		"The same edge band as Hardness, from the other side: raising this alone still feathers the rim even with Hardness held at 1.0 -- the two add together, clamped to how wide the band can get.")
 	DccWidgets.toggle(sec, "Erase", bool(_paint_brush["erase"]), _on_paint_erase_changed,
 		"Every dab writes 0 (unpainted) regardless of Value. Holding Shift while painting does the same without changing this switch.")
+	## Cites `paint_bridge.rs`'s own module doc.
 	DccWidgets.toggle(sec, "Land only", bool(_paint_brush["land_only"]), _on_paint_land_only_changed,
-		"Gates the dab against this world's water-body classification -- a toggle here, unlike the reference's hard-always gate (paint_bridge.rs's own module doc).")
+		"Gates the dab against this world's water-body classification -- a toggle here, unlike the reference's hard-always gate.")
 
 	var counts: Dictionary = bridge.paint_painted_counts()
 	var total := int(counts.get("total", 0))
@@ -3837,14 +3850,22 @@ func _refresh_tool_bar() -> void:
 ## are vector strokes only (`viewport_host.gd`'s `set_rivers(_bridge.rivers(1))`,
 ## gated by CARTO > Layers' Rivers row), and the reasons now say that.
 const PHONE_GEN_ABSENT: Array = [
+	## Resolution isn't in the engine's parameter table at all (`params.rs`'s
+	## "world" group holds world, sea_level, peak_m, carve_rivers,
+	## river_density, integrate_drainage and use_gpu, no resolution key).
 	{"stage": 1, "label": "Working resolution", "route": "new_world",
-	 "why": "Resolution is a creation-time call argument, not a stored parameter -- params.rs' \"world\" group holds world, sea_level, peak_m, carve_rivers, river_density, integrate_drainage and use_gpu, and no resolution key exists anywhere in the parameter table. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
+	 "why": "Resolution is chosen only when you create the world, not something you can adjust afterward. Set it in File > New world, which carries it on this phone's card as well as on the desktop form."},
+	## The archetype seeds the six world_structure dials below (`apply_archetype()`);
+	## `new_world_dialog.gd`'s own NOTE_CREATION_ONLY says extent, resolution and
+	## archetype reallocate every field in the pipeline.
 	{"stage": 2, "label": "Archetype", "route": "new_world",
-	 "why": "apply_archetype() is live and seeds the six world_structure dials below, but request()[\"archetype\"] is what decides which generation call runs, and new_world_dialog.gd's own NOTE_CREATION_ONLY says extent, resolution and archetype reallocate every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
+	 "why": "Archetype is chosen only when you create the world, since it reallocates every field in the pipeline. Pick it in File > New world -- on this phone it is on that dialog's card, under World structure."},
 	{"stage": 5, "label": "Erosion strength", "route": "",
 	 "why": "No engine parameter means this. Stage 06 exposes 28 rows (stream.* and passes.*) and none of them is a single 0-1 strength; synthesising one over several would be a second parameter table that can drift from the desktop's. The real dials are below."},
+	## No control exposes a minimum stream order; the map always asks the
+	## engine for order 1 (`get_rivers(min_order)`, called from `viewport_host.gd`).
 	{"stage": 6, "label": "Min stream order", "route": "",
-	 "why": "Not settable anywhere yet. Since the owner's 2026-09-22 ruling a generated world's rivers are drawn as smoothed vector strokes over get_rivers(min_order), but the map always asks for order 1 -- every traced run (viewport_host.gd) -- and no control exposes a minimum. Strahler order itself is real: the right dock's River context picks a river by it."},
+	 "why": "Not settable anywhere yet. Since the owner's 2026-09-22 ruling a generated world's rivers are drawn as smoothed vector strokes over the full river set, and no control exposes a minimum order. Strahler order itself is real: the right dock's River context picks a river by it."},
 	{"stage": 8, "label": "Ecotone sharpness", "route": "",
 	 ## Corrected 2026-09-24 (B12): the reference's sharpBiomes is a render
 	 ## toggle, applied always-on here by `render.rs::bio_jitter`.
@@ -4199,8 +4220,10 @@ func _pg_progress_card(parent: Control) -> void:
 	## prototype's own CANCEL is `clearInterval` over a simulated timer, which
 	## is not a claim about this engine. Drawn dashed with that reason rather
 	## than as a button that would do nothing.
+	## Names the missing capability precisely: the engine's `generate()` call
+	## and the `cartalith-godot` binding expose no cancel entry point.
 	_pg_dash_row(col, "CANCEL",
-		"generate() cannot be interrupted: cartalith-godot exposes no cancel entry point, so a run holds the worker until its ten stages finish.")
+		"Generation can't be interrupted once started -- a run holds until all ten stages finish.")
 	_pg_paint_progress()
 
 ## Repaint only -- called on every `generation_stage` tick, so it must not

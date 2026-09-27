@@ -627,16 +627,18 @@ func _build_measure_tools(row: HBoxContainer) -> void:
 					GlobalTools.set_measure_mode(app, "section"))
 		if not have_section:
 			b.disabled = true
+			## Names the missing `measure_section` binding.
 			b.tooltip_text = "Reads the height field: generate a world first." if not bridge.has_world \
-				else "This build's engine has no measure_section binding."
+				else "This build of the app is missing the cross-section feature -- rebuild it to enable this."
 
 	row.add_child(DccTheme.rule(true))
 	for id in MEASURE_GROUP_VERTICAL:
 		_measure_button(row, String(id), current)
 
+	## `Custom ▾`'s missing field lives in `global_tools.gd`'s SECTION_CHANNELS.
 	_note(row, "measurements answer how far · the Sample dock answers what is here",
 		"The canvas's own principle: Information is passive and always running; Measure is deliberate and persists until cleared; Cross-section is one line read in the strip below. " +
-		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to bind to (`global_tools.gd`'s SECTION_CHANNELS), and `3D distance` is greyed as \"3D only\" in the canvas itself -- this shell has no 3D view, and Δ vertical already returns the 3D distance in the dock.")
+		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to choose from yet, and `3D distance` is greyed as \"3D only\" in the canvas itself -- this shell has no 3D view, and Δ vertical already returns the 3D distance in the dock.")
 
 func _build_measure_options(row: HBoxContainer) -> void:
 	var mode_id := GlobalTools.measure_mode()
@@ -690,11 +692,12 @@ func _build_measure_options(row: HBoxContainer) -> void:
 	## above already formats through `DccUnits`. The count lives in the label as
 	## well as the hover, so both change together.
 	if mode_id == "distance" or mode_id == "bearing":
+		## Backed by `cartalith_spatial::measure`, a planar measurer with a seam rule.
 		_bar_hint(row, "— 3 canvas options unbuilt",
 			"multi-segment / point-to-point: the six mode buttons above are that choice. " +
-			"path ▸ great circle: this map is equirectangular and `cartalith_spatial::measure` is planar with a seam rule; there is no spherical path to offer. " +
-			"snap ▸ settlements/rivers: DCC_SHELL_SPEC.md §4.5.1 lists no snap modifier for Measure, unlike Way/Route. " +
-			"units ▸ km is BUILT, and is why this reads 3 rather than 4: Preferences ▸ Units carries km / mi / nmi, and every reading below converts through DccUnits.")
+			"path ▸ great circle: this map is a flat projection, so there is no spherical path to offer. " +
+			"snap ▸ settlements/rivers: the design spec lists no snap modifier for Measure, unlike Way/Route. " +
+			"units ▸ km is BUILT, and is why this reads 3 rather than 4: Preferences ▸ Units carries km / mi / nmi, and every reading below converts accordingly.")
 	row.add_child(DccTheme.spacer())
 	row.add_child(DccTheme.mono_label(GlobalTools.measure_status_text(), "text_dim", DccTheme.FS_SMALL))
 	DccWidgets.chip(row, "Clear", func(): GlobalTools.measure_reset(app))

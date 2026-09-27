@@ -1370,8 +1370,10 @@ func _fill(body: VBoxContainer, step: _Step) -> void:
 		## the same reason `_missing_row()` exists: an empty screen with a
 		## working back button is indistinguishable from a screen whose rows all
 		## went away.
+		## Unreachable through `open()` / `_push_screen()` / `_push()` --
+		## neither a dedicated screen id nor a menu reached `_fill()`.
 		body.add_child(_missing_row("This screen has no content source.",
-			"Neither a bespoke screen id nor a PopupMenu reached _fill()."))
+			"Nothing was set up to fill this screen with rows."))
 	else:
 		_fill_popup(body, step)
 	## Canvas "02"/"03"/"07" all close their list with a hairline and a padded
@@ -1476,8 +1478,9 @@ func _fill_screen(body: VBoxContainer, id: String, arg: String = "") -> void:
 		"gestures": _fill_gestures(body)
 		"data-tiles": _fill_data_tiles(body)
 		_:
+			## No case for this id in `_fill_screen()`.
 			body.add_child(_missing_row("Unknown screen '%s'." % id,
-				"No builder in _fill_screen()."))
+				"There is no content defined for this screen."))
 
 ## §6.6 `root`: eight nav rows, then `STATUS`, then the readouts.
 func _fill_root(body: VBoxContainer) -> void:
@@ -2562,11 +2565,11 @@ func _fill_landmarks(body: VBoxContainer) -> void:
 	var br = _engine()
 	var kinds := _lm_kinds()
 	if br == null or kinds.is_empty():
+		## `landmark_kinds()` is the type registry and it came back empty --
+		## a missing binding rather than an empty world.
 		_add(body, _missing_row("Landmark types",
-			"This build's extension returned no landmark vocabulary. "
-				+ "landmark_kinds() is the type registry and it came back empty, "
-				+ "which is a missing binding rather than an empty world — "
-				+ "rebuild the native library."))
+			"This version of the app returned no landmark types -- an update "
+				+ "is needed to add them."))
 		return
 	var st := _lm_settings()
 	var caps: Dictionary = st.get("caps", {})
@@ -2727,8 +2730,9 @@ func _lm_run() -> void:
 ## the cap was, because the store keeps `armed` and `cap` apart on purpose.
 func _fill_lm_family(body: VBoxContainer, family: String) -> void:
 	var kinds := _lm_kinds()
+	## `landmark_kinds()` returned no types.
 	if kinds.is_empty():
-		_add(body, _missing_row(family, "landmark_kinds() returned no types."))
+		_add(body, _missing_row(family, "No landmark types are available in this version of the app."))
 		return
 	var st := _lm_settings()
 	var caps: Dictionary = st.get("caps", {})
@@ -2739,9 +2743,9 @@ func _fill_lm_family(body: VBoxContainer, family: String) -> void:
 		if String((k as Dictionary).get("family", "other")) == family:
 			mine.append(k)
 	if mine.is_empty():
+		## Families are the engine's own, first-seen out of `landmark_kinds()`.
 		_add(body, _missing_row(family,
-			"No landmark type reports this family. The families are the engine's "
-				+ "own, first-seen out of landmark_kinds()."))
+			"No landmark type reports this family."))
 		return
 
 	var ladder: Array = CivilizationWorkspace.LM_LADDER
@@ -2904,34 +2908,49 @@ func _fill_help(body: VBoxContainer) -> void:
 ##
 ## Every row below names the symbol it was checked at, in its second line, so
 ## the next reader can re-check it rather than believing this list.
+## Each entry's third field is a plain confirmation line; the exact code
+## location it was checked against is noted in the comment above that entry,
+## for a future engineer re-verifying this list, not for the on-screen text.
 const GESTURES: Array = [
-	["Drag", "Pans the map.", "viewport_host.gd — the pan branch of _input()"],
+	## Checked at `viewport_host.gd`'s pan branch of `_input()`.
+	["Drag", "Pans the map.", "Confirmed in this build."],
+	## Checked at `viewport_host.gd`'s `InputEventMagnifyGesture` handling.
 	["Pinch", "Zooms at the pinch centre.",
-		"viewport_host.gd — InputEventMagnifyGesture"],
+		"Confirmed in this build."],
+	## Checked at `viewport_host.gd`'s `InputEventPanGesture` handling;
+	## nothing rotates the view.
 	["Two fingers", "Pans. This build has no map rotation.",
-		"viewport_host.gd — InputEventPanGesture; nothing rotates the view"],
+		"Confirmed in this build."],
+	## Checked at `map_overlay.gd`'s `_TOUCH_HOLD_MS` (500) -> `context_requested`
+	## -> `context_broker.gd` -> `civilization_workspace.gd::context_actions()`.
 	["Press and hold", "Opens the map menu: edit, move the viewer, delete, drop a "
 		+ "settlement here, or read the terrain here.",
-		"map_overlay.gd — _TOUCH_HOLD_MS 500 → context_requested → "
-			+ "context_broker.gd → civilization_workspace.gd::context_actions()"],
+		"Confirmed in this build."],
+	## Checked at `dcc_shell.gd`'s `_on_phone_sheet_grab_input()` /
+	## `_set_phone_detent()`.
 	["Sheet handle", "Drags the sheet between peek, half and full.",
-		"dcc_shell.gd — _on_phone_sheet_grab_input() / _set_phone_detent()"],
+		"Confirmed in this build."],
+	## Checked at `dcc_shell.gd`'s `_pick_phone_tab()`.
 	["Tab re-tap", "Collapses the sheet to peek. It does not close: the sheet is "
 		+ "the tool options bar and has no closed state on desktop or tablet.",
-		"dcc_shell.gd — _pick_phone_tab()"],
+		"Confirmed in this build."],
+	## Checked at `dcc_shell.gd`'s `PHONE_UNDO_HOLD_SEC` (0.45) -> the
+	## `undo_ledger()` popover.
 	["Undo chip", "Tap undoes one step; hold opens the step history.",
-		"dcc_shell.gd — PHONE_UNDO_HOLD_SEC 0.45 → the undo_ledger() popover"],
+		"Confirmed in this build."],
+	## Checked at `dcc_shell.gd`'s `_phone_back()`, and `PhoneMenu.go_back()`.
 	["Back", "Leaves a sheet, then this screen, then the overlay — never the app. "
 		+ "Android's edge swipe and the hardware key are the same gesture.",
-		"dcc_shell.gd — _phone_back(), and PhoneMenu.go_back()"],
+		"Confirmed in this build."],
 ]
 
 ## The two §6.6 rows this build does not have. Drawn, with the true reason,
 ## rather than dropped: a gesture reference that silently omits two of the nine
 ## a user may have read about elsewhere teaches them the list is complete.
 const GESTURES_ABSENT: Array = [
-	["Double-tap", "No double-tap handler exists on the map. viewport_host.gd has "
-		+ "no double_click branch; pinch and the zoom buttons are the zoom paths."],
+	## Checked at `viewport_host.gd` — there is no `double_click` branch.
+	["Double-tap", "No double-tap handler exists on the map. "
+		+ "Pinch and the zoom buttons are the zoom paths instead."],
 	["Edge-swipe inspector", "No inspector drawer is bound to an edge swipe. The "
 		+ "right dock is a sheet reached from the bottom bar, and the only edge "
 		+ "swipe this shell reads is Android's back gesture, listed above."],

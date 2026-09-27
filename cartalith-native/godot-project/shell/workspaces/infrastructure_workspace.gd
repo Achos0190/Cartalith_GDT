@@ -1108,9 +1108,10 @@ func _routes_teaser_row(parent: Control, i: int, r: Dictionary, settlements: Arr
 	label_text += " -- %s" % DccUnits.format(float(r.get("km", 0.0)))
 	var b := DccWidgets.action(parent, label_text, func(): app.open_journey_planner())
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	## `journey_planner_view.gd` has no per-route preselect hook.
 	b.tooltip_text = ("Opens the Journey Planner. It opens to its own Journeys list -- " +
 		"usually route #1 or the most recently saved journey, not necessarily this " +
-		"one; the dock has no per-route preselect hook into journey_planner_view.gd.")
+		"one; there is no way to open it already showing this specific route.")
 
 ## The nearest settlement to a route endpoint, by straight Euclidean
 ## distance -- valid because `bridge.settlements()`'s `x`/`y` (grid-cell
@@ -1264,7 +1265,8 @@ func _manual_route_row(i: int, r: Dictionary) -> void:
 	name_edit.placeholder_text = "Journey %d" % (i + 1)
 	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_edit.custom_minimum_size.x = 90
-	name_edit.tooltip_text = "route_set_name. Blank restores the \"Journey %d\" fallback -- that label is computed here, never stored, so it follows the row after a delete renumbers it." % (i + 1)
+	## Writes the engine's `route_set_name`.
+	name_edit.tooltip_text = "Rename this route. Blank restores the \"Journey %d\" fallback -- that label is computed here, never stored, so it follows the row after a delete renumbers it." % (i + 1)
 	DccWidgets.well(name_edit, 6, 2)
 	name_edit.text_changed.connect(func(t: String): bridge.route_set_name(i, t))
 	row.add_child(name_edit)
@@ -1517,8 +1519,9 @@ func _fill_logistics(parent: Control) -> void:
 		"the planner's own window, not copied here.")
 	var g := DccWidgets.group(sec, "Journey Planner")
 	var b := DccWidgets.action(g, "Open Journey Planner", func(): app.open_journey_planner(), true)
-	b.tooltip_text = ("Arms the Journey tool and swaps to its own in-shell takeover " +
-		"(journey_planner_view.gd) -- the same call Data ▸ Journey planner… ⇧J makes. " +
+	## The in-shell takeover screen is `journey_planner_view.gd`.
+	b.tooltip_text = ("Arms the Journey tool and swaps to its own in-shell takeover -- " +
+		"the same thing Data ▸ Journey planner… ⇧J opens. " +
 		"Opens to its own Journeys list: usually route #1 or the most recently saved " +
 		"journey, not necessarily whichever route you were just looking at here.")
 	## Ruling L L186: *"Routes [expander] → per-route [button] (opens Journey

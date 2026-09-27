@@ -593,8 +593,10 @@ func shortcut_default(id: int) -> int:
 ## build has no such call", "there is no world" and "there is no marquee" are
 ## three different things to do next and one sentence covering all three would
 ## name the wrong one twice.
-const REGION_NEW_WORLD_TIP := "Replaces the live world with a higher-resolution resample of the Region-select marquee (ops_bridge.rs::region_new_world, the reference's Extract as new world). The selection's real width in km is preserved, so a smaller region reads as a closer look rather than a rescaled copy, and fresh tectonics are inferred under it. Asks first: everything positioned in the old grid is discarded."
-const REGION_NEW_WORLD_NO_API := "This build's GDExtension predates the region-resample binding (WorldGen::region_new_world). Rebuild cartalith-godot to enable it."
+## `ops_bridge.rs::region_new_world` / `WorldGen::region_new_world` --
+## the reference's "Extract as new world".
+const REGION_NEW_WORLD_TIP := "Replaces the live world with a higher-resolution resample of the Region-select marquee. The selection's real width in km is preserved, so a smaller region reads as a closer look rather than a rescaled copy, and fresh tectonics are inferred under it. Asks first: everything positioned in the old grid is discarded."
+const REGION_NEW_WORLD_NO_API := "This version of the app can't do that yet -- an update is needed to add it."
 const REGION_NEW_WORLD_NO_WORLD := "No world yet. Generate or open one, then select a region of it."
 const REGION_NEW_WORLD_NO_REGION := "No region is selected. Arm the Region select tool (R) and drag a marquee on the map -- this resamples that marquee and nothing else."
 const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belongs to the worker thread until it finishes."
@@ -1007,9 +1009,9 @@ func _build_undo_redo(p: PopupMenu) -> void:
 		_live(p, "Redo", ID_REDO, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_Z)
 		redo_idx = p.item_count - 1
 	else:
+		## `WorldGen.redo_available` missing -- this build predates it.
 		_todo(p, "Redo",
-			"This GDExtension build predates the global redo binding (WorldGen.redo_available " +
-			"is missing) -- almost always a native library older than this shell. Rebuild it. " +
+			"This version of the app can't do that yet -- an update is needed to add it. " +
 			"The Sculpt draft's own stamp history (right dock, while the Sculpt tool is active) " +
 			"has a Redo either way, and is a different stack: it steps back through an " +
 			"uncommitted draft's stamps rather than through committed height operations.")
@@ -1049,9 +1051,10 @@ func _build_undo_redo(p: PopupMenu) -> void:
 			## The empty-state reason says only what was actually checked --
 			## `redo_available()` came back false -- and points at the ledger
 			## rather than describing a stack shape this file has not read.
+			## `WorldGen.redo_available()` is false in the empty-state case.
 			p.set_item_tooltip(redo_idx,
 				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
-				else "Nothing to redo (WorldGen.redo_available() is false). Edit ▸ Undo history… shows what the ledger is holding."))
+				else "Nothing to redo. Edit ▸ Undo history… shows what the ledger is holding."))
 
 ## Cut / Copy / Paste / Delete / Select all / Deselect / Find on map -- what
 ## remains of Edit once Undo/Redo/Undo history promote to the tablet's ☰
@@ -1221,7 +1224,8 @@ func _edit(p: PopupMenu, full: bool = true) -> void:
 		_build_reset_generation(p)
 	p.id_pressed.connect(_on_edit)
 
-const RESET_ALL_TIP := "Puts every generation parameter back to the engine's own default (WorldGen.reset_params). It does not regenerate: the engine reads the table once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
+## `WorldGen.reset_params`.
+const RESET_ALL_TIP := "Puts every generation parameter back to the app's own default. It does not regenerate: the settings are read once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
 const RESET_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and a reset landing mid-run could not have affected the world being built anyway."
 
 ## §2.2's Redo, and the mirror of `app.gd`'s `undo_last()`.
@@ -1272,9 +1276,10 @@ func _build_reset_stage_menu(p: PopupMenu) -> void:
 	_reset_stage_popup.id_pressed.connect(_on_reset_stage)
 	_reset_stage_popup.about_to_popup.connect(_refresh_reset_stage_menu)
 	p.add_child(_reset_stage_popup)
+	## `reset_params(keys)`, the binding's second form.
 	p.add_submenu_item("Reset one stage", "ResetStage")
 	p.set_item_tooltip(p.item_count - 1,
-		"The same reset narrowed to one pipeline stage's own parameters -- reset_params(keys), the binding's second form. Stage numbering is WORLD's own 01-10.")
+		"The same reset narrowed to just one pipeline stage's own parameters. Stage numbering is WORLD's own 01-10.")
 	_refresh_reset_stage_menu()
 
 ## Which parameter keys a stage owns: everything in its `groups`, by the
@@ -1739,14 +1744,16 @@ func _refresh_clipboard_rows(p: PopupMenu, cut_idx: int, copy_idx: int, paste_id
 		copy_why = ("Nothing selected. Click an icon or a label on the map -- Ctrl-click adds "
 			+ "to the selection, Shift-click takes the range.")
 	elif domain == "world":
-		copy_why = ("The clipboard carries Cartography's icons and labels. The Sculpt draft's "
-			+ "stamps cannot go on it: sculpt_list_stamps reports a stamp's point COUNT, not "
-			+ "its points, and no binding adds a stamp back to a draft. Select all does work "
+		## `sculpt_list_stamps` reports only a stamp's point COUNT, not its
+		## points, so a stamp's shape can't be read back out to copy it.
+		copy_why = ("The clipboard carries Cartography's icons and labels. Sculpt's own "
+			+ "stamps can't go on it -- their shapes can't be read back out to copy, and "
+			+ "nothing can add a stamp back to a draft anyway. Select all does work "
 			+ "here -- selecting needs neither.")
 	else:
-		copy_why = ("The clipboard carries Cartography's icons and labels. Settlements have no "
-			+ "selection set (selection.rs covers icons, labels and sculpt stamps) and no "
-			+ "create-from-record binding to paste one back through.")
+		## `selection.rs` covers icons, labels and sculpt stamps, not settlements.
+		copy_why = ("The clipboard carries Cartography's icons and labels. Settlements have "
+			+ "no way to be selected, and no way to be created back from a copied record.")
 
 	p.set_item_disabled(copy_idx, not can_copy)
 	p.set_item_tooltip(copy_idx, COPY_TIP if can_copy else copy_why)
@@ -1759,9 +1766,10 @@ func _refresh_clipboard_rows(p: PopupMenu, cut_idx: int, copy_idx: int, paste_id
 	p.set_item_disabled(paste_idx, not can_paste)
 	if can_paste:
 		var pack_note := ""
+		## The only way to place a pasted icon needs an asset pack loaded.
 		if _clipboard.has("icons") and not _bridge.has_asset_pack():
-			pack_note = (" The clipboard's icons will be refused: icon_arm -- the only way to "
-				+ "add one -- needs an asset pack loaded, and has_asset_pack() is false.")
+			pack_note = (" The clipboard's icons will be refused: placing an icon "
+				+ "needs an asset pack loaded, and none is.")
 		p.set_item_tooltip(paste_idx, PASTE_TIP + pack_note)
 	elif not has_world:
 		p.set_item_tooltip(paste_idx, "No world yet. Generate or open one first.")
@@ -1779,14 +1787,18 @@ func _refresh_clipboard_rows(p: PopupMenu, cut_idx: int, copy_idx: int, paste_id
 		select_why = ("The open Sculpt draft has no stamps. Select all is scoped to the active "
 			+ "domain (§2.2), and WORLD's selectable set is that draft's stamp stack.")
 	else:
-		select_why = ("Nothing in Civilization holds a selection set. selection.rs covers icons, "
-			+ "labels and sculpt stamps; a settlement is a single index on the workspace.")
+		## `selection.rs` covers icons, labels and sculpt stamps, not settlements.
+		select_why = ("Nothing in Civilization holds a selection set. A settlement is "
+			+ "a single index on the workspace, not something that can be multi-selected.")
 	p.set_item_disabled(select_all_idx, not can_select_all)
 	p.set_item_tooltip(select_all_idx,
 		(SELECT_ALL_CARTO_TIP if domain == "cartography" else SELECT_ALL_WORLD_TIP)
 		if can_select_all else select_why)
 
-const CLIP_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and reading a selection out of it mid-run is the bind-already-bound panic engine_bridge.gd documents."
+## The engine object belongs to the worker thread until a generation finishes,
+## and reading a selection out of it mid-run is unsafe (`engine_bridge.gd`
+## calls it a bind-already-bound panic).
+const CLIP_BUSY_TIP := "A generation is running, so selection can't be read right now."
 const CUT_TIP := "Copies the selected icons and labels onto the clipboard and deletes them. The clipboard is in-process: it lasts for this session and does not cross to another window."
 const COPY_TIP := "Copies the selected icons and labels onto the clipboard. The clipboard is in-process: it lasts for this session and does not cross to another window."
 const PASTE_TIP := "Adds the clipboard's entities back, offset a few cells from where they were copied, and selects what it added."
@@ -2005,10 +2017,11 @@ func _build_landmark_types_menu(p: PopupMenu) -> void:
 		## Kept rather than deleted, because one thing genuinely does empty
 		## this list -- a native library older than this shell -- and that is
 		## what it now says. Same guard, true reason.
+		## `libcartalith_godot` older than this shell, one predating
+		## `landmark_kinds()`.
 		_todo(_landmark_popup, "No landmark types",
-			"This GDExtension build returned no landmark vocabulary. That means a "
-			+ "libcartalith_godot older than this shell, one predating "
-			+ "landmark_kinds() -- rebuild the native library. CIVIL ▸ Landmarks "
+			"This version of the app returned no landmark vocabulary -- an update "
+			+ "is needed to add it. CIVIL ▸ Landmarks "
 			+ "says the same thing at greater length. Neither invents a list to "
 			+ "fill the gap.")
 	else:
@@ -2386,8 +2399,9 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	## and the nine window shortcuts did not -- all three call straight into the
 	## engine through `_on_assets`.
 	ap.add_item("Pack metadata…", ID_AP_PACK_META)
+	## `as_set_pack_info()`.
 	ap.set_item_tooltip(ap.item_count - 1,
-		"A modal editing name / author / license. Writes straight through as_set_pack_info(); the three values above are the same record, read back.")
+		"A modal editing name / author / license. The change is saved immediately; the three values above are the same record, read back.")
 	ap.add_item("Validate pack", ID_AP_VALIDATE)
 	ap.set_item_tooltip(ap.item_count - 1,
 		"Runs AssetValidator over the live library and reports its warnings. Reads only -- it changes nothing and writes nothing.")
@@ -2919,8 +2933,9 @@ func _build_theme_submenu(p: PopupMenu) -> void:
 	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
 	if not DisplayServer.is_dark_mode_supported():
 		_theme_popup.set_item_disabled(2, true)
+		## `DisplayServer.is_dark_mode_supported()` is false.
 		_theme_popup.set_item_tooltip(2,
-			"This platform/build reports no OS dark-mode preference (DisplayServer.is_dark_mode_supported() is false).")
+			"This system doesn't report a light/dark preference, so there is nothing for \"Follow system\" to follow here.")
 	_refresh_theme_menu()
 	_theme_popup.id_pressed.connect(_on_theme_choice)
 	_shell.style_popup(_theme_popup)
@@ -3110,13 +3125,15 @@ func _preferences(p: PopupMenu, full: bool = true, include_theme: bool = false) 
 		_build_gpu_devices_menu(p)
 		_build_gpu_mode_menu(p)
 	else:
-		_todo(p, "Devices", "This GDExtension build predates the multi-GPU API (WorldGen.gpu_enumerate_devices is missing).")
+		## `WorldGen.gpu_enumerate_devices` missing -- this build predates the multi-GPU API.
+		_todo(p, "Devices", "This version of the app can't do that yet -- an update is needed to add it.")
 		_todo(p, "Multi-GPU mode", "Same.")
 	if _engine_has("set_cpu_thread_count") and _engine_has("cpu_logical_core_count"):
 		_build_cpu_threads_menu(p)
 	else:
+		## `WorldGen.set_cpu_thread_count` missing -- this build predates the CPU worker-thread API.
 		_todo(p, "CPU worker threads",
-			"This GDExtension build predates the CPU worker-thread API (WorldGen.set_cpu_thread_count is missing).")
+			"This version of the app can't do that yet -- an update is needed to add it.")
 	if _bridge.gpu_api:
 		_build_gpu_vram_menu(p)
 		_build_gpu_fallback_menu(p)
@@ -3354,15 +3371,10 @@ func _build_gpu_retry_row(p: PopupMenu) -> void:
 	var can_ask: bool = (_bridge.has_method("gpu_readback_failed")
 			and _engine_has("gpu_readback_failed"))
 	if not (can_clear and can_ask):
-		var missing := "neither #[func] over it"
-		if can_ask:
-			missing = "no #[func] to clear the record"
-		elif can_clear:
-			missing = "no #[func] to ask whether anything is banned, so the row could only ever sit dark"
+		## `cartalith-gpu`'s `multi.rs::clear_readback_failures()` records a GPU
+		## ban and can lift it; this build is missing the binding for it.
 		_todo(p, "Try the GPU again",
-			"cartalith-gpu records the ban and can lift it (multi.rs, clear_readback_failures), and this "
-			+ "GDExtension build exposes " + missing
-			+ ". Rebuild the native library.")
+			"This version of the app can't do that yet -- an update is needed to add it.")
 		return
 	_live(p, "Try the GPU again", ID_PREF_GPU_RETRY)
 	_gpu_retry_row = p.item_count - 1
@@ -3404,8 +3416,9 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 	## reasoning as `Reset to the reference rig` one submenu up.
 	_exag_popup.add_item("Use the engine's own %.1fx" % DccSettings.RELIEF_EXAG_ENGINE_DEFAULT,
 		ID_GFX_EXAG_ENGINE)
+	## The renderer's own built-in exaggeration (`render.rs`) is 3.4.
 	_exag_popup.set_item_tooltip(_exag_popup.item_count - 1,
-		"render.rs's own exag: 3.4, which is what this build renders with when nothing is stored here. It is not one of the three rungs on purpose -- rounding the shipped default onto the nearest one would change every untouched install's render the moment this preference existed.")
+		"The app's own default, 3.4x -- what this build renders with when nothing is stored here. It is not one of the three rungs on purpose -- rounding the shipped default onto the nearest one would change every untouched install's render the moment this preference existed.")
 	_exag_popup.id_pressed.connect(_on_relief_exag)
 	_exag_popup.about_to_popup.connect(_refresh_relief_exag_menu)
 	## Refreshed at build time as well as on `about_to_popup`, matching the
@@ -3524,8 +3537,9 @@ func _refresh_gpu_devices_menu() -> void:
 
 	pm.add_check_item("Automatic (highest-performance GPU)", GPU_DEV_AUTO)
 	pm.set_item_checked(pm.item_count - 1, selected.is_empty())
+	## `PowerPreference::HighPerformance` picks the adapter.
 	pm.set_item_tooltip(pm.item_count - 1,
-		"The default, and what this port always did: one PowerPreference::HighPerformance adapter. Check a device below to override it.")
+		"The default, and what this app always did: automatically use the single fastest graphics adapter. Check a device below to override it.")
 	pm.add_separator()
 
 	if _gpu_devices.is_empty():
@@ -3719,8 +3733,11 @@ func _refresh_cpu_threads_menu() -> void:
 		label = "Running %d workers now" % active
 	else:
 		label = "Running %d workers — %d takes effect at next start" % [active, stored]
+	## Measured through `WorldGen.cpu_thread_count_active`, not inferred from
+	## the choice above -- the underlying (Rayon) thread pool is built once
+	## per process launch and can't be resized live.
 	var i2 := _readout(_cpu_threads_popup, label,
-		"Measured through WorldGen.cpu_thread_count_active, not inferred from the choice above. Rayon's global pool can be built exactly once per process: after that a new count is stored and honoured at the next launch, and nothing can rebuild it live. Reads 0, and says so, while a generation owns the engine.")
+		"This is measured, not just read from the setting above. The worker pool is built once when the app starts and can't be resized while it's running: a new count is stored and takes effect the next time the app launches. Reads 0, and says so, while a generation is in progress.")
 	_cpu_threads_popup.set_item_id(i2, id)
 
 func _on_cpu_threads_choice(id: int) -> void:
@@ -3998,8 +4015,10 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## what the engine renders with -- `render.rs` ships 40 deg, 0.34 ambient
 	## and 6 lights (10 on Ultra).
 	_lighting_popup.add_item("Use the engine's own rig", ID_LIGHT_RESET)
+	## `render.rs`'s own rig: six light directions (ten on Ultra), 40 deg
+	## elevation, 0.34 ambient -- not the reference HTML's single-sun shading.
 	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1,
-		"Forgets all four stored rungs, so this menu stops sending them and a new world takes the engine's own rig instead. That is NOT the reference HTML's single-sun shading: render.rs ships six light directions (ten on Ultra), 40 deg elevation and 0.34 ambient. It does NOT undo a rung already applied -- once sent, a value stays an override until CARTO > Relief & light > Reset to quality tier hands it back.")
+		"Forgets all four stored settings, so this menu stops sending them and a new world takes the app's own default lighting rig instead. That is a multi-light rig, not a single sun. It does NOT undo a setting already applied -- once sent, a value stays an override until CARTO > Relief & light > Reset to quality tier hands it back.")
 	_lighting_popup.id_pressed.connect(_on_lighting)
 	_lighting_popup.about_to_popup.connect(_refresh_lighting_menu)
 	p.add_child(_lighting_popup)
@@ -4412,15 +4431,17 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
 			"Writes this world's baked chunks to one portable .zip -- the archive another machine can import to skip the bake. It carries the cache only: the world, its parameters and every edit live in the project .zip and are not in this file.")
 	else:
+		## `atlas_export_zip()` missing.
 		_todo(_atlas_popup, "Export atlas…",
-			"This GDExtension build has no atlas_export_zip(). Rebuild the native library.")
+			"This version of the app can't do that yet -- an update is needed to add it.")
 	if _engine_has("atlas_import_zip"):
 		_atlas_popup.add_item("Import atlas…", ID_LOD_IMPORT_ATLAS)
 		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
 			"Reads a portable atlas .zip into this machine's store, filed under the world it was baked from. It only helps a matching world, and only by letting Bake skip chunks it already has -- the map's detailed tiles are still drawn fresh either way. The status line says whether this world matches.")
 	else:
+		## `atlas_import_zip()` missing.
 		_todo(_atlas_popup, "Import atlas…",
-			"This GDExtension build has no atlas_import_zip(). Rebuild the native library.")
+			"This version of the app can't do that yet -- an update is needed to add it.")
 	_atlas_popup.add_separator()
 	_atlas_popup.add_item("Clear atlas cache now…", ID_LOD_CLEAR_ATLAS)
 	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1,
@@ -4453,9 +4474,12 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 ## being disabled, because a cap nothing enforces is a number pretending to be
 ## a setting.
 func _build_atlas_cap_menu(p: PopupMenu) -> void:
+	## `atlas_evict_to()` missing -- the cache is real and measured
+	## (`atlas_status` reports chunks and bytes) but there is nothing to
+	## enforce a cap set here yet.
 	if not (_bridge.has_method("atlas_evict_to") and _engine_has("atlas_evict_to")):
 		_todo(p, "Size cap · GB",
-			"The store is real and measured (atlas_status reports chunks and bytes) and this GDExtension build has no atlas_evict_to(), so a cap set here would be a number nothing enforces. Rebuild the native library.")
+			"This version of the app can't do that yet -- an update is needed to add it. Setting a cap here would be a number nothing enforces.")
 		return
 	_atlas_cap_popup = PopupMenu.new()
 	_atlas_cap_popup.name = "AtlasSizeCap"
@@ -4525,8 +4549,9 @@ func _refresh_atlas_cache_menu() -> void:
 	var st: Dictionary = _bridge.atlas_status()
 	if st.is_empty():
 		_atlas_popup.set_item_text(_atlas_stats_idx, "No atlas in this build")
+		## `atlas_status()` missing.
 		_atlas_popup.set_item_tooltip(_atlas_stats_idx,
-			"This GDExtension build has no atlas_status().")
+			"This version of the app can't report the atlas cache yet -- an update is needed to add it.")
 		return
 	var chunks := int(st.get("chunks", 0))
 	var deepest := int(st.get("deepest_level", -1))

@@ -1795,7 +1795,9 @@ func _fill_factions(parent: Control) -> void:
 	## `GUI_GAP_REGISTER.md` CV-02's own window, beside the roster it reads
 	## and writes the same faction field through.
 	var culture_btn := DccWidgets.action(sec, "Culture profiles…", func(): app.open_culture_profiles())
-	culture_btn.tooltip_text = "The seven naming cultures as rows, a selected culture's real settlement-name sample, and a per-faction culture picker -- the same civ_set_faction_field(\"culture\") the roster's own Identity block writes."
+	## Writes the same faction field as the roster's own Identity block
+	## (`civ_set_faction_field("culture")`).
+	culture_btn.tooltip_text = "The seven naming cultures as rows, a selected culture's real settlement-name sample, and a per-faction culture picker -- the same write the roster's own Identity block makes."
 
 	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the roster and
 	## Culture profiles for the same reason both are here: a settlement
@@ -1940,7 +1942,8 @@ func _fill_territories(parent: Control) -> void:
 	## reference 26665), skipping the prompt when there is nothing to lose.
 	var clear_ter := DccWidgets.action(pol, "Clear territory", _clear_territory)
 	clear_ter.disabled = not bridge.has_world
-	clear_ter.tooltip_text = ("Empties the claim map: both the computed borders assign_territory "
+	## The computed borders come from the engine's `assign_territory`.
+	clear_ter.tooltip_text = ("Empties the claim map: both the computed borders "
 		+ "derived from the capitals and every dab of hand-painted territory, plus the provinces "
 		+ "cut out of them. Settlements, roads and the timeline are untouched.\n\n"
 		+ "Not undoable. Recalculate territories re-derives the computed borders from the "
@@ -2653,15 +2656,16 @@ func _diag_card(parent: Control, settlement: Dictionary, d: Dictionary, index: i
 	## The tooltip quotes the same two thresholds the readout above does, so it
 	## converts with it: a reader in miles cannot judge "2.1 mi off" against a
 	## reach printed in km.
+	## The engine deliberately leaves this dashed rather than 0 (`um_site_profile`'s
+	## v1.32 fix: the profile must not claim a river the settlement does not have).
 	second.tooltip_text = ("Distance is always honest, however far, out to the %s context "
 		% DccUnits.format(SITE_RIVER_CONTEXT_KM)
 		+ "range. Strahler order and channel width are a separate question and are filled in "
 		+ "only when the nearest traced stem is inside this site's water reach -- %s, or "
 		% DccUnits.format(SITE_WATER_REACH_KM, 1)
 		+ "1.5 grid cells where those are coarser. Past that reach the site cannot draw on the "
-		+ "river, so the order is dashed rather than printed as 0, which is the value the "
-		+ "engine deliberately leaves it at (um_site_profile's v1.32 fix: the profile must not "
-		+ "claim a river the settlement does not have). The confluence marker is dropped in "
+		+ "river, so the order is dashed rather than printed as 0, which the engine reserves for "
+		+ "a river the settlement genuinely does not have. The confluence marker is dropped in "
 		+ "that state too -- it is evaluated inside the same reach test, so its absence there "
 		+ "would be a question never asked, not an answer of no.")
 	## The reference's third line also carried bridge/ford off its cached town
@@ -2830,7 +2834,8 @@ func _fill_population(parent: Control) -> void:
 					sc, "" if sc == 1 else "s", share],
 				func(): app.right_dock_ctrl.show_faction(int(fd.get("id", 0))))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.tooltip_text = "get_factions()'s own population field -- the sum of this faction's settlements' pop. Opens the faction in the right dock."
+			## The engine's own population field (`get_factions()`).
+			b.tooltip_text = "The faction's total population -- the sum of its settlements' population. Opens the faction in the right dock."
 	## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13). The old text said no
 	## settlement belongs to a province across the bridge; the per-cell
 	## province raster does cross it (`conflict_bridge.rs::anchors_touching`
@@ -7134,7 +7139,8 @@ func _tl_year_pill(year: int, active: bool) -> Control:
 		DccTheme.c("accent_ink") if active else DccTheme.c("text_bright"))
 	go.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent") if active else DccTheme.c("sunken")))
 	go.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent").lightened(0.1) if active else DccTheme.c("raised")))
-	go.tooltip_text = "Jump to %s (civ_goto_year)." % _tl_format_year(year)
+	## Calls the engine's `civ_goto_year`.
+	go.tooltip_text = "Jump to %s." % _tl_format_year(year)
 	go.pressed.connect(func(): _tl_goto_year(year); _rebuild_timeline())
 	pill.add_child(go)
 	var rm := Button.new()
@@ -7145,7 +7151,8 @@ func _tl_year_pill(year: int, active: bool) -> Control:
 	rm.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	rm.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
 	rm.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
-	rm.tooltip_text = "Remove %s (civ_remove_year)." % _tl_format_year(year)
+	## Calls the engine's `civ_remove_year`.
+	rm.tooltip_text = "Remove %s." % _tl_format_year(year)
 	rm.pressed.connect(func(): _tl_remove_year_action(year))
 	pill.add_child(rm)
 	return pill
@@ -7268,22 +7275,25 @@ func _tl_step() -> void:
 
 func _build_timeline_filters(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Filters")
+	## Reads the engine's `civ_year_diff().present` set.
 	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
 		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
-		"Reference: hide anything not present in the selected year (civ_year_diff().present). " +
+		"Reference: hide anything not present in the selected year. " +
 			"Real here -- checked, settlement pins not present in that year are hidden.")
 	## Drawn but DISABLED, with the reason on the tooltip: nothing reads
 	## `_tl_filter_ghost`/`_tl_filter_highlight` yet (per-pin fade/halo is
 	## unbuilt -- see the note below), and an enabled toggle that changes
 	## nothing is a lie (`OUTSTANDING_WORK.md` §2.3, `GUI_GAP_REGISTER.md` CV-03).
+	## Reads the engine's `civ_year_diff().removed` set.
 	var ghost := DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
 		func(v: bool): _tl_filter_ghost = v,
-		"Reference: fade objects removed since the previous recorded year (civ_year_diff().removed). " +
+		"Reference: fade objects removed since the previous recorded year. " +
 			"Not available yet: the map cannot fade individual pins.")
 	ghost.disabled = true
+	## Reads the engine's `civ_year_diff().added` set.
 	var highlight := DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
 		func(v: bool): _tl_filter_highlight = v,
-		"Reference: halo objects added since the previous recorded year (civ_year_diff().added). " +
+		"Reference: halo objects added since the previous recorded year. " +
 			"Not available yet: the map cannot halo individual pins.")
 	highlight.disabled = true
 	var years := _tl_years()

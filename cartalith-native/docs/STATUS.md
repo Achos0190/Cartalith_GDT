@@ -251,6 +251,49 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-27
 
+- **`OUTSTANDING_WORK.md`'s "Developer code names are shown to users" row,
+  tooltip sweep — done\*, verified by the main loop 2026-09-27 (`--check-only` on touched files, format-placeholder counts compared per file, the right_dock diff read).** Owner Ruling AQ
+  (`LARGE_ITEM_RULINGS.md`, 2026-09-24): rewrite every developer code name
+  (`.gd`/`.rs` file, `snake_case()` call, `cartalith_*`/`cartalith-*` crate)
+  shown to a user. The visible-label half closed 2026-09-24 (`3a12d64`); this
+  batch is the tooltip half. Re-counted with a reproducible script
+  (`grep`-based scan of string literals containing `.gd`/`.rs`/`::`/
+  `cartalith_`/`cartalith-`/snake_case( across the 32 `shell/*.gd` files that
+  mention "tooltip", excluding the five files owned by the concurrent
+  per-style-rivers lane) rather than trusting the row's own "~795" figure:
+  201 candidate string literals before, of which roughly 110 were genuine
+  `tooltip_text` sinks (direct assignment, `DccWidgets` helper tooltip
+  parameters, `set_item_tooltip`/`_todo` on menus, or a `"tip"`/`"why"` dict
+  key consumed by one) across `right_dock.gd`, `menus.gd`, `phone_menu.gd`,
+  `place_editor_window.gd`, `asset_library_window.gd`, `app.gd`,
+  `dcc_shell.gd`, `layers_popover.gd`, `tool_bar.gd`, `journey_planner_view.gd`,
+  `new_world_dialog.gd`, `shortcuts_dialog.gd`,
+  `workspaces/{civilization,infrastructure,world}_workspace.gd`; the rest were
+  `DccWidgets.note`/`modal_foot`/`DccShell.set_status` (visible text, not a
+  tooltip) or `res://`/`user://` load paths (not user-facing at all), left
+  untouched. Each genuine tooltip keeps its code provenance as a `##` comment
+  above the line and is rewritten in plain user language; `%s`/`%d`
+  placeholders and GDScript escaping preserved; no logic/signature changes.
+  `_codenames_probe.gd` extended with a second, windowed pass that walks
+  `tooltip_text` on every live Control (not just visible ones) plus every
+  `PopupMenu` item's tooltip, across WORLD/CIVIL/CARTO's default panels, the
+  menu bar and the Shortcuts dialog. Re-run after the sweep: the visible-label
+  pass shows 1 remaining hit (`workspaces/world_workspace.gd`'s "LOD terrain
+  data" `DccWidgets.note`, naming `cartalith-spatial` — a visible Label, not a
+  tooltip, so out of this batch's own brief; left for the next visible-text
+  pass). The tooltip pass shows 4 distinct remaining hits, all traced by hand
+  to the five files this batch could not touch (`workspaces/
+  cartography_workspace.gd` ×2, `workspaces/render_workspace.gd`,
+  `data_manager_window.gd`) — `engine_bridge.gd` and `viewport_host.gd` carry
+  no remaining hits. `--check-only` clean on all 15 touched `.gd` files plus
+  `shell/app.gd`; `_ctxring_probe` 132/132 and `_ctxphone_probe -- --vp
+  1080x2340 --force-touch` 56/56, both re-run after the sweep, no regression.
+  Marked verified by the main loop 2026-09-27 (`--check-only` on touched files, format-placeholder counts compared per file, the right_dock diff read) because this batch was built by
+  four parallel agents against a shared classification method the main loop
+  wrote but did not itself re-derive line-by-line for every one of the ~110
+  edits — the counts and skip list above are the main loop's own re-run, the
+  individual rewrites are not.
+
 - **Owner Ruling BF: vault templates and Markdown follow Obsidian exactly. Built
   2026-09-27, verified by the main loop 2026-09-27 (cartalith-vault 129/0, `_mdedit` 58/0, `_vaultbf` 28/0, `_vaultbe` 50/0 re-run; preview screenshot inspected).** `cartalith-vault`
   `template.rs`: `Config::read` takes the template folder from

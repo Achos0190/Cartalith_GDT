@@ -1312,13 +1312,14 @@ func _vessel_field(parent: Control) -> void:
 	var idx: int = names.find(current)
 	if idx < 0:
 		idx = 0
+	## The eleven built-in hulls are backed by `jp_ship_stats`.
 	var ob := DccWidgets.choice(parent, "Vessel", labels, idx,
 		func(i: int):
 			if not bool(live[i]):
 				return
 			_plan_values["vessel"] = String(names[i])
 			_plan_value_changed(false),
-		"Every vessel here drives the real water calculation: the eleven built-in hulls through jp_ship_stats, and any Travel Library definition through the vessel resolver (its speed, hold, crew and water rating). An entry still missing one of those four fields is disabled — the resolver declines an incomplete definition rather than sailing a hull with a zero hold. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only, never by a named water type the way \"River Barge cannot navigate River with Rapids\" is.")
+		"Every vessel here drives the real water calculation: the eleven built-in hulls, and any Travel Library definition through the vessel resolver (its speed, hold, crew and water rating). An entry still missing one of those four fields is disabled — the resolver declines an incomplete definition rather than sailing a hull with a zero hold. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only, never by a named water type the way \"River Barge cannot navigate River with Rapids\" is.")
 	for i in live.size():
 		if not bool(live[i]):
 			ob.set_item_disabled(i, true)
@@ -1712,7 +1713,8 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	_timeline_legend_item(legend, "accent", "travel")
 	_timeline_legend_item(legend, "water", "water")
 	var wx := _timeline_legend_item(legend, "block", "weather hold")
-	wx.tooltip_text = "jp_plan reports no discrete weather-hold day count -- weather is a continuous per-leg speed multiplier, already folded into each stage's own travel days to the left. Never lit."
+	## `jp_plan` reports no discrete weather-hold day count.
+	wx.tooltip_text = "There's no separate weather-hold day count -- weather is a continuous per-leg speed multiplier, already folded into each stage's own travel days to the left. Never lit."
 	_timeline_legend_item(legend, "text_dim", "rest / layover")
 	app.timeline_row.add_child(legend)
 
@@ -3142,7 +3144,8 @@ func _tool_options_journey() -> void:
 		var transport := String(_plan_values.get("transport", "Walking"))
 		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % transport, _reroute_journey)
 		reroute_btn.disabled = count == 0
-		reroute_btn.tooltip_text = "_jpRerouteForMode: re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing the straight-line fallback route_commit tolerates." % transport
+		## Backed by `_jpRerouteForMode`; the straight-line fallback it refuses is what `route_commit` tolerates.
+		reroute_btn.tooltip_text = "Re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing a straight-line fallback." % transport
 		var trim_text := "⇧ drag spine to trim · ⌥ click isolates a stage"
 		if _trim.x > 0.0 or _trim.y < 1.0:
 			trim_text = "trimmed %d–%d%% · click the spine outside the range to clear" % [roundi(_trim.x * 100.0), roundi(_trim.y * 100.0)]

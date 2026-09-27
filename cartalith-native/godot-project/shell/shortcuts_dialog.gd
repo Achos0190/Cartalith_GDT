@@ -95,19 +95,23 @@ var _capture_chips: Dictionary = {}
 ## owns the `dialog_close_on_escape` half of the same state.
 var _capturing_id := -1
 
-## Shortcuts that exist but have no menu row to read them from. Each carries
-## the file that owns it, so a reader can check the claim rather than trust it.
+## Shortcuts that exist but have no menu row to read them from. The fourth
+## column is where the row's action happens, in the user's own words -- it
+## used to be the developer file name that owns the binding
+## (`layers_popover.gd`, `viewport_host.gd`, `app.gd`), which a reader here
+## has no way to act on. That provenance still lives in this comment for
+## anyone auditing the claim.
 ##
 ## `PARITY_AUDIT.md` §20 records the layer digits as an open owner decision --
 ## *"F10 — layer hotkeys `1–8` vs the reference's `0 B T F S W R`"*, unmade for
 ## three passes. Listing them here does not settle that; it makes the current
 ## answer visible, which is the first thing a decision needs.
 const UNLISTED: Array = [
-	["Map view", "1 – 8", "Switch the active layer (Layers popover)", "layers_popover.gd"],
-	["Map view", "Space", "Hold to pan the map", "viewport_host.gd"],
-	["Map view", "Esc", "Cancel the active tool or close the top sheet", "app.gd"],
-	["Map view", "Delete / Backspace", "Remove the selected item", "app.gd"],
-	["Civilization", "Shift+J", "Open the Journey planner", "app.gd"],
+	["Map view", "1 – 8", "Switch the active layer", "Layers popover"],
+	["Map view", "Space", "Hold to pan the map", "the map view"],
+	["Map view", "Esc", "Cancel the active tool or close the top sheet", "the main window"],
+	["Map view", "Delete / Backspace", "Remove the selected item", "the main window"],
+	["Civilization", "Shift+J", "Open the Journey planner", "the main window"],
 ]
 
 func setup(app: Node) -> void:

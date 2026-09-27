@@ -3895,8 +3895,9 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 	if bridge.world_gen != null and bridge.world_gen.has_method("get_seed"):
 		DccWidgets.modal_stat(stats, "seed", str(bridge.world_gen.get_seed()))
 	else:
+		## Names the missing `get_seed()` binding.
 		DccWidgets.modal_stat_absent(stats, "seed",
-			"this binary exposes no get_seed()")
+			"this build of the app can't read the world's seed")
 	if current_project_path == "":
 		DccWidgets.modal_stat_absent(stats, "project file",
 			"this world has never been saved, so there is no project file yet")
@@ -3906,8 +3907,9 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 	## in `EngineBridge` counts edits: `world_dirty` is a boolean and
 	## `mark_world_dirty()` sets it rather than incrementing anything. A number
 	## here would be invented, which is the one outcome worse than a dash.
+	## `EngineBridge.world_dirty` is a boolean, not a count.
 	DccWidgets.modal_stat_absent(stats, "edits since save",
-		"no edit counter exists — EngineBridge.world_dirty is a boolean, not a count")
+		"no edit counter exists -- the app only tracks whether anything changed, not how much")
 	if _last_autosave_at != "":
 		DccWidgets.modal_stat(stats, "last autosave", _last_autosave_at)
 	else:

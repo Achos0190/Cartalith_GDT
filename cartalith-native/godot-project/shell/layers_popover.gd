@@ -99,11 +99,11 @@ const GAP_LAYERS := {
 	## the following pass, so the two lines of this tooltip now agree.
 	## `sample_bridge.rs` names the real gap -- the estimator runs but its field
 	## is integrated away to one total, so no drawable raster is retained.
+	## Names `civ_regional_population()`, the binding that runs the estimator.
 	"popdensity":
 		"Never available: a missing composite. The per-cell estimator does " +
-		"exist and civ_regional_population() runs it, but that binding " +
-		"integrates the field away to a single total -- nothing keeps it as a " +
-		"drawable raster.",
+		"exist and does run, but the result is combined down to a single " +
+		"total -- nothing keeps it as a drawable raster.",
 	## `sample_bridge.rs:698`, the `LAYER_GROUPS` `"siteprofile"` hint -- "the
 	## flood + slope buildability composite has no Rust equivalent beyond its
 	## two inputs individually". Those two inputs are rows of their own here:

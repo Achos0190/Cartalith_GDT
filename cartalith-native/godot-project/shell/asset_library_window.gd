@@ -229,7 +229,9 @@ const SZ_SWATCH := 20
 
 ## The disclosure the family rail used to spend 90 px of prose on. Same words,
 ## now on the FAMILIES band's tooltip so the rail can look like the canvas.
-const FAMILIES_NOTE := "Nine families: the reference engine's eight, frozen, plus this port's Sea marks (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
+## Backed by `cartalith-assets::slots`/`library` and `AssetDB::slots_in_family`;
+## the eight-vs-24 count is recorded in `ASSET_LIBRARY_SCOPE.md` §1.
+const FAMILIES_NOTE := "Nine families: the reference engine's eight, frozen, plus this port's own Sea marks -- not the design mockup's 24. The mockup subdivides more finely (splitting, for example, \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); nothing in this build draws that finer split. Capacity and fill counts shown here are both real."
 
 ## **One string for both compositions, and it lists exactly what
 ## `_slot_matches()` looks at.** The two wells carried different placeholders
@@ -1418,7 +1420,8 @@ func _build_family_rail() -> Control:
 	## same distinction `remove_custom_slot`/`batch_delete` already draw
 	## between a slot and its collection membership.
 	_delete_collection_btn = _text_button(cgp_row, "Delete…", _on_delete_collection)
-	_delete_collection_btn.tooltip_text = "Select a collection below, then Delete… to remove the grouping (as_drop_collection). The assets inside it are untouched -- this only ungroups them."
+	## Backed by `as_drop_collection` (`ops_bridge.rs`).
+	_delete_collection_btn.tooltip_text = "Select a collection below, then Delete… to remove the grouping. The assets inside it are untouched -- this only ungroups them."
 	_build_unassigned_row(body)
 	_collections_rail_body = VBoxContainer.new()
 	_collections_rail_body.add_theme_constant_override("separation", 0)
@@ -1618,7 +1621,8 @@ func _build_unassigned_row(parent: Control) -> void:
 	btn.add_theme_stylebox_override("normal", DccTheme.empty())
 	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
-	btn.tooltip_text = "Imports made with no slot focused land here (as_add_custom_slot, set \"%s\"). Drag a tile onto a Collections row, or Rename… it, to organise it from here." % UNASSIGNED_SET
+	## Backed by `as_add_custom_slot`.
+	btn.tooltip_text = "Imports made with no slot focused land here, set \"%s\". Drag a tile onto a Collections row, or Rename… it, to organise it from here." % UNASSIGNED_SET
 	btn.pressed.connect(_select_unassigned)
 
 	var row := HBoxContainer.new()
@@ -1814,8 +1818,9 @@ func _on_delete_collection() -> void:
 	if members >= 0:
 		DccWidgets.modal_stat(stats, "members", str(members))
 	else:
+		## Names the missing `as_collections()` binding.
 		DccWidgets.modal_stat_absent(stats, "members",
-			"this binary exposes no as_collections(), so the membership is unreadable")
+			"this build of the app can't read collection membership")
 	DccWidgets.modal_foot(card["body"],
 		"the assets in it are not deleted — only the grouping is")
 	DccWidgets.modal_choices(card, {
@@ -2039,7 +2044,9 @@ func _build_slot_grid() -> Control:
 	## Said plainly, and without claiming an impossibility that is not one.
 	var drop_hint := DccTheme.mono_label("drag a tile onto a Collection to add it",
 		"text_faint", DccTheme.FS_TINY)
-	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row (as_batch_collect). Dropping a file from outside Godot onto a slot is not wired: an OS file drop arrives at Window.files_dropped, not at the slot's own _can_drop_data/_drop_data, so filling a slot that way needs the window to hit-test the drop point against the grid -- a real, unscheduled job, not an impossibility. Use Import image… meanwhile."
+	## `as_batch_collect` backs the tile-drag path; `Window.files_dropped` fires
+	## for an OS file drop but nothing hit-tests it against the grid slots yet.
+	drop_hint.tooltip_text = "Real: drag one or more selected tiles onto a Collections-rail row. Dropping a file from outside the app straight onto a slot is not wired up yet -- that needs the drop point matched against the grid, a real but unscheduled piece of work, not an impossibility. Use Import image… meanwhile."
 	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
 	## PH-12: both foot hints describe pointer modifiers. `⇧-click ranges ·
 	## Ctrl-click adds` has no touch equivalent at all, and the drop hint's
@@ -2848,7 +2855,8 @@ func _build_inspector() -> Control:
 		## The per-family reason is written in `_refresh_inspector` below; this
 		## is the one it carries before anything is selected, so the row never
 		## renders as three greyed chips with nothing to say (2026-08-25 sweep).
-		chip.tooltip_text = "Anchor is fixed by the family (cartalith-assets::Family), not a per-slot setting. Select a slot to see which of the three its family uses."
+		## Backed by `cartalith-assets::Family`.
+		chip.tooltip_text = "Anchor is fixed by the family, not a per-slot setting. Select a slot to see which of the three its family uses."
 		_insp_anchor_chips[String(entry[1])] = chip
 
 	var tag_row := _insp_row(rows, "Tags")
@@ -3034,7 +3042,8 @@ func _refresh_inspector() -> void:
 		var chip: Button = _insp_anchor_chips[key]
 		var on: bool = key == real_anchor
 		_set_segment_on(chip, on)
-		chip.tooltip_text = "Anchor is fixed by the family (cartalith-assets::Family), not a per-slot setting -- %s is %s." % [
+		## Backed by `cartalith-assets::Family`.
+		chip.tooltip_text = "Anchor is fixed by the family, not a per-slot setting -- %s is %s." % [
 			String(fam.get("title", fam_key)), real_anchor]
 
 	# -- tags -----------------------------------------------------------------
@@ -3045,9 +3054,11 @@ func _refresh_inspector() -> void:
 	for t in tags:
 		var tc := _segment(_insp_tags, String(t), Callable())
 		tc.disabled = true
-		tc.tooltip_text = "Tags are added in batch (as_batch_tag); removing one has no binding yet."
+		## Backed by `as_batch_tag`.
+		tc.tooltip_text = "Tags are added in batch; removing one has no binding yet."
 	var add_tag := _segment(_insp_tags, DccIcons.SYMBOLS["add"], func(): _on_tag_focused())
-	add_tag.tooltip_text = "Add tag(s) to this slot (as_batch_tag on the focused slot)."
+	## Backed by `as_batch_tag` on the focused slot.
+	add_tag.tooltip_text = "Add tag(s) to this slot."
 
 	# -- disclosure note ------------------------------------------------------
 	if item_count == 0:
@@ -3201,17 +3212,20 @@ func _on_clear_library() -> void:
 	if totals.has("items"):
 		DccWidgets.modal_stat(stats, "items", str(totals["items"]))
 	else:
+		## Names the missing `as_pack_info()`/`total_items` binding.
 		DccWidgets.modal_stat_absent(stats, "items",
-			"this binary's as_pack_info() returns no total_items")
+			"this build of the app can't read the item total")
 	DccWidgets.modal_stat(stats, "filled slots",
 		"%d / %d" % [totals["filled"], totals["slots"]])
 	if totals.has("collections"):
 		DccWidgets.modal_stat(stats, "collections", str(totals["collections"]))
 	else:
+		## Names the missing `as_collections()` binding.
 		DccWidgets.modal_stat_absent(stats, "collections",
-			"this binary exposes no as_collections()")
+			"this build of the app can't read the collection count")
+	## Nothing in the asset library engine code tracks a byte size.
 	DccWidgets.modal_stat_absent(stats, "on disk",
-		"nothing in cartalith-assets reports a byte size for the library")
+		"the library doesn't track a byte size for itself")
 	DccWidgets.modal_foot(card["body"],
 		"the PNGs you imported from are not touched — this library is an index"
 		+ " and rebuilds by re-importing them")
@@ -3596,7 +3610,8 @@ func _build_slicer_modal() -> void:
 	_slicer_summary = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
 	_slicer_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_slicer_summary.custom_minimum_size.x = W_SLICER_SIDE - 32
-	_slicer_summary.tooltip_text = "Every control here is live. The grid, the cell detection and the slice itself all run in the engine (cartalith-assets::slicer, a port of the reference's SpriteSheetImporter); the overlay draws the exact rectangles the slice will cut. Slicing is non-destructive -- the sheet stays loaded, so you can re-slice it with different settings."
+	## Backed by `cartalith-assets::slicer`, a port of the reference's SpriteSheetImporter.
+	_slicer_summary.tooltip_text = "Every control here is live. The grid, the cell detection and the slice itself all run in the engine; the overlay draws the exact rectangles the slice will cut. Slicing is non-destructive -- the sheet stays loaded, so you can re-slice it with different settings."
 	side.add_child(_slicer_summary)
 
 	var foot := HBoxContainer.new()

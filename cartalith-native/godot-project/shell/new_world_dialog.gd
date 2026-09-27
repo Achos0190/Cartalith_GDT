@@ -470,9 +470,12 @@ func _build(body: VBoxContainer) -> void:
 	aspect_input = DccWidgets.choice(size_sec, "Aspect", aspect_labels, ASPECT_DEFAULT_INDEX,
 		func(_i: int): _refresh_dimensions(),
 		"The frame's width:height. The reference has no aspect control -- it hardcodes 2:1 in world mode and 1.5625:1 otherwise; both are here by name.")
+	## Set only at creation time, not saved as an editable setting afterwards:
+	## it is a call argument to the engine's `generate_sized()`, not a stored
+	## parameter.
 	grid_h_input = DccWidgets.number(size_sec, "Grid rows", GRID_MIN, GRID_MAX, 1, 1311,
 		_on_grid_h_changed,
-		"A call argument to generate_sized(), not a stored parameter: changing it reallocates every field in the pipeline.")
+		"Fixed once the world is created. Changing it reallocates every field the generator produces, so it can only be set here, not edited afterwards.")
 
 	_build_derived_panel(width_parent)
 	dimension_warning_label = DccWidgets.note(res_parent, "")

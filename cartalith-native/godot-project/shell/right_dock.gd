@@ -293,12 +293,15 @@ const SAMPLE_FIELDS := [
 		"tip": "Real ground angle, from the central-difference gradient of the height field at this cell (O(1), no slope raster). The parenthesised figure is slopeAt*GW, the engine's own resolution-independent unit -- the one build_settlement_suitability and buildCartTerrain threshold against."},
 	{"label": "Aspect", "key": "aspect_deg",
 		"tip": "Downslope bearing (the direction the ground faces), from the same gradient. New work: the reference's aspectFactor is a shading scalar, not a bearing, so no parity claim is made. Reads — on perfectly flat ground, where aspect is undefined."},
+	## `WorldState::plate_id` and the sign of `crust_field`.
 	{"label": "Plate + type", "key": "plate",
-		"tip": "WorldState::plate_id, with oceanic/continental from the sign of crust_field (plateCrust() < 0 is oceanic)."},
+		"tip": "Which tectonic plate this cell sits on, and whether that plate is oceanic or continental crust."},
+	## `WorldState::boundary_type` and an expanding-ring search over `boundary_mask`.
 	{"label": "Boundary + distance", "key": "boundary_type",
-		"tip": "WorldState::boundary_type at this cell, plus the Euclidean distance to the nearest boundary_mask cell by expanding-ring search. The search is capped at 96 cells so a world with no tagged boundary cannot turn one mouse-move into a full-grid scan; past that it says so rather than reporting a number."},
+		"tip": "What kind of plate boundary is nearest this cell, and roughly how far away it is. The search only looks up to 96 cells out, so a world with no tagged boundary nearby says so instead of guessing a distance."},
+	## `WorldState::resistance_field`, the erosion-resistance input.
 	{"label": "Resistance", "key": "resistance",
-		"tip": "WorldState::resistance_field -- the erosion-resistance input, retained since the lithology port needed it."},
+		"tip": "How resistant the ground here is to erosion, kept from the older lithology model."},
 	{"label": "Lithology", "key": "lithology",
 		"tip": "The LEGACY label: buildLithology() evaluated at this one cell, from the finished (eroded) terrain and present rainfall. The civilisation layer still reads it until the geology build's final milestone. It is not the rock model -- see Rock (surface) below. Strictly per-cell, so it is called on one-element slices rather than restating any of its golden-tested branches here."},
 	## GF-1 (`GEOLOGY_FIRST_SCOPE.md` §9 Q3): the rock model's rows. Each key is
@@ -315,18 +318,24 @@ const SAMPLE_FIELDS := [
 		"tip": "Whether the exposed rock dissolves (karst: limestone only), and its permeability class."},
 	{"label": "Regolith", "key": "regolith_m",
 		"tip": "Unconsolidated material on bedrock, in metres. 0 m is a real reading: bare rock. Deposition does not write it yet, so every cell reads bare rock in this build."},
+	## `WorldState::temperature`, degrees Celsius.
 	{"label": "Temperature", "key": "temperature_c",
-		"tip": "WorldState::temperature, degrees Celsius."},
+		"tip": "Air temperature at this cell, in degrees Celsius."},
+	## `WorldState::rainfall`, the engine's normalised [0,1] moisture.
 	{"label": "Precipitation", "key": "precipitation",
-		"tip": "WorldState::rainfall, the engine's normalised [0,1] moisture -- not millimetres, which this port's climate model never computes."},
+		"tip": "How much rain this cell gets, on a 0-1 scale rather than millimetres -- this port's climate model never computes an actual rainfall depth."},
+	## `WorldState::flow_discharge` and its Strahler order from `stream_order`.
 	{"label": "Drainage", "key": "drainage",
-		"tip": "WorldState::flow_discharge (upstream accumulation), with the Strahler order from stream_order when river extraction ran."},
+		"tip": "How much water flows through this cell, with the stream's Strahler order (a measure of how major a river branch it is) once river tracing has run."},
+	## `CivData::water_bodies` for ocean/lake, else `classifyBiome(temperature, rainfall)`.
 	{"label": "Biome", "key": "biome",
-		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24), which lacks the fields this reading needs."},
+		"tip": "The biome at this cell (ocean, lake, or classified from temperature and rainfall). Dashes -- on a world opened from a save missing its hydrology and tectonic data (an older save file, or a project saved before 2026-09-24), which this reading needs."},
+	## `buildSoilFertility()`, per-cell.
 	{"label": "Soil", "key": "soil",
-		"tip": "buildSoilFertility() at this one cell, over the same one-element-slice call the Lithology row uses."},
+		"tip": "Soil fertility at this one cell."},
+	## `CivData::territory` -- `assign_territory()`'s owner per cell, 0 = unowned.
 	{"label": "Control", "key": "control",
-		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a world opened from a save without its hydrology and tectonic rasters (a legacy .zip, or a project saved before 2026-09-24)."},
+		"tip": "Which faction controls this cell, if any. Dashes -- on a world opened from a save missing its hydrology and tectonic data (an older save file, or a project saved before 2026-09-24)."},
 ]
 
 ## `05-right-dock-and-bars.md` §1.4's footnote, verbatim: *"fields owned by
@@ -386,7 +395,8 @@ const SAMPLE_STAGE := {
 
 ## `Nearest`'s own tip, named because both `_build_sample()` and
 ## `on_cursor_sampled()` compose the staleness reason onto it.
-const _NEAREST_TIP := "Computed here from get_settlements()'s x/y against the cursor cell."
+## Computed here from each settlement's x/y position against the cursor cell.
+const _NEAREST_TIP := "The closest settlement to the cursor's cell, computed on the fly, not stored."
 
 var app: DccApp
 var bridge: EngineBridge
@@ -1961,10 +1971,10 @@ func _build_sample(body: Control) -> void:
 		"The raster index every other row in this panel is read at, X then Y. " +
 		"Live once the cursor is over a generated map.", true, true)
 
+	## `WorldState::field` through `metersPerUnit()`'s anchoring (1 - seaLevel maps to peak altitude).
 	_sample_elev = _accent_readout(sec, "Elevation", "—",
-		"Metres above sea level at the cursor cell, from WorldState::field through " +
-		"metersPerUnit()'s own anchoring (1 - seaLevel maps to peak altitude). " +
-		"Negative below the waterline, which is the honest reading for an ocean cell.",
+		"Metres above sea level at the cursor cell. Negative below the waterline, " +
+		"which is the honest reading for an ocean cell.",
 		true)
 
 	## §1.4's staleness gate. Read once for the whole panel -- `_stale_now()`
@@ -2005,18 +2015,20 @@ func _build_sample(body: Control) -> void:
 	## both were simply absent rather than disclosed (2026-08-20 menu-structure
 	## audit). Drawn as permanently-dashed rows with their real reason, the
 	## same shape every other unavailable field in this panel already takes.
+	## The Journey Planner's own route-cost solver (`jp_plan`, per-leg, over a
+	## chosen party and season) -- no per-cell traversal cost is computed or exposed.
 	_field(sec, "Route cost", "—",
-		"§6 lists it; nothing computes a per-cell traversal cost. cartalith-civ's route " +
-		"cost lives inside the Journey Planner's own Dijkstra (jp_plan) and is per-LEG, " +
-		"over a chosen party and season -- it has no meaning at one cell with no journey " +
-		"around it, and no #[func] evaluates the cost surface pointwise. Plan a journey " +
+		"Not available at a single cell -- travel cost only has meaning for an " +
+		"actual journey, with a party and a season. Plan a journey " +
 		"(Data ▸ Journey planner, ⇧J) for the real figure.", false)
+	## Every input exists (a per-cell reader covers any cell), but there is no
+	## call to fetch a whole row of cells at once, and one call per column per
+	## mouse-move (1 000-4 000 crossings per frame at working resolution) is too
+	## slow to draw live. A real gap in the native binding, not in the data.
 	_field(sec, "E–W profile", "—",
-		"§6's elevation profile through the cursor's row. Every input exists -- sample_cell " +
-		"reads any cell -- but drawing it means one call per column on every mouse move " +
-		"(1 000-4 000 boundary crossings per frame at working resolution), and there is no " +
-		"row-slice #[func] to fetch the whole scanline in one call. A real gap in the " +
-		"binding surface, not in the data.", false)
+		"Not available -- drawing an elevation profile across the row would need " +
+		"reading every cell in it on every mouse move, which this build cannot do " +
+		"fast enough to keep live.", false)
 
 	if not valid:
 		DccWidgets.note(sec, "No world generated -- every field goes live once one exists.")
@@ -2168,14 +2180,18 @@ func _build_settlement(body: Control) -> void:
 				if why.is_empty() else
 			"This settlement's suitability terms carry no water_access entry for this cell."),
 		water != "")
+	## The siting model's suitability terms have no defensibility axis; gentle
+	## slope and terrain form are the closest inputs but neither is labelled
+	## defensibility.
 	_field(sec, "Defensibility", "—",
-		"explain_settlement()'s suitability terms have no defensibility axis -- " +
-		"gentle_slope/terrain_form are the closest inputs but the engine doesn't " +
-		"label either one defensibility.", false)
+		"Not scored -- this world's settlement-siting model has no separate " +
+		"defensibility measure.", false)
+	## Roads and sea routes are plain polylines with no settlement index, so
+	## nothing associates a route with a particular settlement (tracked in
+	## STRANDED_TOOLS.md row 11).
 	_field(sec, "Routes", "—",
-		"Roads and sea routes carry no settlement index (get_roads()/get_sea_routes() " +
-		"are plain polylines) -- nothing associates a route with this settlement. " +
-		"STRANDED_TOOLS.md row 11.", false)
+		"Not available -- roads and sea routes are not linked back to the " +
+		"settlements they connect.", false)
 
 	## RD-03: all three destinations now exist, so these are live rather than
 	## disabled placeholders. Economy opens `world_data_window`'s own Economy
@@ -2243,21 +2259,19 @@ func _build_settlement(body: Control) -> void:
 ##   `_build_faction` rows already carry for the same miss.
 func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 	if faction_id <= 0:
+		## The engine reports faction 0 as its "unclaimed" sentinel.
 		_field(sec, "Faction", "—",
-			"This settlement is not claimed by any faction: get_settlements() reports "
-			+ "faction 0, the engine's own 'unclaimed' sentinel, and there is no roster "
-			+ "entry to name. Generate or extend territory to give it an owner.", false)
+			"This settlement is not claimed by any faction. " +
+			"Generate or extend territory to give it an owner.", false)
 		return
 	var roster := _faction_roster(faction_id)
 	var fname := String(roster.get("name", ""))
 	if fname == "":
+		## The settlement's faction id has no matching entry in the faction
+		## roster -- an owner outside the roster, not an absent one.
 		_field(sec, "Faction", "—",
-			("This settlement reports faction %d, and get_factions() has no row "
-				+ "with that id -- the settlement's owner is outside the roster, "
-				+ "not absent. Corrected 2026-09-05: this said \"generate a world "
-				+ "first\", copied from _build_faction where that CAN be true; a "
-				+ "verifier rendered it on a fully generated world holding six "
-				+ "factions.") % faction_id,
+			("This settlement's owning faction (id %d) is not in the faction " +
+				"list -- its owner exists but cannot be named here.") % faction_id,
 			false)
 		return
 	_field(sec, "Faction", fname)
@@ -2312,10 +2326,11 @@ func _settlement_faction_row(sec: Control, faction_id: int) -> void:
 ## bar's.
 func _build_settlement_faith(body: Control, snapshot: Dictionary) -> void:
 	if not bridge.has_belief_api():
+		## No `civ_belief_run()` binding in this build's native library.
 		_faith_absent(body,
-			"This build's engine has no civ_belief_run() binding -- the native library is "
-			+ "older than this shell, so nothing here can report a religion. That is a build "
-			+ "state, not a world with no faiths in it: rebuild and re-export.")
+			"This build's engine is older than this shell and cannot report religion " +
+			"yet. That is a build state, not a world with no faiths in it -- rebuild " +
+			"and re-export the native library.")
 		return
 	var live := _live_settlement(snapshot)
 	if live.is_empty():
@@ -2876,8 +2891,9 @@ func _build_conflict_manpower(body: Control, id: int, no_sides: bool) -> void:
 			_field(g, "Manpower", "—",
 				"This world has no manpower row for faction %d (no civilisation layer, or the roster no longer has it)." % int(row.get("faction", 0)), false)
 			continue
+		## The manpower model's first output.
 		_field(g, "Standing army", _thousands(float(row["standing_army"])),
-			"Continuously maintained under arms (manpower.rs output 1).", true, true)
+			"Continuously maintained under arms.", true, true)
 		_field(g, "Field army", _thousands(float(row["field_army"])),
 			"Concentrable in one place and feedable there (output 2).", true, true)
 		_field(g, "Emergency levy", _thousands(float(row["emergency_mobilization"])),
@@ -2960,10 +2976,12 @@ func _build_route(body: Control) -> void:
 
 	var unreachable := ["Stages", "Vessels", "Cost trace", "Per-stage overrides", "Daily stages"]
 	for f in unreachable:
+		## Roads and sea routes only carry their geometry, type, name and length;
+		## the manual-route authoring data that would supply this has no read
+		## path back out to this panel (tracked in STRANDED_TOOLS.md row 11).
 		_field(sec, f, "—",
-			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name, km, manual} -- " +
-			"the manual-route authoring context (ManualWay/RouteContext, tools.rs) that " +
-			"would supply this has no read surface. STRANDED_TOOLS.md row 11.", false)
+			"Not available for a road or sea route -- only a hand-drawn journey " +
+			"carries this level of detail.", false)
 
 func _route_length_text(pts: PackedVector2Array) -> String:
 	if pts.size() < 2:
@@ -3006,93 +3024,85 @@ func _build_river(body: Control) -> void:
 	## §6's one big accent readout per context. Length, matching Route's --
 	## the two contexts describe the same kind of thing and the collapsed-dock
 	## readout is this same number.
+	## The sum of the traced run's cell-to-cell steps, converted to real
+	## distance. A river here is one drawable receiver chain, so a main stem is
+	## measured from its own headwater, not from every source that feeds it.
 	_accent_readout(sec, "Length", DccUnits.format_adaptive(float(_river.get("km", 0.0))),
-		"The traced run's own length: the sum of its cell-to-cell steps, in grid " +
-		"cells, times map_width_km / gw. A river here is one drawable receiver " +
-		"chain -- what drawRiverWays strokes as a single river -- so a main stem " +
-		"is measured from the headwater it was traced from, not from every source " +
-		"that eventually feeds it.")
+		"This river's traced length, from its headwater to where it was clicked.")
 
 	var order := int(_river.get("order", 0))
+	## Rivers have no name generator in this engine -- the feature-naming
+	## system covers continents, provinces, bays, mountain ranges and lakes,
+	## but has no river form, so there is no toponym to print.
 	_field(sec, "Name", "—",
-		"Rivers are unnamed in this engine, and that is a missing generator " +
-		"rather than a missing binding. cartalith-civ's naming::FeatureKind has " +
-		"Continent, Province, Bay, MountainRange and Lake -- no river form -- so " +
-		"there is no toponym to print and inventing one here would put a name on " +
-		"the map that nothing else in the world knows about.", false)
+		"Rivers are not named in this build -- inventing one here would put a " +
+		"name on the map that nothing else in the world knows about.", false)
+	## The Strahler order, rescanned over every cell of this run and reported
+	## as its maximum, which also decides the drawn stroke's colour. A
+	## tributary's last point is its trunk's junction cell, so a short
+	## tributary can report its trunk's order.
 	_field(sec, "Order", "Strahler %d" % order,
-		"strahler_from_receivers, rescanned over every cell of this run and " +
-		"reported as its maximum -- drawRiverWays' own maxO, which is also what " +
-		"colours the reference's stroke. A tributary's last point is its trunk's " +
-		"junction cell, so a short tributary can report its trunk's order.")
+		"How major a branch this river is in its drainage network (the Strahler " +
+		"stream-order scale) -- also what colours it on the map.")
 	_field(sec, "Source elevation", _m_text(float(_river.get("source_m", 0.0))),
-		"Metres at the headwater cell this run was traced from, through the same " +
-		"metersPerUnit anchoring the Sample panel's elevation uses. The row under " +
+		"Metres at the headwater cell this run was traced from. The row under " +
 		"it is the fall from there to the mouth.")
+	## Negative is possible and is not a bug: the traced chain follows an
+	## aspect-projected receiver, and the later carve pass moves the height
+	## field under it.
 	_field(sec, "Fall", _m_text(float(_river.get("drop_m", 0.0))),
-		"Source elevation minus mouth elevation. Negative is possible and is not " +
-		"a bug: the traced chain follows build_channels' aspect-projected " +
-		"receiver, and the carve pass moves the field under it afterwards.")
+		"Source elevation minus mouth elevation.")
+	## Deliberately the maximum flow accumulation on the run, not the value at
+	## the mouth: the polyline follows one receiver tree and the accumulation
+	## was built on another, so discharge is not monotone downstream. Measured
+	## on a 192x144 world, 194 of 773 runs peak above their own mouth -- the
+	## mouth reading is the row below.
 	_field(sec, "Discharge", "%s" % _thousands(float(_river.get("discharge", 0.0))),
-		"The largest flow accumulation on the run (WorldState::flow_discharge, " +
-		"compute_flow with rainfall seeding). Deliberately the maximum, not the " +
-		"value at the mouth: the polyline follows one receiver tree and the " +
-		"accumulation was built on another, so discharge is not monotone " +
-		"downstream. Measured on a 192x144 world, 194 of 773 runs peak above " +
-		"their own mouth -- the mouth reading is the row below.")
+		"This river's largest flow reading anywhere along its traced run, which " +
+		"can be higher than the reading right at its mouth (see the row below).")
 	_field(sec, "At the mouth", "%s" % _thousands(float(_river.get("mouth_discharge", 0.0))),
 		"Flow accumulation at the outlet cell specifically -- what leaves this " +
 		"river. See the Discharge row for why the two differ.")
+	## The Discharge reading as an area. Rainfall-weighted, not a plain cell
+	## count, so a wetter-than-average basin reads larger than its true area
+	## and a drier one smaller; an unweighted area would need a second
+	## whole-grid flow pass, too costly to run on a dock rebuild.
 	_field(sec, "Catchment", DccUnits.format_area(float(_river.get("catchment_km2", 0.0))),
-		"The Discharge reading as an area, at this world's cell size. It is " +
-		"rainfall-WEIGHTED, not a plain cell count: compute_flow seeds each cell " +
-		"with its rainfall rescaled so the mean seed is exactly 1.0, so a wetter- " +
-		"than-average basin reads larger than its true area and a drier one " +
-		"smaller. A true unweighted area needs a second whole-grid compute_flow " +
-		"pass -- the measured hottest line in generate() -- which is not " +
-		"something to run on a dock rebuild.")
-	## **"Channel (drawn)", not "Channel width".** The number is twice
-	## `channel_disc`'s half-width -- the width of the ink `stamp_river_intensity`
-	## lays down -- and `river_width_scale_k` deliberately grows it as the map's
-	## real extent shrinks, so a river stays visible on a zoomed-in sheet. On an
-	## 800 km / 192-cell world that is ~1.9 cells, which converts to ~8 km: true
-	## of the drawn channel, absurd of a river. Both units are printed, cells
-	## first, and the row is named for what it measures.
+		"The drainage area feeding this river, weighted by rainfall rather than " +
+		"a plain cell count -- so a wetter basin reads larger than its true area.")
+	## **"Channel (drawn)", not "Channel width".** The number is twice the
+	## drawing law's half-width, the width of the ink the map's river renderer
+	## lays down, and it deliberately grows as the map's real extent shrinks so
+	## a river stays visible on a zoomed-in sheet. On an 800 km / 192-cell
+	## world that is ~1.9 cells, which converts to ~8 km: true of the drawn
+	## channel, absurd of a river. Both units are printed, cells first, and the
+	## row is named for what it measures.
 	if _river.has("width_cells"):
 		var wc := float(_river["width_cells"])
 		var km := _cell_km()
 		var span := ("%.2f cells" % wc) if km <= 0.0 else \
 			("%.2f cells · %s" % [wc, DccUnits.format_adaptive(wc * km)])
 		_field(sec, "Channel (drawn)", span,
-			"How wide this river is DRAWN at its lowest own cell (its mouth, or for a " +
-			"tributary the cell above the confluence), in grid cells: twice " +
-			"channel_disc's half-width, the same law stamp_river_intensity inks the " +
-			"map with. It is a cartographic symbol, not a hydraulic measurement -- " +
-			"river_width_scale_k widens it as the map's real extent shrinks, on " +
-			"purpose, so a river stays legible on a 50 km sheet. The converted " +
-			"figure beside it is the ground distance that symbol covers, which is " +
-			"why it reads in whichever unit Preferences ▸ Units is set to.")
+			"How wide this river is drawn on the map, not a real hydraulic " +
+			"measurement -- it is widened on purpose so a river stays legible " +
+			"even on a zoomed-out sheet. The converted figure is the ground " +
+			"distance that drawn width covers.")
 	else:
 		_field(sec, "Channel (drawn)", "—",
-			"The width law (channel_disc) needs positive flow at the cell it is " +
-			"asked about, and this run's mouth carries none.", false)
+			"Not available -- this run's mouth has no measurable flow to size a " +
+			"drawn width from.", false)
+	## Exact, not estimated: a traced run stops at the first already-visited
+	## cell and records that shared cell as its last point, so a tributary's
+	## mouth is always a cell of its trunk.
 	_field(sec, "Tributaries", str(int(_river.get("tributaries", 0))),
-		"Traced runs that end on a cell of this one. Exact, not estimated: " +
-		"trace_river_polylines stops a run at the first already-visited cell and " +
-		"pushes that shared cell as its last point, so a tributary's mouth IS a " +
-		"cell of its trunk.")
-	## The engine's own barge/raft gate, not a display convention:
-	## `civ_navigable_river_discount` (reference `_civNavigableRiverDiscount`,
-	## ~line 20951) discounts travel cost only at Strahler >= 3, and the routing
-	## layer is the one consumer of it. The discount *curve* stays private to
-	## `cartalith-civ`; only the threshold is stated here, and it is stated
-	## rather than silently applied.
+		"Traced runs that end on a cell of this one.")
+	## The engine's own barge/raft gate, not a display convention: Strahler
+	## order 3 and above is treated as navigable and discounts travel cost
+	## across it; below 3 there is no discount. This row states the threshold;
+	## the discount curve itself stays private to the routing cost.
 	_field(sec, "Navigation", "Navigable" if order >= 3 else "Not navigable",
-		"cartalith-civ's civ_navigable_river_discount (the reference's " +
-		"_civNavigableRiverDiscount) treats Strahler order 3 and above as barge- " +
-		"or raft-navigable and discounts travel cost across it; below 3 there is " +
-		"no discount. This row states that threshold -- the discount itself is " +
-		"private to the routing cost and is not exposed.")
+		"Rivers of this order or larger are treated as barge- or raft-navigable " +
+		"and make travel across them cheaper for routing; smaller ones are not.")
 
 	var actions := DccWidgets.group(sec, "Actions")
 	## **Two actions, not three.** The "Hydrology" action that stood here was
@@ -3105,13 +3115,14 @@ func _build_river(body: Control) -> void:
 	## rewritten because both had gone false in the same way the audit's
 	## dangerous class describes -- a control disabled for a reason that no
 	## longer holds.
+	## A river's course is re-derived from the flow field on every call, and
+	## nothing writes an edited course back into that field, so a hand edit
+	## would be discarded the next time the river is traced.
 	var why := {
 		"Edit geometry":
-			"Would move the river's course. There IS a polyline now (get_rivers()' " +
-			"points), which is what this tooltip used to say there was not. What is " +
-			"still missing is the other half: the course is derived from the receiver " +
-			"tree on every call, and nothing writes an edited polyline back into the " +
-			"flow field it came from, so an edit would be discarded by the next trace.",
+			"Would let you move the river's course by hand. This river's shape " +
+			"comes from the terrain every time it is drawn, so an edit here " +
+			"would be lost the next time the map recomputes it.",
 		## The same missing input `landmark.rs` names for Portage (not River
 		## confluence, which is built): no labelled drainage-basin entity.
 		"Analyse catchment":
@@ -3147,9 +3158,9 @@ func _build_landmark(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Landmark")
 	var lm := _landmark
 	var key := String(lm.get("kind", ""))
+	## The engine's own label for landmark kind key '%s'.
 	_accent_readout(sec, "Kind", _landmark_label(key),
-		"The landmark type this placement is -- the engine's own label for kind " +
-		"key '%s' (cartalith_civ::landmark::kinds())." % key)
+		"The landmark type this placement is (internal key: '%s')." % key)
 	_field(sec, "Class", String(lm.get("class", "")).capitalize(),
 		"LANDMARK_GENERATION_RESEARCH.md §23's hierarchy. On the map the ring's " +
 		"radius is the class: continental largest, local smallest.")
@@ -3302,20 +3313,21 @@ func _build_faction(body: Control) -> void:
 	## (`:432`, `:438`) both read *and* edit them. Named
 	## with that window's own labels rather than a second vocabulary for the
 	## same two fields. Found by the 2026-08-31 unwired audit.
+	## No entry in the faction list for this faction id.
 	if roster.is_empty():
 		_field(sec, "Culture", "—",
-			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+			"No data for faction %d -- generate a world first." % _faction_id, false)
 		_field(sec, "Government", "—",
-			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+			"No data for faction %d -- generate a world first." % _faction_id, false)
 		_field(sec, "Ag. technology", "—",
-			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+			"No data for faction %d -- generate a world first." % _faction_id, false)
 		## The same reason its three siblings carry, not an empty string. A
 		## ghosted row whose tooltip says nothing is indistinguishable from a
 		## control that is broken, and this one is neither -- the roster is
 		## simply empty until a world exists. Found by the 2026-09-01
 		## integration audit, which reported the empty argument twice.
 		_field(sec, "Settlements", "—",
-			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+			"No data for faction %d -- generate a world first." % _faction_id, false)
 	else:
 		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
 		## `capitalize()` is the same formatting `Culture` above uses, and it
@@ -3373,9 +3385,10 @@ func _build_faction(body: Control) -> void:
 	## Found by the 2026-08-31 unwired audit. Not stale WIRING -- a stale
 	## REASON, which `audit_wiring.py` structurally cannot see: every `#[func]`
 	## involved is called, and it is the tooltip that lies.
+	## No entry in the faction list for this faction id.
 	if roster.is_empty():
 		_field(sec, "State religion", "—",
-			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+			"No data for faction %d -- generate a world first." % _faction_id, false)
 	else:
 		var rel := String(roster.get("religion", "")).strip_edges()
 		## `"none"` is a real answer from `cartalith-civ`'s own vocabulary, not
@@ -3442,15 +3455,17 @@ func _build_faction_relations(body: Control) -> void:
 			counts[stance] = int(counts[stance]) + 1
 		_relation_row(sec, other, other_name, stance,
 			int(round(100.0 * float(d.get("value", 0.0)))), other == _faction_pair,
+			## The relationship stance word is a band over the combined score
+			## below, not a separately stored value.
 			"Border %d cells (%d%% of the widest on this map) · culture %+d · "
 			% [int(d.get("border_cells", 0)),
 				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
 				int(round(30.0 * float(d.get("culture_term", 0.0))))]
-			+ "faith %+d · trade %+d · rivalry %d%%. The stance is a band over the "
+			+ "faith %+d · trade %+d · rivalry %d%%. The stance label above is "
 			% [int(round(20.0 * float(d.get("religion_term", 0.0)))),
 				int(round(25.0 * float(d.get("trade_term", 0.0)))),
 				int(round(100.0 * float(d.get("rivalry_term", 0.0))))]
-			+ "score, not a stored field -- cartalith_civ::relations::stance_for().")
+			+ "just this score sorted into a named range, not a separate fact.")
 	_build_relation_balance(sec, counts, mine.size())
 
 ## One relation. The stance chip's word comes from the engine
@@ -3678,8 +3693,10 @@ func _build_measure_distance(body: Control) -> void:
 			"Click the map to drop points. ⌫ drops the last one, Esc clears the chain. Nothing here writes to the world -- a reading persists until you clear it.")
 		return
 	var sec := DccWidgets.section(body, "Measure · distance")
+	## Each leg measured through the same distance code every route length in
+	## this port uses.
 	_accent_readout(sec, "Total length", DccUnits.format(float(_measure_result.get("total_km", 0.0))),
-		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.",
+		"Summed leg by leg, in the same real-world distance scale every route uses.",
 		true)
 	DccWidgets.note(sec, "%d segment%s · %d points" % [
 		segments.size(), "" if segments.size() == 1 else "s",
@@ -4377,9 +4394,10 @@ func _build_region(body: Control) -> void:
 		_field(sec, "Origin",
 			"%d · %d cells" % [int(_region_result["x"]), int(_region_result["y"])])
 	else:
+		## The region lookup answered without an x/y position.
 		_field(sec, "Origin", "—",
-			"region_get() answered without x/y, so the marquee's corner is not "
-			+ "readable. The extent below is still exact.", false)
+			"The marquee's corner position is not readable. " +
+			"The extent below is still exact.", false)
 	_field(sec, "Extent",
 		"%d × %d cells" % [int(_region_result.get("w", 0)), int(_region_result.get("h", 0))])
 	_field(sec, "Extent (%s)" % DccUnits.suffix(),
@@ -5058,8 +5076,9 @@ func _build_wildlife(body: Control) -> void:
 		DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
 	var hero := DccTheme.hero("Ecoregion %d" % int(rec.get("id", 0)))
 	hero.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	hero.tooltip_text = ("Ecoregions are connected components of the biome grid and carry "
-		+ "no name -- wildlife_region_at() returns an id and no name field.")
+	## The wildlife-region lookup returns an id and no name field.
+	hero.tooltip_text = ("Ecoregions are connected areas of matching biome and " +
+		"have no proper name, only this number.")
 	sec.add_child(hero)
 	## `12 neighbouring regions` is dashed: `Ecoregions` holds `region_id` (the
 	## per-cell component map) but `wildlife_region_at()` returns one record and
@@ -5097,20 +5116,26 @@ func _build_wildlife(body: Control) -> void:
 	if bool(rec.get("rugged", false)):
 		meta += " · rugged"
 	_field(sec, "Setting", meta, "", true, true, 92)
+	## The ecoregion record aggregates productivity, ruggedness, water access
+	## and latitude, not elevation; a band would need a min/max height pass
+	## over the region's cells, which the native library does not expose.
 	_field(sec, "Elevation band", "—",
-		"No source: the ecoregion record aggregates NPP, ruggedness, water access and "
-		+ "latitude, not elevation. A band would need a min/max height pass over the "
-		+ "region's cells, which no #[func] exposes.", false, true, 92)
+		"Not available -- this region's data does not include an elevation range.",
+		false, true, 92)
+	## Per-cell sampling answers for one cell only, and this region spans many.
 	_field(sec, "Mean temp", "—",
-		"No source: the ecoregion record carries no climate aggregate. sample_cell() "
-		+ "answers for one cell, and this region spans %s." % (
+		"Not available -- this region's data has no climate average, only " +
+		"single-cell readings, and this region spans %s." % (
 			"%d cells" % int(rec.get("cells", 0))), false, true, 92)
 	_field(sec, "Precipitation", "—",
-		"No source, for Mean temp's reason: no per-region climate aggregate exists.",
+		"Not available, for the same reason as Mean temp: no region-wide climate " +
+		"average exists.",
 		false, true, 92)
+	## Soil class and drainage are per-cell fields (see the Sample panel), and
+	## the ecoregion record aggregates neither.
 	_field(sec, "Soil · drainage", "—",
-		"No source: soil class and drainage are per-cell fields (see SAMPLE_FIELDS), "
-		+ "and the ecoregion record aggregates neither.", false, true, 92)
+		"Not available -- soil and drainage are read per cell, not averaged " +
+		"across a region.", false, true, 92)
 	if String(rec.get("summary", "")) != "":
 		DccWidgets.note(sec, String(rec.get("summary", "")))
 
@@ -5492,9 +5517,11 @@ func _build_paint(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Paint · %s" % layer.capitalize())
 	var counts: Dictionary = bridge.paint_painted_counts()
 	var total := int(counts.get("total", 0))
+	## The composite of every committed dab plus whatever is still in the
+	## draft, for the active layer -- the same figure the left-dock Biome
+	## paint panel's own Legend group totals.
 	_accent_readout(sec, "Painted cells", _thousands(float(total)),
-		"paint_painted_counts() for the active layer -- the composite of every committed dab and whatever is " +
-		"still in the draft, the same figure the left-dock Biome paint panel's own Legend group totals.",
+		"How many cells have paint on this layer, committed and still-pending combined.",
 		true)
 	var pending := bridge.paint_draft_count()
 	DccWidgets.note(sec, "Nothing pending across any layer." if pending == 0 else
@@ -6090,13 +6117,15 @@ func _build_territory(body: Control) -> void:
 	var stats := bridge.civ_faction_territory_stats(_terr_faction)
 	if stats.is_empty():
 		_accent_readout(sec, "Claimed cells", "0",
-			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.")
+			"This faction has no committed territory yet.")
 		_field(sec, "Area", "—", "No committed territory to measure.", false)
 		_field(sec, "Contested", "—", "No committed territory to measure.", false)
 	else:
+		## Recomputed over the committed territory when the tool arms, and on
+		## every commit and discard, not per paint dab.
 		_accent_readout(sec, "Claimed cells", _thousands(float(stats.get("claimed_cells", 0))),
-			"civ_faction_territory_stats() over the committed territory raster -- redrawn at arm, commit and " +
-			"discard, not per paint dab (see this section's own header note).")
+			"Cells this faction has claimed. Updates when territory is committed " +
+			"or discarded, not with every brush stroke.")
 		_field(sec, "Area", DccUnits.format_area(float(stats.get("area_km2", 0.0))))
 		_field(sec, "Contested", str(int(stats.get("contested_cells", 0))), "Cells more than one faction has claimed.")
 
@@ -6135,11 +6164,11 @@ func _build_way(body: Control) -> void:
 	var is_way := _way_owner == "way"
 	var sec := DccWidgets.section(body, "Way draft" if is_way else "Route draft")
 	var pts := _way_draft.size()
+	## The draft lives in the native engine, which snaps each point before
+	## returning it; this is the copy kept for the canvas preview, handed over
+	## on every change.
 	_accent_readout(sec, "Waypoints" if is_way else "Stops", str(pts),
-		"Points placed in this draft. The draft itself lives in Rust " +
-		"(way_append_point / route_append_stop, which snap each point before " +
-		"returning); this is the copy infrastructure_workspace.gd keeps for the " +
-		"canvas preview, handed over on every change.")
+		"Points placed in this draft so far.")
 	_field(sec, "Length", _route_length_text(_way_draft),
 		"Straight-line total over the placed points, converted with this world's own " +
 		"map width -- not the reference's hardcoded 2.5 km cell. Not the committed " +
@@ -6147,10 +6176,12 @@ func _build_way(body: Control) -> void:
 		"a cell-by-cell path and not this straight chain.", true, true)
 	var grade := _way_max_grade()
 	if grade.is_empty():
+		## Elevation reads are omitted when there is no height field to read;
+		## this row dashes rather than printing a 0 that would look like flat
+		## ground.
 		_field(sec, "Grade · max", "—",
-			"Needs two points on distinct cells over a generated world -- sample_cell() " +
-			"omits elevation_m when there is no height field to read, and this row " +
-			"dashes rather than printing a 0 that would read as flat ground.", false, true)
+			"Needs two points on distinct cells over a generated world to compute.",
+			false, true)
 	else:
 		_field(sec, "Grade · max", "%.1f%%" % float(grade[0]),
 			"Steepest segment of the draft: |Δ elevation_m| over the ground distance " +
@@ -6158,10 +6189,11 @@ func _build_way(body: Control) -> void:
 			"is computed from the live height field instead. The committed way is routed " +
 			"cell by cell, so its own maximum will differ from this one.", true, true)
 	if is_way and _way_kind != "":
+		## A draft's way type is fixed for its whole lifetime, unlike the
+		## legacy reference, which re-read the chosen type at commit time.
 		_field(sec, "Surface", _way_kind,
-			"The way type this draft was begun with. Changing it restarts the draft: " +
-			"WayDraft::way_type is fixed for a draft's whole lifetime, unlike the " +
-			"reference, which re-read civWayType at commit time.", true, true)
+			"The way type this draft was begun with. Changing it restarts the draft.",
+			true, true)
 	DccWidgets.note(sec,
 		("Esc commits the way" if is_way else "Esc commits the route") +
 		" and leaves the tool armed; arming any other tool commits it too. Commit, " +
