@@ -1866,3 +1866,19 @@ new rendering method:
 
 Where the research flagged the existing `hachure` field's drawing as
 unverified, verify it before any preset relies on it.
+
+## 2026-09-27 — Ruling BJ: the geology-first scope's owner questions
+
+Answers to four questions in `GEOLOGY_FIRST_SCOPE.md`. Its other questions keep
+their defaults.
+
+- **Rock types: 11** (the scope's table).
+- **Painting lithology: yes, in this build.** Hand-painting rock types (like
+  biome painting) is part of BH, not a later GF-8. Erosion responds to the
+  painted rock.
+- **Coastal pass: on in the app at GF-4**, when cliff retreat starts
+  reading rock, so hard headlands and soft bays follow the geology.
+- **Time: add a simple clock.** Scope a geological-time parameter that scales
+  how far each process runs. This reverses the "no clock" default. The
+  2026-09-02 decline covered the erosion-time scope's larger design; the
+  owner now wants a simple one.
