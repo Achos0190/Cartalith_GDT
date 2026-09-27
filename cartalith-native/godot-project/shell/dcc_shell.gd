@@ -9073,10 +9073,70 @@ func _coach_mark_ids() -> Array:
 		out.append(String(m.get("id", "")))
 	return out
 
+## True from the moment a cold boot decides the coach marks must wait for
+## `phone_project_picker.gd`'s own entry screen to close, until that report
+## arrives and starts them. See `_start_or_defer_coach_marks()`'s own doc
+## comment for the bug this holds off and why a frame-count guess cannot be
+## the fix. Must only ever be flipped false by `_on_phone_entry_screen_
+## visibility()` below, or left alone -- never read as "coach marks have
+## started", which `_show_next_coach_mark()` running is the actual signal of.
+var _coach_marks_wait_for_picker := false
+
 func _maybe_show_coach_marks() -> void:
 	if not _phone:
 		return
-	(func(): _show_next_coach_mark(0)).call_deferred()
+	(func(): _start_or_defer_coach_marks()).call_deferred()
+
+## Ruling BK doc comment. Decides, on the SAME deferred frame this used to
+## unconditionally start the sequence on, whether `phone_project_picker.gd`'s
+## full-screen entry screen is about to cover it -- see that file's own
+## `_on_phone_entry_screen_visibility()`-forwarding comment for the timing this
+## exists to fix (`OUTSTANDING_WORK.md`, "the first coach mark fires under the
+## phone project picker at cold boot", found 2026-09-28).
+##
+## Reads `bridge.has_world` (reflectively -- `get("bridge")`) rather than the
+## picker's own `visible` flag, deliberately: `visible` is not yet meaningful
+## at this point (`phone_project_picker.gd`'s `open()` has not run -- see that
+## file's comment for the exact wait it is still behind), so checking it here
+## would just repeat the original bug one line later. `bridge.has_world` is
+## instead the REAL precondition `app.gd::_ready()` itself branches on to
+## decide whether to open the picker at all (`if not bridge.has_world:
+## _open_welcome_when_drawn()`), and it is already final by this deferred
+## frame: `app.gd::_ready()` assigns `bridge` synchronously, immediately after
+## the `super._ready()` call this whole sequence started inside of, and that
+## whole function (including, on phone, constructing `phone_project_picker`
+## itself) finishes before this file's own `call_deferred()` callback can run.
+##
+## `get("bridge")` rather than a typed reference: `DccShell` (this file) is
+## the base class and does not declare `bridge` -- `DccApp` (`app.gd`) does --
+## so a probe that drives a bare `DccShell` with no `App` layer has neither a
+## `bridge` nor a picker, and treating that as "nothing to wait for" is the
+## correct fallback there too, not a guess (matches the existing reflection
+## idiom this file already uses for `_COACH_MARKS`, see that const's own
+## comment).
+##
+## If a world already exists, the picker never opens (`app.gd`'s own branch
+## above), so there is nothing to wait for and the marks start on this same
+## frame -- unchanged from before this fix. Otherwise the picker WILL open,
+## and `_on_phone_entry_screen_visibility(false)` is what starts the sequence
+## once it closes.
+func _start_or_defer_coach_marks() -> void:
+	var bridge_obj: Object = get("bridge")
+	var picker_will_open := bridge_obj != null and not bool(bridge_obj.has_world)
+	if picker_will_open:
+		_coach_marks_wait_for_picker = true
+		return
+	_show_next_coach_mark(0)
+
+## Called by `phone_project_picker.gd::setup()`, which forwards that dialog's
+## own `Window.visibility_changed` here -- see that file's comment on the
+## connection for the full reasoning. Must only ever be called for that
+## reason, and must never itself decide to SHOW the picker or touch it in any
+## other way -- this is a report, not a control.
+func _on_phone_entry_screen_visibility(now_visible: bool) -> void:
+	if _coach_marks_wait_for_picker and not now_visible:
+		_coach_marks_wait_for_picker = false
+		_show_next_coach_mark(0)
 
 ## Shows the first mark in `_COACH_MARKS` not yet seen, waits for it to finish
 ## (its own display time plus a beat), then recurses to the next -- so the two

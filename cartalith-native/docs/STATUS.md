@@ -2376,6 +2376,41 @@ screen — so on every fresh launch that toast paints, correctly, underneath an
 already-open modal. Not a regression from this row and not fixed here; noted
 for whoever next touches `_maybe_show_coach_marks()`'s call site.
 
+**Pending independent verification, 2026-09-28**: the cold-boot race in the
+paragraph above is fixed. `dcc_shell.gd::_maybe_show_coach_marks()` no longer
+starts the sequence unconditionally one frame after boot; it now defers to a
+new `_start_or_defer_coach_marks()`, which reads `bridge.has_world`
+(reflectively) on that same deferred frame — the real precondition
+`app.gd::_ready()` itself branches on to decide whether `phone_project_picker`
+will open at all — and, if a world does not yet exist, holds the sequence in
+a new `_coach_marks_wait_for_picker` flag rather than checking the picker's
+own `visible` (which is not yet meaningful at that point; `open()` has not
+run). `phone_project_picker.gd::setup()` now forwards its own `Window.
+visibility_changed` to a new `dcc_shell.gd::_on_phone_entry_screen_visibility()`,
+which starts the sequence the moment that dialog reports closed. **New probe**
+`_coachcoldboot_probe.gd`/`.tscn` (`--vp 1080x2340 --force-touch`) drives a
+genuine cold boot end to end: shown failing first against the pre-fix code
+(`no coach-mark toast exists anywhere while the picker is open` — red, because
+the old code created and started `bottombar_tabs` immediately), green after
+(0 failures) — a real world generation dismisses the picker
+(`bridge.generation_finished`) and the toast is confirmed to appear only then,
+both moments screenshotted and looked at directly. Re-run clean alongside it:
+`_pandraghint_probe.gd` (18/18) and `_navbarfix_probe.gd` (unmodified, still
+green). Not yet inspected by the owner or a separate verifier.
+
+**Pending independent verification, 2026-09-28**: CM-2 follow-ups item (2)
+above ("the phone peek-sheet pause is wired but has no probe leg") is closed.
+New leg **PP** in `_ctxphone_probe.gd`, built the same way `_ctxring_probe.gd`'s
+own leg T already covers the desktop ring/card (`1ca95c5`): starts a live
+2-year `CivilizationWorkspace` timeline playing, opens the phone's peek sheet
+over an empty cell, and reads the live `Timer.paused`/`time_left` off the real
+`_tl_play_timer` node — paused and held (not ticking) while the sheet is open,
+resumed at the same point in its interval on scrim-dismiss, with `_tl_playing`
+untouched throughout. Full `_ctxphone_probe.gd` re-run: 66/66 green (up from
+the prior 56/56 baseline; the new leg adds 10 checks, all passing). Item (1)
+of that same row (the per-cell controlling-faction read) still needs Rust and
+was left alone. Not yet inspected by the owner or a separate verifier.
+
 Both new probes pass (`_navbarfix_probe.gd` unmodified and still green;
 `_ctxphone_probe.gd` re-run clean, 56/56; `_pandraghint_probe.gd` 18/18,
 including the new contrast/purity checks for all three marks). Screenshots

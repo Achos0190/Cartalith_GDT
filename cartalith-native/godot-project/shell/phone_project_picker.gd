@@ -126,6 +126,35 @@ func setup(host: DccApp) -> void:
 	host.bridge.world_loaded.connect(func(): if visible: hide())
 	host.bridge.generation_finished.connect(func(ok: bool): if ok and visible: hide())
 
+	## Ruling BK doc comment. Forwards this dialog's OWN `Window.
+	## visibility_changed` (a built-in signal, fired for every `show()`/`hide()`
+	## regardless of which of the several call sites above did it, and for
+	## `popup_centered()`/`DccWidgets.phone_present()` in `open()`) to
+	## `dcc_shell.gd`'s `_on_phone_entry_screen_visibility()`. That is the ONLY
+	## thing this connection may ever be used for: letting the coach-mark
+	## sequence (`_maybe_show_coach_marks()`) hold off starting while this
+	## full-screen entry screen is the front-most thing on the phone canvas.
+	##
+	## Why this exists at all: `_maybe_show_coach_marks()` runs (deferred one
+	## frame) from inside `DccShell._ready()`, which is called from the very
+	## FIRST line of `app.gd::_ready()` (`super._ready()`) -- before this node
+	## has even been constructed (`app.gd` builds it several lines later, still
+	## inside the same `_ready()`). So the coach-mark code cannot look at this
+	## dialog's `visible` flag at the moment it decides whether to wait: reading
+	## it there finds it false regardless, because `open()` itself does not run
+	## until `_open_welcome_when_drawn()`'s own two-`process_frame`-plus-
+	## `frame_post_draw` wait finishes, well after that deferred check. Reported
+	## 2026-09-28 by the drag-hint lane: `bottombar_tabs` painted at cold boot
+	## while this screen's own `AcceptDialog`/`Window` -- which this file's own
+	## header already explains always composites ABOVE the ordinary phone
+	## canvas the toast draws into -- opened over it a few frames later,
+	## covering it for the rest of its 3.2 s display. Must never fire for a
+	## reason other than reporting `visible`; the dismissal wiring above (world-
+	## loaded/generation-finished hides) is untouched by this.
+	visibility_changed.connect(func():
+		if host.has_method("_on_phone_entry_screen_visibility"):
+			host.call("_on_phone_entry_screen_visibility", visible))
+
 func open() -> void:
 	## The cheap second guard this file's header describes -- `app.gd` never
 	## calls this except behind its own `is_phone()` check, but a dialog that

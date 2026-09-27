@@ -44,6 +44,11 @@ extends Node
 ##   STL   a settlement tap (a short press, not a hold) opens the phone's
 ##        right sheet (`right_dock.gd::_show_on_phone()`), the same way a
 ##        landmark or icon tap already did (`19d3ba8`)
+##   PP    CM-2 follow-ups item (2) (`OUTSTANDING_WORK.md`): the phone peek
+##        sheet pauses timeline playback while open and resumes it on close,
+##        read off the live `CivilizationWorkspace` `Timer.paused` state --
+##        the phone leg the residual row named as missing, matching
+##        `_ctxring_probe.gd`'s own leg T for the desktop ring/card
 
 const SEED := 552017
 
@@ -500,6 +505,67 @@ func _run() -> void:
 	_shot("stl_right_sheet")
 	_ok("STL the right dock's own context is Settlement",
 		String(app.right_dock_ctrl.get("_context")), "settlement")
+
+	# -- PP: the phone peek sheet pauses timeline playback while open -----------
+	## CM-2 follow-ups, item (2) (`OUTSTANDING_WORK.md`): "the peek-sheet pause
+	## is wired but has no probe leg." `phone_menu.gd::peek_card()` calls
+	## `_shell.call("pause_for_context_surface")` on a genuinely fresh open
+	## (guarded on `not was_open`, so a re-resolve of an already-open sheet
+	## does not pause a second time) and `_dismiss_peek_card()` calls the
+	## matching `resume_from_context_surface()` -- the SAME fan-out
+	## `_ctxring_probe.gd`'s own leg T already exercises for the desktop ring
+	## and card (see `1ca95c5`). Read entirely off the live
+	## `CivilizationWorkspace` state (`_tl_playing`, the Timer's own `paused`/
+	## `time_left`) rather than a re-declared expectation, matching leg T's
+	## own discipline, so this fails first without the peek side of the
+	## wiring rather than merely re-asserting that a constant equals itself.
+	##
+	## Protects: a future edit to `peek_card()`/`_dismiss_peek_card()` that
+	## drops or double-fires the pause/resume call (the `was_open` guard is
+	## exactly the kind of condition a refactor can invert) from silently
+	## letting the phone's own timeline keep ticking under a modal sheet, or
+	## from leaving it paused forever after the sheet closes.
+	app.select_domain("civilization")
+	await _frames(4)
+	var pp_civ: Node = null
+	for ws in app._workspaces:
+		if ws.has_method("pause_playback_for_context"):
+			pp_civ = ws
+			break
+	_ok("PP fixture: the timeline workspace exists", pp_civ != null, true)
+	if pp_civ != null:
+		bridge.civ_add_year(0)
+		bridge.civ_add_year(200)
+		pp_civ.call("_tl_start_play")
+		await _frames(2)
+		_ok("PP fixture: playback actually started", pp_civ.get("_tl_playing"), true)
+		var pp_timer: Timer = pp_civ.get("_tl_play_timer")
+		_ok("PP fixture: the play timer exists and is not paused",
+			pp_timer != null and not pp_timer.paused, true)
+
+		await _hold_wait(ov, epos, 0.85)
+		_touch_release(ov, epos)
+		await _frames(6)
+		_ok("PP the hold opened the peek sheet", _menu().peek_card_is_open(), true)
+		_ok("PP peek sheet open pauses the timer", pp_timer.paused, true)
+		_ok("PP ...still reads as playing (held, not stopped)", pp_civ.get("_tl_playing"), true)
+		var pp_held_left := pp_timer.time_left
+		await get_tree().create_timer(0.3).timeout   ## Longer than the pause would tick if it were live.
+		_ok("PP paused: time_left does not advance while the sheet is open",
+			pp_timer.time_left, pp_held_left)
+
+		_menu().go_back()   ## scrim tap -> `_on_scrim_input()` -> `go_back()`, same dismissal leg X uses
+		await _frames(6)
+		_ok("PP scrim-dismiss closed the sheet", _menu().peek_card_is_open(), false)
+		_ok("PP sheet close resumes the timer", pp_timer.paused, false)
+		_ok("PP ...playback state untouched by the pause/resume itself",
+			pp_civ.get("_tl_playing"), true)
+		pp_civ.call("_tl_stop_play")
+		await _frames(2)
+	ov.clear_sample_pin()
+	app.select_domain("world")
+	app.arm_tool("inspect")
+	await _frames(2)
 
 
 func _ready() -> void:
