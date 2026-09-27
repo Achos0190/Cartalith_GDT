@@ -4311,8 +4311,12 @@ func undo_last() -> void:
 
 ## A way list changed under the overlay (a way deleted from the context card,
 ## or put back by Undo -- Ruling BA): every workspace that draws or lists ways
-## re-reads them. Public for `dcc_shell.gd`'s phone Undo chip, which calls
-## `bridge.undo_last()` itself.
+## re-reads them. `dcc_shell.gd`'s phone Undo chip (`_do_phone_undo()`) used to
+## call `bridge.undo_last()` directly and call this itself for a "civ" kind;
+## it now calls this class's own `undo_last()` above instead (so the height
+## case gets the repaint that call also does), which already reaches this
+## function for that same kind -- kept `func`-public rather than private since
+## nothing else about the split above changed.
 func notify_ways_changed() -> void:
 	for ws in _workspaces:
 		if ws.has_method("on_ways_changed"):

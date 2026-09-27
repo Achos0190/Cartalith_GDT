@@ -665,7 +665,7 @@ impl WorldGen {
             gh: self.gh.max(0) as usize,
             wrap_x: self.world,
             standing: &standing,
-            exposure_scale: self.garrison_exposure_scale,
+            exposure_scale: self.params.civ.garrison_exposure_scale,
         })
     }
 
@@ -1186,13 +1186,25 @@ impl WorldGen {
     /// itself offers. `NaN`/`inf` from a GDScript `SpinBox` mid-edit are
     /// caught the same way `set_sea_level` catches its own.
     ///
+    /// **Lives on `self.params.civ.garrison_exposure_scale`** (a
+    /// `cartalith_engine::CivParams` field, folded in from a standalone
+    /// `WorldGen` field once the lock on `cartalith-engine/src/lib.rs` that
+    /// kept it off `WorldParams` at 382945a lifted) rather than being stored
+    /// here directly, so it round-trips through `params::save_state`/
+    /// `apply_saved_state` like every other `civ.*` dial -- see
+    /// `project_bridge.rs`'s `resolve_garrison_exposure_scale` for how a
+    /// project saved in between (382945a's own `factions.json` member) still
+    /// opens with its value.
+    ///
     /// Takes effect on the *next* read: a garrison is `civ_military_bridge.rs`'s
     /// own derived readout, recomputed from `self.civ`'s live settlements and
     /// the standing army every time one is asked for, never cached -- so
-    /// nothing here regenerates the world, and nothing needs invalidating.
+    /// nothing here regenerates the world, and nothing needs invalidating
+    /// (`params::invalidates` special-cases this key to `None` for exactly
+    /// that reason).
     #[func]
     fn set_garrison_exposure_scale(&mut self, scale: f64) {
-        self.garrison_exposure_scale = if scale.is_finite() {
+        self.params.civ.garrison_exposure_scale = if scale.is_finite() {
             scale.clamp(GARRISON_EXPOSURE_SCALE_MIN, GARRISON_EXPOSURE_SCALE_MAX)
         } else {
             cartalith_civ::garrison::EXPOSURE_SCALE
@@ -1201,7 +1213,7 @@ impl WorldGen {
 
     #[func]
     fn get_garrison_exposure_scale(&self) -> f64 {
-        self.garrison_exposure_scale
+        self.params.civ.garrison_exposure_scale
     }
 }
 
@@ -1214,5 +1226,14 @@ impl WorldGen {
 /// point the dial is no longer adding emphasis to a border place so much as
 /// deciding the split by itself -- a wide enough range to explore that
 /// without a slider whose far end is meaningless.
-const GARRISON_EXPOSURE_SCALE_MIN: f64 = 0.0;
-const GARRISON_EXPOSURE_SCALE_MAX: f64 = 5.0;
+///
+/// `pub(crate)`, not private: `project_bridge.rs`'s
+/// `resolve_garrison_exposure_scale` clamps a legacy `factions.json` value
+/// read from a project saved between 382945a and the `CivParams` fold-in to
+/// this same range, so a hand-edited or otherwise out-of-range old value
+/// cannot reach `self.params` unclamped through that path either. Duplicated
+/// as a literal pair in `params.rs`'s `civ.garrison_exposure_scale`
+/// `ParamSpec` row rather than imported -- see that row's own comment for why
+/// (`params.rs` is deliberately `godot`-free).
+pub(crate) const GARRISON_EXPOSURE_SCALE_MIN: f64 = 0.0;
+pub(crate) const GARRISON_EXPOSURE_SCALE_MAX: f64 = 5.0;

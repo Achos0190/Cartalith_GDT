@@ -50,6 +50,21 @@ fn every_default_lies_inside_its_own_range() {
     }
 }
 
+/// `CivParams::garrison_exposure_scale`'s default (`1.0`, a literal --
+/// `cartalith-engine` sits below `cartalith-civ` and cannot import
+/// `cartalith_civ::garrison::EXPOSURE_SCALE`) must not drift from that
+/// constant's own value. This is the guard that catches it if it ever does --
+/// this test file already links `cartalith-civ` (a regular dependency of
+/// `cartalith-godot`, not merely a dev one), so the comparison is real rather
+/// than another duplicated literal.
+#[test]
+fn garrison_exposure_scale_default_matches_civ_constant() {
+    assert_eq!(
+        params::defaults().civ.garrison_exposure_scale,
+        cartalith_civ::garrison::EXPOSURE_SCALE
+    );
+}
+
 /// `WorldState::plate_id` is a `Vec<u16>` (`MEMORY_OPTIMIZATION_SCOPE.md`
 /// R4), and every write to it goes through `assign_plates`, whose ids are
 /// `0..tect.plates`. `set` clamps to this spec, so this `max` is the only
@@ -235,13 +250,14 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
 
 /// The group is reachable, typed as the shell expects, and reported as its
 /// own dialog section — the second half of the ruling, asserted rather than
-/// eyeballed. Thirteen rows: the seven the ruling added (a group of four
+/// eyeballed. Fourteen rows: the seven the ruling added (a group of four
 /// would be the old `WorldGen` flags renamed, which is not what was ruled),
-/// plus `wantCounts`' flag and its five counts.
+/// `wantCounts`' flag and its five counts, plus `civ.garrison_exposure_scale`
+/// (Ruling AZ, folded in from a standalone `WorldGen` field).
 #[test]
-fn the_civ_group_is_a_real_contiguous_group_of_thirteen() {
+fn the_civ_group_is_a_real_contiguous_group_of_fourteen() {
     let rows: Vec<&params::ParamSpec> = params::PARAMS.iter().filter(|s| s.group == "civ").collect();
-    assert_eq!(rows.len(), 13, "the civ group is thirteen rows");
+    assert_eq!(rows.len(), 14, "the civ group is fourteen rows");
     assert!(params::groups().contains(&"civ"), "the GUI builds its sections from groups()");
     assert!(
         rows.iter().all(|s| s.key.starts_with("civ.")),
@@ -273,9 +289,15 @@ fn the_civ_group_is_a_real_contiguous_group_of_thirteen() {
 /// recompute that applies nothing (`Hydrology`) or silently promise nothing
 /// at all (`None`), and the five re-entrant `#[func]`s would have no way to
 /// tell the shell they are worth pressing.
+///
+/// **Except `civ.garrison_exposure_scale`**, which `compute_civilisation`
+/// does not read at all -- `civ_military_bridge.rs`'s garrison computation
+/// reads it fresh every time, never through a cached stage -- so it is
+/// excluded here and covered instead by `generation_time_only_parameters_
+/// mark_nothing`.
 #[test]
 fn every_civ_row_marks_civ_stale_and_nothing_else() {
-    for s in params::PARAMS.iter().filter(|s| s.group == "civ") {
+    for s in params::PARAMS.iter().filter(|s| s.group == "civ" && s.key != "civ.garrison_exposure_scale") {
         assert_eq!(
             params::invalidates(s.key),
             Some(PipelineStage::Climate),
@@ -843,6 +865,10 @@ fn generation_time_only_parameters_mark_nothing() {
         // The two documented exclusions: `recompute_stale` reads neither
         // from the dial table.
         "sea_level", "world",
+        // The one `civ.*` row `compute_civilisation` does not read at all --
+        // `civ_military_bridge.rs`'s garrison computation reads it fresh
+        // every time, never through a cached stage.
+        "civ.garrison_exposure_scale",
     ] {
         assert!(params::spec(key).is_some(), "{key} is not a real parameter");
         assert_eq!(params::invalidates(key), None, "{key}");

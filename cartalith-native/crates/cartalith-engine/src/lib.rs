@@ -660,6 +660,30 @@ pub struct CivParams {
     /// `[capital, city, town, village, hamlet]`, read only while
     /// `fixed_counts` is on.
     pub counts: [i32; 5],
+    /// The garrison rule's border-exposure scale (Ruling AZ, 2026-09-28,
+    /// `LARGE_ITEM_RULINGS.md`; `MILITARY_MANPOWER_SCOPE.md` §5.6) --
+    /// `cartalith_civ::garrison::GarrisonInput::exposure_scale`. Folded in
+    /// here from a standalone `WorldGen` field once the lock that kept it
+    /// off this struct at 382945a lifted; nothing about its shape changed to
+    /// make that move, per that field's own closing note.
+    ///
+    /// **Not read by `generate_terrain`, like every other field on this
+    /// struct** -- `cartalith-godot`'s `civ_military_bridge.rs` reads it
+    /// fresh every time a garrison is asked for, never cached, so there is
+    /// nothing to invalidate and moving this dial re-generates nothing
+    /// (`cartalith-godot`'s `params.rs` special-cases
+    /// `"civ.garrison_exposure_scale"` in `invalidates()` for exactly that
+    /// reason, rather than the wildcard every other `civ.*` row gets).
+    ///
+    /// Default `1.0`, the rule's old fixed value and
+    /// `cartalith_civ::garrison::EXPOSURE_SCALE`'s own value -- duplicated as
+    /// a literal rather than imported because `cartalith-engine` sits below
+    /// `cartalith-civ` in `ARCHITECTURE.md`'s layering (`cartalith-civ`
+    /// depends on `cartalith-engine`, never the reverse), so this crate
+    /// cannot name that constant. `cartalith-godot`'s
+    /// `garrison_exposure_scale_default_matches_civ_constant` guards the two
+    /// from drifting apart.
+    pub garrison_exposure_scale: f64,
 }
 
 impl CivParams {
@@ -871,6 +895,7 @@ impl WorldParams {
                 seed_suppress_div: 22.0,
                 fixed_counts: false,
                 counts: [0; 5],
+                garrison_exposure_scale: 1.0,
             },
             use_gpu: false,
         }

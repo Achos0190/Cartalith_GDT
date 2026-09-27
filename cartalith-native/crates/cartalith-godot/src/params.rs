@@ -590,6 +590,21 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "civ.n_hamlet", group: "civ", kind: Kind::Int, min: 0.0, max: 2000.0, step: 1.0,
         label: "Hamlets", unit: "", reference_control: "civNHam",
         get_fn: |p| Value::Num(f64::from(p.civ.counts[4])), set_fn: |p, v| p.civ.counts[4] = v as i32 },
+    // Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the garrison rule's
+    // border-exposure scale, CIVIL ▸ Military ▸ Garrisons' own slider. Folded
+    // in from a standalone `WorldGen` field (382945a) once the lock on this
+    // file lifted -- the slider's range and default are unchanged from that
+    // commit (`0.0..5.0` step `0.1`, default `1.0`), duplicated here as
+    // literals from `civ_military_bridge.rs`'s own
+    // `GARRISON_EXPOSURE_SCALE_MIN`/`MAX` rather than imported, since a row's
+    // `min`/`max` here are `f64` literals by this table's own shape, not
+    // `const` references -- every other row in this file does the same.
+    // Read fresh by `civ_military_bridge.rs`'s garrison computation, never
+    // cached, so `params::invalidates` special-cases this one key rather
+    // than let the `civ.*` wildcard claim it.
+    ParamSpec { key: "civ.garrison_exposure_scale", group: "civ", kind: Kind::Float, min: 0.0, max: 5.0, step: 0.1,
+        label: "Garrison border-exposure scale", unit: "\u{d7}", reference_control: "",
+        get_fn: |p| Value::Num(p.civ.garrison_exposure_scale), set_fn: |p, v| p.civ.garrison_exposure_scale = v },
 ];
 
 // ===========================================================================
@@ -811,6 +826,9 @@ const JS_PATHS: &[(&str, &str)] = &[
     ("civ.n_town", ""),
     ("civ.n_village", ""),
     ("civ.n_hamlet", ""),
+    // No reference control at all -- the reference has no such setting
+    // (`MILITARY_MANPOWER_SCOPE.md` §5.6). Travels in `state.cartalith` only.
+    ("civ.garrison_exposure_scale", ""),
 ];
 
 /// A parameter's path inside the reference's own `state` object; `Some("")`
@@ -946,6 +964,17 @@ pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usiz
     // it, because the reference runs `glacialKernel` from a button and never
     // inside generation -- or a native block from before that commit.
     p.passes.glacial = false;
+    // And the garrison border-exposure scale (Ruling AZ): a save without
+    // `civ.garrison_exposure_scale` at all is either a genuine reference-app
+    // export or one written between 382945a and the `CivParams` fold-in --
+    // both predate this key, so this line's default and
+    // `project_bridge.rs`'s `resolve_garrison_exposure_scale` (which reads
+    // the 382945a-era `factions.json` fallback) are what actually decide
+    // that value. Unlike the three lines above, this one's default is not
+    // `false` -- it is `cartalith_civ::garrison::EXPOSURE_SCALE`'s own
+    // `1.0`, duplicated as a literal for the reason
+    // `CivParams::garrison_exposure_scale`'s own doc comment gives.
+    p.civ.garrison_exposure_scale = 1.0;
     let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
         return 0;
     };
@@ -1043,12 +1072,20 @@ pub fn spec(key: &str) -> Option<&'static ParamSpec> {
 ///   nothing stale — it is the leaf.
 pub fn invalidates(key: &str) -> Option<PipelineStage> {
     match key {
+        // The one `civ.*` row `compute_civilisation` does not read at all --
+        // `civ_military_bridge.rs`'s garrison computation reads it fresh
+        // every time a garrison is asked for, never through a cached stage,
+        // so unlike every sibling row below there is nothing to invalidate.
+        // Carved out of the wildcard arm rather than folded into it, so that
+        // arm's own claim ("every `civ.*` row is read by
+        // `compute_civilisation`") stays true of what it actually matches.
+        "civ.garrison_exposure_scale" => None,
         // Same node, same reasoning, for the same reason: `Climate`'s only
         // consumer is `civ`, so marking it makes the civ layer stale and runs
-        // nothing. Every `civ.*` row is read by `compute_civilisation` and by
-        // no `refresh_climate` input at all, which is what makes this the
-        // right node rather than `Hydrology` -- and is derived, not asserted,
-        // by `every_key_that_moves_refresh_climate_is_marked_and_no_other`.
+        // nothing. Every other `civ.*` row is read by `compute_civilisation`
+        // and by no `refresh_climate` input at all, which is what makes this
+        // the right node rather than `Hydrology` -- and is derived, not
+        // asserted, by `every_key_that_moves_refresh_climate_is_marked_and_no_other`.
         _ if key.starts_with("civ.") => Some(PipelineStage::Climate),
         "river_density" => Some(PipelineStage::Climate),
         // The four non-`climate.` fields `climate_params_for`/

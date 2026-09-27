@@ -168,8 +168,8 @@
 //! duration of the session).
 
 use crate::{
-    civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge, label_bridge, lod_bridge,
-    params, CivData, WorldGen, WorldSource,
+    civ_military_bridge, civ_roster_bridge, icon_bridge, infra_tools_bridge, journey_bridge,
+    label_bridge, lod_bridge, params, CivData, WorldGen, WorldSource,
 };
 use cartalith_io::project::{self, ProjectWrite, Raster};
 use godot::prelude::*;
@@ -343,19 +343,26 @@ fn is_zero(v: &u32) -> bool {
 struct FactionsDoc {
     #[serde(default)]
     factions: Vec<FactionDto>,
-    /// Ruling AZ (2026-09-28, `LARGE_ITEM_RULINGS.md`): the garrison rule's
-    /// border-exposure scale (`cartalith_civ::garrison::EXPOSURE_SCALE`,
-    /// `MILITARY_MANPOWER_SCOPE.md` §5.6) is a user setting now, not the
-    /// fixed `1.0` it used to be. Rides `factions.json` rather than a new
-    /// file, alongside the roster it is conceptually part of.
+    /// **Read-only compatibility, never written again.** Ruling AZ
+    /// (2026-09-28, `LARGE_ITEM_RULINGS.md`) first shipped the garrison
+    /// rule's border-exposure scale (`cartalith_civ::garrison::
+    /// EXPOSURE_SCALE`, `MILITARY_MANPOWER_SCOPE.md` §5.6) as this optional
+    /// `factions.json` member, at commit 382945a. The fold-in that followed
+    /// moved the live value onto `cartalith_engine::CivParams` --
+    /// `civ.garrison_exposure_scale`, an ordinary `params::PARAMS` row now,
+    /// carried in `params.json`'s `cartalith` block like every other civ
+    /// dial -- so nothing writes this member any more (`#[serde(skip_
+    /// serializing)]` below, unconditionally, not the old `skip_serializing_
+    /// if`). It stays on this struct, and stays read, only so a project saved
+    /// between those two commits still opens with its value --
+    /// `resolve_garrison_exposure_scale` reads it, and only when the new
+    /// `civ.garrison_exposure_scale` key never reached the archive at all.
     ///
-    /// `None` -- the key is absent, or the whole file is -- means the
-    /// default, never a written `0.0` (`MISTAKES.md`: no value is never a
-    /// plausible value; `0.0` is a real, different setting that removes the
-    /// border term entirely). Omitted on write when it equals the default,
-    /// so a project nobody has touched this on writes exactly the bytes it
-    /// always did.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// `None` -- the key is absent, or the whole file is -- means "no legacy
+    /// value to fall back to", never a plausible `0.0` (`MISTAKES.md`: no
+    /// value is never a plausible value; `0.0` is a real, different setting
+    /// that removes the border term entirely).
+    #[serde(default, skip_serializing)]
     garrison_exposure_scale: Option<f64>,
 }
 
@@ -1675,7 +1682,13 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
 ///
 /// `name_stream` is `CivTools::name_rng`'s position, `None` when there is no
 /// tool state to record it from (the member is then omitted, §9.1).
-fn civ_documents(civ: &CivData, name_stream: Option<u32>, garrison_exposure_scale: f64, out: &mut BTreeMap<String, String>) {
+///
+/// Takes no `garrison_exposure_scale` any more -- the fold-in moved that
+/// setting onto `cartalith_engine::CivParams`, which `params::save_state`
+/// writes separately (`project_open`'s own call site), so this function's
+/// `FactionsDoc` never carries a live value for it, only ever reads one back
+/// (`FactionsDoc::garrison_exposure_scale`'s own doc comment).
+fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<String, String>) {
     let extras = &civ.place_extras.0;
     let settlements = SettlementsDoc {
         next_id: civ.next_tid,
@@ -1721,8 +1734,11 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, garrison_exposure_scal
                 }),
             })
             .collect(),
-        garrison_exposure_scale: (garrison_exposure_scale != cartalith_civ::garrison::EXPOSURE_SCALE)
-            .then_some(garrison_exposure_scale),
+        // Never written (`#[serde(skip_serializing)]` above) -- kept `None`
+        // so a document built here and then round-tripped through
+        // `FactionsDoc`'s own `Deserialize` (as some tests do) does not
+        // manufacture a legacy value nothing wrote.
+        garrison_exposure_scale: None,
     };
     insert_doc(out, SLOT_FACTIONS, &factions);
 
@@ -1809,6 +1825,53 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, garrison_exposure_scal
         };
         insert_doc(out, SLOT_TIMELINE, &timeline);
     }
+}
+
+/// Resolves the garrison rule's border-exposure scale for a project being
+/// opened (Ruling AZ, 2026-09-28, `LARGE_ITEM_RULINGS.md`, plus the fold-in
+/// that followed it onto `cartalith_engine::CivParams`). Pure -- no Godot, no
+/// `WorldGen` -- so it is unit-tested directly the way `civ_documents` is,
+/// rather than needing a probe (`WorldGen` is a `cdylib` `GodotClass` and
+/// cannot be constructed in a unit test, `MISTAKES.md`).
+///
+/// `applied` is what `load_save`'s call to `params::apply_saved_state` already
+/// left on `self.params.civ.garrison_exposure_scale` from *this same
+/// archive*: the value at `civ.garrison_exposure_scale` in `params.json`'s
+/// `cartalith` block when the archive carries that key at all, or
+/// `cartalith_civ::garrison::EXPOSURE_SCALE` (`apply_saved_state`'s own
+/// reset) when it does not.
+///
+/// **The params copy wins whenever both exist.** A save written from
+/// 382945a (which first shipped this setting, only as `factions.json`'s
+/// `garrison_exposure_scale` member) up to the fold-in that gave it a
+/// `params.json` row could only ever carry the legacy member -- the two are
+/// not the same file era in practice -- but a hand-edited or otherwise
+/// unusual archive could carry both, and there is no reason for this one
+/// setting to answer to a different authority than every other row in
+/// `params::PARAMS` does. So the legacy member is read, and applied, only
+/// when the new key is absent from the archive's `cartalith` block entirely
+/// -- never merely because it happens to equal the default.
+fn resolve_garrison_exposure_scale(data: &project::ProjectData, applied: f64) -> f64 {
+    let has_native_key = data
+        .save
+        .state
+        .get(params::NATIVE_PARAMS_KEY)
+        .and_then(|c| c.get("civ.garrison_exposure_scale"))
+        .is_some();
+    if has_native_key {
+        return applied;
+    }
+    data.parse::<FactionsDoc>(SLOT_FACTIONS)
+        .and_then(|r| r.ok())
+        .and_then(|d| d.garrison_exposure_scale)
+        .filter(|v| v.is_finite())
+        .map(|v| {
+            v.clamp(
+                civ_military_bridge::GARRISON_EXPOSURE_SCALE_MIN,
+                civ_military_bridge::GARRISON_EXPOSURE_SCALE_MAX,
+            )
+        })
+        .unwrap_or(applied)
 }
 
 /// The civ layer's rasters and recorded-year territories, into `write` --
@@ -2493,7 +2556,7 @@ impl WorldGen {
 
         let mut documents: BTreeMap<String, String> = BTreeMap::new();
         if let Some(civ) = self.civ.as_ref() {
-            civ_documents(civ, self.civ_tools.as_ref().map(|t| t.name_rng.state()), self.garrison_exposure_scale, &mut documents);
+            civ_documents(civ, self.civ_tools.as_ref().map(|t| t.name_rng.state()), &mut documents);
             civ_rasters(civ, n, &mut write);
         }
 
@@ -2867,22 +2930,22 @@ impl WorldGen {
         // at the end of this function and nothing else reads them.
         self.carried_foreign = std::mem::take(&mut data.foreign);
 
-        // Ruling AZ (2026-09-28): the garrison rule's border-exposure scale
-        // (`FactionsDoc::garrison_exposure_scale`) is not one of `load_save`'s
-        // own field resets (it lives on `WorldGen` beside `civ`, not in
-        // `WorldParams`), so this line is unconditionally responsible for it,
-        // the same "read `data` a second time" shape `carried_foreign` above
-        // uses and for the same reason: without it, opening a project that
-        // never touched this setting (or one whose civ layer failed to
-        // restore) would silently keep whatever the *previous* project left
-        // in this field rather than reading its own saved figure (or the
-        // default, when it never had one).
-        self.garrison_exposure_scale = data
-            .parse::<FactionsDoc>(SLOT_FACTIONS)
-            .and_then(|r| r.ok())
-            .and_then(|d| d.garrison_exposure_scale)
-            .filter(|v| v.is_finite())
-            .unwrap_or(cartalith_civ::garrison::EXPOSURE_SCALE);
+        // Ruling AZ (2026-09-28) plus the fold-in that followed it: `load_save`
+        // above already restored `self.params.civ.garrison_exposure_scale`
+        // from *this same archive's* `params.json` `cartalith` block via
+        // `params::apply_saved_state` -- authoritative whenever that block
+        // carries the key at all, defaulting to `cartalith_civ::garrison::
+        // EXPOSURE_SCALE` when it does not (`apply_saved_state`'s own reset).
+        // The one case that default is wrong for is a project written
+        // between 382945a (which put this setting only in `factions.json`)
+        // and the fold-in (which gave it a `params.json` row) -- so
+        // `resolve_garrison_exposure_scale` reads `data` a second time, the
+        // same shape `carried_foreign` above uses, and applies that legacy
+        // value only when the new key never reached the archive at all. See
+        // that function's own doc comment for the precedence this
+        // implements and why.
+        self.params.civ.garrison_exposure_scale =
+            resolve_garrison_exposure_scale(&data, self.params.civ.garrison_exposure_scale);
 
         // Owner Ruling AR (2026-09-24): an archive that carries the world
         // substrate (`SAVEFILE_COMPAT.md` §8.3) reopens as the complete
@@ -4447,7 +4510,7 @@ mod tests {
         };
         let mut write = ProjectWrite::new(&params, &fields);
         let mut documents = BTreeMap::new();
-        civ_documents(civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut documents);
+        civ_documents(civ, None, &mut documents);
         write.documents = documents;
         if civ.territory.len() == n {
             write.raster("rasters/territory.i32", Raster::I32(civ.territory.clone()));
@@ -4486,12 +4549,13 @@ mod tests {
         civ_from_project(&data, n, &mut Vec::new()).expect("a civ layer that was written must come back")
     }
 
-    /// [`round_trip`] with a chosen `garrison_exposure_scale`, returning the
-    /// raw archive `ProjectData` instead of the restored `CivData` -- the
-    /// setting is not part of `CivData` (Ruling AZ put it on `WorldGen`
-    /// beside `civ`, not inside it), so a caller checking it round-trips
-    /// reads `SLOT_FACTIONS` back directly, the same way `project_open`
-    /// itself does.
+    /// [`round_trip`] with a chosen `civ.garrison_exposure_scale`, returning
+    /// the raw archive `ProjectData` instead of the restored `CivData`. Since
+    /// the fold-in, the setting rides `params.json`'s `cartalith` block like
+    /// every other `civ.*` dial -- built here through `params::save_state`
+    /// exactly as `project_open`'s own call site builds `write.cartalith_
+    /// params` -- rather than through `civ_documents`/`FactionsDoc`, which no
+    /// longer carries a live value for it at all.
     fn round_trip_data(civ: &CivData, gw: usize, gh: usize, scale: f64) -> cartalith_io::ProjectData {
         let n = gw * gh;
         let params = cartalith_io::SaveParams {
@@ -4508,8 +4572,15 @@ mod tests {
         };
         let mut write = ProjectWrite::new(&params, &fields);
         let mut documents = BTreeMap::new();
-        civ_documents(civ, None, scale, &mut documents);
+        civ_documents(civ, None, &mut documents);
         write.documents = documents;
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, 4242);
+        p.civ.garrison_exposure_scale = scale;
+        let mut state = params::save_state(&p);
+        write.cartalith_params = state
+            .as_object_mut()
+            .and_then(|o| o.remove(params::NATIVE_PARAMS_KEY))
+            .unwrap_or(serde_json::Value::Null);
         let mut buf = Vec::new();
         project::write_project(std::io::Cursor::new(&mut buf), &write)
             .expect("write_project should succeed");
@@ -4519,44 +4590,142 @@ mod tests {
         data
     }
 
-    /// Ruling AZ (2026-09-28): the garrison rule's border-exposure scale is a
-    /// user setting now (`MILITARY_MANPOWER_SCOPE.md` §5.6). It rides
-    /// `factions.json`'s `garrison_exposure_scale` member: absent at the
-    /// default (`1.0`, so an unedited project's document is unchanged by the
-    /// member's existence), present and exact through a real archive round
-    /// trip at several other values, and read back as the default -- never
-    /// `0.0` -- when the whole file is absent (a legacy archive, or one with
-    /// no civ layer at all).
+    /// The fold-in's own round trip: `civ.garrison_exposure_scale` is an
+    /// ordinary `params::PARAMS` row now, so it is written unconditionally
+    /// (like every other row -- `params::save_state`'s own doc comment) and
+    /// comes back exact through a real archive at several values, including
+    /// the default.
     #[test]
-    fn garrison_exposure_scale_writes_no_key_at_default_and_round_trips() {
+    fn garrison_exposure_scale_round_trips_through_params_json() {
+        let civ = sample_civ();
+        for scale in [0.0, 0.6, 1.0, 2.5, 5.0] {
+            let data = round_trip_data(&civ, 4, 3, scale);
+            let native = data
+                .save
+                .state
+                .get(params::NATIVE_PARAMS_KEY)
+                .expect("cartalith block must be present");
+            assert_eq!(
+                native.get("civ.garrison_exposure_scale").and_then(|v| v.as_f64()),
+                Some(scale),
+                "scale {scale}"
+            );
+            let mut p = cartalith_engine::WorldParams::defaults(4, 3, 4242);
+            params::apply_saved_state(&mut p, &data.save.state);
+            assert_eq!(p.civ.garrison_exposure_scale, scale, "scale {scale}");
+        }
+    }
+
+    /// [`FactionsDoc::garrison_exposure_scale`] is read-only compatibility
+    /// now: `civ_documents` never writes it (checked against a document a
+    /// freshly generated project actually produces, not a hand-built one),
+    /// and a document built from `FactionsDoc::default()` -- what a project
+    /// that predates the member entirely looks like -- reads back `None`, the
+    /// "no legacy value" case, never a manufactured `0.0`.
+    #[test]
+    fn legacy_garrison_exposure_scale_member_is_never_written() {
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         assert!(
             !docs[SLOT_FACTIONS].contains("garrison_exposure_scale"),
-            "the default writes no key: {}",
+            "civ_documents must never write the legacy member any more: {}",
             docs[SLOT_FACTIONS]
         );
 
-        for scale in [0.0, 0.6, 2.5] {
-            let data = round_trip_data(&civ, 4, 3, scale);
-            let doc: FactionsDoc = data.parse(SLOT_FACTIONS).unwrap().unwrap();
-            assert_eq!(doc.garrison_exposure_scale, Some(scale), "scale {scale}");
-        }
+        let empty = serde_json::to_string(&FactionsDoc::default()).unwrap();
+        assert!(!empty.contains("garrison_exposure_scale"));
+        let doc: FactionsDoc = serde_json::from_str(&empty).unwrap();
+        assert_eq!(doc.garrison_exposure_scale, None);
+    }
 
-        // A written project that was never touched (or predates this
-        // setting) has no key at all -- read back as the default, not 0.0.
-        let mut empty_docs = BTreeMap::new();
-        empty_docs.insert(
-            SLOT_FACTIONS.to_string(),
-            serde_json::to_string(&FactionsDoc::default()).unwrap(),
+    /// **The real backward-compatibility fixture**: bytes actually written by
+    /// commit 382945a's own `civ_documents`/`FactionsDoc` -- the format that
+    /// first shipped this setting, only as `factions.json`'s
+    /// `garrison_exposure_scale` member, before the fold-in gave it a
+    /// `params.json` row at all. Generated once from a worktree at 382945a
+    /// (`sample_civ()`, `scale = 2.5`, a 4x3 grid) and embedded verbatim --
+    /// not hand-built JSON, per `MISTAKES.md`'s own rule on backward-
+    /// compatibility fixtures.
+    ///
+    /// `resolve_garrison_exposure_scale` must read the legacy `2.5` back: the
+    /// archive's `params.json` (if it has one at all -- 382945a's writer
+    /// built no `cartalith_params` for this test helper) carries no
+    /// `civ.garrison_exposure_scale` key, so the params copy is genuinely
+    /// absent and the legacy member is the only value there is.
+    #[test]
+    fn a_project_saved_by_382945a_opens_with_its_legacy_garrison_value() {
+        const FIXTURE: &[u8] = include_bytes!(
+            "../tests/fixtures/project_382945a_garrison_2_5.ctl"
         );
-        assert!(!empty_docs[SLOT_FACTIONS].contains("garrison_exposure_scale"));
-        let doc: FactionsDoc = serde_json::from_str(&empty_docs[SLOT_FACTIONS]).unwrap();
-        assert_eq!(
-            doc.garrison_exposure_scale.unwrap_or(cartalith_civ::garrison::EXPOSURE_SCALE),
-            cartalith_civ::garrison::EXPOSURE_SCALE
+        let data = cartalith_io::read_project(std::io::Cursor::new(FIXTURE))
+            .expect("the 382945a fixture must still read as a project");
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+        let has_native_key = data
+            .save
+            .state
+            .get(params::NATIVE_PARAMS_KEY)
+            .and_then(|c| c.get("civ.garrison_exposure_scale"))
+            .is_some();
+        assert!(
+            !has_native_key,
+            "a 382945a-era archive must genuinely predate this params.json key"
         );
+        let resolved = resolve_garrison_exposure_scale(&data, cartalith_civ::garrison::EXPOSURE_SCALE);
+        assert_eq!(resolved, 2.5, "the legacy factions.json member must win when the new key is absent");
+    }
+
+    /// The other half of the same precedence: when *both* the new
+    /// `params.json` key and the legacy `factions.json` member exist in the
+    /// same archive -- which no writer in this codebase produces any more,
+    /// but a hand-edited file could -- the params copy wins. Built by hand
+    /// rather than through `civ_documents` (which no longer writes the
+    /// legacy member at all, by design) precisely to construct the
+    /// combination no live writer can.
+    #[test]
+    fn resolve_garrison_exposure_scale_prefers_the_params_copy_when_both_exist() {
+        let civ = sample_civ();
+        let gw = 4usize;
+        let gh = 3usize;
+        let n = gw * gh;
+        let save_params = cartalith_io::SaveParams {
+            gw, gh, seed: 4242, map_width_km: 800.0, sea_level: 0.42, world: false,
+            origin: None, name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
+            volcanic_field: vec![0.0; n],
+            impact_field: vec![0.0; n],
+            strahler_order: vec![0; n],
+        };
+        let mut write = ProjectWrite::new(&save_params, &fields);
+        let mut documents = BTreeMap::new();
+        civ_documents(&civ, None, &mut documents);
+        // Hand-insert the legacy member into the faction document nothing
+        // here writes any more -- the "unusual archive" case.
+        let mut factions: FactionsDoc = serde_json::from_str(&documents[SLOT_FACTIONS]).unwrap();
+        factions.garrison_exposure_scale = Some(0.2);
+        documents.insert(SLOT_FACTIONS.to_string(), serde_json::to_string(&factions).unwrap());
+        write.documents = documents;
+        // And the new-format key, present at a different value.
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, 4242);
+        p.civ.garrison_exposure_scale = 3.0;
+        let mut state = params::save_state(&p);
+        write.cartalith_params = state
+            .as_object_mut()
+            .and_then(|o| o.remove(params::NATIVE_PARAMS_KEY))
+            .unwrap_or(serde_json::Value::Null);
+
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).unwrap();
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).unwrap();
+        assert!(data.warnings.is_empty(), "{:?}", data.warnings);
+
+        // Both are present in this archive; the params copy (3.0) must win
+        // over the legacy member (0.2).
+        assert_eq!(resolve_garrison_exposure_scale(&data, 3.0), 3.0);
     }
 
     /// `STORY_PLANNING_SCOPE.md` SP-1's own round trip, at the same level
@@ -4997,7 +5166,7 @@ mod tests {
         civ.next_tid = 501;
 
         let mut documents = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut documents);
+        civ_documents(&civ, None, &mut documents);
         let settlements = documents
             .get_mut(SLOT_SETTLEMENTS)
             .expect("the civ layer always writes its settlements");
@@ -5514,7 +5683,7 @@ mod tests {
     fn faction_tariffs_survive_a_real_archive_round_trip() {
         let plain = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&plain, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&plain, None, &mut docs);
         assert!(
             !docs[SLOT_FACTIONS].contains("tariffs"),
             "no tariff set, no key written"
@@ -5551,7 +5720,7 @@ mod tests {
     fn faction_currencies_survive_a_real_archive_round_trip() {
         let plain = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&plain, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&plain, None, &mut docs);
         assert!(!docs[SLOT_FACTIONS].contains("currency"), "nothing set, no key written");
 
         let mut civ = sample_civ();
@@ -5560,7 +5729,7 @@ mod tests {
         assert!(civ.faction_roster.set_currency(2, "rate", "12.5"));
         assert!(civ.faction_roster.set_currency(3, "rate", "0.25"));
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         let doc: serde_json::Value = serde_json::from_str(&docs[SLOT_FACTIONS]).unwrap();
         assert_eq!(
             doc["factions"][2]["currency"],
@@ -5619,7 +5788,7 @@ mod tests {
         assert_eq!(civ.faction_roster.currency_rate(1), Some((1.0, true)));
         assert_eq!(civ.faction_roster.currency_rate(0), None, "Unclaimed has no currency");
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         assert_eq!(docs[SLOT_FACTIONS], old, "factions.json re-serialises byte for byte");
     }
 
@@ -6371,7 +6540,7 @@ mod tests {
         // implementation and nothing in this workspace.
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
 
         let s: serde_json::Value = serde_json::from_str(&docs[SLOT_SETTLEMENTS]).unwrap();
         assert_eq!(s["next_id"], 22);
@@ -6405,7 +6574,7 @@ mod tests {
         const MAX_SAFE: u64 = 9_007_199_254_740_991;
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         for text in docs.values() {
             let v: serde_json::Value = serde_json::from_str(text).unwrap();
             let mut worst: u64 = 0;
@@ -6986,7 +7155,7 @@ mod substrate_tests {
             substrate::write_substrate(ws, n, &mut write).expect("a generated world's substrate is writable");
         }
         let mut documents = BTreeMap::new();
-        civ_documents(civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut documents);
+        civ_documents(civ, None, &mut documents);
         civ_rasters(civ, n, &mut write);
         write.documents = documents;
         let mut buf = Vec::new();
@@ -7316,7 +7485,7 @@ mod substrate_tests {
         // Re-saved, its ways and timeline documents are byte-identical: an
         // absent member is written back absent, never as an empty claim.
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, None, &mut docs);
         for slot in [SLOT_WAYS, SLOT_TIMELINE] {
             let Some(old) = data.text_of(slot) else { continue };
             assert_eq!(docs[slot], old, "{slot} re-serialises byte for byte");
@@ -7432,7 +7601,7 @@ mod substrate_tests {
 
         // Save with the stream's position, reopen, place five more.
         let mut docs = BTreeMap::new();
-        civ_documents(&civ, Some(session.name_rng.state()), cartalith_civ::garrison::EXPOSURE_SCALE, &mut docs);
+        civ_documents(&civ, Some(session.name_rng.state()), &mut docs);
         assert!(docs[SLOT_SETTLEMENTS].contains("\"name_stream\":"), "{}", &docs[SLOT_SETTLEMENTS][..80]);
         data.documents.insert(SLOT_SETTLEMENTS.to_string(), serde_json::from_str(&docs[SLOT_SETTLEMENTS]).unwrap());
         let mut reopened = civ_tools_for_reopen(gw, gh, &civ, seed, &data);
@@ -7444,7 +7613,7 @@ mod substrate_tests {
         }
         // Absent stays absent: no stream, no member.
         let mut none = BTreeMap::new();
-        civ_documents(&civ, None, cartalith_civ::garrison::EXPOSURE_SCALE, &mut none);
+        civ_documents(&civ, None, &mut none);
         assert!(!none[SLOT_SETTLEMENTS].contains("name_stream"));
     }
 

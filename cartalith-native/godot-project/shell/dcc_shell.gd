@@ -8628,17 +8628,34 @@ func _phone_revert_history(seq: int) -> void:
 ## (2026-09-28) the one civilisation edit it also reverts is a way deleted from
 ## the map context card -- still a map edit -- and the overlay is told when that
 ## is what came back.
+## **Routed through the wrapped `undo_last()`, not the raw `bridge.undo_last()`
+## this chip used to call directly.** That call reverted the height field but
+## never repainted it -- `DccApp.undo_last()`'s own doc comment names the two
+## lines that do (`viewport.map_view.texture = bridge.color_texture()`,
+## `invalidate_lod_tiles()`), and this chip skipped both, along with the
+## status line and the History dock refresh `_menu_bar_undo()` already gets.
+## The map only caught up once some other signal happened to repaint it (a
+## dial move, a fresh generate), which read as "the undo did nothing" on a
+## phone that has no menu-bar Undo to fall back on.
+##
+## The label for the toast is read *before* the call (`undo_label()`, a pure
+## preview query -- `next_undo_step()`'s own doc comment), since
+## `DccApp.undo_last()` returns nothing to build "Undid: %s" from and a
+## second read afterwards would already be one step stale.
+##
+## Degrades to doing nothing on a bare `DccShell` (the screenshot probes),
+## which has neither `undo_last()` nor `viewport` -- the same guard
+## `_menu_bar_undo()` uses, and for the same reason.
 func _do_phone_undo() -> void:
 	var bridge := _find_engine_bridge()
 	if bridge == null or not bridge.can_undo():
 		return
-	var kind: String = bridge.undo_next_subsystem()
-	var reverted: String = bridge.undo_last()
-	if kind == "civ" and reverted != "" and has_method("notify_ways_changed"):
-		call("notify_ways_changed")
+	var label: String = bridge.undo_label()
+	if has_method("undo_last"):
+		call("undo_last")
 	_refresh_phone_undo_chip()
-	if reverted != "":
-		_show_phone_toast("Undid: %s" % reverted, _phone_undo_chip, 2.4)
+	if label != "":
+		_show_phone_toast("Undid: %s" % label, _phone_undo_chip, 2.4)
 
 # -- ▶ Sim strip (`06-phone.md` §6.2) ------------------------------------------
 #
