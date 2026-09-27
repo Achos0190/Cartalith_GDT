@@ -607,6 +607,20 @@ mod tests {
         assert!(run(&pristine) == run(&stale), "refresh_climate read a field it only claims to write");
     }
 
+    // The droplet/rainfall residual filed alongside the fix above
+    // (`OUTSTANDING_WORK.md`, "Droplet erosion after an undo reads the
+    // undone surface's rainfall") used to have an engine-level test here.
+    // Deleted 2026-09-29 on review: it called `recompute_stale` itself
+    // rather than going through the real call path
+    // (`erode_bridge.rs::run_erode_with_recompute`, which is the actual
+    // fix), so a regression in that function's own body would not have
+    // failed it -- the "never assert a constant against itself" mistake in
+    // another form. The real coverage is
+    // `cartalith-godot`'s `erode_bridge::tests::
+    // erode_undo_erode_with_droplets_on_through_the_real_call_path`, which
+    // drives `run_erode_with_recompute` directly and asserts the identical
+    // elevation/drainage/rainfall/temperature invariant this test did.
+
     #[test]
     fn a_dimension_mismatch_returns_an_empty_report_rather_than_panicking() {
         // This call can sit under a `#[func]`, and a panic crossing the gdext

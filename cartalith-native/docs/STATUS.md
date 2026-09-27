@@ -1439,6 +1439,54 @@ Still open:
   the rainfall of the undone surface. Nothing recomputes stale stages before
   the op.
 
+  **2026-09-29, verified by the main loop** (the bridge test re-run green; the
+  main loop's own mutation of the `recompute_stale` line in
+  `run_erode_with_recompute` failed it, file hash restored). Fixed at the call site.
+  `cartalith_godot::erode_bridge::WorldGen::erode_op`'s recompute-then-op
+  sequence was pulled out into a plain function,
+  `erode_bridge::run_erode_with_recompute(stages, p, ws, opts)`, which
+  `erode_op` now calls; it runs `cartalith_engine::staleness::recompute_stale`
+  **before** `cartalith_engine::erode_op::erode_op`, not only after it —
+  flushing whatever a previous op (`undo_last`/`undo_revert_to`, which
+  restore `ws.field` alone and mark `Height` stale with nothing recomputed)
+  left pending, so the droplets spawn through *this* surface's rainfall
+  rather than the undone one's. `recompute_stale` only does work when
+  something is actually stale, so an already-current world pays nothing
+  extra. The extraction exists so the fix is exercised through the **real**
+  function, not a hand-rolled copy of its shape — an earlier draft of this
+  fix had a test that called `recompute_stale` itself rather than the fixed
+  code, which a reviewing pass caught as "never assert a constant against
+  itself" in another form; that test is gone.
+  Reproduced and fixed without Godot: `cartalith-godot`'s
+  `erode_bridge::tests::erode_undo_erode_with_droplets_on_through_the_real_call_path`
+  drives `run_erode_with_recompute` directly (generate with the shipped
+  defaults, `passes.glacial` on; erode with droplets on; restore the
+  pre-erode field and mark `Height` stale via `mark_changed_tiles` — the
+  exact shape `undo_last` leaves; erode again the same way) and asserts
+  elevation, `flow_discharge`, `rainfall` and `temperature` are all
+  bit-identical across the two erodes. Mutation-verified: removing the
+  leading `recompute_stale` from `run_erode_with_recompute` itself (not a
+  test helper) makes the test go red; restoring it and hash-checking the
+  file against `git diff` confirms the restore was clean.
+  `cargo test --workspace --no-fail-fast`: 3957/0/42, unchanged in total (one
+  test moved from `cartalith-engine` to `cartalith-godot`, where the real
+  call path lives).
+
+  **The windowed Godot probe could not be run this pass.** `target/debug/
+  cartalith_godot.dll` was rebuilt clean (`cargo build -p cartalith-godot`)
+  once the DLL lock cleared. A probe was written,
+  `godot-project/_dropletundo_probe.gd` (+ `.tscn`) — real shell path
+  (`WorldGen.erode_op({})` with the reference defaults, droplets on,
+  through `_app.undo_last()`), `use_gpu` forced off, three erode/undo
+  cycles off the same starting field (A vs B is the fix under test, B vs C
+  a CPU-vs-CPU control), asserting `sample_cell`'s elevation/drainage/
+  precipitation are bit-identical across all three. Launching Godot to run
+  it was refused by this session's own permission layer (an "interfere with
+  workloads" classifier, distinct from the DLL lock), on the reasoning that
+  another lane may have a Godot window open. Not retried past that refusal,
+  per this task's own rule against working around a permission denial. The
+  probe is written and ready; it has not been run.
+
 **The seven zero-caller public `cartalith-gpu` functions are deleted**
 (corrected 2026-09-23: this paragraph still called them live and blocked on an
 owner decision). `init_gpu_f64` went on 2026-09-06 under `LARGE_ITEM_RULINGS.md`

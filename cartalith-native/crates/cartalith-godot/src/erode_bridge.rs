@@ -45,9 +45,43 @@
 //! classifying, and a painted lake is a lake."*
 
 use crate::{undo, CivData, WorldGen, WorldSource};
-use cartalith_engine::erode_op::{erode_op as run_erode_op, ErodeOpts};
-use cartalith_engine::staleness::PipelineStage;
+use cartalith_engine::erode_op::{erode_op as run_erode_op, ErodeOpts, ErodeSummary};
+use cartalith_engine::staleness::{recompute_stale, PipelineStage, RecomputeReport};
+use cartalith_engine::{WorldParams, WorldState};
 use godot::prelude::*;
+
+/// The recompute-then-op-then-recompute sequence `WorldGen::erode_op` runs
+/// over the live world, pulled out into a plain function so it can be
+/// exercised without a `Gd<WorldGen>` — the same isolation `force_lakes`
+/// below already relies on.
+///
+/// **This is the fix for "Droplet erosion after an undo reads the undone
+/// surface's rainfall"** (`OUTSTANDING_WORK.md`). `erode_op` reads
+/// `ws.rainfall` directly to decide where its droplets spawn.
+/// `WorldGen::undo_last`/`undo_revert_to` restore `ws.field` alone and mark
+/// `Height` stale (`mark_changed_tiles`) without recomputing, so without the
+/// leading [`recompute_stale`] here, an erode with droplets on, run right
+/// after an undo, would spawn its droplets through the *undone* surface's
+/// rainfall rather than this one's. `recompute_stale` only does work when
+/// something is actually stale, so a world that is already current (the
+/// common case) pays nothing for the extra call.
+fn run_erode_with_recompute(
+    stages: &mut cartalith_spatial::StageGraph,
+    p: &WorldParams,
+    ws: &mut WorldState,
+    opts: &ErodeOpts,
+) -> (ErodeSummary, RecomputeReport) {
+    recompute_stale(stages, p, ws);
+    let s = run_erode_op(ws, p, opts);
+    // Droplets can start anywhere on the map and isostatic rebound is a
+    // whole-field Gaussian blur, so this is never tile-local -- the whole
+    // graph is marked, which is also all a whole-field recompute could act
+    // on.
+    let n = stages.tile_count();
+    stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "erode");
+    let report = recompute_stale(stages, p, ws);
+    (s, report)
+}
 
 /// Reads the op's `Dictionary` argument, falling back to
 /// [`ErodeOpts::default`] — `state.erosion`'s own literal, reference HTML line
@@ -231,14 +265,12 @@ impl WorldGen {
             format!("{} x {}", self.gw, self.gh),
             undo::EntryKind::HeightSnapshot,
         );
-        let s = run_erode_op(ws, &p, &eo);
-
-        // Droplets can start anywhere on the map and isostatic rebound is a
-        // whole-field Gaussian blur, so this is never tile-local -- the whole
-        // graph is marked, which is also all a whole-field recompute could act
-        // on.
-        let all_tiles = 0..self.stages.tile_count();
-        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, all_tiles, "erode");
+        // The fix and the recompute both live in `run_erode_with_recompute`
+        // — see that function's own doc for why the leading `recompute_stale`
+        // is there.
+        let (s, report) = run_erode_with_recompute(&mut self.stages, &p, ws, &eo);
+        let names = |v: Vec<&'static str>| -> PackedStringArray { v.into_iter().map(GString::from).collect() };
+        let (recomputed, still_stale) = (names(report.ran), names(report.still_stale));
         vdict! {
             "ok" => true,
             "reason" => "",
@@ -337,7 +369,68 @@ impl WorldGen {
 
 #[cfg(test)]
 mod tests {
-    use super::force_lakes;
+    use super::{force_lakes, run_erode_with_recompute};
+    use cartalith_engine::erode_op::ErodeOpts;
+    use cartalith_engine::staleness::{pipeline_stage_graph, PipelineStage};
+    use cartalith_engine::WorldParams;
+    use std::sync::Arc;
+
+    /// **The residual filed alongside the `9e9dc4b` determinism fix**
+    /// (`OUTSTANDING_WORK.md`, "Droplet erosion after an undo reads the
+    /// undone surface's rainfall"), driven through the **real** call path —
+    /// [`run_erode_with_recompute`] itself, the function `WorldGen::erode_op`
+    /// calls, not a re-implementation of its shape. With droplets on,
+    /// `erode_op` (`cartalith_engine::erode_op::erode_op`) reads
+    /// `ws.rainfall` directly to decide where the droplets spawn.
+    ///
+    /// The undo step is `WorldGen::undo_last`'s own shape, reproduced by
+    /// hand rather than called (that method needs a `Gd<WorldGen>`): restore
+    /// `ws.field` and mark `Height` stale via `mark_changed_tiles`, nothing
+    /// else. If `run_erode_with_recompute`'s leading `recompute_stale` is
+    /// ever removed, this must fail: the second `erode_op` would then read
+    /// the *first* run's own post-erode rainfall instead of a fresh one for
+    /// the restored surface.
+    #[test]
+    fn erode_undo_erode_with_droplets_on_through_the_real_call_path() {
+        let mut p = WorldParams::defaults(64, 40, 1234);
+        p.integrate_drainage = true;
+        // As in `cartalith-engine`'s own equivalent fixture
+        // (`erode_undo_erode_with_droplets_on_recomputes_bit_identical_elevation_and_climate`,
+        // `staleness.rs`): with every erosion pass off, `generate_terrain`'s
+        // own tail is the carve block's inline climate, which keeps the
+        // reference's pre-fix order on purpose (golden-pinned) and so does
+        // not agree with what a `recompute_stale` flush would compute — a
+        // separate, already-documented residual. Turning `glacial` on makes
+        // generation's own last stage `refresh_climate` itself, so the
+        // starting rainfall already agrees with a flush, isolating the
+        // droplet defect this test is actually about.
+        p.passes.glacial = true;
+        assert!(p.stream.climate_k > 0.0, "this test needs the droplets to actually read rainfall");
+        let mut ws = cartalith_engine::generate_terrain(&p);
+        let f0 = ws.field.as_ref().clone();
+        // Enough droplets that the rain-weighted spawn distribution actually
+        // moves the outcome, not so many the fixture is slow.
+        let opts = ErodeOpts { droplets: 6000, ..Default::default() };
+        let mut stages = pipeline_stage_graph(1);
+
+        run_erode_with_recompute(&mut stages, &p, &mut ws, &opts);
+        let f1 = ws.field.as_ref().clone();
+        let d1 = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
+        assert_ne!(f1, f0, "the droplets must actually move the surface");
+
+        // `WorldGen::undo_last`'s own shape: the height field comes back,
+        // every derived field stays, and `Height` is marked stale with
+        // nothing recomputed here.
+        ws.field = Arc::new(f0);
+        stages.mark_changed_tiles(PipelineStage::Height.id(), 0..stages.tile_count(), "undo");
+
+        run_erode_with_recompute(&mut stages, &p, &mut ws, &opts);
+        let f2 = ws.field.as_ref().clone();
+        let d2 = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
+
+        assert_eq!(f1, f2, "the same op on the same surface must erode identically regardless of history");
+        assert_eq!(d1, d2, "drainage/rainfall/temperature must not depend on history either");
+    }
 
     /// The reference's own `if(force[i]) out[i]=2` — ocean and land alike
     /// become lake, and the count reports only the cells that moved.
