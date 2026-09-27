@@ -1486,6 +1486,11 @@ Still open:
   another lane may have a Godot window open. Not retried past that refusal,
   per this task's own rule against working around a permission denial. The
   probe is written and ready; it has not been run.
+  **Run 2026-09-27 by the main loop, with the owner's go-ahead: PASS, exit 0.**
+  The DLL was rebuilt 09:18 from committed code. On a real 12 288-cell world, A vs B
+  differ on 0 cells in elevation, drainage and precipitation; the B vs C
+  CPU-vs-CPU control also differs on 0. Every erode reported
+  `climate_coupled: true`.
 
 **The seven zero-caller public `cartalith-gpu` functions are deleted**
 (corrected 2026-09-23: this paragraph still called them live and blocked on an
