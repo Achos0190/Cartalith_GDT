@@ -33,6 +33,13 @@ extends Node
 ##   E  the ring's own rect stays on screen at the four screen edges
 ##   P  contrast of a slot's label against the ring's own ground, both
 ##      palettes forced
+##   G  Ruling BC (`LARGE_ITEM_RULINGS.md`): the mockup's style/shape, in the
+##      theme's own colours -- the disc sits behind the slots and is visibly
+##      distinct from the plain scrim, the centre button is smaller than a
+##      main slot, the hover wedge changes the pixel toward the hovered slot,
+##      a slot's label draws INSIDE it (nothing bleeds past the slot's own
+##      edge), the caption pill is drawn, and a sub-ring's own centre fills
+##      in the theme accent (the "‹ BACK" button)
 
 const SEED := 483920
 
@@ -40,8 +47,12 @@ const SEED := 483920
 ## so this probe measures the SHIPPED geometry rather than assuming it stays
 ## in sync by construction -- the same reason `_ctxcard_probe.gd`'s own `E`/`P`
 ## legs hardcode row heights instead of reading them off the source file.
-const RING_RADIUS := 60.0
-const SLOT_SIZE := 46.0
+## Ruling BC, coordinator correction 2026-09-29: these track the shipped
+## `radial_ring.gd::RING_RADIUS`/`SLOT_SIZE`, now the mockup's own absolute
+## desktop figures (92 / 60) rather than this shell's old independently-tuned
+## ones (60 / 46) -- updated here, not imported, for the reason above.
+const RING_RADIUS := 92.0
+const SLOT_SIZE := 60.0
 ## Same compass angles `radial_ring.gd::ANGLES` uses -- 0 deg = east, clockwise
 ## in screen space (Y down).
 const DIR_DEG := {
@@ -222,6 +233,54 @@ static func _ratio(a: Color, b: Color) -> float:
 	var la := _lin(a)
 	var lb := _lin(b)
 	return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+
+
+static func _close_color(a: Color, b: Color, tol: float) -> bool:
+	return absf(a.r - b.r) <= tol and absf(a.g - b.g) <= tol and absf(a.b - b.b) <= tol
+
+
+## Leg L (Ruling BC, coordinator correction 2026-09-29: "every label must sit
+## fully inside its circle"). True when nothing draws in a band just past
+## `radius` around the FULL circle at `centre` -- i.e. no glyph or label ink
+## crossed the slot's own edge.
+##
+## The disc lets the live map show through at its own alpha (88% main / 44%
+## with a sub open), so a SINGLE reference pixel is not reliable -- the map's
+## own texture varies pixel to pixel even with nothing drawn (measured: a
+## smooth ~0.05 luminance drift band-to-band was enough to false-fail this
+## leg against a fixed corner or a single "1.6x radius" sample the first time
+## it ran). The robust signal is the band's own MEDIAN luminance: a genuine
+## stroke of text is high-contrast against its local ground and stands out
+## from the band's typical value, where gradual map texture does not.
+static func _label_inside_circle(img: Image, centre: Vector2, radius: float) -> Dictionary:
+	## Kept tight (a few px past the slot's own border) rather than reaching
+	## further out: a slot pointing straight down (`S`) sits on the same ray
+	## as the caption pill below the whole ring, and a wider band the first
+	## time this leg ran caught the pill's own background, not a label.
+	var steps := 40
+	var radii := [radius + 2.0, radius + 4.0, radius + 6.0]
+	var samples: Array = []   ## [{"p":Vector2,"px":Color,"lum":float}, ...]
+	for i in steps:
+		var ang := TAU * float(i) / float(steps)
+		for rr in radii:
+			var p: Vector2 = centre + Vector2(cos(ang), sin(ang)) * float(rr)
+			var pi := Vector2i(int(p.x), int(p.y))
+			if pi.x < 0 or pi.y < 0 or pi.x >= img.get_width() or pi.y >= img.get_height():
+				continue
+			var px := img.get_pixel(pi.x, pi.y)
+			samples.append({"p": p, "px": px, "lum": px.get_luminance()})
+	if samples.is_empty():
+		return {"ok": true}
+	var lums: Array = []
+	for s in samples:
+		lums.append(s["lum"])
+	lums.sort()
+	var median: float = lums[lums.size() / 2]
+	for s in samples:
+		if absf(float(s["lum"]) - median) > 0.10:
+			return {"ok": false, "at": s["p"], "px": (s["px"] as Color).to_html(false),
+				"median_lum": median, "sample_lum": s["lum"]}
+	return {"ok": true}
 
 
 static func _lin(c: Color) -> float:
@@ -415,7 +474,12 @@ func _run() -> void:
 		var slot_pos := c + Vector2(0, -1) * RING_RADIUS   ## N -- Inspect
 		var ground := img.get_pixelv(Vector2i(int(slot_pos.x) - int(SLOT_SIZE * 0.5) + 3,
 			int(slot_pos.y) - int(SLOT_SIZE * 0.5) + 3))
-		var label_rect := Rect2(slot_pos.x - 24, slot_pos.y + SLOT_SIZE * 0.5 + 4.0, 48, 16)
+		## Ruling BC moved the label INSIDE the slot (`radial_ring.gd::
+		## _draw_ring()`, offset `pos + Vector2(0, slot*0.28)`) -- this box
+		## used to sit below the slot's own circle, where the label no
+		## longer draws, and would otherwise measure ground against ground
+		## and pass vacuously.
+		var label_rect := Rect2(slot_pos.x - 24, slot_pos.y + SLOT_SIZE * 0.10, 48, 20)
 		var ink := ground
 		var best := 0.0
 		for y in range(int(label_rect.position.y), int(label_rect.end.y)):
@@ -436,6 +500,172 @@ func _run() -> void:
 			img.save_png(OS.get_environment("CTXRING_SHOT_DIR").path_join(
 				"ctxring_%s.png" % ("dark" if dark else "light")))
 		await _ring_close()
+
+	# -- G: Ruling BC -- disc, labels inside, wedge, centre, caption -------------
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	_move(ov, centre)
+	await _frames(1)
+	await _qkey(true)
+	await _qkey(false)
+	await _frames(4)
+	var st_g := _ring_state()
+	var disc_r: float = st_g.get("disc_radius", 0.0)
+	var ring_r: float = st_g.get("radius", 0.0)
+	var slot_r: float = st_g.get("slot", 0.0)
+	var centre_sz: float = st_g.get("centre_size", 0.0)
+	_ok("G1 the disc reaches past the slot ring", disc_r > ring_r + slot_r * 0.5, true)
+	_ok("G3 the centre button is smaller than a main slot",
+		centre_sz > 0.0 and centre_sz < slot_r, true)
+
+	var g_c: Vector2 = st_g.get("centre", Vector2.ZERO)
+	var n_pt: Vector2 = g_c + Vector2(0, -1) * ring_r             ## N slot's own centre
+	var disc_pt: Vector2 = g_c + Vector2(0, -1) * (ring_r * 0.5)  ## disc, off any slot, along N
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_g: Image = _vp.get_texture().get_image()
+	var far_bg := img_g.get_pixelv(Vector2i(4, 4))                ## outside every ring surface
+	var disc_px := img_g.get_pixelv(Vector2i(int(disc_pt.x), int(disc_pt.y)))
+	print("G4 far_bg=%s disc=%s" % [far_bg.to_html(false), disc_px.to_html(false)])
+	_ok("G4 the disc's own ground is visibly distinct from the plain scrim",
+		not _close_color(disc_px, far_bg, 0.02), true)
+
+	## G5: hover N and re-sample the SAME point -- the wedge fill
+	## (`accent_wash_2`) now sits between the dead zone and the slot at that
+	## exact bearing, so the pixel must change against its own un-hovered
+	## value above. `n_pt` is in the SAME converted space `debug_state()`'s
+	## own `centre` lives in (`_at_to_local()`'s own header) -- `_move()`
+	## needs it inverted back into `ov`'s local space first, exactly like
+	## every other leg's synthetic pointer position.
+	_move(ov, _at_to_local(ov, n_pt))
+	await _frames(2)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_g2: Image = _vp.get_texture().get_image()
+	var wedge_px := img_g2.get_pixelv(Vector2i(int(disc_pt.x), int(disc_pt.y)))
+	print("G5 hover=%s before-hover=%s after-hover(N)=%s" %
+		[_ring_state().get("hover", ""), disc_px.to_html(false), wedge_px.to_html(false)])
+	_ok("G5 the hover wedge changes the pixel toward the hovered slot",
+		not _close_color(disc_px, wedge_px, 0.02), true)
+
+	## G6: nothing draws just past the N slot's own bottom edge any more
+	## (this used to be exactly where the label hung) -- that band must read
+	## as the plain disc ground, not text ink. Sampled from `img_g`, the
+	## UN-hovered capture: the hover wedge itself reaches almost to the disc
+	## edge at the hovered bearing (by design -- `r1=disc_radius-4`), so
+	## `img_g2`'s hovered frame would also tint this same point and the check
+	## would no longer isolate "did the label move" from "is N hovered".
+	var below_pt: Vector2 = n_pt + Vector2(0, slot_r * 0.5 + 6.0)
+	var below_px := img_g.get_pixelv(Vector2i(int(below_pt.x), int(below_pt.y)))
+	print("G6 below-slot=%s disc=%s" % [below_px.to_html(false), disc_px.to_html(false)])
+	_ok("G6 nothing draws past the slot's own edge (label moved inside)",
+		_close_color(below_px, disc_px, 0.05), true)
+
+	## G7: the caption pill's own band, past the disc's edge.
+	var cap_pt: Vector2 = g_c + Vector2(0, 1) * (disc_r + 10.0)
+	var cap_px := img_g2.get_pixelv(Vector2i(int(cap_pt.x), int(cap_pt.y)))
+	print("G7 far_bg=%s caption=%s" % [far_bg.to_html(false), cap_px.to_html(false)])
+	_ok("G7 the caption pill is drawn below the ring", not _close_color(cap_px, far_bg, 0.02), true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## G8: a sub-ring's own centre fills in the theme accent ("‹ BACK"),
+	## checked and screenshotted in both palettes -- the same "assert the
+	## palette the threshold was written for" rule leg P already follows.
+	for dark_g8 in [true, false]:
+		var was_g8 := DccTheme.is_dark()
+		if was_g8 != dark_g8:
+			DccTheme.apply_theme(dark_g8)
+			app.rebuild_theme(was_g8)
+			await _frames(8)
+		await _held_drag(ov, centre, "NW")   ## Uplift -- opens its own sub-ring
+		await _frames(2)
+		var st_g8 := _ring_state()
+		if bool(st_g8.get("sub_open", false)):
+			var sub_c_g8: Vector2 = st_g8.get("sub_centre", Vector2.ZERO)
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img_g3: Image = _vp.get_texture().get_image()
+			var back_px := img_g3.get_pixelv(Vector2i(int(sub_c_g8.x), int(sub_c_g8.y)))
+			var accent := DccTheme.c("accent")
+			print("G8 %s sub-centre=%s accent=%s" %
+				[("dark" if dark_g8 else "light"), back_px.to_html(false), accent.to_html(false)])
+			_ok("G8 %s the sub-ring's own centre draws in the theme accent" % ("dark" if dark_g8 else "light"),
+				_close_color(back_px, accent, 0.10), true)
+			if OS.get_environment("CTXRING_SHOT_DIR") != "":
+				img_g3.save_png(OS.get_environment("CTXRING_SHOT_DIR").path_join(
+					"ctxring_sub_%s.png" % ("dark" if dark_g8 else "light")))
+		else:
+			_ok("G8 %s Uplift opened its own sub-ring (precondition for the centre check)" %
+				("dark" if dark_g8 else "light"), st_g8.get("sub_open", false), true)
+		await _ring_close()
+		app.arm_tool("inspect")
+		await _frames(2)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	# -- L: every label sits fully inside its own circle (main and sub) ---------
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	## Q tap (press, release with no aim in between) leaves the ring open
+	## sticky with `_hover == ""` -- the same no-wedge state leg G's own
+	## `img_g` capture relies on, confirmed there.
+	_move(ov, centre)
+	await _frames(1)
+	await _qkey(true)
+	await _qkey(false)
+	await _frames(4)
+	var st_l := _ring_state()
+	var l_centre: Vector2 = st_l.get("centre", Vector2.ZERO)
+	var l_radius: float = st_l.get("radius", 0.0)
+	var l_slot: float = st_l.get("slot", 0.0)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_l: Image = _vp.get_texture().get_image()
+	for dir in DIR_DEG:
+		var pos: Vector2 = l_centre + _dir_vec(dir) * l_radius
+		var res := _label_inside_circle(img_l, pos, l_slot * 0.5)
+		if not res.get("ok", true):
+			print("L main %s FAIL at=%s px=%s median_lum=%.3f sample_lum=%.3f" %
+				[dir, res["at"], res["px"], res.get("median_lum", 0.0), res.get("sample_lum", 0.0)])
+		_ok("L main slot %s: its label stays inside its own circle" % dir, res.get("ok", false), true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## Uplift's own sub-ring -- its "Cliff / Escarpment" child is the long-
+	## text case the wrap/shrink path exists for.
+	await _held_drag(ov, centre, "NW")
+	await _frames(2)
+	var st_l2 := _ring_state()
+	if bool(st_l2.get("sub_open", false)):
+		var sub_centre_l: Vector2 = st_l2.get("sub_centre", Vector2.ZERO)
+		var sub_radius_l: float = st_l2.get("sub_radius", 0.0)
+		var sub_slot_l: float = st_l2.get("sub_slot_size", 0.0)
+		var sub_n: int = int(st_l2.get("sub_count", 0))
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var img_l2: Image = _vp.get_texture().get_image()
+		for i in sub_n:
+			var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, sub_n)))
+			var pos2: Vector2 = sub_centre_l + Vector2(cos(ang), sin(ang)) * sub_radius_l
+			var res2 := _label_inside_circle(img_l2, pos2, sub_slot_l * 0.5)
+			if not res2.get("ok", true):
+				print("L sub #%d FAIL at=%s px=%s median_lum=%.3f sample_lum=%.3f" %
+					[i, res2["at"], res2["px"], res2.get("median_lum", 0.0), res2.get("sample_lum", 0.0)])
+			_ok("L sub slot #%d: its label stays inside its own circle" % i, res2.get("ok", false), true)
+	else:
+		_ok("L Uplift opened its own sub-ring (precondition for the sub-slot label check)",
+			st_l2.get("sub_open", false), true)
+	await _ring_close()
+	app.arm_tool("inspect")
+	await _frames(2)
 
 
 func _ready() -> void:

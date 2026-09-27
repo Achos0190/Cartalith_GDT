@@ -545,14 +545,26 @@ class _Overlay:
 				else deg_to_rad(90.0)
 			var pos: Vector2 = fan._fan_center + Vector2(cos(ang), -sin(ang)) * fan.OUTER_R * scale
 			_draw_slot(pos, items[i], i == hover_i, scale)
-		## The back affordance, at the pill's own centre -- canvas: a `BACK`
-		## button drawn over the pill while a sub-fan is open.
-		var r: float = fan.DEAD * scale
+		## The back affordance, at the pill's own centre -- canvas: a 56 px
+		## accent-filled `‹ BACK` button with a glow ring (`box-shadow: 0 0 0
+		## 4px rgba(224,163,74,.25)`), over the pill while a sub-fan is open.
+		## Ruling BC / the 2026-09-25 refinement: "the phone fan's back button
+		## is accent-filled and labelled too" -- this used to draw only the
+		## glyph, at `fan.DEAD` (40 dp), not the canvas's own 56 px/28 radius.
+		var r: float = (fan.SLOT_D * 0.5) * scale
+		draw_circle(fan._fan_center, r + 4.0 * scale, Color(DccTheme.c("accent"), 0.25))
 		draw_circle(fan._fan_center, r, DccTheme.c("accent"))
-		var font := DccTheme.mono()
-		var ts := font.get_string_size("‹", HORIZONTAL_ALIGNMENT_LEFT, -1, DccTheme.FS_SMALL)
-		draw_string(font, fan._fan_center - ts * 0.5 + Vector2(0.0, ts.y * 0.32), "‹",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, DccTheme.FS_SMALL, DccTheme.c("accent_ink"))
+		draw_arc(fan._fan_center, r, 0.0, TAU, 32, DccTheme.c("accent"), 2.0, true)
+		var font := DccTheme.mono(0, true)
+		var gfs: int = maxi(10, int(r * 0.62))
+		var ts := font.get_string_size("‹", HORIZONTAL_ALIGNMENT_LEFT, -1, gfs)
+		draw_string(font, fan._fan_center - ts * 0.5 + Vector2(0.0, ts.y * 0.32 - r * 0.26), "‹",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, gfs, DccTheme.c("accent_ink"))
+		var label := "BACK"
+		var lfs := DccTheme.FS_MICRO
+		var lts := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs)
+		draw_string(font, fan._fan_center + Vector2(-lts.x * 0.5, r * 0.58), label,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, DccTheme.c("accent_ink"))
 
 	func _draw_slot(pos: Vector2, row: Dictionary, hovered: bool, scale: float) -> void:
 		var present := not row.is_empty()
@@ -562,15 +574,94 @@ class _Overlay:
 		var alpha := 1.0 if enabled else 0.35
 		var ground := DccTheme.c("accent") if armed else DccTheme.c("sunken")
 		draw_circle(pos, d, Color(ground.r, ground.g, ground.b, ground.a * alpha))
-		var border := DccTheme.c("accent") if (hovered or armed) else DccTheme.c("line")
+		if hovered and not armed:
+			## Refinement note: "the hover state is a warm accent tint"
+			## (Ruling BC) -- the same `accent_wash_2` overlay
+			## `radial_ring.gd::_draw_ring()` uses for the identical state.
+			draw_circle(pos, d, DccTheme.c("accent_wash_2"))
+		var border := DccTheme.c("accent") if (hovered or armed) else DccTheme.c("border")
 		draw_arc(pos, d, 0.0, TAU, 24, Color(border.r, border.g, border.b, alpha),
 			2.0 if hovered else 1.0, true)
 		if not present:
 			return
-		var ink := DccTheme.c("accent_ink") if armed else DccTheme.c("text_bright")
+		var ink := DccTheme.c("accent_ink") if armed else \
+			(DccTheme.c("accent_hover") if hovered else DccTheme.c("text_bright"))
 		ink.a = alpha
-		_draw_glyph(String(row.get("glyph", "")), pos, d * 1.0, ink)
-		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, d + 11.0 * scale), ink)
+		## Ruling BC: label inside the slot (mockup's flex column, glyph above
+		## / label below, both inside the 56 px circle) rather than hanging
+		## below it. `_draw_fitted_slot()` wraps/shrinks so the label's own
+		## rect never crosses the circle -- `radial_ring.gd`'s own function,
+		## duplicated here rather than imported (this file's own header:
+		## "the two files' geometry does not overlap enough to factor out").
+		_draw_fitted_slot(pos, d, String(row.get("glyph", "")), String(row.get("label", "")), ink)
+
+	static func _chord_half_width(radius: float, dy: float) -> float:
+		var dd := absf(dy)
+		if dd >= radius:
+			return 0.0
+		return sqrt(radius * radius - dd * dd)
+
+	static func _split_label(text: String) -> Array:
+		var best := -1
+		var best_dist := 1.0e9
+		for i in text.length():
+			var c := text[i]
+			if c == " " or c == "/":
+				var dist: float = absf(float(i) - float(text.length()) * 0.5)
+				if dist < best_dist:
+					best_dist = dist
+					best = i
+		if best < 0:
+			return []
+		var l1 := text.substr(0, best).strip_edges()
+		var l2 := text.substr(best + 1).strip_edges()
+		if l1.is_empty() or l2.is_empty():
+			return []
+		return [l1, l2]
+
+	const MIN_LABEL_FS := 7
+
+	## `radial_ring.gd::_draw_fitted_slot()`'s own algorithm -- see that
+	## copy's header for the wrap/shrink/margin reasoning.
+	func _draw_fitted_slot(centre: Vector2, slot_radius: float, glyph_name: String,
+			label_text: String, ink: Color) -> void:
+		var glyph_present := not glyph_name.is_empty()
+		var glyph_dy := -slot_radius * 0.32
+		var glyph_px := slot_radius * 0.62
+		if glyph_present:
+			_draw_glyph(glyph_name, centre + Vector2(0.0, glyph_dy), glyph_px, ink)
+		if label_text.is_empty():
+			return
+		var top_dy: float = (glyph_dy + glyph_px * 0.5 + slot_radius * 0.10) if glyph_present \
+			else -slot_radius * 0.30
+		var font := DccTheme.mono()
+		var fs := DccTheme.FS_MICRO
+		var lines: Array = [label_text]
+		while true:
+			var lh := float(fs) * 1.15
+			var w_one := font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if w_one <= _chord_half_width(slot_radius, top_dy + lh * 0.5) * 2.0 - 6.0:
+				lines = [label_text]
+				break
+			var parts := _split_label(label_text)
+			if not parts.is_empty():
+				var w1 := font.get_string_size(String(parts[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+				var w2 := font.get_string_size(String(parts[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+				if w1 <= _chord_half_width(slot_radius, top_dy + lh * 0.5) * 2.0 - 6.0 and \
+						w2 <= _chord_half_width(slot_radius, top_dy + lh * 1.5) * 2.0 - 6.0:
+					lines = parts
+					break
+			if fs <= MIN_LABEL_FS:
+				lines = parts if not parts.is_empty() else [label_text]
+				break
+			fs -= 1
+		var lh2 := float(fs) * 1.15
+		for i in lines.size():
+			var dy := top_dy + lh2 * float(i) + lh2 * 0.5
+			var line := String(lines[i])
+			var ts := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+			draw_string(font, centre + Vector2(-ts.x * 0.5, dy + ts.y * 0.32), line,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 
 	func _draw_glyph(name: String, centre: Vector2, px: float, color: Color) -> void:
 		if name.is_empty():
@@ -587,15 +678,6 @@ class _Overlay:
 		if tex == null:
 			return
 		draw_texture_rect(tex, Rect2(centre - Vector2(px, px) * 0.5, Vector2(px, px)), false, color)
-
-	func _draw_label(text: String, centre: Vector2, color: Color) -> void:
-		if text.is_empty():
-			return
-		var font := DccTheme.mono()
-		var fs := DccTheme.FS_MICRO
-		var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-		draw_string(font, centre - Vector2(ts.x * 0.5, 0.0), text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, color)
 
 	func _draw_caption() -> void:
 		var text := "slide to a slot, lift to pick"

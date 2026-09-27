@@ -31,6 +31,10 @@ extends Node
 ##   E  the ring's own rect AND the card's own rect stay on screen at all
 ##      four screen edges, on the tablet touch-hold path specifically (CM-3's
 ##      `_ctxring_probe.gd` leg E already covers the desktop Q/RMB path)
+##   G  Ruling BC (`LARGE_ITEM_RULINGS.md`) on the TOUCH-SCALED geometry --
+##      the disc and the centre button both scale up alongside the already-
+##      probed 96 dp ring radius (leg T), rather than staying at their
+##      desktop figure while the ring around them grows
 ##
 ## Haptics (§7.1's "sample"/"tool_arm" pulses, `DccShell._haptic()`) are a
 ## no-op off Android/iOS by that function's own guard (`OS.has_feature
@@ -50,8 +54,12 @@ const SEED := 719203
 ## would silently under-size `pad` and let a real off-screen ring pass leg E.
 ## Kept only for leg H/T's own radius-floor assertion, which explicitly
 ## compares the LIVE value to this desktop one.
-const RING_RADIUS := 60.0
-const SLOT_SIZE := 46.0
+## Ruling BC, coordinator correction 2026-09-29: track the shipped
+## `radial_ring.gd::RING_RADIUS`/`SLOT_SIZE`, now the mockup's own absolute
+## desktop figures (92 / 60) rather than this shell's old independently-tuned
+## ones (60 / 46).
+const RING_RADIUS := 92.0
+const SLOT_SIZE := 60.0
 const DIR_DEG := {
 	"N": -90.0, "NE": -45.0, "E": 0.0, "SE": 45.0,
 	"S": 90.0, "SW": 135.0, "W": 180.0, "NW": -135.0,
@@ -148,6 +156,39 @@ func _card_close() -> void:
 	if c != null and c.visible:
 		c.hide()
 	await _frames(2)
+
+
+static func _close_color(a: Color, b: Color, tol: float) -> bool:
+	return absf(a.r - b.r) <= tol and absf(a.g - b.g) <= tol and absf(a.b - b.b) <= tol
+
+
+## `_ctxring_probe.gd`'s own leg-L helper, duplicated rather than imported
+## (same reason every geometry const in this file is duplicated, not
+## shared) -- see that copy's header for the median-luminance reasoning.
+static func _label_inside_circle(img: Image, centre: Vector2, radius: float) -> Dictionary:
+	var steps := 40
+	var radii := [radius + 2.0, radius + 4.0, radius + 6.0]
+	var samples: Array = []
+	for i in steps:
+		var ang := TAU * float(i) / float(steps)
+		for rr in radii:
+			var p: Vector2 = centre + Vector2(cos(ang), sin(ang)) * float(rr)
+			var pi := Vector2i(int(p.x), int(p.y))
+			if pi.x < 0 or pi.y < 0 or pi.x >= img.get_width() or pi.y >= img.get_height():
+				continue
+			var px := img.get_pixel(pi.x, pi.y)
+			samples.append({"p": p, "px": px, "lum": px.get_luminance()})
+	if samples.is_empty():
+		return {"ok": true}
+	var lums: Array = []
+	for s in samples:
+		lums.append(s["lum"])
+	lums.sort()
+	var median: float = lums[lums.size() / 2]
+	for s in samples:
+		if absf(float(s["lum"]) - median) > 0.10:
+			return {"ok": false, "at": s["p"], "px": (s["px"] as Color).to_html(false)}
+	return {"ok": true}
 
 
 ## `InputEvent.DEVICE_ID_EMULATION`: `map_overlay.gd`'s own `mb.device < 0`
@@ -341,6 +382,134 @@ func _run() -> void:
 		_touch_release(ov, edge_pts[i])
 		await _ring_close()
 		await _card_close()
+
+	# -- G: Ruling BC geometry scales with the touch ring ------------------------
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	await _touch_hold(ov, centre)
+	var st_g := _ring_state()
+	var disc_r: float = st_g.get("disc_radius", 0.0)
+	var live_r: float = st_g.get("radius", 0.0)
+	var live_slot: float = st_g.get("slot", 0.0)
+	var centre_sz: float = st_g.get("centre_size", 0.0)
+	print("G touch disc_radius=%.2f ring_radius=%.2f slot=%.2f centre_size=%.2f" %
+		[disc_r, live_r, live_slot, centre_sz])
+	_ok("G touch disc reaches past the (already 96 dp+) touch ring",
+		disc_r > live_r + live_slot * 0.5, true)
+	_ok("G touch centre button grew off the desktop 46/60 figure (not left at desktop size)",
+		centre_sz > SLOT_SIZE * (46.0 / 60.0), true)
+	_touch_release(ov, centre)
+	await _ring_close()
+	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## One screenshot with a sub-ring ACTUALLY open on the touch-scaled
+	## geometry (Ruling BC evidence -- desktop's own `_ctxring_probe.gd`
+	## already saves a plain-ring pair; this is the tablet's sub-ring pair).
+	##
+	## Coordinator correction 2026-09-29: the first pass here moved onto NW
+	## and screenshotted WITHOUT releasing, so the ring only ever showed the
+	## hover WEDGE toward Uplift, never an opened sub-ring -- `release()`
+	## (`radial_ring.gd`) is what actually opens a `children` slot's sub-ring
+	## (mirrors `_held_drag()`'s desktop path, which does release). The aim
+	## point is also now read fresh from `debug_state()` on each pass rather
+	## than a distance computed once before the loop, so a theme change that
+	## ever altered geometry could not aim short of the live slot.
+	for dark_g in [true, false]:
+		var was_g := DccTheme.is_dark()
+		if was_g != dark_g:
+			DccTheme.apply_theme(dark_g)
+			app.rebuild_theme(was_g)
+			await _frames(8)
+		await _touch_hold(ov, centre)
+		var r_shot: float = _ring_state().get("radius", 0.0)
+		var nw_pos: Vector2 = centre + _dir_vec("NW") * r_shot
+		_touch_move(ov, nw_pos)
+		await _frames(2)
+		_touch_release(ov, nw_pos)   ## Uplift has children -> release() opens its sub-ring.
+		await _frames(4)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		print("G sub-ring screenshot (%s): sub_open=%s" %
+			[("dark" if dark_g else "light"), _ring_state().get("sub_open", false)])
+		_vp.get_texture().get_image().save_png(
+			"res://_ctxtablet_ring_sub_%s.png" % ("dark" if dark_g else "light"))
+		await _ring_close()
+		await _card_close()
+		app.arm_tool("inspect")
+		await _frames(2)
+
+	# -- L: every label sits inside its own circle, on the TOUCH geometry -------
+	## Card closed before sampling in both halves below: the tablet's
+	## touch-hold opens the ring AND the card together (leg H), and the
+	## card's own dock offset (`ring_clear`, `context_broker.gd::present()`)
+	## is sized to the TOP-level ring's own footprint only -- it does not
+	## widen further for an open SUB-ring's own reach in a different
+	## direction. `context_broker.gd` is this task's off-limits file, so
+	## that is not this pass's fix; leg L cares whether a LABEL stays inside
+	## its own circle, not whether the card (a separate, already-tracked
+	## surface) happens to overlap a sub-slot on some run -- measured once,
+	## sub #4 ("Cliff / Escarpment"): the "failing" pixel was byte-identical
+	## to the SAME screen point captured with no sub-ring open at all, i.e.
+	## the card's own corner, not this slot's own label.
+	await _touch_hold(ov, centre)
+	var st_l := _ring_state()
+	var l_centre: Vector2 = st_l.get("centre", Vector2.ZERO)
+	var l_radius: float = st_l.get("radius", 0.0)
+	var l_slot: float = st_l.get("slot", 0.0)
+	_touch_release(ov, centre)   ## dead-zone release: sticky, hover stays "" -- no wedge.
+	await _frames(4)
+	await _card_close()
+	await _frames(2)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_l: Image = _vp.get_texture().get_image()
+	for dir in DIR_DEG:
+		var pos: Vector2 = l_centre + _dir_vec(dir) * l_radius
+		var res := _label_inside_circle(img_l, pos, l_slot * 0.5)
+		if not res.get("ok", true):
+			print("L touch main %s FAIL at=%s px=%s" % [dir, res["at"], res["px"]])
+		_ok("L touch main slot %s: its label stays inside its own circle" % dir, res.get("ok", false), true)
+	await _ring_close()
+	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	await _touch_hold(ov, centre)
+	var r_l2: float = _ring_state().get("radius", 0.0)
+	var nw_pos_l: Vector2 = centre + _dir_vec("NW") * r_l2
+	_touch_move(ov, nw_pos_l)
+	await _frames(2)
+	_touch_release(ov, nw_pos_l)
+	await _frames(4)
+	await _card_close()
+	await _frames(2)
+	var st_l2 := _ring_state()
+	if bool(st_l2.get("sub_open", false)):
+		var sub_c_l: Vector2 = st_l2.get("sub_centre", Vector2.ZERO)
+		var sub_r_l: float = st_l2.get("sub_radius", 0.0)
+		var sub_slot_l: float = st_l2.get("sub_slot_size", 0.0)
+		var sub_n_l: int = int(st_l2.get("sub_count", 0))
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var img_l2: Image = _vp.get_texture().get_image()
+		for i in sub_n_l:
+			var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, sub_n_l)))
+			var pos2: Vector2 = sub_c_l + Vector2(cos(ang), sin(ang)) * sub_r_l
+			var res2 := _label_inside_circle(img_l2, pos2, sub_slot_l * 0.5)
+			if not res2.get("ok", true):
+				print("L touch sub #%d FAIL at=%s px=%s" % [i, res2["at"], res2["px"]])
+			_ok("L touch sub slot #%d: its label stays inside its own circle" % i, res2.get("ok", false), true)
+	else:
+		_ok("L touch: Uplift opened its own sub-ring (precondition for the sub-slot label check)",
+			st_l2.get("sub_open", false), true)
+	await _ring_close()
+	await _card_close()
+	app.arm_tool("inspect")
+	await _frames(2)
 
 
 func _ready() -> void:

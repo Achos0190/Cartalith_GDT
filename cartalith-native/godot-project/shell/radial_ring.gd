@@ -30,17 +30,29 @@ signal hold_fired  ## §6's "hold >= 300ms, still": the ring is now visible and
 ## sub-ring share it; `context_broker.gd` does not need to know which.
 signal hover_entered
 
-const RING_RADIUS := 60.0      ## §7.2's own desktop figure: "60 px on desktop"
-const SLOT_SIZE := 46.0        ## drawn slot disc diameter -- tuned, no reference value
-const DEAD_ZONE := 24.0        ## §5.2 rule 4, desktop
-## Smaller than the main ring, mirroring the design canvas's own SUBR<RR
-## relation (`design/map-context-2026-09-25/Main.dc.html`: RR=92, SUBR=84) --
-## keeps the sub-ring reading as "inside" the parent slot it opened from.
-const SUB_RING_RADIUS := 50.0
-## Larger than `DEAD_ZONE`, mirroring that same canvas's SUBDEAD(32) >
-## DEAD(22): the path back toward the parent ring's own centre should not
-## read as an accidental cancel of the sub-ring.
-const SUB_DEAD_ZONE := 30.0
+## Ruling BC (`LARGE_ITEM_RULINGS.md`, 2026-09-29), coordinator correction
+## same day: "the shape is not 1-to-1 yet" -- the first pass matched the
+## mockup's *ratios* onto this shell's OLD, independently-tuned 60 px ring,
+## which put every label straddling its slot's own border, half in and half
+## out. These eight are now the mockup's own ABSOLUTE desktop figures
+## (`design/map-context-2026-09-25/Main.dc.html`'s `RR=92, SLOT=60, DEAD=22,
+## SUBR=84, SSLOT=56, SUBDEAD=32`), not tuned figures scaled by a ratio:
+const RING_RADIUS := 92.0      ## mockup `RR`.
+const SLOT_SIZE := 60.0        ## mockup `SLOT`.
+const DEAD_ZONE := 22.0        ## mockup `DEAD`.
+const SUB_RING_RADIUS := 84.0  ## mockup `SUBR`.
+const SUB_DEAD_ZONE := 32.0    ## mockup `SUBDEAD`.
+## `RD=RR+SLOT/2+12` and `SUBR+SSLOT/2+10` -- the disc's extra reach past the
+## slot ring, the mockup's own absolute padding (not a proportion of slot
+## size), touch-scaled alongside everything else in `_apply_touch_scale()`.
+const DISC_MARGIN := 12.0
+const SUB_DISC_MARGIN := 10.0
+## `SSLOT/SLOT = 56/60`: with `SLOT_SIZE` now the mockup's own 60, this ratio
+## resolves to the mockup's own literal 56 rather than approximating it.
+const SUB_SLOT_RATIO := 56.0 / 60.0
+## The centre CLOSE/BACK button's own diameter against the main slot's --
+## `46/60`, which for the same reason now resolves to a literal 46.
+const CENTRE_RATIO := 46.0 / 60.0
 
 ## CM-4 residual (`OUTSTANDING_WORK.md`; `MAP_CONTEXT_SCOPE.md` §7.2): "Ring
 ## radius scales with the finger. Slots sit at 96 dp on touch (60 px on
@@ -59,6 +71,8 @@ var _r_slot := SLOT_SIZE
 var _r_dead := DEAD_ZONE
 var _r_sub_ring := SUB_RING_RADIUS
 var _r_sub_dead := SUB_DEAD_ZONE
+var _r_disc_margin := DISC_MARGIN
+var _r_sub_disc_margin := SUB_DISC_MARGIN
 
 const HOLD_MS := 300     ## §6: "hold >= 300ms, still" -> ring + card
 ## §6: "the ring appears only if the button is still held after 150ms" --
@@ -118,13 +132,14 @@ func setup(app_ref) -> void:
 ## `DccTheme.TOUCH_SCALE` (1.53) is this shell's one documented general-
 ## purpose touch multiplier -- reused here rather than inventing a ring-only
 ## factor, per its own header: "the fallback for any figure the table [below
-## it] does not name." Applied plainly it turns the desktop 60 px ring into
-## 91.8, short of the 96 dp §7.2 names outright, so the ring radius alone
-## additionally takes 96 as a floor -- the same shape `DccShell._ptap()`
-## already uses for its own named touch-target floor (scale, then never let
-## the result fall under the figure the spec states). Every other figure here
-## (slot size, dead zones, the sub-ring) has no such named target, so plain
-## `TOUCH_SCALE` is all they take.
+## it] does not name." `RING_RADIUS` is now the mockup's own 92 px (Ruling BC's
+## coordinator correction, above), so plain `TOUCH_SCALE` already clears the
+## 96 dp floor §7.2 names (92 x 1.53 = 140.76) -- the `maxf(96.0, ...)` stays
+## as a floor rather than being removed, the same "scale, then never let the
+## result fall under the figure the spec states" shape `DccShell._ptap()`
+## already uses, in case a future re-tune of `RING_RADIUS` ever put it back
+## under 96 again. Every other figure here (slot size, dead zones, the
+## sub-ring) has no such named target, so plain `TOUCH_SCALE` is all they take.
 func _apply_touch_scale() -> void:
 	if not DccTheme.is_tablet():
 		return
@@ -133,6 +148,26 @@ func _apply_touch_scale() -> void:
 	_r_dead = DEAD_ZONE * DccTheme.TOUCH_SCALE
 	_r_sub_ring = SUB_RING_RADIUS * DccTheme.TOUCH_SCALE
 	_r_sub_dead = SUB_DEAD_ZONE * DccTheme.TOUCH_SCALE
+	_r_disc_margin = DISC_MARGIN * DccTheme.TOUCH_SCALE
+	_r_sub_disc_margin = SUB_DISC_MARGIN * DccTheme.TOUCH_SCALE
+
+
+## The disc's own radius (mockup `RD=RR+SLOT/2+12`) -- the panel-toned ground
+## drawn behind the main ring's slots, live and touch-scaled.
+func _disc_radius() -> float:
+	return _r_ring + _r_slot * 0.5 + _r_disc_margin
+
+
+func _sub_slot_size() -> float:
+	return _r_slot * SUB_SLOT_RATIO
+
+
+func _sub_disc_radius() -> float:
+	return _r_sub_ring + _sub_slot_size() * 0.5 + _r_sub_disc_margin
+
+
+func _centre_size() -> float:
+	return _r_slot * CENTRE_RATIO
 
 
 func is_open() -> bool:
@@ -155,6 +190,12 @@ func debug_state() -> Dictionary:
 		## asserting them against themselves (`MISTAKES.md`'s preflight rule).
 		"radius": _r_ring, "slot": _r_slot, "dead": _r_dead,
 		"sub_radius": _r_sub_ring, "sub_dead": _r_sub_dead,
+		## Ruling BC geometry, live -- the disc, the sub-ring's own slot size
+		## and the centre button, all read off the SAME touch-scaled state the
+		## rest of this dictionary already reports (`MISTAKES.md`'s "never
+		## assert a constant against itself").
+		"disc_radius": _disc_radius(), "sub_disc_radius": _sub_disc_radius(),
+		"sub_slot_size": _sub_slot_size(), "centre_size": _centre_size(),
 	}
 
 
@@ -384,7 +425,11 @@ func _update_sub_hover(pos: Vector2) -> void:
 ## inside the viewport at all four screen edges (§5's "the ring stays on
 ## screen at the four edges" -- the probe's own check).
 func _clamp_centre(pos: Vector2) -> Vector2:
-	var pad := _r_ring + _r_slot * 0.5 + 40.0
+	## The disc's own radius plus room for the caption pill below it (mockup:
+	## `capT: cy+RD+6`, then the pill's own ~20 px height/padding) -- was a
+	## bare `_r_ring + _r_slot*0.5 + 40`, which the disc (`_disc_radius()`,
+	## `RD` in the mockup) already exceeds by the touch-scaled margin alone.
+	var pad := _disc_radius() + 30.0
 	var sz := size
 	if sz.x <= 0.0 or sz.y <= 0.0:
 		return pos
@@ -398,10 +443,107 @@ func _clamp_centre(pos: Vector2) -> Vector2:
 func _draw() -> void:
 	if not _active or not _visible:
 		return
-	_draw_ring(_centre, _r_ring, _r_dead, _slots, _hover, _sub.is_empty())
-	if not _sub.is_empty():
-		_draw_sub_ring(_sub["centre"], _sub["items"], int(_sub.get("hover", -1)))
+	var sub_open := not _sub.is_empty()
+	## DOM order in the mockup, reproduced literally: scrim, then the main
+	## disc, then the hover wedge (so slots draw OVER it), then the slots,
+	## then -- if open -- the sub-disc, its own wedge and its slots, then the
+	## centre button, then the caption pill.
+	_draw_scrim()
+	_draw_disc(_centre, _disc_radius(), 0.44 if sub_open else 0.88, DccTheme.c("border"), 1.0)
+	if not sub_open and _hover != "":
+		_draw_wedge(_centre, _r_dead, _disc_radius() - 4.0, float(ANGLES[_hover]), 22.5)
+	_draw_ring(_centre, _r_ring, _r_dead, _slots, _hover, not sub_open,
+		String(_sub.get("dir", "")) if sub_open else "")
+	if sub_open:
+		var sc: Vector2 = _sub["centre"]
+		var accent_border := DccTheme.c("accent")
+		_draw_disc(sc, _sub_disc_radius(), 0.94, accent_border, 2.0)
+		var hi := int(_sub.get("hover", -1))
+		if hi >= 0:
+			var n: int = (_sub["items"] as Array).size()
+			var ang := -90.0 + 360.0 * float(hi) / float(maxi(1, n))
+			_draw_wedge(sc, _r_sub_dead, _sub_disc_radius() - 4.0, ang, 180.0 / float(maxi(1, n)))
+		_draw_sub_ring(sc, _sub["items"], hi)
+	_draw_centre_button()
 	_draw_caption()
+
+
+## The 30%-darkening scrim behind an open ring (mockup: `rgba(0,0,0,.3)` over
+## the whole map). Kept as plain black rather than a `DccTheme` surface token
+## on purpose: Ruling BC's "colours do not carry over" bars the mockup's
+## SURFACE hex values (panel/slot/border greys, which this file takes from
+## `DccTheme` throughout) but the scrim is not a surface -- it is a multiply-
+## darken operator, and darkening has to mean the same thing in both themes.
+## No `DccTheme` token is theme-invariant in that way: `bg` is near-black in
+## `DARK` and near-white in `LIGHT`, so compositing it at any alpha would
+## LIGHTEN a light theme's map instead of darkening it -- the opposite of the
+## contrast relationship Ruling BC says to keep.
+func _draw_scrim() -> void:
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.0, 0.0, 0.3))
+
+
+## The panel-toned disc behind a ring's slots (mockup: `rgba(10,11,12,.88)`
+## main / `rgba(10,11,12,.94)` sub). `alpha` is the mockup's own opacity
+## figure -- `panel`'s RGB carries the theme, the alpha carries the
+## refinement's stated relationship ("the disc is 88% opaque").
+func _draw_disc(centre: Vector2, radius: float, alpha: float, border: Color, border_width: float) -> void:
+	var fill := DccTheme.c("panel")
+	fill.a = alpha
+	draw_circle(centre, radius, fill)
+	draw_arc(centre, radius, 0.0, TAU, 48, border, border_width, true)
+
+
+## The hover wedge (mockup: an SVG annulus sector, `rgba(224,163,74,.18)` fill
+## / `rgba(224,163,74,.55)` stroke) toward the hovered slot -- `accent_wash_2`
+## is this shell's own "armed/about-to-act" warm tint (`DccTheme`'s own
+## header names it exactly that use), at a weight (.16) already close to the
+## mockup's .18.
+func _draw_wedge(centre: Vector2, r0: float, r1: float, angle_deg: float, half_deg: float) -> void:
+	var steps := 12
+	var a0 := deg_to_rad(angle_deg - half_deg)
+	var a1 := deg_to_rad(angle_deg + half_deg)
+	var pts := PackedVector2Array()
+	for i in range(steps + 1):
+		var t: float = lerpf(a0, a1, float(i) / float(steps))
+		pts.append(centre + Vector2(cos(t), sin(t)) * r1)
+	for i in range(steps + 1):
+		var t: float = lerpf(a1, a0, float(i) / float(steps))
+		pts.append(centre + Vector2(cos(t), sin(t)) * r0)
+	draw_colored_polygon(pts, DccTheme.c("accent_wash_2"))
+	var border := DccTheme.c("accent")
+	border.a = 0.55
+	var closed := pts.duplicate()
+	closed.append(pts[0])
+	draw_polyline(closed, border, 1.0, true)
+
+
+## The 46 px (mockup ratio) CLOSE/BACK centre button, always drawn -- at the
+## main ring's own centre normally, and at the sub-ring's own centre once one
+## is open, filled in the accent with a glow ring (mockup: `box-shadow: 0 0 0
+## 4px rgba(224,163,74,.28)`), per Ruling BC / the refinement note ("an
+## accent-filled `‹ BACK` button at the sub-ring's centre, with a glow ring").
+func _draw_centre_button() -> void:
+	var sub_open := not _sub.is_empty()
+	var centre: Vector2 = _sub["centre"] if sub_open else _centre
+	var r := _centre_size() * 0.5
+	if sub_open:
+		draw_circle(centre, r + 4.0, Color(DccTheme.c("accent"), 0.28))
+	var bg := DccTheme.c("accent") if sub_open else DccTheme.c("sunken")
+	draw_circle(centre, r, bg)
+	var border := DccTheme.c("accent") if sub_open else DccTheme.c("border")
+	draw_arc(centre, r, 0.0, TAU, 32, border, 2.0 if sub_open else 1.0, true)
+	var ink := DccTheme.c("accent_ink") if sub_open else DccTheme.c("text_bright")
+	var glyph := "‹" if sub_open else "✕"
+	var label := "BACK" if sub_open else "CLOSE"
+	var font := DccTheme.mono(0, true)
+	var gfs: int = maxi(8, int(r * 0.62))
+	var gts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, gfs)
+	draw_string(font, centre - gts * 0.5 + Vector2(0.0, gts.y * 0.32 - r * 0.26), glyph,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, gfs, ink)
+	var lfs := DccTheme.FS_MICRO
+	var lts := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lfs)
+	draw_string(font, centre + Vector2(-lts.x * 0.5, r * 0.58), label,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, ink)
 
 
 ## One ring's worth of slots, shared by the top-level compass and (via
@@ -413,10 +555,11 @@ func _draw() -> void:
 ## (a domain workspace that returned nothing for this direction) or an
 ## explicitly `enabled: false` one is drawn at 35% opacity with its reason in
 ## the centre caption when hovered (§5.2 rule 1).
-func _draw_ring(centre: Vector2, radius: float, dead: float, slots: Dictionary,
-		hover_dir: String, top_active: bool) -> void:
-	draw_circle(centre, dead, DccTheme.c("panel_alt"))
-	draw_arc(centre, dead, 0.0, TAU, 28, DccTheme.c("line"), 1.0, true)
+## The centre marker itself is `_draw_centre_button()`'s job now (Ruling BC:
+## the mockup draws a real 46 px CLOSE/BACK button there, not a bare dead-zone
+## disc) -- this function draws only the eight slots.
+func _draw_ring(centre: Vector2, radius: float, _dead: float, slots: Dictionary,
+		hover_dir: String, top_active: bool, sub_dir: String = "") -> void:
 	for dir in DIRS:
 		var row: Dictionary = slots.get(dir, {})
 		var ang := deg_to_rad(float(ANGLES[dir]))
@@ -424,37 +567,62 @@ func _draw_ring(centre: Vector2, radius: float, dead: float, slots: Dictionary,
 		var present := not row.is_empty()
 		var enabled := present and bool(row.get("enabled", true))
 		var armed := present and bool(row.get("armed", false))
-		var hovered := top_active and present and String(dir) == hover_dir
+		var hovered := top_active and present and enabled and String(dir) == hover_dir
 		var alpha := 1.0 if enabled else 0.35
+		## Mockup: `dim:!!r.sub&&r.sub.dir!==dir` -- every main-ring slot
+		## OTHER than the one a sub-ring opened from dims to 30% while that
+		## sub-ring is up. Without this, an unrelated main slot's own label
+		## can sit fully visible just behind/beside the sub-ring's own disc
+		## and read as a sub-slot label spilling outside its circle (leg L,
+		## tablet, sub #4 -- measured `#9a9d95`, this shell's `text_ghost`,
+		## bleeding through from a dimmed-in-the-mockup but undimmed-here
+		## main slot at the tablet's larger touch radii).
+		if sub_dir != "" and String(dir) != sub_dir:
+			alpha *= 0.3
+		## Refinement note: "the hover state is a warm accent tint with accent
+		## text" -- a distinct state from `armed`'s solid fill, drawn as the
+		## ordinary ground plus `accent_wash_2`'s own warm overlay on top,
+		## exactly as `_draw_wedge()` uses the same token for the same reason.
 		var ground := DccTheme.c("accent") if armed else DccTheme.c("sunken")
 		draw_circle(pos, _r_slot * 0.5, Color(ground.r, ground.g, ground.b, ground.a * alpha))
-		var border := DccTheme.c("accent") if (hovered or armed) else DccTheme.c("line")
+		if hovered and not armed:
+			draw_circle(pos, _r_slot * 0.5, DccTheme.c("accent_wash_2"))
+		var border := DccTheme.c("accent") if hovered else DccTheme.c("border")
 		draw_arc(pos, _r_slot * 0.5, 0.0, TAU, 28,
-			Color(border.r, border.g, border.b, alpha), 2.0 if hovered else 1.0, true)
+			Color(border.r, border.g, border.b, border.a * alpha), 2.0 if hovered else 1.0, true)
 		if not present:
 			continue
 		## MN-21: reversed, paper-coloured ink on the filled accent surface.
-		var ink := DccTheme.c("accent_ink") if armed else DccTheme.c("text_bright")
+		var ink := DccTheme.c("accent_ink") if armed else \
+			(DccTheme.c("accent_hover") if hovered else DccTheme.c("text_bright"))
 		ink.a = alpha
-		_draw_glyph(String(row.get("glyph", "")), pos, _r_slot * 0.52, ink)
-		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, _r_slot * 0.5 + 11.0), ink)
+		## Ruling BC: "labels inside the slot" -- glyph and label both sit
+		## inside the slot's own circle (mockup's flex column, gap 3px),
+		## rather than the label hanging below it. `_draw_fitted_slot()`
+		## wraps/shrinks so the label's own rect never crosses the circle.
+		_draw_fitted_slot(pos, _r_slot * 0.5, String(row.get("glyph", "")), String(row.get("label", "")), ink)
 
 
 func _draw_sub_ring(centre: Vector2, items: Array, hover_i: int) -> void:
-	draw_circle(centre, _r_sub_dead, DccTheme.c("panel_alt"))
-	draw_arc(centre, _r_sub_dead, 0.0, TAU, 24, DccTheme.c("accent"), 2.0, true)
 	var n := items.size()
+	var d := _sub_slot_size()
 	for i in n:
 		var row: Dictionary = items[i]
 		var ang := deg_to_rad(-90.0 + 360.0 * float(i) / float(maxi(1, n)))
 		var pos: Vector2 = centre + Vector2(cos(ang), sin(ang)) * _r_sub_ring
 		var hovered := i == hover_i
 		var ground := DccTheme.c("accent") if hovered else DccTheme.c("sunken")
-		draw_circle(pos, _r_slot * 0.44, ground)
-		draw_arc(pos, _r_slot * 0.44, 0.0, TAU, 24, DccTheme.c("line"), 1.0, true)
+		draw_circle(pos, d * 0.5, ground)
+		var border := DccTheme.c("accent") if hovered else DccTheme.c("border")
+		draw_arc(pos, d * 0.5, 0.0, TAU, 24, border, 2.0 if hovered else 1.0, true)
 		var ink := DccTheme.c("accent_ink") if hovered else DccTheme.c("text_bright")
-		_draw_glyph(String(row.get("glyph", "")), pos, _r_slot * 0.42, ink)
-		_draw_label(String(row.get("label", "")), pos + Vector2(0.0, _r_slot * 0.44 + 10.0), ink)
+		var glyph := String(row.get("glyph", ""))
+		## The mockup's own sub-ring buttons carry text only, no icon
+		## (`kidsOf()`'s children have no `glyph`) -- `_draw_fitted_slot()`
+		## centres the label alone when this row has none either, and puts
+		## it below the glyph (mirroring the main ring) when it does,
+		## wrapping/shrinking either way so it stays inside the circle.
+		_draw_fitted_slot(pos, d * 0.5, glyph, String(row.get("label", "")), ink)
 
 
 ## §5.2 rule 4: "the centre shows the hovered slot's full label and shortcut,
@@ -482,7 +650,11 @@ func _draw_caption() -> void:
 	var font := DccTheme.mono()
 	var fs := DccTheme.FS_SMALL
 	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-	var cap_centre := below_centre + Vector2(0.0, _r_ring + 30.0)
+	## Anchored off the disc's own radius (mockup: `capT: r.cy+RD+6`), not the
+	## bare slot ring -- so the pill sits just past the disc's edge whichever
+	## disc is showing.
+	var cap_r := _sub_disc_radius() if not _sub.is_empty() else _disc_radius()
+	var cap_centre := below_centre + Vector2(0.0, cap_r + 6.0)
 	var pad := Vector2(9.0, 5.0)
 	var rect := Rect2(cap_centre - ts * 0.5 - pad, ts + pad * 2.0)
 	draw_rect(rect, DccTheme.c("panel"))
@@ -511,11 +683,89 @@ func _draw_glyph(name: String, centre: Vector2, px: float, color: Color) -> void
 	draw_texture_rect(tex, Rect2(centre - Vector2(px, px) * 0.5, Vector2(px, px)), false, color)
 
 
-func _draw_label(text: String, centre: Vector2, color: Color) -> void:
-	if text.is_empty():
+## Half the chord width of a circle of `radius` at vertical offset `dy` from
+## its own centre -- `0.0` once `dy` reaches the radius (no chord left).
+static func _chord_half_width(radius: float, dy: float) -> float:
+	var d := absf(dy)
+	if d >= radius:
+		return 0.0
+	return sqrt(radius * radius - d * d)
+
+
+## Splits `text` into two pieces at the space or `/` nearest its own middle
+## (`"Cliff / Escarpment"` -> `["Cliff", "Escarpment"]`) -- `[]` when there is
+## nothing to break on.
+static func _split_label(text: String) -> Array:
+	var best := -1
+	var best_dist := 1.0e9
+	for i in text.length():
+		var c := text[i]
+		if c == " " or c == "/":
+			var dist: float = absf(float(i) - float(text.length()) * 0.5)
+			if dist < best_dist:
+				best_dist = dist
+				best = i
+	if best < 0:
+		return []
+	var l1 := text.substr(0, best).strip_edges()
+	var l2 := text.substr(best + 1).strip_edges()
+	if l1.is_empty() or l2.is_empty():
+		return []
+	return [l1, l2]
+
+
+const MIN_LABEL_FS := 7  ## Never shrunk past this -- Plex Mono is unreadable below it.
+
+## Draws a glyph (optional) and its label inside a circle of `slot_radius`
+## centred at `centre` -- Ruling BC's coordinator correction, 2026-09-29:
+## "every label must sit fully inside its circle." Tries the mockup's own
+## 9 px mono unwrapped first; if the text is too wide for the circle's own
+## chord at that height, wraps onto a second line at a space or `/` near the
+## middle (`"Cliff / Escarpment"`); if even a wrapped line still doesn't fit,
+## shrinks the font (down to `MIN_LABEL_FS`) until it does. The probe's own
+## inside-circle assert is what this function exists to satisfy, measured
+## from the live drawn rect, not from this function's own arithmetic.
+func _draw_fitted_slot(centre: Vector2, slot_radius: float, glyph_name: String,
+		label_text: String, ink: Color) -> void:
+	var glyph_present := not glyph_name.is_empty()
+	var glyph_dy := -slot_radius * 0.32
+	var glyph_px := slot_radius * 0.62
+	if glyph_present:
+		_draw_glyph(glyph_name, centre + Vector2(0.0, glyph_dy), glyph_px, ink)
+	if label_text.is_empty():
 		return
+	var top_dy: float = (glyph_dy + glyph_px * 0.5 + slot_radius * 0.10) if glyph_present \
+		else -slot_radius * 0.30
 	var font := DccTheme.mono()
 	var fs := DccTheme.FS_MICRO
-	var ts := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-	draw_string(font, centre - Vector2(ts.x * 0.5, 0.0), text,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, fs, color)
+	var lines: Array = [label_text]
+	while true:
+		var lh := float(fs) * 1.15
+		var w_one := font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		## The 6 px margin (not 2) leaves room for a glyph's own antialiased
+		## edge and a descender past the line's nominal advance box --
+		## measured: a 2 px margin let "Cliff / Escarpment" pass its own fit
+		## check while still reading 1-2 px of ink just past the circle
+		## (leg L, tablet sub-ring, light palette).
+		if w_one <= _chord_half_width(slot_radius, top_dy + lh * 0.5) * 2.0 - 6.0:
+			lines = [label_text]
+			break
+		var parts := _split_label(label_text)
+		if not parts.is_empty():
+			var w1 := font.get_string_size(String(parts[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var w2 := font.get_string_size(String(parts[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			if w1 <= _chord_half_width(slot_radius, top_dy + lh * 0.5) * 2.0 - 6.0 and \
+					w2 <= _chord_half_width(slot_radius, top_dy + lh * 1.5) * 2.0 - 6.0:
+				lines = parts
+				break
+		if fs <= MIN_LABEL_FS:
+			lines = parts if not parts.is_empty() else [label_text]
+			break
+		fs -= 1
+	var lh := float(fs) * 1.15
+	for i in lines.size():
+		var dy := top_dy + lh * float(i) + lh * 0.5
+		var line := String(lines[i])
+		var ts := font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		draw_string(font, centre + Vector2(-ts.x * 0.5, dy + ts.y * 0.32), line,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)

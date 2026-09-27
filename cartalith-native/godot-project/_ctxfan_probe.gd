@@ -32,6 +32,10 @@ extends Node
 ##      both px and dp
 ##   C  regression: CM-5's own probe, `_ctxphone_probe.gd`, still passes
 ##      31/31 -- run separately by the caller, not from inside this file
+##   G  Ruling BC (`LARGE_ITEM_RULINGS.md`) on `shell/tool_fan.gd`: a slot's
+##      ground is drawn behind its label (nothing bleeds below the slot's own
+##      circle any more), and the sub-fan's own BACK button fills in the
+##      theme accent with a glow ring around it
 
 const SEED := 552017
 
@@ -56,6 +60,70 @@ func _ok(what: String, got: Variant, want: Variant) -> void:
 
 func _fan():
 	return app._tool_fan
+
+
+static func _close_color(a: Color, b: Color, tol: float) -> bool:
+	return absf(a.r - b.r) <= tol and absf(a.g - b.g) <= tol and absf(a.b - b.b) <= tol
+
+
+## True if any pixel within `radius` of `pt` differs from the CORNER of that
+## same box (a stand-in "ground" sample) by more than a faint threshold --
+## i.e. there is text/ink drawn somewhere in that little box, not a flat
+## fill. Used by leg G to assert the ABSENCE of ink just past a slot's own
+## edge (where the label used to hang).
+func _ink_present(img: Image, pt: Vector2, radius: int) -> bool:
+	var cx := int(pt.x)
+	var cy := int(pt.y)
+	var corner := img.get_pixelv(Vector2i(cx - radius, cy - radius))
+	for y in range(cy - radius, cy + radius + 1):
+		for x in range(cx - radius, cx + radius + 1):
+			if x < 0 or y < 0 or x >= img.get_width() or y >= img.get_height():
+				continue
+			if not _close_color(img.get_pixel(x, y), corner, 0.05):
+				return true
+	return false
+
+
+## Leg L's own check, phone-specific: the fan has no disc behind its slots
+## (`tool_fan.gd`'s own `_Overlay._draw()` -- only the 55%-alpha scrim), so
+## the area just outside a slot circle is largely raw map, whose natural
+## contrast (coastlines, terrain) routinely exceeds a median-luminance
+## threshold on its own -- measured: 11 of 14 slots "failed" a median check
+## the first time this leg ran, none of them a real overflow. A hover-based
+## before/after (the "W" check above) does not generalise to the sub-fan
+## EITHER: once sticky, `ToolFan.pointer()` no-ops (`if not _pressed:
+## return`) -- there is no live hover preview for a sub item, only a tap that
+## immediately resolves and closes, so nothing to diff against.
+##
+## The reliable signal that needs neither: the scrim's own blend is a KNOWN,
+## fixed formula (`Color(0.031,0.035,0.039,0.55)` over whatever is beneath,
+## `tool_fan.gd::_Overlay._draw()`'s own literal). From a plain "fan closed"
+## capture of the raw map, `_expect_scrim()` predicts exactly what an
+## unmarked point should read once the fan opens; a point that still matches
+## that prediction has nothing extra drawn on it, whatever the surrounding
+## terrain looks like. A point carrying label/glyph ink will not match.
+const _SCRIM_RGB := Color(0.031, 0.035, 0.039)
+const _SCRIM_A := 0.55
+
+static func _expect_scrim(raw: Color) -> Color:
+	return raw.lerp(_SCRIM_RGB, _SCRIM_A)
+
+
+static func _no_bleed_past_circle(img_raw: Image, img_open: Image, centre: Vector2, radius: float) -> Dictionary:
+	var steps := 40
+	var radii := [radius + 2.0, radius + 4.0, radius + 6.0]
+	for i in steps:
+		var ang := TAU * float(i) / float(steps)
+		for rr in radii:
+			var p: Vector2 = centre + Vector2(cos(ang), sin(ang)) * float(rr)
+			var pi := Vector2i(int(p.x), int(p.y))
+			if pi.x < 0 or pi.y < 0 or pi.x >= img_raw.get_width() or pi.y >= img_raw.get_height():
+				continue
+			var expected := _expect_scrim(img_raw.get_pixel(pi.x, pi.y))
+			var actual := img_open.get_pixel(pi.x, pi.y)
+			if not _close_color(expected, actual, 0.05):
+				return {"ok": false, "at": p, "expected": expected.to_html(false), "actual": actual.to_html(false)}
+	return {"ok": true}
 
 
 func _run() -> void:
@@ -219,6 +287,178 @@ func _run() -> void:
 	fan.click_at(centre)  ## cleanup: a second tap on the dead zone, now sticky, cancels
 	await _frames(2)
 	_ok("cleanup: closed at end of run", fan.is_open(), false)
+
+	# -- G: Ruling BC -- label inside the slot, BACK button in the accent -------
+	app.select_domain("world")
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+	## Re-read fresh, not the `centre` captured at the very top of `_run()` --
+	## measured the first time this leg ran: the pill's own rect had shifted
+	## 132 px vertically by this point in the run (some other leg's UI change
+	## moved it), which put a diagonal aim at the OLD centre 132 px off the
+	## live `NW` slot -- just outside `HIT_MAX` -- and read as "nothing
+	## hovered" instead of a wrong-but-close hit.
+	var pc: Vector2 = fan.pill_global_rect().get_center()
+	fan.press(pc)
+	await get_tree().create_timer(0.3).timeout
+	await _frames(2)
+	## The scrim sits OVER the live map (55% alpha, `tool_fan.gd`'s own
+	## `_Overlay._draw()`), so a fixed screen corner is not a reliable
+	## "plain ground" reference -- it reads whatever terrain tile is under
+	## it. Measured the first time this leg ran: a point comfortably past
+	## `W`'s own circle read nothing like a supposedly-identical corner,
+	## because the two sit over different map content, not because
+	## anything bled past the slot.
+	##
+	## The reliable check is a BEFORE/AFTER at the exact same pixel: hover
+	## some OTHER direction first (so the point past `W`'s circle is plain
+	## scrimmed map, whatever colour that map happens to be), then hover
+	## `W` itself and re-sample the identical pixel. If the label/glyph
+	## still reached past the circle, this pixel would change; if it stayed
+	## inside, it does not.
+	var w_pos := pc + Vector2(-150.0 * scale, 0.0)
+	var d: float = 28.0 * scale   ## `fan.SLOT_D * scale * 0.5` -- the live slot radius.
+	var above_pt := w_pos + Vector2(0.0, -d * 1.4)
+	fan.pointer(pc + Vector2(0.0, -150.0 * scale))  ## hover N -- anywhere but W
+	await _frames(2)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_before: Image = _vp.get_texture().get_image()
+	var before_px := img_before.get_pixelv(Vector2i(int(above_pt.x), int(above_pt.y)))
+	fan.pointer(pc + Vector2(-150.0 * scale, 0.0))  ## now hover W (Region)
+	await _frames(2)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_after: Image = _vp.get_texture().get_image()
+	var after_px := img_after.get_pixelv(Vector2i(int(above_pt.x), int(above_pt.y)))
+	print("G above-W before=%s after=%s w_pos=%s above_pt=%s scale=%.3f" %
+		[before_px.to_html(false), after_px.to_html(false), w_pos, above_pt, scale])
+	_ok("G nothing draws past the W slot's own edge (label moved inside)",
+		_close_color(before_px, after_px, 0.03), true)
+	fan.release()
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## Uplift (NW, `children`) opens the sub-fan; its own centre -- the pill's
+	## centre -- then draws the accent-filled BACK button (mockup: 56 px,
+	## `background:#e0a34a`, glow `0 0 0 4px rgba(224,163,74,.25)`).
+	## `fanPos()`'s own convention (canvas: `FAX+r*cos(a), FAY-r*sin(a)`, math
+	## angle, NW=135deg): BOTH offsets are negative (up and to the left) --
+	## `tool_fan.gd::_hit_test()`'s own `Vector2(cos(ang2), -sin(ang2))`
+	## reproduces the same sign. Checked and screenshotted in both palettes.
+	for dark_g in [true, false]:
+		var was_g := DccTheme.is_dark()
+		if was_g != dark_g:
+			DccTheme.apply_theme(dark_g)
+			app.rebuild_theme(was_g)
+			await _frames(8)
+		var tag := "dark" if dark_g else "light"
+		## Re-read the pill's centre again rather than reuse `pc` from above
+		## -- the same drift this leg's header already measured once is
+		## cheap to guard against a second time.
+		var pc2: Vector2 = fan.pill_global_rect().get_center()
+		var glow_pt := pc2 + Vector2(0.0, -(56.0 * scale * 0.5 + 6.0))
+		fan.press(pc2)
+		await get_tree().create_timer(0.3).timeout   ## still-hold: fan opens, no sub yet
+		await _frames(2)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var glow_before := _vp.get_texture().get_image().get_pixelv(Vector2i(int(glow_pt.x), int(glow_pt.y)))
+		var nw_ang := deg_to_rad(135.0)
+		var nw_target := pc2 + Vector2(cos(nw_ang), -sin(nw_ang)) * 150.0 * scale
+		fan.pointer(nw_target)  ## NW, outer radius
+		await _frames(2)
+		fan.release()
+		await _frames(4)
+		if fan.sub_open():
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			var img_g2: Image = _vp.get_texture().get_image()
+			var back_px := img_g2.get_pixelv(Vector2i(int(pc2.x), int(pc2.y)))
+			var accent := DccTheme.c("accent")
+			print("G %s sub-fan centre=%s accent=%s" % [tag, back_px.to_html(false), accent.to_html(false)])
+			_ok("G %s the sub-fan's own BACK button fills in the theme accent" % tag,
+				_close_color(back_px, accent, 0.10), true)
+			## Baseline captured moments earlier at the SAME pixel, fan open
+			## but no sub yet -- not a fixed screen corner, since the scrim
+			## sits over the live map and a corner reads whatever terrain
+			## tile is under IT.
+			var glow_px := img_g2.get_pixelv(Vector2i(int(glow_pt.x), int(glow_pt.y)))
+			print("G %s glow pixel=%s before(no sub)=%s" % [tag, glow_px.to_html(false), glow_before.to_html(false)])
+			_ok("G %s a glow ring is drawn around the BACK button" % tag,
+				not _close_color(glow_px, glow_before, 0.02), true)
+			if OS.get_environment("CTXFAN_SHOT_DIR") != "":
+				img_g2.save_png(OS.get_environment("CTXFAN_SHOT_DIR").path_join("ctxfan_sub_%s.png" % tag))
+		else:
+			_ok("G %s Uplift opened the sub-fan (precondition for the BACK-button check)" % tag,
+				fan.sub_open(), true)
+		fan.click_at(pc2 + Vector2(400.0 * scale, 400.0 * scale))
+		await _frames(2)
+		app.arm_tool("inspect")
+		await _frames(2)
+
+	# -- L: every label sits fully inside its own circle (Ruling BC) ------------
+	var pc3: Vector2 = fan.pill_global_rect().get_center()
+	var d_l: float = 28.0 * scale   ## `fan.SLOT_D * scale * 0.5` -- the live main-slot radius.
+	## The raw map, fan fully closed -- the "nothing drawn here at all" frame
+	## `_expect_scrim()` predicts from, reused for every point below (the map
+	## itself never changes across this leg).
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_raw: Image = _vp.get_texture().get_image()
+
+	fan.press(pc3)
+	await get_tree().create_timer(0.3).timeout   ## still-hold, no move -- every slot un-hovered.
+	await _frames(2)
+	await RenderingServer.frame_post_draw
+	await RenderingServer.frame_post_draw
+	var img_main: Image = _vp.get_texture().get_image()
+	for f in fan.FAN:
+		var dir_l: String = f[0]
+		var ang_l := deg_to_rad(float(f[1]))
+		var pos_l: Vector2 = pc3 + Vector2(cos(ang_l), -sin(ang_l)) * float(f[2]) * scale
+		var res := _no_bleed_past_circle(img_raw, img_main, pos_l, d_l)
+		if not res.get("ok", true):
+			print("L fan main %s FAIL at=%s expected=%s actual=%s" %
+				[dir_l, res["at"], res["expected"], res["actual"]])
+		_ok("L fan main slot %s: its label stays inside its own circle" % dir_l, res.get("ok", false), true)
+	fan.release()
+	await _frames(4)
+	app.arm_tool("inspect")
+	await _frames(2)
+
+	## Uplift's own sub-fan -- "Cliff / Escarpment" is the long-text case the
+	## wrap/shrink path exists for, same as `_ctxring_probe.gd`'s own leg L.
+	fan.press(pc3)
+	await _frames(1)
+	var nw_ang_l := deg_to_rad(135.0)
+	fan.pointer(pc3 + Vector2(cos(nw_ang_l), -sin(nw_ang_l)) * 150.0 * scale)
+	await _frames(2)
+	fan.release()
+	await _frames(4)
+	if fan.sub_open():
+		var sub_n_l: int = fan.debug_state().get("sub_count", 0)
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var img_sub: Image = _vp.get_texture().get_image()
+		for i in sub_n_l:
+			var ang2: float = deg_to_rad(180.0 - float(i) * 180.0 / float(sub_n_l - 1)) if sub_n_l > 1 \
+				else deg_to_rad(90.0)
+			var pos2: Vector2 = pc3 + Vector2(cos(ang2), -sin(ang2)) * fan.OUTER_R * scale
+			var res2 := _no_bleed_past_circle(img_raw, img_sub, pos2, d_l)
+			if not res2.get("ok", true):
+				print("L fan sub #%d FAIL at=%s expected=%s actual=%s" %
+					[i, res2["at"], res2["expected"], res2["actual"]])
+			_ok("L fan sub slot #%d: its label stays inside its own circle" % i, res2.get("ok", false), true)
+	else:
+		_ok("L Uplift opened the sub-fan (precondition for the sub-slot label check)",
+			fan.sub_open(), true)
+	fan.click_at(pc3 + Vector2(400.0 * scale, 400.0 * scale))
+	await _frames(2)
+	app.arm_tool("inspect")
+	await _frames(2)
 
 
 func _ready() -> void:
