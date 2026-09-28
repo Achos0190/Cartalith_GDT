@@ -267,6 +267,21 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-28
 
+- **Developer code names in the Data Manager's gap-register notes — narrowed, verified by the main loop 2026-09-28 (edited string literals grepped: no ## and no identifiers inside them).**
+  `data_manager_window.gd`'s `val_check` reason and its five `CHECKS_*_NOTE`
+  consts, plus `world_workspace.gd`'s micro-erode LOD note, no longer name
+  `EngineBridge.last_open_warnings`, `app.gd`, `viewport_host.gd::move_view_to`,
+  `AssetLibrarySession::validate()`, `travel_library.rs`, `as_pack_info().name`,
+  `poly_self_intersects`, `cartalith-urban`, `cartalith-spatial/src/geo.rs`,
+  `golden_parity_geo.rs`, `ensure_ccw`, `blocks.rs`, `inset_poly` or
+  `pyramid_tile` inside the user-visible string — each symbol moved to a `##`
+  comment on the line above. Both files parse clean under `--headless
+  --check-only`. Still open, same file, a different section: the export-summary
+  "how" fields (~lines 1666-1697) and a validators tooltip/label (~2456/2511)
+  still name `EngineBridge.*` and `AssetLibrarySession::validate()`
+  (`OUTSTANDING_WORK.md` §2, "Developer notes shown in the UI still name
+  internal symbols").
+
 - **Ruling BS (journey planner: foraging plus suggested resupply stops; the
   carry-capacity block retired) built — verified by the main loop 2026-09-28 (the staged tree built and tested alone in a worktree, civ and godot; desktop suggested-stops screenshot opened).**
   `cartalith-civ`: `jp_calc_land_ex` already carried only the net-of-foraging

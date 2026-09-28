@@ -895,13 +895,15 @@ func _build_generate_foot(parent: Control) -> void:
 	_build_finalize(parent)
 
 	var lod := DccWidgets.section(parent, "LOD terrain data")
+	## The tiling system this refers to is pyramid_tile; its own doc records the
+	## missing per-tile refine passes as a deliberate omission, not an oversight.
 	DccWidgets.note(lod,
 		"v3 moves tile refine and atlas bake out of View and into this category, "
 		+ "on the correct reasoning that both produce terrain *data*. The atlas "
 		+ "half is the Bake above -- it writes every tile of the pyramid to disk. "
 		+ "The refine half is not ported: the reference's per-tile Burn rivers and "
-		+ "Micro-erode passes have no equivalent in the tiling system (pyramid_tile's "
-		+ "own doc records that as deliberate), so deep zoom synthesises detail "
+		+ "Micro-erode passes have no equivalent in the tiling system, deliberately, "
+		+ "so deep zoom synthesises detail "
 		+ "rather than re-eroding it. Auto-detail on zoom, tile size and the chunk "
 		+ "debug overlay stay program scope -- Preferences ▸ Tiles & LOD.")
 

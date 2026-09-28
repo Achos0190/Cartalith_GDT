@@ -393,7 +393,9 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "five validators · definitions, not geometry"},
 	{"group": "Validation", "id": "val_check", "label": "Check Data", "badge": "", "kind": "gap",
 		"sub": "no warning store",
-		"reason": "There is a warning collection and it is about opening a FILE, not about checking a world: opening a project returns a list of warnings, EngineBridge.last_open_warnings holds it, and app.gd surfaces its first entry after an open. Nothing anywhere walks a loaded WORLD looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined. The five validators that do exist check DEFINITIONS rather than world state and have their own route, Validation > Definitions, next door; this row is what is still missing after it. The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which project_open's own return had already falsified. Re-checked 2026-09-06 when Definitions landed: the DM-10 register row moved there, so it no longer reads (C) here.)"},
+		## The warning list is EngineBridge.last_open_warnings, shown by app.gd;
+		## "the project-open code" below is that same open path.
+		"reason": "There is a warning collection, but it is about opening a file, not about checking a world: opening a project returns a list of warnings, which the app keeps and shows the first of after an open. Nothing anywhere walks a loaded WORLD looking for contradictions in its own data, which is what this route means -- and what would be checked, against which invariant, is itself undefined. The five validators that do exist check DEFINITIONS rather than world state and have their own route, Validation > Definitions, next door; this row is what is still missing after it. The canvas's `8` badge on this row is mockup data, so no badge is drawn. (Re-checked 2026-09-05; this row previously said no warning collection existed anywhere, which the project-open code had already falsified. Re-checked 2026-09-06 when Definitions landed: the DM-10 register row moved there, so it no longer reads (C) here.)"},
 	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "badge": "", "kind": "gap",
 		## Corrected 2026-09-24 (ALIGNMENT_AUDIT Part 2 B12): "No validation
 		## pass exists" contradicted `val_defs` two rows up, which is live.
@@ -2144,21 +2146,31 @@ const CHECKS_LOCATE_W := 74
 ## `viewport_host.gd::move_view_to(gx, gy)` takes grid cells -- it divides by
 ## `grid_size()`, checked this pass. Keeping the column means
 ## the table has the right shape the day a positional validator exists.
-const CHECKS_LOCATE_NOTE := "Nothing in this table is a placed thing: these are definitions, and a definition has no coordinates. viewport_host.gd::move_view_to(gx, gy) takes grid cells, so there is nothing to hand it. The column is kept, disabled, so the table already has the right shape the day a positional validator exists."
+## The move-to-view function this refers to is viewport_host.gd's move_view_to(gx, gy).
+const CHECKS_LOCATE_NOTE := "Nothing in this table is a placed thing: these are definitions, and a definition has no coordinates. Jumping the view to a row's position takes grid cells, and there is nothing to hand it. The column is kept, disabled, so the table already has the right shape the day a positional validator exists."
 
-## `FIELDS`' dash reason on an asset row.
-const CHECKS_ASSET_FIELDS_NOTE := "AssetLibrarySession::validate() returns Vec<String> -- one ordered sentence per warning, with the subject inside the sentence. There is no field list to put here, so this is a dash rather than a guess."
+## `FIELDS`' dash reason on an asset row. The engine call behind it is
+## AssetLibrarySession::validate(), which returns Vec<String>.
+const CHECKS_ASSET_FIELDS_NOTE := "The asset checker returns one ordered sentence per warning, with the subject inside the sentence, not a separate field list. There is no field list to put here, so this is a dash rather than a guess."
 
-## `FIELDS`' dash reason on a conflicting row.
-const CHECKS_CONFLICT_FIELDS_NOTE := "ValidationState::Conflicting carries sentences, not field names -- \"every detected conflict, as a human-readable sentence\" (travel_library.rs). The fields it is between are named inside the message."
+## `FIELDS`' dash reason on a conflicting row. Source: ValidationState::Conflicting
+## in travel_library.rs.
+const CHECKS_CONFLICT_FIELDS_NOTE := "A conflict is reported as sentences, not field names -- \"every detected conflict, as a human-readable sentence\". The fields it is between are named inside the message."
 
 ## `NAME`'s dash reason on an asset row whose pack has no name.
-const CHECKS_ASSET_NAME_NOTE := "as_pack_info().name is empty -- the pack has not been named. That absence is itself one of the warnings in this table."
+## Source: as_pack_info().name is the empty string.
+const CHECKS_ASSET_NAME_NOTE := "The pack has not been named. That absence is itself one of the warnings in this table."
 
 ## The Map geometry row's reason -- the finding, in the UI, and worded to
 ## survive being read out of context. Every clause was measured at the symbol
 ## on 2026-09-06; the header section says where.
-const CHECKS_GEOMETRY_NOTE := "No geometry-validity entry point exists over map layers, and that is a finding rather than a to-do. poly_self_intersects lives in cartalith-urban and has two callers, blocks.rs and inset_poly -- its subject is city blocks, not territory, coastline or province rings, and it does not cross the gdext boundary. In cartalith-spatial/src/geo.rs an unclosed ring is NORMAL output: the module doc says a traced ring is not necessarily closed, ring_area deliberately omits the closing segment, and golden_parity_geo.rs asserts the unclosed shape. Reporting it as an error would be wrong, not merely absent. Ring orientation is checked nowhere -- ensure_ccw imposes a winding; nothing reports one as invalid."
+## Symbols behind this note: the self-intersection checker is poly_self_intersects
+## (cartalith-urban, called only by blocks.rs and inset_poly -- city blocks, not
+## territory/coastline/province rings, and never exposed across the gdext boundary).
+## The unclosed-ring behaviour is cartalith-spatial/src/geo.rs (ring_area omits the
+## closing segment by design; golden_parity_geo.rs asserts the unclosed shape).
+## Winding is imposed, never checked, by ensure_ccw.
+const CHECKS_GEOMETRY_NOTE := "No geometry-validity entry point exists over map layers, and that is a finding rather than a to-do. The one self-intersection check that exists in the engine is scoped to city blocks, not to territory, coastline or province rings, and is not reachable from this pane. An unclosed ring is NORMAL output elsewhere in the engine's geometry code -- a traced ring is not necessarily closed, and that shape is asserted by its own tests -- so reporting it as an error here would be wrong, not merely absent. Ring orientation is checked nowhere: a winding direction is imposed when rings are built, but nothing reports one as invalid."
 
 ## The four travel-definition validators, as this pane needs them. The asset
 ## one is a single session rather than a list and is drawn separately.
