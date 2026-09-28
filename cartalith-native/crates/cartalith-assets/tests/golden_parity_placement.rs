@@ -40,6 +40,9 @@ fn rule(mode: ScatterMode, biomes: &[f64], require_wetland: bool, elev: (Option<
     }
 }
 
+/// Shorthand for a plain [`ScatterMode::Scatter`] rule with the fixture's
+/// standard size range — most fixture rules below only vary `biomes` and
+/// `require_wetland`.
 fn scatter_rule(biomes: &[f64], require_wetland: bool) -> ScatterRule {
     rule(ScatterMode::Scatter, biomes, require_wetland, (None, None), (0.7, 1.2))
 }
@@ -55,6 +58,7 @@ struct Grid {
     wetland: Vec<u8>,
 }
 
+/// Build the [`Grid`] documented above.
 fn fixture_grid() -> Grid {
     let (w, h) = (10usize, 8usize);
     let (cx, cy) = (4.5f64, 3.5f64);
@@ -98,10 +102,14 @@ fn fixture_rules() -> Vec<(&'static str, ScatterRule)> {
     ]
 }
 
+/// Borrow every `(key, ScatterRule)` pair as `place_map_icons_ruled`'s own
+/// `&[(&str, &ScatterRule)]` rule-table shape.
 fn refs<'a>(rules: &'a [(&'static str, ScatterRule)]) -> Vec<(&'a str, &'a ScatterRule)> {
     rules.iter().map(|(k, r)| (*k, r)).collect()
 }
 
+/// Call `place_map_icons_ruled` with the given options over `grid`, wiring
+/// the biome/wetland arrays in (or omitting them) per the two `with_*` flags.
 fn run(grid: &Grid, sea: f64, seed: i32, t_gap: usize, with_biome: bool, with_wetland: bool, rules: &[(&str, &ScatterRule)]) -> Vec<PlacedIcon> {
     let opts = PlaceIconsRuledOpts {
         sea,
@@ -119,6 +127,8 @@ fn run(grid: &Grid, sea: f64, seed: i32, t_gap: usize, with_biome: bool, with_we
     )
 }
 
+/// A stable, printable form of a placement run's output — `x,y,key=...,s=...`
+/// per icon, `s` fixed to 10 decimal places so a float diff shows up as text.
 fn canon(items: &[PlacedIcon]) -> Vec<String> {
     items
         .iter()
@@ -128,6 +138,8 @@ fn canon(items: &[PlacedIcon]) -> Vec<String> {
 
 #[test]
 fn base_case_matches_the_reference() {
+    // Protects: place_map_icons_ruled's placed icons, keys and sizes match
+    // the reference exactly for the standard eight-rule fixture.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 0.42, 7, 3, true, true, &refs(&rules));
@@ -142,6 +154,8 @@ fn base_case_matches_the_reference() {
 
 #[test]
 fn a_different_seed_reshuffles_the_scatter_grid() {
+    // Protects: a different seed produces a different, but still
+    // reference-exact, set of placed icons.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 0.42, 11, 3, true, true, &refs(&rules));
@@ -159,6 +173,8 @@ fn a_different_seed_reshuffles_the_scatter_grid() {
 
 #[test]
 fn absent_wetland_mask_matches_the_reference() {
+    // Protects: omitting the wetland mask does not change this fixture's
+    // outcome, since no winning rule here required wetland.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 0.42, 7, 3, true, false, &refs(&rules));
@@ -173,6 +189,8 @@ fn absent_wetland_mask_matches_the_reference() {
 
 #[test]
 fn absent_biome_array_matches_the_reference() {
+    // Protects: omitting the biome array does not change this fixture's
+    // outcome, since no biome-restricted rule won any sampled cell anyway.
     // None of this fixture's rules match without a biome array except the
     // unrestricted ones (generic_land, the two relief rules) -- identical to
     // the base case here because no biome-restricted rule won any sampled
@@ -191,6 +209,8 @@ fn absent_biome_array_matches_the_reference() {
 
 #[test]
 fn no_rules_places_nothing() {
+    // Protects: an empty rule table places zero icons, not a panic or a
+    // fallback default rule.
     let grid = fixture_grid();
     let empty: Vec<(&str, &ScatterRule)> = Vec::new();
     let items = run(&grid, 0.42, 7, 3, true, true, &empty);
@@ -199,6 +219,8 @@ fn no_rules_places_nothing() {
 
 #[test]
 fn a_sea_level_above_every_elevation_places_nothing() {
+    // Protects: a sea level above every cell's elevation places zero
+    // icons, since every cell is treated as water.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 1.0, 7, 3, true, true, &refs(&rules));
@@ -207,6 +229,9 @@ fn a_sea_level_above_every_elevation_places_nothing() {
 
 #[test]
 fn a_denser_grid_exercises_every_rule_family_and_matches_the_reference() {
+    // Protects: a lower sea level and denser scatter grid exercises every
+    // rule family in the fixture table at once, and every placement still
+    // matches the reference exactly.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 0.2, 7, 2, true, true, &refs(&rules));
@@ -236,6 +261,9 @@ fn a_denser_grid_exercises_every_rule_family_and_matches_the_reference() {
 
 #[test]
 fn a_denser_grid_at_another_seed_matches_the_reference() {
+    // Protects: the same dense-grid setup at a different seed still
+    // matches the reference exactly, confirming the seed genuinely drives
+    // the scatter-grid jitter rather than being ignored.
     let grid = fixture_grid();
     let rules = fixture_rules();
     let items = run(&grid, 0.2, 99, 2, true, true, &refs(&rules));
@@ -281,6 +309,10 @@ fn a_denser_grid_at_another_seed_matches_the_reference() {
 // (2,0) biome=shrub(8) + wetland.
 #[test]
 fn v1_27_fix_proof_priority_and_wetland_and() {
+    // Protects: the v1.27 fix -- rules sort by specificity regardless of
+    // table insertion order, and require_wetland is ANDed with the biome
+    // match, not ORed -- on a hand-traceable fixture where the jitter is
+    // pinned to zero.
     let grid = Grid {
         w: 3,
         h: 1,
@@ -339,12 +371,19 @@ fn v1_27_fix_proof_priority_and_wetland_and() {
 // iconSlotForItem
 // ============================================================================
 
+/// A minimal [`PlacedIcon`] fixture carrying only the fields
+/// `icon_slot_for_item` reads (category, kind, key); position and scale are
+/// irrelevant to that function and left at `(0, 0, 1.0)`.
 fn item(cat: IconCategory, kind: Option<IconKind>, key: Option<&str>) -> PlacedIcon {
     PlacedIcon { x: 0, y: 0, s: 1.0, key: key.map(str::to_string), cat, kind }
 }
 
 #[test]
 fn icon_slot_for_item_matches_the_reference_on_every_shape() {
+    // Protects: icon_slot_for_item's resolution rule across every
+    // category/kind/key combination, including that a present key always
+    // wins over category, an empty key falls through, and every
+    // tree/scatter kind maps to its own slot with a "unknown kind" default.
     let cases: &[(&str, PlacedIcon)] = &[
         ("mountain-cat", item(IconCategory::Mountain, None, None)),
         ("hill-cat", item(IconCategory::Hill, None, None)),
@@ -395,6 +434,9 @@ type SpriteRectCase = (&'static str, f64, f64, f64, f64, f64, f64, (f64, f64, f6
 
 #[test]
 fn sprite_draw_rect_matches_the_reference() {
+    // Protects: sprite_draw_rect's dx/dy/dw/dh match the reference to
+    // 1e-9 across normal, zero-height, square and non-square-scaled
+    // sprites.
     let cases: &[SpriteRectCase] = &[
         ("normal", 50.0, 80.0, 1.3, 4.5, 32.0, 48.0, (45.71, 67.13, 8.58, 12.870000000000001)),
         ("sh-zero", 100.0, 200.0, 1.0, 5.0, 64.0, 0.0, (-252.0, 189.0, 704.0, 11.0)),

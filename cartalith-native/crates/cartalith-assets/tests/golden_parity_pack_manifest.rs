@@ -68,10 +68,14 @@ use cartalith_assets::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Build the "these files exist in the pack" set [`parse_pack_manifest`]
+/// checks existence against.
 fn files(list: &[&str]) -> BTreeSet<String> {
     list.iter().map(|s| s.to_string()).collect()
 }
 
+/// Shorthand for a slot's resolved path list, empty if the slot did not
+/// survive validation.
 fn paths(m: &PackManifest, fam: Family, slot: &str) -> Vec<String> {
     m.slot_paths(fam, slot)
         .map(<[String]>::to_vec)
@@ -145,6 +149,8 @@ const FILES_A: [&str; 17] = [
     "custom/mining/pickaxe_01.png",
 ];
 
+/// Parse [`MANIFEST_A`] against [`FILES_A`] — the shared fixture for every
+/// `case_a_*` test below.
 fn case_a() -> PackManifest {
     let raw: RawManifest = serde_json::from_str(MANIFEST_A).unwrap();
     parse_pack_manifest(&raw, &files(&FILES_A))
@@ -152,6 +158,10 @@ fn case_a() -> PackManifest {
 
 #[test]
 fn case_a_warnings_match_the_reference_exactly_including_order() {
+    // Protects: parse_pack_manifest's warnings, and their order, match the
+    // reference exactly for a manifest exercising every failure mode at
+    // once, except the one authorised divergence this file's module doc
+    // names (the "not yet used by the live map" summary's slot list).
     // Reference output, verbatim -- with the one authorised exception this
     // file's module doc names. The ordering encodes the reference's own
     // traversal: textures (missing, then unknown) -> biomes -> terrains ->
@@ -193,6 +203,10 @@ fn case_a_warnings_match_the_reference_exactly_including_order() {
 
 #[test]
 fn case_a_resolved_art_matches_the_reference() {
+    // Protects: the surviving slot/variant resolution for case A matches the
+    // reference — slot order, dropped-slot vs. dropped-variant behaviour,
+    // a bare-string variant list, and custom sets keeping their raw
+    // (un-slugified) document order.
     let m = case_a();
 
     assert_eq!(m.name, "Golden Test Pack");
@@ -257,6 +271,7 @@ fn case_a_resolved_art_matches_the_reference() {
 
 #[test]
 fn case_a_summary_matches_the_reference() {
+    // Protects: pack_summary's exact text for case A's resolved manifest.
     assert_eq!(
         pack_summary(&case_a()),
         "Golden Test Pack · CC0 — 2 textures · 2 biome/terrain ground · mountain×2 hill×1 · 3 structure sprites · 2 custom icons"
@@ -298,6 +313,9 @@ const FILES_B: [&str; 7] = [
 
 #[test]
 fn case_b_csv_variant_ordering_matches_the_reference() {
+    // Protects: parse_pack_csv sorts numbered variants by number, pushes
+    // unnumbered ones to the end, and does so with a stable sort — order
+    // among ties is preserved, not scrambled.
     // Straight `parsePackCsv` output, before any file-existence validation:
     // numbered rows sort first by their number, unnumbered rows fall to the
     // end at 1e9 -- and keep the order they were written in, because
@@ -324,6 +342,10 @@ fn case_b_csv_variant_ordering_matches_the_reference() {
 
 #[test]
 fn case_b_validated_manifest_and_summary_match_the_reference() {
+    // Protects: a CSV-only pack parses and validates through
+    // parse_pack_entries with the reference's defaults for name/author/
+    // license and matching warnings/summary text (module doc's one
+    // authorised divergence applies to the summary line here too).
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     entries.insert("pack.csv".into(), CSV_B.as_bytes().to_vec());
     for f in FILES_B {
@@ -363,6 +385,8 @@ fn case_b_validated_manifest_and_summary_match_the_reference() {
 
 #[test]
 fn case_c_clean_schema_1_pack_matches_the_reference() {
+    // Protects: a fully valid schema-1 manifest produces no warnings and
+    // needs none of the schema-2-only sections (structures, custom).
     let raw: RawManifest = serde_json::from_str(
         r#"{"schema":1,"textures":{"grass":"textures/grass.png"},"icons":{"boulder":["icons/b1.png","icons/b2.png"]}}"#,
     )
@@ -394,6 +418,10 @@ fn case_c_clean_schema_1_pack_matches_the_reference() {
 
 #[test]
 fn case_d_json_wins_and_an_empty_path_is_a_missing_file() {
+    // Protects: when both pack.json and pack.csv are present, JSON wins
+    // outright (the CSV's texture never appears), a blank name falls back
+    // to the default, and an empty-string path counts as a missing file
+    // rather than being skipped as "not declared".
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     entries.insert(
         "pack.json".into(),
@@ -424,6 +452,9 @@ fn case_d_json_wins_and_an_empty_path_is_a_missing_file() {
 
 #[test]
 fn case_e_missing_manifest_message_matches_the_reference() {
+    // Protects: a pack with neither pack.json nor pack.csv returns
+    // PackError::NoManifest whose Display text matches the reference's own
+    // thrown message verbatim.
     let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     entries.insert("foo.png".into(), b"x".to_vec());
     match parse_pack_entries(&entries) {
@@ -443,6 +474,9 @@ fn case_e_missing_manifest_message_matches_the_reference() {
 
 #[test]
 fn frozen_slot_vocabularies_match_the_reference() {
+    // Protects: every PACK_*_SLOTS array, content and order, against the
+    // reference's own arrays — a silent edit here would re-point every
+    // pack ever authored.
     assert_eq!(
         PACK_TEX_SLOTS,
         [

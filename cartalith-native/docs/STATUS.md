@@ -1300,6 +1300,45 @@ re-checked against the tree rather than copied from the commit message.
   further batch after it. Batches 6 through 21 all still need an
   independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 22 (`cartalith-assets`'s `library.rs`
+  plus eight of eleven `tests/*.rs` files) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; full assets 263/0/0).** Comments only, zero behaviour change.
+  `library.rs` (1692 LOC) closed in full: added doc comments for
+  `make_uid`, `impl Default for ItemTransform`/`AssetDB`,
+  `AssetCollections::new`/`as_map`/`names`/`clear`, `is_valid_custom_id`,
+  `parse_item_record`, `parse_pack_info`, the three `LibraryError` trait
+  impls (`Display`/`Error`/`From`), the `mod tests` block (promoted from a
+  `//` banner to `///`) and the `png_bytes` test helper; added `// Protects:`
+  lines to all 19 unit tests. Then, in file order, closed
+  `tests/golden_parity_library.rs` (454 LOC, 32 tests + the `item` helper),
+  `golden_parity_manual_icons.rs` (482, 7 tests + 4 helpers),
+  `golden_parity_pack_manifest.rs` (550, 9 tests + 2 helpers),
+  `golden_parity_pack_zip.rs` (267, 4 tests + 2 helpers),
+  `golden_parity_placement.rs` (411, 11 tests + 6 helpers),
+  `golden_parity_raster.rs` (135, 2 tests + 2 struct docs),
+  `golden_parity_scatter_rules.rs` (630, 11 tests + 1 helper — one test's
+  existing `///` doc block promoted in place with a `Protects:` prefix
+  rather than duplicated) and `golden_parity_slicer.rs` (523, 5 tests + 4
+  struct docs — same in-place promotion for one test). Every `// Protects:`
+  line was hand-written from the test's own body/name, not templated;
+  no pre-existing wrong comment found in any of the nine files touched.
+  **Not reached, named for batch 23**: `tests/golden_parity_zip_store.rs`
+  (163 LOC), `tests/hardening_asset_db.rs` (230) and
+  `tests/hardening_v1_27.rs` (268) — 661 LOC, the crate's only remaining
+  gaps (7 items_undoc, 16 tests_unprotected, all inside these three files
+  per a targeted per-file re-scan). **Comments only**: `cargo test -p
+  cartalith-assets --all-features` (the full suite, not `--lib`),
+  `CARGO_TARGET_DIR` at `.../scratchpad/bk22`, run once before editing and
+  three times after (once per file cluster) — **263 passed / 0 failed / 0
+  ignored** every time, 13 result lines each, matching batch 21's closing
+  baseline exactly. Crate-wide `census_v2.py`: items_undoc 142→7,
+  tests_unprotected 116→16, consts_undoc 3→3 unchanged (loc 12364→12680).
+  `git diff` after every edit confirmed pure comment/blank-line additions,
+  no removed line dropping code. **Next step: batch 23** closes the crate
+  with the three named test files (661 LOC), well inside a single batch's
+  usual band, then moves to `cartalith-urban` per `ANNOTATION_AUDIT.md`'s
+  order. Batches 6 through 22 all still need an independent verifier
+  before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

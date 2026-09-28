@@ -210,6 +210,9 @@ fn fam_scatters(family: Family) -> bool {
     matches!(family, Family::Icons | Family::Custom)
 }
 
+/// The reference's `uid()` helper: `family:id` for a frozen slot, or
+/// `family:setId/id` for a custom one — the same shape [`LibrarySlot::uid`]
+/// documents.
 fn make_uid(family: Family, set_id: Option<&str>, id: &str) -> String {
     match set_id {
         Some(s) => format!("{}:{}/{}", family.key(), s, id),
@@ -278,6 +281,8 @@ pub struct ItemTransform {
 }
 
 impl Default for ItemTransform {
+    /// Identity transform (`scale: 1.0`, `pan_x`/`pan_y: 0.0`) — the
+    /// reference's `defaultTransform()`.
     fn default() -> Self {
         ItemTransform {
             scale: 1.0,
@@ -420,6 +425,7 @@ pub struct AssetDB {
 }
 
 impl Default for AssetDB {
+    /// Same as [`AssetDB::new`].
     fn default() -> Self {
         Self::new()
     }
@@ -905,6 +911,7 @@ pub struct AssetCollections {
 }
 
 impl AssetCollections {
+    /// An empty collection set, same as [`AssetCollections::default`].
     pub fn new() -> Self {
         Self::default()
     }
@@ -921,10 +928,16 @@ impl AssetCollections {
         AssetCollections { map }
     }
 
+    /// Read-only access to the underlying name-to-uids map, in insertion
+    /// order — used by [`AssetDB::to_library_json`] to serialize collections
+    /// verbatim.
     pub fn as_map(&self) -> &OrderedMap<Vec<String>> {
         &self.map
     }
 
+    /// Every collection name, in creation order — the order `AssetValidator`'s
+    /// "missing asset" scan visits them in (see the module docs on why order
+    /// is reference-load-bearing here).
     pub fn names(&self) -> Vec<&str> {
         self.map.keys().collect()
     }
@@ -994,6 +1007,9 @@ impl AssetCollections {
             .collect()
     }
 
+    /// Drop every collection — used by [`AssetDB::clear`], which itself
+    /// drops all collections on a full library reset (the reference's
+    /// `AssetDB.clear()`).
     pub fn clear(&mut self) {
         self.map = OrderedMap::new();
     }
@@ -1042,6 +1058,9 @@ pub fn slot_has_dupe(db: &AssetDB, uid: &str) -> bool {
     duplicate_groups(db).iter().any(|g| g.iter().any(|e| e.uid == uid))
 }
 
+/// Whether `id` matches the reference's `AssetValidator`'s filename-safe
+/// custom-id check — lowercase ASCII letters, digits and underscores only.
+/// Feeds [`run`]'s "Invalid filename id" warning.
 fn is_valid_custom_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
@@ -1144,6 +1163,9 @@ pub struct ItemRecord {
     pub t: ItemTransform,
 }
 
+/// Parse one `items[]` entry inside a [`SlotRecord`] — `None` if `img` is
+/// missing or not a non-negative integer, matching the reference's own
+/// implicit reliance on `img` always being present in a well-formed export.
 fn parse_item_record(v: &Value) -> Option<ItemRecord> {
     let obj = v.as_object()?;
     let img = obj.get("img")?.as_u64()? as usize;
@@ -1219,6 +1241,10 @@ fn parse_slot_record(v: &Value) -> Option<SlotRecord> {
     })
 }
 
+/// Parse a `pack` section — `None` when it is absent or explicitly `null`
+/// (distinct from `Some(PackInfo::default())`; see [`AssetDB::apply_library_file`]
+/// for why that distinction matters), a blank `license` falling back to
+/// `"CC0"` the same way the reference's own `lib.pack.license||'CC0'` does.
 fn parse_pack_info(v: Option<&Value>) -> Option<PackInfo> {
     let v = v?;
     if v.is_null() {
@@ -1264,6 +1290,8 @@ pub enum LibraryError {
 }
 
 impl fmt::Display for LibraryError {
+    /// Human-readable message; the only variant today wraps the underlying
+    /// `serde_json` parse error.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             LibraryError::Json(e) => write!(f, "library.json is not valid: {e}"),
@@ -1272,6 +1300,7 @@ impl fmt::Display for LibraryError {
 }
 
 impl std::error::Error for LibraryError {
+    /// The wrapped `serde_json` error.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             LibraryError::Json(e) => Some(e),
@@ -1280,6 +1309,7 @@ impl std::error::Error for LibraryError {
 }
 
 impl From<serde_json::Error> for LibraryError {
+    /// Wraps a JSON parse error, so `?` composes inside [`parse_library_json`].
     fn from(e: serde_json::Error) -> Self {
         LibraryError::Json(e)
     }
@@ -1337,12 +1367,12 @@ pub fn parse_library_json(bytes: &[u8]) -> Result<LibraryFile, LibraryError> {
 // ---------------------------------------------------------------------------
 // Unit tests
 // ---------------------------------------------------------------------------
-//
-// These are ordinary unit tests, not golden-parity ones: they pin this port's
-// own design decisions (the `library.json` reader's leniency, the pack-name
-// fallback asymmetry read directly out of `_alImportProject`, and the
-// `slot_title` table's completeness) rather than a captured reference run.
-// The golden-parity coverage lives in `tests/golden_parity_library.rs`.
+
+/// Ordinary unit tests, not golden-parity ones: they pin this port's own
+/// design decisions (the `library.json` reader's leniency, the pack-name
+/// fallback asymmetry read directly out of `_alImportProject`, and the
+/// `slot_title` table's completeness) rather than a captured reference run.
+/// The golden-parity coverage lives in `tests/golden_parity_library.rs`.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1350,6 +1380,9 @@ mod tests {
 
     #[test]
     fn slot_title_covers_every_frozen_slot_without_panicking() {
+        // Protects: slot_title has a match arm for every frozen slot in
+        // every non-Custom family — a missing arm panics, and that panic
+        // would only be discovered at runtime through a real UI action.
         for family in Family::ALL {
             if family == Family::Custom {
                 continue;
@@ -1363,6 +1396,9 @@ mod tests {
 
     #[test]
     fn library_poi_slots_is_the_ten_slot_superset_of_the_eight_slot_pack_vocabulary() {
+        // Protects: LIBRARY_POI_SLOTS stays a strict superset of
+        // crate::PACK_POI_SLOTS, including lake/bridge — see the module docs
+        // on why the Library and pack-import vocabularies genuinely differ.
         assert_eq!(LIBRARY_POI_SLOTS.len(), 10);
         assert!(LIBRARY_POI_SLOTS.contains(&"lake"));
         assert!(LIBRARY_POI_SLOTS.contains(&"bridge"));
@@ -1373,6 +1409,8 @@ mod tests {
 
     #[test]
     fn new_db_bootstraps_every_frozen_slot_with_no_custom_slots() {
+        // Protects: AssetDB::new populates every frozen family's full slot
+        // list and nothing under Custom, with an empty store overall.
         let db = AssetDB::new();
         for family in Family::ALL {
             if family == Family::Custom {
@@ -1386,6 +1424,9 @@ mod tests {
 
     #[test]
     fn frozen_icon_slots_carry_their_preset_rule_at_bootstrap() {
+        // Protects: AssetDB::new attaches crate::scatter::preset_scatter_rule
+        // eagerly for feature-icon slots, matching the reference's own
+        // bootstrap-time slotRules call.
         let mut db = AssetDB::new();
         let r = db.slot_rules("icons:mountain").cloned().unwrap();
         assert_eq!(r, crate::scatter::preset_scatter_rule("mountain"));
@@ -1393,6 +1434,8 @@ mod tests {
 
     #[test]
     fn non_scatterable_families_never_carry_a_rule() {
+        // Protects: fam_scatters/slot_rules never manufacture a ScatterRule
+        // for a family that cannot scatter (textures, settlements, POIs).
         let mut db = AssetDB::new();
         assert!(db.slot_rules("textures:grass").is_none());
         assert!(db.slot_rules("structures:hamlet").is_none() || db.get("settlement:hamlet").is_none());
@@ -1402,6 +1445,9 @@ mod tests {
 
     #[test]
     fn item_mut_allows_renaming_in_place_without_disturbing_order() {
+        // Protects: AssetDB::item_mut edits one item without reordering its
+        // siblings, and returns None for an out-of-range index or an
+        // unknown uid rather than panicking.
         let mut db = AssetDB::new();
         db.add_item("icons:mountain", LibraryItem::new("a.png", "h1"));
         db.add_item("icons:mountain", LibraryItem::new("b.png", "h2"));
@@ -1414,6 +1460,9 @@ mod tests {
 
     #[test]
     fn custom_slots_lazily_attach_a_disabled_rule_on_first_read() {
+        // Protects: AssetDB::slot_rules only attaches a rule to a custom
+        // slot on first read (not at add_custom_slot time), and the
+        // attached rule is disabled by default.
         let mut db = AssetDB::new();
         let uid = db.add_custom_slot("Lighthouse", Some("Naval")).uid.clone();
         assert!(db.get(&uid).unwrap().rules.is_none(), "not attached until first read");
@@ -1427,6 +1476,10 @@ mod tests {
 
     #[test]
     fn export_then_reparse_then_apply_round_trips_meta_rules_pack_and_collections() {
+        // Protects: to_library_json -> serialize -> parse_library_json ->
+        // apply_library_file is lossless for pack info, per-slot tags,
+        // collections and scatter rules — the milestone-5 (no items) round
+        // trip.
         let mut db = AssetDB::new();
         db.pack = PackInfo {
             name: "My Pack".to_string(),
@@ -1466,7 +1519,10 @@ mod tests {
 
     #[test]
     fn apply_library_file_preserves_an_existing_pack_name_when_the_file_omits_it() {
-        // The reference's own asymmetry: `if(E('alPackName')&&lib.pack.name)
+        // Protects: apply_library_file's asymmetric pack-field fallback —
+        // a blank incoming name preserves the existing one, while
+        // author/license always overwrite. The reference's own asymmetry:
+        // `if(E('alPackName')&&lib.pack.name)
         // E('alPackName').value=lib.pack.name;` -- name is only overwritten
         // when the incoming value is non-empty; author/license always are.
         let mut db = AssetDB::new();
@@ -1493,6 +1549,9 @@ mod tests {
 
     #[test]
     fn apply_library_file_leaves_pack_fields_untouched_when_the_file_has_no_pack_section() {
+        // Protects: apply_library_file leaves pack.name/author/license alone
+        // when LibraryFile::pack is None (as opposed to Some with blank
+        // fields), matching the reference's "no pack section at all".
         let mut db = AssetDB::new();
         db.pack.name = "Untouched".to_string();
         let file = LibraryFile {
@@ -1508,6 +1567,9 @@ mod tests {
 
     #[test]
     fn parse_library_json_drops_a_record_for_an_unknown_family_or_unresolvable_frozen_id() {
+        // Protects: parse_slot_record returns None (dropping the whole
+        // record, not a partial one) for an unknown fam key or an id
+        // outside a non-Custom family's frozen vocabulary.
         let text = json!({
             "version": 1, "kind": "cartalith-assetlib",
             "collections": {},
@@ -1525,6 +1587,10 @@ mod tests {
 
     #[test]
     fn parse_library_json_normalizes_rules_on_load_for_scatterable_families_only() {
+        // Protects: parse_slot_record runs normalize_scatter_rule eagerly
+        // for a scatterable family (rejecting a garbage density to the
+        // literal 1.0, per v1.27's asymmetry) and attaches no rule at all
+        // for a non-scatterable one, even when the file carried one.
         let text = json!({
             "version": 1, "kind": "cartalith-assetlib",
             "collections": {},
@@ -1548,6 +1614,10 @@ mod tests {
 
     #[test]
     fn parse_library_json_collections_are_lenient_and_order_preserving() {
+        // Protects: parse_library_json's `collections` map preserves file
+        // order (not sorted), and a malformed value (not an array) yields
+        // an empty entry rather than failing the whole parse.
+        //
         // A hand-written literal, deliberately NOT built via the `json!` macro:
         // `serde_json::Value`'s own `Object` map is a `BTreeMap` in this
         // workspace (no `preserve_order` feature -- milestone 1's own finding),
@@ -1565,6 +1635,9 @@ mod tests {
 
     #[test]
     fn parse_library_json_meta_and_transform_are_lenient_on_wrong_types() {
+        // Protects: normalize_meta and normalize_transform drop a
+        // wrong-typed field back to its default instead of propagating
+        // garbage, and normalize_meta's `tags` keeps only string elements.
         let text = json!({
             "version": 1, "kind": "cartalith-assetlib",
             "collections": {},
@@ -1585,11 +1658,15 @@ mod tests {
 
     #[test]
     fn parse_library_json_rejects_malformed_json_as_an_error() {
+        // Protects: parse_library_json returns a real LibraryError, not a
+        // silent empty document, for bytes that are not valid JSON at all.
         assert!(parse_library_json(b"{not json").is_err());
     }
 
     // -- apply_library_file_with_items (milestone 6) -----------------------
 
+    /// A solid-color `w`x`h` PNG, for feeding [`AssetDB::apply_library_file_with_items`]
+    /// real decodable bytes without an on-disk fixture.
     fn png_bytes(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
         let mut data = Vec::with_capacity((w * h * 4) as usize);
         for _ in 0..(w * h) {
@@ -1601,6 +1678,10 @@ mod tests {
 
     #[test]
     fn apply_library_file_with_items_restores_real_items_with_a_real_hash() {
+        // Protects: apply_library_file_with_items decodes real PNG bytes,
+        // computes a real crate::item_hash (not the placeholder string that
+        // went in), and gives two different source images two different
+        // hashes.
         let mut db = AssetDB::new();
         let uid = db.add_custom_slot("Lighthouse", Some("Naval")).uid.clone();
         db.add_item(&uid, LibraryItem::new("l1.png", "placeholder"));
@@ -1635,6 +1716,10 @@ mod tests {
 
     #[test]
     fn apply_library_file_with_items_skips_a_missing_or_undecodable_image_without_failing_the_rest() {
+        // Protects: a missing img_bytes entry, and a present-but-undecodable
+        // one, are each skipped silently — matching the reference's own
+        // try/catch around this exact step — rather than panicking or
+        // aborting the whole restore.
         let mut db = AssetDB::new();
         db.add_item("icons:mountain", LibraryItem::new("m1.png", "placeholder"));
         db.add_item("icons:hill", LibraryItem::new("h1.png", "placeholder"));
@@ -1655,6 +1740,9 @@ mod tests {
 
     #[test]
     fn apply_library_file_with_items_still_restores_meta_rules_pack_and_collections() {
+        // Protects: apply_library_file_with_items calls apply_library_file
+        // first, so pack info, per-slot tags, collections and rules restore
+        // even when no image bytes are supplied at all.
         // The wrapper must not regress anything apply_library_file already
         // covers -- it calls straight through before touching a pixel. No
         // image bytes are supplied at all, so the item itself does not
@@ -1676,6 +1764,9 @@ mod tests {
 
     #[test]
     fn custom_slot_record_carries_both_the_raw_set_name_and_resolves_through_it() {
+        // Protects: to_library_json's SlotRecord::set keeps the raw
+        // (unslugged) set name, from which slug_id can re-derive the
+        // exporter's own path form.
         // Milestone 3's finding, load-bearing here too: the manifest key is the
         // author's raw text, the exporter's path uses the slug. This record
         // shape keeps only the raw text (`set`); the slug is re-derivable via

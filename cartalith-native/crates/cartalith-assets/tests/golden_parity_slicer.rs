@@ -46,6 +46,8 @@ use cartalith_assets::{
 // computeCells
 // ============================================================================
 
+/// One `computeCells` fixture: a slice-grid geometry and the exact cells the
+/// reference produced from it.
 struct GridCase {
     name: &'static str,
     rect: GridRect,
@@ -369,6 +371,10 @@ const GRID_CASES: &[GridCase] = &[
 
 #[test]
 fn compute_cells_matches_the_reference_on_every_fixture() {
+    // Protects: compute_cells' cell geometry (position, size, identity)
+    // and min_w/min_h match the reference exactly across ten fixtures
+    // covering clamping, negative extents, NaN/negative spacing and
+    // uneven division; the fixture table itself is asserted non-empty.
     let mut total_cells = 0usize;
     for c in GRID_CASES {
         let grid = SliceGrid::new(c.rect, c.cols, c.rows, c.spacing);
@@ -394,13 +400,13 @@ fn compute_cells_matches_the_reference_on_every_fixture() {
     assert_eq!(total_cells, 220);
 }
 
-/// The half-gutter model, stated as its own assertion because it is the one
-/// thing about `computeCells` a reimplementation gets wrong: spacing is *not*
-/// a pitch. With `cols=6, spacing=8` over a 3072px span, the classic
-/// equal-cell formula gives every cell `(3072 - 5*8)/6 = 505.33`; the
-/// reference gives 508 for the two outer columns and 504 for the four
-/// interior ones, because each interior *edge* eats `spacing/2` from the cell
-/// on either side of it and the outer edges eat nothing.
+/// Protects: the half-gutter model, stated as its own assertion because it
+/// is the one thing about `computeCells` a reimplementation gets wrong:
+/// spacing is *not* a pitch. With `cols=6, spacing=8` over a 3072px span,
+/// the classic equal-cell formula gives every cell `(3072 - 5*8)/6 =
+/// 505.33`; the reference gives 508 for the two outer columns and 504 for
+/// the four interior ones, because each interior *edge* eats `spacing/2`
+/// from the cell on either side of it and the outer edges eat nothing.
 #[test]
 fn spacing_is_a_half_gutter_on_interior_edges_not_a_pitch() {
     let grid = SliceGrid::new(GridRect::whole(3072, 2048), 6, 4, 8.0);
@@ -417,6 +423,8 @@ fn spacing_is_a_half_gutter_on_interior_edges_not_a_pitch() {
 // cropCell's source-rect rounding
 // ============================================================================
 
+/// One `cropCell` source-rect fixture: a float cell rect and the
+/// reference's rounded `(sx, sy, sw, sh)` arguments to `ctx.drawImage`.
 struct CropCase {
     x: f64,
     y: f64,
@@ -443,6 +451,9 @@ const CROP_CASES: &[CropCase] = &[
 
 #[test]
 fn cell_source_rect_matches_the_references_crop_cell_rounding() {
+    // Protects: cell_source_rect's rounding matches the reference's
+    // Math.round (half-up, not half-away-from-zero) across positive,
+    // negative, sub-pixel and exact-half-boundary cases.
     for c in CROP_CASES {
         let cell = cartalith_assets::CellRect { col: 0, row: 0, index: 0, x: c.x, y: c.y, w: c.w, h: c.h };
         assert_eq!(
@@ -459,6 +470,8 @@ fn cell_source_rect_matches_the_references_crop_cell_rounding() {
 // isBlank
 // ============================================================================
 
+/// One `isBlank` fixture: raw RGBA bytes and whether the reference judged
+/// them blank.
 struct BlankCase {
     name: &'static str,
     data: &'static [u8],
@@ -479,6 +492,8 @@ const BLANK_CASES: &[BlankCase] = &[
 
 #[test]
 fn is_blank_matches_the_reference_on_every_fixture() {
+    // Protects: is_blank's >8-alpha threshold matches the reference
+    // exactly, including at the boundary itself (8 still blank, 9 not).
     for c in BLANK_CASES {
         let px = c.data.len() / 4;
         let img = DecodedImage::new(1, px as u32, c.data.to_vec()).expect("fixture is a whole number of pixels");
@@ -491,6 +506,8 @@ fn is_blank_matches_the_reference_on_every_fixture() {
 // applyChroma
 // ============================================================================
 
+/// One `applyChroma` fixture: a key color/tolerance and the before/after
+/// RGBA bytes the reference produced from it.
 struct ChromaCase {
     name: &'static str,
     color: [u8; 3],
@@ -513,6 +530,9 @@ const CHROMA_CASES: &[ChromaCase] = &[
 
 #[test]
 fn apply_chroma_matches_the_reference_on_every_fixture() {
+    // Protects: apply_chroma keys pixels out on <= tolerance distance
+    // (inclusive, matching the reference), skips already-transparent
+    // pixels, and leaves non-matching pixels untouched.
     for c in CHROMA_CASES {
         let px = c.before.len() / 4;
         let mut img = DecodedImage::new(1, px as u32, c.before.to_vec()).expect("fixture is a whole number of pixels");

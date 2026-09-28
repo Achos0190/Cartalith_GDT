@@ -23,6 +23,8 @@ use cartalith_assets::{ItemTransform, fit_to_bottom, finalize_pack_texture_inv_m
 // fitToBottom
 // ============================================================================
 
+/// One `fitToBottom` fixture: an item's size/transform before the call, and
+/// the `pan_y` the reference produced after it.
 struct FitCase {
     w: u32,
     h: u32,
@@ -46,6 +48,8 @@ const FIT_CASES: &[FitCase] = &[
 
 #[test]
 fn fit_to_bottom_matches_the_reference_on_every_fixture() {
+    // Protects: fit_to_bottom's resulting pan_y matches the reference across
+    // every fixture, and it never touches pan_x or scale.
     for c in FIT_CASES {
         let mut t = ItemTransform { scale: c.scale, pan_x: c.pan_x, pan_y: c.pan_y_before };
         fit_to_bottom(&mut t, c.w, c.h, c.size);
@@ -76,6 +80,8 @@ fn make_data(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     data
 }
 
+/// One `finalizePackTexture` inverse-mean fixture: a named pixel-generating
+/// function and the per-channel inverse mean the reference computed from it.
 struct TexCase {
     name: &'static str,
     w: u32,
@@ -86,6 +92,9 @@ struct TexCase {
 
 #[test]
 fn finalize_pack_texture_inv_mean_matches_the_reference_on_every_fixture() {
+    // Protects: finalize_pack_texture_inv_mean's per-channel inverse mean
+    // matches the reference exactly, including clamping near-black/
+    // sub-1-mean channels to 1.0 and the zero-dimension edge case.
     let cases: &[TexCase] = &[
         TexCase {
             name: "uniform_mid",

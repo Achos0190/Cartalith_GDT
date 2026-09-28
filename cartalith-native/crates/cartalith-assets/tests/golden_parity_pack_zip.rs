@@ -61,6 +61,8 @@ use std::io::Cursor;
 const FIXTURE_ZIP: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/reference_pack.zip"));
 
+/// Load `fixtures/reference_pack_captured.json` — the reference's own
+/// captured view of [`FIXTURE_ZIP`], per the module docs.
 fn capture() -> Value {
     let text = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -70,6 +72,8 @@ fn capture() -> Value {
     serde_json::from_str(&text).expect("capture fixture should be JSON")
 }
 
+/// A JSON array of strings, unwrapped into a `Vec<String>`, for comparing a
+/// capture field against a real result.
 fn strs(v: &Value) -> Vec<String> {
     v.as_array()
         .expect("array")
@@ -105,6 +109,9 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 #[test]
 fn read_pack_entries_matches_the_reference_unzip_any() {
+    // Protects: read_pack_entries reads back exactly the entries (name,
+    // length, and CRC-32 against the reference's own central-directory
+    // checksums) the reference's unzipAny() saw in the same real archive.
     let cap = capture();
     let got = read_pack_entries(Cursor::new(FIXTURE_ZIP)).expect("reference pack should open");
 
@@ -139,6 +146,11 @@ fn read_pack_entries_matches_the_reference_unzip_any() {
 
 #[test]
 fn parsing_a_real_reference_pack_matches_the_reference_parser() {
+    // Protects: read_pack's manifest fields, pack_summary text, and
+    // warnings all match the reference's own parser output for a real
+    // reference-exported archive, except the one authorised divergence
+    // this file's module doc names (both the old and new literal are
+    // spelled out here, not just compared to the fixture).
     let cap = capture();
     let (manifest, _entries) = read_pack(Cursor::new(FIXTURE_ZIP)).expect("pack should parse");
 
@@ -190,6 +202,8 @@ fn parsing_a_real_reference_pack_matches_the_reference_parser() {
 /// indent, same one-element-array-not-bare-string shape for icon variants.
 #[test]
 fn to_pack_json_reproduces_the_reference_exporters_own_manifest_text() {
+    // Protects: manifest.to_pack_json() is the exact same text (key order,
+    // indent, array shape) the reference's own exporter wrote.
     let cap = capture();
     let (manifest, _) = read_pack(Cursor::new(FIXTURE_ZIP)).expect("pack should parse");
     assert_eq!(manifest.to_pack_json(), cap["packJson"].as_str().expect("packJson"));
@@ -210,6 +224,10 @@ fn to_pack_json_reproduces_the_reference_exporters_own_manifest_text() {
 /// themselves via a re-read.
 #[test]
 fn write_pack_reproduces_the_reference_exporters_archive() {
+    // Protects: write_pack reproduces the reference exporter's archive on
+    // everything a reader can observe — entry order, method, CRC-32,
+    // uncompressed size, the frozen 1980-01-01 timestamp — and a re-read of
+    // the written bytes gives back the same payloads.
     let cap = capture();
     let (manifest, entries) = read_pack(Cursor::new(FIXTURE_ZIP)).expect("pack should parse");
 

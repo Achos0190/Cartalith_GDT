@@ -60,6 +60,11 @@ const GW: usize = 48;
 const GH: usize = 32;
 const SEA: f64 = 0.42;
 
+/// The same deliberately-quantised pure-arithmetic elevation field the
+/// region-export goldens use (module docs): a domed base, a `% 11`-quantised
+/// wobble keyed by `k`, and a latitude band term. Bit-identical across runs
+/// with the same `(gw, gh, k)` — checked by [`fnv_f32`] before any brush
+/// golden is trusted.
 fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
     let mut f = vec![0.0f32; gw * gh];
     let cx = gw as f64 * 0.42;
@@ -79,6 +84,8 @@ fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
     f
 }
 
+/// FNV-1a-64 over a `f32` slice's raw little-endian bytes — the fixture-field
+/// identity check this file asserts before trusting any brush golden.
 fn fnv_f32(a: &[f32]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in a {
@@ -99,9 +106,11 @@ fn lcg(seed: u32) -> impl FnMut() -> f64 {
     }
 }
 
+/// A frozen feature-icon fixture: `icons:mountain`.
 fn feature() -> ArmedIcon {
     ArmedIcon { family: ManualIconFamily::Feature, slot: "mountain".into(), set: None }
 }
+/// A custom-icon fixture: `custom:myset/thing`.
 fn custom() -> ArmedIcon {
     ArmedIcon { family: ManualIconFamily::Custom, slot: "thing".into(), set: Some("myset".into()) }
 }
@@ -113,6 +122,9 @@ fn mountain_rule() -> ScatterRule {
 
 #[test]
 fn the_fixture_field_is_bit_identical_and_carries_both_land_and_water() {
+    // Protects: synthetic_field(GW, GH, 5) reproduces the exact fixture the
+    // reference harness generated, with both land and water cells present
+    // so the brush's sea-level gate is genuinely exercised.
     let f = synthetic_field(GW, GH, 5);
     assert_eq!(fnv_f32(&f), "e6a8f7dd46187082");
     let land = f.iter().filter(|v| **v as f64 > SEA).count();
@@ -122,6 +134,10 @@ fn the_fixture_field_is_bit_identical_and_carries_both_land_and_water() {
 
 #[test]
 fn brush_rule_lookup_matches_the_reference() {
+    // Protects: icon_brush_rule resolves a known feature slot's own rule, a
+    // known custom key (`custom::<set>::<slot>`) the same way, falls back
+    // to the default rule for an unknown slot, and returns None when no
+    // icon is armed at all.
     let mut table = ScatterRuleTable::new();
     table.insert("mountain", mountain_rule());
 
@@ -167,6 +183,9 @@ impl BrushRun {
     }
 }
 
+/// The ten recorded brush runs this file diffs against — eight captured from
+/// the reference harness plus two added after mutation testing (see the
+/// comment inline below on why those two were needed).
 fn runs() -> Vec<BrushRun> {
     let f = || feature();
     vec![
@@ -322,6 +341,10 @@ fn runs() -> Vec<BrushRun> {
 
 #[test]
 fn the_icon_brush_matches_the_reference_dart_for_dart() {
+    // Protects: icon_brush_stamp reproduces the reference's exact accept/
+    // reject sequence and placed positions/scales across all ten seeded
+    // runs, including the density floor, the BRUSH_MAX_DARTS cap, bounds
+    // rejection, and the two legitimately-empty negative controls.
     let field = synthetic_field(GW, GH, 5);
     let all = runs();
     let mut total = 0usize;
@@ -368,6 +391,9 @@ fn the_icon_brush_matches_the_reference_dart_for_dart() {
 
 #[test]
 fn icon_box_matches_the_reference_across_every_zoom_and_scale() {
+    // Protects: icon_box's px/py/r/side match the reference across three
+    // icon families and three (grid_w, zoom, icon_scale) combinations,
+    // including fractional zoom.
     let icons = [
         // `origin` added 2026-09-06 for owner ruling 14; it is not a box or
         // hit-test input and no expected value below moved.
@@ -404,6 +430,9 @@ fn icon_box_matches_the_reference_across_every_zoom_and_scale() {
 
 #[test]
 fn icon_hit_testing_matches_the_reference_including_its_one_miss() {
+    // Protects: icon_hit_test picks the topmost (highest-index) overlapping
+    // icon, and returns None for the one point that hits nothing — the
+    // reference's negative control, re-asserted here rather than dropped.
     let icons = [
         // `origin` added 2026-09-06 for owner ruling 14; it is not a box or
         // hit-test input and no expected value below moved.
@@ -432,6 +461,9 @@ fn icon_hit_testing_matches_the_reference_including_its_one_miss() {
 
 #[test]
 fn click_placement_matches_the_reference() {
+    // Protects: place_manual_icon accepts an in-bounds click (feature or
+    // custom, including the far corner) and refuses one out of bounds on
+    // any edge, or with no icon armed at all.
     let f = feature();
     let c = custom();
     // (gx, gy, armed, expected)
@@ -469,6 +501,8 @@ fn click_placement_matches_the_reference() {
 
 #[test]
 fn the_icon_resize_handle_matches_the_reference() {
+    // Protects: icon_resize_scale computes the reference's exact resized
+    // scale from a drag distance, clamping at both the low and high ends.
     let want: &[(f64, f64, f64, f64, f64, f64, f64)] = &[
         (1.0, 10.0, 10.0, 14.0, 14.0, 5.0, 1.272_792_206_135_785_7),
         (1.0, 10.0, 10.0, 10.0, 10.0, 5.0, 0.2),  // clamped low
