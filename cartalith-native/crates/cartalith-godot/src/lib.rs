@@ -4682,6 +4682,25 @@ fn apply_sculpt_values(
     dict! { "rejected" => &rejected, "clamped" => &clamped }
 }
 
+/// One uncached build of [`WorldGen::valley_shade_field`], as
+/// `WorldGen::valley_shade_stats` reports it: wall time, whether it ran on
+/// Godot's main thread, the grid, and how many cells the fill raised. A
+/// measurement record only (`OUTSTANDING_WORK.md` row "RV-3 follow-ups", item
+/// 2: "the valley-shade build cost is unmeasured"); nothing reads it to decide
+/// anything.
+#[derive(Clone, Copy, Debug)]
+struct ValleyShadeTiming {
+    /// Wall time of the whole uncached build (inputs fetched from their own
+    /// caches, the fill, the re-cut), in milliseconds.
+    ms: f64,
+    /// Of `ms`, the time inside `valley_shade::valley_shade_field` alone.
+    core_ms: f64,
+    /// `OS.get_thread_caller_id() == OS.get_main_thread_id()` at the build.
+    main_thread: bool,
+    gw: usize,
+    gh: usize,
+}
+
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
 /// last `generate_terrain()` result (or loaded save); GDScript drives it via
 /// `generate()`/`generate_sized()`/`load_save()` then `build_color_texture()`.
@@ -4932,6 +4951,11 @@ struct WorldGen {
     /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
     /// height built for it. A rendering input only; never a world field.
     valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
+    /// The last uncached [`Self::valley_shade_field`] build, for
+    /// `valley_shade_stats` (a probe's cost reading; `OUTSTANDING_WORK.md` row
+    /// "RV-3 follow-ups", item 2). `None` until one has been built on this
+    /// object -- never a zero time standing in for "not measured".
+    valley_shade_timing: std::cell::Cell<Option<ValleyShadeTiming>>,
     /// **Forced lakes (Ruling BO, 2026-09-28: "draw forced lakes")** -- the
     /// cells [`Self::apply_force_lake`] has reclassified as lake, `gw * gh`,
     /// `1` forced / `0` not. `None` until the first press on this world.
@@ -5569,6 +5593,7 @@ impl IRefCounted for WorldGen {
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
             valley_shade_cache: std::cell::RefCell::new(None),
+            valley_shade_timing: std::cell::Cell::new(None),
             forced_lakes: None,
             forced_lakes_epoch: 0,
             drawn_water_cache: std::cell::RefCell::new(None),
@@ -10792,6 +10817,9 @@ impl WorldGen {
     /// world's field with the generation carve filled back in and a smooth
     /// valley cut along every drawn river line instead
     /// ([`valley_shade::valley_shade_field`], whose module doc has the why).
+    /// Only the generation carve's own depth is filled -- never a channel a
+    /// Sculpt commit locked, nor anything that lowered a carved cell below
+    /// its floor since (`valley_shade::LOCK_SCULPT`, `ws.river_floor`).
     ///
     /// Handed, in place of `ws.field`, to the three render paths and nothing
     /// else: the screen texture (`build_color_texture`), the deep-zoom tiles
@@ -10828,12 +10856,44 @@ impl WorldGen {
                 return Some(v.clone());
             }
         }
+        let t0 = std::time::Instant::now();
         let geom = self.river_geometry_any()?;
         let water = self.drawn_water_classification()?;
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
-        let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, &geom.runs, gw, gh, self.sea_level, self.world)?);
+        let t1 = std::time::Instant::now();
+        let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, ws.river_floor.as_deref(), &geom.runs, gw, gh, self.sea_level, self.world)?);
+        let core_ms = t1.elapsed().as_secs_f64() * 1e3;
+        let os = godot::classes::Os::singleton();
+        self.valley_shade_timing.set(Some(ValleyShadeTiming {
+            ms: t0.elapsed().as_secs_f64() * 1e3,
+            core_ms,
+            main_thread: os.get_thread_caller_id() == os.get_main_thread_id(),
+            gw,
+            gh,
+        }));
         *self.valley_shade_cache.borrow_mut() = Some((key, v.clone()));
         Some(v)
+    }
+
+    /// The last uncached [`Self::valley_shade_field`] build's cost, for a
+    /// probe (`_rv3cost_probe.gd`): `{built: false}` until one has run on this
+    /// object, else `{built: true, ms, core_ms, main_thread, gw, gh}`. `ms`
+    /// includes fetching the drawn network and water classification when
+    /// their own caches were cold; `core_ms` is the fill and re-cut alone.
+    /// Diagnostic; nothing in the shell reads it.
+    #[func]
+    fn valley_shade_stats(&self) -> VarDictionary {
+        match self.valley_shade_timing.get() {
+            None => vdict! { "built" => false },
+            Some(t) => vdict! {
+                "built" => true,
+                "ms" => t.ms,
+                "core_ms" => t.core_ms,
+                "main_thread" => t.main_thread,
+                "gw" => t.gw as i64,
+                "gh" => t.gh as i64,
+            },
+        }
     }
 
     /// [`Self::river_geometry`]'s cache key -- every input `river_draws`
@@ -12080,7 +12140,20 @@ impl WorldGen {
         // Without this, a save taken after this call (`cartalith-io`,
         // `SAVEFILE_COMPAT.md`) would silently drop a hand-painted river's
         // lock, since it reads `ws.river_mask`/`river_floor` directly.
-        ws.river_mask = Some(sculpt.water.river_mask.clone());
+        //
+        // The mask is relabelled on the way (`valley_shade::mark_sculpt_locks`):
+        // a cell this commit locked, or re-locked with a new floor, is stored
+        // as `LOCK_SCULPT` (2), so the map's valley shading
+        // (`valley_shade_field`) fills only what the generation carve dug and
+        // never the channel the user sculpted (`OUTSTANDING_WORK.md` row
+        // "RV-3 follow-ups", item 1). Every lock reader tests `!= 0`, so what
+        // is locked is exactly what the Sculpt layer locked.
+        ws.river_mask = Some(valley_shade::mark_sculpt_locks(
+            ws.river_mask.as_deref(),
+            ws.river_floor.as_deref(),
+            &sculpt.water.river_mask,
+            &sculpt.water.river_floor,
+        ));
         ws.river_floor = Some(sculpt.water.river_floor.clone());
 
         let tiles_marked: PackedInt32Array = summary.pass.tiles_marked.iter().map(|&t| t as i32).collect();

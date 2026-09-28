@@ -31,13 +31,81 @@
 //! with a water corner has all its other corners in that frozen ring) answers
 //! exactly as on the true field: no coast, lake shore or sea colour moves.
 //! The cost is that the last cell of a channel beside the water keeps its
-//! carve; that is disclosed in `STATUS.md`.
+//! carve; [`is_frozen`] says why that is not fixed here.
 //!
 //! **No land is taken below sea level.** A re-cut cell is floored at
 //! `sea_level + cartalith_hydrology::CARVE_LAND_MARGIN`, the carve's own land
 //! floor, so no land cell becomes water to the renderer.
+//!
+//! **Only what the generation carve dug is filled; a user's sculpt never is**
+//! (`OUTSTANDING_WORK.md` row "RV-3 follow-ups", item 1, 2026-09-28). The
+//! lock mask (`WorldState::river_mask`) is written by two hands: the carve at
+//! generation ([`LOCK_CARVE`]) and a Sculpt commit's River stamps, which lock
+//! the channel the user dug. `WorldGen::sculpt_commit` marks the second kind
+//! [`LOCK_SCULPT`] ([`mark_sculpt_locks`]), and only `LOCK_CARVE` cells are
+//! filled, so a channel sculpted by hand keeps its shaded groove whether or
+//! not a river is drawn along it. And on a carved cell, only the carve's own
+//! depth is filled: the fill starts from the carve's floor
+//! (`WorldState::river_floor`, the height the carve left), so anything that
+//! lowered the cell below that floor afterwards -- a sculpt brush, an erosion
+//! pass -- stays in the shading. Before this, a hand-sculpted River channel
+//! with no drawn river was filled flat, and so was a sculpt that deepened a
+//! generated channel.
 
 use crate::river_stroke::DrawnRun;
+
+/// `WorldState::river_mask` value for a cell the generation carve lowered
+/// (`generate_terrain` writes `1` for every cell `carve_channel_network`
+/// returns). The only value [`valley_shade_field`] fills. Saves written before
+/// 2026-09-28 hold only this value, which is what the carve alone wrote.
+pub(crate) const LOCK_CARVE: u8 = 1;
+
+/// `WorldState::river_mask` value for a cell a Sculpt commit locked -- a River
+/// stamp's `enforce_channel_descent` cut, or a re-lock of a carved cell with a
+/// new floor ([`mark_sculpt_locks`]). Every lock reader tests `!= 0`, so this
+/// is as locked as [`LOCK_CARVE`]; it only tells the shading "a user dug
+/// this, keep it". It is saved with the mask (`SAVEFILE_COMPAT.md`,
+/// `rasters/river_mask.u8`), so the distinction survives a reopen.
+pub(crate) const LOCK_SCULPT: u8 = 2;
+
+/// The lock mask to store after a Sculpt commit: `mask`/`floor` are the
+/// Sculpt editor's lock arrays after the commit (`WaterState`, which writes
+/// only `0`/`1`, or carries forward the values it was seeded with), and
+/// `prev_mask`/`prev_floor` are the world's arrays before it.
+///
+/// A cell locked now and unlocked before, already [`LOCK_SCULPT`], or
+/// re-locked with a different floor (a River stamp's descent recorded the
+/// user's new bed over a carved cell) becomes `LOCK_SCULPT`; every other
+/// locked cell keeps its previous value (a generation cell stays
+/// [`LOCK_CARVE`]: the commit's `enforce_river_channels` re-clamp moves the
+/// height back to its floor, not the floor). Unlocked is `0`.
+///
+/// Must never unlock or lock a cell `mask` does not: it relabels, it does not
+/// decide what is locked -- that stays the engine's (`sculpt_commit.rs`).
+/// With no previous mask (`None`, or the wrong length) every lock is treated
+/// as new, so all of it reads as the user's: a world with no generation carve
+/// has no carve to fill.
+pub(crate) fn mark_sculpt_locks(prev_mask: Option<&[u8]>, prev_floor: Option<&[f32]>, mask: &[u8], floor: &[f32]) -> Vec<u8> {
+    let n = mask.len();
+    let prev_mask = prev_mask.filter(|p| p.len() == n);
+    let prev_floor = prev_floor.filter(|p| p.len() == n && floor.len() == n);
+    (0..n)
+        .map(|i| {
+            if mask[i] == 0 {
+                return 0;
+            }
+            // An earlier sculpt lock (2) falls to the last arm and keeps its
+            // value: a lock is never relabelled back to the carve's.
+            match prev_mask.map_or(0, |p| p[i]) {
+                0 => LOCK_SCULPT,
+                p => match prev_floor {
+                    Some(pf) if pf[i].to_bits() != floor[i].to_bits() => LOCK_SCULPT,
+                    _ => p,
+                },
+            }
+        })
+        .collect()
+}
 
 /// How many Gauss-Seidel sweeps the fill runs at most. A labelled judgement:
 /// the carve is at most `2·4·width_k + 1` cells across (the disc's half-width
@@ -79,8 +147,13 @@ const DEPTH_SMOOTH_CELLS: f64 = 1.5;
 /// - `field`: the world's true height (carved), `gw * gh`.
 /// - `water`: the drawn water classification (`0` land, anything else water:
 ///   `WorldGen::drawn_water_classification`), `gw * gh`.
-/// - `carved`: the cells the carve lowered (`WorldState::river_mask`, non-zero
-///   = lowered), `gw * gh`.
+/// - `carved`: the lock mask (`WorldState::river_mask`): [`LOCK_CARVE`] where
+///   the generation carve lowered a cell, [`LOCK_SCULPT`] where a Sculpt
+///   commit locked one, `0` elsewhere; `gw * gh`. Only `LOCK_CARVE` is filled.
+/// - `floor`: the carve's floor under each lock (`WorldState::river_floor`),
+///   `gw * gh`, or `None` when the world has none -- the fill then starts
+///   from the cell's current height, which is the floor itself on a world
+///   nothing has edited since the carve.
 /// - `runs`: the drawn river network (`WorldGen::river_geometry_any`), whose
 ///   render points are in grid-cell space with a cell's centre at `x + 0.5`.
 ///
@@ -88,43 +161,102 @@ const DEPTH_SMOOTH_CELLS: f64 = 1.5;
 /// the true field, never a guessed one.
 ///
 /// Deterministic: a pure function of its inputs, visited in a fixed order.
+///
+/// **Cost.** It runs on Godot's main thread, inside the repaint
+/// (`WorldGen::valley_shade_field`), once per river-network key -- after a
+/// generate and after every edit. So it touches the whole grid only to copy
+/// `field` into the result and to list the carved cells; everything else is
+/// proportional to the carve and the drawn network, never to the grid: the
+/// water ring is tested per visited cell ([`is_frozen`]) instead of built as a
+/// grid-sized mask, the fill relaxes a compact array of the carved cells
+/// only, and the re-cut gathers its cut per touched cell before writing it
+/// once. Measured with `_rv3cost_probe.gd` (`STATUS.md`, "RV-3 follow-ups").
 #[allow(clippy::too_many_arguments)]
-pub fn valley_shade_field(field: &[f32], water: &[u8], carved: &[u8], runs: &[DrawnRun], gw: usize, gh: usize, sea_level: f64, world: bool) -> Option<Vec<f32>> {
+pub fn valley_shade_field(field: &[f32], water: &[u8], carved: &[u8], floor: Option<&[f32]>, runs: &[DrawnRun], gw: usize, gh: usize, sea_level: f64, world: bool) -> Option<Vec<f32>> {
     let n = gw.checked_mul(gh)?;
-    if n == 0 || field.len() != n || water.len() != n || carved.len() != n {
+    if n == 0 || field.len() != n || water.len() != n || carved.len() != n || floor.is_some_and(|f| f.len() != n) {
         return None;
     }
-    let frozen = frozen_mask(field, water, gw, gh, sea_level, world);
-    let (mut out, depth) = uncarve(field, carved, &frozen, gw, gh, world);
-    let base = out.clone();
-    let land_floor = sea_level + cartalith_hydrology::CARVE_LAND_MARGIN;
+    let grid = Grid { field, water, gw, gh, sea_level, world };
+    let mut out = field.to_vec();
+    let depth = uncarve(&grid, &mut out, carved, floor);
+    // The re-cut's deepest cut per cell (runs overlap at confluences, and the
+    // deeper valley wins), gathered first and written once, so every cut is
+    // taken from the filled height and never from another run's cut.
+    // `vec![0.0; n]` is a zeroed allocation: only the pages a river touches
+    // are ever written.
+    let mut cut = vec![0.0f32; n];
+    let mut touched: Vec<usize> = Vec::new();
     for run in runs {
-        recut_run(&mut out, &base, &depth, &frozen, run, gw, gh, world, land_floor);
+        recut_run(&mut cut, &mut touched, &depth, run, gw, gh, world);
+    }
+    let land_floor = sea_level + cartalith_hydrology::CARVE_LAND_MARGIN;
+    for &j in &touched {
+        if grid.is_frozen(j) {
+            continue;
+        }
+        let v = (out[j] as f64 - cut[j] as f64).max(land_floor);
+        if v < out[j] as f64 {
+            out[j] = v as f32;
+        }
     }
     Some(out)
 }
 
-/// Cells the valley may never change: water (drawn classification, or below
-/// sea level) and every land cell 8-adjacent to water. See the module doc for
-/// why the ring makes every bilinear water test exact.
-fn frozen_mask(field: &[f32], water: &[u8], gw: usize, gh: usize, sea_level: f64, world: bool) -> Vec<bool> {
-    let wet = |i: usize| water[i] != 0 || (field[i] as f64) < sea_level;
-    let mut out = vec![false; gw * gh];
-    for y in 0..gh {
-        for x in 0..gw {
-            if !wet(y * gw + x) {
-                continue;
-            }
-            for dy in -1i64..=1 {
-                for dx in -1i64..=1 {
-                    if let Some(j) = index(x as i64 + dx, y as i64 + dy, gw, gh, world) {
-                        out[j] = true;
-                    }
-                }
+/// The inputs every stage reads, borrowed once.
+struct Grid<'a> {
+    field: &'a [f32],
+    water: &'a [u8],
+    gw: usize,
+    gh: usize,
+    sea_level: f64,
+    world: bool,
+}
+
+impl Grid<'_> {
+    /// Water in the drawn classification, or below sea level.
+    fn wet(&self, i: usize) -> bool {
+        self.water[i] != 0 || (self.field[i] as f64) < self.sea_level
+    }
+
+    /// See [`is_frozen`].
+    fn is_frozen(&self, i: usize) -> bool {
+        is_frozen(self, i)
+    }
+}
+
+/// A cell the valley may never change: water (drawn classification, or below
+/// sea level) or a land cell 8-adjacent to water. See the module doc for why
+/// the ring makes every bilinear water test exact.
+///
+/// **Why the carved cell beside water keeps its step** (`OUTSTANDING_WORK.md`
+/// row "RV-3 follow-ups", item 3; looked at 2026-09-28, not fixed). Filling
+/// that last cell would raise a land corner of a bilinear cell whose other
+/// corner is water. The renderer's per-pixel land/sea test still reads the
+/// SHADED height (`render::land_color`'s bilinear `h < sea`; only water
+/// bodies, the biome-boundary distance and the bathymetry read
+/// `RenderCtx::water_height`), so the drawn shoreline would move by a fraction
+/// of a cell at every river mouth and every lake inlet -- the one thing
+/// RV-3's measurement showed does not move. Fixing it cleanly means routing
+/// every per-pixel sea test to `water_height` in all three render paths
+/// (screen, tiles, export), which is its own change with its own screenshots,
+/// not this module's. The step is one cell long, at the water's edge, where
+/// the drawn river stroke covers it whenever the Rivers layer is on.
+///
+/// Evaluated per visited cell (nine lookups) rather than as a grid-sized mask:
+/// the fill and the re-cut visit a few percent of the grid, and a mask built
+/// over all of it was the larger part of this module's cost at 8192²
+/// (`_rv3cost_probe.gd`, `STATUS.md` "RV-3 follow-ups").
+fn is_frozen(g: &Grid, i: usize) -> bool {
+    let (x, y) = ((i % g.gw) as i64, (i / g.gw) as i64);
+    for dy in -1i64..=1 {
+        for dx in -1i64..=1 {
+            if index(x + dx, y + dy, g.gw, g.gh, g.world).is_some_and(|j| g.wet(j)) {
+                return true;
             }
         }
     }
-    out
+    false
 }
 
 /// The grid index of `(x, y)`, wrapping x in world mode; `None` off the grid.
@@ -139,72 +271,108 @@ fn index(x: i64, y: i64, gw: usize, gh: usize, world: bool) -> Option<usize> {
     Some(y as usize * gw + x as usize)
 }
 
-/// Fills the carve back in: every carved, unfrozen cell is relaxed to the
-/// harmonic mean of its four neighbours (a membrane spanning the trench from
-/// its uncarved banks), never below its carved height -- the carve only ever
-/// lowered, so the fill only ever raises. Returns the filled field and, per
-/// cell, how deep the carve was there (`0` wherever it did not cut).
-fn uncarve(field: &[f32], carved: &[u8], frozen: &[bool], gw: usize, gh: usize, world: bool) -> (Vec<f32>, Vec<f32>) {
-    let mut u: Vec<f64> = field.iter().map(|&v| v as f64).collect();
-    let cells: Vec<usize> = (0..gw * gh).filter(|&i| carved[i] != 0 && !frozen[i]).collect();
-    let is_cell = {
-        let mut m = vec![false; gw * gh];
-        for &i in &cells {
-            m[i] = true;
-        }
-        m
-    };
-    // Start each carved cell at the mean of its uncarved 8-neighbours, so the
-    // relaxation starts near the bank rather than at the trench floor.
-    // A speed-up only: without it the sweeps still converge (a mutant that
-    // drops it survives the tests, 2026-09-28, and is equivalent while the
-    // loop reaches FILL_TOL).
-    for &i in &cells {
+/// Fills the carve back in: every [`LOCK_CARVE`], unfrozen cell is relaxed to
+/// the harmonic mean of its four neighbours (a membrane spanning the trench
+/// from its uncarved banks), never below the carve's floor -- the carve only
+/// ever lowered, so the fill only ever raises. Writes the filled height into
+/// `out` (which holds `field` on entry) and returns, per cell, how deep the
+/// carve was there (`0` wherever it did not cut).
+///
+/// **Only the carve's own depth.** A cell's surface for the fill is
+/// `max(field, floor)`: the carve's floor, or the cell's height where
+/// something has since raised it (an erosion deposit). Whatever lowered the
+/// cell below its floor after the carve -- a sculpt, an erosion pass -- is
+/// subtracted back from the filled height, so it stays in the shading. A
+/// [`LOCK_SCULPT`] cell is never filled. With `floor` `None`, or equal to
+/// `field` (a world nothing edited since the carve), the surface is `field`
+/// and this is the RV-3 fill unchanged.
+///
+/// Must never write a cell that is not `LOCK_CARVE` and unfrozen.
+///
+/// The relaxation runs over a compact array of the fill cells alone, each
+/// with its four neighbours pre-resolved (a fill cell's slot, or a fixed
+/// height), so a sweep costs the carve's size, not the grid's.
+fn uncarve(g: &Grid, out: &mut [f32], carved: &[u8], floor: Option<&[f32]>) -> Vec<f32> {
+    let (gw, gh, world, field) = (g.gw, g.gh, g.world, g.field);
+    // Ascending, so a neighbour's slot is found by binary search.
+    let cells: Vec<usize> = (0..gw * gh).filter(|&i| carved[i] == LOCK_CARVE && !g.is_frozen(i)).collect();
+    let slot = |j: usize| cells.binary_search(&j).ok();
+    // The carve's surface under each fill cell.
+    let surf: Vec<f64> = cells.iter().map(|&i| floor.map_or(field[i], |f| field[i].max(f[i])) as f64).collect();
+    // Per fill cell: the sum of its fixed (non-fill) 4-neighbours, how many
+    // 4-neighbours it has on the grid, and its fill neighbours' slots.
+    let mut fixed = vec![0.0f64; cells.len()];
+    let mut count = vec![0u8; cells.len()];
+    let mut nbrs: Vec<[u32; 4]> = vec![[0; 4]; cells.len()];
+    let mut nn = vec![0u8; cells.len()];
+    let mut u = vec![0.0f64; cells.len()];
+    for (k, &i) in cells.iter().enumerate() {
         let (x, y) = ((i % gw) as i64, (i / gw) as i64);
-        let (mut s, mut k) = (0.0, 0usize);
-        for dy in -1i64..=1 {
-            for dx in -1i64..=1 {
-                if let Some(j) = index(x + dx, y + dy, gw, gh, world).filter(|&j| !is_cell[j]) {
-                    s += u[j];
-                    k += 1;
+        for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
+            if let Some(j) = index(x + dx, y + dy, gw, gh, world) {
+                count[k] += 1;
+                match slot(j) {
+                    Some(s) => {
+                        nbrs[k][nn[k] as usize] = s as u32;
+                        nn[k] += 1;
+                    }
+                    None => fixed[k] += field[j] as f64,
                 }
             }
         }
-        if k > 0 {
-            u[i] = (s / k as f64).max(field[i] as f64);
+        // Start each carved cell at the mean of its uncarved 8-neighbours, so
+        // the relaxation starts near the bank rather than at the trench
+        // floor. A speed-up only: without it the sweeps still converge (a
+        // mutant that drops it survives the tests, 2026-09-28, and is
+        // equivalent while the loop reaches FILL_TOL).
+        let (mut s, mut c) = (0.0, 0usize);
+        for dy in -1i64..=1 {
+            for dx in -1i64..=1 {
+                if let Some(j) = index(x + dx, y + dy, gw, gh, world).filter(|&j| slot(j).is_none()) {
+                    s += field[j] as f64;
+                    c += 1;
+                }
+            }
         }
+        u[k] = if c > 0 { (s / c as f64).max(surf[k]) } else { surf[k] };
     }
     for sweep in 0..FILL_SWEEPS {
         let mut moved = 0.0f64;
         // Alternate the visiting order, so the fill does not drift the way
-        // one-directional Gauss-Seidel does.
-        let order: Box<dyn Iterator<Item = &usize>> = if sweep % 2 == 0 { Box::new(cells.iter()) } else { Box::new(cells.iter().rev()) };
-        for &i in order {
-            let (x, y) = ((i % gw) as i64, (i / gw) as i64);
-            let (mut s, mut k) = (0.0, 0usize);
-            for (dx, dy) in [(-1i64, 0i64), (1, 0), (0, -1), (0, 1)] {
-                if let Some(j) = index(x + dx, y + dy, gw, gh, world) {
-                    s += u[j];
-                    k += 1;
-                }
+        // one-directional Gauss-Seidel does. Both orders reach the same fixed
+        // point once the loop meets FILL_TOL, so a mutant that sweeps one way
+        // only survives the tests (2026-09-28) and is equivalent on every
+        // fill that converges; alternating converges in fewer sweeps.
+        let mut visit = |k: usize| {
+            if count[k] == 0 {
+                return;
             }
-            if k == 0 {
-                continue;
-            }
+            let s = fixed[k] + nbrs[k][..nn[k] as usize].iter().map(|&m| u[m as usize]).sum::<f64>();
             // The floor is the carve itself: the fill only raises. Where every
             // bank is higher than the trench (the carve's own shape) the mean
             // is already above it, so a mutant dropping this survives the
             // tests; it guards a carved cell beside a frozen, lower one.
-            let v = (s / k as f64).max(field[i] as f64);
-            moved = moved.max((v - u[i]).abs());
-            u[i] = v;
+            let v = (s / count[k] as f64).max(surf[k]);
+            moved = moved.max((v - u[k]).abs());
+            u[k] = v;
+        };
+        if sweep % 2 == 0 {
+            (0..cells.len()).for_each(&mut visit);
+        } else {
+            (0..cells.len()).rev().for_each(&mut visit);
         }
         if moved < FILL_TOL {
             break;
         }
     }
-    let depth: Vec<f32> = (0..gw * gh).map(|i| if is_cell[i] { (u[i] - field[i] as f64).max(0.0) as f32 } else { 0.0 }).collect();
-    (u.into_iter().map(|v| v as f32).collect(), depth)
+    let mut depth = vec![0.0f32; gw * gh];
+    for (k, &i) in cells.iter().enumerate() {
+        // What lowered the cell below the carve's surface after the carve.
+        let later = surf[k] - field[i] as f64;
+        out[i] = (u[k] - later) as f32;
+        depth[i] = (u[k] - surf[k]).max(0.0) as f32;
+    }
+    depth
 }
 
 /// The valley's cross-section at `d` cells from the drawn centreline, for a
@@ -227,18 +395,19 @@ fn profile(d: f64, hw: f64) -> f64 {
     a * a
 }
 
-/// Cuts one drawn run's valley into `out`: at each cell near a drawn piece,
-/// `base - depth · profile(distance)`, keeping the deeper of that and what is
-/// there already (so confluences take the deeper valley), floored at
-/// `land_floor`, and never on a frozen cell.
+/// Gathers one drawn run's valley cut into `cut`: at each cell near a drawn
+/// piece, `depth · profile(distance)`, keeping the deeper of that and what is
+/// there already (so confluences take the deeper valley). Each cell's first
+/// cut is recorded in `touched`. [`valley_shade_field`] then subtracts the cut
+/// from the filled height, floored at the land floor, skipping frozen cells;
+/// this function must never write the height itself.
 ///
 /// The depth at each drawn point is the deepest carve within its half-width
 /// plus [`DEPTH_REACH_CELLS`], averaged along the line over
 /// [`DEPTH_SMOOTH_CELLS`] of arc length each way. Where the carve cut nothing
 /// (a run crossing a kept lake, or a sculpted world with no carve) the depth
 /// is `0` and nothing is cut.
-#[allow(clippy::too_many_arguments)]
-fn recut_run(out: &mut [f32], base: &[f32], depth: &[f32], frozen: &[bool], run: &DrawnRun, gw: usize, gh: usize, world: bool, land_floor: f64) {
+fn recut_run(cut: &mut [f32], touched: &mut Vec<usize>, depth: &[f32], run: &DrawnRun, gw: usize, gh: usize, world: bool) {
     let n = run.pts.len();
     if n < 2 || run.widths.len() != n {
         return;
@@ -311,9 +480,6 @@ fn recut_run(out: &mut [f32], base: &[f32], depth: &[f32], frozen: &[bool], run:
             for y in y0..=y1 {
                 for x in x0..=x1 {
                     let Some(j) = index(x, y, gw, gh, world) else { continue };
-                    if frozen[j] {
-                        continue;
-                    }
                     let (qx, qy) = (x as f64 + 0.5, y as f64 + 0.5);
                     let t = if l2 > 0.0 { (((qx - ax) * ex + (qy - ay) * ey) / l2).clamp(0.0, 1.0) } else { 0.0 };
                     let d = (qx - (ax + ex * t)).hypot(qy - (ay + ey * t));
@@ -322,10 +488,12 @@ fn recut_run(out: &mut [f32], base: &[f32], depth: &[f32], frozen: &[bool], run:
                     if w <= 0.0 {
                         continue;
                     }
-                    let dd = dep[k] + (dep[k + 1] - dep[k]) * t;
-                    let v = (base[j] as f64 - dd * w).max(land_floor);
-                    if v < out[j] as f64 {
-                        out[j] = v as f32;
+                    let dd = ((dep[k] + (dep[k + 1] - dep[k]) * t) * w) as f32;
+                    if dd > cut[j] {
+                        if cut[j] == 0.0 {
+                            touched.push(j);
+                        }
+                        cut[j] = dd;
                     }
                 }
             }
@@ -370,7 +538,7 @@ mod tests {
     fn a_carve_with_no_drawn_river_is_filled_to_its_banks() {
         let (gw, gh) = (40, 30);
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
         for x in 5..35 {
             let v = s[15 * gw + x];
             assert!((v - 0.6).abs() < 1e-5, "cell {x}: {v} should be back at the bank's 0.6");
@@ -393,7 +561,7 @@ mod tests {
                 c[y * gw + x] = 1;
             }
         }
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
         let mid = s[15 * gw + 20];
         assert!((mid - 0.6).abs() < 1e-4, "the middle of a 7-cell trench is filled to the banks: {mid}");
     }
@@ -412,7 +580,7 @@ mod tests {
         }
         // Render points every quarter cell, as the drawn line is dense.
         let r = run((20..140).map(|k| (k as f32 * 0.25 + 0.5, 15.5)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
         let v = s[15 * gw + 20] as f64;
         assert!(v > 0.5901 && v < 0.5979, "the floor at the step is between the two depths: {v}");
         // Well away from the step each side keeps its own depth.
@@ -429,7 +597,7 @@ mod tests {
         // Drawn 1.5 cells off the carve's centres: row 15's centre is 15.5,
         // the line runs at 17.0, inside DEPTH_REACH_CELLS of the carve.
         let r = run((5..35).map(|x| (x as f32 + 0.5, 17.0)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
         let at = |x: usize, y: usize| s[y * gw + x];
         // Rows 16 and 17 straddle the line at 0.5 cells: the valley floor.
         assert!(at(20, 16) < 0.595 && at(20, 17) < 0.595, "the valley floor is on the line: {} {}", at(20, 16), at(20, 17));
@@ -446,7 +614,7 @@ mod tests {
         let (gw, gh) = (40, 30);
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
         let r = run((5..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
         let floor = s[15 * gw + 20];
         assert!((floor - 0.59).abs() < 1e-4, "the floor on the line is the carve's depth, 0.59: {floor}");
     }
@@ -463,7 +631,7 @@ mod tests {
         for q in 0..5 {
             let yl = 15.5 + q as f32 * 0.25;
             let r = run((5..35).map(|x| (x as f32 + 0.5, yl)).collect(), 1.0);
-            let s = valley_shade_field(&f, &vec![0; gw * gh], &c, &[r], gw, gh, 0.42, false).unwrap();
+            let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
             let v = s[17 * gw + 20];
             if let Some(p) = prev {
                 assert!(v <= p + 1e-7, "row 17 deepens as the line approaches it");
@@ -495,7 +663,7 @@ mod tests {
             f[17 * gw + x] = 0.45;
         }
         let r = run((2..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 3.0);
-        let s = valley_shade_field(&f, &water, &c, &[r], gw, gh, sea, false).unwrap();
+        let s = valley_shade_field(&f, &water, &c, None, &[r], gw, gh, sea, false).unwrap();
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
@@ -524,9 +692,9 @@ mod tests {
     #[test]
     fn a_mismatched_grid_is_refused() {
         let f = vec![0.6f32; 12];
-        assert!(valley_shade_field(&f, &[0; 12], &[0; 11], &[], 4, 3, 0.42, false).is_none());
-        assert!(valley_shade_field(&f, &[0; 11], &[0; 12], &[], 4, 3, 0.42, false).is_none());
-        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], &[], 4, 4, 0.42, false).is_none());
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 11], None, &[], 4, 3, 0.42, false).is_none());
+        assert!(valley_shade_field(&f, &[0; 11], &[0; 12], None, &[], 4, 3, 0.42, false).is_none());
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], None, &[], 4, 4, 0.42, false).is_none());
     }
 
     // Protects: the profile's shape -- full depth on the bed, zero at the rim,
@@ -540,5 +708,133 @@ mod tests {
         assert_eq!(profile(1.5, 2.0), 1.0, "a 4-cell river's bed runs to 1.5 cells");
         assert_eq!(profile(4.0, 2.0), 0.0, "half-width 2 + a 2-cell shoulder");
         assert!((profile(0.75, 0.5) - (1.0 - 0.25f64).powi(2)).abs() < 1e-12, "q = 0.5 at mid-shoulder");
+    }
+
+    // Protects: a channel the user sculpted (locked by a Sculpt commit, value
+    // 2), with no drawn river on it, keeps its groove in the shading -- the
+    // row "RV-3 follow-ups", item 1. The same trench locked by the generation
+    // carve (value 1) is the positive control: it is filled.
+    #[test]
+    fn a_sculpted_channel_with_no_drawn_river_keeps_its_groove() {
+        let (gw, gh) = (40, 30);
+        let (f, mut c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        for m in c.iter_mut().filter(|m| **m != 0) {
+            *m = 2;
+        }
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false).unwrap();
+        for x in 5..35 {
+            assert_eq!(s[15 * gw + x].to_bits(), f[15 * gw + x].to_bits(), "sculpted cell {x} keeps its carved height");
+        }
+        let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false).unwrap();
+        assert!((s[15 * gw + 20] - 0.6).abs() < 1e-5, "control: the carve's own trench is filled: {}", s[15 * gw + 20]);
+    }
+
+    // Protects: only the carve's own depth is filled. A carved trench (floor
+    // 0.59) that a sculpt then lowered by a further 0.02 over x = 15..25 ends
+    // 0.02 below the banks there, and at the banks elsewhere.
+    #[test]
+    fn a_sculpt_that_deepened_a_carved_channel_keeps_its_extra_depth() {
+        let (gw, gh) = (40, 30);
+        let (mut f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let floor = f.clone();
+        for x in 15..25 {
+            f[15 * gw + x] -= 0.02;
+        }
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false).unwrap();
+        for x in 16..24 {
+            let v = s[15 * gw + x];
+            assert!((v - 0.58).abs() < 1e-4, "cell {x}: the sculpt's 0.02 stays below the filled 0.6: {v}");
+        }
+        assert!((s[15 * gw + 8] - 0.6).abs() < 1e-4, "outside the sculpt the carve is filled: {}", s[15 * gw + 8]);
+    }
+
+    // Protects: the re-cut is as deep as the CARVE was, not as deep as the
+    // cell now is. Where a sculpt lowered a carved cell a further 0.02 below
+    // its floor, the valley cut along a drawn line there takes the carve's
+    // 0.01 off the sculpted 0.58 (0.57), not 0.03.
+    #[test]
+    fn the_recut_under_a_sculpt_is_as_deep_as_the_carve_not_the_sculpt() {
+        let (gw, gh) = (40, 30);
+        let (mut f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let floor = f.clone();
+        for x in 15..25 {
+            f[15 * gw + x] -= 0.02;
+        }
+        let r = run((5..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 1.0);
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[r], gw, gh, 0.42, false).unwrap();
+        let v = s[15 * gw + 20];
+        assert!((v - 0.57).abs() < 1e-3, "sculpted 0.58 less the carve's 0.01: {v}");
+    }
+
+    // Protects: land below sea level that the drawn classification does not
+    // call water (a dry depression under the datum) still freezes its ring --
+    // the renderer's own `h < sea_level` test would call it sea.
+    #[test]
+    fn a_cell_below_sea_level_freezes_its_ring_even_when_not_classified_water() {
+        let (gw, gh) = (40, 30);
+        let (mut f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        // Diagonal to the carved cell (20, 15), so the fill (which reads
+        // 4-neighbours) would not be pulled down by it: only the ring keeps
+        // (20, 15) at its carve.
+        f[16 * gw + 21] = 0.40;
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
+        assert_eq!(s[15 * gw + 20].to_bits(), f[15 * gw + 20].to_bits(), "the carved cell beside it keeps its carve");
+        assert!((s[15 * gw + 10] - 0.6).abs() < 1e-5, "control: away from it the carve is filled");
+    }
+
+    // Protects: a carved cell raised above its floor after the carve (an
+    // erosion deposit) is filled from its raised height, not its old floor --
+    // the fill never lifts ground above its banks.
+    #[test]
+    fn a_carved_cell_raised_above_its_floor_is_filled_to_the_banks_not_above() {
+        let (gw, gh) = (40, 30);
+        let (mut f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let floor = f.clone();
+        for x in 15..25 {
+            f[15 * gw + x] = 0.595;
+        }
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false).unwrap();
+        for x in 5..35 {
+            let v = s[15 * gw + x];
+            assert!((v - 0.6).abs() < 1e-4, "cell {x}: filled to the banks' 0.6: {v}");
+        }
+    }
+
+    // Protects: on a world nothing has edited since the carve (every locked
+    // cell's height is its floor), passing the floor changes nothing -- the
+    // RV-3 look on a fresh world is unchanged by the item-1 fix.
+    #[test]
+    fn a_floor_equal_to_the_field_changes_nothing() {
+        let (gw, gh) = (40, 30);
+        let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let r = run((5..35).map(|x| (x as f32 + 0.5, 16.2)).collect(), 1.5);
+        let a = valley_shade_field(&f, &vec![0; gw * gh], &c, None, std::slice::from_ref(&r), gw, gh, 0.42, false).unwrap();
+        let b = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[r], gw, gh, 0.42, false).unwrap();
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
+        assert!(a[16 * gw + 20] < 0.595, "premise: the valley was cut");
+    }
+
+    // Protects: "no value" is not a plausible value -- a floor of the wrong
+    // length is refused rather than read short.
+    #[test]
+    fn a_floor_of_the_wrong_length_is_refused() {
+        let f = vec![0.6f32; 12];
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], Some(&[0.6; 11]), &[], 4, 3, 0.42, false).is_none());
+    }
+
+    // Protects: the relabelling after a Sculpt commit (`mark_sculpt_locks`):
+    // a new lock, a re-lock with a new floor, and an earlier sculpt lock read
+    // as the user's (2); a generation lock whose floor did not move stays the
+    // carve's (1); unlocked stays 0; with no previous mask every lock is new.
+    #[test]
+    fn a_sculpt_commit_marks_only_the_locks_it_made() {
+        let prev = [0u8, 1, 1, 2, 0, 1];
+        let prev_floor = [0.0f32, 0.5, 0.5, 0.4, 0.0, 0.5];
+        let mask = [1u8, 1, 1, 1, 0, 0];
+        let floor = [0.3f32, 0.5, 0.45, 0.4, 0.0, 0.5];
+        assert_eq!(mark_sculpt_locks(Some(&prev), Some(&prev_floor), &mask, &floor), vec![2, 1, 2, 2, 0, 0]);
+        assert_eq!(mark_sculpt_locks(None, None, &mask, &floor), vec![2, 2, 2, 2, 0, 0]);
+        assert_eq!(mark_sculpt_locks(Some(&prev[..5]), Some(&prev_floor), &mask, &floor), vec![2, 2, 2, 2, 0, 0], "a short previous mask is no mask");
     }
 }

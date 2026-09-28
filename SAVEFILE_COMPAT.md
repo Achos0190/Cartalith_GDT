@@ -934,7 +934,7 @@ that happened to be reported:
 | `rasters/channel_receiver.i32` | i32 | Each channel cell's downstream cell index, `-1` for none. | `substrate.channels` |
 | `rasters/channel_mask.u8` | u8 | `1` where a channel runs. | `substrate.channels` |
 | `rasters/river_intensity.f32` | f32 | The drawn river's disc stamp. | `substrate.channels` and `substrate.river_intensity` |
-| `rasters/river_mask.u8` | u8 | The carve lock: `1` where a river was carved. | `substrate.river_mask` |
+| `rasters/river_mask.u8` | u8 | The carve lock: `1` where generation carved a river, `2` where a Sculpt commit locked one (written since 2026-09-28; the map's valley shading fills only `1`, `valley_shade::LOCK_CARVE`). A reader MUST treat any non-zero value as locked. | `substrate.river_mask` |
 | `rasters/river_floor.f32` | f32 | The carved floor height under the lock. | `substrate.river_floor` |
 
 Stream order is **not** a fourteenth raster: it is `strahler_order.u8` (§8.1),
