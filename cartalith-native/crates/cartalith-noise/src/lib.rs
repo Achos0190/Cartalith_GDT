@@ -376,37 +376,64 @@ pub fn gpu_pfbm(x: f32, y: f32, s: i32, p_x: i32) -> f32 {
     sum / nrm
 }
 
+/// Unit and shape/range tests for both noise families in this crate: the
+/// JS-matching `f64` primitives (bit-for-bit golden tests live separately,
+/// in `tests/golden_parity*.rs`) and the deliberately-redesigned GPU-safe
+/// `f32`/PCG3D primitives, which are held to determinism/range/tiling/
+/// continuity properties rather than bit-parity (`DECISIONS.md` §7c).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Sanity check that the crate builds and its test harness runs at all.
     #[test]
     fn crate_compiles_and_tests_run() {
+        // Protects: nothing behavioural -- a canary that fails loudly if the
+        // crate or its test harness stops compiling/running altogether.
         assert_eq!(2 + 2, 4);
     }
 
+    /// `hash`/`fbm` are pure functions of their arguments: same call, same
+    /// result, every time.
     #[test]
     fn deterministic_for_same_input() {
+        // Protects: `hash`/`fbm` against any hidden non-determinism (e.g. an
+        // accidental read of ambient state), which every golden-parity
+        // comparison in this crate assumes cannot happen.
         assert_eq!(hash(3, -7, 42), hash(3, -7, 42));
         assert_eq!(fbm(1.5, -2.5, 42), fbm(1.5, -2.5, 42));
     }
 
+    /// `gpu_hash`/`gpu_vnoise` are pure functions of their arguments, same as
+    /// the CPU-side `hash`/`fbm` above.
     #[test]
     fn gpu_hash_deterministic_for_same_input() {
+        // Protects: `gpu_hash`/`gpu_vnoise` (the GPU-safe redesign) against
+        // hidden non-determinism, same reasoning as the CPU-side check above.
         assert_eq!(gpu_hash(3, -7, 42), gpu_hash(3, -7, 42));
         assert_eq!(gpu_vnoise(1.5, -2.5, 42), gpu_vnoise(1.5, -2.5, 42));
     }
 
+    /// `gpu_fbm` is deterministic and its normalised sum stays within [0,1].
     #[test]
     fn gpu_fbm_deterministic_and_in_range() {
+        // Protects: `gpu_fbm` against non-determinism and against an
+        // amplitude/normalisation bug that would push its output outside the
+        // [0,1] band every consumer assumes.
         let a = gpu_fbm(1.5, -2.5, 42);
         let b = gpu_fbm(1.5, -2.5, 42);
         assert_eq!(a, b);
         assert!((0.0..=1.0).contains(&a), "gpu_fbm output {a} out of [0,1]");
     }
 
+    /// `gpu_hash_to_unit_f32` stays within its documented [0,1] inclusive
+    /// range across ordinary, negative and extreme lattice coordinates.
     #[test]
     fn gpu_hash_output_range() {
+        // Protects: `gpu_hash_to_unit_f32`'s divisor (u32::MAX, giving an
+        // inclusive [0,1] range) against a regression toward an exclusive or
+        // differently-scaled range, across ordinary, negative and extreme
+        // (i32::MIN/MAX) lattice coordinates.
         // gpu_hash_to_unit_f32 divides by u32::MAX, so the theoretical
         // range is [0,1] inclusive (not the old hash's near-open [0,1)
         // via /4294967295.0 -- same divisor, same inclusive endpoint).
@@ -416,8 +443,14 @@ mod tests {
         }
     }
 
+    /// `gpu_hash` is not degenerate: adjacent lattice points and seeds must
+    /// not collide.
     #[test]
     fn gpu_hash_differs_from_neighbouring_cells() {
+        // Protects: `gpu_hash`/`pcg3d` against degenerating into a constant
+        // or a trivially-periodic function at small lattice offsets, which
+        // would make it useless as a noise source despite passing every
+        // determinism/range check above.
         // Not a statistical test suite -- just a sanity check this isn't
         // degenerate (e.g. accidentally constant, or trivially periodic
         // at small lattice offsets) before it's trusted as a noise source.
@@ -429,8 +462,13 @@ mod tests {
         }
     }
 
+    /// `gpu_vnoise` at an exact integer lattice point must equal that
+    /// corner's hash directly.
     #[test]
     fn gpu_vnoise_is_continuous_at_lattice_boundaries() {
+        // Protects: `gpu_vnoise`'s bilinear corner indexing against an
+        // inverted or mis-indexed corner, which a golden test alone might
+        // not localise as clearly as this direct lattice-point check does.
         // At an exact integer lattice point, gpu_vnoise(x,y,s) must equal
         // gpu_hash_to_unit_f32(gpu_hash(x,y,s)) directly (u=v=0, so the
         // bilinear blend collapses to corner `a` alone) -- catches an
@@ -443,8 +481,11 @@ mod tests {
         assert_eq!(expected, actual, "vnoise at an exact lattice point must equal that corner's hash exactly");
     }
 
+    /// `gpu_pvnoise` is deterministic and stays within [0,1].
     #[test]
     fn gpu_pvnoise_deterministic_and_in_range() {
+        // Protects: `gpu_pvnoise` against non-determinism and an
+        // out-of-[0,1] regression, same reasoning as `gpu_fbm`'s own test.
         let a = gpu_pvnoise(1.5, -2.5, 42, 3);
         let b = gpu_pvnoise(1.5, -2.5, 42, 3);
         assert_eq!(a, b);
@@ -457,6 +498,9 @@ mod tests {
     /// column, mirroring `pvnoise`'s own `((xi%pX)+pX)%pX` wrap.
     #[test]
     fn gpu_pvnoise_tiles_at_period() {
+        // Protects: `gpu_pvnoise`'s Euclidean-mod x-wrap against a
+        // regression that would break the cylinder tiling `world=true`
+        // depends on, tested both a period to the right and to the left.
         // f32 tolerance, not bit-parity: `x + p_x as f32` shifts which bits
         // land in the fractional part at larger magnitudes, so the two
         // evaluations aren't bit-identical even though they land on the
@@ -473,8 +517,13 @@ mod tests {
         }
     }
 
+    /// `gpu_pfbm` is deterministic, stays within [0,1], and tiles at its
+    /// base period across every octave's own doubled period.
     #[test]
     fn gpu_pfbm_deterministic_in_range_and_tiles() {
+        // Protects: `gpu_pfbm` against non-determinism, an out-of-range
+        // regression, and a period-doubling mistake that would desync the
+        // per-octave period from the per-octave frequency.
         let p_x = 3;
         let a = gpu_pfbm(1.5, -2.5, 42, p_x);
         let b = gpu_pfbm(1.5, -2.5, 42, p_x);
@@ -487,8 +536,13 @@ mod tests {
         assert!((a - wrapped).abs() < 1e-4, "gpu_pfbm must tile at its base period like pfbm does: {a} vs {wrapped}");
     }
 
+    /// `gpu_pfbm`'s output stays within the accepted "different noise, same
+    /// shape" gap from the CPU-matching `pfbm`, for the same inputs.
     #[test]
     fn gpu_pfbm_matches_cpu_shape_pfbm_within_f32_gap() {
+        // Protects: the GPU-safe redesign against silently diverging far
+        // outside the accepted "different noise, same shape" gap from its
+        // CPU-matching counterpart `pfbm` -- not a parity check.
         // Not bit-parity (DECISIONS.md §7c: the GPU-safe noise family is a
         // deliberate f32/PCG3D redesign, not a port of `hash`) -- just a
         // sanity check that the periodic GPU twin lands in the same
@@ -510,6 +564,11 @@ mod tests {
     /// `i32` range, all the way to `i32::MAX` itself.
     #[test]
     fn octave_seed_offset_does_not_overflow_near_i32_max() {
+        // Protects: every octave-combining function's `wrapping_add`/
+        // `wrapping_mul` seed offset against a regression back toward plain
+        // `+`/`*`, which panics in debug (and this workspace's dev profile
+        // does not disable overflow-checks) at the top of the valid `i32`
+        // range.
         let x = 3.25;
         let y = -7.75;
         for &s in &[i32::MAX, i32::MAX - 1, i32::MAX - 655, i32::MIN, i32::MIN + 1] {
@@ -535,6 +594,9 @@ mod tests {
     /// quietly round them.
     #[test]
     fn octave_seed_offset_matches_pre_fix_output_at_ordinary_seed() {
+        // Protects: the overflow-safety fix above against changing output at
+        // ordinary (non-extreme) seeds -- pinned bit patterns so the
+        // overflow fix is proven a no-op there, not just "still finite".
         let x = 3.25;
         let y = -7.75;
         let s = 42;

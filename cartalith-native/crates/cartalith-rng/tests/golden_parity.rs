@@ -9,6 +9,8 @@
 
 use cartalith_rng::Mulberry32;
 
+/// One seed and the first 8 `next_f64()` draws V8's own `mulberry32` produced
+/// for it, captured live (see the module doc above) -- not hand-derived.
 struct Case {
     seed: u32,
     vals: [f64; 8],
@@ -136,8 +138,13 @@ const CASES: &[Case] = &[
     },
 ];
 
+/// Every `Case` above must reproduce V8's own `mulberry32` output exactly.
 #[test]
 fn matches_js_mulberry32_bit_for_bit() {
+    // Protects: `Mulberry32::next_f64` against any reassociation, sign
+    // handling, or precedence change in the 32-bit integer chain (or in the
+    // final power-of-two division) that would desync it from V8's own
+    // `mulberry32`, across seeds captured from real engine call sites.
     for case in CASES {
         let mut rng = Mulberry32::new(case.seed);
         for (i, &expected) in case.vals.iter().enumerate() {

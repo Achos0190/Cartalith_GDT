@@ -22,6 +22,13 @@
 //! are both lossless), so results are bit-identical to the JS `Number`
 //! output, not merely close.
 
+/// The reference engine's `mulberry32` PRNG, carried as one `u32` word of
+/// state. Every seeded decision downstream in the engine (tectonic seeds,
+/// crater placement, volcanism, manual-placement names) derives from this
+/// generator, so it must reproduce the JS closure's output bit-for-bit — see
+/// the module doc above for why a different (even "better") PRNG would be
+/// wrong here. Must never be swapped for `rand`'s `SmallRng` or any other
+/// generator: golden tests in `tests/golden_parity.rs` pin this exact stream.
 pub struct Mulberry32 {
     state: u32,
 }
@@ -52,17 +59,29 @@ impl Mulberry32 {
     }
 }
 
+/// Unit tests for `Mulberry32`'s Rust-only behaviour (state save/restore,
+/// determinism). Bit-for-bit agreement with the JS engine's own output is
+/// tested separately in `tests/golden_parity.rs`, not here.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Sanity check that the crate builds and its test harness runs at all.
     #[test]
     fn crate_compiles_and_tests_run() {
+        // Protects: nothing behavioural -- a canary that fails loudly if the
+        // crate or its test harness stops compiling/running altogether.
         assert_eq!(2 + 2, 4);
     }
 
+    /// A stream reconstructed from a saved `state()` word continues exactly
+    /// where the original left off.
     #[test]
     fn a_stream_rebuilt_from_its_state_continues_it() {
+        // Protects: `state()`/`new()` round-tripping the generator's position
+        // exactly, which manual-placement name persistence across a saved
+        // session depends on -- a drift here would desync a resumed stream
+        // from the one that would have run uninterrupted.
         let mut a = Mulberry32::new(42);
         a.next_f64();
         a.next_f64();
@@ -74,8 +93,12 @@ mod tests {
         assert_eq!(a.state(), 1_135_788_988);
     }
 
+    /// Two generators built from the same seed produce identical streams.
     #[test]
     fn deterministic_for_same_seed() {
+        // Protects: two generators built from the same seed against any
+        // hidden non-determinism (e.g. an accidental read of ambient state),
+        // which the whole port's parity story depends on.
         let mut a = Mulberry32::new(42);
         let mut b = Mulberry32::new(42);
         for _ in 0..8 {

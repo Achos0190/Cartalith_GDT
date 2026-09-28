@@ -9,7 +9,10 @@
 
 use cartalith_noise::{hash, vnoise, fbm, ridged};
 
+/// One `hash(x, y, s)` call and V8's own result for it (see the module doc
+/// above for the extraction method).
 struct HashCase { x: i32, y: i32, s: i32, expected: f64 }
+/// One `(x, y, s)` input and V8's own `vnoise`/`fbm`/`ridged` results for it.
 struct NoiseCase { x: f64, y: f64, s: i32, vnoise: f64, fbm: f64, ridged: f64 }
 
 const HASH_CASES: &[HashCase] = &[
@@ -360,16 +363,25 @@ const NOISE_CASES: &[NoiseCase] = &[
     NoiseCase { x: -0.0001, y: 17.75, s: 1542469173, vnoise: 0.39840917685288496, fbm: 0.4308553832880168, ridged: 0.5891162480702277 },
 ];
 
+/// Every `HashCase` above must reproduce V8's own `hash` output exactly.
 #[test]
 fn hash_matches_js_bit_for_bit() {
+    // Protects: `hash`'s f64-magnitude-product / ToUint32 / signed-xor chain
+    // against any reassociation or sign-handling slip, across x/y/s spanning
+    // both signs and several magnitudes.
     for c in HASH_CASES {
         let actual = hash(c.x, c.y, c.s);
         assert_eq!(actual, c.expected, "hash({}, {}, {}): got {actual}, expected {}", c.x, c.y, c.s, c.expected);
     }
 }
 
+/// Every `NoiseCase` above must reproduce V8's own `vnoise`/`fbm`/`ridged`
+/// output exactly.
 #[test]
 fn noise_matches_js_bit_for_bit() {
+    // Protects: `vnoise`'s bilinear-lattice-plus-smoothstep shape and
+    // `fbm`/`ridged`'s octave-combining loops against a drift in either the
+    // lattice interpolation or the per-octave amplitude/frequency/seed math.
     for c in NOISE_CASES {
         let a = vnoise(c.x, c.y, c.s);
         assert_eq!(a, c.vnoise, "vnoise({}, {}, {}): got {a}, expected {}", c.x, c.y, c.s, c.vnoise);

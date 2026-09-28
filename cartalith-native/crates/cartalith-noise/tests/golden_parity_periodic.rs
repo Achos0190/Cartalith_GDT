@@ -5,6 +5,8 @@
 
 use cartalith_noise::{pvnoise, pfbm, pridged};
 
+/// One `(x, y, s, p_x)` input and V8's own `pvnoise`/`pfbm`/`pridged` results
+/// for it (see the module doc above for the extraction method).
 struct Case { x: f64, y: f64, s: i32, p_x: i32, vnoise: f64, fbm: f64, ridged: f64 }
 
 const CASES: &[Case] = &[
@@ -310,8 +312,14 @@ const CASES: &[Case] = &[
     Case { x: -5000.999, y: 17.75, s: 42, p_x: 1000, vnoise: 0.78009943438534, fbm: 0.6383529995485145, ridged: 0.4010878844530632 },
 ];
 
+/// Every `Case` above must reproduce V8's own `pvnoise`/`pfbm`/`pridged`
+/// output exactly, across several periods per input.
 #[test]
 fn periodic_noise_matches_js_bit_for_bit() {
+    // Protects: `pvnoise`/`pfbm`/`pridged`'s Euclidean-mod x-wrap (and, for
+    // the fbm/ridged variants, the per-octave period doubling) against a
+    // drift, across several `p_x` periods per (x, y, s) so a wrap-boundary
+    // mistake can't hide behind a period that happens not to be crossed.
     for c in CASES {
         let a = pvnoise(c.x, c.y, c.s, c.p_x);
         assert_eq!(a, c.vnoise, "pvnoise({}, {}, {}, {}): got {a}, expected {}", c.x, c.y, c.s, c.p_x, c.vnoise);

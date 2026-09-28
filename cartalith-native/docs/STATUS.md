@@ -285,6 +285,25 @@ re-checked against the tree rather than copied from the commit message.
   wrong against its code in this batch. Batch 2 (`cartalith-rng` +
   `cartalith-noise`, per `ANNOTATION_AUDIT.md`'s ordering) is next.
 
+- **Ruling BK annotation pass, batch 2 (`cartalith-rng` + `cartalith-noise`)
+  done — verified by the main loop 2026-09-28 (diff re-read as comment-only; 20/20 re-run).** Comments only, zero behaviour
+  change: every `fn`/`struct`/`mod` across both crates' `src/lib.rs` and
+  `tests/*.rs` now has a doc comment (`Mulberry32`, its test module, the
+  golden `Case`/`HashCase`/`NoiseCase` fixtures, and the small handful of test
+  fns the census still flagged after batch 1's `Protects:`-in-body pattern
+  wasn't itself picked up as documentation), and every `#[test]` carries a
+  `// Protects: ...` line. Both crates' constants were already fully
+  provenanced (0 unprovenanced in `ANNOTATION_AUDIT.md`'s original count), so
+  no constant comments were added. Census re-run: `cartalith-rng`
+  items_undoc 6→0, tests_unprotected 4→0 (LOC 225→255); `cartalith-noise`
+  items_undoc 17→0, tests_unprotected 16→0 (LOC 1209→1291); all added lines
+  comments (checked with a script asserting every changed line is a comment,
+  blank, or a trailing-comment addition to unchanged code — passed for both
+  crates). `cargo test -p cartalith-rng -p cartalith-noise`: 20 passed / 0
+  failed (13+2+1 noise, 3+1 rng), identical pass counts before and after.
+  No comment was found wrong against its code in this batch. Batch 3
+  (`cartalith-engine`, per `ANNOTATION_AUDIT.md`'s ordering) is next.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
