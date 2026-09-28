@@ -1136,6 +1136,9 @@ func _build_tools() -> void:
 		app.timeline_changed.connect(refresh_conflicts)
 		## MM-8: Military's headcounts and garrisons follow the recorded year.
 		app.timeline_changed.connect(_on_military_cursor)
+		## The strip's scrub moves the cursor without passing through
+		## `_tl_goto_year`, so the Timeline's pin marks listen here too.
+		app.timeline_changed.connect(_tl_push_marks)
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
 	## Measure's Area-ring conventions (`global_tools.gd`): click adds a
@@ -1514,6 +1517,8 @@ func _refresh_civ_data() -> void:
 	var g := bridge.grid_size()
 	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), bridge.roads(),
 		bridge.sea_routes(), g.x, g.y, bridge.border_inset_frac())
+	## The Timeline's per-pin marks follow the same year the filter above did.
+	_tl_push_marks()
 	## The faith-divergence layer's second input, pushed here rather than at
 	## the one place that runs the diffusion.
 	##
@@ -1541,11 +1546,9 @@ func _refresh_civ_data() -> void:
 ## no recorded years, `civ_year_diff()` has nothing to diff and reports an
 ## empty `present` set, which would hide every settlement rather than leave
 ## the (undefined, timeline-less) view alone. "Ghost removed"/"Highlight
-## new" stay display-only -- both need per-pin visual state (fade / halo)
-## that only `map_overlay.gd`'s own `_draw()` can render, and "removed"
-## additionally needs the OLD snapshot's settlement data (position/name),
-## which no `#[func]` exposes (`civ_year_diff()` returns tid sets only) --
-## real, disclosed remaining gaps, not silently faked.
+## new" do not filter the array at all: they style individual pins, so they
+## are pushed separately by `_tl_push_marks()` below and drawn by
+## `map_overlay.gd` (`set_timeline_marks`).
 func _tl_apply_filters(settlements: Array) -> Array:
 	if not _tl_filter_exist_only:
 		return settlements
@@ -1559,6 +1562,36 @@ func _tl_apply_filters(settlements: Array) -> Array:
 	for t in present:
 		present_set[int(t)] = true
 	return settlements.filter(func(s): return present_set.has(int(s.get("tid", 0))))
+
+## Pushes the Timeline's *Highlight new* and *Ghost removed* marks to the map
+## (`map_overlay.gd::set_timeline_marks`), closing `GUI_GAP_REGISTER.md` CV-03
+## and `TIMELINE_SCOPE.md` success criterion 5.
+##
+## Each toggle contributes only when it is on, so the overlay is handed exactly
+## what to draw and holds no toggle state of its own. The added tids are the
+## cursor year's `civ_year_diff().added`; the ghosts are
+## `civ_year_diff_removed()`, the removed settlements read from the PREVIOUS
+## recorded year's snapshot, because a removed place may not exist live.
+##
+## Clears both with no recorded years, for the reason `_tl_apply_filters`
+## gives: with nothing to diff there is nothing true to mark. Must be called on
+## every cursor move and world change -- `_refresh_civ_data`,
+## `_rebuild_timeline` and the shell's `timeline_changed` all do -- because
+## the overlay keeps the last marks until told otherwise.
+func _tl_push_marks() -> void:
+	if app == null or app.viewport == null or app.viewport.overlay == null:
+		return
+	if not app.viewport.overlay.has_method("set_timeline_marks"):
+		return
+	var added := PackedInt64Array()
+	var ghosts: Array = []
+	if (_tl_filter_highlight or _tl_filter_ghost) and not _tl_years().is_empty():
+		var year := bridge.get_civ_year()
+		if _tl_filter_highlight:
+			added = bridge.civ_year_diff(year).get("added", PackedInt64Array())
+		if _tl_filter_ghost:
+			ghosts = bridge.civ_year_diff_removed(year)
+	app.viewport.overlay.set_timeline_marks(added, ghosts)
 
 ## §4.5.3's Territory options row: `CIVIL · TERRITORY` · faction · radius ·
 ## add/subtract · a live stats readout · Commit/Discard. No "respect
@@ -4660,12 +4693,11 @@ func _religion_run() -> void:
 # it: "Exist only" filters the array handed to `map_overlay.gd`'s
 # `set_civ_data` down to the active year's `civ_year_diff().present` tids,
 # upstream of that file rather than inside it. "Ghost removed"/"Highlight
-# new" still cannot style individual pins -- that needs per-pin fade/halo
-# drawing (`map_overlay.gd`'s own `_draw()`, out of scope this pass) and, for
-# removed pins specifically, the OLD snapshot's settlement data (position/
-# name), which no `#[func]` exposes yet (`civ_year_diff()` returns tid sets
-# only). Real, disclosed remaining gap -- see `_build_timeline_filters`'s own
-# note, not silently faked.
+# new" style individual pins instead (CV-03, closed 2026-09-28): the halo keys
+# on `civ_year_diff().added`, and the fade draws the previous recorded year's
+# removed settlements from `civ_year_diff_removed()` -- see `_tl_push_marks`
+# and `map_overlay.gd::set_timeline_marks`. Removed and new WAYS are still not
+# marked (the reference marks both), as the toggles' tooltips say.
 
 ## `open_timeline_category()` stood here until 2026-09-01 and had no caller.
 ## Its own doc named one twice -- `app.gd`'s timeline strip, which pressed
@@ -7012,7 +7044,7 @@ func _tl_on_world_changed() -> void:
 	if _tl_play_timer != null:
 		_tl_play_timer.stop()
 	_tl_sim_out = ""
-	_rebuild_timeline()
+	_rebuild_timeline()   ## ...which also re-pushes the map's timeline marks.
 
 ## Tears down and rebuilds just this category's body -- the same "whole-
 ## section rebuild on every action" discipline `right_dock.gd`'s own
@@ -7039,6 +7071,11 @@ func _rebuild_timeline() -> void:
 			_build_timeline_filters(_tl_body)
 			_build_timeline_sim(_tl_body)
 			_build_politics_gaps(_tl_body)
+	## Every timeline mutation in this file -- add, remove, a collapse run, a
+	## world change -- ends here, and each can move the cursor or rewrite the
+	## year it diffs against, so the map's per-pin marks are re-pushed with it.
+	## Outside the body guard: the map needs them even with this dock closed.
+	_tl_push_marks()
 
 ## `_civFormatYear` (reference line 20644), ported verbatim: negative years
 ## are BC.
@@ -7280,38 +7317,39 @@ func _build_timeline_filters(body: Control) -> void:
 		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
 		"Reference: hide anything not present in the selected year. " +
 			"Real here -- checked, settlement pins not present in that year are hidden.")
-	## Drawn but DISABLED, with the reason on the tooltip: nothing reads
-	## `_tl_filter_ghost`/`_tl_filter_highlight` yet (per-pin fade/halo is
-	## unbuilt -- see the note below), and an enabled toggle that changes
-	## nothing is a lie (`OUTSTANDING_WORK.md` §2.3, `GUI_GAP_REGISTER.md` CV-03).
-	## Reads the engine's `civ_year_diff().removed` set.
-	var ghost := DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
-		func(v: bool): _tl_filter_ghost = v,
-		"Reference: fade objects removed since the previous recorded year. " +
-			"Not available yet: the map cannot fade individual pins.")
-	ghost.disabled = true
-	## Reads the engine's `civ_year_diff().added` set.
-	var highlight := DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
-		func(v: bool): _tl_filter_highlight = v,
-		"Reference: halo objects added since the previous recorded year. " +
-			"Not available yet: the map cannot halo individual pins.")
-	highlight.disabled = true
+	## Enabled since CV-03 closed (was drawn disabled 2026-09-24 because nothing
+	## read it). Each flips its flag and re-pushes the map's marks
+	## (`_tl_push_marks`); the overlay draws a faded grey pin at every settlement
+	## the previous recorded year held and this one does not, read from that
+	## year's snapshot by `civ_year_diff_removed()`. Settlements only -- the
+	## reference also ghosts removed WAYS (v2.11 lines 16022-16033) and that
+	## half is not built; the tooltip says so rather than implying it.
+	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
+		func(v: bool): _tl_filter_ghost = v; _tl_push_marks(),
+		"Fade in the settlements removed since the previous recorded year, " +
+			"at the places they last stood. Settlements only; removed ways are not drawn.")
+	## `civ_year_diff().added`, haloed on the live pin that carries the tid.
+	## Settlements only, for the same reason as above (reference v2.11 line
+	## 15989 also haloes new ways).
+	DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
+		func(v: bool): _tl_filter_highlight = v; _tl_push_marks(),
+		"Ring the settlements new since the previous recorded year. " +
+			"Settlements only; new ways are not ringed.")
 	var years := _tl_years()
 	if not years.is_empty():
 		var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())
 		var present: int = (diff.get("present", PackedInt64Array()) as PackedInt64Array).size()
 		var removed: int = (diff.get("removed", PackedInt64Array()) as PackedInt64Array).size()
 		var added: int = (diff.get("added", PackedInt64Array()) as PackedInt64Array).size()
+		## The counts are `civ_year_diff()`'s, which mixes settlement and way
+		## tids -- so the note says "objects", not "settlements".
 		DccWidgets.note(sec,
-			"%d present, %d removed, %d added vs. the previous recorded year -- real, live civ_year_diff() output." %
+			"%d present, %d removed, %d added objects (settlements and ways) vs. the previous recorded year." %
 				[present, removed, added])
-	DccWidgets.note(sec,
-		"get_settlements() now carries tid (lib.rs) -- 'Exist only' is wired for real and " +
-		"filters map pins by the active year's civ_year_diff().present. 'Ghost removed'/" +
-		"'Highlight new' still cannot style individual pins: that needs per-pin fade/halo " +
-		"drawing (map_overlay.gd's own _draw(), out of scope this pass) and, for removed " +
-		"pins specifically, the OLD snapshot's settlement data, which no #[func] exposes yet " +
-		"(civ_year_diff() returns tid sets only, not positions/names). Disclosed, not faked.")
+	else:
+		## The toggles stay live with no recorded years (a later Add year makes
+		## them act at once), but there is nothing to diff yet -- say so.
+		DccWidgets.note(sec, "Record at least two years for Ghost removed and Highlight new to mark anything.")
 
 ## v3 POLITICS' second row -- *"Vassalage · alliances · rivalries"* -- rests on
 ## the same open question as RELATIONSHIPS above, so it says so here and points

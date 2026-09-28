@@ -13,7 +13,10 @@
 //! `civ_remove_year`/`civ_year_diff` need NO new logic here -- they are already real
 //! methods on `CivData` (milestone 4, `lib.rs`); `lib.rs` gives each a thin `#[func]`
 //! wrapper directly, matching this milestone's own framing ("thin `#[func]` wrappers
-//! over `CivData`'s already-built milestone-4 methods").
+//! over `CivData`'s already-built milestone-4 methods"). The one read the diff
+//! could not answer -- where a *removed* settlement stood -- is
+//! [`civ_year_diff_removed_settlements`] at the foot of this module, added for
+//! the Timeline's *Ghost removed* toggle (CV-03).
 //!
 //! Its own `#[cfg(test)]` suite below runs under `cargo test -p cartalith-godot` with
 //! no Godot runtime involved, the same isolation every sibling bridge module already
@@ -41,7 +44,7 @@
 use cartalith_civ::timeline::{
     CollapseCharacter, CollapseFlags, CollapsePlace, SimulateMode, SimulateTimelineOpts, SimulateWorldParams,
     TimelineSnapshot, TimelineStepStats, civ_simulate_timeline, civ_snapshot_save,
-    civ_territory_at,
+    civ_territory_at, civ_year_diff,
 };
 use cartalith_civ::{NamedSettlement, SettlementPlacement, Way};
 
@@ -403,6 +406,51 @@ pub fn run_collapse_simulation(
     CollapseSimOutcome::Ran(report)
 }
 
+// ===================== the ghost pass's data =====================
+
+/// The settlements [`civ_year_diff`]`(timeline, year).removed` names, as the
+/// **previous** recorded year's snapshot holds them -- the Timeline's *Ghost
+/// removed* toggle draws each one faded at the place it last stood
+/// (`GUI_GAP_REGISTER.md` CV-03, `TIMELINE_SCOPE.md` success criterion 5).
+///
+/// **Why this exists.** The reference draws its ghosts from
+/// `_tlDiff.prevEntry.places` (v2.11 lines 16274-16284) -- a removed place may
+/// not exist in the live array at all, so the snapshot is the only record of
+/// where it was. [`civ_year_diff`] returns tid sets only, deliberately (its
+/// [`cartalith_civ::timeline::YearDiff`] doc comment explains dropping
+/// `prevEntry`), so this is the read that recovers the positions.
+///
+/// **Read-only and stateless.** It borrows the timeline and returns borrows into
+/// it; it must never write, cache, or sort the caller's vec. "Previous" is
+/// chosen exactly as [`civ_year_diff`] chooses it -- the chronologically
+/// preceding recorded year, found on a sorted copy of references -- and the
+/// tid filter IS `civ_year_diff`'s own `removed` set, so the two can never
+/// disagree about which settlements were removed.
+///
+/// Returns them in the previous snapshot's own order. Empty (not an error) for
+/// an unrecorded `year`, for the first recorded year (nothing precedes it), and
+/// when nothing was removed. Way tids in `removed` match no settlement and so
+/// contribute nothing: a way is not a pin.
+pub fn civ_year_diff_removed_settlements(timeline: &[TimelineSnapshot], year: i64) -> Vec<&NamedSettlement> {
+    let removed = civ_year_diff(timeline, year).removed;
+    if removed.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted: Vec<&TimelineSnapshot> = timeline.iter().collect();
+    sorted.sort_by_key(|s| s.year);
+    // `removed` is non-empty only when `year` is recorded AND has a predecessor
+    // (`civ_year_diff`'s own contract), so both lookups below succeed whenever
+    // this line is reached; `unwrap_or_default` keeps a future change to that
+    // contract from panicking across the gdext boundary.
+    let prev = sorted
+        .iter()
+        .position(|s| s.year == year)
+        .and_then(|i| i.checked_sub(1))
+        .map(|i| sorted[i]);
+    prev.map(|p| p.settlements.iter().filter(|s| removed.contains(&s.tid)).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use cartalith_civ::timeline::TerritoryFrame;
@@ -722,5 +770,102 @@ mod tests {
         let mut territory = vec![-1i32; GW * GH];
         cartalith_civ::timeline::civ_snapshot_load(&timeline, 9999, &mut territory);
         assert_eq!(territory, vec![0; GW * GH], "an unrecorded year clears territory to 0, not a stale value");
+    }
+
+    // ---------- civ_year_diff_removed_settlements ----------
+
+    /// A recorded year holding exactly `settlements` and `ways`, with no
+    /// territory -- the ghost read never looks at territory or collapse flags.
+    fn snap(year: i64, settlements: Vec<NamedSettlement>, ways: Vec<Way>) -> TimelineSnapshot {
+        TimelineSnapshot {
+            year,
+            territory: TerritoryFrame::empty(),
+            settlements,
+            ways,
+            collapse_flags: std::collections::BTreeMap::new(),
+        }
+    }
+
+    fn way(tid: u64) -> Way {
+        Way {
+            tid,
+            pts: vec![(0.0, 0.0), (1.0, 1.0)],
+            brks: Vec::new(),
+            km: 1.0,
+            name: String::new(),
+            way_type: cartalith_civ::WayType::Road,
+            a_idx: 0,
+            b_idx: 1,
+            hidden: false,
+        }
+    }
+
+    fn ghost_rows(timeline: &[TimelineSnapshot], year: i64) -> Vec<(u64, usize, usize)> {
+        civ_year_diff_removed_settlements(timeline, year)
+            .iter()
+            .map(|s| (s.tid, s.placement.x, s.placement.y))
+            .collect()
+    }
+
+    /// Protects: the ghost is drawn where the settlement stood in the year
+    /// BEFORE the cursor -- not in the cursor's year (it is absent there), not
+    /// in the first year, and not at a position from any other snapshot. Year
+    /// 20's ghost of tid 3 must sit at (8, 8), where year 10 had moved it, not
+    /// (7, 7) where year 0 had it. The timeline is deliberately stored out of
+    /// order, so a lookup by array position instead of by year goes red.
+    #[test]
+    fn a_ghost_stands_where_the_previous_recorded_year_left_it() {
+        let v = SettlementKind::Village;
+        let timeline = vec![
+            snap(20, vec![settlement(1, 3, 3, v, 100, "A")], vec![]),
+            snap(
+                0,
+                vec![
+                    settlement(1, 3, 3, v, 100, "A"),
+                    settlement(2, 5, 5, v, 100, "B"),
+                    settlement(3, 7, 7, v, 100, "C"),
+                ],
+                vec![],
+            ),
+            snap(
+                10,
+                vec![settlement(1, 3, 3, v, 100, "A"), settlement(3, 8, 8, v, 100, "C"), settlement(4, 2, 6, v, 100, "D")],
+                vec![],
+            ),
+        ];
+        assert_eq!(ghost_rows(&timeline, 10), vec![(2, 5, 5)], "year 10 dropped B only; D is new, not removed");
+        assert_eq!(ghost_rows(&timeline, 20), vec![(3, 8, 8), (4, 2, 6)], "year 20 dropped C (at year 10's spot) and D");
+        // The caller's vec is untouched: the read sorts a copy of references.
+        assert_eq!(timeline.iter().map(|s| s.year).collect::<Vec<_>>(), vec![20, 0, 10]);
+    }
+
+    /// Protects: every "nothing to ghost" case answers empty rather than
+    /// guessing -- the first recorded year (no predecessor), a year that was
+    /// never recorded, and a year that removed nothing -- and none panics.
+    #[test]
+    fn no_predecessor_no_record_or_no_removal_means_no_ghosts() {
+        let v = SettlementKind::Village;
+        let timeline = vec![
+            snap(0, vec![settlement(1, 3, 3, v, 100, "A")], vec![]),
+            snap(10, vec![settlement(1, 3, 3, v, 100, "A"), settlement(2, 4, 4, v, 100, "B")], vec![]),
+        ];
+        assert!(ghost_rows(&timeline, 0).is_empty(), "the first recorded year has nothing before it");
+        assert!(ghost_rows(&timeline, 5).is_empty(), "an unrecorded year has no diff");
+        assert!(ghost_rows(&timeline, 10).is_empty(), "year 10 only added; nothing was removed");
+        assert!(ghost_rows(&[], 10).is_empty(), "an empty timeline");
+    }
+
+    /// Protects: a removed WAY is not a ghost settlement. `civ_year_diff`'s
+    /// `removed` mixes way and settlement tids; only settlements are pins, and
+    /// a way tid that happens to equal no settlement tid must yield nothing.
+    #[test]
+    fn a_removed_way_is_not_a_ghost_settlement() {
+        let v = SettlementKind::Village;
+        let timeline = vec![
+            snap(0, vec![settlement(1, 3, 3, v, 100, "A")], vec![way(9)]),
+            snap(10, vec![settlement(1, 3, 3, v, 100, "A")], vec![]),
+        ];
+        assert_eq!(cartalith_civ::timeline::civ_year_diff(&timeline, 10).removed.len(), 1, "fixture: the way IS removed");
+        assert!(ghost_rows(&timeline, 10).is_empty());
     }
 }

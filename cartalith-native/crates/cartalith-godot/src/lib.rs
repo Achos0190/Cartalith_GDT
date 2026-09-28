@@ -18129,7 +18129,9 @@ impl WorldGen {
     }
 
     /// `_civYearDiff` (reference lines 20580-20595) -- the ghost/highlight/exist-only
-    /// overlay's own data source, milestone 6's future consumer. Returns
+    /// overlay's own data source (`civilization_workspace.gd::_tl_apply_filters` and
+    /// `_tl_push_marks`; the ghosts' positions come from `civ_year_diff_removed`
+    /// below). Returns
     /// `{"present": PackedInt64Array, "removed": PackedInt64Array, "added":
     /// PackedInt64Array}`, each ascending (tids, milestone 1's stable ids --
     /// disambiguates "same settlement, renamed" from "different settlement" the way
@@ -18143,6 +18145,39 @@ impl WorldGen {
         let removed: PackedInt64Array = diff.removed.iter().map(|&t| t as i64).collect();
         let added: PackedInt64Array = diff.added.iter().map(|&t| t as i64).collect();
         vdict! { "present" => &present, "removed" => &removed, "added" => &added }
+    }
+
+    /// The settlements [`WorldGen::civ_year_diff`]`(year)["removed"]` names, as
+    /// the previous recorded year's snapshot holds them -- the Timeline's *Ghost
+    /// removed* toggle draws each faded where it last stood (CV-03). A thin
+    /// marshal over `timeline_bridge::civ_year_diff_removed_settlements`, whose
+    /// doc comment carries the why; this adds no state and changes nothing.
+    ///
+    /// One `{tid, x, y, name, kind, faction, capital, population}` row per
+    /// settlement -- the keys and types [`WorldGen::get_settlements`] uses, so a
+    /// shell draws a ghost with its ordinary pin code. No belief columns: the
+    /// snapshot does not record them, and a ghost is drawn without them. Empty
+    /// (not an error) before any `generate()`, for an unrecorded year, for the
+    /// first recorded year and when nothing was removed -- the same "empty is a
+    /// legitimate answer" contract `civ_year_diff` states.
+    #[func]
+    fn civ_year_diff_removed(&self, year: i64) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        timeline_bridge::civ_year_diff_removed_settlements(&civ.timeline, year)
+            .into_iter()
+            .map(|s| {
+                vdict! {
+                    "tid" => s.tid as i64,
+                    "x" => s.placement.x as i32,
+                    "y" => s.placement.y as i32,
+                    "name" => s.name.as_str(),
+                    "kind" => journey_bridge::settlement_kind_key(s.placement.kind),
+                    "faction" => s.placement.faction,
+                    "capital" => s.placement.capital,
+                    "population" => s.pop as i32,
+                }
+            })
+            .collect()
     }
 
     /// The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`

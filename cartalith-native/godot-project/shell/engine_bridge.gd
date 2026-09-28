@@ -4484,6 +4484,19 @@ func civ_year_diff(year: int) -> Dictionary:
 		return {}
 	return world_gen.civ_year_diff(year)
 
+## The settlements `civ_year_diff(year).removed` names, read from the PREVIOUS
+## recorded year's snapshot -- the only place a removed settlement's position
+## still exists. Rows are `{tid, x, y, name, kind, faction, capital,
+## population}`, the same keys `settlements()` uses, so the map can draw a ghost
+## with its ordinary pin code. Way tids are dropped (a way is not a pin). Empty
+## (not an error) before any generate, for an unrecorded year, for the first
+## recorded year, and on a binary older than the `#[func]` -- none of which has
+## a removed settlement to show.
+func civ_year_diff_removed(year: int) -> Array:
+	if not _has("civ_year_diff_removed"):
+		return []
+	return world_gen.civ_year_diff_removed(year)
+
 ## The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`
 ## Batch C): derived, read-only ownership spans for one settlement's `tid`,
 ## walking every recorded timeline year. One entry per contiguous span,

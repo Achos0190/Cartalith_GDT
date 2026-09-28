@@ -1825,6 +1825,121 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	queue_redraw()
 
 
+## -- Timeline marks: *Highlight new* and *Ghost removed* ---------------------
+##
+## `TIMELINE_SCOPE.md` success criterion 5's last two filters, closing
+## `GUI_GAP_REGISTER.md` CV-03. The reference draws both inside `drawCivLayer`
+## (v2.11 lines 16266-16284): a halo around every live pin whose `tid` is in
+## `_civYearDiff(year).added`, and a faded grey copy of every settlement the
+## PREVIOUS recorded year held that `.removed` names, drawn from that snapshot's
+## own data because a removed place need not exist live at all.
+##
+## What this control holds is only what the two toggles asked for, already
+## resolved by the caller (`civilization_workspace.gd::_tl_push_marks`): the
+## added tids when *Highlight new* is on, the removed settlements when *Ghost
+## removed* is on, and nothing otherwise. An empty set draws nothing -- there is
+## no "no timeline" sentinel here, because "nothing to mark" and "no timeline"
+## draw the same thing.
+##
+## Keyed by `tid`, never by array index, so it must NOT be cleared by
+## `set_civ_data()`: the Exist-only filter and every place edit re-push the
+## settlement array, and a tid means the same settlement across all of them.
+## The workspace re-pushes on every cursor move and world change, which is what
+## keeps it from going stale.
+
+## `tid -> true` for settlements new in the cursor's year. Must never hold a
+## way tid on purpose -- `civ_year_diff().added` mixes both; a way tid simply
+## matches no pin, which is harmless.
+var _tl_added_tids: Dictionary = {}
+## Removed settlements as `{tid, x, y, name, kind, faction, capital}` rows off
+## `civ_year_diff_removed()` -- positions from the PREVIOUS snapshot.
+var _tl_ghosts: Array = []
+## `tid -> true` over `_tl_ghosts`. A live pin with one of these tids is
+## replaced by its ghost rather than drawn twice (see `_draw()`'s loop).
+var _tl_ghost_tids: Dictionary = {}
+
+## Ring gap past the pin for the new-settlement halo, in `sc` units: the
+## reference's own `sz+3*lsc` (v2.11 line 16267). A capital adds
+## `CAPITAL_RING_WIDTH` so the halo clears the capital ring instead of
+## overprinting it -- this port draws that ring and it must stay legible.
+const TL_HALO_PAD_SC := 3.0
+## Halo stroke width in `sc` units: the reference's `lineWidth=1.6*lsc`.
+const TL_HALO_WIDTH := 1.6
+## Ghost pin opacity: the reference's `globalAlpha=0.4` (v2.11 line 16279).
+const TL_GHOST_ALPHA := 0.4
+
+## Sets both marks at once, replacing whatever was there. `added_tids` empty
+## means "no halos", `ghosts` empty means "no ghosts". Never fetches: this
+## control is handed finished data (see `set_civ_data`'s doc comment).
+func set_timeline_marks(added_tids: PackedInt64Array, ghosts: Array) -> void:
+	_tl_added_tids = {}
+	for t in added_tids:
+		if t != 0:   ## `0` is the unassigned-tid sentinel; it names nothing.
+			_tl_added_tids[int(t)] = true
+	_tl_ghosts = ghosts
+	_tl_ghost_tids = {}
+	for g: Dictionary in ghosts:
+		_tl_ghost_tids[int(g.get("tid", 0))] = true
+	queue_redraw()
+
+
+## Introspection for probes: how many marks this control currently holds.
+## Counts what it was handed, not what reached the screen -- pixels answer that.
+func timeline_mark_counts() -> Dictionary:
+	return {"added": _tl_added_tids.size(), "ghosts": _tl_ghosts.size()}
+
+
+## The new-settlement halo: a `bg` underlay then a `good` ring, the same
+## two-pass dark-halo-then-colour trick `_draw_sample_pin()` uses so it reads on
+## any terrain. `good` rather than the reference's cyan, because this overlay
+## draws only token colours: `accent` is already the selection/sample-pin ink
+## and `water` would read as the coastal badge, while `good` is the one token
+## whose meaning is "positive/added". Must never be drawn for a pin that is not
+## drawn -- callers invoke it only after placing the pin.
+func _draw_tl_halo(pos: Vector2, radius: float, sc: float, capital: bool) -> void:
+	var r: float = radius + (TL_HALO_PAD_SC + (CAPITAL_RING_WIDTH if capital else 0.0)) * sc
+	draw_arc(pos, r, 0, TAU, 32, DccTheme.c("bg"), (TL_HALO_WIDTH + 1.2) * sc, true)
+	draw_arc(pos, r, 0, TAU, 32, DccTheme.c("good"), TL_HALO_WIDTH * sc, true)
+
+
+## One removed settlement, drawn faded: the reference draws the whole pin in
+## grayscale at `TL_GHOST_ALPHA` with no label (`skipLabel:true`). Here the fill
+## is the `text_ghost` token (the shell's "disabled" ink -- literally its ghost
+## colour) rather than a desaturated faction colour, and the outline and glyph
+## are the live pin's own inks at the same alpha. It is not hit-testable (the
+## reference's ghosts are not in its pick list either) and never reserves label
+## space, so it cannot displace a live settlement's name.
+func _draw_tl_ghost(g: Dictionary, rect: Rect2, interior: Rect2, sc: float, k: float, font: Font) -> void:
+	var kind: String = String(g.get("kind", "town"))
+	## The same visibility gates a live pin of this kind passes, so a ghost
+	## never shows where its living counterpart would not.
+	if _hidden_settlement_kinds.has(kind) or _settlement_hidden(g):
+		return
+	var pos := _cell_to_screen(Vector2(float(g.get("x", 0)), float(g.get("y", 0))), rect)
+	if not interior.has_point(pos):
+		return
+	var fill := Color(DccTheme.c("text_ghost"), TL_GHOST_ALPHA)
+	var outline := Color(MARKER_OUTLINE, MARKER_OUTLINE.a * TL_GHOST_ALPHA)
+	if _settlement_below_lod(kind):
+		## The live dot branch's geometry, faded -- see that branch in `_draw()`.
+		var dot_r: float = LOD_DOT_RADIUS_SC * sc
+		draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, outline, true, -1.0, true)
+		draw_circle(pos, dot_r, fill, true, -1.0, true)
+		return
+	var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
+	var radius: float = (4.0 + float(klass["rank"])) * sc
+	draw_circle(pos, radius, fill, true, -1.0, true)
+	draw_arc(pos, radius, 0, TAU, 24, outline, 1.2 * sc, true)
+	var glyph: String = klass["glyph"]
+	_crisp_begin()
+	var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
+	var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
+	var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
+	draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color(1.0, 1.0, 1.0, TL_GHOST_ALPHA))
+	_crisp_end()
+
+
 ## The engine's own faction swatches, index `faction - 1`, as pushed by
 ## `ViewportHost.refresh_faction_colors()` off `get_factions()`'s
 ## `color_r`/`color_g`/`color_b`. Empty until a world exists.
@@ -2629,6 +2744,9 @@ func _draw() -> void:
 			## CM-5: a dropped sample pin, with nothing else on the map yet, must
 			## still draw -- the same reasoning as the rejects layer just above.
 			and _journey_markers.is_empty() and _sample_pin.is_empty()
+			## A year whose every settlement was removed still has ghosts to
+			## draw, the same "only thing on the map" case as the two above.
+			and _tl_ghosts.is_empty()
 			and not river_highlight_active()):
 		return
 	var rect := _displayed_rect()
@@ -2839,6 +2957,12 @@ func _draw() -> void:
 			## is exactly what it is drawn on top of.
 			if _urban_revealed.has(i):
 				continue
+			## *Ghost removed*: a settlement the cursor's year dropped but the
+			## live world still holds (a collapse run writes such years) is
+			## drawn once, faded, by the ghost pass below -- not also at full
+			## strength here, which would hide the fade under the live pin.
+			if _tl_ghost_tids.has(int(s.get("tid", 0))):
+				continue
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 			# A settlement whose cell is under the frame has no visible terrain
 			# beneath it at all, so a marker there points at nothing -- it is off
@@ -2867,6 +2991,10 @@ func _draw() -> void:
 				var dot_r: float = LOD_DOT_RADIUS_SC * sc
 				draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, Color(0.047, 0.039, 0.027, 0.65), true, -1.0, true)
 				draw_circle(pos, dot_r, color, true, -1.0, true)
+				## *Highlight new* on the dot too: a new hamlet seen at low zoom
+				## is exactly the case the halo exists for.
+				if _tl_added_tids.has(int(s.get("tid", 0))):
+					_draw_tl_halo(pos, dot_r, sc, false)
 				continue
 
 			var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
@@ -2935,6 +3063,10 @@ func _draw() -> void:
 				## deep zoom the same way the pin's own ring did.
 				draw_circle(badge_pos, badge_r + 0.5 * sc, COASTAL_BADGE_OUTLINE, true, -1.0, true)
 				draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
+			## *Highlight new* (reference v2.11 line 16266): after the pin and
+			## its rings, so the halo encloses them rather than sitting under.
+			if _tl_added_tids.has(int(s.get("tid", 0))):
+				_draw_tl_halo(pos, radius, sc, bool(s["capital"]))
 
 			# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
 			# 15180) -- the one per-tier visual distinguisher beyond size,
@@ -3004,6 +3136,12 @@ func _draw() -> void:
 					draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
 					_crisp_end()
 					break
+
+		## *Ghost removed* (reference v2.11 lines 16271-16284): after every live
+		## pin, as the reference orders it, so a ghost reads as history laid
+		## over the present rather than something the present sits on.
+		for g: Dictionary in _tl_ghosts:
+			_draw_tl_ghost(g, rect, interior, sc, k, font)
 
 		if _hover_index >= 0 and _hover_index < _settlements.size():
 			_draw_hover_card(_settlements[_hover_index], rect, interior)
@@ -4551,6 +4689,10 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 		## Likewise for an addon village that is drawn as nothing -- see
 		## `_settlement_hidden`.
 		if _settlement_hidden(s):
+			continue
+		## And for a live pin *Ghost removed* replaced with its faded ghost --
+		## `_draw()` skips it, and ghosts are not pickable, so neither is it.
+		if _tl_ghost_tids.has(int(s.get("tid", 0))):
 			continue
 		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)
