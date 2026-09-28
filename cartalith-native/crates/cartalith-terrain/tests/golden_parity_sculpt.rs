@@ -72,10 +72,10 @@ use cartalith_terrain::sculpt::{
     SculptStamp,
 };
 
-const GW: usize = 64;
-const GH: usize = 64;
-const SEA: f64 = 0.5;
-const SEED: u32 = 1234;
+const GW: usize = 64; // fixture grid width -- the harness's own 64x64 fixture, see the module doc's "Fixtures" section
+const GH: usize = 64; // fixture grid height, same source as GW
+const SEA: f64 = 0.5; // fixture sea level, the harness's own value
+const SEED: u32 = 1234; // fixture stamp seed, the harness's own value
 
 /// Same six cells the harness sampled: stroke centre, stroke interior,
 /// above/below the stroke, and two cells the stamps mostly miss.
@@ -88,6 +88,9 @@ const SAMPLES: [usize; 6] = [
     44 * GW + 50,
 ];
 
+/// The harness's own 64x64 sawtooth base field -- deliberately not flat, so
+/// every `h0`-dependent branch (River/Lake/Plateau/Coastline/Mesa) is
+/// actually exercised by the goldens below.
 fn base_field() -> Vec<f32> {
     // f64 arithmetic, rounded to f32 only at the store — exactly where JS's
     // `Float32Array` assignment rounds. Doing the division in f32 shifts
@@ -109,6 +112,8 @@ fn fnv(field: &[f32]) -> String {
     format!("{h:016x}")
 }
 
+/// `feature`'s default-params stamp at the fixture seed/sea-level/brush
+/// size, over the given stroke or tap points.
 fn stamp(feature: Feature, points: Vec<Point>) -> SculptStamp {
     let mut s = SculptStamp::new(feature, SEED, points, SEA);
     s.globals = SculptGlobals {
@@ -118,14 +123,18 @@ fn stamp(feature: Feature, points: Vec<Point>) -> SculptStamp {
     s
 }
 
+/// The harness's own stroke fixture: `(10,32) -> (54,32)`.
 fn stroke() -> Vec<Point> {
     vec![Point::new(10.0, 32.0), Point::new(54.0, 32.0)]
 }
 
+/// The harness's own single-point fixture for radial and tap-once cases.
 fn tap() -> Vec<Point> {
     vec![Point::new(32.0, 32.0)]
 }
 
+/// One case's expected values, all taken from the Node harness run over the
+/// reference's own Sculpt core (see the module doc's harness section).
 struct Golden {
     name: &'static str,
     changed: usize,
@@ -135,6 +144,10 @@ struct Golden {
     samples: [u32; 6],
 }
 
+/// Applies `s` to [`base_field`] and asserts it against every field of `g`:
+/// bounds, changed-cell count, six sampled cells' raw bits, and the
+/// whole-field FNV-1a-64 hash. Returns the resulting field so a caller (the
+/// River/Lake tests) can go on to check the water array too.
 #[track_caller]
 fn check(g: &Golden, s: &SculptStamp) -> Vec<f32> {
     let base = base_field();
@@ -172,6 +185,9 @@ fn check(g: &Golden, s: &SculptStamp) -> Vec<f32> {
 
 #[test]
 fn mountains_matches_the_reference() {
+    // Protects: Mountains' apply_into output matches the reference's
+    // sculptApplyStamp bit for bit (bbox, changed count, six samples, and
+    // the whole-field hash) at the fixture stroke/seed/sea-level.
     check(
         &Golden {
             name: "mountains",
@@ -188,6 +204,7 @@ fn mountains_matches_the_reference() {
 
 #[test]
 fn hills_matches_the_reference() {
+    // Protects: Hills' apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "hills",
@@ -204,6 +221,7 @@ fn hills_matches_the_reference() {
 
 #[test]
 fn ridge_matches_the_reference() {
+    // Protects: Ridge's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "ridge",
@@ -220,6 +238,8 @@ fn ridge_matches_the_reference() {
 
 #[test]
 fn plateau_matches_the_reference() {
+    // Protects: Plateau's apply_into output, including its quantized
+    // terraces, matches the reference bit for bit.
     check(
         &Golden {
             name: "plateau",
@@ -236,6 +256,7 @@ fn plateau_matches_the_reference() {
 
 #[test]
 fn cliff_matches_the_reference() {
+    // Protects: Cliff's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "cliff",
@@ -252,6 +273,7 @@ fn cliff_matches_the_reference() {
 
 #[test]
 fn canyon_matches_the_reference() {
+    // Protects: Canyon's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "canyon",
@@ -268,6 +290,7 @@ fn canyon_matches_the_reference() {
 
 #[test]
 fn valley_matches_the_reference() {
+    // Protects: Valley's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "valley",
@@ -284,6 +307,7 @@ fn valley_matches_the_reference() {
 
 #[test]
 fn basin_matches_the_reference() {
+    // Protects: Basin's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "basin",
@@ -300,6 +324,7 @@ fn basin_matches_the_reference() {
 
 #[test]
 fn coastline_matches_the_reference() {
+    // Protects: Coastline's apply_into output matches the reference bit for bit.
     check(
         &Golden {
             name: "coastline",
@@ -316,7 +341,9 @@ fn coastline_matches_the_reference() {
 
 #[test]
 fn volcano_matches_the_reference() {
-    // Radial, and the one feature that sizes itself from its own control
+    // Protects: Volcano's apply_into output, including its own
+    // volcRadius-sized bounds, matches the reference bit for bit. Radial,
+    // and the one feature that sizes itself from its own control
     // (`volcRadius`) rather than the shared brush size.
     let mut s = stamp(Feature::Volcano, stroke());
     s.params = FeatureParams::Volcano {
@@ -345,6 +372,8 @@ fn volcano_matches_the_reference() {
 
 #[test]
 fn river_matches_the_reference_including_its_water_surface() {
+    // Protects: River's height output AND its water-surface array (deposit
+    // count and whole-array hash) both match the reference bit for bit.
     let s = stamp(Feature::River, stroke());
     check(
         &Golden {
@@ -367,6 +396,8 @@ fn river_matches_the_reference_including_its_water_surface() {
 
 #[test]
 fn lake_matches_the_reference_including_its_water_surface() {
+    // Protects: Lake's height output AND its water-surface array both match
+    // the reference bit for bit, on a single-tap radial stroke.
     let s = stamp(Feature::Lake, tap());
     check(
         &Golden {
@@ -389,6 +420,9 @@ fn lake_matches_the_reference_including_its_water_surface() {
 
 #[test]
 fn the_lake_water_only_dry_run_matches_the_reference() {
+    // Protects: the water_only re-run leaves height bit-identical to the
+    // already-baked field and deposits a water surface matching the
+    // reference bit for bit -- both halves of the commit-time Lake hook.
     // `sculptCommit`'s real ordering: bake the whole stack first, *then*
     // re-run each Lake stamp with `waterOnly` so `h0` is the final
     // post-bake height. The reference's own comment says calling it again
@@ -417,6 +451,7 @@ fn the_lake_water_only_dry_run_matches_the_reference() {
 // Freehand's eight sub-modes
 // ---------------------------------------------------------------------------
 
+/// A Freehand stamp at `mode` and the fixture `amount = 0.12`, over `points`.
 fn freehand(mode: FreehandMode, points: Vec<Point>) -> SculptStamp {
     let mut s = stamp(Feature::Freehand, points);
     s.params = FeatureParams::Freehand {
@@ -428,6 +463,7 @@ fn freehand(mode: FreehandMode, points: Vec<Point>) -> SculptStamp {
 
 #[test]
 fn freehand_raise_matches_the_reference() {
+    // Protects: Freehand's Raise sub-mode matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:raise",
@@ -444,6 +480,7 @@ fn freehand_raise_matches_the_reference() {
 
 #[test]
 fn freehand_lower_matches_the_reference() {
+    // Protects: Freehand's Lower sub-mode matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:lower",
@@ -460,6 +497,9 @@ fn freehand_lower_matches_the_reference() {
 
 #[test]
 fn freehand_smooth_matches_the_reference() {
+    // Protects: Freehand's Smooth sub-mode matches the reference bit for
+    // bit -- a port that read the live-mutating buffer instead of a stable
+    // pre-loop snapshot would still smooth plausibly and fail here.
     // The one feature that bypasses the per-pixel `apply()` path entirely:
     // a 4-neighbour blur over a *stable pre-loop snapshot*. A port that
     // read the live-mutating buffer instead would still smooth, still look
@@ -481,6 +521,7 @@ fn freehand_smooth_matches_the_reference() {
 
 #[test]
 fn freehand_cliff_matches_the_reference() {
+    // Protects: Freehand's Cliff sub-mode matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:cliff",
@@ -497,6 +538,7 @@ fn freehand_cliff_matches_the_reference() {
 
 #[test]
 fn freehand_ridge_matches_the_reference() {
+    // Protects: Freehand's Ridge sub-mode matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:ridge",
@@ -513,6 +555,7 @@ fn freehand_ridge_matches_the_reference() {
 
 #[test]
 fn freehand_canyon_matches_the_reference() {
+    // Protects: Freehand's Canyon sub-mode matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:canyon",
@@ -529,8 +572,10 @@ fn freehand_canyon_matches_the_reference() {
 
 #[test]
 fn freehand_mesa_matches_the_reference_from_a_single_tap() {
-    // A 1-point "stroke" degenerating to radial distance is the mechanism,
-    // not an edge case — one registry entry serving both drag and tap.
+    // Protects: Freehand's Mesa sub-mode, applied from a single tap point,
+    // matches the reference bit for bit. A 1-point "stroke" degenerating to
+    // radial distance is the mechanism, not an edge case — one registry
+    // entry serving both drag and tap.
     check(
         &Golden {
             name: "freehand:mesa",
@@ -547,6 +592,8 @@ fn freehand_mesa_matches_the_reference_from_a_single_tap() {
 
 #[test]
 fn freehand_volcano_matches_the_reference_from_a_single_tap() {
+    // Protects: Freehand's Volcano sub-mode, applied from a single tap
+    // point, matches the reference bit for bit.
     check(
         &Golden {
             name: "freehand:volcano",
@@ -567,7 +614,10 @@ fn freehand_volcano_matches_the_reference_from_a_single_tap() {
 
 #[test]
 fn the_alps_preset_reproduces_the_reference_s_own_parameter_seed() {
-    // Runs the preset the way the UI does — `apply` writes its `noiseScale`
+    // Protects: applying the "Alps" preset the way the UI does (writing
+    // noiseScale into the globals, then stamping with the returned params)
+    // reproduces the reference's own Mountains-under-Alps output bit for
+    // bit. Runs the preset the way the UI does — `apply` writes its `noiseScale`
     // into the globals and returns the feature params — so a wrong preset
     // value fails here rather than silently producing plausible mountains.
     let preset = SCULPT_PRESETS
@@ -597,7 +647,9 @@ fn the_alps_preset_reproduces_the_reference_s_own_parameter_seed() {
 
 #[test]
 fn no_two_features_produce_the_same_field_at_the_same_seed() {
-    // The `(feature_index + 1) * 1013` seed term plus thirteen distinct
+    // Protects: all thirteen features' whole-field hashes, at the same
+    // stamp seed, are pairwise distinct. The `(feature_index + 1) * 1013`
+    // seed term plus thirteen distinct
     // formulas: if a copy-paste error made two entries identical, the
     // per-feature goldens above would still each pass against a harness run
     // with the same mistake in it. This one would not.

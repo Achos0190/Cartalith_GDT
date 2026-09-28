@@ -189,6 +189,7 @@ pub struct Point {
 }
 
 impl Point {
+    /// A stroke point at `(x, y)`, in grid-cell coordinates.
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
@@ -387,6 +388,8 @@ pub enum FreehandMode {
 }
 
 impl FreehandMode {
+    /// The reference's own sub-mode string (`FREEHAND_MODES`' order and
+    /// spelling), the one a save file or the UI carries.
     pub fn key(self) -> &'static str {
         match self {
             Self::Raise => "raise",
@@ -483,6 +486,7 @@ const VOLCANO_CTL: &[Control] = &[
     ctl("volcRadius", "Radius (px)", 30.0, 200.0, 2.0, 110.0),
     ctl("flankRough", "Flank rough", 0.0, 1.0, 0.01, 0.6),
 ];
+// Freehand's one control, "Amount" -- the reference's `SCULPT_FEATURES.freehand.controls` tuple, transcribed like every other feature's *_CTL table above.
 const FREEHAND_CTL: &[Control] = &[ctl("amount", "Amount", 0.02, 0.3, 0.005, 0.12)];
 
 impl Feature {
@@ -735,6 +739,9 @@ pub enum FeatureParams {
 }
 
 impl FeatureParams {
+    /// Which [`Feature`] this params bag belongs to -- the enum variant
+    /// carries the answer, so this is a plain projection, never a lookup
+    /// that could disagree with it.
     pub fn feature(&self) -> Feature {
         match self {
             Self::Mountains { .. } => Feature::Mountains,
@@ -851,6 +858,7 @@ impl Falloff {
     pub const ALL: [Falloff; 4] =
         [Falloff::Smooth, Falloff::Linear, Falloff::Sharp, Falloff::Constant];
 
+    /// The save-file / globals-bag integer for this shape, in registry order.
     pub fn index(self) -> u32 {
         match self {
             Falloff::Smooth => 0,
@@ -867,6 +875,7 @@ impl Falloff {
         *Falloff::ALL.get(i as usize).unwrap_or(&Falloff::Smooth)
     }
 
+    /// The save-file / preset-key string for this shape.
     pub fn key(self) -> &'static str {
         match self {
             Falloff::Smooth => "smooth",
@@ -876,6 +885,7 @@ impl Falloff {
         }
     }
 
+    /// The shape's display label for the brush options bar.
     pub fn label(self) -> &'static str {
         match self {
             Falloff::Smooth => "Smooth",
@@ -976,6 +986,10 @@ pub struct Preset {
     params: PresetParams,
 }
 
+/// One [`Preset`]'s feature-specific override values, positional in each
+/// feature's own control order (see that feature's `*_CTL` table) -- kept
+/// private and un-labelled because only [`Preset::apply`] ever unpacks one,
+/// straight into the matching [`FeatureParams`] variant.
 #[derive(Debug, Clone, Copy)]
 enum PresetParams {
     Hills(f64, f64, f64),
@@ -1134,6 +1148,8 @@ struct Ctx {
 }
 
 impl Ctx {
+    /// [`sculpt_fbm`] at this cell, `nb * scale` as the base frequency and
+    /// the stamp's own seed -- every feature's plain-FBM detail term.
     fn fbm(&self, scale: f64) -> f64 {
         let b = self.nb * scale;
         sculpt_fbm(
@@ -1145,6 +1161,8 @@ impl Ctx {
             self.seed,
         )
     }
+    /// [`sculpt_ridged`] at this cell, seeded `+700` off the base seed so it
+    /// samples a different noise stream than [`Ctx::fbm`] at the same point.
     fn ridged(&self, scale: f64) -> f64 {
         let b = self.nb * scale;
         sculpt_ridged(
@@ -1156,6 +1174,8 @@ impl Ctx {
             self.seed.wrapping_add(700),
         )
     }
+    /// [`sculpt_billow`] at this cell, seeded `+1400` off the base seed for
+    /// the same reason [`Ctx::ridged`] is `+700`.
     fn billow(&self, scale: f64) -> f64 {
         let b = self.nb * scale;
         sculpt_billow(
@@ -1237,6 +1257,8 @@ impl SculptStamp {
         }
     }
 
+    /// This stamp's feature -- a thin forward to [`FeatureParams::feature`]
+    /// so a caller holding a `SculptStamp` need not reach into `.params`.
     pub fn feature(&self) -> Feature {
         self.params.feature()
     }
@@ -1890,6 +1912,9 @@ struct CoverHit {
 impl Stamp for SculptStamp {
     type Cell = f32;
 
+    /// [`SculptStamp::bbox`], reshaped into `cartalith_spatial`'s
+    /// half-open `Region` -- an empty (zero-size) region for the "touches
+    /// nothing" case, which `bbox` reports as `None`.
     fn bounds(&self, width: usize, height: usize) -> Region {
         match self.bbox(width, height) {
             Some((x0, y0, x1, y1)) => Region::new(x0, y0, x1 - x0 + 1, y1 - y0 + 1),
@@ -1897,24 +1922,40 @@ impl Stamp for SculptStamp {
         }
     }
 
+    /// [`PassBuffer`](cartalith_spatial::PassBuffer)'s entry point: a height-only
+    /// bake with no water-surface array and no `water_only` dry run -- the
+    /// common case [`SculptStamp::apply_into`] exists to generalise.
     fn apply(&self, dst: &mut [f32], width: usize, height: usize) {
         self.apply_into(dst, None, width, height, false);
     }
 }
 
+/// Unit coverage for the registry's shape (thirteen features in the
+/// reference's own order, control ranges/defaults, sub-modes), the stroke
+/// geometry helpers, `bbox`/`footprint`, each feature's defining property
+/// (Plateau never lowers, Cliff is one-sided, carve vs. build direction),
+/// determinism, `PassBuffer` integration, and `Falloff`. The bit-exact
+/// per-feature values are `tests/golden_parity_sculpt.rs`'s job, not this
+/// file's -- these tests check *shape*, not the reference's own numbers.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_spatial::{DirtyTracker, PassBuffer};
 
+    /// A flat field of `w * h` cells, all at height `v`.
     fn flat(w: usize, h: usize, v: f32) -> Vec<f32> {
         vec![v; w * h]
     }
 
+    /// A two-point horizontal stroke, `(10,32) -> (54,32)` on a grid large
+    /// enough to hold it with room for a stamp's padding.
     fn stroke() -> Vec<Point> {
         vec![Point::new(10.0, 32.0), Point::new(54.0, 32.0)]
     }
 
+    /// `feature`'s default-params stamp over [`stroke`], seed `1234`,
+    /// `brush_size` narrowed to 12 cells so a 64x64+ grid has visible
+    /// padded-vs-not-padded structure around it.
     fn stamp(feature: Feature) -> SculptStamp {
         let mut s = SculptStamp::new(feature, 1234, stroke(), 0.5);
         s.globals.brush_size = 12.0;
@@ -1928,6 +1969,10 @@ mod tests {
     /// padded bbox; and intensity 0 reports nothing.
     #[test]
     fn footprint_covers_every_cell_apply_changes_and_is_not_the_bbox() {
+        // Protects: footprint is a superset of every cell apply_into
+        // actually changes, for every feature and Freehand sub-mode; it is
+        // strictly smaller than the padded bbox when the bbox is not itself
+        // clipped to the grid; and intensity 0 reports an empty footprint.
         let (w, h) = (160usize, 160usize);
         // `stamp()`'s stroke moved 50 cells in from the edge, so the padded box
         // is not clipped and "smaller than the box" means something.
@@ -1977,6 +2022,10 @@ mod tests {
 
     #[test]
     fn the_registry_has_the_reference_s_thirteen_features_in_order() {
+        // Protects: FEATURE_KEYS' key order and count against the
+        // reference's SCULPT_FEATURES, and that Feature::index() agrees
+        // with each feature's position -- the order the noise-seed
+        // derivation depends on.
         let keys: Vec<&str> = FEATURE_KEYS.iter().map(|f| f.meta().key).collect();
         assert_eq!(
             keys,
@@ -2003,6 +2052,9 @@ mod tests {
 
     #[test]
     fn only_lake_and_volcano_are_radial() {
+        // Protects: exactly Lake and Volcano carry `radial: true` in the
+        // registry -- the flag that switches a feature between centroid
+        // distance and stroke signed-distance.
         let radial: Vec<&str> = FEATURE_KEYS
             .iter()
             .filter(|f| f.meta().radial)
@@ -2013,6 +2065,8 @@ mod tests {
 
     #[test]
     fn only_freehand_has_sub_modes_and_it_has_eight() {
+        // Protects: every non-Freehand feature's `modes` list is empty, and
+        // Freehand's has exactly the eight registered sub-modes.
         for f in FEATURE_KEYS {
             let n = f.meta().modes.len();
             if f == Feature::Freehand {
@@ -2025,6 +2079,9 @@ mod tests {
 
     #[test]
     fn every_control_default_is_inside_its_own_range() {
+        // Protects: every registered control's `default` lies within its
+        // own `[min, max]`, for all thirteen features -- a transcription
+        // slip in a `*_CTL` table would open a slider already out of range.
         for f in FEATURE_KEYS {
             for c in f.meta().controls {
                 assert!(
@@ -2042,6 +2099,8 @@ mod tests {
 
     #[test]
     fn from_key_round_trips_every_feature() {
+        // Protects: Feature::from_key round-trips every registered feature's
+        // own key, and rejects a key not in the registry.
         for f in FEATURE_KEYS {
             assert_eq!(Feature::from_key(f.meta().key), Some(f));
         }
@@ -2050,6 +2109,8 @@ mod tests {
 
     #[test]
     fn freehand_mode_from_key_round_trips_every_sub_mode() {
+        // Protects: FreehandMode::from_key round-trips every one of the
+        // eight sub-mode keys, and rejects an unknown one.
         for &m in FREEHAND_MODES {
             let mode = FreehandMode::from_key(m).unwrap_or_else(|| panic!("no FreehandMode for {m}"));
             assert_eq!(mode.key(), m);
@@ -2059,6 +2120,9 @@ mod tests {
 
     #[test]
     fn the_eight_presets_name_features_that_exist_and_seed_real_params() {
+        // Protects: all eight presets exist, each `apply()`s params for its
+        // own declared feature and writes its own `noise_scale`, and touches
+        // no other global -- a preset overrides exactly one shared value.
         assert_eq!(SCULPT_PRESETS.len(), 8);
         for p in SCULPT_PRESETS {
             let mut g = SculptGlobals::default();
@@ -2077,6 +2141,8 @@ mod tests {
 
     #[test]
     fn a_one_point_stroke_degenerates_to_radial_distance() {
+        // Protects: a 1-point stroke reports plain radial distance (dist ==
+        // sd, s == 0) from nearest_on_stroke.
         // This is the mechanism Freehand's tap-once mesa/volcano sub-modes
         // rely on, not an incidental edge case.
         let pts = vec![Point::new(4.0, 4.0)];
@@ -2088,6 +2154,9 @@ mod tests {
 
     #[test]
     fn signed_distance_flips_across_the_stroke() {
+        // Protects: nearest_on_stroke's signed distance has opposite sign on
+        // opposite sides of the polyline -- what Cliff's one-sided step
+        // depends on.
         let pts = stroke(); // left-to-right along y = 32
         let above = nearest_on_stroke(30.0, 20.0, &pts);
         let below = nearest_on_stroke(30.0, 44.0, &pts);
@@ -2101,6 +2170,10 @@ mod tests {
 
     #[test]
     fn arclength_grows_along_the_stroke() {
+        // Protects: nearest_on_stroke's `s` (arclength at the projection)
+        // increases as the query point moves further along the stroke, and
+        // its absolute value is the real distance from the first point --
+        // what `meander`'s sinusoidal offset is computed against.
         let pts = stroke();
         let a = nearest_on_stroke(15.0, 32.0, &pts);
         let b = nearest_on_stroke(45.0, 32.0, &pts);
@@ -2110,6 +2183,9 @@ mod tests {
 
     #[test]
     fn a_zero_length_segment_does_not_divide_by_zero() {
+        // Protects: a duplicate captured point (a zero-length segment) does
+        // not produce NaN/Inf from the `l2` division -- the JS `||1e-9`
+        // guard's Rust equivalent.
         let pts = vec![Point::new(5.0, 5.0), Point::new(5.0, 5.0)];
         let hit = nearest_on_stroke(8.0, 9.0, &pts);
         assert!(hit.dist.is_finite());
@@ -2120,6 +2196,8 @@ mod tests {
 
     #[test]
     fn bounds_pad_by_radius_feather_and_edge_noise() {
+        // Protects: bbox's padding formula (`radius + feather + edgeAmp + 3`)
+        // against the same expression computed independently here.
         let s = stamp(Feature::Hills);
         let b = s.bounds(64, 64);
         // The stroke spans x 10..54 at y 32; padding is
@@ -2133,6 +2211,8 @@ mod tests {
 
     #[test]
     fn bounds_clip_to_the_grid_and_never_exceed_it() {
+        // Protects: a stroke near the grid origin clips its padded box to
+        // 0 rather than reporting a negative-origin region.
         let mut s = stamp(Feature::Hills);
         s.points = vec![Point::new(1.0, 1.0)];
         let b = s.bounds(16, 16);
@@ -2144,6 +2224,8 @@ mod tests {
 
     #[test]
     fn a_stamp_entirely_off_grid_touches_nothing() {
+        // Protects: a stroke whose padded box falls wholly outside the grid
+        // reports a zero-size bounds and apply() leaves the field untouched.
         let mut s = stamp(Feature::Hills);
         s.points = vec![Point::new(500.0, 500.0)];
         let b = s.bounds(64, 64);
@@ -2156,6 +2238,9 @@ mod tests {
 
     #[test]
     fn volcano_sizes_itself_from_volc_radius_not_brush_size() {
+        // Protects: Volcano's radius() reads its own `volc_radius` control,
+        // ignoring `brush_size`, and a larger `volc_radius` yields a larger
+        // bounds box.
         let mut s = stamp(Feature::Volcano);
         s.globals.brush_size = 8.0;
         assert_eq!(s.radius(), 110.0, "volcRadius default");
@@ -2174,6 +2259,9 @@ mod tests {
 
     #[test]
     fn every_feature_writes_something_inside_its_bounds_and_nothing_outside() {
+        // Protects: for all thirteen features, apply() changes at least one
+        // cell, and every changed cell lies within the bounds() it reported
+        // -- the bbox promise apply_into's per-pixel loop must keep.
         for f in FEATURE_KEYS {
             let mut s = stamp(f);
             if f == Feature::Volcano {
@@ -2209,6 +2297,8 @@ mod tests {
 
     #[test]
     fn plateau_never_lowers_existing_terrain() {
+        // Protects: a tall starting field must come out unchanged, and a
+        // low field must be raised.
         // The defining trait versus Raise/lower: `set` to max(h0, level),
         // not `add`. A tall starting field must come out unchanged.
         let (w, h) = (64usize, 64usize);
@@ -2233,6 +2323,9 @@ mod tests {
 
     #[test]
     fn plateau_quantizes_its_top_into_the_requested_number_of_terraces() {
+        // Protects: Plateau's `js_round(terr * steps) / steps` quantization
+        // produces at most `terraces + 1` distinct fully-covered height
+        // levels, not a continuous FBM surface.
         let (w, h) = (96usize, 96usize);
         let mut s = stamp(Feature::Plateau);
         s.globals.brush_size = 20.0;
@@ -2268,6 +2361,9 @@ mod tests {
 
     #[test]
     fn cliff_raises_one_side_and_lowers_the_other() {
+        // Protects: Cliff's smoothstep step is centred on zero, so it moves
+        // the two sides of the stroke in opposite directions -- the
+        // one-sided escarpment the reference's own hint string promises.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Cliff);
         s.globals.edge_noise = 0.0;
@@ -2284,6 +2380,9 @@ mod tests {
 
     #[test]
     fn carving_features_lower_the_field_and_building_features_raise_it() {
+        // Protects: Canyon/Valley/Basin's minimum drops below the flat base,
+        // and Mountains/Hills/Ridge's maximum rises above it -- carve vs.
+        // build direction, per feature.
         let (w, h) = (64usize, 64usize);
         let base = flat(w, h, 0.5);
         let carve = [Feature::Canyon, Feature::Valley, Feature::Basin];
@@ -2304,6 +2403,9 @@ mod tests {
 
     #[test]
     fn coastline_pulls_terrain_toward_sea_level_from_both_directions() {
+        // Protects: Coastline lerps high ground down and low ground up
+        // toward `sea_level - 0.05`, from both sides -- it is defined
+        // entirely in terms of sea level, needing no water-mask gate.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Coastline);
         s.sea_level = 0.5;
@@ -2318,6 +2420,8 @@ mod tests {
 
     #[test]
     fn freehand_raise_and_lower_are_symmetric() {
+        // Protects: Raise(amount) and Lower(amount) move the same cells by
+        // equal and opposite deltas -- `add(amount)` vs. `add(-amount)`.
         let (w, h) = (64usize, 64usize);
         let mut up = stamp(Feature::Freehand);
         up.params = FeatureParams::Freehand {
@@ -2345,6 +2449,9 @@ mod tests {
 
     #[test]
     fn freehand_smooth_flattens_noise_and_reads_a_stable_snapshot() {
+        // Protects: the Smooth blur reduces local roughness on a genuinely
+        // noisy checkerboard field, which is shaped to expose a scan-order
+        // dependency if one existed.
         // The dedicated blur bypasses eval() precisely so it can read a
         // pre-loop snapshot. If it read the live buffer instead, the result
         // would depend on scan direction; here it must not.
@@ -2366,6 +2473,9 @@ mod tests {
         );
     }
 
+    /// Sum of absolute horizontal differences between neighbouring cells,
+    /// over the field's interior -- a cheap local-variation measure for
+    /// [`freehand_smooth_flattens_noise_and_reads_a_stable_snapshot`].
     fn roughness(f: &[f32], w: usize, h: usize) -> f64 {
         let mut acc = 0.0;
         for y in 1..h - 1 {
@@ -2379,6 +2489,9 @@ mod tests {
 
     #[test]
     fn river_and_lake_are_the_only_features_that_write_water() {
+        // Protects: of the thirteen features, exactly River and Lake ever
+        // produce a `water_out` and write the water array -- every other
+        // feature must leave it untouched.
         let (w, h) = (64usize, 64usize);
         for f in FEATURE_KEYS {
             let mut s = stamp(f);
@@ -2404,6 +2517,9 @@ mod tests {
 
     #[test]
     fn the_lake_water_only_pass_never_touches_the_height_field() {
+        // Protects: a `water_only = true` apply_into leaves `field` bit for
+        // bit identical to the already-baked height and still deposits the
+        // lake surface.
         // sculptCommit's ordering depends on this: the dry-run runs AFTER
         // the bake so it tests the final height, and must not carve again.
         let (w, h) = (64usize, 64usize);
@@ -2422,6 +2538,9 @@ mod tests {
 
     #[test]
     fn the_same_stamp_at_the_same_seed_reproduces_exactly() {
+        // Protects: applying the same stamp twice, from the same base field,
+        // produces bit-identical `f32` output -- no hidden time- or
+        // order-dependent state.
         let (w, h) = (64usize, 64usize);
         let s = stamp(Feature::Mountains);
         let mut a = flat(w, h, 0.3);
@@ -2434,6 +2553,8 @@ mod tests {
 
     #[test]
     fn a_different_seed_gives_a_different_result() {
+        // Protects: changing `seed` actually changes the noise the stamp
+        // samples -- the seed is not silently ignored somewhere in the chain.
         let (w, h) = (64usize, 64usize);
         let mut s = stamp(Feature::Mountains);
         let mut a = flat(w, h, 0.3);
@@ -2446,6 +2567,8 @@ mod tests {
 
     #[test]
     fn the_feature_index_really_participates_in_the_seed() {
+        // Protects: two different features' derived noise seeds
+        // (`seed ^ ((index+1)*1013)`) actually differ at the same stamp seed.
         // Two features whose apply() bodies both start from c.fbm() must
         // not sample identical noise at the same stamp seed -- the
         // (index+1)*1013 term is what separates them, and FEATURE_KEYS
@@ -2463,6 +2586,10 @@ mod tests {
 
     #[test]
     fn sculpt_stamps_drive_milestone_a_s_pass_buffer_end_to_end() {
+        // Protects: PassBuffer<SculptStamp> preview leaves the source field
+        // untouched and produces a non-trivial preview; commit applies the
+        // same stack and reproduces the preview bit for bit; and the buffer
+        // empties itself after commit.
         let (w, h) = (64usize, 64usize);
         let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
         buf.push(stamp(Feature::Mountains));
@@ -2488,6 +2615,10 @@ mod tests {
 
     #[test]
     fn discarding_a_sculpt_draft_leaves_the_field_bit_identical() {
+        // Protects: PassBuffer::discard, called after pushing stamps that
+        // were never previewed or committed into `field`, leaves that field
+        // bit-identical to before -- a draft's stamps never touch the real
+        // field until commit.
         let (w, h) = (64usize, 64usize);
         let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(w, h, 32);
         let field = flat(w, h, 0.4);
@@ -2503,6 +2634,8 @@ mod tests {
 
     #[test]
     fn stack_order_matters_for_set_mode_features() {
+        // Protects: previewing [Mountains, Coastline] and [Coastline,
+        // Mountains] on the same base field gives different results.
         // Coastline is `set`-mode, so whichever of the two lands last wins
         // -- the reason commit bakes the stack in order.
         let (w, h) = (64usize, 64usize);
@@ -2530,6 +2663,8 @@ mod tests {
 
     #[test]
     fn smoothstep_substitutes_for_a_zero_width_band() {
+        // Protects: smoothstep(0,0,x) does not divide by zero and instead
+        // returns the correct step (0 below, 1 at/above).
         // JS `(b-a)||1e-6`. Without it, Cliff at transW == 0 divides by zero.
         assert_eq!(smoothstep(0.0, 0.0, -1.0), 0.0);
         assert_eq!(smoothstep(0.0, 0.0, 1.0), 1.0);
@@ -2537,6 +2672,8 @@ mod tests {
 
     #[test]
     fn sculpt_fbm_stays_in_the_reference_s_signed_range() {
+        // Protects: sculpt_fbm's output spans both sides of zero and never
+        // leaves [-1, 1].
         // ~[-1,1], deliberately not fbm()'s [0,1] -- every feature formula
         // was tuned against the signed range.
         let mut lo = f64::INFINITY;
@@ -2552,6 +2689,9 @@ mod tests {
 
     #[test]
     fn zero_octaves_returns_zero_rather_than_nan() {
+        // Protects: all three noise families return exactly 0.0, not NaN,
+        // when `oct == 0` (so `nrm` stays 0.0) -- the JS `nrm?sum/nrm:0`
+        // falsy-covers-NaN rule.
         assert_eq!(sculpt_fbm(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_ridged(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
         assert_eq!(sculpt_billow(1.0, 1.0, 0, 0.5, 2.0, 1), 0.0);
@@ -2570,6 +2710,10 @@ mod tests {
     /// input including the two clamp shoulders and a NaN.
     #[test]
     fn smooth_falloff_is_the_pre_enum_smoothstep_bit_for_bit() {
+        // Protects: Falloff::Smooth.coverage(t) matches smoothstep(0,1,t)
+        // bit for bit across the swept range including both clamp shoulders
+        // and NaN -- routing coverage through the enum dispatch changes no
+        // bit of the value the pre-Falloff engine produced.
         for i in -400..=400 {
             let t = f64::from(i) / 200.0;
             assert_eq!(
@@ -2599,7 +2743,12 @@ mod tests {
     /// the exponent by value and does turn red on that mutation.
     #[test]
     fn falloff_shapes_are_not_reachable_by_hardness() {
-        const RAD: f64 = 32.0;
+        // Protects: no setting of the shipped `hardness` slider brings
+        // `Smooth` within the stated floor of Linear/Sharp/Constant's own
+        // coverage profile -- the measurement behind Falloff's own doc
+        // comment's "not a preset over hardness" claim, re-run on every
+        // `cargo test` rather than quoted from a session.
+        const RAD: f64 = 32.0; // arbitrary reference brush radius for the sweep, not a cited value
         let profile = |shape: Falloff, hardness: f64| -> Vec<f64> {
             let feather = 2.0f64.max(RAD * (1.0 - hardness));
             (0..=1500)
@@ -2640,7 +2789,7 @@ mod tests {
         }
     }
 
-    const FALLOFF_W: usize = 96;
+    const FALLOFF_W: usize = 96; // grid side for the falloff-render fixtures -- large enough to hold a 12-cell-brush stamp fully with its padding
 
     /// One stamp of `feature` under `shape`, on a flat field, with the edge
     /// warp switched off so what is measured is the ramp itself and not the
@@ -2690,6 +2839,10 @@ mod tests {
     /// both exercised.
     #[test]
     fn every_falloff_pair_moves_a_stamp_by_more_than_an_8_bit_step() {
+        // Protects: every pair of the four Falloff shapes, on a real
+        // apply_into of Mountains/Plateau/Volcano, differs by more than one
+        // 8-bit code point somewhere in the field -- so no two shapes draw
+        // the same picture on these features.
         for feature in [Feature::Mountains, Feature::Plateau, Feature::Volcano] {
             for (i, &a) in Falloff::ALL.iter().enumerate() {
                 for &b in &Falloff::ALL[i + 1..] {
@@ -2723,6 +2876,10 @@ mod tests {
     /// far outside the tolerance below.
     #[test]
     fn sharp_is_a_cube_and_not_merely_steeper_than_the_others() {
+        // Protects: Falloff::Sharp.coverage(t) equals t^3 at hand-computed
+        // literals, and Linear/Smooth do NOT satisfy the same cube -- the
+        // floor test above cannot catch a change from cube to square, so
+        // this pins the exponent by value instead.
         for (t, want) in [(0.25_f64, 0.015625_f64), (0.5, 0.125), (0.75, 0.421875)] {
             let got = Falloff::Sharp.coverage(t);
             assert!(
@@ -2755,6 +2912,11 @@ mod tests {
     /// a real behaviour change and not a silent improvement.
     #[test]
     fn ridge_is_immune_to_the_falloff_because_its_own_gaussian_is_narrower() {
+        // Protects: at Ridge's registry default, and even at its widest
+        // `ridgeWidth`, no Falloff shape moves the field far from Smooth --
+        // Ridge's own perpendicular gaussian dominates the coverage ramp, so
+        // this control has near-zero effect on Ridge specifically, and that
+        // stays true rather than silently growing into a real effect.
         for &shape in &Falloff::ALL[1..] {
             let peak = falloff_peak(Feature::Ridge, Falloff::Smooth, shape, None);
             assert!(
@@ -2783,6 +2945,10 @@ mod tests {
     /// [`Falloff::from_index`] documents.
     #[test]
     fn an_unknown_falloff_index_reads_back_as_smooth() {
+        // Protects: Falloff::from_index maps every real index to its shape,
+        // and any out-of-range index (including u32::MAX) to Smooth rather
+        // than panicking -- the save-file forward-compatibility rule
+        // Falloff::from_index documents.
         for (i, expected) in [
             (0u32, Falloff::Smooth),
             (1, Falloff::Linear),

@@ -925,6 +925,56 @@ re-checked against the tree rather than copied from the commit message.
   GDScript shell remain deferred. Batches 6 through 13 all still need an
   independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 14 (`cartalith-terrain`'s `src/sculpt.rs`
+  plus `tests/golden_parity_sculpt.rs`) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; terrain 317/0/0 unchanged).** Re-verified both files' undocumented-item
+  count at the symbol with `census_v2.py` rather than trusting batch 13's
+  note (`sculpt.rs` items_undoc 52/105, tests_unprotected 41/41,
+  consts_undoc 3/4; the golden file items_undoc 30/31, tests_unprotected
+  23/23, consts_undoc 4/4 — both files taken whole, ~3 467 LOC combined,
+  slightly over the ~3 500 LOC guidance but the natural unit since the
+  reference itself calls this block one "pure, DOM-free core" and the
+  golden file is `sculpt.rs`'s only test dependent). `sculpt.rs` already
+  carried extensive `///` prose (the module doc, most public items); the
+  real gaps were: `Point::new`, `FreehandMode::key`, `FeatureParams::feature`,
+  `Falloff::index`/`key`/`label`, the `PresetParams` enum, `Ctx::fbm`/
+  `ridged`/`billow`, `SculptStamp::feature`, the `Stamp` trait impl's
+  `bounds`/`apply`, the inline `mod tests` block, three test-helper fns
+  (`flat`/`stroke`/`stamp`), one more (`roughness`), and the `FREEHAND_CTL`/
+  `RAD`/`FALLOFF_W` numeric consts — all undocumented — plus every one of
+  its 41 tests missing a `// Protects:` line (seven of them already had a
+  real `///` doc that did not use the word). The golden-parity file's four
+  fixture consts (`GW`/`GH`/`SEA`/`SEED`), six helper fns/structs
+  (`base_field`/`stamp`/`stroke`/`tap`/`Golden`/`check`/`freehand`) and all
+  23 tests got the same treatment. No wrong existing comment was found or
+  fixed. Where an existing test's own explanatory `//` comment did not
+  literally say "protects", a separate `// Protects:` line was added
+  alongside it rather than rewording the original prose, so the checked-in
+  explanation's wording survives unchanged. **Comments only**: `cargo test
+  -p cartalith-terrain`, summed over all 25 binaries, recorded before
+  editing and again after — **317 passed / 0 failed / 0 ignored, identical
+  both times** (`CARGO_TARGET_DIR` at `.../scratchpad/bk14/target`). A
+  `git diff --stat` (240 insertions / 27 deletions across the two files)
+  plus a manual read of every `-`/`+` line pair confirmed every removed line
+  is either a pure comment reworded into a `// Protects:` block (no code) or
+  a numeric const reappearing with an appended trailing `//` comment; no
+  code fence in any new comment. Crate-wide `census_v2.py`:
+  `cartalith-terrain` items_undoc 156→74, tests_unprotected 169→105,
+  consts_undoc 40→33 (crate stays open; 15 of its ~34 files are now
+  annotated). **Next step: batch 15** should take the small leftover
+  golden-parity test files census_v2 still flags (`tests/golden_parity.rs`,
+  `golden_parity_age.rs`, `golden_parity_assign.rs`, `golden_parity_blur.rs`,
+  `golden_parity_flex_hetero_resist.rs`, `golden_parity_height.rs`,
+  `golden_parity_orogeny.rs`, `golden_parity_plate_circular_mean.rs`,
+  `golden_parity_plates.rs`, `golden_parity_stress.rs`,
+  `golden_parity_volc_craters.rs`, `golden_parity_volc_provinces.rs`,
+  `golden_parity_world_structure.rs`, `volcano_edifice.rs`,
+  `volcano_transform_boundaries.rs` — each 26-263 LOC, none needing a split)
+  together with `src/center.rs`/`fjord.rs`/`landform.rs`'s few remaining
+  undoc items, leaving only `src/lib.rs` (4 602, its own batch per this
+  task's own routing) before the crate closes. Batches 6 through 14 all
+  still need an independent verifier before any can be called done rather
+  than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
