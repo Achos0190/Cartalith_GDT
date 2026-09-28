@@ -19,6 +19,10 @@ use cartalith_jsmath::smoothstep;
 /// `poleTemp` keep their exact existing meaning at Earth's default tilt.
 const OBLIQUITY_REF_DEG: f64 = 23.4;
 
+/// The P2 Legendre term `insolation_contrast_k` normalizes against: how far
+/// axial tilt pushes annual-mean insolation contrast away from a non-tilted
+/// planet's `-2.0` baseline. Shared, unexported helper — only meaningful
+/// relative to `OBLIQUITY_REF_DEG`, never called with a raw result on its own.
 fn obliquity_s2(tilt_deg: f64) -> f64 {
     let s = (tilt_deg * std::f64::consts::PI / 180.0).sin();
     3.0 * s * s - 2.0
@@ -1305,6 +1309,13 @@ pub struct WeatherGrid {
     pub bulk_evap: bool,
 }
 
+/// The `simulate_weather` setup half described on [`WeatherGrid`]: builds the
+/// coarse elevation/temperature/evaporation fields, optionally folds the
+/// ocean-current SST anomaly into sea temperature before wind (`p.currents`),
+/// runs `build_wind` once, and seeds the loop's initial humidity state. Must
+/// stay side-effect-free and produce byte-identical output to the inlined
+/// setup `simulate_weather` used before this extraction — every existing
+/// golden-parity test for `simulate_weather` is the check for that.
 pub fn build_weather_grid(gw: usize, gh: usize, field: &[f32], decl: f64, p: &WeatherParams) -> WeatherGrid {
     let sea = p.sea_level;
     let mpu = meters_per_unit(p.peak_m, p.sea_level);
@@ -1611,10 +1622,16 @@ pub fn apply_climate_moisture_correctors(
     });
 }
 
+/// Non-golden-parity checks for functions this crate exposes that have no
+/// direct JS `vm`-extraction fixture of their own (the Wind debug view's own
+/// composition of already golden-tested pieces).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: the crate actually builds and its test harness actually runs
+    /// — a canary that fails loud if the crate stops compiling rather than
+    /// silently reporting zero tests.
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
@@ -1630,6 +1647,9 @@ mod tests {
     /// port's own debug-raster suite follows.
     #[test]
     fn current_wind_field_is_real_non_uniform_and_deterministic() {
+        // Protects: current_wind_field composes already golden-tested pieces
+        // (build_wind, circulation_cells) into a real, varying, deterministic
+        // field rather than silently degenerating to a flat/zero raster.
         let (gw, gh) = (48usize, 32usize);
         let n = gw * gh;
         // A diagonal ramp with land and water both present, and latitude
@@ -1658,6 +1678,9 @@ mod tests {
     /// deflection perturbs it.
     #[test]
     fn current_wind_field_wind_manual_sets_a_uniform_direction_over_flat_ground() {
+        // Protects: wind_manual actually reaches current_wind_field's call
+        // into build_wind and overrides latitude-band circulation, rather
+        // than being silently ignored on a flat (no-deflection) world.
         let (gw, gh) = (16usize, 16usize);
         let field = vec![0.6f32; gw * gh]; // flat, above sea -- no terrain deflection to perturb the direction
         let r = current_wind_field(gw, gh, &field, 0.42, 4000.0, false, 40.0, 20.0, 28.0, -20.0, 23.4, 24.0, 6.5, true, 90.0, 0.0);

@@ -308,10 +308,17 @@ pub fn compute_seasons(
     }
 }
 
+/// Coverage for the classifier and its frozen key/palette tables; the
+/// golden-parity harness (`golden_parity_koppen.rs`) covers the seasonal
+/// orchestrator against real reference output, so these focus on the
+/// per-branch logic `classify_koppen` implements.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A representative world-mode `KoppenParams` fixture every test in this
+    /// module builds its `classify_koppen` calls against, so each test only
+    /// varies the one input it is actually exercising.
     fn kp() -> KoppenParams {
         KoppenParams {
             world: true,
@@ -322,6 +329,10 @@ mod tests {
         }
     }
 
+    /// Protects: `KOPPEN_KEYS`/`KOPPEN_COL` staying parallel and in their
+    /// frozen append-only order, plus `koppen_index`/`koppen_color`'s
+    /// out-of-range fallbacks — a reordering here would silently reinterpret
+    /// every previously exported `koppen_index.json` raster.
     #[test]
     fn the_frozen_key_order_and_its_palette_stay_parallel() {
         assert_eq!(KOPPEN_KEYS.len(), KOPPEN_COL.len());
@@ -335,6 +346,9 @@ mod tests {
         assert_eq!(koppen_color(31), (128, 128, 128));
     }
 
+    /// Protects: the `height - geo < sea_level` early return, including the
+    /// geoid-raised-local-sea-level case where a cell above the global
+    /// waterline is still classified as water.
     #[test]
     fn water_is_unclassified() {
         assert_eq!(classify_koppen(0.1, 0.0, 20.0, 20.0, 0.5, 0.5, 10.0, &kp()), None);
@@ -344,6 +358,9 @@ mod tests {
         assert!(classify_koppen(0.43, 0.0, 20.0, 20.0, 0.5, 0.5, 10.0, &kp()).is_some());
     }
 
+    /// Protects: the `th < 10.0` polar gate (EF vs. ET at `th < 0`) firing
+    /// before any later branch can override it, and the exact `< 10` (not
+    /// `<= 10`) boundary.
     #[test]
     fn the_polar_branch_splits_at_zero_and_pre_empts_everything_else() {
         assert_eq!(classify_koppen(0.5, 0.0, 9.9, -40.0, 0.9, 0.9, 45.0, &kp()), Some("ET"));
@@ -352,6 +369,8 @@ mod tests {
         assert_ne!(classify_koppen(0.5, 0.0, 10.0, -40.0, 0.9, 0.9, 45.0, &kp()), Some("ET"));
     }
 
+    /// Protects: the `map < pth` arid gate and its `map < 0.5*pth` (W vs. S)
+    /// / `mat >= 18.0` (h vs. k) sub-splits.
     #[test]
     fn the_arid_branch_splits_on_both_map_and_mat() {
         // Near-zero rain: MAP < Pth for any positive MAT, and BW (not BS)
@@ -362,6 +381,9 @@ mod tests {
         assert_eq!(classify_koppen(0.5, 0.0, 14.0, 8.0, 0.0, 0.0, 10.0, &kp()), Some("BWk"));
     }
 
+    /// Protects: the `north = lat >= 0.0` swap that decides which solstice's
+    /// rain counts as "summer" — the same rain input must classify
+    /// differently in each hemisphere.
     #[test]
     fn the_southern_hemisphere_swaps_which_solstice_is_summer() {
         // Rain in July only. North of the equator that is a wet summer /
@@ -372,6 +394,8 @@ mod tests {
         assert_eq!(s, Some("Csa"));
     }
 
+    /// Protects: the `tc` group boundaries (A/C/D at 18/0, and the `-38.0`
+    /// continental `d`-third-letter cutoff).
     #[test]
     fn the_coldest_month_selects_the_group() {
         // Tc >= 18 -> A, 0..18 -> C, < 0 -> D, < -38 -> the d third letter.
@@ -381,6 +405,8 @@ mod tests {
         assert_eq!(classify_koppen(0.5, 0.0, 25.0, -40.0, 0.5, 0.5, 65.0, &kp()), Some("Dfd"));
     }
 
+    /// Protects: `KoppenParams::max_rain_mm`'s `||3000` fallback on a literal
+    /// `0.0`, matching the reference's own JS falsy-coercion default.
     #[test]
     fn max_rain_mm_falls_back_to_three_thousand_on_zero() {
         let mut p = kp();
@@ -390,6 +416,9 @@ mod tests {
         assert_eq!(classify_koppen(0.5, 0.0, 25.0, 20.0, 0.5, 0.5, 5.0, &p), Some("Af"));
     }
 
+    /// Protects: `build_koppen`'s per-cell wiring — water cells stay `0`, land
+    /// cells resolve through `classify_koppen` and `koppen_index` to the
+    /// right raster index, over the crate's real `usize`-indexed grid layout.
     #[test]
     fn build_koppen_zeroes_water_and_fills_land() {
         let field = vec![0.1f32, 0.9, 0.9, 0.1];

@@ -168,10 +168,18 @@ pub fn current_tide_field(
     (f, mx)
 }
 
+/// Coverage for `tidal_forcing`/`compute_tide_field`/`build_tide_field`/
+/// `current_tide_field`; the golden-parity harness
+/// (`golden_parity_tides.rs`) additionally pins these against real reference
+/// output, so these focus on individual invariants (floors, gates,
+/// fallbacks) in isolation.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: `tidal_forcing`'s inverse-cube law, its additivity across
+    /// moons, and the `0.05` distance floor (a moon closer than that reads as
+    /// if it were exactly at the floor, not at zero distance).
     #[test]
     fn forcing_is_inverse_cube_and_floors_the_distance() {
         assert_eq!(tidal_forcing(&[]), 0.0);
@@ -214,6 +222,9 @@ mod tests {
         assert_eq!(tidal_forcing(&two), 1.0 + 0.5 / 8.0);
     }
 
+    /// Protects: the `h >= sea` land guard in `compute_tide_field` returning
+    /// exactly `0.0` (not merely "small"), and that water cells actually get
+    /// a positive tidal-range value.
     #[test]
     fn land_is_exactly_zero_and_water_is_not() {
         let field = vec![0.9f32, 0.9, 0.1, 0.1];
@@ -223,6 +234,8 @@ mod tests {
         assert!(out[2] > 0.0 && out[3] > 0.0);
     }
 
+    /// Protects: `build_tide_field`'s `enabled` gate — `None` when off,
+    /// `Some` when on, matching `planet.tides.enabled`'s default-off state.
     #[test]
     fn the_disabled_gate_returns_none() {
         let field = vec![0.1f32; 4];
@@ -230,6 +243,10 @@ mod tests {
         assert!(build_tide_field(2, 2, &field, None, 0.42, true, &TideParams::default()).is_some());
     }
 
+    /// Protects: `current_tide_field`'s empty-roster substitution of
+    /// `Moon::DEFAULT` (an empty roster must still preview a real, non-zero
+    /// field), and the `1e-6` floor on `mx` keeping the view's division
+    /// finite on an all-land world.
     #[test]
     fn the_preview_substitutes_a_default_moon_for_an_empty_roster() {
         let field = vec![0.1f32; 4];

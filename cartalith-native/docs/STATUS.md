@@ -571,6 +571,66 @@ re-checked against the tree rather than copied from the commit message.
   next should expect to split it across several batches by the ~3 000-3 500
   LOC band the batches so far have used.
 
+- **Ruling BK annotation pass, batch 9 (`cartalith-climate`, whole crate) —
+  built 2026-09-28, verified by the main loop 2026-09-28 (diff re-read as comment-only; climate 65/0/0 unchanged).** Comments only, zero
+  behaviour change. The crate is 4 039 LOC (5 `src/*.rs` files 2 761 LOC + 11
+  test files 1 278 LOC), over the ~3 000-3 500 LOC single-batch band the
+  earlier batches used, but every item this crate's own `cargo test` census
+  flagged turned out reachable within one pass once counted at the symbol, so
+  this batch did the whole crate rather than stopping partway. Re-checked
+  against `ANNOTATION_AUDIT.md`'s own rank-8 count (81 undoc items / 65
+  unprotected tests / 15 unprovenanced consts) at the symbol before starting:
+  almost every `fn`/`struct`/`mod`/const in this crate's five `src/*.rs` files
+  already carried a real doc comment (this crate reads as unusually
+  well-documented for its provenance already), so the census's undocumented-
+  item count here is concentrated in two places: a handful of small helpers
+  (`obliquity_s2`, `build_weather_grid`, the `mod tests` module declarations
+  and their local test-fixture helper fns like `deflect_default_params`/
+  `flat_wind`/`kp`/`ocean_current_default_params`), and — the large majority
+  — every one of the crate's 65 `#[test]`s missing a `// Protects:` first
+  line, since none of them had one yet even where a real doc comment already
+  sat above the `#[test]` attribute explaining the same thing. Every
+  previously-undocumented `fn`/`struct`/`mod`/const got its own doc comment;
+  every one of the 65 tests got a `// Protects:` line as the first line of its
+  body (added inline under an existing outer doc comment where one already
+  existed, rather than duplicating it). Const provenance: `geoid.rs`'s `DEG`
+  already carried its own comment; `golden_parity_deflect_flow.rs`'s
+  `U0`/`V0`/`BLOCK0` and `golden_parity_ocean_current.rs`'s `WX`/`WY`/`ELEV_C`
+  fixture arrays (stacked groups sharing one module-level provenance
+  paragraph) each got their own one-line pointer back to it, since the
+  brief's stacked-const-groups rule (each const in a group gets its own line,
+  not just the first) applies here too. Files touched: all 5 `src/*.rs`
+  (`lib.rs`, `geoid.rs`, `koppen.rs`, `tides.rs`, `windthrow.rs`) and all 11
+  `tests/*.rs` files. `cargo test -p cartalith-climate` (all 13 binaries: lib
+  + 11 integration test files + doctest), summed: **65 passed / 0 failed / 0
+  ignored, identical before and after.** A comment-only-diff checker (a
+  Python script in this lane's scratchpad, `comment_only_check.py`: strips
+  `///`/`//!`/`//` lines and trailing `// ...` line comments from both the git
+  `HEAD` and working-tree text of each touched file via `git show`, then
+  diffs the remaining code tokens) confirmed all 16 touched files changed
+  only comments/blank lines. No `\`\`\`` fence was added in any new comment.
+  Two sites had a real doc comment already but separated from the item by a
+  plain `//` line the census's `preceded_by_doc` check does not look past —
+  promoted to `///` with no text change, same as batch 8's `store_clamped01`/
+  `velocity_erode_kernel` finding (`obliquity_s2` had no doc at all rather
+  than a misplaced one, so it is not one of these two; the two are the
+  `deflect_flow_regression.rs`/`golden_parity_deflect_flow.rs` test doc
+  comments this batch promoted alongside adding their `// Protects:` lines).
+  No wrong existing comment was found in this batch. **Next step: batch 10.**
+  `cartalith-climate` is now closed on this census (0 undocumented items, 0
+  unprotected tests, 0 unprovenanced consts by the same heuristic that found
+  81/65/15). The next crate in `ANNOTATION_AUDIT.md`'s ranked order after
+  climate (rank 8) is `cartalith-spatial` (rank 9, 5 189 LOC / 235 undoc items
+  / 168 unprotected tests / 18 unprovenanced consts at the audit's own count —
+  re-check at the symbol before scheduling); `cartalith-terrain` (rank 5) and
+  `cartalith-hydrology`'s and `cartalith-erosion`'s own precedent of jumping
+  order for a large crate does not obviously apply here since spatial is
+  smaller than either was, but batch 10 should still expect to split it
+  across more than one batch given the 235-item count, and should re-verify
+  that count rather than trust it. `cartalith-terrain`, `cartalith-civ`,
+  `cartalith-urban`, `cartalith-godot` and the GDScript shell remain deferred
+  and unannotated.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

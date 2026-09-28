@@ -18,16 +18,21 @@
 
 use cartalith_climate::tides::{build_tide_field, compute_tide_field, current_tide_field, tidal_forcing, Moon, TideParams};
 
+/// Decodes a JSON array of numbers into the `Vec<f32>` a `Float32Array` in
+/// the captured fixture actually held.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Loads the captured reference run (see module doc for how it was made).
 fn fixture() -> serde_json::Value {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tides_captured.json"))
         .expect("tides_captured.json fixture should read");
     serde_json::from_str(&s).expect("fixture should parse")
 }
 
+/// Decodes a captured moon roster into `Vec<Moon>`, applying the reference's
+/// own `massRel||0`/`distRel||1` coercions for a key an object literal left out.
 fn moons(v: &serde_json::Value) -> Vec<Moon> {
     v.as_array()
         .unwrap()
@@ -41,6 +46,9 @@ fn moons(v: &serde_json::Value) -> Vec<Moon> {
         .collect()
 }
 
+/// Protects: `tidal_forcing` against the reference over empty/one/two/floored/
+/// defaulted-moon cases, including the `distRel||1` coercion (a bare `{}`
+/// moon must contribute nothing, not blow up to infinity from `||0`).
 #[test]
 fn tidal_forcing_matches_the_reference_including_its_own_coercions() {
     let v = fixture();
@@ -55,6 +63,9 @@ fn tidal_forcing_matches_the_reference_including_its_own_coercions() {
     assert_eq!(cases[4]["f"].as_f64().unwrap(), 0.0);
 }
 
+/// Protects: `compute_tide_field` bit-exact against reference output on a
+/// real captured world with default tide params, plus a non-flatness sanity
+/// check on the resulting wet/land split.
 #[test]
 fn compute_tide_field_matches_the_reference_on_a_real_world() {
     let v = fixture();
@@ -80,6 +91,8 @@ fn compute_tide_field_matches_the_reference_on_a_real_world() {
     assert!(distinct.len() > 100, "only {} distinct values -- too flat", distinct.len());
 }
 
+/// Protects: `compute_tide_field` bit-exact against reference output with
+/// `g`/`k2` and a two-moon roster all moved off their defaults at once.
 #[test]
 fn compute_tide_field_matches_the_reference_with_gravity_love_number_and_two_moons_moved() {
     let v = fixture();
@@ -101,6 +114,9 @@ fn compute_tide_field_matches_the_reference_with_gravity_love_number_and_two_moo
 /// rounded values.
 #[test]
 fn compute_tide_field_matches_the_reference_with_the_geoid_on() {
+    // Protects: the eff=field-geoid branch bit-exact against reference,
+    // including the single f32 rounding both the coast-distance transform
+    // and the depth term must read the same rounded value from.
     let v = fixture();
     let (gw, gh) = (v["gw"].as_u64().unwrap() as usize, v["gh"].as_u64().unwrap() as usize);
     let field = f32s(&v["field"]);
@@ -120,6 +136,9 @@ fn compute_tide_field_matches_the_reference_with_the_geoid_on() {
 /// amplification terms has to reach the answer.
 #[test]
 fn every_amplification_term_reaches_the_field() {
+    // Protects: gravity, Love number and moon mass/distance each actually
+    // scaling the field, and the Green's-law 3.0 shallow-water cap being
+    // real (not dead code) over the captured world's own cells.
     let v = fixture();
     let (gw, gh) = (v["gw"].as_u64().unwrap() as usize, v["gh"].as_u64().unwrap() as usize);
     let field = f32s(&v["field"]);
@@ -161,6 +180,9 @@ fn every_amplification_term_reaches_the_field() {
     assert!(capped > 0, "no cell reaches the Green's-law cap -- the fixture never exercises it");
 }
 
+/// Protects: `build_tide_field`'s off-gate returning `None`, and
+/// `current_tide_field`'s off-toggle preview matching the reference's own
+/// field and the maximum the debug view divides by.
 #[test]
 fn the_enable_gate_and_the_off_toggle_preview_match_the_reference() {
     let v = fixture();

@@ -12,6 +12,9 @@
 
 use cartalith_climate::apply_climate_moisture_correctors;
 
+/// Protects: `apply_climate_moisture_correctors` bit-exact against reference
+/// output on a region (non-wrapping) world -- all three correction passes
+/// (coastal proximity, river corridors, latitude zones) at once.
 #[test]
 fn moisture_correctors_case_0_region() {
     // case 0: region, no wrap
@@ -24,6 +27,8 @@ fn moisture_correctors_case_0_region() {
     assert_eq!(rain, expected);
 }
 
+/// Protects: `apply_climate_moisture_correctors` bit-exact against reference
+/// output on a wrapping world -- the x-wrap edge cases in all three passes.
 #[test]
 fn moisture_correctors_case_1_world_wrap() {
     // case 1: world wrap

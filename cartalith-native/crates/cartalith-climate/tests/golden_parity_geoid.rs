@@ -21,20 +21,25 @@
 
 use cartalith_climate::geoid::{build_geoid, current_geoid_preview, geoid_rot_k, refresh_geoid, GeoidOpts};
 
+/// Decodes a JSON array of numbers into the `Vec<f32>` a `Float32Array` in
+/// the captured fixture actually held.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Loads the captured reference run (see module doc for how it was made).
 fn fixture() -> serde_json::Value {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/geoid_captured.json"))
         .expect("geoid_captured.json fixture should read");
     serde_json::from_str(&s).expect("fixture should parse")
 }
 
+/// Reads the fixture's own `gw`/`gh` grid dimensions.
 fn dims(v: &serde_json::Value) -> (usize, usize) {
     (v["gw"].as_u64().unwrap() as usize, v["gh"].as_u64().unwrap() as usize)
 }
 
+/// Decodes one of the fixture's captured option bags into a [`GeoidOpts`].
 fn opts(o: &serde_json::Value) -> GeoidOpts {
     GeoidOpts {
         seed: o["seed"].as_i64().unwrap() as i32,
@@ -48,6 +53,9 @@ fn opts(o: &serde_json::Value) -> GeoidOpts {
     }
 }
 
+/// Protects: `build_geoid` bit-exact against a real reference run on a
+/// wrapping, geoid-enabled world (exercising the seam-blend branch), plus the
+/// zero-mean/peak-equals-amp invariant and a non-flatness sanity check.
 #[test]
 fn build_geoid_matches_the_reference_on_a_real_enabled_world() {
     let v = fixture();
@@ -71,6 +79,9 @@ fn build_geoid_matches_the_reference_on_a_real_enabled_world() {
     assert!((peak - o.amp).abs() < 1e-9, "peak {peak} should be exactly amp {}", o.amp);
 }
 
+/// Protects: `build_geoid` bit-exact against reference output with every
+/// `GeoidOpts` field moved off its default and `wrap_x` off, so the fixture
+/// actually exercises the non-wrap path and every knob at once.
 #[test]
 fn build_geoid_matches_the_reference_with_every_knob_moved_and_no_wrap() {
     let v = fixture();
@@ -87,6 +98,8 @@ fn build_geoid_matches_the_reference_with_every_knob_moved_and_no_wrap() {
 /// default would survive both tests above, since both supply all eight.
 #[test]
 fn the_object_assign_defaults_match_the_reference() {
+    // Protects: every one of GeoidOpts::default()'s eight literal fields,
+    // via the one call that omits every option and so reaches all eight.
     let v = fixture();
     let (gw, gh) = dims(&v);
     assert_eq!(build_geoid(gw, gh, &GeoidOpts::default()), f32s(&v["defaults"]));
@@ -97,6 +110,9 @@ fn the_object_assign_defaults_match_the_reference() {
 /// otherwise the goldens above would still pass with that term dropped.
 #[test]
 fn every_knob_reaches_the_formula() {
+    // Protects: each GeoidOpts field actually reaching the formula -- a
+    // golden fixture alone can't catch a dropped term if every golden
+    // happens to already pin all knobs at once.
     let v = fixture();
     let (gw, gh) = dims(&v);
     let base_o = opts(&v["enabled"]);
@@ -157,6 +173,8 @@ fn every_knob_reaches_the_formula() {
 
 #[test]
 fn refresh_geoid_derives_the_reference_s_own_rot_k_and_options() {
+    // Protects: refresh_geoid's derived rot_k and the field it builds,
+    // against the reference's own refreshGeoid output.
     let v = fixture();
     let (gw, gh) = dims(&v);
     let e = &v["enabled"];
@@ -182,6 +200,8 @@ fn refresh_geoid_derives_the_reference_s_own_rot_k_and_options() {
 /// to the legacy path, captured from the reference rather than assumed.
 #[test]
 fn geo_at_is_zero_while_the_geoid_is_off() {
+    // Protects: the None-means-zero collapse every downstream `-geoAt(i)`
+    // consumer relies on to stay bit-identical to the legacy no-geoid path.
     let v = fixture();
     assert_eq!(v["geo_at_off"].as_f64().unwrap(), 0.0);
     let off: Option<&[f32]> = None;
@@ -192,6 +212,8 @@ fn geo_at_is_zero_while_the_geoid_is_off() {
 /// a field, at the `0.015` fallback amplitude.
 #[test]
 fn the_preview_matches_the_reference_while_the_toggle_is_off() {
+    // Protects: current_geoid_preview drawing a real field at the 0.015
+    // fallback amplitude when the toggle is off, bit-exact against reference.
     let v = fixture();
     let (gw, gh) = dims(&v);
     let e = &v["enabled"];

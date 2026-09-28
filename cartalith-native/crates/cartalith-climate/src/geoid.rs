@@ -212,10 +212,18 @@ pub fn current_geoid_preview(
     )
 }
 
+/// Coverage for `build_geoid`/`refresh_geoid`/`current_geoid_preview`: no
+/// golden-parity fixture exists for this module (per the module doc, the
+/// off-path is bit-identical by construction and needs no fixture); these
+/// pin the reference's own literal defaults and the invariants the port
+/// depends on instead.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: `GeoidOpts::default()` against a silent drift away from
+    /// `buildGeoid`'s own `Object.assign` literals (reference HTML line 4974)
+    /// — every other test in this module builds on these defaults holding.
     #[test]
     fn defaults_match_the_reference_literals() {
         let d = GeoidOpts::default();
@@ -223,6 +231,9 @@ mod tests {
         assert_eq!((d.amp, d.lat0, d.lat1, d.wrap_x), (0.015, 90.0, -90.0, false));
     }
 
+    /// Protects: the re-centre/rescale pass at the end of `build_geoid` —
+    /// zero mean and a peak absolute offset of exactly `amp`, the invariant
+    /// every downstream consumer (`geoAt`) relies on.
     #[test]
     fn the_field_is_zero_mean_and_peaks_at_amp() {
         let f = build_geoid(
@@ -239,6 +250,9 @@ mod tests {
         assert!((peak - 0.02).abs() < 1e-7, "peak {peak} should be amp");
     }
 
+    /// Protects: the `!enabled || !(amp > 0.0)` early-return in
+    /// `refresh_geoid`, including the NaN-as-off convention (`!(amp>0)`
+    /// rather than `amp<=0` — a NaN amplitude must read as off, matching JS).
     #[test]
     fn refresh_is_none_when_off_or_amplitude_is_not_positive() {
         assert!(refresh_geoid(8, 8, false, 0.015, 1, 24.0, 1.0, 1.0, 90.0, -90.0, true).is_none());
@@ -247,6 +261,9 @@ mod tests {
         assert!(refresh_geoid(8, 8, true, 0.015, 1, 24.0, 1.0, 1.0, 90.0, -90.0, true).is_some());
     }
 
+    /// Protects: `geoid_rot_k`'s two clamps (`rotationHours` floored at 1,
+    /// `g` floored at 0.05), matching the reference's `Math.max` guards
+    /// against a zero-or-negative divisor.
     #[test]
     fn rot_k_clamps_its_two_divisors_the_way_the_reference_does() {
         // JS: Math.max(1, rotationHours) and Math.max(0.05, g).
@@ -255,6 +272,9 @@ mod tests {
         assert_eq!(geoid_rot_k(24.0, 1.0, 1.0), 1.0);
     }
 
+    /// Protects: `current_geoid_preview`'s two branches — falling back to the
+    /// `0.015` default amplitude when off/zero, and preferring a caller-
+    /// supplied live field over recomputing `build_geoid` when one exists.
     #[test]
     fn the_preview_falls_back_to_the_default_amplitude_but_prefers_a_live_field() {
         let (_, amp) = current_geoid_preview(8, 8, None, 0.0, 1, 24.0, 1.0, 1.0, 90.0, -90.0, true);

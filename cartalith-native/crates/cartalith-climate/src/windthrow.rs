@@ -97,10 +97,17 @@ fn slope_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize
     js_hypot((r - l) * 0.5, (d - u) * 0.5)
 }
 
+/// Coverage for `build_wind_throw_field`; there is no golden-parity fixture
+/// for this debug-view-only hazard layer (per the module doc), so these pin
+/// the per-term constants (`CANOPY_BIOMES`, `OPEN_CANOPY`, the exposure
+/// floor) directly against small, hand-built fixtures instead.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A uniform `WindFieldResult` fixture — every cell the same `(u, v)`,
+    /// so a test isolates the canopy/slope/water terms without wind
+    /// direction or coarse-grid sampling adding noise.
     fn flat_wind(ww: usize, wh: usize, u: f32, v: f32) -> WindFieldResult {
         WindFieldResult {
             u: vec![u; ww * wh],
@@ -111,6 +118,8 @@ mod tests {
         }
     }
 
+    /// Protects: the `vw < sea` guard zeroing every water cell regardless of
+    /// wind/canopy/slope.
     #[test]
     fn water_is_always_zero() {
         let (gw, gh) = (8usize, 6usize);
@@ -122,6 +131,9 @@ mod tests {
     /// The canopy term is the only difference between these two runs, so
     /// the ratio pins `_CANOPY`'s own `1 : 0.15` and not merely "forest is
     /// higher than grass".
+    /// Protects: `OPEN_CANOPY`'s exact `0.15` value — the canopy term is the
+    /// only difference between the two runs, so the ratio pins the constant
+    /// itself, not merely "forest is higher than grass".
     #[test]
     fn closed_canopy_is_exactly_the_open_canopy_value_over_zero_point_one_five() {
         let (gw, gh) = (8usize, 6usize);
@@ -138,6 +150,10 @@ mod tests {
     /// Every one of the five `_CANOPY` indices must actually be treated as
     /// closed canopy, and its neighbours must not be — a `Set` membership
     /// test is exactly the kind of constant a golden fixture can miss.
+    /// Protects: `CANOPY_BIOMES`'s exact five-element membership set — every
+    /// one of the five indices reads as closed canopy, and every neighbour
+    /// value does not, a `Set` membership constant a golden fixture alone
+    /// could miss.
     #[test]
     fn only_the_five_canopy_indices_count_as_closed_canopy() {
         let (gw, gh) = (4usize, 4usize);
@@ -159,6 +175,8 @@ mod tests {
 
     /// `expo` floors at 0.4 and saturates at 1.0 for slope ≥ 0.25, so a
     /// perfectly flat land cell under full wind reads 0.4, not 0.
+    /// Protects: the `expo` term's `0.4` floor — flat land under full wind
+    /// must read exactly `0.4`, not `0.0`, since exposure never fully zeroes.
     #[test]
     fn a_flat_sheltered_cell_still_carries_the_zero_point_four_exposure_floor() {
         let (gw, gh) = (6usize, 6usize);

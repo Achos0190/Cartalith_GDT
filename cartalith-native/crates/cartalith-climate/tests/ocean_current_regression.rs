@@ -30,10 +30,16 @@
 
 use cartalith_climate::{compute_ocean_current, ocean_sst_anomaly, OceanCurrentParams};
 
+/// JS's own `computeOceanCurrent` defaults (an empty `{}` opts bag), matching
+/// `ocean_sst_anomaly`'s one real call site.
 fn ocean_current_default_params() -> OceanCurrentParams {
     OceanCurrentParams { gap_k: 0.4, iterations: 20, bend_k: 0.9, western: true }
 }
 
+/// Protects: `compute_ocean_current`'s determinism, land cells staying
+/// exactly zero, and the ocean not silently defaulting to all-zero --
+/// behavioural properties a wrong-but-stable formula could still pass the
+/// bit-exact golden fixtures without actually having.
 #[test]
 fn compute_ocean_current_is_deterministic_and_zero_on_land() {
     let ww = 20usize;
@@ -71,6 +77,9 @@ fn compute_ocean_current_is_deterministic_and_zero_on_land() {
     assert!(a.u.iter().any(|&v| v != 0.0), "expected at least one nonzero ocean current cell");
 }
 
+/// Protects: `ocean_sst_anomaly`'s determinism and the `[-8, 8]` clamp on its
+/// output -- properties independent of the exact reference-captured values
+/// `golden_parity_weather.rs`'s own currents case pins.
 #[test]
 fn ocean_sst_anomaly_is_deterministic_and_zero_on_land() {
     let gw = 24usize;

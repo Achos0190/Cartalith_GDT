@@ -32,24 +32,35 @@ use cartalith_climate::koppen::{
 };
 use cartalith_climate::ClimateParams;
 
+/// Decodes a JSON array of numbers into the `Vec<f32>` a `Float32Array` in
+/// the captured fixture actually held.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Decodes a JSON array of small non-negative integers into `Vec<u8>` (the
+/// captured Köppen raster, a `Uint8Array` in the reference).
 fn u8s(v: &serde_json::Value) -> Vec<u8> {
     v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u8).collect()
 }
 
+/// Loads the captured reference run (see module doc for how it was made).
 fn fixture() -> serde_json::Value {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/koppen_captured.json"))
         .expect("koppen_captured.json fixture should read");
     serde_json::from_str(&s).expect("fixture should parse")
 }
 
+/// The captured world's grid width, from the same `generate()` run the
+/// module doc names (`gw=48 gh=32 seed=24601 world=true mapWidthKm=4000`).
 const GW: usize = 48;
+/// The captured world's grid height, same run as [`GW`].
 const GH: usize = 32;
+/// The captured world's sea level, same run as [`GW`].
 const SEA: f64 = 0.42;
 
+/// Decodes the fixture's captured planet/climate scalars into a
+/// [`ClimateParams`] for `compute_temp_into`.
 fn climate(v: &serde_json::Value) -> ClimateParams {
     ClimateParams {
         world: true,
@@ -70,6 +81,7 @@ fn climate(v: &serde_json::Value) -> ClimateParams {
     }
 }
 
+/// Decodes the fixture's captured classifier scalars into a [`KoppenParams`].
 fn koppen_params(v: &serde_json::Value) -> KoppenParams {
     KoppenParams {
         world: true,
@@ -80,6 +92,10 @@ fn koppen_params(v: &serde_json::Value) -> KoppenParams {
     }
 }
 
+/// Protects: `compute_temp_into` bit-exact at both solstices, `computeSeasons`
+/// leaving the two fields unmutated, and the solstices differing in opposite
+/// directions about the equator (the declination shift genuinely reaching
+/// the formula).
 #[test]
 fn compute_temp_into_matches_the_reference_at_both_solstices() {
     let v = fixture();
@@ -111,6 +127,9 @@ fn compute_temp_into_matches_the_reference_at_both_solstices() {
 /// it would still pass a golden captured at `decl = 0`.
 #[test]
 fn zero_declination_reproduces_the_annual_temperature_model() {
+    // Protects: decl=0 reducing compute_temp_into to compute_temperature's
+    // own body -- the declination term must genuinely reach Math.cos(lat -
+    // declR), not be dropped in a way a decl=0 golden alone would miss.
     let v = fixture();
     let field = f32s(&v["field"]);
     let cp = climate(&v);
@@ -119,6 +138,9 @@ fn zero_declination_reproduces_the_annual_temperature_model() {
     assert_ne!(annual, compute_temp_into(GW, GH, &field, None, 23.4, &cp));
 }
 
+/// Protects: `build_koppen`/`classify_koppen` bit-exact against the
+/// reference's real raster over its own real captured seasonal fields, over
+/// all 19 classes the captured world produces.
 #[test]
 fn build_koppen_matches_the_reference_over_its_own_seasonal_fields() {
     let v = fixture();
@@ -154,6 +176,10 @@ fn build_koppen_matches_the_reference_over_its_own_seasonal_fields() {
 /// `koppen_index.json`.
 #[test]
 fn the_frozen_key_order_and_palette_match_the_reference() {
+    // Protects: KOPPEN_KEYS/KOPPEN_COL's frozen append-only order and
+    // koppen_color's index-0 and out-of-range behaviour, against the
+    // reference's own literal arrays -- a reorder here would silently
+    // reinterpret every exported koppen_index.json.
     let v = fixture();
     let keys: Vec<String> = v["keys"]
         .as_array()
@@ -201,6 +227,9 @@ fn the_frozen_key_order_and_palette_match_the_reference() {
 /// literal that changed nothing would sail through the golden above.
 #[test]
 fn the_classifier_s_thresholds_are_all_load_bearing() {
+    // Protects: max_rain_mm, the hemisphere summer/winter swap, and the
+    // latitude hemisphere test all actually changing the classification --
+    // each is a mutation the golden raster alone would not catch if dropped.
     let v = fixture();
     let field = f32s(&v["field"]);
     let (tj, ta) = (f32s(&v["temp_jul"]), f32s(&v["temp_jan"]));
@@ -270,6 +299,8 @@ fn the_classifier_s_thresholds_are_all_load_bearing() {
 /// produced names a real key, and every key round-trips.
 #[test]
 fn every_captured_raster_value_names_a_real_koppen_key() {
+    // Protects: koppen_index's round trip over every value the captured
+    // world's real raster actually produced.
     let v = fixture();
     for value in u8s(&v["koppen"]) {
         if value == 0 {

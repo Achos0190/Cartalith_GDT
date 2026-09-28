@@ -30,10 +30,17 @@
 
 use cartalith_climate::{deflect_flow, DeflectFlowParams};
 
+/// The same default knob set `build_wind`'s own terrain-deflection call site
+/// uses, so these behavioural tests exercise the exact tuning that reaches
+/// production, not an arbitrary one.
 fn deflect_default_params() -> DeflectFlowParams {
     DeflectFlowParams { strength: 1.0, k1: 0.6, k2: 0.65, gap_k: 0.32, iterations: 16, block_blur: 2 }
 }
 
+/// Protects: `deflect_flow`'s determinism (same input -> same output), a
+/// measurable bend upstream of a blocking ridge, and near-identity far from
+/// one -- the behavioural properties a wrong-but-stable formula could still
+/// pass the bit-exact golden fixtures without actually having.
 #[test]
 fn deflect_flow_is_deterministic_and_bends_around_a_ridge() {
     let ww = 16usize;
@@ -66,6 +73,9 @@ fn deflect_flow_is_deterministic_and_bends_around_a_ridge() {
     assert!((u_a[far] as f64 - 1.0).abs() < 0.05, "expected flow far from the ridge to stay close to the original wind");
 }
 
+/// Protects: `strength: 0.0` (combined with `gap_k: 0.0`) leaving `u`/`v`
+/// byte-identical to the input -- no redirect, no gap-speed rescale --
+/// pinning the off-path as an exact identity, not merely "small change".
 #[test]
 fn deflect_flow_zero_strength_is_a_near_identity() {
     let ww = 10usize;

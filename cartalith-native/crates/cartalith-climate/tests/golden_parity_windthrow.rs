@@ -25,16 +25,21 @@
 use cartalith_climate::WindFieldResult;
 use cartalith_climate::windthrow::{CANOPY_BIOMES, build_wind_throw_field};
 
+/// Decodes a JSON array of numbers into the `Vec<f32>` a `Float32Array` in
+/// the captured fixture actually held.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Loads the captured reference run (see module doc for how it was made).
 fn fixture() -> serde_json::Value {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/windthrow_captured.json"))
         .expect("windthrow_captured.json fixture should read");
     serde_json::from_str(&s).expect("fixture should parse")
 }
 
+/// Decodes the fixture's captured `build_wind_throw_field` inputs into the
+/// tuple every test in this file calls it with.
 fn parts(v: &serde_json::Value) -> (Vec<f32>, Vec<u8>, WindFieldResult, usize, usize, f64, bool) {
     let inp = &v["input"];
     let wind = WindFieldResult {
@@ -56,6 +61,8 @@ fn parts(v: &serde_json::Value) -> (Vec<f32>, Vec<u8>, WindFieldResult, usize, u
     )
 }
 
+/// Protects: `CANOPY_BIOMES`'s membership set against the reference's own
+/// captured `_CANOPY` set, order-independent (both sorted before compare).
 #[test]
 fn the_canopy_class_set_matches_the_reference() {
     let v = fixture();
@@ -65,6 +72,9 @@ fn the_canopy_class_set_matches_the_reference() {
     assert_eq!(got, expected);
 }
 
+/// Protects: `build_wind_throw_field` bit-exact against a real reference run
+/// on a wrapping world, over the captured wind/biome/field inputs rather than
+/// re-derived ones (so this measures the hazard formula, not the wind sim).
 #[test]
 fn build_wind_throw_field_matches_the_reference_on_a_real_world() {
     let v = fixture();
@@ -92,6 +102,8 @@ fn build_wind_throw_field_matches_the_reference_on_a_real_world() {
 /// above would still pass.
 #[test]
 fn the_captured_biome_raster_is_actually_consulted() {
+    // Protects: the biome raster genuinely reaching the canopy term --
+    // flattening every cell to forest must change the answer.
     let v = fixture();
     let (field, biome, wind, gw, gh, sea, world) = parts(&v);
     let base = build_wind_throw_field(&field, &biome, &wind, gw, gh, sea, world);
@@ -112,6 +124,8 @@ fn the_captured_biome_raster_is_actually_consulted() {
 /// only place the two differ.
 #[test]
 fn the_x_wrap_flag_reaches_the_bilinear_sample() {
+    // Protects: the world/wrap flag genuinely reaching bilC's wrap branch --
+    // running the captured wrapping world as a region must move the answer.
     let v = fixture();
     let (field, biome, wind, gw, gh, sea, world) = parts(&v);
     assert!(world, "the captured world must be a wrapping one for this test to say anything");
