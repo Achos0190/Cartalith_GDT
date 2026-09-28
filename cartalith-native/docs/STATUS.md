@@ -267,6 +267,35 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-28
 
+- **"Roads do not meet their settlements" — re-diagnosed, pending independent verification.**
+  The earlier half-cell-convention hypothesis in this row was wrong (a prior
+  probe measured 0.00 px because "nearest endpoint to any settlement" can't
+  see a settlement whose OTHER ways miss it). A per-way check (each way's
+  declared endpoints against its own `a_idx`/`b_idx` settlement) on the
+  owner's exact world (seed 246371, 2048×1311, metropolis on, river_density
+  1.55, geology_model on) found 20 of 236 ways with one endpoint 59-585
+  cells from its own settlement. Root cause traced to the symbol:
+  `civ_consolidate_and_smooth_ways`'s corridor-consolidation claim logic
+  (`cartalith-civ/src/lib.rs` ~8479-8644), matching the reference's own
+  `_civHierarchicalNetwork` (`Cartalith Gen1 v2.11.html` ~22175-22227)
+  **exactly**, including the v1.02 second-pass endpoint snap
+  (`_snapT2`/`snap_t2`) already correctly ported. The reference's own
+  comment documents this snap as deliberately bounded so it "can never
+  reach toward a NEIGHBOURING place" — accepting that a deep shared
+  corridor still visibly misses. The reference caps its routing grid at
+  the same `RW=min(GW,384)` this port uses, so this is inherited JS
+  behaviour made newly visible at world sizes (2048×1311) the reference's
+  browser canvas never exercised, not a port-introduced regression. **No
+  code was changed**: no existing golden exercises `gw>384`
+  (`golden_parity_road_consolidation.rs`/`golden_parity_hierarchical_
+  network.rs` use gw=14/16; `iterative_network.rs`'s gw=512 case is
+  `#[ignore]`), so a threshold change would move none of them, but it would
+  still be a deliberate deviation from the reference's own documented
+  algorithm — `DECISIONS.md`'s "do not deviate silently" rule requires an
+  owner ruling first, not a silent patch. `cargo test -p cartalith-civ`
+  unchanged at 1013 passed / 0 failed / 11 ignored. See
+  `OUTSTANDING_WORK.md`'s row for the full account and next step.
+
 - **Developer code names in the Data Manager's gap-register notes — narrowed, verified by the main loop 2026-09-28 (edited string literals grepped: no ## and no identifiers inside them).**
   `data_manager_window.gd`'s `val_check` reason and its five `CHECKS_*_NOTE`
   consts, plus `world_workspace.gd`'s micro-erode LOD note, no longer name
