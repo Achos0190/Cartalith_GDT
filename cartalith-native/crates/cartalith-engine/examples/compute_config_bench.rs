@@ -34,18 +34,32 @@ use cartalith_terrain::tile_render::{shade_tile, u8_clamped};
 // nothing can link it) -- it reproduces the exact call sequence
 // `lod_bridge::synthesize_tile_rgba` makes, from the same committed engine
 // functions, so the number measured here is the number that path pays.
-const TILE_PX: usize = 256;
-const REFERENCE_TILE_PX: usize = 1024;
-const MAX_LEVEL: i32 = 10;
-const SUN_AZ_DEG: f64 = 315.0;
-const EXAG: f64 = 3.4;
-const SHADE_RATIO_MID: f64 = 128.0;
-const SHADE_RATIO_GAIN: f64 = 256.0;
+const TILE_PX: usize = 256; // lod_bridge's own tile edge in pixels
+const REFERENCE_TILE_PX: usize = 1024; // lod_bridge's reference tile size, used only to compute z_base()'s offset above
+const MAX_LEVEL: i32 = 10; // lod_bridge's own deepest pyramid level clamp
+// SUN_AZ_DEG/EXAG/SHADE_RATIO_MID/SHADE_RATIO_GAIN below no longer mirror
+// `lod_bridge` -- as of LOD-D2 (2026-09-21) that crate stopped fixing them,
+// reading TerrainAppearance's live sun/exaggeration instead (see
+// lod_bridge.rs's own comment at its former MAX_LEVEL-adjacent location).
+// This bench keeps a fixed set so `shade_tile` timing is reproducible across
+// runs regardless of TerrainAppearance state; the values are this bench's
+// own choice, not a citation of current lod_bridge behaviour.
+const SUN_AZ_DEG: f64 = 315.0; // fixed northwest light, arbitrary but reproducible
+const EXAG: f64 = 3.4; // arbitrary fixed vertical exaggeration for reproducible timing
+const SHADE_RATIO_MID: f64 = 128.0; // this bench's own u8_clamped centre for encoding the detailed/plain shade ratio
+const SHADE_RATIO_GAIN: f64 = 256.0; // this bench's own u8_clamped gain for the same encoding
 
+/// The LOD zoom level `lod_bridge` actually synthesizes tiles at, given this
+/// bench's own `TILE_PX` rather than the reference's `REFERENCE_TILE_PX`
+/// (the two differ by a power of two, folded in here so the rest of this
+/// file can pretend it is always working at `REFERENCE_TILE_PX`).
 fn z_base() -> i32 {
     AmplifyOpts::default().z_base + (REFERENCE_TILE_PX / TILE_PX).ilog2() as i32
 }
 
+/// The pixel size of the tile at grid `(gw, gh)`, zoom `z` — mirrors
+/// `lod_bridge`'s own edge-tile sizing so the bench measures the real
+/// (possibly partial) tile shape, not always a full `TILE_PX` square.
 fn tile_size_px(gw: usize, gh: usize, z: i32) -> (usize, usize) {
     let n = pyramid_dims(z.clamp(0, MAX_LEVEL)).cols as usize;
     let sel = Region { x: 0, y: 0, w: gw.saturating_sub(1), h: gh.saturating_sub(1) };
@@ -125,6 +139,8 @@ fn apply_config(cfg: &str) -> bool {
     }
 }
 
+/// A `WorldParams` for a `size`x`size` world with a fixed seed (so runs are
+/// comparable across configurations) and the given plate count / GPU flag.
 fn params(size: usize, plates: usize, use_gpu: bool) -> WorldParams {
     let mut p = WorldParams::defaults(size, size, 12345);
     p.tect.plates = plates;
@@ -144,6 +160,9 @@ fn peak_working_set_mb() -> Option<f64> {
     String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().ok().map(|b| b / (1024.0 * 1024.0))
 }
 
+/// The `p`-th percentile (`p` in `[0,1]`) of an already-sorted sample.
+/// Nearest-rank, not interpolated — adequate for a bench report, not a
+/// statistics library.
 fn pct(sorted_ms: &[f64], p: f64) -> f64 {
     if sorted_ms.is_empty() {
         return f64::NAN;
@@ -152,6 +171,9 @@ fn pct(sorted_ms: &[f64], p: f64) -> f64 {
     sorted_ms[i]
 }
 
+/// Prints one summary line for a sample of millisecond timings: mean, sd,
+/// p50/p95/p99/max, and the fraction of samples over one 60fps frame budget
+/// (16.7ms) — the number this bench actually exists to answer.
 fn report(label: &str, mut v: Vec<f64>) {
     v.sort_by(f64::total_cmp);
     let mean = v.iter().sum::<f64>() / v.len() as f64;
@@ -170,6 +192,8 @@ fn report(label: &str, mut v: Vec<f64>) {
 
 // --- modes -------------------------------------------------------------------
 
+/// `devices` mode: lists every GPU adapter this machine's `wgpu` backend
+/// enumerates, so a run can be pinned to a specific `cfg` key below by name.
 fn mode_devices() {
     for (i, d) in cartalith_gpu::enumerate_devices().iter().enumerate() {
         println!(
@@ -186,6 +210,9 @@ fn mode_devices() {
     }
 }
 
+/// `gen` mode: times `reps` calls to `generate_terrain` under the given
+/// compute configuration (`cfg`), reporting the full `PERFORMANCE_BENCHMARKS.md`
+/// distribution rather than a single wall-clock number.
 fn mode_gen(cfg: &str, size: usize, plates: usize, reps: usize) {
     let use_gpu = apply_config(cfg);
     let p = params(size, plates, use_gpu);
@@ -225,6 +252,9 @@ fn mode_gen(cfg: &str, size: usize, plates: usize, reps: usize) {
 /// ground is covered at increasing depth, which is what a zoom-in does.
 const LEVELS: [i32; 5] = [4, 6, 7, 8, 9];
 
+/// `tiles` mode: generates one world, then times synthesizing every tile at
+/// each `LEVELS` zoom depth, reporting the per-tile distribution — the
+/// number an interactive zoom-in actually pays, not amortized batch cost.
 fn mode_tiles(cfg: &str, size: usize, plates: usize) {
     let use_gpu = apply_config(cfg);
     let p = params(size, plates, use_gpu);
@@ -401,6 +431,9 @@ fn mode_tilepar(cfg: &str, size: usize, plates: usize) {
     }
 }
 
+/// CLI entry point: dispatches to `mode_devices`/`mode_gen`/`mode_tiles` (see
+/// the module doc comment above for the exact command lines each mode
+/// expects), defaulting to `devices` with no arguments.
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let mode = a.first().map(String::as_str).unwrap_or("devices");

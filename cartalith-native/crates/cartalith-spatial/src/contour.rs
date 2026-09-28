@@ -299,6 +299,9 @@ pub fn contour_polylines(field: &[f32], w: usize, h: usize, level: f64) -> Vec<V
     out
 }
 
+/// Golden-shape and topology tests for `contour_polylines` — closed rings,
+/// winding direction and repeat-call determinism (see each test's own
+/// `// Protects:` line for what it individually guards).
 #[cfg(test)]
 mod tests {
     use super::*;

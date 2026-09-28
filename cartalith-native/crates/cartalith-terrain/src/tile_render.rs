@@ -73,11 +73,16 @@ pub const LAND: [(f64, [f64; 3]); 6] = [
 /// unlike the azimuth, which is a user setting.
 pub const SUN_ALT_DEG: f64 = 40.0;
 
+/// `lerp` (reference 8304): linear interpolation from `a` to `b` at `t`,
+/// unclamped — callers (chiefly [`mix`]) rely on `t` outside `[0, 1]`
+/// extrapolating rather than clamping (see the module doc's "hypso
+/// extrapolates past its own palette" section).
 #[inline]
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
 
+/// `mix` (reference 8305): per-channel [`lerp`] of two RGB colours.
 #[inline]
 fn mix(c1: [f64; 3], c2: [f64; 3], t: f64) -> [f64; 3] {
     [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]
@@ -284,6 +289,9 @@ pub fn shade_tile(tile: &[f32], w: usize, h: usize, sea: f64, sun_az_deg: f64, e
     out
 }
 
+/// Tests for `hypso`, `render_height_tile_rgba` and `shade_tile` — the
+/// hypsometric-tint/hillshade tile renderer this file exists to hold (see
+/// the module doc comment above for the exact reference lines each ports).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,6 +319,9 @@ mod tests {
 
     #[test]
     fn hypso_hits_its_palette_endpoints_exactly() {
+        // Protects: hypso's boundary conditions -- v==sea lands exactly on
+        // LAND[0] rather than one segment either side, and v==0/v==1 hit
+        // the palette's own extreme stops.
         assert_eq!(hypso(0.0, 0.42), SEA[0]);
         assert_eq!(hypso(0.42, 0.42), LAND[0].1);
         assert_eq!(hypso(1.0, 0.42), LAND[5].1);
@@ -318,6 +329,9 @@ mod tests {
 
     #[test]
     fn hypso_extrapolates_below_the_palette_rather_than_clamping() {
+        // Protects: the depth ramp's own lack of clamping -- a v deep enough
+        // below sea level must drive mix() past SEA[0] into negative channel
+        // values, matching the reference rather than a clamped-safer guess.
         // Real reference behaviour, not a bug being ported blind: the depth
         // ramp is unclamped, so a deep enough v drives mix() past SEA[0].
         let c = hypso(-0.1, 0.3);
@@ -328,6 +342,8 @@ mod tests {
 
     #[test]
     fn hypso_survives_a_degenerate_sea_level_at_either_end() {
+        // Protects: the `sea <= 0` / `1 - sea <= 0` guards -- a degenerate
+        // sea level must not divide by zero or produce a NaN colour.
         // sea <= 0: nothing is below it except a negative v, which reads the
         // shallowest sea colour. 1 - sea <= 0: all land reads LAND[0].
         assert_eq!(hypso(-0.1, 0.0), SEA[2]);
@@ -336,6 +352,8 @@ mod tests {
 
     #[test]
     fn render_emits_four_opaque_bytes_per_pixel() {
+        // Protects: RGBA8 row-major output shape and the always-255 alpha
+        // channel `render_height_tile_rgba` must always emit.
         let t = mk_tile(7, 5, 3);
         let px = render_height_tile_rgba(&t, 7, 5, 0.42, 315.0, 3.4);
         assert_eq!(px.len(), 7 * 5 * 4);
@@ -344,6 +362,9 @@ mod tests {
 
     #[test]
     fn render_is_not_flat() {
+        // Protects: against a silently-constant raster (MISTAKES.md's
+        // "watch for silently-empty golden output") -- shape checks alone
+        // would pass a bug that flattens every pixel to one colour.
         // A silently-constant raster passes every structural check, so say it.
         let t = mk_tile(16, 11, 5);
         let px = render_height_tile_rgba(&t, 16, 11, 0.42, 315.0, 3.4);
@@ -353,6 +374,9 @@ mod tests {
 
     #[test]
     fn a_one_pixel_wide_tile_extrapolates_instead_of_indexing_out_of_range() {
+        // Protects: the edge extrapolators' `min`/`max` guards at every
+        // degenerate dimension (W==1, H==1, both==1) -- an off-by-one there
+        // would index out of range rather than extrapolate.
         // edgeL/edgeR both fall to the extrapolating branch at W == 1, and
         // min(1, W-1) is what keeps them in range.
         let t = mk_tile(1, 6, 2);
@@ -368,6 +392,9 @@ mod tests {
 
     #[test]
     fn an_all_nan_tile_renders_black_and_opaque_rather_than_panicking() {
+        // Protects: js_max's NaN-propagation and the clamped store's
+        // NaN-to-0 mapping (JS_SEMANTICS_AUDIT.md) -- a real amplify_region
+        // failure mode must render black, not panic or produce garbage.
         // milestone E's amplifyRegion division by zero produces exactly this
         // tile. Math.max(0, NaN) is NaN, `v < sea` is false, and the clamped
         // store maps NaN to 0 -- so the reference draws a black square, and so
@@ -381,6 +408,9 @@ mod tests {
 
     #[test]
     fn a_flat_tile_still_lights_from_the_azimuth() {
+        // Protects: the light-vector construction from sun altitude/azimuth
+        // even with zero terrain gradient -- a flat tile must still shade
+        // uniformly (not black), and every pixel must agree.
         // Zero gradient everywhere -> the normal is straight up -> sh == lz.
         let t = vec![0.7f32; 25];
         let px = render_height_tile_rgba(&t, 5, 5, 0.42, 315.0, 3.4);
@@ -391,6 +421,9 @@ mod tests {
 
     #[test]
     fn the_sea_and_land_shade_bands_really_differ() {
+        // Protects: the two shade-strength constants (0.75/0.25 under water,
+        // 0.4/0.6 above) staying distinct -- a mutation collapsing them to
+        // one formula would pass every other test in this file.
         // 0.75+0.25*sh vs 0.4+0.6*sh: on a flat tile the same sh gives two
         // different multipliers, which is what stops a mutation swapping them
         // from going unnoticed.
@@ -401,6 +434,9 @@ mod tests {
 
     #[test]
     fn exaggeration_changes_the_shading_but_not_the_tint_family() {
+        // Protects: `exag` actually reaching the gradient terms (nx/ny) --
+        // a dropped or ignored exaggeration parameter would render the same
+        // bytes at any exag value.
         let t = mk_tile(8, 8, 1);
         let a = render_height_tile_rgba(&t, 8, 8, 0.42, 315.0, 1.0);
         let b = render_height_tile_rgba(&t, 8, 8, 0.42, 315.0, 8.0);
@@ -409,6 +445,10 @@ mod tests {
 
     #[test]
     fn shade_tile_is_exactly_the_multiplier_render_height_tile_rgba_applies() {
+        // Protects: shade_tile's arithmetic staying byte-identical to
+        // render_height_tile_rgba's own inline `s` -- see the module doc
+        // comment above ("Deliberately not factored out") for why this
+        // reconstruction check exists instead of a shared helper.
         // The whole point of `shade_tile` existing separately: it must be the
         // same `s`, not a lookalike. Asserted by reconstruction -- tint the
         // hypso colour by this shade and the bytes must come back identical to
@@ -435,6 +475,9 @@ mod tests {
 
     #[test]
     fn shade_tile_reaches_both_bands_and_is_not_flat() {
+        // Protects: shade_tile's output shape, its [0.4, 1]/[0.75, 1] band
+        // bounds, and non-flatness (MISTAKES.md's "watch for silently-empty
+        // golden output").
         // Non-emptiness and shape, stated rather than assumed (this port's own
         // "watch for silently-empty golden output" rule): a tile straddling sea
         // level must produce shades in both the underwater band (>= 0.75) and

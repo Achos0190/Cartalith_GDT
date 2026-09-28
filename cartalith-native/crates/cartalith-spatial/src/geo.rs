@@ -302,6 +302,10 @@ pub fn id_mask<'a, T: PartialEq + Copy + 'a>(
     }
 }
 
+/// Tests for the raster→vector boundary tracer and the local-planar
+/// coordinate transform ported from `Cartalith Gen1 v2.10.html` block #1
+/// (see the module doc comment above for the exact function list and line
+/// numbers).
 #[cfg(test)]
 mod tests {
     use super::*;

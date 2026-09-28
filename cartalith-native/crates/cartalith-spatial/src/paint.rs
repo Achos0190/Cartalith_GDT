@@ -498,13 +498,17 @@ impl PaintLayer {
     }
 }
 
+/// Golden and boundary tests for the categorical-override paint brush
+/// (`UNIFIED_TOOL_PLAN.md` milestone C), ported against the reference's
+/// `_paintAt`/`getPaintLayer`/`_paintSampleAt` (see the module doc comment
+/// above for exact line numbers).
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DirtyTracker, PassBuffer};
 
-    const W: usize = 16;
-    const H: usize = 16;
+    const W: usize = 16; // arbitrary small test grid, big enough for a brush stamp with margin
+    const H: usize = 16; // matches W: this crate's tests use square grids throughout
 
     /// The rim-cell divergence [`js_hypot`] exists for, at the smallest radius
     /// that can reach it.
@@ -528,7 +532,7 @@ mod tests {
         // Protects: apply() gating on js_hypot, not f64::hypot -- the one
         // ulp difference at R=125 that changes which rim cells paint.
         const G: usize = 251; // 2*125 + 1
-        const C: i64 = 125;
+        const C: i64 = 125; // the brush centre; see the test's own doc comment above for why 125 specifically
         let mut dst = vec![0u8; G * G];
         PaintStamp::ungated(C, C, 125.0, 7).apply(&mut dst, G, G);
 
@@ -652,9 +656,9 @@ mod tests {
         // Radius 20 in a grid big enough to hold it -- the small radii
         // (3..6) the rest of this file uses don't leave enough rim cells
         // for "mottled, not merely smaller" to be a meaningful measurement.
-        const G: usize = 48;
-        const C: i64 = 24;
-        const R: f64 = 20.0;
+        const G: usize = 48; // see the comment above: big enough to hold radius 20 plus rim
+        const C: i64 = 24; // grid centre, G/2
+        const R: f64 = 20.0; // see the comment above: large enough to leave a measurable mottled band
         let mut hard = vec![0u8; G * G];
         PaintStamp::ungated(C, C, R, 7).apply(&mut hard, G, G);
 
@@ -709,9 +713,9 @@ mod tests {
         // Protects: hardness stays at its own "fully hard" default; softness alone
         // must still be able to open a falloff band -- the two sliders add,
         // rather than softness being hardness-in-disguise.
-        const G: usize = 48;
-        const C: i64 = 24;
-        const R: f64 = 20.0;
+        const G: usize = 48; // same grid as the falloff-band test above, for consistency
+        const C: i64 = 24; // grid centre, G/2
+        const R: f64 = 20.0; // same radius as the falloff-band test above
         let mut hard = vec![0u8; G * G];
         PaintStamp::ungated(C, C, R, 7).apply(&mut hard, G, G);
         let mut soft = vec![0u8; G * G];

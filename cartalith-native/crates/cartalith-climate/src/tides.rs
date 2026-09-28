@@ -60,6 +60,10 @@ pub struct TideParams {
 }
 
 impl Default for TideParams {
+    /// `state.planet.g`/`t.k2` fallbacks as read by `computeTideField` (see
+    /// the field doc comments above), with a single default moon so a
+    /// caller that forgets to populate `moons` still gets a non-empty tide
+    /// field rather than a silent zero.
     fn default() -> Self {
         Self {
             g: 1.0,

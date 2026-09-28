@@ -48,6 +48,9 @@
 
 use cartalith_terrain::tile_render::{hypso, render_height_tile_rgba};
 
+/// FNV-1a-64 over raw bytes, as a stable short fingerprint for a golden
+/// raster — see the module doc's "The fixture" section for why both sides
+/// hash the same way (a drifted fixture must fail loudly, not quietly).
 fn fnv_u8(a: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in a {
@@ -57,6 +60,9 @@ fn fnv_u8(a: &[u8]) -> String {
     format!("{h:016x}")
 }
 
+/// FNV-1a-64 over an `f32` slice's raw little-endian bits — fingerprints the
+/// *input* tile (not just the rendered output), so a fixture that drifted
+/// fails as a fixture rather than being blamed on the port under test.
 fn fnv_f32(a: &[f32]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in a {
@@ -88,6 +94,9 @@ fn mk_tile(w: usize, h: usize, k: i64) -> Vec<f32> {
 
 #[test]
 fn hypso_matches_the_reference_across_four_sea_levels() {
+    // Protects: hypso's bit-exact agreement with the reference across every
+    // sub-ramp, palette boundary and degenerate-sea-level guard, plus the
+    // unclamped below-palette extrapolation actually being reached.
     // (sea, v) -> [r, g, b], straight out of the reference. The list spans:
     // both sea sub-ramps, every LAND stop boundary, the `sea <= 0` guard, the
     // `1 - sea <= 0` guard, and a v BELOW the palette (which extrapolates to
@@ -161,6 +170,9 @@ fn hypso_matches_the_reference_across_four_sea_levels() {
 
 #[test]
 fn render_height_tile_rgba_matches_the_reference_byte_for_byte() {
+    // Protects: render_height_tile_rgba's byte-exact agreement with the
+    // reference across normal tiles and every degenerate edge case (1-wide,
+    // 1-tall, 2x2) the edge extrapolators exist for.
     // (w, h, k, sea, sunAz, exag, rasterFnv, first 12 bytes, last 12 bytes),
     // plus the FNV of the f32 tile the raster was rendered from, so a drifted
     // fixture fails as a fixture rather than as a port.
@@ -219,6 +231,9 @@ fn render_height_tile_rgba_matches_the_reference_byte_for_byte() {
 
 #[test]
 fn a_pixel_exactly_at_sea_level_takes_the_land_branch() {
+    // Protects: the `v < sea` (not `<=`) branch condition -- a mutation to
+    // `<=` survived every fixture above (see the section comment before this
+    // test) because none of them placed a pixel exactly at sea level.
     // Flat, entirely AT sea level. A single colour, and the reference's is the
     // LAND multiplier applied to LAND[0] -- `v < sea` is false at equality.
     let flat = vec![0.5f32; 9];

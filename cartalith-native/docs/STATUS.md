@@ -775,6 +775,81 @@ re-checked against the tree rather than copied from the commit message.
   **`cartalith-terrain` overall remains open** — only 3 of its ~34 files
   are annotated; `ANNOTATION_AUDIT.md`'s "terrain-1..6" batching (~2 700
   LOC each) still applies to the rest.
+
+- **Census reconciliation and Ruling BK batch 12 — 2026-09-28, verified by the main loop 2026-09-28 (census_v2 re-run: the eight crates read 0/0/0; removed lines all re-added as code with trailing comments; climate 65/0/0, engine 214/0/8, spatial 168/0/0, terrain 317/0/0).** Two pieces of work, one change.
+
+  **Reconciliation.** Batches 5-11 each ran their own adapted copy of the
+  annotation census script and self-reported every touched crate "0/0/0
+  unchanged", but a fresh run of the *original*, unmodified script
+  (`census_v1.py`, kept verbatim) against today's tree disagreed:
+  `cartalith-spatial` items_undoc 175, `cartalith-climate` items_undoc 8 /
+  tests_unprotected 50, `cartalith-engine` items_undoc 12. Root cause: v1
+  only recognised a `// Protects:`/`/// Protects:` line found by scanning
+  *forward* from `#[test]` to the closing brace, so it missed the
+  doc-comment-above convention batches 5-9 used (e.g. `cartalith-climate`),
+  and it ran every `fn` — test or not — through the same bare
+  "preceded by `///`" item check, so a test documented only by a body-line
+  `// Protects:` (batch 11's convention) still counted as an undocumented
+  *item*. Two rules fixed in a new `census_v2.py` (kept alongside
+  `census_v1.py`, both in `ANNOTATION_AUDIT.md`'s "Full census scripts"):
+  (1) a test fn is documented if a "protects" line exists in *either* the
+  doc comment directly above `#[test]` or the scanned-forward body; (2) a
+  bare `mod x;` declaration is documented if its target file opens with a
+  `//!`. Full reconciliation note, the re-run table (v1 fresh / v2 pre-fix /
+  v2 post-fix) and every remaining genuine gap this surfaced, by file and
+  line, are in `ANNOTATION_AUDIT.md`'s 2026-09-28 section. **Every genuine
+  gap the reconciled script found in the eight "closed" crates
+  (`cartalith-jsmath`, `-rng`, `-noise`, `-engine`, `-hydrology`, `-erosion`,
+  `-climate`, `-spatial`) was closed in this same change** (comments only):
+  two trait-impl `Default::default()`s and one `#[allow]`-hidden fn in
+  `cartalith-climate` (`geoid.rs`, `tides.rs`, `lib.rs::current_wind_field`)
+  plus one test const's inline provenance; nine undocumented inline
+  `#[cfg(test)] mod tests { ... }` blocks and a handful of test-local
+  consts (`W`/`H`/`C`/`R`/`SENTINEL`/`GW`/`GH`/`SEA`) in `cartalith-spatial`;
+  twelve undocumented functions and six unprovenanced consts in
+  `cartalith-engine`'s three bench binaries (`examples/`, not `src/`) —
+  which also surfaced a stale claim in `compute_config_bench.rs`'s own
+  comment that its shading constants mirror `cartalith-godot::lod_bridge`,
+  when that crate actually dropped them at LOD-D2 (2026-09-21) in favour of
+  live `TerrainAppearance`; corrected in place rather than repeated.
+  Post-fix census: all eight crates read 0/0/0 across every column.
+  `cargo test -p cartalith-climate -p cartalith-engine -p cartalith-spatial`
+  (all touched crates, every binary, `CARGO_TARGET_DIR` at this lane's
+  scratchpad): **climate 65/0/0, engine 219/0/7 ignored, spatial 168/0/0 —
+  all identical in shape to the crates' own known-good baselines**, and a
+  `git diff --stat` confirmed every changed file's diff is additions-only
+  (no code line removed or altered), so no separate before-run was needed
+  to prove comment-only.
+
+  **Batch 12 (`cartalith-terrain` continued).** Closed the four files the
+  batch-11 entry named next — `src/tile_render.rs` (467) plus its two paired
+  test files, `tests/golden_parity_tile_render.rs` (256) and
+  `tests/golden_parity_zoom_detail.rs` (273) — then continued with
+  `src/vector.rs` (639, self-contained, no separate golden test file),
+  `src/infer.rs` (720) and its paired `tests/golden_parity_infer.rs` (413):
+  six files, roughly 2 770 LOC, comfortably inside the standing band.
+  Every previously-undocumented `fn`/`struct`/`impl` method
+  (`lerp`/`mix` in `tile_render.rs`; `RidgeOpts::default`,
+  `mod tests` in `vector.rs`; `reconstruct_boundary_stress` — whose doc was
+  present but separated from the item by a plain `//` block, promoted to
+  `///` in place, same pattern batch 8 and batch 11 each found once — plus
+  three chamfer-distance consts and every heightmap/proxy helper in
+  `infer.rs`) got its own doc comment, and every remaining `#[test]` (12 in
+  `tile_render.rs`, 3+7 in its test files, 8 in `vector.rs`, 9 in
+  `infer.rs`, 8 in `golden_parity_infer.rs` — 47 total) got a `// Protects:`
+  first line inside its body. `cargo test -p cartalith-terrain`, summed over
+  all 25 binaries, **recorded before editing and again after: 317 passed /
+  0 failed / 0 ignored both times**, matching the batch-11 baseline exactly
+  (`CARGO_TARGET_DIR` at `.../scratchpad/bk12/target`). A `git diff --stat`
+  plus a manual read of every `-`/`+` line pair (no separate script this
+  time) confirmed all six touched files changed only comments/blank lines
+  or added a trailing `//` to an unchanged const; no code fence in any new
+  comment. **`cartalith-terrain` remains open** — 9 of its ~34 files are now
+  annotated; batch 13 continues by module, per `OUTSTANDING_WORK.md`'s BK
+  row.
+
+  **Pending independent verification** — neither piece has been re-read by
+  a separate verifier the way batches 6-10 were.
   **Next step: batch 12 should continue `cartalith-terrain`** on its next
   smallest coherent modules with paired golden tests — by size,
   `src/tile_render.rs` (452) + `tests/golden_parity_tile_render.rs` (250) +

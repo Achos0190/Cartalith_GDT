@@ -43,6 +43,10 @@ use cartalith_terrain::infer::{
     stamp_volcanic_arcs,
 };
 
+/// Protects: the full inversion chain's byte-exact agreement with the
+/// reference on the non-wrapping margin fixture -- relief, seeds, crust
+/// sign, boundary mask/type and stress/shear all pinned in sequence, so a
+/// failure names the first stage that broke.
 #[test]
 fn infer_margin() {
     let w = 24usize;
@@ -86,6 +90,9 @@ fn infer_margin() {
     assert_eq!(volc, expected_volc, "volcanic_field");
 }
 
+/// Protects: the same inversion chain as `infer_margin`, on the wrapping
+/// twin fixture -- isolates the seam handling in `build_relief_field` and
+/// `reconstruct_boundary_stress` (see the module doc's "Fixture shapes").
 #[test]
 fn infer_margin_wrap() {
     let w = 24usize;
@@ -129,6 +136,10 @@ fn infer_margin_wrap() {
     assert_eq!(volc, expected_volc, "volcanic_field");
 }
 
+/// Protects: both tie-break rules the module doc's "Fixture shapes" section
+/// names -- `pick_plate_seeds`' strict `<` (first wins) and
+/// `reconstruct_boundary_stress`'s `>=` (last wins) -- on a quantised
+/// fixture where ties actually occur.
 #[test]
 fn infer_plateau() {
     let w = 16usize;
@@ -172,6 +183,9 @@ fn infer_plateau() {
     assert_eq!(volc, expected_volc, "volcanic_field");
 }
 
+/// Protects: `stamp_volcanic_arcs`' empty-early-return branch as *correct*
+/// on an all-continental world -- see the module doc's "Fixture shapes" for
+/// why this is the one case the other three never reach.
 #[test]
 fn infer_flat_no_arcs() {
     let w = 12usize;
@@ -215,10 +229,10 @@ fn infer_flat_no_arcs() {
     assert_eq!(volc, expected_volc, "volcanic_field");
 }
 
-/// The golden fixtures above must actually reach the code they claim to.
-/// Asserted here rather than trusted, because a slice that silently lost a
-/// definition produces plausible-looking zeros, and four subsystems in this
-/// port have already been bitten by exactly that.
+/// Protects: the golden fixtures above must actually reach the code they
+/// claim to. Asserted here rather than trusted, because a slice that
+/// silently lost a definition produces plausible-looking zeros, and four
+/// subsystems in this port have already been bitten by exactly that.
 #[test]
 fn golden_fixtures_reach_every_branch() {
     // margin: all six BTYPE codes across the two margin cases, both crust
@@ -248,7 +262,7 @@ fn golden_fixtures_reach_every_branch() {
     assert!(stamp_volcanic_arcs(&r.boundary_type, w, h, None).iter().any(|&v| v > 0.0));
 }
 
-/// The plate-count cap is the reference's own v0.70 fix: without it a 2K
+/// Protects: the plate-count cap. It is the reference's own v0.70 fix: without it a 2K
 /// import produced ~900 plates, which made the whole pass pathologically
 /// slow and the map unreadable. Pinned by EXACT count, not a bound —
 /// a loose `<= 48` here let a mutation of the cap from 40 to 44 survive.
@@ -266,7 +280,8 @@ fn plate_count_clamp_holds_at_both_ends() {
         "a tiny map must clamp up to the 6-plate floor");
 }
 
-/// A measured limit of the test above, recorded rather than papered over.
+/// Protects: nothing new -- this documents a measured limit of the test
+/// above, recorded rather than papered over.
 ///
 /// The floor is 6, but a floor of **5** produces the identical grid: the
 /// count is only ever consumed through `rows = max(2, round(sqrt(n/aspect)))`
@@ -288,8 +303,8 @@ fn plate_count_floor_is_observable_only_below_five() {
     assert_eq!(pick_plate_seeds(&tiny, 4, 4, Some(4)).len(), 4);
 }
 
-/// The wide case: 256 x 64, pinned by digest rather than by eight inlined
-/// arrays.
+/// Protects: every default-radius divisor in this pass, on the wide case:
+/// 256 x 64, pinned by digest rather than by eight inlined arrays.
 ///
 /// # Why this case has to exist
 ///

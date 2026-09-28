@@ -575,6 +575,9 @@ impl<S: Stamp + Clone> PassBuffer<S> {
     }
 }
 
+/// Tests for `PassBuffer<S>`'s draft/commit/discard behaviour, ported
+/// against the reference's sculpt draft layer (see the module doc comment
+/// above for the exact source lines this behaviour must match).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,7 +1027,7 @@ mod tests {
         // a draft whose only stamp is zero-area) no cell of scratch is
         // written at all.
         let base = ramp_base();
-        const SENTINEL: f32 = -999.0;
+        const SENTINEL: f32 = -999.0; // an implausible height value, so an untouched cell is unmistakable in the assertion below
 
         // (a) An empty draft over a base that emphatically does need drawing.
         let buf = buffer();

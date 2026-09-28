@@ -578,6 +578,13 @@ pub struct WindFieldResult {
     pub max_speed: f64,
 }
 
+/// Builds one [`WindFieldResult`] frame: ports `currentWindField()`
+/// (reference HTML lines 5555-5569), so its own doc comment above (on the
+/// return type) carries the citation and the deliberate no-cache rule this
+/// function must keep. Long parameter list mirrors the reference's own
+/// direct reads off `state.planet.*` — `#[allow]` rather than a params
+/// struct so a caller can see every input at the call site during parity
+/// review, per this port's existing convention for debug-view builders.
 #[allow(clippy::too_many_arguments)]
 pub fn current_wind_field(
     gw: usize,

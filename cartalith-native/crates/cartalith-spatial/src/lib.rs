@@ -181,6 +181,9 @@ impl DirtyTracker {
     }
 }
 
+/// Tests for this file's generic tiling/dirty-tracking/geometry primitives
+/// (`LOD_TILING_BASE_SCOPE.md`) — no opinion here on what a tile stores, so
+/// these tests only exercise addressing and dirty-flag bookkeeping.
 #[cfg(test)]
 mod tests {
     use super::*;

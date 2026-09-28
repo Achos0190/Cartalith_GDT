@@ -41,6 +41,10 @@ pub struct GeoidOpts {
 }
 
 impl Default for GeoidOpts {
+    /// The reference's own `Object.assign` literal defaults for `buildGeoid`
+    /// (see the struct's own doc comment above for the citation) -- kept
+    /// here rather than only in prose so a caller who skips the struct doc
+    /// still gets the values `GeoidOpts::default()` actually returns.
     fn default() -> Self {
         Self {
             seed: 7,

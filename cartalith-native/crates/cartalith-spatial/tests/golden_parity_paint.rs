@@ -55,9 +55,9 @@ use std::sync::Arc;
 
 use cartalith_spatial::{PaintStamp, Stamp};
 
-const GW: usize = 64;
-const GH: usize = 64;
-const SEA: f32 = 0.5;
+const GW: usize = 64; // large enough for a real brush stamp with margin, small enough to fully materialize per test
+const GH: usize = 64; // large enough for a real brush stamp with margin, small enough to fully materialize per test
+const SEA: f32 = 0.5; // an arbitrary mid-range sea level; only its relative position to sampled heights matters here
 
 const SAMPLES: [usize; 6] = [
     32 * GW + 32,

@@ -216,6 +216,9 @@ pub fn polygon_perimeter_km(
     km
 }
 
+/// Tests for the Measure tool (`UNIFIED_TOOL_PLAN.md` milestone E) — this
+/// port's own addition, with no reference precedent to check against (see
+/// the module doc comment above), so these tests are the only spec.
 #[cfg(test)]
 mod tests {
     use super::*;

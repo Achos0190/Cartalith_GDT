@@ -8,6 +8,9 @@
 use cartalith_engine::{generate_terrain, WorldParams};
 use std::time::Instant;
 
+/// Times `generate_terrain` at each of this project's established sizes
+/// (see the file-top comment above for why these four and why this tool
+/// exists at all).
 fn main() {
     for &size in &[128usize, 512, 1024, 2048] {
         let p = WorldParams::defaults(size, size, 12345);

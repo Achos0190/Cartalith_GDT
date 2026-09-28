@@ -20,6 +20,10 @@ use std::time::Instant;
 
 use cartalith_engine::{WorldParams, generate_terrain};
 
+/// (median, min, max) of a sample, sorting it in place. A three-number
+/// summary is all this bench's block-comparison needs — see the module
+/// doc comment above for why blocks, not a single mean, are the unit of
+/// comparison here.
 fn stats(v: &mut [f64]) -> (f64, f64, f64) {
     v.sort_by(f64::total_cmp);
     let n = v.len();
@@ -27,6 +31,9 @@ fn stats(v: &mut [f64]) -> (f64, f64, f64) {
     (med, v[0], v[n - 1])
 }
 
+/// CLI entry point: runs the pooled/unpooled block comparison described in
+/// the module doc comment above and prints the median/min/max for each
+/// block plus the pooled-vs-unpooled speedup.
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let size: usize = a.first().and_then(|s| s.parse().ok()).unwrap_or(1024);

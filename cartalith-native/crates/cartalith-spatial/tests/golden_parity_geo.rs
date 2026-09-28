@@ -44,8 +44,8 @@ use cartalith_spatial::geo::{
     geo_xy, js_to_fixed, mask_outline_coords, point_in_ring, ring_area, trace_mask_rings,
 };
 
-const GW: usize = 12;
-const GH: usize = 9;
+const GW: usize = 12; // small enough to hand-check every fixture mask below by eye
+const GH: usize = 9; // small enough to hand-check every fixture mask below by eye
 const CELL_KM: f64 = 50.0; // 600 km / 12 cells, as the harness set it
 
 /// Fixture "a": a 6x5 block with a 2x2 hole, plus a disjoint 2x2 blob --

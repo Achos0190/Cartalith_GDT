@@ -57,6 +57,9 @@ use crate::DirtyTracker;
 /// a smaller id is never downstream of a larger one.
 pub type StageId = usize;
 
+/// One node in a [`StageGraph`]: a pipeline stage's name, its upstreams and
+/// its own [`DirtyTracker`], plus the per-upstream version snapshot
+/// [`Staleness`] compares against to decide whether this stage must re-run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StageNode {
     /// Caller-supplied label, surfaced through [`StageGraph::stage_name`]
@@ -309,6 +312,9 @@ impl StageGraph {
     }
 }
 
+/// Tests for `StageGraph`'s deferred, lazily-evaluated staleness (see the
+/// module doc comment above for why deferred is the only viable design
+/// this file settled on).
 #[cfg(test)]
 mod tests {
     use super::*;

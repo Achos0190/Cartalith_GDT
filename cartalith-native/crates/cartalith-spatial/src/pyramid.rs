@@ -204,6 +204,9 @@ pub fn baked_cover(c: ChunkId, is_baked: impl Fn(ChunkId) -> bool) -> bool {
     false
 }
 
+/// Tests for the LOD tile pyramid's addressing arithmetic, ported from
+/// reference lines 10461-10645 (see the module doc comment above for the
+/// per-function citation each test checks against).
 #[cfg(test)]
 mod tests {
     use super::*;

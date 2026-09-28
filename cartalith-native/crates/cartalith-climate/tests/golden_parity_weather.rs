@@ -36,7 +36,7 @@ use cartalith_climate::{simulate_weather, WeatherParams};
 /// (unlike every other golden test in this port) isn't held to exact
 /// equality.
 fn assert_close(actual: &[f32], expected: &[f32]) {
-    const TOL: f32 = 1e-5;
+    const TOL: f32 = 1e-5; // module doc above: ~100x the observed 1-ULP `hypot` drift
     for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
             (a - e).abs() <= TOL,

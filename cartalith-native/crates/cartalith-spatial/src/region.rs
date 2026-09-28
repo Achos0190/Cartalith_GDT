@@ -152,6 +152,9 @@ pub fn tile_dims(sel: &Region, cols: usize, rows: usize, ts: usize) -> TileDims 
     }
 }
 
+/// Tests for the two region-selection geometry functions the reference
+/// itself already isolated as headless-testable (see the module doc
+/// comment above).
 #[cfg(test)]
 mod tests {
     use super::*;
