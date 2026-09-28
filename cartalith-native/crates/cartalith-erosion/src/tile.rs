@@ -440,12 +440,24 @@ pub fn tile_erode(
     stream_power_kernel_bounded(refined, stress, resist, rain, w, h, &tile_p, Some(&pinned), Some(area_seed));
 }
 
+/// Unit tests for [`tile_erode`] and its supporting helpers ([`ring_mask`],
+/// [`uniform_area_seed`]) -- the seam guarantee, mass/routing properties on a
+/// synthetic tile, and boundary-condition edge cases. Deliberately
+/// independent of the real EF-1/EF-3 world-tile composition, which
+/// `cartalith-engine/tests/ef3_tile_erosion.rs` alone can see both halves of.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Fixture tile width in cells -- arbitrary but non-square (with `H`) so a
+    /// row/column transposition bug would show up as a panic or shape
+    /// mismatch rather than silently passing.
     const W: usize = 96;
+    /// Fixture tile height in cells; see `W`.
     const H: usize = 64;
+    /// Fixture refine factor: how many fine cells the tile packs per coarse
+    /// world cell, matching the scale `tile_erode`'s doc comment describes
+    /// EF-1 supplying in production.
     const REFINE: usize = 8;
 
     /// Deterministic value hash in `[-1, 1)` — reproducible pseudo-detail with
@@ -512,21 +524,34 @@ mod tests {
         StreamPowerParams { k: 0.012, uplift: 0.0, deposit: 0.3, climate_k: 0.5, iters: 9, resist: 0.50, g: 1.0, world: false, sea: 0.30 }
     }
 
+    /// The three auxiliary fields [`tile_erode`] needs beside the height field
+    /// itself, bundled so [`fields`] and [`run`] don't repeat the trio.
     struct Fields {
         stress: Vec<f32>,
         resist: Vec<f32>,
         rain: Vec<f32>,
     }
 
+    /// Neutral auxiliary fields for these tests: no tectonic uplift signal
+    /// (`stress` all zero), uniform resistance and uniform unit rain — so
+    /// every measured effect below comes from the tile mechanism itself
+    /// (the pinned ring, the seeded area, `p.k * refine`), not from a
+    /// synthetic field shape.
     fn fields() -> Fields {
         Fields { stress: vec![0f32; W * H], resist: vec![0.5f32; W * H], rain: vec![1.0f32; W * H] }
     }
 
+    /// Runs [`tile_erode`] over `refined` in place with the fixture's
+    /// neutral auxiliary fields, fixed `W`/`H`/`REFINE` and a uniform area
+    /// seed — the one call every test in this module builds on.
     fn run(refined: &mut [f32], p: &StreamPowerParams) {
         let f = fields();
         tile_erode(refined, &f.stress, &f.resist, &f.rain, W, H, p, REFINE, &uniform_area_seed(W, H, REFINE));
     }
 
+    /// Raw `f32` bit patterns for an exact (not epsilon) equality check —
+    /// the seam guarantee this module tests for is bit-identical, not merely
+    /// close.
     fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
     }
@@ -538,6 +563,9 @@ mod tests {
     /// on a `tile_erode` that did nothing at all.
     #[test]
     fn tile_erode_leaves_the_ring_bit_identical_and_moves_the_interior() {
+        // Protects: tile_erode's Dirichlet-pinned outer ring stays exactly
+        // bit-identical to its input while the interior genuinely erodes --
+        // both halves checked, so a no-op kernel could not pass this alone.
         let before = tile(7);
         let mut after = before.clone();
         run(&mut after, &world_params());
@@ -598,6 +626,12 @@ mod tests {
     ///   asserts nothing.
     #[test]
     fn the_ring_survives_the_deposition_pass_and_the_final_clamp() {
+        // Protects: the two ring guards a mutation test found held only by
+        // accident at the world's own defaults -- the final `clamp` (ring
+        // values pushed outside [0, 1]) and the deposition pass (non-zero
+        // uplift, so a pinned cell's ceiling actually rises) each stay
+        // bit-identical on the ring, with a live control proving each guard
+        // was actually reachable.
         let f = fields();
         let seed = uniform_area_seed(W, H, REFINE);
 
@@ -648,6 +682,9 @@ mod tests {
     /// the bit-identity above is [`tile_erode`]'s doing.
     #[test]
     fn without_the_pin_the_ring_would_move() {
+        // Protects: the ring bit-identity above is tile_erode's pin doing the
+        // work, not a coincidence of the kernel's own arithmetic -- the same
+        // tile run through the bare kernel with no pin must move the ring.
         let before = tile(7);
         let mut unpinned = before.clone();
         let f = fields();
@@ -674,6 +711,9 @@ mod tests {
     /// allocation order.
     #[test]
     fn tile_erode_is_deterministic() {
+        // Protects: tile_erode is deterministic on identical inputs -- two
+        // runs of the same tile, and a freshly built equal tile, must all
+        // agree bit-for-bit, while a genuinely different tile must not.
         let base = tile(7);
         let (mut a, mut b) = (base.clone(), base.clone());
         run(&mut a, &world_params());
@@ -707,6 +747,11 @@ mod tests {
     /// and `p` through each of its own live fields.
     #[test]
     fn every_input_of_tile_erode_reaches_its_output() {
+        // Protects: every one of tile_erode's nine arguments is actually
+        // wired into the output -- `refined`, `area_seed`, `refine` (as
+        // exactly `k * refine`, not just "some" effect), `rain`, `resist`,
+        // `stress` (inert at uplift 0, live away from it) and each of `p`'s
+        // own fields, one change at a time against a fixed control.
         let base = tile(7);
         let f = fields();
         let seed = uniform_area_seed(W, H, REFINE);
@@ -797,6 +842,11 @@ mod tests {
     /// answer over the wrong grid.
     #[test]
     fn a_mis_assembled_tile_is_refused_rather_than_computed() {
+        // Protects: tile_erode panics on a mis-assembled call (p.world set,
+        // a mismatched slice length for any of the four fields or the seed,
+        // a zero dimension) rather than silently computing over the wrong
+        // grid; and uniform_area_seed panics on refine 0 rather than
+        // dividing by it.
         let f = fields();
         let seed = uniform_area_seed(W, H, REFINE);
         let ok = std::panic::catch_unwind(|| {
@@ -850,6 +900,10 @@ mod tests {
     /// checking holds for every value of that field).
     #[test]
     fn the_area_seed_is_one_coarse_cell_per_refine_squared_fine_cells() {
+        // Protects: uniform_area_seed's unit convention (1/refine² per fine
+        // cell) against literal expected values, and the invariant that
+        // holds it together -- one coarse cell's worth of fine cells always
+        // sums to exactly 1.0, at every tested refine factor.
         assert_eq!(uniform_area_seed(3, 2, 1), vec![1.0f32; 6], "refine 1 is the world pass's own seed");
         assert_eq!(uniform_area_seed(2, 2, 2), vec![0.25f32; 4]);
         assert_eq!(uniform_area_seed(2, 2, 8), vec![0.015625f32; 4]);
@@ -865,6 +919,9 @@ mod tests {
     /// once each, and a three-cell axis leaving exactly one interior line.
     #[test]
     fn the_ring_mask_is_the_perimeter() {
+        // Protects: ring_mask marks exactly the perimeter -- corners once
+        // each, no double-counting, and the correct interior cells left
+        // unmarked -- against a literal expected mask.
         let m = ring_mask(4, 3);
         assert_eq!(
             m,

@@ -26,8 +26,11 @@ use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
 /// The fixtures' world: 800 km over 2048 cells (390.625 m cells, the app's
 /// default), sea 0.42, peak 4000 m.
 const CELL_800: f64 = 800_000.0 / 2048.0;
+// The "80 km" extent the extent-blindness test compares against 800 km, same 2048-cell grid.
 const CELL_80: f64 = 80_000.0 / 2048.0;
+// Sea level, normalised -- the fixtures' shared world (see the doc comment above).
 const SEA: f64 = 0.42;
+// Peak altitude in metres -- the fixtures' shared world (see the doc comment above).
 const PEAK: f64 = 4000.0;
 
 /// A uniform `n`-cell column: every cell's exposed rock is `top`, no

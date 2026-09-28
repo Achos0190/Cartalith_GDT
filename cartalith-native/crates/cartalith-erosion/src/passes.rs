@@ -69,9 +69,9 @@ use std::cmp::Ordering;
 /// `f32`, which is what JS does — the comparison reads the stored element, not
 /// the `f64` that produced it.
 #[inline]
-// Not `f32::clamp`: this is the reference's own two-statement
-// `if(f<0)f=0; if(f>1)f=1;`, transcribed. `clamp` would read the same today
-// and would quietly stop reading like the source it is being checked against.
+/// Not `f32::clamp`: this is the reference's own two-statement
+/// `if(f<0)f=0; if(f>1)f=1;`, transcribed. `clamp` would read the same today
+/// and would quietly stop reading like the source it is being checked against.
 #[allow(clippy::manual_clamp)]
 fn store_clamped01(slot: &mut f32, v: f64) {
     let r = v as f32;
@@ -330,8 +330,8 @@ pub struct VelocityField {
 ///   cell's own `fld[i] -= e` / `sed[i] += e`, and `j` can be `i`;
 /// - the final finite guard runs over every cell, sea included, not just the
 ///   land cells that got their sediment back.
-// The two `if x > hi {..} else if x < lo {..}` clamps in step 5 are the
-// reference's own statement shape, kept literally; see `store_clamped01`.
+/// The two `if x > hi {..} else if x < lo {..}` clamps in step 5 are the
+/// reference's own statement shape, kept literally; see `store_clamped01`.
 #[allow(clippy::manual_clamp)]
 pub fn velocity_erode_kernel(
     fld: &mut [f32],
@@ -340,7 +340,14 @@ pub fn velocity_erode_kernel(
     h: usize,
     p: &VelocityParams,
 ) -> VelocityField {
+    // `pipeDamp` (reference HTML, `velocityErodeKernel`): virtual-pipe flux
+    // damping so the flux solver doesn't oscillate. Carried from the
+    // reference's own literal; provenance beyond that (a value from Mei et
+    // al. 2007 versus a tuned constant) is not recorded here.
     const PIPE_DAMP: f64 = 0.92;
+    // Velocity ceiling the reference clamps advection to, preventing a single
+    // unstable cell's flux from throwing sediment arbitrarily far in one
+    // semi-Lagrangian step. Reference's own literal.
     const VMAX: f64 = 4.0;
 
     let n = w * h;
@@ -633,6 +640,10 @@ pub fn glacial_kernel(fld: &mut [f32], temp: &[f32], w: usize, h: usize, p: &Gla
         }
     }
 
+    // Priority-flood fill step, same value and role as `stream_power_routing`'s
+    // own `EPS` in `lib.rs` — the reference's literal, nudging each newly
+    // filled neighbour strictly above its discoverer so ties break by fill
+    // order rather than leaving equal heights.
     const EPS: f64 = 1e-5;
     let mut cnt = 0usize;
     while heap.size() > 0 {
@@ -808,6 +819,9 @@ pub fn coastal_process(
     g: f64,
     p: &CoastalParams,
 ) {
+    // The 4-connected (not 8-connected) neighbourhood the reference's own
+    // coastal pass uses for counting sea-adjacency and spreading wave
+    // erosion — orthogonal only, no diagonals.
     const OFFS: [(i64, i64); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
     let n = w * h;
     let wave_str = p.wave_str / g.max(0.05);
@@ -1048,12 +1062,19 @@ pub fn apply_tidal_sedimentation(
     deposited
 }
 
+/// Unit tests for this module's small internal helpers and one manual pass
+/// each, distinct from the crate-level `tests/golden_parity_passes.rs`
+/// bit-exact fixtures.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Exercises all three regions of the clamp: below zero, above one, and
+    /// the pass-through middle.
     #[test]
     fn store_clamped01_clamps_at_both_ends_and_after_rounding() {
+        // Protects: store_clamped01's two-sided clamp (low, high, and the
+        // pass-through middle) against the reference's own two-statement form.
         let mut v = 0.5f32;
         store_clamped01(&mut v, -3.0);
         assert_eq!(v, 0.0);
@@ -1063,8 +1084,12 @@ mod tests {
         assert_eq!(v, 0.25);
     }
 
+    /// Two out-of-bounds corners (clamped to the nearest edge value) and two
+    /// in-bounds fractional positions (linear and bilinear).
     #[test]
     fn bilin_clamps_outside_the_grid_and_interpolates_inside() {
+        // Protects: bilin's out-of-bounds clamp-to-edge behaviour and its
+        // in-bounds bilinear interpolation, on a minimal 2x2 grid.
         let a = [0.0f32, 1.0, 2.0, 3.0]; // 2x2
         assert_eq!(bilin(&a, -5.0, -5.0, 2, 2), 0.0);
         assert_eq!(bilin(&a, 99.0, 99.0, 2, 2), 3.0);
@@ -1072,13 +1097,22 @@ mod tests {
         assert_eq!(bilin(&a, 0.5, 0.5, 2, 2), 1.5);
     }
 
+    /// A near-zero speed input, below whatever floor the reference guards
+    /// meander shear with.
     #[test]
     fn centrifugal_shear_is_zero_below_the_speed_floor() {
+        // Protects: centrifugal_shear's speed-floor gate -- below it the
+        // function must return exactly zero shear, not a tiny nonzero value.
         assert_eq!(centrifugal_shear(1e-7, 0.0, 1.0, 1.0), (0.0, 0.0, 0.0));
     }
 
+    /// Same spike run twice, once non-wrapping and once world-wrapping, and
+    /// compared at the far edge.
     #[test]
     fn hillslope_diffuse_wraps_in_x_only_when_world() {
+        // Protects: hillslope_diffuse's `wrap` flag actually gates x-wrapping
+        // -- a spike on the left edge must not reach the right edge unless
+        // `world` is true.
         // One spike on the left edge. In world mode the right edge feels it.
         let mut flat = vec![0.5f32; 8];
         flat[0] = 1.0;
@@ -1089,8 +1123,13 @@ mod tests {
         assert!(wrapped[7] > 0.5, "world wrap: the far edge must see it");
     }
 
+    /// A 3x3 bowl where every cell's supply drains into the single central
+    /// pit, checked for exact mass conservation.
     #[test]
     fn route_sediment_conserves_mass_into_a_single_pit() {
+        // Protects: route_sediment's mass conservation -- everything supplied
+        // into a single pit must be deposited, and the field's total mass
+        // must rise by exactly the reported deposited amount.
         // A 3x3 bowl: everything drains to the middle, which is a pit.
         let mut fld = vec![0.9f32; 9];
         fld[4] = 0.1;
@@ -1103,8 +1142,13 @@ mod tests {
         assert!((after - before - deposited).abs() < 1e-6);
     }
 
+    /// Three cells spanning land, the intertidal band and deep water, so all
+    /// three branches of the depth gate are exercised at once.
     #[test]
     fn apply_tidal_sedimentation_ignores_land_and_deep_water() {
+        // Protects: apply_tidal_sedimentation's band gate -- only the
+        // intertidal cell accretes; land above sea level and water deeper
+        // than the tidal range are both left untouched.
         let mut fld = vec![0.60f32, 0.41, 0.10];
         let tide = vec![0.05f32, 0.05, 0.05];
         let deposited = apply_tidal_sedimentation(&mut fld, &tide, 0.42, 3, 1, 0.45);
@@ -1115,6 +1159,10 @@ mod tests {
     }
 }
 
+/// Unit tests for [`hillslope_extent_scale`] -- the real-extent/stability
+/// correction to `hillslope_diffuse`'s coefficient, none of which the
+/// bit-exact `golden_parity_passes.rs` fixtures exercise directly since they
+/// pin the anchor configuration where the correction is exactly `1.0`.
 #[cfg(test)]
 mod hillslope_extent_tests {
     use super::*;
@@ -1124,6 +1172,8 @@ mod hillslope_extent_tests {
     /// every golden fixture — is unchanged, bit for bit.
     #[test]
     fn the_correction_is_exactly_one_at_the_anchor() {
+        // Protects: hillslope_extent_scale returns exactly 1.0 at the app's
+        // own default cell size, so every golden fixture stays bit-identical.
         assert_eq!(hillslope_extent_scale(800.0, 2048, 0.15), 1.0);
         // Same cell size reached a different way must agree exactly.
         assert_eq!(hillslope_extent_scale(400.0, 1024, 0.15), 1.0);
@@ -1142,6 +1192,10 @@ mod hillslope_extent_tests {
     /// next test.
     #[test]
     fn a_coarse_world_diffuses_far_less_than_the_anchor() {
+        // Protects: hillslope_extent_scale's real-extent correction actually
+        // shrinks diffusion at a coarse cell size, by the ratio the physical
+        // model predicts (both the clamped anchor-relative ratio and the
+        // raw, pre-clamp span across the app's whole extent range).
         let world = hillslope_extent_scale(40_000.0, 2048, 0.15);
         assert!(world < 1.0e-3, "40 000 km / 2048 should be tiny, got {world}");
         let vs_anchor = 1.0 / world;
@@ -1165,6 +1219,9 @@ mod hillslope_extent_tests {
     /// explicit FTCS scheme whose stability bound is 0.25.
     #[test]
     fn a_fine_region_is_capped_at_the_stability_bound() {
+        // Protects: hillslope_extent_scale never lets the effective
+        // diffusion coefficient (d * scale) exceed the explicit FTCS
+        // stability wall, across several fine-cell configurations.
         for (w, gw, d) in [(5.0, 2048, 0.15), (1.0, 2048, 0.2), (50.0, 4096, 0.05)] {
             let s = hillslope_extent_scale(w, gw, d);
             let effective = d * s;
@@ -1182,6 +1239,9 @@ mod hillslope_extent_tests {
     /// the contract.
     #[test]
     fn an_already_unstable_d_is_never_reduced_by_the_correction() {
+        // Protects: hillslope_extent_scale's stability guard only ever
+        // scales down toward the wall -- it must never weaken a `d` the
+        // caller (or a golden fixture) already chose above it.
         assert_eq!(hillslope_extent_scale(800.0, 2048, 0.9), 1.0);
         assert_eq!(hillslope_extent_scale(5.0, 2048, 0.9), 1.0, "must not scale it down");
         // ...but a coarse map still reduces it, which is correct: that is the
@@ -1193,6 +1253,9 @@ mod hillslope_extent_tests {
     /// that would silently poison the field.
     #[test]
     fn degenerate_inputs_return_the_identity() {
+        // Protects: hillslope_extent_scale never returns NaN or infinity on
+        // degenerate inputs (zero/negative extent, zero grid width, zero d,
+        // NaN extent) -- it falls back to the identity scale instead.
         assert_eq!(hillslope_extent_scale(0.0, 2048, 0.15), 1.0);
         assert_eq!(hillslope_extent_scale(-5.0, 2048, 0.15), 1.0);
         assert_eq!(hillslope_extent_scale(800.0, 0, 0.15), 1.0);
@@ -1204,6 +1267,9 @@ mod hillslope_extent_tests {
     /// Monotonic in extent: a larger map never diffuses more per pass.
     #[test]
     fn the_correction_is_monotonic_in_extent() {
+        // Protects: hillslope_extent_scale is monotonically non-increasing
+        // in map extent -- a larger map must never diffuse more per pass
+        // than a smaller one.
         let mut prev = f64::INFINITY;
         for w in [1.0, 10.0, 100.0, 800.0, 5_000.0, 40_000.0] {
             let s = hillslope_extent_scale(w, 2048, 0.15);
@@ -1216,6 +1282,10 @@ mod hillslope_extent_tests {
     /// the whole correction is dead code.
     #[test]
     fn the_scale_actually_reaches_the_kernel() {
+        // Protects: the extent-scale correction is actually wired into
+        // hillslope_diffuse's call site, not computed and discarded -- a
+        // near-zero scale must visibly starve the diffusion versus the
+        // unscaled run.
         let base: Vec<f32> = (0..64).map(|i| if i % 8 < 4 { 0.8 } else { 0.2 }).collect();
         let mut full = base.clone();
         let mut damped = base.clone();

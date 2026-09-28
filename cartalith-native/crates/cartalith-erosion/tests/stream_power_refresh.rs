@@ -23,8 +23,9 @@ use cartalith_erosion::{
 };
 use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
 
+// Fixture grid: the module doc comment's "48 x 40 hash-noise surface".
 const W: usize = 48;
-const H: usize = 40;
+const H: usize = 40; // see the comment above
 
 /// Shorthand for a `NonZeroUsize` refresh interval; panics if `k == 0`, which
 /// every call site in this file avoids by construction.
@@ -200,8 +201,8 @@ fn a_long_run_leaves_fewer_pits_when_the_routing_is_refreshed() {
 // 34; refreshing every iteration leaves 31. A small effect on a 48 x 40
 // fixture, but a mutation that stops the refresh firing reads 34 here.
 const PITS_START: usize = 182;
-const PITS_FROZEN: usize = 34;
-const PITS_REFRESHED: usize = 31;
+const PITS_FROZEN: usize = 34; // measured, see the comment above
+const PITS_REFRESHED: usize = 31; // measured, see the comment above
 
 /// Granite everywhere except the centre third of the columns, which is
 /// sandstone over shale with the contact 0.01 below the surface, so the rock

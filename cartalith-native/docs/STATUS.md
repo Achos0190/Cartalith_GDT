@@ -520,6 +520,57 @@ re-checked against the tree rather than copied from the commit message.
   ~3 477 LOC, split across the batch as module boundaries allow), which
   closes `cartalith-erosion` on the census.**
 
+- **Ruling BK annotation pass, batch 8 (`cartalith-erosion`'s `src/lib.rs`,
+  `src/passes.rs`, `src/tile.rs`) — verified by the main loop 2026-09-28 (diff re-read as comment-only; erosion 80/0/0 unchanged), 2026-09-28.**
+  Comments only, zero behaviour change. Per-file census, before → after:
+  `lib.rs` items_undoc 11→0, tests_unprotected 2→0, consts_undoc 1→0;
+  `passes.rs` items_undoc 10→0, tests_unprotected 13→0, consts_undoc 4→0;
+  `tile.rs` items_undoc 5→0, tests_unprotected 8→0, consts_undoc 3→0. Every
+  previously-undocumented `fn`/`struct`/`mod` (including `MinHeap`'s four impl
+  methods, `HGrad`, `d8_table`, the `passes`/`tile` module declarations, and
+  every test helper/fixture fn in `tile.rs`'s test module) got its own doc
+  comment; every one of the 23 `#[test]`s across the three files got a
+  `// Protects:` first line, adding a short doc comment above the `#[test]`
+  first where none existed. Two sites had a real doc comment already but were
+  still flagged, because a plain `//` explanatory line sat directly between it
+  and the item (`store_clamped01`, `velocity_erode_kernel`) — the census's
+  `preceded_by_doc` only accepts `///`/`//!` immediately above, skipping
+  attributes but not plain comments, so those two `//` blocks were promoted to
+  `///` (same text, no meaning change) rather than duplicated.
+  **Batch 7's own note that all 15 crate-wide unprovenanced consts live in
+  these three files was checked and found short by 7**: this batch's
+  per-file census found only 8 undoc consts in `lib.rs`/`passes.rs`/`tile.rs`
+  combined. Grepping the whole crate found the other 7 in two test files
+  batch 7 had already touched for items/tests but not for consts —
+  `gf3_threshold_hillslope.rs` (`CELL_80`, `SEA`, `PEAK`, each stacked under
+  one shared doc comment that only covers the first const of the group) and
+  `stream_power_refresh.rs` (`H`, `PITS_FROZEN`, `PITS_REFRESHED`, same
+  stacked-const pattern). Both were closed in this batch with one inline `//`
+  comment per const, since they were cheap, in scope for "closes the crate on
+  the census," and not owned by another lane. Whole-crate census, before →
+  after: items_undoc 26→0, tests_unprotected 23→0, consts_undoc 15→0 —
+  **`cartalith-erosion` now reads 0/0/0, closed on this census.**
+  `cargo test -p cartalith-erosion`: 80 passed / 0 failed / 0 ignored across
+  all 10 binaries, identical before and after (matches batch 7's own
+  pre-recorded baseline). A comment-only-diff checker (adapted from batch 7's:
+  strips `///`/`//!`/`//` lines and trailing `// ...` line comments from both
+  the git `HEAD` and working-tree text of each touched file, then diffs the
+  remaining code tokens) confirmed all five touched files
+  (`src/lib.rs`, `src/passes.rs`, `src/tile.rs`,
+  `tests/gf3_threshold_hillslope.rs`, `tests/stream_power_refresh.rs`) changed
+  only comments/blank lines. No `\`\`\`` fence was added in any new comment.
+  No wrong existing comment was found in this batch. **Next step: batch 9,
+  `cartalith-climate`** (`ANNOTATION_AUDIT.md` rank 8, 3 789 LOC / 81 undoc
+  items / 65 unprotected tests / 15 unprovenanced consts at the audit's own
+  count — re-check at the symbol before scheduling, per this file's own
+  recurring caution about stale figures). Following batch 6's precedent of
+  jumping hydrology ahead of the strictly-ranked `cartalith-terrain`
+  (rank 5) "since spatial/terrain/civ/urban/godot/shell all sit later": those
+  six large crates (terrain 16 153 LOC through the 101 811-line GDScript
+  shell) remain deferred and unannotated, and whichever session picks one up
+  next should expect to split it across several batches by the ~3 000-3 500
+  LOC band the batches so far have used.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

@@ -9,7 +9,12 @@
 use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
+/// The reference's own "manual" erosion passes (velocity, glacial, coastal,
+/// hillslope, sediment routing, tidal flats) — see this module's own header
+/// comment for why they live apart from `generate()`'s automatic pipeline.
 pub mod passes;
+/// Tile-bounded re-runs of the whole-world kernels (stream power, thermal)
+/// for interactive local re-erosion, seamed against the world's own edges.
 pub mod tile;
 
 pub use passes::{
@@ -19,6 +24,10 @@ pub use passes::{
     HILLSLOPE_STABLE_D,
 };
 
+/// [`hgrad`]'s return: the bilinearly-interpolated height at a fractional
+/// grid position plus its local gradient, both `f64` throughout — the
+/// droplet kernel's inner loop reads every field as `f64` even though `fld`
+/// itself is `f32` storage, matching JS's own untyped-number arithmetic.
 struct HGrad {
     height: f64,
     grad_x: f64,
@@ -447,6 +456,12 @@ pub fn threshold_hillslope(fld: &mut [f32], w: usize, h: usize, passes: i32, wra
     }
 }
 
+/// The 3x3 D8 neighbour-distance table, flattened row-major by `(dy+1)*3 +
+/// (dx+1)`: `1.0` for the four orthogonal neighbours, `sqrt(2)` for the four
+/// diagonals, `0.0` for the centre cell (never read as a distance — only used
+/// to index the eight real neighbours). Shared by [`stream_power_routing`]'s
+/// fill and receiver passes so both read the identical distances the
+/// reference computes inline at each site.
 pub(crate) fn d8_table() -> [f64; 9] {
     let mut d8 = [0f64; 9];
     for dy in -1i32..=1 {
@@ -471,14 +486,22 @@ pub(crate) struct MinHeap {
 }
 
 impl MinHeap {
+    /// Preallocates both parallel arrays to `cap` (the grid's cell count —
+    /// the heap never holds more than one entry per cell), so `push` never
+    /// reallocates mid-fill.
     pub(crate) fn new(cap: usize) -> Self {
         Self { p: vec![0.0; cap], v: vec![0; cap], len: 0 }
     }
 
+    /// Current entry count (not capacity) — callers loop `while size() > 0`
+    /// to drain the heap.
     pub(crate) fn size(&self) -> usize {
         self.len
     }
 
+    /// Appends `(prio, val)` and sifts it up toward the root by parent
+    /// comparison, matching the JS `MinHeap.push`'s swap order exactly (the
+    /// tie-break this port must reproduce, per the struct's own doc comment).
     pub(crate) fn push(&mut self, prio: f32, val: i32) {
         let mut i = self.len;
         self.len += 1;
@@ -495,6 +518,13 @@ impl MinHeap {
         }
     }
 
+    /// Removes and returns the minimum-priority value: swaps the last entry
+    /// into the root slot, shrinks `len`, then sifts the new root down by
+    /// picking the smaller child at each step — the same left-child-first,
+    /// then-right-child comparison order as the JS `MinHeap.pop`, which is
+    /// what makes the fill order (and therefore lake shape) reproducible.
+    /// Must never be called on an empty heap (indexes `v[0]`/`p[0]`
+    /// unconditionally); callers guard with [`MinHeap::size`].
     pub(crate) fn pop(&mut self) -> i32 {
         let rv = self.v[0];
         self.len -= 1;
@@ -1062,6 +1092,13 @@ fn stream_power_routing(
     }
 
     let mut cnt = 0usize;
+    // Priority-flood's minimum fill step (reference HTML's own `1e-5`
+    // literal in `streamPowerKernel`, not a re-derived value): every filled
+    // neighbour is nudged up by at least this much above the cell that
+    // discovered it, so ties break by discovery order rather than leaving
+    // two cells at the exact same height (which would make the receiver
+    // search below ambiguous). Must stay small relative to real terrain
+    // relief, or it would visibly raise the fill.
     const EPS: f64 = 1e-5;
     while heap.size() > 0 {
         let i = heap.pop() as usize;
@@ -1340,19 +1377,34 @@ pub fn recompute_resistance_after_erosion(resist: &mut [f32], pre: &[f32], post:
     });
 }
 
+/// Unit tests local to this module (as opposed to the crate's
+/// `tests/golden_parity_*.rs` fixtures, which exercise the exported kernels
+/// against reference-derived arrays).
 #[cfg(test)]
 mod tests {
     use super::recompute_resistance_after_erosion;
 
+    /// A trivial smoke test with no relationship to erosion arithmetic.
     #[test]
     fn crate_compiles_and_tests_run() {
+        // Protects: the crate builds and its test harness actually runs —
+        // catches a broken build/link before any real assertion below would
+        // even get the chance to run (and, if it silently vanished, would
+        // mean every "N passed" here was 0 tests executed, not 0 failures).
         assert_eq!(2 + 2, 4);
     }
 
     // Hand-derived against the JS formula (reference HTML line 3146):
     // `const ex=pre[i]-post[i]; if(ex>0) resist[i]=Math.min(1, resist[i]+k*ex);`
+    /// Exercises all four branches of the exhumation formula in one call:
+    /// a genuine exhumation, an exact-zero non-exhumation, a negative
+    /// (depositional) case, and a case that would overshoot the `1.0`
+    /// basement-resistance ceiling without the `min`.
     #[test]
     fn recompute_resistance_matches_js_formula() {
+        // Protects: recompute_resistance_after_erosion against the reference
+        // JS formula (v2.11 line 3146) — the ex>0 gate, the `k*ex` update and
+        // the 1.0 clamp, each on its own row of the fixture below.
         let mut resist = vec![0.5f32, 0.5, 0.5, 0.9];
         let pre = vec![1.0f32, 1.0, 1.0, 1.0];
         let post = vec![0.8f32, 1.0, 1.1, 0.0];
