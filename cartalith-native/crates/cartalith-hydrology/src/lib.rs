@@ -631,6 +631,14 @@ pub fn build_channels_routed(
     build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km))
 }
 
+/// The shared body [`build_channels_with_threshold`] and [`build_channels_routed`]
+/// both call: per cell, the slope/threshold test that decides whether it
+/// channelizes at all (always read off the real terrain `fld`), then the
+/// D-infinity aspect argmax that picks its receiver (read off `route`, which
+/// is `fld` itself for the unrouted callers and the depression-filled
+/// routing surface for [`build_channels_routed`]). Kept private and taking
+/// both a threshold and a slope-normalisation width explicitly, so neither
+/// public entry point can drift from the other by re-deriving either.
 #[allow(clippy::too_many_arguments)]
 fn build_channels_core(
     fld: &[f32],
@@ -837,6 +845,9 @@ pub fn strahler_from_receivers(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i
 /// reasoning). No-op (returns 1) at the literal default `mapWidthKm=800`,
 /// at any resolution.
 pub fn river_width_scale_k(map_width_km: f64) -> f64 {
+    /// Clamp ceiling/floor reciprocal for the width scale below -- the
+    /// reference's own cap, matching `terrain_detail_k`'s ceiling so neither
+    /// factor can run away independently at extreme map widths.
     const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
     let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
     (800.0 / mwk).clamp(1.0 / TERRAIN_DETAIL_MAX_K, TERRAIN_DETAIL_MAX_K)
@@ -2096,6 +2107,14 @@ fn wrapped_axis_delta(a: usize, b: usize, w: usize, wrap: bool) -> i64 {
     }
 }
 
+/// Computes the channel *intensity* raster the essay above (attached to
+/// [`wrapped_axis_delta`], the helper just above this function, because the
+/// design rationale needed a home and this is where it was written) describes
+/// in full: a per-cell parabolic disc from [`channel_disc`], gated by the
+/// v2.72 `area_bar` on [`channel_cell_drainage`], then bridged across
+/// sub-1-cell diagonal receiver steps so a narrow river chain stays
+/// 4-connected. Read that essay for the *why* of every clause below; this
+/// comment only marks where the function itself begins.
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_river_intensity(
     fld: &[f32],
@@ -2242,6 +2261,7 @@ mod tests {
     /// meant not to interact sit further apart than their reach.
     #[test]
     fn river_draw_plan_hides_parallels_and_bridges_land_pits() {
+        // Protects: the owner's ruling on connected, non-parallel river strokes: hug-hiding, land-pit bridging and every named guard against a false loop or an out-of-reach bridge, each rule exercised once on one hand-built network.
         let (w, h) = (30usize, 16usize);
         let n = w * h;
         let mut flow = vec![0f32; n];
@@ -2345,6 +2365,7 @@ mod tests {
     /// reverter of that one line will not be caught by a test.
     #[test]
     fn slope_hypot_divergence_is_measured_not_assumed() {
+        // Protects: the D8 offset table stays bit-identical under both hypots, and records (does not gate on) how often the two slope call sites' Math.hypot/f64::hypot disagree and whether that disagreement ever flips a channelization decision.
         use cartalith_jsmath::js_hypot;
 
         // The nine D8 offsets: identical under both, so the tables need no
@@ -2372,6 +2393,9 @@ mod tests {
         let (w, density) = (384usize, 1.0f64);
         let thresh = super::river_flow_thresh(w, 288, w, 800.0);
         let (mut differ, mut flips) = (0usize, 0usize);
+        /// Sample count for the measurement below -- large enough that the
+        /// divergence rate reported in the doc comment above is a stable estimate,
+        /// not a coin flip on a handful of draws.
         const N: usize = 400_000;
         for _ in 0..N {
             let gx = (rng() - 0.5) * 0.02;
@@ -2407,6 +2431,7 @@ mod tests {
     /// the sub-threshold flow such a cell has.
     #[test]
     fn a_sub_threshold_channel_cell_dims_its_ink_as_the_reference_does() {
+        // Protects: channel_disc's mag has no lower clamp, matching the reference's own Math.min(1, ...) with no floor -- a sub-threshold channel cell dims rather than floors at the reference's own amp.
         // 64x64, so `lmax = ln(4096*0.05)` is the ~5.3 a real grid gives
         // rather than the degenerate sub-1 a toy grid would.
         let (w, h) = (64usize, 64usize);
@@ -2452,6 +2477,7 @@ mod tests {
     /// exactly what `drawRiverWays` strokes.
     #[test]
     fn river_entities_aggregate_a_confluence_into_a_main_stem_and_two_tributaries() {
+        // Protects: river_entities aggregates a traced confluence into one main stem and its tributaries with non-empty, correctly shaped output -- not just no panic -- and that pick_river finds a run by its segment, not only its vertices.
         let (w, h) = (9usize, 9usize);
         let n = w * h;
         let mut fld = vec![0f32; n];
@@ -2536,6 +2562,7 @@ mod tests {
     /// junction point -- so it never narrows downstream.
     #[test]
     fn river_half_width_profile_is_the_running_maximum_of_channel_disc() {
+        // Protects: RV-2: river_half_width_profile never narrows downstream, holding its high through a real dip, a no-flow gap and a junction point, and returns None where no reading exists anywhere on the run.
         // 64x64 so `lmax = ln(204.8)`: `mag` does not saturate below ~200 flow
         // and different flows really give different widths. Flat field, so
         // `slope_fac` is 1 and only discharge moves the width.
@@ -2583,6 +2610,7 @@ mod tests {
     /// -save case (`SAVEFILE_COMPAT.md` stores no channel topology).
     #[test]
     fn no_channels_means_no_river_entities() {
+        // Protects: a channel-free world (the loaded-save case with no stored topology) produces no river entities and pick_river refuses a pick rather than panicking or fabricating a phantom run.
         let (w, h) = (8usize, 8usize);
         let n = w * h;
         let rivers = super::river_entities(
@@ -2608,6 +2636,7 @@ mod tests {
     /// is — the reference's `Float32Array`.
     #[test]
     fn flow_sort_desc_is_element_identical_to_the_comparison_sort() {
+        // Protects: the radix substitution for _flowRadixSortDesc is element-identical, not merely value-identical, to the comparison-sort oracle it replaced, across signed zeros, ties, NaN/inf and wide random and quantised fields -- tie order decides float-addition rounding downstream, so this is not a cosmetic check.
         let oracle = |field: &[f32]| -> Vec<u32> {
             let mut order: Vec<u32> = (0..field.len() as u32).collect();
             order.sort_by(|&a, &b| flow_cmp_desc(field[a as usize], field[b as usize]).then(a.cmp(&b)));
@@ -2726,6 +2755,7 @@ mod tests {
     /// V8 returns `6`.
     #[test]
     fn build_channels_receiver_follows_v8_not_rust_atan2() {
+        // Protects: on a symmetric 3x3 cell where two downhill diagonals are exactly tied, build_channels steers by js_atan2 and picks V8's receiver, not f64::atan2's -- the one case measured to actually change which cell a river flows into.
         // (a) A near-flat plateau cell — ordinary generated-terrain f32
         // values, symmetric to the bit in the left/right pairs.
         // Shortest round-tripping `f32` literals; each is bit-identical to
@@ -2751,13 +2781,21 @@ mod tests {
         assert_eq!(r.recv[4], 6, "V8 picks cell 6; f64::atan2 picks cell 8");
     }
 
+    /// A trivial canary: if this fails to compile or run, the harness itself is
+    /// broken and every other result in this file is meaningless.
     #[test]
     fn crate_compiles_and_tests_run() {
+        // Protects: the crate's test binary itself builds and runs -- a canary so a broken harness reports zero tests rather than a false green, distinct from every functional test below.
         assert_eq!(2 + 2, 4);
     }
 
+    /// enforce_river_channels re-applies a stored river floor after a later
+    /// pass (deposition) may have raised the terrain back over it -- see that
+    /// function's own doc comment for the deposition-refill problem this guards
+    /// against.
     #[test]
     fn enforce_river_channels_clamps_only_raised_masked_cells() {
+        // Protects: enforce_river_channels clamps a masked cell down to its stored floor only when the field has since been raised above it, and leaves an already-deeper masked cell and every unmasked cell untouched.
         let mut field = vec![0.9f32, 0.9, 0.9, 0.1];
         let mask = vec![1u8, 0, 1, 1];
         let floor = vec![0.3f32, 0.3, 0.3, 0.3];
@@ -2768,8 +2806,11 @@ mod tests {
         assert_eq!(field[3], 0.1, "already below the floor -> kept deeper");
     }
 
+    /// An empty river mask must leave the field bit-identical, not merely
+    /// mostly unchanged.
     #[test]
     fn enforce_river_channels_is_a_no_op_on_an_empty_mask() {
+        // Protects: with no masked cells at all, enforce_river_channels changes nothing -- the trivial case a non-empty-mask test alone would not cover.
         let mut field = vec![0.9f32; 4];
         let before = field.clone();
         enforce_river_channels(&mut field, &[0u8; 4], &[0f32; 4]);
@@ -2787,6 +2828,7 @@ mod tests {
     /// which is exactly what this test would now catch.
     #[test]
     fn a_smaller_map_stamps_a_wider_river() {
+        // Protects: the owner's own requirement -- a smaller real-world extent inks a strictly wider river -- and that the stamped ink is a soft radial falloff (brightest at the channel cell) rather than a flat, hard-edged disc.
         // A flat 41x41 world with one channel cell dead centre. Flat on
         // purpose: `slope_fac` is 1/(1+5*|grad|*w), so a gradient would damp
         // the very term under test and could hide a regression.
@@ -2841,6 +2883,7 @@ mod tests {
     /// happens to carry.
     #[test]
     fn no_channels_means_no_ink_and_bad_input_is_refused_quietly() {
+        // Protects: a world with no channel cells inks nothing, and mismatched/short input slices return a correctly-sized all-zero grid instead of panicking or indexing out of bounds.
         let (w, h) = (8usize, 8usize);
         let n = w * h;
         let out = super::stamp_river_intensity(
@@ -2863,6 +2906,7 @@ mod tests {
     /// the reference's own v2.72 literal, carried verbatim.
     #[test]
     fn river_render_area_k_is_the_references_literal_two() {
+        // Protects: RIVER_RENDER_AREA_K is pinned to the reference's own v2.72 literal 2.0 as a bare literal, not against the constant itself, so a change to the constant cannot silently pass its own pin.
         assert_eq!(super::RIVER_RENDER_AREA_K, 2.0);
     }
 
@@ -2873,6 +2917,7 @@ mod tests {
     /// past the 12 800 km point the ease saturates).
     #[test]
     fn river_render_area_bar_scales_with_the_same_ease_river_flow_thresh_uses() {
+        // Protects: river_render_area_bar reproduces the reference's no-op floor at and below 800 km and its measured saturated value at extreme extent, pinned as literals rather than re-derived from the function under test.
         assert_eq!(super::river_render_area_bar(800.0), 2.0);
         assert_eq!(super::river_render_area_bar(40_000.0), 32.0);
         // Below the reference default: still the no-op floor, same as
@@ -2894,6 +2939,7 @@ mod tests {
     /// silently-wrong-oracle `MISTAKES.md` warns against.
     #[test]
     fn a_channel_cell_below_the_area_bar_does_not_ink_but_its_receiver_does() {
+        // Protects: the v2.72 a-detection-ease-is-not-a-display-threshold fix: a channel cell with no channelized upstream neighbour of its own (area == 1) is un-inked once area_bar is active, while the receiver whose accumulated drainage clears the bar still inks, and the same two cells both ink with the gate off.
         let (w, h) = (21usize, 21usize);
         let n = w * h;
         let fld = vec![0.5f32; n];
@@ -2958,6 +3004,7 @@ mod tests {
     ///    not just on a reading of the loop bounds.
     #[test]
     fn wrap_crossing_receivers_do_not_paint_a_line_across_the_map() {
+        // Protects: v2.72's Fix 1 on generated (not hand-built) output: a receiver tree that genuinely crosses the antimeridian seam paints no ink in the map's middle, because the disc stamp has no cross-map stroke step to draw -- and that the valley itself still inks on both sides of the seam, so the empty middle is a real finding, not an all-zero stamp.
         let (w, h) = (101usize, 101usize);
         let n = w * h;
         let sea = 0.3f64;
@@ -3067,6 +3114,7 @@ mod tests {
     /// reachable case, not an edge one.
     #[test]
     fn diagonal_channel_steps_are_bridged_to_stay_4_connected() {
+        // Protects: this port's own diagonal-step defect (RC_ENGINE_CHANGES.md section 6l): four channel cells one D8-diagonal step apart, each proven to have half_w < 1.0 so their own discs cannot mathematically touch, still end up 4-connected end to end through the bridge cells the fix adds, each bridge no brighter than the dimmer of the two centres it connects.
         let (w, h) = (20usize, 20usize);
         let n = w * h;
         let fld = vec![0.5f32; n]; // flat: gx=gy=0, slope_fac=1 exactly
@@ -3184,6 +3232,7 @@ mod tests {
     /// crosses the seam.
     #[test]
     fn diagonal_step_across_the_wrap_seam_is_bridged_without_reaching_the_map_middle() {
+        // Protects: the diagonal-step bridge fires correctly when the diagonal step is only a diagonal because x wraps -- wrapped_axis_delta must give the short wrap distance, not the long raw one, or the bridge cells land far from the seam instead of beside it.
         let (w, h) = (10usize, 10usize);
         let n = w * h;
         let fld = vec![0.5f32; n];
@@ -3247,6 +3296,7 @@ mod tests {
     /// terrain this writes, not a float epsilon a later `f32` store absorbs.
     #[test]
     fn enforce_channel_descent_carves_the_v8_hypot_disc() {
+        // Protects: enforce_channel_descent's carve radius test (d > half_w) uses Math.hypot/js_hypot, not f64::hypot: on an offset the two disagree about, the exact cell count and which rim cells are and are not carved differ between them, a discrete difference in written terrain rather than a float epsilon.
         use cartalith_jsmath::js_hypot;
 
         let (dx, dy) = (2.0f64, 3.0f64);
@@ -3297,6 +3347,9 @@ mod tests {
     // this crate cannot see `cartalith-civ`; the civ-side test
     // (`cartalith-civ/tests/carve_leaves_no_pits.rs`) runs the real classifier.
 
+    /// Sea level shared by every RV-1 fixture below -- an arbitrary mid-range
+    /// value; what matters is that every fixture's land sits above it and every
+    /// fixture's `x == w-1` column (the sea each valley drains to) sits below.
     const RV1_SEA: f64 = 0.42;
 
     /// Cells whose 4-connected fill level stands more than `0.004` above them.
@@ -3336,6 +3389,8 @@ mod tests {
     /// A fixture: terrain, width, height, and the runs over it.
     type Rv1Fixture = (Vec<f32>, usize, usize, Vec<Vec<(f64, f64)>>);
 
+    /// Cell coordinates to the cell-centre points [`carve_channel_network`] and
+    /// [`enforce_channel_descent`] both expect a traced polyline to carry.
     fn rv1_centres(cells: &[(usize, usize)]) -> Vec<(f64, f64)> {
         cells.iter().map(|&(x, y)| (x as f64 + 0.5, y as f64 + 0.5)).collect()
     }
@@ -3427,8 +3482,12 @@ mod tests {
         (fld, w, h, vec![rv1_centres(&trunk)])
     }
 
+    /// RV-1 mechanism 2 (diagonal steps): the old per-run carve seals a
+    /// diagonal trench; the network carve opens it by cutting one orthogonal
+    /// connector per step. See [`rv1_diagonal_fixture`] for the terrain.
     #[test]
     fn carve_network_opens_every_diagonal_step() {
+        // Protects: RV-1 mechanism 2: the per-run carve (positive control) seals a diagonal trench on all four sides and creates a closed depression; carve_channel_network cuts the lower of each diagonal step's two orthogonal connectors and leaves none, while leaving the centreline floor and the untouched higher connector exactly as the old carve left them.
         let (base, w, h, polys) = rv1_diagonal_fixture();
         assert!(rv1_pits(&base, w, h, RV1_SEA).is_empty(), "the uncarved valley holds no lake");
 
@@ -3454,8 +3513,12 @@ mod tests {
         }
     }
 
+    /// RV-1 mechanism 1 (junctions): a tributary's floor at the confluence can
+    /// be lower than the trunk's own descending floor there. See
+    /// [`rv1_junction_fixture`] for the terrain.
     #[test]
     fn carve_network_floors_a_confluence_at_its_lowest_inflow() {
+        // Protects: RV-1 mechanism 1: the old per-run carve (positive control) leaves the confluence cell above a tributary whose own floor arrived lower, a closed pit; carve_channel_network floors the confluence at the lowest inflow and carries that floor on down the trunk, falling drop a step.
         let (base, w, h, polys) = rv1_junction_fixture();
         let mut old = base.clone();
         rv1_old_carve(&mut old, w, h, &polys, 0.5);
@@ -3475,8 +3538,12 @@ mod tests {
         assert!((new[junction] as f64) < 0.5, "the confluence is cut to the tributary's floor, not the trunk's 0.56");
     }
 
+    /// RV-1 mechanism 3 (coastal plains): the per-point drop can walk a long,
+    /// gently-falling trunk's floor under sea level well inland. See
+    /// [`rv1_lowland_fixture`] for the terrain.
     #[test]
     fn carve_network_never_cuts_land_below_sea_level() {
+        // Protects: RV-1 mechanism 3: the old per-run carve (positive control) walks a long, gently-falling trunk's accumulated floor under sea level through real land; carve_channel_network never takes any cell -- centreline, disc or diagonal connector -- below sea + CARVE_LAND_MARGIN when the underlying terrain there is land, flattening the lower reach onto that margin instead.
         let (base, w, h, polys) = rv1_lowland_fixture();
         let mut old = base.clone();
         rv1_old_carve(&mut old, w, h, &polys, 1.2);
@@ -3505,6 +3572,7 @@ mod tests {
     /// the receiver it drains through: a closed trench.
     #[test]
     fn carve_network_never_floors_a_run_below_its_outlet() {
+        // Protects: RV-1 mechanism 4: a run whose channel mask stops short of the coast still drains, because the network carve floors its last cell at exactly its downstream receiver's own terrain rather than continuing to fall drop past where the channel mask itself ended.
         let (w, h) = (24usize, 9usize);
         let mut base = vec![0f32; w * h];
         for y in 0..h {
@@ -3535,6 +3603,7 @@ mod tests {
     /// trench above the lake is a pit the lake cannot drain.
     #[test]
     fn carve_network_drains_into_a_crossed_lake_at_its_surface() {
+        // Protects: a run crossing a kept lake (handed the routing surface) is floored at the lake's surface level upstream of the basin, not only inside it, so the reach above the lake is not left as its own closed pit.
         let (w, h) = (60usize, 9usize);
         let mut base = vec![0f32; w * h];
         for y in 0..h {
@@ -3566,6 +3635,7 @@ mod tests {
     /// is land.
     #[test]
     fn carve_network_connectors_never_cut_land_below_sea_level() {
+        // Protects: the sea-level floor (CARVE_LAND_MARGIN) applies to the diagonal connector cuts too, not only the centreline: a lowland run stepping diagonally across a plain just above sea level never takes a connector cell below sea level.
         let (w, h) = (24usize, 24usize);
         let mut base = vec![0f32; w * h];
         for y in 0..h {
@@ -3591,6 +3661,7 @@ mod tests {
     /// trenches through its rim -- the old behaviour -- without one.
     #[test]
     fn carve_network_keeps_a_lake_the_run_crosses() {
+        // Protects: a real lake a run is routed through (handed the routing surface) survives the carve, while the same run without the surface trenches through the rim -- and a wide disc costs the lake only its shallowest margin cells, never its outlet.
         let (w, h) = (24usize, 9usize);
         let mut base = vec![0f32; w * h];
         for y in 0..h {
@@ -3644,6 +3715,7 @@ mod tests {
     /// - `mag`'s `0.05` inside `channel_lmax` — reached through `mag²`.
     #[test]
     fn channel_disc_width_law_is_bit_exact_against_the_reference() {
+        // Protects: channel_disc's width law is bit-for-bit against the reference's own formula on a gradient chosen to split V8's Math.hypot from f64::hypot, with explicit mutants (f64::hypot, slope_fac's 5.0, channel_lmax's 0.05) each proven to move the result -- so this pins the exact bits, not merely close enough.
         use cartalith_jsmath::{js_hypot, js_min};
 
         let (w, h) = (64usize, 64usize);
@@ -3709,6 +3781,7 @@ mod tests {
     /// give ~0.4335 and clamp to the same 0.5.
     #[test]
     fn the_channel_half_width_floor_is_the_references_own_half_cell() {
+        // Protects: the reference's if(halfW<0.5)halfW=0.5 floor fires on a fixture chosen to land strictly between the real floor and a plausible wrong one, and the floor is unscaled by width_k -- which is what keeps a world-scale river one cell wide.
         let (w, h) = (64usize, 64usize);
         let n = w * h;
         let (cx, cy) = (32usize, 32usize);
@@ -3755,6 +3828,7 @@ mod tests {
     /// file; `f64` multiplication is commutative to the bit, so nothing moved.
     #[test]
     fn channel_lmax_is_the_log_of_five_percent_of_the_grid() {
+        // Protects: channel_lmax's 0.05 coefficient, pinned against a literal at three grid sizes and against a 0.06 mutant, plus one worked numeric value so the two assertions cannot drift together undetected.
         for &(w, h) in &[(64usize, 64usize), (384, 288), (2048, 2048)] {
             let n = w * h;
             assert_eq!(
@@ -3790,6 +3864,9 @@ mod tests {
             .collect()
     }
 
+    /// [`build_routing_surface`]'s own seed predicate, re-stated here so a test
+    /// can check where a chain of receivers is *supposed* to end without
+    /// reaching into that function's private state.
     fn is_seed(field: &[f32], w: usize, h: usize, i: usize, sea: f64, world: bool) -> bool {
         let (x, y) = (i % w, i / w);
         (field[i] as f64) < sea || y == 0 || y + 1 == h || (!world && (x == 0 || x + 1 == w))
@@ -3809,8 +3886,12 @@ mod tests {
         f
     }
 
+    /// The epsilon tilt itself: a pit is raised one f32 ULP above the ring cell
+    /// it is first reached from, never to a flat and never by a real-valued step,
+    /// and every seed and every cell outside the depression is untouched.
     #[test]
     fn routing_surface_fills_a_pit_with_a_strict_tilt() {
+        // Protects: build_routing_surface's epsilon tilt: the interior pit is raised to exactly one f32 ULP above the ring cell it is first reached from (never to a flat, and never by a real-valued epsilon), every seed and every cell outside the depression is left bit-identical, and the routed surface's interior is no longer a pit where the raw field's was.
         let f = bowl();
         let s = super::build_routing_surface(&f, 5, 5, 0.0, false);
         // The pit is raised to exactly one f32 step above the 0.5 ring cell it
@@ -3835,8 +3916,12 @@ mod tests {
         }
     }
 
+    /// `integrate = false` is `compute_flow` bit for bit; `integrate = true`
+    /// carries a filled pit's whole catchment out to the routing surface's edge
+    /// outlet instead of stopping at the pit.
     #[test]
     fn routed_flow_carries_the_pits_catchment_to_the_outlet() {
+        // Protects: with integrate = false, compute_flow_routed is compute_flow itself bit for bit; with it on, a pit's whole accumulated catchment reaches the routing surface's edge outlet instead of stopping at the pit.
         let f = bowl();
         let raw = super::compute_flow_routed(5, 5, &f, None, false, false, 0.0, false);
         let routed = super::compute_flow_routed(5, 5, &f, None, false, false, 0.0, true);
@@ -3849,8 +3934,11 @@ mod tests {
         assert_eq!(routed[2] - raw[2], raw[12]);
     }
 
+    /// A field with no depression anywhere returns bit-identical to the input --
+    /// the fill must not perturb terrain it had no reason to touch.
     #[test]
     fn routing_surface_is_identity_where_nothing_is_enclosed() {
+        // Protects: a field with no depression at all (a monotone ramp to a real edge) returns bit-identical to the input -- the routing surface must not perturb terrain that needed no fill.
         // A monotone ramp down to the y = 0 edge has no depression anywhere.
         let (w, h) = (9, 7);
         let f: Vec<f32> = (0..w * h).map(|i| 0.4 + 0.05 * (i / w) as f32 + 0.001 * (i % w) as f32).collect();
@@ -3858,8 +3946,11 @@ mod tests {
         assert!(s.iter().zip(&f).all(|(a, b)| a.to_bits() == b.to_bits()));
     }
 
+    /// A below-sea-level cell is already an outlet by the seed rule; nothing
+    /// around it is filled and the surface is the field, bit for bit.
     #[test]
     fn sub_sea_cells_are_outlets_and_keep_their_height() {
+        // Protects: a below-sea-level cell is already an outlet by the seed rule (field < sea), so nothing around it is filled and the surface is the field, bit for bit.
         // The bowl again, but its pit is below sea level: it IS the sea, so
         // nothing is filled and the surface is the field.
         let f = bowl();
@@ -3867,8 +3958,12 @@ mod tests {
         assert!(s.iter().zip(&f).all(|(a, b)| a.to_bits() == b.to_bits()));
     }
 
+    /// The `x`-wrap rule: a low `x = 0` cell is a kept edge outlet unwrapped and
+    /// must be filled over like interior ground once the world wraps; the `y`
+    /// edge is unaffected either way, matching `d8_receiver`'s own asymmetry.
     #[test]
     fn a_wrapped_world_has_no_east_west_outlet() {
+        // Protects: the x-wrap rule: a low cell on the x = 0 column is a kept edge outlet when unwrapped and must be filled over like any interior cell once the world wraps, while a y-edge outlet is unaffected either way -- matching d8_receiver's own x wraps, y never does rule.
         // An 8x5 plateau with its only real outlet on the top edge, and a low
         // cell on the x = 0 column. Unwrapped, that column is a map edge -- an
         // outlet that keeps its height. Wrapped, it is interior ground and must
@@ -3884,8 +3979,12 @@ mod tests {
         assert_eq!(wrapped[5], 0.1, "the y edge is still an outlet under wrap");
     }
 
+    /// On generated terrain, in every wrap/sea-level combination: every cell's
+    /// receiver chain on the routed surface strictly descends and terminates at
+    /// a genuine seed, never a cycle or an interior pit.
     #[test]
     fn every_cell_drains_to_a_seed_on_the_routed_surface() {
+        // Protects: on generated (not hand-built) terrain, in both wrapped and unwrapped, sea-level-zero and non-zero regimes: every cell's receiver chain on the routed surface strictly descends and terminates at a genuine seed, never at a cycle or an interior pit -- section 6g's own required verification (do not verify this with a flow ratio), walked here to its terminus for real fixtures.
         for &(w, h, world, sea) in &[(40usize, 30usize, false, 0.0f64), (40, 30, true, 0.0), (33, 21, false, 0.45), (33, 21, true, 0.45)] {
             let f = lcg_field(w, h, 0xC0FFEE ^ w as u64 ^ (world as u64) << 8);
             let raw_pits = super::flow_receivers(&f, w, h, world)
@@ -3913,8 +4012,12 @@ mod tests {
         }
     }
 
+    /// Inside a filled depression, `build_channels_routed`'s receiver for a
+    /// channel cell matches `compute_flow`'s own D8 tree exactly, and always
+    /// points at another channel cell.
     #[test]
     fn inside_a_filled_basin_the_channel_follows_the_accumulation_tree() {
+        // Protects: inside a filled depression, build_channels_routed's receiver for a channel cell matches compute_flow's own D8 accumulation tree exactly (not the aspect-steered pick), and such a cell's receiver is always itself a channel cell -- the guarantee build_channels_routed's doc comment states and measures.
         let (w, h) = (48, 36);
         let f = lcg_field(w, h, 11);
         let s = super::build_routing_surface(&f, w, h, 0.0, false);
@@ -3931,8 +4034,11 @@ mod tests {
         }
     }
 
+    /// With `route == fld`, `build_channels_routed` reproduces `build_channels`
+    /// exactly -- same receivers, mask and slope field, bit for bit.
     #[test]
     fn build_channels_routed_over_the_field_is_build_channels() {
+        // Protects: with route == fld, build_channels_routed reproduces build_channels exactly -- same receivers, same channel mask, same slope field bit for bit -- so the routed entry point changes nothing when nothing was filled.
         let (w, h) = (36, 28);
         let f = lcg_field(w, h, 7);
         let flow = super::compute_flow(w, h, &f, None, false, false);
@@ -3943,8 +4049,12 @@ mod tests {
         assert!(a.slope.iter().zip(&b.slope).all(|(x, y)| x.to_bits() == y.to_bits()));
     }
 
+    /// The raw network genuinely dead-ends in interior pits on this fixture (the
+    /// positive control); the routed network's mask and slope are identical to
+    /// the raw one's and none of its channel cells end in an interior pit.
     #[test]
     fn routed_channels_never_end_in_an_interior_pit_and_keep_the_real_slope() {
+        // Protects: the raw (unrouted) channel network genuinely dead-ends in interior pits on this fixture (the positive control), while the routed network's channel mask and slope field are identical to the raw one's and none of its channel cells end in an interior pit.
         let (w, h) = (48, 36);
         let f = lcg_field(w, h, 11);
         let s = super::build_routing_surface(&f, w, h, 0.0, false);

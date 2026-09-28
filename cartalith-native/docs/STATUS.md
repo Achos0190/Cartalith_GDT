@@ -438,6 +438,38 @@ re-checked against the tree rather than copied from the commit message.
   terrain/civ/urban/godot/shell all sit later), pending independent
   verification of this batch first.
 
+- **Ruling BK annotation pass, batch 6 (`cartalith-hydrology`'s `src/lib.rs`
+  only) — verified by the main loop 2026-09-28 (diff re-read as comment-only; hydrology 57/0/0 unchanged), 2026-09-28.** Comments only, zero
+  behaviour change. The crate is 5 414 LOC across `src/lib.rs` (3 963),
+  `src/tile.rs` (568) and four test files (883) — over the ~3 500 LOC
+  single-batch band ANNOTATION_AUDIT.md flags, so this batch did whole files
+  in risk order and stopped at `src/lib.rs`, the largest and most
+  golden-parity-load-bearing file. `src/tile.rs` and the four `tests/*.rs`
+  files are untouched and are batch 7.
+  Census scoped to `src/lib.rs` alone, before → after: items_total 97
+  (unchanged — comments do not create items), items_undoc 22→0,
+  tests_total 39 (unchanged), tests_unprotected 39→0. Every previously
+  undocumented `fn`/`const` (`build_channels_core`, `stamp_river_intensity`,
+  `RV1_SEA`, `rv1_centres`, `is_seed`, plus two local consts inside function
+  bodies) got its own doc comment; every one of the 39 `#[test]`s got a
+  `// Protects: ...` first line, and nine of those that had no `///` doc
+  comment of their own also got one. One drafting mistake caught and fixed
+  before commit: a doc comment was drafted for `channel_cell_drainage`
+  believing it undocumented, from a truncated file read that could not see
+  the real doc comment two screens above it; the census (run over the whole
+  file at once, not a windowed read) never flagged that function, and the
+  duplicate was removed before verification. Whole-crate census (all six
+  files) moves items_undoc 44→22 and tests_unprotected 57→18 — `src/tile.rs`
+  (1 undoc item, an `impl TilePlacement` block) and the four test files
+  (21 undoc items, 18 unprotected tests) are exactly what is left, unchanged
+  by this batch. `cargo test -p cartalith-hydrology`
+  (`CARGO_TARGET_DIR` redirected to a scratch dir): 57 passed / 0 failed /
+  0 ignored across all 6 binaries, identical before and after. A
+  comment-only-diff checker (adapted from batch 5's) asserts every changed
+  line in `src/lib.rs` is blank or a `//`/`///` comment, with no code fence
+  in any new comment — passed. No other wrong comment was found in this
+  file.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
