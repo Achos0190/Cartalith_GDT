@@ -86,6 +86,7 @@ impl Rock {
         Rock::ALL.get(v as usize).copied()
     }
 
+    /// This rock's row of §2.3's property table.
     pub fn props(self) -> &'static RockProps {
         &ROCK_PROPS[self as usize]
     }
@@ -108,6 +109,7 @@ pub enum SelbyClass {
 }
 
 impl SelbyClass {
+    /// The class's display label, lowercase (e.g. `"very weak"`).
     pub fn name(self) -> &'static str {
         match self {
             SelbyClass::VeryWeak => "very weak",
@@ -146,6 +148,8 @@ pub enum Permeability {
 }
 
 impl Permeability {
+    /// The class's display label, e.g. `"very low"` or the `Variable`
+    /// case's explanatory string.
     pub fn name(self) -> &'static str {
         match self {
             Permeability::VeryLow => "very low",
@@ -456,13 +460,15 @@ const FACIES_SALT: i32 = 0x6e01;
 /// both boundaries), which the scope's table has no code for. Flagged for
 /// §2.6 rather than folded into "none", which would claim no volcano.
 pub mod setting_code {
-    pub const NONE: u8 = 0;
-    pub const ARC: u8 = 1;
-    pub const RIFT: u8 = 2;
-    pub const HOTSPOT: u8 = 3;
-    pub const UNCLASSIFIED: u8 = 4;
+    pub const NONE: u8 = 0; // §2.6 code 0: no volcanic overlay at this cell
+    pub const ARC: u8 = 1; // §2.6 code 1: subduction-arc volcanism
+    pub const RIFT: u8 = 2; // §2.6 code 2: rift volcanism
+    pub const HOTSPOT: u8 = 3; // §2.6 code 3: hotspot volcanism
+    pub const UNCLASSIFIED: u8 = 4; // module doc: stamp_volcanoes_simple placements the scope's table has no code for
 }
 
+/// [`setting_code`] for a [`crate::VolcanicSetting`] — the mapping this
+/// module's stored `u8` column uses.
 fn setting_code_of(s: crate::VolcanicSetting) -> u8 {
     match s {
         crate::VolcanicSetting::Arc => setting_code::ARC,
@@ -494,10 +500,12 @@ pub struct GeologyColumn {
 }
 
 impl GeologyColumn {
+    /// The number of cells this column covers.
     pub fn len(&self) -> usize {
         self.rock_top.len()
     }
 
+    /// `true` if this column covers no cells.
     pub fn is_empty(&self) -> bool {
         self.rock_top.is_empty()
     }
@@ -548,6 +556,10 @@ impl GeologyColumn {
         }
     }
 
+    /// [`exposed`](Self::exposed)'s substrate-vs-cap rule, evaluated at the
+    /// bedrock surface `bed` (i.e. with the regolith already stripped) rather
+    /// than at the visible ground — [`beneath`](Self::beneath)'s "what is
+    /// under the regolith" branch.
     fn exposed_bedrock(&self, i: usize, bed: f32) -> Option<Rock> {
         match self.substrate(i) {
             Some((sub, c)) if bed < c => Some(sub),
@@ -595,7 +607,7 @@ pub fn m_to_norm(m: f64, sea_level: f64, peak_m: f64) -> f64 {
 /// passes runs twice so a distance can cross the seam in either direction.
 /// A separate function, so that golden is untouched (§2.4).
 pub fn labelled_boundary_distance(gw: usize, gh: usize, world: bool, boundary_mask: &[u8]) -> (Vec<f32>, Vec<u32>) {
-    const D2: f32 = std::f32::consts::SQRT_2;
+    const D2: f32 = std::f32::consts::SQRT_2; // diagonal chamfer step cost, standard chamfer-distance weight
     let n = gw * gh;
     let mut d = vec![f32::INFINITY; n];
     let mut src = vec![u32::MAX; n];
@@ -795,6 +807,10 @@ pub fn build_geology(inp: &GeologyInputs) -> GeologyColumn {
     col
 }
 
+/// Unit coverage for the rock property table, the two-layer column API, the
+/// chamfer boundary distance, and `build_geology`'s derivation branches
+/// (basement, cover, volcanic overlay). No golden hash here — every value
+/// is checked against `GEOLOGY_FIRST_SCOPE.md`'s own cited/labelled numbers.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -803,6 +819,9 @@ mod tests {
     /// against itself). Order: s, κ, θc, γ, ρ.
     #[test]
     fn rock_table_values_are_the_scope_values() {
+        // Protects: `ROCK_PROPS`'s strength/erodibility/critical-slope/
+        // glacial-erodibility/density columns match §2.3's cited or
+        // labelled values, row for row.
         let want: [(&str, f32, f32, f32, f32, f32); ROCK_COUNT] = [
             ("Granite / granitoid", 0.85, 0.30, 60.0, 0.5, 0.10),
             ("Gneiss", 0.80, 0.35, 55.0, 0.6, 0.15),
@@ -824,6 +843,9 @@ mod tests {
 
     #[test]
     fn rock_table_classes_flags_and_projection() {
+        // Protects: `ROCK_PROPS`'s Selby class, solubility flag, permeability,
+        // jointing, formation and legacy-class projection, row for row, and
+        // that limestone is the only soluble rock.
         use Jointing as J;
         use Permeability as P;
         use SelbyClass as S;
@@ -851,6 +873,9 @@ mod tests {
     /// Marinos & Hoek (2000) Table 2, as read from the paper for GF-1.
     #[test]
     fn hoek_brown_mi_is_marinos_and_hoek_table_2() {
+        // Protects: `ROCK_PROPS`'s Hoek-Brown `mi` values against Marinos &
+        // Hoek (2000) Table 2, row for row, `None` where the rock is not
+        // intact rock.
         let want: [Option<(f32, f32, bool)>; ROCK_COUNT] = [
             Some((32.0, 3.0, false)), // granite
             Some((28.0, 5.0, false)), // gneiss
@@ -873,6 +898,8 @@ mod tests {
     /// bands are the quoted literals.
     #[test]
     fn strength_sits_inside_its_selby_band() {
+        // Protects: the quoted Selby band literals, and that every rock's
+        // `s` (as a percentage) actually falls inside its own class's band.
         assert_eq!(SelbyClass::VeryWeak.band(), (0.0, 25.0));
         assert_eq!(SelbyClass::Weak.band(), (26.0, 50.0));
         assert_eq!(SelbyClass::Moderate.band(), (51.0, 70.0));
@@ -887,6 +914,9 @@ mod tests {
 
     #[test]
     fn rock_indices_round_trip_and_no_layer_is_not_a_rock() {
+        // Protects: `Rock::from_u8`/`as u8` round-trip for every real rock,
+        // and that `NO_LAYER` and any out-of-range index are never mistaken
+        // for one.
         for (k, r) in Rock::ALL.iter().enumerate() {
             assert_eq!(*r as usize, k);
             assert_eq!(Rock::from_u8(k as u8), Some(*r));
@@ -900,6 +930,8 @@ mod tests {
 
     #[test]
     fn derivation_constants_are_pinned() {
+        // Protects: every derivation-width and cover constant §2.4 relies on,
+        // against literals — mutating any one must turn this test red.
         assert_eq!(
             [W_CORE, W_OROGEN, W_ARC, W_SHEAR, W_RIFT, W_LOW_BLUR],
             [1.0, 3.0, 4.0, 1.0, 2.5, 4.0]
@@ -911,6 +943,10 @@ mod tests {
         assert_eq!([V_TH, ARC_CORE_T, CARBONATE_LAT_DEG, FACIES_CYCLES], [0.2, 0.4, 30.0, 3.0]);
     }
 
+    /// Builds a [`GeologyColumn`] fixture directly from its raw arrays,
+    /// bypassing [`build_geology`] — for tests that exercise
+    /// `exposed`/`beneath`/`substrate` at chosen boundary cases rather than
+    /// the derivation.
     fn column(top: &[u8], sub: &[u8], contact: &[f32], regolith: &[f32]) -> GeologyColumn {
         GeologyColumn {
             rock_top: top.to_vec(),
@@ -924,6 +960,9 @@ mod tests {
     /// §2.5's exposure rule, each branch, with the boundary cases.
     #[test]
     fn exposure_rule_each_branch() {
+        // Protects: every branch of §2.5's exposure rule — cap above/at/below
+        // the contact, single-layer fallback, and the regolith threshold's
+        // at/above boundary.
         let c = column(&[3, 0], &[9, NO_LAYER], &[0.5, f32::NAN], &[0.0, 0.0]);
         // Cap above the contact, at it, and below it.
         assert_eq!(c.exposed(0, 0.6, 0.01), Some(Rock::PlateauBasalt));
@@ -942,6 +981,9 @@ mod tests {
 
     #[test]
     fn beneath_reports_a_reason_where_there_is_no_unit() {
+        // Protects: every `Beneath` arm the Sample panel reads — a real unit
+        // with its depth, `CapEroded`, `SingleLayer`, and that a NaN-contact
+        // sub code is never treated as a layer.
         let c = column(&[3, 0], &[9, NO_LAYER], &[0.5, f32::NAN], &[0.0, 0.0]);
         assert_eq!(c.beneath(0, 0.625, 0.01), Beneath::Unit { rock: Rock::Shale, depth: 0.125 });
         assert_eq!(c.beneath(0, 0.4, 0.01), Beneath::CapEroded);
@@ -958,12 +1000,18 @@ mod tests {
 
     #[test]
     fn m_to_norm_uses_the_sea_anchored_scale() {
+        // Protects: `m_to_norm`'s `metersPerUnit` anchoring arithmetic
+        // against a hand-computed value.
         // 5 m at sea 0.42, peak 4000 m: 5 * 0.58 / 4000.
         assert!((m_to_norm(5.0, 0.42, 4000.0) - 0.000725).abs() < 1e-12);
     }
 
     #[test]
     fn labelled_distance_carries_the_nearest_boundary_and_wraps() {
+        // Protects: `labelled_boundary_distance`'s chamfer distance and
+        // nearest-source index, the diagonal-step cost, x-wrap when `world`
+        // (in both seam directions) and never otherwise, and the no-boundary
+        // (infinite distance, `u32::MAX` source) case.
         let (gw, gh) = (10usize, 3usize);
         let mut mask = vec![0u8; gw * gh];
         mask[gw + 1] = 1; // (1, 1)
@@ -1029,12 +1077,18 @@ mod tests {
         })
     }
 
+    /// A featureless field for [`derive`]'s `field_at`, at a height (0.6)
+    /// above the fixture's own 0.4 sea level.
     fn flat(_: usize, _: usize) -> f32 {
         0.6
     }
 
     #[test]
     fn basement_follows_the_nearest_boundary_type() {
+        // Protects: §2.4 step 2's basement branch — collision/transform/rift
+        // widths measured against distance, oceanic crust always basalt, and
+        // a single-layer cell's `contact`/`rock_sub`/`regolith` at their
+        // "no second layer" sentinels.
         // blur_r 2: core < 2 cells, orogen < 6, shear < 2, rift < 5.
         let c = derive(0.8, btype::COLLISION, 0, flat, None, 0.0, 45.0);
         assert_eq!(c.top(1), Some(Rock::Gneiss)); // d 1
@@ -1067,8 +1121,12 @@ mod tests {
     /// high, both over shale; the rim outside the low keeps its basement.
     #[test]
     fn structural_lows_take_a_cover_by_latitude() {
-        // A 0.1-deep bowl centred at x 40 (600 m at this scale), well beyond
-        // the orogen width from the boundary at x 0.
+        // Protects: §2.4 step 3 — a structural low far from any margin gets
+        // a limestone-over-shale or sandstone-over-shale cover by latitude,
+        // the contact sits below the surface, ground outside the low keeps
+        // its basement, and the same low too close to a margin takes none.
+        /// A 0.1-deep bowl centred at x 40 (600 m at this scale), well beyond
+        /// the orogen width from the boundary at x 0.
         fn bowl(x: usize, _: usize) -> f32 {
             let d = (x as f32 - 40.0).abs();
             if d < 6.0 { 0.5 } else { 0.6 }
@@ -1084,8 +1142,8 @@ mod tests {
         // Outside the bowl: no cover.
         assert_eq!(warm.top(8 * 64 + 60), Some(Rock::Granite));
         assert_eq!(warm.substrate(8 * 64 + 60), None);
-        // The same bowl inside the active-margin width (orogen, 6 cells here)
-        // takes no cover: a structural low at a margin is not a basin.
+        /// The same bowl inside the active-margin width (orogen, 6 cells
+        /// here) takes no cover: a structural low at a margin is not a basin.
         fn near_bowl(x: usize, _: usize) -> f32 {
             if x.abs_diff(4) < 6 { 0.5 } else { 0.6 }
         }
@@ -1094,6 +1152,9 @@ mod tests {
         assert_eq!(margin.substrate(8 * 64 + 4), None);
     }
 
+    /// A single placed edifice of `setting` at `(40, 8)`, radius 10, height
+    /// 0.2, with every cell's winner set to it — a [`crate::VolcanoTrace`]
+    /// fixture for [`derive`]'s `volcano` argument.
     fn one_volcano(setting: crate::VolcanicSetting) -> crate::VolcanoTrace {
         let mut t = crate::VolcanoTrace::new(64 * 16);
         t.edifices.push(crate::PlacedEdifice { setting, cx: 40.0, cy: 8.0, r: 10.0, h: 0.2 });
@@ -1105,6 +1166,11 @@ mod tests {
 
     #[test]
     fn volcanic_overlay_keeps_the_setting() {
+        // Protects: §2.4 step 4 — every volcanic setting caps with the right
+        // rock (basalt for hotspot/rift, andesite/tuff for arc by radial
+        // position), records its setting code even below the intensity
+        // threshold, adds no unit over oceanic basalt, and the unclassified
+        // case reads the margin type.
         use crate::VolcanicSetting as V;
         let i_core = 8 * 64 + 41; // t = 0.1
         let i_flank = 8 * 64 + 47; // t = 0.7

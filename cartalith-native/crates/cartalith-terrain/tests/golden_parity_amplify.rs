@@ -93,6 +93,9 @@
 use cartalith_spatial::{FloatRegion, Region};
 use cartalith_terrain::amplify::{amplify_region, refine_tile, AmplifyOpts};
 
+/// FNV-1a-64 over the raw little-endian `f32` bytes of a field — the same
+/// hash the harness uses on the V8 side, so a byte-for-byte identical field
+/// (whatever `f32` value it holds, NaN included) hashes identically.
 fn fnv_f32(a: &[f32]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in a {
@@ -124,18 +127,20 @@ fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
     f
 }
 
-const GW: usize = 48;
-const GH: usize = 32;
+const GW: usize = 48; // fixture grid width, this file's own synthetic_field
+const GH: usize = 32; // fixture grid height, this file's own synthetic_field
 
 #[test]
 fn the_fixture_field_is_bit_identical_to_the_harnesss_own() {
-    // Checked before anything else: every golden below is only evidence about
-    // the function under test if the input agrees exactly.
+    // Protects: every golden below is only evidence about the function under
+    // test if the input agrees exactly with the V8 harness's own fixture.
     assert_eq!(fnv_f32(&synthetic_field(GW, GH, 5)), "e6a8f7dd46187082");
 }
 
 #[test]
 fn case0_default_fbm_detail() {
+    // Protects: `amplify_region`'s output against the V8 reference, default
+    // fbm detail, re-derived under Ruling O's sea-level clamp.
     let src = synthetic_field(GW, GH, 5);
     let o = amplify_region(&src, GW, GH, &Region { x: 4, y: 6, w: 20, h: 14 }.to_float(), 32, 24,
                            &AmplifyOpts { seed: 1234, sea: 0.42, ridged: false, ..Default::default() });
@@ -149,6 +154,9 @@ fn case0_default_fbm_detail() {
 
 #[test]
 fn case1_the_same_region_with_ridged_detail_differs() {
+    // Protects: `amplify_region`'s ridged-detail output against the V8
+    // reference, and that ridged really disagrees with fbm on the same
+    // inputs (a cross-check the golden alone could not catch a copy-paste on).
     let src = synthetic_field(GW, GH, 5);
     let reg = Region { x: 4, y: 6, w: 20, h: 14 }.to_float();
     let o = amplify_region(&src, GW, GH, &reg, 32, 24,
@@ -164,6 +172,8 @@ fn case1_the_same_region_with_ridged_detail_differs() {
 
 #[test]
 fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
+    // Protects: `amplify_region`'s golden against the V8 reference under a
+    // downsample (out < src) with a raised detail frequency and amplitude.
     let src = synthetic_field(GW, GH, 5);
     let o = amplify_region(&src, GW, GH, &Region { x: 0, y: 0, w: 48, h: 32 }.to_float(), 24, 16,
                            // `z_base`/`zoom_detail_k` steer `add_zoom_detail`,
@@ -177,6 +187,9 @@ fn case2_the_whole_field_downsampled_with_a_raised_frequency_and_amplitude() {
 
 #[test]
 fn case3_a_region_hard_against_the_far_edge_exercises_the_clamped_sampler() {
+    // Protects: `amplify_region`'s golden against the V8 reference when the
+    // region abuts the far edge, so the relief gradient's `cx + e` sample
+    // must go through `samp`'s clamp rather than an interior cell.
     let src = synthetic_field(GW, GH, 5);
     // x+w == 48 == GW, so `cx + e` runs past the last column on every row and
     // the relief gradient reads the sampler's clamp, not an interior cell.
@@ -188,6 +201,8 @@ fn case3_a_region_hard_against_the_far_edge_exercises_the_clamped_sampler() {
 
 #[test]
 fn case4_a_collapsed_one_cell_region_is_constant_and_finite() {
+    // Protects: a 1x1 region's golden, and that its output is constant and
+    // finite rather than the `0/0` NaN case case5 pins.
     let src = synthetic_field(GW, GH, 5);
     let o = amplify_region(&src, GW, GH, &FloatRegion { x: 5.0, y: 5.0, w: 1.0, h: 1.0 }, 6, 6,
                            &AmplifyOpts { seed: 3, sea: 0.42, ridged: false, ..Default::default() });
@@ -197,6 +212,8 @@ fn case4_a_collapsed_one_cell_region_is_constant_and_finite() {
 
 #[test]
 fn case5_a_one_pixel_output_is_all_nan_exactly_as_the_reference_computes_it() {
+    // Protects: the real reference `0/0` division-by-zero case is ported as
+    // written, byte for byte, not silently fixed into a finite value.
     let src = synthetic_field(GW, GH, 5);
     // `(oy/(outH-1))` with outH == 1 and rh > 1 is 0/0. The reference really
     // does return NaN here; `tile_dims`' max(2, ..) floor is why no shipped
@@ -209,6 +226,9 @@ fn case5_a_one_pixel_output_is_all_nan_exactly_as_the_reference_computes_it() {
 
 #[test]
 fn case7_a_fully_degenerate_region_and_output_stays_finite() {
+    // Protects: the `rh > 1.0`/`rw > 1.0` guard is strict (`>`, not `>=`) —
+    // a fully degenerate region+output pair must stay finite where case5's
+    // pattern with a non-degenerate region comes back NaN.
     // Both the region AND the output collapse to one cell. Unlike case 5 this
     // is *not* NaN, because `rh > 1.0` is false and the mapping takes its
     // `: ry` branch instead of dividing. The pair of cases is what pins the
@@ -225,6 +245,8 @@ fn case7_a_fully_degenerate_region_and_output_stays_finite() {
 
 #[test]
 fn case6_every_option_left_at_its_default() {
+    // Protects: `amplify_region`'s golden with every `AmplifyOpts` field left
+    // at `Default::default()` — the path most shipped callers actually take.
     let src = synthetic_field(GW, GH, 5);
     let o = amplify_region(&src, GW, GH, &Region { x: 2, y: 2, w: 10, h: 10 }.to_float(), 8, 8,
                            &AmplifyOpts::default());
@@ -233,6 +255,8 @@ fn case6_every_option_left_at_its_default() {
 
 #[test]
 fn refine_tile_matches_the_reference_tile_for_tile() {
+    // Protects: `refine_tile`'s golden against the V8 reference for every
+    // tile of a 2x2 grid, re-derived where Ruling O moved them.
     let src = synthetic_field(GW, GH, 5);
     let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
     let o = AmplifyOpts { seed: 4242, sea: 0.42, ridged: false, ..Default::default() };
@@ -252,6 +276,9 @@ fn refine_tile_matches_the_reference_tile_for_tile() {
 
 #[test]
 fn the_shared_tile_edge_delta_is_exactly_zero_as_the_harness_measured() {
+    // Protects: the seam property, measured as the harness measured it — two
+    // horizontally adjacent tiles' shared edge delta is exactly 0.0, not just
+    // small.
     let src = synthetic_field(GW, GH, 5);
     let reg = Region { x: 4, y: 4, w: 24, h: 16 }.to_float();
     let o = AmplifyOpts { seed: 4242, sea: 0.42, ridged: false, ..Default::default() };

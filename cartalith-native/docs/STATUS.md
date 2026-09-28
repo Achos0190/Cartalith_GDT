@@ -867,6 +867,64 @@ re-checked against the tree rather than copied from the commit message.
   Batches 6 through 11 all still need an independent verifier before any
   can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 13 (`cartalith-terrain`'s `amplify.rs`,
+  `analysis.rs`, `geology.rs` plus `tests/golden_parity_amplify.rs`) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; terrain 317/0/0 unchanged).** Re-verified each module's
+  paired test file at the symbol rather than trusting batch 12's note:
+  `amplify.rs` pairs with `tests/golden_parity_amplify.rs` (dedicated golden
+  file) — `tests/golden_parity_zoom_detail.rs` also exercises its
+  `add_zoom_detail` but was fully annotated already in batch 12 and needed no
+  change here. `analysis.rs` and `geology.rs` have **no dedicated golden test
+  file** — grepped for every symbol each exports (`tpi`, `slope`, `aspect`,
+  `curvature*`, `local_relief`, `ruggedness`, `normalise`, `visibility`,
+  `build_geology`, `GeologyColumn`, `Rock::*`) across `tests/*.rs` and found
+  none; both carry their own inline `#[cfg(test)] mod tests` instead, which
+  is what this batch annotated. Four files, ~3 790 LOC total (`amplify.rs`
+  1 318, `analysis.rs` 1 056, `geology.rs` 1 149, the golden-parity file 266),
+  slightly over the ~3 500 LOC guidance but taken whole since all four were
+  already close to fully doc-commented and the remaining gaps were small.
+  Most of `amplify.rs` and `analysis.rs` already carried real `///` doc
+  comments from earlier work (Ruling O's sea-level-clamp pass and the
+  `LANDMARK_GENERATION_RESEARCH.md` §3.1 module respectively); this batch's
+  work there was almost entirely the crate's recurring `// Protects:` gap —
+  every one of `amplify.rs`'s 26 tests, `analysis.rs`'s 21 and
+  `geology.rs`'s 12 got a first-line `// Protects:` inside the test body
+  (batch 11's convention), including several that already had a real `///`
+  doc above `#[test]` which said what the test does but not what it
+  protects. One `//`-separated real doc promoted to `///` without changing
+  its text (`amplify_region`'s argument-grouping rationale, separated from
+  the `pub fn` by an `#[allow]` attribute — same pattern batches 8/11/12
+  each found once) plus two nested test-helper fns in `geology.rs`
+  (`bowl`/`near_bowl`) whose explanatory `//` comment was promoted the same
+  way. Real gaps closed: `geology.rs`'s five `Rock`/`SelbyClass`/
+  `Permeability` accessor methods and `GeologyColumn::len`/`is_empty`/
+  `exposed_bedrock` had no doc at all; its `setting_code` module's five
+  `u8` constants got one comment each (the module doc already explains the
+  scheme; the census's per-const rule still wants one at each constant);
+  `setting_code_of`, `column`, `flat`, `one_volcano` (test helpers) got
+  docs. Two small const-provenance additions in `amplify.rs`'s tests
+  (`CW`/`CH`/`SEA` in two fixture-building tests, `GW`/`GH` in the golden
+  file) — cheap inline comments naming them as fixture dimensions or a
+  restated default, the same convention batch 8 used for stacked test
+  consts. No wrong existing comment was found or fixed. **Comments only**:
+  `cargo test -p cartalith-terrain`, summed over all 25 binaries, recorded
+  before editing and again after — **317 passed / 0 failed / 0 ignored,
+  identical both times** (`CARGO_TARGET_DIR` at
+  `.../scratchpad/bk13/target`). A `git diff --stat` showed 248
+  insertions / 23 deletions across the four files, and a Python
+  comment-only-diff checker (strips `///`/`//!`/whole-line `//`/trailing
+  `//` from both `HEAD` and the working tree, then diffs the remaining code
+  tokens) confirmed all four files reduce to the identical code after
+  stripping comments; no code fence in any new comment. Crate-wide
+  `census_v2.py`: `cartalith-terrain` items_undoc 229→156, tests_unprotected
+  240→169, consts_undoc 54→40 (crate stays open; 13 of its ~34 files are now
+  annotated). **Next step: batch 14 should continue `cartalith-terrain`** —
+  remaining: `src/sculpt.rs` (2 800, needs splitting into sections per its
+  own top-level structure) and `src/lib.rs` (4 602, likewise) are what is
+  left before the crate closes; `cartalith-civ`/`-urban`/`-godot` and the
+  GDScript shell remain deferred. Batches 6 through 13 all still need an
+  independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

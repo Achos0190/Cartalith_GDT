@@ -662,6 +662,12 @@ pub fn visibility(
     out
 }
 
+/// Unit coverage for this module's analytical fields: TPI (single- and
+/// multi-scale), slope, aspect, curvature, local relief, ruggedness,
+/// `normalise` and the §9 viewshed — every case built from a synthetic
+/// fixture (cone, ramp, wall) rather than a golden hash, since these are
+/// Category A geographic computations with no reference implementation to
+/// diff against.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,6 +687,8 @@ mod tests {
 
     #[test]
     fn tpi_is_positive_on_a_peak_and_negative_in_a_pit() {
+        // Protects: `tpi`'s sign convention (above neighbourhood mean is
+        // positive) and that it flips symmetrically for an inverted field.
         let gw = 32;
         let gh = 32;
         let peak = cone(gw, gh);
@@ -699,6 +707,8 @@ mod tests {
 
     #[test]
     fn tpi_is_zero_on_a_plane() {
+        // Protects: a symmetric blur window on a linear ramp cancels exactly
+        // — catches a blur off by half a cell.
         // A tilted plane has no local relief: every cell IS its neighbourhood
         // mean. This is the test that catches a blur which is off by half a
         // cell -- a symmetric window on a linear ramp must cancel exactly.
@@ -719,6 +729,8 @@ mod tests {
 
     #[test]
     fn tpi_multiscale_ranks_a_summit_above_a_hillside_above_a_hollow() {
+        // Protects: the two-scale signed field orders summit > flank > plain,
+        // the property the RMS normalisation exists to preserve.
         let (gw, gh) = (48usize, 48usize);
         let peak = cone(gw, gh);
         let t = tpi_multiscale(&peak, gw, gh, -1.0, 9, false);
@@ -731,6 +743,8 @@ mod tests {
 
     #[test]
     fn tpi_multiscale_on_an_all_ocean_world_is_zero_not_a_division_by_nothing() {
+        // Protects: the `cnt == 0` guard — an all-ocean world returns zero
+        // everywhere rather than dividing by a zero-count RMS.
         let f = vec![0.1f32; 16 * 16];
         let t = tpi_multiscale(&f, 16, 16, 0.5, 4, false);
         assert!(t.iter().all(|v| *v == 0.0), "expected all zero, got {:?}", &t[..4]);
@@ -738,6 +752,8 @@ mod tests {
 
     #[test]
     fn slope_is_zero_on_flat_ground_and_scales_with_resolution() {
+        // Protects: flat ground reads zero slope, and the `* gw` resolution
+        // scaling makes the same physical gradient agree at two grid widths.
         let flat = vec![0.5f32; 16 * 16];
         assert!(slope(&flat, 16, 16).iter().all(|v| *v == 0.0));
 
@@ -762,6 +778,8 @@ mod tests {
 
     #[test]
     fn aspect_is_nan_on_flat_ground_rather_than_due_north() {
+        // Protects: the doc's explicit contract — flat ground returns NaN,
+        // never a fabricated `0.0` (due north).
         let flat = vec![0.5f32; 8 * 8];
         let a = aspect(&flat, 8, 8);
         assert!(a.iter().all(|v| v.is_nan()), "flat ground faces no direction");
@@ -769,6 +787,9 @@ mod tests {
 
     #[test]
     fn aspect_points_downslope() {
+        // Protects: `aspect` returns the DOWNSLOPE bearing, not the uphill
+        // one — the bug the module doc names as the first cut's mistake,
+        // caught only by asserting a specific compass direction.
         // Height rises with x, so water runs toward -x, which is west.
         let (gw, gh) = (16usize, 8usize);
         let mut f = vec![0f32; gw * gh];
@@ -785,6 +806,8 @@ mod tests {
 
     #[test]
     fn curvature_is_concave_positive_in_a_bowl() {
+        // Protects: curvature's sign convention — a bowl floor (concave)
+        // reads positive, a summit (convex) negative.
         let (gw, gh) = (24usize, 24usize);
         let bowl: Vec<f32> = cone(gw, gh).iter().map(|v| -v).collect();
         let c = curvature(&bowl, gw, gh);
@@ -795,6 +818,8 @@ mod tests {
 
     #[test]
     fn curvature_at_a_larger_scale_suppresses_single_cell_noise() {
+        // Protects: §5's whole reason for `curvature_at` — a `smooth`-cell
+        // blur really does suppress single-cell DEM noise the raw form sees.
         // One spike on flat ground. Raw curvature sees it; smoothed does not.
         let (gw, gh) = (32usize, 32usize);
         let mut f = vec![0.5f32; gw * gh];
@@ -806,6 +831,8 @@ mod tests {
 
     #[test]
     fn local_relief_is_the_window_range() {
+        // Protects: `local_relief` really is max-min inside the radius, and
+        // stays zero outside a feature's window.
         let (gw, gh) = (16usize, 16usize);
         let mut f = vec![0.2f32; gw * gh];
         f[8 * gw + 8] = 0.9;
@@ -818,6 +845,9 @@ mod tests {
 
     #[test]
     fn ruggedness_separates_rough_from_merely_steep() {
+        // Protects: ruggedness rises with added roughness while staying
+        // blind to overall steepness — the property that makes it a
+        // different signal from slope, not a rescaled copy of it.
         // **The first version of this test was wrong**, and worth recording
         // because the wrong intuition is the obvious one: it compared a ramp
         // against a checkerboard of the same amplitude and expected the
@@ -868,6 +898,8 @@ mod tests {
 
     #[test]
     fn wrapping_matters_at_the_seam() {
+        // Protects: `world`'s X-wrap actually changes the blur result at the
+        // seam, rather than being a flag nothing reads.
         // A step at the seam. With `world` the blur sees across it; without,
         // it does not, and the two must differ at x = 0.
         let (gw, gh) = (16usize, 4usize);
@@ -887,6 +919,8 @@ mod tests {
 
     #[test]
     fn normalise_spans_zero_to_one_and_zeroes_the_masked_out() {
+        // Protects: the accepted cells really do span `[0,1]` and a
+        // masked-out cell reads `0.0` rather than its raw value.
         let f = vec![10f32, 20.0, 30.0, 999.0];
         let n = normalise(&f, |i| i < 3);
         assert_eq!(n[0], 0.0);
@@ -897,6 +931,8 @@ mod tests {
 
     #[test]
     fn normalise_of_a_constant_field_is_zero_not_a_half() {
+        // Protects: the degenerate-range guard returns all zeros rather than
+        // dividing by ~0 or inventing a `0.5`.
         let f = vec![7f32; 8];
         let n = normalise(&f, |_| true);
         assert!(n.iter().all(|v| *v == 0.0), "no variation is a real answer");
@@ -904,6 +940,8 @@ mod tests {
 
     #[test]
     fn every_field_survives_a_degenerate_grid() {
+        // Protects: none of this module's fields panic on an empty or 1-cell
+        // grid.
         // Nothing here may panic on an empty or 1-cell grid: a landmark pass
         // runs before the shell knows whether a world is worth analysing.
         let empty: Vec<f32> = Vec::new();
@@ -939,6 +977,9 @@ mod tests {
 
     #[test]
     fn a_flat_plain_is_visible_to_the_radius_when_the_planet_is_flat() {
+        // Protects: with no curvature term and nothing to occlude, every
+        // cell inside `radius_cells` is visible and the radius is a hard cap;
+        // an observer sees its own cell exactly once.
         let (gw, gh) = (81usize, 41usize);
         let f = vec![0.25f32; gw * gh];
         let obs = [ViewObserver { x: 40, y: 20, weight: 1.0 }];
@@ -960,6 +1001,9 @@ mod tests {
     /// textbook two-horizon distance and not a number this test invented.
     #[test]
     fn the_curvature_term_ends_a_flat_plains_visibility_at_the_horizon() {
+        // Protects: the `d² / 2R` drop term cuts flat-ground visibility at
+        // the textbook two-horizon distance (~17.5 km for this eye/target),
+        // not at an arbitrary point.
         let (gw, gh) = (81usize, 41usize);
         let f = vec![0.25f32; gw * gh];
         let obs = [ViewObserver { x: 40, y: 20, weight: 1.0 }];
@@ -976,6 +1020,10 @@ mod tests {
     /// to everything passes the first half on its own.
     #[test]
     fn a_ridge_occludes_the_ground_behind_it_but_not_the_summit_beyond() {
+        // Protects: the running-horizon occlusion test — ground behind a
+        // ridge is hidden, a summit that clears it is not, and flattening
+        // the ridge removes the shadow (the positive control against a test
+        // that always says "occluded").
         let (gw, gh) = (41usize, 9usize);
         let mut f = vec![0f32; gw * gh];
         for y in 0..gh {
@@ -1001,6 +1049,9 @@ mod tests {
 
     #[test]
     fn observers_accumulate_their_own_weights() {
+        // Protects: §9's `V(x) = Σ w_i · visibility(i,x)` — weights sum
+        // across observers that share a cell, and adding an observer never
+        // changes a cell only the first one reaches.
         let (gw, gh) = (21usize, 21usize);
         let f = vec![0.3f32; gw * gh];
         let one = [ViewObserver { x: 5, y: 10, weight: 1.0 }];
@@ -1019,6 +1070,9 @@ mod tests {
 
     #[test]
     fn visibility_survives_the_degenerate_cases() {
+        // Protects: every degenerate input (empty grid, no observers, zero
+        // radius, an off-grid observer, a mismatched field length, NaN
+        // weight, NaN cell) returns rather than panicking.
         let empty: Vec<f32> = Vec::new();
         let o = [ViewObserver { x: 0, y: 0, weight: 1.0 }];
         assert!(visibility(&empty, 0, 0, false, &o, &view(4, 0.0)).is_empty());
@@ -1041,6 +1095,8 @@ mod tests {
 
     #[test]
     fn a_world_map_wraps_the_viewshed_in_x_and_never_in_y() {
+        // Protects: `world` wraps the viewshed's rays in X (crossing the
+        // seam) but a region map does not, and Y never wraps in either mode.
         let (gw, gh) = (32usize, 16usize);
         let f = vec![0.3f32; gw * gh];
         let obs = [ViewObserver { x: 1, y: 8, weight: 1.0 }];
