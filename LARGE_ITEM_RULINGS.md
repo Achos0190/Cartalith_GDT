@@ -2048,3 +2048,30 @@ possible, the old rule should go."*
   retired (DECISIONS §7p). A journey is blocked only when a single stretch
   between two possible resupply points cannot be carried even after
   foraging, and the message names that stretch.
+
+## 2026-09-28 — Ruling BT: roads are routed on a finer grid on large worlds
+
+Diagnosis (commit `63bedc8d`): on the owner's world (2048×1311, seed 246371),
+20 of 236 ways stop 59-585 cells short of their own settlement. The routing
+grid is capped at `RW = min(GW, 384)`, as in the reference. Corridor
+consolidation claims shared cells busiest-edge-first, and the reference's
+deliberately bounded endpoint snap (`_snapT2`) cannot reach back to the
+settlement. This is inherited JS behaviour. It becomes visible only above the
+384-cell cap, which the reference's canvas never exercised.
+
+Two fixes were offered: extend each short way back along its own corridor, or
+route on a finer grid at large world sizes. Owner, verbatim: *"The alternative
+is what i prefer, document it"*.
+
+- The routing grid scales with world size instead of stopping at 384. The
+  cap is raised or tied to the world grid, so a 2048-wide world routes near
+  full resolution. It is a deliberate improvement on the reference
+  (DECISIONS §7p).
+- Worlds at or below 384 cells route exactly as before, so no golden moves.
+  That is a hard check.
+- Generation may get slower (Ruling BP accepts a freeze during generation).
+  Measure the cost at 2048 and 8192 and report it. If it is severe, bring
+  back a bounded option rather than silently capping.
+- Done means every way's endpoints reach its own settlements on the owner's
+  world. `_roadsettle_probe` checks each way against its own A→B
+  settlements, not the nearest endpoint.
