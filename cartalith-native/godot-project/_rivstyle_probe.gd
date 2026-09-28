@@ -894,10 +894,21 @@ func _mouth_deep(pname: String, vi: int, v: Dictionary) -> Dictionary:
 	## pixels FAR from every drawn river -- more than half its width plus
 	## `REACH_FAR` cells from any render point -- as well as against two
 	## layer-off captures.
+	##
+	## **Every pixel, never a sample of them** (fixed 2026-09-28,
+	## OUTSTANDING_WORK.md "`_rivstyle_probe` M3 fails"). The control used to
+	## be read on every second pixel of every second row while M3 below judges
+	## every pixel, so an isolated noise pixel the sample skipped counted as
+	## "river on open water". Measured on Ink mouth 7: all six flagged pixels
+	## were FAR pixels (more than half a width + `REACH_FAR` from every render
+	## point, ~30 cells from the mouth, in open sea) changed by exactly 3 per
+	## channel (9) in the tile rebuild's contour-shaped noise, against a
+	## sampled control of 8; the largest change on NEAR open-water pixels in
+	## that view was 5. The control and the judged set must be the same pixels.
 	var near := _near_rivers(_to_river(host.position, inv, rect, g), _to_river(host.end, inv, rect, g))
 	var ctl := 0
-	for y in range(host.position.y, host.end.y, 2):
-		for x in range(host.position.x, host.end.x, 2):
+	for y in range(host.position.y, host.end.y):
+		for x in range(host.position.x, host.end.x):
 			var i := (y * W + x) * 3
 			ctl = maxi(ctl, _dd(B, C, i))
 			var q := _to_river(Vector2i(x, y), inv, rect, g)
