@@ -401,6 +401,10 @@ macro_rules! patch_group {
             $(pub $field: Option<f64>,)+
         }
         impl $name {
+            /// `Object.assign(dst, self)` restricted to this group's own
+            /// fields, one `if(Some)` per field — the reference's per-field
+            /// (not per-group) merge semantics: a field left `None` on the
+            /// patch keeps whatever `dst` already held.
             fn assign_onto(&self, dst: &mut $target) {
                 $(if let Some(v) = self.$field { dst.$field = v; })+
             }
@@ -695,5 +699,8 @@ impl Rules {
     }
 }
 
+/// Milestone 4's golden and mutation tests — see `rules/tests.rs`'s own
+/// module doc for the scenario catalogue and the boundary reasoning behind
+/// each fixture.
 #[cfg(test)]
 mod tests;

@@ -41,6 +41,7 @@ pub static FIELDS: &[&str] = &[
     "plotChaos",
 ];
 
+/// One captured `Rules` scenario, flattened into [`FIELDS`] order.
 pub struct RuleCase {
     pub name: &'static str,
     pub values: &'static [f64],
@@ -102,6 +103,7 @@ pub static RULES: &[RuleCase] = &[
     RuleCase { name: "mergeThenBoth", values: &[0.15, 0.11, 0.275, 0.05, 0.06, 56.0, 0.25, 0.15, 0.52, 200.0, 30.0, 0.0, 190.0, 0.175, 0.396, 0.5040000000000001, 4.0, 0.8, 120.0, 0.15, 3.0, 1.0, 0.5, 1.8] },
 ];
 
+/// One captured `CULTURE_PROFILES` row, field for field.
 pub struct ProfileCase {
     pub key: &'static str,
     pub id: &'static str,
@@ -164,6 +166,8 @@ pub static PROFILES: &[ProfileCase] = &[
     },
 ];
 
+/// One captured `resolveProfile(id)` case, including the five
+/// `Object.prototype`-chain hazards.
 pub struct ResolveCase {
     pub id: &'static str,
     /// Whether the reference returned something that is actually a profile.

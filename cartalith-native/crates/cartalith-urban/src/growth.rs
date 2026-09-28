@@ -75,6 +75,8 @@ use crate::site::{Site, terrain_suitability};
 use cartalith_jsmath::js_truthy_num;
 use std::f64::consts::PI;
 
+/// Milestone 7's golden and unit tests — see `growth/tests.rs`'s own module
+/// doc for the scenario catalogue.
 #[cfg(test)]
 mod tests;
 
@@ -303,6 +305,8 @@ pub struct RecordingWallBuilder {
 }
 
 impl WallBuilder for RecordingWallBuilder {
+    /// Records `(epoch, generation-as-read)` and builds nothing — see the
+    /// struct doc for why the reference-side stub and this one both no-op.
     fn build_wall(
         &mut self,
         _seed: u32,
@@ -372,6 +376,8 @@ pub fn ring_crossings(ring: &[Vec2], a: Vec2, b: Vec2) -> Vec<Vec2> {
 /// its typical 6-14 epoch range, not independently measured — the same honesty
 /// flag it puts on every other tuned constant.
 pub fn logistic_ramp(t: f64) -> f64 {
+    // Tuned for a visibly-staged silhouette over the typical 6-14 epoch
+    // range; see the function doc for the honesty flag on this literal.
     const K: f64 = 6.5;
     let f = |x: f64| 1.0 / (1.0 + js_exp(-K * (x - 0.5)));
     let (f0, f1) = (f(0.0), f(1.0));
@@ -402,6 +408,7 @@ pub fn logistic_ramp(t: f64) -> f64 {
 /// test fails, so the town simply stops growing. That is the reference's
 /// behaviour, not a defect introduced here.
 pub fn estimate_carrying_capacity(site: &Site, anchors: &Anchors, max_rf: f64) -> f64 {
+    // The reference's own probe count, evenly spaced around the ring.
     const N: usize = 12;
     let mut sum = 0.0;
     for i in 0..N {

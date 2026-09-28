@@ -95,6 +95,8 @@
 
 use super::*;
 
+/// The captured milestone-5 fixtures: `shoreFromMask` scenarios, `buildSite`
+/// scenarios, and the shared water/terrain rasters they reference by index.
 mod golden;
 
 /// Bit-exact comparison, so `NaN == NaN` and `+0.0 != -0.0`.
@@ -102,14 +104,18 @@ fn same(a: f64, b: f64) -> bool {
     a.to_bits() == b.to_bits()
 }
 
+/// Bit-exact assertion for one named scalar field, with both operands' bit
+/// patterns in the failure message.
 fn eq(name: &str, what: &str, got: f64, want: f64) {
     assert!(same(got, want), "{name}: {what}: got {got:?} ({:x}), want {want:?} ({:x})", got.to_bits(), want.to_bits());
 }
 
+/// Unflattens a captured `[x0, y0, x1, y1, ...]` array into `Vec2`s.
 fn pts_of(flat: &[f64]) -> Vec<Vec2> {
     flat.chunks(2).map(|c| Vec2::new(c[0], c[1])).collect()
 }
 
+/// Bit-exact assertion for a point list against its flattened capture.
 fn eq_poly(name: &str, what: &str, got: &[Vec2], want: &[f64]) {
     assert_eq!(got.len() * 2, want.len(), "{name}: {what}: length");
     for (i, q) in got.iter().enumerate() {
@@ -118,6 +124,7 @@ fn eq_poly(name: &str, what: &str, got: &[Vec2], want: &[f64]) {
     }
 }
 
+/// Rebuilds a [`WaterCtx`] from its captured [`golden::WaterSpec`].
 fn water_of(s: &golden::WaterSpec) -> WaterCtx {
     WaterCtx {
         mask: s.mask.to_vec(),
@@ -132,6 +139,7 @@ fn water_of(s: &golden::WaterSpec) -> WaterCtx {
     }
 }
 
+/// Rebuilds a [`TerrainCtx`] from its captured [`golden::TerrainSpec`].
 fn terrain_of(s: &golden::TerrainSpec) -> TerrainCtx {
     TerrainCtx {
         grid: s.grid.to_vec(),
@@ -143,6 +151,9 @@ fn terrain_of(s: &golden::TerrainSpec) -> TerrainCtx {
     }
 }
 
+/// Builds the [`SiteOpts`] a captured [`golden::SiteCase`] was generated
+/// under, resolving its water/terrain indices into [`golden::WATERS`] /
+/// [`golden::TERRAINS`].
 fn opts_for(c: &golden::SiteCase) -> SiteOpts {
     SiteOpts {
         water: c.water.map(|i| water_of(&golden::WATERS[i])),
@@ -157,6 +168,9 @@ fn opts_for(c: &golden::SiteCase) -> SiteOpts {
 /// `golden.rs` would otherwise make every test below vacuously pass.
 #[test]
 fn golden_data_is_not_vacuous() {
+    // Protects: golden.rs against silent truncation or emptiness — the exact
+    // failure mode that would make every other test in this file vacuously
+    // pass.
     assert!(golden::SHORES.len() >= 19, "too few shore scenarios");
     assert!(golden::SITES.len() >= 34, "too few site scenarios");
     assert!(golden::WATERS.len() >= 12 && golden::TERRAINS.len() >= 5);
@@ -223,8 +237,11 @@ fn golden_data_is_not_vacuous() {
     );
 }
 
+/// **Golden.** All nineteen `shoreFromMask` scenarios, bit for bit.
 #[test]
 fn golden_shore_from_mask() {
+    // Protects: shore_from_mask against every captured mask/raster scenario,
+    // including the null (no-shoreline) cases.
     for c in golden::SHORES {
         let w = WaterCtx {
             mask: c.mask.to_vec(),
@@ -252,6 +269,9 @@ fn golden_shore_from_mask() {
 /// would otherwise see only "one golden failed".
 #[test]
 fn the_degenerate_axis_returns_raster_order() {
+    // Protects: the fallback eigenvector, the `|| 1` guard on a zero-length
+    // principal axis, and the sort's stability, on the one fixture whose
+    // scatter matrix is perfectly isotropic.
     let c = golden::SHORES.iter().find(|c| c.name == "plusShape").expect("plusShape");
     let want = c.pts.expect("plusShape is not null");
     // row-major over a 5 x 5 grid with one water cell at (2,2), cell 40 m
@@ -272,8 +292,14 @@ fn the_degenerate_axis_returns_raster_order() {
 /// reference, rather than a table with two port numbers hidden in it.
 const REBASELINED_BY_RULING_N: [&str; 2] = ["pathOfOne", "pathEmpty"];
 
+/// **Golden.** All 34+ `buildSite` scenarios, every field and every probe,
+/// bit for bit — except the two Ruling-N re-baselined fixtures, covered
+/// instead by [`a_short_river_path_now_draws_as_no_river_at_all`].
 #[test]
 fn golden_build_site() {
+    // Protects: build_site (and its height/slope/riverDist/isWater/bankSide/
+    // terrain_suitability probe methods) against every captured site
+    // scenario.
     // A skip list that silently matches nothing is the same defect as no
     // skip list: if a fixture is renamed, this must fail, not pass.
     for name in REBASELINED_BY_RULING_N {
@@ -352,6 +378,8 @@ fn golden_build_site() {
 /// in the values, and shows up localised.
 #[test]
 fn site_substream_draw_budget() {
+    // Protects: build_site's exact RNG draw count per branch, localising any
+    // mutation that adds or drops a draw to the branch it happened in.
     // name, draws consumed between the hills and the route endpoints
     for (name, branch_draws) in [
         ("riverSeed1", 18usize),   // baseY, jitter, 15 x drift, riverW
@@ -390,6 +418,8 @@ fn site_substream_draw_budget() {
 /// rather than a comment, because the asymmetry is easy to "tidy away".
 #[test]
 fn a_bay_draws_one_fewer_than_a_coast() {
+    // Protects: the coastline branch's harbour-abscissa draw being skipped
+    // specifically for a bay, and the resulting shoreline indent.
     let bay = golden::SITES.iter().find(|c| c.name == "bay").unwrap();
     let coast = golden::SITES.iter().find(|c| c.name == "coast").unwrap();
     assert_eq!(bay.seed, coast.seed);
@@ -406,6 +436,8 @@ fn a_bay_draws_one_fewer_than_a_coast() {
 /// milestone 9 reads `site.kind === 'coast'` directly.
 #[test]
 fn an_unknown_kind_is_a_coast_that_is_not_called_coast() {
+    // Protects: an unrecognised `kind` taking the coastline branch while
+    // keeping its own string, and the empty-string-falls-back-to-river case.
     let atoll = golden::SITES.iter().find(|c| c.name == "atoll").unwrap();
     let coast = golden::SITES.iter().find(|c| c.name == "coast").unwrap();
     assert_eq!(atoll.kind_out, "atoll");
@@ -423,6 +455,8 @@ fn an_unknown_kind_is_a_coast_that_is_not_called_coast() {
 /// One mask, two different truthiness tests, reproduced rather than unified.
 #[test]
 fn a_mask_cell_of_two_is_water_to_the_tracer_and_land_to_the_query() {
+    // Protects: shore_from_mask's non-zero truthiness test staying distinct
+    // from Site::is_water's strict `== 1` test on the same mask.
     let spec = golden::WATERS.iter().find(|w| w.name == "maskTwo").expect("maskTwo raster");
     let w = water_of(spec);
     let shore = shore_from_mask(&w).expect("a mask of 2s must still trace a shoreline");
@@ -441,6 +475,8 @@ fn a_mask_cell_of_two_is_water_to_the_tracer_and_land_to_the_query() {
 /// `NaN` there rather than panicking. Three separate routes into it.
 #[test]
 fn out_of_bounds_reads_are_nan_not_panics() {
+    // Protects: river_dist and height returning NaN rather than panicking on
+    // a short dt raster, a short terrain grid, and a NaN probe point.
     let short = golden::WATERS.iter().find(|w| w.name == "shortDt").unwrap();
     let s = build_site(4, 1700.0, 1250.0, "coast", SiteOpts {
         water: Some(water_of(short)),
@@ -468,6 +504,8 @@ fn out_of_bounds_reads_are_nan_not_panics() {
 /// one point.
 #[test]
 fn bank_side_is_never_zero() {
+    // Protects: bank_side's `Math.sign(x) || 1` never yielding a literal
+    // zero, swept over every golden site plus NaN/Infinity/origin probes.
     for c in golden::SITES {
         let s = build_site(c.seed, c.wm, c.hm, c.kind, opts_for(c));
         for i in 0..s.river.len() {
@@ -495,6 +533,9 @@ fn bank_side_is_never_zero() {
 /// `geom::js_hypot` and `rules::clamp` are.
 #[test]
 fn nan_must_propagate_through_the_suitability_clamps() {
+    // Protects: terrain_suitability's js_min/js_max propagating a NaN slope
+    // through both clamps, against an absorbing f64::min/f64::max
+    // substitution that would score a holed heightfield as buildable.
     let t = golden::TERRAINS.iter().find(|t| t.name == "allNaN").unwrap();
     let s = build_site(6, 1700.0, 1250.0, "river", SiteOpts {
         terrain: Some(terrain_of(t)),
@@ -517,6 +558,8 @@ fn nan_must_propagate_through_the_suitability_clamps() {
 /// thing placing the bridge. Nothing with a finite heightfield reaches it.
 #[test]
 fn a_bridge_with_no_finite_slope_lands_on_the_rivers_first_point() {
+    // Protects: `Math.max(0, bi)` placing the bridge at index 0 when an
+    // all-NaN slope field never assigns bi.
     let c = golden::SITES.iter().find(|c| c.name == "terrainAllNaN").unwrap();
     let s = build_site(c.seed, c.wm, c.hm, c.kind, opts_for(c));
     let b = s.bridge_pt.expect("a river site has a bridge point");
@@ -527,6 +570,8 @@ fn a_bridge_with_no_finite_slope_lands_on_the_rivers_first_point() {
 /// well-formed adapter output reaches and every hand-built fixture can.
 #[test]
 fn falsy_water_fields_take_their_defaults() {
+    // Protects: `riverWidthM || 20` and `riverOrder || 0`'s falsy-arm
+    // fallbacks, and js_or's NaN/-0.0/truthy-value behaviour directly.
     for name in ["riverWidthZero", "riverWidthAbsent"] {
         let w = golden::WATERS.iter().find(|w| w.name == name).unwrap();
         let s = build_site(4, 1700.0, 1250.0, "river", SiteOpts {
@@ -554,6 +599,9 @@ fn falsy_water_fields_take_their_defaults() {
 /// `river` are already in.
 #[test]
 fn water_runs_are_maximal_eq_one_stretches_scaled_by_cell_m() {
+    // Protects: WaterCtx::water_runs' `== 1` key (not the tracer's non-zero
+    // test), closing each run at the first non-water cell, and scaling into
+    // the same local-box frame as water_poly/river.
     // 4 wide x 2 tall, cell_m = 10.
     // row 0: 1 1 0 2   -> one run, columns [0, 2) -- the trailing `2` must
     //                     NOT extend it and must NOT start a second one.
@@ -602,6 +650,10 @@ fn water_runs_are_maximal_eq_one_stretches_scaled_by_cell_m() {
 /// test are one pair.
 #[test]
 fn a_short_river_path_now_draws_as_no_river_at_all() {
+    // Protects: Ruling N's re-baseline — a river path under two points must
+    // draw exactly as no path at all, asserted as an equivalence against the
+    // same fixture with river_path: None, plus every captured value the
+    // divergence cannot reach.
     for name in ["pathOfOne", "pathEmpty"] {
         let c = golden::SITES.iter().find(|c| c.name == name).unwrap();
         let w = &golden::WATERS[c.water.expect("these two fixtures carry water")];
@@ -677,6 +729,8 @@ fn a_short_river_path_now_draws_as_no_river_at_all() {
 /// `economy` is carried through untouched; nothing in this milestone reads it.
 #[test]
 fn economy_passes_through() {
+    // Protects: SiteOpts::economy being carried through to Site::economy
+    // untouched, and staying None on the synthetic (no-economy) path.
     let eco = Economy { specialisation: Some("oreyard".into()), ore_bearing: true };
     let s = build_site(4, 1700.0, 1250.0, "river", SiteOpts {
         economy: Some(eco.clone()),

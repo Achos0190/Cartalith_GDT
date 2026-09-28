@@ -90,6 +90,9 @@ use crate::rng::fnv1a;
 use crate::site::{SiteOpts, TerrainCtx, WaterCtx, build_site};
 use golden::{Case, TerrainSpec, WaterSpec};
 
+/// The captured milestone-6 fixtures: 38+ `buildPrimaries`/
+/// `buildPrimariesFromPaths` scenarios and the water/terrain rasters they
+/// reference.
 mod golden;
 
 /// Flat `[x, y, x, y, ...]` back into points.
@@ -98,6 +101,7 @@ fn pts(flat: &[f64]) -> Vec<Vec2> {
     flat.chunks(2).map(|c| Vec2::new(c[0], c[1])).collect()
 }
 
+/// Rebuilds a [`WaterCtx`] from its captured [`WaterSpec`].
 fn water_ctx(s: &WaterSpec) -> WaterCtx {
     WaterCtx {
         mask: s.mask.to_vec(),
@@ -112,6 +116,7 @@ fn water_ctx(s: &WaterSpec) -> WaterCtx {
     }
 }
 
+/// Rebuilds a [`TerrainCtx`] from its captured [`TerrainSpec`].
 fn terrain_ctx(s: &TerrainSpec) -> TerrainCtx {
     TerrainCtx {
         grid: s.grid.to_vec(),
@@ -182,12 +187,19 @@ fn run(c: &Case) -> (Anchors, Vec<Route>, Graph) {
     (anchors, routes, g)
 }
 
+/// Bit-exact assertion for one named scalar field.
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
 
+/// **Golden.** Every one of the 38+ captured scenarios, reproduced bit for
+/// bit: market, provenance, every route polyline, the whole resulting graph
+/// and the spatial index (via the reference's own `fnv1a` grid dump).
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
+    // Protects: place_anchors, build_primaries and build_primaries_from_paths
+    // together, against every captured scenario in the milestone-6 fixture
+    // set.
     for c in golden::GOLDEN {
         let (anchors, routes, g) = run(c);
         let what = c.name;
@@ -242,6 +254,9 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
 /// check; this is the check that would have caught it.
 #[test]
 fn the_golden_file_is_the_shape_it_claims_to_be() {
+    // Protects: golden.rs against silent truncation, and each fixture pair
+    // catalogued in the module doc against silently losing the constant it
+    // exists to isolate.
     let all = golden::GOLDEN;
     assert!(all.len() >= 38, "only {} scenarios in the golden file", all.len());
 
@@ -333,6 +348,8 @@ fn the_golden_file_is_the_shape_it_claims_to_be() {
 /// re-drawing the sequence by hand must land on the same market.
 #[test]
 fn place_anchors_draws_exactly_800_regardless_of_the_site() {
+    // Protects: place_anchors' exact two-draws-per-candidate RNG budget
+    // (400 x 2 = 800), consumed before any of the four rejection tests.
     use crate::rng::stream;
     for c in golden::GOLDEN {
         let opts = SiteOpts {
@@ -395,6 +412,8 @@ fn place_anchors_draws_exactly_800_regardless_of_the_site() {
 /// 16 needs this when it reasons about `generate()`'s overall draw order.
 #[test]
 fn neither_route_builder_reads_its_seed() {
+    // Protects: both route builders' `seed` parameter staying dead — a
+    // wildly different seed must produce a byte-identical graph.
     for c in golden::GOLDEN {
         let opts = SiteOpts {
             water: c.water.map(water_ctx),
@@ -438,6 +457,9 @@ fn neither_route_builder_reads_its_seed() {
 /// the reinforcement would be doing nothing and the `0.45` would be untested.
 #[test]
 fn reversing_the_route_ends_changes_the_town() {
+    // Protects: the 0.45 trail-reinforcement multiplier actually being
+    // order-dependent — reversing routeEnds must change the result on a
+    // site where the routes share cells.
     let mut differed = 0;
     for c in golden::GOLDEN.iter().filter(|c| c.paths.is_none() && c.route_pts.len() >= 3) {
         let opts = SiteOpts {
@@ -486,6 +508,10 @@ fn reversing_the_route_ends_changes_the_town() {
 /// rather than asserting the dead branch.
 #[test]
 fn the_flood_band_penalty_is_dead_on_every_site_the_engine_builds() {
+    // Protects: the invariant that makes the score's flood-band term's `260`
+    // and `0` genuine equivalent mutants on every buildable site — the term
+    // is either identically zero or a near-constant offset, never a
+    // discriminator.
     use crate::rng::stream;
     let (mut zero_sites, mut constant_sites) = (0, 0);
     for c in golden::GOLDEN {

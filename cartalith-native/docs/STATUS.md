@@ -1578,6 +1578,57 @@ re-checked against the tree rather than copied from the commit message.
   through 27 all still need an independent verifier before any can be called
   done rather than pending.
 
+- **Ruling BK annotation pass, batch 28 (`cartalith-urban`, milestones 4-7)
+  — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked, additions only; urban 349/0/0) (comments only;
+  urban 349/0/0 unchanged).** Recorded a pre-edit baseline
+  (`cargo test -p cartalith-urban`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk28`): **349 passed / 0 failed / 0 ignored**. Followed
+  `URBAN_MORPHOLOGY_SCOPE.md`'s milestone order: milestone 4 (`rules.rs` +
+  `rules/tests.rs` + `rules/tests/golden.rs` — generation rules and culture
+  profiles), milestone 5 (`site.rs` + `site/tests.rs` — the site model),
+  milestone 6 (`routes.rs` + `routes/tests.rs` — anchors and primary
+  routes), milestone 7 (`growth.rs` + `growth/tests.rs` +
+  `growth/tests/golden.rs` — organic growth). `rules.rs` and `site.rs`
+  themselves were already almost fully doc-commented from the port's own
+  working discipline (2 and 3 census gaps respectively); the real gaps were
+  concentrated in the paired `tests.rs` files, most as missing
+  `// Protects:` lines on tests that already carried a real rationale
+  comment above them (`rules/tests.rs` 13 tests, `site/tests.rs` 12,
+  `routes/tests.rs` 6, `growth/tests.rs` 22). Six bare `mod tests;`/`mod
+  golden;` declarations each got an explicit `///`/`//` line rather than
+  relying on the census's module-doc resolver, which cannot see past a
+  file-module with a same-named submodule directory (batches 26 and 27's
+  quirk, again). Local numeric consts got provenance comments: `rules.rs`'s
+  `assign_onto` macro method; `routes.rs`'s five `PROV_*` string constants
+  (each needed its own directly preceding `//` line, not one shared block
+  comment, since the census only looks at the single nearest line above);
+  `growth.rs`'s `logistic_ramp`'s `K` and `estimate_carrying_capacity`'s
+  `N`; `growth/tests/golden.rs`'s three `LOGISTIC_RAMP_BULK_*` constants
+  (same one-line-per-const fix). One citation was corrected while writing a
+  doc for `growth/tests.rs`'s `wall_state_from`: drafted citing a
+  nonexistent `golden::Wall0Spec`, checked against the actual golden.rs and
+  corrected to `golden::WallSpec` (`c.wall0: Option<&'static WallSpec>`)
+  before landing. No other wrong existing comment was found while reading.
+  `cargo test -p cartalith-urban`, same `CARGO_TARGET_DIR`, run again after
+  all four milestones: **349 passed / 0 failed / 0 ignored**, byte-identical
+  to the pre-edit baseline. `git diff --stat` confirmed comment-only across
+  all ten touched files: 248 insertions, 0 deletions — every change is an
+  added `///`/`//` line, no removed or altered code line anywhere; no fenced
+  code blocks. Crate-wide `census_v2.py`: items_undoc 322→265,
+  tests_unprotected 316→261, consts_undoc 61→50 (loc 52 957→53 205; 123
+  gaps closed against a ~150-gap budget) — a per-file re-check confirms all
+  files through milestone 7 are individually 0/0/0 on the census. **Stopped
+  at the milestone 7/8 boundary** (LOC-read budget: growth's paired files
+  alone are ~3 900 LOC, pushing the four milestones' combined read close to
+  the 8 000 LOC cap). **Next step: batch 29** continues `cartalith-urban` at
+  milestone 8 (`radial.rs` + `radial/tests.rs` + `radial/tests/golden.rs` —
+  radial (Venus) streets and waterway) and milestone 8a (`plaza.rs` +
+  `plaza/tests.rs` — the plaza); per-file gap counts at the time of this
+  batch were `radial.rs` 1, `radial/tests.rs` 17, `radial/tests/golden.rs`
+  2, `plaza.rs` 0, `plaza/tests.rs` 16 — re-check before relying on them, as
+  this file itself warns. Batches 6 through 28 all still need an
+  independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

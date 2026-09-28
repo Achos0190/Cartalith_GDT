@@ -102,6 +102,8 @@ use crate::rules::{DEFAULT_RULES, Rules};
 use crate::site::{SiteOpts, TerrainCtx, WaterCtx, build_site};
 use golden::{Case, RulesSpec, TerrainSpec, WaterSpec};
 
+/// The captured milestone-7 fixtures: `grow` scenarios plus the water/
+/// terrain/rules specs they reference.
 mod golden;
 
 /// Flat `[x, y, x, y, ...]` back into points.
@@ -110,6 +112,7 @@ fn pts(flat: &[f64]) -> Vec<Vec2> {
     flat.chunks(2).map(|c| Vec2::new(c[0], c[1])).collect()
 }
 
+/// Rebuilds a [`WaterCtx`] from its captured [`WaterSpec`].
 fn water_ctx(s: &WaterSpec) -> WaterCtx {
     WaterCtx {
         mask: s.mask.to_vec(),
@@ -124,6 +127,7 @@ fn water_ctx(s: &WaterSpec) -> WaterCtx {
     }
 }
 
+/// Rebuilds a [`TerrainCtx`] from its captured [`TerrainSpec`].
 fn terrain_ctx(s: &TerrainSpec) -> TerrainCtx {
     TerrainCtx {
         grid: s.grid.to_vec(),
@@ -135,6 +139,8 @@ fn terrain_ctx(s: &TerrainSpec) -> TerrainCtx {
     }
 }
 
+/// Rebuilds a full [`Rules`] (street/settlement groups) from its captured
+/// [`RulesSpec`], atop [`DEFAULT_RULES`] for the untouched groups.
 fn rules_from(s: &RulesSpec) -> Rules {
     let mut r = DEFAULT_RULES;
     r.street.branch_angle_jitter = s.branch_angle_jitter;
@@ -191,10 +197,13 @@ fn graph_dump(g: &Graph) -> String {
     format!("{ns}#{es}")
 }
 
+/// `fnv1a` over [`graph_dump`] — the whole graph's identity as one hash.
 fn graph_hash(g: &Graph) -> u32 {
     fnv1a(&graph_dump(g))
 }
 
+/// `fnv1a` over every edge's provenance string, joined by an unprintable
+/// separator so no provenance text can collide with the join character.
 fn prov_hash(g: &Graph) -> u32 {
     fnv1a(&g.edges.iter().map(|e| e.prov.as_str()).collect::<Vec<_>>().join("\u{1}"))
 }
@@ -229,6 +238,7 @@ struct Recorder {
     epoch_hash: Vec<u32>,
 }
 
+/// `wallState.generation || 1`, restated on the test side of the fixture.
 fn gen_or_one(ws: &WallState) -> u32 {
     match ws.generation {
         Some(g) if g != 0 => g,
@@ -237,6 +247,8 @@ fn gen_or_one(ws: &WallState) -> u32 {
 }
 
 impl WallBuilder for Recorder {
+    /// Records `(epoch, generation-as-read)` and builds nothing, mirroring
+    /// [`crate::growth::RecordingWallBuilder`].
     fn build_wall(
         &mut self,
         _seed: u32,
@@ -250,6 +262,8 @@ impl WallBuilder for Recorder {
         self.calls.push((ep, gen_or_one(wall_state)));
     }
 
+    /// Snapshots the placed-length total and the graph's shape/hash at the
+    /// end of each epoch, so a divergence localises to the epoch it started.
     fn epoch_end(&mut self, _ep: i32, g: &Graph, placed_len: f64, _ws: &WallState) {
         self.epoch_len.push(placed_len);
         self.epoch_nodes.push(g.nodes.len());
@@ -261,12 +275,17 @@ impl WallBuilder for Recorder {
 /// The engine's own site box, and the default for every scenario that does not
 /// need a small one.
 const WM: f64 = 1700.0;
+// Same pairing, height.
 const HM: f64 = 1250.0;
 
+/// Bit-exact assertion for one named scalar field.
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
 
+/// Rebuilds a pre-existing [`WallState`] (a "the wall already stands" fixture)
+/// from its captured [`golden::WallSpec`] (`c.wall0`), or the default (no
+/// wall) state when the fixture carries none.
 fn wall_state_from(c: &Case) -> WallState {
     match c.wall0 {
         None => WallState::default(),
@@ -308,8 +327,13 @@ fn setup(c: &Case) -> (Site, Anchors, Graph) {
     (site, anchors, g)
 }
 
+/// **Golden.** Every captured `grow` scenario, reproduced bit for bit:
+/// pre-grow setup, the per-epoch trace, the final graph, provenance strings,
+/// the spatial index, `buildWall` call log and the wall-supersession history.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
+    // Protects: grow() against every captured milestone-7 scenario, field by
+    // field and epoch by epoch.
     for c in golden::GOLDEN {
         let what = c.name;
         let (site, anchors, mut g) = setup(c);
@@ -410,8 +434,11 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
     }
 }
 
+/// **Golden.** A hand-picked row set for [`logistic_ramp`].
 #[test]
 fn golden_logistic_ramp_matches_v8_row_for_row() {
+    // Protects: logistic_ramp against the reference's own output at a set of
+    // representative t values.
     for &(t, want) in golden::LOGISTIC_RAMP_ROWS {
         eq_bits(logistic_ramp(t), want, &format!("logistic_ramp({t})"));
     }
@@ -423,6 +450,9 @@ fn golden_logistic_ramp_matches_v8_row_for_row() {
 /// actually exercises [`js_exp`]'s reduction branches through this call site.
 #[test]
 fn golden_logistic_ramp_bulk_hash_matches_v8() {
+    // Protects: js_exp's reduction branches through logistic_ramp, over
+    // 20,000 arguments spanning below 0, inside [0, 1] and above 1 — a dozen
+    // hand-picked rows cannot reach a branchy libm's edge cases.
     let mut m = cartalith_rng::Mulberry32::new(golden::LOGISTIC_RAMP_BULK_SEED);
     let mut h: u32 = 0x811c_9dc5;
     for _ in 0..golden::LOGISTIC_RAMP_BULK_N {
@@ -442,6 +472,9 @@ fn golden_logistic_ramp_bulk_hash_matches_v8() {
 /// inputs are the right shape.
 #[test]
 fn the_golden_file_is_the_shape_it_claims_to_be() {
+    // Protects: golden.rs against silent truncation, and every named
+    // scenario's own claim (its constant-isolating role) against silently
+    // no longer being what it says.
     let all = golden::GOLDEN;
     assert!(all.len() >= 48, "only {} scenarios in the golden file", all.len());
 
@@ -578,6 +611,8 @@ fn the_golden_file_is_the_shape_it_claims_to_be() {
 }
 
 impl Case {
+    /// Whether this fixture's preset [`WallSpec`](golden::WallSpec) carries
+    /// no `land_arc` at all (as opposed to an empty or short one).
     fn land_arc_absent(&self) -> bool {
         self.wall0.is_some_and(|w| w.land_arc.is_none())
     }
@@ -587,8 +622,13 @@ impl Case {
 // The two helpers borrowed forward from milestones 9 and 10, and the two
 // invariants the goldens rest on but cannot state.
 
+/// Unit test: [`dist_to_line`]'s fewer-than-two-points case, which is live —
+/// `grow`'s `Math.min(dM, distToLine(...) + 35)` then falls back to the
+/// plain market distance.
 #[test]
 fn dist_to_line_is_infinity_below_two_points() {
+    // Protects: dist_to_line returning Infinity (not 0 or NaN) for an empty
+    // or single-point polyline.
     assert_eq!(dist_to_line(Vec2::new(0.0, 0.0), &[]), f64::INFINITY);
     assert_eq!(dist_to_line(Vec2::new(0.0, 0.0), &[Vec2::new(5.0, 0.0)]), f64::INFINITY);
     // ...which is what makes `Math.min(dM, distToLine(quay) + 35)` fall back to
@@ -597,16 +637,25 @@ fn dist_to_line_is_infinity_below_two_points() {
     assert!((f64::INFINITY + 35.0).is_infinite());
 }
 
+/// Unit test: [`dist_to_line`] takes the minimum over every segment window,
+/// not just the first or last.
 #[test]
 fn dist_to_line_takes_the_nearest_segment() {
+    // Protects: dist_to_line's per-segment minimum, including a point beyond
+    // the polyline's first endpoint.
     let poly = [Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0, 100.0)];
     eq_bits(dist_to_line(Vec2::new(50.0, 12.0), &poly), 12.0, "mid first segment");
     eq_bits(dist_to_line(Vec2::new(112.0, 50.0), &poly), 12.0, "mid second segment");
     eq_bits(dist_to_line(Vec2::new(-9.0, 0.0), &poly), 9.0, "beyond the first endpoint");
 }
 
+/// Unit test: [`ring_crossings`] treats the ring as **closed** — the
+/// last-to-first edge is a real wall segment, not a gap.
 #[test]
 fn ring_crossings_closes_the_ring() {
+    // Protects: ring_crossings testing the closing edge (last vertex back to
+    // the first), a mid-ring chord's two crossings, and a wholly-interior
+    // segment's zero crossings.
     let ring =
         [Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0, 100.0), Vec2::new(0.0, 100.0)];
     // A segment straight through picks up both walls it passes.
@@ -621,8 +670,13 @@ fn ring_crossings_closes_the_ring() {
     assert!(ring_crossings(&ring, Vec2::new(10.0, 10.0), Vec2::new(90.0, 90.0)).is_empty());
 }
 
+/// Unit test: `wallOccupancy`'s degree-2 threshold, and its eight-node
+/// interior floor.
 #[test]
 fn wall_occupancy_needs_two_live_edges_to_call_a_node_built() {
+    // Protects: wall_occupancy excluding a degree-1 spur node from both the
+    // interior and exterior counts, and the eight-node floor gating
+    // fill_fraction even when the interior count is real but under it.
     // A bare spur node has one live edge and is neither interior nor exterior.
     let mut g = Graph::new();
     g.add_street(100.0, 100.0, 200.0, 100.0, "street", 5.0, 1, "p");
@@ -657,8 +711,12 @@ fn wall_occupancy_needs_two_live_edges_to_call_a_node_built() {
     eq_bits(occ2.fill_fraction, 0.0, "six interior nodes is under the eight-node floor");
 }
 
+/// Unit test: the `wallArea > 0` guard stops the fill-fraction division on a
+/// degenerate (zero-area) ring.
 #[test]
 fn wall_occupancy_is_zero_on_a_degenerate_ring() {
+    // Protects: wall_occupancy's zero-area guard, against a division by a
+    // collapsed ring area.
     let mut g = Graph::new();
     for i in 0..12 {
         let a = std::f64::consts::TAU * f64::from(i) / 12.0;
@@ -682,6 +740,9 @@ fn wall_occupancy_is_zero_on_a_degenerate_ring() {
 
 #[test]
 fn estimate_carrying_capacity_never_returns_below_its_floor() {
+    // Protects: estimate_carrying_capacity's placeholder integration
+    // contract — always in [0.3, 1.0], never a hard zero — across a sweep of
+    // max_rf values.
     // The reference's own integration contract: "one number in ~[0.3, 1.0],
     // never a hard 0 -- a site this engine already generated a market on is
     // buildable by construction".
@@ -695,6 +756,8 @@ fn estimate_carrying_capacity_never_returns_below_its_floor() {
 
 #[test]
 fn grow_never_draws_when_walls_are_off_and_the_graph_is_empty() {
+    // Protects: grow() on an empty seed graph not panicking on the
+    // `g.nodes[r.int(0, -1)]` out-of-bounds JS pattern, and placing nothing.
     // `g.nodes[r.int(0, -1)]` is `undefined` in JS and `None` here; the loop
     // spends its 2,600 tries and places nothing, per epoch, without panicking.
     let site = build_site(3, WM, HM, "landlocked", SiteOpts::default());
@@ -711,6 +774,9 @@ fn grow_never_draws_when_walls_are_off_and_the_graph_is_empty() {
 
 #[test]
 fn the_wet_walk_takes_six_samples_and_the_last_is_the_endpoint() {
+    // Protects: the reference's `for (t = 0.15; t <= 1; t += 0.17)` loop
+    // shape — exactly six samples, the sixth landing exactly on 1.0 — and
+    // records that the indexed and accumulated forms are bit-identical here.
     // The reference writes `for (let t = 0.15; t <= 1; t += 0.17)`. Every value
     // below came out of `node`, not out of reasoning about the decimals — and
     // the reasoning would have been wrong twice over. It takes SIX samples, not
@@ -741,6 +807,9 @@ fn the_wet_walk_takes_six_samples_and_the_last_is_the_endpoint() {
 
 #[test]
 fn generation_zero_and_absent_both_read_as_one() {
+    // Protects: gen_or_one's `wallState.generation || 1` — both the falsy
+    // Some(0) and the absent None case read as 1, and a real value passes
+    // through.
     let a = WallState { generation: Some(0), ..WallState::default() };
     let b = WallState { generation: None, ..WallState::default() };
     let c = WallState { generation: Some(2), ..WallState::default() };
@@ -753,6 +822,9 @@ fn generation_zero_and_absent_both_read_as_one() {
 
 #[test]
 fn the_carrying_capacity_clamp_can_never_bind() {
+    // Protects: the invariant that makes estimate_carrying_capacity's clamp
+    // bounds equivalent mutants — every terrainSuitability sample is already
+    // inside [0, 1], swept over every golden site rather than argued.
     // `clamp(0.3 + 0.7 * mean, 0.3, 1.0)` where `mean` averages
     // `terrainSuitability`. That function is a product of two factors each
     // already in `[0, 1]`, so `mean` is too, so the argument is already inside
@@ -782,6 +854,10 @@ fn the_carrying_capacity_clamp_can_never_bind() {
 
 #[test]
 fn no_node_ever_holds_a_dead_edge_in_its_adjacency() {
+    // Protects: the invariant that makes wallOccupancy's alive-edge filter
+    // an equivalent mutation within milestone 7 alone — every node's adj
+    // list holds only live edge ids after a full grow() run, over every
+    // golden scenario.
     // `wallOccupancy`'s `n.adj.filter(id => g.edges[id].alive)` looks like a
     // guard against stale ids. Inside milestone 7 it cannot be: `rawEdge` is the
     // only writer and `splitEdge` removes the id from both endpoints when it
@@ -814,6 +890,9 @@ fn no_node_ever_holds_a_dead_edge_in_its_adjacency() {
 
 #[test]
 fn the_junction_angle_wrap_is_redundant_under_the_fold_that_follows_it() {
+    // Protects: the algebraic identity that makes the reference's double
+    // angle-wrap an equivalent mutation of the bare abs, measured over
+    // 200,000 arguments rather than argued.
     // `Math.abs(((a - b) % PI + PI) % PI)` then `Math.min(dd, PI - dd)`. The
     // outer `+ PI) % PI` maps a negative remainder `-a` to `PI - a`, and the
     // fold then takes `min(PI - a, a)` — which is what the bare `abs` gives too.
@@ -833,6 +912,10 @@ fn the_junction_angle_wrap_is_redundant_under_the_fold_that_follows_it() {
 
 #[test]
 fn the_carrying_capacity_ring_angles_are_ones_v8_and_the_platform_agree_on() {
+    // Protects: the narrow, scenario-specific fact that licenses swapping
+    // js_cos/js_sin for f64::cos/f64::sin ONLY inside estimate_carrying_
+    // capacity's twelve fixed angles, and the contrasting fact (over 40,000
+    // arbitrary angles) that the two libms do disagree in general.
     // `estimateCarryingCapacity` calls `Math.cos`/`Math.sin` on exactly twelve
     // fixed angles, `2·π·i/12`. V8's FDLIBM and the platform libm agree on all
     // twelve, which is why swapping `js_cos` for `f64::cos` survives **here**
@@ -858,6 +941,9 @@ fn the_carrying_capacity_ring_angles_are_ones_v8_and_the_platform_agree_on() {
 
 #[test]
 fn a_zero_area_ring_can_never_reach_the_fill_fraction_division() {
+    // Protects: the invariant that makes wallOccupancy's `wallArea > 0`
+    // guard unreachable-with-effect — a degenerate polygon contains no
+    // points, so the interior-count floor can never fire beside it.
     // `wallOccupancy`'s `wallArea > 0` guard survives every mutation because a
     // degenerate polygon contains no points at all, so `interior.length >= 8`
     // can never hold beside it. Unreachable-with-effect, not merely untested.
@@ -885,6 +971,9 @@ fn a_zero_area_ring_can_never_reach_the_fill_fraction_division() {
 
 #[test]
 fn the_convex_hull_orientation_is_fixed_so_its_area_sign_is_too() {
+    // Protects: the invariant that makes dropping `Math.abs` on
+    // `polyArea(hull)` an equivalent mutation — convex_hull always returns
+    // the same winding, so its signed area never goes negative.
     // `Math.abs(polyArea(hull))` survives dropping the `abs`, because
     // `convexHull` always returns the same winding and the sign never varies.
     // The `abs` on the **ring** is a different matter — a caller can hand in
@@ -902,6 +991,9 @@ fn the_convex_hull_orientation_is_fixed_so_its_area_sign_is_too() {
 
 #[test]
 fn both_non_wall_generation_fallbacks_are_dead() {
+    // Protects: with wallGenerations off, neither settlement_age nor
+    // carrying_capacity_weight can move the town — the ccFactor/yearsPerEpoch
+    // fallback values are read only when wallGenerations is on.
     // `ccFactor`'s `: 1` and `yearsPerEpoch`'s `: 0` are only assigned when
     // `wallGenerations` is off, and both are only **read** when it is on.
     // Asserted from the other side: with it off, neither the carrying-capacity

@@ -45,6 +45,8 @@
 
 use super::*;
 
+/// The captured milestone-4 fixtures: rule scenarios, both culture profiles,
+/// and every `resolveProfile` case — see [`golden::RULES`] and its neighbours.
 mod golden;
 
 /// Bit-exact comparison, so `NaN == NaN` and `+0.0 != -0.0`.
@@ -52,6 +54,8 @@ fn same(a: f64, b: f64) -> bool {
     a.to_bits() == b.to_bits()
 }
 
+/// Compares one rebuilt [`Rules`] against a captured `want` vector, field by
+/// field in [`golden::FIELDS`] order, reporting which named field diverged.
 fn check(name: &str, rules: &Rules, want: &[f64]) {
     let got = rules.flatten();
     assert_eq!(got.len(), want.len(), "{name}: width");
@@ -283,6 +287,9 @@ fn rebuild(name: &str) -> Option<Rules> {
 /// **Golden.** Every captured rule set, rebuilt and compared bit for bit.
 #[test]
 fn rules_match_the_reference() {
+    // Protects: every captured rule-scenario rebuild against a silent
+    // regression in DEFAULT_RULES, resolve_rules, apply_wildness or
+    // apply_plot_chaos.
     for case in golden::RULES {
         let rules = rebuild(case.name)
             .unwrap_or_else(|| panic!("no rebuild for captured scenario {:?}", case.name));
@@ -297,6 +304,8 @@ fn rules_match_the_reference() {
 /// that catches all three.
 #[test]
 fn every_captured_scenario_is_rebuilt() {
+    // Protects: silently-empty or silently-shrunk golden output, and a
+    // scenario that stops being rebuilt without failing loudly.
     assert!(golden::RULES.len() >= 53, "capture shrank");
     assert_eq!(golden::FIELDS.len(), 24);
     assert_eq!(golden::PROFILES.len(), 2);
@@ -321,6 +330,8 @@ fn every_captured_scenario_is_rebuilt() {
 /// reference leaves off `medieval` entirely.
 #[test]
 fn culture_profiles_match_the_reference() {
+    // Protects: every field of both live CultureProfile rows, including the
+    // two fields the reference leaves off medieval entirely.
     assert_eq!(CULTURE_PROFILES.len(), golden::PROFILES.len());
     for (got, want) in CULTURE_PROFILES.iter().zip(golden::PROFILES) {
         let n = want.key;
@@ -358,6 +369,8 @@ fn culture_profiles_match_the_reference() {
 /// carries is the one `||0` yields.
 #[test]
 fn no_live_profile_defines_dead_end_bias() {
+    // Protects: milestone 11's `(profile.deadEndBias||0)` term silently
+    // stopping being a no-op if a re-freeze ever adds the key to a profile.
     for want in golden::PROFILES {
         assert!(
             !want.keys.contains(&"deadEndBias"),
@@ -379,6 +392,9 @@ fn no_live_profile_defines_dead_end_bias() {
 /// test states the divergence rather than asserting the port matches.
 #[test]
 fn resolve_profile_matches_the_reference_except_on_the_prototype_chain() {
+    // Protects: resolve_profile's fallback-to-medieval behaviour on every
+    // unknown id, and the five Object.prototype-name cases where the
+    // reference itself diverges from a real profile.
     let mut hazards = 0;
     for case in golden::RESOLVE_PROFILE {
         // `null`/`undefined` stringify to those two ids in the capture; the
@@ -421,6 +437,9 @@ fn resolve_profile_matches_the_reference_except_on_the_prototype_chain() {
 /// with the reason written out, not three milestones later inside `grow`.
 #[test]
 fn clamp_propagates_nan_where_rust_min_max_would_absorb_it() {
+    // Protects: clamp's use of js_min/js_max, against a "simplification" to
+    // lo.max(hi.min(v)) that would silently absorb a NaN slider into the
+    // upper clamp bound instead of propagating it.
     assert!(clamp(f64::NAN, 0.15, 0.70).is_nan());
     assert!(clamp(f64::NAN, 0.0, 0.15).is_nan());
     // What the naive transliteration `lo.max(hi.min(v))` would have produced
@@ -451,6 +470,8 @@ fn clamp_propagates_nan_where_rust_min_max_would_absorb_it() {
 /// what is being distinguished.
 #[test]
 fn subdivision_cap_rounds_halves_up_like_math_round() {
+    // Protects: js_round's half-up rounding on subdivision_cap's exact .5
+    // boundaries, and the clamp bounds on either side.
     let cap = |c: f64| {
         let mut r = DEFAULT_RULES;
         apply_plot_chaos(&mut r, c);
@@ -478,6 +499,8 @@ fn subdivision_cap_rounds_halves_up_like_math_round() {
 /// caller supplies is ever round-tripped.
 #[test]
 fn the_defaults_cannot_be_mutated_and_clone_rules_does_not_survive() {
+    // Protects: DEFAULT_RULES staying unmutated by any call, and the
+    // documented NaN-vs-null divergence between cloneRules and Copy.
     assert!(
         golden::CLONE_NAN_BECOMES.is_none(),
         "the reference's cloneRules no longer turns NaN into JSON null"
@@ -500,6 +523,8 @@ fn the_defaults_cannot_be_mutated_and_clone_rules_does_not_survive() {
 /// not come from here.
 #[test]
 fn the_sliders_touch_only_their_own_fields() {
+    // Protects: apply_wildness and apply_plot_chaos each staying confined
+    // to their own field lists, so a future edit that widens one is caught.
     let mut r = DEFAULT_RULES;
     apply_wildness(&mut r, 1.7);
     // Four street fields, and both other rule groups, are untouched.
@@ -523,6 +548,9 @@ fn the_sliders_touch_only_their_own_fields() {
 /// is idempotent; `apply_wildness` is not, and only because of one field.
 #[test]
 fn apply_wildness_accumulates_dead_end_bias_and_is_therefore_not_idempotent() {
+    // Protects: apply_wildness's non-idempotence being confined to
+    // dead_end_bias alone, its saturation at the 0.40 cap, and
+    // apply_plot_chaos staying idempotent by contrast.
     let mut once = DEFAULT_RULES;
     apply_wildness(&mut once, 1.6);
     let mut twice = once;
@@ -556,6 +584,9 @@ fn apply_wildness_accumulates_dead_end_bias_and_is_therefore_not_idempotent() {
 /// mutant that let a field round-trip through a lossy `f32` could not pass.
 #[test]
 fn to_patch_round_trips_through_resolve_rules() {
+    // Protects: Rules::to_patch producing a patch that resolve_rules
+    // reproduces bit-exactly, for both the defaults and a rule set every
+    // group of which has been pushed off default.
     for r in [DEFAULT_RULES, {
         let mut r = DEFAULT_RULES;
         apply_wildness(&mut r, 1.6);
@@ -574,6 +605,9 @@ fn to_patch_round_trips_through_resolve_rules() {
 /// check that nothing else moved off `DEFAULT_RULES`.
 #[test]
 fn market_town_rules_are_the_listed_values_and_nothing_else() {
+    // Protects: MARKET_TOWN_RULES' exact listed literals, the hang-guard
+    // field staying at the default, and rules_preset's lookup for both a
+    // known and unknown id.
     let m = MARKET_TOWN_RULES;
     let mut want = DEFAULT_RULES;
     want.street.branch_angle_jitter = 0.18;
@@ -595,6 +629,8 @@ fn market_town_rules_are_the_listed_values_and_nothing_else() {
 /// Measured on the harness that tuned it: 177 blocks against 278 here.
 #[test]
 fn market_town_rules_thin_a_large_towns_block_mesh() {
+    // Protects: the reason MARKET_TOWN_RULES exists at all — that it
+    // measurably thins a large town's block mesh relative to the defaults.
     use crate::generate::{GenOpts, generate};
     let run = |r: &Rules| {
         let opts = GenOpts {

@@ -51,6 +51,8 @@ use crate::site::Site;
 use std::collections::HashSet;
 use std::f64::consts::PI;
 
+/// Milestone 6's golden and unit tests — see `routes/tests.rs`'s own module
+/// doc for the scenario catalogue.
 #[cfg(test)]
 mod tests;
 
@@ -81,11 +83,20 @@ pub struct Route {
     pub i: Option<usize>,
 }
 
+// The three `anchors.prov` strings, one per site kind, verbatim from the
+// reference (`placeAnchors`'s own literal text, reference line ~28770s).
+// Land market:
 const PROV_LAND_MARKET: &str = "Market sited on flat, dry ground where the land routes converge — an inland market town with no water frontage (M-REG-1, lit. review §4).";
+// River market:
 const PROV_RIVER_MARKET: &str = "Market sited on flat land above the flood band, close to the bridge crossing (route convergence). Refs: M-REG-6, lit. review §4.";
+// Quay market:
 const PROV_QUAY_MARKET: &str = "Market sited on the shore flat just behind the quay: goods change mode at the break-of-bulk point (harbour-city family, lit. review §4-5).";
 
+// The two `Route`-set provenance strings, one per builder, verbatim from the
+// reference (`buildPrimaries`/`buildPrimariesFromPaths`'s own literal text).
+// Synthesised (astar) primaries:
 const PROV_PRIMARY: &str = "Primary route: least-cost path over slope/water cost field with trail reinforcement (Helbing 1997, Tobler kernel M-REG-5); immutable backbone (M-GRW-3).";
+// Injected (host-road) primaries:
 const PROV_PRIMARY_FROM_PATHS: &str = "Primary route: the real inter-settlement road the town grew along (host road network; M-REG-1, M-GRW-3).";
 
 /// `placeAnchors(seed, site)` — reference line 28744.

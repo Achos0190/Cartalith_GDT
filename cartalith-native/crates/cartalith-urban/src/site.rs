@@ -59,6 +59,8 @@
 use crate::geom::{Vec2, chaikin, dist_pt_seg, js_exp, js_hypot, js_max, js_min, js_num_cmp, js_or};
 use crate::rng::stream;
 
+/// Milestone 5's golden and unit tests — see `site/tests.rs`'s own module
+/// doc for the fixture catalogue.
 #[cfg(test)]
 mod tests;
 
@@ -269,9 +271,15 @@ impl Site {
     pub fn river_like(&self) -> bool {
         self.rk
     }
+    /// The real-water binding this site was built against, if
+    /// [`SiteOpts::water`] supplied one. `None` on a synthetic (`isWater`
+    /// band) site.
     pub fn water_ctx(&self) -> Option<&WaterCtx> {
         self.water.as_ref()
     }
+    /// The real-terrain binding this site was built against, if
+    /// [`SiteOpts::terrain`] supplied one. `None` on the analytic-hills
+    /// fallback.
     pub fn terrain_ctx(&self) -> Option<&TerrainCtx> {
         self.terrain.as_ref()
     }
