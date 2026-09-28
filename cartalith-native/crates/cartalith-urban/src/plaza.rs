@@ -37,7 +37,12 @@
 //! subsystem reads that substream, so adding this stage cannot perturb any
 //! other milestone's sequence — only the *graph* changes, which is the point.
 //!
-//! ## v2.73 — market place or village green
+//! ## Recorded as v2.73 — market place or village green
+//!
+//! **v2.73 is not a real source version.** Owner, 2026-09-28: v2.72 and v2.73
+//! do not exist; v2.71 is the latest. Recorded by `6aa1ff3` (2026-09-20) from
+//! an unverified source. What this module builds stands as a port-original
+//! improvement, not a v2.73 port -- see `STATUS.md`.
 //!
 //! A village green and a chartered town's market place are the same widened
 //! bay; what differs is what the space is *for*, decided by market right, not

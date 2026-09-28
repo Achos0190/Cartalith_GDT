@@ -1629,6 +1629,9 @@ erosion** (needs a scope first).
 
 **The v2.73 footpath class:** the owner will supply the v2.73 (or newer DCC)
 source file; the re-freeze and port wait on that file arriving. *Same day, the owner added: "Version 2.71 seems to be latest, 2.73 doesn't seem to exist." So the v2.73 footpath row, and the v2.72/v2.73 entries in `RC_ENGINE_CHANGES.md`, are unverified until the source folder is checked.*
+**Resolved by Ruling BQ, 2026-09-28, later the same day: confirmed — v2.72 and
+v2.73 do not exist, v2.71 is the latest. The footpath row is closed as having
+no source, not left waiting on a file that will not arrive.**
 
 ## 2026-09-28 — Ruling BA: CM-7's two engine rows
 
@@ -1986,3 +1989,27 @@ had loadscreen messages. As long as zooming and sharpening is fast"*.
   speeding up generation or the full recolour is welcome when it is cheap
   and changes no output (byte-identical), but it ranks below the interactive
   bar. No generation work needs to be moved off the main thread for its own sake.
+
+## 2026-09-28 — Ruling BQ: v2.72 and v2.73 do not exist
+
+Owner, verbatim: *"v2.72/73 this version doesn't exist. I was mistaken."*
+Confirms the same-day note already on record (§ the v2.73 footpath row, above):
+*"Version 2.71 seems to be latest, 2.73 doesn't seem to exist."* **v2.71 is the
+latest real source version.** The v2.72/v2.73 entries in `RC_ENGINE_CHANGES.md`
+§8 were recorded by `6aa1ff3` (2026-09-20) from an unverified source and reached
+this branch in the merge `24384a4`.
+
+- `RC_ENGINE_CHANGES.md` keeps both entries as history, each marked at its
+  heading as not a real source version, and its span/count figures corrected
+  (v2.11 → v2.71; 47 items, not 50).
+- Per `DECISIONS.md` §7p, what this port already built from those entries stays
+  built — the raster river display-area bar and the village-green plaza `kind`
+  are real, tested improvements. Their provenance is re-labelled everywhere as
+  "a port improvement; its spec was recorded as RC v2.72/v2.73, which does not
+  exist," in `STATUS.md` and in the code comments that cited them.
+- The v2.73-half-2 footpath class was never built and has no source to port
+  from; its `OUTSTANDING_WORK.md` row is closed rather than left blocked. The
+  idea can be re-raised as a port-original feature if the owner wants one.
+- `OUTSTANDING_WORK.md`, `STATUS.md` and `FUNCTIONAL_CONTRACT.md` had each
+  carried a "v2.72"/"v2.73" count or provenance claim; all are corrected in the
+  same pass as this ruling.

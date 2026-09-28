@@ -2383,8 +2383,11 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         // would be uniform anyway -- see `stamp_river_intensity`'s own note on
         // the 0.5 half-width floor, which binds at world scale.
         //
-        // `river_render_area_bar` is v2.72's second, independent gate --
-        // "a detection ease is not a display threshold" -- on top of
+        // `river_render_area_bar` is recorded as v2.72's second, independent
+        // gate -- "a detection ease is not a display threshold" -- but v2.72
+        // is not a real source version (owner, 2026-09-28); this gate is a
+        // port-original improvement, not a v2.72 port -- see `STATUS.md` --
+        // on top of
         // `river_flow_thresh`'s own already-eased channelization threshold
         // above. See `stamp_river_intensity`'s own doc comment for why this
         // is a per-cell drainage bar and not a re-use of `river_flow_thresh`.

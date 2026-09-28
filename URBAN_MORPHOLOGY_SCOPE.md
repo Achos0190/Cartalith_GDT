@@ -1281,7 +1281,10 @@ recorded as proved dead.
    last ran on.
 
 The source engine later split the plaza into a market square and a village green
-(`RC_ENGINE_CHANGES.md` §8.2, v2.73).
+(`RC_ENGINE_CHANGES.md` §8.2, recorded as v2.73). *(Corrected 2026-09-28: v2.73
+is not a real source version — owner, 2026-09-28, v2.72 and v2.73 do not exist,
+v2.71 is the latest. What this port built stands as a port-original improvement,
+not a v2.73 port; see `STATUS.md`.)*
 
 > **Merge note, 2026-09-26.** A second, parallel port of milestone 8 landed on
 > `main` (`677977e`, 2026-09-20, from a branch that did not have this one's).

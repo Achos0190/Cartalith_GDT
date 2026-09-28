@@ -26,9 +26,12 @@
 //!
 //! ## 2026-09-21 hand re-baseline — four `details`/`detail_kinds` rows only
 //!
-//! This capture predates v2.73's `buildPlaza`, which the reference source now
-//! withholds the market cross from a plaza below the chartered-town population
-//! (`PLAZA_MARKET_POP = 1500`, reused from `buildCivic`'s own gate) — a village
+//! This capture predates the port's plaza-kind change, recorded as v2.73's
+//! `buildPlaza` (v2.73 is not a real source version — owner, 2026-09-28; what
+//! this port built stands as a port-original improvement, not a v2.73 port —
+//! see `STATUS.md`), which withholds the market cross from a plaza below the
+//! chartered-town population (`PLAZA_MARKET_POP = 1500`, reused from
+//! `buildCivic`'s own gate) — a village
 //! green carries no market right, so nothing marks one. The frozen reference
 //! `um_capture.js` reads from predates that change and cannot re-produce it, so
 //! the four village-tier scenarios below were corrected **by hand**, each by

@@ -73,10 +73,14 @@ be read as "matches the source today"**. *(Noted 2026-09-24: `OUTSTANDING_WORK.m
 dated 2026-09-17 — 44 DCC-line files, newest v2.66 — against this paragraph's
 49/v2.71. The source repository is outside this one, so neither figure was re-measured here; treat both as dated.)*
 
-**`RC_ENGINE_CHANGES.md` is the full porting spec for v2.11 → v2.73** (function
+**`RC_ENGINE_CHANGES.md` is the full porting spec for v2.11 → v2.71** (function
 and constant named per change, why each number is that number, which harness
 verified it) — read the change there, not here; this file only tracks whether
-each has been ported. Nine of the interval's changes are deliberate upstream
+each has been ported. *(Corrected 2026-09-28: this said "→ v2.73." Owner,
+2026-09-28: v2.72 and v2.73 do not exist; v2.71 is the latest. The two entries
+stay in `RC_ENGINE_CHANGES.md` §8 as history, marked not-real-source-versions;
+what this port built from them stands as a port-original improvement — see the
+v2.72/v2.73 paragraphs below.)* Nine of the interval's changes are deliberate upstream
 re-baselines a golden fixture taken against v2.10 will fail *correctly*: the
 eight **v2.48, v2.49, v2.50, v2.51, v2.57, v2.59, v2.60 and v2.61** move `field`
 itself, and **v2.55** moves every LOD tile and baked atlas chunk (never
@@ -92,7 +96,7 @@ the land mask at only IoU 0.813. **v2.57 is ported as of `a74b35c`
 the shipped app (`cartalith_godot::params::defaults`), off on the parity path
 (`PLATE_BASE_BLUR_K_V2_10`, 0.35), so no golden moved.
 
-**Which of the v2.11 → v2.73 interval is already ported was surveyed on
+**Which of the v2.11 → v2.71 interval is already ported was surveyed on
 2026-09-21** (corrected 2026-09-23: this paragraph said it was "not established
 anywhere" for two days after the survey ran). The counts, the method and which
 of its claims were and were not spot-checked are in `OUTSTANDING_WORK.md` §2.9's
@@ -106,7 +110,15 @@ per-change ledger, so this file still carries no per-change status for the span.
 now waits only on picking an exact DCC version and regenerating the snapshot and
 its index.
 
-**v2.73 is the newest, and it is not simulation** — `hash_gen1.js` vs v2.72 ALL IDENTICAL, and the
+**"v2.73" is not a real source version.** Owner, 2026-09-28: v2.72 and v2.73 do
+not exist; v2.71 is the latest. Recorded by `6aa1ff3` (2026-09-20) from an
+unverified source. What this port built from the recorded spec below — the
+village-green plaza `kind` — is a port improvement; its spec was recorded as RC
+v2.72/v2.73, which does not exist. The footpath half described below was never
+built (no source to port from); the idea can be re-raised as a port-original
+feature if the owner wants it, rather than as a port of a nonexistent version.
+
+**"v2.73" was recorded as the newest, and not simulation** — `hash_gen1.js` vs v2.72 ALL IDENTICAL, and the
 generated LAYOUT hash is identical too. It adds a village green as a distinct plaza KIND and a
 footpath class, and **both halves carry a finding a port should have before it writes either.**
 (1) **A green is a plaza with a different purpose, not a smaller one.** The plaza builder already
@@ -130,7 +142,11 @@ through a house, and the first cut did**: 11.4% of sampled path length fell insi
 footprint at pop 12 000, fixed by a seven-sample rejection, 0.0% after. See
 `RC_ENGINE_CHANGES.md` §8.2.
 
-**v2.72 is the version before it, and it is the one to read before trusting any river harness.** It
+**"v2.72" is likewise not a real source version** (owner, 2026-09-28; see the
+note above the v2.73 paragraph) — recorded as the version before it, and the one
+to read before trusting any river harness. What this port built from the
+recorded spec below — the raster river renderer's display-side area bar — is a
+port improvement; its spec was recorded as RC v2.72, which does not exist. It
 moves no generated value — `hash_gen1.js` vs v2.71 ALL IDENTICAL — and it changes the drawn map
 materially at large extents, which is why the spec files it in §8.1 beside v2.58 rather than with
 the shell rows. Two independent defects, one screenshot of a 40 000 km world, and **both landed on

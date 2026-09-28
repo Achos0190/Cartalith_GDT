@@ -331,7 +331,13 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**70 outstanding items** — 2026-09-29, latest (48). RV-3 follow-ups closed: sculpted channels keep their shading, and the valley shade is timed and made faster. The repaint stall it measured, plus the water-edge step, were filed as one row. **70 − 1 + 1 = 70**.
+**68 outstanding items** — 2026-09-28, latest (49). The "RC_ENGINE_CHANGES records
+v2.72 and v2.73" row closed (owner, 2026-09-28: v2.72 and v2.73 do not exist, v2.71
+is the latest) and the v2.73-half-2 footpath row closed as having no source to
+port; `STATUS.md` now notes the footpath idea can be re-raised as a port-original
+feature if the owner wants it. **70 − 2 = 68**.
+
+**70 outstanding items** — 2026-09-29, (48). RV-3 follow-ups closed: sculpted channels keep their shading, and the valley shade is timed and made faster. The repaint stall it measured, plus the water-edge step, were filed as one row. **70 − 1 + 1 = 70**.
 
 **70 outstanding items** — 2026-09-29 (47). RV-3 closed (the shading re-cuts smooth valleys along drawn rivers); its three follow-ups were filed as one row. **70 − 1 + 1 = 70**.
 
@@ -2526,7 +2532,11 @@ Five caveats on that number, stated rather than buried:
    40/54/40" until today, both times because the sizes were counted by hand
    separately from the rows.*
 2. **§2.9's three rows hide a survey, not an estimate.** `RC_ENGINE_CHANGES.md`
-   specifies **50 distinct engine items** across v2.11–v2.73, and the figure is
+   specifies **47 distinct engine items** across v2.11–v2.71 (corrected 2026-09-28
+   from 50 across v2.11–v2.73: v2.72 and v2.73 do not exist — owner, 2026-09-28,
+   "Version 2.71 seems to be latest, 2.73 doesn't seem to exist" — so their 2+1
+   items are struck from this count; the two entries stay in `RC_ENGINE_CHANGES.md`
+   as history, marked not-real-source-versions), and the figure is
    re-derived here item by item so it can be checked rather than inherited:
    **27** through v2.52; §6h's **3** (the 24-bit height word, the relief-gate
    floor, the local-contrast rebase); v2.57's plate-base blur (§6i) **1**;
@@ -2546,11 +2556,12 @@ Five caveats on that number, stated rather than buried:
    colour function per surface class is what makes a new map style cost one flag
    instead of N) **1**; v2.71's water clip (§8.2 — the settlement's water mask
    exists and never reached the renderer, and the polygon a synthetic fixture
-   clips against is EMPTY by design on the real path) **1**; v2.72's antimeridian
-   seam cut *and* its display bar (§8.1/§7.13 — two independent defects that
-   share a screenshot and nothing else) **2**; v2.73's green/footpath pass
-   (§8.2 — the always-on source exists because the free one is unreachable at
-   the default rules) **1**. v2.62 remains the first place §6k's "key the
+   clips against is EMPTY by design on the real path) **1**. *(v2.72's
+   antimeridian seam cut/display bar and v2.73's green/footpath pass are no
+   longer counted here — struck 2026-09-28, not real source versions; see
+   above. What this port built from them — the river display-area bar and the
+   village-green plaza kind — stands as a port-original improvement, recorded
+   in `STATUS.md`.)* v2.62 remains the first place §6k's "key the
    threshold on catchment AREA" recommendation is actually taken, for a NEW
    consumer, leaving the three existing `order>=3` consumers alone.
    **The figure read 31 before 2026-09-17 and 46 after, and neither reconciled
@@ -3141,8 +3152,6 @@ outside `STATUS.md`, and outside the count at the top of this file.
 | ~~**v2.71, half 1 · Nothing the settlement layer draws may sit on water**~~ — **CLOSED 2026-09-21 (verified)** | `RC_ENGINE_CHANGES.md` §8.2 | medium | Confirmed this port had the HTML's exact defect: `Site::is_water` already reads a real 22 m mask and generation already keeps blocks/parcels/buildings off it, but `Site::water_poly` — the only water geometry crossing the Rust→Godot bridge — is deliberately empty on the real-map coastal path, so the mask never reached the renderer. `WaterCtx::water_runs()` (run-length-encoded rectangles, same local-box frame as `water_poly`/`river`) → `UrbanLayout::water_mask_runs` → `urban_bridge.rs`'s `"water_mask_runs"` key → a new `_draw_water_mask()` painted last, corners projected individually (correct under rotation), bridges/fords released by a distance test. Purely additive — empty on every synthetic site, so no golden (Rust or GDScript, confirmed none render/hash settlement-over-water pixels) needed re-baselining. New mutation-safe unit test (literal expected rectangles) + 708+591+268 passing lib tests across the three touched crates. Commit `0bf3152`. |
 | ~~**v2.72 · Raster river geometry, antimeridian wrap + a detection-ease used as a display threshold**~~ — **CLOSED 2026-09-21 (verified) — fix 1 landed, fix 2 found genuinely inapplicable** | `RC_ENGINE_CHANGES.md` §7.13, §8.1 | large | **Owner supplied real `Cartalith_v2.71`/`v2.73` DCC-test source specifically to confirm both defects; both matched the spec exactly, and the owner authorized landing.** Commit `fcaafea`. **Fix 1 (detection ease spent as a display threshold) landed**: `RIVER_RENDER_AREA_K=2.0` (the reference's own literal), `river_render_area_bar()`, a new per-channel-cell `channel_cell_drainage` (channel-cell count via the receiver tree's own topological order, deliberately NOT `flow`/`flow_discharge` — the reference is explicit these are two different trees). Measured on a real 384×384 `world:true` pipeline: 40 000 km inked fraction 26.41% → 1.38% (−95%), 1200 km 5.06% → 3.46% (−32%, headwater tips only) — confirmed the bar does not gut the normal-scale network. No golden moved (grepped: nothing tests `stamp_river_intensity`'s output at all). `render.rs` untouched — the gate lives at generation time, `WorldState.channels.intensity` already carries it. **Fix 2 (antimeridian wrap) does NOT apply to this port** — a real structural finding, proven with an oracle test, not just reasoned: this port's disc-stamp technique paints AT each channel cell's own coordinate, never a connecting line between cells, so it cannot have the reference's stroke-renderer wrap defect. This port's own polyline tracer (`trace_river_polylines`, used for GeoJSON export/`get_rivers`) already has the equivalent wrap-cut via `split_river_polylines`. **Honest answer on the owner's "smooth, not pixelated" bar, stated when authorizing this build**: this fix makes the network sparser and more legible at coarse extents, but does not smooth any single river's stair-stepped raster-disc edge — that needs the separate vector overlay follow-up, queued next (see the row below). **Independently re-verified**: `cargo test -p cartalith-hydrology` clean; full workspace re-run after both this and v2.73 landed together, 163/3450/0/33; `render.rs`'s diff confirmed empty. |
 | ~~**v2.73, half 1 · A village green as a distinct plaza kind**~~ — **CLOSED 2026-09-21 (verified) — rebuilt fresh from real v2.73 source, golden values confirmed exactly** | `RC_ENGINE_CHANGES.md` §8.2 | medium | **Owner supplied real `Cartalith_v2.73_DCC_test.html`; the earlier reverted implementation's four golden values were checked against it and reproduced exactly, not guessed.** Commit `68e5656`. `PlazaKind::{Market,Green}` on `Plaza`, `PLAZA_MARKET_POP=1500.0` reused from `build_civic`'s own chartered-town gate (also fixed a duplicate `1500.0` literal in `build_civic`'s own `size_mult` formula), market-cross push gated on `kind == Market`. Geometry verified byte-for-byte against the real reference — untouched, only `kind`/`prov` are new. **The four golden values confirmed exactly**: `landlockedHamlet` 115→114, `popFloorClamp` 113→112, `hamletBoundary` 120→119, `venusTinyCanal` 49→48, each the one withheld market cross. The 29-case orchestration golden's `hash` field (graph/blocks/parcels/buildings) confirmed byte-identical for all 29 cases — only the four disclosed rows' `details`/`detail_kinds` moved, disclosed old→new in `golden.rs`'s own new header. **Independently re-verified**: diffed `golden.rs` myself, zero `hash:` lines changed anywhere; full workspace test re-run after both this and v2.72 landed together, 163/3450/0/33. |
-| **v2.73, half 2 · A footpath class from an always-on source** — **needs real v2.73+ source, not a same-session port** — *Owner, 2026-09-28: **v2.71 is the latest version; v2.73 does not seem to exist.** Blocked on the provenance row below.* | `RC_ENGINE_CHANGES.md` §8.2 | medium | **2026-09-21: checked at the symbol, not assumed absent.** `cleanup.rs::privatize_alleys` is real (alley-privatisation, kills cart-routing edges) but records nothing it kills, and no footpath/snicket concept exists anywhere in `cartalith-urban`. The RC row gives the mechanism (paths from placed features to nearest street, gated on not crossing a building footprint) but only *outcome* measurements ("2 paths on a village, 4 at pop 12000, 7-17m, bounded at both ends") — no search algorithm, no bound semantics, no line-level spec to port bit-exact. Inventing one would be original code dressed as a port in a project whose whole test methodology is byte-for-byte JS parity (`MISTAKES.md`: port the reference's approximations, don't invent a mathematically-ideal one). **Also found**: `DEFAULT_RULES.street.dead_end_bias == 0.0` on every live culture profile (confirmed by an existing test), so even the recorded-closures half alone would be inert on every current golden — building only that half reproduces the exact "computes correctly, shows nothing" trap the RC row itself warns against. Same shape as v2.71's woodland half — needs `Cartalith_RC` access or an owner-supplied capture, not invention. No code written. |
-| **RC_ENGINE_CHANGES records v2.72 and v2.73, which the owner says do not exist** | `RC_ENGINE_CHANGES.md` §8 (v2.72, v2.73); `OUTSTANDING_WORK.md` §2.9 count; `STATUS.md` v2.70-v2.73 paragraphs; `FUNCTIONAL_CONTRACT.md` DCC count | small | Owner, 2026-09-28: *"Version 2.71 seems to be latest, 2.73 doesn't seem to exist."* The v2.72/v2.73 entries came from `6aa1ff3` (2026-09-20, a cloud session on `main`'s side) and reached this branch in the merge `24384a4`; `Cartalith_RC` is not on this machine under the user folder, so they cannot be checked here. **Next step:** the owner confirms where `Cartalith_RC` lives and its newest DCC file; if v2.72/v2.73 are absent, mark those entries unverified or remove them, restore §2.9's count, and correct `FUNCTIONAL_CONTRACT.md`'s "51, newest v2.73" |
 
 **Why this was invisible.** The spec was written *for* the port and lives at this
 repository's root, so it reads as already-integrated. It was never wired into the

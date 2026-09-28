@@ -24,7 +24,7 @@ no re-freeze question to raise."* Counted directly:
 |---|---|---|
 | `Cartalith Gen1 v*.html` | 152 | **164** |
 | Newest mainline | v2.10 | **v2.22** |
-| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **51, newest v2.73** |
+| DCC-line files (`Cartalith v*.* DCC test.html`) | not mentioned | **49, newest v2.71** *(corrected 2026-09-28: this cell read "51, newest v2.73" — owner, 2026-09-28, v2.72 and v2.73 do not exist)* |
 | Frozen here in `reference/` | v2.10 | v2.10 **and v2.11** (v2.11 frozen 2026-09-02, `45b368d`, with `FUNCTION_INDEX_v2.11.md`; this cell said "v2.10 — unmoved" until 2026-09-24) |
 
 So the frozen reference is **twelve mainline versions behind**, and the source
@@ -38,8 +38,9 @@ against — that debt is now understated by the same twelve versions.
 source project moved past.** Treat a tag as "true as of v2.10", not as true
 today, until the re-freeze lands. **What changed in the interval is not
 unknown** — it is specified, change by change, in `RC_ENGINE_CHANGES.md`, which
-covers v2.11 → v2.73 as a porting spec (its own span table, read 2026-09-24;
-this said v2.60). Read that before trusting any tag in a
+covers v2.11 → v2.71 as a porting spec (its own span table, read 2026-09-24;
+this said v2.60; corrected again 2026-09-28 from "→ v2.73" — owner, 2026-09-28,
+v2.72 and v2.73 do not exist). Read that before trusting any tag in a
 subsystem it touches.
 
 **This was a standing instruction, not an oversight nobody could have caught.**

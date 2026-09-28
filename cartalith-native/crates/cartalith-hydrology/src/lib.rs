@@ -853,10 +853,13 @@ pub fn river_width_scale_k(map_width_km: f64) -> f64 {
     (800.0 / mwk).clamp(1.0 / TERRAIN_DETAIL_MAX_K, TERRAIN_DETAIL_MAX_K)
 }
 
-/// `RIVER_RENDER_AREA_K` (reference HTML, v2.72's own comment above the
-/// constant): the raster river renderer's own bar, and the reason it exists
-/// at all is the reference's own line — *"A DETECTION EASE IS NOT A DISPLAY
-/// THRESHOLD"*. [`river_flow_thresh`] eases `river_coarse_ease`'s factor into
+/// `RIVER_RENDER_AREA_K` (recorded from the reference HTML as "v2.72's own
+/// comment above the constant" — **v2.72 is not a real source version**;
+/// owner, 2026-09-28, v2.72 and v2.73 do not exist, v2.71 is the latest. This
+/// port's use of the constant stands as a port-original improvement, not a
+/// v2.72 port; see `STATUS.md`): the raster river renderer's own bar, and the
+/// reason it exists at all is the recorded line — *"A DETECTION EASE IS NOT A
+/// DISPLAY THRESHOLD"*. [`river_flow_thresh`] eases `river_coarse_ease`'s factor into
 /// whether a cell channelizes at all (so a genuine minor stream on a coarse
 /// map is not missed); this constant, scaled the same way, is a second,
 /// independent gate on whether a channelized cell is worth **painting**.
@@ -2034,9 +2037,11 @@ fn channel_cell_drainage(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i32> {
 /// the small exact integers `dx`/`dy` take here the two agree to the bit, but
 /// the reference is the reference.
 ///
-/// # `area_bar` — v2.72's display-side gate (`RIVER_RENDER_AREA_K`)
+/// # `area_bar` — recorded as v2.72's display-side gate (`RIVER_RENDER_AREA_K`)
 ///
-/// A second reason a channel cell can go un-inked, independent of `thresh`:
+/// **v2.72 is not a real source version** (owner, 2026-09-28); this gate is a
+/// port-original improvement, not a v2.72 port — see `STATUS.md`. A second
+/// reason a channel cell can go un-inked, independent of `thresh`:
 /// [`river_render_area_bar`], applied to [`channel_cell_drainage`] — each
 /// channel cell's own upstream drainage **in channel-cell count**, off this
 /// exact receiver tree (`recv`/`chan`), never `flow`. The reference is
@@ -2906,7 +2911,9 @@ mod tests {
 
     /// `RIVER_RENDER_AREA_K` pinned as a **literal**, not against itself
     /// (`MISTAKES.md`'s "write a test that pins a constant" row) -- this is
-    /// the reference's own v2.72 literal, carried verbatim.
+    /// the literal recorded as the reference's v2.72 value, carried verbatim.
+    /// v2.72 is not a real source version (owner, 2026-09-28); this constant
+    /// is a port-original improvement, not a v2.72 port -- see `STATUS.md`.
     #[test]
     fn river_render_area_k_is_the_references_literal_two() {
         // Protects: RIVER_RENDER_AREA_K is pinned to the reference's own v2.72 literal 2.0 as a bare literal, not against the constant itself, so a change to the constant cannot silently pass its own pin.

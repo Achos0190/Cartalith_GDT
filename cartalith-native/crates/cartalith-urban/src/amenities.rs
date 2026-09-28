@@ -243,8 +243,10 @@ pub struct Civic {
 ///
 /// [`None`] on either of the reference's two refusals: no plaza or fewer than
 /// [`PLAZA_MARKET_POP`] people (a civic hall appears once a place is a
-/// chartered town — v2.73's `build_plaza` reuses this exact constant for the
-/// same distinction rather than a second threshold), and a resolved style of
+/// chartered town — `build_plaza` reuses this exact constant for the same
+/// distinction rather than a second threshold; recorded as v2.73, which is not
+/// a real source version, owner 2026-09-28 -- see `plaza.rs`'s module doc and
+/// `STATUS.md`), and a resolved style of
 /// `'none'` (Islamic governance was not a monumental civic building). Both are
 /// real states, not errors.
 ///
