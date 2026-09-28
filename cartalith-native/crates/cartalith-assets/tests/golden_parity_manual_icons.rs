@@ -56,8 +56,14 @@
 use cartalith_assets::manual::*;
 use cartalith_assets::scatter::{ScatterRule, ScatterRuleTable};
 
+// Fixture grid width -- matches the reference harness that captured the ten
+// `BrushRun`s below; changing it moves every recorded position.
 const GW: usize = 48;
+// Fixture grid height -- same reference harness as GW, same caveat.
 const GH: usize = 32;
+// Fixture sea level -- the threshold `synthetic_field` was tuned against so
+// the grid carries both land (370 cells) and water (1166 cells) at k=5,
+// exercising the brush's sea-level gate rather than trivially satisfying it.
 const SEA: f64 = 0.42;
 
 /// The same deliberately-quantised pure-arithmetic elevation field the

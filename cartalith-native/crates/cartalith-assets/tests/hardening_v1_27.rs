@@ -37,9 +37,9 @@ use serde_json::json;
 /// `placeMapIconsRuled`'s scatter predicate, verbatim from reference line
 /// 7275: a jittered grid cell is **rejected** when `keep >= min(1, density)`,
 /// where `keep` is a position hash in `[0, 1]`. Returns whether an icon lands.
-// Kept as the negated comparison the reference actually writes: this test is
-// *about* what that comparison does against a NaN threshold, so rewriting it
-// into a NaN-explicit form would erase the thing being demonstrated.
+/// Kept as the negated comparison the reference actually writes: this test is
+/// *about* what that comparison does against a NaN threshold, so rewriting it
+/// into a NaN-explicit form would erase the thing being demonstrated.
 #[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn scatter_accepts(keep: f64, density: f64) -> bool {
     !(keep >= f64::min(1.0, density))
@@ -60,6 +60,9 @@ fn scatter_accepts(keep: f64, density: f64) -> bool {
 /// unreachable.
 #[test]
 fn fix1_a_non_numeric_density_cannot_reach_the_engine_as_nan() {
+    // Protects: normalize_scatter_rule rejects every non-numeric density
+    // spelling (never a NaN reaching scatter_accepts) while preserving a
+    // deliberate real zero, matching v1.27's num() fix.
     // First, the failure this prevents, demonstrated on the real predicate.
     assert!(
         scatter_accepts(0.99, f64::NAN),
@@ -137,6 +140,9 @@ fn bucket_grid(map_width: usize, map_height: usize, cell: f64) -> (usize, usize)
 /// little that intuition can be trusted.
 #[test]
 fn fix2_a_non_finite_spacing_cannot_collapse_the_bucket_grid() {
+    // Protects: both halves of v1.27 fix #2 -- normalize_scatter_rule rejects
+    // a non-finite spacing at the boundary, and ScatterRule::spacing_cells
+    // guards the computed value so the bucket grid never collapses to 1x1.
     // The failure this prevents: 5400 buckets become 1, so `fits()` stops
     // being a nine-bucket lookup and becomes a scan of every placed icon.
     assert_eq!(bucket_grid(900, 600, 10.0), (90, 60));
@@ -206,6 +212,10 @@ fn fix2_a_non_finite_spacing_cannot_collapse_the_bucket_grid() {
 /// behaviour so a future refactor toward a "merge" helper would fail loudly.
 #[test]
 fn fix3_a_rejected_field_falls_back_to_the_preset_not_to_itself() {
+    // Protects: a rejected field falls back to the PRESET, not to its own
+    // garbage or a sibling field's garbage, and the preset itself is never
+    // mutated by the call -- the Object.assign aliasing bug's outcome, pinned
+    // even though this port has no merge-in-place path to reproduce it.
     // The reference's own v1.27 probe case.
     let r = normalize_scatter_rule(&json!({"minSize": "x", "maxSize": 2}), "mountain");
     let preset = preset_scatter_rule("mountain");
@@ -261,6 +271,10 @@ fn fix3_a_rejected_field_falls_back_to_the_preset_not_to_itself() {
 /// is what milestone 5's `library.json` round trip needs.
 #[test]
 fn rules_serialize_but_deliberately_do_not_deserialize() {
+    // Protects: ScatterRule still serializes with the reference's own field
+    // names (needed for milestone 5's library.json round trip), while the
+    // commented line above documents the compile-time guarantee that it
+    // cannot be deserialized.
     // let _: ScatterRule = serde_json::from_str("{}").unwrap();  // must not compile
     let json = serde_json::to_string(&preset_scatter_rule("tree_wetland")).unwrap();
     assert!(json.contains(r#""requireWetland":true"#));

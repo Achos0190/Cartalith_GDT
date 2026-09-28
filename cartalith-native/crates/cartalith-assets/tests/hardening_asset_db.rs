@@ -57,6 +57,8 @@ use cartalith_assets::{AssetDB, Family, slug_id};
 /// prevents — a naive "always push a new slot" implementation would double
 /// the registry's custom-family length on the second call — then as the real
 /// behaviour.
+///
+/// Protects: three identical `add_custom_slot` calls yield exactly one slot.
 #[test]
 fn add_custom_slot_never_creates_a_second_slot_for_one_uid() {
     let mut db = AssetDB::new();
@@ -73,6 +75,9 @@ fn add_custom_slot_never_creates_a_second_slot_for_one_uid() {
 /// untrusted-input hazard — not a defensive nicety against a caller who
 /// literally repeats themselves, but a guarantee that holds even when the
 /// two calls look nothing alike on the surface.
+///
+/// Protects: `add_custom_slot` collapses two differently-spelled names that
+/// slug identically into one slot, keeping the first writer's display name.
 #[test]
 fn add_custom_slot_collapses_differently_spelled_names_that_slug_identically() {
     assert_eq!(slug_id("Wind Mill!!"), slug_id("wind   mill"));
@@ -100,6 +105,9 @@ fn add_custom_slot_collapses_differently_spelled_names_that_slug_identically() {
 /// replaces, never appends) — this port's structural guarantee and the
 /// reference's structural guarantee are the same shape, not merely
 /// coincidentally similar outcomes.
+///
+/// Protects: every spelling that slugs to an existing custom uid resolves to
+/// that same slot, never a second one.
 #[test]
 fn a_custom_uid_can_never_address_two_different_slots() {
     let mut db = AssetDB::new();
@@ -127,6 +135,9 @@ fn a_custom_uid_can_never_address_two_different_slots() {
 /// (its uid now points at the pre-existing "Buoy" data) or overwrite "Buoy"'s
 /// own store/meta with "Lighthouse"'s. Neither is acceptable for
 /// user-authored content editable outside the app.
+///
+/// Protects: renaming into a collision is refused outright -- both slots and
+/// both slots' items are left untouched, and the old uid is returned.
 #[test]
 fn rename_custom_slot_refuses_a_collision_rather_than_merging_or_overwriting() {
     let mut db = AssetDB::new();
@@ -157,6 +168,8 @@ fn rename_custom_slot_refuses_a_collision_rather_than_merging_or_overwriting() {
 /// the display name in place and keep the uid stable, matching the
 /// reference's `if(nuid===uid){ slot.name=...; return uid; }` branch, which
 /// is checked *before* the collision guard.
+///
+/// Protects: a same-slug rename updates the display name and keeps the uid.
 #[test]
 fn renaming_to_a_spelling_that_slugs_to_the_same_id_is_not_treated_as_a_collision() {
     let mut db = AssetDB::new();
@@ -184,8 +197,14 @@ fn renaming_to_a_spelling_that_slugs_to_the_same_id_is_not_treated_as_a_collisio
 /// hypothetical future mutation path that bypasses `slug_id`, and the
 /// reference itself has carried it (presumably for the same reason) without
 /// ever being able to trigger it either.
+///
+/// Protects: slug_id's output always satisfies the validator's own
+/// `[a-z0-9_]+` regex, across a spread of hostile inputs (empty, punctuation
+/// only, non-ASCII, mixed case).
 #[test]
 fn slug_id_can_never_produce_an_id_the_validator_would_flag() {
+    /// Local mirror of `run`'s own `[a-z0-9_]+` validator regex, used only to
+    /// assert `slug_id`'s output against it without importing the validator.
     fn looks_valid(id: &str) -> bool {
         !id.is_empty() && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     }
@@ -217,6 +236,9 @@ fn slug_id_can_never_produce_an_id_the_validator_would_flag() {
 /// `validator_stale_collection_only_fires_via_an_unchecked_assignment` for
 /// the one real path, [`cartalith_assets::AssetCollections::from_map`] — but
 /// it genuinely cannot be reached through ordinary slot editing.
+///
+/// Protects: removing a custom slot leaves no stale collection membership
+/// behind for the validator to catch, because `drop_uid` already ran.
 #[test]
 fn removing_a_custom_slot_leaves_no_stale_collection_reference_for_the_validator_to_find() {
     let mut db = AssetDB::new();

@@ -103,6 +103,7 @@ pub enum Element {
 }
 
 impl Element {
+    /// Byte width of one value of this element type on disk.
     pub fn size(self) -> usize {
         match self {
             Element::F32 | Element::I32 => 4,
@@ -110,6 +111,8 @@ impl Element {
         }
     }
 
+    /// The file extension `SAVEFILE_COMPAT.md` §8 assigns this element type,
+    /// which a reader uses to recover the byte width without a header.
     pub fn ext(self) -> &'static str {
         match self {
             Element::F32 => "f32",
@@ -133,6 +136,8 @@ pub enum Raster {
 }
 
 impl Raster {
+    /// Which [`Element`] this raster's values are, for the entry name and
+    /// byte-width bookkeeping.
     pub fn element(&self) -> Element {
         match self {
             Raster::F32(_) => Element::F32,
@@ -141,6 +146,7 @@ impl Raster {
         }
     }
 
+    /// Number of grid cells (not bytes) this raster holds.
     pub fn len(&self) -> usize {
         match self {
             Raster::F32(v) => v.len(),
@@ -149,6 +155,7 @@ impl Raster {
         }
     }
 
+    /// Whether this raster carries zero cells.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -671,6 +678,9 @@ fn lod_tile_id(name: &str) -> Option<cartalith_spatial::pyramid::ChunkId> {
     ))
 }
 
+/// The archive entry name for one stored LOD tile, built from its `(z, col,
+/// row)` address under [`LOD_TILE_PREFIX`]/[`LOD_TILE_EXT`]. The inverse of
+/// the id-parsing helper above.
 fn lod_tile_entry(id: cartalith_spatial::pyramid::ChunkId) -> String {
     format!("{LOD_TILE_PREFIX}{}/{}/{}{LOD_TILE_EXT}", id.z, id.col, id.row)
 }
@@ -699,8 +709,8 @@ fn lod_tile_entry(id: cartalith_spatial::pyramid::ChunkId) -> String {
 /// and does not need to be: the thing it defends against is a *changed*
 /// world, not a forged one.
 pub fn lod_source_key(params: &SaveParams, heightmap: &[f32]) -> String {
-    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325; // FNV-1a-64 offset basis (standard constant)
+    const PRIME: u64 = 0x0000_0100_0000_01b3; // FNV-1a-64 prime (standard constant)
     let mut h = OFFSET;
     let mut eat = |bytes: &[u8]| {
         for &b in bytes {
@@ -718,6 +728,8 @@ pub fn lod_source_key(params: &SaveParams, heightmap: &[f32]) -> String {
     format!("{h:016x}")
 }
 
+/// Looks up the registered [`RasterSlot`] for a document path, or `None` if
+/// `path` is not a registered raster slot at all.
 fn raster_slot(path: &str) -> Option<RasterSlot> {
     RASTER_SLOTS.iter().copied().find(|s| s.path == path)
 }
@@ -827,6 +839,9 @@ pub struct ProjectWrite<'a> {
 }
 
 impl<'a> ProjectWrite<'a> {
+    /// A fresh writer with no rasters, documents, foreign entries or optional
+    /// extras set -- every `Option`/`BTreeMap` field starts empty so a
+    /// caller opts in field by field rather than having to un-set anything.
     pub fn new(params: &'a SaveParams, fields: &'a SaveFields) -> Self {
         ProjectWrite {
             params,
@@ -852,6 +867,9 @@ impl<'a> ProjectWrite<'a> {
         self.documents.insert(slot.into(), json.into())
     }
 
+    /// Registers one raster under a document path. Returns the previous
+    /// raster for that path, if any -- the same double-write signal
+    /// [`ProjectWrite::document`] gives for documents.
     pub fn raster(&mut self, path: impl Into<String>, raster: Raster) -> Option<Raster> {
         self.rasters.insert(path.into(), raster)
     }
@@ -1064,6 +1082,8 @@ impl ProjectData {
             .map(|v| serde_json::from_value(v.clone()))
     }
 
+    /// One raster by document path, or `None` if the archive did not carry
+    /// it.
     pub fn raster(&self, path: &str) -> Option<&Raster> {
         self.rasters.get(path)
     }
@@ -1071,6 +1091,9 @@ impl ProjectData {
 
 // =============================== writing ===============================
 
+/// The write options every entry in this archive is opened with:
+/// DEFLATE (method 8), named explicitly rather than left at
+/// `SimpleFileOptions::default()`'s own choice.
 fn zip_opts() -> zip::write::SimpleFileOptions {
     // DEFLATE (method 8). Named rather than inherited from
     // `SimpleFileOptions::default()` because it is a format decision
@@ -1477,6 +1500,8 @@ fn read_entry_bytes(
     Some(entry.read_to_end(&mut buf).map(|_| buf))
 }
 
+/// Walks a nested JSON path (e.g. `["world", "seed"]`) and returns the
+/// number at the end, or `None` if any segment is missing or not numeric.
 fn json_num(v: &serde_json::Value, path: &[&str]) -> Option<f64> {
     let mut cur = v;
     for &seg in path {
@@ -1556,6 +1581,12 @@ pub fn read_document<R: Read + Seek>(
     Ok(Some(text))
 }
 
+/// Reads an archive already identified as the tree layout (`project.json`
+/// present): the manifest, every registered document and raster slot, the
+/// history/territory years, the optional LOD pyramid, and anything else as
+/// foreign -- collecting a warning per skipped-but-not-fatal problem rather
+/// than failing the whole load. `manifest_bytes` is passed in already read,
+/// since [`read_project`] needed it to decide the layout in the first place.
 fn read_tree(
     archive: &mut zip::ZipArchive<impl Read + Seek>,
     manifest_bytes: Vec<u8>,
@@ -1955,6 +1986,10 @@ fn read_tree(
     })
 }
 
+/// Reads an archive already identified as the flat legacy layout: delegates
+/// core fields to [`crate::load_from_archive`], then reads the project layer
+/// (settlements, factions, territory, labels, icons) out of `state` via
+/// [`crate::legacy::read_legacy`] under owner Ruling AU.
 fn read_flat(archive: &mut zip::ZipArchive<impl Read + Seek>) -> Result<ProjectData, LoadError> {
     let save = crate::load_from_archive(archive)?;
     // Ruling AU: the project layer a flat archive carries inside `state`.
@@ -2003,12 +2038,19 @@ fn strip_bom(bytes: &[u8]) -> &[u8] {
     bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes)
 }
 
+/// Unit and golden-parity tests for the project archive reader/writer:
+/// round trips, the §6 hardening rules (foreign entries, damaged optional
+/// documents, undecodable/truncated entries), the §8.2 byte-plane shuffle,
+/// and the stored LOD pyramid.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_spatial::pyramid::ChunkId;
     use std::io::Cursor;
 
+    /// A deterministic `(SaveParams, SaveFields)` fixture at the given grid
+    /// size, with every field a distinct formula so a mixed-up index or
+    /// slot cannot pass by accident.
     fn sample(gw: usize, gh: usize) -> (SaveParams, SaveFields) {
         let n = gw * gh;
         let params = SaveParams {
@@ -2038,6 +2080,8 @@ mod tests {
         (params, fields)
     }
 
+    /// Writes `project` to an in-memory buffer, panicking on failure -- the
+    /// common case every round-trip test starts from.
     fn write_to_vec(project: &ProjectWrite<'_>) -> Vec<u8> {
         let mut buf = Vec::new();
         write_project(Cursor::new(&mut buf), project).expect("write_project should succeed");
@@ -2110,6 +2154,9 @@ mod tests {
 
     #[test]
     fn an_empty_project_round_trips() {
+        // Protects: a ProjectWrite with no rasters/documents/history writes
+        // an archive that reads back with matching params/fields, empty
+        // documents/rasters/history and no warnings.
         let (params, fields) = sample(7, 5);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let back = read_project(Cursor::new(&buf)).expect("read_project should succeed");
@@ -2130,6 +2177,10 @@ mod tests {
 
     #[test]
     fn every_payload_kind_round_trips() {
+        // Protects: every payload kind this writer supports -- rasters of
+        // all three element types, documents, history/territory years,
+        // preview PNG, readme, created timestamp and both parameter views --
+        // round-trips through a real archive with no warnings.
         let (params, fields) = sample(6, 4);
         let n = 24;
         let mut p = ProjectWrite::new(&params, &fields);
@@ -2209,6 +2260,9 @@ mod tests {
     /// to populate it): the archive must carry no `preview.png` entry at
     /// all, not an empty one -- SAVEFILE_COMPAT.md's damage ladder treats a
     /// present-but-empty thumbnail differently from an absent one.
+    ///
+    /// Protects: `preview_png: None` writes no `preview.png` entry at all
+    /// (not an empty one), and reads back as `None` with no warnings.
     #[test]
     fn no_preview_is_the_default_and_writes_no_entry() {
         let (params, fields) = sample(4, 4);
@@ -2232,6 +2286,9 @@ mod tests {
     /// separately; what is asserted here is the gate it depends on, since
     /// un-registering the slot would make `write_project` refuse a landmark
     /// document outright and the failure would surface over there instead.
+    ///
+    /// Protects: `entities/landmarks.json` stays a registered document slot,
+    /// round-trips its content, and is never reported as foreign.
     #[test]
     fn the_landmarks_slot_is_open_and_round_trips() {
         assert!(
@@ -2263,6 +2320,9 @@ mod tests {
 
     #[test]
     fn a_world_with_no_civ_layer_round_trips() {
+        // Protects: a generated world nobody has edited saves and reloads
+        // without inventing an empty settlement list, faction roster or
+        // territory raster, and with no warnings.
         // The case the register calls out explicitly: a generated world
         // nobody has edited must save and reload without inventing an
         // empty settlement list, an empty faction roster or a warning.
@@ -2278,6 +2338,9 @@ mod tests {
 
     #[test]
     fn a_flat_legacy_archive_still_reads() {
+        // Protects: read_project accepts a flat (interoperability-writer)
+        // archive too, tagging it Layout::Flat/format_version 0, with
+        // matching params/fields and no documents.
         // Written with the interoperability writer, read with the project
         // reader -- `SAVEFILE_COMPAT.md` §1's "readers accept both".
         let (params, fields) = sample(9, 4);
@@ -2303,6 +2366,10 @@ mod tests {
 
     #[test]
     fn an_unknown_entry_is_ignored_not_an_error() {
+        // Protects: an unrecognised entry does not fail the read, is not
+        // reported as a warning, and is censused (name and bytes retained)
+        // under `foreign` -- while a clean self-written archive has nothing
+        // foreign at all.
         // §6.3, the rule that lets two implementations add payloads without
         // breaking each other. Tested on the tree layout; `lib.rs` already
         // tests it on the flat one.
@@ -2373,6 +2440,12 @@ mod tests {
     /// Table-driven and asserting literals, not the constants: comparing
     /// `PROJECT_MANIFEST` against `PROJECT_MANIFEST` is the self-referential
     /// shape that let `MIN_REGION_WORLD_AXIS` survive its own mutation.
+    ///
+    /// Protects: `is_own_entry` accepts every real shape it owns (manifest,
+    /// params, README, preview, document slots, raster slots including the
+    /// §8.2 shuffled name, history/territory, LOD index and tiles) and
+    /// refuses every near-miss of each, so nothing this build owns is ever
+    /// carried as foreign and duplicated on re-save.
     #[test]
     fn is_own_entry_covers_all_nine_branches_and_no_more() {
         for owned in [
@@ -2428,6 +2501,9 @@ mod tests {
     ///
     /// The whole point of the row: an older build must not be the reason a
     /// newer build's data disappears.
+    ///
+    /// Protects: a foreign (unrecognised) entry survives an open-and-re-save
+    /// round trip byte for byte, under its own name.
     #[test]
     fn a_foreign_entry_survives_an_open_and_a_re_save() {
         let (params, fields) = sample(4, 4);
@@ -2480,6 +2556,10 @@ mod tests {
     /// A non-empty `source_key` is now a claim, and a false one costs the
     /// pyramid rather than the map. Empty stays trusted: that is the contract a
     /// fresh producer writes against, and `a_pyramid` above relies on it.
+    ///
+    /// Protects: a pyramid stamped with a stale source_key is dropped
+    /// (never restamped) at write time, without touching the world, while
+    /// a fresh (empty-key) pyramid is still written and stamped correctly.
     #[test]
     fn stale_tiles_are_dropped_by_the_writer_not_restamped() {
         let (params, fields) = sample(6, 4);
@@ -2518,6 +2598,10 @@ mod tests {
     /// `ProjectData::warnings` (`OUTSTANDING_WORK.md`'s "a dropped pyramid is
     /// silent" row). `write_project` now reports the drop the same way the
     /// read side does.
+    ///
+    /// Protects: write_project's own returned warnings list names a dropped
+    /// stale pyramid (mentioning the tile prefix and "dropped"), and the
+    /// archive really did drop it.
     #[test]
     fn write_project_reports_a_dropped_pyramid() {
         let (params, fields) = sample(6, 4);
@@ -2550,6 +2634,9 @@ mod tests {
     /// The common case must stay quiet, not just the stale case loud: a
     /// matching `source_key`, an empty (trusted) one, and no pyramid at all
     /// all produce zero warnings.
+    ///
+    /// Protects: a fresh (empty-key), an explicitly-matching-key, and an
+    /// absent pyramid all write with zero warnings.
     #[test]
     fn write_project_is_quiet_when_the_pyramid_matches() {
         let (params, fields) = sample(6, 4);
@@ -2611,6 +2698,10 @@ mod tests {
 
     /// The promotion itself: a pyramid written into the archive comes back
     /// byte for byte, under its own addresses, with its producer intact.
+    ///
+    /// Protects: a stored pyramid's tiles, dimensions, producer string and
+    /// derived source_key all round-trip, with no warnings and nothing
+    /// carried as foreign.
     #[test]
     fn a_stored_pyramid_round_trips() {
         let (params, fields) = sample(8, 6);
@@ -2632,6 +2723,9 @@ mod tests {
 
     /// No pyramid is the default and is not a warning: [`ProjectWrite::new`]
     /// writes none, and an archive without one opens silently.
+    ///
+    /// Protects: `lod_tiles: None` writes no `cartography/tiles/*` entries
+    /// and reads back as `None` with no warnings.
     #[test]
     fn no_pyramid_is_the_default_and_writes_no_entries() {
         let (params, fields) = sample(4, 4);
@@ -2656,6 +2750,10 @@ mod tests {
     /// The fixture is the exact user gesture -- same project, same seed, same
     /// grid, one sculpted cell -- so the *only* thing that can catch it is
     /// the heightmap term of the key.
+    ///
+    /// Protects: a pyramid carried across a re-sculpted heightmap (one cell
+    /// moved) is dropped rather than handed back, the world is unharmed, and
+    /// the drop is reported ("different world") rather than silent.
     #[test]
     fn a_pyramid_from_another_world_is_dropped_not_drawn() {
         let (params, fields) = sample(8, 6);
@@ -2711,6 +2809,10 @@ mod tests {
     /// key. A term left out of the hash is invisible until a user's map is
     /// drawn with the wrong relief, and nothing else in the suite would see
     /// it.
+    ///
+    /// Protects: each of `lod_source_key`'s five inputs (gw, gh, seed,
+    /// sea_level and the heightmap itself), varied one at a time, moves the
+    /// key -- so none of them is silently missing from the hash.
     #[test]
     fn every_input_the_synthesizer_reads_moves_the_key() {
         let (params, fields) = sample(6, 5);
@@ -2766,6 +2868,10 @@ mod tests {
     /// The length guard the rest of the format's headerless payloads get. A
     /// tile carries no length of its own, so a short one is a truncated
     /// picture rather than a parse error.
+    ///
+    /// Protects: a tile whose byte length does not match
+    /// `tile_w * tile_h * LOD_TILE_CHANNELS` is refused at write time with
+    /// the entry name and the expected/actual lengths.
     #[test]
     fn a_tile_of_the_wrong_size_is_refused_at_write_time() {
         let (params, fields) = sample(4, 4);
@@ -2786,6 +2892,10 @@ mod tests {
     /// A tile size of zero would make every tile "the right length" and turn
     /// the guard above into a no-op, so it is refused before the archive is
     /// opened rather than checked per tile.
+    ///
+    /// Protects: a pyramid whose tile_w or tile_h is zero is refused at
+    /// write time (blamed on the index entry), whether or not it carries
+    /// tiles.
     #[test]
     fn a_pyramid_with_no_tile_size_is_refused_at_write_time() {
         let (params, fields) = sample(4, 4);
@@ -2817,6 +2927,10 @@ mod tests {
 
     /// An index this reader cannot use costs the tiles and nothing else — and
     /// says so, because the alternative is a pyramid silently half-read.
+    ///
+    /// Protects: an unparseable index, one with no tile size, and one with a
+    /// zero tile size each drop the pyramid and produce a warning naming the
+    /// specific reason -- not just some warning mentioning tiles.
     #[test]
     fn an_unusable_index_drops_the_tiles_and_reports_it() {
         let (params, fields) = sample(8, 6);
@@ -2884,6 +2998,10 @@ mod tests {
 
     /// The same guard from the other side: a tile that was truncated *after*
     /// the archive was written costs itself and nothing else (§6.4).
+    ///
+    /// Protects: a single truncated tile entry is dropped from the pyramid
+    /// (leaving every other tile intact) and named in a warning; nothing
+    /// else about the save is affected.
     #[test]
     fn a_truncated_tile_costs_only_itself() {
         let (params, fields) = sample(8, 6);
@@ -2923,6 +3041,11 @@ mod tests {
     /// the entry §6.2's round-trip fixture uses -- is still somebody else's
     /// payload, carried unchanged **beside** a stored pyramid of this build's
     /// own.
+    ///
+    /// Protects: entries under `cartography/tiles/` that do not match this
+    /// build's own tile-name shape are carried as foreign, verbatim, beside
+    /// a stored pyramid of this build's own -- and both halves survive a
+    /// re-save under one name each.
     #[test]
     fn a_foreign_tile_under_the_same_prefix_is_still_carried() {
         let (params, fields) = sample(8, 6);
@@ -2971,6 +3094,9 @@ mod tests {
     /// The index is the writer's, not a caller's: it carries a key computed
     /// from the heightmap being written, so a hand-supplied one would be a
     /// claim rather than a check.
+    ///
+    /// Protects: a caller trying to write `cartography/tiles/index.json` as
+    /// a document is refused with `SaveError::UnknownSlot`.
     #[test]
     fn the_pyramid_index_is_not_a_caller_writable_slot() {
         let (params, fields) = sample(4, 4);
@@ -2987,6 +3113,10 @@ mod tests {
     /// asserts, extended over the slot that adds thousands of entries: a
     /// `BTreeMap` keyed by `ChunkId` iterates in `(z, col, row)` order, so
     /// two saves of one pyramid carry the same content in the same order.
+    ///
+    /// Protects: a written pyramid's tile entries appear in `(z, col, row)`
+    /// address order, matching a re-sorted copy, and the fingerprint is
+    /// stable across two writes of the same pyramid.
     #[test]
     fn a_stored_pyramid_writes_in_a_stable_order() {
         let (params, fields) = sample(5, 3);
@@ -3018,6 +3148,11 @@ mod tests {
     /// save does not merely prefer the wrong copy, it **fails**: dropping the
     /// guard turns this test into
     /// `Zip(InvalidArchive("Duplicate filename: entities/settlements.json"))`.
+    ///
+    /// Protects: a carried (foreign) copy of a name the live model also
+    /// writes never shadows it -- the model's version wins, appears exactly
+    /// once, and stale carried-only entries (an orphaned history year, a
+    /// plain heightmap beside the shuffled one) are dropped, not resurrected.
     #[test]
     fn a_carried_entry_never_shadows_one_this_build_writes() {
         let (params, fields) = sample(4, 4);
@@ -3076,6 +3211,9 @@ mod tests {
 
     #[test]
     fn a_damaged_optional_document_costs_only_itself() {
+        // Protects: a corrupt optional document (unparseable JSON) is
+        // dropped with exactly one warning naming it, while every other
+        // document and the core fields survive untouched.
         // §6.4: a corrupt labels file must not cost the user their world.
         let (params, fields) = sample(4, 4);
         let mut p = ProjectWrite::new(&params, &fields);
@@ -3141,6 +3279,11 @@ mod tests {
 
     #[test]
     fn an_undecodable_entry_is_reported_and_never_looks_absent() {
+        // Protects: an optional raster compressed with an undecodable method
+        // is dropped with a warning naming the entry and method (not
+        // reported as missing), while an undecodable heightmap -- the one
+        // fatal raster -- fails the load with an explicit error rather than
+        // falling back to the unshuffled name.
         // `SAVEFILE_COMPAT.md` §3.3: an entry compressed with a method the
         // reader has no decoder for is intact and unreadable, which is not
         // the same thing as absent. Reporting it as absent would let the
@@ -3183,6 +3326,10 @@ mod tests {
 
     #[test]
     fn a_missing_heightmap_is_fatal_and_a_missing_climate_is_not() {
+        // Protects: a missing heightmap entry fails the load outright, a
+        // missing temperature zero-fills and reports it, and a missing
+        // volcanic/impact field zero-fills silently because zero is the
+        // true value for those fields.
         let (params, fields) = sample(4, 4);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
 
@@ -3226,6 +3373,9 @@ mod tests {
 
     #[test]
     fn a_truncated_raster_is_refused_not_believed() {
+        // Protects: a raster whose length does not match gw*gh is refused
+        // at write time (SaveError::RasterLength, naming the entry and both
+        // lengths) rather than written short.
         let (params, fields) = sample(4, 4);
         let mut p = ProjectWrite::new(&params, &fields);
         p.raster("rasters/territory.i32", Raster::I32(vec![1; 15]));
@@ -3240,6 +3390,9 @@ mod tests {
 
     #[test]
     fn a_short_core_field_is_refused() {
+        // Protects: a core SaveFields field (rainfall) shorter than gw*gh is
+        // refused at write time (SaveError::FieldLength, naming the entry
+        // and both lengths).
         let (params, mut fields) = sample(6, 5);
         Arc::make_mut(&mut fields.rainfall).pop();
         let mut buf = Vec::new();
@@ -3257,6 +3410,9 @@ mod tests {
 
     #[test]
     fn an_unregistered_slot_is_a_write_error() {
+        // Protects: an invented document slot, an invented raster path, and
+        // a second (duplicate) copy of a core raster are all refused with
+        // SaveError::UnknownSlot naming the offending path.
         // The registry is what keeps "one concept, one home" a property of
         // the code rather than of good intentions.
         let (params, fields) = sample(3, 3);
@@ -3290,6 +3446,10 @@ mod tests {
     /// `SAVEFILE_COMPAT.md` §8.3: the `substrate` member travels verbatim in
     /// `project.json`, is absent when the writer had none, and every
     /// substrate raster is a registered slot the reader keeps (not foreign).
+    ///
+    /// Protects: `substrate` is absent when unset and round-trips verbatim
+    /// when set; every `SUBSTRATE_RASTERS` entry round-trips as a registered
+    /// slot, not as foreign.
     #[test]
     fn the_substrate_member_and_rasters_round_trip() {
         let (params, fields) = sample(3, 3);
@@ -3322,6 +3482,10 @@ mod tests {
     /// A core raster that was absent is reported, not only zero-filled --
     /// the substrate rebuilds stream order from `strahler_order.u8` and must
     /// tell "no channels" from "no raster".
+    ///
+    /// Protects: a missing core raster (`strahler_order`) is named in
+    /// `core_substituted` and zero-filled, distinguishing "no raster" from
+    /// "a raster that is genuinely all zero".
     #[test]
     fn a_missing_core_raster_is_named_in_core_substituted() {
         let (params, fields) = sample(3, 3);
@@ -3348,6 +3512,8 @@ mod tests {
 
     #[test]
     fn a_raster_of_the_wrong_element_type_is_refused() {
+        // Protects: writing an f32 raster into a registered i32 slot is
+        // refused with SaveError::RasterElement naming both element types.
         let (params, fields) = sample(3, 3);
         let mut p = ProjectWrite::new(&params, &fields);
         p.raster("rasters/territory.i32", Raster::F32(vec![0.0; 9]));
@@ -3365,6 +3531,8 @@ mod tests {
 
     #[test]
     fn an_unparseable_document_is_refused_at_write_time() {
+        // Protects: an invalid-JSON document string is refused at write
+        // time (SaveError::DocumentJson) rather than written broken.
         let (params, fields) = sample(3, 3);
         let mut p = ProjectWrite::new(&params, &fields);
         p.document("vault.json", "{ not json");
@@ -3378,6 +3546,11 @@ mod tests {
 
     #[test]
     fn integral_floats_are_coerced_everywhere_kv04() {
+        // Protects: coerce_integral_floats turns every value that is a
+        // whole number (at any nesting depth) into a JSON integer, leaves
+        // genuine fractions and huge (unsafe-integer) values as floats, and
+        // leaves strings/bools/null untouched -- and the same coercion runs
+        // on the real read path, not only in this direct unit test.
         // `SAVEFILE_COMPAT.md` §14.2 / `GUI_GAP_REGISTER.md` KV-04: a
         // document that has passed through a language with one number type
         // comes back with `1.0` where `1` was written, and a strict parser
@@ -3422,10 +3595,13 @@ mod tests {
         assert!(doc["version"].is_i64());
         assert!(doc["links"][0]["entity_id"].is_i64());
         // Deserializing into a strict integer type is the whole point.
+        /// Local fixture: a strict-integer mirror of one `vault.json` link.
         #[derive(serde::Deserialize)]
         struct Link {
             entity_id: i64,
         }
+        /// Local fixture: a strict-integer mirror of `vault.json`'s shape,
+        /// used only to prove the coerced document deserializes cleanly.
         #[derive(serde::Deserialize)]
         struct Store {
             version: u32,
@@ -3441,6 +3617,9 @@ mod tests {
     /// `SaveParams::origin`, and this pins the case an existing `.zip` on a
     /// user's disk is in: **no member at all**, distinguishable from a
     /// recorded `"gen"`.
+    ///
+    /// Protects: `params.origin: None` writes no `world.origin` member at
+    /// all, while the six MUST members are unaffected.
     #[test]
     fn an_unknown_origin_writes_no_member_to_project_json() {
         let (params, fields) = sample(4, 4);
@@ -3458,6 +3637,7 @@ mod tests {
 
     #[test]
     fn a_known_origin_is_a_member_of_the_world_object() {
+        // Protects: a set `params.origin` writes as `world.origin` verbatim.
         let (mut params, fields) = sample(4, 4);
         params.origin = Some("region".to_string());
         let m = manifest_json(&ProjectWrite::new(&params, &fields));
@@ -3467,6 +3647,9 @@ mod tests {
     /// Round-trips through a real archive for each origin this port writes,
     /// an unrecognised fourth (§4's unknown-member rule says carry it, not
     /// flatten it), and absence.
+    ///
+    /// Protects: every origin this port writes, an unrecognised one, and
+    /// absence all round-trip through a real archive unchanged.
     #[test]
     fn every_origin_survives_a_tree_round_trip_including_absence() {
         for origin in [None, Some("gen"), Some("import"), Some("region"), Some("sculpt")] {
@@ -3485,6 +3668,9 @@ mod tests {
     /// worlds leaves show a filename where the canvas shows the world" row.
     /// Pins the case every native save written before this member existed
     /// is in: no member at all, distinguishable from a recorded name.
+    ///
+    /// Protects: `params.name: None` writes no `world.name` member at all,
+    /// while the six MUST members are unaffected.
     #[test]
     fn an_unknown_name_writes_no_member_to_project_json() {
         let (params, fields) = sample(4, 4);
@@ -3502,6 +3688,7 @@ mod tests {
 
     #[test]
     fn a_known_name_is_a_member_of_the_world_object() {
+        // Protects: a set `params.name` writes as `world.name` verbatim.
         let (mut params, fields) = sample(4, 4);
         params.name = Some("The Vharen Reach".to_string());
         let m = manifest_json(&ProjectWrite::new(&params, &fields));
@@ -3511,6 +3698,9 @@ mod tests {
     /// Round-trips through a real archive: a named world, and absence — the
     /// exact "save, then open, and the name must be the one that was saved"
     /// check `SAVEFILE_COMPAT.md`'s own writer/reader contract calls for.
+    ///
+    /// Protects: a named world and an unnamed one both round-trip through a
+    /// real archive with the exact name (or absence) that was saved.
     #[test]
     fn a_world_name_survives_a_tree_round_trip_including_absence() {
         for name in [None, Some("The Vharen Reach"), Some("Kessa")] {
@@ -3530,6 +3720,10 @@ mod tests {
     /// member reads back unchanged. `manifest_json` never writes a `name`
     /// key for `params.name == None`, so this is the literal bytes an
     /// archive predating this change has.
+    ///
+    /// Protects: an archive with no `world.name` member opens with no
+    /// `MissingField` refusal, `name` reading back `None`, and every other
+    /// member (gw/gh/seed) unaffected.
     #[test]
     fn an_archive_from_before_world_name_existed_still_opens() {
         let (params, fields) = sample(4, 4);
@@ -3546,6 +3740,10 @@ mod tests {
 
     #[test]
     fn the_manifest_says_what_the_specification_says_it_says() {
+        // Protects: manifest_json's format/format_version/world/created
+        // members match the specification's literal values (format_version
+        // asserted as the literal 2, not against its own constant), and no
+        // grid duplication (a top-level "GW") leaks in.
         let (params, fields) = sample(11, 7);
         let mut p = ProjectWrite::new(&params, &fields);
         p.created = Some("2026-08-25T00:00:00Z".into());
@@ -3568,6 +3766,9 @@ mod tests {
 
     #[test]
     fn a_foreign_project_json_is_refused_rather_than_guessed() {
+        // Protects: a project.json naming a different `format` is refused
+        // with LoadError::NotAProject carrying that format string, rather
+        // than being read as if it were this build's own.
         let mut buf = Vec::new();
         {
             let mut w = zip::ZipWriter::new(Cursor::new(&mut buf));
@@ -3583,6 +3784,9 @@ mod tests {
 
     #[test]
     fn a_newer_format_version_warns_and_still_reads() {
+        // Protects: an archive stamped with a higher format_version than
+        // this build knows opens rather than being discarded, and reports
+        // the version it actually read.
         let (params, fields) = sample(4, 4);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let mut bumped = Vec::new();
@@ -3615,6 +3819,8 @@ mod tests {
 
     #[test]
     fn a_bom_on_a_document_does_not_defeat_the_reader() {
+        // Protects: a document entry prefixed with a UTF-8 BOM still parses
+        // as JSON, with no warning.
         let (params, fields) = sample(3, 3);
         let buf = write_to_vec(&ProjectWrite::new(&params, &fields));
         let mut with_bom = Vec::new();
@@ -3636,6 +3842,10 @@ mod tests {
 
     #[test]
     fn every_registered_slot_is_reachable_and_unique() {
+        // Protects: DOCUMENT_SLOTS and RASTER_SLOTS each carry no duplicate
+        // path, every document slot is a safe `.json` entry name, every
+        // raster slot lives under `rasters/` with an extension matching its
+        // element type, and every CORE_RASTERS name is actually registered.
         // A registry with a typo silently creates a slot nothing can ever
         // write to, which is the failure this whole mechanism exists to
         // prevent -- so it is asserted rather than trusted.
@@ -3679,6 +3889,10 @@ mod tests {
 
     #[test]
     fn a_project_written_twice_has_identical_content() {
+        // Protects: writing the same ProjectWrite twice produces the same
+        // entry names, CRC-32s and sizes both times (content_fingerprint),
+        // deliberately excluding `created`, the one member that must differ
+        // between two real saves.
         // Not cosmetic: a save that differs run to run defeats every
         // version-control and sync workflow the owner might put a project
         // directory into.
@@ -3710,15 +3924,20 @@ mod tests {
         (i as u32).wrapping_add(k).wrapping_mul(0x9E37_79B9)
     }
 
+    /// Bit-pattern comparison helper: `f32::eq` treats `NaN != NaN`, so a
+    /// round-trip check on fixture data built to include NaNs compares raw
+    /// bits instead.
     fn bits_of(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
     }
 
+    /// Every entry name in a written archive, in on-disk order.
     fn entry_names(buf: &[u8]) -> Vec<String> {
         let mut r = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
         (0..r.len()).map(|i| r.by_index_raw(i).unwrap().name().to_string()).collect()
     }
 
+    /// One entry's decompressed bytes, read out of a written archive by name.
     fn raw_entry(buf: &[u8], name: &str) -> Vec<u8> {
         let mut r = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
         let mut out = Vec::new();
@@ -3735,6 +3954,11 @@ mod tests {
     /// of the shuffle existed, and committed as bytes -- so it is the format
     /// an existing save actually has, not this build's idea of it. SHA-256
     /// `9a7998bf3d017541173d66d0ebdd61fed9d2a8b033a16f1b76f50725b2c9a2b8`.
+    ///
+    /// Protects: a real pre-shuffle version-1 archive opens with no
+    /// warnings and every field/raster/history value bit-identical to what
+    /// was written, and re-saving it upgrades to version 2 without losing
+    /// any of that data.
     #[test]
     fn a_version_1_archive_reads_exactly_as_it_always_did() {
         let buf: &[u8] = include_bytes!("../tests/fixtures/project_v1_7x5.ctl");
@@ -3791,6 +4015,12 @@ mod tests {
     /// second implementation reads the bytes, not this crate -- so the stored
     /// entry is checked against §8.2's own formula, `stored[k*n + i] ==
     /// le(v[i])[k]`, written out here independently of `write_planes`.
+    ///
+    /// Protects: every 4-byte raster (heightmap, territory) is written under
+    /// its shuffled name only (never the plain name too), the stored bytes
+    /// match §8.2's plane formula independently re-derived here, u8/history
+    /// keep their plain names, and every value -- including NaN payloads,
+    /// signed NaN, infinities, subnormals and integer extremes -- survives.
     #[test]
     fn a_shuffled_raster_round_trips_bit_for_bit_and_is_stored_as_planes() {
         let (params, mut fields) = sample(7, 5);
@@ -3882,6 +4112,11 @@ mod tests {
     /// entry in a version-2 archive (a writer that skipped the shuffle, which
     /// §8.2 permits) is read as a dump, never un-shuffled; and an archive
     /// carrying both names for one slot reads the shuffled one and says so.
+    ///
+    /// Protects: an archive carrying only the plain heightmap entry reads it
+    /// as-is with no warnings, and one carrying both names reads the
+    /// shuffled copy (not the plain decoy) while reporting exactly one
+    /// warning naming both entries.
     #[test]
     fn a_plain_entry_is_never_unshuffled_and_two_copies_are_reported() {
         let (params, fields) = sample(7, 5);

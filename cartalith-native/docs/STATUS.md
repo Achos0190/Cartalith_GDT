@@ -1339,6 +1339,60 @@ re-checked against the tree rather than copied from the commit message.
   order. Batches 6 through 22 all still need an independent verifier
   before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 23 (`cartalith-assets` closed;
+  `cartalith-io`'s `project.rs` closed) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; assets 263/0/0, io 182/0/0).** Comments only, zero behaviour change.
+  **`cartalith-assets` closed in full**, reaching 0/0/0: the three named
+  test files from batch 22 (`golden_parity_zip_store.rs`,
+  `hardening_asset_db.rs`, `hardening_v1_27.rs`) plus the 3 remaining
+  `consts_undoc` in `golden_parity_manual_icons.rs` (`GW`/`GH`/`SEA`, each
+  given its own inline comment rather than sharing one). Added `// Protects:`
+  lines to all 16 previously-unprotected tests, a doc for the local
+  `looks_valid` helper nested inside a test body, and promoted one plain
+  `//` block above `scatter_accepts` to `///` (it was breaking that item's
+  own doc-adjacency check). Crate-wide `census_v2.py`: items_undoc 7→0,
+  tests_unprotected 16→0, consts_undoc 3→0 (loc 12680→12737). **Comments
+  only**: `cargo test -p cartalith-assets`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk23`, run once before editing and once after — **263
+  passed / 0 failed / 0 ignored** both times, 13 result lines each, matching
+  batch 22's closing baseline exactly.
+  **Then started `cartalith-io`** (8 703 LOC, census_v2 221/182/8 at batch
+  start) with `src/project.rs` (3 712 LOC) — the current save-tree
+  authority `SAVEFILE_COMPAT.md` names and the highest-risk file in the
+  crate, taken whole rather than split, slightly over the batch's usual
+  ~3500 LOC band for that reason. Closed to 0/0/0: doc comments for
+  `Element::size`/`ext`, `Raster::element`/`len`/`is_empty`, `lod_tile_entry`,
+  `raster_slot`, `ProjectWrite::new`/`raster`, `ProjectData::raster`,
+  `zip_opts`, `json_num`, `read_tree`, `read_flat`, `mod tests`, `sample`,
+  `write_to_vec`, `bits_of`, `entry_names`, `raw_entry`, and the two local
+  `Link`/`Store` test fixture structs; inline comments on the FNV-1a-64
+  `OFFSET`/`PRIME` constants; and `// Protects:` lines (merged into an
+  existing `///` block where one already existed, appended as new body
+  comments otherwise) on all 51 previously-unprotected tests, covering the
+  §6 hardening rules, the §8.2 byte-plane shuffle, the stored LOD pyramid
+  and the `world.origin`/`world.name` provenance members. One placement
+  mistake caught and fixed before commit: a `// Protects:` line placed
+  between `#[test]` and the `fn` line breaks `census_v2.py`'s forward scan
+  for which `fn` line a protected test exempts, showing up as a spurious
+  `items_undoc` hit on `no_preview_is_the_default_and_writes_no_entry`;
+  moved into the existing `///` doc block above `#[test]` instead. Crate-wide
+  `cartalith-io` `census_v2.py`: items_undoc 221→177, tests_unprotected
+  182→131, consts_undoc 8→6 (loc 8703→8938; `project.rs` itself is 0/0/0).
+  **Comments only**: `cargo test -p cartalith-io`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk23/target`, run once before editing and once after —
+  **182 passed / 0 failed / 0 ignored** across six result lines both times.
+  `git diff` after every file confirmed pure comment/blank-line additions;
+  `project.rs`'s two `-` lines are the FNV constants re-added one line down
+  with their new inline comments, not a code removal. **Next step: batch 24**
+  continues `cartalith-io` in risk order — `save.rs` (450 LOC, the
+  interoperability/flat-layout writer `SAVEFILE_COMPAT.md` §1.1 also names
+  as save-format code) and `legacy.rs` (641, the flat-archive project-record
+  reader under Ruling AU) first, then `lib.rs` (433), `gzip.rs` (108),
+  `slippy.rs` (373), `tiles.rs` (508), `atlas.rs` (905),
+  `geojson_import.rs` (855) and the five remaining `tests/*.rs` files
+  (~582 LOC combined) in whatever order fits the batch. Batches 6 through 23
+  all still need an independent verifier before any can be called done
+  rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
