@@ -564,6 +564,15 @@ detail change continuously with ground scale.
 **Non-goals:** new hydrology; channels the flow field does not carry; vector rivers
 (a separate backlog row, reverted 2026-09-13).
 
+*2026-09-28: adjusted by `RIVERS_IN_MAP_SCOPE.md`.* The "per-tile river SDF"
+this section describes is the same mechanism `RIVERS_IN_MAP_SCOPE.md`'s RIM-1
+proposes building sooner, as a per-pixel distance field merged with RV-4's
+`shore_field` rather than a separate per-tile threshold. When RIM-1 lands,
+this section's river SDF should be read as "RIM-1's field, sampled per tile,"
+not built a second time; RIM-5 (small streams faded when zoomed out) also
+folds in this scope's own km-per-pixel threshold idea rather than leaving it
+a parallel design. Nothing else in this scope moves.
+
 **Parity class:** principled equivalence. Sources: Li et al. 2021; Terrain3D's
 derivative normals. A test holds the zoom-1 weights byte-identical to today.
 

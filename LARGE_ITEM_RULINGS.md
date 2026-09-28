@@ -2075,3 +2075,27 @@ is what i prefer, document it"*.
 - Done means every way's endpoints reach its own settlements on the owner's
   world. `_roadsettle_probe` checks each way against its own A→B
   settlements, not the nearest endpoint.
+
+## 2026-09-28 — Ruling BU: rivers become water in the map itself, not a line layer on top
+
+Owner, verbatim: *"the rivers already on the map should be more profound
+themselves, like the new lines we have created. But this time in the map
+itself, no longer the current depressions."*
+
+- **Direction, not a build order.** Rivers stop being a stroke drawn over a
+  finished raster (RV-2/RV-5's current shape) and become membership in the
+  map's own per-pixel colour field, merged seamlessly with RV-4's sea/lake
+  shoreline field. RV-3's shaded valley groove — the "current depressions"
+  named above — is retired for any cell the new river-water field covers.
+- **Scoped in full** as `RIVERS_IN_MAP_SCOPE.md`, milestones RIM-1 through
+  RIM-7, marked FIRST NEXT in `OUTSTANDING_WORK.md` §2.5. Nothing is built
+  by this ruling; it authorizes the direction and the scope document that
+  follows it, per this file's own convention of recording the reasoning
+  rather than re-asking the owner later.
+- **River generation is untouched.** This is a rendering-layer change only,
+  in the same class as RV-2 through RV-5 before it — no generation golden
+  moves.
+- Supersedes the "zoom-sensitive rivers" research row's standalone framing
+  (folded into RIM-5) and §13's "rivers stay a separate system from the
+  terrain colour raster" framing in `TERRAIN_APPEARANCE_SCOPE.md`, both
+  noted at their own documents.

@@ -82,7 +82,11 @@ them (`APPEARANCE_GROUPS`, `render_workspace.gd`):
 - **Colour grade**: `grade_exposure`, `grade_gamma`, `grade_contrast`,
   `grade_saturation`, `grade_temperature`, `grade_shadow_tint`,
   `grade_highlight_tint` (a presentation-only post-process, before rivers,
-  labels and icons draw).
+  labels and icons draw). *2026-09-28: this ordering describes rivers as a
+  layer drawn after the grade — `RIVERS_IN_MAP_SCOPE.md` moves rivers into
+  the base colour field itself (RIM-1/RIM-7), so once that lands the grade
+  applies to river pixels too, the same as any other terrain colour; re-verify
+  this bullet against the code once RIM-7 ships.*
 - **Colours** (Ruling L): `bio_blend` (biome-colour blend), the elevation
   ramp (`ElevationRamp`, `ramp_strength`, `RampMode` — `Linear`/`Ease`/`Step`),
   and per-biome-class colour overrides (`_biome_swatches`).

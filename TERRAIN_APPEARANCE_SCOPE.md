@@ -213,6 +213,14 @@ short of `wetland_temp`'s darkest stop, so it reads as dampness near a channel
 rather than a competing material (§13: "do not paint rivers into the terrain
 colour raster" — the river overlay stays a separate system).
 
+*2026-09-28: superseded by `RIVERS_IN_MAP_SCOPE.md`.* §13's own rule quoted
+above — rivers stay a separate system from the terrain colour raster — is
+exactly what the owner's river proposal reverses: RIM-1/RIM-7 fold the river
+channel into the map's own per-pixel colour field. This wetness halo (a
+*different* term, reading dampness near but outside a channel) is unaffected
+and stays built as-is; only the "river overlay stays separate" framing is
+now the superseded part.
+
 **Parity:** `hydro_wet_strength: 0.0` in `js_reference()` skips the precompute.
 
 **A real tuning pass.** The first set (`strength 0.20`, `smoothstep 0.72–0.97`,
