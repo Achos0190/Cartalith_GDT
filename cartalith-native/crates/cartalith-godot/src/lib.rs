@@ -4062,13 +4062,12 @@ const RIVER_RDP_EPS_CELLS: f64 = 0.5;
 /// A river stroke's colour by Strahler order, headwater (order 1) first:
 /// light to dark blue, one step per order, the last entry for every order
 /// above it (owner, 2026-09-23 — replacing the lake-matched tint). Order `N`
-/// is `RIVER_ORDER_RGB[N - 1]`.
+/// is `RIVER_ORDER_RGB[N - 1]`. Read through `river_stroke::palette_at`,
+/// which since 2026-09-28 also takes a fractional order (the colour blended
+/// along a course, `river_stroke::blended_orders`) and mixes neighbouring
+/// entries; an integral order reads its entry exactly.
 const RIVER_ORDER_RGB: [(u8, u8, u8); 8] =
     [(156, 208, 228), (112, 182, 219), (74, 152, 204), (48, 121, 184), (36, 94, 160), (30, 70, 132), (26, 50, 104), (22, 36, 80)];
-
-fn river_order_rgb(order: i16) -> (u8, u8, u8) {
-    RIVER_ORDER_RGB[(order.max(1) as usize - 1).min(RIVER_ORDER_RGB.len() - 1)]
-}
 
 /// One run's drawn stroke, as [`WorldGen::river_draws`] builds it: the
 /// `get_rivers()` keys of the same names, before marshalling.
@@ -10281,12 +10280,19 @@ impl WorldGen {
     ///   water above rivers, so that stretch is never seen; a raster carries
     ///   it on again as far as its own stroke width needs.
     /// * `colors` (`PackedColorArray`) -- one per `render_points`, the
-    ///   Strahler order of the nearest traced cell as `RIVER_ORDER_RGB`
-    ///   (light headwater to dark trunk); the map strokes the river in
-    ///   these. It changes along a main stem as its order rises, and a
+    ///   Strahler order along the course as `RIVER_ORDER_RGB` (light
+    ///   headwater to dark trunk); the map strokes the river in these. It
+    ///   darkens along a main stem as its order rises, blended over
+    ///   `river_stroke::colour_ramp_cells` downstream of each rise rather than
+    ///   stepped (2026-09-28); a run carried onto the head of the next run
+    ///   continues into it in the colour it ended in (`carry_orders`); and a
     ///   tributary's junction point takes its own last cell's order, not the
     ///   trunk's `order` above. Only here, not in `river_at()`, whose callers
     ///   do not draw.
+    /// * `own_order` (int) -- the run's highest order excluding the junction
+    ///   cell it ends on, raised to the highest over every run linked to it
+    ///   by continuations (`river_stroke::carry_orders`); the order-1
+    ///   de-emphasis keys on it.
     /// * `draw_rank` (int) -- this run's place in the draw order
     ///   ([`river_stroke::draw_ranks`]): every tributary ranks below the run it
     ///   joins, so the map paints each trunk over its tributaries' ends.
@@ -10441,6 +10447,41 @@ impl WorldGen {
         // is never carried back into water beside it.
         let continued_into: std::collections::HashSet<usize> = joins.iter().flatten().filter(|&&(_, k)| k == 0).map(|&(j, _)| j).collect();
         let recv = ws.channels.as_ref().map(|c| c.recv.as_slice());
+        // Per run, the Strahler order of each drawn point's traced cell. The
+        // last point takes its predecessor's order -- it is the trunk's
+        // junction cell (or a bridge target), which is why `River::order`,
+        // counting it, would give a tributary its trunk's colour.
+        let traced_orders: Vec<Vec<i16>> = run_pts
+            .iter()
+            .map(|pts| {
+                let mut po: Vec<i16> = pts.iter().map(|&(x, y)| order[y as usize * f.gw + x as usize]).collect();
+                let n = po.len();
+                if n >= 2 {
+                    po[n - 1] = po[n - 2];
+                }
+                po
+            })
+            .collect();
+        // Colour along one course (2026-09-28, `river_stroke::carry_orders`):
+        // a run carried onto the head of the next run continues in the colour
+        // it ended in, and a continuation group shares one order-1
+        // de-emphasis. A run the plan does not draw (`parallel_of`) carries
+        // nothing: its end order is `None` and its joins are dropped, so an
+        // unseen river never recolours a seen one.
+        let drawn_joins: Vec<Option<(usize, usize)>> =
+            joins.iter().enumerate().map(|(i, j)| if plan.parallel_of[i].is_some() { None } else { *j }).collect();
+        let carry = {
+            let end: Vec<Option<i16>> =
+                traced_orders.iter().enumerate().map(|(i, po)| if plan.parallel_of[i].is_some() { None } else { po.last().copied() }).collect();
+            let own: Vec<i16> = traced_orders.iter().map(|po| po.iter().copied().max().unwrap_or(1)).collect();
+            river_stroke::carry_orders(&end, &own, &drawn_joins)
+        };
+        let ramp = river_stroke::colour_ramp_cells(f.gw);
+        // Each run's traced orders raised by its carried floor, and the
+        // blended order each continuation arrives with at its head, so the
+        // blend runs on across a bridge instead of restarting there.
+        let raised: Vec<Vec<i16>> = traced_orders.iter().zip(&carry).map(|(po, &(floor, _))| po.iter().map(|&o| o.max(floor)).collect()).collect();
+        let incoming = river_stroke::incoming_orders(&raised, &drawn_joins, ramp);
         let draws = (0..rivers.len())
             .map(|i| {
                 // `river_draw_plan`: a run continued past a land pit onto the
@@ -10510,30 +10551,37 @@ impl WorldGen {
                 };
                 let (s, reach) = river_stroke::extend_shore_ends(&s, limit, cell_wet);
                 let widths = profiles[i].as_ref().map(|p| s.u.iter().map(|&uu| (2.0 * river_stroke::sample_at(p, uu)) as f32).collect());
-                // `colors`: the Strahler order of the traced cell nearest each
-                // render point, as `river_order_rgb` (owner, 2026-09-23). Per
-                // point, not per run: order rises along a main stem (it is its
-                // first headwater arm continued), so one colour would paint
-                // that arm as trunk. The last point takes its predecessor's
-                // order -- it is the trunk's junction cell (or a bridge
-                // target), which is why `River::order`, counting it, would
-                // give a tributary its trunk's colour.
-                let mut po: Vec<i16> = pts.iter().map(|&(x, y)| order[y as usize * f.gw + x as usize]).collect();
+                // `colors`: the per-Strahler-order palette (`RIVER_ORDER_RGB`,
+                // owner, 2026-09-23), per point, not per run: order rises along
+                // a main stem (it is its first headwater arm continued), so one
+                // colour would paint that arm as trunk. Since 2026-09-28 the
+                // order is BLENDED along the course
+                // (`river_stroke::blended_orders`, over `colour_ramp_cells`
+                // downstream of each rise) and read between palette entries
+                // (`palette_at`), and a continuation's points are raised to the
+                // order the run carried onto them ended in (`carry_orders`'
+                // floor) and its blend runs on from that run's end colour
+                // (`incoming_orders`) -- before, the colour stepped a whole
+                // palette entry inside one cell, and a continuation restarted
+                // pale (OUTSTANDING_WORK.md "Rivers change colour abruptly
+                // mid-course").
+                let po = &traced_orders[i];
                 let n = po.len();
-                if n >= 2 {
-                    po[n - 1] = po[n - 2];
-                }
+                let drawn_own = carry[i].1;
                 // `own_order`: the run's highest order EXCLUDING the junction
-                // cell it ends on -- `order` above counts that cell, so every
-                // headwater trickle that reaches a trunk reads as the trunk.
-                // The map keys `drawRiverWays`' order-1 de-emphasis (reference
-                // 9512, v0.96/v1.41) on this, for the same reason `colors`
-                // takes the predecessor's order at the end.
-                let own_order = po.iter().copied().max().unwrap_or(1) as i64;
+                // cell it ends on -- `order` counts that cell, so every
+                // headwater trickle that reaches a trunk would read as the
+                // trunk -- then raised to its continuation group's highest
+                // (`carry_orders`), so one river carried across a land pit is
+                // de-emphasised as one. The map keys `drawRiverWays`' order-1
+                // de-emphasis (reference 9512, v0.96/v1.41) on this.
+                let own_order = drawn_own.max(1) as i64;
                 // The traced point nearest each render point: the one its
-                // colour, order and discharge are read at.
+                // order and discharge are read at.
                 let near: Vec<usize> = s.u.iter().map(|&uu| (uu.round().max(0.0) as usize).min(n - 1)).collect();
-                let colors = near.iter().map(|&k| river_order_rgb(po[k])).collect();
+                let colors = river_stroke::blended_orders(&raised[i], &s.u, ramp, incoming[i]).into_iter().map(|o| river_stroke::palette_at(&RIVER_ORDER_RGB, o)).collect();
+                // `orders` stays the traced cell's own order (neither raised
+                // nor blended): it is data for the width seam's zoom rule.
                 let orders = near.iter().map(|&k| po[k]).collect();
                 let discharge = near.iter().map(|&k| f.flow_discharge.get(cell_ix(pts[k])).copied().unwrap_or(f32::NAN)).collect();
                 RiverDraw { rp: s.pts, pieces: s.pieces, widths, own_order, colors, orders, discharge, draw_rank: draw_rank[i], parallel_of: plan.parallel_of[i], reach }

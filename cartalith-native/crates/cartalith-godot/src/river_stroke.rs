@@ -903,7 +903,9 @@ pub struct DrawnRun {
     pub pts: Vec<(f32, f32)>,
     /// Full drawn width in grid cells at each point.
     pub widths: Vec<f32>,
-    /// Straight RGBA in `0..=1` at each point: the per-Strahler-order palette.
+    /// Straight RGBA in `0..=1` at each point: the per-Strahler-order palette,
+    /// read at the order blended along the course ([`blended_orders`],
+    /// [`palette_at`]) since 2026-09-28.
     pub colors: Vec<[f32; 4]>,
     /// Strahler order of the traced cell nearest each point.
     pub orders: Vec<i16>,
@@ -917,8 +919,9 @@ pub struct DrawnRun {
     /// [`extend_shore_ends`]); `None` for an end that meets no water. Shorter
     /// than `pieces` (a test's hand-built run) reads as no reach at all.
     pub reach: Vec<(Option<ShoreReach>, Option<ShoreReach>)>,
-    /// The run's highest order excluding the junction cell it ends on
-    /// (`get_rivers()`' `own_order`); `1` is a headwater trickle.
+    /// The run's highest order excluding the junction cell it ends on, raised
+    /// to its continuation group's highest ([`carry_orders`]) --
+    /// `get_rivers()`' `own_order`; `1` is a headwater trickle.
     pub own_order: i16,
 }
 
@@ -1012,6 +1015,244 @@ pub const O1_FADE_ZOOM: f32 = 8.0;
 pub fn o1_deemphasis(zk: f32) -> (f32, f32) {
     let de = (1.0 - (zk.max(1.0) - 1.0) / (O1_FADE_ZOOM - 1.0)).clamp(0.0, 1.0);
     (O1_WIDTH_OPENING + (1.0 - O1_WIDTH_OPENING) * (1.0 - de), O1_ALPHA_OPENING + (1.0 - O1_ALPHA_OPENING) * (1.0 - de))
+}
+
+// ---------------------------------------------------------------------------
+// Colour along one course (OUTSTANDING_WORK.md, "Rivers change colour
+// abruptly mid-course", found 2026-09-27 on RV-2's before/after sheets).
+//
+// Two defects, both in how a river's order became its drawn colour and alpha:
+// 1. The per-point palette (`lib.rs::RIVER_ORDER_RGB`) was read at the order
+//    of the nearest traced cell, so where a tributary raised the order the
+//    colour jumped a whole palette step (26-46 levels a channel) between two
+//    render points, inside one cell. `_rivcolour_probe.gd`: 343-438 such
+//    jumps per 1024x656 world.
+// 2. A run carried on past a land pit onto the head of the next run (a
+//    `river_draw_plan` continuation; [`settle_join_widths`]' `k == 0`) is one
+//    river, but the next run restarts the D8 order at its head: it began at
+//    the headwater colour and, when its own order stayed 1, at the order-1
+//    de-emphasis alpha ([`o1_deemphasis`]), so one visible course read as two
+//    differently coloured pieces. 100/105/79 continuations per world stepped
+//    colour, 132/144/105 stepped alpha.
+// The fix blends the colour along the course and carries the order across a
+// continuation. The hierarchy stays: colour still only darkens downstream, and
+// a tributary still meets its trunk in its own colour.
+// ---------------------------------------------------------------------------
+
+/// Cells over which a river's colour blends from one Strahler order to the
+/// next, downstream of the cell where its order rises, on a `gw`-cell-wide
+/// grid: `gw / 128`, at least [`COLOUR_RAMP_MIN_CELLS`].
+///
+/// **Labelled judgement.** At the fit view a map `gw` cells wide fills roughly
+/// the screen's width, so `gw / 128` is about 1/128 of the view -- 12 px on a
+/// 1600 px view, 8 cells at 1024 wide: long enough that the change reads as a
+/// blend at fit (one cell, the old step, is ~1.5 px), short beside a river's
+/// own length (the median drawn trunk runs hundreds of cells), so each reach
+/// still reads in its own order's colour. Scaled with `gw` rather than fixed
+/// in cells so the blend looks the same at fit on every grid size.
+pub fn colour_ramp_cells(gw: usize) -> f64 {
+    (gw as f64 / 128.0).max(COLOUR_RAMP_MIN_CELLS)
+}
+
+/// The shortest blend [`colour_ramp_cells`] returns -- labelled judgement: on
+/// a small grid (384 wide gives 3 cells) the ramp would again sit inside a
+/// couple of screen pixels at fit; 4 cells keeps it visible.
+pub const COLOUR_RAMP_MIN_CELLS: f64 = 4.0;
+
+/// Each render point's **blended order**: the mean of the traced per-cell
+/// order `po` over the stretch of course `[u - ramp, u]` upstream of the
+/// point, where `u` is the point's traced parameter ([`render_params`]:
+/// traced point `k` owns `[k - 0.5, k + 0.5)`). A step from order `a` to `b`
+/// therefore becomes a straight ramp from `a` to `b` over `ramp` cells
+/// downstream of the step. The window is clipped to the run's own points, so
+/// the head reads its own order.
+///
+/// Why trailing, not centred: water upstream of a confluence does not yet
+/// carry the tributary, so the blend starts where the order rises and never
+/// darkens a reach above it. Why a mean of the step function: it stays within
+/// `[min, max]` of the orders it covers and is monotone wherever `po` is (a
+/// traced run's Strahler order never falls downstream), so the order hierarchy
+/// is kept -- nothing is drawn darker than its own order's colour, and a
+/// fully-ramped reach is exactly its order's colour.
+///
+/// `incoming` is the blended order the course arrives with at this run's
+/// head when the run is a continuation ([`carry_orders`]): the part of the
+/// window upstream of the head reads that constant instead of being clipped,
+/// so the blend runs on across the bridge from the colour the incoming run
+/// was drawn in at its end, instead of restarting at this run's own head
+/// order. `None` (a true head, or a run nothing is carried onto) clips.
+///
+/// Must never extrapolate: an empty `po` returns an empty vector (no colour is
+/// invented), and `ramp <= 0` returns each point's nearest order unchanged
+/// (the pre-2026-09-28 step, kept reachable for a test).
+pub fn blended_orders(po: &[i16], u: &[f64], ramp: f64, incoming: Option<f64>) -> Vec<f64> {
+    let n = po.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let nearest = |t: f64| po[(t.round().max(0.0) as usize).min(n - 1)] as f64;
+    // cum[m] = sum of po[..m]: the integral of the step function over
+    // [-0.5, m - 0.5).
+    let mut cum = vec![0.0f64; n + 1];
+    for k in 0..n {
+        cum[k + 1] = cum[k] + po[k] as f64;
+    }
+    let (lo, hi) = (-0.5f64, n as f64 - 0.5);
+    let integral = |t: f64| -> f64 {
+        let t = t.clamp(lo, hi);
+        let m = ((t + 0.5).floor() as usize).min(n - 1);
+        cum[m] + po[m] as f64 * (t + 0.5 - m as f64)
+    };
+    u.iter()
+        .map(|&t| {
+            // No blend. `ramp == 0` would also reach `nearest` through the
+            // empty window below (so `<=` vs `<` is an equivalent mutant);
+            // the branch exists for a negative ramp, where `clamp(0.0, ramp)`
+            // would panic.
+            if ramp <= 0.0 {
+                return nearest(t);
+            }
+            let (a, b) = ((t - ramp).clamp(lo, hi), t.clamp(lo, hi));
+            // The stretch of the window upstream of the head, read at the
+            // incoming course's order (continuations only).
+            let before = incoming.map_or(0.0, |_| (lo - (t - ramp)).clamp(0.0, ramp));
+            let (sum, len) = (integral(b) - integral(a) + incoming.unwrap_or(0.0) * before, (b - a) + before);
+            if len <= 1e-9 {
+                nearest(t)
+            } else {
+                sum / len
+            }
+        })
+        .collect()
+}
+
+/// Per run, the blended order the course arrives with at its head
+/// ([`blended_orders`]' `incoming`): for a run that others are carried onto
+/// (`joins[i] = Some((j, 0))`, a continuation), the largest blended order any
+/// of them is drawn with at its own last point (`(len - 1)`, the bridge
+/// cell); `None` for every other run. Settled along chains of continuations,
+/// so a three-run river blends through both bridges. `orders[i]` are run
+/// `i`'s traced orders already raised by [`carry_orders`]' floor.
+///
+/// Must never be read for a confluence (`k > 0`): a tributary's colour does
+/// not flow into its trunk's. Must never invent a history: a run nothing is
+/// carried onto stays `None`.
+pub fn incoming_orders(orders: &[Vec<i16>], joins: &[Option<(usize, usize)>], ramp: f64) -> Vec<Option<f64>> {
+    let n = orders.len().min(joins.len());
+    let mut inc: Vec<Option<f64>> = vec![None; n];
+    // Each pass settles one more link of every chain; `n` passes bound any
+    // chain, and a pass that changes nothing ends early.
+    for _ in 0..n.max(1) {
+        let mut changed = false;
+        for i in 0..n {
+            let Some((j, 0)) = joins[i] else { continue };
+            if j == i || j >= n || orders[i].is_empty() {
+                continue;
+            }
+            let end = (orders[i].len() - 1) as f64;
+            let Some(&v) = blended_orders(&orders[i], &[end], ramp, inc[i]).first() else { continue };
+            if inc[j].is_none_or(|w| v > w + 1e-12) {
+                inc[j] = Some(v);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    inc
+}
+
+/// A palette read at a fractional order: order `o` between `k` and `k + 1`
+/// is the straight RGB mix of `palette[k - 1]` and `palette[k]`, each channel
+/// rounded. Below 1 is order 1; at or past the last entry is the last entry --
+/// `lib.rs::river_order_rgb`'s own clamps, so an integral order reads exactly
+/// what it did before. Must never index past the palette; an empty palette is
+/// a caller bug and panics in debug only through the `debug_assert`, returning
+/// black in release rather than a plausible blue.
+pub fn palette_at(palette: &[(u8, u8, u8)], o: f64) -> (u8, u8, u8) {
+    debug_assert!(!palette.is_empty());
+    let Some(&last) = palette.last() else { return (0, 0, 0) };
+    let x = (o - 1.0).max(0.0);
+    let i = x.floor() as usize;
+    if i + 1 >= palette.len() {
+        return last;
+    }
+    let f = x - i as f64;
+    let (a, b) = (palette[i], palette[i + 1]);
+    let mix = |p: u8, q: u8| (p as f64 + (q as f64 - p as f64) * f).round().clamp(0.0, 255.0) as u8;
+    (mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
+}
+
+/// Carries Strahler order across every continuation: `joins[i] = Some((j, 0))`
+/// means run `i` is carried onto the head of run `j` ([`settle_join_widths`]'
+/// `k == 0`), which is one river continuing, not a tributary. Returns, per
+/// run, `(floor, drawn_own_order)`:
+///
+/// - `floor`: the order run `j`'s points are raised to at least -- the
+///   highest end order of any run carried onto it, itself raised by *its*
+///   floor, settled along chains of continuations. So `j` begins in the colour
+///   the incoming river ended in, instead of restarting at the headwater's.
+///   `end_order[i]` is run `i`'s last traced order (the junction-free one
+///   `lib.rs::river_draws` colours its end with); `None` for a run with no
+///   points, which carries nothing.
+/// - `drawn_own_order`: the highest `own_order` over the
+///   whole group of runs linked by continuations. [`river_px_width`] keys the
+///   order-1 de-emphasis on it, so a continuation group is de-emphasised all
+///   together or not at all -- as a single traced main stem is (its own
+///   order-1 headwater arm draws at full alpha because the run's `own_order`
+///   is its maximum). Without it an order-1 run carried onto an order-2 one
+///   stepped from 0.4 to full alpha at the bridge.
+///
+/// Confluences (`k > 0`) are not touched: a tributary keeps its own colour and
+/// alpha where it meets its trunk -- that step IS the hierarchy. Must never
+/// lower an order, and must never change a run's traced orders themselves
+/// (`get_rivers()`' `orders` stays the traced cell's).
+pub fn carry_orders(end_order: &[Option<i16>], own_order: &[i16], joins: &[Option<(usize, usize)>]) -> Vec<(i16, i16)> {
+    let n = end_order.len().min(own_order.len()).min(joins.len());
+    let cont = |i: usize| joins[i].filter(|&(j, k)| k == 0 && j != i && j < n).map(|(j, _)| j);
+    let mut floor = vec![0i16; n];
+    // Settles along chains; `n` passes bound any chain (a cycle cannot raise
+    // past the largest end order, so it settles too).
+    for _ in 0..n.max(1) {
+        let mut changed = false;
+        for i in 0..n {
+            let (Some(j), Some(e)) = (cont(i), end_order[i]) else { continue };
+            let carried = e.max(floor[i]);
+            if carried > floor[j] {
+                floor[j] = carried;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    // Union-find over continuation edges: each group takes its largest
+    // (floor-raised) own order.
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn root(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    for i in 0..n {
+        if let Some(j) = cont(i) {
+            let (a, b) = (root(&mut parent, i), root(&mut parent, j));
+            parent[a] = b;
+        }
+    }
+    let mut best = vec![i16::MIN; n];
+    for i in 0..n {
+        let r = root(&mut parent, i);
+        // `own_order[i]` alone: a floor never exceeds its group's largest
+        // own order, since every carried end order is some member's last
+        // traced order and a run's own order is the max over its points.
+        best[r] = best[r].max(own_order[i]);
+    }
+    (0..n).map(|i| (floor[i], best[root(&mut parent, i)])).collect()
 }
 
 /// How a raster sees grid-cell space: `raster = offset + point * scale`, with
@@ -2048,5 +2289,152 @@ mod tests {
         let p = carried.at(12, 12).expect("carried three cells on");
         assert!((p[3] - 1.0).abs() < 1e-6, "solid there: {p:?}");
         assert!(carried.at(14, 12).is_none(), "and no further than the cap needs");
+    }
+
+    /// A step in traced order becomes a straight ramp of exactly `ramp`
+    /// cells, starting at the step and running downstream; upstream of the
+    /// step nothing moves, and past the ramp the new order holds exactly.
+    ///
+    /// Protects: `blended_orders`' trailing window (a centred one would
+    /// darken the reach above the confluence), its clip at the head, and its
+    /// length.
+    #[test]
+    fn an_order_step_becomes_a_ramp_downstream_of_it() {
+        // Traced orders 1 x 10 then 3 x 20; point k owns [k-0.5, k+0.5), so
+        // the step is at t = 9.5.
+        let po: Vec<i16> = [vec![1i16; 10], vec![3i16; 20]].concat();
+        let u: Vec<f64> = vec![0.0, 5.0, 9.5, 11.5, 13.5, 17.5, 25.0];
+        let o = blended_orders(&po, &u, 8.0, None);
+        assert_eq!(o[0], 1.0, "the head reads its own order");
+        assert_eq!(o[1], 1.0, "upstream of the step is untouched");
+        assert_eq!(o[2], 1.0, "the ramp starts AT the step, not before it");
+        assert!((o[3] - 1.5).abs() < 1e-12, "2 of 8 cells past: 1 + 2 x 2/8, got {}", o[3]);
+        assert!((o[4] - 2.0).abs() < 1e-12, "half way: {}", o[4]);
+        assert_eq!(o[5], 3.0, "8 cells past the step the new order holds exactly");
+        assert_eq!(o[6], 3.0);
+        // Monotone wherever the traced order is.
+        let fine: Vec<f64> = (0..300).map(|i| i as f64 * 0.1).collect();
+        let b = blended_orders(&po, &fine, 8.0, None);
+        assert!(b.windows(2).all(|w| w[1] >= w[0] - 1e-12), "the hierarchy: never lightens downstream");
+        // No blend asked for: each point's nearest traced order, the old step.
+        assert_eq!(blended_orders(&po, &[9.4, 9.6], 0.0, None), vec![1.0, 3.0]);
+        assert!(blended_orders(&[], &[1.0], 8.0, Some(2.0)).is_empty(), "no order, no colour invented");
+        // A negative ramp is no blend, not a panic.
+        assert_eq!(blended_orders(&po, &[9.4, 9.6], -1.0, Some(2.0)), vec![1.0, 3.0]);
+    }
+
+    /// A continuation's blend runs on from the colour the incoming run ended
+    /// in: at its head the window reads that incoming order, and it ramps to
+    /// the run's own order over `ramp` cells -- no step at the bridge.
+    ///
+    /// Protects: `blended_orders`' `incoming` history (without it the head
+    /// restarts at its own order, the step the probe counted at 19-39
+    /// continuations per world).
+    #[test]
+    fn a_continuation_blends_on_from_the_incoming_colour() {
+        let po = vec![3i16; 20];
+        // The head, window [-8, 0]: 7.5 cells upstream of the head at 1.5,
+        // 0.5 cell of the run's own 3.
+        let o = blended_orders(&po, &[0.0, 3.5, 7.5, 12.0], 8.0, Some(1.5));
+        assert!((o[0] - (7.5 * 1.5 + 0.5 * 3.0) / 8.0).abs() < 1e-12, "{}", o[0]);
+        assert!((o[1] - (4.0 * 1.5 + 4.0 * 3.0) / 8.0).abs() < 1e-12, "{}", o[1]);
+        assert_eq!(o[2], 3.0, "a whole ramp past the head, the run's own order");
+        assert_eq!(o[3], 3.0);
+        // The same run as a true head: clipped, its own order from the start.
+        assert_eq!(blended_orders(&po, &[0.0], 8.0, None), vec![3.0]);
+    }
+
+    /// The history a continuation arrives with is the blended order the run
+    /// carried onto it ends with, settled along a chain; confluences and true
+    /// heads get none.
+    ///
+    /// Protects: `incoming_orders`' `k == 0` test, its end point, and its
+    /// settling along a chain.
+    #[test]
+    fn the_incoming_history_is_the_carried_runs_blended_end() {
+        // 0: orders 1 x 4 then 2 x 2 (the rise 2 cells before its end), carried
+        // onto 1's head; 1 carried onto 2's head; 3 joins 2 at point 5.
+        let orders = vec![vec![1i16, 1, 1, 1, 2, 2], vec![2i16; 3], vec![2i16; 10], vec![1i16; 4]];
+        let joins = [Some((1, 0)), Some((2, 0)), None, Some((2, 5))];
+        let inc = incoming_orders(&orders, &joins, 4.0);
+        // Run 0's end u = 5, window [1, 5]: cells [1, 3.5) at order 1 and
+        // [3.5, 5] at order 2, so (2.5 x 1 + 1.5 x 2) / 4.
+        let e0 = (2.5 * 1.0 + 1.5 * 2.0) / 4.0;
+        assert_eq!(inc[0], None, "a true head has no history");
+        assert!((inc[1].unwrap() - e0).abs() < 1e-12, "{:?}", inc[1]);
+        // Run 1's end u = 2, window [-2, 2]: 1.5 cells of history at e0 and
+        // 2.5 cells of its own 2 -- the chain's second link.
+        let e1 = (1.5 * e0 + 2.5 * 2.0) / 4.0;
+        assert!((inc[2].unwrap() - e1).abs() < 1e-12, "{:?}", inc[2]);
+        assert_eq!(inc[3], None, "a tributary's colour never flows into its trunk's");
+        // Two runs carried onto one head: the darker arrival wins, whichever
+        // comes first.
+        let orders = vec![vec![1i16; 5], vec![3i16; 5], vec![3i16; 5]];
+        assert_eq!(incoming_orders(&orders, &[Some((2, 0)), Some((2, 0)), None], 4.0)[2], Some(3.0));
+        // A darker tributary joining mid-run (k = 2) gives the trunk's head
+        // no history.
+        let trib = vec![vec![4i16; 5], vec![1i16; 5]];
+        assert_eq!(incoming_orders(&trib, &[Some((1, 2)), None], 4.0), vec![None, None]);
+        let rev = vec![vec![3i16; 5], vec![1i16; 5], vec![3i16; 5]];
+        assert_eq!(incoming_orders(&rev, &[Some((2, 0)), Some((2, 0)), None], 4.0)[2], Some(3.0));
+    }
+
+    /// The palette at integral orders is each entry exactly (the old
+    /// per-order colour), at a fractional order the rounded mix of its two
+    /// neighbours, and it clamps both ends as `river_order_rgb` did.
+    ///
+    /// Protects: `palette_at`'s index, mix and clamps.
+    #[test]
+    fn the_palette_mixes_between_orders_and_clamps_its_ends() {
+        let pal = [(100u8, 200u8, 0u8), (0, 100, 200), (10, 20, 30)];
+        assert_eq!(palette_at(&pal, 1.0), (100, 200, 0));
+        assert_eq!(palette_at(&pal, 2.0), (0, 100, 200));
+        assert_eq!(palette_at(&pal, 1.5), (50, 150, 100));
+        assert_eq!(palette_at(&pal, 1.25), (75, 175, 50));
+        assert_eq!(palette_at(&pal, 0.0), (100, 200, 0), "below order 1 is order 1");
+        assert_eq!(palette_at(&pal, 3.0), (10, 20, 30));
+        assert_eq!(palette_at(&pal, 9.0), (10, 20, 30), "past the last entry is the last entry");
+        // Rounded, not truncated: 0.6 of the way from 0 to 1 is 1.
+        assert_eq!(palette_at(&[(0, 0, 0), (1, 1, 1)], 1.6), (1, 1, 1));
+        assert_eq!(palette_at(&[(0, 0, 0), (1, 1, 1)], 1.4), (0, 0, 0));
+    }
+
+    /// A chain of continuations carries the order it ended in, and every run
+    /// linked by continuations shares one de-emphasis order; a confluence
+    /// (`k > 0`) carries nothing.
+    ///
+    /// Protects: `carry_orders`' floor (settled along a chain, never lowered),
+    /// its group maximum, and its `k == 0` test.
+    #[test]
+    fn a_continuation_carries_its_order_and_a_confluence_does_not() {
+        // 0 (ends at order 3) -> head of 1 (own 1) -> head of 2 (own 2);
+        // 3 (own 1, ends 1) joins 2 at point 4: a tributary.
+        // 4 (own 1) -> head of 5 (own 1): an order-1 pair stays order 1.
+        let end = [Some(3i16), Some(1), Some(2), Some(1), Some(1), Some(1)];
+        let own = [3i16, 1, 2, 1, 1, 1];
+        let joins = [Some((1, 0)), Some((2, 0)), None, Some((2, 4)), Some((5, 0)), None];
+        let c = carry_orders(&end, &own, &joins);
+        assert_eq!(c[0], (0, 3), "nothing carried onto the first run");
+        assert_eq!(c[1], (3, 3), "run 1 starts in run 0's end order");
+        assert_eq!(c[2], (3, 3), "and passes it on through run 1 (a chain), never lowered to run 1's own 1");
+        assert_eq!(c[3], (0, 1), "a tributary keeps its own order and its de-emphasis");
+        assert_eq!(c[4], (0, 1));
+        assert_eq!(c[5], (1, 1), "an order-1 river carried on stays order 1");
+        // A run carried onto itself, or past the slice, is ignored.
+        assert_eq!(carry_orders(&[Some(2)], &[2], &[Some((0, 0))]), vec![(0, 2)]);
+        assert_eq!(carry_orders(&[Some(2)], &[2], &[Some((7, 0))]), vec![(0, 2)]);
+        // A run with no points carries nothing (no invented order).
+        assert_eq!(carry_orders(&[None, Some(1)], &[1, 1], &[Some((1, 0)), None]), vec![(0, 1), (0, 1)]);
+    }
+
+    /// The blend's length follows the grid (1/128 of its width) with a floor.
+    ///
+    /// Protects: `colour_ramp_cells`' scale and `COLOUR_RAMP_MIN_CELLS`.
+    #[test]
+    fn the_colour_ramp_scales_with_the_grid_above_a_floor() {
+        assert_eq!(colour_ramp_cells(1024), 8.0);
+        assert_eq!(colour_ramp_cells(2048), 16.0);
+        assert_eq!(colour_ramp_cells(384), 4.0, "3 cells would be under the floor");
+        assert_eq!(colour_ramp_cells(0), 4.0);
     }
 }
