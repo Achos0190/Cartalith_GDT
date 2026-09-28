@@ -97,8 +97,11 @@ use golden::Case;
 /// The site box every scenario is built in — `generate()`'s own
 /// `const Wm=1700,Hm=1250`.
 const WM: f64 = 1700.0;
+// The box's height half of the same pair.
 const HM: f64 = 1250.0;
 
+/// Asserts two `f64`s are bit-identical, not merely close — the standard this
+/// module's golden compares by (see the module doc above).
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
@@ -159,6 +162,10 @@ fn setup(c: &Case) -> (Site, Anchors, Graph) {
     (site, anchors, g)
 }
 
+/// Protects: all 17 captured scenarios — market position, the pre-`buildPlaza`
+/// primary count, the plaza centre/quad or the `null` result, the post-plaza
+/// graph and block hashes — against a single-ulp regression anywhere in
+/// `build_plaza` or a change to `build_blocks`' plaza-face detection.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
     for c in golden::GOLDEN {
@@ -219,6 +226,9 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
 
 /// The provenance string, character for character against the reference's own
 /// literal as the capture read it.
+///
+/// Protects: [`PROV`] against silent hand-retyping drift from the reference's
+/// own literal.
 #[test]
 fn the_provenance_string_is_the_references_own() {
     assert_eq!(PROV, golden::PROV);
@@ -231,6 +241,10 @@ fn the_provenance_string_is_the_references_own() {
 /// property rather than only inside the golden's counts: without it a town's
 /// market anchor is platted like any other block, which is what milestone 12
 /// shipped with.
+///
+/// Protects: the plaza-quad-to-flagged-face link end to end — exactly one
+/// flagged block, and every plaza corner inside or on the flagged face's
+/// boundary.
 #[test]
 fn a_plaza_always_carves_exactly_one_open_block() {
     let mut seen = 0;
@@ -277,6 +291,9 @@ fn a_plaza_always_carves_exactly_one_open_block() {
 /// Both `null` scenarios are in the golden already; this states the *other*
 /// half of the contract, which no golden field carries: the function must not
 /// have laid anything on its way to returning nothing.
+///
+/// Protects: the `be?` early return against a version that mutates `g` before
+/// discovering there is no primary to widen.
 #[test]
 fn no_primary_edge_leaves_the_graph_alone() {
     for c in golden::GOLDEN {
@@ -302,6 +319,9 @@ fn no_primary_edge_leaves_the_graph_alone() {
 /// draws to the bit. That is what pins the declaration order — swapping the two
 /// `range` calls would still draw twice from the same stream and would still
 /// produce a rectangle, and only this test would notice.
+///
+/// Protects: the `range(55, 80)` then `range(26, 40)` declaration order
+/// against a silent swap that would still produce a plausible rectangle.
 #[test]
 fn the_two_draws_are_the_length_then_the_width() {
     for c in golden::GOLDEN {
@@ -344,6 +364,10 @@ fn the_two_draws_are_the_length_then_the_width() {
 /// reference's own behaviour, it is what the golden captured, and it is
 /// asserted below rather than left to look like a port bug the next time
 /// someone measures the finished square instead of the probe.
+///
+/// Protects: the 20 m side-probe distance and its comparison, and the
+/// documented fact that it is the probe — not the finished square's far
+/// edge — that decides the side.
 #[test]
 fn the_side_probe_distance_is_load_bearing() {
     let mut signs = std::collections::BTreeSet::new();
@@ -386,6 +410,10 @@ fn the_side_probe_distance_is_load_bearing() {
 /// half is a new edge carrying the original `'primary'` class. Asserting over
 /// every new edge would be asserting about `split_edge`, which is milestone
 /// 2's and golden-tested there.
+///
+/// Protects: the three-streets-not-four count, their width and epoch, and
+/// that the frontage side lies on an existing primary rather than a fourth
+/// laid edge.
 #[test]
 fn three_streets_are_laid_and_the_fourth_side_is_the_existing_primary() {
     let c = golden::GOLDEN
@@ -415,6 +443,9 @@ fn three_streets_are_laid_and_the_fourth_side_is_the_existing_primary() {
 /// by `addStreet` (it drops sub-3.5 m links), so `V.norm`'s zero-vector guard is
 /// unreachable from a real graph. Asserted from the geometry side rather than
 /// left implied: every scenario's chosen edge has real length.
+///
+/// Protects: the "unreachable from a real graph" claim about `V.norm`'s
+/// zero-length guard — every live primary in every scenario is at least 3.5 m.
 #[test]
 fn the_chosen_primary_always_has_length() {
     for c in golden::GOLDEN {
@@ -466,6 +497,10 @@ fn side_probe_fixture(c: f64) -> (Site, Anchors, Graph) {
 /// | `> → >=` | **flips** to `+1` | unchanged |
 /// | probe `20 → 21` | **flips** to `+1` | unchanged |
 /// | probe `-20 → -21` | unchanged | **flips** to `-1` |
+///
+/// Protects: the three mutation survivors in the table above — the side
+/// probe's `20`, its mirror `-20`, and the strict `>` — each closed by one of
+/// the two razor fixtures.
 #[test]
 fn the_side_probe_boundary_at_an_exact_tie_and_a_quarter_metre_off_it() {
     // An exact tie loses `>`: the square opens to `-nl`.
@@ -497,6 +532,9 @@ fn the_side_probe_boundary_at_an_exact_tie_and_a_quarter_metre_off_it() {
 /// geometry — so `d < bd` → `d <= bd` survived until this existed. Two mirrored
 /// horizontal streets 100 m either side of the market give the tie by
 /// construction, and the plaza lands on whichever the tie-break picked.
+///
+/// Protects: the strict `d < bd` mutation survivor — a constructed exact tie
+/// must resolve to the lower-indexed edge.
 #[test]
 fn an_exact_distance_tie_keeps_the_lower_indexed_primary() {
     let site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
@@ -531,6 +569,9 @@ fn an_exact_distance_tie_keeps_the_lower_indexed_primary() {
 /// place a transposition would be silent, so the winding is asserted by shape.
 /// `[p1, p2, q2, q1]` traces the rectangle, so no two consecutive corners may
 /// be diagonal — a `[p1, p2, q1, q2]` bowtie would fail here and nowhere else.
+///
+/// Protects: the `[p1, p2, q2, q1]` winding order against a transposition that
+/// would still pass every other geometric check in this module.
 #[test]
 fn the_quad_is_wound_as_a_rectangle_not_a_bowtie() {
     for c in golden::GOLDEN {
@@ -558,6 +599,9 @@ fn the_quad_is_wound_as_a_rectangle_not_a_bowtie() {
 /// halves of `PLAZA_MARKET_POP` are pinned so a `>` mutation would fail on the
 /// boundary case rather than surviving on every generated town, none of which
 /// lands on the tie.
+///
+/// Protects: the `pop >= PLAZA_MARKET_POP` boundary, exactly at the threshold
+/// and one below it, and that `pop` cannot perturb the geometry.
 #[test]
 fn plaza_kind_switches_on_the_chartered_town_population() {
     let c = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("river7 is in the golden set");
@@ -579,6 +623,9 @@ fn plaza_kind_switches_on_the_chartered_town_population() {
 
 /// The three laid streets carry the market string or the green string as a
 /// pair -- never a mix, and never the wrong one for the kind returned.
+///
+/// Protects: [`PROV_GREEN`] and the `kind`-to-`prov` selection against
+/// dropping to `PROV` for a village green or vice versa.
 #[test]
 fn the_laid_streets_carry_the_provenance_for_their_own_kind() {
     let c = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("river7 is in the golden set");

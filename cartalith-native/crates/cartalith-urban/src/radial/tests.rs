@@ -96,8 +96,11 @@ use golden::Case;
 /// The site box every scenario is built in — `generate()`'s own
 /// `const Wm=1700,Hm=1250`.
 const WM: f64 = 1700.0;
+// The box's height half of the same pair.
 const HM: f64 = 1250.0;
 
+/// Asserts two `f64`s are bit-identical, not merely close — the standard this
+/// module's golden compares by (see the module doc above).
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
@@ -157,10 +160,16 @@ fn setup(c: &Case) -> (Site, Anchors) {
     (site, anchors)
 }
 
+/// Counts live edges carrying one of the four provenance strings — a
+/// class-by-class census of what [`build_radial_streets`] actually laid.
 fn prov_count(g: &Graph, prov: &str) -> usize {
     g.edges.iter().filter(|e| e.alive && e.prov == prov).count()
 }
 
+// Protects: every one of the 30 captured scenarios — market position, ring
+// count and radii, live edge counts by class and by provenance, the whole
+// graph's fnv1a hash, and the canal at three different radii — against a
+// single-ulp regression anywhere in `build_radial_streets` or `build_waterway`.
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
     assert!(golden::GOLDEN.len() >= 21, "the golden set shrank");
@@ -246,6 +255,9 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
 ///
 /// Retyped by hand these would be exactly the kind of thing that drifts: two
 /// of them carry an em-dash and the canal's carries an escaped apostrophe.
+///
+/// Protects: the four public `PROV_*` constants and `WATERWAY_KIND` against
+/// silent hand-retyping drift from the reference's own literals.
 #[test]
 fn the_provenance_strings_are_the_references_own() {
     assert_eq!(PROV_RING, golden::PROV_RING);
@@ -261,6 +273,11 @@ fn the_provenance_strings_are_the_references_own() {
 /// the hard way: a golden that only compares hashes passes happily on a set of
 /// empty graphs. Asserted as a shape property so a capture that silently
 /// produced nothing could not be written and then agreed with.
+///
+/// Protects: against a golden set that quietly degenerated to all-empty or
+/// all-27-draw scenarios — checks the 28-draw budget, non-empty graphs, fixed
+/// ring/spoke counts, and that both the "laid everything" and "something was
+/// rejected" cases are represented.
 #[test]
 fn the_golden_set_is_neither_empty_nor_degenerate() {
     let mut all_twelve = 0;
@@ -291,6 +308,9 @@ fn the_golden_set_is_neither_empty_nor_degenerate() {
 ///
 /// `outerR = max(90, maxRF*0.38)` and `hubR = max(24, outerR*0.13)`. A fixture
 /// set that only ever took one arm of either would let the floor be deleted.
+///
+/// Protects: the `js_max` floors on `outerR` and `hubR` against deletion —
+/// both the floored and the free arm are exercised somewhere in the set.
 #[test]
 fn both_radius_floors_bite_somewhere_and_are_slack_somewhere() {
     let outer_floored = golden::GOLDEN.iter().filter(|c| c.outer_r == 90.0).count();
@@ -308,6 +328,9 @@ fn both_radius_floors_bite_somewhere_and_are_slack_somewhere() {
 /// nothing there says *why* 0.055 rather than 0.5, and 0.5 would let ring `i`'s
 /// outer excursion pass ring `i+1`'s inner one. Checked against the ring gap
 /// the port actually computes, at the tightest ring pair in the set.
+///
+/// Protects: the 0.055 wobble-amplitude constant against being raised to a
+/// value that would let adjacent rings cross.
 #[test]
 fn consecutive_rings_cannot_cross_at_the_chosen_wobble_amplitude() {
     for c in golden::GOLDEN {
@@ -335,6 +358,11 @@ fn consecutive_rings_cannot_cross_at_the_chosen_wobble_amplitude() {
 /// are still taken. Built by overwriting `river_w` on a real landlocked site,
 /// which is milestone 8a's trick — a field this port may set is what turns an
 /// unreachable branch into a fixture.
+///
+/// Protects: `land()`-rejects-everything against panicking or silently
+/// returning a malformed `RadialStreets` — an all-water site must still
+/// return six rings, twelve spokes and the correct `outerR`, with an empty
+/// graph.
 #[test]
 fn a_site_that_is_land_nowhere_lays_nothing_and_still_returns_its_rings() {
     let mut site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
@@ -367,6 +395,10 @@ fn a_site_that_is_land_nowhere_lays_nothing_and_still_returns_its_rings() {
 /// survives the sweep. It is recorded as proved dead rather than as a coverage
 /// gap, and this test is what stops that claim going stale: if a later
 /// milestone gives a landlocked site a real centreline, it fails here first.
+///
+/// Protects: the "proved dead, not uncovered" claim about the `riverW`
+/// ternary's falsy-arm mutation survivor — fails first if a later milestone
+/// gives landlocked sites a real centreline that could make the arm reachable.
 #[test]
 fn the_falsy_river_width_arm_is_unreachable_in_this_engine() {
     for kind in ["river", "riverthrough", "coast", "bay", "landlocked"] {
@@ -397,6 +429,10 @@ fn the_falsy_river_width_arm_is_unreachable_in_this_engine() {
 /// single point is already a no-op. Relaxing the guard to `> 0` changes the
 /// call count and not the graph. Recorded as proved dead, with the proof here
 /// rather than in prose.
+///
+/// Protects: the "proved dead" claim about the `run.len() > 1` guard mutation
+/// survivor — demonstrates directly that a one-point polyline is a no-op
+/// regardless of the guard.
 #[test]
 fn a_one_point_polyline_lays_nothing() {
     let mut g = Graph::new();
@@ -414,6 +450,10 @@ fn a_one_point_polyline_lays_nothing() {
 /// is a value this test may set, so the boundary becomes an input: a market at
 /// `(52, 700)` gives `edgeR = 40` exactly, which is kept, and one at
 /// `(51.9999, 700)` gives `39.9999`, which is dropped.
+///
+/// Protects: the `radius < 40.0` floor and the `edgeR` cap's `js_min` chain —
+/// kept exactly at 40 m, dropped just below it, and capped rather than
+/// assigned when the request exceeds the box margin.
 #[test]
 fn the_canal_is_kept_at_forty_metres_and_dropped_just_below_it() {
     let site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
@@ -449,6 +489,11 @@ fn the_canal_is_kept_at_forty_metres_and_dropped_just_below_it() {
 /// same gap (the golden's `waterway_hash` covers all 65 vertices and matches),
 /// so it is the reference's behaviour and not this port's, and a consumer that
 /// dedupes the closing vertex must do it by tolerance rather than by identity.
+///
+/// Protects: the canal's closure tolerance and the fact that it is a *near*
+/// close rather than an exact one — regresses if the last vertex is ever
+/// forced to equal the first, which would silently diverge from the
+/// reference's own `sin(2π) != 0` result.
 #[test]
 fn the_canal_is_a_closed_ring() {
     let mut max_gap = 0.0f64;
@@ -475,6 +520,10 @@ fn the_canal_is_a_closed_ring() {
 /// `'primary'` crosses the trace. Asserted as a property because milestone 10
 /// will read it and the golden's class counts alone would not say which edge
 /// got which class.
+///
+/// Protects: the spoke/ring/cross-spoke class and width assignment against
+/// the exact regression reference line 28884 describes — an untagged spoke
+/// would still pass the golden's edge counts but produce zero land gates.
 #[test]
 fn only_the_spokes_are_primary() {
     let mut checked = 0;
@@ -507,6 +556,9 @@ fn only_the_spokes_are_primary() {
 ///
 /// `idx === ringR.length-1 ? 6.5 : 4.5`. A port that widened the *hub* instead
 /// would still produce six rings and the same total edge count.
+///
+/// Protects: the `idx == last_ring` selector against being swapped for
+/// another index that would still pass the golden's total-count assertions.
 #[test]
 fn the_residential_ring_is_the_only_six_and_a_half_metre_one() {
     let c = &golden::GOLDEN[0];
@@ -539,6 +591,10 @@ fn the_residential_ring_is_the_only_six_and_a_half_metre_one() {
 /// moves silently: `ringR[1]` and `ringR[3]` produce a perfectly plausible
 /// town. Checked on `landlocked7`, where all twelve are laid, so no cross-spoke
 /// is missing for reasons unrelated to the index.
+///
+/// Protects: the `mid_r`/`cross_outer` ring-index selection against being
+/// silently moved to a neighbouring index that would still produce a
+/// plausible-looking town.
 #[test]
 fn cross_spokes_run_from_the_third_ring_to_the_fifth() {
     let c = golden::GOLDEN

@@ -104,13 +104,16 @@ use crate::water::{
     STUB_PROV, add_river_bridges, build_harbour, detect_river_crossings, dry,
 };
 
+// The site box every scenario is built in — `generate()`'s own `const Wm=1700`.
 const WM: f64 = 1700.0;
+// The matching `Hm=1250`.
 const HM: f64 = 1250.0;
 
 // ---------------------------------------------------------------------------
 // Bit-exact comparison, the crate's convention
 // ---------------------------------------------------------------------------
 
+/// Asserts two `f64`s are bit-identical, not merely close.
 #[track_caller]
 fn eq_f(what: &str, got: f64, want: f64) {
     assert_eq!(
@@ -122,12 +125,16 @@ fn eq_f(what: &str, got: f64, want: f64) {
     );
 }
 
+/// `eq_f` over both coordinates of a point.
 #[track_caller]
 fn eq_pt(what: &str, got: Vec2, want: (f64, f64)) {
     eq_f(&format!("{what}.x"), got.x, want.0);
     eq_f(&format!("{what}.y"), got.y, want.1);
 }
 
+/// `eq_pt` over a flat `[x0, y0, x1, y1, …]` golden array, checking the count
+/// first so a length mismatch reports its own message rather than a panic
+/// mid-loop.
 #[track_caller]
 fn eq_pts(what: &str, got: &[Vec2], want: &[f64]) {
     assert_eq!(got.len() * 2, want.len(), "{what}: point count");
@@ -249,6 +256,9 @@ fn apply_patch(site: &mut Site, patch: &str) {
     }
 }
 
+/// Rebuilds one scenario's input exactly as the capture did: the site (with
+/// an optional ramp terrain and site-mutating patch), the anchors, and an
+/// optional `buildPrimaries` backbone.
 fn setup(
     seed: u32,
     kind: &str,
@@ -273,6 +283,9 @@ fn setup(
 // buildHarbour
 // ---------------------------------------------------------------------------
 
+/// Protects: all 58 captured `buildHarbour` scenarios — quay, piers, mole,
+/// defence and provenance, plus the post-call graph's node/edge counts and
+/// fnv1a hash — against a single-ulp regression anywhere in `build_harbour`.
 #[test]
 fn harbour_matches_the_reference() {
     assert_eq!(golden::HARBOURS.len(), 58, "golden set size");
@@ -378,6 +391,9 @@ fn harbour_matches_the_reference() {
 /// The two navigability guards are ordered and distinct, and the whole block is
 /// gated on `usesRealWater` — stated as an assertion over the golden set rather
 /// than as a paragraph, so deleting a guard fails here as well as on the rows.
+///
+/// Protects: the ordering of the `seaLakeCells`/`waterOrder` and cliff-slope
+/// guards, and the `usesRealWater` wrapper both live inside.
 #[test]
 fn the_navigability_guards_are_reachable_and_ordered() {
     let by = |n: &str| golden::HARBOURS.iter().find(|c| c.name == n).unwrap();
@@ -407,6 +423,10 @@ fn the_navigability_guards_are_reachable_and_ordered() {
 ///
 /// The graph hash is the strongest form of "identical town" this suite has, so
 /// asserting equality of the hashes says more than comparing the two quays.
+///
+/// Protects: the `js_max(0.5, …)`/`js_min(3.0, …)` clamps and the `|| 1`
+/// falsy default on `harbourScale`, and the `|| 'auto'` default on
+/// `harbourDefence`.
 #[test]
 fn the_harbour_scale_clamp_and_falsy_default_produce_identical_towns() {
     let by = |n: &str| golden::HARBOURS.iter().find(|c| c.name == n).unwrap();
@@ -431,6 +451,10 @@ fn the_harbour_scale_clamp_and_falsy_default_produce_identical_towns() {
 }
 
 /// `auto` resolves by site kind, and `none` leaves a built harbour undefended.
+///
+/// Protects: the `auto` mode's per-kind resolution (coast → molefort, through
+/// → seawall, bay → chain), `none` leaving the harbour built but undefended,
+/// and every explicit mode overriding `auto` regardless of site kind.
 #[test]
 fn the_defence_mode_table_is_complete() {
     let by = |n: &str| golden::HARBOURS.iter().find(|c| c.name == n).unwrap();
@@ -458,6 +482,10 @@ fn the_defence_mode_table_is_complete() {
 // addRiverBridges
 // ---------------------------------------------------------------------------
 
+/// Protects: all 19 captured `addRiverBridges` scenarios — the pre-call graph
+/// hash (so the fixture is proven to match the capture's starting point),
+/// live edge counts by class, and the post-call graph hash — against a
+/// single-ulp regression anywhere in `add_river_bridges`.
 #[test]
 fn river_bridges_match_the_reference() {
     assert_eq!(golden::BRIDGES.len(), 19, "golden set size");
@@ -499,6 +527,9 @@ fn river_bridges_match_the_reference() {
 
 /// The two early returns and the `k = 1; k <= count` loop bound, as assertions
 /// over the golden rows rather than as claims in a comment.
+///
+/// Protects: the `usesRealWater` and `river.len() < 3` early returns, and
+/// that `count` is the exact span count rather than a cap.
 #[test]
 fn the_river_bridge_guards_are_reachable() {
     let by = |n: &str| golden::BRIDGES.iter().find(|c| c.name == n).unwrap();
@@ -554,6 +585,9 @@ fn cross_pair(site: &Site, gap: f64) -> Vec<(Vec2, Vec2, &'static str)> {
     out
 }
 
+/// Lays a golden row's `extra` fixture — a pair of hand-placed river-crossing
+/// spans, an off-river street, or a quay-classed span — by the switch name
+/// `river_crossings_match_the_reference` reads out of the golden row.
 fn apply_extra(site: &Site, g: &mut Graph, extra: &str) {
     let spans: Vec<(Vec2, Vec2, &'static str)> = match extra {
         "pair60" => cross_pair(site, 60.0),
@@ -573,6 +607,9 @@ fn apply_extra(site: &Site, g: &mut Graph, extra: &str) {
     }
 }
 
+/// Protects: all 18 captured `detectRiverCrossings` scenarios — bridge points
+/// and directions, or the ford fallback — and the claim that the function
+/// never mutates the graph, checked by comparing the pre- and post-call hash.
 #[test]
 fn river_crossings_match_the_reference() {
     assert_eq!(golden::CROSSINGS.len(), 18, "golden set size");
@@ -633,6 +670,9 @@ fn river_crossings_match_the_reference() {
 
 /// The 80 m dedup, the quay skip and the two guard halves, each named against
 /// the golden rows that separate them.
+///
+/// Protects: the strict `< 80` dedup boundary, the `e.cls == "quay"` skip, and
+/// the ford fallback's `site.through` condition, each isolated by its own row.
 #[test]
 fn the_crossing_dedup_and_skips_are_observable() {
     let by = |n: &str| golden::CROSSINGS.iter().find(|c| c.name == n).unwrap();
@@ -702,6 +742,11 @@ fn the_crossing_dedup_and_skips_are_observable() {
 /// asserted below, so the claim cannot quietly come back. The skip is therefore
 /// a real coverage gap, not a dead branch: these fixtures simply have no dead
 /// edge that crosses the centreline. Recorded as a survivor.
+///
+/// Protects: the "dead by construction" claims about the seawall's
+/// `max(1, gi)` and `detect_river_crossings`' `n < 2` guard, and the refuted
+/// claim about the `!e.alive` skip — each pinned by an executable statement
+/// rather than left as prose that could go stale.
 #[test]
 fn two_survivors_are_dead_by_construction() {
     // gi >= 1 for every seawall the golden set built
@@ -757,6 +802,9 @@ fn two_survivors_are_dead_by_construction() {
 ///
 /// `prov` is never in the graph hash, so without this the four edge-provenance
 /// constants would be untested — a typo in any of them would ship.
+///
+/// Protects: every one of this module's `pub const *_PROV` strings against
+/// silent hand-retyping drift from the reference's own literals.
 #[test]
 fn every_provenance_string_matches_the_reference() {
     assert_eq!(PIER_PROV, golden::PIER_PROV);
@@ -787,6 +835,10 @@ fn every_provenance_string_matches_the_reference() {
 /// comparison downstream of it is bit-exact. Node's own output for the same
 /// loop is `0 0.2 0.4 0.6000000000000001 0.8 1`; the claim is an IEEE one, so
 /// it is asserted as one rather than left in a comment.
+///
+/// Protects: the exact bit pattern of `dry`'s six accumulated probe values,
+/// against a rewrite to a computed `i / 5.0` sequence that would look
+/// equivalent and is not.
 #[test]
 fn the_dry_probe_sequence_is_accumulated_not_computed() {
     let mut ts = Vec::new();
@@ -807,6 +859,9 @@ fn the_dry_probe_sequence_is_accumulated_not_computed() {
 
 /// `dry` itself, on the geometry it is used against: a segment laid straight
 /// down the channel of a real river site is wet, and one well inland is dry.
+///
+/// Protects: `dry`'s wet-rejection and the fact that it evaluates exactly the
+/// five accumulated probes described above, no more and no fewer.
 #[test]
 fn dry_rejects_a_segment_that_runs_along_the_channel() {
     let site = build_site(7, WM, HM, "river", SiteOpts::default());

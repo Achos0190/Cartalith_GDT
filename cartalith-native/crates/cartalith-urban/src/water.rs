@@ -712,5 +712,7 @@ pub fn detect_river_crossings(site: &Site, g: &Graph) -> Crossings {
     }
 }
 
+/// Milestone 9's golden and unit tests — see `water/tests.rs`'s own module doc
+/// for the scenario catalogue.
 #[cfg(test)]
 mod tests;

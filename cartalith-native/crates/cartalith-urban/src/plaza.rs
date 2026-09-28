@@ -200,5 +200,7 @@ pub fn build_plaza(seed: u32, site: &Site, anchors: &Anchors, g: &mut Graph, pop
     Some(Plaza { center: poly_centroid(&poly), poly, kind })
 }
 
+/// Milestone 8a's golden and unit tests — see `plaza/tests.rs`'s own module
+/// doc for the scenario catalogue.
 #[cfg(test)]
 mod tests;

@@ -76,7 +76,9 @@ pub struct Case {
 /// The three provenance strings `buildRadialStreets` writes (reference lines
 /// 28878-28880), verbatim.
 pub const PROV_RING: &str = "Ring street: one of several concentric circuits at regular intervals linking the radial spokes, each ring a regular polygon standing in for a circle at city scale (M-VEN-1).";
+// The second of the three (reference line 28879).
 pub const PROV_SPOKE: &str = "Radial spoke: a straight route from the central Resource Management hub outward to the residential ring — the spine of the concentric-zone city (M-VEN-1).";
+// The third (reference line 28880).
 pub const PROV_CROSS: &str = "Cross-spoke: an intermediate radial in the wider outer band, added where the larger circumference wants more crossings than the inner spokes alone provide (M-VEN-1).";
 
 /// `buildWaterway`'s provenance string (reference line 28939), verbatim.

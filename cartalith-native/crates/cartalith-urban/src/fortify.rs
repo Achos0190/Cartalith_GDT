@@ -92,6 +92,8 @@ use crate::routes::Anchors;
 use crate::site::Site;
 use std::f64::consts::PI;
 
+/// Milestone 10's golden and unit tests — see `fortify/tests.rs`'s own module
+/// doc for the scenario catalogue.
 #[cfg(test)]
 mod tests;
 
@@ -451,6 +453,7 @@ pub fn built_mass_hull(site: &Site, anchors: &Anchors, g: &Graph) -> Option<Buil
         let l2 = tr / 2.0 - disc;
         if l2 > 1.0 {
             let aspect = (l1 / l2).sqrt();
+            // Reference line 30386: the aspect-ratio cap on the inertia ellipse.
             const CAP: f64 = 2.4;
             if aspect > CAP {
                 let (mut ux, mut uy) = (sxy, l1 - sxx);
@@ -722,6 +725,8 @@ pub fn build_wall(
             match harbour {
                 Some(h) if !h.quay.is_empty() => {
                     let hp = h.pt;
+                    // Reference line 30513: the harbour-mouth gap radius left open
+                    // in the drawn water wall.
                     const GAP_R: f64 = 48.0;
                     let mut cur: Vec<Vec2> = Vec::new();
                     for p in &water {
@@ -966,7 +971,9 @@ pub fn apply_star_fort(seed: u32, site: &Site, wall_state: &mut WallState, opts:
         *p = *p + (*p - c).norm() * push;
     }
     // A full pentagonal bastion at every corner: two faces, two flanks, salient.
+    // Reference line 30620: the salient base half-width…
     const SB: f64 = 18.0;
+    // …and the flank height.
     const FH: f64 = 13.0;
     let bd = r.range(34.0, 42.0);
     let mut trace: Vec<Vec2> = Vec::new();
@@ -998,8 +1005,11 @@ pub fn apply_star_fort(seed: u32, site: &Site, wall_state: &mut WallState, opts:
     // Outworks as continuous rings around the closed trace (M-FOR-6/7). A wet
     // ditch needs water at hand to flood it: measure the trace's nearest
     // approach to the waterline, and give an inland trace a dry one.
+    // Reference line 30640: the dry/wet ditch's width…
     const DITCH_W: f64 = 22.0;
+    // …the covered way's width beyond it…
     const COVERED_W: f64 = 8.0;
+    // …and the glacis' width beyond that.
     const GLACIS_W: f64 = 48.0;
     let mut min_water_d = f64::INFINITY;
     if !site.no_water {
@@ -1143,6 +1153,9 @@ fn wall_prov_bastioned(wet: bool, canal_fed: bool, double_moat: bool) -> String 
 pub struct FortificationBuilder;
 
 impl WallBuilder for FortificationBuilder {
+    /// The trait-required entry point — delegates straight to the free
+    /// function [`build_wall`] (this module's own `buildWall` port), so the
+    /// two never drift.
     fn build_wall(
         &mut self,
         seed: u32,

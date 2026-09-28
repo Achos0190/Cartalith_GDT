@@ -1629,6 +1629,51 @@ re-checked against the tree rather than copied from the commit message.
   this file itself warns. Batches 6 through 28 all still need an
   independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 29 (`cartalith-urban`, milestones 8-8a
+  plus part of 10) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked, additions only; urban 349/0/0; fortify CAP citation checked at v2.11 line 30386)
+  (comments only; urban 349/0/0 unchanged).** Recorded a pre-edit baseline
+  (`cargo test -p cartalith-urban`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk29`): **349 passed / 0 failed / 0 ignored**. Milestone 8
+  (`radial.rs`/`radial/tests.rs`/`radial/tests/golden.rs`) and milestone 8a
+  (`plaza.rs`/`plaza/tests.rs`) were already fully doc-commented in the main
+  files; the gaps were `// Protects:` lines missing from 13 radial tests and
+  13 plaza tests (most already carried a real rationale comment above them),
+  a `mod tests;` line in each main file needing its own `///` (the census's
+  module-doc resolver still cannot see past a file-module with a same-named
+  submodule directory), two helper fns (`eq_bits`/`prov_count` in
+  `radial/tests.rs`) and two `PROV_*` consts in `radial/tests/golden.rs`
+  needing their own preceding line rather than the shared block comment
+  above the first of the pair. Milestone 9 (`water.rs`/`water/tests.rs`)
+  was likewise already fully commented in the main file; closed its `mod
+  tests;` line, 12 `// Protects:` lines, three helper fns
+  (`eq_f`/`eq_pt`/`eq_pts`), the `setup`/`apply_extra` builders, two golden
+  entry fns and the `WM`/`HM` pair. Milestone 10's main file (`fortify.rs`)
+  needed five numeric consts cited against the reference (`CAP` line 30386,
+  `GAP_R` line 30513, `SB`/`FH` line 30620, `DITCH_W`/`COVERED_W`/`GLACIS_W`
+  line 30640) and one trait-impl method doc
+  (`FortificationBuilder::build_wall`, confirmed to delegate straight to the
+  free fn of the same name). No wrong existing comment was found while
+  reading. `cargo test -p cartalith-urban`, same `CARGO_TARGET_DIR`, run
+  again after every file: **349 passed / 0 failed / 0 ignored**,
+  byte-identical to the pre-edit baseline. `git diff --stat` confirmed
+  comment-only across all eight touched files: 179 insertions, 0 deletions.
+  Crate-wide `census_v2.py`: items_undoc 265→247, tests_unprotected
+  261→223, consts_undoc 50→39 (67 gaps closed against the ~150-gap batch
+  budget). **Stopped at `fortify.rs` done, `fortify/tests.rs` and
+  `fortify/tests/golden.rs` not started** — `fortify/tests.rs` alone is
+  1 954 LOC carrying 110 of the remaining gaps (49 unprotected tests, ~29
+  undocumented helper fns, 2 consts) and `fortify/tests/golden.rs` another 6,
+  and reading it in full would have pushed this batch past both the
+  LOC-read and gap-count budgets at once; the 49 tests need their
+  `// Protects:` lines written from their own bodies rather than
+  templated, which milestone 10's remaining budget did not allow. **Next
+  step: batch 30** finishes milestone 10 (`fortify/tests.rs` +
+  `fortify/tests/golden.rs`), then continues in `URBAN_MORPHOLOGY_SCOPE.md`'s
+  order: cleanup, blocks, districts, amenities, hinterland, generate, then
+  the non-reference modules citadel, wallside, courtyard. Batches 6 through
+  29 all still need an independent verifier before any can be called done
+  rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

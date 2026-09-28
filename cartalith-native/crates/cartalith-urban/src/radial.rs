@@ -60,6 +60,8 @@ use crate::routes::Anchors;
 use crate::site::Site;
 use std::f64::consts::PI;
 
+/// Milestone 8's golden and unit tests — see `radial/tests.rs`'s own module
+/// doc for the scenario catalogue and the mutation-sweep survivors.
 #[cfg(test)]
 mod tests;
 
