@@ -212,6 +212,15 @@ var _route_index := -1
 var _last_result: Dictionary = {}
 var _stage_overrides: Dictionary = {}   ## int stage idx -> Dictionary (JpStageOverride field pairs)
 var _layovers: Dictionary = {}          ## stop key (String) -> int days
+## Ruling BS: the resupply stops the user accepted -- each the very
+## `plan.resupply_suggestions` Dictionary it was offered as, sent back to
+## `jp_compute` as `resupply_accepted`. Reset with the layovers, since both
+## name places on one particular route.
+var _resupply_accepted: Array = []
+## Ruling BS: suggestion keys the user declined (key -> true). Declining only
+## hides the Accept prompt: the engine still counts the stop as needed, so the
+## verdict keeps saying so until it is accepted or the plan changes.
+var _resupply_declined: Dictionary = {}
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
 var _carriage_auto := true              ## Sent as `jp_compute`'s own `auto_carriage` (JP-01).
@@ -453,6 +462,8 @@ func open_with_route(route_index: int) -> void:
 	## whatever stage edits/layovers/trim applied to the old one.
 	_stage_overrides.clear()
 	_layovers.clear()
+	_resupply_accepted.clear()
+	_resupply_declined.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_trim = Vector2(0.0, 1.0)
@@ -756,6 +767,8 @@ func _refresh_route_choice() -> void:
 			_route_index = i
 			_stage_overrides.clear()
 			_layovers.clear()
+			_resupply_accepted.clear()
+			_resupply_declined.clear()
 			_selected_stage = 0
 			_isolated_stage = -1
 			_trim = Vector2(0.0, 1.0)
@@ -1410,6 +1423,8 @@ func _compute() -> void:
 		request["stage_overrides"] = ov
 	if not _layovers.is_empty():
 		request["layovers"] = _layovers.duplicate(true)
+	if not _resupply_accepted.is_empty():
+		request["resupply_accepted"] = _resupply_accepted.duplicate(true)
 	_last_result = bridge.jp_compute(request)
 	_apply_result()
 
@@ -1698,6 +1713,10 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	var rest_layover := float(plan.get("rest_days", 0)) + float(plan.get("layover_days", 0))
 	if rest_layover > 0.0:
 		segments.append({"days": rest_layover, "token": "text_dim"})
+	## Ruling BS: accepted resupply stops are calendar time laid on top too.
+	var resupply_days := float(plan.get("resupply_stop_days", 0.0))
+	if resupply_days > 0.0:
+		segments.append({"days": resupply_days, "token": "text"})
 
 	app.timeline_row.add_child(DccTheme.mono_label("day 1", "text_faint", _tl_fs(DccTheme.role_px("fs_timeline"))))
 	_timeline_view = _TimelineBandView.new()
@@ -1716,6 +1735,8 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 	## `jp_plan` reports no discrete weather-hold day count.
 	wx.tooltip_text = "There's no separate weather-hold day count -- weather is a continuous per-leg speed multiplier, already folded into each stage's own travel days to the left. Never lit."
 	_timeline_legend_item(legend, "text_dim", "rest / layover")
+	if resupply_days > 0.0:
+		_timeline_legend_item(legend, "text", "resupply")
 	app.timeline_row.add_child(legend)
 
 func _timeline_legend_item(parent: Control, token: String, label_text: String) -> Control:
@@ -2279,6 +2300,7 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		_route_map.pts = PackedVector2Array()
 		_route_map.stage_segments = []
 		_route_map.stops = []
+		_route_map.resupply = []
 		_route_map.queue_redraw()
 		_route_line.queue_redraw()
 		DccWidgets.note(_totals_body, "No committed route selected.")
@@ -2304,6 +2326,13 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 		var d: Dictionary = st
 		stop_pts.append(Vector2(float(d.get("x", 0.0)), float(d.get("y", 0.0))))
 	_route_map.stops = stop_pts
+	## Ruling BS: every resupply stop the route needs, accepted or not.
+	var resupply_marks: Array = []
+	for rs in plan.get("resupply_suggestions", []):
+		var rd: Dictionary = rs
+		resupply_marks.append({"at": Vector2(float(rd.get("x", 0.0)), float(rd.get("y", 0.0))),
+			"accepted": bool(rd.get("accepted", false))})
+	_route_map.resupply = resupply_marks
 	_route_map.queue_redraw()
 	_route_line.queue_redraw()
 
@@ -2475,6 +2504,8 @@ func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
 	_trim = next
 	_stage_overrides.clear()
 	_layovers.clear()
+	_resupply_accepted.clear()
+	_resupply_declined.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_tool_options_journey()
@@ -3204,12 +3235,18 @@ func _save_journey() -> void:
 				if bool(cap.get("ok", false)):
 					engine_id = bridge.journey_save(
 						jname, String(cap.get("id", "")), _route_index, bridge.get_civ_year())
+					## Ruling BS: the accepted resupply stops are saved WITH the
+					## journey (`entities/journeys.json`), unlike the layovers
+					## beside them, so SP-2's party pauses where it restocks.
+					if engine_id >= 0 and not _resupply_accepted.is_empty():
+						bridge.journey_set_resupply(engine_id, _resupply_accepted.duplicate(true))
 			_journeys.append({
 				"name": jname,
 				"route": _route_index,
 				"plan": _plan_values.duplicate(true),
 				"stage_overrides": _stage_overrides.duplicate(true),
 				"layovers": _layovers.duplicate(true),
+				"resupply_accepted": _resupply_accepted.duplicate(true),
 				"animal_entries": _animal_entries.duplicate(),
 				"trim": _trim,
 				## The engine `Journey`'s own stable id, or `-1` if the
@@ -3236,6 +3273,8 @@ func _load_journey(i: int) -> void:
 	_plan_values = (j.get("plan", {}) as Dictionary).duplicate(true)
 	_stage_overrides = (j.get("stage_overrides", {}) as Dictionary).duplicate(true)
 	_layovers = (j.get("layovers", {}) as Dictionary).duplicate(true)
+	_resupply_accepted = (j.get("resupply_accepted", []) as Array).duplicate(true)
+	_resupply_declined.clear()
 	_animal_entries = (j.get("animal_entries", {}) as Dictionary).duplicate()
 	_trim = j.get("trim", Vector2(0.0, 1.0))
 	_selected_stage = 0
@@ -3282,6 +3321,8 @@ func _reroute_journey() -> void:
 	# picking a different route already does.
 	_stage_overrides.clear()
 	_layovers.clear()
+	_resupply_accepted.clear()
+	_resupply_declined.clear()
 	_selected_stage = 0
 	_isolated_stage = -1
 	_trim = Vector2(0.0, 1.0)
@@ -3417,6 +3458,7 @@ func build_results(body: Control) -> void:
 	_build_time_group(body, plan, confidence)
 	_build_load_group(body, plan)
 	_build_supply_group(body, plan)
+	_build_resupply_group(body, plan)
 	_build_cost_group(body)
 	_build_risk_note(body, plan)
 	_build_vessels_group(body, plan)
@@ -3656,6 +3698,9 @@ func _build_time_group(body: Control, plan: Dictionary, confidence: Dictionary) 
 	_kv_row(g, "rest days · %s" % String(plan.get("rest_basis", "")), str(int(plan.get("rest_days", 0))))
 	var stops: Array = plan.get("stops", [])
 	_kv_row(g, "layovers", "%d at %d stops" % [int(plan.get("layover_days", 0)), stops.size()])
+	var resupply_days := float(plan.get("resupply_stop_days", 0.0))
+	if resupply_days > 0.0:
+		_kv_row(g, "resupply stops", "%.0f d" % resupply_days)
 	if not confidence.is_empty():
 		_kv_row(g, "mean · best · worst", "%.0f · %.0f · %.0f" % [
 			float(plan.get("total_days", 0.0)), float(confidence.get("lo_days", 0.0)), float(confidence.get("hi_days", 0.0))])
@@ -3738,7 +3783,22 @@ func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	if reach.is_empty():
 		DccWidgets.note(g, "No resupply-reach figure for this journey.")
 		return
-	_kv_row(g, "carried", "%.0f d · %s" % [float(_plan_values.get("supply_days", 0.0)), DccUnits.format_thousands(float(reach.get("required_km", 0.0)))])
+	## Ruling BS: a leg whose full `supply_days` would not fit carries less
+	## (`land.carry_days`, `carry_capped`) -- the row names the shortest
+	## such pack, since the form's own number is no longer what leaves.
+	var carried_days := float(_plan_values.get("supply_days", 0.0))
+	var capped := false
+	for r in plan.get("results", []):
+		var land: Dictionary = (r as Dictionary).get("land", {})
+		if bool(land.get("carry_capped", false)) and land.has("carry_days"):
+			carried_days = minf(carried_days, float(land.get("carry_days")))
+			capped = true
+	## `required_km` is `resupply_reach`'s own supply_days x speed, so it is
+	## only printed beside the uncapped figure it was computed from.
+	if capped:
+		_kv_row(g, "carried · capped by load", "%.0f d" % carried_days, "warn")
+	else:
+		_kv_row(g, "carried", "%.0f d · %s" % [carried_days, DccUnits.format_thousands(float(reach.get("required_km", 0.0)))])
 	var gap := float(reach.get("max_gap_km", 0.0))
 	## Both terms canonical km, so the division is a length over a rate and
 	## gives days -- converting either here would leave the ratio unchanged and
@@ -3752,6 +3812,64 @@ func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	_kv_row(g, "stops needed", str(int(reach.get("stops", 0))), "block" if bool(reach.get("unmet", false)) else "text")
 	_build_reach_bar(g, plan, reach)
 	DccWidgets.note(g, "Foraging offset is not broken out as a separate figure by jp_plan -- it is already folded into the food/water totals above.")
+
+## Ruling BS (owner, 2026-09-28): the resupply stops the route needs, each
+## with Accept / Decline. Built from the existing results vocabulary only --
+## a `DccWidgets.section`, `_kv_row` readouts, a ghost note and
+## `DccWidgets.action` buttons in an `HFlowContainer` (the verdict card's own
+## resolution row, and for its measured reason: a flow takes its widest
+## button, a box the sum of them).
+##
+## Accept sends the suggestion Dictionary back unchanged as one of
+## `jp_compute`'s `resupply_accepted` and recomputes: the engine then restocks
+## there and adds the stop's own days to `total_days` (and so to the cost).
+## Decline is local -- the engine still counts the stop as needed, so the
+## verdict keeps saying so; the row only stops asking. Nothing is drawn when
+## the carried provisions reach every settlement, which is the common case.
+func _build_resupply_group(body: Control, plan: Dictionary) -> void:
+	var sugg: Array = plan.get("resupply_suggestions", [])
+	var block: Dictionary = plan.get("supply_block", {})
+	if sugg.is_empty() and block.is_empty():
+		return
+	var g := DccWidgets.section(body, "Resupply stops")
+	if not block.is_empty():
+		var bl := DccWidgets.note(g, "%s %s" % [DccIcons.SYMBOLS["blocked"], String(block.get("reason", ""))])
+		bl.add_theme_color_override("font_color", DccTheme.c("block"))
+	for s in sugg:
+		var d: Dictionary = s
+		var key := String(d.get("key", ""))
+		var accepted := bool(d.get("accepted", false))
+		var declined := not accepted and _resupply_declined.has(key)
+		var state := "accepted" if accepted else ("declined" if declined else "suggested")
+		_kv_row(g, "%s · %s" % [String(d.get("name", "settlement")), DccUnits.format_thousands(float(d.get("at_km", 0.0)))],
+			## Cost in day-wages, the Cost group's own unit, unsuffixed there too.
+			"%s · +%.0f d · %s" % [state, float(d.get("days", 0.0)), _fmt_wages(float(d.get("cost", 0.0)))],
+			"accent" if accepted else ("text_ghost" if declined else "warn"))
+		var restocks: PackedStringArray = d.get("restocks", PackedStringArray())
+		var row := HFlowContainer.new()
+		row.add_theme_constant_override("h_separation", 8)
+		row.add_theme_constant_override("v_separation", 4)
+		row.add_child(DccTheme.mono_label("restocks %s" % " · ".join(restocks), "text_ghost", DccTheme.FS_TINY))
+		if accepted:
+			DccWidgets.action(row, "remove stop", func():
+				for i in range(_resupply_accepted.size() - 1, -1, -1):
+					if String((_resupply_accepted[i] as Dictionary).get("key", "")) == key:
+						_resupply_accepted.remove_at(i)
+				_compute())
+		else:
+			DccWidgets.action(row, "accept", func():
+				var a := d.duplicate(true)
+				a["accepted"] = true
+				_resupply_accepted.append(a)
+				_resupply_declined.erase(key)
+				app.set_status("hint", "Resupply stop at %s accepted (+%.0f d)." % [String(d.get("name", "")), float(d.get("days", 0.0))], "accent")
+				_compute(), true)
+			if not declined:
+				DccWidgets.action(row, "decline", func():
+					_resupply_declined[key] = true
+					_apply_result())
+		g.add_child(row)
+	DccWidgets.note(g, "Only a settlement extends how far the provisions last: water refills at every river, lake or oasis the route passes, and grazing is already taken off the fodder carried.")
 
 ## JP-12 (§8: "per-leg bar with resupply ticks") -- `resupply_reach` itself
 ## carries no per-stop positions (`required_km`/`max_gap_km`/`stops`/`unmet`
@@ -4349,6 +4467,10 @@ class _RouteMapView extends Control:
 	var pts: PackedVector2Array = PackedVector2Array()
 	var stage_segments: Array = []   ## [{i0,i1,cat,blocked}]
 	var stops: Array = []            ## [Vector2] world grid coords
+	## Ruling BS: [{at: Vector2 grid coords, accepted: bool}] -- resupply stops,
+	## drawn by `_RouteLineLayer` as squares (filled once accepted) so they
+	## read apart from the settlement rings above.
+	var resupply: Array = []
 	var map_texture: Texture2D = null
 	## True only for the "map" layer -- see `set_backdrop`.
 	var _use_lod := false
@@ -4800,6 +4922,13 @@ class _RouteLineLayer extends Control:
 			var p2: Vector2 = fit.call(st)
 			draw_circle(p2, 3.0, DccTheme.c("bg"))
 			draw_arc(p2, 3.0, 0, TAU, 16, DccTheme.c("accent"), 1.4)
+		for rs in backdrop.resupply:
+			var rd: Dictionary = rs
+			var p3: Vector2 = fit.call(rd.get("at", Vector2.ZERO))
+			var sq := Rect2(p3 - Vector2(4, 4), Vector2(8, 8))
+			var accepted := bool(rd.get("accepted", false))
+			draw_rect(sq, DccTheme.c("accent") if accepted else DccTheme.c("bg"), true)
+			draw_rect(sq, DccTheme.c("accent") if accepted else DccTheme.c("warn"), false, 1.4)
 
 ## The terrain-profile spine (`JOURNEY_PLANNER_SPEC.md` §3, §4): stage bands
 ## along a shared distance axis with the real elevation sparkline
@@ -5031,6 +5160,9 @@ func _restore_from_engine() -> void:
 			"plan": plan,
 			"stage_overrides": {},
 			"layovers": {},
+			## Ruling BS: the one piece of planner state a saved journey
+			## does carry (`journey_get`'s `resupply_stops`).
+			"resupply_accepted": (full.get("resupply_stops", []) as Array).duplicate(true),
 			"animal_entries": {},
 			"trim": Vector2(0.0, 1.0),
 			"engine_id": id,

@@ -70,8 +70,9 @@ type Planned = Option<Result<JourneyTimeline, NoTimeline>>;
 /// - The Travel Library: the animal overrides and vessel overrides exactly
 ///   as passed to the resolvers (sorted, since they are `HashMap`s), and per
 ///   journey the resolved `PartyPreset` (`None` for a missing one).
-/// - Per journey: `route.points`. `start_year` is not an input -- the
-///   timeline is in days from departure.
+/// - Per journey: `route.points`, and (Ruling BS) its accepted
+///   `resupply_stops`, which add calendar days. `start_year` is not an
+///   input -- the timeline is in days from departure.
 ///
 /// **Retains only the timelines** (a few legs each), never `JpWorldParts`,
 /// so the resident cost is negligible. `hits`/`misses` are instrumentation
@@ -111,11 +112,17 @@ fn hash_usizes(h: &mut DefaultHasher, v: &[usize]) {
 }
 
 /// The per-journey half of the key, over the world half.
-fn journey_key(world_key: u64, preset: Option<&cartalith_civ::travel_library::PartyPreset>, pts: &[(f64, f64)]) -> u64 {
+fn journey_key(
+    world_key: u64,
+    preset: Option<&cartalith_civ::travel_library::PartyPreset>,
+    pts: &[(f64, f64)],
+    stops: &[cartalith_civ::JpAcceptedStop],
+) -> u64 {
     let mut h = DefaultHasher::new();
     h.write_u64(world_key);
     hash_debug(&mut h, &preset);
     hash_pts(&mut h, pts);
+    hash_debug(&mut h, &stops);
     h.finish()
 }
 
@@ -279,7 +286,7 @@ impl WorldGen {
             .filter(|&(ji, _)| want(ji))
             .map(|(ji, j)| {
                 let preset = self.travel_library.presets.get(&j.party_preset);
-                let key = journey_key(world_key, preset, &j.route.points);
+                let key = journey_key(world_key, preset, &j.route.points, &j.resupply_stops);
                 let hit = self.journey_plans.entries.get(&j.id).filter(|(k, _)| *k == key).map(|(_, t)| t.clone());
                 (ji, j.id, preset, key, hit)
             })
@@ -295,7 +302,11 @@ impl WorldGen {
             let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
             for (ji, _, preset, _, slot) in jobs.iter_mut().filter(|j| j.4.is_none()) {
                 let base = cartalith_civ::JpPlan::default();
-                let plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
+                let mut plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
+                // Ruling BS: the stops accepted when the journey was saved,
+                // so its party pauses and arrives exactly as planned (they
+                // are in `journey_key`, so a changed set re-plans).
+                plan.accepted_resupply = infra.journeys[*ji].resupply_stops.clone();
                 let planned = cartalith_civ::jp_plan_full(
                     &world,
                     &infra.journeys[*ji].route.points,
@@ -684,21 +695,31 @@ mod tests {
         h.finish()
     }
 
-    /// Each of `journey_key`'s three inputs moves it, and equal inputs give
+    /// Each of `journey_key`'s four inputs moves it, and equal inputs give
     /// an equal key (the cache's hit condition).
+    // Protects (Ruling BS): accepting or declining a saved journey's
+    // resupply stop re-plans it rather than serving the stale timeline.
     #[test]
     fn journey_key_reacts_to_every_input() {
         let p = PartyPreset::blank("p1", "Party");
         let mut p2 = p.clone();
         p2.name = "Other".into();
         let pts = [(1.0, 2.0), (3.0, 4.0)];
-        let k = journey_key(7, Some(&p), &pts);
-        assert_eq!(k, journey_key(7, Some(&p.clone()), &pts.clone()));
-        assert_ne!(k, journey_key(8, Some(&p), &pts), "world half");
-        assert_ne!(k, journey_key(7, Some(&p2), &pts), "preset content");
-        assert_ne!(k, journey_key(7, None, &pts), "missing preset");
-        assert_ne!(k, journey_key(7, Some(&p), &[(1.0, 2.0), (3.0, 4.5)]), "route point");
-        assert_ne!(k, journey_key(7, Some(&p), &pts[..1]), "route length");
+        let stop = cartalith_civ::JpAcceptedStop {
+            key: "resupply:a".into(),
+            kind: "settlement".into(),
+            name: "A".into(),
+            x: 1.0,
+            y: 2.0,
+        };
+        let k = journey_key(7, Some(&p), &pts, &[]);
+        assert_eq!(k, journey_key(7, Some(&p.clone()), &pts.clone(), &[]));
+        assert_ne!(k, journey_key(8, Some(&p), &pts, &[]), "world half");
+        assert_ne!(k, journey_key(7, Some(&p2), &pts, &[]), "preset content");
+        assert_ne!(k, journey_key(7, None, &pts, &[]), "missing preset");
+        assert_ne!(k, journey_key(7, Some(&p), &[(1.0, 2.0), (3.0, 4.5)], &[]), "route point");
+        assert_ne!(k, journey_key(7, Some(&p), &pts[..1], &[]), "route length");
+        assert_ne!(k, journey_key(7, Some(&p), &pts, std::slice::from_ref(&stop)), "accepted stop");
     }
 
     /// The overrides are `HashMap`s, whose iteration order is per instance;

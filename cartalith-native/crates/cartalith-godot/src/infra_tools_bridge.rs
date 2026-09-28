@@ -361,6 +361,9 @@ impl InfraTools {
                 mode: r.mode,
             },
             start_year,
+            // Ruling BS: set afterwards through `journey_set_resupply`, so
+            // this signature (and every caller of it) is unchanged.
+            resupply_stops: Vec::new(),
         });
         Some(id)
     }
@@ -924,6 +927,7 @@ mod tests {
             party_preset: "p".into(),
             route: cartalith_civ::travel_library::JourneyRoute { points: pts, breaks: vec![], length_km: 1.0, mode: RouteMode::Land },
             start_year: 5,
+            resupply_stops: vec![],
         };
         let carried = vec![
             journey(3, "To the coast", vec![(12.0, 2.0), (22.0, 8.0)]),

@@ -3772,6 +3772,14 @@ func journey_list() -> Array:
 		return []
 	return world_gen.journey_list()
 
+## Ruling BS: replaces the accepted resupply stops saved with journey `id`
+## (`jp_compute`'s own `resupply_accepted` shape). `false` for an unknown id.
+func journey_set_resupply(id: int, stops: Array) -> bool:
+	if not _has("journey_set_resupply"):
+		return false
+	mark_world_dirty()
+	return world_gen.journey_set_resupply(id, stops)
+
 func journey_get(id: int) -> Dictionary:
 	if not _has("journey_get"):
 		return {}

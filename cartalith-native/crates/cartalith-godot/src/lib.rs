@@ -13784,7 +13784,32 @@ impl WorldGen {
             "mode" => project_bridge::route_mode_key(j.route.mode),
             "points" => &points,
             "brks" => &brks,
+            // Ruling BS: the accepted resupply stops saved with the journey,
+            // in `jp_compute`'s own `resupply_accepted` shape. `[]` for every
+            // journey saved before the ruling.
+            "resupply_stops" => &jp_accepted_stops_array(&j.resupply_stops),
         }
+    }
+
+    /// Ruling BS: replaces the accepted resupply stops saved with journey
+    /// `id` -- `stops` is `jp_compute`'s own `resupply_accepted` shape. The
+    /// planner calls this right after `journey_save`, which keeps that
+    /// function's four-argument signature (and every probe calling it)
+    /// unchanged. `false` for an unknown id or a malformed entry (nothing is
+    /// written then).
+    #[func]
+    fn journey_set_resupply(&mut self, id: i64, stops: VarArray) -> bool {
+        let Ok(id) = u64::try_from(id) else { return false };
+        let (parsed, bad) = jp_accepted_stops_from(&stops);
+        if !bad.is_empty() {
+            return false;
+        }
+        let Some(j) = self.infra.as_mut().and_then(|i| i.journeys.iter_mut().find(|j| j.id == id)) else {
+            return false;
+        };
+        // No cache drop needed: `story_bridge::journey_key` hashes the stops.
+        j.resupply_stops = parsed;
+        true
     }
 
     /// Deletes one saved journey by its stable id (`journey_list`'s own
@@ -16026,7 +16051,7 @@ fn jp_land_calc_dict(l: &cartalith_civ::JpLandCalc) -> VarDictionary {
     let capacity = jp_capacity_dict(&l.cap);
     let resupply = l.resupply.as_ref().map_or_else(VarDictionary::new, jp_resupply_dict);
     let trace = jp_trace_array(&l.trace);
-    vdict! {
+    let mut d = vdict! {
         "trace" => &trace,
         "daily_km" => l.daily_km,
         "days" => l.days,
@@ -16044,7 +16069,72 @@ fn jp_land_calc_dict(l: &cartalith_civ::JpLandCalc) -> VarDictionary {
         "portage" => l.portage,
         "desert_tier" => desert_tier,
         "desert_tier_auto" => desert_tier_auto,
+        "carry_capped" => l.carry_capped,
+    };
+    // Ruling BS. The key is OMITTED, not zeroed, where no provisions are
+    // carried (`carry_food` off, Haste): a 0 would read as "carries nothing
+    // and must restock at once".
+    if let Some(c) = l.carry_days {
+        d.set("carry_days", c);
     }
+    d
+}
+
+/// Ruling BS: one [`cartalith_civ::JpResupplySuggestion`] -- also the exact
+/// shape `jp_compute`'s `resupply_accepted` request key and
+/// `journey_set_resupply` take back (`key`/`kind`/`name`/`x`/`y`), so a UI
+/// accepts a stop by sending its own dictionary.
+fn jp_resupply_suggestion_dict(s: &cartalith_civ::JpResupplySuggestion) -> VarDictionary {
+    let restocks: PackedStringArray = s.restocks.iter().map(|r| GString::from(*r)).collect();
+    vdict! {
+        "key" => s.key.as_str(),
+        "kind" => s.kind,
+        "name" => s.name.as_str(),
+        "x" => s.x,
+        "y" => s.y,
+        "point" => s.point as i64,
+        "at_km" => s.at_km,
+        "restocks" => &restocks,
+        "days" => s.days,
+        "cost" => s.cost,
+        "accepted" => s.accepted,
+    }
+}
+
+/// Ruling BS: accepted stops as `[{key, kind, name, x, y}]`, the inverse of
+/// [`jp_accepted_stops_from`].
+fn jp_accepted_stops_array(stops: &[cartalith_civ::JpAcceptedStop]) -> Array<VarDictionary> {
+    stops
+        .iter()
+        .map(|a| vdict! { "key" => a.key.as_str(), "kind" => a.kind.as_str(), "name" => a.name.as_str(), "x" => a.x, "y" => a.y })
+        .collect()
+}
+
+/// Ruling BS: reads `[{key, kind, name, x, y}]` back into accepted stops.
+/// Entries missing `key` or a numeric `x`/`y` are returned as rejected
+/// labels rather than guessed at.
+fn jp_accepted_stops_from(arr: &VarArray) -> (Vec<cartalith_civ::JpAcceptedStop>, Vec<String>) {
+    let mut out = Vec::new();
+    let mut bad = Vec::new();
+    for (i, v) in arr.iter_shared().enumerate() {
+        let Ok(d) = v.try_to::<VarDictionary>() else {
+            bad.push(format!("resupply_accepted[{i}]"));
+            continue;
+        };
+        let s = |k: &str| d.get(k).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string());
+        let n = |k: &str| d.get(k).and_then(|v| v.try_to::<f64>().ok());
+        match (s("key"), n("x"), n("y")) {
+            (Some(key), Some(x), Some(y)) => out.push(cartalith_civ::JpAcceptedStop {
+                key,
+                kind: s("kind").unwrap_or_else(|| "settlement".to_string()),
+                name: s("name").unwrap_or_default(),
+                x,
+                y,
+            }),
+            _ => bad.push(format!("resupply_accepted[{i}]")),
+        }
+    }
+    (out, bad)
 }
 
 /// `jpCalcWater`'s return, same `formula` omission.
@@ -16175,7 +16265,16 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
     let day_fracs: PackedFloat64Array = p.day_fracs.iter().copied().collect();
     let seasons: PackedStringArray = p.seasons_crossed.iter().map(GString::from).collect();
     let reach = p.resupply_reach.as_ref().map_or_else(VarDictionary::new, jp_resupply_reach_dict);
+    let suggestions: Array<VarDictionary> = p.resupply_suggestions.iter().map(jp_resupply_suggestion_dict).collect();
+    // Empty Dictionary when there is no uncarriable stretch -- the same
+    // convention `resupply_reach` and `confidence` use for "none".
+    let supply_block = p.supply_block.as_ref().map_or_else(VarDictionary::new, |b| {
+        vdict! { "from_km" => b.from_km, "to_km" => b.to_km, "range_km" => b.range_km, "reason" => b.reason.as_str() }
+    });
     vdict! {
+        "resupply_suggestions" => &suggestions,
+        "supply_block" => &supply_block,
+        "resupply_stop_days" => p.resupply_stop_days,
         "stages" => &stages,
         "results" => &results,
         "timeline" => &timeline,
@@ -16186,7 +16285,10 @@ fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
         // blocked journey because there is no honest total for one.
         "days" => p.days,
         "avg_km_day" => p.avg_km_day,
-        "blocked" => p.blocked_idx.is_some(),
+        // Ruling BS: an uncarriable stretch blocks the journey too, with no
+        // single stage to point at -- `blocked_idx` stays -1 for it and
+        // `supply_block` above carries the stretch.
+        "blocked" => p.blocked_idx.is_some() || p.supply_block.is_some(),
         "blocked_idx" => p.blocked_idx.map_or(-1, |i| i as i64),
         "food_kg" => p.food_kg,
         "water_l" => p.water_l,
@@ -16578,6 +16680,11 @@ impl WorldGen {
     ///   (`TravelLibrary::animal_species_slot`); anything else is rejected.
     ///   Omitting the key entirely leaves the pre-selection behaviour
     ///   (`animal_overrides()`'s own last-added-custom-per-species pick).
+    /// * `resupply_accepted` (Array of Dictionary) -- Ruling BS: the resupply
+    ///   stops the user accepted, each a `plan.resupply_suggestions` entry
+    ///   sent back as it came (`key`/`kind`/`name`/`x`/`y` are read). An
+    ///   accepted stop restocks the party there and adds its own days to
+    ///   `total_days`; omitting the key plans with none accepted.
     ///
     /// Returns `{"ok": bool, "error": String, "rejected": PackedStringArray,
     /// "plan": {...}, "verdict": {...}, "confidence": {...}}`. `rejected`
@@ -16717,6 +16824,18 @@ impl WorldGen {
                 }
             }
         }
+        // Ruling BS: the resupply stops the user accepted, each the very
+        // dictionary a `resupply_suggestions` entry came back as.
+        if let Some(v) = request.get("resupply_accepted") {
+            let Ok(arr) = v.try_to::<VarArray>() else {
+                return fail("`resupply_accepted` must be an Array of resupply-suggestion Dictionaries");
+            };
+            let (stops, bad) = jp_accepted_stops_from(&arr);
+            for b in bad {
+                rejected.push(&GString::from(&b));
+            }
+            plan.accepted_resupply = stops;
+        }
         for (k, _) in request.iter_shared() {
             let key = k.to_string();
             if !matches!(
@@ -16730,6 +16849,7 @@ impl WorldGen {
                     | "auto_carriage"
                     | "auto_stage"
                     | "trim"
+                    | "resupply_accepted"
             ) {
                 rejected.push(&GString::from(&key));
             }

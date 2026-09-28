@@ -10603,7 +10603,8 @@ pub fn jp_journey_cost(
 /// `days` is `totalDays ?? days` for the same reason the reference prefers
 /// it: wages and upkeep are paid on calendar days, rest days included.
 pub fn jp_plan_cost(journey: &JpJourneyPlan, plan: &JpPlan) -> Option<JourneyCost> {
-    if journey.blocked_idx.is_some() || journey.results.is_empty() {
+    // `supply_block` (Ruling BS) is a block too: there is no trip to price.
+    if journey.blocked_idx.is_some() || journey.supply_block.is_some() || journey.results.is_empty() {
         return None;
     }
     let legs: Vec<JourneyLeg> = journey
@@ -11261,6 +11262,11 @@ pub struct JpPlan {
     /// an overloaded Walking party into a Baggage Train, or must it report the
     /// overload and change nothing? Defaults to the reference's own `false`.
     pub auto_promote: bool,
+    /// Ruling BS: the resupply stops the user accepted from
+    /// [`jp_resupply_walk`]'s suggestions. Journey-wide, never per stage
+    /// ([`jp_effective_stage_plan`] clones it through untouched), and empty
+    /// by default -- an empty list plans exactly as before the ruling.
+    pub accepted_resupply: Vec<JpAcceptedStop>,
 }
 
 /// One entry of `plan.stageOverrides` (reference: a sparse
@@ -11326,6 +11332,7 @@ impl Default for JpPlan {
             season_drift: true,
             rest_cadence: None,
             auto_promote: false,
+            accepted_resupply: Vec::new(),
         }
     }
 }
@@ -11783,6 +11790,15 @@ pub struct JpLandCalc {
     pub desert_tier: Option<(&'static str, bool)>,
     /// The speed chain, term by term ([`JpTerm`]).
     pub trace: Vec<JpTerm>,
+    /// Ruling BS: days of provisions the party actually carries between
+    /// restocks -- `supply_days`, unless the capacity cap shortened it
+    /// (`carry_capped`). `None` where no
+    /// provisions are carried at all: `carry_food` off, Haste (which skips
+    /// the loop that computes it), or a party with no carrying capacity.
+    pub carry_days: Option<f64>,
+    /// `true` when `carry_days` was shortened because a full interval would
+    /// not fit -- the stage then needs more stops than `supply_days` implies.
+    pub carry_capped: bool,
 }
 
 /// `jpCalcWater`'s return (reference line 19124), same `formula` omission.
@@ -11994,14 +12010,38 @@ pub fn jp_calc_land_ex(
     } else {
         0.0
     };
-    // v1.63: a stage this overloaded cannot depart at all, Haste included.
-    // Checked on the un-iterated ratio, whose driver (cargo) never shrinks.
-    if cap.capacity > 0.0 && ratio0 > JP_LOAD_INVALID_RATIO {
+    // v1.63: a stage this overloaded cannot depart at all. Checked on the
+    // un-iterated ratio, whose driver (cargo) never shrinks.
+    //
+    // Ruling BS (2026-09-28, DECISIONS §7p): the reference tested the GROSS
+    // mass here -- cargo plus a full `supply_days` of unforaged food and
+    // fodder -- so a party the land would feed, or that could restock on the
+    // way, was refused before foraging or resupply was ever considered. Off
+    // Haste the test is now on the cargo alone, the one part of the load no
+    // resupply stop lightens; the supplies are judged after foraging by the
+    // convergence loop below and, route-wide, by `jp_resupply_walk`. Haste
+    // keeps the gross test: a forced march forgoes foraging
+    // (`forage` is the identity above) and does not stop to trade.
+    let cargo_ratio = if cap.capacity > 0.0 {
+        cap.cargo / cap.capacity
+    } else {
+        0.0
+    };
+    if cap.capacity > 0.0 && is_haste && ratio0 > JP_LOAD_INVALID_RATIO {
         return Err(blocked(format!(
             "Overloaded {}% of capacity ({} carried vs {} rated) — no party departs in this state. \
              Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop.",
             js_fixed(ratio0 * 100.0, 0),
             jp_fmt_kg(cap.total_mass),
+            jp_fmt_kg(cap.capacity)
+        )));
+    }
+    if cap.capacity > 0.0 && !is_haste && cargo_ratio > JP_LOAD_INVALID_RATIO {
+        return Err(blocked(format!(
+            "The cargo alone is {}% of capacity ({} carried vs {} rated) — no party departs in this state, \
+             and no resupply stop lightens cargo. Assign pack animals or a cart/wagon for this stage, or reduce cargo.",
+            js_fixed(cargo_ratio * 100.0, 0),
+            jp_fmt_kg(cap.cargo),
             jp_fmt_kg(cap.capacity)
         )));
     }
@@ -12077,6 +12117,18 @@ pub fn jp_calc_land_ex(
     let grazing_mod = jp_season_mods(season).map(|(_, g)| g).unwrap_or(1.0);
     let settlement_days = plan.supply_days.max(1) as f64;
     let mut water_gap_days = water_days_at(base_daily);
+    // Ruling BS: the provisions interval the party actually carries, as the
+    // loop last computed it. `carry_days` stays `None` when no provisions are
+    // carried at all (`carry_food` off, Haste, or no capacity) -- never a
+    // plausible-looking day count.
+    let mut carry_days: Option<f64> = None;
+    let mut carry_capped = false;
+    // The stage's OWN load was capped (its food for `eff_settlement` did not
+    // fit) -- narrower than `carry_capped`, which also flags a full
+    // `supply_days` pack that would not fit on a stage short enough not to
+    // need one. Only this one may touch the stage's own numbers.
+    let mut stage_capped = false;
+    let mut capped_total_mass = cap.total_mass;
 
     if !is_haste && cap.capacity > 0.0 {
         // convergence loop: supplies for the ACTUAL trip length <-> load
@@ -12097,11 +12149,12 @@ pub fn jp_calc_land_ex(
             };
             let animal_food_net =
                 (cap.animal_food_daily + cap.draft_food_daily) * (1.0 - grazed_off);
-            let food_needed = if carry_food {
-                (human_food_net + animal_food_net) * eff_settlement
-            } else {
-                0.0
-            };
+            // Ruling BS, "carry only the gap": both terms are already net of
+            // what the land provides -- `forage.reduction` (biome x season x
+            // wildlife x terrain) off the people's food, `grazed_off` (biome
+            // grazing x season) off the animals' -- and this was already true
+            // before the ruling. What the ruling changes is the next step.
+            let food_day = human_food_net + animal_food_net;
             // v1.84: outside an arid biome water contributes zero mass -- it
             // is assumed abundant and collectable as the party goes.
             let water_needed = if is_desert {
@@ -12114,7 +12167,40 @@ pub fn jp_calc_land_ex(
             } else {
                 0.0
             };
+            // Ruling BS, "retire the hard block": when a full provisions
+            // interval would not fit, the party carries only what does and
+            // restocks sooner -- the interval shrinks until the load is exactly
+            // the rated capacity, and `jp_resupply_walk` places the extra stops
+            // on the real route. Applied only while the cargo and this
+            // stretch's water fit on their own: food is the one term a stop
+            // shortens. When they do not, no stop inside the stretch helps
+            // and the pre-ruling overload path below stands, unchanged.
+            let fits = carry_food && food_day > 0.0 && cap.cargo + water_needed < cap.capacity;
+            // Days of food the capacity left over after cargo and water holds.
+            let fit_days = if fits {
+                (cap.capacity - cap.cargo - water_needed) / food_day
+            } else {
+                f64::INFINITY
+            };
+            let mut carry = eff_settlement;
+            let mut capped = false;
+            if fits && cap.cargo + food_day * eff_settlement + water_needed > cap.capacity {
+                carry = fit_days;
+                capped = true;
+            }
+            let food_needed = if carry_food { food_day * carry } else { 0.0 };
             let total_mass = cap.cargo + food_needed + water_needed;
+            if carry_food {
+                // What leaves the last restock point: the full `supply_days`
+                // unless that does not fit. Deliberately not `carry`, whose
+                // `min(days)` (via `eff_settlement`) is this stage's own
+                // accounting -- it only has to feed itself -- and would read
+                // a short stage as a short range to the route walk.
+                carry_days = Some(settlement_days.min(fit_days));
+            }
+            carry_capped = capped || fit_days < settlement_days;
+            stage_capped = capped;
+            capped_total_mass = total_mass;
             load_ratio = total_mass / cap.capacity;
             let pen = jp_load_penalty(load_ratio).load_mod;
             load_mod_final = pen;
@@ -12124,8 +12210,36 @@ pub fn jp_calc_land_ex(
                 daily_km = next;
                 days = new_days;
                 water_gap_days = water_days_at(daily_km);
-                resupply = Some(jp_assess_resupply(
-                    total_mass,
+                resupply = Some(jp_capped_resupply(
+                    jp_assess_resupply(
+                        total_mass,
+                        cap.capacity,
+                        days,
+                        daily_km,
+                        if is_desert {
+                            water_gap_days
+                        } else {
+                            f64::INFINITY
+                        },
+                        if capped { carry } else { settlement_days },
+                        carry_food,
+                        if is_desert { dry_km } else { 0.0 },
+                    ),
+                    capped,
+                ));
+                break;
+            }
+            daily_km = next;
+            days = new_days;
+        }
+        if resupply.is_none() {
+            // Non-convergence fallback. Uncapped, this is the pre-ruling call
+            // on the gross mass, byte for byte; capped, the gross mass is
+            // exactly the full interval the party no longer carries, so the
+            // loop's own last (capped) mass and interval are assessed instead.
+            resupply = Some(jp_capped_resupply(
+                jp_assess_resupply(
+                    if stage_capped { capped_total_mass } else { cap.total_mass },
                     cap.capacity,
                     days,
                     daily_km,
@@ -12134,29 +12248,14 @@ pub fn jp_calc_land_ex(
                     } else {
                         f64::INFINITY
                     },
-                    settlement_days,
+                    match (stage_capped, carry_days) {
+                        (true, Some(c)) => c,
+                        _ => settlement_days,
+                    },
                     carry_food,
                     if is_desert { dry_km } else { 0.0 },
-                ));
-                break;
-            }
-            daily_km = next;
-            days = new_days;
-        }
-        if resupply.is_none() {
-            resupply = Some(jp_assess_resupply(
-                cap.total_mass,
-                cap.capacity,
-                days,
-                daily_km,
-                if is_desert {
-                    water_gap_days
-                } else {
-                    f64::INFINITY
-                },
-                settlement_days,
-                carry_food,
-                if is_desert { dry_km } else { 0.0 },
+                ),
+                stage_capped,
             ));
         }
     } else if cap.capacity > 0.0 {
@@ -12180,19 +12279,34 @@ pub fn jp_calc_land_ex(
     // water math actually converges to -- the loop's own feedback (slower ->
     // longer gap -> more water -> slower) can converge at a stable but
     // physically absurd load the ratio0 check never sees.
+    //
+    // Ruling BS: this is now reached only where the food cap above could not
+    // apply -- the cargo and this stretch's own water already fill the
+    // party -- so the message names that stretch, which is the ruling's one
+    // remaining reason to block. The desert case is the waterless run
+    // between two drinking-water points; the other is cargo that already
+    // fills the party before any food is packed.
     if !is_haste && cap.capacity > 0.0 && load_ratio > JP_LOAD_INVALID_RATIO {
         let pct = js_fixed(load_ratio * 100.0, 0);
         let carried = jp_fmt_kg(load_ratio * cap.capacity);
         let rated = jp_fmt_kg(cap.capacity);
-        return Err(blocked(if is_desert {
+        return Err(blocked(if is_desert && dry_km > 0.0 {
+            format!(
+                "The {} km waterless stretch on this stage (~{} d between water sources) cannot be carried: its water, even after foraging, pushes the load to {pct}% of capacity ({carried} vs {rated} rated), and no resupply point lies inside it. \
+                 Reduce cargo, add pack animals, reroute past water, or cross in a wetter season.",
+                js_fixed(dry_km, 0),
+                js_fixed(water_days_at(daily_km), 1)
+            )
+        } else if is_desert {
             format!(
                 "Carrying enough water for this stretch pushes the load to {pct}% of capacity ({carried} vs {rated} rated) — no party departs in this state. \
                  Reduce cargo, add pack animals, reroute past water, or cross in a wetter season."
             )
         } else {
             format!(
-                "Supplies for this stretch push the load to {pct}% of capacity ({carried} vs {rated} rated) — no party departs in this state. \
-                 Reduce cargo, add pack animals, or split the load across a resupply stop."
+                "The cargo already fills this party ({} vs {rated} rated), so even the shortest stretch of supplies pushes the load to {pct}% of capacity — no party departs in this state, and no resupply stop lightens cargo. \
+                 Reduce cargo or add pack animals.",
+                jp_fmt_kg(cap.cargo)
             )
         }));
     }
@@ -12255,7 +12369,27 @@ pub fn jp_calc_land_ex(
         portage,
         desert_tier,
         trace,
+        carry_days,
+        carry_capped,
     })
+}
+
+/// Ruling BS: re-labels a resupply assessment whose interval was shortened
+/// by the capacity cap in [`jp_calc_land_ex`]. `jp_assess_resupply` names the
+/// food interval `"food / settlement"` because in the reference that interval
+/// is always the party's own `supplyDays`; once it is the capacity cap
+/// instead, calling it a settlement interval would name a constraint it did
+/// not measure (the v1.51 defect `JpResupply::cause` exists to prevent).
+/// Identity when `capped` is false, so every uncapped stage is untouched.
+fn jp_capped_resupply(mut r: JpResupply, capped: bool) -> JpResupply {
+    if capped && r.limited_by.as_deref() == Some("food / settlement") {
+        r.limited_by = Some("capacity".to_string());
+        r.verdict = r.verdict.replace(
+            "Binding: food / settlement.",
+            "Binding: capacity — the party carries only what it can lift and restocks on the way.",
+        );
+    }
+    r
 }
 
 /// `jpCalcWater` (reference line 19124, a port of V1.915's `calcWater`): one
@@ -12693,6 +12827,301 @@ pub fn jp_resupply_reach(
             1.0
         },
     })
+}
+
+// ----------------------------------------------------------------------------
+// Ruling BS (owner, 2026-09-28): suggested resupply stops.
+//
+// No reference ancestor -- a divergence by addition that also retires the
+// reference's all-or-nothing carry block (DECISIONS §7p). `jp_calc_land_ex`
+// sizes each stage's carried provisions (net of foraging and grazing, capped
+// at the party's capacity); this walks the real route with those ranges and
+// says where the party must restock, which the reference never located.
+//
+// **What restocks here, and what does not need a stop.** The ruling names
+// three kinds of stop. Only a settlement is ever *suggested*, because in this
+// model the other two restock continuously and a halt adds nothing:
+// * water is carried only across each stage's measured dry run
+//   (`jp_stage_dry_km`) and refilled at every river, lake or oasis the route
+//   passes -- the stage calculator already assumes it, and already blocks a
+//   dry run that cannot be carried, naming that stretch;
+// * fodder is already net of grazing (`grazed_off`, biome grazing x season x
+//   the party's grazing mode), and fodder and food are sized to the same
+//   interval, so refilling fodder alone never lengthens how far the
+//   provisions last -- the food runs out at the same point regardless.
+// A settlement restocks everything, trade included (the owner's "Trade is
+// possible").
+// ----------------------------------------------------------------------------
+
+/// Calendar days an accepted settlement resupply stop adds: one market day to
+/// buy, pack and load. A labelled judgement, not a measurement -- the same
+/// order as the reference's own `JP_TRANSSHIP_DAYS` handling allowance.
+pub const JP_RESUPPLY_STOP_DAYS: f64 = 1.0;
+
+/// How far off the route a settlement may lie and still be suggested as a
+/// resupply stop, as a multiple of [`jp_stop_radius_cells`] (the radius at
+/// which a settlement already counts as *on* the route). Judgement: three
+/// times the pass-through radius is a short detour, not a new route.
+const JP_RESUPPLY_NEAR_MULT: f64 = 3.0;
+
+/// One stop the user accepted (Ruling BS), as it is stored with a plan and
+/// saved with a journey. `key` is the suggestion's own
+/// [`JpResupplySuggestion::key`]; `x`/`y` are the grid coordinates of the
+/// route point the stop is taken at, projected back onto the route's nearest
+/// point when the plan is walked.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpAcceptedStop {
+    pub key: String,
+    /// `"settlement"` -- the one kind [`jp_resupply_walk`] suggests. Kept as
+    /// a string, not an enum, so a saved journey written by a later build
+    /// with more kinds still loads; an unknown kind restocks nothing.
+    pub kind: String,
+    /// The settlement's name as the suggestion carried it, for display.
+    pub name: String,
+    pub x: f64,
+    pub y: f64,
+}
+
+/// A resupply stop [`jp_resupply_walk`] proposes: the last point before the
+/// party's carried provisions run out at which it can restock.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpResupplySuggestion {
+    /// Stable across replans of the same route and party: `"resupply:"` plus
+    /// the settlement's [`jp_stop_key`].
+    pub key: String,
+    /// `"settlement"`.
+    pub kind: &'static str,
+    pub name: String,
+    /// Grid position of the route point the stop is taken at (`pts[point]`);
+    /// the settlement itself may lie just off the route, within
+    /// `JP_RESUPPLY_NEAR_MULT` pass-through radii.
+    pub x: f64,
+    pub y: f64,
+    /// That route point's index, and its distance along the route.
+    pub point: usize,
+    pub at_km: f64,
+    /// What the stop restocks. A settlement restocks everything, by trade.
+    pub restocks: &'static [&'static str],
+    /// Calendar days the stop adds ([`JP_RESUPPLY_STOP_DAYS`]).
+    pub days: f64,
+    /// Day-wages the stop adds: its days at the same per-day rates
+    /// `jp_journey_cost` charges (wages, animal and vehicle upkeep). The
+    /// provisions bought are not priced -- the cost model has no food price.
+    pub cost: f64,
+    pub accepted: bool,
+}
+
+/// The one reason Ruling BS still blocks a journey: a stretch between two
+/// possible resupply points that the party cannot carry, even after foraging.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpSupplyBlock {
+    /// The stretch, as distances along the route: from the last restock (the
+    /// start of the route, a settlement, or a stop) to where the carried
+    /// provisions run out with no restock point reachable before it.
+    pub from_km: f64,
+    pub to_km: f64,
+    /// How far the party's provisions last on the stage where they ran out.
+    pub range_km: f64,
+    pub reason: String,
+}
+
+/// [`jp_resupply_walk`]'s output.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct JpResupplyWalk {
+    /// Every stop the route needs, accepted or not, in route order.
+    pub suggestions: Vec<JpResupplySuggestion>,
+    pub block: Option<JpSupplyBlock>,
+}
+
+const JP_RESTOCKS_ALL: &[&str] = &["food", "fodder", "water"];
+
+/// Ruling BS: walks the route with each land stage's carried range
+/// (`carry_days x daily_km`) and returns the resupply stops it needs.
+///
+/// Restock points are the route's start, every settlement the route threads
+/// ([`civ_passed_settlements_at`]) and every accepted stop. Where the
+/// provisions carried since the last restock would run out, the walk looks
+/// back over that stretch for the **last** route point with a settlement
+/// within `JP_RESUPPLY_NEAR_MULT x jp_stop_radius_cells` and suggests it --
+/// then walks on as though it were taken, so every later suggestion is the
+/// one the route needs *given* the earlier ones. If no such point exists the
+/// stretch is uncarriable and the walk stops with a [`JpSupplyBlock`].
+///
+/// Only land stages computed with carried provisions consume the range; a
+/// water leg is provisioned from its own hold (`jp_calc_water`), a party that
+/// carries no food has nothing to run out of, and a journey with a blocked
+/// stage is already blocked -- the walk returns empty for it rather than
+/// guess past the block.
+pub fn jp_resupply_walk(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    stages: &[JpDerivedStage],
+    results: &[JpLegResult],
+    party: &JpParty,
+    accepted: &[JpAcceptedStop],
+) -> JpResupplyWalk {
+    let n = pts.len();
+    let mut out = JpResupplyWalk::default();
+    if n < 2 || results.iter().any(|r| r.calc.is_err()) {
+        return out;
+    }
+    let gw = world.gw;
+    let cell_km = world.cell_km();
+    let wrap_dx = |dx: f64| -> f64 {
+        let a = dx.abs();
+        if world.world { a.min(gw as f64 - a) } else { a }
+    };
+    // Arc length along the route -- the same wrap-aware step
+    // `jp_resupply_reach` measures with.
+    let mut cum = vec![0.0f64; n];
+    for k in 1..n {
+        let adx = (pts[k].0 - pts[k - 1].0).abs();
+        let dy = pts[k].1 - pts[k - 1].1;
+        cum[k] = cum[k - 1] + adx.min(gw as f64 - adx).hypot(dy) * cell_km;
+    }
+    // Each point's carried range, km: the stage covering it (the later stage
+    // wins at a shared boundary point, which is the one the step INTO that
+    // point is travelled on).
+    let mut range_at: Vec<Option<f64>> = vec![None; n];
+    for (s, r) in stages.iter().zip(results) {
+        let range = r.land().and_then(|l| {
+            l.carry_days
+                .filter(|&c| l.daily_km > 0.0 && c.is_finite())
+                .map(|c| c * l.daily_km)
+        });
+        for slot in range_at.iter_mut().take(s.i1.min(n - 1) + 1).skip(s.i0) {
+            *slot = range;
+        }
+    }
+    let nearest_point = |x: f64, y: f64| -> usize {
+        let mut bi = 0usize;
+        let mut bd = f64::INFINITY;
+        for (k, p) in pts.iter().enumerate() {
+            let d = wrap_dx(p.0 - x).powi(2) + (p.1 - y).powi(2);
+            if d < bd {
+                bd = d;
+                bi = k;
+            }
+        }
+        bi
+    };
+    let mut restock = vec![false; n];
+    restock[0] = true;
+    for (_, pi) in civ_passed_settlements_at(pts, world.places, gw, world.world) {
+        restock[pi.min(n - 1)] = true;
+    }
+    // An accepted stop is a restock point AND stays in the output, marked
+    // accepted, so a UI can list it (and offer to decline it) after the walk
+    // no longer needs to suggest it.
+    let mut accepted_at: Vec<Option<&JpAcceptedStop>> = vec![None; n];
+    for a in accepted {
+        if a.kind == "settlement" {
+            let pi = nearest_point(a.x, a.y);
+            restock[pi] = true;
+            accepted_at[pi] = Some(a);
+        }
+    }
+    let near_r2 = (jp_stop_radius_cells(gw) * JP_RESUPPLY_NEAR_MULT).powi(2);
+    let settlement_near = |k: usize| -> Option<&JpPlace> {
+        let (px, py) = pts[k];
+        let mut best: Option<&JpPlace> = None;
+        let mut bd = near_r2;
+        for p in world.places {
+            let d = wrap_dx(p.x - px).powi(2) + (p.y - py).powi(2);
+            if d <= bd {
+                bd = d;
+                best = Some(p);
+            }
+        }
+        best
+    };
+    let per_day_cost = party.group_size.max(1) as f64 * JP_COST_WAGE_DAY
+        + party.pack_animals() as f64 * JP_COST_ANIMAL_DAY
+        + party.vehicles() as f64 * JP_COST_VEHICLE_DAY;
+    // Position = the ROUTE point the stop is taken at, not the settlement's
+    // own cell: an accepted stop is projected back by nearest route point,
+    // and the settlement's nearest point can lie past where the provisions
+    // run out, which would place the accepted stop too late to help.
+    let stop = |key: String, name: String, point: usize, accepted: bool| JpResupplySuggestion {
+        key,
+        kind: "settlement",
+        name,
+        x: pts[point].0,
+        y: pts[point].1,
+        point,
+        at_km: cum[point],
+        restocks: JP_RESTOCKS_ALL,
+        days: JP_RESUPPLY_STOP_DAYS,
+        cost: JP_RESUPPLY_STOP_DAYS * per_day_cost,
+        accepted,
+    };
+
+    // `used[k]`: the fraction of a full carried load eaten by point k since
+    // the last restock. A restock point resets it to zero.
+    let mut used = vec![0.0f64; n];
+    let mut last = 0usize;
+    let mut k = 1usize;
+    while k < n {
+        let du = match range_at[k] {
+            Some(r) if r > 0.0 => (cum[k] - cum[k - 1]) / r,
+            _ => 0.0,
+        };
+        let u = used[k - 1] + du;
+        // 1e-9: a stretch that exactly exhausts the load at a restock point
+        // is carriable, and float accumulation must not make it otherwise.
+        if u > 1.0 + 1e-9 {
+            let found = (last + 1..k).rev().find_map(|j| settlement_near(j).map(|p| (j, p)));
+            match found {
+                Some((j, p)) => {
+                    let key = format!("resupply:{}", jp_stop_key(&p.name, &p.kind, p.x, p.y));
+                    let name = if p.name.is_empty() { "settlement".to_string() } else { p.name.clone() };
+                    // Always `false`: an accepted stop is a restock point,
+                    // so the walk never runs out before it.
+                    out.suggestions.push(stop(key, name, j, false));
+                    // Walk on as though the stop is taken: every later
+                    // suggestion is then the one the route needs given it.
+                    used[j] = 0.0;
+                    last = j;
+                    k = j + 1;
+                    continue;
+                }
+                None => {
+                    let range = range_at[k].unwrap_or(0.0);
+                    out.block = Some(JpSupplyBlock {
+                        from_km: cum[last],
+                        to_km: cum[k],
+                        range_km: range,
+                        reason: format!(
+                            "Supplies run out between km {} and km {}: the party can carry only {} km of provisions after foraging, and no settlement lies on or near that stretch to restock at. \
+                             Add pack animals, reduce cargo, forage harder, or reroute through a settlement.",
+                            js_fixed(cum[last], 0),
+                            js_fixed(cum[k], 0),
+                            js_fixed(range, 0)
+                        ),
+                    });
+                    break;
+                }
+            }
+        }
+        if restock[k] {
+            if let Some(a) = accepted_at[k] {
+                out.suggestions.push(stop(a.key.clone(), a.name.clone(), k, true));
+            }
+            used[k] = 0.0;
+            last = k;
+        } else {
+            used[k] = u;
+        }
+        k += 1;
+    }
+    // A block stops the walk at `k`; accepted stops beyond it are still the
+    // user's choices and are listed, so declining one stays possible.
+    for (kk, a) in accepted_at.iter().enumerate().skip(k) {
+        if let Some(a) = a {
+            out.suggestions.push(stop(a.key.clone(), a.name.clone(), kk, true));
+        }
+    }
+    out
 }
 
 // ----------------------------------------------------------------------------
@@ -14425,6 +14854,17 @@ pub struct JpJourneyPlan {
     pub has_desert: bool,
     pub has_water: bool,
     pub has_land: bool,
+    /// Ruling BS ([`jp_resupply_walk`]): every resupply stop the route needs,
+    /// accepted or pending, in route order. Empty when the carried
+    /// provisions reach every restock point on their own.
+    pub resupply_suggestions: Vec<JpResupplySuggestion>,
+    /// Ruling BS: the uncarriable stretch, when there is one. A journey with
+    /// one is blocked -- `total_days` is `None` -- even with no stage
+    /// blocked, since no honest total exists past it.
+    pub supply_block: Option<JpSupplyBlock>,
+    /// Calendar days the accepted stops add (`0.0` when none are accepted);
+    /// already inside `total_days`.
+    pub resupply_stop_days: f64,
 }
 
 /// One leg's share of [`JpJourneyPlan`]'s supply forecast (`food_kg`,
@@ -14824,10 +15264,24 @@ pub fn jp_plan_full(
     } else {
         rest.rest_days
     };
-    let total_days = if blocked_idx.is_some() {
+    // Ruling BS: where the route needs the party to restock, and whether any
+    // stretch is uncarriable. Accepted stops add their own calendar days, as
+    // layovers do; a plan with none accepted adds nothing, so its total is
+    // the pre-ruling sum exactly (the `+` is skipped, not `+ 0.0`).
+    let resupply =
+        jp_resupply_walk(world, pts, &stages, &results, &plan.party, &plan.accepted_resupply);
+    // A fold from `+0.0`, not `.sum()`: an empty float `sum()` is `-0.0`,
+    // which a UI prints as "-0".
+    let resupply_stop_days: f64 = resupply
+        .suggestions
+        .iter()
+        .filter(|s| s.accepted)
+        .fold(0.0, |acc, s| acc + s.days);
+    let total_days = if blocked_idx.is_some() || resupply.block.is_some() {
         None
     } else {
-        Some(days + layover_days as f64 + rest_days as f64)
+        let t = days + layover_days as f64 + rest_days as f64;
+        Some(if resupply_stop_days > 0.0 { t + resupply_stop_days } else { t })
     };
 
     let resupply_stages: Vec<ResupplyReachStage> = results
@@ -14899,6 +15353,9 @@ pub fn jp_plan_full(
         seasons_crossed,
         season_drift: stage_mid_day.is_some(),
         resupply_reach,
+        resupply_suggestions: resupply.suggestions,
+        supply_block: resupply.block,
+        resupply_stop_days,
     })
 }
 
@@ -14948,6 +15405,16 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
             level: "blocked",
             label: "Impassable",
             text,
+            reasons: Vec::new(),
+        };
+    }
+    // Ruling BS: the one supply condition that still blocks -- a stretch
+    // between two possible resupply points the party cannot carry.
+    if let Some(b) = &plan.supply_block {
+        return JpVerdict {
+            level: "blocked",
+            label: "Impassable",
+            text: b.reason.clone(),
             reasons: Vec::new(),
         };
     }
@@ -15027,19 +15494,30 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
         );
     }
 
+    // Ruling BS: the stops the route needs and the user has not accepted.
+    // This replaces v1.51's "the longest stretch with no settlement is N km
+    // but the party can only carry M km" -- that compared the gap with a
+    // requirement; `jp_resupply_walk` goes on to say where to restock, and a
+    // gap nothing can bridge is a `supply_block` (handled above), not a vote.
+    let pending: Vec<&JpResupplySuggestion> =
+        plan.resupply_suggestions.iter().filter(|s| !s.accepted).collect();
+    if let Some(first) = pending.first() {
+        push(
+            3,
+            format!(
+                "the carried supplies run out before the next settlement — {} suggested resupply stop(s) not yet accepted, the first at {} (km {})",
+                pending.len(),
+                first.name,
+                js_fixed(first.at_km, 0)
+            ),
+        );
+    }
     // v1.51: the requirement measured against the map ([`jp_resupply_reach`]) --
     // the real "settlements in reach" test, which until then did not exist.
     if let Some(rr) = &plan.resupply_reach {
         if rr.unmet {
-            push(
-                3,
-                format!(
-                    "the longest stretch with no settlement is {} km, but the party can only carry {} km of supplies ({}× short)",
-                    js_fixed(rr.max_gap_km, 0),
-                    js_fixed(rr.required_km, 0),
-                    js_fixed(rr.shortfall, 1)
-                ),
-            );
+            // Superseded by the walk above (Ruling BS): an unmet reach is
+            // now either a pending suggestion or a supply block.
         } else if rr.carry_food && rr.shortfall > 0.75 {
             push(
                 1,
@@ -15186,7 +15664,7 @@ pub struct JpConfidence {
 ///
 /// `None` on a blocked or non-finite journey -- there is nothing to band.
 pub fn jp_confidence(plan: &JpJourneyPlan) -> Option<JpConfidence> {
-    if plan.blocked_idx.is_some() || !plan.days.is_finite() {
+    if plan.blocked_idx.is_some() || plan.supply_block.is_some() || !plan.days.is_finite() {
         return None;
     }
     let d = plan.days;
@@ -20955,10 +21433,18 @@ mod tests {
         };
         let err = jp_calc_land(&st, &p).expect_err("blocked");
         assert!(!err.seasonal);
+        // RE-WORDED 2026-09-28, Ruling BS: still blocked, at the same 340%
+        // -- the cargo and this dry run's water alone exceed capacity, so no
+        // food cap can help and no stop lies inside the run -- but the
+        // message now names the stretch, which is the ruling's one remaining
+        // reason to block. Was: "Carrying enough water for this stretch
+        // pushes the load to 340% of capacity (26.5 t vs 7.8 t rated) — no
+        // party departs in this state. Reduce cargo, ...".
         assert_eq!(
             err.reason,
-            "Carrying enough water for this stretch pushes the load to 340% of capacity (26.5 t vs 7.8 t rated) — \
-             no party departs in this state. Reduce cargo, add pack animals, reroute past water, or cross in a wetter season."
+            "The 180 km waterless stretch on this stage (~21.4 d between water sources) cannot be carried: its water, even after foraging, \
+             pushes the load to 340% of capacity (26.5 t vs 7.8 t rated), and no resupply point lies inside it. \
+             Reduce cargo, add pack animals, reroute past water, or cross in a wetter season."
         );
     }
 
@@ -20967,7 +21453,7 @@ mod tests {
         // Same party on hardpack with "Sparse Wells" chosen by hand: the
         // tier's own 6-day gap wins over the stage's measured run, which is
         // what makes the dropdown an override rather than a suggestion. The
-        // stage computes -- but its resupply verdict is infeasible.
+        // stage computes, with its carried food cut to what fits (Ruling BS).
         let st = JpStage {
             km: 300.0,
             terrain: "Desert Hardpack".to_string(),
@@ -20988,12 +21474,21 @@ mod tests {
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
+        // RE-BASELINED 2026-09-28, Ruling BS (DECISIONS §7p) -- by design.
+        // Was: daily_km 20.333979989333333, days 14.753629154615675,
+        // load_ratio 1.1830769230769231, resupply infeasible (cause "water",
+        // "No water for 180 km (~6.0 d) — carrying that reserve is 1.4 t over
+        // capacity..."). The cargo and the 6-day water reserve fit (the food
+        // was what tipped it over), so the party now carries only the food
+        // that fits -- 0.674 d -- at exactly 100% load, which lifts the load
+        // penalty and the speed, and restocks every ~16 km instead of being
+        // refused. col_km, col_mod and the water gap are unchanged.
         assert_land(
             &c,
             "sparse wells",
-            20.333979989333333,
-            14.753629154615675,
-            1.1830769230769231,
+            23.6382517376,
+            12.691293896443591,
+            1.0,
             0.04133333333333333,
             0.9983764623695736,
             6.0,
@@ -21001,13 +21496,16 @@ mod tests {
         assert!(c.is_desert);
         assert_eq!(c.desert_tier, Some(("Sparse Wells", false)));
         near(c.dry_km, 180.0, "dry_km");
+        assert!(c.carry_capped);
+        near(c.carry_days.expect("carries food"), 0.6739811912225693, "carry_days");
         let r = c.resupply.expect("has capacity");
-        assert!(!r.feasible);
-        assert_eq!(r.cause, Some("water"));
+        assert!(r.feasible);
+        assert_eq!(r.cause, None);
+        assert_eq!(r.limited_by.as_deref(), Some("capacity"));
+        assert_eq!(r.stops_needed, Some(18));
         assert_eq!(
             r.verdict,
-            "No water for 180 km (~6.0 d) — carrying that reserve is 1.4 t over capacity. \
-             No party size fixes this: reroute past a river or lake, or cross in a wetter season."
+            "18 resupply stops — every ~16 km (~0.7 d). Binding: capacity — the party carries only what it can lift and restocks on the way."
         );
     }
 
@@ -21062,6 +21560,11 @@ mod tests {
         );
         // v1.63: 40 t of cargo against 60 kg of porter capacity cannot depart
         // at any speed, and is caught before the convergence loop ever runs.
+        // RE-WORDED 2026-09-28, Ruling BS: the pre-loop test now reads the
+        // cargo alone (66667%), not cargo plus a full unforaged supply
+        // interval (was "Overloaded 66700% of capacity (40.0 t carried vs
+        // 60 kg rated) — ... or split the load across a resupply stop.") --
+        // advice a stop cannot honour for cargo.
         let hopeless = JpPlan {
             party: JpParty {
                 group_size: 2,
@@ -21074,8 +21577,8 @@ mod tests {
             jp_calc_land(&jp_m4_stage(), &hopeless)
                 .expect_err("blocked")
                 .reason,
-            "Overloaded 66700% of capacity (40.0 t carried vs 60 kg rated) — no party departs in this state. \
-             Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop."
+            "The cargo alone is 66667% of capacity (40.0 t carried vs 60 kg rated) — no party departs in this state, \
+             and no resupply stop lightens cargo. Assign pack animals or a cart/wagon for this stage, or reduce cargo."
         );
     }
 
@@ -22802,7 +23305,11 @@ mod tests {
         .expect("plan")
     }
 
-    /// The one edit every non-severe probe needs.
+    /// The one edit every non-severe probe needs. Since Ruling BS
+    /// (2026-09-28) the m5 route's unmet reach surfaces as two pending
+    /// resupply suggestions rather than through `rr.unmet`, so "fixed" also
+    /// means they are accepted -- the same state a user reaches by accepting
+    /// both.
     fn m6_fix_rr(p: &mut JpJourneyPlan) {
         let rr = p
             .resupply_reach
@@ -22810,6 +23317,9 @@ mod tests {
             .expect("the route states a requirement");
         rr.unmet = false;
         rr.shortfall = 0.1;
+        for s in &mut p.resupply_suggestions {
+            s.accepted = true;
+        }
     }
 
     fn m6_short(p: &mut JpJourneyPlan) {
@@ -22826,10 +23336,14 @@ mod tests {
             v.text,
             "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above."
         );
+        // RE-BASELINED 2026-09-28, Ruling BS: the first reason was "the
+        // longest stretch with no settlement is 198 km, but the party can
+        // only carry 70 km of supplies (2.8× short)". The walk now says where
+        // to restock instead; still severe until the user accepts the stops.
         assert_eq!(
             v.reasons,
             vec![
-                "the longest stretch with no settlement is 198 km, but the party can only carry 70 km of supplies (2.8× short)".to_string(),
+                "the carried supplies run out before the next settlement — 2 suggested resupply stop(s) not yet accepted, the first at Carrowden (km 629)".to_string(),
                 "a multi-week duration, where small failures compound".to_string(),
             ]
         );
@@ -22891,8 +23405,8 @@ mod tests {
 
         // v1.51's "just reach" band: met, but only barely.
         let v = probe(&|p| {
+            m6_fix_rr(p);
             let rr = p.resupply_reach.as_mut().unwrap();
-            rr.unmet = false;
             rr.shortfall = 0.8;
             m6_short(p);
         });
@@ -23052,13 +23566,172 @@ mod tests {
         assert!(p.blocked_idx.is_some());
         let v = jp_verdict(&p);
         assert_eq!((v.level, v.label), ("blocked", "Impassable"));
+        // RE-WORDED 2026-09-28, Ruling BS: still blocked, at the same 156%,
+        // but for the reason that survives the ruling -- 900 kg of cargo
+        // against 740 kg of capacity, which no resupply stop lightens. Was:
+        // "Overloaded 156% of capacity (1.2 t carried vs 740 kg rated) — ...
+        // or split the load across a resupply stop."
         assert_eq!(
             v.text,
-            "Overloaded 156% of capacity (1.2 t carried vs 740 kg rated) — no party departs in this state. Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop."
+            "The cargo already fills this party (900 kg vs 740 kg rated), so even the shortest stretch of supplies pushes the load to 156% of capacity — no party departs in this state, and no resupply stop lightens cargo. Reduce cargo or add pack animals."
         );
         assert!(v.reasons.is_empty());
         // A blocked journey has no honest band on its day count.
         assert_eq!(jp_confidence(&p), None);
+    }
+
+    // ========================================================================
+    // Ruling BS (owner, 2026-09-28): foraging first, suggested resupply stops,
+    // and the all-or-nothing carry block retired. No reference ancestor, so
+    // these are behavioural tests, not goldens.
+    // ========================================================================
+
+    /// Two walkers with 30 kg of cargo on the m4 stage: 60 kg of porter
+    /// capacity, so a long supply interval cannot fit.
+    fn bs_walkers(supply_days: i64, foraging: &str) -> JpPlan {
+        JpPlan {
+            party: JpParty { group_size: 2, cargo_kg: 30.0, ..JpParty::default() },
+            transport: "Walking".to_string(),
+            supply_days,
+            foraging: foraging.to_string(),
+            ..jp_m4_plan()
+        }
+    }
+
+    #[test]
+    fn bs_foraging_is_subtracted_before_the_load_is_judged() {
+        // Protects: "carry only the gap" -- what the land provides comes off
+        // the carried load (it did before the ruling too; this pins it).
+        let none = jp_calc_land(&jp_m4_stage(), &bs_walkers(10, "None")).expect("computes");
+        let active = jp_calc_land(&jp_m4_stage(), &bs_walkers(10, "Active")).expect("computes");
+        assert!(
+            active.load_ratio < none.load_ratio,
+            "foraging must lighten the carried load: {} vs {}",
+            active.load_ratio,
+            none.load_ratio
+        );
+    }
+
+    #[test]
+    fn bs_a_supply_interval_that_does_not_fit_is_shortened_not_refused() {
+        // Protects: the retired hard block. 40 days of food for two walkers is
+        // ~1.7x their capacity -- refused outright before the ruling
+        // ("Overloaded ...% of capacity"). Now the party carries what fits and
+        // restocks sooner, at exactly its rated capacity.
+        // A stage long enough (1 500 km, ~70 walking days) that its own food
+        // for the interval would not fit either.
+        let long = JpStage { km: 1500.0, ..jp_m4_stage() };
+        let c = jp_calc_land(&long, &bs_walkers(40, "None")).expect("no longer blocked");
+        assert!(c.carry_capped);
+        let carried = c.carry_days.expect("carries food");
+        assert!(carried > 1.0 && carried < 40.0, "carried {carried} d");
+        assert!((c.load_ratio - 1.0).abs() < 1e-9, "load {}", c.load_ratio);
+        let r = c.resupply.expect("has capacity");
+        assert!(r.feasible);
+        assert_eq!(r.limited_by.as_deref(), Some("capacity"));
+        assert!(r.verdict.ends_with("Binding: capacity — the party carries only what it can lift and restocks on the way."));
+
+        // Protects: the cap only engages when the interval does not fit. A
+        // day less than what fits is carried as asked, under capacity.
+        let under = carried.floor() - 1.0;
+        let fits = jp_calc_land(&long, &bs_walkers(under as i64, "None")).expect("computes");
+        assert!(!fits.carry_capped);
+        assert_eq!(fits.carry_days, Some(under));
+        assert!(fits.load_ratio < 1.0);
+        assert_ne!(fits.resupply.expect("has capacity").limited_by.as_deref(), Some("capacity"));
+    }
+
+    #[test]
+    fn bs_the_route_walk_suggests_settlement_stops_and_accepting_them_adds_only_their_time() {
+        // Protects: the suggestions (settlements, in route order, with their
+        // time and cost), acceptance, and that an accepted stop changes only
+        // calendar time -- never a stage's own speed or supplies.
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let a = jp_plan(&world, &m5_pts(), &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert_eq!(a.resupply_suggestions.len(), 2);
+        assert!(a.supply_block.is_none());
+        assert!(a.resupply_suggestions.iter().all(|s| s.kind == "settlement" && !s.accepted));
+        assert!(a.resupply_suggestions[0].at_km < a.resupply_suggestions[1].at_km);
+        assert_eq!(a.resupply_suggestions[0].name, "Carrowden");
+        // 12 people x 1.0 + 10 animals x 0.35 + 2 carts x 0.8 day-wages, for
+        // one day: `jp_journey_cost`'s own per-day rates, added by hand.
+        assert!((a.resupply_suggestions[0].cost - 17.1).abs() < 1e-9);
+        assert_eq!(a.resupply_stop_days, 0.0);
+
+        let accepted: Vec<JpAcceptedStop> = a
+            .resupply_suggestions
+            .iter()
+            .map(|s| JpAcceptedStop { key: s.key.clone(), kind: s.kind.to_string(), name: s.name.clone(), x: s.x, y: s.y })
+            .collect();
+        let plan_b = JpPlan { accepted_resupply: accepted, ..m5_plan() };
+        let b = jp_plan(&world, &m5_pts(), &plan_b, &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert_eq!(b.resupply_suggestions.len(), 2, "accepted stops stay listed");
+        assert!(b.resupply_suggestions.iter().all(|s| s.accepted));
+        assert_eq!(
+            b.resupply_suggestions.iter().map(|s| &s.key).collect::<Vec<_>>(),
+            a.resupply_suggestions.iter().map(|s| &s.key).collect::<Vec<_>>()
+        );
+        assert_eq!(b.results.iter().map(|r| &r.calc).collect::<Vec<_>>(), a.results.iter().map(|r| &r.calc).collect::<Vec<_>>());
+        assert_eq!((b.days, b.food_kg, b.water_l, b.fodder_kg), (a.days, a.food_kg, a.water_l, a.fodder_kg));
+        assert_eq!(b.resupply_stop_days, 2.0);
+        assert!((b.total_days.unwrap() - a.total_days.unwrap() - 2.0).abs() < 1e-9);
+        let (ca, cb) = (jp_plan_cost(&a, &m5_plan()).unwrap(), jp_plan_cost(&b, &plan_b).unwrap());
+        assert!((cb.wages - ca.wages - 24.0).abs() < 1e-9, "two days of 12 wages");
+
+        // The verdict: pending stops are a hard constraint; accepted, gone.
+        let pending = "suggested resupply stop(s) not yet accepted";
+        assert!(jp_verdict(&a).reasons.iter().any(|r| r.contains(pending)));
+        assert!(!jp_verdict(&b).reasons.iter().any(|r| r.contains(pending)));
+    }
+
+    #[test]
+    fn bs_a_journey_blocks_only_on_a_stretch_with_no_resupply_point_and_names_it() {
+        // Protects: the one surviving block. Same route and party as above,
+        // but a world with no settlements at all: the first stretch past the
+        // carried range has nowhere to restock.
+        let f = m5_fields();
+        let world = JpWorld { places: &[], ..m5_world(&f) };
+        let p = jp_plan(&world, &m5_pts(), &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert!(p.blocked_idx.is_none(), "no single stage is blocked");
+        let b = p.supply_block.as_ref().expect("an uncarriable stretch");
+        assert!(b.to_km > b.from_km && b.to_km - b.from_km > b.range_km);
+        assert!(b.reason.starts_with(&format!(
+            "Supplies run out between km {} and km {}",
+            js_fixed(b.from_km, 0),
+            js_fixed(b.to_km, 0)
+        )));
+        assert_eq!(p.total_days, None);
+        assert_eq!(jp_plan_cost(&p, &m5_plan()), None);
+        assert_eq!(jp_confidence(&p), None);
+        let v = jp_verdict(&p);
+        assert_eq!((v.level, v.text.as_str()), ("blocked", b.reason.as_str()));
+
+        // A party that carries no food has nothing to run out of.
+        let fed = JpPlan { carry_food: false, ..m5_plan() };
+        let q = jp_plan(&world, &m5_pts(), &fed, &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert!(q.supply_block.is_none() && q.resupply_suggestions.is_empty());
+    }
+
+    #[test]
+    fn bs_a_plan_that_needs_no_stop_keeps_the_pre_ruling_total() {
+        // Protects: "a plan that needs no stop keeps all its other numbers".
+        // Every golden that pins such a plan (m5_plan_rolls_up_..., the m4
+        // calc_land goldens, the SP-2 progression pins) passed unchanged
+        // across the ruling; this pins the one roll-up the ruling touches:
+        // with no stop, calendar time is exactly the pre-ruling sum, with no
+        // `+ 0.0` in it.
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let plan = JpPlan { carry_food: false, ..m5_plan() };
+        let p = jp_plan(&world, &m5_pts(), &plan, &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert!(p.resupply_suggestions.is_empty() && p.supply_block.is_none());
+        assert_eq!(p.resupply_stop_days, 0.0);
+        assert_eq!(
+            p.total_days.expect("not blocked").to_bits(),
+            (p.days + p.layover_days as f64 + p.rest_days as f64).to_bits()
+        );
+        assert!(p.results.iter().filter_map(|r| r.land()).all(|l| !l.carry_capped));
     }
 
     #[test]

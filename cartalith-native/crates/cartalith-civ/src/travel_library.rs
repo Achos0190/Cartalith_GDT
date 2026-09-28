@@ -735,6 +735,11 @@ pub struct Journey {
     pub party_preset: String,
     pub route: JourneyRoute,
     pub start_year: i64,
+    /// Ruling BS: the resupply stops accepted in the planner when this
+    /// journey was saved, planned into it wherever it is replanned (SP-2's
+    /// progression included). Empty for every journey saved before the
+    /// ruling, which is exactly how those were planned.
+    pub resupply_stops: Vec<crate::JpAcceptedStop>,
 }
 
 // ---------------------------------------------------------------------------

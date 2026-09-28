@@ -658,6 +658,27 @@ struct JourneyDto {
     route: JourneyRouteDto,
     #[serde(default)]
     start_year: i64,
+    /// Ruling BS (2026-09-28): the accepted resupply stops. `default` so a
+    /// document written before the ruling loads with none -- which is how
+    /// those journeys were planned -- and skipped when empty so re-saving
+    /// such a journey writes the same bytes it was read from.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    resupply_stops: Vec<AcceptedStopDto>,
+}
+
+/// One accepted resupply stop (Ruling BS), `cartalith_civ::JpAcceptedStop`
+/// field for field; `at` is the route point the stop is taken at, in grid
+/// coordinates, in the same `[x, y]` pair form the route's own `points` use.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct AcceptedStopDto {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    at: [f64; 2],
 }
 
 /// §9.6's embedded route snapshot -- deliberately a leaner sibling of
@@ -1655,6 +1676,11 @@ fn journey_to_dto(j: &cartalith_civ::travel_library::Journey) -> JourneyDto {
             mode: route_mode_key(j.route.mode).to_string(),
         },
         start_year: j.start_year,
+        resupply_stops: j
+            .resupply_stops
+            .iter()
+            .map(|a| AcceptedStopDto { key: a.key.clone(), kind: a.kind.clone(), name: a.name.clone(), at: [a.x, a.y] })
+            .collect(),
     }
 }
 
@@ -1672,6 +1698,17 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
             mode: route_mode_from(&d.route.mode),
         },
         start_year: d.start_year,
+        resupply_stops: d
+            .resupply_stops
+            .iter()
+            .map(|a| cartalith_civ::JpAcceptedStop {
+                key: a.key.clone(),
+                kind: a.kind.clone(),
+                name: a.name.clone(),
+                x: a.at[0],
+                y: a.at[1],
+            })
+            .collect(),
     }
 }
 
@@ -4905,6 +4942,14 @@ mod tests {
                 mode: cartalith_civ::tools::RouteMode::Mixed,
             },
             start_year: 412,
+            // Ruling BS: one accepted stop, so the new field round-trips too.
+            resupply_stops: vec![cartalith_civ::JpAcceptedStop {
+                key: "resupply:Kessra|town|11|5".to_string(),
+                kind: "settlement".to_string(),
+                name: "Kessra".to_string(),
+                x: 11.5,
+                y: 5.25,
+            }],
         };
         let (next_id, back) = journeys_round_trip(8, std::slice::from_ref(&journey));
         assert_eq!(next_id, 8);
@@ -4921,6 +4966,24 @@ mod tests {
         // The whole point of `PartialEq` on `Journey`/`JourneyRoute`: one
         // assertion that nothing above was a partial check in disguise.
         assert_eq!(*b, journey);
+    }
+
+    /// Protects: `SAVEFILE_COMPAT.md` for Ruling BS's new `resupply_stops`
+    /// member -- a journeys document written before the ruling opens with no
+    /// stops and re-serialises to the very bytes it was read from, so opening
+    /// an old project never silently rewrites it. The fixture is a document
+    /// in the pre-ruling `JourneyDto` shape (its five members, in serde's
+    /// declaration order), not an empty collection.
+    #[test]
+    fn a_pre_ruling_bs_journey_loads_with_no_stops_and_resaves_byte_identically() {
+        let old = r#"{"next_id":8,"journeys":[{"id":7,"name":"The salt road","party_preset":"merchant_caravan","route":{"points":[[10.0,4.0],[11.5,5.25],[13.0,6.0]],"breaks":[0],"length_km":120.5,"mode":"mixed"},"start_year":412}]}"#;
+        let doc: JourneysDoc = serde_json::from_str(old).expect("the pre-ruling shape parses");
+        let journeys: Vec<_> = doc.journeys.iter().map(dto_to_journey).collect();
+        assert_eq!(journeys.len(), 1);
+        assert!(journeys[0].resupply_stops.is_empty());
+        assert_eq!(journeys[0].route.points.len(), 3, "the rest of the journey came through");
+        let again = JourneysDoc { next_id: doc.next_id, journeys: journeys.iter().map(journey_to_dto).collect() };
+        assert_eq!(serde_json::to_string(&again).unwrap(), old);
     }
 
     /// SP-4's "the drawing persists through save/load", through a real

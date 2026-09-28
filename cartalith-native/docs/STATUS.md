@@ -267,6 +267,32 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-28
 
+- **Ruling BS (journey planner: foraging plus suggested resupply stops; the
+  carry-capacity block retired) built — verified by the main loop 2026-09-28 (the staged tree built and tested alone in a worktree, civ and godot; desktop suggested-stops screenshot opened).**
+  `cartalith-civ`: `jp_calc_land_ex` already carried only the net-of-foraging
+  gap (confirmed at the symbol); the pre-loop block now reads cargo alone
+  (Haste keeps the gross test), a full supply interval that does not fit is
+  shortened to what does (`carry_days`/`carry_capped` on `JpLandCalc`,
+  "Binding: capacity"), and the surviving post-loop block names the waterless
+  stretch or the cargo. New `jp_resupply_walk` walks the route and suggests
+  settlement stops (1 d, day-wage cost) or returns a `JpSupplyBlock` naming the
+  uncarriable stretch; `JpPlan::accepted_resupply`, `JpJourneyPlan::
+  {resupply_suggestions, supply_block, resupply_stop_days}`; verdict, cost and
+  confidence read them. Water and pasture stops are **not** suggested: the model
+  already refills water at every drinking-water point and nets grazing off
+  fodder, so neither lengthens the range (stated in code and UI). Saved with the
+  journey: `Journey::resupply_stops`, `entities/journeys.json` member
+  `resupply_stops` (default-empty, skipped when empty — pre-ruling files re-save
+  byte-identical, tested). Bridge: `jp_compute` `resupply_accepted`,
+  `journey_set_resupply`, `journey_get.resupply_stops`. UI: "Resupply stops"
+  results group (accept/decline/remove), route-map squares, timeline segment,
+  time row. Six goldens moved by design (dated disclosures at each). `cargo test
+  -p cartalith-civ -p cartalith-godot`: 2 671 → 2 677 passed, 0 failed, 45
+  ignored; 14/14 mutants killed. Probe `godot-project/_jpresupply_probe.gd`
+  (windowed, desktop and `--vp 1080x2340 --force-touch`): a party the old
+  engine refused (gross 2.38x) gets 2 suggested stops, accepting both takes it
+  from severe to strained at 84 calendar days.
+
 - **Ruling BK annotation-audit census done — verified by the main loop
   2026-09-28 (test and "protects" totals re-counted by grep).** `ANNOTATION_AUDIT.md` (repository root, new) measures every
   crate under `cartalith-native/crates/` plus `godot-project/shell/**/*.gd`

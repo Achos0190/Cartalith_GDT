@@ -681,6 +681,10 @@ mod tests {
             season_drift: false,
             rest_cadence: Some(REST_CADENCE_KEYS[1].into()),
             auto_promote: true,
+            // Ruling BS's accepted stops are not a plan-form pair: they travel
+            // as `jp_compute`'s own `resupply_accepted` key, so the flat
+            // round trip carries none by design.
+            accepted_resupply: Vec::new(),
             party: JpParty { group_size: 12, cargo_kg: 900.0, donkey: 3, mule: 4, camel: 0, horse: 1, carts: 2, wagons: 0, sleds: 1, travois: 5 },
         };
         let (round, rejected) = plan_from_pairs(&flattened(&original));
