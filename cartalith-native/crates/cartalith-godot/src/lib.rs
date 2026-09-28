@@ -10151,7 +10151,14 @@ impl WorldGen {
                 // so a connector never draws before the village it leads to.
                 // On a generated `Way`, `Ancient` is that flag (see `WayType`).
                 let village_addon = w.way_type == cartalith_civ::WayType::Ancient;
-                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false, "village_addon" => village_addon }
+                // `tid`: the stable id the timeline records ways by, so the
+                // Timeline filters can key a live way against `civ_year_diff`
+                // (Exist only, Highlight new; v2.11 lines 15982, 15989).
+                // Generated ways only: a hand-drawn `ManualWay` has no tid and
+                // is never in a snapshot, so the key is OMITTED below rather
+                // than written as `0`, and the filters leave such ways alone,
+                // as the reference's own `rt.tid!=null` guard does.
+                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false, "village_addon" => village_addon, "tid" => w.tid as i64 }
             })
             .collect();
         if let Some(infra) = self.infra.as_ref() {
@@ -18175,6 +18182,37 @@ impl WorldGen {
                     "faction" => s.placement.faction,
                     "capital" => s.placement.capital,
                     "population" => s.pop as i32,
+                }
+            })
+            .collect()
+    }
+
+    /// The ways [`WorldGen::civ_year_diff`]`(year)["removed"]` names, as the
+    /// previous recorded year's snapshot holds them -- *Ghost removed*'s way
+    /// half (reference v2.11 lines 16022-16033). A thin marshal over
+    /// `timeline_bridge::civ_year_diff_removed_ways`, which carries the why and
+    /// its one divergence (hidden ways are never ghosted); adds no state.
+    ///
+    /// One `{tid, points, brks, way_type, village_addon}` row per way, with
+    /// `points`/`brks` through the same `way_render_geometry` re-sample
+    /// [`WorldGen::get_roads`] uses, so a ghost traces exactly the curve the live
+    /// way was drawn with. Empty under the same conditions as
+    /// [`WorldGen::civ_year_diff_removed`].
+    #[func]
+    fn civ_year_diff_removed_ways(&self, year: i64) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        timeline_bridge::civ_year_diff_removed_ways(&civ.timeline, year)
+            .into_iter()
+            .map(|w| {
+                let (points, brks) = way_render_geometry(&w.pts, &w.brks);
+                vdict! {
+                    "tid" => w.tid as i64,
+                    "points" => &points,
+                    "brks" => &brks,
+                    "way_type" => context_pick_bridge::generated_way_type_key(w.way_type),
+                    // `get_roads()`' own rule: on a generated way, `Ancient`
+                    // IS the village-addon connector.
+                    "village_addon" => w.way_type == cartalith_civ::WayType::Ancient,
                 }
             })
             .collect()

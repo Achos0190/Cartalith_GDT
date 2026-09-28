@@ -23,6 +23,12 @@ extends Node
 ##   H-  Highlight new OFF again restores both boxes exactly
 ##   G+  Ghost removed ON moves pixels around the removed settlement's old spot
 ##   G-  Ghost removed OFF again restores it exactly
+##   WH/WG  the same pair for WAYS (2026-09-28): way W is deleted before year 0
+##          and restored by undo after it (added at 10); way V is deleted after
+##          year 0 (removed at 10). Each leg centres the camera on its way.
+##   EO     Exist only re-applies on a STRIP scrub (`DccShell.tl_set_year`),
+##          for the dropped pin and for way W: year 0 filtered vs year 0
+##          unfiltered must differ at the object, and it must leave the overlay.
 ## The "moves pixels" half is its own positive control: a mark that did not
 ## reach the screen reads 0 and fails, whatever the node tree says.
 ##
@@ -115,6 +121,28 @@ func _diff_box(a: Image, b: Image, c: Vector2, ink: Color = Color(0, 0, 0, 0)) -
 	return [changed, inked]
 
 
+## [changed px that moved toward `ink`, changed px] inside the box around `c`:
+## "toward" means the after-pixel is closer to `ink` than the before-pixel by
+## more than one 8-bit step, per channel summed.
+func _toward(a: Image, b: Image, c: Vector2, ink: Color) -> Array:
+	var toward := 0
+	var changed := 0
+	for y in range(int(c.y) - BOX, int(c.y) + BOX):
+		for x in range(int(c.x) - BOX, int(c.x) + BOX):
+			if x < 0 or y < 0 or x >= a.get_width() or y >= a.get_height():
+				continue
+			var pa := a.get_pixel(x, y)
+			var pb := b.get_pixel(x, y)
+			if absf(pa.r - pb.r) <= 0.004 and absf(pa.g - pb.g) <= 0.004 and absf(pa.b - pb.b) <= 0.004:
+				continue
+			changed += 1
+			var da := absf(pa.r - ink.r) + absf(pa.g - ink.g) + absf(pa.b - ink.b)
+			var db := absf(pb.r - ink.r) + absf(pb.g - ink.g) + absf(pb.b - ink.b)
+			if db < da - 0.004:
+				toward += 1
+	return [toward, changed]
+
+
 func _crop(img: Image, c: Vector2, tag: String) -> void:
 	var r := Rect2i(Vector2i(c) - Vector2i(BOX, BOX), Vector2i(BOX * 2, BOX * 2)).intersection(
 		Rect2i(Vector2i.ZERO, img.get_size()))
@@ -169,10 +197,35 @@ func _run() -> void:
 	var gone_xy := Vector2(vs["x"], vs["y"])
 	print("fixture: removing '%s' tid=%d at %s" % [vs["name"], gone_tid, gone_xy])
 
+	## Two generated ways for the way legs, at least `WAY_CLEAR_CELLS` from the
+	## settlement marks so neither leg's box can see the other's marks.
+	var picked := _pick_two_ways(bridge, gone_xy)
+	if picked.size() < 2:
+		print("### TLPINS ABORT: fewer than two drawable generated ways clear of the settlement marks ###")
+		_aborted = true
+		get_tree().quit(2)
+		return
+	var iw: int = picked[0]
+	var iv: int = picked[1]
+	var w_tid := int(bridge.way_get("generated", iw)["tid"])
+	var v_tid := int(bridge.way_get("generated", iv)["tid"])
+	print("fixture: way W (to be ADDED) index %d tid=%d, way V (to be REMOVED) index %d tid=%d" % [iw, w_tid, iv, v_tid])
+
+	## W is absent from year 0 and present in year 10: delete it, record year 0,
+	## then undo the delete (Ruling BA's way undo puts it back at the same index,
+	## same tid). There is no other way to give a generated way a year it was
+	## not in -- manual ways carry no tid and never reach a snapshot.
+	bridge.way_delete("generated", iw)
 	bridge.civ_add_year(0)
 	## Move the cursor OFF year 0 before editing: an unrecorded year moves only
 	## the cursor (Ruling AT), so the edits below cannot reach year 0's record.
 	bridge.civ_goto_year(10)
+	var undone: String = bridge.undo_last()
+	_ok("fixture: undo restores way W with its tid", int(bridge.way_get("generated", iw).get("tid", -1)) == w_tid,
+		"undo_last='%s'" % undone)
+	## V is present in year 0 and absent from year 10. Its index is unchanged:
+	## W's delete and undo cancel.
+	bridge.way_delete("generated", iv)
 	bridge.civ_delete_settlement(victim)
 	## A new town a few cells from the removed one, so both fit one zoomed view.
 	## A drop onto a spot an existing place already claims returns THAT place's
@@ -228,6 +281,17 @@ func _run() -> void:
 		not ghost_row.is_empty() and Vector2(ghost_row["x"], ghost_row["y"]) == gone_xy, str(ghosts))
 	_ok("bridge: civ_year_diff_removed(0) is empty (no year before the first)",
 		(bridge.civ_year_diff_removed(0) as Array).is_empty())
+	_ok("fixture: year 10's diff names way W as added",
+		(diff.get("added", PackedInt64Array()) as PackedInt64Array).has(w_tid))
+	_ok("fixture: year 10's diff names way V as removed",
+		(diff.get("removed", PackedInt64Array()) as PackedInt64Array).has(v_tid))
+	var v_ghost: Dictionary = {}
+	for r: Dictionary in bridge.civ_year_diff_removed_ways(10):
+		if int(r["tid"]) == v_tid:
+			v_ghost = r
+	_ok("bridge: civ_year_diff_removed_ways(10) returns way V with its geometry",
+		not v_ghost.is_empty() and (v_ghost["points"] as PackedVector2Array).size() >= 2)
+	_ok("bridge: ...and not way W, which is present", _row_by_tid(bridge.civ_year_diff_removed_ways(10), w_tid).is_empty())
 
 	# -- camera: zoom in and centre between the two marks ---------------------
 	app.viewport.zoom_step(3.0)
@@ -293,6 +357,142 @@ func _run() -> void:
 	_crop(both, (gone_px + new_px) * 0.5, "both_mid")
 	hl.button_pressed = false
 	gh.button_pressed = false
+
+	# -- WH+ / WH-: Highlight new on way W --------------------------------------
+	var w_live := _row_by_tid(ov._roads, w_tid)
+	_ok("WH fixture: way W is live in the overlay's roads, carrying its tid", not w_live.is_empty())
+	if w_live.is_empty():
+		return
+	var w_pt := _mid_point(w_live)
+	var w_px := await _centre_on(ov, w_pt)
+	var wbase := await _shot("way_base")
+	hl.button_pressed = true
+	var wh_on := await _shot("way_highlight")
+	_crop(wh_on, w_px, "way_highlight")
+	var wh := _diff_box(wbase, wh_on, w_px, good)
+	_ok("WH+ Highlight new strokes a halo along way W", wh[0] > 0, "changed=%d" % wh[0])
+	## The way halo is the reference's 0.6-alpha stroke, so over terrain it
+	## blends and rarely lands within `_diff_box`'s tolerance of pure `good`
+	## (phone: 0 of 371 changed px did). What must hold is the direction: the
+	## pixels it changes move TOWARD `good`. A halo in any other ink fails.
+	var tw := _toward(wbase, wh_on, w_px, good)
+	_ok("WH+ ...in the `good` token's ink (changed px move toward it)", tw[0] > 0 and tw[0] * 2 > tw[1],
+		"toward=%d of changed=%d (strict good-ink px=%d)" % [tw[0], tw[1], wh[1]])
+	hl.button_pressed = false
+	var wh_off := await _shot("way_highlight_off")
+	_ok("WH- toggling Highlight new off removes it", _diff_box(wbase, wh_off, w_px)[0] == 0)
+
+	# -- WG+ / WG-: Ghost removed on way V ---------------------------------------
+	_ok("WG fixture: way V is NOT live (it was deleted)", _row_by_tid(ov._roads, v_tid).is_empty())
+	var v_pt := _mid_point(v_ghost)
+	var v_px := await _centre_on(ov, v_pt)
+	var vbase := await _shot("wayghost_base")
+	gh.button_pressed = true
+	var wg_on := await _shot("way_ghost")
+	_crop(vbase, v_px, "way_ghost_before")
+	_crop(wg_on, v_px, "way_ghost")
+	counts = ov.timeline_mark_counts()
+	_ok("WG+ overlay holds the ghost way", int(counts["ghost_ways"]) > 0, str(counts))
+	var wg := _diff_box(vbase, wg_on, v_px)
+	_ok("WG+ Ghost removed draws way V's ghost where it ran", wg[0] > 0, "changed=%d" % wg[0])
+	gh.button_pressed = false
+	var wg_off := await _shot("way_ghost_off")
+	_ok("WG- toggling Ghost removed off removes it", _diff_box(vbase, wg_off, v_px)[0] == 0)
+
+	# -- EO: Exist only re-applies on a strip scrub -------------------------------
+	## `DccShell.tl_set_year` is the strip's own entry point: it moves the cursor
+	## and emits `timeline_changed`, and never calls the workspace directly.
+	## Year 0 holds neither the dropped town nor way W, so with Exist only on a
+	## scrub from 10 to 0 must drop both from the map. The comparison frame is the
+	## SAME year with Exist only off, so terrain and territory are identical and
+	## only the filter can differ. Before this fix the scrub left year 10's
+	## filtered arrays in place, both frames matched, and these checks read 0.
+	await _eo_leg(ws, ov, new_px, (gone_xy + new_xy) * 0.5, "pin", func(): return _row_by_tid(ov._settlements, new_tid).is_empty())
+	await _eo_leg(ws, ov, Vector2.ZERO, w_pt, "way", func(): return _row_by_tid(ov._roads, w_tid).is_empty())
+
+
+## One Exist-only scrub leg, the camera centred on `centre`. `px` is where to
+## measure; ZERO means "the centre itself" (the way leg). The pin leg passes the
+## pin's own px, measured earlier at the same settlement-camera centre --
+## `_centre_on` puts that centre back exactly where `move_view_to(mid)` did,
+## to within the half-cell it takes off (a constant, so `px` stays valid).
+func _eo_leg(ws: Node, ov: Control, px: Vector2, centre: Vector2, tag: String, gone_from_overlay: Callable) -> void:
+	app.tl_set_year(10)
+	await _frames(4)
+	var p := await _centre_on(ov, centre + Vector2(0.5, 0.5) if px != Vector2.ZERO else centre)
+	if px == Vector2.ZERO:
+		px = p
+	var eo := _toggle(ws, "Exist only")
+	eo.button_pressed = true
+	await _frames(2)
+	_ok("EO(%s) fixture: at year 10 with Exist only on, the object is on the map" % tag, not gone_from_overlay.call())
+	app.tl_set_year(0)
+	var s1 := await _shot("eo_%s_scrubbed" % tag)
+	_ok("EO(%s) a strip scrub to year 0 re-applies Exist only (the object leaves the overlay)" % tag,
+		gone_from_overlay.call(), "cursor=%d" % app.bridge.get_civ_year())
+	eo = _toggle(ws, "Exist only")
+	eo.button_pressed = false
+	var s2 := await _shot("eo_%s_unfiltered" % tag)
+	_crop(s1, px, "eo_%s_scrubbed" % tag)
+	_crop(s2, px, "eo_%s_unfiltered" % tag)
+	var d := _diff_box(s1, s2, px)
+	_ok("EO(%s) ...and the pixels agree: year 0 filtered differs from year 0 unfiltered there" % tag,
+		d[0] > 0, "changed=%d" % d[0])
+	app.tl_set_year(10)
+	await _frames(4)
+
+
+## The first row of `rows` whose `tid` is `tid`, or `{}`.
+func _row_by_tid(rows: Array, tid: int) -> Dictionary:
+	for r: Dictionary in rows:
+		if r.has("tid") and int(r["tid"]) == tid:
+			return r
+	return {}
+
+
+## The middle render point of a way row -- away from both junction ends, where
+## neighbouring ways crowd in.
+func _mid_point(row: Dictionary) -> Vector2:
+	var pts: PackedVector2Array = row["points"]
+	return pts[pts.size() / 2]
+
+
+## Centres the camera on way-space point `p` and returns its viewport px.
+## `move_view_to` centres a CELL (`+0.5`); way points are continuous, so the
+## half cell is taken back off.
+func _centre_on(ov: Control, p: Vector2) -> Vector2:
+	app.viewport.move_view_to(p.x - 0.5, p.y - 0.5)
+	await _settle()
+	var local: Vector2 = ov._point_to_screen(p, ov._displayed_rect())
+	return ov.get_global_transform_with_canvas() * local
+
+
+## Grid distance every point of a way leg's ways must keep from the settlement
+## marks, so the settlement legs' boxes and the way legs' boxes never overlap
+## at either form's zoom (desktop ~8 px/cell, phone ~20 px/cell against a
+## 40 px box).
+const WAY_CLEAR_CELLS := 30.0
+
+## Indices into the generated way store of two drawable ways -- not hidden, a
+## tier every zoom this probe uses draws (`road`/`regional`/`highway`), and
+## every control point at least `WAY_CLEAR_CELLS` from `avoid` -- nearest first.
+func _pick_two_ways(bridge, avoid: Vector2) -> Array:
+	var cands: Array = []
+	for i in 5000:
+		var w: Dictionary = bridge.way_get("generated", i)
+		if w.is_empty():
+			break
+		if bool(w.get("hidden", false)) or not w.has("tid"):
+			continue
+		if not ["road", "regional", "highway"].has(String(w["way_type"])):
+			continue
+		var near := INF
+		for p in (w["points"] as PackedVector2Array):
+			near = minf(near, p.distance_to(avoid))
+		if near >= WAY_CLEAR_CELLS:
+			cands.append([near, i])
+	cands.sort_custom(func(a, b): return a[0] < b[0])
+	return [] if cands.size() < 2 else [cands[0][1], cands[1][1]]
 
 
 func _ready() -> void:

@@ -1832,12 +1832,15 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 ## (v2.11 lines 16266-16284): a halo around every live pin whose `tid` is in
 ## `_civYearDiff(year).added`, and a faded grey copy of every settlement the
 ## PREVIOUS recorded year held that `.removed` names, drawn from that snapshot's
-## own data because a removed place need not exist live at all.
+## own data because a removed place need not exist live at all. The way half
+## is the same pair over the road network (v2.11 lines 15989 and 16022-16033):
+## a `good` stroke under every live way whose `tid` is added, and a faded
+## dashed copy of every removed way at its previous-year geometry.
 ##
 ## What this control holds is only what the two toggles asked for, already
 ## resolved by the caller (`civilization_workspace.gd::_tl_push_marks`): the
-## added tids when *Highlight new* is on, the removed settlements when *Ghost
-## removed* is on, and nothing otherwise. An empty set draws nothing -- there is
+## added tids when *Highlight new* is on, the removed settlements and ways when
+## *Ghost removed* is on, and nothing otherwise. An empty set draws nothing -- there is
 ## no "no timeline" sentinel here, because "nothing to mark" and "no timeline"
 ## draw the same thing.
 ##
@@ -1847,9 +1850,9 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 ## The workspace re-pushes on every cursor move and world change, which is what
 ## keeps it from going stale.
 
-## `tid -> true` for settlements new in the cursor's year. Must never hold a
-## way tid on purpose -- `civ_year_diff().added` mixes both; a way tid simply
-## matches no pin, which is harmless.
+## `tid -> true` for settlements AND ways new in the cursor's year --
+## `civ_year_diff().added` mixes both, and settlements and ways draw their tids
+## from one counter (`civ_assign_tid`), so a pin and a way never share one.
 var _tl_added_tids: Dictionary = {}
 ## Removed settlements as `{tid, x, y, name, kind, faction, capital}` rows off
 ## `civ_year_diff_removed()` -- positions from the PREVIOUS snapshot.
@@ -1857,6 +1860,12 @@ var _tl_ghosts: Array = []
 ## `tid -> true` over `_tl_ghosts`. A live pin with one of these tids is
 ## replaced by its ghost rather than drawn twice (see `_draw()`'s loop).
 var _tl_ghost_tids: Dictionary = {}
+## Removed ways as `{tid, points, brks, way_type, village_addon}` rows off
+## `civ_year_diff_removed_ways()` -- geometry from the PREVIOUS snapshot.
+var _tl_ghost_ways: Array = []
+## `tid -> true` over `_tl_ghost_ways`: a live way with one of these tids is
+## drawn once, as its ghost, for the reason `_tl_ghost_tids` gives for pins.
+var _tl_ghost_way_tids: Dictionary = {}
 
 ## Ring gap past the pin for the new-settlement halo, in `sc` units: the
 ## reference's own `sz+3*lsc` (v2.11 line 16267). A capital adds
@@ -1867,11 +1876,22 @@ const TL_HALO_PAD_SC := 3.0
 const TL_HALO_WIDTH := 1.6
 ## Ghost pin opacity: the reference's `globalAlpha=0.4` (v2.11 line 16279).
 const TL_GHOST_ALPHA := 0.4
+## New-way halo: the reference's `lineWidth=4.5*rsc` at `.6` alpha (v2.11 line
+## 15990), in screen px times `_way_scale` like every other way stroke here.
+const TL_WAY_HALO_WIDTH := 4.5
+const TL_WAY_HALO_ALPHA := 0.6
+## Ghost way: `globalAlpha=0.35` over a `.7`-alpha grey, `lineWidth=1.2*rsc`,
+## dashed `[2*rsc, 2*rsc]` (v2.11 lines 16029-16030). The two alphas multiply.
+const TL_GHOST_WAY_ALPHA := 0.35 * 0.7
+const TL_GHOST_WAY_WIDTH := 1.2
+const TL_GHOST_WAY_DASH := 2.0
 
-## Sets both marks at once, replacing whatever was there. `added_tids` empty
-## means "no halos", `ghosts` empty means "no ghosts". Never fetches: this
-## control is handed finished data (see `set_civ_data`'s doc comment).
-func set_timeline_marks(added_tids: PackedInt64Array, ghosts: Array) -> void:
+## Sets every mark at once, replacing whatever was there. `added_tids` empty
+## means "no halos", `ghosts`/`ghost_ways` empty mean "no ghosts". Never
+## fetches: this control is handed finished data (see `set_civ_data`'s doc
+## comment). `ghost_ways` defaults empty so a caller with no way ghosts draws
+## none, rather than keeping an earlier call's.
+func set_timeline_marks(added_tids: PackedInt64Array, ghosts: Array, ghost_ways: Array = []) -> void:
 	_tl_added_tids = {}
 	for t in added_tids:
 		if t != 0:   ## `0` is the unassigned-tid sentinel; it names nothing.
@@ -1880,13 +1900,74 @@ func set_timeline_marks(added_tids: PackedInt64Array, ghosts: Array) -> void:
 	_tl_ghost_tids = {}
 	for g: Dictionary in ghosts:
 		_tl_ghost_tids[int(g.get("tid", 0))] = true
+	_tl_ghost_ways = ghost_ways
+	_tl_ghost_way_tids = {}
+	for gw: Dictionary in ghost_ways:
+		_tl_ghost_way_tids[int(gw.get("tid", 0))] = true
 	queue_redraw()
 
 
 ## Introspection for probes: how many marks this control currently holds.
 ## Counts what it was handed, not what reached the screen -- pixels answer that.
 func timeline_mark_counts() -> Dictionary:
-	return {"added": _tl_added_tids.size(), "ghosts": _tl_ghosts.size()}
+	return {"added": _tl_added_tids.size(), "ghosts": _tl_ghosts.size(), "ghost_ways": _tl_ghost_ways.size()}
+
+
+## True when a way row is not drawn at this view: its type is switched off, it
+## is below its tier's LOD, or it is a village connector whose village is still
+## hidden. Moved here verbatim from `_draw()`'s road loop so the live network and
+## the ghost-way pass apply ONE rule -- a ghost must never show where the live
+## way would not. The two LOD clauses are the reference's:
+##   `_civWayLodMin` (reference 15012) + `if(zoom<lodMin) return` (15501) --
+##   CA-18's ladder, see `WAY_LOD_MIN`; and its first line, `if(rt.villageAddon)
+##   return CIV_VILLAGE_ADDON_LOD` -- a village's connector shows exactly when
+##   the village does (`_settlement_hidden`'s own test), never before it. The
+##   reference's v1.72 BUG-A was the opposite: roads at `ancient`'s 0.7 leading
+##   to villages hidden until 2.4.
+func _way_not_shown(way: Dictionary) -> bool:
+	if _hidden_way_types.has(way["way_type"]):
+		return true
+	if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
+		return true
+	return bool(way.get("village_addon", false)) and (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD
+
+
+## One polyline run of a timeline way mark -- the new-way halo or a ghost way --
+## through the same clip-to-screen machinery as `_draw_way_segment`
+## (`_stroke_points`, `_run_offscreen`, `_segment_chains`, `_dash_phase_track`),
+## so a mark follows its way's drawn curve exactly and costs nothing off
+## screen. `width`/`dash`/`gap` are screen px; `dash <= 0` draws solid. Never
+## decides WHETHER to draw -- the callers own the toggle and visibility gates.
+func _draw_tl_way_run(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		ink: Color, width: float, dash: float, gap: float) -> void:
+	if end - start < 2:
+		return
+	var k := _crisp_begin()
+	var sp := _stroke_points(points, start, end, rect, k)
+	if _run_offscreen(sp, k, width * 0.5):
+		_crisp_end()
+		return
+	var track: PackedFloat64Array = _dash_phase_track(sp, dash, gap) if dash > 0.0 else PackedFloat64Array()
+	for chain in _segment_chains(sp, k, width * 0.5):
+		var seg := sp.slice(chain.x, chain.y + 1)
+		if dash > 0.0:
+			_draw_dashed_polyline(seg, ink, width, dash, gap, track[chain.x])
+		else:
+			draw_polyline(seg, ink, width, true)
+	_crisp_end()
+
+
+## Every break-delimited run of `way` through `_draw_tl_way_run` -- the same
+## `brks` walk the live road loop does, so a mark never bridges a real gap.
+func _draw_tl_way(way: Dictionary, rect: Rect2, ink: Color, width: float, dash: float, gap: float) -> void:
+	var points: PackedVector2Array = way.get("points", PackedVector2Array())
+	if points.size() < 2:
+		return
+	var start := 0
+	for cut in (way.get("brks", PackedInt32Array()) as PackedInt32Array):
+		_draw_tl_way_run(points, start, cut, rect, ink, width, dash, gap)
+		start = cut
+	_draw_tl_way_run(points, start, points.size(), rect, ink, width, dash, gap)
 
 
 ## The new-settlement halo: a `bg` underlay then a `good` ring, the same
@@ -2744,9 +2825,9 @@ func _draw() -> void:
 			## CM-5: a dropped sample pin, with nothing else on the map yet, must
 			## still draw -- the same reasoning as the rejects layer just above.
 			and _journey_markers.is_empty() and _sample_pin.is_empty()
-			## A year whose every settlement was removed still has ghosts to
-			## draw, the same "only thing on the map" case as the two above.
-			and _tl_ghosts.is_empty()
+			## A year whose every settlement or way was removed still has
+			## ghosts to draw, the same "only thing on the map" case as above.
+			and _tl_ghosts.is_empty() and _tl_ghost_ways.is_empty()
 			and not river_highlight_active()):
 		return
 	var rect := _displayed_rect()
@@ -2804,18 +2885,15 @@ func _draw() -> void:
 			var points: PackedVector2Array = way["points"]
 			if points.size() < 2:
 				continue
-			if _hidden_way_types.has(way["way_type"]):
+			## Type filter and both LOD gates -- one predicate, shared with the
+			## ghost-way pass below so a ghost never shows where its living
+			## counterpart would not. See `_way_not_shown`.
+			if _way_not_shown(way):
 				continue
-			## `_civWayLodMin` (reference 15012) + `if(zoom<lodMin) return`
-			## (15501) -- CA-18's ladder. See `WAY_LOD_MIN`.
-			if _way_lod and _camera_zoom < float(WAY_LOD_MIN.get(way["way_type"], WAY_LOD_DEFAULT)):
-				continue
-			## `_civWayLodMin`'s first line: `if(rt.villageAddon) return
-			## CIV_VILLAGE_ADDON_LOD` -- a village's connector shows exactly
-			## when the village does (`_settlement_hidden`'s own test), never
-			## before it. The reference's v1.72 BUG-A was the opposite: roads
-			## at `ancient`'s 0.7 leading to villages hidden until 2.4.
-			if bool(way.get("village_addon", false)) and (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD:
+			## *Ghost removed*: a live way the cursor's year dropped is drawn
+			## once, as its ghost below -- the pins' rule (`_tl_ghost_tids`).
+			## `has()` first: hand-drawn ways carry no `tid` (see `get_roads`).
+			if way.has("tid") and _tl_ghost_way_tids.has(int(way["tid"])):
 				continue
 			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
 			var load_k := _trade_width_k(wi)
@@ -2824,11 +2902,28 @@ func _draw() -> void:
 			# (two disjoint consolidated runs sharing one `Way`) -- draw each
 			# run between breaks as its own stroke, not one polyline straight
 			# through the gap.
+			## *Highlight new* (v2.11 line 15989): stroked BEFORE the way's own
+			## strokes, as the reference does, so the road reads on top of it.
+			## Widened with the trade load so a heavy road's halo still shows.
+			if way.has("tid") and _tl_added_tids.has(int(way["tid"])):
+				_draw_tl_way(way, rect, Color(DccTheme.c("good"), TL_WAY_HALO_ALPHA),
+					TL_WAY_HALO_WIDTH * _way_scale * load_k, 0.0, 0.0)
 			var start2 := 0
 			for cut in brks:
 				_draw_way_segment(points, start2, cut, rect, style, load_k)
 				start2 = cut
 			_draw_way_segment(points, start2, points.size(), rect, style, load_k)
+
+		## *Ghost removed*'s way half (v2.11 lines 16022-16033): after every live
+		## way, inside the same Ways & routes gate the reference puts it under
+		## (`_mfShowRoads`), faded and dashed in the `text_ghost` token rather
+		## than the reference's literal grey -- this overlay draws token ink.
+		var ghost_ink := Color(DccTheme.c("text_ghost"), TL_GHOST_WAY_ALPHA)
+		for gw: Dictionary in _tl_ghost_ways:
+			if _way_not_shown(gw):
+				continue
+			_draw_tl_way(gw, rect, ghost_ink, TL_GHOST_WAY_WIDTH * _way_scale,
+				TL_GHOST_WAY_DASH * _way_scale, TL_GHOST_WAY_DASH * _way_scale)
 
 	## Committed Route-tool routes, drawn after both network layers so a route
 	## that runs along an existing road is still visible on top of it. Shares

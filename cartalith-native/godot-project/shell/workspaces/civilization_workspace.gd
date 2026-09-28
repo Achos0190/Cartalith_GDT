@@ -1137,8 +1137,8 @@ func _build_tools() -> void:
 		## MM-8: Military's headcounts and garrisons follow the recorded year.
 		app.timeline_changed.connect(_on_military_cursor)
 		## The strip's scrub moves the cursor without passing through
-		## `_tl_goto_year`, so the Timeline's pin marks listen here too.
-		app.timeline_changed.connect(_tl_push_marks)
+		## `_tl_goto_year`, so the Timeline's filters and marks listen here too.
+		app.timeline_changed.connect(_tl_on_cursor_moved)
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
 	## Measure's Area-ring conventions (`global_tools.gd`): click adds a
@@ -1515,7 +1515,7 @@ func _settlement_click(gx: float, gy: float) -> void:
 ## reset wrapped around it.
 func _refresh_civ_data() -> void:
 	var g := bridge.grid_size()
-	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), bridge.roads(),
+	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), _tl_apply_filters(bridge.roads()),
 		bridge.sea_routes(), g.x, g.y, bridge.border_inset_frac())
 	## The Timeline's per-pin marks follow the same year the filter above did.
 	_tl_push_marks()
@@ -1549,19 +1549,43 @@ func _refresh_civ_data() -> void:
 ## new" do not filter the array at all: they style individual pins, so they
 ## are pushed separately by `_tl_push_marks()` below and drawn by
 ## `map_overlay.gd` (`set_timeline_marks`).
-func _tl_apply_filters(settlements: Array) -> Array:
+##
+## **Ways too, since 2026-09-28** (the reference filters both, v2.11 line
+## 15982): `_refresh_civ_data` passes `bridge.roads()` through here as well.
+## A row with NO `tid` key is kept, never filtered -- that is a hand-drawn
+## way, which the timeline never records (`get_roads()` omits the key for it),
+## and the reference's own `rt.tid!=null` guard keeps it the same way. Every
+## settlement row carries a `tid`, so settlements behave exactly as before.
+func _tl_apply_filters(rows: Array) -> Array:
 	if not _tl_filter_exist_only:
-		return settlements
+		return rows
 	if _tl_years().is_empty():
-		return settlements
+		return rows
 	var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())
 	var present: PackedInt64Array = diff.get("present", PackedInt64Array())
 	if present.is_empty():
-		return settlements
+		return rows
 	var present_set := {}
 	for t in present:
 		present_set[int(t)] = true
-	return settlements.filter(func(s): return present_set.has(int(s.get("tid", 0))))
+	return rows.filter(func(r): return not r.has("tid") or present_set.has(int(r["tid"])))
+
+## The shell's `timeline_changed` -- the strip's scrub, its transport, and every
+## other cursor move that does not pass through `_tl_goto_year`. Before
+## 2026-09-28 only the marks listened, so *Exist only* kept the previous year's
+## filter after a strip scrub. With *Exist only* on, the filtered arrays
+## themselves depend on the year, so the whole civ push re-runs (it ends in
+## `_tl_push_marks`); with it off the arrays are year-independent and only the
+## marks move -- `_refresh_civ_data` also drops every cached town layout
+## (`set_civ_data` -> `clear_urban_layouts`), which a playback tick must not
+## pay for nothing.
+func _tl_on_cursor_moved() -> void:
+	if app == null or app.viewport == null:
+		return
+	if _tl_filter_exist_only:
+		_refresh_civ_data()
+	else:
+		_tl_push_marks()
 
 ## Pushes the Timeline's *Highlight new* and *Ghost removed* marks to the map
 ## (`map_overlay.gd::set_timeline_marks`), closing `GUI_GAP_REGISTER.md` CV-03
@@ -1569,15 +1593,17 @@ func _tl_apply_filters(settlements: Array) -> Array:
 ##
 ## Each toggle contributes only when it is on, so the overlay is handed exactly
 ## what to draw and holds no toggle state of its own. The added tids are the
-## cursor year's `civ_year_diff().added`; the ghosts are
-## `civ_year_diff_removed()`, the removed settlements read from the PREVIOUS
-## recorded year's snapshot, because a removed place may not exist live.
+## cursor year's `civ_year_diff().added` (settlement and way tids alike -- the
+## overlay matches each against its own layer); the ghosts are
+## `civ_year_diff_removed()` and `civ_year_diff_removed_ways()`, the removed
+## settlements and ways read from the PREVIOUS recorded year's snapshot,
+## because a removed place or way may not exist live.
 ##
-## Clears both with no recorded years, for the reason `_tl_apply_filters`
+## Clears every mark with no recorded years, for the reason `_tl_apply_filters`
 ## gives: with nothing to diff there is nothing true to mark. Must be called on
 ## every cursor move and world change -- `_refresh_civ_data`,
-## `_rebuild_timeline` and the shell's `timeline_changed` all do -- because
-## the overlay keeps the last marks until told otherwise.
+## `_rebuild_timeline` and `_tl_on_cursor_moved` all do -- because the overlay
+## keeps the last marks until told otherwise.
 func _tl_push_marks() -> void:
 	if app == null or app.viewport == null or app.viewport.overlay == null:
 		return
@@ -1585,13 +1611,15 @@ func _tl_push_marks() -> void:
 		return
 	var added := PackedInt64Array()
 	var ghosts: Array = []
+	var ghost_ways: Array = []
 	if (_tl_filter_highlight or _tl_filter_ghost) and not _tl_years().is_empty():
 		var year := bridge.get_civ_year()
 		if _tl_filter_highlight:
 			added = bridge.civ_year_diff(year).get("added", PackedInt64Array())
 		if _tl_filter_ghost:
 			ghosts = bridge.civ_year_diff_removed(year)
-	app.viewport.overlay.set_timeline_marks(added, ghosts)
+			ghost_ways = bridge.civ_year_diff_removed_ways(year)
+	app.viewport.overlay.set_timeline_marks(added, ghosts, ghost_ways)
 
 ## §4.5.3's Territory options row: `CIVIL · TERRITORY` · faction · radius ·
 ## add/subtract · a live stats readout · Commit/Discard. No "respect
@@ -4696,8 +4724,10 @@ func _religion_run() -> void:
 # new" style individual pins instead (CV-03, closed 2026-09-28): the halo keys
 # on `civ_year_diff().added`, and the fade draws the previous recorded year's
 # removed settlements from `civ_year_diff_removed()` -- see `_tl_push_marks`
-# and `map_overlay.gd::set_timeline_marks`. Removed and new WAYS are still not
-# marked (the reference marks both), as the toggles' tooltips say.
+# and `map_overlay.gd::set_timeline_marks`. Ways follow the same three filters
+# since 2026-09-28: `get_roads()` carries a generated way's `tid`, *Exist only*
+# filters `bridge.roads()` too, and removed ways ghost from
+# `civ_year_diff_removed_ways()`.
 
 ## `open_timeline_category()` stood here until 2026-09-01 and had no caller.
 ## Its own doc named one twice -- `app.gd`'s timeline strip, which pressed
@@ -7313,28 +7343,28 @@ func _tl_step() -> void:
 func _build_timeline_filters(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Filters")
 	## Reads the engine's `civ_year_diff().present` set.
+	## Settlements and generated ways (`_tl_apply_filters`); hand-drawn ways are
+	## never recorded by the timeline, so they always stay -- the tooltip says so.
 	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
 		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
-		"Reference: hide anything not present in the selected year. " +
-			"Real here -- checked, settlement pins not present in that year are hidden.")
+		"Hide settlements and ways not present in the selected year. " +
+			"Hand-drawn ways are not recorded by the timeline and always show.")
 	## Enabled since CV-03 closed (was drawn disabled 2026-09-24 because nothing
 	## read it). Each flips its flag and re-pushes the map's marks
-	## (`_tl_push_marks`); the overlay draws a faded grey pin at every settlement
-	## the previous recorded year held and this one does not, read from that
-	## year's snapshot by `civ_year_diff_removed()`. Settlements only -- the
-	## reference also ghosts removed WAYS (v2.11 lines 16022-16033) and that
-	## half is not built; the tooltip says so rather than implying it.
+	## (`_tl_push_marks`); the overlay draws a faded grey pin at every settlement,
+	## and a faded dashed line along every way, the previous recorded year held
+	## and this one does not, read from that year's snapshot by
+	## `civ_year_diff_removed()` / `civ_year_diff_removed_ways()` (reference
+	## v2.11 lines 16022-16033 and 16271-16284).
 	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
 		func(v: bool): _tl_filter_ghost = v; _tl_push_marks(),
-		"Fade in the settlements removed since the previous recorded year, " +
-			"at the places they last stood. Settlements only; removed ways are not drawn.")
-	## `civ_year_diff().added`, haloed on the live pin that carries the tid.
-	## Settlements only, for the same reason as above (reference v2.11 line
-	## 15989 also haloes new ways).
+		"Fade in the settlements and ways removed since the previous recorded year, " +
+			"where they last stood.")
+	## `civ_year_diff().added`: a ring on the live pin, and a stroke under the
+	## live way, that carries the tid (reference v2.11 lines 15989, 16266).
 	DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
 		func(v: bool): _tl_filter_highlight = v; _tl_push_marks(),
-		"Ring the settlements new since the previous recorded year. " +
-			"Settlements only; new ways are not ringed.")
+		"Ring the settlements, and underline the ways, new since the previous recorded year.")
 	var years := _tl_years()
 	if not years.is_empty():
 		var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())

@@ -4497,6 +4497,17 @@ func civ_year_diff_removed(year: int) -> Array:
 		return []
 	return world_gen.civ_year_diff_removed(year)
 
+## The ways `civ_year_diff(year).removed` names, from the PREVIOUS recorded
+## year's snapshot: `{tid, points, brks, way_type, village_addon}` rows in the
+## same render geometry `roads()` uses, so the map can trace a ghost along the
+## curve the live way was drawn with. A way that was `hidden` (consolidated
+## away, never drawn) is never returned. Empty in the same cases as
+## `civ_year_diff_removed()`, and on a binary older than the `#[func]`.
+func civ_year_diff_removed_ways(year: int) -> Array:
+	if not _has("civ_year_diff_removed_ways"):
+		return []
+	return world_gen.civ_year_diff_removed_ways(year)
+
 ## The Settlement Editor's "Political history" tab (`lazy-riding-piglet.md`
 ## Batch C): derived, read-only ownership spans for one settlement's `tid`,
 ## walking every recorded timeline year. One entry per contiguous span,

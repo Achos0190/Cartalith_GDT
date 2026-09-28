@@ -15,8 +15,8 @@
 //! wrapper directly, matching this milestone's own framing ("thin `#[func]` wrappers
 //! over `CivData`'s already-built milestone-4 methods"). The one read the diff
 //! could not answer -- where a *removed* settlement stood -- is
-//! [`civ_year_diff_removed_settlements`] at the foot of this module, added for
-//! the Timeline's *Ghost removed* toggle (CV-03).
+//! [`civ_year_diff_removed_settlements`] and [`civ_year_diff_removed_ways`] at the
+//! foot of this module, added for the Timeline's *Ghost removed* toggle (CV-03).
 //!
 //! Its own `#[cfg(test)]` suite below runs under `cargo test -p cartalith-godot` with
 //! no Godot runtime involved, the same isolation every sibling bridge module already
@@ -432,23 +432,50 @@ pub fn run_collapse_simulation(
 /// when nothing was removed. Way tids in `removed` match no settlement and so
 /// contribute nothing: a way is not a pin.
 pub fn civ_year_diff_removed_settlements(timeline: &[TimelineSnapshot], year: i64) -> Vec<&NamedSettlement> {
+    let Some((prev, removed)) = removed_against_previous(timeline, year) else { return Vec::new() };
+    prev.settlements.iter().filter(|s| removed.contains(&s.tid)).collect()
+}
+
+/// The ways [`civ_year_diff`]`(timeline, year).removed` names, as the previous
+/// recorded year's snapshot holds them -- *Ghost removed*'s way half, the
+/// reference's `_tlDiff.prevEntry.ways` loop (v2.11 lines 16022-16033). Same
+/// contract as [`civ_year_diff_removed_settlements`] in every respect: read-only,
+/// stateless, "previous" chosen as `civ_year_diff` chooses it, empty when there
+/// is nothing to ghost, and in the previous snapshot's own order.
+///
+/// **One deliberate divergence: a `hidden` way is never returned.** The
+/// reference's ghost loop tests only `tid` and `pts`, so it would ghost a way
+/// that consolidation had folded into a busier neighbour. Nothing ever drew
+/// such a way -- `get_roads()` omits it, as the reference's own live loop skips
+/// `rt.hidden` (v2.11 line 15979) -- so a ghost of it would show history the
+/// map never showed. Must never be relaxed without that argument being
+/// revisited.
+pub fn civ_year_diff_removed_ways(timeline: &[TimelineSnapshot], year: i64) -> Vec<&Way> {
+    let Some((prev, removed)) = removed_against_previous(timeline, year) else { return Vec::new() };
+    prev.ways.iter().filter(|w| !w.hidden && removed.contains(&w.tid)).collect()
+}
+
+/// The shared half of both ghost reads: the snapshot chronologically before
+/// `year`, and `civ_year_diff`'s `removed` set -- or `None` when that set is
+/// empty, which is also every case with no predecessor (an unrecorded year, the
+/// first year). One lookup so the settlement and way ghosts can never disagree
+/// about which year is "previous". Never sorts or writes the caller's vec.
+fn removed_against_previous(
+    timeline: &[TimelineSnapshot],
+    year: i64,
+) -> Option<(&TimelineSnapshot, std::collections::BTreeSet<u64>)> {
     let removed = civ_year_diff(timeline, year).removed;
     if removed.is_empty() {
-        return Vec::new();
+        return None;
     }
     let mut sorted: Vec<&TimelineSnapshot> = timeline.iter().collect();
     sorted.sort_by_key(|s| s.year);
     // `removed` is non-empty only when `year` is recorded AND has a predecessor
-    // (`civ_year_diff`'s own contract), so both lookups below succeed whenever
-    // this line is reached; `unwrap_or_default` keeps a future change to that
-    // contract from panicking across the gdext boundary.
-    let prev = sorted
-        .iter()
-        .position(|s| s.year == year)
-        .and_then(|i| i.checked_sub(1))
-        .map(|i| sorted[i]);
-    prev.map(|p| p.settlements.iter().filter(|s| removed.contains(&s.tid)).collect())
-        .unwrap_or_default()
+    // (`civ_year_diff`'s own contract), so this lookup succeeds whenever it is
+    // reached; returning `None` rather than indexing keeps a future change to
+    // that contract from panicking across the gdext boundary.
+    let prev = sorted.iter().position(|s| s.year == year).and_then(|i| i.checked_sub(1)).map(|i| sorted[i])?;
+    Some((prev, removed))
 }
 
 #[cfg(test)]
@@ -867,5 +894,53 @@ mod tests {
         ];
         assert_eq!(cartalith_civ::timeline::civ_year_diff(&timeline, 10).removed.len(), 1, "fixture: the way IS removed");
         assert!(ghost_rows(&timeline, 10).is_empty());
+    }
+
+    fn ghost_way_tids(timeline: &[TimelineSnapshot], year: i64) -> Vec<u64> {
+        civ_year_diff_removed_ways(timeline, year).iter().map(|w| w.tid).collect()
+    }
+
+    /// Protects: *Ghost removed*'s way half returns the removed ways from the
+    /// year BEFORE the cursor, with that year's own geometry, and never a way
+    /// that is still present, a settlement, or a way from any other year. The
+    /// timeline is stored out of order so a positional lookup goes red, and way
+    /// 20's geometry differs between years 0 and 10 so the wrong "previous"
+    /// snapshot is visible in the points, not only in the tids.
+    #[test]
+    fn a_ghost_way_is_the_previous_years_copy_of_a_removed_way() {
+        let v = SettlementKind::Village;
+        let mut w20_at_10 = way(20);
+        w20_at_10.pts = vec![(5.0, 5.0), (6.0, 6.0)];
+        let timeline = vec![
+            snap(20, vec![settlement(1, 3, 3, v, 100, "A")], vec![way(21)]),
+            snap(0, vec![settlement(1, 3, 3, v, 100, "A")], vec![way(20), way(21), way(22)]),
+            snap(10, vec![settlement(1, 3, 3, v, 100, "A")], vec![w20_at_10.clone(), way(21), way(23)]),
+        ];
+        assert_eq!(ghost_way_tids(&timeline, 10), vec![22], "year 10 dropped 22; 23 is new, not removed");
+        let at20 = civ_year_diff_removed_ways(&timeline, 20);
+        assert_eq!(at20.iter().map(|w| w.tid).collect::<Vec<_>>(), vec![20, 23]);
+        assert_eq!(at20[0].pts, vec![(5.0, 5.0), (6.0, 6.0)], "way 20 ghosts at year 10's geometry, not year 0's");
+        assert!(ghost_way_tids(&timeline, 0).is_empty(), "the first recorded year has nothing before it");
+        assert!(ghost_way_tids(&timeline, 5).is_empty(), "an unrecorded year has no diff");
+    }
+
+    /// Protects: the one deliberate divergence from the reference -- a removed
+    /// way that was `hidden` (consolidated away, never drawn) is not ghosted --
+    /// and that a removed SETTLEMENT is never returned as a ghost way.
+    #[test]
+    fn a_hidden_way_and_a_removed_settlement_are_not_ghost_ways() {
+        let v = SettlementKind::Village;
+        let mut hidden = way(30);
+        hidden.hidden = true;
+        let timeline = vec![
+            snap(0, vec![settlement(1, 3, 3, v, 100, "A"), settlement(2, 4, 4, v, 100, "B")], vec![hidden, way(31)]),
+            snap(10, vec![settlement(1, 3, 3, v, 100, "A")], vec![]),
+        ];
+        assert_eq!(
+            cartalith_civ::timeline::civ_year_diff(&timeline, 10).removed.into_iter().collect::<Vec<_>>(),
+            vec![2, 30, 31],
+            "fixture: settlement 2 and both ways ARE removed"
+        );
+        assert_eq!(ghost_way_tids(&timeline, 10), vec![31]);
     }
 }
