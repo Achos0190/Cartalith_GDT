@@ -268,6 +268,23 @@ re-checked against the tree rather than copied from the commit message.
   pass; the method's own blind spots are stated in the document rather than
   hidden.**
 
+- **Ruling BK annotation pass, batch 1 (`cartalith-jsmath`) done — verified by the main loop 2026-09-28 (diff re-read as comment-only; 17/17 re-run).** Comments only, zero behaviour change: every
+  `fn`/`struct`/`mod` in `cartalith-jsmath/src/lib.rs` and `libm.rs` now has a
+  doc comment (several already did; the census's heuristic missed some because
+  a plain `//` comment sat between the doc block and the item, breaking
+  rustdoc-style adjacency — fixed by folding those into the doc block rather
+  than duplicating it), every `#[test]` carries a `// Protects: ...` line, and
+  every numeric FDLIBM constant (`js_exp`, `kernel_sin`, `kernel_cos`,
+  `rem_pio2`, `js_log`, `js_log10`, `js_acos`, the `atan` module) carries a
+  provenance comment naming its fdlibm source file and routine. The crate's
+  own census re-run: items_undoc 22→0, tests_unprotected 17→0, consts_undoc
+  68→0 (LOC 2065→2170, all added lines comments). `cargo test -p
+  cartalith-jsmath`: 17 passed / 0 failed, unchanged from before the pass. A
+  scratch checker asserting every changed line is a comment, blank, or a
+  trailing-comment addition to unchanged code passed. No comment was found
+  wrong against its code in this batch. Batch 2 (`cartalith-rng` +
+  `cartalith-noise`, per `ANNOTATION_AUDIT.md`'s ordering) is next.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

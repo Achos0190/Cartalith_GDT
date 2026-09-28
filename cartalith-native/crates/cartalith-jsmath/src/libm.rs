@@ -45,26 +45,26 @@
 /// Reproduced here because it was measured, not because its cause is known. It
 /// is unreachable from the site model, whose `exp` arguments are all
 /// `-(d^2)/(2*sigma^2)` and therefore never positive.
-// The constants below are FDLIBM's own source text, quoted digit for digit so
-// this can be diffed against `e_exp.c` by eye. Clippy would have them shortened
-// to the same doubles written differently, and `INVLN2` replaced by
-// `f64::consts::LOG2_E` -- both are the same value and both would destroy that
-// property, which is the only defence this function has against a silent edit.
+/// The constants below are FDLIBM's own source text, quoted digit for digit so
+/// this can be diffed against `e_exp.c` by eye. Clippy would have them shortened
+/// to the same doubles written differently, and `INVLN2` replaced by
+/// `f64::consts::LOG2_E` -- both are the same value and both would destroy that
+/// property, which is the only defence this function has against a silent edit.
 #[allow(clippy::excessive_precision, clippy::approx_constant)]
 pub fn js_exp(x: f64) -> f64 {
-    const O_THRESHOLD: f64 = 7.09782712893383973096e+02;
-    const U_THRESHOLD: f64 = -7.45133219101941108420e+02;
-    const LN2HI: [f64; 2] = [6.93147180369123816490e-01, -6.93147180369123816490e-01];
-    const LN2LO: [f64; 2] = [1.90821492927058770002e-10, -1.90821492927058770002e-10];
-    const INVLN2: f64 = 1.44269504088896338700e+00;
-    const HALF: [f64; 2] = [0.5, -0.5];
-    const P1: f64 = 1.66666666666666019037e-01;
-    const P2: f64 = -2.77777777770155933842e-03;
-    const P3: f64 = 6.61375632143793436117e-05;
-    const P4: f64 = -1.65339022054652515390e-06;
-    const P5: f64 = 4.13813679705723846039e-08;
-    const TWOM1000: f64 = 9.33263618503218878990e-302;
-    const HUGE: f64 = 1.0e300;
+    const O_THRESHOLD: f64 = 7.09782712893383973096e+02; // fdlibm e_exp.c o_threshold: exp(x) overflows to +inf above this x
+    const U_THRESHOLD: f64 = -7.45133219101941108420e+02; // fdlibm e_exp.c u_threshold: exp(x) underflows to 0 below this x
+    const LN2HI: [f64; 2] = [6.93147180369123816490e-01, -6.93147180369123816490e-01]; // fdlibm e_exp.c ln2HI[sign]: high half of ln2, split for exact subtraction
+    const LN2LO: [f64; 2] = [1.90821492927058770002e-10, -1.90821492927058770002e-10]; // fdlibm e_exp.c ln2LO[sign]: low half of ln2, the exact-subtraction remainder
+    const INVLN2: f64 = 1.44269504088896338700e+00; // fdlibm e_exp.c invln2: 1/ln2, used to compute the reduction integer k
+    const HALF: [f64; 2] = [0.5, -0.5]; // fdlibm e_exp.c half[sign]: +-0.5, added before truncating to k
+    const P1: f64 = 1.66666666666666019037e-01; // fdlibm e_exp.c P1: degree-5 minimax polynomial coefficient for exp's correction term
+    const P2: f64 = -2.77777777770155933842e-03; // fdlibm e_exp.c P2: degree-5 minimax polynomial coefficient for exp's correction term
+    const P3: f64 = 6.61375632143793436117e-05; // fdlibm e_exp.c P3: degree-5 minimax polynomial coefficient for exp's correction term
+    const P4: f64 = -1.65339022054652515390e-06; // fdlibm e_exp.c P4: degree-5 minimax polynomial coefficient for exp's correction term
+    const P5: f64 = 4.13813679705723846039e-08; // fdlibm e_exp.c P5: degree-5 minimax polynomial coefficient for exp's correction term
+    const TWOM1000: f64 = 9.33263618503218878990e-302; // fdlibm e_exp.c twom1000: 2^-1000, the subnormal rescale factor
+    const HUGE: f64 = 1.0e300; // fdlibm e_exp.c huge: forces the inexact-flag trap and doubles as the overflow multiplier
 
     // The measured divergence above. See the doc comment.
     if x == 1.0 {
@@ -154,10 +154,16 @@ fn hi_word(x: f64) -> u32 {
     (x.to_bits() >> 32) as u32
 }
 
+/// FDLIBM `GET_LOW_WORD`: the low 32 bits of `x`'s bit pattern. Companion to
+/// [`hi_word`]; must never be confused with the sign/exponent-bearing high
+/// word the reduction logic actually branches on.
 fn lo_word(x: f64) -> u32 {
     x.to_bits() as u32
 }
 
+/// FDLIBM `INSERT_WORDS`: reassemble a `f64` from a separately computed high
+/// and low word. Must keep the high word in the top 32 bits — swapping the
+/// two silently produces a different, wrong double rather than a panic.
 fn from_words(h: u32, l: u32) -> f64 {
     f64::from_bits((u64::from(h) << 32) | u64::from(l))
 }
@@ -167,12 +173,12 @@ fn from_words(h: u32, l: u32) -> f64 {
 /// significant. Not public: it is only correct inside that interval.
 #[allow(clippy::excessive_precision)]
 fn kernel_sin(x: f64, y: f64, iy: i32) -> f64 {
-    const S1: f64 = -1.66666666666666324348e-01;
-    const S2: f64 = 8.33333333332248946124e-03;
-    const S3: f64 = -1.98412698298579493134e-04;
-    const S4: f64 = 2.75573137070700676789e-06;
-    const S5: f64 = -2.50507602534068634195e-08;
-    const S6: f64 = 1.58969099521155010221e-10;
+    const S1: f64 = -1.66666666666666324348e-01; // fdlibm k_sin.c S1: degree-6 minimax polynomial coefficient for sin's kernel near 0
+    const S2: f64 = 8.33333333332248946124e-03; // fdlibm k_sin.c S2: degree-6 minimax polynomial coefficient for sin's kernel near 0
+    const S3: f64 = -1.98412698298579493134e-04; // fdlibm k_sin.c S3: degree-6 minimax polynomial coefficient for sin's kernel near 0
+    const S4: f64 = 2.75573137070700676789e-06; // fdlibm k_sin.c S4: degree-6 minimax polynomial coefficient for sin's kernel near 0
+    const S5: f64 = -2.50507602534068634195e-08; // fdlibm k_sin.c S5: degree-6 minimax polynomial coefficient for sin's kernel near 0
+    const S6: f64 = 1.58969099521155010221e-10; // fdlibm k_sin.c S6: degree-6 minimax polynomial coefficient for sin's kernel near 0
 
     let ix = hi_word(x) & 0x7fff_ffff;
     // |x| < 2^-27: sin(x) == x to double precision. The C is `if((int)x==0)`,
@@ -197,12 +203,12 @@ fn kernel_sin(x: f64, y: f64, iy: i32) -> f64 {
 /// a "cleaner" rewrite would drop, and dropping it moves the last bit.
 #[allow(clippy::excessive_precision)]
 fn kernel_cos(x: f64, y: f64) -> f64 {
-    const C1: f64 = 4.16666666666666019037e-02;
-    const C2: f64 = -1.38888888888741095749e-03;
-    const C3: f64 = 2.48015872894767294178e-05;
-    const C4: f64 = -2.75573143513906633035e-07;
-    const C5: f64 = 2.08757232129817482790e-09;
-    const C6: f64 = -1.13596475577881948265e-11;
+    const C1: f64 = 4.16666666666666019037e-02; // fdlibm k_cos.c C1: degree-6 minimax polynomial coefficient for cos's kernel near 0
+    const C2: f64 = -1.38888888888741095749e-03; // fdlibm k_cos.c C2: degree-6 minimax polynomial coefficient for cos's kernel near 0
+    const C3: f64 = 2.48015872894767294178e-05; // fdlibm k_cos.c C3: degree-6 minimax polynomial coefficient for cos's kernel near 0
+    const C4: f64 = -2.75573143513906633035e-07; // fdlibm k_cos.c C4: degree-6 minimax polynomial coefficient for cos's kernel near 0
+    const C5: f64 = 2.08757232129817482790e-09; // fdlibm k_cos.c C5: degree-6 minimax polynomial coefficient for cos's kernel near 0
+    const C6: f64 = -1.13596475577881948265e-11; // fdlibm k_cos.c C6: degree-6 minimax polynomial coefficient for cos's kernel near 0
 
     let ix = hi_word(x) & 0x7fff_ffff;
     if ix < 0x3e40_0000 && (x as i32) == 0 {
@@ -242,18 +248,18 @@ fn kernel_cos(x: f64, y: f64) -> f64 {
 /// wrong, so the branch falls through to the platform libm and says so here.
 /// It is the only input class on which [`js_sin`] / [`js_cos`] may differ from
 /// V8, and it is the one class the engine cannot produce.
-// `INVPIO2` is 2/pi and `eq_op` fires on FDLIBM's `x - x` idiom for "propagate
-// the NaN, and turn an infinity into one". Both are the C's own text; rewriting
-// either to please the lint would be rewriting the function under test.
+/// `INVPIO2` is 2/pi and `eq_op` fires on FDLIBM's `x - x` idiom for "propagate
+/// the NaN, and turn an infinity into one". Both are the C's own text; rewriting
+/// either to please the lint would be rewriting the function under test.
 #[allow(clippy::excessive_precision, clippy::approx_constant, clippy::eq_op)]
 fn rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
-    const INVPIO2: f64 = 6.36619772367581382433e-01;
-    const PIO2_1: f64 = 1.57079632673412561417e+00;
-    const PIO2_1T: f64 = 6.07710050650619224932e-11;
-    const PIO2_2: f64 = 6.07710050630396597660e-11;
-    const PIO2_2T: f64 = 2.02226624879595063154e-21;
-    const PIO2_3: f64 = 2.02226624871116645580e-21;
-    const PIO2_3T: f64 = 8.47842766036889956997e-32;
+    const INVPIO2: f64 = 6.36619772367581382433e-01; // fdlibm e_rem_pio2.c invpio2: 2/pi, for the medium-range reduction
+    const PIO2_1: f64 = 1.57079632673412561417e+00; // fdlibm e_rem_pio2.c pio2_1: pi/2 to 33 bits, first-round reduction constant
+    const PIO2_1T: f64 = 6.07710050650619224932e-11; // fdlibm e_rem_pio2.c pio2_1t: pi/2 - pio2_1, the tail of the first-round constant
+    const PIO2_2: f64 = 6.07710050630396597660e-11; // fdlibm e_rem_pio2.c pio2_2: pi/2 to 33+33 bits, second-round reduction constant
+    const PIO2_2T: f64 = 2.02226624879595063154e-21; // fdlibm e_rem_pio2.c pio2_2t: pi/2 - pio2_1 - pio2_2, the tail of the second-round constant
+    const PIO2_3: f64 = 2.02226624871116645580e-21; // fdlibm e_rem_pio2.c pio2_3: pi/2 to 33+33+53 bits, third-round reduction constant
+    const PIO2_3T: f64 = 8.47842766036889956997e-32; // fdlibm e_rem_pio2.c pio2_3t: the tail of the third-round constant
 
     let hx = hi_word(x) as i32;
     let ix = hx & 0x7fff_ffff;
@@ -367,7 +373,7 @@ const HUGE_ARG_HI: u32 = 0x4139_21fb;
 ///
 /// See [`rem_pio2`] for the single input class this does not reproduce
 /// (`|x| >= 2^19 * pi/2`, which no angle in this engine can reach).
-// `x - x` is FDLIBM's own way of writing "NaN, with x's payload if it has one".
+/// `x - x` is FDLIBM's own way of writing "NaN, with x's payload if it has one".
 #[allow(clippy::eq_op)]
 pub fn js_sin(x: f64) -> f64 {
     let ix = hi_word(x) & 0x7fff_ffff;
@@ -433,16 +439,16 @@ pub fn js_cos(x: f64) -> f64 {
 /// square root, so V8's and Rust's agree by specification.
 #[allow(clippy::excessive_precision, clippy::eq_op)]
 pub fn js_log(mut x: f64) -> f64 {
-    const LN2_HI: f64 = 6.93147180369123816490e-01;
-    const LN2_LO: f64 = 1.90821492927058770002e-10;
-    const TWO54: f64 = 1.80143985094819840000e+16;
-    const LG1: f64 = 6.666666666666735130e-01;
-    const LG2: f64 = 3.999999999940941908e-01;
-    const LG3: f64 = 2.857142874366239149e-01;
-    const LG4: f64 = 2.222219843214978396e-01;
-    const LG5: f64 = 1.818357216161805012e-01;
-    const LG6: f64 = 1.531383769920937332e-01;
-    const LG7: f64 = 1.479819860511658591e-01;
+    const LN2_HI: f64 = 6.93147180369123816490e-01; // fdlibm e_log.c ln2_hi: high half of ln2
+    const LN2_LO: f64 = 1.90821492927058770002e-10; // fdlibm e_log.c ln2_lo: low half of ln2, the exact-subtraction remainder
+    const TWO54: f64 = 1.80143985094819840000e+16; // fdlibm e_log.c two54: 2^54, the subnormal rescale factor
+    const LG1: f64 = 6.666666666666735130e-01; // fdlibm e_log.c Lg1: minimax polynomial coefficient for log's kernel
+    const LG2: f64 = 3.999999999940941908e-01; // fdlibm e_log.c Lg2: minimax polynomial coefficient for log's kernel
+    const LG3: f64 = 2.857142874366239149e-01; // fdlibm e_log.c Lg3: minimax polynomial coefficient for log's kernel
+    const LG4: f64 = 2.222219843214978396e-01; // fdlibm e_log.c Lg4: minimax polynomial coefficient for log's kernel
+    const LG5: f64 = 1.818357216161805012e-01; // fdlibm e_log.c Lg5: minimax polynomial coefficient for log's kernel
+    const LG6: f64 = 1.531383769920937332e-01; // fdlibm e_log.c Lg6: minimax polynomial coefficient for log's kernel
+    const LG7: f64 = 1.479819860511658591e-01; // fdlibm e_log.c Lg7: minimax polynomial coefficient for log's kernel
 
     let mut hx = hi_word(x) as i32;
     let lx = lo_word(x);
@@ -522,10 +528,10 @@ pub fn js_log(mut x: f64) -> f64 {
 /// not own this crate. Its V8 golden rows stayed with that module.
 #[allow(clippy::excessive_precision, clippy::eq_op, clippy::approx_constant)]
 pub fn js_log10(x: f64) -> f64 {
-    const TWO54: f64 = 1.80143985094819840000e+16;
-    const IVLN10: f64 = 4.34294481903251816668e-01;
-    const LOG10_2HI: f64 = 3.01029995663611771306e-01;
-    const LOG10_2LO: f64 = 3.69423907715893089906e-13;
+    const TWO54: f64 = 1.80143985094819840000e+16; // fdlibm e_log10.c two54: 2^54, the subnormal rescale factor
+    const IVLN10: f64 = 4.34294481903251816668e-01; // fdlibm e_log10.c ivln10: 1/ln(10), scales the natural log to base 10
+    const LOG10_2HI: f64 = 3.01029995663611771306e-01; // fdlibm e_log10.c log10_2hi: high half of log10(2)
+    const LOG10_2LO: f64 = 3.69423907715893089906e-13; // fdlibm e_log10.c log10_2lo: low half of log10(2), the exact-subtraction remainder
 
     let mut x = x;
     let mut hx = (x.to_bits() >> 32) as i32;
@@ -570,21 +576,23 @@ pub fn js_log10(x: f64) -> f64 {
 /// 40 000 arguments; that golden stayed in `cartalith-urban::fortify`, which
 /// captured it.
 pub fn js_acos(x: f64) -> f64 {
-    const PIO2_HI: f64 = f64::from_bits(0x3FF9_21FB_5444_2D18);
-    const PIO2_LO: f64 = f64::from_bits(0x3C91_A626_3314_5C07);
-    const PI_HI: f64 = f64::from_bits(0x4009_21FB_5444_2D18);
-    const PS0: f64 = f64::from_bits(0x3FC5_5555_5555_5555);
-    const PS1: f64 = f64::from_bits(0xBFD4_D612_03EB_6F7D);
-    const PS2: f64 = f64::from_bits(0x3FC9_C155_0E88_4455);
-    const PS3: f64 = f64::from_bits(0xBFA4_8228_B568_8F3B);
-    const PS4: f64 = f64::from_bits(0x3F49_EFE0_7501_B288);
-    const PS5: f64 = f64::from_bits(0x3F02_3DE1_0DFD_F709);
-    const QS1: f64 = f64::from_bits(0xC003_3A27_1C8A_2D4B);
-    const QS2: f64 = f64::from_bits(0x4000_2AE5_9C59_8AC8);
-    const QS3: f64 = f64::from_bits(0xBFE6_066C_1B8D_0159);
-    const QS4: f64 = f64::from_bits(0x3FB3_B8C5_B12E_9282);
+    const PIO2_HI: f64 = f64::from_bits(0x3FF9_21FB_5444_2D18); // fdlibm e_acos.c pio2_hi: high half of pi/2
+    const PIO2_LO: f64 = f64::from_bits(0x3C91_A626_3314_5C07); // fdlibm e_acos.c pio2_lo: low half of pi/2, the exact-subtraction remainder
+    const PI_HI: f64 = f64::from_bits(0x4009_21FB_5444_2D18); // fdlibm e_acos.c pi: pi's high word only, used at the acos(-1) endpoint
+    const PS0: f64 = f64::from_bits(0x3FC5_5555_5555_5555); // fdlibm e_acos.c pS0: rational-approximation coefficient (numerator)
+    const PS1: f64 = f64::from_bits(0xBFD4_D612_03EB_6F7D); // fdlibm e_acos.c pS1: rational-approximation coefficient (numerator)
+    const PS2: f64 = f64::from_bits(0x3FC9_C155_0E88_4455); // fdlibm e_acos.c pS2: rational-approximation coefficient (numerator)
+    const PS3: f64 = f64::from_bits(0xBFA4_8228_B568_8F3B); // fdlibm e_acos.c pS3: rational-approximation coefficient (numerator)
+    const PS4: f64 = f64::from_bits(0x3F49_EFE0_7501_B288); // fdlibm e_acos.c pS4: rational-approximation coefficient (numerator)
+    const PS5: f64 = f64::from_bits(0x3F02_3DE1_0DFD_F709); // fdlibm e_acos.c pS5: rational-approximation coefficient (numerator)
+    const QS1: f64 = f64::from_bits(0xC003_3A27_1C8A_2D4B); // fdlibm e_acos.c qS1: rational-approximation coefficient (denominator)
+    const QS2: f64 = f64::from_bits(0x4000_2AE5_9C59_8AC8); // fdlibm e_acos.c qS2: rational-approximation coefficient (denominator)
+    const QS3: f64 = f64::from_bits(0xBFE6_066C_1B8D_0159); // fdlibm e_acos.c qS3: rational-approximation coefficient (denominator)
+    const QS4: f64 = f64::from_bits(0x3FB3_B8C5_B12E_9282); // fdlibm e_acos.c qS4: rational-approximation coefficient (denominator)
 
-    // The rational approximation `p/q`, shared by all three in-range branches.
+    /// The rational approximation `p/q`, shared by all three in-range
+    /// branches of `js_acos`. Not public: it is only correct for `z` in the
+    /// range those branches feed it.
     fn r(z: f64) -> f64 {
         let p = z * (PS0 + z * (PS1 + z * (PS2 + z * (PS3 + z * (PS4 + z * PS5)))));
         let q = 1.0 + z * (QS1 + z * (QS2 + z * (QS3 + z * QS4)));
@@ -666,9 +674,9 @@ pub fn js_acos(x: f64) -> f64 {
 /// `js_atan` is public alongside it because `Math.atan` is a JS function in
 /// its own right, and the next caller that wants one should not have to
 /// re-transcribe fdlibm to get it.
-// The FDLIBM constants are transcribed verbatim from V8's own source;
-// `PI_O_2` and friends are deliberately those literals and not
-// `std::f64::consts::FRAC_PI_2`, and their digit counts are fdlibm's.
+/// The FDLIBM constants are transcribed verbatim from V8's own source;
+/// `PI_O_2` and friends are deliberately those literals and not
+/// `std::f64::consts::FRAC_PI_2`, and their digit counts are fdlibm's.
 #[allow(clippy::approx_constant, clippy::excessive_precision)]
 mod atan {
     const ATANHI: [f64; 4] = [
@@ -683,6 +691,8 @@ mod atan {
         1.39033110312309984516e-17, // atan(1.5)lo
         6.12323399573676603587e-17, // atan(inf)lo
     ];
+    // fdlibm s_atan.c aT[0..10]: minimax polynomial coefficients for atan's
+    // kernel, one term per array slot (odd powers of the reduced argument).
     const AT: [f64; 11] = [
         3.33333333333329318027e-01,
         -1.99999999998764832476e-01,
@@ -760,11 +770,11 @@ mod atan {
         }
     }
 
-    const TINY: f64 = 1.0e-300;
-    const PI_O_4: f64 = 7.8539816339744827900e-01;
-    const PI_O_2: f64 = 1.5707963267948965580e+00;
-    const PI: f64 = 3.1415926535897931160e+00;
-    const PI_LO: f64 = 1.2246467991473531772e-16;
+    const TINY: f64 = 1.0e-300; // fdlibm e_atan2.c tiny: added to force the inexact flag on quadrant results
+    const PI_O_4: f64 = 7.8539816339744827900e-01; // fdlibm e_atan2.c pi_o_4: pi/4, quoted to fdlibm's own digit count
+    const PI_O_2: f64 = 1.5707963267948965580e+00; // fdlibm e_atan2.c pi_o_2: pi/2, quoted to fdlibm's own digit count
+    const PI: f64 = 3.1415926535897931160e+00; // fdlibm e_atan2.c pi: pi, quoted to fdlibm's own digit count
+    const PI_LO: f64 = 1.2246467991473531772e-16; // fdlibm e_atan2.c pi_lo: pi - PI, the correction term for the two-word pi split
 
     /// `Math.atan2(y, x)` — argument order is JS's, i.e. the same as
     /// `y.atan2(x)`, so a call site converts by moving the receiver.

@@ -454,12 +454,25 @@ pub fn u8_clamped(v: f64) -> u8 {
 }
 
 
+/// Unit and golden-parity tests for every helper in this crate.
+///
+/// Most of these pin a measured V8-vs-Rust divergence (`JS_SEMANTICS_AUDIT.md`)
+/// with expectations read off `node`, never derived from a paraphrase of the
+/// spec — the audit itself found a hand-written expectation that had been
+/// wrong for two milestones because it was reasoned rather than run. Never
+/// weaken an assertion here to make Rust's own stdlib answer pass; that is
+/// exactly the regression this crate exists to prevent.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// `js_hypot` on values captured from a live V8 run, chosen so that
+    /// Rust's own `f64::hypot` provably disagrees on every row.
     #[test]
     fn golden_js_hypot_differs_from_rust_hypot() {
+        // Protects: js_hypot's V8-Kahan-sum implementation against a
+        // regression toward `f64::hypot`'s different (more accurate, and
+        // therefore JS-unfaithful) algorithm on ordinary two-argument input.
         // Values captured from the same Node run. The (3,3) row is the one
         // that broke `dist_pt_seg` before `js_hypot` existed, and the assert
         // below states plainly that Rust's own `hypot` gives a DIFFERENT
@@ -486,8 +499,12 @@ mod tests {
         assert!(js_hypot(f64::NAN, 1.0).is_nan());
     }
 
+    /// `js_exp` on values captured from a live V8 run, chosen so that Rust's
+    /// own `f64::exp` provably disagrees on every row.
     #[test]
     fn golden_js_exp_differs_from_rust_exp() {
+        // Protects: js_exp's FDLIBM transcription against a regression toward
+        // the platform `f64::exp`, which disagrees with V8 on ordinary input.
         // Captured from the same Node run. Every row below is one where the
         // platform `f64::exp` gives a DIFFERENT answer, which the assert at the
         // end states plainly -- the same device `js_hypot` carries, for the same
@@ -532,12 +549,15 @@ mod tests {
         assert!(js_exp(f64::NAN).is_nan());
     }
 
-    // `cos(pi/4)` really is one ulp above `FRAC_1_SQRT_2` in V8, which is the
-    // whole point of the row; naming the constant would replace a captured
-    // value with a different number.
+    /// `cos(pi/4)` really is one ulp above `FRAC_1_SQRT_2` in V8, which is the
+    /// whole point of the row; naming the constant would replace a captured
+    /// value with a different number.
     #[allow(clippy::approx_constant)]
     #[test]
     fn golden_js_sin_and_js_cos_differ_from_rust_sin_and_cos() {
+        // Protects: js_sin/js_cos's FDLIBM reduction-and-kernel transcription
+        // against a regression toward the platform sin/cos, which disagree
+        // with V8 across every reduction branch this crate reproduces.
         // Captured from the same Node run, two per reduction branch per
         // function: |x| <= pi/4 (straight into the kernel polynomial),
         // pi/4 < |x| < 3pi/4 (rem_pio2's n = +-1 special case), and the medium
@@ -608,8 +628,12 @@ mod tests {
         assert_eq!(js_cos(huge), huge.cos());
     }
 
+    /// `js_log` on values captured from a live V8 run, chosen so that Rust's
+    /// own `f64::ln` provably disagrees on every row.
     #[test]
     fn golden_js_log_differs_from_rust_ln() {
+        // Protects: js_log's FDLIBM transcription against a regression toward
+        // the platform `f64::ln`, which disagrees with V8 on ordinary input.
         const CASES: [(f64, f64); 4] = [
             (2.6795544533384854, 0.9856505319476128),
             (0.43189338049297177, -0.8395765256136656),
@@ -665,19 +689,32 @@ mod tests {
     /// subnormal band for the `two54` rescale.
     #[test]
     fn golden_js_sin_cos_log_hash_over_every_reduction_branch() {
+        // Protects: js_sin/js_cos/js_log against a mutant that survives the
+        // hand-picked tables above — a reduction threshold, a `y[0]`/`y[1]`
+        // slot, a correction-round trigger, or the `kernel_cos` `qx` split —
+        // by hashing V8's own output over every reachable reduction branch.
 
         // `cartalith-rng`'s `Mulberry32`, inlined. This crate takes no
         // dependency at all (see the crate docs), and this is the reference's
         // own four-line generator; the hashes below are the proof it is the
         // same stream, since they were captured against the reference driving
         // its own `mulberry32` over the identical argument sequence.
+        /// The reference's own `mulberry32` PRNG state, inlined for this test
+        /// so the crate takes no dependency (see the crate docs). Must
+        /// produce bit-for-bit the same stream as the reference's JS
+        /// generator, since the hash below is only a proof against V8 if both
+        /// sides walked the same argument sequence.
         struct Mulberry32 {
             state: u32,
         }
         impl Mulberry32 {
+            /// Seed the generator. Never call `next_f64` before this.
             fn new(seed: u32) -> Self {
                 Mulberry32 { state: seed }
             }
+            /// The reference's `mulberry32` step, transcribed instruction for
+            /// instruction. Must not be reassociated or "simplified" — any
+            /// change to the bit operations desyncs the stream from V8's.
             fn next_f64(&mut self) -> f64 {
                 self.state = self.state.wrapping_add(0x6D2B79F5);
                 let mut t = self.state;
@@ -687,6 +724,9 @@ mod tests {
             }
         }
 
+        /// FNV-1a fold of one `f64`'s little-endian bytes into a running
+        /// hash. Exists so the golden below is one small hash rather than
+        /// tens of thousands of hand-written expectations.
         fn fold(mut h: u32, x: f64) -> u32 {
             for b in x.to_le_bytes() {
                 h ^= u32::from(b);
@@ -694,9 +734,14 @@ mod tests {
             }
             h
         }
-        const N: usize = 6000;
-        const FNV_OFFSET: u32 = 0x811c_9dc5;
+        const N: usize = 6000; // iterations per band -- a measurement/judgement call, not a cited constant
+        const FNV_OFFSET: u32 = 0x811c_9dc5; // the standard FNV-1a 32-bit offset basis
 
+        /// Draw `N` arguments per band from the seeded generator, map each
+        /// through `band` then `f`, and fold every result into one hash.
+        /// Returns the hash plus the argument count and finite-result count,
+        /// so the caller can assert the sweep actually ran and did not
+        /// silently produce a wall of non-finite values.
         fn sweep(seed: u32, bands: &[fn(f64) -> f64], f: fn(f64) -> f64) -> (u32, usize, usize) {
             let mut r = Mulberry32::new(seed);
             let mut h = FNV_OFFSET;
@@ -772,6 +817,9 @@ mod tests {
     /// directions from the obvious transliterations.
     #[test]
     fn js_round_is_neither_f64_round_nor_floor_of_x_plus_half() {
+        // Protects: js_round's fractional-part comparison against both wrong
+        // transliterations — `f64::round` (ties away from zero) and
+        // `(x + 0.5).floor()` (wrong at `0.49999999999999994`).
         for (x, want) in [
             (2.5, 3.0),
             (-2.5, -2.0),   // f64::round gives -3
@@ -820,10 +868,20 @@ mod tests {
     /// on every band.
     #[test]
     fn golden_js_exp_and_js_atan2_hash_over_every_reduction_branch() {
+        // Protects: js_exp and js_atan2 against a mutant that survives the
+        // hand-picked tables elsewhere in this file — every reduction
+        // threshold, both `|y/x|` shortcuts, and `atan`'s whole reduction
+        // table — by hashing V8's own output over every reachable branch.
         // `cartalith-rng`'s `Mulberry32`, inlined -- see the crate docs on why
         // this crate takes no dependency, even a dev one.
+        /// The reference's `mulberry32` state, inlined (a second, terser copy
+        /// of the same generator the `sin`/`cos`/`log` hash test above uses)
+        /// so this test takes no dependency on `cartalith-rng`.
         struct M(u32);
         impl M {
+            /// The reference's `mulberry32` step, transcribed instruction for
+            /// instruction; must not be reassociated, or the stream desyncs
+            /// from V8's and the hash below stops meaning anything.
             fn f(&mut self) -> f64 {
                 self.0 = self.0.wrapping_add(0x6D2B79F5);
                 let mut t = self.0;
@@ -832,6 +890,7 @@ mod tests {
                 ((t ^ (t >> 14)) as f64) / 4294967296.0
             }
         }
+        /// FNV-1a fold of one `f64`'s little-endian bytes into a running hash.
         fn fold(mut h: u32, x: f64) -> u32 {
             for b in x.to_le_bytes() {
                 h ^= u32::from(b);
@@ -839,8 +898,8 @@ mod tests {
             }
             h
         }
-        const N: usize = 6000;
-        const FNV_OFFSET: u32 = 0x811c_9dc5;
+        const N: usize = 6000; // iterations per band -- a measurement/judgement call, not a cited constant
+        const FNV_OFFSET: u32 = 0x811c_9dc5; // the standard FNV-1a 32-bit offset basis
 
         let exp_bands: [fn(f64) -> f64; 8] = [
             |u| (u - 0.5) * 1e-9,
@@ -918,6 +977,9 @@ mod tests {
     /// and produced the same answer. `1.2` and `3.1` have odd floors and do not.
     #[test]
     fn non_finite_to_fixed_and_the_odd_floor_rounding_the_sweep_found_untested() {
+        // Protects: js_to_fixed/js_fixed's non-finite guards (a dropped guard
+        // leaves a `.expect()` that panics on an infinity) and u8_clamped's
+        // odd-floor tie rows, both gaps a mutation sweep found untested.
         assert!(js_to_fixed(f64::NAN, 3).is_nan());
         assert_eq!(js_to_fixed(f64::INFINITY, 3), f64::INFINITY);
         assert_eq!(js_to_fixed(f64::NEG_INFINITY, 3), f64::NEG_INFINITY);
@@ -951,6 +1013,9 @@ mod tests {
     /// own output. There is one implementation now, so there is one test.
     #[test]
     fn js_hypot_follows_the_spec_on_infinity_and_nan() {
+        // Protects: js_hypot/js_hypot3/js_hypot_n's specification preamble
+        // against silently dropping it again, the way three of four prior
+        // copies did (`JS_SEMANTICS_AUDIT.md` §3.2).
         assert_eq!(js_hypot(f64::INFINITY, 3.0), f64::INFINITY);
         assert_eq!(js_hypot(3.0, f64::INFINITY), f64::INFINITY);
         assert_eq!(js_hypot(f64::NEG_INFINITY, 3.0), f64::INFINITY);
@@ -981,6 +1046,8 @@ mod tests {
     /// and three-argument forms separately against the same rule).
     #[test]
     fn js_hypot_matches_the_pythagorean_answer_on_exact_cases() {
+        // Protects: js_hypot/js_hypot3 against losing correctness on the
+        // exactly-representable integer cases, moved from cartalith-terrain.
         assert_eq!(js_hypot(3.0, 4.0), 5.0);
         assert_eq!(js_hypot(0.0, 0.0), 0.0);
         assert_eq!(js_hypot(-3.0, 4.0), 5.0);
@@ -997,6 +1064,9 @@ mod tests {
     /// `cartalith-terrain::amplify`, which each tested the same rule.
     #[test]
     fn js_min_max_propagate_nan_where_rusts_own_would_not() {
+        // Protects: js_min/js_max/js_num_or_zero/js_truthy_num against
+        // absorbing a NaN the way Rust's own `f64::min`/`max` do, where JS
+        // propagates it.
         assert!(js_min(1.0, f64::NAN).is_nan());
         assert!(js_min(f64::NAN, 1.0).is_nan());
         assert!(js_max(0.0, f64::NAN).is_nan());
@@ -1020,6 +1090,9 @@ mod tests {
     /// something else, which is what stops a future copy-paste losing it again.
     #[test]
     fn smoothstep_substitutes_1e_6_for_a_zero_or_nan_width_the_way_js_truthiness_does() {
+        // Protects: smoothstep's `||1e-6` JS-truthiness guard against
+        // regressing to a partial form (only the `== 0.0` case, or no guard
+        // at all) that three of the four prior copies carried.
         // The ordinary band: endpoints pinned, midpoint at the cubic's centre.
         assert_eq!(smoothstep(0.0, 1.0, -1.0), 0.0);
         assert_eq!(smoothstep(0.0, 1.0, 2.0), 1.0);
@@ -1057,6 +1130,9 @@ mod tests {
     /// printing.
     #[test]
     fn js_min_max_pick_the_v8_signed_zero_in_either_argument_order() {
+        // Protects: js_min/js_max's both-zeros arm against regressing to a
+        // plain `<`/`>` comparison, which is right in one argument order and
+        // wrong in the other — the bug every prior copy carried.
         let neg = |x: f64| x == 0.0 && x.is_sign_negative();
         let pos = |x: f64| x == 0.0 && x.is_sign_positive();
 
@@ -1086,6 +1162,9 @@ mod tests {
     /// module doc records that a naive `as u8` costs a whole colour level.
     #[test]
     fn u8_clamped_rounds_ties_to_even_and_clamps_both_ends() {
+        // Protects: u8_clamped's `Uint8ClampedArray` conversion (clamp, NaN to
+        // 0, ties to even) against regressing to `as u8` (truncates) or
+        // `.round()` (ties away from zero), and both clamp boundaries.
         assert_eq!(u8_clamped(0.5), 0, "tie -> even");
         assert_eq!(u8_clamped(1.5), 2, "tie -> even");
         assert_eq!(u8_clamped(2.5), 2, "tie -> even");
@@ -1119,8 +1198,15 @@ mod tests {
     /// counterexamples. A disagreement here means one of the two has drifted.
     #[test]
     fn the_two_to_fixed_ports_agree_with_each_other_everywhere() {
+        // Protects: js_fixed and js_to_fixed against drifting apart again —
+        // JS_SEMANTICS_AUDIT.md §2.2/§3.4 found one of two independent
+        // `toFixed` ports wrong, twice, and this is the check that catches it.
+        /// The reference's `mulberry32` state, inlined again (see the two
+        /// earlier tests' copies) so this test takes no dependency.
         struct M(u32);
         impl M {
+            /// The reference's `mulberry32` step, transcribed instruction for
+            /// instruction; must not be reassociated.
             fn f(&mut self) -> f64 {
                 self.0 = self.0.wrapping_add(0x6D2B79F5);
                 let mut t = self.0;
@@ -1179,6 +1265,10 @@ mod tests {
     /// reduced intervals, >= 2^66) and every quadrant of `atan2`.
     #[test]
     fn js_atan2_matches_v8_on_every_branch() {
+        // Protects: js_atan2's FDLIBM `atan` reduction (every interval
+        // boundary, the `m &= 1` FreeBSD correction) against a regression
+        // toward the platform `f64::atan2`, which disagrees with V8 on 17-23%
+        // of ordinary arguments.
         let cases: [(f64, f64, u64); 44] = [
             (1.0, 1.0, 0x3fe921fb54442d18),
             (1.0, -1.0, 0x4002d97c7f3321d2),
@@ -1251,6 +1341,11 @@ mod tests {
     /// `js_atan2` unnoticed.
     #[test]
     fn js_atan2_matches_v8_on_the_spec_pinned_edge_cases() {
+        // Protects: js_atan2's specification preamble (signed zeros, every
+        // infinity quadrant, NaN) against silently being lost, the way three
+        // of four `js_hypot` copies lost theirs (`JS_SEMANTICS_AUDIT.md` §3.2)
+        // — and the signed-zero rows below protect `build_channels`'s
+        // symmetric-cell branch specifically.
         let cases: [(f64, f64, u64); 26] = [
             (0.0, 0.0, 0x0000000000000000),
             (0.0, -0.0, 0x400921fb54442d18),
