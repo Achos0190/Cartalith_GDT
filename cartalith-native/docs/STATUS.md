@@ -1218,6 +1218,52 @@ re-checked against the tree rather than copied from the commit message.
   turning up, the crate. Batches 6 through 19 all still need an independent
   verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 20 (`cartalith-gpu` closed; `cartalith-assets`
+  started) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; gpu 110/0/1, full assets 263/0/0).** Closed
+  `cartalith-gpu`: annotated `src/lib.rs` from milestone 9's flow-accumulation
+  block (line ~5661) through EOF (five `#[test]`s got `// Protects:` first
+  lines; `gpu_flow_real_timing` also got a `///` doc), then found and closed
+  the crate-wide remainder the batch's own scope note undercounted — batch
+  19's "5/26/1 remaining, all past line 5659" turned out to include gaps
+  outside `lib.rs` entirely: `affordance.rs` (2 tests), `pool.rs` (5 tests),
+  `tier.rs` (4 tests), `timing_harness.rs` (4 small `impl Timing`/`Display`
+  methods), and `tests/multi_gpu.rs` (11 tests, 1 const). All got `//
+  Protects:`/`///` docs; `multi_gpu.rs`'s `H` const got its own inline
+  comment alongside `W`'s existing one. **WGSL**: the eight shaders batches
+  18/19 had not reached — `gpu_biome.wgsl`, `gpu_carrying.wgsl`,
+  `gpu_resources.wgsl`, `gpu_suitability.wgsl`, `gpu_thermal.wgsl` (each
+  missing only per-`fn` `//` labels above already-documented bodies),
+  `gpu_stress.wgsl` (already fully covered, no edit needed), `gpu_flow.wgsl`
+  and `vnoise_f64.wgsl` (missing labels on their small helper `fn`s) — all
+  now carry a `//` comment on every `fn`/entry point. No pre-existing wrong
+  comment found. **Comments only**: `cargo test -p cartalith-gpu --
+  --test-threads=1`, `CARGO_TARGET_DIR` at `.../scratchpad/bk20`, run once
+  after editing (the pre-edit count is batch 19's own closing figure, 110/0/1,
+  which this batch's `find_gaps.py` cross-check against `census_v2.py`
+  confirms as the correct baseline) — **110 passed / 0 failed / 1 ignored**,
+  matching. Crate-wide `census_v2.py`: items_undoc 5→0, tests_unprotected
+  26→0, consts_undoc 1→0 (loc 10356→10438) — **cartalith-gpu is now 0/0/0**.
+  Then started `cartalith-assets` (~12,129 LOC before this batch), whole
+  files in ascending-LOC risk order: `lib.rs` (173 LOC, already 0 gaps, no
+  edit needed), `ordered_map.rs` (207), `coast.rs` (256), `raster.rs` (502),
+  `archive.rs` (547), `slots.rs` (553), `scatter.rs` (797) — six files edited,
+  2 862 LOC, all now individually gap-free (`find_gaps.py` confirms). Every
+  edit was a `// Protects:`/`///` doc added to an existing test, impl method,
+  trait impl, or `mod tests` block; several tests already carried a
+  rationale-rich `///` comment missing only the literal word "protect" (this
+  session's own census rule 1b), same pattern as batch 19. No pre-existing
+  wrong comment found. **Comments only**: `cargo test -p cartalith-assets
+  --lib -- --test-threads=1` after editing — **165 passed / 0 failed**
+  (golden-parity tests in `tests/` were not run this batch; they read no
+  code this batch touched). Crate-wide `census_v2.py`: items_undoc 313→237,
+  tests_unprotected 262→202, consts_undoc 6→5 (loc 11950→12129). **Next
+  step: batch 21** continues `cartalith-assets` with `manifest.rs` (1062
+  LOC, 32 gaps), then `placement.rs` (961, 36), `manual.rs` (1049, 68),
+  `slicer.rs` (850, 47) and `library.rs` (1692, 53) in that order, the only
+  files in the crate still carrying gaps. Batches 6 through 20 all still
+  need an independent verifier before any can be called done rather than
+  pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

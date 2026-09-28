@@ -35,12 +35,18 @@ struct CarryParams {
 // cartalith_civ::BIOME_DENSITY_RESIDUAL, indexed by biome - 1.
 const RESID = array<f32, 13>(0.60, 0.65, 0.85, 0.85, 1.00, 0.90, 0.90, 0.95, 0.55, 0.80, 0.75, 0.55, 0.00);
 
+// Unpacks cell i's byte from the little-endian four-per-u32 `biome` (which
+// == 0) or `wet` (which == 1) storage array.
 fn byte_at(i: u32, which: u32) -> u32 {
     var w = 0u;
     if which == 0u { w = biome[i >> 2u]; } else { w = wet[i >> 2u]; }
     return (w >> (8u * (i & 3u))) & 0xffu;
 }
 
+// One invocation per cell: zero below sea level (host-computed cut) or on
+// ocean biome (id 0), else `soil * temperature-Gaussian * water-modifier *
+// biome-density-modifier`, clamped to [0, 1] -- `build_carrying_capacity`'s
+// formula, computed in f32 rather than the CPU's f64-then-round.
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.y * params.row_threads + gid.x;

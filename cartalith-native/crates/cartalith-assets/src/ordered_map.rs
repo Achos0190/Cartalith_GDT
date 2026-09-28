@@ -25,6 +25,7 @@ use std::marker::PhantomData;
 pub struct OrderedMap<V>(Vec<(String, V)>);
 
 impl<V> Default for OrderedMap<V> {
+    /// An empty map, same as [`OrderedMap::new`].
     fn default() -> Self {
         OrderedMap(Vec::new())
     }
@@ -102,6 +103,9 @@ impl<V> OrderedMap<V> {
 }
 
 impl<V> FromIterator<(String, V)> for OrderedMap<V> {
+    /// Builds a map by inserting each pair in iteration order, so a later
+    /// duplicate key overwrites the earlier value in place (`insert`'s
+    /// JavaScript-assignment semantics), not appended.
     fn from_iter<I: IntoIterator<Item = (String, V)>>(iter: I) -> Self {
         let mut out = OrderedMap::new();
         for (k, v) in iter {
@@ -114,12 +118,16 @@ impl<V> FromIterator<(String, V)> for OrderedMap<V> {
 impl<'a, V> IntoIterator for &'a OrderedMap<V> {
     type Item = (&'a str, &'a V);
     type IntoIter = Box<dyn Iterator<Item = (&'a str, &'a V)> + 'a>;
+    /// `for (k, v) in &map` -- delegates to [`OrderedMap::iter`], boxed
+    /// because the borrowed-str/associated-type shape has no named type.
     fn into_iter(self) -> Self::IntoIter {
         Box::new(self.iter())
     }
 }
 
 impl<V: Serialize> Serialize for OrderedMap<V> {
+    /// Serializes as a JSON object with keys in insertion order -- the
+    /// property this whole type exists to guarantee.
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(Some(self.0.len()))?;
         for (k, v) in &self.0 {
@@ -129,15 +137,20 @@ impl<V: Serialize> Serialize for OrderedMap<V> {
     }
 }
 
+/// [`serde`]'s visitor for [`OrderedMap`]'s [`Deserialize`] impl below.
 struct OrderedMapVisitor<V>(PhantomData<V>);
 
 impl<'de, V: Deserialize<'de>> Visitor<'de> for OrderedMapVisitor<V> {
     type Value = OrderedMap<V>;
 
+    /// The error-message description `serde` prints on a type mismatch.
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("a JSON object")
     }
 
+    /// Reads entries in the document's own order and inserts them with
+    /// [`OrderedMap::insert`], so a duplicate key keeps its first position
+    /// and takes its last value -- JavaScript's own object-literal rule.
     fn visit_map<M: MapAccess<'de>>(self, mut access: M) -> Result<Self::Value, M::Error> {
         let mut out = OrderedMap::new();
         while let Some((k, v)) = access.next_entry::<String, V>()? {
@@ -148,15 +161,20 @@ impl<'de, V: Deserialize<'de>> Visitor<'de> for OrderedMapVisitor<V> {
 }
 
 impl<'de, V: Deserialize<'de>> Deserialize<'de> for OrderedMap<V> {
+    /// Deserializes a JSON object, preserving its source key order.
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         deserializer.deserialize_map(OrderedMapVisitor(PhantomData))
     }
 }
 
+/// [`OrderedMap`]'s order-preservation and JS-assignment-semantics contract.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: a JSON object round-trips through [`OrderedMap`] with its
+    /// source key order intact, both on read (`keys()`) and on write
+    /// (re-serializing must reproduce the original text).
     #[test]
     fn preserves_document_order_through_a_round_trip() {
         let src = r#"{"zebra":"z","apple":"a","mango":"m"}"#;
@@ -165,6 +183,8 @@ mod tests {
         assert_eq!(serde_json::to_string(&m).unwrap(), src);
     }
 
+    /// Protects: `{a:1, b:2, a:3}`'s second `a` keeps the first `a`'s
+    /// position but overwrites its value -- JavaScript object-literal rules.
     #[test]
     fn duplicate_key_keeps_first_position_and_last_value() {
         // JavaScript: `{a:1, b:2, a:3}` iterates a, b -- with a === 3.
@@ -173,6 +193,9 @@ mod tests {
         assert_eq!(m.get("a"), Some(&3));
     }
 
+    /// Protects: `len`/`is_empty`/`contains_key`/`get`/`values`/`iter_mut`
+    /// against the values actually inserted, including that a mutation
+    /// through `iter_mut` is visible to a later `get`.
     #[test]
     fn basic_accessors() {
         let mut m = OrderedMap::new();
@@ -190,6 +213,10 @@ mod tests {
         assert_eq!(m.get("two"), Some(&20));
     }
 
+    /// Protects: [`OrderedMap::remove`] on a missing key returns `None`
+    /// without disturbing order, and a later [`OrderedMap::insert`] of the
+    /// removed key is a fresh append rather than reclaiming the old slot --
+    /// matching `delete`-then-reassign's effect on `Object.keys` order.
     #[test]
     fn remove_then_reinsert_moves_the_key_to_the_end() {
         let mut m = OrderedMap::new();

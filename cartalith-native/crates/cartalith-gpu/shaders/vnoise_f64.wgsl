@@ -16,6 +16,8 @@ struct Params {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read_write> out_values: array<f32>;
 
+// The CPU reference's integer-lattice hash, done in f64 rather than f32 so
+// the intermediate rounding matches the CPU's own f64 arithmetic exactly.
 fn hash_f64(x: i32, y: i32, s: i32) -> f64 {
     let h0 = f64(x) * 374761393.0 + f64(y) * 668265263.0 + f64(s) * 362437.0;
     let h1 = u32(h0);
@@ -26,10 +28,16 @@ fn hash_f64(x: i32, y: i32, s: i32) -> f64 {
     return f64(h5) / 4294967295.0;
 }
 
+// The Hermite ease curve `3t^2 - 2t^3`, in f64, for one axis of the lattice
+// interpolation below.
 fn smoothstep_component_f64(t: f64) -> f64 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Value noise at (x, y): the four surrounding lattice hashes, bilinearly
+// blended by the smoothstepped fractional part -- all in f64, to test
+// whether the CPU reference's f64-rounding-dependent formula can be
+// reproduced exactly on GPU (the natural f32 port, vnoise.wgsl, could not).
 fn vnoise_f64(x: f64, y: f64, s: i32) -> f64 {
     let xi = floor(x);
     let yi = floor(y);
@@ -46,6 +54,9 @@ fn vnoise_f64(x: f64, y: f64, s: i32) -> f64 {
     return a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v;
 }
 
+// One invocation per output cell: computes `vnoise_f64` at this cell's
+// scaled coordinate and casts down to f32 only at the storage write, the
+// same point the CPU reference (`vnoise_grid_cpu`) casts.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {

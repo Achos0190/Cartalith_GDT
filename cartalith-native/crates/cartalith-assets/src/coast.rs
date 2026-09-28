@@ -134,6 +134,8 @@ pub fn snap_to_coast(
     None
 }
 
+/// [`is_water`]/[`is_coast`]/[`snap_to_coast`]'s ruling-defined contract:
+/// water-with-a-land-neighbour, 4-neighbourhood, nearest-first ring search.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,8 +149,11 @@ mod tests {
             .collect()
     }
 
-    const SEA: f64 = 0.5;
+    const SEA: f64 = 0.5; // arbitrary mid-range threshold; only its relation to `vertical_shore`'s 0.0/1.0 heights matters
 
+    /// Protects: a coast cell is water with a land 4-neighbour, and land
+    /// itself is never a coast cell however much water it touches -- the
+    /// asymmetry the module doc argues for.
     #[test]
     fn a_coast_cell_is_water_with_a_land_neighbour() {
         let f = vertical_shore(8, 4, 3);
@@ -161,6 +166,9 @@ mod tests {
         assert!(!is_coast(&f, 8, 4, SEA, 2, 1));
     }
 
+    /// Protects: an all-land map has no coast (the only "land neighbour" a
+    /// border cell could have is out-of-bounds, which reads as water, not
+    /// land), and an all-water map likewise has none to snap to.
     #[test]
     fn the_map_edge_is_open_sea_not_a_shore() {
         // All land: the only "land neighbour" a border cell could have is the
@@ -176,6 +184,8 @@ mod tests {
         assert_eq!(snap_to_coast(&w, 6, 6, SEA, 3, 3, 10), None);
     }
 
+    /// Protects: a mark deep inland snaps to the nearest coast cell straight
+    /// out toward the shore, not to some other, farther coast cell.
     #[test]
     fn snapping_pulls_an_inland_mark_out_to_the_water_side_of_the_shore() {
         let f = vertical_shore(10, 5, 4);
@@ -185,6 +195,8 @@ mod tests {
         assert!(is_coast(&f, 10, 5, SEA, hit.0, hit.1));
     }
 
+    /// Protects: the same snap from the water side lands on the same coast
+    /// cell as from the land side -- the search is symmetric across a shore.
     #[test]
     fn snapping_pulls_an_offshore_mark_back_in() {
         let f = vertical_shore(10, 5, 4);
@@ -193,12 +205,17 @@ mod tests {
         assert_eq!(hit, (4, 2));
     }
 
+    /// Protects: the snap is idempotent -- a mark already on a coast cell
+    /// (r = 0 checked first) does not move, which matters because the
+    /// placement pass may run twice over the same world.
     #[test]
     fn a_mark_already_on_the_coast_does_not_move() {
         let f = vertical_shore(10, 5, 4);
         assert_eq!(snap_to_coast(&f, 10, 5, SEA, 4, 3, 10), Some((4, 3)));
     }
 
+    /// Protects: `max_r` is a hard cutoff -- a shore one cell beyond it is
+    /// never found, and the same shore just inside it is.
     #[test]
     fn the_radius_is_a_real_limit_not_a_hint() {
         let f = vertical_shore(20, 3, 10);
@@ -207,6 +224,9 @@ mod tests {
         assert_eq!(snap_to_coast(&f, 20, 3, SEA, 0, 1, 10), Some((10, 1)));
     }
 
+    /// Protects: within one Chebyshev ring, the true-nearest coast cell wins
+    /// over whichever the (y, x) scan order would reach first, and ties
+    /// within that break deterministically on the lower row.
     #[test]
     fn within_a_ring_the_nearest_cell_wins_not_the_first_scanned() {
         // One land cell at (5,5) makes its four edge-neighbours coast cells.
@@ -240,6 +260,8 @@ mod tests {
         assert_eq!(snap_to_coast(&f, w, h, SEA, 4, 6, 6), Some((5, 6)));
     }
 
+    /// Protects: a NaN cell reads as water (never land), so it cannot
+    /// manufacture a spurious shore out of an unmeasurable cell.
     #[test]
     fn a_non_finite_cell_reads_as_water_and_never_as_a_place_to_stand() {
         // `!(h > sea)` vs `h <= sea` is the same on NaN; what matters is that

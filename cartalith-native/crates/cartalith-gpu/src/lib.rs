@@ -5757,6 +5757,9 @@ mod tests {
     /// that really happens rather than assuming it away.
     #[test]
     fn gpu_flow_directions_match_cpu_receivers() {
+        // Protects: the GPU D8 receiver kernel against drift from
+        // `cpu_receivers`'s literal-transcript reference, so a mismatch
+        // is caught as a real f32-vs-f64 near-tie rather than assumed away.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5792,6 +5795,10 @@ mod tests {
     /// fixed-point quantization the Rust side deliberately chose.
     #[test]
     fn gpu_flow_matches_real_cpu_compute_flow() {
+        // Protects: the GPU accumulation against the real, untouched
+        // `cartalith_hydrology::compute_flow` -- agreement within the
+        // fixed-point quantization `FLOW_TOLERANCE`/`FLOW_ANY_CELL_TOLERANCE`
+        // deliberately allow, not exact bit equality.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5867,6 +5874,10 @@ mod tests {
     /// reason the fixed-point choice was made.
     #[test]
     fn gpu_flow_is_bit_reproducible() {
+        // Protects: the fixed-point integer accumulation's promised
+        // order-independence -- two identical dispatches must produce
+        // bit-identical `acc` and `recv`, the whole reason fixed point
+        // was chosen over a compare-exchange float-atomic emulation.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5889,6 +5900,12 @@ mod tests {
     /// the resulting channel masks compared cell for cell.
     #[test]
     fn gpu_flow_downstream_river_network_divergence() {
+        // Protects: the downstream river network (channel mask and
+        // Strahler order from `build_channels`/`strahler_from_receivers`)
+        // against divergence from the GPU accumulation feeding it beyond
+        // the hard ceiling asserted below -- flow accumulation is not a
+        // leaf value, so agreeing "closely enough" matters less than the
+        // river network coming out the same.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5934,8 +5951,15 @@ mod tests {
         }
     }
 
+    /// Not a correctness test -- see `gpu_weather_loop_real_timing` above
+    /// for the same discipline applied to the flow kernel: a real
+    /// wall-clock comparison against the real CPU `compute_flow`, at every
+    /// size this port's resolution presets offer, kept as a live NaN/Inf
+    /// sanity check rather than a fixed pass/fail on the ratio.
     #[test]
     fn gpu_flow_real_timing() {
+        // Protects: nothing about the ratio (a timing, not a threshold) --
+        // only that the GPU accumulation stays finite across the sweep.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;

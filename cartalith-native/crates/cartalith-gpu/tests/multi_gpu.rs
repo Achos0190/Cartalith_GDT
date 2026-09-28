@@ -102,6 +102,8 @@ fn enumeration_on_a_machine_with_no_gpu_is_empty_not_an_error() {
 /// the one `PowerPreference::HighPerformance` would have picked anyway.
 #[test]
 fn every_enumerated_device_can_be_selected_and_opened() {
+    // Protects: selecting a device by key opens that exact device, on every
+    // real device the machine has, not just the one HighPerformance prefers.
     let devs = real_devices();
     if devs.is_empty() {
         println!("skipped: no non-software GPU on this machine");
@@ -131,6 +133,9 @@ fn every_enumerated_device_can_be_selected_and_opened() {
 /// named one.
 #[test]
 fn a_globally_set_device_key_is_the_device_that_opens() {
+    // Protects: the 2026-08-24 regression -- a key written with
+    // `set_preferences` must be the device `init_gpu_device_set()` opens,
+    // not a second, differently-resolved snapshot of the global.
     let _guard = global_prefs();
     let devs = real_devices();
     if devs.is_empty() {
@@ -150,6 +155,8 @@ fn a_globally_set_device_key_is_the_device_that_opens() {
 /// machine) must degrade to the automatic pick, not to no GPU at all.
 #[test]
 fn an_unknown_device_key_falls_back_to_auto() {
+    // Protects: an unresolvable preference key degrades to the automatic
+    // pick rather than failing to open any device at all.
     if real_devices().is_empty() {
         println!("skipped: no non-software GPU on this machine");
         return;
@@ -175,6 +182,9 @@ fn an_unknown_device_key_falls_back_to_auto() {
 /// it is the whole assertion.
 #[test]
 fn the_automatic_pick_never_opens_a_software_rasterizer() {
+    // Protects: neither entry into the automatic pick (no preference, or a
+    // preference naming a device that no longer resolves) may open a
+    // software rasterizer.
     let software: Vec<_> = enumerate_devices().into_iter().filter(|d| d.is_software).collect();
     if software.is_empty() {
         println!("skipped: this machine enumerates no software rasterizer");
@@ -226,6 +236,9 @@ fn the_automatic_pick_never_opens_a_software_rasterizer() {
 /// to die.
 #[test]
 fn an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution() {
+    // Protects: the 2026-08-24 8192² binding-limit regression -- a device
+    // this crate opens must bind a full-grid f32 buffer at every resolution
+    // `new_world_dialog.gd` offers, with a real 8192² dispatch run at the end.
     let devs = real_devices();
     if devs.is_empty() {
         println!("skipped: no non-software GPU on this machine");
@@ -253,6 +266,8 @@ fn an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution() {
 /// a real allocation rather than merely being `Some`.
 #[test]
 fn device_usage_reports_this_apps_own_allocations() {
+    // Protects: the allocator report is a real measurement -- it must move
+    // by this app's own allocation, not merely return `Some`.
     if real_devices().is_empty() {
         println!("skipped: no non-software GPU on this machine");
         return;
@@ -286,13 +301,16 @@ fn device_usage_reports_this_apps_own_allocations() {
 /// hardware.
 #[test]
 fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
+    // Protects: rebuilding the whole grid from `split_rows`' bands on one
+    // device must be bit-exact against the whole-grid dispatch, since
+    // `gpu_warp.wgsl` reads nothing but its own (x, y, seed).
     let devs = real_devices();
     if devs.is_empty() {
         println!("skipped: no non-software GPU on this machine");
         return;
     }
     const W: u32 = 256; // small enough to run fast; non-square with H to catch a row/column swap in the band split
-    const H: u32 = 192;
+    const H: u32 = 192; // deliberately != W, for the same row/column-swap check
     const SEED: i32 = 90210; // arbitrary fixed seed -- only determinism across the split matters here, not the value
 
     let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
@@ -325,6 +343,10 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
 /// below 2048², it may well not be).
 #[test]
 fn split_tiles_across_two_real_devices_measured() {
+    // Protects: a split-tiles dispatch across two real devices computes the
+    // same field as a single-device dispatch (tolerance, not bit-exact --
+    // two devices means two shader compilers); the timing printed is a
+    // measurement, never an assertion of "faster".
     let devs = real_devices();
     if devs.len() < 2 {
         println!("skipped: split tiles needs two non-software GPUs, this machine has {}", devs.len());
@@ -388,6 +410,10 @@ fn split_tiles_across_two_real_devices_measured() {
 /// the single sample per cell it was first built from.
 #[test]
 fn per_device_warp_throughput_measured() {
+    // Protects: nothing about the ratio itself (the source of
+    // `device_weight`'s shipped constant, re-measured here for the next
+    // reader) -- only that every timed dispatch actually returned the
+    // full field, so a "timing" is never taken over a silently-empty run.
     let devs = real_devices();
     if devs.is_empty() {
         println!("skipped: no non-software GPU on this machine");
@@ -458,6 +484,9 @@ fn a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off() {
 /// What is NOT acceptable, and what this test exists to catch, is a panic.
 #[test]
 fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
+    // Protects: `504c2a6`'s remaining gap -- the integrated GPU's 8192²
+    // readback must complete or demote, never panic (`BufferAsyncError`
+    // used to take the Godot process down with it).
     const N: u32 = 8192; // the largest resolution new_world_dialog.gd offers (tier::LARGEST_PRESET_GRID)
     let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
         println!("skipped: this machine has no integrated GPU");
@@ -547,6 +576,10 @@ fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
 /// is a property of the hardware and the day, not of this code.
 #[test]
 fn a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back() {
+    // Protects: the whole 8192² pipeline on the integrated GPU, under its
+    // accumulated working set, must return a full finite field -- the two
+    // panics this test walks through (a lost readback, then a lost device
+    // hit by the next stage) are invisible to any single isolated dispatch.
     const N: usize = 8192; // the largest resolution new_world_dialog.gd offers (tier::LARGEST_PRESET_GRID)
     let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
         println!("skipped: this machine has no integrated GPU");

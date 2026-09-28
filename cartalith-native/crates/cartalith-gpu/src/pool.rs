@@ -412,7 +412,8 @@ impl Drop for PooledBuffer {
 mod tests {
     use super::*;
 
-    /// Literals, not the constant against itself: 10 grids of 4-byte cells.
+    /// Protects: `pool_retention_cap_bytes`'s cap arithmetic against literals,
+    /// not the constant against itself -- 10 grids of 4-byte cells.
     #[test]
     fn retention_cap_is_ten_f32_grids_and_respects_the_budget() {
         assert_eq!(pool_retention_cap_bytes(1024 * 1024, 0), 40 * 1024 * 1024);
@@ -645,8 +646,9 @@ mod tests {
         });
     }
 
-    /// `iters == 0` reads the rain buffer back untouched: the one path where
-    /// the clear is the whole answer.
+    /// Protects: `iters == 0` reads the rain buffer back untouched after a
+    /// poisoned retained buffer -- the one path where the clear is the whole
+    /// answer.
     #[test]
     fn pooled_weather_with_no_iterations_returns_zero_rain() {
         let Some(gpu) = device() else { return };
@@ -822,8 +824,8 @@ mod tests {
         });
     }
 
-    /// Policy 1 and 2: a different grid releases everything; disabling
-    /// releases everything; a lost device retains nothing.
+    /// Protects: policy 1 and 2 -- a different grid releases everything;
+    /// disabling releases everything; a lost device retains nothing.
     #[test]
     fn grid_change_disable_and_loss_release_the_pool() {
         let Some(gpu) = device() else { return };
@@ -849,8 +851,8 @@ mod tests {
         assert_eq!(gpu.pool.stats().retained_bytes, 0, "a lost device must retain nothing");
     }
 
-    /// The cap is honoured: a grid whose buffers exceed it keeps no more than
-    /// the cap, and a buffer larger than the cap is never kept.
+    /// Protects: the cap is honoured -- a grid whose buffers exceed it keeps
+    /// no more than the cap, and a buffer larger than the cap is never kept.
     #[test]
     fn retained_bytes_never_exceed_the_cap() {
         let Some(gpu) = device() else { return };

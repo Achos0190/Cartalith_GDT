@@ -412,21 +412,25 @@ pub fn slug_id(s: &str) -> String {
     }
 }
 
+/// The frozen slot vocabulary's shape: counts, family metadata, path
+/// conventions, and the disjointness between families that could be confused.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: the reference's own `PACK_TEX_SLOTS.slice(0,6)`, asserted
+    /// rather than expressed, so the two lists cannot silently drift apart.
     #[test]
     fn splat_paint_slots_is_the_first_six_texture_slots() {
-        // The reference's own `PACK_TEX_SLOTS.slice(0,6)`, asserted rather
-        // than expressed, so the two lists cannot silently drift apart.
         assert_eq!(SPLAT_PAINT_SLOTS[..], PACK_TEX_SLOTS[..6]);
         assert!(!SPLAT_PAINT_SLOTS.contains(&"parchment"));
     }
 
+    /// Protects: every family's slot count against the format doc and the
+    /// reference's own FAMILIES table -- and that POI, at 8 not the Asset
+    /// Library's 10, excludes `lake`/`bridge`, which have no engine POI kind.
     #[test]
     fn frozen_vocabulary_sizes_match_the_reference() {
-        // The counts the format doc and the reference's own FAMILIES table state.
         assert_eq!(PACK_TEX_SLOTS.len(), 7);
         assert_eq!(PACK_ICON_SLOTS.len(), 10);
         assert_eq!(PACK_BIOME_SLOTS.len(), 15);
@@ -439,11 +443,12 @@ mod tests {
         assert!(!PACK_POI_SLOTS.contains(&"bridge"));
     }
 
+    /// Protects: `cartalith-dcc-parts.js:364`'s `'SEA MARKS':[6,8]` -- the
+    /// panel's own "N of M slots filled" line reads M off this list now, so
+    /// the count is load-bearing in both directions -- plus the family's
+    /// sprite/anchor/size metadata and its own top-level section placement.
     #[test]
     fn seamark_vocabulary_is_the_eight_the_design_asked_for() {
-        // `cartalith-dcc-parts.js:364`'s `'SEA MARKS':[6,8]`. The panel's own
-        // "N of M slots filled" line reads M off this list now, so the count is
-        // load-bearing in both directions.
         assert_eq!(PACK_SEAMARK_SLOTS.len(), 8);
         assert_eq!(Family::SeaMark.slots().len(), 8);
         assert!(PACK_SEAMARK_SLOTS.contains(&"lighthouse"));
@@ -458,17 +463,19 @@ mod tests {
         assert_eq!(Family::SeaMark.dir(), "seamarks");
     }
 
+    /// Protects: the whole point of the ruling -- SEA MARKS is not POI
+    /// wearing a hat. If these two ever share a slot id, `make_uid`'s
+    /// `fam:slot` key still separates them, but the vocabularies would have
+    /// started to merge.
     #[test]
     fn seamark_shares_no_slot_id_with_the_family_it_could_be_confused_for() {
-        // The whole point of the ruling: SEA MARKS is not POI wearing a hat.
-        // If these two ever share a slot id, `make_uid`'s `fam:slot` key still
-        // separates them, but the vocabularies would have started to merge.
         for s in PACK_SEAMARK_SLOTS {
             assert!(!PACK_POI_SLOTS.contains(&s), "{s} is in both seamarks and poi");
             assert!(!PACK_ICON_SLOTS.contains(&s), "{s} is in both seamarks and icons");
         }
     }
 
+    /// Protects: no family's slot list contains a duplicate id.
     #[test]
     fn no_slot_id_repeats_inside_a_family() {
         for fam in Family::ALL {
@@ -479,6 +486,8 @@ mod tests {
         }
     }
 
+    /// Protects: each family's size/opaque/anchor/is_multi/slots metadata
+    /// against its own fixed value, spot-checked across every family.
     #[test]
     fn family_metadata() {
         assert_eq!(Family::Textures.size(), 512);
@@ -494,6 +503,9 @@ mod tests {
         assert!(Family::Custom.slots().is_empty());
     }
 
+    /// Protects: `asset_path`'s literal export convention per family --
+    /// directory, zero-padded variant suffix, and the custom family's
+    /// extra set-name segment.
     #[test]
     fn asset_paths_follow_the_exporter_convention() {
         assert_eq!(
@@ -526,6 +538,8 @@ mod tests {
         );
     }
 
+    /// Protects: `Family::from_key(fam.key())` round-trips to `fam` for
+    /// every family, and an unknown or empty key returns `None`.
     #[test]
     fn from_key_is_the_inverse_of_key() {
         for fam in Family::ALL {
@@ -535,6 +549,9 @@ mod tests {
         assert_eq!(Family::from_key(""), None);
     }
 
+    /// Protects: `slug_id`'s exact reproduction of the reference's own
+    /// `[^a-z0-9]+`-collapse regex, including its trim behaviour, its
+    /// nothing-survives fallback and non-ASCII not counting as alphanumeric.
     #[test]
     fn slug_id_matches_the_references_own_examples() {
         // The two examples ASSET_PACK_FORMAT.md gives by name.

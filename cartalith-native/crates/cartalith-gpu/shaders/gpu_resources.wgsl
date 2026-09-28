@@ -49,11 +49,17 @@ struct ResParams {
 @group(0) @binding(2) var<storage, read> bytes: array<u32>;
 @group(0) @binding(3) var<storage, read_write> out_res: array<f32>;
 
+// Unpacks cell i's byte from planar u8 storage: plane 0 = lith, 1 =
+// boundary_type, 2 = biome, each packed little-endian four per u32.
 fn byte_plane(plane: u32, i: u32) -> u32 {
     let w = bytes[plane * params.words + (i >> 2u)];
     return (w >> (8u * (i & 3u))) & 0xffu;
 }
 
+// One invocation per cell: unpacks the seven f32 input planes and three
+// u8 planes, evaluates all fifteen mineral-potential formulas below (each
+// a literal transcript of its CPU closure, branches taken via host cuts),
+// and writes the fifteen output planes in ResourcePotentials field order.
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.y * params.row_threads + gid.x;

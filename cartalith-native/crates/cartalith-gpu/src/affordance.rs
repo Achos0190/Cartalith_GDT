@@ -658,6 +658,10 @@ mod tests {
     /// rests on. Checked by brute force over the 64 f32 neighbours of each.
     #[test]
     fn cuts_reproduce_f64_comparisons_exactly() {
+        // Protects: that every `lt`/`gt` cut this module's kernels dispatch
+        // with reproduces the CPU's f64 comparison exactly at the f32
+        // neighbours of the threshold -- the property "branches are the
+        // CPU's" depends on.
         for c in [0.20, 0.30, 0.60, 0.12, 0.28, 0.55, 0.22, 0.5, 0.25, 0.45, 0.35, 0.85, 0.4, -7.0, 1e-9] {
             let (l, g) = (lt(c), gt(c));
             let mut x = (c as f32).next_down();
@@ -676,6 +680,9 @@ mod tests {
     /// fraction) reduces to a cut on the raw input.
     #[test]
     fn derived_cut_matches_elevation_fraction() {
+        // Protects: that `first_true` correctly reduces a derived monotone
+        // predicate (the resource kernel's elevation fraction) to a cut on
+        // the raw input, not just a directly-thresholded value.
         let sea = 0.4137_f64;
         let denom = (1.0 - sea).max(1e-6);
         let r = |f: f32| ((f as f64 - sea) / denom).max(0.0);

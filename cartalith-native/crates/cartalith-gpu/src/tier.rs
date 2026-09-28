@@ -170,6 +170,8 @@ mod tests {
     /// One byte less and the device falls to Basic.
     #[test]
     fn buffer_ceiling_boundary_is_one_8192_squared_f32_grid() {
+        // Protects: the exact byte boundary at which a device falls from
+        // GpuHigh to GpuBasic, and that the min of both limits binds.
         assert_eq!(classify(Some(&dev(DiscreteGpu, 256 * MIB)), false), ComputeTier::GpuHigh);
         assert_eq!(classify(Some(&dev(DiscreteGpu, 256 * MIB - 1)), false), ComputeTier::GpuBasic);
         // `downlevel_defaults()`' 128 MiB binding is a Basic device.
@@ -215,6 +217,8 @@ mod tests {
     /// device; one that failed only above it does not.
     #[test]
     fn a_readback_failure_at_the_largest_grid_demotes() {
+        // Protects: a readback failure recorded at the largest preset grid
+        // demotes the device to GpuBasic; one recorded only above it does not.
         let _g = crate::multi::tests::readback_test_guard();
         let mut d = dev(DiscreteGpu, 2048 * MIB);
         d.vendor = 0x7e58; // own key, so no other test's record can reach it
@@ -229,6 +233,9 @@ mod tests {
     /// The constants against the files they mirror, not against themselves.
     #[test]
     fn constants_match_the_shaders_and_the_new_world_dialog() {
+        // Protects: the workgroup-size and grid-ceiling constants against the
+        // files they mirror (every shader's `@workgroup_size`, and
+        // `new_world_dialog.gd`'s `GRID_MAX`), not against themselves.
         let (mut x, mut y, mut inv) = (0, 0, 0);
         let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/shaders");
         for e in std::fs::read_dir(dir).expect("shaders dir") {
@@ -259,6 +266,8 @@ mod tests {
     /// one invariant that needs no hardware knowledge.
     #[test]
     fn compute_tier_on_this_machine() {
+        // Protects: the one hardware-independent invariant -- if every
+        // enumerated device is software, the classifier must say CpuOnly.
         let tier = compute_tier();
         println!("compute tier: {tier:?}");
         if enumerate_devices().iter().all(|d| d.is_software) {

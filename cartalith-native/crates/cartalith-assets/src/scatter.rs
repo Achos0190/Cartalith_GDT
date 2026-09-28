@@ -581,11 +581,17 @@ pub fn autopopulate_scatter_rules(table: &mut ScatterRuleTable, pack: &PackManif
     }
 }
 
+/// [`ScatterRule`]'s defaults, presets, key scheme, [`normalize_scatter_rule`]'s
+/// JS-semantics-preserving field-by-field coercion, spacing derivation,
+/// weighted variant pick, [`current_scatter_rules`] filtering, and the
+/// serialized field names.
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Protects: [`ScatterRule::default`]'s every field against the
+    /// reference's own default rule shape.
     #[test]
     fn default_rule_matches_the_reference() {
         let d = ScatterRule::default();
@@ -598,9 +604,10 @@ mod tests {
         assert!(d.variant_weights.is_none());
     }
 
-    /// The preset table's keys are exactly `PACK_ICON_SLOTS` — a fact worth
-    /// pinning, since it is what makes an imported icon pack behave like
-    /// v1.25 with no configuration at all.
+    /// Protects: the preset table's keys are exactly `PACK_ICON_SLOTS` — a
+    /// fact worth pinning, since it is what makes an imported icon pack
+    /// behave like v1.25 with no configuration at all — and nothing outside
+    /// that vocabulary (a custom key, an unknown slot) gets a preset.
     #[test]
     fn every_frozen_icon_slot_has_a_preset_and_nothing_else_does() {
         for slot in crate::PACK_ICON_SLOTS {
@@ -615,6 +622,9 @@ mod tests {
         }
     }
 
+    /// Protects: `scatter_rule_key`'s two shapes -- a frozen slot's bare
+    /// id (with an empty custom set treated as absent), and a custom
+    /// asset's `custom::<set>::<slot>` key.
     #[test]
     fn rule_keys_address_frozen_and_custom_assets() {
         assert_eq!(scatter_rule_key("mountain", None), "mountain");
@@ -622,6 +632,8 @@ mod tests {
         assert_eq!(scatter_rule_key("oak", Some("Trees")), "custom::Trees::oak");
     }
 
+    /// Protects: `ScatterMode::from_wire` accepts only the exact
+    /// lowercase wire strings (no case-folding), and `as_str` round-trips.
     #[test]
     fn mode_parsing_is_case_sensitive_and_total() {
         assert_eq!(ScatterMode::from_wire("relief"), Some(ScatterMode::Relief));
@@ -630,6 +642,9 @@ mod tests {
         assert_eq!(ScatterMode::Relief.as_str(), "relief");
     }
 
+    /// Protects: `normalize_scatter_rule` on any non-object JSON value
+    /// (null, a string, a number, an array) falls back to the slot's own
+    /// preset rather than the bare default.
     #[test]
     fn non_object_input_yields_the_preset() {
         for raw in [json!(null), json!("relief"), json!(7), json!([1, 2])] {
@@ -640,6 +655,9 @@ mod tests {
         }
     }
 
+    /// Protects: `elev_min`/`elev_max` are clamped to [0, 1] and forced
+    /// ordered (min never exceeds max), and an explicit JSON `null` clears
+    /// the preset's own value rather than being ignored.
     #[test]
     fn elevation_band_is_ordered_and_clamped() {
         let r = normalize_scatter_rule(&json!({"elevMin": 0.9, "elevMax": 0.2}), "hill");
@@ -651,12 +669,17 @@ mod tests {
         assert_eq!(r.elev_min, None);
     }
 
+    /// Protects: `max_size` is raised to `min_size` when the input would
+    /// invert the pair, never left inverted.
     #[test]
     fn max_size_never_falls_below_min_size() {
         let r = normalize_scatter_rule(&json!({"minSize": 3, "maxSize": 1}), "mountain");
         assert_eq!((r.min_size, r.max_size), (3.0, 3.0));
     }
 
+    /// Protects: the `biomes` array keeps only real-number entries (drops
+    /// strings and nulls without coercing them), and a non-array `biomes`
+    /// means "any land" (empty list), not "keep the preset's own".
     #[test]
     fn biomes_filter_keeps_only_real_numbers_without_coercing() {
         let r = normalize_scatter_rule(&json!({"biomes": [3, "4", null, 5.5, -2]}), "boulder");
@@ -666,6 +689,9 @@ mod tests {
         assert!(r.biomes.is_empty());
     }
 
+    /// Protects: each `variantWeights` entry is independently clamped to
+    /// [0, 100] and non-numeric/null entries become 0.0, not dropped; a
+    /// wholly non-array value clears the field to `None`.
     #[test]
     fn variant_weights_are_clamped_per_entry() {
         let r = normalize_scatter_rule(
@@ -680,7 +706,9 @@ mod tests {
         assert!(r.variant_weights.is_none());
     }
 
-    /// JS truthiness, not a JSON-boolean check: `0` is off, `"no"` is on.
+    /// Protects: boolean fields use JS truthiness, not a JSON-boolean
+    /// check -- `0` is off, `"no"` is on -- and an absent key leaves the
+    /// preset's own value alone.
     #[test]
     fn boolean_fields_use_javascript_truthiness() {
         assert!(!normalize_scatter_rule(&json!({"enabled": 0}), "cactus").enabled);
@@ -690,15 +718,19 @@ mod tests {
         assert!(normalize_scatter_rule(&json!({}), "tree_wetland").require_wetland);
     }
 
-    /// The one place this port knowingly differs from `+v`, kept deliberate
-    /// by being asserted: JS coerces `[2]` to `2` via `ToPrimitive`; here an
-    /// array is not a number, so the field falls back to its default.
+    /// Protects: the one place this port knowingly differs from `+v` -- JS
+    /// coerces `[2]` to `2` via `ToPrimitive`; here an array is not a
+    /// number, so the field falls back to its default instead.
     #[test]
     fn array_valued_number_fields_fall_back_rather_than_coercing() {
         let r = normalize_scatter_rule(&json!({"density": [2]}), "shrub");
         assert_eq!(r.density, 1.0);
     }
 
+    /// Protects: numeric-field coercion matches JS `+v` exactly, including
+    /// its quirks -- a decimal string, an ES radix literal, `true` as 1,
+    /// whitespace-only as 0, and an empty string as "leave unset" rather
+    /// than 0.
     #[test]
     fn string_numbers_coerce_the_way_javascript_does() {
         let d = |v: Value| normalize_scatter_rule(&json!({ "density": v }), "shrub").density;
@@ -709,6 +741,10 @@ mod tests {
         assert_eq!(d(json!("")), 1.0); // but `''` is an explicit "unset"
     }
 
+    /// Protects: `spacing_cells`'s precedence and formula -- an explicit
+    /// `spacing` wins outright; otherwise it derives from density (with a
+    /// falsy 0.0 density treated as 1, matching JS truthiness) and never
+    /// goes below the 3-cell floor even at runaway density.
     #[test]
     fn spacing_derives_from_density_and_floors_at_three() {
         // Explicit spacing wins.
@@ -733,6 +769,10 @@ mod tests {
         assert_eq!(r.spacing_cells(180), 3.0);
     }
 
+    /// Protects: `pick_weighted_variant` falls back to the plain
+    /// `pick_icon_variant` hash whenever the weights cannot decide --
+    /// absent, too few entries, all-zero, or all-negative -- and a
+    /// single-variant/zero-variant call is trivially variant 0.
     #[test]
     fn weighted_pick_falls_through_to_the_plain_hash_when_degenerate() {
         for (x, y) in [(0, 0), (13, 7), (-4, 91)] {
@@ -746,6 +786,9 @@ mod tests {
         assert_eq!(pick_weighted_variant(3, 3, 7, 0, None), 0);
     }
 
+    /// Protects: with one variant weighted 1.0 and the rest 0.0,
+    /// `pick_weighted_variant` always returns that variant, across a spread
+    /// of positions.
     #[test]
     fn weighted_pick_respects_a_one_hot_weighting() {
         for x in 0..50 {
@@ -756,6 +799,9 @@ mod tests {
         }
     }
 
+    /// Protects: `current_scatter_rules` returns `None` for an empty table
+    /// or a table whose every rule is disabled, and otherwise returns only
+    /// the enabled rules, in table order.
     #[test]
     fn current_rules_drops_disabled_and_signals_none_when_empty() {
         let mut t = ScatterRuleTable::new();
@@ -786,6 +832,8 @@ mod tests {
         assert!(current_scatter_rules(&all_off).is_none());
     }
 
+    /// Protects: [`ScatterRule`]'s serialized field names and order match
+    /// the reference's own JSON shape byte for byte.
     #[test]
     fn rule_serializes_with_the_reference_field_names() {
         let json = serde_json::to_string(&preset_scatter_rule("hill")).unwrap();

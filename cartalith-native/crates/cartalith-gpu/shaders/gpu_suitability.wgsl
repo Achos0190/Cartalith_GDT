@@ -57,14 +57,22 @@ struct SuitParams {
 @group(0) @binding(2) var<storage, read> wb: array<u32>;
 @group(0) @binding(3) var<storage, read_write> out_suit: array<f32>;
 
+// Unpacks cell i's water-body class from the little-endian four-per-u32
+// `wb` storage array (0 = not water, 2 = lake, checked by every lake term).
 fn wb_at(i: u32) -> u32 {
     return (wb[i >> 2u] >> (8u * (i & 3u))) & 0xffu;
 }
 
+// Reads cell i from the p'th of `fin`'s 22 planar f32 planes.
 fn plane(p: u32, i: u32) -> f32 {
     return fin[p * params.n + i];
 }
 
+// One invocation per cell: zero below sea level or on non-land water-body
+// class, else the weighted sum of every suitability term (terrain, coast,
+// river, the fixed-radius lake-window scan, resources, agriculture,
+// buildability, corridor, flood, islet) through a sigmoid -- a literal
+// transcript of `build_settlement_suitability`'s full-context formula.
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.y * params.row_threads + gid.x;

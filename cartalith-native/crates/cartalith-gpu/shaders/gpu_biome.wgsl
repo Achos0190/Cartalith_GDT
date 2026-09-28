@@ -37,6 +37,11 @@ struct BiomeParams {
 @group(0) @binding(3) var<storage, read> rain: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out_biome: array<u32>;
 
+// Bit-exact transcript of `classify_biome`'s temperature/moisture ladder:
+// temperature bands are literal (exact in f32), moisture bands compare
+// against the host-computed `lt_cut`s in `params` so every finite f32
+// agrees with the CPU's f64 comparison. Returns the 1..=12 biome id (0 and
+// 13 -- ocean/lake -- are handled by the caller from the water-body class).
 fn classify(t: f32, m: f32) -> u32 {
     if t < -7.0 { return 1u; }
     if t < 0.0 { return 2u; }
@@ -61,6 +66,11 @@ fn classify(t: f32, m: f32) -> u32 {
     return 12u;
 }
 
+// One invocation per output word (4 cells packed little-endian): water-body
+// class overrides climate (1 -> ocean id 0, 2 -> lake id 13), otherwise
+// `classify` decides from temperature and rainfall. The tail word past a
+// multiple of 4 cells breaks out of the inner loop rather than reading past
+// `params.n`.
 @compute @workgroup_size(64, 1, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let w = gid.y * params.row_threads + gid.x;

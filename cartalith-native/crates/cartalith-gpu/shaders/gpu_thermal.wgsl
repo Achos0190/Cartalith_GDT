@@ -43,10 +43,13 @@ struct ThermalParams {
 @group(0) @binding(1) var<storage, read> in_field: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out_field: array<f32>;
 
+// True when (x, y) is inside the grid -- an out-of-bounds neighbour is
+// skipped, never wrapped, matching `erode_thermal`'s own boundary handling.
 fn in_grid(x: i32, y: i32) -> bool {
     return x >= 0 && y >= 0 && x < i32(params.width) && y < i32(params.height);
 }
 
+// Reads the frozen start-of-pass height at an in-bounds (x, y).
 fn h_at(x: i32, y: i32) -> f32 {
     return in_field[u32(y) * params.width + u32(x)];
 }

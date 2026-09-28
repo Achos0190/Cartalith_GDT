@@ -112,6 +112,8 @@ pub enum ImageError {
 }
 
 impl fmt::Display for ImageError {
+    /// One line naming which operation failed and, for `BufferSize`, the
+    /// expected-vs-actual byte counts.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ImageError::Decode(e) => write!(f, "PNG decode failed: {e}"),
@@ -124,6 +126,8 @@ impl fmt::Display for ImageError {
 }
 
 impl std::error::Error for ImageError {
+    /// The wrapped `image` crate error, for `Decode`/`Encode`; `None` for
+    /// `BufferSize`, which has no underlying cause to chain.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             ImageError::Decode(e) | ImageError::Encode(e) => Some(e),
@@ -248,6 +252,9 @@ pub fn item_hash(img: &DecodedImage) -> String {
     format!("{hsh:x}-{}x{}", img.w, img.h)
 }
 
+/// The fixed 32x32 RGBA resample [`item_hash`] hashes -- a solid-colour
+/// buffer for a degenerate 0-width/height image, so hashing never divides
+/// or samples out of bounds.
 fn thumbnail_32(img: &DecodedImage) -> Vec<u8> {
     if img.w == 0 || img.h == 0 {
         return vec![0u8; 32 * 32 * 4];
@@ -360,10 +367,13 @@ pub fn finalize_pack_texture_inv_mean(w: u32, h: u32, rgba: &[u8]) -> [f64; 3] {
 // ---------------------------------------------------------------------------
 // Unit tests (real unit tests, not golden-parity -- see the module docs)
 // ---------------------------------------------------------------------------
+/// [`DecodedImage`]'s invariant, the PNG round trip, [`item_hash`] and
+/// [`render_item`]'s pixel arithmetic.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A `w`x`h` [`DecodedImage`] filled with one RGBA colour.
     fn solid(w: u32, h: u32, rgba: [u8; 4]) -> DecodedImage {
         let mut data = Vec::with_capacity((w * h * 4) as usize);
         for _ in 0..(w * h) {
@@ -372,6 +382,8 @@ mod tests {
         DecodedImage::new(w, h, data).unwrap()
     }
 
+    /// Protects: a buffer not exactly `w*h*4` bytes fails construction with
+    /// `BufferSize` carrying the real expected/actual byte counts.
     #[test]
     fn decoded_image_rejects_a_mismatched_buffer() {
         let err = DecodedImage::new(4, 4, vec![0u8; 10]).unwrap_err();
@@ -384,6 +396,8 @@ mod tests {
         }
     }
 
+    /// Protects: PNG is lossless, so encode-then-decode must reproduce
+    /// every byte, not merely something visually close.
     #[test]
     fn encode_then_decode_round_trips_pixels_exactly() {
         // PNG is lossless, so a real round trip must reproduce every byte,
@@ -394,11 +408,14 @@ mod tests {
         assert_eq!(back, img);
     }
 
+    /// Protects: garbage bytes fail decode with an error, not a panic.
     #[test]
     fn decode_png_rejects_non_png_bytes() {
         assert!(decode_png(b"not a png").is_err());
     }
 
+    /// Protects: identical pixels hash identically -- the property
+    /// `duplicate_groups`/`slot_has_dupe` in `library.rs` depend on.
     #[test]
     fn item_hash_is_deterministic_for_identical_pixels() {
         let a = solid(40, 40, [10, 20, 30, 255]);
@@ -406,6 +423,7 @@ mod tests {
         assert_eq!(item_hash(&a), item_hash(&b));
     }
 
+    /// Protects: different pixel content changes the hash.
     #[test]
     fn item_hash_differs_for_different_pixels() {
         let a = solid(40, 40, [10, 20, 30, 255]);
@@ -413,6 +431,8 @@ mod tests {
         assert_ne!(item_hash(&a), item_hash(&b));
     }
 
+    /// Protects: the `-{w}x{h}` suffix, so same-content-different-size
+    /// items never collide regardless of what the pixel hash half computes.
     #[test]
     fn item_hash_differs_for_different_dimensions_even_with_identical_downsample() {
         // The `-{w}x{h}` suffix means same-content-different-size items never
@@ -425,6 +445,8 @@ mod tests {
         assert!(item_hash(&b).ends_with("-64x64"));
     }
 
+    /// Protects: the output canvas is always exactly `size`x`size`,
+    /// regardless of the source image's own dimensions.
     #[test]
     fn render_item_produces_a_size_by_size_canvas() {
         let src = solid(10, 20, [255, 0, 0, 255]);
@@ -434,6 +456,8 @@ mod tests {
         assert_eq!(out.rgba.len(), 64 * 64 * 4);
     }
 
+    /// Protects: `opaque=true` fills the area outside the scaled sprite
+    /// with solid black, not transparent.
     #[test]
     fn render_item_opaque_fills_the_backdrop_black() {
         let src = solid(4, 4, [255, 255, 255, 255]);
@@ -443,6 +467,8 @@ mod tests {
         assert_eq!(&out.rgba[0..4], &[0, 0, 0, 255]);
     }
 
+    /// Protects: `opaque=false` leaves the area outside the scaled sprite
+    /// fully transparent (alpha 0), the counterpart to the opaque case above.
     #[test]
     fn render_item_transparent_leaves_the_backdrop_empty() {
         let src = solid(4, 4, [255, 255, 255, 255]);
@@ -451,6 +477,8 @@ mod tests {
         assert_eq!(&out.rgba[0..4], &[0, 0, 0, 0]);
     }
 
+    /// Protects: a square item at the default transform (scale 1, no pan)
+    /// fills the whole canvas edge to edge with its own colour.
     #[test]
     fn render_item_centres_a_square_item_at_default_transform() {
         // A square item at scale 1 fills the whole canvas edge to edge.
@@ -463,13 +491,14 @@ mod tests {
     }
 }
 
+/// [`encode_png_luma16`]'s real 16-bit depth, not a truncated 8-bit encode.
 #[cfg(test)]
 mod luma16_tests {
     use super::*;
 
-    /// 16 bits, not 8 -- the whole reason this encoder exists. A gradient of
-    /// 1024 distinct levels must survive the round trip; at 8 bits it would
-    /// collapse to 256 and this fails.
+    /// Protects: 16 bits, not 8 -- the whole reason this encoder exists. A
+    /// gradient of 1024 distinct levels must survive the round trip; at 8
+    /// bits it would collapse to 256 and this fails.
     #[test]
     fn sixteen_bit_levels_survive_the_round_trip() {
         let (w, h) = (1024usize, 1usize);
@@ -494,6 +523,8 @@ mod luma16_tests {
         }
     }
 
+    /// Protects: a buffer not exactly `w*h` u16s fails with `BufferSize`
+    /// carrying the real expected/actual counts, not a panic.
     #[test]
     fn a_wrong_sized_buffer_is_refused_rather_than_panicking() {
         let e = encode_png_luma16(4, 4, vec![0u16; 15]);

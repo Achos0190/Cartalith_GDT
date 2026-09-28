@@ -86,6 +86,8 @@ pub enum ArchiveError {
 }
 
 impl std::fmt::Display for ArchiveError {
+    /// One line per variant; `UnsupportedMethod` reproduces the reference's
+    /// own thrown message verbatim (line 12225).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ArchiveError::Zip(e) => write!(f, "zip error: {e}"),
@@ -101,6 +103,8 @@ impl std::fmt::Display for ArchiveError {
 }
 
 impl std::error::Error for ArchiveError {
+    /// The wrapped `zip`/`io`/`Pack` error; `None` for the two variants
+    /// with no underlying cause (`UnsupportedMethod`, `MissingImage`).
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             ArchiveError::Zip(e) => Some(e),
@@ -112,18 +116,22 @@ impl std::error::Error for ArchiveError {
 }
 
 impl From<zip::result::ZipError> for ArchiveError {
+    /// Wraps a `zip` crate error, so `?` composes across the two error types.
     fn from(e: zip::result::ZipError) -> Self {
         ArchiveError::Zip(e)
     }
 }
 
 impl From<std::io::Error> for ArchiveError {
+    /// Wraps a std IO error, so `?` composes across the two error types.
     fn from(e: std::io::Error) -> Self {
         ArchiveError::Io(e)
     }
 }
 
 impl From<PackError> for ArchiveError {
+    /// Wraps a manifest-parse error, so `?` composes across the two error
+    /// types.
     fn from(e: PackError) -> Self {
         ArchiveError::Pack(e)
     }
@@ -354,6 +362,8 @@ fn export_order(manifest: &PackManifest) -> Vec<&str> {
     all
 }
 
+/// Reading real and hand-crafted zips, and the write side's deterministic,
+/// STORE-the-PNGs export policy.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +394,8 @@ mod tests {
     const MANIFEST: &[u8] =
         br#"{"schema":1,"name":"T","license":"CC0","textures":{"grass":"textures/grass.png"}}"#;
 
+    /// Protects: `read_pack` reads STORE and DEFLATE entries alike into the
+    /// same map, and parses a clean manifest with no warnings.
     #[test]
     fn reads_stored_and_deflated_entries_alike() {
         let zip = build(
@@ -402,6 +414,9 @@ mod tests {
     /// The reference walks the central directory and keeps whatever it finds,
     /// directory records included. Harmless — no manifest path ends in `/` —
     /// and a pack made by right-click-compress really does carry them.
+    /// Protects: directory records in the central directory come through as
+    /// harmless empty entries, matching the reference's own indiscriminate
+    /// walk.
     #[test]
     fn directory_entries_survive_as_empty_members() {
         let zip = build(
@@ -421,6 +436,8 @@ mod tests {
     /// authoring mistake. The reference does no prefix stripping, so the
     /// manifest is simply not found — and that is the behaviour to keep, since
     /// silently guessing a root would make the manifest's own paths ambiguous.
+    /// Protects: a manifest nested under a wrapping folder is not found --
+    /// no prefix-stripping guess, matching the reference's own behaviour.
     #[test]
     fn a_wrapping_folder_is_not_stripped() {
         let zip = build(
@@ -436,6 +453,9 @@ mod tests {
         }
     }
 
+    /// Protects: an unsupported compression method (patched into both the
+    /// local header and its central-directory copy, which is what
+    /// `ZipArchive` actually reads) fails with the exact reference message.
     #[test]
     fn an_unreadable_compression_method_names_itself_the_way_the_reference_does() {
         // Method 93 (Zstandard) — a real method neither side decodes here.
@@ -453,6 +473,8 @@ mod tests {
         }
     }
 
+    /// Protects: a pack with neither `pack.json` nor `pack.csv` fails with
+    /// the exact reference message.
     #[test]
     fn a_pack_with_no_manifest_fails_with_the_references_own_message() {
         let zip = build(&[("textures/grass.png", b"PNG", CompressionMethod::Stored)], &[]);
@@ -466,6 +488,8 @@ mod tests {
 
     /// `pack.csv` is a real second input format, so the archive layer must not
     /// quietly assume `pack.json`.
+    /// Protects: a `pack.csv`-only pack (no `pack.json` at all) parses to
+    /// the same manifest shape as a JSON one.
     #[test]
     fn a_csv_only_pack_opens() {
         let zip = build(
@@ -486,6 +510,9 @@ mod tests {
         );
     }
 
+    /// Protects: the export policy's asymmetry -- a `.PNG` entry (matched
+    /// case-insensitively) is always STORED even though it would compress
+    /// trivially, and a non-PNG entry is DEFLATEd.
     #[test]
     fn png_entries_are_stored_and_everything_else_deflated() {
         let png = vec![b'A'; 4096]; // trivially compressible, yet must stay STORED
@@ -503,6 +530,8 @@ mod tests {
         assert!(a.by_index_raw(1).unwrap().compressed_size() < 4096);
     }
 
+    /// Protects: the frozen-timestamp policy -- two exports of identical
+    /// content are byte-identical, not merely content-equivalent.
     #[test]
     fn writing_the_same_pack_twice_gives_the_same_bytes() {
         let data: Vec<u8> = (0..64u8).collect();
@@ -515,6 +544,9 @@ mod tests {
         assert_eq!(write(), write(), "frozen timestamps make exports reproducible");
     }
 
+    /// Protects: exporting a manifest that references an image the image
+    /// map does not carry fails loudly with `MissingImage`, rather than
+    /// writing a pack whose own parser would warn about every missing slot.
     #[test]
     fn write_pack_refuses_to_export_a_manifest_whose_image_is_missing() {
         let raw: RawManifest = serde_json::from_slice(MANIFEST).unwrap();
@@ -529,6 +561,8 @@ mod tests {
 
     /// Two slots may legitimately point at the same file; the archive carries
     /// it once.
+    /// Protects: two manifest slots pointing at the same file share one
+    /// archive entry, not a duplicate write.
     #[test]
     fn a_shared_path_is_written_once() {
         let raw: RawManifest = serde_json::from_str(

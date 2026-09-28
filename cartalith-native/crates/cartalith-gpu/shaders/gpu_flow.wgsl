@@ -58,10 +58,13 @@ struct FlowParams {
 @group(0) @binding(5) var<storage, read_write> acc: array<atomic<u32>>;
 @group(0) @binding(6) var<storage, read_write> delta: array<atomic<u32>>;
 
+// Row-major cell index for this invocation's (x, y), matching the CPU's
+// own row-major cell order.
 fn linear_index(gid: vec3<u32>) -> i32 {
     return i32(gid.y) * i32(params.width) + i32(gid.x);
 }
 
+// True when this invocation's (x, y) is inside the grid.
 fn in_bounds(gid: vec3<u32>) -> bool {
     return gid.x < params.width && gid.y < params.height;
 }

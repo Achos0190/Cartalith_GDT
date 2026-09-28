@@ -39,14 +39,18 @@ pub(crate) struct Timing {
 }
 
 impl Timing {
+    /// The median sample, in seconds.
     pub(crate) fn secs(self) -> f64 {
         self.median.as_secs_f64()
     }
 
+    /// The median sample, in milliseconds.
     pub(crate) fn ms(self) -> f64 {
         self.median.as_secs_f64() * 1e3
     }
 
+    /// The median sample divided by cell count -- the per-cell throughput
+    /// figure this crate's kernels are usually compared by.
     pub(crate) fn ns_per_cell(self, cells: usize) -> f64 {
         self.secs() * 1e9 / cells as f64
     }
@@ -62,6 +66,9 @@ impl Timing {
 }
 
 impl std::fmt::Display for Timing {
+    /// Prints the median plus its `min..max` bracket and round count, or an
+    /// explicit "not a measurement" tag for the single-sample case so a
+    /// reader can never mistake one `Instant::now()` pair for a real median.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.rounds == 1 {
             return write!(f, "{:?} [1 sample -- not a measurement]", self.median);
