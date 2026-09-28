@@ -30,6 +30,9 @@ const CELL_80: f64 = 80_000.0 / 2048.0;
 const SEA: f64 = 0.42;
 const PEAK: f64 = 4000.0;
 
+/// A uniform `n`-cell column: every cell's exposed rock is `top`, no
+/// substrate layer, no regolith. The per-test fixtures then override
+/// `rock_sub`/`contact`/`regolith` on top of this baseline.
 fn column(n: usize, top: Rock) -> GeologyColumn {
     GeologyColumn {
         rock_top: vec![top as u8; n],
@@ -40,6 +43,8 @@ fn column(n: usize, top: Rock) -> GeologyColumn {
     }
 }
 
+/// Builds the `ThresholdHillslope` context for a fixture column and cell
+/// size, at this file's shared `SEA`/`PEAK`.
 fn rock<'a>(col: &'a GeologyColumn, cell_m: f64) -> ThresholdHillslope<'a> {
     // R_EXPOSE: any positive threshold works here; the regolith test sets
     // regolith well above it.
@@ -51,6 +56,8 @@ fn rock<'a>(col: &'a GeologyColumn, cell_m: f64) -> ThresholdHillslope<'a> {
 /// tenth of that at 80 km; `tan(60°)` and `tan(30°)` to 16 digits.
 #[test]
 fn critical_talus_is_the_angle_scaled_by_cell_size_and_peak() {
+    // Protects: critical_talus's §4.3 formula against hand-computed
+    // literals at two map extents (800 km, 80 km) and three critical angles.
     let close = |got: f64, want: f64| assert!((got - want).abs() < 1e-12, "got {got}, want {want}");
     close(critical_talus(45.0, CELL_800, SEA, PEAK), 0.056640625);
     close(critical_talus(45.0, CELL_80, SEA, PEAK), 0.0056640625);
@@ -64,6 +71,9 @@ fn critical_talus_is_the_angle_scaled_by_cell_size_and_peak() {
 #[test]
 #[should_panic(expected = "positive peak_m")]
 fn critical_talus_refuses_a_non_positive_peak() {
+    // Protects: critical_talus panics on a non-positive peak_m rather than
+    // silently returning a plausible-looking threshold that would collapse
+    // every slope (MISTAKES.md: never encode "no value" as a plausible one).
     critical_talus(45.0, CELL_800, SEA, 0.0);
 }
 
@@ -78,6 +88,10 @@ fn one_pass(col: &GeologyColumn, cell_m: f64, step: f32) -> Vec<f32> {
 /// excess to literal heights, and the pair's mass is conserved.
 #[test]
 fn granite_holds_a_step_that_shale_sheds() {
+    // Protects: threshold_hillslope's per-cell rock threshold -- granite's
+    // 60 degree critical angle holds a 51 degree step exactly, shale's 30
+    // degree angle sheds 0.125 of the excess to a hand-computed height, and
+    // the pair's combined mass is conserved by the move.
     let granite = column(2, Rock::Granite);
     let f = one_pass(&granite, CELL_800, 0.07);
     assert_eq!(f, vec![0.57f32, 0.5], "granite (θc 60°) must not move a 51° step");
@@ -95,6 +109,10 @@ fn granite_holds_a_step_that_shale_sheds() {
 /// is shale moves the result.
 #[test]
 fn the_threshold_is_the_upper_cells_rock() {
+    // Protects: the shedding threshold is read from the UPPER (shedding)
+    // cell's own rock, not the lower cell's or some grid-wide value --
+    // swapping which of the two cells is shale changes the result, and it
+    // changes correctly regardless of which grid index is the upper cell.
     let mut col = column(2, Rock::Granite);
     col.rock_top[1] = Rock::Shale as u8;
     assert_eq!(one_pass(&col, CELL_800, 0.07), vec![0.57f32, 0.5], "granite on top holds");
@@ -119,6 +137,10 @@ fn the_threshold_is_the_upper_cells_rock() {
 /// the same step sheds. This is the contact switch applied per pass.
 #[test]
 fn a_breached_cap_sheds_at_the_substrates_angle() {
+    // Protects: §2.5's contact switch inside threshold_hillslope -- while
+    // the surface is above the contact the cap's own angle holds the step,
+    // and once the surface drops below the contact the substrate's (lower)
+    // angle takes over and the same step sheds.
     let mut col = column(2, Rock::Granite);
     col.rock_sub = vec![Rock::Shale as u8; 2];
     col.contact = vec![0.40; 2];
@@ -135,6 +157,11 @@ fn a_breached_cap_sheds_at_the_substrates_angle() {
 /// therefore far below granite's threshold; read once, it would stop at it.
 #[test]
 fn a_cap_breached_mid_stage_sheds_at_the_substrates_angle_from_the_next_pass() {
+    // Protects: the exposed rock is re-read every pass, not once at the
+    // start of the multi-pass call -- a cap that breaches partway through
+    // must shed at the substrate's (shallower) angle from the very next
+    // pass onward, ending far below the cap's own threshold after 16
+    // passes, which a read-once implementation would not reach.
     let mut col = column(2, Rock::Granite);
     col.rock_sub = vec![Rock::Shale as u8; 2];
     col.contact = vec![0.619, f32::NAN];
@@ -150,6 +177,10 @@ fn a_cap_breached_mid_stage_sheds_at_the_substrates_angle_from_the_next_pass() {
 /// bedrock, so a talus apron on granite sheds.
 #[test]
 fn thick_regolith_sheds_at_the_angle_of_repose() {
+    // Protects: regolith thicker than r_expose reads as unconsolidated
+    // material (33 degree angle of repose) regardless of the bedrock
+    // underneath -- a granite bedrock cell with a talus apron sheds at
+    // shale's steeper-than-granite, shallower-than-bare-granite angle.
     let mut col = column(2, Rock::Granite);
     col.regolith = vec![0.01; 2];
     let f = one_pass(&col, CELL_800, 0.07);
@@ -162,6 +193,10 @@ fn thick_regolith_sheds_at_the_angle_of_repose() {
 /// scalar `talus = 0.012` would shed the first and hold the second.
 #[test]
 fn the_same_angle_behaves_the_same_at_80_and_800_km() {
+    // Protects: the same physical 51 degree step is held by granite and shed
+    // by shale at BOTH 800 km and 80 km map extents -- the extent-blindness
+    // the legacy scalar talus (a single fixed constant) had is gone, since
+    // that constant would shed the 800 km step and hold the 80 km one.
     let granite = column(2, Rock::Granite);
     let shale = column(2, Rock::Shale);
     for (cell, step) in [(CELL_800, 0.07f32), (CELL_80, 0.007)] {
@@ -176,6 +211,10 @@ fn the_same_angle_behaves_the_same_at_80_and_800_km() {
 /// sheds only when `wrap` is on.
 #[test]
 fn world_maps_wrap_in_x() {
+    // Protects: threshold_hillslope's wrap flag -- with wrap off the row's
+    // two ends do not interact; with wrap on, the seam neighbour (cell 0 to
+    // cell 2 and back) is added to the shedding, checked at both ends of the
+    // row so neither edge is a special case the other is not.
     let col = column(3, Rock::Shale);
     let base = vec![0.57f32, 0.535, 0.5];
     let mut open = base.clone();
@@ -202,6 +241,10 @@ fn world_maps_wrap_in_x() {
 /// regolith).
 #[test]
 fn the_column_is_never_written() {
+    // Protects: threshold_hillslope only reads the GeologyColumn (§4.3 --
+    // the caller accounts regolith) -- rock_top/rock_sub/contact/regolith
+    // are all byte-identical after an 8-pass run over a cap-and-substrate
+    // fixture that exercises every field the stage reads.
     let mut col = column(2, Rock::Granite);
     col.rock_sub = vec![Rock::Shale as u8; 2];
     col.contact = vec![0.60; 2];
@@ -217,6 +260,10 @@ fn the_column_is_never_written() {
 /// lower), so after `n` passes the excess is `0.75^n` of what it was.
 #[test]
 fn each_pass_removes_a_quarter_of_a_lone_steps_excess() {
+    // Protects: the per-pass relaxation rate itself -- a lone over-steep
+    // pair's excess-over-threshold shrinks geometrically by exactly 0.75
+    // per pass (an eighth of the excess moves each direction), checked at
+    // 1, 4 and 16 passes against the closed-form 0.75^n prediction.
     let shale = column(2, Rock::Shale);
     let t = critical_talus(30.0, CELL_800, SEA, PEAK);
     for n in [1, 4, 16] {

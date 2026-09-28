@@ -21,6 +21,10 @@ use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
 
 const C: usize = 4; // the centre of the 3 x 3 grid
 
+/// The shared `StreamPowerParams` fixture: rain, uplift, deposit and climate
+/// coupling all zero, so the only moving parts are `k`, `iters` and (via
+/// `run`'s caller) the rock contrast — isolating the rock-aware coefficient
+/// from every other term the kernel can apply.
 fn params(k: f64, iters: i32) -> StreamPowerParams {
     StreamPowerParams { k, uplift: 0.0, deposit: 0.0, climate_k: 0.0, iters, resist: 0.5, g: 1.0, world: false, sea: 0.0 }
 }
@@ -42,18 +46,27 @@ fn column(top: Rock, sub: Option<(Rock, f32)>, regolith_c: f32) -> GeologyColumn
     col
 }
 
+/// Runs `stream_power_kernel_rock` over the shared 3x3 fixture with zero
+/// stress/discharge, a fixed exposure threshold (`r_expose = 0.01`), and the
+/// given rock contrast — the one call site every test in this file drives.
 fn run(field: &mut [f32], col: &mut GeologyColumn, k: f64, iters: i32, contrast: f64) {
     let zeros = [0f32; 9];
     let mut rock = StreamPowerRock { column: col, contrast, r_expose: 0.01 };
     stream_power_kernel_rock(field, &zeros, &zeros, 3, 3, &params(k, iters), &mut rock);
 }
 
+/// The starting heightfield: every border seed cell at 0, the centre at 0.5
+/// — the single-peak fixture the module header's formula is worked out on.
 fn centre_peak() -> Vec<f32> {
     let mut f = vec![0f32; 9];
     f[C] = 0.5;
     f
 }
 
+/// Asserts `a` and `b` agree to within `1e-6` — the tolerance for the
+/// hand-computed literals in this file's doc comments, which are rounded to
+/// six or seven significant figures rather than carried at full `f64`
+/// precision.
 fn close(a: f64, b: f64, what: &str) {
     assert!((a - b).abs() < 1e-6, "{what}: got {a}, want {b}");
 }
@@ -62,6 +75,9 @@ fn close(a: f64, b: f64, what: &str) {
 /// √0.30, √2.5, 2.0¹, 4.0¹, and x⁰ = 1 for every rock.
 #[test]
 fn kappa_multiplier_is_kappa_to_the_contrast() {
+    // Protects: kappa_multiplier's kappa-to-the-contrast lookup (§2.3) at
+    // hand-computed literals across several rocks and contrasts, including
+    // the contrast-zero identity for every rock in Rock::ALL.
     close(kappa_multiplier(Rock::Granite, 0.5), 0.547_722_6, "granite, c = 0.5");
     close(kappa_multiplier(Rock::Shale, 0.5), 1.581_138_8, "shale, c = 0.5");
     close(kappa_multiplier(Rock::Tuff, 1.0), 2.0, "tuff, c = 1");
@@ -77,6 +93,9 @@ fn kappa_multiplier_is_kappa_to_the_contrast() {
 /// Granite: 0.5 / 1.03 = 0.485 436 9; shale: 0.5 / 1.25 = 0.4.
 #[test]
 fn one_iteration_uses_the_exposed_rocks_kappa() {
+    // Protects: stream_power_kernel_rock's coefficient reads the exposed
+    // rock's kappa (granite vs. shale give hand-computed distinct results),
+    // and every seed cell stays exactly at its starting height.
     let mut f = centre_peak();
     run(&mut f, &mut column(Rock::Granite, None, 0.0), 0.1, 1, 1.0);
     close(f[C] as f64, 0.485_436_9, "granite");
@@ -94,6 +113,10 @@ fn one_iteration_uses_the_exposed_rocks_kappa() {
 /// 0.485 436 9 / 1.03 = 0.471 297 9; a contact never reached must give that.
 #[test]
 fn a_breached_cap_switches_to_the_substrate_mid_solve() {
+    // Protects: §4.1's mid-solve contact switch -- a breached cap erodes the
+    // substrate's kappa on the very next iteration, while a contact never
+    // reached keeps eroding the cap's own kappa across every iteration, and
+    // the kernel never moves the contact itself without uplift.
     let mut f = centre_peak();
     let mut col = column(Rock::Granite, Some((Rock::Shale, 0.49)), 0.0);
     run(&mut f, &mut col, 0.1, 2, 1.0);
@@ -114,6 +137,11 @@ fn a_breached_cap_switches_to_the_substrate_mid_solve() {
 /// accounts the call's net change (`account_regolith`, below).
 #[test]
 fn thick_regolith_reads_unconsolidated_and_the_kernel_leaves_it_alone() {
+    // Protects: §2.5's exposure rule -- regolith thicker than r_expose reads
+    // as unconsolidated rock (not the bedrock's own kappa), regolith thinner
+    // than r_expose lets the bedrock show through, and the kernel itself
+    // never writes to GeologyColumn::regolith (§4.9 leaves that to the
+    // caller's account_regolith).
     let mut f = centre_peak();
     let mut col = column(Rock::Granite, None, 0.02);
     run(&mut f, &mut col, 0.01, 1, 1.0);
@@ -135,6 +163,12 @@ fn thick_regolith_reads_unconsolidated_and_the_kernel_leaves_it_alone() {
 /// legacy update, turns this red.
 #[test]
 fn at_contrast_zero_the_rock_kernel_is_the_legacy_kernel() {
+    // Protects: at contrast 0 (every kappa^c == 1) and resist 0 (the legacy
+    // factor is also exactly 1), stream_power_kernel_rock must reproduce
+    // cartalith_erosion::stream_power_kernel bit for bit on a real
+    // deposition-on, multi-iteration, pitted surface -- any drift in how the
+    // rock path assembles its coefficient, or any extra field write, fails
+    // this against an oracle the rock path itself does not compute.
     let (w, h) = (24usize, 20usize);
     let n = w * h;
     let mut seed = 0x2545_f491_u64;
@@ -165,6 +199,10 @@ fn at_contrast_zero_the_rock_kernel_is_the_legacy_kernel() {
 /// a single-layer cell's NaN contact stays NaN, and regolith is untouched.
 #[test]
 fn rebound_lifts_the_contact_by_its_own_increment() {
+    // Protects: §4.2 -- lift_column raises a two-layer cell's contact by
+    // exactly the rebound increment applied to its surface, a single-layer
+    // cell's NaN contact stays NaN rather than becoming a plausible
+    // elevation, and regolith thickness is left untouched by rebound.
     let mut col = column(Rock::Granite, Some((Rock::Shale, 0.4)), 0.003);
     let before = vec![0.5f32; 9];
     let mut after = before.clone();
@@ -180,6 +218,10 @@ fn rebound_lifts_the_contact_by_its_own_increment() {
 /// floors at 0); a rise is deposit only when the caller says so.
 #[test]
 fn account_regolith_strips_and_optionally_deposits() {
+    // Protects: account_regolith's two modes -- a lowering always strips
+    // regolith (and floors at zero rather than going negative), and a rise
+    // is only counted as deposit when the caller passes deposit=true, never
+    // implicitly.
     let mut col = column(Rock::Granite, None, 0.01);
     let before = vec![0.5f32; 9];
     let mut after = before.clone();

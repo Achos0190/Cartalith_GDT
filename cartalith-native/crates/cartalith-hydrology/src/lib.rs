@@ -2231,6 +2231,9 @@ pub fn stamp_river_intensity(
     intensity
 }
 
+/// Unit tests for this crate's channel/flow/river building blocks — golden
+/// fixtures against the reference plus property tests for the pieces the
+/// reference has no direct equivalent for (e.g. wrap-seam bridging).
 #[cfg(test)]
 mod tests {
     use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};

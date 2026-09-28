@@ -3,8 +3,16 @@
 //! (PARITY_TESTING.md). Reference HTML lines 4559-4575 (traceRiverPolylines)
 //! and 8725-8737 (enforceChannelDescent).
 
+/// Traces two channel branches that merge at a confluence into one polyline
+/// set on an 8x6 grid.
+///
+/// Protects: `trace_river_polylines` against the reference `traceRiverPolylines`
+/// (v2.11 lines 4559-4575) — the traced point sequences, including how a
+/// confluence is handled, must match exactly.
 #[test]
 fn trace_river_polylines_case_0_confluence() {
+    // Protects: trace_river_polylines produces the reference's exact two
+    // polylines (a main branch and a tributary meeting at one shared cell).
     let order: Vec<i16> = vec![0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0];
     let recv: Vec<i32> = vec![-1, -1, -1, -1, -1, -1, -1, -1, -1, 18, -1, -1, -1, 20, -1, -1, -1, -1, 27, -1, 27, -1, -1, -1, -1, -1, -1, 34, -1, -1, -1, -1, -1, -1, 41, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
     let polys = cartalith_hydrology::trace_river_polylines(&order, &recv, 8, 6, 1);
@@ -16,8 +24,16 @@ fn trace_river_polylines_case_0_confluence() {
     assert_eq!(actual, expected);
 }
 
+/// Carves a channel disc along a rising polyline into a 10x8 field.
+///
+/// Protects: `enforce_channel_descent` against the reference
+/// `enforceChannelDescent` (v2.11 lines 8725-8737) — both the resulting
+/// carved heightfield and the exact set of carved cell indices must match.
 #[test]
 fn enforce_channel_descent_case_0_rise() {
+    // Protects: enforce_channel_descent's disc-carving and its list of
+    // touched cells match the reference bit-for-bit, on a path whose height
+    // does not monotonically fall (the "rise" case).
     let mut fld: Vec<f32> = vec![0.550000011920929, 0.5790230631828308, 0.5727869868278503, 0.5545458793640137, 0.5460917949676514, 0.5493074059486389, 0.5458466410636902, 0.5149146318435669, 0.4547373056411743, 0.39006978273391724, 0.3585510551929474, 0.38498640060424805, 0.46234196424484253, 0.5538918375968933, 0.615670382976532, 0.6235460042953491, 0.5859449505805969, 0.5339521765708923, 0.4971432387828827, 0.48359444737434387, 0.4786137342453003, 0.4619668126106262, 0.42906707525253296, 0.39865392446517944, 0.4001191258430481, 0.44970259070396423, 0.5339547991752625, 0.6140209436416626, 0.6489476561546326, 0.6218674182891846, 0.5504218339920044, 0.4741091728210449, 0.42796018719673157, 0.4215903878211975, 0.43811994791030884, 0.4522607922554016, 0.4525830149650574, 0.4503430426120758, 0.468149334192276, 0.5177324414253235, 0.5848963260650635, 0.634550154209137, 0.6334113478660583, 0.5741416215896606, 0.7829083800315857, 0.6541565656661987, 0.3729965090751648, 0.39462828636169434, 0.44490697979927063, 0.4905183017253876, 0.5130309462547302, 0.51890629529953, 0.5288556218147278, 0.5560063719749451, 0.5909103751182556, 0.605976402759552, 0.5766388773918152, 0.503171443939209, 0.41584888100624084, 0.35823577642440796, 0.3597313463687897, 0.4167976379394531, 0.496226042509079, 0.5578259825706482, 0.5799634456634521, 0.5698161125183105, 0.5520827174186707, 0.5461241602897644, 0.5498573184013367, 0.5429456233978271, 0.5064765810966492, 0.44318556785583496, 0.38147327303886414, 0.35868600010871887, 0.3951435387134552, 0.4780087471008301, 0.5673902630805969, 0.620944619178772, 0.6197268962860107, 0.5772432684898376];
     let pts: Vec<(f64, f64)> = vec![(2.5, 2.5), (3.5, 3.5), (4.5, 4.5), (5.5, 4.5), (6.5, 5.5), (7.5, 6.5)];
     let carved = cartalith_hydrology::enforce_channel_descent(&mut fld, 10, 8, &pts, 0.42, 1.5, 0.0006);
@@ -27,8 +43,17 @@ fn enforce_channel_descent_case_0_rise() {
     assert_eq!(carved, expected_carved);
 }
 
+/// Four map-width samples of `river_width_scale_k`, spanning two octaves
+/// above and below the reference's 800 km baseline.
+///
+/// Protects: `river_width_scale_k` against the reference `riverWidthScaleK`
+/// (v2.11 line 2757) — the inverse-scaling law (`800/map_width_km`) must hold
+/// exactly at each sampled width, not just approximately.
 #[test]
 fn river_width_scale_k_defaults() {
+    // Protects: the 800 km reference width itself scales to exactly 1.0, and
+    // halving/doubling/quartering the map width exactly doubles/halves/
+    // quadruples the scale factor (an inverse-proportion law, not a curve).
     assert_eq!(cartalith_hydrology::river_width_scale_k(800.0), 1.0);
     assert_eq!(cartalith_hydrology::river_width_scale_k(200.0), 4.0);
     assert_eq!(cartalith_hydrology::river_width_scale_k(3200.0), 0.25);
@@ -48,6 +73,10 @@ fn river_width_scale_k_defaults() {
 // whole chain disappears.
 // ---------------------------------------------------------------------------
 
+/// The shared three-chain fixture the `split_river_polylines` tests below
+/// exercise: one chain crossing the antimeridian seam with both halves long
+/// enough to draw, one whose seam cut leaves a one-point tail, and one a skip
+/// predicate cuts into two one-point halves.
 fn split_fixture() -> Vec<Vec<(f64, f64)>> {
     vec![
         vec![(22.5, 3.5), (23.5, 3.5), (0.5, 3.5), (1.5, 3.5), (2.5, 3.5)],
@@ -56,8 +85,16 @@ fn split_fixture() -> Vec<Vec<(f64, f64)>> {
     ]
 }
 
+/// Splits the shared fixture with no skip predicate, so only the antimeridian
+/// seam does any cutting.
+///
+/// Protects: `split_river_polylines` against the reference `splitRiverPolylines`
+/// (v2.11 lines 4596-4608) — the seam-crossing chain must split into its two
+/// halves and the too-short tail half must be dropped, without a skip predicate.
 #[test]
 fn split_river_polylines_matches_the_reference_without_a_skip_predicate() {
+    // Protects: the seam cut alone (no skip predicate) reproduces the
+    // reference's chain list exactly, including dropping the one-point tail.
     let got = cartalith_hydrology::split_river_polylines(&split_fixture(), 24, None);
     let expected: Vec<Vec<(f64, f64)>> = vec![
         vec![(22.5, 3.5), (23.5, 3.5)],
@@ -68,8 +105,17 @@ fn split_river_polylines_matches_the_reference_without_a_skip_predicate() {
     assert_eq!(got, expected);
 }
 
+/// Splits the shared fixture with a skip predicate that cuts the third chain
+/// exactly in its middle point.
+///
+/// Protects: `split_river_polylines`'s skip-predicate branch against the
+/// reference — a mid-chain skip must cut there too, and when BOTH resulting
+/// halves are a single point, the whole chain must vanish rather than
+/// leaving degenerate one-point polylines behind.
 #[test]
 fn split_river_polylines_matches_the_reference_with_a_skip_predicate() {
+    // Protects: a skip predicate cuts a chain at the skipped point, and two
+    // one-point halves both vanish rather than surviving as degenerate chains.
     let skip = |p: (f64, f64)| p == (9.5, 9.5);
     let got = cartalith_hydrology::split_river_polylines(&split_fixture(), 24, Some(&skip));
     let expected: Vec<Vec<(f64, f64)>> = vec![

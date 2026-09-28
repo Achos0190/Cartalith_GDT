@@ -41,9 +41,13 @@
 use cartalith_hydrology::tile::{TilePlacement, tile_channel_thresh, tile_flow, tile_rivers};
 use cartalith_hydrology::{build_channels, compute_flow, strahler_from_receivers, trace_river_polylines};
 
+// The coarse world's width, in cells, shared by every fixture below.
 const W: usize = 256;
+// The coarse world's height, in cells, matching W.
 const H: usize = 256;
+// An arbitrary but fixed sea level for build_channels/tile_rivers calls.
 const SEA: f64 = 0.30;
+// The map width in km fed to tile_channel_thresh -- matches river_flow_thresh's own default scale.
 const KM: f64 = 800.0;
 
 /// Deterministic value hash in `[-1, 1)`. A test fixture needs reproducible
@@ -133,12 +137,20 @@ fn mock_refine(coarse: &[f32], place: &TilePlacement, amp: f64, salt: u64) -> Ve
 
 /// The world pass, whole — what a `WorldState` already carries.
 struct Coarse {
+    /// The world-scale heightfield the coarse pass ran over.
     field: Vec<f32>,
+    /// `compute_flow`'s accumulated discharge — a tile's boundary condition.
     flow: Vec<f32>,
+    /// `build_channels`' channel mask over the coarse grid.
     chan: Vec<u8>,
+    /// The coarse network's own traced river polylines.
     polys: Vec<Vec<(f64, f64)>>,
 }
 
+/// Runs the whole world-scale pipeline (`compute_flow`, `build_channels`,
+/// `strahler_from_receivers`, `trace_river_polylines`) over one field, and
+/// hands back everything a `WorldState` would already carry — the inputs
+/// every tile test needs as its coarse-network ground truth.
 fn coarse_pass(field: Vec<f32>) -> Coarse {
     let flow = compute_flow(W, H, &field, None, false, false);
     let ch = build_channels(&field, &flow, W, H, SEA, false, 1.0, KM);
@@ -175,6 +187,8 @@ fn coarse_receiver(f: &[f32], w: usize, h: usize, i: usize) -> i64 {
     best
 }
 
+/// The index and value of the largest element of `v`. Used throughout to find
+/// a tile's peak flow and where it lands.
 fn max_of(v: &[f32]) -> (usize, f32) {
     let mut best = (0usize, f32::NEG_INFINITY);
     for (i, &x) in v.iter().enumerate() {
@@ -185,6 +199,9 @@ fn max_of(v: &[f32]) -> (usize, f32) {
     best
 }
 
+/// The single reused tile placement most property tests exercise: a 16x16
+/// coarse tile at refine 4, sitting mid-valley in [`valley_world`] where the
+/// meandering trunk river actually crosses.
 fn mid_valley_tile() -> TilePlacement {
     TilePlacement { coarse_w: W, coarse_h: H, x0: 118, y0: 128, cols: 16, rows: 16, refine: 4, world: false }
 }
@@ -199,10 +216,16 @@ fn placements() -> Vec<TilePlacement> {
         .collect()
 }
 
+/// Is coarse cell `(x, y)` inside placement `p`'s tile rectangle? The test
+/// module's own copy of the same predicate `tile.rs::inside` uses internally,
+/// kept independent because it is checking that code's boundary logic.
 fn in_tile(p: &TilePlacement, x: i64, y: i64) -> bool {
     x >= p.x0 as i64 && x < (p.x0 + p.cols) as i64 && y >= p.y0 as i64 && y < (p.y0 + p.rows) as i64
 }
 
+/// Is fine cell `(x, y)` on placement `p`'s outer ring — the open boundary
+/// `tile_flow` lets water leave through? Independent of `tile.rs::on_ring`
+/// for the same reason as [`in_tile`].
 fn on_fine_ring(p: &TilePlacement, x: usize, y: usize) -> bool {
     x == 0 || y == 0 || x + 1 == p.fine_w() || y + 1 == p.fine_h()
 }
@@ -265,6 +288,10 @@ fn coarse_flow_near(flow: &[f32], cx: f64, cy: f64) -> f32 {
 /// river.
 #[test]
 fn tile_rivers_agree_with_the_coarse_network_at_the_tile_boundary() {
+    // Protects: tile_rivers' refined-tile output agrees with the coarse
+    // world pass at the tile boundary — no invented boundary river, no lost
+    // outflow magnitude, and the traced main stem exits at the right place
+    // carrying the right amount, across eight tile placements/refinements.
     let c = coarse_pass(valley_world());
     let thresh = tile_channel_thresh(W, H, KM);
     let (mut worst_invented, mut worst_lost, mut worst_stem) = (0f64, f64::INFINITY, f64::INFINITY);
@@ -372,6 +399,10 @@ fn tile_rivers_agree_with_the_coarse_network_at_the_tile_boundary() {
 /// module under test.
 #[test]
 fn tile_flow_conserves_what_enters_it() {
+    // Protects: tile_flow's mass balance -- everything seeded on a fine
+    // cell plus every boundary-crossing injection ends up either on the
+    // outer ring (left the tile) or in an interior pit (stopped), with no
+    // double-counted or dropped water, over eight placements/refinements.
     let c = coarse_pass(valley_world());
     for place in placements() {
         let refined = mock_refine(&c.field, &place, 0.00008, 3);
@@ -429,6 +460,10 @@ fn tile_flow_conserves_what_enters_it() {
 ///   document warned would otherwise be rediscovered the hard way.
 #[test]
 fn tile_flow_is_not_a_naive_local_rerun() {
+    // Protects: tile_flow's boundary-seeded peak tracks the coarse world
+    // pass's own discharge where the network leaves the tile, and dwarfs
+    // what a boundary-free compute_flow rerun on the same rectangle would
+    // give -- catching a regression to "just re-run compute_flow locally".
     let c = coarse_pass(valley_world());
     let place = mid_valley_tile();
     let refined = mock_refine(&c.field, &place, 0.00008, 3);
@@ -507,6 +542,9 @@ fn tile_flow_is_not_a_naive_local_rerun() {
 /// which is the regime under test.
 #[test]
 fn a_flat_tile_with_no_inflow_produces_no_rivers() {
+    // Protects: a tile with no convergence (ramp, noisy ramp, dead flat)
+    // channelizes nothing and traces no rivers, and the noiseless ramp's
+    // exact sheet-flow sum protects the seeding scale (1/refine^2) itself.
     let thresh = tile_channel_thresh(W, H, KM);
     let place = TilePlacement { coarse_w: W, coarse_h: H, x0: 100, y0: 0, cols: 16, rows: 16, refine: 4, world: false };
     let (fw, fh) = (place.fine_w(), place.fine_h());
@@ -558,6 +596,11 @@ fn a_flat_tile_with_no_inflow_produces_no_rivers() {
 /// live where it should be live.
 #[test]
 fn the_tile_anchors_its_slope_normalisation_to_the_world_not_to_itself() {
+    // Protects: tile_rivers/build_channels_with_threshold are handed the
+    // world's own width as the slope anchor, not the tile's -- inert at
+    // river_density == 1 (where the slope factor is exactly 1) and live
+    // away from it, so a regression to a tile-local anchor is caught either
+    // way rather than only at the one density where it happens not to show.
     use cartalith_hydrology::build_channels_with_threshold;
 
     let c = coarse_pass(valley_world());
@@ -594,6 +637,10 @@ fn the_tile_anchors_its_slope_normalisation_to_the_world_not_to_itself() {
 /// address or an allocation order.
 #[test]
 fn tile_rivers_are_deterministic() {
+    // Protects: tile_rivers gives bit-identical output (flow, receivers,
+    // channel mask, Strahler order, polylines) across two runs with
+    // independently cloned inputs -- no address- or allocation-order-
+    // dependent behaviour has leaked in.
     let c = coarse_pass(valley_world());
     let place = mid_valley_tile();
     let refined = mock_refine(&c.field, &place, 0.00008, 3);
@@ -625,6 +672,11 @@ fn tile_rivers_are_deterministic() {
 /// parameter that is not wired, and this is what catches that.
 #[test]
 fn every_input_of_tile_flow_reaches_its_output() {
+    // Protects: every argument of tile_flow -- refined elevation, coarse
+    // flow, coarse field, x0/y0/cols/rows/refine, world (wrap), and
+    // coarse_w/coarse_h's out-of-range guard -- actually moves the output,
+    // so none of them is silently unwired (MISTAKES.md's "add a capability"
+    // rule, applied to every parameter of the function under guard).
     let c = coarse_pass(valley_world());
     let place = mid_valley_tile();
     let refined = mock_refine(&c.field, &place, 0.00008, 3);

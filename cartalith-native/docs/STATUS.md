@@ -470,6 +470,56 @@ re-checked against the tree rather than copied from the commit message.
   in any new comment — passed. No other wrong comment was found in this
   file.
 
+- **Ruling BK annotation pass, batch 7 (`cartalith-hydrology`'s `src/tile.rs`
+  and its four `tests/*.rs` files, then into `cartalith-erosion`'s seven test
+  files) — verified by the main loop 2026-09-28 (diff re-read as comment-only; hydrology 57/0/0, erosion 80/0/0 unchanged), 2026-09-28.** Comments only,
+  zero behaviour change. `src/tile.rs` (568 LOC) was found already fully
+  doc-commented — every `fn`/`struct`/impl method already carried a doc
+  comment describing what it does, why, and its constraints (the census's "1
+  undoc impl block" flag was the bare `impl TilePlacement {` line itself,
+  which Rust does not attach doc comments to; no change was needed there).
+  The four test files (`golden_parity_flow.rs`, `golden_parity_polylines.rs`,
+  `golden_parity_river.rs`, `tile_hydrology.rs`, 883 LOC) got a doc comment on
+  every previously-undocumented test/helper fn/struct field and a
+  `// Protects:` first line in every `#[test]` body. Two small items in
+  already-annotated `src/lib.rs` were also closed while re-running the
+  crate-wide census (`mod tests {` had no doc comment of its own; the census's
+  `preceded_by_any_comment` check only looks at the immediately preceding
+  line, so `tile_hydrology.rs`'s `W`/`H`/`SEA`/`KM` consts needed one comment
+  line per const, not one shared block, to all register). Whole-crate census,
+  before → after: items_undoc 17→0, tests_unprotected 18→0, consts_undoc
+  4→0 — **`cartalith-hydrology` now reads 0/0/0, closed on this census.**
+  `cargo test -p cartalith-hydrology`: 57 passed / 0 failed / 0 ignored
+  across all 6 binaries, identical before and after.
+  Continuing into the next crate in `ANNOTATION_AUDIT.md`'s ranked order
+  (#6, `cartalith-erosion`, 4 762 LOC across `src/lib.rs` 1 370, `src/passes.rs`
+  1 230, `src/tile.rs` 877 and seven test files 1 149): did the seven test
+  files whole (`golden_parity_thermal.rs`, `golden_parity_rebound.rs`,
+  `golden_parity_droplet.rs`, `golden_parity_streampower.rs`,
+  `golden_parity_passes.rs`, `gf2_rock_stream_power.rs`,
+  `gf3_threshold_hillslope.rs`, `stream_power_refresh.rs`) and stopped there,
+  leaving the three `src/*.rs` files for batch 8. Every test got a doc
+  comment describing what it protects (the reference function/lines it pins,
+  or for `gf2`/`gf3`/`stream_power_refresh`'s non-golden property tests, the
+  property and its oracle) and a `// Protects:` first line; every
+  previously-undocumented helper fn/const in the test files got its own doc
+  comment. Confirmed at the symbol that every remaining undocumented item in
+  the crate (26 items, 23 unprotected tests, 15 unprovenanced consts) lives
+  in the three untouched `src/*.rs` files, not in any file this batch
+  touched. `cargo test -p cartalith-erosion`: 80 passed / 0 failed / 0
+  ignored across all 10 binaries (lib + 8 test files + doctest), identical
+  before and after — matches batch 6's pre-recorded baseline exactly.
+  Combined LOC this batch: hydrology's 1 451 remaining + erosion's 1 149 test
+  LOC ≈ 2 600, inside the ~3 000 LOC band. A comment-only-diff checker
+  (adapted from batch 6's, this time checking additions and removals
+  symmetrically rather than only additions) asserts every changed line
+  across all 13 touched files is blank or a `//`/`///`/`//!` comment, with no
+  code fence in any new comment — passed. No wrong existing comment was
+  found or fixed in this batch. **Next step: batch 8, `cartalith-erosion`'s
+  three remaining source files (`src/lib.rs`, `src/passes.rs`, `src/tile.rs`,
+  ~3 477 LOC, split across the batch as module boundaries allow), which
+  closes `cartalith-erosion` on the census.**
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
