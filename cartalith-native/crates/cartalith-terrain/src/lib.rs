@@ -209,6 +209,9 @@ pub fn generate_continentality_field(
         }
     }
 
+    // Histogram bin count for the percentile-threshold search below --
+    // matches the reference HTML's own literal (line 2556 region), a
+    // resolution/perf tradeoff, not a cited value.
     const BINS: usize = 2000;
     let mut hist = vec![0i32; BINS];
     let mut hmin = f64::INFINITY;
@@ -281,6 +284,8 @@ pub fn generate_continentality_field(
 /// mutate).
 pub fn apply_world_structure_sea_level(field: &[f32], continentality: f64) -> f64 {
     let n = field.len();
+    // Same histogram-bin resolution as `generate_continentality_field`'s own
+    // percentile search, applied here to the real height field instead.
     const BINS: usize = 2000;
     let mut hist = vec![0i32; BINS];
     let mut hmin = f64::INFINITY;
@@ -692,12 +697,12 @@ pub fn gauss_blur(src: &[f32], r: f64, w: usize, h: usize, wrap_x: bool) -> Vec<
 /// (orogeny, rendering) index color/behavior tables by this number
 /// directly.
 pub mod btype {
-    pub const NONE: u8 = 0;
-    pub const COLLISION: u8 = 1;
-    pub const SUBDUCTION_OC: u8 = 2;
-    pub const ARC_OO: u8 = 3;
-    pub const RIFT: u8 = 4;
-    pub const TRANSFORM: u8 = 5;
+    pub const NONE: u8 = 0; // not a boundary cell
+    pub const COLLISION: u8 = 1; // continent-continent convergence
+    pub const SUBDUCTION_OC: u8 = 2; // ocean-continent convergence
+    pub const ARC_OO: u8 = 3; // ocean-ocean convergence (island arc)
+    pub const RIFT: u8 = 4; // divergence
+    pub const TRANSFORM: u8 = 5; // shear-dominant margin
 }
 
 /// `classifyBoundary()` (reference HTML line 2825): shear-dominant pairs
@@ -902,12 +907,12 @@ pub fn compute_flexure(
 /// distance that wraps around the seam is a documented gap in the JS
 /// source itself, not something this port introduces).
 pub fn build_age_field(gw: usize, gh: usize, boundary_mask: &[u8]) -> Vec<f32> {
-    const INF: f64 = 1e9;
+    const INF: f64 = 1e9; // effectively-infinite sentinel, overwritten by every real cell in the chamfer passes below
     // Deliberately the literal `1.4142`, not `SQRT_2` (1.41421356...) --
     // matches the JS source's own diagonal-step constant exactly, not an
     // "improved" more-precise approximation of root 2.
     #[allow(clippy::approx_constant)]
-    const D2: f64 = 1.4142;
+    const D2: f64 = 1.4142; // diagonal-step cost, JS's own literal
     let n = gw * gh;
     let mut d = vec![0f32; n];
     for i in 0..n {
@@ -975,8 +980,8 @@ pub fn build_age_field(gw: usize, gh: usize, boundary_mask: &[u8]) -> Vec<f32> {
 /// A no-op (returns 1) at or above that reference — only genuinely finer
 /// configurations ease, capped at `TERRAIN_DETAIL_MAX_K`.
 pub fn terrain_detail_k(gw: usize, map_width_km: f64) -> f64 {
-    const REF_CELLKM: f64 = 800.0 / 2048.0;
-    const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
+    const REF_CELLKM: f64 = 800.0 / 2048.0; // the app's own 800km/2048px default, see doc above
+    const TERRAIN_DETAIL_MAX_K: f64 = 16.0; // ease/detail multiplier cap, see doc above
     let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
     let cell_km = mwk / gw as f64;
     (REF_CELLKM / cell_km).clamp(1.0, TERRAIN_DETAIL_MAX_K)
@@ -993,7 +998,7 @@ pub fn terrain_detail_k(gw: usize, map_width_km: f64) -> f64 {
 /// file's own low-resolution test battery, per the reference's own
 /// comment.
 pub fn river_coarse_ease(map_width_km: f64) -> f64 {
-    const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
+    const TERRAIN_DETAIL_MAX_K: f64 = 16.0; // same ease cap as terrain_detail_k, see doc above
     let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
     (mwk / 800.0).clamp(1.0, TERRAIN_DETAIL_MAX_K)
 }
@@ -1002,10 +1007,11 @@ pub fn river_coarse_ease(map_width_km: f64) -> f64 {
 /// (reference HTML lines 3117-3125): low-frequency noise modulated by
 /// tectonic age — old stable cratons show more internal diversity than
 /// young near-boundary crust.
-// JS groups seed/hf/world into a params object only because fillHeteroRows
-// is shared between the sync and Web-Worker-pool paths; this port has no
-// worker pool to share with, so a bespoke struct here would exist solely
-// to satisfy this lint, not to serve a second caller.
+///
+/// JS groups seed/hf/world into a params object only because fillHeteroRows
+/// is shared between the sync and Web-Worker-pool paths; this port has no
+/// worker pool to share with, so a bespoke struct here would exist solely
+/// to satisfy this lint, not to serve a second caller.
 #[allow(clippy::too_many_arguments)]
 pub fn compute_heterogeneity(
     gw: usize,
@@ -1186,6 +1192,7 @@ pub fn normalize_field(field: &[f32]) -> Vec<f32> {
 /// shorter grid axis, however large its real-km radius would compute to.
 const FEATURE_RADIUS_MAX_FRAC: f64 = 0.12;
 
+/// Caps `rad_cells` at [`FEATURE_RADIUS_MAX_FRAC`] of the shorter grid axis.
 fn clamp_feature_radius_cells(rad_cells: f64, gw: usize, gh: usize) -> f64 {
     rad_cells.min(gw.min(gh) as f64 * FEATURE_RADIUS_MAX_FRAC)
 }
@@ -1293,6 +1300,8 @@ impl VolcanoTrace {
     /// `volc_count` (an `i32`) edifices, far below `u32::MAX`.
     pub const NONE: u32 = u32::MAX;
 
+    /// An empty trace over `n` cells: no edifices placed yet, every cell
+    /// unwon.
     pub fn new(n: usize) -> Self {
         VolcanoTrace { edifices: Vec::new(), winner: vec![Self::NONE; n] }
     }
@@ -1555,11 +1564,16 @@ mod edifice_tests {
         Edifice::new(edifice_shape(EdificeKind::Strato), h, 40.0, 100.0, 100.0, 0.0)
     }
 
+    /// A shield at the reference's own large-class draw: 5 000 m (clamped to
+    /// the 0.95 normalized-height ceiling) over a 55 km radius on a 4 000 m
+    /// peak.
     fn shield() -> Edifice {
         let h = (5000.0 / 4000.0_f64).min(0.95) * 0.9;
         Edifice::new(edifice_shape(EdificeKind::Shield), h, 110.0, 100.0, 100.0, 0.0)
     }
 
+    /// A scoria/cinder cone at the reference's own small-class draw: 600 m
+    /// over a 20 km radius on a 4 000 m peak.
     fn cinder() -> Edifice {
         let h = (600.0 / 4000.0) * 0.9;
         Edifice::new(edifice_shape(EdificeKind::Cinder), h, 40.0, 100.0, 100.0, 0.0)
@@ -1572,6 +1586,8 @@ mod edifice_tests {
     /// on a cone.
     #[test]
     fn the_reference_summit_dip_is_a_point_not_a_floor() {
+        // Protects: the reference's own summit dip has no floor at all --
+        // it is a V-notch, the gap this lane exists to close.
         let h = 0.45;
         let ref_add = |t: f64| {
             let mut a = h * (1.0 - t).powf(1.6);
@@ -1596,6 +1612,9 @@ mod edifice_tests {
     /// point-bottomed shape this lane exists to remove.
     #[test]
     fn caldera_floor_is_flat_and_has_extent() {
+        // Protects: the replacement caldera floor is genuinely flat and
+        // has real extent -- not the degenerate point-bottomed shape it
+        // replaces.
         let r_cells = 40.0;
         for e in [cinder(), strato(), shield()] {
             let centre = e.add_at(0.0, 0.0, 0.0, 0.0);
@@ -1625,6 +1644,9 @@ mod edifice_tests {
     /// level at the top.
     #[test]
     fn the_three_morphologies_are_distinct() {
+        // Protects: the three morphologies really are three shapes, each
+        // ordered by summit steepness and relative caldera size the way
+        // its geology says.
         let d = 1e-4;
         let slope = |e: &Edifice, t: f64| ((e.cone_at(t + d) - e.cone_at(t)) / d).abs();
         let (c, st, sh) = (cinder(), strato(), shield());
@@ -1646,6 +1668,9 @@ mod edifice_tests {
     /// full slope.
     #[test]
     fn shield_flanks_are_gentler_and_taper() {
+        // Protects: a shield's flanks are gentler than a stratocone's at
+        // the same height, and taper into the plain rather than ending in
+        // a scarp.
         let h = 0.45;
         let st = Edifice::new(edifice_shape(EdificeKind::Strato), h, 40.0, 0.0, 0.0, 0.0);
         let sh = Edifice::new(edifice_shape(EdificeKind::Shield), h, 40.0, 0.0, 0.0, 0.0);
@@ -1679,6 +1704,8 @@ mod edifice_tests {
     /// and a large shield are both dissected at a legible scale.
     #[test]
     fn gullies_are_spaced_by_arc_length() {
+        // Protects: gullies are spaced by arc length within a legible
+        // band, clamped at both ends rather than scaling per-cell forever.
         for r in [6.0, 12.0, 40.0, 90.0] {
             let e = Edifice::new(edifice_shape(EdificeKind::Strato), 0.45, r, 0.0, 0.0, 0.0);
             // Arc length between gullies at mid-flank, in cells.
@@ -1701,6 +1728,8 @@ mod edifice_tests {
     /// climbs monotonically from one to the other.
     #[test]
     fn caldera_wall_climbs_from_floor_to_rim() {
+        // Protects: the caldera wall climbs monotonically from the floor
+        // to the rim, and the total rise equals the collapse depth.
         let e = strato();
         let floor = e.add_at(0.0, 0.0, 0.0, 0.0);
         let rim = e.cone_at(e.s.rim);
@@ -1723,6 +1752,9 @@ mod edifice_tests {
     /// smoothstep's whole job. A crease here would read as a painted-on ring.
     #[test]
     fn caldera_rim_is_smooth() {
+        // Protects: the wall meets the outer flank with matching value and
+        // slope at the rim -- no crease that would read as a painted-on
+        // ring.
         let e = strato();
         let d = 1e-5;
         let inner = (e.add_at(e.s.rim - d, 0.0, 0.0, 0.0) - e.add_at(e.s.rim - 2.0 * d, 0.0, 0.0, 0.0)) / d;
@@ -1737,6 +1769,8 @@ mod edifice_tests {
     /// unreachable at any `b`.
     #[test]
     fn shield_summit_is_level_and_stratocone_summit_is_not() {
+        // Protects: a shield has a level summit and a stratocone does not
+        // -- the payoff of the two-exponent shape family over one exponent.
         let d = 1e-4;
         let sh = shield();
         let st = strato();
@@ -1751,6 +1785,9 @@ mod edifice_tests {
     /// distinguishes a stratovolcano from the reference's single shape.
     #[test]
     fn stratocone_is_more_concave_than_the_reference_cone() {
+        // Protects: the stratocone is steeper than the reference's single
+        // power-law cone near the summit and gentler on the apron -- the
+        // concave-up shape a stratovolcano needs.
         let e = strato();
         let refc = |t: f64| e.h * (1.0 - t).powf(1.6);
         let d = 1e-4;
@@ -1772,6 +1809,9 @@ mod edifice_tests {
     /// the toe slope diverges.
     #[test]
     fn age_rounds_the_profile_but_never_past_a_straight_cone() {
+        // Protects: age lowers the summit exponent toward a straight cone,
+        // the same direction as the reference's own age term, but never
+        // past b = 1 where the toe slope would diverge.
         let s = edifice_shape(EdificeKind::Strato);
         let fresh = Edifice::new(s, 0.45, 40.0, 0.0, 0.0, 0.0);
         let old = Edifice::new(s, 0.45, 40.0, 0.0, 0.0, 1.0);
@@ -1784,6 +1824,9 @@ mod edifice_tests {
     /// within it. Same roll, three settings, three different answers.
     #[test]
     fn edifice_kind_follows_the_setting() {
+        // Protects: volcanic setting picks the morphology; the size roll
+        // only picks the class within it -- same roll, three settings,
+        // three different edifice kinds.
         let mid = 0.80;
         assert_eq!(edifice_kind(VolcanicSetting::Arc, mid), EdificeKind::Strato);
         assert_eq!(edifice_kind(VolcanicSetting::Rift, mid), EdificeKind::Shield);
@@ -1804,6 +1847,9 @@ mod edifice_tests {
     /// meets the surrounding terrain.
     #[test]
     fn flank_relief_vanishes_at_the_rim_and_the_toe() {
+        // Protects: flank relief is exactly zero inside the depression and
+        // at the toe -- it cannot fill the caldera or leave a rough seam
+        // against the surrounding terrain.
         let e = strato();
         assert!(
             (e.add_at(1.0, 0.4, 7.0, 11.0) - e.cone_at(1.0)).abs() < 1e-12,
@@ -1821,6 +1867,9 @@ mod edifice_tests {
     /// silently-empty case the project has been bitten by four times.
     #[test]
     fn flank_relief_is_present_and_structured() {
+        // Protects: flank relief is real, signed and structured around the
+        // edifice rather than a constant offset -- catches the
+        // silently-empty case this project has been bitten by before.
         let e = strato();
         let t = 0.6;
         let n = 256;
@@ -1852,6 +1901,9 @@ mod edifice_tests {
     /// the other term.
     #[test]
     fn both_relief_scales_are_live() {
+        // Protects: the gully term and the fbm lump term are both live and
+        // isolated from each other -- a zeroed frequency or blend weight
+        // in either would otherwise hide behind the other.
         for e in [cinder(), strato(), shield()] {
             let t = 0.6;
             // Same cell, two bearings a half-gully apart: only the gully term moves.
@@ -1879,6 +1931,9 @@ mod edifice_tests {
     /// so a whole volcanic province does not come out stamped from one mould.
     #[test]
     fn relief_is_decorrelated_by_edifice_centre() {
+        // Protects: two edifices at different centres get different
+        // relief -- the salt is derived from the centre, deliberately, so
+        // a whole province is not stamped from one mould.
         let s = edifice_shape(EdificeKind::Strato);
         let base = Edifice::new(s, 0.45, 40.0, 100.0, 100.0, 0.0);
         let moved_x = Edifice::new(s, 0.45, 40.0, 143.0, 100.0, 0.0);
@@ -1892,6 +1947,9 @@ mod edifice_tests {
     /// RNG stream: identical seed and placement, two settings, two fields.
     #[test]
     fn setting_changes_what_place_sized_volcano_stamps() {
+        // Protects: the volcanic setting reaches the stamp through
+        // place_sized_volcano, on the same RNG stream -- identical seed
+        // and placement, two settings, two different fields.
         let (gw, gh) = (64usize, 64usize);
         let stamp = |setting| {
             let mut field = vec![0f32; gw * gh];
@@ -2721,9 +2779,9 @@ pub fn stamp_volcanoes_provinces_traced(
 /// familiar sequence: a degraded crater is a rimless shallow depression long
 /// before it is gone.
 const CRATER_FEATURE_BOWL: f64 = 1.0;
-const CRATER_FEATURE_RIM: f64 = 0.2;
-const CRATER_FEATURE_PEAK: f64 = 0.18;
-const CRATER_FEATURE_RINGS: f64 = 1.0 / 3.0;
+const CRATER_FEATURE_RIM: f64 = 0.2; // 0.40r = 0.20D, per the table above
+const CRATER_FEATURE_PEAK: f64 = 0.18; // 0.36r = 0.18D, per the table above
+const CRATER_FEATURE_RINGS: f64 = 1.0 / 3.0; // 0.67r = 0.33D, per the table above
 
 /// The **shock aureole**'s characteristic width, in the same units as the four
 /// topographic fractions above: a multiple of the crater's diameter.
@@ -3001,7 +3059,7 @@ pub fn crater_lambda(
 /// `crater_lambda`'s cap can produce, so the approximation is a guard rather
 /// than a path the shipped defaults take.
 pub fn poisson_sample(rng: &mut Mulberry32, lambda: f64) -> i32 {
-    const KNUTH_MAX: f64 = 500.0;
+    const KNUTH_MAX: f64 = 500.0; // crossover to the normal approximation, see doc above
     if lambda <= 0.0 {
         return 0;
     }
@@ -3044,7 +3102,7 @@ pub const CRATER_SFD_EXPONENT: f64 = 2.0;
 /// reference's own three radius bands (0.5-200 km radius) so the *visual* size
 /// range is preserved while the *distribution* across it changes.
 pub const CRATER_D_MIN_KM: f64 = 1.0;
-pub const CRATER_D_MAX_KM: f64 = 400.0;
+pub const CRATER_D_MAX_KM: f64 = 400.0; // upper bound of the reference's own 0.5-200km radius band, see doc above
 
 /// The hillslope diffusivity [`crater_degradation_tau`]'s half-life anchor was
 /// calibrated at — the reference's own `state.erosion.diffuseD`, which is
@@ -3409,6 +3467,7 @@ pub fn thin_mask(mask: &[u8], w: usize, h: usize) -> Vec<u8> {
 /// unvisited neighbor), not just a style choice.
 const N8: [(i64, i64); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
 
+/// In-bounds, mask-set 8-neighbors of `(x, y)`, in [`N8`]'s order.
 fn nbrs(a: &[u8], w: usize, h: usize, x: usize, y: usize) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     for &(dx, dy) in &N8 {
@@ -3862,22 +3921,29 @@ pub fn smooth_orogeny(u: &[f32], w: usize, h: usize, blur_r: f64, wrap: bool) ->
     out
 }
 
+/// Unit tests for `compute_warp`, `thin_mask`, `trace_boundaries` and
+/// `tag_boundary_types` — the plate/boundary-graph half of this file.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn crate_compiles_and_tests_run() {
+        // Protects: the crate builds and the test harness itself runs.
         assert_eq!(2 + 2, 4);
     }
 
     #[test]
     fn none_below_threshold() {
+        // Protects: compute_warp's `amp < 0.5` early-out returns None
+        // rather than a negligible field.
         assert!(compute_warp(100, 100, 1, 0.0, false).is_none());
     }
 
     #[test]
     fn deterministic_for_same_input() {
+        // Protects: compute_warp is a pure function of its arguments --
+        // same seed/params always produce the same field.
         let a = compute_warp(6, 5, 42, 0.6, false);
         let b = compute_warp(6, 5, 42, 0.6, false);
         assert_eq!(a, b);
@@ -3887,6 +3953,8 @@ mod tests {
     // JS source (see thin_mask's own doc comment).
     #[test]
     fn thin_mask_leaves_a_straight_1px_line_untouched() {
+        // Protects: a 1px-wide straight line is already a skeleton and
+        // must be a fixed point of thin_mask.
         // Endpoints are always kept (B<2 skip); interior cells of a
         // straight line have exactly 2 opposite-side 1-neighbors, which
         // is 2 separate 0->1 transitions around the ring (A=2, not 1),
@@ -3898,6 +3966,8 @@ mod tests {
 
     #[test]
     fn thin_mask_is_idempotent_and_never_grows() {
+        // Protects: thinning converges to a stable skeleton and never
+        // adds pixels back.
         // A solid 5x4 block: not a fixed point (thinning must remove
         // interior/edge pixels down toward a skeleton), but whatever it
         // converges to must itself be stable under a second pass, and
@@ -3914,12 +3984,15 @@ mod tests {
 
     #[test]
     fn thin_mask_all_zero_stays_all_zero() {
+        // Protects: an empty mask has nothing to thin.
         let mask = vec![0u8; 12];
         assert_eq!(thin_mask(&mask, 4, 3), mask);
     }
 
     #[test]
     fn trace_boundaries_traces_a_straight_line_end_to_end() {
+        // Protects: a straight 1px line traces as one open polyline with
+        // no spurious junction nodes and zero curvature.
         // W=5,H=1, all-ones: two degree-1 endpoints and three degree-2
         // interior cells. `nodes` (the returned list) only reports
         // degree>=3 junctions -- degree-1 endpoints don't count as
@@ -3943,6 +4016,8 @@ mod tests {
 
     #[test]
     fn trace_boundaries_walks_a_direct_node_edge_from_both_ends() {
+        // Protects: a 2-cell direct edge is recorded once from each
+        // endpoint, matching the reference's own double-count behaviour.
         // A 2-cell mask: both cells are degree-1 endpoints (no degree>=3
         // junction, so `nodes` is empty), each other's only neighbor.
         // Reference HTML's own `traceBoundaries` never marks a walk's
@@ -3960,6 +4035,9 @@ mod tests {
 
     #[test]
     fn tag_boundary_types_majority_vote_and_tie_break() {
+        // Protects: each polyline's kind is the majority boundary-type
+        // vote over its cells, and a tie keeps the lower type id (JS's
+        // strict `>` comparison), not the last one scanned.
         // Hand-traceable (pure counting + argmax over a fixed 6-entry
         // array) rather than Node-extracted: the JS this mirrors is
         // inlined in currentBoundaryGraph(), which needs boundaryMask/
@@ -3996,6 +4074,9 @@ mod tests {
 }
 
 
+/// Tests for the physically-motivated crater population: real-area-driven
+/// counts, the inverse-square size-frequency law, and the Poisson draw's
+/// mean and variance.
 #[cfg(test)]
 mod crater_density_tests {
     use super::*;
@@ -4013,6 +4094,9 @@ mod crater_density_tests {
     /// where it gets caught.
     #[test]
     fn the_physical_model_lands_near_the_references_own_default() {
+        // Protects: CRATER_SURFACE_AGE_MYR's calibration claim -- the
+        // physical model lands near the reference's hand-tuned default of
+        // 100 craters on the default map.
         let d_min = crater_min_diameter_km(800.0, 2048);
         let lambda = crater_lambda(100, default_area(), d_min, CRATER_SURFACE_AGE_MYR);
         assert!(
@@ -4027,6 +4111,9 @@ mod crater_density_tests {
     /// represent areas differing by 64 000 000x.
     #[test]
     fn map_extent_now_drives_the_population() {
+        // Protects: crater_lambda scales with real map area, not a fixed
+        // per-map count -- a 5km region and a 40 000km world get wildly
+        // different populations.
         let region = crater_lambda(
             200,
             5.0 * (5.0 * 1311.0 / 2048.0),
@@ -4050,6 +4137,9 @@ mod crater_density_tests {
     /// physically be there.
     #[test]
     fn the_diameter_floor_follows_resolution() {
+        // Protects: crater_min_diameter_km floors the diameter at what the
+        // grid can actually resolve, instead of generating unresolvable
+        // populations of tiny craters on a coarse world.
         let world = crater_min_diameter_km(40_000.0, 2048);
         let default = crater_min_diameter_km(800.0, 2048);
         let region = crater_min_diameter_km(5.0, 2048);
@@ -4070,6 +4160,9 @@ mod crater_density_tests {
     /// which is exactly what the reference's flat bands got wrong.
     #[test]
     fn diameters_follow_the_inverse_square_law() {
+        // Protects: crater_diameter_km's inverse-CDF sampling follows the
+        // D^-2 size-frequency law -- small craters vastly outnumber large
+        // ones, unlike the reference's flat bands.
         // Inverse-CDF endpoints are exact.
         assert_eq!(crater_diameter_km(0.0, 1.0, 400.0, 2.0), 1.0);
         assert!((crater_diameter_km(1.0, 1.0, 400.0, 2.0) - 400.0).abs() < 1e-9);
@@ -4093,6 +4186,9 @@ mod crater_density_tests {
     /// sampler that always returned `lambda` would pass a mean check alone.
     #[test]
     fn the_poisson_draw_has_the_right_mean_and_real_variance() {
+        // Protects: poisson_sample has the right mean AND genuine
+        // variance -- a sampler that always returned lambda would pass a
+        // mean-only check.
         let mut rng = Mulberry32::new(12345);
         let (lambda, n) = (25.0, 4000);
         let mut sum = 0i64;
@@ -4112,6 +4208,8 @@ mod crater_density_tests {
     /// seeds (or the stochastic half is decorative).
     #[test]
     fn auto_count_is_seed_deterministic_and_seed_varying() {
+        // Protects: auto_crater_count is deterministic per seed
+        // (reproducible worlds) but varies across seeds (not decorative).
         let (a_km2, d) = (default_area(), crater_min_diameter_km(800.0, 2048));
         let first = auto_crater_count(777, 100, a_km2, d, CRATER_SURFACE_AGE_MYR);
         assert_eq!(first, auto_crater_count(777, 100, a_km2, d, CRATER_SURFACE_AGE_MYR));
@@ -4124,6 +4222,8 @@ mod crater_density_tests {
     /// Zero-guards on every argument, and monotonic in the ones that should be.
     #[test]
     fn lambda_is_guarded_and_monotonic() {
+        // Protects: crater_lambda zero-guards every argument and is
+        // monotonic in count, area and age.
         let d = CRATER_D_MIN_KM;
         assert_eq!(crater_lambda(0, 1.0e6, d, 100.0), 0.0);
         assert_eq!(crater_lambda(-5, 1.0e6, d, 100.0), 0.0);
@@ -4158,6 +4258,9 @@ mod crater_degradation_tests {
     /// `crater_degradation_tau`'s doc comment has become a lie.
     #[test]
     fn the_anchor_is_a_half_life_for_the_smallest_crater() {
+        // Protects: kappa is pinned so the smallest crater keeps exactly
+        // half its relief after one CRATER_SURFACE_AGE_MYR at the default
+        // erosion diffusivity.
         let p = (-crater_degradation_tau(CRATER_D_MIN_KM, CRATER_SURFACE_AGE_MYR, D)).exp();
         assert!(
             (p - 0.5).abs() < 1e-12,
@@ -4180,6 +4283,9 @@ mod crater_degradation_tests {
     /// the self-snapshotting trap this repository has been bitten by four times.
     #[test]
     fn the_default_diffusivity_reproduces_the_old_anchor() {
+        // Protects: owner ruling 2 (2026-09-02) -- rewiring
+        // crater_degradation_tau onto ErosionPassParams::diffuse_d landed
+        // bit-for-bit on the old closed form at the default diffusivity.
         assert_eq!(
             CRATER_DEGRADATION_DIFFUSE_D_REF, 0.15,
             "the anchor was calibrated at the reference's own state.erosion.diffuseD"
@@ -4199,6 +4305,9 @@ mod crater_degradation_tests {
     /// craters look, on purpose.
     #[test]
     fn the_erosion_diffusivity_drives_crater_degradation() {
+        // Protects: tau is linear in the erosion diffusivity D, end to end
+        // through the shipped stamping path, and a zero/negative/NaN D
+        // degrades nothing without dividing by zero.
         let base = crater_degradation_tau(4.0, 100.0, D);
         let twice = crater_degradation_tau(4.0, 100.0, D * 2.0);
         assert!(base > 0.0, "the probe must actually degrade something");
@@ -4232,6 +4341,8 @@ mod crater_degradation_tests {
     /// linear `1 - age*0.8` this replaces was wrong in kind.
     #[test]
     fn degradation_goes_as_the_inverse_square_of_diameter() {
+        // Protects: tau ~ 1/D^2 -- halving the diameter quadruples the
+        // degradation timescale, replacing the old linear age falloff.
         let two = crater_degradation_tau(2.0, 100.0, D);
         let four = crater_degradation_tau(4.0, 100.0, D);
         assert!(
@@ -4259,6 +4370,9 @@ mod crater_degradation_tests {
     /// squares what survives. Pins the `exp` form, not just monotonicity.
     #[test]
     fn doubling_the_surface_age_squares_what_survives() {
+        // Protects: decay is exponential in time -- doubling the surface
+        // age squares the surviving fraction (pins the exp form, not just
+        // that older is more degraded).
         let p1 = (-crater_degradation_tau(3.0, 100.0, D)).exp();
         let p2 = (-crater_degradation_tau(3.0, 200.0, D)).exp();
         assert!((p2 - p1 * p1).abs() < 1e-12, "exp({p1}) doubled gave {p2}, not {}", p1 * p1);
@@ -4270,6 +4384,9 @@ mod crater_degradation_tests {
     /// a brand-new surface behave like the reference path.
     #[test]
     fn a_pristine_surface_and_a_degenerate_crater_degrade_nothing() {
+        // Protects: tau = 0 (pristine, fully preserved) is distinct from
+        // degradation being off, and every degenerate/NaN input also
+        // yields tau = 0 rather than propagating NaN or panicking.
         assert_eq!(crater_degradation_tau(1.0, 0.0, D), 0.0, "T = 0 is a pristine surface");
         assert_eq!(crater_degradation_tau(1.0, -5.0, D), 0.0);
         assert_eq!(crater_degradation_tau(0.0, 100.0, D), 0.0);
@@ -4286,6 +4403,9 @@ mod crater_degradation_tests {
     /// `(1 - e^-τ)/τ` at `τ = ln2`, i.e. 0.721.)
     #[test]
     fn the_default_map_keeps_most_of_its_crater_relief() {
+        // Protects: the other half of the anchor -- averaged over the
+        // physical model's own size distribution, the default map keeps
+        // about three quarters of its crater relief (worn, not erased).
         let d_min = crater_min_diameter_km(800.0, 2048);
         let n = 20_000;
         let mut sum = 0.0;
@@ -4309,6 +4429,9 @@ mod crater_degradation_tests {
     /// does not. Pins all four `CRATER_FEATURE_*` fractions at once.
     #[test]
     fn every_feature_relaxes_on_its_own_length() {
+        // Protects: each stamped feature (bowl, rim, peak, rings) relaxes
+        // on its own characteristic length, not the crater's diameter --
+        // pins all four CRATER_FEATURE_* fractions at once.
         let (gw, gh) = (81usize, 81usize);
         let (tau, rad_cells) = (0.05, 20.0);
         let depth = 0.02 + rad_cells * 0.004; // 0.1, under the 0.4 cap
@@ -4381,6 +4504,8 @@ mod crater_degradation_tests {
         (field, impact)
     }
 
+    /// Total absolute deviation of a stamped field from `stamp_probe`'s own
+    /// `0.5` background -- a scalar "how much relief is left" measure.
     fn relief(f: &[f32]) -> f64 {
         f.iter().map(|&v| (v as f64 - 0.5).abs()).sum::<f64>()
     }
@@ -4402,6 +4527,9 @@ mod crater_degradation_tests {
     /// ratio to 1.0, and one that over-fired would push it to 0.
     #[test]
     fn an_older_surface_is_flatter_but_identically_placed() {
+        // Protects: an old surface is measurably flatter than a young one,
+        // by a bounded amount, and degradation consumes no RNG -- craters
+        // land in the same places at either age.
         let (young, young_impact) = stamp_probe(128.0, true, 1.0);
         let (old, old_impact) = stamp_probe(128.0, true, 4000.0);
         let touched = |f: &[f32]| f.iter().filter(|&&v| v != 0.5).count();
@@ -4446,6 +4574,8 @@ mod crater_degradation_tests {
     /// it, fails the second).
     #[test]
     fn the_shock_record_fades_but_outlives_the_landform() {
+        // Protects: owner ruling 3 -- the shock/impact-melt record fades
+        // with age but more slowly than topographic relief does.
         let (young, young_impact) = stamp_probe(64.0, true, 1.0);
         let (old, old_impact) = stamp_probe(64.0, true, 4000.0);
         let total = |f: &[f32]| f.iter().map(|&v| v as f64).sum::<f64>();
@@ -4479,6 +4609,9 @@ mod crater_degradation_tests {
     /// any mutation of it.
     #[test]
     fn the_shock_aureole_relaxes_four_times_slower_than_the_bowl() {
+        // Protects: the shock aureole's timescale is the bowl's squared
+        // (CRATER_FEATURE_SHOCK = 2.0 crater diameters), pinned against
+        // the closed form rather than against itself.
         let (gw, gh) = (81usize, 81usize);
         let (tau, rad_cells) = (0.35, 20.0);
         let mut field = vec![0.5f32; gw * gh];
@@ -4504,6 +4637,10 @@ mod crater_degradation_tests {
     /// exactly `1 - t`, at any surface age and any diffusivity.
     #[test]
     fn the_reference_path_writes_an_undamped_shock_record() {
+        // Protects: golden safety for ruling 3 -- with physical_model
+        // false, the shock record is exactly 1 - t regardless of surface
+        // age or diffusivity, so the sixteen cartalith-civ golden suites
+        // stay parity tests.
         let (gw, gh) = (81usize, 81usize);
         let mut field = vec![0.5f32; gw * gh];
         let mut impact = vec![0.0f32; gw * gh];
@@ -4529,6 +4666,9 @@ mod crater_degradation_tests {
     /// `DECISIONS.md` §7l left open.
     #[test]
     fn the_same_age_erases_small_craters_and_spares_large_ones() {
+        // Protects: the inverse-square degradation law's actual point --
+        // at one surface age, kilometre-scale craters are nearly erased
+        // while larger ones on the same map are not.
         let (young, _) = stamp_probe(8.0, true, 1.0);
         let (old, _) = stamp_probe(8.0, true, 4000.0);
         assert!(relief(&young) > 1.0, "the young probe stamped nothing to erase");
@@ -4545,6 +4685,9 @@ mod crater_degradation_tests {
     /// `golden_parity_pipeline` and the 16 `cartalith-civ` suites untouched.
     #[test]
     fn the_reference_path_ignores_the_surface_age() {
+        // Protects: golden safety -- the reference path (physical_model
+        // false) is byte-identical across surface ages, which is what
+        // keeps the crater golden suites untouched.
         let (a, a_impact) = stamp_probe(128.0, false, 1.0);
         let (b, b_impact) = stamp_probe(128.0, false, 4000.0);
         assert_eq!(a, b, "physical_model: false must be byte-identical at any surface age");
@@ -4561,6 +4704,9 @@ mod volcano_trace_tests {
 
     #[test]
     fn trace_keeps_the_max_winner_and_moves_no_output() {
+        // Protects: recording a VolcanoTrace changes neither the height
+        // field nor volcanic_field, and each cell's recorded winner is
+        // whichever edifice actually raised volcanic_field's max there.
         let (gw, gh) = (64usize, 64usize);
         let run = |traced: bool| {
             let mut field = vec![0.3f32; gw * gh];

@@ -1018,6 +1018,45 @@ re-checked against the tree rather than copied from the commit message.
   through 15 all still need an independent verifier before any can be
   called done rather than pending.
 
+- **Ruling BK annotation pass, batch 16 (`cartalith-terrain`'s last file,
+  `src/lib.rs`) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; terrain 317/0/0 unchanged).**
+  Re-checked `git status --short` on the target file immediately before
+  starting and again just before the first edit; it was clean both times
+  (no RV-3 conflict). Per-file `census_v2.py` scan found 19 undoc items, 47
+  unprotected tests and 18 undoc consts, all inside `src/lib.rs` itself
+  (every other file in the crate was already 0/0/0 after batch 15). Closed
+  every one: `compute_heterogeneity`'s explanatory `//` block promoted to
+  `///` so it joins its doc contiguously; docs added to
+  `clamp_feature_radius_cells`, `VolcanoTrace::new`, the `shield()`/
+  `cinder()` edifice-test builders, `nbrs()`, `relief()` and `mod
+  crater_density_tests`; a doc added above the plain `mod tests` block; the
+  `btype` module's six boundary-type codes, `INF`/`D2`, `REF_CELLKM`/
+  `TERRAIN_DETAIL_MAX_K` (both call sites), the three `CRATER_FEATURE_*`
+  fractions, `KNUTH_MAX` and `CRATER_D_MAX_KM` all got a trailing `//`
+  provenance comment (each already had a `///` doc on the enclosing
+  function or a doc table above it — the census script only reads the
+  immediate preceding line, which in every one of these cases was another
+  const, an attribute, or a table row, not the doc itself). All 47
+  unprotected tests — spanning `edifice_tests`, the plain `mod tests`,
+  `crater_density_tests`, `crater_degradation_tests` and
+  `volcano_trace_tests` — got a first-line `// Protects:` naming what the
+  test actually checks; every one of these tests already carried real
+  `///` prose above it, so the Protects line restates that prose's claim
+  rather than inventing a new one. No wrong existing comment was found.
+  **Comments only**: `cargo test -p cartalith-terrain`, summed over all 25
+  binaries, recorded before editing and again after — **317 passed / 0
+  failed / 0 ignored, identical both times** (`CARGO_TARGET_DIR` at
+  `.../scratchpad/bk16`). `git diff` line-pair check: every removed line
+  reappears as the same code, either with a promoted `///`/added `// Protects:`
+  comment beside it or a trailing `//` comment appended to an unchanged
+  const line; no code fence in any new comment. Crate-wide `census_v2.py`:
+  `cartalith-terrain` items_undoc 19→0, tests_unprotected 47→0, consts_undoc
+  18→0 — **the crate is fully closed, 0/0/0 across all 34 files.** **Next
+  step: batch 17** moves to the next crate in `ANNOTATION_AUDIT.md`'s order
+  (skipping `cartalith-godot` and `cartalith-civ`, both already routed
+  elsewhere). Batches 6 through 16 all still need an independent verifier
+  before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
