@@ -1674,6 +1674,60 @@ re-checked against the tree rather than copied from the commit message.
   29 all still need an independent verifier before any can be called done
   rather than pending.
 
+- **Ruling BK annotation pass, batch 30 (`cartalith-urban`, milestone 10
+  finished, plus cleanup/blocks/amenities/hinterland/citadel/wallside/
+  courtyard partial) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked, additions only; urban 349/0/0)
+  (comments only; urban 349/0/0 unchanged).** Recorded a pre-edit baseline
+  (`cargo test -p cartalith-urban`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk30`): **349 passed / 0 failed / 0 ignored**. Finished
+  milestone 10: `fortify/tests.rs` (1 954 LOC, 110 gaps by the per-file
+  census — 49 `// Protects:` lines written from each test's own body, 10
+  undocumented helper fns (`eq_bits`, `check_poly`, `terrain_raster`,
+  `water_ctx`, `terrain_ctx`, `check_fort`, `landlocked`, `extent`,
+  `deflected`, `has_near`), a `mod golden;` needing its own `///` line (the
+  census's module-doc resolver cannot see `fortify/tests/golden.rs` from
+  `fortify/tests.rs`) and the `MW`/`MH` raster-dimension consts) and
+  `fortify/tests/golden.rs` (6 gaps — five undocumented generated structs
+  `BastionSpec`/`FortSpec`/`DensifyCase`/`NearestCase`/`CornerCase` and the
+  `ACOS_HASH` const, which sits under a block comment that documents its
+  sibling `ACOS_N` but not itself). Two self-inflicted duplicate-doc slips
+  (`densify_input`, `rect_town` — both already carried a real `///` from an
+  earlier pass, misread as gaps) were caught by `git diff`/re-read and
+  reverted before landing. Then continued in `URBAN_MORPHOLOGY_SCOPE.md`'s
+  order: `cleanup.rs`, `blocks.rs` and `amenities.rs` were already
+  fully doc-commented in their own bodies — each closed only a `mod tests;`
+  line needing its own `///` (same file-module/same-named-submodule-
+  directory blind spot as batches 26-29). `wallside.rs` closed three
+  undocumented fns (`Arc::new`, `Arc::len`, `bbox`) plus its own `mod
+  tests;` line. `hinterland.rs` closed `Detail::point` plus its `mod
+  tests;` line. `citadel.rs` closed `crosses_rect` plus its `mod tests;`
+  line. `courtyard.rs` closed the `FRONTAGE_CLAMP` const, which sat under no
+  comment of its own between two consts that each carry one (`FRONTAGE`
+  above it, `MIN_LOT_AREA` below). `generate.rs` was checked and is already
+  0/0/0. `districts.rs` was surveyed but **not touched**: its 23 remaining
+  gaps are almost entirely (20 of 23) `PROV_*` string constants whose value
+  already embeds a milestone/ruling citation in prose (e.g. `PROV_MARKET`
+  cites M-NET-10 inline) but which the census still wants a preceding `//`
+  line for, plus its own `mod tests;` line and two helper fns (`cand`,
+  `retag`) — left for the next batch rather than rushed at the end of this
+  one's budget. No wrong existing comment was found while reading; no
+  behaviour changed. `cargo test -p cartalith-urban`, same
+  `CARGO_TARGET_DIR`, run again after every file: **349 passed / 0 failed /
+  0 ignored**, byte-identical to the pre-edit baseline. `git diff --stat`
+  confirmed comment-only across all nine touched files: 180 insertions, 0
+  deletions. Crate-wide `census_v2.py`: items_undoc 247→174,
+  tests_unprotected 223→174, consts_undoc 39→35 (126 gaps closed against
+  the ~150-gap batch budget; ~6 240 LOC read/edited across all files this
+  batch touched or surveyed, against the ~8 000 LOC cap). **Stopped after
+  `courtyard.rs`, with `districts.rs` surveyed but not started.** Next
+  step: batch 31 opens `districts.rs` at its 23 remaining gaps (each
+  `PROV_*` const needs its own one-line `// see <ruling/milestone>` or
+  equivalent directly above it, per batch 29's precedent for `routes.rs`'s
+  `PROV_*` set), then whatever of the milestone-defined module list
+  (`URBAN_MORPHOLOGY_SCOPE.md`) remains after that within budget. Batches 6
+  through 30 all still need an independent verifier before any can be
+  called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

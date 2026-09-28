@@ -307,6 +307,8 @@ struct Arc {
 }
 
 impl Arc {
+    /// Build the cumulative-length table over `arc`, closing it into a ring
+    /// (repeating the first point at the end) when `closed`.
     fn new(arc: &[Vec2], closed: bool) -> Self {
         let mut pts = arc.to_vec();
         if closed {
@@ -318,6 +320,7 @@ impl Arc {
         }
         Arc { pts, cum, closed }
     }
+    /// The arc's total length.
     fn len(&self) -> f64 {
         self.cum[self.cum.len() - 1]
     }
@@ -378,6 +381,7 @@ struct Ctx<'a> {
     taken: Vec<(Vec<Vec2>, [f64; 4])>,
 }
 
+/// A point set's axis-aligned bounding box, as `[minx, miny, maxx, maxy]`.
 fn bbox(p: &[Vec2]) -> [f64; 4] {
     let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
     for q in p {
@@ -719,5 +723,6 @@ pub fn build_wall_lots(
     out
 }
 
+/// This module's unit and golden tests.
 #[cfg(test)]
 mod tests;

@@ -633,5 +633,6 @@ pub fn lane_pass(
     added
 }
 
+/// This module's unit and golden tests.
 #[cfg(test)]
 mod tests;

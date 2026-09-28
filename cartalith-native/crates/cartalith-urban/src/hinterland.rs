@@ -208,6 +208,8 @@ impl Detail {
         }
     }
 
+    /// Build a point-geometry `Detail`: no roundel and never an orchard, the
+    /// shape most of `FARM_SPEC`'s scatter entries are.
     fn point(id: usize, kind: &'static str, x: f64, y: f64, prov: &'static str) -> Detail {
         Detail {
             id: format!("det{id}"),

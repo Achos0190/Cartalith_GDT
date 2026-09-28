@@ -723,5 +723,6 @@ pub fn build_games(
     out
 }
 
+/// This module's unit and golden tests.
 #[cfg(test)]
 mod tests;

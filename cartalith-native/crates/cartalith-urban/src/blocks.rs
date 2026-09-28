@@ -506,5 +506,6 @@ pub fn build_parcels(
     parcels
 }
 
+/// This module's unit and golden tests.
 #[cfg(test)]
 mod tests;

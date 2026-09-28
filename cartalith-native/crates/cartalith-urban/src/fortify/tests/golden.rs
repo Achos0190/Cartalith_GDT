@@ -63,12 +63,17 @@ pub struct HarbourSpec {
     pub quay: &'static [f64],
 }
 
+/// One captured bastion: its salient point, outline polyline and whether it
+/// is a demi-bastion (half-strength, at a circuit end).
 pub struct BastionSpec {
     pub salient: (f64, f64),
     pub outline: PolySpec,
     pub demi: bool,
 }
 
+/// The bastioned trace `applyStarFort` produces, captured field by field so
+/// `check_fort` (in `tests.rs`) can compare each part independently rather
+/// than only the whole structure's hash.
 pub struct FortSpec {
     pub trace: PolySpec,
     pub bastions: &'static [BastionSpec],
@@ -164,18 +169,24 @@ pub struct StarCase {
     pub fort: Option<&'static FortSpec>,
 }
 
+/// One captured `densifyLoop` call: which of `tests.rs`'s `densify_input`
+/// rows to feed it, the resample step, and the expected output.
 pub struct DensifyCase {
     pub idx: usize,
     pub step: f64,
     pub out: PolySpec,
 }
 
+/// One captured `nearestIdx` call: which of `tests.rs`'s `nearest_input` rows
+/// to feed it, the probe point, and the expected index.
 pub struct NearestCase {
     pub idx: usize,
     pub p: (f64, f64),
     pub want: usize,
 }
 
+/// One captured `cornerCut` call: which of `tests.rs`'s `corner_input` rows
+/// to feed it, the angle threshold, the pass count, and the expected output.
 pub struct CornerCase {
     pub idx: usize,
     pub min_ang: f64,
@@ -2747,6 +2758,8 @@ pub static CORNER: &[CornerCase] = &[
 /// readable. The bulk hash is what the scope document asked for -- "port them
 /// against a bulk hash golden, not a dozen rows".
 pub const ACOS_N: usize = 40000;
+// The fnv1a of the exact-bit dump over all `ACOS_N` rows, captured from the
+// reference's own `Math.acos` -- see the block comment above `ACOS_N`.
 pub const ACOS_HASH: u32 = 2691959476;
 pub static ACOS_ROWS: &[(f64, f64)] = &[(-1.0, 3.141592653589793), (-0.7999949998749969, 2.498083211301135), (-0.5999899997499938, 2.214284935334269), (-0.3999849996249907, 1.9822968061699013), (-0.19997999949998746, 1.7721338347029074), (0.00002500062501553657, 1.5707713261698786), (0.20003000075001864, 1.3694077865216032), (0.400035000875022, 1.1592412913236252), (0.6000400010000251, 0.927245215813978), (0.8000450011250282, 0.6434261031676045)];
 /// The domain edges, including both out-of-range arguments and `NaN`.

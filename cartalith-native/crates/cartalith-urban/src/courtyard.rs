@@ -105,6 +105,8 @@ pub const COURT_MIN_AREA: f64 = 80.0;
 /// Lot frontage median and spread, metres (`logn`), clamped to
 /// [`FRONTAGE_CLAMP`]. The plan's ring lots are 8-12 m.
 pub const FRONTAGE: (f64, f64) = (9.0, 0.2);
+/// Hard floor/ceiling on a sampled `FRONTAGE` draw — the plan's own 6-14 m
+/// bound on ring-lot frontage.
 pub const FRONTAGE_CLAMP: (f64, f64) = (6.0, 14.0);
 /// Smallest lot, m² — `build_parcels`' own floor.
 pub const MIN_LOT_AREA: f64 = 26.0;

@@ -151,6 +151,8 @@ fn rect(c: Vec2, t: Vec2, n: Vec2, w: f64, d: f64) -> Vec<Vec2> {
     vec![c - t * hw - n * hd, c + t * hw - n * hd, c + t * hw + n * hd, c - t * hw + n * hd]
 }
 
+/// Does segment `a`-`b` touch or cross rectangle `r` (built by [`rect`])? An
+/// endpoint inside counts, as does any edge intersection.
 fn crosses_rect(a: Vec2, b: Vec2, r: &[Vec2]) -> bool {
     point_in_poly(a, r)
         || point_in_poly(b, r)

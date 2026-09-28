@@ -85,6 +85,9 @@ use crate::rules::DEFAULT_RULES;
 use crate::site::{Site, SiteOpts, TerrainCtx, WaterCtx, build_site};
 use golden::{Case, PolySpec};
 
+/// The frozen capture: every `GOLDEN`/`STAR` scenario, the water/terrain
+/// raster hashes and the `js_acos` row/edge tables, all read-only and never
+/// re-derived — see this file's module doc for how it was captured.
 mod golden;
 
 // ------------------------------------------------------------------ helpers --
@@ -95,6 +98,9 @@ fn pts(flat: &[f64]) -> Vec<Vec2> {
     flat.chunks(2).map(|c| Vec2::new(c[0], c[1])).collect()
 }
 
+/// Compare two `f64`s by their exact bit pattern rather than by `==`, so a
+/// value that differs only in its last bit (a reordered or slightly
+/// different transcendental) fails loudly instead of within a tolerance.
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
@@ -108,6 +114,10 @@ fn poly_dump(p: &[Vec2]) -> String {
         .join(";")
 }
 
+/// Compare a built polyline against its captured `PolySpec`: length, the
+/// fnv1a of its exact-bit dump, and — for the specs the capture kept full
+/// coordinates for (`want.dumped`, at 64 points or fewer) — every coordinate
+/// bit for bit, so a hash collision cannot hide a real divergence.
 fn check_poly(got: &[Vec2], want: &PolySpec, what: &str) {
     assert_eq!(got.len(), want.n, "{what}: length");
     assert_eq!(fnv1a(&poly_dump(got)), want.h, "{what}: exact-bit hash");
@@ -155,7 +165,11 @@ fn graph_dump(g: &Graph) -> String {
 // ------------------------------------------------------------------ rasters --
 
 const CELL: f64 = 25.0;
+// The capture's own raster width, in cells — matches `golden::WATER_RASTERS`
+// / `golden::TERRAIN_RASTERS`' `mw`, checked by the hash gate below rather
+// than trusted.
 const MW: usize = 68;
+// The capture's own raster height, in cells — same provenance as `MW`.
 const MH: usize = 50;
 
 /// The capture's raster expressions, reproduced. Every transcendental goes
@@ -197,6 +211,9 @@ fn water_raster(name: &str) -> (Vec<u8>, Vec<f64>) {
     (mask, dt)
 }
 
+/// The capture's terrain-heightfield expressions, reproduced — the terrain
+/// counterpart of `water_raster` above, checked against the reference's own
+/// cells by `terrain_ctx`'s hash gate rather than trusted on sight.
 fn terrain_raster(name: &str) -> Vec<f64> {
     let mut grid = vec![0.0f64; MW * MH];
     for j in 0..MH {
@@ -227,6 +244,10 @@ fn terrain_raster(name: &str) -> Vec<f64> {
     grid
 }
 
+/// Rebuild a named `WaterCtx` fixture from `water_raster`, asserting the
+/// rebuilt mask and distance transform hash to the same values the capture's
+/// own raster did before handing it to a scenario — so a `js_sin`/`js_hypot`
+/// divergence fails here, not as an unexplained wall shape downstream.
 fn water_ctx(name: &str) -> WaterCtx {
     let spec = golden::WATER_RASTERS
         .iter()
@@ -256,6 +277,10 @@ fn water_ctx(name: &str) -> WaterCtx {
     }
 }
 
+/// Rebuild a named `TerrainCtx` fixture from `terrain_raster`, asserting the
+/// rebuilt heightfield and its `Math.min`/`Math.max` (through the JS
+/// semantics, `js_min`/`js_max`) match the reference's own before handing it
+/// to a scenario.
 fn terrain_ctx(name: &str) -> TerrainCtx {
     let spec = golden::TERRAIN_RASTERS
         .iter()
@@ -330,6 +355,10 @@ fn town(c: &Case) -> (Site, Anchors, Graph, f64) {
     (site, anchors, g, placed)
 }
 
+/// Compare a built `Fort` against its captured `FortSpec` field by field —
+/// trace, bastions (salient, outline, `demi`), curtains, ditch, covered way,
+/// outer moat presence, glacis, ravelins, the three boolean flags and the
+/// provenance hash — so a divergence names which part of the trace moved.
 fn check_fort(got: &Fort, want: &golden::FortSpec, what: &str) {
     check_poly(&got.trace, &want.trace, &format!("{what}.trace"));
     assert_eq!(got.bastions.len(), want.bastions.len(), "{what}: bastion count");
@@ -379,6 +408,8 @@ fn check_fort(got: &Fort, want: &golden::FortSpec, what: &str) {
 
 #[test]
 fn golden_every_wall_reproduces_the_reference_exactly() {
+    // Protects: every GOLDEN scenario's whole wall pipeline (buildSite through
+    // buildWall/applyStarFort) against the frozen HTML capture, bit for bit.
     for c in golden::GOLDEN {
         let what = c.name;
         let (site, anchors, g, placed) = town(c);
@@ -479,6 +510,8 @@ fn golden_every_wall_reproduces_the_reference_exactly() {
 
 #[test]
 fn golden_apply_star_fort_on_hand_built_rings() {
+    // Protects: applyStarFort against the frozen capture's STAR cases, on
+    // hand-built rings rather than a grown town, including both early returns.
     for s in golden::STAR {
         let what = s.name;
         let site = build_site(s.site_seed, 1700.0, 1250.0, s.site_kind, SiteOpts::default());
@@ -537,6 +570,8 @@ fn densify_input(idx: usize) -> Vec<Vec2> {
 
 #[test]
 fn golden_densify_loop() {
+    // Protects: densifyLoop against the capture's DENSIFY table, including
+    // the resampled-square, one-per-side and empty-loop shapes.
     for d in golden::DENSIFY {
         let got = densify_loop(&densify_input(d.idx), d.step);
         check_poly(&got, &d.out, &format!("densifyLoop[{}]", d.idx));
@@ -562,6 +597,8 @@ fn nearest_input(idx: usize) -> Vec<Vec2> {
 
 #[test]
 fn golden_nearest_idx() {
+    // Protects: nearestIdx against the capture's NEAREST table, including the
+    // equidistant-tie, empty-list and NaN-distance behaviours.
     for n in golden::NEAREST {
         let got = nearest_idx(&nearest_input(n.idx), Vec2::new(n.p.0, n.p.1));
         assert_eq!(got, n.want, "nearestIdx[{}]", n.idx);
@@ -587,6 +624,8 @@ fn corner_input(idx: usize) -> Vec<Vec2> {
 
 #[test]
 fn golden_corner_cut() {
+    // Protects: cornerCut against the capture's CORNER table, and the 1.75
+    // rad vs. 1.0 rad threshold direction on the same square.
     for c in golden::CORNER {
         let got = corner_cut(&corner_input(c.idx), c.min_ang, c.passes);
         check_poly(&got, &c.out, &format!("cornerCut[{}]", c.idx));
@@ -600,6 +639,8 @@ fn golden_corner_cut() {
 
 #[test]
 fn golden_js_acos_matches_v8_by_bulk_hash() {
+    // Protects: js_acos against V8's Math.acos across [-1, 1] by a bulk hash
+    // of every sampled row, rather than trusting a handful of spot checks.
     let mut dump = String::with_capacity(golden::ACOS_N * 17);
     for i in 0..golden::ACOS_N {
         if i > 0 {
@@ -613,6 +654,9 @@ fn golden_js_acos_matches_v8_by_bulk_hash() {
 
 #[test]
 fn golden_js_acos_rows_and_domain_edges() {
+    // Protects: js_acos's captured spot rows and domain-edge/NaN behaviour,
+    // and the claim (asserted, not just stated) that it disagrees with
+    // Rust's own f64::acos somewhere in range.
     for &(x, want) in golden::ACOS_ROWS {
         eq_bits(js_acos(x), want, &format!("js_acos({x})"));
     }
@@ -646,6 +690,12 @@ fn golden_js_acos_rows_and_domain_edges() {
 /// asserted explicitly rather than assumed from the fact that they pass.
 #[test]
 fn the_golden_file_is_the_shape_it_claims_to_be() {
+    // Protects: the emptiness/shape gate this file's module doc describes —
+    // that the fixture set actually reaches every branch it is claimed to
+    // (both spansWater routes, the needle guard's aftermath, the harbour
+    // mouth split, both spurDepth arms, terrain deflection in and out, the
+    // bastioned gate cap's both clamps, the star-fort early returns and the
+    // doubleMoat boundary) rather than merely passing on an empty result.
     let g = golden::GOLDEN;
     assert!(g.len() >= 30, "only {} scenarios", g.len());
     let by = |n: &str| g.iter().find(|c| c.name == n).unwrap_or_else(|| panic!("no case {n}"));
@@ -886,6 +936,8 @@ fn the_golden_file_is_the_shape_it_claims_to_be() {
 
 #[test]
 fn ring_crossings_is_milestone_sevens_and_is_not_ported_again() {
+    // Protects: that buildWall's gate loop can reuse milestone 7's
+    // ring_crossings unchanged, rather than a re-implementation drifting from it.
     // The scope document's correction 4: `ringCrossings` (reference line 29631)
     // is nominally this milestone's first function and was ported forward by
     // milestone 7 because `grow` calls it. This asserts the shared one behaves
@@ -904,6 +956,8 @@ fn ring_crossings_is_milestone_sevens_and_is_not_ported_again() {
 
 #[test]
 fn the_ringroad_class_already_existed() {
+    // Protects: that the graph's 'ringroad' edge class, laid by an earlier
+    // milestone's supersedeWall, really does lay edges and survive into the graph.
     // The scope document files `'ringroad'` under this milestone. It arrived a
     // milestone early -- `supersedeWall` is milestone 7's and lays the demolished
     // land arc with it -- so there was nothing to extend and no parallel enum was
@@ -922,6 +976,8 @@ fn the_ringroad_class_already_existed() {
 
 #[test]
 fn densify_loop_takes_max_one_not_the_ceiling_alone() {
+    // Protects: `Math.max(1, Math.ceil(d / step))` — a short side still
+    // contributes its own start point rather than being dropped.
     // `Math.max(1, Math.ceil(d / step))`: a side shorter than the step still
     // contributes exactly its own start point. Mutating the 1 to a 0 would drop
     // short sides entirely, which the goldens catch -- but only because this
@@ -933,6 +989,8 @@ fn densify_loop_takes_max_one_not_the_ceiling_alone() {
 
 #[test]
 fn corner_cut_stops_early_when_a_pass_cuts_nothing() {
+    // Protects: `if (!cut) break;` — an obtuse ring returns unchanged
+    // regardless of pass count, and zero/negative passes run the loop zero times.
     // `if (!cut) break;` -- an obtuse ring is returned unchanged however many
     // passes are asked for, and the result is the input, not a copy of a copy.
     let obtuse = pts(&[0., 0., 100., 0., 150., 60., 100., 120., 0., 120., -50., 60.]);
@@ -947,6 +1005,8 @@ fn corner_cut_stops_early_when_a_pass_cuts_nothing() {
 
 #[test]
 fn town_bank_reads_site_kind_not_the_sites_own_river_like_flag() {
+    // Protects: that townBank recomputes its channel-vs-coast branch from
+    // `site.kind`, not from `site.river_like()`, when the two disagree.
     // A real-water site with a river centreline and `kind === 'coast'` is
     // river-*like* to `buildSite` (`site.river_like()` is true) and a coast to
     // `townBank`, which recomputes `rk` from the kind string. The two disagree,
@@ -965,6 +1025,8 @@ fn town_bank_reads_site_kind_not_the_sites_own_river_like_flag() {
 
 #[test]
 fn built_mass_hull_needs_eight_junctions_and_counts_only_live_ones() {
+    // Protects: the `near.length < 8` refusal from both sides, and that a
+    // degree-1 street end does not count as a junction while a closed rim does.
     // The `near.length < 8` refusal, from both sides, and the degree-2 rule: a
     // node hanging off one edge is a street end, not a place.
     let site = build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts::default());
@@ -1018,6 +1080,8 @@ fn ring_town(n: usize, r: f64) -> (Site, Anchors, Graph) {
 
 #[test]
 fn built_mass_hull_refuses_at_seven_junctions_and_accepts_at_eight() {
+    // Protects: the `near.length < 8` boundary exactly, as a constructed
+    // input rather than a growth-loop output.
     // `near.length < 8` is an exact integer count, and no *grown* town in the golden
     // lands on it — milestone 7 hit the same wall with `interior.len() >= 8` and
     // recorded it as unclosable there because the count is an output of the growth
@@ -1032,6 +1096,8 @@ fn built_mass_hull_refuses_at_seven_junctions_and_accepts_at_eight() {
 
 #[test]
 fn built_mass_hull_refuses_when_the_percentile_cut_drops_a_node() {
+    // Protects: the second `< 8` refusal, reached after the 85th-percentile
+    // outlier cut drops a junction that had cleared the first gate.
     // The **second** `< 8`, on `pts` rather than on `near`: eight junctions qualify,
     // then `ds[floor(n * 0.85)] * 1.12` cuts one of them out and the hull is refused
     // after all. Seven at 150 m and one at 400 m does it — the cut lands at 168 m.
@@ -1067,6 +1133,9 @@ fn built_mass_hull_refuses_when_the_percentile_cut_drops_a_node() {
 
 #[test]
 fn the_closed_ring_corner_cut_is_a_no_op_after_two_chaikin_passes() {
+    // Protects: that a double-Chaikin-smoothed closed ring survives
+    // cornerCut untouched (over every built-mass hull the golden produces),
+    // while an unsmoothed open run is still really cut.
     // Two of this milestone's four `cornerCut` call sites take a **closed** ring that
     // has just been through `chaikin(chaikin(x, true), true)`, and neither its
     // `minAng` nor its pass count can be mutated to any effect. That is not a fixture
@@ -1100,6 +1169,9 @@ fn the_closed_ring_corner_cut_is_a_no_op_after_two_chaikin_passes() {
 
 #[test]
 fn a_bastioned_style_without_a_fort_reads_the_bastion_count_as_zero() {
+    // Protects: the port's substitute for a reference state that would throw
+    // — a bastioned style with no fort reads `bastions.length` as 0 (the `|| 6`
+    // default) rather than panicking across the gdext boundary.
     // **No golden path, and deliberately so.** `opts.wallStyle === 'bastioned'` with
     // `opts.fortified` false makes the reference read `wallState.fort.bastions` off
     // an undefined `fort` and throw, which would abort the whole of `generate()`.
@@ -1157,6 +1229,8 @@ fn a_bastioned_style_without_a_fort_reads_the_bastion_count_as_zero() {
 
 #[test]
 fn a_refusal_leaves_the_previous_circuit_standing() {
+    // Protects: that a refused rebuild does not clear the standing
+    // `WallState`, across all fifteen fields, not just the structural ones.
     // `model.wall` means "the active, outermost circuit" throughout, and
     // `buildWall` overwrites in place -- so a call that refuses must not clear
     // what is already there. That is what makes `grow`'s wall-permeability test
@@ -1194,6 +1268,9 @@ fn a_refusal_leaves_the_previous_circuit_standing() {
 
 #[test]
 fn the_builder_keeps_a_supersession_s_extra_fields() {
+    // Protects: that supersede_wall copies every WallGeneration field —
+    // including the six extras folded onto WallState — from the retiring
+    // circuit, not the new one, into the history record.
     // Milestone 7's warning: `supersedeWall` copies six of `buildWall`'s nine
     // extra fields into its history record, and adding them to `WallState`
     // without adding them to `WallGeneration` would produce a silently lossy
@@ -1253,6 +1330,9 @@ fn the_builder_keeps_a_supersession_s_extra_fields() {
 
 #[test]
 fn wet_moat_is_an_input_nothing_in_the_reference_supplies() {
+    // Protects: the behavioural difference `wetMoat` makes on a landlocked
+    // circuit — wet ditch, canal-fed, doubled moat, and the glacis offset it
+    // pushes out by — independent of which caller ends up supplying it.
     // **The name is milestone 10's claim, and it is wrong** -- kept only so the
     // test stays greppable across the integration pass that disproved it. That
     // milestone grepped for `opts.wetMoat` and found its two consumers (29998,
@@ -1316,12 +1396,16 @@ fn junctions(g: &Graph) -> Vec<Vec2> {
     g.nodes.iter().filter(|n| g.live_degree(n.id) >= 2).map(|n| n.pt()).collect()
 }
 
+/// The seed-5, 1700x1250 landlocked site and its anchors — the default
+/// fixture for the mutation-sweep tests below, which mostly care about a
+/// hand-laid junction graph rather than the site's own shape.
 fn landlocked() -> (Site, Anchors) {
     let site = build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts::default());
     let anchors = place_anchors(5, &site);
     (site, anchors)
 }
 
+/// A point set's axis-aligned bounding box, as `(width, height)`.
 fn extent(p: &[Vec2]) -> (f64, f64) {
     let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
     for q in p {
@@ -1335,6 +1419,8 @@ fn extent(p: &[Vec2]) -> (f64, f64) {
 
 #[test]
 fn nearest_idx_starts_from_infinity_not_from_any_finite_bound() {
+    // Protects: nearestIdx's running-minimum starting bound is infinity, not
+    // a finite default that a far-away candidate could still beat.
     // Every candidate is more than a kilometre away and the nearest is not the
     // first: a finite starting bound would find nothing and answer 0.
     let pts = pts(&[5000., 0., 0., 0.]);
@@ -1343,6 +1429,9 @@ fn nearest_idx_starts_from_infinity_not_from_any_finite_bound() {
 
 #[test]
 fn corner_cut_clamps_the_cosine_to_exactly_minus_one_and_one() {
+    // Protects: that the angle's cosine is clamped to [-1, 1] before
+    // js_acos, at both ends — an unclamped needle or near-straight vertex
+    // would floor/cap the angle and flip which side of the threshold it lands on.
     // A 0.1 rad needle under a 0.3 rad threshold: clamping the cosine anywhere
     // short of 1 would floor the angle above 0.3 and leave the needle uncut.
     let needle = vec![Vec2::new(0.0, 0.0), Vec2::new(100.0, 0.0), Vec2::new(100.0 * js_cos(0.1), 100.0 * js_sin(0.1))];
@@ -1355,6 +1444,8 @@ fn corner_cut_clamps_the_cosine_to_exactly_minus_one_and_one() {
 
 #[test]
 fn corner_cut_keeps_a_vertex_exactly_at_the_threshold() {
+    // Protects: `angI < minAng` is strict — a square's exact right-angle
+    // corners are not cut when the threshold equals that same angle.
     // `angI < minAng`, strict: a square's corners have a dot product of exactly
     // zero, so their angle is exactly `js_acos(0)`.
     let right = js_acos(0.0);
@@ -1365,6 +1456,9 @@ fn corner_cut_keeps_a_vertex_exactly_at_the_threshold() {
 
 #[test]
 fn town_bank_keeps_its_normal_when_the_market_lies_on_the_tangent() {
+    // Protects: that a zero dot product (the market on the centreline's own
+    // extension) does not flip the bank offset's normal, on both the channel
+    // and real-coast branches.
     // `nl.dot(market - p) < 0` flips the offset toward the market. With the
     // market on the centreline's own extension the dot product is exactly zero,
     // and zero does not flip.
@@ -1382,6 +1476,9 @@ fn town_bank_keeps_its_normal_when_the_market_lies_on_the_tangent() {
 
 #[test]
 fn from_paths_discounts_only_all_primary_vertices_under_degree_three() {
+    // Protects: the `_fromPaths` discount applies only to a degree-2 vertex
+    // whose edges are ALL primary — a degree-3 all-primary junction and a
+    // degree-2 mixed-class one both still count as built mass.
     let (site, mut anchors) = landlocked();
     let m = Vec2::new(850.0, 625.0);
     anchors.market = m;
@@ -1421,6 +1518,8 @@ fn river_at(kind: &str, y: f64, w: f64) -> Site {
 
 #[test]
 fn built_mass_hull_keeps_a_junction_exactly_at_the_channel_margin() {
+    // Protects: `riverDist(p) < riverW/2 + 14` is strict — a junction exactly
+    // on the channel margin still counts toward built mass.
     // `riverDist(p) < riverW/2 + 14` sets a node aside; exactly at the margin it
     // stays. Eight junctions, one of them placed so the margin lands on it.
     let m = Vec2::new(850.0, 500.0);
@@ -1440,6 +1539,8 @@ fn built_mass_hull_keeps_a_junction_exactly_at_the_channel_margin() {
 
 #[test]
 fn a_through_site_still_needs_eight_near_bank_junctions() {
+    // Protects: the `near.length < 8` refusal is evaluated on the near bank
+    // alone for a riverthrough site, before the far bank is folded in.
     // `near.length < 8` is tested on the near bank alone, before the far bank
     // is folded in — so seven near junctions refuse even when a riverthrough
     // site's far bank would bring the mass to fifteen.
@@ -1460,6 +1561,8 @@ fn a_through_site_still_needs_eight_near_bank_junctions() {
 
 #[test]
 fn the_bridge_town_rule_is_strictly_more_than_max_twenty_and_thirty_two_percent() {
+    // Protects: `far > max(20, near * 0.32)`, strict, at both arms' exact
+    // integer boundaries — the floor of 20 and the 32%-of-near arm.
     // `far > max(20, near * 0.32)`: both arms, at their exact integer boundaries.
     let m = Vec2::new(850.0, 300.0);
     let site = river_at("river", m.y + 300.0, 20.0);
@@ -1482,6 +1585,8 @@ fn the_bridge_town_rule_is_strictly_more_than_max_twenty_and_thirty_two_percent(
 
 #[test]
 fn the_percentile_cut_keeps_a_junction_exactly_on_it() {
+    // Protects: the 85th-percentile outlier cut is `d <= cut`, inclusive — a
+    // junction exactly on the cut distance is kept, not dropped.
     // `d <= cut`, inclusive: seven junctions on a ring about the market and an
     // eighth placed exactly at `ds[floor(8 * 0.85)] * 1.12`. The market is the
     // origin so that distance along the axis is exact.
@@ -1520,6 +1625,9 @@ fn rect_town(c: Vec2, a: f64, b: f64) -> Graph {
 
 #[test]
 fn the_aspect_cap_is_for_real_water_only_and_compresses_the_long_axis() {
+    // Protects: the hull aspect cap is inert for synthetic water and only
+    // engages (compressing the long axis, leaving the short one alone) when
+    // `site.uses_real_water` is set.
     let (mut site, mut anchors) = landlocked();
     let m = Vec2::new(850.0, 625.0);
     anchors.market = m;
@@ -1539,6 +1647,8 @@ fn the_aspect_cap_is_for_real_water_only_and_compresses_the_long_axis() {
 
 #[test]
 fn the_aspect_cap_applies_to_a_three_vertex_hull() {
+    // Protects: `hull.length >= 3` — the aspect cap's smallest legal input,
+    // a triangular hull, is still capped.
     // `hull.length >= 3`: a triangle is the smallest hull the cap reads, and it
     // is capped. Every junction lies exactly on one of the three sides, so the
     // hull is exactly the three corners.
@@ -1580,6 +1690,9 @@ fn ramp_site(dx: f64, dy: f64) -> Site {
     build_site(5, 1700.0, 1250.0, "landlocked", SiteOpts { terrain: Some(t), ..SiteOpts::default() })
 }
 
+/// Build a wall on `site`/`g` at the market `m` and return the resulting
+/// `WallState`, asserting a circuit was actually built — the shared driver
+/// for the terrain-deflection fixtures below, which only vary the site.
 fn deflected(site: &Site, m: Vec2, g: &Graph) -> WallState {
     let anchors = Anchors { market: m, prov: "fixture" };
     let mut ws = WallState::default();
@@ -1590,6 +1703,8 @@ fn deflected(site: &Site, m: Vec2, g: &Graph) -> WallState {
 
 #[test]
 fn terrain_deflection_needs_real_terrain_not_merely_a_relief_value() {
+    // Protects: terrain deflection needs `site.uses_real_terrain` set, not
+    // merely a relief value over the floor.
     // The ramp that deflects at relief 0.01 (below), with the flag cleared.
     let m = Vec2::new(850.0, 625.0);
     let mut site = ramp_site(1.0, 0.0);
@@ -1603,6 +1718,8 @@ fn terrain_deflection_needs_real_terrain_not_merely_a_relief_value() {
 
 #[test]
 fn terrain_deflection_engages_at_exactly_the_relief_floor_and_on_a_triangle() {
+    // Protects: `relief >= 0.01`, inclusive, and that a three-vertex hull
+    // (the smallest `built_mass_hull` produces) is still deflected.
     let m = Vec2::new(850.0, 625.0);
     let mut site = ramp_site(1.0, 0.0);
     assert!(site.uses_real_terrain);
@@ -1632,6 +1749,9 @@ fn terrain_deflection_engages_at_exactly_the_relief_floor_and_on_a_triangle() {
 
 #[test]
 fn terrain_deflection_prices_distance_at_three_point_three_e_minus_four() {
+    // Protects: the deflection price coefficient 3.3e-4 on distance
+    // (against the 0.015 relief term), at a hull vertex chosen to sit
+    // between the two candidate thresholds it implies.
     // On a linear ramp every offset gains in proportion to it, so the best is
     // +60 whenever `60 * slope * ux > 60 * 3.3e-4 * relief + 0.015 * relief`.
     // With the relief overwritten the threshold on `ux` is known exactly:
@@ -1656,6 +1776,8 @@ fn terrain_deflection_prices_distance_at_three_point_three_e_minus_four() {
 
 #[test]
 fn terrain_deflection_keeps_twenty_metres_off_the_far_box_edges() {
+    // Protects: `q.x > wm - 20` / `q.y > hm - 20` is strict — a deflected
+    // candidate 20.5 m inside the far box edge is still allowed.
     // `q.x > wm - 20` and `q.y > hm - 20`: on a ramp rising east (south) the
     // easternmost (southernmost) candidate is the +60 m offset of the extreme
     // hull vertex, and it is the one chosen. Put the box edge 20.5 m past it:
@@ -1696,6 +1818,8 @@ fn river_town_with(harbour: Option<&HarbourFront>) -> WallState {
 
 #[test]
 fn the_harbour_mouth_is_a_strict_48_metre_gap_and_needs_a_quay() {
+    // Protects: the harbour-mouth gap is strictly under 48 m and needs a
+    // non-empty quay — an empty quay draws no gap at all, wherever its point is.
     let plain = river_town_with(None);
     let water = plain.water_closure.clone().expect("riverTown follows its bank");
     assert!(water.len() >= 5, "a real water walk");
@@ -1721,6 +1845,8 @@ fn the_harbour_mouth_is_a_strict_48_metre_gap_and_needs_a_quay() {
 
 #[test]
 fn an_empty_wall_style_is_the_legacy_curtain() {
+    // Protects: an empty string `wallStyle` falls through the style ternary
+    // to 'curtain', the same as an absent one.
     let (site, anchors) = landlocked();
     let mut g = Graph::new();
     build_primaries(5, &site, &anchors, &mut g);
@@ -1750,6 +1876,9 @@ fn gated(site: &Site, x_off: f64) -> (WallState, Vec2) {
 
 #[test]
 fn a_shoreline_gate_is_a_water_gate_within_24_metres_of_the_straddling_vertex() {
+    // Protects: `|p.y - b| < 24`, strict, against the shoreline vertex that
+    // straddles the gate's x, including the straddling-vertex selection rule
+    // itself (first `p.x <= q.x` whose predecessor has `p.x > prev.x`).
     let (base, _) = landlocked();
     let (ws0, cp) = gated(&base, 10.0);
     assert!(!ws0.gates[0].water, "no shoreline, no water-gate");
@@ -1777,6 +1906,8 @@ fn a_shoreline_gate_is_a_water_gate_within_24_metres_of_the_straddling_vertex() 
 
 #[test]
 fn a_channel_gate_is_a_water_gate_strictly_within_half_width_plus_22() {
+    // Protects: a channel gate's water margin is `riverW/2 + 22`, strict —
+    // exactly on the margin is still dry.
     let m_y = 400.0;
     let mut site = river_at("river", m_y + 500.0, 20.0);
     let (ws0, cp) = gated(&site, 10.0);
@@ -1799,6 +1930,8 @@ fn a_channel_gate_is_a_water_gate_strictly_within_half_width_plus_22() {
 
 #[test]
 fn two_land_gates_merge_strictly_inside_40_metres() {
+    // Protects: two land gates on the same wall side merge only strictly
+    // under 40 m apart — exactly 40 m still keeps both.
     // A square town's wall runs flat along its south side, so two vertical
     // primaries cross it at the same y and exactly their x offset apart.
     let (site, _) = landlocked();
@@ -1843,6 +1976,8 @@ fn capped_gate_angles(angles: &[f64], pull: f64) -> Vec<f64> {
     ws.gates.iter().filter(|g| !g.water).map(|g| js_atan2(g.pt.y - cen.y, g.pt.x - cen.x)).collect()
 }
 
+/// Is any angle in `angles` within 0.1 rad of `a`, measured the short way
+/// round the circle (so the comparison wraps across the +-pi seam)?
 fn has_near(angles: &[f64], a: f64) -> bool {
     angles.iter().any(|&x| {
         let d = (x - a).abs();
@@ -1852,6 +1987,8 @@ fn has_near(angles: &[f64], a: f64) -> bool {
 
 #[test]
 fn the_bastioned_cap_spreads_its_gates_at_least_0_9_rad_apart() {
+    // Protects: the bastioned gate cap's 0.9 rad clash spacing, including
+    // that it wraps correctly across the +-pi seam.
     // Three primaries: two near the market (at 0 and at `b`) and one opposite.
     // With `b` under 0.9 rad the second near gate clashes with the first and
     // the opposite one is kept instead; over 0.9 rad both near ones are kept.
@@ -1870,6 +2007,8 @@ fn the_bastioned_cap_spreads_its_gates_at_least_0_9_rad_apart() {
 
 #[test]
 fn a_star_fort_applies_to_a_triangular_circuit() {
+    // Protects: applyStarFort accepts a three-point hull — its smallest
+    // legal input.
     let (site, _) = landlocked();
     let mut ws = WallState { ring: Some(pts(&[500., 500., 900., 500., 700., 800.])), ..WallState::default() };
     apply_star_fort(4, &site, &mut ws, &FortOpts::default());
@@ -1879,6 +2018,9 @@ fn a_star_fort_applies_to_a_triangular_circuit() {
 
 #[test]
 fn a_ditch_floods_strictly_within_175_metres_of_the_waterline() {
+    // Protects: `minWaterD < 175`, strict, plus a supplied moat past the
+    // waterline's reach still reading as canal-fed, and `site.noWater`
+    // skipping the measurement outright.
     // A hexagon's trace; then a straight shoreline laid `d` metres south of
     // its southernmost point, so the trace's nearest approach is exactly `d`.
     let ring: Vec<Vec2> = closed_ring(Vec2::new(850.0, 450.0), 6, 250.0, 0.0)[..6].to_vec();
@@ -1913,6 +2055,8 @@ fn a_ditch_floods_strictly_within_175_metres_of_the_waterline() {
 
 #[test]
 fn the_builder_passes_wall_style_and_wet_moat_through() {
+    // Protects: `FortificationBuilder::build_wall` forwards `wall_style` and
+    // `wet_moat`/`fortified` from `GrowOpts` through to the real builder.
     let (site, anchors) = landlocked();
     let mut g = Graph::new();
     build_primaries(5, &site, &anchors, &mut g);
@@ -1972,6 +2116,8 @@ fn octagon_town(m: Vec2) -> (Graph, Vec<Vec2>, Vec2, f64) {
 
 #[test]
 fn terrain_deflection_can_choose_the_thirty_metre_inward_step() {
+    // Protects: the -30 m inward deflection candidate is chosen when a
+    // crest sits inside every hull vertex.
     // A crest 30 m inside every hull vertex: every vertex steps exactly -30.
     let m = Vec2::new(350.0, 350.0);
     let (g, hull, c0, r_v) = octagon_town(m);
@@ -1984,6 +2130,8 @@ fn terrain_deflection_can_choose_the_thirty_metre_inward_step() {
 
 #[test]
 fn terrain_deflection_keeps_twenty_metres_off_the_near_box_edges() {
+    // Protects: `q.x < 20` / `q.y < 20` is strict — a deflected candidate
+    // 20.5 m inside the near box edge is still allowed, on both axes.
     // `q.x < 20` and `q.y < 20`: a crest 60 m outside every hull vertex, and
     // the town placed so that its westernmost (northernmost) vertex's +60
     // candidate is 20.5 m from the box edge — still allowed, so every vertex
@@ -2011,6 +2159,9 @@ fn terrain_deflection_keeps_twenty_metres_off_the_near_box_edges() {
 
 #[test]
 fn a_hull_vertex_exactly_at_the_channel_margin_is_water() {
+    // Protects: `isLand` on a channel is `riverDist > riverW/2 + 1`, strict
+    // — a hull vertex exactly on the margin is water, sending the circuit
+    // down the bank-following branch.
     // `isLand` on a channel is `riverDist > riverW/2 + 1`, strict. The
     // octagon's southernmost hull vertex is one of the densified samples; put
     // the channel so that it sits exactly on the margin and it is water, which
@@ -2034,6 +2185,8 @@ fn a_hull_vertex_exactly_at_the_channel_margin_is_water() {
 
 #[test]
 fn two_river_crossings_merge_into_one_water_gate_only_inside_40_metres() {
+    // Protects: two centreline crossings of a riverthrough circuit merge
+    // into one water-gate only strictly under 40 m apart.
     // A riverthrough town spans the water by definition, and its water-gates
     // are wherever the centreline crosses the circuit. A square notch in the
     // centreline crosses the flat south side twice, 40.5 m apart.
