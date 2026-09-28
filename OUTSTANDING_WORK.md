@@ -331,13 +331,13 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**70 outstanding items** — 2026-09-28, latest (57). Ruling BS built: the planner caps supply to what fits, suggests settlement resupply stops, and blocks only on an uncarriable stretch (six goldens re-baselined by design, each disclosed). **71 − 1 = 70**.
+**70 outstanding items** — 2026-09-28, latest (59). The code-names row was closed too early: the long developer notes still name internal symbols, so it was reopened as a narrower row. **69 + 1 = 70**.
+
+**70 outstanding items** — 2026-09-28 (57). Ruling BS built: the planner caps supply to what fits, suggests settlement resupply stops, and blocks only on an uncarriable stretch (six goldens re-baselined by design, each disclosed). **71 − 1 = 70**.
 
 **71 outstanding items** — 2026-09-28 (56). Ruling BS filed: the journey planner's foraging and suggested resupply stops. **70 + 1 = 71**.
 
 **70 outstanding items** — 2026-09-28 (55). The owner's new-project crash is fixed: map events during a regenerate panicked on the borrowed WorldGen, now gated. The post-generate freeze it measured was filed. **69 + 1 = 70**.
-
-**70 outstanding items** — 2026-09-28, latest (59). The code-names row was closed too early: the long developer notes still name internal symbols, so it was reopened as a narrower row. **69 + 1 = 70**.
 
 **69 outstanding items** — 2026-09-28 (54). The zoom residual narrowed again (notch frames over halved; glyph pre-warm on the main thread). **69**.
 
