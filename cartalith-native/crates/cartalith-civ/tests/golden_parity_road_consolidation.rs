@@ -202,19 +202,39 @@ fn road_consolidation_case_1_k5_corridor_sharing() {
     // them. The array below is this file's own pre-Ruling-Q content (`git
     // show c6de2a2:crates/cartalith-civ/tests/golden_parity_road_consolidation.rs`),
     // re-run and confirmed against this crate's own current actual output.
+    //
+    // RE-BASELINED AGAIN, 2026-09-28 (ways 2 and 4 only): owner ruling,
+    // follow-up to Ruling BT (`LARGE_ITEM_RULINGS.md`) -- corridor
+    // consolidation's busiest-edge-first claim order (see
+    // `civ_consolidate_and_smooth_ways`'s own doc comment) can leave a run
+    // stranded mid-corridor, its visible end nowhere near its own A or B.
+    // Way 2 (Sevjuniana -> Ghalbahrghaltazdune) used to end at (10.5, 5.5),
+    // 4.3 cells short of B's (8, 9). Way 4 (Sevjuniana -> Taela'elorashade)
+    // used to START at (5.5, 8.5), 6.5 cells short of A's (9, 3). Both were
+    // faithful ports of the reference's own inherited behaviour -- this
+    // fixture proves that behaviour was never actually downsampling-specific
+    // (this world is 16x12, `sc == 1.0` throughout): the earlier diagnosis
+    // in `STATUS.md`/`63bedc8d` that called it "visible only above the
+    // 384-cell cap" described where the owner NOTICED it, not the bug's
+    // actual scope. The extend-back pass below `civ_consolidate_and_smooth_ways`'s
+    // claim loop now splices each stranded end back along its OWN edge's
+    // own routed `path` -- toward its own settlement only, deliberately
+    // overlapping the corridor a busier edge already claimed -- so way 2
+    // now reaches (8, 9) exactly and way 4 now starts at (9, 3) exactly.
+    // Re-run and confirmed against this crate's own current actual output;
+    // every other way in this array (0/1/3/5-9) is untouched.
     let expected = [
         Expect { pts: vec![(10.0, 5.0), (9.0, 7.0), (8.0, 9.0)], km: 223.60679774997897, name: "Orenelywash \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 3, b_idx: 2, hidden: false },
         Expect { pts: vec![(8.0, 9.0), (7.0, 9.0), (5.0, 8.0)], km: 161.80339887498948, name: "Ghalbahrghaltazdune \u{2192} Hurngarngarnhaskcairn", way_type: "highway", a_idx: 2, b_idx: 1, hidden: false },
-        Expect { pts: vec![(9.0, 3.0), (10.0, 4.0), (10.5, 5.5)], km: 182.51407699364424, name: "Sevjuniana \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 0, b_idx: 2, hidden: false },
+        Expect { pts: vec![(9.0, 3.0), (10.0, 5.0), (11.0, 7.0), (9.0, 8.0), (8.0, 9.0)], km: 406.1208747436232, name: "Sevjuniana \u{2192} Ghalbahrghaltazdune", way_type: "highway", a_idx: 0, b_idx: 2, hidden: false },
         Expect { pts: vec![(9.0, 3.0), (5.0, 8.0)], km: 0.0, name: "Sevjuniana \u{2192} Hurngarngarnhaskcairn", way_type: "highway", a_idx: 0, b_idx: 1, hidden: true },
-        Expect { pts: vec![(5.5, 8.5), (5.0, 8.0), (4.0, 7.0)], km: 141.4213562373095, name: "Sevjuniana \u{2192} Taela'elorashade", way_type: "highway", a_idx: 0, b_idx: 4, hidden: false },
+        Expect { pts: vec![(9.0, 3.0), (10.0, 5.0), (11.0, 7.0), (10.0, 8.0), (8.0, 9.0), (6.0, 9.0), (4.0, 7.0)], km: 647.5422309809327, name: "Sevjuniana \u{2192} Taela'elorashade", way_type: "highway", a_idx: 0, b_idx: 4, hidden: false },
         Expect { pts: vec![(5.0, 8.0), (10.0, 5.0)], km: 0.0, name: "Hurngarngarnhaskcairn \u{2192} Orenelywash", way_type: "highway", a_idx: 1, b_idx: 3, hidden: true },
         Expect { pts: vec![(8.0, 9.0), (4.0, 7.0)], km: 0.0, name: "Ghalbahrghaltazdune \u{2192} Taela'elorashade", way_type: "highway", a_idx: 2, b_idx: 4, hidden: true },
         Expect { pts: vec![(10.0, 5.0), (4.0, 7.0)], km: 0.0, name: "Orenelywash \u{2192} Taela'elorashade", way_type: "highway", a_idx: 3, b_idx: 4, hidden: true },
         Expect { pts: vec![(9.0, 3.0), (10.0, 5.0)], km: 0.0, name: "Sevjuniana \u{2192} Orenelywash", way_type: "regional", a_idx: 0, b_idx: 3, hidden: true },
         Expect { pts: vec![(5.0, 8.0), (4.0, 7.0)], km: 0.0, name: "Hurngarngarnhaskcairn \u{2192} Taela'elorashade", way_type: "regional", a_idx: 1, b_idx: 4, hidden: true },
     ];
-
     for (i, (w, e)) in ways.iter().zip(expected.iter()).enumerate() {
         let label = format!("case1 way{i}");
         assert_eq!(w.name, e.name, "{label}: name mismatch");
@@ -223,4 +243,72 @@ fn road_consolidation_case_1_k5_corridor_sharing() {
         assert_pts_match(&w.pts, &e.pts, &label);
         assert!((w.km - e.km).abs() < 1e-4, "{label}: km mismatch: {} vs {}", w.km, e.km);
     }
+}
+
+/// Protects: the extend-back pass added to `civ_consolidate_and_smooth_ways`
+/// (owner ruling, 2026-09-28, follow-up to Ruling BT). A synthetic,
+/// deliberately minimal K3-shaped topology: a busier edge A->P1 claims cells
+/// reaching THREE cells into a later, quieter edge P1->P2's own path before
+/// that later edge is ever processed -- exactly the "later edge's
+/// near-settlement cells are pre-claimed" shape the follow-up named. Without
+/// extend-back, P1->P2's visible run would start 3 cells from P1 (nowhere
+/// near it); with it, the run must be spliced back along its OWN routed
+/// path (not re-routed, not stolen from way A) until it reaches P1 exactly,
+/// while its far end (already touching P2) is untouched.
+#[test]
+fn extend_back_reaches_a_settlement_whose_own_cells_a_busier_edge_already_claimed() {
+    // gw=13, gh=2 (routing grid forces `rh >= 2`; row y=1 is the only row
+    // used). Three settlements on one straight line so path cell ids are
+    // just `13 + x`.
+    let (gw, gh) = (13usize, 2usize);
+    let field = vec![1.0f32; gw * gh]; // all land
+    let water_bodies = vec![0u8; gw * gh];
+    let p0 = cartalith_civ::NamedSettlement {
+        tid: 0,
+        placement: cartalith_civ::SettlementPlacement { x: 0, y: 1, suit: 0.0, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Hamlet, coastal: false },
+        name: "P0".into(),
+        pop: 0,
+    };
+    let p1 = cartalith_civ::NamedSettlement {
+        tid: 0,
+        placement: cartalith_civ::SettlementPlacement { x: 5, y: 1, suit: 0.0, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Hamlet, coastal: false },
+        name: "P1".into(),
+        pop: 0,
+    };
+    let p2 = cartalith_civ::NamedSettlement {
+        tid: 0,
+        placement: cartalith_civ::SettlementPlacement { x: 12, y: 1, suit: 0.0, faction: 1, capital: false, kind: cartalith_civ::SettlementKind::Hamlet, coastal: false },
+        name: "P2".into(),
+        pop: 0,
+    };
+    let places = vec![p0, p1, p2];
+
+    // Edge A (busier: max usage 100) -- P0(x=0) to "P1-ish", but its own
+    // path runs THREE cells past P1's own cell (x=5) to x=8, so claiming it
+    // eats into edge B's own near-P1 cells. Edge B (quieter: max usage 10)
+    // is P1(x=5) to P2(x=12); its first 3 path cells (x=5,6,7 -- path
+    // indices 0,1,2) are exactly what A's claim swallows.
+    let a_path: Vec<usize> = (0..=8).map(|x| gw + x).collect(); // row 1, x=0..8
+    let b_path: Vec<usize> = (5..=12).map(|x| gw + x).collect(); // row 1, x=5..12
+    let mut usage_count = vec![0u16; gw * gh];
+    usage_count[a_path[0]] = 100; // A is busiest -> processed first, claims first
+    usage_count[b_path[b_path.len() - 1]] = 10; // B is quieter
+    let topology = cartalith_civ::HierarchicalNetworkResult {
+        edges: vec![
+            cartalith_civ::RoadEdge { a: 0, b: 1, path: a_path },
+            cartalith_civ::RoadEdge { a: 1, b: 2, path: b_path },
+        ],
+        usage_count,
+        degree_of: vec![0; places.len()],
+    };
+
+    let ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &places, &field, &water_bodies, gw, gh, 100.0);
+    let b_way = ways.iter().find(|w| w.a_idx == 1 && w.b_idx == 2).expect("edge P1->P2 must still emit a way");
+    assert!(!b_way.hidden, "edge B has unclaimed cells of its own (x=9..12): it must draw, not fall back to a hidden straight line");
+    let (p1_pt, p2_pt) = ((5.0f64, 1.0f64), (12.0f64, 1.0f64));
+    let start = *b_way.pts.first().expect("a drawn way is never empty");
+    let end = *b_way.pts.last().unwrap();
+    let d = |p: (f64, f64), q: (f64, f64)| ((p.0 - q.0).powi(2) + (p.1 - q.1).powi(2)).sqrt();
+    assert!(d(start, p1_pt) < 1e-6, "extend-back must reach P1 exactly, got {start:?} (was 3 cells short before this fix)");
+    assert!(d(end, p2_pt) < 1e-6, "the untouched end must still reach P2 exactly, got {end:?}");
 }

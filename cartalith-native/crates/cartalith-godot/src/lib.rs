@@ -1581,18 +1581,35 @@ mod civ_pipeline_tests {
     /// length) and seed 2, where phase II abandons none (the exact branch).
     /// Each premise is asserted, so a world that drifts fails loudly here
     /// instead of silently testing one branch.
+    ///
+    /// CHANGED 2026-09-28 (owner ruling, follow-up to Ruling BT): this test's
+    /// positive-control premise was "rebuild draws strictly MORE than
+    /// filtering, because filtering alone leaves a gap a rebuild fixes".
+    /// `civ_consolidate_and_smooth_ways`'s new extend-back pass closes that
+    /// same gap on ITS OWN, in both the filtered subset of the Stable network
+    /// and the post-recovery rebuild -- so on this world the two lengths
+    /// came out exactly equal (3373.0 km both), correctly, and the old `>`
+    /// assertion failed. Rewritten to check what the test's own name says
+    /// instead of a length inequality that was only ever a proxy for it:
+    /// every surviving way's endpoints must land on its own settlement
+    /// (`assert_endpoints_reach_settlements`, both networks), and the
+    /// rebuild must never draw LESS than filtering (`>=`, not `>` --
+    /// extend-back can make them equal without either being wrong).
+    // Protects: after settlement recovery drops nodes and re-indexes the
+    // list, every surviving way in both the Stable network (the "filtered"
+    // view) and the post-recovery rebuild still reaches its own A/B
+    // settlement, and the rebuild is never shorter than filtering.
     #[test]
     fn recovery_keeps_every_road_on_the_settlements_it_joined() {
         let main = recovery_road_lengths(&world().0, &world().1);
         let (_, nodes, filtered, rebuilt) = main[0];
         assert!(nodes > 0, "premise: phase I abandons a network node on the main world");
         // Measured: 1124.7 km kept by filtering vs 1242.9 km rebuilt (2026-09-29),
-        // then 1412.4 vs 1454.4 after RV-1's carve changed the world. The
-        // margin tracks the world, not the rule, so it is not asserted. What
-        // matters is that a rebuild draws strictly more than filtering once a
-        // node is abandoned. The filter-instead-of-rebuild mutant gives exactly
-        // equal lengths, and this still fails it.
-        assert!(rebuilt > filtered + 1e-6, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
+        // then 1412.4 vs 1454.4 after RV-1's carve changed the world, then
+        // 3373.0 vs 3373.0 (equal) after extend-back (2026-09-28) closed the
+        // same gap on both sides. The margin tracks the world, not the rule,
+        // so it is not asserted -- only that the rebuild never draws less.
+        assert!(rebuilt >= filtered - 1e-6, "phase 1: rebuilt {rebuilt:.1} km, filtering keeps {filtered:.1} km");
 
         // The exact branch needs a world whose phase II abandons no network
         // node. Seed 2 was one until RV-1's carve changed the worlds
@@ -1700,6 +1717,31 @@ mod civ_pipeline_tests {
         }
     }
 
+    /// `civ_consolidate_and_smooth_ways`'s own extend-back guarantee (owner
+    /// ruling, 2026-09-28, follow-up to Ruling BT): every non-hidden way's
+    /// drawn endpoints must land within `EXTEND_T2`'s own tolerance (~1.5
+    /// cells, `src/lib.rs` in `cartalith-civ`) of its OWN `a_idx`/`b_idx`
+    /// settlement -- whatever the network's total drawn length is. Checked
+    /// on both the Stable network (covers "filtered": a subset of
+    /// `stable.ways` is never less-reaching than the whole) and the
+    /// post-recovery rebuild, since both are produced by the same
+    /// consolidation function and neither gets a pass just because the
+    /// OTHER one happens to be longer.
+    fn assert_endpoints_reach_settlements(c: &CivData, label: &str) {
+        for w in &c.ways {
+            if w.hidden || w.pts.len() < 2 {
+                continue;
+            }
+            let a = &c.settlements[w.a_idx].placement;
+            let b = &c.settlements[w.b_idx].placement;
+            let (p0, p1) = (w.pts[0], w.pts[w.pts.len() - 1]);
+            let d = |p: (f64, f64), x: usize, y: usize| ((p.0 - x as f64).powi(2) + (p.1 - y as f64).powi(2)).sqrt();
+            let (d0, d1) = (d(p0, a.x, a.y), d(p1, b.x, b.y));
+            assert!(d0 < 1.5 + 1e-6, "{label}: {} start {p0:?} is {d0:.2} cells from its own A ({},{})", w.name, a.x, a.y);
+            assert!(d1 < 1.5 + 1e-6, "{label}: {} end {p1:?} is {d1:.2} cells from its own B ({},{})", w.name, b.x, b.y);
+        }
+    }
+
     /// The A3 invariants for phases I and II over one world; returns
     /// `(phase, abandoned network nodes, filtered km, rebuilt km)` per phase.
     fn recovery_road_lengths(
@@ -1717,6 +1759,7 @@ mod civ_pipeline_tests {
         let mut p = base.clone();
         p.civ.villages = true;
         let stable = run(&p);
+        assert_endpoints_reach_settlements(&stable, "stable");
         let mut before: HashSet<(Key, Key)> = stable.road_edges.iter().map(|e| pair(&stable, e.a, e.b)).collect();
         before.extend(stable.ways.iter().map(|w| pair(&stable, w.a_idx, w.b_idx)));
         assert!(!before.is_empty(), "fixture has no roads");
@@ -1726,6 +1769,7 @@ mod civ_pipeline_tests {
         for phase in [1, 2] {
             p.civ.recovery_phase = phase;
             let rec = run(&p);
+            assert_endpoints_reach_settlements(&rec, &format!("rebuilt phase {phase}"));
             assert!(
                 rec.settlements.len() < stable.settlements.len(),
                 "premise: phase {phase} must abandon something ({} of {})",
@@ -3680,7 +3724,12 @@ fn compute_civilisation(
         // mid-flight while another fork is concurrently editing it. Pure
         // function of `field`/`gw`/`gh` alone, independent of which road
         // algorithm actually produced `roads` above.
-        let routing_rw = gw.min(384);
+        //
+        // `cartalith_civ::RW_CAP` (Ruling BT, `LARGE_ITEM_RULINGS.md`,
+        // 2026-09-28) is `pub` for exactly this replication, so this stays
+        // in lockstep with `civ_routing_grid`'s own cap rather than a
+        // second hardcoded literal drifting from it.
+        let routing_rw = gw.min(cartalith_civ::RW_CAP);
         let routing_sc = routing_rw as f64 / gw as f64;
         let villages = cartalith_civ::civ_seed_villages(
             &settlements,

@@ -278,6 +278,51 @@ re-checked against the tree rather than copied from the commit message.
   to confirm no symbol remains in a string literal; the file parse-checks
   clean under Godot 4.7.1 `--headless --check-only`.
 
+- **"Roads do not meet their settlements" — built (Ruling BT and its extend-back follow-up), verified by the main loop 2026-09-28 (Quinmarcauriana x16 before/after opened; the lane's counts civ 1019/0/11 and godot 1659/0/34; three goldens moved with owner-approved disclosures).**
+  Two changes, both owner rulings dated 2026-09-28. **(1) `RW_CAP`:**
+  `civ_routing_grid`'s cap (`cartalith-civ/src/lib.rs`) moved from
+  `gw.min(384)` to `gw.min(RW_CAP)`, `RW_CAP = 1024` (measured, not
+  guessed — see below). Worlds at or below the old 384-cell cap route
+  byte-identically (`sc == 1.0` either way). **(2) Extend-back:** a new pass
+  in `civ_consolidate_and_smooth_ways` splices a stranded run back along its
+  OWN edge's own routed `path` toward its own settlement (never the other
+  one, never touching another way) when its visible end lands more than
+  ~1.5 cells short — closing the corridor-consolidation claim-order gap the
+  re-diagnosis below found, which turned out NOT to be downsampling-specific
+  (`golden_parity_road_consolidation.rs`'s case1 fixture, 16×12, `sc == 1.0`,
+  already had a way 4.3 cells short before this pass existed).
+  Measured via `_roadsettle_probe` on the owner's exact world (seed 246371,
+  2048×1311, metropolis on, villages on, river_density 1.55, geology_model
+  on): 384 cap (before) — 14.2s generation, 20/236 ways >2 cells from their
+  own settlement. `RW_CAP=1024` alone — 18.1s, 15/244 short (full resolution
+  2048 tried too: 32.9s, still 15/246 short, no further gain, so 1024 was
+  kept). `RW_CAP=1024` + extend-back — **18.7s, 0/244 short**.
+  Two goldens moved by the `RW_CAP`/extend-back change and were re-baselined
+  with a dated disclosure comment at each: `downsampled_routing_grid_batch_
+  of_six` (`golden_parity_village_connect.rs`, world "downsampled" is
+  480×200 — above the old cap, a deliberate divergence from the frozen JS
+  reference per `DECISIONS.md` §7p, not a bug) and `road_consolidation_
+  case_1_k5_corridor_sharing` (`golden_parity_road_consolidation.rs`, the
+  16×12 fixture above). A third test, `cartalith-godot`'s
+  `recovery_keeps_every_road_on_the_settlements_it_joined`, asserted
+  "rebuild draws strictly more than filtering" as a proxy for "filtering
+  alone leaves a stranded-corridor gap a rebuild fixes" — extend-back closes
+  that gap on both sides, so the lengths came out exactly equal and the
+  proxy assertion broke correctly; rewritten (owner-authorized) to check
+  what its name actually says (every surviving way's endpoints reach their
+  own settlement in both networks, `assert_endpoints_reach_settlements`) and
+  `rebuilt >= filtered` rather than `>`.
+  A new test protects extend-back directly: `extend_back_reaches_a_
+  settlement_whose_own_cells_a_busier_edge_already_claimed`
+  (`golden_parity_road_consolidation.rs`) — a synthetic K3 fixture where a
+  busier edge's claim eats 3 cells into a quieter edge's own near-settlement
+  path, and the quieter edge's way must still reach its settlement exactly.
+  `cargo test -p cartalith-civ` (both `--release` and the default profile):
+  **1019 passed, 0 failed, 11 ignored** (1018 prior baseline + this new
+  test). `cargo test -p cartalith-godot`: **1659 passed, 0 failed, 34
+  ignored**. See `OUTSTANDING_WORK.md`'s "The count, honestly" for the
+  closed row.
+
 - **"Roads do not meet their settlements" — re-diagnosed, pending independent verification.**
   The earlier half-cell-convention hypothesis in this row was wrong (a prior
   probe measured 0.00 px because "nearest endpoint to any settlement" can't

@@ -6599,7 +6599,46 @@ fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: 
 
 /// `_civRoutingGrid` (reference ~line 21022): the shared downsampled
 /// routing grid every civ router builds through, so paths/discount masks/
-/// place snapping all agree cell-for-cell. `rw <= 384`.
+/// place snapping all agree cell-for-cell.
+///
+/// The reference caps this at `rw <= 384` because its own canvas never
+/// exercised a wider world. On worlds above that size the cap starved
+/// corridor consolidation's endpoint snap (`snap_t2`, below) of resolution:
+/// on the owner's 2048x1311 world, 20 of 236 ways stopped 59-585 cells
+/// short of their own settlement (diagnosed in commit `63bedc8d`). Ruling
+/// BT (owner, 2026-09-28, `LARGE_ITEM_RULINGS.md`) chose to scale the
+/// routing grid with world size instead: `RW_CAP` is a deliberate
+/// improvement on the reference (`DECISIONS.md` §7p), not a port of it.
+/// Worlds at or below the old 384-cell cap are untouched -- `gw.min(RW_CAP)`
+/// is `gw` itself there, so `sc == 1.0` and every golden at or below that
+/// size is unaffected.
+///
+/// `RW_CAP` was measured, not guessed, on the owner's 2048x1311 benchmark
+/// world (seed 246371, metropolis on, villages on, river_density 1.55,
+/// geology_model on) via `_roadsettle_probe`: the pre-fix 384 cap generated
+/// in 14.2s with 20/236 ways short of their own settlement; 1024 (`sc` =
+/// 0.5) generated in 18.1s with 15/244 short; full resolution (2048, `sc` =
+/// 1.0) generated in 32.9s with the same 15/246 short -- no further
+/// improvement for nearly double the cost, so 1024 was kept. The remaining
+/// 15 were not resolution-limited (`snap_t2`'s own bound stays a handful of
+/// cells wide at any `sc`, far short of the 55-580 cell gaps) -- they were
+/// corridor consolidation's busiest-edge-first claim order stranding a run
+/// mid-corridor, fixed by the separate extend-back pass in
+/// `civ_consolidate_and_smooth_ways` (see its own doc comment, same owner
+/// follow-up). With both: 0/244 ways have an endpoint >2 cells from their
+/// own settlement. See `STATUS.md`'s entry for this row for the full
+/// numbers.
+///
+/// `pub` (not crate-private like the rest of this function's neighbourhood)
+/// because `cartalith-godot`'s village-seeding path
+/// (`crates/cartalith-godot/src/lib.rs`, `civ_seed_villages` call site)
+/// must replicate this same `(rw, sc)` pair -- `civ_seed_villages` needs
+/// the identical downsampled grid `civ_hierarchical_network_topology` used
+/// internally, and that function is itself crate-private. One constant,
+/// referenced from both places, so the two callers cannot drift apart the
+/// way the plain-384-literal version silently could have.
+pub const RW_CAP: usize = 1024;
+
 struct CivRoutingGrid {
     dfld: Vec<f32>,
     rw: usize,
@@ -6608,7 +6647,7 @@ struct CivRoutingGrid {
 }
 
 fn civ_routing_grid(field: &[f32], gw: usize, gh: usize) -> CivRoutingGrid {
-    let rw = gw.min(384);
+    let rw = gw.min(RW_CAP);
     let sc = rw as f64 / gw as f64;
     let rh = ((gh as f64 * sc).round() as usize).max(2);
     let mut dfld = vec![0.0f32; rw * rh];
@@ -8526,6 +8565,9 @@ pub fn civ_consolidate_and_smooth_ways(
         // already-claimed connector cell at each cut so strokes join at
         // junctions. The full path is marked claimed only AFTER building
         // runs against the pre-this-edge claimed state.
+        //
+        // Runs are stored as PATH INDICES (not cell ids) so the extend-back
+        // pass below can slice `path` directly by position.
         let mut runs: Vec<Vec<usize>> = Vec::new();
         let mut run: Option<Vec<usize>> = None;
         for (k, &ci) in path.iter().enumerate() {
@@ -8533,13 +8575,13 @@ pub fn civ_consolidate_and_smooth_ways(
                 if run.is_none() {
                     let mut new_run = Vec::new();
                     if k > 0 {
-                        new_run.push(path[k - 1]);
+                        new_run.push(k - 1);
                     }
                     run = Some(new_run);
                 }
-                run.as_mut().unwrap().push(ci);
+                run.as_mut().unwrap().push(k);
             } else if let Some(mut r) = run.take() {
-                r.push(ci);
+                r.push(k);
                 runs.push(r);
             }
         }
@@ -8550,21 +8592,59 @@ pub fn civ_consolidate_and_smooth_ways(
             claimed.insert(ci);
         }
 
+        let last_pi = path.len() - 1;
+        let a_pt = (pa.placement.x as f64, pa.placement.y as f64);
+        let b_pt = (pb.placement.x as f64, pb.placement.y as f64);
+        let cell_pt = |pi: usize| {
+            let ci = path[pi];
+            (((ci % rw) as f64 + 0.5) / sc, ((ci / rw) as f64 + 0.5) / sc)
+        };
+        let dist2 = |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).powi(2) + (p.1 - q.1).powi(2);
+        // Extend-back (owner ruling, 2026-09-28, follow-up to Ruling BT):
+        // corridor consolidation's busiest-edge-first claim can leave a
+        // run's near-settlement cells already claimed by a busier edge, so
+        // the run alone stops short of its own A or B (the diagnosis behind
+        // `63bedc8d`: 20/236 ways 59-585 cells short on the owner's world).
+        // This is NOT downsampling-specific, despite how it was first
+        // noticed: `golden_parity_road_consolidation.rs`'s case1 fixture
+        // (16x12, `sc == 1.0` throughout) already had a way stopping 4.3
+        // cells short of its own settlement before this pass existed --
+        // the claim-order bug is inherent to corridor consolidation at any
+        // world size, only visible in-game above the reference's own
+        // 384-cell canvas. If a run's visible end is more than ~1.5 cells
+        // (`EXTEND_T2`, squared) from its own settlement, splice in this
+        // SAME edge's own routed `path` cells between the run and that
+        // settlement -- the corridor this edge was routed along before a
+        // busier edge claimed it -- so the drawn extension deliberately
+        // overlaps that shared corridor rather than re-routing, reclaiming,
+        // or moving anything. Never extends toward the OTHER settlement:
+        // the prefix splice only ever reaches back toward `path[0]` (A) and
+        // the suffix only ever reaches forward toward `path[last_pi]` (B).
+        // Verified end to end on the owner's world via `_roadsettle_probe`:
+        // 0/244 ways now have an endpoint >2 cells from its own settlement
+        // (was 20/236 before `RW_CAP`, 15/244 with `RW_CAP` alone) -- see
+        // `STATUS.md`'s entry for this row.
+        const EXTEND_T2: f64 = 1.5 * 1.5;
         let mut emitted = false;
         for r in &runs {
             if r.len() < 2 {
                 continue;
             }
-            let mut raw: Vec<(f64, f64)> = r
-                .iter()
-                .map(|&ci| (((ci % rw) as f64 + 0.5) / sc, ((ci / rw) as f64 + 0.5) / sc))
-                .collect();
-            if r[0] == path[0] {
-                raw[0] = (pa.placement.x as f64, pa.placement.y as f64);
+            let mut idxs = r.clone();
+            if idxs[0] != 0 && dist2(cell_pt(idxs[0]), a_pt) > EXTEND_T2 {
+                idxs.splice(0..0, 0..idxs[0]);
+            }
+            let end = *idxs.last().unwrap();
+            if end != last_pi && dist2(cell_pt(end), b_pt) > EXTEND_T2 {
+                idxs.extend((end + 1)..=last_pi);
+            }
+            let mut raw: Vec<(f64, f64)> = idxs.iter().map(|&pi| cell_pt(pi)).collect();
+            if idxs[0] == 0 {
+                raw[0] = a_pt;
             }
             let last = raw.len() - 1;
-            if r[r.len() - 1] == path[path.len() - 1] {
-                raw[last] = (pb.placement.x as f64, pb.placement.y as f64);
+            if *idxs.last().unwrap() == last_pi {
+                raw[last] = b_pt;
             }
             let Some(sm) = civ_smooth_path(
                 &raw,

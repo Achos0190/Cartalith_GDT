@@ -165,6 +165,24 @@ fn small_world_with_lake_and_unreachable_island() {
     run_world(&world("small"));
 }
 
+/// RE-BASELINED 2026-09-28: owner ruling, follow-up to Ruling BT
+/// (`LARGE_ITEM_RULINGS.md`) -- `civ_routing_grid`'s cap moved from
+/// `gw.min(384)` to `gw.min(RW_CAP)` (`RW_CAP = 1024`, see that function's
+/// own doc comment in `src/lib.rs`). This world is 480x200, so it used to
+/// downsample (`sc = 384/480 = 0.8`) and now runs at full resolution
+/// (`sc = 1.0`) -- a deliberate divergence from the frozen JS reference
+/// above 384 cells wide (`DECISIONS.md` §7p), not a bug. `civ_land_cost_grid`
+/// (which `civ_connect_village_addons` routes over) recomputes its cost grid
+/// at the new resolution, so every track's exact cell-by-cell path shifted;
+/// the track COUNT also moved, 124 -> 125. What this test still checks is
+/// unchanged: six worlds' worth of village-to-base connectors -- sibling
+/// attachment, base attachment, an unreachable village, a village already on
+/// a source cell, a batch above 4, and (this world specifically) a
+/// downsampled-vs-full-resolution routing grid -- matched exactly against
+/// this crate's own current output. Re-baselined by re-running
+/// `civ_connect_village_addons` over this world and capturing its result
+/// (not the JS reference, which was never re-run: the whole point of the cap
+/// change is that Rust and the reference now legitimately disagree here).
 #[test]
 fn downsampled_routing_grid_batch_of_six() {
     run_world(&world("downsampled"));
