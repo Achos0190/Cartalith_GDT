@@ -600,17 +600,31 @@ func _ready() -> void:
 	overlay.set_script(OVERLAY_SCRIPT)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_camera.add_child(overlay)
-	overlay.settlement_selected.connect(func(d, i): settlement_selected.emit(d, i))
+	## Every map interaction the overlay reports is relayed only while no
+	## generate is running -- `_generating()` says why, and the owner report it
+	## closes. One gate at the relay, rather than one per listener: the
+	## listeners (right dock, workspaces, tools, the context card) are many,
+	## and a new one would otherwise have to remember it.
+	overlay.settlement_selected.connect(func(d, i):
+		if not _generating(): settlement_selected.emit(d, i))
 	overlay.settlement_hovered.connect(_on_hovered)
-	overlay.landmark_selected.connect(func(d, i): landmark_selected.emit(d, i))
-	overlay.icon_selected.connect(func(d, i): icon_selected.emit(d, i))
-	overlay.landmark_hovered.connect(func(d, i): landmark_hovered.emit(d, i))
+	overlay.landmark_selected.connect(func(d, i):
+		if not _generating(): landmark_selected.emit(d, i))
+	overlay.icon_selected.connect(func(d, i):
+		if not _generating(): icon_selected.emit(d, i))
+	overlay.landmark_hovered.connect(func(d, i):
+		if not _generating(): landmark_hovered.emit(d, i))
 	overlay.cursor_sampled.connect(_on_sampled)
-	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))
-	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
-	overlay.map_released.connect(func(gx, gy, valid): map_released.emit(gx, gy, valid))
-	overlay.map_right_clicked.connect(func(gx, gy, hit, pos): map_right_clicked.emit(gx, gy, hit, pos))
-	overlay.context_requested.connect(func(req): context_requested.emit(req))
+	overlay.map_clicked.connect(func(gx, gy):
+		if not _generating(): map_clicked.emit(gx, gy))
+	overlay.map_dragged.connect(func(gx, gy):
+		if not _generating(): map_dragged.emit(gx, gy))
+	overlay.map_released.connect(func(gx, gy, valid):
+		if not _generating(): map_released.emit(gx, gy, valid))
+	overlay.map_right_clicked.connect(func(gx, gy, hit, pos):
+		if not _generating(): map_right_clicked.emit(gx, gy, hit, pos))
+	overlay.context_requested.connect(func(req):
+		if not _generating(): context_requested.emit(req))
 	## The town-layout layer pulls its own data, one deferred batch at a time,
 	## because generating a town is real engine work and only the overlay knows
 	## which towns are on screen and large enough to be worth drawing. This is
@@ -1148,6 +1162,27 @@ func reset_view() -> void:
 ## no-world case rather than needing a second one.
 func _engine_readable() -> bool:
 	return _bridge != null and _bridge.has_world and not _bridge.generating
+
+## **Is a generate running, so that the map's interaction signals must not be
+## relayed?** The same borrow `_engine_readable()` describes, seen from the
+## listeners' side: every listener of a relayed map signal (the right dock's
+## Sample rows and `_build_sample`, `sculpt_stamp_count` in its tool section,
+## `river_at` on a click, the workspaces) reads `WorldGen`, and during a
+## re-generate each read fails `Gd<T>::bind()` -- a Rust panic plus a GDScript
+## `Invalid call error code 1337` that aborts the listener, and under the
+## editor's debugger breaks the running game. Owner report 2026-09-28,
+## "starting a new project causes the app to crash/stall";
+## `_newproj_probe.gd --hover 1 --repeat 2` reproduced it as 120 such panics
+## in `sample_cell`/`get_settlements` over one regenerate, `--click 1` as
+## `river_at`, `sample_cell` and `sculpt_stamp_count`.
+##
+## Deliberately NOT `not _engine_readable()`: before the first world exists
+## the listeners already take their own no-world branches, and a click then
+## must still reach them. Only the running generate is dropped -- the map it
+## would act on is about to be replaced. Must never gate the coordinates
+## readout, which `_coords_text` already guards itself.
+func _generating() -> bool:
+	return _bridge != null and _bridge.generating
 
 ## `05-right-dock-and-bars.md` §5.3 composes the top-right readout as
 ## `equirect · zoom NN% · {{ vpField }}`, and `vpField` -- `UNSPECIFIED:` in that
@@ -2681,10 +2716,14 @@ func refresh_scale_bar() -> void:
 	_update_scale_bar()
 
 func _on_hovered(data: Variant, index: int) -> void:
+	if _generating():
+		return
 	settlement_hovered.emit(data, index)
 
 func _on_sampled(gx: float, gy: float, valid: bool) -> void:
 	_coords_label.text = _coords_text(gx, gy) if valid else ""
+	if _generating():
+		return
 	cursor_sampled.emit(gx, gy, valid)
 
 ## §10's bottom-right readout (`4 812 km E · 1 093 km N · 1 462 m`): a real
