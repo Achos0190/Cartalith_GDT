@@ -900,7 +900,7 @@ func _build_generate_foot(parent: Control) -> void:
 		+ "on the correct reasoning that both produce terrain *data*. The atlas "
 		+ "half is the Bake above -- it writes every tile of the pyramid to disk. "
 		+ "The refine half is not ported: the reference's per-tile Burn rivers and "
-		+ "Micro-erode passes have no cartalith-spatial equivalent (pyramid_tile's "
+		+ "Micro-erode passes have no equivalent in the tiling system ## cartalith-spatial (pyramid_tile's "
 		+ "own doc records that as deliberate), so deep zoom synthesises detail "
 		+ "rather than re-eroding it. Auto-detail on zoom, tile size and the chunk "
 		+ "debug overlay stay program scope -- Preferences ▸ Tiles & LOD.")

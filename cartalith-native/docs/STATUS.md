@@ -4049,6 +4049,15 @@ survived.
 
 **Group total: 6 — 5 done, 1 unverified.**
 
+**2026-09-28, Ruling AQ's last two developer code names — pending independent
+verification.** `OUTSTANDING_WORK.md`'s row closed: `data_manager_window.gd`'s
+`val_check` route reason no longer says "project_open()" to the user, and
+`world_workspace.gd`'s LOD note no longer says "cartalith-spatial" to the
+user; both now read in plain terms with the code name kept beside them as a
+`##` comment, the same pattern the earlier sweep used. Both files parse-check
+clean under `godot --headless --check-only`, and `_codenames_probe.gd` re-ran
+with no failures. No behaviour changed.
+
 **2026-09-28, Ruling BO's two phone touch-design rows — pending independent
 verification, screenshots await owner review.** `OUTSTANDING_WORK.md`'s "the
 planner fix lands the user on a sheet that covers the tab bar" was found
