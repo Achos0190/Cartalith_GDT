@@ -88,7 +88,11 @@ pub trait Stamp {
 /// hide), not a property of the recipe.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PassEntry<S> {
+    /// The recipe itself, opaque to this crate beyond the [`Stamp`] trait.
     pub stamp: S,
+    /// Draft-scoped visibility: a hidden entry is skipped by preview and
+    /// commit but still counts toward the render-scope tile set (see
+    /// [`PassBuffer::touched_tiles`]).
     pub hidden: bool,
 }
 
@@ -146,22 +150,27 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         }
     }
 
+    /// The field width this buffer was constructed with.
     pub fn width(&self) -> usize {
         self.width
     }
 
+    /// The field height this buffer was constructed with.
     pub fn height(&self) -> usize {
         self.height
     }
 
+    /// The tile edge length this buffer indexes tiles with.
     pub fn tile_size(&self) -> usize {
         self.tile_size
     }
 
+    /// Tile columns, rounding up so a partial edge tile still counts.
     pub fn tiles_x(&self) -> usize {
         self.width.div_ceil(self.tile_size)
     }
 
+    /// Tile rows, rounding up so a partial edge tile still counts.
     pub fn tiles_y(&self) -> usize {
         self.height.div_ceil(self.tile_size)
     }
@@ -171,18 +180,23 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         self.tiles_x() * self.tiles_y()
     }
 
+    /// Number of stamps currently on the stack, hidden ones included.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Whether the draft has no stamps at all.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    /// The stack in order, for callers that need to render or list it
+    /// (e.g. a layer panel showing hide/reorder state).
     pub fn entries(&self) -> &[PassEntry<S>] {
         &self.entries
     }
 
+    /// The entry at `index`, or `None` if it is out of range.
     pub fn get(&self, index: usize) -> Option<&PassEntry<S>> {
         self.entries.get(index)
     }
@@ -264,10 +278,12 @@ impl<S: Stamp + Clone> PassBuffer<S> {
 
     // ---- draft-scoped undo/redo ----
 
+    /// Whether a structural edit exists to revert.
     pub fn can_undo(&self) -> bool {
         !self.history.is_empty()
     }
 
+    /// Whether an undone structural edit exists to reapply.
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
@@ -283,6 +299,8 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         true
     }
 
+    /// Reapplies the most recently undone structural edit. Draft-scoped only,
+    /// same as [`PassBuffer::undo`].
     pub fn redo(&mut self) -> bool {
         let Some(next) = self.redo.pop() else {
             return false;
@@ -292,6 +310,9 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         true
     }
 
+    /// Snapshots the current stack onto the undo history before a structural
+    /// edit, capping it at [`HISTORY_MAX`] and clearing the redo branch (any
+    /// new edit invalidates whatever was undone before it).
     fn push_history(&mut self) {
         self.history.push(self.entries.clone());
         if self.history.len() > HISTORY_MAX {
@@ -485,6 +506,10 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         n
     }
 
+    /// Shared tail of [`PassBuffer::commit`] and [`PassBuffer::discard`]:
+    /// empties the stack and every piece of draft-scoped bookkeeping
+    /// (touched set, undo history, redo branch) in one place so the two
+    /// callers cannot drift out of sync on what "empty" means.
     fn clear_draft(&mut self) {
         self.entries.clear();
         self.touched.clear();
@@ -494,6 +519,10 @@ impl<S: Stamp + Clone> PassBuffer<S> {
 
     // ---- tile bookkeeping ----
 
+    /// Rebuilds [`PassBuffer::touched`] from scratch over the current stack.
+    /// Needed after [`PassBuffer::remove`], [`PassBuffer::undo`] and
+    /// [`PassBuffer::redo`], where the touched set cannot simply be extended
+    /// (an entry may have left the stack, so the set can only shrink).
     fn recompute_touched(&mut self) {
         let (w, h, ts, tx) = (self.width, self.height, self.tile_size, self.tiles_x());
         let mut set = BTreeSet::new();
@@ -503,6 +532,9 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         self.touched = set;
     }
 
+    /// The tile indices a single stamp's bounds fall into, at this buffer's
+    /// own dimensions and tile size — the instance-method convenience over
+    /// [`PassBuffer::tiles_in`] used by [`PassBuffer::push`].
     fn tiles_of(&self, bounds: Region) -> Vec<usize> {
         Self::tiles_in(
             bounds,
@@ -513,6 +545,10 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         )
     }
 
+    /// The tile indices a rectangle overlaps, given explicit field and tile
+    /// dimensions (a free function in all but name, so [`PassBuffer::commit`]
+    /// and [`PassBuffer::recompute_touched`] can call it without borrowing
+    /// `self` while also borrowing `self.entries`).
     fn tiles_in(
         bounds: Region,
         width: usize,
@@ -550,13 +586,17 @@ mod tests {
     /// writes so that stacked stamps compose in order.
     #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
     struct AddBox {
+        /// The box this stamp adds to, clipped to the field at `apply` time.
         area: Region,
+        /// The constant added to every cell inside `area`.
         amount: f32,
     }
 
     impl Stamp for AddBox {
         type Cell = f32;
 
+        /// Clips `area` to the field so the returned bounds never index
+        /// out of range.
         fn bounds(&self, width: usize, height: usize) -> Region {
             let x = self.area.x.min(width);
             let y = self.area.y.min(height);
@@ -568,6 +608,9 @@ mod tests {
             )
         }
 
+        /// Adds `amount` to every cell inside the clipped bounds; reads its
+        /// destination first (via `+=`) so stacked `AddBox` stamps compose,
+        /// exercising the same order-sensitivity real stamps rely on.
         fn apply(&self, dst: &mut [f32], width: usize, height: usize) {
             let b = self.bounds(width, height);
             for y in b.y..b.y + b.h {
@@ -578,6 +621,7 @@ mod tests {
         }
     }
 
+    /// Builds an `AddBox` test stamp at the given box and amount.
     fn stamp(x: usize, y: usize, w: usize, h: usize, amount: f32) -> AddBox {
         AddBox {
             area: Region::new(x, y, w, h),
@@ -585,6 +629,7 @@ mod tests {
         }
     }
 
+    /// A shared fixture buffer: 8x8 field, tile_size 4 -> 2x2 = 4 tiles.
     fn buffer() -> PassBuffer<AddBox> {
         // 8x8 field, tile_size 4 -> 2x2 = 4 tiles.
         PassBuffer::new(8, 8, 4)
@@ -592,6 +637,8 @@ mod tests {
 
     #[test]
     fn tile_count_matches_a_paired_dirty_tracker() {
+        // Protects: tile_count() staying in sync with tiles_x()*tiles_y(),
+        // since a caller sizes its DirtyTracker from tile_count() alone.
         let buf = buffer();
         assert_eq!(buf.tiles_x(), 2);
         assert_eq!(buf.tiles_y(), 2);
@@ -602,6 +649,9 @@ mod tests {
 
     #[test]
     fn preview_composites_without_mutating_the_field() {
+        // Protects: the non-destructive guarantee -- preview_into must never
+        // write `base`, and must show every visible stamp composited in
+        // stack order.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(1, 1, 2, 2, 0.5));
@@ -622,6 +672,8 @@ mod tests {
 
     #[test]
     fn preview_is_idempotent_across_repeated_calls() {
+        // Protects: preview_into rebuilding scratch from base every call
+        // rather than accumulating across repeated previews.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 3, 3, 2.0));
         let base = vec![1.0f32; 64];
@@ -637,6 +689,8 @@ mod tests {
 
     #[test]
     fn preview_skips_hidden_stamps() {
+        // Protects: a hidden entry contributing nothing to preview_into's
+        // composite even though it stays on the stack.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         let i = buf.push(stamp(0, 0, 2, 2, 4.0));
@@ -651,6 +705,9 @@ mod tests {
 
     #[test]
     fn commit_applies_the_whole_stack_in_order_and_empties_the_draft() {
+        // Protects: commit() baking every visible stamp into the field in
+        // stack order and clearing the draft (including its undo history)
+        // afterward.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(1, 1, 2, 2, 0.5));
@@ -670,9 +727,10 @@ mod tests {
 
     #[test]
     fn commit_result_is_identical_to_the_preview_it_replaced() {
-        // Preview and commit are the same code path against different
-        // destinations (the reference's own sculptApplyStamp contract) --
-        // this is the test that would catch them drifting apart.
+        // Protects: preview and commit staying the same code path against
+        // different destinations (the reference's own sculptApplyStamp
+        // contract) -- this is the test that would catch them drifting
+        // apart.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 5, 5, 0.25));
         buf.push(stamp(3, 3, 4, 4, -0.75));
@@ -690,6 +748,8 @@ mod tests {
 
     #[test]
     fn commit_skips_hidden_stamps_but_still_drops_them() {
+        // Protects: commit() not baking a hidden stamp into the field, while
+        // still counting and discarding it as part of the draft.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         let i = buf.push(stamp(0, 0, 2, 2, 9.0));
@@ -706,6 +766,9 @@ mod tests {
 
     #[test]
     fn commit_marks_exactly_the_touched_tiles_with_the_given_reason() {
+        // Protects: commit() marking exactly the tiles the visible stamps
+        // touch, with the caller's reason string attached, and leaving
+        // untouched tiles clean.
         let mut buf = buffer();
         // Entirely inside tile (0,0) -> index 0.
         buf.push(stamp(0, 0, 3, 3, 1.0));
@@ -726,8 +789,9 @@ mod tests {
 
     #[test]
     fn one_commit_bumps_each_touched_tile_exactly_once_however_many_strokes() {
-        // "Undo granularity is one committed pass, not one stroke" -- five
-        // strokes over the same tile must be one version bump, not five.
+        // Protects: "undo granularity is one committed pass, not one
+        // stroke" (UI_SHELL_DESIGN.md) -- five strokes over the same tile
+        // must be one version bump, not five.
         let mut buf = buffer();
         for _ in 0..5 {
             buf.push(stamp(0, 0, 2, 2, 0.1));
@@ -741,6 +805,8 @@ mod tests {
 
     #[test]
     fn an_empty_commit_writes_nothing_and_marks_nothing() {
+        // Protects: committing an empty draft being a true no-op -- no
+        // field write, no tile marked, no version bumped.
         let mut buf = buffer();
         let mut field = vec![0.25f32; 64];
         let before = field.clone();
@@ -756,6 +822,8 @@ mod tests {
 
     #[test]
     fn discard_leaves_the_field_bit_identical() {
+        // Protects: discard() never having written the field at all, down
+        // to the bit pattern, even after a preview showed a real change.
         let mut buf = buffer();
         let field: Vec<f32> = (0..64).map(|i| i as f32 * 0.125).collect();
         let before = field.clone();
@@ -778,6 +846,8 @@ mod tests {
 
     #[test]
     fn discard_leaves_no_dirty_marks_behind() {
+        // Protects: discard() marking no tiles dirty, and a subsequent
+        // fresh commit still starting its version counter at 0+1.
         let mut buf = buffer();
         let mut tracker = DirtyTracker::new(buf.tile_count());
         buf.push(stamp(0, 0, 4, 4, 1.0));
@@ -793,6 +863,9 @@ mod tests {
 
     #[test]
     fn commit_discard_cycles_bump_versions_only_on_commit() {
+        // Protects: only commit() bumping the dirty-tracker version;
+        // discard() must contribute nothing, over repeated commit/discard
+        // cycles.
         let mut buf = buffer();
         let mut field = vec![0.0f32; 64];
         let mut tracker = DirtyTracker::new(buf.tile_count());
@@ -812,6 +885,8 @@ mod tests {
 
     #[test]
     fn touched_tiles_is_the_union_and_shrinks_when_a_stamp_is_removed() {
+        // Protects: touched_tiles() being the union of every entry's
+        // footprint, recomputed (and able to shrink) after remove().
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0)); // tile 0
         let i = buf.push(stamp(5, 5, 2, 2, 1.0)); // tile 3
@@ -822,8 +897,9 @@ mod tests {
 
     #[test]
     fn touched_tiles_keeps_a_hidden_stamps_footprint() {
-        // Hiding a stamp is itself a reason to repaint where it was, so the
-        // render scope keeps it even though preview/commit skip it.
+        // Protects: hiding a stamp is itself a reason to repaint where it
+        // was, so the render scope keeps it even though preview/commit
+        // skip it.
         let mut buf = buffer();
         let i = buf.push(stamp(5, 5, 2, 2, 1.0));
         buf.set_hidden(i, true);
@@ -832,6 +908,9 @@ mod tests {
 
     #[test]
     fn a_stamp_touching_nothing_marks_no_tiles() {
+        // Protects: a zero-area stamp footprint contributing no tile and no
+        // touched_bounds, rather than degenerating into tile 0 or the
+        // whole grid.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 0, 0, 1.0));
         assert_eq!(buf.touched_tiles().count(), 0);
@@ -840,6 +919,8 @@ mod tests {
 
     #[test]
     fn touched_bounds_unions_every_entry() {
+        // Protects: touched_bounds() returning the true axis-aligned union
+        // of every entry's bounds, not just the first or the last.
         let mut buf = buffer();
         buf.push(stamp(1, 1, 2, 2, 1.0));
         buf.push(stamp(5, 6, 2, 2, 1.0));
@@ -861,6 +942,10 @@ mod tests {
     /// it `preview_touched_into` has not touched a single cell.
     #[test]
     fn preview_touched_into_matches_preview_into_in_the_window() {
+        // Protects: preview_touched_into() being byte-identical to
+        // preview_into() inside its window, and writing nothing at all
+        // outside it -- checked against preview_into as an oracle, not a
+        // second transcription of the loop.
         let mut buf = buffer();
         buf.push(stamp(1, 1, 2, 2, 1.0));
         buf.push(stamp(2, 2, 3, 3, 0.5));
@@ -910,6 +995,9 @@ mod tests {
     /// would leave the hidden stamp on screen forever.
     #[test]
     fn the_window_covers_a_hidden_stamp_that_is_not_applied() {
+        // Protects: the render-scope window including a hidden stamp's
+        // footprint (so it still gets re-drawn away) even though the
+        // stamp itself is not applied.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         let hidden = buf.push(stamp(6, 6, 2, 2, 3.0));
@@ -931,6 +1019,10 @@ mod tests {
     /// window renders a blank instead of stale pixels.
     #[test]
     fn none_from_preview_touched_into_writes_nothing_at_all() {
+        // Protects: `None` meaning "the draft touched nothing", never
+        // "nothing needs drawing" -- and that in both cases (empty draft;
+        // a draft whose only stamp is zero-area) no cell of scratch is
+        // written at all.
         let base = ramp_base();
         const SENTINEL: f32 = -999.0;
 
@@ -954,18 +1046,28 @@ mod tests {
 
     #[test]
     fn stack_order_is_load_bearing_for_order_dependent_stamps() {
-        // A "set to a constant" stamp shows what an add-only stamp can't:
-        // reordering changes the result, which is why commit bakes in order.
+        // Protects: stack order actually changing the composited result --
+        // an add-only stamp can't show this, so this test uses a "set to a
+        // constant" stamp, where reordering changes which value wins.
+        /// A test-only "set to a constant" stamp: unlike `AddBox` above, its
+        /// `apply` overwrites rather than accumulates, which is what makes
+        /// stack order visible in this test's result.
         #[derive(Debug, Clone)]
         struct SetBox {
+            /// The box this stamp overwrites.
             area: Region,
+            /// The constant every cell inside `area` is set to.
             value: f32,
         }
         impl Stamp for SetBox {
             type Cell = f32;
+            /// A `SetBox`'s bounds are exactly its area (no padding needed
+            /// for this test double).
             fn bounds(&self, _w: usize, _h: usize) -> Region {
                 self.area
             }
+            /// Overwrites every cell in `area` with `value`, order-sensitive
+            /// unlike `AddBox` above.
             fn apply(&self, dst: &mut [f32], width: usize, _h: usize) {
                 for y in self.area.y..self.area.y + self.area.h {
                     for x in self.area.x..self.area.x + self.area.w {
@@ -996,6 +1098,8 @@ mod tests {
 
     #[test]
     fn move_up_and_down_reject_out_of_range_moves() {
+        // Protects: move_up()/move_down() being no-ops (returning false)
+        // at the ends of the stack, rather than panicking or wrapping.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 1, 1, 1.0));
         buf.push(stamp(1, 1, 1, 1, 1.0));
@@ -1009,6 +1113,9 @@ mod tests {
 
     #[test]
     fn undo_reverts_a_structural_edit_without_touching_the_field() {
+        // Protects: undo()/redo() being draft-scoped only -- the field
+        // itself is never written by either, and touched_tiles() tracks
+        // the reverted/reapplied state.
         let mut buf = buffer();
         let field = vec![0.0f32; 64];
         buf.push(stamp(0, 0, 2, 2, 1.0));
@@ -1028,6 +1135,9 @@ mod tests {
 
     #[test]
     fn undo_covers_delete_hide_and_reorder_not_just_add() {
+        // Protects: undo() reverting all four structural edits the
+        // reference's draft undo tracks -- hide, reorder (move_down) and
+        // delete (remove), not only add.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(4, 4, 2, 2, 1.0));
@@ -1048,6 +1158,9 @@ mod tests {
 
     #[test]
     fn a_new_edit_clears_the_redo_branch() {
+        // Protects: push_history() clearing the redo branch on any new
+        // structural edit, so a stale redo cannot resurrect a branch that
+        // was abandoned.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         buf.push(stamp(4, 4, 2, 2, 1.0));
@@ -1059,6 +1172,8 @@ mod tests {
 
     #[test]
     fn undo_and_redo_are_no_ops_on_an_empty_history() {
+        // Protects: undo()/redo() returning false rather than panicking
+        // when there is nothing to revert or reapply.
         let mut buf = buffer();
         assert!(!buf.undo());
         assert!(!buf.redo());
@@ -1066,6 +1181,8 @@ mod tests {
 
     #[test]
     fn draft_history_is_capped() {
+        // Protects: HISTORY_MAX actually bounding the undo depth -- past it,
+        // the oldest snapshots are dropped rather than kept unbounded.
         let mut buf = buffer();
         for _ in 0..(HISTORY_MAX + 10) {
             buf.push(stamp(0, 0, 1, 1, 1.0));
@@ -1080,6 +1197,8 @@ mod tests {
 
     #[test]
     fn discard_clears_the_draft_history_too() {
+        // Protects: discard() clearing undo/redo history along with the
+        // stamp stack, via the shared clear_draft() path.
         let mut buf = buffer();
         buf.push(stamp(0, 0, 2, 2, 1.0));
         assert!(buf.can_undo());
@@ -1090,6 +1209,9 @@ mod tests {
 
     #[test]
     fn pass_buffer_round_trips_through_json() {
+        // Protects: PassBuffer's Serialize/Deserialize impls preserving the
+        // stack and its derived touched-tile state across a JSON round
+        // trip (a save/load path this crate does not otherwise exercise).
         let mut buf = buffer();
         buf.push(stamp(1, 1, 2, 2, 0.75));
         let json = serde_json::to_string(&buf).unwrap();

@@ -68,16 +68,24 @@ const SAMPLES: [usize; 6] = [
     44 * GW + 50,
 ];
 
+/// Milestone B's own deterministic base field: `((i*37) % 101)/200 + 0.2`,
+/// built in `f64` and rounded once at the `f32` store — the same fixture the
+/// sibling sculpt suites use, reused here so the sea-classification fixture
+/// derives from something already trusted rather than a fresh formula.
 fn base_field() -> Vec<f32> {
     (0..GW * GH)
         .map(|i| ((((i * 37) % 101) as f64) / 200.0 + 0.2) as f32)
         .collect()
 }
 
+/// The "none" water-body fixture: all land, isolating disc geometry from
+/// any masking effect.
 fn wb_none() -> Arc<[u8]> {
     vec![0u8; GW * GH].into()
 }
 
+/// The "sea" water-body fixture: `wb[i] = 1` wherever [`base_field`] falls
+/// below [`SEA`].
 fn wb_sea() -> Arc<[u8]> {
     let f = base_field();
     (0..GW * GH)
@@ -113,10 +121,15 @@ fn fold(cells: &[u8]) -> u32 {
     sum
 }
 
+/// One recorded golden case from the reference harness.
 struct Golden {
+    /// Label used in every assertion failure message for this case.
     name: &'static str,
+    /// Expected count of non-zero cells after every tap is applied.
     painted: usize,
+    /// Expected value of [`fold`] over the painted grid.
     fold: u32,
+    /// Expected value at each of the six [`SAMPLES`] indices.
     samples: [u8; 6],
 }
 
@@ -148,6 +161,8 @@ fn check(g: &Golden, wb: Arc<[u8]>, radius: f64, taps: &[(i64, i64, u8)]) {
 
 #[test]
 fn a_disc_on_open_land_matches_the_reference() {
+    // Protects: apply()'s disc geometry over open land matching the
+    // reference's own `_paintAt` output exactly (count, fold, samples).
     // Radius 6 -> 113 cells, the integer-lattice disc of pi*r^2 ~= 113.1.
     check(
         &Golden {
@@ -164,6 +179,8 @@ fn a_disc_on_open_land_matches_the_reference() {
 
 #[test]
 fn the_ocean_gate_matches_the_reference() {
+    // Protects: the mask gate excluding ocean cells (wb == 1) exactly as
+    // the reference does.
     check(
         &Golden {
             name: "paint_sea_gated",
@@ -179,7 +196,8 @@ fn the_ocean_gate_matches_the_reference() {
 
 #[test]
 fn the_lake_gate_matches_the_reference() {
-    // Classification 2, not 1: a `== 1` gate would paint straight through
+    // Protects: the mask gate being `!= 0`, not `== 1` -- classification 2,
+    // not 1: a `== 1` gate would paint straight through
     // this band and still pass every other case in this file.
     check(
         &Golden {
@@ -196,6 +214,8 @@ fn the_lake_gate_matches_the_reference() {
 
 #[test]
 fn erasing_over_an_existing_disc_matches_the_reference() {
+    // Protects: an erase tap (value 0) applied after a paint tap matching
+    // the reference's `_paintErase` output exactly.
     check(
         &Golden {
             name: "paint_erase_over",
@@ -211,6 +231,8 @@ fn erasing_over_an_existing_disc_matches_the_reference() {
 
 #[test]
 fn a_disc_clipped_by_the_grid_edge_matches_the_reference() {
+    // Protects: a disc centred near the grid edge clipping exactly as the
+    // reference's bounds-checked loop does, with no wraparound or panic.
     check(
         &Golden {
             name: "paint_edge_clamped",
@@ -226,6 +248,8 @@ fn a_disc_clipped_by_the_grid_edge_matches_the_reference() {
 
 #[test]
 fn overlapping_discs_let_the_last_one_win() {
+    // Protects: two overlapping taps in sequence producing the reference's
+    // own last-write-wins result, not an average or an accumulation.
     check(
         &Golden {
             name: "paint_overlap_last_wins",
@@ -241,7 +265,8 @@ fn overlapping_discs_let_the_last_one_win() {
 
 #[test]
 fn radius_one_matches_the_reference() {
-    // Five cells, not nine: `hypot(1,1)` is 1.41, and the gate is `> R`.
+    // Protects: radius 1 matching the reference's own plus-shape output --
+    // five cells, not nine: `hypot(1,1)` is 1.41, and the gate is `> R`.
     check(
         &Golden {
             name: "paint_radius_one",

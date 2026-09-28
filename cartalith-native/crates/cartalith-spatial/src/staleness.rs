@@ -59,8 +59,12 @@ pub type StageId = usize;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StageNode {
+    /// Caller-supplied label, surfaced through [`StageGraph::stage_name`]
+    /// and in [`Staleness::origin_name`] for status-bar readouts.
     name: String,
+    /// This stage's direct upstreams, always lower ids (see [`StageId`]).
     upstream: Vec<StageId>,
+    /// This stage's own per-tile version/dirty/reason bookkeeping.
     tracker: DirtyTracker,
     /// `observed[i][tile]` — the version of `upstream[i]` this stage last
     /// consumed at that tile.
@@ -71,8 +75,12 @@ struct StageNode {
 /// not been consumed, and the reason string recorded for that change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Staleness<'a> {
+    /// The most-upstream stage whose change has not yet been consumed.
     pub origin: StageId,
+    /// `origin`'s caller-supplied name, for direct display without a
+    /// further lookup.
     pub origin_name: &'a str,
+    /// The reason string recorded for `origin`'s change, if any.
     pub reason: Option<&'a str>,
 }
 
@@ -98,10 +106,12 @@ impl StageGraph {
         }
     }
 
+    /// The tile count every stage in this graph tracks.
     pub fn tile_count(&self) -> usize {
         self.tile_count
     }
 
+    /// How many stages have been registered.
     pub fn stage_count(&self) -> usize {
         self.stages.len()
     }
@@ -137,10 +147,12 @@ impl StageGraph {
         id
     }
 
+    /// The caller-supplied name a stage was registered with.
     pub fn stage_name(&self, stage: StageId) -> &str {
         &self.stages[stage].name
     }
 
+    /// The direct upstreams a stage was registered with.
     pub fn upstream(&self, stage: StageId) -> &[StageId] {
         &self.stages[stage].upstream
     }
@@ -152,6 +164,8 @@ impl StageGraph {
         &self.stages[stage].tracker
     }
 
+    /// A stage's own version counter at a tile — its output's edit count,
+    /// not whether it is stale (see [`StageGraph::is_stale`] for that).
     pub fn version(&self, stage: StageId, tile: usize) -> u64 {
         self.stages[stage].tracker.version(tile)
     }
@@ -266,6 +280,8 @@ impl StageGraph {
         })
     }
 
+    /// Whether `stage` is stale at `tile` at all, discarding the reason
+    /// [`StageGraph::staleness`] would otherwise report.
     pub fn is_stale(&self, stage: StageId, tile: usize) -> bool {
         self.staleness(stage, tile).is_some()
     }
@@ -278,6 +294,7 @@ impl StageGraph {
             .collect()
     }
 
+    /// Whether `stage` is stale at any tile at all.
     pub fn any_stale(&self, stage: StageId) -> bool {
         (0..self.tile_count).any(|t| self.is_stale(stage, t))
     }
@@ -311,6 +328,9 @@ mod tests {
 
     #[test]
     fn a_fresh_graph_is_current_everywhere() {
+        // Protects: add_stage() registering a new stage as already current
+        // (having observed its upstreams' present versions) rather than
+        // spuriously stale.
         let (g, _h, _hy, _c, civ) = chain();
         assert!(!g.any_stale(civ));
         assert_eq!(g.stale_stages(), vec![]);
@@ -318,7 +338,8 @@ mod tests {
 
     #[test]
     fn a_source_stage_is_never_itself_stale() {
-        // Height has no upstream: editing it is a version bump others read,
+        // Protects: a stage with no upstream never reporting itself stale --
+        // height has no upstream: editing it is a version bump others read,
         // not a "height needs recomputing" state.
         let (mut g, height, _hy, _c, _civ) = chain();
         g.mark_changed(height, 0, "height_edited");
@@ -327,6 +348,8 @@ mod tests {
 
     #[test]
     fn one_height_edit_marks_every_downstream_stage_at_that_tile_only() {
+        // Protects: mark_changed() making every downstream stage stale at
+        // exactly the edited tile, and leaving other tiles current.
         let (mut g, height, hydrology, climate, civ) = chain();
         g.mark_changed(height, 2, "height_edited");
 
@@ -340,6 +363,8 @@ mod tests {
 
     #[test]
     fn staleness_names_the_most_upstream_cause_for_a_status_readout() {
+        // Protects: staleness() reporting the most-upstream cause (its
+        // stage id, name and reason), not an intermediate consumer.
         let (mut g, height, _hy, _c, civ) = chain();
         let s = {
             g.mark_changed(height, 1, "height_edited");
@@ -352,7 +377,7 @@ mod tests {
 
     #[test]
     fn staleness_is_transitive_without_anything_being_pushed_downstream() {
-        // The load-bearing property: marking height touches height's tracker
+        // Protects: the load-bearing property: marking height touches height's tracker
         // and nothing else. Civ's own version must still be untouched, and
         // civ must still report itself stale.
         let (mut g, height, hydrology, climate, civ) = chain();
@@ -365,7 +390,7 @@ mod tests {
 
     #[test]
     fn queries_never_mutate_and_never_recompute() {
-        // Every query takes &self, so this is a type-level guarantee; the
+        // Protects: every query takes &self, so this is a type-level guarantee; the
         // test pins the observable half of it: repeated querying changes no
         // version and clears no staleness.
         let (mut g, height, _hy, _c, civ) = chain();
@@ -391,6 +416,9 @@ mod tests {
 
     #[test]
     fn recomputing_one_stage_clears_only_that_stage_and_bumps_it_for_the_next() {
+        // Protects: mark_recomputed() clearing exactly the recomputed
+        // stage's staleness, and bumping its own version so the next stage
+        // in the chain becomes stale in turn.
         let (mut g, height, hydrology, climate, civ) = chain();
         g.mark_changed(height, 0, "height_edited");
 
@@ -405,6 +433,9 @@ mod tests {
 
     #[test]
     fn the_whole_chain_settles_only_when_every_stage_has_re_run() {
+        // Protects: a chain fully settling (no stage reports stale
+        // anywhere) only once every downstream stage has been recomputed
+        // in order.
         let (mut g, height, hydrology, climate, civ) = chain();
         g.mark_changed(height, 0, "height_edited");
         g.mark_recomputed(hydrology, "flow");
@@ -420,7 +451,7 @@ mod tests {
 
     #[test]
     fn recomputing_a_stage_over_a_still_stale_upstream_does_not_settle_it() {
-        // Recomputing civ first is not a shortcut: civ consumed a hydrology
+        // Protects: recomputing civ first is not a shortcut: civ consumed a hydrology
         // that is itself out of date, so civ's result is out of date too.
         // This is rule 2 (transitive staleness) doing real work -- a
         // dirty-flag-only design would wrongly report civ as current here.
@@ -439,6 +470,9 @@ mod tests {
 
     #[test]
     fn repeated_edits_before_any_recompute_are_still_one_stale_state() {
+        // Protects: multiple edits before any recompute collapsing into
+        // one stale state with the most recent reason, and one pass down
+        // the chain consuming all of them at once.
         let (mut g, height, hydrology, climate, civ) = chain();
         g.mark_changed(height, 0, "first");
         g.mark_changed(height, 0, "second");
@@ -456,7 +490,8 @@ mod tests {
 
     #[test]
     fn a_mid_chain_edit_leaves_upstream_alone() {
-        // Painting biome is downstream of terrain: it must not mark height or
+        // Protects: an edit to a downstream stage never marking its own
+        // upstreams stale -- painting biome is downstream of terrain: it must not mark height or
         // hydrology stale (UNIFIED_TOOL_PLAN.md's Biome paint row).
         let (mut g, _height, hydrology, climate, civ) = chain();
         g.mark_changed(civ, 0, "biome_painted");
@@ -467,6 +502,9 @@ mod tests {
 
     #[test]
     fn a_leaf_stage_added_later_starts_current_not_stale() {
+        // Protects: add_stage() registering "already observed" against the
+        // upstream's *current* version, which correctly makes a new stage
+        // transitively stale if its upstream already was.
         let (mut g, height, _hy, _c, civ) = chain();
         g.mark_changed(height, 0, "height_edited");
         let provinces = g.add_stage("provinces", &[civ]);
@@ -479,6 +517,8 @@ mod tests {
 
     #[test]
     fn acknowledging_a_dirty_flag_does_not_change_staleness() {
+        // Protects: acknowledge() clearing only the re-upload dirty flag,
+        // independent of the version-based staleness graph.
         let (mut g, height, _hy, _c, civ) = chain();
         g.mark_changed(height, 0, "height_edited");
         assert!(g.tracker(height).is_dirty(0));
@@ -493,6 +533,8 @@ mod tests {
 
     #[test]
     fn stale_stages_reports_the_whole_downstream_set_at_once() {
+        // Protects: stale_stages() enumerating every affected stage after a
+        // single edit, in registration (topological) order.
         let (mut g, height, hydrology, climate, civ) = chain();
         g.mark_changed(height, 1, "height_edited");
         let stale: Vec<StageId> = g.stale_stages().into_iter().map(|(s, _)| s).collect();
@@ -501,7 +543,7 @@ mod tests {
 
     #[test]
     fn diamond_dependencies_are_visited_once_each() {
-        // Two independent consumers of one source, both feeding a join --
+        // Protects: two independent consumers of one source, both feeding a join --
         // the traversal must not blow up or double-report.
         let mut g = StageGraph::new(1);
         let src = g.add_stage("src", &[]);
@@ -521,12 +563,18 @@ mod tests {
     #[test]
     #[should_panic(expected = "must be registered before its consumer")]
     fn a_cycle_cannot_be_constructed() {
+        // Protects: add_stage() panicking on an upstream id that has not
+        // yet been registered, which is what forbids cycles by
+        // construction rather than by runtime cycle detection.
         let mut g = StageGraph::new(1);
         g.add_stage("a", &[0]);
     }
 
     #[test]
     fn stage_graph_round_trips_through_json() {
+        // Protects: StageGraph's Serialize/Deserialize impls preserving
+        // stages, names and per-tile staleness state across a JSON round
+        // trip.
         let (mut g, height, _hy, _c, civ) = chain();
         g.mark_changed(height, 2, "height_edited");
         let json = serde_json::to_string(&g).unwrap();

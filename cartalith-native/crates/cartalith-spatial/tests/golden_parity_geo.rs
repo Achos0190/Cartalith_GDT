@@ -48,19 +48,29 @@ const GW: usize = 12;
 const GH: usize = 9;
 const CELL_KM: f64 = 50.0; // 600 km / 12 cells, as the harness set it
 
+/// Fixture "a": a 6x5 block with a 2x2 hole, plus a disjoint 2x2 blob --
+/// pins hole nesting and a second independent shell.
 fn mask_a(x: i32, y: i32) -> bool {
     ((1..=6).contains(&x) && (1..=5).contains(&y) && !((3..=4).contains(&x) && (2..=3).contains(&y)))
         || ((9..=10).contains(&x) && (6..=7).contains(&y))
 }
+/// Fixture "b": the checkerboard pinch the reference deliberately does not
+/// disambiguate -- traces to one unclosed ring.
 fn mask_b(x: i32, y: i32) -> bool {
     (x == 2 && y == 2) || (x == 3 && y == 3)
 }
+/// Fixture "c": a single cell, the smallest ring that survives the `>= 4`
+/// length filter.
 fn mask_c(x: i32, y: i32) -> bool {
     x == 5 && y == 4
 }
+/// Fixture "e": the whole grid, reachable only because the mask answers
+/// `false` outside its own bounds.
 fn mask_e(x: i32, y: i32) -> bool {
     (0..12).contains(&x) && (0..9).contains(&y)
 }
+/// Fixture "f": a block with a hole that contains its own island -- the
+/// island traces positive and becomes its own polygon, not a nested ring.
 fn mask_f(x: i32, y: i32) -> bool {
     ((1..=7).contains(&x) && (1..=7).contains(&y) && !((3..=5).contains(&x) && (3..=5).contains(&y)))
         || (x == 4 && y == 4)
@@ -68,6 +78,8 @@ fn mask_f(x: i32, y: i32) -> bool {
 
 #[test]
 fn geo_xy_matches_the_reference_including_the_north_up_flip() {
+    // Protects: geo_xy() matching `_geoXY` on a grid of round-number
+    // coordinates, plus js_to_fixed()'s toFixed-not-tie-to-even rounding.
     let want: &[((f64, f64), [f64; 2])] = &[
         ((0.0, 0.0), [0.0, 450.0]),
         ((1.0, 1.0), [50.0, 400.0]),
@@ -89,6 +101,9 @@ fn geo_xy_matches_the_reference_including_the_north_up_flip() {
 
 #[test]
 fn trace_mask_rings_matches_the_reference_ring_for_ring() {
+    // Protects: trace_mask_rings()/ring_area() matching `_geoTraceMaskRings`/
+    // `_geoRingArea` point for point and area for area, across every fixture
+    // mask's every ring.
     #[allow(clippy::type_complexity)]
     let want: &[(&str, fn(i32, i32) -> bool, &[(f64, &[(i32, i32)])])] = &[
         ("a", mask_a, &[
@@ -130,7 +145,7 @@ fn trace_mask_rings_matches_the_reference_ring_for_ring() {
 
 #[test]
 fn the_pinch_ring_is_the_one_that_does_not_close() {
-    // Split out from the table above because it is the single most surprising
+    // Protects: split out from the table above because it is the single most surprising
     // recorded behaviour here and deserves to fail by name.
     let rings = trace_mask_rings(&mask_b, 0, 0, GW as i32, GH as i32);
     assert_eq!(rings.len(), 1);
@@ -145,6 +160,8 @@ fn the_pinch_ring_is_the_one_that_does_not_close() {
 
 #[test]
 fn point_in_ring_matches_the_reference_on_a_traced_shell() {
+    // Protects: point_in_ring() matching `_geoPointInRing` on a real traced
+    // shell, at points on both sides of the boundary.
     let rings = trace_mask_rings(&mask_a, 0, 0, GW as i32, GH as i32);
     let shell = rings.iter().find(|r| ring_area(r) > 0.0).expect("a shell");
     let want: &[((f64, f64), bool)] = &[
@@ -163,7 +180,10 @@ fn point_in_ring_matches_the_reference_on_a_traced_shell() {
 
 #[test]
 fn mask_outline_coords_matches_the_reference_coordinate_for_coordinate() {
-    // Shorthand: a km pair.
+    // Protects: mask_outline_coords() matching `_geoMaskOutlineCoords`
+    // coordinate for coordinate, including hole nesting, the unclosed
+    // pinch ring carried through to coordinates, and the None-on-empty path.
+    /// Shorthand: a km pair.
     fn p(x: f64, y: f64) -> [f64; 2] {
         [x, y]
     }
@@ -225,7 +245,9 @@ fn cells_mask(cells: &'static [(i32, i32)]) -> impl Fn(i32, i32) -> bool {
 
 #[test]
 fn geo_xy_matches_the_reference_when_the_cell_size_is_not_round() {
-    // GW=2048, GH=1311, mapWidthKm=800 -> cellKm = 0.390625, so every
+    // Protects: js_to_fixed()'s three-decimal rounding when every digit is
+    // actually significant, not just round numbers -- GW=2048, GH=1311,
+    // mapWidthKm=800 -> cellKm = 0.390625, so every
     // coordinate really uses all three decimals `toFixed(3)` keeps.
     const K: f64 = 0.390625;
     let want: &[((f64, f64), [f64; 2])] = &[
@@ -245,6 +267,8 @@ fn geo_xy_matches_the_reference_when_the_cell_size_is_not_round() {
 
 #[test]
 fn a_length_four_ring_is_kept_and_a_length_three_ring_is_dropped() {
+    // Protects: the `>= 4` ring-length filter's exact boundary, in both
+    // directions -- found missing by the first mutation sweep.
     // Mask 151 of the 4x4 sweep: cells (0,0) (1,0) (2,0) (0,1) (3,1). The
     // reference keeps TWO rings here, the second of which is exactly four
     // points long and unclosed -- the `>= 4` boundary, from below.
@@ -280,6 +304,8 @@ fn a_length_four_ring_is_kept_and_a_length_three_ring_is_dropped() {
 
 #[test]
 fn a_ring_of_exactly_zero_area_is_treated_as_a_hole() {
+    // Protects: the shell/hole split's `area > 0` boundary, not `>= 0` --
+    // found missing by the first mutation sweep.
     // Mask 1943: cells (0,0) (1,0) (2,0) (0,1) (3,1) (0,2) (1,2) (2,2). The
     // pinch inside it traces a four-point ring whose shoelace area is exactly
     // 0 -- and the reference's `a > 0 ? shells : holes` therefore files it as a

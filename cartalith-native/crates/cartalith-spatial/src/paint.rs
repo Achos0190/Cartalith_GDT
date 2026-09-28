@@ -260,6 +260,9 @@ fn cell_dither(x: i64, y: i64) -> f64 {
 impl Stamp for PaintStamp {
     type Cell = u8;
 
+    /// The `-r..=r` bounding box clamped to the grid, or a zero-area
+    /// [`Region`] when the box does not overlap the grid at all (a disc
+    /// entirely off-grid) or `radius` is negative.
     fn bounds(&self, width: usize, height: usize) -> Region {
         if width == 0 || height == 0 || self.radius < 0.0 {
             return Region::new(0, 0, 0, 0);
@@ -291,6 +294,10 @@ impl Stamp for PaintStamp {
         )
     }
 
+    /// Writes `value` into every cell inside the disc (subject to the
+    /// falloff band and the mask gate), following `_paintAt`'s own gate
+    /// order: bounds check, then `js_hypot` distance, then falloff, then
+    /// mask.
     fn apply(&self, dst: &mut [u8], width: usize, height: usize) {
         if width == 0 || height == 0 {
             return;
@@ -352,6 +359,7 @@ pub struct PaintLayer {
 }
 
 impl PaintLayer {
+    /// An unallocated layer — no cell has ever been painted.
     pub const fn new() -> Self {
         Self { cells: None }
     }
@@ -368,6 +376,8 @@ impl PaintLayer {
         self.cells.as_ref().is_none_or(|c| c.iter().all(|&v| v == 0))
     }
 
+    /// The raw grid, or `None` if unallocated. `Some` slice may still be
+    /// all-zero (see [`PaintLayer::is_empty`]).
     pub fn cells(&self) -> Option<&[u8]> {
         self.cells.as_deref()
     }
@@ -515,6 +525,8 @@ mod tests {
     /// first radius where the two algorithms disagree *about a cell* is 125.
     #[test]
     fn rim_cells_on_a_pythagorean_triple_follow_v8_not_rust_hypot() {
+        // Protects: apply() gating on js_hypot, not f64::hypot -- the one
+        // ulp difference at R=125 that changes which rim cells paint.
         const G: usize = 251; // 2*125 + 1
         const C: i64 = 125;
         let mut dst = vec![0u8; G * G];
@@ -545,6 +557,9 @@ mod tests {
     /// cannot have moved any existing golden.
     #[test]
     fn below_radius_125_the_two_hypots_agree_on_every_cell() {
+        // Protects: js_hypot and f64::hypot choosing the same cells for
+        // every radius the reference's own sliders can produce, so the
+        // js_hypot switch cannot have moved any pre-existing golden.
         for r in 1..=124i64 {
             for dx in -r..=r {
                 for dy in -r..=r {
@@ -559,6 +574,8 @@ mod tests {
         }
     }
 
+    /// An all-land mask (every cell `0`) — the ungated-equivalent water
+    /// classification used by most fixtures in this file.
     fn land() -> Arc<[u8]> {
         vec![0u8; W * H].into()
     }
@@ -575,12 +592,16 @@ mod tests {
         m.into()
     }
 
+    /// Counts non-zero (painted) cells in a fixture grid.
     fn painted(dst: &[u8]) -> usize {
         dst.iter().filter(|&&v| v != 0).count()
     }
 
     #[test]
     fn a_dab_is_a_hard_disc_with_no_falloff() {
+        // Protects: the reference's own hard-disc contract -- every painted
+        // cell carries exactly one clean index, the radius test is `> R`
+        // not `>= R`, and cells outside the bounding box stay untouched.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 3.0, 5, land()).apply(&mut dst, W, H);
         // Every painted cell carries the same index -- no intermediate
@@ -599,7 +620,7 @@ mod tests {
 
     #[test]
     fn with_falloff_at_the_construction_defaults_is_bit_identical_to_the_hard_disc() {
-        // The exact claim `DECISIONS.md` §7k rests on: `hardness=1.0,
+        // Protects: the exact claim `DECISIONS.md` §7k rests on: `hardness=1.0,
         // softness=0.0` -- both the type's own construction default AND an
         // explicit `with_falloff` call at those values -- must reproduce
         // the untouched hard-disc output, cell for cell.
@@ -624,6 +645,10 @@ mod tests {
 
     #[test]
     fn a_softer_edge_keeps_the_interior_solid_but_mottles_the_rim() {
+        // Protects: falloff only softening the outer band -- the deep
+        // interior stays solid, the band is a genuine mix of painted and
+        // unpainted cells, and falloff never extends the disc past its
+        // hard radius.
         // Radius 20 in a grid big enough to hold it -- the small radii
         // (3..6) the rest of this file uses don't leave enough rim cells
         // for "mottled, not merely smaller" to be a meaningful measurement.
@@ -681,7 +706,7 @@ mod tests {
 
     #[test]
     fn softness_alone_softens_the_edge_even_at_full_hardness() {
-        // hardness stays at its own "fully hard" default; softness alone
+        // Protects: hardness stays at its own "fully hard" default; softness alone
         // must still be able to open a falloff band -- the two sliders add,
         // rather than softness being hardness-in-disguise.
         const G: usize = 48;
@@ -696,7 +721,7 @@ mod tests {
 
     #[test]
     fn falloff_is_deterministic_across_repeated_applications() {
-        // "a deterministic, position-seeded threshold so repeated passes
+        // Protects: "a deterministic, position-seeded threshold so repeated passes
         // are stable" -- the property a per-frame random draw would not
         // have. Applying the same stamp twice (independent scratch buffers,
         // same stamp value reused) must paint exactly the same cells both
@@ -712,6 +737,9 @@ mod tests {
 
     #[test]
     fn radius_one_paints_a_plus_not_a_square() {
+        // Protects: the hypot gate at radius 1 excluding the diagonal
+        // neighbours (dist sqrt(2) > 1), so the shape is a plus, not the
+        // 3x3 square the bounding box alone would suggest.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 1.0, 3, land()).apply(&mut dst, W, H);
         assert_eq!(painted(&dst), 5);
@@ -720,6 +748,9 @@ mod tests {
 
     #[test]
     fn the_mask_gate_excludes_lakes_not_just_ocean() {
+        // Protects: the mask gate being `!= 0`, not `== 1` -- excluding
+        // lakes (classification 2) as well as ocean, per the reference's
+        // own stated comment.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, lake_band()).apply(&mut dst, W, H);
         for y in 7..=9 {
@@ -732,7 +763,8 @@ mod tests {
 
     #[test]
     fn an_ungated_dab_paints_where_a_gated_one_would_not() {
-        // The new affordance, kept honestly separate from the port.
+        // Protects: the new affordance (an optional mask) actually painting
+        // more than a gated dab, kept honestly separate from the port.
         let mut gated = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, lake_band()).apply(&mut gated, W, H);
         let mut free = vec![0u8; W * H];
@@ -742,6 +774,9 @@ mod tests {
 
     #[test]
     fn erase_writes_zero_over_an_existing_index() {
+        // Protects: `is_erase()`/apply() erasing (value 0) over a
+        // previously painted index inside the eraser's own radius, and
+        // leaving cells outside it untouched.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, land()).apply(&mut dst, W, H);
         let before = painted(&dst);
@@ -755,7 +790,8 @@ mod tests {
 
     #[test]
     fn a_later_dab_overwrites_an_earlier_one() {
-        // Categorical: last write wins outright, it does not accumulate.
+        // Protects: categorical last-write-wins semantics -- apply() does
+        // not accumulate or blend two indices.
         let mut dst = vec![0u8; W * H];
         PaintStamp::new(8, 8, 4.0, 5, land()).apply(&mut dst, W, H);
         PaintStamp::new(8, 8, 2.0, 9, land()).apply(&mut dst, W, H);
@@ -764,6 +800,9 @@ mod tests {
 
     #[test]
     fn bounds_clip_to_the_grid_and_go_empty_when_fully_outside() {
+        // Protects: bounds() clamping a partially off-grid disc to the
+        // grid, and returning a zero-area Region when it is fully outside
+        // rather than a bogus clamped 1x1 box.
         let s = PaintStamp::new(1, 1, 6.0, 2, land());
         assert_eq!(s.bounds(W, H), Region::new(0, 0, 8, 8));
         let off = PaintStamp::new(-40, -40, 3.0, 2, land());
@@ -773,7 +812,9 @@ mod tests {
 
     #[test]
     fn a_dab_never_writes_outside_its_own_bounds() {
-        // The contract PassBuffer's tile marking depends on.
+        // Protects: the contract PassBuffer's tile marking depends on --
+        // apply() never writes a cell outside what bounds() reported,
+        // across on-grid, edge and off-grid centres.
         for (cx, cy) in [(0i64, 0i64), (8, 8), (15, 15), (-2, 8), (8, 20)] {
             let s = PaintStamp::new(cx, cy, 5.0, 7, land());
             let b = s.bounds(W, H);
@@ -794,8 +835,9 @@ mod tests {
 
     #[test]
     fn a_paint_stroke_runs_through_the_pass_buffer() {
-        // The whole reason PaintStamp is a Stamp: draft, preview, discard,
-        // commit and undo come from milestone A unchanged.
+        // Protects: the whole reason PaintStamp is a Stamp -- draft,
+        // preview, discard, commit and undo come from milestone A
+        // unchanged, and commit writes into a PaintLayer's own cells.
         let mut buf: PassBuffer<PaintStamp> = PassBuffer::new(W, H, 8);
         buf.push(PaintStamp::new(4, 4, 3.0, 5, land()));
         buf.push(PaintStamp::new(12, 12, 3.0, 6, land()));
@@ -817,6 +859,8 @@ mod tests {
 
     #[test]
     fn discarding_a_paint_draft_leaves_the_layer_untouched() {
+        // Protects: discard() never having reached the committed layer at
+        // all -- the layer is exactly what it was before the draft existed.
         let mut layer = PaintLayer::new();
         layer.cells_mut(W * H)[0] = 3;
         let before = layer.clone();
@@ -830,6 +874,9 @@ mod tests {
 
     #[test]
     fn a_fresh_layer_allocates_nothing() {
+        // Protects: PaintLayer::new() being genuinely lazy -- unallocated,
+        // empty, no cells, sampling and encoding all behave as "nothing
+        // painted" without ever touching a Vec.
         let l = PaintLayer::new();
         assert!(l.is_unallocated());
         assert!(l.is_empty());
@@ -840,7 +887,7 @@ mod tests {
 
     #[test]
     fn cells_mut_reallocates_when_the_resolution_changes() {
-        // The reference's own v0.148 length guard: a resolution change must
+        // Protects: the reference's own v0.148 length guard: a resolution change must
         // never serve the old grid.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[5] = 7;
@@ -852,6 +899,8 @@ mod tests {
 
     #[test]
     fn cells_mut_keeps_the_grid_when_the_size_is_unchanged() {
+        // Protects: cells_mut() not reallocating (and so not clearing
+        // existing data) when the requested length already matches.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[5] = 7;
         assert_eq!(l.cells_mut(W * H)[5], 7);
@@ -859,6 +908,8 @@ mod tests {
 
     #[test]
     fn merge_over_replaces_only_painted_cells() {
+        // Protects: merge_over() replacing only the cells the layer
+        // actually painted, leaving the rest of `base` untouched.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(4);
@@ -872,6 +923,8 @@ mod tests {
 
     #[test]
     fn merge_over_an_unallocated_layer_is_a_no_op() {
+        // Protects: merge_over() on a never-painted layer leaving `base`
+        // completely unchanged, rather than treating None as all-zero data.
         let mut base = vec![5u8, 5, 5, 5];
         PaintLayer::new().merge_over(&mut base);
         assert_eq!(base, vec![5, 5, 5, 5]);
@@ -879,6 +932,8 @@ mod tests {
 
     #[test]
     fn sample_nearest_rounds_and_clamps() {
+        // Protects: sample_nearest()'s JS-style half-up rounding and
+        // clamping to the grid at both extremes, matching `_paintSampleAt`.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(W * H);
@@ -893,6 +948,9 @@ mod tests {
 
     #[test]
     fn sparse_encoding_round_trips() {
+        // Protects: encode_sparse()/decode_sparse() round-tripping a
+        // partially painted layer, with unpainted cells contributing no
+        // pairs.
         let mut l = PaintLayer::new();
         {
             let c = l.cells_mut(W * H);
@@ -908,7 +966,7 @@ mod tests {
 
     #[test]
     fn decoding_drops_indices_past_the_grid() {
-        // Verbatim from the reference's `if(pairs[k] < a.length)` -- loading
+        // Protects: verbatim from the reference's `if(pairs[k] < a.length)` -- loading
         // a save made at a higher resolution must not panic.
         let l = PaintLayer::decode_sparse(&[2, 5, 9_999, 6], 4);
         assert_eq!(l.cells().unwrap(), &[0, 0, 5, 0]);
@@ -916,11 +974,16 @@ mod tests {
 
     #[test]
     fn decoding_an_empty_pair_list_yields_an_unallocated_layer() {
+        // Protects: `if(!pairs||!pairs.length) return null` -- an empty
+        // pair list decodes to unallocated, not an allocated all-zero grid.
         assert!(PaintLayer::decode_sparse(&[], 64).is_unallocated());
     }
 
     #[test]
     fn clear_drops_the_grid_entirely() {
+        // Protects: clear() deallocating the grid outright (paint does not
+        // survive a full terrain rebuild, per the reference's `paintBiome
+        // = null`).
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[0] = 4;
         l.clear();
@@ -929,6 +992,9 @@ mod tests {
 
     #[test]
     fn an_erased_layer_is_empty_but_still_allocated() {
+        // Protects: is_empty()/is_unallocated() staying distinct -- erasing
+        // every painted cell back to 0 makes the layer empty, but the
+        // reference's array (and this port's) survives allocated.
         let mut l = PaintLayer::new();
         l.cells_mut(W * H)[0] = 4;
         l.cells_mut(W * H)[0] = 0;

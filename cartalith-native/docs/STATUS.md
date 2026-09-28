@@ -631,6 +631,69 @@ re-checked against the tree rather than copied from the commit message.
   `cartalith-urban`, `cartalith-godot` and the GDScript shell remain deferred
   and unannotated.
 
+- **Ruling BK annotation pass, batch 10 (`cartalith-spatial`, six of its
+  files) — verified by the main loop 2026-09-28 (diff re-read as comment-only; spatial 168/0/0 unchanged), 2026-09-28.** Comments only,
+  zero behaviour change. `cartalith-spatial` is 5 641 LOC total (5 `src/*.rs`
+  files at 4 638 LOC + 5 `tests/*.rs` golden-parity files at 1 003 LOC);
+  batch 9's own closing note flagged it at 235 undoc items / 168 unprotected
+  tests / 18 unprovenanced consts (`ANNOTATION_AUDIT.md` rank 9). Rather than
+  split by an LOC cut mid-file, this batch took whole files in risk order up
+  to the ~3 500 LOC band the earlier batches used: `src/pass.rs` (1 101,
+  `PassBuffer`/`Stamp` — the draft/commit/discard core), `src/paint.rs` (938,
+  the categorical paint brush and its `js_hypot` divergence), `src/
+  staleness.rs` (538, `StageGraph`), `src/geo.rs` (424, raster→vector
+  tracing) and their two paired golden-parity test files, `tests/
+  golden_parity_paint.rs` (256) and `tests/golden_parity_geo.rs` (299) —
+  3 556 LOC. Every previously-undocumented `fn`/method/struct field got its
+  own doc comment (`PassBuffer`'s width/height/tile_size/tiles_x/tiles_y/len/
+  is_empty/entries/get/can_undo/can_redo/redo/push_history/clear_draft/
+  recompute_touched/tiles_of/tiles_in and `PassEntry`'s two fields;
+  `PaintStamp`'s `impl Stamp` `bounds`/`apply` and `PaintLayer::new`/`cells`;
+  `StageGraph`'s tile_count/stage_count/stage_name/upstream/version/
+  is_stale/any_stale and the `StageNode`/`Staleness` fields; `geo.rs`'s
+  private `EdgeMap` struct, its three methods, and the test module's
+  `mask_a`/`mask_b`/`mask_c`/`mask_e`/`mask_f`/`cells_mask` fixtures plus the
+  paint test module's `land`/`painted` helpers and the golden test files'
+  `base_field`/`wb_none`/`wb_sea`/mask fns and the `Golden` struct's fields).
+  Every `#[test]` across the six files (pass.rs 29, paint.rs 27 including
+  several already-commented ones reworded to start `// Protects:`,
+  staleness.rs 17, geo.rs 12, golden_parity_paint.rs 7, golden_parity_geo.rs
+  8 — 100 total, `grep -c '#\[test\]'` per file)
+  got a `// Protects:` first line inside its body, reusing the existing
+  rationale comment's text where one already existed rather than duplicating
+  it. One test-local struct (`pass.rs`'s `SetBox`, a test double nested
+  inside a `#[test]` fn) was missed on the first pass, caught on
+  self-review, and given its own one-line doc alongside its two fields and
+  two trait-impl methods. No stacked-const groups needed individual
+  provenance lines in these six files — the numeric literals present are
+  either already-cited reference line numbers/measured golden values or
+  local test fixture sizes, not naked unprovenanced constants.
+  `cargo test -p cartalith-spatial`, summed over all 7 binaries (lib +
+  `golden_parity_geo`/`_measure_poly`/`_paint`/`_pyramid`/`_region` + the
+  doctest): **168 passed / 0 failed / 0 ignored, identical before and
+  after** (recorded before editing:
+  `cartalith-native/target` was not reused — `CARGO_TARGET_DIR` pointed at
+  this lane's own scratchpad to avoid colliding with the other lane working
+  in `cartalith-godot`/`godot-project`). A comment-only-diff checker (this
+  lane's own `comment_only_check.py`, adapted from batch 9's method: for
+  each touched file, `git diff -U0` and assert every added/removed line is
+  blank or starts with `//` after stripping the leading `+`/`-`, and that no
+  `` ``` `` fence was introduced) confirmed all 6 touched files
+  (`src/pass.rs`, `src/paint.rs`, `src/staleness.rs`, `src/geo.rs`,
+  `tests/golden_parity_paint.rs`, `tests/golden_parity_geo.rs`) changed only
+  comment/blank lines. No wrong existing comment was found in this batch.
+  **Next step: batch 11 should close `cartalith-spatial`** on the remaining
+  four files not yet touched — `src/measure.rs` (420), `src/pyramid.rs`
+  (284), `src/lib.rs` (262), `src/region.rs` (249) — plus their three paired
+  test files, `tests/golden_parity_measure_poly.rs` (248),
+  `tests/golden_parity_pyramid.rs` (118) and
+  `tests/golden_parity_region.rs` (82): 1 663 LOC remaining, comfortably
+  inside one batch. Re-verify the undocumented-item count at the symbol
+  before starting rather than trusting this batch's own count, per this
+  file's own recurring caution about stale figures. `cartalith-terrain`,
+  `cartalith-civ`, `cartalith-urban`, `cartalith-godot` and the GDScript
+  shell remain deferred and unannotated after batch 11 closes spatial.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
