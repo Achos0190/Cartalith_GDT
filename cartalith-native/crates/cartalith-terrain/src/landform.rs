@@ -144,6 +144,7 @@ pub fn build_landform_field(
     out
 }
 
+/// Boundary and branch-order tests for `build_landform_field`.
 #[cfg(test)]
 mod tests {
     use super::*;

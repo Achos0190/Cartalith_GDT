@@ -137,6 +137,8 @@ pub struct CarveFjordsOpts {
 }
 
 impl Default for CarveFjordsOpts {
+    /// The reference's `carveFjords(..., {})` defaults: overdeepen by 0.16
+    /// below sea level, reaching full strength at mask value 0.25.
     fn default() -> Self {
         Self { over_deep: 0.16, mask_full: 0.25 }
     }
@@ -193,6 +195,7 @@ pub fn carve_fjords(
     out
 }
 
+/// Golden-parity and boundary tests for the fjord mask and carve kernels.
 #[cfg(test)]
 mod tests {
     use super::*;

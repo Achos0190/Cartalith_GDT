@@ -19,8 +19,15 @@
 
 use cartalith_terrain::{assign_plates, btype, build_plates, compute_stress, stamp_volcanoes_provinces, Plate};
 
+// Fixture grid width for the real-pipeline tests -- large enough that the
+// per-seed boundary/pool counts below are statistically meaningful (the
+// `bnd > 10_000` assertion depends on this size).
 const GW: usize = 256;
+// Fixture grid height, paired with GW.
 const GH: usize = 160;
+// Number of distinct seeds swept in the contamination measurement -- large
+// enough that `seeds_with_div == SEEDS` is a real claim, not a fluke of one
+// seed.
 const SEEDS: u32 = 12;
 
 /// Re-runs the real pipeline prefix (`build_plates` -> `assign_plates` ->
@@ -38,6 +45,9 @@ fn stress_for(seed: u32) -> (Vec<Plate>, Vec<u16>, cartalith_terrain::StressResu
 /// bug rather than an edge case.
 #[test]
 fn arc_and_rift_pools_are_polluted_by_transform_cells() {
+    // Protects: the arc/rift selector's transform-margin contamination
+    // being large (>25% of each pool) on real pipeline stress data, and
+    // the opt-in exclusion correcting it without gutting either pool.
     let (mut conv, mut conv_t, mut div, mut div_t, mut bnd, mut bnd_t) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     let mut seeds_with_div = 0usize;
 
@@ -126,6 +136,9 @@ fn arc_and_rift_pools_are_polluted_by_transform_cells() {
 /// is `a_wholly_transform_margin_is_equivalent_to_no_margin` below.
 #[test]
 fn excluding_transform_leaves_both_pools_populated() {
+    // Protects: excluding transform-typed cells from the arc/rift selector
+    // leaving both pools non-empty across every swept seed, on real
+    // pipeline stress data.
     for seed in 1..=SEEDS {
         let (_, _, st) = stress_for(seed);
         let (mut conv, mut div) = (0usize, 0usize);
@@ -163,6 +176,9 @@ fn excluding_transform_leaves_both_pools_populated() {
 /// wrong pool.
 #[test]
 fn a_wholly_transform_margin_is_equivalent_to_no_margin() {
+    // Protects: a margin typed entirely TRANSFORM producing volcanism
+    // output bit-identical to no margin at all, once excluded -- and
+    // differing from the unexcluded (arc-treated) baseline.
     let (gw, gh) = (64usize, 48usize);
     let n = gw * gh;
     // A diagonal margin, strongly convergent by the stress test.
@@ -214,6 +230,9 @@ fn a_wholly_transform_margin_is_equivalent_to_no_margin() {
 /// failure mode `stamp_volcanoes_provinces_is_deterministic` was written for.
 #[test]
 fn exclusion_moves_volcanoes_and_is_deterministic() {
+    // Protects: excluding transform margins actually moving volcano
+    // placement relative to the baseline (not a no-op), while both the
+    // excluded and unexcluded paths stay deterministic and in-range.
     let seed = 7u32;
     let (plates, plate_id, st) = stress_for(seed);
     let n = GW * GH;
@@ -254,6 +273,9 @@ fn exclusion_moves_volcanoes_and_is_deterministic() {
 /// owner's analysis asks for: a volcano does not imply a plate boundary.
 #[test]
 fn hotspots_place_volcanoes_with_no_boundaries_at_all() {
+    // Protects: hotspot volcanism placing volcanoes (with an age-progressive
+    // chain) even with an empty boundary mask, and staying unperturbed when
+    // boundary_type is supplied but has nothing to exclude.
     let (gw, gh) = (64usize, 48usize);
     let n = gw * gh;
     let boundary_mask = vec![0u8; n]; // no boundaries anywhere

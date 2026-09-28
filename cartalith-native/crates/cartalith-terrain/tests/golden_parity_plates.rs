@@ -8,6 +8,8 @@ use cartalith_terrain::{build_plates, Plate, WorldStructure};
 
 #[test]
 fn build_plates_case_0() {
+    // Protects: build_plates() matching the reference bit-for-bit with no
+    // Lloyd relaxation iterations, non-world (no X-wrap), no world structure.
     let plates = build_plates(6, 5, 12345, 4, 0, false, None);
     let expected: Vec<Plate> = vec![
         Plate { x: 1.8405135869979858, y: 2.421027107629925, vx: 0.6358688250184059, vy: 0.018856738694012165, base: 0.7063623372116127 },
@@ -20,6 +22,8 @@ fn build_plates_case_0() {
 
 #[test]
 fn build_plates_case_1() {
+    // Protects: build_plates() matching the reference bit-for-bit with 2
+    // Lloyd relaxation iterations, non-world, no world structure.
     let plates = build_plates(6, 5, 12345, 4, 2, false, None);
     let expected: Vec<Plate> = vec![
         Plate { x: 1.2941176470588236, y: 1.7058823529411764, vx: 0.6358688250184059, vy: 0.018856738694012165, base: 0.7063623372116127 },
@@ -32,6 +36,9 @@ fn build_plates_case_1() {
 
 #[test]
 fn build_plates_case_2() {
+    // Protects: build_plates() matching the reference bit-for-bit with the
+    // same seed/relaxation count as case 1 but world (X-wrap) enabled --
+    // this is the feature golden for the world-wrap circular-mean path.
     let plates = build_plates(6, 5, 12345, 4, 2, true, None);
     let expected: Vec<Plate> = vec![
         Plate { x: 2.0, y: 1.2, vx: 0.6358688250184059, vy: 0.018856738694012165, base: 0.7063623372116127 },
@@ -44,6 +51,9 @@ fn build_plates_case_2() {
 
 #[test]
 fn build_plates_case_3() {
+    // Protects: build_plates() matching the reference bit-for-bit at a
+    // different grid size, seed and plate count, world enabled -- the
+    // second feature golden for the world-wrap circular-mean path.
     let plates = build_plates(7, 6, 999, 5, 1, true, None);
     let expected: Vec<Plate> = vec![
         Plate { x: 4.902593548284577, y: 1.1904761904761905, vx: 0.5453879786655307, vy: -0.08673157542943954, base: 0.8096035347320141 },
@@ -57,6 +67,9 @@ fn build_plates_case_3() {
 
 #[test]
 fn build_plates_case_4() {
+    // Protects: build_plates() matching the reference bit-for-bit when a
+    // WorldStructure (ocean depth + continental field) is supplied, biasing
+    // plate placement toward/away from continents.
     let continental_field: Vec<f32> = vec![0.0, 0.5153741240501404, 0.7883597612380981, 0.6905674934387207, 0.2679905295372009, -0.2806265950202942, -0.6972606182098389, -0.7859621047973633, -0.5050132870674133, 0.01345112081617117, 0.5255892872810364, 0.7905346155166626, 0.6836791038513184, 0.25527867674827576, -0.293183296918869, -0.7037566304206848, -0.783342182636261, -0.4945096969604492, 0.02689843811094761, 0.5356557965278625, 0.7924858927726746, 0.6765974760055542, 0.24249468743801117, -0.30565714836120605, -0.7100536227226257, -0.7805008292198181, -0.48386624455451965, 0.04033815115690231, 0.5455709099769592, 0.7942131161689758];
     let plates = build_plates(6, 5, 555, 4, 1, false, Some(WorldStructure { ocean_depth: 0.6, continental_field: &continental_field }));
     let expected: Vec<Plate> = vec![

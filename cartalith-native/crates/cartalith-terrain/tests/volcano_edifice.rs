@@ -20,10 +20,17 @@ use cartalith_terrain::{
     stamp_volcanoes_provinces_shaped, stamp_volcanoes_simple_shaped, EdificeModel, Plate,
 };
 
+// Fixture grid width -- large enough that the boundary-mask stride below
+// (every 5th/7th cell) still stamps enough volcanoes to be statistically
+// meaningful.
 const GW: usize = 48;
+// Fixture grid height, paired with GW.
 const GH: usize = 40;
 const N: usize = GW * GH;
 
+/// Runs `stamp_volcanoes_simple_shaped` once with the given edifice model
+/// over a fixed synthetic boundary mask, returning the resulting height and
+/// volcanic-age fields for comparison between models.
 fn simple(model: EdificeModel) -> (Vec<f32>, Vec<f32>) {
     let boundary_mask: Vec<u8> = (0..N).map(|i| u8::from(i % 7 == 0)).collect();
     let mut field = vec![0.3f32; N];
@@ -44,6 +51,9 @@ fn simple(model: EdificeModel) -> (Vec<f32>, Vec<f32>) {
     (field, volcanic_field)
 }
 
+/// Runs `stamp_volcanoes_provinces_shaped` once with the given edifice
+/// model over a fixed synthetic plate/stress setup, returning the
+/// resulting height and volcanic-age fields for comparison between models.
 fn provinces(model: EdificeModel) -> (Vec<f32>, Vec<f32>) {
     let boundary_mask: Vec<u8> = (0..N).map(|i| u8::from(i % 5 == 0)).collect();
     let stress_field: Vec<f32> = (0..N).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
@@ -76,8 +86,8 @@ fn provinces(model: EdificeModel) -> (Vec<f32>, Vec<f32>) {
     (field, volcanic_field)
 }
 
-/// The default must be the reference. Anything else silently re-baselines every
-/// caller that does not name a model.
+/// Protects: `EdificeModel::default()` staying `Reference`. Anything else
+/// silently re-baselines every caller that does not name a model.
 #[test]
 fn the_default_edifice_model_is_the_reference() {
     assert_eq!(EdificeModel::default(), EdificeModel::Reference);
@@ -85,6 +95,10 @@ fn the_default_edifice_model_is_the_reference() {
 
 #[test]
 fn morphological_does_not_move_the_random_stream() {
+    // Protects: turning on EdificeModel::Morphological not consuming any
+    // extra RNG draws relative to Reference (volcanic_field, which depends
+    // only on placement/radius/age, must stay bit-identical) while the
+    // height field itself actually differs and stays within [0,1].
     for (name, run) in [
         ("simple", simple as fn(EdificeModel) -> (Vec<f32>, Vec<f32>)),
         ("provinces", provinces as fn(EdificeModel) -> (Vec<f32>, Vec<f32>)),
@@ -114,17 +128,18 @@ fn morphological_does_not_move_the_random_stream() {
     }
 }
 
-/// A seeded world must render identically every time under the new model too —
-/// the noise terms are keyed on the edifice centre, not on iteration order.
+/// Protects: a seeded world rendering identically every time under the new
+/// model too -- the noise terms are keyed on the edifice centre, not on
+/// iteration order.
 #[test]
 fn morphological_is_deterministic() {
     assert_eq!(provinces(EdificeModel::Morphological), provinces(EdificeModel::Morphological));
     assert_eq!(simple(EdificeModel::Morphological), simple(EdificeModel::Morphological));
 }
 
-/// The un-suffixed entry points -- the ones every golden calls -- must still
-/// mean the reference. This is the guard against a future edit "helpfully"
-/// defaulting them to the new model.
+/// Protects: the un-suffixed entry points -- the ones every golden calls --
+/// still meaning the reference. This is the guard against a future edit
+/// "helpfully" defaulting them to the new model.
 #[test]
 fn the_unsuffixed_entry_points_still_stamp_the_reference() {
     let boundary_mask: Vec<u8> = (0..N).map(|i| u8::from(i % 7 == 0)).collect();

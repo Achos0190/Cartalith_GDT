@@ -24,6 +24,8 @@ use cartalith_terrain::{stamp_craters, stamp_volcanoes_provinces, stamp_volcanoe
 
 #[test]
 fn stamp_volcanoes_simple_case_0() {
+    // Protects: stamp_volcanoes_simple() matching the reference bit-for-bit
+    // for both the height field and the volcanic-age tracking field.
     let mut field: Vec<f32> = vec![0.3f32; 320];
     let mut volcanic_field: Vec<f32> = vec![0.0f32; 320];
     let boundary_mask: Vec<u8> = vec![1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
@@ -36,6 +38,8 @@ fn stamp_volcanoes_simple_case_0() {
 
 #[test]
 fn stamp_volcanoes_simple_case_1() {
+    // Protects: stamp_volcanoes_simple() matching the reference bit-for-bit
+    // at a different grid/seed/spacing/strength than case 0.
     let mut field: Vec<f32> = vec![0.3f32; 192];
     let mut volcanic_field: Vec<f32> = vec![0.0f32; 192];
     let boundary_mask: Vec<u8> = vec![0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0];
@@ -48,6 +52,8 @@ fn stamp_volcanoes_simple_case_1() {
 
 #[test]
 fn stamp_craters_case_0() {
+    // Protects: stamp_craters() matching the reference bit-for-bit for both
+    // the height field and the impact_field, physical=false (band scheme).
     let mut field: Vec<f32> = vec![0.4f32; 320];
     let mut impact_field: Vec<f32> = vec![0.0f32; 320];
     // `false` = the reference's own band scheme. These two cases remain TRUE
@@ -65,6 +71,8 @@ fn stamp_craters_case_0() {
 
 #[test]
 fn stamp_craters_case_1() {
+    // Protects: stamp_craters() matching the reference bit-for-bit at a
+    // different grid/seed/impact-size/strength than case 0.
     let mut field: Vec<f32> = vec![0.4f32; 192];
     let mut impact_field: Vec<f32> = vec![0.0f32; 192];
     stamp_craters(16, 12, 7, 5000.0, 1.5, 5, 0.2, false, 1.0, 100.0, 0.15, &mut field, &mut impact_field);
@@ -74,13 +82,13 @@ fn stamp_craters_case_1() {
     assert_eq!(impact_field, expected_impact, "impact_field");
 }
 
-/// NOT a golden-parity test -- see this file's own header comment. A
-/// same-seed run must produce the same output (catches a future refactor
-/// accidentally introducing nondeterminism, e.g. iterating a HashMap), and
-/// the output must actually differ from the untouched baseline field
-/// (catches a refactor that accidentally makes this a no-op) while staying
-/// within the `[0,1]` height range `stamp_one_volcano`'s own clamp
-/// guarantees.
+/// NOT a golden-parity test -- see this file's own header comment.
+/// Protects: `stamp_volcanoes_provinces()` producing the same output for a
+/// same-seed run (catches a future refactor accidentally introducing
+/// nondeterminism, e.g. iterating a HashMap), actually differing from the
+/// untouched baseline field (catches a refactor that accidentally makes
+/// this a no-op), and staying within the `[0,1]` height range
+/// `stamp_one_volcano`'s own clamp guarantees.
 #[test]
 fn stamp_volcanoes_provinces_is_deterministic() {
     use cartalith_terrain::Plate;

@@ -975,6 +975,49 @@ re-checked against the tree rather than copied from the commit message.
   still need an independent verifier before any can be called done rather
   than pending.
 
+- **Ruling BK annotation pass, batch 15 (`cartalith-terrain`'s leftover
+  golden-parity/unit test files, plus the remaining undoc items in
+  `src/center.rs`/`fjord.rs`/`landform.rs`) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; terrain 317/0/0 unchanged).** Took every file batch 14 named as leftover:
+  `tests/golden_parity.rs`, `golden_parity_age.rs`, `golden_parity_assign.rs`,
+  `golden_parity_blur.rs`, `golden_parity_flex_hetero_resist.rs`,
+  `golden_parity_height.rs`, `golden_parity_orogeny.rs`,
+  `golden_parity_plate_circular_mean.rs`, `golden_parity_plates.rs`,
+  `golden_parity_stress.rs`, `golden_parity_volc_craters.rs`,
+  `golden_parity_volc_provinces.rs`, `golden_parity_world_structure.rs`,
+  `volcano_edifice.rs`, `volcano_transform_boundaries.rs`, plus
+  `src/center.rs`/`fjord.rs`/`landform.rs`'s remaining gaps. Per-file
+  `census_v2.py` scan (a small script re-using its own `scan_rust_file`)
+  confirmed each file's exact undoc/unprotected/const counts before editing
+  rather than trusting the crate-wide total. Every test in the golden files
+  got a first-line `// Protects:` naming the function and the distinguishing
+  case (world-wrap vs. non-wrap, warp fields present/absent, ridged mode,
+  etc.) rather than a generic restatement; `golden_parity_orogeny.rs`'s
+  `W`/`H`/`PTS`/`STRESS`/`CRUST`/`SHEAR` consts and its `polyline()` helper
+  got provenance docs; `golden_parity_plate_circular_mean.rs`'s
+  `Mulberry32::next_f64` got a doc and its `GW`/`TAU` consts got inline
+  provenance comments; `volcano_edifice.rs`'s `simple`/`provinces` helper
+  fns and `GW`/`GH` consts got docs, and its four tests' existing prose was
+  kept with a `// Protects:` line added rather than reworded;
+  `volcano_transform_boundaries.rs`'s `GW`/`GH`/`SEEDS` consts got
+  provenance comments and its five tests (already carrying real `///` prose
+  that never used the word "protects") each got a `// Protects:` line added
+  inside the body alongside the existing doc. `src/center.rs`/`fjord.rs`/
+  `landform.rs` each had exactly one or two gaps left: an inline `mod tests`
+  block missing a doc in all three, plus `fjord.rs`'s
+  `impl Default for CarveFjordsOpts::default()` lacking a doc. No wrong
+  existing comment was found or fixed. **Comments only**: `cargo test -p
+  cartalith-terrain`, summed over all 25 binaries, recorded before editing
+  and again after — **317 passed / 0 failed / 0 ignored, identical both
+  times** (`CARGO_TARGET_DIR` at `.../scratchpad/bk15`). Crate-wide
+  `census_v2.py`: `cartalith-terrain` items_undoc 74→19, tests_unprotected
+  105→47, consts_undoc 33→18 — every remaining count is now inside
+  `src/lib.rs` alone (confirmed by the same per-file scan); every other
+  `.rs` file in the crate is at 0/0/0. **Next step: batch 16** is
+  `src/lib.rs` (4 400 LOC, needs splitting into sections per its own
+  top-level structure) — the last file before the crate closes. Batches 6
+  through 15 all still need an independent verifier before any can be
+  called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

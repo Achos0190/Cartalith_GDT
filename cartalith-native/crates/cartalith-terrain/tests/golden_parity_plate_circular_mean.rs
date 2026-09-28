@@ -32,6 +32,9 @@
 struct Mulberry32(u32);
 
 impl Mulberry32 {
+    /// One `mulberry32` step, returning the next `[0,1)` draw -- bit-for-bit
+    /// the reference's own generator, not `cartalith-rng`'s (inlined per the
+    /// module doc above).
     fn next_f64(&mut self) -> f64 {
         self.0 = self.0.wrapping_add(0x6D2B79F5);
         let mut t = self.0;
@@ -41,7 +44,12 @@ impl Mulberry32 {
     }
 }
 
+// The synthetic grid width the circular mean's x positions are scaled by --
+// arbitrary but must match the reference's own `gw` scaling to exercise the
+// same code path.
 const GW: usize = 512;
+// 2*pi, spelled out because the reference's own formula divides by `2*Math.PI`
+// rather than naming a constant.
 const TAU: f64 = std::f64::consts::PI * 2.0;
 
 /// The circular mean exactly as `build_plates` spells it, parameterised on the
@@ -70,6 +78,9 @@ fn sweep(seed: u32, n: usize, sin: fn(f64) -> f64, cos: fn(f64) -> f64, atan2: f
 
 #[test]
 fn the_world_wrap_circular_mean_matches_v8_and_rusts_own_libm_does_not() {
+    // Protects: the js_sin/js_cos/js_atan2 triple reproducing V8's circular
+    // mean bit-for-bit (FNV-1a hash over 2000 plates) while Rust's own
+    // libm, and the js_atan2-only partial fix, both provably do not.
     let js = (
         cartalith_jsmath::js_sin as fn(f64) -> f64,
         cartalith_jsmath::js_cos as fn(f64) -> f64,
@@ -108,6 +119,10 @@ fn the_world_wrap_circular_mean_matches_v8_and_rusts_own_libm_does_not() {
 /// 98/2000 figures, re-measured here.
 #[test]
 fn the_partial_fix_is_an_improvement_that_still_leaves_the_site_wrong() {
+    // Protects: the audit's own 92/2000 and 98/2000 finding -- the
+    // (sum sin, sum cos) pair already diverges before atan2 is reached, and
+    // js_atan2 alone strictly improves on Rust's own libm without reaching
+    // parity.
     let mut n = 0usize;
     let (mut native_bad, mut partial_bad, mut pair_bad) = (0usize, 0usize, 0usize);
     let mut r_js = Mulberry32(0x00b1_a7e5);

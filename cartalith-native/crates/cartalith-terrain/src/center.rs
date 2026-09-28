@@ -123,6 +123,8 @@ pub fn seam_column(w: usize, off: usize) -> usize {
     (w as isize - off as isize).rem_euclid(w as isize) as usize
 }
 
+/// Boundary tests for the three centering kernels: shift, seam-column and
+/// feather.
 #[cfg(test)]
 mod tests {
     use super::*;
