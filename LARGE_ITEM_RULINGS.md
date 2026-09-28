@@ -2027,3 +2027,24 @@ current ones sit."*
 - It is a viewing aid only. It never changes the data, the save or the
   export.
 - Routed as a backlog row in `OUTSTANDING_WORK.md`.
+
+## 2026-09-28 — Ruling BS: journey supply = foraging plus suggested resupply stops; the all-or-nothing block goes
+
+The owner noted that the planner often marks journeys blocked by cargo and supply
+constraints, and chose to combine two proposals: live foraging and resupply
+stops. The owner's answers, verbatim: *"Stops should be suggested, Trade is
+possible, the old rule should go."*
+
+- **Foraging first.** Per leg, what the land provides (forage, grazing,
+  hunting, water sources, from biome × season × wildlife) is subtracted from
+  the party's need. Only the remaining gap is carried.
+- **Suggested resupply stops.** Walking the route, where the carried gap would
+  exceed carrying capacity, the planner **suggests** a stop at the last
+  feasible point before it: settlements restock everything (trade is possible
+  there), rivers, lakes and oases restock water, and good pasture restocks
+  fodder. The user accepts or declines each one. An accepted stop becomes a
+  stage with its own time and cost, on the map and in the log.
+- **The old rule goes.** The reference's hard block on carry capacity is
+  retired (DECISIONS §7p). A journey is blocked only when a single stretch
+  between two possible resupply points cannot be carried even after
+  foraging, and the message names that stretch.
