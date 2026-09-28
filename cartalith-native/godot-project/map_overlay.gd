@@ -2853,6 +2853,9 @@ func _draw() -> void:
 		RenderingServer.canvas_item_set_custom_rect(ci, true, _interior_rect(rect))
 		RenderingServer.canvas_item_set_clip(ci, true)
 	_content_gen += 1
+	## A content change re-lists the glyph pre-warm from the new labels
+	## (`_warm_step`); what was queued for the old ones is dropped.
+	_warm_queue.clear()
 	_refresh_layers(true)
 
 
@@ -2965,13 +2968,21 @@ const LAYER_PREFETCH_FRAC := 0.1
 ## `LAYER_BUILD_BUDGET_MAX_US`. A camera move's own measured work in the same
 ## frame (`_frame_used_us`) comes off it first. So the other work in a frame,
 ## whatever it is, shrinks what the build may add -- measured, not assumed.
-## Labelled judgements: the target is 60 Hz less 5% slack; max 4 ms is the
-## ~16.7 ms bar less the ~10-12 ms frame this map draws with every layer on at
-## rest (the probe's idle leg, dev machine); min 0.5 ms and the 0.5 ms step keep
-## a build finishing within ~a second even on a frame that is always full.
-## Under vsync the wall time is the display interval, which reads as "under"
-## until real overrun -- the same answer, for the same reason.
-const LAYER_FRAME_TARGET_US := 17500.0
+## Labelled judgements: max 4 ms is the ~16.7 ms bar less the ~10-12 ms frame
+## this map draws with every layer on at rest (the probe's idle leg, dev
+## machine); min 0.5 ms and the 0.5 ms step keep a build finishing within ~a
+## second even on a frame that is always full.
+##
+## **The target depends on vsync** (`_frame_target_us`). Without vsync a frame's
+## wall time is its work, and the target is 16.0 ms -- under the 16.7 ms bar,
+## because AIMD only learns of an overrun after it: the second pass used 17.5
+## for both, and its remaining notch frames over the bar were mostly builds that
+## took a 13 ms frame to 17-19 ms (per-frame trace, 2026-09-28). With vsync the
+## wall time is the display interval (16.7 ms when on time), so 16.0 would read
+## every frame as late; there the target is 17.5, and `over` means a missed
+## interval.
+const LAYER_FRAME_TARGET_US := 16000.0
+const LAYER_FRAME_TARGET_VSYNC_US := 17500.0
 const LAYER_BUILD_BUDGET_MAX_US := 4000.0
 const LAYER_BUILD_BUDGET_MIN_US := 500.0
 const LAYER_BUDGET_STEP_US := 500.0
@@ -3294,6 +3305,148 @@ func _set_slot_visible(name: String, slot: int, on: bool) -> void:
 		RenderingServer.canvas_item_set_visible(it if it is RID else (it as CanvasItem).get_canvas_item(), on)
 
 
+## ── Label glyph pre-warm ─────────────────────────────────────────────────────
+##
+## **Why.** Every new zoom gives a zoom-sized label a new raster size
+## (`_label_raster_px`), and the font rasterises its glyphs at that size the
+## first time `draw_string` asks -- on the main thread, inside a top-layer
+## chunk. Per-frame traces (2026-09-28, third pass, seed 24601) put 3-7 ms of
+## a single label chunk on it at zoom 3.75-7.5, the largest remaining cost in
+## the notch frames still over 16.7 ms.
+##
+## **What.** As soon as the zoom changes, the glyphs the top layer will need at
+## that zoom (its own background build draws last, after every other layer)
+## and one wheel notch in and one notch out (`ViewportHost.ZOOM_WHEEL_STEP`)
+## are listed (`_list_label_glyphs`), and then rendered into the font's own
+## glyph cache through the `TextServer` a few at a time, ON THE MAIN THREAD, in
+## whatever is left of each frame's build budget and never in a frame the
+## camera moved (`_pump_builds`, `_warm_step`). When the notch comes,
+## `draw_string` finds them cached. The cache is the same one `draw_string`
+## fills itself, with the same font, size and outline keys, so the bitmaps --
+## and so the pixels -- are the ones it would have made (`_zoomcost_probe
+## --shots` before and after is the check).
+##
+## **Main thread, not a worker (coordinator, 2026-09-28).** The first version
+## rendered on a `WorkerThreadPool` task. The engine's text server locks its
+## font methods, but nothing documents rendering into a `FontFile`'s cache from
+## another thread while the main thread draws with, replaces or frees that font
+## (a new project does exactly that), and an owner-reported new-project stall
+## was open while it was live. So it was moved here: the same calls, budgeted.
+## Must never run in a camera-move frame or past its budget.
+
+## `[content generation, zoom]` the last pre-warm was listed for.
+var _warm_key: Array = []
+## Glyphs still to render: `[[font RIDs (the font and its fallbacks, in
+## order), Vector2i cache size, PackedInt32Array codepoints, next index], ...]`.
+var _warm_queue: Array = []
+
+
+## Renders queued glyphs until `budget_us` is spent; with the queue empty and
+## the zoom or content changed since the last listing, lists a new queue
+## instead (~1 ms, so only when at least that much budget is left). Called from
+## `_pump_builds` with what the frame's build left, on frames the camera did not
+## move in. **Measured** (worker version, same listing): with 40 frames between
+## notches no label drew in over 0.8 ms across 20 notches, against 32 such
+## frames, up to 5.7 ms each, without it (scratch per-label trace, seed 24601).
+func _warm_step(budget_us: float) -> void:
+	if budget_us <= 0.0:
+		return
+	var t0 := Time.get_ticks_usec()
+	if _warm_queue.is_empty():
+		var key := [_content_gen, _camera_zoom]
+		if key == _warm_key or _labels.is_empty() or budget_us < LABEL_WARM_LIST_US:
+			return
+		_warm_key = key
+		_warm_queue = _list_warm_queue()
+		return
+	var ts := TextServerManager.get_primary_interface()
+	while not _warm_queue.is_empty() and float(Time.get_ticks_usec() - t0) < budget_us:
+		var j: Array = _warm_queue[0]
+		var cps: PackedInt32Array = j[2]
+		var i: int = j[3]
+		if i >= cps.size():
+			_warm_queue.pop_front()
+			continue
+		j[3] = i + 1
+		var sz: Vector2i = j[1]
+		for rid: RID in j[0]:
+			if not rid.is_valid():
+				continue
+			var gi := ts.font_get_glyph_index(rid, sz.x, cps[i], 0)
+			if gi != 0:
+				ts.font_render_glyph(rid, sz, gi)
+				break
+
+## Listing cost the budget must leave room for, us: measured 0.9 ms (6
+## font/size jobs, fit, probe world), rounded up. Labelled judgement.
+const LABEL_WARM_LIST_US := 1000.0
+
+
+## The glyph queue for the current zoom and one notch either side.
+func _list_warm_queue() -> Array:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return []
+	var jobs := {}
+	var step := float(ViewportHost.ZOOM_WHEEL_STEP)
+	var saved_zoom := _camera_zoom
+	var saved_view := _visible_local
+	for z: float in [saved_zoom, saved_zoom * step, saved_zoom / step]:
+		_camera_zoom = z
+		## The view after a notch about its centre: smaller in, larger out.
+		## The top layer is built for a guard around it, so list for that.
+		var sz: Vector2 = saved_view.size * (saved_zoom / z)
+		var v := Rect2(saved_view.get_center() - sz * 0.5, sz)
+		var g := v.size * LAYER_GUARD_FRAC
+		_visible_local = v.grow_individual(g.x, g.y, g.x, g.y)
+		_list_label_glyphs(rect, jobs)
+	_camera_zoom = saved_zoom
+	_visible_local = saved_view
+	var q := []
+	for j: Array in jobs.values():
+		q.append([j[0], j[1], PackedInt32Array((j[2] as Dictionary).keys()), 0])
+	return q
+
+
+## Adds to `jobs` the glyphs `_draw_labels` would rasterise at the current
+## `_camera_zoom` for the labels it would draw inside `_visible_local`: per font
+## and cache size (`Vector2i(raster px, outline px)`, fill and outline), the
+## set of codepoints. Mirrors `_draw_labels`' own skips and size arithmetic,
+## and must be kept in step with it -- a size listed wrong only wastes the
+## warm-up (the draw then rasterises as before); it can never change a pixel.
+func _list_label_glyphs(rect: Rect2, jobs: Dictionary) -> void:
+	for lb: Dictionary in _labels:
+		var text: String = lb["text"]
+		if text.is_empty() or _label_below_lod(lb):
+			continue
+		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
+		var font := _label_font_for(lb)
+		var font_px := _label_font_px(lb, rect)
+		var reach := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
+		if not _visible_local.grow(reach).has_point(pos):
+			continue
+		var raster_px := _label_raster_px(font_px)
+		var kk := float(raster_px) / float(font_px)
+		var halo_em: float = float(lb.get("halo_em", LABEL_HALO_EM_FALLBACK))
+		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em) * kk))
+		var sizes := [Vector2i(raster_px, 0)]
+		if outline_w > 0:
+			sizes.append(Vector2i(raster_px, outline_w))
+		for s: Vector2i in sizes:
+			var jk := "%d:%d:%d" % [font.get_instance_id(), s.x, s.y]
+			if not jobs.has(jk):
+				jobs[jk] = [font.get_rids(), s, {}]
+			var chars: Dictionary = jobs[jk][2]
+			for i in text.length():
+				chars[text.unicode_at(i)] = true
+
+## The AIMD target for this window's vsync mode (see `LAYER_FRAME_TARGET_US`).
+func _frame_target_us() -> float:
+	var vs := DisplayServer.window_get_vsync_mode()
+	return LAYER_FRAME_TARGET_US if vs == DisplayServer.VSYNC_DISABLED else LAYER_FRAME_TARGET_VSYNC_US
+
+
 ## Places background chunks, bottom layer first and each layer's chunks in
 ## order, within this frame's budget -- see `LAYER_FRAME_TARGET_US` for how the
 ## budget adapts and why. A chunk is placed only if its own last measured cost
@@ -3306,15 +3459,25 @@ func _pump_builds() -> void:
 	var now := Time.get_ticks_usec()
 	var frame_us := float(now - _last_pump_us) if _last_pump_us > 0 else 0.0
 	_last_pump_us = now
-	if frame_us > LAYER_FRAME_TARGET_US:
+	if frame_us > _frame_target_us():
 		_build_budget_us = maxf(LAYER_BUILD_BUDGET_MIN_US, _build_budget_us * 0.5)
 	else:
 		_build_budget_us = minf(LAYER_BUILD_BUDGET_MAX_US, _build_budget_us + LAYER_BUDGET_STEP_US)
 	var budget := _build_budget_us - _frame_used_us
+	## The glyph pre-warm gets what the builds leave, and nothing in a frame the
+	## camera moved: a notch's own frame is the one that must stay cheapest.
+	var moved := _frame_used_us > 0.0
 	_frame_used_us = 0.0
+	var spent := _place_chunks(budget)
+	if not moved:
+		_warm_step(budget - spent)
+
+
+## `_pump_builds`' chunk placement; returns the estimated time placed.
+func _place_chunks(budget: float) -> float:
 	if pending_builds() == 0:
 		_starved_frames = 0
-		return
+		return 0.0
 	var spent := 0.0
 	var placed := 0
 	for name in CACHED_LAYERS:
@@ -3331,7 +3494,7 @@ func _pump_builds() -> void:
 			var forced := placed == 0 and _starved_frames + 1 >= LAYER_STARVE_FRAMES
 			if spent + est > budget and not forced:
 				_starved_frames = _starved_frames + 1 if placed == 0 else 0
-				return
+				return spent
 			L["next"] = idx + 1
 			spent += est
 			placed += 1
@@ -3343,6 +3506,7 @@ func _pump_builds() -> void:
 			else:
 				(L["items"][1 - int(L["front"])][idx] as CanvasItem).queue_redraw()
 	_starved_frames = 0 if placed > 0 else _starved_frames + 1
+	return spent
 
 
 ## Bookkeeping after one chunk of a set was built: that chunk's measured cost
