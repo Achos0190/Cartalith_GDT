@@ -56,7 +56,7 @@
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use cartalith_spatial::pyramid::ChunkId;
 
@@ -867,24 +867,136 @@ impl LodSnapshot {
 /// correct. Returning an `Option` rather than `expect`ing is
 /// `cartalith-rust-conventions`' rule — a panic here would be on the main
 /// thread inside a `#[func]` and would take the Godot process down.
-fn pool() -> Option<&'static rayon::ThreadPool> {
-    static POOL: OnceLock<Option<rayon::ThreadPool>> = OnceLock::new();
-    POOL.get_or_init(|| {
-        let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(cores.saturating_sub(1).max(1))
-            .thread_name(|i| format!("cartalith-lod-{i}"))
-            // A panic inside a tile job must not abort the process, which is
-            // rayon's default for an unhandled one. There is no `Gd` and no
-            // Godot API in a job, so there is nothing to report *to* from
-            // here; the job simply produces no tile and the shell keeps its
-            // fallback. `eprintln!` rather than `godot_error!` because the
-            // latter is not documented as callable off the main thread.
-            .panic_handler(|_| eprintln!("cartalith: a LOD tile job panicked; the tile was dropped"))
-            .build()
-            .ok()
-    })
-    .as_ref()
+///
+/// Returns a clone of the pool's `Arc`, not a `&'static`: the pool can be
+/// torn down by [`shutdown_pool`] and a borrow of it must not outlive that.
+/// Callers hold the clone only for the length of one `spawn`.
+fn pool() -> Option<Arc<rayon::ThreadPool>> {
+    let Ok(mut slot) = POOL.lock() else { return None };
+    if let PoolSlot::Unbuilt = *slot {
+        *slot = build_pool().map_or(PoolSlot::Failed, PoolSlot::Live);
+    }
+    match &*slot {
+        PoolSlot::Live(p) => Some(Arc::clone(&p.pool)),
+        // A failed build stays failed, as it did when this was a `OnceLock`:
+        // retrying would spawn threads on every tile request of a machine
+        // that already said it cannot.
+        PoolSlot::Unbuilt | PoolSlot::Failed => None,
+    }
+}
+
+/// The tile pool plus the join handles of every thread it runs on.
+///
+/// **Why the handles are kept.** Without them nothing can wait for the pool's
+/// threads to *finish*, and that is the exit crash `OUTSTANDING_WORK.md`
+/// filed as "several probes crash with an access violation at exit": a probe
+/// that quits right after queueing tiles (`_riverstroke_probe` flips the
+/// rivers layer, which re-queues the view, and then quits) leaves these
+/// threads inside `LodSnapshot::render_tile` while Godot unloads this
+/// library. Their code is unmapped under them and the process dies with
+/// 0xC0000005 after the probe has printed its verdict. Bisected 2026-09-28
+/// in a scratch copy of that probe: quitting before the flip, or after
+/// waiting for the pyramid to settle, exits 0; quitting straight after the
+/// flip exits 139 every time.
+struct LodPool {
+    pool: Arc<rayon::ThreadPool>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+}
+
+/// The pool's lifecycle. `Unbuilt` at load and again after [`shutdown_pool`],
+/// so a library that Godot re-initialises in the same process (the editor's
+/// extension hot-reload) builds a fresh pool instead of finding a dead one.
+enum PoolSlot {
+    Unbuilt,
+    Failed,
+    Live(LodPool),
+}
+
+static POOL: Mutex<PoolSlot> = Mutex::new(PoolSlot::Unbuilt);
+
+/// Build the pool, spawning its threads ourselves (`spawn_handler`) so their
+/// `JoinHandle`s can be kept. `None` if the pool or any thread could not be
+/// created; the caller records that as [`PoolSlot::Failed`].
+fn build_pool() -> Option<LodPool> {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    let threads: Arc<Mutex<Vec<std::thread::JoinHandle<()>>>> = Arc::default();
+    let sink = Arc::clone(&threads);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(cores.saturating_sub(1).max(1))
+        .thread_name(|i| format!("cartalith-lod-{i}"))
+        // A panic inside a tile job must not abort the process, which is
+        // rayon's default for an unhandled one. There is no `Gd` and no
+        // Godot API in a job, so there is nothing to report *to* from
+        // here; the job simply produces no tile and the shell keeps its
+        // fallback. `eprintln!` rather than `godot_error!` because the
+        // latter is not documented as callable off the main thread.
+        .panic_handler(|_| eprintln!("cartalith: a LOD tile job panicked; the tile was dropped"))
+        // rayon's own default spawn, except that the handle is kept.
+        .spawn_handler(move |t| {
+            let mut b = std::thread::Builder::new();
+            if let Some(name) = t.name() {
+                b = b.name(name.to_owned());
+            }
+            if let Some(size) = t.stack_size() {
+                b = b.stack_size(size);
+            }
+            let h = b.spawn(|| t.run())?;
+            if let Ok(mut v) = sink.lock() {
+                v.push(h);
+            }
+            Ok(())
+        })
+        .build()
+        .ok()?;
+    // The builder (and its clone of `threads`) is gone once `build` returns,
+    // so this is normally the only owner; a poisoned lock yields no handles,
+    // which only makes a later shutdown unable to wait, never unsound.
+    let threads = threads.lock().map(|mut v| std::mem::take(&mut *v)).unwrap_or_default();
+    Some(LodPool { pool: Arc::new(pool), threads })
+}
+
+/// **Stop the tile pool and wait for every one of its threads to exit.**
+/// Called from the extension's deinit (`lib.rs`, `on_stage_deinit`), before
+/// Godot unloads this library.
+///
+/// What it does: takes the pool out of [`POOL`], drops it (rayon's signal to
+/// its threads to finish the jobs already spawned and then exit), and joins
+/// each thread. A job's output lands in an `Arc<LodWorker>` the job itself
+/// owns, so finishing it after every `WorldGen` is gone is harmless.
+///
+/// Why: this library's code must not be running on any thread when Godot
+/// unmaps it -- see [`LodPool`] for the crash that happens otherwise.
+///
+/// Must never: call a Godot API (none is needed, and at deinit much of
+/// Godot is already down); panic (a panic here is caught by gdext but the
+/// join it skipped would reinstate the crash); or be called while a caller
+/// still holds a [`pool`] clone -- then the drop below is not the last one,
+/// the pool is not terminated, and joining would wait forever. It checks
+/// that instead of assuming it and skips the join, reporting why.
+///
+/// Rayon's *global* pool is not covered: it cannot be dropped, and every use
+/// of it is a synchronous `par_iter` the caller waits for, so it has no work
+/// in flight once the main loop has ended.
+pub fn shutdown_pool() {
+    let taken = match POOL.lock() {
+        Ok(mut slot) => std::mem::replace(&mut *slot, PoolSlot::Unbuilt),
+        Err(_) => return,
+    };
+    let PoolSlot::Live(LodPool { pool, threads }) = taken else { return };
+    match Arc::try_unwrap(pool) {
+        // Dropping the last handle terminates the pool; the threads then run
+        // out their queue and return, which is what the joins wait for.
+        Ok(pool) => drop(pool),
+        Err(_) => {
+            eprintln!("cartalith: LOD pool still borrowed at shutdown; not waiting for its threads");
+            return;
+        }
+    }
+    for h in threads {
+        // `Err` means the thread panicked outside a job; it has still exited,
+        // which is all this function needs.
+        let _ = h.join();
+    }
 }
 
 // ---------------------------------------------------------------------------

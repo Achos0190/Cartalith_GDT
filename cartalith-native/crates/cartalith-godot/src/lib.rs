@@ -100,6 +100,26 @@ unsafe impl ExtensionLibrary for CartalithExtension {
     fn on_stage_init(_stage: InitStage) {
         install_logger();
     }
+
+    /// Stop this library's own worker threads before Godot unloads it.
+    ///
+    /// A thread still executing this DLL's code when Godot unmaps it dies
+    /// with an access violation after the program has otherwise finished --
+    /// the exit crash `_riverstroke_probe` showed (exit 139 after ALL PASS)
+    /// because it quits with deep-zoom tiles still being synthesised.
+    /// `lod_worker::shutdown_pool` waits those jobs out and joins the pool's
+    /// threads.
+    ///
+    /// `Scene` because it is the last stage this extension is deinitialised
+    /// at (`min_level` is the default, `Scene`), so it runs after the scene
+    /// tree -- and every `WorldGen` that could queue a tile -- is gone. The
+    /// jobs touch no Godot API, so nothing they need has been torn down.
+    /// Must never call into Godot: this runs during engine shutdown.
+    fn on_stage_deinit(stage: InitStage) {
+        if stage == InitStage::Scene {
+            lod_worker::shutdown_pool();
+        }
+    }
 }
 
 /// Default verbosity for the logger installed above.
