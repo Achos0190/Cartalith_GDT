@@ -395,12 +395,21 @@ impl WorldGen {
         if gw == 0 || gh == 0 {
             return None;
         }
+        // RV-3 (Ruling BD): the export shades the height the screen and the
+        // tiles shade (`WorldGen::valley_shade_field`) -- the valley along the
+        // drawn line, not the carve -- under the export's own look, so a style
+        // that shades the carve (`smooth_valleys` false) gets the world's
+        // field. The shore field below keeps `field`: it is where the water
+        // is, which the valley never changes.
+        let shade = self.valley_shade_field(&appearance);
+        let render_field: &[f32] = shade.as_deref().map_or(field, |v| v.as_slice());
         // `None` for a loaded save, whose format stores none of the tectonic
         // substrate (`SAVEFILE_COMPAT.md`) — the same condition under which
-        // `flow` above is `None`.
+        // `flow` above is `None`. From the shaded field, as the screen builds
+        // its own (`build_color_texture`), so rock contacts match it.
         let lithology = match self.source.as_ref()? {
             WorldSource::Generated(ws) => Some(cartalith_civ::build_lithology(
-                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level,
+                render_field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level,
             )),
             WorldSource::Loaded(_) => None,
         };
@@ -421,7 +430,9 @@ impl WorldGen {
         };
         let geom = if rivers { self.export_river_geometry() } else { None };
         let save_flag = if rivers { self.save_river_flag() } else { None };
-        let mut ctx = RenderCtx::with_appearance(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance);
+        // RV-3: water and the sea's colour from the world's own height, as
+        // on screen (a no-op when no valley field was built).
+        let mut ctx = RenderCtx::with_appearance(render_field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance).with_water_height(field);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
         }
@@ -741,6 +752,10 @@ impl WorldGen {
     /// and none at all with `rivers` false. `None` before a world exists.
     fn export_snapshot(&self, a: TerrainAppearance, rivers: bool) -> Option<export_session::ExportSnapshot> {
         let mut i = self.lod_snapshot_inputs("")?;
+        // RV-3: the shaded height under THIS look, which may differ from the
+        // tiles' (`lod_snapshot_inputs` shades under the session's): a style
+        // with `smooth_valleys` false shades the world's own field.
+        i.shade = self.valley_shade_field(&a);
         i.appearance = a;
         if !rivers {
             i.ink = None;

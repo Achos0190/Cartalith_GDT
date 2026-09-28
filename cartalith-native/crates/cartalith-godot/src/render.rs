@@ -1442,6 +1442,22 @@ pub struct TerrainAppearance {
     /// reference's v1.05 rule byte for byte.
     pub smooth_shores: bool,
 
+    /// **RV-3: shade the valley along the drawn river line, not the carve**
+    /// (`LARGE_ITEM_RULINGS.md` Ruling BD). When `true`, the screen texture,
+    /// the deep-zoom tiles and every export shade a height field with the
+    /// generation carve filled back in and a smooth valley cut along each
+    /// drawn river (`valley_shade::valley_shade_field`, reached through
+    /// `WorldGen::valley_shade_field`), so no dark stepped groove shows beside
+    /// a drawn river or along a run the map does not draw. The world's own
+    /// height, and everything computed from it, are unchanged either way.
+    ///
+    /// A `bool` for the reason `smooth_shores` is one: the valley is on the
+    /// line or it is not. `true` in `default()`; `false` in
+    /// [`Self::js_reference`], which shades the carve as the reference does.
+    /// Read only by `WorldGen`, never by this file's own render functions --
+    /// a `RenderCtx` shades whatever field it is handed.
+    pub smooth_valleys: bool,
+
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
     /// `0.0` disables AO entirely (and skips its precompute); the
@@ -2144,6 +2160,9 @@ impl Default for TerrainAppearance {
             // RV-4: the smooth shoreline, on in the shipped look.
             // `js_reference()` pins `false`.
             smooth_shores: true,
+            // RV-3: the valley shaded along the drawn line, on in the shipped
+            // look. `js_reference()` pins `false`.
+            smooth_valleys: true,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2513,6 +2532,9 @@ impl TerrainAppearance {
             // 11717-11740) and its map draws whole cells, and the tile golden
             // pins that. Off by control flow (`is_lake_pixel`'s branch).
             smooth_shores: false,
+            // RV-3's valley along the drawn line is port-only too: the
+            // reference shades its carved field as it stands.
+            smooth_valleys: false,
             ..TerrainAppearance::default()
         }
     }
@@ -3843,6 +3865,19 @@ pub struct RenderCtx<'a> {
     /// one pixel per cell. `None` draws no river symbol -- the state of every
     /// render but the screen texture's (`WorldGen::build_color_texture`).
     river_layer: Option<&'a RiverLayer>,
+    /// **RV-3: the world's own height, when `field` is not it.** `field` is
+    /// the height this context SHADES; since RV-3 the app hands it
+    /// `WorldGen::valley_shade_field` (the carve filled in, a valley cut along
+    /// each drawn river), which must never decide where water is. Everything
+    /// here that classifies water or colours the sea from surrounding ground
+    /// -- the water bodies a tile builds, the biome-boundary distance, the
+    /// smoothed bathymetry -- reads [`Self::water_height`] instead, which is
+    /// this when attached and `field` otherwise. `None` by construction
+    /// (`field` is then the world's height, as it was for every caller before
+    /// RV-3); attach with [`Self::with_water_height`] or, over a precompute
+    /// built by [`GridPrecompute::build_split`], with
+    /// [`Self::with_precomputed_water_height`].
+    water_field: Option<&'a [f32]>,
 }
 
 /// Everything [`RenderCtx::with_appearance`] and [`RenderCtx::with_map_scale`]
@@ -3937,19 +3972,45 @@ impl GridPrecompute {
         map_width_km: Option<f64>,
         forced_lakes: Option<&[u8]>,
     ) -> Self {
-        let sea_h = smooth_sea_h(field, gw, gh, world);
+        Self::build_split(field, field, temperature, rainfall, flow, gw, gh, sea_level, world, appearance, map_width_km, forced_lakes)
+    }
+
+    /// [`Self::build_forced`] over two heights (RV-3): `field`, the one the
+    /// map is shaded from (`WorldGen::valley_shade_field`), for the relief
+    /// rasters -- AO and its sky/shadow folds, the crest strokes -- and
+    /// `water`, the world's own, for everything that decides or colours
+    /// water -- the smoothed bathymetry and its shade, the wave and coast
+    /// distances, the biome-boundary distance. `build_forced` is this with
+    /// `water == field`, byte for byte. A context over the result attaches
+    /// `water` with [`RenderCtx::with_precomputed_water_height`].
+    #[allow(clippy::too_many_arguments, dead_code)]
+    pub fn build_split(
+        field: &[f32],
+        water: &[f32],
+        temperature: &[f32],
+        rainfall: &[f32],
+        flow: Option<&[f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        appearance: &TerrainAppearance,
+        map_width_km: Option<f64>,
+        forced_lakes: Option<&[u8]>,
+    ) -> Self {
+        let sea_h = smooth_sea_h(water, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, appearance);
         let mut ao = build_ao(field, gw, gh, sea_level, world, appearance);
         fold_lighting_fields(&mut ao, field, gw, gh, appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, appearance);
         let lights = build_lights(appearance);
-        let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
+        let coast_d = if appearance.npr.waves { coast_distance(water, gw, gh, sea_level) } else { Vec::new() };
         // The reference builds its SDFs in `renderNow` (8446) rather than in
         // the material path, and only while the slider is up — `_coastSDF`'s
         // own comment is "null ⇒ off ⇒ render unchanged". A JFA over the whole
         // grid is far too expensive to pay for per render when nothing reads
         // it, so the gate is the allocation, not a branch inside the loop.
-        let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(field, gw, gh, sea_level) } else { Vec::new() };
+        let coast_sdf = if appearance.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(water, gw, gh, sea_level) } else { Vec::new() };
         // LOD-D5 gave `build_crest` a stencil step. The screen and bake path
         // passes `1` -- the reference's own stencil and the one this call has
         // always used -- so it is bit-identical to what it was before the
@@ -3967,7 +4028,7 @@ impl GridPrecompute {
                 river_sdf = build_river_sdf(flow, gw, gh, river_thresh);
             }
             if appearance.sdf_biomes > 0.0 {
-                biome_bd = grid_biome_boundary_dist(field, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
+                biome_bd = grid_biome_boundary_dist(water, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
             }
         }
         GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, river_thresh, gw, gh }
@@ -4053,6 +4114,7 @@ impl<'a> RenderCtx<'a> {
             ground: GroundTiles::default(),
             lake_class: None,
             river_layer: None,
+            water_field: None,
         }
     }
 
@@ -4119,6 +4181,7 @@ impl<'a> RenderCtx<'a> {
             ground: GroundTiles::default(),
             lake_class: None,
             river_layer: None,
+            water_field: None,
         })
     }
 
@@ -4180,7 +4243,55 @@ impl<'a> RenderCtx<'a> {
         // can draw river bands on a map whose grid raster does not.
         self.river_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         if self.appearance.sdf_biomes > 0.0 {
-            self.biome_bd = Cow::Owned(grid_biome_boundary_dist(self.field, self.temperature, self.rainfall, gw, gh, self.sea_level, self.world, forced_lakes));
+            // The world's height, not the shaded one (RV-3): this classifies
+            // water bodies.
+            self.biome_bd = Cow::Owned(grid_biome_boundary_dist(self.water_height(), self.temperature, self.rainfall, gw, gh, self.sea_level, self.world, forced_lakes));
+        }
+        self
+    }
+
+    /// The height water is decided from: the attached world height (RV-3,
+    /// [`Self::water_field`]) or, when none is, the shaded `field` itself.
+    pub fn water_height(&self) -> &'a [f32] {
+        self.water_field.unwrap_or(self.field)
+    }
+
+    /// Attach the world's own height (RV-3), for a context whose `field` is
+    /// the shaded valley field, and rebuild from it the two grid rasters this
+    /// constructor built from `field` that read ground around the sea: the
+    /// smoothed bathymetry and its shade (`smooth_sea_h` blurs over land
+    /// within a few cells of the coast, which the valley can change). The
+    /// wave and coast-SDF distances are per-cell land/water tests the valley
+    /// cannot change (it never moves a cell across sea level), so they are
+    /// left as built.
+    ///
+    /// Call before [`Self::with_map_scale_forced`], which reads
+    /// [`Self::water_height`] for the biome-boundary distance. Refused (left
+    /// `None`) when the length is not `gw * gh`, so the context keeps
+    /// deciding water from `field` rather than indexing past a short grid;
+    /// a no-op when `water` is `field` itself.
+    #[allow(dead_code)]
+    pub fn with_water_height(mut self, water: &'a [f32]) -> Self {
+        if water.len() != self.gw * self.gh || std::ptr::eq(water, self.field) {
+            return self;
+        }
+        self.water_field = Some(water);
+        let sea_h = smooth_sea_h(water, self.gw, self.gh, self.world);
+        self.sea_shade = Cow::Owned(sea_shade_from(&sea_h, self.gw, self.gh, &self.appearance));
+        self.sea_h = Cow::Owned(sea_h);
+        self
+    }
+
+    /// [`Self::with_water_height`] for a context from
+    /// [`Self::from_precomputed`] whose `GridPrecompute` was built by
+    /// [`GridPrecompute::build_split`] with this same `water`: the rasters
+    /// are already the right ones, so only the height is attached. Must never
+    /// be used over a precompute built from the shaded field alone -- the sea
+    /// would then be coloured from it.
+    #[allow(dead_code)]
+    pub fn with_precomputed_water_height(mut self, water: &'a [f32]) -> Self {
+        if water.len() == self.gw * self.gh && !std::ptr::eq(water, self.field) {
+            self.water_field = Some(water);
         }
         self
     }
@@ -9291,7 +9402,11 @@ impl<'a> TileFields<'a> {
         // differently. `fill_level` is `_lakeFill`, captured from the same
         // priority-flood, which is what makes the v1.05 organic shoreline
         // reachable rather than the square-lake fallback.
-        let wb = cartalith_civ::build_water_bodies(ctx.field, gw, gh, ctx.sea_level, ctx.world, Some(ctx.rainfall));
+        //
+        // From the world's height (`water_height`), never the shaded field
+        // RV-3 hands `ctx.field`: the valley re-cut is not hydrology, and a
+        // depression it opened or closed must not become or stop being a lake.
+        let wb = cartalith_civ::build_water_bodies(ctx.water_height(), gw, gh, ctx.sea_level, ctx.world, Some(ctx.rainfall));
 
         TileFields {
             gw,
@@ -11188,5 +11303,106 @@ mod shore_tests {
         // Below the smallest subnormal: rounded away from zero, sign kept.
         assert_eq!(f16_bits(1.0e-12), 0x0001);
         assert_eq!(f16_bits(-1.0e-12), 0x8001);
+    }
+}
+
+/// RV-3 (Ruling BD): the shaded valley field (`WorldGen::valley_shade_field`)
+/// is handed to a `RenderCtx` as `field`, and must never decide water. These
+/// protect the split: water bodies, the sea's smoothed bathymetry and its
+/// shade come from the world's own height ([`RenderCtx::water_height`]), the
+/// relief rasters from the shaded one.
+#[cfg(test)]
+mod valley_split_tests {
+    use super::*;
+
+    const SL: f64 = 0.42;
+    const GW: usize = 32;
+    const GH: usize = 24;
+
+    /// A wet 0.8 plateau with sea along its west edge (x < 3) -- no lake --
+    /// and the same world "shaded" with a pit 0.1 deep next to the coast
+    /// (x 4..=6, y 8..=12): deep enough to pool as a lake, and inside
+    /// `smooth_sea_h`'s reach of the sea cells at x = 2.
+    fn worlds() -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+        let mut truth = vec![0.8f32; GW * GH];
+        for y in 0..GH {
+            for x in 0..3 {
+                truth[y * GW + x] = 0.3;
+            }
+        }
+        let mut shaded = truth.clone();
+        for y in 8..=12 {
+            for x in 4..=6 {
+                shaded[y * GW + x] = 0.7;
+            }
+        }
+        (truth, shaded, vec![0.9f32; GW * GH], vec![12.0f32; GW * GH])
+    }
+
+    fn ctx<'a>(f: &'a [f32], rain: &'a [f32], temp: &'a [f32]) -> RenderCtx<'a> {
+        RenderCtx::with_appearance(f, temp, rain, None, GW, GH, SL, false, 50.0, 40.0, TerrainAppearance::default())
+    }
+
+    // Protects: a tile's water bodies are built from the world's height, not
+    // the shaded one -- a depression the valley field opened is not a lake.
+    #[test]
+    fn a_depression_in_the_shaded_field_is_not_a_lake() {
+        let (truth, shaded, rain, temp) = worlds();
+        let pit = 10 * GW + 5;
+        // Positive control: the fixture's pit IS a lake when classified from
+        // the shaded field, so the split below has something to refuse.
+        let from_shaded = TileFields::new(&ctx(&shaded, &rain, &temp), None);
+        assert_eq!(from_shaded.lake_class[pit], 2, "premise: the shaded pit pools as a lake");
+        let want = TileFields::new(&ctx(&truth, &rain, &temp), None);
+        let got = TileFields::new(&ctx(&shaded, &rain, &temp).with_water_height(&truth), None);
+        assert_eq!(got.lake_class.as_ref(), want.lake_class.as_ref(), "classification from the world's height");
+        assert_eq!(bits(&got.lake_fill), bits(&want.lake_fill), "fill level from the world's height");
+    }
+
+    // Protects: the sea is coloured from the world's own ground, both on a
+    // context built directly (`with_water_height`) and over a split
+    // precompute (`build_split`), while the relief rasters come from the
+    // shaded field.
+    #[test]
+    fn the_sea_and_the_relief_come_from_the_right_heights() {
+        let (truth, shaded, rain, temp) = worlds();
+        let a = TerrainAppearance::default();
+        let t = ctx(&truth, &rain, &temp);
+        // Positive control: the shaded field alone moves the sea's
+        // bathymetry at the coast, so equality below is not vacuous.
+        assert_ne!(bits(&ctx(&shaded, &rain, &temp).sea_h), bits(&t.sea_h), "premise: the pit reaches the sea's blur");
+        let s = ctx(&shaded, &rain, &temp).with_water_height(&truth);
+        assert_eq!(bits(&s.sea_h), bits(&t.sea_h));
+        assert_eq!(bits(&s.sea_shade), bits(&t.sea_shade));
+        let split = GridPrecompute::build_split(&shaded, &truth, &temp, &rain, None, GW, GH, SL, false, &a, Some(800.0), None);
+        let water = GridPrecompute::build_forced(&truth, &temp, &rain, None, GW, GH, SL, false, &a, Some(800.0), None);
+        let relief = GridPrecompute::build_forced(&shaded, &temp, &rain, None, GW, GH, SL, false, &a, Some(800.0), None);
+        assert_eq!(bits(&split.sea_h), bits(&water.sea_h));
+        assert_eq!(bits(&split.sea_shade), bits(&water.sea_shade));
+        assert_eq!(bits(&split.ao), bits(&relief.ao), "AO is the shaded relief's");
+        assert_ne!(bits(&split.ao), bits(&water.ao), "premise: the pit moves AO");
+        // `build_forced` is `build_split` with one height, byte for byte.
+        let same = GridPrecompute::build_split(&truth, &truth, &temp, &rain, None, GW, GH, SL, false, &a, Some(800.0), None);
+        assert_eq!(bits(&same.ao), bits(&water.ao));
+        assert_eq!(bits(&same.sea_h), bits(&water.sea_h));
+        // And the attach-only builder leaves the precompute's sea alone.
+        let c = RenderCtx::from_precomputed(&shaded, &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a.clone(), &split).unwrap().with_precomputed_water_height(&truth);
+        assert!(std::ptr::eq(c.water_height(), truth.as_slice()));
+        assert_eq!(bits(&c.sea_h), bits(&water.sea_h));
+    }
+
+    // Protects: "no value" is not a plausible value -- a short world height is
+    // refused, and the context keeps deciding water from its own field.
+    #[test]
+    fn a_short_water_height_is_refused() {
+        let (truth, shaded, rain, temp) = worlds();
+        let c = ctx(&shaded, &rain, &temp).with_water_height(&truth[..GW]);
+        assert!(std::ptr::eq(c.water_height(), shaded.as_slice()));
+        let c = ctx(&shaded, &rain, &temp).with_precomputed_water_height(&truth[..GW]);
+        assert!(std::ptr::eq(c.water_height(), shaded.as_slice()));
+    }
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
     }
 }

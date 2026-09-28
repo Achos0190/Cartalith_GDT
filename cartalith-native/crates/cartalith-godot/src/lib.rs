@@ -60,6 +60,7 @@ mod timeline_bridge;
 mod travel_bridge;
 mod undo;
 mod urban_bridge;
+mod valley_shade;
 mod vault_bridge;
 mod vault_saf;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
@@ -4928,6 +4929,9 @@ struct WorldGen {
     river_field_stats: std::cell::Cell<(usize, usize)>,
     /// `river_geometry`'s cache: its key and the network built for it.
     river_geom_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>)>>,
+    /// [`Self::valley_shade_field`]'s cache (RV-3): its key and the shading
+    /// height built for it. A rendering input only; never a world field.
+    valley_shade_cache: std::cell::RefCell<Option<(String, std::sync::Arc<Vec<f32>>)>>,
     /// **Forced lakes (Ruling BO, 2026-09-28: "draw forced lakes")** -- the
     /// cells [`Self::apply_force_lake`] has reclassified as lake, `gw * gh`,
     /// `1` forced / `0` not. `None` until the first press on this world.
@@ -5564,6 +5568,7 @@ impl IRefCounted for WorldGen {
             shore_field_tex: std::cell::RefCell::new(None),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
+            valley_shade_cache: std::cell::RefCell::new(None),
             forced_lakes: None,
             forced_lakes_epoch: 0,
             drawn_water_cache: std::cell::RefCell::new(None),
@@ -9574,6 +9579,15 @@ impl WorldGen {
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = self.appearance();
+        // RV-3 (Ruling BD): the height this texture is SHADED from -- the
+        // carve filled in and a valley cut along each drawn river line
+        // (`valley_shade_field`). The tiles and every export take the same
+        // one, so the three shade one surface. Everything else below that
+        // reads the height as the world's -- the shore field, the river-ink
+        // sea test -- keeps `field`; the valley never touches water or the
+        // ring of land beside it, so those tests answer the same either way.
+        let shade = self.valley_shade_field(&appearance);
+        let render_field: &[f32] = shade.as_deref().map_or(field, |v| v.as_slice());
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
         // world's real rock types. Built here rather than threaded down from
         // `compute_civilisation` (which builds its own for the soil chain)
@@ -9587,8 +9601,11 @@ impl WorldGen {
         // substrate this needs (`SAVEFILE_COMPAT.md`), the same reason
         // `flow` is `None` there and `CivData` is never computed for one.
         let lithology = match self.source.as_ref()? {
+            // From the shaded field, as the tiles build theirs (`LodSnapshot::build`
+            // is handed the same field), so a rock contact cannot differ between
+            // the screen and a tile.
             WorldSource::Generated(ws) => Some(cartalith_civ::build_lithology(
-                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level,
+                render_field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level,
             )),
             WorldSource::Loaded(_) => None,
         };
@@ -9631,8 +9648,11 @@ impl WorldGen {
         let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field(&g, &appearance, gw, gh));
         self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
         let mut ctx = RenderCtx::with_appearance(
-            field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
+            render_field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         )
+        // RV-3: water and the sea's colour are decided from the world's own
+        // height, never the shaded one (a no-op when they are the same).
+        .with_water_height(field)
         .with_lakes(&lakes);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
@@ -9738,11 +9758,12 @@ impl WorldGen {
                 // own doc comment) painted straight across a lake or the
                 // ocean it flows into instead of stopping at the shore.
                 //
-                // `field[i]`, not a call into `render`'s private `RenderCtx::h`
-                // -- the identical value (`ctx.field` is this same slice,
-                // `RenderCtx::with_appearance`'s first argument above), read
-                // where it is already in scope rather than widening that
-                // method's visibility for one caller.
+                // `field[i]`, the world's height, not `ctx.field` (RV-3's
+                // shaded field, `render_field` above): the two agree on every
+                // cell's side of sea level, because the valley never changes
+                // a water cell or the land beside it, so this is the same test
+                // `cell_color` makes. A loaded save -- the only world with a
+                // flag here -- has no shaded field at all.
                 let ink = if (field[i] as f64) < sea_level { 0.0 } else { chan_mask.map_or(0.0, |m| render::save_flag_at(m, i)) as f64 };
                 if ink > 1.0 / 255.0 {
                     // The tint composites *over* a colour `cell_color` has
@@ -10765,6 +10786,54 @@ impl WorldGen {
         let g = std::sync::Arc::new(self.river_geometry_uncached()?);
         *self.river_geom_cache.borrow_mut() = Some((key, g.clone()));
         Some(g)
+    }
+
+    /// **RV-3 (Ruling BD): the height field the map is SHADED from** -- the
+    /// world's field with the generation carve filled back in and a smooth
+    /// valley cut along every drawn river line instead
+    /// ([`valley_shade::valley_shade_field`], whose module doc has the why).
+    ///
+    /// Handed, in place of `ws.field`, to the three render paths and nothing
+    /// else: the screen texture (`build_color_texture`), the deep-zoom tiles
+    /// (`lod_snapshot_inputs`) and every export (`export_raster.rs::
+    /// export_render_with`, which also feeds the overlay session's snapshot),
+    /// so all three shade one surface. It must never reach hydrology, the
+    /// water classification, the carve or its lock masks, a save, Sample, or
+    /// any other reader of the world's height -- those keep `ws.field`.
+    ///
+    /// `None` -- and the caller shades the true field -- when the look shades
+    /// the carve as the reference does (`TerrainAppearance::smooth_valleys`
+    /// false, `js_reference()`), for a loaded save (no traced network, so no
+    /// drawn line to cut along), when the carve did not run (no
+    /// `river_mask`), or when there is no drawn network or water
+    /// classification. Never an all-zero or guessed stand-in.
+    ///
+    /// **Cached** under [`Self::river_network_key_str`]: the result is a
+    /// function of the field, the carve mask, the drawn network and the drawn
+    /// water, and that key already covers every input of the network and the
+    /// water (the height stage version moves with every edit that rewrites the
+    /// field or the carve mask -- `sculpt_commit`, `erode`, `undo`/`redo` --
+    /// and the forced-lake epoch with a press). The Rivers layer switch is not
+    /// an input: the valley is terrain, and stays when the stroke is hidden,
+    /// as the carve did.
+    pub(crate) fn valley_shade_field(&self, a: &render::TerrainAppearance) -> Option<std::sync::Arc<Vec<f32>>> {
+        if !a.smooth_valleys {
+            return None;
+        }
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
+        let carved = ws.river_mask.as_deref()?;
+        let key = self.river_network_key_str();
+        if let Some((k, v)) = self.valley_shade_cache.borrow().as_ref() {
+            if *k == key {
+                return Some(v.clone());
+            }
+        }
+        let geom = self.river_geometry_any()?;
+        let water = self.drawn_water_classification()?;
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, &geom.runs, gw, gh, self.sea_level, self.world)?);
+        *self.valley_shade_cache.borrow_mut() = Some((key, v.clone()));
+        Some(v)
     }
 
     /// [`Self::river_geometry`]'s cache key -- every input `river_draws`
@@ -15719,6 +15788,11 @@ impl WorldGen {
             // `seed` is deliberately absent from `lod_cache_key`.
             seed: self.seed,
             field,
+            // RV-3: the height the screen texture is shaded from
+            // (`valley_shade_field`), so a tile shades, amplifies and reads
+            // rock from the same surface the base map does, while `field`
+            // above still decides its water. An `Arc` refcount once built.
+            shade: self.valley_shade_field(&self.appearance()),
             temperature,
             rainfall,
             flow,

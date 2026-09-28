@@ -96,7 +96,10 @@ struct Parts {
     lat_n: f64,
     lat_s: f64,
     map_width_km: f64,
+    /// The world's height: decides water (`RenderCtx::water_height`).
     field: Arc<Vec<f32>>,
+    /// RV-3's shaded height (`SnapshotInputs::shade`); `None` shades `field`.
+    shade: Option<Arc<Vec<f32>>>,
     temperature: Arc<Vec<f32>>,
     rainfall: Arc<Vec<f32>>,
     flow: Option<Arc<Vec<f32>>>,
@@ -136,8 +139,11 @@ impl Parts {
     /// same conditions, in the same order — lithology, map scale (already in
     /// `pre`), a pack's splat and ground tiles, paint.
     fn ctx(&self) -> Option<RenderCtx<'_>> {
+        // RV-3: shaded from `shade` when there is one, water from `field`,
+        // as `build` built the precompute (`GridPrecompute::build_split`).
+        let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
         let mut ctx = RenderCtx::from_precomputed(
-            &self.field,
+            shaded,
             &self.temperature,
             &self.rainfall,
             self.flow.as_ref().map(|v| v.as_slice()),
@@ -149,7 +155,8 @@ impl Parts {
             self.lat_s,
             self.appearance.clone(),
             &self.pre,
-        )?;
+        )?
+        .with_precomputed_water_height(&self.field);
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
         }
@@ -179,10 +186,15 @@ impl ExportSnapshot {
             return None;
         }
         let flow = i.flow.as_ref().map(|v| v.as_slice());
+        // RV-3: the shaded height (a wrong-length one is dropped, never
+        // indexed), for the relief rasters and the rock; `i.field` decides
+        // water, as `export_render_with` does on the live world.
+        let shade = i.shade.clone().filter(|s| s.len() == i.field.len());
+        let shaded: &[f32] = shade.as_deref().map_or(&i.field, |s| s.as_slice());
         // Ruling BO: the forced lakes reach `sdf_biomes`' band here too, as
         // on screen (`RenderCtx::with_map_scale_forced`).
-        let pre = GridPrecompute::build_forced(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km), i.forced_lakes.as_deref());
-        let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(&i.field, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
+        let pre = GridPrecompute::build_split(shaded, &i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km), i.forced_lakes.as_deref());
+        let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
         let wb = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall));
         let mut lakes = wb.classification;
         // Ruling BO: the forced lakes the screen draws, carried in the same
@@ -204,6 +216,7 @@ impl ExportSnapshot {
             lat_s: i.lat_s,
             map_width_km: i.map_width_km,
             field: i.field,
+            shade,
             temperature: i.temperature,
             rainfall: i.rainfall,
             flow: i.flow,
@@ -560,6 +573,7 @@ mod tests {
             map_width_km: km,
             seed: 7,
             field: w.field.clone(),
+            shade: None,
             temperature: w.temp.clone(),
             rainfall: w.rain.clone(),
             flow: Some(w.flow.clone()),

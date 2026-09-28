@@ -267,6 +267,13 @@ pub struct SnapshotInputs {
     /// `Arc`, so the four `WorldState` grids cross to the worker as refcount
     /// bumps rather than as 43.0 MB of memcpy. See this struct's own doc.
     pub field: Arc<Vec<f32>>,
+    /// **RV-3: the height a tile is SHADED from** (`WorldGen::
+    /// valley_shade_field`: the carve filled in, a valley cut along each drawn
+    /// river line). `None` -- the reference's look, a loaded save, a world
+    /// with no carve -- shades `field` itself. `field` above stays the world's
+    /// height and alone decides water (`RenderCtx::water_height`), so the
+    /// valley can never add or remove a lake in a tile.
+    pub shade: Option<Arc<Vec<f32>>>,
     pub temperature: Arc<Vec<f32>>,
     pub rainfall: Arc<Vec<f32>>,
     pub flow: Option<Arc<Vec<f32>>>,
@@ -407,6 +414,7 @@ impl SnapshotInputs {
             map_width_km,
             seed,
             field,
+            shade,
             temperature,
             rainfall,
             flow,
@@ -439,6 +447,12 @@ impl SnapshotInputs {
         d.f64(*map_width_km);
         d.word(*seed as i64 as u64);
         d.f32s(field);
+        // RV-3: a stored pyramid shaded from another valley field is not this
+        // one's.
+        d.tag(shade.is_some());
+        if let Some(s) = shade {
+            d.f32s(s);
+        }
         d.f32s(temperature);
         d.f32s(rainfall);
         d.tag(flow.is_some());
@@ -560,7 +574,10 @@ pub struct LodSnapshot {
     lat_n: f64,
     lat_s: f64,
     seed: i32,
+    /// The world's height: decides water ([`SnapshotInputs::field`]).
     field: Arc<Vec<f32>>,
+    /// RV-3's shaded height ([`SnapshotInputs::shade`]); `None` shades `field`.
+    shade: Option<Arc<Vec<f32>>>,
     temperature: Arc<Vec<f32>>,
     rainfall: Arc<Vec<f32>>,
     flow: Option<Arc<Vec<f32>>>,
@@ -609,6 +626,7 @@ impl LodSnapshot {
             map_width_km,
             seed,
             field,
+            shade,
             temperature,
             rainfall,
             flow,
@@ -634,20 +652,26 @@ impl LodSnapshot {
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
         }
+        // RV-3: a shaded field of the wrong length is dropped, and the tile
+        // shades the world's field -- never indexes past a short grid.
+        let shade = shade.filter(|s| s.len() == field.len());
+        // The height the tile is shaded from (relief rasters, rock, ice, the
+        // amplified tile surface); `field` still decides water.
+        let shaded: &[f32] = shade.as_deref().map_or(&field, |s| s.as_slice());
         // Ruling BO: the forced lakes reach the grid's `sdf_biomes` band, as
         // on screen (`RenderCtx::with_map_scale_forced`); already in
         // `fingerprint()`, so no cache key changes.
-        let pre = GridPrecompute::build_forced(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, &appearance, Some(map_width_km), forced_lakes.as_deref());
+        let pre = GridPrecompute::build_split(shaded, &field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, &appearance, Some(map_width_km), forced_lakes.as_deref());
         // The same call `build_color_texture` makes, and `None` under the same
         // condition: a loaded save's format stores none of the tectonic
         // substrate this needs (`SAVEFILE_COMPAT.md`), which is why its
         // caller hands us no `LithoSource` at all.
-        let lithology = litho.as_ref().map(|l| cartalith_civ::build_lithology(&field, &l.age, &l.volcanic, &l.crust, &l.resistance, &rainfall, sea_level));
+        let lithology = litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &rainfall, sea_level));
         // A throwaway context, only so `TileFields::new` has the `ctx` its
         // signature takes. It borrows everything above, which is why the
         // struct is assembled after this block and not before it.
         let fields = {
-            let mut ctx = RenderCtx::from_precomputed(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, lat_n, lat_s, appearance.clone(), &pre)?;
+            let mut ctx = RenderCtx::from_precomputed(shaded, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, lat_n, lat_s, appearance.clone(), &pre)?.with_precomputed_water_height(&field);
             if let Some(l) = lithology.as_ref() {
                 ctx = ctx.with_lithology(l);
             }
@@ -660,7 +684,7 @@ impl LodSnapshot {
             // branch here**: `flow` is already `None` for a loaded save and
             // `build_glacier_potential` returns an empty field for a `None`
             // flow, with that reason in its own doc comment.
-            let glacier = render::build_glacier_potential(&field, &temperature, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, glacial_snowline, map_width_km / gw.max(1) as f64, world);
+            let glacier = render::build_glacier_potential(shaded, &temperature, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, glacial_snowline, map_width_km / gw.max(1) as f64, world);
             let cryo = TileCryo {
                 lapse_rate,
                 g: gravity,
@@ -684,6 +708,7 @@ impl LodSnapshot {
             lat_s,
             seed,
             field,
+            shade,
             temperature,
             rainfall,
             flow,
@@ -738,7 +763,11 @@ impl LodSnapshot {
     /// again would recompute two full-grid distance transforms per tile and
     /// overwrite them with identical values.
     pub fn render_tile(&self, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
-        let mut ctx = RenderCtx::from_precomputed(&self.field, &self.temperature, &self.rainfall, self.flow.as_ref().map(|v| v.as_slice()), self.gw, self.gh, self.sea_level, self.world, self.lat_n, self.lat_s, self.appearance.clone(), &self.pre)?;
+        // RV-3: shaded from `shade` when there is one, water from `field`,
+        // exactly as `build` built the precompute.
+        let shaded: &[f32] = self.shade.as_deref().map_or(&self.field, |s| s.as_slice());
+        let mut ctx = RenderCtx::from_precomputed(shaded, &self.temperature, &self.rainfall, self.flow.as_ref().map(|v| v.as_slice()), self.gw, self.gh, self.sea_level, self.world, self.lat_n, self.lat_s, self.appearance.clone(), &self.pre)?
+            .with_precomputed_water_height(&self.field);
         if let Some(l) = self.lithology.as_ref() {
             ctx = ctx.with_lithology(l);
         }
@@ -1418,6 +1447,7 @@ mod tests {
             map_width_km: 800.0,
             seed: 1234,
             field: Arc::new(field),
+            shade: None,
             temperature: Arc::new(temperature),
             rainfall: Arc::new(rainfall),
             flow: Some(Arc::new(flow)),
