@@ -2013,3 +2013,17 @@ this branch in the merge `24384a4`.
 - `OUTSTANDING_WORK.md`, `STATUS.md` and `FUNCTIONAL_CONTRACT.md` had each
   carried a "v2.72"/"v2.73" count or provenance claim; all are corrected in the
   same pass as this ruling.
+
+## 2026-09-28 — Ruling BR: show the original raster under a painted layer, on an opacity slider
+
+Owner, verbatim: *"when painting layers like terrain/biome is to have the
+original terrain/biome raster on an opacity slider so you can see where the
+current ones sit."*
+
+- While a paint tool is armed on a raster layer (terrain/height, biome, and
+  any other paintable raster), the shell can show that layer's **original**
+  (as generated, before any hand painting) raster together with the current
+  one, with an **opacity slider** controlling the original.
+- It is a viewing aid only. It never changes the data, the save or the
+  export.
+- Routed as a backlog row in `OUTSTANDING_WORK.md`.
