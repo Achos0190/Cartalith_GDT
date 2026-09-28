@@ -21,6 +21,7 @@ its rule before you start.
 
 | About to… | Rule | Verify with |
 |---|---|---|
+| **Stage a verified-marker change into the index by patch while the working copy keeps the old text** | Apply the same edit to the **working file** too, or the next `git add` of that file commits the stale "pending" back. ×3 on 2026-09-28 (`d71824e`, `593df62`, and one caught before commit) | `git show HEAD -- STATUS.md \| grep '^-.*verified by the main'` must be empty after every commit that touches STATUS.md |
 | **Schedule or act on a backlog row** | Re-open it at its **cited symbol** first. Rows here go stale within a day; "already done" is a valuable finding, not a failed task | Name the symbol you opened, not the row's text |
 | **Return, marshal or default a value that can be absent** | **Omit the key**; callers use `has()`. In UI, dash the field **with its reason** | Render over real data; count rows showing a bare `0`, `1.0`, `"none"` or empty |
 | **Write a test that pins a constant** | Assert a **literal**, or the independent thing the value must equal. `assert_eq!(x, THE_CONSTANT)` holds for every value of it | Mutate the constant; the test must go red |
@@ -1447,3 +1448,7 @@ hand-built grid.
 **Verification:** Mutate the consumer's sentinel test (`> 0` to `>= 0`). The
 golden must go red on the corrected fixture, and the live-producer test must go
 red too. Both did.
+
+### [2026-09-28] A verified marker set only in the index was reverted by the next whole-file add
+
+The main loop marks a lane's STATUS.md entry verified by rewriting the staged patch, not the working file. When a later commit ran `git add` on the whole `STATUS.md`, the working copy's older "pending independent verification" text went in and undid the earlier commit's marker. This shipped twice (`d71824e` reverted the map-data residuals marker; `593df62` reverted RV-3's) and was caught once more before commit. **Rule:** make the marker edit in the working file, and stage from there; after any commit touching STATUS.md, check that no `-` line containing "verified by the main" is in `git show HEAD`.
