@@ -6677,6 +6677,12 @@ func _draw_urban_layouts(rect: Rect2) -> void:
 		## `box_px / 155` pixels -- under `URBAN_FINE_BOX_PX` those passes are
 		## drawing sub-pixel detail over and over. The City Viewer, which is
 		## the place a town is actually looked at, always passes 1.0.
+		## `draw_water = false`: the main map's own base raster already shows
+		## this town's water; the layout's `water_poly`/river-fallback/
+		## `water_mask_runs` fills would repaint the same body a second time
+		## at the layout's own, map-hydrology-disconnected geometry
+		## (OUTSTANDING_WORK.md, owner). `urban_layout_draw.gd`'s
+		## `draw_layout()` doc comment has the full reasoning.
 		URBAN_DRAW.draw_layout(_cv, layout, to_screen, m_scale,
 			1.0 / maxf(0.001, _camera_zoom), alpha, false,
-			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0)
+			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0, false)

@@ -320,9 +320,21 @@ const CASING_MAX_PX := 5.0
 ## skipped, because at map zoom a town is a few hundred pixels across and those
 ## passes over ~2000 lots buy nothing a viewer can see. The City Viewer passes
 ## 1.0.
+##
+## `draw_water`: the main map already paints its own water layer under this
+## control (`viewport_host.gd`'s raster, sampled from the same generated
+## field), so a town's `water_poly`/`river`-fallback/`water_mask_runs` fills
+## repainted the same body a second time there, at the layout's coarser,
+## unconnected-to-the-map-hydrology geometry (OUTSTANDING_WORK.md, owner:
+## "settlements draw their own water ... which is either not needed or can be
+## done below the sea level"). The City Viewer and the right-dock thumbnail
+## have no base map underneath them, so they still need it and keep the
+## default `true`; only `map_overlay.gd`'s main-map call passes `false`.
+## Whether a town's water should instead connect to the map's own rivers is a
+## separate, deferred question (owner) and is untouched here.
 static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 		m_scale: float, px_floor: float, alpha: float, show_route_ends: bool,
-		detail: float = 1.0) -> void:
+		detail: float = 1.0, draw_water: bool = true) -> void:
 	if alpha <= 0.0:
 		return
 	var tint := func(c: Color) -> Color:
@@ -344,7 +356,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# the reference's own note: the town read see-through at full zoom because
 	# the fills themselves were < 1 alpha.
 	var water_poly: PackedVector2Array = layout.get("water_poly", PackedVector2Array())
-	if water_poly.size() >= 3:
+	if draw_water and water_poly.size() >= 3:
 		ci.draw_colored_polygon(project.call(water_poly), tint.call(WATER))
 
 	# The river centreline. `_umDrawLayout` does not stroke this separately --
@@ -352,7 +364,7 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# polygon at all (`buildSite` traces a shoreline, not a body), so without
 	# this the water would simply not be visible on those sites.
 	var river: PackedVector2Array = layout.get("river", PackedVector2Array())
-	if river.size() >= 2 and water_poly.size() < 3:
+	if draw_water and river.size() >= 2 and water_poly.size() < 3:
 		var rw: float = maxf(px_floor, float(layout.get("river_w", 20.0)) * m_scale)
 		ci.draw_polyline(project.call(river), tint.call(RIVER_LINE), rw, true)
 
@@ -432,7 +444,10 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 	# buildings and the fringe never sample inside water) stays visible on
 	# top of it. See `_draw_water_mask` for why this is `water_mask_runs`,
 	# not `water_poly`, and why bridges and fords are released from it.
-	_draw_water_mask(ci, layout, project, tint)
+	# Gated on `draw_water` too: on the main map this would repaint the same
+	# body the base map already shows underneath (see the doc comment above).
+	if draw_water:
+		_draw_water_mask(ci, layout, project, tint)
 
 	# `build_details`' wells, market cross and working props -- after the
 	# water mask, which would otherwise paint over the quayside crane, the

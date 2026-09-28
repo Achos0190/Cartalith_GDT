@@ -1935,6 +1935,26 @@ re-checked against the tree rather than copied from the commit message.
   all still need an independent verifier before any can be called done
   rather than pending.
 
+- **"Settlements draw their own water on the map" (owner report) — built,
+  verified by the main loop 2026-09-28 (before/after overlay screenshots opened: full-view water fill gone; diff limited to the draw_water gate).** `map_overlay.gd`'s only main-map call to
+  `UrbanLayoutDraw.draw_layout()` now passes a new `draw_water = false`
+  argument; `draw_layout()` gates its `water_poly` fill, its coastal-site
+  river-line fallback, and `_draw_water_mask()`'s `water_mask_runs` clip
+  behind that flag (default `true`, so the City Viewer, the right-dock
+  thumbnail and every probe caller are unaffected). Reasoning: the main map's
+  own base raster already shows this same water, at the map's real
+  hydrology, so the layout's second, unconnected fill only duplicated it — the
+  owner's own "either not needed or below sea level" framing. Whether a
+  settlement's water should instead connect to the map's real rivers is
+  explicitly deferred, per the owner's own report, and untouched here.
+  Verified with a new windowed probe, `_settlewater_probe.tscn` (a coastal
+  settlement, seed 24601): the pre-fix path (`draw_water = true`, called
+  directly) painted 6 561 px inside a 40 px box around the town; the real
+  main-map path (`draw_water = false`) painted 17 px there (settlement
+  chrome only, e.g. the pin) — before/after screenshots
+  `_settlewater_before.png` / `_settlewater_after.png`. `_mapdata_probe`
+  re-run windowed, unrelated: 43/43 PASS.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
