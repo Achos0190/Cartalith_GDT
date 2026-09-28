@@ -1662,11 +1662,15 @@ func _gis_count(key: String) -> Dictionary:
 	var civ_absent := "None. Either this world has none (they were cleared, or never placed), or it was opened from a legacy .zip save, whose import brings in settlements and painted territory but no ways or provinces -- this window cannot tell those apart. Either way there is nothing of this group to write."
 	match key:
 		"settlements":
+			## EngineBridge.settlements() -> get_settlements(), the same list
+			## export_geojson turns into settlement features.
 			var n: int = _bridge.settlements().size()
-			return {"count": n, "how": "EngineBridge.settlements() -> get_settlements(), the same list export_geojson turns into settlement features."} if n > 0 else {"why": civ_absent}
+			return {"count": n, "how": "Settlements placed in this world -- the same list the exported file's settlement points come from."} if n > 0 else {"why": civ_absent}
 		"factions":
+			## EngineBridge.civ_faction_count(), the roster excluding
+			## Unclaimed.
 			var n: int = _bridge.civ_faction_count()
-			return {"count": n, "how": "EngineBridge.civ_faction_count(), the roster excluding Unclaimed. The document carries one territory polygon per faction that actually holds cells, so a faction with no claimed ground contributes a property and no feature."} if n > 0 else {"why": civ_absent}
+			return {"count": n, "how": "Factions holding claimed territory (Unclaimed is not counted). The document carries one territory outline per faction that actually holds cells, so a faction with no claimed ground contributes a property and no shape."} if n > 0 else {"why": civ_absent}
 		"ways":
 			## Generated ways and sea lanes only. `get_roads()`/`get_sea_routes()`
 			## also return hand-drawn `infra.ways` (flagged `manual`), and
@@ -1680,21 +1684,30 @@ func _gis_count(key: String) -> Dictionary:
 			for w in _bridge.sea_routes():
 				if not bool((w as Dictionary).get("manual", false)):
 					n += 1
-			return {"count": n, "how": "Generated roads plus sea lanes (civ.ways where not hidden, plus civ.sea_routes). Hand-drawn ways are excluded because export_geojson does not read infra.ways -- if any exist, the receipt says how many were left out."} if n > 0 else {"why": civ_absent}
+			## Generated roads plus sea lanes (civ.ways where not hidden,
+			## plus civ.sea_routes); export_geojson does not read infra.ways.
+			return {"count": n, "how": "Generated roads plus sea lanes. Hand-drawn ways are excluded because the export does not include them -- if any exist, the receipt says how many were left out."} if n > 0 else {"why": civ_absent}
 		"rivers":
 			## `2` is not a choice here. `geojson_bridge.rs`'s
 			## `EXPORT_MIN_RIVER_ORDER` is `2`, so asking for any other order
 			## would put this chip and the post-run receipt at different
 			## numbers -- a chip that disagrees with the file is worse than the
 			## dash this branch was until 2026-09-05.
+			## EngineBridge.rivers(2) -> WorldGen::get_rivers(2); both this
+			## and the exporter's river block build their set from the same
+			## split_river_polylines(trace_river_polylines(order, recv, w,
+			## h, 2), w, None) pair -- river_entities() calls it on one
+			## side, export_geojson() on the other.
 			var n: int = _bridge.rivers(2).size()
-			return {"count": n, "how": "EngineBridge.rivers(2) -> WorldGen::get_rivers(2). Both this and the exporter's river block build their set from the same split_river_polylines(trace_river_polylines(order, recv, w, h, 2), w, None) pair -- river_entities() calls it on one side, export_geojson() on the other -- so the chip and the written document count the same runs by construction, not by coincidence. The receipt still measures the file itself."} if n > 0 else {"why": "get_rivers(2) answered empty, and this window cannot tell which absence that is: a loaded .zip save retains no channel topology at all (SAVEFILE_COMPAT.md -- stream_order and channels are None, so nothing can be traced), the forwarder also answers empty while a generation is in flight, and a generated world can simply have no run reaching Strahler order 2. export_geojson's river block tests the same condition, so the document carries no river feature either way."}
+			return {"count": n, "how": "Rivers of at least the exported channel order. Built from the same trace as the exported file's river lines, so the count and the written document always agree by construction, not by coincidence. The receipt still measures the file itself."} if n > 0 else {"why": "This window cannot tell which absence that is: a loaded .zip save retains no channel topology at all (SAVEFILE_COMPAT.md), a generation may still be in flight, and a generated world can simply have no river reaching the exported order. The exported file carries no river feature either way."}
 		"provinces":
+			## EngineBridge.provinces() -> get_provinces().
 			var n: int = _bridge.provinces().size()
-			return {"count": n, "how": "EngineBridge.provinces() -> get_provinces(). A province with no cells in the province raster contributes no feature."} if n > 0 else {"why": civ_absent}
+			return {"count": n, "how": "Provinces defined in this world. A province with no cells in the province raster contributes no shape."} if n > 0 else {"why": civ_absent}
 		"landmarks":
+			## EngineBridge.landmarks(), the last landmark pass's placements.
 			var n: int = _bridge.landmarks().size()
-			return {"count": n, "how": "EngineBridge.landmarks(), the last landmark pass's placements."} if n > 0 else {"why": "No landmark pass has run in this world, or one ran and placed nothing -- landmarks() reports the last run's placements and answers an empty list to both. Either way there is nothing of this group in the world."}
+			return {"count": n, "how": "Landmarks placed by the last landmark pass."} if n > 0 else {"why": "No landmark pass has run in this world, or one ran and placed nothing -- either way there is nothing of this group in the world."}
 		"religions":
 			## The idiom is `civilization_workspace.gd::_religion_head_refresh()`:
 			## distinct `adherents` keys, `none` excluded, count above zero. Its
@@ -2452,8 +2465,9 @@ func _checks_coverage(col: Control) -> void:
 		var n: int = (_bridge.tl_list(String(src["kind"])) as Array).size()
 		_checks_coverage_row(col, String(src["name"]), String(src["fn"]),
 			String(src["states"]), "%d checked" % n, "")
+	## AssetLibrarySession::validate()
 	_checks_coverage_row(col, "Asset library",
-		"AssetLibrarySession::validate()", "ordered warning strings",
+		"Checks the loaded asset library", "ordered warning strings",
 		"1 session", "")
 
 ## The dashed group. Present, named, and carrying the code's own reason -- not
@@ -2508,9 +2522,13 @@ func _checks_actions() -> void:
 	var run := DccWidgets.chip(_pane_footer, "Run all validators", func():
 		_select_route("val_defs"), true, 16, 6)
 	run.disabled = not _checks_api()
-	run.tooltip_text = ("Re-calls validate_animal, validate_vehicle, validate_vessel, validate_party_preset and AssetLibrarySession::validate(). All five are pure functions over state already in memory, so re-running them costs nothing and cannot fail differently."
+	## Re-calls validate_animal, validate_vehicle, validate_vessel,
+	## validate_party_preset and AssetLibrarySession::validate().
+	## Disabled reason names the missing engine entry points:
+	## WorldGen::tl_list and WorldGen::as_validate.
+	run.tooltip_text = ("Re-checks all five travel and asset validators. Each is a pure check over state already in memory, so re-running them costs nothing and cannot fail differently."
 		if not run.disabled
-		else "This build's GDExtension carries neither WorldGen::tl_list nor WorldGen::as_validate.")
+		else "This build's engine does not include the checks needed to run validators.")
 
 # ---------------------------------------------------------------------------
 # Export ▸ World Data -- the export raster and the channel atlas

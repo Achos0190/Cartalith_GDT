@@ -267,6 +267,17 @@ re-checked against the tree rather than copied from the commit message.
 
 ### 2026-09-28
 
+- **Developer notes in the UI still naming internal symbols — closed, pending
+  independent verification.** The remaining spots the row named — the
+  export-summary "how" fields and the re-run-validators tooltip/label in
+  `shell/data_manager_window.gd` — now read in plain words (e.g. "Settlements
+  placed in this world" rather than `EngineBridge.settlements()`), with the
+  symbol (`EngineBridge.*`, `AssetLibrarySession::validate()`,
+  `validate_animal`/`validate_vehicle`/`validate_vessel`/`validate_party_preset`)
+  moved to a `##` comment above the statement, never inside a string. Grepped
+  to confirm no symbol remains in a string literal; the file parse-checks
+  clean under Godot 4.7.1 `--headless --check-only`.
+
 - **"Roads do not meet their settlements" — re-diagnosed, pending independent verification.**
   The earlier half-cell-convention hypothesis in this row was wrong (a prior
   probe measured 0.00 px because "nearest endpoint to any settlement" can't
