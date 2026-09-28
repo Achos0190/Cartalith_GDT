@@ -381,10 +381,17 @@ pub fn region_as_new_world(
     Ok((p, state))
 }
 
+/// Coverage for [`export_region_tiles`]'s file layout and gzip/PNG variants,
+/// the archive round trip, and both halves of `regionNewWorldBtn`
+/// ([`extract_region_as_world`]'s resample, [`region_as_new_world`]'s full
+/// pipeline including the calibrate-gate collapse and the axis floor).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The same non-trivial synthetic field `bake.rs`/`elevation.rs` build,
+    /// so tiles have real gradients to disagree across if a composition bug
+    /// fed them the wrong sub-region.
     fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
         let mut f = vec![0.0f32; gw * gh];
         let cx = gw as f64 * 0.42;
@@ -405,6 +412,8 @@ mod tests {
         f
     }
 
+    /// A 2x2, 32px-tile [`RegionExportOpts`] fixture, varying only gzip and
+    /// the visual layer -- what every test below actually exercises.
     fn opts<'a>(a: &'a AmplifyOpts, gzip: bool, visual: Option<TileVisual>) -> RegionExportOpts<'a> {
         RegionExportOpts {
             cols: 2,
@@ -418,18 +427,23 @@ mod tests {
         }
     }
 
+    /// The fixture export the whole first test block runs against, over a
+    /// fixed selection and seed -- only gzip and the visual layer vary.
     fn run_with(gzip: bool, visual: Option<TileVisual>) -> RegionExport {
         let src = synthetic_field(48, 32, 5);
         let a = AmplifyOpts { seed: 4242, sea: 0.42, ridged: false, ..Default::default() };
         export_region_tiles(&src, 48, 32, &Region { x: 4, y: 4, w: 24, h: 16 }, &opts(&a, gzip, visual))
     }
 
+    /// [`run_with`]'s plain case: no gzip, no visual layer.
     fn run() -> RegionExport {
         run_with(false, None)
     }
 
     #[test]
     fn one_bin_per_tile_plus_the_index() {
+        // Protects: a 2x2 tile grid produces exactly 4 .bin entries plus the
+        // trailing index.json, with no gzip flag set on the plain path.
         let e = run();
         assert_eq!(e.entries.len(), 5);
         assert_eq!(e.entries[4].name, "tiles/index.json");
@@ -438,6 +452,9 @@ mod tests {
 
     #[test]
     fn tiles_are_named_and_ordered_row_major() {
+        // Protects: the entry order and naming convention
+        // (tiles/refined_{row}_{col}_rg16.bin) match the reference's own
+        // row-major loop, which a consumer's file lookup depends on.
         let e = run();
         let names: Vec<&str> = e.entries.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
@@ -453,6 +470,9 @@ mod tests {
 
     #[test]
     fn every_tile_carries_four_bytes_per_pixel_at_the_chosen_dims() {
+        // Protects: pack_height16's RG16 encoding (2 channels used, 4 bytes
+        // per pixel container) against the reported tile_w/tile_h, so a
+        // consumer's buffer size calculation is not silently wrong.
         let e = run();
         for t in &e.entries[..4] {
             assert_eq!(t.data.len(), e.tile_w * e.tile_h * 4);
@@ -461,8 +481,8 @@ mod tests {
 
     #[test]
     fn no_two_tiles_are_the_same_bytes() {
-        // A composition bug that fed every tile the same sub-region would
-        // still produce a well-formed archive.
+        // Protects: against a composition bug that fed every tile the same
+        // sub-region, which would still produce a well-formed archive.
         let e = run();
         for i in 0..4 {
             for j in (i + 1)..4 {
@@ -473,6 +493,9 @@ mod tests {
 
     #[test]
     fn the_manifest_records_the_selection_it_was_given() {
+        // Protects: build_tile_manifest's field mapping -- height encoding,
+        // compression, world seed and the selection bounds all reach the
+        // JSON with the right keys and values.
         let e = run();
         let json = String::from_utf8(e.entries[4].data.clone()).expect("utf-8");
         assert!(json.contains("\"heightEncoding\": \"rg16\""));
@@ -483,6 +506,8 @@ mod tests {
 
     #[test]
     fn a_one_by_one_export_still_produces_two_entries() {
+        // Protects: the degenerate 1x1 tile grid -- one bin plus the index,
+        // no off-by-one from a loop that assumes more than one tile.
         let src = synthetic_field(48, 32, 5);
         let a = AmplifyOpts::default();
         let e = export_region_tiles(
@@ -495,6 +520,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "non-empty tile grid")]
     fn a_zero_column_export_is_rejected() {
+        // Protects: `export_region_tiles`'s own assert on cols/rows > 0 --
+        // a zero-sized tile grid must panic with the named message, not
+        // silently produce an empty export or divide by zero.
         let src = synthetic_field(8, 8, 0);
         let a = AmplifyOpts::default();
         export_region_tiles(
@@ -507,6 +535,9 @@ mod tests {
 
     #[test]
     fn gzip_renames_every_tile_and_flips_the_manifests_compression_field() {
+        // Protects: the gzip flag renaming every .bin to .bin.gz and
+        // flipping the manifest's compression field, while the per-tile
+        // `file` entry keeps naming the PNG (not the renamed bin).
         let e = run_with(true, None);
         assert!(e.used_gzip);
         assert_eq!(e.entries[0].name, "tiles/refined_0_0_rg16.bin.gz");
@@ -519,6 +550,8 @@ mod tests {
 
     #[test]
     fn a_gzipped_tile_unzips_back_to_the_stored_bytes_exactly() {
+        // Protects: gzip_bytes round trips to the plain path's own bytes
+        // exactly, and actually shrinks the payload.
         let plain = run_with(false, None);
         let zipped = run_with(true, None);
         for i in 0..4 {
@@ -530,6 +563,8 @@ mod tests {
 
     #[test]
     fn a_visual_export_interleaves_one_png_after_each_bin() {
+        // Protects: the exact entry ordering when a visual is requested --
+        // bin then png per tile, in row-major order, index last.
         let e = run_with(false, Some(TileVisual::default()));
         let names: Vec<&str> = e.entries.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, vec![
@@ -543,6 +578,10 @@ mod tests {
 
     #[test]
     fn each_png_is_a_real_png_that_decodes_back_to_the_rendered_pixels() {
+        // Protects: the PNG container round-trips to the exact pixels
+        // render_height_tile_rgba produced -- the module doc's contract
+        // that only the container bytes differ from the reference, not
+        // the pixels.
         let e = run_with(false, Some(TileVisual::default()));
         let img = cartalith_assets::raster::decode_png(&e.entries[1].data).expect("a valid PNG");
         assert_eq!((img.w, img.h), (e.tile_w as u32, e.tile_h as u32));
@@ -560,8 +599,9 @@ mod tests {
 
     #[test]
     fn no_two_tile_pngs_are_identical() {
-        // Same defence as the .bin check: a composition bug that rendered the
-        // same tile four times still produces a well-formed archive.
+        // Protects: same defence as the .bin check -- a composition bug
+        // that rendered the same tile four times still produces a
+        // well-formed archive.
         let e = run_with(false, Some(TileVisual::default()));
         let pngs: Vec<&Vec<u8>> = e.entries.iter()
             .filter(|t| t.name.ends_with(".png")).map(|t| &t.data).collect();
@@ -575,6 +615,9 @@ mod tests {
 
     #[test]
     fn the_archive_stores_its_pngs_and_deflates_its_tiles() {
+        // Protects: `params.json` is unshifted to the archive front, and
+        // every PNG entry is stored (not re-deflated, which would waste
+        // cycles compressing already-compressed bytes).
         let e = run_with(false, Some(TileVisual::default()));
         let buf = zip_region_export(&e, Some(b"{\"seed\":4242}")).expect("zip");
         let mut a = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("a readable zip");
@@ -590,6 +633,9 @@ mod tests {
 
     #[test]
     fn the_archive_round_trips_every_entry_byte_for_byte() {
+        // Protects: every entry the export produced (gzip bins, PNGs,
+        // index) comes back byte for byte through zip_region_export and a
+        // real zip reader.
         let e = run_with(true, Some(TileVisual::default()));
         let buf = zip_region_export(&e, None).expect("zip");
         let mut a = zip::ZipArchive::new(std::io::Cursor::new(&buf)).expect("zip");
@@ -606,6 +652,9 @@ mod tests {
 
     #[test]
     fn the_same_export_zips_to_the_same_bytes_twice() {
+        // Protects: byte-for-byte zip determinism, needed for a
+        // reproducible export to be diffable; a timestamp or mtime that
+        // ticked between calls would break it silently.
         let e = run_with(true, Some(TileVisual::default()));
         assert_eq!(
             zip_region_export(&e, None).expect("zip"),
@@ -616,6 +665,9 @@ mod tests {
 
     #[test]
     fn extract_region_as_world_scales_the_map_width_by_the_selections_share() {
+        // Protects: the new map width is the OLD grid width's own selection
+        // share (`map_width_km * sel.w / GW`), computed before GW is
+        // reassigned to the new grid size.
         let src = synthetic_field(48, 32, 5);
         let a = AmplifyOpts { seed: 4242, sea: 0.42, ridged: false, ..Default::default() };
         let w = extract_region_as_world(
@@ -628,8 +680,9 @@ mod tests {
 
     #[test]
     fn extract_region_as_world_floors_the_map_width_at_one_kilometre() {
-        // A tiny selection of a small map would otherwise produce a sub-1 km
-        // world, which every downstream km scale divides by.
+        // Protects: a tiny selection of a small map would otherwise
+        // produce a sub-1 km world, which every downstream km scale
+        // divides by.
         let src = synthetic_field(64, 64, 1);
         let w = extract_region_as_world(
             &src, 64, 64, &Region { x: 60, y: 60, w: 4, h: 4 }, 256, 10.0, &AmplifyOpts::default(),
@@ -640,9 +693,10 @@ mod tests {
 
     #[test]
     fn extract_region_as_world_does_not_renormalise_the_field() {
-        // The reference is explicit that it must NOT: the amplified data is
-        // already meaningful elevation in the parent's [0,1] space. A
-        // normalising port would push the extremes to 0 and 1.
+        // Protects: the reference is explicit that it must NOT
+        // renormalise -- the amplified data is already meaningful
+        // elevation in the parent's [0,1] space. A normalising port would
+        // push the extremes to 0 and 1.
         let src = synthetic_field(48, 32, 5);
         let w = extract_region_as_world(
             &src, 48, 32, &Region { x: 8, y: 8, w: 8, h: 8 }, 64, 800.0, &AmplifyOpts::default(),
@@ -670,6 +724,10 @@ mod tests {
         (p, ws)
     }
 
+    /// The amplify options every `region_as_new_world` test in this block
+    /// passes, varying only `sea` -- which the caller must be able to set
+    /// independently of the parent's own sea level (see
+    /// `region_as_new_world_takes_its_sea_level_from_the_amplify_opts`).
     fn amp(sea: f64) -> AmplifyOpts {
         AmplifyOpts { seed: 4242, sea, ridged: false, ..Default::default() }
     }
@@ -683,8 +741,9 @@ mod tests {
 
     #[test]
     fn region_as_new_world_returns_a_state_at_the_dimensions_it_reports() {
-        // The `ImportedWorld` hazard, restated: a caller that indexed this
-        // state with the parent's stride would read every row misaligned.
+        // Protects: the `ImportedWorld` hazard, restated -- a caller that
+        // indexed this state with the parent's stride would read every row
+        // misaligned. Every returned grid must be exactly np.gw * np.gh.
         let (p, ws) = parent(64, 48);
         let sel = Region { x: 8, y: 6, w: 32, h: 24 };
         let (np, nws) =
@@ -713,10 +772,11 @@ mod tests {
 
     #[test]
     fn region_as_new_world_leaves_no_tectonic_field_dead() {
-        // The reference reaches `inferTectonics` from this button via the
-        // calibrate gate it opens; collapsing that gate is only correct if
-        // the substrate really is reconstructed. An all-zero `crust_field`
-        // is what lithology, soil and every resource read.
+        // Protects: the reference reaches `inferTectonics` from this
+        // button via the calibrate gate it opens; collapsing that gate is
+        // only correct if the substrate really is reconstructed. An
+        // all-zero `crust_field` is what lithology, soil and every
+        // resource read.
         let (p, ws) = parent(64, 48);
         let sel = Region { x: 4, y: 4, w: 40, h: 30 };
         let (_, nws) = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");
@@ -732,7 +792,8 @@ mod tests {
 
     #[test]
     fn region_as_new_world_preserves_the_land_fraction_of_the_region_it_cut() {
-        // **The renormalisation guard, in the terms that actually matter.**
+        // Protects: **the renormalisation guard, in the terms that actually
+        // matter.**
         // `normalize_field` in this sequence would stretch the region's own
         // range to [0,1] and turn a mostly-ocean bay into a half-continent.
         // Asserted against the SAME cells in the parent, not against a
@@ -764,12 +825,13 @@ mod tests {
 
     #[test]
     fn region_as_new_world_takes_its_sea_level_from_the_amplify_opts() {
-        // The two must not be allowed to disagree: the amplified field's
-        // [0,1] is anchored to the level its detail was faded against, and
-        // `classify_plate_crust` splits oceanic from continental crust on
-        // exactly that number. `base.sea_level` is deliberately the wrong
-        // one here -- a World-Structure archetype re-anchors it, so the
-        // dial and the effective value really do differ in the shell.
+        // Protects: the two must not be allowed to disagree -- the
+        // amplified field's [0,1] is anchored to the level its detail was
+        // faded against, and `classify_plate_crust` splits oceanic from
+        // continental crust on exactly that number. `base.sea_level` is
+        // deliberately the wrong one here -- a World-Structure archetype
+        // re-anchors it, so the dial and the effective value really do
+        // differ in the shell.
         let (mut p, ws) = parent(64, 48);
         p.sea_level = 0.11;
         let effective = 0.55;
@@ -781,8 +843,9 @@ mod tests {
 
     #[test]
     fn region_as_new_world_carries_the_parents_wrap_geometry_and_climate_dials() {
-        // The reference's handler never touches `state.world`, and every
-        // block the resample cannot supply comes from the parent.
+        // Protects: the reference's handler never touches `state.world`,
+        // and every block the resample cannot supply comes from the
+        // parent, unchanged.
         let (mut p, ws) = parent(64, 48);
         p.world = true;
         p.climate.lat_n = 71.0;
@@ -797,6 +860,9 @@ mod tests {
 
     #[test]
     fn region_as_new_world_scales_the_map_width_with_the_selections_share() {
+        // Protects: the new map width scales with the selection's share of
+        // the old grid, and the resulting cell size is genuinely finer --
+        // the entire point of the feature.
         let (mut p, ws) = parent(64, 48);
         p.map_width_km = 800.0;
         let sel = Region { x: 0, y: 0, w: 32, h: 24 };
@@ -811,10 +877,11 @@ mod tests {
 
     #[test]
     fn region_as_new_world_refuses_below_the_axis_floor_instead_of_clamping() {
-        // An extreme aspect: `tile_dims` would answer 128 x 2, and 2 rows
-        // through `pick_plate_seeds` and the climate stack is a panic in a
-        // `#[func]`. Clamping instead would silently change the shape the
-        // user selected and contradict the map width derived from it.
+        // Protects: an extreme aspect -- `tile_dims` would answer 128 x 2,
+        // and 2 rows through `pick_plate_seeds` and the climate stack is a
+        // panic in a `#[func]`. Clamping instead would silently change the
+        // shape the user selected and contradict the map width derived
+        // from it.
         let (p, ws) = parent(2048, 16);
         let sel = Region { x: 0, y: 0, w: 2048, h: 16 };
         // `expect_err` is out: `WorldState` has no `Debug`, deliberately --
@@ -845,6 +912,10 @@ mod tests {
     /// Written 2026-09-03 after `4 -> 3` survived a mutation run.
     #[test]
     fn the_axis_floor_is_generate_sizeds_own_clamp() {
+        // Protects: MIN_REGION_WORLD_AXIS's literal value against the
+        // constant it must track (WorldGen::generate_sized's grid_w.max(4)),
+        // and that it really is a floor rather than a ceiling or an
+        // off-by-one.
         assert_eq!(MIN_REGION_WORLD_AXIS, 4, "the floor is generate_sized's grid_w.max(4)");
         // And it really is a floor, not a ceiling or an off-by-one: a 4-axis
         // world is acceptable and a 3-axis world is not.
@@ -854,9 +925,9 @@ mod tests {
 
     #[test]
     fn region_as_new_world_is_deterministic() {
-        // `LANDMARK_GENERATION_RESEARCH.md` §27's property, and the reason
-        // nothing here needs persisting: the same selection at the same
-        // settings rebuilds the same world.
+        // Protects: `LANDMARK_GENERATION_RESEARCH.md` §27's property, and
+        // the reason nothing here needs persisting -- the same selection
+        // at the same settings rebuilds the same world, bit for bit.
         let (p, ws) = parent(64, 48);
         let sel = Region { x: 8, y: 6, w: 32, h: 24 };
         let a = region_as_new_world(&ws.field, 64, 48, &sel, 96, &p, &amp(ws.sea_level)).expect("above the floor");

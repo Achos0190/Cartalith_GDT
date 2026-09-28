@@ -60,9 +60,14 @@ pub enum Json {
 }
 
 impl Json {
+    /// Shorthand for a `Json::Str`, since almost every property here is a
+    /// borrowed `&str` that needs owning before it can sit in the tree.
     fn s(v: &str) -> Json {
         Json::Str(v.to_string())
     }
+    /// A `[x, y]` coordinate pair as the two-element array GeoJSON positions
+    /// require. Must not be reused for a `[x, y, z]` position -- this port
+    /// never emits a third coordinate.
     fn pt(p: [f64; 2]) -> Json {
         Json::Arr(vec![Json::Num(p[0]), Json::Num(p[1])])
     }
@@ -75,6 +80,11 @@ pub fn stringify(v: &Json) -> String {
     out
 }
 
+/// Recursive writer behind [`stringify`]. Kept separate from `stringify`
+/// itself so the top-level call can own the `String` buffer while the
+/// recursion only ever appends to it -- must never allocate a fresh
+/// `String` per node, which would make export cost quadratic on a large
+/// world's feature list.
 fn write_json(out: &mut String, v: &Json) {
     match v {
         Json::Num(n) => out.push_str(&js_num(*n)),
@@ -200,6 +210,10 @@ pub struct GeoJsonWorld<'a> {
 /// reading the file learns the same thing from either implementation.
 pub const CRS_NOTE: &str = "Coordinates are local planar kilometres (east, north) from the map's own scale, not real-world WGS84 longitude/latitude.";
 
+/// Wraps a geometry and its property list in the GeoJSON `Feature` envelope
+/// every layer below shares -- `{type, geometry, properties}` in that order,
+/// matching the reference's own object-literal field order since that order
+/// is what a byte-exact comparison checks.
 fn feature(geometry: Json, properties: Vec<(String, Json)>) -> Json {
     Json::Obj(vec![
         ("type".into(), Json::s("Feature")),
@@ -208,6 +222,10 @@ fn feature(geometry: Json, properties: Vec<(String, Json)>) -> Json {
     ])
 }
 
+/// A `LineString` geometry: every point run through [`geo_xy`] (grid cells
+/// to local planar km, Y flipped so north is up) before being written out.
+/// Callers must pre-filter degenerate (fewer than two point) runs -- this
+/// function does not, and a one-point `LineString` is not valid GeoJSON.
 fn line_string(pts: &[(f64, f64)], gh: usize, k: f64) -> Json {
     Json::Obj(vec![
         ("type".into(), Json::s("LineString")),
@@ -218,6 +236,11 @@ fn line_string(pts: &[(f64, f64)], gh: usize, k: f64) -> Json {
     ])
 }
 
+/// A `MultiPolygon` geometry from already-traced ring coordinates: polygon
+/// > ring > point, three levels deep. The caller ([`territory_feature`],
+/// [`province_feature`]) is responsible for nesting holes inside their
+/// enclosing ring correctly -- `mask_outline_coords` does that; this
+/// function only shapes whatever it is given into the GeoJSON array nesting.
 fn multi_polygon(coords: Vec<Vec<Vec<[f64; 2]>>>) -> Json {
     Json::Obj(vec![
         ("type".into(), Json::s("MultiPolygon")),
@@ -397,16 +420,28 @@ pub fn feature_collection(w: &GeoJsonWorld<'_>) -> Json {
     ])
 }
 
+/// Unit tests for the `Json` writer and `exportGeoJSON`'s layer assembly.
+/// These do not call into `cartalith-godot`'s live world state, so they
+/// exercise the document shape and byte-exact number/string rendering with
+/// hand-built fixtures rather than a generated world (that comparison lives
+/// in `tests/golden_parity_geojson.rs`).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A minimal world with every optional layer empty, so each test below
+    /// only needs to override the one field it cares about.
     fn empty_world() -> GeoJsonWorld<'static> {
         GeoJsonWorld { gw: 12, gh: 9, map_width_km: 600.0, version: "2.10", seed: 4242, ..Default::default() }
     }
 
     #[test]
     fn stringify_renders_numbers_the_way_json_stringify_does() {
+        // Protects: js_num's integral/NaN handling reached through this
+        // module's writer -- an integral f64 must print without a trailing
+        // ".0" (serde_json would print "16.0") and NaN must print "null"
+        // (JSON has no NaN literal; JS silently coerces it), or the
+        // byte-exact comparison against the reference's export fails.
         assert_eq!(stringify(&Json::Num(16.0)), "16");
         assert_eq!(stringify(&Json::Num(0.5)), "0.5");
         assert_eq!(stringify(&Json::Num(-3.0)), "-3");
@@ -415,6 +450,9 @@ mod tests {
 
     #[test]
     fn stringify_keeps_object_keys_in_insertion_order() {
+        // Protects: `Json::Obj` being a `Vec`, not a `BTreeMap` or `HashMap`
+        // -- a JS object literal's own property order is insertion order,
+        // and a map-backed tree would silently re-sort or randomise it.
         let o = Json::Obj(vec![
             ("z".into(), Json::Num(1.0)),
             ("a".into(), Json::Num(2.0)),
@@ -425,12 +463,20 @@ mod tests {
 
     #[test]
     fn stringify_escapes_a_name_the_way_json_stringify_would() {
+        // Protects: reuse of `cartalith_io::json_string` for escaping rather
+        // than a second hand-rolled escaper -- quotes, backslashes,
+        // newlines and tabs must all come out the way `JSON.stringify`
+        // encodes them.
         assert_eq!(stringify(&Json::s("a\"b\\c\nd")), r#""a\"b\\c\nd""#);
         assert_eq!(stringify(&Json::s("tab\there")), r#""tab\there""#);
     }
 
     #[test]
     fn an_empty_world_still_produces_a_valid_feature_collection() {
+        // Protects: a world with every layer empty still emits a
+        // well-formed, empty `features` array and the document-level
+        // properties -- an empty world must not be treated as "nothing to
+        // export" and short-circuit before the FeatureCollection wrapper.
         let s = export_geojson(&empty_world());
         assert!(s.starts_with(r#"{"type":"FeatureCollection","properties":{"#));
         assert!(s.ends_with(r#""features":[]}"#));
@@ -440,6 +486,10 @@ mod tests {
 
     #[test]
     fn a_poi_and_a_settlement_carry_different_property_sets() {
+        // Protects: the `is_poi` branch in `feature_collection` emitting
+        // genuinely different property sets, not the same set with blank
+        // fields -- a POI must not carry a spurious `pop`/`faction` of 0,
+        // which would misreport it as a real, unclaimed settlement.
         let traits: Vec<String> = vec!["port".into()];
         let places = [
             GeoPlace { x: 2.0, y: 3.0, name: "Ardun", kind: "city", is_poi: false, pop: 12400,
@@ -454,6 +504,10 @@ mod tests {
 
     #[test]
     fn a_one_point_way_is_skipped_rather_than_written_as_a_broken_linestring() {
+        // Protects: the `way.pts.len() < 2` skip in `feature_collection`,
+        // matching the reference's own skip -- and that a real multi-point
+        // way's `km` is still rounded to two decimals via `toFixed`
+        // semantics, not Rust's default float formatting.
         let one = [(3.0, 3.0)];
         let two = [(1.0, 1.0), (4.0, 2.0)];
         let ways = [
@@ -467,6 +521,9 @@ mod tests {
 
     #[test]
     fn a_faction_that_owns_nothing_emits_no_feature() {
+        // Protects: `territory_feature`'s `None` return on an empty mask
+        // propagating all the way through -- a faction with zero owned
+        // cells must not appear as an empty or degenerate MultiPolygon.
         let terr = vec![0i32; 12 * 9];
         let fs = [GeoFaction { fid: 1, name: "Aurelia", religion: "none" }];
         let s = export_geojson(&GeoJsonWorld { territory: Some((&terr, &fs)), ..empty_world() });
@@ -475,8 +532,10 @@ mod tests {
 
     #[test]
     fn a_province_raster_of_the_wrong_length_is_ignored_entirely() {
-        // The reference's `civProvince.length === GW*GH` guard: a stale raster
-        // from a previous resolution is not a partial one.
+        // Protects: the reference's `civProvince.length === GW*GH` guard --
+        // a stale raster from a previous resolution is not a partial one,
+        // and must be ignored wholesale rather than read out of bounds or
+        // partially traced against the wrong grid shape.
         let praster = vec![1i32; 4];
         let ps = [GeoProvince { id: 1, faction: 1, name: "Marches", faction_name: "Aurelia" }];
         let s = export_geojson(&GeoJsonWorld { provinces: Some((&praster, &ps)), ..empty_world() });
@@ -485,6 +544,10 @@ mod tests {
 
     #[test]
     fn layers_come_out_in_the_references_own_order() {
+        // Protects: the fixed layer order (poi/settlement, way, river,
+        // territory, province) that `feature_collection` writes -- a GIS
+        // consumer draws a FeatureCollection's features in array order, so
+        // a silent reorder would change what draws on top of what.
         let terr = {
             let mut t = vec![0i32; 12 * 9];
             for y in 1..=2 {

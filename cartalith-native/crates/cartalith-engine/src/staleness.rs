@@ -100,6 +100,9 @@ pub enum PipelineStage {
 }
 
 impl PipelineStage {
+    /// Every stage, in the topological (upstream-first) order
+    /// [`pipeline_stage_graph`] adds them in. Iterating this rather than
+    /// `0..4` keeps a caller's loop honest about which id means what.
     pub const ALL: [PipelineStage; 4] = [
         PipelineStage::Height,
         PipelineStage::Hydrology,
@@ -107,10 +110,17 @@ impl PipelineStage {
         PipelineStage::Civ,
     ];
 
+    /// The [`StageId`] this variant was added under in
+    /// [`pipeline_stage_graph`] -- a plain cast because the enum's own
+    /// discriminants were chosen to match, not a table lookup that could
+    /// drift from the graph.
     pub fn id(self) -> StageId {
         self as StageId
     }
 
+    /// The stage name as registered with [`StageGraph::add_stage`] --
+    /// used both to build the graph and, in [`RecomputeReport`], to report
+    /// back which stages ran without exposing [`StageId`] to a caller.
     pub fn name(self) -> &'static str {
         match self {
             PipelineStage::Height => "height",
@@ -251,12 +261,17 @@ pub fn recompute_stale(g: &mut StageGraph, p: &WorldParams, ws: &mut WorldState)
     RecomputeReport { ran, still_stale }
 }
 
+/// Coverage for the stage graph's shape and for [`recompute_stale`], the
+/// consumer that turns a marked-changed stage into an actual re-run.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn stage_ids_match_the_graph_the_builder_produces() {
+        // Protects: PipelineStage::id/name against pipeline_stage_graph's
+        // own registration order -- a mismatch would make ALL's ids point
+        // at the wrong stage's staleness.
         let g = pipeline_stage_graph(4);
         assert_eq!(g.stage_count(), PipelineStage::ALL.len());
         for s in PipelineStage::ALL {
@@ -266,6 +281,9 @@ mod tests {
 
     #[test]
     fn the_real_edges_are_wired_including_the_direct_ones() {
+        // Protects: the module doc's claim that civ depends on height and
+        // hydrology *directly*, not only through climate -- a graph that
+        // collapsed to the linear spine would under-invalidate civ.
         let g = pipeline_stage_graph(1);
         assert!(g.upstream(PipelineStage::Height.id()).is_empty());
         assert_eq!(g.upstream(PipelineStage::Hydrology.id()), &[0]);
@@ -277,6 +295,9 @@ mod tests {
 
     #[test]
     fn a_committed_terrain_edit_makes_the_whole_downstream_chain_stale() {
+        // Protects: mark_changed_tiles on Height propagating transitively to
+        // every downstream stage with the right origin/reason, and Height
+        // itself never being reported stale by its own edit.
         let mut g = pipeline_stage_graph(4);
         g.mark_changed_tiles(PipelineStage::Height.id(), [1, 2], "height_edited");
 
@@ -297,9 +318,10 @@ mod tests {
 
     #[test]
     fn a_terrain_edit_recomputes_nothing_until_asked() {
-        // The mockup's "downstream update: rivers - deferred" line, as a
-        // test: after an edit, hydrology reports stale and its own version is
-        // untouched, because nothing ran.
+        // Protects: staleness is lazy -- the mockup's "downstream update:
+        // rivers - deferred" line, as a test: after an edit, hydrology
+        // reports stale and its own version is untouched, because nothing
+        // ran.
         let mut g = pipeline_stage_graph(2);
         g.mark_changed(PipelineStage::Height.id(), 0, "height_edited");
         assert!(g.is_stale(PipelineStage::Hydrology.id(), 0));
@@ -309,8 +331,9 @@ mod tests {
 
     #[test]
     fn running_hydrology_alone_leaves_climate_and_civ_deferred() {
-        // Exactly sculptCommit's own shape: one flow/climate pass per commit,
-        // and settlements/roads/territory left stale rather than cascaded.
+        // Protects: exactly sculptCommit's own shape: one flow/climate pass
+        // per commit, and settlements/roads/territory left stale rather
+        // than cascaded.
         let mut g = pipeline_stage_graph(1);
         g.mark_changed(PipelineStage::Height.id(), 0, "height_edited");
         g.mark_recomputed(PipelineStage::Hydrology.id(), "flow_recomputed");
@@ -325,11 +348,12 @@ mod tests {
 
     #[test]
     fn the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages() {
-        // The owner's 2026-08-24 answer to `GENERATION_PIPELINE_ARCHITECTURE_
-        // RESEARCH.md` §4 item 4, pinned: erosion is *inside* the height
-        // stage, so it is not a node and adds no edge. If a later change
-        // grows this graph an "erosion" stage, that decision is being
-        // reversed and this test is where it has to be argued.
+        // Protects: the owner's 2026-08-24 answer to
+        // `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 item 4, pinned:
+        // erosion is *inside* the height stage, so it is not a node and
+        // adds no edge. If a later change grows this graph an "erosion"
+        // stage, that decision is being reversed and this test is where it
+        // has to be argued.
         let g = pipeline_stage_graph(1);
         assert_eq!(g.stage_count(), 4);
         for s in 0..g.stage_count() {
@@ -362,6 +386,9 @@ mod tests {
 
     #[test]
     fn a_height_edit_recomputes_hydrology_and_climate_and_leaves_civ_stale() {
+        // Protects: recompute_stale's minimal-set contract on a real
+        // generated world (not just the empty-vec fixtures above) --
+        // exactly hydrology and climate run, civ is reported still_stale.
         let (p, mut ws, _) = edited_world();
         let mut g = pipeline_stage_graph(4);
         g.mark_changed_tiles(PipelineStage::Height.id(), [1, 2], "sculpt");
@@ -379,6 +406,8 @@ mod tests {
 
     #[test]
     fn the_recomputed_values_are_right_not_merely_different() {
+        // Protects: against a recompute that merely perturbs values without
+        // being physically right, and against it mutating height itself.
         // "Changed" is not correctness. Two independent physical invariants
         // the recompute must satisfy, both derivable without re-running the
         // implementation under test:
@@ -414,9 +443,9 @@ mod tests {
 
     #[test]
     fn it_recomputes_only_what_it_claims_and_leaves_the_rest_bit_identical() {
-        // The other half of "not everything": the carve-time river network is
-        // documented as *not* re-derived, so it must come back bit-identical,
-        // not merely close.
+        // Protects: the other half of "not everything": the carve-time
+        // river network is documented as *not* re-derived, so it must come
+        // back bit-identical, not merely close.
         let (p, mut ws, _) = edited_world();
         // `ChannelResult` is neither `Clone` nor `Debug`; its two topology
         // arrays are what a comparison would be about anyway.
@@ -432,6 +461,9 @@ mod tests {
 
     #[test]
     fn a_second_call_with_no_intervening_edit_runs_nothing() {
+        // Protects: idempotence -- a caller that re-checks staleness after
+        // an already-satisfied recompute must not pay for a second pass or
+        // perturb an already-current value.
         let (p, mut ws, _) = edited_world();
         let mut g = pipeline_stage_graph(1);
         g.mark_changed(PipelineStage::Height.id(), 0, "sculpt");
@@ -446,10 +478,11 @@ mod tests {
 
     #[test]
     fn a_downstream_only_edit_recomputes_nothing_upstream_of_it() {
-        // `paint_commit`'s shape: painting biome marks `Civ`, which is
-        // downstream of everything. Hydrology and climate must not run --
-        // this is the "not everything" half of the minimal-set contract, and
-        // it is decided by the graph, not by a special case here.
+        // Protects: `paint_commit`'s shape: painting biome marks `Civ`,
+        // which is downstream of everything. Hydrology and climate must not
+        // run -- this is the "not everything" half of the minimal-set
+        // contract, and it is decided by the graph, not by a special case
+        // here.
         let (p, mut ws, _) = edited_world();
         let (t, r, q) = (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone());
         let mut g = pipeline_stage_graph(1);
@@ -471,6 +504,8 @@ mod tests {
     #[test]
     #[ignore]
     fn measured_recompute_stale_vs_a_full_generate() {
+        // Protects: nothing directly -- a timing report, not a correctness
+        // check, run with --nocapture to see the numbers.
         for &sz in &[512usize, 1024, 2048] {
             let p = WorldParams::defaults(sz, sz, 24601);
             let t0 = std::time::Instant::now();
@@ -508,6 +543,8 @@ mod tests {
         assert_eq!(recompute_stale(&mut g, p, ws).ran, vec!["hydrology", "climate"]);
     }
 
+    /// Snapshot of `recompute_stale`'s three output fields, for a
+    /// before/after comparison without holding a live borrow of `ws`.
     fn derived(ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
         (ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone())
     }
@@ -524,6 +561,11 @@ mod tests {
     /// run's output rather than the generation's.
     #[test]
     fn erode_undo_erode_recomputes_bit_identical_drainage_and_climate() {
+        // Protects: the probe's exact real-world shape -- erode, recompute,
+        // undo, erode again, recompute again must produce bit-identical
+        // drainage/rainfall/temperature, since the elevation is
+        // bit-identical across both runs. Caught refresh_climate routing
+        // flow_discharge with whatever rainfall the world already held.
         let mut p = WorldParams::defaults(64, 40, 1234);
         p.integrate_drainage = true; // the shipped default path, too
         let mut ws = crate::generate_terrain(&p);
@@ -557,6 +599,10 @@ mod tests {
     /// so recomputing it over the same surface must return it bit for bit.
     #[test]
     fn a_passes_zero_erode_leaves_a_shipped_default_world_bit_identical() {
+        // Protects: the probe's passes-0 control -- an op that changes no
+        // elevation at all must change nothing the recompute derives from
+        // elevation, on a shipped-default world whose generation already
+        // ends in refresh_climate.
         let mut p = WorldParams::defaults(64, 40, 1234);
         p.integrate_drainage = true;
         p.passes.glacial = true;
@@ -580,6 +626,10 @@ mod tests {
     /// surface left behind -- must agree bit for bit.
     #[test]
     fn refresh_climate_ignores_the_values_it_is_about_to_overwrite() {
+        // Protects: the unit-level statement of the contract the two tests
+        // above rest on -- refresh_climate's three `&mut` fields are
+        // outputs only, so two calls over the same surface with two
+        // different histories must agree bit for bit.
         let (p, edited, _) = edited_world();
         let pristine = crate::generate_terrain(&p);
         // A real history rather than invented numbers: the climate of the
@@ -623,8 +673,8 @@ mod tests {
 
     #[test]
     fn a_dimension_mismatch_returns_an_empty_report_rather_than_panicking() {
-        // This call can sit under a `#[func]`, and a panic crossing the gdext
-        // boundary takes the Godot process with it.
+        // Protects: this call can sit under a `#[func]`, and a panic
+        // crossing the gdext boundary takes the Godot process with it.
         let (mut p, mut ws, _) = edited_world();
         let mut g = pipeline_stage_graph(1);
         g.mark_changed(PipelineStage::Height.id(), 0, "sculpt");

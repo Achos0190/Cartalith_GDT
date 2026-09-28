@@ -63,6 +63,8 @@ use cartalith_engine::region_export::{RegionExportOpts, export_region_tiles};
 use cartalith_spatial::Region;
 use cartalith_terrain::amplify::AmplifyOpts;
 
+/// FNV-1a over raw bytes -- the harness's own hashing convention for a
+/// binary payload (packed RG16 tile data, gunzipped or not).
 fn fnv_u8(a: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in a {
@@ -72,6 +74,8 @@ fn fnv_u8(a: &[u8]) -> String {
     format!("{h:016x}")
 }
 
+/// The harness's own `mkField`, arithmetic for arithmetic so nothing here
+/// depends on a libm the two sides could disagree on.
 fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
     let mut f = vec![0.0f32; gw * gh];
     let cx = gw as f64 * 0.42;
@@ -118,6 +122,9 @@ fn run(gzip: bool, version: &str) -> cartalith_engine::region_export::RegionExpo
 
 #[test]
 fn a_two_by_two_refine_matches_the_reference_entry_for_entry() {
+    // Protects: export_region_tiles's plain (no gzip) path against the
+    // reference, tile dimensions and per-entry name/hash/length, including
+    // the re-baselined values from Ruling O's sea-level clamp.
     let e = run(false, "TESTVER");
     // tileDims picked these: a 12x8 coarse tile is wider than tall, so the
     // long edge takes ts=32 and the short one scales to 21.
@@ -142,6 +149,9 @@ fn a_two_by_two_refine_matches_the_reference_entry_for_entry() {
 
 #[test]
 fn the_gzip_path_matches_the_reference_name_for_name() {
+    // Protects: the gzip path's names, the manifest's compression field,
+    // and the gunzipped payload against the same four hashes the plain
+    // path asserts -- so the two tests cross-check each other.
     // Straight off a real `exportRegionTiles(sel, 2, 2, 32, true, null)` call.
     // The gzip BYTES are not compared -- two conforming deflate encoders need
     // not agree on a bit stream, and the reference stores the tile
@@ -193,6 +203,10 @@ fn the_gzip_path_matches_the_reference_name_for_name() {
 
 #[test]
 fn extract_region_as_world_matches_the_reference_plan() {
+    // Protects: `regionNewWorldBtn`'s two arithmetic lines against the
+    // reference's own `tileDims` and the max(1, ...) km floor, across five
+    // worlds chosen to reach the floor from both directions plus a
+    // full-grid selection where the scale must come back unchanged.
     // `regionNewWorldBtn`'s two arithmetic lines (reference 13219), evaluated
     // against the reference's own `tileDims` for five worlds. The dimensions
     // and the km scale are the whole of what the handler computes before it

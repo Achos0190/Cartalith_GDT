@@ -280,6 +280,10 @@ fn world_coarse<'a>(
     Some(&state.field)
 }
 
+/// Coverage for EF-0: that the world-level wrapper adds nothing of its own
+/// beyond deriving options, the seam property across tile boundaries,
+/// determinism, tile/point-query agreement, the "real detail, not an
+/// upsample" measurement, and every reachable caller-error refusal.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,9 +346,13 @@ mod tests {
         }
     }
 
-    const GW: usize = 48;
-    const GH: usize = 32;
-    const TS: usize = 32;
+    // Fixture grid and tile size shared by every structural test below.
+    // Small enough that a whole level's tiles are cheap; large enough
+    // (>= MIN_TILE_PX by a wide margin) that the refinement has real coarse
+    // cells to interpolate between.
+    const GW: usize = 48; // fixture grid width, see the comment above
+    const GH: usize = 32; // fixture grid height, see the comment above
+    const TS: usize = 32; // fixture tile size, see the comment above
 
     /// One world per seed: both the coarse field and `p.tect.seed` move with
     /// it, so a seam that only held for one noise stream cannot pass.
@@ -357,6 +365,9 @@ mod tests {
 
     #[test]
     fn the_world_query_is_the_bake_composition_with_the_worlds_own_numbers() {
+        // Protects: world_elevation_tile against calling pyramid_tile
+        // directly with world_amplify_opts's own output -- the wrapper must
+        // add no numeric drift of its own, bit for bit.
         let (ws, p) = seeded(4242);
         let id = ChunkId::new(3, 5, 2);
         let got = world_elevation_tile(&ws, &p, id, TS).expect("tile");
@@ -373,6 +384,9 @@ mod tests {
 
     #[test]
     fn the_options_come_from_the_world_state_not_the_parameters() {
+        // Protects: `world_amplify_opts` reading `state.sea_level` and
+        // `p.tect.seed`, not `p.sea_level` or `AmplifyOpts`'s own default
+        // seed, and z_base tracking the reference's own tile-size schedule.
         // `apply_world_structure_sea_level` can re-anchor sea level away from
         // `p.sea_level`; a query that read the parameter would fade detail at
         // the wrong depth on every such world.
@@ -403,6 +417,10 @@ mod tests {
     /// sampling) exists to prevent.
     #[test]
     fn adjacent_tiles_agree_bit_for_bit_on_their_shared_edge() {
+        // Protects: the seam property at three seeds and both axes, at exact
+        // f32::to_bits equality -- a mutant that seeds the noise by tile
+        // coordinate instead of the world seed alone passes determinism but
+        // fails exactly this.
         let mut pairs_checked = 0usize;
         let mut cells_checked = 0usize;
         for seed in [1, 4242, -77_777] {
@@ -448,6 +466,9 @@ mod tests {
     /// silently.
     #[test]
     fn the_shared_edge_is_not_merely_a_flat_run() {
+        // Protects: the seam test above against a regression that made
+        // every tile constant, which would pass a bit-for-bit comparison
+        // vacuously.
         let (ws, p) = seeded(4242);
         let l = world_elevation_tile(&ws, &p, ChunkId::new(4, 7, 5), TS).expect("l");
         let edge: Vec<u32> = (0..l.h).map(|y| l.data[y * l.w + (l.w - 1)].to_bits()).collect();
@@ -459,6 +480,11 @@ mod tests {
 
     #[test]
     fn the_same_chunk_id_always_produces_the_same_bytes() {
+        // Protects: determinism -- the same world and chunk id always
+        // produce the same bytes, across a freshly-built equal world too
+        // (not one `Vec` staying at one address), and a different world
+        // must move the bytes so "deterministic" is not satisfied by a
+        // constant.
         let (ws, p) = seeded(31337);
         let id = ChunkId::new(5, 11, 9);
         let a = world_elevation_tile(&ws, &p, id, TS).expect("a");
@@ -484,6 +510,10 @@ mod tests {
 
     #[test]
     fn the_point_query_and_the_tile_query_are_the_same_field() {
+        // Protects: world_sample_elevation and world_elevation_tile agreeing
+        // texel for texel at the tile's own sample coordinates -- a tile is
+        // one way of evaluating the field, not a second implementation of
+        // it.
         let (ws, p) = seeded(4242);
         let z = 6u32;
         let id = ChunkId::new(z, 40, 33);
@@ -530,6 +560,9 @@ mod tests {
     /// Three seeds, because one measurement is one sample.
     #[test]
     fn a_deep_tile_is_not_a_bilinear_upsample_of_the_coarse_tile() {
+        // Protects: the "real new information, not smoothing" claim at one
+        // depth -- the refined tile's curvature must clear a plain bilinear
+        // upsample of the same footprint by a wide, measured margin.
         let z = 8u32;
         // Over the dome's flank: land, and sloped, so neither
         // `add_zoom_detail`'s hard sea cut nor its `relief <= 0` skip is what
@@ -665,6 +698,10 @@ mod tests {
     /// that question.
     #[test]
     fn a_continuous_zoom_keeps_adding_structure_at_every_depth() {
+        // Protects: EF-4's acceptance bar swept across depth rather than
+        // sampled once -- the curvature ratio, the max deviation from a
+        // plain upsample, and the tile's own peak-to-peak all clear their
+        // measured floors at every depth from z2 to z12, three seeds each.
         const SWEEP_TS: usize = 256;
         // One piece of ground, land and sloped on the dome's flank -- the same
         // ground the single-depth test above measures, followed down.
@@ -726,6 +763,10 @@ mod tests {
 
     #[test]
     fn every_reachable_caller_error_is_a_none_rather_than_a_panic() {
+        // Protects: every refusal in world_coarse/world_elevation_tile's own
+        // table returns None rather than panicking or indexing out of
+        // bounds -- a panic here crosses the gdext boundary and takes the
+        // Godot process with it.
         let (ws, p) = seeded(9);
         let ok = ChunkId::new(3, 0, 0);
         assert!(world_elevation_tile(&ws, &p, ok, TS).is_some(), "the control must pass");

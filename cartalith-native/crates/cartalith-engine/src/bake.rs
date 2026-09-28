@@ -182,6 +182,9 @@ pub struct BakeReport {
 }
 
 impl BakeReport {
+    /// Every tile a bake pass touched, whichever bucket it landed in --
+    /// used by callers checking a run against [`pyramid_tile_count`] or
+    /// against the caller's own tile list length.
     pub fn total(&self) -> usize {
         self.baked + self.skipped + self.failed
     }
@@ -265,6 +268,12 @@ pub fn bake_tiles(
     })
 }
 
+/// Shared body of [`bake_all_tiles`] and [`bake_tiles`]: synthesise every
+/// not-yet-baked id in parallel, then write them out sequentially in the
+/// caller's own order so the progress callback's one-call-per-tile,
+/// same-order contract holds. Must not reorder the write loop -- that
+/// contract is what a caller's progress bar and the reference's own
+/// skip-semantics guarantee both rest on.
 fn bake_tiles_inner(
     coarse: &[f32],
     cw: usize,
@@ -388,6 +397,8 @@ pub enum AtlasImportError {
 }
 
 impl std::fmt::Display for AtlasImportError {
+    /// Renders the reference's own three error strings verbatim, so a
+    /// message surfaced to the user matches what the JS app would have said.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AtlasImportError::NoManifest => write!(f, "no {ATLAS_MANIFEST} in archive"),
@@ -510,6 +521,8 @@ impl FinalizeLock {
     }
 }
 
+/// Wall-clock milliseconds for [`AtlasMeta::time`], falling back to `0`
+/// rather than panicking on a clock that reports before the Unix epoch.
 fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -523,10 +536,18 @@ pub fn chunk_is_covered(baked: &BTreeSet<AtlasKey>, ts: usize, id: ChunkId) -> b
     baked_cover(id, |k| baked.contains(&AtlasKey { ts, id: k }))
 }
 
+/// Coverage for the bake/store round trip, the archive export/import, and
+/// [`FinalizeLock`]'s exemption rule. Every test uses a real
+/// `AtlasStore` on a temp directory rather than a mock, since the bake's own
+/// value is the disk round trip.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A non-trivial, non-flat synthetic height field so tile boundaries and
+    /// seams have real gradients to disagree across if the synthesis is
+    /// wrong -- a flat or radially-symmetric fixture would pass a broken
+    /// tile-offset bug by accident.
     fn synthetic_field(gw: usize, gh: usize, k: i64) -> Vec<f32> {
         let mut f = vec![0.0f32; gw * gh];
         let (cx, cy) = (gw as f64 * 0.42, gh as f64 * 0.55);
@@ -545,6 +566,9 @@ mod tests {
         f
     }
 
+    /// A fresh, process-unique temp directory for one test's `AtlasStore`,
+    /// removed first in case a previous run of the same test crashed before
+    /// its own cleanup ran.
     fn tmp(name: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir()
             .join(format!("cartalith-bake-test-{name}-{}", std::process::id()));
@@ -552,12 +576,18 @@ mod tests {
         d
     }
 
+    /// A [`BakeOpts`] fixture over a fixed world key and tile size, varying
+    /// only what each test actually cares about (the amplify settings and
+    /// whether a visual is baked alongside the height data).
     fn opts<'a>(a: &'a AmplifyOpts, visual: Option<TileVisual>) -> BakeOpts<'a> {
         BakeOpts { world_key: "testworld", tile_size: 32, amplify: a, visual, version: "TESTVER" }
     }
 
     #[test]
     fn a_depth_two_bake_writes_exactly_twenty_one_chunks() {
+        // Protects: the reference's own tile-count arithmetic
+        // ((4^(z+1)-1)/3) and the progress callback's one-call-per-tile,
+        // constant-total, in-order contract.
         let root = tmp("depth2");
         let store = AtlasStore::new(&root);
         let f = synthetic_field(48, 32, 5);
@@ -578,6 +608,9 @@ mod tests {
 
     #[test]
     fn re_running_a_bake_only_fills_the_gaps() {
+        // Protects: the reference's "re-running after a partial bake only
+        // fills the gaps" -- already-baked chunks must be skipped, not
+        // rewritten, on a second call at a deeper max_z.
         let root = tmp("gaps");
         let store = AtlasStore::new(&root);
         let f = synthetic_field(48, 32, 5);
@@ -592,8 +625,9 @@ mod tests {
 
     #[test]
     fn a_stored_chunk_decodes_back_to_the_tile_that_was_baked() {
-        // The property the whole cache rests on: what deep zoom reads is what
-        // synthesis would have produced.
+        // Protects: the property the whole cache rests on -- what deep zoom
+        // reads is what synthesis would have produced, within the height16
+        // encoding's own quantisation, and it is not a flat/degenerate tile.
         let root = tmp("fidelity");
         let store = AtlasStore::new(&root);
         let f = synthetic_field(48, 32, 5);
@@ -614,6 +648,8 @@ mod tests {
 
     #[test]
     fn a_visual_bake_stores_a_real_png_beside_every_chunk() {
+        // Protects: `BakeOpts::visual` actually reaching the store as a
+        // decodable, non-degenerate PNG, not just a non-empty byte blob.
         let root = tmp("visual");
         let store = AtlasStore::new(&root);
         let f = synthetic_field(48, 32, 5);
@@ -628,6 +664,10 @@ mod tests {
 
     #[test]
     fn the_archive_round_trips_through_export_and_import() {
+        // Protects: atlas_export_entries/atlas_import_entries's full round
+        // trip into a *fresh* store, byte for byte -- a decompression bug
+        // that produced plausible-looking wrong bytes would still pass a
+        // shallower "did it import" check.
         let root = tmp("archive");
         let store = AtlasStore::new(&root);
         let f = synthetic_field(48, 32, 5);
@@ -663,6 +703,9 @@ mod tests {
 
     #[test]
     fn importing_something_that_is_not_an_atlas_is_refused_with_a_reason() {
+        // Protects: the two named refusal cases (no manifest at all, and a
+        // manifest whose `kind` is not this app's) each surface their own
+        // `AtlasImportError` variant rather than a generic failure.
         let root = tmp("badimport");
         let store = AtlasStore::new(&root);
         assert_eq!(atlas_import_entries(&store, &|_| None), Err(AtlasImportError::NoManifest));
@@ -675,6 +718,9 @@ mod tests {
 
     #[test]
     fn finalize_locks_generation_and_editing_but_never_presentation() {
+        // Protects: `FinalizeLock::check`'s exemption rule -- Generation and
+        // HeightEdit are refused (with the escape hatch named in the
+        // message) exactly while finalized; Presentation is always free.
         let open = FinalizeLock { finalized: false };
         let locked = FinalizeLock { finalized: true };
         for m in [Mutation::Generation, Mutation::HeightEdit, Mutation::Presentation] {
@@ -691,6 +737,9 @@ mod tests {
 
     #[test]
     fn a_baked_ancestor_covers_its_descendants() {
+        // Protects: chunk_is_covered's ancestor-search against a real
+        // BTreeSet-backed store, and that a different tile size is not
+        // treated as covering -- a different bake, not the same one.
         let baked: BTreeSet<AtlasKey> =
             [AtlasKey { ts: 32, id: ChunkId::new(1, 0, 0) }].into_iter().collect();
         assert!(chunk_is_covered(&baked, 32, ChunkId::new(3, 1, 1)));
@@ -701,8 +750,8 @@ mod tests {
 
     #[test]
     fn no_two_pyramid_tiles_of_a_level_are_the_same_bytes() {
-        // A composition bug that fed every tile the same sub-region would still
-        // produce a full, well-formed atlas.
+        // Protects: against a composition bug that fed every tile the same
+        // sub-region, which would still produce a full, well-formed atlas.
         let f = synthetic_field(48, 32, 5);
         let a = AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, ..Default::default() };
         let tiles: Vec<PyramidTile> = (0..4)
@@ -717,9 +766,10 @@ mod tests {
 
     #[test]
     fn horizontally_adjacent_tiles_agree_on_their_shared_edge_exactly() {
-        // Seam delta zero -- the property `refine_tile`'s one-column overlap and
-        // `add_zoom_detail`'s shared-coarse-coordinate sampling exist for. A
-        // non-zero delta reads as a hairline down every tile boundary.
+        // Protects: seam delta zero -- the property `refine_tile`'s
+        // one-column overlap and `add_zoom_detail`'s shared-coarse-coordinate
+        // sampling exist for. A non-zero delta reads as a hairline down
+        // every tile boundary.
         let f = synthetic_field(48, 32, 5);
         let a = AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, ..Default::default() };
         let l = pyramid_tile(&f, 48, 32, ChunkId::new(2, 1, 1), 32, &a);

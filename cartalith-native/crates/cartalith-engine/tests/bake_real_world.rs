@@ -24,6 +24,8 @@ use cartalith_io::atlas::AtlasStore;
 use cartalith_spatial::pyramid::ChunkId;
 use cartalith_terrain::amplify::AmplifyOpts;
 
+/// A fixed date-stamped seed, chosen only so the printed sizes/timings are
+/// reproducible run to run -- not a value the reference or any golden pins.
 const SEED: i32 = 20260824;
 
 /// Overridable from the environment so the same test can answer "what does
@@ -39,6 +41,8 @@ fn env_usize(key: &str, default: usize) -> usize {
     std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
+/// A fresh, process-unique temp directory for one `AtlasStore`, removed
+/// first in case a previous crashed run left it behind.
 fn tmp(name: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!("cartalith-bake-real-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
@@ -48,6 +52,11 @@ fn tmp(name: &str) -> std::path::PathBuf {
 #[test]
 #[ignore = "generates a real world and bakes 85 tiles; run explicitly"]
 fn a_real_world_bakes_persists_and_round_trips() {
+    // Protects: `GUI_GAP_REGISTER.md` WW-01's full acceptance, over a real
+    // generated world rather than a synthetic fixture -- the bake persists,
+    // survives a fresh store reopen, a deep-zoom read matches live
+    // synthesis, a re-bake is a no-op, the archive round-trips byte for
+    // byte, and clearing the world frees every chunk.
     let gw = env_usize("CARTALITH_BAKE_GW", 384);
     let gh = env_usize("CARTALITH_BAKE_GH", 256);
     let tile = env_usize("CARTALITH_BAKE_TILE", 256);

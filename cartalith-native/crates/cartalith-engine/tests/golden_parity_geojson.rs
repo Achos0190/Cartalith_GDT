@@ -72,8 +72,11 @@ const REFERENCE: &str = concat!(
     r#"ction":1,"factionName":"Aurelia"}}]}"#,
 );
 
-const GW: usize = 12;
-const GH: usize = 9;
+// The 12x9 world the harness installed by hand -- chosen so `mapWidthKm =
+// 600` divides to an exact `cellKm` of 50, keeping every coordinate in
+// REFERENCE a round number.
+const GW: usize = 12; // harness world width, see the comment above
+const GH: usize = 9; // harness world height, see the comment above
 
 /// `civTerritory` as the harness set it: faction 1 over a 6x5 block with a 2x2
 /// hole punched back to unclaimed, faction 2 over a disjoint 2x2 blob.
@@ -110,6 +113,10 @@ fn provinces() -> Vec<i32> {
 
 #[test]
 fn export_geojson_matches_the_reference_document_character_for_character() {
+    // Protects: the whole document, character for character, against a
+    // real `exportGeoJSON()` run -- every layer and both branches of every
+    // choice inside one (see the module doc's fixture list). Comparing the
+    // whole string means a silently-truncated document cannot pass.
     let ardun_traits: Vec<String> = vec!["port".into(), "trade_hub".into()];
     let places = [
         GeoPlace { x: 2.0, y: 3.0, name: "Ardun", kind: "city", is_poi: false, pop: 12400,
@@ -181,6 +188,11 @@ const REFERENCE_RIVERS: &str = concat!(
 
 #[test]
 fn the_river_layer_matches_the_reference_document_character_for_character() {
+    // Protects: the river layer specifically -- the first mutation sweep
+    // showed renaming `strahlerOrder` survived the 12x9 world above, which
+    // traces no river at all. This is a second real `exportGeoJSON` run,
+    // over a world that does produce river features, pinning the whole
+    // document.
     use cartalith_engine::geojson::GeoRiver;
     // The two polylines `splitRiverPolylines(traceRiverPolylines(...), GW, null)`
     // produced, in the reference's own order, with the maximum Strahler order

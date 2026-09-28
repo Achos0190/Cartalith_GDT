@@ -299,6 +299,10 @@ pub fn erode_op(ws: &mut WorldState, p: &WorldParams, opts: &ErodeOpts) -> Erode
     s
 }
 
+/// Coverage for [`erode_op`]'s assembly (not the kernels it calls, which are
+/// golden-verified in `cartalith-erosion`): that the pieces actually run in
+/// the right order, the climate-coupling fallback that guards a real panic,
+/// the GPU thermal path's measured tolerance, and the reference defaults.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +356,9 @@ mod tests {
         }
     }
 
+    /// A `WorldParams` for a region (non-wrapping) grid at the given size and
+    /// seed -- `erode_op` reads `p.world` for `isostatic_rebound`'s wrap flag,
+    /// so tests that are not specifically about wrapping fix it to `false`.
     fn params(gw: usize, gh: usize, seed: i32) -> WorldParams {
         WorldParams { world: false, ..WorldParams::defaults(gw, gh, seed) }
     }
@@ -360,6 +367,9 @@ mod tests {
     /// `[0,1]`, and it is deterministic across two identical runs.
     #[test]
     fn the_op_erodes_stays_in_range_and_repeats() {
+        // Protects: the runnable check §23 F11 asks for -- the op erodes,
+        // stays inside [0,1], and is deterministic across two identical
+        // runs.
         let (gw, gh) = (48usize, 32usize);
         let opts = ErodeOpts { droplets: 400, ..Default::default() };
         let p = params(gw, gh, 12345);
@@ -389,6 +399,9 @@ mod tests {
     /// to the reference's default, so this drives it explicitly both ways.
     #[test]
     fn rain_only_bites_when_the_climate_coupling_is_on() {
+        // Protects: `erode()`'s own `ck>0?rainField:null` -- the rain field
+        // must reach the kernel when ck>0 and be ignored entirely when
+        // ck==0.
         let (gw, gh) = (48usize, 32usize);
         let opts = ErodeOpts { droplets: 300, ..Default::default() };
         let base = synthetic(gw, gh);
@@ -422,6 +435,10 @@ mod tests {
     /// `#[func]`. The op must fall back to uniform spawning and say so.
     #[test]
     fn a_world_with_no_rain_falls_back_instead_of_panicking() {
+        // Protects: the regression guard for a real panic -- the default op
+        // takes droplet_kernel's ck>0 branch, which expects a rain field; a
+        // WorldState with none must fall back to uniform spawning and
+        // report it, not crash the Godot process through the `#[func]`.
         let (gw, gh) = (32usize, 24usize);
         let p = params(gw, gh, 4242);
         assert!(p.stream.climate_k > 0.0, "this test is only meaningful while the default couples");
@@ -445,6 +462,9 @@ mod tests {
     /// only path.
     #[test]
     fn a_world_with_rain_couples_at_the_default_climate_k() {
+        // Protects: the fallback above really is a fallback, not the only
+        // path -- a full-length rain field at the default climate_k must
+        // actually couple.
         let (gw, gh) = (32usize, 24usize);
         let p = params(gw, gh, 4242);
         let rain: Vec<f32> =
@@ -460,6 +480,9 @@ mod tests {
     /// guard that says the op is not quietly doing something of its own.
     #[test]
     fn a_zero_op_changes_nothing() {
+        // Protects: zero droplets and zero thermal passes must leave the
+        // field untouched -- the guard that says the op is not quietly
+        // doing something of its own.
         let (gw, gh) = (48usize, 32usize);
         let opts = ErodeOpts { droplets: 0, thermal_passes: 0, ..Default::default() };
         let before = synthetic(gw, gh);
@@ -472,6 +495,8 @@ mod tests {
     /// A field that does not match the grid is refused rather than sliced.
     #[test]
     fn a_mismatched_field_is_refused_untouched() {
+        // Protects: a field that does not match the claimed grid dimensions
+        // is refused rather than sliced or indexed out of bounds.
         let before = synthetic(16, 12);
         let mut w = world(before.clone(), Vec::new());
         // Claim a bigger grid than the field actually holds.
@@ -486,6 +511,9 @@ mod tests {
     /// test that says so.
     #[test]
     fn a_zero_radius_is_clamped_rather_than_dividing_by_zero() {
+        // Protects: `radius: 0` would divide by zero inside droplet_kernel's
+        // brush builder, under a `#[func]` where a panic takes the Godot
+        // process with it -- ErodeOpts::sanitized is what stops it.
         assert_eq!(ErodeOpts { radius: 0, ..Default::default() }.sanitized().radius, 1);
         assert_eq!(ErodeOpts { droplets: -5, ..Default::default() }.sanitized().droplets, 0);
         assert_eq!(
@@ -527,6 +555,10 @@ mod tests {
     /// device that refuses the grid, is a skip, not a failure.
     #[test]
     fn gpu_thermal_matches_cpu_thermal_within_measured_tolerance() {
+        // Protects: the GPU thermal pass against the real CPU erode_thermal
+        // on real generated terrain, non-square grids and both odd/even
+        // pass counts, staying within THERMAL_GPU_TOL -- and GPU-vs-GPU
+        // determinism across repeated dispatches.
         let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
             eprintln!("no GPU device -- CPU-only machine, nothing to compare");
             return;
@@ -581,6 +613,10 @@ mod tests {
     /// it -- that bound, not a new guess, is what the whole op is held to.
     #[test]
     fn erode_op_use_gpu_moves_thermal_to_the_gpu_and_only_when_asked() {
+        // Protects: `use_gpu: false` (the engine default) must never reach
+        // the GPU; `true` must report it whenever a device exists, and stay
+        // within the thermal tolerance (grown by the rebound's bound) of
+        // the CPU path.
         let (gw, gh) = (120usize, 80usize);
         assert!(!WorldParams::defaults(gw, gh, 1).use_gpu, "engine default must stay CPU");
         let base = crate::generate_terrain(&WorldParams::defaults(gw, gh, 31337)).field.as_ref().clone();
@@ -609,7 +645,15 @@ mod tests {
     #[test]
     #[ignore]
     fn measured_thermal_gpu_vs_cpu() {
+        // Protects: nothing directly -- a timing/deviation measurement
+        // harness, not a correctness check. Its numbers feed THERMAL_GPU_TOL
+        // above.
+        // 5 repeats: enough to take a median without the harness itself
+        // running long -- a judgement call, not a measured optimum.
         const ROUNDS: usize = 5;
+        /// Runs `f` ROUNDS times and returns (median, min, max, last result)
+        /// -- median-with-spread rather than a single timing, per
+        /// `MISTAKES.md`'s rule on quoting a timing.
         fn timed<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, std::time::Duration, std::time::Duration, T) {
             let mut times = Vec::new();
             let mut last = None;
@@ -663,6 +707,9 @@ mod tests {
     /// not against a comment restating it.
     #[test]
     fn defaults_match_the_reference_state_literal() {
+        // Protects: `ErodeOpts::default()` against the reference's own
+        // `state.erosion` literal (line 2268), checked field by field
+        // against a literal, not against a comment restating it.
         let d = ErodeOpts::default();
         assert_eq!(d.droplets, 60_000);
         assert_eq!(d.inertia, 0.05);

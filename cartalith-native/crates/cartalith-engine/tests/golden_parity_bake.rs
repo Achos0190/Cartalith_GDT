@@ -63,6 +63,9 @@ use cartalith_io::atlas::{build_atlas_manifest, encode_chunk, AtlasChunkDesc};
 use cartalith_spatial::pyramid::ChunkId;
 use cartalith_terrain::amplify::AmplifyOpts;
 
+/// FNV-1a over a float slice's bit patterns -- the harness's own hashing
+/// convention (bytes, not values, so a NaN or -0.0 cannot silently hash the
+/// same as something else that happens to compare equal).
 fn fnv_f32(a: &[f32]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in a {
@@ -74,6 +77,7 @@ fn fnv_f32(a: &[f32]) -> String {
     format!("{h:016x}")
 }
 
+/// FNV-1a over raw bytes, for the encoded chunk's `rg16` payload.
 fn fnv_u8(a: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in a {
@@ -101,21 +105,31 @@ fn synthetic_field(cw: usize, ch: usize, k: i64) -> Vec<f32> {
     f
 }
 
-const CW: usize = 48;
-const CH: usize = 32;
+// The harness's own fixture grid, `mkField(48, 32, k)` -- fixed so every
+// hash below is comparable across cases.
+const CW: usize = 48; // harness fixture width, see the comment above
+const CH: usize = 32; // harness fixture height, see the comment above
 
+/// The harness's own amplify options for this suite's fixture.
 fn opts() -> AmplifyOpts {
     AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, detail_freq: 1.0, ..Default::default() }
 }
 
 #[test]
 fn the_fixture_is_bit_identical_to_the_harnesss() {
+    // Protects: the Rust port's `synthetic_field` against the Node
+    // harness's own `mkField` -- every golden case below is only meaningful
+    // if the input they were hashed from is byte-identical.
     let f = synthetic_field(CW, CH, 5);
     assert_eq!(fnv_f32(&f), "e6a8f7dd46187082", "the fixture itself diverged");
 }
 
 #[test]
 fn pyramid_tile_matches_the_reference() {
+    // Protects: pyramid_tile's composition (tileDims x refineTile x
+    // addZoomDetail) against the reference at seven levels, including deep
+    // ones that reach later fBm octaves invisible to the shallow cases --
+    // see the z=5/z=7 comment below on the mutants only they killed.
     // (z, col, row, tileSize) -> (w, h, hash, min, max).
     //
     // Five of the seven hashes were re-derived by Ruling O and are the port's
@@ -153,7 +167,8 @@ fn pyramid_tile_matches_the_reference() {
 
 #[test]
 fn pyramid_tiles_first_six_samples_match_the_reference() {
-    // Hashes prove agreement but say nothing when they disagree. These are the
+    // Protects: a value-level check alongside the hash above. Hashes prove
+    // agreement but say nothing when they disagree. These are the
     // first six values of the level-0 tile, so a failure points at a texel.
     let f = synthetic_field(CW, CH, 5);
     let t = pyramid_tile(&f, CW, CH, ChunkId::new(0, 0, 0), 64, &opts());
@@ -170,8 +185,9 @@ fn pyramid_tiles_first_six_samples_match_the_reference() {
 
 #[test]
 fn adjacent_tiles_seam_delta_is_exactly_zero() {
-    // The harness measured 0, not "small". Anything else is a hairline down
-    // every tile boundary in the assembled pyramid.
+    // Protects: the seam property against the harness's own measurement --
+    // 0, not "small". Anything else is a hairline down every tile boundary
+    // in the assembled pyramid.
     let f = synthetic_field(CW, CH, 5);
     let a = pyramid_tile(&f, CW, CH, ChunkId::new(2, 1, 1), 32, &opts());
     let b = pyramid_tile(&f, CW, CH, ChunkId::new(2, 2, 1), 32, &opts());
@@ -183,6 +199,10 @@ fn adjacent_tiles_seam_delta_is_exactly_zero() {
 
 #[test]
 fn atlas_encode_chunk_matches_the_reference() {
+    // Protects: `encode_chunk`'s RG16 packing against the reference, and
+    // separately, that the tile fed into it is the one Ruling O's
+    // re-baseline produced -- the input is hashed on its own so a future
+    // divergence can be attributed to the tile or the encoder.
     let f = synthetic_field(CW, CH, 5);
     let t = pyramid_tile(&f, CW, CH, ChunkId::new(1, 1, 0), 32, &opts());
     // Both hashes re-derived by Ruling O (tile `66660c14fbef99ca` ->
@@ -197,7 +217,9 @@ fn atlas_encode_chunk_matches_the_reference() {
 
 #[test]
 fn build_atlas_manifest_matches_the_reference_byte_for_byte() {
-    // `JSON.stringify(m, null, 2)` from the harness. serde_json's pretty
+    // Protects: build_atlas_manifest's field names, key order and null
+    // handling against `JSON.stringify(m, null, 2)` from the harness.
+    // serde_json's pretty
     // printer agrees on every value here because they are all integers,
     // strings, bools and null -- see `AtlasManifest`'s own note on why the
     // *tile* manifest needed a hand-rolled writer and this one does not.

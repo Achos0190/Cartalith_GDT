@@ -341,6 +341,52 @@ re-checked against the tree rather than copied from the commit message.
   `src/bake.rs`, `src/elevation.rs`, `src/region_export.rs`, `src/lib.rs`,
   and their own test files including `golden_parity_geojson.rs`) is next.
 
+- **Ruling BK annotation pass, batch 4 (`cartalith-engine`, second batch of
+  its remaining modules) — verified by the main loop 2026-09-28 (diff re-read as comment-only; engine 214/0/8 unchanged), 2026-09-28.**
+  Comments only, zero behaviour change. Scope: `src/geojson.rs`,
+  `src/staleness.rs`, `src/erode_op.rs`, `src/bake.rs`, `src/elevation.rs`,
+  `src/region_export.rs` (4 190 LOC before this pass), plus their four
+  associated test files `tests/bake_real_world.rs`,
+  `tests/golden_parity_bake.rs`, `tests/golden_parity_geojson.rs`,
+  `tests/golden_parity_region_export.rs` (796 LOC before this pass) — this
+  batch does not include `src/lib.rs` (4 026 LOC on its own): it is left
+  whole for batch 5 rather than split, since splitting it needs a
+  module-boundary read this pass did not do. Every previously-undocumented
+  `fn`/private helper/`mod tests` in these ten files got a doc comment
+  (existing doc comments on already-documented items were not touched),
+  every `#[test]` without one got a `// Protects: ...` line as the first
+  line inside the function body (batch 1-3's own placement, since a line
+  between `#[test]` and `fn` is outside the census script's scan window),
+  and every numeric constant the census flagged as unprovenanced got either
+  a doc comment or a trailing `//` comment. Two of the fixed `GW`/`GH`/`CW`/
+  `CH`/`TS` fixture-constant groups needed a trailing per-line comment
+  rather than a block comment above the group, because the census's
+  "preceded by a comment" check only looks at the immediately preceding
+  line, which for the second and third constant in a group is the previous
+  constant, not the block comment above all of them.
+  Census re-run, scoped to these ten files: items_undoc 110→74 (the
+  remainder is the census's own known double-count of `#[test] fn`s that
+  already carry a `// Protects:` line plus a handful of `impl`-block
+  methods whose own trait/struct doc already covers "why it exists" —
+  see `ANNOTATION_AUDIT.md`'s "Items over-counts"/"Test fns are also
+  counted in the general items column" blind spots; every fn this pass
+  actually found undocumented on inspection got a doc comment), tests_unprotected
+  94→0, consts_undoc 10→0 (LOC 4 741→5 120, all added lines comments or
+  trailing-comment additions to unchanged code). Crate-wide re-run:
+  `cartalith-engine` items_undoc 167→131, tests_unprotected 164→70,
+  consts_undoc 30→20 (LOC 14 701→15 080 non-blank). `cargo test -p
+  cartalith-engine`: 214 passed / 0 failed / 8 ignored, summed over every
+  test binary — identical to the count before this batch. A script
+  asserting every changed line across the ten files is blank, a `//`
+  comment, or a trailing comment appended to otherwise-unchanged code
+  passed (14 lines flagged and inspected were all bare trailing-comment
+  additions to the `GW`/`GH`/`CW`/`CH`/`TS` constants above). No comment
+  was found wrong against its code in this batch. Batch 5
+  (`cartalith-engine`'s `src/lib.rs`, 4 026 LOC, plus any of its own test
+  files not yet covered) is next — the largest single file left in the
+  crate, likely needing a split by its own module/section boundaries once
+  a lane actually reads it.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
