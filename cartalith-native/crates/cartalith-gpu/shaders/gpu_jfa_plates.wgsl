@@ -42,6 +42,9 @@ struct JfaParams {
 @group(0) @binding(7) var<storage, read> warp_x: array<f32>;
 @group(0) @binding(8) var<storage, read> warp_y: array<f32>;
 
+// Entry point (only one in this file): one JFA step per invocation, called
+// once per `step` value by `dispatch_gpu_assign_plates` (double-buffered --
+// see file header for why nearest_in/nearest_out are separate buffers).
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {

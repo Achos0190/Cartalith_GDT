@@ -3429,9 +3429,9 @@ pub fn assign_plates_grid_gpu_with(
 /// [`F32_TOLERANCE`]. This *is* the correctness gate -- [`vnoise_grid`]
 /// refuses the GPU path unless this returns `true`.
 pub fn self_test(ctx: &GpuContext) -> bool {
-    const W: u32 = 8;
-    const H: u32 = 8;
-    const SEED: i32 = 12345;
+    const W: u32 = 8; // small enough to run every session's self-test cheaply
+    const H: u32 = 8; // matches W: the gate grid is square
+    const SEED: i32 = 12345; // arbitrary fixed seed -- only determinism across the two paths matters here, not the seed's value
     const SCALE: f32 = 0.37; // fractional coords -- exercises interpolation, not just lattice points
 
     // A device that cannot even read back an 8x8 grid fails the gate, which
@@ -3487,6 +3487,14 @@ pub fn vnoise_grid(ctx: Option<&GpuContext>, width: u32, height: u32, seed: i32,
     VnoiseResult { values, path: ComputePath::Cpu, gpu_dispatch_and_readback: None, cpu_duration: cpu_time }
 }
 
+/// This crate's whole GPU/CPU-parity contract lives here: every
+/// `dispatch_gpu_*` kernel above is exercised against its CPU twin at a real
+/// field size, plus a determinism check (same inputs, same seed, twice) and,
+/// for the wired kernels, a `measured_*` timing test that prints a median
+/// (see the "quote a timing" preflight rule in root `MISTAKES.md`). Helper
+/// fns (`try_gpu*`, `assert_finite_and_bounded`, `argv`,
+/// `weather_test_field_and_params`) do not themselves carry `#[test]` and are
+/// documented individually below.
 #[cfg(test)]
 #[allow(clippy::excessive_precision)] // milestone 7's weather test reuses a real f32 fixture verbatim, matching cartalith-climate's own golden_parity_weather.rs convention
 mod tests {
@@ -3519,12 +3527,18 @@ mod tests {
     unwrapping_dispatch!(dispatch_gpu_assign_plates(ctx: &GpuContext, width: u32, height: u32, plate_x: &[f32], plate_y: &[f32], warp_x: Option<&[f32]>, warp_y: Option<&[f32]>, world: bool) -> Vec<i32>);
     unwrapping_dispatch!(dispatch_gpu_flow(ctx: &GpuFlowContext, gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> GpuFlowResult);
 
+    /// Shared setup for the `vnoise` pilot kernel's tests: `None` on any
+    /// device-init failure, so a caller can `eprintln!` a skip line and
+    /// `return` early rather than panic on a machine with no usable adapter.
     fn try_gpu() -> Option<GpuContext> {
         init_gpu().ok()
     }
 
     #[test]
     fn gpu_context_creates_on_this_hardware() {
+        // Protects: this session's real hardware can open a wgpu adapter at
+        // all -- every other test in this module is a no-op skip if this one
+        // fails, so it is the load-bearing "is there a GPU here" check.
         let ctx = try_gpu();
         assert!(ctx.is_some(), "expected a usable wgpu adapter on this session's real hardware");
         let ctx = ctx.unwrap();
@@ -3555,6 +3569,9 @@ mod tests {
     /// end (the cache's reaction) is that one's job.
     #[test]
     fn device_lost_callback_flips_the_shared_flag() {
+        // Protects: Ruling Y -- `set_device_lost_callback` really flips the
+        // shared `lost` flag when `wgpu` reports the device gone (proven via
+        // a real `Device::destroy()`, not a hand-poked value).
         let Ok(gpu) = init_gpu_shared_device() else {
             eprintln!("no GPU available on this run -- skipping (needs a real adapter to destroy)");
             return;
@@ -3577,6 +3594,9 @@ mod tests {
     /// "Done means" #2) -- not a smoke test to skip if inconvenient.
     #[test]
     fn gpu_self_test_result_is_reported_honestly() {
+        // Protects: `GPU_COMPUTE_PILOT_SCOPE.md` "Done means" #2 -- the
+        // self-test runs on real hardware and its pass/fail is reported
+        // honestly, not skipped as inconvenient.
         let Some(ctx) = try_gpu() else {
             eprintln!("no GPU available on this run -- self-test not applicable, CPU fallback covers this case (see gpu_fallback_path_matches_cpu_reference)");
             return;
@@ -3591,6 +3611,9 @@ mod tests {
     /// question, at a real field size, checked by an actual test.
     #[test]
     fn f32_hash_diverges_from_cpu_reference() {
+        // Protects: `GPU_COMPUTE_PILOT_SCOPE.md` "Done means" #3 -- the
+        // pilot kernel's f32-vs-f64 divergence at a real field size is
+        // measured and printed, the pilot's documented headline finding.
         let Some(ctx) = try_gpu() else {
             eprintln!("no GPU available -- skipping (documented finding requires real hardware)");
             return;
@@ -3625,6 +3648,9 @@ mod tests {
     /// must be actually exercised, not merely present.
     #[test]
     fn gpu_fallback_path_matches_cpu_reference() {
+        // Protects: `GPU_COMPUTE_PILOT_SCOPE.md` "Done means" #4 -- passing
+        // `ctx = None` really takes the CPU path and reproduces the exact
+        // golden-verified CPU result, not an approximation of it.
         let w = 32u32;
         let h = 32u32;
         let seed = 777;
@@ -3638,6 +3664,10 @@ mod tests {
 
     #[test]
     fn cpu_path_is_deterministic() {
+        // Protects: `vnoise_grid_cpu` is a pure function of its arguments --
+        // two calls with identical seed/scale/size produce byte-identical
+        // output. The CPU path is the fallback every session can reach, so
+        // its determinism cannot depend on hardware or GPU availability.
         let a = vnoise_grid_cpu(16, 16, 42, 0.2);
         let b = vnoise_grid_cpu(16, 16, 42, 0.2);
         assert_eq!(a, b);
@@ -3653,6 +3683,9 @@ mod tests {
     /// this measures raw hardware/API overhead, not correctness.
     #[test]
     fn measured_gpu_vs_cpu_timing() {
+        // Protects: `GPU_COMPUTE_PILOT_SCOPE.md` item 5 -- real dispatch/
+        // readback overhead numbers for the pilot kernel across four field
+        // sizes, printed honestly whether GPU wins or loses.
         let Some(ctx) = try_gpu() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -3690,6 +3723,10 @@ mod tests {
     // the JS reference (`DECISIONS.md` §7a: this pair is a deliberate
     // redesign, not required to match JS at all).
 
+    /// Shared setup for the GPU-safe noise pair's (`gpu_hash`/`gpu_vnoise`)
+    /// tests -- same skip-on-`None` convention as [`try_gpu`], for the
+    /// milestone-1 pipeline (`SHADER_SRC_GPU_NOISE`) rather than the pilot's
+    /// non-portable `hash` kernel.
     fn try_gpu_safe_noise() -> Option<GpuContext> {
         init_gpu_safe_noise().ok()
     }
@@ -3702,6 +3739,10 @@ mod tests {
     /// pass, by design, and the test enforces that).
     #[test]
     fn gpu_safe_noise_matches_cpu_reference_at_real_field_size() {
+        // Protects: milestone 1's correctness gate -- the GPU-safe noise
+        // pair (`gpu_hash`/`gpu_vnoise`) matches its CPU twin within
+        // GPU_SAFE_NOISE_TOLERANCE at a real 512x512 field, asserted (not
+        // merely reported) because this pair is expected to pass by design.
         let Some(ctx) = try_gpu_safe_noise() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -3736,10 +3777,14 @@ mod tests {
             eprintln!("no GPU available -- skipping");
             return;
         };
-        const W: u32 = 8;
-        const H: u32 = 8;
-        const SEED: i32 = 12345;
-        const SCALE: f32 = 0.37;
+        // Protects: an 8x8 grid -- the same small size [`self_test`] itself
+        // uses for the pilot kernel -- passes the safe-noise pair's own
+        // tolerance, so the self-test-sized case is not a blind spot left
+        // uncovered by the real-field-size test above.
+        const W: u32 = 8; // small enough to run every session's self-test cheaply
+        const H: u32 = 8; // matches W: the gate grid is square
+        const SEED: i32 = 12345; // arbitrary fixed seed -- only cross-path agreement matters, not the seed's value
+        const SCALE: f32 = 0.37; // fractional coords -- exercises interpolation, not just lattice points
         let gpu = dispatch_gpu(&ctx, W, H, SEED, SCALE);
         let cpu = gpu_safe_noise_grid_cpu(W, H, SEED, SCALE);
         let passed =
@@ -3749,6 +3794,9 @@ mod tests {
 
     #[test]
     fn gpu_safe_noise_cpu_path_is_deterministic() {
+        // Protects: `gpu_safe_noise_grid_cpu` is a pure function of its
+        // arguments, same contract as `cpu_path_is_deterministic` above but
+        // for the safe-noise pair's own CPU twin.
         let a = gpu_safe_noise_grid_cpu(16, 16, 42, 0.2);
         let b = gpu_safe_noise_grid_cpu(16, 16, 42, 0.2);
         assert_eq!(a, b);
@@ -3761,6 +3809,9 @@ mod tests {
     /// methodology (report a loss as legitimately as a win).
     #[test]
     fn measured_gpu_safe_noise_vs_cpu_timing() {
+        // Protects: the GPU-safe noise pair's own timing, re-measured at the
+        // pilot's sizes rather than assumed to inherit the (non-portable
+        // `hash`-kernel) pilot numbers.
         let Some(ctx) = try_gpu_safe_noise() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -3811,6 +3862,10 @@ mod tests {
     /// scope; flagged here as a real door, deliberately not opened.)
     #[test]
     fn f64_wgsl_is_not_implemented_by_naga_even_though_the_gpu_feature_exists() {
+        // Protects: captures naga's rejection of WGSL `enable f64;` as data
+        // (an error-scope pop, not a panic) so a future naga upgrade that
+        // adds f64 support is discovered here rather than silently assumed
+        // still absent.
         let instance = multi::compute_instance();
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -3855,14 +3910,23 @@ mod tests {
     // (there isn't one, per `DECISIONS.md` §7a/§7c) -- verified by GPU-side
     // determinism, statistical sanity, and (for warp) a written debug image.
 
+    /// Shared setup for the domain-warp kernel's (`gpu_warp.wgsl`) tests --
+    /// same skip-on-`None` convention as [`try_gpu`].
     fn try_gpu_warp() -> Option<GpuContext> {
         init_gpu_warp().ok()
     }
 
+    /// Shared setup for the crustal-heterogeneity kernel's
+    /// (`gpu_heterogeneity.wgsl`) tests -- same skip-on-`None` convention as
+    /// [`try_gpu`].
     fn try_gpu_heterogeneity() -> Option<GpuContext> {
         init_gpu_heterogeneity().ok()
     }
 
+    /// Shared statistical-sanity assertion for kernels with no JS reference
+    /// to golden-match against (`DECISIONS.md` §7a/§7c): every value must be
+    /// finite and fall in `[lo, hi]`, `what` naming the field in the panic
+    /// message.
     fn assert_finite_and_bounded(values: &[f32], lo: f32, hi: f32, what: &str) {
         for &v in values {
             assert!(v.is_finite(), "{what}: found non-finite value {v}");
@@ -3872,6 +3936,9 @@ mod tests {
 
     #[test]
     fn gpu_warp_matches_cpu_reference_at_real_field_size() {
+        // Protects: milestone 2's correctness gate for `gpu_warp.wgsl` -- GPU
+        // and CPU domain-warp fields agree within WARP_TOLERANCE at a real
+        // 512x512 size, and every output value is finite and in range.
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -3912,6 +3979,9 @@ mod tests {
     /// measured and priced into that tolerance.
     #[test]
     fn gpu_warp_matches_cpu_reference_world_wrap() {
+        // Protects: OUTSTANDING_WORK.md §2.6, world-wrap for gpu_warp -- GPU/
+        // CPU agree with `world=true`, and the field actually tiles at the
+        // p_x=3 period `compute_warp` hardcodes (not merely close in value).
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -3961,6 +4031,8 @@ mod tests {
 
     #[test]
     fn gpu_warp_deterministic_across_runs() {
+        // Protects: same seed/size/params dispatched twice on GPU produce
+        // byte-identical warp fields.
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -3978,6 +4050,9 @@ mod tests {
     /// dependency for a one-off debug dump.
     #[test]
     fn gpu_warp_debug_image_written_for_visual_check() {
+        // Protects: a viewable PGM of the GPU warp_x field is actually
+        // written to disk -- the qualitative half of §7a's "judged by
+        // looking at it" bar, which a numeric-only test cannot cover.
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4004,6 +4079,9 @@ mod tests {
 
     #[test]
     fn gpu_heterogeneity_matches_cpu_reference_at_real_field_size() {
+        // Protects: milestone 2's correctness gate for `gpu_heterogeneity.
+        // wgsl` -- GPU and CPU (both post-normalize_by_max_abs) agree within
+        // tolerance at a real 512x512 size with a non-trivial age field.
         let Some(ctx) = try_gpu_heterogeneity() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -4047,6 +4125,9 @@ mod tests {
     /// `oct = round(hf).max(2)` for this test's `hf` (`1.5 * 12.0 = 18.0`).
     #[test]
     fn gpu_heterogeneity_matches_cpu_reference_world_wrap() {
+        // Protects: OUTSTANDING_WORK.md §2.6, world-wrap for gpu_heterogeneity
+        // -- GPU/CPU agree with `world=true` and `p_x` set to
+        // `compute_heterogeneity`'s own `oct` derivation.
         let Some(ctx) = try_gpu_heterogeneity() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -4086,6 +4167,8 @@ mod tests {
 
     #[test]
     fn gpu_heterogeneity_deterministic_across_runs() {
+        // Protects: same seed/size/params dispatched twice (each normalized
+        // the same way) produce byte-identical heterogeneity fields.
         let Some(ctx) = try_gpu_heterogeneity() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4107,6 +4190,10 @@ mod tests {
     /// octaves), so the ratios are not assumed to carry over unchanged.
     #[test]
     fn measured_gpu_warp_vs_cpu_timing() {
+        // Protects: real dispatch/readback overhead for `gpu_warp` across
+        // four field sizes, re-measured rather than assumed from milestone
+        // 1's bare-noise-kernel numbers (this kernel does up to 4 `gpu_fbm`
+        // calls per cell).
         let Some(ctx) = try_gpu_warp() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -4139,6 +4226,8 @@ mod tests {
 
     #[test]
     fn measured_gpu_heterogeneity_vs_cpu_timing() {
+        // Protects: real dispatch/readback overhead for `gpu_heterogeneity`
+        // across four field sizes.
         let Some(ctx) = try_gpu_heterogeneity() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -4183,6 +4272,8 @@ mod tests {
     // JS-reference comparison (§7c), GPU-side determinism + statistical
     // sanity + a debug image + real timing.
 
+    /// Shared setup for the height-formula kernel's (`gpu_height.wgsl`)
+    /// tests -- same skip-on-`None` convention as [`try_gpu`].
     fn try_gpu_height() -> Option<GpuContext> {
         init_gpu_height().ok()
     }
@@ -4207,6 +4298,9 @@ mod tests {
 
     #[test]
     fn gpu_height_matches_cpu_reference_at_real_field_size() {
+        // Protects: milestone 3's correctness gate for `gpu_height.wgsl` --
+        // GPU and CPU height fields agree within HEIGHT_TOLERANCE at a real
+        // 512x512 size, for both ridged=false and ridged=true.
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping (requires real hardware)");
             return;
@@ -4253,6 +4347,8 @@ mod tests {
 
     #[test]
     fn gpu_height_has_oro_true_changes_the_formula() {
+        // Protects: the shader's has_oro `select()` genuinely branches on the
+        // oro buffer rather than silently ignoring it either way.
         // Regression guard for the has_oro branch specifically: an oro field
         // that actually differs from `min(stress, 0)` must change the output,
         // proving the shader's `select()` genuinely branches rather than
@@ -4283,6 +4379,8 @@ mod tests {
 
     #[test]
     fn gpu_height_deterministic_across_runs() {
+        // Protects: same seed/size/params dispatched twice produce
+        // byte-identical height fields.
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4307,6 +4405,8 @@ mod tests {
     /// grayscale PGM of a real GPU height field.
     #[test]
     fn gpu_height_debug_image_written_for_visual_check() {
+        // Protects: a viewable PGM of a real GPU height field is actually
+        // written to disk.
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4360,12 +4460,17 @@ mod tests {
         /// range to report. `TIMING_ROUNDS = 1` or `= 4` must fail here.
         #[test]
         fn timing_rounds_is_an_odd_number_above_one() {
+            // Protects: TIMING_ROUNDS is odd (so the median is a real sample,
+            // not an average of two) and above one (so there is a range).
             assert_eq!(TIMING_ROUNDS % 2, 1, "an even sample count makes the median an average of two samples");
             assert!(TIMING_ROUNDS > 1, "one sample has no range, which is the whole defect this harness exists to fix");
         }
 
         #[test]
         fn timed_draws_exactly_the_rounds_asked_for_and_orders_them() {
+            // Protects: `timed` calls its closure exactly `rounds` times,
+            // returns the LAST value produced, and its Timing keeps
+            // min <= median <= max.
             let mut calls = 0usize;
             let (t, last) = timed(3, || {
                 calls += 1;
@@ -4379,6 +4484,9 @@ mod tests {
 
         #[test]
         fn timed_for_draws_one_sample_when_it_may_not_quote() {
+            // Protects: `timed_for(false, ...)` samples once, not
+            // TIMING_ROUNDS times -- a run that cannot print a figure must
+            // not pay for the full sample cost.
             let mut calls = 0usize;
             let (t, ()) = timed_for(false, || calls += 1);
             assert_eq!(calls, 1, "a run that cannot print a figure must not pay for five samples");
@@ -4389,6 +4497,9 @@ mod tests {
         /// that is the exact failure this file exists to prevent.
         #[test]
         fn a_single_sample_says_so_in_both_renderings() {
+            // Protects: a rounds=1 Timing's Display and its ratio() both say
+            // "not a measurement" -- a single sample must never render as
+            // though it were measured (root MISTAKES.md's median-of-five rule).
             let one = Timing { median: Duration::from_millis(10), min: Duration::from_millis(10), max: Duration::from_millis(10), rounds: 1 };
             let five = Timing { median: Duration::from_millis(10), min: Duration::from_millis(8), max: Duration::from_millis(20), rounds: 5 };
             assert!(one.to_string().contains("not a measurement"), "got {one}");
@@ -4398,6 +4509,10 @@ mod tests {
 
         #[test]
         fn a_ratio_carries_the_bracket_its_two_ranges_permit() {
+            // Protects: `ratio()`'s low/high bracket is the numerator's low
+            // over the denominator's high (and vice versa), a literal
+            // recomputed by hand, not merely `assert_eq!` against the
+            // function's own formula.
             let num = Timing { median: Duration::from_millis(100), min: Duration::from_millis(90), max: Duration::from_millis(110), rounds: 5 };
             let den = Timing { median: Duration::from_millis(50), min: Duration::from_millis(40), max: Duration::from_millis(60), rounds: 5 };
             // 100/50 = 2.00; low = 90/60 = 1.50; high = 110/40 = 2.75.
@@ -4406,6 +4521,10 @@ mod tests {
 
         #[test]
         fn spread_is_max_over_min() {
+            // Protects: `spread()` is max/min (a literal, mutation-proof
+            // against the function collapsing to a constant), `ms()`
+            // converts the median to milliseconds, and `ns_per_cell` divides
+            // by the cell count correctly.
             let t = Timing { median: Duration::from_millis(10), min: Duration::from_millis(8), max: Duration::from_millis(20), rounds: 5 };
             assert!((t.spread() - 2.5).abs() < 1e-9, "got {}", t.spread());
             assert!((t.ms() - 10.0).abs() < 1e-9);
@@ -4413,6 +4532,9 @@ mod tests {
             assert!((t.ns_per_cell(1_000_000) - 10.0).abs() < 1e-9, "got {}", t.ns_per_cell(1_000_000));
         }
 
+        /// Builds a fake `std::env::args()`-shaped iterator from string
+        /// literals for [`serialised_from`]'s tests, so they can exercise
+        /// every libtest argv shape without spawning a real process.
         fn argv(parts: &[&str]) -> std::vec::IntoIter<String> {
             parts.iter().map(|s| (*s).to_string()).collect::<Vec<_>>().into_iter()
         }
@@ -4422,6 +4544,11 @@ mod tests {
         /// none: it re-opens the door this harness closes.
         #[test]
         fn every_way_of_asking_for_one_thread_is_recognised() {
+            // Protects: every real libtest single-thread argv shape is
+            // recognised, and every shape that is NOT a single-thread
+            // request (including a bare trailing `--test-threads` with no
+            // value) is correctly rejected -- a detector that answers `true`
+            // too readily re-opens the door this harness closes.
             assert!(serialised_from(argv(&["bin", "--test-threads=1"]), None));
             assert!(serialised_from(argv(&["bin", "--test-threads", "1"]), None));
             assert!(serialised_from(argv(&["bin", "--nocapture"]), Some("1")));
@@ -4454,6 +4581,11 @@ mod tests {
 
     #[test]
     fn measured_gpu_height_vs_cpu_timing() {
+        // Protects: real dispatch/readback overhead for `gpu_height` across
+        // four field sizes against its single-threaded f32 CPU twin (see
+        // `dispatch_gpu_height`'s own doc for why this is the wrong baseline
+        // to compare against `generate_terrain`'s actual, multi-threaded f64
+        // `compute_height`).
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -4547,6 +4679,11 @@ mod tests {
     /// reason.
     #[test]
     fn measured_gpu_height_is_bandwidth_bound_at_nine_buffers() {
+        // Protects: OUTSTANDING_WORK.md §2.6's throughput-drop cause --
+        // gpu_height's 9-buffer bind group, not grid size -- against both a
+        // cross-kernel control (narrow kernels get cheaper per cell as the
+        // grid grows; gpu_height gets dearer) and a direct measurement of the
+        // input-upload share of the dispatch cost.
         let (Some(hctx), Some(wctx), Some(xctx)) = (try_gpu_height(), try_gpu_warp(), try_gpu_heterogeneity()) else {
             eprintln!("no GPU available -- skipping bandwidth measurement");
             return;
@@ -4651,6 +4788,11 @@ mod tests {
     /// whether wiring the stage would make a generation faster.
     #[test]
     fn measured_gpu_height_vs_the_real_compute_height() {
+        // Protects: OUTSTANDING_WORK.md §2.6 -- gpu_height timed against the
+        // function `generate_terrain` actually calls (f64, rayon-parallel
+        // `compute_height`), not the f32 single-threaded twin the milestone's
+        // published speedups used, this being the ratio that decides whether
+        // wiring the stage would make a real generation faster.
         let Some(ctx) = try_gpu_height() else {
             eprintln!("no GPU available -- skipping production-baseline measurement");
             return;
@@ -4770,6 +4912,11 @@ mod tests {
     #[test]
     #[ignore = "opens fresh adapters in a loop (that is the cost being measured), and refuses to run without --test-threads=1"]
     fn measured_device_handshake_and_per_stage_pipeline_build() {
+        // Protects: OUTSTANDING_WORK.md §2.6 -- the cold (first-of-process)
+        // handshake is measured separately from the warm ones (it cannot be
+        // pooled with them; that pooling is how a 416 ms figure was
+        // published and re-measured at 730 ms), and every per-stage
+        // pipeline build is timed individually.
         assert!(
             timing_is_serialised(),
             "measured_device_handshake_and_per_stage_pipeline_build refuses to run under a parallel test binary -- \
@@ -4836,10 +4983,15 @@ mod tests {
     // real, untouched cartalith_terrain functions) or needs its own
     // GPU-vs-CPU-twin carve-out like milestones 1-3.
 
+    /// Shared setup for the resistance kernel's (`gpu_resistance.wgsl`)
+    /// tests -- same skip-on-`None` convention as [`try_gpu`].
     fn try_gpu_resistance() -> Option<GpuContext> {
         init_gpu_resistance().ok()
     }
 
+    /// Shared setup for the gauss-blur kernel's (`gpu_gauss_blur.wgsl`)
+    /// tests -- its own `GpuBlurContext` (two pipelines, box_h/box_v), not
+    /// the single-pipeline `GpuContext` the other milestones share.
     fn try_gpu_blur() -> Option<GpuBlurContext> {
         init_gpu_gauss_blur().ok()
     }
@@ -4860,6 +5012,10 @@ mod tests {
 
     #[test]
     fn gpu_gauss_blur_matches_real_cpu_gauss_blur() {
+        // Protects: milestone 4's true three-way parity bar -- GPU output
+        // matches the REAL, JS-matching cartalith_terrain::gauss_blur
+        // directly (not a GPU-shaped CPU twin), across wrapped/unwrapped and
+        // two radii.
         let Some(ctx) = try_gpu_blur() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4897,6 +5053,8 @@ mod tests {
 
     #[test]
     fn gpu_gauss_blur_matches_gpu_shaped_cpu_twin() {
+        // Protects: the GPU kernel's own internal correctness against a
+        // same-shape CPU reimplementation.
         // Independent of the three-way question above: confirms the GPU
         // kernel itself is internally correct against a same-shape CPU
         // reimplementation, so a three-way regression (if the real CPU
@@ -4918,6 +5076,8 @@ mod tests {
 
     #[test]
     fn gpu_gauss_blur_r_below_one_is_unmodified_copy() {
+        // Protects: `dispatch_gpu_gauss_blur`'s `radius<1.0` early return
+        // mirrors `gauss_blur`'s own early-exit copy exactly.
         let Some(ctx) = try_gpu_blur() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4929,6 +5089,8 @@ mod tests {
 
     #[test]
     fn gpu_gauss_blur_deterministic_across_runs() {
+        // Protects: same input dispatched twice produces byte-identical
+        // blurred output.
         let Some(ctx) = try_gpu_blur() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4941,6 +5103,10 @@ mod tests {
 
     #[test]
     fn gpu_compute_resistance_matches_real_cpu_compute_resistance() {
+        // Protects: milestone 4's true three-way parity bar for resistance --
+        // GPU output matches the REAL cartalith_terrain::compute_resistance
+        // directly, including plates with negative `base` (oceanic crust)
+        // that exercise the `.max(0.0)` clamp.
         let Some(ctx) = try_gpu_resistance() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -4985,6 +5151,9 @@ mod tests {
         assert_eq!(mismatches, 0, "gpu_compute_resistance diverged from the REAL CPU function beyond {RESISTANCE_TOLERANCE}");
     }
 
+    /// Shared setup for the JFA plate-assignment kernel's
+    /// (`gpu_jfa_plates.wgsl`) tests -- same skip-on-`None` convention as
+    /// [`try_gpu`].
     fn try_gpu_jfa_plates() -> Option<GpuContext> {
         init_gpu_jfa_plates().ok()
     }
@@ -5017,6 +5186,10 @@ mod tests {
     /// "GPU-vs-CPU-twin, ignore CPU" framing.
     #[test]
     fn gpu_jfa_plates_vs_cpu_jfa_vs_brute_force_ground_truth() {
+        // Protects: milestone 5's headline question -- both JFA variants
+        // (GPU double-buffered, CPU in-place) stay within JFA's known
+        // approximation error against brute-force exact-nearest ground truth,
+        // measured directly rather than assumed from a GPU-vs-CPU-twin frame.
         let Some(ctx) = try_gpu_jfa_plates() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5077,6 +5250,8 @@ mod tests {
 
     #[test]
     fn gpu_jfa_plates_determinism() {
+        // Protects: same plate positions dispatched twice produce
+        // byte-identical GPU JFA assignment.
         let Some(ctx) = try_gpu_jfa_plates() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5103,6 +5278,11 @@ mod tests {
     /// plate boundary, since the engine hands the kernel both.
     #[test]
     fn gpu_jfa_plates_world_wrap_sides_with_the_cylinder() {
+        // Protects: OUTSTANDING_WORK.md §2.11 (alignment audit A1) -- on the
+        // cells the wrap actually decides, the GPU sides with the cylinder
+        // (not a flat sheet), for both no-warp and warped cases; the fixture
+        // itself is checked to have enough wrap-decided cells to be a real
+        // test, not a vacuous one.
         let Some(ctx) = try_gpu_jfa_plates() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5153,6 +5333,10 @@ mod tests {
     /// actually measured, don't assume the earlier ratios carry over.
     #[test]
     fn measured_gpu_jfa_plates_vs_cpu_timing() {
+        // Protects: real dispatch/readback overhead for `gpu_jfa_plates`
+        // across four field sizes, reporting the real per-size JFA pass
+        // count rather than assuming the O(1) single-pass ratios from
+        // milestones 1-4 carry over.
         let Some(ctx) = try_gpu_jfa_plates() else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -5198,6 +5382,8 @@ mod tests {
 
     #[test]
     fn gpu_compute_resistance_deterministic_across_runs() {
+        // Protects: same plate_id/age/crustal_per_plate dispatched twice
+        // produce byte-identical GPU resistance output.
         let Some(ctx) = try_gpu_resistance() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5213,6 +5399,11 @@ mod tests {
 
     #[test]
     fn measured_gpu_blur_and_resistance_timing() {
+        // Protects: real dispatch/readback overhead for both `gpu_gauss_blur`
+        // and `gpu_compute_resistance` against their REAL CPU counterparts
+        // across four field sizes -- the milestone-4 unwired-kernel figures
+        // root `CLAUDE.md`'s preflight table cites (0.38x on record, re-
+        // measured here alone at 0.24x/1024² and 0.13x/2048²).
         let (Some(blur_ctx), Some(res_ctx)) = (try_gpu_blur(), try_gpu_resistance()) else {
             eprintln!("no GPU available -- skipping timing measurement");
             return;
@@ -5273,6 +5464,8 @@ mod tests {
     // used for gauss_blur/compute_resistance, not a GPU-vs-CPU-twin
     // carve-out.
 
+    /// Shared correctness-test fixture for the weather-loop kernel: returns
+    /// `(gw, gh, field, params)`.
     fn weather_test_field_and_params() -> (usize, usize, Vec<f32>, cartalith_climate::WeatherParams) {
         // Same field/params as cartalith-climate's own
         // golden_parity_weather.rs::simulate_weather_case_0 -- a real,
@@ -5324,6 +5517,10 @@ mod tests {
 
     #[test]
     fn gpu_weather_loop_matches_real_cpu_simulate_weather() {
+        // Protects: milestone 7's true parity bar -- GPU weather-loop output
+        // matches the REAL, untouched cartalith_climate::simulate_weather
+        // directly at production iters=70 (not the golden test's iters=5),
+        // within a tolerance derived from an actually-measured max_abs_diff.
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;
@@ -5400,6 +5597,10 @@ mod tests {
 
     #[test]
     fn gpu_weather_loop_real_timing() {
+        // Protects: real dispatch timing at a production 2048x2048 source
+        // map, at the loop's own working size (the coarse grid is capped at
+        // min(gw,240), so this single real measurement is the meaningful
+        // data point -- not four repeats of essentially the same number).
         let Some(gpu) = init_gpu_shared_device().ok() else {
             eprintln!("no GPU available -- skipping");
             return;

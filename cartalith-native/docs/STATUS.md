@@ -1163,6 +1163,61 @@ re-checked against the tree rather than copied from the commit message.
   still need an independent verifier before any can be called done rather
   than pending.
 
+- **Ruling BK annotation pass, batch 19 (`cartalith-gpu`, `src/lib.rs`
+  continued) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical, .wgsl comment lines only; gpu 110/0/1 unchanged).** Read
+  `src/lib.rs` from `dispatch_gpu_height` (line 1890) through the end of
+  milestone 7's weather-loop tests (line 5659 of 5765), stopping cleanly
+  before milestone 9's flow-accumulation block begins (`drainage_test_field`,
+  line ~5661) rather than crossing into it partially. `dispatch_gpu_height`,
+  `dispatch_gpu_resistance`, `dispatch_gpu_gauss_blur`, `dispatch_gpu_weather`,
+  `simulate_weather_loop_gpu_with`, `dispatch_gpu_assign_plates`, `self_test`,
+  `VnoiseResult` and `vnoise_grid` already carried real `///` docs from
+  earlier work; this batch's actual gap was almost entirely the
+  `// Protects:` first-line convention on tests that already had rich `///`
+  rationale above them but never used the literal word "protect" (this
+  session's own census rule 1b), plus doc-commenting small undocumented
+  helper fns (`try_gpu*` × 6, `assert_finite_and_bounded`,
+  `synthetic_height_inputs`, `synthetic_field`,
+  `weather_test_field_and_params`, `argv`) and three groups of local
+  test-fixture consts (`W`/`H`/`SEED`/`SCALE`, each labelled arbitrary or
+  chosen-for-coverage, not a measurement). One transient duplicate comment
+  line, introduced and caught by this batch itself while doc-commenting
+  `weather_test_field_and_params` (not a pre-existing wrong comment), was
+  fixed before landing. No pre-existing wrong comment was found. **WGSL
+  comment coverage**: the five shaders this code range dispatches —
+  `shaders/gpu_height.wgsl` (PCG3D citation already established in batch 18,
+  the fbm/ridged octave loops, the 0.40/0.50/0.25/0.75 formula weights, the
+  entry point), `shaders/gpu_resistance.wgsl` (the 0.6/0.4/1.0 weights,
+  entry point), `shaders/gpu_gauss_blur.wgsl` (per-pass entry-point labels
+  on `box_h_main`/`box_v_main`), `shaders/gpu_weather.wgsl` (`sat_cap`'s
+  0.16/0.058 fit constants, the 1.2 saturation headroom, the 9.0
+  orographic-lift multiplier, the 0.6/0.05 deposit weights, the 0.55/0.45
+  rain-smoothing split, all three entry points), `shaders/gpu_jfa_plates.wgsl`
+  (entry-point label; body already fully documented from an earlier pass) —
+  all got `//` comments. `shaders/vnoise_f64.wgsl` and the shaders past
+  milestone 7 (`gpu_flow.wgsl`, `gpu_thermal.wgsl`, `gpu_stress.wgsl`,
+  `gpu_biome.wgsl`, `gpu_carrying.wgsl`, `gpu_resources.wgsl`,
+  `gpu_suitability.wgsl`) were not reached by this batch's code range and
+  were not touched. **Comments only**: `cargo test -p cartalith-gpu`,
+  `CARGO_TARGET_DIR` at `.../scratchpad/bk19`, run twice — before editing
+  and again after, `--test-threads=1` both times — **110 passed / 0 failed /
+  1 ignored, identical both times** (the lib binary's 91 `#[test]`s plus
+  `tests/affordance.rs`'s 1 plus `tests/multi_gpu.rs`'s 13 plus the ignored
+  `measured_device_handshake_and_per_stage_pipeline_build`, summed).
+  `git diff -U0` line-pair check on `src/lib.rs`: the only 7 removed lines
+  are the four local test consts, each reappearing verbatim with a trailing
+  `//` comment; every other change is a pure addition; no code fence. The
+  five `.wgsl` diffs are `//`-only line insertions. Crate-wide `census_v2.py`:
+  items_undoc 44→5, tests_unprotected 75→26, consts_undoc 8→1 (loc
+  10155→10356). The 5 remaining undoc items, 26 unprotected tests and 1
+  undoc const are all past line 5659 of `lib.rs` (milestone 9's flow
+  accumulation, plus whatever thermal/stress code follows it before the
+  crate's `mod tests` closes). **Next step: batch 20** continues `src/lib.rs`
+  from milestone 9's flow-accumulation block (line ~5661) through the end of
+  the file (line 5765), which closes `src/lib.rs` and, pending no other gaps
+  turning up, the crate. Batches 6 through 19 all still need an independent
+  verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

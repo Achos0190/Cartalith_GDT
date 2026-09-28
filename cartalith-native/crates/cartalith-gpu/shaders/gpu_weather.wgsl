@@ -46,6 +46,9 @@ struct WeatherParams {
 @group(0) @binding(7) var<storage, read_write> w2: array<f32>;
 @group(0) @binding(8) var<storage, read_write> rain: array<f32>;
 
+// Saturation humidity capacity as a function of temperature -- 0.16/0.058
+// are `simulate_weather`'s own fitted constants (an approximate Clausius-
+// Clapeyron-shaped curve), carried over unchanged, not re-derived here.
 fn sat_cap(t: f32) -> f32 {
     return 0.16 * exp(0.058 * t);
 }
@@ -95,6 +98,8 @@ fn bil_sample(idx_base: u32, arr_is_w: bool, fx_in: f32, fy_in: f32) -> f32 {
     return top * (1.0 - ty) + bot * ty;
 }
 
+// Entry point 1 of 3: per-cell evaporation into `w`, in place (see file
+// header for why in-place is safe here and the ocean-boundary fuse below).
 @compute @workgroup_size(8, 8, 1)
 fn evap_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.ww || gid.y >= params.wh {
@@ -105,6 +110,8 @@ fn evap_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = u32(y) * params.ww + u32(x);
 
     if eh[i] < params.sea {
+        // 1.2 headroom over the raw saturation cap -- simulate_weather's own
+        // "allow slight oversaturation before rain-out" factor.
         let cap = max(params.ocean_hum, sat_cap(tc[i])) * 1.2;
         var e = params.evap_c * sst_evap[i] * params.ocean_c;
         if params.bulk_evap != 0u {
@@ -136,6 +143,8 @@ fn evap_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
 }
 
+// Entry point 2 of 3: bilinear gather of humidity `w` along the wind vector
+// (upwind sample), written to `w2` so this pass never reads its own output.
 @compute @workgroup_size(8, 8, 1)
 fn advect_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.ww || gid.y >= params.wh {
@@ -147,6 +156,8 @@ fn advect_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     w2[i] = bil_sample(i, true, f32(x) - wx[i], f32(y) - wy[i]);
 }
 
+// Entry point 3 of 3: reads static `eh` (elevation) + this iteration's `w2`,
+// writes next iteration's `w` and accumulates `rain`.
 @compute @workgroup_size(8, 8, 1)
 fn deposit_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.ww || gid.y >= params.wh {
@@ -166,12 +177,19 @@ fn deposit_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if l == 0.0 {
         l = 1.0;
     }
+    // Orographic term: rain proportional to the upwind elevation gain
+    // (`eh[i] - eh_up`), scaled by `rain_k` and a fixed 9.0 -- simulate_
+    // weather's own orographic-lift multiplier, carried over unchanged.
     let eh_up = bil_sample(i, false, f32(x) - ux / l, f32(y) - uy / l);
     let oro = w2[i] * max(0.0, eh[i] - eh_up) * params.rain_k * 9.0;
     let excess = max(0.0, w2[i] - sat_cap(tc[i]));
+    // 0.6/0.05: simulate_weather's own excess-humidity and convective-rain
+    // weights, combined with the orographic term before the `dry` scale.
     let conv = w2[i] * 0.05;
     var pr = (oro + excess * 0.6 + conv) * params.dry;
     pr = min(pr, w2[i]);
     w[i] = w2[i] - pr;
+    // 0.55/0.45: simulate_weather's own rain-accumulation smoothing split
+    // between the running total and this iteration's fresh deposit.
     rain[i] = rain[i] * 0.55 + pr * 0.45;
 }

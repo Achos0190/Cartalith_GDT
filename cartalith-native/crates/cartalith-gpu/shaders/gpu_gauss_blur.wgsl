@@ -37,6 +37,9 @@ fn clamp_index(i: i32, n: i32) -> i32 {
     return clamp(i, 0, n - 1);
 }
 
+// Entry point 1 of 2: horizontal pass. `radius`/`wrap` come from `params`
+// (set per-pass by `dispatch_gpu_gauss_blur` -- box_v's own BlurParams
+// always has wrap=0, matching the CPU box_v's no-wrap behaviour).
 @compute @workgroup_size(8, 8, 1)
 fn box_h_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {
@@ -60,6 +63,8 @@ fn box_h_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     out_field[y * w + x] = sum * norm;
 }
 
+// Entry point 2 of 2: vertical pass, always clamp-to-edge (no world wrap --
+// there is no pole-to-pole wrap to apply, matching the CPU box_v exactly).
 @compute @workgroup_size(8, 8, 1)
 fn box_v_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {

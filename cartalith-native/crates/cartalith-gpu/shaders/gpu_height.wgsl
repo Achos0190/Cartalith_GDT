@@ -46,6 +46,10 @@ struct HeightParams {
 @group(0) @binding(8) var<storage, read> in_oro: array<f32>;
 @group(0) @binding(9) var<storage, read_write> out_height: array<f32>;
 
+// PCG3D hash (Jarzynski & Olano 2020, "Hash Functions for GPU Rendering") --
+// the same construction `cartalith-noise`'s CPU-side gpu_hash uses, so this
+// copy must mirror it bit-for-bit. 1664525u/1013904223u are that paper's own
+// LCG multiplier/increment constants, not tuned here.
 fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
     var v = v_in * 1664525u + 1013904223u;
     v.x += v.y * v.z;
@@ -87,6 +91,9 @@ fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     return a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v;
 }
 
+// 6 octaves, amp/freq halving/doubling each -- matches compute_height's own
+// fbm octave count; `s + o * 131` offsets each octave to a distinct hash
+// lattice (131 arbitrary, only needs to decorrelate octaves from each other).
 fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     var amp: f32 = 0.5;
     var freq: f32 = 1.0;
@@ -101,6 +108,8 @@ fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     return sum / nrm;
 }
 
+// Ridged variant: each octave's noise is folded to `1 - |2n-1|` (a sharp
+// ridge at n=0.5) then squared, matching compute_height's own ridged branch.
 fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
     var amp: f32 = 0.5;
     var freq: f32 = 1.0;
@@ -117,6 +126,9 @@ fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
     return sum / nrm;
 }
 
+// Entry point (only one in this file): one invocation per output cell,
+// dispatched from `dispatch_gpu_height` in src/lib.rs at
+// (width.div_ceil(8), height.div_ceil(8), 1) workgroups.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {
@@ -144,6 +156,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         n_val = gpu_fbm(nx, ny, params.seed) - 0.5;
     }
 
+    // 0.5 baseline plus a weighted sum whose 0.40/0.50/0.25/0.75 split is
+    // compute_height's own hand-tuned mix (base:stress and noise:rugosity
+    // ratios) -- carried over unchanged, not re-derived here.
     out_height[idx] = 0.5
         + params.a * (0.40 * bs + 0.50 * t)
         + params.fwt * in_flex[idx]

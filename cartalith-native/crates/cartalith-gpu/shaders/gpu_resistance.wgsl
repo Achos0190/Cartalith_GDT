@@ -21,6 +21,10 @@ struct ResistanceParams {
 @group(0) @binding(3) var<storage, read> crustal_per_plate: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out_resistance: array<f32>;
 
+// Entry point (only one in this file): one invocation per output cell,
+// dispatched from `dispatch_gpu_resistance` in src/lib.rs. 0.6/0.4 are
+// compute_resistance's own crustal/age weighting (they sum to 1.0), and 1.0
+// is the formula's own clamp ceiling -- both carried over unchanged.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {
