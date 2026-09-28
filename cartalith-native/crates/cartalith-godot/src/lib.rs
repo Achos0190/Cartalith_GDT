@@ -9516,8 +9516,10 @@ impl WorldGen {
         // SDF legs need and the one a `RenderCtx` cannot derive from what it
         // holds (`render::RenderCtx::with_map_scale`). Inert unless
         // `sdf_rivers`/`sdf_biomes` is up; `export_raster.rs::export_render`
-        // attaches the same one, so screen and PNG cannot disagree.
-        ctx = ctx.with_map_scale(self.map_width_km);
+        // attaches the same one, so screen and PNG cannot disagree. Ruling
+        // BO: the forced lakes `lakes` already draws, so `sdf_biomes` bands
+        // their shores as it bands a natural lake's.
+        ctx = ctx.with_map_scale_forced(self.map_width_km, self.forced_lake_mask());
         // Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): attach real ground-texture
         // splat channels whenever a pack is loaded. `SplatTextures::default()`
         // (all `None`) is what a pack-less or textures-less pack produces --
@@ -11703,7 +11705,7 @@ impl WorldGen {
         // Same attachment as `build_color_texture` above: the sculpt preview
         // is the same picture with a drafted heightfield, so it has to take
         // the same stages or the preview stops predicting the commit.
-        .with_map_scale(self.map_width_km)
+        .with_map_scale_forced(self.map_width_km, self.forced_lake_mask())
         .with_lakes(&lakes);
         let mut bytes = vec![0u8; gw * gh * 3];
         bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {

@@ -179,7 +179,9 @@ impl ExportSnapshot {
             return None;
         }
         let flow = i.flow.as_ref().map(|v| v.as_slice());
-        let pre = GridPrecompute::build(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km));
+        // Ruling BO: the forced lakes reach `sdf_biomes`' band here too, as
+        // on screen (`RenderCtx::with_map_scale_forced`).
+        let pre = GridPrecompute::build_forced(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km), i.forced_lakes.as_deref());
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(&i.field, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
         let wb = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall));
         let mut lakes = wb.classification;

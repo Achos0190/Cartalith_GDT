@@ -634,7 +634,10 @@ impl LodSnapshot {
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
             return None;
         }
-        let pre = GridPrecompute::build(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, &appearance, Some(map_width_km));
+        // Ruling BO: the forced lakes reach the grid's `sdf_biomes` band, as
+        // on screen (`RenderCtx::with_map_scale_forced`); already in
+        // `fingerprint()`, so no cache key changes.
+        let pre = GridPrecompute::build_forced(&field, &temperature, &rainfall, flow.as_ref().map(|v| v.as_slice()), gw, gh, sea_level, world, &appearance, Some(map_width_km), forced_lakes.as_deref());
         // The same call `build_color_texture` makes, and `None` under the same
         // condition: a loaded save's format stores none of the tectonic
         // substrate this needs (`SAVEFILE_COMPAT.md`), which is why its

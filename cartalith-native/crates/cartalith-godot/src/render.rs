@@ -3913,6 +3913,30 @@ impl GridPrecompute {
         appearance: &TerrainAppearance,
         map_width_km: Option<f64>,
     ) -> Self {
+        Self::build_forced(field, temperature, rainfall, flow, gw, gh, sea_level, world, appearance, map_width_km, None)
+    }
+
+    /// [`Self::build`] with Ruling BO's forced-lake mask, which only the
+    /// `sdf_biomes` leg reads ([`grid_biome_boundary_dist`]) -- so a forced
+    /// lake gets the same biome band at its shore a natural lake does, in the
+    /// LOD snapshot and the export session exactly as on screen
+    /// ([`RenderCtx::with_map_scale_forced`]). `None` is [`Self::build`],
+    /// byte for byte; it must never be substituted with an all-zero mask
+    /// standing in for "no forced lake" (`MISTAKES.md`: no value is `None`).
+    #[allow(clippy::too_many_arguments, dead_code)]
+    pub fn build_forced(
+        field: &[f32],
+        temperature: &[f32],
+        rainfall: &[f32],
+        flow: Option<&[f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        appearance: &TerrainAppearance,
+        map_width_km: Option<f64>,
+        forced_lakes: Option<&[u8]>,
+    ) -> Self {
         let sea_h = smooth_sea_h(field, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, appearance);
         let mut ao = build_ao(field, gw, gh, sea_level, world, appearance);
@@ -3943,9 +3967,7 @@ impl GridPrecompute {
                 river_sdf = build_river_sdf(flow, gw, gh, river_thresh);
             }
             if appearance.sdf_biomes > 0.0 {
-                let wb = cartalith_civ::build_water_bodies(field, gw, gh, sea_level, world, Some(rainfall));
-                let biome = cartalith_civ::build_biome_raster(&wb.classification, temperature, rainfall);
-                biome_bd = build_biome_boundary_dist(&biome, gw, gh);
+                biome_bd = grid_biome_boundary_dist(field, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
             }
         }
         GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, river_thresh, gw, gh }
@@ -4126,7 +4148,23 @@ impl<'a> RenderCtx<'a> {
     /// layer switched off, which is `with_lithology`'s own argument in
     /// `build_color_texture`.
     #[allow(dead_code)]
-    pub fn with_map_scale(mut self, map_width_km: f64) -> Self {
+    pub fn with_map_scale(self, map_width_km: f64) -> Self {
+        self.with_map_scale_forced(map_width_km, None)
+    }
+
+    /// [`Self::with_map_scale`], with Ruling BO's forced-lake mask
+    /// (`WorldGen::forced_lake_mask`) applied to the water classification the
+    /// `sdf_biomes` leg classifies biomes from -- so the biome band a lake's
+    /// shore gets is drawn round a forced lake too, as the drawn water,
+    /// Sample and routing already treat it (`STATUS.md`, "Map-data
+    /// residuals"). Only `biome_bd` reads the mask; the river SDF and its
+    /// threshold do not depend on water bodies at all.
+    ///
+    /// `None` is [`Self::with_map_scale`] byte for byte, and must stay so:
+    /// every world without a forced lake, and every golden, goes through it.
+    /// A mask of the wrong length is ignored ([`apply_forced_lakes`]).
+    #[allow(dead_code)]
+    pub fn with_map_scale_forced(mut self, map_width_km: f64, forced_lakes: Option<&[u8]>) -> Self {
         let (gw, gh) = (self.gw, self.gh);
         if self.appearance.sdf_rivers > 0.0
             && let Some(flow) = self.flow
@@ -4142,9 +4180,7 @@ impl<'a> RenderCtx<'a> {
         // can draw river bands on a map whose grid raster does not.
         self.river_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
         if self.appearance.sdf_biomes > 0.0 {
-            let wb = cartalith_civ::build_water_bodies(self.field, gw, gh, self.sea_level, self.world, Some(self.rainfall));
-            let biome = cartalith_civ::build_biome_raster(&wb.classification, self.temperature, self.rainfall);
-            self.biome_bd = Cow::Owned(build_biome_boundary_dist(&biome, gw, gh));
+            self.biome_bd = Cow::Owned(grid_biome_boundary_dist(self.field, self.temperature, self.rainfall, gw, gh, self.sea_level, self.world, forced_lakes));
         }
         self
     }
@@ -10402,6 +10438,34 @@ pub fn apply_forced_lakes(classification: &mut [u8], forced: Option<&[u8]>) {
     }
 }
 
+/// The grid's B4 biome-boundary distance (`sdf_biomes`): the water-body
+/// classification, Ruling BO's forced lakes applied to it, the biome raster
+/// classified from that, and its distance transform.
+///
+/// One body for [`GridPrecompute::build_forced`] and
+/// [`RenderCtx::with_map_scale_forced`], so the cached (LOD, export session)
+/// and uncached (screen, sculpt preview, PNG export) paths cannot disagree
+/// about which cells are water. A forced cell becomes a lake (`2`) before
+/// `build_biome_raster` runs, and that raster lets water override climate
+/// (`cartalith_civ`'s `build_biome_raster_water_overrides_climate`), so a
+/// forced lake gets the same water-edge band a natural lake gets. Before
+/// 2026-09-28 this leg rebuilt the classification without the mask and
+/// classified a forced lake as the land biome under it -- no band.
+///
+/// `forced: None` computes exactly what this leg computed before the mask
+/// existed. It must never be given a mask built over another grid: that is
+/// [`apply_forced_lakes`]' length check, which ignores it. It is NOT the LOD
+/// tile's own per-tile raster (`render_biome_tile_rgba`), which follows the
+/// reference in treating only below-sea cells as water and so draws no band
+/// at any lake, natural or forced.
+#[allow(clippy::too_many_arguments)]
+fn grid_biome_boundary_dist(field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, forced: Option<&[u8]>) -> Vec<f32> {
+    let mut class = cartalith_civ::build_water_bodies(field, gw, gh, sea_level, world, Some(rainfall)).classification;
+    apply_forced_lakes(&mut class, forced);
+    let biome = cartalith_civ::build_biome_raster(&class, temperature, rainfall);
+    build_biome_boundary_dist(&biome, gw, gh)
+}
+
 /// **Ruling BO: the signed depth a forced lake's shore is contoured at**, in
 /// height units -- `+` this on a forced cell, `-` this on a land cell whose
 /// only water neighbours are forced ([`shore_depth_forced`]).
@@ -10997,6 +11061,71 @@ mod shore_tests {
         // A mask for another grid is refused, not indexed.
         let refused = TileFields::new(&ctx, None).with_forced_lakes(&mask[..10]);
         assert!(!is_lake_pixel(&refused, &ctx, 12.0, 12.0, 0.8, true));
+    }
+
+    /// A context with the `sdf_biomes` leg on at 0.4 (`golden_parity_tile_biome.rs`'s
+    /// own test value; any value above zero builds the same distance field)
+    /// and a map scale attached, with or without a forced-lake mask.
+    fn biome_ctx<'a>(field: &'a [f32], rain: &'a [f32], temp: &'a [f32], gw: usize, gh: usize, forced: Option<&[u8]>) -> RenderCtx<'a> {
+        let a = TerrainAppearance { sdf_biomes: 0.4, ..TerrainAppearance::default() };
+        RenderCtx::with_appearance(field, temp, rain, None, gw, gh, SL, false, 70.0, -70.0, a).with_map_scale_forced(800.0, forced)
+    }
+
+    fn bits(v: &[f32]) -> Vec<u32> {
+        v.iter().map(|x| x.to_bits()).collect()
+    }
+
+    /// Protects the no-forced-lake path of the `sdf_biomes` leg
+    /// (`grid_biome_boundary_dist`): on the bowl, which has a natural lake and
+    /// so a real band, `with_map_scale`, `with_map_scale_forced(None)`, a
+    /// wrong-length mask, and both `GridPrecompute` entry points all give,
+    /// bit for bit, the pipeline this leg ran before the mask existed --
+    /// written out here from the `cartalith_civ` calls, not from the helper.
+    #[test]
+    fn the_biome_band_without_a_forced_lake_is_unchanged() {
+        let (field, rain, gw, gh) = bowl();
+        let temp = vec![15f32; gw * gh];
+        let wb = cartalith_civ::build_water_bodies(&field, gw, gh, SL, false, Some(&rain));
+        let old = build_biome_boundary_dist(&cartalith_civ::build_biome_raster(&wb.classification, &temp, &rain), gw, gh);
+        assert!(old.iter().any(|&d| d == 0.0), "premise: the bowl's lake gives the band a boundary");
+        let a = TerrainAppearance { sdf_biomes: 0.4, ..TerrainAppearance::default() };
+        let plain = RenderCtx::with_appearance(&field, &temp, &rain, None, gw, gh, SL, false, 70.0, -70.0, a.clone()).with_map_scale(800.0);
+        assert_eq!(bits(&plain.biome_bd), bits(&old));
+        assert_eq!(bits(&biome_ctx(&field, &rain, &temp, gw, gh, None).biome_bd), bits(&old));
+        let short = vec![1u8; 10];
+        assert_eq!(bits(&biome_ctx(&field, &rain, &temp, gw, gh, Some(&short)).biome_bd), bits(&old), "a mask for another grid is ignored");
+        let p = GridPrecompute::build(&field, &temp, &rain, None, gw, gh, SL, false, &a, Some(800.0));
+        let pf = GridPrecompute::build_forced(&field, &temp, &rain, None, gw, gh, SL, false, &a, Some(800.0), None);
+        assert_eq!(bits(&p.biome_bd), bits(&old));
+        assert_eq!(bits(&pf.biome_bd), bits(&old));
+    }
+
+    /// Protects Ruling BO reaching the `sdf_biomes` leg: on the dry plateau,
+    /// whose one climate is one biome, the unforced band has no boundary
+    /// anywhere; with the 5x5 forced block the block is water and the band
+    /// runs round its edge. Distances are literal answers from the block's
+    /// geometry (x 10..=14 on row 12): `0` on both sides of the shore (9 and
+    /// 10, 14 and 15), `2` at the block's centre (12) and `3` at x = 6. The
+    /// cached path (`GridPrecompute::build_forced`, the LOD and export
+    /// session) gives the same field as the screen's.
+    #[test]
+    fn a_forced_lake_gets_a_biome_band_at_its_edge() {
+        let (field, rain, mask, _wb, gw, gh) = forced_plateau();
+        let temp = vec![15f32; gw * gh];
+        let at = |d: &[f32], x: usize| d[12 * gw + x];
+        let bare = biome_ctx(&field, &rain, &temp, gw, gh, None);
+        // Premise: without the mask nothing is a boundary, so the ecotone
+        // widener is off (1.0) at the shore cell -- the pre-fix picture.
+        assert!(bare.biome_bd.iter().all(|&d| d > 6.0), "premise: one biome, no band");
+        assert_eq!(sdf_eco_k(at(&bare.biome_bd, 9) as f64, 0.4, gw), 1.0);
+        let forced = biome_ctx(&field, &rain, &temp, gw, gh, Some(&mask));
+        for (x, want) in [(9, 0.0), (10, 0.0), (14, 0.0), (15, 0.0), (12, 2.0), (6, 3.0)] {
+            assert_eq!(at(&forced.biome_bd, x), want, "distance at ({x}, 12)");
+        }
+        assert!(sdf_eco_k(at(&forced.biome_bd, 9) as f64, 0.4, gw) > 1.0, "the shore cell is widened");
+        let a = TerrainAppearance { sdf_biomes: 0.4, ..TerrainAppearance::default() };
+        let pf = GridPrecompute::build_forced(&field, &temp, &rain, None, gw, gh, SL, false, &a, Some(800.0), Some(&mask));
+        assert_eq!(bits(&pf.biome_bd), bits(&forced.biome_bd));
     }
 
     /// Protects `shore_depth`'s land clamp: a land cell exactly at sea level

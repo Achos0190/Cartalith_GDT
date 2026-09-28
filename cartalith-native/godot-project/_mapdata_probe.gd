@@ -15,6 +15,11 @@ extends Node
 ##     the river network's cache key and a lake label must all show the lake;
 ##     and it must survive a save and a reopen. HEAD forced only the civ copy,
 ##     so the map never drew it.
+##  B  (the "Map-data residuals" row's `sdf_biomes` item, inside leg F) With
+##     `sdf_biomes` on, the land ring round the forced lake changes colour
+##     (the biome band); before the press, the same ring does not. Against a
+##     build whose band ignores the mask the ring moves 0.00 after the press
+##     too, and B2 fails.
 ##  L  (item 3) Generated labels at z16: each settlement's and region's label
 ##     anchor, projected by the overlay's own `_point_to_screen` (what
 ##     `_draw_labels` uses), against the settlement marker's own
@@ -208,6 +213,34 @@ func _water_move(p: Vector2) -> int:
 	var c := await _grab()
 	var ctl := _dist(_px(a, p), _px(c, p))
 	return _dist(_px(a, p), _px(b, p)) - ctl
+
+
+## The current view captured with the `sdf_biomes` leg off and then at full
+## strength (`[off, on]`), restoring the appearance -- `_water_move`'s own
+## override/drop pattern. The difference between the two is the biome band
+## alone: `sdf_biomes` only widens `land_color`'s ecotone noise near a biome
+## boundary (`render.rs::sdf_eco_k`), so a pixel far from any boundary is
+## identical in both.
+func _sdf_pair() -> Array:
+	var off := await _grab()
+	_br.set_appearance({"sdf_biomes": 1.0})
+	await _repaint()
+	var on := await _grab()
+	_br.drop_appearance_overrides(PackedStringArray(["sdf_biomes"]))
+	await _repaint()
+	return [off, on]
+
+
+## Mean colour move (summed |dR|+|dG|+|dB|) between an `_sdf_pair` at the
+## cell centres in `cells`.
+func _sdf_move(pair: Array, cells: Array) -> float:
+	if cells.is_empty():
+		return 0.0
+	var s := 0
+	for c: Vector2i in cells:
+		var p := Vector2(c) + Vector2(0.5, 0.5)
+		s += _dist(_px(pair[0], p), _px(pair[1], p))
+	return float(s) / cells.size()
 
 
 ## Dry land for `r` cells all round `c` (every sample land, above `min_m`),
@@ -433,6 +466,11 @@ func _leg_forced() -> void:
 	await _view(at, false)
 	var fit0 := await _grab()
 	var mv_fit0 := await _water_move(at)
+	## Leg B (the `sdf_biomes` residual): the band before the press, at fit
+	## zoom, where the base raster -- the leg `with_map_scale_forced` feeds --
+	## is what is drawn (the LOD tile builds its own lake-blind band,
+	## `render_biome_tile_rgba`, by the reference's design).
+	var sdf0 := await _sdf_pair()
 	var mv_nat_fit := await _water_move(Vector2(nat) + Vector2(0.5, 0.5))
 	await _view(at, true)
 	var deep0 := await _grab()
@@ -469,6 +507,36 @@ func _leg_forced() -> void:
 	_p("fit: spot %s -> %s; water-move %d -> %d (natural lake %d)" % [_px(fit0, at).to_html(false), _px(fit1, at).to_html(false),
 		mv_fit0, mv_fit1, mv_nat_fit])
 	_ok(mv_fit1 > WATER_MOVES, "F9 after the press the spot is drawn as water at fit zoom (water-move %d)" % mv_fit1)
+	## Leg B after the press. The ring: land cells (drawn mask after the
+	## press) within 3 cells of a cell the press made water -- where a forced
+	## lake's biome band must now fall. The same cells are read in the
+	## before-press pair, so a natural biome boundary nearby moves both
+	## numbers alike and only the forced lake's own band separates them.
+	var sdf1 := await _sdf_pair()
+	var ring: Array = []
+	for gy in range(spot.y - 24, spot.y + 25):
+		for gx in range(spot.x - 24, spot.x + 25):
+			if _drawn_water(m2, Vector2i(gx, gy)):
+				continue
+			var near := false
+			for oy in range(-3, 4):
+				for ox in range(-3, 4):
+					var q := Vector2i(gx + ox, gy + oy)
+					if _drawn_water(m2, q) and not _drawn_water(m1, q):
+						near = true
+			if near:
+				ring.append(Vector2i(gx, gy))
+	var b0 := _sdf_move(sdf0, ring)
+	var b1 := _sdf_move(sdf1, ring)
+	_p("B sdf_biomes ring: %d cells; mean move off->on before the press %.2f, after %.2f; lod_active=%s" % [ring.size(), b0, b1, _vh.lod_active()])
+	_ok(not _vh.lod_active(), "B0 premise: fit zoom is drawn by the base raster, not the tiles")
+	_ok(ring.size() >= 12, "B1 premise: the forced lake has a land ring to measure (%d cells)" % ring.size())
+	## `WATER_MOVES` (16) as the margin: the same labelled "this pixel moved"
+	## floor the water legs use. Pre-fix both numbers are the same ring's
+	## natural-boundary move, so the difference is ~0 there.
+	_ok(b1 > b0 + WATER_MOVES, "B2 sdf_biomes draws a biome band round the forced lake's shore (ring move %.2f -> %.2f)" % [b0, b1])
+	_crop(sdf1[0], at, "B_sdfbiome_forced_off_fit", 90)
+	_crop(sdf1[1], at, "B_sdfbiome_forced_on_fit", 90)
 	await _view(at, true)
 	var deep1 := await _grab()
 	var mv_deep1 := await _water_move(at)

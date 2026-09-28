@@ -431,8 +431,9 @@ impl WorldGen {
         // tiles below record: the B3/B4 SDF legs are built from it, and a
         // capability wired to one consumer path and not the other is this
         // file's own documented failure. Inert unless `sdf_rivers` or
-        // `sdf_biomes` is up, so no export moves at the default.
-        ctx = ctx.with_map_scale(self.map_width_km);
+        // `sdf_biomes` is up, so no export moves at the default. The forced
+        // lakes too (Ruling BO), as the screen passes them.
+        ctx = ctx.with_map_scale_forced(self.map_width_km, self.forced_lake_mask());
         if let Some(loaded) = self.asset_pack.as_ref() {
             ctx = ctx.with_splat(SplatTextures {
                 grass: loaded.splat.get("grass"),
