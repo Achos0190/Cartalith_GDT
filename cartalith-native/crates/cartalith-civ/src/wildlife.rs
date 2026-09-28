@@ -337,6 +337,8 @@ pub struct GuildRoster {
     pub species: Vec<Species>,
 }
 
+/// One named animal within a [`GuildRoster`] entry, with its typical mass
+/// and an estimated regional population.
 #[derive(Clone, Debug)]
 pub struct Species {
     pub name: &'static str,
@@ -533,6 +535,7 @@ pub struct RichnessOpts {
 }
 
 impl Default for RichnessOpts {
+    /// The reference's own literal tuning constants (line 6571).
     fn default() -> Self {
         Self {
             c: 1.2,
@@ -570,6 +573,8 @@ pub struct WildlifeOpts {
 }
 
 impl Default for WildlifeOpts {
+    /// `cell_km` 1.0 alongside `RichnessOpts::default()`, matching the
+    /// reference's own default call site.
     fn default() -> Self {
         Self {
             cell_km: 1.0,
@@ -786,12 +791,17 @@ pub fn current_wildlife(
     eco
 }
 
+/// Guild/roster/formatting golden checks, the TRI (heterogeneity) kernel,
+/// region-drop-below-min-area, and the wildlife assignment/colour rules.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn the_guild_table_and_its_labels_stay_parallel() {
+        // Protects: WILD_GUILDS and WILD_GUILD_LABELS stay index-parallel,
+        // and guild_trophic classifies each named guild (and an unknown
+        // fallback) correctly.
         assert_eq!(WILD_GUILDS.len(), WILD_GUILD_LABELS.len());
         assert_eq!(guild_trophic("grazer"), Trophic::Herb);
         assert_eq!(guild_trophic("apexPredator"), Trophic::Pred);
@@ -802,6 +812,8 @@ mod tests {
 
     #[test]
     fn every_roster_entry_names_a_real_guild_and_a_real_biome() {
+        // Protects: wild_roster returns a non-empty, well-formed roster for
+        // every valid biome id, and an empty one out of range.
         for b in 1u8..=15 {
             let r = wild_roster(b);
             assert!(!r.is_empty(), "biome {b} ({}) must have a roster", CART_BIOMES[b as usize - 1]);
@@ -816,6 +828,8 @@ mod tests {
 
     #[test]
     fn sig2_keeps_two_significant_figures() {
+        // Protects: wild_sig2 rounds to two significant figures, clamps
+        // non-positive input to zero, and leaves a single-digit value alone.
         assert_eq!(wild_sig2(0.0), 0.0);
         assert_eq!(wild_sig2(-5.0), 0.0);
         assert_eq!(wild_sig2(1234.0), 1200.0);
@@ -825,6 +839,8 @@ mod tests {
 
     #[test]
     fn fmt_pop_switches_units_at_the_reference_s_own_boundaries() {
+        // Protects: wild_fmt_pop's unit switchover exactly at 1000 and
+        // 1,000,000, and its one-decimal rounding within a unit.
         assert_eq!(wild_fmt_pop(0.0), "0");
         assert_eq!(wild_fmt_pop(999.0), "999");
         assert_eq!(wild_fmt_pop(1000.0), "1k");
@@ -836,6 +852,8 @@ mod tests {
 
     #[test]
     fn tri_is_zero_on_a_flat_grid_and_positive_on_a_step() {
+        // Protects: build_tri returns zero everywhere on a flat field and
+        // positive at and around a single-cell step.
         let flat = vec![0.5f32; 9];
         assert!(build_tri(&flat, 3, 3, false).iter().all(|v| *v == 0.0));
         let mut step = vec![0.0f32; 9];
@@ -846,6 +864,9 @@ mod tests {
 
     #[test]
     fn wrapping_changes_tri_only_at_the_seam() {
+        // Protects: build_tri's `wrap` flag only changes the TRI value at the
+        // X seam (where a wall on the opposite edge becomes a neighbour); the
+        // interior is unaffected either way.
         let mut f = vec![0.0f32; 12];
         for y in 0..3 {
             f[y * 4] = 1.0; // a wall down the left edge
@@ -858,6 +879,9 @@ mod tests {
 
     #[test]
     fn a_region_below_min_area_is_dropped_and_its_cells_read_minus_one() {
+        // Protects: a component smaller than min_area is dropped from
+        // regions and its cells read back -1, but survives (and reindexes
+        // to 0) once the floor is lowered below its size.
         // One 3-cell blob of biome 2 in an 8x8 grid; min_area = 12 default.
         let (w, h) = (8usize, 8usize);
         let mut cb = vec![0u8; w * h];
@@ -878,6 +902,8 @@ mod tests {
 
     #[test]
     fn predators_are_dropped_when_no_herbivore_is_present() {
+        // Protects: assign_wildlife produces a positive richness and a
+        // non-empty guild roster whose biomass shares sum to ~1.
         // Biome 12 (Ruined Wastes): smallHerbivore, scavenger, mesoPredator.
         // A richness of 1 leaves only the herbivore, so nothing is dropped;
         // pushing the roster to start at the predator is what exercises the
@@ -899,6 +925,9 @@ mod tests {
 
     #[test]
     fn region_colour_is_blue_for_water_biomes_and_greens_with_richness() {
+        // Protects: wild_region_color's fixed lake/ocean blues, its base
+        // green for zero richness, its brighter green at richness 8, and
+        // that richness above 8 clamps rather than wrapping the channel.
         let lake = Ecoregion {
             biome: 14,
             ..Ecoregion::default()

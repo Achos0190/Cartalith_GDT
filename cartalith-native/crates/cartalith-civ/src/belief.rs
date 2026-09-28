@@ -798,6 +798,9 @@ pub struct BeliefNetwork {
 }
 
 impl BeliefNetwork {
+    /// Builds the adjacency weights: population self-weight plus a
+    /// trade-deliverability-weighted edge for every valid link (self-links
+    /// and out-of-range indices skipped, a non-positive/NaN weight dropped).
     pub fn build(pops: &[u32], links: &[BeliefLink]) -> Self {
         let n = pops.len();
         let mut adj: Vec<Vec<(usize, f64)>> = (0..n).map(|i| vec![(i, pops[i] as f64)]).collect();
@@ -822,10 +825,12 @@ impl BeliefNetwork {
         BeliefNetwork { adj }
     }
 
+    /// Settlement count the network was built over.
     pub fn len(&self) -> usize {
         self.adj.len()
     }
 
+    /// True for a network built over zero settlements.
     pub fn is_empty(&self) -> bool {
         self.adj.is_empty()
     }
@@ -1049,6 +1054,9 @@ pub fn belief_any_faith(states: &[SettlementReligionState]) -> bool {
         .any(|s| s.share.iter().enumerate().any(|(r, &v)| r != RELIGION_NONE && v > 0.0))
 }
 
+/// Vocabulary drift guards over the religion/culture/terrain tables, the
+/// compatibility scoring rules, `BeliefNetwork` construction, and the
+/// blend/write-back step.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1067,8 +1075,9 @@ mod tests {
         v
     }
 
-    /// Drift guard 1, promised by name in the module doc: a culture added to
-    /// `CIV_CULTURES` without a decision here fails this test.
+    /// Protects: drift guard 1, promised by name in the module doc -- a
+    /// culture added to `CIV_CULTURES` without a decision here fails this
+    /// test.
     #[test]
     fn culture_profiles_cover_every_culture() {
         let themed: BTreeSet<&str> = CIV_CULTURES
@@ -1106,9 +1115,9 @@ mod tests {
         );
     }
 
-    /// Drift guard 2, and the real one: a ninth religion added to `roster.rs`
-    /// fails here until someone either gives it a domain or records it as
-    /// deliberately unthemed.
+    /// Protects: drift guard 2, and the real one -- a ninth religion added
+    /// to `roster.rs` fails here until someone either gives it a domain or
+    /// records it as deliberately unthemed.
     #[test]
     fn religion_profiles_cover_every_religion() {
         let themed: BTreeSet<&str> = CIV_RELIGIONS
@@ -1157,10 +1166,11 @@ mod tests {
         );
     }
 
-    /// The load-bearing typo guard. A `"forrest"` in the table compiles,
-    /// passes every other test, and silently makes `old_gods` match nothing
-    /// while routing to a plausible-looking `0.5` -- CLAUDE.md's "watch for
-    /// silently-empty golden output" exactly. Not optional garnish.
+    /// Protects: the load-bearing typo guard. A `"forrest"` in the table
+    /// compiles, passes every other test, and silently makes `old_gods`
+    /// match nothing while routing to a plausible-looking `0.5` --
+    /// CLAUDE.md's "watch for silently-empty golden output" exactly. Not
+    /// optional garnish.
     #[test]
     fn religion_domains_are_shared_vocabulary() {
         assert_eq!(CIV_RELIGION_DOMAIN.len(), 5, "five themed religions today");
@@ -1208,8 +1218,8 @@ mod tests {
         );
     }
 
-    /// Makes "a read, not a second opinion" a checked fact rather than a
-    /// comment.
+    /// Protects: makes "a read, not a second opinion" a checked fact rather
+    /// than a comment -- `culture_domain` must track `CIV_CULTURE_TERRAIN_KEY`.
     #[test]
     fn culture_domain_agrees_with_the_terrain_key() {
         const WHY: &str = "`belief::culture_domain` reads `CIV_CULTURE_TERRAIN_KEY` in \
@@ -1227,8 +1237,8 @@ mod tests {
         assert_eq!(some_count, CIV_CULTURE_TERRAIN_KEY.len(), "{}", WHY);
     }
 
-    /// Criterion 1 made mechanical: a row cannot be added without writing
-    /// down why.
+    /// Protects: criterion 1 made mechanical -- a row cannot be added
+    /// without writing down why, and the basis must be a real sentence.
     #[test]
     fn religion_domain_basis_is_stated() {
         for row in CIV_RELIGION_DOMAIN.iter() {
@@ -1248,6 +1258,10 @@ mod tests {
         }
     }
 
+    /// Protects: `compat`'s value stays in `[0, 1]` and finite over the full
+    /// 8x7 sweep, the ones/zeros/neutrals counts match the domain overlap
+    /// arithmetic, and five spot-checked pairs get the exact value and basis
+    /// their case demands.
     #[test]
     fn compat_is_one_only_on_a_shared_domain() {
         let pairs = all_pairs();
@@ -1334,6 +1348,9 @@ mod tests {
     /// always has a weight" (nothing is silently dropped by the loop) and the
     /// over-the-sweep direction is "a present weight is used by at least one
     /// pair" (no weight sits inert).
+    ///
+    /// Protects: `COMPAT_WEIGHTS` and `COMPAT_COMPONENTS` stay aligned, and
+    /// every present weight slot is reachable by some pair.
     #[test]
     fn weights_exist_exactly_where_components_can() {
         assert_eq!(
@@ -1395,6 +1412,9 @@ mod tests {
         }
     }
 
+    /// Protects: an unknown religion or culture (or both empty) routes to
+    /// the neutral value with zero evaluated components, and `compat_value`
+    /// is finite over the full sweep.
     #[test]
     fn compat_returns_the_stated_neutral_and_never_nan() {
         for (r, c) in [
@@ -1432,6 +1452,9 @@ mod tests {
     /// creating an artificial 'best religion'."* Without this, a model that
     /// had silently collapsed to a universal ranking would pass every other
     /// test in this file.
+    ///
+    /// Protects: no universal religion ranking -- the relative order of two
+    /// religions' compat must reverse across at least one pair of cultures.
     #[test]
     fn compat_ranks_religions_differently_across_cultures() {
         // §9's own worked claim -- Compat(R, C1) high, Compat(R, C2) low --
@@ -1494,6 +1517,10 @@ mod tests {
     ///
     /// This repository's own working rule: *"Golden-matching is necessary
     /// and not sufficient. Mutation-test the constants."*
+    ///
+    /// Protects: `NEUTRAL_COMPAT`'s literal value, every `CIV_RELIGION_DOMAIN`
+    /// row in declared order, its injectivity onto the terrain vocabulary,
+    /// and the two judgement-call basis strings' disclosure text.
     #[test]
     fn the_authored_values_are_pinned_to_literals() {
         // The stated neutral. A bare literal on the right-hand side, on
@@ -1560,6 +1587,9 @@ mod tests {
     }
 }
 
+/// `RELIGION_DIFFUSION_SCOPE.md`'s diffusion step: exposure-weighted belief
+/// change over a `BeliefNetwork`, its convergence behaviour, and the
+/// takeover-timing/plurality/secular-share readouts built on top of it.
 #[cfg(test)]
 mod diffusion_tests {
     use super::*;
@@ -1574,13 +1604,15 @@ mod diffusion_tests {
         BeliefNetwork::build(&pops, &links)
     }
 
+    /// Total share across every religion slot, including `RELIGION_NONE` --
+    /// should stay `1.0` for a well-formed state.
     fn sum(s: &SettlementReligionState) -> f64 {
         s.share.iter().sum()
     }
 
-    /// The vocabulary bound the whole module indexes by. If `CIV_RELIGIONS`
-    /// ever changes length, every fixed-size array here changes with it and
-    /// this is the test that says so first.
+    /// Protects: the vocabulary bound the whole module indexes by. If
+    /// `CIV_RELIGIONS` ever changes length, every fixed-size array here
+    /// changes with it and this is the test that says so first.
     #[test]
     fn the_religion_index_is_the_roster_order() {
         assert_eq!(CIV_RELIGION_COUNT, 8, "eight religions, `none` included");
@@ -1604,6 +1636,9 @@ mod diffusion_tests {
     /// existing `the_authored_values_are_pinned_to_literals` was written to
     /// close, applied to this half of the module. Every other test below
     /// refers to these symbolically and would move with them.
+    ///
+    /// Protects: BELIEF_BE/BC/BF/B0, BELIEF_CONFORMITY_K and
+    /// BELIEF_STEP_RATE's literal values.
     #[test]
     fn the_diffusion_coefficients_are_pinned_to_literals() {
         assert_eq!(BELIEF_BE, 3.0, "exposure is the largest of the three");
@@ -1623,6 +1658,10 @@ mod diffusion_tests {
     // between these constants, which is the thing a later calibration pass
     // would break. That is not the "assert a constant against itself" shape
     // MISTAKES.md forbids -- each compares two different authored values.
+    ///
+    /// Protects: BELIEF_B0 is derived from the other three weights, the
+    /// domain midpoint lands on the logistic's centre, the domain bounds sit
+    /// near the stated sigma values, and the 3:2:1 weight ordering holds.
     #[allow(clippy::assertions_on_constants)]
     #[test]
     fn belief_is_centred_on_its_own_input_domain() {
@@ -1640,9 +1679,10 @@ mod diffusion_tests {
         assert!(BELIEF_CONFORMITY_K > 1.0, "§14 requires k > 1 or the term is not conformist");
     }
 
-    /// `js_exp`, not `f64::exp`. Asserted against literal reference points
-    /// rather than against `1.0/(1.0+(-x).exp())`, which would restate the
-    /// implementation.
+    /// Protects: `js_exp`, not `f64::exp`. Asserted against literal
+    /// reference points rather than against `1.0/(1.0+(-x).exp())`, which
+    /// would restate the implementation, plus saturation to exact 0.0/1.0
+    /// far outside the model's reachable domain.
     #[test]
     fn the_logistic_is_the_papers_sigma() {
         assert_eq!(belief_logistic(0.0), 0.5);
@@ -1668,7 +1708,9 @@ mod diffusion_tests {
         }
     }
 
-    /// Largest remainder: exactly `pop`, for every split and every size.
+    /// Protects: largest remainder -- exactly `pop`, for every split and
+    /// every size, sub-person minorities dropped from the headcount but kept
+    /// in the share, and ties breaking to the lower index.
     #[test]
     fn adherents_conserve_the_settlement_population_exactly() {
         let mut s = SettlementReligionState { share: [0.0; CIV_RELIGION_COUNT] };
@@ -1713,6 +1755,9 @@ mod diffusion_tests {
         }, "the odd person goes to the lower index");
     }
 
+    /// Protects: `plurality` returns `RELIGION_NONE` when the secular share
+    /// leads, the actual leading religion otherwise, and ties break to the
+    /// lower index.
     #[test]
     fn plurality_reports_the_secular_share_when_it_leads() {
         let mut s = SettlementReligionState { share: [0.0; CIV_RELIGION_COUNT] };
@@ -1736,6 +1781,9 @@ mod diffusion_tests {
     /// The seeding finding, made mechanical: the shipped roster default
     /// yields a world with no religion in it, and this test is what stops a
     /// later pass "fixing" that by inventing one.
+    ///
+    /// Protects: an all-"none" roster seeds every settlement wholly secular,
+    /// and a hand-edited religion is still picked up correctly.
     #[test]
     fn the_shipped_roster_default_seeds_a_world_with_no_religion() {
         let roster: Vec<&str> = vec!["none"; 7];
@@ -1762,6 +1810,9 @@ mod diffusion_tests {
         assert_eq!(states[2].plurality(), RELIGION_NONE);
     }
 
+    /// Protects: an out-of-range or negative faction id, and an unrecognised
+    /// religion key, all seed to `RELIGION_NONE` rather than panicking or
+    /// indexing out of bounds; a recognised one still seeds correctly.
     #[test]
     fn seeding_routes_every_unresolvable_faction_to_unaffiliated() {
         let roster: Vec<&str> = vec!["none", "cargo_cult", "old_gods"];
@@ -1777,8 +1828,9 @@ mod diffusion_tests {
         }
     }
 
-    /// The graph really is the road network, and hidden ways really are in
-    /// it — the sentence in [`belief_links_from_ways`]' doc, checked.
+    /// Protects: the graph really is the road network, and hidden ways
+    /// really are in it -- the sentence in [`belief_links_from_ways`]' doc,
+    /// checked -- while a self-loop way is dropped.
     #[test]
     fn links_come_from_every_way_including_the_hidden_ones() {
         let way = |a: usize, b: usize, km: f64, hidden: bool| crate::Way {
@@ -1799,9 +1851,10 @@ mod diffusion_tests {
         assert_eq!(links[1], BeliefLink { a: 1, b: 2, km: 60.0 });
     }
 
-    /// The weight is `crate::trade::deliverable`, not a private curve —
-    /// asserted through observable behaviour at the reference's own 220 km
-    /// land cutoff.
+    /// Protects: the weight is `crate::trade::deliverable`, not a private
+    /// curve -- asserted through observable behaviour at the reference's own
+    /// 220 km land cutoff, self-degree always present, and malformed links
+    /// dropped rather than panicked on.
     #[test]
     fn a_link_past_the_references_land_reach_carries_nothing() {
         assert_eq!(crate::trade::MAX_REACH_KM[0], 220.0, "the reference's FOOD_MAX_REACH_KM land value");
@@ -1826,8 +1879,8 @@ mod diffusion_tests {
         assert_eq!(bad.degree(1), 1);
     }
 
-    /// The invariant everything else rests on: population is conserved, at
-    /// every settlement, on every step, forever.
+    /// Protects: the invariant everything else rests on -- population is
+    /// conserved, at every settlement, on every step, forever.
     #[test]
     fn every_step_conserves_the_population_of_every_settlement() {
         let net = chain(6, 4000, 30.0);
@@ -1851,10 +1904,10 @@ mod diffusion_tests {
         }
     }
 
-    /// §17's shape, and the reason [`belief_step`]'s leading `E_r` factor is
-    /// there: no exposure, no conversion. Without it the strictly-positive
-    /// logistic grows a congregation for all eight religions in a sealed
-    /// valley on the first step.
+    /// Protects: §17's shape, and the reason [`belief_step`]'s leading `E_r`
+    /// factor is there -- no exposure, no conversion. Without it the
+    /// strictly-positive logistic grows a congregation for all eight
+    /// religions in a sealed valley on the first step.
     #[test]
     fn an_unexposed_religion_never_gains_a_single_adherent() {
         let net = BeliefNetwork::build(&[8000], &[]);
@@ -1872,9 +1925,10 @@ mod diffusion_tests {
         }
     }
 
-    /// The seed is a fixed point when nobody has a religion — the other half
-    /// of the finding in [`belief_seed`]'s doc, and the thing a surface must
-    /// report as a configuration state rather than as an empty panel.
+    /// Protects: the seed is a fixed point when nobody has a religion -- the
+    /// other half of the finding in [`belief_seed`]'s doc, and the thing a
+    /// surface must report as a configuration state rather than as an empty
+    /// panel.
     #[test]
     fn an_all_secular_world_is_a_fixed_point() {
         let net = chain(5, 2000, 25.0);
@@ -1889,9 +1943,9 @@ mod diffusion_tests {
         }
     }
 
-    /// The mechanic the milestone exists to prove: a faith seeded in one
-    /// settlement reaches its road neighbours and not the far end of the
-    /// chain first.
+    /// Protects: the mechanic the milestone exists to prove -- a faith
+    /// seeded in one settlement reaches its road neighbours and not the far
+    /// end of the chain first.
     #[test]
     fn a_faith_spreads_along_the_road_network_in_order() {
         let net = chain(5, 5000, 40.0);
@@ -1919,9 +1973,9 @@ mod diffusion_tests {
         );
     }
 
-    /// §9/§24's whole point, as behaviour rather than as a table: the same
-    /// religion, the same network, the same seed — a different receiving
-    /// culture, a different outcome.
+    /// Protects: §9/§24's whole point, as behaviour rather than as a table
+    /// -- the same religion, the same network, the same seed -- a different
+    /// receiving culture, a different outcome, in the compat ordering.
     #[test]
     fn the_receiving_culture_changes_the_outcome() {
         let sea = religion_index("sea_lords").unwrap();
@@ -1962,6 +2016,9 @@ mod diffusion_tests {
     /// at all it converts within a lifetime, and where it does not converge
     /// it never converts.** There is no slow-but-eventual middle. That is a
     /// property of the exposure term dominating — see the third case.
+    ///
+    /// Protects: the exact years-to-plurality literal for each named
+    /// configuration, and the never-converges case landing at the sentinel.
     #[test]
     fn belief_takeover_is_a_generation_where_it_happens_at_all() {
         let sun = religion_index("sun_cult").unwrap();
@@ -1973,6 +2030,9 @@ mod diffusion_tests {
                 s
             },
         };
+        // A sentinel year count safely past any convergence this test's own
+        // fixtures reach, so "never converged within the run" is a distinct
+        // value from a real year.
         const NEVER: usize = 5000;
         // Years until the receiving settlement (index 1) holds a plurality,
         // and the share it holds at the end. `NEVER` means it did not.
@@ -2061,6 +2121,10 @@ mod diffusion_tests {
     /// at ~100 % and the other seven at ~0 %, not a pie chart. Designing a
     /// breakdown widget against an imagined five-way split would be
     /// designing against a model that does not exist yet.
+    ///
+    /// Protects: even the most balanced fixture this model can be given
+    /// converges to a single dominant faith, while the state stays a valid
+    /// distribution throughout.
     #[test]
     fn belief_has_no_syncretic_equilibrium() {
         // The most balanced case available: a town exactly between two equal
@@ -2096,8 +2160,9 @@ mod diffusion_tests {
         );
     }
 
-    /// Order independence, which is what "synchronous" buys and what an
-    /// in-place sweep would silently lose.
+    /// Protects: order independence, which is what "synchronous" buys and
+    /// what an in-place sweep would silently lose -- a mirrored chain
+    /// produces mirrored results.
     #[test]
     fn a_step_does_not_depend_on_settlement_order() {
         // A 4-chain 0-1-2-3, and the same chain with the list reversed.
@@ -2133,8 +2198,9 @@ mod diffusion_tests {
         }
     }
 
-    /// Same inputs, same answer, bit for bit — the determinism claim, run
-    /// rather than asserted in prose.
+    /// Protects: same inputs, same answer, bit for bit -- the determinism
+    /// claim, run rather than asserted in prose -- and population conserved
+    /// at every settlement.
     #[test]
     fn the_same_world_produces_the_same_adherence_bit_for_bit() {
         let run = || -> Vec<[u32; CIV_RELIGION_COUNT]> {
@@ -2161,8 +2227,9 @@ mod diffusion_tests {
         }
     }
 
-    /// A rate of zero changes nothing, and a rate of one is still a
-    /// distribution — the two boundaries a caller can reach.
+    /// Protects: a rate of zero changes nothing, a rate of one is still a
+    /// distribution, and an out-of-range rate clamps rather than producing
+    /// negative shares or a reversal -- the boundaries a caller can reach.
     #[test]
     fn the_step_rate_boundaries_are_safe() {
         let net = chain(3, 900, 15.0);
@@ -2190,9 +2257,9 @@ mod diffusion_tests {
         assert_eq!(neg, before, "a negative rate clamps to the no-op, not to a reversal");
     }
 
-    /// Degenerate shapes a real world hands this: an empty list, a
-    /// zero-population settlement, a culture slice shorter than the
-    /// settlement list.
+    /// Protects: degenerate shapes a real world hands this -- an empty list,
+    /// a zero-population settlement, a culture slice shorter than the
+    /// settlement list -- none of them panic or produce NaN.
     #[test]
     fn degenerate_worlds_do_not_panic_or_produce_nan() {
         let mut none: Vec<SettlementReligionState> = Vec::new();

@@ -1201,6 +1201,9 @@ pub fn civ_military_manpower_world(inputs: &[ManpowerInput]) -> Vec<Manpower> {
         .collect()
 }
 
+/// Golden worked examples (Kingdoms A and B), the ecological/citizen/era
+/// clamps and rulings, the soldier-upkeep derivation, and the world land
+/// normalisation (owner ruling AI, option (b)).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,8 +1246,9 @@ mod tests {
         }
     }
 
-    /// The two-anchor curve must actually pass through both anchors, or
-    /// every duration in the model is quoting a fit nobody checked.
+    /// Protects: the two-anchor curve must actually pass through both
+    /// anchors, or every duration in the model is quoting a fit nobody
+    /// checked, and `share_for_days` is a real inverse of it.
     #[test]
     fn duration_curve_passes_through_both_anchors() {
         let (s_long, d_long) = DURATION_ANCHOR_LONG;
@@ -1256,6 +1260,9 @@ mod tests {
         assert!((share_for_days(d_long, 1.0) - s_long).abs() < 1e-12);
     }
 
+    /// Protects: sustainable duration falls monotonically as the mobilized
+    /// share rises, and a vanishing or NaN share is indefinite rather than a
+    /// divide-by-zero.
     #[test]
     fn duration_falls_as_the_mobilized_share_rises() {
         let mut prev = f64::INFINITY;
@@ -1269,8 +1276,8 @@ mod tests {
         assert_eq!(sustainable_days(f64::NAN, 1.0), DURATION_MAX_DAYS);
     }
 
-    /// The whole point of the model: same population, very different
-    /// military power. Every figure is checked against the range
+    /// Protects: the whole point of the model -- same population, very
+    /// different military power. Every figure is checked against the range
     /// `MILITARY_MANPOWER_SCOPE.md` states, and none of them is a range this
     /// test invented.
     #[test]
@@ -1304,6 +1311,9 @@ mod tests {
         );
     }
 
+    /// Protects: Kingdom B's own worked-example figures, the mirror of
+    /// [`worked_example_kingdom_a`] against the scope document's stated
+    /// ranges for the strong state.
     #[test]
     fn worked_example_kingdom_b() {
         let m = civ_military_manpower(&kingdom_b());
@@ -1331,8 +1341,8 @@ mod tests {
         );
     }
 
-    /// The comparison the worked example exists to make. Ratios, so a
-    /// constant that moved both sides equally cannot satisfy this.
+    /// Protects: the comparison the worked example exists to make. Ratios,
+    /// so a constant that moved both sides equally cannot satisfy this.
     #[test]
     fn b_outclasses_a_on_every_output_at_equal_population() {
         let a = civ_military_manpower(&kingdom_a());
@@ -1346,9 +1356,10 @@ mod tests {
         assert!(b.force_ladder[3].force > a.force_ladder[3].force);
     }
 
-    /// The owner's explicit caution: a warrior society must not be handed a
-    /// large standing army just for being pre-agricultural. The standing
-    /// figure is fiscal and collapses; the levy is demographic and does not.
+    /// Protects: the owner's explicit caution -- a warrior society must not
+    /// be handed a large standing army just for being pre-agricultural. The
+    /// standing figure is fiscal and collapses; the levy is demographic and
+    /// does not.
     #[test]
     fn a_warrior_society_gets_a_levy_not_a_standing_army() {
         let m = civ_military_manpower(&ManpowerInput {
@@ -1376,9 +1387,9 @@ mod tests {
         assert!(m.emergency_mobilization > m.standing_army * 10.0);
     }
 
-    /// Technology is not the driver: two factions on the *same* ag-tech row
-    /// with different governments, roads and land must get different
-    /// answers, and land alone must move the result.
+    /// Protects: technology is not the driver -- two factions on the *same*
+    /// ag-tech row with different governments, roads and land must get
+    /// different answers, and land alone must move the result.
     #[test]
     fn same_technology_different_answers() {
         let base = ManpowerInput {
@@ -1440,10 +1451,10 @@ mod tests {
         .ecological_factor
     }
 
-    /// The clamp's bounds, pinned as **literals** from both sides. The
-    /// ceiling was `2.0` until owner ruling 11 raised it; this is the test
-    /// that says which value is live, and a mutant in either direction goes
-    /// red here.
+    /// Protects: the clamp's bounds, pinned as **literals** from both sides.
+    /// The ceiling was `2.0` until owner ruling 11 raised it; this is the
+    /// test that says which value is live, and a mutant in either direction
+    /// goes red here.
     #[test]
     fn the_ecological_ceiling_binds_where_the_ruling_put_it() {
         // Below the ceiling, passed through untouched. A ceiling of 2.0
@@ -1471,6 +1482,8 @@ mod tests {
     /// value: they hold for any pair, which is exactly why the value is
     /// pinned by literals in
     /// [`the_ecological_ceiling_binds_where_the_ruling_put_it`] instead.
+    ///
+    /// Protects: `ECOLOGICAL_CEILING` and `ECOLOGICAL_FLOOR` stay reciprocal.
     #[test]
     fn the_ecological_clamp_is_symmetric_about_one() {
         assert!((ECOLOGICAL_CEILING * ECOLOGICAL_FLOOR - 1.0).abs() < 1e-12);
@@ -1478,10 +1491,10 @@ mod tests {
         assert_eq!(eco_at(0.0), ECOLOGICAL_FLOOR);
     }
 
-    /// What the ruling was *for*. Two factions whose own land feeds 2.5 and
-    /// 3.5 times the people on it must get different answers; under the old
-    /// `2.0` ceiling both saturated and the ratio below was exactly `1.0` --
-    /// the ceiling, not the ecology, deciding.
+    /// Protects: what the ruling was *for*. Two factions whose own land
+    /// feeds 2.5 and 3.5 times the people on it must get different answers;
+    /// under the old `2.0` ceiling both saturated and the ratio below was
+    /// exactly `1.0` -- the ceiling, not the ecology, deciding.
     #[test]
     fn the_factor_still_discriminates_above_the_old_ceiling() {
         let at = |land: f64| {
@@ -1516,9 +1529,9 @@ mod tests {
         assert_eq!(a.emergency_duration_days, b.emergency_duration_days);
     }
 
-    /// The ladder must be monotonically decreasing in duration, and its
-    /// 365-day rung is the one that answers "what can this state keep up
-    /// indefinitely".
+    /// Protects: the ladder must be monotonically decreasing in duration,
+    /// and its 365-day rung is the one that answers "what can this state
+    /// keep up indefinitely".
     #[test]
     fn the_force_ladder_decreases_with_duration() {
         for input in [kingdom_a(), kingdom_b()] {
@@ -1552,10 +1565,10 @@ mod tests {
         assert!((over - 1.067).abs() < 0.001, "B standing / 365-day rung = {over}");
     }
 
-    /// The plausibility check the owner asked for. Xerxes' invasion at a
-    /// claimed several million against a reconstructed ~79 000 is the case:
-    /// the model's answer is that no state of that era could *concentrate*
-    /// more than a fraction of what it could name.
+    /// Protects: the plausibility check the owner asked for. Xerxes'
+    /// invasion at a claimed several million against a reconstructed ~79 000
+    /// is the case: the model's answer is that no state of that era could
+    /// *concentrate* more than a fraction of what it could name.
     #[test]
     fn concentration_ratio_bounds_a_claimed_host() {
         let m = civ_military_manpower(&kingdom_b());
@@ -1567,6 +1580,9 @@ mod tests {
         assert!(m.emergency_share < 0.25);
     }
 
+    /// Protects: `era_for`'s derived band assignment for both worked
+    /// examples, and `band_verdict`'s below/within/above classification at
+    /// and around a band's edges.
     #[test]
     fn era_is_derived_and_the_bands_are_reported_not_enforced() {
         let a = civ_military_manpower(&kingdom_a());
@@ -1604,6 +1620,10 @@ mod tests {
     /// owner ruling AI (c)** (5 846 -> 9 661 and 19 067 -> 25 750), which
     /// moved the soldier upkeep and nothing else -- levy and field did not
     /// move, which this test also pins.
+    ///
+    /// Protects: the citizen-share denominator change moved standing/levy/
+    /// field headcounts only where re-baselined, and the duration curve
+    /// still reads against the total population, not the citizen one.
     #[test]
     fn the_citizen_ruling_moves_no_headcount() {
         for (input, standing, levy, field) in [
@@ -1628,9 +1648,9 @@ mod tests {
         }
     }
 
-    /// What the ruling was *for*: both worked examples land inside both
-    /// bands against the citizen body, where the first build read one of
-    /// them `below`.
+    /// Protects: what the ruling was *for* -- both worked examples land
+    /// inside both bands against the citizen body, where the first build
+    /// read one of them `below`.
     #[test]
     fn the_citizen_ruling_lands_the_worked_examples_inside_their_bands() {
         for input in [kingdom_a(), kingdom_b()] {
@@ -1656,10 +1676,10 @@ mod tests {
         }
     }
 
-    /// The denominator must actually be differentiated by government, or the
-    /// ruling amounts to dividing everything by one constant — which would
-    /// have been the arbitrary fraction it exists to avoid. Everything but
-    /// the government key is held fixed.
+    /// Protects: the denominator must actually be differentiated by
+    /// government, or the ruling amounts to dividing everything by one
+    /// constant -- which would have been the arbitrary fraction it exists to
+    /// avoid. Everything but the government key is held fixed.
     #[test]
     fn citizen_fraction_is_driven_by_government() {
         let at = |gov: &'static str| {
@@ -1678,9 +1698,10 @@ mod tests {
         assert!(at("chiefdom") - at("empire") > 0.4);
     }
 
-    /// Legal servitude is an agrarian institution: hold the government fixed
-    /// and the citizen body widens as farming shrinks, converging near
-    /// [`CITIZEN_CEILING`] for every government at industrial labour ratios.
+    /// Protects: legal servitude is an agrarian institution -- hold the
+    /// government fixed and the citizen body widens as farming shrinks,
+    /// converging near [`CITIZEN_CEILING`] for every government at
+    /// industrial labour ratios.
     #[test]
     fn citizen_fraction_widens_as_the_society_leaves_agriculture() {
         let at = |f: f64, gov: &'static str| {
@@ -1722,6 +1743,9 @@ mod tests {
         assert!(at(19.0, "chiefdom") > 0.90);
     }
 
+    /// Protects: `CITIZEN_SHARE` covers every roster government exactly
+    /// once, in range, and an unknown key falls back to the *high* end
+    /// (`chiefdom`), never flattering a faction into its band.
     #[test]
     fn citizen_share_table_is_the_roster_vocabulary_and_falls_back_safely() {
         for (k, _) in crate::roster::CIV_GOVERNMENTS {
@@ -1738,6 +1762,9 @@ mod tests {
         assert!(citizen_share("chiefdom") > citizen_share("empire"));
     }
 
+    /// Protects: `GOVERNMENT_EXTRACTION` covers every roster government
+    /// exactly once, an unknown key falls back to `0.15`, and extraction
+    /// rises with government strength.
     #[test]
     fn government_table_is_the_roster_vocabulary_and_falls_back_safely() {
         for (k, _) in crate::roster::CIV_GOVERNMENTS {
@@ -1751,8 +1778,8 @@ mod tests {
         assert!(government_extraction("empire") > government_extraction("chiefdom"));
     }
 
-    /// The labour ratio must be the ag-tech table's own hints, or the
-    /// module is reading a number that means something else.
+    /// Protects: the labour ratio must be the ag-tech table's own hints, or
+    /// the module is reading a number that means something else.
     #[test]
     fn labour_ratio_matches_the_ag_tech_tables_own_hints() {
         // (key, the "~N% farms" figure that row's own hint states)
@@ -1773,8 +1800,9 @@ mod tests {
         }
     }
 
-    /// An empty faction must produce zeros, not `NaN`s — a headcount is a
-    /// claim, and `NaN` soldiers is the loudest possible wrong one.
+    /// Protects: an empty faction must produce zeros, not `NaN`s -- a
+    /// headcount is a claim, and `NaN` soldiers is the loudest possible
+    /// wrong one.
     #[test]
     fn an_empty_faction_is_zero_everywhere_and_never_nan() {
         for pop in [0.0, f64::NAN] {
@@ -1830,6 +1858,10 @@ mod tests {
     /// what (c) asked the model to reproduce. The owner's comparison still
     /// holds, and more strongly at the ends: industrial is the largest of
     /// the six by a wide margin.
+    ///
+    /// Protects: the six per-bracket standing-army literals, the one
+    /// deliberate Iron/High-medieval inversion, and that the levy does not
+    /// scale the same way.
     #[test]
     fn standing_army_rises_with_industrialisation_at_equal_population() {
         let at = |key: &str| {
@@ -1881,10 +1913,11 @@ mod tests {
 
     // ---- Owner ruling AI, option (c): the upkeep is the era table's.
 
-    /// Re-derives [`SOLDIER_UPKEEP_BY_BRACKET`] from [`ERA_BANDS`],
-    /// [`era_for`], [`GOVERNMENT_EXTRACTION`] and [`CITIZEN_SHARE`] by the
-    /// rule stated on the constant, independently of the constant -- so
-    /// editing any of those tables without re-deriving this one fails here.
+    /// Protects: re-derives [`SOLDIER_UPKEEP_BY_BRACKET`] from
+    /// [`ERA_BANDS`], [`era_for`], [`GOVERNMENT_EXTRACTION`] and
+    /// [`CITIZEN_SHARE`] by the rule stated on the constant, independently
+    /// of the constant -- so editing any of those tables without
+    /// re-deriving this one fails here.
     #[test]
     fn soldier_upkeep_is_derived_from_the_era_table() {
         let govs: Vec<&str> = crate::roster::CIV_GOVERNMENTS
@@ -1938,8 +1971,9 @@ mod tests {
         assert_eq!(SOLDIER_UPKEEP_BY_BRACKET[6], SOLDIER_UPKEEP_BY_BRACKET[5]);
     }
 
-    /// The values themselves, as literals -- the derivation test above
-    /// checks the rule, this one says which numbers are live.
+    /// Protects: the values themselves, as literals -- the derivation test
+    /// above checks the rule, this one says which numbers are live -- plus
+    /// the bracket-edge boundaries and the NaN fallback.
     #[test]
     fn soldier_upkeep_by_alpha_literals() {
         assert_eq!(soldier_upkeep(0.95), 1.1200);
@@ -1964,6 +1998,8 @@ mod tests {
     /// `SOLDIER_UPKEEP = 3.0` three of the seven read `below` (Bronze 0.38 %,
     /// Iron 0.46 %, Total industrial 2.79 %) and the pair was inverted (Iron
     /// 0.46 % under High medieval 0.71 %).
+    /// Protects: every listed era/share literal and the non-monotone
+    /// Iron-above-High-medieval pair.
     #[test]
     fn a_median_polity_of_each_bracket_lands_in_its_own_band() {
         let at = |f: f64, gov: &'static str| {
@@ -2004,6 +2040,8 @@ mod tests {
 
     // ---- Owner ruling AI, option (b): land per person, relative to the world.
 
+    /// A three-faction fixture world (fixed populations and governments,
+    /// caller-supplied land capacities) for the world-anchor tests.
     fn world_of(lands: [f64; 3]) -> Vec<ManpowerInput<'static>> {
         [(40_000.0, 9.0, "monarchy"), (25_000.0, 9.0, "empire"), (10_000.0, 4.0, "chiefdom")]
             .iter()
@@ -2027,6 +2065,9 @@ mod tests {
     /// exactly an 800 km -> 2 000 km map at a fixed settlement count. Every
     /// output must be identical. Under the raw ratio the factor moved by
     /// 6.25x (clamp permitting) and the standing army with it.
+    /// Protects: map-scale invariance of the world-normalised ecological
+    /// factor and standing army, against the raw per-faction control which
+    /// DOES move.
     #[test]
     fn map_scale_does_not_move_the_ecological_factor() {
         let base = world_of([300_000.0, 180_000.0, 90_000.0]);
@@ -2048,6 +2089,9 @@ mod tests {
     /// the three factions' land-per-person ratios are 300k/400k, 180k/250k
     /// and 90k/50k; the world's is 570k/700k. Each factor is its own ratio
     /// over the world's, and the population-weighted mean is 1.
+    /// Protects: the population-weighted mean ecological factor across a
+    /// world is exactly 1, each faction's factor is its own land-per-person
+    /// ratio over the world's, and a one-faction world is its own reference.
     #[test]
     fn the_world_anchor_keeps_relative_geography_and_averages_one() {
         let w = world_of([300_000.0, 180_000.0, 90_000.0]);
@@ -2070,8 +2114,8 @@ mod tests {
         assert!((solo[0].drivers.ecological_factor - 1.0).abs() < 1e-12);
     }
 
-    /// No land figures or nobody at all: no reference, and the inputs pass
-    /// through untouched rather than against an invented one.
+    /// Protects: no land figures or nobody at all -- no reference, and the
+    /// inputs pass through untouched rather than against an invented one.
     #[test]
     fn a_world_with_nothing_to_normalise_against_passes_through() {
         let w = world_of([0.0, 0.0, 0.0]);
@@ -2087,8 +2131,8 @@ mod tests {
         assert!(civ_military_manpower_world(&[]).is_empty());
     }
 
-    /// Every driver stays in its stated range across the whole input space,
-    /// including the corners no generated world reaches.
+    /// Protects: every driver stays in its stated range across the whole
+    /// input space, including the corners no generated world reaches.
     #[test]
     fn drivers_stay_in_range_at_every_corner() {
         for f in [0.0, 0.15, 1.0, 9.0, 19.0, 1e6] {

@@ -1854,6 +1854,46 @@ re-checked against the tree rather than copied from the commit message.
   risk-ordered section given their size. Batches 6 through 33 all still need
   an independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 34 (`cartalith-civ` continued) — built
+  2026-09-28, comments only, verified by the main loop 2026-09-28 (diff checked code-identical; civ 1013/0/11).** Recorded a
+  pre-edit baseline (`cargo test -p cartalith-civ`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk34`): **1013 passed / 0 failed / 11 ignored**, summed
+  over 36 binaries — matches the STATUS.md figure batch 33 left. Closed, in
+  order: `journey_progress.rs` (23 gaps), `wildlife.rs` (22), `urban_adapter.rs`
+  (2 -- the `idx` helper and a `mod tests;` declaration the census script
+  cannot resolve to its actual `urban_adapter/tests.rs` target, given its own
+  preceding doc line instead so the census reads it correctly), `manpower.rs`
+  (36 -- 29 `// Protects:` lines plus 6 item docs plus the `mod tests` block
+  doc, mostly folding "Protects:" into existing rich prose doc comments
+  rather than duplicating them), `belief.rs` (43 -- two item docs, one
+  provenance comment on a test-local `NEVER` sentinel constant, two module
+  docs for `mod tests`/`mod diffusion_tests`, and 31 `// Protects:`/`///
+  Protects:` lines, several folded into existing prose the same way). No
+  wrong existing comment was found while reading; no behaviour changed.
+  `cargo test -p cartalith-civ`, same `CARGO_TARGET_DIR`, run again at the
+  end: **1013 passed / 0 failed / 11 ignored**, byte-identical to the
+  pre-edit baseline. `git diff` on every touched file confirmed the checker's
+  rule (every removed line reappears as the same code, no added line carries
+  new code) -- `grep`-verified directly for `manpower.rs` and `belief.rs`
+  (no non-comment/non-attribute line in the diff) and visually for the other
+  two. Crate-wide `census_v2.py`: items_undoc 988→940, tests_unprotected
+  953→876, consts_undoc 160→159 -- 126 gaps closed, under the ~250-gap batch
+  budget; roughly 7 700 LOC read/edited across the five files this batch
+  touched (journey_progress.rs, wildlife.rs, urban_adapter.rs, manpower.rs,
+  belief.rs), under the ~10 000 LOC cap. **Stopped after `belief.rs`**,
+  deliberately short of both budgets rather than pushing into `trade.rs` with
+  little margin left; the `urban_adapter/tests.rs` and `trade/tests.rs`
+  companion test files the batch's own plan named were not reached and stay
+  open. Next step: batch 35 continues `cartalith-civ` down the risk-ordered
+  plan -- `trade.rs` + `trade/tests.rs` (13 + 103 gaps, `trade/tests.rs` is a
+  separate module file the same shape as `urban_adapter/tests.rs`), then
+  `urban_adapter/tests.rs` (107 gaps, left from batch 34's step), `tools.rs`,
+  `travel_library.rs`, `labels.rs`, `timeline.rs` per `TIMELINE_SCOPE.md`,
+  before finally `landmark.rs` and `lib.rs`, each as its own dedicated batch
+  or split by risk-ordered section given their size. Batches 6 through 34
+  all still need an independent verifier before any can be called done
+  rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

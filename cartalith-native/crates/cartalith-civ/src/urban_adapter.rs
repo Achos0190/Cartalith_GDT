@@ -280,6 +280,7 @@ pub struct UrbanWorld<'a> {
 }
 
 impl UrbanWorld<'_> {
+    /// Row-major cell index into any of the grid-sized field slices.
     fn idx(&self, x: usize, y: usize) -> usize {
         y * self.gw + x
     }
@@ -2231,5 +2232,6 @@ pub fn settlement_layout_with(
     run_layout(&um_place_context_with(w, s, ways, o), rules)
 }
 
+/// See `urban_adapter/tests.rs`'s own `//!` for what this suite protects.
 #[cfg(test)]
 mod tests;

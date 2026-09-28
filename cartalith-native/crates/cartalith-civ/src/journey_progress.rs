@@ -66,6 +66,9 @@ pub enum NoTimeline {
     NoTravel,
 }
 
+/// A plan reduced to legs plus the two day totals [`JourneyTimeline::at`]
+/// interpolates between: built once by [`JourneyTimeline::from_plan`] and
+/// then queried repeatedly as the cursor (or a UI slider) moves.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JourneyTimeline {
     pub legs: Vec<ProgressLeg>,
@@ -75,6 +78,8 @@ pub struct JourneyTimeline {
     pub calendar_days: f64,
 }
 
+/// Where the party stands relative to its journey, as read off a
+/// [`JourneyPosition`]'s `phase` field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
     NotDeparted,
@@ -83,6 +88,7 @@ pub enum Phase {
 }
 
 impl Phase {
+    /// The wire/JSON form a UI reads.
     pub fn as_str(self) -> &'static str {
         match self {
             Phase::NotDeparted => "not_departed",
@@ -108,6 +114,8 @@ pub struct JourneyPosition {
 }
 
 impl JourneyTimeline {
+    /// Reduces a [`JpJourneyPlan`] to its legs and day totals, or explains
+    /// why there is nothing to show (see [`NoTimeline`]).
     pub fn from_plan(plan: &JpJourneyPlan) -> Result<Self, NoTimeline> {
         if let Some(stage) = plan.blocked_idx {
             return Err(NoTimeline::Blocked { stage });
@@ -167,12 +175,15 @@ impl JourneyTimeline {
         travel * self.calendar_days / self.travel_days
     }
 
+    /// Total food across every leg -- the plan's supply forecast, summed.
     pub fn food_kg(&self) -> f64 {
         self.legs.iter().map(|l| l.food_kg).sum()
     }
+    /// Total water across every leg.
     pub fn water_l(&self) -> f64 {
         self.legs.iter().map(|l| l.water_l).sum()
     }
+    /// Total fodder across every leg.
     pub fn fodder_kg(&self) -> f64 {
         self.legs.iter().map(|l| l.fodder_kg).sum()
     }
@@ -332,6 +343,9 @@ pub fn resnap_journey(
     Ok((out, ResnapOutcome::Resnapped { unreachable_legs: joined.unreachable_legs }))
 }
 
+/// Fixed leg/route fixtures plus one test each for the [`JourneyTimeline`]
+/// interpolation math and the regenerate re-snap ([`bind_endpoint`],
+/// [`resnap_journey`]) edge cases.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +368,9 @@ mod tests {
 
     #[test]
     fn position_supply_and_arrival_over_a_known_route() {
+        // Protects: arrival_offset_days, food/fodder totals, at()'s phase,
+        // point, km_done and food_kg_used at before/mid/leg-boundary/past-end
+        // elapsed values, over the zero-day seam leg.
         let (t, pts) = tl();
         assert_eq!(t.arrival_offset_days(), 50);
         assert_eq!((t.food_kg(), t.fodder_kg()), (200.0, 40.0));
@@ -383,8 +400,8 @@ mod tests {
         assert_eq!(t.at(&pts, 900.0).point, (20.0, 20.0));
     }
 
-    /// `elapsed_at_point` is `at`'s inverse: the party is AT point `p` on the
-    /// day it names, for every point, across the zero-day seam leg.
+    /// Protects: `elapsed_at_point` is `at`'s inverse: the party is AT point
+    /// `p` on the day it names, for every point, across the zero-day seam leg.
     #[test]
     fn elapsed_at_point_round_trips_through_at() {
         let (t, pts) = tl();
@@ -400,8 +417,8 @@ mod tests {
         assert_eq!(t.elapsed_at_point(99), 50.0);
     }
 
-    /// The supply readout falls monotonically, and the marker never moves
-    /// backwards along the route.
+    /// Protects: the supply readout falls monotonically, and the marker
+    /// never moves backwards along the route.
     #[test]
     fn supply_used_and_distance_only_ever_grow() {
         let (t, pts) = tl();
@@ -413,6 +430,8 @@ mod tests {
         }
     }
 
+    /// A minimal named settlement fixture, all fields fixed except the ones
+    /// under test.
     fn place(tid: u64, name: &str, x: usize, y: usize) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -422,6 +441,9 @@ mod tests {
         }
     }
 
+    /// A fixed-identity journey fixture ("Salt road", tid 7) over the given
+    /// route points, for the resnap tests to check id/name/preset/year
+    /// survive unchanged.
     fn journey(points: Vec<(f64, f64)>) -> Journey {
         Journey {
             id: 7,
@@ -447,12 +469,16 @@ mod tests {
         (field, wb)
     }
 
+    /// Wraps the fixture terrain and a caller-supplied settlement list into a
+    /// [`RouteContext`] over the same 24x16 grid as [`fixture`].
     fn ctx<'a>(field: &'a [f32], wb: &'a [u8], places: &'a [NamedSettlement]) -> RouteContext<'a> {
         RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways: &[], gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
     #[test]
     fn an_endpoint_binds_to_the_nearest_settlement_in_the_stop_radius_only() {
+        // Protects: bind_endpoint picks the nearest settlement within the
+        // stop radius, never tid 0 (unassigned), and returns None past it.
         // gw 24 -> radius max(24/90, 3) = 3 cells.
         let places = [place(1, "Ard", 12, 4), place(2, "Bel", 14, 4), place(0, "Unassigned", 12, 5)];
         assert_eq!(bind_endpoint((13.4, 4.0), &places, 24, false), Some((2, "Bel".into())));
@@ -462,6 +488,9 @@ mod tests {
 
     #[test]
     fn a_moved_settlement_carries_the_journey_and_a_free_endpoint_stays_put() {
+        // Protects: resnap_journey rebinds a settlement endpoint to its new
+        // position (same tid + name), leaves a free endpoint's cell alone,
+        // and carries the journey's id/name/preset/start_year unchanged.
         let (field, wb) = fixture();
         let old = [place(1, "Ard", 12, 2)];
         let new = [place(1, "Ard", 14, 3)]; // same tid AND name: the same town, moved
@@ -474,8 +503,8 @@ mod tests {
         assert_eq!((out.id, out.name.as_str(), out.party_preset.as_str(), out.start_year), (7, "Salt road", "merchant_caravan", 412));
     }
 
-    /// Edge case (a): the stop no longer exists -- including the trap where
-    /// its tid survives on a DIFFERENT town.
+    /// Protects: edge case (a), the stop no longer exists -- including the
+    /// trap where its tid survives on a DIFFERENT town.
     #[test]
     fn a_missing_stop_drops_the_journey_and_names_the_stop() {
         let (field, wb) = fixture();
@@ -488,7 +517,8 @@ mod tests {
         assert_eq!(other, ResnapOutcome::MissingStop { name: "Ard".into() }, "tid 1 is now a different town");
     }
 
-    /// Edge case (b): the new terrain has no land path between the stops.
+    /// Protects: edge case (b), the new terrain has no land path between the
+    /// stops.
     #[test]
     fn an_unroutable_journey_is_kept_and_flagged() {
         let (field, wb) = fixture();
@@ -499,6 +529,8 @@ mod tests {
         assert_eq!(outcome, ResnapOutcome::Resnapped { unreachable_legs: 1 });
         assert!(out.route.points.len() >= 2, "the fallback geometry is kept, not emptied");    }
 
+    /// Protects: a free (non-settlement) endpoint is rescaled proportionally
+    /// when the grid dimensions change and clamped inside the new grid.
     #[test]
     fn a_free_endpoint_scales_with_the_grid_and_stays_inside_it() {
         let (field, wb) = fixture();
