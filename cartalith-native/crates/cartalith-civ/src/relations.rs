@@ -300,11 +300,17 @@ pub fn civ_faction_relations(
     FactionRelations { faction_count: n, pairs, max_border_cells: max_border }
 }
 
+/// Unit tests for `civ_faction_relations`: pair enumeration, each of the
+/// four terms in isolation, the NaN-power collapse, and the stance
+/// thresholds.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{FactionAggregate, FactionPower};
 
+    /// A minimal `FactionAggregates` with the given per-faction power
+    /// (index 0 unused, as everywhere in this module) and export/import
+    /// lists, and every other field at its zero/empty default.
     fn agg(powers: &[f64], trade: &[(Vec<&'static str>, Vec<&'static str>)]) -> FactionAggregates {
         let by_faction = (0..powers.len())
             .map(|i| {
@@ -345,6 +351,8 @@ mod tests {
         }
     }
 
+    /// A [`FactionRelationsInput`] on a fixed 4x4 grid with `wrap_x` off,
+    /// varying only the fields a given fixture needs.
     fn input<'a>(
         terr: Option<&'a [i32]>,
         cultures: &'a [&'a str],
@@ -365,6 +373,9 @@ mod tests {
     /// full column boundary (4 cell pairs), faction 3 holds nothing.
     const SPLIT: [i32; 16] = [1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2];
 
+    // Protects: `civ_faction_relations` enumerates exactly the
+    // `n*(n-1)/2` unordered pairs of real (`>= 1`) faction indices,
+    // ascending by `(a, b)`, and index 0 (Unclaimed) is never a party.
     #[test]
     fn pairs_are_every_unordered_pair_of_real_factions() {
         let c = ["", "a", "b", "c"];
@@ -378,6 +389,9 @@ mod tests {
         assert!(out.pairs.iter().all(|p| p.a >= 1));
     }
 
+    // Protects: `FactionRelations::get` finds the same edge for `(a, b)`
+    // and `(b, a)`, and returns `None` for a faction paired with itself or
+    // an out-of-range index.
     #[test]
     fn lookup_is_order_independent() {
         let c = ["", "a", "b"];
@@ -388,6 +402,10 @@ mod tests {
         assert!(out.get(1, 9).is_none());
     }
 
+    // Protects: `shared_borders` counts each 4-neighbour boundary cell
+    // pair exactly once (not twice for the two directions), and on the
+    // single-pair fixture that border is also the map's widest, so
+    // `border_fraction` reaches its ceiling of 1.0.
     #[test]
     fn shared_border_is_counted_once_per_cell_pair() {
         let c = ["", "a", "b"];
@@ -399,6 +417,10 @@ mod tests {
         assert!((e.border_fraction - 1.0).abs() < 1e-12);
     }
 
+    // Protects: with `wrap_x` set, the seam between the last and first
+    // column is a real border too, so the counted cell pairs are the
+    // interior boundary plus the wrapped one (4 + 4), not just the
+    // interior alone.
     #[test]
     fn wrap_x_adds_the_seam() {
         let c = ["", "a", "b"];
@@ -410,6 +432,10 @@ mod tests {
         assert_eq!(out.get(1, 2).unwrap().border_cells, 8);
     }
 
+    // Protects: a shared culture contributes exactly `+0.30`; two
+    // different real religions contribute exactly `-0.20` and a shared
+    // one `+0.20`; and `"none"` on either side is silence (`religion_term
+    // == 0.0`), not treated as a mismatch.
     #[test]
     fn culture_and_religion_move_the_value_in_the_documented_directions() {
         let none = ["none", "none", "none"];
@@ -430,6 +456,9 @@ mod tests {
         assert_eq!(silent.get(1, 2).unwrap().religion_term, 0.0);
     }
 
+    // Protects: two factions that fully complement each other's
+    // imports/exports reach the trade term's ceiling of 1.0, which alone
+    // (with no culture/religion term) is enough to read "friendly".
     #[test]
     fn trade_term_is_symmetric_and_bounded() {
         let c = ["", "a", "b"];
@@ -454,6 +483,10 @@ mod tests {
     /// shape `food` takes when the aggregate runs without a population
     /// density: every faction's surplus is negative and nobody's is
     /// positive.
+    // Protects: adding an import nobody on the map exports leaves
+    // `trade_term` unchanged (the denominator excludes unsuppliable
+    // goods), while a good only one side lacks and the other supplies
+    // still counts on both halves of the fraction.
     #[test]
     fn a_good_nobody_supplies_does_not_dilute_the_trade_term() {
         let c = ["", "a", "b"];
@@ -498,6 +531,12 @@ mod tests {
     /// a border *and* a rivalry to bite. Two evenly-matched strong powers
     /// across a full border should read hostile; the same border between
     /// two nobodies should not.
+    // Protects: two strong, evenly matched powers across a full border
+    // reach `rivalry_term == 1.0` and `value == -0.55` (hostile); two
+    // powerless factions across the same border have `rivalry_term ==
+    // 0.0` and only the frontier floor `-0.55*0.35` (wary); and a strong
+    // power beside a weak one keeps `rivalry_term` near zero despite the
+    // border, since it is lopsided, not contested.
     #[test]
     fn friction_needs_both_a_border_and_a_rivalry() {
         let c = ["", "a", "b"];
@@ -521,6 +560,9 @@ mod tests {
         assert!(lopsided.get(1, 2).unwrap().rivalry_term < 0.01);
     }
 
+    // Protects: with `territory: None`, every border reads as zero (and
+    // the stance falls through to neutral) rather than the function
+    // panicking or erroring on absent territory.
     #[test]
     fn no_territory_means_no_friction_rather_than_an_error() {
         let c = ["", "a", "b"];
@@ -532,6 +574,9 @@ mod tests {
         assert_eq!(e.stance, "neutral");
     }
 
+    // Protects: a NaN power axis on one side collapses `value` and
+    // `rivalry_term` to exactly `0.0` and the stance to "neutral", rather
+    // than the NaN falling through the stance ladder to "hostile".
     #[test]
     fn a_nan_power_axis_reads_neutral_not_hostile() {
         let c = ["", "a", "b"];
@@ -543,6 +588,10 @@ mod tests {
         assert_eq!(e.rivalry_term, 0.0);
     }
 
+    // Protects: every `stance_for` boundary (0.45, 0.15, -0.15, -0.45) is
+    // pinned exactly at and just below each threshold, and the neutral
+    // band is symmetric about zero (`-0.149` and `0.149` are both
+    // "neutral").
     #[test]
     fn stance_thresholds_are_symmetric_about_zero() {
         assert_eq!(stance_for(0.45), "allied");

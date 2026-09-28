@@ -1818,6 +1818,42 @@ re-checked against the tree rather than copied from the commit message.
   once the core is understood). Batches 6 through 32 all still need an
   independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 33 (`cartalith-civ` started, verified by the main loop 2026-09-28 (diff checked, additions only; civ 1013/0/11)) — built 2026-09-28 (comments only; cartalith-civ
+  1013/0/11 unchanged).** Recorded a pre-edit baseline (`cargo test -p
+  cartalith-civ`, `CARGO_TARGET_DIR` at `.../scratchpad/bk33`): **1013 passed
+  / 0 failed / 11 ignored**, summed over 36 binaries. Wrote the crate's
+  per-file gap table (`find_gaps.py` against `cartalith-civ`) and a
+  risk-ordered file plan into `OUTSTANDING_WORK.md`'s BK row: golden-parity
+  and engine-logic files first, `lib.rs` (657 gaps, 24 584 LOC) and
+  `landmark.rs` (169 gaps, 8 328 LOC) deferred whole to a later batch since
+  either alone would consume the batch budget, `PHASE2_SCOPE.md`'s military/
+  manpower/relations/naming cluster taken first, then `ECONOMY_SCOPE.md`'s
+  currency. Closed, in order: `currency.rs` (9 gaps), `military.rs` (18) —
+  its module doc already covered every item so only test `// Protects:`
+  lines and two helper-fn docs were needed, `garrison.rs` (18), `conflict.rs`
+  (26), `campaign.rs` (20, plus naming two previously-undocumented test
+  consts `GW`/`GH`), `roster.rs` (16) + `tests/golden_parity_roster.rs` (3),
+  `relations.rs` (23), `naming.rs` (22) + `tests/golden_parity_settlement_
+  naming.rs` (5). No wrong existing comment was found while reading; no
+  behaviour changed. `cargo test -p cartalith-civ`, same `CARGO_TARGET_DIR`,
+  run again at the end: **1013 passed / 0 failed / 11 ignored**,
+  byte-identical to the pre-edit baseline. `git diff` on every touched file
+  confirmed additions only (zero deletions) throughout. Crate-wide
+  `census_v2.py`: items_undoc 1076→988, tests_unprotected 1023→953,
+  consts_undoc 162→160 — 160 gaps closed against the ~200-gap batch budget
+  (`find_gaps.py`'s raw count: 2261→2101); roughly 3 800 LOC read/edited
+  across the nine files this batch touched, against the ~10 000 LOC cap.
+  **Stopped after `tests/golden_parity_settlement_naming.rs`**, comfortably
+  inside budget rather than pushing to the limit. Next step: batch 34
+  continues `cartalith-civ` down the risk-ordered plan — `journey_progress.rs`
+  (`JOURNEY_PLANNER_SCOPE.md`, 23 gaps), `wildlife.rs` (22), then the larger
+  files (`urban_adapter.rs`/`urban_adapter/tests.rs`, `manpower.rs`,
+  `belief.rs`, `trade.rs`/`trade/tests.rs`, `tools.rs`, `travel_library.rs`,
+  `labels.rs`, `timeline.rs` per `TIMELINE_SCOPE.md`) before finally
+  `landmark.rs` and `lib.rs`, each as its own dedicated batch or split by
+  risk-ordered section given their size. Batches 6 through 33 all still need
+  an independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

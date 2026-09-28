@@ -129,6 +129,8 @@ pub struct Garrison {
     pub standing_multiplier: f64,
 }
 
+/// `SettlementKind`'s rank as `standing_multiplier`'s capital-tier term reads
+/// it: `0` for Hamlet up to `5` (== [`MAX_TIER_RANK`]) for Metropolis.
 fn tier_rank(kind: SettlementKind) -> f64 {
     match kind {
         SettlementKind::Hamlet => 0.0,
@@ -322,10 +324,15 @@ pub fn civ_garrisons(input: &GarrisonInput) -> Vec<Option<Garrison>> {
     out
 }
 
+/// Unit tests for the garrison split: the apportionment rule, its
+/// standing/capital/border terms, and the no-value discipline the module
+/// doc requires.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A [`GarrisonPlace`] built from its fields in argument order, for
+    /// fixtures that need many of them at once without the struct syntax.
     fn place(faction: i32, pop: f64, walled: bool, cap: bool, kind: SettlementKind, x: f64, y: f64) -> GarrisonPlace {
         GarrisonPlace { faction, pop, walled, is_capital: cap, kind, x, y }
     }
@@ -336,6 +343,9 @@ mod tests {
         (0..32).map(|i| if i % 8 < 4 { 1 } else { 2 }).collect()
     }
 
+    /// [`civ_garrisons`] on an 8x4 grid at the default [`EXPOSURE_SCALE`],
+    /// reduced to just the headcount per place for the fixtures that don't
+    /// need the rest of [`Garrison`].
     fn garrisons(places: &[GarrisonPlace], t: &[i32], standing: &[Option<f64>]) -> Vec<Option<u64>> {
         garrisons_scaled(places, t, standing, EXPOSURE_SCALE)
     }
@@ -351,6 +361,10 @@ mod tests {
         .collect()
     }
 
+    // Protects: three literal fixtures' exact per-place headcounts (a
+    // round standing army, a fractional one that rounds first, and two
+    // factions split independently), and that every fixture's parts sum
+    // to the rounded standing army exactly.
     #[test]
     fn the_sum_is_exact_on_literal_fixtures() {
         let t = two_halves();
@@ -389,6 +403,9 @@ mod tests {
     /// -- fixture 1 above ([`the_sum_is_exact_on_literal_fixtures`]) is this
     /// same faction at `scale = 1.0` (`895/84/21`), kept as the middle point
     /// a reader can cross-check against.
+    // Protects: `exposure_scale` reaches `civ_garrisons` and changes the
+    // split (0.0, 0.6, 1.0 default, 2.5 all give different results), while
+    // the parts still sum to the standing army exactly at every scale.
     #[test]
     fn the_split_still_sums_exactly_at_several_exposure_scales() {
         let t = two_halves();
@@ -420,6 +437,9 @@ mod tests {
     /// no such settlement -- its seat lost to conquest, or simply never
     /// marked -- gets no capital weight anywhere, not even on the place a
     /// "best guess" (highest population) would have picked.
+    // Protects: `is_capital == false` on every place of a faction leaves
+    // `standing_multiplier` at exactly 1.0 even for its largest settlement,
+    // so the split falls back to population alone.
     #[test]
     fn no_marked_capital_gives_no_settlement_the_capital_weight() {
         let biggest = place(1, 9000.0, false, false, SettlementKind::Metropolis, 0.5, 1.5);
@@ -432,6 +452,10 @@ mod tests {
         assert_eq!(g, vec![Some(900), Some(10)]);
     }
 
+    // Protects: `largest_remainder`'s Hamilton apportionment -- equal
+    // weights split the remainder to the lowest index on a tie, and an
+    // unequal pair gives the extra unit to the larger remainder rather
+    // than the larger weight.
     #[test]
     fn a_remainder_tie_goes_to_the_lower_index() {
         // Three equal weights and 10 men: quotas 3.333 each, one leftover.
@@ -442,6 +466,10 @@ mod tests {
         assert_eq!(largest_remainder(10, &[1.0, 2.0]), Some(vec![3, 7]));
     }
 
+    // Protects: at equal population, a walled border capital (higher
+    // standing_multiplier and exposure 1.0) outranks an unwalled interior
+    // village (exposure 0.0) in both garrison size and the exposure fields
+    // reported on each.
     #[test]
     fn a_walled_border_capital_outranks_an_interior_village() {
         let t = two_halves();
@@ -460,6 +488,8 @@ mod tests {
         assert!(c.garrison > v.garrison);
     }
 
+    // Protects: a faction with exactly one settlement gets the whole
+    // (rounded) standing army in that one place.
     #[test]
     fn a_faction_with_one_settlement_puts_everything_there() {
         let t = two_halves();
@@ -468,6 +498,12 @@ mod tests {
         assert_eq!(g, vec![Some(4321)]);
     }
 
+    // Protects: the no-value discipline the module doc states -- an
+    // unclaimed place, a faction with no standing figure, and a faction
+    // with men but no weight to place them by are all `None`; a
+    // non-finite standing army is `None`; a wrong-sized territory raster
+    // makes every place `None`; but a standing army of exactly `0.0` is a
+    // real `Some(0)`, not absent.
     #[test]
     fn no_reading_is_absent_never_zero() {
         let t = two_halves();
@@ -491,6 +527,10 @@ mod tests {
         assert_eq!(garrisons(&p, &t, &[None, Some(0.0), None])[1], Some(0));
     }
 
+    // Protects: `border_exposure` assigns each frontier cell to its
+    // faction's nearest place by squared distance, unclaimed neighbours
+    // are never a frontier, and on a wrapping map the seam is a real
+    // border whose cells are measured the short way round.
     #[test]
     fn exposure_is_the_nearest_share_of_the_foreign_frontier() {
         let t = two_halves();

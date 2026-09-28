@@ -246,12 +246,16 @@ pub fn edge_segment(a: u32, b: u32, gw: usize) -> Option<((f64, f64), (f64, f64)
     }
 }
 
+/// Unit tests for `campaigns_at` -- the siege ring, front and changed-hands
+/// readings, their no-value discipline, and the standalone geometry helpers.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::timeline::civ_snapshot_save;
 
+    /// Fixture grid width, in cells.
     const GW: usize = 6;
+    /// Fixture grid height, in cells.
     const GH: usize = 4;
 
     /// Year 100: columns 0-2 are faction 1, columns 3-5 faction 2, except
@@ -294,10 +298,17 @@ mod tests {
         }
     }
 
+    /// The `anchor_now` resolver for [`siege`]'s town (tid 7): always
+    /// reports it at (4.0, 2.0), one cell south of where it was drawn.
     fn town_now(a: ConflictAnchor) -> Option<(f64, f64)> {
         (a == ConflictAnchor::Settlement(7)).then_some((4.0, 2.0))
     }
 
+    // Protects: for a conflict active in the queried year, `campaigns_at`
+    // moves the siege ring with its resolved anchor, computes the ring
+    // radius from `km_per_cell`, names the defender/besiegers correctly
+    // from the territory in force, and reports only the front edges and
+    // changed cells that belong to this conflict's own two sides.
     #[test]
     fn an_in_conflict_year_reads_the_ring_the_front_and_the_changes() {
         let got = campaigns_at(&world(), &[siege()], town_now, GW, GH, 0.5, 110);
@@ -331,6 +342,10 @@ mod tests {
         );
     }
 
+    // Protects: querying a year with no recorded snapshot reads the
+    // latest recorded year at or before it (`year_in_force`'s "claims hold
+    // until the next record" rule), not the nearest record in either
+    // direction.
     #[test]
     fn an_unrecorded_year_reads_the_year_in_force() {
         // 105: nothing recorded, so 100's claims hold -- the front is between
@@ -342,6 +357,10 @@ mod tests {
         assert_eq!(r.changed.as_ref().unwrap(), &Vec::<ChangedCell>::new());
     }
 
+    // Protects: `campaigns_at` returns nothing for a year outside
+    // `active_in`'s range (including far future/past and negative years),
+    // but does return a reading exactly on the inclusive start and end
+    // boundary years.
     #[test]
     fn outside_the_conflicts_years_there_is_nothing() {
         for y in [99, 121, 10_000, -5] {
@@ -352,6 +371,13 @@ mod tests {
         assert_eq!(campaigns_at(&world(), &[siege()], town_now, GW, GH, 0.5, 120).len(), 1);
     }
 
+    // Protects: the no-value discipline -- a conflict starting before any
+    // record has `baseline_year`/`changed` absent but `front_edges` still
+    // readable from the territory in force; a year before any record has
+    // every territory-derived field absent, including the siege's
+    // defender/besiegers; a mismatched grid size (`gw+1`) makes the front
+    // and changes unreadable; and an unusable map scale makes the ring
+    // radius `None`, not a default distance.
     #[test]
     fn a_reading_that_cannot_be_made_is_absent_not_empty() {
         // Starts before anything is recorded: no baseline, so no changes --
@@ -374,6 +400,10 @@ mod tests {
         assert_eq!(siege_line_radius_cells(f64::NAN), None);
     }
 
+    // Protects: `siege_line_radius_cells` floors at
+    // `SIEGE_RING_MIN_CELLS` on a coarse map where the attested radius
+    // would be under one cell, and returns the real (unfloored) radius on
+    // a fine enough map.
     #[test]
     fn a_coarse_map_floors_the_ring_at_one_cell() {
         // 2.591 km over 10 km per cell is 0.259 cells -- inside the cell.
@@ -382,6 +412,11 @@ mod tests {
         assert!((siege_line_radius_cells(1.0).unwrap() - 2.591_042).abs() < 1e-6);
     }
 
+    // Protects: only a `Siege`-kind conflict gets a `SiegeRing` (a `Front`
+    // gets `None` but still has front edges); an unanchored siege names no
+    // `besieged_tid` but still resolves a defender/besiegers from the cell
+    // it is drawn on; and a siege drawn on a third party's cell reports no
+    // defender or besiegers, since neither side holds it.
     #[test]
     fn only_sieges_carry_a_ring_and_an_unanchored_one_names_no_place() {
         let front = Conflict { kind: ConflictKind::Front, points: vec![(0.0, 0.0), (1.0, 1.0)], ..siege() };
@@ -400,6 +435,9 @@ mod tests {
         assert_eq!((s.defender, s.besiegers), (None, None));
     }
 
+    // Protects: a conflict with only one side has an empty (not absent)
+    // front and no changed cells -- there is no opposing side to draw a
+    // line against, but the territory is still readable.
     #[test]
     fn a_one_sided_conflict_has_no_front_and_no_changes() {
         let lone = Conflict { sides: vec![1], ..siege() };
@@ -408,6 +446,10 @@ mod tests {
         assert_eq!(r.changed.as_ref().unwrap(), &Vec::<ChangedCell>::new());
     }
 
+    // Protects: `edge_segment` returns the correct shared boundary line
+    // for both a right-neighbour and a below-neighbour pair, and `None`
+    // for two indices that are adjacent in linear order but not actual
+    // grid neighbours.
     #[test]
     fn an_edge_is_the_shared_side_of_its_two_cells() {
         // (3,0)|(4,0): the vertical line x = 4 from y = 0 to 1.

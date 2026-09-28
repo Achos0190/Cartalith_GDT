@@ -171,10 +171,15 @@ pub fn civ_place_defensibility(relative_elevation: f64, walled: bool) -> f64 {
     js_max(0.0, js_min(1.0, 0.6 * terrain_d + if walled { 0.4 } else { 0.0 }))
 }
 
+/// Unit tests for the wall ladder, its boolean view, defensibility and the
+/// relative-elevation sampler above.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A minimal [`WallPlace`] at the given tier and population, with every
+    /// other field at its reference-neutral default (no override, no
+    /// traits, sea-level ground).
     fn place(kind: SettlementKind, pop: f64) -> WallPlace<'static> {
         WallPlace {
             walls_override: None,
@@ -187,6 +192,8 @@ mod tests {
         }
     }
 
+    // Protects: `walls_override` short-circuits `um_wall_spec` before any
+    // rung is evaluated, in both directions, regardless of tier or population.
     #[test]
     fn override_wins_over_every_rung() {
         let mut p = place(SettlementKind::Hamlet, 10.0);
@@ -198,6 +205,8 @@ mod tests {
         assert!(!um_infer_walls(&p));
     }
 
+    // Protects: `rank >= 3` (City, Capital, Metropolis) always returns
+    // "stone", with no other condition needed.
     #[test]
     fn rank_three_and_above_is_always_stone() {
         for k in [SettlementKind::City, SettlementKind::Capital, SettlementKind::Metropolis] {
@@ -207,6 +216,9 @@ mod tests {
 
     /// The town rung is the one with three independent ways to earn stone;
     /// each is checked alone so a mutation of any single threshold shows up.
+    // Protects: the town rung (`rank == 2`) returns "stone" if wealthy
+    // (pop >= 1200), old (age >= 260) or threatened (fortified trait), and
+    // "palisade" otherwise, with the 1200/260 thresholds pinned exactly.
     #[test]
     fn town_earns_stone_by_wealth_age_or_threat_and_palisades_otherwise() {
         // pop 900 -> um_infer_age(900) = round(60+240*log10(9)) = 289 >= 260,
@@ -236,6 +248,9 @@ mod tests {
         assert_eq!(um_wall_spec(&nearly), "palisade");
     }
 
+    // Protects: `specialisation == Some("garrison")` overrides the tier
+    // ladder entirely (checked before `rank`), returning "stone" at
+    // pop >= 1200 and "palisade" below it even for a Hamlet.
     #[test]
     fn garrison_specialisation_outranks_tier() {
         let mut p = place(SettlementKind::Hamlet, 1200.0);
@@ -245,6 +260,9 @@ mod tests {
         assert_eq!(um_wall_spec(&p), "palisade");
     }
 
+    // Protects: with `fortified_trait` set and `rank < 2`, a Village
+    // (rank 1) gets "palisade" and a Hamlet (rank 0) gets "ditch" — the
+    // `rank >= 1` branch inside the `fortified` case.
     #[test]
     fn threatened_village_palisades_and_threatened_hamlet_ditches() {
         let mut v = place(SettlementKind::Village, 50.0);
@@ -267,6 +285,10 @@ mod tests {
     /// equivalent mutant, recorded rather than chased: it is the *constant*
     /// that carries the meaning, and the two cases just outside the window
     /// below are what pin it.
+    // Protects: an unwalled Village (rank 1) digs a ditch only when all
+    // three of terrainD > 0.9, pop >= 250 and rank == 1 hold; population
+    // is an independent gate, and the terrainD window (r within ~0.025 of
+    // 0.35) is pinned from both sides.
     #[test]
     fn commanding_village_digs_in() {
         let mut v = place(SettlementKind::Village, 250.0);
@@ -292,12 +314,18 @@ mod tests {
         assert_eq!(um_wall_spec(&v), "none");
     }
 
+    // Protects: a plain Hamlet with no override, trait, garrison
+    // specialisation or commanding ground gets "none", and
+    // `um_infer_walls` reads that as unwalled.
     #[test]
     fn ordinary_hamlet_has_nothing() {
         assert_eq!(um_wall_spec(&place(SettlementKind::Hamlet, 40.0)), "none");
         assert!(!um_infer_walls(&place(SettlementKind::Hamlet, 40.0)));
     }
 
+    // Protects: `civ_place_defensibility` is `0.6*terrainD + 0.4*walled`,
+    // clamped to `0..1` — checked at mild-upland (terrainD=1) and sea-level
+    // flat (terrainD=0), both walled and unwalled.
     #[test]
     fn defensibility_blends_ground_and_walls() {
         // Perfect mild upland, unwalled: 0.6*1 = 0.6.
@@ -310,6 +338,9 @@ mod tests {
         assert!((civ_place_defensibility(0.0, true) - 0.4).abs() < 1e-12);
     }
 
+    // Protects: `civ_relative_elevation` samples the clamped, rounded cell
+    // and normalises by `max(1e-6, 1-sea)`, and returns 0.0 for an empty
+    // field or a zero-sized grid rather than panicking on the index.
     #[test]
     fn relative_elevation_clamps_and_guards() {
         let field = [0.0f32, 0.5, 1.0, 0.25];

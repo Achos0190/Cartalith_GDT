@@ -43,6 +43,8 @@ pub enum ConflictKind {
 impl ConflictKind {
     pub const ALL: [ConflictKind; 4] = [Self::Front, Self::Arrow, Self::Siege, Self::Battle];
 
+    /// The persisted string key for this kind (`"front"`, `"arrow"`,
+    /// `"siege"`, `"battle"`), the inverse of [`Self::from_key`].
     pub fn key(self) -> &'static str {
         match self {
             Self::Front => "front",
@@ -52,6 +54,8 @@ impl ConflictKind {
         }
     }
 
+    /// Parses [`Self::key`]'s string back into a kind; `None` for anything
+    /// else.
     pub fn from_key(k: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|c| c.key() == k)
     }
@@ -82,6 +86,9 @@ pub enum ConflictAnchor {
     Province(u64),
 }
 
+/// One drawn conflict: its identity, kind, time span, sides, authored
+/// outcome, drawn geometry and optional anchor. See the module doc for how
+/// the anchor and the drawn geometry relate.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conflict {
     pub id: u64,
@@ -140,6 +147,8 @@ impl Conflict {
     }
 }
 
+/// Why [`ConflictStore::add`]/[`ConflictStore::replace`] refused a
+/// [`Conflict`], or why a lookup by id found nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConflictError {
     TooFewPoints { kind: ConflictKind, need: usize, got: usize },
@@ -158,10 +167,14 @@ pub struct ConflictStore {
 }
 
 impl ConflictStore {
+    /// An empty store; the first conflict added gets id `1`.
     pub fn new() -> Self {
         Self { next_id: 1, conflicts: Vec::new() }
     }
 
+    /// The checks [`Self::add`]/[`Self::replace`] both run before storing a
+    /// conflict: enough points for its kind, every point finite, the end
+    /// year not before the start, and every side a real faction (`> 0`).
     fn validate(c: &Conflict) -> Result<(), ConflictError> {
         let need = c.kind.min_points();
         if c.points.len() < need {
@@ -213,14 +226,18 @@ impl ConflictStore {
         Ok(())
     }
 
+    /// The conflict with this id, if any.
     pub fn get(&self, id: u64) -> Option<&Conflict> {
         self.conflicts.iter().find(|c| c.id == id)
     }
 
+    /// [`Self::get`], mutably.
     pub fn get_mut(&mut self, id: u64) -> Option<&mut Conflict> {
         self.conflicts.iter_mut().find(|c| c.id == id)
     }
 
+    /// Deletes the conflict with this id; `true` if one was there. Its id
+    /// is never reissued (see the `next_id` doc on [`ConflictStore`]).
     pub fn remove(&mut self, id: u64) -> bool {
         let before = self.conflicts.len();
         self.conflicts.retain(|c| c.id != id);
@@ -269,11 +286,15 @@ pub fn side_manpower<'a>(sides: &[i32], by_faction: &'a [Manpower]) -> Vec<SideR
         .collect()
 }
 
+/// Unit tests for the conflict store's validation, id issuance, anchor
+/// resolution and the manpower reading it exposes to each side.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::manpower::{civ_military_manpower, civ_military_manpower_world, ManpowerInput};
 
+    /// A two-point Front with two sides and no anchor, for fixtures that
+    /// only need to vary a few fields.
     fn front(points: Vec<(f64, f64)>) -> Conflict {
         Conflict {
             id: 0,
@@ -289,6 +310,10 @@ mod tests {
         }
     }
 
+    // Protects: `add` runs every `validate` rule (too-few-points,
+    // end-before-start, a one-year span being legal at equal start/end, an
+    // unclaimed side, a non-finite point) and issues ids starting at 1 in
+    // sequence; a removed id is never reissued to the next `add`.
     #[test]
     fn construction_validates_and_issues_fresh_ids() {
         let mut s = ConflictStore::new();
@@ -318,6 +343,9 @@ mod tests {
         assert_eq!(s.add(front(vec![(1.0, 1.0), (5.0, 2.0)])), Ok(4));
     }
 
+    // Protects: `normalise` truncates a marker kind's points to just the
+    // first, and collapses a repeated side to one entry keeping the first
+    // mention's order.
     #[test]
     fn a_marker_keeps_one_point_and_a_repeated_side_is_one_side() {
         let mut s = ConflictStore::new();
@@ -329,6 +357,10 @@ mod tests {
         assert_eq!(s.get(id).unwrap().sides, vec![2, 1]);
     }
 
+    // Protects: `active_in` is inclusive at both `start_year` and
+    // `end_year`, false just outside either end, and an open (`None`)
+    // end stays active arbitrarily far into the future but not before its
+    // start.
     #[test]
     fn active_range_is_inclusive_and_open_ended() {
         let c = front(vec![(0.0, 0.0), (1.0, 1.0)]);
@@ -341,6 +373,11 @@ mod tests {
         assert!(!open.active_in(99));
     }
 
+    // Protects: `resolved_points` translates the shape by however far the
+    // anchor moved since `anchor_at`; when the anchor no longer resolves
+    // the shape draws where it was originally drawn and the anchor field
+    // itself is kept, not cleared; `set_anchor(None, ...)` bakes the
+    // current drawn position in as the new baseline.
     #[test]
     fn moving_the_anchor_moves_the_shape_and_a_missing_one_leaves_it() {
         let mut c = front(vec![(10.0, 10.0), (14.0, 12.0)]);
@@ -356,6 +393,9 @@ mod tests {
         assert_eq!(c.resolved_points(Some((99.0, 99.0))), vec![(20.0, 7.0), (24.0, 9.0)]);
     }
 
+    // Protects: `attached_to` matches on the whole `ConflictAnchor`
+    // (variant and id together), so `Settlement(3)` and `Province(3)` are
+    // different anchors even though the numeric id is the same.
     #[test]
     fn attached_to_answers_what_happened_here_by_id_not_name() {
         let mut s = ConflictStore::new();
@@ -374,6 +414,10 @@ mod tests {
         assert_eq!(s.attached_to(ConflictAnchor::Province(3)), vec![ib]);
     }
 
+    // Protects: `detach_all` resolves every anchored conflict's shape at
+    // its current position, then clears the anchor, so the geometry is
+    // frozen exactly where it was drawn rather than snapping back to the
+    // pre-move points.
     #[test]
     fn detach_all_keeps_every_shape_where_it_is_drawn() {
         let mut s = ConflictStore::new();
@@ -390,6 +434,10 @@ mod tests {
     /// that row is the model's answer for that faction's inputs -- checked
     /// against an independent single-faction call, not against the world
     /// vector it was indexed from.
+    // Protects: `side_manpower` indexes `by_faction` at `faction - 1`, its
+    // reading for a real faction matches an independent single-faction
+    // call, and factions 9, 0 and -3 (no row / Unclaimed / negative) all
+    // read `None` rather than a zero-valued row.
     #[test]
     fn sides_read_their_own_faction_from_the_real_manpower_model() {
         let base = ManpowerInput {
@@ -431,6 +479,8 @@ mod tests {
         assert_ne!(read[0].manpower, read[1].manpower);
     }
 
+    // Protects: every `ConflictKind`'s `key()` round-trips through
+    // `from_key`, and an unrecognised string returns `None`.
     #[test]
     fn kind_keys_round_trip() {
         for k in ConflictKind::ALL {

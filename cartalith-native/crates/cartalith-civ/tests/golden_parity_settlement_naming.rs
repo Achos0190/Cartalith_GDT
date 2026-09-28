@@ -114,9 +114,15 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// The shared fixture module pinning the pre-RV-1 carve arrays, imported
+/// from `cartalith-engine`'s own test fixtures rather than duplicated.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Asserts every field of every expected `(x, y, faction, name, pop)` tuple
+/// against the actual `NamedSettlement`s, in order, with a per-field and
+/// per-index message so a mismatch names exactly which settlement and
+/// which field diverged.
 fn assert_named_settlements_match(
     actual: &[cartalith_civ::NamedSettlement],
     expected: &[(usize, usize, i32, &str, u32)],
@@ -140,6 +146,11 @@ fn assert_named_settlements_match(
     }
 }
 
+// Protects: `compute_named_settlements` on the region case matches the
+// reference's exact settlement cells, factions, names and rounded
+// populations after Ruling N's second (coastal-term) re-baseline,
+// including the fourth settlement that only becomes reachable once the
+// suppression disc shifts.
 #[test]
 fn settlement_naming_case_0_region() {
     // case0_region: gw=14 gh=11 seed=24601 world=false
@@ -190,6 +201,11 @@ fn settlement_naming_case_0_region() {
     assert_named_settlements_match(&named, &expected, "case0_region");
 }
 
+// Protects: `compute_named_settlements` on the world-wrap case matches
+// the reference's final (Ruling T re-reverted) three-settlement account --
+// exact cells, factions, names and populations -- after Ruling Q's
+// topology-primary water-body rule was special-cased back out for a
+// wrapping map.
 #[test]
 fn settlement_naming_case_1_world_wrap() {
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
@@ -245,6 +261,7 @@ fn settlement_naming_case_1_world_wrap() {
 /// `civ_name_rng()` uses. `12345` is not a placeholder -- it is the
 /// literal fallback value the reference's own `(state.seed||12345)`
 /// evaluates to, always, per this file's module doc comment.
+// Protects: `CIV_NAME_RNG_SEED_INPUT` stays the literal `12345`.
 #[test]
 fn civ_name_rng_seed_input_matches_reference_literal() {
     assert_eq!(cartalith_civ::CIV_NAME_RNG_SEED_INPUT, 12345);

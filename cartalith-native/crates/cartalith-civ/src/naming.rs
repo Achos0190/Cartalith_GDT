@@ -252,12 +252,17 @@ pub fn world_name(seed: u32) -> String {
     decorate(&stem, FeatureKind::Continent, &mut rng)
 }
 
+/// Unit tests for the length-rejection rule, the bounded/unique naming
+/// wrappers, the feature-name templates, and `world_name`.
 #[cfg(test)]
 mod tests {
     use super::*;
     // Only the tests read the culture table; the module body does not.
     use crate::CIV_CULTURES;
 
+    // Protects: every real culture's `mean(name) > 0` and its derived
+    // limit stays in a sane 8..40 character band -- a guard against a pool
+    // edit producing a degenerate (empty or absurd) limit.
     #[test]
     fn every_culture_has_a_workable_length_limit() {
         for cul in CIV_CULTURES.iter() {
@@ -283,6 +288,9 @@ mod tests {
     /// `maritime`'s syllables are genuinely longer (mean 16.6 against
     /// `common`'s 12.1), so a longer name there is in character -- that the
     /// limit rises with the pool is the self-tuning working, not a hole.
+    // Protects: the golden fixture's 21-char and 19-char over-long names
+    // exceed the imperial/common cultures' own derived limits, the actual
+    // defect this rule exists to catch.
     #[test]
     fn the_golden_fixtures_own_overlong_name_is_rejected() {
         let imperial = civ_default_culture(1);
@@ -300,6 +308,10 @@ mod tests {
         );
     }
 
+    // Protects: 200 draws from `civ_settle_name_bounded` are all
+    // non-empty and all distinct (`seen` grows to exactly 200), and only a
+    // small minority (< 10%) exceed the culture's length limit -- the rare,
+    // deliberate post-retry fallback, not the common case.
     #[test]
     fn bounded_names_respect_the_limit_and_never_repeat() {
         let mut rng = cartalith_rng::Mulberry32::new(24601);
@@ -319,6 +331,10 @@ mod tests {
         assert!(over < 20, "{over}/200 exceeded the limit -- the retry is not working");
     }
 
+    // Protects: even after 500 draws against one culture's finite pool
+    // (far more than the pool can plausibly produce unaided), the
+    // numeric-discriminator fallback keeps every result distinct rather
+    // than silently repeating a name.
     #[test]
     fn uniqueness_survives_a_pool_too_small_to_satisfy_it() {
         // Force collisions by asking for far more names than a single culture
@@ -332,6 +348,10 @@ mod tests {
         assert_eq!(seen.len(), 500, "uniqueness must hold even under pressure");
     }
 
+    // Protects: `decorate` draws exactly one RNG value regardless of
+    // which template branch it takes, for every kind but `Lake` -- checked
+    // by comparing against a twin RNG that draws once and discards, which
+    // must then agree on its very next value.
     #[test]
     fn decorate_consumes_exactly_one_rng_value_whatever_the_branch() {
         for kind in [
@@ -352,6 +372,10 @@ mod tests {
         }
     }
 
+    // Protects: every `decorate` output for `Continent` contains the
+    // original stem verbatim, and over 200 draws a genuine mix of
+    // decorated and bare-stem results appears (neither branch is
+    // unreachable or dominant to the point of certainty).
     #[test]
     fn decorate_always_contains_its_stem_and_changes_something() {
         let mut rng = cartalith_rng::Mulberry32::new(5);
@@ -369,6 +393,10 @@ mod tests {
         );
     }
 
+    // Protects: `"<name> Province"` -- the port's pre-existing template --
+    // is still the dominant outcome for `FeatureKind::Province` (over half
+    // of 300 draws), so provinces did not all change name the day this
+    // module landed.
     #[test]
     fn province_keeps_its_existing_form_as_the_common_case() {
         let mut rng = cartalith_rng::Mulberry32::new(11);
@@ -384,6 +412,9 @@ mod tests {
         );
     }
 
+    // Protects: `world_name` is a pure function of its seed -- calling it
+    // twice with the same seed gives the same name, across several seeds
+    // including the extremes 0 and `u32::MAX`.
     #[test]
     fn world_name_is_deterministic_in_the_seed() {
         for seed in [0u32, 1, 24601, 483_920, u32::MAX] {
@@ -395,6 +426,9 @@ mod tests {
         }
     }
 
+    // Protects: 50 consecutive seeds produce more than 40 distinct world
+    // names -- the seed genuinely varies the draw rather than collapsing
+    // onto a handful of outputs.
     #[test]
     fn world_name_varies_with_the_seed() {
         let names: BTreeSet<String> =
@@ -406,6 +440,9 @@ mod tests {
         );
     }
 
+    // Protects: `world_name` never returns an empty string for any tested
+    // seed, including 0 (where `raw == 0` would otherwise seed the RNG
+    // with zero).
     #[test]
     fn world_name_is_never_empty() {
         for seed in [0u32, 1, 24601, u32::MAX] {
@@ -421,6 +458,8 @@ mod tests {
         // FIXED-seed, so their first draw is the same string in every world.
         // If a world name ever matched one of those, a world's name would
         // stop varying with its seed exactly the bug this exists to avoid.
+        // Protects: no tested seed's `world_name` collides with either
+        // fixed-seed stream's first draw.
         let mut seen = BTreeSet::new();
         let fixed_settlement = civ_settle_name_bounded(&mut crate::civ_name_rng(), 0, &mut seen);
         let mut seen2 = BTreeSet::new();

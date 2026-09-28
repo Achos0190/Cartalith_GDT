@@ -63,10 +63,14 @@ pub fn exchange(amount: f64, from_rate: f64, to_rate: f64) -> Option<f64> {
     to_currency(to_index(amount, from_rate)?, to_rate)
 }
 
+/// Unit tests for the conversion helpers above — no rate derivation, no
+/// state, just the round-trip arithmetic and the invalid-rate refusals.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Protects: `to_currency`/`to_index` do a plain multiply/divide by
+    // `rate`, including the zero-amount edge case staying an exact zero.
     #[test]
     fn index_to_currency_multiplies_by_the_rate() {
         assert_eq!(to_currency(3.5, 12.0), Some(42.0));
@@ -76,6 +80,9 @@ mod tests {
         assert_eq!(to_index(0.25, 0.25), Some(1.0));
     }
 
+    // Protects: `exchange` always routes through the world index
+    // (`amount / from_rate * to_rate`), including the identity case where
+    // `from_rate == to_rate`.
     #[test]
     fn exchange_goes_through_the_world_index() {
         // 10 units at rate 4 are 2.5 index units, which at rate 6 are 15.
@@ -86,6 +93,9 @@ mod tests {
         assert_eq!(exchange(1.0, 0.5, 2.0), Some(4.0));
     }
 
+    // Protects: chaining `exchange` there and back, and `to_currency` with
+    // `to_index`, returns the original amount for rates that are exact in
+    // binary floating point.
     #[test]
     fn a_round_trip_returns_the_amount() {
         // Rates chosen to be exact in binary, so the round trip is exact.
@@ -97,6 +107,10 @@ mod tests {
         assert_eq!(to_index(c, 16.0), Some(1.25));
     }
 
+    // Protects: every conversion function returns `None` (never a silent
+    // `1.0` fallback) for a rate that is zero, negative, `NaN` or infinite,
+    // while very small/large finite positive rates stay valid; also that a
+    // `NaN` amount or an overflow to infinity is refused as `None`.
     #[test]
     fn an_invalid_rate_is_refused_not_replaced_by_one() {
         for bad in [0.0, -0.0, -2.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {

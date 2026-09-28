@@ -344,10 +344,16 @@ pub fn civ_default_government(faction_index: usize) -> &'static str {
     candidates[faction_index.saturating_sub(1) % candidates.len()]
 }
 
+/// Unit tests for the roster's vocabulary tables, the faction colour
+/// function, and the deterministic religion/government defaults for a
+/// fresh faction.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Protects: `civ_faction_color`'s exact colour at index 0, that
+    // consecutive indices never land on the same hue, and that the
+    // function is a pure deterministic function of its index.
     #[test]
     fn faction_color_is_deterministic_and_spread() {
         // Index 0 is hue 0 -> pure red at s=0.55, l=0.5.
@@ -358,6 +364,10 @@ mod tests {
         assert_eq!(civ_faction_color(13), civ_faction_color(13));
     }
 
+    // Protects: the golden-angle hue walk visits multiple 60-degree
+    // sectors within the first few indices (so every branch of the
+    // hue-to-RGB `if`/`else` chain is exercised somewhere), and every
+    // produced colour is a real, non-black RGB triple.
     #[test]
     fn faction_color_covers_every_hue_branch() {
         // 137.508 * k % 360 walks all six 60-degree sectors within k<=6.
@@ -374,6 +384,10 @@ mod tests {
         }
     }
 
+    // Protects: `civ_ag_tech_by_key` finds a real key's row (checked
+    // against its exact `farmers_per_urbanite`) and falls back to
+    // `AG_TECH_LEVELS[1]` (Traditional Agrarian), not index 0, for an
+    // unrecognised key.
     #[test]
     fn ag_tech_by_key_falls_back_to_traditional_agrarian() {
         assert_eq!(civ_ag_tech_by_key("industrial").farmers_per_urbanite, 0.15);
@@ -384,6 +398,10 @@ mod tests {
         );
     }
 
+    // Protects: every vocabulary table's length matches the reference
+    // exactly, `CIV_TRAITS`' v1.28-appended `administrative` entry stays
+    // last (never reordered, since the reference persists these keys), and
+    // `has_key` finds a real key and rejects a near-miss.
     #[test]
     fn vocabularies_are_the_reference_lengths() {
         assert_eq!(CIV_TRAITS.len(), 7);
@@ -474,6 +492,9 @@ mod tests {
         assert_eq!(civ_default_government(4), civ_default_government(4));
     }
 
+    // Protects: `civ_default_government` never returns `"none"` for any
+    // index, matching the "no fresh faction defaults to Unclaimed's form"
+    // rule stated on [`CIV_GOVERNMENTS`].
     #[test]
     fn default_government_never_returns_none() {
         for i in 0..20 {
