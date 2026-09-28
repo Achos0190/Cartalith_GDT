@@ -56,9 +56,15 @@ use cartalith_engine::sculpt_commit::{commit_sculpt_pass, WaterState};
 use cartalith_spatial::{DirtyTracker, PassBuffer};
 use cartalith_terrain::sculpt::{Feature, Point, SculptGlobals, SculptStamp};
 
+/// Fixture grid width. Source: milestone B's own fixtures, reused verbatim
+/// (module doc comment, "Fixtures" section) so the two suites are directly
+/// comparable.
 const GW: usize = 64;
+/// Fixture grid height, paired with [`GW`]. Same provenance.
 const GH: usize = 64;
+/// Fixture sea level. Source: milestone B's fixtures (module doc comment).
 const SEA: f64 = 0.5;
+/// Fixture stamp seed. Source: milestone B's fixtures (module doc comment).
 const SEED: u32 = 1234;
 
 /// The same six cells milestone B's harness sampled.
@@ -71,12 +77,19 @@ const SAMPLES: [usize; 6] = [
     44 * GW + 50,
 ];
 
+/// Milestone B's fixture field, in `f64` and rounded once at the `f32`
+/// store, matching the reference's own storage precision (module doc
+/// comment, "Fixtures").
 fn base_field() -> Vec<f32> {
     (0..GW * GH)
         .map(|i| ((((i * 37) % 101) as f64) / 200.0 + 0.2) as f32)
         .collect()
 }
 
+/// Folded FNV-1a-64 over a whole field's bit patterns -- a one-ULP
+/// difference anywhere fails, per the module doc comment's "no tolerance"
+/// note. `0xcbf2_9ce4_8422_2325`/`0x0000_0100_0000_01b3`: the standard
+/// FNV-1a 64-bit offset basis and prime, not project-specific values.
 fn fnv(field: &[f32]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in field {
@@ -86,6 +99,8 @@ fn fnv(field: &[f32]) -> String {
     format!("{h:016x}")
 }
 
+/// One stamp with milestone B's fixed brush size (module doc comment,
+/// "Fixtures": `brushSize = 12`) and `SCULPT_GLOBAL_DEF` otherwise.
 fn stamp(feature: Feature, points: Vec<Point>) -> SculptStamp {
     let mut s = SculptStamp::new(feature, SEED, points, SEA);
     s.globals = SculptGlobals {
@@ -95,6 +110,8 @@ fn stamp(feature: Feature, points: Vec<Point>) -> SculptStamp {
     s
 }
 
+/// The coarse, 2-point stroke milestone B used -- see [`stroke_dense`] for
+/// why a second, denser stroke fixture was added for this suite.
 fn stroke() -> Vec<Point> {
     vec![Point::new(10.0, 32.0), Point::new(54.0, 32.0)]
 }
@@ -106,10 +123,15 @@ fn stroke_dense() -> Vec<Point> {
         .collect()
 }
 
+/// A single-point Lake stamp -- a "tap" at one location, wide enough (with
+/// the fixed brush size) to deposit a small pool.
 fn tap() -> Vec<Point> {
     vec![Point::new(32.0, 32.0)]
 }
 
+/// One golden case's expected values, read directly off the Node harness
+/// (module doc comment) -- every field here is reference output, never
+/// re-derived from this port's own code.
 struct Golden {
     name: &'static str,
     changed: usize,
@@ -188,15 +210,24 @@ fn check(g: &Golden, stamps: Vec<(SculptStamp, bool)>, pre: Option<&dyn Fn(&mut 
     assert_eq!(fnv(&field), g.hash, "{}: whole-field hash", g.name);
 }
 
+/// Shorthand for a `Golden.samples`/`river_floor_samples` where the
+/// reference records no river lock at any sample cell.
 const ZERO6: [u32; 6] = [0; 6];
+/// Shorthand for a `Golden.river_mask_samples` where no sample cell is
+/// locked.
 const ZEROM: [u8; 6] = [0; 6];
 
 // ---------------------------------------------------------------------------
 // River
 // ---------------------------------------------------------------------------
 
+/// A single sparse River stamp's carve+lock, bit for bit against the Node
+/// reference.
 #[test]
 fn river_only_matches_the_reference() {
+    // Protects: a single sparse River stamp's carve+lock against the Node
+    // reference, bit for bit -- the baseline case every other river golden
+    // here builds on.
     check(
         &Golden {
             name: "river_only",
@@ -220,8 +251,12 @@ fn river_only_matches_the_reference() {
     );
 }
 
+/// A dense River stroke locks far more cells than the coarse one.
 #[test]
 fn river_with_a_dense_stroke_matches_the_reference() {
+    // Protects: enforceChannelDescent walking a dense stroke's own points
+    // without resampling -- against the coarse-stroke case, this locks 46
+    // cells instead of 3, exercising the lock far more thoroughly.
     check(
         &Golden {
             name: "river_dense_stroke",
@@ -242,8 +277,13 @@ fn river_with_a_dense_stroke_matches_the_reference() {
     );
 }
 
+/// Stack order carries through the water hooks: the second river's descent
+/// runs over the first's already-carved field.
 #[test]
 fn two_rivers_in_one_pass_match_the_reference() {
+    // Protects: stack order carrying through the water hooks -- the second
+    // river stamp's descent must run over the first's already-carved field,
+    // not the pre-stack-bake original.
     // The second stamp's descent runs over the first's already-carved field
     // -- stack order carries through the water hooks too.
     check(
@@ -275,8 +315,12 @@ fn two_rivers_in_one_pass_match_the_reference() {
     );
 }
 
+/// A non-water stamp baked before a river stamp in the same commit.
 #[test]
 fn mountains_then_river_matches_the_reference() {
+    // Protects: a non-water stamp baked before a river stamp in the same
+    // commit -- the river's carve must still run over the post-Mountains
+    // field, matching the reference's stack-order bake.
     check(
         &Golden {
             name: "mountains_then_river",
@@ -300,8 +344,11 @@ fn mountains_then_river_matches_the_reference() {
     );
 }
 
+/// The same Mountains-then-River ordering, with the denser stroke fixture.
 #[test]
 fn mountains_then_dense_river_matches_the_reference() {
+    // Protects: the same Mountains-then-River ordering as the previous test,
+    // with the denser stroke fixture exercising the lock more thoroughly.
     check(
         &Golden {
             name: "mountains_then_dense_river",
@@ -325,8 +372,13 @@ fn mountains_then_dense_river_matches_the_reference() {
     );
 }
 
+/// A hidden River stamp is skipped by the water hooks, matching a plain
+/// Mountains bake exactly.
 #[test]
 fn a_hidden_river_leaves_the_water_hooks_inert() {
+    // Protects: a hidden River stamp being skipped by the water hooks the
+    // same way `commit`'s own bake skips it -- the cross-check against
+    // milestone B's plain-Mountains golden makes this exact, not approximate.
     // The hash here is milestone B's own `mountains` golden verbatim
     // (`golden_parity_sculpt.rs`), which is the cross-check: a hidden river
     // must make this commit indistinguishable from a plain Mountains bake.
@@ -357,8 +409,13 @@ fn a_hidden_river_leaves_the_water_hooks_inert() {
 // enforceRiverChannels — the step-2 re-clamp
 // ---------------------------------------------------------------------------
 
+/// Step 2's re-clamp against the exact reference values.
 #[test]
 fn a_preexisting_lock_is_reclamped_matching_the_reference() {
+    // Protects: step 2's re-clamp (enforceRiverChannels) against the exact
+    // reference values -- the differing hash from the identical-stamp,
+    // identical-changed-cell-count `hidden_river_is_skipped` case is the
+    // re-clamp's own work, made visible.
     // Row 32, x in 20..44, locked at floor 0.30 before the commit; a
     // Mountains stamp then paints straight over it. The hash differs from
     // `hidden_river_is_skipped`'s despite the identical stamp and identical
@@ -394,8 +451,11 @@ fn a_preexisting_lock_is_reclamped_matching_the_reference() {
 // Lake — the water_only dry run
 // ---------------------------------------------------------------------------
 
+/// Step 4's water_only dry run against the Node reference.
 #[test]
 fn lake_only_matches_the_reference() {
+    // Protects: step 4's water_only dry run against the Node reference,
+    // including the lake_mask deposit count and sample cells.
     check(
         &Golden {
             name: "lake_only",
@@ -416,8 +476,13 @@ fn lake_only_matches_the_reference() {
     );
 }
 
+/// Step 4 running after step 3: the lake surface tests against the
+/// post-river-carve height.
 #[test]
 fn river_then_lake_matches_the_reference() {
+    // Protects: step 4 running after step 3 -- the lake's water surface must
+    // be tested against the post-river-carve (final) height, which is why its
+    // deposited count (248) differs from lake-alone (256).
     // The ordering case: the lake's water surface is tested against the
     // post-river-carve height, so its deposited cell count (248) differs
     // from the lake-alone case (256).
@@ -444,8 +509,11 @@ fn river_then_lake_matches_the_reference() {
     );
 }
 
+/// The same river-then-lake ordering, with the denser stroke fixture.
 #[test]
 fn dense_river_then_lake_matches_the_reference() {
+    // Protects: the same river-then-lake ordering as the previous test, with
+    // the denser stroke fixture exercising the river lock more thoroughly.
     check(
         &Golden {
             name: "dense_river_then_lake",
@@ -474,6 +542,9 @@ fn dense_river_then_lake_matches_the_reference() {
 /// every case would still pass each one on its own.
 #[test]
 fn every_case_produces_a_distinct_field() {
+    // Protects: this whole suite's discriminating power -- a harness bug
+    // shared by every golden could still pass each case individually if two
+    // cases collapsed onto the same hash.
     let hashes = [
         "64c26d26e208a96c",
         "e284e542e1de9a13",

@@ -130,15 +130,41 @@
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
+/// Stage 0 -- module doc comment item 0: no code of its own; ticked through
+/// at [`begin_run`], which already resets the stage to this index.
 pub const PLANET: usize = 0;
+/// Stage 1 -- module doc comment item 1: `gw`/`gh` are call arguments, not
+/// computed here; see that item for the one exception (a sea-level
+/// correction that must NOT bump this stage, to keep the counter monotonic).
 pub const EXTENT_SCALE: usize = 1;
+/// Stage 2 -- module doc comment item 2: the continentality/world-structure
+/// block, a no-op unless `world_structure.enabled` is set.
 pub const WORLD_STRUCTURE: usize = 2;
+/// Stage 3 -- module doc comment item 3: the "buildTectonicSubstrate"
+/// banner's real work, minus the slice already attributed to stage 2.
 pub const TECTONICS: usize = 3;
+/// Stage 4 -- module doc comment item 4: the "volcanism + craters" banner;
+/// always does real work since `stamp_craters` runs unconditionally.
 pub const VOLCANISM: usize = 4;
+/// Stage 5 -- module doc comment item 5: the stream-power carve inside
+/// `carveRiverValleys` when `carve_rivers` is on (the default).
 pub const EROSION: usize = 5;
+/// Stage 6 -- module doc comment item 6: the channel-building/river-tracing
+/// fields that are actually stored on `WorldState`.
 pub const HYDROLOGY: usize = 6;
+/// Stage 7 -- module doc comment item 7: the post-carve climate refresh
+/// (the FINAL, stored climate state) -- deliberately not bumped at
+/// climate's earlier priming pass; see that item for why.
 pub const CLIMATE: usize = 7;
+/// Stage 8 -- module doc comment item 8: no code in `generate_terrain_inner`
+/// itself; ticks through at [`finish`]. See the item's caveat: biome
+/// classification is real work, just done in `cartalith-godot`, outside this
+/// pipeline's ten stages.
 pub const ECOLOGY_BIOMES: usize = 8;
+/// Stage 9 -- module doc comment item 8 (shared note): no code in
+/// `generate_terrain_inner`; the only stage with neither a `groups` nor a
+/// `keys` entry in `world_workspace.gd`'s `STAGES` table (genuinely
+/// non-editable, unlike Volcanism).
 pub const RESOURCES_SOILS: usize = 9;
 
 /// `world_workspace.gd`'s own `STAGES` names, in the same order -- kept here
@@ -160,6 +186,10 @@ pub const STAGE_NAMES: [&str; 10] = [
 
 pub const STAGE_COUNT: usize = STAGE_NAMES.len();
 
+/// Bumped once per [`begin_run`] call; lets a poller (`cartalith-godot::
+/// GenerationProgress`) distinguish this run's stage readings from a
+/// previous, already-finished run's last ones. `Relaxed`: only visibility
+/// within a frame or two matters, not ordering with any other write.
 static RUN_TOKEN: AtomicU64 = AtomicU64::new(0);
 /// `0..STAGE_COUNT` while a run is in progress; `STAGE_COUNT` once `finish()`
 /// has landed for the run `RUN_TOKEN` currently names.
@@ -198,20 +228,34 @@ pub fn snapshot() -> (u64, usize) {
     (RUN_TOKEN.load(Ordering::Relaxed), STAGE.load(Ordering::Relaxed) as usize)
 }
 
+/// Covers the atomic counter's own contract.
 #[cfg(test)]
 mod tests {
+    //! Covers the atomic counter's own contract (monotonic advance, token
+    //! bump, finished-vs-mid-run distinction) -- not `generate_terrain_inner`
+    //! itself, which is exercised elsewhere.
     use super::*;
 
+    /// `STAGE_NAMES` stays index-aligned with the stage constants.
     #[test]
     fn stage_names_match_the_declared_count() {
+        // Protects: this module's stage-name table staying in the same order as
+        // its index constants -- `world_workspace.gd`'s `STAGES` table is the
+        // source of truth this array must track (module doc comment, "The ten
+        // stages" section).
         assert_eq!(STAGE_NAMES.len(), STAGE_COUNT);
         assert_eq!(STAGE_NAMES[PLANET], "Planet");
         assert_eq!(STAGE_NAMES[EROSION], "Erosion");
         assert_eq!(STAGE_NAMES[RESOURCES_SOILS], "Resources & soils");
     }
 
+    /// `advance` never decreases the counter, even given an out-of-order call.
     #[test]
     fn advance_never_moves_the_counter_backward() {
+        // Protects: `advance`'s monotonic contract -- an out-of-order call (e.g.
+        // from a stray branch that runs after the real one) must never walk the
+        // readout backward, per this module's documented rationale for why
+        // stages 1 and 7 tolerate out-of-order internal work.
         begin_run();
         advance(CLIMATE);
         advance(EROSION); // an out-of-order call, e.g. from a stray branch
@@ -219,8 +263,12 @@ mod tests {
         assert_eq!(stage, CLIMATE, "a lower stage must never overwrite a higher one");
     }
 
+    /// `begin_run` resets the stage index and bumps the run token.
     #[test]
     fn begin_run_resets_the_stage_and_bumps_the_token() {
+        // Protects: `begin_run` resetting the stage to `PLANET` and bumping
+        // `RUN_TOKEN` so a poller reading mid-transition can tell the new run's
+        // readings apart from the previous run's finished ones.
         begin_run();
         advance(RESOURCES_SOILS);
         finish();
@@ -232,8 +280,12 @@ mod tests {
         assert_eq!(s2, PLANET);
     }
 
+    /// `finish()`'s sentinel reads differently from the last real stage index.
     #[test]
     fn finish_is_distinguishable_from_the_last_real_stage() {
+        // Protects: `finish()`'s `STAGE_COUNT` sentinel staying distinct from
+        // the last real stage index -- a poller must be able to tell "on the
+        // last stage" apart from "run complete".
         begin_run();
         advance(RESOURCES_SOILS);
         let (_, mid) = snapshot();

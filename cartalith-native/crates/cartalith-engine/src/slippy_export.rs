@@ -103,10 +103,17 @@ pub fn export_slippy_tiles(coarse: &[f32], cw: usize, ch: usize, o: &SlippyExpor
     SlippyExport { entries, failed }
 }
 
+/// Exercises `export_slippy_tiles` against a small synthetic field.
 #[cfg(test)]
 mod tests {
+    //! Exercises `export_slippy_tiles` against a small synthetic field, since
+    //! a real generated world would make every fixture here too slow to be
+    //! useful as a fast-running regression suite.
     use super::*;
 
+    /// A deterministic, non-constant fake elevation field. Non-constant
+    /// matters: a flat field would let a tiling bug (e.g. a transposed
+    /// row/col) hide behind identical output everywhere.
     fn field(gw: usize, gh: usize) -> Vec<f32> {
         (0..gw * gh)
             .map(|i| {
@@ -116,10 +123,14 @@ mod tests {
             .collect()
     }
 
+    /// Fixed, arbitrary amplify options shared by every test in this file so
+    /// runs are comparable to each other bit-for-bit.
     fn amp() -> AmplifyOpts {
         AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, ..Default::default() }
     }
 
+    /// Runs one export over the fixture [`field`] at a fixed 2-level depth,
+    /// varying only the addressing scheme and scale set under test.
     fn run(scheme: TileScheme, scales: &[u32]) -> SlippyExport {
         let f = field(33, 17);
         let a = amp();
@@ -136,8 +147,13 @@ mod tests {
         })
     }
 
+    /// Every `z/x/y` address in the pyramid is written exactly once,
+    /// alongside the viewer page and the manifest.
     #[test]
     fn every_tile_of_every_level_is_written_once_plus_the_manifest() {
+        // Protects: the pyramid's per-level tile count and file naming — a wrong
+        // level range or a duplicate/missing address would silently drop or
+        // overwrite a tile in the exported set.
         let e = run(TileScheme::Xyz, &[1]);
         assert_eq!(e.failed, 0);
         // 1 + 4 + 16 = 21 tiles, a literal rather than the count function,
@@ -156,8 +172,13 @@ mod tests {
         assert_eq!(slippy_tile_count(2, 1), 21);
     }
 
+    /// An exported XYZ tile equals `pyramid_tile` called directly at the
+    /// same address.
     #[test]
     fn an_xyz_tile_is_the_bakes_tile_at_that_address() {
+        // Protects: the module's own "byte-for-byte the tile a bake stores"
+        // claim (see the module doc comment) — this export must not re-derive
+        // the pyramid through a different code path than the bake does.
         // The pyramid must not be re-derived: XYZ 2/3/1 is pyramid_tile(z2, col3, row1).
         let e = run(TileScheme::Xyz, &[1]);
         let got = e.entries.iter().find(|t| t.name == "2/3/1.png").expect("2/3/1");
@@ -166,8 +187,12 @@ mod tests {
         assert_eq!(got.data, tile_png_bytes(&t.data, t.w, t.h, &TileVisual::default()).unwrap());
     }
 
+    /// TMS and XYZ address the same tile at a row-flipped coordinate.
     #[test]
     fn tms_and_xyz_hold_the_same_bytes_under_flipped_rows() {
+        // Protects: the TMS row-flip (its origin is the bottom-left row, XYZ's is
+        // the top-left) — a missing flip would place tiles at the wrong y for
+        // every TMS-consuming viewer while still passing an XYZ-only test.
         let x = run(TileScheme::Xyz, &[1]);
         let t = run(TileScheme::Tms, &[1]);
         let get = |e: &SlippyExport, n: &str| e.entries.iter().find(|t| t.name == n).unwrap().data.clone();
@@ -176,16 +201,23 @@ mod tests {
         assert_ne!(get(&x, "2/1/0.png"), get(&t, "2/1/0.png"), "the flip must actually move a tile");
     }
 
+    /// WMTS's own addressing order and path prefix.
     #[test]
     fn wmts_addresses_row_before_column() {
+        // Protects: WMTS's row-before-column address order and its `cartalith/`
+        // path prefix, which differ from XYZ/TMS's column-before-row naming.
         let x = run(TileScheme::Xyz, &[1]);
         let w = run(TileScheme::Wmts, &[1]);
         let get = |e: &SlippyExport, n: &str| e.entries.iter().find(|t| t.name == n).unwrap().data.clone();
         assert_eq!(get(&x, "2/3/1.png"), get(&w, "cartalith/2/1/3.png"));
     }
 
+    /// A `scale: 2` tile is the same ground at double the pixel size.
     #[test]
     fn a_retina_variant_is_the_same_ground_at_twice_the_pixels() {
+        // Protects: a `scale: 2` ("@2x") tile covers the same ground as its
+        // scale-1 counterpart, only at double the pixel size — the `scales`
+        // option must multiply resolution, not change coverage.
         let e = run(TileScheme::Xyz, &[1, 2]);
         assert_eq!(e.entries.len(), 44);
         let dec = |n: &str| {
@@ -198,8 +230,12 @@ mod tests {
         assert_eq!((b.w, b.h), (64, 32));
     }
 
+    /// The parallel synthesis is deterministic: two runs are byte-identical.
     #[test]
     fn the_same_export_is_the_same_bytes_twice() {
+        // Protects: determinism — the rayon-parallel synthesis in
+        // `export_slippy_tiles` must not let thread scheduling introduce any
+        // nondeterminism into the output bytes.
         assert_eq!(run(TileScheme::Tms, &[1, 2]), run(TileScheme::Tms, &[1, 2]));
     }
 }

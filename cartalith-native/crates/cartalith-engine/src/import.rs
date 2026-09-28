@@ -79,6 +79,8 @@ pub enum ImportError {
 }
 
 impl std::fmt::Display for ImportError {
+    /// The status-line text for each [`ImportError`] variant, per the type's
+    /// own doc comment: reportable, never a panic message.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ImportError::Decode(m) => write!(f, "could not decode heightmap: {m}"),
@@ -348,8 +350,13 @@ pub fn infer_tectonics(field: Vec<f32>, p: &WorldParams) -> WorldState {
     }
 }
 
+/// Exercises the import pipeline against a real (encoded) PNG.
 #[cfg(test)]
 mod tests {
+    //! Exercises the import pipeline against a real (encoded) PNG, since
+    //! `inferTectonics`'s whole purpose is filling in fields the reference
+    //! measured as silently zero, and a synthetic in-memory field would not
+    //! exercise the decode step this module's own errors report against.
     use super::*;
 
     /// A small PNG with a real elevation gradient, encoded through the same
@@ -371,8 +378,15 @@ mod tests {
         cartalith_assets::raster::encode_png(&img).expect("encoding a valid RGBA8 image cannot fail")
     }
 
+    /// `import_heightmap` end to end: `gh` derived from the image's own
+    /// aspect (never the caller's), and every `WorldState` field sized to
+    /// the resulting grid.
     #[test]
     fn import_produces_a_complete_world_state() {
+        // Protects: the derived-gh contract (`ImportedWorld`'s doc comment) and
+        // every field's length staying in sync with it -- a stray field still
+        // sized to the caller's original gh would index out of step with the
+        // rest of WorldState.
         let png = ramp_png(64, 32);
         let base = WorldParams::defaults(48, 999, 12345);
         let out = import_heightmap(&png, &base).expect("valid PNG must import");
@@ -408,6 +422,10 @@ mod tests {
     /// the bug the reference wrote `inferTectonics` to fix.
     #[test]
     fn import_leaves_no_tectonic_field_dead() {
+        // Protects: `inferTectonics`'s reason for existing -- every tectonic
+        // and derived field must be non-zero and finite, not the all-zero
+        // proxy a bare heightmap import would otherwise leave downstream
+        // consumers reading.
         let png = ramp_png(64, 32);
         let base = WorldParams::defaults(48, 999, 12345);
         let out = import_heightmap(&png, &base).expect("valid PNG must import");
@@ -434,6 +452,8 @@ mod tests {
     /// pinned here anyway because it is the invariant a user notices first.
     #[test]
     fn infer_tectonics_does_not_modify_the_imported_field() {
+        // Protects: the "leaves field untouched" contract against a future
+        // change that re-derives height inside infer_tectonics.
         let png = ramp_png(64, 32);
         let mut p = WorldParams::defaults(48, 0, 7);
         let (field, gh) = decode_heightmap(&png, p.gw).expect("valid PNG");
@@ -443,8 +463,15 @@ mod tests {
         assert_eq!(*state.field, before, "the imported elevation was overwritten");
     }
 
+    /// `decode_heightmap`'s trailing `normalize_field` call must stretch
+    /// the decoded field to fill exactly `[0, 1]`, matching `loadImage`'s
+    /// own normalisation step.
     #[test]
     fn decode_normalises_to_the_full_zero_one_range() {
+        // Protects: the normalize_field call at the end of decode_heightmap --
+        // a dropped call would leave an 8-bit heightmap that never reaches
+        // white sitting below 1.0, which this module's doc comment warns
+        // throws off every elevation-relative threshold downstream.
         let png = ramp_png(64, 32);
         let (field, _) = decode_heightmap(&png, 48).expect("valid PNG");
         let mn = field.iter().copied().fold(f32::INFINITY, f32::min);
@@ -453,8 +480,12 @@ mod tests {
         assert_eq!(mx, 1.0);
     }
 
+    /// Corrupt/non-image bytes must return [`ImportError::Decode`], not
+    /// panic -- `cartalith-rust-conventions`'s no-unwind-across-gdext rule.
     #[test]
     fn decode_rejects_non_png_bytes_rather_than_panicking() {
+        // Protects: decode_heightmap's error path against a panic on bad
+        // input, which would take down the Godot process across the boundary.
         assert!(matches!(decode_heightmap(b"definitely not a png", 64), Err(ImportError::Decode(_))));
     }
 
@@ -463,6 +494,9 @@ mod tests {
     /// really can drop a blank image in.
     #[test]
     fn a_featureless_heightmap_imports_without_panicking() {
+        // Protects: the tectonic inversion against a zero-relief input --
+        // every ratio/gradient in build_relief_field and its consumers must
+        // degrade to a defined value (not a 0/0 NaN) on a perfectly flat image.
         let rgba = vec![128u8; 32 * 32 * 4];
         let img = cartalith_assets::raster::DecodedImage::new(32, 32, rgba).expect("sized correctly");
         let png = cartalith_assets::raster::encode_png(&img).expect("valid image");

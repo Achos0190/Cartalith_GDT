@@ -170,11 +170,17 @@ pub fn center_landmasses(ws: &mut WorldState, gw: usize, gh: usize, world: bool)
     Some(CenterResult { offset: off, seam_column: sc, channels_dropped })
 }
 
+/// Exercises `center_landmasses` against a real generated world.
 #[cfg(test)]
 mod tests {
+    //! Exercises `center_landmasses` against a real generated world (not a
+    //! synthetic fixture) since the function's whole point is re-pointing
+    //! indices that only exist once tectonics/hydrology have actually run.
     use super::*;
     use crate::{WorldParams, generate_terrain};
 
+    /// A small real world in world (cylinder) mode, generated fresh per
+    /// call so tests do not share mutable state.
     fn world(gw: usize, gh: usize, seed: i32) -> (WorldState, usize, usize) {
         let mut p = WorldParams::defaults(gw, gh, seed);
         p.world = true;
@@ -182,16 +188,25 @@ mod tests {
         (generate_terrain(&p), gw, gh)
     }
 
+    /// Region mode refuses to rotate anything rather than silently shifting.
     #[test]
     fn region_mode_is_refused_rather_than_silently_rotated() {
+        // Protects: the region-mode early return -- `center_landmasses` must
+        // refuse to rotate anything when `world` is false, matching the
+        // reference's `alert()`-and-return behaviour rather than silently
+        // shifting a grid where the edges are hard borders.
         let (mut ws, gw, gh) = world(32, 24, 7);
         let before = ws.field.as_ref().clone();
         assert_eq!(center_landmasses(&mut ws, gw, gh, false), None);
         assert_eq!(*ws.field, before, "a refused call must not have moved anything");
     }
 
+    /// Every positional raster moves by the same offset, together.
     #[test]
     fn every_retained_raster_moves_together() {
+        // Protects: every positional raster this module documents as "shifted"
+        // actually moves by the same offset -- a grid left out of the loop
+        // would silently desync from the rest of `WorldState` after centring.
         let (mut ws, gw, gh) = world(48, 32, 24601);
         let before_field = ws.field.as_ref().clone();
         let before_temp = ws.temperature.as_ref().clone();
@@ -223,6 +238,9 @@ mod tests {
     /// Re-pointing them is what this pins.
     #[test]
     fn the_receiver_tree_moves_with_the_world_instead_of_being_dropped() {
+        // Protects: the 137-river-features-to-0 regression named in this
+        // module's doc comment -- the channel network must move and re-point,
+        // never drop.
         let (mut ws, gw, gh) = world(48, 32, 24601);
         // The two vectors, not the struct: `ChannelResult` is not `Clone`, and
         // deriving it on a shipped type to satisfy a test is the wrong way round.
@@ -273,6 +291,8 @@ mod tests {
     /// the emptiest meridian at the edge, so `bestEmptyColumn` returns 0.
     #[test]
     fn a_second_call_finds_nothing_left_to_do() {
+        // Protects: idempotence -- a second `center_landmasses` call on an
+        // already-centered world must report `offset: 0` and touch nothing.
         let (mut ws, gw, gh) = world(48, 32, 24601);
         assert_ne!(center_landmasses(&mut ws, gw, gh, true).unwrap().offset, 0);
         let after = ws.field.as_ref().clone();

@@ -93,6 +93,9 @@ pub struct WaterState {
 }
 
 impl WaterState {
+    /// A fresh, unlocked water state for a `len`-cell field -- no channel
+    /// locked, no lake deposited. Used for a world with no prior sculpt or
+    /// generation-time river carve.
     pub fn new(len: usize) -> Self {
         Self {
             river_mask: vec![0u8; len],
@@ -237,36 +240,59 @@ pub fn commit_sculpt_pass(
     }
 }
 
+/// Exercises the five-step water-hook sequence documented at the top of this module.
 #[cfg(test)]
 mod tests {
+    //! Exercises the five-step water-hook sequence documented at the top of
+    //! this module: the carve+lock, the re-clamp ordering, the lake dry
+    //! run, and that a draft with no water stamps is byte-identical to a
+    //! plain `PassBuffer::commit`.
     use super::*;
     use cartalith_spatial::Stamp;
     use cartalith_terrain::sculpt::Point;
 
+    /// Fixture grid width. Source: an arbitrary size large enough to hold
+    /// the dense stroke and lake fixtures below with room to spare --
+    /// provenance not recorded beyond that.
     const W: usize = 64;
+    /// Fixture grid height, paired with [`W`]. Same provenance.
     const H: usize = 64;
+    /// Fixture sea level. Source: an arbitrary mid-range value -- provenance
+    /// not recorded beyond that; no test depends on its exact number.
     const SEA: f64 = 0.5;
 
+    /// A deterministic, non-flat height field so a carve or a lock has
+    /// something real to change -- a flat fixture would hide a
+    /// transposed-index bug behind identical-looking output.
     fn base() -> Vec<f32> {
         (0..W * H)
             .map(|i| ((((i * 37) % 101) as f64) / 200.0 + 0.2) as f32)
             .collect()
     }
 
+    /// A straight, closely-spaced stroke -- `enforceChannelDescent` walks a
+    /// stroke's own points without resampling (module doc comment, step 3),
+    /// so a test stroke must itself be dense to carve a continuous channel.
     fn dense_stroke() -> Vec<Point> {
         (0..=22).map(|k| Point::new(10.0 + k as f64 * 2.0, 32.0)).collect()
     }
 
+    /// One stamp of feature `f` over `pts`, with a fixed brush size so
+    /// `half_w` (step 3's `brushSize * 0.13`) is the same across fixtures.
     fn stamp(f: Feature, pts: Vec<Point>) -> SculptStamp {
         let mut s = SculptStamp::new(f, 1234, pts, SEA);
         s.globals.brush_size = 12.0;
         s
     }
 
+    /// A fresh, empty draft buffer sized to the fixture grid.
     fn buffer() -> PassBuffer<SculptStamp> {
         PassBuffer::new(W, H, 16)
     }
 
+    /// Pushes `stamps` onto a fresh draft, commits them over [`base`] and
+    /// asserts the draft is cleared afterward -- the same post-condition a
+    /// plain commit gives, which the water hooks must not break.
     fn run(
         stamps: Vec<SculptStamp>,
         water: &mut WaterState,
@@ -283,8 +309,12 @@ mod tests {
         (field, summary)
     }
 
+    /// Step 3: a River stamp must carve and lock at least one cell, and the
+    /// locked floor must equal the height the carve actually left.
     #[test]
     fn a_river_commit_carves_and_locks() {
+        // Protects: enforce_channel_descent actually running and the
+        // river_mask/river_floor lock being written from the post-carve field.
         let mut w = WaterState::new(W * H);
         let (field, s) = run(vec![stamp(Feature::River, dense_stroke())], &mut w);
         assert_eq!(s.rivers_carved, 1);
@@ -297,8 +327,12 @@ mod tests {
         }
     }
 
+    /// A draft with no River/Lake stamps must be genuinely inert, not
+    /// merely usually harmless -- byte-identical to `PassBuffer::commit`.
     #[test]
     fn a_draft_with_no_water_stamps_matches_a_plain_commit_exactly() {
+        // Protects: the "no water stamps behaves identically to a plain
+        // commit" guarantee this module's doc comment claims for callers.
         // The hooks must be genuinely inert, not merely usually harmless.
         let mut buf_a = buffer();
         buf_a.push(stamp(Feature::Mountains, dense_stroke()));
@@ -319,8 +353,12 @@ mod tests {
         assert!(!w.river_any);
     }
 
+    /// A hidden River stamp must be skipped by the water hooks the same
+    /// way `commit`'s own bake skips it.
     #[test]
     fn a_hidden_river_neither_carves_nor_locks() {
+        // Protects: the hidden-stamp filter applied before collecting `rivers`
+        // -- a hidden stamp must not carve or lock despite being in the draft.
         let mut buf = buffer();
         buf.push(stamp(Feature::Mountains, dense_stroke()));
         let i = buf.push(stamp(Feature::River, dense_stroke()));
@@ -334,8 +372,13 @@ mod tests {
         assert!(!w.river_any);
     }
 
+    /// Step 4: a Lake stamp's `water_only` dry run must leave the height
+    /// exactly as the bake left it, matching a manual `apply` of the same
+    /// stamp -- the "would double-carve the bowl" guarantee.
     #[test]
     fn a_lake_commit_deposits_without_double_carving() {
+        // Protects: the water_only dry run against re-running the normal
+        // (height-writing) apply path a second time on the same stamp.
         let mut w = WaterState::new(W * H);
         let (field, s) = run(vec![stamp(Feature::Lake, vec![Point::new(32.0, 32.0)])], &mut w);
         assert_eq!(s.lakes_deposited, 1);
@@ -352,8 +395,12 @@ mod tests {
         );
     }
 
+    /// The step-2 ordering: a pre-existing lock must be re-clamped before
+    /// this batch's own carving, so a later non-river stamp cannot bury it.
     #[test]
     fn an_earlier_lock_is_reclamped_before_new_carving() {
+        // Protects: step 2 (enforce_river_channels) running before this
+        // batch's own carve -- the one ordering a naive port gets wrong.
         // The step-2 ordering, which is the one thing a naive port gets
         // wrong: a Mountains stamp painted over an old channel must not
         // bury it.
@@ -376,8 +423,14 @@ mod tests {
         }
     }
 
+    /// The control for the previous test: with no lock recorded at all,
+    /// the same Mountains stamp does raise the channel cells, proving that
+    /// test's assertion is not vacuously true.
     #[test]
     fn without_the_reclamp_the_same_stamp_would_bury_the_channel() {
+        // Protects: the previous test's own validity -- without this control,
+        // a broken re-clamp and a fixture that never raises the cells anyway
+        // would look identical.
         // Proves the previous test is actually testing something: the same
         // Mountains stamp, with no lock recorded, does raise those cells.
         let mut w = WaterState::new(W * H);
@@ -388,8 +441,13 @@ mod tests {
         );
     }
 
+    /// Steps 3 and 4 in the same commit: a River and a Lake stamp together
+    /// must each run their own hook, neither one suppressing the other.
     #[test]
     fn river_and_lake_in_one_pass_both_run() {
+        // Protects: the river and lake hooks running independently within one
+        // commit -- a shared mutable-state bug could make one hook silently
+        // skip when the other also fires.
         let mut w = WaterState::new(W * H);
         let (_, s) = run(
             vec![
@@ -403,8 +461,13 @@ mod tests {
         assert!(s.cells_locked > 0 && s.lake_cells > 0);
     }
 
+    /// The reference never clears `lakeMask` on commit -- only `generate()`
+    /// does -- so a second, separate lake commit must add to the first
+    /// rather than replace it.
     #[test]
     fn lake_mask_accumulates_across_commits() {
+        // Protects: lake_mask persisting and accumulating across separate
+        // commits instead of being reset each time.
         // The reference never clears lakeMask on commit -- only generate()
         // does -- so a second lake elsewhere adds to the first.
         let mut w = WaterState::new(W * H);
@@ -416,8 +479,12 @@ mod tests {
         assert!(second > first);
     }
 
+    /// `WaterState::from_generated` must arm `river_any` when the adopted
+    /// mask actually has a lock, and leave it unarmed for an empty mask.
     #[test]
     fn from_generated_adopts_an_existing_lock() {
+        // Protects: from_generated's river_any derivation -- a generated world
+        // with locked channels must have its commit-time re-clamp armed.
         let mut mask = vec![0u8; W * H];
         mask[5] = 1;
         let w = WaterState::from_generated(mask, vec![0.4f32; W * H]);
@@ -426,8 +493,13 @@ mod tests {
         assert!(!empty.river_any);
     }
 
+    /// Milestone A's "one committed pass, not one stroke" tile-marking
+    /// rule must survive the water hooks, which write `field` outside
+    /// `PassBuffer` itself.
     #[test]
     fn commit_still_marks_tiles_exactly_once_per_pass() {
+        // Protects: DirtyTracker's one-version-bump-per-commit contract against
+        // the water hooks' out-of-band field writes causing extra bumps.
         // Milestone A's "one committed pass, not one stroke" rule must
         // survive the water hooks, which write field outside PassBuffer.
         let mut buf = buffer();

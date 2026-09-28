@@ -248,8 +248,13 @@ pub fn effective_counts(p: &crate::WorldParams, tau: f64) -> EffectiveCounts {
     }
 }
 
+/// Pins the clock's math against literals independent of this module's own constants.
 #[cfg(test)]
 mod tests {
+    //! Pins the clock's math (both response shapes, the mantle law) against
+    //! literals independent of this module's own constants, and pins the
+    //! τ=1/gate-off identity and the clamp/non-finite refusal that keep the
+    //! clock from ever moving a world it must not touch.
     use super::*;
 
     /// Protects the saturating law's shape: literals from §4.12's own
@@ -257,6 +262,8 @@ mod tests {
     /// (`python -c`, recorded in §5.8), never from `SATURATION_K` itself.
     #[test]
     fn saturating_response_matches_hand_worked_literals() {
+        // Protects: f_saturating's shape against literals independent of
+        // SATURATION_K, so a mutated K could not pass by re-deriving its own check.
         assert!((f_saturating(1.0) - 1.0).abs() < 1e-15, "f_sat(1) must be exactly the identity");
         assert!((f_saturating(0.25) - 0.298_633_426_760_995_6).abs() < 1e-12);
         assert!((f_saturating(2.0) - 1.606_530_659_712_633_4).abs() < 1e-12);
@@ -270,6 +277,8 @@ mod tests {
     /// asserted against the constants.
     #[test]
     fn mantle_law_matches_the_scopes_literals() {
+        // Protects: mantle_thickness_m's closed form against the scope's own
+        // hand-worked figures, independent of MANTLE_H0_M/MANTLE_H1_M.
         assert!((mantle_thickness_m(0.25) - 1.333_598_044_293_021_3).abs() < 1e-9);
         assert!((mantle_thickness_m(4.0) - 2.686_231_205_029_357_3).abs() < 1e-9);
         assert!((mantle_thickness_m(1.0) - 2.0).abs() < 1e-12);
@@ -283,6 +292,9 @@ mod tests {
     /// `N_h = 8`).
     #[test]
     fn tau_one_and_gate_off_are_todays_counts() {
+        // Protects: the τ = 1 / gate-off identity by control flow -- every count
+        // must equal today's unscaled expression, never a scaled one that
+        // happens to round to the same value.
         for c in [GeoClock::new(true, 1.0), GeoClock::new(false, 4.0), GeoClock::new(false, 0.25)] {
             assert!(!c.is_scaling());
             assert_eq!(c.light_pass_iters(15).n, 9);
@@ -302,6 +314,9 @@ mod tests {
     /// instead of 9"; "any τ below 0.5 runs 4") and `python -c`.
     #[test]
     fn scaled_counts_follow_the_scope_table() {
+        // Protects: each process's response shape (linear vs. saturating) and
+        // floor, against the scope's own worked table -- a swapped shape or a
+        // dropped floor would still pass a golden that never varies τ.
         let c = |t| GeoClock::new(true, t);
         // Light pass: max(4, round(9τ)).
         assert_eq!(c(4.0).light_pass_iters(15), Count { n: 36, floored: false });
@@ -332,6 +347,9 @@ mod tests {
     /// scope's range; a non-finite τ is not an age and scales nothing.
     #[test]
     fn constructor_clamps_and_refuses_non_finite() {
+        // Protects: GeoClock::new's clamp to [GEO_AGE_MIN, GEO_AGE_MAX] and its
+        // refusal to scale on a non-finite τ (NaN/infinity), rather than
+        // panicking inside generation.
         assert_eq!(GeoClock::new(true, 9.0).light_pass_iters(15).n, 36);
         assert_eq!(GeoClock::new(true, 0.0).age(), 0.25);
         assert!(!GeoClock::new(true, f64::NAN).is_scaling());
@@ -342,6 +360,9 @@ mod tests {
     /// switch is off, and the scaled ones only with both on.
     #[test]
     fn effective_counts_follow_the_gate() {
+        // Protects: effective_counts's gate -- both geology_model AND
+        // geology_processes must be on for the clock to act, since a column
+        // (built by geology_model) is what geology_processes reads.
         let mut p = crate::WorldParams::defaults(64, 40, 1);
         let off = effective_counts(&p, 4.0);
         assert!(!off.active);

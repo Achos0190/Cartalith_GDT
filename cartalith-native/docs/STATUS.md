@@ -304,6 +304,43 @@ re-checked against the tree rather than copied from the commit message.
   No comment was found wrong against its code in this batch. Batch 3
   (`cartalith-engine`, per `ANNOTATION_AUDIT.md`'s ordering) is next.
 
+- **Ruling BK annotation pass, batch 3 (`cartalith-engine`, first half by
+  module) — verified by the main loop 2026-09-28 (diff re-read as comment-only; engine 214/0/8 matches HEAD).** Comments only, zero
+  behaviour change. Scope: `src/slippy_export.rs`, `src/progress.rs`,
+  `src/center.rs`, `src/geo_clock.rs`, `src/channel_atlas.rs`,
+  `src/sculpt_commit.rs`, `src/import.rs` (2 432 LOC), plus their two
+  associated golden-parity test files `tests/geology_gf7.rs` and
+  `tests/golden_parity_sculpt_water.rs` (635 LOC) — chosen as the
+  highest-risk (golden-parity-tied) modules of the crate's first ~2 800 LOC
+  half, since `geo_clock.rs`/`sculpt_commit.rs`/`geojson.rs`-adjacent code
+  ties directly to `tests/geology_gf7.rs`, `golden_parity_sculpt_water.rs`
+  and `golden_parity_geojson.rs`; `geojson.rs` itself and its golden test
+  were left for batch 4 to keep this batch near budget. Every `fn`/
+  `struct`/`mod` in these nine files now has a doc comment, every `#[test]`
+  carries a `// Protects: ...` line (placed as the first line inside the
+  function body, per batch 1/2's own pattern — a line between `#[test]` and
+  `fn` is outside the census script's scan window and does not count), and
+  every numeric constant without a doc comment already covering it got a
+  provenance line. `geo_clock.rs`'s constants were already provenanced
+  (citing `GEOLOGY_FIRST_SCOPE.md` §4.12, pre-existing, not re-verified
+  against the scope document by this pass) and needed no new comment; the
+  test-fixture constants added this pass (`geology_gf7.rs`'s `GW`/`GH`,
+  `golden_parity_sculpt_water.rs`'s `GW`/`GH`/`SEA`/`SEED`/`ZERO6`/`ZEROM`)
+  are cross-checked against sibling fixture files in the same crate instead
+  of a scope citation, stated as such rather than invented. Census
+  re-run, scoped to these nine files: items_undoc 66→0, tests_unprotected
+  57→0, consts_undoc 21→0 (LOC 2872→3229, all added lines comments).
+  Crate-wide re-run: `cartalith-engine` items_undoc 233→167,
+  tests_unprotected 221→164, consts_undoc 51→30 (LOC 14344→14701 non-blank).
+  `cargo test -p cartalith-engine`: 210 passed / 0 failed / 7 ignored
+  (18 result lines), identical before and after. A script asserting every
+  changed line across the nine files is a comment, blank, or a trailing
+  comment appended to unchanged code passed. No comment was found wrong
+  against its code in this batch. Batch 4 (`cartalith-engine`'s remaining
+  modules — `src/geojson.rs`, `src/staleness.rs`, `src/erode_op.rs`,
+  `src/bake.rs`, `src/elevation.rs`, `src/region_export.rs`, `src/lib.rs`,
+  and their own test files including `golden_parity_geojson.rs`) is next.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

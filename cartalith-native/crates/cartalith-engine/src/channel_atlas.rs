@@ -54,6 +54,8 @@ pub enum ChannelKind {
 }
 
 impl ChannelKind {
+    /// The manifest's own spelling for this kind (`"unit"`/`"index"`), used
+    /// so a reader knows whether to divide a channel's byte by 255.
     fn as_str(self) -> &'static str {
         match self {
             ChannelKind::Unit => "unit",
@@ -73,6 +75,9 @@ pub enum ChannelSrc<'a> {
 }
 
 impl ChannelSrc<'_> {
+    /// The [`ChannelKind`] this source's variant implies -- never
+    /// independently settable, so a `Unit` source cannot be mislabelled
+    /// `Index` in the manifest.
     fn kind(&self) -> ChannelKind {
         match self {
             ChannelSrc::Unit(_) => ChannelKind::Unit,
@@ -291,8 +296,13 @@ pub fn entries(groups: &[ChannelGroup<'_>], gw: usize, gh: usize, version: &str)
     Ok(out)
 }
 
+/// Exercises the atlas format end to end.
 #[cfg(test)]
 mod tests {
+    //! Exercises the atlas format end to end: byte-level encoding, the
+    //! pack/unpack round trip, the v1.31 vocabulary rule, and the
+    //! group-with-nothing-populated skip -- each against the reference's
+    //! own stated behaviour, not against a re-derivation of this file.
     use super::*;
 
     /// `_chanEnc`, value by value, against the reference's own definition
@@ -304,6 +314,8 @@ mod tests {
     /// the answers so a later switch to a signed field cannot pass silently.
     #[test]
     fn chan_enc_matches_the_reference_definition() {
+        // Protects: ChannelSrc::encode's clamp-then-js_round path, including the
+        // JS-round-half-up behaviour on exact `.5` byte boundaries.
         let unit = [-1.0f32, 0.0, 0.1, 0.3, 0.5, 0.99609375, 1.0, 2.0];
         let want = [0u8, 0, 26, 77, 128, 254, 255, 255];
         let src = ChannelSrc::Unit(&unit);
@@ -322,8 +334,13 @@ mod tests {
         }
     }
 
+    /// A NaN/infinite source value must not survive `as u8` as a wrapped or
+    /// undefined byte -- the module doc comment's note on the reference's
+    /// own `Uint8Array` NaN-to-zero coercion, reproduced here deliberately.
     #[test]
     fn nan_encodes_to_zero_not_to_a_wrapped_byte() {
+        // Protects: encode's NaN/infinity handling against silently becoming an
+        // undefined or wrapped byte instead of the reference's documented 0/255.
         let unit = [f32::NAN, f32::INFINITY, f32::NEG_INFINITY];
         let src = ChannelSrc::Unit(&unit);
         assert_eq!(src.encode(0), 0, "NaN");
@@ -331,8 +348,13 @@ mod tests {
         assert_eq!(src.encode(2), 0, "-inf clamps to 0.0");
     }
 
+    /// `pack_rgb8`/`unpack_rgb8` must be inverses within the format's
+    /// declared byte-level lossiness, and an absent channel must decode as
+    /// zero rather than whatever bytes happened to be left in that slot.
     #[test]
     fn pack_then_unpack_round_trips_within_one_byte_level() {
+        // Protects: the pack/unpack round trip's lossiness bound (half a byte
+        // level) and the absent-channel-decodes-as-zero contract.
         let a: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
         let b: Vec<u8> = (0..64).map(|i| (i % 7) as u8).collect();
         let specs = [Some(ChannelSrc::Unit(&a)), Some(ChannelSrc::Index(&b)), None];
@@ -351,6 +373,9 @@ mod tests {
     /// literal had.
     #[test]
     fn resource_groups_follow_the_key_vocabulary() {
+        // Protects: the v1.31 rule -- the resource file count is derived from
+        // the live key vocabulary, never a hand-listed literal that would
+        // silently drop fields as the vocabulary grows.
         let keys: Vec<&str> = vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"];
         let names: Vec<&str> = keys.clone();
         let field = vec![0.5f32; 4];
@@ -368,8 +393,13 @@ mod tests {
         assert_eq!(short[1].channels.len(), 1);
     }
 
+    /// `entries()` end to end: real PNG bytes, a manifest that documents
+    /// exactly the groups actually written, and correct kind tagging.
     #[test]
     fn entries_writes_real_pngs_and_a_matching_manifest() {
+        // Protects: entries()'s PNG output and its manifest staying in sync --
+        // a dropped group must vanish from both, never leave a manifest entry
+        // for a file that was not written.
         let (gw, gh) = (8usize, 5usize);
         let n = gw * gh;
         let soil: Vec<f32> = (0..n).map(|i| i as f32 / n as f32).collect();
@@ -405,8 +435,12 @@ mod tests {
         assert!(m.contains("\"width\": 8") && m.contains("\"height\": 5"));
     }
 
+    /// A group with no populated channel must be skipped entirely, and a
+    /// zero-size grid (reachable from a `#[func]`) must not panic.
     #[test]
     fn an_atlas_of_nothing_is_no_files_rather_than_an_empty_manifest() {
+        // Protects: entries() never writing an all-black "documented but
+        // empty" file, and never dividing by zero on a 0x0 grid.
         let groups = vec![ChannelGroup {
             file: "atlas/habitat.png".into(),
             channels: vec![Channel { ch: "r", key: "soil_fertility".into(), name: "Soil fertility".into(), src: None, manifest: None }],

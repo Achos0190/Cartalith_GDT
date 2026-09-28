@@ -17,7 +17,11 @@
 
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 
+/// Fixture grid width. Source: matches the size other GF fixture suites in
+/// this crate use (`geology_gf1.rs`/`geology_gf2.rs`) so results are
+/// comparable across them -- not a scope-cited value.
 const GW: usize = 256;
+/// Fixture grid height, paired with [`GW`]. Same provenance.
 const GH: usize = 164;
 
 /// An app-like world (`cartalith-godot`'s `params::defaults` divergences,
@@ -37,6 +41,8 @@ fn app_params(seed: i32, processes: bool, age: f64) -> WorldParams {
     p
 }
 
+/// Bit-pattern view of an `f32` slice, for exact (not epsilon) equality --
+/// two floats that print the same can still differ in the low bits.
 fn bits(v: &[f32]) -> Vec<u32> {
     v.iter().map(|x| x.to_bits()).collect()
 }
@@ -59,6 +65,9 @@ fn assert_same(a: &WorldState, b: &WorldState, what: &str) {
 /// the app's default world fixed while the slider moves.
 #[test]
 fn with_the_processes_off_age_changes_nothing() {
+    // Protects: the gate -- with geology_processes off, geo_age must not move
+    // the world bit for bit, at either end of its range, on an app-like world
+    // and on the bare parity baseline.
     for seed in [12345, 483920] {
         let base = generate_terrain(&app_params(seed, false, 1.0));
         for age in [0.25, 4.0] {
@@ -77,6 +86,9 @@ fn with_the_processes_off_age_changes_nothing() {
 /// the passes off, which τ cannot reach.
 #[test]
 fn with_the_processes_on_older_worlds_are_more_eroded() {
+    // Protects: the clock is genuinely wired, not an inert knob -- tau=4 must
+    // move a processes-on world, and mean land lowering from the pre-erosion
+    // surface must rise strictly with tau.
     let seed = 483920;
     let mut pre_p = app_params(seed, true, 1.0);
     pre_p.carve_rivers = false;
@@ -112,6 +124,9 @@ fn with_the_processes_on_older_worlds_are_more_eroded() {
 /// knobs did nothing could not fail).
 #[test]
 fn every_clocked_call_site_runs_the_clocks_count() {
+    // Protects: every clocked call site reads GeoClock's effective count, not
+    // its own raw parameter -- a bypassed call site would split two worlds
+    // the floor arithmetic says must be bit-identical at tau=0.25.
     let world = |age: f64, iters: i32, glacial: i32, coastal: i32| {
         let mut p = app_params(12345, true, age);
         p.passes.coastal = true;
@@ -135,6 +150,8 @@ fn every_clocked_call_site_runs_the_clocks_count() {
 /// A scaled age is as deterministic as the default one.
 #[test]
 fn a_scaled_age_is_deterministic() {
+    // Protects: determinism at a scaled (non-default) tau -- the same seed and
+    // age must generate bit-identical worlds twice.
     let p = app_params(24601, true, 2.5);
     assert_same(&generate_terrain(&p), &generate_terrain(&p), "same seed twice at tau 2.5");
 }
