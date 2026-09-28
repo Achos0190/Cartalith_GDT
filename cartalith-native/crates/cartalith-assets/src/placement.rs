@@ -655,11 +655,18 @@ pub fn trait_badge_drop(has_traits: bool, sz: f64, sc: f64) -> f64 {
     trait_badge_radius(sz) * 2.0 + 1.2 * sc
 }
 
+/// Golden-adjacent unit coverage for the ruled placement engine (the two
+/// v1.27 fixes, `biomeOk`/`specificity`/`sizeAt`, `spriteDrawRect`) and the
+/// trait-badge-row geometry (`_civDrawTraitBadges`/`_civTraitDrop`/
+/// `_traitSprite`). Real cell-level parity against the reference lives in
+/// `tests/golden_parity_placement.rs`; this module is unit-level.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::scatter::ScatterMode;
 
+    /// Test-only helper: a default [`ScatterRule`] with `over` applied, so
+    /// each test only spells out the fields it cares about.
     fn rule(over: impl FnOnce(&mut ScatterRule)) -> ScatterRule {
         let mut r = ScatterRule::default();
         over(&mut r);
@@ -668,6 +675,8 @@ mod tests {
 
     #[test]
     fn empty_grid_returns_no_items_instead_of_panicking() {
+        // Protects: the w==0/h==0 early-return guard from a panicking w-1
+        // underflow that a Rust usize (unlike JS's -1) cannot absorb.
         let r = rule(|_| {});
         let rules = [("a", &r)];
         let opts = PlaceIconsRuledOpts::new(0, &rules);
@@ -676,6 +685,8 @@ mod tests {
 
     #[test]
     fn opts_new_matches_the_reference_default_t_gap() {
+        // Protects: PlaceIconsRuledOpts::new's t_gap formula against the
+        // reference's own default object.
         let rules: [(&str, &ScatterRule); 0] = [];
         // Math.max(4, Math.round(W/110))
         assert_eq!(PlaceIconsRuledOpts::new(110, &rules).t_gap, 4);
@@ -685,6 +696,8 @@ mod tests {
 
     #[test]
     fn t_gap_of_zero_is_clamped_rather_than_hanging() {
+        // Protects: opts.t_gap.max(1) -- a caller-supplied zero must not spin
+        // the scatter loop forever the way a JS `for(;gy+=0)` effectively would.
         let r = rule(|r| r.mode = ScatterMode::Scatter);
         let rules = [("a", &r)];
         let mut opts = PlaceIconsRuledOpts::new(4, &rules);
@@ -696,6 +709,8 @@ mod tests {
 
     #[test]
     fn biome_ok_rejects_a_non_integer_rule_biome_even_though_the_field_is_finite() {
+        // Protects: biome_ok's exact f64 equality against an i32-cast
+        // shortcut that would let a fractional rule biome match by accident.
         let r = rule(|r| r.biomes = vec![5.5]);
         let biome = [5u8];
         assert!(!biome_ok(&r, Some(&biome), 0));
@@ -705,6 +720,8 @@ mod tests {
 
     #[test]
     fn biome_ok_any_land_when_biomes_empty_but_rejects_missing_biome_array() {
+        // Protects: the reference's `!biome` branch -- an empty rule.biomes
+        // list accepts any land cell, but only when a biome raster exists.
         let r = rule(|_| {});
         assert!(biome_ok(&r, None, 0));
         let r = rule(|r| r.biomes = vec![1.0]);
@@ -713,6 +730,8 @@ mod tests {
 
     #[test]
     fn icon_slot_for_item_prefers_key_over_cat() {
+        // Protects: `if(it.key) return it.key` -- an explicit key always wins
+        // over the cat/kind fallback branches.
         let it = PlacedIcon {
             x: 0,
             y: 0,
@@ -726,6 +745,8 @@ mod tests {
 
     #[test]
     fn icon_slot_for_item_treats_an_empty_key_as_absent() {
+        // Protects: JS truthiness on `it.key` -- an empty string is falsy and
+        // must fall through to the cat/kind branches, not be returned as-is.
         let it = PlacedIcon {
             x: 0,
             y: 0,
@@ -741,6 +762,8 @@ mod tests {
 
     #[test]
     fn icon_slot_for_item_legacy_tree_and_scatter_maps() {
+        // Protects: TREE_SLOT/SCATTER_SLOT's every named kind, plus their
+        // ||fallback for an unmapped or absent kind.
         let tree = |kind| PlacedIcon {
             x: 0,
             y: 0,
@@ -782,6 +805,7 @@ mod tests {
 
     #[test]
     fn icon_slot_for_item_mountain_and_hill_cats() {
+        // Protects: the two legacy cats with no kind dependency at all.
         let it = |cat| PlacedIcon {
             x: 0,
             y: 0,
@@ -796,6 +820,8 @@ mod tests {
 
     #[test]
     fn specificity_orders_wetland_and_biome_specificity_as_the_reference_does() {
+        // Protects: v1.27 fix #1 -- the specificity ordering that makes the
+        // most-specific rule win a contested cell regardless of insertion order.
         let wetland_narrow = rule(|r| {
             r.require_wetland = true;
             r.biomes = vec![7.0];
@@ -812,6 +838,8 @@ mod tests {
 
     #[test]
     fn sprite_draw_rect_matches_reference_geometry() {
+        // Protects: spriteDrawRect's bottom-centre placement formula against
+        // hand-worked reference literals.
         let r = sprite_draw_rect(50.0, 80.0, 1.3, 4.5, 32.0, 48.0);
         assert!((r.dh - 12.870_000_000_000_001).abs() < 1e-9);
         assert!((r.dw - 8.58).abs() < 1e-9);
@@ -819,6 +847,8 @@ mod tests {
         assert!((r.dy - 67.13).abs() < 1e-9);
     }
 
+    /// Test-only helper: a `&[&str]` of trait keys as the owned `Vec<String>`
+    /// [`trait_badge_layout`] expects.
     fn keys(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
     }
@@ -830,6 +860,8 @@ mod tests {
     /// `cy = 200 + 10 + 4.2 + 2.4 = 216.6`.
     #[test]
     fn trait_badge_row_matches_the_references_own_arithmetic() {
+        // Protects: trait_badge_layout's radius/gap/centre arithmetic against
+        // hand-worked reference literals (see the doc comment above).
         let b = trait_badge_layout(100.0, 200.0, &keys(&["port", "mining", "military"]), 10.0, 2.0);
         assert_eq!(b.len(), 3);
         assert_eq!(b[0].r, 4.2);
@@ -848,6 +880,8 @@ mod tests {
 
     #[test]
     fn a_single_trait_sits_centred_under_the_pin_and_none_draws_nothing() {
+        // Protects: the empty-row early return -- an absent trait list must
+        // not render as a zero-radius badge.
         let one = trait_badge_layout(50.0, 60.0, &keys(&["port"]), 10.0, 2.0);
         assert_eq!(one.len(), 1);
         assert_eq!(one[0].cx, 50.0); // total == 0, so no offset at all
@@ -859,6 +893,7 @@ mod tests {
     /// `traits.slice(0,4)`: a settlement carrying all seven draws four.
     #[test]
     fn the_badge_row_is_capped_at_four_and_keeps_the_first_four() {
+        // Protects: TRAIT_BADGES_SHOWN_MAX's `traits.slice(0,4)` cap.
         let all = keys(&[
             "fortified",
             "mining",
@@ -883,6 +918,8 @@ mod tests {
     /// red if either expression is edited alone.
     #[test]
     fn the_drop_reaches_exactly_the_bottom_of_the_badge_row() {
+        // Protects: the relationship v1.73 factored _civTraitDrop out to
+        // preserve -- the drop must track the layout's own row bottom exactly.
         for (sz, sc) in [(10.0, 2.0), (1.0, 1.0), (0.0, 0.5), (37.5, 3.25)] {
             let b = trait_badge_layout(0.0, 0.0, &keys(&["port"]), sz, sc);
             let bottom = b[0].cy + b[0].r - sz; // measured from the pin's rim
@@ -902,6 +939,8 @@ mod tests {
     /// term for a large one, and the crossover is where the two agree.
     #[test]
     fn the_badge_radius_floor_is_the_references_own_2_2() {
+        // Protects: Math.max(2.2, sz*0.42)'s floor, scaled term and NaN
+        // propagation (js_max, not f64::max).
         assert_eq!(trait_badge_radius(0.0), 2.2);
         assert_eq!(trait_badge_radius(1.0), 2.2);
         assert!((trait_badge_radius(100.0) - 42.0).abs() < 1e-12);
@@ -911,6 +950,8 @@ mod tests {
 
     #[test]
     fn sprite_draw_rect_guards_a_zero_height_source() {
+        // Protects: Math.max(1,sh) -- a zero-height source image must not
+        // divide by zero.
         let r = sprite_draw_rect(100.0, 200.0, 1.0, 5.0, 64.0, 0.0);
         assert_eq!((r.dw, r.dh), (704.0, 11.0));
     }
@@ -922,6 +963,8 @@ mod tests {
     /// `dy = 200-5 = 195`.
     #[test]
     fn trait_sprite_rect_is_centre_anchored_at_exactly_twice_the_radius() {
+        // Protects: _traitSprite's dh=radius*2 and its centre anchoring on
+        // both axes, against hand-worked reference literals.
         let r = trait_sprite_rect(100.0, 200.0, 5.0, 64.0, 32.0);
         assert_eq!((r.dx, r.dy, r.dw, r.dh), (90.0, 195.0, 20.0, 10.0));
         // Centred, not standing on the point: the badge's centre is the point
@@ -934,6 +977,8 @@ mod tests {
     /// `_customSprite`/`_featureSprite`'s factor would make it 23.
     #[test]
     fn a_trait_badge_sprite_fills_the_diameter_the_layout_reserved_for_it() {
+        // Protects: the `2` factor in _traitSprite's dh=radius*2, pinned
+        // against the `2.3` its centre-anchored siblings use.
         let b = trait_badge_layout(0.0, 0.0, &keys(&["port", "mining"]), 10.0, 2.0);
         let r = trait_sprite_rect(b[0].cx, b[0].cy, b[0].r, 128.0, 128.0);
         assert_eq!((r.dw, r.dh), (b[0].r * 2.0, b[0].r * 2.0));
@@ -954,6 +999,8 @@ mod tests {
     /// silently return `1` and paint a plausible sprite).
     #[test]
     fn trait_sprite_rect_guards_a_zero_height_source_and_keeps_nan() {
+        // Protects: Math.max(1,v.h)'s zero-height guard and its NaN
+        // propagation (js_max, not f64::max, which would swallow NaN to 1).
         let r = trait_sprite_rect(0.0, 0.0, 5.0, 64.0, 0.0);
         assert_eq!((r.dw, r.dh), (640.0, 10.0));
         assert!(trait_sprite_rect(0.0, 0.0, 5.0, 64.0, f64::NAN).dw.is_nan());

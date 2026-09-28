@@ -30,6 +30,8 @@ pub enum PackError {
 }
 
 impl std::fmt::Display for PackError {
+    /// Human-readable message, verbatim the reference's own thrown text where
+    /// there is a reference message to match (see the match arms below).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             // Verbatim the reference's own thrown message, so a UI that
@@ -41,6 +43,8 @@ impl std::fmt::Display for PackError {
 }
 
 impl std::error::Error for PackError {
+    /// The underlying `serde_json::Error` when this is [`PackError::Json`];
+    /// `None` for [`PackError::NoManifest`], which has no cause to chain.
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             PackError::Json(e) => Some(e),
@@ -50,6 +54,8 @@ impl std::error::Error for PackError {
 }
 
 impl From<serde_json::Error> for PackError {
+    /// Lets `?` turn a `pack.json` parse failure into [`PackError::Json`]
+    /// directly inside [`parse_pack_entries`].
     fn from(e: serde_json::Error) -> Self {
         PackError::Json(e)
     }
@@ -102,6 +108,12 @@ impl RawStructures {
         self.settlement.is_empty() && self.traits.is_empty() && self.poi.is_empty()
     }
 
+    /// The raw (unvalidated) map for one structures family.
+    ///
+    /// # Panics
+    /// If `fam` is not [`Family::Settlement`], [`Family::Trait`] or
+    /// [`Family::Poi`]. Private helper, so every call site is in this file and
+    /// already restricted to those three.
     fn family(&self, fam: Family) -> &OrderedMap<Option<Paths>> {
         match fam {
             Family::Settlement => &self.settlement,
@@ -166,6 +178,13 @@ pub struct RawManifest {
 }
 
 impl RawManifest {
+    /// The raw (unvalidated) map for one single-image family — textures,
+    /// biomes or terrains, each of which carries one path per slot rather
+    /// than a variant list.
+    ///
+    /// # Panics
+    /// If `fam` is not one of those three. Private helper, so every call site
+    /// is in this file's [`parse_pack_manifest`] and already restricted.
     fn single_section(&self, fam: Family) -> &OrderedMap<Option<String>> {
         match fam {
             Family::Textures => &self.textures,
@@ -211,6 +230,11 @@ impl Structures {
         }
     }
 
+    /// Mutable counterpart of [`family`](Self::family), used by
+    /// [`parse_pack_manifest`] to insert a validated slot's kept paths.
+    ///
+    /// # Panics
+    /// Same restriction as [`family`](Self::family).
     fn family_mut(&mut self, fam: Family) -> &mut OrderedMap<Vec<String>> {
         match fam {
             Family::Settlement => &mut self.settlement,
@@ -736,6 +760,10 @@ pub fn parse_pack_entries(entries: &BTreeMap<String, Vec<u8>>) -> Result<PackMan
     Ok(parse_pack_manifest(&raw, &names))
 }
 
+/// `v` if it is `Some` and non-empty, else `fallback` — the reference's own
+/// `x || fallback` truthiness rule applied to the three optional manifest
+/// strings (`name`/`author`/`license`), where JS treats `""` the same as
+/// absent.
 fn non_empty(v: Option<&str>, fallback: &str) -> String {
     match v {
         Some(s) if !s.is_empty() => s.to_string(),
@@ -743,6 +771,12 @@ fn non_empty(v: Option<&str>, fallback: &str) -> String {
     }
 }
 
+/// Filter a variant-path list down to the ones `has` (the pack's real file
+/// set) actually resolves, pushing one warning per dropped path onto
+/// `warnings`. Shared by every 1..N-variant family in
+/// [`parse_pack_manifest`] — icons, sea marks, structures, custom sets — so
+/// a missing file is reported identically regardless of which section it was
+/// declared in.
 fn keep_existing(
     v: &Paths,
     has: &dyn Fn(&str) -> bool,
@@ -763,16 +797,24 @@ fn keep_existing(
         .collect()
 }
 
+/// Golden and unit coverage for the manifest data model, its CSV/JSON
+/// parsers, `parse_pack_manifest`'s validation and warning ordering, and the
+/// `to_raw`/`to_pack_json` round trip.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Test-only helper: build the `files` set `parse_pack_manifest` checks
+    /// declared paths against, from a plain string slice.
     fn files(list: &[&str]) -> BTreeSet<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
 
     #[test]
     fn js_parse_float_matches_javascript() {
+        // Protects: js_parse_float against str::parse's stricter grammar —
+        // trailing junk, surrounding whitespace and an empty/non-numeric
+        // string must all match what JavaScript's own `parseFloat` returns.
         assert_eq!(js_parse_float("1"), Some(1.0));
         assert_eq!(js_parse_float(" 2.5 "), Some(2.5));
         assert_eq!(js_parse_float("3px"), Some(3.0)); // str::parse would reject
@@ -783,8 +825,8 @@ mod tests {
 
     #[test]
     fn an_omitted_slot_is_silently_absent() {
-        // The per-slot procedural fallback: an icons-only pack is legal, and
-        // says nothing about the six textures it does not carry.
+        // Protects: the per-slot procedural fallback — an icons-only pack is
+        // legal, and omitting the other families is silent, not a warning.
         let raw: RawManifest =
             serde_json::from_str(r#"{"icons":{"shrub":["icons/s.png"]}}"#).unwrap();
         let m = parse_pack_manifest(&raw, &files(&["icons/s.png"]));
@@ -796,8 +838,8 @@ mod tests {
 
     #[test]
     fn a_null_valued_slot_is_skipped_without_a_warning() {
-        // `if(p==null) continue` in the reference: an explicit null is "no art
-        // here", not a broken reference.
+        // Protects: `if(p==null) continue` in the reference — an explicit
+        // null is "no art here", not a broken reference, and must not warn.
         let raw: RawManifest =
             serde_json::from_str(r#"{"textures":{"grass":null},"icons":{"hill":null}}"#).unwrap();
         let m = parse_pack_manifest(&raw, &files(&[]));
@@ -826,6 +868,8 @@ mod tests {
     /// whatever the constant says. The strings are spelled out.
     #[test]
     fn painted_ground_and_trait_families_no_longer_warn() {
+        // Protects: the Ruling-2026-09-03/2026-09-22 re-baselines above --
+        // biome/terrain/trait art must warn about nothing once consumed.
         let ground: RawManifest = serde_json::from_str(
             r#"{"biomes":{"jungle":"b/j.png"},"terrains":{"paved":"r/p.png"}}"#,
         )
@@ -871,6 +915,8 @@ mod tests {
     /// landed, not the one pinning its absence.
     #[test]
     fn settlement_and_poi_are_now_named_by_the_unused_warning() {
+        // Protects: Ruling W (2026-09-21) -- a settlement/POI-only pack must
+        // name both undrawn sections in the unused-sections warning.
         let raw: RawManifest = serde_json::from_str(
             r#"{"structures":{"settlement":{"town":["s/t.png"]},"poi":{"cave":["s/c.png"]}}}"#,
         )
@@ -889,6 +935,8 @@ mod tests {
     /// all; `seamarks` is decoded by nothing under `cartalith-godot`).
     #[test]
     fn custom_and_seamarks_are_named_by_the_unused_warning() {
+        // Protects: Ruling W (2026-09-21) -- `custom` and `seamarks`, the
+        // other two undrawn sections, must both be named too.
         let raw: RawManifest = serde_json::from_str(
             r#"{"custom":{"Naval":{"anchor":["c/a.png"]}},
                 "seamarks":{"lighthouse":["s/l.png"]}}"#,
@@ -925,6 +973,9 @@ mod tests {
     /// structures.poi, custom, seamarks)"`.**
     #[test]
     fn four_unused_sections_are_named_together_in_order_and_trait_is_not_one() {
+        // Protects: all four remaining undrawn sections are named together,
+        // in the emit site's fixed order, and `trait` is no longer among
+        // them now that its art reaches the live map.
         let raw: RawManifest = serde_json::from_str(
             r#"{"structures":{"settlement":{"town":["s/t.png"]},
                               "trait":{"port":["s/p.png"]},
@@ -949,6 +1000,8 @@ mod tests {
 
     #[test]
     fn referenced_files_lists_every_family() {
+        // Protects: referenced_files() against a family a future edit forgets
+        // to `extend` from -- every family's paths must appear in the result.
         let raw: RawManifest = serde_json::from_str(
             r#"{"textures":{"grass":"t/g.png"},"biomes":{"jungle":"b/j.png"},
                 "terrains":{"paved":"r/p.png"},"icons":{"hill":["i/h.png"]},
@@ -973,6 +1026,8 @@ mod tests {
 
     #[test]
     fn to_raw_round_trips_through_json() {
+        // Protects: export -> re-import losslessness -- a validated manifest
+        // serialized via to_pack_json and re-parsed must equal the original.
         let raw: RawManifest = serde_json::from_str(
             r#"{"schema":2,"name":"P","author":"a","license":"CC0",
                 "textures":{"grass":"t/g.png"},"icons":{"hill":"i/h.png"},
@@ -999,8 +1054,10 @@ mod tests {
 
     #[test]
     fn empty_sections_are_omitted_but_textures_and_icons_are_always_written() {
-        // Mirrors PackManifestBuilder, which seeds `textures:{}` and `icons:{}`
-        // unconditionally and adds the other sections only when used.
+        // Protects: `to_pack_json`'s per-section skip_serializing_if rules --
+        // mirrors PackManifestBuilder, which seeds `textures:{}` and
+        // `icons:{}` unconditionally and adds the other sections only when
+        // used.
         let json = PackManifest {
             name: "P".into(),
             ..Default::default()
@@ -1015,6 +1072,8 @@ mod tests {
 
     #[test]
     fn parse_pack_entries_picks_json_over_csv_and_reports_neither() {
+        // Protects: parse_pack_entries's no-manifest error and its
+        // JSON-over-CSV precedence when both are present.
         let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         entries.insert("art.png".into(), vec![1]);
         assert!(matches!(
@@ -1043,6 +1102,8 @@ mod tests {
 
     #[test]
     fn malformed_pack_json_is_an_error_not_a_panic() {
+        // Protects: a truncated/invalid pack.json returns Err(PackError::Json)
+        // rather than propagating a serde panic through the caller.
         let mut entries: BTreeMap<String, Vec<u8>> = BTreeMap::new();
         entries.insert("pack.json".into(), b"{not json".to_vec());
         assert!(matches!(
@@ -1053,6 +1114,8 @@ mod tests {
 
     #[test]
     fn csv_cannot_express_structures_or_custom() {
+        // Protects: parse_pack_csv's documented format limitation -- an
+        // unrecognized "structure" row type is dropped, not misfiled.
         let raw = parse_pack_csv("icon,mountain,i/m.png,1\nstructure,hamlet,s/h.png,1");
         assert!(raw.structures.is_empty());
         assert!(raw.custom.is_empty());

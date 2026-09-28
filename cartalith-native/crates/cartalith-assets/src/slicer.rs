@@ -252,6 +252,8 @@ pub fn move_line(lines: &mut [f64], i: usize, frac: f64) {
     if lines.len() < 3 || i == 0 || i + 1 >= lines.len() {
         return;
     }
+    // The clamp margin `move_line` keeps a dragged line from its neighbours,
+    // so two lines can approach but never collide or cross.
     const MIN_GAP: f64 = 1e-4;
     let lo = lines[i - 1];
     let hi = lines[i + 1];
@@ -562,6 +564,10 @@ pub fn sheet_base_name(file_name: &str) -> String {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+/// Unit coverage for the slicer: grid geometry (`GridRect`/`SliceGrid`/
+/// `compute_cells`), the half-gutter spacing model, crop/trim pixel
+/// correctness, blank/chroma detection, line-drag overrides and the two
+/// naming conventions.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -579,12 +585,14 @@ mod tests {
         DecodedImage::new(w, h, rgba).unwrap()
     }
 
+    /// Test-only helper: a uniform `w`x`h` image of one RGBA colour.
     fn solid(w: u32, h: u32, px: [u8; 4]) -> DecodedImage {
         DecodedImage::new(w, h, std::iter::repeat_n(px, (w * h) as usize).flatten().collect()).unwrap()
     }
 
     #[test]
     fn clamp_grid_count_matches_clamp_int_1_128() {
+        // Protects: clamp_grid_count's [1,128] bounds on both sides.
         assert_eq!(clamp_grid_count(0), 1);
         assert_eq!(clamp_grid_count(-7), 1);
         assert_eq!(clamp_grid_count(1), 1);
@@ -594,6 +602,8 @@ mod tests {
 
     #[test]
     fn slice_grid_new_clamps_nan_and_negative_spacing_to_zero() {
+        // Protects: SliceGrid::new's spacing clamp against a NaN or negative
+        // input, without disturbing a legitimate positive value.
         let r = GridRect::whole(64, 64);
         assert_eq!(SliceGrid::new(r, 2, 2, f64::NAN).spacing, 0.0);
         assert_eq!(SliceGrid::new(r, 2, 2, -10.0).spacing, 0.0);
@@ -602,6 +612,8 @@ mod tests {
 
     #[test]
     fn grid_rect_inset_refuses_a_margin_that_eats_the_sheet() {
+        // Protects: GridRect::inset rejects a margin that would leave no
+        // usable area, and treats a negative margin as none.
         assert!(GridRect::inset(64, 64, 32.0).is_none());
         assert_eq!(GridRect::inset(64, 64, 8.0).unwrap(), GridRect { x: 8.0, y: 8.0, w: 48.0, h: 48.0 });
         // A negative margin is treated as none, not as an outset.
@@ -610,6 +622,8 @@ mod tests {
 
     #[test]
     fn crop_cell_takes_the_right_pixels_not_merely_the_right_count() {
+        // Protects: crop_cell reads pixels from the correct source offset,
+        // not merely the correct output size.
         let sheet = coord_sheet(16, 16);
         let cell = CellRect { col: 1, row: 1, index: 3, x: 8.0, y: 8.0, w: 8.0, h: 8.0 };
         let out = crop_cell(&sheet, &cell);
@@ -621,6 +635,8 @@ mod tests {
 
     #[test]
     fn crop_cell_leaves_out_of_bounds_area_transparent() {
+        // Protects: crop_cell's drawImage-clipping behaviour -- a cell
+        // hanging off the sheet leaves the uncovered area transparent.
         // A cell hanging off the right and bottom edges: drawImage clips the
         // source and leaves the rest of the fresh canvas transparent.
         let sheet = coord_sheet(8, 8);
@@ -636,6 +652,8 @@ mod tests {
 
     #[test]
     fn crop_cell_entirely_off_the_sheet_is_all_transparent() {
+        // Protects: crop_cell against a cell whose rect does not intersect
+        // the sheet at all -- must not panic or read out of bounds.
         let sheet = coord_sheet(8, 8);
         let cell = CellRect { col: 0, row: 0, index: 0, x: 100.0, y: 100.0, w: 4.0, h: 4.0 };
         let out = crop_cell(&sheet, &cell);
@@ -645,6 +663,8 @@ mod tests {
 
     #[test]
     fn trim_removes_transparent_borders_and_keeps_the_content_pixels() {
+        // Protects: trim_transparent_edges shrinks to the opaque content and
+        // preserves its pixel values exactly.
         // 6x6 with a 3x2 opaque block at (2,1).
         let mut img = solid(6, 6, [0, 0, 0, 0]);
         for y in 1..3u32 {
@@ -660,6 +680,8 @@ mod tests {
 
     #[test]
     fn trim_uses_the_references_own_alpha_threshold_not_zero() {
+        // Protects: trim_transparent_edges and isBlank share one alpha
+        // threshold, not zero -- they must never disagree on "blank".
         // An alpha-8 border is "transparent" to `isBlank`, so it must be to
         // trim as well -- the two can never disagree.
         let mut img = solid(3, 1, [0, 0, 0, 8]);
@@ -671,6 +693,8 @@ mod tests {
 
     #[test]
     fn trim_leaves_a_blank_or_already_tight_image_alone() {
+        // Protects: trim_transparent_edges is a no-op on an all-blank or
+        // already-tight image -- neither shrinks to nothing nor grows.
         let blank = solid(4, 4, [0, 0, 0, 0]);
         assert_eq!(trim_transparent_edges(&blank), blank);
         let tight = solid(4, 4, [1, 2, 3, 255]);
@@ -679,6 +703,8 @@ mod tests {
 
     #[test]
     fn slice_sheet_skips_blank_cells_only_when_asked() {
+        // Protects: slice_sheet's skip_blank option -- blank cells are
+        // included and flagged by default, dropped only when asked.
         // 4x2 sheet, left half opaque, right half transparent -> 2 cells,
         // one blank.
         let mut sheet = solid(4, 2, [0, 0, 0, 0]);
@@ -701,6 +727,8 @@ mod tests {
 
     #[test]
     fn slice_sheet_chroma_can_turn_a_cell_blank() {
+        // Protects: the chroma-key pass runs before blank detection, so a
+        // fully-keyed cell is dropped by skip_blank too.
         // Every pixel is the keyed colour, so after the chroma pass the whole
         // sheet is transparent and both cells drop out.
         let sheet = solid(4, 2, [255, 255, 255, 255]);
@@ -715,6 +743,8 @@ mod tests {
 
     #[test]
     fn slice_sheet_refuses_a_too_dense_grid() {
+        // Protects: slice_sheet returns nothing for a grid whose spacing
+        // leaves no usable cell area, rather than emitting degenerate cells.
         let sheet = solid(16, 16, [1, 1, 1, 255]);
         let grid = SliceGrid::new(GridRect::whole(16, 16), 4, 4, 100.0);
         assert!(!compute_cells(&grid).is_usable());
@@ -723,6 +753,8 @@ mod tests {
 
     #[test]
     fn column_and_row_spans_are_the_overlay_lines_the_slice_actually_cuts_on() {
+        // Protects: column_spans/row_spans match the actual cut lines
+        // (the half-gutter model), not an equal-pitch approximation.
         // The half-gutter model again, seen from the overlay's side: the two
         // outer columns are wider, so a preview drawn from an equal-pitch
         // formula would sit visibly off the cells the slice produces.
@@ -749,6 +781,8 @@ mod tests {
 
     #[test]
     fn count_cells_is_the_same_verdict_the_slice_would_reach() {
+        // Protects: count_cells' totals and blank list agree exactly with
+        // what slice_sheet itself would produce.
         let mut sheet = solid(4, 2, [0, 0, 0, 0]);
         sheet.rgba[3] = 255;
         let grid = SliceGrid::new(GridRect::whole(4, 2), 2, 1, 0.0);
@@ -764,6 +798,8 @@ mod tests {
 
     #[test]
     fn default_names_match_the_references_two_conventions() {
+        // Protects: SlicedCell's two naming conventions (file suffix and
+        // human "cell N" label) against the reference's own 1-based scheme.
         let c = SlicedCell {
             col: 2,
             row: 1,
@@ -777,12 +813,16 @@ mod tests {
 
     #[test]
     fn uniform_lines_matches_reset_lines() {
+        // Protects: uniform_lines' evenly-spaced n+1 fractions for a given
+        // division count.
         assert_eq!(uniform_lines(4), vec![0.0, 0.25, 0.5, 0.75, 1.0]);
         assert_eq!(uniform_lines(1), vec![0.0, 1.0]);
     }
 
     #[test]
     fn move_line_clamps_strictly_between_its_neighbours() {
+        // Protects: move_line's strict clamp between its two neighbours, so a
+        // dragged line can approach but never cross or collapse a cell.
         let mut lines = uniform_lines(4); // [0, .25, .5, .75, 1]
         move_line(&mut lines, 2, 0.6);
         assert_eq!(lines, vec![0.0, 0.25, 0.6, 0.75, 1.0]);
@@ -794,6 +834,8 @@ mod tests {
 
     #[test]
     fn move_line_refuses_the_outer_edges_and_out_of_range_index() {
+        // Protects: move_line's no-op guard for the outer edges and any
+        // out-of-range index.
         let mut lines = uniform_lines(4);
         let before = lines.clone();
         move_line(&mut lines, 0, 0.5);
@@ -804,6 +846,8 @@ mod tests {
 
     #[test]
     fn compute_cells_uses_a_dragged_interior_line_instead_of_uniform() {
+        // Protects: compute_cells reads a dragged line override instead of
+        // recomputing uniform divisions, touching only the two adjacent cells.
         // 4 cols, one interior line (index 1, the boundary between col 0 and
         // col 1) dragged from .25 to .4 -- column 0 should widen and column 1
         // narrow by exactly the same amount, everything else untouched.
@@ -820,6 +864,8 @@ mod tests {
 
     #[test]
     fn col_line_px_is_the_undisplaced_line_not_the_gutter_edge() {
+        // Protects: col_line_px reports the raw division line, distinct from
+        // the gutter-adjusted cell edges column_spans() derives from it.
         // 8x2 sheet, 2 cols, spacing 4: the interior line sits at x=4 (the
         // raw uniform division), but the cell edges on either side of it are
         // pulled in by half the gutter (2px), landing at x=2 and x=6.
@@ -831,6 +877,8 @@ mod tests {
 
     #[test]
     fn compute_cells_ignores_a_line_override_of_the_wrong_length() {
+        // Protects: compute_cells falls back to uniform division when a line
+        // override's length does not match the current column/row count.
         // A stale 5-entry array (left over from a previous cols=4) handed to
         // a now-3-column grid falls back to uniform rather than panicking or
         // silently truncating.
@@ -842,6 +890,8 @@ mod tests {
 
     #[test]
     fn sheet_base_name_strips_one_trailing_extension_only() {
+        // Protects: sheet_base_name strips exactly one trailing extension,
+        // and leaves a name with no extension (or a trailing dot) untouched.
         assert_eq!(sheet_base_name("towns-sheet.png"), "towns-sheet");
         assert_eq!(sheet_base_name("a.b.png"), "a.b");
         assert_eq!(sheet_base_name("noext"), "noext");

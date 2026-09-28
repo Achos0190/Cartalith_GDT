@@ -1264,6 +1264,42 @@ re-checked against the tree rather than copied from the commit message.
   need an independent verifier before any can be called done rather than
   pending.
 
+- **Ruling BK annotation pass, batch 21 (`cartalith-assets`'s `manifest.rs`,
+  `placement.rs`, `manual.rs`, `slicer.rs`) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; full assets 263/0/0).** Comments only, zero behaviour change. Per-file
+  `find_gaps.py` confirms all four individually gap-free after editing:
+  `manifest.rs` (1062 LOC — 6 undoc items: `Display::fmt`, `Error::source`,
+  `From<serde_json::Error>::from`, `RawStructures::family`,
+  `RawManifest::single_section`, `Structures::family_mut`, plus
+  `non_empty`/`keep_existing`/`mod tests`/the `files` test helper, and 13
+  unprotected tests, all closed); `placement.rs` (961 LOC — `mod tests`,
+  the `rule`/`keys` test helpers and 20 unprotected tests, all closed, no
+  undocumented non-test items existed); `manual.rs` (1049 LOC —
+  `ManualIconFamily::from_key`, `icon_brush_stamp` (whose doc block was
+  separated from the fn by an interceding plain `//` comment, which the
+  census's adjacency rule does not see as attached — folded into the `///`
+  block instead of duplicating it), `IconViewEnv::default`,
+  `ICON_SCALE_MAX`, `mod tests` and three test helpers, and 32 unprotected
+  tests, all closed); `slicer.rs` (850 LOC — `MIN_GAP` given its own inline
+  comment rather than relying on the doc block above `move_line`, which the
+  same adjacency rule does not reach, `mod tests`, the `solid` helper, and
+  22 unprotected tests, all closed). One mid-edit slip on `manual.rs`
+  (an editor artefact briefly inserted an unrelated `impl Debug for ()`
+  block while drafting the `IconBrush::default` doc) was caught by an
+  immediate `git diff` and reverted before it was ever built or tested — not
+  shipped. No pre-existing wrong comment found in any of the four files.
+  **Comments only**: `cargo test -p cartalith-assets` (the full suite, not
+  `--lib`), `CARGO_TARGET_DIR` at `.../scratchpad/bk21`, run once before
+  editing and once after — **263 passed / 0 failed / 0 ignored** both times,
+  13 result lines each, matching batch 20's closing baseline exactly.
+  Crate-wide `census_v2.py`: items_undoc 237→142, tests_unprotected
+  202→116, consts_undoc 5→3 (loc 12129→12364). **Next step: batch 22**
+  closes the crate with `library.rs` (1692 LOC, the crate's last file
+  carrying gaps) plus the eleven `tests/*.rs` files (4113 LOC) named in
+  this batch's own brief but not reached — `library.rs` alone is within a
+  single batch's usual ~3000-3500 LOC band; the test files likely need a
+  further batch after it. Batches 6 through 21 all still need an
+  independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
