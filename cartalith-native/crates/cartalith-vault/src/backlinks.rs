@@ -534,6 +534,9 @@ fn stem_of(rel: &str) -> &str {
 /// `????`. Trims to a word boundary at both ends and marks a truncated side
 /// with an ellipsis.
 pub fn excerpt(text: &str, byte_at: usize, needle_len: usize) -> String {
+    // A judgement call, not a measurement: roughly half a line of context
+    // on each side of a hit -- enough to show why the note matched without
+    // dumping the whole paragraph into a one-line list row.
     const PAD: usize = 48;
     let start = text[..byte_at.min(text.len())]
         .char_indices()
@@ -554,5 +557,7 @@ pub fn excerpt(text: &str, byte_at: usize, needle_len: usize) -> String {
     format!("{head}{}{tail}", text[start..end].replace(['\n', '\r'], " ").trim())
 }
 
+/// This module's own tests (`backlinks/tests.rs`), documented at its own
+/// `//!` header.
 #[cfg(test)]
 mod tests;

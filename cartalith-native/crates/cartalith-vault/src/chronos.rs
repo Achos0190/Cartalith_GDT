@@ -316,6 +316,9 @@ fn month_day(tail: &str) -> Option<MonthDay> {
 /// would split a description off it), a colour holding whitespace, a group
 /// holding `}`, or an end year before the start.
 pub fn to_line(e: &Event) -> Result<String, String> {
+    /// Refuses an empty `s`, or one with leading/trailing whitespace or an
+    /// embedded line break, for the field named `what` -- shared by every
+    /// field [`to_line`] validates so the message is consistent.
     fn clean<'a>(what: &str, s: &'a str) -> Result<&'a str, String> {
         if s.trim().is_empty() {
             return Err(format!("the {what} is empty"));

@@ -82,6 +82,8 @@ pub enum Error {
 }
 
 impl std::fmt::Display for Error {
+    /// A one-line, user-facing message per variant -- what a panel shows
+    /// when an operation refuses rather than the `Debug` form.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::NotBound => write!(f, "no Markdown vault is connected on this device"),
@@ -103,16 +105,20 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl From<VaultError> for Error {
+    /// Wraps a filesystem-vault error so `?` composes across the crate
+    /// boundary without the caller matching on the lower-level type.
     fn from(e: VaultError) -> Self {
         Error::Vault(e)
     }
 }
 impl From<SectionError> for Error {
+    /// Wraps a section-parsing/replacement error the same way.
     fn from(e: SectionError) -> Self {
         Error::Section(e)
     }
 }
 impl From<BlockError> for Error {
+    /// Wraps a `CARTALITH:` block error the same way.
     fn from(e: BlockError) -> Self {
         Error::Block(e)
     }
@@ -222,6 +228,8 @@ impl WritePrefs {
         }
     }
 
+    /// The mirror of [`WritePrefs::get`]: sets one of the three named
+    /// preferences and returns whether the name was recognised.
     pub fn set(&mut self, path: &str, value: bool) -> bool {
         match path {
             "section" => self.always_section = value,
@@ -232,6 +240,9 @@ impl WritePrefs {
         true
     }
 
+    /// The device-local sidecar this is saved as. Never fails outwardly: a
+    /// serialisation error (which `WritePrefs`'s own shape cannot actually
+    /// produce) falls back to `"{}"` rather than losing the write.
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
@@ -278,12 +289,15 @@ pub struct VaultSession {
 }
 
 impl Default for VaultSession {
+    /// Delegates to [`VaultSession::new`] so the two never drift apart.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl VaultSession {
+    /// An unbound session with an empty store — the state a brand-new
+    /// project starts in.
     pub fn new() -> Self {
         VaultSession {
             store: LinkStore::default(),
@@ -293,6 +307,10 @@ impl VaultSession {
         }
     }
 
+    /// Rebuilds a session's [`LinkStore`] from a saved `vault.json` document.
+    /// The binding, backlink index and write prefs are device-local and
+    /// never come from the project file, so they start fresh here exactly as
+    /// they do in [`VaultSession::new`].
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
         Ok(VaultSession {
             store: LinkStore::from_json(s)?,
@@ -302,6 +320,7 @@ impl VaultSession {
         })
     }
 
+    /// The store's own JSON — what a project saves into `vault.json`.
     pub fn to_json(&self) -> String {
         self.store.to_json()
     }
@@ -362,18 +381,27 @@ impl VaultSession {
         Ok(id)
     }
 
+    /// Unbinds this device's provider. The store and its links are
+    /// untouched — every link now reports [`LinkStatus::Unbound`] rather
+    /// than being removed (§27: Cartalith stays usable without the vault).
     pub fn disconnect(&mut self) {
         self.binding = None;
     }
 
+    /// True when a provider is bound and currently reports itself reachable.
     pub fn is_bound(&self) -> bool {
         self.binding.as_deref().is_some_and(|v| v.available())
     }
 
+    /// The bound provider, if any — for a caller that wants to inspect it
+    /// directly rather than go through the read/write methods below.
     pub fn vault(&self) -> Option<&dyn VaultProvider> {
         self.binding.as_deref()
     }
 
+    /// The bound, currently-available provider, or [`Error::NotBound`] —
+    /// the single gate every read/write method below goes through so that
+    /// "no vault" and "vault stopped answering" are handled identically.
     fn bound(&self) -> Result<&dyn VaultProvider, Error> {
         self.binding.as_deref().filter(|v| v.available()).ok_or(Error::NotBound)
     }
@@ -384,6 +412,7 @@ impl VaultSession {
         Ok(self.bound()?.list_markdown(limit)?)
     }
 
+    /// One file's whole text from the bound vault.
     pub fn read(&self, rel: &str) -> Result<String, Error> {
         Ok(self.bound()?.read(rel)?)
     }
@@ -1052,6 +1081,9 @@ impl VaultSession {
         Ok((next, hash, report))
     }
 
+    /// Writes the fields [`Self::preview_field_fill`] would fill, refusing
+    /// (same `expect_hash` contract as [`Self::write_block`]) if the source
+    /// changed since that preview was taken.
     pub fn write_field_fill(
         &mut self,
         rel: &str,
@@ -1068,6 +1100,10 @@ impl VaultSession {
     }
 }
 
+/// Integration tests over [`VaultSession`] as a whole -- attach, read, write
+/// back, chronos, backlinks, templates and search -- each against a real
+/// scratch folder on disk so a round trip is exercised through the actual
+/// filesystem provider, not a mock.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1076,6 +1112,9 @@ mod tests {
     /// survives every write Cartalith can make to it.
     const HAND: &str = "---\ntags: [worldbuilding]\n---\n\n# Nareth\n\nA river town at the third ford. The author wrote this sentence.\n\n## History\n\nFounded in the third age by the Ashfall clans.\n\n## The Old Quarter\n\nNarrow streets, older than the walls.\n\n## Trade\n\nGrain downriver, salt up.\n";
 
+    /// A fresh scratch directory under the OS temp dir, seeded with
+    /// [`HAND`] at `Locations/Nareth.md`, unique per test (`tag` plus this
+    /// process's id) so parallel tests never collide.
     fn scratch(tag: &str) -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("cartalith-vault-it-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
@@ -1084,7 +1123,7 @@ mod tests {
         p
     }
 
-    /// SP-3 / Ruling AM, end to end: a `chronos` block written anywhere in a
+    /// Protects: SP-3 / Ruling AM, end to end: a `chronos` block written anywhere in a
     /// settlement's attached note -- outside the heading the link selected --
     /// is read live from disk; edited on disk, it is re-read with no reload;
     /// with the vault gone, it falls back to the saved copy and says so.
@@ -1132,7 +1171,7 @@ oops
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// SP-3's write path, end to end against a real folder: a note with no
+    /// Protects: SP-3's write path, end to end against a real folder: a note with no
     /// block gets one, a second add lands in that block, the unmodified
     /// reader gives both back, the attached link stays Connected, and an
     /// edit made in between refuses the add without writing a byte -- the
@@ -1183,7 +1222,7 @@ oops
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// `GUI_GAP_REGISTER.md` **VA-01**, end to end against a real folder:
+    /// Protects: `GUI_GAP_REGISTER.md` **VA-01**, end to end against a real folder:
     /// a settlement's note gains a backlink from a note that links to it, a
     /// backlink from a note that carries its *entity block* and nothing else,
     /// and an unlinked mention from a note that names it in prose -- with the
@@ -1257,7 +1296,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The path-keyed half of VA-01 (`file_backlinks`/`file_mentions`), for a
+    /// Protects: the path-keyed half of VA-01 (`file_backlinks`/`file_mentions`), for a
     /// note that is being **browsed** and is not attached to any entity —
     /// `vault_window.gd::_build_browse_preview`'s own named gap, closed here.
     /// No `attach()` call anywhere in this test: these two must work from the
@@ -1331,7 +1370,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// `GUI_GAP_REGISTER.md` **VA-02**, end to end against a real folder:
+    /// Protects: `GUI_GAP_REGISTER.md` **VA-02**, end to end against a real folder:
     /// a template is found, a note is created from it at v3's own path, the
     /// author's prompts survive, an existing note is refused, and the new
     /// note is attachable by the ordinary path -- which is the proof that
@@ -1385,6 +1424,8 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: every template method refuses `Error::NotBound` on an
+    /// unbound session rather than panicking or silently doing nothing.
     #[test]
     fn creating_a_note_needs_a_bound_vault() {
         let s = VaultSession::new();
@@ -1398,7 +1439,7 @@ rows
         template::DateTime::new(2010, 2, 14, 15, 25, 50).unwrap()
     }
 
-    /// Ruling BF end to end on a real directory: the folder comes from a
+    /// Protects: Ruling BF end to end on a real directory: the folder comes from a
     /// real `.obsidian/templates.json`, a file named "template" outside it is
     /// NOT offered, `{{title}}`/`{{date}}` fill with the vault's format, and
     /// Templater's `<% %>` survives -- read back from disk.
@@ -1435,6 +1476,9 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: §16's whole write path for one attached section: attach,
+    /// edit the working copy, preview, write back -- and every other byte of
+    /// the hand-authored note (frontmatter, other sections) survives intact.
     #[test]
     fn attach_edit_and_write_back_one_section_leaves_the_rest_of_the_note_alone() {
         let root = scratch("section");
@@ -1478,6 +1522,10 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: §16 step 3's hash guard: a write refuses with
+    /// `Error::SourceChanged` when the file changed since the preview, not
+    /// one byte is written on refusal, and re-previewing against the new
+    /// file succeeds without losing either side's edit.
     #[test]
     fn a_source_that_changed_since_the_preview_is_not_overwritten() {
         let root = scratch("conflict");
@@ -1507,7 +1555,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The browse panel's own write path -- no link, no section, just a
+    /// Protects: the browse panel's own write path -- no link, no section, just a
     /// whole file -- round trips, and carries the same hash-guard
     /// [`Error::SourceChanged`] discipline as [`VaultSession::write_section`]
     /// above, proved the same way: an edit lands between the read and the
@@ -1540,7 +1588,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// §32's "heading renamed", from the one direction V1 can actually
+    /// Protects: §32's "heading renamed", from the one direction V1 can actually
     /// control: the user renames the heading *in Cartalith* and writes back.
     /// The link has to follow, or Cartalith immediately refuses to read a
     /// section it just wrote itself.
@@ -1568,6 +1616,8 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: `reload` throws away any local edit and re-reads the
+    /// source, leaving the link in whatever status the source now reports.
     #[test]
     fn reload_discards_the_working_copy_and_re_syncs() {
         let root = scratch("reload");
@@ -1585,6 +1635,10 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: §23/§24's whole block lifecycle -- insert (`BlockAction::
+    /// Inserted`), update in place (`Replaced`) and remove -- each leaving
+    /// the rest of the hand-authored note untouched, ending with the file
+    /// exactly as it was before the block existed.
     #[test]
     fn the_cartalith_block_is_written_updated_and_removed_without_disturbing_the_note() {
         let root = scratch("block");
@@ -1619,6 +1673,10 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: the owner's 2026-08-18 amendment: an author-owned field is
+    /// filled when empty (including a bracketed placeholder), skipped when
+    /// already occupied, the preview shows exactly what the write does, and
+    /// nothing is silent -- every field gets a reported outcome.
     #[test]
     fn author_field_population_is_offered_and_never_silent() {
         let root = scratch("fields");
@@ -1650,6 +1708,10 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: §27's "usable without the vault": a project opened on a
+    /// device that has never seen the folder still has every link, still
+    /// reports `LinkStatus::Unbound` rather than crashing, and still reads
+    /// its cached text.
     #[test]
     fn a_project_opens_and_reports_honestly_with_no_vault_bound() {
         let root = scratch("unbound");
@@ -1673,7 +1735,7 @@ rows
 
     // ---- the owner's 2026-08-25 direction, requirement by requirement ----
 
-    /// **Requirement 3.** A person types a word; the vault answers by name
+    /// Protects: **Requirement 3.** A person types a word; the vault answers by name
     /// and by content, and says which of the two it could actually do.
     #[test]
     fn search_finds_notes_by_name_and_by_content_and_says_when_it_could_not_look() {
@@ -1732,7 +1794,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// **Requirement 4.** Attaching a note copies its information into
+    /// Protects: **Requirement 4.** Attaching a note copies its information into
     /// Cartalith's own JSON, it survives the round trip, and it reads back
     /// per entity with the vault disconnected.
     #[test]
@@ -1781,7 +1843,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The failure path the copy has to survive: a note whose frontmatter is
+    /// Protects: the failure path the copy has to survive: a note whose frontmatter is
     /// malformed must still attach, and must contribute nothing rather than
     /// something wrong.
     #[test]
@@ -1804,7 +1866,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The copy tracks the link's own staleness and nothing else: a note that
+    /// Protects: the copy tracks the link's own staleness and nothing else: a note that
     /// changed reports Stale, the copy is still the old one until *Reload*,
     /// and reload moves text, data and hash together.
     #[test]
@@ -1833,7 +1895,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Writing a section back re-syncs the link's hash, so it must re-sync
+    /// Protects: writing a section back re-syncs the link's hash, so it must re-sync
     /// the copy too — otherwise a field edited inside that section leaves a
     /// stale copy sitting under a Connected status.
     #[test]
@@ -1863,7 +1925,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// **Requirement 5's missing half.** The "always" preference is real
+    /// Protects: **Requirement 5's missing half.** The "always" preference is real
     /// state, it round-trips, it is device state rather than project data,
     /// and a name nobody defined does not quietly disarm a confirmation.
     #[test]
@@ -1892,7 +1954,7 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// **Requirement 2.** A culture is attachable, and its id is the only one
+    /// Protects: **Requirement 2.** A culture is attachable, and its id is the only one
     /// in this system that a regenerate cannot move.
     #[test]
     fn a_culture_is_an_addressable_entity_with_a_permanent_id() {
@@ -1909,6 +1971,8 @@ rows
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: attaching a heading that is not in the document fails the
+    /// attach itself, with no half-made link left in the store.
     #[test]
     fn attaching_a_section_that_does_not_exist_fails_at_attach_time() {
         let root = scratch("badsec");
@@ -1935,6 +1999,7 @@ rows
     }
 
     impl FakeProvider {
+        /// A fake vault pre-loaded with `(path, text)` pairs.
         fn seeded(files: &[(&str, &str)]) -> Self {
             let map = files.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
             FakeProvider { files: std::rc::Rc::new(std::cell::RefCell::new(map)) }
@@ -1951,36 +2016,46 @@ rows
     }
 
     impl provider::VaultProvider for FakeProvider {
+        /// Always reachable — this fake has no "unreachable" state to model.
         fn available(&self) -> bool {
             true
         }
+        /// Every key in the map, capped at `limit`.
         fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
             let mut out: Vec<String> = self.files.borrow().keys().cloned().collect();
             out.truncate(limit);
             Ok(out)
         }
+        /// The text at `rel`, or a not-found `VaultError`.
         fn read(&self, rel: &str) -> Result<String, VaultError> {
             self.files.borrow().get(rel).cloned().ok_or_else(|| {
                 VaultError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, rel.to_string()))
             })
         }
+        /// A synthetic `FileMeta`: always `modified: 0` (this fake carries no
+        /// clock), and the real byte length so hash-guard tests still see a
+        /// changed length where they expect one.
         fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
             let text = self.read(rel)?;
             Ok(FileMeta { modified: 0, len: text.len() as u64 })
         }
+        /// Whether `rel` is in the map.
         fn exists(&self, rel: &str) -> bool {
             self.files.borrow().contains_key(rel)
         }
+        /// Inserts or overwrites `rel`'s text in the map.
         fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
             self.files.borrow_mut().insert(rel.to_string(), text.to_string());
             Ok(())
         }
+        /// A fixed, recognisable label so a failing assertion names this
+        /// provider rather than a real path.
         fn describe(&self) -> String {
             "fake://vault".to_string()
         }
     }
 
-    /// Milestone 4's whole claim, proven rather than asserted: every
+    /// Protects: milestone 4's whole claim, proven rather than asserted: every
     /// property `FsVault`'s own tests establish — list, attach, edit,
     /// hash-guarded write, and the source-changed refusal that stops
     /// Cartalith clobbering a concurrent edit — holds through *any*
@@ -2029,33 +2104,43 @@ rows
         assert!(after2.contains("and wool."), "the concurrent external edit survived");
     }
 
+    /// A provider that always reports itself unreachable -- every other
+    /// method is a stub that is never meant to be called, since
+    /// `VaultSession::connect_provider` must refuse before reaching them.
     #[derive(Debug)]
     struct NeverAvailable;
     impl provider::VaultProvider for NeverAvailable {
+        /// Always `false`: the one behaviour this fixture exists to have.
         fn available(&self) -> bool {
             false
         }
+        /// Unreachable in practice; a stub so the trait is satisfied.
         fn list_markdown(&self, _limit: usize) -> Result<Vec<String>, VaultError> {
             Ok(Vec::new())
         }
+        /// Unreachable in practice; a stub so the trait is satisfied.
         fn read(&self, _rel: &str) -> Result<String, VaultError> {
             Ok(String::new())
         }
+        /// Unreachable in practice; a stub so the trait is satisfied.
         fn meta(&self, _rel: &str) -> Result<FileMeta, VaultError> {
             Ok(FileMeta { modified: 0, len: 0 })
         }
+        /// Unreachable in practice; a stub so the trait is satisfied.
         fn exists(&self, _rel: &str) -> bool {
             false
         }
+        /// Unreachable in practice; a stub so the trait is satisfied.
         fn write(&self, _rel: &str, _text: &str) -> Result<(), VaultError> {
             Ok(())
         }
+        /// A fixed label for a failing assertion to name.
         fn describe(&self) -> String {
             "never://reachable".to_string()
         }
     }
 
-    /// The same refusal `connect` gives a missing directory
+    /// Protects: the same refusal `connect` gives a missing directory
     /// (`a_missing_root_is_reported_not_panicked` in `provider.rs`), proven
     /// for the generic entry point too: a provider that cannot be reached
     /// right now must never be registered as if it were.

@@ -99,6 +99,8 @@ pub enum Source {
 }
 
 impl Source {
+    /// The lower-case key used in the window/log text (`describe`'s callers
+    /// outside this module use this rather than a `Debug` string).
     pub fn as_str(self) -> &'static str {
         match self {
             Source::Obsidian => "obsidian",
@@ -151,10 +153,14 @@ impl Config {
         Config { source: Source::Fallback, folder: None, date_format, time_format }
     }
 
+    /// The `{{date}}` format actually in force: the vault's `dateFormat`, or
+    /// Obsidian's own default when it set none.
     pub fn date_format_or_default(&self) -> &str {
         self.date_format.as_deref().unwrap_or(DEFAULT_DATE_FORMAT)
     }
 
+    /// The `{{time}}` format actually in force: the vault's `timeFormat`, or
+    /// Obsidian's own default when it set none.
     pub fn time_format_or_default(&self) -> &str {
         self.time_format.as_deref().unwrap_or(DEFAULT_TIME_FORMAT)
     }
@@ -210,6 +216,8 @@ pub fn discover(files: &[String], cfg: &Config) -> Vec<Template> {
     }
 }
 
+/// `s` with a trailing `.md`/`.MD`/… stripped (case-insensitively); `s`
+/// itself when it has none.
 fn strip_md(s: &str) -> &str {
     if s.len() >= 3 && s[s.len() - 3..].eq_ignore_ascii_case(".md") {
         &s[..s.len() - 3]
@@ -288,10 +296,13 @@ pub struct DateTime {
     pub second: u32,
 }
 
+/// The proleptic Gregorian leap-year rule.
 fn is_leap(y: i32) -> bool {
     (y % 4 == 0 && y % 100 != 0) || y % 400 == 0
 }
 
+/// Days in month `m` of year `y` (0 for a month outside 1..=12, which
+/// [`DateTime::new`] rejects before this is ever called with one).
 fn month_len(y: i32, m: u32) -> u32 {
     match m {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
@@ -374,6 +385,8 @@ fn ordinal(n: i64) -> String {
     format!("{n}{suffix}")
 }
 
+/// Zero-pads `n` to `width` digits, keeping a leading `-` for a negative
+/// year outside the padded width (Moment's own zero-fill behaviour).
 fn zero_fill(n: i64, width: usize) -> String {
     let sign = if n < 0 { "-" } else { "" };
     format!("{sign}{:0width$}", n.abs(), width = width)
@@ -637,6 +650,8 @@ pub fn fill(template: &str, f: &Fill) -> String {
     out
 }
 
+/// One `{{token}}` or `{{token:format}}`'s value, `None` when `token` is not
+/// one of the recognised placeholders (so [`fill`] leaves it verbatim).
 fn placeholder(token: &str, f: &Fill) -> Option<String> {
     let (key, format) = match token.split_once(':') {
         Some((k, fmt)) => (k.trim(), Some(fmt.trim())),
@@ -687,6 +702,10 @@ struct Prop {
     lines: Vec<String>,
 }
 
+/// Groups a frontmatter block's `inner` lines into top-level [`Prop`]s: a
+/// non-indented `key: …` line starts a new property, everything else
+/// (indented list items, comments, a value that overflows one line) is
+/// appended to the property above it.
 fn props(lines: &[&str]) -> Vec<Prop> {
     let mut out: Vec<Prop> = Vec::new();
     for l in lines {
@@ -793,11 +812,18 @@ pub fn insert(note: &str, caret_chars: usize, filled: &str) -> (String, usize) {
     (text, caret)
 }
 
+/// Tests for template discovery, the Obsidian-settings resolution order, the
+/// Moment.js formatter, placeholder filling and Insert-template's
+/// frontmatter merge -- Ruling BF's exactness bar, checked against Obsidian's
+/// help page and documented forum behaviour rather than this module's own
+/// output.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::EntityKind;
 
+    /// `&str` fixtures to the `Vec<String>` [`discover`] and `list_markdown`
+    /// actually deal in.
     fn files(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
@@ -811,6 +837,8 @@ mod tests {
 
     // -- the template folder --------------------------------------------------------
 
+    /// A `Config::read` closure backed by an in-memory map, standing in for
+    /// the vault's real file reads.
     fn reader(map: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let owned: Vec<(String, String)> = map.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         move |p: &str| owned.iter().find(|(k, _)| k == p).map(|(_, v)| v.clone())
@@ -818,6 +846,8 @@ mod tests {
 
     #[test]
     fn templates_json_names_the_folder_and_the_formats() {
+        // Protects: templates.json's folder and format keys are read and win
+        // over Templater's, and discover() returns only that folder's notes.
         let cfg = Config::read(reader(&[
             (".obsidian/templates.json", r#"{"folder":"Templates","dateFormat":"DD.MM.YYYY","timeFormat":"HH:mm:ss"}"#),
             (".obsidian/plugins/templater-obsidian/data.json", r#"{"templates_folder":"Other"}"#),
@@ -841,6 +871,9 @@ mod tests {
 
     #[test]
     fn a_folder_written_with_slashes_is_the_same_folder() {
+        // Protects: folder_of() trims slashes and whitespace, an unset
+        // format stays None (not the default), and a blank saved format
+        // ("" or " ") is treated as unset too.
         let cfg = Config::read(reader(&[(".obsidian/templates.json", r#"{"folder":"/Meta/Templates/"}"#)]));
         assert_eq!(cfg.folder.as_deref(), Some("Meta/Templates"));
         assert_eq!(cfg.date_format, None, "an unset format is absent, not the default");
@@ -855,6 +888,9 @@ mod tests {
 
     #[test]
     fn templater_alone_names_the_folder() {
+        // Protects: Templater's setting names the folder when the core
+        // plugin's does not, and the core plugin's date/time formats still
+        // apply even when it names no folder.
         let cfg = Config::read(reader(&[(".obsidian/plugins/templater-obsidian/data.json", r#"{"templates_folder":"_tpl","trigger_on_file_creation":false}"#)]));
         assert_eq!(cfg.source, Source::Templater);
         assert_eq!(cfg.folder.as_deref(), Some("_tpl"));
@@ -870,6 +906,8 @@ mod tests {
 
     #[test]
     fn neither_setting_falls_back_to_the_path_rule() {
+        // Protects: with no settings at all, discover() falls back to the
+        // pre-BF "template" in the path rule and labels by parent folder.
         let cfg = Config::read(reader(&[]));
         assert_eq!(cfg, Config::fallback());
         let got = discover(
@@ -899,6 +937,8 @@ mod tests {
 
     #[test]
     fn malformed_or_empty_settings_are_not_configured() {
+        // Protects: unparseable, empty, or non-string/non-folder JSON never
+        // names a folder -- it falls back rather than guessing.
         for bad in ["{not json", "[]", r#"{"folder":""}"#, r#"{"folder":"  /  "}"#, r#"{"folder":7}"#, ""] {
             let cfg = Config::read(reader(&[(".obsidian/templates.json", bad)]));
             assert_eq!(cfg.source, Source::Fallback, "{bad:?} must not name a folder");
@@ -912,6 +952,8 @@ mod tests {
 
     #[test]
     fn datetime_refuses_what_is_not_a_date() {
+        // Protects: DateTime::new rejects a non-leap Feb 29, month 13 and
+        // hour 24, and accepts a real leap-year Feb 29.
         assert!(DateTime::new(2026, 2, 29, 0, 0, 0).is_none());
         assert!(DateTime::new(2024, 2, 29, 0, 0, 0).is_some());
         assert!(DateTime::new(2026, 13, 1, 0, 0, 0).is_none());
@@ -920,6 +962,8 @@ mod tests {
 
     #[test]
     fn moment_documentations_own_examples() {
+        // Protects: format_moment reproduces Moment.js's own published
+        // examples verbatim, including the English locale long-date formats.
         // https://momentjs.com/docs/#/displaying/format/ -- the examples on
         // the home page, for Sunday 2010-02-14 15:25:50.
         let t = moment_doc_instant();
@@ -942,6 +986,8 @@ mod tests {
 
     #[test]
     fn every_supported_token_against_a_fixed_instant() {
+        // Protects: every token format_moment formats (as opposed to leaving
+        // verbatim) against one fixed instant, including an unclosed `[`.
         // Sunday 2026-09-27 09:05:03: day 270 of the year, ISO week 39.
         let t = DateTime::new(2026, 9, 27, 9, 5, 3).unwrap();
         let cases = [
@@ -963,6 +1009,9 @@ mod tests {
 
     #[test]
     fn midnight_noon_and_ordinals() {
+        // Protects: 12-hour clock at midnight/noon (h/hh/A/k/kk), the
+        // ordinal suffix table, and an ISO week crossing a year boundary
+        // either way.
         let midnight = DateTime::new(2026, 1, 1, 0, 0, 0).unwrap();
         assert_eq!(format_moment("h hh A k kk dddd W", &midnight), "12 12 AM 24 24 Thursday 1");
         let noon = DateTime::new(2026, 1, 2, 12, 0, 0).unwrap();
@@ -981,6 +1030,9 @@ mod tests {
 
     #[test]
     fn obsidians_placeholders_are_filled_with_the_vaults_formats() {
+        // Protects: title/date/time (with and without an explicit format)
+        // fill with the vault's own formats, matching case-insensitively and
+        // tolerating spaces inside the braces.
         let cfg = Config { source: Source::Obsidian, folder: Some("Templates".into()), date_format: Some("DD.MM.YYYY".into()), time_format: None };
         let f = Fill { title: "Kel Var", name: "Kel/Var", now: moment_doc_instant(), cfg: &cfg };
         let t = "# {{title}}\ncreated {{date}} at {{time}}\n{{date:dddd}} {{time:YYYY}} {{ Title }} {{DATE}}\n";
@@ -989,6 +1041,9 @@ mod tests {
 
     #[test]
     fn the_owners_name_tokens_still_fill_and_everything_else_survives() {
+        // Protects: `[Name]` and any `{{...Name}}` token fill with the
+        // entity's name, while `[If applicable]`, an unknown token, an empty
+        // format and an unclosed token all survive verbatim.
         let cfg = Config::fallback();
         let f = Fill { title: "Kel-Var", name: "Kel/Var", now: moment_doc_instant(), cfg: &cfg };
         let t = "## Settlement Profile: [Name]\n**Former Names:** [If applicable]\n# {{Landmark_Name}} {{Region_Name}}\n\
@@ -1002,6 +1057,9 @@ mod tests {
 
     #[test]
     fn templater_commands_are_left_verbatim() {
+        // Protects: `<% ... %>` and `<%* ... %>` blocks are copied verbatim
+        // (never executed or imitated), even one containing a `{{date}}`
+        // that would otherwise be a placeholder.
         let cfg = Config::fallback();
         let f = Fill { title: "T", name: "N", now: moment_doc_instant(), cfg: &cfg };
         let t = "<% tp.date.now(\"{{date}}\") %> {{date}} <%* tR += tp.file.title %> <% unclosed {{title}}";
@@ -1010,6 +1068,9 @@ mod tests {
 
     #[test]
     fn fill_handles_multibyte_and_unclosed_tokens() {
+        // Protects: fill() advances by char, not byte, around multibyte
+        // text, and an unclosed `{{` and an empty template are left/returned
+        // as-is rather than panicking.
         let cfg = Config::fallback();
         let f = Fill { title: "T", name: "X", now: moment_doc_instant(), cfg: &cfg };
         assert_eq!(fill("Ré{{Name}}ém", &f), "RéXém");
@@ -1019,6 +1080,8 @@ mod tests {
 
     #[test]
     fn title_is_the_basename() {
+        // Protects: title_of strips any extension case-insensitively and
+        // returns the whole string when there is no path or extension.
         assert_eq!(title_of("Settlements/Kel Var.md"), "Kel Var");
         assert_eq!(title_of("Root.MD"), "Root");
         assert_eq!(title_of("NoExt"), "NoExt");
@@ -1028,6 +1091,9 @@ mod tests {
 
     #[test]
     fn insert_puts_the_body_at_the_caret() {
+        // Protects: insert() splices the filled template in at the caret and
+        // returns the caret position after it, counting characters (not
+        // bytes) across a multibyte note.
         let (t, c) = insert("ab\ncd", 3, "X\nY\n");
         assert_eq!(t, "ab\nX\nY\ncd");
         assert_eq!(c, 7);
@@ -1037,6 +1103,9 @@ mod tests {
 
     #[test]
     fn a_template_with_properties_merges_them_like_obsidian() {
+        // Protects: merge_props unions list properties (note's items first),
+        // a scalar takes the template's value, and a key only the template
+        // has is appended -- Obsidian's forum-documented merge behaviour.
         let note = "---\ntags:\n  - foo\n  - bar\ndate: 2020-12-12\nkeep: me\n---\nBody\n";
         let tpl = "---\ntags: [journal, foo]\ndate: 2010-02-14\nnew: yes\n---\n## Log\n";
         let caret = note.chars().count(); // end of the note
@@ -1051,6 +1120,10 @@ mod tests {
 
     #[test]
     fn a_note_without_properties_gains_the_templates() {
+        // Protects: a note with no frontmatter gains the template's whole,
+        // a caret inside the note's own frontmatter still inserts just below
+        // it, and an already-matching list keeps its own spelling rather
+        // than being rewritten.
         let (t, c) = insert("Body", 4, "---\na: 1\n---\n!");
         assert_eq!(t, "---\na: 1\n---\nBody!");
         assert_eq!(c, 18);
@@ -1066,6 +1139,8 @@ mod tests {
 
     #[test]
     fn suggested_paths_follow_v3s_convention_for_every_kind() {
+        // Protects: suggested_path names the right plural folder for every
+        // EntityKind this port can address, v3's `{Folder}/{name}.md`.
         assert_eq!(suggested_path(EntityKind::Settlement, "Nareth"), "Settlements/Nareth.md");
         assert_eq!(suggested_path(EntityKind::Province, "Lower Vale"), "Provinces/Lower Vale.md");
         assert_eq!(suggested_path(EntityKind::Continent, "Vantharis"), "Continents/Vantharis.md");
@@ -1076,6 +1151,10 @@ mod tests {
 
     #[test]
     fn a_name_that_is_not_a_filename_still_becomes_one() {
+        // Protects: sanitise() replaces every filesystem-reserved character
+        // with `-`, trims leading/trailing dots and whitespace, falls back
+        // to "Untitled" for an empty result, and keeps distinct names
+        // distinct after sanitising.
         assert_eq!(sanitise("Kel/Var: the Deep"), "Kel-Var- the Deep");
         assert_eq!(sanitise("  ..  "), "Untitled");
         assert_eq!(sanitise("Trailing."), "Trailing");

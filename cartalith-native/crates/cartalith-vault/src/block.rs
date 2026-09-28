@@ -38,6 +38,7 @@ pub const END_MARKER: &str = "<!-- CARTALITH:END -->";
 /// it did not write.
 pub const BLOCK_VERSION: u32 = 1;
 
+/// Why a block operation refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockError {
     /// A `BEGIN` with no `END` after it. §23 rule 4: the block's extent is
@@ -49,6 +50,7 @@ pub enum BlockError {
 }
 
 impl std::fmt::Display for BlockError {
+    /// A one-line, user-facing message per variant.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BlockError::Unterminated => write!(
@@ -201,12 +203,18 @@ pub fn remove(text: &str, entity: &str) -> Result<(String, bool), BlockError> {
     Ok((out, true))
 }
 
+/// Whether `s` ends with a blank line (a line terminator, then another line
+/// terminator with nothing between) -- [`remove`]'s seam-collapse loop uses
+/// this to find the padding [`upsert`] added on the block's near side.
 fn ends_with_blank_line(s: &str) -> bool {
     let t = s.strip_suffix('\n').unwrap_or(s);
     let t = t.strip_suffix('\r').unwrap_or(t);
     t.ends_with('\n')
 }
 
+/// Strips one leading line break (`\r\n` or `\n`) from `s`, or `None` if it
+/// starts with neither -- the far-side counterpart [`remove`] pairs with
+/// [`ends_with_blank_line`] to collapse a padding seam one line at a time.
 fn strip_one_break(s: &str) -> Option<&str> {
     s.strip_prefix("\r\n").or_else(|| s.strip_prefix('\n'))
 }
@@ -247,6 +255,8 @@ fn escape_attr(v: &str) -> String {
     v.replace('\\', r"\\").replace('"', "\\\"")
 }
 
+/// The inverse of [`escape_attr`]: unescapes `\"` and `\\` back to `"` and
+/// `\` when reading a marker's attribute value.
 fn unescape_attr(v: &str) -> String {
     v.replace("\\\"", "\"").replace(r"\\", "\\")
 }

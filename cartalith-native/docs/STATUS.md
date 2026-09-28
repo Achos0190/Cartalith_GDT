@@ -1481,6 +1481,48 @@ re-checked against the tree rather than copied from the commit message.
   re-added one line up as `///`, its wording unchanged; no other line was
   removed; no added line carries new code; no code fences.
 
+- **Ruling BK annotation pass, batch 26 (`cartalith-vault` closed) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; vault 129/0/0).** Comments only, zero
+  behaviour change. Recorded a baseline `cargo test -p cartalith-vault`
+  (`CARGO_TARGET_DIR` at `.../scratchpad/bk26`) before any edit: **129
+  passed / 0 failed / 0 ignored**, matching batch 25's claimed total.
+  Closed the three files batch 25 left open — `template.rs` (1088 LOC after),
+  `links.rs` (1521 LOC after) and `lib.rs` (1981 LOC after) — then found
+  `census_v2.py` still flagged small residual gaps in the five files batch 25
+  called closed and closed those too: `provider.rs` (`VaultError`'s own doc,
+  `Display::fmt`, `From<io::Error>`, and every delegating method on `impl
+  VaultProvider for FsVault`), `block.rs` (`BlockError`'s own doc,
+  `Display::fmt`, `ends_with_blank_line`, `strip_one_break`,
+  `unescape_attr`), `backlinks.rs` (one undocumented numeric const, `PAD` in
+  `excerpt` — the one batch 25 could not locate — given a provenance comment
+  as a labelled judgement call, not a citation; and a `mod tests;`
+  declaration the census script's module-doc resolver cannot see past,
+  because `backlinks.rs` is a file-module with a same-named submodule
+  directory rather than a `mod.rs` — given its own `///` line rather than
+  relying on the target file's `//!`), `chronos.rs` (`to_line`'s nested
+  `clean` helper) and `markdown.rs` (`Display for SectionError`'s `fmt`).
+  Added `///`/`// Protects:` docs to every previously undocumented `fn`,
+  `impl` method, `enum`, `struct` and inline `mod tests` this batch touched;
+  every test in `template.rs`, `links.rs` and `lib.rs` now carries a
+  `Protects:`-worded line, either a new one or an existing doc block
+  prefixed with the word (`preceding_comment_block_has_protects`/
+  `test_fn_window_and_body_protects` both require the literal word, and most
+  of `lib.rs`'s tests already had a real doc block that just never said
+  "protects"). No comment was found to contradict its code; none were
+  rewritten for correctness, only added.
+  Crate-wide `cartalith-vault` `census_v2.py`, before this batch:
+  items_undoc 118, tests_unprotected 58, consts_undoc 1, loc 7 909. After:
+  **items_undoc 0, tests_unprotected 0, consts_undoc 0**, loc 8 180 — the
+  crate is closed on the census. **Comments only**, confirmed per file with
+  `git diff` after every edit (no removed line failed to reappear as the
+  same code one line away; no added line carries new code; no fenced code
+  blocks) and by the post-edit test run matching the recorded baseline
+  exactly: `cargo test -p cartalith-vault`, same `CARGO_TARGET_DIR` —
+  **129 passed / 0 failed / 0 ignored**, byte-identical to the pre-edit
+  count. **Next step: batch 27** moves to `cartalith-urban` per
+  `OUTSTANDING_WORK.md`'s BK row. Batches 6 through 26 all still need an
+  independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

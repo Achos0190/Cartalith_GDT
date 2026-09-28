@@ -51,6 +51,7 @@ pub struct FileMeta {
     pub len: u64,
 }
 
+/// Why a vault operation failed.
 #[derive(Debug)]
 pub enum VaultError {
     /// A relative path that climbs out of the vault, is absolute, or names a
@@ -63,6 +64,7 @@ pub enum VaultError {
 }
 
 impl std::fmt::Display for VaultError {
+    /// A one-line, user-facing message per variant.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             VaultError::Escapes(p) => write!(f, "\"{p}\" is not inside this vault"),
@@ -75,6 +77,7 @@ impl std::fmt::Display for VaultError {
 impl std::error::Error for VaultError {}
 
 impl From<std::io::Error> for VaultError {
+    /// Wraps a raw I/O error so `?` composes in [`FsVault`]'s methods.
     fn from(e: std::io::Error) -> Self {
         VaultError::Io(e)
     }
@@ -146,27 +149,36 @@ pub trait VaultProvider: std::fmt::Debug {
 /// same-named inherent method below — the trait exists so `cartalith-godot`'s
 /// SAF-backed provider can stand in for this one, not to add behaviour here.
 impl VaultProvider for FsVault {
+    /// Delegates to [`FsVault::available`].
     fn available(&self) -> bool {
         FsVault::available(self)
     }
+    /// Delegates to [`FsVault::list_markdown`].
     fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
         FsVault::list_markdown(self, limit)
     }
+    /// Delegates to [`FsVault::read`].
     fn read(&self, rel: &str) -> Result<String, VaultError> {
         FsVault::read(self, rel)
     }
+    /// Delegates to [`FsVault::meta`].
     fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
         FsVault::meta(self, rel)
     }
+    /// Delegates to [`FsVault::exists`].
     fn exists(&self, rel: &str) -> bool {
         FsVault::exists(self, rel)
     }
+    /// Delegates to [`FsVault::write`].
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
         FsVault::write(self, rel, text)
     }
+    /// The root's own display path -- the one provider whose "display
+    /// only" string (§5) is a real filesystem path.
     fn describe(&self) -> String {
         self.root.display().to_string()
     }
+    /// A filesystem provider always has a [`FsVault`] to give.
     fn as_fs_vault(&self) -> Option<&FsVault> {
         Some(self)
     }

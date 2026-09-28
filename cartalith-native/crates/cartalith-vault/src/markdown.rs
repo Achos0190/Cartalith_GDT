@@ -70,6 +70,7 @@ pub enum SectionError {
 }
 
 impl std::fmt::Display for SectionError {
+    /// A one-line, user-facing message per variant.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SectionError::NotFound(t) => write!(f, "no section titled \"{t}\" in this document"),

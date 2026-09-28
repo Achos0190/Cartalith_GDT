@@ -266,6 +266,9 @@ impl LinkKind {
 }
 
 impl From<EntityKind> for LinkKind {
+    /// A resolvable kind is always [`LinkKind::Known`] — this is the
+    /// conversion `link()` fixtures and callers that build a link from a
+    /// live [`EntityKind`] use.
     fn from(k: EntityKind) -> Self {
         LinkKind::Known(k)
     }
@@ -275,18 +278,24 @@ impl From<EntityKind> for LinkKind {
 /// before this type existed. A [`LinkKind::Unknown`] equals no [`EntityKind`],
 /// which is the inertness the format asks for.
 impl PartialEq<EntityKind> for LinkKind {
+    /// True only for [`LinkKind::Known`] holding this exact kind.
     fn eq(&self, other: &EntityKind) -> bool {
         self.known() == Some(*other)
     }
 }
 
 impl Serialize for LinkKind {
+    /// Writes the wire text — [`LinkKind::Unknown`]'s own string is written
+    /// back exactly, which is the byte-equivalence §13.3.5 asks for.
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(self.as_str())
     }
 }
 
 impl<'de> Deserialize<'de> for LinkKind {
+    /// A recognised string becomes [`LinkKind::Known`]; anything else is
+    /// held verbatim as [`LinkKind::Unknown`] rather than failing the read
+    /// (this type's own doc explains why a derived impl could not do this).
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
         Ok(match EntityKind::parse(&s) {
@@ -297,6 +306,8 @@ impl<'de> Deserialize<'de> for LinkKind {
 }
 
 impl EntityKind {
+    /// The wire text this kind is stored and matched by — the reverse of
+    /// [`EntityKind::parse`].
     pub fn as_str(self) -> &'static str {
         match self {
             EntityKind::Settlement => "settlement",
@@ -308,6 +319,9 @@ impl EntityKind {
         }
     }
 
+    /// The kind `s` names, or `None` for anything else — including the six
+    /// variants' own `Debug` spelling, which is deliberately not accepted
+    /// here so the wire format has exactly one spelling per kind.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "settlement" => Some(EntityKind::Settlement),
@@ -360,6 +374,9 @@ pub enum Selection {
 /// straight onto `WholeDocument` means what this build read is exactly what it
 /// writes back — which is the honest record of what it understood.
 impl<'de> Deserialize<'de> for Selection {
+    /// A recognised `type` reads as its variant; anything else folds onto
+    /// [`Selection::WholeDocument`] rather than failing the link (see this
+    /// impl's own doc for why a hand-written reader, not `#[serde(other)]`).
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = serde_json::Value::deserialize(d)?;
         match v.get("type").and_then(|t| t.as_str()) {
@@ -374,6 +391,8 @@ impl<'de> Deserialize<'de> for Selection {
 }
 
 impl Selection {
+    /// The human-readable form used in [`LinkStore::mint_id`]'s seed and
+    /// anywhere the UI names what a link points at.
     pub fn label(&self) -> String {
         match self {
             Selection::WholeDocument => "Whole document".to_string(),
@@ -404,6 +423,8 @@ pub enum LinkStatus {
 }
 
 impl LinkStatus {
+    /// The wire/log text for this status, `snake_case` to match the
+    /// `#[serde(rename_all)]` above.
     pub fn as_str(self) -> &'static str {
         match self {
             LinkStatus::Unbound => "unbound",
@@ -500,10 +521,13 @@ impl ImportedData {
         }
     }
 
+    /// True when neither map has a row — the gate `#[serde(skip_serializing_if)]`
+    /// uses to leave `imported_data` out of the wire form entirely.
     pub fn is_empty(&self) -> bool {
         self.frontmatter.is_empty() && self.fields.is_empty()
     }
 
+    /// Row count across both maps, for a UI summary line.
     pub fn len(&self) -> usize {
         self.frontmatter.len() + self.fields.len()
     }
@@ -596,6 +620,9 @@ impl KnowledgeLink {
         self.edited_text.as_deref().or(self.imported_text.as_deref()).unwrap_or("")
     }
 
+    /// True when the working copy diverges from what was imported —
+    /// includes the case of an edit with no import at all, which is still a
+    /// change the user has made that write-back must not lose.
     pub fn has_local_changes(&self) -> bool {
         match (&self.edited_text, &self.imported_text) {
             (Some(e), Some(i)) => e != i,
@@ -674,6 +701,9 @@ pub fn snapshot_key(entity_key: &str, radius: &str) -> String {
 /// earlier one rather than mis-parsing it.
 pub const STORE_VERSION: u32 = 1;
 
+/// The store plus its format `version`, wired to serde with `#[serde(flatten)]`
+/// so a [`LinkStore`]'s own members sit at the JSON document's top level
+/// beside `version` rather than nested under a `store` key.
 #[derive(Serialize, Deserialize)]
 struct Envelope {
     version: u32,
@@ -721,11 +751,16 @@ impl LinkStore {
         self.vaults.is_empty() && self.links.is_empty() && self.snapshots.is_empty()
     }
 
+    /// The pretty-printed `vault.json` document: this store's own members
+    /// beside the current [`STORE_VERSION`].
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(&Envelope { version: STORE_VERSION, store: self.clone() })
             .expect("a LinkStore always serializes")
     }
 
+    /// Reads a `vault.json` document back. An empty string is an empty
+    /// store (the sidecar the shell creates before anything is linked),
+    /// never a parse error.
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
         // An empty file is an empty store, not a parse failure -- the shell
         // creates the sidecar before anything has been linked.
@@ -735,6 +770,7 @@ impl LinkStore {
         Ok(serde_json::from_str::<Envelope>(s)?.store)
     }
 
+    /// The bound vault with this id, if any is registered.
     pub fn vault(&self, id: &str) -> Option<&VaultRef> {
         self.vaults.iter().find(|v| v.id == id)
     }
@@ -765,6 +801,9 @@ impl LinkStore {
         v.id
     }
 
+    /// Every link attached to one entity. Matches on the **resolved**
+    /// [`EntityKind`], so a link whose stored kind is [`LinkKind::Unknown`]
+    /// never matches — it is inert until re-bound, per [`LinkKind::known`].
     pub fn links_for(&self, kind: EntityKind, id: i64) -> Vec<&KnowledgeLink> {
         self.links.iter().filter(|l| l.entity_kind == kind && l.entity_id == id).collect()
     }
@@ -789,10 +828,13 @@ impl LinkStore {
         self.links.iter().filter(|l| l.entity_kind.known().is_none()).collect()
     }
 
+    /// The link with this id, by shared reference.
     pub fn get(&self, link_id: &str) -> Option<&KnowledgeLink> {
         self.links.iter().find(|l| l.link_id == link_id)
     }
 
+    /// The link with this id, by mutable reference — used to update a
+    /// link's working copy or imported data in place.
     pub fn get_mut(&mut self, link_id: &str) -> Option<&mut KnowledgeLink> {
         self.links.iter_mut().find(|l| l.link_id == link_id)
     }
@@ -818,6 +860,8 @@ impl LinkStore {
         id
     }
 
+    /// Removes the link with this id. Returns whether anything was removed,
+    /// so a caller can tell a stale id from a successful detach.
     pub fn detach(&mut self, link_id: &str) -> bool {
         let before = self.links.len();
         self.links.retain(|l| l.link_id != link_id);
@@ -847,11 +891,18 @@ impl LinkStore {
     }
 }
 
+/// Tests for the entity-kind/link-kind tolerance rules (§13.3.3, §13.3.5,
+/// §13.3.6), the store's JSON round trip and `is_empty` gate, and the
+/// snapshot map -- each checked against a real fixture this build's own
+/// writer produced, not a hand-typed one, so a wire-shape change is caught
+/// where it would actually bite a reader.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::provider::FileMeta;
 
+    /// A settled fixture link (settlement, heading selection, one imported
+    /// paragraph) that every test below starts from and mutates as needed.
     fn link() -> KnowledgeLink {
         KnowledgeLink {
             link_id: String::new(),
@@ -869,6 +920,9 @@ mod tests {
         }
     }
 
+    /// Protects: a store with a vault and a link round-trips through
+    /// `to_json`/`from_json` unchanged, connecting the same vault twice is
+    /// idempotent, and an empty document parses as an empty store.
     #[test]
     fn the_store_round_trips_through_json() {
         let mut s = LinkStore::default();
@@ -883,6 +937,11 @@ mod tests {
         assert_eq!(LinkStore::from_json("").unwrap(), LinkStore::default());
     }
 
+    /// Protects: the snapshot map survives `to_json`/`from_json`, a second
+    /// snapshot at the same radius overwrites rather than duplicating, a
+    /// store with no snapshots writes **no member at all**, and a document
+    /// written before this member existed still parses.
+    ///
     /// Milestone 2's snapshots ride the store that milestone 3 puts in the
     /// project archive, so this asserts both halves at once: the map survives
     /// `to_json`/`from_json` (which is what `project_bridge.rs` writes into
@@ -951,8 +1010,10 @@ mod tests {
   ]
 }"###;
 
-    /// Backward compatibility, measured on the installed base rather than on
-    /// a new save round-tripped against itself.
+    /// Protects: `LEGACY_STORE` (no `snapshots` member) still opens, its link
+    /// still resolves everything it resolved before, and re-saving it writes
+    /// the identical bytes -- backward compatibility measured on the
+    /// installed base rather than on a new save round-tripped against itself.
     ///
     /// The three things a person with a pre-milestone-2 project cares about,
     /// in order: the document still opens; every link in it still resolves
@@ -1005,8 +1066,8 @@ mod tests {
         assert!(!old.to_json().contains("snapshots"));
     }
 
-    /// The predicate `project_bridge.rs`'s `vault.json` gate calls, wired at
-    /// `52666b9`.
+    /// Protects: `LinkStore::is_empty` -- the predicate `project_bridge.rs`'s
+    /// `vault.json` gate calls, wired at `52666b9`.
     ///
     /// Each of the three members is asserted **alone**, so dropping any one
     /// conjunct from [`LinkStore::is_empty`] turns exactly one case red. The
@@ -1042,6 +1103,9 @@ mod tests {
         assert!(!back.is_empty());
     }
 
+    /// Protects: attaching the same entity/file/selection twice replaces the
+    /// existing link (same id, updated label) instead of duplicating it, and
+    /// `detach` removes it exactly once.
     #[test]
     fn attaching_the_same_section_twice_replaces_rather_than_duplicates() {
         let mut s = LinkStore::default();
@@ -1056,6 +1120,9 @@ mod tests {
         assert!(!s.detach(&a));
     }
 
+    /// Protects: two different selections of the same file to the same
+    /// entity are two separate links, and `links_for` is scoped to the
+    /// right entity kind and id.
     #[test]
     fn a_different_section_of_the_same_file_is_a_different_link() {
         let mut s = LinkStore::default();
@@ -1067,6 +1134,9 @@ mod tests {
         assert_eq!(s.links_for(EntityKind::Province, 42).len(), 0);
     }
 
+    /// Protects: every `LinkStatus` §27 names, including that a matching
+    /// hash outranks a changed timestamp (Connected, not Stale) and a
+    /// changed hash outranks a local edit (Stale, not LocalChanges).
     #[test]
     fn status_covers_every_state_the_design_names() {
         let l = link();
@@ -1094,6 +1164,10 @@ mod tests {
         assert_eq!(edited.status(true, Some(same), Some("bbbb")), LinkStatus::Stale, "a changed source outranks a local edit");
     }
 
+    /// Protects: every `EntityKind` variant's wire name, both directions
+    /// (`as_str` and `parse`), against literal strings rather than each
+    /// other.
+    ///
     /// Every variant's wire name, both directions.
     ///
     /// This loop covered **three of five** until 2026-09-06 — it was written
@@ -1148,7 +1222,8 @@ mod tests {
         assert_eq!(entity_key(EntityKind::Continent, 2), "continent:2");
         assert_eq!(entity_key(EntityKind::Faction, 1), "faction:1");
     }
-    /// [`landmark_entity_id`]'s two properties, against **literals**: the
+    /// Protects: [`landmark_entity_id`]'s two properties, against
+    /// **literals**: the
     /// exact value for a known key, and the 52-bit width `SAVEFILE_COMPAT.md`
     /// §14.1 requires.
     ///
@@ -1189,7 +1264,7 @@ mod tests {
         );
     }
 
-    /// Owner ruling 13's round trip: a landmark link is written, read back
+    /// Protects: owner ruling 13's round trip: a landmark link is written, read back
     /// and written again **byte for byte**, and the store it travelled in is
     /// unchanged.
     ///
@@ -1241,7 +1316,7 @@ mod tests {
         assert!(first.contains("\"entity_kind\": \"landmark\""), "{first}");
     }
 
-    /// **Non-destruction.** Owner ruling 13's second requirement: a note for
+    /// Protects: **non-destruction.** Owner ruling 13's second requirement: a note for
     /// a landmark that is no longer generated is an *absent entity*, and
     /// nothing in this crate may turn that into a deletion.
     ///
@@ -1354,7 +1429,8 @@ mod tests {
   ]
 }"###;
 
-    /// `SAVEFILE_COMPAT.md` §13.3.3's MUST, and §13.3.5's disposition for it.
+    /// Protects: `SAVEFILE_COMPAT.md` §13.3.3's MUST, and §13.3.5's
+    /// disposition for it.
     ///
     /// Before 2026-09-06 an `entity_kind` outside the six failed that link,
     /// which failed [`LinkStore::from_json`] with *"unknown variant `river`,
@@ -1467,8 +1543,8 @@ mod tests {
         assert!(!store.is_empty(), "and the store is still worth writing");
     }
 
-    /// The boundary of the tolerance above, stated rather than left to be
-    /// discovered: §13.3.3 types `entity_kind` as a **string** MUST, so a
+    /// Protects: the boundary of the tolerance above, stated rather than
+    /// left to be discovered: §13.3.3 types `entity_kind` as a **string** MUST, so a
     /// non-string one is a malformed document rather than a newer one and is
     /// still a parse failure. Absent is not "unrecognised" either.
     ///
@@ -1491,7 +1567,7 @@ mod tests {
         assert!(LinkStore::from_json(absent).is_err());
     }
 
-    /// `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.
+    /// Protects: `SAVEFILE_COMPAT.md` §13.3.6, and the reason it is a MUST.
     ///
     /// Before 2026-08-26 an unrecognised `selection.type` failed that link,
     /// which failed `from_json`, which made `project_open`'s `if let Ok(..)`
