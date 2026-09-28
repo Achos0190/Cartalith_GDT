@@ -36,14 +36,19 @@
 
 use cartalith_terrain::landform::{LANDFORM_COLS, LANDFORM_NAMES, build_landform_field};
 
+/// Unpacks a JSON array fixture into an `f32` grid.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Unpacks a JSON array fixture into a `u8` class-index grid.
 fn u8s(v: &serde_json::Value) -> Vec<u8> {
     v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u8).collect()
 }
 
+/// Counts a `build_landform_field()` output into a per-class histogram
+/// (index-matched to [`LANDFORM_COLS`]/[`LANDFORM_NAMES`]), so a test can
+/// check class balance rather than only raster identity.
 fn hist(out: &[u8]) -> Vec<u64> {
     let mut h = vec![0u64; 7];
     for &v in out {
@@ -52,10 +57,14 @@ fn hist(out: &[u8]) -> Vec<u64> {
     h
 }
 
+/// Unpacks a fixture's own expected-histogram array for comparison against
+/// [`hist`]'s output.
 fn expect_hist(v: &serde_json::Value) -> Vec<u64> {
     v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap()).collect()
 }
 
+/// The parsed `landform_captured.json` fixture, unpacked once per test so
+/// each case reads its own named sub-object off `v` without re-parsing.
 struct Fx {
     v: serde_json::Value,
     gw: usize,
@@ -68,6 +77,7 @@ struct Fx {
     flow: Vec<f32>,
 }
 
+/// Loads and unpacks `landform_captured.json` into an [`Fx`].
 fn fixture() -> Fx {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/landform_captured.json"))
         .expect("landform_captured.json fixture should read");
@@ -89,6 +99,8 @@ fn fixture() -> Fx {
 
 #[test]
 fn the_palette_matches_the_reference() {
+    // Protects: LANDFORM_COLS/LANDFORM_NAMES against the reference's
+    // `LANDFORM_COLS` array (line 8082), class for class.
     let f = fixture();
     let cols: Vec<Vec<f64>> = f.v["cols"]
         .as_array()
@@ -105,6 +117,9 @@ fn the_palette_matches_the_reference() {
 
 #[test]
 fn build_landform_field_matches_the_reference_on_a_real_world() {
+    // Protects: build_landform_field() against the reference's
+    // `buildLandformField` (line 8083) on a real world, raster and
+    // histogram both, and that every non-zero class actually occurs.
     let f = fixture();
     let got = build_landform_field(
         &f.field,
@@ -127,6 +142,8 @@ fn build_landform_field_matches_the_reference_on_a_real_world() {
 
 #[test]
 fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
+    // Protects: the reference's `:15`/`:0.4`/`flow&&` no-climate fallbacks
+    // matching exactly, and that they can only ever reach cliff and mesa.
     let f = fixture();
     let got = build_landform_field(&f.field, None, None, None, f.gw, f.gh, f.sea, f.flow_hi);
     assert_eq!(got, u8s(&f.v["no_climate"]["out"]));
@@ -139,6 +156,9 @@ fn the_no_climate_fallbacks_match_the_reference_and_reach_only_two_classes() {
 
 #[test]
 fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
+    // Protects: the mutation test for the dune/badlands threshold
+    // constants -- a hotter, drier world must match the reference exactly
+    // and must move both the dune and badlands counts from the base world.
     let f = fixture();
     let temp = f32s(&f.v["arid"]["temp"]);
     let rain = f32s(&f.v["arid"]["rain"]);
@@ -153,6 +173,9 @@ fn a_hot_arid_world_matches_the_reference_and_moves_dune_and_badlands() {
 
 #[test]
 fn a_cold_world_matches_the_reference_and_moves_cirque_and_dune() {
+    // Protects: the `T<2` cirque threshold pinned independently of the
+    // arid case -- a cold world matches the reference exactly, moves the
+    // cirque count and drops dune to zero.
     let f = fixture();
     let temp = f32s(&f.v["cold"]["temp"]);
     let got = build_landform_field(&f.field, Some(&temp), Some(&f.rain), Some(&f.flow), f.gw, f.gh, f.sea, f.flow_hi);
@@ -170,6 +193,9 @@ fn a_cold_world_matches_the_reference_and_moves_cirque_and_dune() {
 /// count, or the parameter is not actually being read.
 #[test]
 fn the_flow_threshold_is_read_rather_than_assumed() {
+    // Protects: the `flow_hi` parameter above this fn's own doc claim --
+    // an unreachable threshold kills floodplain and a much lower one can
+    // only ever grow it, never shrink it (floodplain is the last branch).
     let f = fixture();
     let build = |t: f64| {
         build_landform_field(&f.field, Some(&f.temp), Some(&f.rain), Some(&f.flow), f.gw, f.gh, f.sea, t)

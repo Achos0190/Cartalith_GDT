@@ -222,11 +222,15 @@ mod tests {
 
     #[test]
     fn cell_km_is_map_width_over_grid_width() {
+        // Protects: cell_km() being exactly `map_width_km / grid_w`, the one
+        // expression every length in this port scales by.
         assert_eq!(cell_km(4000.0, 512), 4000.0 / 512.0);
     }
 
     #[test]
     fn a_horizontal_span_measures_its_share_of_the_map_width() {
+        // Protects: measure() converting a cell-space distance to km via
+        // cell_km(), and reporting no wrap in flat mode.
         // Half the grid across == half the map width, by construction.
         let m = measure((0.0, 10.0), (256.0, 10.0), 512, 4000.0, false);
         assert_eq!(m.cells, 256.0);
@@ -236,6 +240,8 @@ mod tests {
 
     #[test]
     fn a_zero_length_measurement_is_zero_not_an_error() {
+        // Protects: measure() on two coincident points returning zero
+        // rather than panicking or dividing by a zero span.
         let m = measure((7.0, 7.0), (7.0, 7.0), 512, 4000.0, false);
         assert_eq!(m.cells, 0.0);
         assert_eq!(m.km, 0.0);
@@ -243,6 +249,8 @@ mod tests {
 
     #[test]
     fn flat_mode_never_wraps_however_far_apart_the_points_are() {
+        // Protects: measure() with `world = false` never taking the seam
+        // shortcut, even when the raw separation exceeds half the grid.
         let m = measure((1.0, 0.0), (511.0, 0.0), 512, 4000.0, false);
         assert_eq!(m.cells, 510.0);
         assert!(!m.wrapped);
@@ -250,6 +258,9 @@ mod tests {
 
     #[test]
     fn world_mode_takes_the_short_way_round_the_seam() {
+        // Protects: measure() with `world = true` splitting a >GW/2 raw
+        // separation across the antimeridian, matching civ_smooth_path's
+        // own seam test.
         let m = measure((1.0, 0.0), (511.0, 0.0), 512, 4000.0, true);
         assert!(m.wrapped);
         assert_eq!(m.cells, 2.0); // 1 -> 0 -> 511, not 510 the long way
@@ -258,6 +269,8 @@ mod tests {
 
     #[test]
     fn world_mode_leaves_a_short_span_alone() {
+        // Protects: measure() with `world = true` not wrapping a separation
+        // that is already the short way round.
         let m = measure((10.0, 0.0), (20.0, 0.0), 512, 4000.0, true);
         assert!(!m.wrapped);
         assert_eq!(m.cells, 10.0);
@@ -265,6 +278,8 @@ mod tests {
 
     #[test]
     fn exactly_half_the_grid_apart_does_not_wrap() {
+        // Protects: measure()'s seam test being strict `>`, not `>=` --
+        // exactly half the grid apart does not wrap.
         // The test is `> gw/2`, not `>=`, matching civ_smooth_path's seam split.
         let m = measure((0.0, 0.0), (256.0, 0.0), 512, 4000.0, true);
         assert!(!m.wrapped);
@@ -273,6 +288,8 @@ mod tests {
 
     #[test]
     fn y_never_wraps_even_in_world_mode() {
+        // Protects: measure() never applying the seam wrap to the y axis --
+        // the map is a cylinder, not a torus, even in world mode.
         let m = measure((0.0, 1.0), (0.0, 400.0), 512, 4000.0, true);
         assert!(!m.wrapped);
         assert_eq!(m.cells, 399.0);
@@ -280,6 +297,8 @@ mod tests {
 
     #[test]
     fn a_chain_sums_its_legs() {
+        // Protects: measure_path() summing each leg's cells/km rather than
+        // measuring only the first-to-last endpoints.
         let pts = [(0.0, 0.0), (3.0, 4.0), (3.0, 8.0)];
         let m = measure_path(&pts, 512, 512.0, false);
         assert_eq!(m.cells, 9.0); // 5 + 4
@@ -288,12 +307,17 @@ mod tests {
 
     #[test]
     fn a_chain_under_two_points_measures_zero() {
+        // Protects: measure_path() returning 0.0 for an empty or
+        // single-point chain rather than erroring on a chain still being
+        // built.
         assert_eq!(measure_path(&[], 512, 4000.0, false).cells, 0.0);
         assert_eq!(measure_path(&[(1.0, 1.0)], 512, 4000.0, false).cells, 0.0);
     }
 
     #[test]
     fn a_chain_reports_wrapped_when_any_leg_crosses_the_seam() {
+        // Protects: measure_path()'s `wrapped` flag being the OR of every
+        // leg's own wrap, not just the last leg's.
         let pts = [(10.0, 0.0), (20.0, 0.0), (500.0, 0.0)];
         let m = measure_path(&pts, 512, 512.0, true);
         assert!(m.wrapped);
@@ -302,6 +326,9 @@ mod tests {
 
     #[test]
     fn the_km_scale_agrees_with_the_route_length_expression_civ_uses() {
+        // Protects: measure()'s km scale being bit-identical to
+        // civ_smooth_path's own `hypot(dx,dy) * map_width_km / gw` --
+        // this module's header claim, pinned rather than just asserted.
         // civ_smooth_path accumulates `hypot(dx,dy) * map_width_km / gw`.
         let (gw, map_km) = (317usize, 4321.0f64);
         let (dx, dy) = (13.5f64, -7.25f64);
@@ -317,11 +344,15 @@ mod tests {
 
     #[test]
     fn a_rectangle_measures_its_own_width_times_height() {
+        // Protects: polygon_area() on an axis-aligned rectangle equalling
+        // its width * height.
         assert_eq!(polygon_area(&RECT).abs(), 24.0);
     }
 
     #[test]
     fn winding_flips_the_sign_but_not_the_magnitude() {
+        // Protects: polygon_area()'s sign tracking winding direction while
+        // the magnitude stays the same for the reversed ring.
         let mut rev = RECT.to_vec();
         rev.reverse();
         assert_eq!(polygon_area(&RECT), -polygon_area(&rev));
@@ -329,6 +360,9 @@ mod tests {
 
     #[test]
     fn a_degenerate_polygon_measures_zero_rather_than_erroring() {
+        // Protects: polygon_area() on 0/1/2-point input returning 0.0, the
+        // same degenerate answer the reference's own loop produces without
+        // a special case.
         assert_eq!(polygon_area(&[]), 0.0);
         assert_eq!(polygon_area(&[(1.0, 1.0)]), 0.0);
         assert_eq!(polygon_area(&[(1.0, 1.0), (4.0, 4.0)]), 0.0);
@@ -336,6 +370,8 @@ mod tests {
 
     #[test]
     fn a_rectangles_centroid_is_its_middle() {
+        // Protects: polygon_centroid() on a rectangle landing on its
+        // geometric middle.
         let (cx, cy) = polygon_centroid(&RECT);
         assert!((cx - 5.0).abs() < 1e-12, "{cx}");
         assert!((cy - 5.0).abs() < 1e-12, "{cy}");
@@ -345,6 +381,8 @@ mod tests {
     /// no area to weight by, so it falls back to the plain vertex mean.
     #[test]
     fn a_zero_area_polygon_falls_back_to_the_vertex_mean() {
+        // Protects: polygon_centroid()'s `|2A| < 1e-9` collinear fallback to
+        // the plain vertex mean, the reference's own degenerate case.
         let line = [(0.0, 0.0), (2.0, 0.0), (4.0, 0.0)];
         let (cx, cy) = polygon_centroid(&line);
         assert_eq!((cx, cy), (2.0, 0.0));
@@ -352,6 +390,9 @@ mod tests {
 
     #[test]
     fn point_in_polygon_answers_inside_outside_and_never_panics_when_empty() {
+        // Protects: point_in_polygon() answering inside/outside correctly
+        // for a rectangle and returning false (not panicking) for an empty
+        // ring.
         assert!(point_in_polygon((5.0, 5.0), &RECT));
         assert!(!point_in_polygon((0.0, 0.0), &RECT));
         assert!(!point_in_polygon((9.0, 5.0), &RECT));
@@ -363,6 +404,8 @@ mod tests {
     /// latter: the notch's interior point is *outside* the polygon.
     #[test]
     fn a_concave_ring_excludes_its_own_notch() {
+        // Protects: point_in_polygon() using a real crossing-number test,
+        // not a bounding-box shortcut that would miss the notch.
         // A "U": tall left and right arms with a gap bitten out of the top.
         let u = [
             (0.0, 0.0),
@@ -386,6 +429,9 @@ mod tests {
     /// one crate must agree exactly.
     #[test]
     fn the_implicit_and_explicit_shoelace_agree_on_a_closed_ring() {
+        // Protects: polygon_area() and geo::ring_area() agreeing exactly on
+        // a ring legal under both conventions -- the anti-drift pin this
+        // module's header promises.
         let closed_i: [(i32, i32); 5] = [(2, 3), (8, 3), (8, 7), (2, 7), (2, 3)];
         let closed_f: Vec<(f64, f64)> =
             closed_i.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
@@ -394,6 +440,8 @@ mod tests {
 
     #[test]
     fn the_two_point_in_ring_tests_agree_on_a_closed_ring() {
+        // Protects: point_in_polygon() and geo::point_in_ring() agreeing on
+        // every probe against a ring legal under both conventions.
         let closed_i: [(i32, i32); 5] = [(2, 3), (8, 3), (8, 7), (2, 7), (2, 3)];
         let closed_f: Vec<(f64, f64)> =
             closed_i.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
@@ -408,12 +456,16 @@ mod tests {
 
     #[test]
     fn a_rectangles_perimeter_sums_all_four_sides_including_the_closing_one() {
+        // Protects: polygon_perimeter_km() closing the ring back to its
+        // first point and summing all four legs via measure()'s km scale.
         // 1 km per cell here (512 km over 512 cells), so cells == km.
         assert_eq!(polygon_perimeter_km(&RECT, 512, 512.0, false), 20.0);
     }
 
     #[test]
     fn a_perimeter_under_two_points_measures_zero() {
+        // Protects: polygon_perimeter_km() on 0/1-point input returning
+        // 0.0, matching measure_path()'s own convention.
         assert_eq!(polygon_perimeter_km(&[], 512, 512.0, false), 0.0);
         assert_eq!(polygon_perimeter_km(&[(1.0, 1.0)], 512, 512.0, false), 0.0);
     }

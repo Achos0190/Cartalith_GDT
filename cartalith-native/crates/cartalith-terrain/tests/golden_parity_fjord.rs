@@ -36,6 +36,7 @@
 
 use cartalith_terrain::fjord::{CarveFjordsOpts, FjordMaskOpts, LITH_COMPETENCE, build_fjord_mask, carve_fjords};
 
+/// The parsed `fjord_captured.json` fixture, unpacked once per test.
 struct Fx {
     v: serde_json::Value,
     gw: usize,
@@ -47,10 +48,13 @@ struct Fx {
     coast_d: Vec<f32>,
 }
 
+/// Unpacks a JSON array fixture into an `f32` grid.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Loads and unpacks `fjord_captured.json` into an [`Fx`], asserting the
+/// height field is a whole grid before any test reads it.
 fn fixture() -> Fx {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fjord_captured.json"))
         .expect("fjord_captured.json fixture should read");
@@ -68,6 +72,8 @@ fn fixture() -> Fx {
 
 #[test]
 fn the_lith_competence_table_matches_the_reference() {
+    // Protects: LITH_COMPETENCE against the reference's `LITH_COMPETENCE`
+    // (line 3208), entry for entry.
     let f = fixture();
     let expected: Vec<f64> = f.v["lith_competence"].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect();
     assert_eq!(LITH_COMPETENCE.to_vec(), expected);
@@ -75,6 +81,9 @@ fn the_lith_competence_table_matches_the_reference() {
 
 #[test]
 fn build_fjord_mask_matches_the_reference_at_the_defaults() {
+    // Protects: build_fjord_mask() against the reference's
+    // `buildFjordMask` (line 3209) at the default opts, and that the
+    // fixture actually produces a non-empty mask.
     let f = fixture();
     let got = build_fjord_mask(
         &f.field,
@@ -96,6 +105,9 @@ fn build_fjord_mask_matches_the_reference_at_the_defaults() {
 
 #[test]
 fn carve_fjords_matches_the_reference_at_the_defaults() {
+    // Protects: carve_fjords() against the reference's `carveFjords`
+    // (line 3229) at the default opts, and that the fixture actually
+    // carves something.
     let f = fixture();
     let mask = f32s(&f.v["real"]["mask"]);
     let got = carve_fjords(&f.field, &mask, f.gw, f.gh, f.sea, CarveFjordsOpts::default());
@@ -107,6 +119,10 @@ fn carve_fjords_matches_the_reference_at_the_defaults() {
 
 #[test]
 fn every_opts_override_is_read() {
+    // Protects: every one of `FjordMaskOpts`'s and `CarveFjordsOpts`'s
+    // fields being read rather than any silently defaulting -- overriding
+    // all of them at once must change the answer, matched against the
+    // reference's own all-overrides capture.
     let f = fixture();
     let opts = FjordMaskOpts {
         coast_buffer: 3.0,
@@ -132,6 +148,9 @@ fn every_opts_override_is_read() {
 /// world by luck; a second world 12 °C colder pins them.
 #[test]
 fn the_paleoclimate_band_matches_on_a_second_world_twelve_degrees_colder() {
+    // Protects: the mutation test for the paleoclimate band's five
+    // constants -- a 12-degree-colder world must both match the reference
+    // exactly and move the mask from the base world.
     let f = fixture();
     let cold = f32s(&f.v["cold"]["temp"]);
     let got =
@@ -143,6 +162,8 @@ fn the_paleoclimate_band_matches_on_a_second_world_twelve_degrees_colder() {
 
 #[test]
 fn all_seven_lithology_competences_are_applied() {
+    // Protects: all seven LITH_COMPETENCE entries actually being read via
+    // a lithology sweep, and that rewriting lithology changes the mask.
     let f = fixture();
     let cold = f32s(&f.v["cold"]["temp"]);
     let sweep: Vec<u8> = (0..f.gw * f.gh).map(|i| (i % 7) as u8).collect();

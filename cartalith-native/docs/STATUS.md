@@ -694,6 +694,104 @@ re-checked against the tree rather than copied from the commit message.
   `cartalith-civ`, `cartalith-urban`, `cartalith-godot` and the GDScript
   shell remain deferred and unannotated after batch 11 closes spatial.
 
+- **Ruling BK annotation pass, batch 11 (`cartalith-spatial` closed; then
+  `cartalith-terrain`'s `center`/`landform`/`fjord` modules) — verified by the main loop 2026-09-28 (diff re-read as comment-only plus the one moved `type Seg` line; spatial 168/0/0 and terrain 317/0/0, terrain matching HEAD re-run in a worktree), 2026-09-28.** Comments only, zero behaviour
+  change; not yet re-read by a separate verifier the way batches 6-10 were.
+  **Part 1 closed `cartalith-spatial`.** Re-verified the census at the
+  symbol before starting, per batch 10's own caution: batch 10's file list
+  had silently omitted `src/contour.rs` (422 LOC, the level-set contour
+  tracer) from both its own accounting and `OUTSTANDING_WORK.md`'s "5
+  `src/*.rs` files" claim — actually 9 src files, not 5 — so this batch
+  annotated it too rather than leaving the crate's true remainder
+  unclosed. Touched: `src/measure.rs` (472), `src/pyramid.rs` (307),
+  `src/lib.rs` (289), `src/region.rs` (279), `src/contour.rs` (422), plus
+  `tests/golden_parity_measure_poly.rs` (280),
+  `tests/golden_parity_pyramid.rs` (131) and
+  `tests/golden_parity_region.rs` (91) — 2 271 LOC. Every previously
+  undocumented `fn`/`struct`/`const`/`impl` method got its own doc comment
+  (`ChunkId::new`, `DirtyTracker::tile_count`/`is_dirty`/`version`/
+  `reason`/`dirty_tiles`, `Region::new`, six ring/rect consts and the
+  `Golden` struct in `golden_parity_measure_poly.rs`, `CH` in
+  `golden_parity_pyramid.rs`, a local `TileDimCase` type alias, `contour.rs`'s
+  `NONE` const), and every one of that remainder's `#[test]`s across all
+  eight files got a `// Protects:` first line inside its body (23 in
+  `measure.rs`, 7 in `pyramid.rs`, 8 in
+  `lib.rs`, 12 in `region.rs`, 7 in `contour.rs`, 5+4+2 in the three test
+  files — 68 total). Two items had a real doc comment misplaced relative to
+  their item rather than missing: `region.rs`'s `norm_region` had a plain
+  `//` note ("The reference's own eight-argument signature...") sitting
+  between its `///` block and the `#[allow]` attribute, breaking adjacency
+  — promoted to `///` in place; `contour.rs` had `contour_polylines`'s own
+  `///` doc block separated from the function by the *unrelated* `Seg`
+  type's declaration and its own doc landing in between (both blocks'
+  *content* was correct and undamaged, only the file's block order was
+  wrong) — fixed by moving `contour_polylines`'s doc block down to sit
+  directly above the function, leaving `Seg` and its doc exactly where they
+  were; `landform.rs` (touched in Part 2) had the same misplacement between
+  a `step_world` test-helper's doc and `the_no_climate_defaults_...`'s doc,
+  fixed the same way. `cargo test -p cartalith-spatial`, summed over all 7
+  binaries: **168 passed / 0 failed / 0 ignored, identical before and
+  after** (`CARGO_TARGET_DIR` pointed at this lane's own scratchpad,
+  `.../scratchpad/bk11/target`, to avoid colliding with the concurrent
+  `cartalith-godot`/`godot-project` lane). A comment-only-diff checker
+  (this lane's own, adapted from batch 10's) passed on all 7 files; the one
+  exception is `contour.rs`'s `type Seg = (usize, usize, (f64, f64), (f64,
+  f64));` line, which the line-based checker flags as "code changed"
+  because it physically moved a few lines, though its text is
+  byte-identical before and after — recorded here rather than hidden,
+  since a literal-diff checker cannot see "moved, not edited". **Whole-crate
+  census: `cartalith-spatial` now reads 0 unprotected tests across all nine
+  `src/*.rs` files and five `tests/*.rs` files** (real non-test items are
+  fully doc-commented; the census's `items_undoc` count stays nonzero for
+  bare test `fn`s themselves, which get a `// Protects:` line rather than a
+  separate `///` doc — the convention batch 10 established and this batch
+  followed rather than re-litigated). **`cartalith-spatial` is closed on
+  this census.**
+  **Part 2 opened `cartalith-terrain`** (`ANNOTATION_AUDIT.md` rank 9,
+  16 153 LOC, 53% items undocumented) at its three smallest modules, each
+  with one paired golden-parity test file: `src/center.rs` (173, landmass
+  seam centering) + `tests/golden_parity_center.rs` (151), `src/landform.rs`
+  (205, R5 landform classification) + `tests/golden_parity_landform.rs`
+  (184), `src/fjord.rs` (266, fjord masking/carving) +
+  `tests/golden_parity_fjord.rs` (154) — 1 133 LOC, stopping there to keep
+  this batch's total (spatial's 2 271 + terrain's 1 133 = 3 404 LOC) inside
+  the standing ~3 500 LOC band. All six files' real items (fns, consts,
+  structs, `impl` methods, test-fixture helpers like `step_world`/`fixture`/
+  `f32s`/`u8s`/`hist`/`expect_hist`, and the `Fx` fixture structs in the two
+  golden test files) were already doc-commented or got one; every one of
+  the 30 `#[test]`s across the six files (4+4+4 in the `src/` files, 6+6+6
+  in the paired tests) got a `// Protects:` first line. `cargo test -p
+  cartalith-terrain`, summed over all 25 binaries: **317 passed / 0 failed
+  / 0 ignored** after this batch, with test-fn counts (`grep -c
+  '#\[test\]'` per file, 30 across the six touched files) confirmed
+  unchanged against `git show HEAD:<file>` since a before/after cargo run
+  was not captured for this crate ahead of editing — an omission relative
+  to this project's own recording discipline, flagged here rather than
+  silently glossed over; a re-run of this same suite by whoever verifies
+  this batch is the check that closes that gap. A comment-only-diff
+  checker (same method) passed on all six terrain files with **zero**
+  exceptions, including the `landform.rs` doc-block reorder, which moved
+  only comment lines and left the `#[test]` attribute and code in place.
+  **`cartalith-terrain` overall remains open** — only 3 of its ~34 files
+  are annotated; `ANNOTATION_AUDIT.md`'s "terrain-1..6" batching (~2 700
+  LOC each) still applies to the rest.
+  **Next step: batch 12 should continue `cartalith-terrain`** on its next
+  smallest coherent modules with paired golden tests — by size,
+  `src/tile_render.rs` (452) + `tests/golden_parity_tile_render.rs` (250) +
+  `tests/golden_parity_zoom_detail.rs` (258, also exercises tile_render) is
+  the next natural unit (~960 LOC), followed by `src/vector.rs` (633,
+  paired with `tests/golden_parity_infer.rs`? — re-verify the actual
+  pairing at the symbol rather than assuming from name similarity, since
+  this batch found `landform.rs` cross-referenced by `golden_parity_sculpt.rs`
+  as well as its own dedicated file) and then the larger `src/analysis.rs`
+  (1 056), `src/geology.rs` (1 149), `src/amplify.rs` (1 318),
+  `src/sculpt.rs` (2 800) and `src/lib.rs` (4 602), each likely needing its
+  own batch or split by internal section given size. Re-verify the
+  undocumented-item count at the symbol before starting rather than
+  trusting this entry's own counts, per this file's own recurring caution.
+  Batches 6 through 11 all still need an independent verifier before any
+  can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

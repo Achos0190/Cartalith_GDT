@@ -89,6 +89,9 @@ const PROBES: [(f64, f64); 14] = [
     (3.0, 9.0),
 ];
 
+/// One captured reference ring plus its area/centroid/containment answers,
+/// as returned by the frozen reference's `polyArea`/`polyCentroid`/
+/// `pointInPoly` under the harness described in the module doc.
 struct Golden {
     label: &'static str,
     points: &'static [(f64, f64)],
@@ -97,8 +100,14 @@ struct Golden {
     inside: [bool; 14],
 }
 
+/// The "rect" fixture — see the module doc's fixture list. Counter-clockwise
+/// in this port's y-down grid.
 const RECT: [(f64, f64); 4] = [(2.0, 3.0), (8.0, 3.0), (8.0, 7.0), (2.0, 7.0)];
+/// The "rect_cw" fixture — the same rectangle as [`RECT`], wound the other
+/// way, so the signed-area and winding-blind tests have something to check.
 const RECT_CW: [(f64, f64); 4] = [(2.0, 7.0), (8.0, 7.0), (8.0, 3.0), (2.0, 3.0)];
+/// The "u" fixture — a concave ring with a notch, so a bounding-box
+/// containment test would disagree with the real crossing-number one.
 const U: [(f64, f64); 8] = [
     (0.0, 0.0),
     (10.0, 0.0),
@@ -109,6 +118,9 @@ const U: [(f64, f64); 8] = [
     (3.0, 10.0),
     (0.0, 10.0),
 ];
+/// The "frac" fixture — five vertices on no cell corner at all, since a
+/// user-drawn measuring ring lands wherever the click did, not on an
+/// integer grid line.
 const FRAC: [(f64, f64); 5] = [
     (1.25, 2.75),
     (9.5, 3.125),
@@ -116,7 +128,12 @@ const FRAC: [(f64, f64); 5] = [
     (2.5, 6.5),
     (0.75, 4.25),
 ];
+/// The "line" fixture — three collinear points, reaching
+/// `polygon_centroid`'s own `|sa| < 1e-9` degenerate fallback, otherwise
+/// unreachable.
 const LINE: [(f64, f64); 3] = [(0.0, 0.0), (2.0, 0.0), (4.0, 0.0)];
+/// The "tri" fixture — an odd vertex count with a real area, so the
+/// `(i + 1) % n` wrap is exercised on a non-even-length ring too.
 const TRI: [(f64, f64); 3] = [(0.0, 0.0), (7.0, 1.0), (3.0, 9.0)];
 
 /// Captured from the frozen reference; see the module doc for the harness.
@@ -186,6 +203,10 @@ const GOLDENS: [Golden; 6] = [
 /// against an empty loop.
 #[test]
 fn the_fixture_table_is_non_empty_and_varied() {
+    // Protects: the fixture table silently losing its contents in
+    // transcription (CLAUDE.md's "watch for silently-empty golden output"),
+    // which would otherwise make every comparison test below pass against
+    // an empty loop.
     assert_eq!(GOLDENS.len(), 6);
     assert!(GOLDENS.iter().all(|g| g.points.len() >= 3), "every ring has a real polygon");
     assert!(GOLDENS.iter().any(|g| g.area > 0.0), "some ring winds positive");
@@ -201,6 +222,8 @@ fn the_fixture_table_is_non_empty_and_varied() {
 
 #[test]
 fn polygon_area_matches_the_reference_exactly() {
+    // Protects: polygon_area() against the frozen reference's `polyArea`
+    // (line 28290) bit-for-bit, across every fixture ring.
     for g in &GOLDENS {
         assert_eq!(polygon_area(g.points), g.area, "{}", g.label);
     }
@@ -208,6 +231,9 @@ fn polygon_area_matches_the_reference_exactly() {
 
 #[test]
 fn polygon_centroid_matches_the_reference_exactly() {
+    // Protects: polygon_centroid() against the frozen reference's
+    // `polyCentroid` (line 28291) bit-for-bit, including its degenerate
+    // vertex-mean fallback.
     for g in &GOLDENS {
         let (cx, cy) = polygon_centroid(g.points);
         assert_eq!(cx, g.centroid.0, "{} x", g.label);
@@ -217,6 +243,9 @@ fn polygon_centroid_matches_the_reference_exactly() {
 
 #[test]
 fn point_in_polygon_matches_the_reference_on_every_probe() {
+    // Protects: point_in_polygon() against the frozen reference's
+    // `pointInPoly` (line 28295) on all 84 ring/probe combinations, not
+    // just the easy convex-fixture ones.
     for g in &GOLDENS {
         for (i, &probe) in PROBES.iter().enumerate() {
             assert_eq!(
@@ -235,6 +264,9 @@ fn point_in_polygon_matches_the_reference_on_every_probe() {
 /// which.
 #[test]
 fn the_three_constants_each_have_a_fixture_that_kills_them() {
+    // Protects: the mutation-test claim this fn's own doc makes -- that a
+    // fixture exists which would fail if the `/2.0`, `3.0 *` or `1e-9`
+    // constant were dropped or changed.
     // `/2.0`: the rectangle's raw shoelace sum is 48, not 24.
     assert_eq!(polygon_area(&RECT), 24.0);
     // `3.0 *`: dropping it scales `tri`'s centroid by exactly 3.

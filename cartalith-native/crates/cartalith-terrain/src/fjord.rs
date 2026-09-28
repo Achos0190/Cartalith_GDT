@@ -202,6 +202,9 @@ mod tests {
     /// golden test taken at one width while being wrong at every other.
     #[test]
     fn the_coast_buffer_default_is_the_max_of_four_and_a_thirtieth_of_the_width() {
+        // Protects: FjordMaskOpts::for_width()'s `max(4, W/30)` default --
+        // both the floor and the grid-dependent slope must hold, since a
+        // constant would pass at one width and fail at another.
         assert_eq!(FjordMaskOpts::for_width(48).coast_buffer, 4.0);
         assert_eq!(FjordMaskOpts::for_width(120).coast_buffer, 4.0);
         assert_eq!(FjordMaskOpts::for_width(600).coast_buffer, 20.0);
@@ -209,6 +212,8 @@ mod tests {
 
     #[test]
     fn carving_never_raises_a_cell() {
+        // Protects: carve_fjords() only ever lowering a cell, never raising
+        // one, across a fully-masked field.
         let w = 8;
         let h = 8;
         let fld: Vec<f32> = (0..w * h).map(|i| 0.30 + (i % 5) as f32 * 0.02).collect();
@@ -221,6 +226,8 @@ mod tests {
 
     #[test]
     fn a_zero_mask_carves_nothing() {
+        // Protects: carve_fjords() leaving the field completely unchanged
+        // when the mask is zero everywhere (the `m <= 0.02` guard).
         let w = 6;
         let h = 6;
         let fld: Vec<f32> = (0..w * h).map(|i| 0.2 + i as f32 * 0.01).collect();
@@ -232,6 +239,10 @@ mod tests {
     /// able to zero it, or one of them is not actually being applied.
     #[test]
     fn each_of_the_three_constraints_can_zero_the_mask_alone() {
+        // Protects: each of the mask's three multiplied terms
+        // (thermal band, relief, lithology) being able to independently
+        // zero the mask -- and that lithology scales (shale != 0) rather
+        // than zeroing, and is actually read.
         let w = 9;
         let h = 9;
         // A steep coastal ridge: half ocean, half a rising wall.

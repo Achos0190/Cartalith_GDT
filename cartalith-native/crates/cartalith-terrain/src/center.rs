@@ -129,6 +129,8 @@ mod tests {
 
     #[test]
     fn shift_by_zero_and_by_a_full_width_are_both_no_ops() {
+        // Protects: shift_grid_x() treating an offset that reduces to 0
+        // modulo w as a no-op, and any non-zero-mod offset as a real move.
         let src: Vec<f32> = (0..12).map(|i| i as f32).collect();
         for off in [0isize, 4, -4, 8] {
             let mut a = src.clone();
@@ -143,6 +145,9 @@ mod tests {
 
     #[test]
     fn negative_and_oversized_offsets_reduce_the_same_way_js_does() {
+        // Protects: shift_grid_x() reducing a negative or over-wide offset
+        // modulo w the way JS's `((off%W)+W)%W` does, so -1/+3/+7 (all
+        // congruent mod 4) all produce the same result.
         let src: Vec<f32> = (0..8).map(|i| i as f32).collect();
         let mut a = src.clone();
         let mut b = src.clone();
@@ -156,6 +161,9 @@ mod tests {
 
     #[test]
     fn seam_column_is_the_edge_when_nothing_moved() {
+        // Protects: seam_column() matching the reference's
+        // `((GW-off)%GW+GW)%GW`, including the off==0 and off==w wrap
+        // cases that both land back on column 0.
         assert_eq!(seam_column(48, 0), 0);
         assert_eq!(seam_column(48, 27), 21);
         assert_eq!(seam_column(48, 48), 0);
@@ -163,6 +171,9 @@ mod tests {
 
     #[test]
     fn a_zero_half_width_feathers_two_columns_either_side_not_none() {
+        // Protects: feather_seam_x() substituting half_w == 0 with 2,
+        // matching the reference's `halfW=halfW||2` truthiness, rather
+        // than feathering nothing.
         let mut a = vec![0f32, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0];
         let mut b = a.clone();
         feather_seam_x(&mut a, 8, 1, 3, 0);

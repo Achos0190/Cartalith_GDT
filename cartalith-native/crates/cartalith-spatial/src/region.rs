@@ -71,7 +71,7 @@ pub use cartalith_jsmath::js_round;
 /// pushed past the edge is *slid back* rather than shrunk — and only if it
 /// still does not fit is the width finally reduced. A port that clamped first
 /// would return a rectangle smaller than the requested minimum.
-// The reference's own eight-argument signature, kept argument for argument.
+/// The reference's own eight-argument signature, kept argument for argument.
 #[allow(clippy::too_many_arguments)]
 pub fn norm_region(
     x0: f64,
@@ -158,12 +158,16 @@ mod tests {
 
     #[test]
     fn ordered_corners_pass_through() {
+        // Protects: norm_region() on already-ordered, in-bounds corners
+        // producing the expected rect with no clamping applied.
         assert_eq!(norm_region(3.0, 4.0, 20.0, 18.0, 64, 48, None, None),
                    Region { x: 3, y: 4, w: 17, h: 14 });
     }
 
     #[test]
     fn corner_order_does_not_matter() {
+        // Protects: norm_region() giving the same rect whichever of the two
+        // drag corners is passed first.
         let a = norm_region(3.0, 4.0, 20.0, 18.0, 64, 48, None, None);
         let b = norm_region(20.0, 18.0, 3.0, 4.0, 64, 48, None, None);
         assert_eq!(a, b);
@@ -171,6 +175,8 @@ mod tests {
 
     #[test]
     fn negative_overshoot_clamps_to_the_origin() {
+        // Protects: norm_region() clamping a negative origin to 0 rather
+        // than keeping the overshoot or panicking on the cast.
         let r = norm_region(-9.0, -4.0, 12.0, 9.0, 64, 48, None, None);
         assert_eq!(r.x, 0);
         assert_eq!(r.y, 0);
@@ -178,6 +184,8 @@ mod tests {
 
     #[test]
     fn a_tap_still_yields_the_minimum_size() {
+        // Protects: norm_region() on a zero-size drag (a tap) still
+        // yielding the default 8x8 minimum, not a zero-size region.
         let r = norm_region(5.0, 5.0, 5.0, 5.0, 64, 48, None, None);
         assert_eq!(r.w, 8);
         assert_eq!(r.h, 8);
@@ -185,6 +193,9 @@ mod tests {
 
     #[test]
     fn an_explicit_zero_minimum_means_eight_like_the_reference() {
+        // Protects: norm_region() treating an explicit `Some(0)` minimum
+        // the same as `None` -- the reference's `minW || 8` falsy-zero
+        // behaviour, reproduced rather than "fixed".
         // `minW = minW || 8` -- 0 is falsy in JS.
         let with_zero = norm_region(5.0, 5.0, 5.0, 5.0, 64, 48, Some(0), Some(0));
         let with_none = norm_region(5.0, 5.0, 5.0, 5.0, 64, 48, None, None);
@@ -194,12 +205,18 @@ mod tests {
 
     #[test]
     fn a_selection_wider_than_the_grid_is_clipped_to_it() {
+        // Protects: norm_region() clipping a selection that overshoots the
+        // far edge back to the full grid extent.
         let r = norm_region(0.0, 0.0, 200.0, 200.0, 64, 48, None, None);
         assert_eq!(r, Region { x: 0, y: 0, w: 64, h: 48 });
     }
 
     #[test]
     fn the_minimum_slides_the_rect_back_rather_than_shrinking_it() {
+        // Protects: norm_region()'s load-bearing clamp order -- the minimum
+        // size is applied before the far-edge clamp, so an at-the-edge
+        // drag slides the rect back rather than shrinking it below the
+        // requested minimum.
         // Dragged 1x1 at the far corner: min 16 does not fit past the edge, so
         // x slides back to 64-16 and the width is kept -- not clipped to 1.
         let r = norm_region(63.0, 47.0, 64.0, 48.0, 64, 48, Some(16), Some(16));
@@ -209,6 +226,9 @@ mod tests {
 
     #[test]
     fn fractional_corners_floor_the_origin_and_ceil_the_extent() {
+        // Protects: norm_region() flooring the fractional origin and
+        // ceiling the fractional extent, matching the reference's rounding
+        // exactly (not, say, rounding both the same way).
         let r = norm_region(1.7, 2.2, 9.4, 8.9, 64, 48, None, None);
         assert_eq!(r.x, 1);
         assert_eq!(r.y, 2);
@@ -218,6 +238,9 @@ mod tests {
 
     #[test]
     fn tile_dims_keeps_the_long_coarse_edge_at_the_tile_size() {
+        // Protects: tile_dims() pinning the tile size on the selection's
+        // longer coarse edge, whichever axis (wide or tall) that is, and
+        // scaling the shorter edge down to match.
         let wide = tile_dims(&Region { x: 0, y: 0, w: 100, h: 20 }, 2, 1, 1024);
         assert_eq!(wide.w, 1024);
         assert!(wide.h < 1024);
@@ -228,6 +251,9 @@ mod tests {
 
     #[test]
     fn tile_dims_floors_the_short_edge_at_two_pixels() {
+        // Protects: tile_dims()'s `max(2, ...)` floor on the scaled-down
+        // short edge, which is why the amplify path never hits a
+        // division-by-zero on an extreme-aspect selection.
         let d = tile_dims(&Region { x: 0, y: 0, w: 1000, h: 3 }, 1, 1, 8);
         assert_eq!(d.h, 2);
         let d2 = tile_dims(&Region { x: 0, y: 0, w: 3, h: 1000 }, 1, 1, 8);
@@ -236,12 +262,16 @@ mod tests {
 
     #[test]
     fn a_square_selection_takes_the_aspect_ge_one_branch() {
+        // Protects: tile_dims() on an exactly-square selection taking the
+        // `aspect >= 1.0` branch and producing a square tile.
         let d = tile_dims(&Region { x: 0, y: 0, w: 33, h: 33 }, 3, 3, 256);
         assert_eq!(d, TileDims { w: 256, h: 256 });
     }
 
     #[test]
     fn to_float_widens_without_moving_the_rect() {
+        // Protects: Region::to_float() widening each field to f64 without
+        // changing any value.
         let r = Region { x: 4, y: 6, w: 20, h: 14 };
         let f = r.to_float();
         assert_eq!((f.x, f.y, f.w, f.h), (4.0, 6.0, 20.0, 14.0));

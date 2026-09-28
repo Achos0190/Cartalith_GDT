@@ -40,10 +40,14 @@ use cartalith_spatial::pyramid::{
 
 /// The extraction's fixture dimensions: a 48x32 coarse field.
 const CW: usize = 48;
+/// The extraction's fixture dimensions: a 48x32 coarse field (paired with
+/// [`CW`]).
 const CH: usize = 32;
 
 #[test]
 fn pyramid_dims_matches_the_reference() {
+    // Protects: pyramid_dims() against the reference's `pyramidDims`
+    // (line 10461), including its negative-level floor to the root.
     // [z, cols, rows], straight from the harness.
     for &(z, cols, rows) in
         &[(0, 1, 1), (1, 2, 2), (2, 4, 4), (3, 8, 8), (4, 16, 16), (-1, 1, 1)]
@@ -55,6 +59,9 @@ fn pyramid_dims_matches_the_reference() {
 
 #[test]
 fn pyramid_tile_bounds_matches_the_reference() {
+    // Protects: pyramid_tile_bounds() against the reference's
+    // `pyramidTileBounds` (line 10594), bit-for-bit on the fractional
+    // steps a rounding port would get wrong.
     // [z, col, row, x, y, w, h]. The fractional steps are the point: 47/2,
     // 47/4, 47/8 and their vertical twins are exactly what a rounding port
     // would get wrong.
@@ -73,6 +80,9 @@ fn pyramid_tile_bounds_matches_the_reference() {
 
 #[test]
 fn tiles_in_view_matches_the_reference() {
+    // Protects: tiles_in_view() against the reference's `tilesInView`
+    // (line 10637), including the off-grid case that names tile (0,0)
+    // rather than an empty range.
     // [z, vx0, vy0, vx1, vy1] -> [cols, rows, c0, c1, r0, r1, count]
     let cases: &[(i32, f64, f64, f64, f64, u32, u32, u32, u32, u32, u32, i64)] = &[
         (0, 0.0, 0.0, 46.0, 30.0, 1, 1, 0, 0, 0, 0, 1),
@@ -95,6 +105,9 @@ fn tiles_in_view_matches_the_reference() {
 
 #[test]
 fn pyramid_level_for_zoom_matches_the_reference() {
+    // Protects: pyramid_level_for_zoom() against the reference's
+    // `pyramidLevelForZoom` (line 10600), including the below-the-floor
+    // scale, the past-the-cap scale, and the `None` max_level default.
     // [scale, baseW, tileSize, maxLevel] -> level.
     let cases: &[(f64, f64, f64, Option<i32>, i32)] = &[
         (1.0, 2048.0, 1024.0, Some(8), 1),

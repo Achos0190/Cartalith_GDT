@@ -150,6 +150,8 @@ mod tests {
 
     #[test]
     fn ocean_is_never_classified() {
+        // Protects: build_landform_field()'s `hh < sea` continue -- every
+        // cell below sea level stays class 0 regardless of slope/curvature.
         let w = 6;
         let h = 6;
         let fld = vec![0.1f32; w * h];
@@ -157,11 +159,6 @@ mod tests {
         assert!(out.iter().all(|&v| v == 0));
     }
 
-    /// The reference's own `temp?…:15` / `rain?…:0.4` defaults sit exactly
-    /// outside the dune (`T>18`) and badlands (`M<0.22`) windows, so a
-    /// no-climate call can only ever produce cliffs, mesas and floodplains.
-    /// That is worth pinning: it is the difference between "the defaults
-    /// are these two numbers" and "the defaults are anything at all".
     /// A single vertical step: a low bench meeting a high plateau. The two
     /// columns either side of the break clear `sn > 4.5` (cliff) and the
     /// first two plateau columns inside the 5×5 window clear `sn < 0.8`
@@ -170,8 +167,16 @@ mod tests {
         (0..w * h).map(|i| if i % w < w / 2 { low } else { high }).collect()
     }
 
+    /// The reference's own `temp?…:15` / `rain?…:0.4` defaults sit exactly
+    /// outside the dune (`T>18`) and badlands (`M<0.22`) windows, so a
+    /// no-climate call can only ever produce cliffs, mesas and floodplains.
+    /// That is worth pinning: it is the difference between "the defaults
+    /// are these two numbers" and "the defaults are anything at all".
     #[test]
     fn the_no_climate_defaults_cannot_reach_the_climatic_classes() {
+        // Protects: build_landform_field()'s no-climate fallbacks (15 deg,
+        // 0.4 rain) landing outside the dune/badlands windows, so a
+        // no-climate call can only produce cliffs, mesas and floodplains.
         let (w, h) = (24usize, 8usize);
         let fld = step_world(w, h, 0.45, 0.95);
         let out = build_landform_field(&fld, None, None, None, w, h, 0.42, 0.1);
@@ -188,6 +193,9 @@ mod tests {
     /// branch order rather than of the fixture.
     #[test]
     fn first_match_wins_puts_cliff_ahead_of_badlands() {
+        // Protects: the first-match-wins branch order -- the same cell,
+        // gentle enough to satisfy the badlands predicate, must still come
+        // out a cliff once the step is steep enough to satisfy that too.
         let (w, h) = (48usize, 6usize);
         let dry = vec![0.0f32; w * h];
         let cell = 2 * w + 23; // the low-side column at the break
@@ -200,6 +208,8 @@ mod tests {
 
     #[test]
     fn the_palette_and_the_names_agree_on_length() {
+        // Protects: LANDFORM_COLS and LANDFORM_NAMES staying the same
+        // length, so no class index can index one but not the other.
         assert_eq!(LANDFORM_COLS.len(), LANDFORM_NAMES.len());
     }
 }

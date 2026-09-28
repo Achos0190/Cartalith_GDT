@@ -42,6 +42,8 @@
 
 use cartalith_terrain::center::{best_empty_column, feather_seam_x, seam_column, shift_grid_x};
 
+/// Loads and parses `center_landmasses_captured.json`, the fixture this
+/// whole file's goldens are drawn from (see the module doc for the harness).
 fn fixture() -> serde_json::Value {
     let s = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -51,16 +53,22 @@ fn fixture() -> serde_json::Value {
     serde_json::from_str(&s).expect("fixture should parse")
 }
 
+/// Unpacks a JSON array fixture into an `f32` grid.
 fn f32s(v: &serde_json::Value) -> Vec<f32> {
     v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap() as f32).collect()
 }
 
+/// Unpacks a JSON array fixture into a `u8` grid -- the shape the reference
+/// shifts `plateId`/`boundaryMask`/`riverMask` through.
 fn u8s(v: &serde_json::Value) -> Vec<u8> {
     v.as_array().unwrap().iter().map(|x| x.as_u64().unwrap() as u8).collect()
 }
 
 #[test]
 fn best_empty_column_matches_the_reference_on_a_real_world() {
+    // Protects: best_empty_column() against the reference's
+    // `bestEmptyColumn` (line 3156) on a real generated world, and that the
+    // fixture actually needs centering rather than trivially returning 0.
     let g = fixture();
     let field = f32s(&g["field"]);
     let (gw, gh) = (g["gw"].as_u64().unwrap() as usize, g["gh"].as_u64().unwrap() as usize);
@@ -78,6 +86,9 @@ fn best_empty_column_matches_the_reference_on_a_real_world() {
 
 #[test]
 fn best_empty_column_ties_go_to_the_lowest_column_and_the_geoid_is_read() {
+    // Protects: best_empty_column()'s strict `<` tie-break (first/lowest
+    // column wins) and the `geo?geo[i]:0` term actually changing the
+    // answer at a sea level shaped to flip it.
     let g = fixture();
     let t = &g["tie"];
     let field = f32s(&t["field"]);
@@ -97,6 +108,9 @@ fn best_empty_column_ties_go_to_the_lowest_column_and_the_geoid_is_read() {
 
 #[test]
 fn shift_grid_x_matches_the_reference_for_every_offset_class() {
+    // Protects: shift_grid_x() against the reference's `shiftGridX`
+    // (line 3161) for in-range, no-op, negative, over-wide and
+    // exactly-grid-width offsets.
     let g = fixture();
     let src = f32s(&g["tie"]["field"]);
     let (w, h) = (8usize, 5usize);
@@ -109,6 +123,9 @@ fn shift_grid_x_matches_the_reference_for_every_offset_class() {
 
 #[test]
 fn shift_grid_x_shifts_an_integer_grid_the_same_way() {
+    // Protects: shift_grid_x() being generic over element type -- a `u8`
+    // grid shifts identically to the `f32` case, matching the reference's
+    // `new arr.constructor(W)` allocation.
     let g = fixture();
     let mut a = u8s(&g["shift"]["u8_in"]);
     shift_grid_x(&mut a, 8, 5, 3);
@@ -117,6 +134,9 @@ fn shift_grid_x_shifts_an_integer_grid_the_same_way() {
 
 #[test]
 fn feather_seam_x_matches_the_reference_including_the_wrap() {
+    // Protects: feather_seam_x() against the reference's `featherSeamX`
+    // (line 3171) across four (column, half-width) pairs, including a
+    // column at the grid edge where every read wraps.
     let g = fixture();
     let src = f32s(&g["tie"]["field"]);
     for (key, col, hw) in [("c0_h2", 0usize, 2usize), ("c4_h2", 4, 2), ("c6_h1", 6, 1), ("c2_h3", 2, 3)] {
@@ -128,6 +148,10 @@ fn feather_seam_x_matches_the_reference_including_the_wrap() {
 
 #[test]
 fn the_whole_centering_composition_matches_the_reference_on_a_real_world() {
+    // Protects: the full `centerLandmasses` composition (best column ->
+    // shift -> seam column -> feather) matching the reference end to end,
+    // and that both the shift and the feather each visibly change the
+    // field -- guarding against a silently-empty golden.
     let g = fixture();
     let field = f32s(&g["field"]);
     let (gw, gh) = (g["gw"].as_u64().unwrap() as usize, g["gh"].as_u64().unwrap() as usize);
