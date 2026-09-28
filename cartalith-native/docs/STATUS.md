@@ -2348,6 +2348,26 @@ and, later the same day, for ways, with *Exist only* re-applied on a strip
 scrub (verified by the main loop 2026-09-28) — see the TL-6 row; routed in
 `OUTSTANDING_WORK.md` §2.3.
 
+**Way tids survive a recompute — built 2026-09-28, pending independent
+verification.** `OUTSTANDING_WORK.md` §2.3's row "`recompute_civilisation`
+re-issues every way's tid" was real: `compute_civilisation` rebuilt every way
+with tid 0 and `civ_assign_tid` issued each a fresh id, so an unchanged
+recompute between two recorded years marked all 254 ways of the probe world as
+removed *and* added. Fix: `timeline::{WayIdentity, civ_way_identities,
+civ_way_tid_index, civ_inherit_way_tids}` key a way by its endpoint
+settlements' tids (unordered) plus its ordinal within that pair, and
+`KeptCiv::way_tids` hands the old network's tids to matching rebuilt ways
+before the counter runs (Recompute and Generate roads; Auto-populate is
+unchanged). The reference churns the same way (`_civAutoRoutes`, v2.11 21857,
+rebuilds `civWays` untid'd), so this improves on it (§7p). No save-format
+change; no golden moved. Tests: 3 in `timeline.rs`, 1 in `lib.rs`
+`civ_pipeline_tests` over a real world (unchanged recompute keeps every tid and
+diffs empty; removing and restoring a settlement still removes and adds its
+ways); 8/8 mutants killed. `cargo test -p cartalith-civ -p cartalith-godot`
+2532 → 2536 passed, 0 failed, 71 result lines both. `_tlpins_probe.gd` gains an
+RC leg: 50/50 on desktop and phone; against the pre-fix DLL, 6 RC checks fail
+(254 added, 254 removed, halos and ghosts on screen).
+
 ### Phase 3 — 2D terrain appearance · `TERRAIN_APPEARANCE_SCOPE.md`
 
 Six milestones plus one follow-up, and §20's staged half (Ruling AN). All built. The 3D half of Phase 3 is not in

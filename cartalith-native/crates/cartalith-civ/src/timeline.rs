@@ -726,6 +726,116 @@ pub fn civ_resync_next_tid(settlements: &[NamedSettlement], ways: &[Way]) -> u64
     mx + 1
 }
 
+/// A generated way's identity across a rebuild of the route network: the tids
+/// of the two settlements it joins (smaller first, so the direction the
+/// consolidation pass happened to walk the edge does not matter), and its
+/// ordinal among the ways joining that same pair, in store order.
+///
+/// The ordinal exists because one network edge can emit several ways --
+/// `civ_consolidate_and_smooth_ways` emits one per sub-run of the edge's path
+/// that a busier edge has not already claimed -- and those runs come out in
+/// path order, so "the second run between A and B" names the same run on
+/// both sides of a rebuild that did not change the network.
+///
+/// Deliberately **not** part of the key: the way's type (`WayType`), name,
+/// geometry and length. A recompute over edited terrain can reclassify a
+/// track as a road or reroute it around a new hill; that is the same way
+/// between the same two places, and the timeline's *Highlight new* and
+/// *Ghost removed* are about ways that appeared or disappeared, not ones that
+/// changed shape. A labelled judgement (2026-09-28), not a reference rule:
+/// the reference has no identity across a rebuild at all (see
+/// [`civ_inherit_way_tids`]).
+pub type WayIdentity = (u64, u64, usize);
+
+/// The [`WayIdentity`] of every way in `ways`, in order, resolved against the
+/// `settlements` list the ways' `a_idx`/`b_idx` index into.
+///
+/// `None` for a way whose endpoint index is past the list or whose endpoint
+/// settlement carries no tid (`0`, the unassigned sentinel): an identity built
+/// from a missing endpoint would be a plausible-looking key standing for "no
+/// value" (`MISTAKES.md`), and could match an unrelated way. Such a way still
+/// takes up no ordinal, so it cannot shift its pair-mates' ordinals.
+pub fn civ_way_identities(ways: &[Way], settlements: &[NamedSettlement]) -> Vec<Option<WayIdentity>> {
+    let mut seen: HashMap<(u64, u64), usize> = HashMap::new();
+    ways.iter()
+        .map(|w| {
+            let a = settlements.get(w.a_idx).map(|s| s.tid).filter(|&t| t != 0)?;
+            let b = settlements.get(w.b_idx).map(|s| s.tid).filter(|&t| t != 0)?;
+            let pair = (a.min(b), a.max(b));
+            let n = seen.entry(pair).or_insert(0);
+            let id = (pair.0, pair.1, *n);
+            *n += 1;
+            Some(id)
+        })
+        .collect()
+}
+
+/// The previous network's tids, keyed by [`WayIdentity`] -- what
+/// [`civ_inherit_way_tids`] matches a rebuilt network against. Built from the
+/// live `ways`/`settlements` *before* a rebuild replaces them.
+///
+/// A way with no identity, or with tid `0`, contributes nothing: there is no
+/// tid to hand on. Should two ways ever share an identity (they cannot, since
+/// the ordinal separates pair-mates), the first wins.
+pub fn civ_way_tid_index(ways: &[Way], settlements: &[NamedSettlement]) -> HashMap<WayIdentity, u64> {
+    let mut out = HashMap::new();
+    for (w, id) in ways.iter().zip(civ_way_identities(ways, settlements)) {
+        if let Some(id) = id
+            && w.tid != 0
+        {
+            out.entry(id).or_insert(w.tid);
+        }
+    }
+    out
+}
+
+/// Gives each way of a rebuilt network the tid the same way carried before
+/// the rebuild, so the timeline diff (`civ_year_diff`, keyed by tid) does not
+/// read an unchanged way as removed-and-re-added. `OUTSTANDING_WORK.md` §2.3's
+/// row, found 2026-09-28 by the TL-6 way-marks lane: `recompute_civilisation`
+/// (SG-02) and Generate roads rebuild every way with tid `0`, and
+/// `civ_assign_tid` then issued each a fresh id, so every way ghosted and
+/// haloed at once after a recompute between two recorded years.
+///
+/// **The reference churns the same way**, which is why this is an improvement
+/// on it rather than a port of it (`DECISIONS.md` §7p). `_civAutoRoutes`
+/// (v2.11 line 21857) rebuilds `civWays` as fresh objects with no `tid`, and
+/// `_civAssignTid` (21054) stamps the next counter value on each at the next
+/// `civSnapshotSave` (21086). Settlements escape that only because the
+/// reference never rebuilds `state.places` there; this gives ways the same
+/// continuity settlements already have.
+///
+/// Only ways whose tid is still `0` are touched, and an inherited tid is
+/// never handed out twice, nor to a way when another way already carries it:
+/// uniqueness of tids is what the diff rests on, so a clash leaves the way at
+/// `0` for `civ_assign_tid` to give a fresh id. A way that matches nothing in
+/// `prev` -- a genuinely new connection, or one whose endpoint lost its tid --
+/// also stays `0` and so reads as added. A previous way nothing matches is
+/// simply absent from the rebuilt network, and reads as removed.
+///
+/// **Known limit, stated rather than discovered:** the ordinal is positional
+/// within a pair. If a pair's network edge emitted two runs, and the rebuild
+/// emits a different number, the surviving runs keep tids by position, not
+/// by geometry. The diff still counts the right number of added/removed ways
+/// for that pair; which run carries which id may differ.
+pub fn civ_inherit_way_tids(
+    ways: &mut [Way],
+    settlements: &[NamedSettlement],
+    prev: &HashMap<WayIdentity, u64>,
+) {
+    let mut taken: BTreeSet<u64> = ways.iter().map(|w| w.tid).filter(|&t| t != 0).collect();
+    let ids = civ_way_identities(ways, settlements);
+    for (w, id) in ways.iter_mut().zip(ids) {
+        if w.tid != 0 {
+            continue;
+        }
+        let Some(&t) = id.as_ref().and_then(|id| prev.get(id)) else { continue };
+        if taken.insert(t) {
+            w.tid = t;
+        }
+    }
+}
+
 // ===================== Milestone 2: proximity graph + betweenness centrality =====================
 //
 // `TIMELINE_SCOPE.md` §5 milestone 2 -- `_civProximityAdjacency` (reference
@@ -3104,6 +3214,116 @@ mod tests {
         // The max can live on either side.
         let ways2 = vec![way_with_tid(100)];
         assert_eq!(civ_resync_next_tid(&settlements, &ways2), 101);
+    }
+
+    // ---------- way identity across a rebuild ----------
+
+    /// A way joining settlement indices `a` and `b`, carrying `tid`.
+    fn way_between(a: usize, b: usize, tid: u64) -> Way {
+        Way { a_idx: a, b_idx: b, ..way_with_tid(tid) }
+    }
+
+    /// Settlements at indices 0..4 carrying tids 101..104.
+    fn four_places() -> Vec<NamedSettlement> {
+        (101..=104).map(settlement_with_tid).collect()
+    }
+
+    /// Records `ways` as `year` over `places` and returns the timeline.
+    fn record(timeline: &mut Vec<TimelineSnapshot>, year: i64, places: &[NamedSettlement], ways: &[Way]) {
+        civ_snapshot_save(timeline, year, Vec::new(), places.to_vec(), ways.to_vec());
+    }
+
+    /// Stamps every still-unassigned way the way `compute_civilisation` does.
+    fn assign_rest(ways: &mut [Way], next: &mut u64) {
+        for w in ways {
+            w.tid = civ_assign_tid(w.tid, next);
+        }
+    }
+
+    /// Protects the fix for `OUTSTANDING_WORK.md` §2.3's way-tid row: a
+    /// rebuild that produces the same network gives every way its old tid
+    /// back, so the diff between the years either side of it is empty. The
+    /// rebuilt ways arrive reordered and with one edge walked the other way
+    /// round, as a rebuild is free to emit them, and the pair 0-1 carries two
+    /// runs, so the ordinal is exercised. Without the inheritance every way
+    /// would be both removed and added.
+    #[test]
+    fn an_unchanged_rebuild_keeps_every_way_tid_and_diffs_empty() {
+        let places = four_places();
+        let before = vec![way_between(0, 1, 10), way_between(0, 1, 11), way_between(1, 2, 12)];
+        let prev = civ_way_tid_index(&before, &places);
+        let mut after = vec![way_between(2, 1, 0), way_between(0, 1, 0), way_between(1, 0, 0)];
+        civ_inherit_way_tids(&mut after, &places, &prev);
+        let mut next = 13;
+        assign_rest(&mut after, &mut next);
+        assert_eq!(after.iter().map(|w| w.tid).collect::<Vec<_>>(), vec![12, 10, 11]);
+        assert_eq!(next, 13, "no fresh tid was drawn");
+
+        let mut tl = Vec::new();
+        record(&mut tl, 0, &places, &before);
+        record(&mut tl, 10, &places, &after);
+        let d = civ_year_diff(&tl, 10);
+        assert!(d.added.is_empty() && d.removed.is_empty(), "{d:?}");
+        assert_eq!(d.present.len(), 4 + 3, "the diff saw every place and way");
+    }
+
+    /// Protects the other half: a rebuild that genuinely drops one connection
+    /// (1-2) and adds another (2-3) still reads as exactly that -- the dropped
+    /// way's tid removed, the new way a fresh tid and added, the unchanged
+    /// way untouched. Also a third run on pair 0-1, which the old network did
+    /// not have, reads as added.
+    #[test]
+    fn a_real_addition_and_removal_still_diff() {
+        let places = four_places();
+        let before = vec![way_between(0, 1, 10), way_between(1, 2, 12)];
+        let prev = civ_way_tid_index(&before, &places);
+        let mut after = vec![way_between(0, 1, 0), way_between(2, 3, 0), way_between(0, 1, 0)];
+        civ_inherit_way_tids(&mut after, &places, &prev);
+        let mut next = 13;
+        assign_rest(&mut after, &mut next);
+        assert_eq!(after.iter().map(|w| w.tid).collect::<Vec<_>>(), vec![10, 13, 14]);
+
+        let mut tl = Vec::new();
+        record(&mut tl, 0, &places, &before);
+        record(&mut tl, 10, &places, &after);
+        let d = civ_year_diff(&tl, 10);
+        assert_eq!(d.removed.iter().copied().collect::<Vec<_>>(), vec![12]);
+        assert_eq!(d.added.iter().copied().collect::<Vec<_>>(), vec![13, 14]);
+    }
+
+    /// Protects the "no value is not a key" rule: an endpoint that is past
+    /// the list or has no tid gives the way no identity (and no ordinal), so
+    /// it inherits nothing; and an inherited tid is never handed to a second
+    /// way, nor to one when another way already carries it.
+    #[test]
+    fn a_way_without_a_real_identity_or_a_clashing_tid_inherits_nothing() {
+        let mut places = four_places();
+        places[3].tid = 0;
+        let ids = civ_way_identities(
+            &[
+                way_between(0, 9, 0),
+                way_between(0, 3, 0),
+                way_between(3, 0, 0),
+                way_between(1, 0, 0),
+                way_between(0, 1, 0),
+            ],
+            &places,
+        );
+        assert_eq!(ids, vec![None, None, None, Some((101, 102, 0)), Some((101, 102, 1))]);
+
+        let prev = civ_way_tid_index(&[way_between(0, 1, 10), way_between(1, 2, 12)], &places);
+        // Index 0 already carries 12 (say, a way kept verbatim); the rebuilt
+        // 1-2 way must not take 12 a second time.
+        let mut after = vec![way_between(3, 0, 12), way_between(0, 1, 0), way_between(1, 2, 0)];
+        civ_inherit_way_tids(&mut after, &places, &prev);
+        assert_eq!(after.iter().map(|w| w.tid).collect::<Vec<_>>(), vec![12, 10, 0]);
+        // A way that already carries a tid keeps it, even when its identity
+        // matches a previous way carrying another.
+        let mut kept = vec![way_between(0, 1, 50)];
+        civ_inherit_way_tids(&mut kept, &places, &prev);
+        assert_eq!(kept[0].tid, 50);
+        // A previous way with tid 0 hands nothing on.
+        assert!(civ_way_tid_index(&[way_between(0, 1, 0)], &places).is_empty());
     }
 
     // ---------- milestone 2: proximity adjacency / betweenness ----------

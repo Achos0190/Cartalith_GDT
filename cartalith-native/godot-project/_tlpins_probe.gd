@@ -29,6 +29,9 @@ extends Node
 ##   EO     Exist only re-applies on a STRIP scrub (`DccShell.tl_set_year`),
 ##          for the dropped pin and for way W: year 0 filtered vs year 0
 ##          unfiltered must differ at the object, and it must leave the overlay.
+##   RC     a recompute that changes nothing marks nothing (2026-09-28): years
+##          20 and 25 recorded either side of an unchanged recompute diff empty,
+##          every way keeps its tid, and both toggles on move no pixel.
 ## The "moves pixels" half is its own positive control: a mark that did not
 ## reach the screen reads 0 and fails, whatever the node tree says.
 ##
@@ -48,6 +51,11 @@ var _fails := 0
 var _checks := 0
 var _form := "desktop"
 var _aborted := false   ## set by every exit-2 path, so the summary line is not printed after it
+## Set on the RC leg's last line. A GDScript runtime error ends a coroutine
+## without failing a check, and the first run of the RC leg did exactly that
+## (a freed toggle) while the summary still read GREEN; this makes a leg that
+## never finished count as a failure.
+var _rc_done := false
 
 
 func _ok(what: String, cond: bool, detail: String = "") -> void:
@@ -410,6 +418,117 @@ func _run() -> void:
 	await _eo_leg(ws, ov, new_px, (gone_xy + new_xy) * 0.5, "pin", func(): return _row_by_tid(ov._settlements, new_tid).is_empty())
 	await _eo_leg(ws, ov, Vector2.ZERO, w_pt, "way", func(): return _row_by_tid(ov._roads, w_tid).is_empty())
 
+	await _recompute_leg(ws, ov)
+
+
+## Every generated way's tid, in store order. Hidden ways included: a snapshot
+## records them, so their tids reach the diff too.
+func _way_tids(bridge) -> Array:
+	var out: Array = []
+	for i in 5000:
+		var w: Dictionary = bridge.way_get("generated", i)
+		if w.is_empty():
+			break
+		if w.has("tid"):
+			out.append(int(w["tid"]))
+	return out
+
+
+## RC (2026-09-28): a recompute that changes nothing must mark nothing.
+## `OUTSTANDING_WORK.md` §2.3's row: `recompute_civilisation` issued every
+## rebuilt way a fresh tid, so a recompute between two recorded years made
+## every way ghost AND halo at once. The fix (`timeline::civ_inherit_way_tids`)
+## gives an unchanged way its previous tid back.
+##
+## The first recompute absorbs this probe's own edits (way V and the victim
+## deleted, a town dropped), which really do change the network; it is the
+## SECOND recompute, over an unchanged world, that is measured. Both run
+## through the CIVIL panel's own handler (`_recompute_civ`), not the bridge,
+## so the shell's refresh path is what draws the result. The cursor sits on
+## an unrecorded year during each recompute (Ruling AT: an edit at a recorded
+## year writes into that record).
+##
+## How the years land -- `civ_add_year(y)` first records the CURSOR's year
+## from live state, then creates `y` as a copy of the nearest earlier record,
+## not of live state. So `add_year(20)` from cursor 15 records 15 and 20 as
+## the post-first-recompute world, and `add_year(30)` from cursor 25 records
+## 25 as the post-second-recompute world. Year 25 against year 20 is the pair
+## that straddles the second recompute. (The first draft of this leg measured
+## 30 against 25, both after it, and passed against the unfixed DLL too; the
+## negative control caught it.)
+##
+## Checks: every way keeps its tid across the second recompute; year 25's diff
+## against year 20 is empty while `present` is not (so "empty" is not "no
+## data"); neither ghost read returns anything; with both toggles on, the
+## overlay holds no marks and the map around a way does not change by a pixel.
+## The toggles' own positive controls are the WH/WG legs above, on this same
+## world and camera setup. The toggles are looked up again after the
+## recomputes: `_recompute_civ` rebuilds the panel, freeing the old CheckBoxes.
+func _recompute_leg(ws: Node, ov: Control) -> void:
+	var bridge = app.bridge
+	_toggle(ws, "Highlight new").button_pressed = false
+	_toggle(ws, "Ghost removed").button_pressed = false
+	bridge.civ_goto_year(15)
+	await ws._recompute_civ()
+	bridge.civ_add_year(20)
+	var tids_a := _way_tids(bridge)
+	bridge.civ_goto_year(25)
+	await ws._recompute_civ()
+	var tids_b := _way_tids(bridge)
+	_ok("RC fixture: the recompute rebuilt a network with ways in it", tids_b.size() > 0, "ways=%d" % tids_b.size())
+	_ok("RC every way keeps its tid across a recompute that changed nothing", tids_a == tids_b,
+		"before=%d ways, after=%d ways, shared tids=%d" % [tids_a.size(), tids_b.size(),
+			tids_a.filter(func(t): return tids_b.has(t)).size()])
+	bridge.civ_add_year(30)
+	ws._rebuild_timeline()
+	## Through the strip's own entry point, so the strip, the cursor and the
+	## marks (`_tl_push_marks` reads `get_civ_year()`) all stand on year 25.
+	app.tl_set_year(25)
+	await _frames(4)
+	_ok("RC fixture: the cursor is on year 25", int(bridge.get_civ_year()) == 25, "cursor=%d" % bridge.get_civ_year())
+	var yrs: Array = Array(ws._tl_years())
+	_ok("RC fixture: 20 is the recorded year just before 25", yrs.has(20) and yrs.has(25)
+		and not yrs.any(func(y): return int(y) > 20 and int(y) < 25), "years=%s" % str(yrs))
+	var diff: Dictionary = bridge.civ_year_diff(25)
+	var present := diff.get("present", PackedInt64Array()) as PackedInt64Array
+	var added := diff.get("added", PackedInt64Array()) as PackedInt64Array
+	var removed := diff.get("removed", PackedInt64Array()) as PackedInt64Array
+	_ok("RC fixture: year 25's diff has objects present (the diff is not vacuous)", present.size() > 0,
+		"present=%d" % present.size())
+	_ok("RC year 25's diff names nothing added", added.is_empty(), "added=%d" % added.size())
+	_ok("RC year 25's diff names nothing removed", removed.is_empty(), "removed=%d" % removed.size())
+	_ok("RC no removed way to ghost", (bridge.civ_year_diff_removed_ways(25) as Array).is_empty())
+	_ok("RC no removed settlement to ghost", (bridge.civ_year_diff_removed(25) as Array).is_empty())
+
+	var row: Dictionary = {}
+	for r: Dictionary in ov._roads:
+		if r.has("tid") and (r["points"] as PackedVector2Array).size() >= 2:
+			row = r
+			break
+	_ok("RC fixture: a generated way is live in the overlay", not row.is_empty())
+	if row.is_empty():
+		return
+	var hl := _toggle(ws, "Highlight new")
+	var gh := _toggle(ws, "Ghost removed")
+	_ok("RC both toggles are found again after the recompute", hl != null and gh != null)
+	if hl == null or gh == null:
+		return
+	var px := await _centre_on(ov, _mid_point(row))
+	var rbase := await _shot("recompute_base")
+	hl.button_pressed = true
+	gh.button_pressed = true
+	var r_on := await _shot("recompute_marks")
+	_crop(rbase, px, "recompute_base")
+	_crop(r_on, px, "recompute_marks")
+	var counts: Dictionary = ov.timeline_mark_counts()
+	_ok("RC with both toggles on, the overlay holds no marks",
+		int(counts["added"]) == 0 and int(counts["ghosts"]) == 0 and int(counts["ghost_ways"]) == 0, str(counts))
+	_ok("RC ...and the map around a way does not change", _diff_box(rbase, r_on, px)[0] == 0,
+		"changed=%d" % _diff_box(rbase, r_on, px)[0])
+	hl.button_pressed = false
+	gh.button_pressed = false
+	_rc_done = true
+
 
 ## One Exist-only scrub leg, the camera centred on `centre`. `px` is where to
 ## measure; ZERO means "the centre itself" (the way leg). The pin leg passes the
@@ -546,5 +665,6 @@ func _ready() -> void:
 	await _run()
 	if _aborted:
 		return
+	_ok("RC leg ran to its last line (no runtime error cut it short)", _rc_done)
 	print("### TLPINS %s  %d/%d checks passed ###" % ["GREEN" if _fails == 0 else "RED", _checks - _fails, _checks])
 	get_tree().quit(0 if _fails == 0 else 1)

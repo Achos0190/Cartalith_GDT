@@ -625,6 +625,14 @@ struct KeptCiv {
     settlements: Vec<cartalith_civ::NamedSettlement>,
     next_tid: u64,
     village_tids: std::collections::HashSet<u64>,
+    /// The route network being replaced, as `timeline::civ_way_tid_index`
+    /// keys it: each way's endpoint-settlement tids and pair ordinal to its
+    /// tid. `compute_civilisation` hands these back to the rebuilt ways that
+    /// match, so a recompute that leaves a way in place leaves its tid in
+    /// place too, and the timeline does not read it as removed and re-added
+    /// (`OUTSTANDING_WORK.md` §2.3, 2026-09-28). Empty is a real answer: a
+    /// world with no ways has nothing to hand on.
+    way_tids: std::collections::HashMap<cartalith_civ::timeline::WayIdentity, u64>,
 }
 
 /// [`WorldGen::civ_rebuild`]'s per-mode tail: merge a fresh
@@ -1605,6 +1613,90 @@ mod civ_pipeline_tests {
             }
         }
         assert!(exact_seed.is_some(), "premise: some seed in 2..=12 has a phase II that abandons no network node");
+    }
+
+    /// `compute_civilisation` on the keep path, as `civ_rebuild` drives it for
+    /// SG-02's Recompute: `settlements` held fixed, and `from`'s counter,
+    /// villages and way tids handed across.
+    fn recompute(p: &cartalith_engine::WorldParams, from: &CivData, settlements: Vec<NamedSettlement>) -> CivData {
+        let ws = &world().0;
+        let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
+        let keep = super::KeptCiv {
+            settlements,
+            next_tid: from.next_tid,
+            village_tids: from.village_tids.clone(),
+            way_tids: cartalith_civ::timeline::civ_way_tid_index(&from.ways, &from.settlements),
+        };
+        compute_civilisation(
+            ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], Some(keep), (&o, &w), false,
+            &mut Vec::new(),
+            None,
+        )
+    }
+
+    /// Year `year`'s `civ_year_diff` over a timeline holding `before` at
+    /// year `year - 10` and `after` at `year`.
+    fn diff(before: &CivData, after: &CivData, year: i64) -> cartalith_civ::timeline::YearDiff {
+        let mut tl = Vec::new();
+        for (y, c) in [(year - 10, before), (year, after)] {
+            cartalith_civ::timeline::civ_snapshot_save(&mut tl, y, c.territory.clone(), c.settlements.clone(), c.ways.clone());
+        }
+        cartalith_civ::timeline::civ_year_diff(&tl, year)
+    }
+
+    /// Protects the fix for `OUTSTANDING_WORK.md` §2.3's row
+    /// "`recompute_civilisation` re-issues every way's tid", through the real
+    /// pipeline on a real world. A recompute that changes nothing must give
+    /// every way its old tid back, so the timeline diff across it is empty
+    /// (before the fix every way was both removed and added). Then the same
+    /// pipeline must still see real change: recomputing with one road-bearing
+    /// settlement removed removes every way that touched it, and putting it
+    /// back adds ways at it again -- while ways away from it keep their tids.
+    #[test]
+    fn a_recompute_keeps_unchanged_way_tids_and_marks_only_real_change() {
+        let p = world().1.clone();
+        let fresh = civ(&p, &[]);
+        assert!(fresh.ways.len() > 3, "premise: the fixture world has a road network");
+        let tids = |c: &CivData| c.ways.iter().map(|w| w.tid).collect::<Vec<_>>();
+
+        let again = recompute(&p, &fresh, fresh.settlements.clone());
+        assert_eq!(tids(&again), tids(&fresh), "an unchanged recompute re-issued way tids");
+        assert_eq!(again.next_tid, fresh.next_tid, "an unchanged recompute drew fresh tids");
+        let d = diff(&fresh, &again, 10);
+        assert!(d.added.is_empty() && d.removed.is_empty(), "unchanged recompute marked {d:?}");
+        assert!(d.present.len() > fresh.ways.len(), "premise: the diff saw the places and ways");
+
+        // Real removal: the settlement at one end of the first way.
+        let victim = fresh.ways[0].a_idx;
+        let victim_tid = fresh.settlements[victim].tid;
+        let touching = |c: &CivData| -> Vec<u64> {
+            c.ways
+                .iter()
+                .filter(|w| c.settlements[w.a_idx].tid == victim_tid || c.settlements[w.b_idx].tid == victim_tid)
+                .map(|w| w.tid)
+                .collect()
+        };
+        let gone_ways = touching(&fresh);
+        let mut fewer = fresh.settlements.clone();
+        fewer.remove(victim);
+        let without = recompute(&p, &fresh, fewer);
+        let d = diff(&fresh, &without, 10);
+        assert!(d.removed.contains(&victim_tid), "the settlement itself reads as removed");
+        for t in &gone_ways {
+            assert!(d.removed.contains(t), "way {t} at the removed settlement did not read as removed");
+        }
+        let kept = tids(&without).into_iter().filter(|t| tids(&fresh).contains(t)).count();
+        assert!(kept > 0, "no way kept its tid across a one-settlement change");
+
+        // Real addition: the settlement comes back, tid and all.
+        let back = recompute(&p, &without, fresh.settlements.clone());
+        let d = diff(&without, &back, 20);
+        assert!(d.added.contains(&victim_tid), "the returning settlement reads as added");
+        let new_ways = touching(&back);
+        assert!(!new_ways.is_empty(), "premise: the returning settlement is joined again");
+        for t in &new_ways {
+            assert!(d.added.contains(t), "way {t} at the returning settlement did not read as added");
+        }
     }
 
     /// The A3 invariants for phases I and II over one world; returns
@@ -3566,11 +3658,12 @@ fn compute_civilisation(
     // output is part of what is being kept -- re-running them would rename
     // every place, append a second copy of every village, and apply the
     // collapse a second time on top of itself.
-    let (mut settlements, kept_next_tid, kept_village_tids) = match keep {
-        Some(k) => (k.settlements, k.next_tid, k.village_tids),
+    let (mut settlements, kept_next_tid, kept_village_tids, kept_way_tids) = match keep {
+        Some(k) => (k.settlements, k.next_tid, k.village_tids, k.way_tids),
         None => (
             cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng, faction_cultures),
             1u64,
+            Default::default(),
             Default::default(),
         ),
     };
@@ -3903,11 +3996,20 @@ fn compute_civilisation(
     // idempotent regardless.
     // `kept_next_tid` is 1 on the auto-populate path (nothing has an id yet)
     // and the live counter on the SG-02 keep path, where every settlement
-    // already carries one and only the freshly rebuilt `ways` need new ones.
+    // already carries one and only the freshly rebuilt `ways` that match no
+    // way of the network they replace need new ones (see just below).
     let mut next_tid = kept_next_tid;
     for s in settlements.iter_mut() {
         s.tid = cartalith_civ::timeline::civ_assign_tid(s.tid, &mut next_tid);
     }
+    // Before the counter runs: a rebuilt way that matches one of the network
+    // it replaces takes that way's tid back, so only genuinely new ways draw
+    // a fresh one (`timeline::civ_inherit_way_tids`, 2026-09-28). Without
+    // this, every recompute re-issued every way's tid and the timeline showed
+    // the whole network removed and re-added. A no-op on the auto-populate
+    // path, whose `kept_way_tids` is empty -- its settlements are new, so no
+    // way between them can be an old one.
+    cartalith_civ::timeline::civ_inherit_way_tids(&mut ways, &settlements, &kept_way_tids);
     for w in ways.iter_mut() {
         w.tid = cartalith_civ::timeline::civ_assign_tid(w.tid, &mut next_tid);
     }
@@ -7463,6 +7565,9 @@ impl WorldGen {
     /// overrides), the faction roster, the recorded timeline and year, and
     /// hand-painted territory — which is re-anchored onto the newly computed
     /// borders by [`civ_tools_bridge::CivTools::rebase`] rather than erased.
+    /// A rebuilt way that joins the same two settlements as one it replaces
+    /// keeps that way's `tid` (`timeline::civ_inherit_way_tids`), so the
+    /// timeline marks only ways that really appeared or disappeared.
     ///
     /// **What it does not do.** It does not re-place settlements. Sculpt a
     /// mountain under a city and the city stays on the mountain; the controls
@@ -7770,6 +7875,7 @@ impl WorldGen {
                 settlements: civ.settlements.clone(),
                 next_tid: civ.next_tid,
                 village_tids: civ.village_tids.clone(),
+                way_tids: cartalith_civ::timeline::civ_way_tid_index(&civ.ways, &civ.settlements),
             }),
             // `None` is the auto-populate path: seeds are found, places
             // dropped, named, populated, villages seeded and the recovery
