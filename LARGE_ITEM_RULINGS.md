@@ -1982,3 +1982,7 @@ had loadscreen messages. As long as zooming and sharpening is fast"*.
 - The 16.7 ms per-frame bar applies to **interactive** paths: zoom notches,
   pan, and deep-zoom tile arrival ("sharpening"). Work there is judged
   against it.
+- Same day, owner: *"But if it can be sped up I'm not against it"*. So
+  speeding up generation or the full recolour is welcome when it is cheap
+  and changes no output (byte-identical), but it ranks below the interactive
+  bar. No generation work needs to be moved off the main thread for its own sake.
