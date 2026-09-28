@@ -26,6 +26,11 @@
 use cartalith_civ as civ;
 use cartalith_engine::{WorldParams, WorldState};
 
+/// Run `cartalith_civ::compute_civilisation`'s own settlement-suitability
+/// sequence by hand, transcribed step for step so `flow` can be swapped for a
+/// GPU-produced field while every other input stays the CPU reference's own
+/// output. Returns the seeds and the raw suitability raster so both can be
+/// diffed against the CPU run.
 fn settlement_seeds(
     ws: &WorldState,
     flow: &[f32],
@@ -121,12 +126,21 @@ fn settlement_seeds(
     (seeds, suit)
 }
 
+/// Entry point: run the comparison at two grid sizes so a divergence that
+/// only shows up once cells outnumber some fixed-point or threshold constant
+/// isn't hidden by testing a single size.
 fn main() {
     for size in [512usize, 1024] {
         run(size);
     }
 }
 
+/// One measurement pass at `size`x`size`: generate the CPU-only reference
+/// world once (module doc, step 1), recompute flow accumulation on it with
+/// both algorithms (step 2), then run the settlement chain on each flow field
+/// (steps 3-4) and report where the CPU and GPU paths disagree -- in the
+/// accumulation values, the suitability raster, and finally the settlement
+/// seeds a real generation would place.
 fn run(size: usize) {
     let (gw, gh) = (size, size);
     let mut p = WorldParams::defaults(gw, gh, 20250817);

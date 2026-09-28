@@ -57,9 +57,17 @@ fn real_devices() -> Vec<cartalith_gpu::GpuDeviceInfo> {
     enumerate_devices().into_iter().filter(|d| !d.is_software && d.supports_compute).collect()
 }
 
+/// [`enumerate_devices`] on a machine with no GPU at all (this crate's CI/
+/// headless reality) must return an empty `Vec`, not an error or a panic --
+/// the module doc's point. Every device that *is* returned must also carry a
+/// well-formed, unique key and a backend that is not also listed among its
+/// own alternates.
 #[test]
 fn enumeration_on_a_machine_with_no_gpu_is_empty_not_an_error() {
-    // The call itself must not panic anywhere -- that is the assertion.
+    // Protects: the call itself must not panic anywhere -- that is the
+    // assertion an empty result satisfies trivially -- and every returned
+    // device has a non-empty, unique key/name and a preferred backend
+    // disjoint from its own alternates.
     let devs = enumerate_devices();
     for d in &devs {
         assert!(!d.key.is_empty(), "every enumerated device needs a stable key");
@@ -283,9 +291,9 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
         println!("skipped: no non-software GPU on this machine");
         return;
     }
-    const W: u32 = 256;
+    const W: u32 = 256; // small enough to run fast; non-square with H to catch a row/column swap in the band split
     const H: u32 = 192;
-    const SEED: i32 = 90210;
+    const SEED: i32 = 90210; // arbitrary fixed seed -- only determinism across the split matters here, not the value
 
     let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
     let set = init_gpu_device_set_with(&prefs).expect("device");
@@ -328,7 +336,7 @@ fn split_tiles_across_two_real_devices_measured() {
     let rounds = if quote { TIMING_ROUNDS } else { 1 };
 
     for &(w, h) in &[(512u32, 512u32), (1024, 1024), (2048, 2048), (4096, 4096)] {
-        const SEED: i32 = 1337;
+        const SEED: i32 = 1337; // arbitrary fixed seed -- this test measures timing/agreement, not the field's shape
         let (wf, amp) = (2.5 / w as f32, 0.18 * w as f32);
 
         let single_prefs = GpuPreferences { selected_keys: vec![keys[0].clone()], ..Default::default() };
@@ -409,8 +417,14 @@ fn per_device_warp_throughput_measured() {
     }
 }
 
+/// A `vram_budget_bytes` preference set one byte below a grid's own working
+/// set must turn the GPU path off for that grid (and only that one) -- no
+/// hardware needed, since this reads the preference, not a live device.
 #[test]
 fn a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off() {
+    // Protects: a budget one byte under 2048² working set refuses 2048² but
+    // still allows the smaller 1024² grid that fits, and a default (no
+    // budget) preference never refuses on VRAM grounds at all.
     let _guard = global_prefs();
     // 2048x2048 x 10 f32 grids = 320 MB by this crate's own estimate.
     let need = gpu_working_set_bytes(2048, 2048);
@@ -444,7 +458,7 @@ fn a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off() {
 /// What is NOT acceptable, and what this test exists to catch, is a panic.
 #[test]
 fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
-    const N: u32 = 8192;
+    const N: u32 = 8192; // the largest resolution new_world_dialog.gd offers (tier::LARGEST_PRESET_GRID)
     let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
         println!("skipped: this machine has no integrated GPU");
         return;
@@ -533,7 +547,7 @@ fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
 /// is a property of the hardware and the day, not of this code.
 #[test]
 fn a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back() {
-    const N: usize = 8192;
+    const N: usize = 8192; // the largest resolution new_world_dialog.gd offers (tier::LARGEST_PRESET_GRID)
     let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
         println!("skipped: this machine has no integrated GPU");
         return;

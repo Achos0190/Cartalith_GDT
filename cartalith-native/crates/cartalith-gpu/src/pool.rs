@@ -109,6 +109,9 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
+    /// The fixed `wgpu::BufferUsages` for this kind -- widened past what any
+    /// one call site needs (module doc, "Keys") so a buffer of a given kind
+    /// and size can serve any caller that asks for that kind and size.
     const fn usage(self) -> wgpu::BufferUsages {
         match self {
             Self::Storage => wgpu::BufferUsages::STORAGE
@@ -160,6 +163,10 @@ pub struct BufferPoolStats {
     pub grid_cells: Option<u64>,
 }
 
+/// The mutable half of a [`BufferPool`]: which grid it is retaining for, the
+/// cap that grid was given, the free buffers themselves, and the running
+/// counters [`BufferPoolStats`] is built from. Held behind one `Mutex` so a
+/// take/give-back pair from two threads never interleaves.
 #[derive(Default)]
 struct State {
     grid_cells: Option<u64>,
@@ -172,6 +179,9 @@ struct State {
 }
 
 impl State {
+    /// Drop every retained buffer and zero the retained-bytes counter. Does
+    /// not touch `grid_cells`/`cap_bytes` or the hit/miss counters -- callers
+    /// that need those reset (`release_all`) clear them separately.
     fn flush(&mut self) {
         self.free.clear();
         self.retained_bytes = 0;
@@ -188,16 +198,21 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
+    /// Build an empty, enabled pool over an already-open device/queue, sharing
+    /// the same `lost` flag the device itself sets so the pool can see a lost
+    /// device without polling it.
     pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue, lost: Arc<AtomicBool>) -> Arc<Self> {
         Arc::new(Self { device, queue, lost, enabled: AtomicBool::new(true), state: Mutex::new(State::default()) })
     }
 
+    /// Lock [`State`]. A poisoned lock only means another thread panicked
+    /// mid-update; the map is still a valid set of buffers, and a panic must
+    /// not spread here.
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
-        // A poisoned lock only means another thread panicked mid-update; the
-        // map is still a valid set of buffers, and a panic must not spread here.
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    /// Whether reuse is both turned on and the device has not been marked lost.
     fn active(&self) -> bool {
         self.enabled.load(Ordering::Relaxed) && !self.lost.load(Ordering::Relaxed)
     }
@@ -212,6 +227,7 @@ impl BufferPool {
         }
     }
 
+    /// Whether reuse is currently turned on (irrespective of device loss).
     #[must_use]
     pub fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
@@ -225,6 +241,8 @@ impl BufferPool {
         s.cap_bytes = 0;
     }
 
+    /// A snapshot of this pool's counters, for diagnostics and for the
+    /// equivalence tests to assert reuse actually happened.
     #[must_use]
     pub fn stats(&self) -> BufferPoolStats {
         let s = self.state();
@@ -255,6 +273,9 @@ impl BufferPool {
         }
     }
 
+    /// Pop a matching retained buffer if one exists and the pool is active,
+    /// else record a miss (and the bytes a fresh allocation will cost) and
+    /// return `None`.
     fn take(&self, size: u64, kind: Kind) -> Option<wgpu::Buffer> {
         let mut s = self.state();
         if !self.active() {
@@ -276,6 +297,9 @@ impl BufferPool {
         }
     }
 
+    /// [`PooledBuffer::drop`]'s call: retain `buf` if the pool is active,
+    /// a grid is currently declared, and doing so would not exceed the cap
+    /// (retention policies 1 and 3); otherwise let it drop and be freed.
     fn give_back(&self, buf: wgpu::Buffer, size: u64, kind: Kind) {
         if !self.active() {
             return;
@@ -361,13 +385,16 @@ pub(crate) struct PooledBuffer {
 
 impl std::ops::Deref for PooledBuffer {
     type Target = wgpu::Buffer;
+    /// Borrow the wrapped buffer. Only `drop` ever takes ownership of it, so
+    /// `self.buf` is always `Some` here.
     fn deref(&self) -> &wgpu::Buffer {
-        // Only `drop` takes it.
         self.buf.as_ref().expect("pooled buffer present until drop")
     }
 }
 
 impl Drop for PooledBuffer {
+    /// Return the buffer to its pool ([`BufferPool::give_back`]), or simply
+    /// let it drop if it was never pool-backed (`init`'s misaligned-size path).
     fn drop(&mut self) {
         if let (Some(buf), Some(pool)) = (self.buf.take(), self.pool.as_ref()) {
             pool.give_back(buf, self.size, self.kind);
@@ -375,6 +402,12 @@ impl Drop for PooledBuffer {
     }
 }
 
+/// The pool's own retention-cap arithmetic, plus the equivalence contract
+/// ([`check_equivalence`]) every pooled GPU kernel in this crate must meet:
+/// pooled output bit-identical to unpooled, a genuine reuse (not two fresh
+/// runs) between the two calls, and no leak from a retained buffer another
+/// kernel dirtied. Kernel tests skip cleanly with no GPU; the cap-arithmetic
+/// test needs none.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,6 +445,9 @@ mod tests {
             .collect()
     }
 
+    /// A deterministic u8 field in `0..=max`, built by truncating [`field`]'s
+    /// f32 output -- for the packed class-id/mask inputs the affordance and
+    /// stress kernels take.
     fn bytes_field(n: usize, seed: u32, max: u8) -> Vec<u8> {
         field(n, seed, 0.0, f32::from(max) + 0.999).iter().map(|&v| v as u8).collect()
     }
@@ -449,6 +485,8 @@ mod tests {
         assert!(pool.stats().hits > hits_before, "{name}: the poisoned run was not served from the pool");
     }
 
+    /// Open the shared device, or `None` (printing why) on a machine with no
+    /// GPU -- every equivalence test's uniform skip condition.
     fn device() -> Option<crate::GpuDevice> {
         let d = crate::init_gpu_shared_device().ok();
         if d.is_none() {
@@ -457,14 +495,17 @@ mod tests {
         d
     }
 
-    // Deliberately not a multiple of the 8x8 workgroup, so every kernel's
-    // bounds check is on the path.
-    const W: u32 = 61;
-    const H: u32 = 37;
-    const N: usize = (W * H) as usize;
+    const W: u32 = 61; // deliberately not a multiple of the 8x8 workgroup, so every kernel's bounds check is on the path
+    const H: u32 = 37; // co-prime-ish with W for the same reason: an x/y transpose bug would still be caught
+    const N: usize = (W * H) as usize; // total cells at the fixture grid above
 
+    /// [`check_equivalence`] over `dispatch_gpu_warp` -- the simplest kernel
+    /// here (no upstream fields, just `(x, y, seed)`).
     #[test]
     fn pooled_warp_matches_unpooled() {
+        // Protects: pooled warp output is bit-identical to unpooled, run 2
+        // is genuinely served from the pool rather than freshly computed, and
+        // a poisoned retained buffer does not leak into the result.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_warp_with(&gpu);
         check_equivalence("warp", &gpu.pool, N as u64, &1i32, &2i32, |&seed| {
@@ -473,8 +514,11 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_heterogeneity`.
     #[test]
     fn pooled_heterogeneity_matches_unpooled() {
+        // Protects: pooled heterogeneity output is bit-identical to unpooled
+        // across a genuine pool reuse, and survives a poisoned retained buffer.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_heterogeneity_with(&gpu);
         let input = |s: u32| (field(N, s, 0.0, 1.0), field(N, s + 1, -3.0, 3.0), field(N, s + 2, -3.0, 3.0));
@@ -483,8 +527,13 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_gauss_blur`, whose ping-pong
+    /// pass is one of the buffers the module doc names as written-before-read
+    /// rather than cleared.
     #[test]
     fn pooled_gauss_blur_matches_unpooled() {
+        // Protects: pooled blur output is bit-identical to unpooled across a
+        // genuine pool reuse, and survives a poisoned retained ping-pong buffer.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_gauss_blur_with(&gpu);
         check_equivalence("gauss_blur", &gpu.pool, N as u64, &field(N, 3, 0.0, 1.0), &field(N, 4, 0.0, 1.0), |src| {
@@ -492,18 +541,28 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_thermal`'s three-pass
+    /// ping-pong, chosen with an odd pass count so the result ends up in the
+    /// buffer that started the run empty (once-written, never pre-cleared).
     #[test]
     fn pooled_thermal_matches_unpooled() {
+        // Protects: pooled thermal output is bit-identical to unpooled across
+        // a genuine pool reuse, including the odd-pass-count ping-pong buffer,
+        // and survives a poisoned retained buffer.
         let Some(gpu) = device() else { return };
         let ctx = crate::build_pipeline_shared(&gpu, crate::SHADER_SRC_GPU_THERMAL, "gpu_thermal", &crate::BLUR_LAYOUT);
-        // Three passes: an odd count ends in the once-empty `b` buffer.
         check_equivalence("thermal", &gpu.pool, N as u64, &field(N, 5, 0.0, 1.0), &field(N, 6, 0.0, 1.0), |src| {
             bits(&crate::dispatch_gpu_thermal(&ctx, src, W, H, 3, 0.01).expect("readback"))
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_assign_plates` (the JFA plate
+    /// assignment), whose pass-0 ping-pong buffers are among the
+    /// written-before-read cases in the module doc.
     #[test]
     fn pooled_jfa_plates_matches_unpooled() {
+        // Protects: pooled JFA plate assignment is bit-identical to unpooled
+        // across a genuine pool reuse, and survives a poisoned retained buffer.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_jfa_plates_with(&gpu);
         let input = |s: u32| (field(9, s, 0.0, W as f32), field(9, s + 1, 0.0, H as f32), field(N, s + 2, -2.0, 2.0));
@@ -513,8 +572,14 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_flow`, whose `delta` buffer is
+    /// the module doc's own example of a buffer that must be cleared rather
+    /// than relied on to already be zero.
     #[test]
     fn pooled_flow_matches_unpooled() {
+        // Protects: pooled flow accumulation is bit-identical to unpooled
+        // across a genuine pool reuse, and a poisoned `delta` (or any other
+        // retained buffer) does not leak into the accumulation.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_flow_with(&gpu);
         let input = |s: u32| (field(N, s, 0.0, 1.0), field(N, s + 1, 0.0, 1.0));
@@ -524,8 +589,12 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `stress_gather_grid_gpu_with`.
     #[test]
     fn pooled_stress_gather_matches_unpooled() {
+        // Protects: pooled plate-stress gathering is bit-identical to
+        // unpooled across a genuine pool reuse, and survives a poisoned
+        // retained buffer.
         let Some(gpu) = device() else { return };
         let plates = 6usize;
         let input = |s: u32| {
@@ -543,8 +612,14 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over `dispatch_gpu_weather`, run over its own
+    /// smaller weather grid (weather declares no grid of its own, per policy
+    /// 1, so this stands in for the world-grid declaration a real generation
+    /// always makes first).
     #[test]
     fn pooled_weather_matches_unpooled() {
+        // Protects: pooled weather output is bit-identical to unpooled across
+        // a genuine pool reuse, and survives a poisoned retained buffer.
         let Some(gpu) = device() else { return };
         let ctx = crate::init_gpu_weather_with(&gpu);
         let (ww, wh) = (29u32, 19u32);
@@ -591,9 +666,14 @@ mod tests {
         assert!(rain.iter().all(|&r| r.to_bits() == 0), "rain read back uninitialised");
     }
 
+    /// [`check_equivalence`] over the three noise-pilot-era kernels
+    /// (`dispatch_gpu`, `dispatch_gpu_resistance`, `dispatch_gpu_height`),
+    /// each on its own standalone device and so its own pool.
     #[test]
     fn pooled_noise_resistance_and_height_match_unpooled() {
-        // Standalone contexts: each owns its own device and so its own pool.
+        // Protects: pooled noise, resistance and height output are each
+        // bit-identical to unpooled across a genuine pool reuse, and survive
+        // a poisoned retained buffer.
         let Ok(noise) = crate::init_gpu() else {
             eprintln!("no GPU adapter on this machine -- pooled-equivalence test skipped");
             return;
@@ -626,8 +706,16 @@ mod tests {
         });
     }
 
+    /// [`check_equivalence`] over the four Phase 2 affordance kernels
+    /// (`src/affordance.rs`): biome, carrying capacity, resources and
+    /// suitability.
     #[test]
     fn pooled_affordance_kernels_match_unpooled() {
+        // Protects: each of the four affordance kernels' pooled output is
+        // bit-identical to unpooled across a genuine pool reuse; resources'
+        // fixture additionally runs an all-optional-planes-present pass then
+        // an all-absent pass, so a plane run A filled cannot leak into run B
+        // through a reused buffer the absent-plane clear should have cleared.
         let Some(gpu) = device() else { return };
 
         let input = |s: u32| (bytes_field(N, s, 2), field(N, s + 1, -10.0, 35.0), field(N, s + 2, 0.0, 1.0));
@@ -649,9 +737,9 @@ mod tests {
             )
         });
 
-        // Run A has every optional plane; run B has none of them. So run B
-        // reads planes run A filled -- the leak the absent-plane clear exists
-        // for -- and the poisoned pass catches it whatever A left behind.
+        /// Run A has every optional plane; run B has none of them. So run B
+        /// reads planes run A filled -- the leak the absent-plane clear exists
+        /// for -- and the poisoned pass catches it whatever A left behind.
         struct Res {
             lith: Vec<u8>,
             bt: Vec<u8>,
@@ -667,6 +755,8 @@ mod tests {
             optional,
         };
         check_equivalence("resources", &gpu.pool, N as u64, &input(190, true), &input(200, false), |r| {
+            /// `Some(v)` when `on`, else `None` -- shorthand for building the
+            /// optional planes below from the fixture's single `optional` flag.
             fn present(on: bool, v: &[f32]) -> Option<&[f32]> {
                 on.then_some(v)
             }

@@ -6,17 +6,32 @@
 use cartalith_civ as civ;
 use cartalith_engine::{generate_terrain, WorldParams};
 
+/// Largest absolute per-cell difference between two equal-length fields,
+/// compared as `f64` so the subtraction itself does not lose precision.
 fn max_abs(a: &[f32], b: &[f32]) -> f64 {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b).map(|(&x, &y)| (x as f64 - y as f64).abs()).fold(0.0, f64::max)
 }
 
+/// Bitwise equality of two `f32` fields -- for a kernel the tolerance-based
+/// [`max_abs`] check says nothing about, e.g. run-to-run determinism where
+/// even a last-mantissa-bit change is the thing under test.
 fn bits_eq(a: &[f32], b: &[f32]) -> bool {
     a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
 }
 
+/// The four Phase 2 affordance GPU kernels (biome, carrying capacity,
+/// resources, suitability) against `cartalith-civ`'s real CPU functions, on
+/// real generated worlds at two grid shapes (one a clean 256x256, one
+/// 251x171 -- the module doc's non-multiple-of-4 packing-tail case).
 #[test]
 fn affordance_kernels_match_cpu_on_real_worlds() {
+    // Protects: biome is bit-identical to the CPU raster and not vacuously
+    // so (land, ocean and lake classes all present); carrying capacity,
+    // resources (kernel alone and after the CPU scarcity tail) and
+    // suitability each stay within their published tolerance of the CPU
+    // reference and are bit-identical to themselves across two dispatches
+    // with the same inputs; and every field has real, non-degenerate output.
     let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
         eprintln!("no GPU available -- skipping");
         return;

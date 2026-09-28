@@ -16,8 +16,14 @@ use std::time::{Duration, Instant};
 use cartalith_civ as civ;
 use cartalith_engine::{generate_terrain, WorldParams};
 
+/// Samples [`timed`] takes per call. Odd, matching `timing_harness::TIMING_ROUNDS`,
+/// so the median is a real sample rather than an average of two; this example
+/// predates that shared harness and keeps its own copy rather than depending
+/// on `#[cfg(test)]`-only code from a normal build.
 const ROUNDS: usize = 5;
 
+/// Run `f` once to warm up (discarded), then [`ROUNDS`] more times, returning
+/// the last value produced alongside its median/min/max wall time.
 fn timed<T>(mut f: impl FnMut() -> T) -> (T, Duration, Duration, Duration) {
     let mut out = f(); // warm-up, discarded from the samples
     let mut s = Vec::with_capacity(ROUNDS);
@@ -30,19 +36,28 @@ fn timed<T>(mut f: impl FnMut() -> T) -> (T, Duration, Duration, Duration) {
     (out, s[ROUNDS / 2], s[0], s[ROUNDS - 1])
 }
 
+/// Format a `(median, min, max)` [`timed`] result as `"N.N ms (min..max)"`.
 fn fmt(t: (Duration, Duration, Duration)) -> String {
     format!("{:.1} ms ({:.1}..{:.1})", t.0.as_secs_f64() * 1e3, t.1.as_secs_f64() * 1e3, t.2.as_secs_f64() * 1e3)
 }
 
+/// Largest absolute per-cell difference between two equal-length fields,
+/// compared as `f64` so the subtraction itself does not lose precision.
 fn max_abs(a: &[f32], b: &[f32]) -> f64 {
     assert_eq!(a.len(), b.len());
     a.iter().zip(b).map(|(&x, &y)| (x as f64 - y as f64).abs()).fold(0.0, f64::max)
 }
 
+/// Count of cells whose bit patterns differ at all. Bitwise rather than a
+/// tolerance comparison: this is used both for "differs by any amount" and
+/// for gpu-vs-gpu determinism, where even a change of the last mantissa bit
+/// is the thing being checked for.
 fn differing(a: &[f32], b: &[f32]) -> usize {
     a.iter().zip(b).filter(|(x, y)| x.to_bits() != y.to_bits()).count()
 }
 
+/// All 15 [`civ::ResourcePotentials`] fields, in the same order as
+/// `civ::RESOURCE_KEYS`, so a field index from that table indexes this array.
 fn res_fields(r: &civ::ResourcePotentials) -> [&[f32]; 15] {
     [
         &r.copper, &r.tin, &r.iron, &r.gold, &r.salt, &r.timber, &r.lead, &r.silver, &r.clay, &r.buildstone, &r.flint,
@@ -50,10 +65,16 @@ fn res_fields(r: &civ::ResourcePotentials) -> [&[f32]; 15] {
     ]
 }
 
+/// The 9 resource fields `civ::SuitabilityCtx::resources` actually reads --
+/// a subset of [`res_fields`]'s 15, matching `cartalith_gpu::SuitabilityGpuInputs::resources`.
 fn suit_res(r: &civ::ResourcePotentials) -> [&[f32]; 9] {
     [&r.copper, &r.tin, &r.iron, &r.gold, &r.salt, &r.timber, &r.lead, &r.silver, &r.gems]
 }
 
+/// Build the GPU suitability kernel's weight set from `cartalith-civ`'s own
+/// `SUIT_W_FULL_*`/`ISLET_KNEE` constants, so a weight the CPU function
+/// changes and the shader does not shows up as a numeric disagreement rather
+/// than silently drifting.
 fn weights() -> cartalith_gpu::SuitabilityWeights {
     cartalith_gpu::SuitabilityWeights {
         k: civ::SUIT_W_FULL_K,
@@ -73,6 +94,11 @@ fn weights() -> cartalith_gpu::SuitabilityWeights {
     }
 }
 
+/// Entry point: for each requested grid size (default 512/1024/2048, or the
+/// command-line arguments), generate one real world, run `compute_civilisation`'s
+/// upstream chain once on the CPU, then run biome, carrying capacity,
+/// resources, suitability and final placement through both the CPU function
+/// and its GPU kernel and print the module doc's four comparisons for each.
 fn main() {
     let sizes: Vec<usize> = {
         let a: Vec<usize> = std::env::args().skip(1).filter_map(|s| s.parse().ok()).collect();

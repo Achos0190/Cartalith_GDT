@@ -109,12 +109,21 @@ pub fn compute_tier() -> ComputeTier {
     classify(chosen, IS_MOBILE)
 }
 
+/// Unit tests for [`classify`] and its two component checks
+/// ([`runs_every_kernel`], [`reaches_grid`]) using a hand-built
+/// [`GpuDeviceInfo`] rather than a live adapter, so they run with no GPU.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Binary mebibyte, used only to write the buffer-size fixtures below in
+    /// the same unit `wgpu::Limits` reports them in.
     const MIB: u64 = 1024 * 1024;
 
+    /// Build a minimal pseudo-device for [`classify`]: every limit not
+    /// passed in defaults to `wgpu::Limits::default()`, and `binding` sets
+    /// both size limits `reaches_grid` reads (`min` of the two binds, so
+    /// tests that need them to differ overwrite one field after the call).
     fn dev(t: wgpu::DeviceType, binding: u64) -> GpuDeviceInfo {
         let limits =
             wgpu::Limits { max_storage_buffer_binding_size: binding, max_buffer_size: binding, ..Default::default() };
@@ -138,8 +147,14 @@ mod tests {
 
     use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other, VirtualGpu};
 
+    /// Every branch of [`classify`]'s device-class/mobility decision, and the
+    /// [`ComputeTier`] ordering `classify` relies on for its `Ord` derive to
+    /// mean "at least this capable".
     #[test]
     fn tiers_by_device_class_and_mobility() {
+        // Protects: no device or a CPU device is CpuOnly; a discrete GPU is
+        // High unless mobile caps it to Basic; every other device class is
+        // Standard; and CpuOnly < GpuBasic < GpuStandard < GpuHigh holds.
         let big = 2048 * MIB;
         assert_eq!(classify(None, false), ComputeTier::CpuOnly);
         assert_eq!(classify(Some(&dev(Cpu, big)), false), ComputeTier::CpuOnly);
@@ -165,8 +180,14 @@ mod tests {
         assert_eq!(classify(Some(&d), false), ComputeTier::GpuBasic);
     }
 
+    /// Each of [`runs_every_kernel`]'s four checks demotes to `CpuOnly` on
+    /// its own when it fails, and every one passing at exactly its floor
+    /// value still runs the GPU path -- the floors are inclusive, not strict.
     #[test]
     fn each_kernel_requirement_is_a_hard_floor() {
+        // Protects: losing compute support, or falling one short of any of
+        // the three workgroup/storage-buffer floors, demotes alone; meeting
+        // every floor exactly still reaches GpuHigh.
         let ok = dev(DiscreteGpu, 2048 * MIB);
         type Break = fn(&mut GpuDeviceInfo);
         let cases: [(&str, Break); 5] = [

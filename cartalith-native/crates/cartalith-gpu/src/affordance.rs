@@ -57,6 +57,9 @@ pub const RESOURCES_TOLERANCE: f64 = 5e-7;
 /// inputs or the GPU chain's own. Set ~4x above.
 pub const SUITABILITY_TOLERANCE: f64 = 1e-6;
 
+/// One uniform (params), three read-only storage inputs (water bodies,
+/// temperature, rainfall) and one writable storage output -- `gpu_biome.wgsl`'s
+/// own binding order.
 const BIOME_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] =
     [uniform_entry(0), storage_entry(1, true), storage_entry(2, true), storage_entry(3, true), storage_entry(4, false)];
 /// 7 storage buffers -- under the shared device's 8
@@ -86,6 +89,7 @@ fn key(x: f32) -> u32 {
     if b >> 31 == 1 { !b } else { b | 0x8000_0000 }
 }
 
+/// Inverse of [`key`]: the f32 that produced this total-order key.
 fn unkey(k: u32) -> f32 {
     f32::from_bits(if k >> 31 == 1 { k & 0x7fff_ffff } else { !k })
 }
@@ -135,6 +139,7 @@ fn lin_dispatch(items: u32) -> (u32, u32, u32) {
     (gx, groups.div_ceil(gx), gx * 64)
 }
 
+/// Number of packed u32 words needed for `n` bytes/cells, four to a word.
 fn words(n: usize) -> usize {
     n.div_ceil(4)
 }
@@ -147,6 +152,7 @@ fn pack_u8(src: &[u8]) -> Vec<u32> {
     out
 }
 
+/// A pooled read-only storage buffer initialised from `bytes` (see `pool.rs`).
 fn storage_init(ctx: &GpuContext, label: &str, bytes: &[u8]) -> PooledBuffer {
     ctx.pool.init(label, bytes, Kind::Storage)
 }
@@ -187,6 +193,7 @@ fn out_buffer(ctx: &GpuContext, label: &str, bytes: u64) -> PooledBuffer {
     ctx.pool.empty(label, bytes, Kind::Storage)
 }
 
+/// A pooled `MAP_READ` staging buffer of `bytes` for [`read_back_vec`] to map.
 fn staging(ctx: &GpuContext, bytes: u64) -> PooledBuffer {
     ctx.pool.empty("affordance staging", bytes, Kind::Staging)
 }
@@ -224,6 +231,7 @@ fn run(
     ctx.queue.submit(Some(encoder.finish()));
 }
 
+/// A pooled uniform buffer holding one `Pod` params struct.
 fn uniform<T: bytemuck::Pod>(ctx: &GpuContext, v: &T) -> PooledBuffer {
     ctx.pool.init("affordance params", bytemuck::bytes_of(v), Kind::Uniform)
 }
@@ -242,6 +250,8 @@ fn gate<T>(gpu: &GpuDevice, cells: usize, largest_binding: u64, dispatch: impl F
 
 // -- biome --------------------------------------------------------------------
 
+/// `gpu_biome.wgsl`'s uniform layout: grid shape plus the exact f32 cuts for
+/// `classify_biome`'s moisture thresholds (see [`biome_raster_grid_gpu_with`]).
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct BiomeParams {
@@ -296,6 +306,8 @@ pub fn biome_raster_grid_gpu_with(gpu: &GpuDevice, water_bodies: &[u8], temp: &[
 
 // -- carrying capacity --------------------------------------------------------
 
+/// `gpu_carrying.wgsl`'s uniform layout: grid shape, the exact sea-level cut,
+/// the `biome_k` scale and whether the optional wetland mask is present.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CarryParams {
@@ -362,6 +374,10 @@ pub fn carrying_capacity_grid_gpu_with(
 
 // -- resource potentials ------------------------------------------------------
 
+/// `gpu_resources.wgsl`'s uniform layout: grid shape, the copper chamfer
+/// lambda and flow-normalisation log denominator (both computed from the
+/// caller's `gw`/`flow_max`), and the fourteen exact f32 cuts the kernel's
+/// per-resource branches need.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct ResParams {
@@ -442,6 +458,9 @@ pub fn resource_potentials_grid_gpu_with(gpu: &GpuDevice, inp: &ResourceGpuInput
             ],
         };
         let pbuf = uniform(&ctx, &params);
+        /// Reinterpret an optional f32 plane as bytes for [`planar_buffer`],
+        /// preserving `None` (which that function clears to zero) rather than
+        /// forcing a caller to build a zero plane just to cast it.
         fn f32b(s: Option<&[f32]>) -> Option<&[u8]> {
             s.map(bytemuck::cast_slice)
         }
@@ -525,6 +544,10 @@ pub struct SuitabilityGpuInputs<'a> {
     pub sea: f64,
 }
 
+/// `gpu_suitability.wgsl`'s uniform layout: grid shape, the lake-neighbourhood
+/// radius (`lake_r`, derived from `gw`), the exact f32 cuts the kernel's
+/// branches need, and the thirteen `SuitabilityWeights` fields (as f32) in the
+/// shader's fixed order.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct SuitParams {
@@ -623,6 +646,9 @@ pub fn settlement_suitability_grid_gpu_with(
     })
 }
 
+/// Unit tests for the exact-cut arithmetic ([`first_true`]/[`lt`]/[`gt`]) and
+/// the little-endian u8 packing ([`pack_u8`]) this module's kernels depend on
+/// -- none of them need a GPU.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,8 +692,13 @@ mod tests {
         assert!((cut as f64) > sea && cut < 1.0);
     }
 
+    /// [`pack_u8`]'s byte order matches what every shader here unpacks with
+    /// `(w >> 8*(i&3)) & 0xff`, including the tail word past a multiple of 4.
     #[test]
     fn pack_u8_is_little_endian_four_per_word() {
+        // Protects: byte 0 lands in the low byte of word 0 (little-endian,
+        // not big-endian), and a fifth byte starts a new word rather than
+        // being silently dropped or overflowing the previous one.
         let w = pack_u8(&[1, 2, 3, 4, 5]);
         assert_eq!(w, vec![0x0403_0201, 0x0000_0005]);
     }

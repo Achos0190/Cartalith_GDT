@@ -1057,6 +1057,56 @@ re-checked against the tree rather than copied from the commit message.
   elsewhere). Batches 6 through 16 all still need an independent verifier
   before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 17 (`cartalith-gpu`, partial) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; gpu 110/0/1 unchanged).** `census_v2.py` covers
+  `.rs` only, not `.wgsl` — confirmed by reading it (`list_rs_files` filters
+  on `.endswith(".rs")`); the crate's ~2 000 LOC of shader source in
+  `shaders/*.wgsl` is outside its count and was **not** touched this batch.
+  Crate-wide census before: items_undoc 140, tests_unprotected 111,
+  consts_undoc 20 (10 files, 9 820 non-blank LOC). Did whole files in risk
+  order, smallest/most self-contained first, stopping before the two large
+  orchestration files (`multi.rs` 1 657 LOC, `lib.rs` 5 721 LOC) to stay
+  near the ~3 500 LOC target: `src/timing_harness.rs` (169 LOC, already
+  fully documented — no changes needed, confirmed by reading it whole),
+  `src/tier.rs` (247), `examples/flow_downstream_settlements.rs` (213),
+  `examples/affordance_gpu_compare.rs` (286), `tests/affordance.rs` (181),
+  `tests/multi_gpu.rs` (562), `src/affordance.rs` (674), `src/pool.rs`
+  (817) — 3 149 LOC of whole files touched. Docs added to every previously
+  undocumented fn, struct, nested fn, local test `mod`/module doc and test
+  fn found in those files (`key`/`unkey`/`words`/`storage_init`/`staging`/
+  `uniform` and the four kernel params structs in `affordance.rs`; `Kind::usage`/
+  `State`/`State::flush`/`BufferPool::new`/`state`/`active`/`take`/
+  `give_back`/`is_enabled`/`stats`/`Deref::deref`/`Drop::drop` and a dozen
+  `pooled_*_matches_unpooled` tests in `pool.rs`; `dev`/`MIB`/the `mod
+  tests` block and two tests in `tier.rs`); a `// Protects:` line added to
+  every test doc'd this batch, matching batch 16's convention. Provenance:
+  `tier.rs`'s workgroup/storage-buffer constants are already documented as
+  measured from the shipped shaders (a test re-derives them); this batch's
+  own added comments on local test fixture consts (`W`/`H`/`SEED`/`N` in
+  `pool.rs` and `tests/multi_gpu.rs`) are labelled as arbitrary/chosen-for-coverage
+  values, not measurements, per `GPU_COMPUTE_PILOT_SCOPE.md`/
+  `GPU_LAYER_INTEGRATION_SCOPE.md`'s own distinction between a measured
+  figure and a test fixture. No wrong existing comment was found. **Comments
+  only**: `cargo test -p cartalith-gpu`, summed over all four binaries
+  (lib, `tests/affordance.rs`, `tests/multi_gpu.rs`, doc-tests), recorded
+  before editing and again after — **110 passed / 0 failed / 1 ignored,
+  identical both times** (`CARGO_TARGET_DIR` at `.../scratchpad/bk17`;
+  the one ignored test is `measured_device_handshake_and_per_stage_pipeline_build`,
+  which refuses to run without `--test-threads=1` by its own design).
+  `git diff` line-pair check: every hunk is a pure addition (new `///`/`//`
+  lines, or a trailing `//` appended to an unchanged const line) — no
+  removed line changed and no code fence in any new comment. Crate-wide
+  `census_v2.py` after: items_undoc 140→82, tests_unprotected 111→95,
+  consts_undoc 20→11 (loc 9 820→10 031, the added comment lines). The
+  remaining gaps are all in the two files not yet touched. **Next step:
+  batch 18** is `src/multi.rs` (1 657 LOC) — the smaller of the two
+  remaining files, self-contained (multi-GPU orchestration, unit-tested at
+  the bottom of the same file) — followed by `src/lib.rs` (5 721 LOC,
+  will need splitting across two or more further batches by its own
+  top-level structure, as `cartalith-terrain`'s `lib.rs` was in batch 16).
+  Batches 6 through 17 all still need an independent verifier before any
+  can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
