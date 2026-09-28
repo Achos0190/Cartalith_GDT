@@ -126,30 +126,38 @@ pub struct BacklinkIndex {
 }
 
 impl BacklinkIndex {
+    /// An empty, unbuilt index — [`BacklinkIndex::is_built`] is `false` until
+    /// the first [`refresh`](Self::refresh).
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Deserialises a persisted index, as saved by [`to_json`](Self::to_json).
     pub fn from_json(s: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(s)
     }
 
+    /// Serialises the index for the file beside the link store.
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_else(|_| "{}".to_string())
     }
 
+    /// Whether at least one [`refresh`](Self::refresh) has ever run.
     pub fn is_built(&self) -> bool {
         self.refreshed_at > 0
     }
 
+    /// How many notes the index currently knows about.
     pub fn note_count(&self) -> usize {
         self.notes.len()
     }
 
+    /// Total outgoing links across every indexed note.
     pub fn link_count(&self) -> usize {
         self.notes.values().map(|n| n.links.len()).sum()
     }
 
+    /// Total Cartalith blocks across every indexed note.
     pub fn entity_block_count(&self) -> usize {
         self.notes.values().map(|n| n.entities.len()).sum()
     }
@@ -266,6 +274,9 @@ impl BacklinkIndex {
         out
     }
 
+    /// Whether an outgoing `target` (as written by the author) names `rel`,
+    /// tried in the same order Obsidian resolves a link: exact path, path
+    /// without `.md`, then bare-name-to-stem.
     fn target_matches(&self, target: &str, rel: &str, stem_lower: &str) -> bool {
         if target.eq_ignore_ascii_case(rel) {
             return true;
@@ -484,16 +495,18 @@ pub fn fingerprint(name: &str) -> u64 {
     bits
 }
 
+/// Distinct-enough lowercase word tokens for fingerprinting: splits on
+/// non-alphanumerics and drops anything shorter than [`MIN_TOKEN_LEN`].
 fn tokens(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= MIN_TOKEN_LEN)
         .map(|w| w.to_lowercase())
 }
 
+/// FNV-1a, then a second independent index off the high half. Not a
+/// cryptographic hash and does not need to be: a collision costs one
+/// wasted file read.
 fn token_bits(word: &str) -> u64 {
-    // FNV-1a, then a second independent index off the high half. Not a
-    // cryptographic hash and does not need to be: a collision costs one
-    // wasted file read.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in word.as_bytes() {
         h ^= *byte as u64;

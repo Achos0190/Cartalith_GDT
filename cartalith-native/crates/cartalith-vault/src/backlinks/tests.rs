@@ -7,6 +7,8 @@
 use super::*;
 use crate::provider::FsVault;
 
+/// A fresh, process- and time-unique scratch directory under the system temp
+/// dir for one test's fixture files.
 fn tmp(name: &str) -> std::path::PathBuf {
     let d = std::env::temp_dir().join(format!(
         "cartalith_backlinks_{name}_{}_{}",
@@ -20,6 +22,8 @@ fn tmp(name: &str) -> std::path::PathBuf {
     d
 }
 
+/// Writes `text` to `rel` under `root`, creating parent directories as
+/// needed, for building a fixture vault directly on disk.
 fn write(root: &std::path::Path, rel: &str, text: &str) {
     let p = root.join(rel);
     if let Some(parent) = p.parent() {
@@ -32,6 +36,8 @@ fn write(root: &std::path::Path, rel: &str, text: &str) {
 
 #[test]
 fn wikilinks_lose_their_alias_and_their_heading() {
+    // Protects: `parse_links` strips a wikilink's `|alias` and `#heading`
+    // down to the bare target, for all three wikilink shapes.
     let links = parse_links("see [[Kelvhold]], [[Kelvhold|the town]] and [[Nareth#History]].");
     let targets: Vec<&str> = links.iter().map(|l| l.target.as_str()).collect();
     assert_eq!(targets, vec!["Kelvhold", "Kelvhold", "Nareth"]);
@@ -40,6 +46,9 @@ fn wikilinks_lose_their_alias_and_their_heading() {
 
 #[test]
 fn markdown_links_are_taken_and_urls_are_not() {
+    // Protects: `parse_links`/`is_note_path` accept a relative Markdown
+    // link and a note-with-no-extension link, and reject a URL, a mailto,
+    // an anchor-only link and an image.
     let links = parse_links(
         "[a](Settlements/Kelvhold.md) [b](../Notes/Thing) [c](https://example.com/x.md) \
          [d](mailto:someone@example.com) [e](#a-heading) [f](img/map.png)",
@@ -51,6 +60,10 @@ fn markdown_links_are_taken_and_urls_are_not() {
 
 /// A `[[` with no `]]`, and a `[` with no `]`, must terminate rather than
 /// scanning to the end of a large note — this runs over every file in a vault.
+///
+/// Protects: no hang/false-capture on either unterminated bracket form, and
+/// that a real link after a stray `[[` is still found by restarting at the
+/// inner opener.
 #[test]
 fn unterminated_brackets_do_not_hang_or_capture() {
     assert!(parse_links("[[never closed").is_empty());
@@ -62,6 +75,9 @@ fn unterminated_brackets_do_not_hang_or_capture() {
 
 #[test]
 fn entity_blocks_are_read_and_a_broken_one_is_not_an_error() {
+    // Protects: `parse_entities` returns a well-formed block's entity key,
+    // and returns nothing (rather than erroring) for an unterminated one —
+    // the index must never refuse to open a vault over a malformed block.
     let good = format!(
         "# T\n\n{} entity=\"settlement:42\" version=\"1\" -->\nbody\n{}\n",
         block::BEGIN_PREFIX,
@@ -77,6 +93,9 @@ fn entity_blocks_are_read_and_a_broken_one_is_not_an_error() {
 /// The one property the whole mention design rests on: a note that contains a
 /// word is **never** filtered out. False positives are fine; false negatives
 /// would make the feature quietly wrong.
+///
+/// Protects: no false negative for any of a set of distinct sample names,
+/// singly or as a multi-word phrase requiring every token to be present.
 #[test]
 fn the_fingerprint_has_no_false_negatives() {
     let words = [
@@ -97,6 +116,10 @@ fn the_fingerprint_has_no_false_negatives() {
 
 /// A name too short to fingerprint returns nothing rather than matching
 /// everything — the difference between a bounded scan and an unbounded one.
+///
+/// Protects: `fingerprint` returns `0` for a too-short or empty name, and
+/// `mention_candidates` returns no candidates for such a name rather than
+/// the whole vault.
 #[test]
 fn a_name_with_no_usable_token_is_refused() {
     assert_eq!(fingerprint("Ai"), 0);
@@ -108,6 +131,9 @@ fn a_name_with_no_usable_token_is_refused() {
 
 /// No word can be read back out of a record. Asserted rather than asserted in
 /// prose: the whole "never the prose" promise is one `u64`.
+///
+/// Protects: serialising a [`NoteRecord`] never emits any word from the
+/// source text, while the fingerprint itself is non-zero.
 #[test]
 fn a_note_record_holds_no_prose() {
     let rec = parse_note("Kelvhold is a river town of four thousand souls, walled in stone.");
@@ -122,6 +148,10 @@ fn a_note_record_holds_no_prose() {
 
 #[test]
 fn a_real_folder_indexes_backlinks_both_ways() {
+    // Protects: a full `refresh` over a real folder finds both link forms,
+    // counts multiple references from one source correctly, keeps each
+    // source's own link form, and `mention_candidates` surfaces an
+    // unlinked mention while excluding notes that already link properly.
     let root = tmp("both");
     write(&root, "Settlements/Kelvhold.md", "# Kelvhold\n\nA river town.\n");
     write(&root, "Factions/Veldmark.md", "Holds [[Kelvhold]] and [[Kelvhold|the town]].\n");
@@ -161,6 +191,11 @@ fn a_real_folder_indexes_backlinks_both_ways() {
 
 /// The whole point of the design: a second refresh over an unchanged folder
 /// re-reads **nothing**, and one edited file costs exactly one read.
+///
+/// Protects: the `(modified, len)` change-detection basis itself -- a
+/// second refresh over an unchanged vault reads zero files, and a change to
+/// only the length (not necessarily the mtime) triggers exactly one reread
+/// whose new links land in the index.
 #[test]
 fn a_refresh_reads_only_what_changed() {
     let root = tmp("incr");
@@ -185,6 +220,9 @@ fn a_refresh_reads_only_what_changed() {
 
 #[test]
 fn a_deleted_note_leaves_the_index() {
+    // Protects: a note removed from the vault is dropped from the index on
+    // the next `refresh` (counted in `RefreshStats::dropped`), and a link
+    // that pointed at it now shows up in `broken_links`.
     let root = tmp("del");
     write(&root, "A.md", "[[B]]\n");
     write(&root, "B.md", "b\n");
@@ -205,6 +243,10 @@ fn a_deleted_note_leaves_the_index() {
 
 /// An entity with no note of its own is still discoverable, which is the half
 /// a note-to-note index alone would miss.
+///
+/// Protects: `notes_referencing_entity` finds the note carrying a Cartalith
+/// block for the entity, returns nothing for an unrelated entity key, and
+/// `entity_block_count` reflects the one block indexed.
 #[test]
 fn an_entity_is_found_through_a_block_in_someone_elses_note() {
     let root = tmp("entity");
@@ -229,6 +271,9 @@ fn an_entity_is_found_through_a_block_in_someone_elses_note() {
 
 #[test]
 fn orphans_are_notes_nothing_points_at() {
+    // Protects: `orphans` lists exactly the notes no other note links to,
+    // by stem -- a linked leaf is excluded, an unlinked hub and an
+    // unlinked lone note are both included.
     let root = tmp("orph");
     write(&root, "Hub.md", "[[Leaf]]\n");
     write(&root, "Leaf.md", "leaf\n");
@@ -244,6 +289,9 @@ fn orphans_are_notes_nothing_points_at() {
 
 #[test]
 fn the_index_round_trips_through_json() {
+    // Protects: `to_json`/`from_json` round-trip the whole index
+    // byte-for-value, the reload is recognised as already built, and it
+    // still costs zero rereads against an unchanged vault.
     let root = tmp("json");
     write(&root, "A.md", "[[B]] and [[C|see]]\n");
     write(&root, "B.md", "b\n");
@@ -261,6 +309,9 @@ fn the_index_round_trips_through_json() {
 
 #[test]
 fn clear_forces_a_full_rebuild() {
+    // Protects: `clear` empties the index and resets `is_built` to false,
+    // and the next `refresh` re-reads every note rather than trusting the
+    // (now-gone) old state.
     let root = tmp("clear");
     write(&root, "A.md", "[[B]]\n");
     write(&root, "B.md", "b\n");
@@ -276,6 +327,9 @@ fn clear_forces_a_full_rebuild() {
 
 /// A missing vault root is refused, not silently reported as an empty vault —
 /// which would read on screen as "you have no notes".
+///
+/// Protects: `refresh` against a nonexistent root returns an error and
+/// leaves the index unbuilt, rather than succeeding with zero notes.
 #[test]
 fn a_missing_root_is_an_error_not_an_empty_index() {
     let vault = FsVault::new(std::env::temp_dir().join("cartalith_no_such_vault_xyzzy"));
@@ -286,6 +340,10 @@ fn a_missing_root_is_an_error_not_an_empty_index() {
 
 /// A bare `[[Kelvhold]]` finds `Settlements/Kelvhold.md`, and a path link
 /// finds it with or without the extension.
+///
+/// Protects: `target_matches`'s three resolution rules (exact path, path
+/// without `.md`, bare-name-to-stem) each independently find the target,
+/// and a similarly-named-but-different note (`Kelvhold Bridge`) does not.
 #[test]
 fn a_target_resolves_by_stem_and_by_path() {
     let root = tmp("resolve");

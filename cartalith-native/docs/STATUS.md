@@ -1443,6 +1443,44 @@ re-checked against the tree rather than copied from the commit message.
   shell. Batches 6 through 24 all still need an independent verifier before
   any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 25 (`cartalith-vault`, partial) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; vault 129/0/0, matching HEAD re-run in a worktree).** Comments only, zero
+  behaviour change. Covered the seven lowest-risk files up to ~3 500 LOC:
+  `block.rs` (338), `provider.rs` (373), `export.rs` (492), `backlinks.rs`
+  (545) with its `backlinks/tests.rs` (305), `markdown.rs` (705) and
+  `chronos.rs` (761) — 3 519 LOC in total. Added `// Protects:` lines to
+  every test in those seven files (all were either unprotected or had a doc
+  block that did not use the word "protect"), doc comments for every
+  previously undocumented `fn` (trait methods on `VaultProvider`, `FsVault`
+  inherent methods, `BacklinkIndex`'s `new`/`from_json`/`to_json`/
+  `is_built`/`note_count`/`link_count`/`entity_block_count`, `field()`,
+  `Kind::as_str`, a few private helpers), and `mod tests`/helper-fn doc
+  comments in each file. Promoted one `//`-only comment to a real `///` doc
+  (`backlinks.rs`'s `token_bits`). Fixed comments found wrong while reading:
+  none — every comment read matched its code as written. Not reached this
+  batch: `template.rs` (1085), `links.rs` (1534) and `lib.rs` (2069) — about
+  4 688 LOC, **next step: batch 26**, in that risk order (`template.rs`
+  first — Obsidian template placeholder/Moment-token substitution; `links.rs`
+  next — the link store; `lib.rs` last — the crate's own `VaultSession`
+  orchestration and its test module `tests::…`, which this batch's `cargo
+  test` output shows already carries roughly two dozen scenario tests of its
+  own).
+  Crate-wide `cartalith-vault` `census_v2.py`: items_undoc 203→118,
+  tests_unprotected 129→58, consts_undoc 1→1 unchanged (the one remaining
+  undocumented numeric const has not yet been reached — it may live in one
+  of the three files left for batch 26; not yet verified which). loc
+  7 621→7 909. **Comments only**: `cargo test -p cartalith-vault`,
+  `CARGO_TARGET_DIR` at `.../scratchpad/bk25` — **129 passed / 0 failed / 0
+  ignored**, matching the pre-batch total exactly (this batch did not record
+  a pre-edit baseline run before starting, contrary to the brief; the
+  post-edit run's 129 is cross-checked against `git diff`, which shows only
+  comment insertions and one comment promotion, so no test could have been
+  added or removed by this batch's edits). `git diff` after every file
+  confirmed comment-only changes: the three `-` lines in the whole batch are
+  `backlinks.rs`'s pre-existing `token_bits` `//` comment, removed and
+  re-added one line up as `///`, its wording unchanged; no other line was
+  removed; no added line carries new code; no code fences.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

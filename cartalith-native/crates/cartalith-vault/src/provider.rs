@@ -114,9 +114,13 @@ pub trait VaultProvider: std::fmt::Debug {
     /// (§31) — see [`FsVault::list_markdown`].
     fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError>;
 
+    /// The full text of `rel`.
     fn read(&self, rel: &str) -> Result<String, VaultError>;
+    /// §14's change-detection basis for `rel`: modification time and length.
     fn meta(&self, rel: &str) -> Result<FileMeta, VaultError>;
+    /// Whether `rel` names a file in the vault right now.
     fn exists(&self, rel: &str) -> bool;
+    /// Writes `text` to `rel`, creating parent directories as needed.
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError>;
 
     /// Where this vault points, for **display only** — never stored in
@@ -138,6 +142,9 @@ pub trait VaultProvider: std::fmt::Debug {
     }
 }
 
+/// [`FsVault`] implements [`VaultProvider`] by delegating each method to the
+/// same-named inherent method below — the trait exists so `cartalith-godot`'s
+/// SAF-backed provider can stand in for this one, not to add behaviour here.
 impl VaultProvider for FsVault {
     fn available(&self) -> bool {
         FsVault::available(self)
@@ -166,10 +173,13 @@ impl VaultProvider for FsVault {
 }
 
 impl FsVault {
+    /// Binds a vault to `root`, without checking it exists yet — call
+    /// [`FsVault::available`] for that.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         FsVault { root: root.into() }
     }
 
+    /// The vault's root directory.
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -221,10 +231,12 @@ impl FsVault {
         Ok(out)
     }
 
+    /// The full text of `rel`, read from disk.
     pub fn read(&self, rel: &str) -> Result<String, VaultError> {
         Ok(std::fs::read_to_string(self.resolve(rel)?)?)
     }
 
+    /// `rel`'s modification time and length, for §14's change detection.
     pub fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
         let m = std::fs::metadata(self.resolve(rel)?)?;
         let modified = m
@@ -236,6 +248,7 @@ impl FsVault {
         Ok(FileMeta { modified, len: m.len() })
     }
 
+    /// Whether `rel` names a file in the vault right now.
     pub fn exists(&self, rel: &str) -> bool {
         self.resolve(rel).map(|p| p.is_file()).unwrap_or(false)
     }
@@ -296,10 +309,14 @@ pub fn content_hash(text: &str) -> String {
     format!("{h:016x}")
 }
 
+/// Unit tests for [`FsVault`]'s path containment, list/read/write round trip
+/// and [`content_hash`].
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A fresh, process-unique scratch directory under the system temp dir,
+    /// wiped and recreated so tests never see a stale run's leftovers.
     fn temp_root(tag: &str) -> PathBuf {
         let p = std::env::temp_dir().join(format!("cartalith-vault-test-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&p);
@@ -311,6 +328,9 @@ mod tests {
     /// helper it now delegates to — proof the extraction changed nothing.
     #[test]
     fn is_safe_relative_path_matches_resolves_own_boundary() {
+        // Protects: `is_safe_relative_path` itself rejects every escape
+        // shape §30 cares about (`..`, an absolute path, a Windows drive)
+        // and accepts an ordinary relative path.
         for bad in ["..", "../x.md", "a/../../b.md", "/etc/passwd", "C:/Windows/x.md", ""] {
             assert!(!is_safe_relative_path(bad), "{bad} must be unsafe");
         }
@@ -319,6 +339,9 @@ mod tests {
 
     #[test]
     fn resolve_refuses_every_way_out_of_the_vault() {
+        // Protects: `FsVault::resolve`'s own containment check, over the
+        // same escape fixtures -- §30's least-privilege rule enforced at the
+        // one place every read/write funnels through.
         let v = FsVault::new(temp_root("resolve"));
         for bad in ["..", "../x.md", "a/../../b.md", "/etc/passwd", "C:/Windows/x.md", ""] {
             assert!(v.resolve(bad).is_err(), "{bad} must be refused");
@@ -328,6 +351,10 @@ mod tests {
 
     #[test]
     fn list_read_write_round_trip() {
+        // Protects: `list_markdown`'s filtering (only .md, dot-dirs skipped,
+        // sorted, the `limit` cap is real), the atomic `write` leaving no
+        // temp file behind, and that a read after a write sees the new
+        // content in a freshly created subdirectory.
         let root = temp_root("rt");
         let v = FsVault::new(&root);
         assert!(v.available());
@@ -358,6 +385,9 @@ mod tests {
 
     #[test]
     fn a_missing_root_is_reported_not_panicked() {
+        // Protects: §7's Missing case -- a vault whose root does not exist
+        // reports `RootUnavailable`/an error through every entry point
+        // rather than panicking.
         let v = FsVault::new(std::env::temp_dir().join("cartalith-vault-does-not-exist"));
         assert!(!v.available());
         assert!(matches!(v.list_markdown(10), Err(VaultError::RootUnavailable(_))));
@@ -366,6 +396,9 @@ mod tests {
 
     #[test]
     fn content_hash_is_stable_and_discriminating() {
+        // Protects: `content_hash` is deterministic (same input, same hash),
+        // discriminates a one-byte change, and always emits 16 hex digits --
+        // the shape §14's staleness check assumes.
         assert_eq!(content_hash("abc"), content_hash("abc"));
         assert_ne!(content_hash("abc"), content_hash("abd"));
         assert_eq!(content_hash("").len(), 16);

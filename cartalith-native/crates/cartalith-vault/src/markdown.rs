@@ -508,6 +508,8 @@ fn line_spans(text: &str) -> impl Iterator<Item = Range<usize>> + '_ {
     })
 }
 
+/// Unit tests for section boundary detection, section replacement,
+/// frontmatter reading and author-field population.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +518,10 @@ mod tests {
 
     #[test]
     fn sections_nest_and_stop_at_the_next_sibling() {
+        // Protects: `sections`'s core boundary rule -- a deeper heading
+        // nests inside its parent's body, a sibling or shallower heading
+        // ends it, and the top-level section spans the whole rest of the
+        // document.
         let s = sections(DOC);
         let titles: Vec<&str> = s.iter().map(|x| x.title.as_str()).collect();
         assert_eq!(titles, ["Nareth", "History", "The Old Quarter", "Guild Row", "Trade"]);
@@ -531,6 +537,8 @@ mod tests {
 
     #[test]
     fn a_hash_inside_a_fence_is_not_a_heading() {
+        // Protects: `fence_marker`'s tracking -- a `#` line inside a fenced
+        // code block is not read as a heading.
         let doc = "# Title\n\n```sh\n# not a heading\n```\n\n## Real\n\nx\n";
         let titles: Vec<String> = sections(doc).into_iter().map(|s| s.title).collect();
         assert_eq!(titles, ["Title", "Real"]);
@@ -538,6 +546,8 @@ mod tests {
 
     #[test]
     fn a_tag_is_not_a_heading() {
+        // Protects: `atx_heading`'s space-after-hashes rule -- an Obsidian
+        // tag (`#worldbuilding`) is not read as a heading.
         // `#worldbuilding` is an Obsidian tag; a space is required.
         let doc = "#worldbuilding\n\n# Real\n\nx\n";
         let titles: Vec<String> = sections(doc).into_iter().map(|s| s.title).collect();
@@ -546,6 +556,10 @@ mod tests {
 
     #[test]
     fn frontmatter_is_skipped_and_an_unterminated_opener_is_not_frontmatter() {
+        // Protects: a real frontmatter block's `#` line is not a heading and
+        // is not scanned, while an unterminated `---` opener is treated as
+        // a horizontal rule (`frontmatter_end` returns 0) and the `#` below
+        // it is a genuine heading.
         let doc = "---\ntitle: Nareth\n# not a heading\n---\n\n# Nareth\n\nx\n";
         let titles: Vec<String> = sections(doc).into_iter().map(|s| s.title).collect();
         assert_eq!(titles, ["Nareth"]);
@@ -559,6 +573,9 @@ mod tests {
 
     #[test]
     fn replace_section_touches_only_that_section() {
+        // Protects: `replace_section` swaps only the named section (and its
+        // nested children) and leaves every other byte of the document
+        // exactly as it was.
         let out = replace_section(DOC, "The Old Quarter", "## The Old Quarter\n\nRebuilt after the fire.\n").unwrap();
         assert!(out.contains("Rebuilt after the fire."));
         assert!(!out.contains("Narrow streets"));
@@ -570,6 +587,9 @@ mod tests {
 
     #[test]
     fn replacing_a_section_with_its_own_text_is_a_byte_identical_round_trip() {
+        // Protects: a no-op edit round-trips byte-identically, for both an
+        // interior section and the document's last section (which has no
+        // trailing sibling to preserve spacing against).
         let same = section_text(DOC, "History").unwrap();
         assert_eq!(replace_section(DOC, "History", &same).unwrap(), DOC);
         let same2 = section_text(DOC, "Trade").unwrap();
@@ -578,6 +598,9 @@ mod tests {
 
     #[test]
     fn duplicate_headings_refuse_rather_than_guess() {
+        // Protects: two sections sharing a title refuse `find_section` and
+        // `replace_section` with `Duplicate` rather than picking one, and a
+        // genuinely missing title returns `NotFound`.
         let doc = "## History\n\na\n\n## History\n\nb\n";
         assert_eq!(find_section(doc, "History"), Err(SectionError::Duplicate { title: "History".into(), count: 2 }));
         assert!(replace_section(doc, "History", "## History\n\nc\n").is_err());
@@ -586,6 +609,9 @@ mod tests {
 
     #[test]
     fn a_replacement_without_a_heading_is_refused() {
+        // Protects: `replace_section` refuses a replacement that does not
+        // itself start with a heading line, rather than merging its
+        // content into the preceding section.
         assert_eq!(
             replace_section(DOC, "History", "just prose"),
             Err(SectionError::ReplacementNotASection)
@@ -594,6 +620,9 @@ mod tests {
 
     #[test]
     fn a_renamed_heading_is_honoured() {
+        // Protects: a replacement whose heading differs from the section's
+        // old title is honoured as a rename -- the new title appears and
+        // the old one no longer resolves.
         let out = replace_section(DOC, "History", "## Chronicle\n\nx\n").unwrap();
         assert!(out.contains("## Chronicle"));
         assert!(find_section(&out, "History").is_err());
@@ -601,6 +630,9 @@ mod tests {
 
     #[test]
     fn crlf_documents_round_trip() {
+        // Protects: `line_end_with_newline`'s `\r\n` handling -- a
+        // Windows-authored, CRLF document round-trips a no-op section
+        // replace without gaining or losing a byte.
         let doc = "# T\r\n\r\n## A\r\n\r\nx\r\n\r\n## B\r\n\r\ny\r\n";
         let a = section_text(doc, "A").unwrap();
         assert_eq!(replace_section(doc, "A", &a).unwrap(), doc);
@@ -610,6 +642,10 @@ mod tests {
 
     #[test]
     fn fields_reads_the_owners_own_template_shape() {
+        // Protects: `fields` finds every `**Name:**`-style line in the
+        // owner's real template shape (with and without a list marker) and
+        // `placeholder` correctly distinguishes a bracketed prompt, an
+        // author-filled value, and an empty value.
         let f = fields(TEMPLATE);
         let names: Vec<&str> = f.iter().map(|x| x.name.as_str()).collect();
         assert_eq!(names, ["Type", "Location", "Size / Population", "Ruling authority"]);
@@ -620,6 +656,10 @@ mod tests {
 
     #[test]
     fn fill_field_never_clobbers_an_author_filled_value() {
+        // Protects: the owner's constraint itself -- `OnlyIfEmpty` refuses
+        // to touch an author-filled value (not one byte moves), while
+        // `Overwrite` writes it and preserves the trailing hard-break
+        // spaces.
         let (out, o) = fill_field(TEMPLATE, "Location", "Nareth", FieldFill::OnlyIfEmpty);
         assert_eq!(o, FieldOutcome::SkippedOccupied);
         assert_eq!(out, TEMPLATE, "the owner's constraint: not one byte moves");
@@ -630,6 +670,9 @@ mod tests {
 
     #[test]
     fn fill_field_writes_a_placeholder_and_leaves_the_rest_alone() {
+        // Protects: `fill_field` writes into an empty field, leaves every
+        // other field's text untouched, and returns `NotFound` for a name
+        // that is not in the document.
         let (out, o) = fill_field(TEMPLATE, "Size / Population", "8,420", FieldFill::OnlyIfEmpty);
         assert_eq!(o, FieldOutcome::Written);
         assert!(out.contains("- **Size / Population:** 8,420\n"));
@@ -641,6 +684,9 @@ mod tests {
 
     #[test]
     fn a_duplicated_field_name_is_refused() {
+        // Protects: `fill_field` refuses to write an ambiguous name (two
+        // fields sharing it), returning `NotFound` and an unchanged
+        // document rather than picking one.
         let doc = "**A:** \n**A:** \n";
         let (out, o) = fill_field(doc, "A", "x", FieldFill::Overwrite);
         assert_eq!(o, FieldOutcome::NotFound);
@@ -651,6 +697,10 @@ mod tests {
 
     #[test]
     fn frontmatter_reads_flat_scalars_and_declines_everything_else() {
+        // Protects: `frontmatter_fields` reads a top-level scalar, strips
+        // quotes, and skips a list, a nested map, a comment, a non-pair
+        // line and an empty value -- in one pass over a document that has
+        // all of them at once.
         let doc = "---\ntitle: Nareth\ntype: \"River Town\"\nfounded: '812'\ntags:\n  - worldbuilding\n  - lore\nnested:\n  depth: 2\n# a comment\nnot a pair\nempty:\n---\n\n# Nareth\n";
         let f = frontmatter_fields(doc);
         assert_eq!(
@@ -668,6 +718,10 @@ mod tests {
     /// project's rule that a fixture must reach the code rather than merely
     /// pass: an unterminated opener, a body that looks like frontmatter but
     /// is not, and a duplicated key that must not resolve last-wins.
+    ///
+    /// Protects: each of the three refusals above, plus that an empty
+    /// frontmatter block and a wholly empty document both yield an empty
+    /// vector rather than an error.
     #[test]
     fn malformed_frontmatter_yields_nothing_rather_than_a_wrong_answer() {
         // Unterminated: `frontmatter_end` already says this is a horizontal
@@ -691,6 +745,9 @@ mod tests {
 
     #[test]
     fn field_values_import_answers_and_never_the_templates_own_questions() {
+        // Protects: `field_values` returns only genuinely filled fields
+        // (drops every placeholder) and drops a duplicated name entirely,
+        // the same refusal `fill_field` applies to writing one.
         let v = field_values(TEMPLATE);
         assert_eq!(
             v,

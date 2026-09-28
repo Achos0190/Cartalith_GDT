@@ -235,6 +235,7 @@ pub fn offer(kind: EntityKind, available: &dyn Fn(&str) -> bool) -> Vec<&'static
     FIELDS.iter().filter(|f| f.kinds.contains(&kind) && available(f.key)).collect()
 }
 
+/// The registry row for `key`, or `None` if it names no field.
 pub fn field(key: &str) -> Option<&'static ExportField> {
     FIELDS.iter().find(|f| f.key == key)
 }
@@ -268,12 +269,17 @@ pub fn render_body(heading: &str, selected: &[String], values: &dyn Fn(&str) -> 
     out
 }
 
+/// Unit tests for the [`FIELDS`] registry, [`offer`]'s per-kind filtering
+/// and [`render_body`]'s Markdown shape.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn every_key_is_unique_and_every_author_mapping_names_a_real_field() {
+        // Protects: no two registry rows share a `key` (the UI's selection
+        // set and the save both index by it), and every `AUTHOR_FIELDS`
+        // entry names a key that actually exists in the registry.
         let mut keys: Vec<&str> = FIELDS.iter().map(|f| f.key).collect();
         let n = keys.len();
         keys.sort_unstable();
@@ -306,6 +312,9 @@ mod tests {
     /// checkbox list and the note's Map rows are drawn in. Strictly
     /// increasing, or "Immediate map" would offer a wider crop than
     /// "Regional map" while still being labelled the tighter one.
+    ///
+    /// Protects: [`MAP_RADII`]'s three literal half-widths, in order, and
+    /// that each is tighter than the next.
     #[test]
     fn the_three_radii_are_the_literals_every_written_note_was_scaled_to() {
         assert_eq!(
@@ -325,6 +334,10 @@ mod tests {
     /// available: a culture is not a place and must never be offered a map; a
     /// placed entity with no snapshot yet must not be offered a blank one
     /// (§20); and the two lookups must agree with the table they read.
+    ///
+    /// Protects: culture gets no map field, an un-snapshotted place gets none
+    /// either, `map_radius`/`map_field` agree with [`MAP_RADII`], and
+    /// [`render_body`] puts a Map row under its own **Map** header.
     #[test]
     fn the_map_group_is_offered_only_to_places_that_have_a_snapshot() {
         for (key, radius, km) in MAP_RADII {
@@ -375,6 +388,11 @@ mod tests {
     /// `0..1` field value and a landmark's is metres; and it is not offered
     /// any of the settlement/faction aggregates, which it has no members to
     /// aggregate over.
+    ///
+    /// Protects: the landmark registry row set (positive and negative), that
+    /// the three landmark-only fields never leak to another kind while every
+    /// other kind keeps `name`, and the `render_body` group-header
+    /// deduplication that Identity/Geography ordering depends on.
     #[test]
     fn a_landmark_is_offered_its_own_three_fields_and_never_a_name() {
         let all = offer(EntityKind::Landmark, &|_| true);
@@ -440,6 +458,10 @@ mod tests {
 
     #[test]
     fn offer_hides_what_the_entity_cannot_have_and_what_it_does_not_have() {
+        // Protects: §20's two hiding rules together -- a field outside the
+        // entity kind's `kinds` list is never offered, and a field the
+        // caller could not supply a value for is skipped even when the kind
+        // allows it.
         // A continent has no settlement type at all, whatever the caller says.
         let all = offer(EntityKind::Continent, &|_| true);
         assert!(all.iter().all(|f| f.key != "settlement_type"));
@@ -455,6 +477,9 @@ mod tests {
     /// what it definitely cannot. The second half is the one with a wrong
     /// answer available — a culture is not a place and must never be offered
     /// a coastline.
+    ///
+    /// Protects: CV-02's culture field set from both sides, and that
+    /// `terrain_affinity` drops out when the caller has no value.
     #[test]
     fn a_culture_is_offered_its_own_fields_and_no_places_fields() {
         let all = offer(EntityKind::Culture, &|_| true);
@@ -473,6 +498,9 @@ mod tests {
 
     #[test]
     fn render_body_groups_in_registry_order_and_skips_empties() {
+        // Protects: `render_body` groups selected fields by registry order,
+        // skips a whitespace-only value as if it were absent, and renders
+        // an empty block (just the heading) when nothing is selected.
         let selected: Vec<String> = ["name", "population", "biome", "elevation"].iter().map(|s| s.to_string()).collect();
         let body = render_body("Cartalith", &selected, &|k| match k {
             "name" => Some("Nareth".into()),
