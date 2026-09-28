@@ -440,6 +440,7 @@ mod tests {
         run_with(false, None)
     }
 
+    /// A 2x2 tile grid produces exactly 4 `.bin` entries plus the index.
     #[test]
     fn one_bin_per_tile_plus_the_index() {
         // Protects: a 2x2 tile grid produces exactly 4 .bin entries plus the
@@ -450,6 +451,8 @@ mod tests {
         assert!(!e.used_gzip);
     }
 
+    /// The tile naming convention and row-major entry order match the
+    /// reference's own loop.
     #[test]
     fn tiles_are_named_and_ordered_row_major() {
         // Protects: the entry order and naming convention
@@ -468,6 +471,8 @@ mod tests {
         );
     }
 
+    /// Each tile's byte length matches `tile_w * tile_h * 4` -- the RG16
+    /// container's true per-pixel size.
     #[test]
     fn every_tile_carries_four_bytes_per_pixel_at_the_chosen_dims() {
         // Protects: pack_height16's RG16 encoding (2 channels used, 4 bytes
@@ -479,6 +484,8 @@ mod tests {
         }
     }
 
+    /// No two sibling tiles are byte-identical -- guards against a
+    /// composition bug that fed every tile the same sub-region.
     #[test]
     fn no_two_tiles_are_the_same_bytes() {
         // Protects: against a composition bug that fed every tile the same
@@ -491,6 +498,7 @@ mod tests {
         }
     }
 
+    /// `build_tile_manifest`'s field mapping into the JSON manifest.
     #[test]
     fn the_manifest_records_the_selection_it_was_given() {
         // Protects: build_tile_manifest's field mapping -- height encoding,
@@ -504,6 +512,7 @@ mod tests {
         assert!(json.contains("\"w\": 24"));
     }
 
+    /// The degenerate 1x1 tile grid: one bin plus the index, no off-by-one.
     #[test]
     fn a_one_by_one_export_still_produces_two_entries() {
         // Protects: the degenerate 1x1 tile grid -- one bin plus the index,
@@ -517,6 +526,8 @@ mod tests {
         assert_eq!(e.entries.len(), 2);
     }
 
+    /// A zero-sized tile grid panics with the named message, rather than
+    /// silently producing an empty export or dividing by zero.
     #[test]
     #[should_panic(expected = "non-empty tile grid")]
     fn a_zero_column_export_is_rejected() {
@@ -533,6 +544,8 @@ mod tests {
 
     // ---- milestone E2 ----
 
+    /// The gzip flag renames every `.bin` to `.bin.gz` and flips the
+    /// manifest's compression field, while `file` still names the PNG.
     #[test]
     fn gzip_renames_every_tile_and_flips_the_manifests_compression_field() {
         // Protects: the gzip flag renaming every .bin to .bin.gz and
@@ -548,6 +561,8 @@ mod tests {
         assert!(json.contains("\"file\": \"tiles/refined_0_0.png\""));
     }
 
+    /// `gzip_bytes` round-trips to the plain path's own bytes and actually
+    /// shrinks the payload.
     #[test]
     fn a_gzipped_tile_unzips_back_to_the_stored_bytes_exactly() {
         // Protects: gzip_bytes round trips to the plain path's own bytes
@@ -561,6 +576,8 @@ mod tests {
         }
     }
 
+    /// A visual export's exact entry ordering: bin then png per tile,
+    /// row-major, index last.
     #[test]
     fn a_visual_export_interleaves_one_png_after_each_bin() {
         // Protects: the exact entry ordering when a visual is requested --
@@ -576,6 +593,9 @@ mod tests {
         ]);
     }
 
+    /// The PNG container round-trips to the exact pixels
+    /// `render_height_tile_rgba` produced -- only the container bytes
+    /// differ from the reference, never the pixels.
     #[test]
     fn each_png_is_a_real_png_that_decodes_back_to_the_rendered_pixels() {
         // Protects: the PNG container round-trips to the exact pixels
@@ -597,6 +617,8 @@ mod tests {
         assert_eq!(img.rgba, want);
     }
 
+    /// No two sibling tile PNGs are byte-identical -- the same defence as
+    /// the `.bin` check, applied to the visual layer.
     #[test]
     fn no_two_tile_pngs_are_identical() {
         // Protects: same defence as the .bin check -- a composition bug
@@ -613,6 +635,8 @@ mod tests {
         }
     }
 
+    /// `params.json` sits unshifted at the archive front, and every PNG
+    /// entry is stored, never re-deflated.
     #[test]
     fn the_archive_stores_its_pngs_and_deflates_its_tiles() {
         // Protects: `params.json` is unshifted to the archive front, and
@@ -631,6 +655,8 @@ mod tests {
         }
     }
 
+    /// Every export entry (gzip bins, PNGs, index) round-trips byte for
+    /// byte through `zip_region_export` and a real zip reader.
     #[test]
     fn the_archive_round_trips_every_entry_byte_for_byte() {
         // Protects: every entry the export produced (gzip bins, PNGs,
@@ -650,6 +676,8 @@ mod tests {
         }
     }
 
+    /// Zip byte determinism -- a reproducible export must be diffable, so
+    /// no ticking timestamp may leak into the archive.
     #[test]
     fn the_same_export_zips_to_the_same_bytes_twice() {
         // Protects: byte-for-byte zip determinism, needed for a
@@ -663,6 +691,8 @@ mod tests {
         );
     }
 
+    /// The new map width is the old grid width's own selection share,
+    /// computed before the grid size is reassigned.
     #[test]
     fn extract_region_as_world_scales_the_map_width_by_the_selections_share() {
         // Protects: the new map width is the OLD grid width's own selection
@@ -678,6 +708,8 @@ mod tests {
         assert_eq!(w.field.len(), 1024 * 683);
     }
 
+    /// A tiny selection of a small map floors at 1 km rather than
+    /// producing a sub-1 km world that every downstream km scale divides by.
     #[test]
     fn extract_region_as_world_floors_the_map_width_at_one_kilometre() {
         // Protects: a tiny selection of a small map would otherwise
@@ -691,6 +723,9 @@ mod tests {
         assert_eq!((w.gw, w.gh), (256, 256));
     }
 
+    /// The reference is explicit: the amplified data must NOT be
+    /// renormalised -- it is already meaningful elevation in the parent's
+    /// [0,1] space.
     #[test]
     fn extract_region_as_world_does_not_renormalise_the_field() {
         // Protects: the reference is explicit that it must NOT
@@ -739,6 +774,8 @@ mod tests {
         field.iter().filter(|&&v| v as f64 >= sea).count() as f64 / field.len() as f64
     }
 
+    /// The `ImportedWorld` hazard, restated: every returned grid is exactly
+    /// `np.gw * np.gh`, never the parent's stride.
     #[test]
     fn region_as_new_world_returns_a_state_at_the_dimensions_it_reports() {
         // Protects: the `ImportedWorld` hazard, restated -- a caller that
@@ -770,6 +807,8 @@ mod tests {
         }
     }
 
+    /// The re-inferred substrate is real, not all-zero -- lithology, soil
+    /// and every resource read `crust_field` and its neighbours.
     #[test]
     fn region_as_new_world_leaves_no_tectonic_field_dead() {
         // Protects: the reference reaches `inferTectonics` from this
@@ -790,6 +829,8 @@ mod tests {
         assert!(nws.flow_discharge.iter().any(|&v| v != 0.0), "flow never ran");
     }
 
+    /// The renormalisation guard, in the terms that actually matter: land
+    /// fraction of the cut region must survive, not get rescaled to [0,1].
     #[test]
     fn region_as_new_world_preserves_the_land_fraction_of_the_region_it_cut() {
         // Protects: **the renormalisation guard, in the terms that actually
@@ -823,6 +864,9 @@ mod tests {
         );
     }
 
+    /// The returned world's sea level is the amplify options' effective
+    /// level, never the parent's own dial -- the two can legitimately
+    /// differ under World Structure.
     #[test]
     fn region_as_new_world_takes_its_sea_level_from_the_amplify_opts() {
         // Protects: the two must not be allowed to disagree -- the
@@ -841,6 +885,8 @@ mod tests {
         assert_eq!(nws.sea_level, effective, "and so must the state");
     }
 
+    /// Every field the resample cannot supply (world wrap, climate dials,
+    /// seed) is inherited unchanged from the parent.
     #[test]
     fn region_as_new_world_carries_the_parents_wrap_geometry_and_climate_dials() {
         // Protects: the reference's handler never touches `state.world`,
@@ -858,6 +904,8 @@ mod tests {
         assert_eq!(np.tect.seed, p.tect.seed, "and the parent's seed");
     }
 
+    /// The new map width scales with the selection's share of the old
+    /// grid, and the resulting cell size is genuinely finer.
     #[test]
     fn region_as_new_world_scales_the_map_width_with_the_selections_share() {
         // Protects: the new map width scales with the selection's share of
@@ -875,6 +923,9 @@ mod tests {
         assert!(child_cell < parent_cell, "{child_cell} km/cell is not finer than {parent_cell}");
     }
 
+    /// An extreme aspect that would produce a 2-row grid must be refused,
+    /// not silently clamped -- clamping would change the user's selected
+    /// shape and contradict the map width derived from it.
     #[test]
     fn region_as_new_world_refuses_below_the_axis_floor_instead_of_clamping() {
         // Protects: an extreme aspect -- `tile_dims` would answer 128 x 2,
@@ -923,6 +974,8 @@ mod tests {
         assert!(3 < MIN_REGION_WORLD_AXIS, "3 must be refused");
     }
 
+    /// The same selection at the same settings rebuilds bit-for-bit the
+    /// same world -- the reason nothing here needs persisting.
     #[test]
     fn region_as_new_world_is_deterministic() {
         // Protects: `LANDMARK_GENERATION_RESEARCH.md` §27's property, and

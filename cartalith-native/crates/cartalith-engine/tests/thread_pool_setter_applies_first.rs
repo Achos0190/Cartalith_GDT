@@ -7,8 +7,14 @@
 //! Its own file for the same reason: one build per process, so the first call
 //! in the process has to be this test's.
 
+/// The first call in the process builds the pool and returns `true`; a
+/// later, different request cannot be honoured (one build per process) but
+/// still returns `false` honestly and is stored for next launch.
 #[test]
 fn the_first_request_in_a_process_applies_and_a_later_different_one_does_not() {
+    // Protects: set_configured_thread_count's true/false return value being
+    // an honest "did this call build the pool", not always false (this
+    // file's own reason for being separate: one build per process).
     let cores = cartalith_engine::logical_core_count();
     let want = if cores >= 2 { 2 } else { 1 };
 

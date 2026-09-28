@@ -111,6 +111,8 @@ fn provinces() -> Vec<i32> {
     p
 }
 
+/// The whole `exportGeoJSON()` document, character for character, over
+/// every layer and both branches of every choice.
 #[test]
 fn export_geojson_matches_the_reference_document_character_for_character() {
     // Protects: the whole document, character for character, against a
@@ -186,6 +188,9 @@ const REFERENCE_RIVERS: &str = concat!(
     r#"r","strahlerOrder":2}}]}"#,
 );
 
+/// The river layer specifically, on a world whose flow actually traces a
+/// river -- the first mutation sweep found renaming `strahlerOrder`
+/// survived the river-less world above.
 #[test]
 fn the_river_layer_matches_the_reference_document_character_for_character() {
     // Protects: the river layer specifically -- the first mutation sweep

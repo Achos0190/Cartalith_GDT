@@ -387,6 +387,57 @@ re-checked against the tree rather than copied from the commit message.
   crate, likely needing a split by its own module/section boundaries once
   a lane actually reads it.
 
+- **Ruling BK annotation pass, batch 5 (`cartalith-engine`'s `src/lib.rs`
+  plus the crate's remaining test files) — verified by the main loop 2026-09-28 (diff re-read: insertions only, comment lines; engine 214/0/8 unchanged), 2026-09-28.** Comments only, zero behaviour change. Scope:
+  `src/lib.rs` (3 853 LOC before this pass — 88 items, of which 8 were
+  undocumented plus 1 undoc const, and all 28 `#[test]`s unprotected); the
+  batch-4 files the previous entry's own census left at 75 undocumented
+  items on inspection (`src/geojson.rs`, `src/staleness.rs`, `src/bake.rs`,
+  `src/elevation.rs`, `src/region_export.rs` — `src/erode_op.rs` had
+  already reached 0 undoc via an unrelated commit landed between batches —
+  plus their four test files `tests/bake_real_world.rs`,
+  `tests/golden_parity_bake.rs`, `tests/golden_parity_geojson.rs`,
+  `tests/golden_parity_region_export.rs`); and the ten engine test files
+  batches 3-4 never touched (`tests/ef3_tile_erosion.rs`,
+  `tests/geology_gf1.rs`, `tests/geology_gf2.rs`,
+  `tests/golden_parity_carve.rs`, `tests/golden_parity_pipeline.rs`,
+  `tests/non_square_pipeline.rs`, `tests/thread_pool_setter_applies_first.rs`,
+  `tests/thread_pool_setter_honesty.rs`,
+  `tests/vector_features_real_world.rs`, `tests/world_structure_orogeny.rs`),
+  plus one incidental fix in `tests/fixtures/pre_rv1_world.rs` (a single
+  undocumented helper the crate-wide census turned up once every other file
+  closed). Batch 4's "impl methods covered by their struct doc" carve-out
+  was not applied here per the brief: every previously-undocumented `fn`,
+  including impl methods, got its own doc comment. Every `#[test]` without
+  a `// Protects: ...` first line got one; most of these already carried a
+  detailed `///` doc comment from batch 3/4's own authors explaining what
+  the test protects, which the census's scan window (starting at
+  `#[test]`, not the doc comment above it) does not see — those got a
+  matching `// Protects:` restated inside the body rather than invented
+  from scratch. Every numeric constant the census flagged as unprovenanced
+  got a doc or trailing comment (test-fixture `GW`/`GH`/`SEED`/`COLS`/`TS`
+  -style constants, cross-checked against sibling fixtures in the same
+  crate rather than a scope citation, stated as such).
+  Census re-run, scoped to these files: `src/lib.rs` items_undoc 8→0,
+  tests_unprotected 28→0, consts_undoc 1→0 (LOC 3 853→3 958); the six
+  batch-4 files items_undoc 75→0 (tests_unprotected already 0); the ten
+  previously-untouched test files items_undoc 36→0, tests_unprotected
+  42→0, consts_undoc 13→0 (LOC 2 266→2 320-ish). **Crate-wide re-run**
+  (every `.rs` under `crates/cartalith-engine/{src,tests}`, 31 files,
+  15 061 LOC): **items_undoc 131→0, tests_unprotected 70→0, consts_undoc
+  20→0 — the whole crate now reads 0/0/0 on this census.** `cargo test -p
+  cartalith-engine`: 214 passed / 0 failed / 8 ignored, 18 result lines,
+  identical to the count before this batch. A script asserting every
+  changed line across every touched file is blank, a `//`/`///` comment,
+  or a trailing comment appended to otherwise-unchanged code passed on
+  every file (no non-comment diff line, no code fence in any new comment).
+  No comment was found wrong against its code in this batch.
+  **`cartalith-engine` (ANNOTATION_AUDIT.md batches 3-5) is closed.**
+  Batch 6 is `cartalith-hydrology` (whole crate, ANNOTATION_AUDIT.md order
+  #5 — hydrology, not erosion, is next in the ranked list since spatial/
+  terrain/civ/urban/godot/shell all sit later), pending independent
+  verification of this batch first.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

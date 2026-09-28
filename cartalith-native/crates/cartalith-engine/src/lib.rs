@@ -1135,6 +1135,8 @@ pub enum GeologyAbsent {
 }
 
 impl GeologyAbsent {
+    /// The user-facing string for a reader that shows "no geology column" —
+    /// never a value, so never treat this as data to compute with.
     pub fn reason(self) -> &'static str {
         match self {
             GeologyAbsent::ModelOff => "geology model off for this world",
@@ -1152,6 +1154,8 @@ pub enum Geology {
 }
 
 impl Geology {
+    /// The column, read-only. `None` when absent (see [`Geology::absent_reason`]
+    /// for why) -- never invents a column to fill the gap.
     pub fn column(&self) -> Option<&cartalith_terrain::geology::GeologyColumn> {
         match self {
             Geology::Column(c) => Some(c),
@@ -1169,6 +1173,9 @@ impl Geology {
         }
     }
 
+    /// The reader-facing reason string when there is no column, or `None`
+    /// when there is one -- pairs with [`Geology::column`]/[`Geology::column_mut`]
+    /// so a caller never has to guess which arm it is in.
     pub fn absent_reason(&self) -> Option<&'static str> {
         match self {
             Geology::Column(_) => None,
@@ -2947,6 +2954,12 @@ pub fn refresh_climate(
     }
 }
 
+/// Engine-level integration tests: the GF-3/GF-7 rock-column wiring, the
+/// erosion-pass on/off contract, the sync generation pipeline end to end,
+/// CPU thread-count invariance, and the GPU paths' determinism/tolerance
+/// against the CPU reference. Not golden-parity tests (those live in
+/// `tests/golden_parity_*.rs`) -- these check this crate's own internal
+/// contracts, most of which have no JS analogue to diff against.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2972,6 +2985,8 @@ mod tests {
     /// parity path identical by control flow.
     #[test]
     fn gf3_threshold_stage_off_touches_nothing() {
+        // Protects: with geology_processes off, RockContext::threshold_hillslope
+        // must be a true no-op -- field and regolith untouched bit for bit.
         let (mut geo, mut f) = gf3_row();
         let rock = RockContext { on: false, contrast: 0.5, r_expose: 0.001, clock: geo_clock::GeoClock::new(false, 1.0) };
         // 390.625 m cells: with the stage on, this step would shed (the next
@@ -2989,6 +3004,8 @@ mod tests {
     /// regolith first and never drives it negative).
     #[test]
     fn gf3_threshold_stage_on_relaxes_and_records_talus_as_regolith() {
+        // Protects: the GF-3 hillslope stage's per-pass relaxation fraction
+        // and its "moved mass becomes regolith where it lands" bookkeeping.
         let (mut geo, mut f) = gf3_row();
         let rock = RockContext { on: true, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(true, 1.0) };
         rock.threshold_hillslope(&mut geo, &mut f, 2, 1, false, 800.0, 0.42, 4000.0);
@@ -3016,6 +3033,8 @@ mod tests {
     /// A three-cell shale row, 390.625 m cells, the high cell last.
     #[test]
     fn gf3_threshold_stage_wraps_on_world_maps() {
+        // Protects: the hillslope stage's x-wrap neighbour lookup on world
+        // maps -- a row's last cell must be able to shed onto its first.
         use cartalith_terrain::geology::{GeologyColumn, Rock, NO_LAYER};
         let run = |world: bool| {
             let col = GeologyColumn {
@@ -3042,6 +3061,9 @@ mod tests {
     /// `RockContext::threshold_hillslope`, not just the count function.
     #[test]
     fn gf7_clock_scales_the_threshold_stage_only_when_on() {
+        // Protects: GeoClock's tau wiring into RockContext::threshold_hillslope
+        // specifically -- pass count scales with tau when on, and the gate
+        // still fully disables the stage regardless of tau.
         let ratio_at = |on: bool, tau: f64| {
             let (mut geo, mut f) = gf3_row();
             let rock = RockContext { on, contrast: 0.5, r_expose: 1.0, clock: geo_clock::GeoClock::new(on, tau) };
@@ -3066,6 +3088,8 @@ mod tests {
     /// and discharge, because `refresh_climate` must not run either.
     #[test]
     fn erosion_passes_off_leave_generation_bit_identical() {
+        // Protects: ErosionPassParams::any() -- every pass field can move
+        // without any pass being "on" reaching generation at all.
         let mut p = WorldParams::defaults(24, 18, 4242);
         let base = generate_terrain(&p);
         // Every knob moved, every toggle still off: a knob alone must do
@@ -3098,6 +3122,10 @@ mod tests {
     /// sixteen `cartalith-civ` golden suites), live on the shipped path.
     #[test]
     fn the_erosion_diffusivity_reaches_craters_only_under_the_physical_model() {
+        // Protects: owner ruling 2/3 (2026-09-02) -- crater_degradation_tau
+        // reading passes.diffuse_d only under crater.physical_model, inert
+        // otherwise, with a fixture proven to actually draw craters.
+        //
         // A REGION, deliberately, and an old surface. Under the physical model
         // the crater count is a Poisson draw about an area density, and at the
         // app's own 800 km extent a small test grid resolves nothing below
@@ -3147,6 +3175,9 @@ mod tests {
     /// this is where they are compared.
     #[test]
     fn the_crater_anchor_matches_the_shipped_diffusivity() {
+        // Protects: the cross-crate calibration anchor between
+        // cartalith_terrain::CRATER_DEGRADATION_DIFFUSE_D_REF and this
+        // crate's own ErosionPassParams::off().diffuse_d.
         assert_eq!(
             cartalith_terrain::CRATER_DEGRADATION_DIFFUSE_D_REF,
             ErosionPassParams::off().diffuse_d,
@@ -3170,6 +3201,9 @@ mod tests {
     /// into that path would show up as an empty `flow_discharge`.
     #[test]
     fn precarve_flow_skip_leaves_generation_bit_identical() {
+        // Protects: DECISIONS.md §7f -- skipping the pre-carve compute_flow
+        // call must be a pure performance change, across seeds, world modes
+        // and carve_rivers on/off.
         for &(gw, gh, seed, world, carve) in &[
             (24usize, 18usize, 4242i32, false, true),
             (24, 18, 4242, true, true),
@@ -3208,6 +3242,9 @@ mod tests {
     /// runs a cold world.
     #[test]
     fn each_erosion_pass_changes_the_field_on_its_own() {
+        // Protects: each of the seven erosion passes' wiring from
+        // ErosionPassParams into generate_terrain -- turning one on, alone,
+        // must actually reach its kernel and move the field.
         let base_p = WorldParams::defaults(48, 36, 991);
         let base = generate_terrain(&base_p);
 
@@ -3264,6 +3301,9 @@ mod tests {
     /// still move cells and still pass the table above.
     #[test]
     fn the_tidal_flats_pass_only_raises_submerged_cells_toward_sea_level() {
+        // Protects: the tidal-flats kernel's direction and ceiling -- accretion
+        // only, only on submerged cells, never past sea level -- which a bare
+        // "something moved" check cannot distinguish from a sign or swap error.
         let base_p = WorldParams::defaults(48, 36, 991);
         let base = generate_terrain(&base_p);
         let mut p = base_p.clone();
@@ -3291,8 +3331,15 @@ mod tests {
         assert!(moved > 0, "no mudflat accreted — the tide field never reached the kernel");
     }
 
+    /// `generate_terrain`'s basic contract on a fresh, default-parameter
+    /// world: every returned field present, correctly sized and
+    /// range-bounded, with river topology populated (carve_rivers defaults
+    /// true).
     #[test]
     fn generate_terrain_runs_end_to_end() {
+        // Protects: the basic contract of generate_terrain -- every returned
+        // field is present, correctly sized and range-bounded, and channel
+        // topology is populated when carve_rivers is on (its default).
         let p = WorldParams::defaults(24, 18, 12345);
         let ws = generate_terrain(&p);
         let n = 24 * 18;
@@ -3319,6 +3366,8 @@ mod tests {
     /// rather than trusting the comment.
     #[test]
     fn thread_count_does_not_change_generated_output() {
+        // Protects: the CPU worker-thread lane's hard constraint -- the
+        // Rayon pool's worker count must never move a golden.
         let p = WorldParams::defaults(24, 18, 909);
         // Warm the global pool outside any scoped `install()` first.
         // `ensure_thread_pool` reads `rayon::current_num_threads()`, which
@@ -3345,6 +3394,8 @@ mod tests {
     /// this only makes the assertion trivially still true.
     #[test]
     fn generate_terrain_builds_the_thread_pool() {
+        // Protects: generate_terrain_inner calling ensure_thread_pool before
+        // any other work -- reverting that call leaves ACTIVE_THREADS at 0.
         let p = WorldParams::defaults(8, 8, 1);
         let _ = generate_terrain(&p);
         assert!(thread_pool_active_count() > 0, "the global pool must be built by the time a generation returns");
@@ -3356,6 +3407,8 @@ mod tests {
     /// this binary has done to it.
     #[test]
     fn set_configured_thread_count_clamps_into_the_logical_range() {
+        // Protects: SS2.5's range -- 0 means auto and stays 0, an over-range
+        // request clamps to the logical core count, both read back exactly.
         set_configured_thread_count(0);
         assert_eq!(configured_thread_count(), 0, "0 must read back as 0 (auto), not resolve to a core count");
         let cores = logical_core_count();
@@ -3375,6 +3428,10 @@ mod tests {
     /// still a valid, asserted-on outcome, not a test failure.
     #[test]
     fn generate_terrain_gpu_path_is_deterministic_and_valid() {
+        // Protects: GPU_LAYER_INTEGRATION_SCOPE.md milestone 6 -- the GPU
+        // path is internally deterministic within measured tolerance and
+        // produces statistically sane terrain, on this machine's own GPU
+        // or its CPU fallback.
         let mut p = WorldParams::defaults(24, 18, 777);
         p.use_gpu = true;
         let a = generate_terrain(&p);
@@ -3449,6 +3506,9 @@ mod tests {
     /// for the CPU-path contract).
     #[test]
     fn generate_terrain_world_wrap_reaches_gpu_warp_and_heterogeneity() {
+        // Protects: OUTSTANDING_WORK.md §2.6 -- world=true with use_gpu=true
+        // must actually dispatch warp and heterogeneity on GPU, not silently
+        // fall back to CPU on a world map specifically.
         let mut p = WorldParams::defaults(24, 18, 777);
         p.use_gpu = true;
         p.world = true;
@@ -3479,6 +3539,9 @@ mod tests {
     /// (`compute_warp`'s own `wf`/noise-function branch on `world`).
     #[test]
     fn generate_terrain_world_wrap_gpu_output_differs_from_non_world() {
+        // Protects: world=true under use_gpu=true reaching compute_warp's
+        // own world-wrap noise branch, not silently collapsing to the
+        // world=false result.
         let mut p_world = WorldParams::defaults(24, 18, 777);
         p_world.use_gpu = true;
         p_world.world = true;
@@ -3512,6 +3575,9 @@ mod tests {
     /// double-buffered-vs-in-place JFA gap `cartalith-gpu`'s own tests measure.
     #[test]
     fn generate_terrain_world_wrap_gpu_plates_wrap_like_the_cpu() {
+        // Protects: alignment audit A1 -- with use_gpu on and world=true, GPU
+        // plate assignment must wrap at the x seam the way the CPU's does,
+        // specifically on the cells the wrap decides.
         let (gw, gh) = (128usize, 64usize);
         let mut cpu_p = WorldParams::defaults(gw, gh, 777);
         cpu_p.world = true;
@@ -3563,6 +3629,8 @@ mod tests {
     /// meets the 2-cell floor (1.8 -> 2) and the old one does not (3.5).
     #[test]
     fn plate_base_blur_r_is_v2_57s_on_and_the_references_off() {
+        // Protects: plate_base_blur_r's two constants (PLATE_BASE_BLUR_K,
+        // PLATE_BASE_BLUR_K_V2_10) and the 2-cell floor, pinned as literals.
         let parity = WorldParams::defaults(8, 8, 1).tect;
         assert!(!parity.narrow_plate_base_blur, "the parity baseline must keep the v2.10/v2.11 blur");
         assert_eq!(parity.blur_r, 18.0);
@@ -3583,6 +3651,8 @@ mod tests {
     /// same world either way. Both paths are the CPU one, so this is exact.
     #[test]
     fn narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream() {
+        // Protects: narrow_plate_base_blur reaches the height field, and only
+        // the height field -- plate assignment and boundary stress unmoved.
         let mut old = WorldParams::defaults(96, 72, 2026);
         old.carve_rivers = false;
         let mut new = old.clone();
@@ -3623,6 +3693,9 @@ mod tests {
     #[test]
     #[ignore = "wants an uncontended device; run alone with --ignored --test-threads=1 --nocapture"]
     fn measured_generate_terrain_reuses_the_gpu_device_across_calls() {
+        // Protects: Ruling Y -- init_gpu_device_set's process-wide cache
+        // means only the first use_gpu=true generate_terrain call in the
+        // process pays the adapter/device handshake.
         let mut p = WorldParams::defaults(24, 18, 777);
         p.use_gpu = true;
 
@@ -3658,6 +3731,8 @@ mod tests {
     /// field).
     #[test]
     fn generate_terrain_gpu_and_cpu_paths_share_worldstate_shape() {
+        // Protects: use_gpu true/false must never change which fields exist
+        // or their lengths -- only, per §7c, the substrate values.
         let mut p_gpu = WorldParams::defaults(20, 16, 42);
         p_gpu.use_gpu = true;
         let p_cpu = WorldParams::defaults(20, 16, 42);
@@ -3700,6 +3775,8 @@ mod tests {
     #[test]
     #[ignore]
     fn measured_generate_terrain_gpu_vs_cpu_timing() {
+        // Protects: nothing by assertion -- a timing report, run manually
+        // (see the doc comment above), median of TIMING_ROUNDS with spread.
         /// Odd, so the median is a real sample and not an average of two.
         const TIMING_ROUNDS: usize = 3;
 
@@ -3741,8 +3818,13 @@ mod tests {
         }
     }
 
+    /// `carve_rivers = false`: the river-topology fields must all be absent,
+    /// not empty `Vec`s or zeroed placeholders -- a reader distinguishes "no
+    /// carve happened" from "carve happened and found nothing" by this.
     #[test]
     fn generate_terrain_without_carve_matches_pre_carve_shape() {
+        // Protects: carve_rivers = false leaving channels/stream_order/
+        // river_mask/river_floor as None, never a hollow Some.
         let mut p = WorldParams::defaults(20, 14, 555);
         p.carve_rivers = false;
         let ws = generate_terrain(&p);
@@ -3762,6 +3844,10 @@ mod tests {
     /// (`cartalith-terrain`'s own doc comment: the v1.25 bug it fixed).
     #[test]
     fn generate_terrain_world_structure_shapes_land_fraction() {
+        // Protects: World Structure's wiring into generate_terrain -- an
+        // enabled archetype reaches a valid WorldState, and continentality
+        // orders land fraction (low continentality -> less land) the way
+        // apply_world_structure_sea_level's own v1.25 fix requires.
         let land_fraction = |p: &WorldParams| {
             let ws = generate_terrain(p);
             let land = ws.field.iter().filter(|&&h| (h as f64) >= ws.sea_level).count();
@@ -3827,6 +3913,8 @@ mod tests {
         (ws.plate_id.clone(), plates)
     }
 
+    /// Worst per-element absolute deviation between two same-length fields --
+    /// the shared measure `STRESS_GPU_TOL` and its callers compare against.
     fn worst_abs(a: &[f32], b: &[f32]) -> f32 {
         assert_eq!(a.len(), b.len());
         a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0f32, f32::max)
@@ -3870,6 +3958,9 @@ mod tests {
     /// Environment-tolerant: no device is a skip.
     #[test]
     fn gpu_stress_matches_cpu_stress_within_measured_tolerance() {
+        // Protects: compute_stress_gpu against compute_stress within
+        // STRESS_GPU_TOL, on real generated plate maps and on hand-built
+        // exact/near-tie fixtures the generated ones rarely reach.
         let Some(set) = cartalith_gpu::init_gpu_device_set().ok() else {
             eprintln!("no GPU device -- CPU-only machine, nothing to compare");
             return;
@@ -3938,6 +4029,10 @@ mod tests {
     /// CPU's on the same plate map.
     #[test]
     fn generate_terrain_use_gpu_moves_stress_to_the_gpu_and_only_when_asked() {
+        // Protects: use_gpu's effect on generate_terrain's own stress stage
+        // specifically -- off never reports "stress", on reports it exactly
+        // when a device takes the grid, and the reported field is really the
+        // GPU's own output, not the CPU result relabelled.
         let (gw, gh) = (72usize, 48usize);
         let p = WorldParams::defaults(gw, gh, 4242);
         assert!(!p.use_gpu, "engine default must stay CPU");
@@ -3975,7 +4070,17 @@ mod tests {
     #[test]
     #[ignore]
     fn measured_stress_gpu_vs_cpu() {
+        // Protects: nothing by assertion -- a measurement harness (run
+        // manually, see the doc comment above) for compute_stress_gpu vs
+        // compute_stress deviation and timing across sizes and world modes.
+        // Sample count for the median timing this harness reports (MISTAKES.md
+        // "quote a timing" rule: median with min..max, never a point estimate).
         const ROUNDS: usize = 5;
+        /// Median, min and max elapsed time over [`ROUNDS`] calls to `f`,
+        /// plus its last return value -- this function's own local twin of
+        /// `measured_generate_terrain_gpu_vs_cpu_timing`'s `timed`, kept
+        /// separate because the two live in different test fns and neither
+        /// can see the other's local `const`.
         fn timed<T>(mut f: impl FnMut() -> T) -> (std::time::Duration, std::time::Duration, std::time::Duration, T) {
             let mut times = Vec::new();
             let mut last = None;

@@ -11,6 +11,8 @@
 
 use cartalith_engine::{generate_terrain, world_structure_orogeny_ks, WorldParams, WorldStructureParams};
 
+/// A World Structure fixture at a fixed continentality/fragmentation/hotspot
+/// density, varying only the two inputs `world_structure_orogeny_ks` reads.
 fn ws(tectonic_energy: f64, ocean_depth: f64) -> WorldStructureParams {
     WorldStructureParams {
         enabled: true,
@@ -22,8 +24,13 @@ fn ws(tectonic_energy: f64, ocean_depth: f64) -> WorldStructureParams {
     }
 }
 
+/// `world_structure_orogeny_ks` against the reference's own archetype rows
+/// and a case where `toFixed(3)` rounding is load-bearing.
 #[test]
 fn the_archetype_derivation_is_the_references() {
+    // Protects: world_structure_orogeny_ks's derivation against literals
+    // computed outside this build (the reference's own IEEE-754 arithmetic),
+    // including the toFixed(3) rounding cases.
     // (tectonicEnergy, oceanDepth) -> (foldK, trenchK, faultBlockK).
     // earth (0.6/0.6), volcanic (0.9/0.8) and rift (0.75/0.55) are the
     // reference's own `ARCHETYPES` rows; (0.5, 0.7) is a case where
@@ -45,12 +52,16 @@ fn the_archetype_derivation_is_the_references() {
 /// reaches with World Structure on — so none of them may come back.
 #[test]
 fn the_old_hardcoded_knobs_are_gone() {
+    // Protects: none of the pre-Ruling-AS hardcoded values (0.16/1.0/0) may
+    // reappear from the derivation.
     let (fold_k, trench_k, fault_block_k) = world_structure_orogeny_ks(&ws(0.6, 0.6));
     assert_ne!(fold_k, 0.16);
     assert_ne!(trench_k, 1.0);
     assert!(fault_block_k > 0.0, "the horst-and-graben branch must be able to run");
 }
 
+/// FNV-1a over a field's raw f32 bits -- a compact fingerprint for the
+/// re-baseline hashes this file pins.
 fn fnv1a_field(field: &[f32]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in field {
@@ -62,6 +73,7 @@ fn fnv1a_field(field: &[f32]) -> u64 {
     h
 }
 
+/// A rift-archetype World Structure world, CPU-only for a stable hash.
 fn ws_world() -> WorldParams {
     let mut p = WorldParams::defaults(128, 64, 4242);
     p.use_gpu = false;
@@ -83,6 +95,9 @@ fn ws_world() -> WorldParams {
 /// `0x916a_1193_0abe_f69e` -> the literal below. The orogeny knobs are unchanged.
 #[test]
 fn a_world_structure_world_uses_the_derived_knobs() {
+    // Protects: generate_terrain actually feeds world_structure_orogeny_ks's
+    // output to build_orogeny_field on a World-Structure world -- re-baselined
+    // by Ruling AS then RV-1, see the doc comment above for both hashes.
     let got = fnv1a_field(&generate_terrain(&ws_world()).field);
     println!("ws world hash {got:#018x}");
     assert_eq!(got, 0x82a3_70d5_1c2c_b23a);
@@ -94,6 +109,8 @@ fn a_world_structure_world_uses_the_derived_knobs() {
 /// 2026-09-29) moved it to the literal below, through the river carve alone.
 #[test]
 fn a_world_without_world_structure_is_untouched() {
+    // Protects: Ruling AS cannot have moved a non-World-Structure world,
+    // since it takes no orogeny-derivation path at all.
     let mut p = ws_world();
     p.world_structure.enabled = false;
     let got = fnv1a_field(&generate_terrain(&p).field);

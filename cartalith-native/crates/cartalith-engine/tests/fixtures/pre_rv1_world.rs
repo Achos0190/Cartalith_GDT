@@ -54,6 +54,7 @@ pub const CONFIGS: [(usize, usize, i32, bool, u64); 7] = [
     (64, 48, 24601, false, 0x30105d96ffa1a45d),
 ];
 
+/// FNV-1a over a signed-16-bit slice's raw bytes.
 fn fnv_i16(v: &[i16]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for x in v {

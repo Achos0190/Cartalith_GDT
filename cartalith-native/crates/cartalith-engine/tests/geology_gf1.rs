@@ -14,9 +14,15 @@
 use cartalith_engine::{generate_terrain, Geology, GeologyAbsent, WorldParams, WorldState};
 use cartalith_terrain::geology::{Formation, GeologyColumn, Rock, NO_LAYER};
 
+/// This suite's fixed grid width -- large enough for B10's "alive and
+/// consistent" checks to have real land to judge.
 const GW: usize = 256;
+/// This suite's fixed grid height, paired with [`GW`].
 const GH: usize = 164;
 
+/// A `WorldParams` fixture at a fixed grid, optionally with the shipped
+/// shell's own divergences from this crate's own defaults (`app_like`),
+/// which this crate cannot import directly from `cartalith-godot`.
 fn params(seed: i32, app_like: bool) -> WorldParams {
     let mut p = WorldParams::defaults(GW, GH, seed);
     if app_like {
@@ -32,6 +38,8 @@ fn params(seed: i32, app_like: bool) -> WorldParams {
     p
 }
 
+/// Raw bits of a float slice, for comparisons that must not launder NaN or
+/// signed-zero through `==`.
 fn bits(v: &[f32]) -> Vec<u32> {
     v.iter().map(|x| x.to_bits()).collect()
 }
@@ -66,10 +74,14 @@ fn assert_same_world(a: &WorldState, b: &WorldState, label: &str) {
     assert_eq!(a.gpu_stages_used, b.gpu_stages_used, "{label}: gpu_stages_used");
 }
 
+/// The world's geology column, or a panic -- every caller in this file
+/// already knows `geology_model` is on.
 fn column(ws: &WorldState) -> &GeologyColumn {
     ws.geology.column().expect("geology_model on must store a column")
 }
 
+/// Every field of a [`GeologyColumn`], compared bit for bit (or exactly,
+/// for the integer arrays).
 fn assert_same_column(a: &GeologyColumn, b: &GeologyColumn, label: &str) {
     assert_eq!(a.rock_top, b.rock_top, "{label}: rock_top");
     assert_eq!(a.rock_sub, b.rock_sub, "{label}: rock_sub");
@@ -78,8 +90,13 @@ fn assert_same_column(a: &GeologyColumn, b: &GeologyColumn, label: &str) {
     assert_eq!(a.volcanic_setting, b.volcanic_setting, "{label}: volcanic_setting");
 }
 
+/// GF-1's "identity by control flow" contract: with `geology_model` on,
+/// every pre-GF-1 array is bit-identical to it being off.
 #[test]
 fn geology_stage_leaves_every_other_array_bit_identical() {
+    // Protects: GF-1's done-means (`GEOLOGY_FIRST_SCOPE.md` §7): the column
+    // is derived, never fed back into generation, across both the app-like
+    // and parity-baseline param sets and several seeds.
     for &(seed, app) in &[(12345, false), (12345, true), (314159, true), (24601, true)] {
         let off = params(seed, app);
         let mut on = off.clone();
@@ -96,6 +113,10 @@ fn geology_stage_leaves_every_other_array_bit_identical() {
 /// stamper too, and that path is still identity.
 #[test]
 fn simple_volcanism_path_is_identity_and_marks_unclassified() {
+    // Protects: the identity contract also holds on the simple
+    // (unprovinced) volcanism stamper, and its placements are marked
+    // unclassified (code 4) rather than assigned a real setting they were
+    // never derived for.
     let mut off = params(2026, true);
     off.volc.provinces = false;
     let mut on = off.clone();
@@ -120,6 +141,10 @@ fn simple_volcanism_path_is_identity_and_marks_unclassified() {
 /// move.
 #[test]
 fn the_column_does_not_depend_on_erosion_or_climate() {
+    // Protects: the fix for build_lithology's circularity -- the column's
+    // derivation (rock_top/rock_sub/volcanic_setting) is a function of
+    // pre-erosion causes only, whether or not the variant actually changed
+    // the finished terrain or climate (checked directly, not assumed).
     let mut base = params(483920, true);
     base.geology_model = true;
     let ref_ws = generate_terrain(&base);
@@ -156,8 +181,11 @@ fn the_column_does_not_depend_on_erosion_or_climate() {
     }
 }
 
+/// The same seed and params produce the same column, twice.
 #[test]
 fn the_column_is_deterministic() {
+    // Protects: determinism of the whole GF-1 derivation, not just of
+    // generate_terrain's other fields.
     let mut p = params(71077345, true);
     p.geology_model = true;
     let a = generate_terrain(&p);
@@ -169,6 +197,10 @@ fn the_column_is_deterministic() {
 /// worlds.
 #[test]
 fn real_worlds_have_a_live_consistent_column() {
+    // Protects: B10's shape and the column's own invariants (formation
+    // order, oceanic crust topped by oceanic rock, a volcanic setting only
+    // where volcanism actually reached the cell, GF-1 writes no regolith)
+    // over several real, generated worlds at test size.
     for seed in [483920, 24601, 71077345, 12345, 314159] {
         let mut p = params(seed, true);
         p.geology_model = true;

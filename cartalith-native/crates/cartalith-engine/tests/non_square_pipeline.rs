@@ -21,6 +21,9 @@
 
 use cartalith_engine::{WorldParams, generate_terrain};
 
+/// The shared shape assertion every case in this file runs: full-length,
+/// finite, [0,1]-bounded fields and a non-degenerate land fraction, at the
+/// given grid shape and wrap mode.
 fn check(gw: usize, gh: usize, seed: i32, world: bool) {
     let mut p = WorldParams::defaults(gw, gh, seed);
     p.use_gpu = false;
@@ -52,19 +55,27 @@ fn check(gw: usize, gh: usize, seed: i32, world: bool) {
     assert!(land > n / 100 && land < n * 99 / 100, "{gw}x{gh}: degenerate land fraction {land}/{n}");
 }
 
+/// A wide 2:1 non-square grid.
 #[test]
 fn two_to_one_wide() {
+    // Protects: the pipeline at a strongly asymmetric wide shape, where a
+    // square-assuming resolution-derived radius would go out of range.
     check(256, 128, 12345, false);
 }
 
+/// A tall 1:2 non-square grid -- the transpose of the case above.
 #[test]
 fn one_to_two_tall() {
+    // Protects: the same shape, transposed -- a bound derived from the
+    // wrong axis would only show up in one orientation.
     check(128, 256, 12345, false);
 }
 
 /// Neither dimension a power of two, and neither a multiple of the other.
 #[test]
 fn non_power_of_two_five_to_three() {
+    // Protects: the pipeline against any implicit power-of-two or
+    // common-divisor assumption in a resolution-derived radius.
     check(250, 150, 4242, false);
 }
 
@@ -72,6 +83,8 @@ fn non_power_of_two_five_to_three() {
 /// reference HTML line 5049) at a real working resolution.
 #[test]
 fn the_reference_apps_own_region_aspect() {
+    // Protects: the exact aspect ratio the shipped shell actually uses at a
+    // real working resolution, not just an arbitrary asymmetric shape.
     check(256, 164, 24601, false);
 }
 
@@ -79,6 +92,8 @@ fn the_reference_apps_own_region_aspect() {
 /// toroidal X wrap active.
 #[test]
 fn the_reference_apps_own_world_aspect() {
+    // Protects: the shipped world aspect with X-wrap active, where the
+    // wrap's own neighbour lookups take a different code path.
     check(256, 128, 987654, true);
 }
 
@@ -86,6 +101,8 @@ fn the_reference_apps_own_world_aspect() {
 /// windows, `min(gw,240)` weather grid) exceed the shorter axis outright.
 #[test]
 fn extremely_wide_shorter_than_its_own_blur_radii() {
+    // Protects: the exact failure mode this file exists for -- a
+    // resolution-derived radius exceeding the shorter axis outright.
     check(512, 32, 7, false);
 }
 
@@ -94,6 +111,9 @@ fn extremely_wide_shorter_than_its_own_blur_radii() {
 /// over the same grid.
 #[test]
 fn world_structure_archipelago_two_to_one() {
+    // Protects: World Structure's continentality field and sea-level
+    // re-anchor holding up at a non-square grid, not just the square
+    // fixtures World Structure's own golden tests use.
     let (gw, gh) = (192usize, 96usize);
     let mut p = WorldParams::defaults(gw, gh, 12345);
     p.use_gpu = false;

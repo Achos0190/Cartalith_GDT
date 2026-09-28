@@ -267,6 +267,8 @@ pub fn recompute_stale(g: &mut StageGraph, p: &WorldParams, ws: &mut WorldState)
 mod tests {
     use super::*;
 
+    /// `PipelineStage::id`/`name` against `pipeline_stage_graph`'s own
+    /// registration order.
     #[test]
     fn stage_ids_match_the_graph_the_builder_produces() {
         // Protects: PipelineStage::id/name against pipeline_stage_graph's
@@ -279,6 +281,7 @@ mod tests {
         }
     }
 
+    /// Civ's direct dependency on height and hydrology, not only on climate.
     #[test]
     fn the_real_edges_are_wired_including_the_direct_ones() {
         // Protects: the module doc's claim that civ depends on height and
@@ -293,6 +296,8 @@ mod tests {
         assert_eq!(g.upstream(PipelineStage::Civ.id()), &[0, 1, 2]);
     }
 
+    /// `mark_changed_tiles` on Height propagating transitively downstream
+    /// with the right origin/reason, and Height never staling itself.
     #[test]
     fn a_committed_terrain_edit_makes_the_whole_downstream_chain_stale() {
         // Protects: mark_changed_tiles on Height propagating transitively to
@@ -316,6 +321,7 @@ mod tests {
         assert!(!g.any_stale(PipelineStage::Height.id()));
     }
 
+    /// Marking a stage changed does not itself recompute anything.
     #[test]
     fn a_terrain_edit_recomputes_nothing_until_asked() {
         // Protects: staleness is lazy -- the mockup's "downstream update:
@@ -329,6 +335,8 @@ mod tests {
         assert_eq!(g.version(PipelineStage::Civ.id(), 0), 0);
     }
 
+    /// `sculptCommit`'s own shape: hydrology/climate recompute per commit,
+    /// civ stays deferred rather than cascading.
     #[test]
     fn running_hydrology_alone_leaves_climate_and_civ_deferred() {
         // Protects: exactly sculptCommit's own shape: one flow/climate pass
@@ -346,6 +354,8 @@ mod tests {
         );
     }
 
+    /// The owner's 2026-08-24 ruling: erosion is inside the height stage,
+    /// not its own graph node -- pinned so a later change has to argue it.
     #[test]
     fn the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages() {
         // Protects: the owner's 2026-08-24 answer to
@@ -384,6 +394,7 @@ mod tests {
         (p, ws, touched)
     }
 
+    /// `recompute_stale`'s minimal-set contract on a real generated world.
     #[test]
     fn a_height_edit_recomputes_hydrology_and_climate_and_leaves_civ_stale() {
         // Protects: recompute_stale's minimal-set contract on a real
@@ -404,6 +415,8 @@ mod tests {
         assert!(!g.any_stale(PipelineStage::Climate.id()));
     }
 
+    /// The recompute is physically right, not merely different, and never
+    /// writes back into height.
     #[test]
     fn the_recomputed_values_are_right_not_merely_different() {
         // Protects: against a recompute that merely perturbs values without
@@ -441,6 +454,8 @@ mod tests {
         assert_eq!(ws.field, after_edit.field, "recompute must not touch the height field");
     }
 
+    /// The carve-time river network is documented as not re-derived, so it
+    /// must survive a recompute bit-identical.
     #[test]
     fn it_recomputes_only_what_it_claims_and_leaves_the_rest_bit_identical() {
         // Protects: the other half of "not everything": the carve-time
@@ -459,6 +474,8 @@ mod tests {
         assert_eq!(ws.river_mask, mask);
     }
 
+    /// Idempotence: a re-check after an already-satisfied recompute must
+    /// run nothing and perturb nothing.
     #[test]
     fn a_second_call_with_no_intervening_edit_runs_nothing() {
         // Protects: idempotence -- a caller that re-checks staleness after
@@ -476,6 +493,8 @@ mod tests {
         assert_eq!((ws.temperature.as_ref(), ws.rainfall.as_ref(), ws.flow_discharge.as_ref()), (&t, &r, &q));
     }
 
+    /// `paint_commit`'s shape: a Civ-only edit runs neither hydrology nor
+    /// climate -- decided by the graph, not a special case.
     #[test]
     fn a_downstream_only_edit_recomputes_nothing_upstream_of_it() {
         // Protects: `paint_commit`'s shape: painting biome marks `Civ`,
@@ -671,6 +690,8 @@ mod tests {
     // drives `run_erode_with_recompute` directly and asserts the identical
     // elevation/drainage/rainfall/temperature invariant this test did.
 
+    /// `recompute_stale` must degrade to an empty report on a dimension
+    /// mismatch, never panic across the gdext boundary.
     #[test]
     fn a_dimension_mismatch_returns_an_empty_report_rather_than_panicking() {
         // Protects: this call can sit under a `#[func]`, and a panic

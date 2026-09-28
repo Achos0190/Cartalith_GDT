@@ -38,7 +38,9 @@ fn inert(p: &WorldParams) -> cartalith_engine::WorldState {
 }
 use cartalith_terrain::geology::NO_LAYER;
 
+/// This suite's fixed grid width -- the same size `geology_gf1.rs` uses.
 const GW: usize = 256;
+/// This suite's fixed grid height, paired with [`GW`].
 const GH: usize = 164;
 
 /// The app boundary's divergences (`cartalith-godot`'s `params::defaults`),
@@ -57,6 +59,8 @@ fn app_params(seed: i32) -> WorldParams {
     p
 }
 
+/// Raw bits of a float slice, for comparisons that must not launder NaN or
+/// signed-zero through `==`.
 fn bits(v: &[f32]) -> Vec<u32> {
     v.iter().map(|x| x.to_bits()).collect()
 }
@@ -66,6 +70,9 @@ fn bits(v: &[f32]) -> Vec<u32> {
 /// world with the model off.
 #[test]
 fn with_the_switch_off_rock_reads_change_nothing() {
+    // Protects: with geology_model off there is no column to read, so
+    // turning geology_processes on changes nothing bit for bit -- both on
+    // the parity baseline and an app-like world.
     for p in [WorldParams::defaults(GW, GH, 12345), app_params(314159)] {
         assert!(!p.geology_model);
         let a = treated(&p);
@@ -85,6 +92,9 @@ fn with_the_switch_off_rock_reads_change_nothing() {
 /// field except through κ.
 #[test]
 fn at_contrast_zero_the_treatment_terrain_is_the_controls() {
+    // Protects: the whole GF-2 wiring (kernel swap at every call site,
+    // rebound's column lift, regolith bookkeeping) writes nothing to the
+    // field except through kappa -- proven by forcing kappa^c to exactly 1.
     let mut p = app_params(24601);
     p.geology_model = true;
     p.tect.resist = 0.0;
@@ -103,6 +113,9 @@ fn at_contrast_zero_the_treatment_terrain_is_the_controls() {
 /// cycles and sediment fill take the same rock path).
 #[test]
 fn with_the_switch_on_the_world_changes() {
+    // Protects: GF-2 actually moves the terrain (a no-op GF-2 would pass
+    // every identity test above and be inert), on both the light pass and a
+    // later pass (evolve cycles + sediment fill).
     let mut p = app_params(483920);
     p.geology_model = true;
     let treated = generate_terrain(&p);
@@ -130,6 +143,9 @@ fn with_the_switch_on_the_world_changes() {
 /// this is not the pass the world ran.
 #[test]
 fn glacial_lowering_strips_regolith_first_exactly() {
+    // Protects: §4.9's regolith-first stripping at the glacial call site
+    // specifically, by exact replay of glacial_kernel + rebound + clamp
+    // against the world the pass actually ran on.
     let mut p = app_params(24601);
     p.geology_model = true;
     let mut off = p.clone();
@@ -184,10 +200,19 @@ fn glacial_lowering_strips_regolith_first_exactly() {
 /// cells) it must move cells, or its call site is not what is being replayed.
 #[test]
 fn the_light_pass_and_the_carve_replay_exactly() {
+    // Protects: the light pass end to end and RV-1 carve's regolith-first
+    // stripping, at both a scale where the GF-3 threshold stage has nothing
+    // to move (800 km) and one where it must move cells (20 km) -- see
+    // light_pass_and_carve_replay's own doc for the full replay chain.
     light_pass_and_carve_replay(800.0, false);
     light_pass_and_carve_replay(20.0, true);
 }
 
+/// The shared body [`the_light_pass_and_the_carve_replay_exactly`] runs
+/// twice: replays the rock kernel, §4.9's net-change accounting, rebound
+/// with the lifted column, and the GF-3 threshold hillslope stage, then
+/// checks the carve's own lowering stripped regolith exactly as
+/// `account_regolith` would.
 fn light_pass_and_carve_replay(km: f64, threshold_must_move: bool) {
     let mut p = app_params(483920);
     p.geology_model = true;
@@ -261,6 +286,9 @@ fn light_pass_and_carve_replay(km: f64, threshold_must_move: bool) {
 /// received -- the same world with that pass off.
 #[test]
 fn routed_sediment_becomes_regolith_exactly() {
+    // Protects: §4.9's sediment-routing call site -- routed deposits become
+    // regolith, by exact replay of the sediment_fill pass against the same
+    // world with that pass off.
     let mut p = app_params(314159);
     p.geology_model = true;
     p.passes.glacial = false;
@@ -311,6 +339,10 @@ fn routed_sediment_becomes_regolith_exactly() {
 /// The evolved column is well formed on five worlds.
 #[test]
 fn the_evolved_column_stays_well_formed() {
+    // Protects: the evolved column's own invariants -- regolith finite and
+    // never negative, contacts only where there is a second layer and only
+    // ever raised (nothing in GF-2 lowers one), and the derivation itself
+    // untouched -- over several real, generated worlds.
     for seed in [483920, 24601, 71077345, 12345, 314159] {
         let mut p = app_params(seed);
         p.geology_model = true;

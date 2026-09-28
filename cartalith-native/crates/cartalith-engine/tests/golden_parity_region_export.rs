@@ -120,6 +120,8 @@ fn run(gzip: bool, version: &str) -> cartalith_engine::region_export::RegionExpo
     )
 }
 
+/// `export_region_tiles`'s plain (no gzip) path against the reference,
+/// tile dimensions and per-entry name/hash/length.
 #[test]
 fn a_two_by_two_refine_matches_the_reference_entry_for_entry() {
     // Protects: export_region_tiles's plain (no gzip) path against the
@@ -147,6 +149,9 @@ fn a_two_by_two_refine_matches_the_reference_entry_for_entry() {
     assert_eq!(e.entries[4].data.len(), 1024);
 }
 
+/// The gzip path's names and manifest compression field against the
+/// reference; the gunzipped payload cross-checks the plain path's hashes,
+/// not the raw deflate bytes (two conforming encoders need not agree).
 #[test]
 fn the_gzip_path_matches_the_reference_name_for_name() {
     // Protects: the gzip path's names, the manifest's compression field,
@@ -201,6 +206,8 @@ fn the_gzip_path_matches_the_reference_name_for_name() {
     assert!(json.contains("\"file\": \"tiles/refined_1_1.png\""));
 }
 
+/// `regionNewWorldBtn`'s two arithmetic lines against the reference's own
+/// `tileDims` and its `max(1, ...)` km floor, across five worlds.
 #[test]
 fn extract_region_as_world_matches_the_reference_plan() {
     // Protects: `regionNewWorldBtn`'s two arithmetic lines against the

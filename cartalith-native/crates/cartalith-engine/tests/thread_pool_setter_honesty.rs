@@ -17,8 +17,13 @@
 
 use rayon::prelude::*;
 
+/// A pool built implicitly (not through `ensure_thread_pool`) must make
+/// `set_configured_thread_count` report `false`, never claim it applied.
 #[test]
 fn set_configured_thread_count_does_not_claim_a_pool_it_did_not_build() {
+    // Protects: the honesty bug measured 2026-09-03 -- the old return value
+    // inferred "still unbuilt" from ACTIVE_THREADS == 0, which an implicit
+    // par_iter() build never sets.
     // Build the global pool the way the shell really does: implicitly,
     // through a `par_iter()` that never passes through `ensure_thread_pool`.
     let sum: u64 = (0u64..64).into_par_iter().sum();

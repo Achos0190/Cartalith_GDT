@@ -363,6 +363,8 @@ mod tests {
 
     // -- the wrapper adds nothing -------------------------------------------
 
+    /// `world_elevation_tile` adds no numeric drift over calling
+    /// `pyramid_tile` directly with `world_amplify_opts`'s own output.
     #[test]
     fn the_world_query_is_the_bake_composition_with_the_worlds_own_numbers() {
         // Protects: world_elevation_tile against calling pyramid_tile
@@ -382,6 +384,8 @@ mod tests {
         );
     }
 
+    /// `world_amplify_opts` reads `state.sea_level`/`p.tect.seed`, never
+    /// `p.sea_level` or `AmplifyOpts`'s own default seed.
     #[test]
     fn the_options_come_from_the_world_state_not_the_parameters() {
         // Protects: `world_amplify_opts` reading `state.sea_level` and
@@ -478,6 +482,8 @@ mod tests {
 
     // -- determinism --------------------------------------------------------
 
+    /// Determinism: same world and chunk id give the same bytes across a
+    /// fresh equal world, and a different world moves them.
     #[test]
     fn the_same_chunk_id_always_produces_the_same_bytes() {
         // Protects: determinism -- the same world and chunk id always
@@ -508,6 +514,9 @@ mod tests {
         assert_ne!(a.data, d.data);
     }
 
+    /// `world_sample_elevation` and `world_elevation_tile` agree texel for
+    /// texel -- a tile is one way of evaluating the field, not a second
+    /// implementation.
     #[test]
     fn the_point_query_and_the_tile_query_are_the_same_field() {
         // Protects: world_sample_elevation and world_elevation_tile agreeing
@@ -761,6 +770,8 @@ mod tests {
 
     // -- refusals -----------------------------------------------------------
 
+    /// Every named refusal in `world_coarse`/`world_elevation_tile` degrades
+    /// to `None`, never a panic crossing the gdext boundary.
     #[test]
     fn every_reachable_caller_error_is_a_none_rather_than_a_panic() {
         // Protects: every refusal in world_coarse/world_elevation_tile's own

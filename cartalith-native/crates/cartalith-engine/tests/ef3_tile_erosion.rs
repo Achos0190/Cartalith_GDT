@@ -60,8 +60,12 @@ use cartalith_hydrology::tile::TilePlacement;
 use cartalith_spatial::FloatRegion;
 use cartalith_terrain::amplify::amplify_region;
 
+/// This suite's fixed coarse grid width.
 const GW: usize = 256;
+/// This suite's fixed coarse grid height, paired with [`GW`].
 const GH: usize = 192;
+/// An arbitrary fixed seed -- this suite's tests are property/oracle checks,
+/// not golden captures, so the seed only needs to produce real relief.
 const SEED: i32 = 20260920;
 
 /// Three all-land, high-relief rectangles of the fixture world, found by
@@ -69,14 +73,18 @@ const SEED: i32 = 20260920;
 /// the sweep's own answer for the single best 24x24 was `(48, 120)`, relief
 /// `0.5594` against a sea level of `0.4200`.
 const TILES: [(usize, usize); 3] = [(48, 120), (40, 40), (180, 120)];
+/// The tile side length (coarse cells) [`TILES`]' rectangles were swept at.
 const COLS: usize = 24;
 
+/// The one fixture world every test in this file tiles-erodes over.
 fn world() -> (WorldState, WorldParams) {
     let mut p = WorldParams::defaults(GW, GH, SEED);
     p.map_width_km = 800.0;
     (generate_terrain(&p), p)
 }
 
+/// A non-world tile placement at the given coarse origin, size and
+/// refinement factor.
 fn place_at(x0: usize, y0: usize, cols: usize, rows: usize, refine: usize) -> TilePlacement {
     TilePlacement { coarse_w: GW, coarse_h: GH, x0, y0, cols, rows, refine, world: false }
 }
@@ -143,6 +151,7 @@ struct TileIn {
     seed: Vec<f32>,
 }
 
+/// Assembles a [`TileIn`] for `place` by upsampling the world's own fields.
 fn tile_in(ws: &WorldState, place: &TilePlacement) -> TileIn {
     let (fw, fh) = (place.fine_w(), place.fine_h());
     TileIn {
@@ -153,6 +162,7 @@ fn tile_in(ws: &WorldState, place: &TilePlacement) -> TileIn {
     }
 }
 
+/// Runs `tile_erode` on a cloned `base`, returning the eroded field.
 fn erode(base: &[f32], place: &TilePlacement, t: &TileIn, p: &StreamPowerParams) -> Vec<f32> {
     let (fw, fh) = (place.fine_w(), place.fine_h());
     let mut out = base.to_vec();
@@ -164,6 +174,8 @@ fn erode(base: &[f32], place: &TilePlacement, t: &TileIn, p: &StreamPowerParams)
 //    test: an oracle built from the same function it is checking cannot catch
 //    that function being wrong (EF-1's tests make the same choice).
 
+/// True for a cell on the outer ring of a `w`x`h` grid -- this file's own
+/// open-boundary convention for [`accum`], matching `tile_flow`'s rule.
 fn on_ring(i: usize, w: usize, h: usize) -> bool {
     let (x, y) = (i % w, i / w);
     x == 0 || y == 0 || x + 1 == w || y + 1 == h
@@ -437,11 +449,13 @@ fn curvature(v: &[f32], w: usize, h: usize) -> f64 {
     e
 }
 
+/// Peak-to-trough elevation range of a field, in the field's own units.
 fn relief(v: &[f32]) -> f64 {
     let (lo, hi) = v.iter().fold((f32::MAX, f32::MIN), |(a, b), x| (a.min(*x), b.max(*x)));
     (hi - lo) as f64
 }
 
+/// Root-mean-square difference between two same-length fields.
 fn rms(a: &[f32], b: &[f32]) -> f64 {
     (a.iter().zip(b).map(|(x, y)| (*x as f64 - *y as f64).powi(2)).sum::<f64>() / a.len() as f64).sqrt()
 }
@@ -537,6 +551,10 @@ fn rms(a: &[f32], b: &[f32]) -> f64 {
 /// curvature-per-texel and asserts only the ratio, for the same reason.)
 #[test]
 fn tile_erosion_incises_along_a_fixed_drainage_network_only_with_deposition_off() {
+    // Protects: both outcomes stated in the doc comment above -- deposit:0.0
+    // raises the fixed-network correlation and the world's own deposit:0.3
+    // lowers it -- so neither the sign flip nor its cause (deposition's
+    // uplift-ceiling refill) can change unnoticed.
     let (ws, p) = world();
     let sp = light_params(&ws, &p);
     // The fixture must be the world's own pass, or this measures a parameter
@@ -681,6 +699,10 @@ fn tile_erosion_incises_along_a_fixed_drainage_network_only_with_deposition_off(
 /// the numbers above are erosion's doing and not the EF-0 region arithmetic's.
 #[test]
 fn two_tiles_agree_with_the_one_tile_that_covers_them() {
+    // Protects: the seam contract stated in the doc comment above -- the
+    // shared ring is bit-identical, the interior disagreement stays under
+    // its measured bars, and an un-eroded control proves the disagreement
+    // is erosion's doing, not the EF-0 region arithmetic's.
     let (ws, p) = world();
     let sp = light_params(&ws, &p);
     let refine = 8usize;
@@ -770,6 +792,9 @@ fn two_tiles_agree_with_the_one_tile_that_covers_them() {
 ///   constant rather than as a boundary condition.
 #[test]
 fn the_coarse_inflow_boundary_condition_deepens_the_trunk() {
+    // Protects: the coarse inflow boundary condition is wired at all, and
+    // its effect concentrates at high drainage area rather than reaching
+    // the kernel as a flat constant.
     let (ws, p) = world();
     let sp = light_params(&ws, &p);
     // Self-consistent with `ws.field` -- see the header on why this is not
@@ -846,6 +871,9 @@ fn the_coarse_inflow_boundary_condition_deepens_the_trunk() {
 /// `tile.rs`'s own determinism test cannot reach because it has no world.
 #[test]
 fn the_whole_composition_is_deterministic() {
+    // Protects: the whole EF-0 -> EF-3 composition is bit-identical across a
+    // regenerated world, not just across two calls over one cached Vec --
+    // the property that makes a cached tile safe to drop and re-derive.
     let refine = 8usize;
     let place = place_at(TILES[0].0, TILES[0].1, 16, 16, refine);
     let mut runs = Vec::new();
@@ -876,6 +904,9 @@ fn the_whole_composition_is_deterministic() {
 /// `TilePlacement::fine_to_coarse` rather than against [`ef0`]'s own comment.
 #[test]
 fn the_ef0_region_lands_on_the_placements_own_fine_cells() {
+    // Protects: ef0's region against TilePlacement::fine_to_coarse directly,
+    // not against ef0's own comment -- a wrong coordinate convention shifts
+    // every tile by a fraction of a coarse cell silently.
     for refine in [1usize, 2, 4, 8] {
         let place = place_at(TILES[0].0, TILES[0].1, COLS, COLS, refine);
         let (fw, _) = (place.fine_w(), place.fine_h());
@@ -913,6 +944,8 @@ fn the_ef0_region_lands_on_the_placements_own_fine_cells() {
 #[test]
 #[ignore = "timing harness -- run alone, see the doc comment"]
 fn measure_tile_erosion_cost() {
+    // Protects: nothing by assertion -- a timing harness (run manually per
+    // the doc comment above), median of nine per size with min..max.
     let (ws, p) = world();
     let sp = light_params(&ws, &p);
     println!("{} logical cores; world light pass iters {}", std::thread::available_parallelism().map(|v| v.get()).unwrap_or(0), sp.iters);

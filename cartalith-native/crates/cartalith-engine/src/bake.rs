@@ -583,6 +583,8 @@ mod tests {
         BakeOpts { world_key: "testworld", tile_size: 32, amplify: a, visual, version: "TESTVER" }
     }
 
+    /// A depth-2 bake writes the reference's own tile count, with a
+    /// well-formed progress callback.
     #[test]
     fn a_depth_two_bake_writes_exactly_twenty_one_chunks() {
         // Protects: the reference's own tile-count arithmetic
@@ -606,6 +608,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A second bake at a deeper `max_z` skips already-baked chunks and
+    /// only writes the new level.
     #[test]
     fn re_running_a_bake_only_fills_the_gaps() {
         // Protects: the reference's "re-running after a partial bake only
@@ -623,6 +627,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// A stored chunk decodes back to what synthesis produced, within
+    /// height16 quantisation, and is not a degenerate flat tile.
     #[test]
     fn a_stored_chunk_decodes_back_to_the_tile_that_was_baked() {
         // Protects: the property the whole cache rests on -- what deep zoom
@@ -646,6 +652,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// `BakeOpts::visual` reaches the store as a decodable, non-degenerate
+    /// PNG.
     #[test]
     fn a_visual_bake_stores_a_real_png_beside_every_chunk() {
         // Protects: `BakeOpts::visual` actually reaching the store as a
@@ -662,6 +670,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// The export/import archive round-trips byte for byte into a fresh
+    /// store.
     #[test]
     fn the_archive_round_trips_through_export_and_import() {
         // Protects: atlas_export_entries/atlas_import_entries's full round
@@ -701,6 +711,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root2);
     }
 
+    /// The two named import-refusal cases each surface their own
+    /// `AtlasImportError` variant, not a generic failure.
     #[test]
     fn importing_something_that_is_not_an_atlas_is_refused_with_a_reason() {
         // Protects: the two named refusal cases (no manifest at all, and a
@@ -716,6 +728,8 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// `FinalizeLock::check`'s exemption rule: Generation/HeightEdit refused
+    /// while finalized, Presentation always free.
     #[test]
     fn finalize_locks_generation_and_editing_but_never_presentation() {
         // Protects: `FinalizeLock::check`'s exemption rule -- Generation and
@@ -735,6 +749,8 @@ mod tests {
         assert!(msg.contains("Un-finalize"), "the escape hatch must be named: {msg}");
     }
 
+    /// `chunk_is_covered`'s ancestor search, and that a different tile size
+    /// is never treated as covering.
     #[test]
     fn a_baked_ancestor_covers_its_descendants() {
         // Protects: chunk_is_covered's ancestor-search against a real
@@ -748,6 +764,8 @@ mod tests {
         assert!(!chunk_is_covered(&baked, 1024, ChunkId::new(3, 1, 1)));
     }
 
+    /// No two sibling tiles of a level are byte-identical -- guards against
+    /// every tile silently sampling the same sub-region.
     #[test]
     fn no_two_pyramid_tiles_of_a_level_are_the_same_bytes() {
         // Protects: against a composition bug that fed every tile the same
@@ -764,6 +782,8 @@ mod tests {
         }
     }
 
+    /// Adjacent tiles' shared edge is zero-delta -- the seam property
+    /// `refine_tile`'s overlap column exists for.
     #[test]
     fn horizontally_adjacent_tiles_agree_on_their_shared_edge_exactly() {
         // Protects: seam delta zero -- the property `refine_tile`'s

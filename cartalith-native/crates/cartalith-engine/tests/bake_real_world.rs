@@ -49,6 +49,9 @@ fn tmp(name: &str) -> std::path::PathBuf {
     d
 }
 
+/// `GUI_GAP_REGISTER.md` WW-01's full acceptance over a real generated
+/// world: bake, persist, reopen, deep-zoom read, re-bake no-op, archive
+/// round-trip, and clearing the world frees every chunk.
 #[test]
 #[ignore = "generates a real world and bakes 85 tiles; run explicitly"]
 fn a_real_world_bakes_persists_and_round_trips() {

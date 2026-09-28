@@ -20,18 +20,29 @@ use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_terrain::analysis::tpi;
 use cartalith_terrain::vector::{trace_coastline, trace_fault_lines, trace_ridgelines, RidgeOpts};
 
+/// This file's fixed grid width -- small so the suite runs un-`#[ignore]`d
+/// in seconds, per the module doc.
 const GW: usize = 192;
+/// This file's fixed grid height, paired with [`GW`].
 const GH: usize = 128;
+/// An arbitrary fixed seed -- every test in this file is a property check,
+/// not a captured value, so the seed only needs to produce a real world.
 const SEED: i32 = 20260920;
 
+/// The one real generated world every test in this file traces over.
 fn world() -> WorldState {
     let mut p = WorldParams::defaults(GW, GH, SEED);
     p.map_width_km = 800.0;
     generate_terrain(&p)
 }
 
+/// Every traced fault-line point names a real `boundary_mask` cell at its
+/// own cell-centre coordinate, on a real world's noisy, branching mask.
 #[test]
 fn fault_lines_stay_on_the_boundary_mask() {
+    // Protects: trace_fault_lines's coordinate convention and mask-fidelity
+    // against a real, branching boundary_mask -- not the clean synthetic
+    // shapes cartalith_terrain::vector's own unit tests use.
     let ws = world();
     assert!(ws.boundary_mask.iter().any(|&v| v != 0), "the world has plate boundaries at all");
 
@@ -62,8 +73,14 @@ fn fault_lines_stay_on_the_boundary_mask() {
     println!("faults: {} polylines, {pts} points", fls.len());
 }
 
+/// Each polyline's `kind` is its own points' majority `boundary_type`,
+/// including `tag_boundary_types`'s first-maximum tie rule.
 #[test]
 fn fault_line_kinds_are_the_tagged_boundary_types() {
+    // Protects: the adapter carrying tag_boundary_types's own tie rule
+    // (first maximum on a strict >, not max_by_key's last maximum) across
+    // to the traced polyline's kind field -- re-derived here independently
+    // rather than trusted.
     let ws = world();
     let fls = trace_fault_lines(&ws.boundary_mask, &ws.boundary_type, GW, GH);
     // `tag_boundary_types` sets each run's kind to the most frequent non-NONE
@@ -88,8 +105,13 @@ fn fault_line_kinds_are_the_tagged_boundary_types() {
     assert!(classified > 0, "no polyline carried a boundary type");
 }
 
+/// Every traced ridgeline point is above the land-mean TPI (never
+/// valley-like) and above water, on a real noisy TPI field.
 #[test]
 fn ridgelines_run_through_ridge_like_cells_and_never_valley_like_ones() {
+    // Protects: trace_ridgelines only ever selects TPI-ridge-like cells on
+    // real terrain, checked against an independently re-derived TPI field
+    // rather than the tracer's own internal state.
     let ws = world();
     let opts = RidgeOpts { world: true, ..RidgeOpts::default() };
     let pls = trace_ridgelines(&ws.field, GW, GH, ws.sea_level, opts);
@@ -141,8 +163,13 @@ fn ridgelines_run_through_ridge_like_cells_and_never_valley_like_ones() {
     );
 }
 
+/// The acyclicity guarantee -- strictly rising, 8-neighbour steps -- holds
+/// on real terrain's noise and plateaus, not just a clean cone.
 #[test]
 fn ridgelines_ascend_strictly_on_real_terrain() {
+    // Protects: the acyclicity guarantee, checked where it actually
+    // matters: real terrain with noise, plateaus and equal-height
+    // neighbours, not a cone.
     // The acyclicity guarantee, checked where it actually matters: real
     // terrain with noise, plateaus and equal-height neighbours, not a cone.
     let ws = world();
@@ -171,8 +198,13 @@ fn ridgelines_ascend_strictly_on_real_terrain() {
     println!("longest ridgeline: {longest} points");
 }
 
+/// A real coastline closes its interior rings, only the border-edge chains
+/// stay open, and land is on the traced segment's left almost everywhere.
 #[test]
 fn a_real_coastline_closes_its_rings_and_keeps_land_on_the_left() {
+    // Protects: trace_coastline's ring-closure and left-hand-land
+    // orientation rule on a real, thousands-of-islands coastline, not a
+    // clean synthetic shape.
     let ws = world();
     let pls = trace_coastline(&ws.field, GW, GH, ws.sea_level);
     assert!(!pls.is_empty(), "a real world has a coastline");
@@ -237,8 +269,13 @@ fn a_real_coastline_closes_its_rings_and_keeps_land_on_the_left() {
     println!("coast: {} runs ({rings} closed, {open} open), {pts} points, land-left {:.2}%", pls.len(), frac * 100.0);
 }
 
+/// All three tracers are deterministic, over two independently generated
+/// (same-params) real worlds, not just a re-run over one cached field.
 #[test]
 fn all_three_tracers_are_deterministic_on_a_real_world() {
+    // Protects: determinism of all three tracers together, and of
+    // generate_terrain itself, since the two worlds are independently
+    // generated rather than one reused field.
     // Two independently generated worlds from the same params, so this also
     // covers "the input is the same" rather than only "the tracer is pure".
     let a = world();

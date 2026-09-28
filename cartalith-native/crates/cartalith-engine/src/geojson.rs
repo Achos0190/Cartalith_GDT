@@ -435,6 +435,7 @@ mod tests {
         GeoJsonWorld { gw: 12, gh: 9, map_width_km: 600.0, version: "2.10", seed: 4242, ..Default::default() }
     }
 
+    /// `stringify`'s number rendering against `JSON.stringify`'s own rules.
     #[test]
     fn stringify_renders_numbers_the_way_json_stringify_does() {
         // Protects: js_num's integral/NaN handling reached through this
@@ -448,6 +449,8 @@ mod tests {
         assert_eq!(stringify(&Json::Num(f64::NAN)), "null");
     }
 
+    /// `Json::Obj`'s insertion-ordered key emission, matching a JS object
+    /// literal.
     #[test]
     fn stringify_keeps_object_keys_in_insertion_order() {
         // Protects: `Json::Obj` being a `Vec`, not a `BTreeMap` or `HashMap`
@@ -461,6 +464,7 @@ mod tests {
         assert_eq!(stringify(&o), r#"{"z":1,"a":2,"m":3}"#);
     }
 
+    /// String escaping via the shared `cartalith_io::json_string` helper.
     #[test]
     fn stringify_escapes_a_name_the_way_json_stringify_would() {
         // Protects: reuse of `cartalith_io::json_string` for escaping rather
@@ -471,6 +475,7 @@ mod tests {
         assert_eq!(stringify(&Json::s("tab\there")), r#""tab\there""#);
     }
 
+    /// An all-empty `GeoJsonWorld` still emits a well-formed document.
     #[test]
     fn an_empty_world_still_produces_a_valid_feature_collection() {
         // Protects: a world with every layer empty still emits a
@@ -484,6 +489,8 @@ mod tests {
         assert!(s.contains(r#""mapWidthKm":600"#), "not 600.0");
     }
 
+    /// A POI place and a settlement place get genuinely different property
+    /// sets, not the same set with fields blanked.
     #[test]
     fn a_poi_and_a_settlement_carry_different_property_sets() {
         // Protects: the `is_poi` branch in `feature_collection` emitting
@@ -502,6 +509,8 @@ mod tests {
         assert!(s.contains(r#"{"layer":"poi","name":"Old Kiln","kind":"ruin"}"#));
     }
 
+    /// A degenerate one-point way is skipped, not written as a broken
+    /// LineString, while a real way's `km` still rounds JS-style.
     #[test]
     fn a_one_point_way_is_skipped_rather_than_written_as_a_broken_linestring() {
         // Protects: the `way.pts.len() < 2` skip in `feature_collection`,
@@ -519,6 +528,7 @@ mod tests {
         assert!(s.contains(r#""name":"real","km":38.46"#), "km rounds to two decimals");
     }
 
+    /// A faction owning zero cells produces no territory feature at all.
     #[test]
     fn a_faction_that_owns_nothing_emits_no_feature() {
         // Protects: `territory_feature`'s `None` return on an empty mask
@@ -530,6 +540,8 @@ mod tests {
         assert!(!s.contains("territory"));
     }
 
+    /// A province raster whose length doesn't match `gw*gh` is ignored
+    /// wholesale, matching the reference's `length === GW*GH` guard.
     #[test]
     fn a_province_raster_of_the_wrong_length_is_ignored_entirely() {
         // Protects: the reference's `civProvince.length === GW*GH` guard --
@@ -542,6 +554,8 @@ mod tests {
         assert!(!s.contains("province"));
     }
 
+    /// The fixed layer emission order (poi/settlement, way, river, territory,
+    /// province), which decides GIS draw order.
     #[test]
     fn layers_come_out_in_the_references_own_order() {
         // Protects: the fixed layer order (poi/settlement, way, river,

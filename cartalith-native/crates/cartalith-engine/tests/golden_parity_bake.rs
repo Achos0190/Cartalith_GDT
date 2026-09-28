@@ -115,6 +115,8 @@ fn opts() -> AmplifyOpts {
     AmplifyOpts { seed: 4242, sea: 0.42, detail_amp: 0.12, detail_freq: 1.0, ..Default::default() }
 }
 
+/// The Rust port's `synthetic_field` against the Node harness's own
+/// `mkField` -- every golden case below depends on this fixture matching.
 #[test]
 fn the_fixture_is_bit_identical_to_the_harnesss() {
     // Protects: the Rust port's `synthetic_field` against the Node
@@ -124,6 +126,8 @@ fn the_fixture_is_bit_identical_to_the_harnesss() {
     assert_eq!(fnv_f32(&f), "e6a8f7dd46187082", "the fixture itself diverged");
 }
 
+/// `pyramid_tile`'s composition (`tileDims` x `refineTile` x
+/// `addZoomDetail`) against the reference at seven levels.
 #[test]
 fn pyramid_tile_matches_the_reference() {
     // Protects: pyramid_tile's composition (tileDims x refineTile x
@@ -165,6 +169,8 @@ fn pyramid_tile_matches_the_reference() {
     }
 }
 
+/// A value-level check alongside the hash-based test above -- a hash
+/// mismatch says nothing about which texel diverged.
 #[test]
 fn pyramid_tiles_first_six_samples_match_the_reference() {
     // Protects: a value-level check alongside the hash above. Hashes prove
@@ -183,6 +189,8 @@ fn pyramid_tiles_first_six_samples_match_the_reference() {
     assert_eq!(&t.data[..6], &want[..]);
 }
 
+/// The seam property against the harness's own measurement: exactly 0,
+/// not merely small.
 #[test]
 fn adjacent_tiles_seam_delta_is_exactly_zero() {
     // Protects: the seam property against the harness's own measurement --
@@ -197,6 +205,9 @@ fn adjacent_tiles_seam_delta_is_exactly_zero() {
     assert_eq!(maxd, 0.0);
 }
 
+/// `encode_chunk`'s RG16 packing against the reference; the input tile is
+/// hashed separately so a divergence can be attributed to the tile or the
+/// encoder.
 #[test]
 fn atlas_encode_chunk_matches_the_reference() {
     // Protects: `encode_chunk`'s RG16 packing against the reference, and
@@ -215,6 +226,8 @@ fn atlas_encode_chunk_matches_the_reference() {
     assert_eq!(fnv_u8(&c.rg16), "2f7ee1466be54158");
 }
 
+/// `build_atlas_manifest`'s field names, key order and null handling
+/// against `JSON.stringify(m, null, 2)` from the harness.
 #[test]
 fn build_atlas_manifest_matches_the_reference_byte_for_byte() {
     // Protects: build_atlas_manifest's field names, key order and null
