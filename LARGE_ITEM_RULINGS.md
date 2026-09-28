@@ -1970,3 +1970,15 @@ Given before the owner stepped away, so work can continue without them:
   *Done the same day: its `way_render_geometry` / `render_brks` edit had
   already landed in `cartalith-godot/src/lib.rs`, so the checkout was
   removed.*
+
+## 2026-09-28 — Ruling BP: a freeze during generation is acceptable; zoom and sharpen must be fast
+
+Owner, verbatim: *"A freeze during generation/sim isn't an issue even the html
+had loadscreen messages. As long as zooming and sharpening is fast"*.
+
+- A multi-second main-thread stall while generating, simulating or doing a
+  full recolour (`build_color_texture`: 2.6 s at 2048², 48.6 s at 8192²,
+  measured 2026-09-28) is **accepted**. It is not a defect to engineer away.
+- The 16.7 ms per-frame bar applies to **interactive** paths: zoom notches,
+  pan, and deep-zoom tile arrival ("sharpening"). Work there is judged
+  against it.
