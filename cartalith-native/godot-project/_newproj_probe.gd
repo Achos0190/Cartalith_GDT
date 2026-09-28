@@ -23,6 +23,12 @@ extends Node
 ##   `--hover 1`          mouse motion over the map during each generate
 ##   `--click 1`          left clicks on the map during each generate
 ##   `--zoom 1`           wheel notches over the map during each generate
+##   `--real-click 1`     click `New world` and `Create` as a mouse does
+##                        (`Input` events at their drawn centres) instead of
+##                        `pressed.emit()`; fails if the dialog does not open or
+##                        Create starts no generate. This is the leg that
+##                        caught the 1 x 1 New World dialog (2026-09-28)
+##   `--trace-size 1`     print a stack on every New World dialog resize
 ##   `--touch-engine 1`   NEGATIVE CONTROL: calls a `WorldGen` `#[func]`
 ##                        mid-generate on purpose; it panics and aborts this
 ##                        probe's coroutine, so the run then hangs by design
@@ -59,6 +65,36 @@ func _find_button(root: Node, needle: String) -> Button:
 			return r
 	return null
 
+## A real left click at `b`'s on-screen centre, through `Input` so it takes
+## the same route a mouse does (hit-test, the embedded dialog window, focus).
+## The dialogs are embedded subwindows (the project keeps Godot's default), so
+## the root-space point is the window's position plus the control's
+## window-local centre scaled by the window's final transform.
+func _real_click(b: Control, what: String) -> void:
+	## Let the popup finish laying out and placing itself: a rect read in the
+	## frame it opened is the pre-layout one (measured: `92,22` against the
+	## drawn `421,417`).
+	await _frames(20)
+	var vp := b.get_viewport()
+	var at: Vector2 = vp.get_final_transform() * (b.get_global_rect().get_center())
+	if vp is Window and vp != get_tree().root:
+		at += Vector2((vp as Window).position)
+	_log("real click on %s at %s" % [what, str(at)])
+	var mm := InputEventMouseMotion.new()
+	mm.position = at
+	mm.global_position = at
+	Input.parse_input_event(mm)
+	await _frames(2)
+	for down in [true, false]:
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = down
+		e.position = at
+		e.global_position = at
+		Input.parse_input_event(e)
+		await _frames(2)
+	await _frames(3)
+
 func _ready() -> void:
 	_t0 = Time.get_ticks_msec()
 	if DisplayServer.get_name() == "headless":
@@ -69,6 +105,12 @@ func _ready() -> void:
 	var settle := int(_arg("--settle-frames", "600"))
 	_log("boot app.tscn")
 	app = load("res://shell/app.tscn").instantiate()
+	if _arg("--trace-size", "") == "1":
+		get_tree().node_added.connect(func(n: Node):
+			if n is NewWorldDialog:
+				(n as Window).size_changed.connect(func():
+					print("[trace] NewWorldDialog size -> %s" % (n as Window).size)
+					print_stack()))
 	add_child(app)
 	var dlg: Node = null
 	for i in 600:
@@ -80,15 +122,40 @@ func _ready() -> void:
 		_log("FAIL welcome dialog never appeared")
 		get_tree().quit(1)
 		return
-	_log("welcome dialog up")
+	_log("welcome dialog up; new-world dialog size before any click %s" % app.new_world_dialog.size)
+	app.new_world_dialog.size_changed.connect(func():
+		_log("  new-world dialog size -> %s" % app.new_world_dialog.size)
+		if app.new_world_dialog.size.x < 50:
+			print_stack())
 	var nb := _find_button(dlg, "New world")
 	if nb == null:
 		_log("FAIL no `New world` button in the welcome dialog")
 		get_tree().quit(1)
 		return
-	nb.pressed.emit()
+	var real := _arg("--real-click", "") == "1"
+	if real:
+		await _real_click(nb, "welcome `New world`")
+	else:
+		nb.pressed.emit()
 	await _frames(10)
 	var nw: AcceptDialog = app.new_world_dialog
+	_log("after New world: welcome visible=%s  new-world dialog visible=%s" % [dlg.visible, nw.visible])
+	_log("  root %s  dialog pos %s size %s  ok rect %s" % [get_viewport().get_visible_rect().size,
+		nw.position, nw.size, nw.get_ok_button().get_global_rect()])
+	_log("  contents min %s  min_size %s  wrap %s  max_size %s  children %d" % [
+		nw.get_contents_minimum_size(), nw.min_size, nw.wrap_controls, nw.max_size, nw.get_child_count()])
+	for ch in nw.get_children(true):
+		if ch is Control:
+			_log("    child %s %s vis=%s min=%s size=%s" % [ch.get_class(), ch.name,
+				(ch as Control).visible, (ch as Control).get_combined_minimum_size(), (ch as Control).size])
+	if real:
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(_arg("--out", OS.get_user_data_dir()).path_join("dialog.png"))
+	if real and not nw.visible:
+		_log("FAIL the New World dialog did not open from a real click")
+		_log("RESULT FAIL")
+		get_tree().quit(1)
+		return
 	app.bridge.generation_stage.connect(func(i: int, n: String, _t: int):
 		_log("stage %d %s" % [i, n]))
 	app.bridge.generation_finished.connect(func(ok: bool):
@@ -135,7 +202,11 @@ func _ready() -> void:
 		_log("new world dialog visible=%s  request=%s" % [nw.visible, str(nw.request())])
 		_finished = -1
 		_log("press Create")
-		nw.get_ok_button().pressed.emit()
+		var t_create := Time.get_ticks_msec()
+		if real:
+			await _real_click(nw.get_ok_button(), "New World `%s`" % nw.get_ok_button().text)
+		else:
+			nw.get_ok_button().pressed.emit()
 		var fmax := 0.0
 		if _arg("--touch-engine", "") == "1":
 			## What a hover or any main-thread reader does mid-generation: one
@@ -202,6 +273,12 @@ func _ready() -> void:
 			if nowg - last_g > 250000:
 				_log("  main thread blocked %.0f ms during generation" % (float(nowg - last_g) / 1000.0))
 			last_g = nowg
+			if _finished < 0 and not app.bridge.generating \
+					and Time.get_ticks_msec() - t_create > 5000:
+				_log("FAIL Create started no generate in 5 s (dialog visible=%s)" % nw.visible)
+				_log("RESULT FAIL")
+				get_tree().quit(1)
+				return
 			if Time.get_ticks_msec() - _t0 > 1200000:
 				_log("FAIL generation did not finish in 1200 s")
 				get_tree().quit(1)

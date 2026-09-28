@@ -685,6 +685,30 @@ static func popup_anchored(popup: Window, anchor: Rect2, width: int, gap: int = 
 	popup.popup(Rect2i(Vector2i(int(x), int(y)), Vector2i(int(w), int(h))))
 
 
+## The smallest remembered window size this shell will restore or save.
+## Labelled judgement: below every size a window here is authored at (the
+## smallest is `place_editor_window.gd`'s 340 x 420 minimum), and far above
+## the degenerate sizes a window can hold before it is laid out.
+const WINDOW_SIZE_FLOOR := Vector2i(200, 150)
+
+## Whether `sz` is a size a person could have chosen for `dlg`: at least
+## `WINDOW_SIZE_FLOOR` and the window's own `min_size`.
+##
+## **Why (owner report 2026-09-28, "a new project in a fresh instance: the
+## setup menu doesn't load and the program seems to freeze").** The owner's
+## `cartalith_settings.cfg` held `new_world_dialog@desktop=Vector2i(1, 1)`.
+## That dialog sets no `min_size`, so the restore clamp let 1 x 1 through, and
+## every New world opened as a 1-pixel exclusive modal: no form, no Create,
+## and the shell behind it blocked -- a freeze to the eye. Hiding it then
+## saved 1 x 1 back, so the state healed never. How the first 1 x 1 was
+## written is not known; this check stops it being restored or saved again,
+## whatever wrote it. `_newproj_probe.gd --real-click 1` reproduced it from a
+## cold start. Must never shrink or reject a size the user dragged to that
+## is at or above the window's own minimum.
+static func _window_size_ok(dlg: Window, sz: Vector2i) -> bool:
+	return sz.x >= maxi(WINDOW_SIZE_FLOOR.x, dlg.min_size.x) \
+		and sz.y >= maxi(WINDOW_SIZE_FLOOR.y, dlg.min_size.y)
+
 ## Where a tool window's size is remembered: its script, and the density it
 ## is used at, so a tablet size never lands on a desktop window.
 static func window_key(dlg: Window) -> String:
@@ -705,12 +729,14 @@ static func _desktop_window_size(dlg: AcceptDialog) -> void:
 	dlg.set_meta("_dcc_sized", true)
 	var key := window_key(dlg)
 	var saved := DccSettings.window_size(key)
-	if saved != Vector2i.ZERO:
+	## A saved size under the floor is not a size anyone chose, so it is
+	## ignored and the window keeps its authored size (see `_window_size_ok`).
+	if saved != Vector2i.ZERO and _window_size_ok(dlg, saved):
 		var room := Vector2i(dlg.get_tree().root.get_visible_rect().size) if dlg.is_inside_tree() else saved
 		dlg.size = Vector2i(clampi(saved.x, dlg.min_size.x, maxi(dlg.min_size.x, room.x)),
 			clampi(saved.y, dlg.min_size.y, maxi(dlg.min_size.y, room.y)))
 	dlg.visibility_changed.connect(func() -> void:
-		if not dlg.visible:
+		if not dlg.visible and _window_size_ok(dlg, dlg.size):
 			DccSettings.set_window_size(key, dlg.size))
 	var px := DccTheme.role_px("btn_min_h") if DccTheme.is_tablet() else 14
 	var grip := Control.new()
