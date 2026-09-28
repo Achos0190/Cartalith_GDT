@@ -85,8 +85,10 @@ use golden::{Case, Family, SYN_MARKET, SYN_SPEC};
 
 /// `generate()`'s own `const Wm=1700,Hm=1250`.
 const WM: f64 = 1700.0;
+// `generate()`'s own `const Wm=1700,Hm=1250`.
 const HM: f64 = 1250.0;
 
+/// Bit-for-bit float equality with a labelled failure message.
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
@@ -98,13 +100,16 @@ fn eq_bits(got: f64, want: f64, what: &str) {
 fn b(x: f64) -> String {
     format!("{:016x}", x.to_bits())
 }
+/// A point as its two exact 64-bit halves.
 fn pt(p: Vec2) -> String {
     format!("{},{}", b(p.x), b(p.y))
 }
+/// A polygon as its `;`-joined points.
 fn poly_s(ps: &[Vec2]) -> String {
     ps.iter().map(|p| pt(*p)).collect::<Vec<_>>().join(";")
 }
 
+/// A hash over every [`Lot`] field, for the golden's whole-set comparison.
 fn lots_hash(lots: &[Lot<'_>]) -> u32 {
     let mut parts: Vec<String> = Vec::new();
     for l in lots {
@@ -120,6 +125,7 @@ fn lots_hash(lots: &[Lot<'_>]) -> u32 {
     fnv1a(&parts.join("|"))
 }
 
+/// A hash over every [`Building`] field, for the golden's whole-set comparison.
 fn buildings_hash(bs: &[Building]) -> u32 {
     let mut parts: Vec<String> = Vec::new();
     for x in bs {
@@ -136,6 +142,7 @@ fn buildings_hash(bs: &[Building]) -> u32 {
     fnv1a(&parts.join("|"))
 }
 
+/// A hash over every [`FaithSite`] field, for the golden's whole-set comparison.
 fn faith_hash(ss: &[FaithSite]) -> u32 {
     let mut parts: Vec<String> = Vec::new();
     for s in ss {
@@ -178,6 +185,7 @@ const OCT: [(f64, f64); 8] = [
     (0.0, -1.0),
     (0.7, -0.7),
 ];
+/// The preset octagon ([`OCT`]) scaled to `r` and centred at `(cx, cy)`.
 fn ring(cx: f64, cy: f64, r: f64) -> Vec<Vec2> {
     OCT.iter()
         .map(|(ux, uy)| Vec2::new(cx + ux * r, cy + uy * r))
@@ -193,6 +201,8 @@ fn quay_of(m: Vec2) -> Vec<Vec2> {
     ]
 }
 
+/// The live [`CultureProfile`] a case's `culture` names, or [`MEDIEVAL`] for
+/// the golden's `""`-means-medieval convention.
 fn profile_of(c: &Case) -> &'static CultureProfile {
     if c.culture.is_empty() {
         &MEDIEVAL
@@ -251,6 +261,9 @@ fn syn_parcels() -> Vec<Parcel> {
         .collect()
 }
 
+/// Builds one scenario's [`Fixture`]: for [`Family::Syn`] a hand-built
+/// parcel array, for [`Family::Town`] the whole organic prefix of
+/// `generate()` up to this milestone.
 fn setup(c: &Case) -> Fixture {
     let mut site = build_site(c.seed, WM, HM, c.kind, SiteOpts::default());
     if let Some((spec, _)) = c.economy {
@@ -409,6 +422,11 @@ fn run<'a>(c: &Case, f: &'a Fixture) -> (Vec<Lot<'a>>, Vec<Building>, Vec<FaithS
 
 #[test]
 fn golden_every_scenario_reproduces_the_reference_exactly() {
+    // Protects: the market anchor and maxRF, the parcel count, the district
+    // tally and empty/unsuitable/built/churchyard counts, the lots/
+    // buildings/faith whole-set hashes, the first listed building and faith
+    // site field for field, and (Syn family only) every parcel's district
+    // and market distance — over all 36 captured scenarios.
     for c in golden::GOLDEN {
         let what = c.name;
         let f = setup(c);
@@ -523,6 +541,7 @@ fn golden_every_scenario_reproduces_the_reference_exactly() {
     }
 }
 
+/// Bit-for-bit compares a point list against its flat `[x0,y0,x1,y1,...]` golden.
 fn assert_flat(got: &[Vec2], want: &[f64], what: &str) {
     assert_eq!(got.len() * 2, want.len(), "{what}: point count");
     for (i, p) in got.iter().enumerate() {
@@ -536,6 +555,11 @@ fn assert_flat(got: &[Vec2], want: &[f64], what: &str) {
 /// sizes.
 #[test]
 fn golden_data_is_not_vacuous() {
+    // Protects: the golden set is not vacuous — every scenario has parcels
+    // and a district tally that covers all of them, every named district
+    // and rite is reached by some scenario, the terrain gate flags at least
+    // one parcel, and at least one large town and one unnamed-rite case
+    // exist.
     assert_eq!(golden::GOLDEN.len(), 36, "scenario count");
     assert!(
         golden::GOLDEN.iter().filter(|c| c.family == Family::Town).count() >= 20,
@@ -598,6 +622,10 @@ fn golden_data_is_not_vacuous() {
 /// port silently paraphrases.
 #[test]
 fn every_provenance_string_is_the_references_own() {
+    // Protects: every distinct prov_district/building prov string this
+    // milestone writes is one of the reference's own thirty literals,
+    // character for character, and the port writes no string the reference
+    // does not.
     let mut seen: Vec<&str> = Vec::new();
     for c in golden::GOLDEN {
         let f = setup(c);
@@ -629,6 +657,9 @@ fn every_provenance_string_is_the_references_own() {
 /// Asserted on an **asymmetric** quad: on a rectangle the two are the same map.
 #[test]
 fn bmap_reads_the_back_edge_in_the_references_order() {
+    // Protects: bmap's back edge runs poly[3] -> poly[2] (not the reverse),
+    // on an asymmetric quad where swapping the pair is observable, and the
+    // full-extent rect_poly recovers the parcel itself, winding included.
     let par = Parcel {
         id: "p".into(),
         // A trapezium: the back edge is offset, so swapping B0/B1 is visible.
@@ -667,6 +698,10 @@ fn bmap_reads_the_back_edge_in_the_references_order() {
 /// per side without doubling a corner.
 #[test]
 fn the_rectangle_and_colonnade_primitives_are_the_references() {
+    // Protects: rect_pts is centred correctly, peristyle lays
+    // max(2, round(len/sp)) columns a side with no corner doubled, its
+    // max(2,...) floor really is a floor, and a NaN spacing yields no
+    // columns rather than panicking.
     let r = rect_pts(100.0, 50.0, 20.0, 10.0);
     assert_eq!(
         r,
@@ -703,6 +738,9 @@ fn the_rectangle_and_colonnade_primitives_are_the_references() {
 /// decide whether to draw a vacant lot, and no captured number states it.
 #[test]
 fn every_parcel_is_either_empty_or_built() {
+    // Protects: every lot is empty xor built, never both or neither; every
+    // unsuitable lot is also empty; and no building stands on an empty lot
+    // — over every scenario's whole parcel set.
     let mut checked = 0usize;
     for c in golden::GOLDEN {
         let f = setup(c);
@@ -738,6 +776,9 @@ fn every_parcel_is_either_empty_or_built() {
 /// that overhangs the temple's podium.
 #[test]
 fn a_place_of_worship_clears_its_own_ground() {
+    // Protects: no building survives on a churchyard parcel or with its
+    // centroid inside a worship site's built/open polygons, and every
+    // churchyard parcel is tagged "church".
     let mut cleared = 0usize;
     for c in golden::GOLDEN {
         if c.faith_count == 0 {
@@ -789,6 +830,9 @@ fn a_place_of_worship_clears_its_own_ground() {
 /// yards, 2 granaries, 6 warehouse plots, and pastoral touching only suburbs.
 #[test]
 fn the_economy_override_is_bounded() {
+    // Protects: each economy district's retag count never exceeds its
+    // measured cap, and "garrison"/the empty specialisation produce no
+    // economy district at all.
     let caps = [("oreyard", 4), ("fishery", 5), ("sawyard", 4), ("granary", 2), ("warehouse", 6)];
     let mut seen = 0usize;
     for c in golden::GOLDEN {
@@ -820,6 +864,9 @@ fn the_economy_override_is_bounded() {
 /// must leave the district assignment exactly where it was.
 #[test]
 fn a_rejected_economy_changes_nothing() {
+    // Protects: an economy the truthiness guard rejects (None or
+    // "garrison") leaves districts, buildings and worship byte-identical to
+    // the no-economy case.
     let base = golden::GOLDEN.iter().find(|c| c.name == "coast41").expect("scenario");
     let none = golden::GOLDEN.iter().find(|c| c.name == "ecoNone41").expect("scenario");
     let garrison = golden::GOLDEN.iter().find(|c| c.name == "ecoGarrison41").expect("scenario");
@@ -838,6 +885,8 @@ fn a_rejected_economy_changes_nothing() {
 /// a bearing must place its four ore yards differently.
 #[test]
 fn the_ore_bearing_moves_the_yard() {
+    // Protects: an ore bearing is read and changes which four parcels
+    // become the ore yard, without changing how many do.
     let plain = golden::GOLDEN.iter().find(|c| c.name == "ecoMining41").expect("scenario");
     let bearing = golden::GOLDEN.iter().find(|c| c.name == "ecoMiningBearing41").expect("scenario");
     assert_eq!(plain.tally.iter().find(|(k, _)| *k == "oreyard"), Some(&("oreyard", 4)));
@@ -855,6 +904,9 @@ fn the_ore_bearing_moves_the_yard() {
 /// real `terrainSuitability` is continuous and never lands on the threshold.
 #[test]
 fn the_terrain_gate_is_opt_in_and_strict() {
+    // Protects: the terrain gate is off by default, gates on a strict
+    // `< 0.5` (a suitability of exactly 0.5 is NOT flagged, one ulp below
+    // it IS) when on.
     let off = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("scenario");
     let on = golden::GOLDEN.iter().find(|c| c.name == "terrain7").expect("scenario");
     let tie = golden::GOLDEN.iter().find(|c| c.name == "terrainTie7").expect("scenario");
@@ -885,6 +937,9 @@ fn the_terrain_gate_is_opt_in_and_strict() {
 /// subsystem produces a ring.
 #[test]
 fn the_wall_ring_takes_the_other_branch_of_in_wall() {
+    // Protects: a preset wall ring actually takes `in_wall`'s ring branch
+    // rather than its radius fallback — a tighter intramural/extramural
+    // split than the 0.72*maxRF radius gives, and a different district mix.
     let plain = golden::GOLDEN.iter().find(|c| c.name == "river7").expect("scenario");
     let walled = golden::GOLDEN.iter().find(|c| c.name == "walled7").expect("scenario");
     assert_eq!(plain.parcel_count, walled.parcel_count, "the same parcels");
@@ -926,6 +981,10 @@ fn the_wall_ring_takes_the_other_branch_of_in_wall() {
 /// reconciliation pass confirmed merging the two would have been the bug.
 #[test]
 fn the_pastoral_paddock_radius_is_exactly_62_percent_of_max_rf() {
+    // Protects: the pastoral paddock radius (maxRF*0.62) — every retagged
+    // paddock lies beyond it, every surviving suburb lot lies within it, and
+    // the observable bracket the fixtures pin (0.575, 0.625) still contains
+    // 0.62, documented as the limit of what this fixture set can catch.
     let mut cases = 0usize;
     // The observable bracket: the furthest lot the branch declined to retag,
     // and the nearest one it did. The constant must lie between them.

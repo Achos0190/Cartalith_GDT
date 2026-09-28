@@ -102,6 +102,7 @@ use crate::water::{
 };
 use std::f64::consts::PI;
 
+/// Unit tests and the whole-subsystem golden (`generate/tests/golden.rs`).
 #[cfg(test)]
 mod tests;
 

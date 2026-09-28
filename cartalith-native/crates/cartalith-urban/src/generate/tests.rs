@@ -125,12 +125,15 @@
 use super::*;
 use crate::rules::{CULTURE_PROFILES, ParcelPatch, RulesPatch, SettlementPatch, StreetPatch};
 
+/// The 29-scenario captured golden matrix — see this module's own header.
 mod golden;
 
 // ------------------------------------------------------------- the fixtures --
 
 const CELL_M: f64 = 22.0;
+// The synthetic raster's width, cells.
 const MW: usize = 78;
+// The synthetic raster's height, cells.
 const MH: usize = 57;
 
 /// The river's row, per column — two integer steps down. Integer arithmetic
@@ -139,6 +142,8 @@ fn river_row(i: usize) -> usize {
     27 + if i < 26 { 0 } else if i < 52 { 1 } else { 2 }
 }
 
+/// The synthetic river raster at the given Strahler order — see this
+/// module's header on why it is built from integer arithmetic alone.
 fn water_ctx(order: f64) -> WaterCtx {
     let mut mask = vec![0u8; MW * MH];
     let mut dt = vec![0.0f64; MW * MH];
@@ -171,6 +176,8 @@ fn water_ctx(order: f64) -> WaterCtx {
     }
 }
 
+/// The synthetic elevation raster — see this module's header on why its
+/// values are divided by 1000.
 fn terrain_ctx() -> TerrainCtx {
     let mut grid = vec![0.0f64; MW * MH];
     for j in 0..MH {
@@ -237,6 +244,8 @@ fn rules_patch() -> RulesPatch {
     }
 }
 
+/// A golden fixture's `""`-for-`undefined` string convention, turned into a
+/// real [`Option`].
 fn opt_str(s: &str) -> Option<String> {
     if s.is_empty() { None } else { Some(s.to_string()) }
 }
@@ -284,6 +293,10 @@ fn opts_for(c: &golden::Case) -> GenOpts {
 
 #[test]
 fn whole_subsystem_matches_reference() {
+    // Protects: generate()'s whole orchestration over 29 captured scenarios
+    // — every derived scalar, every shape count and histogram, which branch
+    // each optional stage took, the full metrics readout, the written-out
+    // first/last anchors, and the reference's own whole-model hash.
     assert_eq!(golden::CASES.len(), 29, "the golden lost cases");
     for c in golden::CASES {
         let t = generate(c.seed, &opts_for(c));
@@ -477,6 +490,9 @@ fn histogram<'a>(it: impl Iterator<Item = &'a str>) -> Vec<(&'a str, usize)> {
 /// `x = -0.004` produces after the `*100`.
 #[test]
 fn js_int_str_matches_js_string_of_round() {
+    // Protects: js_int_str prints -0 as "0" (matching JS's String() of a
+    // rounded negative-zero), and matches JS's round-half-toward-+Infinity
+    // and its NaN/Infinity spellings.
     assert_eq!(js_int_str(js_round(-0.4)), "0");
     assert_eq!(js_int_str(-0.0), "0");
     assert_eq!(js_int_str(0.0), "0");
@@ -494,6 +510,8 @@ fn js_int_str_matches_js_string_of_round() {
 /// `generate(seed, {})`.
 #[test]
 fn defaults_are_the_references_defaults() {
+    // Protects: GenOpts::default() reproduces the reference's own defaults,
+    // and generate(seed) with no options matches generate(seed, {}).
     let t = generate(12345, &GenOpts::default());
     assert_eq!(t.pop_target, 5000.0);
     assert_eq!(t.epochs, 8);
@@ -511,6 +529,9 @@ fn defaults_are_the_references_defaults() {
 /// pass every other test here.
 #[test]
 fn walls_is_a_strict_false_test() {
+    // Protects: `opts.walls` gates on a strict `!== false`, so an absent key
+    // and an explicit `true` agree, and only an explicit `false` removes the
+    // circuit.
     let walled = generate(4242, &GenOpts { pop: Some(9000.0), ..GenOpts::default() });
     let asked = generate(
         4242,
@@ -531,6 +552,9 @@ fn walls_is_a_strict_false_test() {
 /// it — this pins the other side of the boundary.
 #[test]
 fn fortified_needs_all_four_conditions() {
+    // Protects: a bastioned trace needs the request, the population
+    // (>= FORT_MIN, pinned one below the boundary too), an enclosure, and
+    // the organic gate scheme, all four together.
     let at = |pop: f64, walls: Option<bool>| {
         generate(
             1000,
@@ -560,6 +584,10 @@ fn fortified_needs_all_four_conditions() {
 ///   that did not run through a chartered square.
 #[test]
 fn two_generate_guards_are_dead_against_the_live_profiles() {
+    // Protects: both live culture profiles set wall_gates_scheme to
+    // "organic" and markets to true, so a third profile would be the first
+    // to reach either guard's dead branch — recorded here since no golden
+    // over generate() can pin a mutation to either.
     assert_eq!(CULTURE_PROFILES.len(), 2, "a third profile can re-animate both guards below");
     for p in CULTURE_PROFILES {
         assert_eq!(p.wall_gates_scheme, "organic", "{}: the anachronism guard is inert", p.id);
@@ -576,6 +604,9 @@ fn two_generate_guards_are_dead_against_the_live_profiles() {
 /// with one — checked positively on both sides, not just "no error".
 #[test]
 fn a_village_gets_a_green_and_a_chartered_town_gets_a_market_cross() {
+    // Protects: a village-tier plaza is a green with no market cross, and a
+    // chartered town's is a market place that does carry one — both checked
+    // positively, not just for the absence of an error.
     let village = generate(4242, &GenOpts { pop: Some(450.0), ..GenOpts::default() });
     assert_eq!(village.pop_target, 450.0, "below the chartered-town population");
     let vp = village.plaza.as_ref().expect("a village still has an open centre");
@@ -611,6 +642,8 @@ fn a_village_gets_a_green_and_a_chartered_town_gets_a_market_cross() {
 /// what this file cannot claim is that a golden would catch reversing it.
 #[test]
 fn every_recorded_bridge_has_a_live_road_on_it() {
+    // Protects: detect_river_crossings runs on the FINAL graph — every
+    // bridge it records sits on a still-live edge, across the whole matrix.
     let mut checked = 0;
     for c in golden::CASES {
         let t = generate(c.seed, &opts_for(c));
@@ -638,6 +671,11 @@ fn every_recorded_bridge_has_a_live_road_on_it() {
 /// pass on lots placed anywhere.
 #[test]
 fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
+    // Protects: on a real organic walled town, inside/outside/behind lots
+    // sit at their expected distance off the curtain, the faubourg survives
+    // the rampart sweep unbuilt-nowhere and built-everywhere it should be,
+    // the behind-row cluster spans more than one distance band, no church
+    // claims a wall lot, and a bastioned trace's glacis stays wholly clear.
     use crate::geom::point_in_poly;
     use crate::growth::dist_to_line;
     use crate::wallside::WallBacking;
@@ -723,6 +761,9 @@ fn lots_back_onto_the_wall_and_the_faubourg_survives_the_rampart_sweep() {
 /// street-platted lot, or re-band a Venus building on one.
 #[test]
 fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
+    // Protects: Ruling AA on a real Venus town — the wall/faubourg lot
+    // counts, that the street-platted lots and wedge blocks are untouched,
+    // and that no wall lot ever takes a Venus building kind.
     use crate::geom::point_in_poly;
     use crate::wallside::WallBacking;
     let c = golden::CASES.iter().find(|c| c.name == "venusRadial").expect("case");
@@ -771,6 +812,9 @@ fn a_radial_town_builds_against_its_wall_without_moving_its_wedge_blocks() {
 /// holds every one of them byte-identical.
 #[test]
 fn only_the_largest_curtain_walled_golden_case_gets_a_citadel() {
+    // Protects: Ruling AC's size tier over the whole golden matrix — exactly
+    // the one organic curtain-walled case at or above CITADEL_MIN_POP gets a
+    // citadel, and every bastioned or radial case at or above it does not.
     let got: Vec<&str> = golden::CASES
         .iter()
         .filter(|c| generate(c.seed, &opts_for(c)).citadel.is_some())
@@ -785,6 +829,10 @@ fn only_the_largest_curtain_walled_golden_case_gets_a_citadel() {
 /// so a change that silently stops reaching them fails here.
 #[test]
 fn the_outermost_dense_blocks_become_perimeter_blocks_on_the_organic_plan() {
+    // Protects: Ruling AD over the whole golden matrix — every organic case
+    // that plats an outermost dense block gets a courtyard ring, the named
+    // organic exceptions and every Venus plan never do, and exactly 21 cases
+    // reach the stage.
     let none = [
         "landlockedHamlet",
         "unnavigableStem",
@@ -828,6 +876,11 @@ fn the_outermost_dense_blocks_become_perimeter_blocks_on_the_organic_plan() {
 ///   one back line.
 #[test]
 fn the_faubourg_is_ragged_and_better_off_beside_its_gate() {
+    // Protects: every faubourg lot (and no other) carries a gate_quality in
+    // 0..=1; quality and built share both fall with gate distance on the
+    // pooled lots; the noise sometimes inverts a near/far pair; and
+    // neighbouring behind-row lots' back lines wobble rather than sharing
+    // one line.
     use crate::geom::poly_area;
     use crate::growth::dist_to_line;
     use crate::wallside::WallBacking;

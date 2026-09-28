@@ -92,6 +92,8 @@ use crate::site::{Site, terrain_suitability};
 use crate::wallside::WallBacking;
 use std::f64::consts::PI;
 
+/// Golden fixtures and unit tests for this milestone (see `tests.rs`'s own
+/// `//!` header for the golden-scenario discipline).
 #[cfg(test)]
 mod tests;
 
@@ -154,10 +156,13 @@ impl<'a> Lot<'a> {
 // ------------------------------------------------------------ provenance ----
 
 const PROV_HARBOUR: &str = "Harbour quarter: warehouses and merchant yards on the quay — goods land, are stored and are sold from here (harbour-city family, lit. review §1.1 #22).";
+// Plaza frontage or the market-radius core.
 const PROV_MARKET: &str = "Market district: highest network access; commerce clusters on the most integrated frontages (M-NET-10).";
+// Intramural, inside the burgher radius.
 const PROV_BURGHER: &str = "Burgher district: prime intramural land near the market; dense, tall frontages (M-DEN-1/3).";
 const PROV_ARTISAN: &str =
     "Artisan district: intramural but peripheral; workshops and yards (M-DEN-5).";
+// Within the river-distance band, ahead of the wall/radial checks.
 const PROV_CRAFTRIVER: &str = "Riverside craft district: water-dependent and noxious trades (tanning, dyeing) pushed to the bank (M-DEN-5).";
 const PROV_SUBURB: &str =
     "Suburb: extramural ribbon along the approach roads (Strano exploration phase, M-GRW-1).";
@@ -165,9 +170,13 @@ const PROV_AGRARIAN: &str =
     "Agrarian fringe: smallholdings, orchards and paddocks at the walking limit (M-REG-4).";
 /// Not the reference's — a Ruling H departure (`crate::wallside`).
 const PROV_FAUBOURG: &str = "Faubourg: a poor quarter of narrow, shallow lots clustered against the wall's outer face in rows threaded by lanes, deepest beside a gate and running along the curtain rather than along the road (owner, 2026-09-22; Ruling H).";
+// Not the reference — a wall-backed lot with `WallBacking::Outside` (`crate::wallside`).
 const PROV_WALL_LEAN: &str = "Lean-to against the town wall: the curtain is the building's back wall (owner, 2026-09-22; Ruling H).";
+// Not the reference — the faubourg cluster's second and later rows (`crate::wallside`).
 const PROV_FAUBOURG_HOVEL: &str = "Faubourg hovel: one small range in a row behind the first, on a lane of the cluster that grew against the wall's outer face (owner, 2026-09-22; Ruling H).";
+// Not the reference — a faubourg lot's gate-side second range (`crate::wallside`).
 const PROV_FAUBOURG_FRONT: &str = "Faubourg front range: a second small range on the lane end of a lot near the gate, where the faubourg's better-off stood (owner, 2026-09-23; Ruling H).";
+// Not the reference — an intramural wall-backed lot, `par.depth <= 16.0` (`crate::wallside`).
 const PROV_WALL_BACKED: &str = "Wall-backed range: street to curtain in one range, the town wall its rear wall (owner, 2026-09-22; Ruling H).";
 
 const PROV_OREYARD: &str = "Ore yard: dressing floors and spoil ground of a mining settlement — the workings lie out in the hinterland, the processing at the town edge facing them (S6 economy rule).";
@@ -178,6 +187,7 @@ const PROV_WAREHOUSE: &str =
     "Warehouse row of a trading settlement along the through-road (S6 economy rule).";
 const PROV_PASTORAL_AGRARIAN: &str = "Agrarian fringe: paddocks pushed close in — a pastoral settlement folds its stock into the town edge (S6 economy rule).";
 
+// Written by `build_faith_sites` on every parcel it claims as a churchyard.
 const PROV_CHURCHYARD: &str = "Sacred precinct: the place of worship on its own plot; earlier houses cleared (M-DEN-8).";
 
 /// `ecoProv[d]` — the reference's own lookup, which is `undefined` for any key
@@ -312,9 +322,9 @@ pub fn assign_districts<'a>(
         return lots;
     };
 
-    // `cand(pred, score)`: every parcel the predicate accepts, sorted by score
-    // ascending. Indices, not references — the caller has to retag through the
-    // same `&mut` borrow the list came from.
+    /// `cand(pred, score)`: every parcel the predicate accepts, sorted by score
+    /// ascending. Indices, not references — the caller has to retag through the
+    /// same `&mut` borrow the list came from.
     fn cand(
         lots: &[Lot<'_>],
         pred: &mut dyn FnMut(&Lot<'_>, Vec2) -> bool,
@@ -331,7 +341,7 @@ pub fn assign_districts<'a>(
         list.sort_by(|a, b| js_num_cmp(a.1, b.1));
         list
     }
-    // `for(let i=0;i<Math.min(n,list.length);i++)` — `take` is that cap.
+    /// `for(let i=0;i<Math.min(n,list.length);i++)` — `take` is that cap.
     fn retag(lots: &mut [Lot<'_>], list: &[(usize, f64)], n: usize, d: &'static str) {
         for &(i, _) in list.iter().take(n) {
             lots[i].district = d;
@@ -546,13 +556,19 @@ fn emit(
     }
 }
 
+// Venus grammar, inner band (`r_norm < 0.42`).
 const PROV_PAVILION: &str = "Circular pavilion: a round civic/amenity building clustered at the hub and inner spokes, echoing the circular buildings of Fresco's plans (M-VEN-5).";
+// Venus grammar, outer band (`r_norm > 0.8`).
 const PROV_VENUS_WAREHOUSE: &str = "Logistics warehouse: a deep gable-fronted store on the outer ring — the distribution belt of the resource-based city (M-VEN-5).";
+// Venus grammar's courtyard pick, street range.
 const PROV_COURTYARD_STREET: &str = "Courtyard-house street range: an Asian-influenced inward-facing dwelling woven into the residential ring (M-VEN-5).";
 const PROV_COURTYARD_WING: &str =
     "Courtyard wing opening onto the private central court (M-VEN-5).";
+// Venus grammar's courtyard pick, rear range.
 const PROV_COURTYARD_REAR: &str = "Rear range closing the courtyard house (M-VEN-5).";
+// Venus grammar's machiya pick.
 const PROV_MACHIYA: &str = "Machiya rowhouse: a narrow-fronted, deep Japanese townhouse, mixed into the residential ring for variety (M-VEN-5).";
+// Venus grammar's default pick, when neither courtyard nor machiya is drawn.
 const PROV_MODULAR: &str = "Modular apartment: the standardized prefabricated residential block of the resource-based city — the base fabric the courtyard houses and machiya are mixed into (M-VEN-5).";
 
 const PROV_ORE_SHED: &str = "Ore shed: dressing floor cover of the mining yard; the spoil ground lies open behind (S6 economy rule).";
@@ -561,12 +577,16 @@ const PROV_SAW_SHED: &str =
     "Saw shed: covered saw pit of the timber yard; the log landing lies open (S6 economy rule).";
 
 const PROV_TRADE_WAREHOUSE: &str = "Warehouse: deep gable-fronted store along the through-road (trade-hub row, S6 economy rule).";
+// The `harbour` district's warehouse main range, as opposed to `warehouse`'s own.
 const PROV_QUAY_WAREHOUSE: &str = "Warehouse: deep gable-fronted store on the quay; goods land at the break-of-bulk point (harbour-city family, lit. review §1.1 #22, §5).";
+// The ordinary burgage grammar's main range, every district but the working yards.
 const PROV_MAIN: &str = "Main range on the build-to line (zero setback, M-BLD-1; depth M-BLD-2).";
 const PROV_WING: &str =
     "Rear wing: burgage-cycle infill along the plot side (age-driven, M-BLD-6).";
 const PROV_COURTYARD_RING: &str = "Perimeter-block range: one of a continuous ring of houses fronting every street of an outer block, backing onto the block's shared open court (owner's town plan; Ruling H, sited by Ruling AD).";
+// The burgage grammar's grand-plot courtyard ring, rear range.
 const PROV_REAR_RANGE: &str = "Rear range closing a courtyard plan (M-BLD-3).";
+// The burgage grammar's detached rear outbuilding, every non-courtyard plot.
 const PROV_OUTBUILDING: &str = "Rear outbuilding (barn/workshop) at the plot tail (M-BLD-6).";
 
 /// `buildBuildings` (line 30431) — the parcel-conditioned building grammar.
@@ -1154,7 +1174,9 @@ fn faith_name(faith: &str) -> Option<&'static str> {
     }
 }
 
+// `faith == "mosque"`'s branch.
 const PROV_MOSQUE: &str = "Mosque: a covered prayer hall on the qibla side with an open courtyard (sahn) and a minaret — the Islamic rite (M-BLD-8).";
+// `faith == "orthodox"`'s branch.
 const PROV_ORTHODOX: &str = "Orthodox church: cross-in-square plan — a domed naos on four columns, a narthex (entrance hall) toward the town, an apsed bema behind — the mature Middle Byzantine rite, 9th-12th c. (M-BYZ-1).";
 
 /// `buildFaithSites` (line 30588) — places of worship by rite, each claiming a

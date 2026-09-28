@@ -88,6 +88,7 @@ use crate::growth::{WallState, ring_crossings};
 use crate::rng::stream;
 use crate::site::Site;
 
+/// Unit tests and the `citadel_sweep` golden.
 #[cfg(test)]
 mod tests;
 

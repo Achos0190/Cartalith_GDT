@@ -32,6 +32,7 @@
     clippy::excessive_precision
 )]
 
+/// One expected block, field for field against [`crate::blocks::Block`].
 pub struct BlockGolden {
     pub id: &'static str,
     pub poly: &'static [(f64, f64)],
@@ -39,6 +40,7 @@ pub struct BlockGolden {
     pub plaza: bool,
 }
 
+/// One expected parcel, field for field against [`crate::blocks::Parcel`].
 pub struct ParcelGolden {
     pub id: &'static str,
     pub poly: &'static [(f64, f64)],
@@ -50,6 +52,8 @@ pub struct ParcelGolden {
     pub edge_cls: &'static str,
 }
 
+/// One golden scenario: the inputs to reproduce it, a whole-dump hash to
+/// diff against, and a readable anchor of the first few blocks/parcels.
 pub struct Scenario {
     pub name: &'static str,
     pub seed: u32,

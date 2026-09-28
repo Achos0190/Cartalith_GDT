@@ -62,10 +62,12 @@ use crate::site::{SiteOpts, build_site};
 const JIT: [f64; 8] = [6.5, -4.25, 9.0, -7.5, 3.25, -2.0, 11.5, -9.75];
 /// The capture's `WIDE` grid.
 const XS: [f64; 5] = [300.0, 520.0, 760.0, 1010.0, 1240.0];
+// Rows.
 const YS: [f64; 4] = [280.0, 470.0, 690.0, 900.0];
 /// The capture's `NARROW` grid — shallow rows, so the bisector ray-cast cap
 /// binds below the plot depth. See `golden.rs`'s header for why it exists.
 const NXS: [f64; 5] = [300.0, 560.0, 830.0, 1090.0, 1340.0];
+// Rows, shallow enough to bind the bisector ray-cast cap.
 const NYS: [f64; 5] = [300.0, 332.0, 366.0, 398.0, 430.0];
 
 /// The grid a scenario is built on, by name — the golden fixture carries the
@@ -107,10 +109,7 @@ fn build_graph(name: &str) -> Graph {
 /// The capture's `grid()`, reproduced exactly — including the single shared
 /// `k` counter, which is what makes the jitter table's consumption order (and
 /// therefore every node position) depend on the loop nesting.
-#[allow(
-    clippy::needless_range_loop,
-    reason = "indexed exactly as the JS capture's loops are; the two must stay comparable line for line"
-)]
+#[allow(clippy::needless_range_loop, reason = "indexed exactly as the JS capture's loops are; the two must stay comparable line for line")]
 fn grid(g: &mut Graph, xs: &[f64], ys: &[f64]) {
     let mut k = 0usize;
     let mut next = || {
@@ -165,6 +164,8 @@ fn bits(x: f64) -> String {
     format!("{:016x}", x.to_bits())
 }
 
+/// A polygon as space-separated `x_bits,y_bits` pairs, for the whole-state
+/// hash — see [`bits`].
 fn dump_poly(ps: &[Vec2]) -> String {
     ps.iter()
         .map(|p| format!("{},{}", bits(p.x), bits(p.y)))
@@ -172,6 +173,8 @@ fn dump_poly(ps: &[Vec2]) -> String {
         .join(" ")
 }
 
+/// A parcel as a `|`-joined field dump, for the whole-state hash — see
+/// [`bits`] and [`dump_poly`].
 fn dump_parcel(p: &Parcel) -> String {
     format!(
         "{}|{}|{}|{}|{}|{}|{}|{}",
@@ -188,6 +191,9 @@ fn dump_parcel(p: &Parcel) -> String {
 
 #[test]
 fn golden_blocks_and_parcels() {
+    // Protects: the market anchor, the block/parcel counts, every listed
+    // block's and parcel's fields and vertices, and the whole-state hash
+    // over everything not individually listed — for all five scenarios.
     for sc in golden::SCENARIOS {
         let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
         let g = build_graph(sc.name);
@@ -305,6 +311,9 @@ fn golden_blocks_and_parcels() {
 /// is where this is worth revisiting.
 #[test]
 fn block_area_ceiling_boundary() {
+    // Protects: the 140_000 m² face-area ceiling, pinned one unit either
+    // side of the boundary.
+    // The frame's side length, metres.
     const F: f64 = 600.0;
     let site = build_site(1, 1700.0, 1250.0, "plain", SiteOpts::default());
     // A vertical and a horizontal cut at `s` split the frame into four cells:
@@ -336,6 +345,8 @@ fn block_area_ceiling_boundary() {
 /// the block counts are directly comparable.
 #[test]
 fn river_site_rejects_a_flooded_block() {
+    // Protects: build_blocks' wet-face guard actually drops a block to the
+    // river, rather than the fixture coincidentally never exercising it.
     let by = |n| {
         golden::SCENARIOS
             .iter()
@@ -354,6 +365,8 @@ fn river_site_rejects_a_flooded_block() {
 /// which is the whole thing this field exists to prevent.
 #[test]
 fn tone_is_deterministic_and_spread() {
+    // Protects: `tone` is reproducible across runs, spread rather than
+    // constant, in range, and varies between settlements.
     let sc = &golden::SCENARIOS[0];
     let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
     let g = build_graph(sc.name);
@@ -399,6 +412,8 @@ fn tone_is_deterministic_and_spread() {
 /// it back.
 #[test]
 fn block_area_band_is_enforced() {
+    // Protects: every kept block's face area sits in the reference's
+    // 120..140_000 m² band, and the outer (whole-graph) face is never kept.
     let sc = &golden::SCENARIOS[0];
     let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
     let g = build_graph(sc.name);
@@ -437,6 +452,8 @@ fn block_area_band_is_enforced() {
 
 #[test]
 fn parcels_conserve_block_area() {
+    // Protects: the 0.97 area-conservation trim per block, and the 26..2600
+    // m² lot-area band, over every scenario.
     // The reference's own invariant: sum(parcels) <= 0.97 * block area. It is
     // enforced by a trim loop, so a broken trim shows up here and nowhere else.
     for sc in golden::SCENARIOS {
@@ -484,6 +501,9 @@ fn parcels_conserve_block_area() {
 /// the NaN branch is never taken. This is the only test that reaches it.
 #[test]
 fn a_nan_rule_does_not_reach_lot_geometry() {
+    // Protects: a NaN generation-rule slider does not put a NaN into any
+    // surviving lot's geometry or area, and a NaN subdivision cap runs the
+    // burgage cycle zero times rather than panicking or looping.
     use crate::rules::DEFAULT_RULES;
 
     let sc = &golden::SCENARIOS[0];
@@ -525,6 +545,8 @@ fn a_nan_rule_does_not_reach_lot_geometry() {
 /// still a failure: the suite does not finish.
 #[test]
 fn the_planned_grid_variance_terminates() {
+    // Protects: PARCEL_GRANT_MAX_SPIN's bound actually terminates a town
+    // that previously hung, within the test suite's own time budget.
     use crate::generate::{GenOpts, generate};
     use crate::rules::{ParcelPatch, RulesPatch};
     let opts = GenOpts {

@@ -83,6 +83,7 @@ use crate::rng::{fnv1a, stream};
 use crate::site::Site;
 use crate::wallside::WallBacking;
 
+/// Unit tests and goldens for the courtyard-ring conversion.
 #[cfg(test)]
 mod tests;
 

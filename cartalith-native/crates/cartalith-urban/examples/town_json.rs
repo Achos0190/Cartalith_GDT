@@ -21,16 +21,19 @@ use cartalith_urban::generate::{GenOpts, generate};
 use cartalith_urban::geom::Vec2;
 use std::fmt::Write as _;
 
+/// A flat point list as a JSON array of `[x,y]` pairs.
 fn pts(v: &[Vec2]) -> String {
     let inner: Vec<String> = v.iter().map(|p| format!("[{},{}]", p.x, p.y)).collect();
     format!("[{}]", inner.join(","))
 }
 
+/// A string iterator as a JSON array of quoted strings.
 fn strs<'a>(v: impl Iterator<Item = &'a str>) -> String {
     let inner: Vec<String> = v.map(|s| format!("\"{s}\"")).collect();
     format!("[{}]", inner.join(","))
 }
 
+/// CLI entry point — see the module header for usage.
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     if a.len() != 6 {

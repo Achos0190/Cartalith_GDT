@@ -147,6 +147,7 @@ use crate::water::HarbourWorks;
 use std::collections::HashSet;
 use std::f64::consts::PI;
 
+/// Unit tests for the ruin sweep and `build_details`' clutter placement.
 #[cfg(test)]
 mod tests;
 

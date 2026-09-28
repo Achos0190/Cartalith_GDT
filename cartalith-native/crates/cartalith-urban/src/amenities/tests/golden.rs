@@ -542,6 +542,8 @@ pub struct CivicG {
     pub prov: &'static str,
 }
 
+/// One golden scenario for `build_civic`: the inputs and the expected
+/// building (or [`None`] where the reference builds nothing).
 pub struct CivicCase {
     pub name: &'static str,
     pub pop: f64,
@@ -781,6 +783,8 @@ pub struct GameG {
     pub prov: &'static str,
 }
 
+/// One golden scenario for the games/amenity venue placement: the inputs and
+/// the fixture flags that shape which venues can be sited.
 pub struct GamesCase {
     pub name: &'static str,
     pub seed: u32,

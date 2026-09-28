@@ -146,6 +146,7 @@ pub enum Family {
     Syn,
 }
 
+/// One expected building, field for field against [`crate::districts::Building`].
 pub struct BuildingGolden {
     pub id: &'static str,
     pub parcel: &'static str,
@@ -160,6 +161,8 @@ pub struct BuildingGolden {
     pub ridge: &'static [f64],
 }
 
+/// One expected place-of-worship tower, field for field against
+/// [`crate::districts::Tower`].
 pub struct TowerGolden {
     pub x: f64,
     pub y: f64,
@@ -167,6 +170,8 @@ pub struct TowerGolden {
     pub kind: &'static str,
 }
 
+/// One expected place of worship, field for field against
+/// [`crate::districts::FaithSite`].
 pub struct FaithGolden {
     pub id: &'static str,
     pub faith: &'static str,
@@ -183,6 +188,8 @@ pub struct FaithGolden {
     pub prov: &'static str,
 }
 
+/// One golden scenario: the inputs to reproduce it, one of [`Family`], and
+/// the expected output to diff against.
 pub struct Case {
     pub name: &'static str,
     pub family: Family,

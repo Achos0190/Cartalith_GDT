@@ -7,12 +7,16 @@ use super::*;
 use crate::generate::{GenOpts, Town, generate};
 use crate::geom::{dist_pt_seg, point_in_poly};
 
+/// An `s`×`s` axis-aligned square, CCW from the origin.
 fn square(s: f64) -> Vec<Vec2> {
     vec![Vec2::new(0.0, 0.0), Vec2::new(s, 0.0), Vec2::new(s, s), Vec2::new(0.0, s)]
 }
 
 #[test]
 fn a_square_block_is_a_ring_of_lots_round_a_square_court() {
+    // Protects: the court is the block inset by depth, the lot count at a
+    // given frontage, ring+court area equals the block, each lot fronts its
+    // own edge and backs on the court, and no two lots overlap.
     let blk = square(60.0);
     let (court, lots) = ring_plat(&blk, 15.0, &mut || 10.0).expect("a 60 m block rings at 15 m");
     // The court is the block inset 15 m all round: a 30 m square, 900 m².
@@ -39,6 +43,9 @@ fn a_square_block_is_a_ring_of_lots_round_a_square_court() {
 
 #[test]
 fn the_ring_depth_is_solved_for_the_court_share() {
+    // Protects: ring_depth's bisection against a hand-solved depth, its
+    // too-big/too-small/None cases, both RING_DEPTH clamp ends, and
+    // court_of's own inset-collapse refusal.
     // (60 - 2d)² = 0.25 · 3600  ⇒  d = 15.
     let d = ring_depth(&square(60.0), 0.25).expect("dense");
     assert!((d - 15.0).abs() < 1e-3, "{d}");
@@ -61,6 +68,9 @@ fn the_ring_depth_is_solved_for_the_court_share() {
 
 #[test]
 fn a_notched_block_still_tiles_and_a_short_chamfer_is_refused() {
+    // Protects: ring_plat over a non-convex (reflex-notched) block still
+    // tiles it exactly, and a chamfer that folds under the inset is refused
+    // both under and over inset_poly's own 60-vertex self-intersection test.
     // A reflex notch in a 40 m block: the ring still tiles it exactly.
     let blk = vec![
         Vec2::new(0.0, 0.0),
@@ -100,6 +110,8 @@ fn a_notched_block_still_tiles_and_a_short_chamfer_is_refused() {
     assert!(ring_plat(&many, 8.0, &mut || 9.0).is_none());
 }
 
+/// A generated town at the given seed, site kind, population and optional
+/// culture profile.
 fn town(seed: u32, site: &str, pop: f64, culture: Option<&str>) -> Town {
     let o = GenOpts {
         pop: Some(pop),
@@ -112,6 +124,11 @@ fn town(seed: u32, site: &str, pop: f64, culture: Option<&str>) -> Town {
 
 #[test]
 fn real_towns_ring_their_outermost_dense_blocks_and_nothing_else() {
+    // Protects: over real generated towns, only the outermost-by-market-
+    // distance blocks convert, each converts whole, each leaves a court at
+    // least COURT_MIN_AREA, no ring lot overlaps any other lot, and every
+    // ring lot not otherwise claimed carries exactly one whole-lot building
+    // flagged `courtyard`.
     let mut rung = 0;
     for (seed, site, pop) in [
         (42u32, "river", 5000.0),
@@ -177,6 +194,8 @@ fn real_towns_ring_their_outermost_dense_blocks_and_nothing_else() {
 
 #[test]
 fn the_radial_plan_keeps_its_warehouse_belt() {
+    // Protects: the Venus/radial culture profile never gets a courtyard ring
+    // (its own outermost band is the logistics-warehouse belt instead).
     for seed in [42u32, 7, 1234] {
         let t = town(seed, "inland", 6000.0, Some("venus"));
         assert!(t.parcels.iter().all(|p| !p.par.courtyard_ring), "venus {seed}");
@@ -190,12 +209,15 @@ fn the_radial_plan_keeps_its_warehouse_belt() {
 // additions". Hand-built blocks with literal answers, ties made exact and
 // asserted exact before use.
 
+/// A `w`×`h` axis-aligned rectangle, CCW from the origin.
 fn rect(w: f64, h: f64) -> Vec<Vec2> {
     vec![Vec2::new(0.0, 0.0), Vec2::new(w, 0.0), Vec2::new(w, h), Vec2::new(0.0, h)]
 }
 
 #[test]
 fn the_dense_court_window_is_80_square_metres_to_35_percent_inclusive() {
+    // Protects: COURT_MIN_AREA and COURT_MAX_FRAC are both inclusive
+    // boundaries, pinned with fixtures one hundredth of a metre either side.
     // Clamped deep (22 m) and 34.2% court: under 35%, so still dense.
     assert_eq!(ring_depth(&square(106.0), 0.2), Some(22.0));
     // Clamped shallow (8 m): an 8.97 m court square is 80.46 m², over the floor;
@@ -213,6 +235,8 @@ fn the_dense_court_window_is_80_square_metres_to_35_percent_inclusive() {
 
 #[test]
 fn a_target_met_exactly_by_the_deepest_ring_takes_it_without_bisecting() {
+    // Protects: `ring_depth`'s `court(hi) >= area * target` early return is
+    // inclusive of an exact tie, so it short-circuits rather than bisecting.
     // `court(hi) >= area * target`, inclusive: a 100 m square's 22 m court is
     // 56² = 3136 m², so a target of 0.3136 is met exactly at 22.
     assert_eq!(10000.0 * 0.3136, 3136.0);
@@ -221,6 +245,8 @@ fn a_target_met_exactly_by_the_deepest_ring_takes_it_without_bisecting() {
 
 #[test]
 fn a_lot_of_exactly_26_square_metres_is_kept() {
+    // Protects: MIN_LOT_AREA's `>=` in `ring_plat` keeps a lot at exactly
+    // the floor rather than dropping it.
     // A 21 m block at 8 m depth, four lots an edge: every lot is a trapezoid of
     // parallel sides 5.25 and 1.25 m, 8 m apart — exactly 26 m².
     let (_, lots) = ring_plat(&square(21.0), 8.0, &mut || 5.25).expect("rings");
@@ -228,6 +254,8 @@ fn a_lot_of_exactly_26_square_metres_is_kept() {
     assert!(lots.iter().all(|(_, q)| poly_area(q) == 26.0));
 }
 
+/// A hand-built [`Block`] fixture with the given id, polygon, face-node ids
+/// and plaza flag; `area`/`face_poly` are derived from `poly`.
 fn blk(id: &str, poly: Vec<Vec2>, face_ids: Vec<usize>, plaza: bool) -> Block {
     Block {
         id: id.into(),
@@ -240,6 +268,8 @@ fn blk(id: &str, poly: Vec<Vec2>, face_ids: Vec<usize>, plaza: bool) -> Block {
     }
 }
 
+/// A hand-built strip-plat [`Parcel`] fixture on `block`, id `strip-<block>`,
+/// with every other field zeroed except what the test under it sets.
 fn strip(block: &str, poly: &[Vec2]) -> Parcel {
     Parcel {
         id: format!("strip-{block}"),
@@ -298,6 +328,11 @@ fn site_with(kind: &str, w: Option<crate::site::WaterCtx>) -> Site {
 
 #[test]
 fn ring_lots_carry_their_own_streets_class_and_age() {
+    // Protects: build_courtyard_rings converts the block whole, each ring
+    // lot's edge_cls and age come from the street it fronts (age = epochs
+    // less that street's own epoch, floored at 0; the unlaid west side gets
+    // "street" and the full epoch count), and a lot's depth is the mean of
+    // its two side lengths.
     let mut g = Graph::new();
     let b = square_block(&mut g);
     let mut parcels = vec![strip("blk0", &b.poly)];
@@ -334,6 +369,9 @@ fn ring_lots_carry_their_own_streets_class_and_age() {
 
 #[test]
 fn the_outer_ring_skips_plazas_and_is_inclusive_at_seventy_percent() {
+    // Protects: a plaza block is never ringed and sets no extent for the
+    // ring test, and OUTER_RING_FRAC's `>=` is inclusive of a block at
+    // exactly the boundary distance.
     let mut g = Graph::new();
     let b = square_block(&mut g); // centroid (100, 0): 100 m from the market
     // A plaza 300 m out carrying a lot of its own, and a block at exactly 70 m.
@@ -350,6 +388,8 @@ fn the_outer_ring_skips_plazas_and_is_inclusive_at_seventy_percent() {
 
 #[test]
 fn a_block_whose_every_lot_is_a_sliver_keeps_its_strip_plat() {
+    // Protects: a block whose ring plats but leaves no lot above the area
+    // floor converts nothing — the strip lot survives, not an empty ring.
     // A 60-gon of radius 20: every edge is 2.1 m, every ring lot under 26 m²
     // and dropped. No lots is no conversion, not an empty ring.
     let poly: Vec<Vec2> = (0..60)
@@ -371,6 +411,10 @@ fn a_block_whose_every_lot_is_a_sliver_keeps_its_strip_plat() {
 
 #[test]
 fn every_corner_of_every_lot_must_be_dry_by_both_tests() {
+    // Protects: the river-margin dry test (riverW/2 + 1, inclusive), the
+    // flat 3 m margin for every other site kind, the water mask overriding
+    // distance, and that one wet corner anywhere in the block refuses the
+    // whole conversion even when other lots and corners are dry.
     let convert = |site: &Site| {
         let mut g = Graph::new();
         let b = square_block(&mut g);
@@ -403,6 +447,9 @@ fn every_corner_of_every_lot_must_be_dry_by_both_tests() {
 
 #[test]
 fn the_bisection_moves_down_on_a_midpoint_that_meets_the_target_exactly() {
+    // Protects: ring_depth's bisection treats a midpoint tie as "met" (moves
+    // `hi` down, not `lo` up), so the returned depth approaches the tie from
+    // below rather than landing on or past it.
     // `court(mid) > target` sends `lo` up; a tie sends `hi` down. The first
     // midpoint of (8, 22) is 15, and a 60 m square's 15 m court is exactly a
     // quarter of it — so `hi` becomes 15 and `lo` climbs toward it from below,

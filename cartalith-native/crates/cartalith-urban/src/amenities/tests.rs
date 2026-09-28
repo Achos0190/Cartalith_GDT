@@ -128,15 +128,19 @@ use crate::site::{Site, SiteOpts, build_site};
 
 /// `generate()`'s own site box.
 const WM: f64 = 1700.0;
+// `generate()`'s own site box.
 const HM: f64 = 1250.0;
 
 /// The capture's grid offsets and jitter table, verbatim. The grid is placed
 /// relative to the market anchor so that the 85-300 m candidate band always
 /// contains junctions, whatever the site kind put the anchor at.
 const XOFF: [f64; 6] = [-330.0, -190.0, -70.0, 70.0, 190.0, 330.0];
+// Row offsets.
 const YOFF: [f64; 6] = [-300.0, -170.0, -50.0, 80.0, 210.0, 330.0];
+// Jitter draws applied to the grid lines.
 const JIT: [f64; 8] = [5.5, -3.25, 8.0, -6.5, 2.25, -1.0, 10.5, -8.75];
 
+/// Bit-for-bit float equality with a labelled failure message.
 fn eq_bits(got: f64, want: f64, what: &str) {
     assert_eq!(got.to_bits(), want.to_bits(), "{what}: got {got:?}, want {want:?}");
 }
@@ -150,6 +154,7 @@ fn eq_poly(got: &[Vec2], want: &[f64], what: &str) {
     }
 }
 
+/// A `2*hw`×`2*hh` axis-aligned rectangle centred at `(cx, cy)`.
 fn quad(cx: f64, cy: f64, hw: f64, hh: f64) -> Vec<Vec2> {
     vec![
         Vec2::new(cx - hw, cy - hh),
@@ -171,20 +176,27 @@ struct Fixture {
 }
 
 impl Fixture {
+    /// The sparse parcel set as borrowed slices.
     fn parcel_polys(&self) -> Vec<&[Vec2]> {
         self.parcels.iter().map(std::vec::Vec::as_slice).collect()
     }
+    /// The dense parcel set (see the module header) as borrowed slices.
     fn dense_polys(&self) -> Vec<&[Vec2]> {
         self.parcels_dense.iter().map(std::vec::Vec::as_slice).collect()
     }
+    /// Every parcel's centroid.
     fn parcel_centroids(&self) -> Vec<Vec2> {
         self.parcels.iter().map(|p| poly_centroid(p)).collect()
     }
+    /// Every building's centroid.
     fn building_centroids(&self) -> Vec<Vec2> {
         self.buildings.iter().map(|p| poly_centroid(p)).collect()
     }
 }
 
+/// One scenario's whole rebuilt input — the site, anchors, jittered grid,
+/// plaza, and the sparse/dense parcel and building sets — see the module
+/// header for why it is built rather than grown.
 fn fixture(seed: u32, kind: &str) -> Fixture {
     let site = build_site(seed, WM, HM, kind, SiteOpts::default());
     let anchors = place_anchors(seed, &site);
@@ -252,6 +264,9 @@ fn ring_at(m: Vec2) -> Vec<Vec2> {
 
 #[test]
 fn golden_markets_reproduce_the_reference_exactly() {
+    // Protects: the market anchor and fixture graph shape, every placed
+    // market's name/centre/poly/provenance, and the cleared-parcel and
+    // removed-building index lists — over all 30 captured scenarios.
     let mut total = 0usize;
     let mut cleared_seen = 0usize;
     let mut removed_seen = 0usize;
@@ -304,6 +319,9 @@ fn golden_markets_reproduce_the_reference_exactly() {
 /// order the names come out in.
 #[test]
 fn each_population_threshold_opens_exactly_at_its_value() {
+    // Protects: the five population gates (1500/3500/8000/14000, plus the
+    // implicit floor) each open at their own inclusive boundary, and the
+    // market names come out in a fixed order.
     let f = fixture(7, "river");
     let names = |pop: f64| -> Vec<&'static str> {
         build_markets(
@@ -366,6 +384,9 @@ fn band_fixture(d: f64, spokes: usize) -> (Site, Anchors, Graph, Plaza) {
 
 #[test]
 fn the_candidate_band_and_the_junction_degree_are_exact() {
+    // Protects: the 85-300 m candidate band, inclusive at both ends; that a
+    // degree-2 bend is not a market site while degree 3/4 are; and that the
+    // junction degree is counted over live edges only.
     let placed = |d: f64, spokes: usize| {
         let (site, anchors, g, plaza) = band_fixture(d, spokes);
         let p = Vec2::new(anchors.market.x + d, anchors.market.y);
@@ -458,6 +479,8 @@ fn winner(dm_west: f64, dm_east: f64) -> Vec2 {
 /// moves the two scores in opposite directions and the winner flips.
 #[test]
 fn the_ideal_radius_of_a_hundred_and_seventy_metres_decides_the_winner() {
+    // Protects: the 170 m ideal radius, pinned in both directions with the
+    // two candidate scores placed exactly one metre apart.
     let mut r = crate::rng::stream(7, "markets");
     let j0 = r.range(0.0, 50.0);
     let j1 = r.range(0.0, 50.0);
@@ -487,6 +510,9 @@ fn the_ideal_radius_of_a_hundred_and_seventy_metres_decides_the_winner() {
 /// 51; `49.5 * (u0 - u1)` puts it between 49 and 50.
 #[test]
 fn the_fifty_metre_jitter_band_decides_the_winner() {
+    // Protects: the `range(0, 50)` jitter band, pinned in both directions by
+    // placing the score gap a fixed multiple of the jitter spread away from
+    // the crossing.
     let mut r = crate::rng::stream(7, "markets");
     let u0 = r.range(0.0, 50.0) / 50.0;
     let u1 = r.range(0.0, 50.0) / 50.0;
@@ -514,6 +540,8 @@ fn the_fifty_metre_jitter_band_decides_the_winner() {
 /// sits from the first.
 #[test]
 fn two_squares_must_be_ninety_five_metres_apart() {
+    // Protects: the 95 m spacing test is a strict `< 95`, so exactly 95 m
+    // admits a second square and 94 m does not.
     let placed = |gap: f64| {
         let site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
         let m = Vec2::new(700.0, 625.0);
@@ -540,6 +568,8 @@ fn two_squares_must_be_ninety_five_metres_apart() {
 /// A graph with no junction at all places nothing, whatever the population.
 #[test]
 fn no_junction_places_no_market() {
+    // Protects: a graph with no candidate junction places no market at any
+    // population, and clears/removes nothing.
     let site = build_site(7, WM, HM, "landlocked", SiteOpts::default());
     let anchors = Anchors { market: Vec2::new(850.0, 625.0), prov: "fixture" };
     let mut g = Graph::new();
@@ -553,6 +583,9 @@ fn no_junction_places_no_market() {
 
 #[test]
 fn golden_civic_reproduces_the_reference_exactly() {
+    // Protects: build_civic's style/name/dome/provenance, centre, hall,
+    // columns, belfry and apse (presence and value), and that a refusal
+    // (None) and a build agree with the reference — over all 20 scenarios.
     let f = fixture(golden::CIVIC_SEED, golden::CIVIC_KIND);
     let mut built = 0usize;
     let mut refused = 0usize;
@@ -599,6 +632,9 @@ fn golden_civic_reproduces_the_reference_exactly() {
 /// All five styles appear, and each carries the shape that distinguishes it.
 #[test]
 fn every_civic_style_has_its_own_shape() {
+    // Protects: each of the five civic styles (basilica, loggia, keep, dome,
+    // townhall) carries the shape and flags that distinguish it, and the
+    // townhall/town-hall rename at the 10 000 population boundary.
     let f = fixture(7, "river");
     let of = |style: &str| build_civic(7, f.plaza.as_ref(), 9000.0, style, "church").unwrap();
 
@@ -643,6 +679,9 @@ fn every_civic_style_has_its_own_shape() {
 /// anything else is taken as given, and `'none'` refuses.
 #[test]
 fn the_style_ternary_resolves_by_faith() {
+    // Protects: `'auto'`/`''` resolve by faith, any other style is taken as
+    // given (and beats the faith resolution), `'none'` refuses, and the
+    // 1500-population gate and no-plaza refusal both apply first.
     let f = fixture(7, "river");
     let style = |st: &str, faith: &str| {
         build_civic(7, f.plaza.as_ref(), 9000.0, st, faith).map(|c| c.style)
@@ -671,6 +710,9 @@ fn the_style_ternary_resolves_by_faith() {
 /// 1500)` clamp together.
 #[test]
 fn the_rank_curve_is_one_at_the_gate_and_nineteen_tenths_at_the_cap() {
+    // Protects: the rank curve is 1.0x at the 1500-population gate, 1.9x at
+    // the 20 000 cap, monotonically rising in between, unclamped past the
+    // cap, and the 1500 floor (not a code-reachability floor) really clamps.
     let f = fixture(7, "river");
     let width = |pop: f64| {
         let c = build_civic(7, f.plaza.as_ref(), pop, "loggia", "church").unwrap();
@@ -707,6 +749,10 @@ fn the_rank_curve_is_one_at_the_gate_and_nineteen_tenths_at_the_cap() {
 /// "helpfully" made `norm` return NaN would pass the golden and fail here.
 #[test]
 fn a_degenerate_plaza_collapses_and_a_nan_one_falls_back() {
+    // Protects: a plaza whose centre sits on its own first edge's midpoint
+    // collapses the hall to a point (the zero-vector `norm` path, not the
+    // NaN fallback), while a genuinely NaN centre does take the fallback and
+    // produces finite geometry.
     let flat = Plaza {
         center: Vec2::new(100.0, 100.0),
         poly: vec![
@@ -738,6 +784,9 @@ fn a_degenerate_plaza_collapses_and_a_nan_one_falls_back() {
 /// of NaNs.
 #[test]
 fn a_nan_population_stays_nan_through_the_rank_curve() {
+    // Protects: a NaN population passes the `pop < 1500` gate (false for
+    // NaN in both languages) and stays NaN through the rank curve rather
+    // than being silently clamped to 1500 by a Rust f64::max.
     let f = fixture(7, "river");
     // `pop < 1500` is false for NaN in both languages, so the gate lets it
     // through -- which is the only reason this matters.
@@ -753,6 +802,9 @@ fn a_nan_population_stays_nan_through_the_rank_curve() {
 
 #[test]
 fn golden_games_reproduce_the_reference_exactly() {
+    // Protects: build_games' placed count, and each placed building's id,
+    // kind, name, provenance, centre and poly — over all 50 scenarios,
+    // including the honest-omission (empty) path.
     let mut placed = 0usize;
     let mut empty = 0usize;
     for c in golden::GAMES {
@@ -804,6 +856,9 @@ fn golden_games_reproduce_the_reference_exactly() {
 /// edges in `blocked` would be untested inputs.
 #[test]
 fn the_wall_ring_and_the_civic_hall_both_move_a_result() {
+    // Protects: a wall ring, dropping the plaza, and the dense parcel set
+    // each actually change some result somewhere in the golden set, so none
+    // of their inputs is a silently-unread parameter.
     let by_name = |n: &str| golden::GAMES.iter().find(|c| c.name == n).expect(n);
     let centre = |c: &golden::GamesCase| c.out.first().map(|b| b.center);
     let mut ring_moved = 0;
@@ -830,6 +885,9 @@ fn the_wall_ring_and_the_civic_hall_both_move_a_result() {
 /// `venus` has no spec at all, so nothing is placed whatever the population.
 #[test]
 fn a_profile_with_no_spec_places_nothing() {
+    // Protects: a profile with no games spec table (venus, or an unknown
+    // profile) places nothing at any population, while medieval's table is
+    // non-empty.
     let f = fixture(7, "river");
     assert!(games_spec("venus").is_empty());
     assert!(games_spec("no-such-profile").is_empty());
@@ -854,6 +912,7 @@ fn a_profile_with_no_spec_places_nothing() {
 /// The 3000 gate, at its own boundary.
 #[test]
 fn the_games_population_gate_opens_at_three_thousand() {
+    // Protects: the games population gate is inclusive at exactly 3000.
     let f = fixture(7, "river");
     let at = |pop: f64| {
         build_games(
@@ -879,6 +938,9 @@ fn the_games_population_gate_opens_at_three_thousand() {
 /// properties over every golden scenario that placed anything.
 #[test]
 fn a_placed_games_building_clears_the_box_and_the_water() {
+    // Protects: every placed games building is a rectangle, stays clear of
+    // the box's 25 m margin, and never sits on water — over every golden
+    // scenario that placed anything.
     let mut checked = 0usize;
     for c in golden::GAMES {
         if c.out.is_empty() {
@@ -906,6 +968,8 @@ fn a_placed_games_building_clears_the_box_and_the_water() {
 
 #[test]
 fn oriented_rect_and_games_shape_at_are_the_references_own() {
+    // Protects: oriented_rect matches the reference's own captured cases,
+    // and games_shape_at agrees with oriented_rect for every surviving spec.
     assert!(!golden::RECTS.is_empty());
     let spec = &games_spec("medieval")[0];
     for (i, c) in golden::RECTS.iter().enumerate() {
@@ -922,6 +986,9 @@ fn oriented_rect_and_games_shape_at_are_the_references_own() {
 
 #[test]
 fn the_games_spec_table_is_the_references_own() {
+    // Protects: the medieval and venus spec table lengths, and every field
+    // of the medieval table's first entry, against the reference's own
+    // captured values.
     assert_eq!(games_spec("medieval").len(), golden::SPEC_MEDIEVAL_LEN);
     assert_eq!(games_spec("venus").len(), golden::SPEC_VENUS_LEN);
     let s = &games_spec("medieval")[0];
@@ -949,6 +1016,9 @@ fn the_games_spec_table_is_the_references_own() {
 /// this project before each changed a real result.
 #[test]
 fn js_log10_is_v8s_own_log10() {
+    // Protects: js_log10 matches V8's Math.log10 to the bit over every
+    // captured argument, plus the fdlibm edge cases (0, -0, negative,
+    // infinity, NaN, exact powers of ten, and the subnormal rescaling path).
     assert!(golden::LOG10.len() >= 150, "the log10 table lost arguments");
     assert!(golden::LOG10.len().is_multiple_of(2));
     for w in golden::LOG10.chunks(2) {

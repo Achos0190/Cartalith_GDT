@@ -1728,6 +1728,54 @@ re-checked against the tree rather than copied from the commit message.
   through 30 all still need an independent verifier before any can be
   called done rather than pending.
 
+- **Ruling BK annotation pass, batch 31 (`cartalith-urban`, `districts.rs`
+  closed; `citadel.rs`/`citadel/tests.rs`, `courtyard.rs`, `generate.rs`,
+  `hinterland.rs`, three golden.rs files, `examples/town_json.rs`,
+  `blocks/tests.rs`, `generate/tests.rs`, `districts/tests.rs` and
+  `amenities/tests.rs` all closed) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked: comments plus one attribute reflowed token-identically; urban 349/0/0) (comments only; urban 349/0/0 unchanged).** Recorded a
+  pre-edit baseline (`cargo test -p cartalith-urban`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk31`): **349 passed / 0 failed / 0 ignored**. Finished
+  `districts.rs`'s 23 gaps left over from batch 30: 20 `PROV_*` consts each
+  got a one-line `//` comment naming which branch writes it, `mod tests;`
+  got its own `///` line, and the two helper fns `cand`/`retag` (already
+  carrying a `//` block, not a `///` one, so the census's `preceded_by_doc`
+  could not see it) were promoted to `///`. Then closed every other file
+  `census_v2.py` still flagged in the crate except the three largest test
+  files: `citadel.rs` (`mod tests;`), `citadel/tests.rs` (the `town` helper,
+  three `// Protects:` lines, the `SEED` const), `courtyard.rs` (`mod
+  tests;`), `generate.rs` (`mod tests;`), `hinterland.rs` (`mod tests;`),
+  `blocks/tests/golden.rs`/`amenities/tests/golden.rs`/`districts/tests/
+  golden.rs` (nine undocumented generated structs), `examples/town_json.rs`
+  (three fns), `blocks/tests.rs` (a multi-line `#[allow(...)]` attribute
+  collapsed to one line so the census's doc-scanner could see the `///`
+  already above `grid`, two undocumented dump helpers, six `// Protects:`
+  lines and two consts), `generate/tests.rs` (`mod golden;`, four helper
+  fns, two consts, thirteen `// Protects:` lines — the whole-subsystem
+  golden plus every unit-level pin), `districts/tests.rs` (eleven helper
+  fns, one const, thirteen `// Protects:` lines) and `amenities/tests.rs`
+  (seven helper/method fns, three consts, twenty `// Protects:` lines
+  across markets/civic/games/log10). No wrong existing comment was found
+  while reading; no behaviour changed. `cargo test -p cartalith-urban`, same
+  `CARGO_TARGET_DIR`, run again after `blocks/tests.rs` and at the end:
+  **349 passed / 0 failed / 0 ignored**, byte-identical to the pre-edit
+  baseline. `git diff --stat` confirmed comment-only across all fifteen
+  touched files: 316 insertions, 8 deletions (the 8 are the collapsed
+  attribute line and two const/comment merges, each a comment-line
+  reduction, not a code change). Crate-wide `census_v2.py`: items_undoc
+  174→99, tests_unprotected 174→103, consts_undoc 35→5 — the crate stood at
+  383 total gaps after batch 30 and stands at 207 now, so 176 gaps closed
+  against the ~200-gap batch budget; roughly 6 900 LOC read/edited across
+  the fourteen files this batch touched, against the ~10 000 LOC cap.
+  **Stopped after `amenities/tests.rs`**, with three files
+  left unclosed: `hinterland/tests.rs` (81 gaps), `cleanup/tests.rs` (70
+  gaps) and `wallside/tests.rs` (56 gaps) — 207 gaps remaining, which would
+  not fit this batch's budget alongside what was already done. Next step:
+  batch 32 opens `hinterland/tests.rs` (largest remaining file) to close
+  `cartalith-urban`, then moves to `cartalith-civ`, then `cartalith-godot`,
+  then the GDScript shell (per the owner's routed order). Batches 6 through
+  31 all still need an independent verifier before any can be called done
+  rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
