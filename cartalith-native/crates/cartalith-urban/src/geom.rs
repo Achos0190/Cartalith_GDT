@@ -133,6 +133,7 @@ impl Vec2 {
 /// arithmetic rather than as method chains.
 impl std::ops::Add for Vec2 {
     type Output = Vec2;
+    /// Componentwise vector addition.
     fn add(self, b: Vec2) -> Vec2 {
         Vec2::new(self.x + b.x, self.y + b.y)
     }
@@ -140,6 +141,7 @@ impl std::ops::Add for Vec2 {
 /// `V.sub`
 impl std::ops::Sub for Vec2 {
     type Output = Vec2;
+    /// Componentwise vector subtraction.
     fn sub(self, b: Vec2) -> Vec2 {
         Vec2::new(self.x - b.x, self.y - b.y)
     }
@@ -147,6 +149,7 @@ impl std::ops::Sub for Vec2 {
 /// `V.mul` — vector times scalar.
 impl std::ops::Mul<f64> for Vec2 {
     type Output = Vec2;
+    /// Scales both components by `s`.
     fn mul(self, s: f64) -> Vec2 {
         Vec2::new(self.x * s, self.y * s)
     }
@@ -449,6 +452,8 @@ pub fn convex_hull(pts: &[Vec2]) -> Vec<Vec2> {
     lo
 }
 
+/// Milestone 1's golden tests for the geometry kernel, captured the same way
+/// as `rng.rs`'s — see [`tests::p`]'s doc comment for the capture discipline.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -463,29 +468,39 @@ mod tests {
     fn p(x: f64, y: f64) -> Vec2 {
         Vec2::new(x, y)
     }
+    /// Builds a `Vec<Vec2>` from plain tuples, for compact fixture literals.
     fn pts(v: &[(f64, f64)]) -> Vec<Vec2> {
         v.iter().map(|&(x, y)| p(x, y)).collect()
     }
+    /// The inverse of [`pts`], for comparing results against tuple literals.
     fn flat(v: &[Vec2]) -> Vec<(f64, f64)> {
         v.iter().map(|q| (q.x, q.y)).collect()
     }
+    /// A 10x10 CCW square fixture, reused across most of this module's tests.
     fn square() -> Vec<Vec2> {
         pts(&[(0., 0.), (10., 0.), (10., 10.), (0., 10.)])
     }
+    /// [`square`], wound clockwise — exercises `ensure_ccw`'s reversal branch.
     fn cw_square() -> Vec<Vec2> {
         let mut v = square();
         v.reverse();
         v
     }
+    /// A right-triangle fixture, small enough to hit `inset_poly`'s
+    /// area-below-15 rejection.
     fn tri() -> Vec<Vec2> {
         pts(&[(0., 0.), (8., 0.), (0., 6.)])
     }
+    /// A non-convex L-shaped fixture, for the reflex-corner cases `square`
+    /// and `tri` cannot reach.
     fn l_shape() -> Vec<Vec2> {
         pts(&[(0., 0.), (12., 0.), (12., 4.), (5., 4.), (5., 11.), (0., 11.)])
     }
 
     #[test]
     fn golden_poly_area() {
+        // Protects: poly_area's signed shoelace sum, including the collinear
+        // (exactly zero) and self-crossing (lobes cancel) edge cases.
         assert_eq!(poly_area(&square()), 100.0);
         assert_eq!(poly_area(&cw_square()), -100.0);
         assert_eq!(poly_area(&tri()), 24.0);
@@ -497,6 +512,8 @@ mod tests {
 
     #[test]
     fn golden_poly_centroid() {
+        // Protects: poly_centroid's area-weighted centroid and its fallback
+        // to the vertex mean when the signed area is degenerate.
         assert_eq!(flat(&[poly_centroid(&square())]), [(5.0, 5.0)]);
         assert_eq!(flat(&[poly_centroid(&cw_square())]), [(5.0, 5.0)]);
         assert_eq!(flat(&[poly_centroid(&tri())]), [(2.6666666666666665, 2.0)]);
@@ -510,6 +527,8 @@ mod tests {
 
     #[test]
     fn golden_point_in_poly() {
+        // Protects: point_in_poly's crossing-number test and its asymmetric
+        // half-open edge convention (an edge belongs to one side, not both).
         // includes the reference's asymmetric edge convention: the (0,0) corner
         // and the x=10 edge of the same square answer differently.
         for (pt, poly, want) in [
@@ -528,6 +547,8 @@ mod tests {
 
     #[test]
     fn golden_seg_int() {
+        // Protects: seg_int's segment-vs-segment intersection, including the
+        // parallel, collinear, T-junction (u == 0 exactly) and oblique cases.
         assert_eq!(
             seg_int(p(0., 0.), p(10., 10.), p(0., 10.), p(10., 0.)),
             Some(SegHit { t: 0.5, u: 0.5, pt: p(5., 5.) })
@@ -547,6 +568,8 @@ mod tests {
 
     #[test]
     fn golden_dist_pt_seg() {
+        // Protects: dist_pt_seg's clamped-projection distance, including both
+        // clamp directions and the degenerate zero-length-segment fallback.
         assert_eq!(dist_pt_seg(p(5., 5.), p(0., 0.), p(10., 0.)), 5.0);
         assert_eq!(dist_pt_seg(p(-3., 4.), p(0., 0.), p(10., 0.)), 5.0); // clamped to t=0
         assert_eq!(dist_pt_seg(p(13., 4.), p(0., 0.), p(10., 0.)), 5.0); // clamped to t=1
@@ -556,6 +579,8 @@ mod tests {
 
     #[test]
     fn golden_ensure_ccw() {
+        // Protects: ensure_ccw leaving an already-CCW polygon alone and
+        // reversing a CW one to the same winding.
         let want = flat(&square());
         assert_eq!(flat(&ensure_ccw(&square())), want);
         assert_eq!(flat(&ensure_ccw(&cw_square())), want);
@@ -563,6 +588,8 @@ mod tests {
 
     #[test]
     fn golden_chaikin() {
+        // Protects: chaikin's ¼/¾ corner-cutting pass on open and closed
+        // polylines, plus buildSite's own double-pass idiom on an open one.
         assert_eq!(
             flat(&chaikin(&tri(), false)),
             [(0., 0.), (2., 0.), (6., 0.), (6., 1.5), (2., 4.5), (0., 6.)]
@@ -596,6 +623,8 @@ mod tests {
 
     #[test]
     fn golden_simplify() {
+        // Protects: simplify's iterative Douglas-Peucker across a range of
+        // tolerances, plus the fewer-than-three-points pass-through.
         let line: Vec<Vec2> =
             (0..=20).map(|i| p(i as f64 * 5.0, (i as f64 / 3.0).sin() * 9.0)).collect();
         assert_eq!(
@@ -619,6 +648,8 @@ mod tests {
 
     #[test]
     fn golden_inset_poly() {
+        // Protects: inset_poly's per-edge miter offset and its three
+        // rejection gates (n < 3, area < 15, self-intersection past 60 verts).
         assert_eq!(
             flat(&inset_poly(&square(), &[3., 3., 3., 3.]).expect("uniform inset")),
             [(3., 3.), (7., 3.), (7., 7.), (3., 7.)]
@@ -641,6 +672,9 @@ mod tests {
 
     #[test]
     fn golden_clip_convex() {
+        // Protects: clip_convex's Sutherland-Hodgman clip, including the
+        // segment-vs-line caveat (a shape poking past a clip corner can
+        // collapse to empty rather than the true intersection).
         // The segment-vs-line caveat, pinned: a square overlapping the clip
         // window's corner yields the reference's own partial result, and a
         // triangle poking outside collapses to EMPTY rather than clipping.
@@ -665,6 +699,8 @@ mod tests {
 
     #[test]
     fn golden_convex_hull() {
+        // Protects: convex_hull's monotone-chain construction, including
+        // collinear collapse, the <3-point short-circuit and duplicate points.
         assert_eq!(
             flat(&convex_hull(&pts(&[
                 (0., 0.), (5., 1.), (10., 0.), (10., 10.),
@@ -687,6 +723,8 @@ mod tests {
 
     #[test]
     fn poly_self_intersects_matches_its_only_caller_s_needs() {
+        // Protects: poly_self_intersects' O(n^2) all-pairs test, including
+        // that adjacent shared-vertex edges must not count as a crossing.
         // No golden path: `polySelfIntersects` is not on the reference's
         // `_test` export, so this is a real unit test of the ported logic,
         // documented as such (same precedent as territory/provinces).
@@ -699,6 +737,8 @@ mod tests {
 
     #[test]
     fn vector_helpers_hold_the_reference_s_zero_length_convention() {
+        // Protects: Vec2's helper methods (norm, len, rot90, cross, dot,
+        // lerp), particularly norm's zero-vector-maps-to-itself convention.
         // `V.norm` divides by `hypot||1`, so the zero vector maps to itself
         // instead of to NaN — several call sites depend on that, so it is
         // asserted rather than left implicit.

@@ -34,6 +34,9 @@
 use crate::geom::js_hypot;
 use std::f64::consts::SQRT_2;
 
+/// Milestone 3's tests, at `astar/tests.rs`. Given its own doc line here for
+/// the same file-module/same-named-directory resolver reason as `graph.rs`'s
+/// `mod tests;`.
 #[cfg(test)]
 mod tests;
 

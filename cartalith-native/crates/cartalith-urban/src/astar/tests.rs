@@ -49,6 +49,8 @@
 use super::*;
 use crate::rng::stream;
 
+/// The captured golden scenarios, at `astar/tests/golden.rs`. Given its own
+/// doc line for the same resolver reason as `astar.rs`'s `mod tests;`.
 mod golden;
 
 /// `fill(W, H, f)` from the capture script.
@@ -98,6 +100,8 @@ struct Case {
     goal: (usize, usize),
 }
 
+/// Builds a [`Case`] from its raster and endpoints, for compact scenario
+/// definitions below.
 fn mk(cost: Vec<f64>, w: usize, h: usize, start: (usize, usize), goal: (usize, usize)) -> Case {
     Case { cost, w, h, start, goal }
 }
@@ -174,6 +178,7 @@ fn sweep_raster() -> (Vec<f64>, usize, usize) {
     (rng_fill(6, 5, 3, "m3/sweep", 1.0, 5.0), 6, 5)
 }
 
+/// Looks up a named scenario and runs [`astar`] on its raster and endpoints.
 fn run(name: &str) -> Option<Vec<(usize, usize)>> {
     let c = scenario(name);
     astar(&c.cost, c.w, c.h, c.start, c.goal)
@@ -189,6 +194,9 @@ fn distinct(name: &str) -> Vec<f64> {
 
 #[test]
 fn golden_every_scenario_reproduces_the_reference_path_exactly() {
+    // Protects: astar's whole search (DIRS order, heap tie-breaks, the
+    // trapezoidal step cost, the 0.9x heuristic, the early goal-pop break,
+    // non-finite handling) against the reference's own captured paths.
     for sc in golden::GOLDEN {
         let got = run(sc.name);
         let want = sc.path.map(<[(usize, usize)]>::to_vec);
@@ -198,6 +206,8 @@ fn golden_every_scenario_reproduces_the_reference_path_exactly() {
 
 #[test]
 fn golden_sweep_reproduces_every_goal_in_the_raster() {
+    // Protects: astar against an x/y transposition or an off-by-one
+    // backtrack, which a single hand-picked goal on a square raster could hide.
     // A single hand-picked goal can hide an x/y transposition (it is symmetric
     // on a square raster reached along the diagonal) and can hide a backtrack
     // that drops or duplicates one end. Taking every cell in a small raster as
@@ -215,6 +225,10 @@ fn golden_sweep_reproduces_every_goal_in_the_raster() {
 
 #[test]
 fn golden_scenarios_cover_every_branch_this_milestone_claims() {
+    // Protects: the golden fixture set against silently losing the scenario
+    // that exercises a specific property (inclusive endpoints, both routes to
+    // None, detour-around-a-gap, orientation, RNG wander, the eight
+    // tie-break-discriminating rasters, legality of every emitted path).
     // The guard against goldens quietly becoming vacuous, in the shape milestone
     // 2 established: assert the properties each scenario exists to pin, so that
     // dropping or weakening one fails loudly here rather than silently there.
@@ -287,6 +301,9 @@ fn golden_scenarios_cover_every_branch_this_milestone_claims() {
 
 #[test]
 fn the_search_is_reproducible_but_not_optimal_and_that_is_the_point() {
+    // Protects: the claim that astar's non-optimal greedy behaviour on a
+    // cheap/uniform raster is reference behaviour to reproduce, not a defect
+    // to "fix" — an optimal search would break parity here.
     // Recorded as a finding, not a defect. The heuristic is `0.9 x` the
     // Euclidean distance **in cells** while a step costs the trapezoidal mean of
     // two raster values, so on a cheap raster the heuristic dominates and the
@@ -310,6 +327,9 @@ fn the_search_is_reproducible_but_not_optimal_and_that_is_the_point() {
 
 #[test]
 fn the_dead_infinity_guard_is_dead_in_the_reference_too() {
+    // Protects: the invariant behind the one mutation no golden can kill —
+    // that no cell popped from the open list can ever hold g0 == INFINITY,
+    // re-derived directly from the relaxation rule rather than assumed.
     // The one mutation of fifteen that survives every golden: deleting
     // `if g0[i] == INFINITY { continue; }` from the expansion loop changes
     // nothing. That is not a coverage hole to be papered over with another
@@ -360,6 +380,9 @@ fn the_dead_infinity_guard_is_dead_in_the_reference_too() {
 
 #[test]
 fn js_hypot_is_used_for_the_heuristic_not_f64_hypot() {
+    // Protects: astar's heuristic term using js_hypot rather than f64::hypot
+    // — measured to disagree on better than a third of integer offsets on a
+    // 64x64 raster, which the `tiesWide` golden is the only fixture to catch.
     // Milestone 1 found the discrepancy and milestone 2 proved it structural
     // (V8 returns exactly 11 where `f64::hypot` returns 10.999999999999998, and
     // 11 is a node-snap threshold). Milestone 3's contribution is that it is not
@@ -382,6 +405,8 @@ fn js_hypot_is_used_for_the_heuristic_not_f64_hypot() {
 #[test]
 #[should_panic(expected = "outside the")]
 fn an_out_of_range_goal_panics_rather_than_reading_garbage() {
+    // Protects: astar panicking on an out-of-range goal instead of silently
+    // reading garbage the way the reference's typed-array access would.
     // The reference reads past the end of its typed arrays and gets `undefined`,
     // whose comparisons are all false, so it silently produces nonsense. Its one
     // caller clamps to `[1, w-2] x [1, h-2]` first, so this is unreachable in

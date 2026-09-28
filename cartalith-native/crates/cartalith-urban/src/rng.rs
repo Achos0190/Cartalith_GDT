@@ -134,6 +134,8 @@ impl Substream {
     }
 }
 
+/// Milestone 1's golden tests for `fnv1a` and every `Substream` draw, captured
+/// against the reference's own output — see [`tests::eq_exact`] for how.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +165,8 @@ mod tests {
 
     #[test]
     fn golden_fnv1a() {
+        // Protects: fnv1a's UTF-16 hash against the reference's own output
+        // for the exact substream labels this engine actually draws.
         // reference: UME.fnv1a(label)
         for (label, want) in [
             ("", 2166136261u32),
@@ -184,6 +188,8 @@ mod tests {
 
     #[test]
     fn golden_stream_raw_draws() {
+        // Protects: stream()'s seed derivation (mulberry32(seed ^ fnv1a(label)))
+        // and the raw draw sequence against the reference's own values.
         // reference: const r=UME.stream(seed,label); r.u() x8
         let cases: [(u32, &str, [f64; 8]); 6] = [
             (0, "site", [
@@ -221,6 +227,8 @@ mod tests {
 
     #[test]
     fn golden_stream_helpers() {
+        // Protects: range/int/pick_index/norm/logn/chance, all off one shared
+        // generator, in call order — the shared state makes order load-bearing.
         // reference: one stream(12345,'ops') driven through each helper in
         // this order — the shared generator makes the ORDER part of the golden.
         let mut r = stream(12345, "ops");
@@ -256,6 +264,8 @@ mod tests {
 
     #[test]
     fn golden_logn_at_a_real_call_site() {
+        // Protects: logn's Box-Muller draw pairing at a real call-site shape
+        // (buildParcels' substream), not just a synthetic one.
         // reference: buildParcels' own substream shape,
         // stream((fnv1a(blk.id)^0)>>>0,'parcels/'+blk.id), driven through logn
         // as buildParcels drives it — pins the Box-Muller draw pairing against
@@ -271,6 +281,8 @@ mod tests {
 
     #[test]
     fn pick_on_empty_is_none_but_still_consumes_a_draw() {
+        // Protects: pick_index on an empty slice still consuming a draw, so
+        // the shared generator cannot desynchronise against the reference.
         // JS `arr[Math.floor(f()*0)]` is `undefined`; this port says so in the
         // type. `f()` is evaluated regardless, so the generator advances —
         // a port that short-circuited would desynchronise every later draw.

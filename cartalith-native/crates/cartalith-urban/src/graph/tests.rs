@@ -57,6 +57,8 @@
 use super::*;
 use crate::rng::stream;
 
+/// The captured golden scenarios, at `graph/tests/golden.rs`. Given its own
+/// doc line for the same resolver reason as `graph.rs`'s `mod tests;`.
 mod golden;
 
 /// One scripted operation, mirroring the capture script's op format.
@@ -74,6 +76,8 @@ use Op::{P, S};
 const DX: [f64; 4] =
     [7.778174593052021, 7.778174593052022, 7.7781745930520225, 7.778174593052023];
 
+/// The scripted `add_street`/`add_polyline_street` calls for one named
+/// scenario, mirroring the capture script's own `SCEN` table entry for entry.
 fn scenario_ops(name: &str) -> Vec<Op> {
     match name {
         "single" => vec![S(100., 100., 200., 100., "street", 5., 0)],
@@ -177,6 +181,8 @@ fn scenario_ops(name: &str) -> Vec<Op> {
     }
 }
 
+/// Builds a fresh [`Graph`] by replaying `ops` in order, returning it along
+/// with the edge ids each operation produced.
 fn run(ops: &[Op]) -> (Graph, Vec<Vec<usize>>) {
     let mut g = Graph::new();
     let mut made = Vec::new();
@@ -206,6 +212,11 @@ fn grid_sorted(g: &Graph) -> Vec<((i64, i64), Vec<usize>)> {
 
 #[test]
 fn golden_every_scenario_reproduces_the_reference_graph_exactly() {
+    // Protects: every operation this module exposes (add_street,
+    // add_polyline_street via the "polyline" scenario, extract_faces, and
+    // edge_between derived from the same adjacency) against the reference's
+    // own captured full-state dump — nodes, edges (dead ones included), the
+    // spatial index and the extracted faces, not just a return value.
     for sc in golden::GOLDEN {
         let (g, made) = run(&scenario_ops(sc.name));
         let what = sc.name;
@@ -272,6 +283,10 @@ fn golden_every_scenario_reproduces_the_reference_graph_exactly() {
     }
 }
 
+/// Protects: `extract_faces`' half-edge sort key against a silent switch back
+/// to `f64::atan2` — the largest V8/Rust libm divergence in the workspace,
+/// which the golden scenarios above are too coarse to catch.
+///
 /// The `extract_faces` half-edge sort key follows **V8's** `atan2`, not Rust's.
 ///
 /// `ang` is the key the face traversal walks, and `sort_by` is stable, so the
@@ -352,6 +367,10 @@ fn the_half_edge_sort_key_orders_like_v8_not_like_rust() {
 
 #[test]
 fn golden_scenarios_cover_every_branch_this_milestone_claims() {
+    // Protects: the golden fixture set itself against silently losing the
+    // scenario that exercises a specific branch (tombstoning, orphan nodes,
+    // the duplicate-edge return, the outer-face tie-break, spur collapse, the
+    // t-clamp at both ends, the stress case's real scale).
     // A guard against the goldens quietly becoming vacuous: if a future edit
     // drops a scenario, the counts below stop matching and this fails loudly.
     let by = |n: &str| golden::GOLDEN.iter().find(|s| s.name == n).unwrap_or_else(|| panic!("{n}"));
@@ -390,6 +409,10 @@ fn golden_scenarios_cover_every_branch_this_milestone_claims() {
 
 #[test]
 fn no_scenario_ties_two_hits_at_the_same_t_because_none_can() {
+    // Protects: the claim that `add_street`'s stable sort over hit parameters
+    // never actually breaks a tie on the graphs this engine builds — checked
+    // by re-deriving every hit parameter on one more segment laid across each
+    // finished golden graph and asserting they are pairwise distinct.
     // Recorded as a finding, not as a gap. `add_street` sorts its hits with a
     // *stable* sort and the port matches that, but no golden exercises the
     // tie-break — because the reference's own guards make a tie unreachable.
@@ -429,6 +452,10 @@ fn no_scenario_ties_two_hits_at_the_same_t_because_none_can() {
 
 #[test]
 fn hypot_threshold_decides_a_snap_that_f64_hypot_would_decide_differently() {
+    // Protects: `attach_point`'s use of `js_hypot` rather than `f64::hypot` —
+    // a `dx` exists where the two implementations land on opposite sides of
+    // the 11 m snap threshold, so the wrong hypot builds a structurally
+    // different graph, not merely a differently-rounded one.
     // The `hypotSnap*` scenarios are not decoration. `attach_point` snaps when
     // the distance is strictly under 11, and for `dx = 7.778174593052022` the
     // two hypot implementations straddle that line:
@@ -462,6 +489,10 @@ fn hypot_threshold_decides_a_snap_that_f64_hypot_would_decide_differently() {
 
 #[test]
 fn edges_near_returns_first_seen_order_not_set_order() {
+    // Protects: `edges_near` returning an insertion-ordered `Vec` rather than
+    // a `HashSet` — `attach_point`'s first-wins `<` and `add_street`'s stable
+    // sort both depend on that order, which no golden fixture can see because
+    // it dumps state, not the intermediate call sequence.
     // No golden path: a JS `Set`'s iteration order is not observable through
     // `_test`, so this is a real unit test of the ported logic, documented as
     // such (the same precedent `poly_self_intersects` set in milestone 1).
@@ -486,6 +517,9 @@ fn edges_near_returns_first_seen_order_not_set_order() {
 
 #[test]
 fn unindex_edge_removes_exactly_what_index_edge_added() {
+    // Protects: the invariant that unindexing an edge restores the spatial
+    // grid to exactly its prior contents, which no golden dump alone pins
+    // because it only ever sees the index after operations, never the delta.
     // Also not on `_test` in isolation — the goldens pin the index's *state*
     // after real operations, and this pins the invariant behind it: indexing
     // then unindexing an edge restores the grid to its prior contents.
@@ -505,6 +539,9 @@ fn unindex_edge_removes_exactly_what_index_edge_added() {
 
 #[test]
 fn extract_faces_is_empty_on_a_graph_with_no_cycle() {
+    // Protects: `extract_faces` returning an empty `Vec` (not a degenerate
+    // ring) for a graph with no cycle, which `build_blocks` (milestone 12)
+    // reads as emptiness.
     // A tree has no bounded face, and the reference returns `[]` rather than a
     // degenerate ring — `build_blocks` (milestone 12) reads that emptiness.
     let mut g = Graph::new();

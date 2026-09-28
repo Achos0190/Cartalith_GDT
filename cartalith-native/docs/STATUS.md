@@ -1523,6 +1523,61 @@ re-checked against the tree rather than copied from the commit message.
   `OUTSTANDING_WORK.md`'s BK row. Batches 6 through 26 all still need an
   independent verifier before any can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 27 (`cartalith-urban`, opened at its
+  milestone-1-3 files) — built 2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; urban 349/0/0)
+  (comments only; urban 349/0/0 unchanged).** Recorded a pre-edit baseline
+  (`cargo test -p cartalith-urban`, `CARGO_TARGET_DIR` at
+  `.../scratchpad/bk27`): **349 passed / 0 failed / 0 ignored**.
+  `cartalith-urban` is 58 files, ~52 800 LOC (census_v2 376/349/63) — the
+  crate's submodule-style files (`graph.rs` + `graph/tests.rs` +
+  `graph/tests/golden.rs`, etc.) carry far more LOC in their paired test files
+  than the top-level `.rs` file alone (`site.rs` is 827 LOC but its
+  `tests/golden.rs` alone is 4 502), which changes the risk-order LOC budget
+  from what a bare directory listing of `src/` suggests. Followed
+  `URBAN_MORPHOLOGY_SCOPE.md`'s milestone order literally: milestone 1
+  (`rng.rs`, `geom.rs` — the RNG substreams and geometry kernel), milestone 2
+  (`graph.rs` + `graph/tests.rs` + `graph/tests/golden.rs` — the planar street
+  graph), milestone 3 (`astar.rs` + `astar/tests.rs` +
+  `astar/tests/golden.rs` — A* over the cost raster) — 8 files, 3 105 LOC,
+  stopping before milestone 4 (`rules.rs`, 1 508 LOC with its own tests) to
+  stay near the ~3 500 LOC band. Most items were already doc-commented from
+  the port's own working discipline; real gaps closed: `geom.rs`'s
+  `Add`/`Sub`/`Mul::{add,sub,mul}` trait methods, six of its test-fixture
+  helpers (`pts`/`flat`/`square`/`cw_square`/`tri`/`l_shape`), `graph.rs`'s
+  `Default::default`, a local `HalfEdge` struct, `graph/tests.rs`'s
+  `scenario_ops`/`run`, `astar/tests.rs`'s `mk`/`run`. Six bare
+  `mod tests;`/`mod golden;` declarations (`rng.rs` has none — its test module
+  is inline) each got an explicit `///` line rather than relying on the
+  census's module-doc resolver, which cannot see past a file-module with a
+  same-named submodule directory — the same quirk batch 26 found in
+  `cartalith-vault`'s `backlinks.rs`. Two local numeric consts
+  (`graph.rs`'s `attach_point`'s `SNAP`/`ESNAP`) got trailing `//` provenance
+  comments citing the reference line their doc-comment paragraph already
+  named. One `//`-block promoted to `///` (`graph.rs`'s "Nine arguments..."
+  rationale above `add_street`, wording unchanged). All 33 tests across the
+  four files (`rng.rs` 5, `geom.rs` 13, `graph/tests.rs` 8, `astar/tests.rs`
+  7) given a `// Protects:` first line, almost always alongside an existing
+  real rationale comment rather than replacing it. No wrong existing comment
+  was found while reading. `cargo test -p cartalith-urban`, same
+  `CARGO_TARGET_DIR`, run again after every file: **349 passed / 0 failed / 0
+  ignored**, byte-identical to the pre-edit baseline. `cargo build -p
+  cartalith-urban` clean. `git diff` confirmed comment-only per file: every
+  removed line reappears as the same code one line away (the SNAP/ESNAP pair
+  gains a trailing comment; the "Nine arguments" block's `//` become `///`,
+  text unchanged); no added line carries new code; no fenced code blocks.
+  Crate-wide `census_v2.py`: items_undoc 376→322, tests_unprotected
+  349→316, consts_undoc 63→61 (loc 52 831→52 957); a per-file re-check
+  confirms all eight touched files are individually 0/0/0 on the census.
+  **Next step: batch 28** continues `cartalith-urban` at milestone 4
+  (`rules.rs` + `rules/tests.rs` + `rules/tests/golden.rs`) and milestone 5
+  (`site.rs` + `site/tests.rs` + `site/tests/golden.rs`, ~6 019 LOC —
+  likely its own batch given size alone), then milestones 6-17 in
+  `URBAN_MORPHOLOGY_SCOPE.md`'s order, and finally the non-reference-port
+  modules `citadel.rs`/`wallside.rs`/`courtyard.rs`, before moving to
+  `cartalith-civ`, `cartalith-godot` and the GDScript shell. Batches 6
+  through 27 all still need an independent verifier before any can be called
+  done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

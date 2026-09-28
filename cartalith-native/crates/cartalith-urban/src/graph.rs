@@ -133,6 +133,8 @@ pub struct Graph {
 }
 
 impl Default for Graph {
+    /// Same as [`Graph::new`] — an empty graph, for `#[derive]`-adjacent code
+    /// that wants `Default` rather than the named constructor.
     fn default() -> Self {
         Self::new()
     }
@@ -392,8 +394,8 @@ impl Graph {
     /// would land on one — [`Self::split_edge`]'s 3.5 m guard then catches the
     /// cases the clamp does not.
     fn attach_point(&mut self, x: f64, y: f64) -> usize {
-        const SNAP: f64 = 11.0;
-        const ESNAP: f64 = 9.0;
+        const SNAP: f64 = 11.0; // node-snap radius, metres — reference line 28407
+        const ESNAP: f64 = 9.0; // edge-snap radius, metres — reference line 28407
         if let Some(n) = self.nearest_node(x, y, SNAP) {
             return n;
         }
@@ -437,12 +439,12 @@ impl Graph {
     /// short, the nodes stay in `g.nodes` with empty `adj`. That is reference
     /// behaviour, it is visible in the goldens, and later passes tolerate it by
     /// always filtering on live adjacency.
-    // Nine arguments, matching `addStreet(g, ax, ay, bx, by, cls, w, epoch,
-    // prov)` position for position. Bundling the four street attributes into a
-    // spec struct would please clippy and would make the ~14 call sites the
-    // later milestones bring across stop looking like the reference lines they
-    // are checked against. Kept literal; the type system already separates the
-    // one pair that could plausibly be transposed (`w: f64` vs `epoch: i32`).
+    /// Nine arguments, matching `addStreet(g, ax, ay, bx, by, cls, w, epoch,
+    /// prov)` position for position. Bundling the four street attributes into a
+    /// spec struct would please clippy and would make the ~14 call sites the
+    /// later milestones bring across stop looking like the reference lines they
+    /// are checked against. Kept literal; the type system already separates the
+    /// one pair that could plausibly be transposed (`w: f64` vs `epoch: i32`).
     #[allow(clippy::too_many_arguments)]
     pub fn add_street(
         &mut self,
@@ -601,6 +603,8 @@ impl Graph {
     /// post-check `guard >= 20000` also rejects a face that closed on step
     /// 20000 exactly. Reproduced as written.
     pub fn extract_faces(&self) -> Vec<Face> {
+        /// One directed half of a live edge, sorted by its outgoing angle at
+        /// its `from` node — the face traversal's incidence-list entry.
         struct HalfEdge {
             eid: usize,
             other: usize,
@@ -728,5 +732,10 @@ enum Hit {
     Node(usize),
 }
 
+/// Milestone 2's tests, at `graph/tests.rs`. Given its own doc line here
+/// (rather than relying on the census resolver to find the target file's
+/// `//!`) because this is a file-module with a same-named submodule
+/// directory, which the resolver's `x.rs`/`x/mod.rs` search does not see past
+/// — the same quirk `cartalith-vault`'s `backlinks.rs` hit in batch 26.
 #[cfg(test)]
 mod tests;
