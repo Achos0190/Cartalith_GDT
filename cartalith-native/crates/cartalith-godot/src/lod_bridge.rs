@@ -449,6 +449,58 @@ fn synthesize_tile_rgba_with_z_base(
     zb: i32,
     rivers: Option<&crate::river_stroke::RiverGeometry>,
 ) -> Option<(Vec<u8>, usize, usize)> {
+    let t = tile_heights(ctx, tf, z, col, row, seed, zb)?;
+    // The rivers at this tile's own pixels: pixel `x` sits at sample
+    // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
+    // core size, as `render_biome_tile_rgba_padded` computes it).
+    let layer = rivers.map(|g| {
+        let cx = t.tb.w / (t.w.max(2) - 1) as f64;
+        let cy = t.tb.h / (t.h.max(2) - 1) as f64;
+        crate::river_stroke::rasterize(g, ctx.appearance(), t.w, t.h, crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy))
+    });
+    let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
+    if rgba.len() != t.w * t.h * 4 {
+        return None;
+    }
+    Some((rgba, t.w, t.h))
+}
+
+/// One tile's heights, before colour: the shading tile, the water tile when
+/// it needs one, and the geometry both are laid out on. Built by
+/// [`tile_heights`].
+struct TileHeights {
+    /// The tile's own size in pixels (`tile_size_px`), without the halo.
+    w: usize,
+    h: usize,
+    /// The halo on every side (`render::tile_halo_px`); both height tiles
+    /// are `(w + 2·pad) × (h + 2·pad)`.
+    pad: usize,
+    /// The coarse-grid rectangle the tile's core covers (`tile_bounds`).
+    tb: TileBounds,
+    /// Amplified from `ctx.field` -- RV-3's shaded valley field on a world
+    /// that has one. Shades.
+    tile: Vec<f32>,
+    /// Amplified from `ctx.water_height()`, the world's own height, when the
+    /// valley field changed a cell beside water inside this tile
+    /// (`render::tile_water_differs`); `None` means `tile` decides water too,
+    /// which it then does identically.
+    water: Option<Vec<f32>>,
+}
+
+/// The heights [`synthesize_tile_rgba_rivers`] colours and
+/// [`synthesize_tile_water_mask`] measures -- one builder, so the mask a test
+/// reads is laid out and decided exactly as the tile is drawn.
+///
+/// **The water tile** (the repaint row, 2026-09-28): water is decided from the
+/// world's height, never RV-3's shaded valley field. Where the valley changed
+/// a cell beside water inside this tile, the same pixels are amplified a
+/// second time from the world's height and every water test reads those; the
+/// amplifier never moves a pixel across sea level, so this puts the shore
+/// where the reference's tile does. Every other tile -- away from the river
+/// mouths, and every tile of a world without a valley field -- is amplified
+/// once, as before.
+#[allow(clippy::too_many_arguments)]
+fn tile_heights(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, seed: i32, zb: i32) -> Option<TileHeights> {
     let (gw, gh) = (ctx.gw, ctx.gh);
     if ctx.field.len() < gw.checked_mul(gh)? {
         return None;
@@ -470,23 +522,28 @@ fn synthesize_tile_rgba_with_z_base(
     // "sawtooth" row. The core of the padded height is `pyramid_tile`'s own
     // data bit for bit, so the atlas and this tile still agree on height.
     let pad = render::tile_halo_px(ctx, out_w, out_h, tb);
-    let (tw, th, tile) = pyramid_tile_padded(ctx.field, gw, gh, ChunkId::new(z as u32, col as u32, row as u32), TILE_PX, pad, &opts);
+    let id = ChunkId::new(z as u32, col as u32, row as u32);
+    let (tw, th, tile) = pyramid_tile_padded(ctx.field, gw, gh, id, TILE_PX, pad, &opts);
     if (tw, th) != (out_w, out_h) {
         return None;
     }
-    // The rivers at this tile's own pixels: pixel `x` sits at sample
-    // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
-    // core size, as `render_biome_tile_rgba_padded` computes it).
-    let layer = rivers.map(|g| {
-        let cx = tb.w / (out_w.max(2) - 1) as f64;
-        let cy = tb.h / (out_h.max(2) - 1) as f64;
-        crate::river_stroke::rasterize(g, ctx.appearance(), out_w, out_h, crate::river_stroke::RasterMap::tile(tb.x, tb.y, cx, cy))
-    });
-    let rgba = render::render_biome_tile_rgba_rivers(ctx, &tile, out_w, out_h, pad, tb, tf, layer.as_ref());
-    if rgba.len() != out_w * out_h * 4 {
-        return None;
-    }
-    Some((rgba, out_w, out_h))
+    let water = if render::tile_water_differs(ctx, tf, tb, out_w, out_h, pad) {
+        let (ww, wh, wt) = pyramid_tile_padded(ctx.water_height(), gw, gh, id, TILE_PX, pad, &opts);
+        ((ww, wh) == (out_w, out_h)).then_some(wt)
+    } else {
+        None
+    };
+    Some(TileHeights { w: out_w, h: out_h, pad, tb, tile, water })
+}
+
+/// The water classes tile `(z, col, row)` draws (`render::tile_water_mask`:
+/// `0` land, `1` sea, `2` lake, row-major over the tile's core), from the same
+/// heights [`synthesize_tile_rgba_rivers`] colours. For tests that must show
+/// the drawn shoreline did not move; `None` exactly where synthesis refuses.
+#[allow(dead_code)]
+pub fn synthesize_tile_water_mask(ctx: &RenderCtx, tf: &TileFields, z: i32, col: i32, row: i32, seed: i32) -> Option<Vec<u8>> {
+    let t = tile_heights(ctx, tf, z, col, row, seed, z_base())?;
+    Some(render::tile_water_mask(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf))
 }
 
 // ---------------------------------------------------------------------------
@@ -2019,5 +2076,220 @@ mod tests {
             assert!(*a > 0.0 && *b > 0.0, "a zero detail reading at zoom {zoom}");
             assert!(*a >= b * 0.995, "at zoom {zoom} the band re-weighting, micro band and river threshold together cost detail: {a:.6} against {b:.6}");
         }
+    }
+
+    // ---- The repaint row, second half (2026-09-28): water never reads the
+    // shaded field, so RV-3's valley may reshape the land beside water. ----
+
+    /// A plain at 0.6 with the sea west of `x = 12` at 0.30 and a channel on
+    /// row 24 carved to 0.45 from the coast inland -- the shape of a river
+    /// mouth. Returns `(true, shaded, gw, gh)`: `shaded` is `true` with every
+    /// land cell in the two columns beside the sea lifted by 0.1 and the
+    /// channel filled to 0.6, which is what an unfrozen valley field may do
+    /// there (land stays land; the sub-cell sea-level contour moves).
+    fn mouth_world() -> (Vec<f32>, Vec<f32>, usize, usize) {
+        let (gw, gh) = (64usize, 48usize);
+        let mut f = vec![0.6f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..12 {
+                f[y * gw + x] = 0.30;
+            }
+        }
+        for x in 12..40 {
+            f[24 * gw + x] = 0.45;
+        }
+        let mut s = f.clone();
+        for y in 0..gh {
+            for x in 12..14 {
+                s[y * gw + x] = (f[y * gw + x] + 0.1).min(0.7);
+            }
+        }
+        for x in 12..40 {
+            s[24 * gw + x] = 0.6;
+        }
+        (f, s, gw, gh)
+    }
+
+    /// The fixture climate `TestWorld` builds, for a grid of this size.
+    fn mouth_climate(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>) {
+        let w = TestWorld::new(vec![0.6; gw * gh], gw, gh);
+        (w.temp, w.rain)
+    }
+
+    /// Every water decision of the tiles and the export for one `(shade,
+    /// water)` pair: each deep-zoom tile of levels 0-3
+    /// (`synthesize_tile_water_mask`) with the rendered tile's RGBA on every
+    /// pixel that mask calls water (a water pixel's colour does not depend on
+    /// the shading, so the renderer's own water branch is checked, not only
+    /// the mask helper), and the export's water cover at 3 pixels a cell with
+    /// and without the smooth shore field, plus the export's colour on its
+    /// fully-water pixels in both bakes, where the sea-or-lake kind shows.
+    #[allow(clippy::type_complexity)]
+    fn water_decisions(shade: &[f32], water: &[f32], temp: &[f32], rain: &[f32], gw: usize, gh: usize) -> (Vec<Vec<u8>>, Vec<u64>, Vec<u64>, Vec<(f64, f64, f64)>) {
+        let a = TestWorld::appearance();
+        let pre = render::GridPrecompute::build_split(shade, water, temp, rain, Some(water), gw, gh, TEST_SEA, false, &a, Some(800.0), None);
+        let ctx = render::RenderCtx::from_precomputed(shade, temp, rain, Some(water), gw, gh, TEST_SEA, false, 55.0, 5.0, a, &pre).unwrap().with_precomputed_water_height(water);
+        let tf = TileFields::new(&ctx, None);
+        let mut tiles = Vec::new();
+        for z in 0..=3 {
+            let n = tiles_per_axis(z) as i32;
+            for col in 0..n {
+                for row in 0..n {
+                    let mask = synthesize_tile_water_mask(&ctx, &tf, z, col, row, 1234).expect("tile");
+                    let (rgba, _, _) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).expect("tile");
+                    let water_px: Vec<u8> = mask.iter().enumerate().filter(|(_, c)| **c != 0).flat_map(|(i, _)| rgba[i * 4..i * 4 + 4].to_vec()).collect();
+                    tiles.push(mask);
+                    tiles.push(water_px);
+                }
+            }
+        }
+        let wb = cartalith_civ::build_water_bodies(water, gw, gh, TEST_SEA, false, Some(rain));
+        let shore = render::shore_field(water, &wb.classification, &wb.fill_level, rain, gw, gh, TEST_SEA, false);
+        let plain = render::BakeFields::new(&ctx);
+        let smooth = render::BakeFields::new(&ctx).with_shore_field(&ctx, shore);
+        assert!(smooth.has_shore_field(), "premise: the smooth shore reached the bake");
+        let (mut cell, mut cover, mut colours) = (Vec::new(), Vec::new(), Vec::new());
+        let step = 1.0 / 3.0;
+        for py in 0..(gh - 1) * 3 {
+            for px in 0..(gw - 1) * 3 {
+                let (gx, gy) = (px as f64 * step, py as f64 * step);
+                let pc = plain.water_cover(&ctx, gx, gy, (step, step));
+                cell.push(pc.to_bits());
+                if pc >= 1.0 {
+                    colours.push(plain.pixel_at(&ctx, gx, gy, (step, step), None));
+                }
+                let c = smooth.water_cover(&ctx, gx, gy, (step, step));
+                cover.push(c.to_bits());
+                if c >= 1.0 {
+                    colours.push(smooth.pixel_at(&ctx, gx, gy, (step, step), None));
+                }
+            }
+        }
+        (tiles, cell, cover, colours)
+    }
+
+    // Protects: the drawn shoreline does not read RV-3's shaded field in the
+    // tiles, the export's cell rule, the export's smooth shore or its
+    // sea-or-lake kind -- so the valley may reshape the land beside water
+    // (the unfrozen ring) and not one water pixel moves. The shaded field here
+    // lifts the land beside the sea and fills the mouth, which moves the
+    // sub-cell sea-level contour of every bilinear cell on the coast.
+    #[test]
+    fn the_water_mask_is_the_same_whatever_the_shaded_field_holds() {
+        let (f, s, gw, gh) = mouth_world();
+        let (temp, rain) = mouth_climate(gw, gh);
+        let truth = water_decisions(&f, &f, &temp, &rain, gw, gh);
+        let split = water_decisions(&s, &f, &temp, &rain, gw, gh);
+        assert!(truth.0 == split.0, "a deep-zoom tile moved its water");
+        assert!(truth.1 == split.1, "the export's cell-rule water moved");
+        assert!(truth.2 == split.2, "the export's smooth-shore water moved");
+        assert!(truth.3 == split.3, "the export's water colour (the sea-or-lake kind) moved");
+        // Positive control: decided from the shaded field itself, the same
+        // pixels DO move -- the fixture reaches the contour, so the equalities
+        // above are about the routing, not about a shaded field too timid to
+        // matter.
+        let shaded = water_decisions(&s, &s, &temp, &rain, gw, gh);
+        assert!(truth.0 != shaded.0, "control: tiles decided from the shaded field move their shore");
+        assert!(truth.1 != shaded.1, "control: the export's cell rule decided from the shaded field moves");
+        assert!(truth.0.iter().flatten().any(|&c| c == 1) && truth.0.iter().flatten().any(|&c| c == 0), "premise: the tiles hold sea and land");
+    }
+
+    // Protects: a tile whose changed cells are all inland is amplified once
+    // (no water tile, so it is decided from its own heights exactly as before
+    // the water tile existed), and the tile over a changed mouth asks for the
+    // world's heights.
+    #[test]
+    fn only_a_tile_whose_coast_the_valley_changed_gets_a_water_tile() {
+        let (f, s, gw, gh) = mouth_world();
+        let (temp, rain) = mouth_climate(gw, gh);
+        let a = TestWorld::appearance();
+        let mut inland = f.clone();
+        for x in 30..40 {
+            inland[24 * gw + x] = 0.6;
+        }
+        let differs = |shade: &[f32], z: i32| -> Vec<bool> {
+            let pre = render::GridPrecompute::build_split(shade, &f, &temp, &rain, Some(&f), gw, gh, TEST_SEA, false, &a, Some(800.0), None);
+            let ctx = render::RenderCtx::from_precomputed(shade, &temp, &rain, Some(&f), gw, gh, TEST_SEA, false, 55.0, 5.0, a.clone(), &pre).unwrap().with_precomputed_water_height(&f);
+            let tf = TileFields::new(&ctx, None);
+            let n = tiles_per_axis(z) as i32;
+            let (w, h) = tile_size_px(gw, gh, z);
+            let mut out = Vec::new();
+            for col in 0..n {
+                for row in 0..n {
+                    let b = tile_bounds(gw, gh, z, col, row).unwrap();
+                    let tb = TileBounds { x: b.x, y: b.y, w: b.w, h: b.h };
+                    out.push(render::tile_water_differs(&ctx, &tf, tb, w, h, render::tile_halo_px(&ctx, w, h, tb)));
+                }
+            }
+            out
+        };
+        assert!(differs(&inland, 3).iter().all(|&d| !d), "no changed cell touches water, so no tile needs a water tile");
+        assert!(differs(&f, 0).iter().all(|&d| !d), "no change at all, no water tile");
+        assert!(differs(&s, 0)[0], "the tile over the changed mouth needs the world's heights for its water");
+        let z3 = differs(&s, 3);
+        assert!(z3.iter().any(|&d| d) && z3.iter().any(|&d| !d), "at level 3 only the coastal tiles need one");
+    }
+
+    // Protects: on a real generated world, RV-3's valley field -- with the
+    // ring of land beside water no longer frozen -- moves no water pixel in
+    // any tile of levels 0-3 or anywhere in the export, while it does change
+    // land beside water (the step at the mouths is gone). A small grid, so it
+    // runs with the suite.
+    #[test]
+    fn a_generated_world_draws_the_same_water_with_the_valley_field() {
+        let (gw, gh) = (160usize, 112usize);
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, 24601);
+        p.map_width_km = 800.0;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let f: Vec<f32> = ws.field.to_vec();
+        let (Some(order), Some(ch), Some(carved)) = (ws.stream_order.as_ref(), ws.channels.as_ref(), ws.river_mask.as_ref()) else {
+            panic!("premise: the generated world has a stream order, a channel tree and a carve");
+        };
+        let rivers = cartalith_hydrology::river_entities(
+            order, &ch.recv, &ws.flow_discharge, &f, gw, gh, 1,
+            cartalith_hydrology::river_flow_thresh(gw, gh, gw, 800.0),
+            cartalith_hydrology::river_width_scale_k(800.0),
+            false,
+        );
+        // Drawn runs straight through the traced cells' centres: enough to
+        // drive the re-cut; the fill needs no run at all.
+        let runs: Vec<crate::river_stroke::DrawnRun> = rivers
+            .iter()
+            .filter(|r| r.pts.len() >= 2)
+            .map(|r| {
+                let n = r.pts.len();
+                crate::river_stroke::DrawnRun {
+                    pts: r.pts.iter().map(|&(x, y)| (x as f32 + 0.5, y as f32 + 0.5)).collect(),
+                    widths: vec![1.0; n],
+                    colors: vec![[0.0, 0.0, 1.0, 1.0]; n],
+                    orders: vec![1; n],
+                    discharge: vec![f32::NAN; n],
+                    pieces: vec![(0, n)],
+                    reach: Vec::new(),
+                    own_order: 1,
+                }
+            })
+            .collect();
+        let wb = cartalith_civ::build_water_bodies(&f, gw, gh, TEST_SEA, false, Some(&ws.rainfall));
+        let s = crate::valley_shade::valley_shade_field(&f, &wb.classification, carved, ws.river_floor.as_deref(), &runs, gw, gh, TEST_SEA, false).expect("valley field");
+        // Premise: the unfrozen valley changed land beside water somewhere.
+        let wet = |j: usize| wb.classification[j] != 0 || (f[j] as f64) < TEST_SEA;
+        let beside_water = |i: usize| {
+            let (x, y) = ((i % gw) as i64, (i / gw) as i64);
+            (-1i64..=1).any(|dy| {
+                (-1i64..=1).any(|dx| {
+                    let (xx, yy) = (x + dx, y + dy);
+                    xx >= 0 && yy >= 0 && (xx as usize) < gw && (yy as usize) < gh && wet(yy as usize * gw + xx as usize)
+                })
+            })
+        };
+        let changed = (0..gw * gh).filter(|&i| !wet(i) && beside_water(i) && s[i].to_bits() != f[i].to_bits()).count();
+        assert!(changed > 0, "premise: the valley field changes land beside water on this world");
+        let truth = water_decisions(&f, &f, &ws.temperature, &ws.rainfall, gw, gh);
+        let split = water_decisions(&s, &f, &ws.temperature, &ws.rainfall, gw, gh);
+        assert!(truth.0 == split.0, "a deep-zoom tile moved its water");
+        assert!(truth.1 == split.1, "the export's cell-rule water moved");
+        assert!(truth.2 == split.2, "the export's smooth-shore water moved");
+        assert!(truth.3 == split.3, "the export's water colour moved");
     }
 }

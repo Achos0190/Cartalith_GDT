@@ -17,6 +17,10 @@ extends Node
 ## small freehand-lower sculpt commits, each followed by the same repaint
 ## `world_workspace.gd::_on_sculpt_commit` does (`bridge.color_texture()`),
 ## and each rep's valley build and whole repaint are timed. Median (min..max).
+## After the timing, each rep also records a sha256 of the four textures the
+## repaint made (the map, the river colour texture, the water mask, the shore
+## field), so two binaries run on the same seed and grid can be diffed for
+## byte identity rep by rep (the repaint row's speed-up, 2026-09-28).
 ##
 ## `--mode sculpt` (item 2 of the row's fix, the "sculpt-a-channel probe
 ## leg"): generates seed 24601 at 1024x656, finds an inland cell far from
@@ -137,7 +141,9 @@ func _cost() -> int:
 		var fresh: bool = st != before
 		var row := {"commit_ms": (t1 - t0) / 1000.0, "repaint_ms": (t2 - t1) / 1000.0,
 			"valley_ms": st.get("ms", -1.0), "valley_core_ms": st.get("core_ms", -1.0),
-			"main_thread": st.get("main_thread", null), "rebuilt": fresh}
+			"main_thread": st.get("main_thread", null), "rebuilt": fresh,
+			"sha_map": _sha(_vh.map_view.texture), "sha_river": _sha(_br.river_color_texture()),
+			"sha_mask": _sha(_br.river_water_mask()), "sha_shore": _sha(_br.shore_field_texture())}
 		print("  rep %d: %s" % [r, row])
 		if fresh:
 			reps.append(row)
@@ -156,6 +162,19 @@ func _cost() -> int:
 	f.store_string(JSON.stringify(out, "  "))
 	print("PROBE-RESULT: DONE")
 	return 0
+
+
+## sha256 of a texture's pixel bytes, `"none"` for a null texture.
+func _sha(t: Texture2D) -> String:
+	if t == null:
+		return "none"
+	var img := t.get_image()
+	if img == null:
+		return "no-image"
+	var ctx := HashingContext.new()
+	ctx.start(HashingContext.HASH_SHA256)
+	ctx.update(img.get_data())
+	return ctx.finish().hex_encode().substr(0, 16)
 
 
 ## An inland cell at least 12 cells from every traced river point and from

@@ -4118,6 +4118,78 @@ impl<'a> RenderCtx<'a> {
         }
     }
 
+    /// [`Self::with_appearance`] followed by [`Self::with_water_height`]`(water)`,
+    /// built in one pass: the relief rasters from `field` (RV-3's shaded
+    /// height) and the water rasters from `water` (the world's), through
+    /// [`GridPrecompute::build_split`] -- the constructor the LOD snapshot and
+    /// the export session already use. Why (the repaint row, 2026-09-28): the
+    /// two-step form built the smoothed bathymetry and its shade from `field`
+    /// and then threw both away and built them again from `water`, one wasted
+    /// pair of whole-grid blurs per repaint.
+    ///
+    /// **The same context, byte for byte.** `build_split` takes the bathymetry
+    /// and its shade from `water`, exactly what `with_water_height` rebuilds,
+    /// and the wave and coast-SDF distances from `water` where
+    /// `with_appearance` took them from `field` -- both are functions of the
+    /// per-cell land/water mask alone (`coast_distance`,
+    /// `cartalith_civ::build_coast_sdf`), and the two heights never disagree
+    /// on a cell's side of sea level (`valley_shade`'s module doc). A `water`
+    /// that is `field` itself, or the wrong length, is `with_appearance`
+    /// unchanged, as `with_water_height` would have refused it. `None` for the
+    /// map width, as `with_appearance`: [`Self::with_map_scale_forced`] builds
+    /// the SDF legs after.
+    #[allow(clippy::too_many_arguments, dead_code)]
+    pub fn with_appearance_split(
+        field: &'a [f32],
+        water: &'a [f32],
+        temperature: &'a [f32],
+        rainfall: &'a [f32],
+        flow: Option<&'a [f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        lat_n: f64,
+        lat_s: f64,
+        appearance: TerrainAppearance,
+    ) -> Self {
+        let split = water.len() == gw * gh && !std::ptr::eq(water, field);
+        let p = GridPrecompute::build_split(field, if split { water } else { field }, temperature, rainfall, flow, gw, gh, sea_level, world, &appearance, None, None);
+        RenderCtx {
+            field,
+            temperature,
+            rainfall,
+            flow,
+            gw,
+            gh,
+            sea_level,
+            world,
+            lat_n,
+            lat_s,
+            sea_h: Cow::Owned(p.sea_h),
+            sea_shade: Cow::Owned(p.sea_shade),
+            ao: Cow::Owned(p.ao),
+            coast_sdf: Cow::Owned(p.coast_sdf),
+            river_sdf: Cow::Owned(p.river_sdf),
+            biome_bd: Cow::Owned(p.biome_bd),
+            river_thresh: p.river_thresh,
+            hydro_wet: Cow::Owned(p.hydro_wet),
+            lights: Cow::Owned(p.lights),
+            coast_d: Cow::Owned(p.coast_d),
+            crest: Cow::Owned(p.crest),
+            appearance,
+            splat: None,
+            lithology: None,
+            paint_biome: None,
+            paint_terrain: None,
+            paint_splat: None,
+            ground: GroundTiles::default(),
+            lake_class: None,
+            river_layer: None,
+            water_field: split.then_some(water),
+        }
+    }
+
     /// [`Self::with_appearance`] + [`Self::with_map_scale`] against rasters
     /// **already built**, borrowed rather than recomputed — the LOD tile
     /// path's own constructor (`LOD_DETAIL_SCOPE.md` LOD-D2).
@@ -4414,6 +4486,21 @@ impl<'a> RenderCtx<'a> {
 
     fn h(&self, x: usize, y: usize) -> f64 {
         self.field[y * self.gw + x] as f64
+    }
+
+    /// The world's height at cell `(x, y)` -- [`Self::water_height`], the one
+    /// every water test reads (the repaint row, 2026-09-28: every per-pixel
+    /// sea test routed off RV-3's shaded field). [`Self::h`] is the shaded
+    /// height, for shading only.
+    fn water_h(&self, x: usize, y: usize) -> f64 {
+        self.water_height()[y * self.gw + x] as f64
+    }
+
+    /// Whether this context shades a different field from the one it decides
+    /// water from (RV-3's valley field is attached). When not, a water test
+    /// may reuse a sample of `field` instead of taking a second, identical one.
+    fn water_split(&self) -> bool {
+        self.water_field.is_some()
     }
 
     /// `latAt` (reference HTML line 4965).
@@ -7072,7 +7159,9 @@ pub fn build_grade_influence_cells(ctx: &RenderCtx) -> Vec<f32> {
         for (x, m) in row.iter_mut().enumerate() {
             let i = y * gw + x;
             let hv = ctx.field[i] as f64;
-            let water = hv < ctx.sea_level;
+            // Water from the world's height, elevation from the shaded one;
+            // the two agree on the side of sea level per cell.
+            let water = (ctx.water_height()[i] as f64) < ctx.sea_level;
             let s_elev = if water { 0.0 } else { clamp01((hv - ctx.sea_level) / span) };
             let s_moist = clamp01(ctx.rainfall[i] as f64);
             let s_biome = if water {
@@ -7456,7 +7545,7 @@ pub fn hillshade_raster(ctx: &RenderCtx) -> Vec<u8> {
         for x in 0..gw {
             let c = (0.15 + 0.85 * ctx.macro_shade(x, y)) * 235.0;
             let (r, g, b) =
-                if ctx.h(x, y) < ctx.sea_level { (c * 0.45, c * 0.6, cartalith_jsmath::js_min(255.0, c * 0.9 + 40.0)) } else { (c, c, c) };
+                if ctx.water_h(x, y) < ctx.sea_level { (c * 0.45, c * 0.6, cartalith_jsmath::js_min(255.0, c * 0.9 + 40.0)) } else { (c, c, c) };
             let o = x * 3;
             row[o] = r.clamp(0.0, 255.0) as u8;
             row[o + 1] = g.clamp(0.0, 255.0) as u8;
@@ -7466,9 +7555,10 @@ pub fn hillshade_raster(ctx: &RenderCtx) -> Vec<u8> {
     out
 }
 
-/// Is grid cell `(x, y)` water for the toon outline — sea (`h < sea_level`) or
-/// an above-sea lake (`lake_class == 2`), exactly the two tests `cell_color`
-/// uses to leave the land branch.
+/// Is grid cell `(x, y)` water for the toon outline — sea (the world's height,
+/// [`RenderCtx::water_height`], below `sea_level`) or an above-sea lake
+/// (`lake_class == 2`), exactly the two tests `cell_color` uses to leave the
+/// land branch.
 ///
 /// Off the grid is **not** water, and x never wraps even in world mode: the
 /// plate edge is not a coast, and [`BakeFields::pixel`]'s twin
@@ -7479,13 +7569,14 @@ fn toon_water_cell(ctx: &RenderCtx, x: i64, y: i64) -> bool {
         return false;
     }
     let (xu, yu) = (x as usize, y as usize);
-    ctx.h(xu, yu) < ctx.sea_level || ctx.lake_class.is_some_and(|l| l[yu * ctx.gw + xu] == 2)
+    ctx.water_h(xu, yu) < ctx.sea_level || ctx.lake_class.is_some_and(|l| l[yu * ctx.gw + xu] == 2)
 }
 
 /// [`toon_water_cell`] at a fractional grid position, for the export bake:
-/// `sample_arr`'s bilinear height and [`bake_lake_at`]'s lake rule — the two
-/// tests [`BakeFields::pixel`] itself branches on. At an integer position both
-/// reduce to the cell's own value, so an export at the grid's resolution draws
+/// `sample_arr`'s bilinear of the world's height and [`bake_lake_at`]'s lake
+/// rule — the two tests [`BakeFields::pixel`] itself branches on. At an
+/// integer position both reduce to the cell's own value, so an export at the
+/// grid's resolution draws
 /// the screen's keyline cell for cell.
 fn toon_water_f(ctx: &RenderCtx, gx: f64, gy: f64) -> bool {
     let (gw, gh) = (ctx.gw, ctx.gh);
@@ -7494,7 +7585,7 @@ fn toon_water_f(ctx: &RenderCtx, gx: f64, gy: f64) -> bool {
     if gx < 0.0 || gy < 0.0 || gx > (gw - 1) as f64 || gy > (gh - 1) as f64 {
         return false;
     }
-    sample_arr(ctx.field, gx, gy, gw, gh) < ctx.sea_level || ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh))
+    sample_arr(ctx.water_height(), gx, gy, gw, gh) < ctx.sea_level || ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh))
 }
 
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?
@@ -7513,10 +7604,16 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
 /// around the crisp one.
 pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32; 4]>) -> (f64, f64, f64) {
     let i = y * ctx.gw + x;
+    // `h` shades the land (RV-3's valley field); `hw` decides water. The two
+    // agree on every cell's side of sea level -- the valley never moves a
+    // cell across it -- so this split is byte-identical per cell, and it is
+    // what lets the valley reshape the land beside water without any water
+    // test reading it.
     let h = ctx.h(x, y);
+    let hw = ctx.water_h(x, y);
     let t = ctx.temperature[i] as f64;
 
-    let (r, g, b) = if h < ctx.sea_level {
+    let (r, g, b) = if hw < ctx.sea_level {
         // `seaColor` (8277-8281) — reads the smoothed bathymetry/shade
         // (`ctx.sea_h`/`ctx.sea_shade`), not the raw field/macro-shade;
         // see `RenderCtx::new`'s doc comment on why that's the real
@@ -7600,7 +7697,7 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
     // in the reference's own slot — after the colour branches, before the
     // parchment. `coast_d` is empty unless `npr.waves` is on, so this is a
     // single length test on every other path.
-    let (r, g, b) = if h < ctx.sea_level && !ctx.coast_d.is_empty() {
+    let (r, g, b) = if hw < ctx.sea_level && !ctx.coast_d.is_empty() {
         apply_waves(&ctx.appearance, (r, g, b), ctx.coast_d[i] as f64, ctx.gw)
     } else {
         (r, g, b)
@@ -7853,6 +7950,9 @@ impl BakeFields {
         let gy = gy.clamp(0.0, (gh - 1) as f64);
 
         let h = sample_arr(ctx.field, gx, gy, gw, gh);
+        // The water test's height: the world's, not RV-3's shaded field (the
+        // repaint row, 2026-09-28). Sampled again only when the two differ.
+        let hw = if ctx.water_split() { sample_arr(ctx.water_height(), gx, gy, gw, gh) } else { h };
         let t = sample_arr(ctx.temperature, gx, gy, gw, gh);
         let vig = ctx.vignette_at_f(gx, gy);
 
@@ -7861,7 +7961,7 @@ impl BakeFields {
             // No shore field (every golden, `js_reference()`): the cell rule,
             // byte for byte what this bake drew before RV-5.
             None => {
-                if h < ctx.sea_level {
+                if hw < ctx.sea_level {
                     self.sea_px(ctx, gx, gy, t, vig)
                 } else if ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh)) {
                     // v0.103's above-sea lake, as `cell_color` draws it: flat
@@ -7954,9 +8054,11 @@ impl BakeFields {
             }
         }
         let Some((_, k)) = best else { return Some((0.0, None)) };
-        let kind = if sample_arr(ctx.field, gx, gy, gw, gh) < ctx.sea_level {
+        // Sea or lake from the world's height, never RV-3's shaded field.
+        let water = ctx.water_height();
+        let kind = if sample_arr(water, gx, gy, gw, gh) < ctx.sea_level {
             Some((gx, gy))
-        } else if (0..4).any(|j| wet[j] && ctx.field[c[j].1 * gw + c[j].0] as f64 >= ctx.sea_level) {
+        } else if (0..4).any(|j| wet[j] && water[c[j].1 * gw + c[j].0] as f64 >= ctx.sea_level) {
             None
         } else {
             Some((c[k].0 as f64, c[k].1 as f64))
@@ -7987,7 +8089,7 @@ impl BakeFields {
         match self.shore_cover(ctx, gx, gy, step) {
             Some((cov, _)) => cov,
             None => {
-                let wet = sample_arr(ctx.field, gx, gy, gw, gh) < ctx.sea_level || ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh));
+                let wet = sample_arr(ctx.water_height(), gx, gy, gw, gh) < ctx.sea_level || ctx.lake_class.is_some_and(|l| bake_lake_at(l, gx, gy, gw, gh));
                 if wet { 1.0 } else { 0.0 }
             }
         }
@@ -8426,7 +8528,7 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, save_flag: Option<&[u8]>, out
             // but that branch never reached this caller, so the ink used to
             // get composited over a water pixel's finished colour with no
             // way to tell. Checked at the same nearest cell `t` itself reads.
-            let t = if (ctx.field[ci] as f64) < ctx.sea_level { 0.0 } else { ink.map_or(0.0, |m| save_flag_at(m, ci)) as f64 };
+            let t = if (ctx.water_height()[ci] as f64) < ctx.sea_level { 0.0 } else { ink.map_or(0.0, |m| save_flag_at(m, ci)) as f64 };
             let (r, g, b) = if t > 1.0 / 255.0 { channel_tint(&ctx.appearance, (r, g, b), t, gx, gy, gw, gh) } else { (r, g, b) };
             let o = col * 3;
             out[o] = (r * 255.0) as u8;
@@ -9818,6 +9920,117 @@ pub fn tile_halo_px(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> 
     ms.max(crest).max(1)
 }
 
+/// [`tile_water_class`]'s answers.
+const TILE_LAND: u8 = 0;
+const TILE_SEA: u8 = 1;
+const TILE_LAKE: u8 = 2;
+
+/// **The deep-zoom tile's one water decision** at a pixel whose water-tile
+/// height is `hw` and whose world position is `(wx, wy)`: sea below sea level,
+/// else lake where [`is_lake_pixel`] says so (with the lake classification
+/// present), else land. Every water test in [`render_biome_tile_rgba_water`]
+/// -- the colour branch, the toon keyline's mask, the river layer's land-only
+/// mask -- and [`tile_water_mask`] call this, so the mask a test measures is
+/// the renderer's own. `hw` must come from the water tile, never the shading
+/// tile (the repaint row, 2026-09-28).
+fn tile_water_class(ctx: &RenderCtx, tf: &TileFields, hw: f64, wx: f64, wy: f64) -> u8 {
+    let n = ctx.gw * ctx.gh;
+    if hw < ctx.sea_level {
+        TILE_SEA
+    } else if tf.lake_class.len() == n && is_lake_pixel(tf, ctx, wx, wy, hw, tf.lake_fill.len() == n) {
+        TILE_LAKE
+    } else {
+        TILE_LAND
+    }
+}
+
+/// The water classes [`render_biome_tile_rgba_water`] draws for a tile's core
+/// pixels, row-major (`0` land, `1` sea, `2` lake): the same
+/// [`tile_water_class`] over the same heights (`water`, or `tile` when it is
+/// `None`) at the same world positions. Measures WHERE a tile puts water,
+/// independent of the colours either side; must never be used to classify
+/// anything else. Empty on the renderer's own refusal conditions.
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
+pub fn tile_water_mask(ctx: &RenderCtx, tile: &[f32], water: Option<&[f32]>, w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields) -> Vec<u8> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let (pw, ph) = (w + 2 * pad, h + 2 * pad);
+    if w == 0 || h == 0 || tile.len() < pw * ph || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
+        return Vec::new();
+    }
+    let wt: &[f32] = water.filter(|v| v.len() >= pw * ph).unwrap_or(tile);
+    let cx = bounds.w / (w.max(2) - 1) as f64;
+    let cy = bounds.h / (h.max(2) - 1) as f64;
+    let mut out = vec![TILE_LAND; w * h];
+    for y in 0..h {
+        let wy = bounds.y + y as f64 * cy;
+        for x in 0..w {
+            let wx = bounds.x + x as f64 * cx;
+            out[y * w + x] = tile_water_class(ctx, tf, wt[(y + pad) * pw + x + pad] as f64, wx, wy);
+        }
+    }
+    out
+}
+
+/// Whether a tile covering `bounds` (`w x h` pixels, plus a halo of `pad`)
+/// needs its own **water tile** -- the same pixels amplified from the world's
+/// height rather than RV-3's shaded valley field
+/// ([`render_biome_tile_rgba_water`]; the repaint row, 2026-09-28).
+///
+/// Only where the two fields could put a pixel on different sides of the
+/// water: the amplifier never moves a pixel across sea level, so a pixel's
+/// side is its bilinear base's, and the base can differ in sign only in a
+/// bilinear cell with a corner the valley changed and a wet corner. Such a
+/// corner is a changed cell 8-adjacent to water (the four corners of a cell
+/// are mutually 8-adjacent). So this is true exactly when the coarse cells
+/// the tile's samples read hold a cell whose two heights differ (bitwise) and
+/// that touches a below-sea cell or a classified water cell
+/// (`TileFields::lake_class`, forced lakes included). `false` when the context
+/// has no separate water height -- every golden, a loaded save, the
+/// reference look -- and for every tile away from the river mouths, which
+/// keeps the second amplification off every other tile.
+///
+/// Reads the tile's coarse footprint once (one compare per cell); a
+/// neighbourhood is read only around a changed cell.
+pub fn tile_water_differs(ctx: &RenderCtx, tf: &TileFields, bounds: TileBounds, w: usize, h: usize, pad: usize) -> bool {
+    if !ctx.water_split() {
+        return false;
+    }
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let water = ctx.water_height();
+    if gw == 0 || gh == 0 || ctx.field.len() < gw * gh || water.len() < gw * gh {
+        return false;
+    }
+    let cx = if w > 1 { bounds.w / (w - 1) as f64 } else { 0.0 };
+    let cy = if h > 1 { bounds.h / (h - 1) as f64 } else { 0.0 };
+    let (px, py) = (pad as f64 * cx, pad as f64 * cy);
+    // The cells a bilinear sample anywhere in the padded tile reads are
+    // `floor(f)` and `floor(f) + 1`; one more on each side is margin, not a
+    // requirement.
+    let lo = |v: f64| (v.floor() as i64 - 1).max(0) as usize;
+    let hi = |v: f64, n: usize| ((v.floor() as i64) + 2).clamp(0, n as i64 - 1) as usize;
+    let (x0, x1) = (lo(bounds.x - px), hi(bounds.x + bounds.w + px, gw));
+    let (y0, y1) = (lo(bounds.y - py), hi(bounds.y + bounds.h + py, gh));
+    let lakes: &[u8] = if tf.lake_class.len() == gw * gh { &tf.lake_class } else { &[] };
+    let wet = |j: usize| (water[j] as f64) < ctx.sea_level || lakes.get(j).is_some_and(|&c| c != 0);
+    for y in y0..=y1.max(y0) {
+        for x in x0..=x1.max(x0) {
+            let i = y * gw + x;
+            if ctx.field[i].to_bits() == water[i].to_bits() {
+                continue;
+            }
+            for yy in y.saturating_sub(1)..=(y + 1).min(gh - 1) {
+                for xx in x.saturating_sub(1)..=(x + 1).min(gw - 1) {
+                    if wet(yy * gw + xx) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// [`render_biome_tile_rgba`] over a tile that carries a **halo** of `pad`
 /// texels on every side (`cartalith_engine::bake::pyramid_tile_padded`):
 /// `tile` is `(w + 2·pad) × (h + 2·pad)`, `w`/`h`/`bounds` describe the tile
@@ -9847,6 +10060,29 @@ pub fn render_biome_tile_rgba_padded(ctx: &RenderCtx, tile: &[f32], w: usize, h:
 #[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields, rivers: Option<&RiverLayer>) -> Vec<u8> {
+    render_biome_tile_rgba_water(ctx, tile, None, w, h, pad, bounds, tf, rivers)
+}
+
+/// [`render_biome_tile_rgba_rivers`] with the tile's **water decided from a
+/// second height tile** (the repaint row, 2026-09-28): `water` is the same
+/// pixels amplified from the world's own height
+/// ([`RenderCtx::water_height`]) where `tile` was amplified from RV-3's shaded
+/// valley field. Every water test -- the sea branch, the lake band, the toon
+/// keyline, the coast and biome-boundary SDFs, the waves, the river layer's
+/// land-only mask -- reads `water`; the shading, the relief and the material
+/// path keep reading `tile`. `None`, or a slice of the wrong length, is
+/// `tile` itself: every golden and every tile whose ground the valley field
+/// did not change beside water (`lod_bridge::synthesize_tile_rgba_rivers`
+/// decides) draws exactly as before.
+///
+/// Why a second tile and not the world's bilinear height: the amplifier never
+/// moves a pixel across sea level (`cartalith_terrain::amplify`'s
+/// `clamp_toward_sea`), so the amplified world height puts the shore exactly
+/// where the reference's own tile does -- and exactly where this tile did
+/// while the valley field left the land beside water alone.
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
+pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option<&[f32]>, w: usize, h: usize, pad: usize, bounds: TileBounds, tf: &TileFields, rivers: Option<&RiverLayer>) -> Vec<u8> {
     let rivers = rivers.filter(|l| l.width() == w && l.height() == h);
     let (gw, gh) = (ctx.gw, ctx.gh);
     let (pw, ph) = (w + 2 * pad, h + 2 * pad);
@@ -9854,6 +10090,8 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
     if w == 0 || h == 0 || tile.len() < pw * ph || gw == 0 || gh == 0 || tf.gw != gw || tf.gh != gh {
         return Vec::new();
     }
+    // The height every water test below reads (see the doc comment).
+    let wt: &[f32] = water.filter(|v| v.len() >= pw * ph).unwrap_or(tile);
     let a = &ctx.appearance;
     let sl = ctx.sea_level;
     // v2.11's `ex = state.exag` (11670) under `js_reference()`; v2.25's
@@ -9909,10 +10147,12 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
     // other would silently re-scale the gate by the step.
     let crest_b = build_crest(tile, pw, ph, sl, cx * crest_step as f64, cy * crest_step as f64, crest_step, a);
 
-    // B5 coast SDF, from the tile's own height. `buildCoastSDF` and this are
+    // B5 coast SDF, from the tile's own water heights (`wt`: the world's
+    // height amplified, where it differs from the shading tile's side of sea
+    // level; the shading tile itself everywhere else). `buildCoastSDF` and this are
     // the same function over the same mask; `build_river_sdf`'s doc comment
     // carries the term-by-term proof for the sibling case.
-    let coast_b = if a.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(tile, pw, ph, sl) } else { Vec::new() };
+    let coast_b = if a.sdf_coast > 0.0 { cartalith_civ::build_coast_sdf(wt, pw, ph, sl) } else { Vec::new() };
 
     // B3 river SDF, from flow sampled at the tile's world coordinates, with
     // the **grid's** `riverFlowThresh(GW, GH)` — the reference's own argument
@@ -9954,7 +10194,7 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
         for yy in 0..ph {
             let wyy = bounds.y + (yy as f64 - padf) * cy;
             for xx in 0..pw {
-                let hh = tile[yy * pw + xx] as f64;
+                let hh = wt[yy * pw + xx] as f64;
                 bio[yy * pw + xx] = if hh < sl {
                     0
                 } else {
@@ -9978,19 +10218,16 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
     // whether to pay for building that cache — has nothing to decide here and
     // is omitted. A tile with no cell below `sl` never enters the branch.
 
-    let lakes = tf.lake_class.len() == gw * gh;
-    let lake_fill_ok = tf.lake_fill.len() == gw * gh;
     // The toon keyline's water mask, over the halo too so a shore just past
     // the tile edge still inks the edge pixel (the halo is >= 2, which is why
-    // `TOON_OUTLINE_R` may not exceed it). The two tests are the loop's own
-    // `water` branch below, at the same world position. Empty -- and never
+    // `TOON_OUTLINE_R` may not exceed it). The test is the loop's own
+    // (`tile_water_class` on the water tile), at the same world position. Empty -- and never
     // built -- while the outline is off.
     let toon_water: Vec<bool> = if a.toon_outline > 0.0 {
         (0..pw * ph)
             .map(|k| {
-                let ht = tile[k] as f64;
                 let (xx, yy) = ((k % pw) as f64 - padf, (k / pw) as f64 - padf);
-                ht < sl || (lakes && is_lake_pixel(tf, ctx, bounds.x + xx * cx, bounds.y + yy * cy, ht, lake_fill_ok))
+                tile_water_class(ctx, tf, wt[k] as f64, bounds.x + xx * cx, bounds.y + yy * cy) != TILE_LAND
             })
             .collect()
     } else {
@@ -10039,6 +10276,8 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
             let xp = x + pad;
             let i = ro + xp;
             let ht = tile[i] as f64;
+            // The water test's height (`wt`); `ht` shades.
+            let hw = wt[i] as f64;
             let wx = bounds.x + x as f64 * cx;
 
             // --- 1. the macro normal, from the tile's own height (11714) ----
@@ -10058,14 +10297,15 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
             let vig = ctx.vignette_at_f(wx, wy);
 
             // --- 3. the three colour branches -------------------------------
-            let water = if ht < sl {
+            let class = tile_water_class(ctx, tf, hw, wx, wy);
+            let water = if class == TILE_SEA {
                 // Ocean (11719-11721). Sampled sea floor and sea shade, per
                 // the v1.29 seam fix above.
                 let hs = sample_arr(&ctx.sea_h, wx, wy, gw, gh);
                 let shw = sample_arr(&ctx.sea_shade, wx, wy, gw, gh);
                 let depth = if sl <= 0.0 { 0.0 } else { clamp01((sl - hs) / sl) };
                 Some(sea_color_core(a, depth, t, sea_grain(a, wx, wy, gw), shw, vig))
-            } else if lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok) {
+            } else if class == TILE_LAKE {
                 // v1.05 lake (11741-11742) -- see [`lake_color`].
                 Some(lake_color(a, t, sea_grain(a, wx, wy, gw), vig))
             } else {
@@ -10224,7 +10464,7 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
             // --- 4. the port-only per-pixel stages, in `cell_color`'s order --
             // Waves: water only, and `coast_d` is empty unless `npr.waves` is
             // on, so this is one length test on every other path.
-            let (cr, cg, cb) = if ht < sl && !ctx.coast_d.is_empty() { apply_waves(a, (cr, cg, cb), sample_arr(&ctx.coast_d, wx, wy, gw, gh), gw) } else { (cr, cg, cb) };
+            let (cr, cg, cb) = if hw < sl && !ctx.coast_d.is_empty() { apply_waves(a, (cr, cg, cb), sample_arr(&ctx.coast_d, wx, wy, gw, gh), gw) } else { (cr, cg, cb) };
             let tone = paper_tone(a, wx, wy, gw);
             let (cr, cg, cb) = apply_paper(a, (cr, cg, cb), tone);
             let (cr, cg, cb) = apply_border(a, (cr, cg, cb), tone, wx, wy, gw, gh);
@@ -10340,9 +10580,9 @@ pub fn render_biome_tile_rgba_rivers(ctx: &RenderCtx, tile: &[f32], w: usize, h:
             let wy = bounds.y + y as f64 * cy;
             for x in 0..w {
                 if let Some(p) = layer.at(x, y) {
-                    let ht = tile[(y + pad) * pw + x + pad] as f64;
+                    let hw = wt[(y + pad) * pw + x + pad] as f64;
                     let wx = bounds.x + x as f64 * cx;
-                    if ht < sl || (lakes && is_lake_pixel(tf, ctx, wx, wy, ht, lake_fill_ok)) {
+                    if tile_water_class(ctx, tf, hw, wx, wy) != TILE_LAND {
                         continue;
                     }
                     row[x * 4 + 3] = 255 - (p[3].clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -10782,6 +11022,12 @@ fn bake_lake_at(lake: &[u8], gx: f64, gy: f64, gw: usize, gh: usize) -> bool {
 /// `river_stroke.rs` carries a river mouth into; the field is positive there
 /// anyway), and no lake corner is land. `smooth_shores` false
 /// (`js_reference()`) runs the v1.05 body untouched.
+///
+/// Every height this reads is the world's, never RV-3's shaded valley field
+/// (the repaint row, 2026-09-28): the smooth band's [`shore_depth`] and the
+/// flat-lake test read [`RenderCtx::water_height`], and `ht` is the tile
+/// pixel's height amplified from that same field -- the renderer passes its
+/// water tile (`render_biome_tile_rgba_water`'s `wt`), never the shading tile.
 fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fill_ok: bool) -> bool {
     let (gw, gh) = (ctx.gw, ctx.gh);
     let lake = &tf.lake_class;
@@ -10820,7 +11066,7 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
         // (`shore_depth_forced`), so a forced lake keeps one outline from fit
         // zoom into the tiles. `None` for a world with none.
         let forced = Some(&tf.lake_forced[..]).filter(|m| m.len() == gw * gh);
-        let d = |x: usize, y: usize| shore_depth_forced(ctx.field, lake, &tf.lake_fill, ctx.rainfall, forced, gw, gh, ctx.sea_level, ctx.world, x, y);
+        let d = |x: usize, y: usize| shore_depth_forced(ctx.water_height(), lake, &tf.lake_fill, ctx.rainfall, forced, gw, gh, ctx.sea_level, ctx.world, x, y);
         let s = (1.0 - tx) * (1.0 - ty) * d(x0, y0) + tx * (1.0 - ty) * d(x1, y0) + (1.0 - tx) * ty * d(x0, y1) + tx * ty * d(x1, y1);
         return s > 0.0;
     }
@@ -10844,7 +11090,7 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
     if ht < s && fq > LAKE_MEMBERSHIP_MIN {
         return true;
     }
-    lake[ni] == 2 && (fill[ni] as f64 - ctx.field[ni] as f64) <= LAKE_FLAT_EPS
+    lake[ni] == 2 && (fill[ni] as f64 - ctx.water_height()[ni] as f64) <= LAKE_FLAT_EPS
 }
 
 /// RV-4's smooth shoreline (`shore_margins`, `shore_depth`, `shore_field`,
@@ -11341,6 +11587,41 @@ mod valley_split_tests {
 
     fn ctx<'a>(f: &'a [f32], rain: &'a [f32], temp: &'a [f32]) -> RenderCtx<'a> {
         RenderCtx::with_appearance(f, temp, rain, None, GW, GH, SL, false, 50.0, 40.0, TerrainAppearance::default())
+    }
+
+    // Protects: `with_appearance_split` (the repaint row's speed-up,
+    // 2026-09-28) is the context `with_appearance(..).with_water_height(..)`
+    // built, byte for byte -- every cell's colour, the attached water height,
+    // the bathymetry -- and a water height that is the shaded field itself
+    // (or the wrong length) attaches nothing, as `with_water_height` refuses.
+    // Positive control: the shaded field alone colours the coast differently,
+    // so the equality is about the split, not a fixture the two heights agree
+    // on.
+    #[test]
+    fn the_split_constructor_is_the_two_step_context() {
+        let (truth, shaded, rain, temp) = worlds();
+        let a = TerrainAppearance::default();
+        let two = RenderCtx::with_appearance(&shaded, &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a.clone()).with_water_height(&truth);
+        let one = RenderCtx::with_appearance_split(&shaded, &truth, &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a.clone());
+        assert!(std::ptr::eq(one.water_height(), truth.as_slice()), "the world's height is attached");
+        assert!(one.sea_h.iter().zip(two.sea_h.iter()).all(|(p, q)| p.to_bits() == q.to_bits()), "the same bathymetry");
+        assert!(one.sea_shade.iter().zip(two.sea_shade.iter()).all(|(p, q)| p.to_bits() == q.to_bits()), "the same sea shade");
+        let colours = |c: &RenderCtx| -> Vec<u64> {
+            (0..GH).flat_map(|y| (0..GW).map(move |x| (x, y))).map(|(x, y)| {
+                let (r, g, b) = cell_color(c, x, y);
+                r.to_bits() ^ g.to_bits().rotate_left(21) ^ b.to_bits().rotate_left(42)
+            }).collect()
+        };
+        assert_eq!(colours(&one), colours(&two), "every cell's colour");
+        let alone = RenderCtx::with_appearance(&shaded, &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a.clone());
+        assert_ne!(colours(&alone), colours(&two), "control: the shaded field's own bathymetry colours the coast differently");
+        // No second height: nothing attached, and the context is `with_appearance`'s.
+        let same = RenderCtx::with_appearance_split(&shaded, &shaded, &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a.clone());
+        assert!(std::ptr::eq(same.water_height(), shaded.as_slice()));
+        assert_eq!(colours(&same), colours(&alone));
+        let short = RenderCtx::with_appearance_split(&shaded, &truth[..GW], &temp, &rain, None, GW, GH, SL, false, 50.0, 40.0, a);
+        assert!(std::ptr::eq(short.water_height(), shaded.as_slice()), "a short water height is refused");
+        assert_eq!(colours(&short), colours(&alone));
     }
 
     // Protects: a tile's water bodies are built from the world's height, not

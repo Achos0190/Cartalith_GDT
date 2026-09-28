@@ -24,14 +24,20 @@
 //! three render paths (the screen texture, the deep-zoom tiles and every
 //! export) and to nothing else, so all three shade the same surface.
 //!
-//! **Water is never touched, and neither is land beside it.** Every cell that
-//! is water in the drawn classification or below sea level, and every cell
-//! 8-adjacent to one, keeps the true height. So every per-cell water test the
-//! renderer makes (`h < sea_level`) and every bilinear one (a bilinear cell
-//! with a water corner has all its other corners in that frozen ring) answers
-//! exactly as on the true field: no coast, lake shore or sea colour moves.
-//! The cost is that the last cell of a channel beside the water keeps its
-//! carve; [`is_frozen`] says why that is not fixed here.
+//! **Water is never touched, and no water test reads this field.** Every cell
+//! that is water in the drawn classification or below sea level keeps the true
+//! height ([`is_frozen`]), and since 2026-09-28 every water test in the three
+//! render paths reads the world's height instead (`RenderCtx::water_height`:
+//! the screen's per-cell test, the export's bilinear one, and the deep-zoom
+//! tiles' amplified one through their water tile,
+//! `render::render_biome_tile_rgba_water`). So the land beside water may be
+//! shaded like any other land -- the last carved cell of a channel at its
+//! mouth is filled and re-cut with the rest (`OUTSTANDING_WORK.md` row "The
+//! colour-texture repaint ...; and the carved cell beside water keeps its
+//! step") -- and no coast, lake shore or sea colour moves. Until that change
+//! a ring of land 8-adjacent to water was frozen too, because the bilinear and
+//! amplified sea tests read the shaded height and a raised land corner would
+//! have moved the shore.
 //!
 //! **No land is taken below sea level.** A re-cut cell is floored at
 //! `sea_level + cartalith_hydrology::CARVE_LAND_MARGIN`, the carve's own land
@@ -225,38 +231,29 @@ impl Grid<'_> {
     }
 }
 
-/// A cell the valley may never change: water (drawn classification, or below
-/// sea level) or a land cell 8-adjacent to water. See the module doc for why
-/// the ring makes every bilinear water test exact.
+/// A cell the valley may never change: water, in the drawn classification or
+/// below sea level. Everything else is land, and the fill only raises land and
+/// the re-cut never takes it below `sea_level + CARVE_LAND_MARGIN`, so no cell
+/// changes side and every per-cell water test is unchanged whatever this
+/// field holds.
 ///
-/// **Why the carved cell beside water keeps its step** (`OUTSTANDING_WORK.md`
-/// row "RV-3 follow-ups", item 3; looked at 2026-09-28, not fixed). Filling
-/// that last cell would raise a land corner of a bilinear cell whose other
-/// corner is water. The renderer's per-pixel land/sea test still reads the
-/// SHADED height (`render::land_color`'s bilinear `h < sea`; only water
-/// bodies, the biome-boundary distance and the bathymetry read
-/// `RenderCtx::water_height`), so the drawn shoreline would move by a fraction
-/// of a cell at every river mouth and every lake inlet -- the one thing
-/// RV-3's measurement showed does not move. Fixing it cleanly means routing
-/// every per-pixel sea test to `water_height` in all three render paths
-/// (screen, tiles, export), which is its own change with its own screenshots,
-/// not this module's. The step is one cell long, at the water's edge, where
-/// the drawn river stroke covers it whenever the Rivers layer is on.
-///
-/// Evaluated per visited cell (nine lookups) rather than as a grid-sized mask:
-/// the fill and the re-cut visit a few percent of the grid, and a mask built
-/// over all of it was the larger part of this module's cost at 8192²
-/// (`_rv3cost_probe.gd`, `STATUS.md` "RV-3 follow-ups").
+/// **The ring of land beside water is no longer frozen** (2026-09-28, the
+/// repaint row's second half, `OUTSTANDING_WORK.md` "...; and the carved cell
+/// beside water keeps its step"). It was, because a raised land corner of a
+/// bilinear cell whose other corner is water moves the sub-cell sea-level
+/// contour, and the export's bilinear test and the tiles' amplified test read
+/// this SHADED height -- so filling the last carved cell at a mouth would have
+/// moved the drawn shore. Those tests now read the world's height
+/// (`RenderCtx::water_height`, and the tiles' water tile), so the ring shades
+/// like the rest of the channel and the one-cell step at every mouth and
+/// inlet is filled. Measured: `lod_bridge::tests::
+/// the_water_mask_is_the_same_whatever_the_shaded_field_holds` (a fixture) and
+/// `a_generated_world_draws_the_same_water_with_the_valley_field` (a generated
+/// world with this module's field): every tile of levels 0-3 and the export's
+/// water, pixel for pixel. The screen's per-cell test cannot move -- no cell
+/// changes side.
 fn is_frozen(g: &Grid, i: usize) -> bool {
-    let (x, y) = ((i % g.gw) as i64, (i / g.gw) as i64);
-    for dy in -1i64..=1 {
-        for dx in -1i64..=1 {
-            if index(x + dx, y + dy, g.gw, g.gh, g.world).is_some_and(|j| g.wet(j)) {
-                return true;
-            }
-        }
-    }
-    false
+    g.wet(i)
 }
 
 /// The grid index of `(x, y)`, wrapping x in world mode; `None` off the grid.
@@ -641,13 +638,14 @@ mod tests {
         }
     }
 
-    // Protects: water, and land beside water, keep their true height, so no
-    // shoreline or water colour can move; and no land is cut below sea level.
+    // Protects: water keeps its true height and no land is cut below sea
+    // level, so no cell changes side; and the land beside water is shaded
+    // like the rest of the channel (the ring is no longer frozen, 2026-09-28).
     // The carve runs from the coast (x = 2, beside the sea at x < 2) past a
     // lake cell (30, 14), and a low patch of land (row 17, 0.45) lies on the
     // valley's shoulder, where the cut would take it under the sea.
     #[test]
-    fn water_and_its_banks_are_never_changed_and_land_stays_land() {
+    fn water_is_never_changed_and_land_stays_land() {
         let (gw, gh) = (40, 30);
         let sea = 0.42;
         let (mut f, c) = plain_with_trench(gw, gh, 15, 2, 35, 0.15);
@@ -667,21 +665,21 @@ mod tests {
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
-                let near_water = (-1i64..=1).any(|dy| {
-                    (-1i64..=1).any(|dx| index(x as i64 + dx, y as i64 + dy, gw, gh, false).is_some_and(|j| water[j] != 0 || (f[j] as f64) < sea))
-                });
-                if near_water {
-                    assert_eq!(s[i].to_bits(), f[i].to_bits(), "({x},{y}) is water or beside it and must keep its height");
+                if water[i] != 0 || (f[i] as f64) < sea {
+                    assert_eq!(s[i].to_bits(), f[i].to_bits(), "({x},{y}) is water and must keep its height");
                 } else {
                     assert!((s[i] as f64) >= sea, "({x},{y}) is land and must stay above sea level: {}", s[i]);
                 }
             }
         }
-        // Positive controls: the ring cells the assertions guard lie on the
-        // carve and the valley (so a mutant that ignored the ring would move
-        // them), the valley was cut beside the carve, and the low patch was
-        // reached and floored rather than left alone.
-        assert!(c[15 * gw + 2] != 0 && c[15 * gw + 30] != 0, "premise: the ring cells are carved");
+        // Positive controls: the carved cell beside the sea (2, 15) is shaded
+        // now -- a mutant that froze the ring again would leave it at the
+        // carve -- the valley was cut beside the carve, and the low patch was
+        // reached and floored rather than left alone. (The cell beside the
+        // lake, (30, 15), is re-cut to exactly its carve's depth on the drawn
+        // line, so it cannot tell frozen from shaded and is not used.)
+        assert!(c[15 * gw + 2] != 0, "premise: the cell beside the sea is carved");
+        assert_ne!(s[15 * gw + 2].to_bits(), f[15 * gw + 2].to_bits(), "the carved cell beside the sea is shaded with its channel");
         assert!(s[14 * gw + 10] < 0.5, "the valley exists on row 14: {}", s[14 * gw + 10]);
         let low = s[17 * gw + 21] as f64;
         assert!(low < 0.44 && low >= sea, "the low patch is cut down to the land floor, not below: {low}");
@@ -768,19 +766,46 @@ mod tests {
     }
 
     // Protects: land below sea level that the drawn classification does not
-    // call water (a dry depression under the datum) still freezes its ring --
-    // the renderer's own `h < sea_level` test would call it sea.
+    // call water (a dry depression under the datum) is frozen as water -- the
+    // renderer's own `h < sea_level` test calls it sea -- while the carved cell
+    // diagonal to it is no longer frozen with it (2026-09-28).
     #[test]
-    fn a_cell_below_sea_level_freezes_its_ring_even_when_not_classified_water() {
+    fn a_cell_below_sea_level_is_frozen_even_when_not_classified_water() {
         let (gw, gh) = (40, 30);
         let (mut f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
         // Diagonal to the carved cell (20, 15), so the fill (which reads
-        // 4-neighbours) would not be pulled down by it: only the ring keeps
-        // (20, 15) at its carve.
+        // 4-neighbours) is not pulled down by it.
         f[16 * gw + 21] = 0.40;
+        let mut c = c;
+        c[16 * gw + 21] = 1; // carved too: only its being below sea level keeps it
         let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
-        assert_eq!(s[15 * gw + 20].to_bits(), f[15 * gw + 20].to_bits(), "the carved cell beside it keeps its carve");
+        assert_eq!(s[16 * gw + 21].to_bits(), f[16 * gw + 21].to_bits(), "the below-sea cell keeps its height");
+        // (21, 15) is 4-adjacent to the below-sea cell, which holds it at the
+        // carve's floor; (20, 15), beside it, is lifted most of the way.
+        assert!(s[15 * gw + 20] > 0.595, "the carved cell beside it is filled with the rest: {}", s[15 * gw + 20]);
+        assert!(s[15 * gw + 21] >= f[15 * gw + 21], "and none is taken below its carve");
         assert!((s[15 * gw + 10] - 0.6).abs() < 1e-5, "control: away from it the carve is filled");
+    }
+
+    // Protects: the item this change exists for -- the last carved cell of a
+    // channel at the sea no longer keeps its one-cell step. With no drawn
+    // river over it the fill lifts it from the carve's 0.45 toward its banks
+    // (the sea cell beside it holds it below them), and it stays land.
+    #[test]
+    fn the_carved_cell_at_the_mouth_loses_its_step() {
+        let (gw, gh) = (40, 30);
+        let (mut f, c) = plain_with_trench(gw, gh, 15, 2, 35, 0.15);
+        let mut water = vec![0u8; gw * gh];
+        for y in 0..gh {
+            for x in 0..2 {
+                f[y * gw + x] = 0.3;
+                water[y * gw + x] = 1;
+            }
+        }
+        let s = valley_shade_field(&f, &water, &c, None, &[], gw, gh, 0.42, false).unwrap();
+        let mouth = s[15 * gw + 2] as f64;
+        assert!(mouth > 0.45 + 0.05, "the mouth cell is lifted off the carve's 0.45: {mouth}");
+        assert!(mouth >= 0.42 && mouth <= 0.6, "and stays land, no higher than its banks: {mouth}");
     }
 
     // Protects: a carved cell raised above its floor after the carve (an

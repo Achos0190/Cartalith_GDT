@@ -9609,8 +9609,25 @@ impl WorldGen {
         // (`valley_shade_field`). The tiles and every export take the same
         // one, so the three shade one surface. Everything else below that
         // reads the height as the world's -- the shore field, the river-ink
-        // sea test -- keeps `field`; the valley never touches water or the
-        // ring of land beside it, so those tests answer the same either way.
+        // sea test, and (since 2026-09-28) every per-pixel sea test in
+        // `render.rs` -- keeps `field`, so the valley may reshape the land
+        // beside water without moving any water.
+        //
+        // The drawn water bodies come FIRST (the repaint row, 2026-09-28), and
+        // their classification goes into `drawn_water_cache` before the valley
+        // is asked for: the valley and the drawn river network it cuts along
+        // both read `drawn_water_classification`, and after an edit that cache
+        // was cold, so they ran the same priority flood a second time (measured
+        // in `STATUS.md`, the repaint row's entry). The flood is
+        // deterministic, so the classification is the same bytes whichever
+        // call makes it.
+        let bodies = self.drawn_water_bodies()?;
+        let lakes = bodies.classification;
+        // The same classification `drawn_water_classification` answers from
+        // its cache -- refreshed here, where it was built anyway, so the valley
+        // below and Sample's first motion event after a repaint pay no flood
+        // of their own.
+        *self.drawn_water_cache.borrow_mut() = Some((self.drawn_water_key(), std::sync::Arc::from(lakes.as_slice())));
         let shade = self.valley_shade_field(&appearance);
         let render_field: &[f32] = shade.as_deref().map_or(field, |v| v.as_slice());
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
@@ -9640,12 +9657,6 @@ impl WorldGen {
         // with the lake labels (`drawn_water_classification`), so a label
         // cannot name a lake this texture does not draw. The pooled fill
         // level from the same call feeds RV-4's shore field below.
-        let bodies = self.drawn_water_bodies()?;
-        let lakes = bodies.classification;
-        // The same classification `drawn_water_classification` answers from
-        // its cache -- refreshed here, where it was built anyway, so Sample's
-        // first motion event after a repaint pays no flood of its own.
-        *self.drawn_water_cache.borrow_mut() = Some((self.drawn_water_key(), std::sync::Arc::from(lakes.as_slice())));
         // RV-4: the smooth shoreline's field, from the classification this
         // texture draws its water from and that call's own fill level, so the
         // shell's contour agrees with these colours at every cell centre
@@ -9672,12 +9683,14 @@ impl WorldGen {
         // again. `None` for a loaded save, which keeps `chan_mask` instead.
         let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field(&g, &appearance, gw, gh));
         self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
-        let mut ctx = RenderCtx::with_appearance(
-            render_field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
-        )
         // RV-3: water and the sea's colour are decided from the world's own
-        // height, never the shaded one (a no-op when they are the same).
-        .with_water_height(field)
+        // height, never the shaded one (a no-op when they are the same). One
+        // precompute over both heights (`with_appearance_split`), the same
+        // context `with_appearance(..).with_water_height(field)` built in two
+        // passes -- the first of which built the bathymetry blur for nothing.
+        let mut ctx = RenderCtx::with_appearance_split(
+            render_field, field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
+        )
         .with_lakes(&lakes);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
@@ -9786,8 +9799,9 @@ impl WorldGen {
                 // `field[i]`, the world's height, not `ctx.field` (RV-3's
                 // shaded field, `render_field` above): the two agree on every
                 // cell's side of sea level, because the valley never changes
-                // a water cell or the land beside it, so this is the same test
-                // `cell_color` makes. A loaded save -- the only world with a
+                // a water cell and never takes land below sea level, and it is
+                // the height `cell_color`'s own sea test reads
+                // (`RenderCtx::water_height`). A loaded save -- the only world with a
                 // flag here -- has no shaded field at all.
                 let ink = if (field[i] as f64) < sea_level { 0.0 } else { chan_mask.map_or(0.0, |m| render::save_flag_at(m, i)) as f64 };
                 if ink > 1.0 / 255.0 {
