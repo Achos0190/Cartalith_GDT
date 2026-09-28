@@ -412,8 +412,9 @@ func _ready() -> void:
 			## `build_color_texture()`.** They are drawn as a vector stroke by
 			## `map_overlay.gd::_draw_rivers()` in the lake's own colour, at
 			## the channel's real world-space width -- while
-			## `export_raster_png` deliberately still calls the OLD baked-ink
-			## path (`WorldGen::river_ink()`), unchanged. So screen and export
+			## `export_raster_png` drew the OLD baked ink until RV-5
+			## (2026-09-28), and since then rasterizes those same vector
+			## strokes into the export itself. Either way screen and export
 			## now intentionally disagree exactly where a river runs, and only
 			## there. A byte-for-byte comparison that does not know this would
 			## either weaken its bound everywhere (masking a real regression

@@ -62,7 +62,7 @@ use cartalith_spatial::pyramid::ChunkId;
 
 use crate::lod_bridge;
 use crate::render::{
-    self, ColorSpace, GridPrecompute, GroundTile, GroundTiles, QualityTier, RenderCtx, RiverInk, SplatChannel, SplatTextures, TerrainAppearance, TileCryo, TileFields,
+    self, ColorSpace, GridPrecompute, GroundTile, GroundTiles, QualityTier, RenderCtx, SplatChannel, SplatTextures, TerrainAppearance, TileCryo, TileFields,
 };
 
 // ---------------------------------------------------------------------------
@@ -172,25 +172,13 @@ pub fn budget_for_tier(tier: QualityTier) -> LodBudget {
 // The snapshot — everything a tile needs, owned, `Send + Sync`
 // ---------------------------------------------------------------------------
 
-/// The world's river ink, owned rather than borrowed.
-///
-/// `render::RiverInk` is two borrowed slices by design (its own doc records
-/// what happened the week the bake path and the screen path held separate
-/// copies). A background thread cannot borrow from `WorldGen`, so the
-/// snapshot owns the bytes and hands out a `RiverInk` borrowing *itself*.
-pub enum OwnedInk {
-    Stamped(Vec<f32>),
-    Flag(Vec<u8>),
-}
-
-impl OwnedInk {
-    pub(crate) fn as_ink(&self) -> RiverInk<'_> {
-        match self {
-            OwnedInk::Stamped(v) => RiverInk::Stamped(v),
-            OwnedInk::Flag(v) => RiverInk::Flag(v),
-        }
-    }
-}
+/// A loaded save's river flag (`render::save_flag_at`), owned rather than
+/// borrowed: a background thread cannot borrow from `WorldGen`, so the
+/// snapshot owns the bytes. RV-5 (2026-09-28) retired the other arm this
+/// type had, `Stamped` (the export-only disc raster): a generated world's
+/// tiles and exports draw vector rivers, and only a save without a traced
+/// network still carries a flag.
+pub type OwnedInk = Vec<u8>;
 
 /// A loaded pack's six splat channels, owned. Mirrors
 /// [`render::SplatTextures`] field for field so the two cannot drift.
@@ -263,7 +251,7 @@ pub struct LithoSource {
 /// duration of one build rather than retained. All four are `Arc<Vec<f32>>`
 /// on `WorldState` now, so `litho` costs four refcount bumps as well.
 ///
-/// What is still copied: the ink (10.74 MB stamped, 2.68 MB as a flag), the
+/// What is still copied: a loaded save's river flag (2.68 MB at 2048x1311), the
 /// paint grids, and a pack's splat and ground textures. A *loaded* save's
 /// three fields are refcount bumps too now, the same as a generated world's.
 pub struct SnapshotInputs {
@@ -498,13 +486,11 @@ impl SnapshotInputs {
             ColorSpace::Srgb => 0,
             ColorSpace::DisplayP3 => 1,
         });
+        // `2` is the flag's tag from before RV-5 retired the stamp (`1`),
+        // kept so a key's shape is unchanged for the one variant left.
         match ink {
             None => d.word(0),
-            Some(OwnedInk::Stamped(v)) => {
-                d.word(1);
-                d.f32s(v);
-            }
-            Some(OwnedInk::Flag(v)) => {
+            Some(v) => {
                 d.word(2);
                 d.bytes(v);
             }
@@ -762,7 +748,7 @@ impl LodSnapshot {
         }
         let mut tf = self.fields.borrowed();
         if let Some(ink) = self.ink.as_ref() {
-            tf = tf.with_ink(ink.as_ink());
+            tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
         lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref())
@@ -843,13 +829,8 @@ impl LodSnapshot {
     /// copy belongs to the world, not to this snapshot, and is not counted
     /// here either.
     pub fn retained_bytes(&self) -> usize {
-        let f = std::mem::size_of::<f32>();
         let mut n = 0usize;
-        n += match self.ink.as_ref() {
-            Some(OwnedInk::Stamped(v)) => v.len() * f,
-            Some(OwnedInk::Flag(v)) => v.len(),
-            None => 0,
-        };
+        n += self.ink.as_ref().map_or(0, |v| v.len());
         for g in [&self.paint_biome, &self.paint_terrain, &self.paint_splat] {
             n += g.as_ref().map_or(0, |v| v.len());
         }
@@ -1520,7 +1501,7 @@ mod tests {
         assert_eq!(snap.retained_bytes(), 0, "the four world grids are shared, not copied: a pack-less, paint-less, ink-less world costs nothing");
         let mut no_flow = inputs(gw, gh);
         no_flow.flow = None;
-        no_flow.ink = Some(OwnedInk::Flag(vec![0u8; n]));
+        no_flow.ink = Some(vec![0u8; n]);
         let snap2 = LodSnapshot::build(no_flow).expect("snapshot");
         assert_eq!(snap2.retained_bytes(), n, "a one-byte-per-cell flag ink is copied, and is the only thing counted");
     }
@@ -1913,7 +1894,7 @@ mod tests {
             ("colour space", { let mut i = inputs(gw, gh); i.color_space = ColorSpace::DisplayP3; i }),
             ("appearance", { let mut i = inputs(gw, gh); i.appearance.exag += 0.5; i }),
             ("no flow (a reopened world)", { let mut i = inputs(gw, gh); i.flow = None; i }),
-            ("river ink", { let mut i = inputs(gw, gh); i.ink = Some(OwnedInk::Flag(vec![1u8; gw * gh])); i }),
+            ("river ink", { let mut i = inputs(gw, gh); i.ink = Some(vec![1u8; gw * gh]); i }),
             ("paint", { let mut i = inputs(gw, gh); i.paint_present = true; i.paint_biome = Some(vec![2u8; gw * gh]); i }),
         ];
         for (what, i) in variants {

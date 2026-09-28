@@ -188,15 +188,6 @@ struct WalkingSkeleton {
     base: Base<Node>,
 }
 
-/// How much river ink a cell carries — **moved to `render::RiverInk`
-/// 2026-09-06**, and re-exported here only so the two dozen references to the
-/// bare name in this file keep resolving.
-///
-/// It was private to this file until then, which is precisely why the export
-/// path never got the stamp: see [`render::RiverInk`]'s own doc for the week
-/// the probe spent red because a screen-only type could drift from
-/// `render::bake_rect`'s parameter.
-use render::RiverInk;
 
 #[godot_api]
 impl INode for WalkingSkeleton {
@@ -9446,7 +9437,7 @@ impl WorldGen {
     /// shape, smooth at every base-view zoom. The deep-zoom tiles rasterize
     /// their own (`river_stroke::rasterize`). A loaded save, which has no
     /// traced network, keeps the stamped ink in this texture
-    /// ([`WorldGen::screen_river_ink`]).
+    /// ([`WorldGen::save_river_flag`]).
     /// Returns `None` before the first `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
@@ -9454,7 +9445,7 @@ impl WorldGen {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
         };
-        let chan_mask: Option<RiverInk<'_>> = self.screen_river_ink();
+        let chan_mask: Option<&[u8]> = self.save_river_flag();
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = self.appearance();
@@ -9625,7 +9616,7 @@ impl WorldGen {
                 // `RenderCtx::with_appearance`'s first argument above), read
                 // where it is already in scope rather than widening that
                 // method's visibility for one caller.
-                let ink = if (field[i] as f64) < sea_level { 0.0 } else { chan_mask.map_or(0.0, |m| m.at(i)) as f64 };
+                let ink = if (field[i] as f64) < sea_level { 0.0 } else { chan_mask.map_or(0.0, |m| render::save_flag_at(m, i)) as f64 };
                 if ink > 1.0 / 255.0 {
                     // The tint composites *over* a colour `cell_color` has
                     // already stamped the plate frame onto (milestone 4), so
@@ -15507,14 +15498,10 @@ impl WorldGen {
         if field.len() < gw.checked_mul(gh)? {
             return None;
         }
-        // `RiverInk` is two borrowed slices by design; a worker cannot borrow
-        // from `WorldGen`, so the bytes are copied. The *rule* is the
-        // screen's own, `screen_river_ink`, so a zoomed tile and the base
-        // texture cannot disagree about whether rivers are baked.
-        let ink = self.screen_river_ink().map(|i| match i {
-            render::RiverInk::Stamped(v) => lod_worker::OwnedInk::Stamped(v.to_vec()),
-            render::RiverInk::Flag(v) => lod_worker::OwnedInk::Flag(v.to_vec()),
-        });
+        // A worker cannot borrow from `WorldGen`, so a loaded save's river
+        // flag is copied. The *rule* is the screen's own, `save_river_flag`,
+        // so a zoomed tile and the base texture cannot disagree about it.
+        let ink = self.save_river_flag().map(|v| v.to_vec());
         let (splat, ground_biomes, ground_terrains) = match self.asset_pack.as_ref() {
             Some(loaded) => (
                 Some(lod_worker::OwnedSplat {

@@ -23,6 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::export_stream::{BandSink, StreamFormat};
+use crate::river_stroke::RiverGeometry;
 use crate::lod_worker::{OwnedInk, OwnedSplat, SnapshotInputs};
 use crate::render::{self, BakeFields, ExportBand, ExportBandPlan, GridPrecompute, GroundTile, GroundTiles, RenderCtx, TerrainAppearance};
 
@@ -73,8 +74,9 @@ pub fn composite_premul_over(rgb: &mut [u8], rgba: &[u8]) {
 /// Built from `lod_worker::SnapshotInputs` — the LOD worker's own assembly of
 /// the same world — so the two cannot drift about what a world *is*. The
 /// caller replaces two of its fields first: `appearance` with the export's
-/// composed style, and `ink` with `WorldGen::river_ink` (the export's rule,
-/// not the screen's). Four fields are tile-only and deliberately unused here:
+/// composed style, and `ink` with the export's own choice (a loaded save's
+/// flag, or none with `rivers` off) -- and `ExportSnapshot::build` takes the
+/// vector network beside it (RV-5). Four fields are tile-only and deliberately unused here:
 /// `color_space` (an export is written in the working space — see
 /// `export_raster.rs`' module doc), `grid_rgb` and the cryosphere constants
 /// (`TileFields` inputs; the bake path has no `TileFields`), and `key`/`seed`.
@@ -108,6 +110,10 @@ struct Parts {
     /// shows (2026-09-24; this path had none, `OUTSTANDING_WORK.md` §2.5).
     lakes: Vec<u8>,
     ink: Option<OwnedInk>,
+    /// RV-5: the vector rivers the export draws (`WorldGen::export_river_geometry`),
+    /// rasterized per band at the export's resolution. `None` for a loaded
+    /// save (its flag is `ink`) and with the `rivers` content option off.
+    rivers: Option<Arc<RiverGeometry>>,
     splat: Option<OwnedSplat>,
     ground_biomes: Vec<Option<GroundTile>>,
     ground_terrains: Vec<Option<GroundTile>>,
@@ -161,8 +167,9 @@ impl Parts {
 
 impl ExportSnapshot {
     /// `None` for a degenerate grid or a short height field — the same
-    /// conditions `LodSnapshot::build` refuses.
-    pub fn build(i: SnapshotInputs) -> Option<ExportSnapshot> {
+    /// conditions `LodSnapshot::build` refuses. `rivers` is the vector
+    /// network (RV-5), `None` for none.
+    pub fn build(i: SnapshotInputs, rivers: Option<Arc<RiverGeometry>>) -> Option<ExportSnapshot> {
         let (gw, gh) = (i.gw, i.gh);
         if gw < 2 || gh < 2 {
             return None;
@@ -174,10 +181,18 @@ impl ExportSnapshot {
         let flow = i.flow.as_ref().map(|v| v.as_slice());
         let pre = GridPrecompute::build(&i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km));
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(&i.field, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
-        let mut lakes = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall)).classification;
+        let wb = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall));
+        let mut lakes = wb.classification;
         // Ruling BO: the forced lakes the screen draws, carried in the same
         // snapshot inputs the tiles read, so the export shows them too.
         crate::apply_forced_lakes(&mut lakes, i.forced_lakes.as_deref());
+        // RV-5: the screen's smooth shoreline, from the same classification,
+        // fill level and mask (`export_render_with` builds the identical one).
+        let shore = if i.appearance.smooth_shores {
+            render::shore_field_forced(&i.field, &lakes, &wb.fill_level, &i.rainfall, i.forced_lakes.as_deref(), gw, gh, i.sea_level, i.world)
+        } else {
+            Vec::new()
+        };
         let parts = Parts {
             gw,
             gh,
@@ -195,6 +210,7 @@ impl ExportSnapshot {
             lithology,
             lakes,
             ink: i.ink,
+            rivers,
             splat: i.splat,
             ground_biomes: i.ground_biomes,
             ground_terrains: i.ground_terrains,
@@ -205,7 +221,7 @@ impl ExportSnapshot {
         };
         let (bake, grade_cells) = {
             let ctx = parts.ctx()?;
-            (BakeFields::new(&ctx), render::build_grade_influence_cells(&ctx))
+            (BakeFields::new(&ctx).with_shore_field(&ctx, shore), render::build_grade_influence_cells(&ctx))
         };
         Some(ExportSnapshot { parts, bake, grade_cells })
     }
@@ -214,8 +230,8 @@ impl ExportSnapshot {
     /// this snapshot instead of the live world.
     pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand) -> Option<Vec<u8>> {
         let ctx = self.parts.ctx()?;
-        let ink = self.parts.ink.as_ref().map(|i| i.as_ink());
-        Some(render::bake_export_band(&ctx, &self.bake, ink, plan, band, &self.grade_cells))
+        let flag = self.parts.ink.as_deref();
+        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
     }
 
     pub fn appearance(&self) -> &TerrainAppearance {
@@ -458,7 +474,8 @@ mod tests {
     use super::*;
     use crate::export_stream::{export_banded, write_bands};
     use crate::lod_worker::LithoSource;
-    use crate::render::{ColorSpace, RiverInk};
+    use crate::render::{ColorSpace, ExportRivers};
+    use crate::river_stroke::{DrawnRun, RiverGeometry};
 
     /// `tests/export_stream.rs`' 61 × 43 closed-form world, plus a tectonic
     /// substrate (so a lithology exists), a river flag and a paint grid — every
@@ -547,7 +564,7 @@ mod tests {
             litho: litho.then(|| LithoSource { age: w.age.clone(), volcanic: w.volc.clone(), crust: w.crust.clone(), resistance: w.resist.clone() }),
             appearance: appearance(),
             color_space: ColorSpace::Srgb,
-            ink: Some(OwnedInk::Flag(w.ink.clone())),
+            ink: Some(w.ink.clone()),
             splat: None,
             ground_biomes: Vec::new(),
             ground_terrains: Vec::new(),
@@ -567,24 +584,34 @@ mod tests {
 
     /// `WorldGen::export_render_with`'s context, transcribed call for call
     /// (`with_appearance`, lithology, map scale, paint), handed to `run`.
-    fn direct<T>(w: &World, run: impl FnOnce(&RenderCtx<'_>, Option<RiverInk<'_>>) -> T) -> T {
+    /// RV-5: plus the smooth-shore field on the bake and the rivers
+    /// (`geom`, rasterized as `export_raster::with_export_rivers` does).
+    fn direct<T>(w: &World, geom: Option<&RiverGeometry>, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> T {
         let lith = cartalith_civ::build_lithology(&w.field, &w.age, &w.volc, &w.crust, &w.resist, &w.rain, SEA);
         let mut ctx = RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, appearance());
         ctx = ctx.with_lithology(&lith);
         // `export_render_with`'s lakes, attached the same way (2026-09-24).
-        let lakes = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain)).classification;
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let lakes = wb.classification;
         ctx = ctx.with_lakes(&lakes);
         ctx = ctx.with_map_scale(KM);
         ctx = ctx.with_paint(Some(&w.paint), None, None);
-        run(&ctx, Some(RiverInk::Flag(&w.ink)))
+        let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
+        assert!(bf.has_shore_field(), "the fixture's look draws smooth shores, or the shore half of this proves nothing");
+        crate::export_raster::with_export_rivers(geom, Some(&w.ink), |r| run(&ctx, &bf, r))
     }
 
     /// `export_banded`'s bands, in memory.
     fn direct_bands(w: &World, plan: &ExportBandPlan) -> Vec<Vec<u8>> {
-        direct(w, |ctx, ink| {
-            let bf = BakeFields::new(ctx);
+        direct_bands_with(w, None, plan)
+    }
+
+    /// [`direct_bands`] with vector rivers `geom`.
+    fn direct_bands_with(w: &World, geom: Option<&RiverGeometry>, plan: &ExportBandPlan) -> Vec<Vec<u8>> {
+        direct(w, geom, |ctx, bf, rivers| {
             let cells = render::build_grade_influence_cells(ctx);
-            plan.bands().map(|b| render::bake_export_band(ctx, &bf, ink, plan, b, &cells)).collect()
+            plan.bands().map(|b| render::bake_export_band(ctx, bf, rivers, plan, b, &cells)).collect()
         })
     }
 
@@ -623,8 +650,62 @@ mod tests {
         Ok(())
     }
 
+    impl ExportSnapshot {
+        /// [`ExportSnapshot::build`] with no vector rivers -- the pre-RV-5
+        /// fixture every older test here was written against.
+        fn build_plain(i: SnapshotInputs) -> Option<ExportSnapshot> {
+            ExportSnapshot::build(i, None)
+        }
+    }
+
+    /// A hand-built vector river across the fixture (RV-5): one run of 41
+    /// points from x 5.5 to 55.5 at a gentle slant, 1.5 cells wide, one blue.
+    /// Not a traced network -- the snapshot only has to carry and rasterize
+    /// whatever geometry it is given, the way the live export does.
+    fn river() -> RiverGeometry {
+        let n = 41;
+        let pts: Vec<(f32, f32)> = (0..n).map(|k| (5.5 + 50.0 * k as f32 / (n - 1) as f32, 18.5 + 6.0 * k as f32 / (n - 1) as f32)).collect();
+        RiverGeometry {
+            runs: vec![DrawnRun {
+                pts,
+                widths: vec![1.5; n],
+                colors: vec![[0.2, 0.4, 0.9, 1.0]; n],
+                orders: vec![3; n],
+                discharge: vec![10.0; n],
+                pieces: vec![(0, n)],
+                reach: Vec::new(),
+                own_order: 3,
+            }],
+        }
+    }
+
+    /// Protects RV-5's snapshot half: the overlay session's snapshot draws
+    /// the same vector rivers and smooth shores `export_render_with` does,
+    /// byte for byte, and both of them actually move pixels -- a snapshot
+    /// that dropped either would still equal a direct render that dropped
+    /// it too, so each is also measured against its own absence.
+    #[test]
+    fn a_snapshot_draws_the_vector_rivers_and_smooth_shores_of_the_direct_render() {
+        let w = world();
+        let g = Arc::new(river());
+        let p = plan(150, 7);
+        let want = direct_bands_with(&w, Some(&g), &p);
+        let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone())).expect("snapshot");
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        assert_eq!(got, want, "snapshot bands with vector rivers differ from the direct render");
+        let diff = |a: &[Vec<u8>], b: &[Vec<u8>]| a.iter().zip(b).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
+        let plain = direct_bands(&w, &p);
+        let d_river = diff(&want, &plain);
+        let mut dry = ExportSnapshot::build(inputs(&w, KM, true), Some(g)).expect("snapshot");
+        dry.bake = BakeFields::new(&dry.parts.ctx().expect("ctx"));
+        let d_shore = diff(&p.bands().map(|b| dry.render_band(&p, b).expect("band")).collect::<Vec<_>>(), &want);
+        eprintln!("bytes moved: vector river {d_river}, smooth shore {d_shore}");
+        assert!(d_river > 0, "the vector river must reach the pixels");
+        assert!(d_shore > 0, "the smooth shore must reach the pixels");
+    }
+
     fn snapshot(w: &World) -> Arc<ExportSnapshot> {
-        Arc::new(ExportSnapshot::build(inputs(w, KM, true)).expect("snapshot"))
+        Arc::new(ExportSnapshot::build_plain(inputs(w, KM, true)).expect("snapshot"))
     }
 
     // -- property 2: the compositing rule ---------------------------------
@@ -703,15 +784,15 @@ mod tests {
         let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b).expect("band")).collect() };
         let diff = |s: &ExportSnapshot| bands(s).iter().zip(&want).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count()).sum::<usize>();
 
-        let mut no_lith = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        let mut no_lith = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         no_lith.parts.lithology = None;
         let d_lith = diff(&no_lith);
-        let d_lith_input = diff(&ExportSnapshot::build(inputs(&w, KM, false)).expect("snapshot"));
-        let d_km = diff(&ExportSnapshot::build(inputs(&w, KM * 4.0, true)).expect("snapshot"));
-        let mut no_ink = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        let d_lith_input = diff(&ExportSnapshot::build_plain(inputs(&w, KM, false)).expect("snapshot"));
+        let d_km = diff(&ExportSnapshot::build_plain(inputs(&w, KM * 4.0, true)).expect("snapshot"));
+        let mut no_ink = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         no_ink.parts.ink = None;
         let d_ink = diff(&no_ink);
-        let mut no_paint = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        let mut no_paint = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         no_paint.parts.paint_present = false;
         let d_paint = diff(&no_paint);
         eprintln!("bytes differing from the direct render: lithology dropped after build {d_lith}, lithology never built {d_lith_input}, map width x4 {d_km}, ink dropped {d_ink}, paint dropped {d_paint}");
@@ -748,11 +829,15 @@ mod tests {
         let p = plan(150, 7);
         let want = direct_bands(&w, &p);
         let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b).expect("band")).collect() };
-        let snap = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        let snap = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         assert_eq!(bands(&snap), want, "the snapshot's export must match the direct render, lakes included");
 
-        let mut dry = ExportSnapshot::build(inputs(&w, KM, true)).expect("snapshot");
+        let mut dry = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         dry.parts.lakes = vec![0; n];
+        // RV-5: the lakes reach the pixels through the smooth-shore field
+        // built from them, not through the classification alone -- so a
+        // snapshot that dropped its lakes drops that field with them.
+        dry.bake = BakeFields::new(&dry.parts.ctx().expect("ctx"));
         let moved: usize = bands(&dry).iter().zip(&want).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count()).sum();
         eprintln!("above-sea lake cells {above}; bytes that move when the export drops them {moved}");
         assert!(moved > 0, "dropping the lakes must change the exported pixels");
@@ -786,7 +871,7 @@ mod tests {
             assert_eq!(p.h, 106, "the fixture's height, which the band arithmetic above assumes");
             for format in [StreamFormat::Png, StreamFormat::BigTiff] {
                 let (a, b) = (scratch(&format!("banded_{i}_{format:?}")), scratch(&format!("session_{i}_{format:?}")));
-                let want_bytes = direct(&w, |ctx, ink| export_banded(ctx, ink, &p, format, &a)).expect("export_banded");
+                let want_bytes = direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, format, &a)).expect("export_banded");
                 let mut core = ExportSessionCore::default();
                 core.begin(Arc::clone(&snap), p, format, &b).expect("begin");
                 run_session(&mut core, &p, tw, th, &clear).expect("tiles");

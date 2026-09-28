@@ -39,7 +39,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use export_stream::{StreamFormat, export_banded, write_bands};
-use render::{BakeFields, ExportBandPlan, RenderCtx, RiverInk, TerrainAppearance};
+use render::{BakeFields, ExportBandPlan, ExportRivers, RenderCtx, TerrainAppearance};
 
 /// `tests/export_bands.rs`'s fixture: a 61 × 43 closed-form world.
 const GW: usize = 61;
@@ -73,13 +73,13 @@ fn appearance() -> TerrainAppearance {
     a
 }
 
-/// `export_raster_png`'s closure, call for call.
-fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: Option<RiverInk<'_>>, w: usize, h: usize) -> Vec<u8> {
+/// `export_raster_png`'s closure, call for call (since RV-5,
+/// `render::bake_and_finish`). `a` is the context's look, stated at the call.
+fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: ExportRivers<'_>, w: usize, h: usize) -> Vec<u8> {
+    assert_eq!(a.local_contrast, ctx.appearance().local_contrast, "the look passed must be the context's");
     let bf = BakeFields::new(ctx);
-    let mut px = render::bake_rect(ctx, &bf, ink, w, h, 0, 0, w, h);
     let inf = render::build_grade_influence(ctx, w, h);
-    render::finish_raster(a, &mut px, w, h, ctx.world, &inf, render::ColorSpace::Srgb);
-    px
+    render::bake_and_finish(ctx, &bf, ink, w, h, &inf, render::ColorSpace::Srgb)
 }
 
 fn river_mask() -> Vec<u8> {
@@ -293,7 +293,7 @@ fn round_trip(format: StreamFormat, width: usize, rows_per_band: &[usize]) {
     let a = appearance();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, true, 55.0, 5.0, a.clone());
     let mask = river_mask();
-    let ink = Some(RiverInk::Flag(&mask));
+    let ink = ExportRivers { save_flag: Some(&mask), vector: None };
     let (w, h) = render::bake_dims(width, GW, GH);
     let whole = monolithic(&ctx, &a, ink, w, h);
     let mut single: Option<Vec<u8>> = None;
@@ -303,7 +303,7 @@ fn round_trip(format: StreamFormat, width: usize, rows_per_band: &[usize]) {
         let last = plan.bands().last().unwrap();
         short_finals += usize::from(last.rows < plan.rows_per_band);
         let path = scratch(&format!("{format:?}_{width}_{rows}"));
-        let written = export_banded(&ctx, ink, &plan, format, &path).unwrap_or_else(|e| panic!("{format:?} {w}x{h} at {rows} rows/band: {e}"));
+        let written = export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, &path).unwrap_or_else(|e| panic!("{format:?} {w}x{h} at {rows} rows/band: {e}"));
         let file = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(written, file.len() as u64, "reported size is not the file's");
@@ -357,7 +357,7 @@ fn the_bigtiff_is_deflated_predicted_and_multi_strip() {
     let (w, h) = render::bake_dims(512, GW, GH);
     let plan = ExportBandPlan::with_rows(&a, w, h, 37);
     let path = scratch("tiff_shape");
-    export_banded(&ctx, None, &plan, StreamFormat::BigTiff, &path).unwrap();
+    export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::BigTiff, &path).unwrap();
     let file = std::fs::read(&path).unwrap();
     let _ = std::fs::remove_file(&path);
     let (_, _, px, info) = decode_bigtiff(&file).unwrap();
@@ -388,7 +388,7 @@ fn the_streamed_2k_export_is_the_shipped_export_pixel_for_pixel() {
     let a = appearance();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, true, 55.0, 5.0, a.clone());
     let mask = river_mask();
-    let ink = Some(RiverInk::Flag(&mask));
+    let ink = ExportRivers { save_flag: Some(&mask), vector: None };
     let (w, h) = render::bake_dims(2048, GW, GH);
     let whole = monolithic(&ctx, &a, ink, w, h);
     let shipped = cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, whole.clone()).unwrap();
@@ -402,7 +402,7 @@ fn the_streamed_2k_export_is_the_shipped_export_pixel_for_pixel() {
     for (label, plan) in [("one band", one), ("banded", banded)] {
         for format in [StreamFormat::Png, StreamFormat::BigTiff] {
             let path = scratch(&format!("2k_{format:?}_{}", plan.band_count()));
-            export_banded(&ctx, ink, &plan, format, &path).unwrap();
+            export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, &path).unwrap();
             let file = std::fs::read(&path).unwrap();
             let _ = std::fs::remove_file(&path);
             let (_, _, px) = decode(format, &file).unwrap();
@@ -480,7 +480,7 @@ fn bands_that_do_not_tile_the_image_are_refused() {
     let a = appearance();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
     let plan = ExportBandPlan::with_rows(&a, 64, 45, 16);
-    let err = export_banded(&ctx, None, &plan, StreamFormat::Png, &blocker.join("map.png"));
+    let err = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::Png, &blocker.join("map.png"));
     let _ = std::fs::remove_file(&blocker);
     println!("under a file: {err:?}");
     assert!(err.is_err());
@@ -516,7 +516,7 @@ fn streamed_export_peak_memory_harness() {
     let plan = ExportBandPlan::with_rows(&a, w, h, rows);
     let path = std::env::var("CARTALITH_STREAM_OUT").map(PathBuf::from).unwrap_or_else(|_| scratch("peak"));
     let started = std::time::Instant::now();
-    let bytes = export_banded(&ctx, None, &plan, format, &path).unwrap();
+    let bytes = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, format, &path).unwrap();
     println!(
         "PEAK-HARNESS {format:?} {w}x{h}: {} bands of {} rows, apron {}, largest rendered band {} rows = {} px; {} bytes written in {:.1} s",
         plan.band_count(),
@@ -533,6 +533,6 @@ fn streamed_export_peak_memory_harness() {
     // For an external decoder to compare against: the monolithic render's
     // raw RGB8 bytes. Only sensible at a size the monolithic path can hold.
     if let Ok(raw) = std::env::var("CARTALITH_STREAM_MONO_RAW") {
-        std::fs::write(raw, monolithic(&ctx, &a, None, w, h)).unwrap();
+        std::fs::write(raw, monolithic(&ctx, &a, ExportRivers::default(), w, h)).unwrap();
     }
 }

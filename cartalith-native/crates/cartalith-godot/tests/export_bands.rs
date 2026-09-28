@@ -25,7 +25,7 @@
 #[path = "../src/render.rs"]
 mod render;
 
-use render::{BakeFields, ExportBandPlan, RenderCtx, RiverInk, TerrainAppearance};
+use render::{BakeFields, ExportBandPlan, ExportRivers, RasterRect, RenderCtx, RiverLayer, TerrainAppearance};
 
 /// `EXPORT_SCOPE.md` §4.3's fixture: a 61 × 43 world rendered at 512 px wide.
 const GW: usize = 61;
@@ -64,18 +64,35 @@ fn appearance() -> TerrainAppearance {
 }
 
 /// `export_raster_png`'s closure, transcribed call for call: the shipped
-/// monolithic path this milestone must not change.
-fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: Option<RiverInk<'_>>, w: usize, h: usize) -> Vec<u8> {
+/// monolithic path this milestone must not change. Since RV-5 that closure is
+/// `render::bake_and_finish`; `a` is kept so each call site still states the
+/// look it renders under (`ctx` carries the same one).
+fn monolithic(ctx: &RenderCtx, a: &TerrainAppearance, ink: ExportRivers<'_>, w: usize, h: usize) -> Vec<u8> {
+    assert_eq!(a.local_contrast, ctx.appearance().local_contrast, "the look passed must be the context's");
     let bf = BakeFields::new(ctx);
-    let mut px = render::bake_rect(ctx, &bf, ink, w, h, 0, 0, w, h);
     let inf = render::build_grade_influence(ctx, w, h);
-    render::finish_raster(a, &mut px, w, h, ctx.world, &inf, render::ColorSpace::Srgb);
-    px
+    render::bake_and_finish(ctx, &bf, ink, w, h, &inf, render::ColorSpace::Srgb)
+}
+
+/// A stand-in for `river_stroke::rasterize` (which this standalone build
+/// cannot reach): one straight opaque stroke from grid `(5, 10)` to `(55,
+/// 35)`, 1.6 cells wide, filled into whatever [`RasterRect`] it is asked
+/// for -- so a band and the whole raster draw it at the same grid position,
+/// and a band seam that re-placed it would show as differing bytes.
+fn stroke(_a: &TerrainAppearance, r: RasterRect) -> RiverLayer {
+    let mut l = RiverLayer::new(r.w, r.h);
+    let to = |gx: f64, gy: f64| (((gx - r.bx) / r.cx) as f32, ((gy - r.by) / r.cy) as f32);
+    let (dx, dy) = (50.0f64, 25.0f64);
+    let len = (dx * dx + dy * dy).sqrt();
+    let (nx, ny) = (-dy / len * 0.8, dx / len * 0.8);
+    let pts = [to(5.0 + nx, 10.0 + ny), to(5.0 - nx, 10.0 - ny), to(55.0 + nx, 35.0 + ny), to(55.0 - nx, 35.0 - ny)];
+    l.fill_triangles(&pts, &[[0.1, 0.3, 0.8, 1.0]; 4], &[0, 1, 2, 1, 3, 2]);
+    l
 }
 
 /// The banded path, stitched — asserting as it goes that the plan covers
 /// every row exactly once and that every band is the size it claims.
-fn banded(ctx: &RenderCtx, ink: Option<RiverInk<'_>>, plan: &ExportBandPlan) -> Vec<u8> {
+fn banded(ctx: &RenderCtx, ink: ExportRivers<'_>, plan: &ExportBandPlan) -> Vec<u8> {
     let bf = BakeFields::new(ctx);
     let cells = render::build_grade_influence_cells(ctx);
     let mut out = Vec::with_capacity(plan.w * plan.h * 3);
@@ -110,15 +127,15 @@ fn a_banded_render_is_byte_identical_to_a_monolithic_one() {
         let mut a = appearance();
         a.local_contrast_radius_frac = frac;
         let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
-        let whole = monolithic(&ctx, &a, None, w, h);
+        let whole = monolithic(&ctx, &a, ExportRivers::default(), w, h);
         let one = ExportBandPlan::with_rows(&a, w, h, h);
         assert_eq!((one.band_count(), one.apron), (1, 0));
-        let single = banded(&ctx, None, &one);
+        let single = banded(&ctx, ExportRivers::default(), &one);
         println!("frac {frac}: {w}x{h}, single band: {} differing bytes", differing(&single, &whole));
         assert_eq!(single, whole, "a single-band render is not the monolithic one (frac {frac})");
         for rows in [271usize, 128, 64, 37, 5] {
             let plan = ExportBandPlan::with_rows(&a, w, h, rows);
-            let got = banded(&ctx, None, &plan);
+            let got = banded(&ctx, ExportRivers::default(), &plan);
             let d = differing(&got, &whole);
             println!("frac {frac}: {rows} rows/band, {} bands, apron {}: {d} differing bytes of {}", plan.band_count(), plan.apron, whole.len());
             assert_eq!(d, 0, "{rows} rows/band (frac {frac}) differs from the monolithic render in {d} bytes");
@@ -133,15 +150,15 @@ fn river_tint_world_wrap_and_hachure_band_identically() {
     a.npr.hachure = 0.6;
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, true, 55.0, 5.0, a.clone());
     let mask: Vec<u8> = (0..GW * GH).map(|i| u8::from((i % GW).is_multiple_of(3) || i % GW == i / GW)).collect();
-    let ink = Some(RiverInk::Flag(&mask));
+    let ink = ExportRivers { save_flag: Some(&mask), vector: None };
     let (w, h) = render::bake_dims(OUT_W, GW, GH);
     let whole = monolithic(&ctx, &a, ink, w, h);
     // Each switch is doing something, or its half of this test is vacuous.
     let a_plain = appearance();
     let ctx_plain = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a_plain.clone());
-    let plain = monolithic(&ctx_plain, &a_plain, None, w, h);
+    let plain = monolithic(&ctx_plain, &a_plain, ExportRivers::default(), w, h);
     assert!(differing(&whole, &plain) > 0, "tint + wrap + hachure changed nothing");
-    let no_ink = monolithic(&ctx, &a, None, w, h);
+    let no_ink = monolithic(&ctx, &a, ExportRivers::default(), w, h);
     assert!(differing(&whole, &no_ink) > 0, "the river ink moved no pixel");
     for rows in [97usize, 48, 16] {
         let plan = ExportBandPlan::with_rows(&a, w, h, rows);
@@ -152,15 +169,39 @@ fn river_tint_world_wrap_and_hachure_band_identically() {
     }
 }
 
+/// Protects RV-5's banded half: vector rivers, rasterized per band at the
+/// export's resolution (`bake_export_band` paints only the band's own rows),
+/// band **byte-identically** to the monolithic render -- a stroke that crosses
+/// a band seam is placed by its grid position in both, so no seam shows in
+/// it -- and they move pixels at all, or the equality would be vacuous.
+#[test]
+fn vector_rivers_band_identically() {
+    let (field, temp, rain, flow) = fixture();
+    let a = appearance();
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
+    let (w, h) = render::bake_dims(OUT_W, GW, GH);
+    let ink = ExportRivers { vector: Some(&stroke), save_flag: None };
+    let whole = monolithic(&ctx, &a, ink, w, h);
+    let bare = monolithic(&ctx, &a, ExportRivers::default(), w, h);
+    let moved = differing(&whole, &bare);
+    println!("vector stroke: {moved} bytes moved of {}", whole.len());
+    assert!(moved > 1000, "the vector stroke moved only {moved} bytes");
+    for rows in [97usize, 48, 16, 5] {
+        let plan = ExportBandPlan::with_rows(&a, w, h, rows);
+        let d = differing(&banded(&ctx, ink, &plan), &whole);
+        assert_eq!(d, 0, "{rows} rows/band with vector rivers differs from the monolithic render in {d} bytes");
+    }
+}
+
 #[test]
 fn there_is_no_step_at_a_band_boundary() {
     let (field, temp, rain, flow) = fixture();
     let a = appearance();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
     let (w, h) = render::bake_dims(OUT_W, GW, GH);
-    let whole = monolithic(&ctx, &a, None, w, h);
+    let whole = monolithic(&ctx, &a, ExportRivers::default(), w, h);
     let plan = ExportBandPlan::with_rows(&a, w, h, 37);
-    let got = banded(&ctx, None, &plan);
+    let got = banded(&ctx, ExportRivers::default(), &plan);
     let boundaries: Vec<usize> = plan.bands().skip(1).map(|b| b.y0).collect();
     assert!(boundaries.len() >= 4, "only {} boundaries -- too few to measure", boundaries.len());
     let mut worst = 0f64;
@@ -187,20 +228,20 @@ fn the_identity_is_not_vacuous() {
     let plan = ExportBandPlan::with_rows(&a, w, h, 37);
     // round(512 * 0.010) = 5, above the floor of 3 and below h / 4.
     assert_eq!(plan.apron, 5, "the apron at this size");
-    let whole = monolithic(&ctx, &a, None, w, h);
+    let whole = monolithic(&ctx, &a, ExportRivers::default(), w, h);
 
     // Negative control 1: local contrast off changes the picture.
     let mut off = a.clone();
     off.local_contrast = 0.0;
     let ctx_off = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, off.clone());
-    let d_off = differing(&monolithic(&ctx_off, &off, None, w, h), &whole);
+    let d_off = differing(&monolithic(&ctx_off, &off, ExportRivers::default(), w, h), &whole);
     println!("local contrast off: {d_off} differing bytes");
     assert!(d_off > 0, "turning local contrast off changed nothing");
 
     // Negative control 2: the apron is load-bearing. The same bands with no
     // apron must differ -- otherwise the identity above proves nothing about it.
     let bare = ExportBandPlan { apron: 0, ..plan };
-    let d_bare = differing(&banded(&ctx, None, &bare), &whole);
+    let d_bare = differing(&banded(&ctx, ExportRivers::default(), &bare), &whole);
     println!("37 rows/band with a zero apron: {d_bare} differing bytes");
     assert!(d_bare > 0, "dropping the apron changed nothing -- the band identity is not testing it");
 }

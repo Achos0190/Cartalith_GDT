@@ -36,7 +36,7 @@ use std::fs::File;
 use std::io::{BufWriter, Seek, Write};
 use std::path::Path;
 
-use crate::render::{self, ExportBandPlan, RenderCtx, RiverInk};
+use crate::render::{self, BakeFields, ExportBandPlan, ExportRivers, RenderCtx};
 
 /// The two file formats [`write_bands`] can stream.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,24 +65,26 @@ const PNG_CHUNK_BYTES: usize = 1 << 20;
 /// Render `plan` band by band with [`render::bake_export_band`] and stream it
 /// to `path` as `format`. Returns the bytes written.
 ///
-/// `ink` is the same river ink `export_raster_png` is handed
-/// (`WorldGen::river_ink`); `ctx.appearance` and `ctx.world` are the look and
-/// wrap, exactly as for E1.
+/// `bf` and `rivers` are what `WorldGen::export_render_with` hands every
+/// export (RV-5): the bake prologue with the screen's smooth-shore field
+/// attached, and the vector rivers (or a loaded save's flag);
+/// `ctx.appearance` and `ctx.world` are the look and wrap, exactly as for E1.
+/// `bf` is built by the caller because the shore field needs the world's
+/// water bodies, which a `RenderCtx` does not carry.
 ///
 /// A failed export removes its partial file rather than leaving a truncated
 /// image that looks finished. Every failure is an `Err` with a message the
 /// caller can show; nothing here panics on bad input or I/O.
-pub fn export_banded(ctx: &RenderCtx, ink: Option<RiverInk<'_>>, plan: &ExportBandPlan, format: StreamFormat, path: &Path) -> Result<u64, String> {
+pub fn export_banded(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'_>, plan: &ExportBandPlan, format: StreamFormat, path: &Path) -> Result<u64, String> {
     if let Some(dir) = path.parent()
         && !dir.as_os_str().is_empty()
     {
         std::fs::create_dir_all(dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
     }
     let file = File::create(path).map_err(|e| format!("could not create {}: {e}", path.display()))?;
-    let bf = render::BakeFields::new(ctx);
     // Built once per export and shared by every band (E1's contract).
     let cells = render::build_grade_influence_cells(ctx);
-    let bands = plan.bands().map(|band| render::bake_export_band(ctx, &bf, ink, plan, band, &cells));
+    let bands = plan.bands().map(|band| render::bake_export_band(ctx, bf, rivers, plan, band, &cells));
     let mut out = BufWriter::with_capacity(PNG_CHUNK_BYTES, file);
     let result = write_bands(&mut out, format, plan.w, plan.h, bands)
         .and_then(|()| out.flush().map_err(|e| format!("could not write {}: {e}", path.display())))

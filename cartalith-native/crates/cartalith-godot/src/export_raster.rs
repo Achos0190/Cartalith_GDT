@@ -77,8 +77,8 @@ use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 
 use crate::export_options::{self, ExportContent, ExportOptions, ExportStyle, SettlementTier};
 use crate::export_stream::{self, StreamFormat};
-use crate::render::{self, BakeFields, ExportBandPlan, RenderCtx, RiverInk, SplatTextures, TerrainAppearance};
-use crate::{WorldGen, WorldSource, export_session, lod_worker, paint_bridge, sample_bridge};
+use crate::render::{self, BakeFields, ExportBandPlan, ExportRivers, RasterRect, RenderCtx, SplatTextures, TerrainAppearance};
+use crate::{WorldGen, WorldSource, export_session, paint_bridge, river_stroke, sample_bridge};
 
 /// `bakeRes`' own three options in its own order, plus the two
 /// `LARGE_ITEM_RULINGS.md` ruling 15 un-shelved. Anything else is refused
@@ -305,58 +305,38 @@ fn refuse_unaffordable(width: i64, peak: u64) -> Option<VarDictionary> {
 }
 
 impl WorldGen {
-    /// **The one place that decides how much river ink a cell carries**, for
-    /// the viewport and for every raster this file writes.
+    /// **A loaded save's river flag** -- its `strahler_order` raster, read by
+    /// `render::save_flag_at` -- or `None` for a generated world and before
+    /// any world. The screen (`build_color_texture`), the LOD tiles and every
+    /// export here tint it, so all three agree for a save, which has no traced
+    /// network (`SAVEFILE_COMPAT.md` stores no channel topology) and therefore
+    /// no vector rivers to draw.
     ///
-    /// `build_color_texture` calls it (through [`Self::screen_river_ink`],
-    /// which since 2026-09-22 keeps it only for a loaded save),
-    /// `export_raster_png` calls it,
-    /// `export_snapshot_png` and `export_layer_previews` call it. That is the
-    /// point: it used to be an inline `match` next to `build_color_texture`
-    /// and three *different* inline matches here, and when `58dd5b2` taught
-    /// the screen to draw a stamped disc only the screen's copy learned it —
-    /// that commit touched no file in this directory. Measured at `65a8262`,
-    /// seven days later: `_exportraster_probe.gd` section 13 read **199 909 of
-    /// 8 060 928 bytes different, worst delta 73**, with every export,
-    /// snapshot and layer preview painting full-strength one-cell rivers over
-    /// a map that had stopped drawing them that way.
-    ///
-    /// The rule it carries is `build_color_texture`'s, unchanged: the stamp
-    /// when the world has one whose length matches the flag, the flag
-    /// otherwise, and a loaded save's `strahler_order` as a flag because
-    /// `SAVEFILE_COMPAT.md` stores no channel topology and therefore no stamp.
-    pub(crate) fn river_ink(&self) -> Option<RiverInk<'_>> {
+    /// **RV-5 (2026-09-28) retired what this replaced**: `river_ink()`, which
+    /// handed every export a generated world's `stamp_river_intensity` disc
+    /// raster (or its one-cell `chan` flag) while the screen drew RV-2's
+    /// vector strokes, and `screen_river_ink()`, the screen's copy of the same
+    /// choice. A generated world's exports now draw the vector network
+    /// ([`Self::export_river_geometry`]), per Ruling AZ. Must never return a
+    /// generated world's mask: that world draws vectors, and a flag under
+    /// them would be a second, stepped river beneath the smooth one.
+    pub(crate) fn save_river_flag(&self) -> Option<&[u8]> {
         match self.source.as_ref()? {
-            WorldSource::Generated(ws) => ws.channels.as_ref().map(|c| {
-                if c.intensity.len() == c.chan.len() {
-                    RiverInk::Stamped(c.intensity.as_slice())
-                } else {
-                    RiverInk::Flag(c.chan.as_slice())
-                }
-            }),
-            WorldSource::Loaded(save) => Some(RiverInk::Flag(save.fields.strahler_order.as_slice())),
+            WorldSource::Generated(_) => None,
+            WorldSource::Loaded(save) => Some(save.fields.strahler_order.as_slice()),
         }
     }
 
-    /// The river ink the **viewport** bakes — `build_color_texture` and the
-    /// LOD tile snapshot. `None` for a generated world: owner ruling
-    /// 2026-09-22 ("keep the smoothline and use that to render the river ...
-    /// ditch the texture bake"), so its rivers are `get_rivers()`' smoothed
-    /// polylines -- drawn over the texture by `map_overlay.gd` until
-    /// 2026-09-27, rasterized into it since (`river_stroke::rasterize`, via
-    /// `WorldGen::river_geometry`), never this stamped ink. A loaded save
-    /// keeps [`Self::river_ink`]'s flag, because its format stores no channel
-    /// topology and `get_rivers()` is empty for it — without the flag it
-    /// would have no rivers at all.
-    ///
-    /// Exports still read [`Self::river_ink`], so a PNG keeps the stamped
-    /// rivers the screen no longer draws: the vector layer is built at the
-    /// screen texture's and each tile's resolution, and no raster exporter
-    /// here builds one at its own yet.
-    pub(crate) fn screen_river_ink(&self) -> Option<RiverInk<'_>> {
+    /// **The vector rivers an export draws** (RV-5, Ruling AZ): the network
+    /// the screen strokes and the tiles rasterize (`river_geometry_any`,
+    /// cached on the same key), whatever the Layers panel's Rivers switch says
+    /// -- an export's rivers are its own `content.rivers` option, as they
+    /// always were. `None` for a loaded save (its flag is
+    /// [`Self::save_river_flag`]) and before any world.
+    pub(crate) fn export_river_geometry(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
         match self.source.as_ref()? {
-            WorldSource::Generated(_) => None,
-            WorldSource::Loaded(_) => self.river_ink(),
+            WorldSource::Generated(_) => self.river_geometry_any(),
+            WorldSource::Loaded(_) => None,
         }
     }
 
@@ -387,14 +367,26 @@ impl WorldGen {
     /// struct that every caller then re-borrows. The parts are named
     /// identically here and the four builder calls are in the same order, so
     /// a change to one is visible as a diff against the other.
-    fn export_render<T>(&self, run: impl FnOnce(&RenderCtx<'_>) -> T) -> Option<T> {
-        self.export_render_with(self.appearance(), run)
+    ///
+    /// **RV-5: the bake and the rivers come with the context.** `run` is
+    /// handed the [`BakeFields`] with the screen's smooth-shore field attached
+    /// (`BakeFields::with_shore_field`, from the same drawn classification,
+    /// fill level and forced-lake mask `build_color_texture` contours) and the
+    /// [`ExportRivers`] the screen draws: a generated world's vector network
+    /// ([`Self::export_river_geometry`], rasterized per rectangle at the
+    /// export's resolution by `river_stroke::rasterize`) or a loaded save's
+    /// flag. Built here, once, so no export can attach one and forget the
+    /// other -- the failure this file's own `with_ground_tiles` note records.
+    fn export_render<T>(&self, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> Option<T> {
+        self.export_render_with(self.appearance(), true, run)
     }
 
     /// [`Self::export_render`] under a given appearance rather than the
     /// session's — the export's style override (`export_options.rs`), which
     /// arrives here already composed and never touches `appearance()`'s inputs.
-    fn export_render_with<T>(&self, appearance: render::TerrainAppearance, run: impl FnOnce(&RenderCtx<'_>) -> T) -> Option<T> {
+    /// `rivers` false hands `run` no rivers at all (the export's
+    /// `content.rivers` option).
+    fn export_render_with<T>(&self, appearance: render::TerrainAppearance, rivers: bool, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> Option<T> {
         let (field, temperature, rainfall, flow) = match self.source.as_ref()? {
             WorldSource::Generated(ws) => (ws.field.as_slice(), ws.temperature.as_slice(), ws.rainfall.as_slice(), Some(ws.flow_discharge.as_slice())),
             WorldSource::Loaded(save) => (save.fields.heightmap.as_slice(), save.fields.temperature.as_slice(), save.fields.rainfall.as_slice(), None),
@@ -415,9 +407,20 @@ impl WorldGen {
         // v0.103's above-sea lakes: the same classification `build_color_texture`
         // attaches, so an exported PNG shows the lakes the screen shows (this
         // path had none until 2026-09-24, `OUTSTANDING_WORK.md` §2.5).
-        let mut lakes = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall)).classification;
-        // Ruling BO: the screen's forced lakes too, so the PNG shows them.
-        crate::apply_forced_lakes(&mut lakes, self.forced_lake_mask());
+        // `drawn_water_bodies` is the screen's own call (build + Ruling BO's
+        // forced lakes), so its fill level can feed the shore field below.
+        let bodies = self.drawn_water_bodies()?;
+        let lakes = bodies.classification;
+        // RV-5: the smooth shoreline, the numbers `build_color_texture` hands
+        // the shell (`render::shore_field_forced`). Only for a look that draws
+        // it; `with_shore_field` refuses it otherwise anyway.
+        let shore = if appearance.smooth_shores {
+            render::shore_field_forced(field, &lakes, &bodies.fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world)
+        } else {
+            Vec::new()
+        };
+        let geom = if rivers { self.export_river_geometry() } else { None };
+        let save_flag = if rivers { self.save_river_flag() } else { None };
         let mut ctx = RenderCtx::with_appearance(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance);
         if let Some(lith) = lithology.as_ref() {
             ctx = ctx.with_lithology(lith);
@@ -466,7 +469,8 @@ impl WorldGen {
                 p.layer_cells(paint_bridge::PaintTarget::Splat),
             );
         }
-        Some(run(&ctx))
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
+        Some(with_export_rivers(geom.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
     }
 
     /// The appearance an export with `style` renders under: a new base from
@@ -524,6 +528,26 @@ impl WorldGen {
             out.set("band_affordable", band_peak <= avail);
         }
         out
+    }
+}
+
+/// **RV-5: hand `run` the [`ExportRivers`] for a world** -- `geom` rasterized
+/// per export rectangle by `river_stroke::rasterize` (the deep-zoom tiles'
+/// own rasterizer, placed by `RasterMap::tile` from the rectangle's
+/// [`RasterRect`], so an export pixel and a tile pixel at the same grid
+/// position draw the same river), and `save_flag` as it is. A closure rather
+/// than a returned value because [`render::VectorRivers`] borrows the
+/// rasterizing closure, which has to live somewhere for the call.
+///
+/// Used by every export here and by the overlay session's snapshot
+/// (`export_session.rs`), so there is one way an export gets its rivers.
+pub(crate) fn with_export_rivers<T>(geom: Option<&river_stroke::RiverGeometry>, save_flag: Option<&[u8]>, run: impl FnOnce(ExportRivers<'_>) -> T) -> T {
+    match geom {
+        Some(g) => {
+            let raster = move |a: &TerrainAppearance, r: RasterRect| river_stroke::rasterize(g, a, r.w, r.h, river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy));
+            run(ExportRivers { vector: Some(&raster), save_flag })
+        }
+        None => run(ExportRivers { vector: None, save_flag }),
     }
 }
 
@@ -709,21 +733,19 @@ impl WorldGen {
     }
 
     /// The overlay session's terrain snapshot: `lod_snapshot_inputs`' own
-    /// assembly of this world, with the export's appearance and the export's
-    /// river ink ([`Self::river_ink`], not the screen's) in place of the
-    /// tiles'. `None` before a world exists.
+    /// assembly of this world, with the export's appearance in place of the
+    /// tiles'. RV-5: its rivers are the export's -- the vector network
+    /// ([`Self::export_river_geometry`]) for a generated world, the save's
+    /// flag (already `i.ink`, [`Self::save_river_flag`]) for a loaded one --
+    /// and none at all with `rivers` false. `None` before a world exists.
     fn export_snapshot(&self, a: TerrainAppearance, rivers: bool) -> Option<export_session::ExportSnapshot> {
         let mut i = self.lod_snapshot_inputs("")?;
         i.appearance = a;
-        i.ink = if rivers {
-            self.river_ink().map(|ink| match ink {
-                RiverInk::Stamped(v) => lod_worker::OwnedInk::Stamped(v.to_vec()),
-                RiverInk::Flag(v) => lod_worker::OwnedInk::Flag(v.to_vec()),
-            })
-        } else {
-            None
-        };
-        export_session::ExportSnapshot::build(i)
+        if !rivers {
+            i.ink = None;
+        }
+        let geom = if rivers { self.export_river_geometry() } else { None };
+        export_session::ExportSnapshot::build(i, geom)
     }
 }
 
@@ -839,8 +861,7 @@ impl WorldGen {
             Ok(p) => p,
             Err(e) => return fail(e),
         };
-        let ink = if o.content.rivers { self.river_ink() } else { None };
-        let Some(result) = self.export_render_with(a, |ctx| export_stream::export_banded(ctx, ink, &plan, o.format, &path)) else {
+        let Some(result) = self.export_render_with(a, o.content.rivers, |ctx, bf, rivers| export_stream::export_banded(ctx, bf, rivers, &plan, o.format, &path)) else {
             return fail("could not assemble the render context");
         };
         match result {
@@ -1126,18 +1147,11 @@ impl WorldGen {
             return refusal;
         }
 
-        let appearance = self.appearance();
         let world = self.world;
-        // The river ink, from the one chooser both paths share
-        // ([`WorldGen::river_ink`]) rather than a second inline `match` here.
-        // Without it the export is a map of a world with no rivers in it, and
-        // with the *wrong* one it is a map of a world whose rivers are a
-        // different width; `render::channel_tint`'s doc comment carries both
-        // measurements.
-        let chan = self.river_ink();
-        let Some(mut bytes) = self.export_render(|ctx| {
-            let bf = BakeFields::new(ctx);
-            let mut px = render::bake_rect(ctx, &bf, chan, w, h, 0, 0, w, h);
+        // The rivers come with the context (`export_render`, RV-5): the
+        // vector network the screen strokes, or a loaded save's flag. Without
+        // them the export is a map of a world with no rivers in it.
+        let Some(mut bytes) = self.export_render(|ctx, bf, rivers| {
             // Milestone 5's local-contrast pass, at the *export's* own
             // resolution rather than the grid's. Its radius is a fraction of
             // the raster width, so passing `w`/`h` here keeps the boosted
@@ -1154,10 +1168,11 @@ impl WorldGen {
             // exported pictures would disagree wherever a weight is set.
             //
             // Both as the screen's own single pass (Ruling AN), in the
-            // working space -- sRGB, never the display's (module doc).
+            // working space -- sRGB, never the display's (module doc). All of
+            // it in `render::bake_and_finish`, which also measures the local
+            // contrast before the rivers go in, as the screen does.
             let inf = render::build_grade_influence(ctx, w, h);
-            render::finish_raster(&appearance, &mut px, w, h, world, &inf, render::ColorSpace::Srgb);
-            px
+            render::bake_and_finish(ctx, bf, rivers, w, h, &inf, render::ColorSpace::Srgb)
         }) else {
             return fail("could not assemble the render context");
         };
@@ -1279,13 +1294,15 @@ impl WorldGen {
         let (x0, y0) = (place(cx, gw, out_w, w), place(cy, gh, out_h, h));
 
         let appearance = self.appearance();
-        // The same ink `export_raster_png` uses, from the same chooser, for
-        // the reason `render::channel_tint`'s doc comment measured: without it
-        // the snapshot is a picture of a place with no rivers in it.
-        let chan = self.river_ink();
-        let Some(bytes) = self.export_render(|ctx| {
-            let bf = BakeFields::new(ctx);
-            let mut px = render::bake_rect(ctx, &bf, chan, out_w, out_h, x0, y0, w, h);
+        // The same rivers `export_raster_png` draws, from the same assembly
+        // (`export_render`): without them the snapshot is a picture of a place
+        // with no rivers in it. No local contrast here (see above), so the
+        // vector rivers go straight onto the terrain.
+        let Some(bytes) = self.export_render(|ctx, bf, rivers| {
+            let mut px = render::bake_rect(ctx, bf, rivers.save_flag, out_w, out_h, x0, y0, w, h);
+            if let Some(v) = rivers.vector {
+                render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h);
+            }
             // The grade's field influence, taken per **grid cell** and then
             // sampled over this crop's window. `build_grade_influence(ctx, w,
             // h)` would spread the whole world across the crop -- it resamples
@@ -1404,18 +1421,13 @@ impl WorldGen {
         // the same three stages `export_raster_png` does and carries the river
         // tint the same way — `layerBytes('biome', 'off')` reaches it through
         // the whole of `renderNow` too.
-        let appearance = self.appearance();
-        let world = self.world;
-        // Generated worlds only reach here (`sample_refs()` above), so this is
-        // the stamp or the flag, never a save's `strahler_order` -- but it goes
-        // through the same chooser anyway, because the last time this file held
+        // Generated worlds only reach here (`sample_refs()` above), so the
+        // rivers are the vector network -- through the same assembly as every
+        // other export (`export_render`), because the last time this file held
         // its own copy of that decision it was the copy that went stale.
-        let chan = self.river_ink();
-        let Some((biome, hillshade)) = self.export_render(|ctx| {
-            let bf = BakeFields::new(ctx);
-            let mut px = render::bake_rect(ctx, &bf, chan, gw, gh, 0, 0, gw, gh);
+        let Some((biome, hillshade)) = self.export_render(|ctx, bf, rivers| {
             let inf = render::build_grade_influence(ctx, gw, gh);
-            render::finish_raster(&appearance, &mut px, gw, gh, world, &inf, render::ColorSpace::Srgb);
+            let px = render::bake_and_finish(ctx, bf, rivers, gw, gh, &inf, render::ColorSpace::Srgb);
             (px, render::hillshade_raster(ctx))
         }) else {
             return fail("could not assemble the render context");
@@ -1817,4 +1829,323 @@ mod tests {
         assert!(BAKE_WIDTHS.iter().filter(|&&w| w > UNGATED_MAX_WIDTH).count() == 2);
     }
 
+}
+
+/// **RV-5: export pixels against screen pixels, at matched scale.**
+///
+/// The screen's base view (below the deep-zoom switch at x2.2) is two shaders
+/// over grid-resolution rasters, so it cannot be run here; its rule is
+/// transcribed instead, from the shader sources, into `screen`:
+///
+/// - the map: `map_shore.gdshader` over the `cell_color` texture -- a pixel
+///   whose four surrounding cell centres agree shows the nearest texel, one
+///   between the classes mixes the nearest land and nearest water texel by
+///   `shore_cover` (`0.5 + s / fwidth(s)`) of the bilinear shore field;
+/// - the rivers: RV-2's stroke at the screen's pixels per cell (coverage from
+///   the same mesh, through `river_px_width`), coloured by the river colour
+///   texture (`rasterize_colour_field` through `cell_color_river`), sampled
+///   linearly (`map_overlay.gd`'s material), its alpha times one minus the
+///   water's coverage (`river_under_water.gdshader`).
+///
+/// The export is `bake_rect` + `paint_vector_rivers` at the same pixels per
+/// cell. Both stop before the whole-raster finishing (local contrast, grade),
+/// which the two apply per pixel alike and which would only blur the
+/// comparison. A hand-built world: a sea with a wavy coast, a plateau, a
+/// closed wet bowl that pools an above-sea lake, and one river from the
+/// plateau into the sea.
+#[cfg(test)]
+mod rv5_parity_tests {
+    use crate::render::{self, BakeFields, RenderCtx, TerrainAppearance};
+    use crate::river_stroke::{self, DrawnRun, RasterMap, RiverGeometry};
+
+    const GW: usize = 64;
+    const GH: usize = 48;
+    const SEA: f64 = 0.42;
+    const KM: f64 = 600.0;
+    /// Pixels per cell: 2 is inside the base view's range (below the x2.2
+    /// deep-zoom switch), where the screen really is the two shaders
+    /// transcribed here.
+    const K: usize = 2;
+
+    struct World {
+        field: Vec<f32>,
+        temp: Vec<f32>,
+        rain: Vec<f32>,
+        flow: Vec<f32>,
+    }
+
+    fn world() -> World {
+        let n = GW * GH;
+        let mut field = vec![0f32; n];
+        for y in 0..GH {
+            let coast = 14.0 + 4.0 * (y as f64 / 5.0).sin();
+            for x in 0..GW {
+                let (xf, yf) = (x as f64, y as f64);
+                let mut h = SEA + (0.02 * (xf - coast)).min(0.3);
+                let d = ((xf - 44.0).powi(2) + (yf - 16.0).powi(2)).sqrt() / 6.0;
+                if d < 1.0 {
+                    h -= 0.12 * (1.0 - d * d);
+                }
+                field[y * GW + x] = h as f32;
+            }
+        }
+        World { field, temp: vec![14.0; n], rain: vec![1.0; n], flow: vec![2.0; n] }
+    }
+
+    /// One river from the plateau into the sea, well clear of the lake.
+    fn river() -> RiverGeometry {
+        let n = 61;
+        let pts: Vec<(f32, f32)> = (0..n)
+            .map(|k| {
+                let t = k as f32 / (n - 1) as f32;
+                (60.5 - 54.0 * t, 38.5 - 6.0 * t + 2.0 * (t * 9.0).sin())
+            })
+            .collect();
+        RiverGeometry {
+            runs: vec![DrawnRun {
+                pts,
+                widths: vec![1.4; n],
+                colors: vec![[0.22, 0.42, 0.86, 1.0]; n],
+                orders: vec![3; n],
+                discharge: vec![12.0; n],
+                pieces: vec![(0, n)],
+                reach: Vec::new(),
+                own_order: 3,
+            }],
+        }
+    }
+
+    struct Out {
+        px: Vec<[f64; 3]>,
+        /// Screen stroke alpha before the water hides it, and the water's
+        /// coverage -- the selectors, taken from the screen side (the INPUTS
+        /// to what is compared, never the compared values).
+        stroke: Vec<f64>,
+        water: Vec<f64>,
+    }
+
+    fn dims() -> (usize, usize) {
+        ((GW - 1) * K + 1, (GH - 1) * K + 1)
+    }
+
+    fn setup<'a>(w: &'a World, a: &TerrainAppearance, lakes: &'a [u8]) -> RenderCtx<'a> {
+        RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, a.clone()).with_lakes(lakes).with_map_scale(KM)
+    }
+
+    /// The export at `K` pixels per cell: terrain, then the vector rivers.
+    /// `shore` false is the pre-RV-5 cell rule (the control).
+    fn export(w: &World, a: &TerrainAppearance, geom: Option<&RiverGeometry>, shore: bool) -> Vec<[f64; 3]> {
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let ctx = setup(w, a, &wb.classification);
+        let sf = if shore { render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false) } else { Vec::new() };
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+        assert_eq!(bf.has_shore_field(), shore, "the shore field must attach exactly when asked, or the control is not a control");
+        let (ow, oh) = dims();
+        let px = super::with_export_rivers(geom, None, |r| {
+            let mut px = render::bake_rect(&ctx, &bf, r.save_flag, ow, oh, 0, 0, ow, oh);
+            if let Some(v) = r.vector {
+                render::paint_vector_rivers(&ctx, &bf, v, &mut px, ow, oh, 0, 0, ow, oh);
+            }
+            px
+        });
+        px.chunks_exact(3).map(|c| [c[0] as f64, c[1] as f64, c[2] as f64]).collect()
+    }
+
+    /// The screen's base view at `K` pixels per cell (see the module doc).
+    fn screen(w: &World, a: &TerrainAppearance, geom: &RiverGeometry) -> Out {
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let ctx = setup(w, a, &wb.classification);
+        let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let q = |c: (f64, f64, f64)| [(c.0.clamp(0.0, 1.0) * 255.0).trunc(), (c.1.clamp(0.0, 1.0) * 255.0).trunc(), (c.2.clamp(0.0, 1.0) * 255.0).trunc()];
+        let tex: Vec<[f64; 3]> = (0..GW * GH).map(|i| q(render::cell_color(&ctx, i % GW, i / GW))).collect();
+        let field = river_stroke::rasterize_colour_field(geom, a, GW, GH);
+        let rtex: Vec<[f64; 3]> = (0..GW * GH).map(|i| q(render::cell_color_river(&ctx, i % GW, i / GW, field.at(i % GW, i / GW)))).collect();
+        // Coverage only: the preset's width seam, a white opaque ink.
+        let white = TerrainAppearance { river_ink: 1.0, river_ink_r: 255.0, river_ink_g: 255.0, river_ink_b: 255.0, river_opacity: 1.0, ..a.clone() };
+        let (ow, oh) = dims();
+        let s = 1.0 / K as f64;
+        let cover = river_stroke::rasterize(geom, &white, ow, oh, RasterMap::tile(0.0, 0.0, s, s));
+        let mut out = Out { px: Vec::with_capacity(ow * oh), stroke: Vec::new(), water: Vec::new() };
+        for py in 0..oh {
+            for pxx in 0..ow {
+                let (gx, gy) = (pxx as f64 * s, py as f64 * s);
+                let (x0, y0) = ((gx as usize).min(GW - 1), (gy as usize).min(GH - 1));
+                let (x1, y1) = ((x0 + 1).min(GW - 1), (y0 + 1).min(GH - 1));
+                let (tx, ty) = (gx - x0 as f64, gy - y0 as f64);
+                let c = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+                let v: Vec<f64> = c.iter().map(|&(x, y)| sf[y * GW + x] as f64).collect();
+                let wet: Vec<bool> = v.iter().map(|&x| x > 0.0).collect();
+                let d = [tx * tx + ty * ty, (tx - 1.0).powi(2) + ty * ty, tx * tx + (ty - 1.0).powi(2), (tx - 1.0).powi(2) + (ty - 1.0).powi(2)];
+                let nearest = |want: bool| -> Option<usize> {
+                    let mut b: Option<(f64, usize)> = None;
+                    for k in 0..4 {
+                        if wet[k] == want && b.is_none_or(|(bd, _)| d[k] <= bd) {
+                            b = Some((d[k], k));
+                        }
+                    }
+                    b.map(|(_, k)| k)
+                };
+                let ti = |k: usize| tex[c[k].1 * GW + c[k].0];
+                let (base, cov) = match (nearest(true), nearest(false)) {
+                    (Some(wk), Some(lk)) => {
+                        let sv = (v[0] * (1.0 - tx) + v[1] * tx) * (1.0 - ty) + (v[2] * (1.0 - tx) + v[3] * tx) * ty;
+                        let dx = ((1.0 - ty) * (v[1] - v[0]) + ty * (v[3] - v[2])) * s;
+                        let dy = ((1.0 - tx) * (v[2] - v[0]) + tx * (v[3] - v[1])) * s;
+                        let cov = (0.5 + sv / (dx.abs() + dy.abs()).max(1e-12)).clamp(0.0, 1.0);
+                        let (wc, lc) = (ti(wk), ti(lk));
+                        ([0, 1, 2].map(|j| lc[j] + (wc[j] - lc[j]) * cov), cov)
+                    }
+                    // One class: the nearest texel, whichever it is.
+                    _ => {
+                        let t = tex[(gy.round() as usize).min(GH - 1) * GW + (gx.round() as usize).min(GW - 1)];
+                        (t, if wet[0] { 1.0 } else { 0.0 })
+                    }
+                };
+                let al = cover.at(pxx, py).map_or(0.0, |p| p[3] as f64);
+                let rc: [f64; 3] = [0, 1, 2].map(|j| {
+                    let r = |x: usize, y: usize| rtex[y * GW + x][j];
+                    (r(x0, y0) * (1.0 - tx) + r(x1, y0) * tx) * (1.0 - ty) + (r(x0, y1) * (1.0 - tx) + r(x1, y1) * tx) * ty
+                });
+                let ea = al * (1.0 - cov);
+                out.px.push([0, 1, 2].map(|j| base[j] * (1.0 - ea) + rc[j] * ea));
+                out.stroke.push(al);
+                out.water.push(cov);
+            }
+        }
+        out
+    }
+
+    /// Mean absolute channel difference over the selected pixels.
+    fn mad(a: &[[f64; 3]], b: &[[f64; 3]], sel: &[usize]) -> f64 {
+        let s: f64 = sel.iter().map(|&i| (0..3).map(|j| (a[i][j] - b[i][j]).abs()).sum::<f64>() / 3.0).sum();
+        s / sel.len().max(1) as f64
+    }
+
+    /// The two presets: the shipped default look, and Antique Parchment with a
+    /// preset river treatment (ink, opacity, width) so the treatment itself is
+    /// in the comparison.
+    fn presets() -> Vec<(&'static str, TerrainAppearance)> {
+        let mut antique = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+        antique.river_ink = 0.6;
+        antique.river_ink_r = 70.0;
+        antique.river_ink_g = 60.0;
+        antique.river_ink_b = 40.0;
+        antique.river_opacity = 0.85;
+        antique.river_width = 1.5;
+        vec![("default", TerrainAppearance::default()), ("antique+ink", antique)]
+    }
+
+    /// The export's water coverage at every pixel of the `K` raster
+    /// (`BakeFields::water_cover`): where it puts each shoreline, whatever
+    /// colour it paints either side. `shore` false is the pre-RV-5 cell rule.
+    fn export_cover(w: &World, a: &TerrainAppearance, shore: bool) -> Vec<f64> {
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let ctx = setup(w, a, &wb.classification);
+        let sf = if shore { render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false) } else { Vec::new() };
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+        let (ow, oh) = dims();
+        let s = 1.0 / K as f64;
+        (0..ow * oh).map(|i| bf.water_cover(&ctx, (i % ow) as f64 * s, (i / ow) as f64 * s, (s, s))).collect()
+    }
+
+    /// Protects Ruling AZ at matched scale (`K` pixels per cell, the base
+    /// view's regime), on two presets:
+    ///
+    /// 1. **River centreline** -- the export's colour is the screen's, within
+    ///    [`CENTRE_BOUND`]; the pre-RV-5 export (no vector river at all, the
+    ///    control) must sit above twice that bound.
+    /// 2. **Shoreline position** -- on every pixel the screen draws between
+    ///    water and land, the export's water coverage is the screen's within
+    ///    [`COVER_BOUND`]; the pre-RV-5 cell rule must be further off.
+    /// 3. **Lake shore colour** -- the colour on the lake's shoreline band is
+    ///    the screen's within [`LAKE_SHORE_BOUND`], and the cell-rule control
+    ///    is further off. The SEA shore's colour is printed and not bounded:
+    ///    near a coast both the shallow-water and the beach colours change
+    ///    within a cell, the screen shows the nearest cell centre's colour
+    ///    where the export evaluates the material at the pixel itself (as a
+    ///    deep-zoom tile does), and that residual was the same before RV-5
+    ///    (measured below: RV-5 moves the coast's position, not its palette).
+    ///
+    /// Pixels on the plate frame are excluded (its neatlines are sharp edges
+    /// of their own, not this test's subject). Selection is by the SCREEN's
+    /// inputs (stroke coverage, water coverage), never by the compared values
+    /// (`MISTAKES.md`, "Measure an effect inside a subset of pixels").
+    #[test]
+    fn export_matches_the_screen_on_river_centrelines_and_shorelines() {
+        let w = world();
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let lake_cells = (0..GW * GH).filter(|&i| wb.classification[i] == 2 && f64::from(w.field[i]) > SEA).count();
+        assert!(lake_cells >= 20, "the fixture must pool an above-sea lake ({lake_cells} cells), or the lake shore is untested");
+        let g = river();
+        let (ow, _) = dims();
+        for (name, a) in presets() {
+            assert!(a.smooth_shores, "{name}: the look must draw smooth shores, or the shoreline comparison is the cell rule's");
+            let scr = screen(&w, &a, &g);
+            let exp = export(&w, &a, Some(&g), true);
+            let old = export(&w, &a, None, false);
+            let n = scr.px.len();
+            let on_plate = |i: usize| {
+                let (gx, gy) = ((i % ow) as f64 / K as f64, (i / ow) as f64 / K as f64);
+                let (x0, y0) = (gx as usize, gy as usize);
+                [(x0, y0), ((x0 + 1).min(GW - 1), y0), (x0, (y0 + 1).min(GH - 1)), ((x0 + 1).min(GW - 1), (y0 + 1).min(GH - 1))].iter().all(|&(x, y)| render::border_cover(&a, x, y, GW, GH) == 0.0)
+            };
+            // The lake sits east of x = 30 cells, the sea coast west of it.
+            let east = |i: usize| (i % ow) as f64 / K as f64 > 30.0;
+            let centre: Vec<usize> = (0..n).filter(|&i| on_plate(i) && scr.stroke[i] >= 0.99 && scr.water[i] == 0.0).collect();
+            let shore: Vec<usize> = (0..n).filter(|&i| on_plate(i) && scr.water[i] > 0.0 && scr.water[i] < 1.0 && scr.stroke[i] == 0.0).collect();
+            let lake: Vec<usize> = shore.iter().copied().filter(|&i| east(i)).collect();
+            let sea: Vec<usize> = shore.iter().copied().filter(|&i| !east(i)).collect();
+            assert!(centre.len() >= 60 && lake.len() >= 30 && sea.len() >= 30, "{name}: too few pixels selected ({} / {} / {})", centre.len(), lake.len(), sea.len());
+
+            let (c_new, c_old) = (mad(&exp, &scr.px, &centre), mad(&old, &scr.px, &centre));
+            let (cov_new, cov_old) = (export_cover(&w, &a, true), export_cover(&w, &a, false));
+            let cov_err = |c: &[f64]| shore.iter().map(|&i| (c[i] - scr.water[i]).abs()).sum::<f64>() / shore.len() as f64;
+            let (k_new, k_old) = (cov_err(&cov_new), cov_err(&cov_old));
+            let (l_new, l_old) = (mad(&exp, &scr.px, &lake), mad(&old, &scr.px, &lake));
+            let (s_new, s_old) = (mad(&exp, &scr.px, &sea), mad(&old, &scr.px, &sea));
+            // Open water: every pixel whose four surrounding centres are water.
+            let open: Vec<usize> = (0..n).filter(|&i| on_plate(i) && scr.water[i] == 1.0 && scr.stroke[i] == 0.0).collect();
+            let o_new = mad(&exp, &scr.px, &open);
+            eprintln!(
+                "{name}: centreline {} px {c_new:.2} (pre-RV-5 {c_old:.2}) | shore coverage {} px {k_new:.3} (pre-RV-5 {k_old:.3}) | lake-shore colour {} px {l_new:.2} (pre-RV-5 {l_old:.2}) | sea-shore colour {} px {s_new:.2} (pre-RV-5 {s_old:.2}) | open water {} px {o_new:.2}",
+                centre.len(), shore.len(), lake.len(), sea.len(), open.len()
+            );
+            assert!(c_new <= CENTRE_BOUND, "{name}: river centreline differs from the screen by {c_new:.2} levels");
+            assert!(c_old > 2.0 * CENTRE_BOUND, "{name}: the no-river control ({c_old:.2}) does not separate from the bound");
+            assert!(k_new <= COVER_BOUND, "{name}: the export's shoreline is {k_new:.3} coverage off the screen's");
+            assert!(k_old > 2.0 * k_new, "{name}: the cell-rule control ({k_old:.3}) is not clearly further off than the export ({k_new:.3})");
+            assert!(l_new <= LAKE_SHORE_BOUND, "{name}: the lake shoreline's colour differs from the screen by {l_new:.2} levels");
+            assert!(open.len() >= 200 && o_new <= OPEN_WATER_BOUND, "{name}: open water ({} px) differs from the screen by {o_new:.2} levels", open.len());
+            assert!(l_old > 2.0 * l_new, "{name}: the cell-rule lake shore ({l_old:.2}) is not clearly further off than the export ({l_new:.2})");
+        }
+    }
+
+    /// Mean absolute difference, in 0-255 levels, allowed between export and
+    /// screen on the river centreline. Measured by this test's `eprintln!`
+    /// (2026-09-28): 0.18 (default) and 0.65 (antique+ink), against 55.13 and
+    /// 23.92 for the pre-RV-5 export with no vector river. The residual is
+    /// the screen's river colour being a grid texture sampled bilinearly
+    /// where the export evaluates it per pixel. `2.0` is a labelled judgement
+    /// -- three times the worst measured, a tenth of the weaker control.
+    const CENTRE_BOUND: f64 = 2.0;
+    /// Mean absolute difference in water coverage (`0..=1`) on the screen's
+    /// shoreline band. Measured 0.000 on both presets (the export evaluates
+    /// the shader's own rule) against 0.328 / 0.331 for the pre-RV-5 cell
+    /// rule. `0.02` is a labelled judgement: a fiftieth of a pixel's
+    /// coverage, loose enough for float order, tight enough that any change
+    /// to the rule (a different field, a different `fwidth`) fails.
+    const COVER_BOUND: f64 = 0.02;
+    /// Mean absolute colour difference, 0-255 levels, on the LAKE's shoreline
+    /// band. Measured 3.68 / 4.19 against the pre-RV-5 cell rule's 14.68 /
+    /// 13.44; the residual is the screen mixing the nearest land and water
+    /// texels where the export mixes its own pixel's two colours. `6.0` is a
+    /// labelled judgement, about 1.5x the worst measured.
+    const LAKE_SHORE_BOUND: f64 = 6.0;
+    /// Mean absolute colour difference on open water (all four surrounding
+    /// cell centres water). Measured 3.85 / 3.88 (2026-09-28): the screen
+    /// shows the nearest cell's texel where the export evaluates the sea's
+    /// depth tint and grain at the pixel. `6.0` is a labelled judgement,
+    /// about 1.5x the worst measured; added after a scratch-copy mutant that
+    /// drew every all-water pixel as land survived the three legs above.
+    const OPEN_WATER_BOUND: f64 = 6.0;
 }

@@ -6,9 +6,12 @@ extends Node
 ## Asserts, on a real 2048 x 1312 generated world through the real shell:
 ##   A. the rivers layer is on by default and the tint toggle is gone
 ##   B. with the Rivers layer OFF the BASE texture carries no river ink --
-##      measured against the grid-resolution raster export, which still reads
-##      `river_ink()` and so is the positive control: the export must be much
+##      measured against the grid-resolution raster export, which carries
+##      rivers and so is the positive control: the export must be much
 ##      bluer than the screen at channel cells, and identical to it elsewhere.
+##      (Until RV-5, 2026-09-28, the export's rivers were the stamped
+##      `river_ink()`; since then they are the vector strokes rasterized at
+##      the export's resolution -- still river, still the positive control.)
 ##      (Since 2026-09-27 the base texture holds no river whatever the layer
 ##      says: the base view's stroke is textured with `river_color_texture()`,
 ##      which `_rivstyle_probe.gd` measures. This section takes the texture
