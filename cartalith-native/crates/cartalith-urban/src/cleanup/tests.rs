@@ -143,6 +143,9 @@ use crate::site::{SiteOpts, WaterCtx, build_site};
 const JIT: [f64; 15] =
     [3.1, -4.7, 2.2, -1.3, 5.4, -2.8, 1.9, -5.1, 4.3, -3.6, 0.7, -4.2, 2.6, -1.8, 3.9];
 
+/// Lays an `x0,y0`-anchored street grid of `cols` x `rows` cells, optionally
+/// jittered off the lattice by [`JIT`] so no threshold in this milestone
+/// collapses to a symmetric case.
 #[allow(clippy::too_many_arguments)]
 fn grid(
     g: &mut Graph,
@@ -177,6 +180,8 @@ fn grid(
     }
 }
 
+/// Lays a closed four-edge rectangle, for fixtures that need one exact block
+/// face rather than a whole grid.
 fn rect(g: &mut Graph, x0: f64, y0: f64, w: f64, h: f64) {
     g.add_street(x0, y0, x0 + w, y0, "street", 6.0, 1, "r");
     g.add_street(x0 + w, y0, x0 + w, y0 + h, "street", 6.0, 1, "r");
@@ -184,6 +189,8 @@ fn rect(g: &mut Graph, x0: f64, y0: f64, w: f64, h: f64) {
     g.add_street(x0, y0 + h, x0, y0, "street", 6.0, 1, "r");
 }
 
+/// Counts a graph's live edges — the count every `check` compares "before"
+/// and "after" a pass against.
 fn alive(g: &Graph) -> usize {
     g.edges.iter().filter(|e| e.alive).count()
 }
@@ -210,6 +217,8 @@ fn canon(g: &Graph) -> String {
     parts.join("|")
 }
 
+/// Looks up a golden scenario by name, panicking on a typo instead of
+/// silently comparing against the wrong fixture.
 fn scenario(name: &str) -> &'static golden::Scenario {
     golden::SCENARIOS
         .iter()
@@ -231,6 +240,8 @@ fn check(name: &str, g: &Graph, before: usize) {
     assert_eq!(fnv1a(&canon(g)), s.hash, "{name}: full-graph hash");
 }
 
+/// Looks up how many lanes the reference's own capture laid for a named
+/// [`lane_pass`] scenario.
 fn lane_added(name: &str) -> usize {
     golden::LANE_ADDED
         .iter()
@@ -243,6 +254,8 @@ fn lane_added(name: &str) -> usize {
 
 #[test]
 fn prune_keeps_the_largest_component() {
+    // Protects: prune_largest keeping the larger of two components and
+    // killing the smaller.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 3, 3, 60.0, 55.0, "street", 6.0, 1, true);
     grid(&mut g, 900.0, 800.0, 2, 1, 50.0, 50.0, "street", 6.0, 1, true);
@@ -258,6 +271,8 @@ fn prune_keeps_the_largest_component() {
 /// order rather than iterating a `HashMap`.
 #[test]
 fn prune_equal_components_keep_the_first_seen() {
+    // Protects: prune_largest's strict `sizes[i] > sizes[best]` tie-break,
+    // which keeps the first-seen component (insertion order) on a tie.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 2, 2, 60.0, 55.0, "street", 6.0, 1, false);
     grid(&mut g, 900.0, 800.0, 2, 2, 60.0, 55.0, "street", 6.0, 1, false);
@@ -272,6 +287,7 @@ fn prune_equal_components_keep_the_first_seen() {
 
 #[test]
 fn prune_leaves_a_connected_graph_alone() {
+    // Protects: prune_largest on a single-component graph — nothing lost.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 3, 3, 60.0, 55.0, "street", 6.0, 1, true);
     let before = alive(&g);
@@ -284,6 +300,8 @@ fn prune_leaves_a_connected_graph_alone() {
 
 #[test]
 fn kill_edge_unhooks_both_endpoints_and_is_idempotent() {
+    // Protects: kill_edge splicing both endpoints' adjacency lists, and its
+    // `if (k >= 0)` guard making a second kill on the same edge a no-op.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 2, 2, 70.0, 65.0, "street", 6.0, 1, true);
     let victim = g.edges.iter().find(|e| e.alive).expect("fixture has a live edge").id;
@@ -313,6 +331,8 @@ fn kill_edge_unhooks_both_endpoints_and_is_idempotent() {
 /// the module header promises rather than left as a claim.
 #[test]
 fn the_kill_guard_is_what_stops_a_second_kill_corrupting_adjacency() {
+    // Protects: the finding that kill_edge's `k >= 0` guard is load-bearing —
+    // simulating its absence and showing the corrupted result would differ.
     let mut g = Graph::new();
     grid(&mut g, 100.0, 100.0, 2, 2, 70.0, 65.0, "street", 6.0, 1, true);
     let victim = g.edges.iter().find(|e| e.alive).expect("live edge").id;
@@ -330,6 +350,9 @@ fn the_kill_guard_is_what_stops_a_second_kill_corrupting_adjacency() {
 
 // ----------------------------------------------------- removeWaterCrossings --
 
+/// Builds the shared grid-plus-primary-plus-quay fixture for a given site
+/// `kind`, runs [`remove_water_crossings`] and checks it against the golden
+/// scenario named `water_{kind}`.
 fn water_scenario(kind: &str) {
     let site = build_site(4242, 1700.0, 1250.0, kind, SiteOpts::default());
     let mut g = Graph::new();
@@ -349,6 +372,8 @@ fn water_scenario(kind: &str) {
 /// survives its own mutation.
 #[test]
 fn the_wet_band_is_river_width_over_two_plus_a_half() {
+    // Protects: remove_water_crossings' wet-band constant `riverW/2 + 0.5`,
+    // pinned by a 1 m ladder of rungs that a one-metre change would move.
     let site = build_site(4242, 1700.0, 1250.0, "river", SiteOpts::default());
     let mut g = Graph::new();
     grid(&mut g, 200.0, 200.0, 4, 3, 260.0, 200.0, "street", 6.0, 1, true);
@@ -371,14 +396,18 @@ fn the_wet_band_is_river_width_over_two_plus_a_half() {
 
 #[test]
 fn water_crossings_river() {
+    // Protects: remove_water_crossings on a "river" site, against the golden.
     water_scenario("river");
 }
 #[test]
 fn water_crossings_riverthrough() {
+    // Protects: remove_water_crossings on a "riverthrough" site, including
+    // the 9-interior-sample wet scan, against the golden.
     water_scenario("riverthrough");
 }
 #[test]
 fn water_crossings_coastal() {
+    // Protects: remove_water_crossings on a "coastal" site, against the golden.
     water_scenario("coastal");
 }
 
@@ -388,6 +417,8 @@ fn water_crossings_coastal() {
 /// exemption stated where nothing else can explain it away.
 #[test]
 fn the_quay_is_exempt_from_the_sweeps() {
+    // Protects: remove_water_crossings' `'quay'` exemption in both sweeps —
+    // every quay segment must survive, on both a river and a coastal site.
     for kind in ["river", "coastal"] {
         let site = build_site(4242, 1700.0, 1250.0, kind, SiteOpts::default());
         let mut g = Graph::new();
@@ -402,6 +433,7 @@ fn the_quay_is_exempt_from_the_sweeps() {
 }
 #[test]
 fn water_crossings_inland() {
+    // Protects: remove_water_crossings on an "inland" site, against the golden.
     water_scenario("inland");
 }
 
@@ -410,6 +442,8 @@ fn water_crossings_inland() {
 /// every other kind here.
 #[test]
 fn water_crossings_landlocked_returns_untouched() {
+    // Protects: remove_water_crossings' `if (site.noWater) return` early exit
+    // — a landlocked site is left entirely alone, not merely pruned.
     water_scenario("landlocked");
     let site = build_site(4242, 1700.0, 1250.0, "landlocked", SiteOpts::default());
     assert!(site.no_water);
@@ -450,6 +484,9 @@ fn w_spec() -> WaterCtx {
 /// `buildSite` calls it river-like while `removeWaterCrossings` does not.
 #[test]
 fn water_crossings_real_mask() {
+    // Protects: the uses_real_water second sweep, the local `rk` divergence
+    // from `site.kind`, the dead `riverW || 20` fallback, and the quay's
+    // survival-then-prune on a real-water-mask fixture.
     let site = build_site(
         88,
         1700.0,
@@ -524,6 +561,9 @@ fn water_crossings_real_mask() {
 
 // --------------------------------------------------------- privatizeAlleys --
 
+/// Runs [`privatize_alleys`] on the small standard grid-plus-spur fixture,
+/// with a profile bias and a rules bias each independently settable, and
+/// checks it against the golden scenario named `name`.
 fn priv_scenario(name: &str, seed: u32, p_bias: f64, r_bias: f64) {
     let mut g = Graph::new();
     grid(&mut g, 150.0, 150.0, 5, 4, 150.0, 140.0, "street", 6.0, 1, true);
@@ -540,6 +580,7 @@ fn priv_scenario(name: &str, seed: u32, p_bias: f64, r_bias: f64) {
 
 #[test]
 fn privatize_zero_bias_is_a_no_op() {
+    // Protects: privatize_alleys with both biases at zero doing nothing.
     priv_scenario("privatize_zero", 777, 0.0, 0.0);
     let s = scenario("privatize_zero");
     assert_eq!(s.before, s.after);
@@ -547,6 +588,8 @@ fn privatize_zero_bias_is_a_no_op() {
 
 #[test]
 fn privatize_islamic_floor() {
+    // Protects: privatize_alleys closing at least one dead end at the 0.16
+    // rules bias against the golden.
     priv_scenario("privatize_016", 777, 0.0, 0.16);
     let s = scenario("privatize_016");
     assert!(s.after < s.before, "0.16 must close something");
@@ -554,6 +597,8 @@ fn privatize_islamic_floor() {
 
 #[test]
 fn privatize_at_the_ceiling() {
+    // Protects: privatize_alleys at exactly the 0.40 bias ceiling, against
+    // the golden — the reference value the clamp tests below compare to.
     priv_scenario("privatize_040", 777, 0.0, 0.40);
 }
 
@@ -561,6 +606,8 @@ fn privatize_at_the_ceiling() {
 /// produces, hash and all.
 #[test]
 fn privatize_clamps_the_bias_at_040() {
+    // Protects: the `clamp(…, 0, 0.40)` upper bound — a 0.90 bias must run
+    // identically to 0.40, hash and all.
     priv_scenario("privatize_090_clamped", 777, 0.0, 0.90);
     assert_eq!(
         scenario("privatize_090_clamped").hash,
@@ -572,6 +619,8 @@ fn privatize_clamps_the_bias_at_040() {
 /// The two sides **add**; they do not replace. 0.10 + 0.10 is not 0.10.
 #[test]
 fn privatize_profile_and_rules_bias_add() {
+    // Protects: the profile bias and the rules bias summing rather than one
+    // replacing the other — 0.10 + 0.10 must not equal 0.10.
     priv_scenario("privatize_sum", 31337, 0.10, 0.10);
     assert_ne!(scenario("privatize_sum").hash, scenario("privatize_zero").hash);
 }
@@ -580,6 +629,8 @@ fn privatize_profile_and_rules_bias_add() {
 /// even though both live profiles leave it at zero.
 #[test]
 fn privatize_from_the_profile_side_alone() {
+    // Protects: the profile-side bias alone closing something, even though
+    // both live culture profiles leave it at zero in practice.
     priv_scenario("privatize_profile_only", 31337, 0.22, 0.0);
     let s = scenario("privatize_profile_only");
     assert!(s.after < s.before);
@@ -593,6 +644,9 @@ fn privatize_from_the_profile_side_alone() {
 /// not the clamp.
 #[test]
 fn negative_bias_closes_nothing_either_way() {
+    // Protects: the finding that the clamp's unstated lower bound is
+    // unobservable — a negative bias closes nothing whether or not the clamp
+    // exists, because `closed >= target` is true on entry either way.
     priv_scenario("privatize_negative", 777, 0.0, -0.5);
     let s = scenario("privatize_negative");
     assert_eq!(s.before, s.after);
@@ -609,6 +663,8 @@ fn negative_bias_closes_nothing_either_way() {
 /// reachable in the app — milestone 12 found the same trap.
 #[test]
 fn a_nan_bias_returns_without_touching_the_graph() {
+    // Protects: privatize_alleys' `if (!bias)` falsy-test rejecting a NaN
+    // bias, which the clamp alone cannot rescue.
     let mut g = Graph::new();
     grid(&mut g, 150.0, 150.0, 5, 4, 150.0, 140.0, "street", 6.0, 1, true);
     let snapshot = canon(&g);
@@ -622,6 +678,9 @@ fn a_nan_bias_returns_without_touching_the_graph() {
 /// the pass returns — the reference's `(rules || DEFAULT_RULES)`.
 #[test]
 fn privatize_falls_back_to_default_rules() {
+    // Protects: `rules = None` falling back to DEFAULT_RULES, whose zero
+    // street bias makes the pass a no-op — the reference's `(rules ||
+    // DEFAULT_RULES)`.
     assert_eq!(DEFAULT_RULES.street.dead_end_bias, 0.0);
     let mut g = Graph::new();
     grid(&mut g, 150.0, 150.0, 5, 4, 150.0, 140.0, "street", 6.0, 1, true);
@@ -634,6 +693,9 @@ fn privatize_falls_back_to_default_rules() {
 /// reachability filter, and it is a property no hash states.
 #[test]
 fn privatize_never_disconnects_the_network() {
+    // Protects: privatize_alleys' reachability filter — the graph it leaves
+    // behind must still be one component, checked by re-running prune_largest
+    // and confirming it finds nothing left to kill.
     let mut g = Graph::new();
     grid(&mut g, 150.0, 150.0, 5, 4, 150.0, 140.0, "street", 6.0, 1, true);
     g.add_street(150.0, 150.0, 60.0, 60.0, "street", 6.0, 1, "spur");
@@ -649,6 +711,8 @@ fn privatize_never_disconnects_the_network() {
     assert_eq!(alive(&g), before_prune, "privatize_alleys severed the network");
 }
 
+/// Like [`priv_scenario`] but on a larger 9x7 grid, big enough that the 0.40
+/// bias ceiling genuinely binds rather than being starved of candidates.
 fn priv_big(name: &str, seed: u32, p_bias: f64, r_bias: f64) {
     let mut g = Graph::new();
     grid(&mut g, 150.0, 150.0, 9, 7, 110.0, 100.0, "street", 6.0, 1, true);
@@ -670,6 +734,8 @@ fn priv_big(name: &str, seed: u32, p_bias: f64, r_bias: f64) {
 /// claim to catch it -- see [`the_bias_ceiling_saturates`].
 #[test]
 fn privatize_big_grid_ceiling() {
+    // Protects: the 0.40 bias ceiling from below — 0.35 and 0.40 must close
+    // different amounts on a grid where the target genuinely binds.
     priv_big("privatize_big_035", 555, 0.0, 0.35);
     priv_big("privatize_big_040", 555, 0.0, 0.40);
     let (a, b) = (scenario("privatize_big_035"), scenario("privatize_big_040"));
@@ -685,6 +751,9 @@ fn privatize_big_grid_ceiling() {
 /// here. Measured, not assumed.
 #[test]
 fn the_bias_ceiling_saturates() {
+    // Protects: the measured finding that a ceiling above 0.40 cannot be
+    // caught on this fixture — 0.40, 0.45 and 0.50 all close the same count,
+    // because chance(0.5) and falling live degrees cap the pass first.
     priv_big("privatize_big_090", 555, 0.0, 0.90);
     let (clamped, at_ceiling) = (scenario("privatize_big_090"), scenario("privatize_big_040"));
     assert_eq!(clamped.hash, at_ceiling.hash, "0.90 must clamp to 0.40");
@@ -695,6 +764,8 @@ fn the_bias_ceiling_saturates() {
 
 // ----------------------------------------------------------- clearFortZone --
 
+/// An `n`-gon wall ring centred at `(cx, cy)` with radii `(rx, ry)`, for fort
+/// and wall fixtures that need a closed enceinte.
 fn ring_poly(cx: f64, cy: f64, rx: f64, ry: f64, n: usize) -> Vec<Vec2> {
     (0..n)
         .map(|i| {
@@ -704,6 +775,10 @@ fn ring_poly(cx: f64, cy: f64, rx: f64, ry: f64, n: usize) -> Vec<Vec2> {
         .collect()
 }
 
+/// The shared probe-polygon and detail-point set every fort scenario sweeps:
+/// a 0.5 m radial ladder that resolves the fort constants to the metre, a
+/// spar straddling the enceinte that only `polyInClear`'s centroid half can
+/// catch, and a ring of ordinary buildings farther out.
 fn fort_fixture() -> (Vec<Vec<Vec2>>, Vec<Option<Vec2>>) {
     let mut polys = Vec::new();
     // A 0.5 m radial ladder along +x, where the land arc's own vertex sits at
@@ -748,6 +823,8 @@ fn fort_fixture() -> (Vec<Vec<Vec2>>, Vec<Option<Vec2>>) {
     (polys, details)
 }
 
+/// Looks up a golden fort scenario by name, panicking on a typo instead of
+/// silently comparing against the wrong fixture.
 fn fort_golden(name: &str) -> &'static golden::Fort {
     golden::FORTS.iter().find(|f| f.name == name).unwrap_or_else(|| panic!("no fort {name}"))
 }
@@ -830,11 +907,15 @@ const GATES: fn() -> Vec<Gate> = || {
 
 #[test]
 fn fort_zone_sweep_matches() {
+    // Protects: clear_fort_zone's whole sweep (buildings, parcels, details,
+    // graph) on a plain wall trace, against the golden.
     fort_scenario("fort_wall", "wall", None, GATES());
 }
 
 #[test]
 fn fort_zone_bastioned_uses_the_glacis_offset() {
+    // Protects: clear_fort_zone's bastioned `glacisOff + 8` clear distance
+    // against the golden, and that it differs from a plain wall's clear_dist.
     fort_scenario("fort_bastioned", "bastioned", Some(70.0), GATES());
     assert_eq!(fort_golden("fort_bastioned").clear_dist, 78.0);
     assert_eq!(fort_golden("fort_wall").clear_dist, 15.0);
@@ -845,6 +926,8 @@ fn fort_zone_bastioned_uses_the_glacis_offset() {
 /// two must therefore be identical runs, and both must differ from the 70 one.
 #[test]
 fn a_missing_or_zero_glacis_offset_falls_back_to_sixty() {
+    // Protects: `fort && fort.glacisOff || 60` — a missing fort and a fort
+    // with a zero glacis offset must both fall to 60 and be identical runs.
     fort_scenario("fort_bastioned_nofort", "bastioned", None, GATES());
     fort_scenario("fort_bastioned_zerooff", "bastioned", Some(0.0), GATES());
     let (nf, zo, seventy) = (
@@ -870,6 +953,8 @@ fn a_missing_or_zero_glacis_offset_falls_back_to_sixty() {
 /// rather than clipped somewhere.
 #[test]
 fn a_huge_glacis_sweeps_the_whole_fixture() {
+    // Protects: clear_fort_zone's clear band scaling to an arbitrarily large
+    // glacis offset rather than being clipped somewhere.
     fort_scenario("fort_huge_glacis", "bastioned", Some(1400.0), GATES());
     let f = fort_golden("fort_huge_glacis");
     assert_eq!(f.clear_dist, 1408.0);
@@ -890,6 +975,9 @@ fn a_huge_glacis_sweeps_the_whole_fixture() {
 /// there and nowhere else.
 #[test]
 fn the_gate_corridor_radius_at_its_boundary() {
+    // Protects: clear_fort_zone's non-primary gate-corridor radius
+    // `clearDist * 0.85`, pinned by a gate placed 12.8 m from a crossing —
+    // inside the 0.86 radius and outside the 0.85 one.
     let ring = ring_poly(850.0, 620.0, 380.0, 300.0, 24);
     assert_eq!(ring[0], Vec2::new(1230.0, 620.0), "the probe assumes this vertex");
     let wall = WallState {
@@ -923,6 +1011,8 @@ fn the_gate_corridor_radius_at_its_boundary() {
 
 #[test]
 fn fort_zone_with_no_gates_severs_every_crossing() {
+    // Protects: clear_fort_zone's `gates.some(…)` over an empty gate list
+    // being vacuously false (every crossing road dies), not vacuously true.
     fort_scenario("fort_nogates", "wall", None, Vec::new());
     let (with, without) = (scenario("fort_wall"), scenario("fort_nogates"));
     assert!(without.after < with.after, "gates must save roads");
@@ -932,6 +1022,8 @@ fn fort_zone_with_no_gates_severs_every_crossing() {
 /// left completely alone, graph and collections both.
 #[test]
 fn fort_zone_without_a_ring_is_a_no_op() {
+    // Protects: clear_fort_zone's `if (!wallState.ring || !wallState.landArc)
+    // return` early exit — an unwalled town is left completely alone.
     let wall = WallState {
         ring: None,
         gates: GATES(),
@@ -954,10 +1046,14 @@ fn fort_zone_without_a_ring_is_a_no_op() {
 
 // --------------------------------------------------------------- lanePass --
 
+/// A landlocked site, for lane-pass fixtures where a channel would confound
+/// the constant under test.
 fn dry_site() -> crate::site::Site {
     build_site(909, 1700.0, 1250.0, "landlocked", SiteOpts::default())
 }
 
+/// Builds a graph with `build`, runs [`lane_pass`] on it and checks both the
+/// finished graph and the lane count against the golden scenario `name`.
 fn lane_scenario(
     name: &str,
     build: impl FnOnce(&mut Graph),
@@ -983,6 +1079,9 @@ fn place_anchors_stub() -> Anchors {
 
 #[test]
 fn lane_pass_splits_oversized_central_blocks() {
+    // Protects: lane_pass laying at least one lane on an oversized grid, and
+    // that each lane it lays is classed `'lane'`, 2.6 m wide, and carries the
+    // pass's own epoch and [`LANE_PROV`].
     let site = dry_site();
     lane_scenario(
         "lane_grid_default",
@@ -1008,6 +1107,8 @@ fn lane_pass_splits_oversized_central_blocks() {
 /// epoch draws different offsets and produces a different town.
 #[test]
 fn the_lane_substream_is_labelled_by_epoch() {
+    // Protects: lane_pass's `'lanes/' + epoch` stream label — the same graph
+    // at a different epoch must draw different offsets.
     let site = dry_site();
     lane_scenario(
         "lane_grid_epoch7",
@@ -1028,6 +1129,8 @@ fn the_lane_substream_is_labelled_by_epoch() {
 /// entirely below the 12 000 default and entirely above 6 000.
 #[test]
 fn min_area_gates_the_whole_pass() {
+    // Protects: lane_pass' minArea parameter actually gating the whole pass
+    // — a below-default grid lays nothing at the default, something below it.
     let site = dry_site();
     lane_scenario(
         "lane_small_default",
@@ -1053,6 +1156,8 @@ fn min_area_gates_the_whole_pass() {
 /// 140 000, and the test is `A > 140000`, so it is kept; 400 × 350.1 is not.
 #[test]
 fn the_area_ceiling_is_exclusive_at_exactly_140000() {
+    // Protects: lane_pass' 140 000 m² area ceiling (`A > 140000`), pinned
+    // exactly at the boundary by a 400 x 350 face against a 400 x 350.001 one.
     let site = dry_site();
     lane_scenario(
         "lane_ceiling_exact",
@@ -1078,6 +1183,8 @@ fn the_area_ceiling_is_exclusive_at_exactly_140000() {
 /// keeps an exactly-12 000 face and drops 11 990.
 #[test]
 fn the_default_min_area_is_inclusive_at_exactly_12000() {
+    // Protects: lane_pass' 12 000 m² default minArea floor (`A < minArea`),
+    // pinned exactly at the boundary by a 100 x 120 face against 100 x 119.9.
     let site = dry_site();
     lane_scenario(
         "lane_minarea_exact",
@@ -1103,6 +1210,8 @@ fn the_default_min_area_is_inclusive_at_exactly_12000() {
 /// is kept (`> 520` is false), 520.1 m is not.
 #[test]
 fn the_market_radius_is_exclusive_at_exactly_520() {
+    // Protects: lane_pass' 520 m market-radius exclusion (`> 520`), pinned
+    // exactly at the boundary by a centroid 520 m out against 520.1 m.
     let site = dry_site();
     lane_scenario(
         "lane_market_exact",
@@ -1129,6 +1238,8 @@ fn the_market_radius_is_exclusive_at_exactly_520() {
 /// and no lane is laid; a 60 x 28 face clears the threshold.
 #[test]
 fn a_lane_shorter_than_thirty_metres_is_not_laid() {
+    // Protects: lane_pass' 30 m minimum lane separation, pinned at the
+    // boundary by a 60 x 27 face (under) against a 60 x 28 one (over).
     let site = dry_site();
     lane_scenario(
         "lane_sep_under",
@@ -1161,6 +1272,9 @@ fn a_lane_shorter_than_thirty_metres_is_not_laid() {
 /// the shape of the code.
 #[test]
 fn lanes_are_not_laid_across_water() {
+    // Protects: lane_pass' wet scan (`t += 0.12`, nine samples) rejecting a
+    // candidate lane that crosses a river, and the measured equivalence of
+    // the accumulated and closed-form sample sequences at this step.
     let site = build_site(909, 1700.0, 1250.0, "river", SiteOpts::default());
     lane_scenario(
         "lane_river_wet",
@@ -1199,6 +1313,8 @@ fn lanes_are_not_laid_across_water() {
 /// and [`prune_largest`] must run last or the fabric the sweeps orphan survives.
 #[test]
 fn water_crossings_prunes_last() {
+    // Protects: remove_water_crossings running prune_largest last — re-running
+    // the prune afterward must change nothing.
     let site = build_site(4242, 1700.0, 1250.0, "coastal", SiteOpts::default());
     let mut g = Graph::new();
     grid(&mut g, 200.0, 200.0, 6, 5, 200.0, 160.0, "street", 6.0, 1, true);
@@ -1215,6 +1331,8 @@ fn water_crossings_prunes_last() {
 /// The same property for [`clear_fort_zone`].
 #[test]
 fn fort_zone_prunes_last() {
+    // Protects: clear_fort_zone running prune_largest last, the same property
+    // as water_crossings_prunes_last for the fort sweep.
     let ring = ring_poly(850.0, 620.0, 380.0, 300.0, 24);
     let wall = WallState {
         ring: Some(ring.clone()),
@@ -1266,6 +1384,10 @@ fn fort_zone_prunes_last() {
 /// the reference's 29127 comment names.
 #[test]
 fn the_generate_ordering_seam() {
+    // Protects: generate()'s own call order for the three edge-killing passes
+    // (remove_water_crossings, privatize_alleys, clear_fort_zone) relative to
+    // detect_river_crossings — a bridge exported before them would sit on a
+    // road that no longer exists after them.
     let site = build_site(
         88,
         1700.0,

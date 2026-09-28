@@ -5,6 +5,9 @@ use super::*;
 
 #[test]
 fn face_offset_is_half_the_drawn_stroke_and_refuses_the_rest() {
+    // Protects: face_offset's curtain/palisade halved-stroke values against
+    // the renderer's own WALL_W literals, and its None for a class with no
+    // face offset.
     // Literals, not the function against itself: `urban_layout_draw.gd`'s
     // `WALL_W` is curtain 4.5 and palisade 2.2.
     assert_eq!(face_offset("curtain"), Some(2.25));
@@ -15,6 +18,8 @@ fn face_offset_is_half_the_drawn_stroke_and_refuses_the_rest() {
 
 #[test]
 fn arc_walks_open_and_closed() {
+    // Protects: Arc's length, at()'s clamp on an open arc vs wrap on a closed
+    // one (both directions), and project()'s distance-along-the-arc result.
     let sq = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)];
     let open = Arc::new(&sq, false);
     let closed = Arc::new(&sq, true);
@@ -29,6 +34,9 @@ fn arc_walks_open_and_closed() {
 
 #[test]
 fn nothing_is_platted_against_an_unwalled_or_unbuildable_circuit() {
+    // Protects: build_wall_lots' empty result on an unwalled default
+    // WallState, and on a walled but non-curtain/palisade style ("ditch",
+    // "bastioned") whose face has no wall lots to plat.
     let site = crate::site::build_site(1, 1700.0, 1250.0, "inland", Default::default());
     let g = Graph::new();
     assert!(build_wall_lots(1, &g, &WallState::default(), &site, &[], &[], 5000.0, 8).is_empty());
@@ -46,6 +54,8 @@ fn nothing_is_platted_against_an_unwalled_or_unbuildable_circuit() {
 
 #[test]
 fn a_row_ends_raggedly_about_its_nominal_length() {
+    // Protects: taper_end_chance's onset (0.85), its even-odds point (1.2)
+    // and its saturation (1.55), its monotonicity, and BACK_JITTER's value.
     // Literals, not the constants against themselves: onset 0.85, span 0.7.
     assert_eq!(taper_end_chance(0.0), 0.0);
     assert_eq!(taper_end_chance(0.85), 0.0, "never ends before 85% of nominal");
@@ -61,6 +71,8 @@ fn a_row_ends_raggedly_about_its_nominal_length() {
 
 #[test]
 fn gate_quality_falls_off_the_gate_with_bounded_noise() {
+    // Protects: gate_quality's linear falloff, its [0, 1] clamp at both ends,
+    // and QUALITY_NOISE's bound on how far the noise can invert two lots.
     // Beside the gate, halfway, at the run's end and past it (a ragged row).
     assert_eq!(gate_quality(0.0, 80.0, 0.0), 1.0);
     assert_eq!(gate_quality(40.0, 80.0, 0.0), 0.5);
@@ -85,16 +97,23 @@ fn gate_quality_falls_off_the_gate_with_bounded_noise() {
 use crate::growth::Gate;
 use crate::rng::stream;
 
+/// A landlocked site, for fixtures where a channel would confound the
+/// constant under test.
 fn landlocked() -> Site {
     crate::site::build_site(1, 1700.0, 1250.0, "landlocked", Default::default())
 }
 
+/// Builds a bare [`Ctx`] with no plazas and no taken lots, for tests that
+/// only need one or two of its fields filled.
 fn ctx<'a>(g: &'a Graph, site: &'a Site, ring: &'a [Vec2], wall: &'a WallState) -> Ctx<'a> {
     Ctx { g, site, ring, wall, plazas: Vec::new(), taken: Vec::new() }
 }
 
 #[test]
 fn arc_at_a_vertex_is_the_vertex_itself() {
+    // Protects: Arc::at's `partition_point(c <= s)` tie-break at an exact
+    // vertex — it resolves to the segment that starts there, not the one
+    // that ends there, which a naive lerp would miss by an ulp.
     // `partition_point(c <= s)`: arc length exactly at a vertex resolves to the
     // segment that starts there (t = 0, the vertex), not to the one that ends
     // there (t = 1, which `a + (b - a) * 1` misses by an ulp here).
@@ -105,12 +124,17 @@ fn arc_at_a_vertex_is_the_vertex_itself() {
 
 #[test]
 fn arc_at_a_zero_length_last_segment_is_its_start() {
+    // Protects: Arc::at not dividing 0/0 on a degenerate zero-length last
+    // segment — it must resolve to that segment's start.
     let arc = Arc::new(&[Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 0.0)], false);
     assert_eq!(arc.at(99.0), Vec2::new(10.0, 0.0), "not 0/0");
 }
 
 #[test]
 fn bow_walks_a_closed_arc_one_lap_either_side() {
+    // Protects: Arc::bow on a closed arc walking a full lap forward and a
+    // full lap backward across the seam, and finding the same corner both
+    // ways.
     let sq = [Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0), Vec2::new(0.0, 10.0)];
     let closed = Arc::new(&sq, true);
     let half_diag = 2.5 * 2f64.sqrt();
@@ -122,12 +146,16 @@ fn bow_walks_a_closed_arc_one_lap_either_side() {
 
 #[test]
 fn project_keeps_the_first_of_two_equidistant_segments() {
+    // Protects: Arc::project's tie-break when a point is equidistant from two
+    // segments — the first-encountered segment wins.
     let arc = Arc::new(&[Vec2::new(0.0, 0.0), Vec2::new(10.0, 0.0), Vec2::new(10.0, 10.0)], false);
     assert_eq!(arc.project(Vec2::new(5.0, 5.0)), 5.0);
 }
 
 #[test]
 fn street_face_keeps_the_first_of_two_streets_hit_at_the_same_point() {
+    // Protects: Ctx::street_face's tie-break (first edge found wins) and its
+    // building-line offset formula (`w/2 + 1.4`).
     let mut g = Graph::new();
     g.add_street(30.0, 20.0, 50.0, 20.0, "street", 4.0, 1, "w");
     g.add_street(50.0, 20.0, 70.0, 20.0, "lane", 3.0, 1, "e");
@@ -143,6 +171,7 @@ fn street_face_keeps_the_first_of_two_streets_hit_at_the_same_point() {
 
 #[test]
 fn crosses_street_ignores_a_dead_street() {
+    // Protects: Ctx::crosses_street's `e.alive` guard.
     let mut g = Graph::new();
     g.add_street(0.0, 50.0, 100.0, 50.0, "street", 4.0, 1, "s");
     let site = landlocked();
@@ -152,14 +181,22 @@ fn crosses_street_ignores_a_dead_street() {
     assert!(!ctx(&g, &site, &[], &wall).crosses_street(Vec2::new(50.0, 0.0), Vec2::new(50.0, 100.0)));
 }
 
+/// An axis-aligned quad from `(x0, y0)` to `(x1, y1)`, wound consistently
+/// with every other lot polygon in this file.
 fn q(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<Vec2> {
     vec![Vec2::new(x0, y0), Vec2::new(x1, y0), Vec2::new(x1, y1), Vec2::new(x0, y1)]
 }
 
+// A generously oversized site box, for `accepts`/`Ctx` fixtures that only
+// care about the box's y-bounds and not its exact extent.
 const BIG: [Vec2; 4] = [Vec2::new(-100.0, -100.0), Vec2::new(1800.0, -100.0), Vec2::new(1800.0, 1400.0), Vec2::new(-100.0, 1400.0)];
 
 #[test]
 fn accepts_bounds_every_test_it_makes() {
+    // Protects: Ctx::accepts' whole gate list on one fixture — the area band
+    // [26, 2600], self-intersection rejection, the box's y bounds, the 14 m
+    // gate clearance, the plaza exclusion, and every edge (including the
+    // closing one) being tested against the street graph.
     let g = Graph::new();
     let site = landlocked();
     let wall = WallState::default();
@@ -195,6 +232,9 @@ fn accepts_bounds_every_test_it_makes() {
 
 #[test]
 fn accepts_measures_the_water_margin_on_every_corner_and_the_centroid() {
+    // Protects: Ctx::accepts' water-margin gate — a channel's `riverW/2 + 1`
+    // clearance, a non-channel's flat 3 m clearance, and a lot whose corners
+    // are dry but whose centroid falls in the water.
     let g = Graph::new();
     let wall = WallState::default();
     let one = |d: f64, wet: bool| crate::site::WaterCtx {
@@ -232,6 +272,9 @@ fn accepts_measures_the_water_margin_on_every_corner_and_the_centroid() {
 
 #[test]
 fn accepts_refuses_a_lot_touching_a_taken_one_where_the_half_open_test_says_inside() {
+    // Protects: Ctx::accepts' taken-lot overlap test on a merely-touching
+    // pair, relying on point_in_poly's half-open convention rather than
+    // skipping on a bounding-box touch.
     // `point_in_poly` is half-open: a point on a polygon's min-x or min-y edge
     // is inside. A taken lot whose bounding box only touches the candidate's
     // is therefore still tested, not skipped.
@@ -248,6 +291,8 @@ fn accepts_refuses_a_lot_touching_a_taken_one_where_the_half_open_test_says_insi
 
 #[test]
 fn outward_probes_three_metres_off_the_chord() {
+    // Protects: outward()'s 3 m probe distance staying short enough that a
+    // chord 3.5 m outside the ring still probes outside it.
     // A chord 3.5 m outside a square: 3 m toward the square is still outside,
     // so the normal is kept as it is.
     let ring = q(0.0, 0.0, 100.0, 100.0);
@@ -266,6 +311,8 @@ fn faub_fixture(bent: bool) -> (Vec<Vec2>, Vec<Vec2>) {
     (arc, ring)
 }
 
+/// Runs [`faubourg_lot`] on [`faub_fixture`]'s straight (or bent) land arc,
+/// against a caller-supplied street graph.
 fn faub(g: &Graph, bent: bool) -> Option<(Vec<Vec2>, &'static str)> {
     let site = landlocked();
     let wall = WallState::default();
@@ -277,6 +324,8 @@ fn faub(g: &Graph, bent: bool) -> Option<(Vec<Vec2>, &'static str)> {
 
 #[test]
 fn a_faubourg_lot_allows_a_bow_of_exactly_one_metre() {
+    // Protects: faubourg_lot's 1 m bow tolerance — a bent arc whose bow is
+    // exactly 1 m must still produce a lot.
     let (arc, _) = faub_fixture(true);
     let a = Arc::new(&arc, false);
     assert_eq!(a.bow(0.0, a.len()), 1.0);
@@ -285,6 +334,8 @@ fn a_faubourg_lot_allows_a_bow_of_exactly_one_metre() {
 
 #[test]
 fn a_faubourg_lot_looks_eight_metres_past_its_depth_for_a_street() {
+    // Protects: faubourg_lot's street-search reach — a street just past
+    // depth + 8 m is not seen, even though its building line would cut the lot.
     let plain = faub(&Graph::new(), false).expect("a lot");
     assert_eq!(plain.0[0], Vec2::new(100.0, 189.75));
     assert_eq!(plain.1, "");
@@ -297,6 +348,8 @@ fn a_faubourg_lot_looks_eight_metres_past_its_depth_for_a_street() {
 
 #[test]
 fn a_faubourg_lot_takes_a_streets_class_only_when_the_street_cuts_it() {
+    // Protects: faubourg_lot only taking a street's class when the street
+    // actually cuts the lot's depth, not merely ties at it.
     // A street whose building line lies exactly at the lot's depth: 12 m out,
     // 5.2 m wide, so 12 - 2.6 - 1.4 = 8.0. Not a cut, so no class.
     assert_eq!(12.0 - 5.2 / 2.0 - 1.4, 8.0);
@@ -331,12 +384,15 @@ fn top_wall(len: f64) -> WallState {
     }
 }
 
+/// Filters a lot list down to the intramural (`WallBacking::Inside`) ones.
 fn inside(out: &[Parcel]) -> Vec<&Parcel> {
     out.iter().filter(|p| p.wall_backing == WallBacking::Inside).collect()
 }
 
 #[test]
 fn a_two_point_land_arc_is_platted_and_every_wall_lot_is_as_old_as_the_town() {
+    // Protects: build_wall_lots treating a straight two-point land arc as a
+    // valid wall, and stamping every wall lot with the town's own age.
     let wall = top_wall(200.0);
     let mut g = Graph::new();
     g.add_street(450.0, 528.25, 750.0, 528.25, "street", 4.0, 1, "inner");
@@ -347,6 +403,8 @@ fn a_two_point_land_arc_is_platted_and_every_wall_lot_is_as_old_as_the_town() {
 
 #[test]
 fn the_last_intramural_lot_needs_four_metres_of_arc_and_gets_it() {
+    // Protects: build_wall_lots' intramural 4 m chord minimum — a 4.5 m
+    // remainder clears it and becomes a lot of its own width.
     // Replay the intramural widths, and make the arc end 4.5 m past the third
     // lot: the loop runs a fourth time (4.5 m remain, more than 4) and that
     // lot is 4.5 m wide, over the 4 m chord minimum.
@@ -364,6 +422,8 @@ fn the_last_intramural_lot_needs_four_metres_of_arc_and_gets_it() {
 
 #[test]
 fn an_intramural_lot_exactly_six_metres_deep_is_kept() {
+    // Protects: build_wall_lots' 6 m minimum intramural depth, pinned exactly
+    // at the boundary by a street whose building line is precisely 6 m in.
     // A street 13 m in from the wall's inner face (t = 13/52 = 0.25 exactly),
     // 11.2 m wide: 13 - 5.6 - 1.4 = 6.0, the minimum depth, exactly.
     assert_eq!(13.0 - 11.2 / 2.0 - 1.4, 6.0);
@@ -378,6 +438,8 @@ fn an_intramural_lot_exactly_six_metres_deep_is_kept() {
 
 #[test]
 fn an_intramural_wedge_of_exactly_twelve_metres_is_kept() {
+    // Protects: build_wall_lots' 12 m wedge-depth minimum, when a lot's two
+    // rays meet different streets at different depths.
     // The first lot's two rays meet different streets: 26 m in and 1 m wide
     // (24.1) under fa, 39 m in and 3 m wide (36.1) under fb — exactly 12 apart.
     assert_eq!((26.0 - 1.0 / 2.0 - 1.4) - (39.0 - 3.0 / 2.0 - 1.4), -12.0);
@@ -452,6 +514,9 @@ fn check_gradient(gates: &[Vec2], gate_s: &[f64]) {
 
 #[test]
 fn gate_quality_is_measured_round_the_closed_circuit_to_the_nearest_gate() {
+    // Protects: build_wall_lots' gate_quality gradient measured as the
+    // wrapped arc distance to the NEAREST gate round a closed circuit, not a
+    // single fixed direction or the first gate in the list.
     // One gate 5 m along the first side: the run heads backward across the
     // seam, so every lot is `total - s` from it the short way round.
     check_gradient(&[Vec2::new(605.0, 300.0)], &[5.0]);
@@ -462,6 +527,8 @@ fn gate_quality_is_measured_round_the_closed_circuit_to_the_nearest_gate() {
 
 #[test]
 fn a_faubourg_run_stops_at_the_end_of_an_open_arc() {
+    // Protects: the faubourg run's end-of-open-arc break, backstopped by
+    // Arc::bow's one-lap walk in both directions — no lot may cross the end.
     // The end-of-arc break is backstopped by `Arc::bow`, which walks even an
     // open arc one lap either side and so finds vertex 0 at arc length
     // `total` — refusing any lot that crosses the end, unless vertex 0 lies
@@ -499,6 +566,8 @@ fn a_faubourg_run_stops_at_the_end_of_an_open_arc() {
 
 #[test]
 fn a_city_has_three_faubourg_runs() {
+    // Protects: build_wall_lots laying exactly three faubourg runs for a
+    // city-scale population, at the start points the RNG stream itself draws.
     // No gates: each run starts at a drawn point. A city (pop >= 10 000) has
     // three runs; replaying the draws finds each run's start, and each has a
     // first-row lot within a lot's width of it.

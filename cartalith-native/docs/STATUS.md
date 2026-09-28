@@ -1776,6 +1776,48 @@ re-checked against the tree rather than copied from the commit message.
   31 all still need an independent verifier before any can be called done
   rather than pending.
 
+- **Ruling BK annotation pass, batch 32 (`cartalith-urban` closed) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; urban 349/0/0) (comments only; urban
+  349/0/0 unchanged).** Recorded a pre-edit baseline (`cargo test -p
+  cartalith-urban`, `CARGO_TARGET_DIR` at `.../scratchpad/bk32`): **349
+  passed / 0 failed / 0 ignored**. Closed the three files batch 31 left:
+  `hinterland/tests.rs` (81 gaps — 35 `// Protects:` lines, seven
+  undocumented helper fns/structs (`eq_bits`, `Fx`, `fixture`,
+  `detail_hash`, `kind_counts`, `idx_hash`, `anchors_at`), and four consts
+  (`HM`, `YOFF`, `JIT`, a test-local `MAX_SEG`) that sat under a doc meant
+  for a sibling const rather than their own), `cleanup/tests.rs` (70 gaps —
+  42 `// Protects:` lines and 13 undocumented helper fns (`grid`, `rect`,
+  `alive`, `scenario`, `lane_added`, `water_scenario`, `priv_scenario`,
+  `priv_big`, `ring_poly`, `fort_fixture`, `fort_golden`, `dry_site`,
+  `lane_scenario`)) and `wallside/tests.rs` (56 gaps — 25 `// Protects:`
+  lines, 10 undocumented helper fns (`landlocked`, `ctx`, `q`, `faub`,
+  `inside`, plus five already-covered by context) and one const (`BIG`)).
+  Every `census_v2.py` gap in the crate was confirmed closed with a
+  per-file detail script (built on `census_v2`'s own `scan_rust_file`
+  helpers) before moving on, rather than assumed from the count alone. No
+  wrong existing comment was found while reading; no behaviour changed.
+  `cargo test -p cartalith-urban`, same `CARGO_TARGET_DIR`, run again at
+  the end: **349 passed / 0 failed / 0 ignored**, byte-identical to the
+  pre-edit baseline. `git diff --stat` confirmed comment-only across all
+  three touched files: 296 insertions net (`hinterland/tests.rs` had 7
+  lines replaced by 9 comment+doc lines that carry the same code, `cleanup/
+  tests.rs` and `wallside/tests.rs` are pure additions with zero
+  deletions). Crate-wide `census_v2.py`: items_undoc 99→0, tests_unprotected
+  103→0, consts_undoc 5→0 — **cartalith-urban now reads 0/0/0**, closing
+  the 207 gaps left after batch 31 within its ~250-gap budget; items_total,
+  tests_total and consts_with_numeric (942/349/143) are unchanged before
+  and after, confirming no item was added or removed by the comment pass.
+  Roughly 4 300 LOC read/edited across the three files, against the
+  ~6 000 LOC cap. **`cartalith-urban` is closed for Ruling BK.** Next step:
+  batch 33 opens `cartalith-civ` (~70 000 LOC, 1 076/1 023/162 at census
+  time when last measured) — per `OUTSTANDING_WORK.md`'s routed order, file
+  order by risk: golden/fixture files first (largest gap density, lowest
+  risk of a wrong comment since the golden values pin exact behaviour),
+  then the crate's core logic files, then its own `tests.rs` trees last
+  (largest raw gap count but most mechanical — mostly `// Protects:` lines
+  once the core is understood). Batches 6 through 32 all still need an
+  independent verifier before any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
