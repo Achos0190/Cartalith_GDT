@@ -72,27 +72,39 @@ pub fn gunzip_bytes(data: &[u8]) -> std::io::Result<Vec<u8>> {
     Ok(out)
 }
 
+/// Unit tests for [`gzip_bytes`]/[`gunzip_bytes`]'s round trip and header.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Deterministic pseudo-random bytes for the round-trip tests below --
+    /// varied enough (not a run of one value) that a broken encoder or
+    /// decoder cannot pass by accident.
     fn sample(n: usize) -> Vec<u8> {
         (0..n).map(|i| ((i * 37 + (i >> 4) * 11) & 255) as u8).collect()
     }
 
     #[test]
     fn round_trips_a_kilobyte_of_structured_bytes() {
+        // Protects: the basic gzip/gunzip round trip for a realistic tile
+        // size -- the property the module doc calls "the only thing any
+        // consumer of the archive depends on".
         let src = sample(1024);
         assert_eq!(gunzip_bytes(&gzip_bytes(&src)).expect("valid gzip"), src);
     }
 
     #[test]
     fn round_trips_the_empty_slice() {
+        // Protects: the empty-input edge case doesn't panic or produce a
+        // malformed stream.
         assert_eq!(gunzip_bytes(&gzip_bytes(&[])).expect("valid gzip"), Vec::<u8>::new());
     }
 
     #[test]
     fn writes_a_real_gzip_header() {
+        // Protects: the magic bytes and deflate method are a genuine gzip
+        // header, and MTIME is pinned to 0 rather than the wall clock --
+        // the reproducibility guarantee the module doc names.
         let z = gzip_bytes(&sample(64));
         assert_eq!(&z[..3], &[0x1f, 0x8b, 0x08], "magic + deflate method");
         assert_eq!(&z[4..8], &[0, 0, 0, 0], "MTIME pinned to 0, so exports are reproducible");
@@ -100,20 +112,24 @@ mod tests {
 
     #[test]
     fn the_same_input_gzips_to_the_same_bytes_twice() {
+        // Protects: byte-for-byte reproducibility across two calls -- an
+        // export re-run with unchanged input must not perturb a frozen zip.
         let src = sample(4096);
         assert_eq!(gzip_bytes(&src), gzip_bytes(&src));
     }
 
     #[test]
     fn compressible_input_actually_shrinks() {
-        // A packed height tile is highly structured; if this ever stopped
-        // shrinking, the caller's `.gz` suffix would be a lie.
+        // Protects: a packed height tile is highly structured; if this ever
+        // stopped shrinking, the caller's `.gz` suffix would be a lie.
         let src: Vec<u8> = (0..4096).map(|i| (i % 7) as u8).collect();
         assert!(gzip_bytes(&src).len() < src.len() / 4);
     }
 
     #[test]
     fn refuses_bytes_that_are_not_gzip() {
+        // Protects: `gunzip_bytes` returns `Err` on a non-gzip stream
+        // rather than panicking or silently returning garbage bytes.
         assert!(gunzip_bytes(b"not a gzip stream at all").is_err());
     }
 }

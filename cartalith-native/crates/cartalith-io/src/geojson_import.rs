@@ -392,10 +392,16 @@ fn object_member(o: &Map<String, Value>, key: &str) -> Option<Map<String, Value>
 /// [`GeoJsonError::Feature`] once the caller knows the feature's index.
 type Fault = (String, String);
 
+/// Builds one [`Fault`] from its path and reason, so every refusal site
+/// below reads as a short literal rather than a tuple construction.
 fn fault(at: impl Into<String>, reason: impl Into<String>) -> Fault {
     (at.into(), reason.into())
 }
 
+/// Reads one array element of `raw["features"]` into a [`GeoFeature`]: its
+/// `type` must say `"Feature"`, its `geometry` must be present and non-null
+/// (see [`NO_GEOMETRY_MISSING`]/[`NO_GEOMETRY_NULL`]), and its `properties`
+/// is read or left `None`.
 fn read_feature(v: &Value, elevation_ignored: &mut bool) -> Result<GeoFeature, Fault> {
     let Value::Object(obj) = v else {
         return Err(fault(".", "a features array may only hold Feature objects"));
@@ -430,10 +436,17 @@ fn read_feature(v: &Value, elevation_ignored: &mut bool) -> Result<GeoFeature, F
     Ok(GeoFeature { geometry, properties })
 }
 
+// RFC 7946's own section number, quoted in the message rather than just cited
+// in this comment, so the refusal is self-contained for a reader with no
+// access to this source.
 const NO_GEOMETRY_MISSING: &str = "is missing. RFC 7946 allows a Feature to carry a null geometry, but a feature with no shape cannot be placed on a map, so this importer refuses it rather than dropping it silently";
 const NO_GEOMETRY_NULL: &str = "is null. RFC 7946 allows that, but a feature with no shape cannot be placed on a map, so this importer refuses it rather than dropping it silently";
 const NO_GEOMETRY_COLLECTION: &str = "is \"GeometryCollection\", which this importer does not read; split it into one Feature per geometry";
 
+/// Reads one `geometry` object's `type`/`coordinates` pair into a
+/// [`Geometry`] variant, dispatching to the shape-specific reader below --
+/// the one place every geometry kind (except the refused
+/// `GeometryCollection`) is named.
 fn read_geometry(v: &Value, elev: &mut bool) -> Result<Geometry, Fault> {
     let Value::Object(g) = v else {
         return Err(fault("geometry", format!("is {}, not an object", compact(v))));
@@ -479,6 +492,8 @@ fn read_geometry(v: &Value, elev: &mut bool) -> Result<Geometry, Fault> {
     })
 }
 
+/// `v` as a JSON array, or a fault naming what it actually was -- the shared
+/// guard every coordinate-array reader below starts with.
 fn as_array<'a>(v: &'a Value, at: &str) -> Result<&'a Vec<Value>, Fault> {
     match v {
         Value::Array(a) => Ok(a),
@@ -486,6 +501,8 @@ fn as_array<'a>(v: &'a Value, at: &str) -> Result<&'a Vec<Value>, Fault> {
     }
 }
 
+/// Every element of a coordinate array read as a [`Position`], each fault
+/// carrying its own index within the array.
 fn read_positions(v: &Value, at: &str, elev: &mut bool) -> Result<Vec<Position>, Fault> {
     as_array(v, at)?
         .iter()
@@ -494,6 +511,8 @@ fn read_positions(v: &Value, at: &str, elev: &mut bool) -> Result<Vec<Position>,
         .collect()
 }
 
+/// A `LineString`'s coordinate array, refused if it holds fewer than two
+/// positions (RFC 7946 §3.1.4).
 fn read_line(v: &Value, at: &str, elev: &mut bool) -> Result<Vec<Position>, Fault> {
     let pts = read_positions(v, at, elev)?;
     if pts.len() < 2 {
@@ -544,6 +563,10 @@ fn read_rings(v: &Value, at: &str, elev: &mut bool) -> Result<Vec<Ring>, Fault> 
     Ok(out)
 }
 
+/// One position array: at least two finite numbers (east, north). A third
+/// (elevation) component is accepted and dropped, setting `*elev = true`
+/// ([`GeoJsonDoc::elevation_ignored`]) rather than being carried or ignored
+/// silently.
 fn read_position(v: &Value, at: &str, elev: &mut bool) -> Result<Position, Fault> {
     let a = as_array(v, at)?;
     if a.len() < 2 {
@@ -575,6 +598,8 @@ fn read_position(v: &Value, at: &str, elev: &mut bool) -> Result<Position, Fault
     Ok(out)
 }
 
+/// Unit tests for [`parse_geojson`]'s refusal rules and for [`grid_xy`] --
+/// see the module doc's own table for the rule each test is named for.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,16 +610,23 @@ mod tests {
         format!(r#"{{"type":"FeatureCollection","features":[{features}]}}"#)
     }
 
+    /// A well-formed `Feature` wrapping the caller's raw `geometry` JSON,
+    /// with empty `properties` -- the building block `doc` wraps.
     fn feat(geometry: &str) -> String {
         format!(r#"{{"type":"Feature","geometry":{geometry},"properties":{{}}}}"#)
     }
 
+    /// Parses `text`, asserts it is refused, and returns the error's display
+    /// string for the caller to inspect.
     fn refusal(text: &str) -> String {
         parse_geojson(text).expect_err("must be refused").to_string()
     }
 
     #[test]
     fn the_minimal_document_this_suite_perturbs_is_itself_accepted() {
+        // Protects: the baseline every other test in this file perturbs is
+        // itself valid -- a Point feature parses, and a document with no
+        // CRS note is Unstated, not assumed to be kilometres.
         let ok = parse_geojson(&doc(&feat(r#"{"type":"Point","coordinates":[1,2]}"#))).unwrap();
         assert_eq!(ok.features.len(), 1);
         assert_eq!(ok.features[0].geometry, Geometry::Point([1.0, 2.0]));
@@ -604,6 +636,8 @@ mod tests {
 
     #[test]
     fn text_that_is_not_json_is_refused_with_a_position() {
+        // Protects: malformed JSON is refused with serde_json's own
+        // line/column diagnostic, not a generic message.
         let e = refusal("{not json");
         assert!(e.starts_with("not JSON:"), "{e}");
         assert!(e.contains("line 1"), "serde_json names where: {e}");
@@ -611,6 +645,8 @@ mod tests {
 
     #[test]
     fn json_that_is_not_an_object_cannot_be_a_collection() {
+        // Protects: every non-object JSON top level (array, number, string,
+        // null, bool) is `NotAnObject`, not a panic or a partial parse.
         for text in ["[1,2,3]", "42", r#""a string""#, "null", "true"] {
             assert_eq!(parse_geojson(text), Err(GeoJsonError::NotAnObject), "{text}");
         }
@@ -618,6 +654,9 @@ mod tests {
 
     #[test]
     fn valid_json_that_is_not_geojson_says_so_rather_than_returning_nothing() {
+        // Protects: a well-formed but unrelated JSON document is refused
+        // with a specific reason (no "type" member), never silently
+        // returning an empty/nothing result.
         // The case the backlog row names explicitly: a file that parses cleanly
         // and is simply a different kind of document.
         let e = refusal(r#"{"name":"config","values":[1,2,3]}"#);
@@ -630,6 +669,10 @@ mod tests {
 
     #[test]
     fn a_bare_feature_or_geometry_is_refused_and_named() {
+        // Protects: a lone Feature or a lone geometry at the top level
+        // (instead of a FeatureCollection wrapping one) is refused and the
+        // message names what it actually found; a non-string `type` reads
+        // the same as no `type` at all.
         let e = refusal(r#"{"type":"Feature","geometry":null}"#);
         assert!(e.contains("is a \"Feature\", not a \"FeatureCollection\""), "{e}");
         let e = refusal(r#"{"type":"Point","coordinates":[1,2]}"#);
@@ -643,6 +686,9 @@ mod tests {
 
     #[test]
     fn a_collection_with_no_features_array_is_refused() {
+        // Protects: a missing or non-array `features` is refused (RFC 7946
+        // §3.3 requires the member even when empty), while a genuinely
+        // empty array is accepted and its bounds is None, not a zeroed box.
         assert_eq!(
             parse_geojson(r#"{"type":"FeatureCollection"}"#),
             Err(GeoJsonError::NoFeatureArray)
@@ -659,6 +705,8 @@ mod tests {
 
     #[test]
     fn a_declared_coordinate_reference_system_is_refused_rather_than_read_as_kilometres() {
+        // Protects: a top-level `crs` member of ANY kind is refused, naming
+        // what it said, rather than silently reprojecting or misreading it.
         // The whole point of the module: degrees silently read as kilometres
         // would put an entire world inside one cell.
         let text = r#"{"type":"FeatureCollection","crs":{"type":"name","properties":{"name":"urn:ogc:def:crs:OGC:1.3:CRS84"}},"features":[]}"#;
@@ -670,6 +718,9 @@ mod tests {
 
     #[test]
     fn a_document_without_the_note_is_unstated_and_not_assumed_to_be_kilometres() {
+        // Protects: only the exact CRS_NOTE string yields PlanarKm; every
+        // other shape of `properties` (absent, a different note, a
+        // non-string note, null) is Unstated and none of them errors.
         let with = format!(
             r#"{{"type":"FeatureCollection","properties":{{"note":{}}},"features":[]}}"#,
             json_string(CRS_NOTE)
@@ -686,6 +737,9 @@ mod tests {
 
     #[test]
     fn a_feature_with_no_geometry_is_refused_rather_than_dropped() {
+        // Protects: both `"geometry": null` and a missing `geometry` member
+        // are refused with the module's stated reasoning, not silently
+        // dropped from the parsed collection.
         let null_geometry = doc(r#"{"type":"Feature","geometry":null,"properties":{}}"#);
         let no_member = doc(r#"{"type":"Feature","properties":{}}"#);
         for text in [null_geometry, no_member] {
@@ -698,6 +752,9 @@ mod tests {
 
     #[test]
     fn a_features_array_holding_something_other_than_a_feature_is_refused() {
+        // Protects: a non-object, a wrong-typed object, and an object with
+        // no `type` member all refuse inside the features array, each with
+        // its own reason.
         assert!(refusal(&doc("7")).contains("may only hold Feature objects"));
         let e = refusal(&doc(r#"{"type":"Point","coordinates":[1,2]}"#));
         assert!(e.contains("feature 0 at type: is \"Point\", not \"Feature\""), "{e}");
@@ -707,6 +764,8 @@ mod tests {
 
     #[test]
     fn a_geometry_collection_is_refused_by_name_with_a_way_forward() {
+        // Protects: `GeometryCollection` is refused by name with the
+        // suggested workaround, not treated as an unknown-type error.
         let e = refusal(&doc(&feat(r#"{"type":"GeometryCollection","geometries":[]}"#)));
         assert!(e.contains("\"GeometryCollection\""), "{e}");
         assert!(e.contains("one Feature per geometry"), "{e}");
@@ -714,6 +773,8 @@ mod tests {
 
     #[test]
     fn an_unknown_geometry_type_lists_the_ones_that_would_work() {
+        // Protects: an unrecognised geometry `type` names itself and lists
+        // the accepted kinds, so the message is actionable.
         let e = refusal(&doc(&feat(r#"{"type":"Sphere","coordinates":[1,2]}"#)));
         assert!(e.contains("is \"Sphere\", which is not a GeoJSON geometry"), "{e}");
         assert!(e.contains("MultiPolygon"), "{e}");
@@ -721,6 +782,9 @@ mod tests {
 
     #[test]
     fn a_coordinate_that_is_not_a_number_is_refused_at_its_own_index() {
+        // Protects: a string, null, or object in coordinate position is
+        // refused at its exact index/nesting -- a string "12" reads as text,
+        // not silently coerced to the number 12.
         let e = refusal(&doc(&feat(r#"{"type":"Point","coordinates":["12",3]}"#)));
         assert_eq!(e, "feature 0 at geometry.coordinates[0]: is \"12\", not a number");
         let e = refusal(&doc(&feat(r#"{"type":"Point","coordinates":[12,null]}"#)));
@@ -731,6 +795,8 @@ mod tests {
 
     #[test]
     fn a_short_position_is_refused_with_its_length() {
+        // Protects: a position with fewer than two numbers is refused and
+        // names how many it actually had, including zero and a non-array.
         let e = refusal(&doc(&feat(r#"{"type":"Point","coordinates":[12]}"#)));
         assert!(e.contains("a position needs at least an east and a north value, found 1"), "{e}");
         let e = refusal(&doc(&feat(r#"{"type":"Point","coordinates":[]}"#)));
@@ -741,6 +807,9 @@ mod tests {
 
     #[test]
     fn a_non_finite_coordinate_is_refused_rather_than_carried_as_infinity() {
+        // Protects: a coordinate literal with no finite f64 representation
+        // never reaches a caller as an infinite position -- refused, here
+        // by serde_json itself before this module's own guard runs.
         // `1e400` is legal JSON syntax and has no finite f64. Whatever the JSON
         // layer makes of it, it must not reach a caller as a position.
         // Measured, not assumed: serde_json refuses the literal outright, so
@@ -753,6 +822,9 @@ mod tests {
 
     #[test]
     fn a_one_point_linestring_is_refused() {
+        // Protects: a LineString of fewer than two positions is refused
+        // (RFC 7946 §3.1.4), including one nested inside a MultiLineString,
+        // named by its part index.
         let e = refusal(&doc(&feat(r#"{"type":"LineString","coordinates":[[0,0]]}"#)));
         assert!(e.contains("a LineString needs two or more positions, found 1"), "{e}");
         // And inside a MultiLineString, named by part.
@@ -764,6 +836,8 @@ mod tests {
 
     #[test]
     fn a_ring_that_does_not_close_is_refused_and_both_ends_are_quoted() {
+        // Protects: a ring whose first and last positions differ is refused
+        // with both endpoints quoted in the message.
         let e =
             refusal(&doc(&feat(r#"{"type":"Polygon","coordinates":[[[0,0],[4,0],[4,4],[0,4]]]}"#)));
         assert_eq!(
@@ -774,6 +848,8 @@ mod tests {
 
     #[test]
     fn a_ring_of_fewer_than_four_positions_is_refused() {
+        // Protects: a ring shorter than four positions is refused and cites
+        // RFC 7946 §3.1.6.
         let e = refusal(&doc(&feat(r#"{"type":"Polygon","coordinates":[[[0,0],[4,0],[0,0]]]}"#)));
         assert!(e.contains("needs four or more positions, found 3"), "{e}");
         assert!(e.contains("3.1.6"), "the message cites the rule: {e}");
@@ -781,6 +857,9 @@ mod tests {
 
     #[test]
     fn a_polygon_with_no_rings_is_refused_wherever_it_appears() {
+        // Protects: a Polygon with zero rings is refused both standalone
+        // and nested inside a MultiPolygon -- distinguished from the
+        // legal-empty-multi-part case the next test covers.
         let e = refusal(&doc(&feat(r#"{"type":"Polygon","coordinates":[]}"#)));
         assert!(e.contains("needs an exterior ring"), "{e}");
         // The case the backlog row names: a MultiPolygon holding one ringless
@@ -794,6 +873,9 @@ mod tests {
 
     #[test]
     fn an_empty_multi_part_geometry_is_accepted_because_rfc_7946_permits_one() {
+        // Protects: an empty coordinate array at the top of a
+        // Multi{Point,LineString,Polygon} is accepted as zero parts, for
+        // all three multi-part kinds, and its bounds is None.
         // The distinction the previous test depends on: `[]` at the top of a
         // MultiPolygon is "no polygons", which is legal; `[[]]` is "a polygon
         // with no exterior ring", which is not.
@@ -811,6 +893,9 @@ mod tests {
 
     #[test]
     fn a_polygon_with_a_hole_keeps_the_rings_in_the_order_they_were_written() {
+        // Protects: a Polygon's exterior ring stays first and its hole
+        // second, in document order -- ring order carries meaning
+        // (exterior vs. hole) that must survive the parse.
         let text = doc(&feat(
             r#"{"type":"Polygon","coordinates":[[[0,0],[9,0],[9,9],[0,9],[0,0]],[[3,3],[6,3],[6,6],[3,3]]]}"#,
         ));
@@ -824,6 +909,9 @@ mod tests {
 
     #[test]
     fn a_third_coordinate_is_dropped_and_the_document_says_that_it_was() {
+        // Protects: a third (elevation) coordinate component is dropped
+        // from the position but sets `elevation_ignored`, so the loss is
+        // visible rather than silent.
         let d = parse_geojson(&doc(&feat(r#"{"type":"Point","coordinates":[1,2,850]}"#))).unwrap();
         assert_eq!(d.features[0].geometry, Geometry::Point([1.0, 2.0]));
         assert!(d.elevation_ignored, "dropping a value silently is what this flag exists to stop");
@@ -831,6 +919,9 @@ mod tests {
 
     #[test]
     fn properties_absent_and_properties_null_are_both_absent_and_neither_is_empty() {
+        // Protects: a missing `properties` and an explicit `null` both read
+        // as `None` (not an empty map), while a non-object/non-null value
+        // is a refused defect rather than silent absence.
         for props in ["", r#","properties":null"#] {
             let text = doc(&format!(
                 r#"{{"type":"Feature","geometry":{{"type":"Point","coordinates":[0,0]}}{props}}}"#
@@ -849,6 +940,9 @@ mod tests {
 
     #[test]
     fn a_repeated_property_key_keeps_the_last_one_as_json_parse_does() {
+        // Protects: a duplicate property key resolves to the last value in
+        // document order, matching serde_json's (and JS's) own parse
+        // behaviour rather than the first or an error.
         let text = doc(
             r#"{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{"name":"first","name":"second"}}"#,
         );
@@ -858,6 +952,9 @@ mod tests {
 
     #[test]
     fn a_fault_names_the_feature_it_is_in_not_just_the_first() {
+        // Protects: a fault in the third feature reports index 2, not the
+        // index of the first feature encountered -- the walk does not stop
+        // reporting once past feature 0.
         let good = feat(r#"{"type":"Point","coordinates":[0,0]}"#);
         let bad = feat(r#"{"type":"Point","coordinates":[0,"north"]}"#);
         let text = doc(&format!("{good},{good},{bad}"));
@@ -869,6 +966,9 @@ mod tests {
 
     #[test]
     fn a_deeply_nested_document_errors_rather_than_exhausting_the_stack() {
+        // Protects: a pathologically nested document errors cleanly instead
+        // of overflowing the stack -- the reason this module trusts
+        // serde_json's own recursion limit instead of hand-rolling a parser.
         // A hostile file, and the reason this module does not hand-roll a JSON
         // reader: serde_json carries its own recursion limit.
         let text = format!("{}{}", "[".repeat(20_000), "]".repeat(20_000));
@@ -877,6 +977,8 @@ mod tests {
 
     #[test]
     fn bounds_spans_every_geometry_in_the_document() {
+        // Protects: `GeoJsonDoc::bounds` covers every feature's geometry,
+        // not just the first, across mixed geometry kinds.
         let a = feat(r#"{"type":"Point","coordinates":[10,-4]}"#);
         let b = feat(r#"{"type":"LineString","coordinates":[[0,0],[-3,50]]}"#);
         let c = feat(r#"{"type":"MultiPolygon","coordinates":[[[[1,1],[2,1],[2,2],[1,1]]]]}"#);
@@ -886,6 +988,9 @@ mod tests {
 
     #[test]
     fn grid_xy_refuses_a_scale_it_cannot_divide_by() {
+        // Protects: `grid_xy` returns `None` rather than a division-by-zero
+        // `inf`/`NaN` for a non-positive or non-finite `cell_km`, and for a
+        // non-finite input position.
         for bad in [0.0, -50.0, f64::NAN, f64::INFINITY] {
             assert_eq!(grid_xy(100.0, 300.0, 9, bad), None, "cell_km {bad}");
         }
@@ -895,6 +1000,10 @@ mod tests {
 
     #[test]
     fn grid_xy_inverts_geo_xy_within_the_rounding_it_cannot_undo() {
+        // Protects: `grid_xy` is `geo_xy`'s inverse up to its documented
+        // rounding bound (0.0005 / cell_km), across several cell sizes and
+        // grid positions -- the bound is computed from the arithmetic, not
+        // read off one run.
         // `geo_xy` rounds kilometres to three decimals, so the bound is
         // 0.0005 / cell_km cells -- asserted against that arithmetic, not
         // against a number read off a run.
@@ -912,6 +1021,8 @@ mod tests {
 
     #[test]
     fn every_geometry_kind_reports_its_own_type_name() {
+        // Protects: `Geometry::type_name` returns the exact GeoJSON string
+        // for every one of the six accepted kinds.
         let cases = [
             (r#"{"type":"Point","coordinates":[0,0]}"#, "Point"),
             (r#"{"type":"MultiPoint","coordinates":[[0,0]]}"#, "MultiPoint"),

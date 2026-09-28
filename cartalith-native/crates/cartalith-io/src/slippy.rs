@@ -62,6 +62,7 @@ impl TileScheme {
         }
     }
 
+    /// The lowercase scheme name [`TileScheme::parse`] accepts back.
     pub fn as_str(self) -> &'static str {
         match self {
             TileScheme::Xyz => "xyz",
@@ -256,17 +257,24 @@ map.fitBounds(bounds);
     )
 }
 
+/// Unit tests for the three tile-addressing schemes, the zoom ladder and the
+/// two written manifests/preview page.
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn xyz_is_z_x_y_with_the_row_counted_from_the_top() {
+        // Protects: XYZ's path is bare {z}/{col}/{row}, row 0 at the top --
+        // no flip, unlike TMS below.
         assert_eq!(tile_path(TileScheme::Xyz, ChunkId::new(3, 5, 1), 1, "png"), "3/5/1.png");
     }
 
     #[test]
     fn tms_flips_the_row_about_the_level() {
+        // Protects: TMS's row is counted from the bottom (y = 2^z - 1 -
+        // row), including the degenerate level-0 case where a tile is its
+        // own flip.
         // Level 3 is 8 rows: row 1 from the top is row 6 from the bottom.
         assert_eq!(tile_path(TileScheme::Tms, ChunkId::new(3, 5, 1), 1, "png"), "3/5/6.png");
         // The root is its own flip.
@@ -275,6 +283,8 @@ mod tests {
 
     #[test]
     fn tms_flip_is_an_involution_over_a_whole_level() {
+        // Protects: the row flip holds across every row of a whole level,
+        // not just the one sample above.
         for row in 0..8 {
             let flipped = 7 - row;
             let p = tile_path(TileScheme::Tms, ChunkId::new(3, 0, row), 1, "png");
@@ -284,11 +294,16 @@ mod tests {
 
     #[test]
     fn wmts_puts_the_row_before_the_column() {
+        // Protects: WMTS's own axis order (set/matrix/TileRow/TileCol) is
+        // different from XYZ/TMS's col-then-row, and there is no flip.
         assert_eq!(tile_path(TileScheme::Wmts, ChunkId::new(3, 5, 1), 1, "png"), "cartalith/3/1/5.png");
     }
 
     #[test]
     fn retina_is_a_suffix_for_xyz_and_tms_and_a_set_for_wmts() {
+        // Protects: the `@Nx` retina convention lands as a filename suffix
+        // for XYZ/TMS but as a different TileMatrixSet name for WMTS,
+        // matching the module doc's "WMTS has no suffix convention" note.
         let id = ChunkId::new(2, 1, 3);
         assert_eq!(tile_path(TileScheme::Xyz, id, 2, "png"), "2/1/3@2x.png");
         assert_eq!(tile_path(TileScheme::Tms, id, 3, "png"), "2/1/0@3x.png");
@@ -298,11 +313,17 @@ mod tests {
     #[test]
     #[should_panic(expected = "outside level")]
     fn an_address_outside_its_level_is_refused_not_wrapped() {
+        // Protects: `tile_path`'s documented panic -- a row past the level
+        // (level 1 has 2 rows; row 2 is outside it) must not silently
+        // underflow into a real-looking TMS address.
         tile_path(TileScheme::Tms, ChunkId::new(1, 0, 2), 1, "png");
     }
 
     #[test]
     fn scheme_names_parse_case_insensitively_and_reject_the_rest() {
+        // Protects: `TileScheme::parse` is case-insensitive for the three
+        // real names and returns `None` -- not a default -- for anything
+        // else, including the empty string.
         assert_eq!(TileScheme::parse("XYZ"), Some(TileScheme::Xyz));
         assert_eq!(TileScheme::parse("tms"), Some(TileScheme::Tms));
         assert_eq!(TileScheme::parse("Wmts"), Some(TileScheme::Wmts));
@@ -312,6 +333,9 @@ mod tests {
 
     #[test]
     fn the_ladder_doubles_the_grid_and_halves_the_ground_per_pixel() {
+        // Protects: `zoom_ladder`'s core maths -- tile count doubles per
+        // level (2^z x 2^z), aspect stays 2:1 at every level, and
+        // km_per_px halves per level, anchored to a hand-computed z0 value.
         // 257 x 129 cells, 514 km wide: 2 km/cell, inset 256 x 128 cells.
         let l = zoom_ladder(257, 129, 514.0, 256, 3);
         assert_eq!(l.len(), 4);
@@ -330,6 +354,10 @@ mod tests {
 
     #[test]
     fn the_xyz_manifest_is_tilejson_with_no_invented_bounds() {
+        // Protects: an XYZ manifest is valid TileJSON 3.0.0 with the right
+        // scheme/maxzoom/ladder/scales, and -- the module doc's own point
+        // -- carries no `bounds`/`center`/`crs`, which TileJSON would
+        // otherwise default to the Web-Mercator globe this world is not.
         let l = zoom_ladder(65, 65, 640.0, 256, 2);
         let j: serde_json::Value = serde_json::from_str(&slippy_manifest(TileScheme::Xyz, &l, &[1, 2], "w", "v")).unwrap();
         assert_eq!(j["tilejson"], "3.0.0");
@@ -358,6 +386,11 @@ mod tests {
 
     #[test]
     fn the_preview_page_asks_for_exactly_the_paths_the_archive_holds() {
+        // Protects: the preview page's JS template, filled the way
+        // Leaflet's `getTileUrl` fills it, matches `tile_path`'s own
+        // address for every scheme/level/tile/scale combination -- so the
+        // browser asks for exactly the paths the archive contains. The
+        // positive control confirms the comparison can actually fail.
         for scheme in [TileScheme::Xyz, TileScheme::Tms, TileScheme::Wmts] {
             for z in 0..3 {
                 let n = 1u32 << z;
@@ -377,6 +410,11 @@ mod tests {
 
     #[test]
     fn the_preview_page_carries_the_ladder_it_was_written_for() {
+        // Protects: the emitted HTML carries the ladder's own tile size and
+        // max zoom, the right URL template for the scheme, `L.CRS.Simple`,
+        // retina toggled from `scales`, and the world name HTML-escaped
+        // (not injected as markup) -- and that escaping/retina difference
+        // are both exercised, not just asserted present once.
         // 2:1 world, 256 px long edge: 256 x 128 tiles, levels 0..=3.
         let l = zoom_ladder(257, 129, 514.0, 256, 3);
         let html = leaflet_preview_html(TileScheme::Tms, &l, &[1, 2], "A <b> & \"c\"");
@@ -391,6 +429,9 @@ mod tests {
 
     #[test]
     fn the_wmts_manifest_does_not_claim_tilejson_conformance() {
+        // Protects: a WMTS manifest omits `tilejson` (it is not one) and
+        // carries `resourceURL` plus a `tileMatrixSets` entry per scale
+        // instead.
         let l = zoom_ladder(65, 65, 640.0, 256, 1);
         let j: serde_json::Value = serde_json::from_str(&slippy_manifest(TileScheme::Wmts, &l, &[1, 2], "w", "v")).unwrap();
         assert!(j.get("tilejson").is_none());

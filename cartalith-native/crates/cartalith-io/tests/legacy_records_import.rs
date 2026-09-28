@@ -21,6 +21,7 @@ use std::io::Read;
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/");
 
+/// Opens a fixture zip under `FIXTURES` through the full reader under test.
 fn open(name: &str) -> cartalith_io::ProjectData {
     let f = std::fs::File::open(format!("{FIXTURES}{name}")).expect("fixture opens");
     cartalith_io::read_project(f).expect("reads")
@@ -38,6 +39,10 @@ fn raw_state(name: &str) -> serde_json::Value {
 
 #[test]
 fn an_export_with_no_records_reads_exactly_as_before() {
+    // Protects: a real export with empty places/labels/mapIcons and null
+    // civ imports as truly empty -- no fabricated settlement, faction or
+    // warning -- so Ruling AU's importer changes nothing for the
+    // repository's original, record-free fixture.
     let raw = raw_state("real_export_seed24601.zip");
     assert_eq!(raw["places"], serde_json::json!([]), "fixture shape: this is the empty case");
     assert_eq!(raw["labels"], serde_json::json!([]));
@@ -55,6 +60,9 @@ fn an_export_with_no_records_reads_exactly_as_before() {
 
 #[test]
 fn a_tree_archive_has_no_legacy_block() {
+    // Protects: a real tree-layout project archive reads `Layout::Tree`
+    // with `legacy: None` -- the legacy block is a flat-layout-only
+    // concept, not populated (even empty) for a tree save.
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../cartalith-godot/tests/fixtures/project_pre_substrate_2026-09-24.zip");
     let data = cartalith_io::read_project(std::fs::File::open(path).unwrap()).unwrap();
     assert_eq!(data.layout, cartalith_io::Layout::Tree);
@@ -63,6 +71,11 @@ fn a_tree_archive_has_no_legacy_block() {
 
 #[test]
 fn the_records_export_imports_every_settlement_label_and_icon() {
+    // Protects: against a REAL v2.11-produced export (not a synthetic
+    // fixture), every settlement/faction/territory/label/icon field reads
+    // correctly, ids are unique, the Settlement tool's own literal drop
+    // record matches the reference function's literals, and the unmapped
+    // report names what did not import.
     const NAME: &str = "legacy_records_seed24601.zip";
     let raw = raw_state(NAME);
     let data = open(NAME);

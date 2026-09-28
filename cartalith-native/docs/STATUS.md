@@ -1393,6 +1393,40 @@ re-checked against the tree rather than copied from the commit message.
   all still need an independent verifier before any can be called done
   rather than pending.
 
+- **Ruling BK annotation pass, batch 24 (`cartalith-io` closed) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical; io 182/0/0).** Comments only, zero
+  behaviour change. Covered `save.rs`, `legacy.rs`, `lib.rs`, `gzip.rs`,
+  `slippy.rs`, `tiles.rs`, `atlas.rs`, `geojson_import.rs` and all five
+  remaining `tests/*.rs` files (`golden_parity_real_export.rs`,
+  `golden_parity_save_writer.rs`, `golden_parity_tiles.rs`,
+  `legacy_records_import.rs`, `reference_geojson_round_trip.rs`). Added
+  `// Protects:` lines to all 182 tests (all were unprotected or partially
+  protected at batch start; 0 remain), doc comments for every previously
+  undocumented `fn`/`struct`/`enum` and the eight files' `mod tests` blocks,
+  and inline provenance comments on the remaining numeric consts (`save.rs`'s
+  `CHUNK_VALUES`). Left undocumented by design: seven `Display::fmt`/
+  `From::from` trait-impl bodies across `lib.rs`/`save.rs`/
+  `geojson_import.rs` — boilerplate the preflight table's trait-impl carve-out
+  covers ("a script cannot tell obvious from not"). Fixed two comments found
+  wrong while reading: none — every comment read matched its code as written.
+  Crate-wide `cartalith-io` `census_v2.py`: items_undoc 177→7,
+  tests_unprotected 131→0, consts_undoc 6→3 (loc 8938→9475).
+  **`cartalith-io` closed in full** (0 tests_unprotected; the remaining 7
+  items_undoc and 3 consts_undoc are the trait-impl boilerplate and
+  string-literal false-positive matches named above, judged obvious rather
+  than gaps). **Comments only**: `cargo test -p cartalith-io`,
+  `CARGO_TARGET_DIR` at `.../scratchpad/bk24`, run repeatedly through the
+  batch — **182 passed / 0 failed / 0 ignored** across six result lines every
+  time, matching batch 23's closing baseline exactly. `git diff` after every
+  file confirmed comment-only changes: the four `-` lines across the whole
+  batch are pre-existing test comments reworded in place to carry the new
+  `// Protects:` prefix (their content preserved, not dropped), not a code
+  removal; no added line carries new code; no code fences. **Next step:
+  batch 25** moves to `cartalith-vault` per `OUTSTANDING_WORK.md`'s BK row,
+  then `cartalith-urban`, `cartalith-civ`, `cartalith-godot` and the GDScript
+  shell. Batches 6 through 24 all still need an independent verifier before
+  any can be called done rather than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**

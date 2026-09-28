@@ -102,6 +102,8 @@ pub struct LegacyFaction {
     pub ag_tech: Option<String>,
 }
 
+/// One hand-placed label (§11.1) — the reference's `state.labels` entry
+/// shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LegacyLabel {
     pub x: f64,
@@ -117,6 +119,8 @@ pub struct LegacyLabel {
     pub fixed_size: bool,
 }
 
+/// One placed map icon (§11.2) — the reference's `state.mapIcons` entry
+/// shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LegacyIcon {
     pub x: f64,
@@ -154,19 +158,33 @@ impl LegacyProject {
     }
 }
 
+/// A JSON value read as a whole number, the way the reference's own
+/// `Number.isInteger` checks would have -- finite, no fractional part, and
+/// inside JS's safe-integer range (`2^53 - 1`), past which a JSON number can
+/// no longer be trusted to be the integer it looks like. `None` for anything
+/// else, including a value that is absent.
 fn int(v: Option<&Value>) -> Option<i64> {
     let f = v?.as_f64()?;
     (f.is_finite() && f.fract() == 0.0 && f.abs() <= 9_007_199_254_740_991.0).then_some(f as i64)
 }
 
+/// A JSON value read as a finite number (position, angle, size). `NaN` and
+/// `Infinity` read as absent rather than as themselves, since every caller
+/// here would otherwise carry a non-finite coordinate into a rendered field.
 fn finite(v: Option<&Value>) -> Option<f64> {
     v?.as_f64().filter(|f| f.is_finite())
 }
 
+/// A JSON value read as an owned string, or `None` for anything else
+/// (including absent) -- the common case every `name`/`font`/`color`/`set`
+/// read below shares.
 fn string(v: Option<&Value>) -> Option<String> {
     v?.as_str().map(str::to_string)
 }
 
+/// `"{n} {one-or-many}"` for a report line, so every count below reads as
+/// prose ("1 settlement", "3 settlements") instead of a bare number needing
+/// its own pluralisation at every call site.
 fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -585,6 +603,7 @@ pub fn read_legacy(state: &Value, gw: usize, gh: usize) -> LegacyProject {
     out
 }
 
+/// Unit tests for [`read_legacy`]'s filtering, substitution and reporting.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -592,6 +611,10 @@ mod tests {
 
     #[test]
     fn a_state_with_no_records_imports_nothing_and_reports_nothing() {
+        // Protects: an archive with no project records at all (missing
+        // `state`, an empty object, or every array present but empty) opens
+        // as `LegacyProject::is_empty() == true` with nothing in `unmapped`
+        // -- no false report for a project that never had anything to say.
         for state in [
             Value::Null,
             json!({}),
@@ -606,6 +629,13 @@ mod tests {
 
     #[test]
     fn settlements_are_filtered_by_kind_and_everything_else_is_reported() {
+        // Protects: §15.1's "do not invent a settlement" rule end to end in
+        // one fixture -- a real settlement tier imports with its tid/x/y/
+        // name/kind/population/faction/coastal all correct; a non-settlement
+        // kind (a point of interest), a kindless place, an off-grid place, a
+        // reference-only class (reclassed to "town" with a fresh id past the
+        // highest carried tid) and an unknown member each produce exactly
+        // one report line and no fabricated settlement.
         let state = json!({
             "places": [
                 {"x": 2, "y": 3, "name": "Kessa", "kind": "city", "faction": 2, "pop": 5400, "traits": ["port"], "tid": 9},
@@ -637,6 +667,9 @@ mod tests {
 
     #[test]
     fn a_missing_value_is_reported_not_silently_defaulted() {
+        // Protects: a settlement with no `pop`/`faction` still imports (as
+        // population 0, faction Unclaimed) but each substitution gets its
+        // own report line -- the default is visible, not silent.
         let state = json!({"places": [{"x": 1, "y": 1, "kind": "town"}]});
         let got = read_legacy(&state, 4, 4);
         assert_eq!(got.settlements[0].population, 0);
@@ -647,6 +680,12 @@ mod tests {
 
     #[test]
     fn territory_is_decoded_from_sparse_pairs_and_colours_are_reported() {
+        // Protects: sparse `[cell, faction, …]` pairs decode into a dense
+        // grid correctly, an out-of-grid cell and an out-of-roster faction
+        // are each skipped and reported rather than corrupting the grid, a
+        // faction column shorter than the roster reads as absent past its
+        // end (not a guessed value), and the §15.3/AU-uncovered members
+        // (ways, an unknown `state.civ` key) each get their own report line.
         let state = json!({"civ": {
             "territory": [0, 1, 5, 2, 99, 1, 3, 9],
             "factionNames": ["Unclaimed", "Aurelia", "Kessa"],

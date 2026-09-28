@@ -35,6 +35,11 @@ fn real_state() -> serde_json::Value {
 
 #[test]
 fn rewriting_a_real_export_preserves_every_value() {
+    // Protects: re-writing a real export through `write_save` and reading
+    // it back matches the INDEPENDENT captured values (not a self-check
+    // against the original round trip) -- catches a header, length-prefix,
+    // byte-order or entry-name divergence the reference's own reader would
+    // choke on.
     let original = cartalith_io::load_save(std::fs::File::open(ZIP).unwrap()).expect("fixture should load");
 
     let mut buf = Vec::new();
@@ -79,6 +84,11 @@ fn rewriting_a_real_export_preserves_every_value() {
 
 #[test]
 fn the_unmodelled_half_of_state_survives_the_trip() {
+    // Protects: every `state` key this crate does not model (places,
+    // labels, mapIcons, viz, the whole erosion/glacial/coastal/planet
+    // block) survives a write/read round trip byte-equal, and only the
+    // three keys `write_save` owns are re-derived -- a writer that dropped
+    // the unmodelled half would lose a save's whole civ/UI payload.
     let original = cartalith_io::load_save(std::fs::File::open(ZIP).unwrap()).expect("fixture should load");
     let state = real_state();
 

@@ -221,22 +221,32 @@ pub struct AtlasStore {
 }
 
 impl AtlasStore {
+    /// Opens (without creating) a store rooted at `root` — a caller-supplied
+    /// directory (`user://atlas` from Godot's side; a temp directory in
+    /// tests below).
     pub fn new(root: impl Into<PathBuf>) -> Self {
         AtlasStore { root: root.into() }
     }
 
+    /// The store's root directory, as given to [`Self::new`].
     pub fn root(&self) -> &Path {
         &self.root
     }
 
+    /// One world's own subtree of the store — `<root>/<sanitised worldKey>`.
     fn world_dir(&self, wk: &str) -> PathBuf {
         self.root.join(sanitise(wk))
     }
 
+    /// The directory holding every chunk at one pyramid level, for one world
+    /// and tile size — `<world_dir>/ts<ts>/LOD<z>`, the struct doc's layout.
     fn chunk_dir(&self, wk: &str, ts: usize, z: u32) -> PathBuf {
         self.world_dir(wk).join(format!("ts{ts}")).join(format!("LOD{z}"))
     }
 
+    /// A chunk's path with no extension — `.bin`/`.png` are appended by the
+    /// callers that need one of the pair, since a chunk is always the two
+    /// files together.
     fn chunk_stem(&self, wk: &str, ts: usize, c: ChunkId) -> PathBuf {
         self.chunk_dir(wk, ts, c.z).join(format!("{}_{}_{}", c.z, c.col, c.row))
     }
@@ -655,16 +665,24 @@ pub fn build_atlas_manifest(
     }
 }
 
+/// Unit tests for the world-key hash, the store's layout on disk, and the
+/// eviction policy (`Preferences > Memory > Atlas cache > Size cap`).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A fresh, empty test root under the OS temp dir, named by test and
+    /// process id so parallel test runs cannot collide. Cleared of any
+    /// leftover from a previous crashed run before returning.
     fn tmp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("cartalith-atlas-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         d
     }
 
+    /// A sample chunk with `n` deterministic, non-uniform height values (so
+    /// a round-trip bug cannot pass by matching a constant) and a 4-byte PNG
+    /// stub.
     fn chunk(z: u32, col: u32, row: u32, n: usize) -> AtlasChunk {
         let data: Vec<f32> = (0..n).map(|i| (i as f32 * 0.017) % 1.0).collect();
         encode_chunk(ChunkId::new(z, col, row), &data, n, 1, Some(vec![0x89, b'P', b'N', b'G']))
@@ -672,6 +690,9 @@ mod tests {
 
     #[test]
     fn fnv1a_matches_the_reference_on_known_strings() {
+        // Protects: fnv1a32_hex produces the exact hex digits the
+        // reference's own hash loop would over these strings -- pinned so
+        // the atlas key namespace never silently drifts from the reference.
         // Extracted from the reference's own `worldKey` hash loop, run over
         // three fixed strings so the hash is pinned without reproducing the
         // reference's `state` object.
@@ -682,13 +703,17 @@ mod tests {
 
     #[test]
     fn a_changed_signature_changes_the_key() {
-        // The invalidation property the whole atlas rests on.
+        // Protects: the invalidation property the whole atlas rests on.
         assert_ne!(world_key("[512,0.42]"), world_key("[512,0.5]"));
         assert_eq!(world_key("[512,0.42]"), world_key("[512,0.42]"));
     }
 
     #[test]
     fn key_and_path_spellings_match_the_reference() {
+        // Protects: the exact string forms of `atlas_key_str`,
+        // `atlas_meta_key` and `atlas_chunk_file`, including the `.bin.gz`
+        // and `.png` extension cases -- consumed byte-for-byte by both this
+        // port and the reference's own archive layout.
         assert_eq!(atlas_key_str("abc", 1024, ChunkId::new(3, 5, 7)), "abc:1024:3:5:7");
         assert_eq!(atlas_meta_key("abc"), "meta:abc");
         assert_eq!(atlas_chunk_file(ChunkId::new(0, 0, 0), "bin"), "World/LOD0/0_0_0.bin");
@@ -698,6 +723,10 @@ mod tests {
 
     #[test]
     fn a_chunk_round_trips_through_the_store() {
+        // Protects: `put`/`get` round-trip a chunk's bytes exactly, a
+        // different chunk id at the same world key reads as absent, and a
+        // different world key reads nothing at all -- the key namespace
+        // actually separates worlds.
         let root = tmp("roundtrip");
         let s = AtlasStore::new(&root);
         let c = chunk(2, 1, 3, 64);
@@ -713,6 +742,10 @@ mod tests {
 
     #[test]
     fn keys_for_world_recovers_every_address_from_the_layout() {
+        // Protects: `keys_for_world` reconstructs every baked chunk's
+        // address purely from the directory layout, across multiple pyramid
+        // levels and tile sizes coexisting in the same world, and returns
+        // empty (not an error) for a world never baked.
         let root = tmp("keys");
         let s = AtlasStore::new(&root);
         let want: BTreeSet<AtlasKey> = [(0, 0, 0), (1, 0, 1), (1, 1, 1), (3, 7, 2)]
@@ -734,6 +767,9 @@ mod tests {
 
     #[test]
     fn clear_world_removes_only_that_world() {
+        // Protects: `clear_world` removes exactly one world's chunks,
+        // leaves a sibling world untouched, and clearing an absent world is
+        // not an error.
         let root = tmp("clear");
         let s = AtlasStore::new(&root);
         s.put("a", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -748,6 +784,9 @@ mod tests {
 
     #[test]
     fn a_key_cannot_escape_the_atlas_root() {
+        // Protects: `sanitise`'s directory-traversal guard -- a world key
+        // carrying `../../evil` is neutralised to a plain `evil` directory
+        // inside the root, not a write outside it.
         let root = tmp("escape");
         let s = AtlasStore::new(&root);
         s.put("../../evil", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -758,6 +797,9 @@ mod tests {
 
     #[test]
     fn rg16_round_trips_to_within_one_lsb() {
+        // Protects: `encode_chunk`/`decode_chunk`'s 16-bit round trip loses
+        // at most one LSB (1/65535), across a spread of values, not just an
+        // isolated sample.
         let data: Vec<f32> = (0..256).map(|i| i as f32 / 255.0).collect();
         let c = encode_chunk(ChunkId::new(1, 0, 0), &data, 16, 16, None);
         assert_eq!(c.rg16.len(), 16 * 16 * 4);
@@ -768,6 +810,9 @@ mod tests {
 
     #[test]
     fn meta_round_trips() {
+        // Protects: `get_meta` returns `None` before any `put_meta`, and
+        // exact equality after one -- the per-world status record survives
+        // its own JSON round trip.
         let root = tmp("meta");
         let s = AtlasStore::new(&root);
         assert!(s.get_meta("w").unwrap().is_none());
@@ -793,6 +838,8 @@ mod tests {
         .unwrap();
     }
 
+    /// An `AtlasKey` at the eviction tests' shared tile size (512), so a
+    /// test can name a chunk by its `(z, col, row)` alone.
     fn key(z: u32, col: u32, row: u32) -> AtlasKey {
         AtlasKey { ts: 512, id: ChunkId::new(z, col, row) }
     }
@@ -804,6 +851,9 @@ mod tests {
 
     #[test]
     fn evicting_to_a_budget_below_the_cache_reaches_the_budget() {
+        // Protects: `evict_to` frees enough chunks to land at or under the
+        // requested budget, reports the bytes it actually freed, and a
+        // second call once already under budget frees nothing further.
         let root = tmp("evict-budget");
         let s = AtlasStore::new(&root);
         // One coarse tile (never evictable) and four deep ones.
@@ -823,6 +873,9 @@ mod tests {
 
     #[test]
     fn eviction_takes_the_coldest_chunk_first() {
+        // Protects: `evict_order`'s primary sort -- among chunks at the
+        // same level, the one with the oldest access time is evicted first,
+        // warmer ones survive.
         let root = tmp("evict-cold");
         let s = AtlasStore::new(&root);
         s.put("w1", 512, &chunk(0, 0, 0, 16)).unwrap();
@@ -842,6 +895,9 @@ mod tests {
 
     /// At the same age the deeper level goes first: a coarse tile is cheaper
     /// to keep and more expensive to lose.
+    ///
+    /// Protects: `evict_order`'s tie-break -- when two chunks were accessed
+    /// at the same time, the deeper LOD level is evicted first.
     #[test]
     fn at_equal_age_the_deeper_level_goes_first() {
         let root = tmp("evict-level");
@@ -861,6 +917,10 @@ mod tests {
 
     /// The floor: a budget of zero still leaves every world its coarsest
     /// level, so the atlas reads as coarse rather than as absent.
+    ///
+    /// Protects: the floor holds across multiple worlds simultaneously, and
+    /// a zero budget still leaves total bytes above zero -- a cap is not a
+    /// clear button.
     #[test]
     fn eviction_never_takes_a_world_below_one_level() {
         let root = tmp("evict-floor");
@@ -882,6 +942,9 @@ mod tests {
 
     /// The budget is over the *store*: an old world nobody is looking at is
     /// exactly what a long session accumulates, and is evictable.
+    ///
+    /// Protects: eviction reaches across every world in the store, not just
+    /// the "current" one, and prefers the colder world over the warmer.
     #[test]
     fn the_budget_spans_every_world_in_the_store() {
         let root = tmp("evict-worlds");
@@ -906,6 +969,10 @@ mod tests {
     /// the old "the coarsest level is never evicted" rule every chunk of such
     /// a world was protected and a cap of zero freed nothing: measured at
     /// 0 of 1088 bytes, 16 of 16 chunks kept.
+    ///
+    /// Protects: a single-level world's cap trims down to its warmest one
+    /// chunk (not zero, not all 16), and a second pass at the same budget
+    /// frees nothing further.
     #[test]
     fn a_single_level_world_is_still_reachable_by_the_cap() {
         let root = tmp("evict-single-level");
@@ -934,6 +1001,9 @@ mod tests {
     /// baked at levels 2 and 3 keeps the whole of level 2, not one chunk of
     /// it — which is what separates "protect the overview" from "protect the
     /// last thing standing".
+    ///
+    /// Protects: with two baked levels, a budget of zero keeps the entire
+    /// coarsest level (both its chunks), not one chunk of it.
     #[test]
     fn two_levels_still_protect_the_whole_coarsest_one() {
         let root = tmp("evict-two-levels");
@@ -951,6 +1021,9 @@ mod tests {
 
     #[test]
     fn evicting_an_empty_store_is_not_an_error() {
+        // Protects: `evict_to`/`total_bytes`/`worlds` all handle a store
+        // with nothing baked yet cleanly, without erroring on a missing
+        // root directory.
         let root = tmp("evict-empty");
         let s = AtlasStore::new(&root);
         assert_eq!(s.evict_to(0).unwrap(), 0);
@@ -961,6 +1034,10 @@ mod tests {
     /// `get` is what makes a chunk warm, and it must not need a writable
     /// clock to succeed — the returned bytes are the contract, the touch is
     /// bookkeeping.
+    ///
+    /// Protects: `get` calls `touch_access`, so a chunk's `last_access`
+    /// moves forward after a read -- the property `evict_order`'s
+    /// coldest-first rule depends on.
     #[test]
     fn reading_a_chunk_refreshes_its_access_time() {
         let root = tmp("evict-touch");

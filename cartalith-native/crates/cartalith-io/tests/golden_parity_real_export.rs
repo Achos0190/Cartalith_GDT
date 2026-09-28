@@ -40,6 +40,9 @@ use std::fs::File;
 
 #[test]
 fn load_save_matches_real_html_app_export() {
+    // Protects: MVP criterion 7 -- `load_save` parses a REAL HTML-app export
+    // byte-for-byte against an independent capture taken from the JS
+    // sandbox's own typed arrays, not against a re-read of the same zip.
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/real_export_seed24601.zip");
     let file = File::open(path).expect("real export fixture should open");
     let save = cartalith_io::load_save(file).expect("load_save should parse a real HTML-app export");

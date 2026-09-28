@@ -297,6 +297,11 @@ pub fn manifest_json(m: &TileManifest, indent: Option<usize>) -> String {
     s
 }
 
+/// One manifest field's value, typed loosely enough to cover every shape
+/// [`manifest_json`] writes (a plain number, a string, a bool, an absent
+/// `bounds`, a nested [`CoarseBounds`] object, or the `tiles` array) without
+/// going through `serde_json::Value` -- see the module doc's "why the JSON
+/// is written by hand".
 enum Val<'a> {
     Num(f64),
     Str(&'a str),
@@ -306,11 +311,17 @@ enum Val<'a> {
     Tiles(&'a [TileRecord]),
 }
 
+/// A minimal hand-rolled JSON writer that reproduces `JSON.stringify`'s own
+/// formatting (compact when `indent` is `None`, else newline + `indent *
+/// depth` spaces per level) -- the two forms `exportRegionTiles` needs and
+/// nothing `serde_json`'s pretty-printer matches (module doc).
 struct Writer {
     indent: Option<usize>,
 }
 
 impl Writer {
+    /// Writes a newline and `indent * depth` spaces, or nothing in compact
+    /// mode.
     fn pad(&self, out: &mut String, depth: usize) {
         if let Some(n) = self.indent {
             out.push('\n');
@@ -319,6 +330,8 @@ impl Writer {
             }
         }
     }
+    /// `": "` when pretty-printing, `":"` compact -- `JSON.stringify`'s own
+    /// spacing rule.
     fn colon(&self) -> &'static str {
         if self.indent.is_some() {
             ": "
@@ -327,6 +340,8 @@ impl Writer {
         }
     }
 
+    /// Writes one `{ "key": value, … }` object, recursing into [`Self::value`]
+    /// for each field and re-indenting one level deeper.
     fn object(&self, out: &mut String, depth: usize, fields: &[(&str, Val)]) {
         out.push('{');
         for (i, (k, v)) in fields.iter().enumerate() {
@@ -344,6 +359,9 @@ impl Writer {
         out.push('}');
     }
 
+    /// Writes one [`Val`] -- a scalar directly, `bounds`/`coarse` as a
+    /// nested object, and `tiles` as an array of per-tile objects (each with
+    /// its own optional `coarse`).
     fn value(&self, out: &mut String, depth: usize, v: &Val) {
         match v {
             Val::Num(n) => out.push_str(&js_num(*n)),
@@ -382,12 +400,17 @@ impl Writer {
     }
 }
 
+/// Unit tests for the 16-bit height codec and the schema-2 tile manifest
+/// (`build_tile_manifest`/`manifest_json`).
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn packing_uses_four_bytes_per_cell_with_a_constant_blue_and_alpha() {
+        // Protects: pack_height16's fixed layout -- 4 bytes/cell, blue
+        // always 0, alpha always 255 -- which unpack_height16 relies on by
+        // ignoring both channels.
         let p = pack_height16(&[0.5, 0.25], 2);
         assert_eq!(p.len(), 8);
         assert_eq!(p[2], 0);
@@ -398,6 +421,8 @@ mod tests {
 
     #[test]
     fn zero_and_one_pack_to_the_ends_of_the_range() {
+        // Protects: the unit range's endpoints hit the 16-bit endpoints
+        // (0 and 65535) exactly, not off by a rounding ulp.
         let p = pack_height16(&[0.0, 1.0], 2);
         assert_eq!(&p[0..2], &[0, 0]);
         assert_eq!(&p[4..6], &[255, 255]);
@@ -405,6 +430,9 @@ mod tests {
 
     #[test]
     fn values_outside_the_unit_range_are_clamped_not_wrapped() {
+        // Protects: `v<0?0:v>1?1:v`'s clamp, not a modulo wrap -- an
+        // out-of-range height must saturate, not alias to a plausible
+        // in-range value.
         let p = pack_height16(&[-0.25, 1.75], 2);
         assert_eq!(&p[0..2], &[0, 0]);
         assert_eq!(&p[4..6], &[255, 255]);
@@ -412,12 +440,18 @@ mod tests {
 
     #[test]
     fn nan_packs_to_zero_the_way_js_coerces_it() {
+        // Protects: NaN's ported coercion path -- clamp passes it through,
+        // Math.round's NaN survives, and the final ToInt32 gives 0, matching
+        // what the reference itself would have written.
         let p = pack_height16(&[f32::NAN], 1);
         assert_eq!(&p[0..4], &[0, 0, 0, 255]);
     }
 
     #[test]
     fn the_round_trip_is_accurate_to_the_16_bit_step() {
+        // Protects: pack then unpack recovers every source value to within
+        // one 16-bit quantisation step, across a spread of values, not just
+        // the endpoints above.
         let src: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
         let back = unpack_height16(&pack_height16(&src, src.len()), src.len());
         for (a, b) in src.iter().zip(back.iter()) {
@@ -427,6 +461,8 @@ mod tests {
 
     #[test]
     fn unpack_reads_the_high_byte_first() {
+        // Protects: byte order -- R is the high byte, G the low, so a swap
+        // of the two channels would silently divide every height by ~256.
         // R=1, G=0 is 256/65535, not 1/65535.
         let v = unpack_height16(&[1, 0, 0, 255], 1);
         assert!((v[0] as f64 - 256.0 / 65535.0).abs() < 1e-9);
@@ -435,21 +471,31 @@ mod tests {
     #[test]
     #[should_panic(expected = "pack_height16 asked for")]
     fn packing_past_the_end_of_the_field_is_rejected() {
+        // Protects: `pack_height16`'s documented panic when `n` exceeds the
+        // field length, rather than an out-of-bounds read.
         pack_height16(&[0.0], 4);
     }
 
     #[test]
     #[should_panic(expected = "unpack_height16 needs")]
     fn unpacking_past_the_end_of_the_buffer_is_rejected() {
+        // Protects: `unpack_height16`'s documented panic when the buffer is
+        // shorter than `n * 4` bytes, rather than an out-of-bounds read.
         unpack_height16(&[0, 0, 0, 255], 4);
     }
 
+    /// A `TileManifestOpts` with everything else at its `Default` (zero /
+    /// empty / false, which are the fallback-triggering values).
     fn opts() -> TileManifestOpts {
         TileManifestOpts { version: "TESTVER".into(), ..Default::default() }
     }
 
     #[test]
     fn an_empty_bag_yields_the_references_own_defaults() {
+        // Protects: every `TileManifestOpts` fallback -- cols/rows -> 1,
+        // tile_size -> 1024, tile_w/tile_h -> tile_size, height_encoding ->
+        // "none", compression -> "store" -- fires together from an all-zero
+        // bag, matching the reference's `o.x || fallback` spelling.
         let m = build_tile_manifest(&opts(), None);
         assert_eq!(m.schema, 2);
         assert_eq!((m.cols, m.rows), (1, 1));
@@ -465,18 +511,27 @@ mod tests {
 
     #[test]
     fn a_zero_column_count_means_one_column_like_the_js_or_fallback() {
+        // Protects: an explicit `cols: 0`/`rows: 0` still falls back to 1,
+        // the same JS `||` behaviour as the all-defaults case, not a
+        // zero-column manifest.
         let m = build_tile_manifest(&TileManifestOpts { cols: 0, rows: 0, ..opts() }, None);
         assert_eq!((m.cols, m.rows), (1, 1));
     }
 
     #[test]
     fn tile_dims_fall_back_to_the_tile_size_when_absent() {
+        // Protects: `tile_w`/`tile_h` of 0 fall back to the (non-default)
+        // `tile_size`, not to the 1024 default -- the fallback chain is
+        // per-field, not "any zero anywhere means the global default".
         let m = build_tile_manifest(&TileManifestOpts { tile_size: 256, ..opts() }, None);
         assert_eq!((m.tile_w, m.tile_h), (256, 256));
     }
 
     #[test]
     fn tiles_are_emitted_row_major() {
+        // Protects: tile order is row-major (all of row 0, then row 1, …),
+        // matching the reference's nested loop order -- a consumer reading
+        // `tiles` sequentially depends on this.
         let m = build_tile_manifest(&TileManifestOpts { cols: 3, rows: 2, ..opts() }, None);
         let order: Vec<(usize, usize)> = m.tiles.iter().map(|t| (t.row, t.col)).collect();
         assert_eq!(order, vec![(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]);
@@ -484,6 +539,10 @@ mod tests {
 
     #[test]
     fn coarse_bounds_appear_only_when_a_region_was_given_and_overlap_by_one_cell() {
+        // Protects: per-tile `coarse` bounds are computed at `step_x`/
+        // `step_y` spacing and each tile overlaps its neighbour by exactly
+        // one shared coarse column/row (the seam the refinement grid needs
+        // to stitch tiles without a gap).
         let b = CoarseBounds { x: 4.0, y: 6.0, w: 30.0, h: 24.0 };
         let m = build_tile_manifest(&TileManifestOpts { cols: 2, rows: 3, bounds: Some(b), ..opts() }, None);
         let c0 = m.tiles[0].coarse.expect("tile 0 coarse");
@@ -497,6 +556,8 @@ mod tests {
 
     #[test]
     fn file_for_overrides_the_default_naming() {
+        // Protects: a caller-supplied `file_for` closure names every tile
+        // instead of the default `tiles/tile_{row}_{col}.png` pattern.
         let m = build_tile_manifest(&TileManifestOpts { cols: 2, rows: 1, ..opts() },
                                     Some(&|r, c| format!("tiles/refined_{r}_{c}.png")));
         assert_eq!(m.tiles[1].file, "tiles/refined_0_1.png");
@@ -504,6 +565,9 @@ mod tests {
 
     #[test]
     fn integral_numbers_render_without_a_decimal_point() {
+        // Protects: `js_num`'s whole point -- an integral f64 (including 0
+        // and a negative) renders as `Number.prototype.toString` would,
+        // never as serde's `16.0`.
         assert_eq!(js_num(16.0), "16");
         assert_eq!(js_num(0.0), "0");
         assert_eq!(js_num(-3.0), "-3");
@@ -511,18 +575,28 @@ mod tests {
 
     #[test]
     fn fractional_numbers_keep_their_shortest_round_trip_form() {
+        // Protects: a non-integral value (including one with a long
+        // repeating decimal, the common `bounds.w / cols` case) falls
+        // through to Rust's own `Display`, which matches JS's shortest
+        // round-trip form for these values.
         assert_eq!(js_num(0.5), "0.5");
         assert_eq!(js_num(30.0 / 7.0), "4.285714285714286");
     }
 
     #[test]
     fn non_finite_numbers_render_as_null_like_json_stringify() {
+        // Protects: NaN and Infinity both render as `null`, matching
+        // `JSON.stringify`'s own coercion, rather than serde's error or a
+        // literal `NaN`/`Infinity` token that is not valid JSON.
         assert_eq!(js_num(f64::NAN), "null");
         assert_eq!(js_num(f64::INFINITY), "null");
     }
 
     #[test]
     fn the_compact_form_has_no_whitespace_at_all() {
+        // Protects: `indent: None` produces genuinely compact JSON (no
+        // spaces, no newlines), and the field order matches the reference's
+        // own `buildTileManifest` object literal.
         let m = build_tile_manifest(&opts(), None);
         let j = manifest_json(&m, None);
         assert!(!j.contains(' '), "{j}");
@@ -532,6 +606,9 @@ mod tests {
 
     #[test]
     fn the_pretty_form_indents_by_the_requested_width() {
+        // Protects: `Some(2)` produces `JSON.stringify(m, null, 2)`'s exact
+        // shape -- a newline plus 2-space indent per level, closing brace on
+        // its own line.
         let m = build_tile_manifest(&opts(), None);
         let j = manifest_json(&m, Some(2));
         assert!(j.starts_with("{\n  \"schema\": 2,\n"), "{j}");
@@ -540,6 +617,10 @@ mod tests {
 
     #[test]
     fn a_string_with_a_quote_is_escaped() {
+        // Protects: `json_string`'s quote and backslash escaping runs on
+        // every string field the manifest writer touches (here, `version`),
+        // not just in isolation -- an unescaped quote would corrupt the
+        // whole manifest.
         let m = build_tile_manifest(&TileManifestOpts { version: "a\"b\\c".into(), ..Default::default() }, None);
         assert!(manifest_json(&m, None).contains(r#""version":"a\"b\\c""#));
     }

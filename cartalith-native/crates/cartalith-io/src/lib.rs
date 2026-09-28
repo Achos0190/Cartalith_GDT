@@ -128,6 +128,10 @@ pub struct SaveFields {
     pub strahler_order: Vec<u8>,
 }
 
+/// One save's terrain half, as read by [`load_save`]/[`load_from_archive`]
+/// from either layout — [`SaveParams`]'s handful of modelled fields, the six
+/// raw grids in [`SaveFields`], and everything else the file carried in
+/// `state`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaveData {
     pub params: SaveParams,
@@ -150,6 +154,8 @@ pub struct SaveData {
     pub state: serde_json::Value,
 }
 
+/// Everything that can stop [`load_save`] from reading a save — see each
+/// variant for what it means and how it is caught.
 #[derive(Debug)]
 pub enum LoadError {
     Zip(zip::result::ZipError),
@@ -237,6 +243,9 @@ fn read_f32_entries(bytes: &[u8]) -> Vec<f32> {
     bytes.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect()
 }
 
+/// One zip entry's bytes by name, or [`LoadError::MissingEntry`] rather than
+/// the underlying `zip` crate's own error — a missing entry is this format's
+/// one named failure mode (`SAVEFILE_COMPAT.md`), not a generic zip fault.
 fn read_entry(archive: &mut zip::ZipArchive<impl Read + std::io::Seek>, name: &'static str) -> Result<Vec<u8>, LoadError> {
     let mut entry = archive.by_name(name).map_err(|_| LoadError::MissingEntry(name))?;
     let mut buf = Vec::with_capacity(entry.size() as usize);
@@ -244,6 +253,9 @@ fn read_entry(archive: &mut zip::ZipArchive<impl Read + std::io::Seek>, name: &'
     Ok(buf)
 }
 
+/// A number at a dotted path inside `params.json` (`["state", "seaLevel"]`
+/// for `state.seaLevel`), or `None` if any segment is absent or the leaf is
+/// not a number — the caller turns that into [`LoadError::MissingField`].
 fn json_num(v: &serde_json::Value, path: &[&str]) -> Option<f64> {
     let mut cur = v;
     for &seg in path {
@@ -252,6 +264,7 @@ fn json_num(v: &serde_json::Value, path: &[&str]) -> Option<f64> {
     cur.as_f64()
 }
 
+/// [`json_num`]'s boolean counterpart, for `state.world`.
 fn json_bool(v: &serde_json::Value, path: &[&str]) -> Option<bool> {
     let mut cur = v;
     for &seg in path {
@@ -331,6 +344,7 @@ pub(crate) fn load_from_archive(
     })
 }
 
+/// Unit tests for [`load_save`] against a synthetic reference-shaped archive.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,6 +416,8 @@ mod tests {
     /// It must be `None`, not `Some("gen")`: the file did not say.
     #[test]
     fn a_reference_export_records_no_origin() {
+        // Protects: a genuine reference-shaped archive (no `origin` member
+        // at all) reads as `None`, not a fabricated `Some("gen")`.
         let save = load_save(Cursor::new(build_test_zip(4, 4, 7, 800.0, 0.42, false)))
             .expect("load_save should succeed");
         assert_eq!(save.params.origin, None);
@@ -409,6 +425,10 @@ mod tests {
 
     #[test]
     fn load_save_round_trip_region() {
+        // Protects: every one of the six raw fields, plus the four
+        // `SaveParams` scalars, comes back from a STORE-compressed
+        // reference-shaped archive exactly as written -- the basic read
+        // contract for a region (non-`world`) save.
         let gw = 10;
         let gh = 8;
         let zip_bytes = build_test_zip(gw, gh, 12345, 800.0, 0.42, false);
@@ -439,6 +459,9 @@ mod tests {
 
     #[test]
     fn load_save_round_trip_world() {
+        // Protects: the `world: true` case (a full-world save, not a
+        // region) reads its `world`/`mapWidthKm`/`seaLevel` correctly --
+        // the flag that changes what a reopen means downstream.
         let gw = 12;
         let gh = 6;
         let zip_bytes = build_test_zip(gw, gh, 999, 40000.0, 0.35, true);
@@ -451,6 +474,10 @@ mod tests {
 
     #[test]
     fn load_save_missing_entry_errors_cleanly() {
+        // Protects: a truncated archive (params.json but no heightmap.f32)
+        // returns `LoadError::MissingEntry("heightmap.f32")` and does not
+        // panic -- the read path fails loudly rather than reading past a
+        // missing entry into garbage.
         // A zip with only params.json -- no heightmap.f32 -- should
         // return a clear MissingEntry error, not panic.
         let mut buf = Vec::new();
