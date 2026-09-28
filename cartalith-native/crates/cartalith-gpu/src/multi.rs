@@ -166,6 +166,9 @@ const fn device_type_rank(t: wgpu::DeviceType) -> u8 {
     }
 }
 
+/// The identity string [`group_adapters`] keys a physical device by: PCI
+/// vendor:device when either is non-zero, else the bare name (the OpenGL
+/// `(0, 0)` case [`group_adapters`]'s own doc comment explains).
 fn device_key(name: &str, vendor: u32, device_id: u32) -> String {
     if vendor != 0 || device_id != 0 {
         format!("{vendor:04x}:{device_id:04x}:{name}")
@@ -348,6 +351,8 @@ pub fn compute_instance() -> wgpu::Instance {
     wgpu::Instance::new(desc)
 }
 
+/// Every adapter row this machine's `wgpu` instance reports, over
+/// [`COMPUTE_BACKENDS`] only -- the raw input [`group_adapters`] collapses.
 fn adapter_rows() -> Vec<AdapterRow> {
     let instance = compute_instance();
     pollster::block_on(instance.enumerate_adapters(COMPUTE_BACKENDS))
@@ -356,6 +361,9 @@ fn adapter_rows() -> Vec<AdapterRow> {
         .collect()
 }
 
+/// Flatten one live `wgpu::Adapter`'s info and limits into an owned
+/// [`AdapterRow`], the shape [`group_adapters`] and the tests can work with
+/// off-hardware.
 fn describe_adapter(a: &wgpu::Adapter) -> AdapterRow {
     let info = a.get_info();
     let limits = a.limits();
@@ -417,6 +425,10 @@ impl MultiGpuMode {
         }
     }
 
+    /// The inverse of [`Self::as_str`], for reading a stored preference back.
+    /// `None` on anything else, rather than guessing a default -- an unknown
+    /// name is a preference from a newer or foreign build, not a typo to paper
+    /// over.
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
@@ -465,6 +477,9 @@ impl VramFallback {
         }
     }
 
+    /// The inverse of [`Self::as_str`], for reading a stored preference back.
+    /// `None` on anything else, for the same reason as
+    /// [`MultiGpuMode::parse`].
     #[must_use]
     pub fn parse(s: &str) -> Option<Self> {
         match s {
@@ -516,6 +531,9 @@ impl GpuPreferences {
 }
 
 impl Default for GpuPreferences {
+    /// Same as [`Self::new`] -- auto device, single device, no cap -- so
+    /// `GpuPreferences::default()` and the process-global [`PREFS`]'s own
+    /// initial value never disagree.
     fn default() -> Self {
         Self::new()
     }
@@ -865,6 +883,9 @@ impl GpuDeviceSet {
         &self.devices[0]
     }
 
+    /// Every device in the set, in dispatch order -- one for `single_device`,
+    /// or the ordered bands [`split_rows`]/[`set_weights`] act on for
+    /// `split_tiles`.
     #[must_use]
     pub fn devices(&self) -> &[GpuDevice] {
         &self.devices
@@ -980,6 +1001,8 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
 /// successful open would have picked, only whether the call is made at all.
 type DeviceCacheKey = (Vec<String>, MultiGpuMode);
 
+/// Project `prefs` down to [`DeviceCacheKey`] -- see that type's doc comment
+/// for which two fields matter and why the other two are left out.
 fn device_cache_key(prefs: &GpuPreferences) -> DeviceCacheKey {
     (prefs.selected_keys.clone(), prefs.mode)
 }
@@ -1216,6 +1239,9 @@ pub fn set_weights(set: &GpuDeviceSet) -> Vec<f64> {
 // -- RawGpuDevice -> GpuDevice -------------------------------------------------
 
 impl RawGpuDevice {
+    /// Move a freshly-opened [`RawGpuDevice`] into the `Clone`-able
+    /// [`GpuDevice`] shape everything past `open_primary`/
+    /// `init_gpu_device_set_with` actually stores and passes around.
     pub(crate) fn into_shared(self) -> GpuDevice {
         GpuDevice {
             adapter_name: self.adapter_name,
@@ -1230,6 +1256,9 @@ impl RawGpuDevice {
     }
 }
 
+/// Unit tests for enumeration, grouping, splitting and budgeting -- all
+/// off-hardware except `init_gpu_device_set_reuses_a_healthy_device_and_drops_a_lost_one`,
+/// which tries to open a real device and skips itself when none exists.
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -1243,6 +1272,9 @@ pub(crate) mod tests {
     /// secondary failure.
     static READBACK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Take [`READBACK_TEST_LOCK`]; see its doc comment for why every test
+    /// that touches [`READBACK_FAILURES`] must go through this rather than
+    /// the raw lock.
     pub(crate) fn readback_test_guard() -> std::sync::MutexGuard<'static, ()> {
         READBACK_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -1261,6 +1293,7 @@ pub(crate) mod tests {
     /// is never reached from one, so there is no sibling to race.
     #[test]
     fn a_generation_that_opens_nothing_clears_the_last_backend() {
+        // Protects: a CPU-only generation overwriting a stale GPU backend reading.
         *LAST_BACKEND.write().unwrap_or_else(std::sync::PoisonError::into_inner) = Some("vulkan");
         assert_eq!(last_backend(), Some("vulkan"), "the static is readable through the accessor at all");
 
@@ -1268,6 +1301,9 @@ pub(crate) mod tests {
         assert_eq!(last_backend(), None, "a CPU-only generation must not inherit the last GPU one's backend");
     }
 
+    /// Build one [`AdapterRow`] fixture with sane defaults for the fields no
+    /// grouping test varies, so each test spells out only what it is
+    /// actually asserting on.
     fn row(name: &str, vendor: u32, device_id: u32, t: wgpu::DeviceType, b: wgpu::Backend) -> AdapterRow {
         AdapterRow {
             name: name.to_string(),
@@ -1302,6 +1338,9 @@ pub(crate) mod tests {
 
     #[test]
     fn group_adapters_collapses_the_real_machines_six_rows_to_three_devices() {
+        // Protects: six real adapter rows collapsing to three physical
+        // devices, Vulkan winning backend rank, and the software rasterizer
+        // sorting last and flagged.
         let devs = group_adapters(real_machine_rows());
         assert_eq!(devs.len(), 3, "six adapter rows, three physical devices");
 
@@ -1322,6 +1361,8 @@ pub(crate) mod tests {
     /// identical cards, which is the canonical multi-GPU rig.
     #[test]
     fn group_adapters_keeps_two_identical_cards_apart() {
+        // Protects: two identical cards (same name) with distinct PCI device
+        // ids staying two devices, not merging into one.
         let devs = group_adapters(vec![
             row("AMD Radeon RX 7800 XT", 0x1002, 0x747e, wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
             row("AMD Radeon RX 7800 XT", 0x1002, 0x747f, wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
@@ -1334,6 +1375,8 @@ pub(crate) mod tests {
     /// stays separate instead of being attached to an arbitrary one.
     #[test]
     fn group_adapters_leaves_an_ambiguous_zero_id_row_alone() {
+        // Protects: a zero-id row with two same-named candidates staying its
+        // own entry instead of being guessed onto one of them.
         let devs = group_adapters(vec![
             row("Card", 0x1002, 0x0001, wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
             row("Card", 0x1002, 0x0002, wgpu::DeviceType::DiscreteGpu, wgpu::Backend::Vulkan),
@@ -1345,11 +1388,15 @@ pub(crate) mod tests {
 
     #[test]
     fn group_adapters_on_a_headless_machine_returns_nothing() {
+        // Protects: an empty adapter list producing an empty device list,
+        // not a panic -- the headless/CI reality this crate has to run under.
         assert!(group_adapters(Vec::new()).is_empty());
     }
 
     #[test]
     fn split_rows_covers_every_row_exactly_once() {
+        // Protects: split_rows's bands staying contiguous and covering the
+        // whole grid exactly, across a range of heights and weight shapes.
         for h in [1u32, 2, 7, 8, 64, 511, 512, 1024] {
             for weights in [vec![1.0], vec![1.0, 1.0], vec![1.0, 0.2], vec![1.0, 0.2, 0.5]] {
                 let bands = split_rows(h, &weights);
@@ -1366,6 +1413,8 @@ pub(crate) mod tests {
 
     #[test]
     fn split_rows_is_proportional_to_the_weights() {
+        // Protects: the exact row counts split_rows assigns for a concrete
+        // weight ratio, so a change to the cumulative-sum arithmetic is caught.
         let bands = split_rows(1000, &[1.0, 0.2]);
         assert_eq!(bands[0], (0, 833));
         assert_eq!(bands[1], (833, 167));
@@ -1373,6 +1422,8 @@ pub(crate) mod tests {
 
     #[test]
     fn split_rows_gives_a_zero_weight_device_nothing() {
+        // Protects: a zero-weight device receiving an empty band rather than
+        // a share of the grid.
         let bands = split_rows(100, &[1.0, 0.0]);
         assert_eq!(bands[0], (0, 100));
         assert_eq!(bands[1], (100, 0));
@@ -1380,6 +1431,8 @@ pub(crate) mod tests {
 
     #[test]
     fn split_rows_with_no_usable_weight_still_covers_the_grid() {
+        // Protects: all-zero weights still dispatching the whole grid (to the
+        // first device) instead of dispatching nothing anywhere.
         let bands = split_rows(100, &[0.0, 0.0]);
         assert_eq!(bands[0], (0, 100));
         assert_eq!(bands[1], (0, 0));
@@ -1387,6 +1440,9 @@ pub(crate) mod tests {
 
     #[test]
     fn mode_and_fallback_round_trip_through_their_string_names() {
+        // Protects: every MultiGpuMode/VramFallback variant's as_str/parse
+        // round-tripping, and an unknown string parsing to None rather than
+        // a guessed default.
         for m in [MultiGpuMode::SingleDevice, MultiGpuMode::SplitTiles, MultiGpuMode::AlternateFrames] {
             assert_eq!(MultiGpuMode::parse(m.as_str()), Some(m));
         }
@@ -1399,6 +1455,8 @@ pub(crate) mod tests {
 
     #[test]
     fn the_two_unimplemented_choices_say_so() {
+        // Protects: is_implemented() reporting AlternateFrames and
+        // ReduceWorkingRes as unimplemented, and the real choices as implemented.
         assert!(!MultiGpuMode::AlternateFrames.is_implemented());
         assert!(MultiGpuMode::SplitTiles.is_implemented());
         assert!(!VramFallback::ReduceWorkingRes.is_implemented());
@@ -1407,6 +1465,9 @@ pub(crate) mod tests {
 
     #[test]
     fn working_set_estimate_is_ten_f32_grids() {
+        // Protects: gpu_working_set_bytes's 10x f32-grid multiplier, and the
+        // exact byte totals a 1 GB budget must admit at 4096² and refuse at
+        // 8192² (a first pass got this arithmetic wrong; see the comment below).
         assert_eq!(gpu_working_set_bytes(512, 256), 512 * 256 * 4 * 10);
         // The two sizes that bracket a plausible cap, spelled out rather
         // than asserted loosely: 4096² is 640 MB and 8192² is 2.5 GB, so a
@@ -1425,11 +1486,15 @@ pub(crate) mod tests {
 
     #[test]
     fn no_budget_never_denies() {
+        // Protects: a zero (unset) budget always returning Ok, even for the
+        // largest possible need -- "no cap" must mean no cap.
         assert_eq!(vram_verdict_for(u64::MAX, 0, VramFallback::FailWithError), VramVerdict::Ok);
     }
 
     #[test]
     fn budget_denies_only_above_the_cap_and_honours_the_fallback() {
+        // Protects: the equal-fits-under-budget boundary, and each
+        // VramFallback variant's exact verdict once the budget is exceeded.
         let gb = 1024 * 1024 * 1024;
         assert_eq!(vram_verdict_for(gb, gb, VramFallback::FailWithError), VramVerdict::Ok, "equal fits");
         assert_eq!(vram_verdict_for(gb + 1, gb, VramFallback::FailWithError), VramVerdict::Fail);
@@ -1448,6 +1513,9 @@ pub(crate) mod tests {
     /// concurrently-running device test's own record.
     #[test]
     fn a_recorded_readback_failure_bans_that_size_and_larger_only() {
+        // Protects: note_readback_failure's smallest-wins monotone ban --
+        // at-or-above the recorded size is refused, below is still allowed,
+        // and other adapters are untouched.
         let _guard = readback_test_guard();
         const NAME: &str = "cartalith test pseudo-adapter";
         const VENDOR: u32 = 0xdead;
@@ -1481,6 +1549,9 @@ pub(crate) mod tests {
     /// than an error or a panic.
     #[test]
     fn any_readback_failure_tracks_the_record_and_clearing_is_idempotent() {
+        // Protects: any_readback_failure() reflecting whether anything is
+        // recorded, and clear_readback_failures() being a safe no-op on an
+        // already-empty record as well as a real clear on a populated one.
         let _guard = readback_test_guard();
         const NAME: &str = "cartalith clear-path pseudo-adapter";
         const VENDOR: u32 = 0xbeef;
@@ -1517,6 +1588,8 @@ pub(crate) mod tests {
     /// old code assigned, so the default path did not move.
     #[test]
     fn no_environment_value_can_put_opengl_back() {
+        // Protects: COMPUTE_BACKENDS masking out GL after any WGPU_BACKEND
+        // value is intersected in -- the signal-11 fix's whole safety argument.
         assert_eq!(
             wgpu::Backends::all() & COMPUTE_BACKENDS,
             COMPUTE_BACKENDS,
@@ -1549,6 +1622,8 @@ pub(crate) mod tests {
     /// one) without this failing to compile or failing here.
     #[test]
     fn only_a_software_rasterizer_is_barred_from_the_automatic_pick() {
+        // Protects: auto_pick_allows refusing only DeviceType::Cpu, and the
+        // same ban showing up consistently in is_software and device_weight.
         assert!(!auto_pick_allows(wgpu::DeviceType::Cpu), "the whole point: software is never picked for you");
         assert!(auto_pick_allows(wgpu::DeviceType::DiscreteGpu));
         assert!(auto_pick_allows(wgpu::DeviceType::IntegratedGpu));
@@ -1578,6 +1653,8 @@ pub(crate) mod tests {
     /// module: auto device, one device, no cap.
     #[test]
     fn default_preferences_change_nothing() {
+        // Protects: GpuPreferences::default() matching today's pre-module
+        // behaviour exactly -- auto device, one device, no cap.
         let p = GpuPreferences::default();
         assert!(p.selected_keys.is_empty());
         assert_eq!(p.mode, MultiGpuMode::SingleDevice);
@@ -1615,6 +1692,9 @@ pub(crate) mod tests {
 
     #[test]
     fn init_gpu_device_set_reuses_a_healthy_device_and_drops_a_lost_one() {
+        // Protects: Ruling Y's device cache reusing a healthy device (same
+        // `lost` Arc) and never handing back a device once it is lost
+        // (fresh Arc, healthy, on the next call).
         let _guard = DEVICE_CACHE_TEST_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let saved = preferences();
         set_preferences(GpuPreferences::default());

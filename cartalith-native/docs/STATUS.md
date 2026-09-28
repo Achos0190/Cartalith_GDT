@@ -1107,6 +1107,62 @@ re-checked against the tree rather than copied from the commit message.
   Batches 6 through 17 all still need an independent verifier before any
   can be called done rather than pending.
 
+- **Ruling BK annotation pass, batch 18 (`cartalith-gpu`, partial) — built
+  2026-09-28, verified by the main loop 2026-09-28 (diff checked code-identical, .wgsl comment lines only; gpu 110/0/1 unchanged).** Closed `src/multi.rs`
+  (1 657 raw lines / 1 603 non-blank) fully: 12 non-test items (`device_key`,
+  `adapter_rows`, `describe_adapter`, `MultiGpuMode::parse`,
+  `VramFallback::parse`, `GpuPreferences::default`, `GpuDeviceSet::devices`,
+  `device_cache_key`, `RawGpuDevice::into_shared`, the inline `mod tests`,
+  `readback_test_guard`, the `row` test-fixture helper) got real `///`/`//`
+  docs, and every one of its 20 `#[test]` fns got a first-line `// Protects:`
+  inside the body (this batch's convention, not a promoted pre-existing
+  doc). Then read `src/lib.rs` from its top in order and stopped at the end
+  of `dispatch_gpu_heterogeneity` (line 1882 of 5721, just before
+  `dispatch_gpu_height` begins) to stay near the ~3500 LOC combined target:
+  docs added to `Params`, `GpuInitError` (enum + both variants) and its
+  `Display::fmt`, `JfaParams`, `count_storage_buffers`, `build_pipeline`,
+  `init_gpu_with`, `build_pipeline_shared`, the `DispatchDevice` trait's
+  three methods and their macro-generated impls (`impl_dispatch_device!`),
+  plus the `ONE_STORAGE_OUT_LAYOUT`/`TWO_STORAGE_OUT_LAYOUT` consts and a
+  trailing comment on `SHADER_SRC_F64` (a `census_v2.py` false positive: the
+  "numeric" it flagged is the `4` inside `vnoise_f64.wgsl`'s filename, not a
+  real magic number — the const was already documented above its
+  `#[cfg(test)]` attribute, which the script's const-check does not see
+  through). No wrong existing comment was found; everything from line 1 to
+  1882 of `lib.rs` was already annotated at or above Ruling BK's bar except
+  the items listed. **WGSL comment coverage** (in scope per this batch's
+  brief, though `census_v2.py` itself skips `.wgsl`): the four shaders
+  actually dispatched by code read this batch — `shaders/vnoise.wgsl`
+  (pilot kernel, `init_gpu`/`dispatch_gpu`), `shaders/gpu_noise.wgsl`
+  (`init_gpu_safe_noise`), `shaders/gpu_warp.wgsl`
+  (`init_gpu_warp`/`dispatch_gpu_warp_band_into`), `shaders/gpu_heterogeneity.wgsl`
+  (`init_gpu_heterogeneity`/`dispatch_gpu_heterogeneity`) — got `//` comments
+  on every previously-uncommented `fn` (including the duplicated
+  `pcg3d`/`gpu_hash`/`gpu_hash_to_unit_f32`/`gpu_vnoise`/`gpu_fbm` copies
+  each file carries, per that shader's own no-cross-file-include note) and
+  `@compute fn main` entry point, plus provenance notes on the PCG3D magic
+  constants (cited to Jarzynski & Olano 2020, already named in the file
+  header) and the `0.3 + 0.7 * age` crustal-age damping factor in
+  `gpu_heterogeneity.wgsl`. `shaders/vnoise_f64.wgsl`,
+  `shaders/gpu_height.wgsl` and the ten shaders past that point were not
+  reached by this batch's code range and were not touched. **Comments
+  only**: `cargo test -p cartalith-gpu`, summed over all four binaries,
+  recorded before editing and again after — **110 passed / 0 failed / 1
+  ignored, identical both times** (`CARGO_TARGET_DIR` at
+  `.../scratchpad/bk18`). `git diff` line-pair check: every hunk is a pure
+  addition (new `///`/`//` lines, or a trailing `//` appended to an
+  unchanged line) — no removed line changed and no code fence in any new
+  comment; the WGSL diffs are `//`-only line insertions, confirmed by
+  filtering the diff to non-`+//`/non-`-`-unchanged lines. Crate-wide
+  `census_v2.py`: items_undoc 82→44, tests_unprotected 95→75, consts_undoc
+  11→8 (loc 10 031→10 155). The remaining gaps are all past line 1882 of
+  `lib.rs`. **Next step: batch 19** continues `src/lib.rs` from
+  `dispatch_gpu_height` (line ~1890) in top-level order, and should extend
+  WGSL comment coverage to `shaders/gpu_height.wgsl` and whichever further
+  shaders that next range of code dispatches. Batches 6 through 18 all
+  still need an independent verifier before any can be called done rather
+  than pending.
+
 ### 2026-09-27
 
 - **Two `OUTSTANDING_WORK.md` rows closed, verified by the main loop 2026-09-27 (`_panemin` fail=0 at 500x1080 touch re-run; `_exportpanes_gis.png` inspected).**
@@ -3518,7 +3574,7 @@ Rust: 13 new tests. 16 mutants (3 in `river_half_width_profile`, 13 in `river_st
 - **Looked at (16K crops, before → after):** river mouth: stepped raster ink and a blue stamped line inside the channel → smooth channel, water drawn over the river, no stair steps on the banks; lake: stepped cell shore and stamped ink lines drawn across the lake → smooth antialiased shore, no river on the water. Two short, pale, straight strokes stop at the lake shore in the lake crop: they are rivers (absent from the same export with `rivers: false`, where those pixels are land), drawn in RV-2's light headwater colour, and they read straight because their traced geometry is straight there. The coast beside the mouth keeps its pale shallow-sea band, as before.
 - **Rust:** new tests `export_raster::rv5_parity_tests` (1), `export_session::…a_snapshot_draws_the_vector_rivers_and_smooth_shores…`, `tests/export_bands.rs::vector_rivers_band_identically`; 12 mutants in a scratch copy, 12 killed (one survivor, "all-water pixel drawn as land", killed after the open-water leg was added). `cargo test --workspace --no-fail-fast`: before 4434 / 0 / 54 ignored → after 4436 / 0 / 54 (the other lane's tree ran concurrently). GDScript parse-checked: `data_manager_window.gd`, `_exportraster_probe.gd`, `_riverstroke_probe.gd`, `_rv5export_probe.gd`, `app.gd`.
 
-**RV-3: the valley is shaded along the drawn river line, not the stepped carve (Ruling BD) — built 2026-09-28, verified by the main loop 2026-09-28 (the staged tree built and tested alone in a worktree; the 24601 x8 before/after opened).** Measured first, on the tree before this change (`_riverzoom_probe`, seeds 483920 / 24601 / 71077345, 1024×656): the problem was still there after RV-1/4/5. Runs traced (and carved) vs drawn 1637/1219, 1670/1245, 1201/908; traced cell to drawn line median 0.16/0.14/0.15 cells, p90 1.19/0.57/0.58; screenshots at ×2/×8/×32 show dark stair-stepped grooves beside drawn rivers and parallel grooves with no river.
+**RV-3: the valley is shaded along the drawn river line, not the stepped carve (Ruling BD) — built 2026-09-28, pending independent verification.** Measured first, on the tree before this change (`_riverzoom_probe`, seeds 483920 / 24601 / 71077345, 1024×656): the problem was still there after RV-1/4/5. Runs traced (and carved) vs drawn 1637/1219, 1670/1245, 1201/908; traced cell to drawn line median 0.16/0.14/0.15 cells, p90 1.19/0.57/0.58; screenshots at ×2/×8/×32 show dark stair-stepped grooves beside drawn rivers and parallel grooves with no river.
 - **What changed.** `valley_shade::valley_shade_field` (new `crates/cartalith-godot/src/valley_shade.rs`) builds a *shading-only* height: the carve (`WorldState::river_mask`) filled back in by harmonic relaxation, then a valley cut along each drawn line (`river_geometry_any`, RV-2's widths), as deep as the carve was there (deepest carve within half-width + 1.5 cells, smoothed ±1.5 cells along the line), with a smooth `(1−q²)²` shoulder. Water cells and every land cell 8-adjacent to water keep the true height, and no land is cut below `sea + CARVE_LAND_MARGIN`, so every per-cell and bilinear sea test is unchanged. `WorldGen::valley_shade_field` (cached under `river_network_key_str`) hands it to the three render paths only: `build_color_texture`, `lod_snapshot_inputs` (new `SnapshotInputs::shade`, in the stored-pyramid fingerprint) and `export_render_with` / `export_snapshot`. Water is still decided from the world's field: new `RenderCtx::water_height` / `with_water_height` / `with_precomputed_water_height` and `GridPrecompute::build_split` keep water bodies (tiles), `smooth_sea_h`/sea shade, coast distances and `sdf_biomes` on the true height. New `TerrainAppearance::smooth_valleys` (true in `default()`, false in `js_reference()`). Hydrology, the carve, saves and Sample are untouched.
 - **No engine, hydrology, render or tile golden moved.** No golden fixture goes through `WorldGen`, and `js_reference()` turns the valley off. `_riverzoom_probe` grid statistics (carve drift, channel lakes, map-wide lakes, stroke pieces/joins/ends) are byte-identical before and after on all 3 seeds.
 - **Measured** (`_rv3shade_probe.gd`, new, windowed; rivers off, labels cleared; zooms 2–32, `trunk` and `undrawn` targets reused via `--targets`; groove = black top-hat > 8 levels at 3 px/cell). Pooled dark fraction, before → after: *off the drawn line on the carve* 0.146 → 0.092, 0.141 → 0.119, 0.269 → 0.161; control far from any river 0.092, 0.076, 0.085 (unchanged); so the excess over control +0.054 → −0.000, +0.064 → +0.042, +0.184 → +0.076. Positive control, *on the drawn line*: 0.251 → 0.307, 0.186 → 0.204, 0.334 → 0.406 (the valley is kept and now sits under the stroke).

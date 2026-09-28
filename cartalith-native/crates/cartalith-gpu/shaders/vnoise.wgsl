@@ -20,6 +20,10 @@ struct Params {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read_write> out_values: array<f32>;
 
+// Port of cartalith-noise::hash's f64 multiplier constants, carried over
+// verbatim (same magic numbers, same order) -- do not "clean up" or
+// re-derive them, they must match the Rust/JS reference exactly even though
+// this shader's f32 arithmetic diverges from it numerically (see file header).
 fn hash_f32(x: i32, y: i32, s: i32) -> f32 {
     let h0 = f32(x) * 374761393.0 + f32(y) * 668265263.0 + f32(s) * 362437.0;
     let h1 = u32(h0);
@@ -30,13 +34,17 @@ fn hash_f32(x: i32, y: i32, s: i32) -> f32 {
     let h3 = f32(bitcast<i32>(h2_bits)) * 1274126177.0;
     let h4 = u32(h3);
     let h5 = h4 ^ (h4 >> 16u);
-    return f32(h5) / 4294967295.0;
+    return f32(h5) / 4294967295.0; // u32::MAX as f32, normalizes to [0, 1]
 }
 
+// Smoothstep interpolant (3t^2 - 2t^3) shared by both corner-blend axes below.
 fn smoothstep_component(t: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Bilinear blend of the four cell-corner hashes -- must never be reordered
+// relative to cartalith-noise::vnoise's own blend, or GPU/CPU parity tests
+// (crate root, WARP_TOLERANCE etc.) start failing for the wrong reason.
 fn vnoise_f32(x: f32, y: f32, s: i32) -> f32 {
     let xi = floor(x);
     let yi = floor(y);
@@ -53,6 +61,10 @@ fn vnoise_f32(x: f32, y: f32, s: i32) -> f32 {
     return a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v;
 }
 
+// Entry point: one invocation per grid cell (8x8 workgroup, chosen small
+// enough to sit inside every downlevel-default limit -- see lib.rs's
+// dispatch_gpu). Must never write outside params.width x params.height;
+// the bounds check below is what keeps the last partial workgroup safe.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {

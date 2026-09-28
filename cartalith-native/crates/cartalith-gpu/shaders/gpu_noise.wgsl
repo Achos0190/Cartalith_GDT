@@ -28,6 +28,10 @@ struct Params {
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read_write> out_values: array<f32>;
 
+// PCG3D hash (Jarzynski & Olano 2020, see file header for the full
+// citation) -- the magic constants (1664525u/1013904223u, the LCG multiplier
+// pair; the 16u shift) come from that paper, not this project; must mirror
+// cartalith-noise::pcg3d bit-for-bit or the two stop matching.
 fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
     var v = v_in * 1664525u + 1013904223u;
     v.x += v.y * v.z;
@@ -56,10 +60,14 @@ fn gpu_hash_to_unit_f32(h: u32) -> f32 {
     return f32(h) / 4294967295.0; // u32::MAX as f32, matches Rust side exactly
 }
 
+// Smoothstep interpolant, identical role to vnoise.wgsl's own copy.
 fn smoothstep_component(t: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Bilinear blend of the four cell-corner PCG3D hashes -- must mirror
+// cartalith-noise::gpu_vnoise's blend exactly (GPU_SAFE_NOISE_TOLERANCE in
+// lib.rs is the parity gate this feeds).
 fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     let xi = floor(x);
     let yi = floor(y);
@@ -76,6 +84,8 @@ fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     return a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v;
 }
 
+// Entry point: one invocation per grid cell, same 8x8 workgroup and bounds
+// discipline as vnoise.wgsl's main -- must never write past width x height.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {

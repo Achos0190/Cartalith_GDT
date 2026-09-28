@@ -79,7 +79,7 @@ const SHADER_SRC: &str = include_str!("../shaders/vnoise.wgsl");
 /// would leave the next reader believing the shipping crate still compiles
 /// this shader.
 #[cfg(test)]
-const SHADER_SRC_F64: &str = include_str!("../shaders/vnoise_f64.wgsl");
+const SHADER_SRC_F64: &str = include_str!("../shaders/vnoise_f64.wgsl"); // see the doc comment above
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise
 /// primitive (PCG3D-based `gpu_hash`/`gpu_vnoise`), NOT a port of the pilot's
 /// `vnoise.wgsl` above -- see that file's own header comment and
@@ -269,6 +269,9 @@ pub const FLOW_ANY_CELL_TOLERANCE: f64 = 5e-3;
 /// was actually observed.
 pub const F32_TOLERANCE: f64 = 1e-4;
 
+/// Matches `vnoise.wgsl`/`gpu_noise.wgsl`'s uniform `Params` field-for-field
+/// -- the pilot kernel and [`SHADER_SRC_GPU_NOISE`] share this one layout,
+/// which is why [`dispatch_gpu`] works against either context unmodified.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Params {
@@ -432,6 +435,8 @@ struct ResistanceParams {
     _pad1: u32,
 }
 
+/// Matches `gpu_jfa_plates.wgsl`'s `JfaParams` field-for-field -- 16 bytes,
+/// re-uploaded once per jump-flood round with a new `step`.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct JfaParams {
@@ -450,13 +455,23 @@ pub enum ComputePath {
     Cpu,
 }
 
+/// Why a GPU context could not be created. Every caller in this workspace
+/// treats either variant the same way: fall back to the CPU pipeline
+/// (`HARDWARE_ACCELERATION.md` §27) -- this exists for logging/diagnosis,
+/// not for branching behaviour.
 #[derive(Debug)]
 pub enum GpuInitError {
+    /// No adapter matched the request -- see [`multi::pick_primary_adapter_for`]
+    /// for the auto-pick rules that decide this, including the
+    /// never-a-software-fallback guarantee.
     NoAdapter,
+    /// An adapter was found but `request_device` itself failed (a feature or
+    /// limit the adapter advertised but could not actually grant).
     RequestDevice(wgpu::RequestDeviceError),
 }
 
 impl std::fmt::Display for GpuInitError {
+    /// Human-readable form for logs; not used for control flow anywhere.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GpuInitError::NoAdapter => write!(f, "no suitable wgpu adapter found"),
@@ -546,8 +561,13 @@ pub fn init_gpu_height() -> Result<GpuContext, GpuInitError> {
     init_gpu_with(SHADER_SRC_GPU_HEIGHT, wgpu::Features::empty(), "gpu_height (f32, PCG3D fbm/ridged)", &HEIGHT_LAYOUT)
 }
 
+// Bindings 0.. are fixed by convention across every layout in this file:
+// binding 0 is always the uniform Params struct, and storage bindings follow
+// in the order the shader itself declares them.
+/// [`init_gpu`]/[`init_gpu_safe_noise`]'s layout: one uniform, one storage out.
 const ONE_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 2] =
     [uniform_entry(0), storage_entry(1, false)];
+/// [`init_gpu_warp`]'s layout: one uniform, two storage outs (warp_x, warp_y).
 const TWO_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
     [uniform_entry(0), storage_entry(1, false), storage_entry(2, false)];
 const HETEROGENEITY_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] = [
@@ -1092,6 +1112,10 @@ fn request_gpu_device_from(
     })
 }
 
+/// How many `storage` (not `uniform`) bindings `layout_entries` declares --
+/// the number [`request_gpu_device`] needs to raise
+/// `max_storage_buffers_per_shader_stage` for a kernel with more storage
+/// buffers than `downlevel_defaults()`'s conservative baseline allows.
 fn count_storage_buffers(layout_entries: &[wgpu::BindGroupLayoutEntry]) -> u32 {
     layout_entries
         .iter()
@@ -1099,6 +1123,10 @@ fn count_storage_buffers(layout_entries: &[wgpu::BindGroupLayoutEntry]) -> u32 {
         .count() as u32
 }
 
+/// Compile `shader_src` and stand up the single-entry-point pipeline every
+/// [`GpuContext`]-shaped kernel in this crate uses, consuming the raw
+/// device/queue handshake [`request_gpu_device`]/[`request_gpu_device_from`]
+/// already did.
 fn build_pipeline(
     raw: RawGpuDevice,
     shader_src: &str,
@@ -1144,6 +1172,10 @@ fn build_pipeline(
     }
 }
 
+/// The common body every single-pipeline `init_gpu_*` function
+/// (`init_gpu`, `init_gpu_safe_noise`, `init_gpu_warp`, …) delegates to:
+/// open a device sized for `layout_entries`' storage-buffer count, then
+/// build the one pipeline it needs.
 fn init_gpu_with(
     shader_src: &str,
     required_features: wgpu::Features,
@@ -1314,6 +1346,10 @@ pub fn init_gpu_shared_device() -> Result<GpuDevice, GpuInitError> {
     })
 }
 
+/// [`build_pipeline`]'s counterpart for the shared-device path: reassembles
+/// a [`RawGpuDevice`] view from an already-open [`GpuDevice`] (cloning only
+/// the cheap `Arc`-backed handles) and hands it to [`build_pipeline`], so the
+/// pipeline-building code itself is not duplicated between the two paths.
 fn build_pipeline_shared(
     gpu: &GpuDevice,
     shader_src: &str,
@@ -1448,20 +1484,28 @@ pub fn init_gpu_gauss_blur_with(gpu: &GpuDevice) -> GpuBlurContext {
 /// [`GpuDevice`] itself -- they all already carry these fields, this only
 /// names them once.
 trait DispatchDevice {
+    /// The live device a dispatch polls and builds buffers/pipelines on.
     fn wgpu_device(&self) -> &wgpu::Device;
+    /// `(adapter name, vendor id, backend)` -- what a readback failure is
+    /// recorded against ([`multi::note_readback_failure`]).
     fn identity(&self) -> (&str, u32, wgpu::Backend);
+    /// The shared lost flag every context built on this device carries --
+    /// see [`RawGpuDevice`]'s own doc comment for the two things that set it.
     fn lost(&self) -> &std::sync::atomic::AtomicBool;
 }
 
 macro_rules! impl_dispatch_device {
     ($($t:ty),+ $(,)?) => {$(
         impl DispatchDevice for $t {
+            /// See [`DispatchDevice::wgpu_device`].
             fn wgpu_device(&self) -> &wgpu::Device {
                 &self.device
             }
+            /// See [`DispatchDevice::identity`].
             fn identity(&self) -> (&str, u32, wgpu::Backend) {
                 (&self.adapter_name, self.adapter_vendor, self.adapter_backend)
             }
+            /// See [`DispatchDevice::lost`].
             fn lost(&self) -> &std::sync::atomic::AtomicBool {
                 &self.lost
             }

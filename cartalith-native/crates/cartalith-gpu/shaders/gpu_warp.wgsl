@@ -39,6 +39,8 @@ struct WarpParams {
 @group(0) @binding(1) var<storage, read_write> out_warp_x: array<f32>;
 @group(0) @binding(2) var<storage, read_write> out_warp_y: array<f32>;
 
+// PCG3D hash, duplicated verbatim from gpu_noise.wgsl (see that file's own
+// comment for the citation) -- keep the two copies in lockstep.
 fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
     var v = v_in * 1664525u + 1013904223u;
     v.x += v.y * v.z;
@@ -51,19 +53,22 @@ fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
     return v;
 }
 
+// Bit-reinterpret (x, y, s) as u32 and hash; mirrors gpu_noise.wgsl's copy.
 fn gpu_hash(x: i32, y: i32, s: i32) -> u32 {
     let v = pcg3d(vec3<u32>(bitcast<u32>(x), bitcast<u32>(y), bitcast<u32>(s)));
     return v.x;
 }
 
+// u32 -> f32, exact IEEE-754 round-to-nearest on both WGSL and Rust.
 fn gpu_hash_to_unit_f32(h: u32) -> f32 {
-    return f32(h) / 4294967295.0;
+    return f32(h) / 4294967295.0; // u32::MAX as f32
 }
 
 fn smoothstep_component(t: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Bilinear blend of the four cell-corner hashes -- feeds gpu_fbm below.
 fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     let xi = floor(x);
     let yi = floor(y);
@@ -135,6 +140,9 @@ fn gpu_pfbm(x: f32, y: f32, s: i32, p_x_in: i32) -> f32 {
     return sum / nrm;
 }
 
+// Entry point: writes one row-band's worth of (warp_x, warp_y). Must never
+// write past width x band_rows -- the output buffer is sized for exactly
+// that band, not the whole grid (see the split-tiles comment above).
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.band_rows {

@@ -38,6 +38,7 @@ struct HeteroParams {
 @group(0) @binding(3) var<storage, read> in_warp_y: array<f32>;
 @group(0) @binding(4) var<storage, read_write> out_hetero: array<f32>;
 
+// PCG3D hash, duplicated from gpu_noise.wgsl/gpu_warp.wgsl -- keep in lockstep.
 fn pcg3d(v_in: vec3<u32>) -> vec3<u32> {
     var v = v_in * 1664525u + 1013904223u;
     v.x += v.y * v.z;
@@ -55,14 +56,16 @@ fn gpu_hash(x: i32, y: i32, s: i32) -> u32 {
     return v.x;
 }
 
+// u32 -> f32, exact IEEE-754 round-to-nearest on both WGSL and Rust.
 fn gpu_hash_to_unit_f32(h: u32) -> f32 {
-    return f32(h) / 4294967295.0;
+    return f32(h) / 4294967295.0; // u32::MAX as f32
 }
 
 fn smoothstep_component(t: f32) -> f32 {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Bilinear blend of the four cell-corner hashes -- feeds gpu_fbm below.
 fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     let xi = floor(x);
     let yi = floor(y);
@@ -79,6 +82,8 @@ fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     return a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v;
 }
 
+// Mirrors cartalith_noise::gpu_fbm exactly: 6 octaves, amp/freq
+// halving/doubling, `s + o*131` per-octave seed offset.
 fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     var amp: f32 = 0.5;
     var freq: f32 = 1.0;
@@ -131,6 +136,9 @@ fn gpu_pfbm(x: f32, y: f32, s: i32, p_x_in: i32) -> f32 {
     return sum / nrm;
 }
 
+// Entry point: one invocation per grid cell. Writes the PRE-normalize
+// heterogeneity value only -- the max-reduce normalize pass runs on CPU
+// after readback (see file header); must never write past width x height.
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= params.width || gid.y >= params.height {
@@ -147,5 +155,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         raw = gpu_fbm(wx * params.scale, wy * params.scale, params.seed);
     }
     let low_n = raw - 0.5;
+    // 0.3 + 0.7*age: matches compute_heterogeneity's own crustal-age damping
+    // factor exactly -- older crust (age near 1) keeps full heterogeneity,
+    // young crust (age near 0) is damped toward 30% of it.
     out_hetero[idx] = low_n * (0.3 + 0.7 * in_age[idx]);
 }
