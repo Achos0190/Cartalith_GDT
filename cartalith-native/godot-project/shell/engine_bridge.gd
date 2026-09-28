@@ -1022,6 +1022,25 @@ func river_view_mesh(scale: Vector2, offset: Vector2, view: Rect2) -> Dictionary
 		return {}
 	return world_gen.river_view_mesh(scale, offset, view)
 
+## One chunk of that stroke: the runs `first .. first + count` only, in draw
+## order (`WorldGen::river_view_mesh_runs`). `map_overlay.gd`'s layer cache
+## rebuilds the stroke a few chunks a frame after a zoom (2026-09-28, Ruling
+## BP). `{}` mid-generation and against a binary without it -- the overlay then
+## never asks, because `river_run_count()` below answers -1 there and it
+## falls back to the whole call.
+func river_view_mesh_runs(scale: Vector2, offset: Vector2, view: Rect2, first: int, count: int) -> Dictionary:
+	if generating or not _has("river_view_mesh_runs"):
+		return {}
+	return world_gen.river_view_mesh_runs(scale, offset, view, first, count)
+
+## How many runs `river_view_mesh_runs()` chunks over (`WorldGen::river_run_count`).
+## `-1` mid-generation or against a binary without the ranged call, so the
+## overlay knows to draw the stroke whole instead.
+func river_run_count() -> int:
+	if generating or not _has("river_run_count") or not _has("river_view_mesh_runs"):
+		return -1
+	return world_gen.river_run_count()
+
 ## The map with every river at full coverage in its styled colour, built by
 ## the last `color_texture()` (`WorldGen::river_color_texture`). `null`
 ## mid-generation, for a loaded save, and before any world.

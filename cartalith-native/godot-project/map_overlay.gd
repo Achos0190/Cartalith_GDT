@@ -1161,20 +1161,19 @@ var _show_settlements := true
 var _show_roads := true
 var _show_sea_routes := true
 ## The engine bridge the base view's river stroke is asked of
-## (`_draw_rivers`), set by `viewport_host.gd::refresh()`. The Rivers switch
+## (`_build_river_chunk`), set by `viewport_host.gd::refresh()`. The Rivers switch
 ## lives in the engine (`set_rivers_in_map`), which answers an empty mesh
 ## while it is off.
 var _river_source: Node = null
-## The river colour texture the last `_draw_rivers` drew with, held for as
-## long as that draw is on screen. `canvas_item_add_triangle_array` records
-## only the texture's RID; the only other owner, `WorldGen::river_color_tex`,
-## drops it on the next `build_color_texture`, the texture is freed, and the
-## renderer draws a freed texture RID as its default WHITE texture -- the
-## white rivers of `OUTSTANDING_WORK.md` (a regression from `2cf0143`),
-## measured by `_rivstyle_probe.gd` section S. Must never be cleared while the
-## canvas item still holds a command that samples it: it is replaced only by
-## the next draw, which clears those commands first.
-var _river_tex: Texture2D = null
+## The river colour texture each river chunk set was built with is held in
+## that set's `_layers["rivers"]["tex"][slot]` for as long as the set stands.
+## `canvas_item_add_triangle_array` records only the texture's RID; the only
+## other owner, `WorldGen::river_color_tex`, drops it on the next
+## `build_color_texture`, the texture is freed, and the renderer draws a freed
+## texture RID as its default WHITE texture -- the white rivers of
+## `OUTSTANDING_WORK.md` (a regression from `2cf0143`), measured by
+## `_rivstyle_probe.gd` section S. Must never be dropped while a chunk item
+## still holds a command that samples it: `_clear_slot` clears the items first.
 ## Pushed by `viewport_host.gd::_set_lod_active()`: above the deep-zoom switch
 ## every tile rasterizes its own rivers, and a stroke drawn here too would sit
 ## on top of them.
@@ -1243,10 +1242,13 @@ func set_camera_zoom(z: float) -> void:
 	## Godot does not re-run a `CanvasItem`'s draw commands just because an
 	## ancestor's `scale` changed; it only rescales the cached ones, which is
 	## exactly the bug `PIN_SCALE_REF_PX`'s own doc comment fixes -- without
-	## this `queue_redraw()`, `_civ_zoom_k()` would compute the right radius
-	## but never actually get drawn with it until some unrelated redraw
-	## happened to fire.
-	queue_redraw()
+	## this redraw, `_civ_zoom_k()` would compute the right radius but never
+	## actually get drawn with it until some unrelated redraw happened to fire.
+	## `view_changed()`, not `queue_redraw()`, since the layer cache
+	## (2026-09-28): a zoom is a camera move, so the cached layers rebuild for
+	## it in the background while the old set keeps showing, instead of every
+	## layer re-running inside the notch's own frame (see `_draw()`).
+	view_changed()
 
 ## The reference's own `_civZoomK()` (reference line 14980-14983), applied to
 ## `sc` so a settlement pin holds a roughly constant ON-SCREEN size across
@@ -1340,12 +1342,12 @@ func _civ_zoom_k() -> float:
 ## `_camera`), and `ViewportHost._draw_lod_debug()`'s per-chunk captions.
 func _crisp_begin() -> float:
 	var k := maxf(_camera_zoom, 0.001)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
 	return k
 
 
 func _crisp_end() -> void:
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## The camera zoom the *default* view sits at, which is what `SETTLEMENT_LOD`'s
@@ -1730,22 +1732,22 @@ func _draw_journey_markers(rect: Rect2) -> void:
 			continue
 		var p := _point_to_screen(Vector2(float(m["x"]), float(m["y"])), rect) * k
 		var moving := String(m.get("phase", "")) == "en_route"
-		draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, JOURNEY_MARKER_RING)
+		_cv.draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, JOURNEY_MARKER_RING)
 		if moving:
-			draw_circle(p, JOURNEY_MARKER_RADIUS, JOURNEY_MARKER_FILL)
+			_cv.draw_circle(p, JOURNEY_MARKER_RADIUS, JOURNEY_MARKER_FILL)
 		else:
-			draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, JOURNEY_MARKER_FILL, 2.0, true)
+			_cv.draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, JOURNEY_MARKER_FILL, 2.0, true)
 		var label := String(m.get("name", ""))
 		var at := p + Vector2(JOURNEY_MARKER_RADIUS + 5.0, float(fs) * 0.35)
-		draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, LABEL_STROKE_COLOR)
-		draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, SETTLEMENT_LABEL_FILL)
+		_cv.draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, LABEL_STROKE_COLOR)
+		_cv.draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, SETTLEMENT_LABEL_FILL)
 		## The supply readout SP-2's "done means" asks for, falling as the
 		## cursor moves, and the arrival it derives -- both the engine's.
 		var sub := _journey_marker_subline(m)
 		if sub != "":
 			var at2 := at + Vector2(0.0, float(fs) + 2.0)
-			draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, LABEL_STROKE_COLOR)
-			draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, SETTLEMENT_LABEL_FILL)
+			_cv.draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, LABEL_STROKE_COLOR)
+			_cv.draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, SETTLEMENT_LABEL_FILL)
 	_crisp_end()
 
 ## `food 32 of 106 kg left · arrives 412-01-16` en route; `departs …` before,
@@ -1953,7 +1955,7 @@ func _draw_tl_way_run(points: PackedVector2Array, start: int, end: int, rect: Re
 		if dash > 0.0:
 			_draw_dashed_polyline(seg, ink, width, dash, gap, track[chain.x])
 		else:
-			draw_polyline(seg, ink, width, true)
+			_cv.draw_polyline(seg, ink, width, true)
 	_crisp_end()
 
 
@@ -1979,8 +1981,8 @@ func _draw_tl_way(way: Dictionary, rect: Rect2, ink: Color, width: float, dash: 
 ## drawn -- callers invoke it only after placing the pin.
 func _draw_tl_halo(pos: Vector2, radius: float, sc: float, capital: bool) -> void:
 	var r: float = radius + (TL_HALO_PAD_SC + (CAPITAL_RING_WIDTH if capital else 0.0)) * sc
-	draw_arc(pos, r, 0, TAU, 32, DccTheme.c("bg"), (TL_HALO_WIDTH + 1.2) * sc, true)
-	draw_arc(pos, r, 0, TAU, 32, DccTheme.c("good"), TL_HALO_WIDTH * sc, true)
+	_cv.draw_arc(pos, r, 0, TAU, 32, DccTheme.c("bg"), (TL_HALO_WIDTH + 1.2) * sc, true)
+	_cv.draw_arc(pos, r, 0, TAU, 32, DccTheme.c("good"), TL_HALO_WIDTH * sc, true)
 
 
 ## One removed settlement, drawn faded: the reference draws the whole pin in
@@ -2004,19 +2006,19 @@ func _draw_tl_ghost(g: Dictionary, rect: Rect2, interior: Rect2, sc: float, k: f
 	if _settlement_below_lod(kind):
 		## The live dot branch's geometry, faded -- see that branch in `_draw()`.
 		var dot_r: float = LOD_DOT_RADIUS_SC * sc
-		draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, outline, true, -1.0, true)
-		draw_circle(pos, dot_r, fill, true, -1.0, true)
+		_cv.draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, outline, true, -1.0, true)
+		_cv.draw_circle(pos, dot_r, fill, true, -1.0, true)
 		return
 	var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
 	var radius: float = (4.0 + float(klass["rank"])) * sc
-	draw_circle(pos, radius, fill, true, -1.0, true)
-	draw_arc(pos, radius, 0, TAU, 24, outline, 1.2 * sc, true)
+	_cv.draw_circle(pos, radius, fill, true, -1.0, true)
+	_cv.draw_arc(pos, radius, 0, TAU, 24, outline, 1.2 * sc, true)
 	var glyph: String = klass["glyph"]
 	_crisp_begin()
 	var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
 	var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
 	var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
-	draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+	_cv.draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
 		HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color(1.0, 1.0, 1.0, TL_GHOST_ALPHA))
 	_crisp_end()
 
@@ -2285,10 +2287,10 @@ func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k
 	for i in shown:
 		if art.has(i):
 			var a: Dictionary = art[i]
-			draw_texture_rect(a["texture"],
+			_cv.draw_texture_rect(a["texture"],
 				Rect2(float(a["dx"]), float(a["dy"]), float(a["dw"]), float(a["dh"])), false)
 		elif _trait_glyphs.has(keys[i]):
-			draw_circle(Vector2(bx0 + float(i) * gap, by), r, TRAIT_BADGE_DISC, true, -1.0, true)
+			_cv.draw_circle(Vector2(bx0 + float(i) * gap, by), r, TRAIT_BADGE_DISC, true, -1.0, true)
 	## The reference's `Math.max(6, r*1.5)|0` is a canvas-pixel size, i.e. a
 	## screen-pixel one; `r` here is local, so the inner term converts with
 	## `* k` and the floor stays in screen px -- the pin glyph's own rule.
@@ -2300,7 +2302,7 @@ func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k
 			continue
 		var glyph := String(_trait_glyphs[keys[i]])
 		var gwid := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px).x
-		draw_string(font, Vector2(bx0 + float(i) * gap, by) * k + Vector2(-gwid / 2.0, v_center),
+		_cv.draw_string(font, Vector2(bx0 + float(i) * gap, by) * k + Vector2(-gwid / 2.0, v_center),
 			glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px, TRAIT_BADGE_INK)
 	_crisp_end()
 
@@ -2394,7 +2396,7 @@ func has_river_catchment() -> bool:
 
 func _draw_river_catchment(rect: Rect2) -> void:
 	if _river_catchment != null:
-		draw_texture_rect(_river_catchment, rect, false)
+		_cv.draw_texture_rect(_river_catchment, rect, false)
 
 func _draw_river_trace(rect: Rect2) -> void:
 	if _river_trace.size() < 2 or _gw <= 0:
@@ -2412,8 +2414,8 @@ func _draw_river_trace(rect: Rect2) -> void:
 	runs.append(run)
 	for r: PackedVector2Array in runs:
 		if r.size() >= 2:
-			draw_polyline(r, RIVER_TRACE_CASING, RIVER_TRACE_W + 2.0, true)
-			draw_polyline(r, RIVER_TRACE_INK, RIVER_TRACE_W, true)
+			_cv.draw_polyline(r, RIVER_TRACE_CASING, RIVER_TRACE_W + 2.0, true)
+			_cv.draw_polyline(r, RIVER_TRACE_INK, RIVER_TRACE_W, true)
 
 ## Hands this overlay the engine bridge its base-view river stroke is asked
 ## of (`_draw_rivers`); `viewport_host.gd::refresh()` calls it per world. Must
@@ -2440,11 +2442,18 @@ func set_river_source(source: Node) -> void:
 
 ## `viewport_host.gd::_set_lod_active()`'s push: while the deep-zoom tiles are
 ## up they draw their own rivers, so `_draw_rivers` must draw none.
+##
+## A camera-move refresh (`view_changed`), not a content redraw, since the layer
+## cache (2026-09-28): the switch happens mid-zoom, and a content redraw here
+## rebuilt every layer inside that notch's frame. The rivers' key carries the
+## flag, so switching up empties them in the same frame (an empty build is
+## never deferred, `_layer_trivial`) and switching down rebuilds them in the
+## background with the rest of the zoom.
 func set_lod_active(active: bool) -> void:
 	if active == _lod_up:
 		return
 	_lod_up = active
-	queue_redraw()
+	view_changed()
 
 
 ## `viewport_host.gd::set_debug_layer()`'s push -- see `_debug_active`.
@@ -2806,125 +2815,869 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 	return boxes
 
 
+## **This control's own draw is the CONTENT path** (2026-09-28, the layer
+## cache -- see "Layer cache" below for the whole design and its measurements).
+## It draws nothing on this control any more: every layer draws into a child
+## canvas item, in the order this function used to draw them all itself.
+##
+## Reaching here means something asked THIS control to redraw -- a setter
+## (`set_civ_data`, a layer toggle, a hover), a resize, a repaint
+## (`color_texture_rebuilt`), an outside `queue_redraw()` -- and every such
+## request is taken as a content change: `_content_gen` moves and every cached
+## layer is rebuilt inside this frame, so a change is on screen in the frame it
+## was asked for, exactly as before the cache. A camera move never comes here:
+## `ViewportHost` calls `view_changed()` instead, which rebuilds only what the
+## move made stale, and spreads that over frames.
+##
+## Must never `draw_*` on this control itself: the layer items are this item's
+## children, so anything drawn here would sit UNDER every layer.
 func _draw() -> void:
-	## The river stroke's own item (`_river_item`) is not cleared by this
-	## redraw; the returns below skip `_draw_rivers`, which clears it, so clear
-	## it here too or a stroke from an earlier draw would stay on screen.
-	if _river_ci.is_valid():
-		RenderingServer.canvas_item_clear(_river_ci)
-	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
-			and _manual_icons.is_empty() and _labels.is_empty()
-			and _manual_routes.is_empty() and _landmarks.is_empty()
-			and _conflicts.is_empty() and _campaigns.is_empty()
-			## The rejects layer can be the ONLY thing on this control: a pass
-			## that placed nothing still rejects, and that is exactly the world
-			## where the diagnostic matters most. Leaving it out of this guard
-			## would make the layer silently undrawable on the one map worth
-			## drawing it on.
-			and _landmark_rejects.is_empty() and _river_source == null
-			## CM-5: a dropped sample pin, with nothing else on the map yet, must
-			## still draw -- the same reasoning as the rejects layer just above.
-			and _journey_markers.is_empty() and _sample_pin.is_empty()
-			## A year whose every settlement or way was removed still has
-			## ghosts to draw, the same "only thing on the map" case as above.
-			and _tl_ghosts.is_empty() and _tl_ghost_ways.is_empty()
-			and not river_highlight_active()):
-		return
 	var rect := _displayed_rect()
-	if rect.size.x <= 0.0:
-		return
-	var interior := _interior_rect(rect)
-	## Once per frame, not once per way: the camera cannot move inside one
-	## `_draw()`. See `_run_offscreen()`.
-	_visible_local = _visible_local_rect()
-
 	# Linear features (roads, sea lanes) are *clipped* at the neatline: a
 	# road that runs off the plate genuinely continues past the sheet edge,
 	# and cutting it there is what an atlas plate does. Point symbols are
-	# handled the opposite way below -- placed or not placed, never sliced.
+	# handled the opposite way -- placed or not placed, never sliced.
 	#
 	# One scissor rect for the whole canvas item rather than hand-clipping
 	# four different primitive types. `Control` re-sets both of these from
 	# its own rect on every `NOTIFICATION_DRAW`, which fires immediately
-	# before `_draw()`, so this override lasts exactly one frame and needs
-	# no restore.
-	if _border_frac > 0.0:
+	# before `_draw()`, so this override lasts until this control's next draw
+	# and needs no restore. **It clips the layer items too**: a canvas item's
+	# clip bounds its children (Godot's `RendererCanvasCull` hands a clipping
+	# parent down as the children's clip owner), which is what the river stroke's
+	# own child item has relied on since RV-2 and what every layer item relies
+	# on now. A camera move does not come through here and does not need to --
+	# the clip rect is in this control's local space, which the camera carries.
+	if rect.size.x > 0.0 and _border_frac > 0.0:
 		var ci := get_canvas_item()
-		RenderingServer.canvas_item_set_custom_rect(ci, true, interior)
+		RenderingServer.canvas_item_set_custom_rect(ci, true, _interior_rect(rect))
 		RenderingServer.canvas_item_set_clip(ci, true)
+	_content_gen += 1
+	_refresh_layers(true)
 
-	## Hydrology first: the base view's rivers sit under sea routes, roads and
-	## manual routes, the base-map-then-civil-layer order the reference draws
-	## in. See `_draw_rivers()` for its gates.
-	_draw_rivers(rect)
-	## CM-7 / Ruling BA: the catchment shading, over the rivers and under the civil layer --
-	## an area, so roads, pins and marks stay readable on it. Not gated on the
-	## Rivers layer: it was asked for from a card, and hiding the river layer
-	## should not hide the answer. The traced line is drawn much later
-	## (`_draw_river_trace`), over the marks.
-	_draw_river_catchment(rect)
 
-	if _show_sea_routes:
-		for route: Dictionary in _sea_routes:
-			var points: PackedVector2Array = route["points"]
-			if points.size() < 2:
-				continue
-			var brks: PackedInt32Array = route["brks"]
-			var start := 0
-			for cut in brks:
-				_draw_sea_route_segment(points, start, cut, rect)
-				start = cut
-			_draw_sea_route_segment(points, start, points.size(), rect)
+# ── Layer cache ──────────────────────────────────────────────────────────────
+#
+# `OUTSTANDING_WORK.md` "Zoom and pan stutter" / Ruling BP (owner, 2026-09-28:
+# zoom, pan and tile sharpening must hold 16.7 ms a frame). Measured before
+# this block existed (`_zoomcost_probe.gd --layer-costs`, seed 24601,
+# 2048x1311, vsync off): the whole overlay re-ran on every camera move, and one
+# redraw cost rivers 38 ms, roads 31, sea routes 9.5 at fit; roads 28 and
+# settlements 22 at x16 -- so every wheel notch's first frame was 32-81 ms and
+# a pan at x16 36 ms a frame.
+#
+# **What changed.** Every layer now draws into its own child canvas item(s),
+# in the draw order `_draw()` always used:
+#
+#   rivers (raw RIDs, behind this item) < catchment < sea routes < roads
+#   < "mid" (manual routes, conflicts, journeys, town layouts) < settlements
+#   < "top" (rejects, marks, river trace, labels, cards, sample pin)
+#
+# Godot keeps a canvas item's recorded commands and re-renders them under the
+# camera's transform every frame without calling its `_draw()` again, so a
+# layer whose geometry is still right costs nothing to keep on screen. The
+# five costly layers (`CACHED_LAYERS`) are cached that way and rebuilt only
+# when their KEY changes (`_desired_key`): the content generation (any content
+# change), the camera zoom (their strokes and pins are sized in screen
+# pixels, so a zoom genuinely changes their geometry), the control's size,
+# and per layer the deep-zoom switch (rivers) or the revealed-town set
+# (settlements). The two cheap layers ("catchment", "mid") redraw on every
+# camera move, as everything used to.
+#
+# **Pan** changes none of those keys. The view-culled layers (rivers, sea
+# routes, roads, top -- `CULLED_LAYERS`) are built for a GUARD rect larger than the
+# view (`LAYER_GUARD_FRAC`), and while the view stays inside it nothing is
+# rebuilt at all; when the view nears the guard's edge
+# (`LAYER_PREFETCH_FRAC`) a fresh build starts in the background, and only a
+# view that jumps clean outside the guard rebuilds in the frame.
+#
+# **Zoom** does change the key. Rebuilding every layer in the notch's own
+# frame is exactly what cost 32-81 ms, so a zoom rebuilds in the background:
+# each cached layer has TWO sets of items, the front one on screen and the
+# back one being built, a few chunks a frame within an adaptive budget
+# (`_pump_builds`, `LAYER_FRAME_TARGET_US`); when the last chunk lands the two swap in one frame. Until
+# then the front set keeps showing under the camera -- positions exactly right
+# (the camera carries them), stroke widths and pin sizes scaled by the zoom
+# step until the swap corrects them. That brief scaled frame is the cost of the
+# smooth notch, and it is the one visible difference this block makes: at rest
+# every layer is exactly what one full `_draw()` drew (`_zoomcost_probe.gd
+# --shots`, before and after, fit / x4 / x16 / x32 / after a pan).
+#
+# **Content changes stay synchronous** (`_draw()` above): a toggle, an edit, a
+# hover or a new world is on screen in its own frame, never late, because a
+# stale layer after an edit would be a wrong map, not a slow one.
+#
+# Chunking splits a layer by item range (roads and sea routes by way, balanced
+# on point count; settlements by their draw order, after a placement plan run
+# in steps; rivers by run; top by label), so the draw ORDER inside a layer is
+# the one a single draw had, chunk after chunk, and the result is the same
+# pixels. The river chunks need `WorldGen::river_view_mesh_runs`; an older
+# binary without it gets one river chunk.
 
-	if _show_roads:
-		## Indexed, not `for way in _roads`: IN-13's trade load is keyed to a
-		## way's position in this same array (`get_roads()` order), so the
-		## index has to survive into the stroke.
-		for wi in _roads.size():
-			var way: Dictionary = _roads[wi]
-			var points: PackedVector2Array = way["points"]
-			if points.size() < 2:
-				continue
-			## Type filter and both LOD gates -- one predicate, shared with the
-			## ghost-way pass below so a ghost never shows where its living
-			## counterpart would not. See `_way_not_shown`.
-			if _way_not_shown(way):
-				continue
-			## *Ghost removed*: a live way the cursor's year dropped is drawn
-			## once, as its ghost below -- the pins' rule (`_tl_ghost_tids`).
-			## `has()` first: hand-drawn ways carry no `tid` (see `get_roads`).
-			if way.has("tid") and _tl_ghost_way_tids.has(int(way["tid"])):
-				continue
-			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
-			var load_k := _trade_width_k(wi)
-			var brks: PackedInt32Array = way["brks"]
-			# `brks` marks indices where this way's own path has a real gap
-			# (two disjoint consolidated runs sharing one `Way`) -- draw each
-			# run between breaks as its own stroke, not one polyline straight
-			# through the gap.
-			## *Highlight new* (v2.11 line 15989): stroked BEFORE the way's own
-			## strokes, as the reference does, so the road reads on top of it.
-			## Widened with the trade load so a heavy road's halo still shows.
-			if way.has("tid") and _tl_added_tids.has(int(way["tid"])):
-				_draw_tl_way(way, rect, Color(DccTheme.c("good"), TL_WAY_HALO_ALPHA),
-					TL_WAY_HALO_WIDTH * _way_scale * load_k, 0.0, 0.0)
-			var start2 := 0
-			for cut in brks:
-				_draw_way_segment(points, start2, cut, rect, style, load_k)
-				start2 = cut
-			_draw_way_segment(points, start2, points.size(), rect, style, load_k)
+## The cached layers, bottom to top. Each owns `LAYER_CHUNKS[name]` items per
+## set, two sets. "top" (labels, marks, rejects, the river trace, the cards and
+## the sample pin) joined them on 2026-09-28's second pass: redrawn per move it
+## was 4-27 ms of every notch's first frame at zoom >= 8 (`_zoomcost_probe`
+## with per-frame chunk traces, seed 24601) -- each new zoom rasterises every
+## label's glyphs at a new size (`_label_raster_px`).
+const CACHED_LAYERS := ["rivers", "sea", "roads", "settlements", "top"]
+## The cached layers whose drawing is culled to a view rect (`_visible_local`,
+## read by `_run_offscreen` / `_segment_chains` / `river_view_mesh`, and by
+## `_draw_labels`' off-view skip), and so built for a guard rect rather than
+## the exact view.
+const CULLED_LAYERS := ["rivers", "sea", "roads", "top"]
+## Chunks per set. **Sized from measured chunk costs** (the same trace): the
+## first pass's 8/2/6/6 put up to 16 ms into one road chunk and ~5 ms into each
+## river chunk, over any per-frame budget. At these counts, with roads and sea
+## routes split by point count (`_weighted_bounds`), a chunk measured <= ~2 ms
+## on the dev machine. Settlements' first `SETTLE_PLAN_CHUNKS` chunks compute
+## the placement plan (up to 6.7 ms whole) and draw nothing; the rest draw it.
+## Top: chunk 0 is marks, rejects and the river trace, the rest split the
+## labels. More chunks cost only a few more canvas items.
+const LAYER_CHUNKS := {"rivers": 24, "sea": 4, "roads": 24, "settlements": 16, "top": 12}
+## See `LAYER_CHUNKS`: settlement chunks `0 .. SETTLE_PLAN_CHUNKS-1` plan.
+const SETTLE_PLAN_CHUNKS := 6
+## How far past the view a culled layer is built, as a fraction of the view's
+## own size on each side. **Measured, not free**: the renderer submits every
+## command of a chunk item whose bounds touch the screen, and a chunk spans the
+## whole guard, so what the guard holds is drawn every frame. Settled idle frame
+## at zoom 4.32 (`_idlez` scratch probe, seed 24601, dev machine): HEAD 8.4 ms;
+## guard 0.05 -> 8.6, 0.15 -> 9.6, 0.25 -> 10.6, 0.5 -> 17.6. 0.15 keeps that
+## within ~1 ms of HEAD while leaving a steady pan (the probe's 6 px/frame on a
+## 1600 px view) ~40 frames of margin. At fit the guard covers the map anyway.
+const LAYER_GUARD_FRAC := 0.15
+## When the view has come within this fraction of its own size of the guard's
+## edge, the next build starts in the background. 0.1 of a 0.15 margin starts
+## it after ~80 px of travel and leaves ~160 px (~25 probe pan frames) for the
+## build to land before the view would leave the guard. Labelled judgement.
+const LAYER_PREFETCH_FRAC := 0.1
+## **The background build's per-frame budget adapts to the frame** (second pass,
+## 2026-09-28). The first pass spent a fixed 5 ms and let a layer's AVERAGE
+## chunk cost stand for every chunk, so one 16 ms road chunk and the frame's own
+## other work (tile arrivals, the notch's first frame) took frames to 30-80 ms:
+## frames over 16.7 ms during notches went UP against HEAD (72 -> 290).
+##
+## Now each chunk is placed on ITS OWN last measured cost (`costs[idx]`), and the
+## budget itself is additive-increase / multiplicative-decrease on the frame's
+## measured wall time (`_pump_builds`): a frame that ran over
+## `LAYER_FRAME_TARGET_US` halves it, a frame under grows it by
+## `LAYER_BUDGET_STEP_US`, between `LAYER_BUILD_BUDGET_MIN_US` and
+## `LAYER_BUILD_BUDGET_MAX_US`. A camera move's own measured work in the same
+## frame (`_frame_used_us`) comes off it first. So the other work in a frame,
+## whatever it is, shrinks what the build may add -- measured, not assumed.
+## Labelled judgements: the target is 60 Hz less 5% slack; max 4 ms is the
+## ~16.7 ms bar less the ~10-12 ms frame this map draws with every layer on at
+## rest (the probe's idle leg, dev machine); min 0.5 ms and the 0.5 ms step keep
+## a build finishing within ~a second even on a frame that is always full.
+## Under vsync the wall time is the display interval, which reads as "under"
+## until real overrun -- the same answer, for the same reason.
+const LAYER_FRAME_TARGET_US := 17500.0
+const LAYER_BUILD_BUDGET_MAX_US := 4000.0
+const LAYER_BUILD_BUDGET_MIN_US := 500.0
+const LAYER_BUDGET_STEP_US := 500.0
+## A chunk whose cost has not been measured yet is assumed to cost this much.
+## Labelled judgement: the measured median chunk at the counts above.
+const LAYER_CHUNK_GUESS_US := 1500.0
+## No chunk is assumed cheaper than this. A chunk's last cost was measured at
+## the previous zoom, and one that cost nothing there (culled, below its LOD)
+## can cost ms at the next: the trace placed fifteen `zero-cost` road chunks in
+## one frame and got 13 ms. Labelled judgement, about half the median chunk.
+const LAYER_CHUNK_FLOOR_US := 700.0
+## However full the frames, a build places one chunk at least every this many
+## frames, so it always finishes. Labelled judgement.
+const LAYER_STARVE_FRAMES := 3
 
-		## *Ghost removed*'s way half (v2.11 lines 16022-16033): after every live
-		## way, inside the same Ways & routes gate the reference puts it under
-		## (`_mfShowRoads`), faded and dashed in the `text_ghost` token rather
-		## than the reference's literal grey -- this overlay draws token ink.
-		var ghost_ink := Color(DccTheme.c("text_ghost"), TL_GHOST_WAY_ALPHA)
-		for gw: Dictionary in _tl_ghost_ways:
-			if _way_not_shown(gw):
-				continue
-			_draw_tl_way(gw, rect, ghost_ink, TL_GHOST_WAY_WIDTH * _way_scale,
-				TL_GHOST_WAY_DASH * _way_scale, TL_GHOST_WAY_DASH * _way_scale)
+## Bumped by every content draw (`_draw()`); part of every cached layer's key.
+var _content_gen := 0
+## name -> the layer's state (`_new_layer_state`). Built by `_ensure_layer_nodes`.
+var _layers: Dictionary = {}
+## The two per-move layers' items, by name ("catchment", "mid").
+var _dyn: Dictionary = {}
+## The background build's adaptive budget and its bookkeeping (`_pump_builds`):
+## the current budget, the last pump's clock, main-thread time camera moves have
+## already spent this frame, and frames since a chunk was last placed.
+var _build_budget_us := LAYER_BUILD_BUDGET_MAX_US
+var _last_pump_us := 0
+var _frame_used_us := 0.0
+var _starved_frames := 0
+## The live camera zoom while a chunk draws at its key's zoom (`_draw_chunk`),
+## for the one reader that needs the real screen scale (`_draw_annotation_marks`);
+## -1 outside a chunk draw, where `_camera_zoom` is the live zoom.
+var _live_zoom := -1.0
+## Per-array cache of `_weighted_bounds` for roads / sea routes: the array it
+## was built for, the chunk count, and the bounds.
+var _bounds_cache: Dictionary = {}
+## The canvas item every `draw_*` in this file goes to: this control outside a
+## layer draw, the layer's own item inside one (`_draw_chunk`, `_draw_dyn`).
+## Must be reset to `self` after every layer draw -- a stale item here would
+## send the next caller's drawing into a layer.
+var _cv: CanvasItem = null
+## Settlement draw order (tier rank, highest first) cached per content
+## generation -- see `_settlement_draw_order`.
+var _settle_order: Array = []
+var _settle_order_gen := -1
+## Per-run grid-space bounding boxes of `_roads` / `_sea_routes`, for the early
+## whole-run cull in `_draw_way_segment` / `_draw_sea_route_segment`. Rebuilt
+## when the array itself is replaced (`_run_boxes_for`).
+var _road_boxes: Array = []
+var _road_boxes_src: Array = []
+var _sea_boxes: Array = []
+var _sea_boxes_src: Array = []
 
+
+func _init() -> void:
+	_cv = self
+
+
+## One item of a layer: a `Node2D` child of this overlay at identity, so it
+## shares this control's local space, whose `_draw()` hands straight back to
+## the overlay. `slot` is -1 for the per-move layers.
+class _LayerItem extends Node2D:
+	var ov: Control
+	var layer: String
+	var slot := -1
+	var idx := 0
+	func _draw() -> void:
+		if slot < 0:
+			ov._draw_dyn(self)
+		else:
+			ov._draw_chunk(self)
+
+
+## Drives background builds once a frame (`_pump_builds`). Its own node
+## because this control's `_process` belongs to the touch-hold timer, which
+## switches processing off whenever no press is outstanding.
+class _BuildPump extends Node:
+	var ov: Control
+	func _process(_delta: float) -> void:
+		ov._pump_builds()
+
+
+func _new_layer_state(count: int) -> Dictionary:
+	## `items[slot][idx]`: `_LayerItem`s, or raw canvas-item RIDs for rivers.
+	## `keys[slot]`: the key that set was (or is being) built for; `{}` = empty.
+	## `plan[slot]`: settlements' placement plan for that set, built lazily.
+	## `building`: a back-set build is under way; `next`: its next chunk to
+	## place; `drawn`: chunk indices of it already drawn. `costs[idx]`: that
+	## chunk's last measured build time, us (0 = never measured); `est[idx]`:
+	## the estimate the pump placed it on (0 = not placed by the pump);
+	## `ratio`: measured / estimated, smoothed (`_chunk_done`).
+	var costs := PackedFloat64Array()
+	costs.resize(count)
+	var est := PackedFloat64Array()
+	est.resize(count)
+	return {"count": count, "items": [[], []], "keys": [{}, {}], "plan": [null, null],
+		"tex": [null, null], "front": 0, "building": false, "next": 0, "drawn": {},
+		"costs": costs, "est": est, "ratio": 1.0}
+
+
+## Creates the layer items on first use, in draw order. Children added later
+## draw over earlier ones, which is the whole of the ordering.
+func _ensure_layer_nodes() -> void:
+	if not _layers.is_empty():
+		return
+	var add_item := func(layer: String, slot: int, idx: int) -> _LayerItem:
+		var n := _LayerItem.new()
+		n.ov = self
+		n.layer = layer
+		n.slot = slot
+		n.idx = idx
+		n.name = "%s_%d_%d" % [layer, slot, idx] if slot >= 0 else layer
+		add_child(n, false, Node.INTERNAL_MODE_BACK)
+		return n
+	for name in CACHED_LAYERS:
+		_layers[name] = _new_layer_state(int(LAYER_CHUNKS[name]))
+	## Rivers: raw RIDs behind this item (below every node child), as the
+	## stroke's single item was since RV-2 -- the shader material must reach
+	## the stroke and nothing else. See `_river_item_new`.
+	for slot in 2:
+		for idx in int(LAYER_CHUNKS["rivers"]):
+			_layers["rivers"]["items"][slot].append(_river_item_new(idx))
+	_dyn["catchment"] = add_item.call("catchment", -1, 0)
+	for name in ["sea", "roads"]:
+		for slot in 2:
+			for idx in int(LAYER_CHUNKS[name]):
+				_layers[name]["items"][slot].append(add_item.call(name, slot, idx))
+	_dyn["mid"] = add_item.call("mid", -1, 0)
+	for slot in 2:
+		for idx in int(LAYER_CHUNKS["settlements"]):
+			_layers["settlements"]["items"][slot].append(add_item.call("settlements", slot, idx))
+	for slot in 2:
+		for idx in int(LAYER_CHUNKS["top"]):
+			_layers["top"]["items"][slot].append(add_item.call("top", slot, idx))
+	## Set 1 starts as the hidden back set. Hidden at the RenderingServer, not
+	## with `visible`: a node that is not visible in the tree never runs its
+	## `_draw()`, and the back set must draw while it is hidden.
+	for name in CACHED_LAYERS:
+		_set_slot_visible(name, 1, false)
+	var pump := _BuildPump.new()
+	pump.ov = self
+	pump.name = "build_pump"
+	add_child(pump, false, Node.INTERNAL_MODE_BACK)
+
+
+## A camera move: pan, zoom, reset, `move_view_to`. `ViewportHost._update_lod()`
+## and `set_camera_zoom()` call this instead of `queue_redraw()`. Redraws the
+## per-move layers and rebuilds only the cached layers the move made stale.
+## Must never be used for a content change -- it would leave the cached layers
+## showing the old content (see `_draw()`).
+##
+## Its own main-thread time is counted into `_frame_used_us`, which the
+## background build takes off its budget for this frame (`_pump_builds`).
+func view_changed() -> void:
+	var t0 := Time.get_ticks_usec()
+	_refresh_layers(false)
+	_frame_used_us += float(Time.get_ticks_usec() - t0)
+
+
+## Background builds still under way (layers whose back set is not finished).
+## `_zoomcost_probe.gd` waits for 0 before calling a notch sharp.
+func pending_builds() -> int:
+	var n := 0
+	for name in _layers:
+		if _layers[name]["building"]:
+			n += 1
+	return n
+
+
+## Brings every layer up to date with the current content and view. `sync`
+## (the content path) rebuilds every cached layer into its front set now;
+## otherwise only a layer the move made stale is rebuilt, in the background
+## unless it cannot wait (`_refresh_layer`).
+func _refresh_layers(sync: bool) -> void:
+	if not is_inside_tree():
+		return
+	_ensure_layer_nodes()
+	## Once per refresh, not once per way: the camera cannot move inside one.
+	## See `_run_offscreen()`. The exact view, for the per-move layers; the
+	## cached layers are built for a guard around it (`_desired_key`).
+	_visible_local = _visible_local_rect()
+	## Before the settlements' key: the revealed-town set is part of it.
+	_urban_plan_update(_displayed_rect(), _interior_rect(_displayed_rect()))
+	if sync:
+		_dyn["catchment"].queue_redraw()
+	_dyn["mid"].queue_redraw()
+	for name in CACHED_LAYERS:
+		_refresh_layer(name, sync)
+
+
+## What `name` should be built for right now. Everything a layer's drawing
+## reads that can differ between two builds of it must be in here, or a
+## rebuild would be skipped when it was needed (`_same_build`).
+func _desired_key(name: String) -> Dictionary:
+	var key := {"gen": _content_gen, "zoom": _camera_zoom, "size": size, "extra": null, "guard": Rect2()}
+	match name:
+		"rivers":
+			key["extra"] = [_lod_up, _debug_active]
+		"settlements":
+			var rev: Array = _urban_revealed.keys()
+			rev.sort()
+			key["extra"] = rev
+	if CULLED_LAYERS.has(name):
+		var g := _visible_local.size * LAYER_GUARD_FRAC
+		key["guard"] = _visible_local.grow_individual(g.x, g.y, g.x, g.y)
+	return key
+
+
+## Same content, zoom, size and per-layer state: two builds that draw the same
+## pixels wherever both guards cover.
+func _same_build(a: Dictionary, b: Dictionary) -> bool:
+	return not a.is_empty() and not b.is_empty() and a["gen"] == b["gen"] \
+		and a["zoom"] == b["zoom"] and a["size"] == b["size"] and a["extra"] == b["extra"]
+
+
+## Is this layer going to draw nothing at all? Such a build is too cheap to
+## send to the background -- and the front must empty at once (a hidden layer,
+## the deep-zoom switch taking the rivers) rather than linger.
+func _layer_trivial(name: String) -> bool:
+	match name:
+		"rivers": return _river_source == null or _lod_up or _debug_active
+		"sea": return not _show_sea_routes or _sea_routes.is_empty()
+		"roads": return not _show_roads or (_roads.is_empty() and _tl_ghost_ways.is_empty())
+		"settlements": return not _show_settlements or (_settlements.is_empty() and _tl_ghosts.is_empty())
+	return false
+
+
+## The per-layer decision. See the block comment above for the rules; in
+## short: content -> now; front still right -> keep (prefetch near the guard's
+## edge); view escaped the guard -> now; zoom or anything else -> background.
+func _refresh_layer(name: String, sync: bool) -> void:
+	var L: Dictionary = _layers[name]
+	var want := _desired_key(name)
+	if sync:
+		_build_now(name, want)
+		return
+	var front: Dictionary = L["keys"][L["front"]]
+	var culled := CULLED_LAYERS.has(name)
+	if _same_build(front, want):
+		if not culled or (front["guard"] as Rect2).encloses(_visible_local):
+			if culled and not _building_for(name, want):
+				var m := _visible_local.size * LAYER_PREFETCH_FRAC
+				if not (front["guard"] as Rect2).grow_individual(-m.x, -m.y, -m.x, -m.y).encloses(_visible_local):
+					_start_build(name, want)
+			return
+		## Same build, but the view has left the guard: part of the layer is
+		## missing on screen right now, which must not wait for a background
+		## build. Only a jump (`move_view_to`, a reset) gets here; a pan is
+		## caught by the prefetch above long before.
+		_build_now(name, want)
+		return
+	if _building_for(name, want):
+		return
+	if front.is_empty() or _layer_trivial(name):
+		_build_now(name, want)
+		return
+	_start_build(name, want)
+
+
+## A back build for `want`'s content, zoom and state is already under way and
+## will cover the current view.
+func _building_for(name: String, want: Dictionary) -> bool:
+	var L: Dictionary = _layers[name]
+	if not L["building"]:
+		return false
+	var back: Dictionary = L["keys"][1 - int(L["front"])]
+	if not _same_build(back, want):
+		return false
+	return not CULLED_LAYERS.has(name) or (back["guard"] as Rect2).encloses(_visible_local)
+
+
+## Rebuilds the front set in this frame: every chunk now (rivers) or queued
+## for this frame's draw pass (the node chunks -- Godot runs them later in
+## the same frame, in the order queued). Any background build is dropped.
+func _build_now(name: String, want: Dictionary) -> void:
+	var L: Dictionary = _layers[name]
+	_cancel_build(name)
+	var slot: int = L["front"]
+	L["keys"][slot] = want
+	L["plan"][slot] = null
+	for idx in int(L["count"]):
+		if name == "rivers":
+			_build_river_chunk(slot, idx)
+		else:
+			(L["items"][slot][idx] as CanvasItem).queue_redraw()
+
+
+## Starts (or restarts) a background build of the back set for `want`.
+## `_pump_builds` places its chunks; the last one to draw swaps the sets.
+func _start_build(name: String, want: Dictionary) -> void:
+	var L: Dictionary = _layers[name]
+	var back: int = 1 - int(L["front"])
+	_clear_slot(name, back)
+	L["keys"][back] = want
+	L["building"] = true
+	L["next"] = 0
+	L["drawn"] = {}
+
+
+func _cancel_build(name: String) -> void:
+	var L: Dictionary = _layers[name]
+	if L["building"]:
+		L["building"] = false
+		_clear_slot(name, 1 - int(L["front"]))
+
+
+## Empties one set: its recorded geometry is freed and its key forgotten, so
+## a stray redraw of one of its items draws nothing.
+func _clear_slot(name: String, slot: int) -> void:
+	var L: Dictionary = _layers[name]
+	L["keys"][slot] = {}
+	L["plan"][slot] = null
+	for it in L["items"][slot]:
+		RenderingServer.canvas_item_clear(it if it is RID else (it as CanvasItem).get_canvas_item())
+	## After the clear: a river set's commands sample this texture by RID.
+	L["tex"][slot] = null
+
+
+func _set_slot_visible(name: String, slot: int, on: bool) -> void:
+	for it in _layers[name]["items"][slot]:
+		RenderingServer.canvas_item_set_visible(it if it is RID else (it as CanvasItem).get_canvas_item(), on)
+
+
+## Places background chunks, bottom layer first and each layer's chunks in
+## order, within this frame's budget -- see `LAYER_FRAME_TARGET_US` for how the
+## budget adapts and why. A chunk is placed only if its own last measured cost
+## (`costs[idx]`, or `LAYER_CHUNK_GUESS_US` before its first build) still fits;
+## the first chunk that does not fit ends the frame's building, so chunks land
+## in order. Every `LAYER_STARVE_FRAMES`-th frame without a placement places
+## one regardless, so a build always finishes. Runs once a frame from
+## `_BuildPump._process`.
+func _pump_builds() -> void:
+	var now := Time.get_ticks_usec()
+	var frame_us := float(now - _last_pump_us) if _last_pump_us > 0 else 0.0
+	_last_pump_us = now
+	if frame_us > LAYER_FRAME_TARGET_US:
+		_build_budget_us = maxf(LAYER_BUILD_BUDGET_MIN_US, _build_budget_us * 0.5)
+	else:
+		_build_budget_us = minf(LAYER_BUILD_BUDGET_MAX_US, _build_budget_us + LAYER_BUDGET_STEP_US)
+	var budget := _build_budget_us - _frame_used_us
+	_frame_used_us = 0.0
+	if pending_builds() == 0:
+		_starved_frames = 0
+		return
+	var spent := 0.0
+	var placed := 0
+	for name in CACHED_LAYERS:
+		var L: Dictionary = _layers[name]
+		while L["building"] and int(L["next"]) < int(L["count"]):
+			var idx: int = L["next"]
+			## Last measured cost, corrected by how far this build's chunks have
+			## run over or under their own estimates so far (`ratio`, see
+			## `_chunk_done`), and never below the floor.
+			var est: float = L["costs"][idx]
+			est = LAYER_CHUNK_GUESS_US if est <= 0.0 else est * float(L["ratio"])
+			est = maxf(est, LAYER_CHUNK_FLOOR_US)
+			L["est"][idx] = est
+			var forced := placed == 0 and _starved_frames + 1 >= LAYER_STARVE_FRAMES
+			if spent + est > budget and not forced:
+				_starved_frames = _starved_frames + 1 if placed == 0 else 0
+				return
+			L["next"] = idx + 1
+			spent += est
+			placed += 1
+			if name == "rivers":
+				## Built right here, so its real cost is known at once: count
+				## that rather than the estimate.
+				_build_river_chunk(1 - int(L["front"]), idx)
+				spent += float(L["costs"][idx]) - est
+			else:
+				(L["items"][1 - int(L["front"])][idx] as CanvasItem).queue_redraw()
+	_starved_frames = 0 if placed > 0 else _starved_frames + 1
+
+
+## Bookkeeping after one chunk of a set was built: that chunk's measured cost
+## (the next build of the same chunk is placed on it), and -- for the back set
+## -- the swap once every chunk of it has drawn.
+func _chunk_done(name: String, slot: int, idx: int, cost_us: float) -> void:
+	var L: Dictionary = _layers[name]
+	## How this chunk's real cost compared with what the pump placed it on:
+	## a zoom that makes every chunk dearer shows up in the first chunks built,
+	## and the rest are placed on the corrected estimate. Clamped, labelled
+	## judgement, so one outlier cannot starve or flood a build.
+	var placed_est: float = L["est"][idx]
+	if placed_est > 0.0 and slot != int(L["front"]):
+		L["ratio"] = clampf(lerpf(float(L["ratio"]), cost_us / placed_est, 0.5), 0.25, 8.0)
+	L["est"][idx] = 0.0
+	L["costs"][idx] = cost_us
+	if not L["building"] or slot == int(L["front"]):
+		return
+	L["drawn"][idx] = true
+	if L["drawn"].size() >= int(L["count"]):
+		var old: int = L["front"]
+		L["front"] = slot
+		_set_slot_visible(name, slot, true)
+		_set_slot_visible(name, old, false)
+		_clear_slot(name, old)
+		L["building"] = false
+
+## A cached layer's chunk draw (`_LayerItem._draw`). Draws exactly what its
+## set's key says -- the zoom and guard it was built for, not whatever the
+## camera holds now -- so a stray redraw (Godot redraws an item that becomes
+## visible again) can never mix two zooms inside one set.
+func _draw_chunk(item: _LayerItem) -> void:
+	var L: Dictionary = _layers[item.layer]
+	var key: Dictionary = L["keys"][item.slot]
+	if key.is_empty():
+		return
+	var t0 := Time.get_ticks_usec()
+	var saved_zoom := _camera_zoom
+	var saved_view := _visible_local
+	_camera_zoom = key["zoom"]
+	if CULLED_LAYERS.has(item.layer):
+		_visible_local = key["guard"]
+	_live_zoom = saved_zoom
+	_cv = item
+	var rect := _displayed_rect()
+	if rect.size.x > 0.0:
+		var interior := _interior_rect(rect)
+		match item.layer:
+			"sea": _draw_sea_chunk(rect, item.idx, int(L["count"]))
+			"roads": _draw_roads_chunk(rect, item.idx, int(L["count"]))
+			"settlements":
+				## Plan chunks first (`SETTLE_PLAN_CHUNKS`), then drawing chunks.
+				## A set's chunks always draw in index order (the pump places them
+				## in order; a synchronous build queues them in order), so the
+				## plan is complete before the first drawing chunk reads it.
+				if item.idx == 0 or L["plan"][item.slot] == null:
+					L["plan"][item.slot] = _settlement_plan_begin(rect, key["extra"])
+				var plan: Dictionary = L["plan"][item.slot]
+				if item.idx < SETTLE_PLAN_CHUNKS:
+					_settlement_plan_step(plan, rect, interior, item.idx, SETTLE_PLAN_CHUNKS)
+				else:
+					_draw_settlements_chunk(rect, interior, plan["entries"],
+						item.idx - SETTLE_PLAN_CHUNKS, int(L["count"]) - SETTLE_PLAN_CHUNKS)
+			"top":
+				## The label split is made once per set, at the set's zoom, like the
+				## settlement plan (`_label_chunk_bounds`).
+				if item.idx == 0 or L["plan"][item.slot] == null:
+					L["plan"][item.slot] = _label_chunk_bounds(rect, int(L["count"]) - 1)
+				_draw_top_chunk(rect, interior, item.idx, int(L["count"]), L["plan"][item.slot])
+	_cv = self
+	_live_zoom = -1.0
+	_camera_zoom = saved_zoom
+	_visible_local = saved_view
+	_chunk_done(item.layer, item.slot, item.idx, float(Time.get_ticks_usec() - t0))
+
+
+## The per-move layers' draw (`_LayerItem._draw`, `slot == -1`): what `_draw()`
+## drew between and around the cached layers, in the same order.
+func _draw_dyn(item: _LayerItem) -> void:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0:
+		return
+	var interior := _interior_rect(rect)
+	_cv = item
+	match item.layer:
+		"catchment":
+			## CM-7 / Ruling BA: the catchment shading, over the rivers and under
+			## the civil layer -- an area, so roads, pins and marks stay readable
+			## on it. Not gated on the Rivers layer: it was asked for from a card,
+			## and hiding the river layer should not hide the answer. The traced
+			## line is drawn much later (`_draw_river_trace`), over the marks.
+			_draw_river_catchment(rect)
+		"mid":
+			_draw_mid_layer(rect, interior)
+	_cv = self
+
+
+## Sea lanes, chunk `idx` of `count` by route index. Hydrology (the rivers)
+## sits under them, roads over them -- the reference's base-map-then-civil order.
+func _draw_sea_chunk(rect: Rect2, idx: int, count: int) -> void:
+	if not _show_sea_routes:
+		return
+	var boxes := _run_boxes_for(_sea_routes, false)
+	var b := _weighted_bounds(_sea_routes, count)
+	for ri in range(b[idx], b[idx + 1]):
+		var route: Dictionary = _sea_routes[ri]
+		var points: PackedVector2Array = route["points"]
+		if points.size() < 2:
+			continue
+		var rb: Array = boxes[ri]
+		var brks: PackedInt32Array = route["brks"]
+		var start := 0
+		var run := 0
+		for cut in brks:
+			_draw_sea_route_segment(points, start, cut, rect, rb[run])
+			start = cut
+			run += 1
+		_draw_sea_route_segment(points, start, points.size(), rect, rb[run])
+
+
+## Land ways, chunk `idx` of `count` by way index; the last chunk also draws the
+## timeline's ghost ways, after every live way, as `_draw()` always did.
+func _draw_roads_chunk(rect: Rect2, idx: int, count: int) -> void:
+	if not _show_roads:
+		return
+	var boxes := _run_boxes_for(_roads, true)
+	var b := _weighted_bounds(_roads, count)
+	## Indexed, not `for way in _roads`: IN-13's trade load is keyed to a
+	## way's position in this same array (`get_roads()` order), so the
+	## index has to survive into the stroke.
+	for wi in range(b[idx], b[idx + 1]):
+		var way: Dictionary = _roads[wi]
+		var points: PackedVector2Array = way["points"]
+		if points.size() < 2:
+			continue
+		## Type filter and both LOD gates -- one predicate, shared with the
+		## ghost-way pass below so a ghost never shows where its living
+		## counterpart would not. See `_way_not_shown`.
+		if _way_not_shown(way):
+			continue
+		## *Ghost removed*: a live way the cursor's year dropped is drawn
+		## once, as its ghost below -- the pins' rule (`_tl_ghost_tids`).
+		## `has()` first: hand-drawn ways carry no `tid` (see `get_roads`).
+		if way.has("tid") and _tl_ghost_way_tids.has(int(way["tid"])):
+			continue
+		var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
+		var load_k := _trade_width_k(wi)
+		var brks: PackedInt32Array = way["brks"]
+		var rb: Array = boxes[wi]
+		# `brks` marks indices where this way's own path has a real gap
+		# (two disjoint consolidated runs sharing one `Way`) -- draw each
+		# run between breaks as its own stroke, not one polyline straight
+		# through the gap.
+		## *Highlight new* (v2.11 line 15989): stroked BEFORE the way's own
+		## strokes, as the reference does, so the road reads on top of it.
+		## Widened with the trade load so a heavy road's halo still shows.
+		if way.has("tid") and _tl_added_tids.has(int(way["tid"])):
+			_draw_tl_way(way, rect, Color(DccTheme.c("good"), TL_WAY_HALO_ALPHA),
+				TL_WAY_HALO_WIDTH * _way_scale * load_k, 0.0, 0.0)
+		var start2 := 0
+		var run := 0
+		for cut in brks:
+			_draw_way_segment(points, start2, cut, rect, style, load_k, rb[run])
+			start2 = cut
+			run += 1
+		_draw_way_segment(points, start2, points.size(), rect, style, load_k, rb[run])
+
+	if idx != count - 1:
+		return
+	## *Ghost removed*'s way half (v2.11 lines 16022-16033): after every live
+	## way, inside the same Ways & routes gate the reference puts it under
+	## (`_mfShowRoads`), faded and dashed in the `text_ghost` token rather
+	## than the reference's literal grey -- this overlay draws token ink.
+	var ghost_ink := Color(DccTheme.c("text_ghost"), TL_GHOST_WAY_ALPHA)
+	for gw: Dictionary in _tl_ghost_ways:
+		if _way_not_shown(gw):
+			continue
+		_draw_tl_way(gw, rect, ghost_ink, TL_GHOST_WAY_WIDTH * _way_scale,
+			TL_GHOST_WAY_DASH * _way_scale, TL_GHOST_WAY_DASH * _way_scale)
+
+
+## Each run's bounding box in GRID coordinates, `boxes[way][run]`, one run per
+## `brks`-delimited stretch -- the early cull `_draw_way_segment` does before
+## converting a single point. Recomputed only when `ways` is a different array
+## from the one last measured (`set_civ_data` replaces them; nothing edits one
+## in place). A run of fewer than 2 points gets an empty box, which the cull
+## ignores (the draw returns early for it anyway).
+func _run_boxes_for(ways: Array, roads: bool) -> Array:
+	if roads and is_same(ways, _road_boxes_src) and _road_boxes.size() == ways.size():
+		return _road_boxes
+	if not roads and is_same(ways, _sea_boxes_src) and _sea_boxes.size() == ways.size():
+		return _sea_boxes
+	var out := []
+	for way: Dictionary in ways:
+		var points: PackedVector2Array = way["points"]
+		var runs := []
+		var start := 0
+		var cuts: Array = Array(way.get("brks", PackedInt32Array()) as PackedInt32Array)
+		cuts.append(points.size())
+		for cut in cuts:
+			var box := Rect2()
+			if cut - start >= 2:
+				box = Rect2(points[start], Vector2.ZERO)
+				for i in range(start + 1, cut):
+					box = box.expand(points[i])
+			runs.append(box)
+			start = cut
+		out.append(runs)
+	if roads:
+		_road_boxes = out
+		_road_boxes_src = ways
+	else:
+		_sea_boxes = out
+		_sea_boxes_src = ways
+	return out
+
+
+## Chunk boundaries over `ways` (roads or sea routes) so each of `count` chunks
+## carries about the same number of POINTS, not of ways: `b[idx] .. b[idx+1]`
+## is chunk `idx`'s way range, `b[0] == 0`, `b[count] == ways.size()`, never
+## decreasing. The first pass split by way count, and one chunk of long trunk
+## roads measured 16 ms at fit while its neighbours cost nothing. Points are the
+## cost driver the draw walks (`_stroke_points`, the dash loop); each way also
+## weighs a fixed 16 for its per-way overhead (labelled judgement). A single way
+## is never split, so a chunk can still exceed its share by one way's weight.
+## Cached per array identity and count (`set_civ_data` replaces the arrays).
+func _weighted_bounds(ways: Array, count: int) -> PackedInt32Array:
+	var ck_key := "%s:%d" % [is_same(ways, _roads), count]
+	var ck: Dictionary = _bounds_cache.get(ck_key, {})
+	if is_same(ck.get("src"), ways) and int(ck.get("n", -1)) == ways.size():
+		return ck["b"]
+	var total := 0.0
+	var w := PackedFloat64Array()
+	w.resize(ways.size())
+	for i in ways.size():
+		w[i] = float((ways[i]["points"] as PackedVector2Array).size() + 16)
+		total += w[i]
+	var b := PackedInt32Array()
+	b.resize(count + 1)
+	var acc := 0.0
+	var k := 1
+	for i in ways.size():
+		acc += w[i]
+		while k < count and acc >= total * float(k) / float(count):
+			b[k] = i + 1
+			k += 1
+	while k < count:
+		b[k] = ways.size()
+		k += 1
+	b[count] = ways.size()
+	_bounds_cache[ck_key] = {"src": ways, "n": ways.size(), "b": b}
+	return b
+
+
+## Chunk `idx` of `count` of the top layer -- everything `_draw()` drew after
+## the settlement pins, in the same order: chunk 0 the landmark rejects, the
+## annotation marks and the traced river branch; chunks 1 .. count-1 the
+## labels, split by `bounds` (`_label_chunk_bounds`); the last chunk also the landmark hover card
+## and the sample pin (`_draw_top_cards`), which must be over every label.
+func _draw_top_chunk(rect: Rect2, interior: Rect2, idx: int, count: int, bounds: PackedInt32Array) -> void:
+	if idx == 0:
+		# Manual annotations (§4.5.5) and generated landmarks are ONE layer, drawn
+		# by one pass -- owner ruling 14 (2026-09-06), *"one collection, two
+		# origins ... the renderer draws one layer"*. `_draw_annotation_marks`
+		# below states the visibility rule and which mark wins where the two
+		# origins meet.
+		#
+		# Rejections draw UNDER the placements, deliberately: the layer's whole
+		# claim is that a rejected candidate lost to a placed one, so the placed
+		# mark must win the pixel wherever they coincide. That now puts hand-placed
+		# icons OVER the reject diamonds, where the old two-pass order put them
+		# under -- a diagnostic covering authored content was never what this
+		# comment asked for.
+		_draw_landmark_rejects(rect, interior)
+		## Under the labels and over everything else. Labels are text and lose
+		## legibility the moment anything crosses them; an annotation mark does not.
+		_draw_annotation_marks(rect, interior)
+		## CM-7 / Ruling BA: the traced branch, over every mark and under the
+		## labels only. Measured on the probe world (`_ctxpicks_probe.gd` RV): drawn
+		## under the civil layer, 35 of its 36 on-screen points were covered by
+		## landmark rings -- a highlight the user asked for must not be hidden by
+		## the map's own symbols.
+		_draw_river_trace(rect)
+		return
+	_draw_labels(rect, interior, bounds[idx - 1], bounds[idx])
+	if idx == count - 1:
+		_draw_top_cards(rect, interior)
+
+## The top layer's label split: `parts` consecutive label ranges `b[j] .. b[j+1]`,
+## balanced on estimated draw cost rather than label count. A label's cost is
+## rasterising its glyphs at the new zoom's raster size (`_label_raster_px`),
+## so each weighs (glyphs + 1) x raster px squared -- a labelled judgement, from
+## the trace that found one even-by-index chunk carrying 10-15 ms of big region
+## names while its neighbours cost nothing. Two kinds weigh almost nothing: a
+## label `_draw_labels` will skip as off-view (the same test, against the same
+## guard), and one already at `LABEL_RASTER_PX_MAX`, whose glyphs the previous
+## zoom left in the font cache at that same size. A single label is never split.
+func _label_chunk_bounds(rect: Rect2, parts: int) -> PackedInt32Array:
+	var n := _labels.size()
+	var w := PackedFloat64Array()
+	w.resize(n)
+	var total := 0.0
+	for i in n:
+		var lb: Dictionary = _labels[i]
+		var text: String = lb["text"]
+		w[i] = 1.0
+		if not text.is_empty() and not _label_below_lod(lb):
+			var font_px := _label_font_px(lb, rect)
+			var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
+			var reach := _label_font_for(lb).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+				+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
+			var rpx := _label_raster_px(font_px)
+			if _visible_local.grow(reach).has_point(pos) and rpx < LABEL_RASTER_PX_MAX:
+				w[i] = float(text.length() + 1) * float(rpx) * float(rpx)
+		total += w[i]
+	var b := PackedInt32Array()
+	b.resize(parts + 1)
+	var acc := 0.0
+	var k := 1
+	for i in n:
+		acc += w[i]
+		while k < parts and acc >= total * float(k) / float(parts):
+			b[k] = i + 1
+			k += 1
+	while k < parts:
+		b[k] = n
+		k += 1
+	b[parts] = n
+	return b
+
+
+## The mid layer: everything `_draw()` drew between the roads and the
+## settlement pins, redrawn on every camera move (it is cheap, and the manual
+## routes and town layouts are culled to the exact view).
+func _draw_mid_layer(rect: Rect2, interior: Rect2) -> void:
 	## Committed Route-tool routes, drawn after both network layers so a route
 	## that runs along an existing road is still visible on top of it. Shares
 	## the "Ways & routes" visibility toggle (`set_show_roads`) because that is
@@ -2972,298 +3725,16 @@ func _draw() -> void:
 	## through-road, so it must overlay it -- and *replace* the pin of every
 	## place they actually draw (`_urban_revealed`, the reference's
 	## `_umRevealedSet`). See this file's "Urban layouts" block at the foot
-	## for the reveal gate and why it is not `_umLayoutAlpha`'s km band.
-	_urban_revealed.clear()
+	## for the reveal gate and why it is not `_umLayoutAlpha`'s km band. The
+	## plan (which towns, which revealed) is made before any layer draws
+	## (`_urban_plan_update`), because the settlements' key needs it.
 	if _show_urban_layouts:
-		_draw_urban_layouts(rect, interior)
+		_draw_urban_layouts(rect)
 
-	if _show_settlements:
-		## Same formula `_settlement_pin_radius()` uses -- kept as one inline
-		## `sc` here (rather than calling that function per-settlement) since
-		## `_draw()`'s loop already reuses `sc` for the glyph and label sizing
-		## below it too, exactly like the reference's own `sc` feeds icon,
-		## way and label sizing from one shared value (reference line 15165).
-		var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
-		## Local px -> screen px for this frame's text, hoisted out of the loop
-		## because it cannot change inside one `_draw()`. See `_crisp_begin()`.
-		var k := maxf(_camera_zoom, 0.001)
-		var font := get_theme_default_font()
-		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
-		# reference line 15101) draw here as of 2026-09-04 -- see
-		# `TRAIT_BADGES_SHOWN_MAX`' own comment for the geometry, and
-		# `_settlement_traits` for where the keys come from. They do NOT come
-		# from `get_settlements()`, which emits {x, y, name, population, kind,
-		# faction, capital, coastal, tid} -- plus the three belief columns when
-		# a belief layer exists -- and no `traits` field: a settlement's
-		# traits live in `civ_roster_bridge::PlaceExtrasTable`, a side table
-		# keyed by `tid`, and reach the shell through `civ_settlement_details()`.
-		# `ViewportHost` joins the two and pushes the result here.
-		#
-		# **So a generated world shows no badges until someone adds a trait.**
-		# Nothing in generation writes one: `lib.rs`' metropolis promotion says
-		# so in as many words ("the reference's caller also pushes
-		# `trade_hub`/`administrative` onto the promoted place's `traits`; this
-		# port has no per-settlement trait vector"), so today the place editor
-		# is the only writer. An empty badge row is the correct drawing of an
-		# empty trait list, not a failure to fetch.
-		#
-		# Auto-label placement below is a deliberately simplified stand-in
-		# for the reference's real system (`_civLblOcc`, an occupancy GRID
-		# tested/marked per label-sized bucket, reference lines 15668-15781):
-		# a plain per-frame `Array[Rect2]` of already-placed boxes, tested by
-		# `Rect2.intersects` rather than a spatial grid. Fine at settlement-
-		# roster scale (dozens to a few hundred -- an occupancy grid exists to
-		# make THOUSANDS cheap, which no generated world here produces), and
-		# it reproduces the essential behaviour: higher tiers are drawn (and
-		# so win label placement) first, the same four candidate positions in
-		# the same above/below/right/left order, and a label that fits
-		# nowhere is dropped -- but its pin is always still drawn (once past
-		# its own `SETTLEMENT_LOD` threshold -- see the dot-fallback branch
-		# below). This is a different LOD from `LOD_TILING_INTEGRATION_SCOPE
-		# .md` milestone M1 (that one raster-tiles the TERRAIN at deep zoom;
-		# this one is `CIV_LOD_PLACE`, the reference's own zoom-gated
-		# settlement-pin importance tiering, owner-requested 2026-08-19).
-		var occupied: Array[Rect2] = _seed_label_occupancy(rect)
-		var draw_order := range(_settlements.size())
-		draw_order.sort_custom(func(a, b):
-			var ra: int = SETTLEMENT_CLASS.get(_settlements[a]["kind"], SETTLEMENT_CLASS["town"])["rank"]
-			var rb: int = SETTLEMENT_CLASS.get(_settlements[b]["kind"], SETTLEMENT_CLASS["town"])["rank"]
-			return ra > rb)
 
-		for i in draw_order:
-			var s: Dictionary = _settlements[i]
-			## Per-class filter, tested before any geometry so a hidden tier
-			## costs nothing and, more importantly, never reserves label
-			## occupancy that a *visible* place would then be pushed out of.
-			if _hidden_settlement_kinds.has(s["kind"]):
-				continue
-			## Tested in the same place and for the same reason as the class
-			## filter above: an addon village below its own threshold draws
-			## nothing, so it must not reserve label occupancy either.
-			if _settlement_hidden(s):
-				continue
-			## The reference's `_umRevealedSet` (line 22753): a place whose own
-			## generated layout was drawn *fully opaque* this frame gives up
-			## its pin to it. Only at full opacity: the km band is live again as
-			## of 2026-08-24, and `_draw_urban_layouts()`'s own note at the
-			## handover says why the crossfade ends here rather than fading the
-			## pin through it. Without it the pin -- sized to hold constant -- sits
-			## squarely over the market anchor and the densest streets, which
-			## is exactly what it is drawn on top of.
-			if _urban_revealed.has(i):
-				continue
-			## *Ghost removed*: a settlement the cursor's year dropped but the
-			## live world still holds (a collapse run writes such years) is
-			## drawn once, faded, by the ghost pass below -- not also at full
-			## strength here, which would hide the fade under the live pin.
-			if _tl_ghost_tids.has(int(s.get("tid", 0))):
-				continue
-			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
-			# A settlement whose cell is under the frame has no visible terrain
-			# beneath it at all, so a marker there points at nothing -- it is off
-			# the plate, and off-plate detail is omitted rather than trimmed to a
-			# half-disc against the neatline. The clip above then trims the one
-			# remaining case: a settlement just *inside* the interior whose
-			# radius overhangs it (the actual defect this fixes -- markers
-			# landing partly on the margin, seen in both test worlds).
-			if not interior.has_point(pos):
-				continue
-			var faction: int = s["faction"]
-			var color: Color = _faction_color(faction)
-			var kind: String = s["kind"]
-
-			# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
-			# doc comment above for the full derivation and real-world-mapping
-			# citations): below this tier's own zoom threshold, draw a small
-			# faction-tinted dot instead of the full pin -- never hide the
-			# place outright (a road still needs a visible anchor at any
-			# zoom), but keep a low-zoom view from drowning in city-sized
-			# hamlet icons and labels. No glyph, no name label, no hover-
-			# radius bump, no capital ring -- all reference behaviour for the
-			# dot branch (reference lines 15747-15756 draw nothing else for
-			# it either).
-			if _settlement_below_lod(kind):
-				var dot_r: float = LOD_DOT_RADIUS_SC * sc
-				draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, Color(0.047, 0.039, 0.027, 0.65), true, -1.0, true)
-				draw_circle(pos, dot_r, color, true, -1.0, true)
-				## *Highlight new* on the dot too: a new hamlet seen at low zoom
-				## is exactly the case the halo exists for.
-				if _tl_added_tids.has(int(s.get("tid", 0))):
-					_draw_tl_halo(pos, dot_r, sc, false)
-				continue
-
-			var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
-			var radius: float = (4.0 + float(klass["rank"])) * sc
-			if i == _hover_index:
-				radius += 1.5
-
-			## `antialiased` (the 6th positional arg) defaults to `false` in
-			## Godot 4 -- left implicit here would draw a visibly jagged
-			## circle, worse the more a pin is magnified by camera zoom
-			## (`PIN_SCALE_REF_PX`'s own doc comment covers the zoom side of
-			## "not sharp"; this is the antialiasing side). `filled=true,
-			## width=-1.0` spelled out are just `draw_circle`'s own defaults,
-			## kept explicit because GDScript has no keyword-argument syntax
-			## to set only the trailing one.
-			##
-			## Shadow first (drawn behind, offset straight down) so the fill
-			## and outline composite over it exactly like the reference's own
-			## layering, just with one extra pass underneath.
-			draw_circle(pos + Vector2(0, PIN_SHADOW_OFFSET_SC * sc), radius, PIN_SHADOW_COLOR, true, -1.0, true)
-			draw_circle(pos, radius, color, true, -1.0, true)
-			## Stroke widths below are `* sc` for the same reason `radius` already
-			## is (`PIN_SCALE_REF_PX`'s own doc comment): `sc` carries the inverse-
-			## zoom term (`_civ_zoom_k()`) that cancels the camera's own multiply,
-			## so a quantity built from it holds constant ON-SCREEN. Left as bare
-			## local-unit literals, these five did not, and the omission was inert
-			## until real deep zoom: at the reference window/zoom this loop was
-			## authored and tested against (z<=60, `_umreveal_shot.gd`), a 1.2 or
-			## 2.5 local-unit stroke is a thin, barely-visible ring next to a
-			## radius of several local units. Past `PIN_SCALE_REF_PX`'s own
-			## `_civ_zoom_k()` note that deep zoom here runs to `lodMaxZoom()` (160
-			## on an 800 km world, 240 on 1200 km) `radius` itself shrinks toward
-			## that same tiny fraction of a local unit while these stayed fixed --
-			## so the stroke, not the disc, became the dominant shape: a capital's
-			## outline+ring measured a soft ~600 screen-px blob in faction colour
-			## swallowing the pin (and the settlement under it) at z=240, confirmed
-			## by `_pinlabelovr_probe.gd` (owner report, OnePlus 12 APK, commit
-			## 8e71a01: "labels don't fade away... obscuring the settlement"). The
-			## generated NAME label was not the defect -- it is placed off the pin
-			## by construction (`_settlement_label_candidates`) and the probe's own
-			## ink-overlap check confirms zero label pixels ever land inside the
-			## pin's radius at any zoom -- but a label sitting beside a pin that has
-			## itself ballooned into a many-hundred-pixel blob reads exactly like
-			## "the label won't get out of the way", which is how it was reported.
-			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2 * sc, true)
-			if s["capital"]:
-				draw_arc(pos, radius + CAPITAL_RING_WIDTH * sc, 0, TAU, 28, color, CAPITAL_RING_WIDTH * sc, true)
-			## Outside the capital ring, so a diverged capital shows both.
-			## Under the coastal badge and the glyph for the same reason the
-			## landmark rejects draw under the placements: this is context
-			## about the pin, and must not win a pixel from the pin itself.
-			if _faith_diverged(s):
-				var ring_r: float = radius + CAPITAL_RING_WIDTH * sc + FAITH_RING_PAD_SC * sc
-				for a in FAITH_RING_ARCS:
-					var from: float = TAU * float(a) / float(FAITH_RING_ARCS)
-					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
-						FAITH_RING_SHADOW, (FAITH_RING_WIDTH + 1.2) * sc, true)
-					draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
-						FAITH_RING_COLOR, FAITH_RING_WIDTH * sc, true)
-			if s.get("coastal", false):
-				var badge_r: float = COASTAL_BADGE_R_SC * sc
-				var badge_pos := pos + Vector2(radius, radius) * 0.62
-				## `+ 0.5` is the same bare-local-unit pattern as the outline/ring
-				## widths above (see that block's comment) -- scaled here too so
-				## the badge's outline ring does not outgrow the badge itself at
-				## deep zoom the same way the pin's own ring did.
-				draw_circle(badge_pos, badge_r + 0.5 * sc, COASTAL_BADGE_OUTLINE, true, -1.0, true)
-				draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
-			## *Highlight new* (reference v2.11 line 16266): after the pin and
-			## its rings, so the halo encloses them rather than sitting under.
-			if _tl_added_tids.has(int(s.get("tid", 0))):
-				_draw_tl_halo(pos, radius, sc, bool(s["capital"]))
-
-			# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
-			# 15180) -- the one per-tier visual distinguisher beyond size,
-			# centred on the pin exactly like `_draw_labels`' own straight-text
-			# path centres a region label (`v_center` trick, same reasoning).
-			# Godot's built-in theme font may not carry every one of these five
-			# dingbat glyphs (⌂●◉⬣✦) -- a missing one falls back to whatever
-			# Godot's own tofu/replacement glyph is, same disclosed limitation
-			# `_draw_labels`' own doc comment already accepts for `font` (no
-			# web-font fallback chain exists in Godot either).
-			#
-			# Sized and rasterised in SCREEN pixels (`_crisp_begin()`): the
-			# reference's `max(9, ...)` floor -- and the `8` here -- are canvas
-			# pixels at `viewT.scale == 1`, i.e. on-screen pixels, and applying
-			# them in this control's local space instead is what made both the
-			# glyph and the name below grow linearly with camera zoom while the
-			# pin under them correctly held still. `radius`/`sc` are local, so
-			# they convert with `* k`.
-			var glyph: String = klass["glyph"]
-			_crisp_begin()
-			var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
-			var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
-			var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
-			draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
-				HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
-			_crisp_end()
-
-			# Trait badges, after the glyph and before the label -- the
-			# reference's own order inside `_civDrawSettlementPin` (it calls
-			# `_civDrawTraitBadges` at line 15189, then draws the name at
-			# 15196). `radius` is the reference's `sz`; note that this port
-			# adds a `+1.5` hover bump to it and the reference has no such
-			# bump, so a hovered pin's badges sit 1.5 px lower here. That is
-			# deliberate: the row must clear the pin as DRAWN, and the same
-			# `radius` feeds `_trait_drop()` below, so the badges and the
-			# clearance reserved for them can never disagree.
-			_draw_trait_badges(s, pos, radius, sc, k, font)
-
-			# Auto-placed name label -- see this block's own top comment for
-			# the simplified-occupancy-set reasoning.
-			var name: String = s.get("name", "")
-			if not name.is_empty():
-				# `label_px` and the measured `lw`/`lh` are screen pixels (see
-				# the glyph's own note above); the candidate boxes and the
-				# occupancy set stay in this control's local space, so both
-				# come back through `/ k`.
-				var label_px: int = maxi(9, int((radius + sc) * k))
-				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x / k
-				var lh := float(label_px) * 1.3 / k
-				## The `drop` argument is `isPoi?0:_civTraitDrop(p,sz,lsc)` in
-				## the reference (line 15770) -- see `_trait_drop()` for why
-				## the POI half of that ternary has no analogue here.
-				for box in _settlement_label_candidates(pos, radius, sc, lw, lh, _trait_drop(s, radius, sc)):
-					var fits := true
-					for occ in occupied:
-						if occ.intersects(box):
-							fits = false
-							break
-					if not fits:
-						continue
-					occupied.append(box)
-					var v_center: float = (font.get_ascent(label_px) - font.get_descent(label_px)) / 2.0
-					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0) * k + Vector2(0.0, v_center)
-					var outline_w: int = maxi(1, int(2.5 * sc * k))
-					_crisp_begin()
-					draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
-					draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
-					_crisp_end()
-					break
-
-		## *Ghost removed* (reference v2.11 lines 16271-16284): after every live
-		## pin, as the reference orders it, so a ghost reads as history laid
-		## over the present rather than something the present sits on.
-		for g: Dictionary in _tl_ghosts:
-			_draw_tl_ghost(g, rect, interior, sc, k, font)
-
-		if _hover_index >= 0 and _hover_index < _settlements.size():
-			_draw_hover_card(_settlements[_hover_index], rect, interior)
-
-	# Manual annotations (§4.5.5) and generated landmarks are ONE layer, drawn
-	# by one pass -- owner ruling 14 (2026-09-06), *"one collection, two
-	# origins ... the renderer draws one layer"*. `_draw_annotation_marks`
-	# below states the visibility rule and which mark wins where the two
-	# origins meet.
-	#
-	# Rejections draw UNDER the placements, deliberately: the layer's whole
-	# claim is that a rejected candidate lost to a placed one, so the placed
-	# mark must win the pixel wherever they coincide. That now puts hand-placed
-	# icons OVER the reject diamonds, where the old two-pass order put them
-	# under -- a diagnostic covering authored content was never what this
-	# comment asked for.
-	_draw_landmark_rejects(rect, interior)
-	## Under the labels and over everything else. Labels are text and lose
-	## legibility the moment anything crosses them; an annotation mark does not.
-	_draw_annotation_marks(rect, interior)
-	## CM-7 / Ruling BA: the traced branch, over every mark and under the
-	## labels only. Measured on the probe world (`_ctxpicks_probe.gd` RV): drawn
-	## under the civil layer, 35 of its 36 on-screen points were covered by
-	## landmark rings -- a highlight the user asked for must not be hidden by
-	## the map's own symbols.
-	_draw_river_trace(rect)
-	_draw_labels(rect, interior)
+## The top layer's last two items, over every label: Ruling AL's landmark hover
+## card and CM-5's sample pin.
+func _draw_top_cards(rect: Rect2, interior: Rect2) -> void:
 	## Ruling AL's hover card, after the labels so no name can cover it.
 	if _landmarks_visible and _lm_hover_index >= 0 and _lm_hover_index < _landmarks.size():
 		var lm: Dictionary = _landmarks[_lm_hover_index]
@@ -3278,6 +3749,359 @@ func _draw() -> void:
 		_draw_sample_pin(rect)
 
 
+## The settlement pins' draw order: tier rank, highest first, so higher tiers
+## win label placement. Sorted once per content generation rather than per
+## draw -- a zoom rebuild re-uses it. The same `sort_custom` over the same
+## array gives the same order, so caching it changes nothing drawn.
+func _settlement_draw_order() -> Array:
+	if _settle_order_gen == _content_gen and _settle_order.size() == _settlements.size():
+		return _settle_order
+	var draw_order := range(_settlements.size())
+	draw_order.sort_custom(func(a, b):
+		var ra: int = SETTLEMENT_CLASS.get(_settlements[a]["kind"], SETTLEMENT_CLASS["town"])["rank"]
+		var rb: int = SETTLEMENT_CLASS.get(_settlements[b]["kind"], SETTLEMENT_CLASS["town"])["rank"]
+		return ra > rb)
+	_settle_order = draw_order
+	_settle_order_gen = _content_gen
+	return draw_order
+
+
+## **The settlement layer's placement pass** -- every decision the pin loop in
+## `_draw()` used to make as it drew, made first and kept, so the drawing can
+## be split into chunks (`_draw_settlements_chunk`) without changing a pixel:
+## which settlements draw, as a dot or a full pin, at what radius, and where
+## each name landed in the occupancy set. Label placement is order-dependent
+## (a higher tier's name takes its box first), which is why it is one pass over
+## every settlement in draw order rather than a per-chunk decision -- a pass
+## that is itself cut into `SETTLE_PLAN_CHUNKS` steps run in order
+## (`_settlement_plan_step`: step 0 seeds the occupancy set, steps 1.. place
+## consecutive slices of the draw order), because whole it measured up to 6.7 ms
+## at deep zoom, over a frame's build budget. The same steps in the same order
+## are the same decisions.
+##
+## `revealed` is the key's revealed-town set (sorted indices); the pin of a
+## town whose layout was drawn fully opaque stands down for it.
+##
+# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
+# reference line 15101) draw with each pin -- see
+# `TRAIT_BADGES_SHOWN_MAX`' own comment for the geometry, and
+# `_settlement_traits` for where the keys come from. They do NOT come
+# from `get_settlements()`, which emits {x, y, name, population, kind,
+# faction, capital, coastal, tid} -- plus the three belief columns when
+# a belief layer exists -- and no `traits` field: a settlement's
+# traits live in `civ_roster_bridge::PlaceExtrasTable`, a side table
+# keyed by `tid`, and reach the shell through `civ_settlement_details()`.
+# `ViewportHost` joins the two and pushes the result here.
+#
+# **So a generated world shows no badges until someone adds a trait.**
+# Nothing in generation writes one: `lib.rs`' metropolis promotion says
+# so in as many words ("the reference's caller also pushes
+# `trade_hub`/`administrative` onto the promoted place's `traits`; this
+# port has no per-settlement trait vector"), so today the place editor
+# is the only writer. An empty badge row is the correct drawing of an
+# empty trait list, not a failure to fetch.
+#
+# Auto-label placement below is a deliberately simplified stand-in
+# for the reference's real system (`_civLblOcc`, an occupancy GRID
+# tested/marked per label-sized bucket, reference lines 15668-15781):
+# a plain per-frame `Array[Rect2]` of already-placed boxes, tested by
+# `Rect2.intersects` rather than a spatial grid. Fine at settlement-
+# roster scale (dozens to a few hundred -- an occupancy grid exists to
+# make THOUSANDS cheap, which no generated world here produces), and
+# it reproduces the essential behaviour: higher tiers are drawn (and
+# so win label placement) first, the same four candidate positions in
+# the same above/below/right/left order, and a label that fits
+# nowhere is dropped -- but its pin is always still drawn (once past
+# its own `SETTLEMENT_LOD` threshold -- see the dot-fallback branch
+# below). This is a different LOD from `LOD_TILING_INTEGRATION_SCOPE
+# .md` milestone M1 (that one raster-tiles the TERRAIN at deep zoom;
+# this one is `CIV_LOD_PLACE`, the reference's own zoom-gated
+# settlement-pin importance tiering, owner-requested 2026-08-19).
+func _settlement_plan_begin(rect: Rect2, revealed: Array) -> Dictionary:
+	## Same formula `_settlement_pin_radius()` uses -- kept as one inline
+	## `sc` here (rather than calling that function per-settlement) since
+	## the loop already reuses `sc` for the glyph and label sizing below it
+	## too, exactly like the reference's own `sc` feeds icon, way and label
+	## sizing from one shared value (reference line 15165).
+	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	## Local px -> screen px for this draw's text. See `_crisp_begin()`.
+	var k := maxf(_camera_zoom, 0.001)
+	var font := get_theme_default_font()
+	var rev := {}
+	for i in revealed:
+		rev[i] = true
+	var occupied: Array[Rect2] = []
+	return {"sc": sc, "k": k, "font": font, "rev": rev, "occupied": occupied,
+		"order": _settlement_draw_order(), "entries": []}
+
+
+## Step `step` of `steps` of the placement pass begun by
+## `_settlement_plan_begin` (see its doc): step 0 seeds the occupancy set with
+## the labels' and icons' boxes, every later step places its slice of the draw
+## order into `plan["entries"]`. Must run in step order.
+func _settlement_plan_step(plan: Dictionary, rect: Rect2, interior: Rect2, step: int, steps: int) -> void:
+	if not _show_settlements:
+		return
+	if step == 0:
+		plan["occupied"] = _seed_label_occupancy(rect)
+		return
+	var sc: float = plan["sc"]
+	var k: float = plan["k"]
+	var font: Font = plan["font"]
+	var rev: Dictionary = plan["rev"]
+	var occupied: Array[Rect2] = plan["occupied"]
+	var entries: Array = plan["entries"]
+	var order: Array = plan["order"]
+	var n := order.size()
+	for oi in range(n * (step - 1) / (steps - 1), n * step / (steps - 1)):
+		var i: int = order[oi]
+		var s: Dictionary = _settlements[i]
+		## Per-class filter, tested before any geometry so a hidden tier
+		## costs nothing and, more importantly, never reserves label
+		## occupancy that a *visible* place would then be pushed out of.
+		if _hidden_settlement_kinds.has(s["kind"]):
+			continue
+		## Tested in the same place and for the same reason as the class
+		## filter above: an addon village below its own threshold draws
+		## nothing, so it must not reserve label occupancy either.
+		if _settlement_hidden(s):
+			continue
+		## The reference's `_umRevealedSet` (line 22753): a place whose own
+		## generated layout was drawn *fully opaque* gives up its pin to it.
+		## Only at full opacity: the km band is live again as of 2026-08-24,
+		## and `_draw_urban_layouts()`'s own note at the handover says why the
+		## crossfade ends here rather than fading the pin through it. Without
+		## it the pin -- sized to hold constant -- sits squarely over the
+		## market anchor and the densest streets, which is exactly what it is
+		## drawn on top of.
+		if rev.has(i):
+			continue
+		## *Ghost removed*: a settlement the cursor's year dropped but the
+		## live world still holds (a collapse run writes such years) is
+		## drawn once, faded, by the ghost pass -- not also at full
+		## strength here, which would hide the fade under the live pin.
+		if _tl_ghost_tids.has(int(s.get("tid", 0))):
+			continue
+		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		# A settlement whose cell is under the frame has no visible terrain
+		# beneath it at all, so a marker there points at nothing -- it is off
+		# the plate, and off-plate detail is omitted rather than trimmed to a
+		# half-disc against the neatline. The clip then trims the one
+		# remaining case: a settlement just *inside* the interior whose
+		# radius overhangs it (the actual defect this fixes -- markers
+		# landing partly on the margin, seen in both test worlds).
+		if not interior.has_point(pos):
+			continue
+		var kind: String = s["kind"]
+		# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
+		# doc comment above for the full derivation and real-world-mapping
+		# citations): below this tier's own zoom threshold, draw a small
+		# faction-tinted dot instead of the full pin -- never hide the
+		# place outright (a road still needs a visible anchor at any
+		# zoom), but keep a low-zoom view from drowning in city-sized
+		# hamlet icons and labels. No glyph, no name label, no hover-
+		# radius bump, no capital ring -- all reference behaviour for the
+		# dot branch (reference lines 15747-15756 draw nothing else for
+		# it either).
+		if _settlement_below_lod(kind):
+			entries.append({"i": i, "pos": pos, "dot": true})
+			continue
+		var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
+		var radius: float = (4.0 + float(klass["rank"])) * sc
+		if i == _hover_index:
+			radius += 1.5
+		# Auto-placed name label -- see this function's own top comment for
+		# the simplified-occupancy-set reasoning. `label_px` and the measured
+		# `lw`/`lh` are screen pixels (see the glyph's note in
+		# `_draw_settlement_pin`); the candidate boxes and the occupancy set
+		# stay in this control's local space, so both come back through `/ k`.
+		var placed = null
+		var name: String = s.get("name", "")
+		if not name.is_empty():
+			var label_px: int = maxi(9, int((radius + sc) * k))
+			var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x / k
+			var lh := float(label_px) * 1.3 / k
+			## The `drop` argument is `isPoi?0:_civTraitDrop(p,sz,lsc)` in
+			## the reference (line 15770) -- see `_trait_drop()` for why
+			## the POI half of that ternary has no analogue here.
+			for box in _settlement_label_candidates(pos, radius, sc, lw, lh, _trait_drop(s, radius, sc)):
+				var fits := true
+				for occ in occupied:
+					if occ.intersects(box):
+						fits = false
+						break
+				if not fits:
+					continue
+				occupied.append(box)
+				placed = box
+				break
+		entries.append({"i": i, "pos": pos, "dot": false, "radius": radius, "box": placed})
+
+
+## Drawing chunk `idx` of `count` of the settlement layer: that slice of the
+## plan's entries (`plan`), in plan order; the last chunk also draws the timeline ghosts and the hover
+## card, after every live pin, as `_draw()` always did.
+func _draw_settlements_chunk(rect: Rect2, interior: Rect2, plan: Array, idx: int, count: int) -> void:
+	if not _show_settlements:
+		return
+	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	var k := maxf(_camera_zoom, 0.001)
+	var font := get_theme_default_font()
+	var n := plan.size()
+	for pi in range(n * idx / count, n * (idx + 1) / count):
+		_draw_settlement_pin(plan[pi], sc, k, font)
+	if idx != count - 1:
+		return
+	## *Ghost removed* (reference v2.11 lines 16271-16284): after every live
+	## pin, as the reference orders it, so a ghost reads as history laid
+	## over the present rather than something the present sits on.
+	for g: Dictionary in _tl_ghosts:
+		_draw_tl_ghost(g, rect, interior, sc, k, font)
+
+	if _hover_index >= 0 and _hover_index < _settlements.size():
+		_draw_hover_card(_settlements[_hover_index], rect, interior)
+
+
+## One planned settlement (`_settlement_plan_step`): the dot, or the full pin with
+## its rings, badge, glyph, trait badges and placed name. Draws exactly what
+## the plan decided; decides nothing.
+func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> void:
+	var i: int = e["i"]
+	var s: Dictionary = _settlements[i]
+	var pos: Vector2 = e["pos"]
+	var faction: int = s["faction"]
+	var color: Color = _faction_color(faction)
+	if e["dot"]:
+		var dot_r: float = LOD_DOT_RADIUS_SC * sc
+		_cv.draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, Color(0.047, 0.039, 0.027, 0.65), true, -1.0, true)
+		_cv.draw_circle(pos, dot_r, color, true, -1.0, true)
+		## *Highlight new* on the dot too: a new hamlet seen at low zoom
+		## is exactly the case the halo exists for.
+		if _tl_added_tids.has(int(s.get("tid", 0))):
+			_draw_tl_halo(pos, dot_r, sc, false)
+		return
+	var klass: Dictionary = SETTLEMENT_CLASS.get(s["kind"], SETTLEMENT_CLASS["town"])
+	var radius: float = e["radius"]
+
+	## `antialiased` (the 6th positional arg) defaults to `false` in
+	## Godot 4 -- left implicit here would draw a visibly jagged
+	## circle, worse the more a pin is magnified by camera zoom
+	## (`PIN_SCALE_REF_PX`'s own doc comment covers the zoom side of
+	## "not sharp"; this is the antialiasing side). `filled=true,
+	## width=-1.0` spelled out are just `draw_circle`'s own defaults,
+	## kept explicit because GDScript has no keyword-argument syntax
+	## to set only the trailing one.
+	##
+	## Shadow first (drawn behind, offset straight down) so the fill
+	## and outline composite over it exactly like the reference's own
+	## layering, just with one extra pass underneath.
+	_cv.draw_circle(pos + Vector2(0, PIN_SHADOW_OFFSET_SC * sc), radius, PIN_SHADOW_COLOR, true, -1.0, true)
+	_cv.draw_circle(pos, radius, color, true, -1.0, true)
+	## Stroke widths below are `* sc` for the same reason `radius` already
+	## is (`PIN_SCALE_REF_PX`'s own doc comment): `sc` carries the inverse-
+	## zoom term (`_civ_zoom_k()`) that cancels the camera's own multiply,
+	## so a quantity built from it holds constant ON-SCREEN. Left as bare
+	## local-unit literals, these five did not, and the omission was inert
+	## until real deep zoom: at the reference window/zoom this loop was
+	## authored and tested against (z<=60, `_umreveal_shot.gd`), a 1.2 or
+	## 2.5 local-unit stroke is a thin, barely-visible ring next to a
+	## radius of several local units. Past `PIN_SCALE_REF_PX`'s own
+	## `_civ_zoom_k()` note that deep zoom here runs to `lodMaxZoom()` (160
+	## on an 800 km world, 240 on 1200 km) `radius` itself shrinks toward
+	## that same tiny fraction of a local unit while these stayed fixed --
+	## so the stroke, not the disc, became the dominant shape: a capital's
+	## outline+ring measured a soft ~600 screen-px blob in faction colour
+	## swallowing the pin (and the settlement under it) at z=240, confirmed
+	## by `_pinlabelovr_probe.gd` (owner report, OnePlus 12 APK, commit
+	## 8e71a01: "labels don't fade away... obscuring the settlement"). The
+	## generated NAME label was not the defect -- it is placed off the pin
+	## by construction (`_settlement_label_candidates`) and the probe's own
+	## ink-overlap check confirms zero label pixels ever land inside the
+	## pin's radius at any zoom -- but a label sitting beside a pin that has
+	## itself ballooned into a many-hundred-pixel blob reads exactly like
+	## "the label won't get out of the way", which is how it was reported.
+	_cv.draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2 * sc, true)
+	if s["capital"]:
+		_cv.draw_arc(pos, radius + CAPITAL_RING_WIDTH * sc, 0, TAU, 28, color, CAPITAL_RING_WIDTH * sc, true)
+	## Outside the capital ring, so a diverged capital shows both.
+	## Under the coastal badge and the glyph for the same reason the
+	## landmark rejects draw under the placements: this is context
+	## about the pin, and must not win a pixel from the pin itself.
+	if _faith_diverged(s):
+		var ring_r: float = radius + CAPITAL_RING_WIDTH * sc + FAITH_RING_PAD_SC * sc
+		for a in FAITH_RING_ARCS:
+			var from: float = TAU * float(a) / float(FAITH_RING_ARCS)
+			_cv.draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
+				FAITH_RING_SHADOW, (FAITH_RING_WIDTH + 1.2) * sc, true)
+			_cv.draw_arc(pos, ring_r, from, from + FAITH_RING_SPAN, 10,
+				FAITH_RING_COLOR, FAITH_RING_WIDTH * sc, true)
+	if s.get("coastal", false):
+		var badge_r: float = COASTAL_BADGE_R_SC * sc
+		var badge_pos := pos + Vector2(radius, radius) * 0.62
+		## `+ 0.5` is the same bare-local-unit pattern as the outline/ring
+		## widths above (see that block's comment) -- scaled here too so
+		## the badge's outline ring does not outgrow the badge itself at
+		## deep zoom the same way the pin's own ring did.
+		_cv.draw_circle(badge_pos, badge_r + 0.5 * sc, COASTAL_BADGE_OUTLINE, true, -1.0, true)
+		_cv.draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
+	## *Highlight new* (reference v2.11 line 16266): after the pin and
+	## its rings, so the halo encloses them rather than sitting under.
+	if _tl_added_tids.has(int(s.get("tid", 0))):
+		_draw_tl_halo(pos, radius, sc, bool(s["capital"]))
+
+	# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
+	# 15180) -- the one per-tier visual distinguisher beyond size,
+	# centred on the pin exactly like `_draw_labels`' own straight-text
+	# path centres a region label (`v_center` trick, same reasoning).
+	# Godot's built-in theme font may not carry every one of these five
+	# dingbat glyphs (⌂●◉⬣✦) -- a missing one falls back to whatever
+	# Godot's own tofu/replacement glyph is, same disclosed limitation
+	# `_draw_labels`' own doc comment already accepts for `font` (no
+	# web-font fallback chain exists in Godot either).
+	#
+	# Sized and rasterised in SCREEN pixels (`_crisp_begin()`): the
+	# reference's `max(9, ...)` floor -- and the `8` here -- are canvas
+	# pixels at `viewT.scale == 1`, i.e. on-screen pixels, and applying
+	# them in this control's local space instead is what made both the
+	# glyph and the name below grow linearly with camera zoom while the
+	# pin under them correctly held still. `radius`/`sc` are local, so
+	# they convert with `* k`.
+	var glyph: String = klass["glyph"]
+	_crisp_begin()
+	var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
+	var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
+	var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
+	_cv.draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+		HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
+	_crisp_end()
+
+	# Trait badges, after the glyph and before the label -- the
+	# reference's own order inside `_civDrawSettlementPin` (it calls
+	# `_civDrawTraitBadges` at line 15189, then draws the name at
+	# 15196). `radius` is the reference's `sz`; note that this port
+	# adds a `+1.5` hover bump to it and the reference has no such
+	# bump, so a hovered pin's badges sit 1.5 px lower here. That is
+	# deliberate: the row must clear the pin as DRAWN, and the same
+	# `radius` feeds `_trait_drop()` in the plan, so the badges and the
+	# clearance reserved for them can never disagree.
+	_draw_trait_badges(s, pos, radius, sc, k, font)
+
+	# The name, in the box the plan placed it in (`box == null`: it fit
+	# nowhere and is dropped, as the reference drops it).
+	if e["box"] == null:
+		return
+	var name: String = s.get("name", "")
+	var box: Rect2 = e["box"]
+	var label_px: int = maxi(9, int((radius + sc) * k))
+	var v_center: float = (font.get_ascent(label_px) - font.get_descent(label_px)) / 2.0
+	var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0) * k + Vector2(0.0, v_center)
+	var outline_w: int = maxi(1, int(2.5 * sc * k))
+	_crisp_begin()
+	_cv.draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
+	_cv.draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
+	_crisp_end()
+
+
 ## CM-5 (`MAP_CONTEXT_SCOPE.md` §8.1): the phone's sample pin, drawn as a
 ## small ringed dot with a stem, the same two-pass dark-halo-then-colour trick
 ## `_draw_landmark_ring()` uses so it survives on pale terrain. No glyph: the
@@ -3288,12 +4112,12 @@ func _draw_sample_pin(rect: Rect2) -> void:
 	var col: Color = DccTheme.c("accent")
 	var halo: Color = DccTheme.c("bg")
 	var stem_end := pos + Vector2(0.0, r * 1.8)
-	draw_line(pos, stem_end, halo, 3.0, true)
-	draw_line(pos, stem_end, col, 1.4, true)
-	draw_circle(pos, r, halo, true, -1.0, true)
-	draw_arc(pos, r, 0, TAU, 24, halo, 2.4, true)
-	draw_arc(pos, r, 0, TAU, 24, col, 1.4, true)
-	draw_circle(pos, r * 0.4, col, true, -1.0, true)
+	_cv.draw_line(pos, stem_end, halo, 3.0, true)
+	_cv.draw_line(pos, stem_end, col, 1.4, true)
+	_cv.draw_circle(pos, r, halo, true, -1.0, true)
+	_cv.draw_arc(pos, r, 0, TAU, 24, halo, 2.4, true)
+	_cv.draw_arc(pos, r, 0, TAU, 24, col, 1.4, true)
+	_cv.draw_circle(pos, r * 0.4, col, true, -1.0, true)
 
 
 ## Owner ruling 14's `origin`, read back on the draw side.
@@ -3457,7 +4281,11 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 	if _landmarks_visible:
 		## The glyph inside each ring is rasterised for the size it reaches the
 		## screen at, and the camera is an ancestor scale -- read once.
-		var glyph_scale := maxf(1.0, get_screen_transform().get_scale().x)
+		## Scaled from the live camera to the zoom this draw is built for (a
+		## background chunk draws at its key's zoom, `_draw_chunk`): identical
+		## whenever the two agree, which is every settled frame.
+		var live := _live_zoom if _live_zoom > 0.0 else _camera_zoom
+		var glyph_scale := maxf(1.0, get_screen_transform().get_scale().x * _camera_zoom / maxf(live, 0.001))
 		for lm: Dictionary in _landmarks:
 			var lpos := _cell_to_screen(Vector2(float(lm.get("x", 0)), float(lm.get("y", 0))), rect)
 			if not interior.has_point(lpos):
@@ -3487,22 +4315,22 @@ func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
 	match ic["family"]:
 		"settlement":
 			var half := r * 0.85
-			draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
-			draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
+			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
+			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
 		"feature":
 			var pts := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
-			draw_colored_polygon(pts, color)
-			draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
+			_cv.draw_colored_polygon(pts, color)
+			_cv.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
 		"poi":
 			var pts2 := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
-			draw_colored_polygon(pts2, color)
-			draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
+			_cv.draw_colored_polygon(pts2, color)
+			_cv.draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
 		_: ## "custom", or any future family this build doesn't recognise yet.
-			draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
-			draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
-			draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+			_cv.draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
+			_cv.draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
+			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
 
 
 ## The drawn glyph radius in this control's local pixels -- the ONE definition
@@ -3544,11 +4372,11 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 	var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
 	var glyph := DccIcons.landmark_glyph(String(lm.get("kind", "")))
 	if glyph != "":
-		draw_circle(pos, r, LANDMARK_PLATE, true, -1.0, true)
+		_cv.draw_circle(pos, r, LANDMARK_PLATE, true, -1.0, true)
 	## Dark halo first so the ring survives on pale terrain, the same
 	## two-pass trick the settlement labels use for their outline.
-	draw_arc(pos, r, 0, TAU, 28, LANDMARK_OUTLINE, 2.4, true)
-	draw_arc(pos, r, 0, TAU, 28, col, 1.3, true)
+	_cv.draw_arc(pos, r, 0, TAU, 28, LANDMARK_OUTLINE, 2.4, true)
+	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3, true)
 	if glyph != "":
 		var side := r * LANDMARK_GLYPH_FRAC
 		var on_screen := side * glyph_scale
@@ -3559,13 +4387,13 @@ func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0)
 				break
 		var tex := DccIcons.get_icon(glyph, raster)
 		if tex != null:
-			draw_texture_rect(tex, Rect2(pos - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
+			_cv.draw_texture_rect(tex, Rect2(pos - Vector2(side, side) * 0.5, Vector2(side, side)), false, col)
 		return
 	## No glyph: the ring alone. A centre dot only on the two rare classes. On
 	## Local, where a dense world can carry hundreds, it fills the ring in and
 	## the mark stops reading as open.
 	if cls == "continental" or cls == "regional":
-		draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
+		_cv.draw_circle(pos, maxf(1.0, r * 0.22), col, true, -1.0, true)
 
 
 ## The drawn ring radius in this control's local pixels -- the ONE definition
@@ -3640,7 +4468,7 @@ func _draw_landmark_rejects(rect: Rect2, interior: Rect2) -> void:
 		if segs.is_empty():
 			continue
 		var col: Color = LM_REJECT_COLORS.get(reason, LM_REJECT_FALLBACK)
-		draw_multiline(segs, col, LM_REJECT_WIDTH, true)
+		_cv.draw_multiline(segs, col, LM_REJECT_WIDTH, true)
 
 
 ## §4.5.5's Label tool: user-authored region-name text, angled/arched in the
@@ -3650,10 +4478,24 @@ func _draw_landmark_rejects(rect: Rect2, interior: Rect2) -> void:
 ## rather than approximating curved text, since a region label's curve is
 ## itself user-authored content (dragged into shape via the arc handle),
 ## not decoration.
-func _draw_labels(rect: Rect2, interior: Rect2) -> void:
+##
+## `from`/`to` draw only `_labels[from .. to)` (the top layer's chunks,
+## `_draw_top_chunk`); `to < 0` means to the end.
+##
+## **Off-view labels are skipped** (2026-09-28, the layer cache): a label whose
+## anchor lies farther outside `_visible_local` (the layer's guard rect) than
+## the label could reach -- its whole run width plus two font sizes, in local
+## pixels, which bounds a straight run's half-width and an arc's chord from its
+## anchor -- cannot put a pixel on screen. Drawing it anyway cost a glyph
+## rasterisation at every new zoom's raster size for text nobody could see:
+## 4-27 ms a notch at zoom >= 8. Moves no pixel on screen.
+func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> void:
 	if _labels.is_empty():
 		return
-	for lb: Dictionary in _labels:
+	if to < 0 or to > _labels.size():
+		to = _labels.size()
+	for li in range(from, to):
+		var lb: Dictionary = _labels[li]
 		var text: String = lb["text"]
 		if text.is_empty():
 			continue
@@ -3670,6 +4512,10 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			continue
 		var font := _label_font_for(lb)
 		var font_px := _label_font_px(lb, rect)
+		var reach := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
+		if not _visible_local.grow(reach).has_point(pos):
+			continue
 		## Rasterise at the size this label actually occupies ON SCREEN, then
 		## divide the whole glyph run back down, so the camera's own multiply
 		## lands on 1:1 pixels -- `_crisp_begin()`'s trick, folded into each of
@@ -3738,19 +4584,19 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			if track_px == 0.0 and not italic:
 				var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
 				var local_pos := Vector2(-full_w / 2.0, v_center) * kk
-				draw_set_transform(pos, th, Vector2(sk, sk))
-				draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
-				draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
+				_cv.draw_set_transform(pos, th, Vector2(sk, sk))
+				_cv.draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				_cv.draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 				continue
 			var widths := _glyph_advances(font, text, font_px, track_px)
 			var run_w: float = widths[text.length()]   ## the accumulated total
-			draw_set_transform_matrix(_label_xform(pos, th, italic) * shrink)
+			_cv.draw_set_transform_matrix(_label_xform(pos, th, italic) * shrink)
 			for i in text.length():
 				var gp := Vector2(widths[i] - run_w / 2.0, v_center) * kk
 				var ch := text[i]
 				if outline_w > 0:
-					draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
-				draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
+					_cv.draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				_cv.draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			continue
 
 		## The arc layout is untouched -- every term below is the local-pixel
@@ -3770,12 +4616,12 @@ func _draw_labels(rect: Rect2, interior: Rect2) -> void:
 			var glyph_local := Vector2(radius * sin(theta), dir_sign * radius * (1.0 - cos(theta)))
 			var world_pt := pos + glyph_local.rotated(th)
 			var local_pos2 := Vector2(-w / 2.0, v_center) * kk
-			draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic) * shrink)
+			_cv.draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic) * shrink)
 			if outline_w > 0:
-				draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
-			draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
+				_cv.draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+			_cv.draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			acc += w + track_px
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## Running left edges for each glyph, plus the run's own total at index `n`.
@@ -3908,7 +4754,27 @@ func _run_offscreen(pts: PackedVector2Array, k: float, pad: float) -> bool:
 		.grow(pad + 1.0).intersects(box)
 
 
-## Per-segment culling, the residue this function's own doc above always
+## `_run_offscreen`'s own question, asked of the run's GRID-space bounding box
+## (`_run_boxes_for`) BEFORE a single point is converted (2026-09-28, the
+## layer cache). At deep zoom most runs are off screen, and converting every
+## point of every way only to reject the run afterwards was the largest single
+## cost of a roads redraw at x16: 12 ms of 18 in the timed sections
+## (`_zoomcost_probe --layer-costs` with section timers, seed 24601). The box
+## maps into local space by the same affine map `_point_to_screen` applies, and
+## the view is widened by one more pixel than `_run_offscreen`'s, so a run the
+## exact test would keep is never dropped here by rounding -- what this rejects,
+## `_run_offscreen` would have rejected too, so it moves no pixel. `Rect2()`
+## (no box passed) is never culled here.
+func _grid_box_offscreen(gbox: Rect2, rect: Rect2, pad: float) -> bool:
+	if gbox == Rect2() or _gw <= 0 or _gh <= 0:
+		return false
+	var cell := Vector2(rect.size.x / float(_gw), rect.size.y / float(_gh))
+	var local := Rect2(rect.position + gbox.position * cell, gbox.size * cell)
+	var k := maxf(_camera_zoom, 0.001)
+	return not _visible_local.grow((pad + 2.0) / k).intersects(local)
+
+
+## Per-segment culling, the residue `_run_offscreen`'s own doc above always
 ## admitted: `_run_offscreen` rejects at whole-**run** granularity, so one
 ## long way whose bounding box crosses the window still has its whole run
 ## walked and dashed even though most of it never nears the window
@@ -4126,12 +4992,19 @@ func _dash_phase_track(points: PackedVector2Array, dash_len: float, gap_len: flo
 ## `_crisp_begin()` block: `_point_to_screen` gives this control's local space,
 ## and `* k` is the last step into the space the stroke must be built in. One
 ## place rather than three identical loops.
+##
+## **One engine call, not a GDScript loop** (2026-09-28, the layer cache): the
+## map is `_point_to_screen`'s affine map times `k`, written as a
+## `Transform2D` and applied to the whole slice natively. The loop it replaces
+## (`(rect.position + p / grid * rect.size) * k` per point) cost 5.4 ms of a
+## 23 ms roads redraw at fit. The two round differently in the last float bit
+## -- the same map, a different operation order -- which can move an
+## antialiased edge by one level on a pixel; `_zoomcost_probe --shots` before
+## and after is the check that it did not visibly.
 func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect2, k: float) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	out.resize(end - start)
-	for i in range(start, end):
-		out[i - start] = _point_to_screen(points[i], rect) * k
-	return out
+	var xf := Transform2D(Vector2(rect.size.x / float(_gw) * k, 0.0),
+		Vector2(0.0, rect.size.y / float(_gh) * k), rect.position * k)
+	return xf * points.slice(start, end)
 
 
 ## **The base view's rivers** (below the deep-zoom switch). Owner, 2026-09-27:
@@ -4179,22 +5052,51 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## as the water's coverage rises, discarding where it is full. With no field
 ## (the reference look, an older binary) both fall back to the cell coast and
 ## the nearest-sampled mask above.
-func _draw_rivers(rect: Rect2) -> void:
-	## The stroke lives on `_river_item`, which no `queue_redraw` clears: clear
-	## it first, every call, so a stroke never outlives the draw that made it.
-	## Then the old texture can go whichever way this returns.
-	var ci := _river_item()
+##
+## **Since the layer cache (2026-09-28) the stroke is built in chunks**, each
+## its own canvas item, two sets of them (see "Layer cache"): chunk `idx` of
+## `count` is the runs `[n*idx/count, n*(idx+1)/count)` of the network's `n`
+## (`WorldGen::river_view_mesh_runs`), so the chunks in order are the one
+## stroke in its draw order (tributaries before the trunk they join), and a
+## zoom can rebuild it a few chunks a frame. Built for the key's zoom and guard
+## rect, not the live camera's, so a set never mixes two zooms. An older
+## binary without the ranged call draws the whole stroke in chunk 0.
+func _build_river_chunk(slot: int, idx: int) -> void:
+	var L: Dictionary = _layers["rivers"]
+	## Cleared first, every call, so a stroke never outlives the build that
+	## made it: no `queue_redraw` reaches a raw RID.
+	var ci: RID = L["items"][slot][idx]
 	RenderingServer.canvas_item_clear(ci)
-	_river_tex = null
-	if _river_source == null or _lod_up or _debug_active:
+	var key: Dictionary = L["keys"][slot]
+	if key.is_empty():
+		return
+	var t0 := Time.get_ticks_usec()
+	_draw_rivers_into(ci, key, slot, idx, int(L["count"]))
+	_chunk_done("rivers", slot, idx, float(Time.get_ticks_usec() - t0))
+
+
+func _draw_rivers_into(ci: RID, key: Dictionary, slot: int, idx: int, count: int) -> void:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0 or _river_source == null or key["extra"][0] or key["extra"][1]:
+		return
+	## -1 (or no method): an older binary or a test double -- draw the stroke
+	## whole, in chunk 0, as before the chunking.
+	var runs: int = int(_river_source.river_run_count()) if _river_source.has_method("river_run_count") else -1
+	var ranged := runs >= 0 and _river_source.has_method("river_view_mesh_runs")
+	if not ranged and idx > 0:
 		return
 	var tex: Texture2D = _river_source.river_color_texture()
 	if tex == null:
 		return
-	_river_tex = tex
+	## Held per set for as long as that set stands (the canvas command keeps
+	## only the texture's RID).
+	_layers["rivers"]["tex"][slot] = tex
 	var mask: Texture2D = _river_source.river_water_mask() if _river_source.has_method("river_water_mask") else null
-	## Held by the material for as long as this draw stands, as `_river_tex`
-	## is held for the colour texture (the canvas command keeps only RIDs).
+	## Held by the material for as long as this set stands, as the colour
+	## texture is held above (the canvas command keeps only RIDs). One material
+	## for every chunk of both sets: its parameters depend on the content and
+	## the control's size only, which a background build never changes (a
+	## content change rebuilds the front and drops any background build).
 	_river_material.set_shader_parameter("water_mask", mask)
 	## RV-4: the map's smooth shoreline, when it draws one (the same field
 	## `viewport_host.gd::_apply_shore_field` hands the map), so the water that
@@ -4207,31 +5109,31 @@ func _draw_rivers(rect: Rect2) -> void:
 		_river_material.set_shader_parameter("mask_map", Vector4((rect.position.x - tr.position.x) / tr.size.x,
 			(rect.position.y - tr.position.y) / tr.size.y, rect.size.x / tr.size.x, rect.size.y / tr.size.y))
 	RenderingServer.canvas_item_set_material(ci, _river_material.get_rid() if mask != null or fld != null else RID())
-	var k := maxf(_camera_zoom, 0.001)
+	var k := maxf(float(key["zoom"]), 0.001)
 	## `_crisp_begin`'s own transform, on the child item.
 	RenderingServer.canvas_item_add_set_transform(ci, Transform2D(0.0, Vector2(1.0 / k, 1.0 / k), 0.0, Vector2.ZERO))
 	## Screen px per grid cell times the crisp `k`: a width in cells times
 	## this is a width on the ground in screen pixels.
 	var scale := Vector2(rect.size.x / maxf(1.0, float(_gw)), rect.size.y / maxf(1.0, float(_gh))) * k
 	var offset := rect.position * k
-	var view := Rect2(_visible_local.position * k, _visible_local.size * k)
-	var mesh: Dictionary = _river_source.river_view_mesh(scale, offset, view)
-	var idx: PackedInt32Array = mesh.get("indices", PackedInt32Array())
-	if not idx.is_empty():
-		RenderingServer.canvas_item_add_triangle_array(ci, idx, mesh["points"], mesh["colors"],
+	## The key's guard rect, not the exact view: the set outlives the frame it
+	## was built in, for every pan that stays inside the guard.
+	var guard: Rect2 = key["guard"]
+	var view := Rect2(guard.position * k, guard.size * k)
+	var mesh: Dictionary
+	if ranged:
+		var lo := runs * idx / count
+		mesh = _river_source.river_view_mesh_runs(scale, offset, view, lo, runs * (idx + 1) / count - lo)
+	else:
+		mesh = _river_source.river_view_mesh(scale, offset, view)
+	var tri: PackedInt32Array = mesh.get("indices", PackedInt32Array())
+	if not tri.is_empty():
+		RenderingServer.canvas_item_add_triangle_array(ci, tri, mesh["points"], mesh["colors"],
 			mesh["uvs"], PackedInt32Array(), PackedFloat32Array(), tex.get_rid())
 
 
-## The base view's river stroke's own canvas item, created on first use: a
-## child of this overlay's item, drawn BEHIND it (so under the roads, pins and
-## labels this overlay draws, where the stroke always sat), carrying the
-## water-mask material only the stroke must get (the mask, and since RV-4 the
-## smooth shoreline's field, whichever the map draws by). Linear texture filtering,
-## which is what the overlay's own item resolved to (the viewport default)
-## when the stroke was drawn there. Freed with the overlay (`_notification`).
-## Must never receive anything but the river stroke: the shader discards on
-## water.
-var _river_ci := RID()
+## The river stroke's shader material, shared by every chunk item
+## (`_river_item_new`), created with the first of them.
 var _river_material: ShaderMaterial = null
 const RIVER_UNDER_WATER := preload("res://shell/river_under_water.gdshader")
 
@@ -4258,15 +5160,24 @@ func _map_texture_rect() -> Rect2:
 	return Rect2((size.x - float(tex_w)) / 2.0, (size.y - float(tex_h)) / 2.0, float(tex_w), float(tex_h))
 
 
-func _river_item() -> RID:
-	if not _river_ci.is_valid():
-		_river_ci = RenderingServer.canvas_item_create()
-		RenderingServer.canvas_item_set_parent(_river_ci, get_canvas_item())
-		RenderingServer.canvas_item_set_draw_behind_parent(_river_ci, true)
-		RenderingServer.canvas_item_set_default_texture_filter(_river_ci, RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_LINEAR)
+## One chunk item of the base view's river stroke: a raw canvas item, child of
+## this overlay's, drawn BEHIND it (so under every layer item, where the
+## stroke always sat), ordered among the chunks by `idx`, carrying the water-
+## mask material only the stroke must get (the mask, and since RV-4 the smooth
+## shoreline's field, whichever the map draws by). Linear texture filtering,
+## which is what the overlay's own item resolved to (the viewport default) when
+## the stroke was drawn there. Freed with the overlay (`_notification`). Must
+## never receive anything but the river stroke: the shader discards on water.
+func _river_item_new(idx: int) -> RID:
+	var ci := RenderingServer.canvas_item_create()
+	RenderingServer.canvas_item_set_parent(ci, get_canvas_item())
+	RenderingServer.canvas_item_set_draw_behind_parent(ci, true)
+	RenderingServer.canvas_item_set_draw_index(ci, idx)
+	RenderingServer.canvas_item_set_default_texture_filter(ci, RenderingServer.CANVAS_ITEM_TEXTURE_FILTER_LINEAR)
+	if _river_material == null:
 		_river_material = ShaderMaterial.new()
 		_river_material.shader = RIVER_UNDER_WATER
-	return _river_ci
+	return ci
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
@@ -4305,12 +5216,14 @@ func _river_item() -> RID:
 ## identifies a way's type, and stretching it on a busy track would make the
 ## track read as a different tier.
 func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
-		style: Dictionary, load_k: float = 1.0) -> void:
+		style: Dictionary, load_k: float = 1.0, gbox: Rect2 = Rect2()) -> void:
 	if end - start < 2:
+		return
+	var pad: float = style["under_w"] * _way_scale * load_k * 0.5
+	if _grid_box_offscreen(gbox, rect, pad):
 		return
 	var k := _crisp_begin()
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	var pad: float = style["under_w"] * _way_scale * load_k * 0.5
 	if _run_offscreen(screen_points, k, pad):
 		_crisp_end()
 		return
@@ -4335,7 +5248,7 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 	## so a wider road gets a proportionally longer dash rather than a wide line
 	## chopped into the same fine ticks.
 	for chain in chains:
-		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(style["under"]),
+		_cv.draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(style["under"]),
 			style["under_w"] * _way_scale * load_k, true)
 	for chain in chains:
 		var seg := screen_points.slice(chain.x, chain.y + 1)
@@ -4343,7 +5256,7 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 			_draw_dashed_polyline(seg, _way_ink(style["over"]),
 				style["over_w"] * _way_scale * load_k, dash, gap, track[chain.x])
 		else:
-			draw_polyline(seg, _way_ink(style["over"]),
+			_cv.draw_polyline(seg, _way_ink(style["over"]),
 				style["over_w"] * _way_scale * load_k, true)
 	_crisp_end()
 
@@ -4367,12 +5280,15 @@ func _way_ink(c: Color) -> Color:
 ## inside the "on" portion and rendered as a solid line, not dashed (caught
 ## by the real-app screenshot verification this milestone requires, not
 ## assumed).
-func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
+func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		gbox: Rect2 = Rect2()) -> void:
 	if end - start < 2:
+		return
+	var pad: float = SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5
+	if _grid_box_offscreen(gbox, rect, pad):
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
-	var pad: float = SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5
 	if _run_offscreen(screen_points, k, pad):
 		_crisp_end()
 		return
@@ -4382,7 +5298,7 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 	## Two passes, not one -- see `_draw_way_segment`'s own note on why order
 	## matters the moment a run's chains can cross each other on screen.
 	for chain in chains:
-		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_UNDERLAY),
+		_cv.draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_UNDERLAY),
 			SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
 	for chain in chains:
 		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_DASH_COLOR),
@@ -4411,8 +5327,8 @@ func _draw_conflict(c: Dictionary, rect: Rect2) -> void:
 	match String(c.get("kind", "")):
 		"front", "arrow":
 			if sp.size() >= 2:
-				draw_polyline(sp, under, w + 2.4, true)
-				draw_polyline(sp, ink, w, true)
+				_cv.draw_polyline(sp, under, w + 2.4, true)
+				_cv.draw_polyline(sp, ink, w, true)
 				if String(c.get("kind")) == "front":
 					_draw_front_teeth(sp, ink, 7.0 * _way_scale)
 				else:
@@ -4421,28 +5337,28 @@ func _draw_conflict(c: Dictionary, rect: Rect2) -> void:
 					var n := Vector2(-d.y, d.x)
 					var s := 11.0 * _way_scale
 					var head := PackedVector2Array([tip + d * s * 0.4, tip - d * s + n * s * 0.6, tip - d * s - n * s * 0.6])
-					draw_colored_polygon(head, ink)
+					_cv.draw_colored_polygon(head, ink)
 		"siege":
 			var r := 12.0 * _way_scale
-			draw_arc(sp[0], r, 0.0, TAU, 40, under, w + 2.4, true)
-			draw_arc(sp[0], r, 0.0, TAU, 40, ink, w, true)
+			_cv.draw_arc(sp[0], r, 0.0, TAU, 40, under, w + 2.4, true)
+			_cv.draw_arc(sp[0], r, 0.0, TAU, 40, ink, w, true)
 			for i in 8:   ## crenellations: the siege-works ring of an atlas plate
 				var a := TAU * float(i) / 8.0
 				var dir := Vector2(cos(a), sin(a))
-				draw_line(sp[0] + dir * r, sp[0] + dir * (r + 5.0 * _way_scale), ink, w, true)
+				_cv.draw_line(sp[0] + dir * r, sp[0] + dir * (r + 5.0 * _way_scale), ink, w, true)
 		"battle":
 			var s2 := 8.0 * _way_scale
 			for dv in [Vector2(1, 1), Vector2(1, -1)]:
 				var a2: Vector2 = sp[0] - dv * s2
 				var b2: Vector2 = sp[0] + dv * s2
-				draw_line(a2, b2, under, w + 2.4, true)
-				draw_line(a2, b2, ink, w, true)
+				_cv.draw_line(a2, b2, under, w + 2.4, true)
+				_cv.draw_line(a2, b2, ink, w, true)
 	var title := String(c.get("name", ""))
 	if not title.is_empty():
 		var font := get_theme_default_font()
 		var at := sp[0] + Vector2(10, -10)
-		draw_string_outline(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, under)
-		draw_string(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
+		_cv.draw_string_outline(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 3, under)
+		_cv.draw_string(font, at, title, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, ink)
 	_crisp_end()
 
 ## One Ruling AW campaign row (see `_campaigns`).
@@ -4451,7 +5367,7 @@ func _draw_campaign(c: Dictionary, runs: Array, rect: Rect2) -> void:
 		return
 	var cell := Vector2(rect.size.x / _gw, rect.size.y / _gh)
 	for r: Rect2 in runs:
-		draw_rect(Rect2(rect.position + r.position * cell, r.size * cell), CAMPAIGN_WASH, true)
+		_cv.draw_rect(Rect2(rect.position + r.position * cell, r.size * cell), CAMPAIGN_WASH, true)
 	var k := _crisp_begin()
 	var w := 2.4 * _way_scale
 	var seg: PackedVector2Array = c.get("front_segments", PackedVector2Array())
@@ -4460,19 +5376,19 @@ func _draw_campaign(c: Dictionary, runs: Array, rect: Rect2) -> void:
 		sp.resize(seg.size())
 		for i in seg.size():
 			sp[i] = _point_to_screen(seg[i], rect) * k
-		draw_multiline(sp, CONFLICT_UNDERLAY, w + 2.4)
-		draw_multiline(sp, CONFLICT_COLOR, w)
+		_cv.draw_multiline(sp, CONFLICT_UNDERLAY, w + 2.4)
+		_cv.draw_multiline(sp, CONFLICT_COLOR, w)
 	var siege: Dictionary = c.get("siege", {})
 	if siege.has("centre") and siege.has("radius_cells"):
 		var ctr := _point_to_screen(siege["centre"], rect) * k
 		var r := float(siege["radius_cells"]) * cell.x * k
-		draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_UNDERLAY, w + 2.4, true)
-		draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_COLOR, w, true)
+		_cv.draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_UNDERLAY, w + 2.4, true)
+		_cv.draw_arc(ctr, r, 0.0, TAU, 64, CONFLICT_COLOR, w, true)
 		var tick := minf(5.0 * _way_scale, r * 0.5)
 		for i in 16:   ## ticks facing the besieged place: the contravallation
 			var a := TAU * float(i) / 16.0
 			var dir := Vector2(cos(a), sin(a))
-			draw_line(ctr + dir * r, ctr + dir * (r - tick), CONFLICT_COLOR, w, true)
+			_cv.draw_line(ctr + dir * r, ctr + dir * (r - tick), CONFLICT_COLOR, w, true)
 	_crisp_end()
 
 ## A front line's teeth: small triangles on the polyline's left-hand side
@@ -4491,7 +5407,7 @@ func _draw_front_teeth(sp: PackedVector2Array, ink: Color, size: float) -> void:
 		var t := carry
 		while t < L:
 			var base := a + d * t
-			draw_colored_polygon(PackedVector2Array([base - d * size * 0.5, base + d * size * 0.5, base + n * size]), ink)
+			_cv.draw_colored_polygon(PackedVector2Array([base - d * size * 0.5, base + d * size * 0.5, base + n * size]), ink)
 			t += spacing
 		carry = t - L
 
@@ -4517,7 +5433,7 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 	## Two passes, not one -- see `_draw_way_segment`'s own note on why order
 	## matters the moment a run's chains can cross each other on screen.
 	for chain in chains:
-		draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(MANUAL_ROUTE_UNDERLAY),
+		_cv.draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(MANUAL_ROUTE_UNDERLAY),
 			(MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH) * _way_scale, true)
 	for chain in chains:
 		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1),
@@ -4545,11 +5461,19 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 ## so the visible dash pattern is identical to what an unculled draw of the
 ## whole run would have painted at that same point along it, culled lead-in
 ## included.
+##
+## **Every dash of one call goes out as ONE `draw_multiline`** (2026-09-28, the
+## layer cache), where each dash used to be its own `draw_line` command: a
+## dashed road at fit was thousands of canvas commands, 12.8 ms of a 23 ms roads
+## redraw, and every one of them was re-submitted by the renderer every frame
+## after it. The dashes, their endpoints, width, colour and antialiasing are the
+## same; `_zoomcost_probe --shots` before and after is the check.
 func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0, start_phase: float = 0.0) -> void:
 	if gap_len < 0.0:
 		gap_len = dash_len
 	var period := dash_len + gap_len
 	var phase := start_phase
+	var dashes := PackedVector2Array()
 	for i in range(points.size() - 1):
 		var p0 := points[i]
 		var p1 := points[i + 1]
@@ -4574,9 +5498,12 @@ func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: floa
 			# progress; the resulting overshoot is invisible.
 			var step := maxf(minf(remaining_in_state, seg_len - traveled), 0.001)
 			if on:
-				draw_line(p0 + dir * traveled, p0 + dir * (traveled + step), color, width, true)
+				dashes.append(p0 + dir * traveled)
+				dashes.append(p0 + dir * (traveled + step))
 			traveled += step
 			phase += step
+	if not dashes.is_empty():
+		_cv.draw_multiline(dashes, color, width, true)
 
 
 func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
@@ -4613,11 +5540,11 @@ func _draw_card(pos: Vector2, lines: Array, interior: Rect2) -> void:
 	# top comment). Matches the shell's own surface/border/emphasis tokens
 	# (`theme/dark_theme.tres`): near-black card fill, accent border,
 	# emphasis-toned text.
-	draw_rect(Rect2(card_pos, card_size), Color(0.051, 0.055, 0.059, 0.96), true)
-	draw_rect(Rect2(card_pos, card_size), Color(0.878, 0.639, 0.290, 1.0), false, 1.5)
+	_cv.draw_rect(Rect2(card_pos, card_size), Color(0.051, 0.055, 0.059, 0.96), true)
+	_cv.draw_rect(Rect2(card_pos, card_size), Color(0.878, 0.639, 0.290, 1.0), false, 1.5)
 	for j in lines.size():
 		var text_pos := card_pos + Vector2(pad, pad + line_h * (j + 1) - font.get_descent(font_size))
-		draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.910, 0.922, 0.925))
+		_cv.draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.910, 0.922, 0.925))
 
 
 ## The hover card's religion lines, or **nothing at all**.
@@ -5281,10 +6208,13 @@ func _process(_delta: float) -> void:
 		context_requested.emit(req)
 
 func _notification(what: int) -> void:
-	## `_river_item()`'s canvas item is a raw RID, which nothing else frees.
-	if what == NOTIFICATION_PREDELETE and _river_ci.is_valid():
-		RenderingServer.free_rid(_river_ci)
-		_river_ci = RID()
+	## The river chunk items (`_river_item_new`) are raw RIDs, which nothing
+	## else frees. The layer items that are nodes go with the tree.
+	if what == NOTIFICATION_PREDELETE and _layers.has("rivers"):
+		for slot_items in _layers["rivers"]["items"]:
+			for ci: RID in slot_items:
+				RenderingServer.free_rid(ci)
+		_layers["rivers"]["items"] = [[], []]
 	if what == NOTIFICATION_MOUSE_EXIT:
 		cursor_sampled.emit(0.0, 0.0, false)
 		if _hover_index != -1:
@@ -5472,7 +6402,25 @@ func _urban_layout_alpha(rect: Rect2) -> float:
 	return (UM_FADE_FAR_KM - span) / (UM_FADE_FAR_KM - UM_FADE_NEAR_KM)
 
 
-func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
+## The settlement indices whose town layout the mid layer draws for the current
+## view, in roster order -- `_urban_plan_update`'s answer, `_draw_urban_layouts`
+## reads it.
+var _urban_draw_list := PackedInt32Array()
+
+
+## **Which towns draw, and which pins stand down, for the current view** -- the
+## deciding half of what `_draw_urban_layouts` did in one pass until the layer
+## cache (2026-09-28). Split out because the settlements' cached layer is keyed
+## on the revealed set (`_desired_key`), so it must be known BEFORE any layer
+## draws, not discovered while the town layer draws. Rebuilds
+## `_urban_revealed` and `_urban_draw_list` and asks for missing layouts,
+## exactly as the draw did. Called on every content draw and camera move
+## (`_refresh_layers`). Must never draw.
+func _urban_plan_update(rect: Rect2, interior: Rect2) -> void:
+	_urban_revealed.clear()
+	_urban_draw_list = PackedInt32Array()
+	if not _show_urban_layouts or rect.size.x <= 0.0:
+		return
 	var alpha := _urban_layout_alpha(rect)
 	if alpha <= 0.0:
 		return
@@ -5510,7 +6458,35 @@ func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
 			if need.size() < URBAN_BATCH_MAX:
 				need.append(i)
 			continue
-		var layout = _urban_layouts[i]
+		if _urban_layouts[i] == null:
+			continue
+		_urban_draw_list.append(i)
+		## The pin hands over only at the *end* of the crossfade. The reference
+		## fades it instead (`pinAlpha = 1 - _umAlpha`, line 15778) and this
+		## does not: a pin here is a disc, an outline, a glyph, a capital ring
+		## and a label, each with its own colour constant, so fading it means
+		## threading an alpha through five draw calls to soften two seconds of
+		## transition. Holding the pin until the layout is fully opaque keeps
+		## the thing you are navigating by legible for the whole fade, which is
+		## the half of that behaviour that matters. Stated, not silent.
+		if alpha >= 1.0:
+			_urban_revealed[i] = true
+
+	if need.size() > 0 and not _urban_pending:
+		_urban_pending = true
+		urban_layouts_needed.emit.call_deferred(need)
+
+
+## Draws the towns `_urban_plan_update` chose, in its order, into the mid layer.
+func _draw_urban_layouts(rect: Rect2) -> void:
+	var alpha := _urban_layout_alpha(rect)
+	var m_scale := _urban_m_scale(rect)
+	if alpha <= 0.0 or m_scale <= 0.0:
+		return
+	var box_px := URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom
+	for i in _urban_draw_list:
+		var s: Dictionary = _settlements[i]
+		var layout = _urban_layouts.get(i)
 		if layout == null:
 			continue
 		## `_umDrawLayout`'s own transform: local model metres, measured from
@@ -5537,20 +6513,6 @@ func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
 		## `box_px / 155` pixels -- under `URBAN_FINE_BOX_PX` those passes are
 		## drawing sub-pixel detail over and over. The City Viewer, which is
 		## the place a town is actually looked at, always passes 1.0.
-		URBAN_DRAW.draw_layout(self, layout, to_screen, m_scale,
+		URBAN_DRAW.draw_layout(_cv, layout, to_screen, m_scale,
 			1.0 / maxf(0.001, _camera_zoom), alpha, false,
 			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0)
-		## The pin hands over only at the *end* of the crossfade. The reference
-		## fades it instead (`pinAlpha = 1 - _umAlpha`, line 15778) and this
-		## does not: a pin here is a disc, an outline, a glyph, a capital ring
-		## and a label, each with its own colour constant, so fading it means
-		## threading an alpha through five draw calls to soften two seconds of
-		## transition. Holding the pin until the layout is fully opaque keeps
-		## the thing you are navigating by legible for the whole fade, which is
-		## the half of that behaviour that matters. Stated, not silent.
-		if alpha >= 1.0:
-			_urban_revealed[i] = true
-
-	if need.size() > 0 and not _urban_pending:
-		_urban_pending = true
-		urban_layouts_needed.emit.call_deferred(need)

@@ -2796,10 +2796,17 @@ func _update_lod() -> void:
 	## panned onto never requesting its layout. Measured 2026-09-23
 	## (`_owner5_probe.gd --rivdbg`, z=32): 0 river/road pixels after a
 	## zoom-then-move, all of them back after an explicit redraw. Every camera
-	## move reaches this function, which is why the redraw lives here; Godot
-	## coalesces it to one `_draw()` per frame however many motions arrive.
+	## move reaches this function, which is why the refresh lives here.
+	##
+	## `view_changed()`, not `queue_redraw()`, since the overlay's layer cache
+	## (2026-09-28, `map_overlay.gd` "Layer cache"; Ruling BP's 16.7 ms bar): a
+	## full redraw here re-ran every layer on every move -- 36 ms a frame
+	## panning at x16. `view_changed()` redraws only the cheap per-move layers
+	## and rebuilds a cached layer only when the move left its guard rect or
+	## changed the zoom it was built for. A content change must still use
+	## `queue_redraw()` (see `map_overlay.gd::_draw`).
 	if overlay != null:
-		overlay.queue_redraw()
+		overlay.view_changed()
 	if not _engine_readable():
 		_set_lod_active(false)
 		return

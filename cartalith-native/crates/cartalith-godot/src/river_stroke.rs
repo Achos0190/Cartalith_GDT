@@ -1317,9 +1317,33 @@ fn for_each_span(
     to_raster: impl Fn((f32, f32)) -> (f32, f32),
     style: impl Fn([f32; 4], f32) -> [f32; 4],
     view: Option<(f32, f32, f32, f32)>,
+    sink: impl FnMut(StripMesh),
+) {
+    for_each_span_in(geom, 0..geom.runs.len(), a, ppc, widen, to_raster, style, view, sink);
+}
+
+/// [`for_each_span`] over the runs `runs` only (a sub-range of
+/// `geom.runs`, clamped to it), still in draw order. Added for the base
+/// view's chunked stroke (`map_overlay.gd`'s layer cache, 2026-09-28): the
+/// overlay rebuilds the stroke a few run ranges a frame after a zoom, and
+/// consecutive ranges covering `0..len` walk exactly the spans one whole call
+/// walks, in the same order -- a run's spans depend on that run alone. Must
+/// never reorder runs within the range.
+#[allow(clippy::too_many_arguments)]
+fn for_each_span_in(
+    geom: &RiverGeometry,
+    runs: std::ops::Range<usize>,
+    a: &render::TerrainAppearance,
+    ppc: f32,
+    widen: f32,
+    to_raster: impl Fn((f32, f32)) -> (f32, f32),
+    style: impl Fn([f32; 4], f32) -> [f32; 4],
+    view: Option<(f32, f32, f32, f32)>,
     mut sink: impl FnMut(StripMesh),
 ) {
-    for run in &geom.runs {
+    let len = geom.runs.len();
+    let (lo, hi) = (runs.start.min(len), runs.end.min(len));
+    for run in geom.runs.get(lo..hi.max(lo)).unwrap_or(&[]) {
         let n = run.pts.len();
         if run.widths.len() != n || run.colors.len() != n || run.orders.len() != n || run.discharge.len() != n {
             continue;
@@ -1535,36 +1559,101 @@ impl WorldGen {
     /// wrapper refuses, for the `Gd<T>::bind()` reason `get_rivers()` has).
     #[func]
     fn river_view_mesh(&self, scale: Vector2, offset: Vector2, view: Rect2) -> VarDictionary {
-        let mut out_p: Vec<Vector2> = Vec::new();
-        let mut out_c: Vec<Color> = Vec::new();
-        let mut out_uv: Vec<Vector2> = Vec::new();
-        let mut out_i: Vec<i32> = Vec::new();
-        let (gw, gh) = (self.gw.max(1) as f32, self.gh.max(1) as f32);
-        if let Some(g) = self.river_geometry() {
-            let a = self.appearance();
-            let ppc = (scale.x * scale.y).abs().sqrt();
-            let vr = Some((view.position.x, view.position.y, view.size.x, view.size.y));
-            let to = |q: (f32, f32)| (offset.x + q.0 * scale.x, offset.y + q.1 * scale.y);
-            let (sx, sy) = (if scale.x != 0.0 { scale.x } else { 1.0 }, if scale.y != 0.0 { scale.y } else { 1.0 });
-            for_each_span(&g, &a, ppc, 0.0, to, |_, am| [1.0, 1.0, 1.0, am], vr, |m| {
-                let b = out_p.len() as i32;
-                for q in &m.pts {
-                    out_p.push(Vector2::new(q.0, q.1));
-                    // Back to river space, then to the texture's UV: texel
-                    // `x` spans `[x, x+1]` of river space.
-                    out_uv.push(Vector2::new((q.0 - offset.x) / sx / gw, (q.1 - offset.y) / sy / gh));
-                }
-                out_c.extend(m.colors.iter().map(|k| Color::from_rgba(k[0], k[1], k[2], k[3])));
-                out_i.extend(m.indices.iter().map(|&i| b + i));
-            });
+        self.river_view_mesh_range(scale, offset, view, 0..usize::MAX)
+    }
+
+    /// [`Self::river_view_mesh`] for the runs `first .. first + count` of the
+    /// network only (clamped to it; negative arguments read as 0), in draw
+    /// order -- one CHUNK of the base view's stroke. `map_overlay.gd`'s layer
+    /// cache (2026-09-28, Ruling BP's 16.7 ms bar) rebuilds the stroke after a
+    /// zoom a few chunks a frame, each chunk its own canvas item drawn in
+    /// chunk order, instead of the whole ~24 ms mesh inside one frame.
+    /// Consecutive ranges covering [`Self::river_run_count`] give exactly the
+    /// triangles of one whole call, in the same order (each chunk's indices
+    /// are its own, from 0). Same refusals and empties as the whole call.
+    #[func]
+    fn river_view_mesh_runs(&self, scale: Vector2, offset: Vector2, view: Rect2, first: i64, count: i64) -> VarDictionary {
+        let lo = first.max(0) as usize;
+        let hi = lo.saturating_add(count.max(0) as usize);
+        self.river_view_mesh_range(scale, offset, view, lo..hi)
+    }
+
+    /// How many runs the base view's stroke has ([`RiverGeometry::runs`]),
+    /// the range [`Self::river_view_mesh_runs`] chunks over. 0 with no
+    /// network (before any world, a loaded save). Reads only.
+    #[func]
+    fn river_run_count(&self) -> i64 {
+        self.river_geometry().map_or(0, |g| g.runs.len() as i64)
+    }
+}
+
+/// The base view's stroke over the runs `runs` as flat arrays -- the whole of
+/// `WorldGen::river_view_mesh`'s work, kept free of Godot types so a unit test
+/// can compare a chunked build with a whole one. `points` in screen pixels,
+/// `colors` white at the seam's alpha, `uvs` into the `gw x gh` colour
+/// texture, `indices` from 0 into this call's own `points`.
+pub struct ViewMesh {
+    pub points: Vec<(f32, f32)>,
+    pub colors: Vec<[f32; 4]>,
+    pub uvs: Vec<(f32, f32)>,
+    pub indices: Vec<i32>,
+}
+
+/// See [`ViewMesh`]. `scale`/`offset`/`view` are `WorldGen::river_view_mesh`'s
+/// own arguments, as tuples.
+#[allow(clippy::too_many_arguments)]
+pub fn view_mesh(
+    geom: &RiverGeometry,
+    a: &render::TerrainAppearance,
+    gw: usize,
+    gh: usize,
+    scale: (f32, f32),
+    offset: (f32, f32),
+    view: (f32, f32, f32, f32),
+    runs: std::ops::Range<usize>,
+) -> ViewMesh {
+    let mut out = ViewMesh { points: Vec::new(), colors: Vec::new(), uvs: Vec::new(), indices: Vec::new() };
+    let (gw, gh) = (gw.max(1) as f32, gh.max(1) as f32);
+    let ppc = (scale.0 * scale.1).abs().sqrt();
+    let to = |q: (f32, f32)| (offset.0 + q.0 * scale.0, offset.1 + q.1 * scale.1);
+    let (sx, sy) = (if scale.0 != 0.0 { scale.0 } else { 1.0 }, if scale.1 != 0.0 { scale.1 } else { 1.0 });
+    for_each_span_in(geom, runs, a, ppc, 0.0, to, |_, am| [1.0, 1.0, 1.0, am], Some(view), |m| {
+        let b = out.points.len() as i32;
+        for q in &m.pts {
+            out.points.push(*q);
+            // Back to river space, then to the texture's UV: texel
+            // `x` spans `[x, x+1]` of river space.
+            out.uvs.push(((q.0 - offset.0) / sx / gw, (q.1 - offset.1) / sy / gh));
         }
+        out.colors.extend(m.colors.iter().copied());
+        out.indices.extend(m.indices.iter().map(|&i| b + i));
+    });
+    out
+}
+
+impl WorldGen {
+    /// The shared body of [`Self::river_view_mesh`] and
+    /// [`Self::river_view_mesh_runs`]: [`view_mesh`] into Godot arrays.
+    fn river_view_mesh_range(&self, scale: Vector2, offset: Vector2, view: Rect2, runs: std::ops::Range<usize>) -> VarDictionary {
+        let m = match self.river_geometry() {
+            Some(g) => view_mesh(&g, &self.appearance(), self.gw as usize, self.gh as usize, (scale.x, scale.y), (offset.x, offset.y),
+                (view.position.x, view.position.y, view.size.x, view.size.y), runs),
+            None => ViewMesh { points: Vec::new(), colors: Vec::new(), uvs: Vec::new(), indices: Vec::new() },
+        };
+        let p: Vec<Vector2> = m.points.iter().map(|q| Vector2::new(q.0, q.1)).collect();
+        let uv: Vec<Vector2> = m.uvs.iter().map(|q| Vector2::new(q.0, q.1)).collect();
+        let c: Vec<Color> = m.colors.iter().map(|k| Color::from_rgba(k[0], k[1], k[2], k[3])).collect();
         vdict! {
-            "points" => &PackedVector2Array::from(out_p.as_slice()),
-            "colors" => &PackedColorArray::from(out_c.as_slice()),
-            "uvs" => &PackedVector2Array::from(out_uv.as_slice()),
-            "indices" => &PackedInt32Array::from(out_i.as_slice()),
+            "points" => &PackedVector2Array::from(p.as_slice()),
+            "colors" => &PackedColorArray::from(c.as_slice()),
+            "uvs" => &PackedVector2Array::from(uv.as_slice()),
+            "indices" => &PackedInt32Array::from(m.indices.as_slice()),
         }
     }
+}
+
+#[godot_api(secondary)]
+impl WorldGen {
 
     /// The last river colour field's size: `covered` pixels and the
     /// `allocated_bytes` its sparse blocks hold (`render::RiverLayer`). A
@@ -1895,6 +1984,71 @@ mod tests {
                 own_order: order,
             }],
         }
+    }
+
+    /// Five runs of different widths, orders and colours, for the chunked
+    /// view mesh: enough runs that a chunking splits them several ways.
+    fn five_runs() -> RiverGeometry {
+        let mut g = RiverGeometry { runs: Vec::new() };
+        for r in 0..5 {
+            let y = 4.0 + 6.0 * r as f32;
+            let pts: Vec<(f32, f32)> = (0..12).map(|i| (2.0 + i as f32 * 1.5, y + (i as f32 * 0.7).sin())).collect();
+            let mut one = one_run(pts, 0.6 + 0.4 * r as f32, [0.1 * r as f32, 0.4, 0.8], r % 2 == 0);
+            g.runs.append(&mut one.runs);
+        }
+        g
+    }
+
+    /// Glues chunk meshes back into one: points/colours/uvs appended, each
+    /// chunk's indices shifted by the points before it -- what drawing the
+    /// chunks as consecutive canvas items amounts to.
+    fn glue(parts: &[ViewMesh]) -> ViewMesh {
+        let mut out = ViewMesh { points: Vec::new(), colors: Vec::new(), uvs: Vec::new(), indices: Vec::new() };
+        for m in parts {
+            let b = out.points.len() as i32;
+            out.points.extend_from_slice(&m.points);
+            out.colors.extend_from_slice(&m.colors);
+            out.uvs.extend_from_slice(&m.uvs);
+            out.indices.extend(m.indices.iter().map(|&i| b + i));
+        }
+        out
+    }
+
+    // Protects: the overlay's chunked river rebuild (`map_overlay.gd` layer
+    // cache) drawing the SAME stroke as the whole call -- every chunking of the
+    // runs, glued in order, is bit-identical to `0..len`, including a range
+    // running past the end and an empty one.
+    #[test]
+    fn chunked_view_mesh_is_the_whole_mesh_in_order() {
+        let g = five_runs();
+        let a = render::TerrainAppearance::default();
+        let (scale, offset, view) = ((12.0, 12.0), (3.0, -2.0), (-50.0, -50.0, 1000.0, 1000.0));
+        let whole = view_mesh(&g, &a, 64, 48, scale, offset, view, 0..g.runs.len());
+        assert!(!whole.indices.is_empty(), "the fixture must draw something");
+        for cuts in [vec![0, 5], vec![0, 1, 5], vec![0, 2, 3, 5], vec![0, 1, 2, 3, 4, 5], vec![0, 0, 3, 3, 99]] {
+            let parts: Vec<ViewMesh> = cuts.windows(2).map(|w| view_mesh(&g, &a, 64, 48, scale, offset, view, w[0]..w[1])).collect();
+            let glued = glue(&parts);
+            assert_eq!(glued.points, whole.points, "cuts {cuts:?}");
+            assert_eq!(glued.colors, whole.colors, "cuts {cuts:?}");
+            assert_eq!(glued.uvs, whole.uvs, "cuts {cuts:?}");
+            assert_eq!(glued.indices, whole.indices, "cuts {cuts:?}");
+        }
+    }
+
+    // Protects: a chunk draws only its own runs -- a middle chunk is not the
+    // whole network, and a range wholly past the end draws nothing (the
+    // overlay asks for `n*idx/count ..` ranges, which can be empty).
+    #[test]
+    fn a_chunk_draws_only_its_own_runs() {
+        let g = five_runs();
+        let a = render::TerrainAppearance::default();
+        let (scale, offset, view) = ((12.0, 12.0), (0.0, 0.0), (-50.0, -50.0, 1000.0, 1000.0));
+        let whole = view_mesh(&g, &a, 64, 48, scale, offset, view, 0..5);
+        let mid = view_mesh(&g, &a, 64, 48, scale, offset, view, 2..3);
+        assert!(!mid.points.is_empty() && mid.points.len() < whole.points.len());
+        let past = view_mesh(&g, &a, 64, 48, scale, offset, view, 7..9);
+        assert!(past.points.is_empty() && past.indices.is_empty());
+        assert!(mid.indices.iter().all(|&i| (i as usize) < mid.points.len()), "a chunk's indices are its own, from 0");
     }
 
     /// The colour-field pad: three cells, or the width a 1 px stroke and
