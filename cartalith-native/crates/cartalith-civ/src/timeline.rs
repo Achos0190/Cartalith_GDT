@@ -1208,6 +1208,8 @@ pub struct RecoveryOpts {
 }
 
 impl Default for RecoveryOpts {
+    /// The reference's own default, `opts.dropThresh` = 18 (the value `_civApplyRecovery`
+    /// uses when the caller passes no override). Only phases I/II consult it.
     fn default() -> Self {
         Self { drop_thresh: 18.0 }
     }
@@ -1348,12 +1350,23 @@ pub fn civ_settlement_stress(
 /// (`m`, of current population) and out-migration fraction (`g`, of
 /// SURVIVORS, applied after mortality -- [`civ_collapse_step`] compounds
 /// both over `stepYears`, since the calibration in doc §4 is per-year).
+///
+/// Return type of [`civ_mortality_migration_rates`]; the block above describes
+/// that function, not this struct. `m` and `g` are each already clamped to
+/// [0, 0.95], so a caller never has to guard a fraction above 95 percent.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MortalityMigrationRates {
     pub m: f64,
     pub g: f64,
 }
 
+/// Excess-mortality and out-migration fractions for one step (see the
+/// [`MortalityMigrationRates`] block above for the reference function). `m` is
+/// `CIV_COLLAPSE_MAX_MORTALITY * severity * stress`; `g` is
+/// `CIV_COLLAPSE_MAX_MIGRATION * severity * stress * bias`, `bias` being the
+/// character's [`CollapseCharacter::migration_bias`]. Both are clamped to
+/// [0, 0.95] through `js_min`/`js_max`, so a NaN input propagates as in JS rather
+/// than being absorbed. Never applies the rates itself; [`civ_collapse_step`] does.
 pub fn civ_mortality_migration_rates(
     stress: f64,
     severity: f64,
@@ -2621,6 +2634,9 @@ pub struct TimelineStepSnapshot {
     pub stats: TimelineStepStats,
 }
 
+/// The per-step statistics of one run: `Collapse` or `Recovery`, never mixed
+/// within a run because the mode is chosen once for the whole simulation. A caller
+/// must match on the variant it asked for; there is no common accessor.
 #[derive(Debug, Clone, Copy)]
 pub enum TimelineStepStats {
     Collapse(CollapseStepStats),
@@ -2701,6 +2717,11 @@ pub fn civ_simulate_timeline(
     snapshots
 }
 
+/// Unit tests for the timeline: subsistence and population formulas, the
+/// food-surplus cluster, tier tables, stable ids and way-identity inheritance,
+/// proximity graph, collapse/recovery steps, the snapshot and delta-frame model
+/// (owner ruling 27), and the ownership/population history views. Reference-exact
+/// numbers live in `tests/golden_parity_timeline_*.rs`; these are structural checks.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2709,6 +2730,8 @@ mod tests {
 
     #[test]
     fn subsistence_mode_at_ocean_ice_tundra_desert_is_always_gathering() {
+        // Protects: ocean, ice, tundra and desert cells are mode 0 (gathering) even with
+        // maximal k, water and rain.
         assert_eq!(civ_subsistence_mode_at(0.9, 0.9, BIOME_OCEAN, 0.9), 0);
         assert_eq!(civ_subsistence_mode_at(0.9, 0.9, BIOME_ICE, 0.9), 0);
         assert_eq!(civ_subsistence_mode_at(0.9, 0.9, BIOME_TUNDRA, 0.9), 0);
@@ -2717,6 +2740,9 @@ mod tests {
 
     #[test]
     fn subsistence_mode_at_thresholds_are_inclusive_boundaries() {
+        // Protects: the subsistence thresholds (annual k>=0.45/water>=0.35/rain>=0.25, short
+        // fallow k>=0.28/water>=0.20, bush fallow k>=0.10) are inclusive, and a value just
+        // under each falls to the next mode down.
         // Annual cultivation: k>=0.45 && water>=0.35 && rain>=0.25.
         assert_eq!(
             civ_subsistence_mode_at(0.45, 0.35, super::super::BIOME_GRASS, 0.25),
@@ -2741,6 +2767,8 @@ mod tests {
 
     #[test]
     fn agrarian_density_km2_scales_band_midpoint_by_clamped_k() {
+        // Protects: density is the band midpoint scaled by k clamped to [0, 1], and a NaN k
+        // reads as 0 rather than propagating.
         // Annual cultivation band [64,256], midpoint 160; k=0.5 -> 80.
         let d = civ_agrarian_density_km2(0.5, 0.9, super::super::BIOME_GRASS, 0.9);
         assert!((d - 80.0).abs() < 1e-9, "got {d}");
@@ -2754,6 +2782,8 @@ mod tests {
 
     #[test]
     fn current_agrarian_density_normalises_to_the_pre_v131_basis() {
+        // Protects: the density raster is normalised so its land sum equals the pre-v1.31
+        // reference sum, and sea cells stay exactly 0.
         // Two land cells, one sea cell (filtered by `sea`). K values chosen so
         // both cells land in different subsistence bands -- exercises the
         // per-cell branch AND the normalisation pass in one fixture.
@@ -2791,6 +2821,8 @@ mod tests {
 
     #[test]
     fn current_agrarian_density_defaults_norm_to_one_when_no_land_has_density() {
+        // Protects: with no land density the normaliser falls back to 1 (the reference's
+        // `rawSum>0?refSum/rawSum:1`) instead of dividing by zero.
         // All cells below sea level -> rawSum stays 0 -> norm falls back to 1
         // (the reference's own `rawSum>0?refSum/rawSum:1`), not a divide-by-zero.
         let k = [0.9f32];
@@ -2805,6 +2837,7 @@ mod tests {
 
     #[test]
     fn catchment_density_mean_averages_only_land_cells_in_radius() {
+        // Protects: the catchment mean covers only cells inside the disc and skips sea cells.
         // 5x5 grid, land everywhere except one sea cell right at the centre's
         // neighbour -- exercises both the disc-radius cutoff and the sea skip.
         let gw = 5usize;
@@ -2827,6 +2860,8 @@ mod tests {
 
     #[test]
     fn catchment_density_mean_wraps_the_x_axis_when_world_wrap_is_set() {
+        // Protects: with world wrap on, a catchment at the west edge reads cells from the east
+        // edge; with it off it does not.
         let gw = 4usize;
         let gh = 3usize;
         let field = vec![0.6f32; gw * gh];
@@ -2845,6 +2880,7 @@ mod tests {
 
     #[test]
     fn catchment_density_mean_returns_zero_when_no_land_cell_is_in_range() {
+        // Protects: a catchment with no land cell in range has mean 0, not NaN.
         let gw = 3usize;
         let gh = 3usize;
         let field = vec![0.1f32; gw * gh]; // all sea
@@ -2855,6 +2891,7 @@ mod tests {
 
     #[test]
     fn catchment_pop_scales_density_mean_by_catchment_area() {
+        // Protects: catchment population is the density mean times the kind's catchment km2.
         let gw = 10usize;
         let gh = 10usize;
         let field = vec![0.6f32; gw * gh];
@@ -2884,6 +2921,9 @@ mod tests {
 
     #[test]
     fn settlement_population_applies_surplus_and_trade_concentration() {
+        // Protects: settlement population is catchment population times the kind's surplus
+        // fraction, multiplied by 1 + the kind's trade k at normalised trade 1, and
+        // unchanged at 0.
         let gw = 10usize;
         let gh = 10usize;
         let field = vec![0.6f32; gw * gh];
@@ -2928,6 +2968,8 @@ mod tests {
 
     #[test]
     fn settlement_population_never_negative_and_nan_norm_b_is_treated_as_zero() {
+        // Protects: an all-sea catchment gives population 0, and a NaN trade-concentration
+        // input does not poison it.
         let gw = 3usize;
         let gh = 3usize;
         let field = vec![0.1f32; gw * gh]; // all sea -> zero catchment pop
@@ -2960,6 +3002,8 @@ mod tests {
 
     #[test]
     fn grain_yield_kg_ha_scales_linearly_and_clamps_soil_to_zero_one() {
+        // Protects: grain yield is linear in soil over [0, 1], clamped outside it, and a NaN
+        // soil reads as 0 yield (JS `soil||0`).
         assert_eq!(grain_yield_kg_ha(0.5), 500.0);
         assert_eq!(grain_yield_kg_ha(0.0), 0.0);
         assert_eq!(grain_yield_kg_ha(1.0), GRAIN_YIELD_MAX_KG_HA);
@@ -2973,6 +3017,7 @@ mod tests {
 
     #[test]
     fn soil_reference_falls_back_to_one_half_with_no_land() {
+        // Protects: with no land cell the soil reference is 0.5, not 0 or NaN.
         assert_eq!(civ_soil_reference(&[], &[], 0.42), 0.5);
         let field = vec![0.1f32; 4]; // all sea
         let soil = vec![0.9f32; 4];
@@ -2981,6 +3026,8 @@ mod tests {
 
     #[test]
     fn soil_reference_is_the_upper_median_of_land_cells_only() {
+        // Protects: the soil reference is the upper median (index len/2) of land cells only,
+        // matching `vals[vals.length>>1]`, and sea cells are excluded.
         // Four exact-in-f32-and-f64 values so the comparison needs no
         // epsilon; sea cell 0.05 must be excluded from the ranking.
         let field = vec![0.1f32, 0.6, 0.6, 0.6, 0.6];
@@ -2997,6 +3044,9 @@ mod tests {
 
     #[test]
     fn food_surplus_ratio_at_reference_soil_is_exactly_the_base_ratio() {
+        // Protects: land at the reference soil reads exactly `FOOD_BASE_SURPLUS_RATIO` (1/9),
+        // not the general formula's 1/10: the default-fpu branch is pinned, the reference's
+        // v1.54 rule not to move old-save numbers.
         // The whole point of calibrating against the median: land AT the
         // reference always reads the base ratio, whatever the absolute
         // soil scale is. `1/9`, not `1/10` -- the `is_default` branch pins
@@ -3019,6 +3069,8 @@ mod tests {
 
     #[test]
     fn food_surplus_ratio_is_zero_on_land_too_marginal_to_feed_its_own_farmers() {
+        // Protects: land whose yield cannot feed its own farmers, boundary included, has
+        // surplus ratio exactly 0.
         // Soil far below the reference: y <= ySub, the "feeds its own
         // farmers and no one else" branch.
         assert_eq!(food_surplus_ratio(0.02, 0.5, FARMERS_PER_URBANITE), 0.0);
@@ -3030,6 +3082,8 @@ mod tests {
 
     #[test]
     fn food_surplus_ratio_caps_rich_soil_at_the_default_ceiling() {
+        // Protects: at the default farmers-per-urbanite the ratio is capped at
+        // `FOOD_SURPLUS_RATIO_MAX`.
         // Best possible soil against a poor world median: the raw ratio
         // would be far above 0.35, so the default-path cap must bind.
         let got = food_surplus_ratio(1.0, 0.05, FARMERS_PER_URBANITE);
@@ -3038,6 +3092,8 @@ mod tests {
 
     #[test]
     fn food_surplus_ratio_off_the_default_fpu_uses_the_general_formula_and_its_own_cap() {
+        // Protects: a non-default fpu uses the general 1/(fpu+1) formula with its own cap,
+        // so advanced agriculture can exceed the traditional-level ceiling.
         // fpu=1.0 ("mastered the plow"), soil==refSoil: base_ratio =
         // 1/(1+1) = 0.5 exactly (both operands exact in f64), cap =
         // min(0.95, 0.5*3.15=1.575) = 0.95, and the ratio itself is exactly
@@ -3049,6 +3105,8 @@ mod tests {
 
     #[test]
     fn food_surplus_ratio_clamps_negative_fpu_and_absorbs_nan_fpu_to_zero() {
+        // Protects: a negative fpu is clamped to 0 (same answer as fpu 0), and a NaN fpu gives
+        // 0.0 through the negated `!(y>ySub)` form rather than a NaN ratio.
         // js_max(0, negative) == 0 -- same answer as fpu=0 outright.
         let neg = food_surplus_ratio(0.5, 0.5, -5.0);
         let zero = food_surplus_ratio(0.5, 0.5, 0.0);
@@ -3068,6 +3126,9 @@ mod tests {
 
     #[test]
     fn place_food_surplus_matches_catchment_pop_and_surplus_fraction_in_closed_form() {
+        // Protects: the place food-surplus record matches the closed form (ceiling 250,
+        // sustainable 137.5 rounded half-up to 138) and negative nets round toward +infinity
+        // like `Math.round` (-62.5 -> -62).
         // Same fixture as `catchment_pop_scales_density_mean_by_catchment_area`:
         // uniform density 10.0 -> catchment mean is exactly 10.0, so
         // `ceiling = 10.0 * catchmentKm2(Village) = 250.0` and
@@ -3106,6 +3167,8 @@ mod tests {
 
     #[test]
     fn tier_for_population_walks_high_to_low_and_floors_at_hamlet() {
+        // Protects: the tier floors 150 / 800 / 5 000 / 30 000 are inclusive lower bounds,
+        // with hamlet as the floor below 150.
         assert_eq!(civ_tier_for_population(0.0), SettlementKind::Hamlet);
         assert_eq!(civ_tier_for_population(149.999), SettlementKind::Hamlet);
         assert_eq!(civ_tier_for_population(150.0), SettlementKind::Village);
@@ -3129,6 +3192,8 @@ mod tests {
     /// all thirteen boundary samples straight out of the harness.
     #[test]
     fn tier_for_population_reaches_metropolis_above_its_own_floor() {
+        // Protects: the metropolis tier starts at 150 000 (inclusive) and just below it is
+        // capital, now that `_civSelectMetropolises` is ported.
         assert_eq!(
             civ_tier_for_population(149_999.999),
             SettlementKind::Capital
@@ -3145,6 +3210,8 @@ mod tests {
 
     #[test]
     fn recovery_phase_stable_has_no_frac_band() {
+        // Protects: `Stable` has no fraction band and the named phases carry their reference
+        // bands and display names.
         assert_eq!(RecoveryPhase::Stable.frac_band(), None);
         assert_eq!(RecoveryPhase::Stable.name(), "Stable");
         assert_eq!(RecoveryPhase::Survival.frac_band(), Some((0.04, 0.10)));
@@ -3156,6 +3223,8 @@ mod tests {
 
     #[test]
     fn assign_tid_is_idempotent_and_advances_the_counter() {
+        // Protects: `civ_assign_tid` hands out the counter and advances it only for an
+        // unassigned (0) tid, and returns an existing tid unchanged.
         let mut next = 1u64;
         let a = civ_assign_tid(0, &mut next);
         assert_eq!(a, 1);
@@ -3170,6 +3239,8 @@ mod tests {
         assert_eq!(next, 3);
     }
 
+    /// Test fixture: an otherwise-blank hamlet at (0,0) carrying `tid`. Only the id
+    /// matters to the tests that use it; not a model of generated output.
     fn settlement_with_tid(tid: u64) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -3187,6 +3258,8 @@ mod tests {
         }
     }
 
+    /// Test fixture: an empty track way (no points, 0 km, endpoints 0 and 0)
+    /// carrying `tid`. Only the id matters to the tests that use it.
     fn way_with_tid(tid: u64) -> Way {
         Way {
             tid,
@@ -3203,6 +3276,8 @@ mod tests {
 
     #[test]
     fn resync_next_tid_finds_the_max_across_settlements_and_ways() {
+        // Protects: the resynced counter is one past the largest tid across both settlements
+        // and ways (1 when empty).
         assert_eq!(
             civ_resync_next_tid(&[], &[]),
             1,
@@ -3249,6 +3324,8 @@ mod tests {
     /// would be both removed and added.
     #[test]
     fn an_unchanged_rebuild_keeps_every_way_tid_and_diffs_empty() {
+        // Protects: a rebuild producing the same network gives each way its old tid, so the
+        // year diff shows nothing added or removed (OUTSTANDING_WORK.md way-tid row).
         let places = four_places();
         let before = vec![way_between(0, 1, 10), way_between(0, 1, 11), way_between(1, 2, 12)];
         let prev = civ_way_tid_index(&before, &places);
@@ -3274,6 +3351,8 @@ mod tests {
     /// not have, reads as added.
     #[test]
     fn a_real_addition_and_removal_still_diff() {
+        // Protects: a real dropped and added connection still diffs as removed and added
+        // after tid inheritance.
         let places = four_places();
         let before = vec![way_between(0, 1, 10), way_between(1, 2, 12)];
         let prev = civ_way_tid_index(&before, &places);
@@ -3297,6 +3376,9 @@ mod tests {
     /// way, nor to one when another way already carries it.
     #[test]
     fn a_way_without_a_real_identity_or_a_clashing_tid_inherits_nothing() {
+        // Protects: a way with an out-of-range or tid-0 endpoint has no identity, an
+        // inherited tid is never given to a second way, and a way that already has a
+        // tid keeps it.
         let mut places = four_places();
         places[3].tid = 0;
         let ids = civ_way_identities(
@@ -3333,6 +3415,7 @@ mod tests {
 
     #[test]
     fn proximity_adjacency_is_always_symmetric() {
+        // Protects: the proximity graph is symmetric: if j is in i's list, i is in j's.
         // Any k/maxKm/wrap combination: if j is in i's list, i must be in
         // j's -- the reference's own symmetric-completion invariant.
         let positions = [
@@ -3356,6 +3439,8 @@ mod tests {
 
     #[test]
     fn proximity_adjacency_respects_max_km_and_is_empty_for_one_place() {
+        // Protects: places farther apart than the km cap are not linked, and zero or one
+        // place gives empty adjacency.
         let positions = [(0.0, 0.0), (1_000.0, 0.0)];
         let adj = civ_proximity_adjacency(&positions, 5, 10.0, 1.0, 2_000.0, false);
         assert_eq!(adj, vec![Vec::<usize>::new(), Vec::<usize>::new()]);
@@ -3373,6 +3458,7 @@ mod tests {
 
     #[test]
     fn betweenness_is_zero_on_an_empty_or_edgeless_graph() {
+        // Protects: betweenness of an empty or edgeless graph is all zeros (no panic).
         assert_eq!(civ_betweenness_from_adjacency(&[]), Vec::<f64>::new());
         let adj = vec![Vec::new(), Vec::new(), Vec::new()];
         assert_eq!(civ_betweenness_from_adjacency(&adj), vec![0.0, 0.0, 0.0]);
@@ -3380,6 +3466,7 @@ mod tests {
 
     #[test]
     fn betweenness_on_a_3_node_path_matches_hand_derivation() {
+        // Protects: a 3-node path gives raw (un-halved) betweenness [0, 2, 0].
         // 0-1-2: every shortest path between the two endpoints (both
         // directions) passes through node 1, and only node 1 -- raw
         // (un-halved) betweenness is 2, matching this module's own hand
@@ -3392,6 +3479,7 @@ mod tests {
 
     #[test]
     fn betweenness_on_disconnected_components_never_crosses_them() {
+        // Protects: betweenness never counts a path across disconnected components.
         // {0,1} and {2,3} are two disjoint edges -- no path between the
         // components exists, so nothing is ever an intermediate node.
         let adj = vec![vec![1], vec![0], vec![3], vec![2]];
@@ -3406,6 +3494,8 @@ mod tests {
     // these are structural/self-consistency checks that don't need the
     // reference to state.
 
+    /// Test fixture: a [`CollapsePlace`] at (0,0), not ruined and not a port, with
+    /// the given id, kind, population and fortified flag.
     fn cp(tid: u64, kind: SettlementKind, pop: f64, fortified: bool) -> CollapsePlace {
         CollapsePlace {
             tid,
@@ -3421,6 +3511,7 @@ mod tests {
 
     #[test]
     fn collapse_character_weights_each_sum_to_one() {
+        // Protects: each collapse character's three stress weights sum to 1.
         for character in [
             CollapseCharacter::Trade,
             CollapseCharacter::Disease,
@@ -3438,6 +3529,8 @@ mod tests {
 
     #[test]
     fn settlement_stress_is_zero_baseline_when_no_map_is_supplied() {
+        // Protects: with no baseline map the L term is 0 (no panic), and stress equals the
+        // hand-computed weighted sum.
         // No baselineNormB at all (a simulation's very first step, per the
         // reference's own `_civSimulateTimeline`) must give L=0, not panic
         // on a missing map.
@@ -3450,6 +3543,8 @@ mod tests {
 
     #[test]
     fn settlement_stress_ignores_an_unassigned_tid_baseline_lookup() {
+        // Protects: a tid-0 place never looks itself up in the baseline map, mirroring the
+        // reference's `place.tid!=null` guard.
         // tid=0 is the "unassigned" sentinel -- even with a baseline map
         // present, an unassigned place must never look itself up in it
         // (mirrors the reference's own `place.tid!=null` guard).
@@ -3464,6 +3559,7 @@ mod tests {
 
     #[test]
     fn gravity_migrate_is_a_no_op_when_nobody_migrates() {
+        // Protects: with no migrants nothing is received and nothing is unplaced.
         let places = [
             cp(1, SettlementKind::Town, 0.0, false),
             cp(2, SettlementKind::Town, 0.0, false),
@@ -3476,6 +3572,8 @@ mod tests {
 
     #[test]
     fn collapse_step_on_an_empty_places_array_is_a_no_op() {
+        // Protects: a collapse step over no places returns no places, default stats and an
+        // empty normalised-trade map.
         let dens = vec![10.0f32; 100];
         let field = vec![0.6f32; 100];
         let r = civ_collapse_step(
@@ -3501,6 +3599,8 @@ mod tests {
 
     #[test]
     fn collapse_step_never_promotes_even_if_population_would_clear_a_higher_floor() {
+        // Protects: collapse never re-tiers upward: at zero severity a village holding a
+        // city-scale population stays a village at the same population.
         // Zero severity -> zero mortality/migration -> the settlement's
         // population is untouched this step. Start it well above its own
         // kind's floor already (as if it had been mis-tagged Village at a
@@ -3541,6 +3641,8 @@ mod tests {
 
     #[test]
     fn recovery_growth_step_never_demotes_even_if_population_would_clear_a_lower_floor() {
+        // Protects: recovery never re-tiers downward: a city with a hamlet-scale population
+        // and zero growth keeps its kind.
         let dens = vec![0.0f32; 100]; // zero density -> zero ceiling -> zero growth
         let field = vec![0.6f32; 100];
         let places = [CollapsePlace {
@@ -3573,6 +3675,8 @@ mod tests {
 
     use super::super::SettlementPlacement;
 
+    /// Test fixture: a village at (x, y), faction 1, suitability 0.5, not coastal,
+    /// with the given id, name and population.
     fn mk_settlement(tid: u64, x: usize, y: usize, name: &str, pop: u32) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -3592,6 +3696,8 @@ mod tests {
 
     #[test]
     fn snapshot_save_pushes_new_years_and_updates_existing_ones_sorted_by_year() {
+        // Protects: saving keeps the timeline sorted by year, and re-saving a year
+        // overwrites it in place rather than duplicating it.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
             &mut timeline,
@@ -3633,6 +3739,8 @@ mod tests {
 
     #[test]
     fn snapshot_load_restores_territory_only_never_settlements_or_ways() {
+        // Protects: loading a year restores territory only, and an unrecorded year zeroes
+        // the live territory rather than leaving the old one.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
             &mut timeline,
@@ -3655,6 +3763,9 @@ mod tests {
 
     #[test]
     fn year_diff_uses_tid_not_name_to_disambiguate_a_replaced_settlement() {
+        // Protects: the year diff is keyed by tid, not name or position: a replacement that
+        // shares the old one's name and cell reads as removed plus added (TIMELINE_SCOPE.md
+        // §7 criterion 3).
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
             &mut timeline,
@@ -3689,6 +3800,8 @@ mod tests {
 
     #[test]
     fn year_diff_against_the_earliest_year_has_no_previous_and_no_removed_or_added() {
+        // Protects: the earliest recorded year has no previous year, so every settlement in it
+        // reads as added and none as removed (the reference's own behaviour).
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
             &mut timeline,
@@ -3710,6 +3823,7 @@ mod tests {
 
     #[test]
     fn year_diff_for_an_unrecorded_year_is_empty() {
+        // Protects: the diff of a year that was never recorded is entirely empty.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
             &mut timeline,
@@ -3726,6 +3840,7 @@ mod tests {
 
     // ---------- Settlement Editor "Political history" tab: civ_settlement_ownership_periods ----------
 
+    /// Test fixture: [`mk_settlement`] with its faction set to `faction`.
     fn mk_settlement_faction(
         tid: u64,
         x: usize,
@@ -3741,6 +3856,8 @@ mod tests {
 
     #[test]
     fn ownership_periods_is_empty_for_an_empty_timeline_or_the_unassigned_sentinel() {
+        // Protects: an empty timeline, or the tid-0 unassigned sentinel, has no ownership
+        // periods.
         assert_eq!(civ_settlement_ownership_periods(&[], 1), Vec::new());
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
@@ -3757,6 +3874,7 @@ mod tests {
 
     #[test]
     fn ownership_periods_one_faction_throughout_is_one_open_span() {
+        // Protects: one faction throughout is a single span with no end year.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         for year in [0, 50, 100] {
             civ_snapshot_save(
@@ -3780,6 +3898,8 @@ mod tests {
 
     #[test]
     fn ownership_periods_splits_on_a_faction_change_and_the_final_span_stays_open() {
+        // Protects: a faction change closes the earlier span and opens a new one, and the
+        // final span stays open.
         // tid=1: faction 1 at years 0 and 50, conquered by faction 3 at year
         // 100, held by faction 3 through the timeline's own last recorded
         // year (150) -- two spans, the second still "current".
@@ -3832,6 +3952,8 @@ mod tests {
 
     #[test]
     fn ownership_periods_treats_an_absence_as_a_gap_not_an_extension() {
+        // Protects: a year in which the settlement is absent breaks the span in two, even if
+        // the faction is the same on both sides.
         // tid=1 present under faction 1 at years 0 and 50, then absent at
         // year 100 (destroyed, or simply a year the settlement did not
         // exist), then present again at year 150 under faction 1 again --
@@ -3890,6 +4012,7 @@ mod tests {
 
     // ---------- Settlement Editor "Political history" tab: civ_settlement_population_trajectory ----------
 
+    /// Test fixture: [`mk_settlement`] with its kind set to `kind`.
     fn mk_settlement_kind(
         tid: u64,
         x: usize,
@@ -3905,6 +4028,7 @@ mod tests {
 
     #[test]
     fn population_trajectory_is_empty_for_an_empty_timeline_or_the_unassigned_sentinel() {
+        // Protects: an empty timeline, or the tid-0 sentinel, has no population points.
         assert_eq!(civ_settlement_population_trajectory(&[], 1), Vec::new());
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(
@@ -3924,6 +4048,8 @@ mod tests {
 
     #[test]
     fn population_trajectory_returns_every_recorded_year_flat_not_collapsed_into_spans() {
+        // Protects: the trajectory keeps one point per recorded year even when the tier does
+        // not change, never collapsing years into spans.
         // tid=1: population changes every year AND crosses a tier boundary
         // (village -> town) at year 100, while staying "town" at year 150 --
         // proving both that every point is retained (population keeps
@@ -4021,6 +4147,8 @@ mod tests {
     #[test]
     fn population_trajectory_skips_a_year_the_settlement_is_absent_from_rather_than_carrying_forward()
      {
+        // Protects: a year the settlement is absent from contributes no point (no carried-forward
+        // value, no synthesised zero).
         // tid=1 present at years 0 and 50, absent at year 100 (a different
         // settlement, tid=2, stands in that year -- same disambiguation
         // fixture shape as the ownership-periods gap test above), present
@@ -4111,6 +4239,8 @@ mod tests {
 
     #[test]
     fn population_trajectory_carries_each_years_collapse_flags_and_none_where_unrecorded() {
+        // Protects: each point carries that year's collapse flags, and `None` (not false/false)
+        // where the year recorded none for this tid.
         // Year 0: written from "live" state -- no flags recorded. Years 10/20: a run's
         // steps -- tid 1 goes from standing to ruined-and-fortified. Year 30: recorded,
         // but its map holds only tid 2, so tid 1's point there is `None`, not false/false.
@@ -4157,6 +4287,8 @@ mod tests {
 
     #[test]
     fn snapshot_save_overwrite_drops_the_collapse_flags_of_the_list_it_replaces() {
+        // Protects: overwriting a year replaces its settlement list and so drops that year's
+        // collapse flags, while saving another year leaves them alone.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(&mut timeline, 10, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
         timeline[0].collapse_flags.insert(1, CollapseFlags { fortified: true, ruins: true });
@@ -4172,6 +4304,8 @@ mod tests {
     #[test]
     fn resync_next_tid_with_timeline_folds_in_snapshot_history_the_milestone_1_version_cannot_see()
     {
+        // Protects: the timeline-aware resync also counts tids that exist only in recorded
+        // snapshots, which the live-only `civ_resync_next_tid` cannot see.
         let live_settlements = [mk_settlement(5, 0, 0, "Live", 1)];
         let live_ways: [Way; 0] = [];
         // The live state's own highest tid is 5, but an OLDER recorded year carries a
@@ -4204,7 +4338,11 @@ mod tests {
     // chain that drifts is worse than the redundancy it replaces"), and it is what makes the
     // encoding an implementation detail rather than a behaviour change.
 
+    // Raster geometry shared by the delta-frame tests: 40 x 30 = 1 200 cells.
+    // Judgement, source not recorded; the size-condition test below reasons in
+    // these 1 200 cells and 4 800 bytes, so changing either breaks its literals.
     const RW: usize = 40;
+    // Raster height; width is `RW` above, judgement, source not recorded.
     const RH: usize = 30;
     const RN: usize = RW * RH;
 
@@ -4237,6 +4375,9 @@ mod tests {
         civ_snapshot_save(timeline, year, raster, Vec::new(), Vec::new());
     }
 
+    /// Asserts the timeline records exactly the oracle's years and that
+    /// [`civ_territory_at`] returns each year's saved raster byte for byte. A year
+    /// that does not reconstruct at all is a panic, never a pass.
     fn assert_exact(timeline: &[TimelineSnapshot], oracle: &[(i64, Vec<i32>)]) {
         assert_eq!(
             timeline.iter().map(|s| s.year).collect::<Vec<_>>(),
@@ -4271,6 +4412,9 @@ mod tests {
 
     #[test]
     fn every_recorded_year_replays_to_exactly_the_raster_that_was_saved() {
+        // Protects: owner ruling 27: every recorded year replays to exactly the raster saved
+        // for it, across unchanged years, small edits and a large repaint, and unchanged years
+        // store empty deltas.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
         let mut cur = vec![0i32; RN];
@@ -4303,6 +4447,9 @@ mod tests {
 
     #[test]
     fn a_repaint_bigger_than_half_the_raster_is_stored_whole_instead() {
+        // Protects: the encoder's size condition in `encode_territory_frame`: a delta is kept
+        // only while strictly smaller than a keyframe, and a tie goes to the keyframe; both
+        // branches still reconstruct.
         // The size condition in `encode_territory_frame`, pinned from both sides with literals
         // rather than against the `size_of`s it is written from. 8 bytes a delta cell against 4
         // a raster cell, so half the cells is the crossing point.
@@ -4360,6 +4507,9 @@ mod tests {
 
     #[test]
     fn keyframe_interval_bounds_the_scrub() {
+        // Protects: `TERRITORY_KEYFRAME_INTERVAL` as a two-sided literal count (64 deltas fit
+        // under one keyframe, the 65th forces another), and that a scrub to the deepest year
+        // stays exact and replays at most one interval of deltas.
         // Two-sided literal pin on TERRITORY_KEYFRAME_INTERVAL. Asserting against the constant
         // would hold for every value of it (`MISTAKES.md`), so these are counts: 64 changing
         // saves after the first keyframe fill exactly one interval, and the 65th must break it.
@@ -4416,6 +4566,8 @@ mod tests {
 
     #[test]
     fn overwriting_a_year_keeps_every_other_year_exact() {
+        // Protects: re-saving a middle year does not corrupt the later years whose deltas
+        // were based on it.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
         let mut cur = vec![0i32; RN];
@@ -4432,6 +4584,8 @@ mod tests {
 
     #[test]
     fn inserting_a_year_between_two_recorded_ones_keeps_every_year_exact() {
+        // Protects: inserting a year between two recorded ones, and one before the first,
+        // keeps every year exact.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
         let mut cur = vec![0i32; RN];
@@ -4446,6 +4600,8 @@ mod tests {
 
     #[test]
     fn removing_a_year_keeps_every_remaining_year_exact() {
+        // Protects: removing a year, keyframe included, re-bases the later deltas so every
+        // remaining year stays exact; an unrecorded year is a no-op returning false.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         let mut oracle: Vec<(i64, Vec<i32>)> = Vec::new();
         let mut cur = vec![0i32; RN];
@@ -4473,6 +4629,8 @@ mod tests {
 
     #[test]
     fn a_grid_resize_is_stored_whole_rather_than_as_a_meaningless_delta() {
+        // Protects: a raster of a different size is stored whole, never as a delta against
+        // the previous size.
         // "cell 12 changed" says nothing across a resize, so the encoder must refuse to delta.
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();
         civ_snapshot_save(&mut timeline, 0, vec![1i32; RN], Vec::new(), Vec::new());
@@ -4491,6 +4649,9 @@ mod tests {
 
     #[test]
     fn a_broken_chain_answers_none_rather_than_a_plausible_raster() {
+        // Protects: a missing base year, a missing year, or an out-of-range cell index
+        // answers `None` (SAVEFILE_COMPAT.md §18.4), and `civ_snapshot_load` zeroes the live
+        // grid instead of half-painting it.
         // `SAVEFILE_COMPAT.md` §18.4's rule, applied to the in-memory shape: the failure this
         // design must not have is a reader that gets back something that looks fine. Built by
         // hand, because nothing this crate exposes can produce it.
@@ -4544,6 +4705,8 @@ mod tests {
 
     #[test]
     fn a_cycle_terminates_instead_of_hanging() {
+        // Protects: a corrupt delta cycle (0 based on 10, 10 based on 0) returns `None`
+        // instead of looping forever.
         let timeline = vec![
             TimelineSnapshot {
                 year: 0,
@@ -4571,6 +4734,8 @@ mod tests {
 
     #[test]
     fn a_timeline_of_unchanged_years_costs_one_raster_and_not_fifty() {
+        // Protects: 50 identical years cost one keyframe plus empty deltas (a fiftieth of the
+        // old full-snapshot size) and still reconstruct exactly.
         // The ruling's own sentence, as a number: "if a position doesn't change for 50 years
         // that's 50 datapoints we do not need."
         let mut timeline: Vec<TimelineSnapshot> = Vec::new();

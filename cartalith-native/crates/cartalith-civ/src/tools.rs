@@ -294,6 +294,9 @@ impl<'a> From<&'a Way> for WayRef<'a> {
 }
 
 impl<'a> From<&'a ManualWay> for WayRef<'a> {
+    /// A hand-drawn way keeps its own `sea` flag (set when the user declares a
+    /// sea lane) and `hidden` flag, so routing discounts or ferries over it exactly
+    /// as it does over a generated way. Borrows, never copies, the polyline.
     fn from(w: &'a ManualWay) -> Self {
         WayRef { pts: &w.pts, brks: &w.brks, sea: w.sea, hidden: w.hidden }
     }
@@ -509,6 +512,14 @@ fn civ_sea_lane_cells(ways: &[WayRef], gw: usize, gh: usize) -> HashSet<usize> {
     cells
 }
 
+/// A per-cell travel-cost raster on the *routing* grid, as the three
+/// `civ_*_cost_grid` builders return it. `cost` is row-major `rw * rh`, with
+/// `f32::INFINITY` marking an impassable cell; `sc` is the routing-grid scale
+/// from [`civ_routing_grid`] (1.0 while the map is at most `RW_CAP` = 1024 cells
+/// wide, so the grid is 1:1; Ruling BT raised the cap from 384 -- some older test
+/// notes still say 384 and are only true of the small test worlds). Private: it is only a
+/// hand-off between the grid builders and the Dijkstra call, and must never
+/// outlive one route query.
 struct CostGrid {
     cost: Vec<f32>,
     rw: usize,
@@ -1160,6 +1171,9 @@ pub fn civ_snap_point(places: &[NamedSettlement], ways: &[WayRef], gx: f64, gy: 
     }
 }
 
+/// Unit tests for the territory merge, place picking/dropping, snapping and the
+/// manual route/way tools. Fixtures are tiny hand-built worlds so every
+/// assertion is checkable by eye.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1168,6 +1182,8 @@ mod tests {
 
     #[test]
     fn territory_paint_wins_only_where_painted() {
+        // Protects: `merge_territory_paint` overwrites a cell only where the paint is
+        // non-zero and leaves every other cell as assigned.
         let mut terr = vec![1i32, 2, 3, 0];
         merge_territory_paint(&mut terr, &[0, 7, 0, 4]);
         assert_eq!(terr, vec![1, 7, 3, 4]);
@@ -1175,6 +1191,7 @@ mod tests {
 
     #[test]
     fn empty_territory_paint_is_a_no_op() {
+        // Protects: an all-zero paint layer leaves the territory array bit-for-bit as it was.
         let base = vec![5i32, 0, 3, 9];
         let mut terr = base.clone();
         merge_territory_paint(&mut terr, &[0, 0, 0, 0]);
@@ -1184,6 +1201,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "length must match")]
     fn territory_paint_length_mismatch_panics() {
+        // Protects: a paint layer of the wrong length is a loud panic ("length must match"),
+        // not a silent partial merge.
         let mut terr = vec![0i32; 4];
         merge_territory_paint(&mut terr, &[0; 3]);
     }
@@ -1194,6 +1213,8 @@ mod tests {
     /// land/water gate, so a faction can own water cells.
     #[test]
     fn territory_brush_is_paintstamp_ungated_and_reaches_water() {
+        // Protects: the territory brush is `PaintStamp::ungated`: a hard-edged disc whose
+        // rim (hypot <= R) is painted, with no land/water gate, composing with the merge.
         use cartalith_spatial::pass::Stamp;
         let (gw, gh) = (8usize, 8usize);
         let mut paint = vec![0u8; gw * gh];
@@ -1212,6 +1233,9 @@ mod tests {
 
     // ---------- place settlement ----------
 
+    /// Test fixture: a nameless settlement of `kind` at (x, y), pop 1000, faction 1,
+    /// suitability 0.5, not coastal;
+    /// `capital` follows `kind`. Not a model of generated output.
     fn settlement(x: usize, y: usize, kind: SettlementKind) -> NamedSettlement {
         NamedSettlement {
             tid: 0,
@@ -1223,6 +1247,8 @@ mod tests {
 
     #[test]
     fn pick_weight_matches_the_reference_rank_table() {
+        // Protects: `civ_place_pick_weight` is 4/5/6/7/8 for hamlet..capital, the
+        // reference's rank table.
         assert_eq!(civ_place_pick_weight(SettlementKind::Hamlet), 4.0);
         assert_eq!(civ_place_pick_weight(SettlementKind::Village), 5.0);
         assert_eq!(civ_place_pick_weight(SettlementKind::Town), 6.0);
@@ -1233,6 +1259,8 @@ mod tests {
     /// v1.88's whole point: prominence weighting, not nearest-pixel.
     #[test]
     fn a_bigger_settlement_outcompetes_a_closer_small_one() {
+        // Protects: v1.88 prominence weighting: a capital 6 cells away beats a hamlet 2
+        // cells away, and the order reverses when the click moves close to the capital.
         let places = vec![settlement(12, 10, SettlementKind::Hamlet), settlement(4, 10, SettlementKind::Capital)];
         // Hamlet is 2 away (d2=4, w=4 -> 0.25); capital is 6 away
         // (d2=36, w=8 -> 0.5625). Nearest-pixel would pick the hamlet.
@@ -1244,6 +1272,8 @@ mod tests {
 
     #[test]
     fn the_absolute_pick_radius_is_not_weighted() {
+        // Protects: prominence weights the ranking only; a settlement outside the absolute
+        // pick radius never wins however large it is.
         let places = vec![settlement(30, 10, SettlementKind::Capital)];
         assert_eq!(civ_pick_place_at(&places, 10.0, 10.0, 5.0), None, "a prominent settlement outside the radius still does not win");
         assert_eq!(civ_pick_place_at(&places, 10.0, 10.0, 25.0), Some(0));
@@ -1251,12 +1281,18 @@ mod tests {
 
     #[test]
     fn zoom_pick_radius_shrinks_with_zoom() {
+        // Protects: the pick/snap radius formulas (20 cells at 1000/1400 px, the max(5, ..)
+        // floor at 64) and that zooming in divides the radius.
         assert_eq!(civ_place_pick_radius(1000), 20.0);
         assert_eq!(civ_place_pick_radius(64), 5.0, "the max(5, ..) floor holds at small resolutions");
         assert_eq!(civ_snap_radius(1400), 20.0);
         assert_eq!(civ_zoom_pick_r(20.0, 4.0), 5.0);
     }
 
+    /// Test fixture: an 8x8 world, ocean in columns 0..3 (`wb == 1`, field 0.2),
+    /// land elsewhere (field 0.6), plus one above-sea lake cell at (6,6) (`wb == 2`)
+    /// -- the cell a bare `field < sea` test would wrongly treat as land. Returns
+    /// `(field, water_bodies, gw, gh, sea_level)` with sea level 0.42.
     fn drop_fixture() -> (Vec<f32>, Vec<u8>, usize, usize, f64) {
         let (gw, gh) = (8usize, 8usize);
         // Left half ocean, right half land, with one above-sea lake at
@@ -1275,6 +1311,8 @@ mod tests {
 
     #[test]
     fn drop_place_refuses_ocean_and_above_sea_lakes() {
+        // Protects: dropping on ocean or an above-sea lake returns `Water` (the gate is
+        // `wb != 0`, not `field < sea`), and off-map returns `OutOfBounds`.
         let (field, wb, gw, gh, sea) = drop_fixture();
         assert_eq!(civ_drop_place(&[], 1, 1, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Town, 0.0), DropPlace::Water);
         assert_eq!(
@@ -1287,6 +1325,8 @@ mod tests {
 
     #[test]
     fn drop_place_appends_a_settlement_downstream_cannot_tell_apart() {
+        // Protects: a drop on dry land yields a nameless placeholder settlement of the
+        // requested kind/faction/suitability with the reference's raw pop of 1000.
         let (field, wb, gw, gh, sea) = drop_fixture();
         let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 3, SettlementKind::City, 0.25) else {
             panic!("expected a placement on dry land");
@@ -1306,6 +1346,7 @@ mod tests {
 
     #[test]
     fn a_capital_drop_sets_the_capital_flag() {
+        // Protects: dropping a `Capital` sets `placement.capital`.
         let (field, wb, gw, gh, sea) = drop_fixture();
         let DropPlace::Placed(s) = civ_drop_place(&[], 5, 2, 5.0, &field, &wb, gw, gh, sea, false, 1, SettlementKind::Capital, 0.0) else {
             panic!("expected a placement");
@@ -1320,6 +1361,8 @@ mod tests {
     /// map wraps.
     #[test]
     fn coastal_wraps_across_the_seam_only_on_a_world_map() {
+        // Protects: Ruling AR: the coastal test wraps across the east-west seam on a world
+        // map only; the same drop is non-coastal on a flat map.
         let (gw, gh) = (20usize, 8usize);
         let mut field = vec![0.6f32; gw * gh];
         let mut wb = vec![0u8; gw * gh];
@@ -1342,6 +1385,8 @@ mod tests {
     /// under it is still selectable.
     #[test]
     fn clicking_an_existing_place_selects_it_even_over_water() {
+        // Protects: the select-near-existing branch runs before the water refusal (the
+        // reference's order), so a place over water is still selectable.
         let (field, wb, gw, gh, sea) = drop_fixture();
         let places = vec![settlement(1, 1, SettlementKind::Town)];
         assert_eq!(
@@ -1354,6 +1399,8 @@ mod tests {
 
     #[test]
     fn nearest_on_way_projects_onto_a_segment() {
+        // Protects: `civ_nearest_on_way` projects onto the segment, clamps beyond the end
+        // to the endpoint, and returns `None` for a one-point way.
         let pts = vec![(0.0, 0.0), (10.0, 0.0)];
         let (x, y, d2) = civ_nearest_on_way(&pts, 4.0, 3.0).unwrap();
         assert_eq!((x, y), (4.0, 0.0));
@@ -1366,6 +1413,8 @@ mod tests {
 
     #[test]
     fn snapping_prefers_a_place_over_an_equally_close_way() {
+        // Protects: on an exact tie a place wins over a way (places scanned first, strict
+        // `<`), while a way wins when it is genuinely nearer.
         let places = vec![settlement(5, 5, SettlementKind::Town)];
         let pts = vec![(5.0, 5.0), (9.0, 9.0)];
         let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
@@ -1380,6 +1429,8 @@ mod tests {
 
     #[test]
     fn snapping_lands_on_a_way_curve_when_it_is_genuinely_nearer() {
+        // Protects: a way that is nearer than any place is snapped to, at the foot of the
+        // perpendicular.
         let places = vec![settlement(0, 0, SettlementKind::Town)];
         let pts = vec![(10.0, 0.0), (10.0, 20.0)];
         let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
@@ -1390,6 +1441,8 @@ mod tests {
 
     #[test]
     fn out_of_reach_clicks_pass_through_unchanged() {
+        // Protects: a click with nothing inside the snap radius is returned unchanged, and
+        // one inside it snaps to the place.
         let places = vec![settlement(5, 5, SettlementKind::Town)];
         assert_eq!(civ_snap_point(&places, &[], 40.0, 40.0, 4.0), (40.0, 40.0));
         assert_eq!(civ_snap_point(&places, &[], 5.5, 5.0, 4.0), (5.0, 5.0));
@@ -1412,6 +1465,10 @@ mod tests {
         (field, wb)
     }
 
+    /// Test fixture: a [`RouteContext`] over the 24x16 [`route_fixture`] world with
+    /// every optional terrain term (biome, river order, corridors, flow) switched
+    /// off, so a test enables exactly the one it is about. 240 km map width is a
+    /// test-local choice, not a reference constant.
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], places: &'a [NamedSettlement], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
         RouteContext { field, water_bodies: wb, biome: None, river_order: None, places, ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
@@ -1429,6 +1486,9 @@ mod tests {
     /// checkable rather than incidental.
     #[test]
     fn pass_relief_scales_with_the_corridor_field_and_touches_nothing_else() {
+        // Protects: DECISIONS 7i: pass relief is 0.40 at full corridor strength, linear in
+        // between, applied to the slope term only, never below flat ground, present in the
+        // land and mixed grids and absent from the water grid.
         let (gw, gh) = (24usize, 16usize);
         // A flat shelf (x < 6) that then climbs steadily eastward. The climb
         // is the point: the relief multiplies the SLOPE term, so a cell with
@@ -1500,6 +1560,9 @@ mod tests {
     /// flowThresh*8` implies `flow > flowThresh`).
     #[test]
     fn swamp_and_ford_terms_scale_with_the_flow_field_and_touch_nothing_else() {
+        // Protects: swamp and ford terms raise cost only where `flow` says so, compose in
+        // the same order as `civ_enhanced_travel_cost`, leave a dry cell identical,
+        // and do not touch the water grid.
         let (gw, gh) = (24usize, 16usize);
         let n = gw * gh;
         let sea = 0.42;
@@ -1557,6 +1620,8 @@ mod tests {
 
     #[test]
     fn a_land_route_between_two_land_points_is_reachable() {
+        // Protects: a land route between two land points is reachable, smoothed, keeps the
+        // caller's exact endpoints and never crosses water.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let r = civ_dijkstra_path(&ctx, 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
@@ -1575,6 +1640,8 @@ mod tests {
     /// is the only way to tell.
     #[test]
     fn an_unreachable_land_route_falls_back_to_a_line_and_says_so() {
+        // Protects: an unreachable target still yields a drawable line, with `reachable`
+        // == false as the only signal (the v1.47 flag).
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let r = civ_dijkstra_path(&ctx, 12.0, 2.0, 2.0, 2.0, RouteMode::Land);
@@ -1584,6 +1651,7 @@ mod tests {
 
     #[test]
     fn water_mode_is_the_mirror_image() {
+        // Protects: water mode reaches water targets and refuses land ones.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         assert!(civ_dijkstra_path(&ctx, 2.0, 2.0, 7.0, 13.0, RouteMode::Water).reachable);
@@ -1594,6 +1662,7 @@ mod tests {
     /// is cheaper, so both of the pure modes' refusals become reachable.
     #[test]
     fn mixed_mode_connects_across_the_coastline() {
+        // Protects: mixed mode reaches across the coast and its path really uses water.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let r = civ_dijkstra_path(&ctx, 2.0, 2.0, 22.0, 13.0, RouteMode::Mixed);
@@ -1603,6 +1672,7 @@ mod tests {
 
     #[test]
     fn commit_way_needs_two_waypoints() {
+        // Protects: committing a way needs at least two waypoints (`None` for zero or one).
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         assert!(civ_commit_way(&ctx, &[], ManualWayType::Road).is_none());
@@ -1611,6 +1681,8 @@ mod tests {
 
     #[test]
     fn commit_way_chains_legs_and_reports_unreachable_ones() {
+        // Protects: a committed way chains its legs, keeps first/last waypoints, and counts
+        // an unreachable leg rather than discarding the waypoints.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let ok = civ_commit_way(&ctx, &[(12.0, 2.0), (18.0, 8.0), (22.0, 13.0)], ManualWayType::Road).unwrap();
@@ -1626,6 +1698,7 @@ mod tests {
 
     #[test]
     fn a_sea_lane_commits_over_water() {
+        // Protects: a `SeaLane` commits as a sea way over water with no unreachable leg.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let c = civ_commit_way(&ctx, &[(2.0, 2.0), (7.0, 13.0)], ManualWayType::SeaLane).unwrap();
@@ -1639,6 +1712,8 @@ mod tests {
     /// a way exists along it.
     #[test]
     fn an_existing_way_attracts_a_later_route() {
+        // Protects: the existing-way discount makes a later route follow a longer way
+        // rather than cutting the straight line (longer km, rides the dog-leg corner).
         let (field, wb) = route_fixture();
         let bare = route_ctx(&field, &wb, &[], &[]);
         let straight = civ_dijkstra_path(&bare, 12.0, 2.0, 22.0, 13.0, RouteMode::Land);
@@ -1667,6 +1742,8 @@ mod tests {
     /// would not notice if the check were dropped.
     #[test]
     fn a_hidden_way_grants_no_discount() {
+        // Protects: a hidden way gives no discount: the result equals the no-ways result
+        // exactly, and differs from the visible-way result.
         let (field, wb) = route_fixture();
         let detour: Vec<(f64, f64)> = (2..=13).map(|y| (12.0, y as f64)).chain((12..=22).map(|x| (x as f64, 13.0))).collect();
         let shown = vec![WayRef { pts: &detour, brks: &[], sea: false, hidden: false }];
@@ -1684,6 +1761,8 @@ mod tests {
     /// back onto dry land.
     #[test]
     fn a_sea_lane_makes_a_land_route_across_water_possible() {
+        // Protects: the v1.53 ferry exception: in land mode only, an existing sea lane makes
+        // water crossable, and the repair pass does not pull the leg back onto land.
         let (field, wb) = route_fixture();
         let bare = civ_dijkstra_path(&route_ctx(&field, &wb, &[], &[]), 12.0, 8.0, 2.0, 8.0, RouteMode::Land);
         assert!(!bare.reachable);
@@ -1707,6 +1786,8 @@ mod tests {
     /// northern pass wins; a settlement at the southern one flips it.
     #[test]
     fn settlement_gravity_picks_the_pass_a_settlement_sits_in() {
+        // Protects: settlement gravity: a settlement already in the used pass changes
+        // nothing, but one in the other pass flips the route to it.
         let (mut field, wb) = route_fixture();
         for y in 0..16 {
             if y != 4 && y != 12 {
@@ -1727,6 +1808,8 @@ mod tests {
 
     #[test]
     fn joining_drops_the_duplicated_junction_point() {
+        // Protects: joining legs keeps the shared waypoint once, lifts no pen on a clean
+        // join, and sums the legs' kilometres.
         let (field, wb) = route_fixture();
         let ctx = route_ctx(&field, &wb, &[], &[]);
         let a = civ_dijkstra_path(&ctx, 12.0, 2.0, 18.0, 8.0, RouteMode::Land);

@@ -83,6 +83,11 @@
 /// swatch) is what territory actually renders in and is *not* replaced by
 /// this -- that divergence predates this module and stays disclosed where
 /// it already is.
+///
+/// Provenance of the seven rows: the names and the RGB triples are the
+/// reference's `CIV_FACTIONS` literal, transcribed unchanged (reference-sourced,
+/// not a port-side judgement). Never reorder: index 0 must stay "Unclaimed" and
+/// indices are what saved faction ids point at.
 pub const CIV_FACTION_BASE: [(&str, (u8, u8, u8)); 7] = [
     ("Unclaimed", (60, 60, 60)),
     ("Aurelia", (206, 84, 72)),
@@ -98,6 +103,14 @@ pub const CIV_FACTION_BASE: [(&str, (u8, u8, u8)); 7] = [
 /// and never lands on a nearby hue. Ported verbatim, integer rounding
 /// included -- `Math.round` is JS's half-up-toward-+Infinity, which is
 /// `f64::round` for the non-negative values this can produce.
+///
+/// Constants, all the reference's own: 137.508 is the golden angle in degrees
+/// (360 * (1 - 1/phi) = 137.5077...), so successive indices spread around the
+/// hue wheel without repeating; saturation 0.55 and lightness 0.5 are the
+/// reference's fixed HSL pair (reference-sourced; the port records no
+/// measurement behind them). The `h < 60/120/...` ladder is the textbook
+/// HSL-to-RGB sextant split, one arm per 60-degree sector. Must never gain a
+/// parallel palette: this is the single colour rule for appended factions.
 pub fn civ_faction_color(i: usize) -> (u8, u8, u8) {
     let h = (i as f64 * 137.508) % 360.0;
     let s: f64 = 0.55;
@@ -147,6 +160,9 @@ pub const CIV_TRAITS: [(&str, &str, &str); 7] = [
 /// keys are the ones [`crate::CIV_PRIMARY_SPECIALISATION`] already maps onto
 /// named primary sectors; this is the full picker vocabulary that table's
 /// five entries are a subset of.
+///
+/// Order and keys are the reference's literal list (reference-sourced); the
+/// "none" row at index 0 is the generic default a place starts with.
 pub const CIV_SPECIALISATIONS: [(&str, &str); 10] = [
     ("none", "None / generic"),
     ("fishing", "Fishing"),
@@ -163,6 +179,10 @@ pub const CIV_SPECIALISATIONS: [(&str, &str); 10] = [
 /// `CIV_RELIGIONS` (reference line ~14780) -- `(key, label)`. A per-faction
 /// categorical "state religion" attribute; the reference scoped FMG's full
 /// spatial religion-spread model down to exactly this list, on purpose.
+///
+/// Order, keys and labels are the reference's list, transcribed unchanged. Keys
+/// are written into saves and are what `belief::compat` is looked up with, so
+/// never rename or reorder one without a save-compat disclosure.
 pub const CIV_RELIGIONS: [(&str, &str); 8] = [
     ("none", "None / secular"),
     ("sun_cult", "Sun Cult"),
@@ -207,6 +227,10 @@ pub const CIV_GOVERNMENTS: [(&str, &str); 9] = [
 ];
 
 /// One `AG_TECH_LEVELS` row (reference line 14816).
+///
+/// Fields: `key` is the persisted identifier (camelCase, as the reference
+/// writes it); `label` and `hint` are display prose for the picker only and
+/// never feed a computation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AgTechLevel {
     pub key: &'static str,
@@ -221,6 +245,15 @@ pub struct AgTechLevel {
 /// `AG_TECH_LEVELS` (reference line 14816), in order. Index 1
 /// (`traditionalAgrarian`) is the reference's own default for every
 /// faction and the fallback [`civ_ag_tech_by_key`] returns.
+///
+/// Provenance of `farmers_per_urbanite`: each value is the reference's own
+/// literal, and each is `f / (1 - f)` for the farming share `f` that the row's
+/// `hint` quotes -- 0.95 -> 19.0, 0.90 -> 9.0, 0.80 -> 4.0, 0.50 -> 1.0,
+/// 0.31 -> 0.45 (0.45/1.45 = 0.310), 0.13 -> 0.15 (0.15/1.15 = 0.130). The
+/// shares themselves come from the England agricultural-labour series the
+/// field doc cites (Broadberry & Gardner 2013; CAMPOP); this port did not
+/// re-derive them. The rows are ordered by decreasing farmers_per_urbanite;
+/// never reorder -- `civ_ag_tech_by_key`'s fallback is index 1.
 pub const AG_TECH_LEVELS: [AgTechLevel; 6] = [
     AgTechLevel {
         key: "subsistence",
@@ -273,6 +306,11 @@ pub fn civ_ag_tech_by_key(key: &str) -> &'static AgTechLevel {
 /// True when `key` names a real entry of `table`'s `(key, label)` rows --
 /// the guard every setter at the boundary uses so a typo from GDScript is
 /// rejected rather than stored.
+///
+/// Pure lookup, no normalisation: the comparison is exact and case-sensitive
+/// because keys are persisted identifiers. Must never be loosened to a
+/// prefix or case-insensitive match -- that would let a typo through the very
+/// guard it exists to be.
 pub fn has_key(table: &[(&str, &str)], key: &str) -> bool {
     table.iter().any(|&(k, _)| k == key)
 }
@@ -420,6 +458,8 @@ mod tests {
     /// economy layer keys off.
     #[test]
     fn primary_specialisation_keys_are_a_subset() {
+        // Protects: every key in `crate::CIV_PRIMARY_SPECIALISATION` is selectable in
+        // the editor's full vocabulary, so the economy layer's input is reachable.
         for (k, _) in crate::CIV_PRIMARY_SPECIALISATION {
             assert!(
                 CIV_SPECIALISATIONS.iter().any(|&(s, _)| s == k),
@@ -435,6 +475,8 @@ mod tests {
     /// function exists to provide.
     #[test]
     fn default_religion_is_forced_for_themed_cultures_regardless_of_index() {
+        // Protects: the five terrain-themed cultures always map to their single
+        // best-fit religion (exact keys asserted), independent of `faction_index`.
         assert_eq!(civ_default_religion("highland", 2), "sky_pantheon");
         assert_eq!(civ_default_religion("highland", 9), "sky_pantheon");
         assert_eq!(civ_default_religion("desert", 3), "sun_cult");
@@ -446,6 +488,8 @@ mod tests {
     /// Never `"none"`, whatever the culture -- the one hard rule.
     #[test]
     fn default_religion_never_returns_none() {
+        // Protects: `civ_default_religion` never returns "none", for any of eight
+        // culture keys (including an unknown one) across indices 0..20.
         for culture in ["common", "imperial", "highland", "desert", "riverlands", "sylvan", "maritime", "nonsense"] {
             for i in 0..20 {
                 assert_ne!(civ_default_religion(culture, i), "none", "culture={culture} i={i}");
@@ -460,6 +504,8 @@ mod tests {
     /// would silently converge on the same religion.
     #[test]
     fn default_religion_cycles_the_tie_for_unthemed_cultures() {
+        // Protects: for an unthemed culture the tie-break walks all seven candidate
+        // religions (distinct), is deterministic, and wraps with period 7.
         let picks: Vec<&str> = (0..7).map(|i| civ_default_religion("common", i)).collect();
         let distinct: std::collections::BTreeSet<&str> = picks.iter().copied().collect();
         assert_eq!(distinct.len(), 7, "seven candidates, seven indices, all distinct: {picks:?}");
@@ -474,6 +520,8 @@ mod tests {
     /// panic and not a fabricated verdict.
     #[test]
     fn default_religion_treats_an_unknown_culture_as_unthemed() {
+        // Protects: an unrecognised culture key behaves exactly like the unthemed
+        // "common" culture rather than panicking or inventing a verdict.
         assert_eq!(civ_default_religion("nonsense", 1), civ_default_religion("common", 1));
     }
 
@@ -482,6 +530,8 @@ mod tests {
     /// not land on `"none"`.
     #[test]
     fn default_government_cycles_every_real_form() {
+        // Protects: indices 1..=8 yield eight distinct non-"none" governments and
+        // the cycle wraps at index 9 (period 8), deterministically.
         let picks: Vec<&str> = (1..=8).map(civ_default_government).collect();
         let distinct: std::collections::BTreeSet<&str> = picks.iter().copied().collect();
         assert_eq!(distinct.len(), 8, "eight non-none forms, eight indices, all distinct: {picks:?}");

@@ -141,6 +141,9 @@ impl LandmarkClass {
         }
     }
 
+    /// The lowercase wire key for this class. The shell reverse-looks-up this exact
+    /// string in `landmark_set_class_radius`, and `class_tokens_are_the_wire_format_too`
+    /// pins it, so renaming one is a protocol change, not a cosmetic edit.
     pub fn as_str(self) -> &'static str {
         match self {
             LandmarkClass::Continental => "continental",
@@ -150,6 +153,9 @@ impl LandmarkClass {
         }
     }
 
+    /// Every class in declaration order, which is also the order of `index()` and
+    /// therefore of `class_radius_km: [f64; 4]`. Never reorder it without reordering
+    /// that array's defaults.
     pub fn all() -> [LandmarkClass; 4] {
         [
             LandmarkClass::Continental,
@@ -177,6 +183,8 @@ pub enum LandmarkFamily {
 }
 
 impl LandmarkFamily {
+    /// The machine key for this family (the display text is `label`). Part of the
+    /// bridge's vocabulary; do not change it for wording reasons.
     pub fn as_str(self) -> &'static str {
         match self {
             LandmarkFamily::Physical => "physical",
@@ -200,6 +208,8 @@ impl LandmarkFamily {
         }
     }
 
+    /// The six families in declaration order, for loops that must visit each once
+    /// (`family_summary`, the shell's grouped list).
     pub fn all() -> [LandmarkFamily; 6] {
         [
             LandmarkFamily::Physical,
@@ -909,10 +919,15 @@ impl LandmarkSettings {
         kind_spec(key).map(|k| k.buildable).unwrap_or(false)
     }
 
+    /// Stores `cap` for `key` without validating either. An unknown key is stored
+    /// and ignored, and a cap of 0 reads as `Disarmed` through `skipped_limit`
+    /// (the slider's own off stop).
     pub fn set_cap(&mut self, key: &str, cap: u32) {
         self.caps.insert(key.to_string(), cap);
     }
 
+    /// Arms or disarms `key`. Arming a kind this engine does not build has no
+    /// effect on the output: `generate` still reports it `NotBuildable`.
     pub fn set_armed(&mut self, key: &str, armed: bool) {
         self.armed.insert(key.to_string(), armed);
     }
@@ -971,10 +986,14 @@ pub struct LandmarkResult {
 }
 
 impl LandmarkResult {
+    /// The funnel row for `key`, or `None` for a key outside the kind table. Every
+    /// table kind has a row, even in an all-skipped result.
     pub fn funnel(&self, key: &str) -> Option<&LandmarkFunnel> {
         self.funnels.iter().find(|f| f.kind == key)
     }
 
+    /// How many landmarks of `key` were placed; 0 for an unknown key. Reads the
+    /// funnel, so it agrees with `funnel(key).placed` by construction.
     pub fn placed(&self, key: &str) -> usize {
         self.funnel(key).map(|f| f.placed).unwrap_or(0)
     }
@@ -1035,6 +1054,7 @@ pub struct LandmarkStore {
 }
 
 impl LandmarkStore {
+    /// An empty store with no last result; the same as `Default`.
     pub fn new() -> Self {
         Self::default()
     }
@@ -1386,6 +1406,8 @@ impl<'a> LandmarkInputs<'a> {
         }
     }
 
+    /// Cell count `gw * gh` (saturating): the length every raster is checked
+    /// against. `generate` returns an all-skipped result when it is 0.
     fn n(&self) -> usize {
         self.gw.saturating_mul(self.gh)
     }
@@ -1399,6 +1421,9 @@ impl<'a> LandmarkInputs<'a> {
         }
     }
 
+    /// The potential raster for `key`, only if it is exactly `n` cells long and
+    /// `n > 0`; otherwise `None`, so a wrongly sized raster degrades to `NoTerrain`
+    /// rather than indexing out of range.
     fn resource(&self, key: &str) -> Option<&'a [f32]> {
         self.resources
             .iter()
@@ -1424,6 +1449,9 @@ impl<'a> LandmarkInputs<'a> {
         self.peak_m / if d == 0.0 { 1e-6 } else { d }
     }
 
+    /// Metres above sea level at cell `i`: `(field[i] - sea_level) * mpu()`. Indexes
+    /// `field` directly, so callers must have passed the `field.len() == n` guard in
+    /// `generate` first.
     fn elevation_m(&self, i: usize) -> f64 {
         (self.field[i] as f64 - self.sea_level) * self.mpu()
     }
@@ -1492,6 +1520,11 @@ struct Needs {
 }
 
 impl Needs {
+    /// Which derived rasters the kind `key` reads: one arm per buildable kind, and
+    /// the wildcard covers unbuilt or unknown keys (which read nothing). The viewshed
+    /// flag is set for the seven viewshed-reading kinds and `commanding` for the four
+    /// military kinds. Must be kept in step with the detector arms in `generate`;
+    /// `the_kind_table_matches_the_research_and_the_design` checks the viewshed set.
     fn of(key: &str) -> Needs {
         let (slope, curv, tpi, extrema, ways) = match key {
             "peak" => (false, false, true, true, false),
@@ -1551,6 +1584,8 @@ impl Needs {
         Needs { slope, curv, tpi, extrema, ways, viewshed, commanding }
     }
 
+    /// Field-wise OR, so `generate` builds each derived raster once for the union of
+    /// the kinds that will actually run, not once per kind.
     fn merge(self, o: Needs) -> Needs {
         Needs {
             slope: self.slope || o.slope,
@@ -1597,6 +1632,13 @@ struct Derived {
 }
 
 impl Derived {
+    /// Builds only the rasters `need` asks for. Kilometre scales are converted to
+    /// cells and clamped to `SCALE_MIN_CELLS`/`SCALE_MAX_CELLS`; with no usable cell
+    /// size they collapse to the minimum, and the broad window is never narrower than
+    /// the fine one. `tpi_hi` is built only for `commanding` kinds and only if the
+    /// broad TPI exists. `r_view` is clamped to `VIEW_MIN_CELLS`/`VIEW_MAX_CELLS`.
+    /// `vis` is left **empty**, not zeros, when there is no observer: that is the
+    /// `NoTerrain` contract, and zeros would read as "seen from nowhere".
     fn build(inp: &LandmarkInputs<'_>, need: Needs) -> Derived {
         let (gw, gh) = (inp.gw, inp.gh);
         let cell_km = inp.cell_km();
@@ -1683,15 +1725,23 @@ impl Derived {
         }
     }
 
+    /// Slope at cell `i`; 0.0 where the raster was not built or `i` is out of range.
+    /// Unlike `vis`, 0.0 here means "absent", not a measurement.
     fn slope(&self, i: usize) -> f32 {
         self.slope.get(i).copied().unwrap_or(0.0)
     }
+    /// Curvature at cell `i`; 0.0 where not built or out of range (absent, not a
+    /// measurement).
     fn curv(&self, i: usize) -> f32 {
         self.curv.get(i).copied().unwrap_or(0.0)
     }
+    /// Fine-window topographic position at cell `i`; 0.0 where not built or out of
+    /// range (absent, not a measurement).
     fn tpi_fine(&self, i: usize) -> f32 {
         self.tpi_fine.get(i).copied().unwrap_or(0.0)
     }
+    /// Broad-window topographic position at cell `i`; 0.0 where not built or out of
+    /// range (absent, not a measurement).
     fn tpi_broad(&self, i: usize) -> f32 {
         self.tpi_broad.get(i).copied().unwrap_or(0.0)
     }
@@ -2110,6 +2160,9 @@ struct Buckets {
 }
 
 impl Buckets {
+    /// An empty bucket grid whose bucket side is `max_radius` (floored at 1.0 if it
+    /// is non-finite or <= 1). `fits` searches a 3x3 neighbourhood, which is complete
+    /// only because the side is at least the largest radius ever asked about.
     fn new(gw: usize, gh: usize, world: bool, max_radius: f64) -> Buckets {
         let cell = if max_radius.is_finite() && max_radius > 1.0 { max_radius } else { 1.0 };
         let bw = ((gw as f64 / cell).ceil() as usize).max(1);
@@ -2117,6 +2170,8 @@ impl Buckets {
         Buckets { cell, bw, bh, gw: gw as f64, world, b: vec![Vec::new(); bw * bh] }
     }
 
+    /// Horizontal distance between `a` and `b`; the short way round the seam only
+    /// when the map wraps (`world`). Only x wraps; y never does.
     fn dx(&self, a: f64, b: f64) -> f64 {
         let mut d = a - b;
         if self.world && self.gw > 0.0 {
@@ -2129,6 +2184,11 @@ impl Buckets {
         d
     }
 
+    /// True if a point of exclusion radius `r` at (x, y) is clear of every placed
+    /// point. Searches the 3x3 buckets around it, so it is complete only for `r` up
+    /// to the bucket side. A non-finite or non-positive `r` is treated as 0 and always
+    /// fits, and a NaN placed point never blocks (every comparison against NaN is
+    /// false).
     fn fits(&self, x: f64, y: f64, r: f64) -> bool {
         let r = if r.is_finite() && r > 0.0 { r } else { 0.0 };
         let bx = (x / self.cell) as i64;
@@ -2203,6 +2263,8 @@ impl Buckets {
         best
     }
 
+    /// Records a placed point in its bucket. The bucket index is clamped, so a NaN
+    /// or negative coordinate lands in bucket 0 instead of indexing out of range.
     fn take(&mut self, x: f64, y: f64) {
         let bx = ((x / self.cell) as usize).min(self.bw - 1);
         let by = ((y / self.cell) as usize).min(self.bh - 1);
@@ -2236,6 +2298,7 @@ struct Pool {
 }
 
 impl Pool {
+    /// An empty candidate pool.
     fn new() -> Pool {
         Pool { cands: Vec::new(), rejected_constraint: 0, terms: Vec::new() }
     }
@@ -2287,10 +2350,14 @@ fn thousands(v: f64) -> String {
     }
 }
 
+/// Whole metres with a thousands separator and unit, as the causal chains print
+/// them: `"1 240 m"`.
 fn fmt_m(v: f64) -> String {
     format!("{} m", thousands(v))
 }
 
+/// A 0..1 fraction as a rounded whole-number percent with a space before the
+/// sign, as the causal chains print it: `"46 %"`.
 fn fmt_pct(v: f64) -> String {
     format!("{:.0} %", v * 100.0)
 }
@@ -2403,18 +2470,26 @@ const WATERFALL_TERMS: [(&str, f64); 4] = [
 
 /// A spring is a headwater, and a headwater on flat ground is a puddle.
 const SPRING_MIN_RELIEF_M: f64 = 60.0;
+/// Spring scoring weights: local relief 0.40, emergence slope 0.30, headwater flow 0.30.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const SPRING_TERMS: [(&str, f64); 3] =
     [("local relief", 0.40), ("emergence slope", 0.30), ("headwater flow", 0.30)];
 
 /// The **second** largest tributary must itself be a real channel, or this is a
 /// rill joining a river rather than two rivers meeting.
 const CONFLUENCE_MIN_MINOR_FLOW_MULT: f64 = 1.0;
+/// Confluence scoring weights: combined flow 0.45, stream order 0.35, valley relief 0.20.
+/// The stream-order term is included only when the order raster is present, and
+/// the rest renormalise over the terms that remain (see `weighted_sum`).
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const CONFLUENCE_TERMS: [(&str, f64); 3] =
     [("combined flow", 0.45), ("stream order", 0.35), ("valley relief", 0.20)];
 
 /// Below this a lake is a pond. Stated in km² so it means the same thing at
 /// every resolution.
 const LAKE_MIN_AREA_KM2: f64 = 25.0;
+/// Lake scoring weights: surface area 0.55, shore relief 0.30, elevation 0.15.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const LAKE_TERMS: [(&str, f64); 3] =
     [("surface area", 0.55), ("shore relief", 0.30), ("elevation", 0.15)];
 
@@ -2467,7 +2542,11 @@ const PEAK_TERMS: [(&str, f64); 4] = [
 
 /// A ridge crest must stand above its own surroundings, or it is a slope.
 const RIDGE_MIN_TPI_M: f64 = 40.0;
+/// Hard constraint: a ridge candidate needs at least this much local relief
+/// (100 m) as well as `RIDGE_MIN_TPI_M`. Category C (see the block header above): a judgement, source not recorded.
 const RIDGE_MIN_RELIEF_M: f64 = 100.0;
+/// Ridge scoring weights: topographic position 0.40, crest relief 0.35, flank slope 0.25.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const RIDGE_TERMS: [(&str, f64); 3] =
     [("topographic position", 0.40), ("crest relief", 0.35), ("flank slope", 0.25)];
 
@@ -2501,12 +2580,18 @@ const ROCK_FORMATION_TERMS: [(&str, f64); 3] = [
 /// loud because the alternative is a threshold that reads as physical and
 /// silently never fires.
 const CLIFF_MIN_GRADIENT: f64 = 0.18;
+/// Hard constraint: a cliff candidate needs at least this much relief (120 m)
+/// across the face as well as `CLIFF_MIN_GRADIENT`. Category C (see the block header above): a judgement, source not recorded.
 const CLIFF_MIN_RELIEF_M: f64 = 120.0;
+/// Cliff scoring weights: face gradient 0.45, relief across the face 0.35, convex break 0.20.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const CLIFF_TERMS: [(&str, f64); 3] =
     [("face gradient", 0.45), ("relief across the face", 0.35), ("convex break", 0.20)];
 
 /// A gorge sits *below* its surroundings — negative TPI is the whole test.
 const GORGE_MAX_TPI_M: f64 = -50.0;
+/// Hard constraint: a gorge candidate needs at least this much wall relief
+/// (200 m) as well as `GORGE_MAX_TPI_M`. Category C (see the block header above): a judgement, source not recorded.
 const GORGE_MIN_RELIEF_M: f64 = 200.0;
 const GORGE_TERMS: [(&str, f64); 4] = [
     ("incision below the surroundings", 0.40),
@@ -2519,6 +2604,8 @@ const GORGE_TERMS: [(&str, f64); 4] = [
 /// cut. This is the potential at which §14's "a valuable resource should
 /// increase the probability of exploitation" becomes worth a landmark.
 const MINE_MIN_POTENTIAL: f64 = 0.55;
+/// Stone-potential floor (0.55) passed to `pool_resource` for Quarry; the same
+/// value as `MINE_MIN_POTENTIAL` and for the same reason. Category C (see the block header above): a judgement, source not recorded.
 const QUARRY_MIN_POTENTIAL: f64 = 0.55;
 /// Same floor as [`MINE_MIN_POTENTIAL`]/[`QUARRY_MIN_POTENTIAL`], for the
 /// same reason: no basis exists to call the residual resources rarer or
@@ -2531,6 +2618,8 @@ const EXTRACTION_MIN_POTENTIAL: f64 = 0.55;
 /// cliff face.
 const MINE_TERMS: [(&str, f64); 3] =
     [("ore potential", 0.55), ("workable ground", 0.20), ("settlement access", 0.25)];
+/// Quarry scoring weights: stone potential 0.55, exposed face 0.20, settlement access 0.25.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const QUARRY_TERMS: [(&str, f64); 3] =
     [("stone potential", 0.55), ("exposed face", 0.20), ("settlement access", 0.25)];
 /// [`EXTRACTION_RESOURCES`]' own §14 chain. `prefer_flat: true` at the call
@@ -2547,6 +2636,9 @@ const HARBOUR_MIN_SHELTER: f64 = 0.45;
 /// How far out "the approach" reaches, in km, capped in cells for the same
 /// compute reason [`SCALE_MAX_CELLS`] exists.
 const HARBOUR_SHELTER_KM: f64 = 8.0;
+/// Compute cap on the shelter window: `HARBOUR_SHELTER_KM` is converted to cells
+/// and clamped to `2..=` this (12), for the same reason `SCALE_MAX_CELLS` exists.
+/// Where the cap binds, the window is shorter than 8 km. Category C (see the block header above): a judgement, source not recorded.
 const HARBOUR_SHELTER_MAX_CELLS: i64 = 12;
 const HARBOUR_TERMS: [(&str, f64); 4] = [
     ("shelter", 0.40),
@@ -2558,7 +2650,12 @@ const HARBOUR_TERMS: [(&str, f64); 4] = [
 /// A ford is a river small enough to wade: at least a channel, at most this
 /// many times the channel threshold.
 const FORD_MIN_FLOW_MULT: f64 = 1.0;
+/// Upper flow bound for a ford (8x the channel-initiation threshold). Bridge
+/// site starts above it, so the two kinds partition one channel by this number.
+/// Category C (see the block header above): a judgement, source not recorded.
 const FORD_MAX_FLOW_MULT: f64 = 8.0;
+/// A ford candidate whose river gradient exceeds this (0.08) is rejected: banks
+/// too steep to wade. Category C (see the block header above): a judgement, source not recorded.
 const FORD_MAX_GRADIENT: f64 = 0.08;
 const FORD_TERMS: [(&str, f64); 4] = [
     ("shallow crossing", 0.35),
@@ -2588,6 +2685,10 @@ const FORD_TERMS: [(&str, f64); 4] = [
 /// which is the "flag flipped, nothing generated" failure the funnel exists to
 /// expose.
 const JUNCTION_MIN_WAYS: usize = 2;
+/// Junction scoring weights: roads meeting 0.45, busiest road 0.30, settlement access 0.25.
+/// The settlement term is included only when settlements exist; the rest
+/// renormalise.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const JUNCTION_TERMS: [(&str, f64); 3] =
     [("roads meeting", 0.45), ("busiest road", 0.30), ("settlement access", 0.25)];
 
@@ -2600,6 +2701,8 @@ const TRADE_MIN_WAY_RANK: u8 = 1;
 /// from the nearest settlement a cell on a trade road can be and still be that
 /// settlement's market rather than open road.
 const MARKET_MAX_SETTLEMENT_KM: f64 = 40.0;
+/// Market scoring weights: settlement access 0.45, road class 0.30, workable ground 0.25.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const MARKET_TERMS: [(&str, f64); 3] =
     [("settlement access", 0.45), ("road class", 0.30), ("workable ground", 0.25)];
 
@@ -2610,6 +2713,9 @@ const MARKET_TERMS: [(&str, f64); 3] =
 /// between the two is neither, and is left empty on purpose — road that needs
 /// no waystation and serves no market.
 const CARAVAN_MIN_SETTLEMENT_KM: f64 = 60.0;
+/// Caravan-station scoring weights: distance from any settlement 0.40, road class 0.35,
+/// workable ground 0.25.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const CARAVAN_TERMS: [(&str, f64); 3] =
     [("distance from any settlement", 0.40), ("road class", 0.35), ("workable ground", 0.25)];
 
@@ -2618,6 +2724,10 @@ const CARAVAN_TERMS: [(&str, f64); 3] =
 /// reaching it is a transhipment point rather than a bank. Well above
 /// [`FORD_MAX_FLOW_MULT`]: water you can wade is not water you can ship on.
 const DEPOT_NAVIGABLE_FLOW_MULT: f64 = 20.0;
+/// Trade-depot scoring weights: road class 0.40, settlement access 0.35, workable ground 0.25.
+/// The settlement term is included only when settlements exist; the rest
+/// renormalise.
+/// Weights sum to 1.0. Category C (see the block header above): a judgement, source not recorded.
 const DEPOT_TERMS: [(&str, f64); 3] =
     [("road class", 0.40), ("settlement access", 0.35), ("workable ground", 0.25)];
 
@@ -2867,6 +2977,11 @@ struct Upstream {
     max2: Vec<f32>,
 }
 
+/// Everything a detector reads, in one place: borrowed, length-checked views of
+/// every optional raster, the derived layers, the upstream tree, the way grid and
+/// the channel threshold. Built once per pass by `Ctx::build` and read-only for
+/// detectors (no method takes `&mut self`); a detector must never index an
+/// optional raster without going through these checked views.
 struct Ctx<'a> {
     inp: &'a LandmarkInputs<'a>,
     d: Derived,
@@ -2890,6 +3005,12 @@ struct Ctx<'a> {
 }
 
 impl<'a> Ctx<'a> {
+    /// Builds the context. The upstream tree `up` exists only when channel, receiver
+    /// and flow are all present. `flow_thresh` comes from
+    /// `cartalith_hydrology::river_flow_thresh`; if the map width or grid is invalid it
+    /// falls back to `n * 0.0004`, and a non-finite or non-positive result becomes 1.0
+    /// so no detector divides by zero or compares against NaN. The way grid is built
+    /// only when some kind needs it and the way list is non-empty.
     fn build(inp: &'a LandmarkInputs<'a>, need: Needs) -> Ctx<'a> {
         let n = inp.n();
         let flow = inp.grid(inp.flow);
@@ -2965,6 +3086,9 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// True for ocean. With a water mask, only mask value 1 is ocean (0 is land and
+    /// 2 is a lake, which is neither land nor ocean); without a mask it is
+    /// `field < sea`, the complement of `is_land`.
     fn is_ocean(&self, i: usize) -> bool {
         match self.water {
             Some(w) => w[i] == 1,
@@ -2972,6 +3096,8 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    /// Index of the neighbour at offset (dx, dy), wrapping x on a world map and `None`
+    /// off the grid; y never wraps.
     fn nb(&self, x: usize, y: usize, dx: i64, dy: i64) -> Option<usize> {
         let (gw, gh) = (self.inp.gw as i64, self.inp.gh as i64);
         let yy = y as i64 + dy;
@@ -3084,14 +3210,20 @@ impl<'a> Ctx<'a> {
         best
     }
 
+    /// Metres above sea level at cell `i`; delegates to `LandmarkInputs::elevation_m`.
     fn elev_m(&self, i: usize) -> f64 {
         self.inp.elevation_m(i)
     }
 
+    /// Local relief at cell `i` converted to metres by `LandmarkInputs::dh_m`; the
+    /// underlying `Derived::relief` is 0.0 where the extrema rasters were not built
+    /// (absent, not flat).
     fn relief_m(&self, i: usize) -> f64 {
         self.inp.dh_m(self.d.relief(i) as f64)
     }
 
+    /// Gradient at cell `i`: the derived slope converted by `LandmarkInputs::gradient`,
+    /// so detectors share one definition of gradient. 0.0 where slope was not built.
     fn gradient(&self, i: usize) -> f64 {
         self.inp.gradient(self.d.slope(i))
     }
@@ -4596,6 +4728,10 @@ fn skipped_limit(spec: &LandmarkKindSpec, settings: &LandmarkSettings) -> Landma
     }
 }
 
+/// The result for a pass that cannot run: `n == 0`, `field.len() != n`, or no
+/// kind both buildable, armed and capped above 0. Every kind still gets a funnel
+/// row whose limit comes from `skipped_limit` (NotBuildable, then Disarmed, else
+/// NoTerrain), so the shell's table is never short a row.
 fn all_skipped(settings: &LandmarkSettings, t0: std::time::Instant) -> LandmarkResult {
     LandmarkResult {
         landmarks: Vec::new(),
@@ -5018,11 +5154,18 @@ fn assign_importance(out: &mut [Landmark], ctx: &Ctx<'_>) {
 // Tests
 // ===========================================================================
 
+/// Tests for the landmark pass. The hand-shaped fixtures here are built to reach
+/// code that a generated world cannot (quantised grids, one-channel strips, two
+/// cones); the `real_world` ones re-run the engine's own terrain so a kind cannot
+/// be flagged buildable and then place nothing.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Sea level used by every fixture: 0.42, equal to `WorldParams::defaults().sea_level`.
     const SEA: f64 = 0.42;
+    /// Peak height in metres used by every fixture: 4000, equal to
+    /// `WorldParams::defaults().peak_m` and the `LandmarkInputs::new` default.
     const PEAK_M: f64 = 4000.0;
 
     /// A small world built to reach the code rather than to look pretty: a
@@ -5089,6 +5232,9 @@ mod tests {
         v
     }
 
+    /// The hand-built fixture world: the height field plus every optional raster the
+    /// detectors read, built by `world(gw, gh, width_km)`. Not a model of generated
+    /// output; see `RealWorld` for that.
     struct World {
         gw: usize,
         gh: usize,
@@ -5328,6 +5474,8 @@ mod tests {
         }
     }
 
+    /// Wires every `World` raster into a `LandmarkInputs`, with `res` as the
+    /// resource pairs. Fixture glue only.
     fn inputs<'a>(w: &'a World, res: &'a [(&'a str, &'a [f32])]) -> LandmarkInputs<'a> {
         let mut i = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
         i.peak_m = PEAK_M;
@@ -5377,6 +5525,10 @@ mod tests {
         resources: crate::ResourcePotentials,
     }
 
+    /// Runs `generate_terrain` (bounded map, `WorldParams::defaults`) and the civ
+    /// passes the shell runs after it, so the landmark tests read the same rasters
+    /// the shell hands them. Slow compared with `world()`; use it only where
+    /// "a world nobody shaped for the kind" is the point.
     fn real_world(gw: usize, gh: usize, seed: i32) -> RealWorld {
         let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
         p.world = false;
@@ -5571,6 +5723,8 @@ mod tests {
         }
     }
 
+    /// The 15 real resource-potential rasters as (key, raster) pairs, in the shape
+    /// `LandmarkInputs::resources` takes.
     fn real_resource_pairs(rp: &crate::ResourcePotentials) -> Vec<(&str, &[f32])> {
         vec![
             ("copper", rp.copper.as_slice()),
@@ -5591,6 +5745,8 @@ mod tests {
         ]
     }
 
+    /// Wires a `RealWorld` into a `LandmarkInputs`, with `res` as the resource
+    /// pairs. The real-world counterpart of `inputs`.
     fn real_inputs<'a>(
         r: &'a RealWorld,
         res: &'a [(&'a str, &'a [f32])],
@@ -5617,6 +5773,10 @@ mod tests {
 
     #[test]
     fn the_kind_table_matches_the_research_and_the_design() {
+        // Protects: the kind table: 49 unique keys with labels, a `not_built` reason on exactly the
+        // unbuilt kinds, the per-family counts, the seven viewshed-reading kinds agreeing
+        // with `Needs::of`, the 27 buildable kinds, and `buildable` agreeing with the
+        // detector arms.
         let ks = kinds();
         assert_eq!(ks.len(), 49, "§29 lists 49 types");
         let mut seen = std::collections::HashSet::new();
@@ -5752,6 +5912,8 @@ mod tests {
 
     #[test]
     fn default_settings_arm_exactly_the_buildable_kinds() {
+        // Protects: the default settings arm exactly the buildable kinds at their default caps,
+        // with crowding 1.0 and a 34 km regional radius.
         let s = LandmarkSettings::default();
         for k in kinds() {
             assert_eq!(s.is_armed(k.key), k.buildable, "{}", k.key);
@@ -5765,6 +5927,7 @@ mod tests {
 
     #[test]
     fn an_unknown_key_falls_back_rather_than_panicking() {
+        // Protects: an unknown key reads as cap 0, disarmed and no spec, never a panic.
         let s = LandmarkSettings::default();
         assert_eq!(s.cap("no_such_kind"), 0);
         assert!(!s.is_armed("no_such_kind"));
@@ -5776,6 +5939,8 @@ mod tests {
 
     #[test]
     fn relief_agrees_with_the_analysis_module() {
+        // Protects: the separable min/max relief here agrees with `analysis::local_relief` to
+        // 1e-6, bounded and wrapped, at three radii.
         for world_wrap in [false, true] {
             let (gw, gh) = (48usize, 32usize);
             let f = test_field(gw, gh);
@@ -5802,6 +5967,8 @@ mod tests {
 
     #[test]
     fn funnel_arithmetic_closes_on_every_kind() {
+        // Protects: every kind's funnel closes (candidates = rejects + placed); cap rejects only
+        // appear under `AtCap` at or above the cap; and the pass is not all-empty.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![
             ("iron", w.iron.as_slice()),
@@ -5871,6 +6038,9 @@ mod tests {
 
     #[test]
     fn a_real_world_places_landmarks_of_several_kinds() {
+        // Protects: a whole fixture world places over 100 landmarks of at least 10 kinds, each
+        // in bounds with unique ids, scores in 0..1 and a causal chain ending in its
+        // kind's label; only buildable kinds appear.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![
             ("iron", w.iron.as_slice()),
@@ -5935,6 +6105,8 @@ mod tests {
     /// detector that never fires at all.
     #[test]
     fn every_buildable_kind_can_actually_place_one() {
+        // Protects: every buildable kind places at least one landmark on the fixture world (the
+        // two in `FIXTURE_HAS_NO_TRUNK_RIVER` are covered on a real world instead).
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![
             ("iron", w.iron.as_slice()),
@@ -5971,6 +6143,8 @@ mod tests {
     /// project keeps `UNWIRED_FUNCTIONS.md` for; this is what stops it.
     #[test]
     fn every_way_graph_kind_places_on_a_world_generate_terrain_really_made() {
+        // Protects: the way-graph kinds place on a world `generate_terrain` really made, so a
+        // flag flipped to buildable cannot ship a kind that places nothing.
         let r = real_world(256, 192, 24601);
         assert!(r.sites.len() >= 5, "only {} settlements placed", r.sites.len());
         assert!(r.ways.len() >= 5, "only {} ways routed", r.ways.len());
@@ -6033,6 +6207,9 @@ mod tests {
     /// side of [`FORT_SETTLEMENT_REACH_KM`] its own kind claims.
     #[test]
     fn every_viewshed_kind_places_on_a_world_generate_terrain_really_made() {
+        // Protects: the viewshed kinds place on a real world, and each placement re-opens against
+        // the field that put it there (seen, above its surroundings, on the right side
+        // of the settlement reach).
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -6125,6 +6302,8 @@ mod tests {
     /// `Derived::vis` would still place here.
     #[test]
     fn with_no_observers_anywhere_no_viewshed_kind_places_anything() {
+        // Protects: with no observers the six viewshed kinds report `NoTerrain` and place nothing,
+        // so the detectors really read the visibility field.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let mut inp = real_inputs(&r, &pairs);
@@ -6173,6 +6352,8 @@ mod tests {
     /// does not want.
     #[test]
     fn commanding_ground_you_cannot_build_on_is_refused() {
+        // Protects: `GARRISON_MAX_GRADIENT` is load-bearing: the most commanding cell on an
+        // escarpment crest is refused for being too steep to build on.
         let (gw, gh) = (64usize, 64usize);
         let mut f = vec![0.50f32; gw * gh];
         for y in 0..gh {
@@ -6240,6 +6421,8 @@ mod tests {
     /// lights up.
     #[test]
     fn the_visibility_field_these_kinds_read_carries_the_curve() {
+        // Protects: the visibility field includes earth curvature: a far cell inside the radius is
+        // not seen, and `VIEW_EARTH_RADIUS_M` mutated to 0 would show it.
         let (gw, gh) = (64usize, 64usize);
         let f = vec![0.60f32; gw * gh];
         let site = [LandmarkSite { x: 10, y: 32, population: 9_000.0 }];
@@ -6272,6 +6455,8 @@ mod tests {
     /// observer, no field, the term is omitted, and both are `0.50`.
     #[test]
     fn a_peak_that_overlooks_more_land_outranks_an_equal_one_that_overlooks_less() {
+        // Protects: Ruling AV: of two otherwise identical peaks, the one that overlooks a town
+        // scores 0.60 against 0.40, and with no observers both score 0.50.
         let (gw, gh) = (128usize, 64usize);
         let mut f = vec![0.50f32; gw * gh];
         let (a, b) = ((32usize, 32usize), (96usize, 32usize));
@@ -6343,6 +6528,8 @@ mod tests {
     /// must be a real cell of the territory raster where the two owners meet.
     #[test]
     fn border_marker_places_on_a_real_faction_boundary_and_nowhere_else() {
+        // Protects: border markers sit only on the seam between two factions' territory, on
+        // owned ground with a rival-owned neighbour.
         let (gw, gh) = (64usize, 64usize);
         let f = vec![0.60f32; gw * gh];
         let mut territory = vec![0i32; gw * gh];
@@ -6399,6 +6586,8 @@ mod tests {
     /// this pass must refuse to invent a border there.
     #[test]
     fn border_marker_refuses_the_edge_of_unclaimed_ground() {
+        // Protects: the edge of claimed ground against unowned ground (0) is a frontier, not a
+        // border: no marker is placed.
         let (gw, gh) = (64usize, 64usize);
         let f = vec![0.60f32; gw * gh];
         let mut territory = vec![0i32; gw * gh];
@@ -6429,6 +6618,8 @@ mod tests {
     /// not a marker placed on a boundary nobody can see.
     #[test]
     fn border_marker_needs_a_viewshed_same_as_the_other_five() {
+        // Protects: with no observers a border marker reports `NoTerrain` rather than marking a
+        // boundary nobody can see.
         let (gw, gh) = (64usize, 64usize);
         let f = vec![0.60f32; gw * gh];
         let mut territory = vec![0i32; gw * gh];
@@ -6457,6 +6648,9 @@ mod tests {
     /// agree with itself.
     #[test]
     fn the_volcanic_activity_floor_is_load_bearing() {
+        // Protects: `VOLCANIC_MIN_ACTIVITY` is load-bearing: a 0.50 vent places, a 0.30 vent is
+        // rejected by the constraint (not absent from the domain). The literals, not the
+        // constant, are asserted so the test cannot agree with itself.
         let (gw, gh) = (64usize, 64usize);
         let field = flat(gw, gh);
         let site = [LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
@@ -6494,6 +6688,8 @@ mod tests {
     /// the partition being tested and not the spacing rings.
     #[test]
     fn the_four_military_kinds_partition_one_set_of_hilltops() {
+        // Protects: no cell is claimed by two of the four military kinds, no pass, ford or
+        // bridge site shares a cell with one, and a fortified pass stands in the gap, not over it.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -6560,6 +6756,8 @@ mod tests {
     /// `river_crossing` stays unbuilt.
     #[test]
     fn a_way_crossing_a_channel_is_a_ford_or_a_bridge_and_never_both() {
+        // Protects: Ford and Bridge site partition the crossed channel cells by
+        // `FORD_MAX_FLOW_MULT`; no cell is both.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -6588,6 +6786,7 @@ mod tests {
     /// every one of them, not a fabricated placement off some other field.
     #[test]
     fn the_way_graph_kinds_degrade_when_no_ways_are_passed() {
+        // Protects: with no ways, the five way-graph kinds report `NoTerrain` and zero candidates.
         let w = world(256, 192, 1000.0);
         let mut inp = inputs(&w, &[]);
         inp.ways = &[];
@@ -6611,6 +6810,8 @@ mod tests {
     /// refuse instead — `pool_trade_road`'s early return.
     #[test]
     fn a_trade_road_kind_refuses_rather_than_fabricating_without_settlements() {
+        // Protects: with no settlements, Market site and Caravan station both refuse rather than
+        // the station firing everywhere on an infinite distance.
         let w = world(256, 192, 1000.0);
         let mut inp = inputs(&w, &[]);
         inp.settlements = &[];
@@ -6668,6 +6869,8 @@ mod tests {
     /// | D | 23-32 km | track | neither — a track carries no trade |
     #[test]
     fn a_market_sits_inside_a_settlements_reach_and_a_caravan_station_between_two() {
+        // Protects: the 20 km band between the market and station distances is empty on purpose,
+        // and `TRADE_MIN_WAY_RANK` excludes tracks.
         let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
         let field = flat(gw, gh);
         let sites = vec![LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
@@ -6706,6 +6909,8 @@ mod tests {
     /// of the 63 a junction; at `3` it would find none.
     #[test]
     fn a_road_junction_is_the_one_cell_two_ways_share() {
+        // Protects: a junction is only the cell two ways share (`JUNCTION_MIN_WAYS` = 2), not
+        // every road cell.
         let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
         let field = flat(gw, gh);
         let sites = vec![LandmarkSite { x: 10, y: 32, population: 5_000.0 }];
@@ -6739,6 +6944,8 @@ mod tests {
     /// [`DEPOT_NAVIGABLE_FLOW_MULT`]'s 20 — puts a Trade depot on the bank.
     #[test]
     fn ford_bridge_and_depot_split_one_road_by_how_much_water_it_meets() {
+        // Protects: 4x the channel threshold is a Ford, 10x a Bridge site, and only 30x (over
+        // `DEPOT_NAVIGABLE_FLOW_MULT`) a Trade depot.
         let (gw, gh, width_km) = (128usize, 64usize, 512.0f64);
         let field = flat(gw, gh);
         let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, width_km);
@@ -6803,6 +7010,8 @@ mod tests {
     /// it must count once, and a second way through it must count twice.
     #[test]
     fn a_way_grid_counts_polylines_and_not_pixels() {
+        // Protects: `WayGrid` counts distinct polylines through a cell, once each, even for a
+        // way that doubles back through it.
         let way = |pts: Vec<(f64, f64)>, t: crate::WayType, hidden: bool| crate::Way {
             tid: 0,
             pts,
@@ -6849,6 +7058,8 @@ mod tests {
     /// the kind must fall silent, restore it and it must fire again.
     #[test]
     fn rock_formation_needs_contrast_not_just_high_resistance() {
+        // Protects: rock formation needs neighbour contrast: flatten it and the kind falls
+        // silent, restore it and it fires again.
         let w = world(256, 192, 1000.0);
         // Off for the same reason `every_buildable_kind_can_actually_place_one`
         // turns it off: this fixture's outcrop sits on the same summit Peak
@@ -6893,6 +7104,8 @@ mod tests {
     /// comment.
     #[test]
     fn resource_extraction_site_reads_a_disjoint_resource_set_from_mine_and_quarry() {
+        // Protects: Resource extraction site reads a resource set disjoint from Mine and Quarry,
+        // so it adds records rather than doubling theirs.
         let w = world(256, 192, 1000.0);
         // Only what Mine and Quarry read — no timber, no sulfur, no alum.
         let mine_quarry_only: Vec<(&str, &[f32])> =
@@ -6930,6 +7143,8 @@ mod tests {
 
     #[test]
     fn causal_chains_carry_measured_values_not_a_fixed_string_per_kind() {
+        // Protects: causal chains carry measured values: two waterfalls do not share one canned
+        // chain, and a measured drop in metres appears.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings { cross_type_competition: false, ..Default::default() };
@@ -6951,6 +7166,8 @@ mod tests {
 
     #[test]
     fn two_runs_of_the_same_world_are_identical() {
+        // Protects: determinism: the landmark list, the funnels and the reject list are
+        // identical across two runs with the same seed.
         let w = world(192, 144, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -6965,6 +7182,7 @@ mod tests {
 
     #[test]
     fn a_landmark_seed_survives_a_cap_change() {
+        // Protects: section 27: a landmark's seed does not move when only a cap changes.
         let w = world(192, 144, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -6999,6 +7217,8 @@ mod tests {
     /// this pair does and does not close.
     #[test]
     fn every_limit_token_round_trips() {
+        // Protects: every `LandmarkLimit` token round-trips through `as_str` and `from_key`, and
+        // the variant count is a literal so a new variant must be added here.
         assert_eq!(LandmarkLimit::all().len(), 7);
         let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
         for l in LandmarkLimit::all() {
@@ -7022,6 +7242,7 @@ mod tests {
     /// a pass that ran must always give a measured reason.
     #[test]
     fn generate_never_emits_unrecorded() {
+        // Protects: `Unrecorded` is only the archive reader's answer; a pass that ran never emits it.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -7046,9 +7267,13 @@ mod tests {
     /// assumption about every detector rather than about one function.
     #[test]
     fn seed_for_matches_every_seed_a_real_run_produced() {
+        // Protects: `seed_for` reproduces every seed a real run produced, which rests on
+        // `feature == y * gw + x` holding for every detector.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
+        /// An arbitrary fixed pass seed (7). `seed_for` must agree for any value, so the
+        /// number carries no meaning: a judgement, source not recorded.
         const WORLD_SEED: u64 = 7;
         let out = generate(&inp, &LandmarkSettings::default(), WORLD_SEED);
         assert!(out.landmarks.len() > 50, "only {} placed", out.landmarks.len());
@@ -7091,6 +7316,8 @@ mod tests {
     /// cell. That is the run worth asserting.
     #[test]
     fn the_stable_key_is_unique_within_a_run() {
+        // Protects: `Landmark::key` precondition: no two rows of one run share (kind, x, y),
+        // including with all four class radii at 0 km (spacing off).
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -7130,6 +7357,8 @@ mod tests {
     /// test cannot pass by the two runs being identical.
     #[test]
     fn the_stable_key_survives_a_cap_change_and_a_disarm_where_the_id_does_not() {
+        // Protects: the stable key of a surviving landmark is unchanged across cap changes and
+        // disarms while the id is not, and each transition really moved something.
         let r = real_world(256, 192, 24601);
         let pairs = real_resource_pairs(&r.resources);
         let inp = real_inputs(&r, &pairs);
@@ -7187,6 +7416,8 @@ mod tests {
 
     #[test]
     fn a_kind_whose_input_is_absent_reports_no_terrain_and_places_none() {
+        // Protects: with height only, kinds needing channels, water, corridors, ore or territory
+        // report `NoTerrain` and place nothing, while peak still places.
         let w = world(192, 144, 1000.0);
         // Height only: no channels, no water bodies, no corridors, no ore.
         let mut inp = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
@@ -7218,6 +7449,8 @@ mod tests {
 
     #[test]
     fn a_wrongly_sized_optional_input_degrades_rather_than_panicking() {
+        // Protects: a channel raster of the wrong length degrades the waterfall to `NoTerrain`,
+        // not a panic.
         let w = world(128, 96, 1000.0);
         let short: Vec<u8> = vec![1; 10];
         let mut inp = LandmarkInputs::new(&w.field, w.gw, w.gh, SEA, false, w.width_km);
@@ -7230,6 +7463,8 @@ mod tests {
 
     #[test]
     fn a_disarmed_or_unbuildable_kind_says_so() {
+        // Protects: a disarmed or zero-cap kind reports `Disarmed`, and an unbuilt kind reports
+        // `NotBuildable`; Battlefield with no battles is `NoTerrain`, a different answer.
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -7253,6 +7488,7 @@ mod tests {
 
     #[test]
     fn an_arming_a_kind_this_engine_does_not_build_still_reports_not_buildable() {
+        // Protects: arming an unbuilt kind still reports `NotBuildable` and places nothing.
         let w = world(128, 96, 1000.0);
         let inp = inputs(&w, &[]);
         let mut s = LandmarkSettings::default();
@@ -7264,6 +7500,7 @@ mod tests {
 
     // -- Battlefield: M9's conflict wiring ----------------------------------
 
+    /// Test fixture: a drawn battle at cell (x, y) named `name`, years 100-104.
     fn battle_at(x: usize, y: usize, name: &str) -> BattleMark {
         BattleMark { x: x as f64, y: y as f64, name: name.into(), start_year: 100, end_year: Some(104) }
     }
@@ -7282,6 +7519,8 @@ mod tests {
     /// because one was.
     #[test]
     fn a_drawn_battle_places_a_battlefield_where_none_could_be_before() {
+        // Protects: a drawn battle yields a battlefield exactly where it was drawn, and only
+        // because it was drawn.
         let w = world(192, 144, 1000.0);
         let (bx, by) = (w.gw / 4, w.gh / 3);
         // Competition off: with it on, the drawn battle at the fixture's
@@ -7313,6 +7552,8 @@ mod tests {
     /// must place nothing, and must not move a single other placement.
     #[test]
     fn unplaceable_battles_reject_as_constraints_and_move_nothing_else() {
+        // Protects: non-finite, off-grid and at-sea battles do not panic, place nothing and move
+        // no other placement.
         let w = world(192, 144, 1000.0);
         let sea = (w.gw * 9 / 10, w.gh / 2);
         assert_eq!(w.water[sea.1 * w.gw + sea.0], 1, "the probe cell must be ocean");
@@ -7347,6 +7588,7 @@ mod tests {
     /// would not have caught the second.
     #[test]
     fn two_battles_on_one_cell_are_one_battlefield_naming_both() {
+        // Protects: two battles on one cell make one battlefield naming both, even with spacing off.
         let w = world(192, 144, 1000.0);
         let (bx, by) = (w.gw / 4, w.gh / 3);
         let battles = [battle_at(bx, by, "First"), BattleMark { x: bx as f64 + 0.3, ..battle_at(bx, by, "Second") }];
@@ -7364,6 +7606,8 @@ mod tests {
     /// is on that land cell; on a bounded map it is off the grid.
     #[test]
     fn a_battle_across_the_seam_wraps_only_on_a_world_map() {
+        // Protects: a battle drawn one map-width east lands on its land cell on a world map and
+        // is off the grid on a bounded one.
         let w = world(192, 144, 1000.0);
         let (bx, by) = (w.gw / 4, w.gh / 3);
         let battles = [BattleMark { x: (bx + w.gw) as f64, ..battle_at(bx, by, "Seam") }];
@@ -7381,6 +7625,8 @@ mod tests {
 
     #[test]
     fn only_a_battle_becomes_a_battle_mark_and_it_follows_its_anchor() {
+        // Protects: only a Battle conflict becomes a `BattleMark`, it follows its settlement
+        // anchor, and an empty point list is absent rather than a panic.
         use crate::conflict::{Conflict, ConflictAnchor, ConflictKind};
         let mut c = Conflict {
             id: 1,
@@ -7410,6 +7656,8 @@ mod tests {
 
     #[test]
     fn degenerate_grids_do_not_panic() {
+        // Protects: empty, one-cell, all-ocean, wrong-length and zero-width inputs do not panic
+        // and every funnel still closes.
         let s = LandmarkSettings::default();
         // Empty.
         let empty: Vec<f32> = Vec::new();
@@ -7473,6 +7721,7 @@ mod tests {
         (f, gw, gh, 128.0)
     }
 
+    /// Test settings: only `peak` armed, with its cap set to `cap`.
     fn only_peaks(cap: u32) -> LandmarkSettings {
         let mut s = LandmarkSettings::default();
         for k in kinds() {
@@ -7484,6 +7733,8 @@ mod tests {
 
     #[test]
     fn spacing_rejects_the_weaker_of_two_candidates_inside_one_radius() {
+        // Protects: section 16: of two cones inside one radius the taller wins, and the loser is
+        // counted as a spacing reject.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7511,6 +7762,8 @@ mod tests {
     /// the second cone 16 cells away.
     #[test]
     fn a_manual_icon_moves_a_landmark_off_its_cell_and_removing_it_brings_it_back() {
+        // Protects: a hand-placed icon blocks its own cell so the peak moves to the other cone,
+        // and removing it brings the peak back.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7544,6 +7797,7 @@ mod tests {
     /// moved when this input was added.
     #[test]
     fn an_empty_icon_slice_changes_nothing() {
+        // Protects: an empty `manual_icons` slice leaves the pass bit-identical.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7570,6 +7824,8 @@ mod tests {
     /// `< class_radius_km(Regional) / cell_km`.
     #[test]
     fn an_icon_ring_is_weaker_than_a_class_ring() {
+        // Protects: an icon ring is smaller than a class ring: an icon 8 cells away does not block
+        // a Regional peak.
         let (f, gw, gh, width) = two_cones();
         let cell_km = width / gw as f64;
         assert_eq!(cell_km, 2.0, "the fixture's own scale, which the gap below is chosen against");
@@ -7599,6 +7855,7 @@ mod tests {
     /// in `generate`'s `ir`.
     #[test]
     fn a_zeroed_class_radius_disables_the_icon_ring_too() {
+        // Protects: a class radius of 0 disables the icon ring as well.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7623,6 +7880,8 @@ mod tests {
     /// false for a ring that divides by Crowding like every other.
     #[test]
     fn an_icon_rejection_carries_a_reachable_crowding_answer() {
+        // Protects: a candidate turned away by an icon ring still reports a finite
+        // `needs_crowding`, measured against that ring.
         let (f, gw, gh, width) = two_cones();
         let cell_km = width / gw as f64;
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
@@ -7658,6 +7917,8 @@ mod tests {
     /// is the wrong answer this pins against.
     #[test]
     fn a_candidate_blocked_by_an_unclearable_ring_reports_no_crowding_answer() {
+        // Protects: when one of two blocking rings cannot be cleared, `needs_crowding` is None,
+        // not the other ring's 1.0625.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7682,6 +7943,8 @@ mod tests {
 
     #[test]
     fn at_cap_and_spacing_are_different_answers() {
+        // Protects: cap and spacing report different limits: cap 1 is `AtCap`, and a loose radius
+        // with room to spare is `Candidates`.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7717,6 +7980,8 @@ mod tests {
     /// `LandmarkStore`-lives-in-the-crate argument exists to prevent.
     #[test]
     fn every_reject_is_counted_by_the_funnel_and_every_count_has_its_rejects() {
+        // Protects: the reject list is a partition of the funnel: per kind and reason its rows
+        // equal the funnel's counters.
         let w = world(192, 144, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -7789,6 +8054,8 @@ mod tests {
     /// entirely would pass a single-crowding test and fail this one.
     #[test]
     fn a_spacing_reject_says_the_exact_crowding_that_would_have_fitted_it() {
+        // Protects: `needs_crowding` is exactly 17/16 = 1.0625, bracketed (both placed at it, not
+        // 1 % below) and from two starting crowdings.
         let (f, gw, gh, width) = two_cones();
         let mut inp = LandmarkInputs::new(&f, gw, gh, SEA, false, width);
         inp.peak_m = PEAK_M;
@@ -7822,6 +8089,8 @@ mod tests {
     /// land on a cell a Regional landmark already holds.
     #[test]
     fn needs_crowding_is_finite_or_absent_never_an_infinity() {
+        // Protects: `needs_crowding` is finite and positive or absent, never an infinity, at every
+        // crowding including 0 and NaN.
         let w = world(192, 144, 1000.0);
         let inp = inputs(&w, &[]);
         for crowding in [0.05, 1.0, 3.0, 0.0, f64::NAN] {
@@ -7839,6 +8108,7 @@ mod tests {
     /// exactly that drag, and the funnel must still report the true total.
     #[test]
     fn the_reject_list_is_capped_per_kind_while_the_funnel_keeps_the_truth() {
+        // Protects: the reject list is capped per kind while the funnel still reports the true total.
         let w = world(512, 384, 1000.0);
         let inp = inputs(&w, &[]);
         // The most prolific kind on this fixture, found rather than guessed —
@@ -7892,6 +8162,8 @@ mod tests {
     /// that blocked it clears at a finite Crowding.
     #[test]
     fn a_nan_point_is_reported_as_a_conflict_by_nearest_conflict_sq() {
+        // Protects: a NaN point cannot block (`fits`) yet is reported by `nearest_conflict_sq`,
+        // which is why `generate` refuses to seed a non-finite icon.
         let mut b = Buckets::new(64, 48, false, 10.0);
         b.take(f64::NAN, f64::NAN);
         assert!(b.fits(1.0, 1.0, 5.0), "a NaN point must not block");
@@ -7908,6 +8180,7 @@ mod tests {
     /// invisible in a placement count.
     #[test]
     fn nearest_conflict_agrees_with_fits_and_finds_the_nearest() {
+        // Protects: `nearest_conflict_sq` agrees with `fits` and finds the nearest blocker.
         for world_wrap in [false, true] {
             let mut b = Buckets::new(64, 48, world_wrap, 10.0);
             b.take(20.0, 20.0);
@@ -7947,6 +8220,7 @@ mod tests {
 
     #[test]
     fn crowding_higher_packs_tighter() {
+        // Protects: a higher crowding places more landmarks (2.5 over 0.5).
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let sparse = LandmarkSettings { crowding: 0.5, ..Default::default() };
@@ -7958,6 +8232,8 @@ mod tests {
 
     #[test]
     fn a_zero_or_nan_crowding_does_not_take_the_map_with_it() {
+        // Protects: a crowding of 0 or NaN gives a finite radius (34 km for NaN) and a funnel
+        // that still closes.
         let s_zero = LandmarkSettings { crowding: 0.0, ..Default::default() };
         assert!(s_zero.radius_km(LandmarkClass::Regional).is_finite());
         let s_nan = LandmarkSettings { crowding: f64::NAN, ..Default::default() };
@@ -7973,6 +8249,8 @@ mod tests {
 
     #[test]
     fn cross_type_competition_changes_the_answer() {
+        // Protects: turning cross-type competition off never places fewer landmarks, and funnels
+        // close either way.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -7993,6 +8271,7 @@ mod tests {
 
     #[test]
     fn a_placed_landmark_is_never_inside_its_own_exclusion_radius() {
+        // Protects: every placed pair is at least the smaller of their two class radii apart.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings::default();
@@ -8058,6 +8337,7 @@ mod tests {
         (field, chan, recv, flow, width_km)
     }
 
+    /// Test settings: only `waterfall` armed, at its default cap.
     fn only_waterfalls() -> LandmarkSettings {
         let mut s = LandmarkSettings::default();
         for k in kinds() {
@@ -8066,6 +8346,8 @@ mod tests {
         s
     }
 
+    /// Runs the waterfall pass over `one_channel(step, flow_mult)` and returns the
+    /// `waterfall` funnel, so a constraint test reads exact counts.
     fn run_one_channel(step: f64, flow_mult: f64) -> LandmarkFunnel {
         let (field, chan, recv, flow, width_km) = one_channel(step, flow_mult);
         let mut inp = LandmarkInputs::new(&field, 32, 8, SEA, false, width_km);
@@ -8079,6 +8361,8 @@ mod tests {
 
     #[test]
     fn each_waterfall_constraint_is_load_bearing() {
+        // Protects: each waterfall constraint is load-bearing: the step places one, half the
+        // flow, a gentle step and no step each place none, with exact counts.
         // A 414 m step on a channel carrying four times the channel threshold
         // is a waterfall, and exactly one cell in the grid is that step.
         let ok = run_one_channel(0.06, 4.0);
@@ -8114,6 +8398,8 @@ mod tests {
 
     #[test]
     fn a_degenerate_term_is_neutral_rather_than_zero() {
+        // Protects: a term with no variation normalises to 0.5, not 0, so a single-candidate
+        // pool is not scored below the floor.
         // `analysis::normalise` answers "no variation" with zeros, which would
         // send a single-candidate pool below the score floor and report a
         // landmark-free world as `no terrain`.
@@ -8128,6 +8414,8 @@ mod tests {
 
     #[test]
     fn an_absent_term_renormalises_instead_of_scoring_zero() {
+        // Protects: `weighted_sum` renormalises over present terms, so an absent one does not
+        // drag the score.
         let terms_both: Vec<(&'static str, f64, Vec<f32>)> =
             vec![("a", 0.5, vec![0.0, 1.0]), ("b", 0.5, vec![0.0, 1.0])];
         let terms_one: Vec<(&'static str, f64, Vec<f32>)> =
@@ -8138,6 +8426,8 @@ mod tests {
 
     #[test]
     fn dropping_the_strahler_field_still_places_confluences() {
+        // Protects: without the stream-order raster confluences still place, and no order fact
+        // appears in their causal chains.
         let w = world(256, 192, 1000.0);
         let mut with = inputs(&w, &[]);
         let a = generate(&with, &LandmarkSettings::default(), 6);
@@ -8160,6 +8450,7 @@ mod tests {
 
     #[test]
     fn importance_is_emergent_and_not_a_constant() {
+        // Protects: importance varies across landmarks (spread over 0.05) rather than being a constant.
         let w = world(256, 192, 1000.0);
         let res: Vec<(&str, &[f32])> = vec![("iron", w.iron.as_slice())];
         let inp = inputs(&w, &res);
@@ -8174,6 +8465,7 @@ mod tests {
 
     #[test]
     fn the_seed_depends_on_every_one_of_its_four_inputs() {
+        // Protects: `landmark_seed` changes with each of its four inputs and is stable for equal ones.
         let base = landmark_seed(1, 2, LandmarkClass::Regional, 1);
         assert_ne!(base, landmark_seed(2, 2, LandmarkClass::Regional, 1));
         assert_ne!(base, landmark_seed(1, 3, LandmarkClass::Regional, 1));
@@ -8186,6 +8478,7 @@ mod tests {
 
     #[test]
     fn the_store_retains_a_run_and_can_forget_it() {
+        // Protects: the store holds a run, reports `caps_total`, and `invalidate` forgets it.
         let w = world(192, 144, 1000.0);
         let inp = inputs(&w, &[]);
         let mut store = LandmarkStore::new();
@@ -8200,6 +8493,8 @@ mod tests {
 
     #[test]
     fn family_summaries_add_up_to_the_landmark_list() {
+        // Protects: family summaries' armed counts equal the buildable kinds per family and
+        // their placed counts sum to the landmark list.
         let w = world(256, 192, 1000.0);
         let inp = inputs(&w, &[]);
         let s = LandmarkSettings::default();
@@ -8220,6 +8515,7 @@ mod tests {
 
     #[test]
     fn thousands_groups_the_way_the_design_writes_it() {
+        // Protects: `thousands` groups with a space ("12 400") and handles 0 and negatives.
         assert_eq!(thousands(12400.0), "12 400");
         assert_eq!(thousands(84.0), "84");
         assert_eq!(thousands(1000.0), "1 000");
@@ -8245,6 +8541,7 @@ mod tests {
     /// assert on styling.
     #[test]
     fn limit_tokens_are_the_wire_format_the_shell_keys_off() {
+        // Protects: the seven limit tokens are the shell's wire format.
         assert_eq!(LandmarkLimit::AtCap.as_str(), "at_cap");
         assert_eq!(LandmarkLimit::Spacing.as_str(), "spacing");
         assert_eq!(LandmarkLimit::NoTerrain.as_str(), "no_terrain");
@@ -8276,6 +8573,7 @@ mod tests {
     /// `CUL` badge and its map-marker radius.
     #[test]
     fn class_tokens_are_the_wire_format_too() {
+        // Protects: the four class tokens are the shell's wire format.
         assert_eq!(LandmarkClass::Continental.as_str(), "continental");
         assert_eq!(LandmarkClass::Regional.as_str(), "regional");
         assert_eq!(LandmarkClass::Local.as_str(), "local");
@@ -8296,6 +8594,7 @@ mod tests {
     /// `run` placed.
     #[test]
     fn icon_placed_since_run_tracks_commit_and_run_not_every_call() {
+        // Protects: `icon_placed_since_run` tracks icon commits and runs, not every call.
         let field = vec![0.6f32; 16];
         let inputs = LandmarkInputs::new(&field, 4, 4, SEA, false, 40.0);
         let mut store = LandmarkStore::new();

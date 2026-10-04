@@ -400,6 +400,9 @@ struct MinHeap {
 }
 
 impl MinHeap {
+    /// An empty heap whose two parallel vectors each reserve `cap` entries. `cap` is
+    /// only a capacity hint (the heap still grows past it); the water-body flood
+    /// passes the cell count `n` so the pushes never reallocate.
     fn with_capacity(cap: usize) -> Self {
         MinHeap {
             p: Vec::with_capacity(cap),
@@ -407,6 +410,7 @@ impl MinHeap {
         }
     }
 
+    /// Number of queued entries (the length of the priority vector).
     fn size(&self) -> usize {
         self.p.len()
     }
@@ -462,6 +466,10 @@ impl MinHeap {
     }
 }
 
+/// Queues border cell `i` at its current `filled` level, once. The `done` flag
+/// is set as it is queued, so a cell reached by two border sweeps (a corner) is
+/// pushed a single time; the pop order, and therefore the lake shape, depends on
+/// that. Used only by `build_water_bodies`'s border seeding.
 fn wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut MinHeap) {
     if !done[i] {
         done[i] = true;
@@ -501,6 +509,10 @@ fn wb_visit(
         return;
     }
     done[j] = true;
+    /// Reference line 5797 (`EPS=1e-6`, the `visit` closure): the amount a flooded
+    /// cell is lifted above the level it is reached from when it would otherwise sit
+    /// at or below it, so a flat basin keeps a defined fill order. The value is the
+    /// reference's own.
     const EPS: f64 = 1e-6;
     if (filled[j] as f64) <= cur {
         filled[j] = (cur + EPS) as f32;
@@ -1121,18 +1133,32 @@ pub const BIOME_KEYS: [&str; 13] = [
 /// `ocean` is 0 (not a `BIOME_KEYS` entry, added explicitly by the
 /// reference's own `BIOME_INDEX` literal).
 pub const BIOME_OCEAN: u8 = 0;
+/// `BIOME_INDEX` value of the `ice` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_ICE: u8 = 1;
+/// `BIOME_INDEX` value of the `tundra` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_TUNDRA: u8 = 2;
+/// `BIOME_INDEX` value of the `boreal` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_BOREAL: u8 = 3;
+/// `BIOME_INDEX` value of the `conifer` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_CONIFER: u8 = 4;
+/// `BIOME_INDEX` value of the `tempForest` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_TEMP_FOREST: u8 = 5;
+/// `BIOME_INDEX` value of the `tempRain` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_TEMP_RAIN: u8 = 6;
+/// `BIOME_INDEX` value of the `grass` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_GRASS: u8 = 7;
+/// `BIOME_INDEX` value of the `shrub` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_SHRUB: u8 = 8;
+/// `BIOME_INDEX` value of the `desert` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_DESERT: u8 = 9;
+/// `BIOME_INDEX` value of the `savanna` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_SAVANNA: u8 = 10;
+/// `BIOME_INDEX` value of the `tropDry` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_TROP_DRY: u8 = 11;
+/// `BIOME_INDEX` value of the `tropWet` biome (reference line 6797): its 1-based position in `BIOME_KEYS`.
 pub const BIOME_TROP_WET: u8 = 12;
+/// `BIOME_INDEX` value of `lake`, the 13th key. `classify_biome` never returns it;
+/// only the water-body overrides in `build_biome_raster` write it.
 pub const BIOME_LAKE: u8 = 13;
 
 /// `classifyBiome` (reference HTML line 5736): pure temperature/moisture ->
@@ -1252,6 +1278,8 @@ pub fn biome_intensify_eligible(biome_idx: u8) -> f64 {
 /// but disease/flood friction); near the top on the intensify axis (managed
 /// wetlands/rice are the historical intensification story).
 pub const WETLAND_DENSITY_RESIDUAL: f64 = 0.70;
+/// Reference line 6209: a wetland's intensify-eligibility, near the top of that
+/// axis (managed wetlands/rice). The value is the reference's own.
 pub const WETLAND_INTENSIFY_ELIGIBLE: f64 = 0.95;
 
 /// `buildWetlandMask` (reference HTML line 6839): the same moisture (>0.62)
@@ -1371,7 +1399,12 @@ pub fn build_npp(
 /// reference's own comment: "The x0.45 is load-bearing -- omitting it
 /// gives 22/km2, 10x high."
 const FORAGER_NPP_SLOPE: f64 = 9.6e-4;
+/// Intercept of the `foragerFloorKm2` log10 regression (reference line 6184), in
+/// the same units as the slope above. The value is the reference's own.
 const FORAGER_NPP_INTERCEPT: f64 = -1.53;
+/// Dry-matter-to-carbon fraction applied before the regression (reference line
+/// 6184). Load-bearing: the reference's own comment says omitting it gives
+/// 22/km2, 10x high. Never drop it from `forager_floor_km2`.
 const NPP_DRYMATTER_TO_CARBON: f64 = 0.45;
 
 /// `foragerFloorKm2` (reference line 6185): pre-agricultural population
@@ -1385,6 +1418,9 @@ pub fn forager_floor_km2(npp_dry_matter: f64) -> f64 {
 /// the pre-industrial rain-fed density cap vs. the water-driven-
 /// intensification cap (Low Countries c.1500 vs. Classic Maya lidar).
 pub const RAINFED_CEILING_KM2: f64 = 45.0;
+/// Water-driven-intensification density cap in persons/km2 (reference line 6216;
+/// the doc above names its Classic Maya lidar anchor). The value is the
+/// reference's own.
 pub const INTENSIVE_CEILING_KM2: f64 = 165.0;
 
 /// `estimateRegionalDensityKm2` (reference HTML line 6217): real regional
@@ -2289,6 +2325,12 @@ pub struct Continent {
 /// behaviour to match (see [`Continent`]).
 pub const CIV_CONTINENT_NAME_RNG_SEED_INPUT: u32 = 54321;
 
+/// The deterministic stream every continent name is drawn from: a
+/// `Mulberry32` seeded with `54321 * 31337 + 999` (wrapping), the reference's
+/// own seed derivation applied to the continent seed input. A raw seed of 0 is
+/// mapped to 1; that guard cannot fire for the current input and only protects a
+/// future edit of the constant. Never share this stream with `civ_name_rng`
+/// (see [`CIV_CONTINENT_NAME_RNG_SEED_INPUT`] for why).
 pub fn civ_continent_name_rng() -> cartalith_rng::Mulberry32 {
     let raw = CIV_CONTINENT_NAME_RNG_SEED_INPUT.wrapping_mul(31337).wrapping_add(999);
     cartalith_rng::Mulberry32::new(if raw == 0 { 1 } else { raw })
@@ -2345,6 +2387,9 @@ pub fn civ_continents_with_cultures(
     if lq.count == 0 {
         return Vec::new();
     }
+    /// Per-component accumulator for `civ_continents_with_cultures`: cell count, bounding
+    /// box, coordinate sums (for the centroid) and a per-faction cell tally (for the
+    /// plurality owner). Local to the one function; nothing outside sees it.
     #[derive(Clone)]
     struct Acc {
         cells: usize,
@@ -2461,6 +2506,10 @@ fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
         gw.max(gh) < 46_341,
         "jfa_dist: u32 `d2` holds 2*(dim-1)^2 exactly only below 46341 cells"
     );
+    /// The "no seed reached this cell yet" squared distance for `jfa_dist`. It sits
+    /// above any real value (a squared distance is at most `2*(dim-1)^2`, which the
+    /// `debug_assert` above bounds below `u32::MAX`), so every real distance wins the
+    /// strict `<` against it.
     const INF: u32 = u32::MAX;
     let mut sx = vec![-1i32; n];
     let mut sy = vec![-1i32; n];
@@ -2560,6 +2609,8 @@ pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32
     sdf
 }
 
+/// `x` clamped to `[0, 1]`. Plain `f64::clamp`, so a NaN passes through
+/// unchanged rather than being absorbed to a bound.
 fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
@@ -2666,12 +2717,22 @@ const CIV_CONSUMED_RESOURCES: [&str; 8] = [
     "lead",
 ];
 
+/// The resource keys a faction exports and imports, each in
+/// `CIV_RESOURCE_KEYS` order. Both lists are empty when either input map is empty.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TradeBalance {
     pub exports: Vec<&'static str>,
     pub imports: Vec<&'static str>,
 }
 
+/// `civResourceTradeBalance` (reference line 24180): which of the 15 resources a
+/// faction's mean potential makes it export or import, judged against the world
+/// mean. Rule per key, in `CIV_RESOURCE_KEYS` order: where the world mean is
+/// essentially absent (`<= 0.002`) the faction exports only if its own mean is
+/// above 0.05; otherwise it exports when `mine/world > 1.35` and `mine > 0.02`,
+/// or imports when `mine/world < 0.65` and the key is in the consumed set. A key
+/// missing from either map reads as 0. The thresholds are the reference's own.
+/// Never reports an unconsumed key as an import.
 pub fn civ_resource_trade_balance(
     mean: &std::collections::HashMap<&str, f64>,
     world_mean: &std::collections::HashMap<&str, f64>,
@@ -2961,6 +3022,9 @@ fn civ_tier_rank(kind: SettlementKind) -> f64 {
         SettlementKind::Metropolis => 5.0,
     }
 }
+/// The reference's `maxRank` (5, the `metropolis` tier over its full ten-entry
+/// table), the divisor for `capitalTierNorm`. See `civ_tier_rank` above for why
+/// it is 5 and not 4.
 const CIV_MAX_TIER_RANK: f64 = 5.0;
 
 // One implementation of each of these now lives in `cartalith-jsmath`, the
@@ -3081,6 +3145,10 @@ impl SectorOutput {
             + self.craft
     }
 
+    /// Adds `v` to the named sector's output; a sector name that is not one of the
+    /// five primary sectors is accumulated into `craft`, so no production is
+    /// dropped. The caller already defaults a faction with no specialisation to
+    /// `"craft"`, and this fallback also covers any unrecognised name.
     fn add(&mut self, sector: &str, v: f64) {
         match sector {
             "fishing" => self.fishing += v,
@@ -3585,24 +3653,43 @@ pub fn civ_faction_aggregates(
 /// for completeness/testability the way the reference itself keeps it
 /// callable with the original 8 arguments.
 const SUIT_W_BASE_K: f64 = 0.35;
+/// Legacy water-access weight (reference line 6307).
 const SUIT_W_BASE_W: f64 = 0.25;
+/// Legacy flatness (`1 - slope/slope_max`) weight (reference line 6307).
 const SUIT_W_BASE_A: f64 = 0.15;
+/// Legacy terrain-form weight (reference line 6307).
 const SUIT_W_BASE_D: f64 = 0.10;
+/// Legacy "water bonus" weight (reference line 6307), applied to
+/// `min(1, 1.2 * water)` on top of the other four.
 const SUIT_W_BASE_C: f64 = 0.15;
 
 /// `SUIT_W_FULL` (reference line 6308) -- the real, production weight set.
 pub const SUIT_W_FULL_K: f64 = 0.35;
+/// Production water-access weight (reference line 6308).
 pub const SUIT_W_FULL_W: f64 = 0.20;
+/// Production flatness weight (reference line 6308).
 pub const SUIT_W_FULL_A: f64 = 0.15;
+/// Production terrain-form weight (reference line 6308).
 pub const SUIT_W_FULL_D: f64 = 0.10;
+/// Additive farmland-opportunity weight (reference line 6308).
 pub const SUIT_W_FULL_AGRI: f64 = 0.12;
+/// Additive buildable-ground weight (reference line 6308).
 pub const SUIT_W_FULL_BUILD: f64 = 0.08;
+/// Additive coastal-access weight (reference line 6308).
 pub const SUIT_W_FULL_COAST: f64 = 0.14;
+/// Additive river weight (reference line 6308).
 pub const SUIT_W_FULL_RIVER: f64 = 0.14;
+/// Additive lake weight (reference line 6308).
 pub const SUIT_W_FULL_LAKE: f64 = 0.06;
+/// Additive minerals weight (reference line 6308).
 pub const SUIT_W_FULL_MINERAL: f64 = 0.08;
+/// Additive route-corridor weight (reference line 6308).
 pub const SUIT_W_FULL_CORRIDOR: f64 = 0.08;
+/// Flood-risk weight, applied as a **subtracted** penalty (reference line
+/// 6308).
 pub const SUIT_W_FULL_FLOOD: f64 = 0.14;
+/// Islet-penalty weight, applied as a **subtracted** penalty (reference line 6308;
+/// the term arrived in the reference's v1.40).
 pub const SUIT_W_FULL_ISLET: f64 = 0.30;
 
 /// How far a real traced river reaches, in grid cells, before
@@ -4127,6 +4214,11 @@ pub fn build_settlement_suitability(
     out
 }
 
+/// The raster for one of the nine ores settlement suitability scores
+/// (`SUIT_RESOURCE_KEYS`). **Panics** on any other key; `resource_field_all` is the
+/// 15-key variant for callers that may name the others. Never pass it a key it
+/// has not been given a raster for: the panic is deliberate (a caller bug), not a
+/// `None` to be swallowed.
 fn resource_field<'a>(res: &'a ResourcePotentials, key: &str) -> &'a [f32] {
     match key {
         "copper" => &res.copper,
@@ -4610,7 +4702,9 @@ pub fn label_land_components(
     let mut comp = vec![-1i32; n];
     let mut n_comp: i32 = 0;
     let mut stack: Vec<usize> = Vec::new();
+    /// Four-connected neighbour x offsets (+x, -x, then the two vertical steps, which have dx 0); pairs with `DY4`.
     const DX4: [isize; 4] = [1, -1, 0, 0];
+    /// Four-connected neighbour y offsets (the two horizontal steps have dy 0, then +y, -y); pairs with `DX4`.
     const DY4: [isize; 4] = [0, 0, 1, -1];
 
     for s in 0..n {
@@ -4912,7 +5006,9 @@ fn civ_snap_coast(
     sea: f64,
     world: bool,
 ) -> Option<(usize, usize)> {
+    /// Four-connected neighbour x offsets, as in `label_land_components`; used by `civ_snap_coast` to test whether a dry cell touches ocean water.
     const DX4: [isize; 4] = [1, -1, 0, 0];
+    /// Four-connected neighbour y offsets; pairs with `DX4`.
     const DY4: [isize; 4] = [0, 0, 1, -1];
     let mut best: Option<(usize, usize, usize)> = None;
     let mut bs = f64::NEG_INFINITY;
@@ -5757,16 +5853,12 @@ pub fn civ_faction_culture(cultures: &[&str], faction: i32) -> &'static Culture 
 /// same "never fabricate a verdict without a real basis" discipline the
 /// reference's own v1.35 `basis` field already established for trade.
 ///
-/// **Not wired to any caller yet.** Its real inputs (`terrain_mix`/
-/// `world_mean_terrain`, per-faction river/coast/arid/forest/hills
-/// fractions) are `_civFactionAggregates`'s own v1.55 "Territory Fit" output
-/// -- the full 165-line territory-based aggregation `ECONOMY_SCOPE.md`
-/// already scoped as real, unstarted future work (blocked on the same
-/// memory-vs-completeness tension that function's resource-mean twin
-/// resolved this pass). Porting the small pure verdict function now, ahead
-/// of its real caller, matches this session's own established precedent
-/// (`civ_resource_trade_balance` shipped the same way, one pass before
-/// `compute_civilisation()` had settlements to feed it).
+/// **Wired now.** It was ported ahead of its caller; the live caller is
+/// `civ_culture_terrain_fit`, which `cartalith-godot`'s `lib.rs` calls from
+/// non-test code and which `belief::culture_domain`/`belief::compat` and
+/// `roster::civ_default_religion` read through. Its inputs
+/// (`terrain_mix`/`world_mean_terrain`) are `_civFactionAggregates`'s v1.55
+/// "Territory Fit" output.
 pub const CIV_CULTURE_TERRAIN_KEY: [(&str, &str); 5] = [
     ("highland", "hills"),
     ("desert", "arid"),
@@ -5775,6 +5867,9 @@ pub const CIV_CULTURE_TERRAIN_KEY: [(&str, &str); 5] = [
     ("maritime", "coast"),
 ];
 
+/// One culture's terrain verdict: the terrain-mix `key` it is themed on, the
+/// faction's `value` for it, the world mean, their `ratio`, and the `verdict`
+/// (`"match"`, `"mismatch"` or `"typical"`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CultureTerrainFit {
     pub key: &'static str,
@@ -5784,6 +5879,15 @@ pub struct CultureTerrainFit {
     pub verdict: &'static str,
 }
 
+/// `_civCultureTerrainFit` (reference lines 23747-23753): how well a faction's
+/// territory suits its culture, judged against the **world mean** of the same
+/// terrain, not an absolute cut. `None` for a culture with no themed terrain key
+/// (`common`, `imperial`, or any unknown key), never a fabricated verdict.
+/// `ratio = value / world_mean`; where the world mean is not above `1e-6` the
+/// ratio is 2 if the faction has any of that terrain and 1 if it has none.
+/// Verdict is `"match"` at `ratio >= 1.15`, `"mismatch"` at `ratio <= 0.85`, else
+/// `"typical"`; those cutoffs are the reference's own. A key missing from either
+/// map reads as 0.
 pub fn civ_culture_terrain_fit(
     culture_key: &str,
     terrain_mix: &std::collections::HashMap<&str, f64>,
@@ -6007,6 +6111,8 @@ pub struct MetropolisOpts {
 }
 
 impl Default for MetropolisOpts {
+    /// The reference's own defaults (lines 24963-24966): betweenness threshold 0.85,
+    /// minimum faction size 6, one metropolis per faction, three overall.
     fn default() -> Self {
         Self {
             btw_thr: 0.85,
@@ -6125,6 +6231,8 @@ struct DijkstraHeap {
 }
 
 impl DijkstraHeap {
+    /// An empty heap reserving `cap` entries in each parallel vector (a capacity
+    /// hint only; it still grows).
     fn with_capacity(cap: usize) -> Self {
         DijkstraHeap {
             p: Vec::with_capacity(cap),
@@ -6132,6 +6240,7 @@ impl DijkstraHeap {
         }
     }
 
+    /// Number of queued entries.
     fn size(&self) -> usize {
         self.p.len()
     }
@@ -6193,6 +6302,8 @@ impl DijkstraHeap {
 /// scope needs a non-default value, so they're hardcoded rather than an
 /// options surface nobody constructs differently yet (`ponytail`).
 pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    /// Slope-squared cost weight, the reference's default `slopeK=50` for
+    /// `buildTravelCost` (line 3257). Hardcoded because no caller here passes another.
     const SLOPE_K: f64 = 50.0;
     let n = gw * gh;
     let mut cost = vec![0.0f32; n];
@@ -6639,6 +6750,9 @@ fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: 
 /// way the plain-384-literal version silently could have.
 pub const RW_CAP: usize = 1024;
 
+/// The downsampled grid the road router works on: the sampled heights `dfld`, its
+/// size `rw` x `rh`, and the scale `sc` from full-resolution cells to routing
+/// cells. Built only by `civ_routing_grid`.
 struct CivRoutingGrid {
     dfld: Vec<f32>,
     rw: usize,
@@ -6646,6 +6760,11 @@ struct CivRoutingGrid {
     sc: f64,
 }
 
+/// Builds the routing grid: width `min(gw, RW_CAP)`, scale `sc = rw / gw`, height
+/// `max(2, round(gh * sc))`, each cell the nearest full-resolution height (the
+/// coordinate truncated, then clamped to the grid). A map no wider than
+/// `RW_CAP` is therefore sampled 1:1. Caps the Dijkstra grid so road routing
+/// cost does not grow with the full map size.
 fn civ_routing_grid(field: &[f32], gw: usize, gh: usize) -> CivRoutingGrid {
     let rw = gw.min(RW_CAP);
     let sc = rw as f64 / gw as f64;
@@ -6683,7 +6802,11 @@ fn civ_enhanced_travel_cost(
     river_order: Option<&[i16]>,
     biome: Option<&[u8]>,
 ) -> Vec<f32> {
+    /// Slope-squared cost weight, the reference's `slopeK` default of 50 (`_civEnhancedTravelCost`, line 20960).
     const SLOPE_K: f64 = 50.0;
+    /// Cost multiplier on a cell an earlier road already uses, the reference's
+    /// `roadReuseK` default of 0.55 (line 20961); makes later roads follow existing
+    /// corridors.
     const ROAD_REUSE_K: f64 = 0.55;
     let sc_x = gw as f64 / w as f64;
     let sc_y = gh as f64 / h as f64;
@@ -6753,6 +6876,8 @@ fn civ_apply_settlement_gravity(
     places: &[SettlementPlacement],
     world: bool,
 ) {
+    /// Settlement-gravity strength: the reference's `strength` default 0.5 (line
+    /// 21121, "centre cost x(1-g)"), so a settlement's own cell costs half as much.
     const G: f64 = 0.5;
     let rg = ((rw as f64 / 80.0).round() as isize).max(3);
     if places.is_empty() {
@@ -7097,6 +7222,9 @@ pub fn civ_hierarchical_network_topology(
             f64::INFINITY
         };
         let near = med * 2.5;
+        /// Reference line 21641 (`DETOUR=1.7`): a direct road is added only when the
+        /// existing network's route between the two settlements is more than 1.7 times
+        /// the direct cost.
         const DETOUR: f64 = 1.7;
         let max_add = ((n as f64 / 6.0).round() as usize).max(2);
 
@@ -7693,6 +7821,8 @@ pub fn civ_generate_provinces(
     gw: usize,
     gh: usize,
 ) -> (Vec<i32>, Vec<Province>) {
+    /// A province seed: a cell, the province it starts and the faction it belongs
+    /// to. Local to `civ_generate_provinces`.
     struct Seed {
         x: usize,
         y: usize,
@@ -7860,6 +7990,11 @@ struct RoadProximityIndex {
 }
 
 impl RoadProximityIndex {
+    /// Buckets every cell of every road path into a `cell`-sized grid over the
+    /// `gw` x `gh` map, converting each routing-grid cell back to full-resolution
+    /// coordinates through `(c + 0.5) / routing_sc`. `any` records whether a single
+    /// point was indexed, so `nearest_dist` can answer infinity for a map with no
+    /// roads at all.
     fn build(
         edges: &[RoadEdge],
         routing_rw: usize,
@@ -8364,6 +8499,9 @@ fn civ_nearest_valid_pt(
     (x, y)
 }
 
+/// The output of `civ_smooth_path`: the sampled points, for each run after the
+/// first, the index in `pts` where it starts (a wrap-seam break), and its length
+/// in km.
 struct SmoothedPath {
     pts: Vec<(f64, f64)>,
     brks: Vec<usize>,
@@ -8479,6 +8617,11 @@ pub enum WayType {
     Ancient,
 }
 
+/// Classifies a way by the busiest edge it carries: usage `>= 8` highway, `>= 5`
+/// regional, `>= 3` road, otherwise track. The reference's own cutoffs (line
+/// 21683, `e.maxU>=8?'highway':e.maxU>=5?'regional':e.maxU>=3?'road':'track'`).
+/// Never returns `Ancient`; that class is set only by the village-addon
+/// connector.
 fn civ_classify_way(max_usage: u16) -> WayType {
     if max_usage >= 8 {
         WayType::Highway
@@ -8822,6 +8965,7 @@ fn civ_sea_time_edge_cost(
             }
         }
     }
+    /// Length of a diagonal step relative to an orthogonal one.
     const SQ2: f64 = std::f64::consts::SQRT_2;
     // Made-good speed (units of nominal hull speed) heading `(tx,ty)`
     // through current `(ccx,ccy)` and wind `(wwx,wwy)`, both already the
@@ -9152,6 +9296,9 @@ pub fn jp_fatigue(hours: f64) -> f64 {
     }
 }
 
+/// The result of `jp_load_penalty`: the speed multiplier for a load band and the
+/// band's label. `load_mod` is a plain multiplier in `(0, 1]`; it never exceeds
+/// 1.0, because carrying less than the rating is not a speed bonus.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LoadPenalty {
     pub load_mod: f64,
@@ -9227,6 +9374,9 @@ pub fn jp_can_use_wheels(terrain: &str) -> bool {
 
 /// `JP_SEASON_ORDER`/`JP_SEASON_DAYS` (reference lines 18823-18824).
 pub const JP_SEASON_ORDER: [&str; 4] = ["Spring", "Summer", "Autumn", "Winter"];
+/// Days per season in the reference's season clock (`JP_SEASON_DAYS`, line 18829).
+/// Four seasons of 91 days make a 364-day year; the reference applies no
+/// calendar correction, and neither does this port.
 const JP_SEASON_DAYS: f64 = 91.0;
 
 /// `jpSeasonAt` (reference line 18825, v1.52-b): which season a journey is
@@ -9242,6 +9392,9 @@ pub fn jp_season_at(start_season: &str, day_offset: f64) -> &str {
     JP_SEASON_ORDER[(i0 + steps) % 4]
 }
 
+/// The result of `jp_rest_days`: how many rest days a journey gets (`rest_days`),
+/// the travel-day cadence they fall on (`every`, 0 when none), and a one-line
+/// explanation (`basis`) the UI shows verbatim.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RestDays {
     pub rest_days: i64,
@@ -9399,6 +9552,10 @@ pub struct AnimalStats {
 
 pub const JP_ANIMAL_KEYS: [&str; 4] = ["donkey", "mule", "camel", "horse"];
 
+/// The reference's `JP_ANIMALS` row for one of `JP_ANIMAL_KEYS` (line 17386), or
+/// `None` for any other key. The figures are the reference's own, taken as given;
+/// this port has not re-derived them. Never fall back to a default animal here: a
+/// caller that wants the user's custom animals goes through `resolve_animal_stats`.
 pub fn jp_animal_stats(key: &str) -> Option<AnimalStats> {
     Some(match key {
         "donkey" => AnimalStats {
@@ -9530,6 +9687,7 @@ pub fn jp_biome_key(biome_id: u8, temp_c: f64) -> &'static str {
     }
 }
 
+/// A recommended animal and the one-line reason the planner shows for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnimalPick {
     pub key: &'static str,
@@ -9610,8 +9768,13 @@ pub struct LandStage {
 
 /// `JP_BOTTLENECK_PENALTY`/`JP_BOTTLENECK_MIN_SHARE` (reference line 17770).
 const JP_BOTTLENECK_PENALTY: f64 = 0.20;
+/// A stage is only a bottleneck candidate if it is at least this share (10%) of
+/// the route's land kilometres (reference line 17770, where `jpPickSpeciesForRoute`
+/// tests `km/totalKm < JP_BOTTLENECK_MIN_SHARE`). The value is the reference's own.
 const JP_BOTTLENECK_MIN_SHARE: f64 = 0.10;
 
+/// The animal `jp_pick_species_for_route` chose for a whole route, the reason, and
+/// `switched` when a bottleneck stage overrode the plurality vote (else `None`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeciesPick {
     pub key: &'static str,
@@ -9619,6 +9782,9 @@ pub struct SpeciesPick {
     pub switched: Option<SpeciesSwitch>,
 }
 
+/// Record of a bottleneck override: the plurality animal `from`, the animal `to`
+/// that replaced it, the terrain and kilometres of the worst stage, and `penalty`,
+/// the fraction of the best animal's pace that `from` loses there (0.2 = 20%).
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeciesSwitch {
     pub from: &'static str,
@@ -9795,6 +9961,9 @@ pub const JP_VESSEL_PREFERENCE: [&str; 11] = [
     "Galleon",
 ];
 
+/// The reference's `JP_SHIPS` row for a vessel name (line 17318), or `None` for an
+/// unknown name. The figures are the reference's own, taken as given. A caller that
+/// wants the user's custom vessels goes through `resolve_ship_stats`.
 pub fn jp_ship_stats(name: &str) -> Option<ShipStats> {
     Some(match name {
         "River Barge" => ShipStats {
@@ -9900,6 +10069,9 @@ pub fn jp_ship_stats(name: &str) -> Option<ShipStats> {
     })
 }
 
+/// Whether the hull can work this water category at all: `"river"` needs
+/// `ship.river`, `"sea"` needs `ship.sea`, and any other category is refused. The
+/// finer per-water test (rapids, open sea) is `jp_vessel_water_block`'s.
 fn jp_ship_mode_ok(ship: &ShipStats, cat: &str) -> bool {
     match cat {
         "river" => ship.river,
@@ -9989,6 +10161,11 @@ pub fn jp_vessel_day_km(ship_name: &str, cat: &str, terrain: &str) -> Option<f64
     Some(ship.speed_kmh * win * t_mod)
 }
 
+/// One hull's row of the vessel matrix: its cruise speed (km/h), cargo (kg) and
+/// crew, how many of the water types in `JP_WATER_TERRAINS` it can enter
+/// (`waters_usable`), its best km per day and the water type that gives it, and a
+/// short `range` string such as `"river+sea"` (with `" (open-sea rated)"` added for
+/// an open-sea hull).
 #[derive(Debug, Clone, PartialEq)]
 pub struct VesselMatrixRow {
     pub name: &'static str,
@@ -10001,15 +10178,14 @@ pub struct VesselMatrixRow {
     pub range: String,
 }
 
+/// The fastest hull on one water type: its name and km per day. Both are `None`
+/// when no hull can enter that water.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VesselMatrixBest {
     pub name: Option<&'static str>,
     pub kmday: Option<f64>,
 }
 
-/// `jpVesselMatrix` (reference line 17984): every vessel × every water type,
-/// plus which vessel is fastest on each one -- "what is actually fast HERE",
-/// not the same vessel everywhere.
 /// Every `(cat, terrain)` water type [`jp_vessel_matrix`] rates a hull
 /// against, **in the reference's own physical order** -- rivers calm to
 /// rapids, seas sheltered to rough.
@@ -10034,6 +10210,15 @@ pub const JP_WATER_TERRAINS: [(&str, &str); 9] = [
     ("sea", "Rough Open Sea"),
 ];
 
+/// `jpVesselMatrix` (reference line 17984): every vessel × every water type,
+/// plus which vessel is fastest on each one -- "what is actually fast HERE",
+/// not the same vessel everywhere.
+///
+/// Builds the vessel matrix: one `VesselMatrixRow` per hull in
+/// `JP_VESSEL_PREFERENCE`, and, per water type, the fastest hull there. Ties go to
+/// the earlier hull in `JP_VESSEL_PREFERENCE`, since the comparison is a strict
+/// `>`. A hull that cannot enter a water type contributes nothing to it. Pure data;
+/// it reads only the static tables.
 pub fn jp_vessel_matrix() -> (
     Vec<VesselMatrixRow>,
     std::collections::HashMap<(&'static str, &'static str), VesselMatrixBest>,
@@ -10219,11 +10404,16 @@ impl JpParty {
 /// (km/h) by slowest carrier -- `travel-speeds.md` §8's travel-day column
 /// divided by an 8 h day. Ordering is "what actually carries the load".
 const JP_TRAIN_PACE_WAGON: f64 = 2.2;
+/// Baggage-train pace (km/h) when a cart is the slowest carrier (reference line 17302, `JP_TRAIN_PACE.cart`). Sleds reuse this value.
 const JP_TRAIN_PACE_CART: f64 = 3.6;
+/// Baggage-train pace (km/h) when a travois is the slowest carrier (reference line 17302, `JP_TRAIN_PACE.travois`).
 const JP_TRAIN_PACE_TRAVOIS: f64 = 3.4;
+/// Baggage-train pace (km/h) of a pack-animal train (reference line 17302, `JP_TRAIN_PACE.pack`).
 const JP_TRAIN_PACE_PACK: f64 = 4.8;
+/// Baggage-train pace (km/h) of a porter-borne train (reference line 17302, `JP_TRAIN_PACE.porter`).
 const JP_TRAIN_PACE_PORTER: f64 = 2.6;
 
+/// A baggage train's base pace in km/h and the label naming what limits it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TrainPace {
     pub kmh: f64,
@@ -10274,7 +10464,9 @@ pub fn jp_train_pace(party: &JpParty) -> TrainPace {
 /// points. Rig class, not per-hull -- at this fidelity the meaningful split is
 /// how well a rig works to windward, which is a property of the sail plan.
 const JP_RIG_SQUARE: [f64; 5] = [0.00, 0.15, 0.85, 1.00, 0.80];
+/// Sail polar for a fore-and-aft rig (reference line 17348): speed multipliers at 0, 45, 90, 135 and 180 degrees to the wind. Points well, so the 45-degree value is high.
 const JP_RIG_FOREAFT: [f64; 5] = [0.00, 0.62, 1.00, 0.92, 0.68];
+/// Polar for an oared hull: 1.0 at every angle, because wind does not drive it (reference line 17348).
 const JP_RIG_OARED: [f64; 5] = [1.00, 1.00, 1.00, 1.00, 1.00];
 
 /// `JP_SHIP_RIG` (reference line 17370), including `jpSailFactor`'s own
@@ -10320,6 +10512,10 @@ pub fn jp_sail_factor(vessel_name: &str, twa_deg: f64) -> f64 {
 /// the weighted sum below accumulates in exactly this order so the float
 /// result matches the reference term for term.
 pub const JP_WEATHER_KEYS: [&str; 5] = ["Clear", "Rain", "Storm", "Snow", "Sandstorm"];
+/// Speed multiplier for each condition in `JP_WEATHER_KEYS`, in the same order
+/// (reference line 17535: Clear 1.00, Rain 0.90, Storm 0.65, Snow 0.50, Sandstorm
+/// 0.40). The reference states no source on that line, so treat the values as its
+/// judgement, source not recorded.
 const JP_WEATHER_MODS: [f64; 5] = [1.00, 0.90, 0.65, 0.50, 0.40];
 
 /// `JP_WEATHER[cond]`, `None` for an unrecognised condition (the reference's
@@ -10501,7 +10697,12 @@ fn jp_files_by_terrain(terrain: &str) -> f64 {
 
 /// Reference lines 18749-18752 (v1.51).
 const JP_RANK_SPACING_M: f64 = 1.6;
+/// Road length one pack or draft animal occupies, in metres (reference line
+/// 18750: "near single file"). The reference tags it `[D]`, a design abstraction,
+/// not a measurement.
 const JP_ANIMAL_ROAD_M: f64 = 3.0;
+/// Road length one cart or wagon occupies, in metres, including its team and the
+/// interval behind it (reference line 18751, tagged `[D]` as above).
 const JP_VEHICLE_ROAD_M: f64 = 8.0;
 /// A column never stops entirely -- it degrades to a crawl.
 const JP_COLUMN_FLOOR: f64 = 0.35;
@@ -10544,13 +10745,21 @@ pub fn jp_column_factor(col_km: f64, raw_daily_km: f64) -> f64 {
 /// land:river:sea per tonne-km) stays separate from the part the tool cannot
 /// know (a world's money).
 const JP_COST_PER_TKM_LAND: f64 = 0.055;
+/// River carriage, in day-wages per tonne-km (reference line 18864, from the Edict ratios the doc above names).
 const JP_COST_PER_TKM_RIVER: f64 = 0.011;
+/// Sea carriage, in day-wages per tonne-km (reference line 18864, from the Edict ratios the doc above names).
 const JP_COST_PER_TKM_SEA: f64 = 0.002;
+/// One traveller-day of unskilled labour: the unit itself, so exactly 1.0 (reference line 18865).
 const JP_COST_WAGE_DAY: f64 = 1.0;
+/// A sailor's day, in day-wages; skilled labour (reference line 18866, tagged a design abstraction there).
 const JP_COST_CREW_DAY: f64 = 1.4;
+/// Hire and upkeep of one pack animal per day, in day-wages (reference line 18867, tagged a design abstraction there).
 const JP_COST_ANIMAL_DAY: f64 = 0.35;
+/// A cart or wagon per day, in day-wages (reference line 18868, tagged a design abstraction there).
 const JP_COST_VEHICLE_DAY: f64 = 0.8;
+/// A levy at each political frontier the route crosses, in day-wages (reference line 18869, tagged a design abstraction there).
 const JP_COST_TOLL_PER_BORDER: f64 = 6.0;
+/// One land-to-water transfer, in day-wages, on top of the time cost the planner already charges (reference line 18870, tagged a design abstraction there).
 const JP_COST_TRANSSHIP: f64 = 3.0;
 
 /// One entry of the reference's `plan.results` array, narrowed to the five
@@ -10571,6 +10780,11 @@ pub struct JourneyLeg {
     pub days: f64,
 }
 
+/// The cost breakdown `jp_journey_cost` returns, all in day-wages: the `total` and
+/// its parts (carriage, wages, crew, upkeep, tolls, transshipment), the number of
+/// frontier `borders` counted, the trip `days`, the cargo in tonnes, the
+/// per-tonne-km figure (`None` without cargo or distance) and the per-tonne
+/// break-even figure (`None` without cargo).
 #[derive(Debug, Clone, PartialEq)]
 pub struct JourneyCost {
     pub total: f64,
@@ -11018,6 +11232,10 @@ pub fn jp_route_cond_valid(cat: &str, condition: &str) -> bool {
     jp_route_lookup(cat, condition).is_some()
 }
 
+/// The reference's `JP_ROUTE[cat][cond]` speed multiplier, or `None` when the
+/// condition does not belong to that category. The `None` is how
+/// `jp_route_cond_valid` rejects a cross-category override, so it must never be
+/// replaced with a default of 1.0.
 fn jp_route_lookup(cat: &str, condition: &str) -> Option<f64> {
     match cat {
         "land" => match condition {
@@ -11066,6 +11284,8 @@ pub fn jp_group_class(n: i64) -> (&'static str, f64) {
 /// `jpCalcLand` reads as "portage -- crew proceeds on foot".
 pub const JP_LAND_TRANSPORT_KEYS: [&str; 3] = ["Walking", "Mounted Rider", "Baggage Train"];
 
+/// Base km/h of a land transport mode (reference line 17297). `None` for any other
+/// name, including a water mode, which the reference reads as a portage on foot.
 pub fn jp_land_transport_kmh(transport: &str) -> Option<f64> {
     match transport {
         "Walking" => Some(4.0),
@@ -11090,6 +11310,9 @@ pub const JP_DESERT_WATER_KEYS: [&str; 4] = [
     "Deep Desert Crossing",
 ];
 
+/// The reference's `JP_DESERT_WATER` row for a tier key, as `(max gap in days, reserve
+/// multiplier, speed multiplier)`, or `None` for an unknown key. Deep Desert
+/// Crossing's 999 is the reference's open-ended upper bound, not a real day count.
 fn jp_desert_water(key: &str) -> Option<(f64, f64, f64)> {
     match key {
         "Dense Oasis Route" => Some((1.0, 1.10, 1.25)),
@@ -11120,14 +11343,23 @@ pub fn jp_desert_tier_for_gap(gap_days: f64) -> &'static str {
 /// Vehicle/porter capacities and draft slots (reference lines 17574-17576),
 /// and the daily ration constants beside them.
 const JP_CART_CAP: f64 = 750.0;
+/// Carrying capacity of a wagon in kg (reference line 17574).
 const JP_WAGON_CAP: f64 = 1000.0;
+/// Carrying capacity of a travois in kg (reference line 17574).
 const JP_TRAVOIS_CAP: f64 = 100.0;
+/// Carrying capacity of a sled in kg (reference line 17574).
 const JP_SLED_CAP: f64 = 500.0;
+/// Draft animals one cart needs (reference line 17575).
 const JP_CART_DRAFT: i64 = 2;
+/// Draft animals one wagon needs (reference line 17575).
 const JP_WAGON_DRAFT: i64 = 3;
+/// Draft animals one sled needs (reference line 17575).
 const JP_SLED_DRAFT: i64 = 2;
+/// Daily fodder for one draft animal, in kg (reference line 17576).
 const JP_DRAFT_FOOD: f64 = 6.0;
+/// Daily food per person, in kg (reference line 17576).
 const JP_HUMAN_FOOD: f64 = 1.5;
+/// What one person can carry on their back, in kg (reference line 17576).
 const JP_HUMAN_PORTER: f64 = 30.0;
 /// v1.83: fraction of a ridden mount's own pack capacity credited as
 /// saddlebag cargo -- a reasoned estimate, disclosed as such by the reference.
@@ -11163,6 +11395,8 @@ pub fn jp_animal_water_carry_days(biome_key: &str, supply_days: i64) -> f64 {
     }
 }
 
+/// The food and water multipliers `jp_consumption_factors` returns: the terrain
+/// factor times the pace surcharge, applied to the party's daily need.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ConsumptionFactors {
     pub food: f64,
@@ -11234,6 +11468,9 @@ pub fn jp_wildlife_forage_mod(region_richness: Option<f64>, world_mean_richness:
     (r / world_mean_richness).clamp(0.5, 1.8)
 }
 
+/// What `jp_foraging` returns: the speed multiplier foraging costs while travelling
+/// (`move_mod`), and the fraction of the carried food need and water need it
+/// offsets (`reduction`, `water_reduction`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Foraging {
     /// `move`: the speed cost of foraging while travelling.
@@ -11387,6 +11624,9 @@ pub struct JpStageOverride {
 }
 
 impl Default for JpPlan {
+    /// The reference's own default plan: a party of four walking, Summer, 8 hours a day,
+    /// Standard Pace, seven days of supplies carried, season drift and seasonal
+    /// closures on, no overrides and no accepted resupply stops.
     fn default() -> Self {
         JpPlan {
             party: JpParty {
@@ -11496,12 +11736,16 @@ pub struct JpVesselResolver<'a> {
     pub stats: &'a dyn Fn(&str) -> Option<ShipStats>,
 }
 
+/// The roster entry for a vessel: the caller's resolver first, the built-in
+/// `jp_ship_stats` table when the resolver has no answer or none was given.
 fn resolve_ship_stats(name: &str, vessels: Option<&JpVesselResolver>) -> Option<ShipStats> {
     vessels
         .and_then(|v| (v.stats)(name))
         .or_else(|| jp_ship_stats(name))
 }
 
+/// The roster entry for an animal: the caller's resolver first, the built-in
+/// `jp_animal_stats` table when the resolver has no answer or none was given.
 fn resolve_animal_stats(key: &str, animals: Option<&JpAnimalResolver>) -> Option<AnimalStats> {
     animals
         .and_then(|a| (a.stats)(key))
@@ -11697,6 +11941,11 @@ pub struct JpResupply {
 /// different problems, and only one of them is fixed by rerouting.
 // Eight parameters is the reference's own signature; grouping them into a
 // struct here would only rename the same eight fields at every call site.
+/// Arguments, in the reference's order: the total mass to carry and the party's
+/// capacity (kg), the trip length in days, the stage's daily km, the longest
+/// waterless run in days, the days between settlements, whether food is carried,
+/// and the stage's longest waterless run in km. Returns a `JpResupply`; an
+/// over-capacity party is infeasible, not a stage with many stops.
 #[allow(clippy::too_many_arguments)]
 pub fn jp_assess_resupply(
     total_mass: f64,
@@ -11795,6 +12044,9 @@ pub struct JpStage {
 }
 
 impl Default for JpStage {
+    /// A zero-length stage with neutral settings: land, Dirt Track, Standard route condition,
+    /// Stable Settlements, Temperate Forest, no waterless run, and a wildlife modifier
+    /// of 1.0 (no wildlife data).
     fn default() -> Self {
         JpStage {
             km: 0.0,
@@ -12811,6 +13063,13 @@ pub struct ResupplyReachStage {
     pub supply_days: i64,
 }
 
+/// The verdict `jp_resupply_reach` returns: the food range the party needs
+/// (`required_km`), the longest gap the route really offers (`max_gap_km`) and
+/// where it starts (`gap_at_km`), the route length, how many resupply points were
+/// counted (`stops`), whether the requirement is `unmet` (food is carried and the
+/// longest gap exceeds the range by more than 0.01%), the `carry_food` flag it
+/// was judged under, and the gap as a multiple of the range (`shortfall`, so
+/// above 1.0 means the route outruns the party's provisions).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResupplyReach {
     /// The tightest food range any land stage imposes, in km.
@@ -13772,6 +14031,9 @@ pub fn jp_coarse_idx(
 /// distribution is genuinely bimodal and that is physically correct: a
 /// square-rigged hull either has the wind or it does not.
 pub const JP_SEA_BAND_MILD: f64 = 0.25;
+/// Upper band edge for a sea score: at or above 0.60 (with a real current) it is
+/// "Favorable Wind & Current", below -0.60 it is "Strong Headwind" (reference line
+/// 18481, `JP_SEA_BAND_STRONG`). Calibrated by measurement, per the doc above.
 pub const JP_SEA_BAND_STRONG: f64 = 0.60;
 
 /// The reference's rig key, needed separately from the polar because
@@ -13961,20 +14223,6 @@ pub fn jp_mode_for_route(transport: &str) -> Option<&'static str> {
     }
 }
 
-/// `_jpRerouteForMode` (reference line 20391, v1.100): re-path a journey's
-/// two endpoints under one travel domain, refusing an unreachable answer
-/// rather than drawing the straight-line fallback.
-///
-/// `force_mode` is the reference's own optional third state: `None` derives
-/// the domain from the journey's own transport ([`jp_mode_for_route`]),
-/// `Some("land"|"water"|"mixed")` overrides it -- which is what a blocked
-/// WATER stage's "re-route land-only" needs, since re-deriving from a
-/// `Sea Faring` transport would re-path the same domain and reproduce the
-/// identical unusable leg.
-///
-/// `Err` carries the reference's own two refusal strings verbatim. The
-/// reference then assigns `jn.pts`/`jn.km`/`jn.brks`; here the caller owns
-/// the journey record, so the new path is returned instead of written.
 /// Which cost domain [`jp_reroute_for_mode`] will actually solve under, given
 /// the journey's transport and an optional `force_mode` override -- exposed
 /// separately because a caller has to *build* that domain's inputs (a `mixed`
@@ -13996,6 +14244,25 @@ pub fn jp_reroute_mode(transport: &str, force_mode: Option<&str>) -> tools::Rout
     }
 }
 
+/// `_jpRerouteForMode` (reference line 20391, v1.100): re-path a journey's
+/// two endpoints under one travel domain, refusing an unreachable answer
+/// rather than drawing the straight-line fallback.
+///
+/// `force_mode` is the reference's own optional third state: `None` derives
+/// the domain from the journey's own transport ([`jp_mode_for_route`]),
+/// `Some("land"|"water"|"mixed")` overrides it -- which is what a blocked
+/// WATER stage's "re-route land-only" needs, since re-deriving from a
+/// `Sea Faring` transport would re-path the same domain and reproduce the
+/// identical unusable leg.
+///
+/// `Err` carries the reference's own two refusal strings verbatim. The
+/// reference then assigns `jn.pts`/`jn.km`/`jn.brks`; here the caller owns
+/// the journey record, so the new path is returned instead of written.
+///
+/// Re-paths a journey's two end points under the travel domain `jp_reroute_mode`
+/// picks, and refuses an unreachable answer. `Err` carries a user-facing sentence,
+/// never a straight-line fallback path: a route that could not be solved must not
+/// be drawn as if it had been.
 pub fn jp_reroute_for_mode(
     ctx: &tools::RouteContext,
     pts: &[(f64, f64)],
@@ -14306,6 +14573,9 @@ impl JpWorld<'_> {
         }) / self.gw as f64
     }
 
+    /// The grid cell containing `(x, y)`: each coordinate rounded the way JavaScript
+    /// rounds (`js_round`), then clamped to the grid, so a route point just off the
+    /// edge reads the edge cell rather than indexing out of range.
     fn clamp_cell(&self, x: f64, y: f64) -> (usize, usize) {
         let xi = (js_round(x) as i64).clamp(0, self.gw as i64 - 1) as usize;
         let yi = (js_round(y) as i64).clamp(0, self.gh as i64 - 1) as usize;
@@ -14830,10 +15100,12 @@ pub struct JpLegResult {
 }
 
 impl JpLegResult {
+    /// The stage's `JpBlocked` when it could not be travelled, else `None`.
     pub fn blocked(&self) -> Option<&JpBlocked> {
         self.calc.as_ref().err()
     }
 
+    /// The stage's travel days, or 0.0 for a blocked stage (it contributes no time).
     pub fn days(&self) -> f64 {
         match &self.calc {
             Ok(JpLegCalc::Land(l)) => l.days,
@@ -14842,6 +15114,7 @@ impl JpLegResult {
         }
     }
 
+    /// The stage's daily distance in km, or 0.0 for a blocked stage.
     pub fn daily_km(&self) -> f64 {
         match &self.calc {
             Ok(JpLegCalc::Land(l)) => l.daily_km,
@@ -14850,6 +15123,7 @@ impl JpLegResult {
         }
     }
 
+    /// The land calculation, when this stage is a land stage that computed, else `None`.
     pub fn land(&self) -> Option<&JpLandCalc> {
         match &self.calc {
             Ok(JpLegCalc::Land(l)) => Some(l),
@@ -15001,6 +15275,9 @@ pub fn jp_leg_supply(stage_terrain: &str, r: &JpLegResult) -> Option<JpLegSupply
 /// A journey too long to walk a day at a time -- the reference's own
 /// `days<1500` timeline gate and its `dayNo>400` bail-out.
 const JP_TIMELINE_MAX_DAYS: f64 = 1500.0;
+/// The timeline stops once its day number passes this (reference lines 19378 and
+/// 19381, `dayNo>400`). The reference gives no reason for the number, so treat it
+/// as judgement, source not recorded; it bounds the size of the timeline built.
 const JP_TIMELINE_MAX_ENTRIES: i64 = 400;
 
 /// `_jpPlan` (reference line 19255): the journey orchestrator -- stages, the
@@ -16484,6 +16761,10 @@ pub fn jp_auto_stage_picks(
     picks
 }
 
+/// Unit tests for the whole crate root: the economy and culture helpers, the water
+/// and biome rasters, continents, roads, territory, the journey planner (`jp_*`)
+/// and the suitability model. Each test states what it protects in its first
+/// line; a fixture that is not a `#[test]` says what it builds.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -16494,6 +16775,9 @@ mod tests {
     /// points. A whole grid still answers from its cell.
     #[test]
     fn jp_claimed_at_takes_a_partial_grid_as_no_territory() {
+        // Protects: a claim grid that is empty or not `gw x gh` reads as "no territory"
+        //   instead of panicking on an out-of-range index, while a whole grid still
+        //   answers from its cell.
         assert!(!jp_claimed_at(Some(&[]), 2, 2, 1.0, 1.0));
         assert!(!jp_claimed_at(None, 2, 2, 1.0, 1.0));
         assert!(jp_claimed_at(Some(&[0, 0, 0, 4]), 2, 2, 1.0, 1.0));
@@ -16506,11 +16790,15 @@ mod tests {
     /// was `>= 0`, which read an all-unclaimed grid as all claimed.
     #[test]
     fn jp_claimed_at_reads_zero_as_unclaimed() {
+        // Protects: the claim grid's `0` = unclaimed convention: only a non-zero cell
+        //   counts as claimed (the old `>= 0` test read an all-unclaimed grid as all
+        //   claimed).
         assert!(!jp_claimed_at(Some(&[0; 4]), 2, 2, 0.0, 0.0));
         assert!(jp_claimed_at(Some(&[1, 0, 0, 0]), 2, 2, 0.0, 0.0));
         assert!(!jp_claimed_at(Some(&[1, 0, 0, 0]), 2, 2, 1.0, 0.0));
     }
 
+    /// Builds the key-to-mean map `civ_resource_trade_balance` takes, from `(key, value)` pairs.
     fn tb_map(pairs: &[(&'static str, f64)]) -> std::collections::HashMap<&'static str, f64> {
         pairs.iter().cloned().collect()
     }
@@ -16522,6 +16810,8 @@ mod tests {
 
     #[test]
     fn trade_balance_empty_inputs_return_empty() {
+        // Protects: an empty mean map or an empty world-mean map yields no exports and
+        //   no imports, whichever side is empty.
         let empty = tb_map(&[]);
         let out = civ_resource_trade_balance(&empty, &tb_map(&[("iron", 0.5)]));
         assert!(out.exports.is_empty() && out.imports.is_empty());
@@ -16531,6 +16821,8 @@ mod tests {
 
     #[test]
     fn trade_balance_world_essentially_absent_exports_only_above_absolute_floor() {
+        // Protects: where the world mean is at or below 0.002 a key is exported only if
+        //   the faction's own mean is above 0.05, never on the ratio.
         // world=0.001 (<=0.002): mine=0.06>0.05 -> export; mine=0.03 -> nothing (not >0.05).
         let mean = tb_map(&[("gems", 0.06), ("obsidian", 0.03)]);
         let world = tb_map(&[("gems", 0.001), ("obsidian", 0.001)]);
@@ -16541,6 +16833,8 @@ mod tests {
 
     #[test]
     fn trade_balance_export_needs_both_ratio_and_absolute_floor() {
+        // Protects: an export needs both `mine/world > 1.35` and `mine > 0.02`; a ratio
+        //   that clears the first test cannot export when the absolute floor fails.
         // ratio = 0.015/0.01 = 1.5 > 1.35 (clears the ratio test), but
         // mine=0.015 is NOT > 0.02 -- the absolute floor must still gate
         // the export even once the ratio alone would qualify.
@@ -16555,6 +16849,8 @@ mod tests {
 
     #[test]
     fn trade_balance_real_export_case() {
+        // Protects: the ordinary export case: a ratio of 2.0 and a mean above the floor
+        //   exports the key and imports nothing.
         // ratio = 0.20/0.10 = 2.0 > 1.35, mine=0.20 > 0.02 -> export.
         let mean = tb_map(&[("copper", 0.20)]);
         let world = tb_map(&[("copper", 0.10)]);
@@ -16565,6 +16861,8 @@ mod tests {
 
     #[test]
     fn trade_balance_import_only_for_consumed_resources() {
+        // Protects: a scarce key is imported only if it is in the consumed set; a scarce
+        //   key outside it (gems) never appears as an import.
         // ratio = 0.03/0.10 = 0.3 < 0.65 for both -- iron IS consumed, gems is NOT.
         let mean = tb_map(&[("iron", 0.03), ("gems", 0.03)]);
         let world = tb_map(&[("iron", 0.10), ("gems", 0.10)]);
@@ -16579,6 +16877,8 @@ mod tests {
 
     #[test]
     fn trade_balance_missing_key_treated_as_zero() {
+        // Protects: a key whose faction mean is 0 reads as a ratio of 0 and, being
+        //   consumed, is imported (the reference's `|| 0` fallback).
         // a key present in world_mean but absent from mean (or vice versa) reads as 0.0,
         // matching the reference's `mean[k]||0` / `worldMean[k]||0` fallback.
         let mean = tb_map(&[("salt", 0.0)]);
@@ -16590,6 +16890,8 @@ mod tests {
 
     #[test]
     fn trade_balance_iterates_all_fifteen_keys_in_reference_order() {
+        // Protects: `CIV_RESOURCE_KEYS` has the 15 reference keys, first `copper` and
+        //   last `alum`, since the balance walks them in that order.
         assert_eq!(CIV_RESOURCE_KEYS.len(), 15);
         assert_eq!(CIV_RESOURCE_KEYS[0], "copper");
         assert_eq!(CIV_RESOURCE_KEYS[14], "alum");
@@ -16608,6 +16910,8 @@ mod tests {
     /// duplication exists to draw.
     #[test]
     fn civ_resource_keys_track_resource_keys() {
+        // Protects: the reference's instruction to keep its two resource-key arrays in
+        //   step, enforced: `RESOURCE_KEYS` and `CIV_RESOURCE_KEYS` must be equal.
         assert_eq!(
             RESOURCE_KEYS, CIV_RESOURCE_KEYS,
             "block 1's RESOURCE_KEYS and block 2's CIV_RESOURCE_KEYS are one \
@@ -16616,6 +16920,7 @@ mod tests {
         );
     }
 
+    /// A `ResourcePotentials` of `n` cells with every one of the 15 resource rasters filled with `fill`.
     fn test_resources(n: usize, fill: f32) -> ResourcePotentials {
         let v = || vec![fill; n];
         ResourcePotentials {
@@ -16639,6 +16944,8 @@ mod tests {
 
     #[test]
     fn resource_field_all_reaches_all_fifteen_keys() {
+        // Protects: `resource_field_all` returns the raster for each of the 15 keys, so
+        //   no key is missing from its match.
         let res = test_resources(1, 0.5);
         for &k in CIV_RESOURCE_KEYS.iter() {
             assert_eq!(resource_field_all(&res, k), &[0.5f32]);
@@ -16647,6 +16954,8 @@ mod tests {
 
     #[test]
     fn world_mean_resources_averages_land_cells_only() {
+        // Protects: the world mean averages land cells only: an ocean cell's value is
+        //   excluded, leaving the one land cell's 0.8.
         // 2x1 grid: one ocean cell (should be excluded), one land cell at 0.8.
         let mut res = test_resources(2, 0.0);
         res.copper[1] = 0.8;
@@ -16660,6 +16969,8 @@ mod tests {
 
     #[test]
     fn world_mean_resources_all_ocean_returns_zero_not_nan() {
+        // Protects: an all-ocean world gives a mean of 0.0, not a NaN from dividing by
+        //   zero land cells.
         let res = test_resources(1, 0.7);
         let field = [0.0f32];
         let mean = civ_world_mean_resources(&res, &field, 0.5);
@@ -16668,6 +16979,8 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_identity_cultures_get_no_verdict() {
+        // Protects: `common` and `imperial` are not themed on any terrain, so they get
+        //   `None`, never an invented verdict.
         let mix = std::collections::HashMap::new();
         let world = std::collections::HashMap::new();
         assert_eq!(civ_culture_terrain_fit("common", &mix, &world), None);
@@ -16676,6 +16989,7 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_unknown_key_returns_none() {
+        // Protects: an unknown culture key returns `None`.
         let mix = std::collections::HashMap::new();
         let world = std::collections::HashMap::new();
         assert_eq!(civ_culture_terrain_fit("nonexistent", &mix, &world), None);
@@ -16683,6 +16997,8 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_match_when_well_above_world_mean() {
+        // Protects: a culture whose terrain share is twice the world mean (ratio 2.0) is
+        //   a `match`, with the terrain key `hills` reported.
         let mut mix = std::collections::HashMap::new();
         mix.insert("hills", 0.6);
         let mut world = std::collections::HashMap::new();
@@ -16695,6 +17011,8 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_mismatch_when_well_below_world_mean() {
+        // Protects: a terrain share well below the world mean (0.05 against 0.3) is a
+        //   `mismatch`.
         let mut mix = std::collections::HashMap::new();
         mix.insert("arid", 0.05);
         let mut world = std::collections::HashMap::new();
@@ -16705,6 +17023,7 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_typical_in_the_middle_band() {
+        // Protects: a ratio of 1.0 falls inside the 0.85 to 1.15 band and is `typical`.
         let mut mix = std::collections::HashMap::new();
         mix.insert("river", 0.3);
         let mut world = std::collections::HashMap::new();
@@ -16715,6 +17034,9 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_zero_world_mean_present_value_is_a_fabricated_match() {
+        // Protects: the reference's own branch: with no world mean but some presence the
+        //   ratio is 2 and the verdict `match`. The name calls that a fabricated match;
+        //   the port keeps it for parity.
         // world essentially absent but the faction has some presence -> ratio=2 (reference's own branch).
         let mut mix = std::collections::HashMap::new();
         mix.insert("forest", 0.1);
@@ -16726,6 +17048,8 @@ mod tests {
 
     #[test]
     fn culture_terrain_fit_zero_world_mean_zero_value_is_typical_not_match() {
+        // Protects: with neither world mean nor faction presence the ratio is 1 and the
+        //   verdict `typical`, not `match`.
         let mix = std::collections::HashMap::new(); // no "coast" key -> value=0.0
         let world = std::collections::HashMap::new(); // no "coast" key -> world_mean=0.0
         let fit = civ_culture_terrain_fit("maritime", &mix, &world).unwrap();
@@ -16735,6 +17059,8 @@ mod tests {
 
     #[test]
     fn catchment_km2_matches_reference_table_no_metropolis() {
+        // Protects: the catchment areas by settlement kind (6, 25, 150, 800 and 1400
+        //   km2) match the reference table, and there is no metropolis row.
         assert_eq!(civ_catchment_km2(SettlementKind::Hamlet), 6.0);
         assert_eq!(civ_catchment_km2(SettlementKind::Village), 25.0);
         assert_eq!(civ_catchment_km2(SettlementKind::Town), 150.0);
@@ -16744,6 +17070,8 @@ mod tests {
 
     #[test]
     fn catchment_radius_cells_at_least_one() {
+        // Protects: a tiny catchment on a very coarse grid rounds to 0 cells and is
+        //   floored to 1.
         // A tiny catchment on a very coarse grid (cell_km=400) -> raw radius
         // (~0.0035 cells) rounds to 0, floored to 1.
         let r = civ_catchment_radius_cells(6.0, 800.0, 2);
@@ -16752,6 +17080,8 @@ mod tests {
 
     #[test]
     fn catchment_radius_cells_real_scale() {
+        // Protects: a real-scale case: a 1400 km2 capital catchment on 800 km over 512
+        //   cells (1.5625 km a cell) rounds to a radius of 14 cells.
         // capital: 1400 km^2 catchment, 800km map / 512 cells = 1.5625 km/cell.
         // radius_km = sqrt(1400/pi) = 21.1..., radius_cells = 21.1/1.5625 ~= 13.5 -> 14 (round).
         let r = civ_catchment_radius_cells(1400.0, 800.0, 512);
@@ -16760,6 +17090,8 @@ mod tests {
 
     #[test]
     fn place_resource_context_scans_disc_around_settlement() {
+        // Protects: the resource context averages only cells inside the settlement's
+        //   disc: a 0.0 outside the radius-1 disc does not lower the mean.
         // 5x5 grid, all land (sea=0.0), settlement at center (2,2).
         // copper=1.0 everywhere except one far corner cell outside radius=1's disc.
         let n = 25;
@@ -16773,6 +17105,8 @@ mod tests {
 
     #[test]
     fn place_resource_context_world_wrap_reaches_across_edge() {
+        // Protects: on a wrapped world the disc reaches across the x edge, so a 0.0 at
+        //   the far column lowers the mean.
         // 3x1 grid, wrap on. Settlement at x=0, radius=1 should also reach x=2 by wrapping.
         let mut res = test_resources(3, 1.0);
         res.copper[2] = 0.0; // wrap-adjacent to x=0
@@ -16784,6 +17118,8 @@ mod tests {
 
     #[test]
     fn place_resource_context_excludes_ocean_cells() {
+        // Protects: ocean cells inside the disc are excluded from the mean, and a disc
+        //   cell outside the grid is ignored on a bounded map.
         let mut res = test_resources(3, 1.0);
         res.copper[1] = 0.0;
         let field = [1.0f32, 0.1f32, 1.0f32]; // middle cell is ocean at sea=0.5
@@ -16794,6 +17130,8 @@ mod tests {
 
     #[test]
     fn build_lithology_oceanic_crust_is_basalt() {
+        // Protects: a cell on oceanic crust (crust value below 0) gets lithology 1,
+        //   basalt.
         let field = [0.2f32];
         let age = [0.5f32];
         let volc = [0.0f32];
@@ -16806,6 +17144,8 @@ mod tests {
 
     #[test]
     fn build_lithology_volcanic_beats_hard_basement() {
+        // Protects: the volcanic test (volcanism above 0.35) is checked before the
+        //   hard-basement test, so a cell with both is lithology 2.
         // volc > 0.35 must win even when resist > 0.55 too (checked second in JS).
         let field = [0.6f32];
         let age = [0.9f32];
@@ -16819,6 +17159,8 @@ mod tests {
 
     #[test]
     fn build_lithology_sedimentary_lowland_by_moisture() {
+        // Protects: a low-lying cell splits by rainfall into the three sedimentary
+        //   classes: wet 3, arid 4, between 5.
         let field = [0.45f32]; // r = (0.45-0.4)/0.6 = 0.0833 < 0.30
         let crust = [1.0f32];
         let resist = [0.1f32];
@@ -16834,6 +17176,8 @@ mod tests {
 
     #[test]
     fn build_soil_fertility_clamps_to_unit_range() {
+        // Protects: soil fertility stays within `[0, 1]` even when the rain and age
+        //   inputs are above 1.
         let lith = [0u8];
         let temp = [18.0f32]; // at t_opt, tF ~= 1
         let rain = [1.5f32]; // above 1, must clamp
@@ -16845,6 +17189,8 @@ mod tests {
 
     #[test]
     fn chamfer_dist_zero_at_seed_grows_outward() {
+        // Protects: the chamfer distance is 0 at the seed, 1 for an orthogonal neighbour
+        //   and the square root of 2 for a diagonal one.
         // 3x3 grid, seed at the center.
         let src = [0u8, 0, 0, 0, 1, 0, 0, 0, 0];
         let d = chamfer_dist(&src, 3, 3);
@@ -16855,6 +17201,7 @@ mod tests {
 
     #[test]
     fn build_water_access_is_one_underwater() {
+        // Protects: water access is 1.0 for a cell below sea level, whatever the flow.
         let flow = [0.0f32; 4];
         let field = [0.1f32, 0.9, 0.9, 0.9];
         let out = build_water_access(&flow, &field, 2, 2, 0.4, 1e9);
@@ -16863,6 +17210,8 @@ mod tests {
 
     #[test]
     fn min_heap_pops_in_ascending_priority_order() {
+        // Protects: `MinHeap` pops in ascending priority order (the order between equal
+        //   priorities is left open), which the water-body flood relies on.
         let mut h = MinHeap::with_capacity(8);
         for (pr, va) in [(5.0f32, 0usize), (1.0, 1), (3.0, 2), (1.0, 3), (2.0, 4)] {
             h.push(pr, va);
@@ -16891,6 +17240,9 @@ mod tests {
 
     #[test]
     fn build_water_bodies_boundary_touching_component_is_ocean() {
+        // Protects: a below-sea component touching the real left edge is ocean (class 1)
+        //   and land stays 0. Old and new rules agree here, so it does not separate
+        //   them.
         // 4x1: three connected below-sea cells touching x=0 (the real, non-
         // wrapped left edge). Unchanged by Ruling Q: this component was
         // already the largest AND boundary-touching, so old and new rules
@@ -16906,6 +17258,8 @@ mod tests {
 
     #[test]
     fn build_water_bodies_small_boundary_touching_component_is_now_ocean_not_lake() {
+        // Protects: Ruling Q: a small below-sea component that touches the boundary is
+        //   ocean, not lake (cell 4 moved from lake to ocean).
         // RE-BASELINED (Ruling Q). Was `..._smaller_below_sea_component_is_lake`:
         // a 3-cell below-sea component touching x=0, a 1-cell land gap, a
         // 1-cell below-sea component touching x=gw-1=4. Under the OLD
@@ -16929,6 +17283,8 @@ mod tests {
 
     #[test]
     fn build_water_bodies_interior_component_is_lake_even_if_it_is_the_largest() {
+        // Protects: Ruling Q's first failure mode: a large interior basin is a lake even
+        //   when larger than the boundary-touching slivers, which are ocean.
         // NEW (Ruling Q). Directly exercises failure mode 1: "a world with
         // little ocean and one huge inland basin makes the lake the ocean
         // (largest wins)". 9x3, sea=0.4, all of row 0 and row 2 land, so
@@ -16971,6 +17327,8 @@ mod tests {
 
     #[test]
     fn build_water_bodies_falls_back_to_largest_when_nothing_touches_boundary() {
+        // Protects: when no below-sea component touches the boundary the largest one is
+        //   still chosen as ocean, so the map is not left without an ocean.
         // NEW (Ruling Q). When NO below-sea component touches the grid's
         // real boundary at all, there is no topological signal to pick an
         // ocean from -- the disclosed fallback keeps the reference's old
@@ -17011,6 +17369,8 @@ mod tests {
 
     #[test]
     fn build_water_bodies_wrapped_world_pole_touching_minority_component_is_lake_ruling_t() {
+        // Protects: Ruling T: on a wrapped world the largest component is ocean and a
+        //   smaller pole-touching one is a lake, as before Ruling Q.
         // world=true: Ruling T applies, so the pole-touching component does
         // NOT automatically win ocean just for touching a pole -- the
         // largest component does, exactly the reference's pre-Ruling-Q
@@ -17039,6 +17399,9 @@ mod tests {
 
     #[test]
     fn build_water_bodies_bounded_control_same_shape_still_ruling_q() {
+        // Protects: the control for Ruling T: the same shape on a bounded map still
+        //   follows Ruling Q (the boundary-touching cell is ocean, the larger interior
+        //   body a lake).
         // Same shape, world=false: this is the control proving the branch
         // did not also revert the bounded case. Under Ruling Q, y=0 is
         // always a real boundary (wrapped or not), so the 1-cell component
@@ -17069,6 +17432,8 @@ mod tests {
 
     #[test]
     fn build_water_bodies_pooled_depression_becomes_lake_when_rain_allows() {
+        // Protects: a pit that cannot drain pools into a lake only when rainfall is
+        //   enough; the same pit in an arid world stays dry land.
         // 5x5, sea level low so nothing starts below it; a deep pit at the
         // centre surrounded by a rim high enough that the pit can't drain
         // to any border outlet without pooling past lakeDepth.
@@ -17095,6 +17460,9 @@ mod tests {
 
     #[test]
     fn apply_force_lake_overrides_the_arid_basin_the_classifier_left_dry() {
+        // Protects: a painted lake (`force_lake`) wins over the rain gate: the arid
+        //   basin the classifier left dry becomes a lake, and unforced cells are
+        //   untouched.
         // The same arid basin as above -- the one the rain gate keeps as dry
         // land. A painted lake must win anyway, which is exactly what
         // `forceLake` exists for.
@@ -17116,6 +17484,7 @@ mod tests {
 
     #[test]
     fn apply_force_lake_is_a_no_op_on_an_empty_mask() {
+        // Protects: an all-zero force mask changes nothing.
         let mut c = vec![0u8, 1, 2, 0];
         apply_force_lake(&mut c, &[0, 0, 0, 0]);
         assert_eq!(c, vec![0, 1, 2, 0]);
@@ -17123,6 +17492,8 @@ mod tests {
 
     #[test]
     fn apply_force_lake_overrides_ocean_too() {
+        // Protects: forcing a lake is unconditional, as in the reference's `out[i]=2`:
+        //   it overwrites an ocean cell as well as land.
         // The reference's `out[i]=2` is unconditional -- it overwrites an
         // existing ocean(1) classification, not just land(0).
         let mut c = vec![1u8, 1, 0];
@@ -17132,6 +17503,9 @@ mod tests {
 
     #[test]
     fn water_body_topology_multiple_disconnected_boundary_touching_components_are_both_ocean() {
+        // Protects: after Ruling Q two disconnected boundary-touching bodies are both
+        //   reported as ocean, each ocean-connected, with the boundary flag set for the
+        //   one at the far edge.
         // RE-BASELINED (Ruling Q). This test used to pair with
         // `build_water_bodies_smaller_below_sea_component_is_lake` and
         // asserted one ocean body + one lake body. That fixture now
@@ -17172,6 +17546,8 @@ mod tests {
 
     #[test]
     fn water_body_topology_interior_lake_is_endorheic() {
+        // Protects: an interior lake that touches no edge is classed as an endorheic
+        //   lake.
         // Same fixture as the pooled-depression test: a single interior
         // pit, (2,2) on a 5x5 grid, nowhere near any edge.
         let mut field = vec![0.9f32; 25];
@@ -17189,6 +17565,8 @@ mod tests {
 
     #[test]
     fn water_body_topology_world_map_never_reports_x_boundary_contact() {
+        // Protects: on a wrapped world x is not an edge, so a lake at x=0 reports no
+        //   boundary contact (and does on a bounded map).
         // A lake component pinned to x=0 on a non-world map is
         // MapBoundedWater (mirrors the fixture above); the same field
         // under `world=true` must NOT report boundary contact, because X
@@ -17222,6 +17600,8 @@ mod tests {
 
     #[test]
     fn water_body_topology_world_map_still_reports_y_boundary_contact() {
+        // Protects: y never wraps, so a lake on the top row is map-bounded even on a
+        //   wrapped world.
         // Y never wraps, world or not (`cc_visit`/`wb_visit` bound-check
         // `ny` unconditionally) -- a lake on the top row must still count
         // as boundary contact even when `world` is true.
@@ -17245,6 +17625,7 @@ mod tests {
 
     #[test]
     fn water_body_topology_land_only_grid_is_empty() {
+        // Protects: a grid with no water has no water bodies.
         let wb = WaterBodies {
             classification: vec![0u8; 9],
             fill_level: vec![0.0; 9],
@@ -17254,6 +17635,8 @@ mod tests {
 
     #[test]
     fn classify_biome_temperature_bands() {
+        // Protects: the cold temperature bands of `classify_biome`: ice, tundra, and the
+        //   boreal split at moisture 0.20.
         assert_eq!(classify_biome(-10.0, 0.5), BIOME_ICE);
         assert_eq!(classify_biome(-3.0, 0.5), BIOME_TUNDRA);
         assert_eq!(classify_biome(2.0, 0.1), BIOME_TUNDRA); // t<5, m<0.20
@@ -17262,6 +17645,8 @@ mod tests {
 
     #[test]
     fn classify_biome_mid_temperature_moisture_thresholds() {
+        // Protects: the mid-temperature moisture thresholds: grass, conifer and
+        //   temperate rainforest.
         assert_eq!(classify_biome(8.0, 0.1), BIOME_GRASS);
         assert_eq!(classify_biome(8.0, 0.4), BIOME_CONIFER);
         assert_eq!(classify_biome(8.0, 0.9), BIOME_TEMP_RAIN);
@@ -17269,6 +17654,8 @@ mod tests {
 
     #[test]
     fn classify_biome_warm_temperature_moisture_thresholds() {
+        // Protects: the warm-temperature moisture thresholds: desert, shrub, temperate
+        //   forest and temperate rainforest.
         assert_eq!(classify_biome(15.0, 0.05), BIOME_DESERT);
         assert_eq!(classify_biome(15.0, 0.2), BIOME_SHRUB);
         assert_eq!(classify_biome(15.0, 0.4), BIOME_TEMP_FOREST);
@@ -17277,6 +17664,8 @@ mod tests {
 
     #[test]
     fn classify_biome_hot_temperature_moisture_thresholds() {
+        // Protects: the hot-temperature moisture thresholds: desert, savanna, tropical
+        //   dry and tropical wet.
         assert_eq!(classify_biome(25.0, 0.05), BIOME_DESERT);
         assert_eq!(classify_biome(25.0, 0.2), BIOME_SAVANNA);
         assert_eq!(classify_biome(25.0, 0.4), BIOME_TROP_DRY);
@@ -17285,6 +17674,9 @@ mod tests {
 
     #[test]
     fn build_biome_raster_water_overrides_climate() {
+        // Protects: water bodies override climate in the biome raster: an ocean cell is
+        //   `BIOME_OCEAN` and a lake cell `BIOME_LAKE` even where the climate would give
+        //   tropical wet.
         let water_bodies = [0u8, 1, 2];
         let temp = [25.0f32, 25.0, 25.0]; // would classify as tropWet on land
         let rain = [0.9f32, 0.9, 0.9];
@@ -17296,6 +17688,9 @@ mod tests {
 
     #[test]
     fn biome_density_residual_ocean_is_zero_tropwet_is_rainforest_paradox() {
+        // Protects: the density residual is 0 over ocean, 0.90 for temperate rainforest
+        //   and 0.55 for tropical wet (the lowest non-ocean entry, the rainforest
+        //   paradox).
         assert_eq!(biome_density_residual(BIOME_OCEAN), 0.0);
         assert_eq!(biome_density_residual(BIOME_TEMP_RAIN), 0.90);
         assert_eq!(biome_density_residual(BIOME_TROP_WET), 0.55); // lowest non-ocean entry
@@ -17303,12 +17698,16 @@ mod tests {
 
     #[test]
     fn biome_intensify_eligible_desert_is_maximal() {
+        // Protects: the intensification eligibility is 0 over ocean and the maximum 1.0
+        //   for desert (irrigation is transformative there).
         assert_eq!(biome_intensify_eligible(BIOME_OCEAN), 0.0);
         assert_eq!(biome_intensify_eligible(BIOME_DESERT), 1.00); // Nile-style: irrigation transformative
     }
 
     #[test]
     fn build_wetland_mask_flags_wet_low_flat_land_only() {
+        // Protects: the wetland mask flags only wet, low, flat land: a water-body cell
+        //   and a steep cell are not wetland.
         // cell 0: water body -> never a land wetland regardless of moisture.
         // cell 1: wet+low+flat land -> wetland.
         // cell 2: wet but steep -> not a wetland (slope fails the <1.0 gate).
@@ -17324,6 +17723,9 @@ mod tests {
 
     #[test]
     fn build_carrying_capacity_zero_over_ocean_and_no_biome_default_matches_bk_zero() {
+        // Protects: carrying capacity is 0 over ocean, and a biome weight of 0 ignores
+        //   the biome entirely (the reference's `bM` short-circuit), matching the
+        //   no-biome result.
         let soil = [0.8f32, 0.8];
         let water = [0.6f32, 0.6];
         let temp = [18.0f32, 18.0]; // at t_opt -> tF ~= 1
@@ -17343,6 +17745,8 @@ mod tests {
 
     #[test]
     fn build_carrying_capacity_biome_k_applies_residual_and_wetland_override() {
+        // Protects: with a biome weight of 1 the wetland residual (0.70) overrides
+        //   tropical wet's lower 0.55 and so raises capacity.
         let soil = [0.8f32];
         let water = [0.6f32];
         let temp = [18.0f32];
@@ -17367,6 +17771,7 @@ mod tests {
 
     #[test]
     fn build_npp_zero_over_ocean_positive_on_land() {
+        // Protects: net primary productivity is 0 over ocean and positive over land.
         let temp = [18.0f32, 18.0];
         let rain = [0.6f32, 0.6];
         let field = [0.1f32, 0.6];
@@ -17377,6 +17782,8 @@ mod tests {
 
     #[test]
     fn forager_floor_km2_zero_npp_matches_reference_calibration() {
+        // Protects: the forager-floor regression at an NPP of 0 gives about 0.0295 per
+        //   km2, the reference's own calibration.
         // Reference doc comment: "NPP 0 -> ~0.030/km2 (Binford median 0.044)".
         let floor = forager_floor_km2(0.0);
         assert!((floor - 0.0295).abs() < 0.001, "got {floor}");
@@ -17384,6 +17791,8 @@ mod tests {
 
     #[test]
     fn estimate_regional_density_km2_zero_over_ocean() {
+        // Protects: the regional density estimate is 0 over ocean and positive over
+        //   land.
         let k = [0.5f32, 0.5];
         let water = [0.6f32, 0.6];
         let field = [0.1f32, 0.6];
@@ -17394,6 +17803,8 @@ mod tests {
 
     #[test]
     fn resource_scarcity_cut_gold_iron_endpoints() {
+        // Protects: the scarcity cut runs from 0.02 for gold, the low end of the log
+        //   band, to 0.45 for iron, the high end.
         // gold (0.005 ppm) is the low end of the log-compressed band -> 0.02;
         // iron (50000 ppm) is the high end -> 0.02+0.43=0.45.
         assert!((resource_scarcity_cut("gold") - 0.02).abs() < 1e-9);
@@ -17402,12 +17813,16 @@ mod tests {
 
     #[test]
     fn resource_scarcity_cut_untabled_key_uses_occupancy_fallback() {
+        // Protects: keys without an abundance entry use the occupancy fallback (obsidian
+        //   0.03, clay 0.55).
         assert_eq!(resource_scarcity_cut("obsidian"), 0.03);
         assert_eq!(resource_scarcity_cut("clay"), 0.55);
     }
 
     #[test]
     fn apply_resource_scarcity_keeps_only_top_fraction() {
+        // Protects: scarcity keeps exactly the top fraction of land cells by value (3 of
+        //   10 at a cut of 0.3) and zeroes the rest.
         // 10 land cells, values 1..=10 (as f32), cut=0.3 -> keep 3 (round(10*0.3)=3).
         let mut arr: Vec<f32> = (1..=10).map(|v| v as f32).collect();
         let field = vec![0.9f32; 10]; // all land, sea=0.4
@@ -17423,6 +17838,8 @@ mod tests {
 
     #[test]
     fn apply_resource_scarcity_noop_when_already_rarer_than_ceiling() {
+        // Protects: a raster already rarer than the ceiling is left untouched: a single
+        //   deposit under a looser ceiling survives.
         let mut arr = [1.0f32, 0.0, 0.0, 0.0];
         let field = vec![0.9f32; 4];
         apply_resource_scarcity(&mut arr, &field, 0.4, 0.5); // ceiling keep=2, only 1 nonzero value
@@ -17434,6 +17851,8 @@ mod tests {
 
     #[test]
     fn build_resource_potentials_copper_peaks_at_subduction_boundary() {
+        // Protects: copper potential is 1.0 on the subduction boundary and decays away
+        //   from it.
         // 5x1, subduction boundary (bt=2) at the centre; andesite (li=2) everywhere.
         let n = 5;
         let lith = [2u8; 5];
@@ -17469,6 +17888,7 @@ mod tests {
 
     #[test]
     fn build_resource_potentials_silver_is_a_fraction_of_lead() {
+        // Protects: silver is exactly 0.55 of lead where lead is non-zero.
         // limestone (li=3) with real shear -> lead>0, silver must be exactly 0.55x lead.
         let lith = [3u8];
         let field = [0.6f32];
@@ -17497,6 +17917,8 @@ mod tests {
 
     #[test]
     fn build_resource_potentials_scarcity_default_spares_legacy_six() {
+        // Protects: the production scarcity default thins the later additions but leaves
+        //   the original six (buildstone here) untouched.
         // A field where every land cell qualifies for buildstone (li=3 -> 0.85
         // everywhere) but only a scattering for gems (needs old granite/shear) --
         // production defaults (scarcity=true, scarcity_legacy=false) must thin
@@ -17539,6 +17961,9 @@ mod tests {
 
     #[test]
     fn civ_continents_ranks_by_area_and_reports_a_real_boundary() {
+        // Protects: continents are ranked by cell count with 1-based ids, carry the
+        //   exact bounding box and centroid of the fixture's landmass, and `min_cells`
+        //   only filters (never re-ranks or renames).
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         assert_eq!(lq.count, 3, "the fixture really does have three separate landmasses");
@@ -17565,6 +17990,9 @@ mod tests {
 
     #[test]
     fn civ_continents_names_a_landmass_in_its_plurality_factions_culture() {
+        // Protects: the faction reported for a landmass is the plurality holder of its
+        //   cells (0 when unclaimed), and naming is deterministic so a stored
+        //   knowledge-link label stays meaningful.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         // Faction 3 holds most of the big landmass, faction 2 a minority of it.
@@ -17610,16 +18038,23 @@ mod tests {
         territory
     }
 
+    /// The culture key of each of the eight default factions, in faction order: the
+    /// roster an unedited editor would hold. The tests edit one entry at a time
+    /// against it.
     fn default_roster_cultures() -> Vec<&'static str> {
         (0..8).map(|i| civ_default_culture(i).key).collect()
     }
 
+    /// The continent names of `c`, in rank order, for comparing whole result sets.
     fn names(c: &[Continent]) -> Vec<String> {
         c.iter().map(|x| x.name.clone()).collect()
     }
 
     #[test]
     fn an_unedited_roster_names_continents_exactly_as_before() {
+        // Protects: threading an unedited roster through continent naming changes no
+        //   name: it equals the independent pre-roster oracle, the no-roster path, and a
+        //   literal pin.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         let territory = plurality_territory(gw, gh);
@@ -17640,6 +18075,9 @@ mod tests {
 
     #[test]
     fn an_edited_dominant_faction_culture_renames_its_continent() {
+        // Protects: editing the culture of the faction that dominates a landmass renames
+        //   that continent from the edited culture's pool, while editing a minority
+        //   holder moves nothing.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         let territory = plurality_territory(gw, gh);
@@ -17662,6 +18100,9 @@ mod tests {
 
     #[test]
     fn an_unowned_continent_keeps_the_default_culture_whatever_faction_1_says() {
+        // Protects: an unowned landmass is named from the default culture, not from
+        //   faction 1's (the old `faction.max(1)` fallback), so editing faction 1 does
+        //   not rename it.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         let before = civ_continents_with_cultures(&lq, gw, gh, 1, None, &default_roster_cultures());
@@ -17678,6 +18119,8 @@ mod tests {
 
     #[test]
     fn a_tied_landmass_is_named_by_the_lowest_faction_id() {
+        // Protects: when two factions hold equally many cells of a landmass the lowest
+        //   faction id names it, so the result does not depend on iteration order.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         // 10 cells each: faction 5 on the left half, faction 4 on the right.
@@ -17703,6 +18146,9 @@ mod tests {
     /// reference quirk and both were drawing its first value.
     #[test]
     fn a_continent_is_not_named_after_the_first_settlement() {
+        // Protects: continent naming draws from its own stream, so continent 1 does not
+        //   share its name with settlement 1, which a shared fixed-seed stream once
+        //   caused in every world.
         let (field, gw, gh) = three_landmass_world();
         let lq = build_landmass_quality(&field, None, gw, gh, 0.5, false);
         let continents = civ_continents(&lq, gw, gh, 1, None);
@@ -17736,6 +18182,8 @@ mod tests {
     /// roster is threaded in.
     #[test]
     fn an_unedited_roster_names_exactly_as_no_roster() {
+        // Protects: settlement naming with the default eight-culture roster is identical
+        //   to naming with no roster, so threading the roster in moves no naming golden.
         let placements = naming_fixture();
         let defaults: Vec<&str> = (0..8).map(|f| civ_default_culture(f).key).collect();
         let bare = name_and_populate_settlements_with_rng(&placements, &mut civ_name_rng(), &[]);
@@ -17752,6 +18200,9 @@ mod tests {
     /// the shared stream is untouched.
     #[test]
     fn an_edited_faction_culture_renames_that_faction_only() {
+        // Protects: reassigning one faction's culture moves only that faction's names
+        //   into the new pool; populations and every other faction's names stay put
+        //   because the draw count per name is culture-independent.
         let placements = naming_fixture();
         let bare = name_and_populate_settlements_with_rng(&placements, &mut civ_name_rng(), &[]);
         let mut edited: Vec<&str> = (0..8).map(|f| civ_default_culture(f).key).collect();
@@ -17776,6 +18227,9 @@ mod tests {
 
     #[test]
     fn faction_culture_falls_back_like_the_reference_and_the_roster() {
+        // Protects: an unknown culture key, a faction past the end of the list and an
+        //   empty list each fall back as the reference's `_civCultureByKey` and the
+        //   default roster would.
         // `_civCultureByKey`'s own fallback for an unknown key.
         assert_eq!(civ_faction_culture(&["common", "no_such_culture"], 1).key, "common");
         // No entry for the faction: the default the roster would have seeded.
@@ -17786,6 +18240,8 @@ mod tests {
 
     #[test]
     fn an_all_ocean_world_has_no_continents() {
+        // Protects: a world with no land produces no continents (an empty list, not a
+        //   panic or a phantom entry).
         let field = vec![0.0f32; 64];
         let lq = build_landmass_quality(&field, None, 8, 8, 0.5, false);
         assert_eq!(lq.count, 0);
@@ -17794,6 +18250,9 @@ mod tests {
 
     #[test]
     fn label_land_components_separates_diagonal_only_touching_islands() {
+        // Protects: land labelling is 4-connected: two cells touching only at a corner
+        //   are separate components, unlike the 8-connected fill in
+        //   `build_landmass_quality`.
         // 3x3 grid, sea=0.5: two land cells touching only at a corner (diagonal)
         // must NOT merge under 4-connectivity, unlike build_landmass_quality's
         // 8-connected fill -- this is the whole reason milestone 8 doesn't reuse
@@ -17812,6 +18271,7 @@ mod tests {
 
     #[test]
     fn label_land_components_merges_orthogonal_neighbours_into_one() {
+        // Protects: orthogonally adjacent land cells share one component label.
         let field = vec![0.9f32, 0.9, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1];
         let comp = label_land_components(&field, 3, 3, 0.5, false);
         assert_eq!(
@@ -17822,6 +18282,8 @@ mod tests {
 
     #[test]
     fn civ_snap_land_returns_self_when_already_dry() {
+        // Protects: a candidate already on dry land is returned unchanged (no spiral
+        //   search is started).
         let field = vec![0.9f32; 9];
         let wb = vec![0u8; 9];
         let lake_fill = vec![0f32; 9];
@@ -17833,6 +18295,8 @@ mod tests {
 
     #[test]
     fn civ_snap_land_spirals_outward_to_nearest_dry_ring() {
+        // Protects: a candidate on a wet cell is moved to the nearest dry cell found by
+        //   the outward ring search.
         // Center cell (1,1) is wet; the only dry cell is (2,1), one ring out.
         let mut field = vec![0.1f32; 9];
         field[2 * 3 + 1] = 0.9; // (x=1,y=2)
@@ -17855,7 +18319,12 @@ mod tests {
     /// drift between the two outside the snap itself breaks this.
     #[test]
     fn place_settlements_is_the_pre_snap_half_of_the_snapping_placer() {
+        // Protects: the retained pre-snap `place_settlements` and
+        //   `place_settlements_with_water_edge_snap` agree exactly on a world where the
+        //   snap can do nothing, so the unused reference cannot rot unnoticed.
+        /// Width of the all-land comparison grid, in cells; judgement, source not recorded (small enough to run fast, large enough for eight spread seeds).
         const GW: usize = 24;
+        /// Height of the all-land comparison grid, in cells; same judgement as `GW`.
         const GH: usize = 24;
         let n = GW * GH;
 
@@ -17909,6 +18378,9 @@ mod tests {
     // share `gw=gh=9`, `sea=0.4`, `mapWidthKm=9` (-> `cell_km=1.0`, so
     // `SETTLE_WATER_SNAP_KM=12` gives `max_r=12`, effectively unclipped on
     // a 9x9 grid).
+    /// The shared 9x9 grid for the `civ_snap_to_water_edge` golden cases: dry land
+    /// (0.6) everywhere except an ocean column at x = 0 (field 0.1, water-body flag 1).
+    /// Returns `(field, water_body)`.
     fn water_snap_fixture_field_wb() -> (Vec<f32>, Vec<u8>) {
         let mut field = vec![0.6f32; 81];
         let mut wb = vec![0u8; 81];
@@ -17921,6 +18393,8 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_matches_reference_plain_ocean_snap() {
+        // Protects: reference case A: a plain candidate snaps to the ocean edge cell the
+        //   reference's own scan order picks, (1, 4).
         // Reference case A: candidate (4,4), no suit field. The real
         // reference's own scan-order tie-breaking (row-then-column,
         // ties within 0.5 cells resolved by whichever was found first,
@@ -17936,6 +18410,8 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_is_idempotent_already_on_edge() {
+        // Protects: a settlement already touching the water returns `None`, so a repeat
+        //   call cannot walk it along the shore.
         // Reference case A, second query: (1,4) already touches the ocean
         // column -- must return None (a settlement already on the water
         // must not be walked further along the shore on a repeat call).
@@ -17949,6 +18425,9 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_matches_reference_far_side_scan_order() {
+        // Protects: the row-then-column scan order is load-bearing: from the far side
+        //   the reference lands on (1, 2), not the nearer (1, 4), and the port
+        //   reproduces it.
         // Reference case A, third query: (8,4) -- the real reference
         // returns (1,2), not the naively-nearest (1,4) (d=7.0 vs d=7.28),
         // because (1,3)..(1,2) land inside the tie-break's 0.5-cell
@@ -17968,6 +18447,8 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_rejects_a_materially_worse_site() {
+        // Protects: reference case B: an edge cell scoring below the tolerance fraction
+        //   of the candidate's own suitability is refused (`None`).
         // Reference case B: the water-edge cell (1,4) scores 0.1 against
         // the candidate's own 1.0 -- below the default 0.80 tolerance, so
         // the reference (and this port) refuse the move and return None.
@@ -17998,6 +18479,8 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_accepts_a_site_within_tolerance() {
+        // Protects: reference case F: an edge cell scoring at least the tolerance
+        //   fraction of the candidate's suitability is accepted.
         // Reference case F: same setup as the rejection case but the
         // water-edge cell now scores 0.9 (>= 1.0*0.80) -- accepted.
         let (field, wb) = water_snap_fixture_field_wb();
@@ -18027,6 +18510,9 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_sea_near_widened_tolerance_still_rejects() {
+        // Protects: reference case E: the sea-near branch's wider distance budget and
+        //   looser tolerance do not make the snap unconditional; a site that is still
+        //   too poor is rejected.
         // Reference case E: the seaNear branch widens maxKm to 30 and
         // loosens tolerance to SETTLE_COAST_SWAP_TOLERANCE (0.60), but
         // 0.5 < 1.0*0.60 still fails -- a wider budget is not an
@@ -18058,6 +18544,9 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_matches_reference_river_edge_snap() {
+        // Protects: reference case C: with no ocean, a high-flow river column counts as
+        //   water and the snap lands where the reference's scan order does, (4, 3),
+        //   including its river-next-to-river quirk.
         // Reference case C: no ocean at all -- a high-flow column at x=5
         // (flow=50, flowThresh=10) is the only water. `habitable()` does
         // NOT itself exclude river cells (only sea/lake), so a river cell
@@ -18097,6 +18586,9 @@ mod tests {
 
     #[test]
     fn civ_snap_to_water_edge_flood_zone_blocks_the_only_reachable_edge() {
+        // Protects: reference case D: when every dry shore cell is above the flood-safe
+        //   level no edge is valid and the snap returns `None` rather than reaching
+        //   further.
         // Reference case D: the ocean's only dry, adjacent column (x=1)
         // is entirely flooded (flood>SETTLE_FLOOD_SAFE), so no habitable
         // water-edge cell exists anywhere in reach -- the reference
@@ -18132,6 +18624,8 @@ mod tests {
 
     #[test]
     fn assign_landmass_factions_single_candidate_landmass_is_its_own_capital() {
+        // Protects: a landmass with a single candidate gets one faction and that
+        //   candidate is its capital, whatever the faction count.
         let candidates = vec![SettlementCandidate {
             x: 0,
             y: 0,
@@ -18147,6 +18641,8 @@ mod tests {
 
     #[test]
     fn assign_landmass_factions_two_landmasses_get_distinct_primary_ids() {
+        // Protects: two landmasses never share a primary faction id, and each one's sole
+        //   candidate is its capital.
         let candidates = vec![
             SettlementCandidate {
                 x: 0,
@@ -18174,6 +18670,8 @@ mod tests {
 
     #[test]
     fn build_travel_cost_water_is_infinite_land_is_finite() {
+        // Protects: water cells cost infinity and flat land costs exactly 1.0 (no slope
+        //   term), the two ends of the travel-cost surface.
         // 3x3, sea=0.5: row 0 water, rows 1-2 land, all flat (no slope term).
         let field = vec![0.1, 0.1, 0.1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8];
         let cost = build_travel_cost(&field, 3, 3, 0.5);
@@ -18193,6 +18691,9 @@ mod tests {
 
     #[test]
     fn road_dijkstra_flat_grid_diagonal_uses_sqrt2() {
+        // Protects: on flat unit cost an orthogonal step costs 1 and a diagonal sqrt(2),
+        //   and `want_prev: false` returns an empty `prev` while leaving `dist`
+        //   bit-identical.
         // 3x3 flat land, cost=1 everywhere. Source at (0,0).
         let cost = vec![1.0f32; 9];
         let (dist, no_prev) = road_dijkstra(&cost, 3, 3, 0, 0, false, None, false);
@@ -18219,6 +18720,8 @@ mod tests {
 
     #[test]
     fn road_dijkstra_impassable_water_stays_unreachable() {
+        // Protects: a cell behind an infinite-cost barrier stays at infinite distance
+        //   with predecessor -1; the search never tunnels through water.
         // 1x3 strip, middle cell impassable -> the far end is unreachable from the source.
         let cost = vec![1.0f32, f32::INFINITY, 1.0f32];
         let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false, None, true);
@@ -18329,6 +18832,9 @@ mod tests {
     /// bit-identical to the pre-change function.
     #[test]
     fn road_dijkstra_single_source_list_is_the_scalar_form() {
+        // Protects: across sources, wrap on/off, `want_prev` on/off and a directional
+        //   edge cost, the scalar `road_dijkstra`, the one-element `road_dijkstra_multi`
+        //   and the pre-change copy return bit-identical `dist` and `prev`.
         let (gw, gh) = (23, 17);
         let cost = tie_heavy_cost(gw, gh);
         let skew = |i: usize, j: usize, dx: isize, _dy: isize| -> f64 {
@@ -18361,6 +18867,9 @@ mod tests {
     /// on the source nearest to it.
     #[test]
     fn road_dijkstra_multi_finds_the_nearest_of_several_sources() {
+        // Protects: with several sources every cell's distance is the minimum over the
+        //   single-source runs, each source sits at 0 with no predecessor, `prev` walks
+        //   end on the nearest source, and a repeated source changes nothing.
         let (gw, gh) = (23, 17);
         let cost = tie_heavy_cost(gw, gh);
         let srcs = [2 * gw + 2, 14 * gw + 20, 8 * gw + 6];
@@ -18405,6 +18914,9 @@ mod tests {
     /// perfect square (`sqrt` exact in both forms) and one that is not.
     #[test]
     fn jfa_dist_is_exact_euclidean_from_one_seed_and_flags_a_seedless_grid() {
+        // Protects: with one seed the jump-flood distance is exactly Euclidean (a
+        //   perfect-square d2 lands exactly, a non-square one is bit-identical to the
+        //   f64 sqrt), and a seedless grid reads 1e9 everywhere, never the u32 sentinel.
         // 5x5, sole seed at (0,0).
         let mut mask = vec![0u8; 25];
         mask[0] = 1;
@@ -18433,6 +18945,9 @@ mod tests {
     /// [`tools::civ_mixed_cost_grid`] share the exact same formula.
     #[test]
     fn civ_swamp_penalty_and_river_crossing_cost_match_the_reference_formula() {
+        // Protects: the swamp multiplier needs low-lying ground and high flow, the
+        //   river-crossing cost is cheaper to ford than to bridge and zero at or below
+        //   the threshold, and both terms are the identity when no flow field exists.
         // No flow field at all -- both terms are the identity, not a
         // fabricated "no swamp anywhere" zero.
         assert_eq!(civ_swamp_penalty(None, 10.0, 0.40, 0.42, 0), 1.0);
@@ -18460,6 +18975,9 @@ mod tests {
     /// `civ_sea_time_edge_cost` -- the `_civSeaTimeEdgeCost` port.
     #[test]
     fn civ_sea_time_edge_cost_is_none_without_any_field_and_penalises_a_current_aligned_edge() {
+        // Protects: no current or wind field gives no edge-cost function, and with a
+        //   current an edge along it costs more round-trip than one across it, as the
+        //   reference's harmonic-mean round trip requires.
         assert!(civ_sea_time_edge_cost(4, 4, 1.0, 4, 4, None, None).is_none());
 
         // A uniform eastward current, resampled from a 2x2 coarse field --
@@ -18489,6 +19007,9 @@ mod tests {
     /// the ordinary "two ports, one lane" case, with or without them.
     #[test]
     fn civ_sea_routes_still_connects_ports_with_or_without_current_and_wind_fields() {
+        // Protects: supplying current and wind fields to `civ_sea_routes` does not break
+        //   the ordinary case: two ports on one water lane still make exactly one real
+        //   lane.
         let (gw, gh) = (10usize, 6usize);
         let n = gw * gh;
         let mut water_bodies = vec![0u8; n];
@@ -18520,6 +19041,8 @@ mod tests {
 
     #[test]
     fn build_road_network_two_places_flat_terrain_one_edge() {
+        // Protects: two mutually reachable places on flat land make exactly one edge,
+        //   whose path runs from b's cell back to a's cell.
         let cost = vec![1.0f32; 25]; // 5x5 flat land
         let places = vec![
             SettlementPlacement {
@@ -18559,6 +19082,8 @@ mod tests {
 
     #[test]
     fn build_road_network_unreachable_landmass_gets_no_edge() {
+        // Protects: two places split by an impassable cell get no road edge between
+        //   them.
         // 1x5 strip, cell 2 impassable -> splits it into two unreachable halves.
         let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
         let places = vec![
@@ -18590,6 +19115,8 @@ mod tests {
 
     #[test]
     fn build_road_network_fewer_than_two_places_returns_no_edges() {
+        // Protects: zero or one place yields no edges (there is nothing to connect),
+        //   without panicking.
         let cost = vec![1.0f32; 9];
         let places = vec![SettlementPlacement {
             x: 0,
@@ -18604,6 +19131,9 @@ mod tests {
         assert!(build_road_network(&[], &cost, 3, 3, false).is_empty());
     }
 
+    /// A capital `NamedSettlement` at `(x, y)` for `faction` with population `pop`:
+    /// suitability 0.5, not coastal, named "Test". The suitability and name are
+    /// placeholders the territory and influence tests never read.
     fn named_capital(x: usize, y: usize, faction: i32, pop: u32) -> NamedSettlement {
         NamedSettlement {
             tid: 0,
@@ -18621,6 +19151,10 @@ mod tests {
         }
     }
 
+    /// A `NamedSettlement` of any `kind` at `(x, y)`: suitability 0.5, not coastal,
+    /// flagged capital exactly when `kind` is `Capital`. The suitability is a
+    /// placeholder; the province tests read only position, faction, kind, population
+    /// and name.
     fn named_settlement(
         x: usize,
         y: usize,
@@ -18647,17 +19181,23 @@ mod tests {
 
     #[test]
     fn territory_weight_is_one_at_zero_population() {
+        // Protects: a settlement of zero population has the neutral territory weight
+        //   1.0, so a capital never projects less than its bare cost-distance.
         assert_eq!(territory_weight(0), 1.0);
     }
 
     #[test]
     fn territory_weight_is_monotonic_in_population() {
+        // Protects: the territory weight rises with population, so a larger capital
+        //   reaches farther.
         assert!(territory_weight(1000) < territory_weight(15000));
         assert!(territory_weight(15000) < territory_weight(30000));
     }
 
     #[test]
     fn assign_territory_capital_cell_is_always_self_owned() {
+        // Protects: each capital's own cell is owned by that capital's faction, whatever
+        //   any rival's weight.
         // Two capitals of different factions on a flat, fully-passable 5x5 grid.
         let cost = vec![1.0f32; 25];
         let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(4, 4, 2, 15000)];
@@ -18675,6 +19215,8 @@ mod tests {
 
     #[test]
     fn assign_territory_higher_population_capital_claims_more_territory() {
+        // Protects: a much more populous capital wins the exact geometric midpoint, so
+        //   the boundary shifts past it (population-weighted, not plain Voronoi).
         // Two equidistant capitals on a flat, fully-passable 1x11 strip: faction 1
         // at x=0 with a much larger population, faction 2 at x=10 with the same
         // base population every other territory test uses. The higher-population
@@ -18699,6 +19241,9 @@ mod tests {
 
     #[test]
     fn assign_territory_equal_population_capitals_split_at_midpoint() {
+        // Protects: with equal weights the boundary is the plain unweighted one: each
+        //   capital owns its half and the strict less-than comparison decides the exact
+        //   tie.
         // Same layout, equal population -> the classic unweighted-Voronoi
         // boundary: each capital owns its own half up to (not including, since
         // effective distance is strictly less-than to win) the midpoint.
@@ -18716,6 +19261,8 @@ mod tests {
 
     #[test]
     fn assign_territory_unreachable_cells_stay_unowned() {
+        // Protects: cells cut off from every capital by an impassable cell, and the
+        //   impassable cell itself, stay unowned (faction 0).
         // 1x5 strip, cell 2 impassable -> the far side is unreachable from a
         // single capital on the near side and must stay unowned (faction 0).
         let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
@@ -18733,6 +19280,8 @@ mod tests {
 
     #[test]
     fn assign_territory_no_capitals_leaves_everything_unowned() {
+        // Protects: a non-capital settlement projects no territory: with no capitals
+        //   every cell stays unowned.
         let cost = vec![1.0f32; 9];
         let non_capital = NamedSettlement {
             tid: 0,
@@ -18764,6 +19313,10 @@ mod tests {
     /// third faction that never wins anything.
     #[test]
     fn influence_owner_matches_assign_territory() {
+        // Protects: the influence pass reports the same owner as `assign_territory` on
+        //   layouts covering a same-faction displacement, a cross-faction displacement,
+        //   a faction that never wins, and an unreachable half, so it is never a second
+        //   opinion about ownership.
         let cases: Vec<(Vec<NamedSettlement>, Vec<f32>, usize, usize)> = vec![
             (
                 vec![named_capital(0, 0, 1, 15000), named_capital(4, 4, 2, 15000)],
@@ -18818,6 +19371,8 @@ mod tests {
     /// is the definition the one-pass invariant claims to reproduce.
     #[test]
     fn influence_rival_is_the_true_runner_up_faction() {
+        // Protects: the recorded rival and contested value at each owned cell equal the
+        //   brute-force minimum over every other faction's own effective distance field.
         // Ragged cost so the distance field is not symmetric, and three
         // factions with different weights so ties are not manufactured.
         let (gw, gh) = (9usize, 7usize);
@@ -18874,6 +19429,9 @@ mod tests {
     /// agreement tests above.
     #[test]
     fn influence_is_low_at_a_capital_and_contest_peaks_at_the_frontier() {
+        // Protects: a capital's own cell has zero influence cost and zero contest, and
+        //   the exact frontier tie between equal capitals is fully contested (1.0),
+        //   rising monotonically towards it.
         let cost = vec![1.0f32; 11];
         let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(10, 0, 2, 15000)];
         let inf = territory_influence(&settlements, &cost, 11, 1, false);
@@ -18903,6 +19461,8 @@ mod tests {
     /// `0` in every quantity rather than an `inf/inf` NaN reaching a caller.
     #[test]
     fn influence_without_a_rival_is_zero_and_never_nan() {
+        // Protects: with a single faction nothing is contested, and unreachable cells
+        //   read 0 in contest and rival instead of an inf/inf NaN.
         let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
         let settlements = vec![named_capital(0, 0, 1, 15000)];
         let inf = territory_influence(&settlements, &cost, 5, 1, false);
@@ -18918,6 +19478,8 @@ mod tests {
     /// one input that would divide `0.0` by `0.0`.
     #[test]
     fn influence_handles_two_capitals_on_one_cell() {
+        // Protects: two capitals of different factions on one cell give a fully
+        //   contested 1.0, not a 0/0 NaN.
         let cost = vec![1.0f32; 9];
         let settlements = vec![named_capital(1, 1, 1, 15000), named_capital(1, 1, 2, 15000)];
         let inf = territory_influence(&settlements, &cost, 3, 3, false);
@@ -18928,6 +19490,8 @@ mod tests {
 
     #[test]
     fn civ_generate_provinces_seeds_from_city_tier_settlements() {
+        // Protects: settlements of rank 3 or above (capital, city) each seed a province,
+        //   split by unweighted Voronoi distance within the faction's own territory.
         // One faction, one capital (x=0) and one city (x=10) on a 1x11 strip
         // it fully owns -- two rank>=3 seeds, so two provinces, split at the
         // Voronoi midpoint between them (unweighted, unlike territory itself).
@@ -18954,6 +19518,8 @@ mod tests {
 
     #[test]
     fn civ_generate_provinces_falls_back_to_highest_population_settlement() {
+        // Protects: a faction with no rank-3 settlement still gets exactly one province,
+        //   seeded by its most populous settlement.
         // One faction, no capital/city -- only a town and a village. Neither
         // is rank>=3, so the fallback (single highest-population settlement)
         // must produce exactly one province, seeded by the town (pop 4000 >
@@ -18981,6 +19547,9 @@ mod tests {
 
     #[test]
     fn civ_generate_provinces_never_crosses_a_territory_faction_boundary() {
+        // Protects: a cell's province always belongs to the faction that owns the cell
+        //   in the supplied territory; provinces do not re-derive their own faction
+        //   boundary.
         // Two factions' capitals on a 1x11 strip, territory already split at
         // the midpoint by a prior assign_territory-shaped input (not computed
         // here -- province generation must respect whatever territory says,
@@ -19009,6 +19578,9 @@ mod tests {
 
     #[test]
     fn civ_generate_provinces_faction_with_territory_but_no_settlements_stays_unassigned() {
+        // Protects: a faction that owns territory but has no settlement seeds no
+        //   province, so its cells stay at province 0, while a faction with a settlement
+        //   but no territory still gets its province record (as the reference does).
         // territory claims faction 3 for every cell, but no settlement in the
         // input list belongs to faction 3 (only faction 1 has a settlement,
         // owning no territory here). The reference still seeds a province
@@ -19043,6 +19615,8 @@ mod tests {
 
     #[test]
     fn civ_generate_provinces_partitions_owned_territory_with_no_gaps() {
+        // Protects: every cell owned by a faction that has a seed lands in some province
+        //   (none left at 0).
         // Every cell in a faction's territory that IS reachable by a
         // same-faction seed must get a nonzero province -- no owned cell left
         // at province 0 merely because it's not the nearest to any one seed.
@@ -19060,6 +19634,8 @@ mod tests {
 
     #[test]
     fn assign_territory_multi_capital_faction_unions_both_zones() {
+        // Protects: a faction with two capitals owns the union of both capitals' zones,
+        //   not just the first one checked.
         // Faction 1 has two capitals (a real multi-seat landmass case from
         // milestone 8); faction 2 has one, in between them. Faction 1's total
         // territory must be the union of both its capitals' zones, not just
@@ -19080,6 +19656,8 @@ mod tests {
 
     #[test]
     fn suppression_radius_cells_matches_hand_computed_value() {
+        // Protects: the village spacing radius is the spacing in cells, floored at 4: a
+        //   coarse grid hits the floor and a fine grid gives the exact 10 cells.
         // 10 km spacing over an 800 km map at gw=100 -> 8 km/cell -> 1.25 cells, rounds to 1, floored to 4.
         assert_eq!(suppression_radius_cells(10.0, 100, 800.0), 4.0);
         // A finer grid where the real spacing exceeds the floor: gw=800 -> 1 km/cell -> 10 cells exactly.
@@ -19088,6 +19666,9 @@ mod tests {
 
     #[test]
     fn village_accept_prob_at_the_road_is_always_one() {
+        // Protects: a candidate on a road is always accepted (probability 1), however
+        //   poor its suitability, because the acceptance is the maximum of the road and
+        //   suitability terms.
         // roadDist=0 -> roadProb=exp(0)=1 -> max(1, anything) = 1, regardless of how bad the site is.
         let p = civ_village_accept_prob(
             0.0,
@@ -19101,6 +19682,8 @@ mod tests {
 
     #[test]
     fn village_accept_prob_at_the_suit_ceiling_is_always_one_even_far_from_any_road() {
+        // Protects: a candidate at the suitability ceiling is always accepted even with
+        //   no road anywhere near.
         // suitScore == suitHi -> suitProb=1 -> max(anything, 1) = 1, even with roadDist effectively infinite.
         let p = civ_village_accept_prob(
             1e6,
@@ -19114,6 +19697,8 @@ mod tests {
 
     #[test]
     fn village_accept_prob_at_the_suit_floor_and_far_from_road_is_near_zero() {
+        // Protects: when both signals bottom out (suitability at the floor, road very
+        //   far) the acceptance probability is effectively zero.
         // Both signals bottom out: suitScore == suitLo -> suitProb=0; roadDist huge -> roadProb~0.
         let p = civ_village_accept_prob(
             1e6,
@@ -19127,6 +19712,8 @@ mod tests {
 
     #[test]
     fn village_accept_prob_road_proximity_only_ever_raises_never_lowers() {
+        // Protects: moving a candidate closer to a road never lowers its acceptance
+        //   probability (the maximum semantics the reference states).
         // Fix a mediocre suitability (so suitProb is some middle value), then confirm moving closer to
         // a road never DECREASES the accept probability -- max() semantics, per the reference's own
         // comment ("road proximity can only ever RAISE a candidate's odds, never lower it").
@@ -19148,12 +19735,17 @@ mod tests {
 
     #[test]
     fn road_proximity_index_empty_edges_is_always_infinite() {
+        // Protects: an index built from no roads answers infinity for any query rather
+        //   than 0 or a stale value.
         let idx = RoadProximityIndex::build(&[], 10, 1.0, 20, 20, 4.0);
         assert_eq!(idx.nearest_dist(5.0, 5.0), f64::INFINITY);
     }
 
     #[test]
     fn road_proximity_index_finds_nearest_real_edge_point() {
+        // Protects: the index maps a routing-grid cell back to full-resolution
+        //   coordinates and reports ~0 at the road point and a real distance far from
+        //   it.
         // One edge with a single-cell path at routing-grid index 55 in a 10-wide routing grid
         // (cx=5, cy=5) with sc=1.0 -> full-grid point (5.5, 5.5).
         let edges = vec![RoadEdge {
@@ -19176,6 +19768,8 @@ mod tests {
 
     #[test]
     fn civ_seed_villages_respects_existing_settlement_spacing() {
+        // Protects: a village candidate within the spacing radius of an existing
+        //   settlement is never accepted, whatever the random draw.
         // A uniformly-suitable 40x40 land grid, no water, one existing capital at (20,20).
         // Every candidate within the spacing radius of it must be rejected regardless of RNG.
         let gw = 40;
@@ -19236,6 +19830,8 @@ mod tests {
 
     #[test]
     fn civ_seed_villages_never_exceeds_the_village_cap() {
+        // Protects: a map where every cell qualifies still adds at least one village but
+        //   never more than `CIV_VILLAGE_CAP`.
         // Every cell independently suitable enough to be its own candidate seed, no existing
         // settlements, no roads (so suitProb alone must carry acceptance for any high-suit cell) --
         // this should saturate the CIV_VILLAGE_CAP, not run away past it.
@@ -19282,12 +19878,16 @@ mod tests {
 
     #[test]
     fn jp_fatigue_no_penalty_under_nine_hours() {
+        // Protects: marching nine hours or fewer a day carries no fatigue penalty
+        //   (factor exactly 1.0).
         assert_eq!(jp_fatigue(9.0), 1.0);
         assert_eq!(jp_fatigue(5.0), 1.0);
     }
 
     #[test]
     fn jp_fatigue_declines_past_nine_hours_floored_at_70pct() {
+        // Protects: past nine hours the factor falls 0.05 per hour and is floored at
+        //   0.70.
         assert!((jp_fatigue(10.0) - 0.95).abs() < 1e-9);
         assert!((jp_fatigue(15.0) - 0.70).abs() < 1e-9); // 1.0-(15-9)*0.05 = 0.70, right at the floor
         assert_eq!(jp_fatigue(30.0), 0.70); // would go negative unfloored, clamped
@@ -19295,6 +19895,8 @@ mod tests {
 
     #[test]
     fn jp_load_penalty_five_graduated_bands() {
+        // Protects: the load penalty has five labelled bands from "Well loaded" to "Near
+        //   immobile", with the heaviest band's modifier 0.45.
         assert_eq!(jp_load_penalty(0.5).label, "Well loaded");
         assert_eq!(jp_load_penalty(0.80).label, "Well loaded");
         assert_eq!(jp_load_penalty(0.95).label, "Near capacity");
@@ -19306,6 +19908,8 @@ mod tests {
 
     #[test]
     fn jp_load_penalty_invalid_ratio_matches_curve_top_boundary() {
+        // Protects: `JP_LOAD_INVALID_RATIO` is 1.50 and sits inside the "Heavily
+        //   overloaded" band, so the validity cut-off and the curve agree.
         assert_eq!(JP_LOAD_INVALID_RATIO, 1.50);
         assert_eq!(
             jp_load_penalty(JP_LOAD_INVALID_RATIO).label,
@@ -19315,18 +19919,24 @@ mod tests {
 
     #[test]
     fn jp_surface_gain_damped_for_animal_paced_above_one() {
+        // Protects: a surface speed gain above 1 is damped to 35% of its excess for
+        //   animal-paced travel.
         // t_mod=1.4, animal_paced -> 1 + (1.4-1)*0.35 = 1.14
         assert!((jp_surface_gain(1.4, true) - 1.14).abs() < 1e-9);
     }
 
     #[test]
     fn jp_surface_gain_undamped_for_foot_travel_or_below_one() {
+        // Protects: foot travel passes the gain through unchanged, and a gain below 1 is
+        //   never damped even when animal-paced.
         assert_eq!(jp_surface_gain(1.4, false), 1.4); // not animal-paced -> passthrough
         assert_eq!(jp_surface_gain(0.6, true), 0.6); // below 1.0 -> never damped even if animal-paced
     }
 
     #[test]
     fn jp_can_use_wheels_blocks_five_terrains_only() {
+        // Protects: exactly five terrains block wheels; "Mountain Pass" is not among
+        //   them, distinct from "Mountain Trails".
         assert!(!jp_can_use_wheels("Mountain Trails"));
         assert!(!jp_can_use_wheels("Swamp / Marsh"));
         assert!(!jp_can_use_wheels("Deep Sand"));
@@ -19338,6 +19948,8 @@ mod tests {
 
     #[test]
     fn jp_season_at_walks_the_calendar_forward() {
+        // Protects: the season advances every 91 days through Spring, Summer, Autumn,
+        //   Winter and wraps at both ends of the order.
         assert_eq!(jp_season_at("Spring", 0.0), "Spring");
         assert_eq!(jp_season_at("Spring", 91.0), "Summer");
         assert_eq!(jp_season_at("Spring", 182.0), "Autumn");
@@ -19347,16 +19959,22 @@ mod tests {
 
     #[test]
     fn jp_season_at_unknown_start_passes_through() {
+        // Protects: an unrecognised start season (for example a wet/dry label) is
+        //   returned as given, not mapped into the four-season calendar.
         assert_eq!(jp_season_at("Wet", 100.0), "Wet");
     }
 
     #[test]
     fn jp_season_at_negative_offset_clamped_to_zero() {
+        // Protects: a negative day offset is clamped to 0, so the season never runs
+        //   backwards.
         assert_eq!(jp_season_at("Summer", -50.0), "Summer");
     }
 
     #[test]
     fn jp_rest_days_none_under_zero_travel_days() {
+        // Protects: a trip of no travel days has no rest days and says so in its basis
+        //   text.
         let r = jp_rest_days(0.0, None, false);
         assert_eq!(r.rest_days, 0);
         assert_eq!(r.basis, "no travel days");
@@ -19364,6 +19982,8 @@ mod tests {
 
     #[test]
     fn jp_rest_days_fixed_cadence_overrides_auto() {
+        // Protects: an explicit rest cadence (one in five) overrides the automatic rule:
+        //   floor(21 / 5) = 4 rest days.
         let r = jp_rest_days(21.0, Some("Standard — 1 in 5"), false);
         assert_eq!(r.rest_days, 4); // floor(21/5)
         assert_eq!(r.every, 5);
@@ -19371,6 +19991,8 @@ mod tests {
 
     #[test]
     fn jp_rest_days_press_on_cadence_is_zero() {
+        // Protects: the "press on" cadence schedules no rest days and has an interval of
+        //   0.
         let r = jp_rest_days(30.0, Some("None — press on"), false);
         assert_eq!(r.rest_days, 0);
         assert_eq!(r.every, 0);
@@ -19378,6 +20000,8 @@ mod tests {
 
     #[test]
     fn jp_rest_days_auto_under_minimum_trip_length_is_zero() {
+        // Protects: the automatic rule schedules no rest day on a trip shorter than six
+        //   days.
         let r = jp_rest_days(5.0, None, false);
         assert_eq!(r.rest_days, 0);
         assert_eq!(r.basis, "under 6 days — no rest day scheduled");
@@ -19385,6 +20009,8 @@ mod tests {
 
     #[test]
     fn jp_rest_days_auto_long_haul_tightens_for_animal_paced() {
+        // Protects: the automatic cadence tightens from every 5 to every 4 days only for
+        //   animal-paced travel on a trip over 20 days.
         let foot = jp_rest_days(25.0, None, false);
         assert_eq!(foot.every, 5); // travel_days>20 but not animal-paced -> stays 5
         let animal = jp_rest_days(25.0, None, true);
@@ -19393,6 +20019,8 @@ mod tests {
 
     #[test]
     fn jp_seasonal_closure_mountain_pass_closed_in_winter() {
+        // Protects: a mountain pass in a mountain biome is reported closed by snow in
+        //   winter when seasonal closure is on.
         let msg = jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", true);
         assert!(msg.is_some());
         assert!(msg.unwrap().contains("closed by snow"));
@@ -19400,6 +20028,7 @@ mod tests {
 
     #[test]
     fn jp_seasonal_closure_open_outside_winter() {
+        // Protects: the same pass is open outside winter.
         assert_eq!(
             jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Summer", true),
             None
@@ -19408,6 +20037,7 @@ mod tests {
 
     #[test]
     fn jp_seasonal_closure_disabled_flag_always_open() {
+        // Protects: with seasonal closure switched off the pass is never closed.
         assert_eq!(
             jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", false),
             None
@@ -19416,6 +20046,8 @@ mod tests {
 
     #[test]
     fn jp_seasonal_closure_needs_both_terrain_and_biome_match() {
+        // Protects: closure needs both a closing terrain and a closing biome; either
+        //   alone leaves the route open.
         // Mountain Pass terrain but wrong biome -> not closed.
         assert_eq!(
             jp_seasonal_closure("Mountain Pass", "Temperate Forest", "Winter", true),
@@ -19430,6 +20062,8 @@ mod tests {
 
     #[test]
     fn jp_sea_closure_open_sea_closed_in_winter() {
+        // Protects: open sea is closed to shipping in winter when seasonal closure is
+        //   on.
         let msg = jp_sea_closure("Open Sea", "Winter", true);
         assert!(msg.is_some());
         assert!(msg.unwrap().contains("closed to shipping"));
@@ -19437,12 +20071,15 @@ mod tests {
 
     #[test]
     fn jp_sea_closure_coastal_cabotage_stays_open() {
+        // Protects: coastal waters are not in the winter-closed water set and stay open
+        //   year-round (the historical cabotage distinction).
         // Not in JP_WINTER_CLOSED_WATER -> open year-round, the historical cabotage distinction.
         assert_eq!(jp_sea_closure("Coastal Waters", "Winter", true), None);
     }
 
     #[test]
     fn jp_sea_closure_disabled_flag_and_non_winter_both_stay_open() {
+        // Protects: open sea is open when closure is off and open outside winter.
         assert_eq!(jp_sea_closure("Open Sea", "Winter", false), None);
         assert_eq!(jp_sea_closure("Open Sea", "Summer", true), None);
     }
@@ -19464,6 +20101,9 @@ mod tests {
     /// literals rather than against the formula that produced them.
     #[test]
     fn river_reach_falls_off_linearly_with_distance() {
+        // Protects: the river-reach term is the full order tier on the line and falls
+        //   linearly to exactly zero at the reach distance (5 cells), checked against
+        //   literals rather than the formula.
         let (gw, gh, order, polys) = reach_fixture();
         let r = build_river_reach(&polys, &order, gw, gh);
         let at = |x: usize, y: usize| r[y * gw + x] as f64;
@@ -19486,6 +20126,9 @@ mod tests {
     /// never the nearest one and the column test above cannot see this.
     #[test]
     fn river_reach_distance_is_euclidean() {
+        // Protects: distance to the river is Euclidean, not Chebyshev or Manhattan; a
+        //   column of river cells cannot show this, so it has its own single-point
+        //   fixture.
         let (gw, gh) = (12usize, 9usize);
         let mut order = vec![0i16; gw * gh];
         order[4 * gw + 4] = 4;
@@ -19504,6 +20147,8 @@ mod tests {
     /// order 1 buys nothing however close it runs.
     #[test]
     fn river_reach_scales_with_the_order_of_the_river_it_found() {
+        // Protects: the tier is read at the river's own cell (orders 4, 3, 2 give 1.0,
+        //   0.7, 0.3) and order 1 or 0 earns nothing however close it runs.
         let (gw, gh) = (12usize, 9usize);
         let poly: Vec<(f64, f64)> = (0..gh).map(|y| (4.5, y as f64 + 0.5)).collect();
         for (o, want_on_line) in [(4i16, 1.0f64), (3, 0.7), (2, 0.3), (1, 0.0), (0, 0.0)] {
@@ -19529,6 +20174,9 @@ mod tests {
     /// is why this is a max over seeds and not a nearest-seed lookup.
     #[test]
     fn a_main_stem_outreaches_a_nearer_stream() {
+        // Protects: the river term is a maximum over every river, not a nearest-river
+        //   lookup: a farther main stem beats a nearer small stream where its ramp is
+        //   higher.
         let (gw, gh) = (16usize, 9usize);
         let mut order = vec![0i16; gw * gh];
         for y in 0..gh {
@@ -19554,6 +20202,8 @@ mod tests {
     /// it and the term is zero however high its order raster reads.
     #[test]
     fn a_disconnected_channel_cell_earns_no_river_credit() {
+        // Protects: Ruling N: a high-order channel cell that no traced polyline reaches
+        //   scores nothing, where the older order-raster proxy would have scored it 1.0.
         let (gw, gh) = (12usize, 9usize);
         let mut order = vec![0i16; gw * gh];
         order[4 * gw + 4] = 5; // an isolated cell claiming a main stem's order
@@ -19571,6 +20221,8 @@ mod tests {
     /// bounds check is cheaper than depending on that staying true.
     #[test]
     fn river_reach_ignores_points_off_the_grid() {
+        // Protects: a polyline point outside the grid is skipped, neither panicking nor
+        //   wrapping.
         let (gw, gh) = (8usize, 6usize);
         let order = vec![4i16; gw * gh];
         let r = build_river_reach(&[vec![(-3.5, 2.5), (99.5, 2.5), (2.5, -9.5)]], &order, gw, gh);
@@ -19587,6 +20239,12 @@ mod tests {
         polys: Vec<Vec<(f64, f64)>>,
     }
 
+    /// Builds the Ruling N coastal fixture: a `gw` x `gh` world with a sea in columns
+    /// 0 to 3 (height 0.20, water-body flag 1), a lake in columns 14 to 17 and rows 5
+    /// to 8 (height 0.30, flag 2) far enough from the sea that no cell is near both,
+    /// land (0.60) elsewhere, and the coastline traced at sea level 0.42 exactly as
+    /// production traces it. The grid must be at least 18 wide and 9 tall for the lake
+    /// to fit.
     fn coast_world(gw: usize, gh: usize) -> CoastWorld {
         let sea = 0.42f64;
         let mut field = vec![0.60f32; gw * gh];
@@ -19614,6 +20272,9 @@ mod tests {
     /// crossing rather than a cell index.
     #[test]
     fn coast_reach_falls_off_linearly_with_distance() {
+        // Protects: the coastal term is near 1 on the shore and reaches zero at
+        //   `SUIT_COAST_REACH_CELLS`, measured from the real interpolated shoreline
+        //   crossing rather than a cell index.
         let (gw, gh) = (24usize, 16usize);
         let w = coast_world(gw, gh);
         let r = build_coast_reach(&w.polys, &w.wb, gw, gh);
@@ -19638,6 +20299,9 @@ mod tests {
     /// what `build_coast_sdf` could not express.
     #[test]
     fn a_lake_shore_earns_no_coastal_credit() {
+        // Protects: Ruling N: a lake shore scores nothing on the coastal term (the old
+        //   signed-distance term paid it), even though the traced coastline includes the
+        //   lake, while the sea's own shore still scores.
         let (gw, gh) = (24usize, 16usize);
         let w = coast_world(gw, gh);
         let (field, wb, polys) = (&w.field, &w.wb, &w.polys);
@@ -19678,6 +20342,9 @@ mod tests {
     /// than left to the argument in the doc comment.
     #[test]
     fn coast_reach_matches_a_brute_force_scan() {
+        // Protects: the bounded scan around each crossing's floor cell gives exactly the
+        //   result of an unbounded scan over every ocean-shore point, proving the bound
+        //   loses nothing.
         let (gw, gh) = (24usize, 16usize);
         let w = coast_world(gw, gh);
         let (wb, polys) = (&w.wb, &w.polys);
@@ -19713,6 +20380,8 @@ mod tests {
     /// than panicking or wrapping.
     #[test]
     fn coast_reach_handles_an_empty_or_off_grid_coastline() {
+        // Protects: no coastline, or one entirely off the grid, scores nothing and
+        //   neither panics nor wraps.
         let (gw, gh) = (12usize, 9usize);
         let wb = vec![1u8; gw * gh];
         assert!(build_coast_reach(&[], &wb, gw, gh).iter().all(|&v| v == 0.0));
@@ -19755,6 +20424,12 @@ mod tests {
         res: ResourcePotentials,
     }
 
+    /// Builds the shared suitability fixture: a 16x16 world with ocean in columns 0 to
+    /// 3, a lake block at x 10..13 and y 3..6, a river down column 9 of rising order,
+    /// smoothly varying soil, rain, slope, flood, corridor and resource fields, a
+    /// non-ore resource (clay) set high everywhere, and river and coast reach fields
+    /// traced the way production traces them. Every term of the suitability formula
+    /// is thereby non-trivial somewhere.
     fn suit_fixture() -> SuitFixture {
         let (gw, gh) = (16usize, 16usize);
         let n = gw * gh;
@@ -19859,6 +20534,9 @@ mod tests {
         f
     }
 
+    /// The full production-style `SuitabilityCtx` over fixture `f` (every optional
+    /// field present, flow threshold 300), borrowing from `f` for the context's
+    /// lifetime.
     fn suit_ctx(f: &SuitFixture) -> SuitabilityCtx<'_> {
         SuitabilityCtx {
             water_bodies: Some(&f.wb),
@@ -19881,6 +20559,9 @@ mod tests {
     /// fails -- which is the whole point of having it.
     #[test]
     fn explanation_reconstructs_real_suitability() {
+        // Protects: for every cell of a real field the explainer's score equals
+        //   `build_settlement_suitability`'s own output exactly and its terms sum to z,
+        //   so the two functions' arithmetic cannot drift apart unnoticed.
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         let real = build_settlement_suitability(
@@ -19937,6 +20618,8 @@ mod tests {
     /// different weight set and a different extra term.
     #[test]
     fn explanation_reconstructs_real_suitability_base_weights() {
+        // Protects: the same exact equality holds on the no-context branch, which uses a
+        //   different weight set and a different extra term.
         let f = suit_fixture();
         let real = build_settlement_suitability(
             &f.soil,
@@ -19975,6 +20658,8 @@ mod tests {
 
     #[test]
     fn explanation_reports_why_a_cell_was_excluded() {
+        // Protects: an excluded cell reports its reason (`below_sea_level` is tested
+        //   before `water_body`), a zero score and no terms.
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         // Column 0 is ocean: below sea level AND flagged as a water body --
@@ -20016,6 +20701,8 @@ mod tests {
 
     #[test]
     fn explanation_terms_are_sorted_by_absolute_contribution() {
+        // Protects: the explanation lists at least the full-context term set, ordered by
+        //   descending absolute contribution.
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         let e = explain_settlement_suitability(
@@ -20051,6 +20738,9 @@ mod tests {
     /// presenting it as a positive reason.
     #[test]
     fn explanation_penalties_carry_negative_contributions() {
+        // Protects: flood risk and islet penalty read as penalties (negative
+        //   contribution or weight) so the UI can say a cell was held back, not present
+        //   them as positive reasons.
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         // Row 8 carries the elevated flood value from the fixture.
@@ -20092,6 +20782,8 @@ mod tests {
     /// leak into the mineral contribution.
     #[test]
     fn explanation_mineral_term_ignores_non_ore_resources() {
+        // Protects: the mineral term reads only the nine ore keys: clay, set high in the
+        //   fixture, does not leak into it.
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         // (5,0): fy=0 so iron/timber contribute little, copper small, gold 0.
@@ -20128,6 +20820,9 @@ mod tests {
 
     #[test]
     fn animal_terrain_mod_uses_species_override_then_land_table() {
+        // Protects: a species' own terrain override wins (camel on Deep Sand 0.85), and
+        //   a species without one falls through to the generic land-terrain row (horse
+        //   0.50).
         // camel has an explicit Deep Sand override (0.85); horse has none, so
         // it falls through to the generic land-terrain row (Deep Sand: 0.50).
         assert_eq!(jp_animal_terrain_mod("camel", "Deep Sand"), 0.85);
@@ -20137,6 +20832,9 @@ mod tests {
 
     #[test]
     fn biome_key_maps_every_classify_biome_output_and_splits_desert_by_temperature() {
+        // Protects: every `classify_biome` output maps to a Journey Planner biome key,
+        //   desert splits at the reference's own 10 degree boundary on both sides, and
+        //   the water biomes get the reference's default.
         assert_eq!(jp_biome_key(BIOME_ICE, 5.0), "Tundra / Polar");
         assert_eq!(jp_biome_key(BIOME_TUNDRA, 5.0), "Tundra / Polar");
         assert_eq!(jp_biome_key(BIOME_BOREAL, 5.0), "Boreal Taiga");
@@ -20158,6 +20856,9 @@ mod tests {
 
     #[test]
     fn best_animal_for_context_terrain_rules_outrank_biome() {
+        // Protects: terrain rules outrank biome rules when choosing the best animal (a
+        //   mountain pass picks mule even in desert, the v1.50 audit case), then a
+        //   desert biome picks camel, else the biome's own first animal.
         // v1.50 audit case: Mountain Pass picks mule even in a desert-like biome
         // (the bug this rule ordering fixed -- a camel used to win there).
         assert_eq!(
@@ -20198,6 +20899,7 @@ mod tests {
 
     #[test]
     fn pick_species_for_route_empty_defaults_to_mule() {
+        // Protects: a route with no land stages defaults to mule and reports no switch.
         let pick = jp_pick_species_for_route(&[]);
         assert_eq!(pick.key, "mule");
         assert!(pick.switched.is_none());
@@ -20205,6 +20907,8 @@ mod tests {
 
     #[test]
     fn pick_species_for_route_plurality_without_bottleneck() {
+        // Protects: stages that do not reach the bottleneck share threshold cannot veto:
+        //   the plurality-by-km species wins and no switch is reported.
         // Two short, low-share stages that don't clear JP_BOTTLENECK_MIN_SHARE
         // (10%) individually can't trigger the veto -- plurality by km wins.
         let stages = [
@@ -20226,6 +20930,9 @@ mod tests {
 
     #[test]
     fn pick_species_for_route_bottleneck_switches_whole_route() {
+        // Protects: a real bottleneck stage (over the minimum share, with a large enough
+        //   relative speed loss) switches the whole route's species from horse to mule
+        //   and reports the terrain that caused it.
         // Mostly plains (horse-favouring biome) with one real (>10% share)
         // Mountain Pass stretch. Horse's Mountain Pass mod (0.65, no override)
         // is a real penalty against mule's override (0.85): (0.85-0.65)/0.85
@@ -20254,6 +20961,8 @@ mod tests {
 
     #[test]
     fn resolve_mount_picks_slowest_present_animal() {
+        // Protects: the mount used for a mixed column is the slowest animal present,
+        //   since the column moves at its pace.
         let mut counts = std::collections::HashMap::new();
         counts.insert("mule", 2);
         counts.insert("horse", 1);
@@ -20263,6 +20972,8 @@ mod tests {
 
     #[test]
     fn resolve_mount_falls_back_to_override_then_horse() {
+        // Protects: with no animals the override is used if it names a real animal,
+        //   otherwise horse.
         let empty = std::collections::HashMap::new();
         assert_eq!(jp_resolve_mount(&empty, Some("camel")), "camel");
         assert_eq!(jp_resolve_mount(&empty, None), "horse");
@@ -20271,6 +20982,9 @@ mod tests {
 
     #[test]
     fn vessel_water_block_gates_mode_open_sea_rating_and_invalid_water() {
+        // Protects: a vessel is blocked by the wrong travel mode, by water outside its
+        //   open-sea rating and by an explicit invalid-water entry, and allowed
+        //   otherwise.
         let river_barge = jp_ship_stats("River Barge").unwrap();
         assert!(
             jp_vessel_water_block(&river_barge, "sea", "Coastal Waters", "River Barge").is_some(),
@@ -20301,6 +21015,9 @@ mod tests {
 
     #[test]
     fn vessel_day_km_matches_hand_computed_cruise_times_window_times_terrain() {
+        // Protects: a vessel's daily distance is cruise speed x sailing window x terrain
+        //   modifier (Cog on coastal water 10 x 11 x 0.60 = 66 km) and a blocked pairing
+        //   returns `None`.
         // Cog on Coastal Waters: speed 10 * window 11 * terrain-mod 0.60 = 66.0.
         let km = jp_vessel_day_km("Cog", "sea", "Coastal Waters").expect("Cog is sea-capable");
         assert!((km - 66.0).abs() < 1e-9);
@@ -20310,6 +21027,9 @@ mod tests {
 
     #[test]
     fn vessel_fits_and_auto_stage_vessel_respect_preference_order_and_blocking() {
+        // Protects: automatic vessel choice takes the first vessel in
+        //   `JP_VESSEL_PREFERENCE` that fits the stage, skipping those blocked by
+        //   open-sea rating or invalid water.
         let coastal = WaterStage {
             cat: "sea".into(),
             terrain: "Coastal Waters".into(),
@@ -20345,6 +21065,9 @@ mod tests {
 
     #[test]
     fn vessel_matrix_covers_every_preference_vessel_and_finds_a_best_for_open_sea() {
+        // Protects: the vessel matrix has one row per preference vessel, names a best
+        //   vessel for open sea, and gives River Barge a river it can navigate as its
+        //   best water.
         let (rows, best) = jp_vessel_matrix();
         assert_eq!(rows.len(), JP_VESSEL_PREFERENCE.len());
         let sea_best = best
@@ -20372,12 +21095,16 @@ mod tests {
 
     const JP_M3_EPS: f64 = 1e-9;
 
+    /// A default (empty) `JpParty`, spread into struct literals so each test names only the fields it cares about.
     fn jp_m3_party() -> JpParty {
         JpParty::default()
     }
 
     #[test]
     fn train_pace_walks_down_its_slowest_carrier() {
+        // Protects: the baggage-train pace follows the reference's carrier order
+        //   (wagons, carts and sleds, travois, pack animals, porters), with sleds
+        //   sharing the cart pace under their own label.
         // Reference (17303): wheels first, then travois, then pack animals,
         // and porters only when nothing else carries. A wagon wins even when
         // faster carriers are present.
@@ -20453,6 +21180,9 @@ mod tests {
 
     #[test]
     fn sail_factor_hits_every_control_point_and_interpolates_between_them() {
+        // Protects: the sail factor reproduces the square-rig control points exactly,
+        //   interpolates linearly between them, differs for fore-and-aft rigs, and is
+        //   wind-neutral (1.0) for oared craft and unknown hulls.
         // Square rig (Cog) at the five control points, then two midpoints.
         for (twa, want) in [
             (0.0, 0.0),
@@ -20480,6 +21210,8 @@ mod tests {
 
     #[test]
     fn sail_factor_folds_the_wind_angle_onto_zero_to_one_eighty() {
+        // Protects: wind angles are folded onto 0 to 180 degrees, so -90 and 270 equal
+        //   90 and 400 wraps to 40.
         // -90 and 270 are the same beam reach as 90; 400 wraps to 40.
         assert!((jp_sail_factor("Cog", -90.0) - 0.85).abs() < JP_M3_EPS);
         assert!((jp_sail_factor("Cog", 270.0) - 0.85).abs() < JP_M3_EPS);
@@ -20488,6 +21220,8 @@ mod tests {
 
     #[test]
     fn wx_weighted_matches_the_reference_for_every_biome_and_season() {
+        // Protects: the weather factor equals the reference's value for all 48 biome and
+        //   season cells (12 biomes x 4 seasons), captured from the reference run.
         // All 48 cells (12 biomes x 4 seasons), reference values verbatim.
         #[rustfmt::skip]
         const CELLS: [(&str, [f64; 4]); 12] = [
@@ -20518,6 +21252,9 @@ mod tests {
 
     #[test]
     fn wx_weighted_blends_in_the_pace_animals_own_weather_affinity() {
+        // Protects: the pace animal's own weather affinities replace the generic ones in
+        //   the blend (camel in sandstorm, mule in snow), and an animal with an empty
+        //   override table is indistinguishable from none.
         // v1.43's fix: a camel train, not just a lone camel rider, gets the
         // camel's 0.70 sandstorm affinity instead of the generic 0.40 --
         // Hot Desert/Summer is 20% sandstorm, so the blend moves.
@@ -20538,12 +21275,17 @@ mod tests {
 
     #[test]
     fn wx_weighted_falls_back_to_neutral_for_unknown_biome_or_season() {
+        // Protects: an unknown biome or season gives the neutral factor 1.0 rather than
+        //   a panic.
         assert!((jp_wx_weighted("Nowhere", "Summer", None) - 1.0).abs() < JP_M3_EPS);
         assert!((jp_wx_weighted("Hot Desert", "Monsoon", None) - 1.0).abs() < JP_M3_EPS);
     }
 
     #[test]
     fn weather_factor_auto_is_the_weighted_average_and_a_forced_condition_is_not() {
+        // Protects: `auto` and an absent override equal the weighted average, a forced
+        //   condition reads the pace animal's own affinity (generic table without one),
+        //   and an unrecognised override falls back to the average.
         // v1.44: 'auto' (and absent) must be byte-identical to jpWxWeighted,
         // so a journey that never touches the control is unchanged.
         assert!(
@@ -20588,6 +21330,9 @@ mod tests {
 
     #[test]
     fn column_length_grows_with_the_party_and_shrinks_with_road_width() {
+        // Protects: column length grows with people, animals and wagons, shrinks with
+        //   road width (single-file trails are 2.7x longer), takes the reference's
+        //   default file width for unknown terrain, and floors group size at 1.
         // A 30-person merchant caravan is 32 m of road -- below caravan scale
         // this term does essentially nothing, which is the point.
         let caravan = JpParty {
@@ -20626,6 +21371,9 @@ mod tests {
 
     #[test]
     fn column_factor_damps_the_day_and_floors_at_a_crawl() {
+        // Protects: a long column loses a little of the day's march, never below
+        //   `JP_COLUMN_FLOOR`, and degenerate inputs are a no-op (1.0) rather than a
+        //   zero.
         // Caravan scale: barely any loss.
         assert!((jp_column_factor(0.0464, 25.0) - 0.998_144).abs() < JP_M3_EPS);
         // The army column above (0.43 km) against a 25 km day.
@@ -20639,6 +21387,9 @@ mod tests {
 
     #[test]
     fn journey_cost_prices_a_mixed_land_and_sea_trip() {
+        // Protects: the journey cost on a mixed land and sea trip matches the
+        //   reference's own figures for carriage (blocked legs excluded), wages, crew,
+        //   upkeep, tolls, transshipment, total and per-tonne-km.
         // Reference values from the vm run: a 12-person caravan, 900 kg cargo,
         // 8 mules + 2 horses + 2 carts, 1000 km over 40 days, one blocked land
         // leg (excluded from carriage), one 500 km sea leg with 20 crew,
@@ -20695,6 +21446,8 @@ mod tests {
 
     #[test]
     fn journey_cost_river_crew_dominates_a_zero_cargo_trip() {
+        // Protects: with no cargo the bill is wages plus the barge's mandatory crew, and
+        //   the per-tonne figures are absent rather than a division by zero.
         // River rate is 5x cheaper than land per tonne-km, but with no cargo
         // the whole bill is wages + the barge's mandatory 12 crew.
         let party = JpParty {
@@ -20720,6 +21473,7 @@ mod tests {
 
     #[test]
     fn journey_cost_returns_nothing_when_there_is_nothing_to_price() {
+        // Protects: a journey with no legs is not priceable and returns `None`.
         assert!(jp_journey_cost(&jp_m3_party(), &[], &[], 10.0, 300.0, 0).is_none());
     }
 
@@ -20762,6 +21516,7 @@ mod tests {
         }
     }
 
+    /// A default `JpStage` of 200 km, for the consumption tests to spread over.
     fn jp_m4_stage() -> JpStage {
         JpStage {
             km: 200.0,
@@ -20769,12 +21524,16 @@ mod tests {
         }
     }
 
+    /// Asserts `a` and `b` agree within `JP_M4_EPS` (1e-9), naming `what` and both values on failure; the reference-parity tolerance for the milestone-4 goldens.
     fn near(a: f64, b: f64, what: &str) {
         assert!((a - b).abs() < JP_M4_EPS, "{what}: got {a}, reference {b}");
     }
 
     #[test]
     fn fmt_kg_switches_to_tonnes_at_exactly_1000() {
+        // Protects: the mass formatter shows kilograms below 1000 (JS `Math.round`) and
+        //   tonnes with one decimal from exactly 1000; the switch is on the raw value,
+        //   so 999.6 reads "1000 kg".
         // Golden: JS `Math.round` below the switch, `toFixed(1)` above it.
         assert_eq!(jp_fmt_kg(0.0), "0 kg");
         assert_eq!(jp_fmt_kg(1.0), "1 kg");
@@ -20790,6 +21549,8 @@ mod tests {
 
     #[test]
     fn human_water_rate_is_the_biome_midpoint_or_a_flat_fallback() {
+        // Protects: the human water rate is each biome's midpoint figure, and an unknown
+        //   biome gets the reference's flat 2.5 L per day.
         near(jp_human_water_rate("Temperate Forest"), 2.5, "temperate");
         near(jp_human_water_rate("Hot Desert"), 8.0, "hot desert");
         near(
@@ -20805,6 +21566,9 @@ mod tests {
 
     #[test]
     fn water_reserve_is_carried_only_in_arid_biomes() {
+        // Protects: v1.84: only desert biomes carry a water reserve (capped at 4 days);
+        //   every other biome, and an unknown one, carries zero water weight on the
+        //   assumption a spring or stream is always in reach.
         // v1.84: the whole point of these two -- a non-desert biome carries
         // ZERO water weight, on the modelling assumption that a spring or
         // stream is always in reach. Deserts cap the reserve at 4 days.
@@ -20839,6 +21603,9 @@ mod tests {
 
     #[test]
     fn desert_tier_ladder_picks_the_first_tier_that_covers_the_gap() {
+        // Protects: the desert water-tier ladder picks the first tier whose gap covers
+        //   the measured dry gap, with the boundaries 1, 3.5 and 6 days landing on the
+        //   right sides.
         for (gap, want) in [
             (0.0, "Dense Oasis Route"),
             (0.5, "Dense Oasis Route"),
@@ -20856,6 +21623,9 @@ mod tests {
 
     #[test]
     fn drinking_coarse_ease_is_uncapped_where_the_map_ease_is_capped() {
+        // Protects: v1.101 Fix B: the drinking-water ease equals the cartographic ease
+        //   up to its 16x break and then keeps growing (a 40,000 km world reads 50, to a
+        //   ceiling of 64) where `river_coarse_ease` stays clamped at 16.
         // v1.101 Fix B: identical to the cartographic ease up to its own 16x
         // break point, then keeps going -- a 40,000 km world reads 50, which
         // `river_coarse_ease` would have clamped to 16.
@@ -20878,6 +21648,9 @@ mod tests {
 
     #[test]
     fn consumption_factors_apply_a_velocity_squared_surcharge_above_standard_pace() {
+        // Protects: paces above Standard add a velocity-squared surcharge to the Pandolf
+        //   terrain factor for food and water, paces below it add none, and an unknown
+        //   terrain still takes the pace term.
         for (terrain, pace, food, water) in [
             ("Dirt Track", "Standard Pace", 1.0, 1.0),
             ("Mountain Trails", "Haste", 1.6185000000000003, 1.494),
@@ -20896,6 +21669,10 @@ mod tests {
 
     #[test]
     fn foraging_matches_the_reference_across_mode_biome_terrain_season_and_group_size() {
+        // Protects: foraging movement cost, food reduction and water reduction match the
+        //   reference's own figures across mode, biome, terrain, season and group size,
+        //   including the winter collapse and the large-group penalty, and an unknown
+        //   biome forages nothing and pays no movement cost.
         for (mode, biome, terrain, season, people, mv, red, wred) in [
             (
                 "None",
@@ -20992,6 +21769,9 @@ mod tests {
 
     #[test]
     fn wildlife_forage_mod_is_bounded_and_anchored_at_one() {
+        // Protects: the wildlife forage modifier is exactly 1.0 with no data or at the
+        //   world mean, is clamped to [0.5, 1.8], moves only food (not water) foraging,
+        //   and the world mean skips regions with no record.
         // The reference's own calibration anchor: no data -> exactly 1.0, and
         // so does a region exactly on the world's mean, which is what keeps
         // the flat JP_BIOMES.forage table meaningful.
@@ -21037,6 +21817,11 @@ mod tests {
         near(f.water_reduction, 0.1275, "water is not wildlife-modulated");
     }
 
+    /// Asserts every field of a `JpCapacity` against the reference's output. `want`
+    /// is, in order: total mass, capacity, draft shortfall, cargo, human food, human
+    /// water, fodder, animal water, animal food per day, animal water per day, draft
+    /// food per day, draft water per day, human water rate, mount credit. Each
+    /// mismatch names `what` and the field.
     #[allow(clippy::too_many_arguments)]
     fn assert_capacity(c: &JpCapacity, what: &str, want: [f64; 14]) {
         near(c.total_mass, want[0], &format!("{what} total_mass"));
@@ -21077,6 +21862,10 @@ mod tests {
 
     #[test]
     fn capacity_merchant_caravan_by_season() {
+        // Protects: the merchant caravan's capacity matches the reference in summer and
+        //   winter (winter humans eat 30% more, mules carry 5% more and eat 15% more),
+        //   and an unrecognised season switches the whole seasonal-animal term off
+        //   rather than defaulting per field.
         // Summer vs Winter on the identical party: winter humans eat 30%
         // more, winter mules carry 5% more and eat 15% more, and winter
         // animals drink noticeably less.
@@ -21134,6 +21923,8 @@ mod tests {
 
     #[test]
     fn capacity_desert_caravan_carries_real_water_mass() {
+        // Protects: in a hot desert a camel caravan carries human and animal water
+        //   reserves as real mass, and camels drink at 0.35 of the base rate.
         // 24 camels in Hot Desert: the only configuration in this file where
         // both the human and the animal water reserve become real mass
         // (800 kg + 1008 kg of the 6.3 t total), and camels drink at 0.35x.
@@ -21160,6 +21951,9 @@ mod tests {
 
     #[test]
     fn capacity_credits_a_riders_own_mount_but_never_twice() {
+        // Protects: v1.83: mounted riders with no declared pack animals get their
+        //   mounts' saddlebag capacity, while a lone courier whose horse is already a
+        //   pack animal gets no extra credit.
         // v1.83: 10 Mounted Riders with no separately-declared pack animals
         // get 10 x 120 kg x 0.3 = 360 kg of saddlebag capacity on top of the
         // flat porter rate...
@@ -21219,6 +22013,10 @@ mod tests {
 
     #[test]
     fn capacity_counts_phantom_draft_animals_only_when_real_ones_exist() {
+        // Protects: draft animals demanded by wagons and carts count as a shortfall only
+        //   when real animals exist: enough animals gives none, none at all gives none
+        //   (hauling by hand), and one donkey against two carts is short three, each
+        //   costing 6 kg food and 25 L water a day.
         // 30 wagons demand 90 draft animals; 100 are present, so there is no
         // shortfall at all.
         let p = JpPlan {
@@ -21276,6 +22074,9 @@ mod tests {
 
     #[test]
     fn capacity_a_lone_walker_in_a_cold_desert_is_over_capacity_on_water_alone() {
+        // Protects: a lone walker in a cold desert carries 27.5 kg of water for four
+        //   days, pushing a 43.2 kg load over a 30 kg porter capacity, the case v1.84
+        //   was written about.
         // 1 person, 30 kg of porter capacity, 10 kg of cargo -- and 4 days of
         // desert water (27.5 kg) puts the load at 43.2 kg. This is exactly the
         // case v1.84 was written about, and it is still real in a desert.
@@ -21314,6 +22115,9 @@ mod tests {
 
     #[test]
     fn assess_resupply_names_water_and_load_as_different_causes() {
+        // Protects: v1.51: the same overload reads as a water (reroute) problem only
+        //   when a dry run was measured and the gap is at least three days, otherwise as
+        //   a load (repack) problem.
         // v1.51's headline fix: the same 1 t overload reads as a REROUTE
         // problem when a long dry stretch drives it, and as a REPACK problem
         // otherwise. The water branch needs both a measured dry run and a gap
@@ -21340,6 +22144,9 @@ mod tests {
 
     #[test]
     fn assess_resupply_binds_on_whichever_interval_is_shorter() {
+        // Protects: the resupply stops are set by whichever of the food and water
+        //   intervals is shorter, naming it as the binding limit, and a party carrying
+        //   no food is limited by water alone and says so.
         let r = jp_assess_resupply(900.0, 4000.0, 5.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
         assert_eq!(r.stops_needed, Some(0));
         assert_eq!(
@@ -21370,6 +22177,9 @@ mod tests {
         );
     }
 
+    /// Asserts the six headline fields of a `JpLandCalc` (daily km, days, load ratio,
+    /// column length, column modifier, water gap in days) against the reference's
+    /// output, each through `near` so a failure names `what` and the field.
     #[allow(clippy::too_many_arguments)]
     fn assert_land(
         c: &JpLandCalc,
@@ -21395,6 +22205,9 @@ mod tests {
 
     #[test]
     fn calc_land_merchant_caravan_on_a_dirt_track() {
+        // Protects: the merchant caravan on a dirt track reproduces the reference's
+        //   daily distance, days, load ratio, column terms, capacity and resupply
+        //   verdict, labelled cart-limited with no mount, desert tier or portage.
         let c = jp_calc_land(&jp_m4_stage(), &jp_m4_plan()).expect("not blocked");
         assert_land(
             &c,
@@ -21422,6 +22235,10 @@ mod tests {
 
     #[test]
     fn calc_land_foraging_and_column_length_reach_the_answer() {
+        // Protects: foraging reaches the land calculation (a four-person walking party
+        //   foraging actively) and a 400-strong column with 30 wagons pays its own
+        //   column length in the day's march, the v1.51 physics that stopped bigger
+        //   parties being monotonically faster.
         // A 4-person walking party foraging actively across open plains.
         let st = JpStage {
             km: 120.0,
@@ -21489,6 +22306,9 @@ mod tests {
 
     #[test]
     fn calc_land_desert_water_feedback_can_block_a_stage_outright() {
+        // Protects: v1.67 and Ruling BS: a camel train crossing 300 km of Deep Sand with
+        //   a 180 km dry run converges at 340% of capacity and is blocked outright (not
+        //   seasonal), with a message naming the waterless stretch.
         // v1.67: 24 camels crossing 300 km of Deep Sand with a 180 km dry run.
         // The loop's own feedback (slower -> longer gap -> more water -> more
         // load -> slower) converges at 340% of capacity, which is a stage no
@@ -21530,6 +22350,10 @@ mod tests {
 
     #[test]
     fn calc_land_an_explicit_desert_tier_overrides_the_measured_gap() {
+        // Protects: an explicit desert water tier overrides the stage's measured dry run
+        //   (the dropdown is an override, not a suggestion), and under Ruling BS the
+        //   stage computes with its carried food cut to what fits, at exactly 100% load,
+        //   restocking every ~16 km.
         // Same party on hardpack with "Sparse Wells" chosen by hand: the
         // tier's own 6-day gap wins over the stage's measured run, which is
         // what makes the dropdown an override rather than a suggestion. The
@@ -21591,6 +22415,9 @@ mod tests {
 
     #[test]
     fn calc_land_hard_blocks_fire_before_anything_is_computed() {
+        // Protects: wheels on Deep Sand, mounted travel in swamp, a closed pass (flagged
+        //   seasonal, unlike the others) and a hopeless cargo are each refused with the
+        //   reference's wording before the convergence loop runs.
         let p = jp_m4_plan();
         let st = JpStage {
             terrain: "Deep Sand".to_string(),
@@ -21664,6 +22491,9 @@ mod tests {
 
     #[test]
     fn calc_land_haste_bypasses_the_soft_modifiers_and_sleds_glide_on_snow() {
+        // Protects: Haste forces the soft modifiers to 1.0 (a lone courier on pavement
+        //   makes about 90 km a day), and sled runners on snow replace the terrain
+        //   modifier with 1.0 where wheels would be blocked outright.
         // Haste forces coordination/fatigue/grazing/foraging/load to 1.000 --
         // a lone courier on pavement makes 90 km/day.
         let st = JpStage {
@@ -21736,6 +22566,10 @@ mod tests {
 
     #[test]
     fn calc_water_sea_and_river_differ_in_window_food_and_resupply() {
+        // Protects: a sea leg and a river leg differ in sailing window, food and
+        //   resupply (a Cog is loaded at port, a Keelboat restocks along a settlement
+        //   interval), and a river through a desert biome carries 2.0x the river water
+        //   reserve rather than 1.10x.
         // A Cog on Coastal Waters: an 11 h window, 0.60 of cruise realised,
         // and a sea leg is loaded at port rather than resupplied en route.
         let st = JpStage {
@@ -21815,6 +22649,9 @@ mod tests {
 
     #[test]
     fn calc_water_blocks_on_rating_season_and_hold() {
+        // Protects: water legs are refused for a vessel not rated for the water (checked
+        //   before the season), a closed sailing season (flagged seasonal), an
+        //   overloaded hold, and an unnamed vessel, each with the reference's wording.
         let st = JpStage {
             km: 500.0,
             cat: "sea".to_string(),
@@ -21888,6 +22725,9 @@ mod tests {
 
     #[test]
     fn best_land_transport_measures_every_mode_on_one_stages_own_ground() {
+        // Protects: the best land transport is measured mode by mode on the one stage's
+        //   own terrain, skips modes the terrain blocks outright, and returns nothing
+        //   for a water stage.
         // Milestone 2's fourth deferral, unblocked by jp_calc_land: same
         // equipment, different marching order.
         let p = jp_m4_plan();
@@ -21922,6 +22762,9 @@ mod tests {
 
     #[test]
     fn stage_dry_km_measures_the_longest_run_with_no_freshwater_in_reach() {
+        // Protects: the dry run is the longest stretch with no river or lake within
+        //   reach: 25 km between a river and a lake, 45 km with the river alone, and
+        //   sub-ranges measure only their own span.
         // A 16x8 grid at 5 km/cell: one river column at x=12 and one lake
         // cell at (2,3). The reach is 1.5 cells (floored), so the river wets
         // x=10..14 and the lake x=0..4 -- leaving a 25 km dry run between.
@@ -21992,6 +22835,10 @@ mod tests {
 
     #[test]
     fn resupply_reach_compares_the_stated_requirement_with_the_real_route() {
+        // Protects: v1.51's audit finding: the tightest land stage sets the required
+        //   resupply spacing and the route's own settlements are compared with it; water
+        //   and blocked stages are ignored, a party carrying no food is never unmet on
+        //   food, and a route with nothing to measure returns nothing.
         // v1.51's audit finding: the tightest land stage needs a resupply
         // every 60 km (5 days x 12 km/day), and the route's own settlements
         // leave a 2200 km gap. Water stages and blocked stages are ignored.
@@ -22068,13 +22915,23 @@ mod tests {
     // ========================================================================
 
     const M5_GW: usize = 24;
+    /// Height in cells of the milestone-5 synthetic world, paired with `M5_GW`; judgement, source not recorded (small enough to embed outputs, large enough for a valley and a lake).
     const M5_GH: usize = 16;
+    /// Sea level of the milestone-5 world, as a fraction of the height range; the reference harness's own value, source not recorded beyond that.
     const M5_SEA: f64 = 0.42;
+    /// Metres of relief at the world's maximum height, used to turn heights into slopes; the milestone-5 harness's value, source not recorded beyond that.
     const M5_PEAK_M: f64 = 4000.0;
+    /// Width of the milestone-5 world in kilometres, which sets the cell size and so every stage length; the milestone-5 harness's value, source not recorded beyond that.
     const M5_MAP_WIDTH_KM: f64 = 800.0;
+    /// Flow-accumulation value from which a cell counts as a river in the milestone-5 world; the milestone-5 harness's value, source not recorded beyond that.
     const M5_FLOW_THRESH: f64 = 10.0;
+    /// Relative tolerance of the milestone-5 goldens (1e-9), tight enough to catch a changed constant and loose enough to absorb last-bit float differences.
     const M5_EPS: f64 = 1e-9;
 
+    /// The owned grids and tables behind the milestone-5 world: height, temperature,
+    /// rain, flow, water bodies, territory, the painted cart biome and terrain layers,
+    /// road cells, places, and coarse ocean and wind fields. Owned so that
+    /// [`m5_world`] can borrow them into a `JpWorld`.
     struct M5Fields {
         field: Vec<f32>,
         temp: Vec<f32>,
@@ -22090,6 +22947,13 @@ mod tests {
         wind: JpCoarseField,
     }
 
+    /// Rebuilds the milestone-5 synthetic world exactly as the reference harness built
+    /// it. Every field is a closed form in `+ - * /` over exact values with no
+    /// transcendental, so the `f32` grids are reproducible and only the outputs are
+    /// embedded. It holds an eastward ramp with a central valley, a river down column
+    /// 17, a lake at x 12..15 and y 6..8, a claimed territory block, two hand-drawn
+    /// ways and one generated road edge, five places and coarse 6x4 ocean and wind
+    /// fields.
     fn m5_fields() -> M5Fields {
         let n = M5_GW * M5_GH;
         let (mut field, mut temp, mut rain, mut flow) =
@@ -22223,6 +23087,7 @@ mod tests {
         }
     }
 
+    /// Borrows `f` into the `JpWorld` the planner reads, with every optional field present.
     fn m5_world(f: &M5Fields) -> JpWorld<'_> {
         JpWorld {
             gw: M5_GW,
@@ -22247,6 +23112,7 @@ mod tests {
         }
     }
 
+    /// The 24-point sample polyline the milestone-5 tests plan along, running diagonally from (2, 2) to (22, 13) in equal steps.
     fn m5_pts() -> Vec<(f64, f64)> {
         (0..=23)
             .map(|k| {
@@ -22282,6 +23148,7 @@ mod tests {
         }
     }
 
+    /// Asserts `a` equals the reference value `b` within `M5_EPS` relative (floored at 1.0), naming `what` and both values on failure.
     fn near5(a: f64, b: f64, what: &str) {
         assert!(
             (a - b).abs() <= M5_EPS * b.abs().max(1.0),
@@ -22291,6 +23158,10 @@ mod tests {
 
     #[test]
     fn m5_cart_paint_layers_match_the_reference_cell_by_cell() {
+        // Protects: the painted cart biome and terrain indices at eight probe cells, and
+        //   the legacy biome the planner derives from them, match the reference,
+        //   including the `Hills` index that must be classified from the climate beneath
+        //   it and the unreachable cold-desert split.
         let f = m5_fields();
         // (x, y, CART_BIOMES index, CART_TERRAINS index, jpLegacyBiomeOf)
         let expect: [(usize, usize, u8, u8, &str); 8] = [
@@ -22331,6 +23202,9 @@ mod tests {
 
     #[test]
     fn m5_road_cells_dilate_and_let_a_highway_beat_a_track() {
+        // Protects: road cells dilate one cell either side of a highway, the highway
+        //   outranks a track where they overlap, a generated road edge is always a plain
+        //   dirt track, and open country carries no road.
         let f = m5_fields();
         assert_eq!(f.road_cells.len(), 81, "road cell count");
         // The highway along y=6 dilates to y=5..7.
@@ -22358,6 +23232,10 @@ mod tests {
     /// exactly like the reference's own `w.sea||w.type==='sea-lane'` guard.
     #[test]
     fn jp_road_cells_reads_hand_drawn_ways_including_ancient() {
+        // Protects: hand-drawn ways become road cells: an ancient way gets the
+        //   reference's own distinct deteriorated tuple, a manual track shares the
+        //   generated network's tuple, and sea lanes and hidden ways never become land
+        //   road cells.
         let gw = 20usize;
         let manual = vec![
             tools::ManualWay {
@@ -22418,6 +23296,9 @@ mod tests {
 
     #[test]
     fn m5_infra_context_is_the_worlds_own_areal_settlement_density() {
+        // Protects: the infrastructure context is the world's own areal settlement
+        //   density: five places over the land area give the reference's
+        //   expected-per-100 km2 and land area, counted off the real height field.
         let f = m5_fields();
         let ctx = jp_infra_context(
             f.places.len(),
@@ -22439,6 +23320,10 @@ mod tests {
 
     #[test]
     fn m5_stage_infra_applies_all_three_of_the_references_corrections() {
+        // Protects: the stage infrastructure tier applies all three reference
+        //   corrections: no settlement in reach is not hostile by itself (Ruined
+        //   Region), open water is not tiered by land settlement density, and only a
+        //   genuine hostile terrain signal reaches the bottom tier.
         let f = m5_fields();
         let ctx = jp_infra_context(
             f.places.len(),
@@ -22509,6 +23394,9 @@ mod tests {
 
     #[test]
     fn m5_river_condition_bands_every_gradient() {
+        // Protects: the river condition bands every gradient (strong and mild, up and
+        //   down, neutral) from net drop per km against 8 and 35 m/km, and a zero-length
+        //   stage divides by the reference's own 1e-6 floor instead of producing NaN.
         // (loss - gain) / km, in m/km, against 8.0 / 35.0.
         assert_eq!(jp_river_condition(100.0, 0.0, 4000.0), "Strong Downstream");
         assert_eq!(jp_river_condition(100.0, 0.0, 1200.0), "Mild Downstream");
@@ -22522,6 +23410,9 @@ mod tests {
 
     #[test]
     fn m5_coarse_idx_inverts_the_fields_own_mapping() {
+        // Protects: the coarse-field index inverts the field's own cell mapping at the
+        //   corners and interior, and a degenerate one-wide field is the reference's -1
+        //   (`None`).
         assert_eq!(jp_coarse_idx(0.0, 0.0, 6, 4, M5_GW, M5_GH), Some(0));
         assert_eq!(jp_coarse_idx(23.0, 15.0, 6, 4, M5_GW, M5_GH), Some(23));
         assert_eq!(jp_coarse_idx(11.5, 7.5, 6, 4, M5_GW, M5_GH), Some(15));
@@ -22531,6 +23422,10 @@ mod tests {
 
     #[test]
     fn m5_sea_condition_reads_the_real_wind_and_current_and_zeroes_an_oared_hull() {
+        // Protects: the sea condition is read from the real wind and current (Cog
+        //   favourable on both, Caravel on wind alone), an oared hull scores 0 on wind
+        //   so is never given a fabricated favourable-wind bonus, and with neither field
+        //   the result is Neutral.
         let f = m5_fields();
         let pts = m5_pts();
         let cond = |v: &str| {
@@ -22560,6 +23455,10 @@ mod tests {
 
     #[test]
     fn m5_derive_stages_matches_the_reference_stage_for_stage() {
+        // Protects: the route splits into the reference's seven stages with the same
+        //   category, biome, terrain, condition, infrastructure, length, indices, climb,
+        //   descent, settlements, claimed fraction, dry run and wildlife terms, and a
+        //   lake crossing within 2 cells of a shore reads as river (v1.102).
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -22767,6 +23666,9 @@ mod tests {
 
     #[test]
     fn m5_transshipments_count_land_water_changes_and_compound() {
+        // Protects: transshipments count land-to-water changes between stages, the
+        //   overhead compounds (three transfers are 1.05^3 - 1, not 15%) and a negative
+        //   count is clamped to 0.
         let f = m5_fields();
         let world = m5_world(&f);
         let stages = jp_derive_stages(&world, &m5_pts(), &m5_plan());
@@ -22796,6 +23698,9 @@ mod tests {
 
     #[test]
     fn m5_passed_settlements_and_stop_keys_match_the_reference() {
+        // Protects: the settlements a route passes, and their stop keys, match the
+        //   reference in order, and the `_at` variant reports the same places each at
+        //   the first route point where it was the nearest in range.
         let f = m5_fields();
         let pts = m5_pts();
         let passed = civ_passed_settlements(&pts, &f.places, M5_GW, false);
@@ -22843,6 +23748,10 @@ mod tests {
     /// the threshold itself, which is a `>=` on an exactly-half route.
     #[test]
     fn commit_route_water_fraction_decides_the_sea_flag() {
+        // Protects: the water fraction of a committed route decides the sea flag: it is
+        //   exactly 0.5 on a half-water route, a lake counts as water, out-of-range and
+        //   fractional coordinates clamp and round as the reference does, and the flag
+        //   opens the plan on Sea Faring or Walking.
         // 4x1: two ocean cells then two land cells.
         let field = [0.10f32, 0.20, 0.80, 0.90];
         let wb = [1u8, 1, 0, 0];
@@ -22875,6 +23784,9 @@ mod tests {
 
     #[test]
     fn m5_mode_for_route_maps_transport_onto_a_cost_domain() {
+        // Protects: Sea Faring maps to the water domain, River Transport to mixed (the
+        //   reference's disclosed scope cut: it prefers rivers rather than requiring
+        //   them), and land transports to no domain.
         assert_eq!(jp_mode_for_route("Sea Faring"), Some("water"));
         // "prefers rivers", not "requires them" -- the reference's own
         // disclosed scope cut.
@@ -22885,6 +23797,9 @@ mod tests {
 
     #[test]
     fn m5_ensure_plan_corrects_its_vessel_guess_from_the_routes_real_stages() {
+        // Protects: the plan's vessel guess is corrected from the route's real stages, a
+        //   sea-drawn way opens on the sea defaults, and a route with no water stage has
+        //   no vessel to auto-pick.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -22905,6 +23820,11 @@ mod tests {
     /// scale with the party rather than being a fixed table.
     #[test]
     fn auto_stage_picks_only_emit_measured_improvements_and_apply_as_overrides() {
+        // Protects: DECISIONS 7j: every automatic per-stage pick is a measured
+        //   improvement past the margin (or an unblock), is land-only, and reproduces
+        //   its promised speed when applied as a real per-stage override; a lone walker
+        //   gets no species or vehicle pick, and the owner's deep-sand scenario turns a
+        //   blocked stage into a camel and travois pick.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -23026,6 +23946,9 @@ mod tests {
 
     #[test]
     fn m5_effective_stage_plan_is_a_plain_cascade_with_a_per_species_animal_merge() {
+        // Protects: a stage override cascades over the plan field by field, overriding
+        //   only the species it names (camels) while mules and horses pass through, and
+        //   every field it does not name is inherited.
         let plan = m5_plan();
         assert_eq!(jp_effective_stage_plan(&plan, None), plan);
         let ov = JpStageOverride {
@@ -23056,6 +23979,10 @@ mod tests {
     /// golden figures, not a re-derivation -- and the arrival is derived.
     #[test]
     fn sp2_progression_reads_the_planners_own_golden_journey() {
+        // Protects: SP-2: the journey timeline's travel and calendar days, distance and
+        //   supply totals are the planner's own golden figures (as literals, not the
+        //   plan compared with itself), arrival is derived, and the party position moves
+        //   from the start to the end through mid-journey.
         use crate::journey_progress::{JourneyTimeline, Phase};
         let f = m5_fields();
         let world = m5_world(&f);
@@ -23088,6 +24015,10 @@ mod tests {
 
     #[test]
     fn m5_plan_rolls_up_the_whole_journey_exactly_as_the_reference_does() {
+        // Protects: the whole-journey roll-up (distance, days, supplies, climb, weather
+        //   share, transshipments, rest days, resupply reach, daily timeline with camps,
+        //   and the stops list) and each leg's days and speed match the reference's
+        //   golden figures.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -23217,6 +24148,8 @@ mod tests {
 
     #[test]
     fn m5_plan_layovers_are_calendar_time_laid_on_top_of_travel_days() {
+        // Protects: layovers are calendar time laid on top of travel days: only stops
+        //   the route actually threads count, and travel days are untouched.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -23239,6 +24172,8 @@ mod tests {
 
     #[test]
     fn m5_plan_honours_per_stage_route_condition_and_infra_overrides() {
+        // Protects: a per-stage route condition and infrastructure override reach the
+        //   plan and speed that stage up, while the other stages are unchanged.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -23268,6 +24203,8 @@ mod tests {
 
     #[test]
     fn m5_plan_rejects_a_route_with_nothing_to_plan() {
+        // Protects: a one-point route has nothing to plan: `jp_plan` returns `None` and
+        //   `jp_derive_stages` returns no stages.
         let f = m5_fields();
         let world = m5_world(&f);
         assert!(
@@ -23285,6 +24222,9 @@ mod tests {
 
     #[test]
     fn m5_plan_route_condition_override_is_rejected_where_it_is_illegal_for_the_category() {
+        // Protects: a route-condition override illegal for a stage's category (a land
+        //   condition on a sea stage) falls back to the derived condition, which is
+        //   still reported, while a legal one is honoured.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -23323,6 +24263,9 @@ mod tests {
 
     #[test]
     fn m5_walk_way_cells_rasterises_between_the_sparse_sample_points() {
+        // Protects: the way walker fills the cells between sparse sample points, and a
+        //   seam break or an X-seam jump emits the endpoints alone rather than a line
+        //   across the map.
         let mut hits: Vec<(f64, f64)> = Vec::new();
         civ_walk_way_cells(&[(0.0, 0.0), (4.0, 0.0)], &[], 24, &mut |x, y| {
             hits.push((x, y))
@@ -23374,6 +24317,7 @@ mod tests {
         }
     }
 
+    /// The planned milestone-5 journey (the golden world, route and party), the baseline that the milestone-6 verdict probes copy and edit.
     fn m6_plan(f: &M5Fields) -> JpJourneyPlan {
         jp_plan(
             &m5_world(f),
@@ -23402,6 +24346,7 @@ mod tests {
         }
     }
 
+    /// Makes a plan a short trip (5 travel days, 6 total) so the long-trip and duration signals do not fire, leaving a probe's own edit the only thing that can move the verdict.
     fn m6_short(p: &mut JpJourneyPlan) {
         p.days = 5.0;
         p.total_days = Some(6.0);
@@ -23409,6 +24354,9 @@ mod tests {
 
     #[test]
     fn m6_verdict_reads_the_real_plan_as_the_reference_does() {
+        // Protects: the verdict on the real golden plan is Severe with the reference's
+        //   text, and (since Ruling BS) the first reason names the suggested resupply
+        //   stops still pending rather than the old unmet-reach figure.
         let f = m5_fields();
         let v = jp_verdict(&m6_plan(&f));
         assert_eq!((v.level, v.label), ("severe", "Severe"));
@@ -23431,6 +24379,11 @@ mod tests {
 
     #[test]
     fn m6_verdict_reaches_every_band_on_the_signals_that_drive_it() {
+        // Protects: every verdict band is reached by the signals `jp_verdict` reads:
+        //   favourable with none; moderate on one weight-1 signal (duration, river
+        //   crossings, weather, or supplies that only just reach); strained on one or
+        //   two weight-2 factors, with reasons in check order; and severe on any
+        //   weight-3 signal, including the two named v1.51 causes.
         let f = m5_fields();
         let base = m6_plan(&f);
         let probe = |edit: &dyn Fn(&mut JpJourneyPlan)| {
@@ -23628,6 +24581,9 @@ mod tests {
 
     #[test]
     fn m6_verdict_on_a_blocked_journey_quotes_the_stage_that_blocked_it() {
+        // Protects: a journey blocked by a stage's own load reads Impassable with that
+        //   stage's reason (Ruling BS wording: the cargo alone fills the party), carries
+        //   no reasons list, and has no confidence band.
         let f = m5_fields();
         let world = m5_world(&f);
         // A donkey train carrying all its own fodder cannot lift the load.
@@ -23816,6 +24772,11 @@ mod tests {
 
     #[test]
     fn m6_confidence_widens_asymmetrically_with_duration() {
+        // Protects: the confidence band's multipliers and day figures step at 7, 14, 21
+        //   and 60 days (both sides of each threshold) with the reference's notes,
+        //   always lean pessimistic (the downside exceeds the upside), fall back to
+        //   travel days when there is no total, and give nothing for a non-finite day
+        //   count.
         let f = m5_fields();
         let base = m6_plan(&f);
         let band = |days: f64, total: Option<f64>| {
@@ -23879,6 +24840,11 @@ mod tests {
 
     #[test]
     fn m6_pack_range_is_the_same_wagon_equation_ceiling_the_autopicker_guards_on() {
+        // Protects: the pack range is the wagon-equation ceiling the auto-picker guards
+        //   on: the species is the first present in key order (one donkey outvotes eight
+        //   mules, as in the reference), desert moves a camel's ceiling the opposite way
+        //   to a horse's, full grazing gives no ceiling, no pack animal gives none, and
+        //   longer unsupported legs use more of it.
         let party = |donkey, mule, camel, horse| JpParty {
             donkey,
             mule,
@@ -23945,6 +24911,9 @@ mod tests {
 
     #[test]
     fn m6_fmt_days_matches_js_tofixed_including_its_tie_break() {
+        // Protects: the day formatter shows hours below a day, one-decimal days to 60
+        //   and months from 60 with JS `toFixed` rounding (59.95 reads 60.0), and a dash
+        //   for any non-finite value.
         for (d, s) in [
             (f64::NAN, "—"),
             (f64::INFINITY, "—"),
@@ -23970,6 +24939,10 @@ mod tests {
 
     #[test]
     fn m6_js_fixed_matches_tofixed_on_real_ties_and_on_near_ties() {
+        // Protects: `js_fixed` equals `Number.prototype.toFixed` on genuine ties (1.25
+        //   rounds away from zero where Rust's `{:.1}` would round to even) and on
+        //   near-ties that only look like ties (2.05 is really 2.0499999999999998), and
+        //   the 1.25 t user-visible string.
         // Every expected string is `Number.prototype.toFixed`'s own output from
         // the same Node run. The interesting cases are the pairs that look
         // identical and are not: 1.25 IS an exact tie (JS steps away from zero,
@@ -24017,6 +24990,9 @@ mod tests {
 
     #[test]
     fn m6_risk_tiers_are_the_references_own_four() {
+        // Protects: the risk text has the reference's four tiers (none to 10 days, to
+        //   30, to 90, beyond) with each boundary on the right side, and the golden
+        //   journey's 41 days is the extended-campaign tier.
         assert_eq!(jp_risk(0.0), None);
         assert_eq!(jp_risk(10.0), None);
         assert_eq!(
@@ -24053,6 +25029,12 @@ mod tests {
 
     #[test]
     fn m2_auto_pick_transport_sizes_the_train_against_the_real_route() {
+        // Protects: the auto-picker sizes a baggage train from cargo and route (one mule
+        //   and one cart for 900 kg, wagons at 4 t, carts at 800 kg), reports a light
+        //   walking party as fine, reports an overloaded one without changing the mode
+        //   unless auto-promote is on, picks only a mount for a mounted rider, declines
+        //   water modes, flags v1.48's no-closing-size fodder divergence (60 unsupported
+        //   days, no grazing), and has nothing to pick on a route with no land stage.
         let f = m5_fields();
         let world = m5_world(&f);
         let pts = m5_pts();
@@ -24287,6 +25269,12 @@ mod tests {
 
     #[test]
     fn m2_best_package_for_stage_measures_but_never_applies() {
+        // Protects: the per-stage best package names a species and vehicle fix measured
+        //   on the stage's own ground (camels and travois on deep sand, donkeys in
+        //   marsh, horses on steppe, carts again where wheels are legal but not on Snow
+        //   / Ice), carries the vehicle count across rather than re-sizing, judges only
+        //   species for sleds, and returns `None` when nothing improves or for a
+        //   gated-out mode, no animals or a water stage.
         let stage = |terrain: &str, biome: &str| JpStage {
             km: 40.0,
             cat: "land".to_string(),
@@ -24469,6 +25457,7 @@ mod tests {
     // for every faction, so no fixture from a fresh world can exercise the
     // other branch).
 
+    /// A `FactionPlace` of `kind` and population `pop` in `faction`, with every other field neutral (no trade, no importance, no specialisation, not fortified).
     fn agg_place(faction: i32, pop: f64, kind: SettlementKind) -> FactionPlace<'static> {
         FactionPlace {
             faction,
@@ -24514,6 +25503,9 @@ mod tests {
     /// because the `||0` coercions below absorb `NaN` first.
     #[test]
     fn js_min_max_propagate_nan_where_rusts_own_would_not() {
+        // Protects: `js_min` and `js_max` propagate NaN as JS `Math.min`/`Math.max` do
+        //   where Rust's `f64::min` would absorb it (and the test shows the Rust
+        //   behaviour being avoided), and `js_truthy_num` treats 0, -0 and NaN as falsy.
         assert!(js_min(1.0, f64::NAN).is_nan());
         assert!(js_max(0.0, f64::NAN).is_nan());
         assert!(
@@ -24538,6 +25530,9 @@ mod tests {
     /// all five power axes -- into `NaN`s the reference never produces.
     #[test]
     fn a_nan_place_field_is_absorbed_the_way_js_absorbs_it() {
+        // Protects: NaN is falsy in JS, so a NaN population, trade volume or importance
+        //   contributes 0 at the place (the reference's `||0`) and one bad settlement
+        //   cannot turn its faction's whole row into NaN.
         let field = [0.9f32, 0.9];
         let territory = [1i32, 1];
         let places = [
@@ -24583,6 +25578,10 @@ mod tests {
     /// genuinely `{}` on this path while `worldMeanTerrain` is zero-filled.
     #[test]
     fn faction_aggregates_pre_world_guard_returns_empty_rows() {
+        // Protects: the reference's v1.55 called-before-any-world guard: a field whose
+        //   length is not gw x gh returns one empty row per faction, with
+        //   `worldMeanResource` genuinely empty and `worldMeanTerrain` zero-filled (the
+        //   reference's own asymmetry), and the places loop never runs.
         let field = [0.9f32];
         let territory = [1i32];
         let mut input = agg_input(&field, &territory, 3);
@@ -24614,6 +25613,10 @@ mod tests {
     /// branch with nothing above its `0.05` floor.
     #[test]
     fn faction_aggregates_without_resource_fields_reports_no_trade() {
+        // Protects: with no resource field every world and faction resource mean is zero
+        //   and no export or strategic resource is claimed, and with no density field a
+        //   populated faction is in food deficit whose only import is food, from the
+        //   food branch rather than the resource rule.
         let field = [0.9f32, 0.9, 0.9];
         let territory = [1i32, 1, 0];
         let out = civ_faction_aggregates(
@@ -24645,6 +25648,9 @@ mod tests {
     /// starts all-`'none'`, so only a loaded save reaches the other branch.
     #[test]
     fn faction_religion_flag_gates_the_religious_axis() {
+        // Protects: the religious axis is zero for a faction flagged as having no
+        //   religion and equals the cultural axis otherwise, and since it is one fifth
+        //   of `overall` two otherwise identical factions score differently.
         let field = [0.9f32, 0.9];
         let territory = [1i32, 2];
         let places = [
@@ -24671,6 +25677,10 @@ mod tests {
     /// with a strict `>`, so a tie keeps the earlier place.
     #[test]
     fn faction_capital_prefers_the_seat_tier_then_population_with_a_stable_tie() {
+        // Protects: the faction capital is chosen from capital-tier settlements before
+        //   higher-population non-capitals, by population with a strict `>` so an exact
+        //   tie keeps the earlier place, and the capital-tier norm uses the reference's
+        //   own ten-entry table rather than this port's top tier.
         let field = [0.9f32];
         let territory = [1i32];
         let places = [
@@ -24702,6 +25712,9 @@ mod tests {
     /// and an absent one -- folds into `craft`.
     #[test]
     fn sector_output_folds_unmapped_specialisations_into_craft() {
+        // Protects: the five mapped specialisations feed their own sectors and every
+        //   other value (trade hub) or an absent one folds into craft, each weighted by
+        //   0.4 x population.
         let field = [0.9f32];
         let territory = [1i32];
         let mut places = Vec::new();
@@ -24745,6 +25758,9 @@ mod tests {
     /// absent-field values rather than inventing any.
     #[test]
     fn faction_place_from_settlement_invents_nothing() {
+        // Protects: a place built from a real settlement copies faction, population and
+        //   kind and fills the reference's own absent-field values (zero trade, zero
+        //   importance, no specialisation, not fortified) rather than inventing any.
         let s = NamedSettlement {
             tid: 0,
             placement: SettlementPlacement {
@@ -24774,6 +25790,9 @@ mod tests {
     /// classification it falls back to "anything below sea level".
     #[test]
     fn ocean_dist_field_ignores_lakes_but_the_fallback_does_not() {
+        // Protects: the ocean distance field is ocean-only when a water-body
+        //   classification exists (a lake is not a distance-zero source, matching
+        //   `_civIsCoastal`), and falls back to every sub-sea cell without one.
         // 5x1: [ocean, land, lake, land, land]
         let field = [0.1f32, 0.9, 0.3, 0.9, 0.9];
         let wb = [1u8, 0, 2, 0, 0];
@@ -24796,6 +25815,9 @@ mod tests {
     /// it, its zero resource means read as standing import dependencies.
     #[test]
     fn empty_faction_still_reports_import_dependencies() {
+        // Protects: a faction owning nothing still produces a row, and against a world
+        //   mean above its zero means that row reports standing import dependencies for
+        //   consumed resources only (never `gems`).
         let field = [0.9f32, 0.9];
         let territory = [1i32, 1];
         let mut res = ResourcePotentials {
@@ -24838,6 +25860,10 @@ mod tests {
     /// bound was an untested branch until a mutation survived and said so.
     #[test]
     fn territory_ids_at_or_past_the_faction_count_are_ignored() {
+        // Protects: a territory id at or past the faction count is skipped by the
+        //   per-faction accumulation (both bounds of the reference's `f<=0||f>=nF`)
+        //   while the world sums still count the cell; this branch was untested until a
+        //   mutation survived.
         let field = [0.9f32, 0.9, 0.9];
         // 3 = the faction count itself (one past the last valid index), 9 =
         // well past it, 1 = the only cell that may be counted.
@@ -24861,6 +25887,9 @@ mod tests {
     /// reports hills.
     #[test]
     fn the_elevation_denominator_floor_only_matters_at_a_near_ceiling_sea_level() {
+        // Protects: the 1e-6 floor on the elevation denominator is observable at a sea
+        //   level of 0.9999, where a coarser floor would report flat ground where the
+        //   reference reports hills.
         let field = [1.0f32];
         let territory = [1i32];
         let mut input = agg_input(&field, &territory, 2);
@@ -24880,6 +25909,9 @@ mod tests {
     /// the test that pins it.
     #[test]
     fn food_surplus_rounds_a_negative_half_the_way_js_does() {
+        // Protects: `Math.round` rounds a half toward +infinity where Rust's
+        //   `f64::round` rounds away from zero, so a food surplus of -100.5 reads -100
+        //   (not -101) and a population of 100.5 reads 101.
         let field = [0.9f32];
         let territory = [1i32];
         // No density field -> capacity 0, so surplus is exactly -pop.
@@ -24901,6 +25933,9 @@ mod tests {
     /// populations make the split observable.
     #[test]
     fn the_religious_axis_uses_the_same_weights_as_cultural_and_they_are_observable() {
+        // Protects: unequal populations make the 0.7/0.3 cultural weights observable (a
+        //   fixture where both saturate cannot tell them from 0.6/0.4), and the
+        //   religious axis equals the cultural one for a faction with a religion.
         let field = [0.9f32, 0.9];
         let territory = [1i32, 2];
         let places = [
@@ -24931,6 +25966,10 @@ mod tests {
     /// still accumulate; only the per-faction rows go empty.
     #[test]
     fn a_wrong_length_territory_raster_is_treated_as_absent() {
+        // Protects: a territory raster of the wrong length is treated as absent, as the
+        //   reference guards against a stale one after a resolution change: no
+        //   per-faction territory, but the world sums and the places loop are
+        //   unaffected.
         let field = [0.9f32, 0.9, 0.9];
         let short = [1i32, 1];
         let out = civ_faction_aggregates(
@@ -24966,6 +26005,11 @@ mod tests {
     /// cost by hand from the plan's own fields must give the same answer.
     #[test]
     fn jp_plan_cost_maps_the_finished_plan_onto_jp_journey_cost() {
+        // Protects: JP-04: the plan-cost adaptor feeds `jp_journey_cost` exactly what
+        //   the reference's own call site does (legs, claimed fractions, calendar days
+        //   preferred over travel days, distance, transshipments), checked against a
+        //   by-hand call, and the fixture separates total days from travel days so that
+        //   preference is actually tested.
         let f = m5_fields();
         let world = m5_world(&f);
         let plan = m5_plan();
@@ -25013,6 +26057,8 @@ mod tests {
     /// The reference bails on `plan.blocked` before pricing anything.
     #[test]
     fn jp_plan_cost_is_none_for_a_blocked_journey() {
+        // Protects: the reference bails on a blocked plan before pricing anything: 400 t
+        //   of cargo blocks the land stages and `jp_plan_cost` returns `None`.
         let f = m5_fields();
         let world = m5_world(&f);
         // 400 t of cargo on the same party: the land stages block on load.
@@ -25035,6 +26081,10 @@ mod tests {
     /// both calculators, on a real multi-stage journey.
     #[test]
     fn the_calculation_trace_reproduces_daily_km_on_every_leg() {
+        // Protects: JP-05: the calculation trace is the calculation, so the product of
+        //   its factors equals the reported daily distance on every land and water leg
+        //   of a real multi-stage journey, starts at the base term and has only finite
+        //   factors.
         let f = m5_fields();
         let world = m5_world(&f);
         let plan = m5_plan();
@@ -25075,6 +26125,9 @@ mod tests {
     /// sub-unity load factor belonging to the *converged* ratio.
     #[test]
     fn the_land_trace_load_term_is_the_converged_one_not_the_first_guess() {
+        // Protects: the land trace's load term is the one for the reported (converged)
+        //   load ratio, not the first guess; an unloaded party would multiply out even
+        //   with it pinned at 1.0, so this uses a heavily loaded one.
         let st = JpStage {
             km: 300.0,
             terrain: "Plains".to_string(),
@@ -25112,6 +26165,9 @@ mod tests {
     /// carried out rather than re-derived across the boundary.
     #[test]
     fn the_water_calc_carries_its_sailing_window() {
+        // Protects: JP-09: the water calculation carries `jp_water_window`'s sailing
+        //   hours (11 for a Cog on coastal waters) out as data and as a trace term,
+        //   rather than having it re-derived across the boundary.
         let st = JpStage {
             km: 200.0,
             cat: "sea".to_string(),
@@ -25141,6 +26197,10 @@ mod tests {
     /// nothing must fall back per-lookup.
     #[test]
     fn a_vessel_resolver_overrides_the_built_in_ship_table() {
+        // Protects: IN-06: with no resolver the water calculation is identical to the
+        //   built-in table, a custom hull re-plans the leg (a 20 km/h hull is more than
+        //   1.9x as fast and sets the base term), and a resolver that answers for
+        //   nothing falls back per lookup.
         let st = JpStage {
             km: 200.0,
             cat: "sea".to_string(),
@@ -25189,6 +26249,11 @@ mod tests {
     /// interpolated on the segment they fall in, interior vertices kept.
     #[test]
     fn jp_trim_points_cuts_a_sub_polyline_by_arc_length() {
+        // Protects: JP-07: a trim is a sub-polyline by arc length (a full range is the
+        //   identity, endpoints interpolate on the segment they fall in, interior
+        //   vertices are kept, either drag direction gives the same range), a zero-width
+        //   request still yields two points, and one point or a zero-length line has
+        //   nothing to trim.
         let pts = vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (30.0, 0.0)];
         let full = jp_trim_points(&pts, 0.0, 1.0).expect("full range");
         assert_eq!(full, pts, "a full-range trim is the identity");
@@ -25221,6 +26286,10 @@ mod tests {
     /// `forceMode` override v1.100 exists for.
     #[test]
     fn jp_reroute_for_mode_refuses_what_the_reference_refuses() {
+        // Protects: JP-03: `_jpRerouteForMode`'s two refusals (no drawn path; no sea
+        //   route on all-dry land, naming the domain tried) with its verbatim wording, a
+        //   land reroute that connects, and v1.100's `force_mode` re-pathing the other
+        //   domain instead of reproducing the same leg.
         // All-land 8x6 world: a water reroute cannot possibly connect.
         let field = vec![0.7f32; 48];
         let wb = vec![0u8; 48];
@@ -25279,6 +26348,10 @@ mod tests {
     /// before it via `t3 - t2`, and one in the middle kills both.
     #[test]
     fn catmull_rom_survives_coincident_control_points() {
+        // Protects: a repeated control point, at the head, tail or middle, no longer
+        //   zeroes a knot interval that the Barry-Goldman evaluation divides by, so no
+        //   neighbouring segment goes NaN, and the curve equals the one through the
+        //   distinct points.
         let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0), (36.0, 12.0)];
         for dup in 0..base.len() {
             let mut pts = base.to_vec();
@@ -25299,6 +26372,9 @@ mod tests {
     /// rounded output of `_civSmoothPath` can stall for several samples.
     #[test]
     fn catmull_rom_survives_runs_of_repeats() {
+        // Protects: three repeats in a row and a repeat at both ends together (as
+        //   `_civSmoothPath`'s rounded output can produce) stay finite and give the
+        //   curve through the distinct points.
         let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0)];
         let mut pts = vec![base[0], base[0], base[0]];
         pts.extend_from_slice(&base[1..]);
@@ -25314,6 +26390,8 @@ mod tests {
     /// nothing (the reference skips every segment on `t2 - t1 < 1e-6`).
     #[test]
     fn catmull_rom_degenerate_inputs_match_the_reference() {
+        // Protects: a single point passes through and an all-identical list returns
+        //   nothing, as the reference skips every segment on `t2 - t1 < 1e-6`.
         assert_eq!(civ_catmull_rom_sample(&[(3.0, 3.0)], 0.25), vec![(3.0, 3.0)]);
         assert!(civ_catmull_rom_sample(&[(3.0, 3.0), (3.0, 3.0)], 0.25).is_empty());
         assert!(
@@ -25327,6 +26405,9 @@ mod tests {
     /// would be a real parity deviation, not a fix.
     #[test]
     fn catmull_rom_keeps_a_near_coincident_pair() {
+        // Protects: mutation guard: only an exactly coincident pair is collapsed, so a
+        //   near-coincident one (1e-9 apart, finite arithmetic in the reference) stays a
+        //   distinct control point and the curve differs from the one without it.
         let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0)];
         let mut pts = base.to_vec();
         pts.insert(2, (12.0 + 1e-9, 9.0));

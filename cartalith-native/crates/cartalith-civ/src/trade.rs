@@ -160,6 +160,9 @@ pub enum TradeMode {
 }
 
 impl TradeMode {
+    /// Stable lowercase name ("land"/"river"/"sea") -- the string the reference's
+    /// `_civFoodMode` returns and the one the inspector and saves carry. Must never
+    /// be changed to display prose; callers compare against these literals.
     pub fn as_str(self) -> &'static str {
         match self {
             TradeMode::Land => "land",
@@ -184,10 +187,16 @@ pub enum NavKind {
 }
 
 impl NavKind {
+    /// True for a water kind that actually carries cargo (`River`, `Sea`).
+    /// `Stream` is deliberately *not* navigable -- it is "headwater stream only" --
+    /// and `None` obviously is not, which is why this is a `matches!` over the two
+    /// real kinds rather than `!= None`.
     pub fn navigable(self) -> bool {
         matches!(self, NavKind::River | NavKind::Sea)
     }
 
+    /// Stable lowercase name ("none"/"stream"/"river"/"sea") matching the
+    /// reference's `_civPlaceNavigability` `kind` strings; never display prose.
     pub fn as_str(self) -> &'static str {
         match self {
             NavKind::None => "none",
@@ -215,6 +224,8 @@ pub enum Reach {
 }
 
 impl Reach {
+    /// Stable lowercase name ("local"/"regional"/"long") matching
+    /// `_civGoodReach`'s return strings; never display prose.
     pub fn as_str(self) -> &'static str {
         match self {
             Reach::Local => "local",
@@ -452,6 +463,11 @@ impl RoadComponents {
         rc
     }
 
+    /// Representative of `a`'s component, with path halving (each visited node
+    /// is re-pointed at its grandparent) exactly as the reference's `find` does.
+    /// Takes `&mut self` because of that compression; the answer is unaffected by
+    /// it. Panics if `a >= n` (indexing `parent`) -- callers pass settlement
+    /// indices already bounds-checked by [`RoadComponents::build`]'s own filter.
     pub fn find(&mut self, mut a: usize) -> usize {
         while self.parent[a] != a {
             self.parent[a] = self.parent[self.parent[a]];
@@ -460,6 +476,9 @@ impl RoadComponents {
         a
     }
 
+    /// Merge the components of `a` and `b`, attaching `b`'s root under `a`'s.
+    /// No union-by-rank: the reference has none, and at a few dozen settlements it
+    /// buys nothing. Must stay private -- only `build` decides which ways connect.
     fn union(&mut self, a: usize, b: usize) {
         let (a, b) = (self.find(a), self.find(b));
         if a != b {
@@ -467,6 +486,8 @@ impl RoadComponents {
         }
     }
 
+    /// True when `a` and `b` share a road component (`_civRoadConnected`).
+    /// Reflexive: `connected(a, a)` is true. Same index precondition as [`Self::find`].
     pub fn connected(&mut self, a: usize, b: usize) -> bool {
         self.find(a) == self.find(b)
     }
@@ -1037,6 +1058,13 @@ struct WayRouter {
 const NO_PREV: usize = usize::MAX;
 
 impl WayRouter {
+    /// Build the adjacency lists, one undirected edge per way, skipping ways whose
+    /// endpoints are out of range or equal (self-loops) -- the same filter
+    /// [`RoadComponents::build`] applies, so both structures agree on which ways
+    /// exist. The edge cost is `max(1e-6, km)` so a zero-length way still costs
+    /// something and Dijkstra cannot be fed a zero-weight edge (1e-6 km is a
+    /// labelled judgement, not a measured value; any positive epsilon below a
+    /// realistic way length behaves the same).
     fn build(n: usize, ways: &[Way]) -> Self {
         let mut adj = vec![Vec::new(); n];
         for (wi, w) in ways.iter().enumerate() {
@@ -1049,6 +1077,11 @@ impl WayRouter {
         WayRouter { n, adj, cache: Default::default() }
     }
 
+    /// Approximate heap footprint: the adjacency entries plus every cached
+    /// predecessor row (one `(usize, usize)` per node per cached source). An
+    /// estimate for the memory-accounting hooks only -- it ignores `Vec` capacity
+    /// slack and the `HashMap`'s own buckets -- so it must never be used to size
+    /// an allocation.
     fn bytes(&self) -> usize {
         let edges: usize = self.adj.iter().map(|a| a.len()).sum();
         edges * std::mem::size_of::<(usize, usize, f64)>()
@@ -1090,6 +1123,13 @@ impl WayRouter {
         }
     }
 
+    /// Single-source shortest paths over `adj` (O(n^2 + E), see the in-body note
+    /// on why no heap). Returns, per node, `(predecessor node, way index used to
+    /// reach it)`; unreached nodes and the source keep `(NO_PREV, 0)`. Equal-cost
+    /// alternatives keep whichever predecessor was settled first: the selection
+    /// scan runs ascending (lowest node index wins a distance tie) and the
+    /// relaxation uses strict `<`, so the result is deterministic. Must never be
+    /// handed negative edge costs.
     fn dijkstra(adj: &[Vec<(usize, usize, f64)>], n: usize, src: usize) -> Vec<(usize, usize)> {
         let mut dist = vec![f64::INFINITY; n];
         let mut prev = vec![(NO_PREV, 0usize); n];
@@ -1852,11 +1892,17 @@ pub fn civ_place_trade(
     salt: SaltAccess,
     nav: Navigability,
 ) -> PlaceTrade {
+    /// Push `v` only if absent, so a good is never listed twice in one
+    /// export/import set. Order of first insertion is preserved (it is the order
+    /// the inspector shows).
     fn add(arr: &mut Vec<&'static str>, v: &'static str) {
         if !arr.contains(&v) {
             arr.push(v);
         }
     }
+    /// Remove the first occurrence of `v`, if any; absent is a no-op rather than
+    /// an error, because the rules below remove a good that may never have been
+    /// added.
     fn remove(arr: &mut Vec<&'static str>, v: &str) {
         if let Some(j) = arr.iter().position(|&e| e == v) {
             arr.remove(j);
@@ -2037,5 +2083,7 @@ pub fn civ_place_trade(
     }
 }
 
+/// Unit tests for this module live in `trade/tests.rs` so the production file
+/// stays readable; compiled only under `cfg(test)`.
 #[cfg(test)]
 mod tests;

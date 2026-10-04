@@ -68,6 +68,8 @@ pub const DEFAULT_LABEL_COLOR: &str = "#f0e4c8";
 pub const DEFAULT_LABEL_SIZE: f64 = 16.0;
 /// The floor and ceiling the resize handle clamps `size` to.
 pub const LABEL_SIZE_MIN: f64 = 8.0;
+/// Upper clamp of `size` in [`label_resize_size`] (the pair with
+/// [`LABEL_SIZE_MIN`]); the reference's resize-handle bounds, 8 and 48 px.
 pub const LABEL_SIZE_MAX: f64 = 48.0;
 
 /// One placed region-name label — the reference's `state.labels[i]`.
@@ -137,10 +139,15 @@ impl MapLabel {
         }
     }
 
+    /// The label's own font, or [`DEFAULT_LABEL_FONT`] when none was set -- the
+    /// reference's `lb.font || 'Georgia, serif'`. Never returns an empty string
+    /// unless the caller stored one.
     pub fn font_or_default(&self) -> &str {
         self.font.as_deref().unwrap_or(DEFAULT_LABEL_FONT)
     }
 
+    /// The label's own colour, or [`DEFAULT_LABEL_COLOR`] when none was set -- the
+    /// reference's `lb.color || '#f0e4c8'`.
     pub fn color_or_default(&self) -> &str {
         self.color.as_deref().unwrap_or(DEFAULT_LABEL_COLOR)
     }
@@ -249,6 +256,9 @@ pub struct LabelViewEnv {
 }
 
 impl Default for LabelViewEnv {
+    /// The engine-neutral defaults: a 512-cell-wide grid at zoom 1 and icon scale 1,
+    /// neutral values. A caller that knows the real grid width must
+    /// override `grid_w`, since the font size scales with it.
     fn default() -> Self {
         LabelViewEnv { grid_w: 512, zoom_scale: 1.0, icon_scale: 1.0 }
     }
@@ -363,6 +373,9 @@ pub struct HandleCircle {
 }
 
 impl HandleCircle {
+    /// True when (px, py) lies within `r * slack` of the centre (inclusive). The
+    /// slack is 1.0 for the drawn handles and [`LABEL_BUTTON_SLACK`] for the check
+    /// and cross buttons; it widens the tap target, never the drawn circle.
     fn hit(&self, px: f64, py: f64, slack: f64) -> bool {
         js_hypot(px - self.x, py - self.y) <= self.r * slack
     }
@@ -476,6 +489,9 @@ pub struct LabelStyleSnapshot {
 }
 
 impl LabelStyleSnapshot {
+    /// Capture the label's style fields (not its position) at the moment editing
+    /// begins. A stored size of 0 reads as [`DEFAULT_LABEL_SIZE`] and an unset font
+    /// or colour as its default, so a later cancel restores concrete values.
     fn of(lb: &MapLabel) -> Self {
         LabelStyleSnapshot {
             name: lb.name.clone(),
@@ -497,6 +513,7 @@ pub struct LabelEditSession {
 }
 
 impl LabelEditSession {
+    /// An idle session: nothing selected, no snapshot.
     pub fn new() -> Self {
         Self::default()
     }
@@ -793,7 +810,10 @@ impl LabelTypography {
 /// `parts.js:383`-`:385`: `size` is `Math.round(8 + p*26)`, `halo` is `p*4`,
 /// `track` is `p*0.4`.
 pub const LABEL_CLASS_SIZE_RANGE: (f64, f64) = (8.0, 34.0);
+/// Halo slider domain in px: `p * 4` for `p` in `[0, 1]` (`parts.js:383`-`:385`).
+/// Zero is a real setting meaning "no halo".
 pub const LABEL_CLASS_HALO_RANGE: (f64, f64) = (0.0, 4.0);
+/// Tracking slider domain in em: `p * 0.4` for `p` in `[0, 1]` (`parts.js:383`-`:385`).
 pub const LABEL_CLASS_TRACKING_RANGE: (f64, f64) = (0.0, 0.40);
 
 /// `parts.js:363`'s `CL` table, transcribed. Indexed by
@@ -889,6 +909,10 @@ pub struct LabelCullMetrics {
 }
 
 impl Default for LabelCullMetrics {
+    /// Culling metrics at the shipped values: half an em of advance per glyph
+    /// ([`DEFAULT_LABEL_ADVANCE_RATIO`]), the renderer's 1.3 line box
+    /// ([`LABEL_BOX_LINE_HEIGHT`]) and 2 px per cell at the base fit, which
+    /// `map_overlay.gd` restates and must be kept in step with.
     fn default() -> Self {
         LabelCullMetrics {
             advance_ratio: DEFAULT_LABEL_ADVANCE_RATIO,
@@ -992,6 +1016,10 @@ pub struct LabelGenSettings {
 }
 
 impl Default for LabelGenSettings {
+    /// The engine default: all five classes on, no per-class cap (0 = uncapped),
+    /// zoom-mode sizing and culling **off** (`cull: None`), so a caller that asks for
+    /// nothing gets every candidate it offered. The shell turns culling on through
+    /// `LabelBridge::new`.
     fn default() -> Self {
         LabelGenSettings {
             enabled: [true; 5],
@@ -1176,6 +1204,10 @@ pub struct LakeFeature {
 /// lakes.
 pub const CIV_LAKE_NAME_RNG_SEED_INPUT: u32 = 13579;
 
+/// The lake-naming generator: the reference's `*31337 + 999` seed derivation
+/// applied to [`CIV_LAKE_NAME_RNG_SEED_INPUT`]. A zero result is bumped to 1 so
+/// the stream never starts degenerate. Must stay a separate stream from the
+/// continent and settlement ones, or a lake and a continent share a first name.
 pub fn civ_lake_name_rng() -> cartalith_rng::Mulberry32 {
     let raw = CIV_LAKE_NAME_RNG_SEED_INPUT.wrapping_mul(31337).wrapping_add(999);
     cartalith_rng::Mulberry32::new(if raw == 0 { 1 } else { raw })
@@ -1440,21 +1472,26 @@ pub fn label_candidates(world: &LabelWorld<'_>) -> Vec<LabelCandidate> {
     out
 }
 
+/// Tests for arc layout, hit testing, the edit session, class typography, the generated-label pass with culling, and lake/candidate extraction.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// `n` glyph advances of `w` each, the uniform-width input most layout tests use.
     fn widths(n: usize, w: f64) -> Vec<f64> {
         vec![w; n]
     }
 
     #[test]
     fn a_flat_label_lays_out_straight() {
+        // Protects: `arc_label_layout` with arc 0 returns `Straight`, not a degenerate arc.
         assert_eq!(arc_label_layout(&widths(5, 10.0), 50.0, 0.0, 16.0), ArcLayout::Straight);
     }
 
     #[test]
     fn the_straight_branch_extends_just_below_the_threshold() {
+        // Protects: the straight branch covers |arc| < 0.01 on both signs; 0.01 itself is already
+        // an arc (the reference's threshold).
         assert_eq!(arc_label_layout(&widths(5, 10.0), 50.0, 0.009, 16.0), ArcLayout::Straight);
         assert!(matches!(arc_label_layout(&widths(5, 10.0), 50.0, 0.01, 16.0), ArcLayout::Arc(_)));
         // and symmetrically on the negative side
@@ -1464,6 +1501,7 @@ mod tests {
 
     #[test]
     fn one_glyph_out_per_measured_width_in() {
+        // Protects: an arc layout returns exactly one glyph per measured width.
         let ArcLayout::Arc(g) = arc_label_layout(&widths(7, 9.0), 63.0, 0.5, 16.0) else {
             panic!("expected an arc")
         };
@@ -1472,12 +1510,14 @@ mod tests {
 
     #[test]
     fn empty_text_lays_out_to_no_glyphs_rather_than_erroring() {
+        // Protects: empty text with a non-zero arc yields an empty glyph list, not a panic or error.
         let ArcLayout::Arc(g) = arc_label_layout(&[], 0.0, 0.7, 16.0) else { panic!("expected an arc") };
         assert!(g.is_empty());
     }
 
     #[test]
     fn arc_beyond_one_is_clamped_not_extrapolated() {
+        // Protects: arcs beyond +/-1 give the identical layout to +/-1 (clamped, not extrapolated).
         let a = arc_label_layout(&widths(6, 10.0), 60.0, 1.0, 20.0);
         let b = arc_label_layout(&widths(6, 10.0), 60.0, 5.0, 20.0);
         assert_eq!(a, b);
@@ -1488,6 +1528,7 @@ mod tests {
 
     #[test]
     fn a_positive_arc_domes_and_a_negative_one_valleys() {
+        // Protects: +arc and -arc are mirror images: dx unchanged, dy and rotation negated.
         let ArcLayout::Arc(up) = arc_label_layout(&widths(5, 10.0), 50.0, 0.6, 16.0) else {
             panic!()
         };
@@ -1504,6 +1545,7 @@ mod tests {
 
     #[test]
     fn the_string_is_centred_on_the_label_origin() {
+        // Protects: symmetric widths put the first and last glyph symmetrically about x = 0.
         let ArcLayout::Arc(g) = arc_label_layout(&widths(4, 10.0), 40.0, 0.5, 16.0) else { panic!() };
         // Symmetric widths -> the first and last glyph sit symmetrically about x=0.
         assert!((g[0].dx + g[3].dx).abs() < 1e-12);
@@ -1512,6 +1554,8 @@ mod tests {
 
     #[test]
     fn total_width_is_read_separately_from_the_char_widths() {
+        // Protects: the string's measured total width is an input in its own right (kerning), not
+        // the sum of the advances: changing it changes the layout.
         // A kerned string measures narrower than the sum of its glyph advances.
         // If the port summed the widths instead, these two would agree.
         let cw = widths(4, 10.0);
@@ -1522,6 +1566,8 @@ mod tests {
 
     #[test]
     fn the_radius_floor_stops_a_short_string_curling_into_a_knot() {
+        // Protects: the radius floor (sizePx * 1.2): a short string at full arc keeps small
+        // glyph rotations instead of wrapping into a knot.
         // total_w/(2.2*1) = 4.5 would be below sizePx*1.2 = 48, so the floor wins
         // and the glyph offsets stay small relative to the text height.
         let ArcLayout::Arc(g) = arc_label_layout(&[5.0, 5.0], 10.0, 1.0, 40.0) else { panic!() };
@@ -1530,12 +1576,14 @@ mod tests {
 
     #[test]
     fn the_halo_stroke_never_goes_below_one_pixel() {
+        // Protects: the arc halo line width is 0.16 * size with a 1 px floor (3.84 at 24, 1.0 at 4).
         assert_eq!(arc_label_line_width(24.0), 3.84);
         assert_eq!(arc_label_line_width(4.0), 1.0);
     }
 
     #[test]
     fn zoom_k_clamps_at_both_ends() {
+        // Protects: `civ_zoom_k` is 1/zoom clamped to zoom in [0.35, 5] at both ends.
         assert_eq!(civ_zoom_k(1.0), 1.0);
         assert_eq!(civ_zoom_k(0.2), 1.0 / 0.35);
         assert_eq!(civ_zoom_k(9.0), 1.0 / 5.0);
@@ -1543,6 +1591,8 @@ mod tests {
 
     #[test]
     fn fixed_size_mode_ignores_zoom_and_zoom_mode_does_not() {
+        // Protects: fixed-size labels ignore the zoom factor (font == the label's size) while
+        // zoom-mode labels do not.
         let mut lb = MapLabel::new(1.0, 1.0, "A");
         let env = LabelViewEnv { grid_w: 512, zoom_scale: 4.0, icon_scale: 1.0 };
         let zoomed = label_font_size(&lb, &env);
@@ -1554,6 +1604,7 @@ mod tests {
 
     #[test]
     fn the_font_size_never_drops_below_nine_pixels() {
+        // Protects: the rendered font size has a 9 px floor even for the minimum label size at high zoom.
         let mut lb = MapLabel::new(0.0, 0.0, "A");
         lb.size = 8.0;
         let env = LabelViewEnv { grid_w: 512, zoom_scale: 5.0, icon_scale: 1.0 };
@@ -1562,6 +1613,8 @@ mod tests {
 
     #[test]
     fn the_box_never_narrows_past_the_text_height() {
+        // Protects: an empty name's box side is the text height times its padding (16 * 1.3 * 1.25),
+        // not zero.
         let lb = MapLabel::new(0.0, 0.0, "");
         let b = label_box(&lb, &LabelViewEnv::default(), 0.0);
         assert_eq!(b.side, 16.0 * 1.3 * 1.25);
@@ -1569,6 +1622,7 @@ mod tests {
 
     #[test]
     fn a_wide_name_widens_the_box() {
+        // Protects: a measured name width 400 widens the box side to 500 (width * 1.25).
         let lb = MapLabel::new(0.0, 0.0, "a very long region name");
         let b = label_box(&lb, &LabelViewEnv::default(), 400.0);
         assert_eq!(b.side, 500.0);
@@ -1576,22 +1630,26 @@ mod tests {
 
     #[test]
     fn the_default_screen_mapping_is_the_cell_centre() {
+        // Protects: the default screen mapping puts a label at its cell centre (+0.5, +0.5).
         let lb = MapLabel::new(10.0, 8.0, "A");
         let b = label_box(&lb, &LabelViewEnv::default(), 10.0);
         assert_eq!((b.px, b.py), (10.5, 8.5));
     }
 
+    /// `n` 4-unit square boxes 10 apart along y = 0, so none overlap.
     fn boxes(n: usize) -> Vec<LabelBox> {
         (0..n).map(|i| LabelBox { px: 10.0 * i as f64, py: 0.0, side: 4.0, fsz: 16.0 }).collect()
     }
 
     #[test]
     fn a_miss_returns_nothing() {
+        // Protects: a point outside every box and handle hits nothing.
         assert_eq!(label_hit_test(&boxes(3), &LabelHandles::default(), 100.0, 100.0), None);
     }
 
     #[test]
     fn the_topmost_label_wins_an_overlap() {
+        // Protects: labels are scanned back to front, so the last label wins an overlap.
         let bs = vec![
             LabelBox { px: 0.0, py: 0.0, side: 20.0, fsz: 16.0 },
             LabelBox { px: 1.0, py: 1.0, side: 20.0, fsz: 16.0 },
@@ -1602,6 +1660,8 @@ mod tests {
 
     #[test]
     fn a_handle_beats_a_label_box_underneath_it() {
+        // Protects: a handle takes priority over a label box beneath it, and a handle hit carries
+        // no label index.
         let bs = vec![LabelBox { px: 0.0, py: 0.0, side: 100.0, fsz: 16.0 }];
         let handles = LabelHandles {
             resize: Some(HandleCircle { x: 5.0, y: 5.0, r: 2.0 }),
@@ -1614,6 +1674,8 @@ mod tests {
 
     #[test]
     fn the_handle_priority_order_is_resize_rotate_arc_check_cross() {
+        // Protects: handles are tested in the reference's order: resize, rotate, arc, check,
+        // cross (each removed in turn reveals the next).
         let all = HandleCircle { x: 0.0, y: 0.0, r: 5.0 };
         let mut h = LabelHandles {
             resize: Some(all),
@@ -1635,6 +1697,7 @@ mod tests {
 
     #[test]
     fn the_buttons_get_a_fatter_tap_target_than_the_drawn_circle() {
+        // Protects: the check/cross buttons hit out to 1.3x their radius (1.29 hits, 1.31 misses).
         let h = LabelHandles {
             check: Some(HandleCircle { x: 0.0, y: 0.0, r: 1.0 }),
             ..Default::default()
@@ -1643,6 +1706,7 @@ mod tests {
         assert!(label_hit_test(&[], &h, 1.31, 0.0).is_none());
     }
 
+    /// A single label "Aldar" at (5, 5) with angle 3, arc 0.1, size 20, so a snapshot has non-default values to capture.
     fn one_label() -> Vec<MapLabel> {
         let mut lb = MapLabel::new(5.0, 5.0, "Aldar");
         lb.angle = 3.0;
@@ -1653,6 +1717,7 @@ mod tests {
 
     #[test]
     fn selecting_snapshots_the_style_fields_and_not_the_position() {
+        // Protects: selecting a label snapshots its style (name, size, font) for a later cancel.
         let labels = one_label();
         let mut s = LabelEditSession::new();
         s.select(&labels, Some(0));
@@ -1664,6 +1729,8 @@ mod tests {
 
     #[test]
     fn reselecting_the_same_label_does_not_retake_the_snapshot() {
+        // Protects: re-selecting the label already being edited keeps the original snapshot, so
+        // cancel still restores the pre-edit state.
         let mut labels = one_label();
         let mut s = LabelEditSession::new();
         s.select(&labels, Some(0));
@@ -1674,6 +1741,8 @@ mod tests {
 
     #[test]
     fn cancel_restores_the_style_and_leaves_the_position_alone() {
+        // Protects: cancel restores name/angle/size but not x/y (dragging commits at once), ends the
+        // session and returns true.
         let mut labels = one_label();
         let mut s = LabelEditSession::new();
         s.select(&labels, Some(0));
@@ -1692,6 +1761,7 @@ mod tests {
 
     #[test]
     fn confirm_keeps_the_edits() {
+        // Protects: confirm keeps the edits and clears the selection and the snapshot.
         let mut labels = one_label();
         let mut s = LabelEditSession::new();
         s.select(&labels, Some(0));
@@ -1704,6 +1774,7 @@ mod tests {
 
     #[test]
     fn cancelling_with_nothing_selected_reverts_nothing() {
+        // Protects: cancel with nothing selected reverts nothing and returns false.
         let mut labels = one_label();
         let mut s = LabelEditSession::new();
         assert!(!s.cancel(&mut labels));
@@ -1711,6 +1782,7 @@ mod tests {
 
     #[test]
     fn deselecting_clears_the_snapshot() {
+        // Protects: selecting `None` clears both the selection and the snapshot.
         let labels = one_label();
         let mut s = LabelEditSession::new();
         s.select(&labels, Some(0));
@@ -1721,6 +1793,7 @@ mod tests {
 
     #[test]
     fn selecting_a_different_label_retakes_the_snapshot() {
+        // Protects: selecting a different label takes a fresh snapshot of that label.
         let mut labels = one_label();
         labels.push(MapLabel::new(1.0, 1.0, "Bree"));
         let mut s = LabelEditSession::new();
@@ -1731,18 +1804,21 @@ mod tests {
 
     #[test]
     fn resizing_clamps_between_eight_and_forty_eight() {
+        // Protects: `label_resize_size` clamps its result to [8, 48] at both ends.
         assert_eq!(label_resize_size(16.0, 10.0, 10.0, 10.0, 10.0, 5.0), 8.0);
         assert_eq!(label_resize_size(16.0, 10.0, 10.0, 60.0, 60.0, 3.0), 48.0);
     }
 
     #[test]
     fn rotating_straight_up_is_zero_degrees() {
+        // Protects: a pointer directly above the centre reads as 0 degrees.
         // The handle's neutral direction: directly above the centre.
         assert!(label_rotate_deg(10.0, 10.0, 9.5, 0.0).abs() < 1e-12);
     }
 
     #[test]
     fn rotation_is_normalised_into_minus_180_to_180() {
+        // Protects: `label_rotate_deg` always returns a value in [-180, 180] for pointers in every quadrant.
         for (gx, gy) in [(0.0, 0.0), (20.0, 0.0), (0.0, 20.0), (20.0, 20.0), (9.5, 20.0)] {
             let d = label_rotate_deg(10.0, 10.0, gx, gy);
             assert!((-180.0..=180.0).contains(&d), "{d}");
@@ -1751,6 +1827,8 @@ mod tests {
 
     #[test]
     fn the_arc_handle_at_its_neutral_position_reads_zero() {
+        // Protects: the arc handle at its neutral position (half a box above the centre, with the
+        // reference's +0.5 cell-centre pointer offset) reads zero.
         // Neutral is local (0, -side/2): directly above the centre by half the
         // box. Pointer coordinates carry the +0.5 cell-centre offset the
         // reference applies to every hit test, so the neutral grid y is
@@ -1762,6 +1840,7 @@ mod tests {
 
     #[test]
     fn dragging_the_arc_handle_up_domes_and_down_valleys() {
+        // Protects: dragging the arc handle up gives a positive arc and down a negative one.
         let side = 20.0;
         let up = label_arc_value(10.0, 10.0, 0.0, side, 9.5, -20.0);
         let down = label_arc_value(10.0, 10.0, 0.0, side, 9.5, 30.0);
@@ -1771,6 +1850,7 @@ mod tests {
 
     #[test]
     fn the_arc_handle_clamps_to_the_unit_range() {
+        // Protects: the arc handle value is clamped to [-1, 1] however far it is dragged.
         for gy in [-1000.0, 1000.0] {
             let v = label_arc_value(10.0, 10.0, 0.0, 20.0, 9.5, gy);
             assert!((-1.0..=1.0).contains(&v));
@@ -1779,6 +1859,8 @@ mod tests {
 
     #[test]
     fn a_new_label_carries_the_references_own_defaults() {
+        // Protects: `MapLabel::new` carries the reference's defaults (angle 0, arc 0, size 16, zoom
+        // mode, Georgia, #f0e4c8) and the design's fallback class Settlement.
         let lb = MapLabel::new(3.0, 4.0, "Aldar");
         assert_eq!((lb.angle, lb.arc, lb.size), (0.0, 0.0, 16.0));
         assert_eq!(lb.size_mode, LabelSizeMode::Zoom);
@@ -1795,6 +1877,8 @@ mod tests {
 
     #[test]
     fn every_class_key_round_trips_and_indexes_its_own_slot() {
+        // Protects: each class's key round-trips through `from_key`, its `index` equals its slot in
+        // `LABEL_CLASSES`, unknown and empty keys resolve to `None`, and the default class is Settlement.
         assert_eq!(LABEL_CLASSES.len(), 5);
         for (i, c) in LABEL_CLASSES.into_iter().enumerate() {
             assert_eq!(c.index(), i, "{} indexes the wrong slot", c.key());
@@ -1813,6 +1897,8 @@ mod tests {
     /// else in the workspace would notice, which is exactly why they are here.
     #[test]
     fn the_typography_table_is_the_designs_own_five_specs() {
+        // Protects: the five default type specs (size/halo/tracking, italic only for Water, five
+        // distinct well-formed inks) match `parts.js:363` digit for digit.
         let t = |c| label_typography_default(c);
         // 26/2.5 · .28 em
         assert_eq!((t(LabelClass::Continental).size, t(LabelClass::Continental).halo, t(LabelClass::Continental).tracking), (26.0, 2.5, 0.28));
@@ -1840,6 +1926,8 @@ mod tests {
 
     #[test]
     fn every_shipped_spec_sits_inside_its_own_slider_range() {
+        // Protects: every shipped spec lies within the slider ranges, and the ranges are the
+        // design's own 8..34, 0..4 and 0..0.40.
         for c in LABEL_CLASSES {
             let t = label_typography_default(c);
             assert!((LABEL_CLASS_SIZE_RANGE.0..=LABEL_CLASS_SIZE_RANGE.1).contains(&t.size), "{}", c.key());
@@ -1854,6 +1942,8 @@ mod tests {
 
     #[test]
     fn the_halo_travels_with_the_rendered_size_and_floors_at_one_pixel() {
+        // Protects: the halo scales with the rendered size, floors at 1 px, and a halo setting of 0
+        // stays 0 (no halo).
         let t = label_typography_default(LabelClass::Continental); // 26 px / 2.5 px
         assert!((t.halo_px(26.0) - 2.5).abs() < 1e-12, "at nominal size the halo is the stated figure");
         assert!((t.halo_px(52.0) - 5.0).abs() < 1e-12, "doubling the glyph doubles the halo");
@@ -1866,6 +1956,7 @@ mod tests {
 
     #[test]
     fn tracking_is_ems_of_the_rendered_size() {
+        // Protects: tracking is expressed in ems: 0.28 em at 100 px is 28 px, and 0 px stays 0.
         let t = label_typography_default(LabelClass::Continental); // .28 em
         assert!((t.tracking_px(100.0) - 28.0).abs() < 1e-12);
         assert_eq!(label_typography_default(LabelClass::Settlement).tracking_px(0.0), 0.0);
@@ -1873,6 +1964,8 @@ mod tests {
 
     #[test]
     fn set_field_clamps_each_dial_to_its_own_range_and_rejects_the_rest() {
+        // Protects: `set_field` clamps size/halo/tracking to their own ranges, rejects italic,
+        // unknown names and NaN, and a rejected write changes nothing.
         let mut t = label_typography_default(LabelClass::Region);
         assert_eq!(t.set_field("size", 999.0), Some(LABEL_CLASS_SIZE_RANGE.1));
         assert_eq!(t.set_field("size", -5.0), Some(LABEL_CLASS_SIZE_RANGE.0));
@@ -1888,6 +1981,7 @@ mod tests {
 
     // ---- generate_labels ----
 
+    /// Shorthand constructor for a [`LabelCandidate`].
     fn cand(class: LabelClass, name: &str, x: f64, y: f64, w: f64) -> LabelCandidate {
         LabelCandidate { class, name: name.to_string(), x, y, weight: w }
     }
@@ -1905,6 +1999,8 @@ mod tests {
     /// with a broken comparator and would pin nothing.
     #[test]
     fn a_nan_weight_does_not_panic_the_sort() {
+        // Protects: a NaN weight must not panic the candidate sort (`total_cmp`), drops no
+        // candidates, and leaves the order stable across runs.
         let mut cands: Vec<LabelCandidate> = (0..40)
             .map(|i| cand(LabelClass::Settlement, &format!("T{i:03}"), i as f64, 0.0, i as f64))
             .collect();
@@ -1929,6 +2025,8 @@ mod tests {
 
     #[test]
     fn the_pass_emits_in_class_order_and_by_descending_weight_within_a_class() {
+        // Protects: output order is class order, then descending weight within a class, with
+        // nothing dropped by an uncapped run.
         let cands = vec![
             cand(LabelClass::Settlement, "Small", 1.0, 1.0, 100.0),
             cand(LabelClass::Continental, "Landmass", 5.0, 5.0, 9000.0),
@@ -1946,6 +2044,8 @@ mod tests {
 
     #[test]
     fn a_generated_label_carries_its_classs_own_type_spec() {
+        // Protects: a generated label takes its class's size and ink, sits on its feature, is
+        // unrotated and unarched, and uses zoom-mode sizing.
         let g = generate_labels(
             &[cand(LabelClass::Water, "Lake Enn", 4.0, 6.0, 40.0)],
             &LabelGenSettings::default(),
@@ -1964,6 +2064,8 @@ mod tests {
 
     #[test]
     fn a_cap_reports_what_it_dropped_rather_than_hiding_it() {
+        // Protects: a per-class cap keeps the heaviest labels and reports the rest as `over_cap`,
+        // not as `suppressed`.
         let cands: Vec<LabelCandidate> =
             (0..10).map(|i| cand(LabelClass::Settlement, &format!("S{i}"), i as f64, 0.0, i as f64)).collect();
         let mut s = LabelGenSettings::default();
@@ -1978,6 +2080,7 @@ mod tests {
 
     #[test]
     fn a_disabled_class_draws_nothing_but_still_reports_what_it_had() {
+        // Protects: a disabled class draws nothing yet still reports its `available` count.
         let mut s = LabelGenSettings::default();
         s.enabled[LabelClass::Landmark.index()] = false;
         let g = generate_labels(
@@ -1994,6 +2097,7 @@ mod tests {
 
     #[test]
     fn an_empty_world_reports_five_zeroed_classes_rather_than_nothing() {
+        // Protects: an empty input still reports five class-ordered, zeroed count rows.
         let g = generate_labels(&[], &LabelGenSettings::default(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
         assert!(g.labels.is_empty());
         assert_eq!(g.counts.len(), 5);
@@ -2005,6 +2109,8 @@ mod tests {
 
     #[test]
     fn equal_weights_still_order_totally_so_two_runs_agree() {
+        // Protects: equal weights are ordered totally (name, then x), so the output does not depend
+        // on input order.
         let cands = vec![
             cand(LabelClass::Settlement, "Bee", 9.0, 9.0, 1.0),
             cand(LabelClass::Settlement, "Ant", 1.0, 1.0, 1.0),
@@ -2025,6 +2131,7 @@ mod tests {
 
     #[test]
     fn an_unnamed_candidate_is_not_placed() {
+        // Protects: a candidate with an empty name is not placed and not counted as available.
         let g = generate_labels(&[cand(LabelClass::Region, "", 1.0, 1.0, 1.0)], &LabelGenSettings::default(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
         assert!(g.labels.is_empty());
         assert_eq!(g.counts[LabelClass::Region.index()].available, 0);
@@ -2053,6 +2160,8 @@ mod tests {
 
     #[test]
     fn the_box_is_the_renderers_own_formula_divided_by_its_own_px_per_cell() {
+        // Protects: the culling rect is the renderer's box formula over its px-per-cell: centred on the
+        // label, width from advance ratio and tracking, height from the line box.
         let mut lb = MapLabel::new(10.0, 20.0, "Ashfen");
         lb.class = LabelClass::Settlement;
         lb.size = 13.0;
@@ -2067,6 +2176,8 @@ mod tests {
     /// is unchanged and the overlap answer cannot depend on the camera.
     #[test]
     fn a_zoom_mode_boxs_cell_footprint_does_not_move_with_the_zoom() {
+        // Protects: `zoom_base_px_per_cell` is the only scale in the cull rect, so the cell
+        // footprint cannot depend on the camera (halving it doubles the box).
         let lb = MapLabel::new(0.0, 0.0, "Ashfen");
         let base = label_cull_rect(&lb, 0.06, &LabelCullMetrics::default());
         // px_per_cell doubles => font px doubles => width in px doubles =>
@@ -2081,6 +2192,8 @@ mod tests {
 
     #[test]
     fn a_wider_font_makes_wider_boxes_and_culls_more() {
+        // Protects: the measured advance ratio matters: at 0.5 two labels 6 cells apart collide, at
+        // 0.25 they do not.
         // Two 3-glyph settlement names, 6 cells apart. At the shipped half-em
         // the boxes are 10.53 cells wide and 6 < 10.53 collides; at a quarter
         // em they are 5.655 and 6 clears. The measured ratio the shell sends is
@@ -2100,6 +2213,8 @@ mod tests {
 
     #[test]
     fn the_heavier_candidate_survives_and_the_lighter_one_is_counted_suppressed() {
+        // Protects: of two colliding labels the heavier survives and the lighter is counted in
+        // `suppressed`, never silently dropped.
         let cands = vec![
             cand(LabelClass::Settlement, "Small", 1.0, 1.0, 10.0),
             cand(LabelClass::Settlement, "Big", 1.0, 1.0, 5000.0),
@@ -2118,6 +2233,8 @@ mod tests {
     /// world, the same dials, one flag apart.
     #[test]
     fn culling_off_places_the_overlapping_pair_and_reports_no_suppression() {
+        // Protects: with culling off (the engine default) overlapping labels are all placed and
+        // nothing is reported suppressed.
         let cands = vec![
             cand(LabelClass::Settlement, "Small", 1.0, 1.0, 10.0),
             cand(LabelClass::Settlement, "Big", 1.0, 1.0, 5000.0),
@@ -2133,6 +2250,8 @@ mod tests {
     /// so the descriptor is the one that goes.
     #[test]
     fn a_bigger_class_wins_against_a_smaller_one_under_it() {
+        // Protects: class order carries into culling: a continental name beats a landmark under it,
+        // and the suppression is counted on the landmark's row.
         let cands = vec![
             cand(LabelClass::Landmark, "Falls", 40.0, 40.0, 0.9),
             cand(LabelClass::Continental, "Ardenne", 40.0, 40.0, 9000.0),
@@ -2147,6 +2266,8 @@ mod tests {
     /// and is not the pass's to move; it only ever takes space away.
     #[test]
     fn a_hand_placed_label_is_never_culled_by_a_generated_one() {
+        // Protects: a hand-placed label is never culled or counted: it only reserves space, and the
+        // generated label yields to it.
         let mut hand = MapLabel::new(40.0, 40.0, "Author's own name");
         hand.class = LabelClass::Settlement;
         let reserved = vec![label_cull_rect(&hand, 0.06, &LabelCullMetrics::default())];
@@ -2162,6 +2283,7 @@ mod tests {
 
     #[test]
     fn a_reservation_is_ignored_entirely_when_culling_is_off() {
+        // Protects: reserved boxes have no effect when culling is off.
         let hand = MapLabel::new(40.0, 40.0, "Author's own name");
         let reserved = vec![label_cull_rect(&hand, 0.06, &LabelCullMetrics::default())];
         let cands = vec![cand(LabelClass::Continental, "Ardenne", 40.0, 40.0, 9000.0)];
@@ -2173,6 +2295,8 @@ mod tests {
     /// order must not reach the suppressed set either.
     #[test]
     fn the_suppressed_set_is_the_same_set_in_the_same_order_however_the_input_arrives() {
+        // Protects: the culled set and the drawn order do not depend on input order, even with
+        // many tied weights (the fixture is checked to collide).
         let cands: Vec<LabelCandidate> = (0..40)
             .map(|i| {
                 cand(
@@ -2202,6 +2326,8 @@ mod tests {
 
     #[test]
     fn a_rotated_hand_placed_box_reserves_the_space_it_actually_covers() {
+        // Protects: a hand-placed label turned 90 degrees reserves a rect with its sides swapped,
+        // so it culls a label the unrotated box would have missed.
         let mut flat = MapLabel::new(0.0, 0.0, "Long name here");
         flat.size = 20.0;
         let m = LabelCullMetrics::default();
@@ -2223,6 +2349,8 @@ mod tests {
     /// licence to delete a name.
     #[test]
     fn an_unmeasurable_box_overlaps_nothing_and_suppresses_nothing() {
+        // Protects: culling fails towards drawing: a NaN rect overlaps nothing, and a zero
+        // `zoom_base_px_per_cell` falls back to the shipped scale.
         let nan = LabelRect { cx: f64::NAN, cy: 0.0, w: 10.0, h: 10.0 };
         let real = LabelRect { cx: 0.0, cy: 0.0, w: 10.0, h: 10.0 };
         assert!(!nan.overlaps(&real));
@@ -2237,6 +2365,7 @@ mod tests {
 
     #[test]
     fn touching_edges_do_not_count_as_a_collision() {
+        // Protects: two rects that only share an edge do not overlap; 0.01 of overlap does.
         let a = LabelRect { cx: 0.0, cy: 0.0, w: 10.0, h: 4.0 };
         let b = LabelRect { cx: 10.0, cy: 0.0, w: 10.0, h: 4.0 };
         assert!(!a.overlaps(&b), "centres exactly one full width apart share an edge, not an area");
@@ -2270,6 +2399,8 @@ mod tests {
     #[test]
     #[ignore = "timing probe, not an assertion"]
     fn cull_timing_probe() {
+        // Protects: nothing: an `#[ignore]`d timing probe with no assertions, kept to record the
+        // culler's cost; its numbers are a record, not a contract.
         for n in [500usize, 2000, 5000, 12000] {
             let cands: Vec<LabelCandidate> = (0..n)
                 .map(|i| {
@@ -2304,6 +2435,8 @@ mod tests {
 
     #[test]
     fn two_lakes_touching_only_diagonally_are_two_lakes() {
+        // Protects: lake components are 4-connected: a diagonal touch is two lakes, largest first,
+        // with exact centroids.
         // A 3x3 block at (1,1) and a single cell at (4,4) -- diagonal from the
         // block's corner (3,3) is (4,4), so an 8-connected fill would merge
         // them. 4-connected must not.
@@ -2328,6 +2461,8 @@ mod tests {
     /// centroid exactly — the snap is for bodies that need it, not a rounding.
     #[test]
     fn a_crescent_lake_is_labelled_on_its_own_water_not_its_centroid() {
+        // Protects: a crescent lake's anchor snaps to the nearest lake cell when its centroid is on
+        // land, while a compact lake keeps its fractional centroid.
         let mut cells: Vec<(usize, usize)> = (1..=7).map(|x| (x, 1)).collect(); // the bar
         for y in 2..=6 {
             cells.push((1, y));
@@ -2346,6 +2481,8 @@ mod tests {
 
     #[test]
     fn a_pond_under_the_floor_gets_no_name() {
+        // Protects: bodies under `min_cells` get no name, and a `min_cells` of 0 is raised to 1
+        // rather than admitting an empty body.
         let w = water_grid(8, 8, &[(2, 2), (2, 3)]);
         assert!(lake_features(&w, 8, 8, 3).is_empty());
         assert_eq!(lake_features(&w, 8, 8, 2).len(), 1);
@@ -2359,6 +2496,7 @@ mod tests {
     /// where 24 comes from.
     #[test]
     fn the_lake_floor_is_the_stated_footprint() {
+        // Protects: `LAKE_LABEL_MIN_CELLS` is 24, 25 cells qualify and 23 do not.
         assert_eq!(LAKE_LABEL_MIN_CELLS, 24);
         let mut cells: Vec<(usize, usize)> = Vec::new();
         for y in 0..5 {
@@ -2375,6 +2513,8 @@ mod tests {
 
     #[test]
     fn lake_names_are_non_empty_unique_and_read_as_water() {
+        // Protects: lake names are non-empty, unique, read as water ("Lake X", "X Mere" or "X
+        // Water") and deterministic for the same grid.
         // Twelve separated single-cell lakes on a 16x16 grid.
         let cells: Vec<(usize, usize)> = (0..12).map(|i| (1 + (i % 4) * 4, 1 + (i / 4) * 4)).collect();
         let w = water_grid(16, 16, &cells);
@@ -2402,6 +2542,8 @@ mod tests {
     /// across streams.
     #[test]
     fn the_lake_naming_stream_does_not_start_where_the_other_two_do() {
+        // Protects: the lake name stream's first name differs from the continent and settlement
+        // streams', so one word is not said twice on the map.
         let mut seen = std::collections::BTreeSet::new();
         let lake = crate::naming::civ_settle_name_bounded(&mut civ_lake_name_rng(), 1, &mut seen);
         let mut seen2 = std::collections::BTreeSet::new();
@@ -2417,6 +2559,7 @@ mod tests {
     /// and nothing else here would notice.
     #[test]
     fn all_three_lake_forms_actually_occur() {
+        // Protects: all three lake name forms occur over 40 lakes, with "Lake X" the most common.
         let cells: Vec<(usize, usize)> = (0..40).map(|i| (1 + (i % 8) * 4, 1 + (i / 8) * 4)).collect();
         let w = water_grid(36, 36, &cells);
         let lakes = lake_features(&w, 36, 36, 1);
@@ -2439,12 +2582,14 @@ mod tests {
 
     #[test]
     fn lake_features_refuse_a_grid_that_does_not_match_its_own_dimensions() {
+        // Protects: a water grid whose length does not match gw * gh (or an empty grid) yields no lakes.
         assert!(lake_features(&[2, 2, 2], 8, 8, 1).is_empty());
         assert!(lake_features(&[], 0, 0, 1).is_empty());
     }
 
     #[test]
     fn ocean_is_not_a_lake() {
+        // Protects: ocean cells (classification 1) are never lake bodies; only code 2 counts.
         let mut w = vec![1u8; 64]; // all ocean
         w[9] = 2;
         let lakes = lake_features(&w, 8, 8, 1);
@@ -2454,6 +2599,7 @@ mod tests {
 
     // ---- label_candidates ----
 
+    /// A town named `name` at (x, y) with `pop`, faction 1, suitability 0.5, not coastal.
     fn settlement(name: &str, x: usize, y: usize, pop: u32) -> crate::NamedSettlement {
         crate::NamedSettlement {
             tid: 0,
@@ -2473,6 +2619,9 @@ mod tests {
 
     #[test]
     fn the_sweep_finds_one_candidate_per_named_feature() {
+        // Protects: `label_candidates` yields one candidate per named feature of every class
+        // (skipping a province with no seat), at the documented anchors, and the whole
+        // chain places all six.
         let settlements = vec![settlement("Aldar", 10, 20, 5000), settlement("Bryn", 30, 40, 900)];
         let continents = vec![crate::Continent {
             id: 1,
@@ -2552,6 +2701,8 @@ mod tests {
     /// centroid at cell 3, whose centre is 3.5.
     #[test]
     fn every_class_is_anchored_at_its_cell_centre() {
+        // Protects: all five classes anchor at the feature's cell centre (cell + a literal 0.5), so
+        // the offset constant cannot be dropped from any class unnoticed.
         let settlements = vec![settlement("Aldar", 10, 20, 5000)];
         let continents = vec![crate::Continent {
             id: 1,
@@ -2600,6 +2751,7 @@ mod tests {
 
     #[test]
     fn a_world_with_no_civilisation_layer_yields_nothing_and_does_not_panic() {
+        // Protects: an empty `LabelWorld` yields no candidates and no labels, without panicking.
         let cands = label_candidates(&LabelWorld::default());
         assert!(cands.is_empty());
         let g = generate_labels(&cands, &LabelGenSettings::default(), &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
@@ -2616,6 +2768,9 @@ mod tests {
     /// against terrain the engine actually generated.
     #[test]
     fn a_real_generated_world_yields_real_water_labels() {
+        // Protects: the label pass over a real generated world (not a fixture) finds real lake
+        // bodies: every lake cell lands in exactly one body, sorted largest first, and
+        // the Water class draws them all. Guards against silently-empty output.
         let (gw, gh) = (192, 192);
         let mut p = cartalith_engine::WorldParams::defaults(gw, gh, 7);
         p.world = false;
@@ -2651,6 +2806,7 @@ mod tests {
 
     #[test]
     fn an_unknown_landmark_kind_is_skipped_rather_than_labelled_with_its_key() {
+        // Protects: a landmark with an unknown kind is skipped, not labelled with its raw key.
         let landmarks = vec![crate::landmark::Landmark {
             id: 1,
             kind: "not_a_kind".to_string(),

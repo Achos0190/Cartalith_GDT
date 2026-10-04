@@ -8,10 +8,14 @@
 use super::*;
 use crate::{SettlementKind, SettlementPlacement};
 
+/// Test fixture: a nameless Town at (x, y) with population `pop`; see
+/// [`place_kind`] for the other fields.
 fn place(x: usize, y: usize, coastal: bool, pop: u32) -> NamedSettlement {
     place_kind(x, y, coastal, pop, SettlementKind::Town)
 }
 
+/// Test fixture: a nameless settlement of `kind` at (x, y), tid 0, faction 1,
+/// suitability 0.5, not a capital. Not a model of generated output.
 fn place_kind(x: usize, y: usize, coastal: bool, pop: u32, kind: SettlementKind) -> NamedSettlement {
     NamedSettlement {
         tid: 0,
@@ -21,14 +25,20 @@ fn place_kind(x: usize, y: usize, coastal: bool, pop: u32, kind: SettlementKind)
     }
 }
 
+/// Test fixture: a [`Navigability`] of `kind` with the placeholder basis
+/// `"test"`, for tests that set water access by hand.
 fn nav(kind: NavKind) -> Navigability {
     Navigability { kind, basis: "test" }
 }
 
+/// Test fixture: a [`TradeBalance`] with exactly these export and import keys.
 fn balance(exports: &[&'static str], imports: &[&'static str]) -> TradeBalance {
     TradeBalance { exports: exports.to_vec(), imports: imports.to_vec() }
 }
 
+/// Test fixture: a road joining settlement indices `a` and `b`, `km` long, with a
+/// two-point placeholder polyline and tid 0. Only the endpoints and length matter
+/// to trade.
 fn way(a: usize, b: usize, km: f64) -> Way {
     Way {
         tid: 0,
@@ -51,6 +61,8 @@ fn way(a: usize, b: usize, km: f64) -> Way {
 /// as something the reference never classified it as.
 #[test]
 fn every_resource_key_is_classified_bulk_or_luxury() {
+    // Protects: every resource key is in exactly one of the bulk and luxury tables, so
+    // none silently takes `_civGoodReach`'s middle branch.
     for &k in CIV_RESOURCE_KEYS.iter() {
         let bulk = BULK_GOODS.contains(&k);
         let lux = LUXURY_GOODS.contains(&k);
@@ -67,6 +79,8 @@ fn every_resource_key_is_classified_bulk_or_luxury() {
 /// would silently relabel every row.
 #[test]
 fn the_two_resource_vocabularies_still_coincide() {
+    // Protects: `RESOURCE_KEYS` and `CIV_RESOURCE_KEYS` stay identical, so labelling a
+    // good by index cannot silently relabel rows.
     assert_eq!(crate::RESOURCE_KEYS, CIV_RESOURCE_KEYS);
     assert_eq!(crate::RESOURCE_NAMES.len(), CIV_RESOURCE_KEYS.len());
 }
@@ -74,6 +88,8 @@ fn the_two_resource_vocabularies_still_coincide() {
 /// `_civGoodReach`'s four branches, in its own order.
 #[test]
 fn good_reach_matches_the_reference_branches() {
+    // Protects: `good_reach` follows `_civGoodReach`: luxuries long everywhere, bulk
+    // long/regional/local by sea/river/other water.
     // luxury: anywhere, whatever the water
     assert_eq!(good_reach("gold", nav(NavKind::None)), Reach::Long);
     assert_eq!(good_reach("gems", nav(NavKind::Sea)), Reach::Long);
@@ -91,6 +107,8 @@ fn good_reach_matches_the_reference_branches() {
 /// an inland town trade overland, which is the whole point of the function.
 #[test]
 fn trade_mode_is_the_cheaper_of_what_both_ends_have() {
+    // Protects: `trade_mode` is the cheapest mode both ends share, so a port and an
+    // inland town trade overland.
     assert_eq!(trade_mode(nav(NavKind::Sea), nav(NavKind::Sea)), TradeMode::Sea);
     assert_eq!(trade_mode(nav(NavKind::Sea), nav(NavKind::River)), TradeMode::River);
     assert_eq!(trade_mode(nav(NavKind::River), nav(NavKind::River)), TradeMode::River);
@@ -104,6 +122,8 @@ fn trade_mode_is_the_cheaper_of_what_both_ends_have() {
 /// moves a value this test pins.
 #[test]
 fn deliverable_halves_at_the_doubling_distance_and_cliffs_at_the_reach() {
+    // Protects: `deliverable` is 1 at 0 km, 0.5 at each mode's doubling distance, and 0
+    // just past each mode's reach (mutation-checks the six literals).
     for (i, mode) in [TradeMode::Land, TradeMode::River, TradeMode::Sea].iter().enumerate() {
         assert_eq!(deliverable(0.0, *mode), 1.0);
         let half = deliverable(DOUBLE_KM[i], *mode);
@@ -121,6 +141,8 @@ fn deliverable_halves_at_the_doubling_distance_and_cliffs_at_the_reach() {
 /// The `!(distKm>=0)` guard, kept in its negated form for NaN.
 #[test]
 fn deliverable_absorbs_nan_the_way_js_does() {
+    // Protects: a NaN or negative distance gives deliverable 0 (the negated
+    // `!(distKm>=0)` guard).
     assert_eq!(deliverable(f64::NAN, TradeMode::Land), 0.0);
     assert_eq!(deliverable(-1.0, TradeMode::Sea), 0.0);
 }
@@ -129,6 +151,8 @@ fn deliverable_absorbs_nan_the_way_js_does() {
 /// inside the local radius no road is needed at all.
 #[test]
 fn connectivity_is_local_radius_then_water_then_road() {
+    // Protects: `connected` follows `_civFoodConnected`: inside the local radius with no
+    // road, shared water, or a road component past it.
     let ways = vec![way(0, 1, 40.0)];
     let mut rc = RoadComponents::build(3, &ways);
     // 0-1 share a way; 2 is isolated
@@ -149,6 +173,8 @@ fn connectivity_is_local_radius_then_water_then_road() {
 /// A-B and B-C means A can be supplied from C.
 #[test]
 fn road_components_are_transitive() {
+    // Protects: road components are transitive: A-B and B-C connect A to C, and a
+    // separate component stays separate.
     let ways = vec![way(0, 1, 10.0), way(1, 2, 10.0), way(3, 4, 10.0)];
     let mut rc = RoadComponents::build(5, &ways);
     assert!(rc.connected(0, 2));
@@ -161,6 +187,8 @@ fn road_components_are_transitive() {
 /// required to guarantee either.
 #[test]
 fn road_components_ignore_degenerate_ways() {
+    // Protects: a way with equal or out-of-range endpoints merges nothing and does not
+    // panic.
     let ways = vec![way(1, 1, 5.0), way(0, 99, 5.0)];
     let mut rc = RoadComponents::build(3, &ways);
     assert!(!rc.connected(0, 1));
@@ -169,6 +197,8 @@ fn road_components_ignore_degenerate_ways() {
 
 // ------------------------------------------------------- the allocation rule
 
+/// Test fixture: the `(field, flow)` rasters of a 16 x 16 all-land world with no
+/// rivers, so every settlement reads landlocked and only `coastal` sets water access.
 fn tiny_world() -> (Vec<f32>, Vec<f32>) {
     // 16x16, all land, no rivers -- so every settlement reads `landlocked`
     // and navigability comes from `coastal` alone, which is what lets these
@@ -176,6 +206,8 @@ fn tiny_world() -> (Vec<f32>, Vec<f32>) {
     (vec![1.0; 256], vec![0.0; 256])
 }
 
+/// Runs [`trade_flows`] on the [`tiny_world`] with no tariffs. Never mutates its
+/// inputs; exists so a test states only the settlements, balances and ways.
 fn run(
     settlements: &[NamedSettlement],
     balances: &[TradeBalance],
@@ -185,6 +217,9 @@ fn run(
     run_t(settlements, balances, ways, map_width_km, &[])
 }
 
+/// [`run`] with a tariff table: builds the 16 x 16 [`UrbanWorld`] (sea level
+/// 0.42, flow threshold 1.0, world seed 1; all test-local choices, not reference
+/// constants) and calls [`trade_flows`].
 fn run_t(
     settlements: &[NamedSettlement],
     balances: &[TradeBalance],
@@ -215,6 +250,8 @@ fn run_t(
 /// surplus, a deficit, and a road between them.
 #[test]
 fn a_surplus_and_a_deficit_on_one_road_is_a_flow() {
+    // Protects: one exporter, one importer and a road give exactly one flow with the
+    // expected mode, reach, distance and volume, and the road carries it.
     let s = vec![place(0, 0, false, 1000), place(4, 0, false, 500)];
     let b = vec![balance(&["iron"], &[]), balance(&[], &["iron"])];
     let ways = vec![way(0, 1, 40.0)];
@@ -238,6 +275,8 @@ fn a_surplus_and_a_deficit_on_one_road_is_a_flow() {
 /// producer does not get its whole demand.
 #[test]
 fn one_consumer_never_draws_a_suppliers_whole_surplus() {
+    // Protects: the `SUPPLIER_SHARE` cap binds: a large consumer beside a small producer
+    // does not get its whole demand.
     let s = vec![place(0, 0, false, 100), place(1, 0, false, 10_000)];
     let b = vec![balance(&["iron"], &[]), balance(&[], &["iron"])];
     let net = run(&s, &b, &[], 160.0);
@@ -258,6 +297,9 @@ fn one_consumer_never_draws_a_suppliers_whole_surplus() {
 /// merely decayed. That refusal is what the test below this one checks.
 #[test]
 fn demand_splits_across_suppliers_by_deliverability() {
+    // Protects: two reachable suppliers split one demand in exactly the ratio of their
+    // deliverable fractions, the nearer getting more, and uncapped flows cover the
+    // whole demand.
     // 10 km/cell. Importer at x=8; suppliers at x=7 (10 km) and x=4 (40 km).
     let s = vec![
         place(7, 0, false, 100_000),
@@ -290,6 +332,8 @@ fn demand_splits_across_suppliers_by_deliverability() {
 /// either side of it.
 #[test]
 fn reach_refuses_a_bulk_good_the_decay_curve_would_still_have_carried() {
+    // Protects: the reach gate refuses a landlocked bulk good beyond the local radius even
+    // though the decay curve alone would carry it, and the same pair trades by sea.
     assert!(deliverable(80.0, TradeMode::Land) > 0.7, "the curve alone would allow it");
     let s = vec![place(0, 0, false, 100_000), place(8, 0, false, 1000)];
     let b = vec![balance(&["iron"], &[]), balance(&[], &["iron"])];
@@ -310,6 +354,8 @@ fn reach_refuses_a_bulk_good_the_decay_curve_would_still_have_carried() {
 /// silent zero — the reference's own `foodUnsupported` distinction.
 #[test]
 fn an_unreachable_exporter_leaves_an_unmet_need() {
+    // Protects: an exporter out of reach leaves an unmet need flagged
+    // `exporter_exists`, not a silent zero.
     // 15 cells apart at 20 km/cell = 300 km: past the land cliff (220 km),
     // and with no road, so `_civFoodConnected` refuses it too.
     let s = vec![place(0, 0, false, 1000), place(15, 0, false, 1000)];
@@ -327,6 +373,8 @@ fn an_unreachable_exporter_leaves_an_unmet_need() {
 /// wired to the ported navigability.
 #[test]
 fn the_same_pair_trades_once_both_ends_are_ports() {
+    // Protects: the same distant pair trades by sea once both ends are coastal, loading
+    // no way.
     let s = vec![place(0, 0, true, 1000), place(15, 0, true, 1000)];
     let b = vec![balance(&["iron"], &[]), balance(&[], &["iron"])];
     let net = run(&s, &b, &[], 320.0);
@@ -342,6 +390,7 @@ fn the_same_pair_trades_once_both_ends_are_ports() {
 /// nothing it is.
 #[test]
 fn a_good_nobody_exports_is_unmet_with_the_flag_down() {
+    // Protects: a good nobody exports is unmet with `exporter_exists` false.
     let s = vec![place(0, 0, false, 1000), place(1, 0, false, 1000)];
     let b = vec![balance(&[], &["salt"]), balance(&[], &["salt"])];
     let net = run(&s, &b, &[], 160.0);
@@ -353,6 +402,8 @@ fn a_good_nobody_exports_is_unmet_with_the_flag_down() {
 /// a two-hop path loads both hops and leaves the unrelated way alone.
 #[test]
 fn a_flow_loads_every_way_on_its_shortest_path() {
+    // Protects: a flow loads each way on its shortest path and leaves an unrelated way
+    // at zero.
     let s = vec![
         place(0, 0, false, 1000),
         place(2, 0, false, 1000),
@@ -378,6 +429,8 @@ fn a_flow_loads_every_way_on_its_shortest_path() {
 /// tally names what is routed over it and sums to its load (2026-09-24).
 #[test]
 fn way_goods_sum_to_way_load_and_name_what_moves() {
+    // Protects: each way's per-good tally sums to its load and names the goods routed
+    // over it (Ruling AF's caravan view, Ruling AP).
     let s = vec![
         place(0, 0, false, 1000),
         place(2, 0, false, 1000),
@@ -411,6 +464,8 @@ fn way_goods_sum_to_way_load_and_name_what_moves() {
 /// being quietly worked around.
 #[test]
 fn a_good_that_can_never_be_an_import_produces_no_flow() {
+    // Protects: a good that can never be an import (such as gold) produces no flow and no
+    // unmet need.
     let s = vec![place(0, 0, false, 1000), place(1, 0, false, 1000)];
     // `gold` is exportable and never importable, so no importer list exists
     let b = vec![balance(&["gold"], &[]), balance(&["gold"], &[])];
@@ -423,6 +478,8 @@ fn a_good_that_can_never_be_an_import_produces_no_flow() {
 /// and nothing is order-dependent past the settlement order itself.
 #[test]
 fn the_match_is_deterministic() {
+    // Protects: two runs on the same input give identical flows, unmet needs and way
+    // loads, and the fixture is non-empty so the check reaches the code.
     let s = vec![
         place(0, 0, false, 1200),
         place(3, 2, false, 900),
@@ -448,6 +505,7 @@ fn the_match_is_deterministic() {
 /// — this runs behind a user-pressed button on whatever state the app is in.
 #[test]
 fn degenerate_inputs_are_empty_not_a_panic() {
+    // Protects: empty or mismatched inputs return the default network, never a panic.
     assert_eq!(run(&[], &[], &[], 800.0), TradeNetwork::default());
     let s = vec![place(0, 0, false, 100)];
     assert_eq!(run(&s, &[], &[], 800.0), TradeNetwork::default());
@@ -464,6 +522,8 @@ fn degenerate_inputs_are_empty_not_a_panic() {
 // place of a Node-harness extraction, and it applies here for the same
 // reasons.
 
+/// Test fixture: a no-water [`Navigability`] (`NavKind::None`), so trade mode
+/// and reach are decided by roads alone.
 fn landlocked_nav() -> Navigability {
     Navigability { kind: NavKind::None, basis: "test" }
 }
@@ -536,6 +596,8 @@ fn whole_grid_is_one_catchment(pop: u32, fpu: f64) -> CatchmentFixture {
 /// rather than a sign check.
 #[test]
 fn food_shed_local_capacity_closed_form_when_hinterland_and_import_are_both_zero() {
+    // Protects: local capacity equals 25 000/9 in closed form with zero hinterland and
+    // import, and `sustainable` and `over_by` follow on either side of it.
     let nav = [landlocked_nav()];
     let expect_local = 25_000.0 / 9.0;
 
@@ -572,6 +634,8 @@ fn food_shed_local_capacity_closed_form_when_hinterland_and_import_are_both_zero
 /// `roster.rs`'s own module doc used to say no such route was ported.
 #[test]
 fn food_shed_ag_tech_genuinely_changes_local_capacity() {
+    // Protects: a lower farmers-per-urbanite (improved agriculture) raises local capacity
+    // more than fourfold on the same grid, so ag-tech reaches the trade layer.
     let nav = [landlocked_nav()];
 
     let (s9, fpu9, dens9, soil9, field9) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
@@ -604,6 +668,8 @@ fn food_shed_ag_tech_genuinely_changes_local_capacity() {
 /// is only ever called here, not recomputed).
 #[test]
 fn food_shed_hinterland_counts_exactly_the_four_orthogonal_neighbours_at_the_reach_cliff() {
+    // Protects: the hinterland sweep counts exactly the four orthogonal neighbours at the
+    // reach cliff and never visits cells outside the 3 x 3 block.
     let gw = 5;
     let cell_km = 220.0; // == MAX_REACH_KM[Land]
     let map_width_km = cell_km * gw as f64;
@@ -647,6 +713,8 @@ fn food_shed_hinterland_counts_exactly_the_four_orthogonal_neighbours_at_the_rea
 /// neighbour with real catchment capacity shows up as real import capacity.
 #[test]
 fn food_shed_import_draws_from_a_nearby_zero_pop_neighbour_with_no_road_needed() {
+    // Protects: a neighbour within the local radius supplies import capacity with no road
+    // needed.
     let gw = 3;
     let field = vec![0.6f32; gw * gw];
     let dens = vec![10.0f32; gw * gw];
@@ -669,6 +737,8 @@ fn food_shed_import_draws_from_a_nearby_zero_pop_neighbour_with_no_road_needed()
 /// above but through `civ_food_shed` rather than `connected` directly.
 #[test]
 fn food_shed_import_is_refused_without_connectivity_even_with_real_spare_capacity() {
+    // Protects: a neighbour past the local radius with no road contributes nothing, through
+    // `civ_food_shed` rather than `connected` directly.
     let gw = 15;
     let field = vec![0.6f32; gw * gw];
     let dens = vec![10.0f32; gw * gw];
@@ -693,6 +763,8 @@ fn food_shed_import_is_refused_without_connectivity_even_with_real_spare_capacit
 /// not just at `food_surplus_ratio` in isolation.
 #[test]
 fn food_shed_nan_farmers_per_urbanite_yields_zero_local_capacity_not_nan() {
+    // Protects: a NaN farmers-per-urbanite gives zero local capacity and a finite
+    // `supported`, not a NaN surplus.
     let nav = [landlocked_nav()];
     let (s, _, dens, soil, field) = whole_grid_is_one_catchment(1000, 0.0);
     let fpu = [f64::NAN];
@@ -707,6 +779,8 @@ fn food_shed_nan_farmers_per_urbanite_yields_zero_local_capacity_not_nan() {
 /// uniform `0.5` everywhere, matching a world with real `0.5` soil exactly.
 #[test]
 fn food_shed_missing_soil_defaults_to_one_half_everywhere() {
+    // Protects: an empty soil slice reads as uniform 0.5 soil, identical to a world with
+    // real 0.5 soil.
     let nav = [landlocked_nav()];
     let (s, fpu, dens, soil, field) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
     let with_soil = {
@@ -728,6 +802,8 @@ fn food_shed_missing_soil_defaults_to_one_half_everywhere() {
 /// guard rather than panicking.
 #[test]
 fn food_shed_out_of_range_index_returns_the_default() {
+    // Protects: a settlement index past the slice returns `FoodShed::default()`, not a
+    // panic.
     let nav = [landlocked_nav()];
     let (s, fpu, dens, soil, field) = whole_grid_is_one_catchment(1000, FARMERS_PER_URBANITE);
     let input = shed_input(&s, &nav, &fpu, &dens, &soil, &field, 5, 5, 25.0);
@@ -741,6 +817,8 @@ fn food_shed_out_of_range_index_returns_the_default() {
 /// (not an assumed decimal), since `1.0001` is not exactly representable.
 #[test]
 fn food_shed_sustainable_flag_honours_the_reference_slack() {
+    // Protects: `sustainable` allows the reference's 0.01 percent slack (`supported*1.0001`)
+    // and fails just past it.
     let nav = [landlocked_nav()];
     let supported = 12_500.0; // whole_grid_is_one_catchment @ fpu=1.0, from the closed-form test above
     let boundary = supported * 1.0001;
@@ -764,6 +842,8 @@ fn food_shed_sustainable_flag_honours_the_reference_slack() {
 // not reach -- every test below was written to kill a named survivor, and
 // says which.
 
+/// Test fixture: [`ResourcePotentials`] over `n` cells with all fifteen resource
+/// fields zero, for a test to raise only the one it is about.
 fn zero_pots(n: usize) -> ResourcePotentials {
     let z = || vec![0.0f32; n];
     ResourcePotentials {
@@ -812,6 +892,8 @@ fn uniform_smelt(iron: f32, timber: f32, sea: f64, height: f32) -> Smelting {
 /// counts -- a boundary no generated fixture lands on.
 #[test]
 fn smelting_counts_a_cell_exactly_at_sea_level() {
+    // Protects: a cell exactly at sea level counts as land for smelting (kills
+    // `ocean < sea -> <= sea`), and one just below does not.
     let at = uniform_smelt(1.0, 0.0, 0.5, 0.5);
     assert!(at.ore_kg_yr > 0.0, "a cell at exactly sea level must count as land");
     let below = uniform_smelt(1.0, 0.0, 0.5, 0.499);
@@ -829,6 +911,8 @@ fn smelting_counts_a_cell_exactly_at_sea_level() {
 /// mutants would have moved the thresholds into.
 #[test]
 fn fuel_poor_and_ore_rich_brackets_are_the_reference_multiples() {
+    // Protects: the fuel-poor (0.5) and ore-rich (2.0) thresholds, bracketed from each
+    // side (kills 0.5 -> 0.6 and 2.0 -> 1.9).
     let ratio = |iron: f32, timber: f32| {
         let s = uniform_smelt(iron, timber, 0.42, 1.0);
         let from_fuel = s.charcoal_kg_yr / CHARCOAL_PER_IRON_KG;
@@ -859,6 +943,8 @@ fn fuel_poor_and_ore_rich_brackets_are_the_reference_multiples() {
 /// reporting the other budget as the answer.
 #[test]
 fn smelting_propagates_nan_the_way_math_min_does() {
+    // Protects: a NaN ore cell leaves `iron_kg_yr` NaN as `Math.min` would, rather than
+    // reporting the fuel budget as the answer.
     let mut res = zero_pots(9);
     res.iron = vec![f32::NAN; 9];
     res.timber = vec![1.0; 9];
@@ -884,6 +970,8 @@ fn smelting_propagates_nan_the_way_math_min_does() {
 /// number: no woodland at all is maximally fuel-poor, not an error.
 #[test]
 fn smelting_absent_fields_match_the_reference_guards() {
+    // Protects: the reference's early-outs for missing field or iron, and its
+    // `if(pots.timber)` guard, which makes no woodland maximally fuel-poor.
     let res = zero_pots(9);
     let field = vec![1.0f32; 9];
     let world = |res: &ResourcePotentials, field: &[f32]| civ_place_smelting(
@@ -922,6 +1010,8 @@ fn smelting_absent_fields_match_the_reference_guards() {
 /// 0.25 is not a deposit).
 #[test]
 fn salt_deposit_threshold_is_strictly_above_one_quarter() {
+    // Protects: a salt deposit needs a mean strictly above 0.25 (0.25 itself is not one;
+    // kills `.25 -> .20`).
     let verdict = |salt: f32| {
         let n = 81;
         let mut res = zero_pots(n);
@@ -952,6 +1042,8 @@ fn salt_deposit_threshold_is_strictly_above_one_quarter() {
 /// 9/49 = 0.184 at radius 4 (not one), so the verdict names the radius.
 #[test]
 fn salt_deposit_window_is_the_resource_contexts_own_default_radius() {
+    // Protects: the salt window is `_civPlaceResourceContext`'s own default radius (3 on
+    // this grid), not the catchment radius (kills `/128 -> /8`).
     let (gw, gh) = (32usize, 32usize);
     let n = gw * gh;
     let mut res = zero_pots(n);
@@ -988,6 +1080,8 @@ fn salt_deposit_window_is_the_resource_contexts_own_default_radius() {
 /// show.
 #[test]
 fn salt_lake_cell_is_clamped_while_the_deposit_window_is_not() {
+    // Protects: an out-of-range position clamps to the corner cell for the salt-lake test
+    // while its deposit window stays empty (kills the removed clamp).
     let (gw, gh) = (8usize, 8usize);
     let n = gw * gh;
     let mut res = zero_pots(n);
@@ -1019,6 +1113,8 @@ fn salt_lake_cell_is_clamped_while_the_deposit_window_is_not() {
 /// deposit under it still reports `sea salt`.
 #[test]
 fn salt_branch_order_is_sea_then_deposit_then_lake() {
+    // Protects: salt branches fire in the order sea, deposit, lake, the first match
+    // winning.
     let n = 81;
     let mut res = zero_pots(n);
     res.salt = vec![1.0f32; n];
@@ -1054,12 +1150,15 @@ fn salt_branch_order_is_sea_then_deposit_then_lake() {
 
 use std::collections::HashMap;
 
+/// Test fixture: a world- or place-mean map built from `(resource key, mean)`
+/// pairs.
 fn wm(pairs: &[(&'static str, f64)]) -> HashMap<&'static str, f64> {
     pairs.iter().copied().collect()
 }
 
 #[test]
 fn archetype_empty_mean_returns_none_before_any_branch_runs() {
+    // Protects: an empty place mean returns `None` before even the specialisation check.
     // The reference's `if(!rc||!rc.mean) return null;` fires before even the
     // specialisation check -- an empty `mean` must short-circuit past a
     // `specialisation` that would otherwise have matched.
@@ -1070,6 +1169,8 @@ fn archetype_empty_mean_returns_none_before_any_branch_runs() {
 
 #[test]
 fn archetype_bog_iron_needs_both_iron_richness_and_wet() {
+    // Protects: bog iron needs both iron richness (1.8 times the world mean) and wet
+    // conditions.
     let mean = wm(&[("iron", 0.19)]);
     let world_mean = wm(&[("iron", 0.10)]); // threshold = 0.10*1.8 = 0.18
     assert_eq!(
@@ -1086,6 +1187,8 @@ fn archetype_bog_iron_needs_both_iron_richness_and_wet() {
 
 #[test]
 fn archetype_priority_order_is_most_specific_first() {
+    // Protects: when two archetypes both match, the earlier one in the reference's order
+    // wins.
     // bog_iron and bronze_hub are both satisfiable at once; bog_iron is
     // listed first and must win.
     let mean = wm(&[("iron", 1.0), ("tin", 1.0), ("copper", 1.0)]);
@@ -1095,6 +1198,8 @@ fn archetype_priority_order_is_most_specific_first() {
 
 #[test]
 fn archetype_without_a_world_mean_falls_back_to_the_absolute_quarter() {
+    // Protects: with no world mean the richness threshold falls back to the absolute 0.25
+    // floor.
     let world_mean = HashMap::new();
     assert_eq!(
         civ_place_archetype(&wm(&[("obsidian", 0.30)]), &world_mean, 0.0, 0.9, None),
@@ -1110,6 +1215,8 @@ fn archetype_without_a_world_mean_falls_back_to_the_absolute_quarter() {
 
 #[test]
 fn archetype_pastoral_specialisation_only_fires_with_no_richer_match_ahead_of_it() {
+    // Protects: a pastoral specialisation yields the pastoral archetype only after the
+    // earlier branches miss, and the specialisation `none` is not one.
     // Non-empty but irrelevant to every earlier branch, so only the
     // specialisation check can fire.
     let mean = wm(&[("dummy", 0.0)]);
@@ -1127,6 +1234,8 @@ fn archetype_pastoral_specialisation_only_fires_with_no_richer_match_ahead_of_it
 
 #[test]
 fn archetype_arid_salt_needs_both_salt_richness_and_aridity() {
+    // Protects: arid salt needs both salt richness (1.6 times the world mean) and
+    // aridity.
     let mean = wm(&[("salt", 1.0)]);
     let world_mean = wm(&[("salt", 0.1)]); // threshold = 0.1*1.6 = 0.16
     assert_eq!(civ_place_archetype(&mean, &world_mean, 0.0, 0.20, None), Some("arid_salt"));
@@ -1149,6 +1258,8 @@ struct PastoralFixture {
 }
 
 impl PastoralFixture {
+    /// All-land 3 x 3 defaults: k 0, water 0.9, rain 0.9, field 1.0, and biome 7
+    /// (grass, open and non-forested).
     fn new() -> Self {
         PastoralFixture {
             k: vec![0.0; 9],
@@ -1158,6 +1269,8 @@ impl PastoralFixture {
             field: vec![1.0; 9],
         }
     }
+    /// Runs [`civ_place_pastoral_balance`] for a Village at (1, 1) on this 3 x 3
+    /// world (sea level 0.42, map width 800 km).
     fn run(&self) -> PastoralBalance {
         civ_place_pastoral_balance(
             &self.k, &self.water, &self.biome, &self.rain, &self.field, 1, 1,
@@ -1168,6 +1281,8 @@ impl PastoralFixture {
 
 #[test]
 fn pastoral_balance_forested_open_land_is_not_pasture() {
+    // Protects: mode-1 cells under forest do not count as pasture, while the same cells
+    // on open land do.
     let mut fx = PastoralFixture::new();
     // k=0.15 is mode 1 (pastoral-eligible) everywhere in the disc: below the
     // 0.28 crop floor, at or above the 0.10 pasture floor.
@@ -1185,6 +1300,8 @@ fn pastoral_balance_forested_open_land_is_not_pasture() {
 
 #[test]
 fn pastoral_balance_manure_uplift_and_competition_match_the_formula() {
+    // Protects: the manure uplift and crop-competition values match the formula, pinned to
+    // the reference's literals (0.35 and 0.45) rather than to the constants.
     let mut fx = PastoralFixture::new();
     // The 3x3 "+"-disc around (1,1) is indices {1,3,4,5,7}. Two crop cells
     // (mode 3), two pasture cells (mode 1, open), one neither (desert,
@@ -1212,6 +1329,8 @@ fn pastoral_balance_manure_uplift_and_competition_match_the_formula() {
 
 #[test]
 fn pastoral_balance_degenerate_inputs_return_the_default_not_a_panic() {
+    // Protects: a mismatched `k` length or an all-ocean disc returns
+    // `PastoralBalance::default()`, not a panic.
     let fx = PastoralFixture::new();
     // Mismatched `k` length -- the reference's own `if(!K) return out;`.
     let short_k = civ_place_pastoral_balance(
@@ -1243,6 +1362,8 @@ struct TradeFixture {
 }
 
 impl TradeFixture {
+    /// A 9 x 9 all-land world: zero resources, field 1.0, grass biome, rain 0.5,
+    /// k 0, water 0.5, no flood. Test-local defaults, not reference values.
     fn new() -> Self {
         let n = 81;
         TradeFixture {
@@ -1255,6 +1376,8 @@ impl TradeFixture {
             flood: vec![0.0; n],
         }
     }
+    /// Borrows this fixture as the 9 x 9 [`PlaceWorld`] (sea level 0.42, map width
+    /// 800 km) the place-trade functions take.
     fn world(&self) -> PlaceWorld<'_> {
         PlaceWorld {
             res: &self.res,
@@ -1269,6 +1392,9 @@ impl TradeFixture {
     }
 }
 
+/// Runs [`civ_place_trade`] for a Village at (4, 4) of the [`TradeFixture`] with
+/// the given specialisation, world mean, food, smelting and salt verdicts and
+/// navigability. Exists so each test names only what it varies.
 #[allow(clippy::too_many_arguments)]
 fn run_trade(
     fx: &TradeFixture,
@@ -1286,12 +1412,16 @@ fn run_trade(
     )
 }
 
+/// Test fixture: an all-zero [`FoodSurplus`] that still reads as a surplus, so
+/// food neither adds an import nor blocks a specialisation's implied one.
 fn no_food() -> FoodSurplus {
     FoodSurplus { ceiling: 0.0, sustainable: 0.0, actual: 0.0, net: 0.0, surplus: true }
 }
 
 #[test]
 fn place_trade_specialisation_exports_its_good_and_implies_a_food_import() {
+    // Protects: a specialisation exports its good and implies a food import, and the
+    // hinterland basis does not fire without a world mean.
     let fx = TradeFixture::new();
     let out = run_trade(
         &fx, Some("mining"), &HashMap::new(), no_food(), FoodShed::default(), Smelting::default(),
@@ -1305,6 +1435,8 @@ fn place_trade_specialisation_exports_its_good_and_implies_a_food_import() {
 
 #[test]
 fn place_trade_food_surplus_overrides_the_specialisation_food_need() {
+    // Protects: a genuine food surplus clears the specialisation's inferred food import
+    // and exports food.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 100.0, sustainable: 80.0, actual: 30.0, net: 50.0, surplus: true };
     let out = run_trade(
@@ -1318,6 +1450,8 @@ fn place_trade_food_surplus_overrides_the_specialisation_food_need() {
 
 #[test]
 fn place_trade_food_deficit_with_no_reachable_supply_is_unsupported_not_an_import() {
+    // Protects: a food deficit with no viable supply actively removes the inferred food
+    // import and sets `food_unsupported`.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 140.0, net: -100.0, surplus: false };
     let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 4.0, ..FoodShed::default() };
@@ -1335,6 +1469,7 @@ fn place_trade_food_deficit_with_no_reachable_supply_is_unsupported_not_an_impor
 
 #[test]
 fn place_trade_food_deficit_within_reach_is_a_real_import() {
+    // Protects: a food deficit within reach is a real food import, not unsupported.
     let fx = TradeFixture::new();
     let food = FoodSurplus { ceiling: 50.0, sustainable: 40.0, actual: 50.0, net: -10.0, surplus: false };
     let shed = FoodShed { import_capacity: 6.0, hinterland_capacity: 6.0, ..FoodShed::default() };
@@ -1349,6 +1484,7 @@ fn place_trade_food_deficit_within_reach_is_a_real_import() {
 
 #[test]
 fn place_trade_fuel_poor_smelting_pulls_iron_back_out_of_exports() {
+    // Protects: fuel-poor smelting removes iron from exports and adds a charcoal import.
     let mut fx = TradeFixture::new();
     fx.res.iron = vec![0.5; 81]; // uniform -> the windowed mean is ~0.5 too
     let world_mean = wm(&[("iron", 0.1)]); // ratio 5 > 1.35 -> hinterland export
@@ -1364,6 +1500,7 @@ fn place_trade_fuel_poor_smelting_pulls_iron_back_out_of_exports() {
 
 #[test]
 fn place_trade_salt_access_clears_the_inferred_import_and_records_its_source() {
+    // Protects: a settlement with salt access never imports salt and records the source.
     let mut fx = TradeFixture::new();
     fx.res.salt = vec![0.01; 81]; // scarce here
     let world_mean = wm(&[("salt", 0.5)]); // ratio 0.02 < 0.65 -> hinterland import
@@ -1378,6 +1515,8 @@ fn place_trade_salt_access_clears_the_inferred_import_and_records_its_source() {
 
 #[test]
 fn place_trade_checklist_husbandry_reads_specialisation_and_timber_not_its_own_empty_list() {
+    // Protects: the husbandry checklist item reads specialisation and timber scarcity,
+    // not its own (empty) resource list.
     let mut fx = TradeFixture::new();
     fx.res.timber = vec![0.9; 81]; // plenty of timber -- would read "met" on a naive test
     let out = run_trade(
@@ -1398,6 +1537,8 @@ fn place_trade_checklist_husbandry_reads_specialisation_and_timber_not_its_own_e
 
 #[test]
 fn place_trade_checklist_fibre_reads_pastoral_shares_not_alum() {
+    // Protects: the fibre checklist item follows pasture share, not the alum resource
+    // field.
     let mut fx = TradeFixture::new();
     // Zero alum everywhere -- a resources-only test would call this unmet.
     // k=0.15 in the pastoral catchment disc is mode 1 on open (grass) land,
@@ -1414,6 +1555,8 @@ fn place_trade_checklist_fibre_reads_pastoral_shares_not_alum() {
 
 #[test]
 fn place_trade_isolated_flag_follows_reach_not_export_count() {
+    // Protects: `trade_isolated` follows reach: a bulk export with no navigable water is
+    // isolated, and the same export from a sea port is not.
     let mut fx = TradeFixture::new();
     fx.res.timber = vec![0.9; 81];
     let world_mean = wm(&[("timber", 0.1)]); // ratio 9 > 1.35 -> hinterland export
@@ -1514,6 +1657,8 @@ const PRE_PRICING_DIGEST: u64 = 0x1556_7c7d_f335_b4f9;
 /// the single-faction, no-tariff answer.
 #[test]
 fn parity_one_faction_no_tariff_is_bit_identical_to_the_pre_pricing_match() {
+    // Protects: Ruling AE open question 3: with one faction and no tariff the match is
+    // bit-identical to the recorded pre-pricing digest (a literal, not a recomputation).
     let (s, b, w) = parity_fixture(false);
     let net = run(&s, &b, &w, 800.0);
     assert_eq!((net.flows.len(), net.unmet.len()), (567, 45), "fixture must stay busy");
@@ -1525,6 +1670,8 @@ fn parity_one_faction_no_tariff_is_bit_identical_to_the_pre_pricing_match() {
 /// faction membership alone must change nothing.
 #[test]
 fn parity_many_factions_no_tariff_is_bit_identical_too() {
+    // Protects: five factions with no tariff rows still give the pre-pricing digest, and
+    // the fixture really crosses factions.
     let (s, b, w) = parity_fixture(true);
     let net = run(&s, &b, &w, 800.0);
     assert_eq!(parity_digest(&net), PRE_PRICING_DIGEST);
@@ -1535,6 +1682,7 @@ fn parity_many_factions_no_tariff_is_bit_identical_too() {
 /// A zero-rate row is the same as no row — the natural default of Ruling AE.
 #[test]
 fn a_zero_rate_tariff_row_changes_nothing() {
+    // Protects: a zero-rate tariff row is the same as no row.
     let (s, b, w) = parity_fixture(true);
     let t = [Tariff { importer: 2, exporter: 3, rate: 0.0 }];
     assert_eq!(parity_digest(&run_t(&s, &b, &w, 800.0, &t)), PRE_PRICING_DIGEST);
@@ -1544,6 +1692,8 @@ fn a_zero_rate_tariff_row_changes_nothing() {
 
 #[test]
 fn scarcity_price_literals() {
+    // Protects: `scarcity_price` literals: 1 when balanced, 1.5 and 0.5 at 3:1, 0 (not NaN)
+    // with no market, and approaching 2 from below at extreme scarcity.
     assert_eq!(scarcity_price(100.0, 100.0), 1.0, "balanced market is 1");
     assert_eq!(scarcity_price(300.0, 100.0), 1.5);
     assert_eq!(scarcity_price(100.0, 300.0), 0.5);
@@ -1557,6 +1707,8 @@ fn scarcity_price_literals() {
 /// exporter of 1000 is D = 1000, S = 0.6 · 1000 = 600, price = 2000/1600.
 #[test]
 fn flows_carry_the_goods_scarcity_price() {
+    // Protects: each flow carries its good's scarcity price, computed from population-weighted
+    // demand and supply.
     let s = vec![place(0, 0, false, 1000), place(1, 0, false, 1000), place(2, 0, false, 1000)];
     // iron: one exporter, two importers (scarce); salt: two exporters, one importer
     let b = vec![
@@ -1571,6 +1723,9 @@ fn flows_carry_the_goods_scarcity_price() {
     assert!(p("iron") > 1.0 && p("salt") < 1.0, "scarce above par, glutted below");
 }
 
+/// Test fixture: iron exporter 0 (faction 2), importer 1 (faction 3, 40 km by
+/// road) and importer 2 (faction 2, 30 km by road), so one flow crosses factions
+/// and one does not.
 fn two_faction_pair() -> (Vec<NamedSettlement>, Vec<TradeBalance>, Vec<Way>) {
     let mut s = vec![place(0, 0, false, 1000), place(4, 0, false, 500), place(3, 0, false, 800)];
     s[0].placement.faction = 2; // exporter, faction 2
@@ -1585,6 +1740,8 @@ fn two_faction_pair() -> (Vec<NamedSettlement>, Vec<TradeBalance>, Vec<Way>) {
 /// leaves the same-faction flow and its way untouched.
 #[test]
 fn a_tariff_strictly_reduces_only_the_flow_it_taxes() {
+    // Protects: a nonzero tariff lowers only the taxed flow's volume, value and way load,
+    // leaving the same-faction flow and its way bit-identical.
     let (s, b, w) = two_faction_pair();
     let free = run(&s, &b, &w, 160.0);
     let t = [Tariff { importer: 3, exporter: 2, rate: 0.25 }];
@@ -1606,6 +1763,7 @@ fn a_tariff_strictly_reduces_only_the_flow_it_taxes() {
 /// A tariff is the importer's policy: the reverse row taxes nothing here.
 #[test]
 fn a_tariff_is_directional() {
+    // Protects: a tariff is the importer's policy: the reverse row taxes nothing.
     let (s, b, w) = two_faction_pair();
     let reverse = [Tariff { importer: 2, exporter: 3, rate: 0.5 }];
     assert_eq!(run_t(&s, &b, &w, 160.0, &reverse), run(&s, &b, &w, 160.0));
@@ -1615,6 +1773,8 @@ fn a_tariff_is_directional() {
 /// the demand is not silently moved onto another supplier.
 #[test]
 fn a_full_tariff_is_an_embargo() {
+    // Protects: a rate-1 tariff drops the taxed flow and does not move its demand onto
+    // another supplier.
     let (s, b, w) = two_faction_pair();
     let t = [Tariff { importer: 3, exporter: 2, rate: 1.0 }];
     let net = run_t(&s, &b, &w, 160.0, &t);
@@ -1625,6 +1785,8 @@ fn a_full_tariff_is_an_embargo() {
 
 #[test]
 fn tariff_rate_clamps_and_ignores_bad_rows() {
+    // Protects: `tariff_rate` clamps to [0, 1], treats NaN and negative as 0, ignores a
+    // faction taxing itself and returns 0 where no row exists.
     let t = [
         Tariff { importer: 1, exporter: 2, rate: 3.0 },
         Tariff { importer: 2, exporter: 1, rate: f64::NAN },

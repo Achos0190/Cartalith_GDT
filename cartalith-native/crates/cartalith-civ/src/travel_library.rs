@@ -175,6 +175,8 @@ pub enum ValidationState {
 }
 
 impl ValidationState {
+    /// True only for [`ValidationState::Ok`]; both `Incomplete` and `Conflicting`
+    /// are "not ok". Callers that need to tell the two apart must match instead.
     pub fn is_ok(&self) -> bool {
         matches!(self, ValidationState::Ok)
     }
@@ -184,6 +186,10 @@ impl ValidationState {
 // 3.1 Animals & mounts
 // ---------------------------------------------------------------------------
 
+/// What an animal is used for (`TRAVEL_LIBRARY_SPEC.md` §3.1 "role"): `Pack`
+/// carries cargo, `Mount` is ridden, `Draft` pulls a vehicle. An animal may hold
+/// several; [`validate_animal`] cross-checks `Mount` against
+/// [`AnimalDef::usable_as_mount`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AnimalRole {
     Pack,
@@ -191,6 +197,8 @@ pub enum AnimalRole {
     Draft,
 }
 
+/// Where an animal can be had: everywhere, or only in a named region. Display
+/// and filtering metadata only -- nothing in this module computes from it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Availability {
     Global,
@@ -200,6 +208,11 @@ pub enum Availability {
     Regional(String),
 }
 
+/// How much a species can live off grazing (`TRAVEL_LIBRARY_SPEC.md` §3.1).
+/// Only `GrasslandOnly` is read by a rule here (the §4 conflict in
+/// [`validate_animal`]); `Unrestricted` and `None` are stored and shown but no
+/// check in this module reads them, so they must not be assumed to drive any
+/// computation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GrazingTolerance {
     Unrestricted,
@@ -382,12 +395,18 @@ pub fn validate_animal(a: &AnimalDef) -> ValidationState {
 // 3.2 Vehicles
 // ---------------------------------------------------------------------------
 
+/// Wheeled or dragged (`TRAVEL_LIBRARY_SPEC.md` §3.2). Stored and validated for
+/// completeness only; the journey planner's vehicle masses are still the fixed
+/// built-in constants (see the module doc: vehicles are data-only).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VehicleClass {
     Wheeled,
     Dragged,
 }
 
+/// How much road a vehicle needs: `None` (moves anywhere), `Track` (a track is
+/// enough), `Road` (a made road). [`validate_vehicle`] reads only the `None`
+/// case, to catch the "needs no road yet cannot leave one" contradiction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RoadRequirement {
     None,
@@ -395,6 +414,10 @@ pub enum RoadRequirement {
     Road,
 }
 
+/// How many draft animals a vehicle needs and of what kind
+/// (`TRAVEL_LIBRARY_SPEC.md` §3.2 "draft head required"). `count` is a head
+/// count, not a force; the role is free text because this port has no closed
+/// vocabulary for it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DraftRequirement {
     pub count: u32,
@@ -403,6 +426,10 @@ pub struct DraftRequirement {
     pub role: String,
 }
 
+/// One Travel Library vehicle (`TRAVEL_LIBRARY_SPEC.md` §3.2). Every
+/// constraint field is `Option` so that unset reads as *incomplete*, never as
+/// zero; `carryable_aboard_vessel` is a plain flag. Data-only today: nothing in
+/// the journey computation reads it (module doc, "not wired").
 #[derive(Debug, Clone, PartialEq)]
 pub struct VehicleDef {
     pub id: String,
@@ -420,6 +447,9 @@ pub struct VehicleDef {
 }
 
 impl VehicleDef {
+    /// A blank custom vehicle: every constraint field unset, so
+    /// [`validate_vehicle`] reports `Incomplete`. Origin is always `Custom`; a blank
+    /// must never masquerade as stock.
     pub fn blank(id: impl Into<String>, name: impl Into<String>) -> Self {
         VehicleDef {
             id: id.into(),
@@ -485,12 +515,19 @@ pub fn validate_vehicle(v: &VehicleDef) -> ValidationState {
 // 3.3 Vessels
 // ---------------------------------------------------------------------------
 
+/// Water a vessel can work: river or sea. A vessel lists the modes it claims;
+/// an empty list is incomplete, and `Sea` is cross-checked against
+/// [`WaterRating`] in [`validate_vessel`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VesselMode {
     River,
     Sea,
 }
 
+/// How rough a water the vessel is rated for, in increasing order
+/// (`Sheltered < Coastal < Open`; the `Ord` derive depends on declaration order,
+/// so never reorder). `Sheltered` is the one rating that contradicts a `Sea`
+/// mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum WaterRating {
     Sheltered,
@@ -498,12 +535,20 @@ pub enum WaterRating {
     Open,
 }
 
+/// When a vessel may sail: `Daylight` only, or `Continuous` (day and night).
+/// Stored and checked for completeness only: [`vessel_resolver_fn`] does not
+/// read it (`ShipStats` has no such field), so changing it does not change a
+/// computed journey today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SailingWindow {
     Daylight,
     Continuous,
 }
 
+/// One Travel Library vessel (`TRAVEL_LIBRARY_SPEC.md` §3.3). Constraint fields
+/// are `Option` (unset = incomplete, never zero); `portage_capable` is a plain
+/// flag. Unlike vehicles, vessels are live: [`vessel_resolver_fn`] feeds the
+/// planner from these fields.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VesselDef {
     pub id: String,
@@ -519,6 +564,8 @@ pub struct VesselDef {
 }
 
 impl VesselDef {
+    /// A blank custom vessel: no modes and every constraint field unset, so
+    /// [`validate_vessel`] reports `Incomplete`. Origin is always `Custom`.
     pub fn blank(id: impl Into<String>, name: impl Into<String>) -> Self {
         VesselDef {
             id: id.into(),
@@ -605,6 +652,9 @@ pub struct PartyPreset {
 }
 
 impl PartyPreset {
+    /// A custom preset seeded from `JpPlan::default()`, so a new set-up starts
+    /// as the planner's own default form rather than a second, drifting set of
+    /// defaults. Origin is always `Custom`.
     pub fn blank(id: impl Into<String>, name: impl Into<String>) -> Self {
         let d = crate::JpPlan::default();
         PartyPreset {
@@ -746,6 +796,12 @@ pub struct Journey {
 // Stock data
 // ---------------------------------------------------------------------------
 
+/// Build a complete ten-row terrain map: every [`TL_TERRAIN_KEYS`] row starts
+/// at `Multiplier(1.0)` (no effect) and `rows` overwrite the ones a species or
+/// vehicle actually differs on. Must always return all ten keys, because
+/// [`validate_animal`] treats a missing key as incomplete and the stock data has
+/// to validate `Ok`. The 1.0 default is the neutral multiplier, not a measured
+/// value.
 fn full_terrain(
     rows: &[(&'static str, TerrainAffinity)],
 ) -> HashMap<&'static str, TerrainAffinity> {
@@ -1411,6 +1467,8 @@ pub fn vessel_resolver_fn(overrides: &HashMap<String, VesselDef>) -> VesselStats
     })
 }
 
+/// Unit tests for validation, the terrain-vocabulary mapping, the party-preset
+/// round trip and the animal/vessel resolvers.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1419,6 +1477,8 @@ mod tests {
 
     #[test]
     fn every_stock_animal_validates_ok() {
+        // Protects: every built-in animal validates `Ok`, so shipping stock data never
+        // shows a warning on first launch.
         for a in stock_animals() {
             assert_eq!(validate_animal(&a), ValidationState::Ok, "{}", a.name);
         }
@@ -1426,6 +1486,7 @@ mod tests {
 
     #[test]
     fn every_stock_vehicle_validates_ok() {
+        // Protects: every built-in vehicle validates `Ok`.
         for v in stock_vehicles() {
             assert_eq!(validate_vehicle(&v), ValidationState::Ok, "{}", v.name);
         }
@@ -1433,6 +1494,7 @@ mod tests {
 
     #[test]
     fn every_stock_vessel_validates_ok() {
+        // Protects: every built-in vessel validates `Ok`.
         for v in stock_vessels() {
             assert_eq!(validate_vessel(&v), ValidationState::Ok, "{}", v.name);
         }
@@ -1440,6 +1502,7 @@ mod tests {
 
     #[test]
     fn every_stock_party_preset_validates_ok() {
+        // Protects: every built-in party preset validates `Ok`.
         for p in stock_party_presets() {
             assert_eq!(validate_party_preset(&p), ValidationState::Ok, "{}", p.name);
         }
@@ -1447,6 +1510,8 @@ mod tests {
 
     #[test]
     fn four_stock_animals_carry_the_engine_species_key_the_other_three_do_not() {
+        // Protects: exactly the four engine-backed stock animals carry a `species_key`, in
+        // the order donkey, mule, camel, horse; Ox/Yak/Reindeer have none.
         let keyed: Vec<&str> = stock_animals()
             .iter()
             .filter_map(|a| a.species_key)
@@ -1458,6 +1523,8 @@ mod tests {
 
     #[test]
     fn a_blank_animal_is_incomplete_and_names_every_missing_field() {
+        // Protects: a blank animal is `Incomplete` (never `Ok`/`Conflicting`) and the
+        // missing list names representative fields (load capacity, terrain, availability).
         let a = AnimalDef::blank("test", "Test Animal");
         let ValidationState::Incomplete(missing) = validate_animal(&a) else {
             panic!("expected Incomplete")
@@ -1469,6 +1536,8 @@ mod tests {
 
     #[test]
     fn grazing_vs_terrain_is_the_specs_own_worked_conflict() {
+        // Protects: §4's worked example: grassland-only grazing plus a non-grassland row
+        // with a live multiplier is `Conflicting`, and the reason says "grassland-only".
         // TRAVEL_LIBRARY_SPEC.md §4's own example: grassland-only grazing,
         // but a non-grassland terrain still carries a real multiplier.
         let mut a = stock_animals()
@@ -1484,6 +1553,8 @@ mod tests {
 
     #[test]
     fn mount_role_and_usable_as_mount_must_agree() {
+        // Protects: a `Mount` role with `usable_as_mount == false` is `Conflicting`, with a
+        // reason that names "usable as a mount".
         let mut a = stock_animals()
             .into_iter()
             .find(|a| a.id == "donkey")
@@ -1497,6 +1568,8 @@ mod tests {
 
     #[test]
     fn incomplete_takes_priority_over_a_conflict_that_would_otherwise_fire() {
+        // Protects: completeness is checked before conflicts: an entry with a conflict AND
+        // an unset field reports `Incomplete`, not `Conflicting`.
         // Same contradiction as above, but with a constraint field also
         // unset -- Incomplete must win, per this module's own ordering.
         let mut a = stock_animals()
@@ -1513,6 +1586,8 @@ mod tests {
 
     #[test]
     fn vehicle_no_road_needed_but_off_road_blocked_is_conflicting() {
+        // Protects: a vehicle needing no road (the stock sledge's setting) whose off-road
+        // travel is blocked is `Conflicting`.
         let mut v = stock_vehicles()
             .into_iter()
             .find(|v| v.id == "sledge")
@@ -1526,6 +1601,8 @@ mod tests {
 
     #[test]
     fn vessel_sheltered_but_rated_for_sea_is_conflicting() {
+        // Protects: a Sheltered-rated vessel (the stock river barge) that also claims `Sea`
+        // is `Conflicting`.
         let mut v = stock_vessels()
             .into_iter()
             .find(|v| v.id == "river_barge")
@@ -1539,6 +1616,8 @@ mod tests {
 
     #[test]
     fn a_blank_party_preset_is_incomplete_never_conflicting() {
+        // Protects: a preset with no transport and group size 0 is `Incomplete`; party
+        // presets have no conflict rules, so never `Conflicting`.
         let mut p = PartyPreset::blank("t", "Test");
         p.transport.clear();
         p.party.group_size = 0;
@@ -1552,6 +1631,8 @@ mod tests {
 
     #[test]
     fn engine_roads_are_deliberately_unmapped() {
+        // Protects: the engine's road/ruin surfaces map to no Travel Library terrain row
+        // (`None`), by design -- roads are a vehicle requirement, not an animal terrain.
         assert_eq!(tl_terrain_key_for_engine("Paved Road"), None);
         assert_eq!(tl_terrain_key_for_engine("Dirt Track"), None);
         assert_eq!(tl_terrain_key_for_engine("Ruins / Debris"), None);
@@ -1559,6 +1640,8 @@ mod tests {
 
     #[test]
     fn every_engine_land_terrain_that_does_map_names_a_real_tl_key() {
+        // Protects: each of the ten engine land terrains maps to a key that actually exists
+        // in `TL_TERRAIN_KEYS`, so the mapping cannot drift to a nonexistent row.
         for t in [
             "Open Plains",
             "Forest Path",
@@ -1580,6 +1663,8 @@ mod tests {
 
     #[test]
     fn a_captured_preset_applies_back_onto_a_plan_unchanged() {
+        // Protects: capture-then-apply round trip: transport, mount and party survive
+        // `from_jp_plan` -> `apply_to`, and route-only fields come from `base`.
         let plan = crate::JpPlan {
             transport: "Mounted Rider".into(),
             mount_animal: Some("camel".into()),
@@ -1603,6 +1688,8 @@ mod tests {
 
     #[test]
     fn animal_resolver_falls_back_to_the_built_in_table_for_an_unlisted_species() {
+        // Protects: with no override the resolver returns `None` for both stats and terrain
+        // (the fall-back to the built-in table happens centrally, not here).
         let overrides: HashMap<String, AnimalDef> = HashMap::new();
         let (stats, terrain) = animal_resolver_fns(&overrides);
         assert_eq!(
@@ -1615,6 +1702,8 @@ mod tests {
 
     #[test]
     fn animal_resolver_reports_a_real_override_and_a_blocked_terrain() {
+        // Protects: an edited override is reported (stats carry the new capacity), a blocked
+        // row reads `Some(None)`, and untouched rows keep the stock multiplier.
         let mut donkey = stock_animals()
             .into_iter()
             .find(|a| a.id == "donkey")
@@ -1635,6 +1724,8 @@ mod tests {
 
     #[test]
     fn a_partially_incomplete_override_yields_no_stats_for_that_species() {
+        // Protects: an override with any required stat unset yields no stats at all (no
+        // partial application), so the central fall-back re-reads the built-in row.
         // `animal_resolver_fns`' own contract: an incomplete override does
         // not partially apply here -- `resolve_animal_stats` (cartalith-civ
         // lib.rs) is what falls back to the built-in table field-by-field,
