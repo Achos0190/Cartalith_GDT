@@ -19,6 +19,17 @@ extends Node
 ##     moves the brush radius, Erase / Land only / Class / Target field write the
 ##     shared `_paint_brush` / `_paint_layer`, Splat (no raster) shows the reason
 ##     instead of a dead slider, and COMMIT / DISCARD enable on the pending draft;
+##  3b. (2026-10-04, phone-paint remainders) three more routes, each by real taps,
+##     drags and a real key press: (i) the map's mode chip reads `PAINT · DRAFT`
+##     while Paint is armed and stops saying so when it is not
+##     (`dcc_shell.gd::_refresh_viewport_context`, refreshed by `tool_armed`);
+##     (ii) Original is drawn INERT (`editable == false`) with its reason once
+##     another tool is armed -- an Escape key press disarms Paint to Inspect --
+##     and a drag on it moves nothing, and ARM PAINT makes it live again;
+##     (iii) Hardness and Softness sliders sit in the column, reach the shared
+##     `_paint_brush`, and moving one does not move the other. Remove the chip
+##     branch, the `tool_armed` hook, the inert gate or the two sliders and this
+##     probe goes RED;
 ##  4. nothing else moved: the SCULPT and PIPELINE segments, and the MAP, PLAN
 ##     and MORE tabs, still show what they showed, and a segment chosen by the
 ##     user is not clobbered by re-tapping the tab.
@@ -280,6 +291,23 @@ func _ink_fraction(c: Control, ink: Color) -> float:
 			hit += 1
 	return float(hit) / maxf(1.0, float(n))
 
+## The map's mode chip (`viewport_host.gd::_vp_context`), or null.
+func _chip() -> Label:
+	return app.viewport.get("_vp_context") as Label
+
+## A real key press and release through the viewport's own input pipeline
+## (`_unhandled_key_input` on the app), the way a hardware keyboard on a tablet
+## or an adb `input keyevent` reaches it.
+func _key(code: Key) -> void:
+	for pressed in [true, false]:
+		var e := InputEventKey.new()
+		e.keycode = code
+		e.physical_keycode = code
+		e.pressed = pressed
+		_vp.push_input(e, true)
+		await _frames(2)
+	await _frames(SETTLE)
+
 func _force_palette(want_dark: bool) -> void:
 	if DccTheme.is_dark() == want_dark:
 		return
@@ -403,6 +431,9 @@ func _run_leg(theme: String) -> void:
 	_check("TARGET FIELD" in texts and "BRUSH" in texts, "[%s] the Paint column is up: %s" % [theme, str(texts.slice(0, 8))])
 	var sub: Label = app._phone_sheet_subtitle
 	_check(sub.text == "paint · draft cells", "[%s] the sheet subtitle names Paint: '%s'" % [theme, sub.text])
+	var chip := _chip()
+	_check(chip != null and chip.visible and chip.text == "PAINT · DRAFT",
+		"[%s] the map's mode chip reads PAINT · DRAFT with Paint armed: '%s'" % [theme, chip.text if chip != null else "(no chip)"])
 	var size_sl := _slider("Size")
 	var orig_sl := _slider("Original")
 	_check(size_sl != null, "[%s] the Size slider is on the sheet" % theme)
@@ -453,6 +484,37 @@ func _run_leg(theme: String) -> void:
 	await _drag_to(Vector2(sr.position.x + 4.0, sy), Vector2(sr.position.x + sr.size.x * 0.75, sy))
 	var radius := float(ws._paint_brush["radius"])
 	_check(radius > 20.0 and radius < 40.0, "[%s] dragging Size to ~75 %% set the brush radius (%.0f cells)" % [theme, radius])
+	## Hardness / Softness: real drags, same shared state, independent of each other.
+	var hard_sl := _slider("Hardness")
+	var soft_sl := _slider("Softness")
+	_check(hard_sl != null and soft_sl != null, "[%s] Hardness and Softness sliders are in the Paint column" % theme)
+	if hard_sl != null and soft_sl != null:
+		_check(await _reach(hard_sl), "[%s] Hardness can be scrolled wholly into the visible sheet" % theme)
+		var hr := hard_sl.get_global_rect()
+		_check(_dp(hr.size.y) >= 43.5 and hr.size.x >= 200.0 and hr.end.x <= scroll.get_global_rect().end.x + 0.5,
+			"[%s] Hardness is at least 44 dp tall (%.1f dp), has room (%.0f px) and is not clipped at the right" % [theme, _dp(hr.size.y), hr.size.x])
+		_check(is_equal_approx(float(ws._paint_brush["hardness"]), 1.0) and is_equal_approx(float(ws._paint_brush["softness"]), 0.0),
+			"[%s] the brush starts at the dock's own defaults (hardness 1.00, softness 0.00)" % theme)
+		var hy := hr.position.y + hr.size.y * 0.5
+		await _drag_to(Vector2(hr.end.x - 4.0, hy), Vector2(hr.position.x + hr.size.x * 0.4, hy))
+		var hv := float(ws._paint_brush["hardness"])
+		_check(hv > 0.2 and hv < 0.6, "[%s] dragging Hardness to ~40 %% of the track wrote the shared brush (%.2f)" % [theme, hv])
+		_check(is_equal_approx(float(ws._paint_brush["softness"]), 0.0), "[%s] and left Softness alone (%.2f)" % [theme, float(ws._paint_brush["softness"])])
+		var hread := _label(scroll, "%.2f" % hv)
+		_check(hread != null, "[%s] the Hardness readout shows two decimals, like the dock (%.2f)" % [theme, hv])
+		soft_sl = _slider("Softness")
+		_check(await _reach(soft_sl), "[%s] Softness can be reached" % theme)
+		var ur := soft_sl.get_global_rect()
+		var uy := ur.position.y + ur.size.y * 0.5
+		await _drag_to(Vector2(ur.position.x + 4.0, uy), Vector2(ur.position.x + ur.size.x * 0.6, uy))
+		var sv := float(ws._paint_brush["softness"])
+		_check(sv > 0.35 and sv < 0.85, "[%s] dragging Softness to ~60 %% wrote the shared brush (%.2f)" % [theme, sv])
+		_check(is_equal_approx(float(ws._paint_brush["hardness"]), hv), "[%s] and left Hardness alone (%.2f)" % [theme, float(ws._paint_brush["hardness"])])
+		_save_shot("%s_d_hardness_softness" % theme)
+		## Put the brush back so the rest of the leg (and the next palette) starts clean.
+		ws._paint_brush["hardness"] = 1.0
+		ws._paint_brush["softness"] = 0.0
+		ws._sync_paint_brush()
 	var erase := _button(scroll, "ERASE")
 	_check(erase != null, "[%s] an ERASE chip is on the sheet" % theme)
 	if erase != null:
@@ -538,6 +600,42 @@ func _run_leg(theme: String) -> void:
 			"[%s] ARM PAINT leaves Paint armed and drops the sheet to peek (%s)" % [theme, app.phone_detent()])
 		await _tap(gen_cell.get_global_rect().get_center())
 		_check(String(app.phone_detent()) != "peek", "[%s] tapping GENERATE lifts it again (%s)" % [theme, app.phone_detent()])
+
+	# 8b. Another tool armed while the PAINT column is up: Original goes inert --------------------------------------------
+	## Escape is a real key press that disarms Paint to Inspect (`_escape_action`)
+	## without leaving the sheet or touching the segment, which is the exact state
+	## the lane row describes: PAINT column on screen, Paint not the armed tool.
+	po.set_percent(60.0)   ## a live value to prove the inert slider does not move
+	await _frames(SETTLE)
+	await _key(KEY_ESCAPE)
+	_check(app.armed_tool == "inspect", "[%s] Escape (a real key press) disarmed Paint (armed=%s)" % [theme, app.armed_tool])
+	_check("TARGET FIELD" in _texts(), "[%s] the PAINT column is still the one on screen" % theme)
+	chip = _chip()
+	_check(chip != null and chip.text != "PAINT · DRAFT",
+		"[%s] the chip stops saying PAINT once Paint is disarmed: '%s'" % [theme, chip.text if chip != null else "(no chip)"])
+	var inert := _slider("Original")
+	_check(inert != null and not inert.editable, "[%s] with Paint disarmed the Original slider is drawn inert (editable=%s)" % [theme, str(inert.editable) if inert != null else "no slider"])
+	var note := _label(scroll, "Shows the generator's own layer")
+	_check(note != null and note.text.contains("not armed"), "[%s] and the note beside it says why" % theme)
+	_check(not bool(app.viewport.paint_original_state()["visible"]), "[%s] and the Original layer is not drawn on the map" % theme)
+	if inert != null:
+		await _reach(inert)
+		var ir := inert.get_global_rect()
+		await _drag_to(Vector2(ir.position.x + 4.0, ir.position.y + ir.size.y * 0.5), Vector2(ir.end.x - 4.0, ir.position.y + ir.size.y * 0.5))
+		_check(is_equal_approx(po.opacity, 0.6), "[%s] a drag across the inert slider moved nothing: opacity %.2f (still 0.60)" % [theme, po.opacity])
+	_save_shot("%s_e_original_inert" % theme)
+	var arm2 := _button(scroll, "%s ARM PAINT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"])
+	_check(arm2 != null, "[%s] ARM PAINT is still on the sheet to re-arm" % theme)
+	if arm2 != null:
+		await _reach(arm2)
+		await _tap(arm2.get_global_rect().get_center())
+		_check(app.armed_tool == "paint", "[%s] tapping ARM PAINT re-armed Paint" % theme)
+		chip = _chip()
+		_check(chip != null and chip.text == "PAINT · DRAFT", "[%s] and the chip reads PAINT · DRAFT again: '%s'" % [theme, chip.text if chip != null else "(no chip)"])
+		await _tap(gen_cell.get_global_rect().get_center())
+		await _sheet_settled()
+		var live := _slider("Original")
+		_check(live != null and live.editable, "[%s] and Original is live again (editable=%s)" % [theme, str(live.editable) if live != null else "no slider"])
 
 	# 9. Screenshot at a usable detent with Original showing ----------------------------------------------------------------------
 	po.set_percent(0.0)

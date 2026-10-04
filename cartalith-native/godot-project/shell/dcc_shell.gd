@@ -4595,10 +4595,11 @@ func _build_viewport() -> Control:
 # leaves `vpContext` `UNSPECIFIED:` -- "its string in every context", with the
 # one surviving hook `vpCtxExtra()` returning `''`. The 2026-08-31 re-export
 # supplies it (`Cartalith DCC Environment.dc.html`, `const vpCtx = ...` in
-# `valsCore()`), a four-arm fall-through:
+# `valsCore()`), a four-arm fall-through (this port adds one variant, PAINT, inside
+# arm 2; the design has no Paint chip):
 #
 #   1  a run is active            GENERATING — STAGE NN
-#   2  WORLD, sculpt mode         SCULPT · DRAFT
+#   2  WORLD, sculpt mode         SCULPT · DRAFT   (PAINT · DRAFT while Paint is armed; a port addition)
 #   3  WORLD, pipeline mode       STAGE NN · EDITED   /  STAGE NN · RESOLVED
 #   4  otherwise                  the domain's own name
 #
@@ -4671,6 +4672,13 @@ func _refresh_viewport_context() -> void:
 		## is stale", `params_applied` is "a generate landed; nothing is stale".
 		bridge.params_changed.connect(_refresh_viewport_context)
 		bridge.params_applied.connect(_refresh_viewport_context)
+		## Arming or disarming Paint changes arm 2's wording (above), and no
+		## domain/mode write accompanies it on the phone's PAINT segment
+		## (`_pg_set_mode()` selects the mode BEFORE it arms), so the chip has to
+		## follow the tool itself. `tool_armed` is `DccApp`'s signal; this class
+		## is also instantiated bare by older probes, hence `has_signal`.
+		if has_signal("tool_armed"):
+			connect("tool_armed", func(_id: String): _refresh_viewport_context())
 
 	var text := ""
 	var tip := ""
@@ -4680,6 +4688,17 @@ func _refresh_viewport_context() -> void:
 		## a stage number for it.
 		text = ("GENERATING — STAGE %02d" % _vp_stage) if _vp_stage > 0 else "GENERATING"
 		tip = "A generation run is in flight. Stage numbers come from the engine's own generation_stage tick."
+	elif _active_domain == "world" and active_mode("world") == "b" and String(get("armed_tool")) == "paint":
+		## Arm 2's PAINT form -- a deliberate divergence from the design's string
+		## (DECISIONS.md 7p). WORLD's mode `b` holds BOTH Sculpt and Paint
+		## (`mode_for_category()`), and the design, which has no Paint tool in that
+		## mode, reads `SCULPT · DRAFT` for all of it. With Paint armed that is a
+		## false sentence: the draft is paint cells, not stamps. Keyed on the armed
+		## tool, not the mode, so Sculpt (and the idle mode-`b` dock) keeps arm 2
+		## verbatim below. `get()` because `armed_tool` lives on `DccApp`, which
+		## extends this class. Refreshed by the `tool_armed` hook wired below.
+		text = "PAINT · DRAFT"
+		tip = "Paint is armed. Painted cells are a draft until they are committed; the painted layers under them are unchanged."
 	elif _active_domain == "world" and active_mode("world") == "b":
 		## Arm 2, verbatim.
 		text = "SCULPT · DRAFT"

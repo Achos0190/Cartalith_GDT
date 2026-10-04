@@ -3188,6 +3188,12 @@ func _on_tool_armed(id: String) -> void:
 	if id == "paint" and app.right_dock_ctrl.has_method("show_paint"):
 		app.right_dock_ctrl.show_paint(_paint_layer, _on_paint_value_picked_from_dock)
 	_follow_tool_to_its_block(id)
+	## The phone Paint column's Original slider is live only while Paint is armed,
+	## so ANY arm edge (measure, sculpt, inspect from the tool bar or a hotkey)
+	## must repaint it. No-op unless that column is on screen. Skipped while a run
+	## is in flight: the rebuild reads `world_gen`, which the worker owns.
+	if not bridge.generating:
+		_pg_refresh_paint_column()
 
 ## **`armTool`'s navigation half** (`04-left-dock.md` §2.4, and §4c of
 ## `02-rail-and-domains.md` which lists it among the writers of `domain`/`mode`):
@@ -5069,8 +5075,8 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 ## here shows in the other surfaces and the reverse. No design canvas draws a
 ## phone Paint column (`ANDROID_UI_SPEC.md` has none), so it is derived from the
 ## sheet's own vocabulary -- the SCULPT column's chips, sliders and dashed ARM
-## button -- and not invented. Hardness / Softness stay in the dock panel only,
-## as they do on the tool bar (`_build_paint_options`).
+## button -- and not invented. Hardness / Softness are here too (the tool bar
+## omits them by ruling, the dock has them; the phone has no dock).
 ##
 ## Must never: paint, commit or discard on its own (only its COMMIT / DISCARD
 ## chips do, through the shared handlers); write anything to disk; or rebuild
@@ -5109,6 +5115,19 @@ func _pg_paint(parent: Control) -> void:
 	parent.add_child(_pg_mono("BRUSH", "text_dim", 9.5, 2))
 	_pg_paint_slider(parent, "Size", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells",
 		_on_paint_radius_changed)
+	## Hardness / Softness: the brush's coverage-ramp controls. The desktop's tool
+	## bar does NOT carry them (owner ruling 2026-08-31, `tool_bar.gd::
+	## _build_paint_options`: the dock's Biome paint panel is the one surviving
+	## copy, to end "two copies on screen at once"); on the phone there is no dock,
+	## so this column is where the brush is reached, and it is not a second copy on
+	## screen. Same state, same writers as the dock's sliders
+	## (`_on_paint_hardness_changed` / `_on_paint_softness_changed` write
+	## `_paint_brush` and call `paint_set_brush`); nothing is stored here. Both
+	## are 0..1 and step 0.01, exactly the dock's own range.
+	_pg_paint_slider(parent, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "",
+		_on_paint_hardness_changed, 2)
+	_pg_paint_slider(parent, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "",
+		_on_paint_softness_changed, 2)
 	## Ruling BR. The slider is shared state with the tool bar's own; a layer
 	## with no generated raster (Splat) gets the engine's reason in place of a
 	## dead slider, exactly as the bar does.
@@ -5121,10 +5140,17 @@ func _pg_paint(parent: Control) -> void:
 	else:
 		## Range and step are `paint_original.gd`'s own (`PCT_MAX`, `PCT_STEP`), read
 		## off the instance because that script is not a `class_name`.
+		## The overlay only draws while Paint is the armed tool
+		## (`paint_original.gd::sync`). With another tool armed the slider would
+		## move a value nothing shows, so it is drawn inert with the reason; ARM
+		## PAINT (below) re-arms, which rebuilds this column via `_on_tool_armed`.
+		var paint_armed: bool = app.armed_tool == "paint"
 		_pg_paint_slider(parent, "Original", 0.0, po.PCT_MAX, po.PCT_STEP,
-			po.opacity * 100.0, "%", func(v: float): po.set_percent(v))
+			po.opacity * 100.0, "%", func(v: float): po.set_percent(v), 0, paint_armed)
 		var tip := _pg_mono("Shows the generator's own layer under your paint, to compare. "
-			+ "A viewing aid -- it never changes the world.", "text_faint", 9.5)
+			+ "A viewing aid -- it never changes the world."
+			+ ("" if paint_armed else " Paint is not armed -- tap ARM PAINT to use it."),
+			"text_faint", 9.5)
 		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		parent.add_child(tip)
 
@@ -5217,9 +5243,15 @@ func _pg_paint_mirror() -> void:
 ## rewriting the value -- the arbitration `_pg_sculpt_slider` documents) at the
 ## 44 dp floor. `on_change` fires on every value change so Size and Original act
 ## while the thumb moves; the other surfaces are mirrored once on release. The
-## readout shows whole numbers: every spec here steps by 1 or 5.
+## readout shows whole numbers unless `decimals` asks for more (Hardness and
+## Softness step by 0.01 and read as the dock's own `0.00`, like the SCULPT
+## column's `%.2f`). `editable = false` draws the slider greyed and inert -- used
+## for Original while Paint is not the armed tool (see `_pg_paint`); an inert
+## control writes nothing, so `PaintOriginal.set_percent()` stays the one writer.
 func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: float,
-		step_v: float, value: float, unit: String, on_change: Callable) -> void:
+		step_v: float, value: float, unit: String, on_change: Callable,
+		decimals: int = 0, editable: bool = true) -> void:
+	var fmt := "%%.%df%%s" % decimals
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", _pg_px(2))
 	parent.add_child(wrap)
@@ -5228,7 +5260,7 @@ func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: 
 	var l := _pg_mono(label_text, "text_secondary", 10)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(l)
-	var readout := _pg_mono("%d%s" % [int(round(value)), unit], "text_bright", 11)
+	var readout := _pg_mono(fmt % [value, unit], "text_bright", 11)
 	head.add_child(readout)
 	var s := DccWidgets.PgSlider.new()
 	s.slop = float(_pg_px(8))
@@ -5236,11 +5268,15 @@ func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: 
 	s.max_value = max_v
 	s.step = step_v
 	s.value = value
+	s.editable = editable
 	DccWidgets.phone_slider(s, DccTheme.phone_scale())
 	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y, float(_pg_tap(44)))
 	wrap.add_child(s)
+	if not editable:
+		## Greyed, readout included, so it reads as unavailable and not merely low.
+		wrap.modulate.a = 0.5
 	s.value_changed.connect(func(v: float):
-		readout.text = "%d%s" % [int(round(v)), unit]
+		readout.text = fmt % [v, unit]
 		on_change.call(v))
 	s.drag_ended.connect(func(_c: bool): _pg_paint_mirror())
 
