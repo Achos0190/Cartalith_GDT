@@ -3163,6 +3163,15 @@ func _on_tool_armed(id: String) -> void:
 	## `_build()`. `_follow_tool_to_its_block()` at the foot of this function is
 	## what makes arming still land the user on the controls: it switches the
 	## mode and opens the category, rather than revealing a body in place.
+	## Phone GENERATE sheet: land it on the armed tool's own column. Set BEFORE
+	## `_follow_tool_to_its_block()` below, which switches the domain and so
+	## refills the sheet -- the refill must already know which column to draw.
+	## Only these two edges move `_pg_mode`: arming anything else leaves the
+	## user's PIPELINE / SCULPT / PAINT choice exactly as they made it.
+	if id == "paint":
+		_pg_mode = "paint"
+	elif id == "sculpt" and _pg_mode == "paint":
+		_pg_mode = "sculpt"
 	if id != "sculpt" and not _sculpt_stroke_points.is_empty():
 		bridge.sculpt_cancel_stroke()
 		_sculpt_stroke_points = PackedVector2Array()
@@ -3865,6 +3874,10 @@ func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 		_build_paint(_paint_body)
 	_refresh_tool_bar()
 	_refresh_right_dock_paint()
+	## The phone sheet's Paint column draws the same painted count and the same
+	## Commit / Discard enable state, so it is the fourth surface over this draft
+	## and a stroke has to tell it too (once per gesture, like the three above).
+	_pg_refresh_paint_column()
 
 ## The unified tool bar (`tool_bar.gd`) shows this panel's own stamp count /
 ## painted count in its options row, so a stroke that ends here has to tell
@@ -3971,7 +3984,13 @@ const PHONE_GEN_ABSENT: Array = [
 ## the rest closed (byte 77 286); index 0 is that same first group.
 var _pg_open: Dictionary = {0: true}
 var _pg_host: VBoxContainer          ## The sheet column this workspace fills.
-var _pg_mode := "pipe"               ## `pipe` | `sculpt` -- the canvas's genMode.
+## `pipe` | `sculpt` | `paint`. The first two are the canvas's `genMode`; `paint`
+## is this port's own third segment (OUTSTANDING_WORK.md "Phone: the Paint tool
+## bar cannot be reached by thumb"), because the phone's GENERATE tab hides the
+## tool-options row that is the only other place Paint's Size / Erase / Original
+## live. Arming Paint by any route sets it (`_on_tool_armed`), so the sheet opens
+## on the controls of the tool that is armed.
+var _pg_mode := "pipe"
 var _pg_connected := false
 var _pg_stage_index := -1            ## Live stage while `bridge.generating`.
 
@@ -4097,6 +4116,8 @@ func _pg_rebuild() -> void:
 		for i in STAGES.size():
 			_pg_group(_pg_host, i)
 		_pg_footnote(_pg_host)
+	elif _pg_mode == "paint":
+		_pg_paint(_pg_host)
 	else:
 		_pg_sculpt(_pg_host)
 	_pg_open_gestures(_pg_host)
@@ -4149,8 +4170,10 @@ func _pg_open_gestures(node: Node) -> void:
 				c.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_pg_open_gestures(child)
 
-## `PIPELINE | SCULPT`. `min-height:44px; border-radius:22px;
-## font:500 10px mono; letter-spacing:.16em`.
+## `PIPELINE | SCULPT | PAINT`. `min-height:44px; border-radius:22px;
+## font:500 10px mono; letter-spacing:.16em`. The first two are the canvas's;
+## PAINT is this port's addition (see `_pg_mode`), drawn with the same cell so
+## it is no new widget and is held to the same 44 dp floor.
 ##
 ## Writes `select_domain_mode("world", ...)` as well as the local flag, so the
 ## desktop dock and this sheet cannot disagree about which mode the WORLD
@@ -4160,7 +4183,7 @@ func _pg_mode_segment(parent: Control) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", _pg_px(8))
 	parent.add_child(row)
-	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"]]:
+	for entry in [["pipe", "PIPELINE"], ["sculpt", "SCULPT"], ["paint", "PAINT"]]:
 		var id := String(entry[0])
 		var on: bool = _pg_mode == id
 		var b := Button.new()
@@ -4193,15 +4216,37 @@ func _pg_mode_segment(parent: Control) -> void:
 		b.pressed.connect(_pg_set_mode.bind(id))
 		row.add_child(b)
 
+## Switch the sheet's column. PAINT also ARMS the paint tool: the column's
+## Original control only draws while Paint is armed (`paint_original.gd::sync`),
+## and a thumb that chose PAINT wants to paint -- one tap, not two. SCULPT does
+## not arm (the canvas's own behaviour); this is the one asymmetry and it is
+## deliberate. Must never run a stroke, a commit or a discard.
 func _pg_set_mode(id: String) -> void:
 	if _pg_mode == id:
 		return
 	_pg_mode = id
 	if app != null and app.has_method("select_domain_mode"):
 		## `RAIL_NODES`' own mode ids for WORLD are `a` and `b`, not the words --
-		## `railFoot`'s binding is `wm==='b' ? 'SCULPT' : ...`.
-		app.select_domain_mode("world", "b" if id == "sculpt" else "a")
+		## `railFoot`'s binding is `wm==='b' ? 'SCULPT' : ...`. Paint's own
+		## category (`Biomes`) sits in the same mode `b` as Sculpt's (`Terrain`),
+		## per `mode_for_category()`, so PAINT is `b` as well.
+		app.select_domain_mode("world", "b" if id != "pipe" else "a")
+	if id == "paint" and app != null:
+		app.arm_tool("paint")
 	_pg_rebuild()
+
+## The sheet's current column, for `DccShell._refresh_phone_sheet_header()`,
+## which has to tell Sculpt's subtitle from Paint's although both live in the
+## WORLD domain's mode `b` and `active_mode("world")` cannot.
+func phone_sheet_mode() -> String:
+	return _pg_mode
+
+## Repaint the Paint column after something outside it changed the draft (a map
+## stroke, `_paint_release`). A no-op unless that column is the one on screen,
+## so a desktop session -- where `_pg_host` is never built -- pays nothing.
+func _pg_refresh_paint_column() -> void:
+	if _pg_mode == "paint" and _pg_host != null and is_instance_valid(_pg_host) and _pg_host.is_visible_in_tree():
+		_pg_rebuild()
 
 ## `SEED   483102   [dice]`. `padding:10px 12px; border-radius:16px;
 ## background:var(--chip); gap:10px`.
@@ -4978,9 +5023,9 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	## The SCULPT half of the same arbitration -- these sliders sit in the same
 	## `ScrollContainer` and were reached by the same vertical swipe. Found by
 	## enumerating the sheet's `Range`s rather than by hitting it a second
-	## time: **`_pg_range_field()` and this function are the two sites in the
-	## `_pg_*` block that construct a slider**, and both take
-	## `DccWidgets.PgSlider`.
+	## time: **`_pg_range_field()`, this function and `_pg_paint_slider()` are
+	## the three sites in the `_pg_*` block that construct a slider**, and all
+	## take `DccWidgets.PgSlider`.
 	##
 	## That sentence replaced a pasted `grep -n "HSlider.new()"` and its
 	## quoted count of two. The paste stopped reproducing the moment it was
@@ -5006,6 +5051,198 @@ func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	## `_on_sculpt_global()` writes it the same way for the desktop.
 	s.drag_ended.connect(func(_c: bool):
 		bridge.sculpt_set_globals({key: (round(s.value) if is_int else s.value)}))
+
+## **The PAINT column** -- the phone's way to arm a paint tool and reach its
+## options. Why it exists: on the phone the GENERATE tab shows this sheet INSTEAD
+## of the tool-options row (`DccShell._refresh_phone_gen_panel`), and arming Paint
+## forces the WORLD domain, which lights GENERATE -- so the one row that carries
+## Size / Erase / Land only / Original was hidden at the very moment Paint was
+## armed, and even un-hidden it is a desktop-width horizontal row that overflows
+## a portrait phone at every detent (measured: Original sat at the right edge,
+## clipped). This is that row's content laid out the way the SCULPT column above
+## lays out Sculpt's: vertical, 44 dp rows, thumb sliders, chips.
+##
+## **One state, four surfaces.** Nothing here owns a value. Every control reads
+## and writes `_paint_layer` / `_paint_brush` through the same handlers the dock
+## panel and the tool bar use (`_on_paint_layer_changed`, `_on_paint_radius_changed`
+## ...), and Original goes through `PaintOriginal.set_percent()`, so a change
+## here shows in the other surfaces and the reverse. No design canvas draws a
+## phone Paint column (`ANDROID_UI_SPEC.md` has none), so it is derived from the
+## sheet's own vocabulary -- the SCULPT column's chips, sliders and dashed ARM
+## button -- and not invented. Hardness / Softness stay in the dock panel only,
+## as they do on the tool bar (`_build_paint_options`).
+##
+## Must never: paint, commit or discard on its own (only its COMMIT / DISCARD
+## chips do, through the shared handlers); write anything to disk; or rebuild
+## itself under a finger -- sliders repaint their own readout and mirror the
+## other surfaces only on release.
+func _pg_paint(parent: Control) -> void:
+	if not bridge.has_world:
+		var l := _pg_mono("Generate a world first -- the Paint editor is created "
+			+ "fresh per generated world.", "text_faint", 9.5)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(l)
+		return
+	var layers := bridge.get_paint_layers()
+	if layers.is_empty():
+		var l2 := _pg_mono("No paint editor for this world -- a loaded save has no "
+			+ "draft session, only a freshly generated world does.", "text_faint", 9.5)
+		l2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(l2)
+		return
+
+	parent.add_child(_pg_mono("TARGET FIELD", "text_dim", 9.5, 2))
+	var field_chips := HFlowContainer.new()
+	field_chips.add_theme_constant_override("h_separation", _pg_px(7))
+	field_chips.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(field_chips)
+	for i in layers.size():
+		var li := i
+		var key := String(layers[i])
+		field_chips.add_child(_pg_chip_button(key.capitalize(), key == _paint_layer, 44,
+			func():
+				_on_paint_layer_changed(li, layers)
+				_pg_paint_mirror()
+				app.arm_tool("paint")
+				_pg_rebuild()))
+
+	parent.add_child(_pg_mono("BRUSH", "text_dim", 9.5, 2))
+	_pg_paint_slider(parent, "Size", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells",
+		_on_paint_radius_changed)
+	## Ruling BR. The slider is shared state with the tool bar's own; a layer
+	## with no generated raster (Splat) gets the engine's reason in place of a
+	## dead slider, exactly as the bar does.
+	var po = app.paint_original
+	var why: String = po.unavailable_reason(_paint_layer) if po != null else "not available"
+	if why != "":
+		var hint := _pg_mono("Original · no original -- %s" % why, "text_faint", 9.5)
+		hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(hint)
+	else:
+		## Range and step are `paint_original.gd`'s own (`PCT_MAX`, `PCT_STEP`), read
+		## off the instance because that script is not a `class_name`.
+		_pg_paint_slider(parent, "Original", 0.0, po.PCT_MAX, po.PCT_STEP,
+			po.opacity * 100.0, "%", func(v: float): po.set_percent(v))
+		var tip := _pg_mono("Shows the generator's own layer under your paint, to compare. "
+			+ "A viewing aid -- it never changes the world.", "text_faint", 9.5)
+		tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		parent.add_child(tip)
+
+	var toggles := HFlowContainer.new()
+	toggles.add_theme_constant_override("h_separation", _pg_px(7))
+	toggles.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(toggles)
+	toggles.add_child(_pg_chip_button("ERASE", bool(_paint_brush["erase"]), 44,
+		func():
+			_on_paint_erase_changed(not bool(_paint_brush["erase"]))
+			_pg_paint_mirror()
+			_pg_rebuild()))
+	toggles.add_child(_pg_chip_button("LAND ONLY", bool(_paint_brush["land_only"]), 44,
+		func():
+			_on_paint_land_only_changed(not bool(_paint_brush["land_only"]))
+			_pg_paint_mirror()
+			_pg_rebuild()))
+
+	var palette := bridge.get_paint_palette(_paint_layer)
+	if not palette.is_empty():
+		parent.add_child(_pg_mono("CLASS", "text_dim", 9.5, 2))
+		var class_chips := HFlowContainer.new()
+		class_chips.add_theme_constant_override("h_separation", _pg_px(7))
+		class_chips.add_theme_constant_override("v_separation", _pg_px(7))
+		parent.add_child(class_chips)
+		for pd in palette:
+			var d: Dictionary = pd
+			var index := int(d.get("index", 1))
+			class_chips.add_child(_pg_chip_button(String(d.get("label", "?")),
+				index == int(_paint_brush["value"]), 42,
+				func():
+					_on_paint_value_picked_from_dock(index)
+					_pg_paint_mirror()
+					_pg_rebuild()))
+
+	## Same shape as the SCULPT column's ARM button, and for the same reason: the
+	## map is behind this sheet, so arming drops it to its peek detent.
+	var arm := Button.new()
+	arm.text = "%s ARM PAINT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"]
+	arm.focus_mode = Control.FOCUS_NONE
+	arm.mouse_filter = Control.MOUSE_FILTER_PASS
+	arm.custom_minimum_size.y = _pg_tap(48)
+	arm.add_theme_font_override("font", DccTheme.mono(2, true))
+	arm.add_theme_font_size_override("font_size", _pg_fs(10))
+	for c_key in ["font_color", "font_hover_color", "font_pressed_color"]:
+		arm.add_theme_color_override(c_key, DccTheme.c("accent"))
+	var dashed := _pg_box(Color(0, 0, 0, 0), _pg_px(24), DccTheme.c("accent"), 1)
+	for state in ["normal", "hover", "pressed", "focus"]:
+		arm.add_theme_stylebox_override(state, dashed)
+	arm.pressed.connect(func():
+		app.arm_tool("paint")
+		if app.has_method("_set_phone_detent"):
+			app._set_phone_detent("peek"))
+	parent.add_child(arm)
+
+	var total := int(bridge.paint_painted_counts().get("total", 0))
+	var pending := bridge.paint_draft_count()
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", _pg_px(10))
+	parent.add_child(foot)
+	var note := _pg_mono("%d painted" % total, "accent" if pending > 0 else "text_faint", 10)
+	note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	note.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	foot.add_child(note)
+	## WW-13: both are gated on the PENDING draft, not on `total` (which includes
+	## committed paint), exactly like the dock's and the bar's pairs.
+	var discard := _pg_chip_button("DISCARD", false, 44, func():
+		_on_paint_discard()
+		_pg_rebuild())
+	discard.disabled = pending == 0
+	foot.add_child(discard)
+	var commit := _pg_chip_button("%s COMMIT" % DccIcons.SYMBOLS["tick"], true, 44, func():
+		_on_paint_commit()
+		_pg_rebuild())
+	commit.disabled = pending == 0
+	foot.add_child(commit)
+	for b in [discard, commit]:
+		(b as Button).add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+
+## Tell the other surfaces over the paint state that this column changed it: the
+## tool bar's Class / Erase / Land only controls and the dock panel's mirror of
+## them would otherwise show the old value until something rebuilt them.
+func _pg_paint_mirror() -> void:
+	_rebuild_tool_bar()
+	rebuild_paint_panel()
+	_refresh_right_dock_paint()
+
+## One labelled thumb slider of the Paint column: label left, live readout right,
+## a `PgSlider` underneath (so a vertical swipe scrolls the sheet instead of
+## rewriting the value -- the arbitration `_pg_sculpt_slider` documents) at the
+## 44 dp floor. `on_change` fires on every value change so Size and Original act
+## while the thumb moves; the other surfaces are mirrored once on release. The
+## readout shows whole numbers: every spec here steps by 1 or 5.
+func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: float,
+		step_v: float, value: float, unit: String, on_change: Callable) -> void:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", _pg_px(2))
+	parent.add_child(wrap)
+	var head := HBoxContainer.new()
+	wrap.add_child(head)
+	var l := _pg_mono(label_text, "text_secondary", 10)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(l)
+	var readout := _pg_mono("%d%s" % [int(round(value)), unit], "text_bright", 11)
+	head.add_child(readout)
+	var s := DccWidgets.PgSlider.new()
+	s.slop = float(_pg_px(8))
+	s.min_value = min_v
+	s.max_value = max_v
+	s.step = step_v
+	s.value = value
+	DccWidgets.phone_slider(s, DccTheme.phone_scale())
+	s.custom_minimum_size.y = maxf(s.custom_minimum_size.y, float(_pg_tap(44)))
+	wrap.add_child(s)
+	s.value_changed.connect(func(v: float):
+		readout.text = "%d%s" % [int(round(v)), unit]
+		on_change.call(v))
+	s.drag_ended.connect(func(_c: bool): _pg_paint_mirror())
 
 ## The canvas's chip: `min-height:<h>px; padding:0 13px; border-radius:<h/2>px;
 ## font:10px mono`, accent-on-wash when selected.

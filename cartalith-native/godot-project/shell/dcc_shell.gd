@@ -6372,7 +6372,14 @@ func _refresh_phone_sheet_header() -> void:
 		return
 	if _phone_tab == "gen":
 		_phone_sheet_title.text = "GENERATE"
-		if active_mode("world") == "b":
+		## Mode `b` holds BOTH Sculpt and Paint, so `active_mode()` cannot tell
+		## them apart; the world workspace's sheet column is what knows which one
+		## is on screen (`WorldWorkspace.phone_sheet_mode()`).
+		var world_ws: Node = _workspace_panels.get("world")
+		var sheet_mode: String = String(world_ws.call("phone_sheet_mode")) if world_ws != null and world_ws.has_method("phone_sheet_mode") else ""
+		if active_mode("world") == "b" and sheet_mode == "paint":
+			_phone_sheet_subtitle.text = "paint · draft cells"
+		elif active_mode("world") == "b":
 			_phone_sheet_subtitle.text = "sculpt · draft stamps"
 		else:
 			var bridge := _find_engine_bridge()

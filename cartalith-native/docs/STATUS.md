@@ -282,10 +282,13 @@ re-checked against the tree rather than copied from the commit message.
   desktop (display changes with the slider, world data unchanged). The "original" is the engine's unpainted
   `bclass`/`cterrain` classification re-derived from the *current* height, so a committed Sculpt edit moves it; a true
   pre-sculpt snapshot needs Rust. Splat has no generated raster. **The phone Paint bar is unreachable** (arming Paint
-  selects WORLD, whose GENERATE sheet hides the tool-options row) — pre-existing, not introduced here.
+  selects WORLD, whose GENERATE sheet hides the tool-options row) — pre-existing; fixed the same day, see the next entry.
 - **Ruling BK annotation pass: `cartalith-civ/src` complete** (comments only, 10 files; census `items_undoc` 940 → 277,
   `tests_unprotected` 876 → 193, `consts_undoc` 159 → 47, all remaining in `tests/` and `examples/`;
   `cargo test -p cartalith-civ --lib` 828/0/1). Verified comment-only by an independent checker.
+
+- **Phone Paint reachable by thumb — built, verified PASS (GDScript only).** The GENERATE sheet's mode segment is now PIPELINE / SCULPT / PAINT; the PAINT column carries Target field, Size, the Ruling BR Original slider, Erase, Land only, Class, ARM PAINT and Discard/Commit. `_phonepaint_probe.tscn` drives it with real taps and drags at `--vp 1080x2340 --force-touch`. Not covered: Hardness/Softness on the phone, a device pass, and the vertical-swipe arbitration probes that already failed at HEAD.
+- **RIM-5 (headwater fade by zoom) — built for the painted screen path, verified PARTIAL.** Order-1 streams fade by a smoothstep on screen pixels per cell (gone at 0.2, full at 0.8; `river_stroke.rs::o1_distance_fade`, mirrored in `river_field.rs::coverage` and `map_shore.gdshader`). Tiles, export and the stroke fallback are untouched (z4 and z16 tiles byte-identical). The thresholds are labelled judgement: the opening view is a cover fit near 0.65 px per cell, where the fade barely acts, so it shows once zoomed out; other world and window sizes were not measured. The flat tributary stub at z16 pre-exists (checked against 11a3dab6). `cargo test --workspace`: 4 660 passed, 0 failed, 54 ignored.
 
 ### 2026-09-28
 

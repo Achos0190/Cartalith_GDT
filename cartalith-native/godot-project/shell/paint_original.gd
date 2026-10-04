@@ -28,8 +28,9 @@ extends RefCounted
 ## a grid-sized RGBA, freed on disarm); or draw anything per frame (the layer
 ## is a static `TextureRect`, hidden when off, so an idle frame is unchanged).
 ##
-## **State** is session-only, like `world_workspace.gd`'s `_paint_brush` which
-## it sits beside on the same Paint bar: `opacity` starts at 0 (off), survives
+## **State** is shared by the desktop Paint tool bar and the phone GENERATE sheet's
+## Paint column (both write it only through `set_percent()`), and is session-only,
+## like `world_workspace.gd`'s `_paint_brush` which it sits beside: `opacity` starts at 0 (off), survives
 ## layer switches and disarm/re-arm, and is gone at restart. Nothing is written
 ## to `user://cartalith_settings.cfg`.
 ##
@@ -131,6 +132,19 @@ func sync() -> void:
 	## a stale one; `set_paint_original` treats null as off.
 	app.viewport.set_paint_original(_tex, opacity)
 
+## Set the strength from a percent value and re-evaluate the layer. The ONE
+## writer of `opacity`: the tool bar's "Original" slider (`decorate()` below)
+## and the phone GENERATE sheet's Paint column (`world_workspace.gd::_pg_paint`)
+## both call it, so a thumb on the phone and a mouse on the bar move the same
+## state and neither can drift from the other. `percent` is on the slider's own
+## 0..`PCT_MAX` scale (0 = off); out-of-range input is clamped, never wrapped.
+## Must never write anything but `opacity` and the on-screen layer; it is as
+## cheap as `sync()` (one dictionary read, plus one texture build the first
+## time a layer is shown).
+func set_percent(percent: float) -> void:
+	opacity = clampf(percent / PCT_MAX, 0.0, 1.0)
+	sync()
+
 ## Hide the layer and drop the texture.
 func _release() -> void:
 	_tex = null
@@ -185,9 +199,7 @@ func decorate(row: HBoxContainer, build: Callable) -> void:
 		tools.move_child(hint, _spacer_index(tools))
 		return
 	var parts := DccWidgets.slider(tools, "Original", 0.0, PCT_MAX, PCT_STEP,
-		opacity * 100.0, "%", func(v: float):
-			opacity = clampf(v / PCT_MAX, 0.0, 1.0)
-			sync(), TIP)
+		opacity * 100.0, "%", func(v: float): set_percent(v), TIP)
 	var r: Control = parts["row"]
 	tools.move_child(r, _spacer_index(tools))
 	var label := r.get_child(0) as Control

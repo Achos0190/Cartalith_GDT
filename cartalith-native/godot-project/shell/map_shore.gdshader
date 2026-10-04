@@ -34,6 +34,11 @@ shader_type canvas_item;
 // Just outside a river's edge a lighter, greener floodplain tint fades over a
 // band that scales with the channel (`river_field.rs` `FLOODPLAIN_*`).
 // `river_field.rs::coverage` is this law mirrored, pinned against the stroke.
+// **RIM-5**: the order-1 share's alpha also takes `o1_distance_fade(ppc)` (a
+// smoothstep from `O1_GONE_PPC` to `O1_FADE_FULL_PPC` pixels per cell, 1 from
+// `O1_FADE_FULL_PPC` up), so headwater streams thin out of a zoomed-out map
+// without popping. Painted path only: the vector stroke, tiles and export are
+// RIM-7's.
 //
 // Must never invent a colour: every output is a mix of texels of this
 // texture (and `river_color`, itself a map render). Must never move a cell centre across the shore (the field's clamp
@@ -64,6 +69,15 @@ uniform float floodplain_strength = 1.0;
 vec2 o1_deemphasis(float zk) {
 	float de = clamp(1.0 - (max(zk, 1.0) - 1.0) / 7.0, 0.0, 1.0);
 	return vec2(0.55 + 0.45 * (1.0 - de), 0.4 + 0.6 * (1.0 - de));
+}
+
+// RIM-5, `river_stroke::o1_distance_fade`: 0 at or below `O1_GONE_PPC` pixels
+// per cell, 1 at or above `O1_FADE_FULL_PPC`, a smoothstep between. Labelled
+// judgement, tuned on the owner's world; keep both in step with the Rust.
+const float O1_GONE_PPC = 0.2;
+const float O1_FADE_FULL_PPC = 0.8;
+float o1_distance_fade(float ppc) {
+	return smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc);
 }
 
 // The floodplain tint: a lift toward a lighter, greener land, **labelled
@@ -106,7 +120,7 @@ void fragment() {
 		float o1 = clamp(rf.b, 0.0, 1.0);
 		vec2 dm = o1_deemphasis(ppc);
 		float wm = mix(1.0, dm.x, o1);
-		float am = mix(1.0, dm.y, o1);
+		float am = mix(1.0, dm.y * o1_distance_fade(ppc), o1);
 		float hw_px = max(rf.g * ppc * wm * river_width, 0.5);
 		// rf.a: the plate frame's weight (`river_field.rs`, `1 - border_cover`)
 		// -- the river never lies on the bare-paper margin the raster baked.

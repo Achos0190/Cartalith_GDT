@@ -1026,6 +1026,50 @@ pub fn o1_deemphasis(zk: f32) -> (f32, f32) {
     (O1_WIDTH_OPENING + (1.0 - O1_WIDTH_OPENING) * (1.0 - de), O1_ALPHA_OPENING + (1.0 - O1_ALPHA_OPENING) * (1.0 - de))
 }
 
+/// **RIM-5** (`RIVERS_IN_MAP_SCOPE.md`): the density at or below which a
+/// headwater (order-1) stream of the PAINTED river has faded out completely --
+/// screen pixels per grid cell, i.e. the same cells-per-pixel input
+/// `LOD_DETAIL_SCOPE.md` D5 scales by, not an absolute km figure (a world's
+/// km per cell is a generation parameter; the density the eye sees is not).
+/// **Labelled judgement**, tuned on the owner's 2048x1311 world with
+/// `_riverzoom_probe.gd --rim5` (2026-10-04). Measured density in the probe's
+/// 950x858 map area: the contain fit (camera zoom 1.0) is 0.46 pixels per cell,
+/// but the OPENING view is a cover fit (`viewport_host.gd::reset_view`, zoom
+/// about 1.41) at 0.65, where the fade factor is about 0.85 (order-1 alpha 0.4
+/// becomes about 0.34) -- so the fade barely acts at the opening view and acts
+/// only once the painter zooms out; at the camera's minimum zoom (`ZOOM_MIN`,
+/// 0.4) the density is 0.19 and the headwater trickles that make a zoomed-out
+/// view a "barcode" (the owner, 2026-09-23) are gone. Other world sizes and
+/// window sizes were not measured. Mutation-tested in `river_field.rs`.
+pub const O1_GONE_PPC: f32 = 0.2;
+/// The density at and above which the RIM-5 fade has no effect and the
+/// order-1 stream is drawn at [`o1_deemphasis`]'s own alpha. **Labelled
+/// judgement**, paired with [`O1_GONE_PPC`]: about the owner world's fit on a
+/// wide window, and below the one pixel per cell (`zk` 1) where
+/// [`o1_deemphasis`] begins to open the stream up, so the two rules never act
+/// on the same density.
+pub const O1_FADE_FULL_PPC: f32 = 0.8;
+
+/// **RIM-5: the alpha multiplier that fades a headwater stream out as the map
+/// zooms out**, `0..=1` at `ppc` screen pixels per grid cell. A smoothstep from
+/// [`O1_GONE_PPC`] (0) to [`O1_FADE_FULL_PPC`] (1): continuous with zero slope
+/// at both ends, so a zoom sweep never pops a stream in or out (the scope's
+/// "fades rather than pops"), and exactly `1` from [`O1_FADE_FULL_PPC`] up, so
+/// every density from there to the order-1 de-emphasis's end at `zk` 8 is
+/// unchanged (measured: painted ink identical to before from 0.81 pixels per
+/// cell up).
+///
+/// Applies to the order-1 share of a texel (`river_field`'s B channel) in the
+/// painted path alone -- `map_shore.gdshader` and the mirror in
+/// `river_field::coverage`. It is deliberately NOT part of [`river_px_width`]:
+/// the deep-zoom tiles and the export (RIM-7) and the vector-stroke fallback
+/// share that function and stay as they were. Must stay a pure function of
+/// `ppc`, and must never exceed 1 or go below 0.
+pub fn o1_distance_fade(ppc: f32) -> f32 {
+    let t = ((ppc - O1_GONE_PPC) / (O1_FADE_FULL_PPC - O1_GONE_PPC)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 // ---------------------------------------------------------------------------
 // Colour along one course (OUTSTANDING_WORK.md, "Rivers change colour
 // abruptly mid-course", found 2026-09-27 on RV-2's before/after sheets).
@@ -2270,6 +2314,45 @@ mod tests {
         let g = one_run((0..=72).map(|i| (2.5 + i as f32 * 0.25, 10.5)).collect(), 3.0, [0.5, 0.5, 0.5], true);
         let p = rasterize(&g, &render::TerrainAppearance::default(), 32, 24, RasterMap::grid()).at(10, 10).unwrap();
         assert!((p[3] - 0.4).abs() < 1e-6, "{p:?}");
+    }
+
+    /// Protects: RIM-5's fade law -- 0 at and below `O1_GONE_PPC`, exactly 1
+    /// from `O1_FADE_FULL_PPC` up (so every density the order-1 de-emphasis
+    /// already governs is unchanged), strictly rising and continuous between
+    /// (no pop), and a smoothstep's own midpoint -- and that it is NOT in
+    /// `river_px_width`, which the tiles, export and stroke fallback share.
+    #[test]
+    fn the_headwater_fade_is_a_continuous_ramp_that_tiles_do_not_see() {
+        assert_eq!(o1_distance_fade(0.0), 0.0);
+        assert_eq!(o1_distance_fade(O1_GONE_PPC), 0.0);
+        assert_eq!(o1_distance_fade(O1_FADE_FULL_PPC), 1.0);
+        assert_eq!(o1_distance_fade(1.0), 1.0, "from one pixel per cell up the de-emphasis alone governs");
+        assert!(O1_FADE_FULL_PPC < 1.0, "the fade must end before `zk` 1, where o1_deemphasis starts to open the stream up");
+        assert_eq!(o1_distance_fade(8.0), 1.0);
+        let mid = o1_distance_fade(0.5 * (O1_GONE_PPC + O1_FADE_FULL_PPC));
+        assert!((mid - 0.5).abs() < 1e-6, "{mid}");
+        // The two thresholds pinned by behaviour at literal densities (a test
+        // that reads the constants back would pass for any value): the tuned
+        // 0.2 / 0.8 pair (`_riverzoom_probe.gd --rim5`, 2026-10-04) puts the
+        // ramp's midpoint at 0.5 and its smoothstep values at these points.
+        assert_eq!(o1_distance_fade(0.19), 0.0);
+        assert_eq!(o1_distance_fade(0.81), 1.0);
+        assert!((o1_distance_fade(0.5) - 0.5).abs() < 1e-6);
+        assert!((o1_distance_fade(0.3) - 0.074074).abs() < 1e-4, "{}", o1_distance_fade(0.3));
+        assert!((o1_distance_fade(0.7) - 0.925926).abs() < 1e-4, "{}", o1_distance_fade(0.7));
+        let (mut prev, mut max_step) = (0.0f32, 0.0f32);
+        for i in 0..=1000 {
+            let f = o1_distance_fade(i as f32 * 0.001);
+            assert!(f >= prev - 1e-7, "not monotone at {i}: {prev} then {f}");
+            max_step = max_step.max(f - prev);
+            prev = f;
+        }
+        assert!(max_step < 0.005, "a 0.001 pixel-per-cell step moved the fade by {max_step}: it pops");
+        // The shared width/alpha function is untouched: an order-1 point at a
+        // density the painted path has faded out still draws at the opening alpha.
+        let a = render::TerrainAppearance::default();
+        let p = RiverPoint { width_cells: 1.0, order: 1, own_order: 1, discharge: f32::NAN };
+        assert_eq!(river_px_width(p, 0.2, &a).map(|(_, al)| al), Some(O1_ALPHA_OPENING));
     }
 
     /// A tile pixel sits at SAMPLE coordinate `bx + x * cx`, where a cell's

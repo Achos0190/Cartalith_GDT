@@ -149,7 +149,8 @@ own `RM-*` numbering.
   item is the verification pass confirming no seam remains at a mid-course
   lake, not new geometry.
 - **RIM-5 — small streams faded out when zoomed out.** Below a stream-order
-  or discharge threshold that scales with km-per-pixel (the same shape as
+  or discharge threshold that scales with screen density, built as pixels per
+  cell (a world's km per cell is a generation parameter, so it is not the input; the same shape as
   `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`'s EF-1/EF-9 scale-dependent
   detail and `LOD_DETAIL_SCOPE.md`'s per-tile river SDF threshold), a
   headwater's contribution to the distance field fades rather than popping.
@@ -263,8 +264,8 @@ own `RM-*` numbering.
 4. **Does RIM-5's fade-out threshold apply uniformly, or should it await
    `ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md`'s EF-1/EF-9 multi-resolution
    work landing first, since both touch scale-dependent river detail?**
-   Default: RIM-5 ships independently, using the same km-per-pixel input
-   `LOD_DETAIL_SCOPE.md` already plans to expose, and is revisited if EF-1/9
+   Default: RIM-5 ships independently, using screen pixels per cell (not a km figure; the same density input
+   `LOD_DETAIL_SCOPE.md` already plans to expose), and is revisited if EF-1/9
    changes that input's shape later — not blocked on research that has no
    owner-scheduled build date.
 

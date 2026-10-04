@@ -1815,9 +1815,10 @@ class PgSlider extends HSlider:
 	##
 	## **Deliberately carries no default, and `PgField.slop` lost the identical
 	## one in the same change.** Every way in supplies it: `touch_slider()`
-	## below takes it as a required argument, and the two `PgSlider.new()` sites
-	## -- `world_workspace.gd::_pg_range_field()` and `::_pg_sculpt_slider()` --
-	## each assign `_pg_px(8)` on the line after the constructor. So a declared
+	## below takes it as a required argument, and the three `PgSlider.new()` sites
+	## -- `world_workspace.gd::_pg_range_field()`, `::_pg_sculpt_slider()` and
+	## `::_pg_paint_slider()` -- each assign `_pg_px(8)` on the line after the
+	## constructor. So a declared
 	## `:= 8.0` was never reached by anything, and read as coverage it did not
 	## give: mutated to `400.0` AND to `0.0` it left `_rangeswipe_probe.gd`
 	## green both ways, and `PgField`'s left `_gestclass_probe.gd` green both

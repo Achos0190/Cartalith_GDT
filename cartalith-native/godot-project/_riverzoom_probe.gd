@@ -38,13 +38,27 @@ extends Node
 ##    stroke); frame time while the view pans (median with min..max) and the
 ##    GPU render time when the driver reports it. A path that paints no pixel
 ##    fails the probe (positive control).
+##  - RIM-5 (`--rim5`, headwater streams fade out when zoomed out): over
+##    `--rim5-zooms` (camera zoom, default 0.4..2 in fine steps, the view held
+##    on the map centre) the river's ink pixels (ON-vs-OFF diff above 8 summed
+##    levels, floodplain off) on the painted path and on the stroke path, which
+##    keeps the unfaded order-1 look and so is the control. Two measures: `ink`
+##    counts the pixels at all touched (a faint stream still counts), `mass`
+##    sums the per-pixel colour change (a faded stream counts for less, which
+##    is what the eye sees). `kept` / `kept_mass` = painted / stroke: their
+##    fall below the fade's full density (`O1_FADE_FULL_PPC`) is the fade,
+##    their smoothness (`max_step` between neighbouring zooms) the "no popping"
+##    bar, and they must be about one wherever the fade is one. Each zoom's two frames are saved. Positive control: both paths must
+##    draw ink at the deepest swept zoom.
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
 ## `--targets FILE` reuses the target cells of an earlier run's riverzoom.json,
 ## so a before/after pair frames the same ground. `--stats-only` skips the zoom
 ## sweep and its PNGs (grid statistics and draw cost only); `--zooms 1,32`
-## narrows the sweep. `--appearance key=v,key=v` sets appearance tunables after
+## narrows the sweep. `--vp WxH` sets the window (default 1600x1000; the map
+## area is only the part of it the docks leave, so the fit density is lower
+## than the window suggests). `--appearance key=v,key=v` sets appearance tunables after
 ## generation (e.g. `river_ink=1,river_ink_r=0,river_ink_g=0,river_ink_b=0` to
 ## measure the stroke's continuity in a full-contrast ink, independent of how
 ## far a style's colour sits from the ground).
@@ -61,6 +75,8 @@ var _report: Dictionary = {}
 var _fixed_targets: Dictionary = {}
 var _stats_only := false
 var _paint_compare := false
+var _rim5 := false
+var _rim5_zooms: Array = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0]
 var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
 
@@ -84,6 +100,13 @@ func _ready() -> void:
 				var p := args[i + 1].split("x"); _grid = Vector2i(int(p[0]), int(p[1])); i += 1
 			"--stats-only": _stats_only = true
 			"--paint-compare": _paint_compare = true
+			"--rim5": _rim5 = true
+			"--rim5-zooms":
+				_rim5_zooms.clear()
+				for zs in args[i + 1].split(","): _rim5_zooms.append(float(zs))
+				i += 1
+			"--vp":
+				var vp := args[i + 1].split("x"); _vp = Vector2i(int(vp[0]), int(vp[1])); i += 1
 			"--zooms":
 				_zooms.clear()
 				for zs in args[i + 1].split(","): _zooms.append(float(zs))
@@ -214,6 +237,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["targets"][name] = {"cell": [t["p"].x, t["p"].y], "rows": rows}
 	if _paint_compare and not _stats_only:
 		sr["paint"] = await _paint_compare_run(rivers, targets)
+	if _rim5 and not _stats_only:
+		sr["rim5"] = await _rim5_run()
 	_report[str(seed_v)] = sr
 
 
@@ -931,3 +956,88 @@ func _paint_compare_run(rivers: Array, targets: Dictionary) -> Dictionary:
 			printerr("PROBE-FAIL: no %s sample was ever covered by the painted river (positive control)" % k)
 			_report["fail"] = true
 	return res
+
+
+## ---- RIM-5: headwater streams fade out as the map zooms out ---------------
+
+## The river's ink on the CURRENT path at camera zoom `z`, the view centred on
+## the map: the ON-vs-OFF diff above 8 summed levels (the antialiased fringe's
+## own threshold), with the floodplain tint off so only the river's width and
+## edge count. Saves the ON frame (tint on, as the user sees it) as
+## `<tag>.png`. Returns `{ink, mass, ppc}`; `ink = -1` when a frame could not
+## be grabbed, never a plausible 0.
+func _rim5_ink(z: float, tag: String) -> Dictionary:
+	_vh.reset_view()
+	await _settle(3)
+	_vh.zoom_step(z / _vh.zoom())
+	_vh.move_view_to(_grid.x * 0.5, _grid.y * 0.5)
+	await _settle(24)
+	var mat := _vh.map_view.material as ShaderMaterial
+	var tinted := await _grab()
+	mat.set_shader_parameter("floodplain_strength", 0.0)
+	await _settle(4)
+	var on := await _grab()
+	_vh.set_layer_visible("rivers", false)
+	await _settle(8)
+	var off := await _grab()
+	_vh.set_layer_visible("rivers", true)
+	mat.set_shader_parameter("floodplain_strength", 1.0)
+	await _settle(6)
+	if on == null or off == null or tinted == null:
+		return {"ink": -1, "ppc": 0.0}
+	tinted.save_png(_out.path_join(tag + ".png"))
+	var m := _diff_masks(on, off)
+	var n := 0
+	for b in (m["m8"] as PackedByteArray):
+		if b == 1: n += 1
+	var da := on.get_data(); var db := off.get_data()
+	var mass := 0
+	for i in on.get_width() * on.get_height():
+		var o := i * 4
+		mass += absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+	var ppc: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
+	return {"ink": n, "mass": mass, "ppc": ppc}
+
+
+## The RIM-5 leg (see the header): painted ink against the stroke path's over a
+## zoom sweep, `kept` per zoom and the largest step in `kept` between
+## neighbouring zooms.
+func _rim5_run() -> Dictionary:
+	var paint := {}; var stroke := {}
+	for path in ["paint", "stroke"]:
+		await _set_paint(path == "paint")
+		for z: float in _rim5_zooms:
+			if z > _vh._zoom_max + 1e-6:
+				continue
+			var r := await _rim5_ink(z, "rim5_z%05.2f_%s" % [z, path])
+			if path == "paint":
+				paint[z] = r
+			else:
+				stroke[z] = r
+	await _set_paint(true)
+	var rows := []
+	var prev := -1.0
+	var max_step := 0.0
+	var kept_min := 9.0
+	for z: float in _rim5_zooms:
+		if not paint.has(z) or not stroke.has(z):
+			continue
+		var pi: int = paint[z]["ink"]; var si: int = stroke[z]["ink"]
+		var pm: int = paint[z].get("mass", -1); var sm: int = stroke[z].get("mass", -1)
+		var kept := (float(pi) / float(si)) if si > 0 and pi >= 0 else -1.0
+		var kept_mass := (float(pm) / float(sm)) if sm > 0 and pm >= 0 else -1.0
+		rows.append({"z": z, "ppc": paint[z]["ppc"], "paint_ink": pi, "stroke_ink": si, "kept": kept,
+			"paint_mass": pm, "stroke_mass": sm, "kept_mass": kept_mass})
+		print("    rim5 z %.2f ppc %.3f  ink paint %d stroke %d kept %.3f   mass paint %d stroke %d kept %.3f"
+			% [z, paint[z]["ppc"], pi, si, kept, pm, sm, kept_mass])
+		if kept >= 0.0:
+			if prev >= 0.0:
+				max_step = maxf(max_step, absf(kept - prev))
+			prev = kept
+			kept_min = minf(kept_min, kept)
+	print("  rim5: max step in kept between neighbouring zooms %.3f, min kept %.3f" % [max_step, kept_min])
+	var last: Dictionary = rows[rows.size() - 1] if rows.size() > 0 else {}
+	if rows.is_empty() or int(last["paint_ink"]) <= 0 or int(last["stroke_ink"]) <= 0:
+		printerr("PROBE-FAIL: a path drew no river ink at the deepest rim5 zoom (positive control)")
+		_report["fail"] = true
+	return {"rows": rows, "max_step_kept": max_step, "min_kept": kept_min}

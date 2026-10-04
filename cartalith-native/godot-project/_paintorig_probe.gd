@@ -248,18 +248,17 @@ func _ready() -> void:
 	await _frames(SETTLE)
 	if phone and app._phone_tab == "gen":
 		## Arming Paint selects the WORLD domain, which lights GENERATE and swaps
-		## the options row for the generation column. Pressing the MAP tab instead
-		## changes the domain to Cartography, whose own default replaces the Paint
-		## bar (measured: 3 children, no Original) -- so on a phone the Paint bar
-		## is NOT user-reachable at all today (the GENERATE sheet carries only
-		## PIPELINE | SCULPT). That is a pre-existing gap, reported rather than
-		## fixed here. To still measure the control's touch size, this REVEALS the
-		## already-built, hidden options row by writing the tab and refreshing the
-		## sheet, which is a test-only path no thumb can take.
+		## the options row for the generation column, so THIS bar's own row is
+		## hidden on a phone. A thumb now reaches Paint's options through the
+		## GENERATE sheet's PAINT segment instead, and `_phonepaint_probe.gd` proves
+		## that with real taps. What this leg still measures is the BAR'S OWN row
+		## (its Original slider's touch size, the shared slider state), so it
+		## REVEALS the already-built, hidden row by writing the tab and refreshing
+		## the sheet -- a test-only path, not the user's route.
 		app._phone_tab = "map"
 		app._refresh_phone_gen_panel()
 		await _frames(SETTLE)
-		_log("FORCED REVEAL (not user-reachable): tab=%s armed=%s bar mode=%s" % [app._phone_tab, app.armed_tool, app.tool_bar.mode])
+		_log("FORCED REVEAL of the bar row (the user route is _phonepaint_probe.gd): tab=%s armed=%s bar mode=%s" % [app._phone_tab, app.armed_tool, app.tool_bar.mode])
 	_check(app.armed_tool == "paint", "Paint is armed")
 	var sl := _slider_labelled("Original")
 	if sl == null:

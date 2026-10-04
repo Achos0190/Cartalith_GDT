@@ -46,7 +46,11 @@
 //! pixels `max(hw * ppc * wm * river_width, 0.5)` (the 1 px floor,
 //! [`river_stroke::MIN_STROKE_PX`]), alpha ramping linearly over the one pixel
 //! fringe outside it ([`river_stroke::EDGE_FRINGE_PX`]), the order-1
-//! de-emphasis ([`river_stroke::o1_deemphasis`]) on the width and the alpha.
+//! de-emphasis ([`river_stroke::o1_deemphasis`]) on the width and the alpha,
+//! and RIM-5's fade ([`river_stroke::o1_distance_fade`]) on the order-1 alpha
+//! below [`river_stroke::O1_FADE_FULL_PPC`] pixels per cell -- a headwater stream thins out of a zoomed-out
+//! map rather than popping, in this painted path only (the vector stroke, the
+//! tiles and the export keep `o1_deemphasis`'s opening look until RIM-7).
 //! The union with the shore field's own water coverage is how a river merges
 //! into a lake or the sea with no seam: where the water covers a pixel the
 //! river adds nothing, and the shore's contour is untouched
@@ -365,7 +369,8 @@ pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
     let (wm_o1, am_o1) = crate::river_stroke::o1_deemphasis(ppc);
     let o1 = texel[2].clamp(0.0, 1.0);
     let wm = 1.0 + (wm_o1 - 1.0) * o1;
-    let am = 1.0 + (am_o1 - 1.0) * o1;
+    // RIM-5: the order-1 share also fades out as the map zooms out.
+    let am = 1.0 + (am_o1 * crate::river_stroke::o1_distance_fade(ppc) - 1.0) * o1;
     let hw_px = (texel[1] * ppc * wm * river_width).max(0.5 * MIN_STROKE_PX);
     let d_px = texel[0] * ppc;
     (((hw_px + EDGE_FRINGE_PX - d_px) / EDGE_FRINGE_PX).clamp(0.0, 1.0), am)
@@ -489,6 +494,58 @@ mod tests {
             let rel = (field_px - stroke_px).abs() / stroke_px;
             assert!(rel < 0.02 && diff / stroke_px < 0.02, "width {width} ppc {ppc}: stroke {stroke_px:.1} field {field_px:.1} ({:.1}%), per-pixel diff {diff:.1}", rel * 100.0);
         }
+    }
+
+    /// Protects: RIM-5 in the painted path -- a headwater (order-1) river's
+    /// alpha is 0 at and below `O1_GONE_PPC`, the opening 0.4 from
+    /// `O1_FADE_FULL_PPC` up, continuous between; a higher-order river is untouched at
+    /// every density; and the fade is the order-1 SHARE (a half-weight texel
+    /// fades half as far), never a threshold that pops a stream in.
+    #[test]
+    fn a_headwater_stream_fades_out_as_the_map_zooms_out() {
+        let a = crate::render::TerrainAppearance::default();
+        let rw = a.river_width as f32;
+        let head = build(&geom(vec![run(20.0, 4.0, 60.0, 0.6, 1)]), 64, 40, rw, &|_, _| 0.0).expect("a field");
+        let trunk = build(&geom(vec![run(20.0, 4.0, 60.0, 0.6, 3)]), 64, 40, rw, &|_, _| 0.0).expect("a field");
+        let (th, tt) = (head.sample(30.0, 20.0), trunk.sample(30.0, 20.0));
+        assert!(th[2] > 0.99 && tt[2] < 0.01, "positive control: the fixtures are order 1 and order 3 ({} {})", th[2], tt[2]);
+        let alpha = |t: [f32; 4], ppc: f32| coverage(t, ppc, rw).1;
+        assert_eq!(alpha(th, river_stroke::O1_GONE_PPC), 0.0, "a headwater stream is gone at O1_GONE_PPC");
+        assert_eq!(alpha(th, 0.1), 0.0, "and below it");
+        assert!(alpha(th, 0.5) > 0.0 && alpha(th, 0.5) < 0.4, "mid-ramp is partly faded");
+        assert!((alpha(th, river_stroke::O1_FADE_FULL_PPC) - 0.4).abs() < 1e-6, "from O1_FADE_FULL_PPC it is the opening alpha");
+        for ppc in [0.1, 0.2, 0.5, 0.8, 3.0] {
+            assert_eq!(alpha(tt, ppc), 1.0, "a trunk is never faded (ppc {ppc})");
+        }
+        let (mut prev, mut max_step) = (0.0f32, 0.0f32);
+        for i in 0..=100 {
+            let al = alpha(th, i as f32 * 0.01);
+            max_step = max_step.max((al - prev).abs());
+            prev = al;
+        }
+        assert!(max_step < 0.02, "a 0.01 pixel-per-cell step moved the alpha by {max_step}");
+        let half = [th[0], th[1], 0.5, th[3]];
+        let want = 1.0 + (0.4 * crate::river_stroke::o1_distance_fade(0.6) - 1.0) * 0.5;
+        assert!((alpha(half, 0.6) - want).abs() < 1e-6, "the fade applies to the order-1 share only");
+    }
+
+    /// Protects: the shader's RIM-5 mirror -- `map_shore.gdshader` carries its
+    /// own copy of the two fade thresholds (GLSL cannot import Rust), so the
+    /// copy is read from the shader's text and held equal to
+    /// `river_stroke`'s, and the order-1 alpha line must apply the fade. A
+    /// retuned Rust constant with a forgotten shader one fails here.
+    #[test]
+    fn the_shader_mirrors_the_headwater_fade_thresholds() {
+        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
+        let konst = |name: &str| -> f32 {
+            let key = format!("const float {name} = ");
+            let at = src.find(&key).unwrap_or_else(|| panic!("the shader declares no `{name}`")) + key.len();
+            src[at..].split(';').next().unwrap().trim().parse().expect("a float literal")
+        };
+        assert_eq!(konst("O1_GONE_PPC"), river_stroke::O1_GONE_PPC);
+        assert_eq!(konst("O1_FADE_FULL_PPC"), river_stroke::O1_FADE_FULL_PPC);
+        assert!(src.contains("smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc)"), "the shader's fade is not the smoothstep the Rust law is");
+        assert!(src.contains("mix(1.0, dm.y * o1_distance_fade(ppc), o1)"), "the shader's order-1 alpha does not apply the fade");
     }
 
     /// Protects: a river whose width the preset scales (`river_width`) is
