@@ -1458,6 +1458,22 @@ pub struct TerrainAppearance {
     /// a `RenderCtx` shades whatever field it is handed.
     pub smooth_valleys: bool,
 
+    /// **RIM-1/RIM-3/RIM-6: the river is water painted into the map, not a
+    /// stroke drawn over it** (`RIVERS_IN_MAP_SCOPE.md`, Ruling BU). When
+    /// `true` (and `smooth_shores` is, which supplies the shore contour the
+    /// river merges into), `WorldGen::build_color_texture` also builds the
+    /// per-pixel river distance field (`river_field::build`), the base map's
+    /// shader (`map_shore.gdshader`) paints the river from it with the shore's
+    /// own antialiased edge and a floodplain tint beside it, the valley shading
+    /// is no longer cut along the drawn line (`valley_shade_field`'s `recut`),
+    /// and the base view stops drawing the stroke mesh. Deep-zoom tiles are
+    /// unchanged (RIM-7). When the field cannot be built (a grid over
+    /// `river_field::MAX_TEXELS`) the stroke stays: the river is never lost.
+    ///
+    /// A `bool` for the reason `smooth_shores` is one. `true` in `default()`;
+    /// `false` in [`Self::js_reference`], which has no river layer at all.
+    pub rivers_as_water: bool,
+
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
     /// `0.0` disables AO entirely (and skips its precompute); the
@@ -2163,6 +2179,9 @@ impl Default for TerrainAppearance {
             // RV-3: the valley shaded along the drawn line, on in the shipped
             // look. `js_reference()` pins `false`.
             smooth_valleys: true,
+            // RIM-1/3/6: the river painted into the map as water, on in the
+            // shipped look. `js_reference()` pins `false`.
+            rivers_as_water: true,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2535,6 +2554,9 @@ impl TerrainAppearance {
             // RV-3's valley along the drawn line is port-only too: the
             // reference shades its carved field as it stands.
             smooth_valleys: false,
+            // RIM's painted river is port-only: the reference draws no river
+            // layer in its map at all.
+            rivers_as_water: false,
             ..TerrainAppearance::default()
         }
     }
@@ -6649,7 +6671,7 @@ pub fn border_cover(a: &TerrainAppearance, x: usize, y: usize, gw: usize, gh: us
 /// both coordinates are clamped into `[0, gw-1]`/`[0, gh-1]` by
 /// [`BakeFields::pixel`] before they reach here, so NaN is unreachable and
 /// the two spellings cannot differ.
-fn border_cover_f(a: &TerrainAppearance, x: f64, y: f64, gw: usize, gh: usize) -> f64 {
+pub fn border_cover_f(a: &TerrainAppearance, x: f64, y: f64, gw: usize, gh: usize) -> f64 {
     let w = border_width_cells(a, gw, gh);
     if w <= 0.0 {
         return 0.0;

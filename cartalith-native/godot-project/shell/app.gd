@@ -295,6 +295,28 @@ func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 const ContextBroker := preload("res://shell/context_broker.gd")
 var context_broker: ContextBroker
 
+## Ruling BR: shows the armed paint layer's as-generated raster at a slider
+## opacity. `paint_original.gd` has the whole story; it is a viewing aid only.
+const PaintOriginal := preload("res://shell/paint_original.gd")
+var paint_original: PaintOriginal
+
+## `DccShell.set_tool_options()` with one addition: when the Paint bar is the
+## row being built, the "Original" slider (Ruling BR) is appended INSIDE the
+## build, so the base class's phone/tablet fit pass sizes it with its siblings.
+## Every other tool row passes through untouched, and `super` does the rebuild,
+## so this must never replace it. `paint_original` is null before `_ready()`
+## has reached its setup; the guard keeps an early call a plain pass-through.
+func set_tool_options(build: Callable) -> void:
+	if paint_original == null:
+		super.set_tool_options(build)
+		return
+	super.set_tool_options(func(row: HBoxContainer):
+		build.call(row)
+		paint_original.decorate(row, build))
+	## The Paint bar is rebuilt on a layer switch and on every commit; keep the
+	## on-map layer in step with whatever the bar now offers.
+	paint_original.sync()
+
 ## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise
 ## disarms back to Inspect." A key, not a mouse button, so it belongs on
 ## `_unhandled_key_input` regardless of which control has focus.
@@ -831,6 +853,10 @@ func _ready() -> void:
 	## Built after `GlobalTools.install` because its Measure row reads
 	## `GlobalTools.measure_mode()`, and after `_register_workspaces` because
 	## its Paint row reads `WorldWorkspace`'s own brush dictionary.
+	## Ruling BR's paint-original comparison aid. Set up before the tool bar so
+	## the first Paint options-row build already finds it (`set_tool_options`).
+	paint_original = PaintOriginal.new()
+	paint_original.setup(self, bridge)
 	tool_bar = DccToolBar.install(self, bridge)
 
 	## The three regions that ARE a node whose `visible` is the whole truth, in

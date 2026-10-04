@@ -56,6 +56,9 @@ extends Node
 ##     nothing but shore pixels, so every preset's colours, the paper and the
 ##     grade are untouched), and band pixels move (positive control). Skipped
 ##     -- not passed -- on a build without the material (HEAD).
+##  R. fit, the Rivers layer on vs off with the river painted into the map
+##     (RIM-1): no open-water pixel moves, land pixels do (positive control).
+##     Protects `map_shore.gdshader`'s "river is composed under the water".
 ##
 ## Crops for looking at: `<preset>_<kind><i>_<zoom>.png` around each visit
 ## (fit and x1.4 magnified 8x nearest; z16 at 1:1).
@@ -718,6 +721,40 @@ func _fit_legs(pname: String, z: float, visits: Array) -> void:
 			_ok(repeat_moved == 0, "I %s: two captures of the same state agree (control)" % pname)
 			_ok(band_moved > 1000, "I %s: the smoothing moves shoreline pixels (positive control, %d > 1000)" % [pname, band_moved])
 			_ok(out_moved == 0, "I %s: no pixel away from a shoreline moves (%d)" % [pname, out_moved])
+	## R: the painted river (RIM-1, `map_shore.gdshader`) lies on land only. The
+	## Rivers layer on vs off, with the smoothing on: no pixel inside open water
+	## (a square whose four corners are all one water kind) may move -- the
+	## river is composed under the shore's water, never on it -- and land pixels
+	## do move (positive control). Fit only; skipped, not passed, where no river
+	## field was built (the stroke path then owns the river).
+	if z == 1.0:
+		if not _br.rivers_painted():
+			print("SHORESTEP  R %s: SKIPPED -- the rivers are not painted into the map (stroke path)" % pname)
+		else:
+			_vh.set_layer_visible("rivers", true)
+			await _frames(4)
+			var r_on := await _grab_full()
+			_vh.set_layer_visible("rivers", false)
+			await _frames(4)
+			var r_off := await _grab_full()
+			var RA := r_on.get_data(); var RB := r_off.get_data()
+			var RW := r_on.get_width()
+			var wet_moved := 0; var land_moved := 0; var wet_px := 0
+			for y in host.size.y:
+				for x in host.size.x:
+					var c := codes[y * host.size.x + x]
+					var o := ((host.position.y + y) * RW + host.position.x + x) * 3
+					var moved := RA[o] != RB[o] or RA[o + 1] != RB[o + 1] or RA[o + 2] != RB[o + 2]
+					if c >= 100 and c < 254:
+						wet_px += 1
+						wet_moved += int(moved)
+					elif c == 0:
+						land_moved += int(moved)
+			print("SHORESTEP  R %s: river layer on vs off -- open-water px moved %d of %d, land px moved %d" % [pname, wet_moved, wet_px, land_moved])
+			_report["R_%s" % pname] = {"open_water_moved": wet_moved, "open_water_px": wet_px, "land_moved": land_moved}
+			_ok(wet_px > 1000, "R %s: open water to test (%d px > 1000)" % [pname, wet_px])
+			_ok(land_moved > 500, "R %s: the river layer paints land (positive control, %d > 500)" % [pname, land_moved])
+			_ok(wet_moved == 0, "R %s: the painted river never lies on open water (%d px moved)" % [pname, wet_moved])
 	## Crops around each visit.
 	for vi in visits.size():
 		var v: Dictionary = visits[vi]

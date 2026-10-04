@@ -2271,7 +2271,7 @@ mod tests {
             })
             .collect();
         let wb = cartalith_civ::build_water_bodies(&f, gw, gh, TEST_SEA, false, Some(&ws.rainfall));
-        let s = crate::valley_shade::valley_shade_field(&f, &wb.classification, carved, ws.river_floor.as_deref(), &runs, gw, gh, TEST_SEA, false).expect("valley field");
+        let s = crate::valley_shade::valley_shade_field(&f, &wb.classification, carved, ws.river_floor.as_deref(), &runs, gw, gh, TEST_SEA, false, true).expect("valley field");
         // Premise: the unfrozen valley changed land beside water somewhere.
         let wet = |j: usize| wb.classification[j] != 0 || (f[j] as f64) < TEST_SEA;
         let beside_water = |i: usize| {

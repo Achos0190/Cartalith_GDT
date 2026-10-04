@@ -964,8 +964,17 @@ pub struct RiverPoint {
 /// equal ones.
 pub fn river_px_width(p: RiverPoint, px_per_cell: f32, a: &render::TerrainAppearance) -> Option<(f32, f32)> {
     let (wm, am) = if p.own_order <= 1 { o1_deemphasis(px_per_cell) } else { (1.0, 1.0) };
-    let k = px_per_cell * wm * a.river_width.clamp(0.0, RIVER_WIDTH_GUARD as f64) as f32;
+    let k = px_per_cell * wm * river_width_factor(a);
     Some(((p.width_cells * k).max(MIN_STROKE_PX), am))
+}
+
+/// The preset's river width multiplier as [`river_px_width`] applies it,
+/// clamped to `0..=`[`RIVER_WIDTH_GUARD`]. One function so the painted river
+/// (`river_field::build`, `map_shore.gdshader`'s `river_width`) and the stroke
+/// scale by exactly the same number; a second `clamp` written elsewhere is how
+/// they would drift.
+pub fn river_width_factor(a: &render::TerrainAppearance) -> f32 {
+    a.river_width.clamp(0.0, RIVER_WIDTH_GUARD as f64) as f32
 }
 
 /// The largest preset width multiplier [`river_px_width`] honours: a guard
@@ -1719,6 +1728,70 @@ impl WorldGen {
     #[func]
     fn shore_field_texture(&self) -> Option<Gd<godot::classes::ImageTexture>> {
         self.shore_field_tex.borrow().clone()
+    }
+
+    /// **RIM-1: the river as water in the base map's own pixels** -- a
+    /// half-float RGBA texture (`river_field::build`), `gw * scale` by
+    /// `gh * scale` texels, `scale` 2 or 1 (see `river_field`'s module doc for
+    /// the channels): per texel the distance in cells to the nearest drawn
+    /// river centreline, that river's half-width, and its order-1 weight.
+    /// Built by the last `build_color_texture` beside the shore field it
+    /// merges into. `map_shore.gdshader` paints the river from it with the
+    /// shore's own antialiased edge (`river_color_texture` supplies the
+    /// colour), `viewport_host.gd::_apply_river_paint` hands it over.
+    ///
+    /// `null` when the look keeps the stroke (`rivers_as_water` or
+    /// `smooth_shores` off), for a loaded save, before any world, and for a
+    /// grid over `river_field::MAX_TEXELS` -- in every such case the vector
+    /// stroke is drawn, as before ([`Self::rivers_painted`]). Must never be
+    /// drawn itself.
+    #[func]
+    fn river_field_texture(&self) -> Option<Gd<godot::classes::ImageTexture>> {
+        self.river_field_tex.borrow().clone()
+    }
+
+    /// Whether the base map paints the rivers itself (a river field and the
+    /// shore field both built), which is the one condition under which
+    /// `map_overlay.gd` stops drawing the vector stroke (RIM-6). Hit-testing
+    /// (`get_rivers`, `river_catchment`, the picks) never reads this: it is
+    /// geometry, not drawing. The Rivers layer switch is not an input -- off,
+    /// the shader paints nothing and the stroke is empty either way.
+    #[func]
+    fn rivers_painted(&self) -> bool {
+        self.river_field_tex.borrow().is_some() && self.shore_field_tex.borrow().is_some()
+    }
+
+    /// The shader's river uniforms in one read: `{width}`, the preset's river
+    /// width multiplier the field was built for (`river_width_factor`).
+    /// `{}` when no field. The shader takes the SAME number the build used,
+    /// so a width slider rebuilds the field with the colour texture rather
+    /// than leaving the two to disagree.
+    #[func]
+    fn river_paint_params(&self) -> VarDictionary {
+        if self.river_field_tex.borrow().is_none() {
+            return VarDictionary::new();
+        }
+        vdict! { "width" => self.river_field_width.get() as f64 }
+    }
+
+    /// **Diagnostic, probe-only**: `on = false` forces `rivers_as_water` off in
+    /// every appearance this object builds, so the stroke path renders the
+    /// same world and a probe can compare the two (coverage, seams, cost). The
+    /// next repaint (`generate`, a width or look change) rebuilds the map; this
+    /// does not repaint by itself. Nothing in the shell calls it.
+    #[func]
+    fn debug_set_river_paint(&self, on: bool) {
+        self.river_paint_off.set(!on);
+    }
+
+    /// The last uncached river-field build, for a probe: `{built, ms, w, h,
+    /// scale, segments, bytes}`. `ms` includes fetching the drawn network when
+    /// its cache was cold. Diagnostic; nothing in the shell reads it.
+    #[func]
+    fn river_paint_stats(&self) -> VarDictionary {
+        let (ms, w, h, scale, segs) = self.river_field_build.get();
+        vdict! { "built" => self.river_field_tex.borrow().is_some(), "ms" => ms, "w" => w as i64, "h" => h as i64,
+            "scale" => scale as i64, "segments" => segs as i64, "bytes" => (w * h * crate::river_field::CHANNELS * 2) as i64 }
     }
 }
 

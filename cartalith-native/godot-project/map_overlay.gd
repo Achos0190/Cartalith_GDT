@@ -3179,7 +3179,7 @@ func _desired_key(name: String) -> Dictionary:
 	var key := {"gen": _content_gen, "zoom": _camera_zoom, "size": size, "extra": null, "guard": Rect2()}
 	match name:
 		"rivers":
-			key["extra"] = [_lod_up, _debug_active]
+			key["extra"] = [_lod_up, _debug_active, _rivers_painted()]
 		"settlements":
 			var rev: Array = _urban_revealed.keys()
 			rev.sort()
@@ -3202,7 +3202,7 @@ func _same_build(a: Dictionary, b: Dictionary) -> bool:
 ## the deep-zoom switch taking the rivers) rather than linger.
 func _layer_trivial(name: String) -> bool:
 	match name:
-		"rivers": return _river_source == null or _lod_up or _debug_active
+		"rivers": return _river_source == null or _lod_up or _debug_active or _rivers_painted()
 		"sea": return not _show_sea_routes or _sea_routes.is_empty()
 		"roads": return not _show_roads or (_roads.is_empty() and _tl_ghost_ways.is_empty())
 		"settlements": return not _show_settlements or (_settlements.is_empty() and _tl_ghosts.is_empty())
@@ -5239,9 +5239,22 @@ func _build_river_chunk(slot: int, idx: int) -> void:
 	_chunk_done("rivers", slot, idx, float(Time.get_ticks_usec() - t0))
 
 
+## **RIM-6 (Ruling BU): the base map paints the rivers itself.** True when the
+## engine built the river distance field and the shore field it merges into
+## (`WorldGen::rivers_painted`), in which case `map_shore.gdshader` draws every
+## river into the map's own pixels and this overlay draws NO stroke below the
+## deep-zoom switch -- a river is drawn once. False for a look that keeps the
+## stroke (`TerrainAppearance::rivers_as_water` off), a grid over the field's
+## budget, a loaded save and an older binary, so the stroke is the fallback and
+## a river is never lost. Drawing only: hit-testing (`_river_pick_radius_cells`,
+## `get_rivers`, the right-dock picks) reads geometry and never asks.
+func _rivers_painted() -> bool:
+	return _river_source != null and _river_source.has_method("rivers_painted") and bool(_river_source.rivers_painted())
+
+
 func _draw_rivers_into(ci: RID, key: Dictionary, slot: int, idx: int, count: int) -> void:
 	var rect := _displayed_rect()
-	if rect.size.x <= 0.0 or _river_source == null or key["extra"][0] or key["extra"][1]:
+	if rect.size.x <= 0.0 or _river_source == null or key["extra"][0] or key["extra"][1] or key["extra"][2]:
 		return
 	## -1 (or no method): an older binary or a test double -- draw the stroke
 	## whole, in chunk 0, as before the chunking.

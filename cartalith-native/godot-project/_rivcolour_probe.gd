@@ -13,6 +13,13 @@ extends Node
 ## Options: --seeds a,b  --grid WxH  --zooms 1,4  --targets DIR/rivcolour.json
 ## (`--targets` reuses an earlier run's target cells, so a before/after pair
 ## frames the same ground).
+## `--stroke-path` runs the SCREEN walk on the vector-stroke path instead of the
+## default painted one (RIM-1/6, `WorldGen::debug_set_river_paint(false)` --
+## a diagnostic switch, never a setting): the river's colour is then the
+## overlay's own, not `map_shore.gdshader`'s sample of the colour field, so a
+## painted/stroke pair of runs over the same `--targets` says whether painting
+## the river into the map moved the colour continuity this probe polices. The
+## report's `path` field names which path a run measured.
 ##
 ## Measured:
 ##  - DATA (`get_rivers(1)`, grid space, palette-agnostic):
@@ -34,6 +41,8 @@ extends Node
 ##    samples is reported (`max_step`), beside the same walk over the rivers-OFF
 ##    frame (`max_step_off`, the ground's own variation -- the control). Only
 ##    stroke pixels are sampled (see `_walk`).
+##    With no defect to target (the healthy case since 2026-09-28) the walk
+##    runs on a `course` control target, the longest drawn river's midpoint.
 
 var _out := "user://rivcolour/"
 var _seeds: Array[int] = [483920, 24601, 1]
@@ -41,6 +50,7 @@ var _grid := Vector2i(1024, 656)
 var _vp := Vector2i(1600, 1000)
 var _zooms: Array = [1.0, 4.0]
 var _fixed := {}
+var _stroke_path := false
 var _app: Node
 var _vh: Control
 var _br: Node
@@ -85,6 +95,7 @@ func _ready() -> void:
 				i += 1
 			"--targets":
 				_fixed = JSON.parse_string(FileAccess.get_file_as_string(args[i + 1])); i += 1
+			"--stroke-path": _stroke_path = true
 			_:
 				printerr("unknown arg ", args[i]); get_tree().quit(2); return
 		i += 1
@@ -115,11 +126,22 @@ func _run_seed(seed_v: int) -> void:
 		await get_tree().create_timer(0.25).timeout
 		spins += 1
 	await get_tree().create_timer(1.0).timeout
+	if _stroke_path:
+		## The appearance flag only changes what the NEXT colour render draws:
+		## swap the texture in the way a style change does.
+		_br.world_gen.debug_set_river_paint(false)
+		_vh.map_view.texture = _br.color_texture()
+		_vh._apply_shore_field()
+		await _settle(8)
 	for l in HIDE:
 		_vh.set_layer_visible(l, false)
 	_vh.set_layer_visible("rivers", true)
 	var rivers: Array = _br.rivers(1)
 	var sr := _data_stats(rivers)
+	sr["path"] = "paint" if _br.world_gen.rivers_painted() else "stroke"
+	print("  river path measured: ", sr["path"])
+	if _stroke_path == _br.world_gen.rivers_painted():
+		printerr("PROBE-FAIL: --stroke-path=%s but rivers_painted()=%s (the switch did not take, or the field never built)" % [_stroke_path, _br.world_gen.rivers_painted()])
 	print("  data: ", JSON.stringify(sr["summary"]))
 	if int(sr["summary"]["drawn"]) == 0 or int(sr["summary"]["order_changes"]) == 0:
 		printerr("PROBE-FAIL: positive control -- no drawn rivers or no order change (seed %d)" % seed_v)
@@ -163,6 +185,9 @@ func _run_seed(seed_v: int) -> void:
 				where.x, where.y, row["max_step_off"]])
 			sr["screen"][tag] = row
 	_report[str(seed_v)] = sr
+	if _stroke_path:
+		## Leave the diagnostic switch as found for the next seed's world.
+		_br.world_gen.debug_set_river_paint(true)
 
 
 func _near_any(q: Vector2, pts: PackedVector2Array) -> bool:
@@ -243,8 +268,36 @@ func _data_stats(rivers: Array) -> Dictionary:
 		targets["order_step"] = worst_abrupt
 	if not worst_cont.is_empty():
 		targets["continuation"] = worst_cont
+	## The two defects above are fixed (2026-09-28), so a healthy world gives no
+	## target at all and the screen walk never ran -- which left the painted
+	## river (RIM-1) unmeasured here. A control target (the longest drawn
+	## river's midpoint, `_longest_course`) keeps the screen walk running on a
+	## fixed river whatever the data finds; it is never a defect.
+	if targets.is_empty():
+		var lc := _longest_course(rivers)
+		if not lc.is_empty():
+			targets["course"] = lc
 	return {"summary": {"drawn": drawn, "order_changes": order_changes, "abrupt": abrupt, "max_dc": max_dc,
 		"continuations": conts, "cont_colour_jumps": cjump, "cont_alpha_mismatch": amis}, "targets": targets}
+
+
+## The inner-area midpoint of the longest drawable river, as a target dict
+## (`{"cell", "river"}`), or `{}` when there is none -- never a made-up cell.
+func _longest_course(rivers: Array) -> Dictionary:
+	var best := {}
+	var best_n := 0
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not _drawable(r):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		if rp.size() < 2:
+			continue
+		var m := rp[rp.size() / 2]
+		if rp.size() > best_n and _inner(m):
+			best_n = rp.size()
+			best = {"cell": [m.x, m.y], "river": ri}
+	return best
 
 
 func _inner(p: Vector2) -> bool:

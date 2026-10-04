@@ -20,8 +20,23 @@ shader_type canvas_item;
 // every style preset, the paper, the grade, the colour space -- are untouched:
 // only which of two neighbouring texels a shore pixel shows changes.
 //
+// **RIM-1/3/6 (2026-10-04, Ruling BU): the river is painted here too.** With
+// `river_on` the same pass paints every river as water in the map's own
+// pixels, from `river_field` (`WorldGen::river_field_texture`: per texel the
+// distance to the nearest drawn centreline, that river's half-width and its
+// order-1 weight) and the styled colour `river_color`
+// (`WorldGen::river_color_texture`, the map with every river at full
+// coverage): coverage is RV-2's own stroke law (`river_px_width` and the
+// one-pixel fringe: half-width in screen pixels `max(hw * ppc * wm * rw, 0.5)`,
+// alpha falling linearly to zero over one more pixel, the order-1 de-emphasis
+// on both) and is multiplied by one minus the shore's water coverage, so a
+// river meets a lake or the sea with no seam and is never drawn on water.
+// Just outside a river's edge a lighter, greener floodplain tint fades over a
+// band that scales with the channel (`river_field.rs` `FLOODPLAIN_*`).
+// `river_field.rs::coverage` is this law mirrored, pinned against the stroke.
+//
 // Must never invent a colour: every output is a mix of texels of this
-// texture. Must never move a cell centre across the shore (the field's clamp
+// texture (and `river_color`, itself a map render). Must never move a cell centre across the shore (the field's clamp
 // guarantees it). Off (`shore_on` false) it is the plain nearest-filtered
 // texture, which is what a binary without the field, and the reference look
 // (`TerrainAppearance::smooth_shores` false), draw.
@@ -29,6 +44,34 @@ shader_type canvas_item;
 
 uniform sampler2D shore_field : filter_nearest, repeat_disable;
 uniform bool shore_on = false;
+
+// RIM: the river's distance field (RGBA half float, `gw * k` by `gh * k`
+// texels, k 1 or 2: R distance in cells to the nearest centreline, G its
+// half-width in cells, B the order-1 weight, A the plate-frame weight) and its colour map, both read
+// at the pixel's own UV with hardware linear filtering. `river_on` follows
+// the Rivers layer switch and the field being present; `river_width` is the
+// preset's multiplier the field was built for (`river_paint_params`).
+uniform sampler2D river_field : filter_linear, repeat_disable;
+uniform sampler2D river_color : filter_linear, repeat_disable;
+uniform bool river_on = false;
+uniform float river_width = 1.0;
+// 0 draws no floodplain tint; 1 is the full tint below.
+uniform float floodplain_strength = 1.0;
+
+// The order-1 de-emphasis, `river_stroke::o1_deemphasis`: `zk` is pixels per
+// cell, clamped to 1 below; faded out by 8 (the reference's `zk = 8`).
+// x: width multiplier, y: alpha multiplier.
+vec2 o1_deemphasis(float zk) {
+	float de = clamp(1.0 - (max(zk, 1.0) - 1.0) / 7.0, 0.0, 1.0);
+	return vec2(0.55 + 0.45 * (1.0 - de), 0.4 + 0.6 * (1.0 - de));
+}
+
+// The floodplain tint: a lift toward a lighter, greener land, **labelled
+// judgement** tuned on the owner's world (before/after sheets, 2026-10-04):
+// enough to read as a flat valley floor beside the water, not a second colour.
+vec3 floodplain(vec3 land, float w) {
+	return mix(land, land * vec3(0.96, 1.03, 0.94) + vec3(0.012, 0.034, 0.004), clamp(w, 0.0, 1.0));
+}
 
 // The vertex colour (the `TextureRect`'s modulate), carried so a written
 // `COLOR` is modulated the way Godot's default fragment would have.
@@ -39,20 +82,47 @@ void vertex() {
 }
 
 void fragment() {
+	ivec2 sz = textureSize(TEXTURE, 0);
+	ivec2 fsz = textureSize(river_field, 0);
 	// A field of another size describes another grid (a probe's swapped
-	// texture, a world mid-rebuild): leave the pixel alone.
-	if (shore_on && textureSize(shore_field, 0) == textureSize(TEXTURE, 0)) {
-		ivec2 sz = textureSize(TEXTURE, 0);
+	// texture, a world mid-rebuild): leave the pixel alone. The river field is
+	// the map's grid at 1 or 2 texels a cell.
+	bool shore = shore_on && textureSize(shore_field, 0) == sz;
+	bool paint = river_on && shore && fsz.x >= sz.x && fsz.x % sz.x == 0 && fsz.y == (fsz.x / sz.x) * sz.y;
+	// Everything that differentiates is evaluated before any divergent branch:
+	// `fwidth` needs its neighbours to have run the same code.
+	float s = shore ? shore_value(shore_field, UV) : 0.0;
+	float cov = shore ? shore_cover(s, fwidth(s)) : 0.0;
+	float ppc = 1.0 / max(fwidth(UV.x * float(sz.x)), 1e-6);
+	vec4 rf = paint ? texture(river_field, UV) : vec4(64.0, 0.0, 0.0, 0.0);
+	vec3 rcol = paint ? texture(river_color, UV).rgb : vec3(0.0);
+
+	// The river's coverage of this pixel, RV-2's stroke law, and the
+	// floodplain's weight. Both are zero with no river in reach (the field's
+	// sentinel is 64 cells).
+	float rcov = 0.0;
+	float fp = 0.0;
+	if (paint) {
+		float o1 = clamp(rf.b, 0.0, 1.0);
+		vec2 dm = o1_deemphasis(ppc);
+		float wm = mix(1.0, dm.x, o1);
+		float am = mix(1.0, dm.y, o1);
+		float hw_px = max(rf.g * ppc * wm * river_width, 0.5);
+		// rf.a: the plate frame's weight (`river_field.rs`, `1 - border_cover`)
+		// -- the river never lies on the bare-paper margin the raster baked.
+		rcov = clamp(hw_px + 1.0 - rf.r * ppc, 0.0, 1.0) * am * rf.a;
+		float edge = rf.g * river_width;
+		float e = rf.r - edge;
+		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - o1) * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
+	}
+
+	if (shore) {
+		ivec2 hi = sz - ivec2(1, 1);
 		vec2 p = UV * vec2(sz) - 0.5;
 		vec2 fl = floor(p);
 		vec2 f = p - fl;
-		ivec2 hi = sz - ivec2(1, 1);
 		ivec2 a = clamp(ivec2(fl), ivec2(0, 0), hi);
 		ivec2 b = clamp(ivec2(fl) + ivec2(1, 1), ivec2(0, 0), hi);
-		// Evaluated before any divergent branch: `fwidth` needs its
-		// neighbours to have run the same code.
-		float s = shore_value(shore_field, UV);
-		float cov = shore_cover(s, fwidth(s));
 		ivec2 c0 = ivec2(a.x, a.y);
 		ivec2 c1 = ivec2(b.x, a.y);
 		ivec2 c2 = ivec2(a.x, b.y);
@@ -63,7 +133,7 @@ void fragment() {
 		bool w3 = texelFetch(shore_field, c3, 0).r > 0.0;
 		bool any_w = w0 || w1 || w2 || w3;
 		bool any_l = !(w0 && w1 && w2 && w3);
-		// Only a pixel between the two classes is redrawn.
+		// Only a pixel between the two classes is redrawn by the shore.
 		if (any_w && any_l) {
 			// Squared distance from this pixel to each centre, in cells; the
 			// nearest of each class supplies that side's colour. Later corners
@@ -84,7 +154,16 @@ void fragment() {
 			if (w1) { if (d1 <= bw) { bw = d1; cw = t1; } } else { if (d1 <= bl) { bl = d1; cl = t1; } }
 			if (w2) { if (d2 <= bw) { bw = d2; cw = t2; } } else { if (d2 <= bl) { bl = d2; cl = t2; } }
 			if (w3) { if (d3 <= bw) { bw = d3; cw = t3; } } else { if (d3 <= bl) { bl = d3; cl = t3; } }
-			COLOR = mix(cl, cw, cov) * v_mod;
+			// The river lies on the land side only, under the water: the land
+			// colour takes the floodplain and the river, then the shore's
+			// coverage mixes the water over it.
+			vec3 land = mix(floodplain(cl.rgb, fp), rcol, rcov);
+			COLOR = mix(vec4(land, cl.a), cw, cov) * v_mod;
+		} else if (!any_w && paint) {
+			// All land: the pixel is the nearest texel (what the TextureRect
+			// drew), with the floodplain and river over it.
+			vec4 t = COLOR;
+			COLOR = vec4(mix(floodplain(t.rgb, fp), rcol * v_mod.rgb, rcov), t.a);
 		}
 	}
 }

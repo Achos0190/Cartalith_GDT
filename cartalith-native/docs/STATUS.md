@@ -265,6 +265,28 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-10-04
+
+- **Rivers painted into the map (`RIVERS_IN_MAP_SCOPE.md` RIM-1, RIM-3, RIM-6, default render path) — built, verified
+  by an independent adversarial pass (PASS).** `river_field.rs` builds a per-pixel river distance field from the
+  RV-2 centrelines; `map_shore.gdshader` paints it with the stroke's own coverage law, composed under the shore's water
+  so a river meets a lake or the sea with no hole; `valley_shade_field` takes `recut: bool` and skips the river recut
+  when `rivers_as_water` is on (no groove) and a floodplain tint sits beside each river; `map_overlay.gd` no longer
+  draws the stroke when the river is painted (hit-testing untouched). Painted vs stroke coverage on seed 246371:
+  ratio 1.02-1.05, IoU 0.90-0.96; GPU 0.27 ms painted vs 0.34 ms stroke at 2048x1311; the field costs 86 MB and 96 ms
+  there. Applies only when `WorldGen::rivers_painted()` (grid within `river_field::MAX_TEXELS`; 8192² keeps the stroke).
+  Deep-zoom tiles (z > 2.5) and export still draw their own strokes (RIM-7 not built). **Not built:** RIM-2, RIM-4,
+  RIM-5, RIM-7. No generation golden moved (`cargo test --workspace`: 4 657 passed, 0 failed, 54 ignored).
+- **Paint "Original" overlay (Ruling BR) — built on desktop for Biome and Terrain, GDScript only
+  (`shell/paint_original.gd`, `ViewportHost.set_paint_original`); verified PARTIAL.** `_paintorig_probe.tscn` passes on
+  desktop (display changes with the slider, world data unchanged). The "original" is the engine's unpainted
+  `bclass`/`cterrain` classification re-derived from the *current* height, so a committed Sculpt edit moves it; a true
+  pre-sculpt snapshot needs Rust. Splat has no generated raster. **The phone Paint bar is unreachable** (arming Paint
+  selects WORLD, whose GENERATE sheet hides the tool-options row) — pre-existing, not introduced here.
+- **Ruling BK annotation pass: `cartalith-civ/src` complete** (comments only, 10 files; census `items_undoc` 940 → 277,
+  `tests_unprotected` 876 → 193, `consts_undoc` 159 → 47, all remaining in `tests/` and `examples/`;
+  `cargo test -p cartalith-civ --lib` 828/0/1). Verified comment-only by an independent checker.
+
 ### 2026-09-28
 
 - **Developer notes in the UI still naming internal symbols — closed, pending

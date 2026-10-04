@@ -82,6 +82,7 @@ var _preview_image: Image = null  ## CPU mirror of `_preview_layer`. See `set_pr
 var _preview_patchable := false   ## Whether `_preview_layer.texture` may seed that mirror.
 var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set_debug_layer()`.
 var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
+var _paint_orig_layer: TextureRect  ## The armed paint layer's as-generated raster. See `set_paint_original()`.
 
 var _scale_label: Label
 ## §5.4's graphical rule -- `ENV:914-916` draws the km label and a ruled bar as
@@ -494,6 +495,33 @@ func _apply_shore_field() -> void:
 	var fld: Texture2D = _bridge.shore_field_texture() if _bridge != null and _bridge.has_method("shore_field_texture") else null
 	mat.set_shader_parameter("shore_field", fld)
 	mat.set_shader_parameter("shore_on", fld != null)
+	_apply_river_paint()
+
+## **RIM-1/RIM-6: the rivers painted into the map** (Ruling BU). Hands
+## `map_shore.gdshader` the river distance field, the styled river colour map
+## and the width the field was built for, and switches the painting on when
+## all of them exist, the shore field does (the river merges into it), the
+## Rivers layer is on and no field view covers the map. Called with the shore
+## field after every repaint, by the Rivers switch and by the field views --
+## the three things that change the answer. Must never leave the painting on
+## with a field from another world: the shader itself ignores a field whose
+## size is not the map's grid at one or two texels a cell. When it is off for
+## want of a field the overlay's stroke is the river (`rivers_painted()` is
+## what it asks), so a river is never both drawn twice and never lost.
+func _apply_river_paint() -> void:
+	if map_view == null or _bridge == null:
+		return
+	var mat := map_view.material as ShaderMaterial
+	if mat == null:
+		return
+	var fld: Texture2D = _bridge.river_field_texture() if _bridge.has_method("river_field_texture") else null
+	var col: Texture2D = _bridge.river_color_texture() if fld != null else null
+	var params: Dictionary = _bridge.river_paint_params() if fld != null and _bridge.has_method("river_paint_params") else {}
+	var on := fld != null and col != null and not params.is_empty() 		and _bridge.rivers_in_map() and _debug_view == "off"
+	mat.set_shader_parameter("river_field", fld)
+	mat.set_shader_parameter("river_color", col)
+	mat.set_shader_parameter("river_width", float(params.get("width", 1.0)))
+	mat.set_shader_parameter("river_on", on)
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -593,6 +621,19 @@ func _ready() -> void:
 	## wired into this file. Above `_lod_layer` and below `overlay`, matching
 	## the same "raster first, vectors on top" order the base layers already
 	## use. Empty texture = invisible; nothing shows until a caller sets one.
+	## **Ruling BR's "original" raster, under the draft.** While a paint tool is
+	## armed `paint_original.gd` puts the layer's as-generated classification
+	## here (the engine's own `bclass`/`cterrain` field, which carries no paint
+	## override) at the slider's opacity, so the painter can compare their hand
+	## paint against what the generator made. Added BEFORE `_preview_layer` so a
+	## live dab is never hidden by it, and after `_debug_layer` so it reads over
+	## the base map and any Layers-popover field. Empty and invisible until
+	## `set_paint_original()` is given a texture. A viewing aid only: nothing
+	## here reads or writes world data, a save or an export.
+	_paint_orig_layer = _raster()
+	_paint_orig_layer.visible = false
+	_camera.add_child(_paint_orig_layer)
+
 	_preview_layer = _raster()
 	_camera.add_child(_preview_layer)
 
@@ -2332,6 +2373,7 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		## camera does not move.
 		"rivers":
 			_bridge.set_rivers_in_map(shown)
+			_apply_river_paint()
 			overlay.queue_redraw()
 			if _engine_readable():
 				invalidate_lod_tiles()
@@ -2545,12 +2587,37 @@ func set_debug_layer(view: String) -> void:
 		_debug_layer.texture = null
 		_refresh_vp_field()
 		overlay.set_debug_active(false)
+		_apply_river_paint()
 		return
 	var tex := _bridge.debug_texture(view)
 	_debug_layer.texture = tex
 	_debug_view = view if tex != null else "off"
 	_refresh_vp_field()
 	overlay.set_debug_active(_debug_view != "off")
+	_apply_river_paint()
+
+## Ruling BR: show `tex` (the armed paint layer's as-generated raster, owned
+## and freed by `paint_original.gd`) at opacity `a`, or hide the layer.
+##
+## `tex == null` or `a <= 0.0` hides the node outright rather than leaving a
+## transparent texture drawing: a hidden `CanvasItem` costs the renderer
+## nothing, so idle frames are unchanged while the aid is off. Drives only
+## this node's `texture`, `modulate.a` and `visible`; it must never touch the
+## base raster, the draft layer or the engine (a viewing aid, never data).
+func set_paint_original(tex: Texture2D, a: float) -> void:
+	var on := tex != null and a > 0.0
+	_paint_orig_layer.texture = tex if on else null
+	_paint_orig_layer.modulate.a = clampf(a, 0.0, 1.0)
+	_paint_orig_layer.visible = on
+
+## The paint-original layer's drawn state, for `paint_original.gd` and probes.
+func paint_original_state() -> Dictionary:
+	return {"visible": _paint_orig_layer.visible, "alpha": _paint_orig_layer.modulate.a,
+		"has_texture": _paint_orig_layer.texture != null}
+
+## The node itself, so a probe can read the pixels it actually draws.
+func paint_original_node() -> TextureRect:
+	return _paint_orig_layer
 
 ## Which view `set_debug_layer` actually managed to draw.
 func debug_view() -> String:

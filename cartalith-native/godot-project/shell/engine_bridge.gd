@@ -1078,6 +1078,34 @@ func shore_field_texture() -> Texture2D:
 		return null
 	return world_gen.shore_field_texture()
 
+## **RIM-1: the river as water in the base map's own pixels**
+## (`WorldGen::river_field_texture`): a half-float RGBA distance field built by
+## the last `color_texture()` -- per texel the distance to the nearest drawn
+## river centreline, that river's half-width and its order-1 weight -- which
+## `map_shore.gdshader` paints the river from. `null` mid-generation, when the
+## look keeps the vector stroke (`TerrainAppearance::rivers_as_water` or
+## `smooth_shores` off), for a grid over the field's texel budget, and against
+## a binary built before it existed.
+func river_field_texture() -> Texture2D:
+	if generating or not _has("river_field_texture"):
+		return null
+	return world_gen.river_field_texture()
+
+## Whether the base map paints the rivers itself (`WorldGen::rivers_painted`),
+## in which case the overlay draws no stroke (RIM-6). `false` against a binary
+## without it, so an older DLL keeps its stroke. Hit-testing never reads this.
+func rivers_painted() -> bool:
+	if generating or not _has("rivers_painted"):
+		return false
+	return bool(world_gen.rivers_painted())
+
+## The shader's river parameters (`WorldGen::river_paint_params`): `{width}`,
+## the river width multiplier the field was built for. `{}` with no field.
+func river_paint_params() -> Dictionary:
+	if generating or not _has("river_paint_params"):
+		return {}
+	return world_gen.river_paint_params()
+
 ## Read-back for `set_rivers_in_map()`. `true` against a binary built before
 ## it existed, which draws its rivers whatever this says.
 func rivers_in_map() -> bool:

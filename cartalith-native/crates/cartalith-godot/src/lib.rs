@@ -50,6 +50,7 @@ mod params;
 mod progress_bridge;
 mod project_bridge;
 mod render;
+mod river_field;
 mod river_stroke;
 mod sample_bridge;
 mod sculpt_bridge;
@@ -4992,6 +4993,30 @@ struct WorldGen {
     /// never be read as a classification: it only says where between two cell
     /// centres of different class the shore runs.
     shore_field_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// RIM-1's river distance field (`river_field::build`) as a half-float
+    /// RGBA texture, for the base map's painted river (`river_field_texture`),
+    /// and the key it was built under (`river_field_key`: the drawn network's
+    /// key plus the preset's river width, the only inputs it is a function of)
+    /// so a look change that touches neither does not rebuild it. `None` when
+    /// the look keeps the stroke (`TerrainAppearance::rivers_as_water` or
+    /// `smooth_shores` false), for a loaded save (no network), and for a grid
+    /// over `river_field::MAX_TEXELS`. Must never be read as a classification.
+    river_field_tex: std::cell::RefCell<Option<Gd<ImageTexture>>>,
+    /// See [`Self::river_field_tex`].
+    river_field_key: std::cell::RefCell<Option<String>>,
+    /// The width multiplier the field was built for, clamped as the stroke
+    /// law clamps it (`river_stroke::river_width_factor`), handed to the shader
+    /// so the two agree; and the last uncached build's `(ms, w, h, scale,
+    /// segments)` for `river_paint_stats`. A rendering input only.
+    river_field_width: std::cell::Cell<f32>,
+    /// See [`Self::river_field_width`].
+    river_field_build: std::cell::Cell<(f64, usize, usize, usize, usize)>,
+    /// **Probe-only switch** (`debug_set_river_paint`): when set, every
+    /// appearance this object builds has `rivers_as_water` forced off, so the
+    /// stroke path renders the same world for a before/after pixel comparison
+    /// (`_riverzoom_probe.gd`). `false` in a session; nothing in the shell sets it,
+    /// and it must never be wired to the UI or settings.
+    river_paint_off: std::cell::Cell<bool>,
     /// The last colour field's `(covered pixels, allocated bytes)`, for
     /// `river_field_stats` (a probe's memory reading).
     river_field_stats: std::cell::Cell<(usize, usize)>,
@@ -5639,6 +5664,11 @@ impl IRefCounted for WorldGen {
             river_color_tex: std::cell::RefCell::new(None),
             river_water_mask_tex: std::cell::RefCell::new(None),
             shore_field_tex: std::cell::RefCell::new(None),
+            river_field_tex: std::cell::RefCell::new(None),
+            river_field_key: std::cell::RefCell::new(None),
+            river_field_width: std::cell::Cell::new(1.0),
+            river_paint_off: std::cell::Cell::new(false),
+            river_field_build: std::cell::Cell::new((0.0, 0, 0, 0, 0)),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
             valley_shade_cache: std::cell::RefCell::new(None),
@@ -8923,6 +8953,11 @@ impl WorldGen {
                 a.biome_cols[i] = *c;
             }
         }
+        // Probe-only (`debug_set_river_paint`): after every other layer, so no
+        // look or override can turn the river painting back on.
+        if self.river_paint_off.get() {
+            a.rivers_as_water = false;
+        }
         a
     }
 
@@ -9725,6 +9760,37 @@ impl WorldGen {
         } else {
             None
         };
+        // RIM-1: the river as water in the map's own pixels -- the distance
+        // field the base map's shader paints the river from
+        // (`river_field::build`, `map_shore.gdshader`). Only beside the shore
+        // field it merges into, only for a look that paints rivers
+        // (`rivers_as_water`), and only where the grid fits the field's texel
+        // budget; otherwise `None` and the vector stroke stays
+        // (`WorldGen::rivers_painted`). Cached on the network's key and the
+        // preset's river width and the frame's width, its only inputs, so a style change that
+        // touches neither (colour, grade, paper) does not rebuild it.
+        let want_river_field = appearance.smooth_shores && appearance.rivers_as_water && self.shore_field_tex.borrow().is_some();
+        if want_river_field {
+            let rw = river_stroke::river_width_factor(&appearance);
+            // The plate frame's width (the field's `A` channel) is the other
+            // input: a frame-width change must rebuild it.
+            let key = format!("{};rw{:08x};bw{:016x}", self.river_network_key_str(), rw.to_bits(), render::border_width_cells(&appearance, gw, gh).to_bits());
+            let fresh = self.river_field_key.borrow().as_deref() == Some(key.as_str()) && self.river_field_tex.borrow().is_some();
+            if !fresh {
+                let t0 = std::time::Instant::now();
+                let built = self.river_geometry_any().and_then(|g| river_field::build(&g, gw, gh, rw, &|x, y| render::border_cover_f(&appearance, x, y, gw, gh)));
+                *self.river_field_tex.borrow_mut() = built.as_ref().and_then(|f| {
+                    let bytes: Vec<u8> = f.bits.iter().flat_map(|v| v.to_le_bytes()).collect();
+                    Image::create_from_data(f.w as i32, f.h as i32, false, Format::RGBAH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
+                });
+                self.river_field_build.set(built.as_ref().map_or((t0.elapsed().as_secs_f64() * 1e3, 0, 0, 0, 0), |f| (t0.elapsed().as_secs_f64() * 1e3, f.w, f.h, f.scale, f.segments)));
+                self.river_field_width.set(rw);
+                *self.river_field_key.borrow_mut() = Some(key);
+            }
+        } else {
+            *self.river_field_tex.borrow_mut() = None;
+            *self.river_field_key.borrow_mut() = None;
+        }
         // The river colour field (`river_stroke::rasterize_colour_field`):
         // every river at full coverage in its styled colour, a band wider than
         // any base-view stroke. Built whether or not the Rivers layer is on
@@ -10892,6 +10958,11 @@ impl WorldGen {
     /// water classification, the carve or its lock masks, a save, Sample, or
     /// any other reader of the world's height -- those keep `ws.field`.
     ///
+    /// **RIM-3**: when the look paints the river as water
+    /// (`TerrainAppearance::rivers_as_water`) the valley is not cut along the
+    /// drawn line at all (`valley_shade_field`'s `recut` is false) -- the river's
+    /// own pixels carry the channel -- and the flag is part of the cache key.
+    ///
     /// `None` -- and the caller shades the true field -- when the look shades
     /// the carve as the reference does (`TerrainAppearance::smooth_valleys`
     /// false, `js_reference()`), for a loaded save (no traced network, so no
@@ -10913,7 +10984,12 @@ impl WorldGen {
         }
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
         let carved = ws.river_mask.as_deref()?;
-        let key = self.river_network_key_str();
+        // RIM-3: the valley is cut along the drawn line only while the stroke
+        // is the river; a look that paints the river as water (`rivers_as_water`)
+        // shades the filled carve and nothing else. The flag is a key input:
+        // two looks over one world must never share a shaded surface.
+        let recut = !a.rivers_as_water;
+        let key = format!("{};rc{}", self.river_network_key_str(), recut as u8);
         if let Some((k, v)) = self.valley_shade_cache.borrow().as_ref() {
             if *k == key {
                 return Some(v.clone());
@@ -10924,7 +11000,7 @@ impl WorldGen {
         let water = self.drawn_water_classification()?;
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         let t1 = std::time::Instant::now();
-        let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, ws.river_floor.as_deref(), &geom.runs, gw, gh, self.sea_level, self.world)?);
+        let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, ws.river_floor.as_deref(), &geom.runs, gw, gh, self.sea_level, self.world, recut)?);
         let core_ms = t1.elapsed().as_secs_f64() * 1e3;
         let os = godot::classes::Os::singleton();
         self.valley_shade_timing.set(Some(ValleyShadeTiming {

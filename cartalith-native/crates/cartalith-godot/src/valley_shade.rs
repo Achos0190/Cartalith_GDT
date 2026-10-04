@@ -163,6 +163,17 @@ const DEPTH_SMOOTH_CELLS: f64 = 1.5;
 /// - `runs`: the drawn river network (`WorldGen::river_geometry_any`), whose
 ///   render points are in grid-cell space with a cell's centre at `x + 0.5`.
 ///
+/// - `recut`: whether the smooth valley is cut along the drawn lines at all.
+///   `false` returns the carve filled back in and nothing more: the river's
+///   own pixels carry the channel (**RIM-3**, Ruling BU, 2026-10-04: with the
+///   river painted into the map as water, a re-cut valley beside it would be
+///   a second, dark depression drawn along a line that is already water). It
+///   is not a per-cell exemption on purpose: skipping only the cells the
+///   river covers would leave the valley's shoulders standing either side of
+///   a filled bed, a ridge along the bank. Every land cell the fill touched
+///   keeps its filled height, so the carve's stepped groove is gone either
+///   way. `world` is then unused.
+///
 /// Returns `None` when any grid is the wrong length -- the caller then shades
 /// the true field, never a guessed one.
 ///
@@ -178,7 +189,7 @@ const DEPTH_SMOOTH_CELLS: f64 = 1.5;
 /// only, and the re-cut gathers its cut per touched cell before writing it
 /// once. Measured with `_rv3cost_probe.gd` (`STATUS.md`, "RV-3 follow-ups").
 #[allow(clippy::too_many_arguments)]
-pub fn valley_shade_field(field: &[f32], water: &[u8], carved: &[u8], floor: Option<&[f32]>, runs: &[DrawnRun], gw: usize, gh: usize, sea_level: f64, world: bool) -> Option<Vec<f32>> {
+pub fn valley_shade_field(field: &[f32], water: &[u8], carved: &[u8], floor: Option<&[f32]>, runs: &[DrawnRun], gw: usize, gh: usize, sea_level: f64, world: bool, recut: bool) -> Option<Vec<f32>> {
     let n = gw.checked_mul(gh)?;
     if n == 0 || field.len() != n || water.len() != n || carved.len() != n || floor.is_some_and(|f| f.len() != n) {
         return None;
@@ -193,7 +204,7 @@ pub fn valley_shade_field(field: &[f32], water: &[u8], carved: &[u8], floor: Opt
     // are ever written.
     let mut cut = vec![0.0f32; n];
     let mut touched: Vec<usize> = Vec::new();
-    for run in runs {
+    for run in runs.iter().filter(|_| recut) {
         recut_run(&mut cut, &mut touched, &depth, run, gw, gh, world);
     }
     let land_floor = sea_level + cartalith_hydrology::CARVE_LAND_MARGIN;
@@ -535,7 +546,7 @@ mod tests {
     fn a_carve_with_no_drawn_river_is_filled_to_its_banks() {
         let (gw, gh) = (40, 30);
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false, true).unwrap();
         for x in 5..35 {
             let v = s[15 * gw + x];
             assert!((v - 0.6).abs() < 1e-5, "cell {x}: {v} should be back at the bank's 0.6");
@@ -558,7 +569,7 @@ mod tests {
                 c[y * gw + x] = 1;
             }
         }
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false, true).unwrap();
         let mid = s[15 * gw + 20];
         assert!((mid - 0.6).abs() < 1e-4, "the middle of a 7-cell trench is filled to the banks: {mid}");
     }
@@ -577,7 +588,7 @@ mod tests {
         }
         // Render points every quarter cell, as the drawn line is dense.
         let r = run((20..140).map(|k| (k as f32 * 0.25 + 0.5, 15.5)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false, true).unwrap();
         let v = s[15 * gw + 20] as f64;
         assert!(v > 0.5901 && v < 0.5979, "the floor at the step is between the two depths: {v}");
         // Well away from the step each side keeps its own depth.
@@ -594,7 +605,7 @@ mod tests {
         // Drawn 1.5 cells off the carve's centres: row 15's centre is 15.5,
         // the line runs at 17.0, inside DEPTH_REACH_CELLS of the carve.
         let r = run((5..35).map(|x| (x as f32 + 0.5, 17.0)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false, true).unwrap();
         let at = |x: usize, y: usize| s[y * gw + x];
         // Rows 16 and 17 straddle the line at 0.5 cells: the valley floor.
         assert!(at(20, 16) < 0.595 && at(20, 17) < 0.595, "the valley floor is on the line: {} {}", at(20, 16), at(20, 17));
@@ -611,9 +622,29 @@ mod tests {
         let (gw, gh) = (40, 30);
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
         let r = run((5..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false, true).unwrap();
         let floor = s[15 * gw + 20];
         assert!((floor - 0.59).abs() < 1e-4, "the floor on the line is the carve's depth, 0.59: {floor}");
+    }
+
+    // Protects: RIM-3 -- with `recut` off the shaded surface is the carve
+    // filled back in and NOTHING else: the cell under a drawn line, its
+    // shoulder row either side and the row beyond all end at the plain's
+    // height, so no depression (and no ridge of left-over shoulder) is shaded
+    // along a river the shader paints as water. With `recut` on, the same
+    // inputs dig the valley (the control: the assertion below would pass on an
+    // all-flat result if the test did not show the cut exists).
+    #[test]
+    fn recut_off_shades_the_filled_carve_only() {
+        let (gw, gh) = (40, 30);
+        let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
+        let r = run((5..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 1.0);
+        let on = valley_shade_field(&f, &vec![0; gw * gh], &c, None, std::slice::from_ref(&r), gw, gh, 0.42, false, true).unwrap();
+        let off = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false, false).unwrap();
+        assert!(on[15 * gw + 20] < 0.595, "control: the re-cut digs the valley: {}", on[15 * gw + 20]);
+        for y in 12..19 {
+            assert!((off[y * gw + 20] - 0.6).abs() < 1e-4, "row {y} is the plain's height with no re-cut: {}", off[y * gw + 20]);
+        }
     }
 
     // Protects: shading changes by a fraction of a cell when the line moves by
@@ -628,7 +659,7 @@ mod tests {
         for q in 0..5 {
             let yl = 15.5 + q as f32 * 0.25;
             let r = run((5..35).map(|x| (x as f32 + 0.5, yl)).collect(), 1.0);
-            let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false).unwrap();
+            let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[r], gw, gh, 0.42, false, true).unwrap();
             let v = s[17 * gw + 20];
             if let Some(p) = prev {
                 assert!(v <= p + 1e-7, "row 17 deepens as the line approaches it");
@@ -661,7 +692,7 @@ mod tests {
             f[17 * gw + x] = 0.45;
         }
         let r = run((2..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 3.0);
-        let s = valley_shade_field(&f, &water, &c, None, &[r], gw, gh, sea, false).unwrap();
+        let s = valley_shade_field(&f, &water, &c, None, &[r], gw, gh, sea, false, true).unwrap();
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
@@ -690,9 +721,9 @@ mod tests {
     #[test]
     fn a_mismatched_grid_is_refused() {
         let f = vec![0.6f32; 12];
-        assert!(valley_shade_field(&f, &[0; 12], &[0; 11], None, &[], 4, 3, 0.42, false).is_none());
-        assert!(valley_shade_field(&f, &[0; 11], &[0; 12], None, &[], 4, 3, 0.42, false).is_none());
-        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], None, &[], 4, 4, 0.42, false).is_none());
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 11], None, &[], 4, 3, 0.42, false, true).is_none());
+        assert!(valley_shade_field(&f, &[0; 11], &[0; 12], None, &[], 4, 3, 0.42, false, true).is_none());
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], None, &[], 4, 4, 0.42, false, true).is_none());
     }
 
     // Protects: the profile's shape -- full depth on the bed, zero at the rim,
@@ -719,12 +750,12 @@ mod tests {
         for m in c.iter_mut().filter(|m| **m != 0) {
             *m = 2;
         }
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false, true).unwrap();
         for x in 5..35 {
             assert_eq!(s[15 * gw + x].to_bits(), f[15 * gw + x].to_bits(), "sculpted cell {x} keeps its carved height");
         }
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[], gw, gh, 0.42, false, true).unwrap();
         assert!((s[15 * gw + 20] - 0.6).abs() < 1e-5, "control: the carve's own trench is filled: {}", s[15 * gw + 20]);
     }
 
@@ -739,7 +770,7 @@ mod tests {
         for x in 15..25 {
             f[15 * gw + x] -= 0.02;
         }
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false, true).unwrap();
         for x in 16..24 {
             let v = s[15 * gw + x];
             assert!((v - 0.58).abs() < 1e-4, "cell {x}: the sculpt's 0.02 stays below the filled 0.6: {v}");
@@ -760,7 +791,7 @@ mod tests {
             f[15 * gw + x] -= 0.02;
         }
         let r = run((5..35).map(|x| (x as f32 + 0.5, 15.5)).collect(), 1.0);
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[r], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[r], gw, gh, 0.42, false, true).unwrap();
         let v = s[15 * gw + 20];
         assert!((v - 0.57).abs() < 1e-3, "sculpted 0.58 less the carve's 0.01: {v}");
     }
@@ -778,7 +809,7 @@ mod tests {
         f[16 * gw + 21] = 0.40;
         let mut c = c;
         c[16 * gw + 21] = 1; // carved too: only its being below sea level keeps it
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, None, &[], gw, gh, 0.42, false, true).unwrap();
         assert_eq!(s[16 * gw + 21].to_bits(), f[16 * gw + 21].to_bits(), "the below-sea cell keeps its height");
         // (21, 15) is 4-adjacent to the below-sea cell, which holds it at the
         // carve's floor; (20, 15), beside it, is lifted most of the way.
@@ -802,7 +833,7 @@ mod tests {
                 water[y * gw + x] = 1;
             }
         }
-        let s = valley_shade_field(&f, &water, &c, None, &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &water, &c, None, &[], gw, gh, 0.42, false, true).unwrap();
         let mouth = s[15 * gw + 2] as f64;
         assert!(mouth > 0.45 + 0.05, "the mouth cell is lifted off the carve's 0.45: {mouth}");
         assert!(mouth >= 0.42 && mouth <= 0.6, "and stays land, no higher than its banks: {mouth}");
@@ -819,7 +850,7 @@ mod tests {
         for x in 15..25 {
             f[15 * gw + x] = 0.595;
         }
-        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false).unwrap();
+        let s = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&floor), &[], gw, gh, 0.42, false, true).unwrap();
         for x in 5..35 {
             let v = s[15 * gw + x];
             assert!((v - 0.6).abs() < 1e-4, "cell {x}: filled to the banks' 0.6: {v}");
@@ -834,8 +865,8 @@ mod tests {
         let (gw, gh) = (40, 30);
         let (f, c) = plain_with_trench(gw, gh, 15, 5, 35, 0.01);
         let r = run((5..35).map(|x| (x as f32 + 0.5, 16.2)).collect(), 1.5);
-        let a = valley_shade_field(&f, &vec![0; gw * gh], &c, None, std::slice::from_ref(&r), gw, gh, 0.42, false).unwrap();
-        let b = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[r], gw, gh, 0.42, false).unwrap();
+        let a = valley_shade_field(&f, &vec![0; gw * gh], &c, None, std::slice::from_ref(&r), gw, gh, 0.42, false, true).unwrap();
+        let b = valley_shade_field(&f, &vec![0; gw * gh], &c, Some(&f), &[r], gw, gh, 0.42, false, true).unwrap();
         assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()));
         assert!(a[16 * gw + 20] < 0.595, "premise: the valley was cut");
     }
@@ -845,7 +876,7 @@ mod tests {
     #[test]
     fn a_floor_of_the_wrong_length_is_refused() {
         let f = vec![0.6f32; 12];
-        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], Some(&[0.6; 11]), &[], 4, 3, 0.42, false).is_none());
+        assert!(valley_shade_field(&f, &[0; 12], &[0; 12], Some(&[0.6; 11]), &[], 4, 3, 0.42, false, true).is_none());
     }
 
     // Protects: the relabelling after a Sculpt commit (`mark_sculpt_locks`):

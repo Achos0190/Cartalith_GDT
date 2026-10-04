@@ -27,6 +27,17 @@ extends Node
 ##    width ever narrows downstream, confluence gap and width ratio, stroke ends
 ##    beside water that stop short of it, and headwaters under 1 px at x1.
 ##  - draw cost: median frame interval at the opening view, rivers on vs off.
+##  - RIM-1/RIM-3/RIM-6 (`--paint-compare`, rivers painted into the map):
+##    `river_paint_stats` (field build ms and bytes); the painted river's
+##    coverage against the stroke's on the same ground at every zoom below the
+##    deep-zoom switch (pixel counts at two thresholds and their overlap, from
+##    the ON-vs-OFF diff of each path -- `WorldGen::debug_set_river_paint(false)`
+##    makes the stroke path render the same world); seams (a centreline sample
+##    that is LAND to the engine and unchanged by the river layer, counted at
+##    river mouths, mid-course lake breaks and tributary joins, painted vs
+##    stroke); frame time while the view pans (median with min..max) and the
+##    GPU render time when the driver reports it. A path that paints no pixel
+##    fails the probe (positive control).
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -49,6 +60,7 @@ var _br: Node
 var _report: Dictionary = {}
 var _fixed_targets: Dictionary = {}
 var _stats_only := false
+var _paint_compare := false
 var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
 
@@ -71,6 +83,7 @@ func _ready() -> void:
 			"--grid":
 				var p := args[i + 1].split("x"); _grid = Vector2i(int(p[0]), int(p[1])); i += 1
 			"--stats-only": _stats_only = true
+			"--paint-compare": _paint_compare = true
 			"--zooms":
 				_zooms.clear()
 				for zs in args[i + 1].split(","): _zooms.append(float(zs))
@@ -199,6 +212,8 @@ func _run_seed(seed_v: int) -> void:
 				printerr("PROBE-FAIL: rivers drew no pixels at zoom %.1f" % z)
 				_report["fail"] = true
 		sr["targets"][name] = {"cell": [t["p"].x, t["p"].y], "rows": rows}
+	if _paint_compare and not _stats_only:
+		sr["paint"] = await _paint_compare_run(rivers, targets)
 	_report[str(seed_v)] = sr
 
 
@@ -666,3 +681,253 @@ func _settle_lod() -> void:
 func _settle(n: int) -> void:
 	for i in n:
 		await RenderingServer.frame_post_draw
+
+
+## ---- RIM-1 / RIM-3 / RIM-6: the rivers painted into the map ----------------
+
+## Set the paint path (`true`) or the stroke path (`false`) and re-render the
+## base map so the next capture shows it. `debug_set_river_paint` only flips
+## the appearance flag, the colour texture is what carries the change.
+func _set_paint(on: bool) -> void:
+	_br.world_gen.debug_set_river_paint(on)
+	_vh.map_view.texture = _br.color_texture()
+	_vh._apply_shore_field()
+	_vh.overlay.queue_redraw()
+	await _settle(8)
+
+
+## ON-vs-OFF diff mask at two thresholds (summed |dRGB| > 24, the stroke
+## probe's own, and > 8, which sees the antialiased fringe).
+func _diff_masks(on: Image, off: Image) -> Dictionary:
+	var w := on.get_width(); var h := on.get_height()
+	var da := on.get_data(); var db := off.get_data()
+	var m24 := PackedByteArray(); m24.resize(w * h)
+	var m8 := PackedByteArray(); m8.resize(w * h)
+	for i in w * h:
+		var o := i * 4
+		var dd: int = absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+		if dd > 24: m24[i] = 1
+		if dd > 8: m8[i] = 1
+	return {"m24": m24, "m8": m8, "w": w, "h": h}
+
+
+## Count of set pixels in `a`, in `b`, in both, and the intersection over the
+## union. A mask of zero pixels gives `iou = -1` (never a plausible 0 or 1).
+func _overlap(a: PackedByteArray, b: PackedByteArray) -> Dictionary:
+	var na := 0; var nb := 0; var both := 0
+	for i in a.size():
+		var x := a[i] == 1; var y := b[i] == 1
+		if x: na += 1
+		if y: nb += 1
+		if x and y: both += 1
+	var uni := na + nb - both
+	return {"painted": na, "stroke": nb, "both": both, "iou": (float(both) / float(uni)) if uni > 0 else -1.0}
+
+
+## Frame interval while the view pans a few cells back and forth: median with
+## min..max (a mean hides the stalls), plus the GPU render time the driver
+## reports for the main viewport, when it does (0 where it does not).
+func _pan_cost(centre: Vector2, z: float) -> Dictionary:
+	var vp := get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vp, true)
+	_vh.reset_view()
+	await _settle(3)
+	_vh.zoom_step(z / _vh.zoom())
+	var dt := PackedFloat32Array(); var gpu := PackedFloat32Array()
+	var t0 := Time.get_ticks_usec()
+	for f in 90:
+		var a := float(f) * 0.35
+		_vh.move_view_to(centre.x + sin(a) * 6.0, centre.y + cos(a) * 4.0)
+		await RenderingServer.frame_post_draw
+		var t1 := Time.get_ticks_usec()
+		if f >= 10:
+			dt.append((t1 - t0) / 1000.0)
+			gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(vp))
+		t0 = t1
+	RenderingServer.viewport_set_measure_render_time(vp, false)
+	var s := _stats(dt)
+	var a2 := Array(dt); a2.sort()
+	var g2 := Array(gpu); g2.sort()
+	return {"median_ms": s["median"], "min_ms": a2[0], "max_ms": a2[a2.size() - 1],
+		"gpu_median_ms": g2[g2.size() / 2], "gpu_max_ms": g2[g2.size() - 1]}
+
+
+## Centreline samples of one junction: the river body, 2.5 cells back from the
+## end `e` along the unit downstream tangent `t`, every quarter cell.
+func _junction_samples(e: Vector2, t: Vector2) -> Array:
+	var out: Array = []
+	for k in range(0, 11):
+		out.append(e - t * (0.25 * float(k)))
+	return out
+
+
+## Junctions of the three kinds across the drawn network, up to `cap` each:
+## {"kind", "e" (the end of a drawn piece), "t" (unit downstream tangent)}.
+## `mouth`: the last piece ends in water. `lake_break`: a piece that ends where
+## the next begins past a lake. `join`: the last piece ends on land (a
+## tributary meeting another river).
+func _junctions(rivers: Array, cap: int) -> Array:
+	var out: Array = []
+	var n := {"mouth": 0, "lake_break": 0, "join": 0}
+	for r: Dictionary in rivers:
+		if not _drawable(r):
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		var pcs := _pieces_of(r)
+		for k in pcs.size():
+			var pc: Vector2i = pcs[k]
+			if pc.y - pc.x < 3:
+				continue
+			var e := rp[pc.y - 1]
+			var t := (e - rp[pc.y - 2]).normalized()
+			if not _inner(e) or t.length() < 0.5:
+				continue
+			var kind := "join"
+			if k < pcs.size() - 1:
+				kind = "lake_break"
+			elif _is_wet(e + t * 0.05):
+				kind = "mouth"
+			if n[kind] < cap:
+				n[kind] += 1
+				out.append({"kind": kind, "e": e, "t": t})
+	return out
+
+
+## One full pass of the measurements for the CURRENT path (painted or stroke):
+## ON/OFF diff masks per target and zoom below the deep-zoom switch, the seam
+## counts, and the pan frame cost.
+func _paint_pass(targets: Dictionary, junctions: Array) -> Dictionary:
+	var out := {"masks": {}, "seams": {}, "cost": {}}
+	var path_tag := "paint" if _br.world_gen.rivers_painted() else "stroke"
+	for name: String in targets.keys():
+		var p: Vector2 = targets[name]["p"]
+		for z: float in _zooms:
+			if z > 2.5 or z > _vh._zoom_max + 1e-6:
+				continue
+			_vh.reset_view()
+			await _settle(3)
+			_vh.zoom_step(z / _vh.zoom())
+			_vh.move_view_to(p.x, p.y)
+			await _settle(30)
+			## The floodplain tint (RIM-3) is part of the river's own
+			## ON-vs-OFF diff, so the coverage masks are taken with it
+			## switched off -- width and edge only, the stroke's own terms --
+			## and the tinted frame is the one saved and its extra pixels
+			## counted separately (`fp_px`).
+			var mat := _vh.map_view.material as ShaderMaterial
+			var tinted := await _grab()
+			mat.set_shader_parameter("floodplain_strength", 0.0)
+			await _settle(4)
+			var on := await _grab()
+			_vh.set_layer_visible("rivers", false)
+			await _settle(10)
+			var off := await _grab()
+			_vh.set_layer_visible("rivers", true)
+			mat.set_shader_parameter("floodplain_strength", 1.0)
+			await _settle(10)
+			if on == null or off == null or tinted == null:
+				continue
+			var tag := "%s_z%05.1f" % [name, z]
+			out["masks"][tag] = _diff_masks(on, off)
+			var fp := _diff_masks(tinted, off)
+			out["masks"][tag]["fp_px"] = int(_overlap(fp["m8"], fp["m8"])["painted"]) - int(_overlap(out["masks"][tag]["m8"], out["masks"][tag]["m8"])["painted"])
+			out["masks"][tag]["ppc"] = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
+			tinted.save_png(_out.path_join("%s_%s_on.png" % [tag, path_tag]))
+			off.save_png(_out.path_join("%s_%s_off.png" % [tag, path_tag]))
+	## Seams at zoom 2 (the screen path), the view centred on each junction.
+	var gap := {"mouth": 0, "lake_break": 0, "join": 0}
+	var tot := {"mouth": 0, "lake_break": 0, "join": 0}
+	var ctl := {"mouth": 0, "lake_break": 0, "join": 0}
+	var shots := {"mouth": 0, "lake_break": 0, "join": 0}
+	for j: Dictionary in junctions:
+		_vh.reset_view()
+		await _settle(2)
+		_vh.zoom_step(2.0 / _vh.zoom())
+		## move_view_to takes a cell INDEX (centres on index + 0.5); a render
+		## point is continuous, so the half cell comes off.
+		_vh.move_view_to(j["e"].x - 0.5, j["e"].y - 0.5)
+		await _settle(8)
+		var on := await _grab()
+		_vh.set_layer_visible("rivers", false)
+		await _settle(4)
+		var off := await _grab()
+		_vh.set_layer_visible("rivers", true)
+		await _settle(4)
+		if on == null or off == null:
+			continue
+		if int(shots[j["kind"]]) < 2:
+			on.save_png(_out.path_join("junction_%s_%d_%s.png" % [j["kind"], int(shots[j["kind"]]), path_tag]))
+			shots[j["kind"]] += 1
+		var ppc: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
+		var c := _vh.size * 0.5
+		var da := on.get_data(); var db := off.get_data()
+		var w := on.get_width()
+		for s: Vector2 in _junction_samples(j["e"], j["t"]):
+			var px: Vector2 = c + (s - j["e"]) * ppc
+			var ix := int(floor(px.x)); var iy := int(floor(px.y))
+			if ix < 0 or iy < 0 or ix >= w or iy >= on.get_height():
+				continue
+			var o := (iy * w + ix) * 4
+			var dd: int = absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+			var d: Dictionary = _br.sample_cell(int(floor(s.x)), int(floor(s.y)))
+			var land := String(d.get("water", "land")) == "land"
+			tot[j["kind"]] += 1
+			if dd > 6:
+				ctl[j["kind"]] += 1
+			elif land:
+				gap[j["kind"]] += 1
+	out["seams"] = {"gaps": gap, "samples": tot, "covered_samples": ctl}
+	## Frame cost while panning, at the fit view and at the screen path's
+	## deepest zoom.
+	var c0: Vector2 = targets["trunk"]["p"] if targets.has("trunk") else Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	for z: float in [1.0, 2.0]:
+		out["cost"]["z%.0f" % z] = await _pan_cost(c0, z)
+	return out
+
+
+func _paint_compare_run(rivers: Array, targets: Dictionary) -> Dictionary:
+	var res := {"stats": _br.world_gen.river_paint_stats(), "painted_flag": _br.world_gen.rivers_painted()}
+	print("  river_paint_stats: ", res["stats"], "  rivers_painted=", res["painted_flag"])
+	if not bool(res["painted_flag"]):
+		printerr("PROBE-FAIL: the river field was not built (rivers_painted false) -- nothing to compare")
+		_report["fail"] = true
+		return res
+	var junctions := _junctions(rivers, 8)
+	print("  junctions sampled: ", junctions.size())
+	var paint := await _paint_pass(targets, junctions)
+	await _set_paint(false)
+	if _br.world_gen.rivers_painted():
+		printerr("PROBE-FAIL: debug_set_river_paint(false) left the paint on")
+		_report["fail"] = true
+	var stroke := await _paint_pass(targets, junctions)
+	await _set_paint(true)
+	var rows := {}
+	for tag: String in paint["masks"].keys():
+		if not stroke["masks"].has(tag):
+			continue
+		var pm: Dictionary = paint["masks"][tag]
+		var sm: Dictionary = stroke["masks"][tag]
+		var o24 := _overlap(pm["m24"], sm["m24"])
+		var o8 := _overlap(pm["m8"], sm["m8"])
+		var ratio := (float(o8["painted"]) / float(o8["stroke"])) if int(o8["stroke"]) > 0 else -1.0
+		rows[tag] = {"ppc": pm["ppc"], "gt24": o24, "gt8": o8, "coverage_ratio_gt8": ratio, "floodplain_px_gt8": pm.get("fp_px", 0)}
+		print("    %s ppc %.2f  >24: painted %d stroke %d iou %.3f   >8: painted %d stroke %d iou %.3f  ratio %.3f  floodplain_px %d"
+			% [tag, pm["ppc"], o24["painted"], o24["stroke"], o24["iou"], o8["painted"], o8["stroke"], o8["iou"], ratio, int(pm.get("fp_px", 0))])
+		if int(o24["painted"]) == 0 or int(o24["stroke"]) == 0:
+			printerr("PROBE-FAIL: a path drew no pixels at %s (positive control)" % tag)
+			_report["fail"] = true
+	res["coverage"] = rows
+	res["seams_paint"] = paint["seams"]
+	res["seams_stroke"] = stroke["seams"]
+	res["cost_paint"] = paint["cost"]
+	res["cost_stroke"] = stroke["cost"]
+	print("  seams (gap = a land centreline sample the river layer did not change)")
+	print("    painted: ", paint["seams"])
+	print("    stroke : ", stroke["seams"])
+	print("  pan frame cost painted: ", paint["cost"])
+	print("  pan frame cost stroke : ", stroke["cost"])
+	for k in ["mouth", "lake_break", "join"]:
+		if int(paint["seams"]["covered_samples"][k]) == 0 and int(paint["seams"]["samples"][k]) > 0:
+			printerr("PROBE-FAIL: no %s sample was ever covered by the painted river (positive control)" % k)
+			_report["fail"] = true
+	return res

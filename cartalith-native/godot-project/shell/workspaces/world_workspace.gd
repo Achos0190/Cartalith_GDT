@@ -3680,6 +3680,10 @@ func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 	_sync_paint_brush()
 	_build_paint(_paint_body)
 	_refresh_right_dock_paint()
+	## Ruling BR: the on-map "original" follows the layer, and this dock path
+	## (unlike the tool bar's own) does not rebuild the tool options row.
+	if app.paint_original != null:
+		app.paint_original.sync()
 
 ## `right_dock.gd`'s CTX_PAINT (§1.8) reads `bridge.paint_painted_counts()`,
 ## which answers for whichever layer is active server-side -- so this dock
