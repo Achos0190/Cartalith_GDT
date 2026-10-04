@@ -171,10 +171,15 @@ impl Seg {
 /// of the shore's own smooth contour -- the seam the stroke closed the same
 /// way. A seam-crossing jump (more than half the map in `x`) is not a reach
 /// (`split_river_polylines`' own rule, as `valley_shade::recut_run` has it).
-fn segments(geom: &RiverGeometry, gw: usize, river_width: f32) -> Vec<Seg> {
+///
+/// `geoms` is the network and, after it, RIM-4's delta fans
+/// ([`crate::river_delta`], painted path only) -- every run of every geometry
+/// listed is flattened the same way, in the order given, so a fan's segments
+/// follow the network's and a tie still goes to the first segment drawn.
+fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
     let s_min = gw as f32 / FIELD_VIEW_PX;
     let mut out = Vec::new();
-    for run in &geom.runs {
+    for run in geoms.iter().flat_map(|g| g.runs.iter()) {
         let n = run.pts.len();
         if run.widths.len() != n {
             continue;
@@ -249,9 +254,34 @@ pub struct RiverField {
 ///
 /// Deterministic: ties go to the first segment in draw order, and every band
 /// visits its segments in order.
+#[cfg_attr(not(test), allow(dead_code))] // RIM-4: the shell calls the `_with` form; this is the fans-off identity the tests compare it to.
 pub fn build(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, frame_cover: &(dyn Fn(f64, f64) -> f64 + Sync)) -> Option<RiverField> {
+    build_with(geom, None, gw, gh, river_width, frame_cover)
+}
+
+/// [`build`] over the network **plus** RIM-4's delta fans (`fans`,
+/// [`crate::river_delta::delta_fans`]): the fans' runs are flattened after
+/// the network's and compete for each texel by the same least-edge rule, so a
+/// fan can only ADD river coverage -- never remove or narrow a texel the
+/// network alone covers (`river_delta::tests::a_fan_only_adds_coverage_and_only_near_its_mouth`). `fans = None` is
+/// [`build`] exactly: the same segments in the same order, hence a
+/// bit-identical field -- the off switch's contract
+/// (`river_delta::tests::the_off_switch_is_the_plain_field`). Must never be handed fans on any
+/// path but the painted one: the vector stroke, the tiles and the export draw
+/// the network alone until RIM-7.
+pub fn build_with(
+    geom: &RiverGeometry,
+    fans: Option<&RiverGeometry>,
+    gw: usize,
+    gh: usize,
+    river_width: f32,
+    frame_cover: &(dyn Fn(f64, f64) -> f64 + Sync),
+) -> Option<RiverField> {
     let s = field_scale(gw, gh)?;
-    let segs = segments(geom, gw, river_width);
+    let segs = match fans {
+        Some(f) => segments(&[geom, f], gw, river_width),
+        None => segments(&[geom], gw, river_width),
+    };
     if segs.is_empty() {
         return None;
     }

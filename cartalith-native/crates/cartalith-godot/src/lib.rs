@@ -50,6 +50,7 @@ mod params;
 mod progress_bridge;
 mod project_bridge;
 mod render;
+mod river_delta;
 mod river_field;
 mod river_stroke;
 mod sample_bridge;
@@ -5017,6 +5018,17 @@ struct WorldGen {
     /// (`_riverzoom_probe.gd`). `false` in a session; nothing in the shell sets it,
     /// and it must never be wired to the UI or settings.
     river_paint_off: std::cell::Cell<bool>,
+    /// **RIM-4's single off switch** (`set_river_deltas`): when set, the
+    /// painted river draws no delta fans ([`river_delta`]) and the river field
+    /// and colour field are exactly what they were before RIM-4. `false` =
+    /// fans ON, the default render path (`DECISIONS.md` 7p); a view setting,
+    /// never a world field and never saved.
+    river_delta_off: std::cell::Cell<bool>,
+    /// [`Self::river_delta_fans`]'s cache: the key (the network's, the
+    /// preset's river width), the fans, what was done and the milliseconds the
+    /// derivation took (`river_delta_stats`' `ms`, a probe's cost reading). A
+    /// rendering input only.
+    river_delta_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>, river_delta::DeltaStats, f64)>>,
     /// The last colour field's `(covered pixels, allocated bytes)`, for
     /// `river_field_stats` (a probe's memory reading).
     river_field_stats: std::cell::Cell<(usize, usize)>,
@@ -5668,6 +5680,8 @@ impl IRefCounted for WorldGen {
             river_field_key: std::cell::RefCell::new(None),
             river_field_width: std::cell::Cell::new(1.0),
             river_paint_off: std::cell::Cell::new(false),
+            river_delta_off: std::cell::Cell::new(false),
+            river_delta_cache: std::cell::RefCell::new(None),
             river_field_build: std::cell::Cell::new((0.0, 0, 0, 0, 0)),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
@@ -9770,15 +9784,30 @@ impl WorldGen {
         // preset's river width and the frame's width, its only inputs, so a style change that
         // touches neither (colour, grade, paper) does not rebuild it.
         let want_river_field = appearance.smooth_shores && appearance.rivers_as_water && self.shore_field_tex.borrow().is_some();
+        let rw = river_stroke::river_width_factor(&appearance);
+        // RIM-4: the delta fans, only where the painted path will draw them --
+        // the field is wanted, fits its texel budget, and the switch is on.
+        // `None` is the plain field and colour field exactly.
+        let delta_fans = if want_river_field && !self.river_delta_off.get() && river_field::field_scale(gw, gh).is_some() {
+            self.river_delta_fans(rw)
+        } else {
+            None
+        };
         if want_river_field {
-            let rw = river_stroke::river_width_factor(&appearance);
             // The plate frame's width (the field's `A` channel) is the other
-            // input: a frame-width change must rebuild it.
-            let key = format!("{};rw{:08x};bw{:016x}", self.river_network_key_str(), rw.to_bits(), render::border_width_cells(&appearance, gw, gh).to_bits());
+            // input: a frame-width change must rebuild it. `dl`: whether the
+            // field carries RIM-4's fans (the switch).
+            let key = format!(
+                "{};rw{:08x};bw{:016x};dl{}",
+                self.river_network_key_str(),
+                rw.to_bits(),
+                render::border_width_cells(&appearance, gw, gh).to_bits(),
+                u8::from(delta_fans.is_some())
+            );
             let fresh = self.river_field_key.borrow().as_deref() == Some(key.as_str()) && self.river_field_tex.borrow().is_some();
             if !fresh {
                 let t0 = std::time::Instant::now();
-                let built = self.river_geometry_any().and_then(|g| river_field::build(&g, gw, gh, rw, &|x, y| render::border_cover_f(&appearance, x, y, gw, gh)));
+                let built = self.river_geometry_any().and_then(|g| river_field::build_with(&g, delta_fans.as_deref(), gw, gh, rw, &|x, y| render::border_cover_f(&appearance, x, y, gw, gh)));
                 *self.river_field_tex.borrow_mut() = built.as_ref().and_then(|f| {
                     let bytes: Vec<u8> = f.bits.iter().flat_map(|v| v.to_le_bytes()).collect();
                     Image::create_from_data(f.w as i32, f.h as i32, false, Format::RGBAH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
@@ -9796,7 +9825,7 @@ impl WorldGen {
         // any base-view stroke. Built whether or not the Rivers layer is on
         // (`river_geometry_any`), so the switch never needs this function
         // again. `None` for a loaded save, which keeps `chan_mask` instead.
-        let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field(&g, &appearance, gw, gh));
+        let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field_with(&g, delta_fans.as_deref(), &appearance, gw, gh));
         self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
         // RV-3: water and the sea's colour are decided from the world's own
         // height, never the shaded one (a no-op when they are the same). One
@@ -10925,6 +10954,34 @@ impl WorldGen {
             return None;
         }
         self.river_geometry_any()
+    }
+
+    /// **RIM-4: the delta fans of the drawn network** ([`river_delta::delta_fans`]),
+    /// cached on the network's key and the preset's river width -- the water the
+    /// fans are cut at is `drawn_water_classification`'s, the one the network's
+    /// own mouths were cut at, and it is covered by the network's key (`f`, the
+    /// forced lakes, and the height and climate versions). `None` without a
+    /// world, a network or the classification. Records its `DeltaStats` for
+    /// `river_delta_stats`. A rendering input; never a world field.
+    pub(crate) fn river_delta_fans(&self, rw: f32) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        let key = format!("{};rw{:08x}", self.river_network_key_str(), rw.to_bits());
+        if let Some((k, g, _, _)) = self.river_delta_cache.borrow().as_ref() {
+            if *k == key {
+                return Some(g.clone());
+            }
+        }
+        let t0 = std::time::Instant::now();
+        let geom = self.river_geometry_any()?;
+        let water = self.drawn_water_classification()?;
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if water.len() < gw * gh {
+            return None;
+        }
+        let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && water[y as usize * gw + x as usize] != 0;
+        let (fans, st) = river_delta::delta_fans(&geom, gw, gh, rw, &wet);
+        let fans = std::sync::Arc::new(fans);
+        *self.river_delta_cache.borrow_mut() = Some((key, fans.clone(), st, t0.elapsed().as_secs_f64() * 1000.0));
+        Some(fans)
     }
 
     /// [`Self::river_geometry`] whatever the Rivers switch says -- for the

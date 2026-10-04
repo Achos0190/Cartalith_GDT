@@ -1532,7 +1532,22 @@ pub fn colour_field_pad_cells(gw: usize) -> f32 {
 ///
 /// Must never be drawn on screen as it is: it is a colour lookup, far wider
 /// than any river, and only the vector stroke decides where river shows.
+#[cfg_attr(not(test), allow(dead_code))] // RIM-4: the shell calls the `_with` form; this is the fans-off identity the tests compare it to.
 pub fn rasterize_colour_field(geom: &RiverGeometry, a: &render::TerrainAppearance, w: usize, h: usize) -> render::RiverLayer {
+    rasterize_colour_field_with(geom, None, a, w, h)
+}
+
+/// [`rasterize_colour_field`] with RIM-4's delta fans (`fans`,
+/// [`crate::river_delta::delta_fans`]) painted into the same colour field, so
+/// a painted fan's pixels sample a river colour instead of the terrain (the
+/// field's band is only as wide as the geometry it was drawn from). The fans'
+/// band goes first and their own cells next, **then the network's own cells
+/// last**: wherever the network itself draws, its colour is exactly what
+/// [`rasterize_colour_field`] alone puts there, and a fan can only recolour
+/// the band beside it. `fans = None` is [`rasterize_colour_field`] exactly
+/// (`river_delta::tests::the_colour_field_gets_the_fans_and_keeps_the_network_as_it_was`). Must never be called
+/// with fans unless the painted path is the one drawing them.
+pub fn rasterize_colour_field_with(geom: &RiverGeometry, fans: Option<&RiverGeometry>, a: &render::TerrainAppearance, w: usize, h: usize) -> render::RiverLayer {
     let mut layer = render::RiverLayer::new(w, h);
     if w == 0 || h == 0 {
         return layer;
@@ -1562,6 +1577,10 @@ pub fn rasterize_colour_field(geom: &RiverGeometry, a: &render::TerrainAppearanc
     // trunk at the same point, which is 1-2 levels when the trunk's own cells
     // are the trunk's (`_rivstyle_probe.gd`, z16).
     for_each_span(geom, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    if let Some(f) = fans {
+        for_each_span(f, a, 1.0, pad, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+        for_each_span(f, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    }
     for_each_span(geom, a, 1.0, 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     if opacity < 1.0 {
         layer.scale(opacity);
@@ -1830,6 +1849,45 @@ impl WorldGen {
             "width" => self.river_field_width.get() as f64,
             "bank" => a.river_bank.clamp(0.0, 1.0),
             "bank_color" => Vector3::new(ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)),
+        }
+    }
+
+    /// **RIM-4's single off switch**: whether the painted river draws delta
+    /// fans (`river_delta`) -- a few short distributaries at the mouth of each
+    /// large river -- on the screen's painted path. `true` is the default
+    /// render path. `false` is exactly the painted river before RIM-4: the
+    /// field and the colour field are built from the network alone, bit for
+    /// bit (`river_delta::tests::the_off_switch_is_the_plain_field`). The next
+    /// repaint (`generate`, a look change) applies it; this does not repaint by
+    /// itself. A view setting: never saved, never a world field, and the tiles
+    /// and the export draw the network alone either way (RIM-7).
+    #[func]
+    fn set_river_deltas(&self, on: bool) {
+        self.river_delta_off.set(!on);
+    }
+
+    /// Whether the painted river draws delta fans ([`Self::set_river_deltas`]);
+    /// `true` by default. This is the switch, not whether the current world
+    /// has any fan -- `river_delta_stats` answers that.
+    #[func]
+    fn river_deltas(&self) -> bool {
+        !self.river_delta_off.get()
+    }
+
+    /// The last [`Self::river_delta_fans`] build, for a probe: `{built, mouths,
+    /// eligible, no_discharge, fans, branches, dropped_dry, skipped, min_order,
+    /// min_discharge_frac, ms}` (`ms` is the derivation time, which `river_paint_stats`' own `ms` excludes); `{}` before one. Diagnostic; nothing in the shell
+    /// reads it.
+    #[func]
+    fn river_delta_stats(&self) -> VarDictionary {
+        let Some((st, ms)) = self.river_delta_cache.borrow().as_ref().map(|c| (c.2, c.3)) else {
+            return VarDictionary::new();
+        };
+        vdict! {
+            "built" => true, "mouths" => st.mouths as i64, "eligible" => st.eligible as i64, "no_discharge" => st.no_discharge as i64,
+            "fans" => st.fans as i64, "branches" => st.branches as i64, "dropped_dry" => st.dropped_dry as i64, "skipped" => st.skipped as i64,
+            "min_order" => crate::river_delta::MIN_ORDER as i64, "min_discharge_frac" => crate::river_delta::MIN_DISCHARGE_FRAC as f64,
+            "ms" => ms,
         }
     }
 

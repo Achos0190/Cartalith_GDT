@@ -67,6 +67,20 @@ extends Node
 ##    identical (MAD 0), or the leg fails. `--river-density X`,
 ##    `--width-km K`, `--geology-model` and `--metropolis` reproduce the
 ##    owner's world (seed 246371, 2048x1311, 1.55, 40075, both switches on).
+##  - RIM-4 (river deltas, Ruling BU). `--rim4-mouths` (grid data, no pixels):
+##    every drawn river whose last point stands on water is a MOUTH; prints
+##    min / median / p90 / max of its order, discharge and discharge-over-grid
+##    per water kind (the Part A measurement). `--rim4` (implies it) then
+##    frames the `--rim4-n` (default 4) mouths the engine gives a fan at
+##    `--rim4-zooms` (default 1.5,2.1,3.0), the fans ON and OFF
+##    (`rim4_*_on.png` / `_off.png`) and prints `river_delta_stats`;
+##    `--rim4-cost` adds the pan frame time and GPU time at the fit view and
+##    z 2.1, ON/OFF alternated three times. `--rim4-head` records shipped
+##    frames only and calls nothing a HEAD build lacks, so a HEAD DLL's frames
+##    equal this tree's OFF frames pixel for pixel. `--rim4-lakes` (Part C)
+##    frames the widest rivers that pass THROUGH a lake at z 2/3/4 and, at
+##    z 2, the stroke path for contrast. Controls: the fans must move a pixel
+##    in some ON/OFF pair, and an empty pick or no lake crossing fails.
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -99,6 +113,13 @@ var _rim2_presets: Array = []
 var _rim2_zoom := 2.1
 var _rim2_force := 0.4
 var _rim2_cost_preset := ""
+var _rim4_mouths := false
+var _rim4 := false
+var _rim4_head := false
+var _rim4_n := 4
+var _rim4_zooms: Array = [1.5, 2.1, 3.0]
+var _rim4_lakes := false
+var _rim4_cost := false
 var _river_density := 1.0
 var _geology_model := false
 var _metropolis := false
@@ -137,6 +158,16 @@ func _ready() -> void:
 			"--rim2-zoom": _rim2_zoom = float(args[i + 1]); i += 1
 			"--rim2-force": _rim2_force = float(args[i + 1]); i += 1
 			"--rim2-cost": _rim2_cost_preset = args[i + 1]; i += 1
+			"--rim4-mouths": _rim4_mouths = true
+			"--rim4": _rim4 = true; _rim4_mouths = true
+			"--rim4-head": _rim4_head = true
+			"--rim4-n": _rim4_n = int(args[i + 1]); i += 1
+			"--rim4-lakes": _rim4_lakes = true
+			"--rim4-cost": _rim4_cost = true
+			"--rim4-zooms":
+				_rim4_zooms.clear()
+				for zs in args[i + 1].split(","): _rim4_zooms.append(float(zs))
+				i += 1
 			"--river-density": _river_density = float(args[i + 1]); i += 1
 			"--geology-model": _geology_model = true
 			"--metropolis": _metropolis = true
@@ -216,6 +247,8 @@ func _run_seed(seed_v: int) -> void:
 	print("  channel lakes: ", sr["channel_lakes"])
 	sr["lakes"] = _lake_totals(rivers)
 	print("  lakes: ", sr["lakes"])
+	if _rim4_mouths:
+		sr["rim4_mouths"] = _rim4_mouth_stats(rivers)
 	_vh.reset_view()
 	await _settle(3)
 	var ppc_fit: float = minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()
@@ -288,6 +321,10 @@ func _run_seed(seed_v: int) -> void:
 		sr["rim5"] = await _rim5_run()
 	if _rim2:
 		sr["rim2"] = await _rim2_run(targets)
+	if _rim4:
+		sr["rim4"] = await _rim4_run(sr["rim4_mouths"])
+	if _rim4_lakes:
+		sr["rim4_lakes"] = await _rim4_lakes_run(rivers)
 	_report[str(seed_v)] = sr
 
 
@@ -1248,3 +1285,269 @@ func _rim2_run(targets: Dictionary) -> Dictionary:
 			printerr("PROBE-FAIL: the same frame grabbed twice differs (MAD %s); identity checks mean nothing" % str(determinism))
 			_report["fail"] = true
 	return {"rows": rows}
+
+
+## ---- RIM-4 Part A: what real river mouths look like (grid data, no pixels) ----
+
+## Every drawn river whose last drawn point stands on water (`_is_wet`: the
+## engine's own `water` class at that cell -- `extend_shore_ends` carries every
+## end that meets the sea or a lake one point INTO it, so a mouth is exactly an
+## end that is wet; a confluence ends on land, on another river's cell) is a
+## MOUTH. For each: the water it meets (`ocean` / `lake`), `own_order` (the
+## run's Strahler order, 1 = a headwater trickle), the traced `order`, the
+## reading of `WorldState::flow_discharge` at the outlet (`mouth_discharge`)
+## and its largest on the run (`discharge`), that discharge as a fraction of
+## the grid's cell count (`frac` from the outlet reading, `dfrac` from the
+## largest -- the one the engine's fan rule reads),
+## and the drawn full width at the mouth point in cells. Returns the raw rows
+## and, per water kind and for all, the min / median / p90 / max of each
+## measure, so the distribution (not a round number) picks the threshold
+## (`RIVERS_IN_MAP_SCOPE.md` owner question 3). Never reports a river with no
+## drawn piece as a mouth, and never a missing reading as 0 (a river without
+## `mouth_discharge` is counted in `no_discharge` and left out of its stats).
+func _rim4_mouth_stats(rivers: Array) -> Dictionary:
+	var rows: Array = []
+	var no_discharge := 0
+	var cells := float(_grid.x * _grid.y)
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not _drawable(r):
+			continue
+		var pcs := _pieces_of(r)
+		if pcs.is_empty():
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		var e_i: int = pcs[pcs.size() - 1].y - 1
+		var e := rp[e_i]
+		if not _is_wet(e):
+			continue
+		var w := String(_br.sample_cell(int(floor(e.x)), int(floor(e.y))).get("water", "land"))
+		var row := {"river": ri, "water": w, "own_order": int(r.get("own_order", 0)), "order": int(r.get("order", 0)),
+			"width_cells": _width_at(r, e_i), "x": e.x, "y": e.y}
+		if r.has("mouth_discharge"):
+			row["mouth_discharge"] = float(r["mouth_discharge"])
+			row["frac"] = float(r["mouth_discharge"]) / cells
+		else:
+			no_discharge += 1
+		if r.has("discharge"):
+			row["discharge"] = float(r["discharge"])
+			## What `river_delta::delta_fans` reads: the run's largest discharge
+			## (the `mouth_discharge` reading at the outlet cell is lower on
+			## 26 % / 37 % / 57 % of the Part A worlds' mouths, so a rule keyed
+			## to it would pick different mouths from the engine's).
+			row["dfrac"] = float(r["discharge"]) / cells
+		rows.append(row)
+	var out := {"mouths": rows.size(), "drawn": 0, "no_discharge": no_discharge, "cells": cells}
+	for r: Dictionary in rivers:
+		if _drawable(r):
+			out["drawn"] = int(out["drawn"]) + 1
+	for kind in ["all", "ocean", "lake"]:
+		var sel: Array = rows.filter(func(rw): return kind == "all" or rw["water"] == kind)
+		var s := {"n": sel.size()}
+		for key in ["own_order", "order", "mouth_discharge", "discharge", "frac", "dfrac", "width_cells"]:
+			var v := PackedFloat32Array()
+			for rw: Dictionary in sel:
+				if rw.has(key):
+					v.append(float(rw[key]))
+			if v.is_empty():
+				continue
+			var a := Array(v); a.sort()
+			s[key] = {"n": a.size(), "min": a[0], "median": a[a.size() / 2], "p90": a[int(a.size() * 0.9)], "max": a[a.size() - 1]}
+		out[kind] = s
+	out["rows"] = rows
+	print("  rim4 mouths: ", {"mouths": out["mouths"], "drawn": out["drawn"], "ocean": (out["ocean"] as Dictionary)["n"], "lake": (out["lake"] as Dictionary)["n"]})
+	for kind in ["all", "ocean", "lake"]:
+		print("    ", kind, ": ", JSON.stringify(out[kind]))
+	return out
+
+
+## ---- RIM-4 Part B/C: the delta fans on the screen painted path ----------------
+
+## Switch RIM-4's delta fans (`WorldGen::set_river_deltas`) and repaint so the
+## next capture shows it, as `_set_paint` does for the paint path. A HEAD build
+## has no such method: `--rim4-head` never calls this.
+func _set_deltas(on: bool) -> void:
+	_br.world_gen.set_river_deltas(on)
+	_vh.map_view.texture = _br.color_texture()
+	_vh._apply_shore_field()
+	_vh.overlay.queue_redraw()
+	await _settle(8)
+
+
+## Whether camera zoom `z` can CENTRE the view on cell `p` -- the whole view
+## then lies inside the map. The camera clamps otherwise, and a target near the
+## edge is framed off-centre (the capture is still valid, but a reader of the
+## PNG then cannot tell where the target is).
+func _rim4_centrable(p: Vector2, z: float) -> bool:
+	var ppc := minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * z
+	var half := _vh.size / (2.0 * ppc)
+	return p.x >= half.x and p.y >= half.y and p.x <= _grid.x - half.x and p.y <= _grid.y - half.y
+
+
+## The mouths a fan is expected at: the rows of `_rim4_mouth_stats` the engine's
+## own rule keeps (`own_order` >= `min_order` and `dfrac` >= `min_frac`, read back
+## from `river_delta_stats` so the probe cannot drift from the constants; on a
+## HEAD build, which has no such stats, the caller passes the same pair so both
+## builds pick the same mouths). Returns up to `n`: the largest lake mouth, one
+## near the median of the eligible and then the largest ocean mouths, so the
+## sample spans the range rather than being `n` look-alikes. Only mouths away
+## from the map's edge. An empty return is a failure the caller reports, never
+## a result.
+func _rim4_pick(rows: Array, min_order: int, min_frac: float, n: int) -> Array:
+	var el: Array = rows.filter(func(r): return int(r["own_order"]) >= min_order and r.has("dfrac") and float(r["dfrac"]) >= min_frac)
+	el.sort_custom(func(a, b): return float(a["dfrac"]) > float(b["dfrac"]))
+	var out: Array = []
+	var seen := {}
+	var add := func(r: Dictionary) -> void:
+		if not seen.has(r["river"]) and out.size() < n:
+			seen[r["river"]] = true
+			out.append(r)
+	## Centrable at z 2.1 (the painted path's upper range) first; the rest only
+	## fill what is left, so the sample is mostly frames the target is IN the
+	## middle of.
+	var inner: Array = el.filter(func(r): return _inner(Vector2(r["x"], r["y"])) and _rim4_centrable(Vector2(r["x"], r["y"]), 2.1))
+	if inner.size() < n:
+		inner = el.filter(func(r): return _inner(Vector2(r["x"], r["y"])))
+	var oc: Array = inner.filter(func(r): return r["water"] == "ocean")
+	var lk: Array = inner.filter(func(r): return r["water"] == "lake")
+	if lk.size() > 0: add.call(lk[0])
+	if inner.size() > 2: add.call(inner[inner.size() / 2])
+	for r in oc: add.call(r)
+	for r in inner: add.call(r)
+	return out
+
+
+## The RIM-4 leg: per picked mouth and zoom, the frame with the fans ON (the
+## shipped default) and with them OFF, saved as `rim4_<tag>_on.png` / `_off.png`.
+## `--rim4-head` records one `_shipped.png` per view and calls nothing HEAD
+## lacks, so a run on a HEAD DLL and the OFF frames of this tree compare pixel
+## for pixel. Then (`--rim4-cost`) the pan frame time at the fit view and z 2.1,
+## three alternating rounds so a drifting machine shows. The engine's own fan
+## statistics are returned with the rows.
+func _rim4_run(m: Dictionary) -> Dictionary:
+	var rows: Array = m["rows"]
+	var min_order := 3
+	var min_frac := 2.0e-4
+	var stats := {}
+	if not _rim4_head:
+		stats = _br.world_gen.river_delta_stats()
+		if stats.is_empty():
+			## The fans are built lazily, on the first paint that wants them.
+			_vh.map_view.texture = _br.color_texture()
+			await _settle(8)
+			stats = _br.world_gen.river_delta_stats()
+		if stats.is_empty():
+			printerr("PROBE-FAIL: river_delta_stats is empty with the fans on (nothing was derived)")
+			_report["fail"] = true
+			return {}
+		min_order = int(stats["min_order"])
+		min_frac = float(stats["min_discharge_frac"])
+		print("  rim4 engine stats: ", stats)
+	var picks := _rim4_pick(rows, min_order, min_frac, _rim4_n)
+	if picks.is_empty():
+		printerr("PROBE-FAIL: no eligible mouth to look at (order>=%d, frac>=%.1e)" % [min_order, min_frac])
+		_report["fail"] = true
+		return {"stats": stats}
+	var views := []
+	var moved_any := false
+	for pk: Dictionary in picks:
+		var c := Vector2(pk["x"], pk["y"])
+		for z: float in _rim4_zooms:
+			var tag := "rim4_r%d_%s_z%.1f" % [int(pk["river"]), String(pk["water"]), z]
+			var row := {"river": pk["river"], "water": pk["water"], "dfrac": pk["dfrac"], "own_order": pk["own_order"],
+				"width_cells": pk["width_cells"], "cell": [c.x, c.y], "zoom": z}
+			if _rim4_head:
+				var sh := await _rim2_grab(c, z)
+				sh.save_png(_out.path_join(tag + "_shipped.png"))
+			else:
+				await _set_deltas(true)
+				var on := await _rim2_grab(c, z)
+				on.save_png(_out.path_join(tag + "_on.png"))
+				row["lod"] = _vh.lod_active()
+				await _set_deltas(false)
+				var off := await _rim2_grab(c, z)
+				off.save_png(_out.path_join(tag + "_off.png"))
+				var d := _frame_diff(on, off)
+				row["on_vs_off"] = d
+				if int(d["px_any"]) > 0:
+					moved_any = true
+				await _set_deltas(true)
+			views.append(row)
+			print("    rim4 ", tag, "  ", row.get("on_vs_off", "(shipped only)"))
+	## Positive control (never vacuous): with eligible mouths and the fans on,
+	## SOME frame at SOME zoom must differ from its OFF twin.
+	if not _rim4_head and not moved_any:
+		printerr("PROBE-FAIL: the fans moved no pixel in any ON-vs-OFF pair (positive control)")
+		_report["fail"] = true
+	var cost := {}
+	if _rim4_cost:
+		var c0 := Vector2(picks[0]["x"], picks[0]["y"])
+		var cviews := [["fit", 1.0, Vector2(_grid.x * 0.5, _grid.y * 0.5)], ["z2.1", 2.1, c0]]
+		for v in cviews:
+			var key := String(v[0])
+			cost[key] = {"on": [], "off": []}
+			for round in 3:
+				if _rim4_head:
+					(cost[key]["on"] as Array).append(await _pan_cost(v[2], float(v[1])))
+					continue
+				await _set_deltas(true)
+				(cost[key]["on"] as Array).append(await _pan_cost(v[2], float(v[1])))
+				await _set_deltas(false)
+				(cost[key]["off"] as Array).append(await _pan_cost(v[2], float(v[1])))
+			if not _rim4_head:
+				await _set_deltas(true)
+		print("  rim4 frame cost: ", JSON.stringify(cost))
+	return {"stats": stats, "views": views, "cost": cost, "min_order": min_order, "min_frac": min_frac}
+
+
+## RIM-4 Part C: rivers that pass THROUGH a lake (two drawn pieces with the lake
+## between them, a crossing of 12+ cells) on this world, the `_rim4_n` of the
+## highest own order that a z-2 camera can centre on. Frames
+## at the gap's midpoint with the painted path ON at z 2, 3 and 4, and at z 2
+## the stroke path (paint OFF) as the contrast; saved as
+## `rim4_lake_r<i>_z<z>.png` / `_stroke.png`. Records the gap's length in cells.
+## Never reports a seam by itself: "no bead, no break" is not a number this
+## probe can honestly compute, so the PNGs are read by eye.
+func _rim4_lakes_run(rivers: Array) -> Dictionary:
+	var cand: Array = []
+	for ri in rivers.size():
+		var r: Dictionary = rivers[ri]
+		if not _drawable(r):
+			continue
+		var pcs := _pieces_of(r)
+		if pcs.size() < 2:
+			continue
+		var rp: PackedVector2Array = r["render_points"]
+		for k in pcs.size() - 1:
+			var a := pcs[k].y - 1
+			var b := pcs[k + 1].x
+			if b <= a or b >= rp.size():
+				continue
+			var mid := (rp[a] + rp[b]) * 0.5
+			var gap := rp[a].distance_to(rp[b])
+			if not _inner(mid) or gap < 12.0 or not _rim4_centrable(mid, 2.0):
+				continue
+			cand.append({"river": ri, "w": _width_at(r, a), "mid": mid, "gap_cells": gap, "order": int(r.get("own_order", 0))})
+	## Biggest rivers first (own order, then width), then the longest crossing:
+	## a one-cell headwater across a puddle is not the case Part C is about.
+	cand.sort_custom(func(x, y):
+		if x["order"] != y["order"]: return x["order"] > y["order"]
+		if x["w"] != y["w"]: return x["w"] > y["w"]
+		return x["gap_cells"] > y["gap_cells"])
+	print("  rim4 lakes: %d through-lake gaps on drawn rivers; imaging the %d highest-order" % [cand.size(), mini(cand.size(), _rim4_n)])
+	var out: Array = []
+	for i in mini(cand.size(), _rim4_n):
+		var cd: Dictionary = cand[i]
+		var c: Vector2 = cd["mid"]
+		for z in [2.0, 3.0, 4.0]:
+			var g := await _rim2_grab(c, z)
+			g.save_png(_out.path_join("rim4_lake_r%d_z%.1f.png" % [int(cd["river"]), z]))
+		await _set_paint(false)
+		var st := await _rim2_grab(c, 2.0)
+		st.save_png(_out.path_join("rim4_lake_r%d_z2.0_stroke.png" % int(cd["river"])))
+		await _set_paint(true)
+		out.append({"river": cd["river"], "width_cells": cd["w"], "own_order": cd["order"], "gap_cells": cd["gap_cells"], "cell": [c.x, c.y]})
+	if cand.is_empty():
+		printerr("PROBE-FAIL: no river passes through a lake on this world; Part C has nothing to image")
+		_report["fail"] = true
+	return {"gaps": cand.size(), "imaged": out}
