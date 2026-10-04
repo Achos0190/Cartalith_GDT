@@ -47,11 +47,23 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so the cost samples below
+/// match the reference capture.
+/// Must never: be skipped; the `field[0..5]` and `sea_level` asserts depend
+/// on it.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+// Absolute tolerance on the continuous `f32` cost field (1e-4). Source: this
+// crate's established tolerance for continuous fields (module doc); a
+// labelled judgement, not a measured bound.
 const F32_TOLERANCE: f32 = 1e-4;
 
+/// Asserts two `f32` values agree within [`F32_TOLERANCE`], naming the label,
+/// both values and the difference on failure.
+/// Must never: be used on a water cell's `Infinity` cost, where a difference
+/// is meaningless; the tests check `is_infinite()` there instead.
 fn assert_close(actual: f32, expected: f32, label: &str) {
     assert!(
         (actual - expected).abs() < F32_TOLERANCE,
@@ -60,6 +72,12 @@ fn assert_close(actual: f32, expected: f32, label: &str) {
     );
 }
 
+/// Builds placeholder [`cartalith_civ::SettlementPlacement`] values at the
+/// given cells, with every other field neutral (`suit` 0.0, faction 0, not
+/// capital, Hamlet, not coastal).
+/// Why: `build_road_network` reads only `.x` and `.y`, as the reference's
+/// `buildRoadNetwork` reads only `places[s].x` and `.y` (module doc), so the
+/// other fields cannot affect the result.
 fn places_from_xy(xy: &[(usize, usize)]) -> Vec<cartalith_civ::SettlementPlacement> {
     xy.iter()
         .map(|&(x, y)| cartalith_civ::SettlementPlacement {
@@ -76,6 +94,13 @@ fn places_from_xy(xy: &[(usize, usize)]) -> Vec<cartalith_civ::SettlementPlaceme
 
 #[test]
 fn road_network_case_0_region() {
+    // Protects: `buildTravelCost` (reference 3257), `roadDijkstra` (3275) and
+    // `buildRoadNetwork` (3316) on a 14 x 11 region: a 10-cell sample of the
+    // cost field (water cells `Infinity`), and the real-terrain unreachable
+    // branch, where the minimum spanning tree has only one edge (0 to 2, path
+    // [34, 35]) because place 1 is on an island the search never reaches. Red
+    // means the cost formula or the early break on an infinite best distance
+    // changed. The 10-cell sample is a spot check, not the whole raster.
     // case0_region: gw=14 gh=11 seed=24601 world=false.
     // Places from golden_parity_settlement_naming.rs's own case0 (x,y) pairs.
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
@@ -123,6 +148,11 @@ fn road_network_case_0_region() {
 
 #[test]
 fn road_network_case_1_world_wrap() {
+    // Protects: the same three functions on a wrapped 16 x 12 world with five
+    // places: the cost sample (two water cells infinite), and exactly four
+    // minimum-spanning-tree edges with their cell paths, in the reference's
+    // order. Red means wrap handling in the Dijkstra neighbour step, the Prim
+    // edge order or the path reconstruction changed.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true.
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;

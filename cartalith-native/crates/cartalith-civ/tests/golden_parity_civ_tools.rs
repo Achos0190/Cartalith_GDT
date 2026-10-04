@@ -87,12 +87,23 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared fixture from the engine crate's tests that pins the carve's six
+/// arrays back to the pre-RV1 (reference) world, so this suite's goldens stay
+/// values for the reference's world (Ruling BD).
+/// Must never: be dropped from [`build`]; without the pin every routing
+/// golden would be measured on a different terrain.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
 use cartalith_civ::tools::*;
 use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
 
+/// FNV-1a (64-bit; offset basis 0xcbf29ce484222325, prime 0x100000001b3, the
+/// standard FNV constants) over a byte slice, formatted as 16 hex digits.
+/// Why: the module doc says the harness hashed its `field`, water-body, biome
+/// and river-order arrays this way, and the whole-raster territory hashes
+/// below are in this form, so a raster compares as one short string.
+/// Must never: be changed independently of the recorded hashes.
 fn fnv_u8(a: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in a {
@@ -102,6 +113,13 @@ fn fnv_u8(a: &[u8]) -> String {
     format!("{h:016x}")
 }
 
+/// One generated world, held as the raw arrays the tool functions read: the
+/// elevation field, the water-body classification, the biome raster and the
+/// Strahler river order, plus grid size, wrap flag, map width and sea level.
+/// Why: every routing golden needs the same world the reference harness saw,
+/// so it is built once per test by [`build`] from fixed parameters.
+/// Must never: be built from anything but the pinned parameters in [`case0`]
+/// / [`case1`]; the goldens are values for those two worlds only.
 struct World {
     gw: usize,
     gh: usize,
@@ -114,6 +132,15 @@ struct World {
     river_order: Vec<i16>,
 }
 
+/// Generates a world with `generate_terrain` at the given size, seed and wrap
+/// flag (`climate.w_iters` set to 12), pins the carve back to the pre-RV1
+/// world (Ruling BD, `pre_rv1_world.rs`), then derives water bodies, biome
+/// raster and river order.
+/// Why: it asserts three harness assumptions before returning (sea level
+/// 0.42, `field[0]` as an f32, map width 800 km), so a drift in the generator
+/// fails here by name instead of as a moved route.
+/// Must never: skip the pin or those asserts; without them a different world
+/// would turn every routing golden red with no hint of why.
 fn build(gw: usize, gh: usize, seed: i32, world: bool, field0: f64) -> World {
     let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
     p.world = world;
@@ -130,6 +157,14 @@ fn build(gw: usize, gh: usize, seed: i32, world: bool, field0: f64) -> World {
 }
 
 impl World {
+    /// Builds the [`RouteContext`] the routers read, over this world plus the
+    /// given places and ways.
+    /// Why: the fixed cost model is the reference's own; the corridor relief,
+    /// swamp/floodplain and ford-vs-bridge options are all switched off
+    /// (`corridors`/`flow` None, `flow_thresh` 0.0), as the inline comment
+    /// explains.
+    /// Must never: enable any of those options; the goldens would stop
+    /// meaning "matches v2.10".
     fn ctx<'a>(&'a self, places: &'a [NamedSettlement], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
         RouteContext {
             field: &self.field,
@@ -158,6 +193,13 @@ impl World {
     }
 }
 
+/// Builds a [`NamedSettlement`] at (x, y) of the given kind, faction and
+/// population, with `tid` 0, an empty name, `suit` 0.0, `coastal` false and
+/// `capital` derived from the kind.
+/// Why: the routers and the snap tool read only position, kind, faction and
+/// population, so the other fields are held at inert values.
+/// Must never: be given a non-empty name; the commit tests assert names stay
+/// empty.
 fn town(x: usize, y: usize, kind: SettlementKind, faction: i32, pop: u32) -> NamedSettlement {
     NamedSettlement {
         tid: 0,
@@ -203,19 +245,49 @@ fn detour_way(a: (usize, usize), b: (usize, usize)) -> Vec<(f64, f64)> {
 
 // ===================== case 0: region, no wrap =====================
 
+// Case 0 waypoints. Source: coordinates chosen by the harness author on the
+// western landmass (x 0-8), confirmed as land by the drop test, which places
+// a settlement here. Why these exact cells: source not established.
 const C0_LAND_A: (usize, usize) = (2, 2);
+// Case 0 second land cell, western landmass; the land route, gravity and
+// existing-way fixtures run from `C0_LAND_A` to here. Source: harness choice
+// (labelled judgement).
 const C0_LAND_B: (usize, usize) = (5, 15);
+// Case 0 midpoint waypoint for the join/commit fixture, between the two land
+// cells. Source: harness choice (labelled judgement); an f64 pair because
+// waypoints are f64.
 const C0_MID: (f64, f64) = (4.0, 9.0);
+// Case 0 ocean cell; the drop test asserts the drop tool refuses it as water,
+// and the water route starts here. Source: harness choice (labelled
+// judgement).
 const C0_OCEAN_A: (usize, usize) = (12, 2);
+// Case 0 ocean cell; target of the water route and of the unreachable-land
+// negative control. Source: harness choice (labelled judgement).
 const C0_OCEAN_B: (usize, usize) = (16, 10);
+// Case 0 cell on the eastern strip, across the ocean from the western
+// landmass: land mode cannot reach it and mixed mode can. Source: harness
+// choice (labelled judgement), matching the module doc's eastern strip.
 const C0_FAR_LAND: (usize, usize) = (22, 2);
 
+/// Case 0 world: 24 x 18, seed 24601, no wrap; the harness's `field[0]` is
+/// the f32 value 0.7889490723609924.
+/// Source: the module doc's case 0 description. The seed and size are the
+/// harness's choice, and the reason these particular values were picked is
+/// source not established beyond that description (a western landmass, an
+/// ocean, an eastern strip).
+/// Must never: change; every case 0 golden is a value for exactly this world.
 fn case0() -> World {
     build(24, 18, 24601, false, 0.7889490723609924f64 as f32 as f64)
 }
 
 #[test]
 fn case0_territory_brush_matches_civ_paint_territory_at() {
+    // Protects: `_civPaintTerritoryAt` (reference 15964) as the port's
+    // `PaintStamp::ungated`: two overlapping strokes (faction 3 radius 4,
+    // faction 5 radius 2) give 39 + 13 cells, a whole-raster hash match, and
+    // the second stroke overwrites the first. Red means the stamp footprint
+    // or the last-writer-wins rule moved. The `merge_territory_paint` half
+    // pins the port's own override (DECISIONS.md 7d), not a reference value.
     let w = case0();
     // The reference paints faction 3 at radius 4, then faction 5 at radius
     // 2 overlapping it -- so the second stroke must genuinely overwrite,
@@ -241,6 +313,11 @@ fn case0_territory_brush_matches_civ_paint_territory_at() {
 
 #[test]
 fn case0_drop_place_matches_civ_drop_place() {
+    // Protects: `_civDropPlace` (reference 16051): a land click places a Town
+    // of population 1000 with an empty name, an ocean click is refused as
+    // `Water`, a re-click on the same cell selects instead of stacking, and a
+    // distant click places a second one. Red on the length asserts means the
+    // tool stopped appending.
     let w = case0();
     // `_civZoomPickR` returned 1.0 in the harness (zoom 1), so the pick
     // radius is its base value.
@@ -280,6 +357,11 @@ fn case0_drop_place_matches_civ_drop_place() {
 
 #[test]
 fn case0_snapping_matches_civ_find_snap_target() {
+    // Protects: `_civFindSnapTarget` / `_civSnapPoint` (reference 16025 /
+    // 16043) at the default snap radius 5: a place beats a way on an exact
+    // tie, a way's projection wins beside the line, mid-way is exact, and
+    // only the nearer place is in range at the corner. The projection
+    // coordinates are bit-exact, so a changed projection formula moves them.
     let w = case0();
     let places = vec![town(C0_LAND_A.0, C0_LAND_A.1, SettlementKind::Town, 1, 1000), town(C0_LAND_B.0, C0_LAND_B.1, SettlementKind::Capital, 1, 1000)];
     let pts = vec![(C0_LAND_A.0 as f64, C0_LAND_A.1 as f64), (C0_LAND_B.0 as f64, C0_LAND_B.1 as f64)];
@@ -315,6 +397,10 @@ fn case0_snapping_matches_civ_find_snap_target() {
 
 #[test]
 fn case0_land_route_matches_civ_dijkstra_path() {
+    // Protects: `_civDijkstraPath` land mode over `_civLandCostGrid`
+    // (reference 25957 / 21035): the smoothed path, its break list and its
+    // km, bit for bit. A mutation of any land-cost constant moves the path or
+    // the km.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_LAND_B.0 as f64, C0_LAND_B.1 as f64, RouteMode::Land);
@@ -337,6 +423,10 @@ fn case0_land_route_matches_civ_dijkstra_path() {
 /// sits at the *target* end. See the module notes in `UNIFIED_TOOL_PLAN.md`.
 #[test]
 fn case0_unreachable_land_route_is_a_stub_at_the_target_not_a_straight_line() {
+    // Protects: the reference's behaviour for an unreachable land target: a
+    // stub at the target end, not a straight line. The final assert pins that
+    // the start point is absent. This is a reference quirk kept on purpose,
+    // so a port that "fixed" it turns this red.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_OCEAN_B.0 as f64, C0_OCEAN_B.1 as f64, RouteMode::Land);
@@ -346,6 +436,10 @@ fn case0_unreachable_land_route_is_a_stub_at_the_target_not_a_straight_line() {
 
 #[test]
 fn case0_water_route_matches_civ_dijkstra_path() {
+    // Protects: water mode over `_civWaterCostGrid` (reference 21051): a
+    // reachable ocean route bit for bit, and the unreachable water-to-land
+    // negative control with `reachable` false. A mutation of a water-cost
+    // constant moves the km.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_OCEAN_A.0 as f64, C0_OCEAN_A.1 as f64, C0_OCEAN_B.0 as f64, C0_OCEAN_B.1 as f64, RouteMode::Water);
@@ -364,6 +458,10 @@ fn case0_water_route_matches_civ_dijkstra_path() {
 
 #[test]
 fn case0_mixed_route_crosses_the_ocean() {
+    // Protects: `_civMixedCostGrid` (reference 21090): a route from the
+    // western landmass across the ocean to the eastern strip, with exact km.
+    // The closing assert shows land mode refuses the same pair, so the test
+    // cannot pass with mixed behaving like land.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C0_LAND_A.0 as f64, C0_LAND_A.1 as f64, C0_FAR_LAND.0 as f64, C0_FAR_LAND.1 as f64, RouteMode::Mixed);
@@ -381,6 +479,9 @@ fn case0_mixed_route_crosses_the_ocean() {
 
 #[test]
 fn case0_settlement_gravity_bends_the_route() {
+    // Protects: the settlement-gravity term in the router's cost: one City of
+    // population 5000 near the start bends the route towards it. Red means
+    // gravity was dropped or its weight moved; the km is bit-exact.
     let w = case0();
     let places = vec![town(C0_LAND_A.0, (C0_LAND_A.1 + 4).min(w.gh - 1), SettlementKind::City, 1, 5000)];
     let ctx = w.ctx(&places, &[]);
@@ -397,6 +498,10 @@ fn case0_settlement_gravity_bends_the_route() {
 
 #[test]
 fn case0_existing_way_discount_pulls_the_route_onto_it() {
+    // Protects: the existing-way discount (`_civWalkWayCells` /
+    // `_civMarkWaysOnGrid`, reference 21766 / 21757): an L-shaped detour way
+    // pulls the route onto its column. Red means the discount factor or the
+    // cell walk changed.
     let w = case0();
     let pts = detour_way(C0_LAND_A, C0_LAND_B);
     let ways = vec![WayRef { pts: &pts, brks: &[], sea: false, hidden: false }];
@@ -414,6 +519,12 @@ fn case0_existing_way_discount_pulls_the_route_onto_it() {
 
 #[test]
 fn case0_join_and_commit_match_the_reference() {
+    // Protects: `_civJoinDijkstraSegs` (26052) and `_civCommitWay` (26072): a
+    // three-waypoint land join with its km, a committed road way with an
+    // empty name, a sea lane tagged `sea`, and the v1.99 warning path where
+    // an unreachable leg still yields a way and a count of 1. The
+    // `unreachable_legs == 1` assert is the emptiness check that the warning
+    // actually fires.
     let w = case0();
     let ctx = w.ctx(&[], &[]);
     let wps = [(C0_LAND_A.0 as f64, C0_LAND_A.1 as f64), C0_MID, (C0_LAND_B.0 as f64, C0_LAND_B.1 as f64)];
@@ -456,19 +567,41 @@ fn case0_join_and_commit_match_the_reference() {
 
 // ===================== case 1: world wrap =====================
 
+// Case 1 land cell near the east edge; the land route to `C1_LAND_B` crosses
+// the x seam. Source: harness choice (labelled judgement).
 const C1_LAND_A: (usize, usize) = (18, 15);
+// Case 1 land cell near the west edge, reached from `C1_LAND_A` through the
+// seam. Source: harness choice (labelled judgement).
 const C1_LAND_B: (usize, usize) = (1, 15);
+// Case 1 midpoint waypoint on row 15 between the two land cells, for the
+// join/commit fixture. Source: harness choice (labelled judgement).
 const C1_MID: (f64, f64) = (10.0, 15.0);
+// Case 1 ocean cell near the west edge; the water route to `C1_OCEAN_B`
+// crosses the seam. Source: harness choice (labelled judgement).
 const C1_OCEAN_A: (usize, usize) = (2, 2);
+// Case 1 ocean cell near the east edge, reached from `C1_OCEAN_A` through the
+// seam. Source: harness choice (labelled judgement).
 const C1_OCEAN_B: (usize, usize) = (18, 2);
+// Case 1 land cell used as the mixed-route target. Source: harness choice
+// (labelled judgement).
 const C1_FAR_LAND: (usize, usize) = (10, 2);
 
+/// Case 1 world: 20 x 16, seed 314159, x-wrapping; the harness's `field[0]`
+/// is the f32 value 0.3003617823123932.
+/// Source: the module doc's case 1 description (42 lake cells and an ocean
+/// connected only through the seam). The seed and size are the harness's
+/// choice; why these values is source not established beyond that.
+/// Must never: change; every case 1 golden is a value for exactly this world.
 fn case1() -> World {
     build(20, 16, 314159, true, 0.3003617823123932f64 as f32 as f64)
 }
 
 #[test]
 fn case1_territory_brush_matches_civ_paint_territory_at() {
+    // Protects: the territory brush on a world-wrap grid (20 x 16): the same
+    // two strokes as case 0 leave 52 painted cells and a matching hash. Red
+    // means the stamp depends on the grid size or wrap flag in a way the
+    // reference does not.
     let w = case1();
     let mut layer = vec![0u8; w.gw * w.gh];
     {
@@ -485,6 +618,10 @@ fn case1_territory_brush_matches_civ_paint_territory_at() {
 /// produces a real `brks` entry. Nothing in case 0 reaches it.
 #[test]
 fn case1_wrapped_routes_carry_a_seam_break() {
+    // Protects: the wrap path of `_civSmoothPath`: both the land and the
+    // water route cross the x seam and come back with a `brks` entry at index
+    // 3, which is the only way that run-splitting is reached. Red means a
+    // wrapped route draws a line straight across the map.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
 
@@ -511,6 +648,10 @@ fn case1_wrapped_routes_carry_a_seam_break() {
 
 #[test]
 fn case1_land_and_water_negative_controls() {
+    // Protects: the unreachable cases on the wrap world: land to ocean and
+    // water to land both report `reachable` false, with the reference's stub
+    // or fallback paths. Red means an unreachable target started returning a
+    // plausible route.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let land = civ_dijkstra_path(&ctx, C1_LAND_A.0 as f64, C1_LAND_A.1 as f64, C1_OCEAN_B.0 as f64, C1_OCEAN_B.1 as f64, RouteMode::Land);
@@ -528,6 +669,9 @@ fn case1_land_and_water_negative_controls() {
 
 #[test]
 fn case1_mixed_route_matches_the_reference() {
+    // Protects: mixed mode on the wrap world: the route crosses the seam
+    // (`brks` [3]) and its km is bit-exact. Red means the mixed cost grid or
+    // the wrap smoothing moved.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let got = civ_dijkstra_path(&ctx, C1_LAND_A.0 as f64, C1_LAND_A.1 as f64, C1_FAR_LAND.0 as f64, C1_FAR_LAND.1 as f64, RouteMode::Mixed);
@@ -543,6 +687,10 @@ fn case1_mixed_route_matches_the_reference() {
 
 #[test]
 fn case1_join_and_commit_match_the_reference() {
+    // Protects: join and commit on the wrap world: with a midpoint the two
+    // legs meet and no pen is lifted (`brks` empty, 680 km), and the sea lane
+    // carries the seam break. Red means a join introduced a spurious break or
+    // lost a real one.
     let w = case1();
     let ctx = w.ctx(&[], &[]);
     let wps = [(C1_LAND_A.0 as f64, C1_LAND_A.1 as f64), C1_MID, (C1_LAND_B.0 as f64, C1_LAND_B.1 as f64)];
@@ -574,6 +722,10 @@ fn case1_join_and_commit_match_the_reference() {
 /// any single-case assertion.
 #[test]
 fn the_two_cases_really_are_different_worlds() {
+    // Protects: that the two fixtures are not the same world twice: the
+    // water-body and biome hashes differ. It also records which lake and
+    // ocean classes each fixture holds after Rulings Q and T (case 0 has no
+    // lake, case 1 has both), so a rule change that moves them is named here.
     let a = case0();
     let b = case1();
     assert_ne!(fnv_u8(&a.wb), fnv_u8(&b.wb));

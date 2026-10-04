@@ -72,9 +72,18 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so both real-world cases keep
+/// matching the reference capture.
+/// Must never: be skipped; the `field[0]` and water-body-count asserts depend
+/// on it.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Builds a [`cartalith_civ::NamedSettlement`] at `(x, y)`: a coastal Capital
+/// with `suit` 0.0, `tid` 0, and the given faction, name and population. All
+/// golden ports are coastal capitals, as the module doc says
+/// `golden_parity_settlement_placement.rs` confirmed.
 fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_civ::NamedSettlement {
     cartalith_civ::NamedSettlement {
         tid: 0,
@@ -92,6 +101,10 @@ fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_ci
     }
 }
 
+/// Returns only the classification raster (0 land, 1 ocean, 2 lake) from
+/// `cartalith_civ::build_water_bodies` on the world's field and rainfall. It
+/// shadows the library function's name on purpose so the call sites read like
+/// the reference's `currentWaterBodies()`.
 fn build_water_bodies(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -101,6 +114,8 @@ fn build_water_bodies(
     cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall)).classification
 }
 
+/// Asserts two point lists have equal length and agree to 1e-4 in each
+/// coordinate (this crate's tolerance for continuous fields, module doc).
 fn assert_pts_match(actual: &[(f64, f64)], expected: &[(f64, f64)], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: point count mismatch: {actual:?} vs {expected:?}");
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -111,6 +126,12 @@ fn assert_pts_match(actual: &[(f64, f64)], expected: &[(f64, f64)], label: &str)
 
 #[test]
 fn sea_routes_case_0_three_ports_augmentation() {
+    // Protects: `_civMstRoutes(ports, true)` (reference 21240, sea branch) on
+    // a 14 x 11 world with three ports: two MST edges, the v0.73 nearest-port
+    // augmentation pass finding no extra pair within the 1.15x cap, and each
+    // route's name, 3 points, km and empty breaks. The land/ocean cell counts
+    // (79/75) guard the world itself. Red means the Dijkstra sea path, the
+    // MST or the cap changed.
     // case0_region: gw=14 gh=11 seed=24601 world=false. Same 3 ports as
     // golden_parity_road_consolidation.rs's case0. Real extraction:
     // _civMstRoutes(ports,true) -- 2 edges (n=3 -> 2 MST edges; the v0.73
@@ -152,6 +173,14 @@ fn sea_routes_case_0_three_ports_augmentation() {
 
 #[test]
 fn sea_routes_case_1_five_ports_mixed_geography() {
+    // Protects: the same function on a wrapped 16 x 12 world with five ports
+    // and mixed land, ocean and lake (127/13/52): four MST edges, and two
+    // routes whose `km` is 0 despite 3 points, a genuine reference quirk
+    // (`_civSmoothPath` sums km over rounded points before restoring the
+    // endpoints; module doc). Red means the water-body split or the km
+    // accumulation changed. Both worlds pass `None, None` for the current and
+    // wind fields, the reference's own fallback, so this pins v2.10
+    // behaviour.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true. Same 5 ports as
     // golden_parity_road_consolidation.rs's case1. Real extraction:
     // _civMstRoutes(ports,true) -- 4 edges (n=5 -> 4 MST edges; again no
@@ -183,6 +212,8 @@ fn sea_routes_case_1_five_ports_mixed_geography() {
 
     assert_eq!(routes.len(), 4, "case1: route count mismatch");
 
+    /// One expected sea route from the reference's `_civMstRoutes(ports,
+    /// true)`: points, `km` and name.
     struct Expect {
         pts: Vec<(f64, f64)>,
         km: f64,

@@ -17,6 +17,15 @@
 
 use cartalith_civ as civ;
 
+/// Everything the network and placement tests need from one generated world:
+/// grid size and wrap flag, map width, the terrain state, water bodies, biome
+/// raster, river-order raster, the auto-populated placements, and the
+/// suitability, flood and flow-threshold inputs placement read.
+/// Why: the loop under test needs a real network, which only a generated
+/// world supplies; a synthetic fixture could not make the edge reordering
+/// below observable.
+/// Must never: be hand-built; it is only valid as the output of
+/// [`world_placements`].
 pub struct CivWorld {
     pub gw: usize,
     pub gh: usize,
@@ -33,6 +42,17 @@ pub struct CivWorld {
     pub factions: i32,
 }
 
+/// Generates a world at `size` x `size * 3 / 4` with `seed` and runs the
+/// auto-populate path up to the network call, mirroring `cartalith-godot`'s
+/// `compute_civilisation` (the module doc says why it cannot be called
+/// directly). The four divergence flags (`crater.physical_model`,
+/// `volc.exclude_transform`, `volc.edifice_model`, `integrate_drainage`) are
+/// switched on to match the app's `params::defaults()`.
+/// Why: tests assert on this world's own behaviour, so it must be the world
+/// the app builds; if `compute_civilisation` changes and this does not, the
+/// tests pass over a world the app no longer makes.
+/// Must never: use the engine's bare defaults, which leave those four flags
+/// off.
 pub fn world_placements(size: usize, seed: i32) -> CivWorld {
     let mut p = cartalith_engine::WorldParams::defaults(size, size * 3 / 4, seed);
     p.crater.physical_model = true;
@@ -98,12 +118,18 @@ impl CivWorld {
             self.map_width_km, Some(want),
         )
     }
+    /// Runs `civ_hierarchical_network_topology` over `places` with this
+    /// world's field, flow, river order, biome and water bodies. Takes the
+    /// places as an argument so a test can feed re-tiered places.
     pub fn network(&self, places: &[civ::SettlementPlacement]) -> civ::HierarchicalNetworkResult {
         civ::civ_hierarchical_network_topology(
             places, self.gw, self.gh, self.ws.sea_level, &self.ws.field, &self.ws.flow_discharge,
             &self.river_order, &self.biome, &self.wb.classification, self.world, self.map_width_km,
         )
     }
+    /// Runs `civ_iterative_network` (the centrality -> tier loop) for
+    /// `passes` rounds with this world's inputs, re-tiering `places` in place
+    /// and returning the final network.
     pub fn iterate(&self, places: &mut [civ::SettlementPlacement], passes: usize) -> civ::HierarchicalNetworkResult {
         civ::civ_iterative_network(
             places, passes, self.gw, self.gh, self.ws.sea_level, &self.ws.field, &self.ws.flow_discharge,
@@ -112,6 +138,11 @@ impl CivWorld {
     }
 }
 
+/// True when two networks have equal usage counts, degrees, and edge lists
+/// (endpoints and path, in order).
+/// Why: `HierarchicalNetworkResult` is compared piecewise rather than by
+/// `==`; a field not listed here is not checked, so a new field on the result
+/// needs adding.
 fn same_net(a: &civ::HierarchicalNetworkResult, b: &civ::HierarchicalNetworkResult) -> bool {
     a.usage_count == b.usage_count
         && a.degree_of == b.degree_of
@@ -121,6 +152,13 @@ fn same_net(a: &civ::HierarchicalNetworkResult, b: &civ::HierarchicalNetworkResu
 
 #[test]
 fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
+    // Protects: the place pairs the centrality loop feeds
+    // `civ_network_betweenness`: `civ_network_way_pairs` must equal the pairs
+    // the consolidated ways carry, in the same order, with each edge's run
+    // collapsed. Red means the loop measures a different graph from the one
+    // the user sees drawn. The `assert_ne!` against raw edge order proves
+    // this world reorders edges, so a pairs function that skipped the sort
+    // would be caught.
     let w = world_placements(256, 12345);
     assert!(w.places.len() >= 8, "fixture too small: {} places", w.places.len());
     let net = w.network(&w.places);
@@ -150,6 +188,10 @@ fn way_pairs_are_the_consolidated_ways_pairs_in_order() {
 
 #[test]
 fn one_pass_is_the_single_network_build() {
+    // Protects: that one pass is byte-identical to the single network build
+    // the port made before the loop existed, with no re-tiering, and that
+    // `passes == 0` is clamped to one pass rather than running three. Red
+    // means the loop changed output for a one-pass caller.
     let w = world_placements(256, 12345);
     let before = w.places.clone();
     let single = w.network(&w.places);
@@ -165,6 +207,12 @@ fn one_pass_is_the_single_network_build() {
 
 #[test]
 fn three_passes_run_two_feedback_rounds() {
+    // Protects: the loop count: `CIV_AUTO_WORLD_PASSES` (3) means network,
+    // re-tier, network, re-tier, network, i.e. two feedback rounds, checked
+    // against the same steps done by hand. The two `assert_ne!` calls show
+    // each round moves something on this fixture, so an off-by-one in the
+    // count cannot pass by coincidence. Only `kind` may move: position,
+    // faction, seat and port flags must not.
     let w = world_placements(256, 12345);
     // By hand: network, re-tier, network, re-tier, network.
     let mut by_hand = w.places.clone();
@@ -200,6 +248,10 @@ fn three_passes_run_two_feedback_rounds() {
 #[test]
 #[ignore = "measurement, prints a table"]
 fn measure_tier_shift() {
+    // Protects: nothing; it is an ignored measurement that prints a table
+    // (tier histogram before and after the loop over 15 worlds) and asserts
+    // nothing. It exists to size the re-baseline the loop made. Red can only
+    // mean a panic in world generation.
     use civ::SettlementKind::*;
     let hist = |ps: &[civ::SettlementPlacement]| {
         [Capital, City, Town, Village, Hamlet].map(|k| ps.iter().filter(|p| p.kind == k).count())
@@ -228,6 +280,8 @@ fn measure_tier_shift() {
 // check it on real placement, where the candidate list is what limits it.
 // ---------------------------------------------------------------------------
 
+/// Counts places per [`civ::SettlementKind`] in the order Capital, City,
+/// Town, Village, Hamlet, the same order as the `want` arrays.
 fn hist(ps: &[civ::SettlementPlacement]) -> [usize; 5] {
     use civ::SettlementKind::*;
     [Capital, City, Town, Village, Hamlet].map(|k| ps.iter().filter(|p| p.kind == k).count())
@@ -239,6 +293,12 @@ fn hist(ps: &[civ::SettlementPlacement]) -> [usize; 5] {
 /// 0 and takes the floor of 3.
 #[test]
 fn want_counts_seed_params_are_the_references() {
+    // Protects: `civ_want_counts_seed_params`, the reference's seed-threshold
+    // and suppression-radius substitution for fixed per-tier counts
+    // (`wantCounts`, reference 25863-25932): the 0.35 threshold, the
+    // sqrt(33/24) scaling, the floor of a total under 8 to 8, and the floor
+    // of 3. The literals are the hand-worked values in the doc above; a
+    // mutation of the 22 or 33 constants (24 is a test input) changes a row.
     assert_eq!(civ::civ_want_counts_seed_params(256, 24), (0.35, 14.0));
     assert_eq!(civ::civ_want_counts_seed_params(256, 2), (0.35, 24.0));
     assert_eq!(civ::civ_want_counts_seed_params(256, 8), (0.35, 24.0));
@@ -250,6 +310,12 @@ fn want_counts_seed_params_are_the_references() {
 /// function gave before it existed.
 #[test]
 fn no_counts_is_the_default_placement() {
+    // Protects: that passing `None` for counts to
+    // `place_settlements_with_counts` is exactly the default placement, field
+    // for field. Red means the counts entry point changed behaviour for
+    // callers who set no counts. The literals 0.42 and 22.0 mirror the
+    // defaults `world_placements` uses; if either default moves, this fails
+    // at the equality, which is the intended signal.
     let w = world_placements(256, 12345);
     let seeds = civ::find_settlement_seeds(&w.suit, w.gw, w.gh, 0.42, (w.gw as f64 / 22.0).floor().max(6.0));
     let none = civ::place_settlements_with_counts(
@@ -268,6 +334,12 @@ fn no_counts_is_the_default_placement() {
 /// total is `min(asked, sites)`.
 #[test]
 fn fixed_counts_hold_on_real_worlds() {
+    // Protects: fixed per-tier counts on real worlds: exact when the world
+    // has enough sites, a shortfall falling on the last tiers with quota left
+    // (the reference only warns), no tier above its request, and a seat flag
+    // always present. The five cases and their wanted counts are labelled
+    // judgement choices, with the last chosen to exceed what a 256 grid can
+    // place; the two closing asserts guard that both branches ran.
     let (mut exact, mut short) = (0, 0);
     for (size, seed, want) in [
         (256usize, 12345, [2usize, 3, 5, 8, 6]),
@@ -306,6 +378,10 @@ fn fixed_counts_hold_on_real_worlds() {
 /// The re-tiering loop would undo the counts: one pass keeps them.
 #[test]
 fn one_pass_keeps_the_counts_and_three_would_not() {
+    // Protects: the interaction of counts with the re-tiering loop: one pass
+    // keeps the user's counts and the default three passes break them. Red on
+    // the last assert means the fixture no longer shows the loop undoing
+    // counts, so the rule is untested on it.
     let w = world_placements(256, 12345);
     let want = [2usize, 3, 5, 8, 6];
     let ps = w.place_counted(want);

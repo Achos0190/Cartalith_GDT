@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! cargo run --release -p cartalith-civ --example _memlane_peak -- <gw> <gh> [seed] [km]
-//! MEMLANE_HASH=1 ...   # also print FNV fingerprints of every output
+//! MEMLANE_HASH=1 ...   # NOT read by this file: `fnv`/`fbytes`/`fdbg` below are unused
 //! MEMLANE_REF=1 ...    # WorldParams::defaults (the goldens' baseline) instead of the app's
 //! MEMLANE_NO_GEOLOGY=1 ...  # the app's params with the GF-1 geology model off
 //! ```
@@ -20,12 +20,26 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
+/// Bytes currently allocated through [`Tracking`]. Raised by `bump`, lowered
+/// by dealloc and by a shrinking realloc.
 static LIVE: AtomicUsize = AtomicUsize::new(0);
+/// High-water mark of [`LIVE`] since the last [`reset_peak`]. `cp` prints it
+/// as the stage's ceiling and then resets it, so each STAGE line reports that
+/// stage alone.
 static PEAK: AtomicUsize = AtomicUsize::new(0);
+/// High-water mark of [`LIVE`] for the whole run. Never reset by `cp`; `main`
+/// seeds it once after the baseline and reads it for the final PEAK line.
 static GMAX: AtomicUsize = AtomicUsize::new(0);
 
+/// Global allocator that counts live bytes and delegates every call to
+/// [`System`].
+/// Must never: change what the allocator returns or when; this is a measuring
+/// probe, and any behaviour change would invalidate the peaks it reports.
 struct Tracking;
 
+/// Adds `n` bytes to [`LIVE`] and raises [`PEAK`] and [`GMAX`] to the new
+/// level if it is higher. Relaxed ordering: the three counters are
+/// independent tallies that are read only for reporting.
 #[inline]
 fn bump(n: usize) {
     let cur = LIVE.fetch_add(n, Ordering::Relaxed) + n;
@@ -34,6 +48,8 @@ fn bump(n: usize) {
 }
 
 unsafe impl GlobalAlloc for Tracking {
+    /// Allocates through [`System`] and counts the layout's size, only when
+    /// the pointer is non-null.
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
         let p = unsafe { System.alloc(l) };
         if !p.is_null() {
@@ -41,6 +57,7 @@ unsafe impl GlobalAlloc for Tracking {
         }
         p
     }
+    /// As `alloc`, for zeroed allocations.
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
         let p = unsafe { System.alloc_zeroed(l) };
         if !p.is_null() {
@@ -48,10 +65,16 @@ unsafe impl GlobalAlloc for Tracking {
         }
         p
     }
+    /// Subtracts the layout's size from [`LIVE`], then frees through
+    /// [`System`].
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
         LIVE.fetch_sub(l.size(), Ordering::Relaxed);
         unsafe { System.dealloc(p, l) }
     }
+    /// Reallocates through [`System`] and, only on success, counts the
+    /// difference: growth goes through `bump` (so the peaks see it),
+    /// shrinkage only lowers [`LIVE`]. A failed realloc leaves the count
+    /// unchanged because the old block is still live.
     unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
         let np = unsafe { System.realloc(p, l, new) };
         if !np.is_null() {
@@ -65,18 +88,26 @@ unsafe impl GlobalAlloc for Tracking {
     }
 }
 
+/// Registers [`Tracking`] as this example's global allocator.
 #[global_allocator]
 static A: Tracking = Tracking;
 
+/// Converts a byte count to MiB (1024 * 1024 bytes).
 fn mib(b: usize) -> f64 {
     b as f64 / (1024.0 * 1024.0)
 }
+/// Current [`LIVE`] in MiB.
 fn live() -> f64 {
     mib(LIVE.load(Ordering::Relaxed))
 }
+/// Sets [`PEAK`] to the current [`LIVE`], so the next stage's ceiling starts
+/// from what is resident now rather than from an earlier stage's high point.
+/// Does not touch [`GMAX`].
 fn reset_peak() {
     PEAK.store(LIVE.load(Ordering::Relaxed), Ordering::Relaxed);
 }
+/// Prints one `STAGE` line (label, live MiB, ceiling MiB since the previous
+/// checkpoint, elapsed seconds since `t0`) and resets the per-stage peak.
 fn cp(label: &str, t0: &Instant) {
     println!(
         "STAGE {:<40} live {:9.2}  ceiling {:9.2}  t {:7.2}",
@@ -89,6 +120,10 @@ fn cp(label: &str, t0: &Instant) {
 }
 
 // ---- FNV-1a fingerprints ---------------------------------------------------
+/// FNV-1a 64-bit hash of a byte slice, with the standard offset basis
+/// `0xcbf29ce484222325` and prime `0x100000001b3`. Retained for the
+/// `MEMLANE_HASH` fingerprints the header describes; see the note there that
+/// `main` does not call it.
 fn fnv(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for &b in bytes {
@@ -97,14 +132,29 @@ fn fnv(bytes: &[u8]) -> u64 {
     }
     h
 }
+/// FNV-1a fingerprint of a slice's raw bytes via [`fnv`].
+/// Must never: be applied to a type with padding bytes, whose contents are
+/// uninitialised and so would not hash stably.
 fn fbytes<T: Copy>(v: &[T]) -> u64 {
     let n = std::mem::size_of_val(v);
     fnv(unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, n) })
 }
+/// FNV-1a fingerprint of a value's `Debug` text via [`fnv`], for types that
+/// are not plain data.
 fn fdbg<T: std::fmt::Debug>(v: &T) -> u64 {
     fnv(format!("{v:?}").as_bytes())
 }
 
+/// Runs terrain generation and the default auto-populate civ path call for
+/// call, printing a STAGE line after each, then a per-raster resident-size
+/// census and the final PEAK line.
+/// Args: `<gw> <gh> [seed] [km]` (defaults 2048, 1311, 483920 and 800.0 km;
+/// source not established beyond the header's note that this re-runs `_peakaudit_peak`). Environment:
+/// `MEMLANE_REF` selects `WorldParams::defaults`; `MEMLANE_NO_GEOLOGY` turns
+/// the geology model off for the app parameters.
+/// Must never: be used to claim a speed: the tracking allocator is in the
+/// path of every allocation, so the `t` column is for orientation only
+/// (overhead not measured here).
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let gw: usize = args.first().and_then(|s| s.parse().ok()).unwrap_or(2048);

@@ -53,6 +53,11 @@ use cartalith_rng::Mulberry32;
 /// `_civSelectMetropolises` lifted.
 #[test]
 fn tier_for_population_matches_the_full_six_tier_reference_table() {
+    // Protects: `civ_tier_for_population` over the reference's full six-entry
+    // `_CIV_TIER_FLOOR` (lines 24617-24618): floors 150 / 800 / 5 000 / 30
+    // 000 / 150 000 are inclusive lower bounds, each probed just below and
+    // exactly at. A mutation of any floor, or a return to the old capital
+    // cap, moves a row; the three top rows are the ones the cap used to fail.
     let cases: [(f64, SettlementKind); 13] = [
         (0.0, SettlementKind::Hamlet),
         (149.999, SettlementKind::Hamlet),
@@ -75,6 +80,12 @@ fn tier_for_population_matches_the_full_six_tier_reference_table() {
 
 // ===================== `_civSelectMetropolises` =====================
 
+/// Builds a `SettlementPlacement` at (x, y) of the given kind and faction,
+/// with `capital` derived from the kind, `suit` 0.0 and `coastal` false.
+/// Why: `civ_select_metropolises` reads only kind, faction and position, so
+/// every other field is held at an inert value.
+/// Must never: set `capital` independently of `kind`; the reference tests the
+/// kind string.
 fn p(x: usize, y: usize, kind: SettlementKind, faction: i32) -> SettlementPlacement {
     SettlementPlacement {
         x,
@@ -97,6 +108,10 @@ fn towns(x0: usize, y: usize, n: usize, faction: i32) -> Vec<SettlementPlacement
 /// Fixture 1: one faction of six, one capital, dominant betweenness.
 #[test]
 fn a_dominant_capital_of_a_large_polity_is_promoted() {
+    // Protects: the positive path of `civ_select_metropolises` (reference
+    // 24961-24989): a capital in a six-settlement faction with the maximum
+    // betweenness is promoted. If this goes red the negative fixtures below
+    // pass for the wrong reason.
     let mut places = vec![p(10, 10, SettlementKind::Capital, 1)];
     places.extend(towns(20, 10, 5, 1));
     let btw = [100.0, 5.0, 4.0, 3.0, 2.0, 1.0];
@@ -112,6 +127,9 @@ fn a_dominant_capital_of_a_large_polity_is_promoted() {
 /// settlement below the boundary.
 #[test]
 fn a_faction_one_settlement_below_min_size_promotes_nothing() {
+    // Protects: the default `min_faction_size` of 6: the identical fixture
+    // with five settlements promotes nothing, so a mutation of the default to
+    // 5 or lower turns this red.
     let mut places = vec![p(10, 10, SettlementKind::Capital, 1)];
     places.extend(towns(20, 10, 4, 1));
     let btw = [100.0, 5.0, 4.0, 3.0, 2.0];
@@ -126,6 +144,9 @@ fn a_faction_one_settlement_below_min_size_promotes_nothing() {
 /// direction is genuinely under test rather than hidden in float noise.
 #[test]
 fn the_betweenness_threshold_is_inclusive_at_exactly_0_85() {
+    // Protects: the default `btw_thr` of 0.85 and the direction of its
+    // comparison: 84.9/100 is below it, 85/100 clears it (`>=`). A threshold
+    // mutation or a `>` comparison turns one of the two asserts red.
     let mut places = vec![p(10, 10, SettlementKind::Capital, 1)];
     places.extend(towns(20, 10, 5, 1));
     let below = [84.9, 1.0, 1.0, 1.0, 1.0, 1.0];
@@ -145,6 +166,9 @@ fn the_betweenness_threshold_is_inclusive_at_exactly_0_85() {
 /// Fixture 4: the reference's own `maxBtwF<=0` early return.
 #[test]
 fn a_non_positive_max_betweenness_promotes_nothing() {
+    // Protects: the reference's `maxBtwF <= 0` early return. With every
+    // betweenness 0 and a maximum of 0 the normalised ratio would divide by
+    // zero; the port must return an empty list instead.
     let mut places = vec![p(10, 10, SettlementKind::Capital, 1)];
     places.extend(towns(20, 10, 5, 1));
     let btw = [0.0; 6];
@@ -160,6 +184,9 @@ fn a_non_positive_max_betweenness_promotes_nothing() {
 /// port that silently kept input order instead of sorting would fail here.
 #[test]
 fn per_faction_cap_keeps_the_more_central_of_two_capitals() {
+    // Protects: the `per_faction` cap of 1 together with the betweenness
+    // sort: the second capital (index 1, betweenness 100) must beat the first
+    // (index 0, 90). A port that kept input order returns `[0]` and fails.
     let mut places = vec![
         p(10, 10, SettlementKind::Capital, 1),
         p(40, 10, SettlementKind::Capital, 1),
@@ -176,6 +203,9 @@ fn per_faction_cap_keeps_the_more_central_of_two_capitals() {
 /// dropped, and the three kept are the three most central.
 #[test]
 fn the_global_cap_truncates_a_fourth_eligible_faction() {
+    // Protects: the default `global_cap` of 3: of four eligible factions the
+    // least central is dropped and the three kept appear in descending
+    // betweenness. A mutation of the cap changes the length of the result.
     let mut places = Vec::new();
     let mut btw = Vec::new();
     for f in 1..=4i32 {
@@ -199,6 +229,10 @@ fn the_global_cap_truncates_a_fourth_eligible_faction() {
 /// break the remaining tie.
 #[test]
 fn the_tie_break_is_x_then_y_ascending() {
+    // Protects: the comparator's tie-break on equal normalised betweenness: x
+    // ascending, then y ascending. The first assert pins the whole order and
+    // the second pins that the cap of 2 drops the last entry of that order. A
+    // swapped or missing tie-break reorders the result.
     let mut places = vec![
         p(30, 5, SettlementKind::Capital, 1),
         p(10, 9, SettlementKind::Capital, 2),
@@ -235,6 +269,11 @@ fn the_tie_break_is_x_then_y_ascending() {
 /// that hardcoded any one of the four defaults fails.
 #[test]
 fn every_opts_field_is_honoured_at_once() {
+    // Protects: that `btw_thr`, `min_faction_size`, `per_faction` and
+    // `global_cap` are all read from `MetropolisOpts`: every field is off its
+    // default at once, so a port that hardcoded any one default changes the
+    // answer. The closing assert shows the same input promotes nothing under
+    // the defaults.
     let places = vec![
         p(10, 10, SettlementKind::Capital, 1),
         p(40, 10, SettlementKind::Capital, 1),
@@ -273,6 +312,9 @@ fn every_opts_field_is_honoured_at_once() {
 /// Metropolis is a promotion *of a capital*, not of the most central place.
 #[test]
 fn a_city_is_never_eligible_however_central() {
+    // Protects: the reference's `kind !== 'capital'` check: a city with the
+    // maximum betweenness in a six-settlement faction is never promoted. Red
+    // means metropolis promotion has stopped being a promotion of a capital.
     let mut places = vec![p(10, 10, SettlementKind::City, 1)];
     places.extend(towns(20, 10, 5, 1));
     let btw = [100.0, 1.0, 1.0, 1.0, 1.0, 1.0];
@@ -288,6 +330,10 @@ fn a_city_is_never_eligible_however_central() {
 /// as a comment: the same fixture, normalised and un-normalised, must agree.
 #[test]
 fn betweenness_normalisation_cancels_out() {
+    // Protects: the claim that `_civNetworkMetrics`' `(n-1)(n-2)`
+    // normalisation (reference line 21990) cancels in `betweenness / maxBtw`:
+    // the same fixture raw and normalised must select identically. Red means
+    // the selection reads an absolute betweenness somewhere.
     let mut places = vec![
         p(10, 10, SettlementKind::Capital, 1),
         p(40, 10, SettlementKind::Capital, 1),
@@ -348,6 +394,12 @@ const DRAWS_11: [f64; 3] = [
     0.608_118_564_123_287_8,
 ];
 
+/// Builds a `CollapsePlace` of the given kind, population and port flag, with
+/// `tid` 0, position (0, 0), `fortified` and `ruins` false.
+/// Why: `civ_apply_recovery` reads kind, pop, port and the two flags, never
+/// position, so position is inert here.
+/// Must never: be given non-default `fortified`/`ruins` by default; the
+/// idempotence test overrides them explicitly with struct-update syntax.
 fn cp(kind: SettlementKind, pop: f64, port: bool) -> CollapsePlace {
     CollapsePlace {
         tid: 0,
@@ -365,6 +417,11 @@ fn cp(kind: SettlementKind, pop: f64, port: bool) -> CollapsePlace {
 /// pass writes.
 type Row = (SettlementKind, f64, bool, bool);
 
+/// Projects a roster to `(kind, pop, ruins, fortified)` tuples, the four
+/// fields `_civApplyRecovery` writes.
+/// Why: lets a fixture assert the whole output roster, including its order
+/// and length, in one `assert_eq!`.
+/// Must never: compare position or port; the pass does not write them.
 fn rows(places: &[CollapsePlace]) -> Vec<Row> {
     places
         .iter()
@@ -389,6 +446,10 @@ fn roster() -> Vec<CollapsePlace> {
 /// makes "Recovery phase: Stable" byte-identical to not running the pass.
 #[test]
 fn phase_stable_is_a_no_op_that_draws_nothing() {
+    // Protects: the reference's `band == null` no-op for phase 0: the roster
+    // is returned unchanged and the RNG is not advanced (the next draw must
+    // be `DRAWS_1234[0]`), so a Stable timeline stays byte-identical to not
+    // running the pass.
     let places = vec![
         cp(SettlementKind::Capital, 60_000.0, false),
         cp(SettlementKind::Town, 3_000.0, false),
@@ -416,6 +477,11 @@ fn phase_stable_is_a_no_op_that_draws_nothing() {
 /// only five came back.
 #[test]
 fn phase_survival_collapses_and_prunes_the_roster() {
+    // Protects: `civ_apply_recovery` at phase I (band 0.04 to 0.10; reference
+    // 24619-24640) on the six-tier roster with seed 7: scaled populations,
+    // tier demotions into ruins, and the abandonment of the unanchored
+    // hamlet. The final assert pins that six draws were consumed for six
+    // inputs although five came back.
     let mut rng = Mulberry32::new(7);
     let out = civ_apply_recovery(
         &roster(),
@@ -444,6 +510,10 @@ fn phase_survival_collapses_and_prunes_the_roster() {
 /// the prune still applies (`phase<=2`), and the hamlet still fails it.
 #[test]
 fn phase_subsistence_on_the_same_roster_and_seed() {
+    // Protects: phase II (band 0.10 to 0.30) on the same roster and seed: the
+    // band's scaling and the `phase <= 2` abandonment prune, which still
+    // removes the hamlet. Red on the last assert means the draw count depends
+    // on the phase.
     let mut rng = Mulberry32::new(7);
     let out = civ_apply_recovery(
         &roster(),
@@ -470,6 +540,10 @@ fn phase_subsistence_on_the_same_roster_and_seed() {
 /// what proves `demoted` gates the ruins flag rather than `was_urban` alone.
 #[test]
 fn phase_regional_keeps_every_settlement_and_only_ruins_the_demoted() {
+    // Protects: phase III (band 0.30 to 0.70): the prune is off above phase
+    // 2, so the hamlet survives at 18, and only the demoted settlements get
+    // `ruins`/`fortified`. The split between demoted and kept-tier rows shows
+    // that `demoted`, not `was_urban` alone, gates the flags.
     let mut rng = Mulberry32::new(7);
     let out = civ_apply_recovery(
         &roster(),
@@ -496,6 +570,9 @@ fn phase_regional_keeps_every_settlement_and_only_ruins_the_demoted() {
 /// `Capital` and silently pass a hand-written expectation.
 #[test]
 fn phase_mature_demotes_nothing_and_keeps_the_metropolis() {
+    // Protects: phase IV (band 0.70 to 1.00): nothing demotes and no flag is
+    // set, and the metropolis stays a metropolis. A return to the old
+    // capital-capped tier table would show `Capital` in row 0.
     let mut rng = Mulberry32::new(7);
     let out = civ_apply_recovery(
         &roster(),
@@ -522,6 +599,10 @@ fn phase_mature_demotes_nothing_and_keeps_the_metropolis() {
 /// them at exactly 18, pinning the `pop < dropThresh` comparison as strict.
 #[test]
 fn unanchored_hamlets_below_the_drop_threshold_are_abandoned() {
+    // Protects: the default `drop_thresh` of 18 and the strictness of `pop <
+    // dropThresh`: one hamlet scaled to 8 is dropped and the one scaled to
+    // exactly 18 survives. A `<=` comparison drops the 18 and changes the row
+    // count.
     let places: Vec<CollapsePlace> = (1..=6)
         .map(|i| cp(SettlementKind::Hamlet, f64::from(i) * 100.0, false))
         .collect();
@@ -551,6 +632,10 @@ fn unanchored_hamlets_below_the_drop_threshold_are_abandoned() {
 /// now anchored and survives at the `max(8, pop)` floor.
 #[test]
 fn a_port_anchors_a_hamlet_the_prune_would_otherwise_take() {
+    // Protects: the port anchor (reference line 24631, survivors cluster on
+    // water): the same six hamlets as the previous test, all ports, are all
+    // kept, and the one that was abandoned survives at the `max(8, pop)`
+    // floor.
     let places: Vec<CollapsePlace> = (1..=6)
         .map(|i| cp(SettlementKind::Hamlet, f64::from(i) * 100.0, true))
         .collect();
@@ -581,6 +666,11 @@ fn a_port_anchors_a_hamlet_the_prune_would_otherwise_take() {
 /// consecutively from one stream: the town anchors, the village does not.
 #[test]
 fn town_counts_as_urban_for_anchoring_but_village_does_not() {
+    // Protects: the width of `was_urban` (`town|city|capital|metropolis`),
+    // which is wider than `civ_is_exchange_tier`'s `city|capital|metropolis`:
+    // a town below the threshold survives as an urban nucleus while an
+    // identical village is dropped. The last assert pins that both entries
+    // drew.
     let places = vec![
         cp(SettlementKind::Town, 150.0, false),
         cp(SettlementKind::Village, 150.0, false),
@@ -608,6 +698,9 @@ fn town_counts_as_urban_for_anchoring_but_village_does_not() {
 /// instead of 18 leaves only the largest hamlet standing.
 #[test]
 fn a_custom_drop_threshold_is_honoured() {
+    // Protects: `RecoveryOpts::drop_thresh` being read at all: with 40
+    // instead of 18 only the largest hamlet (53) survives. A hardcoded 18
+    // keeps more rows.
     let places: Vec<CollapsePlace> = (1..=6)
         .map(|i| cp(SettlementKind::Hamlet, f64::from(i) * 100.0, false))
         .collect();
@@ -630,6 +723,9 @@ fn a_custom_drop_threshold_is_honoured() {
 /// would otherwise abandon every settlement in the world.
 #[test]
 fn the_drop_threshold_is_ignored_above_phase_two() {
+    // Protects: the `(phase <= 2) ? dropThresh : 0` gate: a threshold of 1e9
+    // (a labelled sentinel meaning abandon everything) must still keep all
+    // three hamlets at phase III, each at the floor of 8.
     let places = vec![
         cp(SettlementKind::Hamlet, 10.0, false),
         cp(SettlementKind::Hamlet, 12.0, false),
@@ -659,6 +755,10 @@ fn the_drop_threshold_is_ignored_above_phase_two() {
 /// from the pre-floor value.
 #[test]
 fn the_population_floor_is_eight_and_applies_after_the_tier_decision() {
+    // Protects: the `max(8, pop)` floor and its order of operations: both
+    // towns scale below 8, are classified `Hamlet` from the unfloored rounded
+    // population, and only then raised to 8. Applying the floor first would
+    // classify them differently.
     let places = vec![
         cp(SettlementKind::Town, 60.0, true),
         cp(SettlementKind::Town, 20.0, true),
@@ -684,6 +784,9 @@ fn the_population_floor_is_eight_and_applies_after_the_tier_decision() {
 /// two of them collapse into cities inside their own ruins.
 #[test]
 fn a_metropolis_demotes_into_its_ruins() {
+    // Protects: that `Metropolis` is a valid input tier: two metropolises
+    // collapse to cities with `ruins` and `fortified` set. Red means the
+    // input tier table was capped again.
     let places = vec![
         cp(SettlementKind::Metropolis, 200_000.0, false),
         cp(SettlementKind::Metropolis, 300_000.0, false),
@@ -711,6 +814,10 @@ fn a_metropolis_demotes_into_its_ruins() {
 /// representation change stays honest.
 #[test]
 fn setting_ruins_and_fortified_is_idempotent() {
+    // Protects: the boolean form of the reference's
+    // `!p.traits.includes('fortified')` guard: a place that is already ruined
+    // and fortified comes out with both flags true and the same result as the
+    // fresh one.
     let places = vec![CollapsePlace {
         fortified: true,
         ruins: true,
@@ -734,6 +841,9 @@ fn setting_ruins_and_fortified_is_idempotent() {
 /// phase -- the reference's `!places.length` early return.
 #[test]
 fn an_empty_roster_is_returned_empty_at_every_phase() {
+    // Protects: the reference's `!places.length` early return at all five
+    // phases: an empty roster returns empty and the stream is untouched (the
+    // next draw is `DRAWS_1234[0]`).
     for phase in [
         RecoveryPhase::Stable,
         RecoveryPhase::Survival,
@@ -751,9 +861,6 @@ fn an_empty_roster_is_returned_empty_at_every_phase() {
     }
 }
 
-/// The phase index really is the reference's own numeric phase -- the
-/// `phase<=2` gate reads this, so an off-by-one here would silently move the
-/// abandonment prune onto the wrong phases.
 /// One row of [`recovery_phase_indices_and_bands_match_the_reference_tables`]:
 /// variant, the reference's numeric phase, `_CIV_RECOVERY_FRAC[phase]`, and
 /// `_CIV_RECOVERY_NAME[phase]`.
@@ -761,6 +868,11 @@ type PhaseRow = (RecoveryPhase, u8, Option<(f64, f64)>, &'static str);
 
 #[test]
 fn recovery_phase_indices_and_bands_match_the_reference_tables() {
+    // Protects: `RecoveryPhase`'s index, band and name against the
+    // reference's `_CIV_RECOVERY_FRAC` and `_CIV_RECOVERY_NAME` tables, and
+    // `from_index_clamped`'s clamping at both ends (-7 gives Stable, 99 gives
+    // Mature). An off-by-one index would move the `phase <= 2` prune onto the
+    // wrong phases.
     let table: [PhaseRow; 5] = [
         (RecoveryPhase::Stable, 0, None, "Stable"),
         (
@@ -798,6 +910,10 @@ fn recovery_phase_indices_and_bands_match_the_reference_tables() {
 /// depends on.
 #[test]
 fn exactly_one_draw_is_consumed_per_input_settlement() {
+    // Protects: the draw-count invariant every fixture depends on: for 0 to 5
+    // inputs the stream advances by exactly one draw per input, checked
+    // against a reference stream. A draw taken after the abandonment test
+    // desynchronises every later consumer.
     for n in 0..6usize {
         let places: Vec<CollapsePlace> = (0..n)
             .map(|_| cp(SettlementKind::Capital, 60_000.0, false))

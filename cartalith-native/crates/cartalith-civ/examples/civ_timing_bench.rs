@@ -9,10 +9,19 @@
 // private fn in a cdylib-only crate (`ARCHITECTURE.md`'s gdext boundary) --
 // this covers the actual per-cell compute this milestone parallelized,
 // which is the dominant cost of that function's own upstream half.
-// `cargo run --release --example timing_bench -p cartalith-civ`.
+// `cargo run --release --example civ_timing_bench -p cartalith-civ` (the example's file name; the earlier text said `timing_bench`, which is the engine crate's example).
 use cartalith_engine::{generate_terrain, WorldParams};
 use std::time::Instant;
 
+/// Runs the civ layer's per-cell stages once, in the order
+/// `compute_named_settlements` in `golden_parity_settlement_naming.rs`
+/// established: water bodies, biome, lithology, soil, water access, wetland
+/// mask, carrying capacity, NPP, density, resource potentials, corridors,
+/// landmass, coast reach, flood, suitability and travel cost. The late
+/// results are bound to `_`-prefixed names and unused, so the output of the
+/// run is its timing only.
+/// Must never: be taken to time `compute_civilisation` itself, which is
+/// private to the cdylib crate (see the header).
 fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool, map_width_km: f64) {
     let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
@@ -80,6 +89,13 @@ fn run_civ_layer(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world:
     let _travel_cost = cartalith_civ::build_travel_cost(&ws.field, gw, gh, ws.sea_level);
 }
 
+/// Times [`run_civ_layer`] at 128, 512, 1024 and 2048 cells square, seed
+/// 12345, `w_iters` 12: one warm-up run, then the best of three timed runs,
+/// printed as `<size>x<size>: <seconds>s`. Best-of-three follows
+/// `cartalith-engine`'s own `timing_bench` convention (the comment in the
+/// body).
+/// Must never: be read as a regression gate; it asserts nothing and the
+/// numbers differ per machine.
 fn main() {
     for &size in &[128usize, 512, 1024, 2048] {
         let mut p = WorldParams::defaults(size, size, 12345);

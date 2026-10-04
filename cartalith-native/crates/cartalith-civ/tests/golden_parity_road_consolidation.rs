@@ -49,9 +49,18 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so the two real-world cases
+/// keep matching the reference capture.
+/// Must never: be skipped in the real-world tests below, whose `field[0]`
+/// asserts would then fail.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Builds a [`cartalith_civ::NamedSettlement`] at `(x, y)`: a coastal Capital
+/// with `suit` 0.0, `tid` 0, and the given faction, name and population.
+/// Every settlement in the golden cases is a capital because the harness
+/// fixtures all were `kind: 'capital'` (module doc).
 fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_civ::NamedSettlement {
     cartalith_civ::NamedSettlement {
         tid: 0,
@@ -69,6 +78,12 @@ fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_ci
     }
 }
 
+/// Derives the three rasters the network needs from a generated world, the
+/// way production does: water classification, biome raster, and the
+/// river-order raster from `fresh_river_order` (routed on the world's own
+/// drainage mode).
+/// Must never: be fed a world that skipped [`pre_rv1_world::pin`], or the
+/// goldens no longer describe the reference world.
 fn affordance_inputs(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -83,6 +98,11 @@ fn affordance_inputs(
     (wb.classification, biome, river_order)
 }
 
+/// Asserts two point lists have equal length and agree to 1e-4 in each
+/// coordinate.
+/// Why: 1e-4 is this crate's established tolerance for continuous fields
+/// (module doc); the harness measured `field[0]` about 9e-6 apart across
+/// languages.
 fn assert_pts_match(actual: &[(f64, f64)], expected: &[(f64, f64)], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: point count mismatch: {actual:?} vs {expected:?}");
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -91,6 +111,9 @@ fn assert_pts_match(actual: &[(f64, f64)], expected: &[(f64, f64)], label: &str)
     }
 }
 
+/// Asserts a [`cartalith_civ::WayType`] matches the reference's string type
+/// (`highway`, `regional`, `road` or `track`); any other string fails, so a
+/// typo cannot pass.
 fn assert_way_type(actual: cartalith_civ::WayType, expected: &str, label: &str) {
     let matches = match (actual, expected) {
         (cartalith_civ::WayType::Highway, "highway") => true,
@@ -104,6 +127,12 @@ fn assert_way_type(actual: cartalith_civ::WayType, expected: &str, label: &str) 
 
 #[test]
 fn road_consolidation_case_0_short_segment_oversample() {
+    // Protects: the short-segment path of `civ_consolidate_and_smooth_ways`
+    // (reference ~21670-21739 and `catmullRomSample` / `_civSmoothPath`, 8790
+    // / 21892): the 2-cell path `[35,34]` smooths to 3 points whose middle
+    // one rounds back onto the start (`js_round(6.5) = 7`), plus the way's
+    // name, `track` type, endpoint indices, km (57.142857...) and empty
+    // breaks. Red means a rounding rule or the oversampling count changed.
     // case0_region: gw=14 gh=11 seed=24601 world=false. Same (x,y,faction)
     // triples + real names/pop as golden_parity_settlement_naming.rs's
     // case0 and golden_parity_hierarchical_network.rs's case0 (1 edge,
@@ -145,6 +174,15 @@ fn road_consolidation_case_0_short_segment_oversample() {
 
 #[test]
 fn road_consolidation_case_1_k5_corridor_sharing() {
+    // Protects: corridor consolidation proper on a wrapped 5-settlement
+    // complete graph (10 edges): shared trunk segments claimed busiest-first,
+    // fully consolidated edges emitted as hidden 2-point ways, and both
+    // `highway` and `regional` classification, with the ways ordered
+    // busiest-first. Ways 2 and 4 were deliberately re-baselined 2026-09-28
+    // by the extend-back pass (see the history comment in the body), so those
+    // two pin this crate's own output, not the reference's; the other eight
+    // are the reference's. A mutation of the claim order or class thresholds
+    // moves a way.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true. Same 5
     // (x,y,faction) triples + real names/pop as
     // golden_parity_settlement_naming.rs's case1 and
@@ -181,6 +219,9 @@ fn road_consolidation_case_1_k5_corridor_sharing() {
     // claimed the whole shared corridor), ordered busiest-max-usage-first.
     assert_eq!(ways.len(), 10, "case1: way count mismatch");
 
+    /// One expected way from the reference's
+    /// `_civHierarchicalNetwork(...).ways`: points, `km`, name, type,
+    /// endpoint indices and the hidden flag.
     struct Expect {
         pts: Vec<(f64, f64)>,
         km: f64,

@@ -23,6 +23,12 @@ use cartalith_civ::tools::{RouteContext, WayRef, civ_connect_village_addons};
 use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement, WayType};
 use serde_json::Value;
 
+/// Loads and parses `tests/fixtures/village_connect_captured.json`, the
+/// reference capture (written by `tools/civ_village_connect_capture.js`, see
+/// the module doc) that every test compares against.
+/// Must never: be edited by hand; one world's `expected` list was
+/// re-baselined by owner ruling (see the `downsampled` test) and the rest are
+/// the reference's own output.
 fn fixture() -> Value {
     let s = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/village_connect_captured.json"))
         .expect("village_connect_captured.json should read");
@@ -31,6 +37,13 @@ fn fixture() -> Value {
 
 // The capture's integer value noise, operation for operation (`hash`,
 // `octave`, `makeField`). Integer-only, so it is exact in both languages.
+/// The capture's integer hash for value noise: three 32-bit multiplies,
+/// xor-shifts and a 12-bit mask, operation for operation as the capture's
+/// `hash`.
+/// Why: integer-only, so it is exact in both languages; the generated field
+/// must equal the capture's, which `field_checksum` verifies.
+/// Must never: be changed, or the synthetic worlds stop being the ones the
+/// capture routed over.
 fn hash(ix: i64, iy: i64, seed: i64) -> i64 {
     let (ix, iy, seed) = (ix as i32 as u32, iy as i32 as u32, seed as i32 as u32);
     let mut h = ix.wrapping_mul(0x27d4eb2d) ^ iy.wrapping_mul(0x165667b1) ^ seed.wrapping_mul(0x9e3779b1);
@@ -38,6 +51,10 @@ fn hash(ix: i64, iy: i64, seed: i64) -> i64 {
     h ^= h >> 13;
     (h & 4095) as i64
 }
+/// One octave of the capture's bilinear value noise at cell size `s`, in
+/// integer arithmetic with Euclidean division, as the capture's `octave`.
+/// Must never: use floating point; the checksum comparison depends on exact
+/// integer results.
 fn octave(x: i64, y: i64, s: i64, seed: i64) -> i64 {
     let (ix, iy) = (x.div_euclid(s), y.div_euclid(s));
     let (tx, ty) = (x - ix * s, y - iy * s);
@@ -47,6 +64,14 @@ fn octave(x: i64, y: i64, s: i64, seed: i64) -> i64 {
         + hash(ix + 1, iy + 1, seed) * tx * ty)
         .div_euclid(s * s)
 }
+/// Rebuilds a fixture world's elevation field (two octaves, 24 and 7 cells,
+/// weighted 2:1, over 4096) plus an optional island block (height 3000
+/// inside, a 4-cell moat at 200 around it), and returns it with the capture's
+/// rolling checksum (`sum*31 + v`).
+/// Why: the capture did not store the field, only its generator and checksum,
+/// so this regenerates it; `run_world` asserts the checksum first so a
+/// drifted generator fails by name.
+/// Must never: continue past a checksum mismatch.
 fn fixture_field(w: &Value, gw: usize, gh: usize) -> (Vec<f32>, u32) {
     let seed = w["seed"].as_i64().unwrap();
     let island: Option<Vec<i64>> = w["island"].as_array().map(|a| a.iter().map(|v| v.as_i64().unwrap()).collect());
@@ -73,6 +98,16 @@ fn fixture_field(w: &Value, gw: usize, gh: usize) -> (Vec<f32>, u32) {
     ((q.iter().map(|&v| (v as f64 / 4096.0) as f32).collect()), sum)
 }
 
+/// Runs `civ_connect_village_addons` over one fixture world (field, water
+/// bodies with an optional lake block, places, existing ways, wrap flag and
+/// map width) and compares every produced track against the captured one:
+/// type, `village_addon` flag, endpoints, point list, seam breaks and `km`
+/// bit for bit.
+/// Why: a drawn track must never be empty, so each track also asserts at
+/// least two points and positive km.
+/// Must never: enable the corridor, flow or river terms (`corridors`/`flow`
+/// None, `flow_thresh` 0.0); the reference's plain `_civLandCostGrid` has
+/// none of them.
 fn run_world(w: &Value) {
     let name = w["name"].as_str().unwrap();
     let (gw, gh) = (w["gw"].as_u64().unwrap() as usize, w["gh"].as_u64().unwrap() as usize);
@@ -156,12 +191,19 @@ fn run_world(w: &Value) {
     }
 }
 
+/// Finds one named world in the fixture's `worlds` array. Panics if it is
+/// absent, so a renamed fixture world fails loudly instead of running
+/// nothing.
 fn world(name: &str) -> Value {
     fixture()["worlds"].as_array().unwrap().iter().find(|w| w["name"] == name).cloned().expect("world in fixture")
 }
 
 #[test]
 fn small_world_with_lake_and_unreachable_island() {
+    // Protects: `_civConnectVillageAddons` (reference v2.11 line 25766) and the v1.71
+    // multi-source `roadDijkstra` (v2.11 line 3301) on the small world: a lake block and
+    // an island the land router cannot reach, so unreachable villages produce
+    // no track. Red means a track appeared, vanished or moved.
     run_world(&world("small"));
 }
 
@@ -185,26 +227,43 @@ fn small_world_with_lake_and_unreachable_island() {
 /// change is that Rust and the reference now legitimately disagree here).
 #[test]
 fn downsampled_routing_grid_batch_of_six() {
+    // Protects: village connection on a 480 x 200 world with a batch above 4.
+    // Re-baselined 2026-09-28 (see the doc above): the routing grid now runs
+    // at full resolution rather than downsampled, a deliberate divergence
+    // from the reference (DECISIONS.md 7p), so this world pins this crate's
+    // own output, not the JS capture. Red means the cap or the cost grid
+    // changed.
     run_world(&world("downsampled"));
 }
 
 #[test]
 fn wrapped_world_tracks_cross_the_seam() {
+    // Protects: wrap-aware tracks: on the wrapped world at least one track
+    // crosses the x seam and carries a `brks` entry, and its `km` matches bit
+    // for bit. Red means a seam track is drawn straight across the map.
     run_world(&world("wrapped"));
 }
 
 #[test]
 fn dense_villages_attach_to_siblings() {
+    // Protects: sibling attachment: in a dense world a village connects to
+    // another village rather than only to a base settlement. Red means the
+    // multi-source search stopped adding finished villages as sources.
     run_world(&world("dense"));
 }
 
 #[test]
 fn no_real_settlement_means_no_tracks() {
+    // Protects: the empty-input guard: with no base settlement there is no
+    // source and so no track. This is the negative control for the golden
+    // above.
     run_world(&world("no_base"));
 }
 
 #[test]
 fn no_villages_means_no_tracks() {
+    // Protects: the other empty-input guard: with no villages nothing is
+    // connected. Red means a track was invented for a non-village.
     run_world(&world("no_villages"));
 }
 
@@ -212,6 +271,9 @@ fn no_villages_means_no_tracks() {
 /// empty, and the tracks it pins genuinely include sibling attachments.
 #[test]
 fn fixture_is_not_empty_and_reaches_siblings() {
+    // Protects: against a silently-empty fixture: at least 250 tracks
+    // captured across the worlds (a labelled judgement from the capture's own
+    // size) and at least one village attached to a sibling.
     let f = fixture();
     let worlds = f["worlds"].as_array().unwrap();
     let total: usize = worlds.iter().map(|w| w["expected"].as_array().unwrap().len()).sum();

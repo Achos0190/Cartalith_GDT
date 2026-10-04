@@ -68,8 +68,15 @@ use cartalith_civ::military::{
 };
 use cartalith_civ::urban_adapter::um_infer_age;
 
+// Fixture width in cells (6). Source: the extraction's own fixture, 6 x 4
+// (module doc, 'The fixture is shaped to reach the code'); 24 cells so `i /
+// 23` sweeps the whole land band.
 const GW: usize = 6;
+// Fixture height in cells (4). Source: the same extraction fixture.
 const GH: usize = 4;
+// Sea level (0.42). Source: the extraction's fixture sets `sea = 0.42`
+// (module doc), which is also this workspace's default sea level, so `field`
+// values `0.42 + 0.58 * t` map to a relative elevation of exactly `t`.
 const SEA: f64 = 0.42;
 
 /// The extraction's own fixture, rebuilt identically here. `f32` storage is
@@ -90,6 +97,11 @@ fn at(i: usize) -> (f64, f64) {
     ((i % GW) as f64, (i / GW) as f64)
 }
 
+/// Builds a [`WallPlace`] for the settlement at `cell` with the given tier
+/// and population, every override off, and the relative elevation computed
+/// from the fixture field by [`civ_relative_elevation`].
+/// Must never: set an override here; each test case sets exactly the one
+/// input it is about, so a case cannot pass for a reason it does not name.
 fn place(
     field: &[f32],
     cell: usize,
@@ -108,12 +120,23 @@ fn place(
     }
 }
 
-/// One extracted row: label, expected spec, expected walled, expected
-/// defensibility. Compared exactly — every value here is a `Math.max`/
-/// `Math.min` of sums and products with no reordering on either side, so
-/// there is no genuine language difference for a tolerance to absorb.
+/// Golden check of the wall specification, wall inference and place
+/// defensibility against values extracted from the reference, compared
+/// exactly (see the `check` closure below for why no tolerance is needed).
 #[test]
 fn wall_spec_and_defensibility_match_the_reference() {
+    // Protects: `_umWallSpec` (reference 22109-22132), `_umInferWalls`
+    // (22134-22136) and `_civPlaceDefensibility` (23802-23810) on a 6 x 4
+    // fixture, one row per branch: the explicit override outranking every
+    // rung, rank >= 3 always stone, the town rung's three independent routes
+    // to stone, the garrison specialisation, a fortified trait below town
+    // rank, the commanding-village rung that only fires at the ruggedness
+    // peak, and plain places that get nothing. Population and age cases sit
+    // at and just below each threshold (1199/1200, 259/260, 249/250), so a
+    // mutation of any of those constants flips a row. Red means a rung, a
+    // threshold or the defensibility formula moved. It also asserts that all
+    // four rungs (none, ditch, palisade, stone) were reached, so a golden
+    // that went silently narrow fails here.
     let f = fixture();
 
     // r at cell 1 (the lowland cell most cases sit on), asserted so a
@@ -124,6 +147,10 @@ fn wall_spec_and_defensibility_match_the_reference() {
     assert!((r8 - 0.350_000_044_395_183_7).abs() < 1e-15, "fixture drifted: r8 = {r8}");
 
     let mut seen_specs = std::collections::BTreeSet::new();
+    // One extracted row: label, expected spec, expected walled, expected
+    // defensibility. Compared exactly: every value is a `Math.max`/`Math.min`
+    // of sums and products with no reordering on either side, so there is no
+    // genuine language difference for a tolerance to absorb.
     let mut check = |label: &str, p: WallPlace, spec: &str, walled: bool, def: f64| {
         assert_eq!(um_wall_spec(&p), spec, "{label}: _umWallSpec");
         assert_eq!(um_infer_walls(&p), walled, "{label}: _umInferWalls");
@@ -246,6 +273,10 @@ fn wall_spec_and_defensibility_match_the_reference() {
 /// own numbers because a drift in it silently moves the wall ladder.
 #[test]
 fn infer_age_matches_the_reference() {
+    // Protects: `_umInferAge` (reference 22096-22099) at seven populations
+    // from 0 to 1e9 (60, 60, 60, 289, 300, 468, 1000): its floor of 60, its
+    // growth curve and its cap of 1000. Red means the age formula moved,
+    // which silently moves the town rung's age test (260) in the wall ladder.
     for (pop, expected) in
         [(0.0, 60.0), (1.0, 60.0), (100.0, 60.0), (900.0, 289.0), (1000.0, 300.0), (5000.0, 468.0), (1e9, 1000.0)]
     {
@@ -258,6 +289,11 @@ fn infer_age_matches_the_reference() {
 /// assertions only by accident, so assert the spread directly.
 #[test]
 fn the_ladder_is_actually_a_ladder() {
+    // Protects: the ladder's spread, as a negative control: Hamlet and
+    // Village give none, Town palisade and City stone at the same low
+    // population. Red means the rungs collapsed toward one answer, which the
+    // per-case checks above could miss if every expected value changed
+    // together.
     let f = fixture();
     let specs: Vec<&str> = [
         SettlementKind::Hamlet,

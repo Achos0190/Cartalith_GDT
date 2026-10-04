@@ -102,6 +102,10 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (Ruling BD), so the real-world cases keep
+/// matching the reference capture.
+/// Must never: be skipped in [`build_real`].
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
@@ -134,6 +138,13 @@ struct Expect {
     source: &'static str,
 }
 
+/// One world the smelting and salt rules run over: the elevation field,
+/// temperature, rainfall, resource potentials and biome raster, plus grid
+/// size, sea level and map width.
+/// Why: the module doc says the reference harness had these arrays injected
+/// byte for byte, so the arrays here are the inputs both sides read.
+/// Must never: be built from anything but [`build_real`] or [`build_synth`],
+/// whose hashes the tests pin.
 struct Case {
     field: Vec<f32>,
     temp: Vec<f32>,
@@ -193,6 +204,12 @@ const CASE2_EXPECT: &[Expect] = &[
 
 // -------------------------------------------------------------- the worlds
 
+/// Generates a real world (`climate.w_iters` 12, carve pinned to the pre-RV1
+/// world, Ruling BD), then derives water bodies, lithology, biome raster and
+/// resource potentials the way production does.
+/// Why: asserts sea level 0.42 and map width 800 km first, so a generator
+/// drift fails here by name.
+/// Must never: skip the pin or those asserts.
 fn build_real(gw: usize, gh: usize, seed: i32, world: bool) -> Case {
     let mut p = cartalith_engine::WorldParams::defaults(gw, gh, seed);
     p.world = world;
@@ -250,11 +267,27 @@ fn build_real(gw: usize, gh: usize, seed: i32, world: bool) -> Case {
 // timber in x in 14..22, salt in the x in 16..20 / y in 8..12 box -- ore and
 // fuel deliberately disjoint, which is what makes the Elba constraint
 // visible at all.
+// Synthetic case grid width (24). Source: the module doc's case 2 description
+// (24 x 18 over a 50 km map, chosen so a metropolis disc is 14 cells); a
+// labelled judgement.
 const SGW: usize = 24;
+// Synthetic case grid height (18). Source: the module doc's case 2
+// description; a labelled judgement.
 const SGH: usize = 18;
+// Synthetic sea level (0.42), the same value the real worlds use, so the
+// `field < sea` ocean test behaves alike. Source: the engine default sea
+// level asserted in [`build_real`].
 const SSEA: f64 = 0.42;
+// Synthetic map width in km (50). Source: the module doc's case 2
+// description: at 50 km a hamlet's catchment is 1 cell and a metropolis's is
+// 14, which real 800 km worlds cannot give. Judgement, labelled as such.
 const SMAPKM: f64 = 50.0;
 
+/// Case 2 elevation: ocean (0.10) in the two leftmost columns and two bottom
+/// rows, land elsewhere at 0.55 plus a small deterministic ripple `0.001 *
+/// ((x*7 + y*13) % 100)`.
+/// Why: the ripple makes the field non-flat without randomness. Must never
+/// use a random source; the harness's copy was written by this same rule.
 fn synth_field() -> Vec<f32> {
     let mut v = vec![0.0f32; SGW * SGH];
     for y in 0..SGH {
@@ -266,6 +299,9 @@ fn synth_field() -> Vec<f32> {
     v
 }
 
+/// Case 2 rainfall: 0.20 west of x = 12 and 0.55 east of it, so the lake
+/// block straddles the 0.30 aridity threshold and places 3 and 4 differ on
+/// rain alone.
 fn synth_rain() -> Vec<f32> {
     let mut v = vec![0.0f32; SGW * SGH];
     for y in 0..SGH {
@@ -276,6 +312,10 @@ fn synth_rain() -> Vec<f32> {
     v
 }
 
+/// Case 2 water bodies: below-sea cells are ocean, the 4 x 4 block at x
+/// 10..14, y 4..8 is lake, everything else land.
+/// Why: the lake block is the only lake, so the salt-lake rule has exactly
+/// one place to act.
 fn synth_wb(field: &[f32]) -> Vec<u8> {
     let mut v = vec![0u8; SGW * SGH];
     for y in 0..SGH {
@@ -293,6 +333,11 @@ fn synth_wb(field: &[f32]) -> Vec<u8> {
     v
 }
 
+/// Case 2 resource potentials: iron 0.8 on x 4..10, timber 0.9 on x 14..22,
+/// salt 0.6 in the box x 16..20, y 8..12, every other mineral zero.
+/// Why: ore and fuel are deliberately disjoint, which makes the Elba
+/// constraint (charcoal-limited iron) visible. The potentials are labelled
+/// judgement values, not a measurement.
 fn synth_pots() -> ResourcePotentials {
     let z = || vec![0.0f32; SGW * SGH];
     let (mut iron, mut timber, mut salt) = (z(), z(), z());
@@ -329,6 +374,9 @@ fn synth_pots() -> ResourcePotentials {
     }
 }
 
+/// Builds case 2: the rule-generated field, rain, water bodies and
+/// potentials, a flat 15 degree temperature, and the biome raster the
+/// production function derives from them.
 fn build_synth() -> Case {
     let field = synth_field();
     let temp = vec![15.0f32; SGW * SGH];
@@ -350,6 +398,11 @@ fn build_synth() -> Case {
 
 // ------------------------------------------------------------------ helpers
 
+/// FNV-1a (64-bit; the standard offset basis and prime) over a byte slice,
+/// formatted as lowercase hex without zero padding.
+/// Why: the pinned hashes in the tests are in this form, so a whole raster
+/// compares as one short string.
+/// Must never: be changed independently of the recorded hashes.
 fn fnv_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {
@@ -359,6 +412,8 @@ fn fnv_bytes(bytes: &[u8]) -> String {
     format!("{h:x}")
 }
 
+/// FNV-1a over the little-endian bytes of an `f32` slice, via [`fnv_bytes`];
+/// the form the recorded field, rain and potential hashes are in.
 fn fnv_f32(v: &[f32]) -> String {
     let mut bytes = Vec::with_capacity(v.len() * 4);
     for x in v {
@@ -435,6 +490,12 @@ fn check(c: &Case, expect: &[Expect], label: &str) {
 
 #[test]
 fn smelting_and_salt_case_0_region_no_wrap() {
+    // Protects: `_civPlaceSmelting` (reference 24208) and `_civSaltAccess`
+    // (24430) on a real 64 x 48 non-wrapping world: nine places compared
+    // against the reference capture, plus the catchment radius, the
+    // salt-deposit window mean and the pinned input hashes. The biome hash
+    // was re-baselined by Ruling Q (see the inline comment). Red on a hash
+    // means the world changed; red inside `check` means the rule changed.
     let c = build_real(64, 48, 24601, false);
     assert_eq!(fnv_f32(&c.field), "4d5ea30082db2da3", "field hash: not the world the harness saw");
     // RE-BASELINED 2026-09-21 (`LARGE_ITEM_RULINGS.md`'s Ruling Q):
@@ -457,6 +518,10 @@ fn smelting_and_salt_case_0_region_no_wrap() {
 
 #[test]
 fn smelting_and_salt_case_1_world_wrap() {
+    // Protects: the same two functions on a real 48 x 36 wrapping world,
+    // which reaches the salt-lake branch (place 5) and the `ore_rich` flag
+    // (place 6) on real terrain. The closing asserts name those two so a
+    // fixture change that loses them goes red here.
     // `world=true`, so `LARGE_ITEM_RULINGS.md`'s Ruling T (2026-09-21)
     // reverts this fixture's `build_water_bodies` call to the original
     // size-primary rule. Re-checked directly rather than assumed: every
@@ -485,6 +550,11 @@ fn smelting_and_salt_case_1_world_wrap() {
 
 #[test]
 fn smelting_and_salt_case_2_synthetic_wide_catchments() {
+    // Protects: the large-catchment paths a real 800 km world cannot reach:
+    // the circle rejection, the un-wrapped edge clip and the ocean exclusion
+    // over discs up to 14 cells. Also the discriminating pair (places 3 and
+    // 4, same lake biome at rain 0.20 vs 0.55: only the arid one is a salt
+    // lake).
     let c = build_synth();
     assert_eq!(fnv_f32(&c.field), "e40faf723eec8a15", "synthetic field hash: the two sides built different worlds");
     assert_eq!(fnv_bytes(&c.biome), "7a92b1a21b5a3bd5", "synthetic biome hash");
@@ -507,6 +577,10 @@ fn smelting_and_salt_case_2_synthetic_wide_catchments() {
 /// empty golden output" trap this port has hit four times.
 #[test]
 fn fixtures_reach_every_branch() {
+    // Protects: that the three cases between them actually reach every salt
+    // source, both `limited_by` values, both truth values of `fuel_poor` and
+    // `ore_rich`, and a nonzero iron and coppice figure. This is the guard
+    // against silently-empty golden output.
     let all: Vec<&Expect> =
         CASE0_EXPECT.iter().chain(CASE1_EXPECT).chain(CASE2_EXPECT).collect();
     for s in ["none", "sea salt", "salt deposit", "salt lake"] {

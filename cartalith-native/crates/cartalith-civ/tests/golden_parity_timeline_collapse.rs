@@ -66,15 +66,34 @@ use cartalith_civ::timeline::{
     civ_mortality_migration_rates, civ_recovery_growth_step, civ_settlement_stress,
 };
 
+// Grid width (100 cells). Source: the module doc's shared fixture setup (GW =
+// GH = 100, 1000 km map, so a cell is 10 km), chosen so every settlement's
+// catchment ceiling is position-independent under uniform density.
 const GW: usize = 100;
+// Grid height (100 cells). Source: the module doc's shared fixture setup, as
+// for `GW`.
 const GH: usize = 100;
+// Map width in km (1000). Source: the module doc's shared fixture setup
+// (`mapWidthKm = 1000`, cell 10 km). The reference harness ran with the same
+// value.
 const MAP_WIDTH_KM: f64 = 1000.0;
+// Sea level (0.42). Source: the module doc's shared fixture setup (`seaLevel
+// = 0.42`); every cell is land (field 0.6), so it only gates the below-sea
+// test.
 const SEA: f64 = 0.42;
 
+/// A `GW * GH` raster filled with one value. Used for both the uniform
+/// agrarian density and the all-land elevation field (0.6), the module doc's
+/// technique of feeding the pure per-cell-field functions a known input.
+/// Must never: be given a varying value; the fixtures' hand-checked
+/// populations rely on position-independence.
 fn uniform_field(d10: f32) -> Vec<f32> {
     vec![d10; GW * GH]
 }
 
+/// Builds a [`CollapsePlace`] with the given id, position, tier, population
+/// and the `fortified` and `ruins` flags. `port` is fixed false because only
+/// `civ_apply_recovery`, which these fixtures never call, reads it.
 fn place(
     tid: u64,
     x: usize,
@@ -98,8 +117,16 @@ fn place(
     }
 }
 
+/// Asserts `actual` is within `1e-6 + 1e-6 * |expected|` of `expected`,
+/// naming the label, both values and the difference on failure.
+/// Why: the goldens are printed with up to 17 digits, so the bar only absorbs
+/// the last-bit noise of reading them back.
 fn assert_close(actual: f64, expected: f64, label: &str) {
+    // Absolute tolerance. Source: this file's own choice; goldens carry full
+    // double precision, so 1e-6 is a labelled judgement far looser than the
+    // last-bit difference and far tighter than any constant mutation.
     const ATOL: f64 = 1e-6;
+    // Relative tolerance. Source: as for `ATOL`; a labelled judgement.
     const RTOL: f64 = 1e-6;
     let tol = ATOL + RTOL * expected.abs();
     assert!(
@@ -113,6 +140,13 @@ fn assert_close(actual: f64, expected: f64, label: &str) {
 
 #[test]
 fn mortality_migration_rates_match_the_reference_across_characters_and_clamps() {
+    // Protects: `_civMortalityMigrationRates` (reference 24726-24731): the
+    // per-character mortality and migration split (Mixed 0.15 / 0.25 at full
+    // stress and severity, Disease with equal rates, Conflict with a larger
+    // migration share), the zero rate at zero stress, and the products for a
+    // severity above 1. A mutation of a character's weight changes a row. The
+    // 0.95 clamp is NOT reached by any row (the largest product is 0.5), so a
+    // mutation of the clamp stays green here; it is pinned nowhere in this test.
     let cases: [(f64, f64, CollapseCharacter, f64, f64); 6] = [
         (0.5, 0.5, CollapseCharacter::Mixed, 0.0375, 0.0625),
         (1.0, 1.0, CollapseCharacter::Mixed, 0.15, 0.25),
@@ -120,9 +154,9 @@ fn mortality_migration_rates_match_the_reference_across_characters_and_clamps() 
         (0.5, 0.5, CollapseCharacter::Conflict, 0.0375, 0.0875),
         (0.0, 0.5, CollapseCharacter::Trade, 0.0, 0.0),
         // severity > 1 is a real reachable value (the UI's severity dial is
-        // 0-100%, but nothing stops a caller passing more) -- both rates
-        // still clamp at 0.95, not the ceiling constant times an unclamped
-        // severity*stress product.
+        // 0-100%, but nothing stops a caller passing more); these products
+        // (0.3, 0.5) stay under the 0.95 clamp, so the clamp itself is not
+        // exercised by this row.
         (1.0, 2.0, CollapseCharacter::Mixed, 0.3, 0.5),
     ];
     for (stress, severity, character, want_m, want_g) in cases {
@@ -164,6 +198,12 @@ fn mortality_migration_rates_match_the_reference_across_characters_and_clamps() 
 /// as everything else in this file.
 #[test]
 fn settlement_stress_character_weighting_matches_the_reference() {
+    // Protects: `_civSettlementStress` (24713-24723): the per-character
+    // weighting of its connectivity, loss and vulnerability terms, with a
+    // real `L` term from the caller-supplied baseline. The final two asserts
+    // pin the design intent: trade ranks the hub above the others and disease
+    // inverts that. A mutation of a weight changes a stress value or breaks
+    // the ranking.
     let hub = place(1, 10, 50, SettlementKind::Hamlet, 50.0, false, false);
     let dense = place(2, 30, 50, SettlementKind::Hamlet, 1000.0, false, false);
     let undefended = place(3, 60, 50, SettlementKind::Hamlet, 50.0, false, false);
@@ -226,6 +266,10 @@ fn settlement_stress_character_weighting_matches_the_reference() {
 /// "more".
 #[test]
 fn gravity_migrate_fortified_bonus_changes_destination_weighting() {
+    // Protects: `_civGravityMigrate` (24738-24778) and
+    // `_CIV_FORTIFIED_BONUS`: with two destinations at equal distance and
+    // headroom, the fortified one receives exactly 1.5 times the other (180
+    // vs 120 of 300). Red means the bonus factor changed or stopped applying.
     let origin = place(1, 10, 50, SettlementKind::Town, 0.0, false, false);
     let fortified_dest = place(2, 50, 50, SettlementKind::Town, 0.0, true, false);
     let unfortified_dest = place(3, 10, 90, SettlementKind::Town, 0.0, false, false);
@@ -252,6 +296,11 @@ fn gravity_migrate_fortified_bonus_changes_destination_weighting() {
 /// single-pass common case the fortified-bonus fixture above covers.
 #[test]
 fn gravity_migrate_saturates_the_near_destination_and_reoffers_the_remainder() {
+    // Protects: the multi-pass saturation in `_civGravityMigrate`: a near
+    // destination capped at its headroom (50) and the clipped remainder
+    // re-offered to a far one (950), with nothing unplaced. Red means a
+    // single-pass allocation overfilled the near destination or dropped
+    // migrants.
     let origin = place(1, 10, 50, SettlementKind::Town, 0.0, false, false);
     let near = place(2, 20, 50, SettlementKind::Town, 0.0, false, false);
     let far = place(3, 90, 50, SettlementKind::Town, 0.0, false, false);
@@ -279,6 +328,9 @@ fn gravity_migrate_saturates_the_near_destination_and_reoffers_the_remainder() {
 /// headroom cannot absorb, not just "some number came out of the loop".
 #[test]
 fn gravity_migrate_reports_unplaced_diaspora_loss_when_headroom_is_exhausted() {
+    // Protects: the unplaced (diaspora loss) total of `_civGravityMigrate`:
+    // with combined headroom of 150 against 1000 migrants, 850 are reported
+    // unplaced. Red means unabsorbed migrants vanish or are double counted.
     let origin = place(1, 10, 50, SettlementKind::Town, 0.0, false, false);
     let near = place(2, 20, 50, SettlementKind::Town, 0.0, false, false);
     let far = place(3, 90, 50, SettlementKind::Town, 0.0, false, false);
@@ -308,6 +360,10 @@ fn gravity_migrate_reports_unplaced_diaspora_loss_when_headroom_is_exhausted() {
 /// only thing that varies is the starting population).
 #[test]
 fn collapse_step_abandonment_floor_boundary_matches_the_reference() {
+    // Protects: `_civCollapseStep` (24785-24848) and its abandonment floor
+    // `_CIV_ABANDON_FLOOR` = 20: populations that land at 19, 20 and 21 after
+    // the step are abandoned, kept and kept, so the check is strictly `<`. A
+    // mutation of the floor or of `<` to `<=` flips a case.
     let dens = uniform_field(10.0);
     let field = uniform_field(0.6);
 
@@ -391,6 +447,12 @@ fn collapse_step_abandonment_floor_boundary_matches_the_reference() {
 /// exact surviving populations -- not just an internal stress number.
 #[test]
 fn collapse_step_character_changes_which_settlements_fail() {
+    // Protects: that the collapse character changes real output through
+    // `civ_collapse_step`: which settlements fail and their exact surviving
+    // populations and died and unplaced totals, on the same four-settlement
+    // fixture, with no baseline. Trade fails none, disease and mixed fail the
+    // bridge, conflict fails both unfortified small places. A mutation of any
+    // character weight moves a count.
     let dens = uniform_field(10.0);
     let field = uniform_field(0.6);
     let base = || {
@@ -492,6 +554,11 @@ fn collapse_step_character_changes_which_settlements_fail() {
 /// `fortified` is never cleared, even on promotion.
 #[test]
 fn recovery_growth_step_promotes_into_exchange_tier_and_clears_ruins() {
+    // Protects: `_civRecoveryGrowthStep` (24852-24870): 100 years of 5%/yr
+    // logistic regrowth takes a ruined, fortified Town (pop 300, density 300)
+    // to 6211 and City tier, clearing `ruins` because City is an exchange
+    // tier while `fortified` stays set. Red means ruins stayed, fortification
+    // was cleared, or the growth moved.
     let dens = uniform_field(300.0);
     let field = uniform_field(0.6);
     let places = [place(9, 50, 50, SettlementKind::Town, 300.0, true, true)];
@@ -522,6 +589,10 @@ fn recovery_growth_step_promotes_into_exchange_tier_and_clears_ruins() {
 /// exchange tier, so `ruins` must stay set.
 #[test]
 fn recovery_growth_step_promotion_into_a_non_exchange_tier_keeps_ruins() {
+    // Protects: the contrast to the test above: a ruined, fortified Village
+    // at density 100 grows to 1266 and Town tier, which is not an exchange
+    // tier, so `ruins` must stay set (and `fortified` too). Red means ruins
+    // are cleared by any promotion.
     let dens = uniform_field(100.0);
     let field = uniform_field(0.6);
     let places = [place(9, 50, 50, SettlementKind::Village, 100.0, true, true)];

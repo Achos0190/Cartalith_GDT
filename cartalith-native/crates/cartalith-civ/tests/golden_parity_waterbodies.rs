@@ -51,11 +51,23 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so classification runs on the
+/// world the reference capture saw.
+/// Must never: be skipped; the `sea_level` assert in each test depends on it.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Asserts two `f32` rasters have equal length and agree within `ATOL + RTOL
+/// * |expected|` per element, naming the label, index, both values and the
+/// tolerance on failure.
 fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
+    // Absolute tolerance (1e-4). Source: this workspace's convention for
+    // fields downstream of priority-flood arithmetic (module doc); a labelled
+    // judgement, not a measured bound.
     const ATOL: f32 = 1e-4;
+    // Relative tolerance (1e-4). Source: the same workspace convention, a
+    // labelled judgement.
     const RTOL: f32 = 1e-4;
     assert_eq!(actual.len(), expected.len(), "{label}: length mismatch");
     for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -70,6 +82,12 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
 
 #[test]
 fn water_bodies_case_0_region() {
+    // Protects: `buildWaterBodies` (reference 5753) on a bounded 14 x 11
+    // region: classification bit-exact (79 land, 75 ocean, no lakes) and the
+    // continuous `fill_level` raster. A case with no pooled lakes still pins
+    // that the priority flood runs and finds nothing to pool. Untouched by
+    // Rulings Q and T (module doc), so this one is the reference's own
+    // output. Red means the ocean/lake split or the fill moved.
     // case 0: region: gw=14 gh=11 seed=24601 world=false. No above-sea
     // pooled lakes form in this configuration -- classification is 0/1
     // only (79 land, 75 ocean), which is itself a real, useful case: the
@@ -124,6 +142,12 @@ fn water_bodies_case_0_region() {
 
 #[test]
 fn water_bodies_case_1_world_wrap() {
+    // Protects: the classification (127 land, 13 ocean, 52 lake) and
+    // `fill_level` on a wrapped 16 x 12 world. This pins Ruling T: a
+    // `world=true` map keeps the reference's size-primary ocean/lake rule,
+    // not Ruling Q's topology-primary one (module doc). Red means the
+    // wrapped-map branch of the water-body rule changed, which also moves the
+    // placement, biome, resource and road fixtures that read it.
     // case 1: world_wrap: gw=16 gh=12 seed=314159 world=true. RE-BASELINED
     // AGAIN 2026-09-21 (Ruling T, see this file's own header) -- reverted
     // to its PRE-Ruling-Q values: 127 land, 13 ocean, 52 lake, matching

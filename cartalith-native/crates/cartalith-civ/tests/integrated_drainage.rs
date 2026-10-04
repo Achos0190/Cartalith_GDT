@@ -18,6 +18,8 @@
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_hydrology::{build_routing_surface, compute_flow_routed, flow_receivers, routing_view};
 
+/// Counts of land cells by where their water ends: total land, interior pit,
+/// sea, or map edge. Filled by [`drainage`].
 #[derive(Debug, Default, Clone, Copy)]
 struct Drainage {
     land: usize,
@@ -26,6 +28,12 @@ struct Drainage {
     edge: usize,
 }
 
+/// True for a cell whose receiver being absent is a real outlet rather than a
+/// pit: the top and bottom rows always, the left and right columns only on a
+/// non-wrapping world.
+/// Why: the module doc says a region crop's boundary is a real outlet, and
+/// omitting it is what made the source's own first measurement read 55 % pit.
+/// Must never: treat the x edge as an outlet on a wrapped world.
 fn is_edge(i: usize, gw: usize, gh: usize, world: bool) -> bool {
     let (x, y) = (i % gw, i / gw);
     y == 0 || y + 1 == gh || (!world && (x == 0 || x + 1 == gw))
@@ -68,6 +76,10 @@ fn drainage(ws: &WorldState, gw: usize, gh: usize, world: bool) -> Drainage {
     d
 }
 
+/// Main-stem statistics over the world's stored channel tree: mouth counts
+/// split by terminus (sea, lake, edge, pit), the channel-mask `gaps`, and the
+/// longest stem and biggest catchment, overall and for sea-reaching mouths
+/// only. Filled by [`stems`].
 #[derive(Debug, Default)]
 struct Stems {
     mouths: usize,
@@ -177,6 +189,8 @@ fn stems(ws: &WorldState, gw: usize, gh: usize, world: bool, map_width_km: f64) 
     s
 }
 
+/// Counts cells `build_water_bodies` classifies as lake (class 2) on the
+/// world's field, using the world's rainfall.
 fn lake_cells(ws: &WorldState, gw: usize, gh: usize, world: bool) -> usize {
     cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall))
         .classification
@@ -185,10 +199,20 @@ fn lake_cells(ws: &WorldState, gw: usize, gh: usize, world: bool) -> usize {
         .count()
 }
 
+/// Percentage `100 * a / b`, with a zero denominator treated as 1 so an empty
+/// world prints 0 rather than NaN.
 fn pct(a: usize, b: usize) -> f64 {
     100.0 * a as f64 / b.max(1) as f64
 }
 
+/// Generates the same world with integrated drainage off and on, then prints
+/// the §6k-style table: wall clock, pit share, sea-draining land, edge share,
+/// longest main stem, biggest catchments, mouth termini, lake cells, and how
+/// many cells the flag moved.
+/// Why: the table is the measurement the module doc describes, shown next to
+/// the spec's figures by `measure_integrated_drainage`.
+/// Must never: assert; it is a printing helper and the numbers differ per
+/// machine.
 fn report(name: &str, mut p: WorldParams) {
     let (gw, gh, world, km) = (p.gw, p.gh, p.world, p.map_width_km);
     p.integrate_drainage = false;
@@ -257,6 +281,13 @@ fn report(name: &str, mut p: WorldParams) {
 /// The shell's own starting parameters (`cartalith_godot::params::defaults`)
 /// without depending on the cdylib: the parity baseline plus the three
 /// generation divergences that ship on.
+/// The shell's starting parameters (`cartalith_godot::params::defaults`)
+/// rebuilt without depending on that cdylib: the parity baseline plus the
+/// three generation divergences that ship on (`crater.physical_model`,
+/// `volc.exclude_transform`, `volc.edifice_model`), at the given grid, seed
+/// and map width.
+/// Why: it must match the app or the shell-world rows measure a world the app
+/// does not make; `integrate_drainage` is set by the caller.
 fn app_params(gw: usize, gh: usize, seed: i32, km: f64) -> WorldParams {
     let mut p = WorldParams::defaults(gw, gh, seed);
     p.map_width_km = km;
@@ -269,6 +300,12 @@ fn app_params(gw: usize, gh: usize, seed: i32, km: f64) -> WorldParams {
 #[test]
 #[ignore = "measurement: prints §6k's before/after table for four worlds; run in --release"]
 fn measure_integrated_drainage() {
+    // Protects: nothing; an ignored measurement that prints the §6k
+    // before/after table for four worlds next to the spec's own figures (pit
+    // 68.5% to 0.0%, sea-draining land x1.63, longest stem x1.80, biggest
+    // catchment x18.3, from `RC_ENGINE_CHANGES.md` §6k). It asserts nothing,
+    // so it only goes red by panicking. The pass/fail claim lives in the test
+    // below.
     println!("spec (RC_ENGINE_CHANGES.md §6k, source v2.59, region 800 km 512 px seed 12345):");
     println!("  pit 68.5% -> 0.0%; sea-draining land 26 031 -> 42 475 (x1.63); longest main stem 66 -> 118 km (x1.80);");
     println!("  biggest catchment at a stem mouth 5 078 -> 92 815 km2 (x18.3). §6g (v2.41, 512 px): pit 66.5% -> 0.0%, sea x1.47.");
@@ -284,6 +321,11 @@ fn measure_integrated_drainage() {
 #[test]
 #[ignore = "measurement: routing-surface wall clock at the shell's 2048x1312; run in --release, alone"]
 fn time_routing_surface_at_shell_size() {
+    // Protects: nothing beyond the length of the returned surface
+    // (`build_routing_surface` returns one value per cell); an ignored
+    // wall-clock measurement of the routing surface and `compute_flow` at
+    // 2048 x 1312, median of 7 runs. The timings are for the performance
+    // record, not a bar.
     let p = app_params(2048, 1312, 20260824, 1200.0);
     let ws = generate_terrain(&p);
     let mut ts = Vec::new();
@@ -311,6 +353,14 @@ fn time_routing_surface_at_shell_size() {
 /// the test proves nothing.
 #[test]
 fn integrated_drainage_leaves_no_interior_pit_on_a_generated_world() {
+    // Protects: RC_ENGINE_CHANGES.md §6g/§6k as a hard assertion on a 160 x
+    // 104 world, wrapped and not: with integrated drainage no land cell ends
+    // in an interior pit and more land reaches the sea; no main stem's water
+    // ends in a pit; the world records how it was routed; and
+    // `fresh_river_order` (the civ layer's own network rebuild) routes over
+    // the same surface, so passing the flag changes its result. The guards
+    // (`d0.pit > 0`, `s0.to_pit > 0`) make the test fail rather than pass
+    // vacuously when the fixture has no pits to remove.
     for world in [false, true] {
         let mut p = WorldParams::defaults(160, 104, 12345);
         p.world = world;

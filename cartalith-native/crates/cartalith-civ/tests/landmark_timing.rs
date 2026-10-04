@@ -5,9 +5,23 @@
 use cartalith_civ::landmark::{self, LandmarkInputs, LandmarkSettings, LandmarkSite};
 use std::time::Instant;
 
+// Sea level (0.42) used for every fixture here. Source: the engine's default
+// sea level, the value this crate's other real-world fixtures assert
+// (`golden_parity_smelting_salt.rs`'s `build_real`); not re-derived here.
 const SEA: f64 = 0.42;
+// Peak elevation in metres (4000) handed to `LandmarkInputs::peak_m`. Source
+// not established: a harness choice (labelled judgement) so heights are
+// plausible; this diagnostic never asserts on it.
 const PEAK_M: f64 = 4000.0;
 
+/// Builds an analytically smooth elevation field: a west-to-east ramp, a
+/// coastal step (`tanh`), a rough west mask, a sinusoidal south-edge dip,
+/// three Gaussian peaks and one Gaussian basin, clamped to [0, 1].
+/// Why: deterministic and generator-free, so timings compare across machines
+/// and sizes. Every coefficient is a hand-picked shape parameter (labelled
+/// judgement, source not established), not a measurement.
+/// Must never: be used for correctness assertions; the rough-field test below
+/// says why a smooth field understates candidate counts.
 fn test_field(gw: usize, gh: usize) -> Vec<f32> {
     let mut f = vec![0f32; gw * gh];
     for y in 0..gh {
@@ -37,6 +51,9 @@ fn test_field(gw: usize, gh: usize) -> Vec<f32> {
     f
 }
 
+/// A Gaussian bump (centre `px`, `py` as fractions of the grid, width `sig`)
+/// over the whole grid, used as a stand-in resource potential. Values are in
+/// (0, 1].
 fn blob(gw: usize, gh: usize, px: f64, py: f64, sig: f64) -> Vec<f32> {
     let mut v = vec![0f32; gw * gh];
     for y in 0..gh {
@@ -48,6 +65,11 @@ fn blob(gw: usize, gh: usize, px: f64, py: f64, sig: f64) -> Vec<f32> {
     v
 }
 
+/// One fixture world's inputs for `landmark::generate`: terrain, flow,
+/// channel and receiver rasters, Strahler order, water classes, route
+/// corridors, three resource potentials and two settlements.
+/// Must never: be taken as a real generated world; it is the synthetic one
+/// built by [`world`].
 struct World {
     gw: usize,
     gh: usize,
@@ -65,6 +87,14 @@ struct World {
     settlements: Vec<LandmarkSite>,
 }
 
+/// Builds a [`World`] at `gw` x `gh` over `width_km`, and returns it with the
+/// seconds the corridor pass took on its own.
+/// Why: that corridor pass (`build_raw_slope_field`, `river_flow_thresh`,
+/// `build_route_corridors`) is what `landmark_geology_inputs()` in
+/// `cartalith-godot/src/lib.rs` repeats on every `landmark_run()`, so it is
+/// timed separately from `generate`.
+/// Must never: be used as a golden; the three resource blobs and two
+/// settlements are labelled judgement placements.
 fn world(gw: usize, gh: usize, width_km: f64) -> (World, f64) {
     let field = test_field(gw, gh);
     let flow = cartalith_hydrology::compute_flow(gw, gh, &field, None, false, false);
@@ -120,6 +150,13 @@ fn world(gw: usize, gh: usize, width_km: f64) -> (World, f64) {
     )
 }
 
+/// Builds a world, scales its settlement list to `settlements` entries, runs
+/// `landmark::generate` once with seed 4242, and prints timings (corridor
+/// pass, fixture prep, generate, microseconds per cell) and the five
+/// costliest candidate funnels.
+/// Why: `Ctx::influence()` is O(candidates x settlements), so the settlement
+/// count is an independent axis from the cell count.
+/// Must never: assert; timings differ across machines.
 fn run_at(gw: usize, gh: usize, width_km: f64, settlements: usize) {
     let t_all = Instant::now();
     let (mut w, corridor_s) = world(gw, gh, width_km);
@@ -183,6 +220,10 @@ fn run_at(gw: usize, gh: usize, width_km: f64, settlements: usize) {
 #[test]
 #[ignore = "diagnostic timing harness, minutes long at the top size"]
 fn landmark_generate_scaling() {
+    // Protects: nothing; an ignored diagnostic that prints `generate` time at
+    // four sizes (256 to 2048 columns) at a constant 0.390625 km cell, so
+    // analysis radii clamp the same way and only cell count varies. It
+    // asserts nothing, so it can only go red by panicking.
     println!();
     // Constant cell size (0.39 km, the shell's own 2048 @ 800 km default), so
     // the analysis radii clamp identically at every size and the only variable
@@ -195,6 +236,9 @@ fn landmark_generate_scaling() {
 #[test]
 #[ignore = "diagnostic timing harness"]
 fn landmark_generate_settlement_scaling() {
+    // Protects: nothing; an ignored diagnostic that prints `generate` time at
+    // 2, 50, 200 and 800 settlements on a fixed 512 x 328 grid. Asserts
+    // nothing.
     println!();
     for k in [2usize, 50, 200, 800] {
         run_at(512, 328, 200.0, k);
@@ -204,6 +248,9 @@ fn landmark_generate_settlement_scaling() {
 #[test]
 #[ignore = "diagnostic timing harness — the shell's real default world"]
 fn landmark_generate_at_the_shipping_default() {
+    // Protects: nothing; an ignored diagnostic timing of one 2048 x 1311 run
+    // over 800 km, the size the shell's own default world uses (per the
+    // comment in the scaling test). Asserts nothing.
     println!();
     run_at(2048, 1311, 800.0, 2);
 }
@@ -214,6 +261,11 @@ fn landmark_generate_at_the_shipping_default() {
 #[test]
 #[ignore = "diagnostic timing harness"]
 fn geology_inputs_cost() {
+    // Protects: nothing; an ignored diagnostic that times the lithology,
+    // biome, resource-potential and slope-plus-corridor chain on its own at
+    // 512 and 2048 columns. The input rasters are `sin`/`cos` noise and `i %
+    // 7` boundary types: labelled judgement shapes, so the times are a size
+    // estimate and not a measurement of a real world. Asserts nothing.
     println!();
     for (gw, gh) in [(512usize, 328usize), (2048, 1311)] {
         let n = gw * gh;
@@ -271,6 +323,10 @@ fn geology_inputs_cost() {
 #[test]
 #[ignore = "diagnostic timing harness"]
 fn landmark_generate_on_a_rough_field() {
+    // Protects: nothing; an ignored diagnostic that adds five-octave
+    // sinusoidal roughness (amplitudes 0 to 0.030) to the smooth fixture and
+    // prints `generate` time and candidate counts per funnel. Asserts
+    // nothing.
     println!();
     for amp in [0.0f64, 0.004, 0.012, 0.030] {
         let (gw, gh) = (2048usize, 1311usize);
@@ -350,6 +406,10 @@ fn landmark_generate_on_a_rough_field() {
 #[test]
 #[ignore = "diagnostic timing harness"]
 fn derived_build_component_cost() {
+    // Protects: nothing; an ignored diagnostic timing the analysis fields
+    // behind `Derived::build` one by one. Radii 8 and 40 cells are the doc's
+    // own figures for the shell default (3 km and 25 km clamped to
+    // `SCALE_MAX_CELLS`); not re-checked here. Asserts nothing.
     use cartalith_terrain::analysis;
     println!();
     let (gw, gh) = (2048usize, 1311usize);

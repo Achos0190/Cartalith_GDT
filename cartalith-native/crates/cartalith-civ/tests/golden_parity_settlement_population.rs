@@ -37,8 +37,17 @@ use cartalith_civ::timeline::{
     civ_tier_for_population,
 };
 
+/// Asserts a scalar is within `ATOL + RTOL * |expected|` of the golden,
+/// naming the label and the difference on failure.
+/// Why: the reference's density output is f32-rounded, so a small tolerance
+/// covers f64 intermediate-order differences.
+/// Must never: be loosened to make a golden pass.
 fn assert_close(actual: f64, expected: f64, label: &str) {
+    // Absolute tolerance. Source: this crate's established `1e-4` convention
+    // for f32-derived goldens (module doc).
     const ATOL: f64 = 1e-4;
+    // Relative tolerance. Source: the same `1e-4` crate convention; a
+    // labelled judgement, not a measurement.
     const RTOL: f64 = 1e-4;
     let tol = ATOL + RTOL * expected.abs();
     assert!(
@@ -52,6 +61,12 @@ fn assert_close(actual: f64, expected: f64, label: &str) {
 
 #[test]
 fn subsistence_mode_and_agrarian_density_match_the_reference() {
+    // Protects: `subsistenceModeAt` / `agrarianDensityKm2` (reference
+    // 23369-23385): the mode (0 gathering, 1 bush fallow, 2 short fallow, 3
+    // annual) and density for eleven cases, each at or just below a
+    // threshold: the annual-cultivation boundary, the short-fallow rain and
+    // water floors, the bush-fallow k floor, the k > 1 clamp, and a NaN k
+    // falling to gathering. A mutation of any threshold flips a row.
     // (k, water, biome, rain, want_mode, want_density) -- biome 7 is grass
     // (this crate's `BIOME_GRASS`), the reference's own `BIOME_KEYS` index.
     let cases: [(f64, f64, u8, f64, u8, f64); 11] = [
@@ -83,6 +98,10 @@ fn subsistence_mode_and_agrarian_density_match_the_reference() {
 
 #[test]
 fn current_agrarian_density_matches_the_reference_on_a_mixed_land_sea_fixture() {
+    // Protects: `currentAgrarianDensity` (23441-23460) on a three-cell
+    // fixture: land cells scale to the reference's normalised f32 values and
+    // the below-sea cell is 0. Red means the normalisation or the sea mask
+    // changed.
     let k = [0.9f32, 0.2, 0.9];
     let water = [0.9f32, 0.9, 0.9];
     let biome = [7u8, 7, 7];
@@ -98,6 +117,9 @@ fn current_agrarian_density_matches_the_reference_on_a_mixed_land_sea_fixture() 
 
 #[test]
 fn current_agrarian_density_falls_back_to_norm_one_when_all_cells_are_sea() {
+    // Protects: the all-sea fallback of `currentAgrarianDensity`: with no
+    // land the normaliser falls back to 1 and the output is a single 0.0, not
+    // NaN.
     let k = [0.9f32];
     let water = [0.9f32];
     let biome = [7u8];
@@ -111,6 +133,9 @@ fn current_agrarian_density_falls_back_to_norm_one_when_all_cells_are_sea() {
 
 #[test]
 fn catchment_density_mean_matches_the_reference_with_a_sea_cell_excluded() {
+    // Protects: `_civCatchmentDensityMean` (23461-23469): a below-sea cell
+    // inside the disc is excluded from both sum and count (mean 11.75). Red
+    // means sea cells were averaged in.
     let gw = 5usize;
     let gh = 5usize;
     let mut field = vec![0.6f32; gw * gh];
@@ -122,6 +147,9 @@ fn catchment_density_mean_matches_the_reference_with_a_sea_cell_excluded() {
 
 #[test]
 fn catchment_density_mean_wrap_vs_no_wrap_matches_the_reference() {
+    // Protects: the x-wrap of `_civCatchmentDensityMean`: at the left edge
+    // the wrapped disc includes the right-edge column (mean 4.8) and the
+    // unwrapped one does not (4.25).
     let gw = 4usize;
     let gh = 3usize;
     let field = vec![0.6f32; gw * gh];
@@ -134,6 +162,7 @@ fn catchment_density_mean_wrap_vs_no_wrap_matches_the_reference() {
 
 #[test]
 fn catchment_density_mean_is_zero_when_every_cell_in_range_is_sea() {
+    // Protects: the empty-disc guard: a disc with no land returns 0, not NaN.
     let gw = 3usize;
     let gh = 3usize;
     let field = vec![0.1f32; gw * gh];
@@ -152,6 +181,10 @@ fn catchment_density_mean_is_zero_when_every_cell_in_range_is_sea() {
 /// per-tier catchment-area scaling).
 #[test]
 fn catchment_pop_and_settlement_population_match_the_reference_across_all_kinds() {
+    // Protects: `_civCatchmentPop` and `_civSettlementPopulation`
+    // (23484-23511) for all five kinds, at `normB` 0 and 1: the per-tier
+    // catchment-area scaling and the normalisation blend. A mutation of a
+    // tier's catchment area or of the blend weights moves a row.
     let gw = 10usize;
     let gh = 10usize;
     let field = vec![0.6f32; gw * gh];
@@ -214,6 +247,8 @@ fn catchment_pop_and_settlement_population_match_the_reference_across_all_kinds(
 
 #[test]
 fn settlement_population_is_zero_for_a_nan_norm_b_over_an_all_sea_map() {
+    // Protects: the NaN guard: an all-sea map with a NaN `normB` gives
+    // population 0 rather than propagating NaN.
     let gw = 3usize;
     let gh = 3usize;
     let field = vec![0.1f32; gw * gh];
@@ -249,6 +284,10 @@ fn settlement_population_is_zero_for_a_nan_norm_b_over_an_all_sea_map() {
 /// this test's two rows are two of them.
 #[test]
 fn tier_for_population_matches_the_full_reference_table_including_metropolis() {
+    // Protects: `_civTierForPopulation` (24618): the 150 / 800 / 5 000 / 30
+    // 000 floors at just below and exactly at, plus the metropolis rows at
+    // 150 000 and above. See the doc above for why the last rows were
+    // re-extracted. A mutation of a floor flips a row.
     let cases: [(f64, SettlementKind); 9] = [
         (0.0, SettlementKind::Hamlet),
         (149.999, SettlementKind::Hamlet),

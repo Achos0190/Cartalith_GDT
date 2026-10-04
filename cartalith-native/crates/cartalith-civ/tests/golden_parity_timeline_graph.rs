@@ -34,6 +34,11 @@
 
 use cartalith_civ::timeline::{civ_betweenness_from_adjacency, civ_proximity_adjacency};
 
+/// Asserts two adjacency lists have the same node count and, per node, the
+/// same neighbour set after sorting both sides.
+/// Why: the reference builds neighbour lists in insertion order, which this
+/// port is free to differ in; only the sets are the contract.
+/// Must never: be used where neighbour order matters.
 fn assert_adj_eq(actual: &[Vec<usize>], expected: &[Vec<usize>], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: node count");
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -45,8 +50,14 @@ fn assert_adj_eq(actual: &[Vec<usize>], expected: &[Vec<usize>], label: &str) {
     }
 }
 
+/// Asserts two betweenness vectors have equal length and agree element-wise
+/// within `ATOL`, naming the label, node, and both values on failure.
 fn assert_btw_close(actual: &[f64], expected: &[f64], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: length");
+    // Absolute tolerance on raw betweenness (1e-9). Source: this file's own
+    // choice (labelled judgement); the values are sums of path-count ratios,
+    // so differences are rounding-sized, and 1e-9 is far below any one-path
+    // change.
     const ATOL: f64 = 1e-9;
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!((a - e).abs() <= ATOL, "{label}: node {i} got {a}, want {e}");
@@ -68,6 +79,12 @@ fn assert_btw_close(actual: &[f64], expected: &[f64], label: &str) {
 /// by 2), passes through node 1 -- raw betweenness `[0, 2, 0]`.
 #[test]
 fn path_graph_3_matches_the_reference_and_a_hand_derivation() {
+    // Protects: `_civProximityAdjacency` (reference 24672-24683) and
+    // `_civBetweennessFromAdjacency`'s (24687-24709) smallest case, three
+    // collinear nodes with k = 1 and maxKm 15: the tie-break (node 1 picks
+    // node 0 first), the symmetric edge-add, the range cutoff, and
+    // betweenness `[0, 2, 0]` (not halved). Red means the nearest-neighbour
+    // tie-break, the range test or the undirected counting changed.
     let positions = [(0.0, 0.0), (10.0, 0.0), (20.0, 0.0)];
     let adj = civ_proximity_adjacency(&positions, 1, 15.0, 1.0, 100.0, false);
     assert_adj_eq(
@@ -88,6 +105,11 @@ fn path_graph_3_matches_the_reference_and_a_hand_derivation() {
 /// intermediate for every shortest path that crosses it.
 #[test]
 fn chain_5_matches_the_reference() {
+    // Protects: k = 2 nearest-neighbour adjacency and betweenness on five
+    // collinear nodes: the path with no shortcuts, adjacency `[1,2] [0,2]
+    // [0,1,3,4] [2,4] [2,3]` and betweenness `[0, 0, 8, 0, 0]` (centre
+    // carries every crossing path, both directions). Red means the k cut or
+    // the path counting changed.
     let positions = [
         (0.0, 0.0),
         (5.0, 0.0),
@@ -121,6 +143,10 @@ fn chain_5_matches_the_reference() {
 /// changes which edges exist, not just that the flag is threaded through.
 #[test]
 fn wrap_pair_is_adjacent_only_with_world_wrap_on() {
+    // Protects: the `world_wrap` distance in `_civProximityAdjacency`: two
+    // nodes 96 cells apart are adjacent only when wrapping makes them 4
+    // apart, and the two distant nodes stay isolated. Red means the wrap flag
+    // no longer changes which edges exist.
     let positions = [(2.0, 0.0), (98.0, 0.0), (50.0, 0.0), (50.0, 30.0)];
 
     let no_wrap = civ_proximity_adjacency(&positions, 1, 20.0, 1.0, 100.0, false);
@@ -161,6 +187,11 @@ fn wrap_pair_is_adjacent_only_with_world_wrap_on() {
 /// raw betweenness `[0,4,4,0]`.
 #[test]
 fn wrap_ring_4_closes_into_a_cycle_only_with_world_wrap_on() {
+    // Protects: wrap closing a 4-cycle: with wrap the seam edge exists and
+    // betweenness ties at `[1,1,1,1]`, without it the same positions are a
+    // path with `[0,4,4,0]`. The tie case also checks that Brandes splits
+    // dependency across equal shortest paths. Red means the seam edge or the
+    // tie split changed.
     let positions = [(0.0, 0.0), (25.0, 0.0), (50.0, 0.0), (75.0, 0.0)];
 
     let ring = civ_proximity_adjacency(&positions, 2, 30.0, 1.0, 100.0, true);
@@ -209,6 +240,12 @@ fn wrap_ring_4_closes_into_a_cycle_only_with_world_wrap_on() {
 /// cross-component betweenness.
 #[test]
 fn real_settlements_k4_matches_the_reference() {
+    // Protects: both functions at the engine's default extent (512 columns
+    // over 800 km) on eight settlements with the reference's own defaults, k
+    // = 4 and maxLinkKm = cellKm * GW * 0.5 (the `_civCollapseStep` default,
+    // line 24794): one connected graph in which the bridging node and the
+    // largest cluster's hub carry the betweenness load. Red means the
+    // default-k graph moved.
     let gw = 512.0f64;
     let cell_km = 800.0 / gw;
     let positions = [
@@ -247,6 +284,9 @@ fn real_settlements_k4_matches_the_reference() {
 
 #[test]
 fn real_settlements_k2_splits_into_two_components_and_betweenness_never_crosses_them() {
+    // Protects: Brandes over several components: at k = 2 the same positions
+    // split into two components and no betweenness crosses between them
+    // (`[0,1,1,1,0,1,0,0]`). Red means a search leaked across components.
     let gw = 512.0f64;
     let cell_km = 800.0 / gw;
     let positions = [

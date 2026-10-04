@@ -58,6 +58,18 @@
 
 #[test]
 fn village_seeding_two_isolated_hotspots_no_roads() {
+    // Protects: `_civSeedVillages` (reference ~25164) with
+    // `_civVillageAcceptProb` (~25159) and the milestone-12-adapted
+    // `_civRoadProximityQuery` (~25127) on a deliberately synthetic 14 x 11
+    // all-land world: two suitability hotspots at 0.5, well above the village
+    // threshold 0.32, so the accept roll is deterministic and the geometry
+    // and faction assignment are isolated from RNG luck. Checks both village
+    // cells, their nearest-capital factions (3 and 2) and the RNG-derived
+    // names, by exact string equality, from `Mulberry32::new(12345)`. With no
+    // roads the road probability is 0, so suitability alone must carry
+    // acceptance, which exercises the max(road, suit) formula's either-alone
+    // case. Red means spacing, faction assignment, the accept formula or the
+    // name stream moved. Only one RNG stream position is exercised.
     let gw = 14usize;
     let gh = 11usize;
     let n = gw * gh;

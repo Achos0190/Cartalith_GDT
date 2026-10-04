@@ -119,11 +119,25 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared fixture from the engine crate's tests that pins the carve's six
+/// arrays back to the pre-RV1 (reference) world (Ruling BD), so the
+/// reference-capture arm stays a value for the reference's world.
+/// Must never: be skipped before the suitability fields are built.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Compares two `f32` rasters element by element within the crate's standing
+/// tolerance (see `ATOL`/`RTOL`) and names the label, index and values on
+/// failure.
+/// Why: suitability is continuous `f32`, so exact equality is the wrong bar;
+/// lengths are asserted first so a silently-empty raster fails.
+/// Must never: loosen the tolerance to make a golden pass.
 fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
+    // Absolute tolerance. Source: this crate's standing `1e-4` convention for
+    // continuous f32 goldens (named in the module doc).
     const ATOL: f32 = 1e-4;
+    // Relative tolerance, added to `ATOL` scaled by |expected|. Source: the
+    // same `1e-4` crate convention; a labelled judgement, not a measurement.
     const RTOL: f32 = 1e-4;
     assert_eq!(actual.len(), expected.len(), "{label}: length mismatch");
     for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
@@ -136,6 +150,12 @@ fn assert_close(actual: &[f32], expected: &[f32], label: &str) {
     }
 }
 
+/// Compares a seed list with the expected `(x, y, score)` triples: count,
+/// then each x and y exactly, then each score within 1e-4.
+/// Why: the module doc says seeds come from a greedy suppression-radius pass,
+/// so order is part of the answer and positions must be exact.
+/// Must never: sort either side before comparing; that would hide a tie-break
+/// change.
 fn assert_seeds_close(actual: &[cartalith_civ::SettlementSeed], expected: &[(usize, usize, f32)], label: &str) {
     assert_eq!(actual.len(), expected.len(), "{label}: seed count mismatch");
     for (i, (a, &(ex, ey, escore))) in actual.iter().zip(expected.iter()).enumerate() {
@@ -151,6 +171,13 @@ fn assert_seeds_close(actual: &[cartalith_civ::SettlementSeed], expected: &[(usi
 
 #[test]
 fn settlement_suitability_case_0_region() {
+    // Protects: `buildSettlementSuitability` / `findSettlementSeeds`
+    // (reference 6319 / 6418) on the 14 x 11 bounded fixture, in both arms.
+    // The legacy arm must reproduce the reference capture (`reference_suit`,
+    // `reference_seeds`) bit-tolerantly; the production arm must reproduce
+    // the Ruling N re-baseline. The final assert demands the arms differ, so
+    // a change that made them the same function turns this red. A mutation of
+    // a suitability weight or a seed threshold moves one or both.
     // case0_region: gw=14 gh=11 seed=24601 world=false
     // CASE0 sea=0.42 flowThresh=0.0616 seedsCount=3
     let reference_suit: Vec<f32> = vec![0.4659339487552643f32, 0.3375842571258545f32, 0.4565603733062744f32, 0.6558908224105835f32, 0.6296071410179138f32, 0.4674827456474304f32, 0.6542048454284668f32, 0.6109026670455933f32, 0.6224120259284973f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.44464123249053955f32, 0.40760141611099243f32, 0.6773497462272644f32, 0.7246860265731812f32, 0.7633237838745117f32, 0.6374057531356812f32, 0.6403632164001465f32, 0.5944005846977234f32, 0.5993370413780212f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.3701127767562866f32, 0.40003034472465515f32, 0.6749517917633057f32, 0.7370033860206604f32, 0.7288358211517334f32, 0.6190601587295532f32, 0.6241977214813232f32, 0.7306162118911743f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.40878555178642273f32, 0.46150800585746765f32, 0.7211224436759949f32, 0.7708563804626465f32, 0.6935853958129883f32, 0.5495160818099976f32, 0f32, 0f32, 0f32, 0.7972438931465149f32, 0f32, 0.457638680934906f32, 0.740919291973114f32, 0f32, 0.5308757424354553f32, 0.5646592974662781f32, 0.7021728157997131f32, 0.6968492269515991f32, 0.6747370362281799f32, 0.6216966509819031f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.4727352559566498f32, 0.5129222869873047f32, 0f32, 0.6029186248779297f32, 0.6250901222229004f32, 0.7722831964492798f32, 0.7853245139122009f32, 0.7570300698280334f32, 0.5855845212936401f32, 0f32, 0f32, 0.38852351903915405f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.6610569953918457f32, 0.7439841032028198f32, 0.794422447681427f32, 0.800812840461731f32, 0.801021158695221f32, 0.6340886354446411f32, 0f32, 0f32, 0.4966275691986084f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.6386557221412659f32, 0.7684215903282166f32, 0.7663425803184509f32, 0.7553013563156128f32, 0.6142658591270447f32, 0.6353833079338074f32, 0.6777088046073914f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.7287659645080566f32, 0.7417961955070496f32, 0.7657946348190308f32, 0.5716677904129028f32, 0.6372779011726379f32, 0f32, 0f32, 0.6168814301490784f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.7675237655639648f32, 0.7517905235290527f32, 0.7257106304168701f32, 0.5895572900772095f32, 0.5522850155830383f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0.7185184359550476f32, 0.7432905435562134f32, 0.7543020248413086f32, 0.6079452037811279f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32, 0f32];
@@ -188,6 +215,12 @@ fn settlement_suitability_case_0_region() {
 
 #[test]
 fn settlement_suitability_case_1_world_wrap() {
+    // Protects: the same pair of arms on the 16 x 12 wrap fixture. For this
+    // fixture Ruling T makes the production and legacy water-body
+    // classifications identical, so only the river and coast terms separate
+    // the arms. Red on the legacy arm means the unchanged function drifted
+    // from the reference; red on the production arm means Ruling N's
+    // composition moved.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
     // CASE1 sea=0.42 flowThresh=0.07680000000000001 seedsCount=5
     let reference_suit: Vec<f32> = vec![0f32, 0f32, 0.4544396996498108f32, 0.6829801797866821f32, 0.6716033816337585f32, 0.7098731398582458f32, 0.7363941669464111f32, 0.8240528106689453f32, 0.7810350656509399f32, 0.5809214115142822f32, 0.6753418445587158f32, 0.6026200652122498f32, 0.5720908045768738f32, 0.5295939445495605f32, 0.7118990421295166f32, 0.5681145787239075f32, 0.4841911792755127f32, 0f32, 0.4294154942035675f32, 0.5891220569610596f32, 0.5186370611190796f32, 0f32, 0.6469618678092957f32, 0.7927274107933044f32, 0.7248112559318542f32, 0f32, 0.618212878704071f32, 0.6563898324966431f32, 0.6516931653022766f32, 0.5132604837417603f32, 0.7425177693367004f32, 0.6197832822799683f32, 0f32, 0.490617573261261f32, 0.43964463472366333f32, 0.38720008730888367f32, 0f32, 0f32, 0.6940781474113464f32, 0.7959432005882263f32, 0.8302209973335266f32, 0.597190797328949f32, 0f32, 0.764442503452301f32, 0.7290124297142029f32, 0.7565300464630127f32, 0.5328009128570557f32, 0f32, 0f32, 0.7213306427001953f32, 0f32, 0f32, 0f32, 0.6953161954879761f32, 0f32, 0.7508717775344849f32, 0.7712700366973877f32, 0.8109160661697388f32, 0.8138898015022278f32, 0.8104649186134338f32, 0.8133845329284668f32, 0.7196357250213623f32, 0f32, 0f32, 0.54398512840271f32, 0.4139922559261322f32, 0f32, 0f32, 0.6010671257972717f32, 0.7966353297233582f32, 0f32, 0.6192946434020996f32, 0.6879088282585144f32, 0f32, 0.6882720589637756f32, 0.877501904964447f32, 0.7467853426933289f32, 0.5740789175033569f32, 0.5160160660743713f32, 0.42500898241996765f32, 0.4940870404243469f32, 0.7125096321105957f32, 0f32, 0f32, 0f32, 0.8474334478378296f32, 0.5898798704147339f32, 0f32, 0.5701712369918823f32, 0f32, 0.7266634702682495f32, 0.7777393460273743f32, 0.6724652647972107f32, 0f32, 0.5727471113204956f32, 0.4766692817211151f32, 0f32, 0.649103045463562f32, 0.5776664018630981f32, 0f32, 0.5558050274848938f32, 0.40618836879730225f32, 0f32, 0f32, 0f32, 0f32, 0.5526706576347351f32, 0.7049570083618164f32, 0f32, 0f32, 0.7597787380218506f32, 0f32, 0f32, 0f32, 0.6265968084335327f32, 0.7486276626586914f32, 0.4574846625328064f32, 0f32, 0f32, 0f32, 0f32, 0.46842536330223083f32, 0f32, 0.7595784068107605f32, 0f32, 0.543763279914856f32, 0.6808619499206543f32, 0f32, 0f32, 0.4536745846271515f32, 0.6735608577728271f32, 0.647739589214325f32, 0.5560805797576904f32, 0.8199706077575684f32, 0.5670826435089111f32, 0f32, 0f32, 0.49764010310173035f32, 0.39544785022735596f32, 0.36451399326324463f32, 0f32, 0.6790796518325806f32, 0.7422176599502563f32, 0f32, 0f32, 0.6350211501121521f32, 0.46249744296073914f32, 0f32, 0.6249449849128723f32, 0.6116637587547302f32, 0.6004941463470459f32, 0.4994843304157257f32, 0.5849137306213379f32, 0.4600963294506073f32, 0.37229734659194946f32, 0.49899518489837646f32, 0.5173693299293518f32, 0f32, 0.6083006858825684f32, 0.46872764825820923f32, 0.5247565507888794f32, 0.6404932737350464f32, 0.44346559047698975f32, 0f32, 0f32, 0.5352204442024231f32, 0.5418827533721924f32, 0.5260804891586304f32, 0.8081161975860596f32, 0f32, 0f32, 0.41098812222480774f32, 0f32, 0f32, 0f32, 0.3890637755393982f32, 0.5443041324615479f32, 0.4659217894077301f32, 0f32, 0.7042208909988403f32, 0.47862139344215393f32, 0.5131184458732605f32, 0.5875740647315979f32, 0.7066688537597656f32, 0.7202219367027283f32, 0f32, 0f32, 0f32, 0f32, 0.5120180249214172f32, 0.6315444707870483f32, 0.5630244016647339f32];
@@ -244,11 +277,11 @@ fn settlement_suitability_case_1_world_wrap() {
     assert!(moved > 0, "case1_world_wrap: the re-baseline moved no cell at all");
 }
 
-/// Assembles every affordance field milestones 1-6 provide, resolves a
-/// fresh river-order pass (see this file's own doc comment for why
-/// `ws.stream_order` isn't the right input), and runs
-/// `build_settlement_suitability`/`find_settlement_seeds` -- the exact
-/// production composition `currentSettlementSuitability()` performs.
+/// Selects which river term the suitability composition uses. `Real` is
+/// production (Ruling N); `LegacyProxy` is the reference's own pre-Ruling-N
+/// behaviour.
+/// Must never: be paired with the opposite [`CoastTerm`] at the call sites;
+/// the legacy arm is always both legacy terms.
 #[derive(Clone, Copy, PartialEq)]
 enum RiverTerm {
     /// Ruling N: `build_river_reach` over the traced polylines.
@@ -258,6 +291,9 @@ enum RiverTerm {
     LegacyProxy,
 }
 
+/// Selects which coastal term the suitability composition uses. `Real` is
+/// production (Ruling N); `LegacySdf` is the reference's own pre-Ruling-N
+/// behaviour.
 #[derive(Clone, Copy, PartialEq)]
 enum CoastTerm {
     /// Ruling N: `build_coast_reach` over the traced ocean coastline.
@@ -389,18 +425,30 @@ fn legacy_coast_proxy(coast_sdf: &[f32]) -> Vec<f32> {
 // this paragraph exists to keep explicit. No code below needed to change
 // for Ruling T; only this doc comment did.
 
+/// A frozen copy of the hand-ported min-heap used by `build_water_bodies`
+/// before Ruling Q: parallel priority and value vectors, with `push`/`pop`
+/// that sift in a fixed order.
+/// Why: the module notes say equal-priority pop order decides lake shape, so
+/// `std::collections::BinaryHeap` is not a safe substitute.
+/// Must never: be replaced by `BinaryHeap`, or changed independently of the
+/// frozen pre-Ruling-Q algorithm.
 struct LegacyMinHeap {
     p: Vec<f32>,
     v: Vec<usize>,
 }
 
 impl LegacyMinHeap {
+    /// Creates an empty heap with room for `cap` entries in each vector.
     fn with_capacity(cap: usize) -> Self {
         LegacyMinHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
     }
+    /// Number of entries currently in the heap.
     fn size(&self) -> usize {
         self.p.len()
     }
+    /// Appends an entry and sifts it up while its parent's priority is
+    /// strictly greater, the same comparison the frozen algorithm used. Must
+    /// never use `<` for the stop test; equal priorities must not swap.
     fn push(&mut self, pr: f32, va: usize) {
         self.p.push(pr);
         self.v.push(va);
@@ -415,6 +463,9 @@ impl LegacyMinHeap {
             i = pa;
         }
     }
+    /// Removes and returns the value with the smallest priority (the root),
+    /// then sifts the moved last entry down. Panics on an empty heap, which
+    /// the frozen caller never does (it checks `size()` first).
     fn pop(&mut self) -> usize {
         let rv = self.v[0];
         let last = self.p.len() - 1;
@@ -447,6 +498,11 @@ impl LegacyMinHeap {
     }
 }
 
+/// Marks cell `i` done and pushes it onto the heap if it was not already,
+/// with its current filled height. Used to seed the priority flood from the
+/// map border and from ocean cells.
+/// Part of the frozen pre-Ruling-Q `build_water_bodies`; must never be
+/// changed independently of it.
 fn legacy_wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut LegacyMinHeap) {
     if !done[i] {
         done[i] = true;
@@ -454,6 +510,11 @@ fn legacy_wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut Legacy
     }
 }
 
+/// Visits one neighbour in the priority-flood depression pass: wraps in x
+/// when `world`, rejects out-of-range cells, skips cells already done, raises
+/// a lower neighbour to `cur + EPS`, and pushes it.
+/// Part of the frozen pre-Ruling-Q `build_water_bodies`; must never be
+/// changed independently of it.
 #[allow(clippy::too_many_arguments)]
 fn legacy_wb_visit(
     nx: isize,
@@ -482,6 +543,9 @@ fn legacy_wb_visit(
         return;
     }
     done[j] = true;
+    // Epsilon for the priority flood's raised cell height. Source: the frozen
+    // pre-Ruling-Q `build_water_bodies` (matching the reference's own flood
+    // epsilon); source not independently re-established for this test.
     const EPS: f64 = 1e-6;
     if (filled[j] as f64) <= cur {
         filled[j] = (cur + EPS) as f32;
@@ -489,6 +553,11 @@ fn legacy_wb_visit(
     heap.push(filled[j], j);
 }
 
+/// Visits one neighbour in the connected-components pass over below-sea
+/// cells: wraps in x when `world`, and labels and stacks an unlabelled
+/// below-sea cell.
+/// Part of the frozen pre-Ruling-Q `build_water_bodies`; must never be
+/// changed independently of it.
 #[allow(clippy::too_many_arguments)]
 fn legacy_cc_visit(
     nx: isize,
@@ -520,6 +589,17 @@ fn legacy_cc_visit(
     }
 }
 
+/// A frozen copy of `build_water_bodies` as it stood before Ruling Q: the
+/// largest below-sea component is ocean, other below-sea components are
+/// lakes, and a priority-flood depression pass adds lakes where the filled
+/// height exceeds 0.004 over the field and rain is at least 0.22 (the in-body
+/// `lake_depth` and `lake_rain`). Returns the classification only.
+/// Why: the legacy arm must keep reproducing the reference's captured
+/// numbers, so it cannot call today's production rule (see the section
+/// comment above).
+/// Must never: call through to `cartalith_civ::build_water_bodies`, or be
+/// updated for later rule changes. The lake thresholds are the reference's
+/// own; source not re-established here.
 fn legacy_build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, rain: Option<&[f32]>) -> Vec<u8> {
     let n = gw * gh;
     let gw_i = gw as isize;
@@ -617,6 +697,14 @@ fn legacy_build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, worl
     out
 }
 
+/// Assembles every affordance field milestones 1-6 provide, resolves a fresh
+/// river-order pass (see this file's own doc comment for why
+/// `ws.stream_order` isn't the right input), and runs
+/// `build_settlement_suitability` / `find_settlement_seeds` -- the exact
+/// production composition `currentSettlementSuitability()` performs.
+/// `river_term` and `coast_term` pick the production or legacy arm; the
+/// legacy arm also uses the frozen water-body classification.
+/// Must never: let the legacy arm touch today's `build_water_bodies`.
 #[allow(clippy::too_many_arguments)]
 fn compute_suitability_and_seeds(
     ws: &cartalith_engine::WorldState,

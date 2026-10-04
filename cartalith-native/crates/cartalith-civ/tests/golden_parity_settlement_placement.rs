@@ -37,9 +37,17 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so these placements are
+/// computed on the world the reference capture saw.
+/// Must never: be skipped; the `sea_level` assert in each test depends on it.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// One expected settlement placement: cell, faction, capital flag, tier and
+/// coastal flag. Mirrors the fields of [`cartalith_civ::SettlementPlacement`]
+/// that are categorical; `suit` is deliberately left out, because it is
+/// continuous and the module doc says only discrete output is checked here.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ExpectedPlace {
     x: usize,
@@ -50,6 +58,10 @@ struct ExpectedPlace {
     coastal: bool,
 }
 
+/// Asserts the placement list has the expected length and, per place, exactly
+/// the expected cell, faction, capital flag, kind and coastal flag, naming
+/// the label, index and field on failure.
+/// Must never: compare `suit`; see [`ExpectedPlace`].
 fn assert_places_match(
     actual: &[cartalith_civ::SettlementPlacement],
     expected: &[ExpectedPlace],
@@ -72,6 +84,14 @@ fn assert_places_match(
 
 #[test]
 fn settlement_placement_case_0_region() {
+    // Protects: the pure core of `_civIterativeAutoWorld` (reference ~25336)
+    // on a 14 x 11 region: seed snapping onto land then coast, faction
+    // assignment by landmass including the multi-seat branch, tier
+    // classification and coastal flag. The table is a Ruling N re-baseline
+    // (second pass, 2026-09-20), so it pins this port's coastal-reach term,
+    // not the reference's own numbers; the history comment below says which
+    // rows moved and why. Red means seed snapping, spacing, the faction
+    // apportionment or the coast reach moved.
     // case0_region: gw=14 gh=11 seed=24601 world=false
     //
     // **Ruling N re-baseline, second pass** (`LARGE_ITEM_RULINGS.md`,
@@ -131,6 +151,13 @@ fn settlement_placement_case_0_region() {
 
 #[test]
 fn settlement_placement_case_1_world_wrap() {
+    // Protects: the same core on a wrapped 16 x 12 world whose seeds all sit
+    // on one landmass, so every candidate earns its own seat (the K>1
+    // multi-capital branch, here K=3). The expected table is the pre-Ruling-Q
+    // content restored by Ruling T (the history comment below), so it pins
+    // this port's own output on a `world=true` map, not the reference's
+    // numbers. Red means the wrap handling, the 0.65 seed floor or the
+    // size-primary water-body rule moved.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
     // All seeds land on ONE connected landmass (world-wrap). factionCount=6
     // > L=1 landmass, so every candidate earns its own seat and becomes its

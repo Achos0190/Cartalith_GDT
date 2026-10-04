@@ -15,8 +15,16 @@
 use cartalith_civ::build_water_bodies;
 use cartalith_hydrology::{carve_channel_network, enforce_channel_descent};
 
+// Sea level (0.42). Source: this workspace's default sea level, shared with
+// the golden fixtures; the fixtures here set every land cell at or above 0.42
+// and their outlet column at 0.30, so it is the threshold the classifier
+// tests against.
 const SEA: f64 = 0.42;
 
+/// Converts integer cells to cell-centre points (`x + 0.5`, `y + 0.5`), the
+/// form `carve_channel_network` and `enforce_channel_descent` take their
+/// polylines in.
+/// Must never: be applied to points that are already centres.
 fn centres(cells: &[(usize, usize)]) -> Vec<(f64, f64)> {
     cells.iter().map(|&(x, y)| (x as f64 + 0.5, y as f64 + 0.5)).collect()
 }
@@ -38,6 +46,13 @@ fn recv_of(w: usize, h: usize, polys: &[Vec<(f64, f64)>]) -> Vec<i32> {
     recv
 }
 
+/// Reproduces the per-run carve generation used before RV-1:
+/// [`enforce_channel_descent`] once per run, with `drop` 0.0006 (the same
+/// value the network carve is called with below).
+/// Why: it is the positive control. Each fixture first shows this loop
+/// leaving a lake or flooding the valley, so a pass of the network carve
+/// proves the fixture reaches the mechanism and is not trivially clean.
+/// Must never: be used on the product's carve path.
 fn old_carve(fld: &mut [f32], w: usize, h: usize, polys: &[Vec<(f64, f64)>], half_w: f64) {
     for p in polys {
         enforce_channel_descent(fld, w, h, p, SEA, half_w, 0.0006);
@@ -57,6 +72,11 @@ fn on_path(cls: &[u8], w: usize, polys: &[Vec<(f64, f64)>]) -> Vec<u8> {
 /// 0.0002 a step (slower than `drop`): no lake before any carve.
 #[test]
 fn a_diagonal_trench_no_longer_classifies_as_a_string_of_lakes() {
+    // Protects: RV-1 (Ruling BD) on a diagonal valley: the per-run carve
+    // leaves at least 4 lake cells on the channel (positive control, so the
+    // fixture reaches the mechanism) while `carve_channel_network` leaves
+    // none anywhere on the map. Red means the network carve again leaves
+    // closed depressions along a stepping channel.
     let (w, h) = (20usize, 20usize);
     let mut base = vec![0f32; w * h];
     for y in 0..h {
@@ -88,6 +108,11 @@ fn a_diagonal_trench_no_longer_classifies_as_a_string_of_lakes() {
 /// trunk's floor; the trunk is carved first, as trace order has it.
 #[test]
 fn a_confluence_no_longer_classifies_as_a_lake() {
+    // Protects: RV-1 (Ruling BD) at a confluence: a tributary crossing a deep
+    // hole reaches the trunk far below the trunk floor. The per-run carve
+    // makes the junction cell a lake (positive control); the network carve
+    // must leave it land and every channel cell land. Red means the junction
+    // is pitted again.
     let (w, h) = (16usize, 12usize);
     let mut base = vec![0f32; w * h];
     for y in 0..h {
@@ -120,6 +145,12 @@ fn a_confluence_no_longer_classifies_as_a_lake() {
 /// mouth -- the "trunk vanishes into a sea-classed valley" report.
 #[test]
 fn a_lowland_trunk_is_not_drowned_by_the_ocean() {
+    // Protects: RV-1 (Ruling BD) on a plain 0.005 above sea level: the old
+    // accumulated floor sinks under sea level and the ocean floods the valley
+    // (at least 10 channel cells ocean, positive control); the network carve
+    // keeps the whole trunk land to its mouth and the ocean cell count
+    // exactly equal to the uncarved map's. Red means the carve again lowers a
+    // lowland channel below sea level.
     let (w, h) = (32usize, 9usize);
     let mut base = vec![0f32; w * h];
     for y in 0..h {
@@ -149,6 +180,11 @@ fn a_lowland_trunk_is_not_drowned_by_the_ocean() {
 /// long channel-shaped lakes the probe's ×8 frames showed.
 #[test]
 fn a_run_that_stops_short_no_longer_ends_in_a_lake() {
+    // Protects: RV-1 (Ruling BD) for a run ending at x = 15 with the valley
+    // continuing uncarved to the sea: the old floor sinks the last reach
+    // below the cell it drains through and leaves at least 3 lake cells
+    // (positive control); the network carve leaves none. Red means a dead-end
+    // run is pitted below its receiver again.
     let (w, h) = (24usize, 9usize);
     let mut base = vec![0f32; w * h];
     for y in 0..h {

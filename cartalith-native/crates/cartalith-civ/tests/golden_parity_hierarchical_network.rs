@@ -67,9 +67,18 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (RV-1, Ruling BD), so the network is built on
+/// the reference's terrain.
+/// Must never: be skipped; the `field[0]` and `sea_level` asserts depend on
+/// it.
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
+/// Builds a [`cartalith_civ::SettlementPlacement`] at `(x, y)` that is a
+/// coastal Capital with `suit` 0.0 and the given faction. Every settlement in
+/// these cases is a capital, as the module doc says
+/// `golden_parity_settlement_naming.rs`'s fixtures were.
 fn settlement(x: usize, y: usize, faction: i32) -> cartalith_civ::SettlementPlacement {
     cartalith_civ::SettlementPlacement {
         x,
@@ -82,6 +91,11 @@ fn settlement(x: usize, y: usize, faction: i32) -> cartalith_civ::SettlementPlac
     }
 }
 
+/// Derives the three rasters the topology needs from a generated world, the
+/// way production does: water classification, biome raster, and the
+/// river-order raster from `fresh_river_order` (routed on the world's own
+/// drainage mode).
+/// Must never: be fed a world that skipped [`pre_rv1_world::pin`].
 fn affordance_inputs(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -98,6 +112,12 @@ fn affordance_inputs(
 
 #[test]
 fn hierarchical_network_case_0_region_unreachable_place() {
+    // Protects: `_civHierarchicalNetwork`'s raw topology (reference ~21526)
+    // on a 14 x 11 region where place 1 is unreachable: `degree_of` is [1, 0,
+    // 1], the network is the single edge 0-2 with path [35, 34], and the
+    // usage count is 1 on exactly those two cells. Red means the
+    // min-degree-fill pass no longer tolerates an empty candidate list (it
+    // must neither loop nor panic) or the cost grid moved.
     // case0_region: gw=14 gh=11 seed=24601 world=false
     // Same (x,y,faction) triples as golden_parity_settlement_naming.rs's
     // case0. Place 1 (9,3) is unreachable from places 0/2 over the
@@ -130,6 +150,13 @@ fn hierarchical_network_case_0_region_unreachable_place() {
 
 #[test]
 fn hierarchical_network_case_1_world_wrap_complete_graph() {
+    // Protects: the same function on a wrapped 16 x 12 world with five
+    // capitals: the fill pass runs to its ceiling so the graph is the
+    // complete graph K5 (ten edges, `degree_of` [4, 4, 4, 4, 4]), pass 3 adds
+    // nothing, and the edge paths and per-cell usage counts match. The paths
+    // are the Ruling T restoration (history comment in the body), so they pin
+    // this port's own routing on the size-primary water rule. Red means the
+    // cost grid, the fill ceiling or the shortcut pass changed.
     // case1_world_wrap: gw=16 gh=12 seed=314159 world=true
     // Same 5 (x,y,faction) triples as golden_parity_settlement_naming.rs's
     // case1. Every capital requires degree 5 but only 4 other places

@@ -114,6 +114,9 @@
 
 // RV-1 (Ruling BD): this suite proves parity on the reference's world; see
 // `pre_rv1_world.rs` for why the carve's six arrays are pinned back to it.
+/// Shared engine-test fixture that pins the carve's six arrays back to the
+/// pre-RV1 (reference) world (Ruling BD).
+/// Must never: be skipped in [`build_world`].
 #[path = "../../cartalith-engine/tests/fixtures/pre_rv1_world.rs"]
 mod pre_rv1_world;
 
@@ -125,6 +128,13 @@ use cartalith_civ::{FactionAggregatesInput, FactionPlace, ResourcePotentials, Se
 /// reference's own length is stated here.
 const N_F: usize = 7;
 
+/// One generated world plus every derived raster the aggregation reads: the
+/// biome and lithology rasters, water access, population density, resource
+/// potentials, the ocean distance field and the river-flow threshold.
+/// Why: the reference computes these through its `current*()` chains, and
+/// [`build_world`] mirrors that chain.
+/// Must never: be assembled by hand; the hashes in the tests pin exactly this
+/// construction.
 struct World {
     ws: cartalith_engine::WorldState,
     biome: Vec<u8>,
@@ -207,6 +217,12 @@ fn synthetic_territory(field: &[f32], gw: usize, gh: usize, sea: f64, n_f: usize
     t
 }
 
+/// Builds a [`FactionPlace`] from its eight fields.
+/// Why: `tradeVolume`, `economicImportance`, `specialisation` and the
+/// fortified flag have no producer in this workspace (module doc), so each
+/// fixture place supplies them, using the values the reference harness
+/// captured.
+/// Must never: derive any field itself.
 fn place(
     faction: i32,
     pop: f64,
@@ -227,10 +243,19 @@ fn river_mask(w: &World, gw: usize, gh: usize) -> Vec<u8> {
         .collect()
 }
 
+/// Sums an `f32` raster over land cells only (`field >= sea`), in `f64`.
+/// Why: a land-only sum of the density and flow rasters is a compact
+/// fingerprint that is insensitive to ocean cells, and was recorded from the
+/// reference.
 fn land_sum(v: &[f32], field: &[f32], sea: f64) -> f64 {
     v.iter().zip(field).filter(|&(_, &h)| (h as f64) >= sea).map(|(&x, _)| x as f64).sum()
 }
 
+/// FNV-1a (64-bit; the standard offset basis and prime) over a byte slice,
+/// formatted as lowercase hex without zero padding.
+/// Why: the pinned hashes below are in this form, so a whole raster compares
+/// as one short string.
+/// Must never: be changed independently of the recorded hashes.
 fn fnv_bytes(bytes: &[u8]) -> String {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for &b in bytes {
@@ -240,6 +265,7 @@ fn fnv_bytes(bytes: &[u8]) -> String {
     format!("{h:x}")
 }
 
+/// FNV-1a over the little-endian bytes of an `f32` slice, via [`fnv_bytes`].
 fn fnv_f32(v: &[f32]) -> String {
     let mut bytes = Vec::with_capacity(v.len() * 4);
     for x in v {
@@ -248,6 +274,8 @@ fn fnv_f32(v: &[f32]) -> String {
     fnv_bytes(&bytes)
 }
 
+/// FNV-1a over a `u8` raster; an alias for [`fnv_bytes`] kept so call sites
+/// read by the type they hash.
 fn fnv_u8(v: &[u8]) -> String {
     fnv_bytes(v)
 }
@@ -268,12 +296,18 @@ fn near(got: f64, want: f64, what: &str) {
     near_rel(got, want, 1e-9, what);
 }
 
+/// Asserts `got` is within `rel * max(|want|, 1)` of `want`, naming the
+/// quantity on failure. The general form behind [`near`]; the land-sum checks
+/// pass `rel` 1e-6 explicitly.
 #[track_caller]
 fn near_rel(got: f64, want: f64, rel: f64, what: &str) {
     let tol = rel * want.abs().max(1.0);
     assert!((got - want).abs() <= tol, "{what}: got {got}, want {want} (tol {tol})");
 }
 
+/// Asserts `got` is within an absolute `tol` of `want`, naming the quantity
+/// on failure. The food-capacity and food-surplus checks use it with a
+/// tolerance of 1.0 (one unit), including for expected values of zero.
 #[track_caller]
 fn near_abs(got: f64, want: f64, tol: f64, what: &str) {
     assert!((got - want).abs() <= tol, "{what}: got {got}, want {want} (tol {tol})");
@@ -281,6 +315,15 @@ fn near_abs(got: f64, want: f64, tol: f64, what: &str) {
 
 #[test]
 fn faction_aggregates_case_0_region_no_wrap() {
+    // Protects: `_civFactionAggregates` (reference 23575, with v1.55's
+    // Territory Fit), `_civFactionCapital` (23560) and `_civOceanDistField`
+    // (22450) on a 24 x 18 non-wrapping region. The fixture is shaped to
+    // reach the edge cases: an empty faction, a faction with territory and no
+    // settlement, a zero-population hamlet, an out-of-range faction id
+    // skipped by the guard, and a faction spanning the seam. The biome and
+    // ocean-distance hashes were re-baselined by Ruling Q (inline comment).
+    // Red on a hash means the world moved; red below it means an aggregate
+    // moved.
     // Case 0 (gw=24 gh=18 seed=24601 world=false): a small non-wrapping region
     // whose fixture SHAPE reaches the edges on purpose -- faction 6 has neither
     // territory nor settlements (aggregation over an empty faction), faction 2
@@ -810,6 +853,12 @@ fn faction_aggregates_case_0_region_no_wrap() {
 
 #[test]
 fn faction_aggregates_case_1_world_wrap() {
+    // Protects: the same aggregation on a 48 x 36 wrapping world, where the
+    // river threshold discriminates (0.920 of land is river rather than case
+    // 0's degenerate 1.0) and coast, arid, forest and hills take intermediate
+    // values. Faction 3 straddles the seam. Red means a seam-spanning
+    // faction, or one of the terrain-mix axes, aggregates differently from
+    // the reference.
     // Case 1 (gw=48 gh=36 seed=314159 world=true): a wrapping world, big enough
     // that riverFlowThresh actually discriminates (0.920 of land is river here,
     // not case 0's degenerate 1.0) and that coast/arid/forest/hills all take
