@@ -1805,17 +1805,32 @@ impl WorldGen {
         self.river_field_tex.borrow().is_some() && self.shore_field_tex.borrow().is_some()
     }
 
-    /// The shader's river uniforms in one read: `{width}`, the preset's river
-    /// width multiplier the field was built for (`river_width_factor`).
-    /// `{}` when no field. The shader takes the SAME number the build used,
-    /// so a width slider rebuilds the field with the colour texture rather
-    /// than leaving the two to disagree.
+    /// The shader's river uniforms in one read: `{width, bank, bank_color}`.
+    /// `width` is the preset's river width multiplier the field was built for
+    /// (`river_width_factor`); `{}` when no field. The shader takes the SAME
+    /// number the build used, so a width slider rebuilds the field with the
+    /// colour texture rather than leaving the two to disagree.
+    ///
+    /// **RIM-2**: `bank` is the live preset's bank-outline opacity
+    /// ([`render::TerrainAppearance::river_bank`], clamped to 0..1; `0.0` = off,
+    /// the default) and `bank_color` its ink, `river_ink_r/g/b` as a 0..1
+    /// `Vector3`. Both are read from the current appearance each call, not
+    /// from the field's cache key: the outline is a shader-only treatment, so
+    /// changing it must not rebuild the field. The ink is a real colour even
+    /// when `bank` is 0 (the shader never reads it then) -- never a sentinel
+    /// standing in for "no outline".
     #[func]
     fn river_paint_params(&self) -> VarDictionary {
         if self.river_field_tex.borrow().is_none() {
             return VarDictionary::new();
         }
-        vdict! { "width" => self.river_field_width.get() as f64 }
+        let a = self.appearance();
+        let ink = |v: f64| (v / 255.0).clamp(0.0, 1.0) as f32;
+        vdict! {
+            "width" => self.river_field_width.get() as f64,
+            "bank" => a.river_bank.clamp(0.0, 1.0),
+            "bank_color" => Vector3::new(ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)),
+        }
     }
 
     /// **Diagnostic, probe-only**: `on = false` forces `rivers_as_water` off in

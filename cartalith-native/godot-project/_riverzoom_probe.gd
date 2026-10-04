@@ -50,6 +50,23 @@ extends Node
 ##    their smoothness (`max_step` between neighbouring zooms) the "no popping"
 ##    bar, and they must be about one wherever the fade is one. Each zoom's two frames are saved. Positive control: both paths must
 ##    draw ink at the deepest swept zoom.
+##  - RIM-2 (`--rim2`, the bank outline): per preset (`--rim2-presets
+##    "Ink,Natural Vibrant"`, default every `STYLE_PRESETS` entry, applied
+##    through the render workspace's own `_apply_preset` so the shipped
+##    strengths are what runs) at the fit view and at `--rim2-zoom` (default
+##    2.1, just under the deep-zoom switch at 2.2 -- the tiles carry no outline,
+##    RIM-7): the style as shipped, the same frame with the bank forced to 0
+##    (`*_shipped.png` / `*_off.png`; ON-vs-OFF mean abs diff and the pixels
+##    above 8 summed levels), and for a preset that ships none the frame with
+##    the strength forced to `--rim2-force` (default 0.4, `*_forced.png`).
+##    `--rim2-cost NAME` adds the pan frame time and GPU time for that preset
+##    with the bank on and off. `--rim2-head` records shipped frames only (a
+##    HEAD build has no `river_bank` uniform) so a HEAD run and this tree's
+##    can be compared pixel for pixel. Controls: a preset with a bank must
+##    move pixels at the zoomed view, and one frame grabbed twice must be
+##    identical (MAD 0), or the leg fails. `--river-density X`,
+##    `--width-km K`, `--geology-model` and `--metropolis` reproduce the
+##    owner's world (seed 246371, 2048x1311, 1.55, 40075, both switches on).
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -76,6 +93,15 @@ var _fixed_targets: Dictionary = {}
 var _stats_only := false
 var _paint_compare := false
 var _rim5 := false
+var _rim2 := false
+var _rim2_head := false
+var _rim2_presets: Array = []
+var _rim2_zoom := 2.1
+var _rim2_force := 0.4
+var _rim2_cost_preset := ""
+var _river_density := 1.0
+var _geology_model := false
+var _metropolis := false
 var _rim5_zooms: Array = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1.2, 1.35, 1.5, 1.75, 2.0]
 var _appearance := {}
 var _zooms: Array = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 240.0]
@@ -101,6 +127,20 @@ func _ready() -> void:
 			"--stats-only": _stats_only = true
 			"--paint-compare": _paint_compare = true
 			"--rim5": _rim5 = true
+			"--rim2": _rim2 = true
+			"--rim2-head": _rim2_head = true
+			"--rim2-presets":
+				_rim2_presets.clear()
+				if args[i + 1] != "all":
+					for ps in args[i + 1].split(","): _rim2_presets.append(ps)
+				i += 1
+			"--rim2-zoom": _rim2_zoom = float(args[i + 1]); i += 1
+			"--rim2-force": _rim2_force = float(args[i + 1]); i += 1
+			"--rim2-cost": _rim2_cost_preset = args[i + 1]; i += 1
+			"--river-density": _river_density = float(args[i + 1]); i += 1
+			"--geology-model": _geology_model = true
+			"--metropolis": _metropolis = true
+			"--width-km": _width_km = float(args[i + 1]); i += 1
 			"--rim5-zooms":
 				_rim5_zooms.clear()
 				for zs in args[i + 1].split(","): _rim5_zooms.append(float(zs))
@@ -141,8 +181,15 @@ func _ready() -> void:
 
 func _run_seed(seed_v: int) -> void:
 	print("\n======== seed %d  grid %dx%d ========" % [seed_v, _grid.x, _grid.y])
+	## The owner-world switches (`--river-density`, `--geology-model`,
+	## `--metropolis`), set before generating exactly as `_roadsettle_probe`
+	## does; each stays at the engine default unless asked for.
+	if _river_density != 1.0:
+		_br.param_set("river_density", _river_density)
+	if _geology_model:
+		_br.param_set("geology_model", true)
 	_br.generate({"seed": seed_v, "width_km": _width_km, "grid_w": _grid.x, "grid_h": _grid.y,
-		"archetype": "", "villages": true, "sea_level": 0.42})
+		"archetype": "", "villages": true, "metropolis": _metropolis, "sea_level": 0.42})
 	var spins := 0
 	while _br.generating and spins < 2400:
 		await get_tree().create_timer(0.25).timeout
@@ -239,6 +286,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["paint"] = await _paint_compare_run(rivers, targets)
 	if _rim5 and not _stats_only:
 		sr["rim5"] = await _rim5_run()
+	if _rim2:
+		sr["rim2"] = await _rim2_run(targets)
 	_report[str(seed_v)] = sr
 
 
@@ -1041,3 +1090,161 @@ func _rim5_run() -> Dictionary:
 		printerr("PROBE-FAIL: a path drew no river ink at the deepest rim5 zoom (positive control)")
 		_report["fail"] = true
 	return {"rows": rows, "max_step_kept": max_step, "min_kept": kept_min}
+
+
+## ---- RIM-2: the bank outline -------------------------------------------------
+
+## The render workspace instance (the one that owns `STYLE_PRESETS` and
+## `_apply_preset`), found by what it is rather than by a path, so the probe
+## applies the SHIPPED preset data -- bank strengths included -- through the
+## shell's own code. `null` when no node carries them (the leg then fails
+## loudly; it never falls back to a made-up preset).
+func _find_render_workspace(n: Node) -> Node:
+	var sc: Script = n.get_script()
+	if sc != null and sc.get_script_constant_map().has("STYLE_PRESETS") and n.has_method("_apply_preset"):
+		return n
+	for c in n.get_children():
+		var r := _find_render_workspace(c)
+		if r != null:
+			return r
+	return null
+
+
+## A file-name-safe tag for a preset name ("Ink wash" -> "ink_wash").
+func _slug(s: String) -> String:
+	return s.to_lower().replace(" / ", "_").replace(" ", "_").replace("/", "_")
+
+
+## Mean absolute difference per channel (0..255) between two same-size
+## frames, and the count of pixels whose summed |dRGB| exceeds 8 (the
+## antialiased fringe's threshold, as `_diff_masks`). `mad = -1` when the
+## frames are missing or differ in size -- never a plausible 0 (a comparison
+## that could not be made must not read as "identical").
+func _frame_diff(a: Image, b: Image) -> Dictionary:
+	if a == null or b == null or a.get_size() != b.get_size():
+		return {"mad": -1.0, "px8": -1, "px_any": -1}
+	var da := a.get_data(); var db := b.get_data()
+	var sum := 0; var px8 := 0; var any := 0
+	for i in a.get_width() * a.get_height():
+		var o := i * 4
+		var dd: int = absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+		sum += dd
+		if dd > 8: px8 += 1
+		if dd > 0: any += 1
+	return {"mad": float(sum) / float(a.get_width() * a.get_height() * 3), "px8": px8, "px_any": any}
+
+
+## One captured frame of the current style at camera zoom `z` on `centre`,
+## once the view (and, past the deep-zoom switch, the pyramid) has settled.
+func _rim2_grab(centre: Vector2, z: float) -> Image:
+	_vh.reset_view()
+	await _settle(3)
+	_vh.zoom_step(z / _vh.zoom())
+	_vh.move_view_to(centre.x, centre.y)
+	await _settle(24)
+	await _settle_lod()
+	return await _grab()
+
+
+## The RIM-2 leg (see the header): per preset and view, the style as shipped,
+## the same frame with the bank forced to 0 (when the preset has one), and --
+## for presets that ship none -- the frame with it forced to `_rim2_force` so a
+## clean style's outline can be read too. Every frame is saved; the report
+## carries `{bank, view, ppc, lod, mad, px8, px_any}` per comparison.
+## **`--rim2-head` skips every bank-specific step** (it records the shipped
+## frames only), because a HEAD build has no `river_bank` uniform: the run on a
+## HEAD tree and the run on this tree then produce frames a script can compare
+## pixel for pixel (`off == HEAD`).
+func _rim2_run(targets: Dictionary) -> Dictionary:
+	var ws := _find_render_workspace(_app)
+	if ws == null:
+		printerr("PROBE-FAIL: no render workspace found (RIM-2 leg cannot apply presets)")
+		_report["fail"] = true
+		return {}
+	var presets: Array = (ws.get_script() as Script).get_script_constant_map()["STYLE_PRESETS"]
+	var names: Array = []
+	for p in presets:
+		names.append(String(p[0]))
+	var wanted: Array = names if _rim2_presets.is_empty() else _rim2_presets
+	var fit_c := Vector2(_grid.x * 0.5, _grid.y * 0.5)
+	var zoom_c: Vector2 = targets["trunk"]["p"] if targets.has("trunk") else fit_c
+	var views := [["fit", 1.0, fit_c], ["z%.1f" % _rim2_zoom, _rim2_zoom, zoom_c]]
+	var mat: ShaderMaterial = null
+	var rows := []
+	var determinism := -2.0
+	for nm: String in wanted:
+		var idx := names.find(nm)
+		if idx < 0:
+			printerr("PROBE-FAIL: no preset named %s" % nm)
+			_report["fail"] = true
+			continue
+		ws._apply_preset(idx)
+		await _settle(8)
+		await _settle_lod()
+		mat = _vh.map_view.material as ShaderMaterial
+		var bv: Variant = mat.get_shader_parameter("river_bank")
+		var bank := float(bv) if bv != null else -1.0
+		var ink: Variant = mat.get_shader_parameter("river_bank_color")
+		for v in views:
+			var tag := "rim2_%s_%s" % [_slug(nm), String(v[0])]
+			var shipped := await _rim2_grab(v[2], float(v[1]))
+			if shipped == null:
+				continue
+			shipped.save_png(_out.path_join(tag + "_shipped.png"))
+			var row := {"preset": nm, "view": String(v[0]), "bank": bank, "lod": _vh.lod_active(),
+				"ppc": minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * _vh.zoom()}
+			if not _rim2_head:
+				if bank > 0.0:
+					mat.set_shader_parameter("river_bank", 0.0)
+					await _settle(4)
+					var off := await _grab()
+					off.save_png(_out.path_join(tag + "_off.png"))
+					row["vs_off"] = _frame_diff(shipped, off)
+					## Determinism control: the same OFF frame again must be
+					## pixel-identical, or every "MAD 0" below is luck.
+					if determinism < -1.5:
+						await _settle(4)
+						var off2 := await _grab()
+						determinism = float(_frame_diff(off, off2)["mad"])
+						row["determinism_mad"] = determinism
+					mat.set_shader_parameter("river_bank", bank)
+					await _settle(4)
+				elif _rim2_force > 0.0:
+					mat.set_shader_parameter("river_bank", _rim2_force)
+					await _settle(4)
+					var forced := await _grab()
+					forced.save_png(_out.path_join(tag + "_forced.png"))
+					row["forced"] = _rim2_force
+					row["vs_forced"] = _frame_diff(forced, shipped)
+					mat.set_shader_parameter("river_bank", bank)
+					await _settle(4)
+			rows.append(row)
+			print("    rim2 %-16s %-5s bank %.2f ppc %.2f lod=%s  %s" % [nm, String(v[0]), bank, row["ppc"], str(row["lod"]),
+				str(row.get("vs_off", row.get("vs_forced", "(shipped only)")))])
+		if nm == _rim2_cost_preset:
+			var cost := {}
+			for v in views:
+				cost[String(v[0])] = {"shipped": await _pan_cost(v[2], float(v[1]))}
+				if not _rim2_head and bank > 0.0:
+					mat.set_shader_parameter("river_bank", 0.0)
+					cost[String(v[0])]["off"] = await _pan_cost(v[2], float(v[1]))
+					mat.set_shader_parameter("river_bank", bank)
+			print("  rim2 frame cost (%s): %s" % [nm, str(cost)])
+			rows.append({"preset": nm, "cost": cost})
+	## Positive controls (never vacuous): a preset that ships a bank must move
+	## pixels at the zoomed view, and the repeat of one frame must be identical.
+	if not _rim2_head:
+		var moved := false
+		var had_bank := false
+		for r in rows:
+			if r.has("bank") and float(r["bank"]) > 0.0:
+				had_bank = true
+				if r["view"] != "fit" and int(r["vs_off"]["px8"]) > 0:
+					moved = true
+		if had_bank and not moved:
+			printerr("PROBE-FAIL: a preset with a bank drew no outline pixels at the zoomed view (positive control)")
+			_report["fail"] = true
+		if had_bank and determinism != 0.0:
+			printerr("PROBE-FAIL: the same frame grabbed twice differs (MAD %s); identity checks mean nothing" % str(determinism))
+			_report["fail"] = true
+	return {"rows": rows}

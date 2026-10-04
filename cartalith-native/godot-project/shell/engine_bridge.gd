@@ -1099,8 +1099,10 @@ func rivers_painted() -> bool:
 		return false
 	return bool(world_gen.rivers_painted())
 
-## The shader's river parameters (`WorldGen::river_paint_params`): `{width}`,
-## the river width multiplier the field was built for. `{}` with no field.
+## The shader's river parameters (`WorldGen::river_paint_params`): `{width,
+## bank, bank_color}` -- the river width multiplier the field was built for,
+## and (RIM-2) the preset's bank-outline opacity (0 = off) with its ink as a
+## 0..1 Vector3. `{}` with no field.
 func river_paint_params() -> Dictionary:
 	if generating or not _has("river_paint_params"):
 		return {}

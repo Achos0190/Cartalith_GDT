@@ -498,8 +498,10 @@ func _apply_shore_field() -> void:
 	_apply_river_paint()
 
 ## **RIM-1/RIM-6: the rivers painted into the map** (Ruling BU). Hands
-## `map_shore.gdshader` the river distance field, the styled river colour map
-## and the width the field was built for, and switches the painting on when
+## `map_shore.gdshader` the river distance field, the styled river colour map,
+## the width the field was built for and (RIM-2) the preset's bank-outline
+## strength and ink (`river_paint_params`; strength 0 draws no outline), and
+## switches the painting on when
 ## all of them exist, the shore field does (the river merges into it), the
 ## Rivers layer is on and no field view covers the map. Called with the shore
 ## field after every repaint, by the Rivers switch and by the field views --
@@ -521,6 +523,11 @@ func _apply_river_paint() -> void:
 	mat.set_shader_parameter("river_field", fld)
 	mat.set_shader_parameter("river_color", col)
 	mat.set_shader_parameter("river_width", float(params.get("width", 1.0)))
+	## RIM-2: the bank outline. A cdylib without the keys hands 0.0 -- off --
+	## never a plausible strength; the ink is the preset's own river ink and is
+	## only read by the shader when the strength is above 0.
+	mat.set_shader_parameter("river_bank", float(params.get("bank", 0.0)))
+	mat.set_shader_parameter("river_bank_color", params.get("bank_color", Vector3.ZERO))
 	mat.set_shader_parameter("river_on", on)
 
 func _ready() -> void:

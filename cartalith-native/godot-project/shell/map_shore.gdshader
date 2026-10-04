@@ -39,9 +39,20 @@ shader_type canvas_item;
 // `O1_FADE_FULL_PPC` up), so headwater streams thin out of a zoomed-out map
 // without popping. Painted path only: the vector stroke, tiles and export are
 // RIM-7's.
+// **RIM-2**: with `river_bank` above zero a one-pixel line in `river_bank_color`
+// (the style's river ink) is drawn on the river's visible edge, `river_field.rs`
+// `bank_coverage` mirrored: centred on the 50 % point of the fringe, inward only
+// as far as the river has a body (a 1 px stream takes no ink on its bed),
+// outward only as far as the field's valid band less a margin (it thins to
+// nothing at a zoomed-out view rather than ending on a step), times the same
+// order-1 alpha (RIM-5: no orphan outline on a faded stream) and plate-frame
+// weight as the water. `river_bank` 0 -- every preset with no opinion -- runs
+// none of it, so the render is what it was, bar a measured 1-LSB single-pixel residue
+// in 5 of 32 probe frames (cause unproven, probably driver rounding after this recompile).
 //
 // Must never invent a colour: every output is a mix of texels of this
-// texture (and `river_color`, itself a map render). Must never move a cell centre across the shore (the field's clamp
+// texture, `river_color` (itself a map render), or -- the one exception, RIM-2 --
+// `river_bank_color`, the preset's own ungraded river ink. Must never move a cell centre across the shore (the field's clamp
 // guarantees it). Off (`shore_on` false) it is the plain nearest-filtered
 // texture, which is what a binary without the field, and the reference look
 // (`TerrainAppearance::smooth_shores` false), draw.
@@ -62,6 +73,13 @@ uniform bool river_on = false;
 uniform float river_width = 1.0;
 // 0 draws no floodplain tint; 1 is the full tint below.
 uniform float floodplain_strength = 1.0;
+// RIM-2: the bank outline's opacity (0 = off, the default and what every preset
+// with no opinion hands over, `WorldGen::river_paint_params`) and its ink, the
+// preset's `river_ink_r/g/b` as 0..1. The ink is NOT passed through the style's
+// grade, as the river's own colour map is: a preset that grades heavily
+// (`grade_temperature`, exposure) should keep `river_bank` small or off.
+uniform float river_bank = 0.0;
+uniform vec3 river_bank_color = vec3(0.0);
 
 // The order-1 de-emphasis, `river_stroke::o1_deemphasis`: `zk` is pixels per
 // cell, clamped to 1 below; faded out by 8 (the reference's `zk = 8`).
@@ -79,6 +97,15 @@ const float O1_FADE_FULL_PPC = 0.8;
 float o1_distance_fade(float ppc) {
 	return smoothstep(O1_GONE_PPC, O1_FADE_FULL_PPC, ppc);
 }
+
+// RIM-2, `river_field.rs`: the bank outline's full-strength width in screen
+// pixels, the margin it keeps from the field's valid band in cells, and that
+// band's guaranteed least (`river_field::BAND_CELLS`). Labelled judgement for
+// the first two (see the Rust); keep all three in step with it -- a test reads
+// them from here.
+const float BANK_WIDTH_PX = 1.0;
+const float BANK_BAND_MARGIN_CELLS = 1.0;
+const float FIELD_BAND_CELLS = 3.5;
 
 // The floodplain tint: a lift toward a lighter, greener land, **labelled
 // judgement** tuned on the owner's world (before/after sheets, 2026-10-04):
@@ -116,6 +143,7 @@ void fragment() {
 	// sentinel is 64 cells).
 	float rcov = 0.0;
 	float fp = 0.0;
+	float bnk = 0.0;
 	if (paint) {
 		float o1 = clamp(rf.b, 0.0, 1.0);
 		vec2 dm = o1_deemphasis(ppc);
@@ -128,6 +156,17 @@ void fragment() {
 		float edge = rf.g * river_width;
 		float e = rf.r - edge;
 		fp = (1.0 - smoothstep(0.0, 1.0 + edge, e)) * (1.0 - o1) * smoothstep(0.35, 1.0, edge) * floodplain_strength * rf.a;
+		// RIM-2, `river_field::bank_coverage`: a line centred on the visible
+		// edge (`be` pixels outside it), reaching in only as far as the river
+		// has a body (a 1 px stream: not at all) and out only as far as the
+		// field's valid band less a margin. Off (0) runs none of this.
+		if (river_bank > 0.0) {
+			float be = rf.r * ppc - (hw_px + 0.5);
+			float reach = 0.5 * BANK_WIDTH_PX + 0.5;
+			float room = max((rf.g * river_width + FIELD_BAND_CELLS - BANK_BAND_MARGIN_CELLS) * ppc - hw_px - 0.5, 0.0);
+			float ring = be < 0.0 ? clamp(min(reach, max(hw_px - 0.5, 0.0)) + be, 0.0, 1.0) : clamp(min(reach, room) - be, 0.0, 1.0);
+			bnk = ring * clamp(river_bank, 0.0, 1.0) * am * rf.a;
+		}
 	}
 
 	if (shore) {
@@ -172,12 +211,19 @@ void fragment() {
 			// colour takes the floodplain and the river, then the shore's
 			// coverage mixes the water over it.
 			vec3 land = mix(floodplain(cl.rgb, fp), rcol, rcov);
+			if (bnk > 0.0) {
+				land = mix(land, river_bank_color, bnk);
+			}
 			COLOR = mix(vec4(land, cl.a), cw, cov) * v_mod;
 		} else if (!any_w && paint) {
 			// All land: the pixel is the nearest texel (what the TextureRect
 			// drew), with the floodplain and river over it.
 			vec4 t = COLOR;
-			COLOR = vec4(mix(floodplain(t.rgb, fp), rcol * v_mod.rgb, rcov), t.a);
+			vec3 lnd = mix(floodplain(t.rgb, fp), rcol * v_mod.rgb, rcov);
+			if (bnk > 0.0) {
+				lnd = mix(lnd, river_bank_color * v_mod.rgb, bnk);
+			}
+			COLOR = vec4(lnd, t.a);
 		}
 	}
 }

@@ -1945,6 +1945,21 @@ pub struct TerrainAppearance {
     /// (paper, frame), local contrast and the colour grade act on the river
     /// at every value: they run after this stage whichever way it is set.
     pub river_through: f64,
+    /// **RIM-2 (Ruling BU): the river's bank outline**, 0..1. The opacity of a
+    /// thin line in the style's ink ([`Self::river_ink_r`]/`g`/`b`) drawn at the
+    /// painted river's edge by `map_shore.gdshader` -- the pen line an inked,
+    /// engraved or printed atlas runs along a river's banks. **`0.0` is OFF and
+    /// the default** (`TerrainAppearance::default()`, [`Self::js_reference`] and
+    /// every preset that expresses no opinion): the shader then runs no outline
+    /// code and the render matches a build without this field, up to a measured
+    /// residue (1 pixel off by 1 LSB in 5 of 32 probe frames, cause unproven,
+    /// probably driver rounding after the shader recompile).
+    /// Unlike its neighbours this is a *shader-only* treatment of the screen
+    /// painted path (`river_field::bank_coverage` is its mirrored law; tiles and
+    /// export are RIM-7's), so [`render_serial`] cannot see it and
+    /// `tests/appearance_tiers.rs` lists it as exempt. Must never move a
+    /// generated value.
+    pub river_bank: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
     /// luminance, `-1.0` is greyscale. No reference counterpart — the
@@ -2260,6 +2275,9 @@ impl Default for TerrainAppearance {
             river_ink_g: 36.0,
             river_ink_b: 80.0,
             river_through: 1.0,
+            // RIM-2: the bank outline is OFF unless a preset asks for it (the
+            // shader then runs no outline code at all).
+            river_bank: 0.0,
             biome_sat: 0.0,
             relief_chroma: 0.0,
             // Cel / toon: off, by branch -- see the fields.
@@ -2537,6 +2555,8 @@ impl TerrainAppearance {
             river_ink_g: 36.0,
             river_ink_b: 80.0,
             river_through: 1.0,
+            // RIM-2: pinned at its default (off) like the river keys above it -- shader-only, unread here.
+            river_bank: 0.0,
             // Cel / toon shading is a port-only style with no reference row:
             // pinned off here explicitly rather than inherited, so a future
             // change to `default()` cannot reach the parity path through it.
@@ -2811,6 +2831,9 @@ tunables! {
     "river_ink_g"           => river_ink_g,           0.0, 255.0,  "River ink green";
     "river_ink_b"           => river_ink_b,           0.0, 255.0,  "River ink blue";
     "river_through"         => river_through,         0.0,   1.0,  "River under styles";
+    // RIM-2: the bank outline's opacity; 0 (the default) is off. A fraction,
+    // like its neighbours; shader-only (`appearance_tiers.rs` exempts it) --
+    "river_bank"            => river_bank,            0.0,   1.0,  "River bank outline";
     // -- Chroma and atmosphere (no reference counterpart for the first two;
     //    the third is the reference's own literal, made adjustable) --
     "biome_sat"             => biome_sat,            -1.0,   1.0,  "Biome saturation";

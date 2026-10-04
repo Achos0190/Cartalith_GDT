@@ -56,6 +56,17 @@
 //! river adds nothing, and the shore's contour is untouched
 //! (`map_shore.gdshader`).
 //!
+//! **RIM-2: the optional bank outline** ([`bank_coverage`], `river_bank`).
+//! A one-pixel line in the style's ink centred on the visible edge, read from
+//! the same `R`/`G`/`B`/`A` -- no new channel -- and gated per preset
+//! (`TerrainAppearance::river_bank`, 0 = off, the default, running no outline
+//! code in the shader at all). It is measured from the very edge the water
+//! uses ([`edge_px`]), so the two cannot disagree; it takes the order-1 alpha
+//! (RIM-5's fade removes the outline with the stream) and the plate-frame
+//! weight `A`; and it is clamped to the field's valid band so it thins to
+//! nothing at a zoomed-out view instead of ending on a step. Screen painted
+//! path only: tiles and export are RIM-7's.
+//!
 //! **Resolution and memory.** The field is supersampled by [`field_scale`]
 //! (1 or 2 texels a cell per axis) because a bilinear read of an unsigned
 //! distance overestimates it by up to half a texel at the centreline, which
@@ -366,14 +377,86 @@ impl RiverField {
 /// and `river_stroke::stroke_mesh`'s: the stroke is `hw_px` to its inner
 /// edge, then alpha falls linearly to zero over [`EDGE_FRINGE_PX`] more.
 pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
+    let (hw_px, am) = edge_px(texel, ppc, river_width);
+    let d_px = texel[0] * ppc;
+    (((hw_px + EDGE_FRINGE_PX - d_px) / EDGE_FRINGE_PX).clamp(0.0, 1.0), am)
+}
+
+#[cfg(test)]
+/// The two numbers [`coverage`] and [`bank_coverage`] share, so the outline
+/// can never be measured from a different edge than the water: the half-width
+/// in screen pixels (`hw_px`, with the order-1 narrowing and the 1 px floor)
+/// and the order-1 alpha multiplier (`am`, with RIM-5's headwater fade).
+fn edge_px(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
     let (wm_o1, am_o1) = crate::river_stroke::o1_deemphasis(ppc);
     let o1 = texel[2].clamp(0.0, 1.0);
     let wm = 1.0 + (wm_o1 - 1.0) * o1;
     // RIM-5: the order-1 share also fades out as the map zooms out.
     let am = 1.0 + (am_o1 * crate::river_stroke::o1_distance_fade(ppc) - 1.0) * o1;
     let hw_px = (texel[1] * ppc * wm * river_width).max(0.5 * MIN_STROKE_PX);
+    (hw_px, am)
+}
+
+/// **RIM-2: the full-strength width of the bank outline, in screen pixels.**
+/// `map_shore.gdshader` keeps its own copy (`BANK_WIDTH_PX`; a test reads it
+/// from the shader's text and holds the two equal). **Labelled judgement**: a
+/// one-pixel pen line is what an engraved or inked atlas runs along a bank --
+/// anything wider reads as a second, darker river rather than an edge, and
+/// the line is antialiased over one more pixel (`1 + BANK_WIDTH_PX` px in all).
+#[cfg(test)]
+pub const BANK_WIDTH_PX: f32 = 1.0;
+
+/// **RIM-2: how much of the field's valid band the outline may not use, in
+/// cells.** The field's texels hold the true distance only out to
+/// [`band_cells`] past the edge and the [`SENTINEL`] beyond it, and a
+/// bilinear read within one texel of that limit mixes the two -- a distance far
+/// too large, which would cut the outline off with a visible step. One cell is
+/// the width of a texel of the coarser (1 texel a cell) field, the worst case.
+/// **Labelled judgement**, mirrored in the shader as `BANK_BAND_MARGIN_CELLS`.
+#[cfg(test)]
+pub const BANK_BAND_MARGIN_CELLS: f32 = 1.0;
+
+/// **The shader's bank outline law, mirrored** (RIM-2): the outline's weight
+/// at a pixel whose bilinear field read is `texel`, with `bank` the preset's
+/// opacity for it ([`crate::render::TerrainAppearance::river_bank`], 0 = off).
+/// Returns the weight the ink is mixed in by, `0..=bank`.
+///
+/// The line is centred on the river's visible edge -- the 50 % point of
+/// [`coverage`]'s fringe, `hw_px + EDGE_FRINGE_PX / 2` -- with `e` the
+/// signed distance from it in screen pixels (positive outside). Its full
+/// reach on each side is `BANK_WIDTH_PX / 2 + 0.5` and its weight falls
+/// linearly to zero over that, so a line of width 1 is the one-pixel
+/// antialiased stroke the rest of the river is. Two clamps, each so the line
+/// can never be where it has no business:
+///
+/// - **inward** it reaches at most `hw_px - 0.5` into the water (0 for the
+///   1 px floor stream): a stream with no body gets no ink over its bed, so a
+///   thin river is outlined from the outside only and never turned into a
+///   dark line;
+/// - **outward** it reaches at most to the field's valid band less
+///   [`BANK_BAND_MARGIN_CELLS`] (`(hw * river_width + BAND_CELLS - margin) *
+///   ppc - hw_px - 0.5` px past the edge; [`BAND_CELLS`] is the band's
+///   guaranteed least), so at a zoomed-out view where the band is narrower than a
+///   pixel the line thins to nothing instead of ending on a step.
+///
+/// It takes the order-1 alpha `am` (so RIM-5's headwater fade removes the
+/// outline with the water: no orphan outline on a faded stream) and the
+/// plate-frame weight `texel[3]` (none on the bare-paper margin) -- the same
+/// two factors [`coverage`]'s composite takes.
+#[cfg(test)]
+pub fn bank_coverage(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> f32 {
+    if bank <= 0.0 {
+        return 0.0;
+    }
+    let (hw_px, am) = edge_px(texel, ppc, river_width);
     let d_px = texel[0] * ppc;
-    (((hw_px + EDGE_FRINGE_PX - d_px) / EDGE_FRINGE_PX).clamp(0.0, 1.0), am)
+    let e = d_px - (hw_px + 0.5 * EDGE_FRINGE_PX);
+    let reach = 0.5 * BANK_WIDTH_PX + 0.5;
+    let room = ((texel[1] * river_width + BAND_CELLS - BANK_BAND_MARGIN_CELLS) * ppc - hw_px - 0.5 * EDGE_FRINGE_PX).max(0.0);
+    let outward = reach.min(room);
+    let inward = reach.min((hw_px - 0.5).max(0.0));
+    let ring = if e < 0.0 { (inward + e).clamp(0.0, 1.0) } else { (outward - e).clamp(0.0, 1.0) };
+    ring * bank.clamp(0.0, 1.0) * am * texel[3]
 }
 
 #[cfg(test)]
@@ -571,6 +654,184 @@ mod tests {
         assert!((at(30.0, 20.0) - 1.0).abs() < 0.01, "in the interior it is 1");
         let bare = build(&g, 48, 40, 1.0, &|_, _| 0.0).expect("a field");
         assert!((0..bare.h as i64).all(|j| (0..bare.w as i64).all(|i| (bare.texel(i, j)[3] - 1.0).abs() < 1e-3)));
+    }
+
+    // ---- RIM-2: the bank outline -------------------------------------------------
+
+    /// One screen column of a straight river through a built field: the pixels
+    /// at `py` rows `0..ph`, each reading the field at its own cell position
+    /// (the shader's per-pixel read), as `(py, signed e, texel, ring weight)`
+    /// with `e` the pixel's distance from the river's visible edge in screen
+    /// pixels (negative inside the water). The river lies on `y = 20`.
+    fn column(width: f32, ppc: f32, rw: f32, bank: f32) -> Vec<(usize, f32, [f32; 4], f32)> {
+        let f = build(&geom(vec![run(20.0, 2.0, 62.0, width, 3)]), 64, 40, rw, &|_, _| 0.0).expect("a field");
+        let ph = (40.0 * ppc) as usize;
+        (0..ph)
+            .map(|py| {
+                let t = f.sample(30.0, py as f32 / ppc);
+                let (hw_px, _) = edge_px(t, ppc, rw);
+                let e = t[0] * ppc - (hw_px + 0.5 * EDGE_FRINGE_PX);
+                (py, e, t, bank_coverage(t, ppc, rw, bank))
+            })
+            .collect()
+    }
+
+    /// Protects: the off switch and the outline's presence. With `bank` 0 not
+    /// one pixel of any column is inked (so a preset with no opinion draws the
+    /// river exactly as before); with `bank` > 0 the same column has ink --
+    /// the positive control that fails if the outline is dropped, and the peak
+    /// is bounded by the preset's own strength (a bank of 0.6 never inks
+    /// beyond 0.6).
+    #[test]
+    fn the_outline_is_off_at_zero_and_drawn_above_it() {
+        // 0.5 px a cell is left out on purpose: with one sample per pixel the ring
+        // there is thinner than the sampling and can fall between rows (phase, not a
+        // dropped outline); `the_outline_never_reaches_past_the_fields_valid_band`
+        // covers that density with a river whose ring does land on a row.
+        for ppc in [1.0f32, 4.0, 16.0] {
+            let off = column(3.0, ppc, 1.0, 0.0);
+            assert!(off.iter().all(|c| c.3 == 0.0), "ppc {ppc}: bank 0 inked a pixel");
+            let on = column(3.0, ppc, 1.0, 0.6);
+            let peak = on.iter().map(|c| c.3).fold(0.0f32, f32::max);
+            assert!(peak > 0.0, "ppc {ppc}: bank 0.6 drew no outline at all");
+            assert!(peak <= 0.6 + 1e-6, "ppc {ppc}: the ring exceeds the preset's strength ({peak})");
+        }
+    }
+
+    /// Protects: the outline's SHAPE on a river wide enough to have a body
+    /// (3 cells wide at 4 px a cell; the edge is measured from the stored
+    /// field, not assumed). A one-pixel line centred on each bank:
+    /// (1) nothing leaks into the interior (any pixel more than one pixel
+    /// inside the edge is untouched) or beyond the line (more than one pixel
+    /// outside it is untouched); (2) each bank carries ink -- a hat function
+    /// of half-width 1 sampled at unit pixel spacing sums to exactly the
+    /// strength whatever its phase, so each bank's total is `bank` (a wider
+    /// or narrower line moves it: this is what holds `BANK_WIDTH_PX` to one
+    /// pixel); (3) the water bed between the banks is not inked.
+    #[test]
+    fn the_outline_is_a_one_pixel_line_on_each_bank_and_nowhere_else() {
+        let (ppc, bank) = (4.0f32, 1.0f32);
+        let col = column(3.0, ppc, 1.0, bank);
+        let (mut up, mut down) = (0.0f32, 0.0f32);
+        for &(py, e, _, b) in &col {
+            if !(-1.0 - 1e-3..=1.0 + 1e-3).contains(&e) {
+                assert_eq!(b, 0.0, "py {py}: ink {b} at e = {e} px, beyond the one-pixel line");
+            }
+            if (py as f32) < 20.0 * ppc {
+                up += b;
+            } else {
+                down += b;
+            }
+        }
+        assert!(col.iter().any(|c| c.1 < -3.0), "positive control: the fixture has water body to leak into");
+        for (name, sum) in [("upper", up), ("lower", down)] {
+            assert!((sum - bank).abs() < 0.05, "the {name} bank carries {sum} of ink, expected one pixel's worth ({bank})");
+        }
+    }
+
+    /// Protects: a thin stream is outlined from the OUTSIDE only. A stream at
+    /// the 1 px floor has no body to ink: no pixel inside its visible edge
+    /// (e < 0) may take any ink, so a one-pixel river is never turned into a
+    /// dark line (the failure the inward clamp exists for).
+    #[test]
+    fn a_floor_width_stream_takes_no_ink_over_its_bed() {
+        for ppc in [1.0f32, 2.0, 4.0] {
+            let col = column(0.1, ppc, 1.0, 1.0);
+            let hw_px = col.iter().map(|c| edge_px(c.2, ppc, 1.0).0).fold(0.0f32, f32::max);
+            assert!((hw_px - 0.5).abs() < 1e-3, "positive control: the stream is at the 1 px floor ({hw_px})");
+            assert!(col.iter().all(|c| c.1 >= 0.0 || c.3 == 0.0), "ppc {ppc}: ink inside the water of a floor stream");
+            assert!(col.iter().any(|c| c.3 > 0.0), "ppc {ppc}: and it still has its outer outline");
+        }
+    }
+
+    /// Protects: the band clamp. The field's distance is the sentinel beyond
+    /// `band_cells`, and a read within a texel of that mixes it in; at a
+    /// zoomed-out view the outline must therefore stop short of the band by
+    /// `BANK_BAND_MARGIN_CELLS` and thin to nothing rather than end on a step.
+    /// For every pixel of a sweep of densities, any ink lies at a stored
+    /// distance of at most `band_cells - margin` cells, and a density whose
+    /// band cannot hold a pixel (0.2 px a cell or less) draws none.
+    #[test]
+    fn the_outline_never_reaches_past_the_fields_valid_band() {
+        for ppc in [0.1f32, 0.2, 0.3, 0.4, 0.5, 0.8, 1.0, 2.0, 8.0] {
+            let col = column(0.8, ppc, 1.0, 1.0);
+            let mut ink = 0usize;
+            for &(py, _, t, b) in &col {
+                if b > 0.0 {
+                    ink += 1;
+                    let limit = band_cells(t[1], 1.0) - BANK_BAND_MARGIN_CELLS;
+                    assert!(t[0] <= limit + 1e-3, "ppc {ppc} py {py}: ink at {} cells, past {limit}", t[0]);
+                }
+            }
+            if ppc <= 0.2 {
+                assert_eq!(ink, 0, "ppc {ppc}: the band cannot hold the line, yet {ink} pixels are inked");
+            }
+        }
+        // And at the owner world's fit density the line is thinned, not absent.
+        assert!(column(0.8, 0.5, 1.0, 1.0).iter().any(|c| c.3 > 0.0), "no outline at 0.5 px a cell");
+    }
+
+    /// The outline's peak weight (at the visible edge) for a fabricated texel:
+    /// half-width `hw` cells, order-1 weight `o1`, frame weight `frame`.
+    fn peak(hw: f32, o1: f32, frame: f32, ppc: f32, bank: f32) -> f32 {
+        let (hw_px, _) = edge_px([0.0, hw, o1, frame], ppc, 1.0);
+        bank_coverage([(hw_px + 0.5) / ppc, hw, o1, frame], ppc, 1.0, bank)
+    }
+
+    /// Protects: the outline takes the same two factors the water does. RIM-5's
+    /// headwater fade removes it with the stream (zero at and below
+    /// `O1_GONE_PPC`, the opening 0.4 at `O1_FADE_FULL_PPC`, a trunk untouched),
+    /// so a faded stream leaves no orphan outline; and the plate-frame weight
+    /// scales it, so none lies on the bare-paper margin.
+    #[test]
+    fn the_outline_fades_with_the_headwater_and_stops_at_the_frame() {
+        // A wide headwater (10 cells half-width) keeps room in the band at 0.2 px/cell,
+        // so the zero below is the FADE, not the band clamp.
+        let (hw_px, _) = edge_px([0.0, 10.0, 1.0, 1.0], river_stroke::O1_GONE_PPC, 1.0);
+        let room = (10.0 + BAND_CELLS - BANK_BAND_MARGIN_CELLS) * river_stroke::O1_GONE_PPC - hw_px - 0.5;
+        assert!(room > 0.5, "positive control: the band alone would leave the line room ({room})");
+        assert_eq!(peak(10.0, 1.0, 1.0, river_stroke::O1_GONE_PPC, 1.0), 0.0, "a faded headwater keeps no outline");
+        assert_eq!(peak(10.0, 1.0, 1.0, 0.1, 1.0), 0.0);
+        let at_full = peak(10.0, 1.0, 1.0, river_stroke::O1_FADE_FULL_PPC, 1.0);
+        assert!((at_full - 0.4).abs() < 1e-5, "from O1_FADE_FULL_PPC the order-1 alpha 0.4 scales it ({at_full})");
+        assert!((peak(10.0, 0.0, 1.0, river_stroke::O1_FADE_FULL_PPC, 1.0) - 1.0).abs() < 1e-5, "a trunk's line is full strength");
+        let mid = peak(10.0, 1.0, 1.0, 0.5, 1.0);
+        assert!(mid > 0.0 && mid < at_full, "mid-fade is partial ({mid})");
+        assert!((peak(10.0, 0.0, 0.5, 2.0, 1.0) - 0.5).abs() < 1e-5, "half frame weight, half the ink");
+        assert_eq!(peak(10.0, 0.0, 0.0, 2.0, 1.0), 0.0, "no outline on the frame margin");
+    }
+
+    /// Protects: the shader's RIM-2 mirror -- `map_shore.gdshader` keeps its own
+    /// copies of the line's width, the band margin and the field's least band
+    /// (GLSL cannot import Rust), each read from the shader's text and held
+    /// equal to the Rust's; and the composite must be gated on the strength so
+    /// OFF runs no outline code (what keeps off identical to before, bar a 1-LSB single-pixel residue measured in 5 of 32 probe frames).
+    #[test]
+    fn the_shader_mirrors_the_bank_outline_constants() {
+        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
+        let konst = |name: &str| -> f32 {
+            let key = format!("const float {name} = ");
+            let at = src.find(&key).unwrap_or_else(|| panic!("the shader declares no `{name}`")) + key.len();
+            src[at..].split(';').next().unwrap().trim().parse().expect("a float literal")
+        };
+        assert_eq!(konst("BANK_WIDTH_PX"), BANK_WIDTH_PX);
+        assert_eq!(konst("BANK_BAND_MARGIN_CELLS"), BANK_BAND_MARGIN_CELLS);
+        assert_eq!(konst("FIELD_BAND_CELLS"), BAND_CELLS);
+        assert!(src.contains("if (river_bank > 0.0)"), "the shader's outline is not gated on the strength");
+        // Two composites (the shore branch and the all-land branch), each gated.
+        assert_eq!(src.matches("if (bnk > 0.0)").count(), 2, "each shader composite must be gated on the outline weight");
+    }
+
+    /// Protects: the default is a literal zero -- OFF -- not merely whatever
+    /// the constant is today, in the shipped default and the reference
+    /// appearance alike (a bank outline can never leak into either by a
+    /// retuned default), and the tunable's range is the 0..1 strength.
+    #[test]
+    fn the_outline_defaults_to_off() {
+        assert_eq!(crate::render::TerrainAppearance::default().river_bank, 0.0);
+        assert_eq!(crate::render::TerrainAppearance::js_reference().river_bank, 0.0);
+        let (key, lo, hi, _) = crate::render::TerrainAppearance::TUNABLE.iter().find(|t| t.0 == "river_bank").copied().expect("river_bank is a tunable");
+        assert_eq!((key, lo, hi), ("river_bank", 0.0, 1.0));
     }
 
     /// Protects: `f16_to_f32` inverts `render::f16_bits` over the values the

@@ -151,12 +151,27 @@ const STYLE_PRESETS := [
 	## palette, §2.19 night's "everything dimmed except what must stand
 	## out") and otherwise the style's own ink (Ink's pen, Print's federal
 	## blue, Antique's iron-gall grey-blue).
+	##
+	## **`river_bank` (RIM-2, 2026-10-04): the bank outline.** A one-pixel line
+	## in the preset's own river ink (`river_ink_r/g/b`) along the painted
+	## river's edge, `map_shore.gdshader`; the value is its opacity. **A preset
+	## with no `river_bank` key has none (0, the default): its render matches
+	## a build without the feature, bar a measured 1-LSB single-pixel residue in 5 of 32 probe frames.** Set only on the inked,
+	## engraved and atlas styles, where a drawn bank is the convention; left
+	## off on the clean, soft and line-art ones (Natural Vibrant, Default,
+	## Watercolor's wet edges, Print, Village, Imhof, Blueprint -- whose line
+	## work is RIM-6's -- Nautical, Night, Cel / Toon). Each value is a labelled
+	## judgement, tuned by eye on the owner's world, not a measurement.
 	["Antique", "Antique Parchment", {"sepia": 0.35, "multi_sun": true},
 		{"river_ink": 0.35, "river_ink_r": 58.0, "river_ink_g": 74.0, "river_ink_b": 92.0,
-			"river_width": 0.9}],
+			"river_width": 0.9,
+			## 0.40: an iron-gall pen bank on parchment, visible but under Ink's.
+			"river_bank": 0.40}],
 	["Ink", "Natural Vibrant", {"ink": 0.6, "contours": 0.35, "multi_sun": true},
 		{"river_ink": 0.85, "river_ink_r": 34.0, "river_ink_g": 42.0, "river_ink_b": 58.0,
-			"river_width": 0.8}],
+			"river_width": 0.8,
+			## 0.60: the pen preset, matched to its own pen-outline `ink` of 0.6.
+			"river_bank": 0.60}],
 	["Watercolor", "Natural Vibrant", {"watercolor": 0.65, "multi_sun": true},
 		{"river_ink": 0.25, "river_ink_r": 86.0, "river_ink_g": 140.0, "river_ink_b": 180.0,
 			"river_opacity": 0.8, "river_width": 1.1}],
@@ -186,7 +201,9 @@ const STYLE_PRESETS := [
 	## until now) finally turned on, plus the plate-edge aerial-perspective
 	## read §4.1 asks for.
 	["Atlas", "Natural Vibrant", {},
-		{"ramp_strength": 0.35, "haze_strength": 0.28, "atmo_desaturation": 0.15}, "Atlas"],
+		{"ramp_strength": 0.35, "haze_strength": 0.28, "atmo_desaturation": 0.15,
+			## 0.25: a light hairline -- reference atlases edge a river, faintly.
+			"river_bank": 0.25}, "Atlas"],
 	## Ruling BI #2, §4.2 -- class (a). This port's own Swiss-style warm-
 	## lowland/cool-summit `Imhof` ramp, at last turned on over crisper
 	## illuminated-slope contrast than the tier's own ambient/gain balance.
@@ -225,7 +242,9 @@ const STYLE_PRESETS := [
 	["Ink wash", "Quality tier", {"ink": 0.5},
 		{"ramp_strength": 0.9, "crest_strength": 0.4,
 			"river_ink": 0.9, "river_ink_r": 40.0, "river_ink_g": 38.0, "river_ink_b": 36.0,
-			"river_opacity": 0.85, "river_width": 0.9}, "Ink wash"],
+			"river_opacity": 0.85, "river_width": 0.9,
+			## 0.35: a wash has soft edges, so the line is faint, not a keyline.
+			"river_bank": 0.35}, "Ink wash"],
 	## Ruling BI #5, §4.5 -- class (a), no renderer addition: heavy black
 	## keyline over cross-hatched shading on a plain cream sheet. `sepia: 0.0`
 	## keeps the Antique Parchment look's own palette without its extra warm
@@ -236,7 +255,9 @@ const STYLE_PRESETS := [
 	## other dark ink on the block.
 	["Woodcut", "Antique Parchment", {"crosshatch": 0.5, "ink": 0.4, "sepia": 0.0},
 		{"paper_grain": 0.14, "paper_mottle": 0.02,
-			"river_ink": 1.0, "river_ink_r": 30.0, "river_ink_g": 26.0, "river_ink_b": 22.0}],
+			"river_ink": 1.0, "river_ink_r": 30.0, "river_ink_g": 26.0, "river_ink_b": 22.0,
+			## 0.70: the heavy black keyline of the woodcut (§2.10), the strongest here.
+			"river_bank": 0.70}],
 	## Ruling BI #6, §4.6 -- class (a). A 1950s-60s school wall-map: the new
 	## `Vintage atlas` ramp is this document's own reading of the cited
 	## mid-century palette (Philippine Brown/Forest Brown/Muted Bronze/Bleach
@@ -251,7 +272,10 @@ const STYLE_PRESETS := [
 		{"ramp_strength": 0.6, "paper_wash": 0.22, "paper_grain": 0.02, "paper_mottle": 0.02,
 			"grade_temperature": 0.32,
 			"river_ink": 0.55, "river_ink_r": 96.0, "river_ink_g": 120.0, "river_ink_b": 128.0,
-			"river_width": 0.9}, "Vintage atlas"],
+			"river_width": 0.9,
+			## 0.30: a printed hairline in a muted ink; light because the ink is
+			## not graded (`map_shore.gdshader`) and this preset's grade is warm.
+			"river_bank": 0.30}, "Vintage atlas"],
 	## Ruling BI #7, §4.7 -- class (b): the one preset needing the new
 	## `sea_ramp_strength` mechanism (`render.rs`'s `SEA_RAMP_NAUTICAL`), a
 	## depth-banded bathymetric tint blended into the water the same way a

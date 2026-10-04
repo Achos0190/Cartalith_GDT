@@ -429,7 +429,15 @@ fn every_tunable_is_load_bearing() {
     // on the stroke geometry before the fill, in the crate's own
     // `river_stroke::rasterize`, and is proved there
     // (`river_stroke.rs`'s `every_river_style_key_moves_the_raster`).
-    const EXEMPT: [&str; 15] = [
+    //
+    // `river_bank` (RIM-2, 2026-10-04) is the sixteenth, for a different
+    // reason: it is not a pixel input of ANY CPU render. The bank outline is
+    // drawn by `map_shore.gdshader` over the painted river's field, so neither
+    // `render_serial`, the tiles nor the export read it (tiles and export are
+    // RIM-7's). It is proved where it lives: `river_field.rs`'s
+    // `bank_coverage` tests and the shader-constant mirror, and the default
+    // render matching HEAD (exact on 27 of 32 frames, 1 pixel off by 1 LSB on the other 5) is `_riverzoom_probe.gd --rim2`'s.
+    const EXEMPT: [&str; 16] = [
         "splat_strength",
         "border_width_frac",
         "ice_strength",
@@ -445,6 +453,7 @@ fn every_tunable_is_load_bearing() {
         "river_ink_g",
         "river_ink_b",
         "river_through",
+        "river_bank",
     ];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
