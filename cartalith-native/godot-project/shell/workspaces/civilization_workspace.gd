@@ -1936,16 +1936,16 @@ func _fill_factions(parent: Control) -> void:
 	## call, no faction and no tab: it reopens on the last-selected faction and
 	## the tab last used this session. FH-2 (2026-10-05) retired the Culture
 	## profiles… row: its content is the Identity tab's Culture profile card.
-	## The Settlement types… row below stays until FH-3 gives it a home in the
-	## hub (the design's migration order); never remove it first.
+	## The Settlement types… row below stays as the library door: FH-3 moved the
+	## per-faction default into the hub's Identity tab and left only the library here.
 	var roster_btn := DccWidgets.action(sec, "Open factions…", func(): app.open_faction_roster(), true)
 	roster_btn.tooltip_text = "The Factions window (the reference's Faction Roster, grown into tabs): world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
 
-	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the
-	## roster for the reason it is here: a settlement type's per-faction
-	## default reads the same faction roster this section already shows.
+	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the roster because the
+	## library feeds it: a faction's default type is chosen on the hub's Identity
+	## tab (FH-3) from the types this window authors.
 	var types_btn := DccWidgets.action(sec, "Settlement types…", func(): app.open_settlement_types())
-	types_btn.tooltip_text = "Named bundles (kind, specialisation, traits, walls, age policy) the settlement tool applies on drop, plus a default per faction. A faction left on None behaves exactly as today."
+	types_btn.tooltip_text = "Named bundles (kind, specialisation, traits, walls, age policy) the settlement tool applies on drop. Each faction's default type is picked in Factions > Identity. A faction left on None behaves exactly as today."
 
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()

@@ -39,6 +39,12 @@ extends Node
 ##           `_cultureprofiles_probe.gd` checks (seven cultures; the real picker
 ##           writes the engine; the surface follows), the FR-02 guards, the dock
 ##           link, and the old window's absence.
+##   DEFTYPE (FH-3, `_run_default_type`) the "Default settlement type" picker on
+##           the Identity tab, over the real `SettlementTypeStore`: None first,
+##           a pick per faction that survives switching faction and back, None
+##           restoring, a deleted type (or a stale id) showing None, the FR-02
+##           guard, and the Settlement types window's per-faction column being
+##           gone in favour of a link that opens Identity.
 ##
 ## Windowed, never `--headless` (layout and focus are the subject):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _factionhub_probe.tscn
@@ -59,6 +65,7 @@ var _phone := false
 var _tablet := false
 var _entry_done := false  ## set by the last line of `_run_entry_points`
 var _culture_done := false  ## set by the last line of `_run_culture_fold`
+var _deftype_done := false  ## set by the last line of `_run_default_type`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -473,6 +480,10 @@ func _run() -> void:
 	# -- CULTURE: the Culture profiles window folded into Identity (FH-2) ---------
 	await _run_culture_fold(ids)
 	_ok("FH2 the culture-fold leg ran to its end (a script error inside it aborts it silently)", _culture_done)
+
+	# -- DEFTYPE: the default settlement type moved onto Identity (FH-3) ------------
+	await _run_default_type(ids)
+	_ok("FH3 the default-type leg ran to its end (a script error inside it aborts it silently)", _deftype_done)
 
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
@@ -1096,3 +1107,211 @@ func _culture_name_of(key: String) -> String:
 		if String(c.get("key", "")) == key:
 			return String(c.get("name", key.capitalize()))
 	return key.capitalize()
+
+
+# -- FH-3: default settlement type ---------------------------------------------
+
+## The Identity tab's "Default settlement type" picker (`DefaultType`), or null.
+func _default_picker() -> OptionButton:
+	return _fr.find_child("DefaultType", true, false) as OptionButton
+
+
+## The picker's selected item text, or "<none>" when it is missing.
+func _picker_text(ob: OptionButton) -> String:
+	return ob.get_item_text(ob.selected) if ob != null and ob.selected >= 0 else "<none>"
+
+
+## Picks entry `i` the way a user does (select + the signal the popup emits).
+func _pick_default(ob: OptionButton, i: int) -> void:
+	ob.select(i)
+	ob.item_selected.emit(i)
+
+
+## The `faction_defaults` object of the store's saved document, as a Dictionary.
+func _doc_defaults() -> Dictionary:
+	var parsed = JSON.parse_string(SettlementTypeStore.document())
+	if parsed is Dictionary:
+		return (parsed as Dictionary).get("faction_defaults", {})
+	return {}
+
+
+## Protects: FH-3 (`FACTION_HUB_DESIGN.md` §3.5/§7) -- the per-faction default
+## settlement type is chosen on the Identity tab, backed by the REAL
+## `SettlementTypeStore` (not a copy), on desktop and phone:
+##   * the picker exists in the Identity pane, offers "None" first then every
+##     library type, and starts on None (today's behaviour);
+##   * a pick reaches the store for THAT faction only, and survives switching to
+##     another faction and back (the pane is rebuilt on each switch);
+##   * "None" restores the store's empty default and drops the faction from
+##     `document()`, whose save/restore round trip is unchanged;
+##   * a type deleted in the library leaves the faction on None (shown as None
+##     after the pane is rebuilt), and so does a stored id naming no type;
+##   * a pick does not rebuild the pane, so a half-typed rename keeps its text
+##     and focus and is committed to its own faction by the next tab switch (FR-02);
+##   * the Settlement types window has lost its per-faction column -- no picker
+##     per faction, a link button instead -- and the link opens the hub on Identity;
+##   * on the phone the picker and the link are at least `PHONE_TAP_MIN` tall.
+## What it cannot see: that the drop tool then APPLIES the default (store-level,
+## `_settlementtypes_probe.gd`'s leg 3) or pixels (the screenshot is that check).
+func _run_default_type(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var name_a: String = _names()[fa]
+	SettlementTypeStore.clear()
+	var t1 := SettlementTypeStore.new_type("Probe walled town")
+	var t2 := SettlementTypeStore.new_type("Probe harbour")
+
+	# -- the picker, and its starting state ---------------------------------------
+	_fr.open(fa, "identity")
+	await _frames(8)
+	var ob := _default_picker()
+	_ok("FH3 the Identity tab has a Default settlement type picker", ob != null and _pane("identity").is_ancestor_of(ob))
+	if ob == null:
+		return
+	_ok("FH3 ... labelled in the pane", _text_of(_pane("identity")).contains("Default settlement type"))
+	_ok("FH3 ... offering None then each library type, in library order",
+		ob.item_count == 3 and ob.get_item_text(0) == "None" and ob.get_item_text(1) == "Probe walled town"
+		and ob.get_item_text(2) == "Probe harbour",
+		"%d items, first '%s'" % [ob.item_count, ob.get_item_text(0) if ob.item_count > 0 else ""])
+	_ok("FH3 ... starting on None, with the store holding no default",
+		ob.selected == 0 and SettlementTypeStore.faction_default(fa) == "" and SettlementTypeStore.faction_default(fb) == "",
+		"selected=%d" % ob.selected)
+	if _phone:
+		_ok("FH3 PHONE the picker is at least 44 px tall", ob.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % ob.size.y)
+		_ok("FH3 PHONE the window still holds exactly one scroller",
+			_count(_fr, func(n): return n is ScrollContainer and (n as ScrollContainer).is_visible_in_tree()) == 1)
+	## Scroll the picker into view first, so the screenshot shows the control itself
+	## rather than the top of a long Identity pane.
+	var sc: Node = ob.get_parent()
+	while sc != null and not (sc is ScrollContainer):
+		sc = sc.get_parent()
+	if sc != null:
+		(sc as ScrollContainer).ensure_control_visible(ob)
+		await _frames(3)
+	await _shot("%s_default_type" % ("phone" if _phone else "desktop"))
+
+	# -- a pick reaches the store, for that faction only --------------------------
+	var emits := [0]
+	_fr.roster_changed.connect(func(): emits[0] += 1)
+	_pick_default(ob, 1)
+	await _frames(3)
+	_ok("FH3 a pick sets THIS faction's default in the real store", SettlementTypeStore.faction_default(fa) == t1,
+		"'%s' (want '%s')" % [SettlementTypeStore.faction_default(fa), t1])
+	_ok("FH3 ... and touches no other faction", SettlementTypeStore.faction_default(fb) == "")
+	_ok("FH3 ... without announcing a roster change (nothing the roster shows moved)", emits[0] == 0, str(emits[0]))
+	_ok("FH3 ... and the document carries it under the faction's id", _doc_defaults().get(str(fa), "") == t1,
+		SettlementTypeStore.document())
+
+	# -- it survives switching faction and back -----------------------------------
+	_fr.open(fb, "identity")
+	await _frames(8)
+	var ob_b := _default_picker()
+	_ok("FH3 the other faction's picker shows None, not the pick", ob_b != null and ob_b.selected == 0 and _picker_text(ob_b) == "None",
+		_picker_text(ob_b))
+	_fr.open(fa, "identity")
+	await _frames(8)
+	var ob_a := _default_picker()
+	_ok("FH3 switching back, the pick is still shown", _picker_text(ob_a) == "Probe walled town", _picker_text(ob_a))
+	## Through the real list row too, not only open(): the click path commits focus
+	## and rebuilds the same pane.
+	var rows: Array = []
+	_collect_buttons(_fr._list_body, rows)
+	var other_row: Button = null
+	for b in rows:
+		if (b as Button).text.find(String(_names()[fb])) >= 0:
+			other_row = b
+			break
+	_ok("FH3 precondition: the other faction's list row exists", other_row != null)
+	if other_row != null:
+		other_row.pressed.emit()
+		await _frames(8)
+		_ok("FH3 a list-row switch lands on the other faction's own picker (None)",
+			_fr._selected == fb and _picker_text(_default_picker()) == "None", "sel=%d %s" % [_fr._selected, _picker_text(_default_picker())])
+		_fr.open(fa, "identity")
+		await _frames(8)
+		_ok("FH3 ... and back again", _picker_text(_default_picker()) == "Probe walled town")
+
+	# -- FR-02: a pick does not tear down a half-typed field ----------------------
+	var edits: Array = []
+	_collect_of(_pane("identity"), edits, LineEdit)
+	var ne: LineEdit = edits[0] if not edits.is_empty() else null
+	_ok("FH3 FR02 precondition: the name field exists", ne != null)
+	if ne != null:
+		_focus(ne)
+		await _frames(3)
+		ne.text = "Fh3 half"
+		_pick_default(_default_picker(), 2)
+		await _frames(4)
+		_ok("FH3 FR02 a pick keeps a half-typed name and its focus (no rebuild under it)",
+			is_instance_valid(ne) and ne.text == "Fh3 half" and ne.has_focus(),
+			"text=%s focus=%s" % [ne.text if is_instance_valid(ne) else "<freed>", is_instance_valid(ne) and ne.has_focus()])
+		_ok("FH3 ... and the pick itself landed", SettlementTypeStore.faction_default(fa) == t2)
+		await _press("settlements")
+		_ok("FH3 FR02 ... and the tab switch committed the name to its own faction",
+			_names()[fa] == "Fh3 half" and _names()[fb] != "Fh3 half", str(_names()))
+		_bridge.civ_set_faction_field(fa, "name", name_a)
+		_fr.open(fa, "identity")
+		await _frames(6)
+
+	# -- None restores ----------------------------------------------------------------
+	_pick_default(_default_picker(), 0)
+	await _frames(3)
+	_ok("FH3 None restores the empty default", SettlementTypeStore.faction_default(fa) == "")
+	_ok("FH3 ... and the document drops the faction", not _doc_defaults().has(str(fa)), SettlementTypeStore.document())
+	var doc := SettlementTypeStore.document()
+	SettlementTypeStore.restore_document(doc)
+	_ok("FH3 the store's document round-trips unchanged", SettlementTypeStore.document() == doc)
+
+	# -- deleting the type reverts to None --------------------------------------------
+	_pick_default(_default_picker(), 2)
+	SettlementTypeStore.delete_type(t2)
+	_fr.open(fa, "identity")
+	await _frames(8)
+	ob_a = _default_picker()
+	_ok("FH3 a deleted type is gone from the picker and the faction shows None",
+		ob_a != null and ob_a.item_count == 2 and _picker_text(ob_a) == "None" and SettlementTypeStore.faction_default(fa) == "",
+		"%d items, shows %s, store '%s'" % [ob_a.item_count if ob_a != null else -1, _picker_text(ob_a), SettlementTypeStore.faction_default(fa)])
+	SettlementTypeStore.set_faction_default(fa, "t99")
+	_fr.open(fa, "identity")
+	await _frames(8)
+	_ok("FH3 a stored id naming no type is shown as None, not as the first type", _picker_text(_default_picker()) == "None", _picker_text(_default_picker()))
+	SettlementTypeStore.set_faction_default(fa, t1)
+	_fr.hide()
+	await _frames(2)
+
+	# -- the Settlement types window: library only, with a link ---------------------------
+	_app.open_settlement_types()
+	await _frames(8)
+	var stw = _app.settlement_types_window
+	var pickers := _count(stw._body, func(n): return n is OptionButton)
+	_ok("FH3 the window's per-faction column is gone: only the type editor's four pickers remain (not four plus one per faction)",
+		pickers == 4, "%d OptionButtons for %d factions" % [pickers, ids.size()])
+	var stw_text: String = _text_of(stw._body)
+	var names_listed := false
+	for fid in ids:
+		if stw_text.contains(String(_names()[fid])):
+			names_listed = true
+	_ok("FH3 ... and no faction is listed in it", not names_listed, stw_text.left(160))
+	_ok("FH3 ... which no longer carries the old column's note", not stw_text.contains("This column is the whole reason"))
+	var link := stw._body.find_child("FactionDefaultsLink", true, false) as Button
+	_ok("FH3 the window carries the Factions > Identity link",
+		link != null and link.text.to_lower() == "faction defaults now live in factions ▸ identity", str(link.text if link != null else "<none>"))
+	if link != null:
+		if _phone:
+			_ok("FH3 PHONE the link is at least 44 px tall", link.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % link.size.y)
+		stw.hide()
+		await _park(fb, "territory")
+		_app.open_settlement_types()
+		await _frames(6)
+		link = stw._body.find_child("FactionDefaultsLink", true, false) as Button
+		link.pressed.emit()
+		await _frames(8)
+		_ok("FH3 the link closes the library and opens the hub on Identity", not stw.visible and _fr.visible and _fr._tab == "identity",
+			"library visible=%s hub visible=%s tab=%s" % [stw.visible, _fr.visible, _fr._tab])
+		_ok("FH3 ... where the picker is built", _default_picker() != null)
+		if _phone:
+			_ok("FH3 PHONE ... on the master list (no faction was named, so open() reopens on the list, tab kept)", _fr._phone_list_pane != null and (_fr._phone_list_pane as Control).visible)
+	SettlementTypeStore.clear()
+	_fr.hide()
+	await _frames(2)
+	_deftype_done = true

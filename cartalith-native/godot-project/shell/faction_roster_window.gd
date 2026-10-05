@@ -779,8 +779,9 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 
 ## The Identity tab: the faction's banner and name, then the five identity
 ## rows, with the **Culture profile card** (FH-2, `_build_culture_card`) hung
-## directly under the Culture picker. The rows moved verbatim out of the old
-## single-scroll inspector; the head's name field still commits on
+## directly under the Culture picker, and the **Default settlement type** picker
+## (FH-3, `_default_type_choice`) as the last row. The first five moved verbatim
+## out of the old single-scroll inspector; the head's name field still commits on
 ## `focus_exited` unless `_rebuilding` (FR-02).
 func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	var head := HBoxContainer.new()
@@ -811,6 +812,7 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
+	_default_type_choice(sec)
 
 
 ## The Relations tab -- a placeholder, on purpose. The only relations model is
@@ -1278,6 +1280,57 @@ func _ag_tech_choice(parent: Control, current: String) -> void:
 		"Live since 2026-08-25: farmersPerUrbanite is the agricultural labour ratio the manpower model runs on (the Military tab), so changing this moves this faction's standing army, field army, emergency levy and war duration. It is deliberately NOT the driver — it enters as one of five variables, and government, roads, water and the land itself move the answer as much.")
 	if hint != "":
 		DccWidgets.note(parent, hint)
+
+
+# -- Default settlement type (FH-3, `FACTION_HUB_DESIGN.md` §3.5 Identity) ---
+
+## The "Default settlement type" picker: which `SettlementTypeStore` type the
+## settlement tool applies when a place is dropped in this faction's territory
+## (`SettlementTypeStore.apply_default_to_settlement`, called from
+## `civilization_workspace.gd::_settlement_click`). It moved here from the
+## Settlement types window's per-faction column (FH-3); that window is now only
+## the library and links back to this row.
+##
+## **"None" is entry 0 and means today's unmodified behaviour** -- the store's
+## own `""` ("no default", `faction_default`'s contract), the same entry the old
+## column offered. A faction whose default type was deleted already reads
+## `""` (`SettlementTypeStore.delete_type` clears the id out of every default),
+## and a stored id naming no type at all (a hand-edited project file) is shown as
+## None too: `ids.find()` misses and `maxi(0, ...)` lands on entry 0. The store
+## is not rewritten for that case, so no read of it can lose a document.
+##
+## **Persistence mirrors the old column exactly:** a pick calls
+## `SettlementTypeStore.set_faction_default` and nothing else. The store is a
+## static with no change signal and no dirty flag; `app.gd::_project_documents()`
+## serialises `SettlementTypeStore.document()` at every save, so there is nothing
+## to mark. Not touching the engine, it needs no `roster_changed` either -- no
+## label, list row or other tab reads a default type.
+##
+## The faction id is captured at build time, not read from `_selected` in the
+## callback: the pane is rebuilt on every faction switch, and a callback that
+## re-read `_selected` could write one faction's pick into another's row (the
+## FR-02 hazard in a new place). Like the other pickers it holds no focus, so
+## `_commit_focused_field()` has no text field of its own to flush here.
+##
+## The option list is read from the store when the pane is built; the library is
+## edited in another window, so `open()` (which rebuilds every pane) is what
+## refreshes it. With no type authored the picker still shows "None", plus a note
+## saying where types are made, rather than an inert-looking empty control.
+func _default_type_choice(parent: Control) -> void:
+	var fid := _selected
+	var labels: Array = ["None"]
+	var ids: Array = [""]
+	for t in SettlementTypeStore.types():
+		var td: Dictionary = t
+		labels.append(String(td.get("name", "Type")))
+		ids.append(String(td.get("id", "")))
+	var ob := DccWidgets.choice(parent, "Default settlement type", labels,
+		maxi(0, ids.find(SettlementTypeStore.faction_default(fid))),
+		func(i: int): SettlementTypeStore.set_faction_default(fid, String(ids[i])),
+		"The settlement tool applies this type's bundle (kind, specialisation, traits, walls, age policy) to a place dropped in this faction's territory. None behaves exactly as before. Types are authored in the Settlement types window.")
+	ob.name = "DefaultType"
+	if ids.size() == 1:
+		DccWidgets.note(parent, "No settlement types yet -- create them with Settlement types… in the Civilization dock's Factions category.")
 
 
 # -- Currency (Ruling R, kept by AR; Ruling AU) -----------------------------

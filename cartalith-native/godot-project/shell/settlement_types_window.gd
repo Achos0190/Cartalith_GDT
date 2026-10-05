@@ -11,9 +11,12 @@ class_name SettlementTypesWindow
 ## established free-floating-window vocabulary
 ## (`place_editor_window.gd`/`faction_roster_window.gd`/
 ## the now-retired `culture_profiles_window.gd` (FH-2)), and this window follows
-## the now-retired `culture_profiles_window.gd` (FH-2)'s three-pane shape most closely: a library
-## list on the left, a selected item's editable detail in the centre, a
-## per-faction column on the right.
+## the now-retired `culture_profiles_window.gd` (FH-2)), and this window follows
+## the now-retired `culture_profiles_window.gd` (FH-2)'s pane shape: a library
+## list on the left and a selected item's editable detail in the centre. A third,
+## per-faction column used to sit on the right; **FH-3 moved it into the Factions
+## hub** (Identity tab, "Default settlement type") and left a one-line link in
+## its place (`_build_faction_defaults_link`). This window is now the library only.
 ##
 ## ## Storage
 ##
@@ -30,12 +33,11 @@ class_name SettlementTypesWindow
 ## One `if _phone: ... else: ...` branch in `_rebuild()`, matching this
 ## shell's established convention (confirmed in `faction_roster_window.gd`
 ## and the now-retired `culture_profiles_window.gd` (FH-2)) over a second per-platform file: the
-## three columns stack into three sections in list order (library, detail,
-## faction defaults) rather than a `TabContainer` or a bespoke pane switcher,
-## since none of the three needs to be hidden from the others the way
+## two panes stack into two sections in list order (library, detail), then the
+## faction-defaults link, rather than a `TabContainer` or a bespoke pane switcher,
+## since neither pane needs to be hidden from the other the way
 ## the now-retired `culture_profiles_window.gd` (FH-2)'s own phone switcher hides its panes -- a
-## type's detail and the faction column are both short enough to read
-## together on a scroll.
+## type's detail is short enough to read under the list on a scroll.
 
 var app                       ## `DccApp`
 var bridge: EngineBridge
@@ -73,7 +75,7 @@ func setup(a, b: EngineBridge) -> void:
 	root.add_child(scroll)
 	if _phone:
 		_phone_title = DccWidgets.phone_head(root, "Settlement types",
-			"library · base kind · traits · per-faction defaults")
+			"library · base kind · traits · applied on drop")
 	var pad := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		pad.add_theme_constant_override("margin_" + side, 12)
@@ -87,9 +89,11 @@ func setup(a, b: EngineBridge) -> void:
 	## The library is project data, not settlement data -- a generate or a
 	## load does not touch it (`SettlementTypeStore` is restored only from
 	## `app.gd::_restore_project_documents()`, on an actual project open).
-	## This window still rebuilds on both, matching every other window here,
-	## because the right-hand faction column reads `get_factions()` and a
-	## generate/load can change the roster out from under an open window.
+	## This window still rebuilds on both, matching every other window here:
+	## a project open replaces the library through `restore_document()` and an
+	## open window would otherwise keep listing the outgoing project's types.
+	## (Until FH-3 the per-faction column also read `get_factions()` here; that
+	## column now lives in the Factions hub and no longer reads the roster.)
 	bridge.generation_finished.connect(func(ok: bool): if ok and visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
 
@@ -123,7 +127,6 @@ func _rebuild() -> void:
 		_build_list(_body, types)
 		if _selected_id != "":
 			_build_detail(_body)
-		_build_faction_defaults(_body)
 	else:
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 12)
@@ -139,11 +142,10 @@ func _rebuild() -> void:
 		else:
 			DccWidgets.note(center, "No type yet -- \"+ New type\" on the left to create one.")
 		row.add_child(center)
-		var right := VBoxContainer.new()
-		right.custom_minimum_size.x = 240
-		_build_faction_defaults(right)
-		row.add_child(right)
 		_body.add_child(row)
+	## Last on both forms (FH-3): the faction-defaults link, in place of the
+	## third column / third phone section the per-faction defaults used to be.
+	_build_faction_defaults_link(_body)
 
 	if _phone:
 		app.phone_fit(self, 1.0)
@@ -317,30 +319,43 @@ func _build_traits_chips(parent: Control, id: String, t: Dictionary) -> void:
 	sec.add_child(flow)
 
 
-# -- Faction defaults column ---------------------------------------------------
+# -- Faction defaults: moved to the Factions hub (FH-3) ----------------------
 
-func _build_faction_defaults(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Default type per faction")
-	var factions := bridge.get_factions()
-	if factions.is_empty():
-		DccWidgets.note(sec, "No factions -- generate a world first.")
+## The old "Default type per faction" column, replaced by a one-line pointer
+## (FH-3, `FACTION_HUB_DESIGN.md` §3.5): a faction's default settlement type is a
+## fact about the faction, so its picker is now the Identity tab's "Default
+## settlement type" row (`faction_roster_window.gd::_default_type_choice`), where
+## the faction's other identity fields already are. This window stays the
+## **library** -- a type is a library entry, not a faction field.
+##
+## The button opens the hub on Identity with no faction named (`-1`: the hub's
+## last-selected faction) and closes this window first, so two exclusive popups
+## are never stacked on desktop and the phone's full-screen windows do not pile
+## up. Nothing is lost by hiding: the library holds no unsaved edit -- every field
+## writes `SettlementTypeStore` live, and the one text field (the type name)
+## is committed by releasing focus before the hide (its `focus_exited` write).
+##
+## **It must not touch `SettlementTypeStore`'s defaults.** The data, its
+## `document()` form and `apply_default_to_settlement` (the drop tool's reader)
+## are unchanged; only where the choice is edited moved.
+func _build_faction_defaults_link(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Faction defaults")
+	var link := DccWidgets.action(sec, "Faction defaults now live in Factions ▸ Identity", func():
+		_release_focus_in_body()
+		hide()
+		app.open_faction_roster(-1, "identity"))
+	link.name = "FactionDefaultsLink"
+	link.tooltip_text = "Opens the Factions window on its Identity tab, where each faction's Default settlement type is chosen. A faction left on None behaves exactly as today."
+
+
+## Releases keyboard focus if it sits inside this window's body, which fires the
+## type-name field's `focus_exited` commit (`_build_detail`) *before* the window
+## hides -- hiding alone is not relied on to deliver that signal. A no-op when
+## nothing in the body is focused.
+func _release_focus_in_body() -> void:
+	var vp := _body.get_viewport()
+	if vp == null:
 		return
-	var types := SettlementTypeStore.types()
-	var type_labels: Array = ["None"]
-	var type_ids: Array = [""]
-	for t in types:
-		var d: Dictionary = t
-		type_labels.append(String(d.get("name", "Type")))
-		type_ids.append(String(d.get("id", "")))
-	for f in factions:
-		var fd: Dictionary = f
-		var fid := int(fd.get("id", 1))
-		var cur := SettlementTypeStore.faction_default(fid)
-		var idx := maxi(0, type_ids.find(cur))
-		DccWidgets.choice(sec, String(fd.get("name", "Faction %d" % fid)), type_labels, idx,
-			func(i: int): SettlementTypeStore.set_faction_default(fid, String(type_ids[i])))
-	DccWidgets.note(sec,
-		"This column is the whole reason the library exists: the settlement tool reads "
-		+ "the armed faction's default type, so dropping a place in that faction's "
-		+ "territory applies its bundle without setting five fields by hand. A faction "
-		+ "left on None behaves exactly as today.")
+	var fo := vp.gui_get_focus_owner()
+	if fo != null and _body.is_ancestor_of(fo):
+		fo.release_focus()
