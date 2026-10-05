@@ -2327,10 +2327,12 @@ func manual_routes() -> Array:
 	return out
 
 ## The current pan/zoom camera scale (`_zoom`, `_zoom_at`'s own factor) --
-## read-only exposure for `label_handles(index, zoom)` callers (`DCC_SHELL_
-## SPEC.md` §4.5.5's Label tool), which need the real camera zoom so a
-## selected label's on-canvas handles size and stem-offset consistently with
-## how large the label itself is currently drawn.
+## read-only exposure for `label_handles(index, zoom)` and
+## `label_hit_test(_mode)`/`label_pick_all` callers (`DCC_SHELL_SPEC.md` §4.5.5's
+## Label tool), which need the real camera zoom so a selected label's on-canvas
+## handles and its hit box track how large the label itself is currently drawn:
+## a "fixed" label shrinks by `1 / max(zoom, 0.35)` in local space (Ruling AP,
+## 2026-09-23), and the engine box must shrink with it.
 func zoom() -> float:
 	return _zoom
 

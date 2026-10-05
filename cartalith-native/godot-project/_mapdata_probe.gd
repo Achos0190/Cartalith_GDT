@@ -645,7 +645,7 @@ func _leg_hitbox() -> void:
 	## `side_half` for any `eps < 0.5`.
 	var eps := minf(0.1, side_half * 0.1)
 	var corner_grid := anchor_grid - Vector2(side_half - eps, side_half - eps)
-	var hit: int = _br.label_hit_test_mode(corner_grid.x, corner_grid.y, px_per_cell, 0)
+	var hit: int = _br.label_hit_test_mode(corner_grid.x, corner_grid.y, px_per_cell, 0, _vh.zoom())
 	_ok(hit == idx, "H5 a click just inside the drawn box's own top-left corner hits the label",
 		"hit=%d idx=%d corner=%s" % [hit, idx, corner_grid])
 	var old_hit := absf(corner_grid.x - old_centre.x) <= side_half and absf(corner_grid.y - old_centre.y) <= side_half
@@ -658,7 +658,7 @@ func _leg_hitbox() -> void:
 	var img := await _grab()
 	_crop(img, anchor_grid, "H_label_hitbox_z16", 160)
 	_vh.set_layer_visible("labels", false)
-	_br.label_hit_test_mode(-1e9, -1e9, px_per_cell, 0)   ## deselect, tidy for any legs added after this one
+	_br.label_hit_test_mode(-1e9, -1e9, px_per_cell, 0, _vh.zoom())   ## deselect, tidy for any legs added after this one
 	_br.label_delete(idx)
 
 

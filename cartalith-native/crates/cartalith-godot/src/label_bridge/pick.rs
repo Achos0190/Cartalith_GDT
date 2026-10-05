@@ -17,9 +17,13 @@ impl WorldGen {
     /// box model (pass `ViewportHost::label_px_per_cell()`), so the first
     /// entry is what a plain click would select. Empty on a miss or before
     /// any `generate()` call.
+    ///
+    /// `zoom` is the live camera zoom: a `Fixed` label's box shrinks with it
+    /// (Ruling AP, 2026-09-23 -- see `label_hit_test`), so a right-click picks
+    /// the label the shell actually drew at that zoom.
     #[func]
-    fn label_pick_all(&self, gx: f64, gy: f64, px_per_cell: f64) -> PackedInt64Array {
+    fn label_pick_all(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> PackedInt64Array {
         let Some(labels) = self.labels.as_ref() else { return PackedInt64Array::new() };
-        labels.pick_all(gx, gy, px_per_cell).into_iter().map(|i| i as i64).collect()
+        labels.pick_all(gx, gy, px_per_cell, zoom).into_iter().map(|i| i as i64).collect()
     }
 }

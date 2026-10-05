@@ -425,13 +425,15 @@ impl LabelBridge {
     /// is measured at `meas_w = 0.0` here — a disclosed placeholder, not a
     /// claim about the label's real rendered width.
     ///
-    /// `px_per_cell` sizes the box — see [`shell_label_box`]. `mode` is what
+    /// `px_per_cell` sizes the box — see [`shell_label_box`]. `zoom` is the live camera
+    /// zoom, which shrinks a `Fixed` label's box exactly as the shell draws it
+    /// (Ruling AP, 2026-09-23 — see [`shell_label_box`]). `mode` is what
     /// the hit does to the selection set — [`SelectMode::Replace`] is the
     /// plain click this always did; a miss leaves the selection alone in
     /// every mode (`IconEditor::hit_test`'s own note on why a modified click
     /// on empty ground is not a deselect gesture).
-    pub fn hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64, mode: SelectMode) -> Option<usize> {
-        let boxes: Vec<LabelBox> = self.labels.iter().map(|lb| shell_label_box(lb, px_per_cell)).collect();
+    pub fn hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64, mode: SelectMode) -> Option<usize> {
+        let boxes: Vec<LabelBox> = self.labels.iter().map(|lb| shell_label_box(lb, px_per_cell, zoom)).collect();
         let hit = cartalith_civ::labels::label_hit_test(&boxes, &LabelHandles::default(), gx, gy)?;
         let index = hit.index?;
         self.selection.apply(mode, index);
@@ -450,12 +452,14 @@ impl LabelBridge {
     /// function's, not a second copy — and touches neither `selection` nor
     /// `session`. The order is `label_hit_test`'s own back-to-front scan, so
     /// the first entry is exactly the label a plain click would select.
-    pub fn pick_all(&self, gx: f64, gy: f64, px_per_cell: f64) -> Vec<usize> {
+    ///
+    /// `zoom` is the live camera zoom — see [`shell_label_box`].
+    pub fn pick_all(&self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> Vec<usize> {
         let none = LabelHandles::default();
         (0..self.labels.len())
             .rev()
             .filter(|&i| {
-                let b = [shell_label_box(&self.labels[i], px_per_cell)];
+                let b = [shell_label_box(&self.labels[i], px_per_cell, zoom)];
                 cartalith_civ::labels::label_hit_test(&b, &none, gx, gy).is_some_and(|h| h.index.is_some())
             })
             .collect()
@@ -465,15 +469,16 @@ impl LabelBridge {
     /// see [`handle_circles`]. `None` for an out-of-range `index`.
     ///
     /// `px_per_cell` sizes the box itself ([`shell_label_box`]); `env` is
-    /// still what [`handle_circles`] reads for the handles' own
-    /// screen-constant radius (`env.zoom_scale`, `env.grid_w`,
-    /// `env.icon_scale` — unrelated to a label's own font-size model, see
-    /// that function's doc comment). Two different inputs for two different
-    /// quantities over the same box, not a second disagreement reopening
-    /// this one.
+    /// what [`handle_circles`] reads for the handles' own radius term
+    /// (`env.zoom_scale`, `env.grid_w`, `env.icon_scale`). Since Ruling AP
+    /// (2026-09-23) `env.zoom_scale` ALSO reaches the box: a `Fixed` label's
+    /// box shrinks by `1 / max(zoom, 0.35)` ([`shell_label_unit`]), so the
+    /// handles sit on the box the shell draws. Note the two zoom clamps differ
+    /// on purpose: the handle radius uses `civ_zoom_k`'s `[0.35, 5]`, the box
+    /// the shell's uncapped-above `1 / max(zoom, 0.35)`.
     pub fn handles(&self, index: usize, px_per_cell: f64, env: &LabelViewEnv) -> Option<LabelHandles> {
         let lb = self.labels.get(index)?;
-        let box_ = shell_label_box(lb, px_per_cell);
+        let box_ = shell_label_box(lb, px_per_cell, env.zoom_scale);
         Some(handle_circles(lb, &box_, env))
     }
 
@@ -506,6 +511,32 @@ pub const SHELL_LABEL_ZOOM_BASE_PX_PER_CELL: f64 = 2.0;
 pub const SHELL_LABEL_FONT_PX_MIN: f64 = 8.0;
 pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
 
+/// The zoom floor of `map_overlay.gd::_civ_zoom_k()` (`1 / max(zoom, 0.35)`) --
+/// **that function is the source of truth**, and the 0.35 is the reference's own
+/// `_civZoomK` low clamp (`Cartalith Gen1 v2.11.html`).
+///
+/// Mirrored, not reused from [`cartalith_civ::labels::civ_zoom_k`]: that one
+/// also clamps zoom-IN at 5.0 (the reference's old `lodMaxZoom`), and this
+/// shell's deep zoom runs to 160-240 with the cap deliberately removed
+/// (`map_overlay.gd`'s `_civ_zoom_k` doc). Borrowing the civ clamp would have the
+/// hit box stop shrinking at zoom 5 while the drawn label kept shrinking.
+pub const SHELL_ZOOM_K_FLOOR: f64 = 0.35;
+
+/// `map_overlay.gd::_label_unit()` for the engine side: the factor a label's
+/// whole local-space layout is multiplied by -- `1 / max(zoom, 0.35)` for a
+/// `Fixed` label (which holds a constant on-screen size, Ruling AP,
+/// 2026-09-23) and exactly `1.0` for a `Zoom` one (which grows with the map and
+/// must stay bit-identical to before). Must never return anything but a finite
+/// positive number: a NaN or non-positive `zoom` falls back to `1.0` rather than
+/// collapsing or inflating a hit box.
+pub fn shell_label_unit(mode: LabelSizeMode, zoom: f64) -> f64 {
+    match mode {
+        LabelSizeMode::Zoom => 1.0,
+        LabelSizeMode::Fixed if zoom.is_finite() && zoom > 0.0 => 1.0 / zoom.max(SHELL_ZOOM_K_FLOOR),
+        LabelSizeMode::Fixed => 1.0,
+    }
+}
+
 /// The label hit box and manipulation handles' own font-size model —
 /// `map_overlay.gd::_label_font_px`'s formula, **not**
 /// [`cartalith_civ::labels::label_font_size`]. `LARGE_ITEM_RULINGS.md`
@@ -523,11 +554,23 @@ pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
 ///
 /// `px_per_cell` is `map_overlay.gd::displayed_rect().size.x / _gw` —
 /// `ViewportHost::label_px_per_cell()` on the Godot side — this control's own
-/// LOCAL, pre-camera pixels-per-cell. **Deliberately not the live camera
-/// zoom**: `_label_font_px`'s own formula never reads `_camera_zoom` (only
-/// `_label_raster_px`, the *rasterisation* size, does that) — the box
-/// geometry that sizes hit-testing and handles lives in this control's own
-/// local space, same as the reference-ported box does in grid-cell space.
+/// LOCAL, pre-camera pixels-per-cell. **`px_per_cell` is deliberately not the
+/// live camera zoom**: `_label_font_px`'s formula (the NOMINAL size, which is
+/// all `px_per_cell` feeds) never reads `_camera_zoom`; the box geometry that
+/// sizes hit-testing and handles lives in this control's own local space, same
+/// as the reference-ported box does in grid-cell space.
+///
+/// **`zoom` is the live camera zoom, and it is a separate term (Ruling AP,
+/// 2026-09-23).** A `Fixed` label holds a constant ON-SCREEN size, so
+/// `map_overlay.gd::_draw_labels` draws it at `_label_font_px * _label_unit()`
+/// local px, with `_label_unit() = 1 / max(zoom, 0.35)`
+/// ([`shell_label_unit`]). The box takes the same factor, applied after the
+/// nominal size's clamp exactly as the draw does, so the clickable box and the
+/// handles' positions shrink with the drawn text instead of staying at the
+/// zoom-1 size (a `Fixed` box used to stay `zoom`x too large on screen). A
+/// `Zoom` label's box is unchanged. The cell/pixel conflation disclosed on
+/// `LabelBridge::hit_test` is untouched: the box is still exact only at
+/// `px_per_cell == 1`.
 ///
 /// `meas_w` is not a parameter here for the same reason [`LabelBridge::
 /// hit_test`]/[`LabelBridge::handles`] never had one: no live `Font` reaches
@@ -555,7 +598,7 @@ pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
 /// reference's `_civLabelBox` identity-mapped hit-test path (see that
 /// function's own doc comment) and is not called from this shell; the two
 /// must not be unified by adding this crate's own `+0.5` back.
-pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64) -> LabelBox {
+pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64, zoom: f64) -> LabelBox {
     let raw = match lb.size_mode {
         LabelSizeMode::Fixed => lb.size,
         LabelSizeMode::Zoom => lb.size * px_per_cell / SHELL_LABEL_ZOOM_BASE_PX_PER_CELL,
@@ -563,8 +606,14 @@ pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64) -> LabelBox {
     // `map_overlay.gd`'s own `int(clampf(px, MIN, MAX))` truncates; the clamp
     // floor is positive, so truncation and `floor` agree.
     let fsz = raw.clamp(SHELL_LABEL_FONT_PX_MIN, SHELL_LABEL_FONT_PX_MAX).floor();
-    let side = f64::max(0.0, fsz * LABEL_BOX_LINE_HEIGHT) * 1.25;
-    LabelBox { px: lb.x, py: lb.y, side, fsz }
+    // The nominal size above is what `map_overlay.gd` lays the label out at; its
+    // drawn local-space size is that times `_label_unit()` (Ruling AP). Applied
+    // AFTER the clamp and floor, exactly as `_draw_labels` applies `lu` after
+    // `_label_font_px`'s own clamp -- clamping `fsz / zoom` instead would pin a
+    // deep-zoom label at the minimum px and make it grow again.
+    let unit = shell_label_unit(lb.size_mode, zoom);
+    let side = f64::max(0.0, fsz * LABEL_BOX_LINE_HEIGHT) * 1.25 * unit;
+    LabelBox { px: lb.x, py: lb.y, side, fsz: fsz * unit }
 }
 
 /// The reference's `drawCivLayer` selection-box handle geometry (lines
@@ -741,8 +790,101 @@ mod tests {
     #[test]
     fn shell_label_box_centre_has_no_added_half_cell() {
         let lb = MapLabel::new(11.0, 21.0, "Whitfell");
-        let box_ = shell_label_box(&lb, PX_PER_CELL);
+        let box_ = shell_label_box(&lb, PX_PER_CELL, 1.0);
         assert_eq!((box_.px, box_.py), (11.0, 21.0), "the box sits exactly where _point_to_screen draws the glyph");
+    }
+
+    /// A size-16 label of the given mode at `(100, 100)`. At `PX_PER_CELL`
+    /// (2.0) a `Zoom` one has the nominal `side` of exactly 26.0
+    /// (`16 * 1.3 * 1.25`), the same number the other tests here use.
+    fn sized(mode: LabelSizeMode) -> MapLabel {
+        let mut lb = MapLabel::new(100.0, 100.0, "Whitfell");
+        lb.size = 16.0;
+        lb.size_mode = mode;
+        lb
+    }
+
+    /// Protects Ruling AP (2026-09-23), the engine half: a `Fixed` label holds
+    /// a constant on-screen size, so `map_overlay.gd` draws it at
+    /// `_label_font_px * 1 / max(zoom, 0.35)` local px and its box must shrink
+    /// by the same factor -- `side` is `26 / zoom` at zoom 1, 4 and 8 (the
+    /// literals below, not recomputed from the function under test), and so
+    /// is the on-screen box (`side * zoom`) constant at 26. Mutants that must
+    /// fail this: dropping the `unit` factor from `side` (the pre-fix box,
+    /// 26 at every zoom), or applying it to the `Zoom` branch too.
+    #[test]
+    fn a_fixed_labels_box_shrinks_with_zoom_so_its_screen_size_is_constant() {
+        let lb = sized(LabelSizeMode::Fixed);
+        for (zoom, want_side) in [(1.0, 26.0), (4.0, 6.5), (8.0, 3.25), (160.0, 0.1625)] {
+            let b = shell_label_box(&lb, PX_PER_CELL, zoom);
+            assert!((b.side - want_side).abs() < 1e-12, "zoom {zoom}: side {} want {want_side}", b.side);
+            assert!((b.side * zoom - 26.0).abs() < 1e-9, "zoom {zoom}: the on-screen box must hold 26 px");
+        }
+    }
+
+    /// Protects the low clamp, which is the reference's `_civZoomK` floor and
+    /// `map_overlay.gd::_civ_zoom_k`'s: below zoom 0.35 the unit stops
+    /// growing, so a fixed label shrinks on screen from there (side 26/0.35 at
+    /// every zoom below it) rather than inflating without bound. Also pins
+    /// that the HIGH side is NOT capped at 5 as `civ_zoom_k`'s is: zoom 8
+    /// above is 3.25, not 26/5.
+    #[test]
+    fn a_fixed_labels_box_stops_growing_below_the_zoom_floor() {
+        let lb = sized(LabelSizeMode::Fixed);
+        let at_floor = 26.0 / 0.35;
+        for zoom in [0.35, 0.2, 0.01] {
+            let b = shell_label_box(&lb, PX_PER_CELL, zoom);
+            assert!((b.side - at_floor).abs() < 1e-9, "zoom {zoom}: side {}", b.side);
+        }
+    }
+
+    /// Protects the unchanged half of Ruling AP: a `Zoom` label (grows with
+    /// the map) has the same box at every camera zoom, 26.0 exactly -- the
+    /// bit-identical-to-before guarantee. Fails if the unit leaks into the
+    /// `Zoom` branch.
+    #[test]
+    fn a_zoom_labels_box_ignores_the_camera_zoom() {
+        let lb = sized(LabelSizeMode::Zoom);
+        for zoom in [0.2, 1.0, 4.0, 160.0] {
+            assert_eq!(shell_label_box(&lb, PX_PER_CELL, zoom).side, 26.0, "zoom {zoom}");
+        }
+    }
+
+    /// Protects the unit's safety rail: a NaN, infinite, zero or negative zoom
+    /// (a view that has not been sized yet) must not produce a NaN / infinite /
+    /// negative box that `label_hit_test` would then compare against.
+    #[test]
+    fn a_degenerate_zoom_falls_back_to_the_unscaled_box() {
+        let lb = sized(LabelSizeMode::Fixed);
+        for zoom in [f64::NAN, f64::INFINITY, 0.0, -3.0] {
+            assert_eq!(shell_label_box(&lb, PX_PER_CELL, zoom).side, 26.0, "zoom {zoom}");
+        }
+    }
+
+    /// Protects the hit-test half end to end: at zoom 4 a fixed label at
+    /// (100, 100) has a 6.5-unit box, so a click 5 units out (inside the zoom-1
+    /// box of half-side 13, outside the zoom-4 one of 3.25) misses, a click 2
+    /// units out hits, and a `Zoom` label's box answers the 5-unit click at
+    /// every zoom. `pick_all` must agree with `hit_test`, and `handles` must sit
+    /// on the same box: the resize handle is the box's (side/2, side/2) corner.
+    #[test]
+    fn hit_test_pick_all_and_handles_follow_the_fixed_labels_shrunken_box() {
+        let mut b = LabelBridge::new();
+        b.create(100.0, 100.0, "A");
+        b.labels[0].size = 16.0;
+        b.labels[0].size_mode = LabelSizeMode::Fixed;
+        b.deselect();
+        assert_eq!(b.pick_all(105.0, 100.0, PX_PER_CELL, 1.0), vec![0], "inside the zoom-1 box");
+        assert!(b.pick_all(105.0, 100.0, PX_PER_CELL, 4.0).is_empty(), "outside the zoom-4 box");
+        assert_eq!(b.pick_all(102.0, 100.0, PX_PER_CELL, 4.0), vec![0]);
+        assert_eq!(b.hit_test(105.0, 100.0, PX_PER_CELL, 4.0, SelectMode::Replace), None);
+        assert_eq!(b.hit_test(102.0, 100.0, PX_PER_CELL, 4.0, SelectMode::Replace), Some(0));
+        let env = LabelViewEnv { grid_w: 512, zoom_scale: 4.0, icon_scale: 1.0 };
+        let h = b.handles(0, PX_PER_CELL, &env).expect("label 0 exists");
+        let r = h.resize.expect("resize handle");
+        assert!((r.x - 103.25).abs() < 1e-9 && (r.y - 103.25).abs() < 1e-9, "resize handle at the zoom-4 box corner, got {:?}", (r.x, r.y));
+        b.labels[0].size_mode = LabelSizeMode::Zoom;
+        assert_eq!(b.pick_all(105.0, 100.0, PX_PER_CELL, 4.0), vec![0], "a Zoom label's box does not shrink");
     }
 
     // ---- LabelBridge: create / delete / clear_all ----
@@ -844,7 +986,7 @@ mod tests {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
         b.deselect();
-        let hit = b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Replace);
+        let hit = b.hit_test(10.5, 10.5, PX_PER_CELL, 1.0, SelectMode::Replace);
         assert_eq!(hit, Some(0));
         assert_eq!(b.session.selected(), Some(0));
         assert_eq!(b.selected(), Some(0));
@@ -857,12 +999,12 @@ mod tests {
         b.create(10.2, 10.2, "B"); // 1, on top of A
         b.create(200.0, 200.0, "C"); // 2, far away
         b.select(2, SelectMode::Replace);
-        assert_eq!(b.pick_all(10.5, 10.5, PX_PER_CELL), vec![1, 0]);
+        assert_eq!(b.pick_all(10.5, 10.5, PX_PER_CELL, 1.0), vec![1, 0]);
         // The first entry is what a plain click would have selected.
         assert_eq!(b.clone_hit(10.5, 10.5), Some(1));
         assert_eq!(b.selected(), Some(2), "a pick is not a click");
         assert_eq!(b.session.selected(), Some(2));
-        assert!(b.pick_all(-500.0, -500.0, PX_PER_CELL).is_empty());
+        assert!(b.pick_all(-500.0, -500.0, PX_PER_CELL, 1.0).is_empty());
     }
 
     impl LabelBridge {
@@ -873,7 +1015,7 @@ mod tests {
             for lb in &self.labels {
                 c.create(lb.x, lb.y, &lb.name);
             }
-            c.hit_test(gx, gy, PX_PER_CELL, SelectMode::Replace)
+            c.hit_test(gx, gy, PX_PER_CELL, 1.0, SelectMode::Replace)
         }
     }
 
@@ -881,7 +1023,7 @@ mod tests {
     fn hit_test_a_miss_returns_none_and_selects_nothing() {
         let mut b = LabelBridge::new();
         b.create(10.0, 10.0, "A");
-        assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, SelectMode::Replace), None);
+        assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, 1.0, SelectMode::Replace), None);
     }
 
     // ---- the selection set (step one of the selection-sets ruling) ----
@@ -919,7 +1061,7 @@ mod tests {
         agree!("select extend");
         b.select_set([0, 1]);
         agree!("select_set");
-        b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Toggle);
+        b.hit_test(10.5, 10.5, PX_PER_CELL, 1.0, SelectMode::Toggle);
         agree!("hit_test");
         b.confirm_edit();
         agree!("confirm_edit");
@@ -946,7 +1088,7 @@ mod tests {
         b.create(10.0, 10.0, "L0");
         b.labels[0].name = "edited".into();
         b.select(0, SelectMode::Replace);
-        b.hit_test(10.5, 10.5, PX_PER_CELL, SelectMode::Replace);
+        b.hit_test(10.5, 10.5, PX_PER_CELL, 1.0, SelectMode::Replace);
         b.select(0, SelectMode::Extend);
         assert_eq!(b.selected(), Some(0), "three re-selections, still the same session");
         assert!(b.cancel_edit(), "the snapshot survived");
@@ -1004,7 +1146,7 @@ mod tests {
         for mode in [SelectMode::Replace, SelectMode::Toggle, SelectMode::Extend] {
             let mut b = three_labels();
             b.select_set([0, 1]);
-            assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, mode), None);
+            assert_eq!(b.hit_test(-500.0, -500.0, PX_PER_CELL, 1.0, mode), None);
             assert_eq!(b.selection.sorted(), vec![0, 1], "mode {mode:?} lost the selection on a miss");
         }
     }

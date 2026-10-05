@@ -49,6 +49,17 @@
 use crate::js_hypot;
 
 /// How a label's on-screen size responds to zoom.
+///
+/// **The variant docs below use the REFERENCE's vocabulary, and the shell uses
+/// the reverse.** The reference's `'zoom'` is the constant-on-screen mode (it
+/// applies `_civZoomK()`), its `'fixed'` the grows-with-the-terrain one. The
+/// native shell (`map_overlay.gd::_label_unit`, `label_bridge.rs::
+/// shell_label_box`) reads [`Self::Fixed`] as constant ON-SCREEN size and
+/// [`Self::Zoom`] as growing with the map -- the UI says "Fixed" and "Zoom with
+/// map", the owner's 2026-09-21 default is "fixed" for settlements and
+/// landmarks, and Ruling AP (2026-09-23) made "fixed" actually stay fixed.
+/// Nothing in this crate's own golden-pinned code (`label_font_size`,
+/// `label_box`) was changed to match: those remain the reference's reading.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LabelSizeMode {
     /// `sizeMode: 'zoom'` (the default). Holds a constant *on-screen* size as

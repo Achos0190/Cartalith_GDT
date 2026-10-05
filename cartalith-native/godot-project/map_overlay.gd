@@ -798,10 +798,14 @@ func _label_font_for(lb: Dictionary) -> Font:
 ## reproducing `_label_font_px`, but `label_box_at`/`label_handles`
 ## abandoning `label_font_size` for a new function that reproduces
 ## `_label_font_px` instead (`cartalith-godot::label_bridge::
-## shell_label_box`, fed `label_px_per_cell()` below rather than a zoom
-## scale -- `_label_font_px` never read one either). `label_font_size`
-## itself is untouched and still golden-pinned to the reference; only the
-## engine's hit-test box and handle geometry moved. **The arc-drawing
+## shell_label_box`, fed `label_px_per_cell()` below for the NOMINAL size --
+## `_label_font_px` never read a zoom). `label_font_size` itself is untouched
+## and still golden-pinned to the reference; only the engine's hit-test box and
+## handle geometry moved. **Amended 2026-10-05 (Ruling AP): that box now also
+## takes the live camera zoom**, because a "fixed" label is drawn at
+## `_label_font_px * _label_unit()` local px and the box must shrink with it --
+## `shell_label_box`'s `zoom` parameter and `shell_label_unit` are the engine
+## copy of `_label_unit()`. **The arc-drawing
 ## question above is separate and still open**: this file still lays out
 ## every glyph itself rather than calling `label_glyph_layout`, for the
 ## reasons already given, and that call still has no live measured width to
@@ -949,7 +953,7 @@ signal context_requested(req: Dictionary)
 ## release re-resolves through the ordinary `context_requested` path.
 signal sample_pin_dropped(gx: float, gy: float)
 
-## The engine half of `hits_at()`: a `Callable(gx, gy, px_per_cell) -> Array`
+## The engine half of `hits_at()`: a `Callable(gx, gy, px_per_cell, zoom) -> Array`
 ## of `{kind, id, label?, x, y}` for the picks only the engine can answer
 ## (labels, icons). **A `Callable` and not an `EngineBridge`**, for the reason
 ## `set_trait_art_resolver()` gives: this control holds no bridge. The shell's
@@ -1433,18 +1437,19 @@ var _label_weight_log_range: Dictionary = {}
 ## per call, so mutating it here never reaches back into the engine).
 ##
 ## Seeded to the practical default a fresh session should show even if the
-## CARTO ▸ Labels panel is never opened this session: settlement and landmark
-## (POI) names hold a constant on-screen size as the user zooms, matching how
-## a real map keeps place names legible; broad geographic names (continent,
-## region, water) keep the engine's own zoom-with-the-terrain default. Owner-
-## approved practical default, 2026-09-21 -- see `_label_font_px()`'s own doc
-## comment for what "fixed" and "zoom" actually do to the drawn pixel size in
-## THIS renderer (the reference/engine's own `LabelSizeMode` doc comments
-## describe a canvas-zoom-transform model this shell does not use; the two
-## disagree in words and agree in the string values, which is the only thing
-## that crosses the boundary -- see `labels.rs::civ_zoom_k`'s own disclosure
-## of a sibling disagreement).
-var _generated_size_mode_override: Dictionary = {"settlement": "fixed", "landmark": "fixed"}
+## CARTO ▸ Labels panel is never opened this session: settlement, landmark
+## (POI) and region (province) names hold a constant on-screen size as the user
+## zooms, matching how a real map keeps place names legible; continent and
+## water names keep the engine's own zoom-with-the-terrain default.
+## Owner-approved practical default for settlement and landmark, 2026-09-21;
+## **region joined 2026-10-05 with Ruling AP's fix, a labelled judgement
+## flagged for the owner** (see `cartography_workspace.gd`'s
+## `LABEL_PRACTICAL_SIZE_MODE_BY_CLASS`, which must stay equal to this). See
+## `_label_font_px()`/`_label_unit()` for what "fixed" and "zoom" do to the
+## drawn pixel size in THIS renderer (the reference/engine's own
+## `LabelSizeMode` doc comments use the opposite vocabulary; only the string
+## values cross the boundary -- see that enum's own note).
+var _generated_size_mode_override: Dictionary = {"region": "fixed", "settlement": "fixed", "landmark": "fixed"}
 
 ## Push a new per-class override and re-apply it to whatever `_labels` already
 ## holds, so flipping the control repaints immediately rather than waiting on
@@ -2643,10 +2648,11 @@ func displayed_rect() -> Rect2:
 ## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23). The engine's label hit-test
 ## box and manipulation handles now size themselves off this control's own font
 ## model (`cartalith-godot::label_bridge::shell_label_box`) instead of their
-## former one, and this is the one number that model needs from here --
-## deliberately not the live camera zoom, which `_label_font_px()` never reads
-## either (see `_label_font_px()`'s own doc comment on why, and
-## `_label_raster_px()` for the one place a zoom term does belong). `0.0`
+## former one, and this is the one number that model needs from here for the
+## NOMINAL size -- deliberately not the live camera zoom, which
+## `_label_font_px()` never reads. The camera zoom reaches the box separately,
+## as `shell_label_box`'s own `zoom` argument (`_label_unit()`, Ruling AP,
+## 2026-10-05). `0.0`
 ## before any world is loaded, matching `_displayed_rect()`'s own degenerate
 ## guard.
 func label_px_per_cell() -> float:
@@ -2800,8 +2806,10 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 		var font := _label_font_for(lb)
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		var font_px := _label_font_px(lb, rect)
-		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
-		var h := float(font_px) * 1.3
+		## A fixed label is `_label_unit()` of its nominal size in local px (Ruling AP).
+		var lu := _label_unit(lb)
+		var w := lu * font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		var h := lu * float(font_px) * 1.3
 		boxes.append(Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h)))
 	for ic: Dictionary in _manual_icons:
 		## A mark that is not drawn must not push a name around. The only rows
@@ -3422,11 +3430,12 @@ func _list_label_glyphs(rect: Rect2, jobs: Dictionary) -> void:
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		var font := _label_font_for(lb)
 		var font_px := _label_font_px(lb, rect)
-		var reach := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
-			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
+		var lu := _label_unit(lb)
+		var reach := lu * (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length()))
 		if not _visible_local.grow(reach).has_point(pos):
 			continue
-		var raster_px := _label_raster_px(font_px)
+		var raster_px := _label_raster_px(font_px, lu)
 		var kk := float(raster_px) / float(font_px)
 		var halo_em: float = float(lb.get("halo_em", LABEL_HALO_EM_FALLBACK))
 		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em) * kk))
@@ -3816,9 +3825,10 @@ func _label_chunk_bounds(rect: Rect2, parts: int) -> PackedInt32Array:
 		if not text.is_empty() and not _label_below_lod(lb):
 			var font_px := _label_font_px(lb, rect)
 			var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
-			var reach := _label_font_for(lb).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
-				+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
-			var rpx := _label_raster_px(font_px)
+			var lu := _label_unit(lb)
+			var reach := lu * (_label_font_for(lb).get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+				+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length()))
+			var rpx := _label_raster_px(font_px, lu)
 			if _visible_local.grow(reach).has_point(pos) and rpx < LABEL_RASTER_PX_MAX:
 				w[i] = float(text.length() + 1) * float(rpx) * float(rpx)
 		total += w[i]
@@ -4676,8 +4686,13 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 			continue
 		var font := _label_font_for(lb)
 		var font_px := _label_font_px(lb, rect)
-		var reach := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
-			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length())
+		## `lu` is this label's local-space unit (see `_label_unit()`): `1.0`
+		## for a "zoom" label, `_civ_zoom_k()` for a "fixed" one, so a fixed
+		## label's whole layout shrinks by the factor the camera multiplies
+		## back in and its on-screen size holds (Ruling AP, 2026-09-23).
+		var lu := _label_unit(lb)
+		var reach := lu * (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x \
+			+ float(font_px) * (2.0 + absf(float(lb.get("tracking_em", 0.0))) * text.length()))
 		if not _visible_local.grow(reach).has_point(pos):
 			continue
 		## Rasterise at the size this label actually occupies ON SCREEN, then
@@ -4712,8 +4727,17 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 		## At zoom <= 1 this is all identity: `raster_px == font_px`, `sk` and
 		## `kk` are `1.0`, and every expression below reduces to what it was.
 		## See `_label_raster_px()` for the cap and what it costs.
-		var raster_px := _label_raster_px(font_px)
-		var sk := float(font_px) / float(raster_px)
+		##
+		## **Fixed labels (Ruling AP, 2026-09-23).** `lu` is `1.0` for a "zoom"
+		## label, so everything above and below is bit-identical for it. For a
+		## "fixed" one `lu = 1 / zoom`: `raster_px` is `font_px * lu * zoom`
+		## = `font_px` (the size it is shown at), and `sk * lu` is the one
+		## extra local-space shrink the camera's multiply cancels, so the label
+		## holds `font_px` on screen at every zoom instead of growing with it.
+		## The layout numbers are still measured at `font_px`; only the
+		## transform's scale and the arc's glyph offsets (`world_pt`) carry `lu`.
+		var raster_px := _label_raster_px(font_px, lu)
+		var sk := float(font_px) / float(raster_px) * lu
 		var kk := float(raster_px) / float(font_px)
 		var fill: Color = Color(String(lb["color"]))
 		## The class type spec, resolved against THIS file's font size rather
@@ -4778,7 +4802,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 			var mid := acc + w / 2.0
 			var theta := mid / radius
 			var glyph_local := Vector2(radius * sin(theta), dir_sign * radius * (1.0 - cos(theta)))
-			var world_pt := pos + glyph_local.rotated(th)
+			var world_pt := pos + (glyph_local * lu).rotated(th)
 			var local_pos2 := Vector2(-w / 2.0, v_center) * kk
 			_cv.draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic) * shrink)
 			if outline_w > 0:
@@ -4818,11 +4842,24 @@ func _label_xform(pos: Vector2, rot: float, italic: bool) -> Transform2D:
 	return xf
 
 
-## `size_mode == "fixed"` holds a constant on-screen size regardless of
-## zoom (reference: drops its own `_civZoomK()` factor); `"zoom"` grows with
-## the terrain, tied to the current px-per-cell fit (`rect.size.x / _gw`) the
-## same way `tool_overlay.gd`'s brush cursor radius already scales. Clamped
-## to stay legible at extreme zoom in either direction.
+## The label's NOMINAL font size in this control's local pixels -- the size the
+## label is laid out at (`get_string_size`, the halo, the arc radius) before
+## `_label_unit()` is applied. It is NOT, for a "fixed" label, the size it is
+## drawn at in local space: see `_label_unit()`.
+##
+## `size_mode` here is the SHELL's vocabulary, which is the reverse of the
+## reference's (`LabelSizeMode` in `cartalith-civ`): `"fixed"` holds a constant
+## ON-SCREEN size whatever the camera zoom (`_label_unit()` supplies the
+## camera-compensation term, Ruling AP 2026-09-23); `"zoom"` grows with the
+## map. (The reference calls the constant-on-screen mode `'zoom'` -- it applies
+## `_civZoomK()` -- and the grows-with-terrain mode `'fixed'`.) `"zoom"` is
+## tied to the current px-per-cell fit (`rect.size.x / _gw`) the same way
+## `tool_overlay.gd`'s brush cursor radius already scales -- that fit moves with
+## the window and the grid, never with the camera (the camera is an ancestor
+## scale). Clamped to stay legible at extreme sizes in either direction; that
+## clamp is on the NOMINAL size, which is why the zoom term cannot live in here:
+## clamping `size / zoom` would pin a deep-zoom fixed label at the minimum local
+## px and it would grow again.
 func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	var size: float = float(lb["size"])
 	var px: float
@@ -4831,6 +4868,29 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	else:
 		px = size * (rect.size.x / float(_gw)) / LABEL_ZOOM_BASE_PX_PER_CELL
 	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
+
+
+## A label's local-space unit: the factor its whole layout (`_label_font_px`
+## sized glyphs, halo, arc, culling reach, occupancy box) is multiplied by on its
+## way to this control's local pixels.
+##
+## **Ruling AP (owner, 2026-09-23): a "fixed" label must stay fixed.** The
+## camera is an ancestor `Control` whose `scale` is the zoom, and Godot scales
+## its children rather than re-drawing them, so anything drawn here appears at
+## `local px * _camera_zoom` on screen -- a "fixed" label sized only by
+## `_label_font_px` therefore grew with every zoom notch, indistinguishable from
+## a "zoom" one. `_civ_zoom_k()` (`1 / max(zoom, 0.35)`) is the term that
+## divides the camera's multiply back out -- the same one the settlement pins
+## use -- so a fixed label is `font_px` on screen at every zoom at or above
+## 0.35, and shrinks below it (the reference's `_civZoomK` clamp, kept).
+## `"zoom"` returns exactly `1.0`, which keeps its output bit-identical.
+##
+## The engine's hit-test box takes the same factor (`label_bridge.rs::
+## shell_label_box`'s `zoom`) so the clickable box and the handles keep matching
+## what is drawn. Must never be applied to `font_px` itself: see
+## `_label_font_px()`.
+func _label_unit(lb: Dictionary) -> float:
+	return _civ_zoom_k() if lb["size_mode"] == "fixed" else 1.0
 
 
 ## The size a label's glyphs are RASTERISED at, which is not the size they are
@@ -4863,8 +4923,12 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 ## one letter of it.
 const LABEL_RASTER_PX_MAX := 256
 
-func _label_raster_px(font_px: int) -> int:
-	return clampi(int(round(float(font_px) * maxf(_camera_zoom, 0.001))),
+## `lu` is the label's `_label_unit()`: the on-screen size is
+## `font_px * lu * zoom`, which is `font_px` for a fixed label (so it rasterises
+## 1:1, crisp, at every zoom) and `font_px * zoom` for a "zoom" one (`lu = 1.0`,
+## the pre-Ruling-AP value).
+func _label_raster_px(font_px: int, lu: float = 1.0) -> int:
+	return clampi(int(round(float(font_px) * lu * maxf(_camera_zoom, 0.001))),
 		font_px, maxi(font_px, LABEL_RASTER_PX_MAX))
 
 
@@ -6035,7 +6099,7 @@ func hits_at(mouse: Vector2) -> Array:
 				hits.append(_hit("landmark", i, lm.get("name"), ld))
 	var p := _grid_point(mouse, rect, interior)
 	if _context_pick.is_valid() and p["valid"]:
-		for e in _context_pick.call(p["gx"], p["gy"], label_px_per_cell()):
+		for e in _context_pick.call(p["gx"], p["gy"], label_px_per_cell(), _camera_zoom):
 			## A line pick (CM-7's `way`, `river`) reports the nearest point on
 			## the line itself, already in continuous grid coordinates -- so it
 			## goes through `_point_to_screen`, not the cell-centring

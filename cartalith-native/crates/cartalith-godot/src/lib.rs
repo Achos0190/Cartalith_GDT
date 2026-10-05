@@ -15508,16 +15508,19 @@ impl WorldGen {
     /// `px_per_cell` sizes that box off `map_overlay.gd`'s own font model
     /// (`label_bridge::shell_label_box`), not `cartalith_civ::labels::
     /// label_font_size` -- `LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23.
-    /// **Resolved, at this symbol, the "three models for one number" defect
-    /// this doc comment used to describe**: `label_hit_test`/
-    /// `label_hit_test_mode` no longer stand in `zoom_scale: 1.0` for a real
-    /// view value, because the shell's own font model was never a function
-    /// of the live camera zoom to begin with (`shell_label_box`'s own doc
-    /// comment has the full reasoning) -- there is nothing left to thread a
-    /// `zoom` parameter in for. Pass `ViewportHost::label_px_per_cell()`.
+    /// Pass `ViewportHost::label_px_per_cell()`.
+    ///
+    /// `zoom` is the LIVE camera zoom (`ViewportHost::zoom()`). Ruling AP
+    /// (2026-09-23): a `Fixed` label holds a constant on-screen size, so its
+    /// drawn local-space size shrinks by `1 / max(zoom, 0.35)` and the box
+    /// must shrink with it, or a click would land on text that is no longer
+    /// there (`shell_label_box`'s doc). A `Zoom` label ignores it. This
+    /// binding's earlier note that the font model "never read the camera
+    /// zoom, so there is nothing to thread" was true until that ruling and is
+    /// retired. Pass `1.0` only where the camera is genuinely at 1.
     #[func]
-    fn label_hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64) -> i64 {
-        self.label_hit_test_mode(gx, gy, px_per_cell, 0)
+    fn label_hit_test(&mut self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64) -> i64 {
+        self.label_hit_test_mode(gx, gy, px_per_cell, zoom, 0)
     }
 
     /// [`Self::label_hit_test`] with the modifier a click carried: `mode` is
@@ -15525,14 +15528,15 @@ impl WorldGen {
     /// always did), `1` toggle (Ctrl/Cmd-click), `2` extend (Shift-click).
     /// Anything else is treated as `0`.
     ///
-    /// A **separate** binding rather than a parameter on `label_hit_test`,
-    /// which keeps working untouched: its wrapper and call sites are outside
-    /// this crate (`engine_bridge.gd`, `_deselect_probe.gd`), and step one of
-    /// the selection-sets ruling is not the place to break them.
+    /// A **separate** binding rather than a parameter on `label_hit_test`, so
+    /// the plain click keeps its own entry point (that choice predates Ruling
+    /// AP; both bindings have since gained the same `zoom` parameter, and
+    /// `engine_bridge.gd`'s wrappers default it to `1.0` for callers that have
+    /// no camera). `zoom` is as documented on [`Self::label_hit_test`].
     #[func]
-    fn label_hit_test_mode(&mut self, gx: f64, gy: f64, px_per_cell: f64, mode: i64) -> i64 {
+    fn label_hit_test_mode(&mut self, gx: f64, gy: f64, px_per_cell: f64, zoom: f64, mode: i64) -> i64 {
         let Some(labels) = self.labels.as_mut() else { return -1 };
-        labels.hit_test(gx, gy, px_per_cell, selection::SelectMode::from_i64(mode)).map_or(-1, |i| i as i64)
+        labels.hit_test(gx, gy, px_per_cell, zoom, selection::SelectMode::from_i64(mode)).map_or(-1, |i| i as i64)
     }
 
     /// The five on-canvas manipulation-box handle circles for label
@@ -15551,8 +15555,10 @@ impl WorldGen {
     /// `px_per_cell` sizes the box the handles sit on
     /// (`label_bridge::shell_label_box`, `map_overlay.gd`'s own font model
     /// -- `LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23). Pass
-    /// `ViewportHost::label_px_per_cell()`; `zoom` is still
-    /// `app.viewport.zoom()`, unchanged.
+    /// `ViewportHost::label_px_per_cell()`; `zoom` is `app.viewport.zoom()`
+    /// and, since Ruling AP (2026-09-23), ALSO shrinks the box of a `Fixed`
+    /// label by `1 / max(zoom, 0.35)` (`shell_label_box`'s doc), so the
+    /// handles sit on the box the shell actually draws.
     ///
     /// Empty top-level `Dictionary` for an out-of-range `index` or before
     /// any `generate()` call. Uses the same `meas_w = 0` placeholder

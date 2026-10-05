@@ -100,10 +100,15 @@ func _ready() -> void:
 	bg.color = GROUND
 	root.add_child(bg)
 
+	## Exactly `viewport_host.gd`'s camera: a FULL_RECT parent whose `scale` is the
+	## zoom. Identity for Parts 1-2 (zoom 1), driven by Part 3 (Ruling AP).
+	var cam := Control.new()
+	cam.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_child(cam)
 	var ov := Control.new()
 	ov.set_script(OVERLAY)
 	ov.set_anchors_preset(Control.PRESET_FULL_RECT)
-	root.add_child(ov)
+	cam.add_child(ov)
 	await get_tree().process_frame
 
 	var gen := WorldGen.new()
@@ -179,8 +184,10 @@ func _ready() -> void:
 	annotated.save_png("user://labelboxmodel_annotated.png")
 	print("annotated image: ", ProjectSettings.globalize_path("user://labelboxmodel_annotated.png"))
 
-	for f in ["placeholder"]:
-		pass
+	marks.queue_free()
+	await get_tree().process_frame
+	await _check_fixed_box_tracks_drawn(gen, ov, cam)
+
 	print("PROBE-RESULT: ", "PASS" if _fails == 0 else "FAIL")
 	get_tree().quit(0 if _fails == 0 else 1)
 
@@ -203,3 +210,66 @@ func _ink_box(img: Image) -> Rect2:
 	if x1 < 0:
 		return Rect2()
 	return Rect2(x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+
+
+## Ruling AP (2026-09-23, built 2026-10-05) -- Part 3. **Protects:** the engine's
+## hit-test box and handles agree with what `map_overlay.gd` DRAWS for a
+## `"fixed"` label at every camera zoom, not just 1. A fixed label is drawn at a
+## constant on-screen size (`map_overlay.gd::_label_unit`), so the engine's
+## `shell_label_box` must shrink in grid units by the same `1/zoom` or the
+## click target (and the resize handle) would swell with the camera while the
+## text did not.
+##
+## Three zooms (1, 3, 8) about the viewport centre, the label at the grid
+## centre so it stays put on screen. At each: (a) the real drawn ink box is
+## measured; (b) the REAL `label_handles` resize handle's screen distance from
+## the label origin (the box is centred on it), over
+## the ink height must be the same ratio at every zoom (a unit-less box would
+## make it x3 and x8); (c) `label_pick_all` at the ink centre hits this label,
+## and at three ink-heights away misses -- the miss is what a box that failed
+## to shrink would flunk. `px_per_cell == 1`, so the disclosed cell/pixel
+## conflation contributes nothing (see the header's Method).
+func _check_fixed_box_tracks_drawn(gen: WorldGen, ov: Control, cam: Control) -> void:
+	var idx: int = gen.label_create(float(GW) / 2.0, float(GH) / 2.0, "Aldebar")
+	gen.label_set(idx, {"size": LABEL_SIZE, "size_mode": "fixed"})
+	var lb: Dictionary = gen.label_get(idx)
+	var s := Vector2(VP)
+	var ppc: float = ov.label_px_per_cell()
+	var ratio_at_1 := 0.0
+	var widths: Array = []
+	for z in [1.0, 3.0, 8.0]:
+		cam.scale = Vector2(z, z)
+		cam.position = s * 0.5 - (s * 0.5) * z
+		ov.set_camera_zoom(z)
+		# Only this label: earlier parts' label (the zoom-mode one) must not
+		# pollute the ink box.
+		ov.set_labels([lb])
+		ov.queue_redraw()
+		await RenderingServer.frame_post_draw
+		await RenderingServer.frame_post_draw
+		var img: Image = get_viewport().get_texture().get_image()
+		img.save_png("user://labelboxmodel_fixed_z%d.png" % int(z))
+		var ink := _ink_box(img)
+		_ok(ink.size.x > 0 and ink.size.y > 0, "z=%.0f: the fixed label drew visible ink" % z)
+		if ink.size.y <= 0:
+			continue
+		widths.append(ink.size.x)
+		var h: Dictionary = gen.label_handles(idx, z, ppc)
+		var dist: float = (float(h["resize"]["x"]) - float(lb["x"])) * ppc * z
+		var ratio: float = dist / float(ink.size.y)
+		if z == 1.0:
+			ratio_at_1 = ratio
+		print("z=%.0f ink=%s box half-side on screen=%.1fpx  ratio to ink height=%.3f" % [z, ink, dist, ratio])
+		# 5%: the ink box is a bitmap-font bounding box that jitters by a pixel
+		# or two with raster size; a box that failed to track is x3 / x8 off.
+		_ok(absf(ratio / maxf(ratio_at_1, 1e-6) - 1.0) < 0.05,
+			"z=%.0f: engine box half-side / drawn ink height matches z=1 (%.3f vs %.3f)" % [z, ratio, ratio_at_1])
+		var centre_local: Vector2 = (ink.get_center() - s * 0.5) / z + s * 0.5
+		var near := gen.label_pick_all(centre_local.x, centre_local.y, ppc, z)
+		_ok(near.has(idx), "z=%.0f: pick at the drawn ink centre hits the label" % z)
+		var far_local: Vector2 = centre_local + Vector2(0.0, 3.0 * float(ink.size.y) / z)
+		var far := gen.label_pick_all(far_local.x, far_local.y, ppc, z)
+		_ok(not far.has(idx), "z=%.0f: pick three ink-heights away misses -- the box did not swell with the camera" % z)
+	if widths.size() == 3:
+		_ok(absf(float(widths[2]) / float(widths[0]) - 1.0) < 0.06,
+			"the drawn fixed label's width is the same at z=8 as z=1 (%d vs %d px): the control that the three frames are comparable" % [widths[2], widths[0]])

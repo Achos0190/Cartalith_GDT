@@ -1692,7 +1692,7 @@ func _on_label_click(gx: float, gy: float) -> void:
 			_begin_label_handle_drag(sel, mode, gx, gy)
 			return
 
-	var hit := bridge.label_hit_test_mode(gx, gy, app.viewport.label_px_per_cell(), sel_mode)
+	var hit := bridge.label_hit_test_mode(gx, gy, app.viewport.label_px_per_cell(), sel_mode, app.viewport.zoom())
 	if hit >= 0:
 		## A modified click selects; it does not also arm a position drag. A
 		## Ctrl-drag that moved the label it had just added to the set would
@@ -2143,14 +2143,25 @@ const LABEL_FONT_CHOICE_VALUES := ["", "IBM Plex Mono", "Fira Code"]
 ## per class, rather than `LABEL_NEW_SIZE_MODE` uniformly. Owner-approved,
 ## 2026-09-21: settlement names and POI (landmark) markers hold a constant
 ## on-screen size as the user zooms -- "fixed" in this shell's own vocabulary,
-## see `map_overlay.gd::_label_font_px()` -- so they stay legible rather than
-## growing to unreadable or shrinking away; broad geographic names
-## (continent/region/water) keep the untouched `LABEL_NEW_SIZE_MODE` default,
-## which also matches `MapLabel::new`'s own engine-side default for a
-## hand-placed label of those roles. Not an engine change: `cartalith-civ`'s
+## see `map_overlay.gd::_label_font_px()` and `_label_unit()` -- so they stay
+## legible rather than growing to unreadable or shrinking away; continent and
+## water names keep the untouched `LABEL_NEW_SIZE_MODE` default, which also
+## matches `MapLabel::new`'s own engine-side default for a hand-placed label of
+## those roles.
+##
+## **Region (province) joined the fixed set with Ruling AP's fix, 2026-10-05**
+## -- a labelled judgement, flagged for the owner. Once "fixed" really holds its
+## size, a "zoom" province name is the one label that still grows with the map,
+## and at deep zoom it dwarfs the very town it labels (a 96 px nominal name at
+## zoom 16 is 1 536 screen px). The reference's own default holds a constant
+## on-screen size for every class (its `'zoom'` string, the opposite spelling
+## of this shell's -- see `labels.rs::LabelSizeMode`), so this is the
+## closer-to-reference default. Revert by deleting the `"region"` row here AND
+## in `map_overlay.gd::_generated_size_mode_override`. Not an engine change: `cartalith-civ`'s
 ## own `LabelGenSettings::default()` still emits every class at `Zoom`; this
 ## table is what this shell chooses to draw with it, and only this shell.
 const LABEL_PRACTICAL_SIZE_MODE_BY_CLASS := {
+	"region": "fixed",
 	"settlement": "fixed",
 	"landmark": "fixed",
 }
@@ -2561,7 +2572,7 @@ func _build_label_classes(parent: Control) -> void:
 			_label_role_size_mode[_label_class] = "fixed" if i == 0 else "zoom"
 			_push_generated_size_mode_override()
 			_refresh_label_role_controls(),
-		"Fixed grows and shrinks with the terrain; Zoom holds a constant on-screen size. Two things happen when you change this: it becomes the base for any NEW hand-placed label of this role (existing ones keep theirs until you press Apply below), and it takes effect immediately on the generated pass's OWN labels of this role -- no Apply needed for those, since a generated label is redrawn from this role's own settings on every run.")
+		"Fixed holds a constant on-screen size as you zoom; Zoom with map grows and shrinks with the terrain. Two things happen when you change this: it becomes the base for any NEW hand-placed label of this role (existing ones keep theirs until you press Apply below), and it takes effect immediately on the generated pass's OWN labels of this role -- no Apply needed for those, since a generated label is redrawn from this role's own settings on every run.")
 	## `italic` is a real attribute and is deliberately not a dial: the water
 	## row is the only spec that carries it (`parts.js:363`), and
 	## `set_field(\"italic\", ...)` returns `None` with a Rust test pinning that

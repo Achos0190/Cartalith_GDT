@@ -108,13 +108,13 @@ func _init(p_app) -> void:
 ## picks, as `{kind, id, label?, x, y}` rows. Labels first, then icons, each
 ## topmost first (`label_pick_all` / `icon_pick_all`); `hits_at()` sorts the
 ## lot by distance.
-func engine_picks(gx: float, gy: float, px_per_cell: float) -> Array:
+func engine_picks(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> Array:
 	var out: Array = []
 	var bridge = app.bridge
 	if bridge == null or not bridge.has_world:
 		return out
 	var labels: Array = []
-	var li: PackedInt64Array = bridge.label_pick_all(gx, gy, px_per_cell)
+	var li: PackedInt64Array = bridge.label_pick_all(gx, gy, px_per_cell, zoom)
 	if not li.is_empty():
 		labels = bridge.label_list()
 	for i in li:

@@ -303,15 +303,14 @@ func _measure(behaviour: bool, bridge) -> void:
 	await _create_label("Inner Sea", gs.x * 0.30, gs.y * 0.40)
 	await _create_label("Long Lake", gs.x * 0.55, gs.y * 0.45)
 
-	## And one in Region, at that role's own default mode, to prove the
-	## defaults are per role rather than global. NOT Landmark: since
-	## 2026-09-21 `LABEL_PRACTICAL_SIZE_MODE_BY_CLASS` seeds Landmark (and
-	## Settlement) to "fixed" out of the box -- the same practical default
-	## `map_overlay.gd` applies to the GENERATED pass's own labels of those
-	## roles -- so it would no longer diverge from Water's explicitly-set
-	## "fixed" here. Region keeps the untouched "zoom" default and still
-	## proves the point.
-	((rows["region"] as Dictionary)["btn"] as Button).emit_signal("pressed")
+	## And one in Continental, at that role's own default mode, to prove the
+	## defaults are per role rather than global. NOT Landmark, Settlement or
+	## Region: `LABEL_PRACTICAL_SIZE_MODE_BY_CLASS` seeds those three to "fixed"
+	## out of the box (Region since Ruling AP's 2026-10-05 fix; the same practical
+	## default `map_overlay.gd` applies to the GENERATED pass), so they would no
+	## longer diverge from Water's explicitly-set "fixed" here. Continental keeps
+	## the untouched "zoom" default and still proves the point.
+	((rows["continental"] as Dictionary)["btn"] as Button).emit_signal("pressed")
 	await _frames(2)
 	await _create_label("Old Spire", gs.x * 0.70, gs.y * 0.60)
 
@@ -330,10 +329,10 @@ func _measure(behaviour: bool, bridge) -> void:
 		_ok(String(d.get("size_mode", "")) == "fixed",
 			"%s took the role's size mode fixed (got %s)" % [nm, d.get("size_mode", "")])
 	var spire: Dictionary = by_name.get("Old Spire", {})
-	_ok(String(bridge.label_class_of(int(spire.get("index", -1)))) == "region",
-		"Old Spire was created in region, not in water")
+	_ok(String(bridge.label_class_of(int(spire.get("index", -1)))) == "continental",
+		"Old Spire was created in continental, not in water")
 	_ok(String(spire.get("size_mode", "")) == "zoom",
-		"Old Spire took region's own mode (zoom), so the mode is per role (got %s)" % spire.get("size_mode", ""))
+		"Old Spire took continental's own mode (zoom), so the mode is per role (got %s)" % spire.get("size_mode", ""))
 
 	# -- 6b. the label-list row this pass adds a cell to ----------------------
 	##
@@ -366,8 +365,8 @@ func _measure(behaviour: bool, bridge) -> void:
 	var cells: Dictionary = ws._label_class_count_cells
 	_ok(String((cells["water"] as Dictionary)["placed"].text) == "2",
 		"water's placed column reads 2 (got %s)" % (cells["water"] as Dictionary)["placed"].text)
-	_ok(String((cells["region"] as Dictionary)["placed"].text) == "1",
-		"region's placed column reads 1 (got %s)" % (cells["region"] as Dictionary)["placed"].text)
+	_ok(String((cells["continental"] as Dictionary)["placed"].text) == "1",
+		"continental's placed column reads 1 (got %s)" % (cells["continental"] as Dictionary)["placed"].text)
 	_ok(String((cells["landmark"] as Dictionary)["placed"].text) == "0",
 		"landmark's placed column reads a real 0, not a dash (got %s)" % (cells["landmark"] as Dictionary)["placed"].text)
 
@@ -407,8 +406,8 @@ func _measure(behaviour: bool, bridge) -> void:
 			"Apply set label %d to the role base %.0f (got %.1f)"
 				% [idx, moved, float(bridge.label_get(idx).get("size", -1.0))])
 	_ok(is_equal_approx(float(bridge.label_get(int(spire.get("index", -1))).get("size", -1.0)),
-			float(ws._label_class_spec("region").get("size", -1.0))),
-		"Apply left the region label alone -- it reaches one role, not every label")
+			float(ws._label_class_spec("continental").get("size", -1.0))),
+		"Apply left the continental label alone -- it reaches one role, not every label")
 	_ok(ws._label_role_apply.disabled,
 		"Apply disables itself once every label in the role is at the base")
 	_ok(String(ws._label_role_line.text).contains("2 already at the base"),

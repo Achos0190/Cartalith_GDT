@@ -1,36 +1,27 @@
 extends Node
-## CARTO ▸ Labels, 2026-09-21 batch: (1) generated settlement/POI (landmark)
-## labels' `size_mode` is overridden to `"fixed"` by default, shell-side, in
-## `map_overlay.gd`; (2) the per-label Font picker in
-## `cartography_workspace.gd` (replacing a free-text field) actually selects
-## a real, different loaded face.
+## CARTO ▸ Labels: (1) generated region/settlement/landmark labels' `size_mode`
+## is overridden to `"fixed"` by default, shell-side, in `map_overlay.gd`
+## (the 2026-09-21 batch put settlement and landmark there; Ruling AP,
+## 2026-09-23, fixed on 2026-10-05, added region); (2) the per-label Font
+## picker in `cartography_workspace.gd` actually selects a real, different
+## loaded face; (3) **a `"fixed"` label holds its on-screen size under the LIVE
+## camera zoom and a `"zoom"` label grows with it** (Part B, asserted).
 ##
-## **A finding this probe exists to pin, not just the feature**: `size_mode`
-## ("fixed"/"zoom") does NOT make a label track or resist the LIVE camera zoom
-## (`ViewportHost._camera.scale`, pushed here as `_camera_zoom`) at all.
-## `_label_font_px()` never reads `_camera_zoom` in either branch -- unlike
-## the settlement-pin path two hundred lines above it in the same file, which
-## applies `civ_zoom_k(_camera_zoom)` specifically so a pin holds a roughly
-## constant on-screen size across camera zoom (`PIN_SCALE_REF_PX`'s own doc
-## comment). `size_mode` instead answers a different question:
-## `"zoom"` scales a label with `rect.size.x / _gw` -- the grid-to-window
-## LETTERBOX FIT (`_displayed_rect()`, which depends on this control's own
-## `size` and `_gw`/`_gh`, never on `_camera_zoom`) -- and `"fixed"` does not.
-## That fit changes across worlds and window sizes, not while the user
-## pinches or scrolls the wheel. So under a LIVE zoom change, `"fixed"` and
-## `"zoom"` labels are measured here to move IDENTICALLY (Part B, printed, not
-## asserted -- a true finding, not a bug in this probe), and the FIT-based
-## distinction size_mode actually governs is measured separately (Part C, at
-## a fixed camera zoom, across two window/grid fits).
+## **History this probe used to pin as a finding, and now pins as the fix.**
+## Until 2026-10-05 `size_mode` did NOT respond to the live camera zoom
+## (`ViewportHost._camera.scale`, pushed here as `_camera_zoom`):
+## `_label_font_px()` never read it in either branch, so a "fixed" label grew
+## x3 under a x3 zoom exactly like a "zoom" one, and Part B printed "identical:
+## size_mode does not gate this" as a FINDING. That was Ruling AP's defect
+## ("'Fixed size' map labels: fix them to actually stay fixed"). The fix is
+## `map_overlay.gd::_label_unit()`: a fixed label's glyph geometry is divided by
+## the camera zoom (the same `_civ_zoom_k()` the settlement pins use), so
+## local px x camera scale = `font_px` on screen. Part B now ASSERTS the two
+## modes diverge under a live zoom: fixed ~x1.0, zoom ~x3.0.
 ##
-## This does not make the 2026-09-21 default wrong -- the override still
-## does exactly what it claims (it changes which grid-fit rule a generated
-## label follows) -- but it means the practical default alone does not yet
-## deliver "constant text height as you interactively zoom" the way a plain
-## reading of "fixed" would suggest. That gap is `_label_font_px` itself, is
-## pre-existing, and is reported rather than silently patched here -- fixing
-## it would change already-shipped, `_labelblur_probe.gd`-verified behaviour
-## for every label using either mode, which needs its own pass.
+## Part C is unchanged: the grid-to-window LETTERBOX FIT (`_displayed_rect()`,
+## which depends on `size` and `_gw`/`_gh`) still scales a "zoom" label and
+## not a "fixed" one, at a fixed camera zoom.
 ##
 ## Mirrors `_labelblur_probe.gd`'s harness: `map_overlay.gd` ALONE under a
 ## scaled `Control` standing in for `ViewportHost`'s camera, no shell, no
@@ -108,7 +99,7 @@ func _ready() -> void:
 	# ---- Part D: the override rewrites the DATA, no rendering needed ------
 	_check_override_data()
 
-	# ---- Part B: live camera zoom -- printed finding, not an assertion ----
+	# ---- Part B: live camera zoom -- fixed holds, zoom grows (asserted) ----
 	_ov.set_civ_data([], [], [], GW, GH, 0.0)
 	await _measure_camera_zoom_sensitivity()
 
@@ -152,6 +143,7 @@ func _check_override_data() -> void:
 		_lbl(true, "landmark", "zoom"),
 		_lbl(true, "continental", "zoom"),  # NOT in the override table
 		_lbl(false, "settlement", "zoom"),  # hand-placed: never touched
+		_lbl(true, "region", "zoom"),       # Ruling AP (2026-10-05): region joins the table
 	]
 	_ov.set_labels(rows)
 	var after: Array = _ov._labels
@@ -163,6 +155,8 @@ func _check_override_data() -> void:
 		"a generated CONTINENTAL label, not in the override table, keeps the engine's own \"zoom\"")
 	_expect(String(after[3]["size_mode"]) == "zoom",
 		"a HAND-PLACED label is never touched by the override, whatever its class")
+	_expect(String(after[4]["size_mode"]) == "fixed",
+		"a generated REGION label is overridden to \"fixed\" too (Ruling AP: province-class labels hold constant)")
 
 	# The override is live and reversible, and an empty override is a no-op.
 	_ov.set_generated_size_mode_override({"settlement": "zoom"})
@@ -173,26 +167,36 @@ func _check_override_data() -> void:
 	_expect(String(_ov._labels[0]["size_mode"]) == "zoom",
 		"an empty override leaves the engine's own size_mode alone")
 	# Restore the practical default for Part B/C below.
-	_ov.set_generated_size_mode_override({"settlement": "fixed", "landmark": "fixed"})
+	_ov.set_generated_size_mode_override({"region": "fixed", "settlement": "fixed", "landmark": "fixed"})
 
 
-## Printed, not asserted -- see the header. This documents, rather than
-## claims, that `size_mode` does not respond to `_camera_zoom` at all in
-## `_label_font_px()`, for either value, unlike the settlement-pin path
-## (`civ_zoom_k(_camera_zoom)`) a few hundred lines above it in the same file.
+## Ruling AP (2026-09-23): under a LIVE camera zoom a "fixed" label holds its
+## on-screen size and a "zoom" label grows with the camera. The camera scale
+## on the ancestor and the zoom pushed to the overlay are the SAME number here,
+## exactly as `ViewportHost` keeps them -- feeding the overlay a stale
+## `_camera_zoom` of 1.0 under a x3 ancestor scale would make a fixed label
+## look like it grows (the pre-fix finding), and is the wrong experiment.
+## Asserted both ways: the "zoom" arm is the positive control that the capture
+## can see growth at all.
 func _measure_camera_zoom_sensitivity() -> void:
-	var fixed_lo := await _shot(_lbl(false, "settlement", "fixed"), Z_LOW, 1.0)
-	var fixed_hi := await _shot(_lbl(false, "settlement", "fixed"), Z_HIGH, 1.0)
-	var zoom_lo := await _shot(_lbl(false, "settlement", "zoom"), Z_LOW, 1.0)
-	var zoom_hi := await _shot(_lbl(false, "settlement", "zoom"), Z_HIGH, 1.0)
+	var fixed_lo := await _shot(_lbl(false, "settlement", "fixed"), Z_LOW, Z_LOW)
+	var fixed_hi := await _shot(_lbl(false, "settlement", "fixed"), Z_HIGH, Z_HIGH)
+	var zoom_lo := await _shot(_lbl(false, "settlement", "zoom"), Z_LOW, Z_LOW)
+	var zoom_hi := await _shot(_lbl(false, "settlement", "zoom"), Z_HIGH, Z_HIGH)
 	if int(fixed_lo["ink"]) < 40 or int(zoom_lo["ink"]) < 40:
 		printerr("PROBE-CANNOT-RUN: camera-zoom leg drew nothing to measure.")
 		get_tree().quit(2)
 		return
 	var r_fixed: float = float(fixed_hi["box"].size.x) / maxf(float(fixed_lo["box"].size.x), 1.0)
 	var r_zoom: float = float(zoom_hi["box"].size.x) / maxf(float(zoom_lo["box"].size.x), 1.0)
-	print("FINDING -- live camera zoom x%.2f: \"fixed\" box-width ratio %.2f, \"zoom\" box-width ratio %.2f (identical: size_mode does not gate this)"
+	print("live camera zoom x%.2f: \"fixed\" box-width ratio %.2f, \"zoom\" box-width ratio %.2f"
 		% [Z_HIGH / Z_LOW, r_fixed, r_zoom])
+	# 0.06: inked boxes include halo and per-size hinting (see
+	# `_labelblur_probe.gd`'s FIXED_WIDTH_TOL); a regression is x3.
+	_expect(absf(r_fixed - 1.0) < 0.06,
+		"a \"fixed\" label holds its on-screen width under a x%.0f camera zoom: ratio %.2f" % [Z_HIGH, r_fixed])
+	_expect(absf(r_zoom - Z_HIGH / Z_LOW) / (Z_HIGH / Z_LOW) < 0.05,
+		"a \"zoom\" label grows with a x%.0f camera zoom: ratio %.2f" % [Z_HIGH, r_zoom])
 
 
 ## The real, positive control: at a FIXED camera zoom (1.0, so the ancestor

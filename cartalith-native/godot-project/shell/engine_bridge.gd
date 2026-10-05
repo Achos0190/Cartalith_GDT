@@ -4183,29 +4183,32 @@ func label_clear_all() -> void:
 
 ## `px_per_cell` sizes the hit box off `map_overlay.gd`'s own font model
 ## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23) -- pass
-## `ViewportHost.label_px_per_cell()`.
-func label_hit_test(gx: float, gy: float, px_per_cell: float) -> int:
+## `ViewportHost.label_px_per_cell()`. `zoom` is the live camera zoom
+## (`ViewportHost.zoom()`): a "fixed" label holds a constant on-screen size
+## (Ruling AP, 2026-09-23), so its box shrinks by `1 / max(zoom, 0.35)` -- the
+## default of `1.0` is only for a caller with no camera.
+func label_hit_test(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> int:
 	if not _has("label_hit_test"):
 		return -1
-	return world_gen.label_hit_test(gx, gy, px_per_cell)
+	return world_gen.label_hit_test(gx, gy, px_per_cell, zoom)
 
 ## `label_hit_test` with the modifier the click carried -- see
 ## `icon_hit_test_mode` for the mode codes and the older-cdylib fallback.
-func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int) -> int:
+func label_hit_test_mode(gx: float, gy: float, px_per_cell: float, mode: int, zoom: float = 1.0) -> int:
 	if not _has("label_hit_test_mode"):
-		return label_hit_test(gx, gy, px_per_cell)
-	return world_gen.label_hit_test_mode(gx, gy, px_per_cell, mode)
+		return label_hit_test(gx, gy, px_per_cell, zoom)
+	return world_gen.label_hit_test_mode(gx, gy, px_per_cell, zoom, mode)
 
 ## Every label whose box contains `(gx, gy)`, topmost first, **selecting
 ## nothing** -- `MAP_CONTEXT_SCOPE.md` CM-1's multi-hit pick
 ## (`label_bridge/pick.rs`). Not `label_hit_test`, which selects its hit and
 ## answers one. Empty against a cdylib without the binding: that engine has no
 ## read-only pick, and falling back to the selecting one would move the
-## selection on every right-click.
-func label_pick_all(gx: float, gy: float, px_per_cell: float) -> PackedInt64Array:
+## selection on every right-click. `zoom` as on `label_hit_test`.
+func label_pick_all(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -> PackedInt64Array:
 	if not _has("label_pick_all"):
 		return PackedInt64Array()
-	return world_gen.label_pick_all(gx, gy, px_per_cell)
+	return world_gen.label_pick_all(gx, gy, px_per_cell, zoom)
 
 ## Every selected label's index, ascending. Falls back to whatever
 ## `label_get_selected()` reports against a cdylib without the set.
@@ -4226,10 +4229,11 @@ func label_select_all() -> int:
 		return 0
 	return world_gen.label_select_all()
 
-## `zoom` is only the handles' own screen-constant radius term
-## (`label_bridge::handle_circles`); `px_per_cell` sizes the box they sit on,
-## off `map_overlay.gd`'s own font model (`LARGE_ITEM_RULINGS.md` Ruling AG,
-## 2026-09-23) -- pass `ViewportHost.label_px_per_cell()`.
+## `zoom` is the handles' own radius term (`label_bridge::handle_circles`)
+## AND, since Ruling AP (2026-09-23), the camera zoom a "fixed" label's box
+## shrinks by; `px_per_cell` sizes the box they sit on, off `map_overlay.gd`'s
+## own font model (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23) -- pass
+## `ViewportHost.label_px_per_cell()`.
 func label_handles(index: int, zoom: float, px_per_cell: float) -> Dictionary:
 	if not _has("label_handles"):
 		return {}

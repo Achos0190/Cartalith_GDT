@@ -4,6 +4,16 @@ extends Node
 ## they don't seem to live on their own layer so that they stay visually sharp
 ## and don't get influenced by a zoom."*
 ##
+## **Ruling AP (2026-09-23, fixed 2026-10-05): a "fixed" label must stay fixed.**
+## Before that fix this probe's three "drawn width still scales with the
+## camera" assertions pinned the defect -- a `size_mode: "fixed"` label grew x3
+## with a x3 camera. They now pin the opposite: the drawn width of a fixed label
+## is the SAME at every one of three camera zooms (`Z_LOW`, `Z_HIGH`, `Z_FAR`),
+## and a `size_mode: "zoom"` label (`LBL_ZOOMMODE`, the positive control that
+## this probe can see growth at all) still grows with the camera, unchanged.
+## The edge-contrast measurements are unchanged and still matter: a fixed label
+## is now rasterised 1:1 at its screen size.
+##
 ## Runs `map_overlay.gd` ALONE under a scaled parent -- no shell, no engine --
 ## so the only ink in the frame is the overlay's own and every measured pixel
 ## is attributable.  FOUR text paths are measured, each in its own frame with
@@ -43,6 +53,17 @@ const GW := 512
 const GH := 384
 const Z_LOW := 1.0
 const Z_HIGH := 3.0
+## A third, deep camera zoom for the no-grow assertions. Before the fix a 13 px
+## label drew ~104 screen px tall here (13 x 8); 8 is a judgement -- deep enough
+## that growth is unmistakable and that the cache rebuilds at a fresh raster
+## size, not a derived threshold.
+const Z_FAR := 8.0
+## How far a fixed label's drawn width may differ between camera zooms before
+## the label counts as having grown or shrunk. Measured inked-pixel boxes
+## include the halo and the font's per-size hinting, so this is a judgement
+## (2 px on a ~70 px run is ~3%), not a derivation; a real regression is x3 or
+## x8, two orders of magnitude outside it.
+const FIXED_WIDTH_TOL := 0.06
 
 ## Fixed mid-grey ground so neither the light fill nor the dark halo is
 ## measured against the theme.  `MISTAKES.md`: a pixel threshold is
@@ -84,6 +105,15 @@ const LBL_ARC := {
 	"size": 13.0, "size_mode": "fixed", "color": "#f6ecd4",
 	"angle": 0.0, "arc": 0.5, "generated": true,
 }
+## The positive control for the no-grow assertions: the SAME label as `LBL` in
+## the other mode. `"zoom"` grows with the camera by design, so it must still
+## measure x`Z_HIGH`/`Z_LOW` wide here -- if it did not, the probe could not tell
+## "fixed held" from "nothing grew because nothing moved".
+const LBL_ZOOMMODE := {
+	"text": "Hammerfell", "x": float(GW) * 0.5, "y": float(GH) * 0.5,
+	"size": 13.0, "size_mode": "zoom", "color": "#f6ecd4",
+	"angle": 0.0, "arc": 0.0, "generated": true,
+}
 
 
 func _ready() -> void:
@@ -123,6 +153,11 @@ func _ready() -> void:
 	var trk_hi := await _shot("trk", Z_HIGH)
 	var arc_lo := await _shot("arc", Z_LOW)
 	var arc_hi := await _shot("arc", Z_HIGH)
+	var gen_far := await _shot("gen", Z_FAR)
+	var trk_far := await _shot("trk", Z_FAR)
+	var arc_far := await _shot("arc", Z_FAR)
+	var zm_lo := await _shot("zoommode", Z_LOW)
+	var zm_hi := await _shot("zoommode", Z_HIGH)
 
 	## Positive control.  Two captures of the same path at two zooms that come
 	## back byte-identical mean the capture never saw the camera move, so no
@@ -131,18 +166,21 @@ func _ready() -> void:
 		printerr("PROBE-CANNOT-RUN: pin captures byte-identical across zoom.")
 		get_tree().quit(2)
 		return
-	if gen_lo["img"].get_data() == gen_hi["img"].get_data():
-		printerr("PROBE-CANNOT-RUN: label captures byte-identical across zoom.")
+	## A FIXED label is meant to look the same at every zoom and `_shot` zooms
+	## about the viewport centre, so its captures may legitimately match. The
+	## "did the capture see the camera move" control is the zoom-mode label.
+	if zm_lo["img"].get_data() == zm_hi["img"].get_data():
+		printerr("PROBE-CANNOT-RUN: zoom-mode label captures byte-identical across zoom.")
 		get_tree().quit(2)
 		return
-	for r in [pin_lo, pin_hi, gen_lo, gen_hi, trk_lo, trk_hi, arc_lo, arc_hi]:
+	for r in [pin_lo, pin_hi, gen_lo, gen_hi, trk_lo, trk_hi, arc_lo, arc_hi, gen_far, trk_far, arc_far, zm_lo, zm_hi]:
 		if int(r["ink"]) < 40:
 			printerr("PROBE-CANNOT-RUN: %s drew %d ink px -- nothing to measure."
 				% [r["tag"], r["ink"]])
 			get_tree().quit(2)
 			return
 
-	for r in [pin_lo, pin_hi, gen_lo, gen_hi, trk_lo, trk_hi, arc_lo, arc_hi]:
+	for r in [pin_lo, pin_hi, gen_lo, gen_hi, trk_lo, trk_hi, arc_lo, arc_hi, gen_far, trk_far, arc_far, zm_lo, zm_hi]:
 		print("%-10s max|dL|=%.3f  top16=%.3f  ink=%5d  box=%s"
 			% [r["tag"], r["max"], r["top"], r["ink"], r["box"]])
 
@@ -170,32 +208,37 @@ func _ready() -> void:
 		"`_draw_labels()` kept >%.0f%% of its edge contrast at %.0fx: %.2f"
 			% [KEEP_MIN * 100.0, Z_HIGH, gen_keep])
 
-	## Sharpening a label must not RESIZE it.  `_label_font_px()` is the size
-	## model this file draws with; `label_box_at`/`label_handles` on the engine
-	## side hit-test and place handles against the SAME model now
-	## (`LARGE_ITEM_RULINGS.md` Ruling AG, 2026-09-23, verified by
-	## `_labelboxmodel_probe.gd`) -- so a rasterisation fix that also moved the
-	## drawn size would widen a gap that used to be silent and is now a real,
-	## checked invariant.  The measured box is inked pixels including the halo,
-	## so the tolerance covers font hinting at two sizes and the halo's own
-	## rounding, not a size change.
-	for pair in [[trk_lo, trk_hi, "tracked+oblique"], [arc_lo, arc_hi, "arched"]]:
-		var lo: Dictionary = pair[0]
-		var hi: Dictionary = pair[1]
+	## Ruling AP (2026-09-23): a FIXED label holds its on-screen size. Measured
+	## as the inked width of the drawn run at three camera zooms; it was x3 at
+	## Z_HIGH and x8 at Z_FAR before the fix, so these assertions FAIL on the
+	## unfixed tree. Sharpening must also not RESIZE a label: `_label_font_px()`
+	## and `_label_unit()` are the size model the engine's `shell_label_box`
+	## mirrors (`_labelboxmodel_probe.gd`). The tolerance covers the halo and
+	## font hinting at different raster sizes, not a size change.
+	for trio in [[gen_lo, gen_hi, gen_far, "straight"],
+			[trk_lo, trk_hi, trk_far, "tracked+oblique"],
+			[arc_lo, arc_hi, arc_far, "arched"]]:
+		var lo: Dictionary = trio[0]
+		var hi: Dictionary = trio[1]
+		var far: Dictionary = trio[2]
+		var w0 := float(lo["box"].size.x)
 		var keep: float = float(hi["top"]) / maxf(float(lo["top"]), 1e-6)
-		var grew: float = float(hi["box"].size.x) / maxf(float(lo["box"].size.x), 1.0)
-		print("%s: contrast retained %.2f, drawn width x%.2f (camera is x%.2f)"
-			% [pair[2], keep, grew, Z_HIGH / Z_LOW])
-		_expect(keep > KEEP_MIN, "the %s path kept its edge contrast: %.2f" % [pair[2], keep])
-		_expect(absf(grew - Z_HIGH / Z_LOW) / (Z_HIGH / Z_LOW) < 0.05,
-			"the %s path's drawn width still scales with the camera and nothing else: x%.2f"
-				% [pair[2], grew])
+		var g_hi: float = float(hi["box"].size.x) / maxf(w0, 1.0)
+		var g_far: float = float(far["box"].size.x) / maxf(w0, 1.0)
+		print("%s: contrast retained %.2f, drawn width x%.2f at z=%.0f and x%.2f at z=%.0f (camera is x%.2f / x%.2f)"
+			% [trio[3], keep, g_hi, Z_HIGH, g_far, Z_FAR, Z_HIGH / Z_LOW, Z_FAR / Z_LOW])
+		_expect(keep > KEEP_MIN, "the %s path kept its edge contrast: %.2f" % [trio[3], keep])
+		_expect(absf(g_hi - 1.0) < FIXED_WIDTH_TOL,
+			"the %s FIXED label did not grow at z=%.0f: x%.2f" % [trio[3], Z_HIGH, g_hi])
+		_expect(absf(g_far - 1.0) < FIXED_WIDTH_TOL,
+			"the %s FIXED label did not grow at z=%.0f: x%.2f" % [trio[3], Z_FAR, g_far])
 
-	var want := float(gen_lo["box"].size.x) * Z_HIGH / Z_LOW
-	var got := float(gen_hi["box"].size.x)
-	_expect(absf(got - want) / want < 0.05,
-		"the label's drawn width still scales with the camera and nothing else: %.0f px vs %.0f expected (%.1f%%)"
-			% [got, want, 100.0 * (got - want) / want])
+	## Positive control: the SAME label in "zoom" mode still scales with the
+	## camera (and only with the camera), so growth is measurable here at all.
+	var zgrew: float = float(zm_hi["box"].size.x) / maxf(float(zm_lo["box"].size.x), 1.0)
+	print("zoom-mode control: drawn width x%.2f (camera is x%.2f)" % [zgrew, Z_HIGH / Z_LOW])
+	_expect(absf(zgrew - Z_HIGH / Z_LOW) / (Z_HIGH / Z_LOW) < 0.05,
+		"a zoom-mode label still scales with the camera and nothing else: x%.2f" % zgrew)
 
 	for f in _fail:
 		printerr("ASSERT-FAILED: ", f)
@@ -214,6 +257,7 @@ func _shot(which: String, z: float) -> Dictionary:
 		"gen": lbls = [LBL]
 		"trk": lbls = [LBL_TRK]
 		"arc": lbls = [LBL_ARC]
+		"zoommode": lbls = [LBL_ZOOMMODE]
 	_ov.set_labels(lbls)
 	var s := Vector2(VP)
 	_cam.scale = Vector2(z, z)
