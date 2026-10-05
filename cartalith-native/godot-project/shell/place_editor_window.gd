@@ -417,6 +417,7 @@ func _rebuild() -> void:
 		"timeline":
 			_build_timeline(tab_content)
 		"political":
+			_build_timeline_strip(tab_content, s)
 			_build_political(tab_content, s)
 			_build_authored_events(tab_content, s)
 			_build_journey_passes(tab_content, s)
@@ -811,6 +812,421 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 		+ "reason: a hand-authored political period has no precedence rule against the derived "
 		+ "ones above -- if the two disagreed over the same years, nothing says which wins. Not "
 		+ "built: that rule does not exist yet.")
+
+
+# -- Combined timeline strip (SP-3, Ruling AQ) -----------------------------------
+
+## The four lanes, top to bottom, and the title each carries. The leading glyph
+## IS the lane's mark shape (span bar, circle, diamond, triangle), so a lane is
+## identifiable without colour: the title says which shape to look for. Plain
+## typographic symbols, not emoji (`DESIGN_HANDOFF.md` section 6).
+const STRIP_LANES: Array[String] = ["ownership", "population", "events", "journeys"]
+const STRIP_LANE_TITLE := {
+	"ownership": "▬ OWNERSHIP", "population": "● POP · TIER",
+	"events": "◆ EVENTS", "journeys": "▲ JOURNEYS",
+}
+## Why a lane drew nothing, drawn inside the empty lane in place of a mark
+## (`MISTAKES.md`: a missing value is dashed with its reason, never encoded as a
+## plausible mark).
+const STRIP_LANE_EMPTY := {
+	"ownership": "— no ownership history recorded",
+	"population": "— no recorded years for this place",
+	"events": "— no authored events in its note",
+	"journeys": "— no dated journey passes here",
+}
+## Meta keys a probe (and the click readout) read a mark back by.
+const STRIP_META_LANE := "strip_lane"
+const STRIP_META_YEAR := "strip_year"
+const STRIP_META_TEXT := "strip_text"
+## Horizontal scale: px per recorded year, clamped so a 10-year run still has
+## room and a 100 000-year span stays a finite scroll. Labelled judgement, not a
+## measurement: 8 px keeps 10-year steps ~80 px apart, wider than the widest
+## drawn tier label.
+const STRIP_PX_PER_YEAR := 8.0
+const STRIP_MIN_PLOT_W := 320.0
+const STRIP_MAX_PLOT_W := 2400.0
+## Room either side of the first/last year so an end mark is not clipped.
+const STRIP_PAD_X := 18.0
+const STRIP_AXIS_H := 16.0
+## A year label needs about this much horizontal room (`FS_MICRO` mono, up to
+## 7 characters); tick spacing is the smallest "nice" step that clears it.
+const STRIP_TICK_MIN_PX := 56.0
+const STRIP_NICE_STEPS: Array[int] = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500,
+	1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
+const STRIP_LABEL_W := 84.0
+
+## `OUTSTANDING_WORK.md` "SP-3's combined timeline strip" (Ruling AQ): the
+## owner's 2026-08-25 fork asked for both tracks on ONE strip, and SP-3 shipped
+## four separate lists. This is the strip; the lists stay beneath it as the
+## detail. One horizontal axis over every year this settlement has data for and
+## four labelled lanes -- ownership spans, population/tier per recorded year,
+## authored `chronos` events, dated journey passes -- each mark placed at its
+## own year, so the lanes interleave by date.
+##
+## **Additive and read-only.** It reads the same four bridge calls the lists
+## below do (`civ_settlement_ownership_periods`,
+## `civ_settlement_population_trajectory`, `vault_entity_chronos`,
+## `civ_settlement_journey_passes`) and writes nothing. It never draws a mark
+## for a year with no data: an empty lane says why instead. A journey pass with
+## no `year` (an undated plan) has no honest position, so it is counted in a
+## note and left to the list. Marks that would overlap in a lane are packed onto
+## extra rows of that lane rather than drawn over one another.
+##
+## **No colour-only encoding:** lane = shape (bar / circle / diamond / triangle)
+## plus its title; a ruined year is a ring, not a different fill. **Phone:** the
+## plot sits in its own horizontal `ScrollContainer` (vertical disabled, so only
+## the height folds into the parent -- `MISTAKES.md`'s scroll trap concerns the
+## DISABLED axis, which here is the one that should fold), and a mark is a
+## tappable cell that fills the readout line under the strip, since a tooltip
+## needs a hover a handset does not have.
+func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Combined timeline")
+	var tid := int(s.get("tid", 0))
+	if tid == 0:
+		DccWidgets.note(sec, "This settlement has no stable id yet, so no history can be matched to it.")
+		return
+	var periods: Array = bridge.civ_settlement_ownership_periods(tid)
+	var points: Array = bridge.civ_settlement_population_trajectory(tid)
+	var events: Array = []
+	var got := bridge.vault_entity_chronos("settlement", tid)
+	if bool(got.get("ok", false)):
+		events = got.get("events", [])
+	var passes: Array = bridge.civ_settlement_journey_passes(tid)
+	var dated: Array = []
+	for p in passes:
+		if (p as Dictionary).has("year"):
+			dated.append(p)
+	if periods.is_empty() and points.is_empty() and events.is_empty() and dated.is_empty():
+		DccWidgets.note(sec, "Nothing to plot yet: no recorded years, ownership, authored events or "
+			+ "dated journey passes for this place. Add a year on the Timeline tab to start one.")
+		if not passes.is_empty():
+			DccWidgets.note(sec, "%d journey pass%s here ha%s no date and is listed below only."
+				% [passes.size(), "" if passes.size() == 1 else "es", "s" if passes.size() == 1 else "ve"])
+		return
+
+	# -- The shared year axis: every year any lane holds ------------------------
+	var lo := 1 << 60
+	var hi := -(1 << 60)
+	var years: Array = []
+	for p in periods:
+		var pd: Dictionary = p
+		years.append(int(pd.get("start_year", 0)))
+		if not bool(pd.get("current", false)):
+			years.append(int(pd.get("end_year", 0)))
+	for pt in points:
+		years.append(int((pt as Dictionary).get("year", 0)))
+	for e in events:
+		var ed: Dictionary = e
+		years.append(int(ed.get("start", 0)))
+		if ed.has("end"):
+			years.append(int(ed.get("end", 0)))
+	for p in dated:
+		years.append(int((p as Dictionary).get("year", 0)))
+	for y in years:
+		lo = mini(lo, int(y))
+		hi = maxi(hi, int(y))
+	var span := maxi(1, hi - lo)
+	var inner := clampf(float(span) * STRIP_PX_PER_YEAR, STRIP_MIN_PLOT_W, STRIP_MAX_PLOT_W)
+	var total_w := inner + 2.0 * STRIP_PAD_X
+	var px_per_year := inner / float(span)
+	var x_of := func(year: int) -> float:
+		return STRIP_PAD_X + float(year - lo) * px_per_year
+
+	## Judgement, labelled: a handset gets taller rows and wider hit cells so a
+	## finger can land on a mark; `PHONE_TAP_MIN` (44) is not met because dense
+	## years would then overlap their neighbours' cells.
+	var row_h := _strip_row_h()
+	var hit_w := _strip_hit_w()
+
+	var readout := DccTheme.mono_label("Hover or tap a mark for its detail.", "text_dim", DccTheme.FS_SMALL)
+	readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	readout.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	# -- Each lane's items, then packed onto rows -------------------------------
+	## item: {x0, x1 (the mark's own extent, centre of the first/last glyph), year,
+	## tip, plus whatever the lane's painter needs}. `row` is assigned by packing.
+	var lanes := {}
+	for ln in STRIP_LANES:
+		lanes[ln] = []
+
+	var colors := {}
+	var names := {}
+	for f in bridge.get_factions():
+		var fd: Dictionary = f
+		var fid := int(fd.get("id", 0))
+		colors[fid] = Color8(int(fd.get("color_r", 150)), int(fd.get("color_g", 150)),
+			int(fd.get("color_b", 150)))
+		names[fid] = String(fd.get("name", "Faction %d" % fid))
+	for p in periods:
+		var pd: Dictionary = p
+		var fid := int(pd.get("faction_id", 0))
+		var start_y := int(pd.get("start_year", lo))
+		var current := bool(pd.get("current", false))
+		var end_y := hi if current else int(pd.get("end_year", start_y))
+		var nm := String(names.get(fid, "Faction %d" % fid))
+		(lanes["ownership"] as Array).append({
+			"x0": x_of.call(start_y), "x1": x_of.call(end_y), "year": start_y,
+			"fill": colors.get(fid, DccTheme.c("sunken")), "label": nm,
+			"tip": "%s · %d – %s" % [nm, start_y, "present" if current else str(end_y)],
+		})
+	var prev_kind := ""
+	for pt in points:
+		var pd: Dictionary = pt
+		var y := int(pd.get("year", 0))
+		var kind := String(pd.get("kind", ""))
+		## Ruins/fortified exist only for a year a collapse run wrote; absent keys
+		## add nothing to the tip and draw no ring (the list's "—" rule).
+		var ruined := pd.has("ruins") and bool(pd.get("ruins", false))
+		var tip := "%d · pop %s · %s" % [y, FactionRosterWindow._thousands(int(pd.get("pop", 0))),
+			kind.capitalize()]
+		if pd.has("ruins"):
+			var bits: Array[String] = []
+			if ruined:
+				bits.append("ruins")
+			if bool(pd.get("fortified", false)):
+				bits.append("fortified")
+			tip += " · " + (" · ".join(bits) if not bits.is_empty() else "standing")
+		(lanes["population"] as Array).append({
+			"x0": x_of.call(y), "x1": x_of.call(y), "year": y, "tip": tip,
+			"ring": ruined, "tier_change": kind != prev_kind, "label": kind.capitalize(),
+		})
+		prev_kind = kind
+	for e in events:
+		var ed: Dictionary = e
+		var y0 := int(ed.get("start", 0))
+		var rng := str(y0) + (" – %d" % int(ed.get("end", 0)) if ed.has("end") else "")
+		var title := String(ed.get("name", ""))
+		if ed.has("group"):
+			title = "%s · %s" % [String(ed.get("group", "")), title]
+		var tip := "%s · %s" % [rng, title]
+		if ed.has("description"):
+			tip += " · " + String(ed.get("description", ""))
+		(lanes["events"] as Array).append({
+			"x0": x_of.call(y0), "x1": x_of.call(int(ed.get("end", y0))), "year": y0, "tip": tip,
+			"ink": Color.from_string(String(ed.get("color", "")), DccTheme.c("text_secondary")),
+		})
+	for p in dated:
+		var pd: Dictionary = p
+		var y := int(pd.get("year", 0))
+		(lanes["journeys"] as Array).append({
+			"x0": x_of.call(y), "x1": x_of.call(y), "year": y,
+			"tip": "%s · %s · %s (departed %s)" % [String(pd.get("date", str(y))),
+				String(pd.get("name", "")), String(pd.get("party_preset", "")),
+				String(pd.get("departure", ""))],
+		})
+
+	var lane_h := {}
+	var lane_y := {}
+	var cursor_y := 0.0
+	for ln in STRIP_LANES:
+		var items: Array = lanes[ln]
+		items.sort_custom(func(a, b): return float(a["x0"]) < float(b["x0"]))
+		var rows_end: Array[float] = []
+		for it in items:
+			## A point mark owns a hit cell either side of its year; an ownership
+			## span owns exactly its own extent, so abutting periods (one ends
+			## where the next starts) stay on one row instead of stacking.
+			var half := 0.0 if ln == "ownership" else hit_w * 0.5
+			var left := float(it["x0"]) - half
+			var right := maxf(float(it["x1"]) + half, float(it["x0"]) + hit_w * 0.5)
+			var r := 0
+			while r < rows_end.size() and rows_end[r] > left - 1.0:
+				r += 1
+			if r == rows_end.size():
+				rows_end.append(right)
+			else:
+				rows_end[r] = right
+			it["row"] = r
+		lane_h[ln] = float(maxi(1, rows_end.size())) * row_h
+		lane_y[ln] = cursor_y
+		cursor_y += float(lane_h[ln])
+	var lanes_h := cursor_y
+	var total_h := lanes_h + STRIP_AXIS_H
+
+	# -- The plot: gridlines, axis and empty-lane reasons, then marks on top -----
+	var step := STRIP_NICE_STEPS[STRIP_NICE_STEPS.size() - 1]
+	for st in STRIP_NICE_STEPS:
+		if float(st) * px_per_year >= STRIP_TICK_MIN_PX:
+			step = st
+			break
+	var ticks: Array[int] = []
+	var t := int(ceil(float(lo) / float(step))) * step
+	while t <= hi:
+		ticks.append(t)
+		t += step
+	var empty_lanes: Array[String] = []
+	for ln in STRIP_LANES:
+		if (lanes[ln] as Array).is_empty():
+			empty_lanes.append(ln)
+
+	var plot := Control.new()
+	plot.custom_minimum_size = Vector2(total_w, total_h)
+	plot.mouse_filter = Control.MOUSE_FILTER_PASS
+	plot.draw.connect(func() -> void:
+		var font := DccTheme.mono(0)
+		var fs := DccTheme.FS_MICRO
+		var rule := DccTheme.c("line_soft")
+		for tk in ticks:
+			var gx: float = x_of.call(tk)
+			plot.draw_line(Vector2(gx, 0), Vector2(gx, lanes_h + 3.0), rule, 1.0)
+			plot.draw_string(font, Vector2(gx + 2.0, total_h - 4.0), str(tk),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DccTheme.c("text_ghost"))
+		for ln in STRIP_LANES:
+			var by: float = float(lane_y[ln]) + float(lane_h[ln])
+			plot.draw_line(Vector2(0, by), Vector2(total_w, by), rule, 1.0)
+		for ln in empty_lanes:
+			plot.draw_string(font, Vector2(STRIP_PAD_X, float(lane_y[ln]) + row_h * 0.5 + fs * 0.4),
+				String(STRIP_LANE_EMPTY[ln]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
+				DccTheme.c("text_faint")))
+	for ln in STRIP_LANES:
+		var items: Array = lanes[ln]
+		for i in items.size():
+			var it: Dictionary = items[i]
+			var cy: float = float(lane_y[ln]) + float(it["row"]) * row_h
+			var cx0: float = float(it["x0"])
+			var cx1: float = float(it["x1"])
+			var rect := Rect2(cx0 - hit_w * 0.5, cy, (cx1 - cx0) + hit_w, row_h)
+			if ln == "ownership":
+				## A span bar runs exactly start..end (a zero-width span, e.g. the
+				## last year alone, keeps one hit cell so it is still visible).
+				rect = Rect2(cx0, cy, maxf(cx1 - cx0, hit_w * 0.5), row_h)
+			## Room for a tier label beside a tier-change dot: up to the next dot.
+			var room := 0.0
+			if ln == "population" and bool(it.get("tier_change", false)):
+				room = (float(items[i + 1]["x0"]) if i + 1 < items.size() else total_w) - cx0 - hit_w * 0.5 - 4.0
+			_strip_mark(plot, ln, it, rect, readout, room)
+
+	# -- Layout: sticky lane titles beside a horizontally scrolling plot ---------
+	var strip := HBoxContainer.new()
+	strip.add_theme_constant_override("separation", 6)
+	var titles := VBoxContainer.new()
+	titles.add_theme_constant_override("separation", 0)
+	for ln in STRIP_LANES:
+		var tl := DccTheme.mono_label(String(STRIP_LANE_TITLE[ln]), "text_faint", DccTheme.FS_MICRO, 1)
+		tl.custom_minimum_size = Vector2(STRIP_LABEL_W, float(lane_h[ln]))
+		tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		titles.add_child(tl)
+	var axis_gap := Control.new()
+	axis_gap.custom_minimum_size = Vector2(STRIP_LABEL_W, STRIP_AXIS_H)
+	titles.add_child(axis_gap)
+	strip.add_child(titles)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The horizontal bar overlays the bottom of the scroll rect when it shows;
+	## 10 px keeps it clear of the axis labels.
+	scroll.custom_minimum_size.y = total_h + 10.0
+	scroll.add_child(plot)
+	strip.add_child(scroll)
+	sec.add_child(strip)
+	sec.add_child(readout)
+	DccWidgets.note(sec, "▬ ownership span · ● recorded year (a ring is a ruined year; the label marks a "
+		+ "tier change) · ◆ authored event (a line is a range) · ▲ journey passing. The lists below "
+		+ "carry the same data in full.")
+	var undated := passes.size() - dated.size()
+	if undated > 0:
+		DccWidgets.note(sec, "%d journey pass%s here ha%s no date, so %s not placed on the strip; "
+			% [undated, "" if undated == 1 else "es", "s" if undated == 1 else "ve",
+			"it is" if undated == 1 else "they are"] + "see Journeys passing below.")
+
+
+## One mark on the strip: a `Control` the size of its hit cell, tagged by lane /
+## year / text meta (what a probe counts), painted by `_strip_paint`, with its
+## detail as the tooltip and, on a click or tap, in `readout`. `MOUSE_FILTER_PASS`
+## so a finger dragging the strip still scrolls it. Never styled by a lane
+## colour alone -- shape comes from `_strip_paint`.
+func _strip_mark(plot: Control, lane: String, it: Dictionary, rect: Rect2, readout: Label,
+		label_room: float) -> void:
+	var m := Control.new()
+	m.position = rect.position
+	m.size = rect.size
+	m.tooltip_text = String(it["tip"])
+	m.mouse_filter = Control.MOUSE_FILTER_PASS
+	m.set_meta(STRIP_META_LANE, lane)
+	m.set_meta(STRIP_META_YEAR, int(it["year"]))
+	m.set_meta(STRIP_META_TEXT, String(it["tip"]))
+	m.draw.connect(func() -> void: _strip_paint(m, lane, it, label_room))
+	m.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			readout.text = String(it["tip"]))
+	plot.add_child(m)
+
+
+## Paints one strip mark. Lane decides the SHAPE (bar, circle, diamond,
+## triangle); ink only adds meaning inside a shape. Colour sources: a faction's
+## own colour (ownership, the same one the stacked bar uses), `accent` for a tier
+## change / journey, `warn` for the ruined ring, the chronos event's own colour
+## or `text_secondary` for an event, `text` for an ordinary recorded year.
+func _strip_paint(c: Control, lane: String, it: Dictionary, label_room: float) -> void:
+	var sz := c.size
+	var ctr := Vector2(sz.x * 0.5, sz.y * 0.5)
+	## Glyph radius from the cell: 4.8 px on desktop (16 x 24), 8.4 on a phone
+	## (28 x 36). 0.3 of the smaller side is a labelled judgement that leaves
+	## the glyph a margin inside its cell.
+	var r := minf(_strip_row_h(), _strip_hit_w()) * 0.3
+	match lane:
+		"ownership":
+			var box := Rect2(0, 4, sz.x, sz.y - 8)
+			var fill: Color = it["fill"]
+			c.draw_rect(box, fill)
+			c.draw_rect(box, DccTheme.c("border"), false, 1.0)
+			var font := DccTheme.mono(0)
+			var fs := DccTheme.FS_MICRO
+			var txt := String(it["label"])
+			if font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 8.0 <= sz.x:
+				## Whichever of the two text tokens contrasts more with this fill.
+				var a := DccTheme.c("bg")
+				var b := DccTheme.c("text_bright")
+				var ink := a if absf(a.get_luminance() - fill.get_luminance()) \
+					> absf(b.get_luminance() - fill.get_luminance()) else b
+				c.draw_string(font, Vector2(4, ctr.y + fs * 0.4), txt,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
+		"population":
+			var tier_change := bool(it.get("tier_change", false))
+			var ink := DccTheme.c("accent") if tier_change else DccTheme.c("text")
+			if bool(it.get("ring", false)):
+				c.draw_arc(ctr, r, 0.0, TAU, 24, DccTheme.c("warn"), 1.8, true)
+			else:
+				c.draw_circle(ctr, r, ink)
+			var font := DccTheme.mono(0)
+			var fs := DccTheme.FS_MICRO
+			var txt := String(it["label"])
+			if tier_change and font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x <= label_room:
+				## Overflows this cell's own rect on purpose: the cell is only a
+				## hit target, the label belongs to the lane. Drawn outside the
+				## clip of its parent only because `Control` clips nothing here.
+				c.draw_string(font, Vector2(ctr.x + r + 3.0, ctr.y + fs * 0.4), txt,
+					HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DccTheme.c("text_dim"))
+		"events":
+			var ink: Color = it["ink"]
+			var w := _strip_hit_w()
+			var end_x := sz.x - w * 0.5
+			var start := Vector2(w * 0.5, ctr.y)
+			if end_x > start.x + 1.0:
+				c.draw_line(start, Vector2(end_x, ctr.y), Color(ink.r, ink.g, ink.b, 0.55), 3.0)
+				c.draw_line(Vector2(end_x, ctr.y - r), Vector2(end_x, ctr.y + r), ink, 1.5)
+			c.draw_colored_polygon(PackedVector2Array([
+				start + Vector2(0, -r), start + Vector2(r, 0),
+				start + Vector2(0, r), start + Vector2(-r, 0)]), ink)
+		"journeys":
+			c.draw_colored_polygon(PackedVector2Array([
+				ctr + Vector2(0, -r), ctr + Vector2(r, r * 0.8), ctr + Vector2(-r, r * 0.8)]),
+				DccTheme.c("accent"))
+
+
+## Strip row height and the width of one point mark's hit cell. A handset gets
+## taller rows and wider cells so a finger can land on a mark. Labelled
+## judgement, not a measurement: `PHONE_TAP_MIN` (44) is NOT met because dense
+## recorded years would then overlap their neighbours' cells; the readout line
+## and the horizontal scroll cover the rest. One place, so the builder, the
+## packer and the painter cannot disagree.
+func _strip_row_h() -> float:
+	return 36.0 if _phone else 24.0
+
+
+func _strip_hit_w() -> float:
+	return 28.0 if _phone else 16.0
 
 
 # -- Journey passes (SP-3's third mark) ---------------------------------------
