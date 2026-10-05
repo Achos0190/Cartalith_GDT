@@ -384,6 +384,13 @@ const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
 ## highway differed by 1.5 px of width and nothing else, and `ancient`'s grey
 ## and `track`'s olive -- the two the reference deliberately colours *away*
 ## from the road ochre -- were indistinguishable from a trunk road.
+##
+## **These rows are the *Default* look, not the only one (2026-10-06).** A style
+## preset's overlay treatment (`set_style_treatment()`, from `render_workspace.gd`'s
+## `OVERLAY_TREATMENTS`) recolours and re-weights them at draw time through
+## `way_style_for()`; with no treatment that returns the row below unchanged, so
+## the numbers here stay the single source for the shipped colours and for the
+## probe's identity check.
 const WAY_STYLE := {
 	"highway": {
 		"under": Color(0.078, 0.039, 0.020, 0.55), "under_w": 2.3,
@@ -459,6 +466,8 @@ const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn mark
 ## constants rather than a sixth `WAY_STYLE` row because sea lanes arrive from
 ## a different getter (`get_sea_routes()`, never `get_roads()`) and so never
 ## reach `WAY_STYLE`'s lookup.
+## These four are the shipped (Default) lane; `sea_style()` applies a style
+## preset's treatment over them and returns them untouched when there is none.
 const SEA_ROUTE_UNDERLAY := Color(0.039, 0.118, 0.235, 0.4)
 const SEA_ROUTE_UNDERLAY_WIDTH := 1.5
 const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
@@ -695,6 +704,9 @@ const LM_REJECT_FALLBACK := Color(0.373, 0.392, 0.408, 0.55)
 ## three; a free-form family string from an older save, or written through
 ## some other caller, still falls through to the default honestly rather than
 ## pretending to draw a face nothing loaded.
+## The shipped halo colour of every label and settlement name. A style preset
+## with a `label_halo` replaces it for labels that carry no colour of their own
+## (`label_inks()`); an author-picked colour always keeps this one.
 const LABEL_STROKE_COLOR := Color(0.031, 0.024, 0.016, 0.8)
 const LABEL_ZOOM_BASE_PX_PER_CELL := 2.0 ## tuning constant, see `_label_font_px`
 const LABEL_FONT_PX_MIN := 8.0
@@ -1210,6 +1222,20 @@ var _hidden_way_types: Dictionary = {}
 ## they existed: `1.0` is the multiplicative identity in both cases.
 var _way_scale := 1.0
 var _way_opacity := 1.0
+## The active map-style preset's **overlay treatment** (owner, 2026-09-27:
+## "they're drawn on top of the style", said of everything the overlay draws
+## in a fixed colour; the rivers were fixed first). Empty = the shipped colours,
+## which is `Default`'s and `Natural Vibrant`'s own treatment, so those two
+## presets draw byte-identically to the build before this existed. Set only by
+## `set_style_treatment()`; the keys it reads are listed there. Held here rather
+## than looked up from the workspace on every draw because this node is a leaf
+## that must not know which workspace owns the preset table (push-not-poll,
+## `set_camera_zoom()`'s own pattern).
+var _style_treatment: Dictionary = {}
+## `_style_treatment`'s resolved `WAY_STYLE` rows, by way type -- built on first
+## use after a treatment change so a way chunk does not allocate a `Dictionary`
+## per way per frame. Cleared by `set_style_treatment()`.
+var _style_way_cache: Dictionary = {}
 ## `GUI_GAP_REGISTER.md` **IN-13**'s map surface — per-way carried volume in
 ## `_roads` order, its own maximum (so the reading is relative to this world),
 ## and the switch. See `set_trade_load()`.
@@ -2553,6 +2579,148 @@ func way_opacity() -> float:
 	return _way_opacity
 
 
+## The preset's overlay treatment (`render_workspace.gd`'s `OVERLAY_TREATMENTS`,
+## pushed through `ViewportHost.set_overlay_treatment()`). Every key is optional
+## and a missing key means "keep the shipped colour", so `{}` is the identity.
+## Colours are `Color`; the numbers are multipliers unless noted:
+##
+## * `road_under` -- the road underlayer's RGB (each type keeps its own alpha).
+## * `road_over`, `road_over_mix` -- each type's overlay RGB is lerped toward
+##   `road_over` by the mix (0..1). A mix below 1 is deliberate: it keeps a
+##   little of each type's hue, so a track and a highway still tell apart.
+## * `road_w`, `road_alpha` -- width and alpha multipliers on every land way.
+## * `sea_under`, `sea_dash`, `sea_w`, `sea_alpha` -- the sea lane's two strokes.
+## * `label_ink`, `label_halo`, `label_mix` -- the ink and halo of every label
+##   that carries no colour of its own (see `label_inks()`).
+## * `label_halo_k` -- halo width multiplier (1..3, see `_label_halo_k()`).
+##
+## The border ink and alpha (`border_ink`, `border_alpha`) are read by
+## `ViewportHost`, not here: the province lines are a baked texture on its own
+## `TextureRect`, not something this node draws.
+##
+## Never invents a value: an unknown key is ignored and a non-`Color` value for a
+## colour key is dropped rather than coerced to a plausible colour.
+func set_style_treatment(t: Dictionary) -> void:
+	_style_treatment = t.duplicate(true)
+	_style_way_cache.clear()
+	queue_redraw()
+
+func style_treatment() -> Dictionary:
+	return _style_treatment
+
+
+## One `WAY_STYLE` row with the active treatment applied. With no road keys in
+## the treatment this returns the constant row itself -- not a copy -- so the
+## identity case allocates nothing and cannot differ from the old lookup.
+## This is the single place a way's colours are resolved: `_draw_roads_chunk`
+## draws from it and `_overlaystyle_probe.gd` reads it, so a probe assertion is
+## about what is drawn, not about a table beside it.
+func way_style_for(way_type: String) -> Dictionary:
+	var base: Dictionary = WAY_STYLE.get(way_type, WAY_STYLE[WAY_STYLE_DEFAULT])
+	if not (_style_treatment.has("road_under") or _style_treatment.has("road_over")
+			or _style_treatment.has("road_w") or _style_treatment.has("road_alpha")):
+		return base
+	if _style_way_cache.has(way_type):
+		return _style_way_cache[way_type]
+	var row: Dictionary = base.duplicate()
+	var wk: float = float(_style_treatment.get("road_w", 1.0))
+	var ak: float = float(_style_treatment.get("road_alpha", 1.0))
+	var under: Color = base["under"]
+	if _style_treatment.get("road_under") is Color:
+		var u: Color = _style_treatment["road_under"]
+		under = Color(u.r, u.g, u.b, under.a)
+	var over: Color = base["over"]
+	if _style_treatment.get("road_over") is Color:
+		var o: Color = _style_treatment["road_over"]
+		var m: float = clampf(float(_style_treatment.get("road_over_mix", 1.0)), 0.0, 1.0)
+		over = Color(lerpf(over.r, o.r, m), lerpf(over.g, o.g, m), lerpf(over.b, o.b, m), over.a)
+	row["under"] = Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0))
+	row["over"] = Color(over.r, over.g, over.b, clampf(over.a * ak, 0.0, 1.0))
+	row["under_w"] = float(base["under_w"]) * wk
+	row["over_w"] = float(base["over_w"]) * wk
+	_style_way_cache[way_type] = row
+	return row
+
+
+## The sea lane's two strokes with the active treatment applied -- the sea-lane
+## counterpart of `way_style_for()`, read by `_draw_sea_route_segment` and the
+## probe. Same keys-are-optional rule; `{}` returns the `SEA_ROUTE_*` constants'
+## own values.
+func sea_style() -> Dictionary:
+	var under: Color = SEA_ROUTE_UNDERLAY
+	var dash: Color = SEA_ROUTE_DASH_COLOR
+	var ak: float = float(_style_treatment.get("sea_alpha", 1.0))
+	if _style_treatment.get("sea_under") is Color:
+		var u: Color = _style_treatment["sea_under"]
+		under = Color(u.r, u.g, u.b, under.a)
+	if _style_treatment.get("sea_dash") is Color:
+		var d: Color = _style_treatment["sea_dash"]
+		dash = Color(d.r, d.g, d.b, dash.a)
+	var wk: float = float(_style_treatment.get("sea_w", 1.0))
+	return {
+		"under": Color(under.r, under.g, under.b, clampf(under.a * ak, 0.0, 1.0)),
+		"under_w": SEA_ROUTE_UNDERLAY_WIDTH * wk,
+		"dash": Color(dash.r, dash.g, dash.b, clampf(dash.a * ak, 0.0, 1.0)),
+		"dash_w": SEA_ROUTE_DASH_WIDTH * wk,
+	}
+
+
+## The default ink of a label (`cartalith_civ::labels::DEFAULT_LABEL_COLOR`):
+## what a hand-placed label carries when its author chose no colour, and so the
+## one colour a preset may replace on a hand-authored label -- an author's own
+## pick is theirs, never the style's.
+const LABEL_DEFAULT_COLOR_HEX := "#f0e4c8"
+
+## Fill and halo for one label under the active treatment, as `[fill, halo]`.
+## * No `label_ink` in the treatment: `[the label's own colour, LABEL_STROKE_COLOR]`
+##   -- exactly what was drawn before.
+## * A **generated** label (its class ink, `LABEL_TYPOGRAPHY_DEFAULTS`): the class
+##   ink lerped toward the preset ink by `label_mix` (default 0.75), so the five
+##   classes keep a hint of their own hue and stay distinguishable.
+## * A hand-authored label still on the default cream: the preset ink outright.
+## * A hand-authored label whose author picked a colour: untouched, with the
+##   shipped halo (a preset's halo is chosen to suit the preset's ink, and could
+##   swallow an arbitrary colour of the author's).
+## The halo is one value per preset, chosen as the ink's opposite so a glyph
+## keeps its outline on any ground the style paints.
+func label_inks(lb: Dictionary) -> Array:
+	var base := Color(String(lb["color"]))
+	var ink = _style_treatment.get("label_ink")
+	if not (ink is Color):
+		return [base, LABEL_STROKE_COLOR]
+	var halo: Color = _style_treatment["label_halo"] if _style_treatment.get("label_halo") is Color else LABEL_STROKE_COLOR
+	if bool(lb.get("generated", false)):
+		var m: float = clampf(float(_style_treatment.get("label_mix", 0.75)), 0.0, 1.0)
+		return [Color(lerpf(base.r, ink.r, m), lerpf(base.g, ink.g, m), lerpf(base.b, ink.b, m), base.a), halo]
+	if String(lb["color"]).to_lower() == LABEL_DEFAULT_COLOR_HEX:
+		return [ink, halo]
+	return [base, LABEL_STROKE_COLOR]
+
+
+## The preset's halo-width multiplier on a label's own `halo_em` (`label_halo_k`,
+## default 1.0 = the shipped width). Added 2026-10-05 after the per-preset
+## screenshots: with the ink and halo colours swapped to suit a style, the 1 px
+## halo of an 11-14 px class label was too thin to separate a pale glyph from a
+## pale ground (Blueprint) or a dark one from hatching (Woodcut). Only ever
+## widens, and zero stays zero: the design's halo slider's 0 end means "no halo"
+## (`outline_w` is 0 whenever `halo_em` is), so the multiplier never resurrects one.
+## Read by both `_draw_labels` and `_list_label_glyphs` so the warm-up lists the
+## outline sizes that are actually drawn.
+func _label_halo_k() -> float:
+	return clampf(float(_style_treatment.get("label_halo_k", 1.0)), 1.0, 3.0)
+
+
+## The settlement-name pair (`_draw_settlement_pin`): the shipped cream and
+## outline with no treatment, the preset's ink and halo with one. A pin's name is
+## the same kind of text as a default-ink label, so it follows the same rule.
+func settlement_name_inks() -> Array:
+	var ink = _style_treatment.get("label_ink")
+	if not (ink is Color):
+		return [SETTLEMENT_LABEL_FILL, LABEL_STROKE_COLOR]
+	var halo: Color = _style_treatment["label_halo"] if _style_treatment.get("label_halo") is Color else LABEL_STROKE_COLOR
+	return [ink, halo]
+
+
 ## Whether the LOD ladder is applied at all (`GUI_GAP_REGISTER.md` CA-18).
 func set_way_lod(on: bool) -> void:
 	_way_lod = on
@@ -3440,7 +3608,7 @@ func _list_label_glyphs(rect: Rect2, jobs: Dictionary) -> void:
 		var raster_px := _label_raster_px(font_px, lu)
 		var kk := float(raster_px) / float(font_px)
 		var halo_em: float = float(lb.get("halo_em", LABEL_HALO_EM_FALLBACK))
-		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em) * kk))
+		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em * _label_halo_k()) * kk))
 		var sizes := [Vector2i(raster_px, 0)]
 		if outline_w > 0:
 			sizes.append(Vector2i(raster_px, outline_w))
@@ -3663,7 +3831,7 @@ func _draw_roads_chunk(rect: Rect2, idx: int, count: int) -> void:
 		## `has()` first: hand-drawn ways carry no `tid` (see `get_roads`).
 		if way.has("tid") and _tl_ghost_way_tids.has(int(way["tid"])):
 			continue
-		var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
+		var style: Dictionary = way_style_for(String(way["way_type"]))
 		var load_k := _trade_width_k(wi)
 		var brks: PackedInt32Array = way["brks"]
 		var rb: Array = boxes[wi]
@@ -4273,8 +4441,11 @@ func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> voi
 	var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0) * k + Vector2(0.0, v_center)
 	var outline_w: int = maxi(1, int(2.5 * sc * k))
 	_crisp_begin()
-	_cv.draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
-	_cv.draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
+	## Ink pair from the preset's treatment -- the shipped cream and outline when
+	## there is none (`settlement_name_inks()`).
+	var name_inks := settlement_name_inks()
+	_cv.draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, name_inks[1])
+	_cv.draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, name_inks[0])
 	_crisp_end()
 
 
@@ -4741,7 +4912,12 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 		var raster_px := _label_raster_px(font_px, lu)
 		var sk := float(font_px) / float(raster_px) * lu
 		var kk := float(raster_px) / float(font_px)
-		var fill: Color = Color(String(lb["color"]))
+		## Fill and halo, resolved once per label (never per glyph): the label's own
+		## colour and the shipped dark halo with no treatment, the preset's pair
+		## where the label carries no colour of its own -- see `label_inks()`.
+		var inks := label_inks(lb)
+		var fill: Color = inks[0]
+		var halo_col: Color = inks[1]
 		## The class type spec, resolved against THIS file's font size rather
 		## than the engine's -- see `LABEL_HALO_EM_FALLBACK` and the long note
 		## on `ARC_*` above for why the two size models differ. `halo_em`/
@@ -4754,7 +4930,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 		## Floored and rounded in LOCAL pixels first, exactly as before, then
 		## carried into raster units by `kk` -- so the halo lands on the same
 		## screen pixels it used to and keeps its ratio to the glyph.
-		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em) * kk))
+		var outline_w: int = 0 if halo_em <= 0.0 else int(round(maxf(1.0, font_px * halo_em * _label_halo_k()) * kk))
 		var track_px: float = font_px * float(lb.get("tracking_em", 0.0))
 		var italic: bool = bool(lb.get("italic", false))
 		var v_center: float = (font.get_ascent(font_px) - font.get_descent(font_px)) / 2.0
@@ -4775,7 +4951,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 				var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
 				var local_pos := Vector2(-full_w / 2.0, v_center) * kk
 				_cv.draw_set_transform(pos, th, Vector2(sk, sk))
-				_cv.draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				_cv.draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, halo_col)
 				_cv.draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 				continue
 			var widths := _glyph_advances(font, text, font_px, track_px)
@@ -4785,7 +4961,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 				var gp := Vector2(widths[i] - run_w / 2.0, v_center) * kk
 				var ch := text[i]
 				if outline_w > 0:
-					_cv.draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+					_cv.draw_string_outline(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, halo_col)
 				_cv.draw_string(font, gp, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			continue
 
@@ -4808,7 +4984,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 			var local_pos2 := Vector2(-w / 2.0, v_center) * kk
 			_cv.draw_set_transform_matrix(_label_xform(world_pt, th + dir_sign * theta, italic) * shrink)
 			if outline_w > 0:
-				_cv.draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, LABEL_STROKE_COLOR)
+				_cv.draw_string_outline(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, outline_w, halo_col)
 			_cv.draw_string(font, local_pos2, ch2, HORIZONTAL_ALIGNMENT_LEFT, -1, raster_px, fill)
 			acc += w + track_px
 	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -5527,7 +5703,8 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 		gbox: Rect2 = Rect2()) -> void:
 	if end - start < 2:
 		return
-	var pad: float = SEA_ROUTE_UNDERLAY_WIDTH * _way_scale * 0.5
+	var sea := sea_style()   ## Resolved once per run: the preset's treatment, or the constants.
+	var pad: float = float(sea["under_w"]) * _way_scale * 0.5
 	if _grid_box_offscreen(gbox, rect, pad):
 		return
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
@@ -5541,11 +5718,11 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 	## Two passes, not one -- see `_draw_way_segment`'s own note on why order
 	## matters the moment a run's chains can cross each other on screen.
 	for chain in chains:
-		_cv.draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_UNDERLAY),
-			SEA_ROUTE_UNDERLAY_WIDTH * _way_scale, true)
+		_cv.draw_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(sea["under"]),
+			float(sea["under_w"]) * _way_scale, true)
 	for chain in chains:
-		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(SEA_ROUTE_DASH_COLOR),
-			SEA_ROUTE_DASH_WIDTH * _way_scale,
+		_draw_dashed_polyline(screen_points.slice(chain.x, chain.y + 1), _way_ink(sea["dash"]),
+			float(sea["dash_w"]) * _way_scale,
 			SEA_ROUTE_DASH_LENGTH * _way_scale, SEA_ROUTE_DASH_GAP * _way_scale, track[chain.x])
 	_crisp_end()
 

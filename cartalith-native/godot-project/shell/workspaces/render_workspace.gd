@@ -346,6 +346,169 @@ const STYLE_PRESETS := [
 			"river_width": 1.15, "river_through": 0.0}],
 ]
 
+## **The overlay treatment per preset** (owner, 2026-09-27: roads, sea lanes,
+## borders and labels were *"drawn on top of the style"* in fixed colours, so on
+## Night, Blueprint, Woodcut and Ink they read as pasted onto the map). Keyed by
+## preset name, so the table follows a preset reorder; a preset with no row --
+## "Natural Vibrant" and "Default" deliberately -- has the empty treatment, i.e.
+## the shipped colours, unchanged.
+##
+## **Why a table of its own and not `entry[3]`'s river keys.** The river keys
+## travel through `bridge.set_appearance()` into Rust because the Rust renderer
+## paints the river. Roads, sea lanes, labels and borders are drawn by the Godot
+## overlay and a baked province texture; no Rust consumer exists, and
+## `_stylepresets_probe.gd` pins `bridge.appearance()` to `entry[3]` exactly, so
+## adding non-engine keys there would be a lie to the engine. The *mechanism* is
+## the river's: a per-preset bundle applied by `_apply_preset` and read live by
+## the layer -- here pushed through `ViewportHost.set_overlay_treatment()`.
+##
+## Keys (all optional; `MapOverlay.set_style_treatment()` documents each; the
+## `label_halo_k` of 1.5 on every row but Cel / Toon is a labelled judgement from
+## the 2026-10-05 screenshots, where the shipped 1 px halo was too thin once the
+## inks were swapped -- Cel / Toon already ships the heaviest ink and a white halo):
+## `road_under`, `road_over` + `road_over_mix`, `road_w`, `road_alpha`;
+## `sea_under`, `sea_dash`, `sea_w`, `sea_alpha`;
+## `label_ink`, `label_halo`, `label_mix`, `label_halo_k`; `border_ink`, `border_alpha`.
+##
+## **Every value is a labelled judgement, not a measurement** -- tuned to sit
+## with each preset's own ground and its river ink (`STYLE_PRESETS`' `entry[3]`),
+## in three families:
+## * *Dark-ink styles* on a light ground (Antique, Ink, Ink wash, Woodcut,
+##   Vintage atlas, Imhof, Atlas, Village, Print, Watercolor, Nautical, Cel):
+##   the label becomes dark ink with a pale halo, the roads and borders take the
+##   preset's own ink hue, and the width is nudged to the preset's line weight
+##   (thin for the pen styles, bold for Woodcut and Cel).
+## * *Light-ink styles* on a dark ground (Night, Blueprint): the label becomes
+##   pale ink with a dark halo and the lines go pale, as Blueprint's river ink
+##   (236, 244, 255) already does.
+## * Nautical's sea lane is chart magenta, the convention for a charted route.
+## **Label contrast is checked, not assumed:** `_overlaystyle_probe.gd` asserts a
+## WCAG contrast ratio of at least 4.5 between each preset's label ink and its
+## halo, and at least 3.0 for every generated class ink after the mix.
+##
+## **Left unstyled on purpose** (owner decisions, listed in the report):
+## faction colours (pins, territory wash -- they are data, not decoration), pin
+## and landmark glyph inks, and any label colour an author picked.
+const OVERLAY_TREATMENTS := {
+	"Antique": {
+		"road_under": Color(0.20, 0.13, 0.07), "road_over": Color(0.36, 0.22, 0.12),
+		"road_over_mix": 0.6, "road_w": 0.9,
+		"sea_under": Color(0.15, 0.20, 0.27), "sea_dash": Color(0.30, 0.38, 0.47), "sea_w": 0.9,
+		"label_ink": Color(0.17, 0.11, 0.06), "label_halo": Color(0.93, 0.86, 0.70, 0.95),
+		"label_mix": 0.80, "label_halo_k": 1.5,
+		"border_ink": Color(0.30, 0.19, 0.10), "border_alpha": 0.85,
+	},
+	"Ink": {
+		"road_under": Color(0.08, 0.09, 0.12), "road_over": Color(0.13, 0.16, 0.23),
+		"road_over_mix": 0.8, "road_w": 0.85,
+		"sea_under": Color(0.10, 0.14, 0.22), "sea_dash": Color(0.16, 0.22, 0.34), "sea_w": 0.85,
+		"label_ink": Color(0.10, 0.12, 0.18), "label_halo": Color(0.97, 0.95, 0.90, 0.95),
+		"label_mix": 0.95, "label_halo_k": 1.5,
+		"border_ink": Color(0.13, 0.16, 0.23), "border_alpha": 1.0,
+	},
+	"Watercolor": {
+		"road_under": Color(0.30, 0.22, 0.18), "road_over": Color(0.45, 0.30, 0.20),
+		"road_over_mix": 0.5, "road_alpha": 0.85,
+		"sea_under": Color(0.20, 0.32, 0.45), "sea_dash": Color(0.33, 0.50, 0.68), "sea_alpha": 0.85,
+		"label_ink": Color(0.18, 0.16, 0.20), "label_halo": Color(0.97, 0.94, 0.88, 0.95),
+		"label_mix": 0.70, "label_halo_k": 1.5,
+		"border_ink": Color(0.35, 0.28, 0.30), "border_alpha": 0.7,
+	},
+	"Print": {
+		"road_under": Color(0.08, 0.10, 0.30), "road_over": Color(0.16, 0.22, 0.55),
+		"road_over_mix": 0.8,
+		"sea_under": Color(0.08, 0.10, 0.30), "sea_dash": Color(0.20, 0.28, 0.62),
+		"label_ink": Color(0.12, 0.15, 0.40), "label_halo": Color(0.98, 0.94, 0.84, 0.95),
+		"label_mix": 0.90, "label_halo_k": 1.5,
+		"border_ink": Color(0.16, 0.22, 0.55), "border_alpha": 0.9,
+	},
+	"Village": {
+		"road_under": Color(0.25, 0.15, 0.08), "road_over": Color(0.55, 0.33, 0.18),
+		"road_over_mix": 0.4, "road_w": 1.15,
+		"label_ink": Color(0.14, 0.10, 0.06), "label_halo": Color(0.98, 0.95, 0.86, 0.95),
+		"label_mix": 0.80, "label_halo_k": 1.5,
+		"border_ink": Color(0.30, 0.18, 0.10), "border_alpha": 0.9,
+	},
+	"Atlas": {
+		"road_under": Color(0.25, 0.08, 0.05), "road_over": Color(0.62, 0.20, 0.14),
+		"road_over_mix": 0.6,
+		"sea_under": Color(0.05, 0.16, 0.35), "sea_dash": Color(0.15, 0.40, 0.70),
+		"label_ink": Color(0.12, 0.10, 0.09), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
+		"label_mix": 0.90, "label_halo_k": 1.5,
+		"border_ink": Color(0.45, 0.15, 0.35), "border_alpha": 0.9,
+	},
+	"Imhof relief": {
+		"road_under": Color(0.22, 0.15, 0.10), "road_over": Color(0.35, 0.25, 0.18),
+		"road_over_mix": 0.5, "road_w": 0.9,
+		"sea_under": Color(0.12, 0.18, 0.28), "sea_dash": Color(0.25, 0.38, 0.55), "sea_w": 0.9,
+		"label_ink": Color(0.15, 0.14, 0.14), "label_halo": Color(0.95, 0.93, 0.88, 0.95),
+		"label_mix": 0.80, "label_halo_k": 1.5,
+		"border_ink": Color(0.30, 0.22, 0.20), "border_alpha": 0.75,
+	},
+	"Blueprint": {
+		"road_under": Color(0.03, 0.10, 0.22), "road_over": Color(0.90, 0.95, 1.0),
+		"road_over_mix": 0.9, "road_w": 0.9,
+		"sea_under": Color(0.03, 0.10, 0.22), "sea_dash": Color(0.75, 0.88, 1.0), "sea_w": 0.9,
+		"label_ink": Color(0.92, 0.96, 1.0), "label_halo": Color(0.02, 0.08, 0.20, 0.95),
+		"label_mix": 0.95, "label_halo_k": 1.5,
+		"border_ink": Color(0.90, 0.95, 1.0), "border_alpha": 0.9,
+	},
+	"Ink wash": {
+		"road_under": Color(0.10, 0.10, 0.10), "road_over": Color(0.25, 0.24, 0.24),
+		"road_over_mix": 0.7,
+		"sea_under": Color(0.12, 0.13, 0.16), "sea_dash": Color(0.30, 0.32, 0.38),
+		"label_ink": Color(0.12, 0.12, 0.12), "label_halo": Color(0.96, 0.95, 0.92, 0.95),
+		"label_mix": 0.90, "label_halo_k": 1.5,
+		"border_ink": Color(0.20, 0.20, 0.20), "border_alpha": 0.8,
+	},
+	"Woodcut": {
+		"road_under": Color(0.05, 0.04, 0.03), "road_over": Color(0.10, 0.08, 0.06),
+		"road_over_mix": 0.9, "road_w": 1.2,
+		"sea_under": Color(0.10, 0.09, 0.08), "sea_dash": Color(0.15, 0.13, 0.12), "sea_w": 1.15,
+		"label_ink": Color(0.10, 0.07, 0.04), "label_halo": Color(0.93, 0.87, 0.72, 0.95),
+		"label_mix": 0.95, "label_halo_k": 1.5,
+		"border_ink": Color(0.10, 0.08, 0.06), "border_alpha": 1.0,
+	},
+	"Vintage atlas": {
+		"road_under": Color(0.20, 0.14, 0.09), "road_over": Color(0.36, 0.25, 0.18),
+		"road_over_mix": 0.6,
+		"sea_under": Color(0.16, 0.22, 0.28), "sea_dash": Color(0.25, 0.33, 0.40),
+		"label_ink": Color(0.20, 0.14, 0.09), "label_halo": Color(0.93, 0.87, 0.73, 0.95),
+		"label_mix": 0.80, "label_halo_k": 1.5,
+		"border_ink": Color(0.40, 0.22, 0.16), "border_alpha": 0.85,
+	},
+	"Nautical": {
+		"road_under": Color(0.12, 0.12, 0.14), "road_over": Color(0.20, 0.20, 0.22),
+		"road_over_mix": 0.6,
+		"sea_under": Color(0.30, 0.05, 0.22), "sea_dash": Color(0.72, 0.12, 0.50),
+		"label_ink": Color(0.08, 0.08, 0.12), "label_halo": Color(0.95, 0.93, 0.85, 0.95),
+		"label_mix": 0.90, "label_halo_k": 1.5,
+		"border_ink": Color(0.50, 0.10, 0.40), "border_alpha": 0.85,
+	},
+	"Night": {
+		"road_under": Color(0.02, 0.02, 0.04), "road_over": Color(0.95, 0.80, 0.45),
+		"road_over_mix": 0.7,
+		"sea_under": Color(0.02, 0.04, 0.12), "sea_dash": Color(0.55, 0.75, 1.0),
+		"label_ink": Color(0.93, 0.93, 0.98), "label_halo": Color(0.02, 0.02, 0.05, 0.95),
+		"label_mix": 0.95, "label_halo_k": 1.5,
+		"border_ink": Color(0.85, 0.75, 0.55), "border_alpha": 0.8,
+	},
+	"Cel / Toon": {
+		"road_under": Color(0.05, 0.03, 0.02), "road_over": Color(0.35, 0.20, 0.10),
+		"road_over_mix": 0.5, "road_w": 1.25,
+		"sea_under": Color(0.03, 0.10, 0.28), "sea_dash": Color(0.10, 0.35, 0.75), "sea_w": 1.2,
+		"label_ink": Color(0.08, 0.06, 0.05), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
+		"label_mix": 1.00,
+		"border_ink": Color(0.10, 0.08, 0.08), "border_alpha": 1.0,
+	},
+}
+
+## The overlay treatment for the preset named `preset_name`: its row in
+## `OVERLAY_TREATMENTS`, or `{}` (the shipped colours) when it has none. A
+## missing row is the identity by design, not an omission -- see the table's note.
+static func overlay_treatment_for(preset_name: String) -> Dictionary:
+	return Dictionary(OVERLAY_TREATMENTS.get(preset_name, {}))
+
 ## Every appearance key any preset's 4th element writes -- derived from the
 ## table, not listed by hand, so a new recipe key is covered the day it is
 ## added. `_apply_preset` stops overriding all of them before applying the
@@ -1202,6 +1365,11 @@ func _apply_preset(index: int) -> void:
 	## rather than polled -- `ViewportHost.set_style_readout()`'s own comment.
 	if app != null and app.viewport != null:
 		app.viewport.set_style_readout(String(STYLE_PRESETS[index][0]))
+		## The overlay half of the style: roads, sea lanes, labels and borders
+		## take the preset's ink the way the rivers do (`OVERLAY_TREATMENTS`).
+		## Absolute like every other element -- a preset with no row pushes `{}`,
+		## which clears the previous preset's treatment rather than leaving it.
+		app.viewport.set_overlay_treatment(overlay_treatment_for(String(STYLE_PRESETS[index][0])))
 
 ## Pick a base look on its own. Marks Custom, because the tiles above name a
 ## look *and* a Painter bundle and only one half moved.

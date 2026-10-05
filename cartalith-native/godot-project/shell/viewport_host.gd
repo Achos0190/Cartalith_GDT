@@ -96,6 +96,9 @@ var _readout_label: Label
 ## file does not read it itself. "Default" until the workspace's first build,
 ## matching `_build_map_style()`'s own initial chip selection.
 var _style_readout := "Default"
+## The live overlay treatment `set_overlay_treatment()` last received (`{}` =
+## the shipped colours).
+var _overlay_treatment: Dictionary = {}
 var _coords_label: Label
 ## §5.2's viewport context chip. Written by `DccShell._refresh_viewport_context()`
 ## -- see `set_viewport_context()`.
@@ -1320,6 +1323,62 @@ func _update_zoom_readout() -> void:
 func set_style_readout(name: String) -> void:
 	_style_readout = name
 	_update_zoom_readout()
+
+## Province lines are baked by the engine as one fixed dark-brown RGBA texture
+## (`build_province_boundary_texture`, ink `[35, 24, 9, 235]`), so the preset's
+## border ink cannot be a draw colour here -- it is a `canvas_item` shader on
+## `province_view` that keeps the texture's alpha (the line's own shape and
+## anti-aliasing) and swaps the RGB. Inline source rather than a `.gdshader`
+## file: one three-line shader does not earn a resource, and no new file type
+## enters the project. `border_ink` is passed **raw** (no `source_color` hint),
+## so a `Color` set here is the value written to the framebuffer, not an sRGB
+## value re-linearised.
+const BORDER_STYLE_SHADER := "shader_type canvas_item;\n" \
+	+ "uniform vec4 border_ink = vec4(0.137, 0.094, 0.035, 1.0);\n" \
+	+ "uniform float border_alpha = 1.0;\n" \
+	+ "void fragment() {\n" \
+	+ "\tfloat a = texture(TEXTURE, UV).a;\n" \
+	+ "\tCOLOR = vec4(border_ink.rgb, a * border_alpha);\n" \
+	+ "}\n"
+
+## The preset's overlay treatment (`render_workspace.gd`'s `OVERLAY_TREATMENTS`):
+## the roads, sea lanes and label inks go to `overlay` (`MapOverlay.
+## set_style_treatment`'s own key list), and the two border keys are applied here
+## to `province_view`. Pushed in rather than polled, like `set_style_readout()`.
+## `{}` -- or a treatment with neither border key -- removes the material
+## outright rather than installing an identity one, so Default's province lines
+## are drawn by the same code path as before this existed (byte-identical, and a
+## `null` material is the cheaper draw besides). Kept in `_overlay_treatment` so
+## `border_style()` can read back what is live.
+func set_overlay_treatment(t: Dictionary) -> void:
+	_overlay_treatment = t.duplicate(true)
+	if overlay != null and overlay.has_method("set_style_treatment"):
+		overlay.set_style_treatment(_overlay_treatment)
+	if province_view == null:
+		return
+	if not (_overlay_treatment.get("border_ink") is Color or _overlay_treatment.has("border_alpha")):
+		province_view.material = null
+		return
+	var mat := province_view.material as ShaderMaterial
+	if mat == null:
+		var shader := Shader.new()
+		shader.code = BORDER_STYLE_SHADER
+		mat = ShaderMaterial.new()
+		mat.shader = shader
+		province_view.material = mat
+	var ink: Color = _overlay_treatment["border_ink"] if _overlay_treatment.get("border_ink") is Color else Color(0.137, 0.094, 0.035)
+	mat.set_shader_parameter("border_ink", Color(ink.r, ink.g, ink.b, 1.0))
+	mat.set_shader_parameter("border_alpha", float(_overlay_treatment.get("border_alpha", 1.0)))
+
+## Read-back of the border half of the live treatment, for the probe:
+## `{"material": false}` when the province lines are drawn unstyled, else the
+## ink and alpha the shader is carrying.
+func border_style() -> Dictionary:
+	if province_view == null or not (province_view.material is ShaderMaterial):
+		return {"material": false}
+	var mat: ShaderMaterial = province_view.material
+	return {"material": true, "ink": mat.get_shader_parameter("border_ink"),
+		"alpha": float(mat.get_shader_parameter("border_alpha"))}
 
 ## Phone chrome (`DccShell._build_phone_shell()`) sits on top of this node's
 ## own edges once the map is edge-to-edge behind it (inset rule "DRAW
