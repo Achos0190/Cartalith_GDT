@@ -1934,23 +1934,16 @@ func _fill_factions(parent: Control) -> void:
 	## FH-1 (`FACTION_HUB_DESIGN.md` §4): the first row of the category is the
 	## one door into the Factions hub, relabelled from "Faction roster…". Same
 	## call, no faction and no tab: it reopens on the last-selected faction and
-	## the tab last used this session. The Culture profiles… and Settlement
-	## types… rows below stay until FH-2/FH-3 give their destinations a home
-	## inside the hub (the design's migration order); never remove them first.
+	## the tab last used this session. FH-2 (2026-10-05) retired the Culture
+	## profiles… row: its content is the Identity tab's Culture profile card.
+	## The Settlement types… row below stays until FH-3 gives it a home in the
+	## hub (the design's migration order); never remove it first.
 	var roster_btn := DccWidgets.action(sec, "Open factions…", func(): app.open_faction_roster(), true)
 	roster_btn.tooltip_text = "The Factions window (the reference's Faction Roster, grown into tabs): world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
 
-	## `GUI_GAP_REGISTER.md` CV-02's own window, beside the roster it reads
-	## and writes the same faction field through.
-	var culture_btn := DccWidgets.action(sec, "Culture profiles…", func(): app.open_culture_profiles())
-	## Writes the same faction field as the roster's own Identity block
-	## (`civ_set_faction_field("culture")`).
-	culture_btn.tooltip_text = "The seven naming cultures as rows, a selected culture's real settlement-name sample, and a per-faction culture picker -- the same write the roster's own Identity block makes."
-
-	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the roster and
-	## Culture profiles for the same reason both are here: a settlement
-	## type's per-faction default reads the same faction roster this section
-	## already shows.
+	## `lazy-riding-piglet.md` Batch D, artboard 1f. Beside the
+	## roster for the reason it is here: a settlement type's per-faction
+	## default reads the same faction roster this section already shows.
 	var types_btn := DccWidgets.action(sec, "Settlement types…", func(): app.open_settlement_types())
 	types_btn.tooltip_text = "Named bundles (kind, specialisation, traits, walls, age policy) the settlement tool applies on drop, plus a default per faction. A faction left on None behaves exactly as today."
 
@@ -3288,8 +3281,8 @@ func _fill_culture(parent: Control) -> void:
 		_knowledge_row(sec, "culture", int(d.get("id", 0)), String(d.get("name", "?")), detail)
 
 	DccWidgets.note(sec,
-		"A culture is set per FACTION, in this window or the roster window's own "
-		+ "Culture picker -- the same civ_set_faction_field write either way; "
+		"A culture is set per FACTION, on the Factions window's Identity tab "
+		+ "(its Culture picker, civ_set_faction_field); "
 		+ "a settlement takes its faction's and has no override of its own, which "
 		+ "is why the counts above are counts of factions and of what they hold. "
 		+ "Three things read it: the settlement name pool (_civSettleName), the "
@@ -3301,14 +3294,14 @@ func _fill_culture(parent: Control) -> void:
 	## cannot show a second child, no `◄` marks a move, and "What changed" does
 	## not list one.
 	##
-	## Points at the CV-02 Culture profiles window now, not the Faction roster
-	## -- a more specific destination for "which faction has which culture"
-	## than the whole roster modal, now that one exists. The roster's own
-	## picker is unchanged and still works; this is just the better signpost.
-	var roster := DccWidgets.action(sec, "Which faction has which culture → Culture profiles…",
-		func(): app.open_culture_profiles())
+	## Opens the Factions hub on its Identity tab (FH-2, 2026-10-05): the
+	## standalone Culture profiles window this once pointed at is retired and
+	## its profile / name pool / assigned-factions content now sits under the
+	## Identity tab's Culture picker. `-1` = the last-selected faction.
+	var roster := DccWidgets.action(sec, "Which faction has which culture → Factions ▸ Identity",
+		func(): app.open_faction_roster(-1, "identity"))
 	roster.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	roster.tooltip_text = "The culture list, a real settlement-name sample per culture, and a per-faction culture picker -- the roster window's own Identity block carries the same picker."
+	roster.tooltip_text = "Opens the Factions window on its Identity tab: the Culture picker, the selected culture's profile, a real settlement-name pool with rerolls, and the other factions that share it."
 
 # -- Religion (`RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1) -------------------
 #

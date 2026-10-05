@@ -10,8 +10,8 @@ class_name SettlementTypesWindow
 ## from, not a fact about one settlement. `AcceptDialog` is this shell's
 ## established free-floating-window vocabulary
 ## (`place_editor_window.gd`/`faction_roster_window.gd`/
-## `culture_profiles_window.gd`), and this window follows
-## `culture_profiles_window.gd`'s three-pane shape most closely: a library
+## the now-retired `culture_profiles_window.gd` (FH-2)), and this window follows
+## the now-retired `culture_profiles_window.gd` (FH-2)'s three-pane shape most closely: a library
 ## list on the left, a selected item's editable detail in the centre, a
 ## per-faction column on the right.
 ##
@@ -29,11 +29,11 @@ class_name SettlementTypesWindow
 ##
 ## One `if _phone: ... else: ...` branch in `_rebuild()`, matching this
 ## shell's established convention (confirmed in `faction_roster_window.gd`
-## and `culture_profiles_window.gd`) over a second per-platform file: the
+## and the now-retired `culture_profiles_window.gd` (FH-2)) over a second per-platform file: the
 ## three columns stack into three sections in list order (library, detail,
 ## faction defaults) rather than a `TabContainer` or a bespoke pane switcher,
 ## since none of the three needs to be hidden from the others the way
-## `culture_profiles_window.gd`'s own phone switcher hides its panes -- a
+## the now-retired `culture_profiles_window.gd` (FH-2)'s own phone switcher hides its panes -- a
 ## type's detail and the faction column are both short enough to read
 ## together on a scroll.
 

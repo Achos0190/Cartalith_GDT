@@ -25,7 +25,8 @@ extends Node
 ##     on its phone branch)
 ##   city_viewer_window, gen_info_dialog, world_data_window, shortcuts_dialog
 ##     (already explicit `ok_button_text = "Close"`)
-##   generation_rules_window, culture_profiles_window, travel_library_window
+##   generation_rules_window, travel_library_window (culture_profiles_window was
+##     retired in FH-2 -- its content is the roster window's Identity tab)
 ##     (own hidden-OK + custom "Close" footer button)
 ##   asset_library_window, data_manager_window
 ##     (own hidden-OK + custom "Close <cross>" window-bar chip)
@@ -229,12 +230,6 @@ func _ready() -> void:
 	await _frames(3)
 	_assert_close("generation_rules_window", _app.generation_rules_window)
 	_app.generation_rules_window.hide()
-	await _frames(2)
-
-	_app.culture_profiles_window.open()
-	await _frames(3)
-	_assert_close("culture_profiles_window", _app.culture_profiles_window)
-	_app.culture_profiles_window.hide()
 	await _frames(2)
 
 	_app.travel_library_window.open()

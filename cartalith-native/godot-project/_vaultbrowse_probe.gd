@@ -7,7 +7,7 @@ extends Node
 ##
 ## Run: godot4 --path . _vaultbrowse_probe.tscn   (WINDOWED -- no
 ## `--headless`; `get_viewport().get_texture()` is null under the dummy
-## rasteriser, the same reason `_cultureprofiles_probe.gd` refuses to run
+## rasteriser, the same reason the retired `_cultureprofiles_probe.gd` (folded into `_factionhub_probe.gd`, FH-2) refused to run
 ## under one. Screenshots are visual evidence and are not committed.)
 ##
 ##   1. Boot, generate a small world (a settlement is needed to reach the

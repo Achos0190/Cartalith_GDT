@@ -43,6 +43,14 @@ class_name FactionRosterWindow
 ## one row at 393 dp, a horizontally scrolling strip hides tabs behind a drag,
 ## and the window keeps exactly one scroller (below).
 ##
+## **The Culture profiles window is folded in (FH-2, owner decision 2,
+## 2026-10-05).** `culture_profiles_window.gd` is retired: its profile, "Name
+## pool -- real settlements" (with the reroll chips) and "Assigned factions" now
+## hang off the Culture picker on the Identity tab (`_build_culture_card`). The
+## card follows the faction's current culture; the one thing it gives up is
+## browsing a culture NO faction has -- the dock's Culture category still lists
+## all seven read-only.
+##
 ## ## What is real, and what is not
 ##
 ## Real: name/culture/religion/government/ag-tech editing (all five persist
@@ -770,8 +778,10 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 
 
 ## The Identity tab: the faction's banner and name, then the five identity
-## rows. Moved verbatim out of the old single-scroll inspector; the head's name
-## field still commits on `focus_exited` unless `_rebuilding` (FR-02).
+## rows, with the **Culture profile card** (FH-2, `_build_culture_card`) hung
+## directly under the Culture picker. The rows moved verbatim out of the old
+## single-scroll inspector; the head's name field still commits on
+## `focus_exited` unless `_rebuilding` (FR-02).
 func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
@@ -797,6 +807,7 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 		String(d.get("government", "monarchy")), "government",
 		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (see the Military tab).")
 	_culture_choice(sec, String(d.get("culture", "common")))
+	_build_culture_card(sec, String(d.get("culture", "common")))
 	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
@@ -831,7 +842,7 @@ func _build_tab_history(pane: VBoxContainer) -> void:
 # -- Tabs: strip, chooser, switching -----------------------------------------
 
 ## The strip (pointer and tablet) or the segmented chooser (phone): one
-## `Button` per `TAB_IDS`, in the segmented shape `culture_profiles_window.gd`'s
+## `Button` per `TAB_IDS`, in the segmented shape the retired Culture profiles window's
 ## phone switcher already uses -- an accent-wash fill on the active cell, a
 ## `FS_MICRO` mono caption, no focus ring (`FOCUS_NONE`, so a tab press never
 ## steals the focus FR-02 reasons about).
@@ -1047,6 +1058,206 @@ func _culture_choice(parent: Control, current: String) -> void:
 	DccWidgets.choice(parent, "Culture", labels, maxi(0, Array(keys).find(current)),
 		func(i: int): _set_field("culture", String(keys[i])),
 		"Naming culture -- the pool _civSettleName draws this faction's settlement names from. Also what the Territory tab's fit verdict judges the land against.")
+
+
+# -- Culture profile card (FH-2, `FACTION_HUB_DESIGN.md` §3.5 Identity) ------
+
+## Most chips the Name-pool block draws. 8 is the retired Culture profiles
+## window's own `mini(8, matches.size())` (last at commit `a61bdd8f`), carried over
+## unchanged: a labelled judgement -- enough to read a pool's flavour, few enough
+## that the card does not outgrow the Identity rows it sits among on a phone.
+const NAME_POOL_MAX := 8
+
+## The card's container, a child of the Identity section directly under the
+## Culture picker. Held so a reroll can refill the card in place instead of
+## rebuilding the whole inspector (which would tear down a focused field).
+## Freed with its pane; `is_instance_valid()` guards every use.
+var _culture_card_host: VBoxContainer
+
+
+## Hangs the Culture profile card under the Culture picker. It folds the retired
+## Culture profiles window's detail pane (profile), "Name pool -- real
+## settlements" and "Assigned factions" into the Identity tab (owner decision 2,
+## 2026-10-05): the faction's CURRENT culture is the one shown, so editing the
+## picker above and reading what that culture means are one surface.
+##
+## Read-only except the reroll chips. **Never writes the culture itself** --
+## that stays `_culture_choice()` -> `_set_field("culture")`, whose rebuild also
+## refills this card (`_rebuild_inspector()`), so there is one write path.
+func _build_culture_card(parent: Control, key: String) -> void:
+	_culture_card_host = VBoxContainer.new()
+	_culture_card_host.name = "CultureCard"
+	_culture_card_host.add_theme_constant_override("separation", 2)
+	_culture_card_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_culture_card_host)
+	_fill_culture_card(key)
+
+
+## The `get_cultures()` row whose `key` is `key`, or `{}` -- the seven rows exist
+## before any world does (compile-time `CIV_CULTURES`), so `{}` means a key the
+## engine does not know or a library older than the binding, never "no world".
+func _culture_row(key: String) -> Dictionary:
+	for c in bridge.get_cultures():
+		if String((c as Dictionary).get("key", "")) == key:
+			return c
+	return {}
+
+
+## Real settlements belonging to factions CURRENTLY assigned culture `key`, as
+## `{"index": i, "data": settlement}` (`index` is into `bridge.settlements()`,
+## which is what `civ_reroll_settlement_name` takes). Ported from the retired
+## window's `_settlements_for_culture`; "currently assigned" is the point -- see
+## `_fill_culture_card` for why the pool is real settlements.
+func _settlements_for_culture(key: String) -> Array:
+	var out: Array = []
+	var faction_ids := {}
+	for f in bridge.get_factions():
+		var fd: Dictionary = f
+		if String(fd.get("culture", "")) == key:
+			faction_ids[int(fd.get("id", -1))] = true
+	if faction_ids.is_empty():
+		return out
+	var all := bridge.settlements()
+	for i in all.size():
+		var s: Dictionary = all[i]
+		if faction_ids.has(int(s.get("faction", -1))):
+			out.append({"index": i, "data": s})
+	return out
+
+
+## (Re)fills `_culture_card_host` for culture `key`: the profile (terrain theme
+## from `terrain_affinity`, `faction_count` and the culture's reach), the
+## **Name pool** chips, and **Also used by**.
+##
+## ## The name pool is real settlements, not a fabricated roll
+##
+## There is no bound function that draws a free sample from a culture's
+## syllable/suffix pool: `cartalith_civ::civ_settle_name` is not `#[func]`-exposed,
+## and a hand-copied syllable table here would be exactly the second source of
+## truth `get_cultures()`'s own doc comment refuses. So the chips are the REAL
+## names of settlements belonging to factions currently assigned this culture
+## (`bridge.settlements()` filtered through `bridge.get_factions()`'s `culture`),
+## and pressing one rerolls it through `civ_reroll_settlement_name`, the call the
+## Place editor's own dice button uses. That reroll draws from the faction's
+## STORED culture (`cartalith_civ::civ_faction_culture` over the roster), the very
+## field the picker above writes, so every chip rerolls from the pool on screen.
+##
+## Rebuilt under `_clear()`'s `_rebuilding` guard (FR-02), though nothing in the
+## card holds a text field.
+func _fill_culture_card(key: String) -> void:
+	var host := _culture_card_host
+	if host == null or not is_instance_valid(host):
+		return
+	_clear(host)
+	var row := _culture_row(key)
+	if row.is_empty():
+		DccWidgets.note(host,
+			"No profile for the culture \"%s\": this build's engine has no get_cultures() row for it." % key)
+		return
+	var cname := String(row.get("name", key.capitalize()))
+	var affinity := String(row.get("terrain_affinity", ""))
+	var fc := int(row.get("faction_count", 0))
+
+	host.add_child(DccTheme.label("Culture profile — %s" % cname, "text_bright", DccTheme.FS_SMALL))
+	## The terrain sentence is about the verdict on the Territory tab, which
+	## judges this faction's own land against `terrain_affinity`; `common` and
+	## `imperial` carry none by design and `civ_culture_terrain_fit` returns no
+	## verdict for them rather than invent one.
+	DccWidgets.note(host,
+		("Terrain theme: %s. The Territory tab compares this faction's own land against it." % affinity.capitalize())
+		if affinity != "" else
+		"No terrain theme: Common and Imperial are identity-flavoured, and civ_culture_terrain_fit gives no verdict for either rather than fabricating one.")
+	var reach := "%d faction%s use%s this culture" % [fc, "" if fc == 1 else "s", "s" if fc == 1 else ""]
+	if fc > 0:
+		reach += " · %d settlements · %s people" % [
+			int(row.get("settlement_count", 0)), _thousands(int(row.get("population", 0)))]
+	DccWidgets.note(host, reach)
+
+	var pool := DccWidgets.group(host, "Name pool — real settlements")
+	pool.name = "NamePool"
+	var matches := _settlements_for_culture(key)
+	if matches.is_empty():
+		DccWidgets.note(pool,
+			"No settlements currently use this culture. Give it to a faction that holds settlements to see the names it actually produces.")
+	else:
+		matches.sort_custom(func(a, b): return int((a.data as Dictionary).get("population", 0)) > int((b.data as Dictionary).get("population", 0)))
+		var shown: Array = matches.slice(0, mini(NAME_POOL_MAX, matches.size()))
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 6)
+		flow.add_theme_constant_override("v_separation", 6)
+		pool.add_child(flow)
+		for e in shown:
+			var s: Dictionary = e.data
+			var idx: int = e.index
+			## Every row is a settlement of a faction assigned this culture, and
+			## the reroll draws from that faction's assigned culture, so each one
+			## rerolls from the pool on screen.
+			var chip := DccWidgets.chip(flow, String(s.get("name", "?")),
+				func(): _reroll_name(idx), false, 9, 4)
+			chip.name = "Reroll_%d" % idx
+			chip.tooltip_text = "%s — %s, faction %d. Click to reroll a fresh name from this pool." % [
+				String(s.get("name", "?")), String(s.get("kind", "?")).capitalize(),
+				int(s.get("faction", 0))]
+		if matches.size() > shown.size():
+			DccWidgets.note(pool, "+%d more, sorted by population." % (matches.size() - shown.size()))
+		DccWidgets.note(pool,
+			"Names are drawn from the faction's assigned culture -- by Auto-populate, by a Settlement drop left unnamed, and by a reroll. Changing a faction's culture changes the pool those draw from next, and its Territory-fit reading; it does not rename settlements already placed. A new world starts every faction on its default culture.")
+
+	## Everyone on this culture but the faction being edited: "also" is relative
+	## to the selection, and the selected faction is already the page's subject.
+	var others: Array = []
+	for f in bridge.get_factions():
+		var fd: Dictionary = f
+		if String(fd.get("culture", "")) == key and int(fd.get("id", -1)) != _selected:
+			others.append(fd)
+	var also := DccWidgets.group(host, "Also used by (%d)" % others.size())
+	also.name = "AlsoUsedBy"
+	if others.is_empty():
+		DccWidgets.note(also, "No other faction uses this culture.")
+	for fd in others:
+		var frow := HBoxContainer.new()
+		frow.add_theme_constant_override("separation", 8)
+		var banner := FactionBanner.new()
+		banner.configure(int(fd.get("id", 0)), _color_of(fd), 18)
+		frow.add_child(banner)
+		var lbl := DccTheme.label("%s — %d settlements, %s pop" % [
+			String(fd.get("name", "?")), int(fd.get("settlement_count", 0)),
+			_thousands(int(fd.get("population", 0)))], "text", DccTheme.FS_SMALL)
+		lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		frow.add_child(lbl)
+		also.add_child(frow)
+
+	## Carried over from the retired window's "Not built" block. Verified
+	## 2026-10-05 against `cartalith-urban/src/rules.rs`: it resolves exactly two
+	## named profiles, "medieval" and "venus".
+	DccWidgets.note(host,
+		"Settlement Style is not part of culture: a settlement's built form (streets, parcels, walls) is a separate axis from naming, and is not assignable per faction. cartalith-urban resolves two named profiles, \"medieval\" and \"venus\", chosen per generation call and stored on no faction or settlement.")
+
+
+## Reroll settlement `idx`'s name from its faction's culture pool, then bring
+## every surface that shows it into line: `roster_changed` (the map's pins and
+## labels and the dock, via `civilization_workspace.gd::_on_roster_changed` ->
+## `_on_civ_edited`), the hidden panes (the Settlements tab lists the names, so
+## they are dropped to rebuild on their next show) and the card itself.
+##
+## **Emits after the engine call**, never before (MISTAKES: emit after). The
+## retired window emitted nothing here, which left map labels on the old name
+## until something else repainted them; this is the one behaviour change in the
+## fold, made on purpose. Must never write the culture.
+func _reroll_name(idx: int) -> void:
+	var new_name := bridge.civ_reroll_settlement_name(idx)
+	if new_name == "":
+		app.set_status("hint", "Couldn't reroll that name: the engine returned none.", "accent")
+		return
+	app.set_status("hint", "Rerolled — %s" % new_name, "text_ghost")
+	roster_changed.emit()
+	_drop_panes(_tab)
+	var d := _faction(_selected)
+	if d.is_empty():
+		return
+	_fill_culture_card(String(d.get("culture", "common")))
+	if _phone:
+		app.phone_fit(self, 1.0)  # idempotent; tags only the new chips
 
 
 func _ag_tech_choice(parent: Control, current: String) -> void:
@@ -1545,6 +1756,11 @@ func _set_field(key: String, value: String) -> void:
 		## reads it too, so both caches go stale and every tab is rebuilt on its
 		## next show. The visible pane is rebuilt now, as it always was.
 		_mark_data_stale()
+		## FR-02 (FH-2): the Culture card now sits in the same pane as the name
+		## field, so a culture pick is the likeliest thing to tear down a
+		## half-typed rename. Flush it against this faction first, or the
+		## teardown guard drops it unwritten.
+		_commit_focused_field()
 		_rebuild_inspector()
 	elif key == "government" or key == "ag_tech":
 		## Neither is shown outside Identity, but the Military tab's whole answer

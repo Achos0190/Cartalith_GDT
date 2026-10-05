@@ -40,12 +40,6 @@ var city_viewer_window: CityViewerWindow
 ## `_civOpenFactionsModal` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 var place_editor_window: PlaceEditorWindow
 var faction_roster_window: FactionRosterWindow
-## `GUI_GAP_REGISTER.md` CV-02's own dedicated window -- the culture list,
-## selected-culture name-pool preview, and per-faction culture assignment.
-## Reads/writes the same engine surface `faction_roster_window`'s Culture
-## picker does; the two are independent, redundant entry points onto the
-## same faction field, not a data path of their own.
-var culture_profiles_window: CultureProfilesWindow
 ## `lazy-riding-piglet.md` Batch D -- artboard 1f's own "separate popup"
 ## framing. A pure UI over `SettlementTypeStore`'s static state (see that
 ## file's own top-of-file doc), not a data path of its own.
@@ -745,10 +739,6 @@ func _ready() -> void:
 	faction_roster_window = FactionRosterWindow.new()
 	add_child(faction_roster_window)
 	faction_roster_window.setup(self, bridge)
-
-	culture_profiles_window = CultureProfilesWindow.new()
-	add_child(culture_profiles_window)
-	culture_profiles_window.setup(self, bridge)
 
 	settlement_types_window = SettlementTypesWindow.new()
 	add_child(settlement_types_window)
@@ -4146,10 +4136,6 @@ func open_place_editor(index: int) -> void:
 ## on a tab that does not exist.
 func open_faction_roster(faction: int = -1, tab: String = "") -> void:
 	faction_roster_window.open(faction, tab)
-
-## `GUI_GAP_REGISTER.md` CV-02's Culture profiles window.
-func open_culture_profiles() -> void:
-	culture_profiles_window.open()
 
 ## `lazy-riding-piglet.md` Batch D's Settlement types library (canvas 1f).
 func open_settlement_types() -> void:

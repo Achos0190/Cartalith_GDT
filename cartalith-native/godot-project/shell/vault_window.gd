@@ -164,7 +164,7 @@ var _llabel := ""
 
 ## The tree+preview split (owner request, 2026-09-21, "a Markdown Vault
 ## browser"): which pane is showing on a phone, where the split folds to a
-## segmented switcher rather than sitting side by side — `culture_profiles_
+## segmented switcher rather than sitting side by side — the now-retired (FH-2) `culture_profiles_
 ## window.gd::_build_phone_switcher()`'s pattern, adapted to this file's own
 ## idiom of rebuilding `_body` from scratch on every state change rather than
 ## keeping persistent panes to show/hide.
@@ -1625,7 +1625,7 @@ func _refresh_browse_tree() -> void:
 		app.phone_fit(_browse_tree_col, 1.0)
 
 
-## The phone fold: `culture_profiles_window.gd::_build_phone_switcher()`'s
+## The phone fold: the now-retired (FH-2) `culture_profiles_window.gd::_build_phone_switcher()`'s
 ## segmented-row look, wired through `_rebuild()` rather than persistent-pane
 ## visibility — this file rebuilds `_body` from scratch on every state change
 ## already (`_search_open_rel`, `_attach_open`, `_browse_path`, …), so a third
@@ -1866,7 +1866,7 @@ func _build_browse_preview(parent: Control, data: Dictionary) -> void:
 
 	## Outline and excerpt side by side (owner-approved mockup: `grid-
 	## template-columns:220px 1fr`), stacked on phone — the same
-	## `BoxContainer`-axis-swap idiom `culture_profiles_window.gd::
+	## `BoxContainer`-axis-swap idiom the now-retired (FH-2) `culture_profiles_window.gd::
 	## _build_body()` already uses for its own desktop/phone fold
 	## (`VBoxContainer.new() if _phone else HBoxContainer.new()`), so one call
 	## site builds both instead of a separate phone branch duplicating the

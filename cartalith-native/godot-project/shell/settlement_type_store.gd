@@ -50,7 +50,7 @@ class_name SettlementTypeStore
 ## the settlement's own faction's stored `culture` field
 ## (`cartalith_civ::civ_faction_culture` over the roster), not off any
 ## per-type pool -- and no bound function draws from a pool it is handed,
-## which `culture_profiles_window.gd`'s own doc comment states for why it
+## which the now-retired `culture_profiles_window.gd` (FH-2)'s own doc comment states for why it
 ## cannot fabricate an arbitrary culture's sample. So "Inherit the faction's
 ## culture" is the only functional value; a type's `name_pool` field is
 ## stored (for a future generation-side hook, if one is ever built) and the

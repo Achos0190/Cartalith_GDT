@@ -33,6 +33,12 @@ extends Node
 ##           to keep their RL-01 dock behaviour (dock card on a, b marked, hub not
 ##           opened) until FH-6 re-routes them. The context-card row is
 ##           `_ctxcard_probe.gd` / `_ctxphone_probe.gd`'s.
+##   CULTURE (FH-2, `_run_culture_fold`) the retired Culture profiles window's job
+##           on the Identity tab: the profile, the Name pool of real settlements
+##           with reroll chips, "Also used by", the ported
+##           `_cultureprofiles_probe.gd` checks (seven cultures; the real picker
+##           writes the engine; the surface follows), the FR-02 guards, the dock
+##           link, and the old window's absence.
 ##
 ## Windowed, never `--headless` (layout and focus are the subject):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _factionhub_probe.tscn
@@ -52,6 +58,7 @@ var _fails := 0
 var _phone := false
 var _tablet := false
 var _entry_done := false  ## set by the last line of `_run_entry_points`
+var _culture_done := false  ## set by the last line of `_run_culture_fold`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -463,6 +470,10 @@ func _run() -> void:
 	await _run_entry_points(ids)
 	_ok("FH1 the entry-point leg ran to its end (a script error inside it aborts it silently)", _entry_done)
 
+	# -- CULTURE: the Culture profiles window folded into Identity (FH-2) ---------
+	await _run_culture_fold(ids)
+	_ok("FH2 the culture-fold leg ran to its end (a script error inside it aborts it silently)", _culture_done)
+
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
 	await _frames(6)
@@ -536,8 +547,8 @@ func _run_entry_points(ids: Array) -> void:
 	_ok("FH1 cat: exactly one 'Open factions…' button", open_btns.size() == 1,
 		"%d; first buttons: %s" % [open_btns.size(), _btn_texts(cbtns, 14)])
 	_ok("FH1 cat: the old 'Faction roster…' label is gone", old_btns.is_empty(), str(old_btns.size()))
-	_ok("FH1 cat: Culture profiles… and Settlement types… are still there (FH-2/FH-3)",
-		keep_culture.size() == 1 and keep_types.size() == 1, "%d/%d" % [keep_culture.size(), keep_types.size()])
+	_ok("FH1 cat: Culture profiles… is retired (FH-2) and Settlement types… is still there (FH-3)",
+		keep_culture.is_empty() and keep_types.size() == 1, "%d/%d" % [keep_culture.size(), keep_types.size()])
 	if open_btns.size() == 1:
 		(open_btns[0] as Button).pressed.emit()
 		await _frames(6)
@@ -753,3 +764,335 @@ func _find_menu_button(n: Node, title: String) -> MenuButton:
 		if r != null:
 			return r
 	return null
+
+
+# -- FH-2: the Culture profiles window folded into Identity -------------------
+
+## Expected card contents for faction `fid`, derived from the engine directly
+## (`get_factions()` + `settlements()`), never from the card's own helpers --
+## the card is the thing under test, so it cannot also be the oracle.
+## `matches` are `{index, pop, name}` of settlements of factions on the same
+## culture, `others` the other factions on it.
+func _fold_expect(fid: int) -> Dictionary:
+	var key := String(_fr._faction(fid).get("culture", ""))
+	var on_culture := {}
+	var others: Array = []
+	for f in _bridge.get_factions():
+		if String(f.get("culture", "")) == key:
+			on_culture[int(f.get("id", 0))] = true
+			if int(f.get("id", 0)) != fid:
+				others.append(f)
+	var matches: Array = []
+	var all: Array = _bridge.settlements()
+	for i in all.size():
+		var s: Dictionary = all[i]
+		if on_culture.has(int(s.get("faction", -1))):
+			matches.append({"index": i, "pop": int(s.get("population", 0)), "name": String(s.get("name", ""))})
+	var row := {}
+	for c in _bridge.get_cultures():
+		if String(c.get("key", "")) == key:
+			row = c
+	return {"key": key, "others": others, "matches": matches, "row": row}
+
+
+## The Identity pane's Culture `OptionButton`: the one whose items are exactly the
+## capitalised engine vocabulary (the pane also holds religion/government/ag.
+## tech pickers, which share the class).
+func _culture_picker() -> OptionButton:
+	var obs: Array = []
+	_collect_of(_pane("identity"), obs, OptionButton)
+	var want: Array = []
+	for k in _bridge.civ_culture_vocabulary():
+		want.append(String(k).capitalize())
+	for ob in obs:
+		var texts: Array = []
+		for i in (ob as OptionButton).item_count:
+			texts.append((ob as OptionButton).get_item_text(i))
+		if texts == want:
+			return ob
+	return null
+
+
+## The Name-pool chips under the card, in draw order.
+func _pool_chips() -> Array:
+	var host: Node = _fr._culture_card_host
+	if host == null or not is_instance_valid(host):
+		return []
+	var out: Array = []
+	for n in host.find_children("Reroll_*", "Button", true, false):
+		out.append(n)
+	return out
+
+
+## Asserts the card on the Identity pane matches the engine for `fid`.
+func _fold_check_card(tag: String, fid: int) -> void:
+	var ex := _fold_expect(fid)
+	var host: Control = _fr._culture_card_host
+	var live := host != null and is_instance_valid(host) and host.is_inside_tree()
+	_ok("%s: the Culture card exists inside the Identity pane" % tag,
+		live and _pane("identity") != null and _pane("identity").is_ancestor_of(host))
+	if not live:
+		return
+	_ok("%s: exactly one card in the window" % tag,
+		_fr.find_children("CultureCard", "", true, false).size() == 1)
+	var txt := _text_of(host)
+	var row: Dictionary = ex.row
+	_ok("%s: the profile names the faction's culture (%s)" % [tag, ex.key],
+		not row.is_empty() and txt.contains("Culture profile — %s" % String(row.get("name", "?"))), txt.left(160))
+	var aff := String(row.get("terrain_affinity", ""))
+	_ok("%s: terrain theme read from terrain_affinity (%s)" % [tag, aff],
+		txt.contains("Terrain theme: %s." % aff.capitalize()) if aff != "" else txt.contains("No terrain theme"), txt.left(260))
+	var fc := int(row.get("faction_count", 0))
+	_ok("%s: the reach line states faction_count (%d)" % [tag, fc], txt.contains("%d faction" % fc))
+	var matches: Array = ex.matches
+	var chips := _pool_chips()
+	_ok("%s: the culture has real settlements (the control for the pool checks)" % tag, matches.size() > 0)
+	_ok("%s: Name pool shows min(8, real settlements) chips" % tag,
+		chips.size() == mini(8, matches.size()), "chips=%d real=%d" % [chips.size(), matches.size()])
+	var real_names := {}
+	for m in matches:
+		real_names[int(m.index)] = String(m.name)
+	var names_ok := true
+	var sorted_ok := true
+	var last_pop := 1 << 30
+	var all: Array = _bridge.settlements()
+	for c in chips:
+		var idx := int(String((c as Button).name).trim_prefix("Reroll_"))
+		if not real_names.has(idx) or (c as Button).text != String(real_names[idx]):
+			names_ok = false
+		var p := int((all[idx] as Dictionary).get("population", 0))
+		if p > last_pop:
+			sorted_ok = false
+		last_pop = p
+	_ok("%s: every chip is a real settlement of a faction on this culture, by its real name" % tag, names_ok)
+	_ok("%s: chips are sorted by population, largest first" % tag, sorted_ok)
+	var others: Array = ex.others
+	_ok("%s: 'Also used by (%d)' header" % [tag, others.size()], txt.to_lower().contains("also used by (%d)" % others.size()), txt)
+	var also: Node = host.find_child("AlsoUsedBy", true, false)
+	_ok("%s: the Also-used-by group exists" % tag, also != null)
+	if also != null:
+		var banners := _count(also, func(n): return n is FactionBanner)
+		_ok("%s: one banner row per other faction (%d)" % [tag, others.size()], banners == others.size(), str(banners))
+		var listed := true
+		for f in others:
+			if not _text_of(also).contains(String(f.get("name", "?"))):
+				listed = false
+		_ok("%s: each other faction is named" % tag, listed)
+		if others.is_empty():
+			_ok("%s: no-others state says so" % tag, _text_of(also).contains("No other faction uses this culture"))
+	if _phone:
+		var small := 0
+		var worst := ""
+		var btns: Array = []
+		_collect_buttons(host, btns)
+		for b in btns:
+			if (b as Button).visible and (b as Button).size.y < DccTheme.PHONE_TAP_MIN - 0.5:
+				small += 1
+				worst = "%s h=%.1f" % [(b as Button).text, (b as Button).size.y]
+		_ok("%s: PHONE every tappable in the card is at least %d px tall" % [tag, DccTheme.PHONE_TAP_MIN],
+			small == 0 and btns.size() > 0, "%d too small, e.g. %s (of %d)" % [small, worst, btns.size()])
+
+
+var _roster_emits := 0
+
+
+## Protects: FH-2 (owner decision 2, `FACTION_HUB_DESIGN.md`) -- the retired
+## `CultureProfilesWindow`'s whole job now lives on the Identity tab, on desktop
+## and phone. Ported from the deleted `_cultureprofiles_probe.gd`: the culture
+## list is real and complete (7), the REAL culture `OptionButton` (not the
+## private setter) changes one faction's culture and a fresh `get_factions()`
+## re-read shows the write reached the engine, and the surface reflects it
+## without being reopened. New: the card's profile (terrain theme, faction
+## count), its Name pool (real settlements, population order, max 8, each chip a
+## reroll through `civ_reroll_settlement_name`), its "Also used by" list, the
+## FR-02 guards (a half-typed field survives a reroll and is committed by a
+## culture pick), the Culture dock link opening Identity, and the old window,
+## opener and Factions-category button being gone. A reroll must emit
+## `roster_changed` (map labels) and drop the hidden panes (the Settlements tab
+## lists the names).
+## What it cannot see: the Culture dock category's read-only list (unchanged,
+## `_civilcensus_probe`'s) or pixels (the screenshot is the look-and-feel check).
+func _run_culture_fold(ids: Array) -> void:
+	var fa := -1
+	for f in _bridge.get_factions():
+		if int(f.get("settlement_count", 0)) > 0:
+			fa = int(f.get("id", 0))
+			break
+	_ok("FH2 precondition: a faction with settlements exists", fa > 0)
+	if fa < 0:
+		return
+	var fb := -1
+	for id in ids:
+		if int(id) != fa:
+			fb = int(id)
+			break
+	var orig_a := String(_fr._faction(fa).get("culture", "common"))
+	var orig_b := String(_fr._faction(fb).get("culture", "common"))
+	var name_a: String = _names()[fa]
+	_fr.roster_changed.connect(func(): _roster_emits += 1)
+
+	# -- ported: the culture list is real and complete -------------------------
+	var cultures: Array = _bridge.get_cultures()
+	_ok("FH2 get_cultures() returns the seven cultures", cultures.size() == 7, str(cultures.size()))
+	var any_terrain := false
+	for c in cultures:
+		if String(c.get("terrain_affinity", "")) != "":
+			any_terrain = true
+	_ok("FH2 ... and the rows carry real terrain affinities", any_terrain)
+
+	# -- the card on the faction's current culture ---------------------------------
+	_fr.open(fa, "identity")
+	await _frames(8)
+	var picker := _culture_picker()
+	_ok("FH2 the Identity tab's Culture picker offers all seven cultures", picker != null and picker.item_count == 7)
+	_fold_check_card("FH2 card (%s)" % orig_a, fa)
+	await _shot("%s_culture_card" % ("phone" if _phone else "desktop"))
+
+	# -- Also used by: share the culture, then read it ------------------------------
+	_bridge.civ_set_faction_field(fb, "culture", orig_a)
+	_fr._mark_data_stale()
+	_fr._rebuild_inspector()
+	await _frames(6)
+	var ex := _fold_expect(fa)
+	_ok("FH2 shared: the engine puts the other faction on this culture", (ex.others as Array).size() >= 1, str((ex.others as Array).size()))
+	_fold_check_card("FH2 card shared with %s" % _names()[fb], fa)
+	await _shot("%s_culture_card_shared" % ("phone" if _phone else "desktop"))
+	_bridge.civ_set_faction_field(fb, "culture", orig_b)
+
+	# -- ported: the REAL picker changes the culture and the engine re-reads it -------
+	var new_key := ""
+	for c in cultures:
+		if int(c.get("faction_count", 0)) == 0 and String(c.get("key", "")) != orig_a:
+			new_key = String(c.get("key", ""))
+			break
+	_ok("FH2 an unused culture exists to switch to", new_key != "")
+	_fr._mark_data_stale()
+	_fr._rebuild_inspector()
+	await _frames(6)
+	picker = _culture_picker()
+	var idx := -1
+	var keys: Array = _bridge.civ_culture_vocabulary()
+	for i in keys.size():
+		if String(keys[i]) == new_key:
+			idx = i
+	_ok("FH2 the picker offers '%s'" % new_key, picker != null and idx >= 0)
+	if picker == null or idx < 0:
+		return
+	# FR-02: a half-typed rename in the same pane is committed by the culture pick,
+	# to the faction it was typed for.
+	var edits: Array = []
+	_collect_of(_pane("identity"), edits, LineEdit)
+	var ne: LineEdit = edits[0] if not edits.is_empty() else null
+	if ne != null:
+		_focus(ne)
+		await _frames(3)
+		ne.text = "Fh2 half"
+	picker.select(idx)
+	picker.item_selected.emit(idx)
+	await _frames(6)
+	var after_key := String(_fr._faction(fa).get("culture", ""))
+	_ok("FH2 the culture change reached the engine (fresh get_factions() read)", after_key == new_key,
+		"expected %s, engine says %s" % [new_key, after_key])
+	_ok("FH2 ... and touched no other faction", String(_fr._faction(fb).get("culture", "")) == orig_b)
+	if ne != null:
+		_ok("FH2 FR02 a culture pick commits a half-typed rename to its own faction",
+			_names()[fa] == "Fh2 half" and _names()[fb] != "Fh2 half", str(_names()))
+	_ok("FH2 the card reflects the new culture without reopening the window",
+		_text_of(_fr._culture_card_host).contains("Culture profile — %s" % _culture_name_of(new_key)))
+	_fold_check_card("FH2 card on %s (nobody else)" % new_key, fa)
+	_bridge.civ_set_faction_field(fa, "name", name_a)
+
+	# -- reroll ---------------------------------------------------------------------------
+	_fr._mark_data_stale()
+	_fr._rebuild_inspector()
+	await _frames(6)
+	await _press("settlements")
+	await _press("identity")
+	_ok("FH2 reroll precondition: a hidden pane exists to go stale", _fr._tab_panes.size() >= 2, str(_fr._tab_panes.keys()))
+	var chips := _pool_chips()
+	_ok("FH2 reroll precondition: the pool has chips", chips.size() > 0)
+	if chips.is_empty():
+		return
+	var pick := chips[0] as Button
+	var ridx := int(pick.name.trim_prefix("Reroll_"))
+	var original_name := String((_bridge.settlements()[ridx] as Dictionary).get("name", ""))
+	edits.clear()
+	_collect_of(_pane("identity"), edits, LineEdit)
+	ne = edits[0] as LineEdit
+	_focus(ne)
+	await _frames(3)
+	ne.text = "Fh2 typing"
+	var emits0 := _roster_emits
+	var changed := false
+	var tries := 0
+	var new_name := original_name
+	while not changed and tries < 8:
+		tries += 1
+		var chip := _fr._culture_card_host.find_child("Reroll_%d" % ridx, true, false) as Button
+		if chip == null:
+			break
+		chip.pressed.emit()
+		await _frames(4)
+		new_name = String((_bridge.settlements()[ridx] as Dictionary).get("name", ""))
+		changed = new_name != original_name
+	_ok("FH2 a reroll chip changes the real settlement's name in the engine (%d press%s)" % [tries, "" if tries == 1 else "es"],
+		changed and new_name != "", "%s -> %s" % [original_name, new_name])
+	_ok("FH2 ... and emits roster_changed after the engine call", _roster_emits > emits0, str(_roster_emits - emits0))
+	var chip2 := _fr._culture_card_host.find_child("Reroll_%d" % ridx, true, false) as Button
+	_ok("FH2 ... and the card's chip shows the new name", chip2 != null and chip2.text == new_name,
+		"chip=%s engine=%s" % [chip2.text if chip2 != null else "<none>", new_name])
+	_ok("FH2 ... and a reroll never changes the culture", String(_fr._faction(fa).get("culture", "")) == new_key)
+	_ok("FH2 ... and drops the hidden panes, keeping the visible one", _fr._tab_panes.keys() == ["identity"], str(_fr._tab_panes.keys()))
+	_ok("FH2 FR02 a half-typed field survives a reroll (card-only refill) and keeps focus",
+		is_instance_valid(ne) and ne.text == "Fh2 typing" and ne.has_focus(),
+		"text=%s focus=%s" % [ne.text if is_instance_valid(ne) else "<freed>", is_instance_valid(ne) and ne.has_focus()])
+	_ok("FH2 ... and it was not committed to anyone by the reroll",
+		_names()[fa] == name_a and _names()[fb] != "Fh2 typing", str(_names()))
+	await _press("settlements")
+	_ok("FH2 the Settlements tab lists the rerolled name (it was rebuilt, not stale)",
+		_text_of(_pane("settlements")).to_lower().contains(new_name.to_lower()), new_name)
+	_ok("FH2 FR02 ... and the tab switch committed the typed name to its own faction",
+		_names()[fa] == "Fh2 typing", str(_names()))
+
+	# -- restore the world for the legs after this one --------------------------------------
+	_bridge.civ_set_faction_field(fa, "name", name_a)
+	_bridge.civ_set_faction_field(fa, "culture", orig_a)
+	_fr._mark_data_stale()
+	_fr._rebuild()
+	await _frames(4)
+	_fr.hide()
+	await _frames(2)
+
+	# -- the Culture dock link opens the hub on Identity ---------------------------------
+	_app.select_domain("civilization")
+	await _frames(4)
+	await _sheet("left")
+	_app.select_domain_category("civilization", "Culture")
+	await _frames(4)
+	var cbtns: Array = []
+	_collect_buttons(_app.workspace_panel("civilization"), cbtns)
+	var link := cbtns.filter(func(b): return _lc(b).begins_with("which faction has which culture"))
+	_ok("FH2 link: exactly one 'Which faction has which culture' button", link.size() == 1, "%d of %d buttons" % [link.size(), cbtns.size()])
+	if link.size() == 1:
+		await _park(fb, "territory")
+		(link[0] as Button).pressed.emit()
+		await _frames(6)
+		_land("FH2 culture link (last faction, Identity)", fb, "identity", false)
+		_ok("FH2 link: the Culture card is built and in the tree",
+			_fr._culture_card_host != null and is_instance_valid(_fr._culture_card_host) and _fr._culture_card_host.is_inside_tree())
+	_fr.hide()
+	await _frames(2)
+
+	# -- the old window is gone, everywhere ---------------------------------------------------
+	_ok("FH2 retired: app has no culture_profiles_window field", _app.get("culture_profiles_window") == null)
+	_ok("FH2 retired: app has no open_culture_profiles()", not _app.has_method("open_culture_profiles"))
+	_ok("FH2 retired: the script file is gone", not FileAccess.file_exists("res://shell/culture_profiles_window.gd"))
+	_culture_done = true
+
+
+## The engine's display name for culture `key`, read from `get_cultures()`.
+func _culture_name_of(key: String) -> String:
+	for c in _bridge.get_cultures():
+		if String(c.get("key", "")) == key:
+			return String(c.get("name", key.capitalize()))
+	return key.capitalize()

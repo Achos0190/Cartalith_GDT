@@ -14,7 +14,6 @@ extends Node
 const OLD_CAP := {
 	"place_editor_window": Vector2i(560, 760),
 	"faction_roster_window": Vector2i(1000, 700),
-	"culture_profiles_window": Vector2i(1200, 900),
 	"settlement_types_window": Vector2i(1180, 780),
 	"generation_rules_window": Vector2i(1180, 900),
 }

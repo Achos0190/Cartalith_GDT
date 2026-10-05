@@ -133,10 +133,10 @@ class_name PlaceEditorWindow
 ## than inside any one tab.
 ##
 ## Tab switching is **not** `TabContainer` -- this shell's established avoidance
-## of it (`faction_roster_window.gd`, `culture_profiles_window.gd`'s own
+## of it (`faction_roster_window.gd`, the now-retired `culture_profiles_window.gd` (FH-2)'s own
 ## `_build_phone_switcher()`, cited there over `TabContainer` explicitly) --
 ## and it is **one row for both desktop and phone** rather than a separate
-## phone-only switcher: unlike `culture_profiles_window.gd`'s three side-by-side
+## phone-only switcher: unlike the now-retired `culture_profiles_window.gd` (FH-2)'s three side-by-side
 ## panes (which only need to collapse to sequential screens on phone), this
 ## window is tabbed -- mutually exclusive content -- on every form factor the
 ## canvas draws, so the same segmented-button row serves both, with `phone_fit`
@@ -445,7 +445,7 @@ func _rebuild() -> void:
 
 ## One segmented-button row for both desktop and phone -- see this file's
 ## top-of-file doc for why this window does not need a separate `if _phone:`
-## switcher the way `culture_profiles_window.gd`'s three side-by-side panes do.
+## switcher the way the now-retired `culture_profiles_window.gd` (FH-2)'s three side-by-side panes do.
 ## Styling matches that file's own `_show_phone_pane()` active-tab treatment
 ## (accent wash fill + accent text on the active tab, dim text on the rest) so
 ## a segmented control looks the same wherever this shell already draws one.
