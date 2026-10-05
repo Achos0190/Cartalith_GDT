@@ -442,19 +442,28 @@ func _cv22() -> void:
 		_bad("a nonexistent faction returned values")
 
 	## And the dock row is drawn.
-	_app.select_domain_category("civilization", "Factions")
+	## FH-9: the CIVIL ▸ Factions category collapsed to one "Open factions…"
+	## button, so its Linked notes and Identity colour blocks are asserted where
+	## they now live -- the Factions hub's History and Identity tabs -- with the
+	## same needles and the same strength. Opened on faction 1 (a real roster row).
+	_app.open_faction_roster(1, "history")
 	await _frames(8)
-	var t := _texts(_app).to_lower()
+	var hub: Node = _app.faction_roster_window
+	var t := _texts(hub).to_lower()
 	if "linked notes" in t and "history, notes and lore" in t:
-		_ok("CIVIL ▸ Factions draws a Linked notes section")
+		_ok("Factions ▸ History draws a Linked notes section")
 	else:
-		_bad("CIVIL ▸ Factions has no Linked notes section")
+		_bad("Factions ▸ History has no Linked notes section")
 	if "is not an addressable entity there yet" in t:
 		_bad("the stale CV-22 denial is still on screen")
-	if "identity colour" in t:
-		_ok("CIVIL ▸ Factions draws the identity-colour block (CV-21)")
+	_app.open_faction_roster(1, "identity")
+	await _frames(8)
+	t = _texts(hub).to_lower()
+	if "colour" in t and "how heavily it paints" in t:
+		_ok("Factions ▸ Identity draws the identity-colour block (CV-21)")
 	else:
-		_bad("CIVIL ▸ Factions has no identity-colour block")
+		_bad("Factions ▸ Identity has no identity-colour block")
+	hub.hide()
 
 
 # ------------------------------------------------------------------- VA-02

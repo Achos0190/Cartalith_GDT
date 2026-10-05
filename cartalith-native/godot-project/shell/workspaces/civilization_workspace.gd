@@ -2003,64 +2003,20 @@ func _fill_factions(parent: Control) -> void:
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = "Open this faction's Territory tab in the faction hub."
 
-	## `GUI_GAP_REGISTER.md` **CV-21**, built 2026-08-25. The register's
-	## reason ("FactionRoster stores no colour field") was wrong -- it stored
-	## one and nothing read it. It is the render palette now.
-	var identity := DccWidgets.section(parent, "Identity colour")
-	DccWidgets.note(identity,
-		"Each faction's own colour, set in the roster window and drawn by "
-		+ "everything that draws a faction: the territory wash, the Political "
-		+ "control analysis field, and its banner. Unset, it takes the "
-		+ "colourblind-safe palette's colour for that index. The picker is the "
-		+ "first row of the roster window's Identity block, beside the banner it "
-		+ "repaints live.")
-	## No second *Open factions…* button: this category already has one
-	## above, and two openers onto one window is the shape this shell keeps
-	## having to undo.
-	var paint_btn := DccWidgets.action(identity, "How heavily it paints → Cartography ▸ Feature style",
-		func(): app.select_domain_category("cartography", "Feature style"))
-	paint_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	paint_btn.tooltip_text = "v3's own split: which colour a faction *is* belongs here, how heavily the wash is laid on belongs to CARTO."
-
-	## `GUI_GAP_REGISTER.md` **CV-22**, built 2026-08-25. The register's own
-	## estimate was right to the line: one `EntityKind` variant, one `as_str`
-	## arm, one `parse` arm, plus the export registry rows a faction can fill.
-	var notes := DccWidgets.section(parent, "Linked notes")
-	DccWidgets.note(notes,
-		"A faction's history, notes and lore live in an external Markdown vault "
-		+ "(any folder of .md files), the same as a settlement's, a province's "
-		+ "and a continent's. Cartalith reads on demand and writes only on an "
-		+ "explicit, previewed action.")
-	## The roster, not the province index above: a faction with no province
-	## yet is still a faction, and still has a history worth writing down.
-	var roster_rows := bridge.get_factions()
-	if roster_rows.is_empty():
-		DccWidgets.note(notes, "No factions — generate a world first.")
-	else:
-		for f in roster_rows:
-			var fd: Dictionary = f
-			_knowledge_row(notes, "faction", int(fd.get("id", 0)), String(fd.get("name", "?")),
-				"%d settlements · %s" % [int(fd.get("settlement_count", 0)),
-					String(fd.get("culture", "")).capitalize()])
-		DccWidgets.note(notes,
-			"Cartalith can fill Name, Culture, Government, Religion, its capital's "
-			+ "coordinates, member settlements, total population and claimed area "
-			+ "into its own block in that note. Culture, Government and Religion "
-			+ "also shape the world — culture its settlement names, government its "
-			+ "military manpower, culture and religion its relations with other "
-			+ "factions — so they are worth writing where an author's prose about "
-			+ "them is.")
-		## Rewritten 2026-09-24 (`ALIGNMENT_AUDIT.md` B13): it said the three
-		## fields "drive nothing in the engine". Culture drives settlement naming
-		## (`c4435ee`) and `relations`' shared-culture term; government drives
-		## `manpower.rs`; religion drives `relations`' faith term.
-
-	var gaps := DccWidgets.section(parent, "Not built")
-	DccWidgets.note(gaps,
-		"A faction **emblem** (GUI_GAP_REGISTER.md CV-21). The banner is "
-		+ "procedural -- a port of _civFactionBannerCanvas' own composition, "
-		+ "driven by the faction id and its colour -- and there is no image slot, "
-		+ "no charge vocabulary and no asset-library binding for an authored one.")
+	## FH-9 (`FACTION_HUB_DESIGN.md`): this category used to carry three more
+	## sections, all of which the Factions hub now carries and which were removed
+	## rather than kept as a second copy:
+	## - **Identity colour** (CV-21): the colour picker is the hub's Identity tab's
+	##   first row; the "how heavily it paints -> Cartography > Feature style" link
+	##   and the faction-emblem "not built" note moved to that tab
+	##   (`PaintLink`, `EmblemNotBuilt`).
+	## - **Linked notes** (CV-22): the hub's History tab lists the selected
+	##   faction's notes with the same `vault_entity_summary` and `app.open_vault`
+	##   (`HistoryVault`, `HistoryVaultOpen`), and carries the "what Cartalith
+	##   fills in" prose (`HistoryVaultFillNote`).
+	## - **Not built**: that was the emblem note, above.
+	## What stays is what the hub does not carry: the Settlement types library door
+	## and the by-province tally.
 
 ## v3 CIVIL ▸ TERRITORIES: recompute, provinces, the territory brush, and the
 ## linked notes for the two entity kinds a territory is made of.

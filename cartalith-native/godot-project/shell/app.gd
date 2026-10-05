@@ -4126,6 +4126,18 @@ func open_city_viewer(index: int) -> void:
 func open_place_editor(index: int) -> void:
 	place_editor_window.open_for(index)
 
+## Move one settlement to another polity (FH-9, `FACTION_HUB_DESIGN.md` §5.2).
+## **The same flow as the Place editor's Polity picker, not a copy of it**: it
+## forwards to `PlaceEditorWindow.transfer_settlement`, the one implementation
+## (engine preview, confirmation, refusals, no-claim-grid fallback, then
+## `polity_moved`, which the Civilization workspace turns into the territory
+## texture refresh). `index` is an index into `bridge.settlements()`; `to` a
+## faction id; `on_done` runs when the flow ends with nothing pending (see
+## `transfer_settlement`). Callers other than the Factions hub's Settlements
+## rows should not need this: the editor's picker binds it itself.
+func transfer_settlement(index: int, to: int, on_done: Callable = Callable()) -> void:
+	place_editor_window.transfer_settlement(index, to, on_done, false)
+
 ## The Faction Roster modal (`civOpenFactionsBtn`). `faction` is a faction id to
 ## land on (the context card's CIVIL "Open <name> in roster" row), or `-1` to
 ## reopen on the last-selected faction -- see `FactionRosterWindow.open()`.

@@ -369,6 +369,41 @@ func _header_row(body: VBoxContainer, cols: Array) -> void:
 	body.add_child(_cells(cols, 0, true))
 	body.add_child(DccTheme.rule())
 
+## FH-9 (`FACTION_HUB_DESIGN.md` §7, `FACTION_SURFACES_INVENTORY.md`'s "partial"):
+## faction id -> display name for the Faction columns. Built per rebuild from
+## `get_factions()` (the roster the Factions hub edits), so a rename shows here
+## on the next rebuild and nothing is cached across a generate.
+##
+## Never invents a name: an id the roster does not carry (a stale id after a
+## roster edit, or an older engine build with no `get_factions`) is left to
+## `_faction_label()`, which falls back to the bare id rather than to a
+## plausible-looking name.
+func _faction_names() -> Dictionary:
+	var out := {}
+	if not bridge.has_method("get_factions"):
+		return out
+	for f in bridge.get_factions():
+		var fd: Dictionary = f
+		out[int(fd.get("id", -1))] = String(fd.get("name", ""))
+	return out
+
+## The text a Faction cell shows for `id`. Id 0 is the engine's "no owner"
+## value (`place_search.gd` words it "unclaimed" for the same reason), not a
+## roster row, so it is named as such. Anything unknown stays `faction N`: an
+## honest "this id has no roster entry", never a guessed name. The id itself is
+## carried in each row's tooltip (`_faction_tip()`), so a reader who needs the
+## number -- to match it against a raw export -- still has it.
+func _faction_label(id: int, names: Dictionary) -> String:
+	if names.has(id) and String(names[id]) != "":
+		return String(names[id])
+	if id == 0:
+		return "Unclaimed"
+	return "faction %d" % id
+
+## Row tooltip naming the id behind a Faction cell (see `_faction_label()`).
+func _faction_tip(id: int) -> String:
+	return "Faction id %d" % id
+
 func _rebuild() -> void:
 	_rebuild_settlements()
 	_rebuild_provinces()
@@ -387,6 +422,7 @@ func _rebuild_settlements() -> void:
 			% DccShell.new_world_route())
 		return
 	var rows: Array = bridge.settlements().duplicate()
+	var fnames := _faction_names()
 	if _sort_by_pop:
 		rows.sort_custom(func(a, b): return int((a as Dictionary).get("population", 0)) > int((b as Dictionary).get("population", 0)))
 	var head := HBoxContainer.new()
@@ -415,7 +451,7 @@ func _rebuild_settlements() -> void:
 		var facts := PackedStringArray([
 			kind_lc,
 			"pop %s" % _thousands(int(d.get("population", 0))),
-			"faction %d" % int(d.get("faction", 0)),
+			_faction_label(int(d.get("faction", 0)), fnames),
 		])
 		if d.get("coastal", false):
 			facts.append("coastal")
@@ -426,9 +462,10 @@ func _rebuild_settlements() -> void:
 		if d.get("capital", false) and kind_lc != "capital":
 			facts.append("capital")
 		_row(body, [name, String(d.get("kind", "?")).capitalize(), str(int(d.get("population", 0))),
-			str(int(d.get("faction", 0))), "yes" if d.get("coastal", false) else "no",
+			_faction_label(int(d.get("faction", 0)), fnames),
+			"yes" if d.get("coastal", false) else "no",
 			"yes" if d.get("capital", false) else "no"],
-			"", " · ".join(facts))
+			_faction_tip(int(d.get("faction", 0))), " · ".join(facts))
 	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\"." % _filter if _filter != "" else "No settlements.")
@@ -442,6 +479,7 @@ func _rebuild_provinces() -> void:
 		return
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
+	var fnames := _faction_names()
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	head.add_child(DccTheme.mono_label("%d provinces" % provinces.size(), "text_faint", DccTheme.FS_MICRO))
@@ -463,10 +501,11 @@ func _rebuild_provinces() -> void:
 		var cap_name := "—"
 		if cap_idx >= 0 and cap_idx < settlements.size():
 			cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
-		var psub := "faction %d" % int(d.get("faction", 0))
+		var psub := _faction_label(int(d.get("faction", 0)), fnames)
 		if cap_name != "—":
 			psub += " · capital %s" % cap_name
-		_row(body, [name, str(int(d.get("faction", 0))), cap_name], "", psub)
+		_row(body, [name, _faction_label(int(d.get("faction", 0)), fnames), cap_name],
+			_faction_tip(int(d.get("faction", 0))), psub)
 	_cap_note(body, built, shown)
 	if shown == 0:
 		DccWidgets.note(body, "No province matches \"%s\"." % _filter if _filter != "" else "No provinces.")

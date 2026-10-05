@@ -63,6 +63,14 @@ extends Node
 ##           the context card's row does; Focus on capital keeps working; no
 ##           "clear" control; a faction switch refreshes; the stale chip follows
 ##           `stale_stages()`; phone taps >= 44 px and one scroller.
+##   TRANSFER (FH-9, `_run_transfer`, `_run_transfer_nogrid`) the Settlements sublist's
+##           per-row "Transfer…": the Place editor's own Polity move reached from the
+##           hub -- chooser, the engine-previewed confirmation, cancel, the move
+##           (engine claim grid), the hub refreshing, the engine's refusals and the
+##           no-claim-grid fallback; 44 px taps on the phone.
+##   FH9 cat (in `_run_entry_points`) the Factions category is only Open factions,
+##           Settlement types and the By-province rows, and what it dropped lives on
+##           the hub. `_run_world_data_names`: World data names factions.
 ##
 ## Windowed, never `--headless` (layout and focus are the subject):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _factionhub_probe.tscn
@@ -528,6 +536,12 @@ func _run() -> void:
 	await _run_history_tab(ids)
 	_ok("FH8 the history leg ran to its end (a script error inside it aborts it silently)", _fh8_done)
 
+	# -- TRANSFER + WORLD DATA NAMES: the hub row that moves a settlement, and the tables (FH-9) --
+	await _run_transfer(ids)
+	_ok("FH9 the transfer leg ran to its end (a script error inside it aborts it silently)", _fh9_done)
+	await _run_world_data_names()
+	_ok("FH9 the world-data leg ran to its end (a script error inside it aborts it silently)", _fh9_wd_done)
+
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
 	await _frames(6)
@@ -561,6 +575,10 @@ func _run() -> void:
 		hb != null and hb.get_child_count() == 1 and _text_of(hb).begins_with("No timeline is recorded"),
 		_text_of(_pane("history")).left(200))
 	_fr.hide()
+
+	# -- FH-9: the no-claim-grid Transfer fallback (reloads the project, so it runs last) --
+	await _run_transfer_nogrid()
+	_ok("FH9 the no-grid transfer leg ran to its end (a script error inside it aborts it silently)", _fh9_ng_done)
 
 
 func _collect_buttons(node: Node, out: Array) -> void:
@@ -614,6 +632,66 @@ func _run_entry_points(ids: Array) -> void:
 	_ok("FH1 cat: the old 'Faction roster…' label is gone", old_btns.is_empty(), str(old_btns.size()))
 	_ok("FH1 cat: Culture profiles… is retired (FH-2) and Settlement types… is still there (FH-3)",
 		keep_culture.is_empty() and keep_types.size() == 1, "%d/%d" % [keep_culture.size(), keep_types.size()])
+	## Protects: FH-9 B -- the Factions category is ONE door ("Open factions…"), the
+	## Settlement types library door and the "By province count" rows, and nothing
+	## the hub already carries. Read off the category's own body (`_factions_body`),
+	## not the whole dock, so another category's "Linked notes" / "Not built" can
+	## neither pass nor fail this. The control: the body is found and does draw the
+	## rows it keeps, so an empty body cannot satisfy the absences.
+	var fbody: Control = _civ_workspace()._factions_body
+	var fcat := _text_of(fbody).to_lower() if fbody != null else ""
+	var fcat_btns: Array = []
+	if fbody != null:
+		_collect_buttons(fbody, fcat_btns)
+	## Group headers ("› By province count") are buttons too: they fold a group and open nothing.
+	var prov_rows := fcat_btns.filter(func(b): return _lc(b).contains(" provinces, capital "))
+	var group_toggles := fcat_btns.filter(func(b): return _lc(b).begins_with("›"))
+	_ok("FH9 cat: control -- the Factions body was found and drew its kept rows",
+		fbody != null and fcat.contains("roster") and fcat.contains("by province count") and prov_rows.size() > 0,
+		fcat.left(160))
+	_ok("FH9 cat: the Identity colour, Linked notes and Not built blocks are gone (the hub carries them)",
+		not fcat.contains("identity colour") and not fcat.contains("linked notes") and not fcat.contains("not built")
+		and not fcat.contains("emblem"), fcat.left(300))
+	_ok("FH9 cat: the only buttons are Open factions, Settlement types and one per 'By province count' row",
+		fcat_btns.size() - group_toggles.size() == 2 + prov_rows.size(), "%d buttons, %d province rows: %s" % [
+			fcat_btns.size(), prov_rows.size(), _btn_texts(fcat_btns, 12)])
+	## Screenshot only (no assertion): open the category's body for the shot and put
+	## it back as it was, so the legs after it see the dock they always saw.
+	if fbody != null:
+		var was_open := fbody.visible
+		fbody.visible = true
+		await _shot("%s_factions_category" % ("phone" if _phone else "desktop"))
+		fbody.visible = was_open
+	var known_names := _names()
+	for pr in prov_rows:
+		var pm := RegEx.create_from_string("^faction (\\d+) ").search(_lc(pr))
+		var pf := int(pm.get_string(1)) if pm != null else -1
+		if not known_names.has(pf):
+			continue  ## a province held by id 0 / a stale id has no hub row to land on
+		await _park(fb if pf != fb else fa, park_tab)
+		(pr as Button).pressed.emit()
+		await _frames(6)
+		_land("FH9 cat province row f=%d -> hub Territory" % pf, pf, "territory", true)
+		_fr.hide()
+		await _frames(2)
+		break  ## one real row end to end; the rows share one handler
+	## What the removed blocks' capabilities now are, found on the hub itself.
+	_fr.open(fa, "identity")
+	await _frames(6)
+	var ipane := _pane("identity")
+	_ok("FH9 hub carries the identity-colour jump and the emblem 'not built' note (moved off the category)",
+		ipane != null and ipane.find_child("PaintLink", true, false) is Button
+		and ipane.find_child("EmblemNotBuilt", true, false) != null
+		and _text_of(ipane).contains("Colour"), _text_of(ipane).left(160))
+	await _press("history")
+	var hpane2 := _pane("history")
+	_ok("FH9 hub carries Linked notes with its open button and the 'what Cartalith fills in' prose",
+		hpane2 != null and hpane2.find_child("HistoryVaultOpen", true, false) is Button
+		and hpane2.find_child("HistoryVaultFillNote", true, false) != null
+		and _text_of(hpane2).to_lower().contains("history, notes and lore"), _text_of(hpane2).left(160))
+	_fr.hide()
+	await _frames(2)
+	await _park(fb, park_tab)
 	if open_btns.size() == 1:
 		(open_btns[0] as Button).pressed.emit()
 		await _frames(6)
@@ -2674,3 +2752,477 @@ func _check_rollup_fixture() -> void:
 	var none: Dictionary = _fr._history_rollup([], [], 7)
 	_ok("FH8 STATIC no years gives no runs and no changes (no invented year)",
 		(none["runs"] as Array).is_empty() and (none["changes"] as Array).is_empty())
+
+
+# -- FH-9: the Transfer row, and World data naming factions -----------------------
+var _fh9_done := false  ## set by the last line of `_run_transfer`
+var _fh9_wd_done := false  ## set by the last line of `_run_world_data_names`
+var _fh9_ng_done := false  ## set by the last line of `_run_transfer_nogrid`
+var _polity_moved_n := 0  ## `polity_moved` emissions seen while the Transfer leg is connected
+
+
+func _on_polity_moved_seen() -> void:
+	_polity_moved_n += 1
+
+
+## Every live "Move polity?" confirmation under the shell (the Place editor's own
+## dialog, which the hub's Transfer row must reuse rather than copy).
+func _move_dialogs() -> Array:
+	var all: Array = []
+	_collect_of(_app, all, ConfirmationDialog)
+	return all.filter(func(d): return (d as ConfirmationDialog).title == "Move polity?" \
+		and not (d as Node).is_queued_for_deletion())
+
+
+## A confirmation's body text: desktop `dialog_text`, or the phone's labels.
+func _dialog_body(d: ConfirmationDialog) -> String:
+	return d.dialog_text + "\n" + _text_of(d)
+
+
+func _hint_text() -> String:
+	return String((_app._status_labels["hint"] as Label).text)
+
+
+## The engine's own owner of every cell (`sample_cell().control`), independent of
+## anything the hub or the editor reports.
+func _owner_grid() -> PackedInt32Array:
+	var g: Vector2i = _bridge.grid_size()
+	var out := PackedInt32Array()
+	out.resize(g.x * g.y)
+	for y in g.y:
+		for x in g.x:
+			out[y * g.x + x] = int((_bridge.sample_cell(x, y) as Dictionary).get("control", -1))
+	return out
+
+
+## First settlement whose preview to some other faction is ok, changes something
+## and satisfies `want(preview)`; `{}` when none does.
+func _tx_candidate(want: Callable) -> Dictionary:
+	var rows: Array = _bridge.settlements()
+	var factions: Array = _bridge.get_factions()
+	for i in rows.size():
+		for f in factions:
+			var to := int((f as Dictionary).get("id", 0))
+			if to == int((rows[i] as Dictionary).get("faction", 0)):
+				continue
+			var pv: Dictionary = _bridge.civ_polity_reassign_preview(i, to)
+			if bool(pv.get("ok", false)) and bool(pv.get("changed", false)) and want.call(pv):
+				return {"index": i, "to": to, "from": int((rows[i] as Dictionary).get("faction", 0)), "pv": pv}
+	return {}
+
+
+## Opens the Transfer menu on settlement `idx` through its real button and returns
+## the popup (null when the button or the menu is missing).
+func _open_tx_menu(idx: int) -> PopupMenu:
+	var sp := _pane("settlements")
+	var tb: Button = sp.find_child("Transfer_%d" % idx, true, false) as Button if sp != null else null
+	if tb == null:
+		return null
+	await _ensure_sublist_open(sp, tb)
+	tb.pressed.emit()
+	await _frames(4)
+	return _fr.find_child("TransferMenu", true, false) as PopupMenu
+
+
+## The sublist is a collapsed group by default (the reference's own behaviour, and a
+## refresh rebuilds it collapsed). A user opens it before reaching a Transfer button;
+## so does this: press the group's header when `tb` is not on screen yet.
+func _ensure_sublist_open(sp: Control, tb: Button) -> void:
+	if tb.is_visible_in_tree():
+		return
+	var heads: Array = []
+	_collect_buttons(sp, heads)
+	for h in heads:
+		if _lc(h).contains("settlements (") and not (h as Button).text.begins_with("Transfer"):
+			(h as Button).pressed.emit()
+			break
+	await _frames(4)
+
+
+## A real left click at the centre of `btn` (a press then a release at the same
+## point), sent as input events rather than as `pressed.emit()`, so a button that is
+## covered or blocked by another exclusive window does NOT respond. `origin` is the
+## button's window position when that window is an embedded one.
+func _click(btn: Button, origin: Vector2) -> void:
+	## The phone's dialog is an embedded window drawn at `content_scale_factor`, so a
+	## point in its own canvas units must be scaled up to the parent's pixels
+	## before the click is sent; `get_final_transform()` is that scale (identity
+	## for an unscaled window, so desktop is unchanged).
+	var win := btn.get_window()
+	var local := btn.get_global_rect().get_center()
+	if win != null:
+		local = win.get_final_transform() * local
+	var pt := origin + local
+	## The phone harness hosts the whole app in a SubViewport, so the embedded
+	## dialog's embedder is that viewport and `Input.parse_input_event` (which
+	## feeds the root window) never reaches it: deliver to the embedder viewport,
+	## in its own canvas units, when it is not the root. On desktop the embedder
+	## IS the root and the plain Input path is used.
+	var embedder: Viewport = null
+	if win != null and win.get_parent() != null:
+		embedder = win.get_parent().get_viewport()
+	var via_vp := embedder != null and embedder != get_tree().root
+	var mv := InputEventMouseMotion.new()
+	mv.position = pt
+	mv.global_position = pt
+	if via_vp:
+		embedder.push_input(mv, true)
+	else:
+		Input.parse_input_event(mv)
+	await _frames(2)
+	for down in [true, false]:
+		var ev := InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.position = pt
+		ev.global_position = pt
+		ev.pressed = down
+		ev.button_mask = MOUSE_BUTTON_MASK_LEFT if down else 0
+		if via_vp:
+			embedder.push_input(ev, true)
+		else:
+			Input.parse_input_event(ev)
+		await _frames(2)
+
+
+## Protects: FH-9 A -- the Settlements sublist's per-row "Transfer…" is the Place
+## editor's Polity move reached from the hub, not a second copy of it. Read off the
+## live window and the engine, end to end, on a province-seat settlement (so the
+## confirmation is genuinely required):
+##   ROW      every sublist row is a `SettlementRow_<idx>` holding the open-editor
+##            action and a `Transfer_<idx>` button; on the phone that button is a
+##            44 px tap target and the window keeps one scroller.
+##   MENU     the chooser lists exactly `transfer_targets()` -- every roster
+##            faction but the owner, never Unclaimed.
+##   CONFIRM  choosing a faction raises the editor's "Move polity?" dialog (so a
+##            transfer that skipped it would show no dialog and move at once), and
+##            its text carries the engine preview's own cell count, both polity
+##            names and the not-undoable line.
+##   CANCEL   nothing moves, no `polity_moved`, the row is still there.
+##   MOVE     exactly the previewed cells go from A to B in the engine's own claim
+##            grid, the settlement is B's, `polity_moved` fires once (the
+##            workspace's handler hangs off it), the status line reports it, and
+##            the hub has refreshed: the row left A's list and A's count dropped.
+##   REFUSE   a faction the engine refuses (999, and 300 above the u8 ceiling) moves
+##            nothing, raises no dialog, says "Polity not changed" with the engine's
+##            reason, and still ends the flow (the caller's `on_done` runs).
+## What it cannot see: the no-claim-grid fallback needs a reloaded project, which
+## would discard the timeline the RF-03 leg after this one needs -- it is
+## `_run_transfer_nogrid`, run at the very end.
+func _run_transfer(_ids: Array) -> void:
+	var cand := _tx_candidate(func(pv): return int(pv.get("cells", 0)) >= 2 and not bool(pv.get("one_cell_only", true)))
+	_ok("FH9 transfer: control -- a province-seat candidate with a previewable move exists", not cand.is_empty())
+	if cand.is_empty():
+		return
+	var idx: int = cand["index"]
+	var a: int = cand["from"]
+	var b: int = cand["to"]
+	var pv: Dictionary = cand["pv"]
+	var n := int(pv["cells"])
+	var s0: Dictionary = _bridge.settlements()[idx]
+	print("FACTIONHUB transfer candidate: settlement %d (%s, %s) %d -> %d, %d cells" % [idx, s0["name"], s0["kind"], a, b, n])
+	_app.place_editor_window.polity_moved.connect(_on_polity_moved_seen)
+	_polity_moved_n = 0
+
+	# ROW
+	_fr.open(a, "settlements")
+	await _frames(8)
+	var sp := _pane("settlements")
+	var row: Node = sp.find_child("SettlementRow_%d" % idx, true, false) if sp != null else null
+	var tb: Button = sp.find_child("Transfer_%d" % idx, true, false) as Button if sp != null else null
+	_ok("FH9 ROW the candidate's row holds a Transfer… button next to the open-editor action",
+		row != null and tb != null and tb.get_parent() == row and tb.text.to_lower() == "transfer…"  ## the phone upper-cases button text
+		and _count(row, func(c): return c is Button) == 2,
+		"row=%s tb=%s text=%s buttons=%d" % [str(row), str(tb), tb.text if tb != null else "-",
+			_count(row, func(c): return c is Button) if row != null else -1])
+	if tb == null:
+		return
+	await _ensure_sublist_open(sp, tb)
+	var rows_before := _named_like(sp, "SettlementRow_").size()
+	var head_before := _text_of(sp)
+	_ok("FH9 ROW every row of the sublist is a SettlementRow with its own Transfer button",
+		rows_before > 0 and _named_like(sp, "Transfer_").size() == rows_before, str(rows_before))
+	if _phone:
+		_ok("FH9 ROW phone: the Transfer button is a >= %d px tap target" % DccTheme.PHONE_TAP_MIN,
+			tb.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN and tb.get_combined_minimum_size().y + 0.5 >= DccTheme.PHONE_TAP_MIN,
+			"size=%s min=%s" % [str(tb.size), str(tb.get_combined_minimum_size())])
+		_ok("FH9 ROW phone: the window still has exactly one visible scroller",
+			_count(_fr, func(c): return c is ScrollContainer and (c as ScrollContainer).is_visible_in_tree()) == 1)
+	await _shot("%s_settlements_transfer" % ("phone" if _phone else "desktop"))
+
+	# MENU
+	var pm := await _open_tx_menu(idx)
+	_ok("FH9 MENU pressing Transfer… opens the chooser", pm != null)
+	if pm == null:
+		return
+	var want: Array = _fr.transfer_targets(a)
+	var got: Array = []
+	for i in pm.item_count:
+		got.append(pm.get_item_text(i))
+	var want_txt: Array = want.map(func(t): return "%d · %s" % [int(t["id"]), String(t["name"])])
+	var want_ids: Array = want.map(func(t): return int(t["id"]))
+	var roster_ids: Array = _bridge.get_factions().map(func(f): return int((f as Dictionary)["id"]))
+	_ok("FH9 MENU the chooser lists exactly the roster minus the owner, never Unclaimed",
+		got == want_txt and want.size() == roster_ids.size() - 1 and roster_ids.has(a)
+		and not want_ids.has(a) and not want_ids.has(0),
+		"%s vs %s" % [str(got), str(want_txt)])
+	var pos := want_ids.find(b)
+	_ok("FH9 MENU the candidate's destination is offered", pos >= 0)
+	await _shot("%s_transfer_menu" % ("phone" if _phone else "desktop"))
+	var g0 := _owner_grid()
+
+	# CONFIRM + CANCEL
+	pm.id_pressed.emit(pos)
+	pm.hide()
+	await _frames(6)
+	var ds := _move_dialogs()
+	_ok("FH9 CONFIRM choosing a faction raises the editor's 'Move polity?' dialog (the confirmation is not skipped)",
+		ds.size() == 1, str(ds.size()))
+	if ds.size() != 1:
+		return
+	var body_txt := _dialog_body(ds[0])
+	_ok("FH9 CONFIRM the dialog states the engine preview's cell count, both polity names and the not-undoable line",
+		body_txt.contains("%d cells" % n) and body_txt.contains(String(pv["from_name"]))
+		and body_txt.contains(String(pv["to_name"])) and body_txt.contains("Not undoable; use the Territory tool to repaint"),
+		body_txt.left(240))
+	_ok("FH9 CONFIRM ... and nothing has moved while it is open",
+		_owner_grid() == g0 and int(_bridge.settlements()[idx]["faction"]) == a)
+	await _shot("%s_transfer_confirm" % ("phone" if _phone else "desktop"))
+	(ds[0] as ConfirmationDialog).canceled.emit()
+	await _frames(6)
+	_ok("FH9 CANCEL nothing moved: grid and owner unchanged, no polity_moved",
+		_owner_grid() == g0 and int(_bridge.settlements()[idx]["faction"]) == a and _polity_moved_n == 0)
+	_ok("FH9 CANCEL the hub is still on A with the row in place",
+		_fr.visible and _fr._selected == a and _pane("settlements").find_child("SettlementRow_%d" % idx, true, false) != null)
+
+	# MOVE
+	pm = await _open_tx_menu(idx)
+	_ok("FH9 MOVE the chooser opens again after a cancel", pm != null)
+	if pm == null:
+		return
+	pm.id_pressed.emit(pos)
+	pm.hide()
+	await _frames(6)
+	ds = _move_dialogs()
+	_ok("FH9 MOVE the confirmation is up again (control for the checks below)", ds.size() == 1, str(ds.size()))
+	if ds.size() != 1:
+		return
+	## The confirmation opens over the hub, itself an exclusive dialog; a real click on
+	## "Move" proves the user can actually answer it (not just that `confirmed` fires).
+	var mdlg := ds[0] as ConfirmationDialog
+	var mbtn: Button = null
+	var dbtns: Array = []
+	_collect_buttons(mdlg, dbtns)
+	## Desktop: the stock dialog keeps its OK button as an INTERNAL child, which a
+	## child walk does not see; the phone's card holds its buttons as content.
+	dbtns.append(mdlg.get_ok_button())
+	for db in dbtns:
+		if (db as Button).text == "Move" and (db as Button).is_visible_in_tree():
+			mbtn = db
+	_ok("FH9 MOVE the dialog has a visible Move button", mbtn != null, _btn_texts(dbtns, 6))
+	if mbtn != null:
+		var origin := Vector2(mdlg.position) if mdlg.is_embedded() else Vector2.ZERO
+		await _click(mbtn, origin)
+		await _frames(6)
+		_ok("FH9 MOVE a real click on Move (over the exclusive hub) answers the dialog and moves the settlement",
+			int(_bridge.settlements()[idx]["faction"]) == b, "owner=%d" % int(_bridge.settlements()[idx]["faction"]))
+	if int(_bridge.settlements()[idx]["faction"]) != b and not _move_dialogs().is_empty():
+		(_move_dialogs()[0] as ConfirmationDialog).confirmed.emit()  ## carry on to the checks below either way
+	await _frames(10)
+	var g1 := _owner_grid()
+	var moved: Array = []
+	for i in g0.size():
+		if g0[i] != g1[i]:
+			moved.append(i)
+	var all_ab := not moved.is_empty()
+	for c in moved:
+		if g0[c] != a or g1[c] != b:
+			all_ab = false
+	_ok("FH9 MOVE exactly the previewed number of cells moved, all from A to B (engine claim grid)",
+		moved.size() == n and all_ab, "%d vs %d" % [moved.size(), n])
+	_ok("FH9 MOVE the settlement is B's", int(_bridge.settlements()[idx]["faction"]) == b)
+	_ok("FH9 MOVE polity_moved fired once (the workspace's handler hangs off it)", _polity_moved_n == 1, str(_polity_moved_n))
+	_ok("FH9 MOVE the status line reports the move", _hint_text().contains("%d cells moved" % n), _hint_text())
+	var sp2 := _pane("settlements")
+	_ok("FH9 MOVE the hub refreshed: the row left A's sublist and the count dropped by one",
+		_fr.visible and _fr._selected == a and sp2 != null
+		and sp2.find_child("SettlementRow_%d" % idx, true, false) == null
+		and _named_like(sp2, "SettlementRow_").size() == rows_before - 1
+		and _text_of(sp2).to_lower().contains("settlements (%d)" % (rows_before - 1)) and head_before.to_lower().contains("settlements (%d)" % rows_before),
+		_text_of(sp2).left(80))
+	_fr.open(b, "settlements")
+	await _frames(6)
+	_ok("FH9 MOVE ... and B's sublist now carries the row",
+		_pane("settlements").find_child("SettlementRow_%d" % idx, true, false) != null)
+
+	# REFUSE
+	for bad in [999, 300]:
+		var bpv: Dictionary = _bridge.civ_polity_reassign_preview(idx, bad)
+		_ok("FH9 REFUSE control -- the engine itself refuses faction %d (preview not ok, not the no-grid reason)" % bad,
+			not bool(bpv.get("ok", true)) and String(bpv.get("reason", "")) != "no_claim_grid", str(bpv))
+		var gb := _owner_grid()
+		var moved_before := _polity_moved_n
+		var done := [0]
+		_app.transfer_settlement(idx, bad, func(): done[0] += 1)
+		await _frames(6)
+		_ok("FH9 REFUSE faction %d: no dialog, nothing moved, owner unchanged, no polity_moved" % bad,
+			_move_dialogs().is_empty() and _owner_grid() == gb and int(_bridge.settlements()[idx]["faction"]) == b
+			and _polity_moved_n == moved_before)
+		_ok("FH9 REFUSE faction %d: says 'Polity not changed' with the engine's reason" % bad,
+			_hint_text().begins_with("Polity not changed") and _hint_text().contains(String(bpv.get("message", "?"))), _hint_text())
+		_ok("FH9 REFUSE faction %d: the flow still ends (on_done ran exactly once)" % bad, done[0] == 1, str(done[0]))
+	# The hub's own entry takes the same refusal and stays open and consistent.
+	_fr._transfer(idx, 300)
+	await _frames(6)
+	_ok("FH9 REFUSE the hub's own _transfer(300) is refused the same way and the hub stays on B",
+		_hint_text().begins_with("Polity not changed") and _fr.visible and _fr._selected == b
+		and int(_bridge.settlements()[idx]["faction"]) == b and _move_dialogs().is_empty())
+	_app.place_editor_window.polity_moved.disconnect(_on_polity_moved_seen)
+	_fr.hide()
+	await _frames(2)
+	_fh9_done = true
+
+
+## Protects: FH-9 A's no-claim-grid fallback, reached through the hub. A project
+## reopened without its claim grid has no cells to move, so the Transfer row must
+## relabel the settlement only, raise no dialog and say the borders did not move --
+## the same words the Place editor's picker gives (it is one function). Run last
+## because it reloads the project, which discards the timeline the RF-03 leg needs.
+func _run_transfer_nogrid() -> void:
+	var path := OS.get_user_data_dir().path_join("_factionhub_probe.zip")
+	var stripped := OS.get_user_data_dir().path_join("_factionhub_probe_noterr.zip")
+	var done := [false]
+	_app._write_project(path, func(): done[0] = true)
+	for _i in 200:
+		if done[0]:
+			break
+		await _frames(2)
+	_ok("FH9 NOGRID control -- the project was written", FileAccess.file_exists(path))
+	_ok("FH9 NOGRID control -- the claim grid was taken out of the copy", _strip_entries(path, stripped, "rasters/territory.") >= 1)
+	_ok("FH9 NOGRID control -- the stripped project reopens", bool(_app._load_project(stripped)))
+	await _frames(10)
+	_bridge = _app.bridge
+	_fr = _app.faction_roster_window
+	var rows: Array = _bridge.settlements()
+	var ni := 0
+	var na := int((rows[0] as Dictionary)["faction"]) if not rows.is_empty() else 1
+	var nb := 1 if na != 1 else 2
+	var npv: Dictionary = _bridge.civ_polity_reassign_preview(ni, nb)
+	_ok("FH9 NOGRID control -- the engine's preview says no_claim_grid", String(npv.get("reason", "")) == "no_claim_grid", str(npv))
+	_fr.open(na, "settlements")
+	await _frames(8)
+	var pm := await _open_tx_menu(ni)
+	_ok("FH9 NOGRID the Transfer chooser opens", pm != null)
+	if pm == null:
+		return
+	var pos := -1
+	var targets: Array = _fr.transfer_targets(na)
+	for i in targets.size():
+		if int(targets[i]["id"]) == nb:
+			pos = i
+	_ok("FH9 NOGRID the destination is offered", pos >= 0)
+	pm.id_pressed.emit(pos)
+	pm.hide()
+	await _frames(8)
+	_ok("FH9 NOGRID no dialog (there are no cells to confirm moving)", _move_dialogs().is_empty())
+	_ok("FH9 NOGRID the label still changes", int(_bridge.settlements()[ni]["faction"]) == nb)
+	_ok("FH9 NOGRID the status line says the borders did not move", _hint_text().contains("borders not moved"), _hint_text())
+	_ok("FH9 NOGRID the hub refreshed: the row left the old owner's sublist",
+		_pane("settlements").find_child("SettlementRow_%d" % ni, true, false) == null)
+	_fr.hide()
+	_fh9_ng_done = true
+
+
+## Copies zip `src` to `dst` without entries whose name starts with `prefix`
+## (`_polity_probe.gd`'s helper); returns how many were dropped, -1 on failure.
+func _strip_entries(src: String, dst: String, prefix: String) -> int:
+	var reader := ZIPReader.new()
+	if reader.open(src) != OK:
+		return -1
+	var packer := ZIPPacker.new()
+	if packer.open(dst) != OK:
+		return -1
+	var dropped := 0
+	for entry in reader.get_files():
+		if entry.begins_with(prefix):
+			dropped += 1
+			continue
+		packer.start_file(entry)
+		packer.write_file(reader.read_file(entry))
+		packer.close_file()
+	packer.close()
+	reader.close()
+	return dropped
+
+
+## Protects: FH-9 D -- World data's Faction columns show the faction's NAME, with
+## the id kept in each row's tooltip, instead of a bare number. Every row whose
+## tooltip carries "Faction id N" is read: its text must contain the roster's name
+## for N (so a regression to `str(id)` or "faction N" is red), the Settlements
+## table still carries its numeric Population column on desktop, and a rename in
+## the roster shows on the next open (nothing is cached). An id the roster does not
+## carry stays "faction N" -- asserted on the helper, since a live world has none.
+func _run_world_data_names() -> void:
+	var wd = _app.world_data_window
+	var names := _names()
+	for tab in ["Settlements", "Provinces"]:
+		_app.open_world_data(tab)
+		await _frames(8)
+		var tipped: Array = []
+		_collect_tipped(wd, "Faction id ", tipped)
+		_ok("FH9 D %s: control -- the table drew rows that name their faction's id in the tooltip" % tab,
+			tipped.size() > 0, str(tipped.size()))
+		var bad := 0
+		var shown := 0
+		var sample := ""
+		for r in tipped:
+			var fid := int(String((r as Control).tooltip_text).trim_prefix("Faction id "))
+			var txt := _text_of(r)
+			if fid == 0:
+				if not txt.contains("Unclaimed"):
+					bad += 1
+					sample = txt
+			elif names.has(fid):
+				shown += 1
+				if not txt.contains(String(names[fid])):
+					bad += 1
+					sample = txt
+		_ok("FH9 D %s: every Faction cell shows the roster's name for its id (%d named rows)" % [tab, shown],
+			bad == 0 and shown > 0, "bad=%d e.g. %s" % [bad, sample])
+		if tab == "Settlements" and not _phone and tipped.size() > 0:
+			var labs: Array = []
+			_collect_of(tipped[0], labs, Label)
+			var numeric := labs.filter(func(l): return (l as Label).text.is_valid_int())
+			_ok("FH9 D Settlements: the Population cell is still a plain integer (numeric sort on the value survives)",
+				numeric.size() == 1, str(labs.map(func(l): return (l as Label).text)))
+		await _shot("%s_worlddata_%s" % [("phone" if _phone else "desktop"), tab.to_lower()])
+	# A rename shows on the next open: nothing is cached across opens.
+	var fid1: int = int(names.keys()[0])
+	var old_name: String = names[fid1]
+	var new_name := old_name + " Renamed"
+	_bridge.civ_set_faction_field(fid1, "name", new_name)
+	_app.open_world_data("Provinces")
+	await _frames(8)
+	var after: Array = []
+	var all_t: Array = []
+	_collect_tipped(wd, "Faction id ", all_t)
+	for t in all_t:
+		if (t as Control).tooltip_text == "Faction id %d" % fid1:
+			after.append(t)
+	_ok("FH9 D a roster rename shows in the table on the next open",
+		not after.is_empty() and _text_of(after[0]).contains(new_name),
+		_text_of(after[0]) if not after.is_empty() else "no rows")
+	_bridge.civ_set_faction_field(fid1, "name", old_name)
+	_ok("FH9 D an id the roster does not carry reads 'faction N', never a guessed name; id 0 reads 'Unclaimed'",
+		wd._faction_label(9999, {}) == "faction 9999" and wd._faction_label(0, {}) == "Unclaimed"
+		and wd._faction_label(5, {5: "Aurelia"}) == "Aurelia")
+	wd.hide()
+	await _frames(2)
+	_fh9_wd_done = true
+
+
+## Every Control under `node` whose tooltip begins with `prefix`.
+func _collect_tipped(node: Node, prefix: String, out: Array) -> void:
+	if node is Control and (node as Control).tooltip_text.begins_with(prefix):
+		out.append(node)
+	for c in node.get_children():
+		_collect_tipped(c, prefix, out)

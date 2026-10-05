@@ -909,6 +909,32 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
 	_default_type_choice(sec)
+	_build_identity_paint_notes(sec)
+
+
+## FH-9: the two pieces of the CIVIL dock's old "Identity colour" and "Not built"
+## sections that the colour row above does not already say, moved here when that
+## category collapsed to one "Open factions..." button (`FACTION_HUB_DESIGN.md`
+## FH-9). Both are pointers, not controls, and neither changes behaviour:
+## - which colour a faction *is* is set above; **how heavily the wash is laid on
+##   belongs to Cartography** (v3's own split), so the row routes there with the
+##   same `select_domain_category` call the dock row made. It closes this window
+##   first, like every other hand-off from it, or the category would switch
+##   behind an open modal.
+## - the faction **emblem** (`GUI_GAP_REGISTER.md` CV-21) is unbuilt, and the
+##   note says what is missing rather than offering an image slot nothing reads.
+func _build_identity_paint_notes(sec: Control) -> void:
+	var paint := DccWidgets.action(sec, "How heavily it paints → Cartography ▸ Feature style", func():
+		hide()
+		app.select_domain_category("cartography", "Feature style"))
+	paint.name = "PaintLink"
+	paint.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	paint.tooltip_text = "v3's own split: which colour a faction *is* belongs here, how heavily the wash is laid on belongs to CARTO."
+	DccWidgets.note(sec,
+		"Not built: a faction emblem (GUI_GAP_REGISTER.md CV-21). The banner is procedural -- a "
+		+ "port of _civFactionBannerCanvas' own composition, driven by the faction id and its "
+		+ "colour -- and there is no image slot, no charge vocabulary and no asset-library "
+		+ "binding for an authored one.").name = "EmblemNotBuilt"
 
 
 ## The Relations tab (FH-6, `FACTION_HUB_DESIGN.md` §3.6): the pairs this
@@ -1692,6 +1718,20 @@ func _build_history_vault_row(pane: VBoxContainer) -> void:
 	open.name = "HistoryVaultOpen"
 	open.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	open.tooltip_text = "Closes this window and opens the Vault on this faction's notes."
+	## FH-9: the CIVIL dock's old "Linked notes" prose, moved here with its rows.
+	## Culture, Government and Religion shape the world, which is why they are
+	## worth writing where an author's own prose about them is
+	## (`ALIGNMENT_AUDIT.md` B13 corrected the earlier "drives nothing" claim).
+	DccWidgets.note(sec,
+		"A faction's history, notes and lore live in an external Markdown vault (any folder of "
+		+ ".md files), the same as a settlement's, a province's and a continent's. Cartalith "
+		+ "reads on demand and writes only on an explicit, previewed action. "
+		+ "Cartalith can fill Name, Culture, Government, Religion, its capital's coordinates, "
+		+ "member settlements, total population and claimed area into its own block in that "
+		+ "note. Culture, Government and Religion also shape the world -- culture its "
+		+ "settlement names, government its military manpower, culture and religion its "
+		+ "relations with other factions -- so they are worth writing where an author's "
+		+ "prose about them is.").name = "HistoryVaultFillNote"
 
 
 ## The manual-entries line. Hand-written political entries (a founding, a ruler, a war,
@@ -2977,15 +3017,88 @@ func _build_settlement_sublist(parent: Control) -> void:
 	for e in mine:
 		var s: Dictionary = e.data
 		var idx: int = e.index
-		var b := DccWidgets.action(grp, "%s — %s, %s" % [
+		## FH-9: one row = the open-editor action (fills the width) + a
+		## "Transfer..." button. `row` is captured by the Transfer lambda and the
+		## button re-found through it, because a GDScript lambda captures a
+		## variable's value at creation and the button does not exist yet then.
+		var row := HBoxContainer.new()
+		row.name = "SettlementRow_%d" % idx
+		row.add_theme_constant_override("separation", 4)
+		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grp.add_child(row)
+		var b := DccWidgets.action(row, "%s — %s, %s" % [
 			String(s.get("name", "?")), String(s.get("kind", "?")).capitalize(),
 			_thousands(int(s.get("population", 0)))],
 			func():
 				app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
 				hide()
 				app.open_place_editor(idx))
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.tooltip_text = "Centre the map on it and open its editor -- the reference's own sublist row action."
+		var t := DccWidgets.action(row, "Transfer…",
+			func(): _open_transfer_menu(row.get_node("Transfer_%d" % idx) as Control, idx))
+		t.name = "Transfer_%d" % idx
+		t.tooltip_text = "Move this settlement to another faction. Same move as the Place editor's Polity picker: the settlement's land goes with it (a Metropolis, Capital or City takes its whole connected province, a smaller place only its own cell), you are asked to confirm first, and it is not undoable -- repaint with the Territory tool."
+
+
+## The factions a settlement currently held by `current` can be transferred to,
+## as `[{"id": int, "name": String}]`, in roster order. The same list the Place
+## editor's Polity picker offers (`get_factions()`), minus the owner -- a move to
+## the faction it already belongs to would be the engine's "no change", so it is
+## not offered rather than offered and refused. Unclaimed (0) is not a roster
+## row and is not offered, exactly as in the picker. Public so the probe reads
+## the same list the menu is built from.
+func transfer_targets(current: int) -> Array:
+	var out: Array = []
+	for f in bridge.get_factions():
+		var d: Dictionary = f
+		var id := int(d.get("id", 0))
+		if id != current:
+			out.append({"id": id, "name": String(d.get("name", "Faction %d" % id))})
+	return out
+
+
+## FH-9's Transfer chooser: a styled popup under the row's button listing
+## `transfer_targets`. Choosing one hands off to `_transfer`; nothing is applied
+## here. FR-02: the focused field is committed first, as every selection change
+## here does. The popup frees itself when it closes, so a row rebuilt under it
+## (a transfer refreshes the whole tab) never leaves a stale menu behind.
+func _open_transfer_menu(anchor: Control, idx: int) -> void:
+	_commit_focused_field()
+	var all := bridge.settlements()
+	if idx < 0 or idx >= all.size():
+		return
+	var targets := transfer_targets(int((all[idx] as Dictionary).get("faction", 0)))
+	if targets.is_empty():
+		app.set_status("hint", "There is no other faction to transfer to -- add one first.", "accent")
+		return
+	var pm := PopupMenu.new()
+	pm.name = "TransferMenu"
+	DccWidgets.style_popup(pm)
+	for i in targets.size():
+		pm.add_item("%d · %s" % [int(targets[i]["id"]), String(targets[i]["name"])], i)
+	pm.id_pressed.connect(func(i: int): _transfer(idx, int(targets[i]["id"])))
+	pm.popup_hide.connect(pm.queue_free)
+	add_child(pm)
+	var r := anchor.get_global_rect()
+	var w := anchor.get_window()
+	if w != null and w.is_embedded():
+		r.position += Vector2(w.position)
+	DccWidgets.popup_anchored(pm, r, maxi(220, int(r.size.x)))
+
+
+## Moves settlement `idx` to faction `to` through `app.transfer_settlement` --
+## the Place editor's own Polity flow (engine preview, "Move polity?" confirm,
+## refusals, no-claim-grid fallback), not a copy of it -- and refreshes this
+## window when the flow ends with nothing pending. The Civilization workspace's
+## `polity_moved` handler also refreshes a visible hub; the second refresh is
+## idempotent and covers the paths that move nothing (a refusal, a label-only
+## fallback, a cancel), which emit no `polity_moved`.
+func _transfer(idx: int, to: int) -> void:
+	app.transfer_settlement(idx, to, func():
+		if visible:
+			refresh_after_edit())
 
 
 ## The "Not built" block, now at the foot of the Economy tab because what it

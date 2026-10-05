@@ -2487,6 +2487,31 @@ func _apply(fields: Dictionary) -> void:
 
 # -- Polity change (FH-5) -----------------------------------------------------
 
+## The editor's own Polity picker: moves the open place and rebuilds the form.
+## A thin binding of `transfer_settlement` (below) -- the flow itself lives
+## there so the Factions hub shares it rather than copying it (FH-9).
+func _change_polity(to: int) -> void:
+	if _index < 0:
+		return
+	transfer_settlement(_index, to, _rebuild, true)
+
+## The label-only faction edit the no-grid and older-DLL fallbacks make (§5.3):
+## `_apply({"faction": to})` generalised from `_index` to the settlement being
+## transferred, because the hub's row is not necessarily the open place. Same
+## all-or-nothing engine call and the same `place_changed` signal; a refusal
+## says so on the status line instead of rebuilding a form that may not be open.
+func _label_only_faction(index: int, to: int) -> void:
+	if not bridge.civ_edit_settlement(index, {"faction": to}):
+		app.set_status("hint", "Edit refused — a value was outside the engine's own vocabulary.", "accent")
+		return
+	place_changed.emit()
+
+## End of a transfer that is not waiting on a dialog. Runs the caller's
+## `on_done` (the editor's `_rebuild`, the hub's `refresh_after_edit`).
+func _polity_done(on_done: Callable) -> void:
+	if on_done.is_valid():
+		on_done.call()
+
 ## The Polity picker's handler: `FACTION_HUB_DESIGN.md` §5.2, owner decision 1
 ## ("the Place editor's Polity picker also moves the claim grid").
 ##
@@ -2506,39 +2531,59 @@ func _apply(fields: Dictionary) -> void:
 ## - **`{}`** (an engine DLL older than this shell, so no preview binding) --
 ##   the pre-FH-5 label-only edit, saying so, rather than refusing the picker.
 ##
-## Every path that does not apply ends in `_rebuild()`, so the picker never
+## Every path that does not apply ends in `on_done`, so the picker never
 ## keeps showing a polity the engine does not hold -- `_apply`'s own rule.
-func _change_polity(to: int) -> void:
-	if _index < 0:
+##
+## **FH-9: this is the one implementation of the move, shared.** The editor's
+## own picker calls it through `_change_polity` (bound to its open place, with
+## `on_done = _rebuild`); the Factions hub's per-row "Transfer..." calls it
+## through `app.transfer_settlement` for a settlement the editor is not showing.
+## Both therefore get the same preview, the same confirmation text and sizing,
+## the same refusals (including the 255 ceiling, which is the engine's, not a
+## check this shell repeats) and the same no-claim-grid and older-DLL fallbacks.
+## A second copy of any of that is the failure FH-9 exists to prevent.
+##
+## - `index`: the settlement's array index (`get_settlements()`'s handle).
+## - `to`: the destination faction id, passed straight to the engine.
+## - `on_done`: called once the flow has reached its end *without* a move
+##   pending -- applied, refused, no change, cancelled, or the label-only
+##   fallback. Never called while the confirmation is still open. Invalid
+##   (default) means "nothing to refresh".
+## - `editor_bound`: true only for the editor's own picker. It makes the
+##   apply drop the move if the editor has since been pointed at another place
+##   (`_do_polity_move`'s guard). The hub passes false: its row is not tied to
+##   `_index`, which is -1 whenever the editor has never been opened.
+func transfer_settlement(index: int, to: int, on_done: Callable = Callable(),
+		editor_bound: bool = false) -> void:
+	if index < 0:
 		return
-	var index := _index
 	var pv := bridge.civ_polity_reassign_preview(index, to)
 	if pv.is_empty():
-		_apply({"faction": to})
+		_label_only_faction(index, to)
 		app.set_status("hint", "Polity changed; borders not moved -- this engine build predates the polity move.", "accent")
-		_rebuild()
+		_polity_done(on_done)
 		return
 	if not bool(pv.get("ok", false)):
 		if String(pv.get("reason", "")) == "no_claim_grid":
-			_apply({"faction": to})
+			_label_only_faction(index, to)
 			app.set_status("hint",
 				"Polity changed; borders not moved -- this project was reopened without its claim grid, so there are no cells to move. Recalculate territories rebuilds one.",
 				"accent")
 		else:
 			app.set_status("hint", "Polity not changed -- %s" % String(pv.get("message", "the engine refused it.")), "accent")
-		_rebuild()
+		_polity_done(on_done)
 		return
 	if not bool(pv.get("changed", false)):
-		_rebuild()
+		_polity_done(on_done)
 		return
 	var cells := int(pv.get("cells", 0))
 	var loses_capital := bool(pv.get("loses_capital", false))
 	if cells <= 1 and not loses_capital:
-		_do_polity_move(index, to)
+		_do_polity_move(index, to, on_done, editor_bound)
 		return
 	var dlg := DccWidgets.confirm(app, "Move polity?", _polity_confirm_text(pv), "Move",
-		func(): _do_polity_move(index, to),
-		func(): _rebuild(), POLITY_CONFIRM_W)
+		func(): _do_polity_move(index, to, on_done, editor_bound),
+		func(): _polity_done(on_done), POLITY_CONFIRM_W)
 	## Desktop only (the phone form puts the text in a wrapping `modal_prose`
 	## body and leaves `dialog_text` empty): this body is three paragraphs of
 	## prose, and `AcceptDialog`'s own label does not wrap by default, so the
@@ -2615,14 +2660,21 @@ func _km2(v: float) -> String:
 ## across the dialog rather than re-read from `_index`, and re-checked: if the
 ## editor moved to another place while the dialog was up, the move is dropped,
 ## because applying it would repaint land for a settlement nobody confirmed.
-func _do_polity_move(index: int, to: int) -> void:
-	if index != _index:
-		_rebuild()
+##
+## `editor_bound` keeps that re-check for the editor's own picker only; the hub's
+## Transfer row (`editor_bound = false`) is not tied to `_index` and would
+## otherwise be dropped whenever the editor shows nothing. In that case the
+## hub's `on_done` is what refreshes, and the editor is rebuilt only if it is
+## open on this very place, so its Polity picker never shows a stale owner.
+func _do_polity_move(index: int, to: int, on_done: Callable = Callable(),
+		editor_bound: bool = true) -> void:
+	if editor_bound and index != _index:
+		_polity_done(on_done)
 		return
 	var r := bridge.civ_polity_reassign(index, to)
 	if not bool(r.get("ok", false)):
 		app.set_status("hint", "Polity not changed -- %s" % String(r.get("message", "the engine refused it.")), "accent")
-		_rebuild()
+		_polity_done(on_done)
 		return
 	polity_moved.emit()
 	var cells := int(r.get("cells", 0))
@@ -2639,4 +2691,6 @@ func _do_polity_move(index: int, to: int) -> void:
 	if bool(r.get("loses_last_cell", false)):
 		msg += " %s now owns no land." % String(r.get("from_name", "?"))
 	app.set_status("hint", msg, "text_ghost")
-	_rebuild()
+	if not editor_bound and visible and index == _index:
+		_rebuild()
+	_polity_done(on_done)
