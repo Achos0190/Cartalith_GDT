@@ -447,6 +447,10 @@ impl WorldGen {
         let geom = if rivers { self.export_river_geometry() } else { None };
         // RIM-7: the fans this look draws, only with the network.
         let fans = if geom.is_some() { self.export_river_fans(&appearance) } else { None };
+        // RIM-7, the painted river: for a look that paints its rivers, the
+        // export paints them by the screen's law (`river_field::PaintSource`)
+        // rather than stroking them; `None` strokes, exactly as before.
+        let paint = if geom.is_some() { self.river_paint_source(&appearance) } else { None };
         let save_flag = if rivers { self.save_river_flag() } else { None };
         // RV-3: water and the sea's colour from the world's own height, as
         // on screen (a no-op when no valley field was built).
@@ -500,7 +504,7 @@ impl WorldGen {
             );
         }
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
-        Some(with_export_rivers(geom.as_deref(), fans.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
+        Some(with_export_rivers(geom.as_deref(), fans.as_deref(), paint.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
     }
 
     /// The appearance an export with `style` renders under: a new base from
@@ -576,10 +580,32 @@ impl WorldGen {
 /// ([`WorldGen::export_river_fans`]), stroked before the network
 /// (`river_stroke::rasterize_with`); `None` is the pre-RIM-7 export exactly,
 /// and fans with no network are never drawn.
-pub(crate) fn with_export_rivers<T>(geom: Option<&river_stroke::RiverGeometry>, fans: Option<&river_stroke::RiverGeometry>, save_flag: Option<&[u8]>, run: impl FnOnce(ExportRivers<'_>) -> T) -> T {
+///
+/// **RIM-7, the painted river** (2026-10-05): with `paint` (a look that paints
+/// its rivers, [`WorldGen::river_paint_source`] -- built from this `geom` and
+/// these `fans` under the export's own look) every rectangle PAINTS the river
+/// by the screen's law instead (`river_field::PaintSource::raster` at the
+/// export's resolution, `RasterMap::tile` placing it exactly as the stroke
+/// was placed), and the floodplain tint and bank line it carries are drawn
+/// over the finished rectangle (`render::RiverPost::apply`). So an export
+/// matches the deep-zoom tile at the same scale, which paints with the same
+/// source. `paint` is ignored without a network.
+pub(crate) fn with_export_rivers<T>(
+    geom: Option<&river_stroke::RiverGeometry>,
+    fans: Option<&river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
+    save_flag: Option<&[u8]>,
+    run: impl FnOnce(ExportRivers<'_>) -> T,
+) -> T {
     match geom {
         Some(g) => {
-            let raster = move |a: &TerrainAppearance, r: RasterRect| river_stroke::rasterize_with(g, fans, a, r.w, r.h, river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy));
+            let raster = move |a: &TerrainAppearance, r: RasterRect| {
+                let map = river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy);
+                match paint {
+                    Some(p) => p.raster(map, r.w, r.h),
+                    None => river_stroke::rasterize_with(g, fans, a, r.w, r.h, map),
+                }
+            };
             run(ExportRivers { vector: Some(&raster), save_flag })
         }
         None => run(ExportRivers { vector: None, save_flag }),
@@ -786,6 +812,9 @@ impl WorldGen {
         let geom = if rivers { self.export_river_geometry() } else { None };
         // RIM-7: the fans this export's look draws, only with the network.
         let fans = if geom.is_some() { self.export_river_fans(&i.appearance) } else { None };
+        // RIM-7, the painted river: under THIS look, never the tiles' (which
+        // `lod_snapshot_inputs` filled in for the session's look).
+        i.river_paint = if geom.is_some() { self.river_paint_source(&i.appearance) } else { None };
         export_session::ExportSnapshot::build(i, geom, fans)
     }
 }
@@ -1341,9 +1370,7 @@ impl WorldGen {
         // vector rivers go straight onto the terrain.
         let Some(bytes) = self.export_render(|ctx, bf, rivers| {
             let mut px = render::bake_rect(ctx, bf, rivers.save_flag, out_w, out_h, x0, y0, w, h);
-            if let Some(v) = rivers.vector {
-                render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h);
-            }
+            let post = rivers.vector.map(|v| render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h));
             // The grade's field influence, taken per **grid cell** and then
             // sampled over this crop's window. `build_grade_influence(ctx, w,
             // h)` would spread the whole world across the crop -- it resamples
@@ -1367,6 +1394,11 @@ impl WorldGen {
                 out
             };
             render::apply_color_grade(&appearance, &mut px, &inf);
+            // RIM-7: the painted river's floodplain and bank line, over the
+            // graded crop as the screen draws them (nothing for a stroke).
+            if let Some(p) = post {
+                p.apply(ctx, bf, &mut px);
+            }
             px
         }) else {
             return fail("could not assemble the render context");
@@ -1987,7 +2019,7 @@ mod rv5_parity_tests {
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
         assert_eq!(bf.has_shore_field(), shore, "the shore field must attach exactly when asked, or the control is not a control");
         let (ow, oh) = dims();
-        let px = super::with_export_rivers(geom, fans, None, |r| {
+        let px = super::with_export_rivers(geom, fans, None, None, |r| {
             let mut px = render::bake_rect(&ctx, &bf, r.save_flag, ow, oh, 0, 0, ow, oh);
             if let Some(v) = r.vector {
                 render::paint_vector_rivers(&ctx, &bf, v, &mut px, ow, oh, 0, 0, ow, oh);

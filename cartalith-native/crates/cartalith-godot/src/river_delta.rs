@@ -14,17 +14,18 @@
 //! **RIM-7: the same fans on the deep-zoom tiles and in the export** (owner,
 //! 2026-10-04: *"fix the deltas disappearing on zoom"*). Past the deep-zoom
 //! switch (`viewport_host.gd`'s `LOD_AUTO_ZOOM`, camera zoom 2.2) the map is
-//! the tiles, and every export strokes its own rivers; both stroke the network
-//! with `river_stroke::rasterize`, and until RIM-7 neither had the fans, so a
-//! delta drawn at zoom 2.1 vanished at 2.3 (measured: 0 px ON-vs-OFF at z3).
-//! They now stroke these very runs before the network
-//! (`river_stroke::rasterize_with`) -- derived once from the same network and
-//! the same drawn water the painted path reads (the tiles do not re-derive the
-//! network: `WorldGen::lod_snapshot_inputs` hands them the screen's own
-//! `river_geometry`) -- by the same stroke law that draws every river there,
-//! so the fan is the painted one at every zoom
-//! (`tests::the_stroked_fan_covers_what_the_painted_fan_covers`). One gate,
-//! [`fans_drawn`], decides for all three paths whether a look has fans at all.
+//! the tiles, and every export draws its own rivers; until RIM-7 both stroked
+//! the network with `river_stroke::rasterize` without the fans, so a delta
+//! drawn at zoom 2.1 vanished at 2.3 (measured: 0 px ON-vs-OFF at z3). The
+//! first RIM-7 pass stroked these very runs before the network there
+//! (`river_stroke::rasterize_with`, `tests::the_stroked_fan_covers_what_the_painted_fan_covers`);
+//! since the second (2026-10-05) a look that paints its rivers paints the
+//! tiles' and the export's too (`river_field::PaintSource`), with these fans
+//! in the same segment list the screen's field is built from, so the fan is
+//! the screen's own at every zoom -- derived once from the same network and
+//! drawn water the painted path reads. One gate, [`fans_drawn`], decides for
+//! all three paths whether a look has fans at all; the stroke with fans
+//! (`rasterize_with`) is now reached only if a source could not be built.
 //!
 //! **Which mouths** (the data is `OUTSTANDING_WORK.md`'s Part A, measured with
 //! `_riverzoom_probe.gd --rim4-mouths`; the numbers are in this module's
@@ -42,8 +43,9 @@
 //! fan -- not the stroke, the tiles or the export. Not a change
 //! to any existing river: the fans are SEPARATE runs, so with the switch off
 //! (`WorldGen::set_river_deltas`) the field, the colour texture, every tile and
-//! every export are byte-identical to before this module (the tiles and export
-//! are handed no fan geometry at all, and the network as before).
+//! every export are byte-identical to the same render without this module (the
+//! tiles and export are handed no fan geometry at all, and the network as
+//! before -- painted or stroked as the look decides).
 //!
 //! Must never put a fan point on land farther than [`MAX_REACH_OVER_SETBACK`]
 //! times its setback from the apex, never keep a branch that meets no water
@@ -390,7 +392,10 @@ fn march(apex: (f32, f32), theta_c: f32, phi: f32, u_eff: f32, lmax: f32, cap: f
 /// True when the off switch is clear (`off` is `WorldGen::set_river_deltas`
 /// negated) and the look paints its rivers into the map -- `smooth_shores`
 /// and `rivers_as_water`, the painted path's own condition -- on a grid whose
-/// river field fits its texel budget (`river_field::field_scale`). Each other
+/// river field fits its texel budget (`river_field::field_scale`): the
+/// painted-river gate itself, `river_field::painted`, which since RIM-7's
+/// second part also decides whether the tiles and the export paint the
+/// network or stroke it. Each other
 /// case is a base view that draws the vector stroke (`map_overlay.gd`), which
 /// draws no fan, so the tiles and the export of that look must not either:
 /// a fan appearing only past the deep-zoom switch would be the same pop this
@@ -400,7 +405,7 @@ fn march(apex: (f32, f32), theta_c: f32, phi: f32, u_eff: f32, lmax: f32, cap: f
 /// appearance they draw with (an export its own style override), and the
 /// answer must be the same function of it everywhere.
 pub fn fans_drawn(a: &crate::render::TerrainAppearance, off: bool, gw: usize, gh: usize) -> bool {
-    !off && a.smooth_shores && a.rivers_as_water && crate::river_field::field_scale(gw, gh).is_some()
+    !off && crate::river_field::painted(a, gw, gh)
 }
 
 #[cfg(test)]
@@ -859,7 +864,9 @@ mod tests {
     /// quarter-cell bilinear error (`river_field`'s module doc, "Resolution
     /// and memory"), which is the painted path's limit for every thin river,
     /// not the fans'. On the owner's world that density is reached only past
-    /// the switch, where the tiles stroke the fan instead.
+    /// the switch, where the tiles stroked the fan when this was written and,
+    /// since RIM-7's second pass, paint it exactly at their own pixels
+    /// (`river_field::PaintSource`), with no bilinear error at all.
     #[test]
     fn the_stroked_fan_covers_what_the_painted_fan_covers() {
         let a = crate::render::TerrainAppearance::default();

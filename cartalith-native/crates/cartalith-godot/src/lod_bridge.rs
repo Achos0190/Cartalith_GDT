@@ -412,7 +412,7 @@ pub fn synthesize_tile_rgba(
     row: i32,
     seed: i32,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None, None)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None, None, None)
 }
 
 /// [`synthesize_tile_rgba`] with the rivers drawn into the tile: `rivers` is
@@ -427,6 +427,14 @@ pub fn synthesize_tile_rgba(
 /// the painted screen path draws below the deep-zoom switch is in the tile
 /// above it. `None` -- and fans with `rivers` `None`, which have no network
 /// to sit on and are never drawn -- is the tile exactly as before RIM-7.
+///
+/// **RIM-7, the painted river** (2026-10-05): with `paint`
+/// (`lod_worker::SnapshotInputs::river_paint`, a look that paints its rivers)
+/// and the network drawn, the tile PAINTS the river instead of stroking it --
+/// `river_field::PaintSource::raster` at this tile's own pixels, the screen's
+/// own per-pixel law (width, taper, colour, headwater fade, floodplain, bank
+/// line), fans included -- so a river looks the same either side of the
+/// deep-zoom switch. `paint` `None` is the stroke, byte for byte as before.
 #[allow(clippy::too_many_arguments)]
 pub fn synthesize_tile_rgba_rivers(
     ctx: &RenderCtx,
@@ -437,8 +445,9 @@ pub fn synthesize_tile_rgba_rivers(
     seed: i32,
     rivers: Option<&crate::river_stroke::RiverGeometry>,
     fans: Option<&crate::river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans, paint)
 }
 
 /// [`synthesize_tile_rgba`] with `opts.zBase` supplied rather than taken from
@@ -457,15 +466,21 @@ fn synthesize_tile_rgba_with_z_base(
     zb: i32,
     rivers: Option<&crate::river_stroke::RiverGeometry>,
     fans: Option<&crate::river_stroke::RiverGeometry>,
+    paint: Option<&crate::river_field::PaintSource>,
 ) -> Option<(Vec<u8>, usize, usize)> {
     let t = tile_heights(ctx, tf, z, col, row, seed, zb)?;
     // The rivers at this tile's own pixels: pixel `x` sits at sample
     // coordinate `tb.x + x * cx`, the renderer's own mapping (`cx` from the
-    // core size, as `render_biome_tile_rgba_padded` computes it).
+    // core size, as `render_biome_tile_rgba_padded` computes it). Painted for
+    // a look that paints them (RIM-7), stroked otherwise.
     let layer = rivers.map(|g| {
         let cx = t.tb.w / (t.w.max(2) - 1) as f64;
         let cy = t.tb.h / (t.h.max(2) - 1) as f64;
-        crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy))
+        let map = crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy);
+        match paint {
+            Some(p) => p.raster(map, t.w, t.h),
+            None => crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, map),
+        }
     });
     let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
     if rgba.len() != t.w * t.h * 4 {
@@ -1188,7 +1203,7 @@ mod tests {
             }],
         };
         let tf = tw.fields(&ctx);
-        let (with, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None).unwrap();
+        let (with, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None, None).unwrap();
         let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
         assert!(without.chunks(4).all(|p| p[3] == 255), "no rivers: opaque everywhere");
         let covered = with.chunks(4).filter(|p| p[3] < 255).count();
@@ -1237,7 +1252,7 @@ mod tests {
             }],
         };
         let tf = tw.fields(&ctx);
-        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None).unwrap();
+        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None, None).unwrap();
         let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
         assert_eq!(with, without, "a river on open water changes no byte of the tile");
     }
@@ -1286,12 +1301,12 @@ mod tests {
         let tf = tw.fields(&ctx);
         // Tile (2, 2, 2) spans cells 127.5..191.25 on both axes: the apex
         // (x 135.5), the fan and the shore.
-        let (net, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), None).unwrap();
-        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&fans)).unwrap();
-        let (none, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&crate::river_stroke::RiverGeometry { runs: Vec::new() })).unwrap();
+        let (net, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), None, None).unwrap();
+        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&fans), None).unwrap();
+        let (none, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&crate::river_stroke::RiverGeometry { runs: Vec::new() }), None).unwrap();
         assert_eq!(none, net, "an empty fan geometry: the network's own tile, byte for byte");
         // Fans with no network to sit on are never drawn (the Rivers switch off).
-        let (bare, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, None, Some(&fans)).unwrap();
+        let (bare, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, None, Some(&fans), None).unwrap();
         let (plain, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 2, 2, 1234).unwrap();
         assert_eq!(bare, plain, "fans without the network draw nothing");
         let covered = |t: &[u8]| t.chunks(4).filter(|p| p[3] < 255).count();
@@ -1424,7 +1439,7 @@ mod tests {
         let tf = tw.fields(&ctx);
         let z = z_base() + 3;
         let (with, _, _) = synthesize_tile_rgba(&ctx, &tf, z, 1, 1, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None, None).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None, None, None).unwrap();
         assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
@@ -1438,7 +1453,7 @@ mod tests {
         let n = 1 << z;
         let (col, row) = (5 * n / 16, 7 * n / 16);
         let (with, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None).unwrap();
         let moved = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a[..3] != b[..3]).count();
         assert!(moved > w * h / 10, "only {moved} of {} pixels moved when the octaves were switched on", w * h);
     }
@@ -1575,7 +1590,7 @@ mod tests {
             let (with, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
             // `zb == z` makes `add_zoom_detail`'s `extra` non-positive, i.e.
             // exactly the pre-2026-08-24 `amplify_region`-only content.
-            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None).unwrap();
+            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None, None).unwrap();
             // Pixels per coarse cell, from the tile's own bounds rather than
             // from `2^z` -- the two agree, and reading it off the addressing
             // is what makes this survive a `TILE_PX` change.

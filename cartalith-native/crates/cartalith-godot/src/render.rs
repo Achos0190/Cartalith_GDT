@@ -1466,12 +1466,13 @@ pub struct TerrainAppearance {
     /// shader (`map_shore.gdshader`) paints the river from it with the shore's
     /// own antialiased edge and a floodplain tint beside it, the valley shading
     /// is no longer cut along the drawn line (`valley_shade_field`'s `recut`),
-    /// and the base view stops drawing the stroke mesh. Deep-zoom tiles and
-    /// exports still stroke the network (`river_stroke::rasterize`; RIM-7's
-    /// field parity is not built), but this flag is one input of the gate that
-    /// gives them RIM-4's delta fans too (`river_delta::fans_drawn`), so a
-    /// delta painted here is stroked there. When the field cannot be built (a grid over
-    /// `river_field::MAX_TEXELS`) the stroke stays: the river is never lost.
+    /// and the base view stops drawing the stroke mesh. Since RIM-7
+    /// (2026-10-05) the deep-zoom tiles and every export paint the river too,
+    /// by the same law at their own pixels (`river_field::PaintSource`, the
+    /// gate `river_field::painted`, of which this flag is one input), so a
+    /// river looks the same at every zoom and in a file. When the field cannot
+    /// be built (a grid over `river_field::MAX_TEXELS`) the stroke stays on
+    /// all three paths: the river is never lost.
     ///
     /// A `bool` for the reason `smooth_shores` is one. `true` in `default()`;
     /// `false` in [`Self::js_reference`], which has no river layer at all.
@@ -1957,11 +1958,12 @@ pub struct TerrainAppearance {
     /// code and the render matches a build without this field, up to a measured
     /// residue (1 pixel off by 1 LSB in 5 of 32 probe frames, cause unproven,
     /// probably driver rounding after the shader recompile).
-    /// Unlike its neighbours this is a *shader-only* treatment of the screen
-    /// painted path (`river_field::bank_coverage` is its mirrored law; tiles and
-    /// export are RIM-7's), so [`render_serial`] cannot see it and
-    /// `tests/appearance_tiers.rs` lists it as exempt. Must never move a
-    /// generated value.
+    /// Unlike its neighbours it is drawn after the map is finished -- by the
+    /// shader on screen, and since RIM-7 by the deep-zoom tiles and the export
+    /// through `river_field::bank_coverage` and [`river_post_rgb`] (the
+    /// painted river's post stage) -- never inside [`render_serial`], which
+    /// cannot see it, so `tests/appearance_tiers.rs` lists it as exempt. Must
+    /// never move a generated value.
     pub river_bank: f64,
     /// Chroma of the **material** colour, as a delta about the mix
     /// `material_weights` produced: `+0.20` is 20% more chroma at the same
@@ -8288,9 +8290,11 @@ pub struct RasterRect {
 }
 
 /// Rasterizes the world's vector rivers for one [`RasterRect`] under one look
-/// -- in the app, `river_stroke::rasterize` over `WorldGen::river_geometry_any`
-/// (this file compiles standalone for its tests, so it cannot name that module;
-/// the caller supplies the closure). The look is an argument so the export's
+/// -- in the app, `river_stroke::rasterize_with` over `WorldGen::river_geometry_any`
+/// for a look that strokes its rivers, and `river_field::PaintSource::raster`
+/// (RIM-7, a layer with a post plane, [`RiverLayer`]) for one that paints them
+/// (this file compiles standalone for its tests, so it cannot name those
+/// modules; the caller supplies the closure). The look is an argument so the export's
 /// style override, not the session's, decides the rivers' width and colour.
 pub type VectorRivers<'a> = &'a (dyn Fn(&TerrainAppearance, RasterRect) -> RiverLayer + Sync);
 
@@ -8305,7 +8309,9 @@ pub type VectorRivers<'a> = &'a (dyn Fn(&TerrainAppearance, RasterRect) -> River
 ///   screen and the tiles use) and the preset's river treatment
 ///   ([`river_style_color`]), composited inside [`land_color`] like a tile's
 ///   ([`paint_vector_rivers`]). This is Ruling AZ's *"the vector line, not the
-///   baked ink"*.
+///   baked ink"*. For a look that paints its rivers (RIM-7) the same slot
+///   carries the painted river instead, whose floodplain and bank line
+///   [`RiverPost::apply`] draws after the finishing pass.
 /// - `save_flag`: a loaded save's one-cell flag ([`save_flag_at`]), tinted by
 ///   [`channel_tint`] inside [`bake_rect`] as the screen tints it.
 #[derive(Clone, Copy, Default)]
@@ -8320,7 +8326,10 @@ pub struct ExportRivers<'a> {
 /// this port's 8192 ceiling 1 GB. `32` is a labelled judgement (16 KB a
 /// block); measured with it, the base view's colour field at 2048x1312 holds
 /// 20.4 MB (`_rivstyle_probe.gd --grid 2048x1312 --timing-only`).
-const RIVER_BLOCK: usize = 32;
+/// Public since RIM-7 (2026-10-05) so `river_field::PaintSource::raster`, which
+/// fills a layer block by block in parallel, hands over whole aligned blocks
+/// ([`RiverLayer::put_block`]); nothing else may assume its value.
+pub const RIVER_BLOCK: usize = 32;
 
 /// **The rivers, rasterized into a raster** (owner, 2026-09-27: *"the only
 /// issue I have with the rivers: they're drawn on top of the style"* and
@@ -8346,11 +8355,31 @@ const RIVER_BLOCK: usize = 32;
 /// read one, built per export rectangle at the export's own resolution
 /// ([`ExportRivers::vector`], [`paint_vector_rivers`]); a golden fixture
 /// passes `ExportRivers::default()` and never reaches it.
+///
+/// **RIM-7 (2026-10-05): the painted river's second plane.** A layer built
+/// by `river_field::PaintSource::raster` -- the painted river of a look with
+/// `rivers_as_water`, on a deep-zoom tile or in an export -- also carries,
+/// per pixel, the two things `map_shore.gdshader` draws AFTER the map is
+/// finished: the floodplain tint's weight (already reduced by the river's own
+/// coverage, as the shader's `mix(floodplain(land, fp), river, rcov)` hides
+/// the tint under the water) and the RIM-2 bank line's weight, with the line's
+/// ungraded ink ([`Self::bank_rgb`]). [`river_post_rgb`] applies them to the
+/// finished colour, on land only ([`RiverPost::apply`] in an export, the tile
+/// renderer's alpha pass on a tile). A stroked layer has no such plane
+/// ([`Self::post_at`] is always `None`), so every stroked raster is exactly
+/// what it was.
 pub struct RiverLayer {
     w: usize,
     h: usize,
     bw: usize,
     blocks: Vec<Option<Box<[[f32; 4]]>>>,
+    /// RIM-7's post plane, block for block beside `blocks`: `[floodplain
+    /// weight, bank weight]` per pixel. Empty (no allocation at all) for a
+    /// stroked layer.
+    post: Vec<Option<Box<[[f32; 2]]>>>,
+    /// The bank line's ink, straight RGB `0..=1` -- the preset's
+    /// `river_ink_r/g/b`, never graded (the shader's `river_bank_color`).
+    bank_rgb: [f32; 3],
 }
 
 impl RiverLayer {
@@ -8358,7 +8387,61 @@ impl RiverLayer {
     pub fn new(w: usize, h: usize) -> Self {
         let bw = w.div_ceil(RIVER_BLOCK);
         let bh = h.div_ceil(RIVER_BLOCK);
-        RiverLayer { w, h, bw, blocks: (0..bw * bh).map(|_| None).collect() }
+        RiverLayer { w, h, bw, blocks: (0..bw * bh).map(|_| None).collect(), post: Vec::new(), bank_rgb: [0.0; 3] }
+    }
+
+    /// RIM-7: install one whole block of block coordinates `(bx, by)` --
+    /// [`RIVER_BLOCK`] pixels square, row-major, the last row/column of
+    /// blocks reaching past the layer's edge as [`Self::px_mut`]'s do -- with
+    /// its premultiplied colours (`None` leaves it unallocated) and its post
+    /// weights (`None` likewise; the post plane is allocated on first use).
+    /// For `river_field::PaintSource::raster`, which builds blocks in
+    /// parallel. Out-of-range block coordinates and wrongly sized blocks are
+    /// ignored rather than trusted -- never a panic across the gdext boundary.
+    pub fn put_block(&mut self, bx: usize, by: usize, colour: Option<Box<[[f32; 4]]>>, post: Option<Box<[[f32; 2]]>>) {
+        let bh = self.h.div_ceil(RIVER_BLOCK);
+        if bx >= self.bw || by >= bh {
+            return;
+        }
+        let bi = by * self.bw + bx;
+        let n = RIVER_BLOCK * RIVER_BLOCK;
+        if let Some(c) = colour.filter(|c| c.len() == n) {
+            self.blocks[bi] = Some(c);
+        }
+        if let Some(p) = post.filter(|p| p.len() == n) {
+            if self.post.is_empty() {
+                self.post = (0..self.blocks.len()).map(|_| None).collect();
+            }
+            self.post[bi] = Some(p);
+        }
+    }
+
+    /// RIM-7: the post weights at `(x, y)` -- `[floodplain, bank]`, each
+    /// `0..=1` -- or `None` where neither is drawn (always, for a stroked
+    /// layer). See the type's doc.
+    #[inline]
+    pub fn post_at(&self, x: usize, y: usize) -> Option<[f32; 2]> {
+        if self.post.is_empty() || x >= self.w || y >= self.h {
+            return None;
+        }
+        let b = self.post[(y / RIVER_BLOCK) * self.bw + x / RIVER_BLOCK].as_ref()?;
+        let p = b[(y % RIVER_BLOCK) * RIVER_BLOCK + x % RIVER_BLOCK];
+        (p[0] > 0.0 || p[1] > 0.0).then_some(p)
+    }
+
+    /// Whether any pixel carries post weights (see [`Self::post_at`]).
+    pub fn has_post(&self) -> bool {
+        self.post.iter().any(|b| b.is_some())
+    }
+
+    /// The bank line's ink (see the field).
+    pub fn bank_rgb(&self) -> [f32; 3] {
+        self.bank_rgb
+    }
+
+    /// Set the bank line's ink, straight RGB `0..=1`.
+    pub fn set_bank_rgb(&mut self, rgb: [f32; 3]) {
+        self.bank_rgb = rgb;
     }
 
     /// Width in pixels -- checked by every consumer against its own raster
@@ -8395,9 +8478,11 @@ impl RiverLayer {
         }
     }
 
-    /// Bytes the allocated blocks hold (the layer's memory, less its index).
+    /// Bytes the allocated blocks hold (the layer's memory, less its index),
+    /// RIM-7's post plane included.
     pub fn allocated_bytes(&self) -> usize {
         self.blocks.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 4]>()
+            + self.post.iter().flatten().count() * RIVER_BLOCK * RIVER_BLOCK * std::mem::size_of::<[f32; 2]>()
     }
 
     /// Pixels any stroke reached with non-zero alpha.
@@ -8527,6 +8612,69 @@ fn river_over(l: Rgb, rv: [f32; 4]) -> Rgb {
     (rv[0] as f64 + l.0 * k, rv[1] as f64 + l.1 * k, rv[2] as f64 + l.2 * k)
 }
 
+/// **RIM-3's floodplain tint, the shader's own** (`map_shore.gdshader`'s
+/// `floodplain()`): the finished land colour `land * FLOODPLAIN_MUL +
+/// FLOODPLAIN_ADD`, mixed in by a weight. **Labelled judgement**, tuned on the
+/// owner's world by before/after sheets (2026-10-04): a lift toward a lighter,
+/// greener ground that reads as a flat valley floor, not a second colour. The
+/// shader keeps its own copy (GLSL cannot import Rust);
+/// `river_field::tests::the_shader_mirrors_the_floodplain_tint` reads it from
+/// the shader's text and holds the two equal.
+pub const FLOODPLAIN_MUL: [f64; 3] = [0.96, 1.03, 0.94];
+/// See [`FLOODPLAIN_MUL`].
+pub const FLOODPLAIN_ADD: [f64; 3] = [0.012, 0.034, 0.004];
+
+/// **RIM-7: what the painted river adds to a FINISHED colour** -- the two
+/// stages `map_shore.gdshader` runs after the map is finished, in its order:
+/// the floodplain tint at weight `fp` ([`FLOODPLAIN_MUL`], [`FLOODPLAIN_ADD`]),
+/// then the RIM-2 bank line in its ungraded ink `ink` at weight `bank`. `rgb`
+/// and `ink` are straight `0..=1`; weights are clamped to `0..=1`. With both
+/// weights zero it returns `rgb` exactly (the arithmetic is skipped), so a
+/// pixel with no paint is never touched.
+///
+/// Used by the deep-zoom tiles and the exports (`RiverLayer`'s post plane),
+/// which draw the painted river's WATER inside [`land_color`] like a stroke and
+/// these two after their own finishing pass, as the screen does. Must never be
+/// applied to a water pixel: the shader draws both on the land side of the
+/// shore only (the callers weight by land coverage).
+pub fn river_post_rgb(rgb: [f64; 3], fp: f64, bank: f64, ink: [f64; 3]) -> [f64; 3] {
+    let mut c = rgb;
+    let fp = fp.clamp(0.0, 1.0);
+    if fp > 0.0 {
+        for k in 0..3 {
+            let t = rgb[k] * FLOODPLAIN_MUL[k] + FLOODPLAIN_ADD[k];
+            c[k] = rgb[k] + (t - rgb[k]) * fp;
+        }
+    }
+    let bank = bank.clamp(0.0, 1.0);
+    if bank > 0.0 {
+        for k in 0..3 {
+            c[k] += (ink[k] - c[k]) * bank;
+        }
+    }
+    c
+}
+
+/// RIM-7: one finished RGB8 pixel through [`river_post_rgb`] at land weight
+/// `land` (`0..=1`; the share of the pixel that is not water), rounded to the
+/// nearest level as a GPU's unorm store rounds. Returns the bytes unchanged
+/// when there is nothing to draw.
+#[inline]
+pub fn river_post_px(px: [u8; 3], post: [f32; 2], land: f64, ink: [f32; 3]) -> [u8; 3] {
+    let (fp, bank) = (post[0] as f64 * land, post[1] as f64 * land);
+    if fp <= 0.0 && bank <= 0.0 {
+        return px;
+    }
+    let c = river_post_rgb(
+        [px[0] as f64 / 255.0, px[1] as f64 / 255.0, px[2] as f64 / 255.0],
+        fp,
+        bank,
+        [ink[0] as f64, ink[1] as f64, ink[2] as f64],
+    );
+    let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    [q(c[0]), q(c[1]), q(c[2])]
+}
+
 /// `bakeSingle`/`bakeTiled`'s shared inner loop (reference lines 11975 and
 /// 11982) — render one axis-aligned rectangle of an `out_w × out_h` export
 /// raster into tightly-packed RGB8.
@@ -8600,10 +8748,13 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, save_flag: Option<&[u8]>, out
 pub fn bake_and_finish(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'_>, w: usize, h: usize, influence: &[f32], space: ColorSpace) -> Vec<u8> {
     let mut px = bake_rect(ctx, bf, rivers.save_flag, w, h, 0, 0, w, h);
     let lc = local_contrast_rows(&ctx.appearance, &px, w, h, 0, h, ctx.world);
-    if let Some(v) = rivers.vector {
-        paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, 0, w, h);
-    }
+    let post = rivers.vector.map(|v| paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, 0, w, h));
     finish_rgb(&mut px, lc.as_ref().map(|l| |i| l.delta(i)), Some((&ctx.appearance, influence)), space);
+    // RIM-7: the painted river's floodplain and bank line, over the finished
+    // raster as the screen's shader draws them (nothing for a stroked river).
+    if let Some(p) = post {
+        p.apply(ctx, bf, &mut px);
+    }
     px
 }
 
@@ -8634,19 +8785,27 @@ fn bake_steps(gw: usize, gh: usize, out_w: usize, out_h: usize) -> (f64, f64) {
 /// river's share of the raster, not a second bake.
 ///
 /// Memory: one sparse [`RiverLayer`] for the rectangle (16 KB per 32x32 block
-/// a stroke touches), dropped on return -- a band's, never the whole image's.
-/// Must never paint a pixel no stroke reached.
+/// a stroke touches) -- a band's, never the whole image's. Must never paint a
+/// pixel no stroke reached.
+///
+/// **RIM-7 (2026-10-05)**: returns a [`RiverPost`] -- the repainted count and,
+/// when the layer carries the painted river's post plane (a look with
+/// `rivers_as_water`, `river_field::PaintSource`), the layer itself, whose
+/// floodplain tint and bank line the caller applies with [`RiverPost::apply`]
+/// AFTER its finishing pass, where the screen's shader draws them. A stroked
+/// layer has no plane; it is dropped here as before and `apply` does nothing.
 #[allow(clippy::too_many_arguments)]
-pub fn paint_vector_rivers(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRivers<'_>, px: &mut [u8], out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> usize {
+pub fn paint_vector_rivers(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRivers<'_>, px: &mut [u8], out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> RiverPost {
+    let none = RiverPost { repainted: 0, layer: None, x0, y0, step: (0.0, 0.0) };
     if w == 0 || h == 0 || out_w == 0 || out_h == 0 || px.len() < w * h * 3 {
-        return 0;
+        return none;
     }
     let (sx, sy) = bake_steps(ctx.gw, ctx.gh, out_w, out_h);
     let layer = vector(&ctx.appearance, RasterRect { bx: x0 as f64 * sx, by: y0 as f64 * sy, cx: sx, cy: sy, w, h });
     if layer.width() != w || layer.height() != h {
-        return 0;
+        return none;
     }
-    px[..w * h * 3]
+    let repainted = px[..w * h * 3]
         .par_chunks_mut(w * 3)
         .enumerate()
         .map(|(row, out)| {
@@ -8663,7 +8822,63 @@ pub fn paint_vector_rivers(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRiver
             }
             n
         })
-        .sum()
+        .sum();
+    RiverPost { repainted, layer: layer.has_post().then_some(layer), x0, y0, step: (sx, sy) }
+}
+
+/// **RIM-7: the painted river's post-finish stages for one export rectangle**,
+/// returned by [`paint_vector_rivers`]: `repainted` pixels had their river
+/// composited inside [`land_color`]; `layer`, when the river was painted
+/// (`river_field::PaintSource`), still holds the floodplain and bank weights
+/// that [`Self::apply`] draws over the FINISHED rectangle -- after local
+/// contrast, the grade and the colour space, where `map_shore.gdshader` draws
+/// them on screen. `None` for a stroked river (nothing to apply).
+pub struct RiverPost {
+    pub repainted: usize,
+    layer: Option<RiverLayer>,
+    x0: usize,
+    y0: usize,
+    step: (f64, f64),
+}
+
+impl RiverPost {
+    /// Draw the floodplain tint and the bank line into `px`, the finished
+    /// RGB8 rectangle [`paint_vector_rivers`] was handed (`w x h`, the
+    /// layer's own size), each at [`river_post_px`]'s rounding and weighted by
+    /// the pixel's LAND share (`1 - BakeFields::water_cover` at the bake
+    /// pixel's own position and step) -- the shader draws both on the land side
+    /// of the shore only. Does nothing for a stroked river or a rectangle of
+    /// the wrong size. Returns the pixels touched.
+    pub fn apply(&self, ctx: &RenderCtx, bf: &BakeFields, px: &mut [u8]) -> usize {
+        let Some(layer) = self.layer.as_ref() else { return 0 };
+        let (w, h) = (layer.width(), layer.height());
+        if px.len() < w * h * 3 {
+            return 0;
+        }
+        let ink = layer.bank_rgb();
+        let (sx, sy) = self.step;
+        px[..w * h * 3]
+            .par_chunks_mut(w * 3)
+            .enumerate()
+            .map(|(row, out)| {
+                let gy = (self.y0 + row) as f64 * sy;
+                let mut n = 0usize;
+                for col in 0..w {
+                    let Some(pp) = layer.post_at(col, row) else { continue };
+                    let gx = (self.x0 + col) as f64 * sx;
+                    let land = 1.0 - bf.water_cover(ctx, gx, gy, (sx, sy));
+                    if land <= 0.0 {
+                        continue;
+                    }
+                    let o = col * 3;
+                    let q = river_post_px([out[o], out[o + 1], out[o + 2]], pp, land, ink);
+                    out[o..o + 3].copy_from_slice(&q);
+                    n += 1;
+                }
+                n
+            })
+            .sum()
+    }
 }
 
 // ===========================================================================
@@ -8771,13 +8986,16 @@ pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'
     let lc = local_contrast_rows(&ctx.appearance, &px, w, h, ay0, ah, ctx.world);
     px.drain(..band.top * w * 3);
     px.truncate(band.rows * w * 3);
-    if let Some(v) = rivers.vector {
-        paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, band.y0, w, band.rows);
-    }
+    let post = rivers.vector.map(|v| paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, band.y0, w, band.rows));
     let inf = grade_influence_rows(grade_cells, ctx.gw, ctx.gh, w, h, band.y0, band.rows);
     let skip = band.top * w;
     // The working space, never the display's: `export_raster.rs`'s module doc.
     finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), ColorSpace::Srgb);
+    // RIM-7: the painted river's post-finish stages, this band's rows only
+    // (the layer was built for them), so a banded export equals a whole one.
+    if let Some(p) = post {
+        p.apply(ctx, bf, &mut px);
+    }
     px
 }
 
@@ -10623,17 +10841,41 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
     // river-shaped seam in the water, the stroke showing through the water
     // that must sit above it. The test is stage 3's own, at the same
     // position.
+    //
+    // **RIM-7 (2026-10-05): the painted river's post plane.** A layer built by
+    // `river_field::PaintSource::raster` (a look with `rivers_as_water`) also
+    // carries the floodplain tint's and the bank line's weights, which
+    // `map_shore.gdshader` draws after the map is finished; they are drawn
+    // here, on the finished bytes, on land pixels only, by the shared
+    // [`river_post_px`]. The bank line also marks its pixel as river in the
+    // alpha (its weight, where it exceeds the water's), so a crisp one-pixel
+    // line is drawn from this tile alone rather than mixed with a coarser
+    // partner's; the floodplain tint, a smooth band every level draws, is not
+    // marked. A stroked layer has no post plane, so this loop is what it was.
     if let Some(layer) = rivers {
+        let ink = layer.bank_rgb();
         out.par_chunks_mut(w * 4).enumerate().for_each(|(y, row)| {
             let wy = bounds.y + y as f64 * cy;
             for x in 0..w {
-                if let Some(p) = layer.at(x, y) {
-                    let hw = wt[(y + pad) * pw + x + pad] as f64;
-                    let wx = bounds.x + x as f64 * cx;
-                    if tile_water_class(ctx, tf, hw, wx, wy) != TILE_LAND {
-                        continue;
-                    }
+                let p = layer.at(x, y);
+                let pp = layer.post_at(x, y);
+                if p.is_none() && pp.is_none() {
+                    continue;
+                }
+                let hw = wt[(y + pad) * pw + x + pad] as f64;
+                let wx = bounds.x + x as f64 * cx;
+                if tile_water_class(ctx, tf, hw, wx, wy) != TILE_LAND {
+                    continue;
+                }
+                if let Some(p) = p {
                     row[x * 4 + 3] = 255 - (p[3].clamp(0.0, 1.0) * 255.0).round() as u8;
+                }
+                if let Some(q) = pp {
+                    let o = x * 4;
+                    let c = river_post_px([row[o], row[o + 1], row[o + 2]], q, 1.0, ink);
+                    row[o..o + 3].copy_from_slice(&c);
+                    let bank_a = 255 - (q[1].clamp(0.0, 1.0) * 255.0).round() as u8;
+                    row[o + 3] = row[o + 3].min(bank_a);
                 }
             }
         });

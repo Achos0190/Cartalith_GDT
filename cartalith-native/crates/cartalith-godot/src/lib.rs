@@ -5029,6 +5029,15 @@ struct WorldGen {
     /// derivation took (`river_delta_stats`' `ms`, a probe's cost reading). A
     /// rendering input only.
     river_delta_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_stroke::RiverGeometry>, river_delta::DeltaStats, f64)>>,
+    /// **RIM-7**: the last river colour field ([`Self::river_colour_field`]),
+    /// keyed on the network, the look and whether fans were drawn into it --
+    /// built by `build_color_texture` for the screen and reused, not rebuilt,
+    /// by the tiles and the export of the same look. A rendering input only.
+    river_colour_cache: std::cell::RefCell<Option<(String, std::sync::Arc<render::RiverLayer>)>>,
+    /// **RIM-7**: [`Self::river_paint_source`]'s cache: the key (as the colour
+    /// field's), the source, and the milliseconds its last build took
+    /// (`river_paint_stats`' `source_ms`). A rendering input only.
+    river_paint_cache: std::cell::RefCell<Option<(String, std::sync::Arc<river_field::PaintSource>, f64)>>,
     /// The last colour field's `(covered pixels, allocated bytes)`, for
     /// `river_field_stats` (a probe's memory reading).
     river_field_stats: std::cell::Cell<(usize, usize)>,
@@ -5682,6 +5691,8 @@ impl IRefCounted for WorldGen {
             river_paint_off: std::cell::Cell::new(false),
             river_delta_off: std::cell::Cell::new(false),
             river_delta_cache: std::cell::RefCell::new(None),
+            river_colour_cache: std::cell::RefCell::new(None),
+            river_paint_cache: std::cell::RefCell::new(None),
             river_field_build: std::cell::Cell::new((0.0, 0, 0, 0, 0)),
             river_field_stats: std::cell::Cell::new((0, 0)),
             river_geom_cache: std::cell::RefCell::new(None),
@@ -9687,8 +9698,11 @@ impl WorldGen {
     /// `render::land_color` and every stage after -- and the base view draws
     /// RV-2's vector stroke in screen pixels textured with it
     /// ([`WorldGen::river_view_mesh`]): the style's colour in the vector's
-    /// shape, smooth at every base-view zoom. The deep-zoom tiles rasterize
-    /// their own (`river_stroke::rasterize`). A loaded save, which has no
+    /// shape, smooth at every base-view zoom. The deep-zoom tiles and the
+    /// export draw their own at their own resolution -- painted for a look
+    /// that paints its rivers (RIM-7, `river_field::PaintSource`, sampling the
+    /// colour field this call caches), stroked otherwise
+    /// (`river_stroke::rasterize_with`). A loaded save, which has no
     /// traced network, keeps the stamped ink in this texture
     /// ([`WorldGen::save_river_flag`]).
     /// Returns `None` before the first `generate()` call.
@@ -9823,7 +9837,10 @@ impl WorldGen {
         // any base-view stroke. Built whether or not the Rivers layer is on
         // (`river_geometry_any`), so the switch never needs this function
         // again. `None` for a loaded save, which keeps `chan_mask` instead.
-        let field_layer = self.river_geometry_any().map(|g| river_stroke::rasterize_colour_field_with(&g, delta_fans.as_deref(), &appearance, gw, gh));
+        // RIM-7: cached on its inputs, so the tiles and the export of this
+        // look sample the very layer the screen's colour texture is made from
+        // ([`Self::river_colour_field`]); the bytes are the uncached build's.
+        let field_layer = self.river_geometry_any().map(|g| self.river_colour_field(&appearance, &g, delta_fans.as_deref()));
         self.river_field_stats.set(field_layer.as_ref().map_or((0, 0), |l| (l.covered(), l.allocated_bytes())));
         // RV-3: water and the sea's colour are decided from the world's own
         // height, never the shaded one (a no-op when they are the same). One
@@ -10995,6 +11012,68 @@ impl WorldGen {
             return None;
         }
         self.river_delta_fans(river_stroke::river_width_factor(a))
+    }
+
+    /// **RIM-7: the key of the river colour field and the paint source for
+    /// look `a`** -- the network's key (the network, the grid, the drawn water
+    /// the fans are cut at), the whole look (`lod_bridge::appearance_fingerprint`:
+    /// its river colour, opacity, width, outline, frame and gate) and whether
+    /// fans are drawn. Derived from what [`river_stroke::rasterize_colour_field_with`]
+    /// and [`river_field::PaintSource::new`] read; the look is hashed whole,
+    /// which rebuilds on a change that moves neither (a grade) but can never
+    /// keep a stale one.
+    fn river_paint_key(&self, a: &render::TerrainAppearance, fans: bool) -> String {
+        format!("{};a{:016x};dl{}", self.river_network_key_str(), lod_bridge::appearance_fingerprint(a), u8::from(fans))
+    }
+
+    /// **RIM-7: the river colour field for look `a`** --
+    /// [`river_stroke::rasterize_colour_field_with`] over `geom` and `fans` at
+    /// one pixel per cell, cached ([`Self::river_paint_key`]). The screen's
+    /// colour texture is rendered from it (`build_color_texture`), and the
+    /// tiles and the export sample it for the painted river's colour
+    /// ([`river_field::PaintSource`]), so the three take the river's colour
+    /// from one layer. `geom` and `fans` must be the network and the fans look
+    /// `a` draws (`river_geometry_any`, `delta_fans_for`).
+    pub(crate) fn river_colour_field(&self, a: &render::TerrainAppearance, geom: &river_stroke::RiverGeometry, fans: Option<&river_stroke::RiverGeometry>) -> std::sync::Arc<render::RiverLayer> {
+        let key = self.river_paint_key(a, fans.is_some());
+        if let Some((k, l)) = self.river_colour_cache.borrow().as_ref() {
+            if *k == key {
+                return l.clone();
+            }
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let layer = std::sync::Arc::new(river_stroke::rasterize_colour_field_with(geom, fans, a, gw, gh));
+        *self.river_colour_cache.borrow_mut() = Some((key, layer.clone()));
+        layer
+    }
+
+    /// **RIM-7: what the deep-zoom tiles and the export paint the river with,
+    /// under look `a`** ([`river_field::PaintSource`]): the network and the
+    /// fans `a` draws ([`Self::delta_fans_for`]), indexed, with the colour
+    /// field the screen's own colour texture comes from. `None` -- and the
+    /// tile and the export stroke, as before -- for a look the one gate
+    /// refuses ([`river_field::painted`]: no `rivers_as_water` or smooth shore,
+    /// or a grid over the field's budget), before any world, and with no
+    /// network. Cached on [`Self::river_paint_key`]. Must be asked with the
+    /// appearance the caller draws with (an export its own style's).
+    pub(crate) fn river_paint_source(&self, a: &render::TerrainAppearance) -> Option<std::sync::Arc<river_field::PaintSource>> {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if !river_field::painted(a, gw, gh) {
+            return None;
+        }
+        let geom = self.river_geometry_any()?;
+        let fans = self.delta_fans_for(a);
+        let key = self.river_paint_key(a, fans.is_some());
+        if let Some((k, p, _)) = self.river_paint_cache.borrow().as_ref() {
+            if *k == key {
+                return Some(p.clone());
+            }
+        }
+        let t0 = std::time::Instant::now();
+        let colour = self.river_colour_field(a, &geom, fans.as_deref());
+        let src = std::sync::Arc::new(river_field::PaintSource::new(&geom, fans.as_deref(), gw, gh, a, colour)?);
+        *self.river_paint_cache.borrow_mut() = Some((key, src.clone(), t0.elapsed().as_secs_f64() * 1000.0));
+        Some(src)
     }
 
     /// [`Self::river_geometry`] whatever the Rivers switch says -- for the
@@ -16135,6 +16214,11 @@ impl WorldGen {
             // (the Rivers switch), and `None` for a fan geometry with no run,
             // so a world without fans fingerprints exactly as before RIM-7.
             river_fans: self.river_geometry().and_then(|_| self.delta_fans_for(&self.appearance())).filter(|f| !f.runs.is_empty()),
+            // RIM-7, the painted river: for a look that paints its rivers the
+            // tiles paint them by the screen's own law (`river_field::PaintSource`)
+            // instead of stroking `rivers` -- only with the network drawn (the
+            // Rivers switch). `None` strokes, exactly as before.
+            river_paint: self.river_geometry().and_then(|_| self.river_paint_source(&self.appearance())),
             // Ruling BO: the forced lakes `drawn_water_bodies` applies to the
             // base map, so a tile draws the same water.
             forced_lakes: self.forced_lake_mask().map(|m| m.to_vec()),

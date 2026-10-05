@@ -105,6 +105,32 @@ extends Node
 ##    before RIM-7 -- reports `PROBE-FAIL`), and a frame grabbed twice must be
 ##    identical. Run it on a HEAD DLL too: its OFF frames and exports must
 ##    equal this tree's OFF ones pixel for pixel.
+##  - RIM-7, the painted river itself (`--rim7rest`): the deep-zoom tiles and the
+##    export paint the river by the screen's law (`river_field::PaintSource`).
+##    Three targets on land (`_rim7r_targets`: the widest trunk, the longest
+##    order-2 river and order-1 stream), each framed at `--rim7r-zooms` (default
+##    1,2.1,2.3,3,4,8; the switch is 2.2) with the river opacity at 1 and at 0
+##    and with the Rivers layer off (`rim7r_<target>_z<zoom>_on/off/bare.png`:
+##    opacity 0 removes the water on every path and keeps the floodplain tint and
+##    bank line, so on-vs-off is the water, and off-vs-bare over 24 levels is the
+##    bank line, 4..24 levels the floodplain tint).
+##    Measured in CELL space (`_rim7r_mask`: a 0.25-cell grid in a disk of
+##    `--rim7r-radius` cells, default 12): the river's area in cells and mean
+##    colour per view, and per pair -- the switch pair 2.1->2.3 and the first tile
+##    zoom against each deeper one -- the area ratio (a width ratio), IoU at zero
+##    shift and the best shift within one cell (a river drawn in the same place
+##    reads 0). `--rim7r-export` adds the real region export
+##    (`export_snapshot_png`) at 4 and 8 px a cell against the tile view of the
+##    nearest density, the same way. Identity frames for a HEAD comparison by
+##    script (`rim7r_id_*`): fit and z2.1 (the screen path, which must not
+##    change), z3 with the Rivers layer off and with the stroke look
+##    (`debug_set_river_paint(false)`), and the stroke look's export at the trunk
+##    and the largest delta mouth (`rim7r_id_*_stroke_export.png`, which also
+##    shows whether an export's fans follow the export's own look).
+##    `--rim7r-cost`: pan frame time at fit, z2.1 and z3 and the synchronous
+##    tile build at the z3/z4/z8 levels, painted against stroked, three rounds.
+##    `--rim7r-ident-only` records only the identity frames. Controls: a frame
+##    grabbed twice must be identical; no target is a failure.
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -149,6 +175,12 @@ var _rim7_zooms: Array = [1.5, 2.1, 2.3, 3.0, 4.0, 8.0]
 var _rim7_radius := 64.0
 var _rim7_export := false
 var _rim7_cost := false
+var _rim7r := false
+var _rim7r_zooms: Array = [1.0, 2.1, 2.3, 3.0, 4.0, 8.0]
+var _rim7r_radius := 12.0
+var _rim7r_export := false
+var _rim7r_cost := false
+var _rim7r_ident_only := false
 var _river_density := 1.0
 var _geology_model := false
 var _metropolis := false
@@ -200,6 +232,15 @@ func _ready() -> void:
 			"--rim7-zooms":
 				_rim7_zooms.clear()
 				for zs in args[i + 1].split(","): _rim7_zooms.append(float(zs))
+				i += 1
+			"--rim7rest": _rim7r = true
+			"--rim7r-export": _rim7r_export = true
+			"--rim7r-cost": _rim7r_cost = true
+			"--rim7r-ident-only": _rim7r_ident_only = true
+			"--rim7r-radius": _rim7r_radius = float(args[i + 1]); i += 1
+			"--rim7r-zooms":
+				_rim7r_zooms.clear()
+				for zs in args[i + 1].split(","): _rim7r_zooms.append(float(zs))
 				i += 1
 			"--rim4-zooms":
 				_rim4_zooms.clear()
@@ -364,6 +405,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["rim4_lakes"] = await _rim4_lakes_run(rivers)
 	if _rim7:
 		sr["rim7"] = await _rim7_run(sr["rim4_mouths"])
+	if _rim7r:
+		sr["rim7rest"] = await _rim7r_run(rivers)
 	_report[str(seed_v)] = sr
 
 
@@ -1867,3 +1910,393 @@ func _pan_cost_here(centre: Vector2) -> Dictionary:
 	var g2 := Array(gpu); g2.sort()
 	return {"median_ms": a2[a2.size() / 2], "min_ms": a2[0], "max_ms": a2[a2.size() - 1],
 		"gpu_median_ms": g2[g2.size() / 2], "gpu_max_ms": g2[g2.size() - 1]}
+
+
+## ---- RIM-7 rest: the painted river itself on the tiles and in the export ----
+
+## Screen pixels per grid cell at the current view, from the overlay's own
+## displayed rect (the base map's on-screen size) -- not assumed from a formula.
+func _rim7r_ppc() -> float:
+	return _vh.overlay.displayed_rect().size.x / float(_grid.x) * _vh.zoom()
+
+
+## Up to three targets on land, away from the map's edge: the widest trunk
+## (`_pick_targets`), the longest order-2 river and the longest order-1 stream,
+## each at the middle of its drawn line. Names are fixed so a HEAD run and this
+## tree's frame the same ground (the choice reads only the river network, which
+## no rendering change moves).
+func _rim7r_targets(rivers: Array) -> Array:
+	var out := []
+	var pt := _pick_targets(rivers)
+	if pt.has("trunk"):
+		out.append({"name": "trunk", "p": pt["trunk"]["p"]})
+	for want in [[2, "mid"], [1, "small"]]:
+		var best := -1; var best_p := Vector2(-1, -1)
+		for r: Dictionary in rivers:
+			if not r.has("width_cells") or r.has("parallel_of") or int(r.get("order", 0)) != int(want[0]):
+				continue
+			var rp: PackedVector2Array = r["render_points"]
+			if rp.size() < 40 or int(r.get("cells", 0)) <= best:
+				continue
+			var p := rp[rp.size() / 2]
+			if _inner(p) and not _is_wet(p):
+				best = int(r["cells"]); best_p = p
+		if best > 0:
+			out.append({"name": want[1], "p": best_p})
+	return out
+
+
+## The river's own pixels in a frame, resampled onto a common grid in CELL space
+## (`step` cells apart, inside a disk of `_rim7r_radius` cells round `c`), so
+## frames at different zooms -- and an export -- compare the same ground. A
+## grid point is river where the ON frame differs from the OFF frame (river
+## opacity 0: the water removed, everything else -- floodplain tint, bank line --
+## kept) by more than 24 summed levels at the nearest pixel -- or, with `lo`
+## and `hi`, by more than `lo` and at most `hi` (the floodplain tint's band).
+## `origin` is the image position of cell-index coordinate (0, 0). Returns `{mask, area_cells, col}`:
+## `mask` 1 river / 0 not / 2 outside the disk or the frame, `col` the mean ON
+## colour of the river points (absent, never black, when there are none).
+func _rim7r_mask(on: Image, off: Image, origin: Vector2, ppc: float, c: Vector2, step: float, lo: int = 24, hi: int = 1 << 30) -> Dictionary:
+	var w := on.get_width(); var h := on.get_height()
+	var da := on.get_data(); var db := off.get_data()
+	var n := int(round(2.0 * _rim7r_radius / step)) + 1
+	var mask := PackedByteArray(); mask.resize(n * n)
+	var cnt := 0; var sc := Vector3.ZERO
+	for gy in n:
+		var cy := c.y - _rim7r_radius + gy * step
+		for gx in n:
+			var cx := c.x - _rim7r_radius + gx * step
+			var k := gy * n + gx
+			if (cx - c.x) * (cx - c.x) + (cy - c.y) * (cy - c.y) > _rim7r_radius * _rim7r_radius:
+				mask[k] = 2; continue
+			var px := int(round(origin.x + cx * ppc - 0.5)); var py := int(round(origin.y + cy * ppc - 0.5))
+			if px < 0 or py < 0 or px >= w or py >= h:
+				mask[k] = 2; continue
+			var o := (py * w + px) * 4
+			var dd: int = absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+			if dd > lo and dd <= hi:
+				mask[k] = 1; cnt += 1
+				sc += Vector3(da[o], da[o + 1], da[o + 2])
+	var res := {"mask": mask, "n": n, "step": step, "area_cells": cnt * step * step}
+	if cnt > 0:
+		var m := sc / float(cnt)
+		res["col"] = [snappedf(m.x, 0.1), snappedf(m.y, 0.1), snappedf(m.z, 0.1)]
+	return res
+
+
+## Two `_rim7r_mask` results compared: the area ratio (b over a -- a width
+## ratio, the river length being the same ground), IoU at zero shift, and the
+## shift of `b` (in cells, +-1 cell in quarter-cell steps) that maximises IoU
+## with its IoU -- a river drawn in the same place reads a best shift of 0.
+## Colour shift: summed |dRGB| of the two mean river colours. `-1`, never a
+## plausible 0 or 1, for a ratio or IoU that cannot be formed.
+func _rim7r_compare(a: Dictionary, b: Dictionary) -> Dictionary:
+	var n: int = a["n"]; var ma: PackedByteArray = a["mask"]; var mb: PackedByteArray = b["mask"]
+	var step: float = a["step"]
+	var iou_at := func(sx: int, sy: int) -> float:
+		var both := 0; var uni := 0
+		for y in n:
+			var y2 := y - sy
+			if y2 < 0 or y2 >= n: continue
+			for x in n:
+				var x2 := x - sx
+				if x2 < 0 or x2 >= n: continue
+				var va := ma[y * n + x]; var vb := mb[y2 * n + x2]
+				if va == 2 or vb == 2: continue
+				if va == 1 and vb == 1: both += 1
+				if va == 1 or vb == 1: uni += 1
+		return float(both) / float(uni) if uni > 0 else -1.0
+	var r := int(round(1.0 / step))
+	var best := -2.0; var bs := Vector2i.ZERO
+	for sy in range(-r, r + 1):
+		for sx in range(-r, r + 1):
+			var v: float = iou_at.call(sx, sy)
+			if v > best + 1e-9 or (absf(v - best) <= 1e-9 and Vector2(sx, sy).length() < Vector2(bs).length()):
+				best = v; bs = Vector2i(sx, sy)
+	var out := {"area_a": a["area_cells"], "area_b": b["area_cells"],
+		"area_ratio": (float(b["area_cells"]) / float(a["area_cells"])) if float(a["area_cells"]) > 0.0 else -1.0,
+		"iou0": iou_at.call(0, 0), "best_iou": best, "best_shift_cells": [bs.x * step, bs.y * step]}
+	if a.has("col") and b.has("col"):
+		var ca: Array = a["col"]; var cb: Array = b["col"]
+		out["col"] = [ca, cb]
+		out["colour_shift"] = absf(ca[0] - cb[0]) + absf(ca[1] - cb[1]) + absf(ca[2] - cb[2])
+	return out
+
+
+## Set the session's river opacity and repaint the base map and the tiles, so
+## the next capture shows it. Opacity 0 removes the river's WATER on every path
+## (screen, tiles, export) and keeps everything else, which is what the masks
+## above diff against. Restores with 1.0 (the shipped default of every preset
+## the probe runs).
+func _rim7r_opacity(op: float) -> void:
+	_br.set_appearance({"river_opacity": op})
+	_vh.map_view.texture = _br.color_texture()
+	_vh._apply_shore_field()
+	_vh.overlay.queue_redraw()
+	_vh.invalidate_lod_tiles()
+	await _settle(8)
+
+
+## The view of `c` at camera zoom `z`, settled: `[image, origin, ppc]` where
+## `origin` is the screen position, in the captured image, of cell-index
+## coordinate (0, 0) (`move_view_to` centres cell `c`'s centre on the view).
+func _rim7r_view(c: Vector2, z: float) -> Array:
+	var img := await _rim2_grab(c, z)
+	var ppc := _rim7r_ppc()
+	var rect: Rect2 = _vh.overlay.displayed_rect()
+	## The displayed rect is in the camera's native space; the screen position of
+	## grid point g is camera.position + (rect.position + g / grid * rect.size) * zoom,
+	## with cell-index coordinate i at g = i + 0.5. The capture starts at the
+	## viewport host's own origin.
+	var cam: Control = _vh._camera
+	var o: Vector2 = cam.position + (rect.position + Vector2(0.5, 0.5) / Vector2(_grid) * rect.size) * _vh.zoom()
+	return [img, o, ppc]
+
+
+## The RIM-7 rest leg (see the header).
+func _rim7r_run(rivers: Array) -> Dictionary:
+	var targets := _rim7r_targets(rivers)
+	if targets.is_empty():
+		printerr("PROBE-FAIL: rim7rest found no target")
+		_report["fail"] = true
+		return {}
+	var has_paint: bool = _br.world_gen.has_method("rivers_painted") and _br.world_gen.rivers_painted()
+	print("  rim7rest targets: ", targets, "  painted look: ", has_paint)
+	## The field build and, once the tiles have asked for one, the paint
+	## source's build (`source_ms`, `source_segments`; absent on HEAD).
+	print("  rim7rest river_paint_stats: ", _br.world_gen.river_paint_stats())
+	var res := {"targets": [], "views": [], "seams": [], "identity_frames": []}
+	## Negative control: one frame grabbed twice must be the same frame.
+	var t0: Dictionary = targets[0]
+	var g1 := await _rim2_grab(t0["p"], 3.0)
+	var g2 := await _grab()
+	var same := _frame_diff(g1, g2)
+	print("  rim7rest negative control (z3 grabbed twice): ", same)
+	if int(same["px_any"]) != 0:
+		printerr("PROBE-FAIL: one frame grabbed twice differs (%d px)" % int(same["px_any"]))
+		_report["fail"] = true
+	var step := 0.25
+	for t: Dictionary in targets:
+		var c: Vector2 = t["p"]
+		res["targets"].append({"name": t["name"], "cell": [c.x, c.y]})
+		if _rim7r_ident_only:
+			continue
+		var frames := {}
+		## `on`: as shipped; `off`: river opacity 0 (no water; tint and line
+		## kept); `bare`: the Rivers layer off (no river at all).
+		for st in ["on", "off", "bare"]:
+			await _rim7r_opacity(0.0 if st == "off" else 1.0)
+			if st == "bare":
+				_vh.set_layer_visible("rivers", false)
+				_vh.invalidate_lod_tiles()
+			for z: float in _rim7r_zooms:
+				var v: Array = await _rim7r_view(c, z)
+				frames["%s_%.1f" % [st, z]] = v
+				var tag := "rim7r_%s_z%.1f_%s" % [t["name"], z, st]
+				(v[0] as Image).save_png(_out.path_join(tag + ".png"))
+			if st == "bare":
+				_vh.set_layer_visible("rivers", true)
+				_vh.invalidate_lod_tiles()
+		await _rim7r_opacity(1.0)
+		var masks := {}
+		var lines := {}
+		var tints := {}
+		for z: float in _rim7r_zooms:
+			var on: Array = frames["on_%.1f" % z]; var off: Array = frames["off_%.1f" % z]; var bare: Array = frames["bare_%.1f" % z]
+			var m := _rim7r_mask(on[0], off[0], on[1], float(on[2]), c, step)
+			## The bank line (dark ink, over 24 levels) and the floodplain tint
+			## (a lift of 4..24 levels) from the opacity-0 frame against the bare one.
+			var ln := _rim7r_mask(off[0], bare[0], on[1], float(on[2]), c, step)
+			var tn := _rim7r_mask(off[0], bare[0], on[1], float(on[2]), c, step, 3, 24)
+			masks[z] = m; lines[z] = ln; tints[z] = tn
+			var row := {"target": t["name"], "zoom": z, "ppc": on[2], "lod": z > 2.2, "area_cells": m["area_cells"], "col": m.get("col", []),
+				"line_cells": ln["area_cells"], "tint_cells": tn["area_cells"]}
+			res["views"].append(row)
+			print("    rim7rest %s z%.1f ppc %.2f river area %.1f cells^2 col %s  line %.1f  tint %.1f" % [t["name"], z, float(on[2]), float(m["area_cells"]), str(m.get("col", "-")), float(ln["area_cells"]), float(tn["area_cells"])])
+		## Seams: the switch pair (last zoom <= 2.2 against first > 2.2), and
+		## each deeper zoom against the first tile zoom.
+		var below := -1.0; var above := 99.0
+		for z: float in _rim7r_zooms:
+			if z <= 2.2: below = maxf(below, z)
+			else: above = minf(above, z)
+		var pairs := [[below, above]]
+		for z: float in _rim7r_zooms:
+			if z > above: pairs.append([above, z])
+		for pr in pairs:
+			if not masks.has(pr[0]) or not masks.has(pr[1]): continue
+			var cmp := _rim7r_compare(masks[pr[0]], masks[pr[1]])
+			cmp["target"] = t["name"]; cmp["pair"] = pr
+			var ta: float = tints[pr[0]]["area_cells"]; var tb: float = tints[pr[1]]["area_cells"]
+			cmp["tint_cells"] = [ta, tb]
+			if float(lines[pr[0]]["area_cells"]) > 0.0 and float(lines[pr[1]]["area_cells"]) > 0.0:
+				var lc := _rim7r_compare(lines[pr[0]], lines[pr[1]])
+				cmp["line"] = {"area_ratio": lc["area_ratio"], "iou0": lc["iou0"], "best_iou": lc["best_iou"], "best_shift_cells": lc["best_shift_cells"]}
+			res["seams"].append(cmp)
+			print("    rim7rest seam %s z%.1f->z%.1f %s" % [t["name"], pr[0], pr[1], JSON.stringify(cmp)])
+		if _rim7r_export:
+			res["export_%s" % t["name"]] = await _rim7r_export_run(c, masks, step)
+	## Frames the screen path and the off switches must keep pixel-identical to
+	## HEAD (compared by script across a HEAD run and this tree's): the fit view
+	## and z2.1 as shipped (screen path), z3 with the Rivers layer off (tiles,
+	## no river), z3 with the stroke look (`debug_set_river_paint(false)`).
+	for t: Dictionary in targets:
+		var c: Vector2 = t["p"]
+		for z: float in [1.0, 2.1]:
+			var img := await _rim2_grab(c, z)
+			img.save_png(_out.path_join("rim7r_id_%s_z%.1f_screen.png" % [t["name"], z]))
+		_vh.set_layer_visible("rivers", false)
+		_vh.invalidate_lod_tiles()
+		var nr := await _rim2_grab(c, 3.0)
+		nr.save_png(_out.path_join("rim7r_id_%s_z3.0_norivers.png" % t["name"]))
+		_vh.set_layer_visible("rivers", true)
+		_vh.invalidate_lod_tiles()
+		await _set_paint(false)
+		_vh.invalidate_lod_tiles()
+		var sk := await _rim2_grab(c, 3.0)
+		sk.save_png(_out.path_join("rim7r_id_%s_z3.0_stroke.png" % t["name"]))
+		await _set_paint(true)
+		_vh.invalidate_lod_tiles()
+		await _settle_lod()
+	## The export under the stroke look (`debug_set_river_paint(false)`) at
+	## the trunk and at the largest delta mouth: that look draws no fan on any
+	## path, so its export must equal HEAD's byte for byte -- the check that an
+	## export's fans follow the EXPORT's look, not a default one.
+	var stats: Dictionary = _br.world_gen.river_delta_stats()
+	var mouths := _rim4_mouth_stats(rivers)
+	var spots := [{"name": "trunk", "p": t0["p"]}]
+	if not stats.is_empty():
+		var mp := _rim4_pick(mouths["rows"], int(stats["min_order"]), float(stats["min_discharge_frac"]), 1)
+		if not mp.is_empty():
+			spots.append({"name": "mouth", "p": Vector2(mp[0]["x"], mp[0]["y"])})
+	var dir := ProjectSettings.globalize_path(_out)
+	for sp: Dictionary in spots:
+		var pc: Vector2 = sp["p"]
+		for look in ["paint", "stroke"]:
+			await _set_paint(look == "paint")
+			var path := dir.path_join("rim7r_%s_%s_export.png" % ["id" if look == "stroke" else "look", sp["name"] + "_" + look])
+			var r: Dictionary = _br.world_gen.export_snapshot_png(path, int(round(pc.x)), int(round(pc.y)), 30, 488)
+			if not bool(r.get("ok", false)):
+				printerr("PROBE-FAIL: export_snapshot_png failed: ", r)
+				_report["fail"] = true
+	await _set_paint(true)
+	_vh.invalidate_lod_tiles()
+	if _rim7r_cost:
+		res["cost"] = await _rim7r_cost_run(t0["p"])
+	print("  rim7rest river_paint_stats (end): ", _br.world_gen.river_paint_stats())
+	return res
+
+
+## The real region export (`export_snapshot_png`, the `export_raster_png`
+## assembly) round `c` at 4 and 8 px a cell, ON and with the river opacity at 0,
+## its river mask in cell space (export pixel `col` samples cell
+## `(x0 + col) * (gw - 1) / (out_w - 1)`, `render::bake_rect`), against the
+## screen's mask at the tile zoom of the nearest density.
+func _rim7r_export_run(c: Vector2, masks: Dictionary, step: float) -> Dictionary:
+	var out := {}
+	var dir := ProjectSettings.globalize_path(_out)
+	var cx := int(round(c.x)); var cy := int(round(c.y))
+	for ppc_want in [4.0, 8.0]:
+		var radius := int(ceil(_rim7r_radius)) + 4
+		var span := 2 * radius + 1
+		var size := int(round(span * ppc_want))
+		var imgs := {}
+		for st in ["on", "off"]:
+			await _rim7r_opacity(1.0 if st == "on" else 0.0)
+			var path := dir.path_join("rim7rx_%d_%d_ppc%d_%s.png" % [cx, cy, int(ppc_want), st])
+			var r: Dictionary = _br.world_gen.export_snapshot_png(path, cx, cy, radius, size)
+			if not bool(r.get("ok", false)):
+				printerr("PROBE-FAIL: export_snapshot_png failed: ", r)
+				_report["fail"] = true
+				continue
+			var im := Image.load_from_file(path)
+			if im != null:
+				im.convert(Image.FORMAT_RGBA8)
+				imgs[st] = im
+		await _rim7r_opacity(1.0)
+		if not (imgs.has("on") and imgs.has("off")):
+			continue
+		## `export_snapshot_png`'s own window arithmetic (export_raster.rs).
+		var virt := func(g: int) -> int: return maxi(int(round(float(g - 1) * size / float(span))), 2) + 1
+		var ow: int = virt.call(_grid.x); var oh: int = virt.call(_grid.y)
+		var w := mini(size, ow); var h := mini(size, oh)
+		var place := func(cc: int, g: int, o: int, win: int) -> int:
+			var px := float(cc) * float(maxi(o, 2) - 1) / float(g - 1)
+			return int(clampf(round(px - win / 2.0), 0.0, float(o - win)))
+		var x0: int = place.call(cx, _grid.x, ow, w); var y0: int = place.call(cy, _grid.y, oh, h)
+		var eppc := float(ow - 1) / float(_grid.x - 1)
+		## Pixel col sits at cell (x0 + col) / eppc, so cell 0 is at pixel -x0;
+		## `_rim7r_mask` samples pixel round(origin + cell * ppc - 0.5), and a
+		## bake pixel's centre is its index, so the origin carries +0.5.
+		var origin := Vector2(-x0 + 0.5, -y0 + 0.5)
+		var em := _rim7r_mask(imgs["on"], imgs["off"], origin, eppc, c, step)
+		## The screen zoom of the nearest density past the switch.
+		var best_z := -1.0; var best_d := 1e9
+		for z: float in masks.keys():
+			if z <= 2.2: continue
+			var vppc: float = float(_ppc_scale()) * z
+			if absf(vppc - eppc) < best_d: best_d = absf(vppc - eppc); best_z = z
+		var key := "ppc%d" % int(ppc_want)
+		out[key] = {"export_ppc": eppc, "export_area_cells": em["area_cells"], "export_col": em.get("col", [])}
+		if best_z > 0.0:
+			var cmp := _rim7r_compare(masks[best_z], em)
+			cmp["screen_zoom"] = best_z
+			cmp["screen_ppc"] = float(_ppc_scale()) * best_z
+			out[key]["vs_screen"] = cmp
+		print("    rim7rest export %s %s" % [key, JSON.stringify(out[key])])
+	return out
+
+
+## Screen pixels per cell at camera zoom 1 (the displayed rect's native scale).
+func _ppc_scale() -> float:
+	return _vh.overlay.displayed_rect().size.x / float(_grid.x)
+
+
+## Cost: the pan frame time at the fit view and z2.1 (the screen path, which
+## this lane must not change) and at z3 over built tiles; and the synchronous
+## build of the target's tile at the z3, z4 and z8 levels (`lod_synthesize_tile`,
+## five timed calls after one warm-up), the painted look against the stroke
+## look (`debug_set_river_paint(false)`, the HEAD tile path), alternated three
+## rounds in this one process. Median with min..max.
+func _rim7r_cost_run(c: Vector2) -> Dictionary:
+	var out := {}
+	for round in 3:
+		for st in ["paint", "stroke"]:
+			await _set_paint(st == "paint")
+			_vh.invalidate_lod_tiles()
+			for z: float in [1.0, 2.1, 3.0]:
+				var k := "pan_%s_z%.1f" % [st, z]
+				if not out.has(k): out[k] = []
+				_vh.reset_view()
+				await _settle(3)
+				_vh.zoom_step(z / _vh.zoom())
+				_vh.move_view_to(c.x, c.y)
+				await _settle(24)
+				await _settle_lod()
+				(out[k] as Array).append(await _pan_cost_here(c))
+			for z: float in [3.0, 4.0, 8.0]:
+				var lvl: int = _br.world_gen.lod_level_for_zoom(_ppc_scale() * z)
+				var n: int = _br.world_gen.lod_tiles_per_axis(lvl)
+				var col := int(floor(c.x / (float(_grid.x - 1) / n)))
+				var row := int(floor(c.y / (float(_grid.y - 1) / n)))
+				var k := "tile_%s_z%.0f" % [st, z]
+				if not out.has(k): out[k] = []
+				_br.world_gen.lod_synthesize_tile(lvl, col, row)
+				for i in 5:
+					var t0 := Time.get_ticks_usec()
+					_br.world_gen.lod_synthesize_tile(lvl, col, row)
+					(out[k] as Array).append((Time.get_ticks_usec() - t0) / 1000.0)
+	await _set_paint(true)
+	_vh.invalidate_lod_tiles()
+	var summary := {}
+	for k: String in out.keys():
+		var a: Array = (out[k] as Array).duplicate()
+		if k.begins_with("pan_"):
+			var med := []
+			for d: Dictionary in a: med.append(float(d["median_ms"]))
+			med.sort()
+			summary[k] = {"median_of_medians_ms": med[med.size() / 2], "min": med[0], "max": med[med.size() - 1], "n": med.size()}
+		else:
+			a.sort()
+			summary[k] = {"median_ms": a[a.size() / 2], "min_ms": a[0], "max_ms": a[a.size() - 1], "n": a.size()}
+	print("  rim7rest cost: ", JSON.stringify(summary))
+	return summary

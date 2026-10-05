@@ -49,8 +49,9 @@
 //! de-emphasis ([`river_stroke::o1_deemphasis`]) on the width and the alpha,
 //! and RIM-5's fade ([`river_stroke::o1_distance_fade`]) on the order-1 alpha
 //! below [`river_stroke::O1_FADE_FULL_PPC`] pixels per cell -- a headwater stream thins out of a zoomed-out
-//! map rather than popping, in this painted path only (the vector stroke, the
-//! tiles and the export keep `o1_deemphasis`'s opening look until RIM-7).
+//! map rather than popping, on every painted path (the vector stroke, which a
+//! look without `rivers_as_water` still draws, keeps `o1_deemphasis`'s opening
+//! look).
 //! The union with the shore field's own water coverage is how a river merges
 //! into a lake or the sea with no seam: where the water covers a pixel the
 //! river adds nothing, and the shore's contour is untouched
@@ -64,8 +65,22 @@
 //! uses ([`edge_px`]), so the two cannot disagree; it takes the order-1 alpha
 //! (RIM-5's fade removes the outline with the stream) and the plate-frame
 //! weight `A`; and it is clamped to the field's valid band so it thins to
-//! nothing at a zoomed-out view instead of ending on a step. Screen painted
-//! path only: tiles and export are RIM-7's.
+//! nothing at a zoomed-out view instead of ending on a step.
+//!
+//! **RIM-7: one law on every path** (2026-10-05). The screen paints from the
+//! texture in the GPU (`map_shore.gdshader`, its own GLSL copy of the law,
+//! held equal by the `the_shader_mirrors_*` tests). The deep-zoom tiles and
+//! every export paint from [`PaintSource::raster`]: the SAME per-texel
+//! evaluator the texture is built by ([`eval_window`] -- the nearest drawn
+//! segment by least edge distance, within [`band_cells`]), run exactly at each
+//! of their own pixels instead of read back bilinearly, and the SAME per-pixel
+//! law ([`pixel_paint`]: [`coverage`] with the order-1 rules and RIM-5's fade,
+//! the floodplain weight, [`bank_coverage`]), in the river colour the screen
+//! samples (the colour field, `river_stroke::rasterize_colour_field_with`).
+//! So a river has one width taper, one colour, one floodplain, one bank line
+//! and one headwater fade at fit zoom, past the deep-zoom switch and in a
+//! file. Which looks paint is one gate, [`painted`]; any other look keeps the
+//! vector stroke on all three paths.
 //!
 //! **Resolution and memory.** The field is supersampled by [`field_scale`]
 //! (1 or 2 texels a cell per axis) because a bilinear read of an unsigned
@@ -223,6 +238,69 @@ fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
     out
 }
 
+/// Where a raster's pixels sit in river space, for [`eval_window`]: pixel
+/// `(i, j)` is sampled at `((i - ox) / sx, (j - oy) / sy)` -- the inverse of
+/// `river_stroke::RasterMap`'s `raster = offset + point * scale`. The
+/// texture's texel `i` (centre `(i + 0.5) / s`) is `sx = s, ox = -0.5`.
+#[derive(Clone, Copy, Debug)]
+struct Place {
+    sx: f32,
+    sy: f32,
+    ox: f32,
+    oy: f32,
+}
+
+/// **The one per-texel decision** (RIM-1, shared since RIM-7): for every
+/// pixel of the window `win = (x0, y0, w, h)` of a raster of `raster = (W, H)`
+/// pixels placed by `pl`, keep the segment of `ids` with the least
+/// `d - hw * river_width` -- the signed distance to its EDGE at the preset's
+/// width, so a thin stream beside a trunk never wins a pixel inside the
+/// trunk's body -- among those whose band ([`band_cells`]) reaches the pixel.
+/// `best` (the winning edge distance, `INFINITY` = none) and `val` (`[d, hw,
+/// o1]`, `d` = [`SENTINEL`] = none) are the window's, row-major, `w * h`.
+///
+/// `ids` must be in draw order (ascending): a tie goes to the first, which is
+/// what keeps the texture deterministic and the fans behind the network
+/// (`build_with`). Each segment visits only its own reach box clipped to the
+/// window, so the cost is the segments' area, never the window's per segment.
+///
+/// Called by [`build_with`] (the screen's texture, a window of whole rows)
+/// and [`PaintSource::raster`] (a tile's or an export's own pixels, block by
+/// block). Must never be given a different law for the one or the other:
+/// that would let a river be wider on a tile than on the screen.
+#[allow(clippy::too_many_arguments)]
+fn eval_window(segs: &[Seg], ids: &[u32], pl: Place, raster: (usize, usize), win: (usize, usize, usize, usize), river_width: f32, best: &mut [f32], val: &mut [[f32; 3]]) {
+    let (w, h) = raster;
+    let (wx0, wy0, ww, wh) = win;
+    if w == 0 || h == 0 || ww == 0 || wh == 0 {
+        return;
+    }
+    for &si in ids {
+        let sg = &segs[si as usize];
+        let r = band_cells(sg.hwa.max(sg.hwb), river_width);
+        let x0 = (((sg.a.0.min(sg.b.0) - r) * pl.sx + pl.ox).floor().max(0.0)) as usize;
+        let x1 = ((((sg.a.0.max(sg.b.0) + r) * pl.sx + pl.ox).ceil()).max(0.0) as usize).min(w - 1);
+        let y0 = (((sg.a.1.min(sg.b.1) - r) * pl.sy + pl.oy).floor().max(0.0)) as usize;
+        let y1 = ((((sg.a.1.max(sg.b.1) + r) * pl.sy + pl.oy).ceil()).max(0.0) as usize).min(h - 1);
+        for j in y0.max(wy0)..=y1.min(wy0 + wh - 1) {
+            let qy = (j as f32 - pl.oy) / pl.sy;
+            let base = (j - wy0) * ww;
+            for i in x0.max(wx0)..=x1.min(wx0 + ww - 1) {
+                let (d, hw) = sg.nearest(((i as f32 - pl.ox) / pl.sx, qy));
+                if d > band_cells(hw, river_width) {
+                    continue;
+                }
+                let e = d - hw * river_width;
+                let k = base + i - wx0;
+                if e < best[k] {
+                    best[k] = e;
+                    val[k] = [d, hw, sg.o1];
+                }
+            }
+        }
+    }
+}
+
 /// The built field: `w x h` texels of [`CHANNELS`] half-float bit patterns
 /// (`render::f16_bits`), row-major, `scale` texels per cell per axis.
 pub struct RiverField {
@@ -246,7 +324,8 @@ pub struct RiverField {
 ///
 /// Exact, not approximate: every segment writes the true point-to-segment
 /// distance to each texel within its band ([`band_cells`]), keeping per texel
-/// the least `d - hw * river_width`. Parallel over bands of [`CHUNK_ROWS`]
+/// the least `d - hw * river_width` -- [`eval_window`], the decision the tiles
+/// and the exports make at their own pixels (RIM-7). Parallel over bands of [`CHUNK_ROWS`]
 /// rows (each segment is listed in the bands its box reaches), so the cost is
 /// the segments' own area, never the grid's per segment -- the scope's "needs
 /// a spatial index" risk answered by binning, measured in
@@ -306,35 +385,15 @@ pub fn build_with(
     }
     let sentinel_bits = crate::render::f16_bits(SENTINEL);
     let mut bits = vec![0u16; w * h * CHANNELS];
+    // Texel `i`'s centre is river-space `(i + 0.5) / s` (see `Place`).
+    let pl = Place { sx: sf, sy: sf, ox: -0.5, oy: -0.5 };
     bits.par_chunks_mut(CHUNK_ROWS * w * CHANNELS).zip(bins.par_iter()).enumerate().for_each(|(c, (out, bin))| {
         let rows = out.len() / (w * CHANNELS);
         let row0 = c * CHUNK_ROWS;
         let mut best = vec![f32::INFINITY; rows * w];
         // d, hw, o1 per texel; `d` starts at the sentinel.
         let mut val = vec![[SENTINEL, 0.0f32, 0.0f32]; rows * w];
-        for &si in bin {
-            let sg = &segs[si as usize];
-            let r = reach_of(sg);
-            let x0 = (((sg.a.0.min(sg.b.0) - r) * sf - 0.5).floor().max(0.0)) as usize;
-            let x1 = ((((sg.a.0.max(sg.b.0) + r) * sf - 0.5).ceil()).max(0.0) as usize).min(w - 1);
-            let y0 = (((sg.a.1.min(sg.b.1) - r) * sf - 0.5).floor().max(0.0)) as usize;
-            let y1 = ((((sg.a.1.max(sg.b.1) + r) * sf - 0.5).ceil()).max(0.0) as usize).min(h - 1);
-            for j in y0.max(row0)..=y1.min(row0 + rows - 1) {
-                let qy = (j as f32 + 0.5) / sf;
-                let base = (j - row0) * w;
-                for i in x0..=x1 {
-                    let (d, hw) = sg.nearest(((i as f32 + 0.5) / sf, qy));
-                    if d > band_cells(hw, river_width) {
-                        continue;
-                    }
-                    let e = d - hw * river_width;
-                    if e < best[base + i] {
-                        best[base + i] = e;
-                        val[base + i] = [d, hw, sg.o1];
-                    }
-                }
-            }
-        }
+        eval_window(&segs, bin, pl, (w, h), (0, row0, w, rows), river_width, &mut best, &mut val);
         for (k, v) in val.iter().enumerate() {
             let o = k * CHANNELS;
             out[o] = if v[0] == SENTINEL { sentinel_bits } else { crate::render::f16_bits(v[0]) };
@@ -349,6 +408,360 @@ pub fn build_with(
         }
     });
     Some(RiverField { w, h, scale: s, segments: segs.len(), bits })
+}
+
+/// **RIM-3's floodplain band, the shader's own ramp**: a river narrower than
+/// `FLOODPLAIN_EDGE_LO` cells (half-width at the preset's width) has no
+/// floodplain, one wider than `FLOODPLAIN_EDGE_HI` the full tint, smooth
+/// between (`smoothstep(0.35, 1.0, edge)` in `map_shore.gdshader`). **Labelled
+/// judgement**, tuned with the tint on the owner's world (2026-10-04): a
+/// trickle cuts no valley floor. Mirrored in the shader's text and held equal
+/// by `the_shader_mirrors_the_floodplain_tint`.
+pub const FLOODPLAIN_EDGE_LO: f32 = 0.35;
+/// See [`FLOODPLAIN_EDGE_LO`].
+pub const FLOODPLAIN_EDGE_HI: f32 = 1.0;
+
+/// The floodplain tint's strength: the shader's `floodplain_strength` uniform
+/// at its declared default, which the shell never sets (only a probe does, to
+/// measure the water alone). Read from the shader's text by
+/// `the_shader_mirrors_the_floodplain_tint`, so a shipped default that moved
+/// would fail rather than leave the tiles at the old one.
+pub const FLOODPLAIN_STRENGTH: f32 = 1.0;
+
+/// GLSL's `smoothstep`: 0 at or below `e0`, 1 at or above `e1`, the cubic
+/// `t^2 (3 - 2t)` between. Written out because the law it serves is the
+/// shader's, edge cases included (`e0 == e1` divides by zero there too; the
+/// callers never pass it).
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// **RIM-3's floodplain weight at a pixel** -- `map_shore.gdshader`'s `fp`:
+/// full inside and at the river's edge, fading to nothing over
+/// `FLOODPLAIN_BASE_CELLS + FLOODPLAIN_PER_HALF_WIDTH * edge` cells past it,
+/// none on an order-1 stream (`1 - o1`), ramped in with the river's width
+/// ([`FLOODPLAIN_EDGE_LO`]..[`FLOODPLAIN_EDGE_HI`]), times the strength and the
+/// plate-frame weight `texel[3]`. In cells, so the band is the same ground at
+/// every zoom. The water drawn over it hides it where the river covers
+/// ([`pixel_paint`]'s caller multiplies by `1 - cov`, as the shader's
+/// `mix(floodplain(land, fp), river, rcov)` does).
+pub fn floodplain_weight(texel: [f32; 4], river_width: f32) -> f32 {
+    let o1 = texel[2].clamp(0.0, 1.0);
+    let edge = texel[1] * river_width;
+    let e = texel[0] - edge;
+    let band = FLOODPLAIN_BASE_CELLS + FLOODPLAIN_PER_HALF_WIDTH * edge;
+    (1.0 - smoothstep(0.0, band, e)) * (1.0 - o1) * smoothstep(FLOODPLAIN_EDGE_LO, FLOODPLAIN_EDGE_HI, edge) * FLOODPLAIN_STRENGTH * texel[3]
+}
+
+/// What the painted river draws at one pixel ([`pixel_paint`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PixelPaint {
+    /// The water's coverage, `0..=1`: [`coverage`] times its order-1 alpha
+    /// (with RIM-5's fade) times the plate-frame weight -- the shader's `rcov`.
+    pub cov: f32,
+    /// The floodplain tint's weight before the water hides it
+    /// ([`floodplain_weight`]) -- the shader's `fp`.
+    pub floodplain: f32,
+    /// The RIM-2 bank line's weight, `0..=bank` ([`bank_coverage`]) -- the
+    /// shader's `bnk`; 0 whenever the preset has no outline.
+    pub bank: f32,
+}
+
+/// **RIM-7: the painted river at one pixel, the screen's law** -- what
+/// `map_shore.gdshader` computes from a texel, for the rasters that are not
+/// the screen: `texel` the field's four channels at the pixel (`[d, hw, o1,
+/// frame weight]`), `ppc` the raster's pixels per cell, `river_width` the
+/// preset's width multiplier, `bank` its outline strength (0 = off). One
+/// function, so the tile and the export cannot weigh a pixel differently from
+/// each other; the shader is held to it by the mirror tests.
+pub fn pixel_paint(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> PixelPaint {
+    let (c, am) = coverage(texel, ppc, river_width);
+    PixelPaint { cov: c * am * texel[3], floodplain: floodplain_weight(texel, river_width), bank: bank_coverage(texel, ppc, river_width, bank) }
+}
+
+/// **The one gate: does look `a` paint its rivers on a `gw x gh` map?**
+/// (`rivers_as_water` and the smooth shore it merges into, and a grid the
+/// field fits -- [`field_scale`]). The screen builds the field exactly then
+/// (`WorldGen::build_color_texture`), and since RIM-7 the deep-zoom tiles and
+/// the export paint exactly then too ([`PaintSource`]); in every other case
+/// all three draw the vector stroke, as before. RIM-4's fans take the same
+/// gate (`river_delta::fans_drawn`). Must never be answered differently by
+/// the three paths -- that is a river drawn two ways across the zoom switch.
+pub fn painted(a: &crate::render::TerrainAppearance, gw: usize, gh: usize) -> bool {
+    a.smooth_shores && a.rivers_as_water && field_scale(gw, gh).is_some()
+}
+
+/// Side, in cells, of the square bins [`PaintSource`] files its segments in.
+/// **Labelled judgement**: a tile's or an export block's window is 32 pixels,
+/// 2 to 32 cells across between the deep zooms and a grid-resolution export,
+/// so a bin of 8 cells keeps the candidate list near the window's own while
+/// the index stays small (a few thousand bins on the owner's world). A wrong
+/// value costs time, never a pixel: every segment whose reach box meets the
+/// window is found whatever the bin size (`a_raster_at_the_texture_density_is_the_texture`).
+const BIN_CELLS: f32 = 8.0;
+
+/// **RIM-7: the painted river for every raster that is not the screen** --
+/// the drawn network's segments (with RIM-4's fans, as the screen's field has
+/// them) in a spatial index, the screen's river colour field, and the look's
+/// width, outline and frame. [`Self::raster`] paints any raster with them: a
+/// deep-zoom tile (`lod_bridge::synthesize_tile_rgba_rivers`) or an export
+/// rectangle (`export_raster::with_export_rivers`), at that raster's own
+/// pixels. Built once per look and network (`WorldGen::river_paint_source`)
+/// and shared, read-only, by every worker.
+///
+/// Must never exist for a look [`painted`] refuses: that look draws the
+/// stroke on screen, so a painted tile would be the seam this type exists to
+/// remove.
+pub struct PaintSource {
+    segs: Vec<Seg>,
+    river_width: f32,
+    gw: usize,
+    gh: usize,
+    /// Segment ids per bin, row-major `bins_w x bins_h`, each segment filed in
+    /// every bin its reach box ([`band_cells`]) touches, in draw order.
+    bins: Vec<Vec<u32>>,
+    bins_w: usize,
+    bins_h: usize,
+    /// The screen's river colour field (`river_stroke::rasterize_colour_field_with`,
+    /// one pixel per cell, premultiplied, the preset's colour and opacity):
+    /// the colour the screen's `river_color` texture is rendered from.
+    colour: std::sync::Arc<crate::render::RiverLayer>,
+    bank: f32,
+    bank_rgb: [f32; 3],
+    /// The look, for the plate frame's cover (`render::border_cover_f`).
+    appearance: crate::render::TerrainAppearance,
+}
+
+impl PaintSource {
+    /// Index `geom` and, after it, `fans` (the order [`build_with`] flattens
+    /// them in) for look `a` on a `gw x gh` map, with `colour` the river
+    /// colour field built from the same geometry and look. `None` when the
+    /// look does not paint ([`painted`]) or there is nothing to draw.
+    pub fn new(
+        geom: &RiverGeometry,
+        fans: Option<&RiverGeometry>,
+        gw: usize,
+        gh: usize,
+        a: &crate::render::TerrainAppearance,
+        colour: std::sync::Arc<crate::render::RiverLayer>,
+    ) -> Option<PaintSource> {
+        if !painted(a, gw, gh) {
+            return None;
+        }
+        let river_width = crate::river_stroke::river_width_factor(a);
+        let segs = match fans {
+            Some(f) => segments(&[geom, f], gw, river_width),
+            None => segments(&[geom], gw, river_width),
+        };
+        if segs.is_empty() {
+            return None;
+        }
+        let bins_w = ((gw as f32 / BIN_CELLS).ceil() as usize).max(1);
+        let bins_h = ((gh as f32 / BIN_CELLS).ceil() as usize).max(1);
+        let mut bins: Vec<Vec<u32>> = vec![Vec::new(); bins_w * bins_h];
+        for (i, sg) in segs.iter().enumerate() {
+            let r = band_cells(sg.hwa.max(sg.hwb), river_width);
+            let (bx0, bx1) = (bin_of(sg.a.0.min(sg.b.0) - r, bins_w), bin_of(sg.a.0.max(sg.b.0) + r, bins_w));
+            let (by0, by1) = (bin_of(sg.a.1.min(sg.b.1) - r, bins_h), bin_of(sg.a.1.max(sg.b.1) + r, bins_h));
+            for by in by0..=by1 {
+                for bx in bx0..=bx1 {
+                    bins[by * bins_w + bx].push(i as u32);
+                }
+            }
+        }
+        let ink = |v: f64| (v / 255.0).clamp(0.0, 1.0) as f32;
+        Some(PaintSource {
+            segs,
+            river_width,
+            gw,
+            gh,
+            bins,
+            bins_w,
+            bins_h,
+            colour,
+            bank: a.river_bank.clamp(0.0, 1.0) as f32,
+            bank_rgb: [ink(a.river_ink_r), ink(a.river_ink_g), ink(a.river_ink_b)],
+            appearance: a.clone(),
+        })
+    }
+
+    /// How many straight segments the network and fans flattened to.
+    pub fn segment_count(&self) -> usize {
+        self.segs.len()
+    }
+
+    /// The segment ids whose bins meet the river-space rectangle
+    /// `[x0, x1] x [y0, y1]`, ascending (draw order), each once.
+    fn ids_in(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> Vec<u32> {
+        let (bx0, bx1) = (bin_of(x0, self.bins_w), bin_of(x1, self.bins_w));
+        let (by0, by1) = (bin_of(y0, self.bins_h), bin_of(y1, self.bins_h));
+        let mut ids: Vec<u32> = Vec::new();
+        for by in by0..=by1 {
+            for bx in bx0..=bx1 {
+                ids.extend_from_slice(&self.bins[by * self.bins_w + bx]);
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
+    /// The river colour at river-space `q`: the colour field read bilinearly
+    /// (its pixel `x` sits on cell `x`'s centre, river-space `x + 0.5`), as the
+    /// screen's linear filter reads the texture rendered from it. Premultiplied
+    /// `[r, g, b, a]` on `land_color`'s `0..=255` scale; `None` where the field
+    /// holds no river colour.
+    fn colour_at(&self, q: (f32, f32)) -> Option<[f32; 4]> {
+        let (fx, fy) = (q.0 - 0.5, q.1 - 0.5);
+        let (x0, y0) = (fx.floor(), fy.floor());
+        let (tx, ty) = (fx - x0, fy - y0);
+        let px = |x: f32, y: f32| -> [f32; 4] {
+            if x < 0.0 || y < 0.0 {
+                return [0.0; 4];
+            }
+            self.colour.at(x as usize, y as usize).unwrap_or([0.0; 4])
+        };
+        let (c00, c10, c01, c11) = (px(x0, y0), px(x0 + 1.0, y0), px(x0, y0 + 1.0), px(x0 + 1.0, y0 + 1.0));
+        let mut out = [0.0f32; 4];
+        for k in 0..4 {
+            let top = c00[k] + (c10[k] - c00[k]) * tx;
+            let bot = c01[k] + (c11[k] - c01[k]) * tx;
+            out[k] = top + (bot - top) * ty;
+        }
+        (out[3] > 0.0).then_some(out)
+    }
+
+    /// One [`crate::render::RIVER_BLOCK`] block `(bx, by)` of a `w x h`
+    /// raster placed by `pl`: the block's size and [`eval_window`]'s `best`
+    /// and `val` over it, from the segments the index files near it. `None`
+    /// when no segment's bin meets the block. The one evaluation
+    /// [`Self::raster`] paints from (and the tests read back).
+    #[allow(clippy::type_complexity)]
+    fn block_texels(&self, pl: Place, w: usize, h: usize, bx: usize, by: usize) -> Option<(usize, usize, Vec<f32>, Vec<[f32; 3]>)> {
+        use crate::render::RIVER_BLOCK as B;
+        let (wx0, wy0) = (bx * B, by * B);
+        if wx0 >= w || wy0 >= h {
+            return None;
+        }
+        let (ww, wh) = (B.min(w - wx0), B.min(h - wy0));
+        let q = |i: f32, j: f32| ((i - pl.ox) / pl.sx, (j - pl.oy) / pl.sy);
+        let (lo, hi) = (q(wx0 as f32, wy0 as f32), q((wx0 + ww - 1) as f32, (wy0 + wh - 1) as f32));
+        let ids = self.ids_in(lo.0, lo.1, hi.0, hi.1);
+        if ids.is_empty() {
+            return None;
+        }
+        let mut best = vec![f32::INFINITY; ww * wh];
+        let mut val = vec![[SENTINEL, 0.0f32, 0.0f32]; ww * wh];
+        eval_window(&self.segs, &ids, pl, (w, h), (wx0, wy0, ww, wh), self.river_width, &mut best, &mut val);
+        Some((ww, wh, best, val))
+    }
+
+    /// Test access: the winning `[d, hw, o1]` at every pixel of a `w x h`
+    /// raster placed by `map`, through [`Self::block_texels`] block by block
+    /// exactly as [`Self::raster`] evaluates it; `None` where no band reaches.
+    #[cfg(test)]
+    pub fn texels(&self, map: crate::river_stroke::RasterMap, w: usize, h: usize) -> Vec<Option<[f32; 3]>> {
+        use crate::render::RIVER_BLOCK as B;
+        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1 };
+        let mut out = vec![None; w * h];
+        for by in 0..h.div_ceil(B) {
+            for bx in 0..w.div_ceil(B) {
+                if let Some((ww, wh, best, val)) = self.block_texels(pl, w, h, bx, by) {
+                    for ly in 0..wh {
+                        for lx in 0..ww {
+                            if best[ly * ww + lx].is_finite() {
+                                out[(by * B + ly) * w + bx * B + lx] = Some(val[ly * ww + lx]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// **The painted river in a `w x h` raster placed by `map`** -- a tile at
+    /// its own resolution or an export rectangle at the export's: per pixel,
+    /// [`eval_window`]'s winner (the decision the screen's texture holds per
+    /// texel), evaluated exactly at the pixel, then [`pixel_paint`] at the
+    /// raster's own pixels per cell. The water goes in the layer's colour
+    /// plane (the river colour, [`Self::colour_at`], times its coverage), for
+    /// `render::land_color` to composite as it composites a stroke; the
+    /// floodplain weight (already reduced by the water's coverage) and the
+    /// bank line's go in its post plane (`RiverLayer::post_at`), for the
+    /// caller to draw after its finishing pass.
+    ///
+    /// A pixel no segment's band reaches is never painted -- not a texel at
+    /// the [`SENTINEL`] distance, which at a few hundredths of a pixel per
+    /// cell would read as coverage. Parallel over [`crate::render::RIVER_BLOCK`]
+    /// blocks; deterministic (each block's segments in draw order).
+    pub fn raster(&self, map: crate::river_stroke::RasterMap, w: usize, h: usize) -> crate::render::RiverLayer {
+        use crate::render::RIVER_BLOCK as B;
+        let mut layer = crate::render::RiverLayer::new(w, h);
+        layer.set_bank_rgb(self.bank_rgb);
+        let pl = Place { sx: map.scale.0, sy: map.scale.1, ox: map.offset.0, oy: map.offset.1 };
+        if w == 0 || h == 0 || !(pl.sx > 0.0 && pl.sy > 0.0 && pl.ox.is_finite() && pl.oy.is_finite()) {
+            return layer;
+        }
+        let ppc = map.px_per_cell();
+        let (nbx, nby) = (w.div_ceil(B), h.div_ceil(B));
+        // One finished block of the raster: its origin cell and the optional per-texel paint and colour rows.
+        type Block = (usize, usize, Option<Box<[[f32; 4]]>>, Option<Box<[[f32; 2]]>>);
+        let blocks: Vec<Block> = (0..nbx * nby)
+            .into_par_iter()
+            .filter_map(|bi| {
+                let (bx, by) = (bi % nbx, bi / nbx);
+                let (wx0, wy0) = (bx * B, by * B);
+                let (ww, wh, best, val) = self.block_texels(pl, w, h, bx, by)?;
+                let q = |i: f32, j: f32| ((i - pl.ox) / pl.sx, (j - pl.oy) / pl.sy);
+                let mut col: Option<Box<[[f32; 4]]>> = None;
+                let mut post: Option<Box<[[f32; 2]]>> = None;
+                for ly in 0..wh {
+                    for lx in 0..ww {
+                        let k = ly * ww + lx;
+                        if !best[k].is_finite() {
+                            continue;
+                        }
+                        let v = val[k];
+                        let p = q((wx0 + lx) as f32, (wy0 + ly) as f32);
+                        // The frame weight at the pixel's own cell-index
+                        // position, as `build_with` stores it per texel.
+                        let fw = (1.0 - crate::render::border_cover_f(&self.appearance, p.0 as f64 - 0.5, p.1 as f64 - 0.5, self.gw, self.gh)).clamp(0.0, 1.0) as f32;
+                        let paint = pixel_paint([v[0], v[1], v[2], fw], ppc, self.river_width, self.bank);
+                        let li = ly * B + lx;
+                        if paint.cov > 0.0 {
+                            if let Some(c) = self.colour_at(p) {
+                                let rv = [c[0] * paint.cov, c[1] * paint.cov, c[2] * paint.cov, c[3] * paint.cov];
+                                if rv[3] > 0.0 {
+                                    col.get_or_insert_with(|| vec![[0.0f32; 4]; B * B].into_boxed_slice())[li] = rv;
+                                }
+                            }
+                        }
+                        let fp = paint.floodplain * (1.0 - paint.cov.clamp(0.0, 1.0));
+                        if fp > 0.0 || paint.bank > 0.0 {
+                            post.get_or_insert_with(|| vec![[0.0f32; 2]; B * B].into_boxed_slice())[li] = [fp, paint.bank];
+                        }
+                    }
+                }
+                (col.is_some() || post.is_some()).then_some((bx, by, col, post))
+            })
+            .collect();
+        for (bx, by, c, p) in blocks {
+            layer.put_block(bx, by, c, p);
+        }
+        layer
+    }
+}
+
+/// The bin of river-space coordinate `v` among `n` bins of [`BIN_CELLS`],
+/// clamped to the index (a reach past the map's edge files in the edge bin,
+/// and a raster past the edge -- a tile's halo -- asks it).
+fn bin_of(v: f32, n: usize) -> usize {
+    if !(v > 0.0) {
+        return 0;
+    }
+    ((v / BIN_CELLS) as usize).min(n - 1)
 }
 
 #[cfg(test)]
@@ -396,14 +809,15 @@ impl RiverField {
     }
 }
 
-#[cfg(test)]
-/// **The shader's river coverage law, mirrored** -- `map_shore.gdshader`'s
-/// river block, written once more here so a test can pin it against
-/// [`river_stroke::rasterize`] and a probe can name the number it should see.
-/// `texel` is a bilinear read ([`RiverField::sample`]); `ppc` the screen's
-/// pixels per grid cell; `river_width` the preset's multiplier. Returns
-/// `(coverage 0..1, alpha multiplier)`: the stroke's own antialiased
-/// coverage and the order-1 alpha, whose product is what composites.
+/// **The river coverage law** -- `map_shore.gdshader`'s river block in Rust.
+/// Since RIM-7 it is not only a mirror for the tests: [`pixel_paint`] draws the
+/// deep-zoom tiles' and the exports' painted rivers with it. `texel` is the
+/// field's four channels at the pixel (a bilinear read on screen,
+/// [`RiverField::sample`]; an exact evaluation on a tile or in an export,
+/// [`PaintSource::raster`]); `ppc` the raster's pixels per grid cell;
+/// `river_width` the preset's multiplier. Returns `(coverage 0..1, alpha
+/// multiplier)`: the stroke's own antialiased coverage and the order-1 alpha,
+/// whose product (times the plate-frame weight `texel[3]`) is what composites.
 ///
 /// The 1 px floor and the one-pixel fringe are [`river_stroke::river_px_width`]
 /// and `river_stroke::stroke_mesh`'s: the stroke is `hw_px` to its inner
@@ -414,7 +828,6 @@ pub fn coverage(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
     (((hw_px + EDGE_FRINGE_PX - d_px) / EDGE_FRINGE_PX).clamp(0.0, 1.0), am)
 }
 
-#[cfg(test)]
 /// The two numbers [`coverage`] and [`bank_coverage`] share, so the outline
 /// can never be measured from a different edge than the water: the half-width
 /// in screen pixels (`hw_px`, with the order-1 narrowing and the 1 px floor)
@@ -435,7 +848,6 @@ fn edge_px(texel: [f32; 4], ppc: f32, river_width: f32) -> (f32, f32) {
 /// one-pixel pen line is what an engraved or inked atlas runs along a bank --
 /// anything wider reads as a second, darker river rather than an edge, and
 /// the line is antialiased over one more pixel (`1 + BANK_WIDTH_PX` px in all).
-#[cfg(test)]
 pub const BANK_WIDTH_PX: f32 = 1.0;
 
 /// **RIM-2: how much of the field's valid band the outline may not use, in
@@ -445,10 +857,10 @@ pub const BANK_WIDTH_PX: f32 = 1.0;
 /// too large, which would cut the outline off with a visible step. One cell is
 /// the width of a texel of the coarser (1 texel a cell) field, the worst case.
 /// **Labelled judgement**, mirrored in the shader as `BANK_BAND_MARGIN_CELLS`.
-#[cfg(test)]
 pub const BANK_BAND_MARGIN_CELLS: f32 = 1.0;
 
-/// **The shader's bank outline law, mirrored** (RIM-2): the outline's weight
+/// **The bank outline law** (RIM-2; `map_shore.gdshader`'s, and since RIM-7
+/// the tiles' and the exports' through [`pixel_paint`]): the outline's weight
 /// at a pixel whose bilinear field read is `texel`, with `bank` the preset's
 /// opacity for it ([`crate::render::TerrainAppearance::river_bank`], 0 = off).
 /// Returns the weight the ink is mixed in by, `0..=bank`.
@@ -475,7 +887,6 @@ pub const BANK_BAND_MARGIN_CELLS: f32 = 1.0;
 /// outline with the water: no orphan outline on a faded stream) and the
 /// plate-frame weight `texel[3]` (none on the bare-paper margin) -- the same
 /// two factors [`coverage`]'s composite takes.
-#[cfg(test)]
 pub fn bank_coverage(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> f32 {
     if bank <= 0.0 {
         return 0.0;
@@ -874,5 +1285,364 @@ mod tests {
             let b = crate::render::f16_bits(v);
             assert!((f16_to_f32(b) - v).abs() <= v.abs() * 1e-3 + 1e-6, "{v}");
         }
+    }
+
+    // ---- RIM-7: one law on every path -------------------------------------------
+
+    /// A run that bends (a sine of amplitude 3 cells), its width ramping from
+    /// `w0` to `w1` cells, so a test sees curvature, a taper and joins.
+    fn bendy(y0: f32, x0: f32, x1: f32, w0: f32, w1: f32, own_order: i16) -> DrawnRun {
+        let mut r = run(y0, x0, x1, w0, own_order);
+        let n = r.pts.len();
+        for (i, p) in r.pts.iter_mut().enumerate() {
+            p.1 = y0 + 3.0 * (p.0 * 0.13).sin();
+            r.widths[i] = w0 + (w1 - w0) * i as f32 / n as f32;
+        }
+        r
+    }
+
+    /// The fixture network: a tapering trunk, an order-1 stream beside it and
+    /// a second river, on a 100 x 60 map, and one fan off the trunk.
+    fn network() -> (RiverGeometry, RiverGeometry) {
+        let g = geom(vec![bendy(20.0, 3.0, 90.0, 0.3, 4.0, 3), bendy(31.0, 10.0, 60.0, 0.2, 0.6, 1), bendy(45.5, 2.5, 80.0, 1.0, 1.5, 2)]);
+        let f = geom(vec![bendy(25.0, 70.0, 95.0, 0.5, 0.5, 3)]);
+        (g, f)
+    }
+
+    /// The look every RIM-7 test paints with: the default (which paints its
+    /// rivers) with a bank outline on, so all three of the law's outputs move.
+    fn look() -> crate::render::TerrainAppearance {
+        crate::render::TerrainAppearance { river_bank: 0.6, ..crate::render::TerrainAppearance::default() }
+    }
+
+    /// Test helper: builds a `PaintSource` over `g` (and optional fans `f`) for the given look and grid, so each test names only what it varies.
+    fn source(g: &RiverGeometry, f: Option<&RiverGeometry>, a: &crate::render::TerrainAppearance, gw: usize, gh: usize) -> PaintSource {
+        let colour = std::sync::Arc::new(crate::river_stroke::rasterize_colour_field_with(g, f, a, gw, gh));
+        PaintSource::new(g, f, gw, gh, a, colour).expect("the look paints and the network is not empty")
+    }
+
+    /// Protects: **the tiles and the export decide "is this pixel river
+    /// water" by the very evaluation the screen's texture holds.** A raster
+    /// placed exactly on the texture's texels (`RasterMap { scale: s, offset:
+    /// -0.5 }`) and evaluated block by block through the spatial index gives,
+    /// at every texel, the distance, half-width and order-1 weight
+    /// `build_with` stored -- bit for bit in half-float -- and no texel more or
+    /// fewer. A bin that missed a segment, a block seam, a different tie-break
+    /// or a different band would each break it. Both field densities (2 and 1
+    /// texels a cell), the fans included.
+    #[test]
+    fn a_raster_at_the_texture_density_is_the_texture() {
+        let (g, f) = network();
+        let a = look();
+        let rw = crate::river_stroke::river_width_factor(&a);
+        for (gw, gh) in [(100usize, 60usize), (2200, 1500)] {
+            let field = build_with(&g, Some(&f), gw, gh, rw, &|_, _| 0.0).expect("a field");
+            let src = source(&g, Some(&f), &a, gw, gh);
+            let sf = field.scale as f32;
+            let map = crate::river_stroke::RasterMap { scale: (sf, sf), offset: (-0.5, -0.5) };
+            // The fixture lies in the top-left 100 x 60 cells: compare that window.
+            let (w, h) = ((100.0 * sf) as usize, (60.0 * sf) as usize);
+            let t = src.texels(map, w, h);
+            let (mut hits, mut same) = (0usize, 0usize);
+            for j in 0..h {
+                for i in 0..w {
+                    let o = (j * field.w + i) * CHANNELS;
+                    let stored = &field.bits[o..o + 3];
+                    match t[j * w + i] {
+                        Some(v) => {
+                            hits += 1;
+                            let b = [crate::render::f16_bits(v[0]), crate::render::f16_bits(v[1]), crate::render::f16_bits(v[2])];
+                            assert_eq!(&b[..], stored, "texel ({i}, {j}) of {gw}x{gh}: raster {v:?}");
+                            same += 1;
+                        }
+                        None => assert_eq!(stored[0], crate::render::f16_bits(SENTINEL), "texel ({i}, {j}) of {gw}x{gh}: the field has a river the raster lacks"),
+                    }
+                }
+            }
+            assert!(hits > 2000, "positive control: the fixture reaches {hits} texels");
+            assert_eq!(hits, same);
+        }
+    }
+
+    /// Protects: `pixel_paint` is the shader's law term for term -- coverage
+    /// times the order-1 alpha times the frame weight, the floodplain weight,
+    /// the bank line -- with each term's own literal anchor: full floodplain
+    /// at the edge of a 1-cell half-width river, half of it one cell out (the
+    /// smoothstep's midpoint over a 2-cell band), none on an order-1 stream
+    /// or a river at the narrow end of the ramp (0.35 cells), half at the
+    /// ramp's midpoint (0.675 cells), and the frame weight scaling every term.
+    #[test]
+    fn a_pixel_is_weighed_by_the_shaders_law() {
+        // At the edge of a trunk of half-width 1 cell, preset width 1.
+        let at_edge = pixel_paint([1.0, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0);
+        assert_eq!(at_edge.floodplain, 1.0);
+        let one_out = pixel_paint([2.0, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0);
+        assert!((one_out.floodplain - 0.5).abs() < 1e-6, "{one_out:?}");
+        assert_eq!(pixel_paint([3.0, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0).floodplain, 0.0, "past the band");
+        assert_eq!(pixel_paint([1.0, 1.0, 1.0, 1.0], 4.0, 1.0, 0.0).floodplain, 0.0, "an order-1 stream has no floodplain");
+        assert_eq!(pixel_paint([0.35, 0.35, 0.0, 1.0], 4.0, 1.0, 0.0).floodplain, 0.0, "a river at the ramp's narrow end has none");
+        assert!((pixel_paint([0.675, 0.675, 0.0, 1.0], 4.0, 1.0, 0.0).floodplain - 0.5).abs() < 1e-6, "half at the ramp's midpoint");
+        // Coverage: the stroke law (inside = 1, the fringe linear), times the frame.
+        let inside = pixel_paint([0.2, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0);
+        assert_eq!(inside.cov, 1.0);
+        let fringe = pixel_paint([1.125, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0); // 0.5 px past the 4 px edge
+        assert!((fringe.cov - 0.5).abs() < 1e-6, "{fringe:?}");
+        let framed = pixel_paint([0.2, 1.0, 0.0, 0.5], 4.0, 1.0, 0.6);
+        assert!((framed.cov - 0.5).abs() < 1e-6 && (framed.floodplain - 0.5).abs() < 1e-6);
+        // The same three numbers the mirrored shader functions give.
+        for t in [[0.3f32, 0.8, 0.0, 1.0], [1.4, 0.8, 1.0, 1.0], [2.2, 3.0, 0.3, 0.7]] {
+            for ppc in [0.5f32, 1.0, 3.7, 16.0] {
+                let p = pixel_paint(t, ppc, 1.3, 0.4);
+                let (c, am) = coverage(t, ppc, 1.3);
+                assert_eq!(p.cov, c * am * t[3]);
+                assert_eq!(p.bank, bank_coverage(t, ppc, 1.3, 0.4));
+                assert_eq!(p.floodplain, floodplain_weight(t, 1.3));
+            }
+        }
+        assert_eq!(pixel_paint([0.2, 1.0, 0.0, 1.0], 4.0, 1.0, 0.0).bank, 0.0, "no outline at strength 0");
+    }
+
+    /// Protects: the shader's floodplain mirror -- `map_shore.gdshader` keeps
+    /// its own copies of the tint (`land * MUL + ADD`), the width ramp, the
+    /// band and the strength's default (GLSL cannot import Rust), each read
+    /// from the shader's text and held equal to the Rust the tiles and the
+    /// export draw with. A tint retuned on one side only fails here.
+    #[test]
+    fn the_shader_mirrors_the_floodplain_tint() {
+        let src = include_str!("../../../godot-project/shell/map_shore.gdshader");
+        let (m, d) = (crate::render::FLOODPLAIN_MUL, crate::render::FLOODPLAIN_ADD);
+        let tint = format!("land * vec3({:?}, {:?}, {:?}) + vec3({:?}, {:?}, {:?})", m[0], m[1], m[2], d[0], d[1], d[2]);
+        assert!(src.contains(&tint), "the shader's tint is not `{tint}`");
+        assert!(src.contains(&format!("smoothstep({:?}, {:?}, edge)", FLOODPLAIN_EDGE_LO, FLOODPLAIN_EDGE_HI)), "the shader's width ramp differs");
+        assert!(src.contains(&format!("smoothstep(0.0, {:?} + edge, e)", FLOODPLAIN_BASE_CELLS)), "the shader's band base differs");
+        assert_eq!(FLOODPLAIN_PER_HALF_WIDTH, 1.0, "the shader's band is `1.0 + edge`: a per-half-width other than 1 is not expressible there");
+        assert!(src.contains(&format!("uniform float floodplain_strength = {:?};", FLOODPLAIN_STRENGTH)), "the shader's strength default differs");
+    }
+
+    /// Protects: the post-finish stage the tiles and the export draw after
+    /// their grade -- the floodplain tint, then the bank line, in the shader's
+    /// order. Nothing to draw returns the colour bit for bit; the full tint is
+    /// `rgb * MUL + ADD` (a literal: mid grey 0.5 goes to 0.492/0.549/0.474);
+    /// the full bank is the ink whatever the tint did first (the bank comes
+    /// last); and a pixel's land share scales both (`river_post_px`).
+    #[test]
+    fn the_post_stage_is_the_floodplain_then_the_bank() {
+        use crate::render::{river_post_px, river_post_rgb};
+        let g = [0.5, 0.5, 0.5];
+        assert_eq!(river_post_rgb(g, 0.0, 0.0, [1.0, 0.0, 0.0]), g);
+        let t = river_post_rgb(g, 1.0, 0.0, [1.0, 0.0, 0.0]);
+        for (k, want) in [0.492f64, 0.549, 0.474].into_iter().enumerate() {
+            assert!((t[k] - want).abs() < 1e-12, "{t:?}");
+        }
+        assert_eq!(river_post_rgb(g, 1.0, 1.0, [1.0, 0.0, 0.0]), [1.0, 0.0, 0.0], "the bank is drawn after the tint");
+        assert_eq!(river_post_px([128, 128, 128], [1.0, 0.0], 0.0, [0.0; 3]), [128, 128, 128], "on water nothing is drawn");
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 1.0, [0.0, 0.0, 0.0]), [0, 0, 0]);
+        assert_eq!(river_post_px([128, 128, 128], [0.0, 1.0], 0.5, [0.0, 0.0, 0.0]), [64, 64, 64], "half land, half the bank");
+    }
+
+    /// Protects: the gate. A look paints its rivers exactly when it has
+    /// `rivers_as_water` and the smooth shore and the grid fits the field --
+    /// the shipped default does, the reference look and a stroke look do not,
+    /// and 8192 x 5240 keeps the stroke -- and only then is there a
+    /// `PaintSource` (a stroke look gets none, so its tiles and exports stroke).
+    #[test]
+    fn the_painted_gate_is_the_screens() {
+        let a = crate::render::TerrainAppearance::default();
+        assert!(painted(&a, 2048, 1311) && painted(&a, 4096, 2622));
+        assert!(!painted(&a, 8192, 5240));
+        assert!(!painted(&crate::render::TerrainAppearance { rivers_as_water: false, ..a.clone() }, 2048, 1311));
+        assert!(!painted(&crate::render::TerrainAppearance { smooth_shores: false, ..a.clone() }, 2048, 1311));
+        assert!(!painted(&crate::render::TerrainAppearance::js_reference(), 2048, 1311));
+        let (g, _) = network();
+        let colour = std::sync::Arc::new(crate::river_stroke::rasterize_colour_field_with(&g, None, &a, 100, 60));
+        let stroke_look = crate::render::TerrainAppearance { rivers_as_water: false, ..a.clone() };
+        assert!(PaintSource::new(&g, None, 100, 60, &stroke_look, colour.clone()).is_none());
+        assert!(PaintSource::new(&g, None, 100, 60, &a, colour.clone()).is_some());
+        assert!(PaintSource::new(&geom(vec![]), None, 100, 60, &a, colour).is_none(), "nothing to draw is no source, never an empty one");
+    }
+
+    /// Screen-pixel coverage of a straight river under the shader law, read
+    /// three ways: `texture` = the stored field read bilinearly (what the GPU
+    /// does below the deep-zoom switch), `raster` = `PaintSource::raster`'s
+    /// layer (what a tile or an export composites), its water alpha over the
+    /// river colour's own, and `stroke` = RV-2's vector stroke
+    /// (`river_stroke::rasterize`, exact geometry, the same width law).
+    /// Returns their totals over the river's middle.
+    fn three_ways(width: f32, ppc: f32) -> (f64, f64, f64) {
+        let a = look();
+        let rw = crate::river_stroke::river_width_factor(&a);
+        let g = geom(vec![run(20.3, 4.0, 60.0, width, 3)]);
+        // The look's own plate frame, as `build_color_texture` builds the
+        // field and as `PaintSource::raster` weighs each pixel.
+        let field = build(&g, 64, 40, rw, &|x, y| crate::render::border_cover_f(&a, x, y, 64, 40)).expect("a field");
+        let src = source(&g, None, &a, 64, 40);
+        let (pw, ph) = ((64.0 * ppc) as usize, (40.0 * ppc) as usize);
+        // Pixel (x, y) sits on river-space (x, y) / ppc, as `both` reads the texture.
+        let layer = src.raster(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, pw, ph);
+        let opacity = src.colour_at((30.0, 20.3)).expect("the colour field holds the river")[3] as f64;
+        let stroke = crate::river_stroke::rasterize(&g, &a, pw, ph, crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) });
+        let (mut tex, mut ras, mut stk) = (0.0f64, 0.0f64, 0.0f64);
+        for py in 0..ph {
+            for px in 0..pw {
+                let (x, y) = (px as f32 / ppc, py as f32 / ppc);
+                // Away from the caps, which the three end differently, and
+                // off the plate frame, which the stroke does not fade by.
+                if !(8.0..=56.0).contains(&x) || crate::render::border_cover_f(&a, x as f64 - 0.5, y as f64 - 0.5, 64, 40) > 0.0 {
+                    continue;
+                }
+                let p = pixel_paint(field.sample(x, y), ppc, rw, 0.0);
+                tex += p.cov as f64;
+                ras += layer.at(px, py).map_or(0.0, |c| c[3] as f64 / opacity);
+                stk += stroke.at(px, py).map_or(0.0, |c| c[3] as f64);
+            }
+        }
+        (tex, ras, stk)
+    }
+
+    /// Protects: **a river is as wide on a tile and in an export as on the
+    /// screen.** For a thin and a wide river at the densities the screen's
+    /// texture is shown at (0.5, and about 1 px a cell either side of the
+    /// deep-zoom switch) the water a raster paints (`PaintSource::raster`,
+    /// exact per pixel) totals what the shader paints from the bilinear
+    /// texture within 3 % -- the half-float and bilinear error of the
+    /// texture, nothing more. Deeper (4, 16 px a cell, tiles and exports only)
+    /// the texture's quarter-cell bilinear error is no longer sub-pixel, so
+    /// the reference is the exact geometry under the same law, RV-2's stroke:
+    /// within 2 % there. A raster with a different width law, floor or
+    /// fringe fails either bar.
+    #[test]
+    fn a_raster_paints_the_water_the_screen_paints() {
+        for width in [0.4f32, 3.0] {
+            for ppc in [0.5f32, 0.97, 1.07] {
+                let (tex, ras, _) = three_ways(width, ppc);
+                assert!(tex > 5.0, "positive control: width {width} ppc {ppc} drew nothing");
+                let rel = (ras - tex).abs() / tex;
+                assert!(rel < 0.03, "width {width} ppc {ppc}: texture {tex:.1} px, raster {ras:.1} px ({:.1} %)", rel * 100.0);
+            }
+            for ppc in [4.0f32, 16.0] {
+                let (_, ras, stk) = three_ways(width, ppc);
+                assert!(stk > 5.0, "positive control: width {width} ppc {ppc} stroked nothing");
+                let rel = (ras - stk).abs() / stk;
+                assert!(rel < 0.02, "width {width} ppc {ppc}: stroke {stk:.1} px, raster {ras:.1} px ({:.1} %)", rel * 100.0);
+            }
+        }
+    }
+
+    /// Protects: the raster's post plane -- the floodplain beside a wide
+    /// river and the bank line on its edge are there (positive control), the
+    /// floodplain weight is hidden under the water (`fp * (1 - cov)`: zero
+    /// where the water is full), the bank is absent with the strength at 0,
+    /// and a pixel no band reaches carries nothing at all (no colour, no
+    /// post) -- never a sentinel distance read as coverage, which at a
+    /// hundredth of a pixel per cell would paint the whole raster.
+    #[test]
+    fn the_raster_carries_the_tint_and_the_line_and_nothing_off_its_band() {
+        let (g, _) = (geom(vec![run(20.0, 4.0, 60.0, 3.0, 3)]), ());
+        let a = look();
+        let src = source(&g, None, &a, 64, 40);
+        let ppc = 4.0f32;
+        let layer = src.raster(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, 256, 160);
+        let col = 120; // x = 30 cells
+        let mut fp_max = 0.0f32;
+        let mut bank_max = 0.0f32;
+        for py in 0..160 {
+            if let Some(q) = layer.post_at(col, py) {
+                fp_max = fp_max.max(q[0]);
+                bank_max = bank_max.max(q[1]);
+                if let Some(c) = layer.at(col, py) {
+                    let cov = c[3] / src.colour_at((30.0, py as f32 / ppc)).map_or(1.0, |k| k[3]);
+                    if cov >= 0.999 {
+                        assert_eq!(q[0], 0.0, "py {py}: the tint shows through full water");
+                    }
+                }
+            }
+        }
+        assert!(fp_max > 0.5 && bank_max > 0.1, "the tint ({fp_max}) and the line ({bank_max}) must be there");
+        assert!(layer.at(col, 4).is_none() && layer.post_at(col, 4).is_none(), "16 cells away nothing is drawn");
+        let plain = PaintSource::new(&g, None, 64, 40, &crate::render::TerrainAppearance { river_bank: 0.0, ..a.clone() }, src.colour.clone()).expect("source");
+        let l0 = plain.raster(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, 256, 160);
+        assert!((0..160).all(|py| l0.post_at(col, py).is_none_or(|q| q[1] == 0.0)), "strength 0 draws no line");
+        // A raster at 0.02 px a cell, where the sentinel distance would read as
+        // coverage (1.5 - 64 * 0.02 = 0.22), on a 1500 x 1000 map with no plate
+        // frame and a colour layer that holds a colour EVERYWHERE -- so neither
+        // the frame's cover past the edge nor the colour field's own band can
+        // hide a wrongly painted pixel: only the pixel over the river may be
+        // painted.
+        let (bw, bh) = (1500usize, 1000usize);
+        let mut everywhere = crate::render::RiverLayer::new(bw, bh);
+        everywhere.fill_triangles(&[(-1.0, -1.0), (bw as f32 + 1.0, -1.0), (bw as f32 + 1.0, bh as f32 + 1.0), (-1.0, bh as f32 + 1.0)], &[[0.2, 0.4, 0.9, 1.0]; 4], &[0, 1, 2, 0, 2, 3]);
+        let unframed = crate::render::TerrainAppearance { border_width_frac: 0.0, ..a.clone() };
+        let wide = PaintSource::new(&g, None, bw, bh, &unframed, std::sync::Arc::new(everywhere)).expect("source");
+        // Pixel (0, 0) sits on the river at (30, 20); every other pixel is 50+ cells off.
+        let far = wide.raster(crate::river_stroke::RasterMap { scale: (0.02, 0.02), offset: (-0.6, -0.4) }, 64, 64);
+        assert!(far.at(0, 0).is_some(), "positive control: the river's own pixel is painted");
+        assert!((0..64).all(|y| (0..64).all(|x| (x, y) == (0, 0) || far.at(x, y).is_none())), "a pixel off every band was painted");
+    }
+
+    /// Protects: the river colour a raster paints is the colour field's own,
+    /// read where the screen's linear filter reads it -- the field's pixel `x`
+    /// sits on cell `x`'s centre (river-space `x + 0.5`), so a read exactly
+    /// there returns that pixel bit for bit, and halfway to the next pixel
+    /// their mean. A half-cell slip (reading `x` at `x`) would blend in the
+    /// neighbour and fail. The fixture's colour field varies along the river.
+    #[test]
+    fn a_raster_takes_its_colour_where_the_screen_does() {
+        let a = look();
+        let mut r = run(20.0, 4.0, 60.0, 3.0, 3);
+        let n = r.colors.len();
+        for (i, c) in r.colors.iter_mut().enumerate() {
+            *c = [i as f32 / n as f32, 0.3, 1.0 - i as f32 / n as f32, 1.0];
+        }
+        let g = geom(vec![r]);
+        let src = source(&g, None, &a, 64, 40);
+        let (x, y) = (30usize, 20usize);
+        let here = src.colour.at(x, y).expect("the field holds the river");
+        let next = src.colour.at(x + 1, y).expect("and its neighbour");
+        assert_ne!(here, next, "premise: the colour varies along the river");
+        assert_eq!(src.colour_at((x as f32 + 0.5, y as f32 + 0.5)), Some(here));
+        let mid = src.colour_at((x as f32 + 1.0, y as f32 + 0.5)).expect("a colour");
+        for k in 0..4 {
+            assert!((mid[k] - 0.5 * (here[k] + next[k])).abs() < 1e-4, "{mid:?} is not the mean of {here:?} and {next:?}");
+        }
+    }
+
+    /// Protects: **the seam at the deep-zoom switch.** The same bending river
+    /// rastered at the densities either side of the switch on the owner's
+    /// window (0.97 and 1.07 px a cell) puts its water where the river is:
+    /// in every column, the coverage-weighted centre lies within a tenth of a
+    /// cell of the drawn centreline (`20 + 3 sin(0.13 x)`) at both densities,
+    /// and the mean water per column in cells (the width) agrees to 10 %. A
+    /// raster misplaced by half a pixel, or a different width rule on one
+    /// side, fails.
+    #[test]
+    fn a_river_does_not_jump_at_the_deep_zoom_switch() {
+        let a = look();
+        let g = geom(vec![bendy(20.0, 3.0, 60.0, 1.5, 1.5, 3)]);
+        let src = source(&g, None, &a, 64, 40);
+        let sweep = |ppc: f32| -> f64 {
+            let (w, h) = ((64.0 * ppc) as usize, (40.0 * ppc) as usize);
+            let layer = src.raster(crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) }, w, h);
+            let (mut width, mut n) = (0.0f64, 0usize);
+            for px in 0..w {
+                let x = px as f64 / ppc as f64;
+                if !(10.0..=50.0).contains(&x) {
+                    continue;
+                }
+                let (mut m, mut my) = (0.0f64, 0.0f64);
+                for py in 0..h {
+                    let c = layer.at(px, py).map_or(0.0, |c| c[3] as f64);
+                    m += c;
+                    my += c * py as f64;
+                }
+                assert!(m > 0.5, "ppc {ppc} x {x:.2}: no water in the column");
+                let (centre, want) = (my / m / ppc as f64, 20.0 + 3.0 * (0.13 * x).sin());
+                assert!((centre - want).abs() < 0.1, "ppc {ppc} x {x:.2}: centre {centre:.3} cells, the river is at {want:.3}");
+                width += m / ppc as f64;
+                n += 1;
+            }
+            width / n as f64
+        };
+        let (lo, hi) = (sweep(0.97), sweep(1.07));
+        assert!((hi / lo - 1.0).abs() < 0.10, "width {lo:.3} -> {hi:.3} cells across the switch");
     }
 }

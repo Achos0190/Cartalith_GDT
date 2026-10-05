@@ -121,6 +121,10 @@ struct Parts {
     /// (`WorldGen::export_river_fans`), stroked before `rivers` in every band.
     /// `None` with no network, the switch off, or a look or world with none.
     fans: Option<Arc<RiverGeometry>>,
+    /// RIM-7, the painted river (`SnapshotInputs::river_paint`, set by
+    /// `WorldGen::export_snapshot` under the export's look): when present
+    /// every band paints the river with it instead of stroking `rivers`.
+    paint: Option<Arc<crate::river_field::PaintSource>>,
     splat: Option<OwnedSplat>,
     ground_biomes: Vec<Option<GroundTile>>,
     ground_terrains: Vec<Option<GroundTile>>,
@@ -233,6 +237,7 @@ impl ExportSnapshot {
             lithology,
             lakes,
             ink: i.ink,
+            paint: if rivers.is_some() { i.river_paint } else { None },
             rivers,
             fans,
             splat: i.splat,
@@ -255,7 +260,7 @@ impl ExportSnapshot {
     pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand) -> Option<Vec<u8>> {
         let ctx = self.parts.ctx()?;
         let flag = self.parts.ink.as_deref();
-        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
+        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), self.parts.paint.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
     }
 
     pub fn appearance(&self) -> &TerrainAppearance {
@@ -604,6 +609,7 @@ mod tests {
             gravity: 1.0,
             rivers: None,
             river_fans: None,
+            river_paint: None,
             forced_lakes: None,
         }
     }
@@ -630,7 +636,7 @@ mod tests {
         let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
         assert!(bf.has_shore_field(), "the fixture's look draws smooth shores, or the shore half of this proves nothing");
-        crate::export_raster::with_export_rivers(geom, fans, Some(&w.ink), |r| run(&ctx, &bf, r))
+        crate::export_raster::with_export_rivers(geom, fans, None, Some(&w.ink), |r| run(&ctx, &bf, r))
     }
 
     /// `export_banded`'s bands, in memory.
@@ -769,6 +775,79 @@ mod tests {
         let without = direct_bands_with(&w, Some(&g), &p);
         let moved = want.iter().zip(&without).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
         assert!(moved > 0, "the fans must reach the pixels");
+    }
+
+    /// [`direct_fans`] under look `a` with RIM-7's paint source `paint`
+    /// handed to `with_export_rivers` (`None` strokes).
+    fn direct_paint<T>(w: &World, a: &TerrainAppearance, geom: &RiverGeometry, paint: Option<&crate::river_field::PaintSource>, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> T {
+        let lith = cartalith_civ::build_lithology(&w.field, &w.age, &w.volc, &w.crust, &w.resist, &w.rain, SEA);
+        let mut ctx = RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
+        ctx = ctx.with_lithology(&lith);
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let lakes = wb.classification;
+        ctx = ctx.with_lakes(&lakes);
+        ctx = ctx.with_map_scale(KM);
+        ctx = ctx.with_paint(Some(&w.paint), None, None);
+        let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
+        crate::export_raster::with_export_rivers(Some(geom), None, paint, Some(&w.ink), |r| run(&ctx, &bf, r))
+    }
+
+    /// Protects: **RIM-7's painted river in the export, whole, banded and in
+    /// the overlay session's snapshot.** With a paint source (a look that
+    /// paints its rivers, with a bank outline so all three of the law's
+    /// outputs move): (1) the banded export equals the whole-raster export
+    /// byte for byte -- the floodplain and the bank are drawn per band after
+    /// that band's own finishing pass, and land on the same bytes; (2) the
+    /// snapshot's bands equal the direct render's; (3) painting moves pixels
+    /// against the stroke, and the post stage (the bank) moves pixels on its
+    /// own -- a post pass that was never applied would equal itself
+    /// everywhere above.
+    #[test]
+    fn a_painted_export_is_one_picture_whole_banded_and_snapshotted() {
+        let w = world();
+        let mut a = appearance();
+        a.smooth_shores = true;
+        a.rivers_as_water = true;
+        a.river_bank = 0.6;
+        assert!(crate::river_field::painted(&a, GW, GH), "premise: the look paints");
+        let g = Arc::new(river());
+        let source = |a: &TerrainAppearance| {
+            let colour = Arc::new(crate::river_stroke::rasterize_colour_field_with(&g, None, a, GW, GH));
+            Arc::new(crate::river_field::PaintSource::new(&g, None, GW, GH, a, colour).expect("a source"))
+        };
+        let paint = source(&a);
+        let (ow, oh) = render::bake_dims(150, GW, GH);
+        let whole = direct_paint(&w, &a, &g, Some(&paint), |ctx, bf, r| {
+            let inf = render::build_grade_influence(ctx, ow, oh);
+            render::bake_and_finish(ctx, bf, r, ow, oh, &inf, render::ColorSpace::Srgb)
+        });
+        let p = ExportBandPlan::with_rows(&a, ow, oh, 7);
+        assert!(p.band_count() > 2, "premise: several bands");
+        let bands: Vec<Vec<u8>> = direct_paint(&w, &a, &g, Some(&paint), |ctx, bf, r| {
+            let cells = render::build_grade_influence_cells(ctx);
+            p.bands().map(|b| render::bake_export_band(ctx, bf, r, &p, b, &cells)).collect()
+        });
+        assert_eq!(bands.concat(), whole, "a banded painted export differs from the whole one");
+        let mut i = inputs(&w, KM, true);
+        i.appearance = a.clone();
+        i.river_paint = Some(paint.clone());
+        let snap = ExportSnapshot::build(i, Some(g.clone()), None).expect("snapshot");
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        assert_eq!(got, bands, "the snapshot's painted bands differ from the direct render's");
+        let diff = |x: &[u8], y: &[u8]| x.iter().zip(y).filter(|(u, v)| u != v).count();
+        let stroked = direct_paint(&w, &a, &g, None, |ctx, bf, r| {
+            let inf = render::build_grade_influence(ctx, ow, oh);
+            render::bake_and_finish(ctx, bf, r, ow, oh, &inf, render::ColorSpace::Srgb)
+        });
+        let a0 = TerrainAppearance { river_bank: 0.0, ..a.clone() };
+        let no_bank = direct_paint(&w, &a0, &g, Some(&source(&a0)), |ctx, bf, r| {
+            let inf = render::build_grade_influence(ctx, ow, oh);
+            render::bake_and_finish(ctx, bf, r, ow, oh, &inf, render::ColorSpace::Srgb)
+        });
+        let (d_paint, d_bank) = (diff(&whole, &stroked), diff(&whole, &no_bank));
+        eprintln!("bytes moved: painted vs stroked {d_paint}, bank on vs off {d_bank}");
+        assert!(d_paint > 0 && d_bank > 0, "painting ({d_paint}) and the post stage ({d_bank}) must reach the pixels");
     }
 
     fn snapshot(w: &World) -> Arc<ExportSnapshot> {

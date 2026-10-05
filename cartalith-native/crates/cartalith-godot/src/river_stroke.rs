@@ -1464,9 +1464,11 @@ fn for_each_span_in(
 /// reaches the rivers like any other map content. **The deep-zoom tiles** draw
 /// their rivers this way, each at its own resolution
 /// (`lod_bridge::synthesize_tile_rgba_rivers`), and so does every export
-/// (`export_raster::with_export_rivers`) -- since RIM-7 both through
-/// [`rasterize_with`], with RIM-4's delta fans, so a fan is stroked by exactly
-/// the law that strokes the network.
+/// (`export_raster::with_export_rivers`) -- through [`rasterize_with`] -- for
+/// a look that strokes its rivers. A look that paints them
+/// (`river_field::painted`, the shipped default) paints them on the tiles
+/// and in the export too, since RIM-7's second pass (2026-10-05), by
+/// `river_field::PaintSource::raster`, not by this.
 ///
 /// The preset's own river treatment is applied here: its width multiplier
 /// (`river_width`, inside [`river_px_width`]) before the floor, its colour and
@@ -1630,8 +1632,8 @@ pub fn rasterize_colour_field_with(geom: &RiverGeometry, fans: Option<&RiverGeom
 #[godot_api(secondary)]
 impl WorldGen {
     /// The Layers panel's Rivers switch: whether the base view draws its
-    /// river stroke ([`Self::river_view_mesh`]) and the deep-zoom tiles
-    /// rasterize theirs. The tile cache key carries it (`lod_cache_key`); the
+    /// river stroke ([`Self::river_view_mesh`]) and the deep-zoom tiles draw
+    /// theirs (painted or stroked, RIM-7). The tile cache key carries it (`lod_cache_key`); the
     /// caller redraws the overlay and invalidates the tiles
     /// (`viewport_host.gd::set_layer_visible`). The base texture itself
     /// never holds a river, so it is not re-rendered. Must never change any
@@ -1950,11 +1952,22 @@ impl WorldGen {
     /// The last uncached river-field build, for a probe: `{built, ms, w, h,
     /// scale, segments, bytes}`. `ms` includes fetching the drawn network when
     /// its cache was cold. Diagnostic; nothing in the shell reads it.
+    ///
+    /// RIM-7: plus, once the tiles or an export have asked for one, the last
+    /// paint source (`WorldGen::river_paint_source`): `source_segments` (the
+    /// network and fans it indexed) and `source_ms` (its build, the colour
+    /// field included when that was not already cached). Absent -- never a
+    /// plausible 0 -- before any was built.
     #[func]
     fn river_paint_stats(&self) -> VarDictionary {
         let (ms, w, h, scale, segs) = self.river_field_build.get();
-        vdict! { "built" => self.river_field_tex.borrow().is_some(), "ms" => ms, "w" => w as i64, "h" => h as i64,
-            "scale" => scale as i64, "segments" => segs as i64, "bytes" => (w * h * crate::river_field::CHANNELS * 2) as i64 }
+        let mut d = vdict! { "built" => self.river_field_tex.borrow().is_some(), "ms" => ms, "w" => w as i64, "h" => h as i64,
+            "scale" => scale as i64, "segments" => segs as i64, "bytes" => (w * h * crate::river_field::CHANNELS * 2) as i64 };
+        if let Some((_, src, sms)) = self.river_paint_cache.borrow().as_ref() {
+            d.set("source_segments", src.segment_count() as i64);
+            d.set("source_ms", *sms);
+        }
+        d
     }
 }
 

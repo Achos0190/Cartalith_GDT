@@ -316,6 +316,17 @@ pub struct SnapshotInputs {
     /// world with no fan; [`Self::fingerprint`] then reads exactly what it
     /// read before RIM-7.
     pub river_fans: Option<Arc<crate::river_stroke::RiverGeometry>>,
+    /// **RIM-7, the painted river** (`WorldGen::river_paint_source`): for a
+    /// look that paints its rivers into the map (`river_field::painted`), the
+    /// network and its fans indexed with the screen's river colour field, so
+    /// every tile paints the river by the screen's own law
+    /// (`river_field::PaintSource::raster`) instead of stroking
+    /// [`Self::rivers`] -- one width taper, colour, floodplain, bank line and
+    /// headwater fade across the deep-zoom switch. Built from the same
+    /// [`Self::rivers`] and [`Self::river_fans`] (which stay the hashed inputs).
+    /// `None` -- the stroke, exactly as before -- for a look that strokes, the
+    /// Rivers layer off, a grid over the field's budget, or no network.
+    pub river_paint: Option<Arc<crate::river_field::PaintSource>>,
     /// Ruling BO: the forced-lake mask (`WorldGen::forced_lake_mask`), drawn
     /// into every tile as lake (`TileFields::with_forced_lakes`) so a tile
     /// shows the water the base map shows. `None` -- the absent state, never
@@ -323,6 +334,11 @@ pub struct SnapshotInputs {
     /// its tiles byte-identical to before the field existed.
     pub forced_lakes: Option<Vec<u8>>,
 }
+
+/// The word [`SnapshotInputs::fingerprint`] folds in when the tiles paint the
+/// river (`river_paint`). **Labelled judgement**: any fixed word does; this
+/// one spells `RIM7PNT\0` in ASCII so it is recognisable in a stream dump.
+const PAINTED_RIVERS_TAG: u64 = 0x0054_4e50_374d_4952;
 
 /// A word-at-a-time FNV-1a-style digest, for [`SnapshotInputs::fingerprint`].
 ///
@@ -333,14 +349,29 @@ pub struct SnapshotInputs {
 /// a *changed* input, not a forged one: each step (`xor` a word, multiply by
 /// an odd constant) is a bijection on the state, so any change confined to
 /// one word always changes the result.
-struct Digest(u64);
+///
+/// Under `cfg(test)` it also records every word it was fed (`log`), so a test
+/// can pin the STRUCTURE of the stream -- a separator no input can collide
+/// with is invisible to any digest comparison (RIM-7's survivor), but not to
+/// the stream. The digest value is the same with or without the record.
+struct Digest {
+    h: u64,
+    #[cfg(test)]
+    log: Vec<u64>,
+}
 
 impl Digest {
     fn new() -> Self {
-        Digest(0xcbf2_9ce4_8422_2325)
+        Digest {
+            h: 0xcbf2_9ce4_8422_2325,
+            #[cfg(test)]
+            log: Vec::new(),
+        }
     }
     fn word(&mut self, w: u64) {
-        self.0 = (self.0 ^ w).wrapping_mul(0x0000_0100_0000_01b3);
+        self.h = (self.h ^ w).wrapping_mul(0x0000_0100_0000_01b3);
+        #[cfg(test)]
+        self.log.push(w);
     }
     fn f64(&mut self, v: f64) {
         self.word(v.to_bits());
@@ -413,6 +444,11 @@ impl SnapshotInputs {
     /// when `ice_strength > 0` (the same gate `WorldGen::lod_cache_key`
     /// applies, for the reason its comment gives).
     pub fn fingerprint(&self) -> u64 {
+        self.digest().h
+    }
+
+    /// [`Self::fingerprint`]'s digest, its record included under `cfg(test)`.
+    fn digest(&self) -> Digest {
         let SnapshotInputs {
             key: _,
             gw,
@@ -446,6 +482,7 @@ impl SnapshotInputs {
             gravity,
             rivers,
             river_fans,
+            river_paint,
             forced_lakes,
         } = self;
         let mut d = Digest::new();
@@ -513,8 +550,8 @@ impl SnapshotInputs {
         // digest differ, so a stored fan-OFF pyramid never seeds a fan-ON
         // world or the reverse (`a_snapshot_with_delta_fans_draws_them_and_keys_them`).
         // The leading `u64::MAX` is a separator between the network's words
-        // and the fans', defence in depth only: no test can tell it from its
-        // absence (the RIM-7 mutation run's one survivor, disclosed).
+        // and the fans'; `the_fans_are_hashed_behind_a_separator` reads the
+        // digest's test-only word log and fails if it is removed.
         if let Some(g) = river_fans {
             d.word(u64::MAX);
             d.word(g.runs.len() as u64);
@@ -533,6 +570,17 @@ impl SnapshotInputs {
                 d.f32s(&r.discharge);
                 d.word(r.own_order as u16 as u64);
             }
+        }
+        // RIM-7, the painted river: whether the tiles PAINT the network
+        // (`river_field::PaintSource`) rather than stroke it. Every input the
+        // painting reads is already above -- the network, the fans, the
+        // appearance (width, colour, outline, frame, the look's gate) and the
+        // grid -- but the pixels drawn from them changed with the painting, so
+        // a pyramid stored while these looks stroked must not seed a world that
+        // paints. Only when painted (no word otherwise), so every stroked
+        // snapshot fingerprints exactly as before.
+        if river_paint.is_some() {
+            d.word(PAINTED_RIVERS_TAG);
         }
         // Exhaustive, so a third colour space is a compile error here rather
         // than a silent alias of one of these two.
@@ -590,7 +638,7 @@ impl SnapshotInputs {
         d.f64(*peak_m);
         d.f64(*lapse_rate);
         d.f64(*gravity);
-        d.0
+        d
     }
 }
 
@@ -637,6 +685,9 @@ pub struct LodSnapshot {
     rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
     /// RIM-7: [`SnapshotInputs::river_fans`], stroked before `rivers`.
     river_fans: Option<Arc<crate::river_stroke::RiverGeometry>>,
+    /// RIM-7: [`SnapshotInputs::river_paint`]; when present the tiles paint
+    /// the river with it instead of stroking `rivers` and `river_fans`.
+    river_paint: Option<Arc<crate::river_field::PaintSource>>,
 }
 
 /// The whole safety argument for this module in one line the compiler checks.
@@ -690,6 +741,7 @@ impl LodSnapshot {
             gravity,
             rivers,
             river_fans,
+            river_paint,
             forced_lakes,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
@@ -770,6 +822,7 @@ impl LodSnapshot {
             paint_splat,
             rivers,
             river_fans,
+            river_paint,
         })
     }
 
@@ -827,7 +880,7 @@ impl LodSnapshot {
             tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref())
+        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref())
     }
 
     /// Every tile of levels `0..=z_max`, as storable masks — owner rulings
@@ -1513,6 +1566,7 @@ mod tests {
             gravity: 1.0,
             rivers: None,
             river_fans: None,
+            river_paint: None,
             forced_lakes: None,
             }
     }
@@ -2282,6 +2336,90 @@ mod tests {
             assert!(x > 36.0 && x < 72.0 && (y - 36.0).abs() < 40.0, "a change far from the mouth at cell ({x:.1}, {y:.1})");
         }
         assert!(changed > w / 2, "the fans changed only {changed} tile pixels");
+    }
+
+    /// Protects: **the fans' separator word** in the stored-pyramid digest
+    /// (RIM-7's disclosed survivor). No digest comparison can see it -- every
+    /// field of the stream is length-prefixed, so no two inputs collide with
+    /// or without it -- so the stream itself is read back (`Digest::log`):
+    /// the fans section opens with `u64::MAX` and then the fans' run count,
+    /// and a snapshot without fans has no `u64::MAX` word anywhere.
+    #[test]
+    fn the_fans_are_hashed_behind_a_separator() {
+        let (mut i, fans) = delta_inputs(96, 72);
+        assert!(!i.digest().log.contains(&u64::MAX), "premise: nothing else in the stream is u64::MAX");
+        let n = fans.runs.len() as u64;
+        i.river_fans = Some(Arc::new(fans));
+        let log = i.digest().log;
+        assert!(log.windows(2).any(|w| w == [u64::MAX, n]), "the fans section must open with u64::MAX and then its {n} runs");
+    }
+
+    /// Protects: **RIM-7's painted river in the worker path and the stored-
+    /// pyramid key.** A snapshot handed a paint source
+    /// (`SnapshotInputs::river_paint`, what `WorldGen::lod_snapshot_inputs`
+    /// passes for a look that paints its rivers) paints the river into its
+    /// tiles instead of stroking it: the tile differs from the stroked one,
+    /// only near the river, it carries the floodplain tint beside the water
+    /// (pixels changed while their alpha stays 255 -- not river) and still
+    /// marks the water in the alpha. It fingerprints differently (a pyramid
+    /// stored while the look stroked never seeds a painted world), by exactly
+    /// one word -- [`PAINTED_RIVERS_TAG`] -- and a snapshot without paint has
+    /// the digest the stroke always had.
+    #[test]
+    fn a_snapshot_that_paints_its_rivers_draws_and_keys_them() {
+        let (gw, gh) = (96usize, 72usize);
+        let (stroke_in, _) = delta_inputs(gw, gh);
+        let base = stroke_in.fingerprint();
+        assert!(!stroke_in.digest().log.contains(&PAINTED_RIVERS_TAG));
+        let (mut paint_in, _) = delta_inputs(gw, gh);
+        assert_eq!(paint_in.fingerprint(), base, "premise: the same inputs");
+        let a = paint_in.appearance.clone();
+        assert!(crate::river_field::painted(&a, gw, gh), "premise: the default look paints its rivers");
+        let g = paint_in.rivers.clone().expect("a network");
+        let colour = Arc::new(crate::river_stroke::rasterize_colour_field_with(&g, None, &a, gw, gh));
+        paint_in.river_paint = Some(Arc::new(crate::river_field::PaintSource::new(&g, None, gw, gh, &a, colour).expect("a source")));
+        assert_ne!(paint_in.fingerprint(), base, "painting must move the digest");
+        let (sl, pl) = (stroke_in.digest().log, paint_in.digest().log);
+        assert_eq!(pl.len(), sl.len() + 1, "painting adds exactly one word");
+        assert_eq!(pl.iter().filter(|&&w| w == PAINTED_RIVERS_TAG).count(), 1);
+        let s = LodSnapshot::build(stroke_in).expect("snapshot");
+        let p = LodSnapshot::build(paint_in).expect("snapshot");
+        let (a_px, w, h) = s.render_tile(0, 0, 0).expect("tile");
+        let (b_px, w2, h2) = p.render_tile(0, 0, 0).expect("tile");
+        assert_eq!((w, h), (w2, h2));
+        // Tile (0, 0, 0) spans the grid; pixel (px, py) sits on cell (px * (gw-1)/(w-1), ...).
+        let (cx, cy) = ((gw - 1) as f64 / (w - 1) as f64, (gh - 1) as f64 / (h - 1) as f64);
+        let (mut changed, mut tint, mut water) = (0usize, 0usize, 0usize);
+        for (k, (q, r)) in a_px.chunks(4).zip(b_px.chunks(4)).enumerate() {
+            if r[3] < 255 {
+                water += 1;
+            }
+            if q == r {
+                continue;
+            }
+            changed += 1;
+            let y = (k / w) as f64 * cy;
+            let x = (k % w) as f64 * cx;
+            // The river is at y = 36 (cell index): water, the tint band and the
+            // bank are all within a few cells of it, and only west of the shore.
+            assert!((y - 36.0).abs() < 6.0, "a change far from the river at cell ({x:.1}, {y:.1})");
+            if r[3] == 255 && q[3] == 255 {
+                tint += 1;
+            }
+        }
+        assert!(changed > 0 && water > 0, "the painted tile must draw the river ({changed} changed, {water} water)");
+        assert!(tint > 0, "the floodplain tint must reach the painted tile beside the water");
+        // The bank line is drawn from this tile alone: with an outline the
+        // tile marks more pixels as river in its alpha (the line's own),
+        // and its colour changes beside the water.
+        let (mut bank_in, _) = delta_inputs(gw, gh);
+        bank_in.appearance.river_bank = 0.8;
+        let ab = bank_in.appearance.clone();
+        let colour = Arc::new(crate::river_stroke::rasterize_colour_field_with(&g, None, &ab, gw, gh));
+        bank_in.river_paint = Some(Arc::new(crate::river_field::PaintSource::new(&g, None, gw, gh, &ab, colour).expect("a source")));
+        let (c_px, _, _) = LodSnapshot::build(bank_in).expect("snapshot").render_tile(0, 0, 0).expect("tile");
+        let marked = |v: &[u8]| v.chunks(4).filter(|p| p[3] < 255).count();
+        assert!(marked(&c_px) > marked(&b_px), "the bank line must be marked as river: {} -> {}", marked(&b_px), marked(&c_px));
     }
 
     /// Protects Ruling BO in the worker path: a snapshot built with a forced

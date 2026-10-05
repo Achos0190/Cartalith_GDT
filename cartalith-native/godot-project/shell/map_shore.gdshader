@@ -37,8 +37,10 @@ shader_type canvas_item;
 // **RIM-5**: the order-1 share's alpha also takes `o1_distance_fade(ppc)` (a
 // smoothstep from `O1_GONE_PPC` to `O1_FADE_FULL_PPC` pixels per cell, 1 from
 // `O1_FADE_FULL_PPC` up), so headwater streams thin out of a zoomed-out map
-// without popping. Painted path only: the vector stroke, tiles and export are
-// RIM-7's.
+// without popping. RIM-7 (2026-10-05): the deep-zoom tiles and the export
+// paint the river by this same law in Rust (`river_field::pixel_paint`,
+// `PaintSource::raster`) -- keep the two in step; the mirror tests read this
+// file.
 // **RIM-2**: with `river_bank` above zero a one-pixel line in `river_bank_color`
 // (the style's river ink) is drawn on the river's visible edge, `river_field.rs`
 // `bank_coverage` mirrored: centred on the 50 % point of the fringe, inward only
