@@ -1,12 +1,13 @@
 extends Node
 ## Lane DRAWER+PREFS, 2026-09-07. The owner: "it seems an issue with dragging
 ## the drawer up in the sculpt menu." `_detent_probe.gd` drives that same drag
-## and is GREEN -- it presses the grab handle's exact CENTRE. This probe asks
+## and (since 2026-10-05) passes -- it presses the grab handle's exact CENTRE. This probe asks
 ## the question that probe cannot: **how wide is the target, and what happens
 ## when a finger misses it.**
 ##
-##   godot --headless --path . _sheetgrab_probe.tscn -- --force-touch --vp 1080x2340 --tag g1080
-##   godot --headless --path . _sheetgrab_probe.tscn -- --force-touch --vp 1440x3200 --tag g1440
+##   (run WINDOWED -- headless never draws, so the picker is never staged)
+##   godot --path . _sheetgrab_probe.tscn -- --force-touch --vp 1080x2340 --tag g1080
+##   godot --path . _sheetgrab_probe.tscn -- --force-touch --vp 1440x3200 --tag g1440
 ##
 ## Flags this probe actually reads, grepped from the body below:
 ##   `--vp WxH`      SubViewport size in physical px. Default 1080x2340.
@@ -129,6 +130,15 @@ func _ready() -> void:
 	await get_tree().create_timer(1.6).timeout
 	if app.open_project_dialog != null:
 		app.open_project_dialog.hide()
+	## The phone boots into `PhoneProjectPicker`, a full-screen EXCLUSIVE embedded
+	## `AcceptDialog` (`phone_project_picker.gd`; `app.gd` opens it from
+	## `open_welcome()` while no world exists). It takes every `push_input`, so
+	## without this line no press ever reached the sheet's grab handle and every
+	## drag below measured the modal (0 of 10 rungs raised, h0=mid=end). Dismissing
+	## a modal that is not the thing under test is bookkeeping, as in
+	## `_nwsize_probe.gd`, `_gestclass_probe.gd` and `_vfy_gesture_probe.gd`.
+	if app.phone_project_picker != null and app.phone_project_picker.visible:
+		app.phone_project_picker.hide()
 	await _frames(4)
 	if not app.is_phone():
 		_log("ABORT not phone mode -- pass --force-touch")
@@ -157,13 +167,22 @@ func _ready() -> void:
 	## Android figure is a literal here, not read back from anything.
 	_log("  floors       phone_fit tap min = %.0f dp, Android min = 48 dp"
 		% DccTheme.PHONE_TAP_MIN)
-	## Pinned from BOTH directions with one literal. Below 44 the target is
-	## under the floor every other phone control here gets; above it the row
-	## eats the `peek` sliver it is supposed to sit at the top of. `44.0` is
-	## typed here, not read back from `DccTheme.PHONE_TAP_MIN` -- the shell
-	## reads the constant, this asserts the number.
-	_check(absf(_dp(gr.size.y) - 44.0) < 1.0,
-		"grab row is the 44 dp floor phone_fit() applies to every other target")
+	## **Obsolete figure, restated 2026-10-05 (type: intentional behaviour change).**
+	## This line used to pin the grab row to 44 dp -- the pill's own row. Since
+	## `773262e5` (2026-09-13, "Phone sheet header") the grab target is the WHOLE
+	## header block, per `design/dcc-environment-2026-08-31/spec/06-phone.md`
+	## 5.3 ("the whole header block above the scroller"), and that block is sized
+	## to the sheet's own `peek` budget: `_phone_sheet_grab.custom_minimum_size.y =
+	## peek - sheet_vpad` in `dcc_shell.gd`. `_detent_probe.gd` already says so
+	## ("5.3 grabs the whole header block"). The target only got bigger, so the
+	## claim this check protects -- "not under the floor every other phone control
+	## gets, and not eating the sliver it sits at the top of" -- is now two bounds:
+	##   * floor: >= 44 dp (`DccTheme.PHONE_TAP_MIN`, typed here as a literal);
+	##   * ceiling: the canvas's peek of 66 dp (spec 06-phone.md 5.2, "peek | 66
+	##     (constant)") minus the sheet's 1 px top border, so within 1 dp of 66.
+	## Both numbers are literals typed here, not read back from the shell.
+	_check(_dp(gr.size.y) >= 44.0 and absf(_dp(gr.size.y) - 66.0) < 1.0,
+		"grab row is the whole 66 dp header block (>= the 44 dp tap floor, within 1 dp of peek)")
 
 	## -- the three gesture arbiters added this week, eliminated by STATE -----
 	## `PgSlider` (8 dp slop), `touch_release_button()` (RELEASE + PASS) and
@@ -215,7 +234,7 @@ func _ready() -> void:
 	## same direction both times. The honest statement is an equality -- every
 	## rung inside the drawn rect raises the sheet, and every rung outside it
 	## does not -- which pins the hit region to the drawn region from both
-	## sides. The rect's own height is pinned against a literal 44 above.
+	## sides. The rect's own height is pinned above (>= 44 dp, within 1 dp of the 66 dp peek).
 	_log("  raised at %d of %d rungs (rect is %.0f px tall, so rungs within "
 		% [raised.size(), offsets.size(), gr.size.y]
 		+ "+-%.1f px of centre should raise)" % (gr.size.y / 2.0))

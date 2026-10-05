@@ -160,6 +160,15 @@ func _ready() -> void:
 	await get_tree().create_timer(1.6).timeout
 	if app.open_project_dialog != null:
 		app.open_project_dialog.hide()
+	## The phone boots into `PhoneProjectPicker`, a full-screen EXCLUSIVE embedded
+	## `AcceptDialog` (`phone_project_picker.gd`; `app.gd` opens it from
+	## `open_welcome()` while no world exists). It takes every `push_input`, so
+	## without this line no press ever reached the sheet's grab handle and every
+	## drag below measured the modal (0 of 10 rungs raised, h0=mid=end). Dismissing
+	## a modal that is not the thing under test is bookkeeping, as in
+	## `_nwsize_probe.gd`, `_gestclass_probe.gd` and `_vfy_gesture_probe.gd`.
+	if app.phone_project_picker != null and app.phone_project_picker.visible:
+		app.phone_project_picker.hide()
 	await _frames(4)
 
 	var s: float = app.phone_scale()

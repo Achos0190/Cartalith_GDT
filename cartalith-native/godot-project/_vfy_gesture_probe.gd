@@ -122,6 +122,16 @@ func _nearest_v_scroller(n: Node) -> ScrollContainer:
 		p = p.get_parent()
 	return null
 
+## True when `n` is a descendant of a `ColorPicker` -- Godot's own shape/mode
+## `MenuButton`s live there, in the picker's `PopupPanel` window. See PART D.
+func _inside_color_picker(n: Node) -> bool:
+	var p: Node = n.get_parent()
+	while p != null:
+		if p is ColorPicker:
+			return true
+		p = p.get_parent()
+	return false
+
 func _surface(n: Node) -> String:
 	var p: Node = n
 	while p != null:
@@ -616,21 +626,46 @@ func _ready() -> void:
 		_log("-- PART D: the gates")
 		## Gate 1: no vertical scroller above -> left stock. The seven menu-bar
 		## MenuButtons are the population.
+		##
+		## **Population restated 2026-10-05 (stale precondition, not a weakened
+		## bound).** This leg used to count EVERY `MenuButton` in the tree and
+		## demand all of them be stock with no scroller above. The tree now also
+		## holds 69 Godot-internal ones: each of the 23 `ColorPicker`s (the biome
+		## colour pickers, `021d955f` 2026-09-24) carries three, inside its own
+		## hidden `PopupPanel` window, which is a `ColorPickerButton` child and so
+		## sits under the sheet's `ScrollContainer` by NODE ancestry only -- a
+		## popup `Window` takes its own input and is never scrolled by that
+		## container. Measured here, windowed at 1080x2340: 76 MenuButtons = 7
+		## menu-bar + 69 inside `ColorPicker`, all 69 `is_visible_in_tree()==false`.
+		## So the menu bar is selected by what it IS (not inside a `ColorPicker`),
+		## pinned to the literal 7, and the exempt population is pinned to be
+		## entirely invisible, so a visible touch-surface `MenuButton` under a
+		## scroller can not hide in the exemption.
 		var inv2: Array = []
 		var io2: Dictionary = {}
 		_walk(get_tree().root, inv2, io2)
 		var mb_total := 0
 		var mb_stock := 0
+		var picker_mb := 0
+		var picker_mb_visible := 0
 		for n in inv2:
 			if n is MenuButton:
+				if _inside_color_picker(n):
+					picker_mb += 1
+					if (n as Control).is_visible_in_tree():
+						picker_mb_visible += 1
+					continue
 				mb_total += 1
 				if (n as MenuButton).action_mode == BaseButton.ACTION_MODE_BUTTON_PRESS \
 						and _nearest_v_scroller(n) == null:
 					mb_stock += 1
-		_log("   MenuButton in tree: %d, of which stock(am=PRESS) with no v-scroller: %d"
-			% [mb_total, mb_stock])
-		_check(mb_total > 0 and mb_total == mb_stock,
-			"gate 1: every MenuButton has no v-scroller above it and was left stock")
+		_log("   menu-bar MenuButtons: %d, of which stock(am=PRESS) with no v-scroller: %d; "
+			% [mb_total, mb_stock]
+			+ "inside a ColorPicker popup: %d (visible: %d)" % [picker_mb, picker_mb_visible])
+		_check(mb_total == 7 and mb_total == mb_stock,
+			"gate 1: all 7 menu-bar MenuButtons have no v-scroller above and were left stock")
+		_check(picker_mb_visible == 0,
+			"gate 1: every MenuButton exempted as ColorPicker-internal is in a hidden popup")
 		## Gate 1, the other direction: put a fresh OptionButton somewhere with
 		## NO scroller and confirm the helper declines it.
 		var loose := OptionButton.new()

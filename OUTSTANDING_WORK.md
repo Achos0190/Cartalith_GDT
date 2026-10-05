@@ -331,7 +331,9 @@ paths' refusal policy has diverged and needs a ruling. Commit `ce2c71d`.
 
 ## The count, honestly
 
-**67 outstanding items** — 2026-10-05, latest (68). The "SpinBox touch arbitration, and two stale probes" row closed (verified PASS; recorded in `STATUS.md`) and deleted from §2.7. It left four other failing probes (`_nwsize`, `_nwcard`, `_sheetgrab`, `_vfy_gesture`), identical before and after, not yet filed as rows. **68 − 1 = 67**.
+**67 outstanding items** — 2026-10-05, latest (67). The four failing phone probes (`_nwsize`, `_nwcard`, `_sheetgrab`, `_vfy_gesture`) were never filed as rows; triaged and fixed as probe-only changes with no product defect (verified PASS; recorded in `STATUS.md`). Closes no row. **67 + 0 = 67**.
+
+**67 outstanding items** — 2026-10-05, previous (68). The "SpinBox touch arbitration, and two stale probes" row closed (verified PASS; recorded in `STATUS.md`) and deleted from §2.7. It left four other failing probes (`_nwsize`, `_nwcard`, `_sheetgrab`, `_vfy_gesture`), identical before and after, not yet filed as rows. **68 − 1 = 67**.
 
 **68 outstanding items** — 2026-10-05, latest (68). RIM-7's deltas part (RIM-4's fans in deep-zoom tiles and export) built and verified PASS inside the already-open rivers row; closes no row. **68 + 0 = 68**.
 

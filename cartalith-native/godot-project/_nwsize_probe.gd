@@ -468,13 +468,24 @@ func _leg_gestures() -> void:
 		_log("  (the project picker was still up; hiding it before measuring)")
 		app.phone_project_picker.hide()
 		await _frames(4)
-	var tab := _find_label("GENERATE")
-	if tab == null:
-		var b := _button("GENERATE")
-		if b != null:
-			tab = null
-			await _tap(b)
-	else:
+	## **The nav cell, not the header title (stale precondition, 2026-10-05).**
+	## Since `773262e5` (2026-09-13, "Phone sheet header") the sheet's header block
+	## prints the lit tab's title -- also the text "GENERATE", in a `MOUSE_FILTER_
+	## IGNORE` Label INSIDE `_phone_sheet_grab`. `_find_label("GENERATE")` returns
+	## the first match in tree order, which is now that title, so the "tap" was a
+	## press-release on the grab handle: no tab picked, the sheet stayed at `peek`
+	## with a 0-px-tall scroll viewport (`size=(1080, 0)`, `page=0`), the slider
+	## drawn under the header, and the swipe measured the header rather than the
+	## slider (scroll 890 -> 890). The bottom-nav cell is the one outside the
+	## grab block; tapping the already-lit tab from `peek` lifts the sheet to
+	## `half` (`_pick_phone_tab()`).
+	var tab: Label = null
+	for c in _all_visible():
+		if c is Label and String((c as Label).text) == "GENERATE" and not (app._phone_sheet_grab as Node).is_ancestor_of(c):
+			tab = c
+			break
+	_check(tab != null, "the GENERATE nav cell is found outside the sheet's header block")
+	if tab != null:
 		await _tap(tab)
 	await _frames(8)
 	var scroll: ScrollContainer = app._phone_gen_scroll

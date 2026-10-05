@@ -19,10 +19,12 @@ extends Node
 ##   its own with no scrollbar to reveal it. Every descendant whose combined
 ##   minimum width exceeds the window's content width is printed.
 ## * That the hidden desktop form is *hidden and still live*: `request()` must
-##   return every key with a real value. Three of those keys read controls that
-##   are no longer on screen (`width_input`, `grid_w_input`, `grid_h_input`) and
-##   four more carry values only the hidden toggles and `_sync_from_engine()`
-##   ever write.
+##   return every key with a real value. Two of those keys read controls that
+##   are no longer on screen (`grid_w_input`, `grid_h_input`) and four more carry
+##   values only the hidden toggles and `_sync_from_engine()` ever write.
+##   (`width_input`, `size_preset_input` and `archetype_input` used to be in this
+##   list; `77f91942`, 2026-09-07, lifted them onto the card by owner decision, so
+##   they are asserted VISIBLE-ON-THE-CARD below.)
 ## * The extent chips as a state machine, with a positive control: REGION lit
 ##   before, WORLD lit after, `extent_input.selected` and the engine's `world`
 ##   parameter both following.
@@ -146,8 +148,23 @@ func _ready() -> void:
 	_ck("extent dropdown is hidden", not dlg.extent_input.is_visible_in_tree())
 	_ck("grid rows hidden", not dlg.grid_h_input.is_visible_in_tree())
 	_ck("aspect hidden", not dlg.aspect_input.is_visible_in_tree())
-	_ck("map width hidden", not dlg.width_input.is_visible_in_tree())
-	_ck("archetype hidden", not dlg.archetype_input.is_visible_in_tree())
+	## **Map width and Archetype are ON the card, and two lines here used to assert
+	## the opposite (2026-10-05: obsolete by owner decision, not weakened).**
+	## `77f91942` (2026-09-07) lifted `Map width` + `Width (km)` into the card's
+	## "Size & resolution" section and `Archetype` into "World structure", after
+	## the owner reported "even the initial or new map setup doesn't allow for a
+	## km/size input": *an owner decision is newer than any canvas* (`CLAUDE.md`),
+	## and `new_world_dialog.gd` records the ruling at the lift. `_nwsize_probe.gd`
+	## asserts the same fact from the rendered labels. Protected here: the lifted
+	## controls are visible AND inside the card (not merely visible somewhere), so
+	## the request()-reads-hidden-controls leg below still means what it says for
+	## the controls that remain hidden (grid_w, grid_h, aspect, extent, villages).
+	_ck("map width preset is on the card",
+		dlg.size_preset_input.is_visible_in_tree() and card.is_ancestor_of(dlg.size_preset_input))
+	_ck("width (km) is on the card",
+		dlg.width_input.is_visible_in_tree() and card.is_ancestor_of(dlg.width_input))
+	_ck("archetype is on the card",
+		dlg.archetype_input.is_visible_in_tree() and card.is_ancestor_of(dlg.archetype_input))
 	_ck("village toggle hidden", not dlg.villages_check.is_visible_in_tree())
 
 	## ---- hidden but LIVE -----------------------------------------------------
