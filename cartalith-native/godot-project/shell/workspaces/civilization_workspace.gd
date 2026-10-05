@@ -849,7 +849,7 @@ func context_actions(req: Dictionary) -> Array:
 			## faction picker writes, so ring, bar and this row agree.
 			rows.append({"id": "civ.faction_claim", "label": "Claim for %s" % cf_name,
 				"section": "object", "enabled": true,
-				"callable": _claim_for_faction.bind(cf_id)})
+				"callable": claim_for_faction.bind(cf_id)})
 	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
 		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
 	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
@@ -910,7 +910,12 @@ func _step_settlement_class(dir: int) -> void:
 ## have made -- otherwise the bar would keep showing the previous faction while
 ## the brush painted the new one. Never paints anything itself: arming is the
 ## whole action, matching how a toolbar click behaves.
-func _claim_for_faction(fid: int) -> void:
+##
+## Public (was `_claim_for_faction`) since FH-4: the faction hub's Territory tab
+## runs this same handler through `app.claim_cells_for_faction()` rather than
+## re-implementing the arm sequence, so the context card and the hub cannot
+## drift apart.
+func claim_for_faction(fid: int) -> void:
 	_territory_faction = fid
 	if app.armed_tool == "territory":
 		_tool_options_territory()
@@ -1970,9 +1975,12 @@ func _fill_factions(parent: Control) -> void:
 				if cap_idx >= 0 and cap_idx < settlements.size():
 					cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
 			var text := "Faction %d -- %d provinces, capital %s" % [f, provs.size(), cap_name]
-			var b := DccWidgets.action(roster, text, func(): app.right_dock_ctrl.show_faction(f))
+			## FH-4: the row is a link into the faction hub's Territory tab (where
+			## this faction's provinces are listed in full), no longer the right
+			## dock's faction card -- the dock card has its own route to the hub.
+			var b := DccWidgets.action(roster, text, func(): app.open_faction_roster(f, "territory"))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.tooltip_text = "Open this faction in the right dock."
+			b.tooltip_text = "Open this faction's Territory tab in the faction hub."
 
 	## `GUI_GAP_REGISTER.md` **CV-21**, built 2026-08-25. The register's
 	## reason ("FactionRoster stores no colour field") was wrong -- it stored

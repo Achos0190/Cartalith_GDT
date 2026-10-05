@@ -4137,6 +4137,17 @@ func open_place_editor(index: int) -> void:
 func open_faction_roster(faction: int = -1, tab: String = "") -> void:
 	faction_roster_window.open(faction, tab)
 
+## "Claim cells for this faction": arms the Territory tool with `fid` picked, by
+## running the CIVIL workspace's `claim_for_faction` -- the SAME handler the map
+## context card's `civ.faction_claim` row calls, so the faction hub's Territory
+## tab (FH-4) and the card share one implementation. Finds the workspace by
+## capability rather than by name, and does nothing when none has it.
+func claim_cells_for_faction(fid: int) -> void:
+	for ws in _workspaces:
+		if ws.has_method("claim_for_faction"):
+			ws.claim_for_faction(fid)
+			return
+
 ## `lazy-riding-piglet.md` Batch D's Settlement types library (canvas 1f).
 func open_settlement_types() -> void:
 	settlement_types_window.open()

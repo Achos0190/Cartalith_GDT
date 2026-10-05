@@ -45,6 +45,13 @@ extends Node
 ##           restoring, a deleted type (or a stale id) showing None, the FR-02
 ##           guard, and the Settlement types window's per-faction column being
 ##           gone in favour of a link that opens Identity.
+##   TERRITORY (FH-4, `_run_territory_tab`) the Territory tab: claim figures,
+##           provinces list and influence-by-neighbour each equal the engine's own
+##           answer for this world (influence only after its button, then cached);
+##           the claim button arms the Territory tool with this faction picked, as
+##           the context card's row does; Focus on capital keeps working; no
+##           "clear" control; a faction switch refreshes; the stale chip follows
+##           `stale_stages()`; phone taps >= 44 px and one scroller.
 ##
 ## Windowed, never `--headless` (layout and focus are the subject):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _factionhub_probe.tscn
@@ -66,6 +73,7 @@ var _tablet := false
 var _entry_done := false  ## set by the last line of `_run_entry_points`
 var _culture_done := false  ## set by the last line of `_run_culture_fold`
 var _deftype_done := false  ## set by the last line of `_run_default_type`
+var _territory_done := false  ## set by the last line of `_run_territory_tab`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -484,6 +492,10 @@ func _run() -> void:
 	# -- DEFTYPE: the default settlement type moved onto Identity (FH-3) ------------
 	await _run_default_type(ids)
 	_ok("FH3 the default-type leg ran to its end (a script error inside it aborts it silently)", _deftype_done)
+
+	# -- TERRITORY: the Territory tab's own content (FH-4) -----------------------------
+	await _run_territory_tab(ids)
+	_ok("FH4 the territory leg ran to its end (a script error inside it aborts it silently)", _territory_done)
 
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
@@ -1315,3 +1327,248 @@ func _run_default_type(ids: Array) -> void:
 	_fr.hide()
 	await _frames(2)
 	_deftype_done = true
+
+
+# -- TERRITORY (FH-4) -------------------------------------------------------------
+
+## Names of every node under `root` whose name starts with `prefix`, in tree order.
+func _named_like(root: Node, prefix: String) -> Array:
+	var out: Array = []
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_front()
+		if String(n.name).begins_with(prefix):
+			out.append(n)
+		for c in n.get_children():
+			stack.append(c)
+	return out
+
+
+## The civilization workspace, found by capability (`claim_for_faction`), the way
+## `app.claim_cells_for_faction` finds it.
+func _civ_workspace() -> Node:
+	for ws in _app._workspaces:
+		if ws.has_method("claim_for_faction"):
+			return ws
+	return null
+
+
+## Protects: FH-4, the Territory tab (`FACTION_HUB_DESIGN.md` §3.5). Every readout
+## is compared with the engine's own answer for this generated world, read
+## independently of the window: the claim figures (`civ_faction_territory_stats`),
+## the provinces list (`bridge.provinces()` filtered by faction), the influence
+## reading (`civ_territory_influence()` filtered to the faction, and ONLY after the
+## button), and the stale chip (`bridge.stale_stages()["civ"]`). Also that the
+## claim button runs the context card's handler (arms the Territory tool with this
+## faction picked), that no control clears a faction's claims, that a selection
+## change refreshes every readout, that the O(cells) influence call is never made
+## unprompted, and (phone) that taps are at least 44 px and the single scroller
+## holds. The absent-claims case ("—" everywhere) is `_claimsabsent_probe.gd`'s,
+## which loads a save with the grid stripped.
+func _run_territory_tab(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var names := _names()
+
+	# -- lazy: nothing O(cells) beyond the fits, and not the influence at all ------
+	_fr.open(fa, "identity")
+	await _frames(6)
+	await _press("territory")
+	await _frames(4)
+	var pane: Control = _pane("territory")
+	_ok("FH4 the Territory pane is built", pane != null)
+	if pane == null:
+		return
+	_ok("FH4 LAZY building the tab never ran the influence pass", not _fr._influence_ready and _fr._influence.is_empty(),
+		"ready=%s" % _fr._influence_ready)
+
+	# -- claims, against the engine ---------------------------------------------------
+	var stats: Dictionary = _bridge.civ_faction_territory_stats(fa)
+	_ok("FH4 precondition: this world has a claim grid, so the stats are not empty", not stats.is_empty())
+	var want_line := "Territory: %s km² over %d claimed cells (%d contested)" % [
+		_fr._thousands(int(float(stats.get("area_km2", 0.0)))),
+		int(stats.get("claimed_cells", 0)), int(stats.get("contested_cells", 0))]
+	var claims_lbl := pane.find_child("TerritoryClaims", true, false) as Label
+	_ok("FH4 the claim figures read the engine's own numbers (cells, km², contested)",
+		claims_lbl != null and claims_lbl.text == want_line,
+		"got '%s' want '%s'" % [claims_lbl.text if claims_lbl != null else "<none>", want_line])
+	_ok("FH4 ... and they are real (a faction with settlements claims cells)",
+		int(stats.get("claimed_cells", 0)) > 0 and float(stats.get("area_km2", 0.0)) > 0.0, str(stats))
+	var text := _text_of(pane)
+	_ok("FH4 the existing fit verdict/mix is still on the tab", text.to_lower().contains("territory fit"))
+	_ok("FH4 the capital line is still on the tab", text.contains("Capital:"))
+
+	# -- provinces, against bridge.provinces() ------------------------------------------
+	var want_rows: Array = []
+	for p in _bridge.provinces():
+		if int((p as Dictionary).get("faction", -1)) == fa:
+			want_rows.append(p)
+	var got_rows := _named_like(pane, "Province_")
+	_ok("FH4 precondition: faction %d owns provinces in this world" % fa, want_rows.size() > 0)
+	_ok("FH4 the provinces list has one row per bridge.provinces() entry of this faction",
+		got_rows.size() == want_rows.size(), "%d vs %d" % [got_rows.size(), want_rows.size()])
+	var sets: Array = _bridge.settlements()
+	var names_ok := true
+	var bad := ""
+	for p in want_rows:
+		var pd: Dictionary = p
+		var l := pane.find_child("Province_%d" % int(pd.get("id", 0)), true, false) as Label
+		var ci := int(pd.get("capital_settlement_index", -1))
+		var cname := String((sets[ci] as Dictionary).get("name", "—")) if ci >= 0 and ci < sets.size() else "—"
+		var want := "%s   ·   capital %s" % [String(pd.get("name", "?")), cname]
+		if l == null or l.text != want:
+			names_ok = false
+			bad = "'%s' vs '%s'" % [l.text if l != null else "<none>", want]
+	_ok("FH4 ... each reading its own name and capital", names_ok, bad)
+	_ok("FH4 ... under a heading that carries the count", text.contains("Provinces (%d)" % want_rows.size()) or text.to_lower().contains("provinces (%d)" % want_rows.size()))
+	_ok("FH4 ... and says no cell counts are shown rather than inventing them", text.contains("not exposed"))
+
+	# -- influence: behind the button ------------------------------------------------
+	_ok("FH4 influence reads 'Not run yet' before the button", text.contains("Not run yet"))
+	var run := pane.find_child("AnalyseInfluence", true, false) as Button
+	_ok("FH4 the Analyse influence button exists", run != null)
+	var inf: Dictionary = _bridge.civ_territory_influence()
+	_ok("FH4 precondition: the engine can analyse influence on this world", not inf.is_empty())
+	if run != null:
+		if _phone:
+			_ok("FH4 PHONE Analyse influence is at least 44 px tall", run.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % run.size.y)
+		run.pressed.emit()
+		await _frames(4)
+	_ok("FH4 pressing it ran the pass and cached it", _fr._influence_ready and not _fr._influence.is_empty())
+	var inf_text := _text_of(pane.find_child("InfluenceBody", true, false))
+	var mine: Dictionary = {}
+	for r in inf.get("factions", []):
+		if int((r as Dictionary).get("id", -1)) == fa:
+			mine = r
+	var want_reach := "Reach: %s cells, %s on a frontier; mean reach %.1f, mean contest %.3f" % [
+		_fr._thousands(int(mine.get("cells", 0))), _fr._thousands(int(mine.get("frontier_cells", 0))),
+		float(mine.get("mean_influence", 0.0)), float(mine.get("mean_contested", 0.0))]
+	_ok("FH4 the influence reach line is this faction's engine row", not mine.is_empty() and inf_text.contains(want_reach),
+		"want '%s' in '%s'" % [want_reach, inf_text.left(200)])
+	var want_nb := 0
+	var nb_ok := true
+	for r in inf.get("borders", []):
+		var b: Dictionary = r
+		var a_is := int(b.get("a", -1)) == fa
+		if not a_is and int(b.get("b", -1)) != fa:
+			continue
+		want_nb += 1
+		var other := String(b.get("b_name", "?")) if a_is else String(b.get("a_name", "?"))
+		var w := "%s -- %s frontier cells, mean contest %.3f" % [other, _fr._thousands(int(b.get("cells", 0))), float(b.get("mean_contested", 0.0))]
+		if not inf_text.contains(w):
+			nb_ok = false
+	_ok("FH4 every border this faction takes part in is listed, naming the OTHER side", nb_ok)
+	_ok("FH4 ... and no border it is not part of (row count matches)",
+		_named_like(pane, "InfluenceNeighbour_").size() == want_nb or (want_nb == 0 and inf_text.contains("No neighbour")),
+		"%d vs %d" % [_named_like(pane, "InfluenceNeighbour_").size(), want_nb])
+	_ok("FH4 ... with the caption that it is not the painted claims", inf_text.contains("not from painted claims"))
+	await _shot("%s_territory_influence" % ("phone" if _phone else "desktop"))
+
+	# -- no destructive control ----------------------------------------------------------
+	var all_btn: Array = []
+	_collect_buttons(pane, all_btn)
+	var clearish := false
+	for b in all_btn:
+		if (b as Button).text.to_lower().contains("clear"):
+			clearish = true
+	_ok("FH4 no 'clear claims' control is on the tab", not clearish)
+
+	# -- focus on capital keeps working ---------------------------------------------------
+	var focus := pane.find_child("FocusCapital", true, false) as Button
+	_ok("FH4 Focus on capital is present", focus != null)
+	if _phone and focus != null:
+		_ok("FH4 PHONE Focus on capital is at least 44 px tall", focus.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % focus.size.y)
+	if focus != null:
+		focus.pressed.emit()
+		await _frames(3)
+		_ok("FH4 ... and closes the hub to show the map", not _fr.visible)
+
+	# -- the claim button is the context card's handler --------------------------------------
+	_fr.open(fa, "territory")
+	await _frames(6)
+	pane = _pane("territory")
+	var claim := pane.find_child("ClaimCells", true, false) as Button
+	_ok("FH4 the Claim cells for this faction button exists", claim != null)
+	if claim == null:
+		return
+	if _phone:
+		_ok("FH4 PHONE Claim cells is at least 44 px tall", claim.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % claim.size.y)
+		_ok("FH4 PHONE the window still holds exactly one scroller",
+			_count(_fr, func(n): return n is ScrollContainer and (n as ScrollContainer).is_visible_in_tree()) == 1)
+	await _shot("%s_territory" % ("phone" if _phone else "desktop"))
+	_app.arm_tool("inspect")
+	await _frames(2)
+	var ws := _civ_workspace()
+	_ok("FH4 fixture: the civilization workspace is found, and no faction is picked for the tool yet", ws != null and int(ws.get("_territory_faction")) != fb)
+	_ok("FH4 precondition: another tool is armed", _app.armed_tool == "inspect", _app.armed_tool)
+	_fr.open(fb, "territory")
+	await _frames(6)
+	(_pane("territory").find_child("ClaimCells", true, false) as Button).pressed.emit()
+	await _frames(4)
+	_ok("FH4 pressing Claim arms the Territory tool", _app.armed_tool == "territory", _app.armed_tool)
+	_ok("FH4 ... with THIS faction picked, as the context card's row does",
+		ws != null and int(ws.get("_territory_faction")) == fb, str(ws.get("_territory_faction")) if ws != null else "no ws")
+	_ok("FH4 ... and hides the hub so the map can be painted on", not _fr.visible)
+	_app.arm_tool("inspect")
+
+	# -- a selection change refreshes every readout ----------------------------------------------
+	_fr.open(fa, "territory")
+	await _frames(6)
+	var stats_b: Dictionary = _bridge.civ_faction_territory_stats(fb)
+	## open() marks the caches stale (RF-03), so run the analysis afresh for this
+	## visit, then plant a sentinel in the cache: a re-run would replace it.
+	(_pane("territory").find_child("AnalyseInfluence", true, false) as Button).pressed.emit()
+	await _frames(4)
+	_fr._influence["_probe_sentinel"] = 1
+	var row_btn: Button = null
+	var rows: Array = []
+	_collect_buttons(_fr._list_body, rows)
+	for b in rows:
+		if (b as Button).text.find(String(names[fb])) >= 0 and (b as Button).text.find("—") >= 0:
+			row_btn = b
+			break
+	_ok("FH4 precondition: the real list row for the second faction exists", row_btn != null)
+	if row_btn == null:
+		return
+	row_btn.pressed.emit()
+	await _frames(8)
+	pane = _pane("territory")
+	var lbl_b := pane.find_child("TerritoryClaims", true, false) as Label if pane != null else null
+	var want_b := "Territory: %s km² over %d claimed cells (%d contested)" % [
+		_fr._thousands(int(float(stats_b.get("area_km2", 0.0)))),
+		int(stats_b.get("claimed_cells", 0)), int(stats_b.get("contested_cells", 0))]
+	_ok("FH4 a selection change refreshes the claim figures to the new faction's",
+		_fr._selected == fb and lbl_b != null and lbl_b.text == want_b,
+		"sel=%d got '%s' want '%s'" % [_fr._selected, lbl_b.text if lbl_b != null else "<none>", want_b])
+	var want_b_rows := 0
+	for p in _bridge.provinces():
+		if int((p as Dictionary).get("faction", -1)) == fb:
+			want_b_rows += 1
+	_ok("FH4 ... and the provinces list to the new faction's", _named_like(pane, "Province_").size() == want_b_rows,
+		"%d vs %d" % [_named_like(pane, "Province_").size(), want_b_rows])
+	var inf_b := _text_of(pane.find_child("InfluenceBody", true, false))
+	_ok("FH4 ... and the cached influence is re-filtered, not re-run, for the new faction",
+		_fr._influence_ready and _fr._influence.has("_probe_sentinel") and (inf_b.contains("Reach:") or inf_b.contains("no capital reach")),
+		inf_b.left(160))
+
+	# -- staleness: the chip follows the engine's graph ------------------------------------------------
+	_ok("FH4 healthy world: no stale chip while stale_stages() has no civ entry",
+		_bridge.stale_stages().has("civ") or pane.find_child("StaleClaimsChip", true, false) == null)
+	var cap: Dictionary = _fr._capital_of(fa)
+	var idx: int = _bridge.civ_drop_settlement(float(int(cap.get("x", 0))) + 3.0, float(int(cap.get("y", 0))) + 3.0, "hamlet", fa, "", false)
+	_ok("FH4 fixture: a settlement edit was accepted", idx >= 0, "idx=%d" % idx)
+	if idx >= 0:
+		var civ_stale: bool = _bridge.stale_stages().has("civ")
+		_ok("FH4 fixture: the engine now reports the civ stage stale", civ_stale, str(_bridge.stale_stages().keys()))
+		_fr._mark_data_stale()
+		_fr._rebuild_inspector()
+		await _frames(6)
+		var chip := _pane("territory").find_child("StaleClaimsChip", true, false) as Label
+		_ok("FH4 the stale chip appears and names the engine's reason", chip != null and chip.text.contains("Claims may be stale")
+			and chip.text.contains(String((_bridge.stale_stages().get("civ", {}) as Dictionary).get("reason", "?")).replace("_", " ")),
+			chip.text if chip != null else "<none>")
+		await _shot("%s_territory_stale" % ("phone" if _phone else "desktop"))
+		_bridge.civ_delete_settlement(idx)
+	_fr.hide()
+	await _frames(2)
+	_territory_done = true

@@ -158,6 +158,18 @@ var _fits_ready := false
 ## `cartalith_civ::manpower`'s answer for every faction at once, and it is O(cells).
 var _military: Dictionary = {}
 var _military_ready := false
+## `civ_territory_influence()` for EVERY faction, fetched by the Territory tab's
+## "Analyse influence" button and never otherwise (FH-4). One Dijkstra per
+## capital over the whole map, so it is behind a click exactly as
+## `Territories > Borders & influence` is. Cached across selection changes
+## (the answer is whole-world; only the filter by faction differs) and dropped
+## by `_mark_data_stale()`. `_influence_ready` is the "was it run" flag, because
+## `{}` is also a real answer (a loaded save, or a world with no capital) and
+## must read as "ran, and the engine had nothing", not as "not run".
+var _influence: Dictionary = {}
+var _influence_ready := false
+## The container the influence readout is (re)filled into, freed with its pane.
+var _influence_body: VBoxContainer = null
 
 ## The tab on screen. Deliberately a member that **survives `open()`**: an
 ## unknown or empty `tab` argument means "the last tab used this session", so
@@ -758,8 +770,7 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 		"identity":
 			_build_tab_identity(pane, d)
 		"territory":
-			_build_terrain_fit(pane)
-			_build_overview_block(pane, d)
+			_build_tab_territory(pane, d)
 		"settlements":
 			_build_settlement_sublist(pane)
 		"economy":
@@ -953,6 +964,8 @@ func _drop_panes(keep: String = "") -> void:
 func _mark_data_stale() -> void:
 	_fits_ready = false
 	_military_ready = false
+	_influence_ready = false
+	_influence = {}
 
 
 ## Fetches `civ_faction_terrain_fits()` once per staleness. O(cells): it
@@ -1611,27 +1624,184 @@ func _build_terrain_fit(parent: Control) -> void:
 	DccWidgets.note(sec, " · ".join(parts))
 
 
-# -- Overview block ---------------------------------------------------------
+# -- Territory tab (FACTION_HUB_DESIGN §3.5, FH-4) ---------------------------
 
-func _build_overview_block(parent: Control, d: Dictionary) -> void:
-	var sec := DccWidgets.section(parent, "Overview")
+## The Territory tab: what the selected faction holds and how it holds it.
+## Order is the design's: the claim figures first (they are what the verdict
+## and the mix are fractions of), then the fit, the provinces, and last the
+## on-demand influence reading. Builds only this tab; `_ensure_fits()` is the
+## sole O(cells) call it makes unprompted, and `civ_territory_influence()` is
+## never called here -- only by its button. Never offers to clear a faction's
+## claims (the design's §3.5 leaves that to the Territories tool, deliberately).
+func _build_tab_territory(parent: Control, d: Dictionary) -> void:
+	_build_claims_block(parent, d)
+	_build_terrain_fit(parent)
+	_build_provinces_block(parent)
+	_build_influence_block(parent)
+
+
+## The claim figures and the two actions. The "Capital / Settlements / Settled
+## population" line stays here, as it did in the Overview block this replaces,
+## until the Settlements tab carries it (`_claimsabsent_probe` and
+## `_factionhub_probe` still read "Capital:" on this tab).
+##
+## Absent data is honest: `civ_faction_territory_stats` answers `{}` when there
+## is no claim grid, and every number then reads "—" with `NO_CLAIM_GRID`, never
+## a zero (`MISTAKES.md`: never encode "no value" as a plausible value).
+func _build_claims_block(parent: Control, d: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Claims")
 	var stats := bridge.civ_faction_territory_stats(_selected)
 	var cap := _capital_of(_selected)
 	var cap_name: String = String(cap.get("name", "")) if not cap.is_empty() else "none"
 	DccWidgets.note(sec, "Capital: %s   ·   Settlements: %d   ·   Settled population: %s" % [
 		cap_name, int(d.get("settlement_count", 0)), _thousands(int(d.get("population", 0)))])
+	var line: Label
 	if not stats.is_empty():
-		DccWidgets.note(sec, "Territory: %s km² over %d claimed cells (%d contested)" % [
+		line = DccWidgets.note(sec, "Territory: %s km² over %d claimed cells (%d contested)" % [
 			_thousands(int(float(stats.get("area_km2", 0.0)))),
 			int(stats.get("claimed_cells", 0)), int(stats.get("contested_cells", 0))])
 	else:
 		## With a faction on screen there is a world, so an empty answer has
 		## one cause: `civ_faction_territory_stats`' "unknown" (its Rust doc).
-		DccWidgets.note(sec, "Territory: —   " + NO_CLAIM_GRID)
+		line = DccWidgets.note(sec, "Territory: —   " + NO_CLAIM_GRID)
+	line.name = "TerritoryClaims"
+	_build_stale_chip(sec)
+	var claim := DccWidgets.action(sec, "Claim cells for this faction", func():
+		## Hidden first so the map is reachable to paint on, the same as the
+		## focus button below. The handler is the context card's own
+		## `civ.faction_claim` action (`CivilizationWorkspace.claim_for_faction`):
+		## it arms the Territory tool with this faction picked. Nothing is painted.
+		var fid := _selected
+		hide()
+		app.claim_cells_for_faction(fid))
+	claim.name = "ClaimCells"
+	claim.tooltip_text = "Arms the Territory tool with this faction picked, as the map context card's 'Claim for …' row does. Nothing is painted until you brush."
 	if not cap.is_empty():
-		DccWidgets.action(sec, "Focus camera on capital", func():
+		var focus := DccWidgets.action(sec, "Focus on capital", func():
 			app.viewport.move_view_to(float(int(cap.get("x", 0))), float(int(cap.get("y", 0))))
 			hide())
+		focus.name = "FocusCapital"
+
+
+## The stale-claims chip. Driven by the engine's own staleness graph:
+## `bridge.stale_stages()` (cheap, recomputes nothing) carries a `civ` entry when
+## the settlements were edited after the civilisation layer was last computed,
+## which is exactly when the capital positions and the claim grid under these
+## figures may disagree with the map. Hand-painted claims survive a recompute.
+## Shown ONLY when the entry is present: `{}` also means "generating" or "an
+## older binary", and neither is evidence of staleness, so absence draws nothing
+## rather than a reassuring "up to date".
+func _build_stale_chip(parent: Control) -> void:
+	var stale: Dictionary = bridge.stale_stages()
+	if not stale.has("civ"):
+		return
+	var e: Dictionary = stale["civ"] if stale["civ"] is Dictionary else {}
+	var why := String(e.get("reason", ""))
+	if why.is_empty():
+		why = String(e.get("origin", "an earlier edit"))
+	var chip := Label.new()
+	chip.name = "StaleClaimsChip"
+	chip.text = "Claims may be stale — %s. Civilization ▸ Settlements ▸ Recompute civilisation refreshes them; hand-painted claims survive." % why.replace("_", " ")
+	chip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	chip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	chip.add_theme_color_override("font_color", DccTheme.c("stale"))
+	var pc := PanelContainer.new()
+	pc.name = "StaleClaimsPanel"
+	pc.add_theme_stylebox_override("panel", DccWidgets.box("stale", "", 8, 4))
+	pc.add_child(chip)
+	parent.add_child(pc)
+
+
+## The faction's provinces: name and capital. `bridge.provinces()` rows carry
+## `{id, faction, name, capital_settlement_index}` and NO per-province cell
+## count (the design's "cells" column needs a Rust `get_provinces` addition), so
+## the column is omitted rather than shown as a plausible number. The capital is
+## looked up in `bridge.settlements()` by index; an index outside it reads "—".
+func _build_provinces_block(parent: Control) -> void:
+	var rows: Array = []
+	for p in bridge.provinces():
+		if int((p as Dictionary).get("faction", -1)) == _selected:
+			rows.append(p)
+	var sec := DccWidgets.section(parent, "Provinces (%d)" % rows.size())
+	sec.name = "ProvincesSection"
+	if rows.is_empty():
+		DccWidgets.note(sec, "This faction holds no province.")
+		return
+	var settlements := bridge.settlements()
+	for p in rows:
+		var pd: Dictionary = p
+		var ci := int(pd.get("capital_settlement_index", -1))
+		var cname := "—"
+		if ci >= 0 and ci < settlements.size():
+			cname = String((settlements[ci] as Dictionary).get("name", "—"))
+		var l := DccWidgets.note(sec, "%s   ·   capital %s" % [String(pd.get("name", "?")), cname])
+		l.name = "Province_%d" % int(pd.get("id", 0))
+	DccWidgets.note(sec, "Cells per province are not exposed by the engine yet, so none is shown.")
+
+
+## "Influence by neighbour": this faction's row and the borders it takes part
+## in, from `civ_territory_influence()` -- the same call as
+## `Territories ▸ Borders & influence ▸ By faction`, filtered to the selection.
+## Behind a button and cached (see `_influence`): the field is rebuilt from the
+## capitals by one Dijkstra each, and is NOT the painted claims, which the
+## caption says so the two are never read as one.
+func _build_influence_block(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Influence by neighbour")
+	var run := DccWidgets.action(sec, "Analyse influence", func():
+		_influence = bridge.civ_territory_influence()
+		_influence_ready = true
+		_fill_influence())
+	run.name = "AnalyseInfluence"
+	run.tooltip_text = "Rebuilds the cost-distance influence field from the capitals and reports this faction's reach and the borders it shares. Computed on demand and dropped; the same reading as Territories ▸ Borders & influence."
+	_influence_body = VBoxContainer.new()
+	_influence_body.name = "InfluenceBody"
+	_influence_body.add_theme_constant_override("separation", 4)
+	_influence_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(_influence_body)
+	_fill_influence()
+
+
+## Fills `_influence_body` from the cache, or says it has not been run. Pure
+## presentation over `_influence`; never calls the engine.
+func _fill_influence() -> void:
+	if _influence_body == null or not is_instance_valid(_influence_body):
+		return
+	_clear(_influence_body)
+	if not _influence_ready:
+		DccWidgets.note(_influence_body,
+			"Not run yet. Reach is computed from capitals, not read from painted claims.")
+		return
+	if _influence.is_empty():
+		## `{}` is the engine's "nothing to analyse": a world with no capital, or
+		## one reopened from a save without its terrain rasters.
+		DccWidgets.note(_influence_body,
+			"—   No influence to report: this world has no capitals to project territory from, or it was opened from a save without its terrain rasters. Regenerate to use it.")
+		return
+	var mine: Dictionary = {}
+	for r in (_influence.get("factions", []) as Array):
+		if int((r as Dictionary).get("id", -1)) == _selected:
+			mine = r
+	if mine.is_empty():
+		DccWidgets.note(_influence_body, "—   This faction has no capital reach on this map.")
+	else:
+		DccWidgets.note(_influence_body, "Reach: %s cells, %s on a frontier; mean reach %.1f, mean contest %.3f" % [
+			_thousands(int(mine.get("cells", 0))), _thousands(int(mine.get("frontier_cells", 0))),
+			float(mine.get("mean_influence", 0.0)), float(mine.get("mean_contested", 0.0))])
+	var shown := 0
+	for r in (_influence.get("borders", []) as Array):
+		var b: Dictionary = r
+		var a_is := int(b.get("a", -1)) == _selected
+		if not a_is and int(b.get("b", -1)) != _selected:
+			continue
+		var other := String(b.get("b_name", "?")) if a_is else String(b.get("a_name", "?"))
+		var l := DccWidgets.note(_influence_body, "%s -- %s frontier cells, mean contest %.3f" % [
+			other, _thousands(int(b.get("cells", 0))), float(b.get("mean_contested", 0.0))])
+		l.name = "InfluenceNeighbour_%d" % shown
+		shown += 1
+	if shown == 0:
+		DccWidgets.note(_influence_body, "No neighbour meets this faction on a frontier.")
+	DccWidgets.note(_influence_body, "Computed from capital reach, not from painted claims.")
 
 
 # -- Military (`GUI_GAP_REGISTER.md` CV-25 / `MILITARY_MANPOWER_SCOPE.md`) --
