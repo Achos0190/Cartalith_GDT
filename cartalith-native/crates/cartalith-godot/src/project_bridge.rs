@@ -770,6 +770,57 @@ struct JourneyDto {
     /// such a journey writes the same bytes it was read from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     resupply_stops: Vec<AcceptedStopDto>,
+    /// Ruling AR (2026-09-24): the whole saved plan -- see
+    /// [`JourneyPlanDto`]. **Absent means "no plan stored"** (every journey
+    /// saved before the ruling) and is never filled in with a default plan:
+    /// such a journey is planned from its `party_preset`, as it always was.
+    /// Skipped when `None`, so re-saving a pre-ruling journey writes the
+    /// bytes it was read from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    plan: Option<JourneyPlanDto>,
+}
+
+/// Ruling AR: `cartalith_civ::travel_library::JourneyPlan` on the wire,
+/// `SAVEFILE_COMPAT.md` 9.6's `plan` member.
+///
+/// `fields` is `journey_bridge::plan_to_pairs`' flat vocabulary -- the very
+/// keys `jp_compute`'s `plan` Dictionary and `jp_default_plan()` speak -- so
+/// a plan field the planner gains is one new key here and needs no format
+/// change. `stage_overrides` nests `stage_override_to_pairs` per stage index
+/// (the index as a decimal string, JSON object keys being strings).
+/// `BTreeMap`s throughout, so the same plan always writes the same bytes.
+///
+/// **Tolerance, both ways** (`SAVEFILE_COMPAT.md` 14.3): an unknown `fields`
+/// key or an unparsable stage index is dropped, a missing member takes the
+/// planner's own default for "not set" (`trim` absent = the whole route,
+/// `auto_*` absent = off, `fields` keys absent = the reference defaults).
+/// A reader never refuses the journey over its plan.
+///
+/// No `Default` derive on purpose: `[f64; 2]`'s `Default` is `[0, 0]`, an
+/// empty trim that plans nothing -- exactly the plausible-looking
+/// "no value" `MISTAKES.md` forbids; `trim` has its own `serde` default.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JourneyPlanDto {
+    #[serde(default)]
+    fields: BTreeMap<String, serde_json::Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    stage_overrides: BTreeMap<String, BTreeMap<String, serde_json::Value>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    layovers: BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    animal_entries: BTreeMap<String, String>,
+    #[serde(default = "whole_route_trim")]
+    trim: [f64; 2],
+    #[serde(default)]
+    auto_carriage: bool,
+    #[serde(default)]
+    auto_stage: bool,
+}
+
+/// [`JourneyPlanDto::trim`]'s serde default: the untrimmed route, the
+/// planner's own `Vector2(0, 1)` ("not sent at all").
+fn whole_route_trim() -> [f64; 2] {
+    [0.0, 1.0]
 }
 
 /// One accepted resupply stop (Ruling BS), `cartalith_civ::JpAcceptedStop`
@@ -1787,6 +1838,51 @@ fn journey_to_dto(j: &cartalith_civ::travel_library::Journey) -> JourneyDto {
             .iter()
             .map(|a| AcceptedStopDto { key: a.key.clone(), kind: a.kind.clone(), name: a.name.clone(), at: [a.x, a.y] })
             .collect(),
+        plan: j.plan.as_ref().map(journey_plan_to_dto),
+    }
+}
+
+/// [`JourneyPlanDto`] from a saved plan. The inverse of
+/// [`dto_to_journey_plan`]; must write every member of
+/// `cartalith_civ::travel_library::JourneyPlan` (a test pins that field by
+/// field) and never writes `accepted_resupply`, which lives on the journey.
+fn journey_plan_to_dto(p: &cartalith_civ::travel_library::JourneyPlan) -> JourneyPlanDto {
+    JourneyPlanDto {
+        fields: travel_pairs_to_fields(journey_bridge::plan_to_pairs(&p.plan).into_iter().map(|(k, v)| (k.to_string(), v)).collect()),
+        stage_overrides: p
+            .plan
+            .stage_overrides
+            .iter()
+            .map(|(idx, ov)| {
+                let pairs = journey_bridge::stage_override_to_pairs(ov).into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+                (idx.to_string(), travel_pairs_to_fields(pairs))
+            })
+            .collect(),
+        layovers: p.layovers.clone(),
+        animal_entries: p.animal_entries.clone(),
+        trim: [p.trim.0, p.trim.1],
+        auto_carriage: p.auto_carriage,
+        auto_stage: p.auto_stage,
+    }
+}
+
+/// A saved plan from [`JourneyPlanDto`], tolerant per its doc: unknown or
+/// wrong-typed keys are dropped (the planner's `rejected` policy), never
+/// fatal. `accepted_resupply` is left empty by construction.
+fn dto_to_journey_plan(d: &JourneyPlanDto) -> cartalith_civ::travel_library::JourneyPlan {
+    let (mut plan, _rejected) = journey_bridge::plan_from_pairs(&travel_fields_to_pairs(&d.fields));
+    for (idx, fields) in &d.stage_overrides {
+        let Ok(idx) = idx.parse::<usize>() else { continue };
+        let (ov, _rejected) = journey_bridge::stage_override_from_pairs(&travel_fields_to_pairs(fields));
+        plan.stage_overrides.insert(idx, ov);
+    }
+    cartalith_civ::travel_library::JourneyPlan {
+        plan,
+        layovers: d.layovers.clone(),
+        animal_entries: d.animal_entries.clone(),
+        trim: (d.trim[0], d.trim[1]),
+        auto_carriage: d.auto_carriage,
+        auto_stage: d.auto_stage,
     }
 }
 
@@ -1815,6 +1911,7 @@ fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
                 y: a.at[1],
             })
             .collect(),
+        plan: d.plan.as_ref().map(dto_to_journey_plan),
     }
 }
 
@@ -5078,6 +5175,9 @@ mod tests {
                 x: 11.5,
                 y: 5.25,
             }],
+            // Ruling AR: this fixture is the plan-less shape; a journey with
+            // a full plan is `a_journey_with_a_full_non_default_plan_...`.
+            plan: None,
         };
         let (next_id, back) = journeys_round_trip(8, std::slice::from_ref(&journey));
         assert_eq!(next_id, 8);
@@ -5094,6 +5194,199 @@ mod tests {
         // The whole point of `PartialEq` on `Journey`/`JourneyRoute`: one
         // assertion that nothing above was a partial check in disguise.
         assert_eq!(*b, journey);
+    }
+
+    /// A journey carrying a plan in which **every** member is non-default:
+    /// all 28 plan-form fields, two stage overrides (one sets all 25 fields,
+    /// one a single field), a layover, an animal entry, a trim and both auto
+    /// flags. Built field by field (no `..Default::default()` on the plan) so
+    /// a field added to `JpPlan` fails to compile here until it is chosen
+    /// non-default too.
+    fn full_plan_journey() -> cartalith_civ::travel_library::Journey {
+        use cartalith_civ::{JpParty, JpPlan, JpStageOverride};
+        let plan = JpPlan {
+            party: JpParty { group_size: 12, cargo_kg: 900.5, donkey: 3, mule: 4, camel: 1, horse: 2, carts: 5, wagons: 6, sleds: 7, travois: 8 },
+            transport: "Mounted Rider".into(),
+            mount_animal: Some("mule".into()),
+            vessel: "Dhow".into(),
+            hours: 7.5,
+            pace: "Cautious / Scouting".into(),
+            season: "Autumn".into(),
+            supply_days: 14,
+            carry_food: false,
+            grazing: "Forced".into(),
+            foraging: "Opportunistic".into(),
+            desert_water: Some("Deep Desert Crossing".into()),
+            weather_override: Some("Snow".into()),
+            seasonal_closures: false,
+            route_cond: Some("Broken".into()),
+            infra: Some("Stable Settlements".into()),
+            stage_overrides: std::collections::HashMap::from([
+                (
+                    0,
+                    JpStageOverride {
+                        transport: Some("Baggage Train".into()),
+                        mount_animal: Some("horse".into()),
+                        vessel: Some("Cog".into()),
+                        hours: Some(11.5),
+                        pace: Some("Haste".into()),
+                        season: Some("Winter".into()),
+                        supply_days: Some(21),
+                        carry_food: Some(true),
+                        grazing: Some("Light".into()),
+                        foraging: Some("Active".into()),
+                        desert_water: Some("Oasis".into()),
+                        weather_override: Some("Rain".into()),
+                        seasonal_closures: Some(true),
+                        route_cond: Some("Deteriorated".into()),
+                        infra: Some("Road".into()),
+                        group_size: Some(9),
+                        cargo_kg: Some(650.25),
+                        donkey: Some(1),
+                        mule: Some(2),
+                        camel: Some(3),
+                        horse: Some(4),
+                        carts: Some(5),
+                        wagons: Some(6),
+                        sleds: Some(7),
+                        travois: Some(8),
+                    },
+                ),
+                (3, JpStageOverride { camel: Some(6), ..Default::default() }),
+            ]),
+            season_drift: true,
+            // The single non-default the Ruling AR tests lean on: the plan
+            // form's rest cadence ("Heavy -- 1 in 3"), which moves dates.
+            rest_cadence: Some("Heavy \u{2014} 1 in 3".into()),
+            auto_promote: true,
+            // Accepted stops live on `Journey::resupply_stops`, never here.
+            accepted_resupply: Vec::new(),
+        };
+        cartalith_civ::travel_library::Journey {
+            id: 9,
+            name: "The planned road".to_string(),
+            party_preset: "merchant_caravan".to_string(),
+            route: cartalith_civ::travel_library::JourneyRoute {
+                points: vec![(10.0, 4.0), (11.5, 5.25), (13.0, 6.0)],
+                breaks: vec![0],
+                length_km: 120.5,
+                mode: cartalith_civ::tools::RouteMode::Mixed,
+            },
+            start_year: 412,
+            resupply_stops: Vec::new(),
+            plan: Some(cartalith_civ::travel_library::JourneyPlan {
+                plan,
+                layovers: BTreeMap::from([("resupply:Kessra|town|11|5".to_string(), 3), ("stop:2".to_string(), 1)]),
+                animal_entries: BTreeMap::from([("horse".to_string(), "custom_horse".to_string())]),
+                trim: (0.25, 0.75),
+                auto_carriage: true,
+                auto_stage: true,
+            }),
+        }
+    }
+
+    /// Protects (Ruling AR): a journey's whole planner plan -- every plan
+    /// field, both stage overrides (all 25 fields of one), the layover and
+    /// animal-entry maps, the trim and both auto flags -- survives
+    /// `journey_to_dto` -> a real in-memory `.ctl` archive -> `dto_to_journey`
+    /// unchanged, alongside a plan-less journey in the same document (so
+    /// neither shape bleeds into the other), and a second save writes the
+    /// same bytes as the first.
+    #[test]
+    fn a_journey_with_a_full_non_default_plan_survives_save_load_reopen() {
+        let planned = full_plan_journey();
+        let mut plain = full_plan_journey();
+        plain.id = 10;
+        plain.plan = None;
+        let (next_id, back) = journeys_round_trip(11, &[planned.clone(), plain.clone()]);
+        assert_eq!(next_id, 11);
+        assert_eq!(back.len(), 2);
+        assert_eq!(back[0], planned, "the full plan came back field for field");
+        assert_eq!(back[1], plain, "a plan-less neighbour stays plan-less");
+        assert!(back[1].plan.is_none(), "an absent plan is None, not a default plan");
+        // The two scalars the GDScript probe moves the dates with.
+        let p = back[0].plan.as_ref().expect("plan");
+        assert_eq!(p.plan.rest_cadence.as_deref(), Some("Heavy \u{2014} 1 in 3"));
+        assert_eq!(p.trim, (0.25, 0.75));
+        // Byte stability: serialise, parse, serialise.
+        let doc = JourneysDoc { next_id: 11, journeys: back.iter().map(journey_to_dto).collect() };
+        let once = serde_json::to_string(&doc).unwrap();
+        let reparsed: JourneysDoc = serde_json::from_str(&once).unwrap();
+        let again = JourneysDoc { next_id: 11, journeys: reparsed.journeys.iter().map(dto_to_journey).map(|j| journey_to_dto(&j)).collect() };
+        assert_eq!(serde_json::to_string(&again).unwrap(), once);
+    }
+
+    /// Protects (Ruling AR, `SAVEFILE_COMPAT.md` 9.6): a journeys document
+    /// written by the build just before the ruling -- Ruling BS's shape, with
+    /// `resupply_stops` and no `plan` -- opens with **no plan** (`None`, not
+    /// a default plan: the planner restores a preset for it) and re-saves to
+    /// the very bytes it was read from.
+    #[test]
+    fn a_pre_ruling_ar_journey_loads_with_no_plan_and_resaves_byte_identically() {
+        let old = r#"{"next_id":8,"journeys":[{"id":7,"name":"The salt road","party_preset":"merchant_caravan","route":{"points":[[10.0,4.0],[11.5,5.25],[13.0,6.0]],"breaks":[0],"length_km":120.5,"mode":"mixed"},"start_year":412,"resupply_stops":[{"key":"resupply:Kessra|town|11|5","kind":"settlement","name":"Kessra","at":[11.5,5.25]}]}]}"#;
+        let doc: JourneysDoc = serde_json::from_str(old).expect("the pre-AR shape parses");
+        let journeys: Vec<_> = doc.journeys.iter().map(dto_to_journey).collect();
+        assert_eq!(journeys.len(), 1);
+        assert!(journeys[0].plan.is_none(), "no plan member means no plan");
+        assert_eq!(journeys[0].resupply_stops.len(), 1, "the BS member came through");
+        let again = JourneysDoc { next_id: doc.next_id, journeys: journeys.iter().map(journey_to_dto).collect() };
+        assert_eq!(serde_json::to_string(&again).unwrap(), old);
+    }
+
+    /// Protects (Ruling AR, `SAVEFILE_COMPAT.md` 9.6 / 14.3): a reader
+    /// tolerates a `plan` member from a newer or hand-edited file. Unknown
+    /// plan-form keys, wrong-typed values and an unparsable stage index are
+    /// dropped without refusing the journey; every missing member takes the
+    /// "not set" value -- the whole route for `trim`, off for the auto flags
+    /// -- never a zero trim that would plan nothing.
+    #[test]
+    fn an_unknown_or_partial_plan_member_is_tolerated() {
+        let text = r#"{"id":7,"name":"n","party_preset":"p","route":{"points":[[0.0,0.0],[1.0,1.0]],"breaks":[],"length_km":1.0,"mode":"mixed"},"start_year":1,"plan":{"fields":{"hours":6.5,"rest_cadence":"Light \u2014 1 in 7","not_a_field":1,"season":42},"stage_overrides":{"2":{"camel":3,"bogus":true},"x":{"camel":1}},"future_member":[1,2]}}"#;
+        let dto: JourneyDto = serde_json::from_str(text).expect("a partial plan still parses");
+        let j = dto_to_journey(&dto);
+        let p = j.plan.expect("the plan member was present");
+        assert_eq!(p.plan.hours, 6.5);
+        assert_eq!(p.plan.rest_cadence.as_deref(), Some("Light \u{2014} 1 in 7"));
+        assert_eq!(p.plan.season, cartalith_civ::JpPlan::default().season, "a wrong-typed value keeps the default");
+        assert_eq!(p.plan.stage_overrides.len(), 1, "the unparsable stage index was dropped");
+        assert_eq!(p.plan.stage_overrides[&2].camel, Some(3));
+        assert_eq!(p.trim, (0.0, 1.0), "an absent trim is the whole route");
+        assert!(!p.auto_carriage && !p.auto_stage);
+        assert!(p.layovers.is_empty() && p.animal_entries.is_empty());
+        // A `plan` of the wrong JSON type is a parse error on the document,
+        // which `SAVEFILE_COMPAT.md` 6.4a rung 3 already routes to "that one
+        // slot is skipped, every other document opens" rather than a panic.
+        let head = &text[..text.find(r#""plan":"#).unwrap()];
+        let bad = format!(r#"{head}"plan":[1]}}"#);
+        assert!(serde_json::from_str::<JourneyDto>(&bad).is_err());
+    }
+
+    /// Protects (Ruling AR): the wire form names each plan member under the
+    /// key `SAVEFILE_COMPAT.md` 9.6 documents -- an independent assertion on
+    /// the JSON text (not a round trip, which would pass with both ends
+    /// renamed together).
+    #[test]
+    fn the_plan_member_is_written_under_the_documented_keys() {
+        let v = serde_json::to_value(journey_to_dto(&full_plan_journey())).unwrap();
+        let plan = &v["plan"];
+        assert_eq!(plan["fields"]["rest_cadence"], "Heavy \u{2014} 1 in 3");
+        assert_eq!(plan["fields"]["hours"], 7.5);
+        assert_eq!(plan["fields"]["group_size"], 12);
+        assert_eq!(plan["stage_overrides"]["3"]["camel"], 6);
+        assert_eq!(plan["stage_overrides"]["0"]["hours"], 11.5);
+        assert_eq!(plan["layovers"]["stop:2"], 1);
+        assert_eq!(plan["animal_entries"]["horse"], "custom_horse");
+        assert_eq!(plan["trim"], serde_json::json!([0.25, 0.75]));
+        assert_eq!(plan["auto_carriage"], true);
+        assert_eq!(plan["auto_stage"], true);
+        assert!(plan.get("accepted_resupply").is_none(), "accepted stops live on the journey, not the plan");
+        let plain = serde_json::to_value(journey_to_dto(&{
+            let mut j = full_plan_journey();
+            j.plan = None;
+            j
+        }))
+        .unwrap();
+        assert!(plain.get("plan").is_none(), "no plan means no member, not a null or an empty object");
     }
 
     /// Protects: `SAVEFILE_COMPAT.md` for Ruling BS's new `resupply_stops`

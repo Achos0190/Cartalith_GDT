@@ -364,6 +364,9 @@ impl InfraTools {
             // Ruling BS: set afterwards through `journey_set_resupply`, so
             // this signature (and every caller of it) is unchanged.
             resupply_stops: Vec::new(),
+            // Ruling AR: likewise set afterwards (`journey_set_plan`); a
+            // journey is `None` -- no plan stored -- until then.
+            plan: None,
         });
         Some(id)
     }
@@ -928,6 +931,7 @@ mod tests {
             route: cartalith_civ::travel_library::JourneyRoute { points: pts, breaks: vec![], length_km: 1.0, mode: RouteMode::Land },
             start_year: 5,
             resupply_stops: vec![],
+            plan: None,
         };
         let carried = vec![
             journey(3, "To the coast", vec![(12.0, 2.0), (22.0, 8.0)]),

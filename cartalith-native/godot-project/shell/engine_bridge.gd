@@ -3881,6 +3881,19 @@ func journey_set_resupply(id: int, stops: Array) -> bool:
 	mark_world_dirty()
 	return world_gen.journey_set_resupply(id, stops)
 
+## Ruling AR: stores the whole planner plan with journey `id`, so it plans the
+## same after a reopen (`entities/journeys.json`'s `plan` member). `request` is
+## `jp_compute`'s own vocabulary -- `plan`, `stage_overrides`, `layovers`,
+## `animal_entries`, `trim`, `auto_carriage`, `auto_stage` -- minus the route.
+## Returns `{ok, error, rejected}`; an older binary without the call answers
+## `{ok: false}` rather than raising, and the journey then keeps only its
+## party preset exactly as before the ruling.
+func journey_set_plan(id: int, request: Dictionary) -> Dictionary:
+	if not _has("journey_set_plan"):
+		return {"ok": false, "error": "journey_set_plan is not exposed by this build's GDExtension binary -- rebuild cartalith-godot.", "rejected": PackedStringArray()}
+	mark_world_dirty()
+	return world_gen.journey_set_plan(id, request)
+
 func journey_get(id: int) -> Dictionary:
 	if not _has("journey_get"):
 		return {}

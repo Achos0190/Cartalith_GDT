@@ -790,6 +790,62 @@ pub struct Journey {
     /// progression included). Empty for every journey saved before the
     /// ruling, which is exactly how those were planned.
     pub resupply_stops: Vec<crate::JpAcceptedStop>,
+    /// Ruling AR (2026-09-24): the **whole plan** the journey was saved
+    /// with, so a reopened journey plans exactly as it did.
+    ///
+    /// **`None` means "no plan was ever stored"** -- every journey saved
+    /// before Ruling AR -- and is deliberately not a default [`JourneyPlan`]:
+    /// those journeys are planned from their [`Self::party_preset`] over
+    /// `JpPlan::default()`, which is what they always were, and a `Some`
+    /// default would look authored. `Some` means the planner's state at save
+    /// time, and wins over the preset wherever it speaks (every `JpPlan`
+    /// field; the preset only ever held twenty of them).
+    pub plan: Option<JourneyPlan>,
+}
+
+/// Ruling AR: every planner input a journey's plan is computed from, other
+/// than the route (which [`Journey::route`] snapshots) and the accepted
+/// resupply stops (which [`Journey::resupply_stops`] already holds -- see
+/// [`JourneyPlan::plan`]'s note on why they are not duplicated here).
+///
+/// This is `jp_compute`'s own request vocabulary made durable: `plan` +
+/// `stage_overrides` (inside [`JpPlan`]), `layovers`, `animal_entries`,
+/// `trim`, `auto_carriage` and `auto_stage`. It is typed rather than an
+/// opaque JSON value because that set is small and stable (it is exactly
+/// the request keys `jp_compute` accepts) and a typed plan lets
+/// `cartalith-godot` plan a saved journey with no further parsing. The
+/// wire form (`entities/journeys.json`, `SAVEFILE_COMPAT.md` 9.6) flattens
+/// the [`JpPlan`] through the planner's own field-pair vocabulary, so a field
+/// the planner gains is one new key there, not a new format.
+///
+/// Must never be built from a preset: a preset is a *party*, this is a
+/// *plan*, and conflating them is the very loss Ruling AR closes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JourneyPlan {
+    /// The shared plan and its sparse per-stage overrides
+    /// (`JpPlan::stage_overrides`). **Its `accepted_resupply` is always
+    /// empty here**: [`Journey::resupply_stops`] is the one source of truth
+    /// for accepted stops (Ruling BS) and the planner copies it in at plan
+    /// time, so there is never a second list to disagree with it.
+    pub plan: crate::JpPlan,
+    /// `{stop_key: extra rest days}`, `jp_compute`'s `layovers`. Keys name
+    /// stops on the route as it was planned; a key that matches no stop on
+    /// a re-snapped route plans as no layover, exactly as in the planner.
+    pub layovers: std::collections::BTreeMap<String, i64>,
+    /// `{species_key: library entry id}`, `jp_compute`'s `animal_entries`:
+    /// which Travel Library definition occupies each built-in species slot.
+    /// Empty means the library's implicit pick, as in the planner.
+    pub animal_entries: std::collections::BTreeMap<String, String>,
+    /// The spine trim as two arc-length fractions, `(0.0, 1.0)` being the
+    /// whole route (the planner's own untrimmed value).
+    pub trim: (f64, f64),
+    /// `jp_compute`'s `auto_carriage`: run `jp_auto_pick_transport` before
+    /// planning. Stored because the picker mutates the plan on every
+    /// compute, so replaying the saved plan without it could differ.
+    pub auto_carriage: bool,
+    /// `jp_compute`'s `auto_stage`: run the per-stage auto pick and merge
+    /// its picks over the saved overrides.
+    pub auto_stage: bool,
 }
 
 // ---------------------------------------------------------------------------

@@ -1306,7 +1306,19 @@ no journey. Written only when at least one journey exists. The shape:
     { "id": 1, "name": "The salt road", "party_preset": "merchant_caravan",
       "route": { "points": [[10.0,4.0]], "breaks": [], "length_km": 120.0,
                  "mode": "land" },
-      "start_year": 412 }
+      "start_year": 412,
+      "resupply_stops": [ { "key": "resupply:Kessra|town|11|5",
+                            "kind": "settlement", "name": "Kessra",
+                            "at": [11.5, 5.25] } ],
+      "plan": {
+        "fields": { "rest_cadence": "Heavy \u2014 1 in 3", "hours": 7.5,
+                    "group_size": 12, "pace": "Cautious / Scouting" },
+        "stage_overrides": { "0": { "hours": 11.5 }, "3": { "camel": 6 } },
+        "layovers": { "resupply:Kessra|town|11|5": 3 },
+        "animal_entries": { "horse": "custom_horse" },
+        "trim": [0.25, 0.75],
+        "auto_carriage": true,
+        "auto_stage": false } }
   ]
 }
 ```
@@ -1316,6 +1328,52 @@ one — which is why it is its own entity and not a fifth array in
 `entities/ways.json`. `party_preset` names an entry in `library/travel.json`;
 a reader MUST tolerate a name that resolves to nothing and MUST show the
 journey rather than drop it.
+
+**`plan` (added 2026-10-06, Ruling AR).** Until then a saved journey kept only
+its party preset: the rest of what the Journey Planner had set -- rest cadence,
+pace, season, per-stage overrides, layovers, the trim -- was lost on reopen, and
+the journey then dated differently (SP-2/SP-3 plan every saved journey from what
+is stored here). `plan` is the whole planner request minus the route, so a
+writer stores exactly what it computed the journey's dates from:
+
+| member | meaning |
+|---|---|
+| `fields` | the planner's party-form keys with their values (strings, numbers and booleans; an unset optional choice -- mount animal, route condition, rest cadence, ... -- is the empty string, the form's own "auto") |
+| `stage_overrides` | per-stage overrides keyed by stage index as a decimal string; each holds only the members that stage overrides, in `fields`' vocabulary |
+| `layovers` | stop key -> days |
+| `animal_entries` | species slot -> Travel Library entry id |
+| `trim` | `[from, to]`, fractions of the route's arc length; `[0.0, 1.0]` is the whole route |
+| `auto_carriage`, `auto_stage` | the planner's two auto-pick switches; a reader that replays the plan MUST run the same picks, since they change the plan they act on |
+
+`stage_overrides`, `layovers` and `animal_entries` are omitted when empty.
+**The accepted resupply stops are not in `plan`**: they have one home, the
+journey's own `resupply_stops` (Ruling BS), and a reader MUST NOT expect them
+under `plan`.
+
+Compatibility, both directions:
+
+- **A missing `plan` is a legitimate, common file** -- every journey written
+  before this ruling, and any journey whose writer has no planner. A reader
+  MUST open it, MUST treat the journey as having *no stored plan* (not as a
+  default plan: a default plan is also a real saved plan, and the two are
+  told apart by presence), and falls back to the party preset exactly as
+  before. A writer MUST NOT add an empty or default `plan` to a journey that
+  never had one; a file with no `plan` re-saves byte-identically.
+- **Unknown or ill-typed members inside `plan` are dropped, never fatal.**
+  A reader MUST ignore unknown keys in `plan`, `fields` and the per-stage
+  objects, a `fields` value of the wrong type (that key keeps the planner's
+  default), and a stage-override index that is not a non-negative integer.
+  A missing `trim` means the whole route, never an empty one, and a missing
+  `auto_carriage`/`auto_stage` means off.
+- A reader that carries the document without modelling it (section 6.5) keeps
+  `plan` verbatim, like every other member it does not understand, and a
+  reader that models it SHOULD preserve the unrecognised members it dropped
+  (section 14.3). **This port does not**: its `plan` is typed, so an unknown
+  key inside `plan` is read past and not written back, and a `plan` that is not
+  a JSON object costs the whole journeys slot (skipped, every other document
+  still opens, section 6.4a) rather than that one member. Both are deviations from section 14.3, recorded here.
+- This port writes the members in key order, so two saves of an unchanged
+  journey are byte-identical.
 
 This is still a slot §6.5 serves: an implementation whose journey planner
 lives in its user interface rather than in its map engine may **carry** this

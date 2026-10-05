@@ -15074,7 +15074,7 @@ impl WorldGen {
         let points: PackedVector2Array =
             j.route.points.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
         let brks: PackedInt32Array = j.route.breaks.iter().map(|&b| b as i32).collect();
-        vdict! {
+        let mut d = vdict! {
             "id" => j.id as i64,
             "name" => j.name.as_str(),
             "party_preset" => j.party_preset.as_str(),
@@ -15087,7 +15087,46 @@ impl WorldGen {
             // in `jp_compute`'s own `resupply_accepted` shape. `[]` for every
             // journey saved before the ruling.
             "resupply_stops" => &jp_accepted_stops_array(&j.resupply_stops),
+        };
+        // Ruling AR: the saved plan, in `jp_compute`'s request shape -- see
+        // `journey_plan_to_dict`. **The key is omitted, not emptied,** for a
+        // journey with no stored plan (one saved before the ruling): callers
+        // test `has("plan")`, and an empty plan would look authored.
+        if let Some(p) = &j.plan {
+            d.set("plan", &journey_plan_to_dict(p));
         }
+        d
+    }
+
+    /// Ruling AR: stores the **whole plan** with journey `id`, so a reopened
+    /// journey plans exactly as it did (`entities/journeys.json`,
+    /// `SAVEFILE_COMPAT.md` 9.6's `plan` member) -- not only its party preset.
+    ///
+    /// `request` is `jp_compute`'s own vocabulary, so the planner sends the
+    /// dictionary it computes with: `plan`, `stage_overrides`, `layovers`,
+    /// `animal_entries`, `trim`, `auto_carriage`, `auto_stage`. `route`,
+    /// `points` and `resupply_accepted` are ignored here (the journey's route
+    /// is its own snapshot; accepted stops go through `journey_set_resupply`).
+    /// Replaces any plan already stored.
+    ///
+    /// Returns `{ok, error, rejected}`: `ok` is `false` (nothing written) for
+    /// an unknown id or a key of the wrong container type; unrecognised
+    /// *entries* are listed in `rejected` and dropped, as in `jp_compute`.
+    /// Saved-journey timelines re-plan on their own (the cache key hashes the
+    /// plan), so no cache drop is needed.
+    #[func]
+    fn journey_set_plan(&mut self, id: i64, request: VarDictionary) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "rejected" => &PackedStringArray::new() };
+        let Ok(id) = u64::try_from(id) else { return fail("no such journey") };
+        let (plan, rejected) = match journey_plan_from_request(&request) {
+            Ok(r) => r,
+            Err(msg) => return fail(&msg),
+        };
+        let Some(j) = self.infra.as_mut().and_then(|i| i.journeys.iter_mut().find(|j| j.id == id)) else {
+            return fail("no such journey");
+        };
+        j.plan = Some(plan);
+        vdict! { "ok" => true, "error" => "", "rejected" => &rejected }
     }
 
     /// Ruling BS: replaces the accepted resupply stops saved with journey
@@ -17299,6 +17338,286 @@ fn variant_to_jp_value(v: &Variant) -> Option<journey_bridge::JpValue> {
     }
 }
 
+/// Everything in a `jp_compute` request except the route itself, parsed once
+/// by [`jp_parse_plan_request`] -- the shared reader behind `jp_compute` and
+/// Ruling AR's `journey_set_plan`, so a saved plan and a computed one cannot
+/// read the same request differently.
+struct JpRequestPlan {
+    /// `plan` + `stage_overrides` + `resupply_accepted`, over
+    /// `JpPlan::default()` (anything omitted keeps the reference default).
+    plan: cartalith_civ::JpPlan,
+    layovers: cartalith_civ::JpLayovers,
+    animal_entries: std::collections::HashMap<String, String>,
+    /// The raw `trim` pair, `None` when the key is absent (so an untrimmed
+    /// request is byte-identical to one that never knew trims existed).
+    trim: Option<(f64, f64)>,
+    auto_carriage: bool,
+    auto_stage: bool,
+    /// Every unrecognised or wrong-typed entry, per the codebase's "a typo'd
+    /// key is a bug worth seeing" policy. A rejected entry changes nothing.
+    rejected: PackedStringArray,
+}
+
+/// Reads `jp_compute`'s request vocabulary (everything but `route`/`points`)
+/// -- see `jp_compute`'s doc for each key. `Err` is a whole-request failure
+/// message (a key of the wrong container type); per-entry problems land in
+/// [`JpRequestPlan::rejected`] and the rest still parses. **Must never**
+/// learn a key `jp_compute` does not also act on: the unknown-key list at
+/// the bottom is this vocabulary's single definition.
+fn jp_parse_plan_request(request: &VarDictionary) -> Result<JpRequestPlan, String> {
+    let mut rejected = PackedStringArray::new();
+    // JP-07's spine trim -- applied by the caller, since only it has the route.
+    let trim = match request.get("trim") {
+        None => None,
+        Some(v) => {
+            let Ok(t) = v.try_to::<Vector2>() else {
+                return Err("`trim` must be a Vector2 of two 0-1 fractions of the route's length".to_string());
+            };
+            Some((t.x as f64, t.y as f64))
+        }
+    };
+    // ---- the plan, its per-stage overrides and the layover map ----
+    let mut plan = cartalith_civ::JpPlan::default();
+    if let Some(v) = request.get("plan") {
+        let Ok(d) = v.try_to::<VarDictionary>() else { return Err("`plan` must be a Dictionary".to_string()) };
+        let (pairs, bad) = jp_dict_to_pairs(&d);
+        let (parsed, more_bad) = journey_bridge::plan_from_pairs(&pairs);
+        for k in bad.into_iter().chain(more_bad) {
+            rejected.push(&GString::from(&k));
+        }
+        plan = parsed;
+    }
+    if let Some(v) = request.get("stage_overrides") {
+        let Ok(d) = v.try_to::<VarDictionary>() else {
+            return Err("`stage_overrides` must be a Dictionary keyed by stage index".to_string());
+        };
+        for (k, ov) in d.iter_shared() {
+            let idx = k.try_to::<i64>().ok().and_then(|n| usize::try_from(n).ok());
+            let inner = ov.try_to::<VarDictionary>().ok();
+            let (Some(idx), Some(inner)) = (idx, inner) else {
+                rejected.push(&GString::from(&format!("stage_overrides[{k}]")));
+                continue;
+            };
+            let (pairs, bad) = jp_dict_to_pairs(&inner);
+            let (parsed, more_bad) = journey_bridge::stage_override_from_pairs(&pairs);
+            for b in bad.into_iter().chain(more_bad) {
+                rejected.push(&GString::from(&format!("stage_overrides[{idx}].{b}")));
+            }
+            plan.stage_overrides.insert(idx, parsed);
+        }
+    }
+    let mut layovers = cartalith_civ::JpLayovers::new();
+    if let Some(v) = request.get("layovers") {
+        let Ok(d) = v.try_to::<VarDictionary>() else {
+            return Err("`layovers` must be a Dictionary of {stop_key: days}".to_string());
+        };
+        for (k, days) in d.iter_shared() {
+            match (k.get_type(), days.try_to::<i64>()) {
+                (VariantType::STRING, Ok(n)) => {
+                    layovers.insert(k.to::<GString>().to_string(), n);
+                }
+                _ => rejected.push(&GString::from(&format!("layovers[{k}]"))),
+            }
+        }
+    }
+    // `animal_entries` -- which Travel Library definition occupies each of
+    // the four built-in party-form species slots. Absent (or absent for a
+    // given species) keeps `animal_overrides()`'s own implicit pick, so a
+    // caller that never sends this key is byte-for-byte unaffected.
+    let mut animal_entries: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    if let Some(v) = request.get("animal_entries") {
+        let Ok(d) = v.try_to::<VarDictionary>() else {
+            return Err("`animal_entries` must be a Dictionary of {species_key: entry_id}".to_string());
+        };
+        for (k, id) in d.iter_shared() {
+            match (k.get_type(), id.try_to::<GString>()) {
+                (VariantType::STRING, Ok(s)) => {
+                    animal_entries.insert(k.to::<GString>().to_string(), s.to_string());
+                }
+                _ => rejected.push(&GString::from(&format!("animal_entries[{k}]"))),
+            }
+        }
+    }
+    // Ruling BS: the resupply stops the user accepted, each the very
+    // dictionary a `resupply_suggestions` entry came back as.
+    if let Some(v) = request.get("resupply_accepted") {
+        let Ok(arr) = v.try_to::<VarArray>() else {
+            return Err("`resupply_accepted` must be an Array of resupply-suggestion Dictionaries".to_string());
+        };
+        let (stops, bad) = jp_accepted_stops_from(&arr);
+        for b in bad {
+            rejected.push(&GString::from(&b));
+        }
+        plan.accepted_resupply = stops;
+    }
+    for (k, _) in request.iter_shared() {
+        let key = k.to_string();
+        if !matches!(
+            key.as_str(),
+            "route"
+                | "points"
+                | "plan"
+                | "stage_overrides"
+                | "layovers"
+                | "animal_entries"
+                | "auto_carriage"
+                | "auto_stage"
+                | "trim"
+                | "resupply_accepted"
+        ) {
+            rejected.push(&GString::from(&key));
+        }
+    }
+    Ok(JpRequestPlan {
+        plan,
+        layovers,
+        animal_entries,
+        trim,
+        auto_carriage: request.get("auto_carriage").and_then(|v| v.try_to::<bool>().ok()) == Some(true),
+        auto_stage: request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true),
+        rejected,
+    })
+}
+
+/// What [`jp_plan_with_autos`] produced: the journey (`None` is the
+/// reference's own "no derivable stages"), the plan **after** the auto picker
+/// mutated it, and the two reports `jp_compute` returns.
+struct JpAutoPlanned {
+    journey: Option<cartalith_civ::JpJourneyPlan>,
+    plan: cartalith_civ::JpPlan,
+    auto: VarDictionary,
+    stage_picks: VarArray,
+}
+
+/// The one planning sequence both `jp_compute` and a saved journey's replay
+/// (`story_bridge::plan_saved_journeys`, Ruling AR) run: optional auto
+/// carriage, `jp_plan_full`, optional per-stage auto pick. Shared so a saved
+/// journey cannot be dated differently from the planner that authored it.
+///
+/// **Auto carriage (JP-01)**: `_jpRunAuto` (reference 19614) runs at exactly
+/// one point per refresh, before the plan is computed, and MUTATES the plan --
+/// which is why the picked counts come back in `auto.plan` for the party form
+/// to write into its own (disabled) spinners (`_jpSyncAssetInputs`).
+///
+/// **Per-stage auto pick (DECISIONS.md 7j)**: two passes by necessity -- the
+/// picks are measured against the stages the FIRST plan derived, so the
+/// journey has to exist before they can be chosen, and the plan has to be
+/// recomputed once they are applied. Stage indices survive that second pass
+/// because `jp_derive_stages` reads the route and the shared plan, not the
+/// per-stage overrides -- asserted below rather than assumed, and a mismatch
+/// discards the picks instead of writing them onto the wrong stages. A
+/// user's own override on a stage wins: `auto_stage` fills gaps, it does not
+/// overrule a hand-set field. The same per-stage `forage` closure the first
+/// plan used ranks each candidate against the forage its own stage has.
+#[allow(clippy::too_many_arguments)]
+fn jp_plan_with_autos(
+    world: &cartalith_civ::JpWorld<'_>,
+    pts: &[(f64, f64)],
+    mut plan: cartalith_civ::JpPlan,
+    layovers: &cartalith_civ::JpLayovers,
+    forage: &dyn Fn(f64, f64) -> f64,
+    animals: Option<&cartalith_civ::JpAnimalResolver<'_>>,
+    vessels: Option<&cartalith_civ::JpVesselResolver<'_>>,
+    auto_carriage: bool,
+    auto_stage: bool,
+) -> JpAutoPlanned {
+    let mut auto = VarDictionary::new();
+    if auto_carriage {
+        let picked = cartalith_civ::jp_auto_pick_transport(world, pts, &mut plan);
+        auto = jp_auto_transport_dict(&picked);
+        auto.set("plan", &jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan)));
+    }
+    let run =
+        |p: &cartalith_civ::JpPlan| cartalith_civ::jp_plan_full(world, pts, p, layovers, forage, animals, vessels);
+    let mut stage_picks = VarArray::new();
+    let Some(mut journey) = run(&plan) else {
+        return JpAutoPlanned { journey: None, plan, auto, stage_picks };
+    };
+    if auto_stage {
+        let picks = cartalith_civ::jp_auto_stage_picks(&journey, forage);
+        if !picks.is_empty() {
+            let mut with = plan.clone();
+            for p in &picks {
+                let base = with.stage_overrides.get(&p.stage).cloned().unwrap_or_default();
+                with.stage_overrides.insert(
+                    p.stage,
+                    jp_merge_stage_override(base, p.to_override(&journey.results[p.stage].eff)),
+                );
+            }
+            if let Some(j2) = run(&with)
+                && j2.stages.len() == journey.stages.len()
+            {
+                plan = with;
+                journey = j2;
+                for p in &picks {
+                    stage_picks.push(&jp_stage_pick_dict(p));
+                }
+            }
+        }
+    }
+    JpAutoPlanned { journey: Some(journey), plan, auto, stage_picks }
+}
+
+/// Ruling AR: a saved journey's plan from a `jp_compute`-shaped request (the
+/// planner sends the very dictionary it computes with). `route`/`points` and
+/// `resupply_accepted` are accepted but **not stored**: the route is the
+/// journey's own snapshot and accepted stops live on `Journey::resupply_stops`
+/// (`journey_set_resupply`), so there is exactly one copy of each. Returns the
+/// plan plus every rejected entry (`jp_compute`'s policy).
+fn journey_plan_from_request(
+    request: &VarDictionary,
+) -> Result<(cartalith_civ::travel_library::JourneyPlan, PackedStringArray), String> {
+    let parsed = jp_parse_plan_request(request)?;
+    let mut plan = parsed.plan;
+    plan.accepted_resupply.clear();
+    Ok((
+        cartalith_civ::travel_library::JourneyPlan {
+            plan,
+            layovers: parsed.layovers.into_iter().collect(),
+            animal_entries: parsed.animal_entries.into_iter().collect(),
+            trim: parsed.trim.unwrap_or((0.0, 1.0)),
+            auto_carriage: parsed.auto_carriage,
+            auto_stage: parsed.auto_stage,
+        },
+        parsed.rejected,
+    ))
+}
+
+/// [`journey_plan_from_request`]'s inverse: a saved plan as a
+/// `jp_compute`-shaped request dictionary -- `plan` (the flat field list, so
+/// `jp_default_plan()`'s keys), `stage_overrides` (`{int: {field: value}}`),
+/// `layovers`, `animal_entries`, `trim` (`Vector2`), `auto_carriage`,
+/// `auto_stage` -- which the planner assigns straight back into its state.
+/// Every key is present for a stored plan (it is authored state, not an
+/// absent one); `journey_get` omits the whole `plan` member when none is
+/// stored.
+fn journey_plan_to_dict(p: &cartalith_civ::travel_library::JourneyPlan) -> VarDictionary {
+    let mut overrides = VarDictionary::new();
+    let mut idxs: Vec<usize> = p.plan.stage_overrides.keys().copied().collect();
+    idxs.sort_unstable();
+    for idx in idxs {
+        let pairs = journey_bridge::stage_override_to_pairs(&p.plan.stage_overrides[&idx]);
+        overrides.set(idx as i64, &jp_pairs_dict(&pairs));
+    }
+    let mut layovers = VarDictionary::new();
+    for (k, days) in &p.layovers {
+        layovers.set(k.as_str(), *days);
+    }
+    let mut entries = VarDictionary::new();
+    for (k, id) in &p.animal_entries {
+        entries.set(k.as_str(), id.as_str());
+    }
+    vdict! {
+        "plan" => &jp_pairs_dict(&journey_bridge::plan_to_pairs(&p.plan)),
+        "stage_overrides" => &overrides,
+        "layovers" => &layovers,
+        "animal_entries" => &entries,
+        "trim" => Vector2::new(p.trim.0 as f32, p.trim.1 as f32),
+        "auto_carriage" => p.auto_carriage,
+        "auto_stage" => p.auto_stage,
+    }
+}
+
 /// A `Dictionary` as the `(key, JpValue)` list `journey_bridge`'s parsers
 /// take, plus every key whose value was not a number/string/bool at all.
 fn jp_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, journey_bridge::JpValue)>, Vec<String>) {
@@ -18039,8 +18358,6 @@ impl WorldGen {
             return fail("no generated world -- call generate() first");
         }
 
-        let mut rejected = PackedStringArray::new();
-
         // ---- the route ----
         let pts: Vec<(f64, f64)> = if let Some(v) = request.get("points") {
             let Ok(arr) = v.try_to::<PackedVector2Array>() else {
@@ -18063,120 +18380,29 @@ impl WorldGen {
             return fail("a journey needs at least two route points");
         }
 
-        // ---- the spine trim (JP-07) ----
+        // ---- the plan request: trim, plan, overrides, layovers, entries ----
         //
-        // `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims", as two fractions of
-        // the route's own arc length. It cuts the polyline BEFORE anything
-        // else reads it, so every downstream stage index, stop key and
-        // per-stage override belongs to the trimmed route -- which is what
-        // makes a trim indistinguishable from having drawn the shorter route
-        // in the first place.
-        let pts = match request.get("trim") {
-            None => pts,
-            Some(v) => {
-                let Ok(t) = v.try_to::<Vector2>() else {
-                    return fail("`trim` must be a Vector2 of two 0-1 fractions of the route's length");
-                };
-                match cartalith_civ::jp_trim_points(&pts, t.x as f64, t.y as f64) {
-                    Some(cut) if cut.len() >= 2 => cut,
-                    _ => return fail("that trim leaves no route to plan"),
-                }
-            }
+        // Parsed by `jp_parse_plan_request`, the one parser `journey_set_plan`
+        // (Ruling AR) shares, so a saved plan and a computed one can never
+        // read the same request differently. The spine trim (JP-07,
+        // `JOURNEY_PLANNER_SPEC.md` §3's "shift-drag trims") is two fractions
+        // of the route's own arc length; it cuts the polyline BEFORE
+        // anything else reads it, so every downstream stage index, stop key
+        // and per-stage override belongs to the trimmed route -- which is
+        // what makes a trim indistinguishable from having drawn the shorter
+        // route in the first place.
+        let parsed = match jp_parse_plan_request(&request) {
+            Ok(p) => p,
+            Err(msg) => return fail(&msg),
         };
-
-        // ---- the plan, its per-stage overrides and the layover map ----
-        let mut plan = cartalith_civ::JpPlan::default();
-        if let Some(v) = request.get("plan") {
-            let Ok(d) = v.try_to::<VarDictionary>() else { return fail("`plan` must be a Dictionary") };
-            let (pairs, bad) = jp_dict_to_pairs(&d);
-            let (parsed, more_bad) = journey_bridge::plan_from_pairs(&pairs);
-            for k in bad.into_iter().chain(more_bad) {
-                rejected.push(&GString::from(&k));
-            }
-            plan = parsed;
-        }
-        if let Some(v) = request.get("stage_overrides") {
-            let Ok(d) = v.try_to::<VarDictionary>() else {
-                return fail("`stage_overrides` must be a Dictionary keyed by stage index");
-            };
-            for (k, ov) in d.iter_shared() {
-                let idx = k.try_to::<i64>().ok().and_then(|n| usize::try_from(n).ok());
-                let inner = ov.try_to::<VarDictionary>().ok();
-                let (Some(idx), Some(inner)) = (idx, inner) else {
-                    rejected.push(&GString::from(&format!("stage_overrides[{k}]")));
-                    continue;
-                };
-                let (pairs, bad) = jp_dict_to_pairs(&inner);
-                let (parsed, more_bad) = journey_bridge::stage_override_from_pairs(&pairs);
-                for b in bad.into_iter().chain(more_bad) {
-                    rejected.push(&GString::from(&format!("stage_overrides[{idx}].{b}")));
-                }
-                plan.stage_overrides.insert(idx, parsed);
-            }
-        }
-        let mut layovers = cartalith_civ::JpLayovers::new();
-        if let Some(v) = request.get("layovers") {
-            let Ok(d) = v.try_to::<VarDictionary>() else {
-                return fail("`layovers` must be a Dictionary of {stop_key: days}");
-            };
-            for (k, days) in d.iter_shared() {
-                match (k.get_type(), days.try_to::<i64>()) {
-                    (VariantType::STRING, Ok(n)) => {
-                        layovers.insert(k.to::<GString>().to_string(), n);
-                    }
-                    _ => rejected.push(&GString::from(&format!("layovers[{k}]"))),
-                }
-            }
-        }
-        // `animal_entries` -- which Travel Library definition occupies each of
-        // the four built-in party-form species slots. Absent (or absent for a
-        // given species) keeps `animal_overrides()`'s own implicit pick, so a
-        // caller that never sends this key is byte-for-byte unaffected.
-        let mut animal_entries: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
-        if let Some(v) = request.get("animal_entries") {
-            let Ok(d) = v.try_to::<VarDictionary>() else {
-                return fail("`animal_entries` must be a Dictionary of {species_key: entry_id}");
-            };
-            for (k, id) in d.iter_shared() {
-                match (k.get_type(), id.try_to::<GString>()) {
-                    (VariantType::STRING, Ok(s)) => {
-                        animal_entries.insert(k.to::<GString>().to_string(), s.to_string());
-                    }
-                    _ => rejected.push(&GString::from(&format!("animal_entries[{k}]"))),
-                }
-            }
-        }
-        // Ruling BS: the resupply stops the user accepted, each the very
-        // dictionary a `resupply_suggestions` entry came back as.
-        if let Some(v) = request.get("resupply_accepted") {
-            let Ok(arr) = v.try_to::<VarArray>() else {
-                return fail("`resupply_accepted` must be an Array of resupply-suggestion Dictionaries");
-            };
-            let (stops, bad) = jp_accepted_stops_from(&arr);
-            for b in bad {
-                rejected.push(&GString::from(&b));
-            }
-            plan.accepted_resupply = stops;
-        }
-        for (k, _) in request.iter_shared() {
-            let key = k.to_string();
-            if !matches!(
-                key.as_str(),
-                "route"
-                    | "points"
-                    | "plan"
-                    | "stage_overrides"
-                    | "layovers"
-                    | "animal_entries"
-                    | "auto_carriage"
-                    | "auto_stage"
-                    | "trim"
-                    | "resupply_accepted"
-            ) {
-                rejected.push(&GString::from(&key));
-            }
-        }
+        let pts = match parsed.trim {
+            None => pts,
+            Some((from, to)) => match cartalith_civ::jp_trim_points(&pts, from, to) {
+                Some(cut) if cut.len() >= 2 => cut,
+                _ => return fail("that trim leaves no route to plan"),
+            },
+        };
+        let JpRequestPlan { plan, layovers, animal_entries, auto_carriage, auto_stage, mut rejected, .. } = parsed;
 
         // ---- the world ----
         //
@@ -18237,66 +18463,23 @@ impl WorldGen {
         let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
         let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
 
-        // ---- auto carriage (JP-01) ----
-        //
-        // `_jpRunAuto` (reference 19614): the picker runs at exactly one
-        // point per refresh, before the plan is computed, and MUTATES the
-        // plan -- which is why the picked counts come back in `auto.plan`
-        // for the party form to write into its own (disabled) spinners,
-        // the reference's own `_jpSyncAssetInputs`.
-        let mut auto = VarDictionary::new();
-        if request.get("auto_carriage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
-            let picked = cartalith_civ::jp_auto_pick_transport(&world, &pts, &mut plan);
-            auto = jp_auto_transport_dict(&picked);
-            auto.set("plan", &jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan)));
-        }
-
-        let run = |p: &cartalith_civ::JpPlan| {
-            cartalith_civ::jp_plan_full(&world, &pts, p, &layovers, &forage, Some(&resolver), Some(&vessel_resolver))
-        };
-        let Some(mut journey) = run(&plan) else {
+        // Auto carriage (JP-01) and the per-stage auto pick (§7j) run inside
+        // `jp_plan_with_autos`, the planning path saved journeys share.
+        let planned = jp_plan_with_autos(
+            &world,
+            &pts,
+            plan,
+            &layovers,
+            &forage,
+            Some(&resolver),
+            Some(&vessel_resolver),
+            auto_carriage,
+            auto_stage,
+        );
+        let JpAutoPlanned { journey, plan, auto, stage_picks } = planned;
+        let Some(journey) = journey else {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
         };
-
-        // ---- per-stage auto pick (DECISIONS.md 7j) ----
-        //
-        // Two passes by necessity, not by preference: the picks are measured
-        // against the stages the FIRST plan derived, so the journey has to
-        // exist before they can be chosen, and the plan has to be recomputed
-        // once they are applied. Stage indices survive that second pass
-        // because `jp_derive_stages` reads the route and the shared plan, not
-        // the per-stage overrides -- asserted below rather than assumed, and a
-        // mismatch discards the picks instead of writing them onto the wrong
-        // stages.
-        let mut stage_picks = VarArray::new();
-        if request.get("auto_stage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
-            // The same per-stage closure `jp_plan_full` above was given, so a
-            // candidate package is ranked against the forage its own stage
-            // actually has. This took a single `f64` for the whole journey
-            // until 2026-08-26 -- widened in `cartalith-civ` in the same pass
-            // that gave this crate a wildlife cache to hand it, since before
-            // that there was no per-stage value to pass and the scalar cost
-            // nothing.
-            let picks = cartalith_civ::jp_auto_stage_picks(&journey, &forage);
-            if !picks.is_empty() {
-                let mut with = plan.clone();
-                for p in &picks {
-                    // A user's own override on that stage wins -- `auto_stage`
-                    // fills gaps, it does not overrule a hand-set field.
-                    let base = with.stage_overrides.get(&p.stage).cloned().unwrap_or_default();
-                    with.stage_overrides.insert(p.stage, jp_merge_stage_override(base, p.to_override(&journey.results[p.stage].eff)));
-                }
-                if let Some(j2) = run(&with)
-                    && j2.stages.len() == journey.stages.len()
-                {
-                    plan = with;
-                    journey = j2;
-                    for p in &picks {
-                        stage_picks.push(&jp_stage_pick_dict(p));
-                    }
-                }
-            }
-        }
 
         let v = cartalith_civ::jp_verdict(&journey);
         let reasons: PackedStringArray = v.reasons.iter().map(GString::from).collect();

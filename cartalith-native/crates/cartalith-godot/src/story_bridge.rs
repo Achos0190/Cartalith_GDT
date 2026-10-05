@@ -73,6 +73,10 @@ type Planned = Option<Result<JourneyTimeline, NoTimeline>>;
 /// - Per journey: `route.points`, and (Ruling BS) its accepted
 ///   `resupply_stops`, which add calendar days. `start_year` is not an
 ///   input -- the timeline is in days from departure.
+/// - Per journey, **Ruling AR**: the saved plan whole (plan fields, per-stage
+///   overrides sorted by index, layovers, animal entries, trim, the two auto
+///   flags) and the animal overrides its own `animal_entries` select. With a
+///   plan the party preset is not an input; without one it is, as before.
 ///
 /// **Retains only the timelines** (a few legs each), never `JpWorldParts`,
 /// so the resident cost is negligible. `hits`/`misses` are instrumentation
@@ -111,16 +115,49 @@ fn hash_usizes(h: &mut DefaultHasher, v: &[usize]) {
     }
 }
 
+/// The saved plan's contribution to a journey's key (Ruling AR): every field
+/// the replay reads. `JpPlan::stage_overrides` is a `HashMap`, whose `Debug`
+/// order is per instance, so it is hashed sorted by stage index -- otherwise
+/// equal plans would miss the cache on every call. The plan's own
+/// `accepted_resupply` is always empty on a saved plan (the journey's
+/// `resupply_stops` is the single copy and is hashed separately).
+fn hash_saved_plan(h: &mut DefaultHasher, saved: &cartalith_civ::travel_library::JourneyPlan) {
+    let mut plan = saved.plan.clone();
+    let overrides: BTreeMap<usize, cartalith_civ::JpStageOverride> =
+        std::mem::take(&mut plan.stage_overrides).into_iter().collect();
+    hash_debug(h, &plan);
+    hash_debug(h, &overrides);
+    hash_debug(h, &saved.layovers);
+    hash_debug(h, &saved.animal_entries);
+    hash_debug(h, &(saved.trim.0.to_bits(), saved.trim.1.to_bits()));
+    hash_debug(h, &(saved.auto_carriage, saved.auto_stage));
+}
+
 /// The per-journey half of the key, over the world half.
+///
+/// `saved` is the journey's stored plan (Ruling AR) and `entry_ov` the animal
+/// overrides **its own** `animal_entries` select (empty without a plan): both
+/// are inputs `plan_saved_journeys` hands `jp_plan_full`, so both are hashed.
+/// `preset` is hashed only when there is no saved plan -- with one, the preset
+/// is not read at all, and a preset edit must not re-plan the journey.
 fn journey_key(
     world_key: u64,
     preset: Option<&cartalith_civ::travel_library::PartyPreset>,
     pts: &[(f64, f64)],
     stops: &[cartalith_civ::JpAcceptedStop],
+    saved: Option<&cartalith_civ::travel_library::JourneyPlan>,
+    entry_ov: &HashMap<String, cartalith_civ::travel_library::AnimalDef>,
 ) -> u64 {
     let mut h = DefaultHasher::new();
     h.write_u64(world_key);
-    hash_debug(&mut h, &preset);
+    match saved {
+        None => hash_debug(&mut h, &preset),
+        Some(p) => {
+            hash_debug(&mut h, &"saved plan");
+            hash_saved_plan(&mut h, p);
+            hash_debug(&mut h, &entry_ov.iter().collect::<BTreeMap<_, _>>());
+        }
+    }
     hash_pts(&mut h, pts);
     hash_debug(&mut h, &stops);
     h.finish()
@@ -273,10 +310,21 @@ impl WorldGen {
             return Vec::new();
         };
         // `jp_compute`'s resolvers with no `animal_entries` request key --
-        // `animal_overrides()`'s own implicit pick, the planner's default.
+        // `animal_overrides()`'s own implicit pick, the planner's default,
+        // which is what a journey saved before Ruling AR (no plan) plans
+        // with. A journey with a saved plan selects its own, below.
         let (overrides, _) = self.travel_library.animal_overrides_selected(&HashMap::new());
         let vessel_overrides = self.travel_library.vessel_overrides();
         let world_key = self.journey_world_key(fp, civ, &overrides, &vessel_overrides);
+
+        // The animal overrides a journey's own saved `animal_entries` select
+        // (Ruling AR); empty without a plan, where `overrides` above governs.
+        let entry_overrides = |j: &cartalith_civ::travel_library::Journey| {
+            j.plan.as_ref().map_or_else(HashMap::new, |p| {
+                let entries: HashMap<String, String> = p.animal_entries.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                self.travel_library.animal_overrides_selected(&entries).0
+            })
+        };
 
         // (journey index, id, preset, key, cached result)
         let mut jobs: Vec<(usize, u64, Option<&cartalith_civ::travel_library::PartyPreset>, u64, Option<Planned>)> = infra
@@ -286,7 +334,7 @@ impl WorldGen {
             .filter(|&(ji, _)| want(ji))
             .map(|(ji, j)| {
                 let preset = self.travel_library.presets.get(&j.party_preset);
-                let key = journey_key(world_key, preset, &j.route.points, &j.resupply_stops);
+                let key = journey_key(world_key, preset, &j.route.points, &j.resupply_stops, j.plan.as_ref(), &entry_overrides(j));
                 let hit = self.journey_plans.entries.get(&j.id).filter(|(k, _)| *k == key).map(|(_, t)| t.clone());
                 (ji, j.id, preset, key, hit)
             })
@@ -301,21 +349,63 @@ impl WorldGen {
             let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
             let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
             for (ji, _, preset, _, slot) in jobs.iter_mut().filter(|j| j.4.is_none()) {
-                let base = cartalith_civ::JpPlan::default();
-                let mut plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
-                // Ruling BS: the stops accepted when the journey was saved,
-                // so its party pauses and arrives exactly as planned (they
-                // are in `journey_key`, so a changed set re-plans).
-                plan.accepted_resupply = infra.journeys[*ji].resupply_stops.clone();
-                let planned = cartalith_civ::jp_plan_full(
-                    &world,
-                    &infra.journeys[*ji].route.points,
-                    &plan,
-                    &cartalith_civ::JpLayovers::new(),
-                    &forage,
-                    Some(&resolver),
-                    Some(&vessel_resolver),
-                );
+                let journey = &infra.journeys[*ji];
+                let planned = if let Some(saved) = &journey.plan {
+                    // Ruling AR: the journey's whole saved plan, replayed
+                    // through the same `jp_plan_with_autos` the planner's
+                    // `jp_compute` runs -- so the dates here are the dates
+                    // the planner showed when it was saved. The trim cuts the
+                    // route first (as `jp_compute` does), every stage index
+                    // in the saved overrides belonging to the trimmed route.
+                    // The preset is not read: the plan already carries every
+                    // field the preset would have written.
+                    let mut plan = saved.plan.clone();
+                    // Ruling BS: the journey's own accepted stops are the
+                    // single copy (the saved plan's is empty by construction).
+                    plan.accepted_resupply = journey.resupply_stops.clone();
+                    match cartalith_civ::jp_trim_points(&journey.route.points, saved.trim.0, saved.trim.1) {
+                        Some(pts) if pts.len() >= 2 => {
+                            let own_overrides = entry_overrides(journey);
+                            let (stats_fn, terrain_fn) =
+                                cartalith_civ::travel_library::animal_resolver_fns(&own_overrides);
+                            let own = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+                            let layovers: cartalith_civ::JpLayovers =
+                                saved.layovers.iter().map(|(k, v)| (k.clone(), *v)).collect();
+                            crate::jp_plan_with_autos(
+                                &world,
+                                &pts,
+                                plan,
+                                &layovers,
+                                &forage,
+                                Some(&own),
+                                Some(&vessel_resolver),
+                                saved.auto_carriage,
+                                saved.auto_stage,
+                            )
+                            .journey
+                        }
+                        // A trim that leaves no route: no timeline, the same
+                        // answer `jp_compute` gives ("that trim leaves no
+                        // route to plan").
+                        _ => None,
+                    }
+                } else {
+                    let base = cartalith_civ::JpPlan::default();
+                    let mut plan = preset.map_or_else(|| base.clone(), |p| p.apply_to(&base));
+                    // Ruling BS: the stops accepted when the journey was saved,
+                    // so its party pauses and arrives exactly as planned (they
+                    // are in `journey_key`, so a changed set re-plans).
+                    plan.accepted_resupply = journey.resupply_stops.clone();
+                    cartalith_civ::jp_plan_full(
+                        &world,
+                        &journey.route.points,
+                        &plan,
+                        &cartalith_civ::JpLayovers::new(),
+                        &forage,
+                        Some(&resolver),
+                        Some(&vessel_resolver),
+                    )
+                };
                 *slot = Some(planned.as_ref().map(JourneyTimeline::from_plan));
             }
         }
@@ -333,7 +423,9 @@ impl WorldGen {
                     cache.entries.insert(id, (key, t.clone()));
                 }
             }
-            out.push((ji, preset.is_none(), t));
+            // With a saved plan the preset is irrelevant, so a preset that
+            // resolves to nothing is not a reason to flag the journey.
+            out.push((ji, preset.is_none() && infra.journeys[ji].plan.is_none(), t));
         }
         cache.entries.retain(|id, _| live.contains(id));
         out
@@ -712,14 +804,87 @@ mod tests {
             x: 1.0,
             y: 2.0,
         };
-        let k = journey_key(7, Some(&p), &pts, &[]);
-        assert_eq!(k, journey_key(7, Some(&p.clone()), &pts.clone(), &[]));
-        assert_ne!(k, journey_key(8, Some(&p), &pts, &[]), "world half");
-        assert_ne!(k, journey_key(7, Some(&p2), &pts, &[]), "preset content");
-        assert_ne!(k, journey_key(7, None, &pts, &[]), "missing preset");
-        assert_ne!(k, journey_key(7, Some(&p), &[(1.0, 2.0), (3.0, 4.5)], &[]), "route point");
-        assert_ne!(k, journey_key(7, Some(&p), &pts[..1], &[]), "route length");
-        assert_ne!(k, journey_key(7, Some(&p), &pts, std::slice::from_ref(&stop)), "accepted stop");
+        let none = HashMap::new();
+        let k = journey_key(7, Some(&p), &pts, &[], None, &none);
+        assert_eq!(k, journey_key(7, Some(&p.clone()), &pts.clone(), &[], None, &none));
+        assert_ne!(k, journey_key(8, Some(&p), &pts, &[], None, &none), "world half");
+        assert_ne!(k, journey_key(7, Some(&p2), &pts, &[], None, &none), "preset content");
+        assert_ne!(k, journey_key(7, None, &pts, &[], None, &none), "missing preset");
+        assert_ne!(k, journey_key(7, Some(&p), &[(1.0, 2.0), (3.0, 4.5)], &[], None, &none), "route point");
+        assert_ne!(k, journey_key(7, Some(&p), &pts[..1], &[], None, &none), "route length");
+        assert_ne!(k, journey_key(7, Some(&p), &pts, std::slice::from_ref(&stop), None, &none), "accepted stop");
+    }
+
+    /// A non-default saved plan: two stage overrides, a layover, a cadence.
+    fn saved_plan() -> cartalith_civ::travel_library::JourneyPlan {
+        let mut plan = cartalith_civ::JpPlan { rest_cadence: Some("Heavy \u{2014} 1 in 3".into()), ..Default::default() };
+        plan.stage_overrides.insert(2, cartalith_civ::JpStageOverride { hours: Some(6.0), ..Default::default() });
+        plan.stage_overrides.insert(0, cartalith_civ::JpStageOverride { hours: Some(9.0), ..Default::default() });
+        cartalith_civ::travel_library::JourneyPlan {
+            plan,
+            layovers: BTreeMap::from([("resupply:a".to_string(), 2)]),
+            animal_entries: BTreeMap::new(),
+            trim: (0.0, 1.0),
+            auto_carriage: false,
+            auto_stage: false,
+        }
+    }
+
+    /// Protects (Ruling AR): a saved journey's plan is part of its cache key,
+    /// field by field, so editing any of it re-plans instead of serving the
+    /// stale timeline; the stage-override `HashMap`'s per-instance iteration
+    /// order never leaks into the key; and with a plan the preset is not an
+    /// input (a preset edit must not re-plan a journey that never reads it).
+    #[test]
+    fn journey_key_reacts_to_every_saved_plan_field() {
+        let p = PartyPreset::blank("p1", "Party");
+        let mut p2 = p.clone();
+        p2.name = "Other".into();
+        let pts = [(1.0, 2.0), (3.0, 4.0)];
+        let none = HashMap::new();
+        let base = saved_plan();
+        let key = |pl: &cartalith_civ::travel_library::JourneyPlan| journey_key(7, Some(&p), &pts, &[], Some(pl), &none);
+        let k = key(&base);
+        assert_eq!(k, key(&base.clone()), "equal plans are a cache hit");
+        assert_ne!(k, journey_key(7, Some(&p), &pts, &[], None, &none), "a plan versus none");
+        assert_eq!(k, journey_key(7, Some(&p2), &pts, &[], Some(&base), &none), "preset is not an input once a plan exists");
+        let mut m = base.clone();
+        m.plan.rest_cadence = Some("Light \u{2014} 1 in 7".into());
+        assert_ne!(k, key(&m), "plan field");
+        let mut m = base.clone();
+        m.plan.stage_overrides.insert(2, cartalith_civ::JpStageOverride { hours: Some(7.0), ..Default::default() });
+        assert_ne!(k, key(&m), "stage override value");
+        let mut m = base.clone();
+        m.plan.stage_overrides.remove(&0);
+        assert_ne!(k, key(&m), "stage override presence");
+        let mut m = base.clone();
+        m.layovers.insert("resupply:a".into(), 3);
+        assert_ne!(k, key(&m), "layover");
+        let mut m = base.clone();
+        m.animal_entries.insert("horse".into(), "e1".into());
+        assert_ne!(k, key(&m), "animal entry");
+        let mut m = base.clone();
+        m.trim = (0.0, 0.5);
+        assert_ne!(k, key(&m), "trim");
+        let mut m = base.clone();
+        m.auto_carriage = true;
+        assert_ne!(k, key(&m), "auto carriage");
+        let mut m = base.clone();
+        m.auto_stage = true;
+        assert_ne!(k, key(&m), "auto stage");
+        let ov: HashMap<String, cartalith_civ::travel_library::AnimalDef> =
+            HashMap::from([("horse".to_string(), cartalith_civ::travel_library::AnimalDef::blank("e1", "Horse"))]);
+        assert_ne!(k, journey_key(7, Some(&p), &pts, &[], Some(&base), &ov), "the animal overrides its entries select");
+        // Sixty-four overrides inserted in two orders hash alike.
+        let many = |rev: bool| {
+            let mut m = base.clone();
+            let idx: Vec<usize> = if rev { (0..64).rev().collect() } else { (0..64).collect() };
+            for i in idx {
+                m.plan.stage_overrides.insert(i, cartalith_civ::JpStageOverride { hours: Some(i as f64), ..Default::default() });
+            }
+            key(&m)
+        };
+        assert_eq!(many(false), many(true), "override order must not leak into the key");
     }
 
     /// The overrides are `HashMap`s, whose iteration order is per instance;

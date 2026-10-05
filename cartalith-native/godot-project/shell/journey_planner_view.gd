@@ -89,13 +89,14 @@ class_name JourneyPlannerView
 ##   entity naming a `PartyPreset`. `_save_journey()` below now ALSO registers
 ##   a real `Journey` — a captured `PartyPreset` plus the committed route's
 ##   own geometry, snapshotted — through `journey_save()`, and `_delete_journey()`
-##   mirrors a delete through `journey_delete()`. **What did not move**: the
-##   richer per-journey working state a session actually edits
-##   (`stage_overrides`/`layovers`/`animal_entries`/`trim`) is Journey
-##   Planner UI state, not part of SP-1's entity, and stays exactly where it
-##   already lived — in this file's own `_journeys`, local to the session and
-##   no longer round-tripped through the archive (`journeys_document()` below
-##   is now a stub: the slot is the engine's to write). See
+##   mirrors a delete through `journey_delete()`. **What moved afterwards
+##   (Ruling AR)**: the richer per-journey working state a session edits
+##   (`plan`, `stage_overrides`/`layovers`/`animal_entries`/`trim`, and the two
+##   auto flags) is now saved WITH the journey through `journey_set_plan()` and
+##   restored by `_restore_from_engine()`; this file's own `_journeys` stays the
+##   live working copy, and `journeys_document()` below is still a stub (the
+##   slot is the engine's to write). A journey saved before the ruling has no
+##   plan and restores from its party preset as it always did. See
 ##   "Journeys, on disk (F10)" at the foot of this file for the restore half.
 ## - **Carriage auto/manual**: real as of 2026-08-23 (JP-01).
 ##   `jpAutoPickTransport` was already ported (`cartalith_civ::
@@ -237,12 +238,17 @@ var _trim := Vector2(0.0, 1.0)
 ## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
 ## named. The named journey itself is SP-1's engine `Journey`, persisted in
 ## `entities/journeys.json`; on project open `_restore_from_engine()` rebuilds
-## this list from it (2026-09-24). Only the name, party preset and route
-## persist, so a restored entry's per-stage edits start at their defaults.
+## this list from it (2026-09-24). Ruling AR: the whole plan persists with the
+## journey (`journey_set_plan`), so a restored entry comes back as it was
+## saved; only a journey saved before the ruling (no stored plan) restores
+## from its party preset with per-stage edits at their defaults, and says so.
 ## `route` is an index into the routes saved beside it, which is why
 ## `setup()` clears this list on a world change.
 ## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
-## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2}`.
+## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2,
+## carriage_auto: bool, stage_auto: bool}` (the two flags are absent on an
+## entry restored from a pre-AR journey, and `_load_journey` then leaves the
+## session's current flags alone).
 var _journeys: Array = []
 var _active_journey := -1
 
@@ -739,7 +745,7 @@ func _refresh_route_choice() -> void:
 		var route_i := int(j.get("route", 0))
 		var route_txt := ("Route #%d" % route_i) if route_i >= 0 else "Its saved route"
 		open_btn.tooltip_text = ("%s + this party form. Saved with the project and listed here again on File ▸ Open project." % route_txt) + (
-			" Restored from the project: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were never saved and start at their defaults." if bool(j.get("restored", false)) else "")
+			" Restored from a project saved before the full plan was kept: its party set-up and route came back, but per-stage overrides, layovers, animal choices and the trim were not saved with it and start at their defaults." if bool(j.get("restored", false)) else "")
 		open_btn.pressed.connect(func(): _load_journey(i))
 		jrow.add_child(open_btn)
 		var del_btn := Button.new()
@@ -1407,7 +1413,20 @@ func _compute() -> void:
 		_last_result = {}
 		_apply_result()
 		return
-	var request: Dictionary = {"route": _route_index, "plan": _plan_values.duplicate(true)}
+	var request: Dictionary = _plan_request()
+	request["route"] = _route_index
+	_last_result = bridge.jp_compute(request)
+	_apply_result()
+
+## Everything about the plan the engine needs, as `jp_compute`'s request
+## vocabulary, minus the route. **The one builder** behind `_compute()` and
+## `_save_journey()` (Ruling AR): the plan a journey is saved with is
+## literally the request the planner computed its dates from, so the two
+## cannot drift, and a field the planner gains is saved the moment it is sent.
+## Optional keys are omitted when empty/default, exactly as `_compute()` has
+## always sent them (an untrimmed request carries no `trim`).
+func _plan_request() -> Dictionary:
+	var request: Dictionary = {"plan": _plan_values.duplicate(true)}
 	if _carriage_auto:
 		request["auto_carriage"] = true
 	if _stage_auto:
@@ -1425,8 +1444,7 @@ func _compute() -> void:
 		request["layovers"] = _layovers.duplicate(true)
 	if not _resupply_accepted.is_empty():
 		request["resupply_accepted"] = _resupply_accepted.duplicate(true)
-	_last_result = bridge.jp_compute(request)
-	_apply_result()
+	return request
 
 ## The carriage keys `jpAutoPickTransport` mutates on the plan -- the exact
 ## set the reference's `_jpSyncAssetInputs` (line 19632) writes back into the
@@ -3215,54 +3233,74 @@ func _save_journey() -> void:
 	DccWidgets.prompt(app, "Save journey", "Name for this journey:",
 		"Journey %d — %s" % [_journeys.size() + 1, DccUnits.format_thousands(km)],
 		"Save",
-		func(jname: String):
-			## SP-1 (`STORY_PLANNING_SCOPE.md`): register a real, engine-owned
-			## `Journey` alongside this session's own richer local entry
-			## below. `journey_save()` needs a `PartyPreset` id, and this
-			## planner's `_plan_values` is a raw form snapshot with no
-			## tracked "which preset is this" identity -- so every save mints
-			## a fresh preset from the current form
-			## (`tl_capture_preset_from_plan`, the same call `_capture_preset()`
-			## below already makes by hand), named after the journey so it is
-			## identifiable in the Travel Library. Honest and minimal: it can
-			## leave one preset per save rather than reusing an unchanged one,
-			## a small cost against inventing "was the form edited since the
-			## last apply" tracking that is not part of SP-1's own scope.
-			var engine_id := -1
-			if _route_index >= 0:
-				var cap: Dictionary = bridge.tl_capture_preset_from_plan(
-					"%s — party" % jname, _plan_values.duplicate(true))
-				if bool(cap.get("ok", false)):
-					engine_id = bridge.journey_save(
-						jname, String(cap.get("id", "")), _route_index, bridge.get_civ_year())
-					## Ruling BS: the accepted resupply stops are saved WITH the
-					## journey (`entities/journeys.json`), unlike the layovers
-					## beside them, so SP-2's party pauses where it restocks.
-					if engine_id >= 0 and not _resupply_accepted.is_empty():
-						bridge.journey_set_resupply(engine_id, _resupply_accepted.duplicate(true))
-			_journeys.append({
-				"name": jname,
-				"route": _route_index,
-				"plan": _plan_values.duplicate(true),
-				"stage_overrides": _stage_overrides.duplicate(true),
-				"layovers": _layovers.duplicate(true),
-				"resupply_accepted": _resupply_accepted.duplicate(true),
-				"animal_entries": _animal_entries.duplicate(),
-				"trim": _trim,
-				## The engine `Journey`'s own stable id, or `-1` if the
-				## registration above could not run (no committed route).
-				## `_delete_journey()` uses this to keep the two in sync;
-				## nothing else in this file reads it -- this list's own
-				## richer fields stay the working state a session edits.
-				"engine_id": engine_id,
-			})
-			_active_journey = _journeys.size() - 1
-			_refresh_route_choice()
-			## SP-2: the new journey's party appears on the map at the cursor.
-			if app.viewport != null:
-				app.viewport.refresh_journey_markers()
-			app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent"),
+		func(jname: String): _commit_saved_journey(jname),
 		"Stored in this project — written by File ▸ Save project, restored on open.", 380)
+
+## What saving a journey does once it has a name: registers the engine-owned
+## `Journey`, stores its whole plan (Ruling AR) and appends this session's
+## working entry. **Its own function, not the prompt's lambda**, so the
+## `_journeyplan_probe.gd` drives exactly the code the Save button runs without
+## faking a dialog click. Never call it with an empty `_route_index` expecting
+## an engine journey: it then saves only the local entry (`engine_id` -1).
+func _commit_saved_journey(jname: String) -> void:
+	## SP-1 (`STORY_PLANNING_SCOPE.md`): register a real, engine-owned
+	## `Journey` alongside this session's own richer local entry
+	## below. `journey_save()` needs a `PartyPreset` id, and this
+	## planner's `_plan_values` is a raw form snapshot with no
+	## tracked "which preset is this" identity -- so every save mints
+	## a fresh preset from the current form
+	## (`tl_capture_preset_from_plan`, the same call `_capture_preset()`
+	## below already makes by hand), named after the journey so it is
+	## identifiable in the Travel Library. Honest and minimal: it can
+	## leave one preset per save rather than reusing an unchanged one,
+	## a small cost against inventing "was the form edited since the
+	## last apply" tracking that is not part of SP-1's own scope.
+	var engine_id := -1
+	if _route_index >= 0:
+		var cap: Dictionary = bridge.tl_capture_preset_from_plan(
+			"%s — party" % jname, _plan_values.duplicate(true))
+		if bool(cap.get("ok", false)):
+			engine_id = bridge.journey_save(
+				jname, String(cap.get("id", "")), _route_index, bridge.get_civ_year())
+			## Ruling BS: the accepted resupply stops are saved WITH the
+			## journey (`entities/journeys.json`), unlike the layovers
+			## beside them, so SP-2's party pauses where it restocks.
+			if engine_id >= 0 and not _resupply_accepted.is_empty():
+				bridge.journey_set_resupply(engine_id, _resupply_accepted.duplicate(true))
+			## Ruling AR: the WHOLE plan is saved with the journey, so
+			## it plans -- and dates -- the same after a reopen, not
+			## only its party preset. The very request `_compute()`
+			## sent (`_plan_request()`); a binary without the call
+			## answers `ok: false` and the journey keeps just its
+			## preset, as before the ruling.
+			if engine_id >= 0:
+				var set_plan: Dictionary = bridge.journey_set_plan(engine_id, _plan_request())
+				if not bool(set_plan.get("ok", false)):
+					push_warning("journey_set_plan failed: %s" % String(set_plan.get("error", "")))
+	_journeys.append({
+		"name": jname,
+		"route": _route_index,
+		"plan": _plan_values.duplicate(true),
+		"stage_overrides": _stage_overrides.duplicate(true),
+		"layovers": _layovers.duplicate(true),
+		"resupply_accepted": _resupply_accepted.duplicate(true),
+		"animal_entries": _animal_entries.duplicate(),
+		"trim": _trim,
+		"carriage_auto": _carriage_auto,
+		"stage_auto": _stage_auto,
+		## The engine `Journey`'s own stable id, or `-1` if the
+		## registration above could not run (no committed route).
+		## `_delete_journey()` uses this to keep the two in sync;
+		## nothing else in this file reads it -- this list's own
+		## richer fields stay the working state a session edits.
+		"engine_id": engine_id,
+	})
+	_active_journey = _journeys.size() - 1
+	_refresh_route_choice()
+	## SP-2: the new journey's party appears on the map at the cursor.
+	if app.viewport != null:
+		app.viewport.refresh_journey_markers()
+	app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
 
 func _load_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
@@ -3277,6 +3315,12 @@ func _load_journey(i: int) -> void:
 	_resupply_declined.clear()
 	_animal_entries = (j.get("animal_entries", {}) as Dictionary).duplicate()
 	_trim = j.get("trim", Vector2(0.0, 1.0))
+	## Ruling AR: the auto flags travel with the journey. An entry restored
+	## from a pre-AR journey has none, and keeps the session's current flags.
+	if j.has("carriage_auto"):
+		_carriage_auto = bool(j["carriage_auto"])
+	if j.has("stage_auto"):
+		_stage_auto = bool(j["stage_auto"])
 	_selected_stage = 0
 	_isolated_stage = -1
 	_rebuild_party_form()
@@ -5134,9 +5178,16 @@ func restore_journeys_document(_text: String) -> void:
 ## empty on every open). A `Journey` keeps a name, a party-preset id and a
 ## route SNAPSHOT, so each entry gets that preset's party form and the saved
 ## route whose points equal the snapshot (`-1` when none does -- the route
-## was deleted or redrawn). Stage overrides, layovers, animal entries and the
-## trim were never persisted, so a restored entry starts them at their
-## defaults; its `restored` flag lets the list say so.
+## was deleted or redrawn).
+##
+## **Ruling AR**: a journey saved with its whole plan (`journey_get`'s `plan`
+## member, `jp_compute`'s request shape) restores that plan -- the plan form,
+## stage overrides, layovers, animal entries, trim and both auto flags --
+## exactly as saved. A journey saved before the ruling has no `plan` member;
+## it keeps the old preset-only restore (defaults overlaid with its preset,
+## everything else at its defaults) and carries `restored: true` so the list
+## says so. The two are told apart by `has("plan")`, never by an empty or
+## default-valued plan, because a default plan is also a legitimate saved one.
 func _restore_from_engine() -> void:
 	if bridge == null:
 		return
@@ -5148,26 +5199,42 @@ func _restore_from_engine() -> void:
 		var sd: Dictionary = s
 		var id := int(sd.get("id", -1))
 		var full: Dictionary = bridge.journey_get(id)
-		var plan: Dictionary = defaults.duplicate(true)
-		var preset: Dictionary = bridge.tl_get("preset", String(sd.get("party_preset", "")))
-		if bool(preset.get("ok", false)):
-			for key in defaults.keys():
-				if key != "party_fields" and preset.has(key):
-					plan[key] = preset[key]
-		_journeys.append({
+		var entry: Dictionary = {
 			"name": String(sd.get("name", "journey")),
 			"route": _route_matching(full.get("points", PackedVector2Array())),
-			"plan": plan,
-			"stage_overrides": {},
-			"layovers": {},
-			## Ruling BS: the one piece of planner state a saved journey
-			## does carry (`journey_get`'s `resupply_stops`).
+			## Ruling BS: the accepted resupply stops, saved with the journey
+			## on both paths (`journey_get`'s `resupply_stops`).
 			"resupply_accepted": (full.get("resupply_stops", []) as Array).duplicate(true),
-			"animal_entries": {},
-			"trim": Vector2(0.0, 1.0),
 			"engine_id": id,
-			"restored": true,
-		})
+		}
+		if full.has("plan"):
+			var saved_plan: Dictionary = full["plan"]
+			## Over the defaults, so a key a newer build adds to the plan form
+			## and this file's saved plan lacks still has a value.
+			var plan_form: Dictionary = defaults.duplicate(true)
+			for key in (saved_plan.get("plan", {}) as Dictionary).keys():
+				plan_form[key] = saved_plan["plan"][key]
+			entry["plan"] = plan_form
+			entry["stage_overrides"] = (saved_plan.get("stage_overrides", {}) as Dictionary).duplicate(true)
+			entry["layovers"] = (saved_plan.get("layovers", {}) as Dictionary).duplicate(true)
+			entry["animal_entries"] = (saved_plan.get("animal_entries", {}) as Dictionary).duplicate()
+			entry["trim"] = saved_plan.get("trim", Vector2(0.0, 1.0))
+			entry["carriage_auto"] = bool(saved_plan.get("auto_carriage", false))
+			entry["stage_auto"] = bool(saved_plan.get("auto_stage", false))
+		else:
+			var plan: Dictionary = defaults.duplicate(true)
+			var preset: Dictionary = bridge.tl_get("preset", String(sd.get("party_preset", "")))
+			if bool(preset.get("ok", false)):
+				for key in defaults.keys():
+					if key != "party_fields" and preset.has(key):
+						plan[key] = preset[key]
+			entry["plan"] = plan
+			entry["stage_overrides"] = {}
+			entry["layovers"] = {}
+			entry["animal_entries"] = {}
+			entry["trim"] = Vector2(0.0, 1.0)
+			entry["restored"] = true
+		_journeys.append(entry)
 	if _bound:
 		_refresh_route_choice()
 

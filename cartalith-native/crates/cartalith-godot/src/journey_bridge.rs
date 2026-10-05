@@ -330,6 +330,52 @@ pub fn stage_override_from_pairs(pairs: &[(String, JpValue)]) -> (JpStageOverrid
     (ov, rejected)
 }
 
+/// [`stage_override_from_pairs`]' inverse: only the fields this override
+/// actually sets (`Some`), under the same keys, in that function's own
+/// order. A field left `None` is **omitted**, never written as an empty or
+/// zero value -- an absent key is how an override says "cascade from the
+/// shared plan", and a `0`/`""` would instead say something plausible
+/// (`MISTAKES.md`: never encode "no value" as a plausible value).
+///
+/// Used by Ruling AR's saved plan (`entities/journeys.json`), which must
+/// round-trip every per-stage override; `stage_override_from_pairs(
+/// &stage_override_to_pairs(o)) == o` is pinned by a test below.
+pub fn stage_override_to_pairs(ov: &JpStageOverride) -> Vec<(&'static str, JpValue)> {
+    let mut out: Vec<(&'static str, JpValue)> = Vec::new();
+    let s = |v: &Option<String>| v.clone().map(JpValue::Str);
+    let mut push = |k: &'static str, v: Option<JpValue>| {
+        if let Some(v) = v {
+            out.push((k, v));
+        }
+    };
+    push("transport", s(&ov.transport));
+    push("mount_animal", s(&ov.mount_animal));
+    push("vessel", s(&ov.vessel));
+    push("hours", ov.hours.map(JpValue::Num));
+    push("pace", s(&ov.pace));
+    push("season", s(&ov.season));
+    push("supply_days", ov.supply_days.map(JpValue::Int));
+    push("carry_food", ov.carry_food.map(JpValue::Bool));
+    push("grazing", s(&ov.grazing));
+    push("foraging", s(&ov.foraging));
+    push("desert_water", s(&ov.desert_water));
+    push("weather_override", s(&ov.weather_override));
+    push("seasonal_closures", ov.seasonal_closures.map(JpValue::Bool));
+    push("route_cond", s(&ov.route_cond));
+    push("infra", s(&ov.infra));
+    push("group_size", ov.group_size.map(JpValue::Int));
+    push("cargo_kg", ov.cargo_kg.map(JpValue::Num));
+    push("donkey", ov.donkey.map(JpValue::Int));
+    push("mule", ov.mule.map(JpValue::Int));
+    push("camel", ov.camel.map(JpValue::Int));
+    push("horse", ov.horse.map(JpValue::Int));
+    push("carts", ov.carts.map(JpValue::Int));
+    push("wagons", ov.wagons.map(JpValue::Int));
+    push("sleds", ov.sleds.map(JpValue::Int));
+    push("travois", ov.travois.map(JpValue::Int));
+    out
+}
+
 // ===================== the world buffers `JpWorld` borrows =====================
 
 /// The three tables a [`cartalith_civ::JpWorld`] needs that are **not**
@@ -706,6 +752,48 @@ mod tests {
         let (ov, rejected) = stage_override_from_pairs(&[]);
         assert!(rejected.is_empty());
         assert_eq!(ov, JpStageOverride::default());
+    }
+
+    /// Protects: Ruling AR's saved plan -- every one of a stage override's
+    /// 25 fields survives `stage_override_to_pairs` -> `stage_override_from_pairs`
+    /// (a field added to `JpStageOverride` but not to the writer fails here),
+    /// and an override that sets nothing writes **no** pairs rather than a
+    /// block of plausible zeros.
+    #[test]
+    fn a_stage_override_survives_a_flatten_and_reparse_field_for_field() {
+        let full = JpStageOverride {
+            transport: Some("Baggage Train".into()),
+            mount_animal: Some("mule".into()),
+            vessel: Some("Dhow".into()),
+            hours: Some(11.5),
+            pace: Some("Haste".into()),
+            season: Some("Winter".into()),
+            supply_days: Some(21),
+            carry_food: Some(false),
+            grazing: Some(GRAZING_KEYS[2].into()),
+            foraging: Some("Active".into()),
+            desert_water: Some("Deep Desert Crossing".into()),
+            weather_override: Some("Snow".into()),
+            seasonal_closures: Some(false),
+            route_cond: Some("Broken".into()),
+            infra: Some("Stable Settlements".into()),
+            group_size: Some(9),
+            cargo_kg: Some(650.5),
+            donkey: Some(1),
+            mule: Some(2),
+            camel: Some(3),
+            horse: Some(4),
+            carts: Some(5),
+            wagons: Some(6),
+            sleds: Some(7),
+            travois: Some(8),
+        };
+        let pairs: Vec<(String, JpValue)> = stage_override_to_pairs(&full).into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        assert_eq!(pairs.len(), 25, "every field of a full override is written");
+        let (round, rejected) = stage_override_from_pairs(&pairs);
+        assert!(rejected.is_empty(), "{rejected:?}");
+        assert_eq!(round, full);
+        assert!(stage_override_to_pairs(&JpStageOverride::default()).is_empty(), "an override that sets nothing writes nothing");
     }
 
     #[test]

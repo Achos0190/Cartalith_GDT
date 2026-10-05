@@ -452,6 +452,7 @@ mod tests {
             route: JourneyRoute { points, breaks: vec![], length_km: 1.0, mode: RouteMode::Land },
             start_year: 412,
             resupply_stops: vec![],
+            plan: None,
         }
     }
 
