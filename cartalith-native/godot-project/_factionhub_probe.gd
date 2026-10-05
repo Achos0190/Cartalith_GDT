@@ -1544,6 +1544,11 @@ func _run_territory_tab(ids: Array) -> void:
 	_ok("FH4 precondition: faction %d owns provinces in this world" % fa, want_rows.size() > 0)
 	_ok("FH4 the provinces list has one row per bridge.provinces() entry of this faction",
 		got_rows.size() == want_rows.size(), "%d vs %d" % [got_rows.size(), want_rows.size()])
+	var cell_by_id := {}
+	for r in _bridge.province_cell_counts():
+		cell_by_id[int((r as Dictionary).get("id", 0))] = int((r as Dictionary).get("cells", 0))
+	_ok("FH4 the engine reports a cell count for every province of this faction", want_rows.all(func(p): return cell_by_id.has(int((p as Dictionary).get("id", 0)))))
+	_ok("FH4 ... and every reported count is positive (a province with no cell is not listed)", cell_by_id.values().all(func(v): return int(v) > 0))
 	var sets: Array = _bridge.settlements()
 	var names_ok := true
 	var bad := ""
@@ -1553,12 +1558,14 @@ func _run_territory_tab(ids: Array) -> void:
 		var ci := int(pd.get("capital_settlement_index", -1))
 		var cname := String((sets[ci] as Dictionary).get("name", "—")) if ci >= 0 and ci < sets.size() else "—"
 		var want := "%s   ·   capital %s" % [String(pd.get("name", "?")), cname]
+		if cell_by_id.has(int(pd.get("id", 0))):
+			want += "   ·   %d cells" % int(cell_by_id[int(pd.get("id", 0))])
 		if l == null or l.text != want:
 			names_ok = false
 			bad = "'%s' vs '%s'" % [l.text if l != null else "<none>", want]
 	_ok("FH4 ... each reading its own name and capital", names_ok, bad)
 	_ok("FH4 ... under a heading that carries the count", text.contains("Provinces (%d)" % want_rows.size()) or text.to_lower().contains("provinces (%d)" % want_rows.size()))
-	_ok("FH4 ... and says no cell counts are shown rather than inventing them", text.contains("not exposed"))
+	_ok("FH4 ... each province line shows its cell count and the stale 'not exposed' note is gone", text.contains(" cells") and not text.contains("not exposed"))
 
 	# -- influence: behind the button ------------------------------------------------
 	_ok("FH4 influence reads 'Not run yet' before the button", text.contains("Not run yet"))

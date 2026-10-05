@@ -193,6 +193,12 @@ var _economy_ready := false
 ## on the engine side for the same reason, cached and dropped the same way.
 var _relations: Array = []
 var _relations_ready := false
+## `province id -> cells` (the Territory tab's Provinces list), one grid pass on the
+## engine side, fetched by `_province_cells()` after a staleness and dropped by
+## `_mark_data_stale()`. `{}` is the honest "grid not known" answer, told apart
+## from "not fetched" by `_province_cells_ready`.
+var _province_cells_by_id: Dictionary = {}
+var _province_cells_ready := false
 ## The History tab's whole-world ownership rows (FH-8): one
 ## `{"tid": int, "spans": Array}` per settlement the timeline ever recorded, each
 ## `spans` exactly as `civ_settlement_ownership_periods(tid)` returned it. Fetched
@@ -1886,6 +1892,8 @@ func _mark_data_stale() -> void:
 	_economy_rows = []
 	_relations_ready = false
 	_relations = []
+	_province_cells_ready = false
+	_province_cells_by_id = {}
 	## FH-8: the History tab's whole-world ownership rows (RF-03: a refresh after a
 	## regenerate or an edit must not draw the previous world's periods).
 	_history_ready = false
@@ -2966,11 +2974,12 @@ func _build_stale_chip(parent: Control) -> void:
 	parent.add_child(pc)
 
 
-## The faction's provinces: name and capital. `bridge.provinces()` rows carry
-## `{id, faction, name, capital_settlement_index}` and NO per-province cell
-## count (the design's "cells" column needs a Rust `get_provinces` addition), so
-## the column is omitted rather than shown as a plausible number. The capital is
-## looked up in `bridge.settlements()` by index; an index outside it reads "—".
+## The faction's provinces: name, capital and cell count. `bridge.provinces()`
+## rows carry `{id, faction, name, capital_settlement_index}`; cells come from
+## `bridge.province_cell_counts()`, fetched once per staleness. A province whose
+## count is unknown (a project reopened without its province raster) shows no
+## figure rather than a plausible 0. The capital is looked up in
+## `bridge.settlements()` by index; an index outside it reads "—".
 func _build_provinces_block(parent: Control) -> void:
 	var rows: Array = []
 	for p in bridge.provinces():
@@ -2982,15 +2991,29 @@ func _build_provinces_block(parent: Control) -> void:
 		DccWidgets.note(sec, "This faction holds no province.")
 		return
 	var settlements := bridge.settlements()
+	var cells := _province_cells()
 	for p in rows:
 		var pd: Dictionary = p
 		var ci := int(pd.get("capital_settlement_index", -1))
 		var cname := "—"
 		if ci >= 0 and ci < settlements.size():
 			cname = String((settlements[ci] as Dictionary).get("name", "—"))
-		var l := DccWidgets.note(sec, "%s   ·   capital %s" % [String(pd.get("name", "?")), cname])
-		l.name = "Province_%d" % int(pd.get("id", 0))
-	DccWidgets.note(sec, "Cells per province are not exposed by the engine yet, so none is shown.")
+		var line := "%s   ·   capital %s" % [String(pd.get("name", "?")), cname]
+		var pid := int(pd.get("id", 0))
+		if cells.has(pid):
+			line += "   ·   %d cells" % int(cells[pid])
+		var l := DccWidgets.note(sec, line)
+		l.name = "Province_%d" % pid
+
+
+## `province id -> cells`, fetched once per staleness (see `_province_cells_by_id`).
+func _province_cells() -> Dictionary:
+	if not _province_cells_ready:
+		_province_cells_by_id = {}
+		for r in bridge.province_cell_counts():
+			_province_cells_by_id[int((r as Dictionary).get("id", 0))] = int((r as Dictionary).get("cells", 0))
+		_province_cells_ready = true
+	return _province_cells_by_id
 
 
 ## "Influence by neighbour": this faction's row and the borders it takes part

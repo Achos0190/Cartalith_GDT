@@ -733,6 +733,25 @@ fn civ_settle_staleness(stages: &mut cartalith_spatial::StageGraph, civ_dirty: &
     }
 }
 
+/// Cells held by each province, from the per-cell province grid: `(id, cells)`
+/// rows ascending by id, one per province id that appears. `0` ("no province",
+/// see `CivData::provinces`) and negative ids are skipped, so unowned land is
+/// never reported as a province. Empty for an empty grid, which is "not known"
+/// (a project reopened without `rasters/provinces.i32`), not "no cells".
+///
+/// Cost: one pass over the grid. It is a separate call from `get_provinces`
+/// so the metadata call, which the shell makes often, stays O(provinces).
+/// Never mutates anything.
+fn province_cell_counts(provinces: &[i32]) -> Vec<(i32, i64)> {
+    let mut counts: std::collections::BTreeMap<i32, i64> = std::collections::BTreeMap::new();
+    for &id in provinces {
+        if id > 0 {
+            *counts.entry(id).or_insert(0) += 1;
+        }
+    }
+    counts.into_iter().collect()
+}
+
 /// Rebuilds the province raster and list over `civ.territory` as it stands
 /// now, painted borders included. The reference's `_civGenerateProvinces`
 /// reads `civTerritory`, which in the reference *is* the painted grid; here
@@ -1713,6 +1732,22 @@ mod civ_merge_tests {
 /// `14` -- the connectivity case. Faction 3 has no Metropolis/Capital/City,
 /// so `civ_generate_provinces` seeds it from its largest place, s4 (province
 /// `4`): the fallback-seed case.
+#[cfg(test)]
+mod province_cell_count_tests {
+    use super::province_cell_counts;
+
+    /// Protects: the Territory tab's per-province "cells" figure. Counts are per
+    /// id, `0` (no province) and negatives are never reported, and an empty grid
+    /// stays empty rather than becoming a plausible "0 cells".
+    #[test]
+    fn counts_each_province_and_skips_unowned_cells() {
+        let grid = [0, 2, 2, 0, 5, 2, -1, 5, 0];
+        assert_eq!(province_cell_counts(&grid), vec![(2, 3), (5, 2)]);
+        assert_eq!(province_cell_counts(&[]), Vec::<(i32, i64)>::new());
+        assert_eq!(province_cell_counts(&[0, 0, 0]), Vec::<(i32, i64)>::new());
+    }
+}
+
 #[cfg(test)]
 mod polity_reassign_tests {
     use super::civ_merge_tests::tagged;
@@ -12282,6 +12317,21 @@ impl WorldGen {
                     "capital_settlement_index" => p.capital_settlement_index as i64,
                 }
             })
+            .collect()
+    }
+
+    /// Cells held by each province: one `Dictionary` per province id found in
+    /// the province grid, `{id: int, cells: int}`, ascending by id (the same
+    /// `id` as `get_provinces`). Empty when the grid is not known (a reopened
+    /// project with no `rasters/provinces.i32`) or there is no world. One pass
+    /// over the grid, so callers fetch it once and cache it rather than per
+    /// province; `get_provinces` stays cheap.
+    #[func]
+    fn get_province_cell_counts(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        province_cell_counts(&civ.provinces)
+            .into_iter()
+            .map(|(id, cells)| dict! { "id" => id, "cells" => cells })
             .collect()
     }
 

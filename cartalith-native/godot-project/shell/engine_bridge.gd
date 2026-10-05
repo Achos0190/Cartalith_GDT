@@ -972,6 +972,11 @@ func sea_routes() -> Array:
 func provinces() -> Array:
 	return world_gen.get_provinces()
 
+## `{id, cells}` per province from one pass over the province grid; `[]` when
+## the grid is not known. Fetch once and cache, do not call per province.
+func province_cell_counts() -> Array:
+	return world_gen.get_province_cell_counts()
+
 func trade_balances() -> Array:
 	return world_gen.get_trade_balances()
 
