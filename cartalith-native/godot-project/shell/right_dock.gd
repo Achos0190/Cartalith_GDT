@@ -3401,7 +3401,13 @@ func _build_faction(body: Control) -> void:
 		## `"none"` is a real answer from `cartalith-civ`'s own vocabulary, not
 		## an absence -- a faction with no state religion is a fact about the
 		## world, so it prints rather than dashing.
-		_field(sec, "State religion", rel.capitalize() if rel != "" else "—")
+		## FH-R1: a custom religion prints its own name and what it behaves as
+		## (`get_factions()` carries `religion_name` only for one); a built-in
+		## prints exactly as before.
+		if roster.has("religion_name"):
+			_field(sec, "State religion", CivilizationWorkspace._faction_religion_label(roster))
+		else:
+			_field(sec, "State religion", rel.capitalize() if rel != "" else "—")
 	## FH-1 (`FACTION_HUB_DESIGN.md` §4): this card is now a thin entry point,
 	## and the one door from it into the Factions hub. It lands on
 	## **Identity**, or on **Relations** when the card was opened naming a pair

@@ -68,6 +68,16 @@ extends Node
 ##           hub -- chooser, the engine-previewed confirmation, cancel, the move
 ##           (engine claim grid), the hub refreshing, the engine's refusals and the
 ##           no-claim-grid fallback; 44 px taps on the phone.
+##   RELIGIONS (FH-R1, `_run_religions`) the Identity tab's Religions library,
+##           driven through the real window: it sits under the Religion picker and
+##           says a custom religion behaves as its base; New religion... refuses a
+##           built-in's name with the engine's reason and creates a trimmed one
+##           with the chosen base; the picker lists built-ins first and the custom
+##           one after; picking it stores `custom:<id>` while the engine key stays
+##           the base; the Faith group and the right dock name it and nothing
+##           prints a raw `custom:` key; Delete is refused while held and works
+##           once unheld; a deleted id is not reissued; Edit renames; the
+##           religion and the choice survive a save and reopen; phone taps.
 ##   FH9 cat (in `_run_entry_points`) the Factions category is only Open factions,
 ##           Settlement types and the By-province rows, and what it dropped lives on
 ##           the hub. `_run_world_data_names`: World data names factions.
@@ -579,6 +589,10 @@ func _run() -> void:
 	# -- FH-9: the no-claim-grid Transfer fallback (reloads the project, so it runs last) --
 	await _run_transfer_nogrid()
 	_ok("FH9 the no-grid transfer leg ran to its end (a script error inside it aborts it silently)", _fh9_ng_done)
+
+	# -- FH-R1: custom religions (writes and reloads a project, so it runs last) --
+	await _run_religions()
+	_ok("R1 the religions leg ran to its end (a script error inside it aborts it silently)", _r1_done)
 
 
 func _collect_buttons(node: Node, out: Array) -> void:
@@ -3226,3 +3240,221 @@ func _collect_tipped(node: Node, prefix: String, out: Array) -> void:
 		out.append(node)
 	for c in node.get_children():
 		_collect_tipped(c, prefix, out)
+
+
+var _r1_done := false  ## set by the last line of `_run_religions`
+var _r1_emits := 0     ## `roster_changed` emissions seen while the R1 leg is connected
+
+
+## The Identity pane's node named `n`, searched afresh (the pane is rebuilt on
+## every library change, so a held reference goes stale).
+func _r1_node(n: String) -> Node:
+	var pane := _pane("identity")
+	return null if pane == null else pane.find_child(n, true, false)
+
+
+## Scrolls the window's vertical scroller so node `n` is on screen, for the
+## screenshots only (no check reads the scroll position).
+func _r1_scroll_to(n: String) -> void:
+	var c := _r1_node(n) as Control
+	var sc := DccWidgets.vertical_scroller_above(c) if c != null else null
+	if sc != null:
+		sc.ensure_control_visible(c)
+	await _frames(4)
+
+
+## Protects: FH-R1 (`FACTION_HUB_DESIGN.md` §6 R1) through the real hub window --
+## see the RELIGIONS paragraph in this file's header. Every write goes through a
+## control the user has (button `pressed`, the real `OptionButton`), and every
+## claim about the engine is read back from it, not from the window's state.
+## What it cannot see: pixels (the screenshot is the look check), and the
+## engine-side equivalence (identical belief/power/relations), which is
+## `cargo test`'s (`a_custom_religion_behaves_exactly_as_its_base_religion`).
+func _run_religions() -> void:
+	_fr.roster_changed.connect(func(): _r1_emits += 1)
+	var ids: Array = []
+	for f in _bridge.get_factions():
+		ids.append(int(f.get("id", 0)))
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	_ok("R1 precondition: the engine has the binding and no custom religion yet",
+		_bridge.has_custom_religion_api() and _bridge.civ_custom_religions().is_empty(),
+		str(_bridge.civ_custom_religions()))
+	_fr.open(fa, "identity")
+	await _frames(8)
+	var lib := _r1_node("ReligionsLibrary")
+	var picker := _r1_node("ReligionPicker") as OptionButton
+	_ok("R1 the Religions library group is on the Identity tab", lib != null)
+	_ok("R1 ... directly under the Religion picker",
+		lib != null and picker != null and picker.get_parent().get_parent() == lib.get_parent()
+		and picker.get_parent().get_index() < lib.get_index())
+	_ok("R1 ... and it says plainly that a custom religion behaves as its base",
+		lib != null and _text_of(lib).contains("behaves exactly as its base religion"),
+		_text_of(lib).left(300) if lib != null else "none")
+	_ok("R1 ... with an honest empty state", _r1_node("ReligionsEmpty") != null)
+
+	# CREATE, refused first: a built-in's name.
+	(_r1_node("NewReligion") as Button).pressed.emit()
+	await _frames(6)
+	_ok("R1 New religion... opens the inline editor (no new window)", _r1_node("ReligionEditor") != null)
+	(_r1_node("ReligionName") as LineEdit).text = "sun  CULT"
+	(_r1_node("ReligionSave") as Button).pressed.emit()
+	await _frames(4)
+	var st := _r1_node("ReligionEditorStatus") as Label
+	_ok("R1 a built-in's name is refused with the engine's reason, and nothing is written",
+		st != null and st.visible and st.text.contains("already uses") and _bridge.civ_custom_religions().is_empty(),
+		st.text if st != null else "no status")
+	_ok("R1 ... and the editor stays open", _r1_node("ReligionEditor") != null)
+
+	# CREATE for real: trimmed name, Old Gods base, a colour, notes.
+	var emits0 := _r1_emits
+	(_r1_node("ReligionName") as LineEdit).text = "  Church of the Dawn  "
+	var base := _r1_node("ReligionBase") as OptionButton
+	var og := -1
+	for i in base.item_count:
+		if base.get_item_text(i) == "Old Gods":
+			og = i
+	base.select(og)
+	base.item_selected.emit(og)
+	(_r1_node("ReligionColour") as ColorPickerButton).color = Color8(40, 90, 200)
+	(_r1_node("ReligionNotes") as LineEdit).text = "Dawn rites."
+	(_r1_node("ReligionSave") as Button).pressed.emit()
+	await _frames(6)
+	var lst: Array = _bridge.civ_custom_religions()
+	var rec: Dictionary = lst[0] if lst.size() == 1 else {}
+	var id := int(rec.get("id", -1))
+	var key := String(rec.get("key", ""))
+	_ok("R1 Create writes one religion to the engine: trimmed name, chosen base, colour, notes",
+		lst.size() == 1 and String(rec.get("name")) == "Church of the Dawn" and String(rec.get("base_key")) == "old_gods"
+		and int(rec.get("color_b", 0)) == 200 and String(rec.get("notes")) == "Dawn rites.", str(lst))
+	_ok("R1 ... the editor closes and the library lists it",
+		_r1_node("ReligionEditor") == null and _r1_node("Religion_%d" % id) != null)
+	_ok("R1 ... and roster_changed fired after the engine call", _r1_emits > emits0, str(_r1_emits - emits0))
+
+	# PICK it for faction A through the real picker.
+	picker = _r1_node("ReligionPicker") as OptionButton
+	var vocab: Array = _bridge.civ_religion_vocabulary()
+	var builtins_first := picker.item_count == vocab.size() + 1
+	for i in vocab.size():
+		builtins_first = builtins_first and picker.get_item_text(i) == String((vocab[i] as Dictionary)["label"])
+	_ok("R1 the picker lists the built-ins first and the custom religion after, labelled with its base",
+		builtins_first and picker.get_item_text(vocab.size()) == "Church of the Dawn (as Old Gods)",
+		"%d items, last=%s" % [picker.item_count, picker.get_item_text(picker.item_count - 1)])
+	picker.select(vocab.size())
+	picker.item_selected.emit(vocab.size())
+	await _frames(6)
+	var row: Dictionary = _fr._faction(fa)
+	_ok("R1 picking it stores the custom key", String(row.get("religion_choice", "")) == key, str(row))
+	_ok("R1 ... while the engine key stays the base (no consumer sees custom:)",
+		String(row.get("religion", "")) == "old_gods", str(row.get("religion")))
+	var note := _r1_node("ReligionBehavesAs") as Label
+	_ok("R1 ... the line under the picker says what it behaves as",
+		note != null and note.visible and note.text.begins_with("Behaves as Old Gods"), note.text if note else "none")
+	var del := _r1_node("ReligionDelete_%d" % id) as Button
+	_ok("R1 ... and the library row now names its holder and disables Delete",
+		del != null and del.disabled and _text_of(_r1_node("Religion_%d" % id)).contains(String(row.get("name", "?"))))
+
+	# DISPLAY elsewhere: the Relations tab's Faith group and the right dock.
+	await _press("relations")
+	var fh := _pane("relations").find_child("FaithHead", true, false) as Label
+	_ok("R1 the Relations Faith group names the custom religion and its base",
+		fh != null and fh.text.contains("Church of the Dawn (as Old Gods)"), fh.text if fh else "none")
+	_app.right_dock_ctrl.show_faction(fa)
+	await _frames(6)
+	_ok("R1 the right dock's State religion row names it",
+		_text_of(_app.right_dock_body).contains("Church of the Dawn (as Old Gods)"))
+	_ok("R1 no raw custom: key is printed in the hub or the right dock",
+		not _text_of(_fr).contains("custom:") and not _text_of(_app.right_dock_body).contains("custom:"))
+	await _press("identity")
+
+	# DELETE refused while held -- through the row's own handler, then the engine.
+	_fr._delete_religion(id)
+	await _frames(4)
+	_ok("R1 Delete is refused while a faction holds it, and the record stays",
+		_bridge.civ_custom_religions().size() == 1 and _hint_text().contains("still hold"), _hint_text())
+	var refused: Dictionary = _bridge.civ_delete_religion(id)
+	_ok("R1 ... the engine names who holds it", not bool(refused.get("ok", true))
+		and Array(refused.get("used_by", PackedInt32Array())).has(fa), str(refused))
+
+	# EDIT: rename through the row's Edit button.
+	(_r1_node("ReligionEdit_%d" % id) as Button).pressed.emit()
+	await _frames(6)
+	await _r1_scroll_to("ReligionEditor")
+	await _shot("%s_religion_editor" % ("phone" if _phone else "desktop"))
+	if _phone:
+		var nf := _r1_node("ReligionName") as Control
+		var pf := _r1_node("ReligionPicker") as Control
+		_ok("R1 PHONE the editor's Name field meets the tap floor without outgrowing the picker row",
+			nf != null and pf != null and nf.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN and nf.size.y <= pf.size.y * 1.5 + 1.0,
+			"name=%.0f picker=%.0f" % [nf.size.y if nf else -1.0, pf.size.y if pf else -1.0])
+	(_r1_node("ReligionName") as LineEdit).text = "Church of the Long Dawn"
+	(_r1_node("ReligionSave") as Button).pressed.emit()
+	await _frames(6)
+	picker = _r1_node("ReligionPicker") as OptionButton
+	_ok("R1 Edit renames it in the engine and in the picker, keeping the faction's choice",
+		String((_bridge.civ_custom_religions()[0] as Dictionary).get("name")) == "Church of the Long Dawn"
+		and picker.get_item_text(picker.selected) == "Church of the Long Dawn (as Old Gods)",
+		picker.get_item_text(picker.selected))
+	if _phone:
+		var small := ""
+		for n in ["NewReligion", "ReligionEdit_%d" % id, "ReligionDelete_%d" % id]:
+			var b := _r1_node(n) as Control
+			if b == null or b.size.y + 0.5 < DccTheme.PHONE_TAP_MIN:
+				small += "%s=%s " % [n, "missing" if b == null else "%.0f" % b.size.y]
+		_ok("R1 PHONE the library's taps are at least %d px" % DccTheme.PHONE_TAP_MIN, small == "", small)
+		var scrollers := _count(_fr, func(n): return n is ScrollContainer and (n as ScrollContainer).is_visible_in_tree())
+		_ok("R1 PHONE the window keeps exactly one scroller", scrollers == 1, "%d" % scrollers)
+	await _r1_scroll_to("ReligionsLibrary")
+	await _shot("%s_religions" % ("phone" if _phone else "desktop"))
+
+	# Unhold it, then DELETE through the enabled button; ids are not reissued.
+	picker.select(1)
+	picker.item_selected.emit(1)
+	await _frames(6)
+	del = _r1_node("ReligionDelete_%d" % id) as Button
+	_ok("R1 once no faction holds it, Delete is enabled", del != null and not del.disabled)
+	if del != null:
+		del.pressed.emit()
+	await _frames(6)
+	_ok("R1 Delete removes it from the engine and the library",
+		_bridge.civ_custom_religions().is_empty() and _r1_node("Religion_%d" % id) == null)
+	var again: Dictionary = _bridge.civ_add_religion("Second Faith", "sun_cult", Color8(1, 2, 3), "")
+	_ok("R1 a deleted id is never reissued", bool(again.get("ok", false)) and int(again.get("id", 0)) > id, str(again))
+
+	# SAVE / REOPEN: faction B holds the new one; both must come back.
+	_ok("R1 SAVE precondition: faction B takes the new religion through the engine",
+		_bridge.civ_set_faction_field(fb, "religion", String(again.get("key", ""))))
+	var path := OS.get_user_data_dir().path_join("_factionhub_r1.zip")
+	var done := [false]
+	_app._write_project(path, func(): done[0] = true)
+	for _i in 200:
+		if done[0]:
+			break
+		await _frames(2)
+	_ok("R1 SAVE the project was written", FileAccess.file_exists(path))
+	var zr := ZIPReader.new()
+	var has_slot := zr.open(path) == OK and zr.get_files().has("entities/religions.json")
+	zr.close()
+	_ok("R1 SAVE ... with an entities/religions.json member", has_slot)
+	_fr.hide()
+	_ok("R1 SAVE the project reopens", bool(_app._load_project(path)))
+	await _frames(10)
+	_bridge = _app.bridge
+	_fr = _app.faction_roster_window
+	var back: Array = _bridge.civ_custom_religions()
+	var rb: Dictionary = _fr._faction(fb)
+	_ok("R1 SAVE the religion and faction B's choice survive the reopen",
+		back.size() == 1 and String((back[0] as Dictionary).get("name")) == "Second Faith"
+		and String(rb.get("religion_choice", "")) == String(again.get("key", ""))
+		and String(rb.get("religion", "")) == "sun_cult", "%s / %s" % [str(back), str(rb)])
+	var after: Dictionary = _bridge.civ_add_religion("Third Faith", "sun_cult", Color8(1, 2, 3), "")
+	_ok("R1 SAVE ... and the reopened project still never reissues an id",
+		int(after.get("id", 0)) > int(again.get("id", 0)), str(after))
+	_fr.open(fb, "identity")
+	await _frames(8)
+	picker = _r1_node("ReligionPicker") as OptionButton
+	_ok("R1 SAVE the reopened hub's picker shows the custom choice",
+		picker != null and picker.get_item_text(picker.selected) == "Second Faith (as Sun Cult)",
+		picker.get_item_text(picker.selected) if picker else "none")
+	_fr.hide()
+	_r1_done = true

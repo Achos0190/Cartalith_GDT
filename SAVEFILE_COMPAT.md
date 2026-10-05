@@ -320,6 +320,7 @@ entities/                             discrete, id-bearing things — see §9
   journeys.json               MAY
   landmarks.json              MAY
   conflicts.json              MAY
+  religions.json              MAY       FH-R1, since 2026-10-05 (§9.9)
 
 history/                              recorded past states — see §10
   timeline.json               MAY
@@ -1134,7 +1135,7 @@ MUST NOT allow index `0` to be removed.
 |---|---|---|---|
 | `id` | integer ≥ 0 | MUST | Equals the array index. |
 | `name` | string | MUST | |
-| `culture`, `religion`, `government`, `ag_tech` | string | MUST | Vocabulary keys. An unrecognised key MUST be preserved on write-back and MAY be shown to the user as-is; a reader MUST NOT substitute a default silently. |
+| `culture`, `religion`, `government`, `ag_tech` | string | MUST | Vocabulary keys. An unrecognised key MUST be preserved on write-back and MAY be shown to the user as-is; a reader MUST NOT substitute a default silently. Since 2026-10-05 (FH-R1) `religion` MAY also be `custom:<id>`, naming a row of `entities/religions.json` (§9.9); see there for how it resolves. |
 | `color` | array of 3 integers `[0,255]` | MUST | The faction's base palette colour, **as stored**. Not derivable — see below. |
 | `user_color` | array of 3 integers, or `null` | MUST | The author's chosen identity colour, or `null` for "use the stored `color`". A separate member rather than an overwrite of `color`, so that clearing the override restores the base colour rather than losing it. |
 | `tariffs` | object, exporting-faction id (as a decimal string key) → number in `(0, 1]` | MAY | Trade tariffs this faction levies **as importer** on goods from each named faction (IN-13, Ruling AE, added 2026-09-23) — the fraction of each crossing trade flow's volume the levy removes; `1` is an embargo. Directional: `A.tariffs[B]` and `B.tariffs[A]` are independent. A writer MUST omit the member when the faction levies nothing, so a file with no tariffs is byte-identical to one written before the member existed. A reader MUST treat an absent member as "no tariffs" and MUST drop, not clamp, an entry that is on faction `0` (Unclaimed levies nothing), names the faction itself, names an id with no row, or has a rate outside `(0, 1]`. |
@@ -1425,6 +1426,48 @@ already lets an older reader carry.
 - **Stored twice when the POI icon pass has run**: each landmark it placed as a
   glyph is also a `poi` row with `"origin": "generated"` in
   `annotations/icons.json` (§11.2, §17).
+
+### 9.9 `entities/religions.json`
+
+**Written since 2026-10-05** (`FACTION_HUB_DESIGN.md` §6, phase R1 — custom
+religions as named variants). Engine-owned in this port: the payload is
+`CivData::religions` (`cartalith_civ::religion_library::ReligionLibrary`),
+which `project_bridge.rs` writes and restores (`ReligionsDoc`) and lists in
+`ENGINE_OWNED_SLOTS`. **Additive**: written only once a religion has ever been
+created in the project, so an untouched project's archive is byte-identical to
+one written before the slot existed, and an older reader ignores it (§6.3). No
+`format_version` change.
+
+```json
+{
+  "next_id": 3,
+  "religions": [
+    { "id": 2, "name": "Church of the Tide", "base_key": "sea_lords",
+      "colour": [10, 120, 200], "notes": "Harbour rites." }
+  ]
+}
+```
+
+| Member | Type | Required | Meaning |
+|---|---|---|---|
+| `next_id` | integer ≥ 1 | MUST | The id the next created religion gets. Ids are **never reused**, so this can be above every id present (a deleted religion's id stays issued). A reader MUST raise it past every id present and never below `1`. |
+| `religions[].id` | integer ≥ 1 | MUST | Unique. A faction names the row as `custom:<id>` (§9.2). |
+| `religions[].name` | string | MUST | Trimmed, non-empty, at most 48 characters, no control characters, unique case-insensitively against the eight built-in religion labels and keys, the reserved display strings "No religion" and "Missing religion", and every other row. |
+| `religions[].base_key` | string | MUST | One of the eight built-in religion keys. **The engine behaviour of the religion is its base's**: every consumer (belief diffusion, the relations faith term, the religious power axis) reads `base_key` in place of `custom:<id>`. |
+| `religions[].colour` | array of 3 integers `[0,255]` | MUST | Display swatch only; nothing simulated reads it. |
+| `religions[].notes` | string | MAY | Free text, at most 4000 characters; omitted when empty. |
+
+A reader MUST treat an absent document as "no custom religions" and MUST NOT
+warn about it. A row with id `0`, a duplicate id, an unknown `base_key` or an
+invalid name is dropped and the rest open (§6.4a rung 3); this implementation
+warns with the count. An unknown member on a row is ignored. A document that
+does not parse costs itself only, with a warning.
+
+**A dangling reference** — a faction whose `religion` is `custom:<id>` with no
+such row (or a malformed `custom:` key) — MUST be preserved on write-back, MUST
+NOT be re-pointed at a built-in, and behaves as `"none"` (no religion) in the
+engine; this implementation shows it as "Missing religion (custom:<id>)" and
+warns once per faction on open.
 
 ---
 
@@ -2663,8 +2706,9 @@ weaker answer to a question two existing mechanisms already answer.
   (`_icon_shadowed_by_ring`). This bullet said both passes still drew until
   2026-09-24.
 - §6.5's partition is `project_bridge.rs`'s `ENGINE_OWNED_SLOTS` — the
-  fourteen documents this port models — against the six of `cartalith-io`'s
-  twenty `DOCUMENT_SLOTS` it carries (`annotations/measurements.json`,
+  fifteen documents this port models (`entities/religions.json` joined
+  2026-10-05, FH-R1) — against the six of `cartalith-io`'s
+  twenty-one `DOCUMENT_SLOTS` it carries (`annotations/measurements.json`,
   `library/settlement_types.json`, `library/assets.json`,
   `library/travel.json`, `drafts/paint.json`, `drafts/sculpt.json`). Counted
   2026-09-24 from the two lists; this said eleven and six, with

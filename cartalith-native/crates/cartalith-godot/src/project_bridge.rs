@@ -196,6 +196,9 @@ const SLOT_VAULT: &str = "vault.json";
 const SLOT_LANDMARKS: &str = "entities/landmarks.json";
 const SLOT_JOURNEYS: &str = "entities/journeys.json";
 const SLOT_CONFLICTS: &str = "entities/conflicts.json";
+/// `FACTION_HUB_DESIGN.md` §6 R1, `SAVEFILE_COMPAT.md` §9.9: the custom
+/// religion library (`CivData::religions`).
+const SLOT_RELIGIONS: &str = "entities/religions.json";
 
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
@@ -239,6 +242,10 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // `STORY_PLANNING_SCOPE.md` SP-4: the payload is `WorldGen::conflicts`,
     // which GDScript has no view of -- the landmarks slot's reason.
     SLOT_CONFLICTS,
+    // `FACTION_HUB_DESIGN.md` §6 R1: the payload is `CivData::religions`,
+    // which GDScript only reaches through the `civ_*_religion` funcs -- the
+    // landmarks slot's reason again.
+    SLOT_RELIGIONS,
 ];
 
 // ===================== the document schemas =====================
@@ -636,6 +643,105 @@ fn conflicts_from_doc_migrated(doc: &ConflictsDoc) -> Vec<cartalith_civ::conflic
         }
     }
     conflicts
+}
+
+/// `entities/religions.json`, `SAVEFILE_COMPAT.md` §9.9 (`FACTION_HUB_DESIGN.md`
+/// §6 R1): the project's custom religions. **Additive**: a reader that
+/// predates it ignores the member (§14.3), and a project that never created a
+/// religion never writes it, so its archive is unchanged byte for byte.
+///
+/// `next_id` is saved, not re-derived, because ids are never reused: after a
+/// delete the highest surviving id may be lower than an id a reader once saw.
+/// It is raised past every row present on load (§9.1's rule) and never read
+/// below `1`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+struct ReligionsDoc {
+    #[serde(default)]
+    next_id: u32,
+    #[serde(default)]
+    religions: Vec<ReligionDto>,
+}
+
+/// One custom religion as saved. Every member `#[serde(default)]`, so a row
+/// missing one is judged by `ReligionLibrary::from_saved`'s validation (an
+/// empty name or base fails it and costs that row alone), never by a parse
+/// failure that would cost the whole document.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+struct ReligionDto {
+    #[serde(default)]
+    id: u32,
+    #[serde(default)]
+    name: String,
+    /// One of the eight `CIV_RELIGIONS` keys -- the engine behaviour.
+    #[serde(default)]
+    base_key: String,
+    #[serde(default)]
+    colour: [u8; 3],
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    notes: String,
+}
+
+/// The document for a library, or `None` when nothing was ever created (the
+/// slot is then absent, not empty -- the journeys/conflicts rule).
+fn religions_doc(lib: &cartalith_civ::religion_library::ReligionLibrary) -> Option<ReligionsDoc> {
+    (!lib.is_pristine()).then(|| ReligionsDoc {
+        next_id: lib.next_id(),
+        religions: lib
+            .defs()
+            .iter()
+            .map(|d| ReligionDto {
+                id: d.id,
+                name: d.name.clone(),
+                base_key: d.base_key.clone(),
+                colour: [d.colour.0, d.colour.1, d.colour.2],
+                notes: d.notes.clone(),
+            })
+            .collect(),
+    })
+}
+
+/// Reads `entities/religions.json` back into a library. **Absent is an empty
+/// library with no warning** -- every project saved before R1, and every
+/// project that never made a religion. A document that does not parse, or rows
+/// `ReligionLibrary::from_saved` drops, are reported in `warnings` (§6.4a rung
+/// 3: they cost themselves, never the archive); a faction that named a lost
+/// row then reads as "Missing religion" in the shell, not as a guessed faith.
+fn religions_from_data(
+    data: &project::ProjectData,
+    warnings: &mut Vec<String>,
+) -> cartalith_civ::religion_library::ReligionLibrary {
+    use cartalith_civ::religion_library::{ReligionDef, ReligionLibrary};
+    match data.parse::<ReligionsDoc>(SLOT_RELIGIONS) {
+        None => ReligionLibrary::new(),
+        Some(Err(_)) => {
+            warnings.push(format!(
+                "{SLOT_RELIGIONS}: unreadable -- custom religions were not restored; factions that held one show it as a missing religion and behave as having none"
+            ));
+            ReligionLibrary::new()
+        }
+        Some(Ok(doc)) => {
+            let rows = doc
+                .religions
+                .into_iter()
+                .map(|r| ReligionDef {
+                    id: r.id,
+                    name: r.name,
+                    base_key: r.base_key,
+                    colour: (r.colour[0], r.colour[1], r.colour[2]),
+                    notes: r.notes,
+                })
+                .collect();
+            let (lib, dropped) = ReligionLibrary::from_saved(doc.next_id, rows);
+            if dropped > 0 {
+                warnings.push(format!(
+                    "{SLOT_RELIGIONS}: {dropped} custom religion row{} could not be read (bad id, duplicate, unknown base religion or invalid name) and {} dropped",
+                    if dropped == 1 { "" } else { "s" },
+                    if dropped == 1 { "was" } else { "were" }
+                ));
+            }
+            lib
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1778,6 +1884,12 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
         garrison_exposure_scale: None,
     };
     insert_doc(out, SLOT_FACTIONS, &factions);
+    // R1: beside the roster whose `custom:<id>` keys index it. Absent until a
+    // religion has ever been created, so an untouched project's archive does
+    // not change.
+    if let Some(doc) = religions_doc(&civ.religions) {
+        insert_doc(out, SLOT_RELIGIONS, &doc);
+    }
 
     let ways = WaysDoc {
         roads: civ.ways.iter().map(road_to_dto).collect(),
@@ -2224,6 +2336,20 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         )
     };
 
+    // R1: absent (every pre-R1 archive) is an empty library and no warning.
+    let religions = religions_from_data(data, warnings);
+    // A faction naming a custom religion the library does not hold (the
+    // document was dropped, damaged, or hand-edited) keeps its stored key --
+    // never re-pointed at a guess -- and the engine reads it as no religion.
+    // Said once here so the loss is visible at open, not only in the hub.
+    for (i, e) in faction_roster.0.iter().enumerate() {
+        if let cartalith_civ::religion_library::ReligionChoice::Missing(raw) = religions.choice(&e.religion) {
+            warnings.push(format!(
+                "{SLOT_FACTIONS}: faction {i}'s religion {raw} names no custom religion in this project -- it behaves as having none and shows as a missing religion until another is picked"
+            ));
+        }
+    }
+
     let timeline_doc: TimelineDoc = data
         .parse(SLOT_TIMELINE)
         .and_then(|r| r.ok())
@@ -2360,6 +2486,7 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
         year: timeline_doc.year,
         dens,
         faction_roster,
+        religions,
         place_extras: civ_roster_bridge::PlaceExtrasTable(place_extras),
         village_tids,
         // Not persisted: `CivData::belief`'s own doc states the decision and
@@ -4568,6 +4695,7 @@ mod tests {
             year: 120,
             dens: vec![0.5f32; 12],
             faction_roster: civ_roster_bridge::FactionRoster::seeded(6),
+            religions: Default::default(),
             place_extras: civ_roster_bridge::PlaceExtrasTable(place_extras),
             village_tids,
         }
@@ -5877,6 +6005,107 @@ mod tests {
             back.faction_roster.tariff_rows(),
             vec![cartalith_civ::trade::Tariff { importer: 4, exporter: 1, rate: 0.2 }]
         );
+    }
+
+    /// Protects: R1's save format (`entities/religions.json`). Custom
+    /// religions, the faction choice that points at one, and `next_id` past a
+    /// deleted id all survive a real archive round trip, so a reopened
+    /// project never reissues a deleted id.
+    #[test]
+    fn custom_religions_survive_a_real_archive_round_trip() {
+        let mut civ = sample_civ();
+        let gone = civ.religions.create("Short-lived", "sun_cult", (9, 9, 9), "").unwrap();
+        let id = civ.religions.create("Church of the Tide", "sea_lords", (10, 120, 200), "Harbour rites.").unwrap();
+        civ.religion_delete(gone).unwrap();
+        let key = cartalith_civ::religion_library::custom_religion_key(id);
+        let CivData { faction_roster, religions, .. } = &mut civ;
+        assert!(faction_roster.set_religion(2, &key, religions));
+
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let doc: ReligionsDoc = serde_json::from_str(&docs[SLOT_RELIGIONS]).unwrap();
+        assert_eq!(doc.next_id, 3, "the deleted id 1 is remembered as issued");
+        assert_eq!(doc.religions.len(), 1);
+
+        let mut back = round_trip(&civ, 4, 3);
+        assert_eq!(back.religions, civ.religions);
+        assert_eq!(back.faction_roster, civ.faction_roster);
+        assert_eq!(back.faction_roster.0[2].religion, key);
+        assert_eq!(back.religions.engine_key(&key), "sea_lords");
+        let next = back.religions.create("Third", "old_gods", (0, 0, 0), "").unwrap();
+        assert_eq!(next, 3, "never 1: that id was issued before the save");
+    }
+
+    /// Protects: R1 is additive. A project saved before custom religions
+    /// existed (a real archive, not a hand-built one) opens with an empty
+    /// library and **no warning**, and an untouched project writes no
+    /// `entities/religions.json` at all -- so its archive is unchanged.
+    #[test]
+    fn a_project_saved_before_custom_religions_opens_with_none_and_writes_none() {
+        let bytes: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
+        let data = project::read_project(std::io::Cursor::new(bytes)).expect("the fixture reads");
+        assert!(data.text_of(SLOT_RELIGIONS).is_none(), "premise: written before the slot existed");
+        let n = data.save.params.gw * data.save.params.gh;
+        let mut warnings = Vec::new();
+        let civ = civ_from_project(&data, n, &mut warnings).expect("its civ layer restores");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert!(civ.religions.is_pristine());
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        assert!(!docs.contains_key(SLOT_RELIGIONS), "absent, not empty");
+        let mut fresh = BTreeMap::new();
+        civ_documents(&sample_civ(), None, &mut fresh);
+        assert!(!fresh.contains_key(SLOT_RELIGIONS), "an untouched civ writes none either");
+    }
+
+    /// Protects: damage costs only itself. A faction pointing at a custom
+    /// religion the archive no longer holds opens (warned, key kept, read as
+    /// no religion); an unreadable religions document is a warning, not a
+    /// failed open; and a bad row is dropped while the good one survives.
+    #[test]
+    fn damaged_custom_religion_data_degrades_honestly_on_open() {
+        let scale = cartalith_engine::WorldParams::defaults(4, 3, 4242).civ.garrison_exposure_scale;
+        // 1. A dangling reference: the faction names custom:5, the library is empty.
+        let mut civ = sample_civ();
+        civ.faction_roster.0[2].religion = "custom:5".to_string();
+        let data = round_trip_data(&civ, 4, 3, scale);
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data, 12, &mut warnings).unwrap();
+        assert_eq!(back.faction_roster.0[2].religion, "custom:5", "kept, never re-pointed");
+        assert_eq!(back.religions.engine_key("custom:5"), "none");
+        // Only religion warnings are this test's business: this fixture writes
+        // no claim rasters, which `civ_from_project` reports separately.
+        let ours = |w: &Vec<String>| -> Vec<String> {
+            w.iter().filter(|m| m.contains("religion")).cloned().collect()
+        };
+        assert_eq!(ours(&warnings).len(), 1, "{warnings:?}");
+        assert!(ours(&warnings)[0].contains("custom:5"));
+
+        // 2. The document present but not a religions document.
+        let mut civ = sample_civ();
+        civ.religions.create("Good", "sun_cult", (1, 1, 1), "").unwrap();
+        let mut data = round_trip_data(&civ, 4, 3, scale);
+        data.documents.insert(SLOT_RELIGIONS.to_string(), serde_json::json!([1, 2, 3]));
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data, 12, &mut warnings).expect("the rest of the archive opens");
+        assert!(back.religions.is_pristine());
+        assert_eq!(ours(&warnings).len(), 1, "{warnings:?}");
+
+        // 3. One bad row (unknown base) beside a good one.
+        data.documents.insert(
+            SLOT_RELIGIONS.to_string(),
+            serde_json::json!({"next_id": 4, "religions": [
+                {"id": 1, "name": "Good", "base_key": "sun_cult", "colour": [1, 1, 1]},
+                {"id": 2, "name": "Bad", "base_key": "cargo_cult", "colour": [1, 1, 1]},
+                {"id": 3, "name": "Future", "base_key": "sun_cult", "colour": [1, 1, 1], "axes": {"x": 1}}
+            ]}),
+        );
+        let mut warnings = Vec::new();
+        let back = civ_from_project(&data, 12, &mut warnings).unwrap();
+        let ids: Vec<u32> = back.religions.defs().iter().map(|d| d.id).collect();
+        assert_eq!(ids, vec![1, 3], "an unknown member is ignored, an unknown base costs its row");
+        assert_eq!(back.religions.next_id(), 4);
+        assert_eq!(ours(&warnings).len(), 1, "{warnings:?}");
     }
 
     /// Ruling AU's currencies ride `factions.json` (`SAVEFILE_COMPAT.md`

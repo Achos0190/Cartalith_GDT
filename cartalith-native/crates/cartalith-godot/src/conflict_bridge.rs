@@ -459,6 +459,7 @@ mod tests {
             year: 0,
             dens: Vec::new(),
             faction_roster: crate::civ_roster_bridge::FactionRoster::seeded(6),
+            religions: Default::default(),
             place_extras: crate::civ_roster_bridge::PlaceExtrasTable::default(),
             village_tids: Default::default(),
             belief: Vec::new(),

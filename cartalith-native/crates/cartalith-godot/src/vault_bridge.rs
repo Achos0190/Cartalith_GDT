@@ -1657,7 +1657,15 @@ impl WorldGen {
                 out.insert("culture", capitalise(&e.culture));
                 out.insert("government", self.vocab_label(&cartalith_civ::roster::CIV_GOVERNMENTS, &e.government));
                 if e.religion != "none" {
-                    out.insert("religion", self.vocab_label(&cartalith_civ::roster::CIV_RELIGIONS, &e.religion));
+                    // R1: a custom religion's own name, or "Missing religion
+                    // (custom:N)" for a dangling one -- never its raw key and
+                    // never a guessed built-in.
+                    let label = if e.religion.starts_with(cartalith_civ::religion_library::CUSTOM_RELIGION_PREFIX) {
+                        civ.religions.display_name(&e.religion)
+                    } else {
+                        self.vocab_label(&cartalith_civ::roster::CIV_RELIGIONS, &e.religion)
+                    };
+                    out.insert("religion", label);
                 }
                 let mut names: Vec<&str> = Vec::new();
                 let mut pop: i64 = 0;

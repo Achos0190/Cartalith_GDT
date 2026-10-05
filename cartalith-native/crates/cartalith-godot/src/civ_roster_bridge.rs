@@ -54,6 +54,7 @@
 use std::collections::HashMap;
 
 use cartalith_civ::NamedSettlement;
+use cartalith_civ::religion_library::{ReligionChoice, ReligionLibrary};
 use cartalith_civ::roster::{
     AG_TECH_LEVELS, CIV_FACTION_BASE, CIV_GOVERNMENTS, CIV_RELIGIONS, CIV_SPECIALISATIONS,
     CIV_TRAITS, civ_default_government, civ_default_religion, civ_faction_color, has_key,
@@ -463,8 +464,43 @@ impl FactionRoster {
     /// `cartalith_civ::civ_faction_aggregates` actually reads
     /// (`FactionAggregatesInput::faction_has_religion`). Built here so a
     /// caller that wires that function up does not re-derive the rule.
-    pub fn has_religion_flags(&self) -> Vec<bool> {
-        self.0.iter().map(|e| e.religion != "none").collect()
+    ///
+    /// Reads each faction's religion **through the custom-religion library**
+    /// (`FACTION_HUB_DESIGN.md` §6 R1): a `custom:<id>` counts as its base
+    /// religion, a dangling one as `"none"`. The library is a required
+    /// argument on purpose, so no caller can ask this question of the raw,
+    /// unresolved column.
+    pub fn has_religion_flags(&self, religions: &ReligionLibrary) -> Vec<bool> {
+        self.engine_religions(religions).into_iter().map(|k| k != "none").collect()
+    }
+
+    /// Every faction's religion as the **engine** must read it, in roster
+    /// order: [`ReligionLibrary::engine_key`] applied to each stored value.
+    /// The single source for `belief_seed`, the relations faith term, the
+    /// power axis and the belief staleness key -- none of them may see a raw
+    /// `custom:` key. For a roster with no custom religion this is the stored
+    /// column unchanged, so generated output does not move.
+    pub fn engine_religions<'a>(&'a self, religions: &'a ReligionLibrary) -> Vec<&'a str> {
+        self.0.iter().map(|e| religions.engine_key(&e.religion)).collect()
+    }
+
+    /// Sets faction `fid`'s religion to a built-in key or to an **existing**
+    /// custom religion's `custom:<id>` key. Returns `false`, changing
+    /// nothing, for an unknown faction, an unknown key, and a `custom:` key
+    /// the library has no record for -- a dangling reference can arrive
+    /// from a damaged archive, but this function never creates one.
+    pub fn set_religion(&mut self, fid: usize, value: &str, religions: &ReligionLibrary) -> bool {
+        match religions.choice(value) {
+            ReligionChoice::Custom(_) => match self.0.get_mut(fid) {
+                Some(entry) => {
+                    entry.religion = value.to_string();
+                    true
+                }
+                None => false,
+            },
+            ReligionChoice::Missing(_) => false,
+            ReligionChoice::Builtin(_) => self.set_field(fid, "religion", value),
+        }
     }
 
     /// **Ruling V** (`LARGE_ITEM_RULINGS.md`, 2026-09-21): a GeoJSON import
@@ -918,18 +954,47 @@ mod tests {
     #[test]
     fn has_religion_flags_track_the_one_field_aggregates_read() {
         let mut r = FactionRoster::seeded(2);
+        let lib = ReligionLibrary::new();
         // Wired 2026-09-23: every real faction (index >= 1) now defaults to
         // a non-"none" religion (`civ_default_religion`) -- only Unclaimed
         // stays "none". An explicit hand edit to "none" must still clear the
         // flag, and a later edit away from it must still set it -- the flag
         // tracks the field's current value, not whether it was ever touched.
-        assert_eq!(r.has_religion_flags(), vec![false, true, true]);
+        assert_eq!(r.has_religion_flags(&lib), vec![false, true, true]);
         r.set_field(1, "religion", "none");
-        assert_eq!(r.has_religion_flags(), vec![false, false, true]);
+        assert_eq!(r.has_religion_flags(&lib), vec![false, false, true]);
         r.set_field(2, "religion", "old_gods");
-        assert_eq!(r.has_religion_flags(), vec![false, false, true]);
+        assert_eq!(r.has_religion_flags(&lib), vec![false, false, true]);
         r.set_field(1, "religion", "sea_lords");
-        assert_eq!(r.has_religion_flags(), vec![false, true, true]);
+        assert_eq!(r.has_religion_flags(&lib), vec![false, true, true]);
+    }
+
+    /// Protects: R1's roster half -- a faction may hold an existing custom
+    /// religion, never a dangling one; the power-axis flag and the engine
+    /// column read a custom religion as its base and a dangling one as
+    /// "none", so no consumer of either sees a `custom:` key.
+    #[test]
+    fn custom_religions_resolve_to_their_base_for_every_engine_reader() {
+        let mut r = FactionRoster::seeded(3);
+        let mut lib = ReligionLibrary::new();
+        let id = lib.create("Hearth Path", "none", (1, 2, 3), "").unwrap();
+        let tide = lib.create("Church of the Tide", "sea_lords", (1, 2, 3), "").unwrap();
+        let hearth = cartalith_civ::religion_library::custom_religion_key(id);
+        let tide = cartalith_civ::religion_library::custom_religion_key(tide);
+        assert!(!r.set_religion(1, "custom:99", &lib), "never creates a dangling reference");
+        assert!(!r.set_religion(9, &tide, &lib), "unknown faction");
+        assert!(!r.set_religion(1, "cargo_cult", &lib), "unknown built-in still refused");
+        assert!(r.set_religion(1, &tide, &lib));
+        assert!(r.set_religion(2, &hearth, &lib));
+        assert_eq!(r.0[1].religion, tide, "the stored choice is the custom key");
+        assert_eq!(r.engine_religions(&lib)[1..], ["sea_lords", "none", r.0[3].religion.as_str()]);
+        assert_eq!(r.has_religion_flags(&lib), vec![false, true, false, true]);
+        // A dangling reference (as a damaged archive delivers it) reads as no
+        // religion, never as a plausible faith.
+        r.0[1].religion = "custom:77".to_string();
+        assert_eq!(r.engine_religions(&lib)[1], "none");
+        assert_eq!(r.has_religion_flags(&lib)[1], false);
+        assert!(r.engine_religions(&lib).iter().all(|k| !k.starts_with("custom:")));
     }
 
     #[test]

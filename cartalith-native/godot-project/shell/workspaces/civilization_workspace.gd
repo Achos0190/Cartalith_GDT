@@ -4224,6 +4224,9 @@ func _religion_diverged_rows(parent: Control, places: Array, faiths: PackedStrin
 	if diverged.is_empty():
 		return
 	var grp := DccWidgets.group(parent, "%d diverged" % diverged.size(), diverged.size() <= 12)
+	## FH-R1: a ruler holding a custom religion is NAMED by it; `faiths` (the
+	## engine keys) still decided the divergence, so the base is said too.
+	var ruler_names := _religion_faction_column("religion_name")
 	for i in diverged:
 		var d: Dictionary = places[i]
 		var place_name := String(d.get("name", "")).strip_edges()
@@ -4233,6 +4236,10 @@ func _religion_diverged_rows(parent: Control, places: Array, faiths: PackedStrin
 		var ad: Dictionary = d.get("adherents", {})
 		var here := String(d["religion"])
 		var ruler := faiths[int(d.get("faction", 0)) - 1]
+		var ruler_label := _religion_label(ruler)
+		var fi := int(d.get("faction", 0)) - 1
+		if fi >= 0 and fi < ruler_names.size() and ruler_names[fi] != "":
+			ruler_label = "%s (as %s)" % [ruler_names[fi], ruler_label]
 		## `has(here)` rather than `get(here, 0)`: `lib.rs` omits a zero
 		## adherent count from `adherents` entirely, so a missing key is "no
 		## head-count for this faith", and `_religion_pct(0, pop)` would print
@@ -4240,7 +4247,7 @@ func _religion_diverged_rows(parent: Control, places: Array, faiths: PackedStrin
 		var share := _religion_pct(int(ad[here]), pop) if ad.has(here) else ""
 		var b := DccWidgets.action(grp, "%s — %s%s, ruler %s" % [place_name,
 			_religion_label(here), (" " + share) if share != "" else "",
-			_religion_label(ruler)],
+			ruler_label],
 			func(): _religion_pin(int(i)))
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -4424,8 +4431,10 @@ func _religion_faction_row(parent: Control, row: Dictionary, people: Dictionary,
 	var state := String(row.get("religion", ""))
 	## Unclaimed is passed a deliberately empty key, because it has no ruler to
 	## set one -- distinct from a ruler who has set `none`, which is a choice.
+	## FH-R1: a custom state religion prints its own name (and what it behaves
+	## as); `state` stays the engine key for the comparisons below.
 	DccWidgets.note(box, "%s — state religion %s" % [fname,
-		"— (no ruler to set one)" if state.is_empty() else _religion_label(state)])
+		"— (no ruler to set one)" if state.is_empty() else _faction_religion_label(row)])
 
 	var counts: Dictionary = people.get(f, {})
 	var total := 0
@@ -4469,7 +4478,7 @@ func _religion_faction_row(parent: Control, row: Dictionary, people: Dictionary,
 				% _religion_label(plurality))
 		else:
 			DccWidgets.note(box, "Its state religion is %s; %s leads its people. Which of the "
-				% [_religion_label(state), _religion_label(plurality)]
+				% [_faction_religion_label(row), _religion_label(plurality)]
 				+ "two a faction's religion IS has not been decided -- the dropdown stays "
 				+ "authoritative for diplomacy (relations.rs' religion term reads the flag, "
 				+ "not this) and RELIGION_DIFFUSION_SCOPE.md section 4 is where the choice "
@@ -4621,6 +4630,22 @@ static func _religion_sorted(counts: Dictionary) -> Array:
 ## that constant's own doc comment.
 static func _religion_label(key: String) -> String:
 	return "No religion" if key == "none" else key.capitalize()
+
+## FH-R1 (`FACTION_HUB_DESIGN.md` §6 R1): a faction row's STATE religion as a
+## person reads it. `get_factions()` keeps `religion` as the ENGINE key (a
+## custom religion's base, "none" for a dangling one) so every comparison
+## against a settlement's plurality stays like-for-like, and adds
+## `religion_name` only when the stored choice is a custom religion. A custom
+## one also says what it behaves as, because every share printed beside it
+## counts the base faith; a dangling one prints its "Missing religion" name
+## alone. Never prints a raw `custom:<id>`.
+static func _faction_religion_label(row: Dictionary) -> String:
+	var key := String(row.get("religion", ""))
+	if row.has("religion_name"):
+		if bool(row.get("religion_missing", false)):
+			return String(row["religion_name"])
+		return "%s (as %s)" % [String(row["religion_name"]), _religion_label(key)]
+	return _religion_label(key)
 
 ## A share, and the two ways it can fail to be one.
 ##

@@ -206,7 +206,11 @@ impl WorldGen {
                     .map(|fid| GeoFaction {
                         fid: fid as i32,
                         name: civ.faction_roster.0[fid].name.as_str(),
-                        religion: civ.faction_roster.0[fid].religion.as_str(),
+                        // R1: the engine key (a custom religion's base), never
+                        // a project-local `custom:<id>` that means nothing
+                        // outside this project. The custom name is not
+                        // exported: GeoJSON's `religion` is a vocabulary key.
+                        religion: civ.religions.engine_key(&civ.faction_roster.0[fid].religion),
                     })
                     .collect::<Vec<_>>();
                 provs = civ

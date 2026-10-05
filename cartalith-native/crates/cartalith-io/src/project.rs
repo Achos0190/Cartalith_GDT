@@ -489,6 +489,16 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// lists it in `ENGINE_OWNED_SLOTS` -- the landmarks slot's arrangement. It
 /// is under `entities/` because a conflict is a thing other documents refer
 /// to by id (its settlement/province anchor points the other way, by `tid`).
+///
+/// # `entities/religions.json` is engine-owned
+///
+/// Registered 2026-10-05 (`FACTION_HUB_DESIGN.md` §6 R1, `SAVEFILE_COMPAT.md`
+/// §9.9). The payload is `cartalith-godot`'s `CivData::religions`, the custom
+/// religion library a faction's `custom:<id>` religion points into, so
+/// `project_bridge.rs` writes and reads it and lists it in
+/// `ENGINE_OWNED_SLOTS` -- the conflicts slot's arrangement. Additive: written
+/// only once a religion has been created, so older archives and untouched
+/// projects carry no such member.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -498,6 +508,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/journeys.json",
     "entities/landmarks.json",
     "entities/conflicts.json",
+    "entities/religions.json",
     "history/timeline.json",
     "annotations/labels.json",
     "annotations/icons.json",

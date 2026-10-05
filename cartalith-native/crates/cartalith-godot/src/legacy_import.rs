@@ -129,6 +129,8 @@ pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
             year: 0,
             dens: Vec::new(),
             faction_roster: roster(legacy),
+            // The legacy HTML has no custom religions (R1 is port-only).
+            religions: Default::default(),
             place_extras: PlaceExtrasTable(extras),
             village_tids,
             belief: Vec::new(),

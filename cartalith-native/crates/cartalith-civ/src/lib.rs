@@ -84,6 +84,10 @@ pub mod journey_progress;
 /// The faction roster's and place editor's vocabulary tables, plus
 /// `_civFactionColor` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 pub mod roster;
+/// Custom religions as named variants of the eight built-ins
+/// (`FACTION_HUB_DESIGN.md` §6 R1): the record, the library, and the
+/// boundary resolver every engine consumer reads a faction's religion through.
+pub mod religion_library;
 /// Per-faction currency conversion (Rulings R/AR/AU): the engine converts
 /// at a user-set rate and derives none. Nothing in the simulation reads it.
 pub mod currency;

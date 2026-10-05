@@ -393,6 +393,8 @@ one.
 R1 is the only part that can ship without owner rulings on the expansion, and it is the part the hub's layout
 has to reserve space for. R2 is not designed here.
 
+**R1 shipped 2026-10-05** (see `STATUS.md`). Deviations from the table: the store is a `ReligionLibrary { next_id, defs }` rather than a bare `Vec<ReligionDef>` (ids are never reused); `get_factions().religion` is now the engine key, with `religion_choice`/`religion_name`/`religion_missing` added for custom choices; the library lives inline on Identity, no window; the slot is `SAVEFILE_COMPAT.md` §9.9.
+
 ## 7. Milestones
 
 Each is small and independently shippable; the app builds and every probe listed in §8 passes after each. Model

@@ -285,7 +285,7 @@ impl WorldGen {
             return None;
         };
         let (gw, gh, sea) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.sea_level);
-        let has_religion = civ.faction_roster.has_religion_flags();
+        let has_religion = civ.faction_roster.has_religion_flags(&civ.religions);
         let input = FactionAggregatesInput {
             faction_count: civ.faction_roster.0.len(),
             gw,
@@ -1125,8 +1125,9 @@ impl WorldGen {
         let n = civ.faction_roster.0.len();
         let cultures: Vec<&str> =
             civ.faction_roster.0.iter().map(|e| e.culture.as_str()).collect();
-        let religions: Vec<&str> =
-            civ.faction_roster.0.iter().map(|e| e.religion.as_str()).collect();
+        // R1: the faith term compares engine keys -- a custom religion is its
+        // base, so two factions holding variants of one base share a faith.
+        let religions: Vec<&str> = civ.faction_roster.engine_religions(&civ.religions);
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
         // No claim grid (a reopened archive that did not carry one): the
         // border, the trade complement (exports/imports are claimed-cell

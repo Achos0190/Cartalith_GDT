@@ -3527,6 +3527,49 @@ func civ_religion_vocabulary() -> Array:
 		return []
 	return world_gen.civ_religion_vocabulary()
 
+## `FACTION_HUB_DESIGN.md` §6 R1 (`civ_religion_bridge.rs`): the project's
+## custom religions, each a named variant that BEHAVES AS its `base_key` --
+## `{id, key, name, base_key, base_label, color_r/g/b, notes, used_by}`. `[]`
+## before a world exists, and on a build without the binding (test
+## `has_custom_religion_api()` to tell those apart).
+func civ_custom_religions() -> Array:
+	if not _has("civ_custom_religions"):
+		return []
+	return world_gen.civ_custom_religions()
+
+## Whether this build's engine has the R1 library at all. The hub hides the
+## library group (with a note) rather than drawing controls nothing answers.
+func has_custom_religion_api() -> bool:
+	return _has("civ_add_religion")
+
+## The three R1 mutations. Each answers `{ok: true, ...}` or `{ok: false,
+## error}` with a plain-English reason, and writes nothing on refusal. Every
+## one is a saved edit, so the world is marked dirty -- the same rule as
+## `civ_set_faction_field`.
+func civ_add_religion(religion_name: String, base_key: String, c: Color, notes: String) -> Dictionary:
+	if not _has("civ_add_religion"):
+		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+	var r: Dictionary = world_gen.civ_add_religion(religion_name, base_key, c.r8, c.g8, c.b8, notes)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
+func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
+	if not _has("civ_edit_religion"):
+		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+	var r: Dictionary = world_gen.civ_edit_religion(id, fields)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
+func civ_delete_religion(id: int) -> Dictionary:
+	if not _has("civ_delete_religion"):
+		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
+	var r: Dictionary = world_gen.civ_delete_religion(id)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
 ## `RELIGION_DIFFUSION_SCOPE.md` §3 milestone 1 (`lib.rs`'s `civ_belief_run`):
 ## seed the per-settlement adherence layer from the faction roster if it is
 ## missing or stale, then run `years` diffusion steps over the generated road

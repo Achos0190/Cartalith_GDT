@@ -22,6 +22,7 @@ mod bake_bridge;
 mod campaign_bridge;
 mod civ_military_bridge;
 mod civ_roster_bridge;
+mod civ_religion_bridge;
 mod civ_tools_bridge;
 mod conflict_bridge;
 mod civ_trade_bridge;
@@ -522,6 +523,17 @@ struct CivData {
     /// `civ_populate` is the other route, and that one does seed into the
     /// new ids.
     faction_roster: civ_roster_bridge::FactionRoster,
+    /// `FACTION_HUB_DESIGN.md` §6 **R1**: the project's custom religions, each
+    /// a named variant of one of the eight built-ins. A roster row's
+    /// `religion` may hold `custom:<id>`; every engine reader resolves it
+    /// through this library (`FactionRoster::engine_religions` /
+    /// `has_religion_flags`) so belief, relations and the power axis see
+    /// only built-in keys. Boundary state with no terrain input, so it
+    /// travels with `faction_roster` through every `civ_merge` arm that
+    /// keeps the roster, and is reset with it by a fresh generation. Saved
+    /// as `entities/religions.json` (`project_bridge.rs`), written only once
+    /// a religion has ever been created.
+    religions: cartalith_civ::religion_library::ReligionLibrary,
     /// `PARITY_AUDIT.md` §5 item 3 / `GUI_GAP_REGISTER.md` ED-03: the five
     /// place-editor fields `NamedSettlement` has no room for, keyed by
     /// `tid`. See `civ_roster_bridge`'s module doc for why they sit beside
@@ -679,6 +691,9 @@ fn civ_merge(mode: CivRebuild, mut fresh: CivData, mut old: CivData) -> (CivData
             fresh.timeline = old.timeline;
             fresh.year = old.year;
             fresh.faction_roster = old.faction_roster;
+            // R1: the custom-religion library is what the roster's
+            // `custom:<id>` keys point into, so it moves with the roster.
+            fresh.religions = old.religions;
             fresh.place_extras = old.place_extras;
             (fresh, true)
         }
@@ -692,6 +707,8 @@ fn civ_merge(mode: CivRebuild, mut fresh: CivData, mut old: CivData) -> (CivData
             // states all three consequences.
             let want = fresh.faction_roster.0.len();
             fresh.faction_roster = old.faction_roster;
+            // R1: kept with the roster whose `custom:<id>` keys index it.
+            fresh.religions = old.religions;
             while fresh.faction_roster.0.len() < want {
                 fresh.faction_roster.add();
             }
@@ -1287,6 +1304,7 @@ mod civ_merge_tests {
             year: 0,
             dens: vec![0.0; n],
             faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+            religions: Default::default(),
             place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
             village_tids: Default::default(),
             belief: Vec::new(),
@@ -2683,8 +2701,14 @@ impl CivData {
     /// derived from `belief_seed`'s signature rather than from the input
     /// someone happened to think of.
     fn belief_key(&self) -> Vec<String> {
-        // `faction_religion` — the roster column.
-        let mut key: Vec<String> = self.faction_roster.0.iter().map(|e| e.religion.clone()).collect();
+        // `faction_religion` — the roster column **as `belief_seed` reads
+        // it** (R1: custom religions resolved to their base key). Keying the
+        // resolved column, not the stored one, is what makes an edit to a
+        // custom religion's base re-seed the layer, while switching a faction
+        // between a custom religion and its own base -- the same engine input
+        // -- does not discard a run.
+        let mut key: Vec<String> =
+            self.faction_roster.engine_religions(&self.religions).into_iter().map(str::to_string).collect();
         // A separator no religion key can contain, so a roster of ["a", "b"]
         // with factions [0] cannot collide with a roster of ["a"] and
         // factions [b, 0] once both are flattened into one list.
@@ -2754,8 +2778,8 @@ impl CivData {
         let seeded = self.belief_current().is_none();
         if seeded {
             let faction_of: Vec<i32> = self.settlements.iter().map(|s| s.placement.faction).collect();
-            let religions: Vec<&str> =
-                self.faction_roster.0.iter().map(|e| e.religion.as_str()).collect();
+            // R1: resolved at the boundary -- `belief_seed` sees built-in keys only.
+            let religions: Vec<&str> = self.faction_roster.engine_religions(&self.religions);
             self.belief = belief::belief_seed(&faction_of, &religions);
             self.belief_seed_key = self.belief_key();
         }
@@ -3054,6 +3078,7 @@ mod civ_timeline_tests {
             year: 0,
             dens: Vec::new(),
             faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+            religions: Default::default(),
             place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
             village_tids: Default::default(),
             belief: Vec::new(),
@@ -3336,6 +3361,105 @@ mod civ_timeline_tests {
             isolated.belief[1].share[sun], 0.0,
             "with no way between them there is no exposure, so no conversion"
         );
+    }
+
+    /// Protects: FACTION_HUB_DESIGN.md §6 R1's boundary rule. A faction
+    /// holding a custom religion must give the engine exactly what holding
+    /// its base religion gives -- the same belief seed and diffusion, the same
+    /// power-axis flags, the same relations faith column -- and switching
+    /// between the two must not re-seed a run (same engine input). Editing the
+    /// custom religion's base must re-seed. If the resolver were bypassed the
+    /// `custom:` key would read as an unknown faith (no adherents) and every
+    /// equality here would break.
+    #[test]
+    fn a_custom_religion_behaves_exactly_as_its_base_religion() {
+        use cartalith_civ::religion_library::custom_religion_key;
+        let base = |civ: &mut CivData| {
+            civ.settlements[1].placement.faction = 2;
+            assert!(civ.faction_roster.set_field(1, "religion", "sun_cult"));
+            assert!(civ.faction_roster.set_field(2, "religion", "old_gods"));
+        };
+        let mut plain = linked_pair();
+        base(&mut plain);
+        let mut custom = linked_pair();
+        base(&mut custom);
+        let id = custom.religions.create("Church of the Dawn", "sun_cult", (200, 150, 40), "").unwrap();
+        let key = custom_religion_key(id);
+        let CivData { faction_roster, religions, .. } = &mut custom;
+        assert!(faction_roster.set_religion(1, &key, religions));
+        assert_eq!(custom.faction_roster.0[1].religion, key, "stored as the custom choice");
+
+        // Every engine-facing column is identical.
+        assert_eq!(
+            custom.faction_roster.engine_religions(&custom.religions),
+            plain.faction_roster.engine_religions(&plain.religions)
+        );
+        assert_eq!(
+            custom.faction_roster.has_religion_flags(&custom.religions),
+            plain.faction_roster.has_religion_flags(&plain.religions)
+        );
+        assert_eq!(custom.belief_key(), plain.belief_key());
+
+        // And the model's answer is identical, seed and 40 years of diffusion.
+        assert_eq!(custom.civ_belief_run(40), plain.civ_belief_run(40));
+        assert_eq!(custom.belief, plain.belief);
+        let sun = cartalith_civ::belief::religion_index("sun_cult").unwrap();
+        assert!(custom.belief[0].share[sun] > 0.5, "the custom religion's faction seeds its BASE faith");
+
+        // Switching between the custom religion and its own base is the same
+        // engine input: the run is kept, not discarded.
+        assert!(custom.faction_roster.set_field(1, "religion", "sun_cult"));
+        assert!(custom.belief_current().is_some(), "same engine key, no re-seed");
+        let CivData { faction_roster, religions, .. } = &mut custom;
+        assert!(faction_roster.set_religion(1, &key, religions));
+        assert!(custom.belief_current().is_some());
+
+        // Changing the custom religion's base IS a change of engine input.
+        custom.religions.edit(id, None, Some("flame_creed"), None, None).unwrap();
+        assert!(custom.belief_current().is_none(), "a base edit makes the layer stale");
+        let (_, seeded, _) = custom.civ_belief_run(0);
+        assert!(seeded);
+        let flame = cartalith_civ::belief::religion_index("flame_creed").unwrap();
+        assert_eq!(custom.belief[0].share[flame], 1.0);
+    }
+
+    /// Protects: a dangling `custom:<id>` (its record gone, as a damaged
+    /// archive delivers it) behaves as no religion in the engine -- never as
+    /// a plausible faith -- and never panics anywhere on the belief path.
+    #[test]
+    fn a_dangling_custom_religion_behaves_as_none_and_does_not_panic() {
+        let mut dangling = linked_pair();
+        dangling.faction_roster.0[1].religion = "custom:41".to_string();
+        let mut none = linked_pair();
+        assert!(none.faction_roster.set_field(1, "religion", "none"));
+        for (a, b) in dangling.faction_roster.0.iter_mut().zip(none.faction_roster.0.iter()).skip(2) {
+            a.religion = b.religion.clone();
+        }
+        assert_eq!(
+            dangling.faction_roster.engine_religions(&dangling.religions),
+            none.faction_roster.engine_religions(&none.religions)
+        );
+        assert_eq!(dangling.faction_roster.has_religion_flags(&dangling.religions)[1], false);
+        assert_eq!(dangling.civ_belief_run(10), none.civ_belief_run(10));
+        assert_eq!(dangling.belief, none.belief);
+        assert_eq!(dangling.religions.display_name("custom:41"), "Missing religion (custom:41)");
+    }
+
+    /// Protects: a custom religion survives `civ_rebuild`'s two
+    /// roster-keeping merges with the roster that points into it -- a
+    /// Recompute must not leave a faction holding a dangling `custom:` key.
+    #[test]
+    fn the_religion_library_travels_with_the_roster_through_civ_merge() {
+        for mode in [super::CivRebuild::Downstream, super::CivRebuild::Replace] {
+            let mut old = linked_pair();
+            let id = old.religions.create("Kept Faith", "old_gods", (1, 2, 3), "").unwrap();
+            let key = cartalith_civ::religion_library::custom_religion_key(id);
+            let CivData { faction_roster, religions, .. } = &mut old;
+            assert!(faction_roster.set_religion(1, &key, religions));
+            let (merged, _) = super::civ_merge(mode, linked_pair(), old);
+            assert_eq!(merged.faction_roster.0[1].religion, key);
+            assert_eq!(merged.religions.engine_key(&key), "old_gods", "{mode:?}: the record came along");
+        }
     }
 
     /// The regression `_belief_probe.gd` found, as a test that runs in CI.
@@ -3889,7 +4013,7 @@ fn faction_economy_aggregates(
             true,
             false,
         );
-        let has_religion = civ.faction_roster.has_religion_flags();
+        let has_religion = civ.faction_roster.has_religion_flags(&civ.religions);
         // `dens` is per-cell and `territory` is per-cell, so a length mismatch
         // (a save restored onto a differently-sized grid) would index out of
         // bounds inside the aggregate. Dropped rather than trusted -- the
@@ -4907,6 +5031,7 @@ fn compute_civilisation(
         // `PARAMS` group made the count a dial; that constant is now only the
         // default's origin, kept where it is documented.)
         faction_roster: civ_roster_bridge::FactionRoster::seeded(opts.factions.max(1) as usize),
+        religions: Default::default(),
         place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
         village_tids,
         // Milestone 1's belief layer is not built here -- see `CivData::belief`.
@@ -13995,7 +14120,13 @@ impl WorldGen {
                     "id" => f,
                     "name" => e.name.as_str(),
                     "culture" => e.culture.as_str(),
-                    "religion" => e.religion.as_str(),
+                    // R1: the ENGINE key -- a custom religion's base, "none"
+                    // for a dangling one -- so every shell reader that compares
+                    // it against a settlement's plurality (map divergence
+                    // ring, Religion category, Faith group) compares like with
+                    // like. The stored choice and its name follow below, only
+                    // when the choice is a custom one.
+                    "religion" => civ.religions.engine_key(&e.religion),
                     "government" => e.government.as_str(),
                     "ag_tech" => e.ag_tech.as_str(),
                     "color_r" => r as i64,
@@ -14011,6 +14142,23 @@ impl WorldGen {
                 };
                 if let Some(n) = faction_claimed_cells(&civ.territory, gw, gh, f) {
                     d.set("claimed_cells", n as i64);
+                }
+                // R1 (`FACTION_HUB_DESIGN.md` §6). Present only when the
+                // stored choice is a `custom:` key, so a roster of built-ins
+                // returns exactly the dictionary it always did:
+                // `religion_choice` is what the Religion picker selects,
+                // `religion_name` what a person reads, and `religion_missing`
+                // marks a dangling reference (its `religion` is then "none").
+                if e.religion.starts_with(cartalith_civ::religion_library::CUSTOM_RELIGION_PREFIX) {
+                    let id_key = e.religion.as_str();
+                    d.set("religion_choice", id_key);
+                    d.set("religion_name", civ.religions.display_name(id_key).as_str());
+                    if matches!(
+                        civ.religions.choice(id_key),
+                        cartalith_civ::religion_library::ReligionChoice::Missing(_)
+                    ) {
+                        d.set("religion_missing", true);
+                    }
                 }
                 d
             })
@@ -20802,13 +20950,24 @@ impl WorldGen {
     /// Returns `false` and changes nothing for an unknown faction, an
     /// unknown key, a blank name, or a value outside that field's own
     /// reference vocabulary — a typo from GDScript is rejected, not stored.
+    /// `"religion"` additionally accepts `custom:<id>` for a custom religion
+    /// that exists in this project (`FACTION_HUB_DESIGN.md` §6 R1).
     #[func]
     fn civ_set_faction_field(&mut self, faction: i64, key: GString, value: GString) -> bool {
         let Some(civ) = self.civ.as_mut() else { return false };
         if faction < 0 {
             return false;
         }
-        civ.faction_roster.set_field(faction as usize, &key.to_string(), &value.to_string())
+        let (key, value) = (key.to_string(), value.to_string());
+        // R1: a religion may also be an existing custom religion's
+        // `custom:<id>`, which only the library can vouch for -- so religion
+        // goes through `set_religion`, never through `set_field`'s
+        // built-ins-only check. A dangling id is refused, never stored.
+        if key == "religion" {
+            let CivData { faction_roster, religions, .. } = civ;
+            return faction_roster.set_religion(faction as usize, &value, religions);
+        }
+        civ.faction_roster.set_field(faction as usize, &key, &value)
     }
 
     /// `state.viz.territoryOpacity` — how heavily the territory wash is laid
@@ -20916,7 +21075,7 @@ impl WorldGen {
         let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
         let ocean_dist = cartalith_civ::civ_ocean_dist_field(Some(&civ.water_bodies), &ws.field, gw, gh, sea);
         let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km);
-        let has_religion = civ.faction_roster.has_religion_flags();
+        let has_religion = civ.faction_roster.has_religion_flags(&civ.religions);
         let input = cartalith_civ::FactionAggregatesInput {
             faction_count: civ.faction_roster.0.len(),
             gw,

@@ -215,6 +215,22 @@ var _history_usec := 0
 ## The cap in force; a member only so the probe can lower it to exercise the
 ## truncation line on any world. Nothing in the shell writes it.
 var _history_tid_cap := HISTORY_TID_CAP
+## FH-R1 (`FACTION_HUB_DESIGN.md` §6 R1): the project's custom religions as
+## `civ_custom_religions()` last answered, fetched once per staleness and
+## cleared with the other caches in `_mark_data_stale()` (RF-03). A world-wide
+## list, not per faction.
+var _custom_religions: Array = []
+var _custom_religions_ready := false
+## Which Religions-library editor is open: `-1` none, `0` a new religion,
+## `> 0` that religion's id. Not data, so `_mark_data_stale()` leaves it; a
+## world change closes it (`_on_world_changed`), since its id named a religion
+## of the world that is gone.
+var _religion_edit_id := -1
+## The line under the Religion picker that says what the current choice
+## behaves as; refreshed in place after a pick so the picker itself is kept.
+var _religion_note: Label
+## The Religions library group's body, so a Religion pick can refill it alone.
+var _religion_lib_box: VBoxContainer
 ## The other party of the pair the hub was opened on (`open()`'s `pair_with`),
 ## or `-1`. Set only by `open()` when it also landed on a faction, cleared by a
 ## different faction pick and by a new world, so the Relations tab only ever
@@ -437,6 +453,7 @@ func setup(a, b: EngineBridge) -> void:
 func _on_world_changed() -> void:
 	_mark_data_stale()
 	_selected = 1
+	_religion_edit_id = -1
 	## The marked pair named factions of the world that is gone (FH-6).
 	_pair = -1
 	_rebuild()
@@ -905,8 +922,8 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (see the Military tab).")
 	_culture_choice(sec, String(d.get("culture", "common")))
 	_build_culture_card(sec, String(d.get("culture", "common")))
-	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
-		String(d.get("religion", "none")), "religion")
+	_religion_choice(sec, d)
+	_build_religion_library(sec)
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
 	_default_type_choice(sec)
 	_build_identity_paint_notes(sec)
@@ -1212,7 +1229,7 @@ func _build_faith_group(pane: VBoxContainer) -> void:
 	var state_rel := String(row.get("religion", "")).strip_edges()
 	var head := DccWidgets.note(sec, "%s — state religion %s · %d settlement%s" % [
 		String(row.get("name", "?")),
-		"—" if state_rel.is_empty() else CivilizationWorkspace._religion_label(state_rel),
+		"—" if state_rel.is_empty() else CivilizationWorkspace._faction_religion_label(row),
 		mine.size(), "" if mine.size() == 1 else "s"])
 	head.name = "FaithHead"
 
@@ -1262,7 +1279,7 @@ func _build_faith_group(pane: VBoxContainer) -> void:
 		var lead := CivilizationWorkspace._religion_faction_plurality(counts)
 		if not state_rel.is_empty() and lead != state_rel:
 			DccWidgets.note(sec, "Its state religion is %s; %s leads its people."
-				% [CivilizationWorkspace._religion_label(state_rel), CivilizationWorkspace._religion_label(lead)])
+				% [CivilizationWorkspace._faction_religion_label(row), CivilizationWorkspace._religion_label(lead)])
 	_faith_run_button(sec)
 
 
@@ -1876,6 +1893,10 @@ func _mark_data_stale() -> void:
 	_history_years = []
 	_history_total = 0
 	_history_scanned = 0
+	## FH-R1: the custom-religion list (a regenerate empties it; a library edit
+	## renames or removes rows).
+	_custom_religions_ready = false
+	_custom_religions = []
 
 
 ## Fetches `civ_faction_terrain_fits()` once per staleness. O(cells): it
@@ -1968,6 +1989,321 @@ func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: S
 		labels.append(String(d.get("label", "?")))
 	DccWidgets.choice(parent, label_text, labels, maxi(0, keys.find(current)),
 		func(i: int): _set_field(key, keys[i]), tip)
+
+
+# -- Religion picker and Religions library (FH-R1, `FACTION_HUB_DESIGN.md` §6 R1)
+
+## The plain statement R1 owes the user: a custom religion is a name over a
+## built-in, and nothing about its own beliefs is modelled yet (R2 is unbuilt).
+const RELIGION_R1_LIMIT := "A custom religion currently behaves exactly as its base religion: belief spread, relations and the religious power axis all read the base. Its own beliefs and rules are not built yet."
+
+## Fetches `civ_custom_religions()` once per staleness (`_mark_data_stale`).
+func _ensure_custom_religions() -> void:
+	if _custom_religions_ready:
+		return
+	_custom_religions = bridge.civ_custom_religions()
+	_custom_religions_ready = true
+
+
+## The faction's Religion picker: the eight built-ins first (their own
+## vocabulary order), then the project's custom religions, each labelled with
+## what it behaves as. It selects the STORED choice (`religion_choice`, which
+## `get_factions()` carries only for a custom one), never the engine key in
+## `religion`, or a custom pick would show as its base.
+##
+## A dangling choice (`religion_missing`: the record is gone) is shown as its
+## own "Missing religion" entry so the picker does not pretend the faction
+## holds a built-in; picking that entry again changes nothing. Any other pick
+## goes through `_set_field("religion", ...)`, whose engine call refuses a key
+## the library cannot vouch for.
+func _religion_choice(parent: Control, d: Dictionary) -> void:
+	var vocab := bridge.civ_religion_vocabulary()
+	if vocab.is_empty():
+		return
+	_ensure_custom_religions()
+	var current := String(d.get("religion_choice", d.get("religion", "none")))
+	var keys: Array = []
+	var labels: Array = []
+	for e in vocab:
+		keys.append(String((e as Dictionary).get("key", "")))
+		labels.append(String((e as Dictionary).get("label", "?")))
+	for r in _custom_religions:
+		var rd: Dictionary = r
+		keys.append(String(rd.get("key", "")))
+		labels.append("%s (as %s)" % [String(rd.get("name", "?")), String(rd.get("base_label", "?"))])
+	var stale_index := -1
+	if not keys.has(current):
+		stale_index = keys.size()
+		keys.append(current)
+		labels.append(String(d.get("religion_name", current)))
+	var ob := DccWidgets.choice(parent, "Religion", labels, maxi(0, keys.find(current)),
+		func(i: int):
+			if i == stale_index:
+				return
+			_set_field("religion", String(keys[i]))
+			_refresh_religion_note()
+			_refill_religion_library(),
+		"The faction's state religion. Built-in religions come first; custom religions from the Religions library below follow. " + RELIGION_R1_LIMIT)
+	ob.name = "ReligionPicker"
+	_religion_note = DccWidgets.note(parent, "")
+	_religion_note.name = "ReligionBehavesAs"
+	_refresh_religion_note()
+
+
+## Rewrites the line under the picker from the roster as it now stands: what a
+## custom choice behaves as, or that a dangling one reads as no religion.
+## Hidden for a built-in, which needs no gloss.
+func _refresh_religion_note() -> void:
+	if _religion_note == null or not is_instance_valid(_religion_note):
+		return
+	var d := _faction(_selected)
+	var text := ""
+	if bool(d.get("religion_missing", false)):
+		text = "%s: the custom religion this faction held is not in this project any more, so it behaves as having no religion. Pick another." % String(d.get("religion_name", "Missing religion"))
+	elif d.has("religion_choice"):
+		text = "Behaves as %s. Its own beliefs and rules are not built yet." \
+			% CivilizationWorkspace._religion_label(String(d.get("religion", "none")))
+	_religion_note.text = text
+	_religion_note.visible = text != ""
+
+
+## The Religions library group, under the Religion picker: every custom
+## religion with what it behaves as and who holds it, Edit and Delete per row
+## (Delete is disabled while any faction holds it, and the engine refuses it
+## too), and "New religion...". At most one inline editor is open
+## (`_religion_edit_id`); there is no separate window, so the phone keeps one
+## scroller. Editor fields commit only on Save -- no `focus_exited` commit --
+## so a tab or faction switch drops a half-typed draft rather than writing it
+## anywhere (FR-02 cannot misfile it). The library is world-wide, not the
+## selected faction's.
+func _build_religion_library(sec: Control) -> void:
+	var box := VBoxContainer.new()
+	box.name = "ReligionsLibrary"
+	box.add_theme_constant_override("separation", 4)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(box)
+	_religion_lib_box = box
+	_fill_religion_library(box)
+
+
+## Re-fills only the library group -- after a Religion pick, whose rows' "held
+## by" text and Delete state moved -- leaving the picker (and its focus) alone.
+## Cleared under `_rebuilding` via `_clear()`; phone-fitted again like a build.
+func _refill_religion_library() -> void:
+	if _religion_lib_box == null or not is_instance_valid(_religion_lib_box):
+		return
+	_clear(_religion_lib_box)
+	_fill_religion_library(_religion_lib_box)
+	if _phone:
+		app.phone_fit(self, 1.0)
+
+
+func _fill_religion_library(box: VBoxContainer) -> void:
+	var head := DccTheme.mono_label("Religions library", "text_dim", DccTheme.FS_SMALL, 0)
+	head.name = "ReligionsLibraryHead"
+	box.add_child(head)
+	if not bridge.has_custom_religion_api():
+		DccWidgets.note(box, "This build's engine has no custom-religion binding. Rebuild the native library before treating it as a missing feature.").name = "ReligionsNoApi"
+		return
+	DccWidgets.note(box, "Custom religions are named variants of the eight built-ins. " + RELIGION_R1_LIMIT).name = "ReligionsLimitNote"
+	_ensure_custom_religions()
+	if _custom_religions.is_empty():
+		DccWidgets.note(box, "No custom religions in this project yet.").name = "ReligionsEmpty"
+	for r in _custom_religions:
+		var rd: Dictionary = r
+		_religion_library_row(box, rd)
+		if _religion_edit_id == int(rd.get("id", -1)):
+			_religion_editor(box, rd)
+	if _religion_edit_id == 0:
+		_religion_editor(box, {})
+	else:
+		var add := DccWidgets.action(box, "New religion...", func(): _open_religion_editor(0))
+		add.name = "NewReligion"
+		add.tooltip_text = "Name a new religion and choose which built-in it behaves as. " + RELIGION_R1_LIMIT
+
+
+## One library row: swatch, "Name -- as Base", who holds it, Edit, Delete.
+func _religion_library_row(parent: Control, r: Dictionary) -> void:
+	var id := int(r.get("id", 0))
+	var row := HBoxContainer.new()
+	row.name = "Religion_%d" % id
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 24
+	var sw := ColorRect.new()
+	sw.custom_minimum_size = Vector2(12, 12)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sw.color = Color8(int(r.get("color_r", 150)), int(r.get("color_g", 150)), int(r.get("color_b", 150)))
+	sw.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(sw)
+	var users: Array = Array(r.get("used_by", PackedInt32Array()))
+	var held := "held by no faction" if users.is_empty() else "held by " + _faction_names(users)
+	var l := DccTheme.label("%s — as %s · %s" % [String(r.get("name", "?")), String(r.get("base_label", "?")), held],
+		"text", DccTheme.FS_SMALL)
+	l.name = "ReligionLabel_%d" % id
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 120
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.mouse_filter = Control.MOUSE_FILTER_PASS
+	l.tooltip_text = String(r.get("notes", ""))
+	row.add_child(l)
+	var edit := DccWidgets.text_button(row, "Edit", func(): _open_religion_editor(id))
+	edit.name = "ReligionEdit_%d" % id
+	var del := DccWidgets.text_button(row, "Delete", func(): _delete_religion(id))
+	del.name = "ReligionDelete_%d" % id
+	del.disabled = not users.is_empty()
+	if users.is_empty():
+		del.tooltip_text = "Delete %s. Its id is never reused." % String(r.get("name", "?"))
+	else:
+		del.tooltip_text = "Held by %s: give %s another religion first." % [_faction_names(users),
+			"it" if users.size() == 1 else "them"]
+	parent.add_child(row)
+
+
+## "Aurelia, Veldmark" for a list of faction ids, from the roster as it stands.
+## An id the roster no longer holds reads "faction N", never a guessed name.
+func _faction_names(ids: Array) -> String:
+	var names := PackedStringArray()
+	for i in ids:
+		var f := _faction(int(i))
+		names.append(String(f.get("name", "faction %d" % int(i))))
+	return ", ".join(names)
+
+
+## The inline editor, for a new religion (`r` empty) or an existing one. Reads
+## its fields only when Save is pressed. The colour default for a new religion
+## (200, 150, 60) is a labelled judgement: a mid amber, visible on both
+## palettes; it is the user's to change.
+func _religion_editor(parent: Control, r: Dictionary) -> void:
+	var creating := r.is_empty()
+	var ed := VBoxContainer.new()
+	ed.name = "ReligionEditor"
+	ed.add_theme_constant_override("separation", 4)
+	ed.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(ed)
+	## No phone sizing here: `app.phone_fit()` (run by every rebuild of this
+	## pane) raises fields and the picker to the tap floor itself, and sizing
+	## them first was measured doubling them (a ~300 px Name field at 1080x2340).
+
+	var name_le := _religion_line(ed, "Name", "ReligionName", String(r.get("name", "")),
+		"e.g. Church of the Dawn")
+	var base_keys: Array = []
+	var base_labels: Array = []
+	for e in bridge.civ_religion_vocabulary():
+		base_keys.append(String((e as Dictionary).get("key", "")))
+		base_labels.append(String((e as Dictionary).get("label", "?")))
+	## A new religion starts as a variant of the first FAITH (index 1, past
+	## "None / secular"), the likelier intent; an existing one shows its own.
+	var start := String(r.get("base_key", base_keys[1] if base_keys.size() > 1 else "none"))
+	var draft := {"base": start}
+	var base_ob := DccWidgets.choice(ed, "Behaves as", base_labels, maxi(0, base_keys.find(start)),
+		func(i: int): draft["base"] = String(base_keys[i]),
+		"Which built-in religion this one behaves as in the engine. " + RELIGION_R1_LIMIT)
+	base_ob.name = "ReligionBase"
+
+	var crow := HBoxContainer.new()
+	crow.add_theme_constant_override("separation", 8)
+	var cl := DccTheme.mono_label("Colour", "text_dim", DccTheme.FS_SMALL, 0)
+	cl.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	cl.clip_text = true
+	crow.add_child(cl)
+	var pick := ColorPickerButton.new()
+	pick.name = "ReligionColour"
+	pick.edit_alpha = false
+	pick.custom_minimum_size = Vector2(64, 20)
+	pick.color = Color8(int(r.get("color_r", 200)), int(r.get("color_g", 150)), int(r.get("color_b", 60)))
+	pick.tooltip_text = "The swatch this religion is listed with. Display only: nothing in the engine reads it."
+	crow.add_child(pick)
+	ed.add_child(crow)
+
+	var notes_le := _religion_line(ed, "Notes", "ReligionNotes", String(r.get("notes", "")), "optional")
+
+	var status := DccWidgets.note(ed, "")
+	status.name = "ReligionEditorStatus"
+	status.visible = false
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 8)
+	ed.add_child(buttons)
+	var save := DccWidgets.action(buttons, "Create religion" if creating else "Save", func():
+		_save_religion(int(r.get("id", 0)), name_le.text, String(draft["base"]), pick.color,
+			notes_le.text, status), true)
+	save.name = "ReligionSave"
+	var cancel := DccWidgets.text_button(buttons, "Cancel", func(): _open_religion_editor(-1))
+	cancel.name = "ReligionCancel"
+
+
+## One labelled LineEdit row of the editor (the currency rows' shape).
+func _religion_line(parent: Control, label_text: String, node_name: String, value: String,
+		placeholder: String) -> LineEdit:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL, 0)
+	l.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var le := LineEdit.new()
+	le.name = node_name
+	le.text = value
+	le.placeholder_text = placeholder
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.well(le)
+	row.add_child(le)
+	parent.add_child(row)
+	return le
+
+
+## Opens (or, with `-1`, closes) an editor and rebuilds the Identity pane so
+## the new layout is phone-fitted like any other build. FR-02: the focused
+## field is committed first; the teardown runs under `_rebuilding`.
+func _open_religion_editor(id: int) -> void:
+	_commit_focused_field()
+	_religion_edit_id = id
+	_rebuild_inspector()
+
+
+## Create (`id == 0`) or edit, then refresh. The engine validates name, base
+## and colour; a refusal keeps the editor open with the engine's own reason
+## and writes nothing. On success the caches go stale, the Identity pane is
+## rebuilt (the picker's labels and the library both moved) and
+## `roster_changed` fires AFTER the engine call, so the CIVIL dock's religion
+## readouts re-read the new names (`MISTAKES.md`, "Emit a change signal").
+func _save_religion(id: int, religion_name: String, base_key: String, colour: Color,
+		notes: String, status: Label) -> void:
+	var r: Dictionary
+	if id == 0:
+		r = bridge.civ_add_religion(religion_name, base_key, colour, notes)
+	else:
+		r = bridge.civ_edit_religion(id, {"name": religion_name, "base_key": base_key,
+			"color_r": colour.r8, "color_g": colour.g8, "color_b": colour.b8, "notes": notes})
+	if not bool(r.get("ok", false)):
+		status.text = String(r.get("error", "Refused."))
+		status.visible = true
+		app.set_status("hint", status.text, "accent")
+		return
+	_religion_edit_id = -1
+	_after_religion_library_change()
+	app.set_status("hint", ("Religion created. " if id == 0 else "Religion saved. ") + RELIGION_R1_LIMIT, "text_ghost")
+
+
+## Delete, refused by the engine while any faction holds it (the row's button
+## is disabled then too, but the engine's answer is the authority).
+func _delete_religion(id: int) -> void:
+	var r := bridge.civ_delete_religion(id)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", String(r.get("error", "Refused.")), "accent")
+		return
+	if _religion_edit_id == id:
+		_religion_edit_id = -1
+	_after_religion_library_change()
+	app.set_status("hint", "Religion deleted.", "text_ghost")
+
+
+## The shared tail of every library mutation: caches stale (RF-03), the
+## visible pane rebuilt, then the signal (after the engine call).
+func _after_religion_library_change() -> void:
+	_commit_focused_field()
+	_mark_data_stale()
+	_rebuild_inspector()
+	roster_changed.emit()
 
 
 ## Cultures come back as bare keys -- the reference's own `CIV_CULTURES`
