@@ -14,8 +14,8 @@ extends Node
 ##           the phone window keeps exactly one scroller
 ##   BUILD   every tab builds a non-empty pane, exactly one pane is visible, and
 ##           each carries the section(s) it owns (Currency/Tariffs keep their
-##           `Currency_<key>` / `Tariff_<id>` node names); Relations and History
-##           are honest placeholders with no controls at all
+##           `Currency_<key>` / `Tariff_<id>` node names); History is an honest
+##           placeholder with no controls at all (Relations is FH-6's, below)
 ##   OPEN    `open(select_faction, tab)`: a tab id is honoured, "" or an unknown
 ##           id means the last tab used, an unknown faction id is ignored
 ##   FR02    a half-typed field commits to the faction it was typed for, both
@@ -29,10 +29,10 @@ extends Node
 ##           category's "Open factions…" and Data ▸ Factions… (bare: last faction
 ##           and tab), the dock card's "Open in Factions…" (Identity, or Relations
 ##           with `pair_with`), every Military row, and the
-##           Cartography identity-colours jump. The Relationships pair rows are asserted
-##           to keep their RL-01 dock behaviour (dock card on a, b marked, hub not
-##           opened) until FH-6 re-routes them. The context-card row is
-##           `_ctxcard_probe.gd` / `_ctxphone_probe.gd`'s.
+##           Cartography identity-colours jump. The Relationships pair rows (re-routed
+##           by FH-6) land on the Relations tab with the other party carried and
+##           marked; the dock's "Open in Factions..." carries its pair the same way.
+##           The context-card row is `_ctxcard_probe.gd` / `_ctxphone_probe.gd`'s.
 ##   CULTURE (FH-2, `_run_culture_fold`) the retired Culture profiles window's job
 ##           on the Identity tab: the profile, the Name pool of real settlements
 ##           with reroll chips, "Also used by", the ported
@@ -45,6 +45,16 @@ extends Node
 ##           restoring, a deleted type (or a stale id) showing None, the FR-02
 ##           guard, and the Settlement types window's per-faction column being
 ##           gone in favour of a link that opens Identity.
+##   ECONOMY / RELATIONS (FH-6, `_run_economy_relations`) the Economy tab's
+##           per-faction readout equals `civ_faction_economy()`'s row; Currency and
+##           Tariffs keep their node names; "Trade flows" leaves the hub for
+##           Civilization > Economy. The Relations tab lists exactly this faction's
+##           pairs with the engine's own stance and score, mentions each pair's
+##           tariff in BOTH directions (read-only: no edit control on the tab; the
+##           direction is told apart by an asymmetric fixture), links to Economy,
+##           marks the carried pair, reads the Faith group without running the
+##           model, keeps one honest Diplomacy line, refreshes on a roster change,
+##           and on the phone keeps >= 44 px taps and one scroller.
 ##   TERRITORY (FH-4, `_run_territory_tab`) the Territory tab: claim figures,
 ##           provinces list and influence-by-neighbour each equal the engine's own
 ##           answer for this world (influence only after its button, then cached);
@@ -74,6 +84,7 @@ var _entry_done := false  ## set by the last line of `_run_entry_points`
 var _culture_done := false  ## set by the last line of `_run_culture_fold`
 var _deftype_done := false  ## set by the last line of `_run_default_type`
 var _territory_done := false  ## set by the last line of `_run_territory_tab`
+var _fh6_done := false  ## set by the last line of `_run_economy_relations`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -343,13 +354,16 @@ func _run() -> void:
 	await _press("military")
 	_ok("BUILD military owns the military block", _text_of(_pane("military")).contains("Power:"),
 		_text_of(_pane("military")).left(200))
-	for id in ["relations", "history"]:
-		await _press(id)
-		var pane := _pane(id)
-		var controls := _count(pane, func(n): return n is Button or n is LineEdit or n is OptionButton \
-			or n is CheckBox or n is ColorPickerButton or n is SpinBox)
-		_ok("BUILD %s is a placeholder: says so, carries no control at all" % id,
-			_text_of(pane).to_lower().contains("not built") and controls == 0, "controls=%d" % controls)
+	## History is the one remaining placeholder (FH-6 filled Relations).
+	await _press("history")
+	var hpane := _pane("history")
+	var hcontrols := _count(hpane, func(n): return n is Button or n is LineEdit or n is OptionButton 		or n is CheckBox or n is ColorPickerButton or n is SpinBox)
+	_ok("BUILD history is a placeholder: says so, carries no control at all",
+		_text_of(hpane).to_lower().contains("not built") and hcontrols == 0, "controls=%d" % hcontrols)
+	await _press("relations")
+	_ok("BUILD relations builds a non-empty pane naming Relations, Faith and the not-built Diplomacy line",
+		_text_of(_pane("relations")).to_lower().contains("faith") and _text_of(_pane("relations")).contains("Diplomacy: not built"),
+		_text_of(_pane("relations")).left(200))
 
 	# -- LAZY, the order the fetches happen in ------------------------------------
 	_app.open_faction_roster(-1, "identity")
@@ -497,6 +511,10 @@ func _run() -> void:
 	await _run_territory_tab(ids)
 	_ok("FH4 the territory leg ran to its end (a script error inside it aborts it silently)", _territory_done)
 
+	# -- ECONOMY + RELATIONS: the readout and the pair list (FH-6) ------------------------
+	await _run_economy_relations(ids)
+	_ok("FH6 the economy/relations leg ran to its end (a script error inside it aborts it silently)", _fh6_done)
+
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
 	await _frames(6)
@@ -625,6 +643,10 @@ func _run_entry_points(ids: Array) -> void:
 			db.pressed.emit()
 			await _frames(6)
 			_land(tag, fa, want_tab, true)
+			## FH-6: the pair rides along, so the Relations tab marks the same
+			## row the dock card marks (and no pair means none is marked).
+			_ok("%s: the hub carries the pair (-1 when none)" % tag,
+				_fr._pair == (int(pair) if int(pair) > 0 and int(pair) != fa else -1), "pair=%d" % _fr._pair)
 		_fr.hide()
 		await _frames(2)
 
@@ -656,12 +678,14 @@ func _run_entry_points(ids: Array) -> void:
 		await _frames(2)
 	_ok("FH1 military: the rows covered every faction", seen_m.size() == names.size(), str(seen_m.keys()))
 
-	# 5. Relationships > Every pair rows -> the DOCK card on a with b marked
-	# (RL-01), NOT the hub. FH-1 first routed these to the hub's Relations tab;
-	# the coordinator's review reversed that because the tab is a placeholder
-	# until FH-6 and the route lost the second faction. Protects: the pair rows
-	# keep opening the faction card with the named pair marked, and do not open
-	# the hub. FH-6 re-routes them and rewrites this leg.
+	# 5. Relationships > Every pair rows -> the hub's RELATIONS tab on a, with b
+	# carried and marked (FH-6; RL-01 before it). Protects: a pair row opens the
+	# hub on the first party's Relations tab with the SECOND party marked --
+	# never one side of the pair (RL-01's measured defect: 5 of 15 rows were a
+	# press with no visible effect). FH-1 first routed these to the hub, FH-1's
+	# review pulled them back to the dock while the tab was a placeholder, and
+	# FH-6 sent them to the hub for good. (Retargeted from the dock assertions,
+	# not deleted: the dock card still marks a pair -- leg 3 and `_wiredfix`.)
 	await _sheet("left")
 	_app.select_domain_category("civilization", "Relationships")
 	await _frames(4)
@@ -690,25 +714,22 @@ func _run_entry_points(ids: Array) -> void:
 			if int(pd2.get("a", -1)) == want_a and _lc(b).begins_with(("%s ↔ %s -- " % [String(pd2.get("a_name", "?")), String(pd2.get("b_name", "?"))]).to_lower()):
 				want_b = int(pd2.get("b", -1))
 				want_b_name = String(pd2.get("b_name", "?"))
-		# Park the hub hidden and the dock on another faction with no pair, so
-		# both "the hub stays shut" and "the press changed the dock" are real.
+		# Park the hub hidden on another faction and tab so "lands on a, Relations"
+		# cannot pass by the window merely still sitting there.
 		await _park(fb if want_a != fb else fa, park_tab)
-		await _sheet("right")
-		_app.right_dock_ctrl.show_faction(fb if want_a != fb else fa, -1)
-		await _frames(3)
 		await _sheet("left")
 		(b as Button).pressed.emit()
 		await _frames(6)
-		await _sheet("right")
-		await _frames(3)
-		var tag5 := "FH1 relations row a=%d b=%d" % [want_a, want_b]
-		var dk = _app.right_dock_ctrl
-		_ok("%s: the dock shows the faction card" % tag5, dk._context == RightDock.CTX_FACTION, str(dk._context))
-		_ok("%s: the card is headed by a" % tag5, dk._faction_id == want_a, "id=%d" % dk._faction_id)
-		_ok("%s: the card was told b as the pair (RL-01)" % tag5, dk._faction_pair == want_b and want_b >= 0, "pair=%d" % dk._faction_pair)
-		_ok("%s: b is marked among the card's relations ('▸ %s')" % [tag5, want_b_name],
-			_text_of(_app.right_dock_body).to_lower().contains(("▸ " + want_b_name).to_lower()))
-		_ok("%s: the hub was not opened (FH-6 owns that route)" % tag5, not _fr.visible)
+		var tag5 := "FH6 relations row a=%d b=%d" % [want_a, want_b]
+		_land(tag5, want_a, "relations", true)
+		_ok("%s: the hub was told b as the pair (RL-01)" % tag5, _fr._pair == want_b and want_b >= 0, "pair=%d" % _fr._pair)
+		var mark: Node = _fr.find_child("Relation_%d" % want_b, true, false)
+		_ok("%s: b's card exists and is marked" % tag5,
+			mark != null and bool(mark.get_meta("marked", false)), str(mark))
+		_ok("%s: b is marked in the text ('▸ %s')" % [tag5, want_b_name],
+			_text_of(_fr).to_lower().contains(("▸ " + want_b_name).to_lower()))
+		_fr.hide()
+		await _frames(2)
 		n_rel += 1
 	_ok("FH1 relations: the loop pressed at least one row", n_rel > 0, str(n_rel))
 
@@ -1572,3 +1593,272 @@ func _run_territory_tab(ids: Array) -> void:
 	_fr.hide()
 	await _frames(2)
 	_territory_done = true
+
+
+# -- FH-6: the Economy readout and the Relations tab --------------------------
+## Protects: FH-6 (`FACTION_HUB_DESIGN.md` section 3.6) -- the Economy tab's
+## per-faction readout is the engine's own `civ_faction_economy()` row, the
+## Relations tab's pair list/stance/score/tariff mention are the engine's own
+## `civ_faction_relations()` and `civ_trade_tariff` answers in the right
+## direction, the tab carries NO tariff editor (owner decision 3: tariffs are
+## edited on Economy only), the carried pair is marked, the Faith group never
+## runs the model by itself, and the tab follows a roster change (RF-03) and
+## keeps phone taps >= 44 px. Every expectation is derived from the bridge, not
+## from the tab's own helpers, so the tab cannot be its own oracle.
+func _run_economy_relations(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var names := _names()
+
+	# ---------------------------------------------------------------- Economy
+	_fr.open(fa, "economy")
+	await _frames(8)
+	var eco := _pane("economy")
+	_ok("FH6 the Economy pane is built", eco != null)
+	if eco == null:
+		return
+	var erow := {}
+	for r in _bridge.civ_faction_economy():
+		if int((r as Dictionary).get("faction", -1)) == fa:
+			erow = r
+	_ok("FH6 precondition: the engine has an economy row for faction %d" % fa,
+		not erow.is_empty() and String(erow.get("absent", "")) == "", str(erow.keys()))
+	var fig := eco.find_child("EconomyFigures", true, false) as Label
+	_ok("FH6 the economy figures read the engine's population and food capacity",
+		fig != null and fig.text.contains("%s people" % _fr._thousands(int(float(erow.get("pop", 0.0)))))
+		and fig.text.contains("food capacity %s" % _fr._thousands(int(float(erow.get("food_capacity", 0.0))))),
+		"%s | pop=%s cap=%s" % [fig.text if fig != null else "<none>", erow.get("pop"), erow.get("food_capacity")])
+	var want_sur := float(erow.get("food_surplus", 0.0))
+	_ok("FH6 ... and say the surplus sign in words, not a bare minus",
+		fig != null and (fig.text.contains("to spare") if want_sur >= 0.0 else fig.text.contains("short by")),
+		fig.text if fig != null else "<none>")
+	var res := eco.find_child("EconomyResources", true, false) as Label
+	var strat: PackedStringArray = erow.get("strategic", PackedStringArray())
+	var exps: PackedStringArray = erow.get("exports", PackedStringArray())
+	var imps: PackedStringArray = erow.get("imports", PackedStringArray())
+	var want_res := "Strategic: %s.  Exports: %s.  Imports: %s." % [
+		"none" if strat.is_empty() else ", ".join(strat),
+		"none" if exps.is_empty() else ", ".join(exps),
+		"none" if imps.is_empty() else ", ".join(imps)]
+	_ok("FH6 the strategic / exports / imports line equals the engine's lists",
+		res != null and res.text == want_res, "got '%s' want '%s'" % [res.text if res != null else "<none>", want_res])
+	_ok("FH6 Currency and Tariffs are kept verbatim (node names)",
+		eco.find_child("Currency_name", true, false) != null and eco.find_child("Currency_rate", true, false) != null
+		and eco.find_child("Tariff_%d" % fb, true, false) != null)
+	var eco_text := _text_of(eco).to_lower()  ## section headers are drawn in capitals
+	_ok("FH6 the readout sits above Currency (reading order)",
+		eco_text.find("food capacity") >= 0 and eco_text.find("currency") >= 0
+		and eco_text.find("food capacity") < eco_text.find("currency"))
+	await _shot("%s_economy" % ("phone" if _phone else "desktop"))
+	var flows := eco.find_child("TradeFlowsLink", true, false) as Button
+	_ok("FH6 the Trade flows link exists", flows != null)
+	if _phone and flows != null:
+		_ok("FH6 PHONE Trade flows is at least 44 px tall", flows.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % flows.size.y)
+	if flows != null:
+		flows.pressed.emit()
+		await _frames(6)
+		_ok("FH6 Trade flows closes the hub and opens Civilization > Economy",
+			not _fr.visible and _text_of(_app.workspace_panel("civilization")).to_lower().contains("by faction"),
+			"visible=%s" % _fr.visible)
+
+	# ------------------------------------------------------------- Relations
+	# Fixture: an ASYMMETRIC tariff pair, so a swapped direction cannot pass.
+	# civ_trade_tariff(importer, exporter): fa charges 15% on fb's goods, fb
+	# charges 40% on fa's.
+	var old_ab: float = _bridge.civ_trade_tariff(fa, fb)
+	var old_ba: float = _bridge.civ_trade_tariff(fb, fa)
+	_ok("FH6 fixture: both tariffs were accepted",
+		_bridge.civ_set_trade_tariff(fa, fb, 0.15) and _bridge.civ_set_trade_tariff(fb, fa, 0.40))
+	_fr.open(fa, "relations")
+	await _frames(8)
+	var rel := _pane("relations")
+	_ok("FH6 the Relations pane is built", rel != null)
+	if rel == null:
+		return
+	var want_pairs: Array = []
+	for d in _bridge.civ_faction_relations():
+		var pd: Dictionary = d
+		if int(pd.get("a", -1)) == fa or int(pd.get("b", -1)) == fa:
+			want_pairs.append(pd)
+	_ok("FH6 precondition: faction %d is a party to at least one pair" % fa, want_pairs.size() > 0)
+	var cards := _named_like(rel, "Relation_")
+	_ok("FH6 one card per pair involving this faction (and no others)", cards.size() == want_pairs.size(),
+		"%d cards, %d pairs" % [cards.size(), want_pairs.size()])
+	for pd in want_pairs:
+		var other := int(pd.get("b", -1)) if int(pd.get("a", -1)) == fa else int(pd.get("a", -1))
+		var oname := String(names.get(other, "?"))
+		var card := rel.find_child("Relation_%d" % other, true, false)
+		_ok("FH6 a card for the pair with %s" % oname, card != null)
+		if card == null:
+			continue
+		var sc := (card.find_child("RelationScore", true, false) as Label).text
+		var st := (card.find_child("RelationStance", true, false) as Label).text
+		var want_score := "%+d" % int(round(100.0 * float(pd.get("value", 0.0))))
+		_ok("FH6 %s: the score and stance are the engine's" % oname,
+			sc == want_score and st == String(pd.get("stance", "?")).to_upper(),
+			"%s/%s vs %s/%s" % [sc, st, want_score, pd.get("stance")])
+		var tip := (card as Control).tooltip_text
+		_ok("FH6 %s: the term tooltip carries the engine's culture and faith terms" % oname,
+			tip.contains("culture %+d" % int(round(30.0 * float(pd.get("culture_term", 0.0)))))
+			and tip.contains("faith %+d" % int(round(20.0 * float(pd.get("religion_term", 0.0))))), tip)
+		# The tariff mention: "Charges X% on goods from B - B charges Y% on yours".
+		# X is what THIS faction (the importer, fa) levies: civ_trade_tariff(fa, other).
+		var x := float(_bridge.civ_trade_tariff(fa, other))
+		var y := float(_bridge.civ_trade_tariff(other, fa))
+		var want_t := "Charges %s%% on goods from %s · %s charges %s%% on yours" % [
+			_pct_prose(x), oname, oname, _pct_prose(y)]
+		var tl := card.find_child("RelationTariff", true, false) as Label
+		_ok("FH6 %s: the tariff mention reads both directions from civ_trade_tariff" % oname,
+			tl != null and tl.text == want_t, "got '%s' want '%s'" % [tl.text if tl != null else "<none>", want_t])
+	# The asymmetric fixture, as literals (independent of any formatter): fa->fb 15, fb->fa 40.
+	var card_b := rel.find_child("Relation_%d" % fb, true, false)
+	var tl_b_text := "<none>"
+	if card_b != null:
+		tl_b_text = (card_b.find_child("RelationTariff", true, false) as Label).text
+	_ok("FH6 DIRECTION: 'Charges 15%' is fa's own rate on fb's goods and 'charges 40%' is fb's on fa's",
+		tl_b_text == "Charges 15%% on goods from %s · %s charges 40%% on yours" % [names.get(fb, "?"), names.get(fb, "?")], tl_b_text)
+	# Read-only: no tariff (or any) editor on the Relations tab.
+	var editors := _count(rel, func(n): return n is LineEdit or n is SpinBox or n is OptionButton \
+		or n is CheckBox or n is ColorPickerButton or n is TextEdit)
+	_ok("FH6 NO EDIT CONTROL on Relations (tariffs are edited on Economy only)", editors == 0, "editors=%d" % editors)
+	_ok("FH6 ... and no node carries the Economy tab's Tariff_<id> name", _named_like(rel, "Tariff_").is_empty())
+	var treat := _count(rel, func(n): return n is Button and (String((n as Button).text).to_lower().contains("treaty")
+		or String((n as Button).text).to_lower().contains("declare") or String((n as Button).text).to_lower().contains("alliance")))
+	_ok("FH6 no treaty / war / alliance control", treat == 0, str(treat))
+	_ok("FH6 one honest Diplomacy: not built line", _text_of(rel).count("Diplomacy: not built") == 1)
+	# Economy link.
+	var lnk: Button = null
+	if card_b != null:
+		lnk = card_b.find_child("EconomyLink", true, false) as Button
+	_ok("FH6 each card has an Economy link", lnk != null)
+	await _shot("%s_relations" % ("phone" if _phone else "desktop"))
+	if lnk != null:
+		lnk.pressed.emit()
+		await _frames(6)
+		_ok("FH6 the Economy link switches the hub to its Economy tab",
+			_fr.visible and _fr._tab == "economy" and _visible_panes() == ["economy"], "tab=%s" % _fr._tab)
+
+	# -------------------------------------------------------------- highlight
+	_fr.open(fa, "relations", fb)
+	await _frames(8)
+	rel = _pane("relations")
+	var marked_ids: Array = []
+	for c in _named_like(rel, "Relation_"):
+		if bool((c as Node).get_meta("marked", false)):
+			marked_ids.append(String(c.name))
+	_ok("FH6 the carried pair is the ONE marked row", marked_ids == ["Relation_%d" % fb], str(marked_ids))
+	_ok("FH6 ... drawn with the dock's own marker", _text_of(rel).contains("▸ %s" % names.get(fb, "?")))
+	for bad_pair in [fa, 9999, -1]:
+		_fr.open(fa, "relations", bad_pair)
+		await _frames(6)
+		var any_marked := false
+		for c in _named_like(_pane("relations"), "Relation_"):
+			any_marked = any_marked or bool((c as Node).get_meta("marked", false))
+		_ok("FH6 a carried pair of %d (self / unknown / none) marks nothing" % bad_pair, not any_marked)
+
+	# ------------------------------------------------------------------ Faith
+	_fr.open(fa, "relations")
+	await _frames(8)
+	rel = _pane("relations")
+	var places: Array = _bridge.settlements()
+	_ok("FH6 precondition: the belief model has not been run in this world",
+		places.size() > 0 and not (places[0] as Dictionary).has("religion"))
+	_ok("FH6 the Faith group says so and offers the run, and opening the tab did not run it",
+		rel.find_child("FaithNotRun", true, false) != null and rel.find_child("RunBelief", true, false) != null
+		and not (_bridge.settlements()[0] as Dictionary).has("religion"))
+	var run := rel.find_child("RunBelief", true, false) as Button
+	if run != null:
+		if _phone:
+			_ok("FH6 PHONE Run belief model is at least 44 px tall", run.size.y + 0.5 >= DccTheme.PHONE_TAP_MIN, "%.1f" % run.size.y)
+		run.pressed.emit()
+		await _frames(10)
+		rel = _pane("relations")
+		_ok("FH6 pressing Run belief model ran the existing consumer (settlements now carry a faith)",
+			(_bridge.settlements()[0] as Dictionary).has("religion"))
+		var total := 0
+		var counts := {}
+		for s2 in _bridge.settlements():
+			var sd: Dictionary = s2
+			if int(sd.get("faction", 0)) != fa:
+				continue
+			var ad: Dictionary = sd.get("adherents", {})
+			for k in ad.keys():
+				counts[k] = int(counts.get(k, 0)) + int(ad[k])
+				total += int(ad[k])
+		var comp := rel.find_child("FaithComposition", true, false) as Label
+		if total > 0:
+			var lead := ""
+			var lead_n := -1
+			for k in counts.keys():
+				if int(counts[k]) > lead_n or (int(counts[k]) == lead_n and String(k) < lead):
+					lead = String(k)
+					lead_n = int(counts[k])
+			_ok("FH6 the Faith composition names this faction's head-count and its leading faith",
+				comp != null and comp.text.begins_with("%s people" % _fr._thousands(total))
+				and comp.text.to_lower().contains("no religion" if lead == "none" else lead.capitalize().to_lower()),
+				"%s | total=%d lead=%s" % [comp.text if comp != null else "<none>", total, lead])
+		else:
+			_ok("FH6 a faction with no adherents says so with a dash", rel.find_child("FaithNone", true, false) != null)
+		await _shot("%s_relations_faith" % ("phone" if _phone else "desktop"))
+
+	# ------------------------------------------------- RF-03: roster change
+	var before := _named_like(_pane("relations"), "Relation_").size()
+	_fr._add_faction()
+	await _frames(8)
+	_fr.open(fa, "relations")
+	await _frames(8)
+	var after := _named_like(_pane("relations"), "Relation_").size()
+	_ok("FH6 RF-03: a new faction adds one pair to this tab (the cache follows _mark_data_stale)",
+		after == before + 1, "%d -> %d" % [before, after])
+	_fr._ensure_relations()
+	_fr._ensure_economy()
+	_fr._mark_data_stale()
+	_ok("FH6 RF-03: _mark_data_stale clears both caches' flags and payloads",
+		not _fr._relations_ready and _fr._relations.is_empty() and not _fr._economy_ready and _fr._economy_rows.is_empty())
+	_bridge.civ_remove_faction()
+	_fr._mark_data_stale()
+	_fr.open(fa, "relations")
+	await _frames(8)
+	_ok("FH6 fixture restored: the pair count is back", _named_like(_pane("relations"), "Relation_").size() == before)
+
+	# -------------------------------------------------------------- tariff edit refreshes the mention
+	_fr.open(fa, "economy")
+	await _frames(6)
+	await _press("relations")
+	await _press("economy")
+	_ok("FH6 precondition: Relations is built while Economy shows", _fr._tab_panes.has("relations"))
+	var tf := _pane("economy").find_child("Tariff_%d" % fb, true, false) as LineEdit
+	if tf != null:
+		tf.text = "25"
+		_fr._set_tariff(fb, "25", tf)
+		_ok("FH6 a tariff edit on Economy drops the built Relations pane", not _fr._tab_panes.has("relations"), str(_fr._tab_panes.keys()))
+		await _press("relations")
+		var cb2 := _pane("relations").find_child("Relation_%d" % fb, true, false)
+		var t2 := (cb2.find_child("RelationTariff", true, false) as Label).text if cb2 != null else "<none>"
+		_ok("FH6 ... and the rebuilt mention shows the new rate", t2.begins_with("Charges 25% on goods from"), t2)
+	else:
+		_ok("FH6 the Economy tab has the Tariff_<fb> field", false)
+
+	# -------------------------------------------------------------- phone
+	if _phone:
+		await _press("relations")
+		var small := _count(_pane("relations"), func(n): return n is Button and (n as Button).visible and (n as Button).size.y + 0.5 < DccTheme.PHONE_TAP_MIN)
+		_ok("FH6 PHONE every Relations button is at least 44 px tall", small == 0, "short=%d" % small)
+		_ok("FH6 PHONE one scroller and no TabContainer",
+			_count(_fr, func(n): return n is ScrollContainer) == 1 and _count(_fr, func(n): return n is TabContainer) == 0)
+
+	# restore the world
+	_bridge.civ_set_trade_tariff(fa, fb, old_ab)
+	_bridge.civ_set_trade_tariff(fb, fa, old_ba)
+	_fr.hide()
+	await _frames(2)
+	_fh6_done = true
+
+
+## A tariff fraction as the Relations mention prints it, derived here
+## independently of the tab: whole percentages bare, otherwise one decimal.
+func _pct_prose(rate: float) -> String:
+	if rate <= 0.0:
+		return "0"
+	var pct := rate * 100.0
+	return "%d" % int(round(pct)) if absf(pct - round(pct)) < 0.05 else "%.1f" % pct

@@ -21,9 +21,14 @@ class_name FactionRosterWindow
 ## The inspector used to be one long scroll of eight sections. It is now seven
 ## tabs over the selected faction -- Identity, Territory, Settlements,
 ## Economy, Military, Relations, History (`TAB_IDS`) -- and the sections moved
-## **unchanged**, only to the tab that owns them. Relations and History are
-## honest placeholders: nothing in the engine backs them yet, so they say so in
-## words and carry no control.
+## **unchanged**, only to the tab that owns them. History is an honest
+## placeholder: nothing in the engine backs it yet, so it says so in words and
+## carries no control. Economy and Relations were placeholders-in-part until
+## FH-6: Economy now opens on a read-only per-faction readout
+## (`_build_economy_readout`) and Relations lists the faction's derived pairs,
+## a read-only tariff mention per pair and the Faith group
+## (`_build_tab_relations`) -- still with no treaty, war or tariff-editing
+## control (tariffs are edited on Economy only, owner decision 3).
 ##
 ## **Lazy by tab.** Only the active tab is built, on its first show, and the two
 ## O(cells) engine passes now run on the tab that reads them
@@ -62,16 +67,13 @@ class_name FactionRosterWindow
 ## `civ_culture_terrain_fit` verdict over a real `civ_faction_aggregates`
 ## terrain mix), settlement count / population / territory km² / capital.
 ##
-## Not built, and said so in-window rather than only here: the reference's
-## **Power breakdown** (five axes) and **Economy** block (food production,
-## tax, trade, exports/imports, strategic resources, craft share). Both come
-## from `_civFactionAggregates`' resource- and density-fed half, and
-## `compute_civilisation` frees the resource rasters and never retains a
-## population-density field for this -- surfacing them means a memory
-## decision (`MEMORY_OPTIMIZATION_SCOPE.md`) and an `ECONOMY_SCOPE.md`
-## milestone, not a widget. **Diplomacy** has no model at all, in either
-## codebase; the reference's own inspector says "not yet implemented" there
-## and so does this.
+## Not built, and said so in-window rather than only here: the Power
+## breakdown's four non-military axes, tax and trade income and craft share
+## (`_civFactionAggregates`' economy half; `_build_gaps`). Food capacity and
+## surplus, exports, imports and strategic resources ARE drawn, on the Economy
+## tab, off `civ_faction_economy` (FH-6). **Diplomacy** has no model at all, in
+## either codebase; the reference's own inspector says "not yet implemented"
+## there and so does this (the Relations tab's one "Diplomacy: not built" line).
 ##
 ## ## Nothing draws this window; here is what it derives from instead
 ##
@@ -171,6 +173,25 @@ var _influence_ready := false
 ## The container the influence readout is (re)filled into, freed with its pane.
 var _influence_body: VBoxContainer = null
 
+## `civ_faction_economy()` for EVERY faction (FH-6, the Economy tab's readout).
+## Two full-grid passes on the engine side (its own doc), so it is fetched by
+## `_ensure_economy()` the first time the readout fills after a staleness and
+## cached across faction switches -- the answer is whole-world, only the row
+## differs. Dropped by `_mark_data_stale()`. `_economy_ready` is the "was it
+## fetched" flag because `[]` is also a real answer (a loaded save, or no
+## world) and must not be re-fetched on every tab show.
+var _economy_rows: Array = []
+var _economy_ready := false
+## `civ_faction_relations()` for every pair (FH-6, the Relations tab). O(cells)
+## on the engine side for the same reason, cached and dropped the same way.
+var _relations: Array = []
+var _relations_ready := false
+## The other party of the pair the hub was opened on (`open()`'s `pair_with`),
+## or `-1`. Set only by `open()` when it also landed on a faction, cleared by a
+## different faction pick and by a new world, so the Relations tab only ever
+## marks a pair the reader actually named. It is a highlight, never a filter.
+var _pair := -1
+
 ## The tab on screen. Deliberately a member that **survives `open()`**: an
 ## unknown or empty `tab` argument means "the last tab used this session", so
 ## reopening the hub after looking at Economy returns to Economy. The first
@@ -211,6 +232,15 @@ signal roster_changed
 ## held trade match -- true for currency and colour, false for a tariff, which
 ## changes real matched volume. This one re-runs the match when one is held.
 signal tariff_changed
+
+## Emitted when the Relations tab's Faith group asks for the belief model to be
+## run (FH-6). The hub never calls `civ_belief_run` itself: the run's status
+## (years, seeded) and its overlay refresh live in
+## `civilization_workspace.gd::_religion_run`, which is the one existing
+## consumer and which connects to this, so a run from here and a run from
+## Civilization > Religion are the same call with the same side effects. Emitted
+## only from the button, never from opening a tab.
+signal belief_run_requested
 
 
 func setup(a, b: EngineBridge) -> void:
@@ -378,6 +408,8 @@ func setup(a, b: EngineBridge) -> void:
 func _on_world_changed() -> void:
 	_mark_data_stale()
 	_selected = 1
+	## The marked pair named factions of the world that is gone (FH-6).
+	_pair = -1
 	_rebuild()
 
 
@@ -535,14 +567,22 @@ func _phone_bar_sub_text(d: Dictionary) -> String:
 ## tab that does not exist. A faction id and a tab id are independent, so
 ## either may be given alone.
 ##
+## `pair_with` (FH-6): the other party of a faction pair the caller was looking
+## at -- the Civilization > Relationships "Every pair" rows and the dock card's
+## "Open in Factions..." with a pair carried. The Relations tab marks that row.
+## Honoured only when `select_faction` also landed (a pair needs its first
+## party selected to mean anything) and only when it is a real faction id;
+## anything else clears the mark, so a bare reopen never inherits the last pair.
+##
 ## **Nothing O(cells) runs here any more.** Both engine passes used to be
 ## fetched on every open, in front of a window that might then be shown on
 ## Identity and never read either; they are now marked stale
 ## (`_mark_data_stale()`, so a roster that changed while the hub was hidden is
 ## re-read) and fetched by the tab that needs them.
-func open(select_faction: int = -1, tab: String = "") -> void:
+func open(select_faction: int = -1, tab: String = "", pair_with: int = -1) -> void:
 	_mark_data_stale()
 	var landed := select_faction > 0 and not _faction(select_faction).is_empty()
+	_pair = pair_with if (landed and pair_with > 0 and pair_with != select_faction) else -1
 	if landed:
 		## FR-02: flush a half-typed field against the faction it was typed for
 		## before `_selected` moves, in case the hub was already up with a field
@@ -718,6 +758,8 @@ func _rebuild_list() -> void:
 			## until `_rebuild_inspector()` frees it -- under the new id.
 			_commit_focused_field()
 			_selected = fid
+			## A pair marked for the previous faction is not this one's (FH-6).
+			_pair = -1
 			_rebuild_list()
 			_rebuild_inspector()
 			## Phone: the pick IS the navigation. Desktop leaves both panes up.
@@ -787,6 +829,7 @@ func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
 		"settlements":
 			_build_settlement_sublist(pane)
 		"economy":
+			_build_economy_readout(pane)
 			_build_currency(pane)
 			_build_tariffs(pane)
 			_build_gaps(pane)
@@ -839,19 +882,448 @@ func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	_default_type_choice(sec)
 
 
-## The Relations tab -- a placeholder, on purpose. The only relations model is
-## the derived per-pair table under Civilization ▸ Relationships; nothing about
-## a faction's own relations is stored, so there is nothing to edit here. It
-## says what exists and what does not, in words. **It must stay control-free
-## and treaty-free until a model backs it** (`FACTION_HUB_DESIGN.md`): a row
-## for a treaty that cannot be signed is a lie the shell would be telling.
+## The Relations tab (FH-6, `FACTION_HUB_DESIGN.md` §3.6): the pairs this
+## faction is a party to, the Faith group, and one honest line saying what is
+## not built.
+##
+## **Read-only by construction.** Standing is derived per call by
+## `cartalith_civ::relations` and stored nowhere, so there is nothing here to
+## edit; the tariff on each row is a MENTION, never a control (owner decision 3:
+## tariffs are edited on the Economy tab only, where the `Tariff_<id>` fields
+## live). **Must stay treaty-free and war-free until a model backs it** -- a
+## control for something the engine cannot do is a lie the shell would be
+## telling. Builds only this tab; the pair list is behind
+## `DccWidgets.fill_when_visible` because `civ_faction_relations()` is O(cells)
+## (`_ensure_relations()`).
 func _build_tab_relations(pane: VBoxContainer) -> void:
 	var sec := DccWidgets.section(pane, "Relations")
-	DccWidgets.note(sec,
-		"Not built in this window. Relations between factions are under Civilization ▸ "
-		+ "Relationships: a derived value per faction pair, recomputed rather than stored. "
-		+ "What is still absent anywhere is anything that acts -- treaties, vassalage, war "
-		+ "declarations, change over time.")
+	var body := VBoxContainer.new()
+	body.name = "RelationsBody"
+	body.add_theme_constant_override("separation", 6)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(body)
+	DccWidgets.fill_when_visible(body, _fill_relations_body.bind(body))
+	_build_faith_group(pane)
+	var dip := DccWidgets.section(pane, "Diplomacy")
+	var line := DccWidgets.note(dip,
+		"Diplomacy: not built. There are no treaties, alliances, vassalage or war "
+		+ "declarations to make, and nothing changes over time -- standing is a derived "
+		+ "reading of the world as it is, recomputed on every open and stored nowhere.")
+	line.name = "DiplomacyNotBuilt"
+
+
+## Fills the pair list from the cache. **Self-contained** (clears its own body
+## first), as `DccWidgets.fill_when_visible`'s contract requires, and reads the
+## engine only through `_ensure_relations()`.
+##
+## Rows are ordered by standing, highest first, with a pair whose standing is
+## unknown (no claim grid) last and ties broken by the other party's id so two
+## reads of one world draw the same order. The pair `_pair` names is marked,
+## never moved: the reader keeps their place in the list.
+func _fill_relations_body(body: VBoxContainer) -> void:
+	if not is_instance_valid(body):
+		return
+	_clear(body)
+	_ensure_relations()
+	if _selected <= 0:
+		DccWidgets.note(body, "Unclaimed is not a party to any relation: a relation needs two factions with a government.")
+		return
+	var mine: Array = []
+	for p in _relations:
+		var d: Dictionary = p
+		if int(d.get("a", -1)) == _selected or int(d.get("b", -1)) == _selected:
+			mine.append(d)
+	if mine.is_empty():
+		DccWidgets.note(body,
+			"No other faction to stand with or against. A relation needs two parties; add one with + Add faction.")
+		return
+	mine.sort_custom(func(x, y):
+		## -2.0 sits below the engine's own -1..1 range, so an unknown standing
+		## sorts last without being mistaken for a real value.
+		var vx := float(x.get("value", -2.0))
+		var vy := float(y.get("value", -2.0))
+		if vx != vy:
+			return vx > vy
+		return _other_party(x) < _other_party(y))
+	var claims_absent := false
+	for d in mine:
+		var other := _other_party(d)
+		var other_name := String(d.get("b_name", "?")) if int(d.get("a", -1)) == _selected \
+			else String(d.get("a_name", "?"))
+		if String(d.get("absent", "")) == "no_claim_grid":
+			claims_absent = true
+		_relation_card(body, d, other, other_name)
+	if claims_absent:
+		DccWidgets.note(body, NO_CLAIM_GRID)
+	DccWidgets.note(body,
+		"Derived, not simulated: shared culture, shared or opposed faith, what each side lacks "
+		+ "that the other exports, and friction along a shared border. Civilization ▸ "
+		+ "Relationships lists every pair.")
+	if _phone:
+		## The body is filled after the tab's own fit when the fill was deferred
+		## to first visibility, so the 44 px floor is applied here too
+		## (`phone_fit` is idempotent by meta).
+		app.phone_fit(body, 1.0)
+
+
+## The id of the party of `d` that is not the selected faction.
+func _other_party(d: Dictionary) -> int:
+	return int(d.get("b", -1)) if int(d.get("a", -1)) == _selected else int(d.get("a", -1))
+
+
+## One pair: swatch, name, standing score and stance chip (the Right dock's
+## Faction > Relations row, `right_dock.gd::_relation_row`, in the hub's idiom),
+## the four terms, and the read-only tariff mention with its link to Economy.
+##
+## Wording is the dock's and Civilization > Relationships': the stance word is
+## the engine's own (`FactionRelation::stance`, the band `stance_for()` puts
+## the score in), so this invents no label; the term weights 30/20/25 are
+## `cartalith_civ::relations`' own, as `right_dock.gd::_build_faction_relations`
+## prints them. A pair with no claim grid (`absent == "no_claim_grid"`) carries
+## no value or stance, so both read "—" and the unknown terms are named, never
+## zeroed (`MISTAKES.md`: never encode "no value" as a plausible value).
+##
+## The marked pair (`_pair`) is drawn on an accent-wash panel with the dock's
+## own "▸ " prefix; `set_meta("marked", true)` is for the probe.
+func _relation_card(parent: Control, d: Dictionary, other: int, other_name: String) -> void:
+	var marked := other == _pair
+	var absent := String(d.get("absent", "")) == "no_claim_grid"
+	var card := PanelContainer.new()
+	card.name = "Relation_%d" % other
+	card.set_meta("marked", marked)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if marked:
+		card.add_theme_stylebox_override("panel", DccWidgets.box("accent", "accent_wash", 8, 4))
+	else:
+		var sb := StyleBoxEmpty.new()
+		sb.content_margin_left = 8
+		sb.content_margin_right = 8
+		sb.content_margin_top = 4
+		sb.content_margin_bottom = 4
+		card.add_theme_stylebox_override("panel", sb)
+	parent.add_child(card)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 3)
+	card.add_child(v)
+
+	var terms_known := "culture %+d · faith %+d" % [
+		int(round(30.0 * float(d.get("culture_term", 0.0)))),
+		int(round(20.0 * float(d.get("religion_term", 0.0))))]
+	var terms: String
+	if absent:
+		terms = "%s · border, trade and rivalry unknown (no claim grid)" % terms_known
+	else:
+		terms = "Border %d cells (%d%% of the widest on this map) · %s · trade %+d · rivalry %d%%" % [
+			int(d.get("border_cells", 0)),
+			int(round(100.0 * float(d.get("border_fraction", 0.0)))),
+			terms_known,
+			int(round(25.0 * float(d.get("trade_term", 0.0)))),
+			int(round(100.0 * float(d.get("rivalry_term", 0.0))))]
+	card.tooltip_text = terms + ("" if absent else
+		". The stance label is just the standing score sorted into a named range, not a separate fact.")
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 9)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(head)
+	var other_row := _faction(other)
+	var sw := ColorRect.new()
+	sw.custom_minimum_size = Vector2(11, 11)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	## No roster row means no colour -- the dock's own inset rather than a
+	## plausible black (the dock's `_relation_row` does the same).
+	sw.color = _color_of(other_row) if not other_row.is_empty() else DccTheme.c("sunken")
+	head.add_child(sw)
+	var n := DccTheme.mono_label(("▸ %s" % other_name) if marked else other_name,
+		"accent" if marked else "text_secondary", DccTheme.FS_SMALL)
+	n.name = "RelationName"
+	n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	n.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	head.add_child(n)
+	var score := DccTheme.mono_label(
+		"—" if absent else "%+d" % int(round(100.0 * float(d.get("value", 0.0)))),
+		"text_ghost", DccTheme.FS_MICRO)
+	score.name = "RelationScore"
+	score.custom_minimum_size.x = 26
+	score.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	head.add_child(score)
+	if absent:
+		## No stance to draw: a chip reading "NEUTRAL" would be the plausible
+		## value an unknown standing must never become.
+		var dash := DccTheme.mono_label("—", "text_ghost", DccTheme.FS_MICRO)
+		dash.name = "RelationStance"
+		head.add_child(dash)
+	else:
+		var chip := _stance_chip(head, String(d.get("stance", "neutral")))
+		chip.name = "RelationStance"
+
+	var tl := DccWidgets.note(v, terms)
+	tl.name = "RelationTerms"
+
+	## The tariff mention. **Direction:** `civ_trade_tariff(importer, exporter)`
+	## is the rate the importer's customs levies on goods arriving from the
+	## exporter (`Tariff` is stored on the importer's row). So the selected
+	## faction's own rate -- "charges X on goods from B" -- is
+	## `civ_trade_tariff(_selected, other)`, and the other's rate on the selected
+	## faction's goods -- "B charges Y on yours" -- is `civ_trade_tariff(other,
+	## _selected)`. Read-only: the only editor is the Economy tab's `Tariff_<id>`.
+	var trow := HBoxContainer.new()
+	trow.add_theme_constant_override("separation", 8)
+	trow.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.add_child(trow)
+	var tt := DccWidgets.note(trow, _tariff_mention(
+		bridge.civ_trade_tariff(_selected, other), other_name,
+		bridge.civ_trade_tariff(other, _selected)))
+	tt.name = "RelationTariff"
+	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var link := DccWidgets.chip(trow, "Economy", func(): _select_tab("economy"))
+	link.name = "EconomyLink"
+	link.tooltip_text = "Tariffs are edited on this faction's Economy tab. Nothing is edited here."
+
+
+## "Charges X% on goods from B · B charges Y% on yours". `charges` is the
+## selected faction's own rate on the other's goods, `charged` the other's rate
+## on the selected faction's goods -- see `_relation_card` for which engine call
+## is which. A rate of 0 (or below) reads "0%": the engine's own encoding for
+## "no tariff" (`set_tariff`'s doc).
+static func _tariff_mention(charges: float, other_name: String, charged: float) -> String:
+	return "Charges %s%% on goods from %s · %s charges %s%% on yours" % [
+		_tariff_pct(charges), other_name, other_name, _tariff_pct(charged)]
+
+
+## A fraction `0..=1` as a percentage for prose: whole numbers without a
+## decimal point ("15"), anything else to one place ("12.5"), none as "0". Not
+## `_tariff_text()`, which is the edit field's text and keeps `String.num`'s
+## trailing ".0" ("15.0") that reads oddly mid-sentence.
+static func _tariff_pct(rate: float) -> String:
+	if rate <= 0.0:
+		return "0"
+	var pct := rate * 100.0
+	return "%d" % int(round(pct)) if absf(pct - round(pct)) < 0.05 else "%.1f" % pct
+
+
+## The pill the stance word sits in -- `right_dock.gd::_stance_chip`'s shape,
+## drawn from the dock's own `RightDock.STANCE_INK` table so the word-to-ink
+## mapping has one home. The word is the engine's; only the ink is decided there.
+func _stance_chip(parent: Control, stance: String) -> Label:
+	var ink := String(RightDock.STANCE_INK.get(stance, "text_dim"))
+	var bg := DccTheme.c("sunken")
+	if ink == "accent":
+		bg = DccTheme.c("accent_wash_2")
+	elif ink != "text_dim":
+		bg = Color(DccTheme.c(ink), 0.16)
+	var l := DccTheme.mono_label(stance.to_upper(), ink, DccTheme.FS_MICRO, 1)
+	var sb := DccTheme.flat(bg, 999)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	l.add_theme_stylebox_override("normal", sb)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	parent.add_child(l)
+	return l
+
+
+## The Faith group (FH-6): which faiths the people of THIS faction's settlements
+## hold, read off `bridge.settlements()` -- the same data path as Civilization >
+## Religion's BY FACTION rows (`civilization_workspace.gd::_religion_by_faction`
+## / `_religion_faction_row`), whose static formatters it reuses so a share
+## cannot print two ways.
+##
+## **Never runs the model.** The `religion` / `adherents` keys exist only after
+## `civ_belief_run` (`CivData::belief` is built on demand and not saved), so a
+## world nobody has run reads "not run" here, with the Run button the Religion
+## category also offers; opening this tab calls nothing heavy. The button emits
+## `belief_run_requested` and the workspace's `_religion_run` does the run, so
+## its status line and the overlay stay in step. A discarded layer (a settlement
+## or religion edit) looks identical to a never-run one from here -- the status
+## that tells them apart is the workspace's -- so the prose names both.
+##
+## Dashed with a reason, never zero: no settlements, and population 0, are two
+## different absences (`_religion_faction_row`).
+func _build_faith_group(pane: VBoxContainer) -> void:
+	var sec := DccWidgets.section(pane, "Faith")
+	sec.name = "FaithBody"
+	var places := bridge.settlements()
+	var mine: Array = []
+	var any_key := false
+	for p in places:
+		var d: Dictionary = p
+		if d.has("religion"):
+			any_key = true
+		if int(d.get("faction", 0)) == _selected:
+			mine.append(d)
+	var row := _faction(_selected)
+	var state_rel := String(row.get("religion", "")).strip_edges()
+	var head := DccWidgets.note(sec, "%s — state religion %s · %d settlement%s" % [
+		String(row.get("name", "?")),
+		"—" if state_rel.is_empty() else CivilizationWorkspace._religion_label(state_rel),
+		mine.size(), "" if mine.size() == 1 else "s"])
+	head.name = "FaithHead"
+
+	if not bridge.has_belief_api():
+		DccWidgets.note(sec,
+			"This build's engine has no belief-model binding, so there is no per-faith readout. "
+			+ "Rebuild the native library before treating it as a missing feature.")
+		return
+	if places.is_empty():
+		DccWidgets.note(sec, "No settlements -- generate a world first.")
+		return
+	if not any_key:
+		var nr := DccWidgets.note(sec,
+			"The belief model has not been run in this world, or its last run was discarded when "
+			+ "a settlement, faction or religion changed. It is built on demand and not saved; "
+			+ "running it is deterministic, so the same world reproduces the same adherence.")
+		nr.name = "FaithNotRun"
+		_faith_run_button(sec)
+		return
+
+	var counts := {}
+	var counted := 0
+	for d in mine:
+		if int((d as Dictionary).get("population", 0)) > 0:
+			counted += 1
+		var ad: Dictionary = (d as Dictionary).get("adherents", {})
+		for k in ad.keys():
+			counts[k] = int(counts.get(k, 0)) + int(ad[k])
+	var total := 0
+	for k in counts.keys():
+		total += int(counts[k])
+	if mine.is_empty():
+		DccWidgets.note(sec, "— no settlements, so no population to hold a faith").name = "FaithNone"
+	elif total == 0:
+		DccWidgets.note(sec, "— no adherents to count (population 0); the shares exist, the head-counts round to nobody").name = "FaithNone"
+	else:
+		var parts := PackedStringArray()
+		for r in CivilizationWorkspace._religion_sorted(counts):
+			parts.append("%s %s %s" % [CivilizationWorkspace._religion_swatch_glyph(r[1]),
+				CivilizationWorkspace._religion_label(r[1]),
+				CivilizationWorkspace._religion_pct(r[0], total)])
+		var comp := DccWidgets.note(sec, "%s people · %s" % [_thousands(total), " · ".join(parts)])
+		comp.name = "FaithComposition"
+		if counted < mine.size():
+			DccWidgets.note(sec, "— from %d of its %d settlements; the other %d have no population to count"
+				% [counted, mine.size(), mine.size() - counted])
+		var lead := CivilizationWorkspace._religion_faction_plurality(counts)
+		if not state_rel.is_empty() and lead != state_rel:
+			DccWidgets.note(sec, "Its state religion is %s; %s leads its people."
+				% [CivilizationWorkspace._religion_label(state_rel), CivilizationWorkspace._religion_label(lead)])
+	_faith_run_button(sec)
+
+
+## The Faith group's one action. Present whenever the model can be run, because
+## a second press continues a live run (the Religion category's own tooltip).
+## Emits `belief_run_requested` -- the run itself is the workspace's -- then
+## rebuilds this tab so the readout shows the result. FR-02: the focused field
+## is committed first; the rebuild goes through `_drop_panes()`'s guard.
+func _faith_run_button(sec: Control) -> void:
+	var run := DccWidgets.action(sec, "Run belief model", func():
+		_commit_focused_field()
+		belief_run_requested.emit()
+		_drop_panes()
+		_show_active_tab())
+	run.name = "RunBelief"
+	run.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	run.tooltip_text = "Seeds the faith layer from the faction roster if it is missing or stale, then runs the Civilization > Religion category's year count (default 50). A second press continues rather than restarting. Nothing is written to the save file."
+
+
+# -- Economy tab: the per-faction readout (FH-6) ------------------------------
+
+## The Economy tab's top block: this faction's food, surplus, strategic
+## resources, exports and imports, from `civ_faction_economy()` -- the same row
+## Civilization > Economy > By faction draws, filtered to the selection, in its
+## wording. Read-only; Currency and Tariffs below it are unchanged.
+##
+## The body is behind `DccWidgets.fill_when_visible` (the call is O(cells), see
+## `_ensure_economy()`) and the "Trade flows" link closes the modal on the way,
+## the same shape the Military and Settlements links use -- leaving a roster
+## window open over the category it just sent the reader to would hide it.
+func _build_economy_readout(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Economy")
+	var body := VBoxContainer.new()
+	body.name = "EconomyReadout"
+	body.add_theme_constant_override("separation", 2)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(body)
+	DccWidgets.fill_when_visible(body, _fill_economy_readout.bind(body))
+	var go := DccWidgets.action(sec, "Trade flows →", func():
+		hide()
+		app.select_domain_category("civilization", "Economy"))
+	go.name = "TradeFlowsLink"
+	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	go.tooltip_text = "Closes this window and opens Civilization ▸ Economy, where the trade match and every faction's flows are."
+
+
+## Fills `EconomyReadout` from the cache; self-contained (clears first). With no
+## claim grid the engine omits every claimed-cell figure (`absent` ==
+## `"no_claim_grid"`), so only the population is given and the rest is dashed
+## with `NO_CLAIM_GRID` -- never a zero a reader would take for an answer.
+func _fill_economy_readout(body: VBoxContainer) -> void:
+	if not is_instance_valid(body):
+		return
+	_clear(body)
+	_ensure_economy()
+	var row := {}
+	for r in _economy_rows:
+		if int((r as Dictionary).get("faction", -1)) == _selected:
+			row = r
+	if row.is_empty():
+		DccWidgets.note(body,
+			"—   The engine has no economy figures for this faction: Unclaimed has none, and there are "
+			+ "none before a world is generated or for a project opened without its civilisation layer.")
+		return
+	if String(row.get("absent", "")) == "no_claim_grid":
+		DccWidgets.note(body, "%s people. Territory, food and resources: —" % _thousands(int(float(row.get("pop", 0.0))))).name = "EconomyFigures"
+		DccWidgets.note(body, NO_CLAIM_GRID)
+		return
+	var surplus := float(row.get("food_surplus", 0.0))
+	## The sign is the whole point of the pair, so it is said in words rather
+	## than left as a leading minus (`_fill_faction_economy`'s own reasoning).
+	var verdict := "feeds itself with %s to spare" % _thousands(int(surplus))
+	if surplus < 0.0:
+		verdict = "short by %s" % _thousands(int(-surplus))
+	var fig := DccWidgets.note(body, "%s, %s people · food capacity %s · %s." % [
+		DccUnits.format_area(float(row.get("territory_km2", 0.0))),
+		_thousands(int(float(row.get("pop", 0.0)))),
+		_thousands(int(float(row.get("food_capacity", 0.0)))), verdict])
+	fig.name = "EconomyFigures"
+	var strat := _join_keys(row.get("strategic", []))
+	var ex := _join_keys(row.get("exports", []))
+	var im := _join_keys(row.get("imports", []))
+	var res := DccWidgets.note(body, "Strategic: %s.  Exports: %s.  Imports: %s." % [
+		"none" if strat.is_empty() else strat, "none" if ex.is_empty() else ex,
+		"none" if im.is_empty() else im])
+	res.name = "EconomyResources"
+	if _phone:
+		app.phone_fit(body, 1.0)
+
+
+## `PackedStringArray` or `Array` of keys -> "a, b, c" (empty string when none).
+## The engine hands a `PackedStringArray`; the `[]` default is a plain `Array`,
+## so both shapes arrive and a loop is the one form that takes either.
+static func _join_keys(v: Variant) -> String:
+	var out := PackedStringArray()
+	for k in v:
+		out.append(String(k))
+	return ", ".join(out)
+
+
+## Fetches `civ_faction_economy()` once per staleness. O(cells): one pass over
+## the claim grid per call. Only the Economy tab asks.
+func _ensure_economy() -> void:
+	if _economy_ready:
+		return
+	_economy_rows = bridge.civ_faction_economy()
+	_economy_ready = true
+
+
+## Fetches `civ_faction_relations()` once per staleness. O(cells): shared border
+## lengths come from a walk of the claim grid. Only the Relations tab asks.
+func _ensure_relations() -> void:
+	if _relations_ready:
+		return
+	_relations = bridge.civ_faction_relations()
+	_relations_ready = true
 
 
 ## The History tab -- a placeholder, on purpose, for the same reason as
@@ -972,13 +1444,21 @@ func _drop_panes(keep: String = "") -> void:
 	_rebuilding = was
 
 
-## Marks both O(cells) caches stale so the next tab that reads one re-fetches.
-## Cheap by construction -- it fetches nothing.
+## Marks every O(cells) cache stale so the next tab that reads one re-fetches.
+## Cheap by construction -- it fetches nothing. FH-6 added the Economy readout's
+## and the Relations list's caches (RF-03: a visible-tab refresh after a roster,
+## culture or world change must not draw the previous answer); they are cleared
+## the way `_influence` is, flag and payload together, so a stale payload cannot
+## outlive its flag.
 func _mark_data_stale() -> void:
 	_fits_ready = false
 	_military_ready = false
 	_influence_ready = false
 	_influence = {}
+	_economy_ready = false
+	_economy_rows = []
+	_relations_ready = false
+	_relations = []
 
 
 ## Fetches `civ_faction_terrain_fits()` once per staleness. O(cells): it
@@ -1576,6 +2056,13 @@ func _set_tariff(exporter_id: int, value: String, le: LineEdit) -> void:
 	var after := bridge.civ_trade_tariff(_selected, exporter_id)
 	if is_instance_valid(le):
 		le.text = _tariff_text(after)
+	## FH-6: the Relations tab MENTIONS this rate on each pair row, read live
+	## when that tab is built. A built-but-hidden Relations pane would keep the
+	## pre-edit number, so every other pane is dropped to rebuild on its next
+	## show (the visible Economy pane keeps its focused field). Nothing cached
+	## depends on a tariff -- `relations` and the economy rows do not read it --
+	## so no cache is marked stale.
+	_drop_panes(_tab)
 	tariff_changed.emit()
 
 static func _tariff_display(rate: float) -> String:
@@ -1941,9 +2428,9 @@ func _build_gaps(parent: Control) -> void:
 	DccWidgets.note(sec,
 		"Not shown in this window: the Power breakdown's four remaining axes (economic, "
 		+ "political, cultural, religious), tax income, trade income and craft share. The "
-		+ "military axis and the manpower model are live, on the Military tab. A faction's food "
-		+ "capacity and surplus, exports, imports and strategic resources are under Civilization "
-		+ "▸ Economy ▸ By faction.")
+		+ "military axis and the manpower model are live, on the Military tab; a faction's food, "
+		+ "surplus, exports, imports and strategic resources are on the Economy tab; its "
+		+ "standing with each other faction is on the Relations tab.")
 
 
 # -- Roster mutation --------------------------------------------------------
@@ -2004,6 +2491,14 @@ func _set_field(key: String, value: String) -> void:
 		## it used to keep showing the pre-edit numbers until the hub was reopened.
 		## The visible Identity pane keeps its focused control; only the other,
 		## hidden panes are dropped, to be rebuilt on their next show.
+		_mark_data_stale()
+		_drop_panes(_tab)
+	elif key == "religion":
+		## FH-6: the Relations tab's Faith group names the state religion and
+		## the pair rows' faith term (`religion_term`) is a function of it, so a
+		## hidden, already-built Relations pane would keep the pre-edit answer.
+		## Same shape as the government branch above: caches stale, other panes
+		## dropped, the visible Identity pane (and its focus) kept.
 		_mark_data_stale()
 		_drop_panes(_tab)
 	elif key == "name":

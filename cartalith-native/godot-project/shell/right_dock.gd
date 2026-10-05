@@ -1014,12 +1014,12 @@ func show_river(entity: Dictionary) -> void:
 ## row actually named, and pressing a different row always changes something,
 ## because the marked pair is part of what is drawn.
 ##
-## **FH-1 (`FACTION_HUB_DESIGN.md` §4) moved Military rows away from here,
-## but not the Relationships pair rows:** CIVIL ▸ Relationships ▸ Every pair
-## still calls `show_faction(a, other)`, because the hub's Relations tab is a
-## placeholder until FH-6 and a hub route would drop the pair. FH-6 re-routes
-## them. The card's own "Open in Factions…" action opens Relations when
-## `pair_with` is set.
+## **FH-1 (`FACTION_HUB_DESIGN.md` §4) moved Military rows away from here and
+## FH-6 moved the Relationships pair rows after them**: CIVIL ▸ Relationships ▸
+## Every pair now opens the hub's Relations tab with the other party marked
+## (`open_faction_roster(a, "relations", other)`). `pair_with` stays for the
+## callers that still address this card -- the map context card -- and the
+## card's own "Open in Factions…" action forwards it to the hub.
 func show_faction(faction_id: int, pair_with: int = -1) -> void:
 	_context = CTX_FACTION
 	_faction_id = faction_id
@@ -3405,17 +3405,19 @@ func _build_faction(body: Control) -> void:
 	## FH-1 (`FACTION_HUB_DESIGN.md` §4): this card is now a thin entry point,
 	## and the one door from it into the Factions hub. It lands on
 	## **Identity**, or on **Relations** when the card was opened naming a pair
-	## (`_faction_pair >= 0`, `show_faction`'s `pair_with`, which the
-	## Relationships pair rows still pass until FH-6) -- the pair is what that
-	## caller was looking at. `app` is this file's own reference
-	## (`Politics`/`Economy` below call through it too), so no new dependency.
+	## (`_faction_pair >= 0`, `show_faction`'s `pair_with`) -- the pair is what
+	## that caller was looking at, and FH-6 carries it into the hub as the third
+	## argument so the Relations tab marks the same row this card marks.
+	## `app` is this file's own reference (`Politics`/`Economy` below call
+	## through it too), so no new dependency.
 	## Always passes `_faction_id`: a bare open would land on the hub's
 	## last-selected faction, not the one this card is headed by. Drawn even when
 	## `roster` is empty: the hub's own roster handles an unknown id ("ignored,
 	## not clamped") and is the way to add a faction.
 	var open_actions := DccWidgets.group(sec, "Actions")
 	DccWidgets.action(open_actions, "Open in Factions…", func() -> void:
-		app.open_faction_roster(_faction_id, "relations" if _faction_pair >= 0 else "identity"))
+		app.open_faction_roster(_faction_id,
+			"relations" if _faction_pair >= 0 else "identity", _faction_pair))
 	_build_faction_relations(body)
 
 ## `GUI_GAP_REGISTER.md` **RL-01**. Every relation this faction is a party to,

@@ -407,6 +407,10 @@ func _build() -> void:
 	app.place_editor_window.polity_moved.connect(_on_polity_moved)
 	app.faction_roster_window.roster_changed.connect(_on_roster_changed)
 	app.faction_roster_window.tariff_changed.connect(_on_tariff_changed)
+	## FH-6: the hub's Faith group has a "Run belief model" button. The run is
+	## THIS workspace's (`_religion_status` and the overlay live here), so the
+	## hub only asks and the one existing consumer does it.
+	app.faction_roster_window.belief_run_requested.connect(_religion_run)
 
 	## `GUI_GAP_REGISTER.md` RF-01. Everything above ran ONCE, at launch, from
 	## `app.gd`'s `_register_workspaces` -- before any world exists -- so every
@@ -7132,13 +7136,15 @@ func _fill_relationships(parent: Control) -> void:
 			## were a press with no visible effect anywhere (5 of 15 rows on a
 			## real six-faction world). `_build_faction_relations` draws the
 			## marked pair.
-			## **Deliberately NOT routed to the hub by FH-1**
-			## (`FACTION_HUB_DESIGN.md` §4 listed it; the coordinator's review
-			## reversed that): the hub takes one faction id and its Relations
-			## tab is a placeholder until FH-6, so a hub route would drop the
-			## pair and send the reader to a tab that points back here. FH-6
-			## re-routes these two callbacks to the hub once that tab carries a
-			## pair list to mark `other` in.
+			## **FH-6: routed to the Factions hub, Relations tab.** These two
+			## callbacks used to call `show_faction(a, other)` on the right dock,
+			## because the hub's Relations tab was a placeholder and a hub route
+			## would have dropped the pair (FH-1's reversal of the design's section 4).
+			## The tab now lists this faction's pairs and marks the row of the
+			## second party, so `open_faction_roster(a, "relations", other)`
+			## carries what RL-01 fixed: the pair, not one side of it. The dock's own
+			## Relations section still marks a carried pair when something else
+			## calls `show_faction(a, other)` (the context card does).
 			var other := int(d.get("b", 0))
 			## `civ_faction_relations`' own doc: with no claim grid the border,
 			## trade and rivalry terms -- and the value/stance built from them --
@@ -7148,10 +7154,10 @@ func _fill_relationships(parent: Control) -> void:
 				claims_absent = true
 				var ab := DccWidgets.action(list, "%s ↔ %s -- standing —" % [
 					String(d.get("a_name", "?")), String(d.get("b_name", "?"))],
-					func(): app.right_dock_ctrl.show_faction(a, other))
+					func(): app.open_faction_roster(a, "relations", other))
 				ab.alignment = HORIZONTAL_ALIGNMENT_LEFT
 				ab.tooltip_text = ("culture %+d · faith %+d · border, trade and rivalry unknown (no claim grid). "
-					+ "Opens %s in the right dock, with %s marked among its relations.") % [
+					+ "Opens %s in the Factions window on its Relations tab, with %s marked.") % [
 					int(round(30.0 * float(d.get("culture_term", 0.0)))),
 					int(round(20.0 * float(d.get("religion_term", 0.0)))),
 					String(d.get("a_name", "?")), String(d.get("b_name", "?"))]
@@ -7160,14 +7166,14 @@ func _fill_relationships(parent: Control) -> void:
 				String(d.get("a_name", "?")), String(d.get("b_name", "?")),
 				String(d.get("stance", "neutral")),
 				int(round(100.0 * float(d.get("value", 0.0))))],
-				func(): app.right_dock_ctrl.show_faction(a, other))
+				func(): app.open_faction_roster(a, "relations", other))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = ("Border %d cells (%d%% of the widest on this map) · "
 				+ "culture %+d · faith %+d · trade %+d · rivalry %d%%. "
 				## RL-01: this used to read "Opens %s in the right dock" with
 				## `a_name`, which was true and was the defect -- the row names
-				## a pair. It opens both now, and says so.
-				+ "Opens %s in the right dock, with %s marked among its relations.") % [
+				## a pair. It names both, and FH-6 sends it to the hub.
+				+ "Opens %s in the Factions window on its Relations tab, with %s marked.") % [
 				int(d.get("border_cells", 0)),
 				int(round(100.0 * float(d.get("border_fraction", 0.0)))),
 				int(round(30.0 * float(d.get("culture_term", 0.0)))),

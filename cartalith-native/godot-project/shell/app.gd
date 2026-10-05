@@ -4134,8 +4134,12 @@ func open_place_editor(index: int) -> void:
 ## "the tab last used this session, else identity". It is only passed through
 ## here -- the window owns the validation, so a caller can never leave the hub
 ## on a tab that does not exist.
-func open_faction_roster(faction: int = -1, tab: String = "") -> void:
-	faction_roster_window.open(faction, tab)
+## `pair_with` (FH-6) is the OTHER party of a pair the caller was looking at --
+## the Civilization > Relationships "Every pair" rows and the dock card's
+## "Open in Factions..." pass it so the Relations tab can mark that row. `-1`
+## means no pair; the window ignores it unless `faction` landed.
+func open_faction_roster(faction: int = -1, tab: String = "", pair_with: int = -1) -> void:
+	faction_roster_window.open(faction, tab, pair_with)
 
 ## "Claim cells for this faction": arms the Territory tool with `fid` picked, by
 ## running the CIVIL workspace's `claim_for_faction` -- the SAME handler the map

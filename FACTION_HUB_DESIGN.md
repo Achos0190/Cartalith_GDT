@@ -280,7 +280,7 @@ and the dock buttons) keep working unchanged.
 | Right-dock Settlement ▸ "Politics" | `show_faction(faction)` (dock card) | unchanged (dock card, then the action above) |
 | Search scope `f` | pans the map to the capital (`place_search.gd` row carries `x`,`y`,`entity`,`id`) | unchanged in FH-1; a faction row's secondary activation (Shift+Enter / long-press) opening `(id,"identity")` is an FH-9 option. A faction with no settlements has no row today (documented decline in `place_search.gd`) and the hub is how to reach it |
 | Military ▸ Faction strength rows | `show_faction(f)` | `open_faction_roster(f, "military")` |
-| Relationships ▸ Every pair rows | `show_faction(a, other)` | **FH-1 left these on `show_faction(a, other)`** (the hub's Relations tab is a placeholder until FH-6 and would drop the pair's second party); **FH-6** re-routes them to `open_faction_roster(a, "relations")` once the tab lists pairs and can mark `other` |
+| Relationships ▸ Every pair rows | `show_faction(a, other)` | **FH-6 re-routed them** to `open_faction_roster(a, "relations", other)`: the Relations tab lists this faction's pairs and marks `other` (FH-1 had left them on `show_faction(a, other)` while the tab was a placeholder) |
 | Culture category "Which faction has which culture →" | `app.open_culture_profiles()` | `open_faction_roster(-1, "identity")` |
 | Cartography ▸ Feature style ▸ Territories "Faction identity colours" | `select_domain_category("civilization","Factions")` | `open_faction_roster(-1, "identity")` |
 | Roster window's own "Full breakdown → Civilization ▸ Military" | closes window, selects category | unchanged |

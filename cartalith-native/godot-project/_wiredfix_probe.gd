@@ -179,44 +179,60 @@ func _ready() -> void:
 		_p("%d pair rows" % pair_rows.size())
 		if pair_rows.size() < 3:
 			_bad("expected several pair rows, found %d" % pair_rows.size())
-		## The exact failure that was measured: press every row in list order
-		## and assert the dock text moves on EVERY one, including the runs of
-		## rows that share a left-hand faction.
+		## **Retargeted by FH-6.** Protects: RL-01's fix -- a Relationships pair
+		## row opens BOTH parties, never one side of the pair (measured: 5 of 15
+		## rows were a press with no visible effect). The rows no longer drive
+		## the right dock; they open the Factions hub on its Relations tab with
+		## the second party marked, so the same two assertions are made against
+		## the hub: every row changes what the hub draws (including runs of
+		## rows sharing a left-hand faction), and the clicked pair is marked.
+		var hub: Node = _app.faction_roster_window
 		var dead := 0
 		var prev := ""
 		for b in pair_rows:
 			(b as Button).pressed.emit()
 			await _frames(6)
-			var dock := _texts(_app.right_dock_body)
-			if dock == prev:
+			var fp := "%d|%d|%s" % [int(hub.get("_selected")), int(hub.get("_pair")), String(hub.get("_tab"))]
+			if fp == prev:
 				dead += 1
 				_p("   DEAD  %s" % (b as Button).text)
-			prev = dock
+			prev = fp
+			## Closed between presses: the hub is exclusive, so a real user cannot
+			## press a second row while it is up; leaving it up made the engine log
+			## an exclusive-child error per press. (The first press still logs one,
+			## because a ConfirmationDialog left up by the earlier MN-10 step holds
+			## the exclusive slot -- a probe artefact, not a product fault.)
+			hub.hide()
 		if dead > 0:
-			_bad("%d of %d pair rows changed the right dock not at all" % [dead, pair_rows.size()])
+			_bad("%d of %d pair rows changed the Factions hub not at all" % [dead, pair_rows.size()])
 		else:
-			_p("PASS  all %d pair rows moved the dock" % pair_rows.size())
+			_p("PASS  all %d pair rows moved the hub" % pair_rows.size())
 
-		## And the dock really draws the pair, not just the one side.
+		## And the hub really draws the pair, not just the one side.
 		var first := pair_rows[0] as Button
 		first.pressed.emit()
 		await _frames(6)
-		var dock_txt := _texts(_app.right_dock_body)
+		var hub_txt := _texts(hub)
 		## "Aurelia ↔ Korrath -- wary (-22)" -> both names must appear.
 		var lhs := first.text.split(" ↔ ")[0].strip_edges()
 		var rhs := first.text.split(" ↔ ")[1].split(" -- ")[0].strip_edges()
 		_p("row '%s': lhs=%s rhs=%s" % [first.text, lhs, rhs])
-		if dock_txt.find("RELATIONS") < 0:
-			_bad("the faction dock has no Relations section")
-		if dock_txt.find(rhs) < 0:
-			_bad("the dock never names the other party '%s'" % rhs)
-		if dock_txt.find("▸ %s" % rhs) < 0:
-			_bad("the clicked pair is not marked in the dock")
+		if String(hub.get("_tab")) != "relations":
+			_bad("the pair row did not land the hub on its Relations tab (tab=%s)" % String(hub.get("_tab")))
+		if hub_txt.find("Relations") < 0:
+			_bad("the hub has no Relations section")
+		if hub_txt.find(rhs) < 0:
+			_bad("the hub never names the other party '%s'" % rhs)
+		if hub_txt.find("▸ %s" % rhs) < 0:
+			_bad("the clicked pair is not marked in the hub")
 		else:
-			_p("PASS  the dock marks '▸ %s' among %s's relations" % [rhs, lhs])
-		for line in dock_txt.split("\n"):
+			_p("PASS  the hub marks '▸ %s' among %s's relations" % [rhs, lhs])
+		for line in hub_txt.split("
+"):
 			if String(line).find(rhs) >= 0 or String(line).find("Relations") >= 0:
-				_p("   dock> %s" % line)
+				_p("   hub> %s" % line)
+		hub.hide()
+		await _frames(4)
 
 	# ================================================================= CA-20
 	_p("=== CA-20 : CARTO ▸ Clear all labels / icons ===")
