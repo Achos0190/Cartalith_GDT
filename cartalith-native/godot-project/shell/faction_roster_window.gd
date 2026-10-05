@@ -29,6 +29,10 @@ class_name FactionRosterWindow
 ## a read-only tariff mention per pair and the Faith group
 ## (`_build_tab_relations`) -- still with no treaty, war or tariff-editing
 ## control (tariffs are edited on Economy only, owner decision 3).
+## FH-7 completes Military: the figures, then the faction's garrisons
+## (`_build_garrison_block`, one row per place, capped, opening the Place editor)
+## and the conflicts it is a side of (`_build_conflicts_block`, rows opening the
+## right dock's Conflict context -- sides are edited THERE, never here).
 ##
 ## **Lazy by tab.** Only the active tab is built, on its first show, and the two
 ## O(cells) engine passes now run on the tab that reads them
@@ -2324,8 +2328,25 @@ func _military_row(faction_id: int) -> Dictionary:
 			return r
 	return {}
 
+## The Military tab (FH-7): the faction's figures (`_build_military_figures`,
+## unchanged since FH-0), then its garrisons (`_build_garrison_block`) and the
+## conflicts it is a side of (`_build_conflicts_block`). The two new blocks are
+## built even when the figures section is withheld (no `civ_military_summary()`
+## row, or no claim grid): the conflicts list does not read the manpower model at
+## all, and the garrison block says on screen why it has nothing to rank.
+## Never builds anything O(cells) beyond `_ensure_military()`'s one cached call.
 func _build_military_block(parent: Control) -> void:
 	_ensure_military()
+	_build_military_figures(parent)
+	_build_garrison_block(parent)
+	_build_conflicts_block(parent)
+
+
+## The original Military section: power, fortification counts, the four
+## headcounts, the era verdict and the "Full breakdown" navigation. Split out of
+## `_build_military_block` so its early returns (no row; no claim grid) end only
+## this section and cannot swallow the FH-7 blocks below it.
+func _build_military_figures(parent: Control) -> void:
 	var row := _military_row(_selected)
 	if row.is_empty():
 		return
@@ -2382,6 +2403,188 @@ func _build_military_block(parent: Control) -> void:
 			hide()
 			app.select_domain_category("civilization", "Military"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
+## The most places the garrison list draws for one faction (FH-7). A labelled
+## judgement, not a measurement: the list is one `Button` per place, and a faction
+## on a large world can hold hundreds of settlements, which would build hundreds of
+## nodes on a window that must stay light to open (`FACTION_HUB_DESIGN.md` §8).
+## 40 is a labelled judgement of what a person scans in one sitting; it is NOT enough
+## to show every place on this project's probe world, where the largest faction holds
+## 81 settlements (measured, 2026-10-05), so the truncation line is the common case
+## there, not a corner. When the faction has more, the block says so on screen and
+## gives the true count; it never truncates silently.
+const GARRISON_ROW_CAP := 40
+
+
+## The cap in force. A member only so that `_factionhub_probe.gd` can lower it to
+## exercise the truncation line with a small cap on any world;
+## nothing in the shell writes it.
+var _garrison_cap := GARRISON_ROW_CAP
+
+
+## Orders garrison rows: the largest garrison first, a place with no garrison
+## figure after every place that has one, ties by population. A named static
+## because a GDScript lambda cannot wrap and `sort_custom` wants a callable.
+## Must never treat an absent `garrison` as 0 (`MISTAKES.md`): absent sorts last
+## and is drawn as a dash, so a place the engine could not give a figure for does
+## not look like one that has a garrison of nothing.
+static func _by_garrison_then_pop(x: Dictionary, y: Dictionary) -> bool:
+	var xh := x.has("garrison")
+	var yh := y.has("garrison")
+	if xh != yh:
+		return xh
+	if xh and int(x["garrison"]) != int(y["garrison"]):
+		return int(x["garrison"]) > int(y["garrison"])
+	return int(x.get("pop", 0)) > int(y.get("pop", 0))
+
+
+## This faction's rows of `civ_military_summary()`'s `settlements` array, in the
+## order `_by_garrison_then_pop` gives. Pure over its arguments (the probe calls it
+## with a fixture) and never touches the engine.
+static func _garrison_places(places: Array, fid: int) -> Array:
+	var mine: Array = []
+	for p in places:
+		if int((p as Dictionary).get("faction", 0)) == fid:
+			mine.append(p)
+	mine.sort_custom(_by_garrison_then_pop)
+	return mine
+
+
+## "Garrison and fortification strength of this faction's places" (FH-7,
+## `FACTION_HUB_DESIGN.md` §3.5): the per-faction cut of Civilization > Military >
+## Garrisons (`civilization_workspace.gd::_fill_garrisons`) with each place's wall
+## and defensibility (that category's Fortifications section) beside its garrison.
+##
+## **Same data path, no new call.** The rows come out of `_military` -- the one
+## cached `civ_military_summary()` the figures above already fetched -- so this
+## adds no engine pass and no per-settlement call. That summary is the LIVE
+## reading ("the world as it stands"); the Military category reads the same split
+## at the Timeline cursor's year, which differs only once a year is recorded. The
+## block says which it is, rather than letting the two be mistaken for one another.
+##
+## Each row opens the Place editor for that settlement, the way the Settlements
+## sublist's rows do (`_open_place`). At most `GARRISON_ROW_CAP` rows are drawn and
+## the truncation is stated. With no claim grid the engine splits no army (every
+## place lacks a `garrison`), so the rows show a dash and `NO_CLAIM_GRID` says why.
+func _build_garrison_block(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Garrisons and fortifications")
+	sec.name = "GarrisonBlock"
+	var frow := _military_row(_selected)
+	var mine := _garrison_places(_military.get("settlements", []) as Array, _selected)
+	if mine.is_empty():
+		DccWidgets.note(sec, "—   No settlements to garrison: this faction holds none, or no world has been generated.").name = "GarrisonNote"
+		return
+	var no_grid := String(frow.get("absent", "")) == "no_claim_grid"
+	var head := "%d places." % mine.size()
+	if frow.has("garrison_total"):
+		head = "%d places, %s in garrison (its whole standing army, split across them)." % [
+			mine.size(), _thousands(int(frow["garrison_total"]))]
+	DccWidgets.note(sec, head + " Where the standing army is quartered when no campaign runs, by population, walls, capital and border exposure -- the world as it stands. Civilization ▸ Military shows the same split at the Timeline year.").name = "GarrisonNote"
+	if no_grid:
+		DccWidgets.note(sec, "Garrison: —   " + NO_CLAIM_GRID).name = "GarrisonAbsent"
+	elif not frow.has("garrison_total"):
+		DccWidgets.note(sec, "Garrison: —   This faction's standing army could not be split (no settlement with a population).").name = "GarrisonAbsent"
+	var shown := mine.size() if mine.size() <= _garrison_cap else _garrison_cap
+	for i in shown:
+		var pd: Dictionary = mine[i]
+		var idx := int(pd["index"]) if pd.has("index") else -1
+		var gtxt := "—"
+		if pd.has("garrison"):
+			gtxt = "%s (%.0f%%)" % [_thousands(int(pd["garrison"])), 100.0 * float(pd.get("garrison_share", 0.0))]
+		var b := DccWidgets.action(sec, "%s -- garrison %s · %s wall · defence %.2f" % [
+			String(pd.get("name", "?")), gtxt, String(pd.get("wall_spec", "none")),
+			float(pd.get("defensibility", 0.0))],
+			_open_place.bind(idx))
+		b.name = "Garrison_%d" % idx
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.disabled = idx < 0
+		b.tooltip_text = ("Population %s · %s · border exposure %.2f · walls/capital multiplier ×%.2f. "
+			+ "Centres the map on it and opens its editor.") % [
+			_thousands(int(pd.get("pop", 0))), String(pd.get("kind", "?")).capitalize(),
+			float(pd.get("border_exposure", 0.0)), float(pd.get("garrison_multiplier", 1.0))]
+	if mine.size() > shown:
+		DccWidgets.note(sec, "Showing the %d largest of %d places; the rest are on the Settlements tab." % [
+			shown, mine.size()]).name = "GarrisonTruncated"
+
+
+## Centres the map on settlement `idx` (an index into `bridge.settlements()`),
+## closes this window and opens that settlement's Place editor -- exactly the
+## Settlements sublist row's action. Does nothing for an index the roster no longer
+## holds (a row can outlive an edit), rather than opening the editor on whatever
+## settlement now sits at that index.
+func _open_place(idx: int) -> void:
+	var roster := bridge.settlements()
+	if idx < 0 or idx >= roster.size():
+		return
+	var s: Dictionary = roster[idx]
+	app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
+	hide()
+	app.open_place_editor(idx)
+
+
+## The rows of `conflict_list()` that name faction `fid` among their `sides`, in
+## the engine's order. Pure over its arguments. `sides` is a `PackedInt32Array` of
+## faction ids (Unclaimed is never a side); a conflict with no sides is a side of
+## nobody and appears under no faction.
+static func _conflicts_of(rows: Array, fid: int) -> Array:
+	var out: Array = []
+	for c in rows:
+		if Array((c as Dictionary).get("sides", PackedInt32Array())).has(fid):
+			out.append(c)
+	return out
+
+
+## "Conflicts this faction is a side of" (FH-7, `FACTION_HUB_DESIGN.md` §3.5):
+## `conflict_list()` -- the one store behind Civilization > Military > Conflicts --
+## filtered to the selected faction. Each row names the conflict, its kind, years
+## and the other sides, and opens the right dock's Conflict context
+## (`CivilizationWorkspace.select_conflict` through `app.open_conflict`) where
+## the sides are edited.
+##
+## **No side-editing control lives here** (the design's explicit rule): the only
+## buttons are the rows that open the dock. The list is not cached -- the call is a
+## copy of a short vector and the dock edits the store live, so a cache would only
+## be a way to show a stale side; `open()` and every rebuild re-read it.
+func _build_conflicts_block(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Conflicts")
+	sec.name = "ConflictsBlock"
+	var all := bridge.conflict_list()
+	var mine := _conflicts_of(all, _selected)
+	if mine.is_empty():
+		var why := "No conflicts are drawn yet." if all.is_empty() \
+			else "None of the %d drawn conflicts names this faction as a side." % all.size()
+		DccWidgets.note(sec, why + " Conflicts are drawn with the Conflict tool in %s, and their sides are set in the right dock's Conflict context." % DccWidgets.tools_home()).name = "ConflictsNote"
+		return
+	var year := bridge.get_civ_year()
+	for c: Dictionary in mine:
+		var id := int(c.get("id", 0))
+		var nm := String(c.get("name", ""))
+		var span := "%d–%s" % [int(c.get("start_year", 0)),
+			str(int(c["end_year"])) if c.has("end_year") else "ongoing"]
+		var others: PackedStringArray = []
+		for f in Array(c.get("sides", PackedInt32Array())):
+			if int(f) != _selected:
+				var fd := _faction(int(f))
+				others.append(String(fd.get("name", "Faction %d" % int(f))))
+		var b := DccWidgets.action(sec, "%s%s · %s · %s · %s" % [
+			"● " if c.get("active", false) else "○ ",
+			nm if not nm.is_empty() else "(unnamed #%d)" % id,
+			CivilizationWorkspace.CONFLICT_KIND_LABELS.get(String(c.get("kind", "")), "?"), span,
+			("against " + ", ".join(others)) if not others.is_empty() else "no other side named"],
+			_open_conflict.bind(id))
+		b.name = "Conflict_%d" % id
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.tooltip_text = (("Active in %d" if c.get("active", false) else "Not active in %d")
+			+ ". Closes this window and opens the right dock's Conflict context, where the sides are edited.") % year
+
+
+## Closes this window and opens conflict `id` in the right dock via the shell
+## (`app.open_conflict`), which finds the CIVIL workspace by capability the way
+## `claim_cells_for_faction` does. The hub itself edits nothing about a conflict.
+func _open_conflict(id: int) -> void:
+	hide()
+	app.open_conflict(id)
 
 
 # -- Settlement sublist (`_civRenderFactionSettlementSublist`) --------------

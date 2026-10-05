@@ -85,6 +85,7 @@ var _culture_done := false  ## set by the last line of `_run_culture_fold`
 var _deftype_done := false  ## set by the last line of `_run_default_type`
 var _territory_done := false  ## set by the last line of `_run_territory_tab`
 var _fh6_done := false  ## set by the last line of `_run_economy_relations`
+var _fh7_done := false  ## set by the last line of `_run_military_tab`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -514,6 +515,10 @@ func _run() -> void:
 	# -- ECONOMY + RELATIONS: the readout and the pair list (FH-6) ------------------------
 	await _run_economy_relations(ids)
 	_ok("FH6 the economy/relations leg ran to its end (a script error inside it aborts it silently)", _fh6_done)
+
+	# -- MILITARY: garrisons and conflicts (FH-7) -----------------------------------------
+	await _run_military_tab(ids)
+	_ok("FH7 the military leg ran to its end (a script error inside it aborts it silently)", _fh7_done)
 
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
@@ -1862,3 +1867,297 @@ func _pct_prose(rate: float) -> String:
 		return "0"
 	var pct := rate * 100.0
 	return "%d" % int(round(pct)) if absf(pct - round(pct)) < 0.05 else "%.1f" % pct
+
+
+
+## Protects: FH-7, the Military tab's two new blocks (`FACTION_HUB_DESIGN.md`
+## §3.5). Read off the live window and compared with answers the probe derives
+## independently of it:
+##   GARRISON   one `Garrison_<index>` row per settlement this faction holds, the
+##              count taken from `bridge.settlements()` filtered by faction (NOT from
+##              the summary the tab itself reads), each row naming the settlement at
+##              its index and carrying the engine's own garrison figure; a row opens
+##              the Place editor on that very settlement and closes the hub; past the
+##              cap the block says so and gives the true count; a place with no
+##              garrison figure sorts last and is never drawn as 0.
+##   CONFLICTS  for every faction, the `Conflict_<id>` rows equal `conflict_list()`
+##              filtered to conflicts naming it in `sides` -- recomputed here from
+##              rows the probe seeded through the real `conflict_add` -- including a
+##              faction on no conflict (one honest line, no rows) and a conflict with
+##              no sides (shown under nobody); a row opens the right dock's Conflict
+##              context on that conflict id and closes the hub; a side edited in the
+##              dock moves the row on the next open.
+##   NO-EDIT    the Military pane has no toggle, picker, field, spinner or slider at
+##              all, and the conflicts block's only buttons are its rows: side editing
+##              is the dock's alone.
+##   KEPT       "Full breakdown" navigation still closes the hub and opens
+##              Civilization > Military; RF-03: a stale mark and rebuild leave the
+##              same rows; phone: every Military button >= 44 px, one scroller.
+func _run_military_tab(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var fc: int = ids[2] if ids.size() > 2 else -1
+	var names := _names()
+	var year: int = _bridge.get_civ_year()
+
+	# ----------------------------------------------------- seed the conflicts
+	# C1: fa vs fb.  C2: fb alone (so fa and fb are on different sets, and the
+	# last faction fc is on NONE).  C3: no sides at all (a side of nobody).
+	# A battle takes one point; kinds and years are the store's own.
+	var r1: Dictionary = _bridge.conflict_add({"name": "FH7 war of A and B", "kind": "battle",
+		"start_year": year, "sides": PackedInt32Array([fa, fb]),
+		"points": PackedVector2Array([Vector2(60.0, 60.0)])})
+	var r2: Dictionary = _bridge.conflict_add({"name": "FH7 B alone", "kind": "battle",
+		"start_year": year, "sides": PackedInt32Array([fb]),
+		"points": PackedVector2Array([Vector2(70.0, 70.0)])})
+	var r3: Dictionary = _bridge.conflict_add({"name": "", "kind": "battle",
+		"start_year": year, "sides": PackedInt32Array(),
+		"points": PackedVector2Array([Vector2(80.0, 80.0)])})
+	_ok("FH7 fixture: the three conflicts were accepted",
+		bool(r1.get("ok", false)) and bool(r2.get("ok", false)) and bool(r3.get("ok", false)),
+		"%s %s %s" % [str(r1), str(r2), str(r3)])
+	var c1 := int(r1.get("id", 0))
+	var c2 := int(r2.get("id", 0))
+	var c3 := int(r3.get("id", 0))
+	var seeded: Array = [c1, c2, c3]
+	_ok("FH7 precondition: a faction on no conflict exists (needs a third faction)", fc > 0,
+		"factions=%d" % ids.size())
+
+	# ----------------------------------------------------------- the garrisons
+	_fr.open(fa, "military")
+	await _frames(8)
+	var pane := _pane("military")
+	_ok("FH7 the Military pane is built", pane != null)
+	if pane == null:
+		return
+	var roster: Array = _bridge.settlements()
+	var want_idx: Array = []
+	for i in roster.size():
+		if int((roster[i] as Dictionary).get("faction", 0)) == fa:
+			want_idx.append(i)
+	_ok("FH7 precondition: faction %d holds at least two settlements" % fa, want_idx.size() >= 2,
+		"holds %d" % want_idx.size())
+	var want_n: int = mini(want_idx.size(), _fr.GARRISON_ROW_CAP)
+	var grows := _named_like(pane, "Garrison_")
+	_ok("FH7 GARRISON one row per settlement this faction holds, up to the cap (%d)" % want_n,
+		grows.size() == want_n, "%d rows, %d settlements" % [grows.size(), want_idx.size()])
+	_ok("FH7 GARRISON no truncation line while every place fits",
+		want_idx.size() > _fr.GARRISON_ROW_CAP or pane.find_child("GarrisonTruncated", true, false) == null)
+	var all_mine := true
+	var names_ok := true
+	for g in grows:
+		var idx := int(String(g.name).trim_prefix("Garrison_"))
+		if idx not in want_idx:
+			all_mine = false
+		elif not (g as Button).text.to_lower().begins_with(String((roster[idx] as Dictionary).get("name", "?")).to_lower() + " --"):
+			names_ok = false
+	_ok("FH7 GARRISON every row is one of this faction's own settlements", all_mine)
+	_ok("FH7 GARRISON every row names the settlement at its index", names_ok)
+	# The engine's own figure for each row, read through the real call, not the tab.
+	var summary: Dictionary = _bridge.civ_military_summary()
+	var by_idx := {}
+	for p in (summary.get("settlements", []) as Array):
+		by_idx[int((p as Dictionary).get("index", -1))] = p
+	var fig_ok := true
+	var fig_detail := ""
+	var with_fig := 0
+	for g in grows:
+		var idx := int(String(g.name).trim_prefix("Garrison_"))
+		var p: Dictionary = by_idx.get(idx, {})
+		if p.has("garrison"):
+			with_fig += 1
+			if not (g as Button).text.to_lower().contains("garrison %s " % _fr._thousands(int(p["garrison"]))):
+				fig_ok = false
+				fig_detail = "%s vs %d" % [(g as Button).text, int(p["garrison"])]
+		elif not (g as Button).text.to_lower().contains("garrison —"):
+			fig_ok = false
+			fig_detail = (g as Button).text
+	_ok("FH7 GARRISON each row carries the engine's garrison figure (or a dash with none)", fig_ok, fig_detail)
+	_ok("FH7 GARRISON precondition: at least one row has a real figure to compare", with_fig > 0, "%d" % with_fig)
+	_ok("FH7 GARRISON the header says the faction's garrison total",
+		(pane.find_child("GarrisonNote", true, false) as Label).text.contains(
+			_fr._thousands(int(_fr._military_row(fa).get("garrison_total", -1)))))
+	# Ordering is by garrison, descending.
+	var order_ok := true
+	var last := 1 << 40
+	for g in grows:
+		var idx := int(String(g.name).trim_prefix("Garrison_"))
+		if (by_idx.get(idx, {}) as Dictionary).has("garrison"):
+			var gv := int(by_idx[idx]["garrison"])
+			if gv > last:
+				order_ok = false
+			last = gv
+	_ok("FH7 GARRISON rows run largest garrison first", order_ok)
+	# The sort never reads an absent garrison as 0, and the filter is by faction.
+	var fix: Array = [
+		{"index": 0, "faction": 1, "pop": 900, "garrison": 5},
+		{"index": 1, "faction": 1, "pop": 5000},
+		{"index": 2, "faction": 2, "pop": 100, "garrison": 99},
+		{"index": 3, "faction": 1, "pop": 100, "garrison": 5},
+		{"index": 4, "faction": 1, "pop": 100, "garrison": 7}]
+	var ord: Array = []
+	for p in _fr._garrison_places(fix, 1):
+		ord.append(int((p as Dictionary)["index"]))
+	_ok("FH7 GARRISON order is garrison desc, ties by population, no-figure last, other factions out",
+		ord == [4, 0, 3, 1], str(ord))
+	await _shot("%s_military" % ("phone" if _phone else "desktop"))
+
+	# A row opens the Place editor on that settlement and closes the hub.
+	if grows.size() > 0:
+		var pick := grows[grows.size() - 1] as Button
+		var pidx := int(String(pick.name).trim_prefix("Garrison_"))
+		pick.pressed.emit()
+		await _frames(6)
+		_ok("FH7 GARRISON a row closes the hub", not _fr.visible)
+		_ok("FH7 GARRISON ... and opens the Place editor on that settlement",
+			_app.place_editor_window.visible and _app.place_editor_window._index == pidx,
+			"visible=%s index=%s want=%d" % [_app.place_editor_window.visible, str(_app.place_editor_window._index), pidx])
+		_app.place_editor_window.hide()
+		await _frames(2)
+
+	# Truncation, stated on screen with the true count.
+	_fr._garrison_cap = 1
+	_fr.open(fa, "military")
+	await _frames(8)
+	_ok("FH7 GARRISON truncated: one row drawn when the cap is 1", _named_like(_pane("military"), "Garrison_").size() == 1)
+	var tl := _pane("military").find_child("GarrisonTruncated", true, false) as Label
+	_ok("FH7 GARRISON ... and the block says so with the true place count",
+		tl != null and tl.text.contains("1 largest of %d places" % want_idx.size()),
+		tl.text if tl != null else "<none>")
+	_fr._garrison_cap = _fr.GARRISON_ROW_CAP
+
+	# ------------------------------------------------------------- the conflicts
+	var all_conf: Array = _bridge.conflict_list()
+	var covered_empty := false
+	for f in ids:
+		_fr.open(int(f), "military")
+		await _frames(6)
+		var cp := _pane("military")
+		var want: Array = []
+		for c in all_conf:
+			if Array((c as Dictionary).get("sides", PackedInt32Array())).has(int(f)):
+				want.append(int((c as Dictionary).get("id", 0)))
+		want.sort()
+		var got: Array = []
+		for b in _named_like(cp, "Conflict_"):
+			got.append(int(String(b.name).trim_prefix("Conflict_")))
+		got.sort()
+		_ok("FH7 CONFLICTS faction %s: the rows are exactly the conflicts naming it" % names.get(int(f), "?"),
+			got == want, "got %s want %s" % [str(got), str(want)])
+		if want.is_empty():
+			var note := cp.find_child("ConflictsNote", true, false) as Label
+			_ok("FH7 CONFLICTS faction %s on no conflict: one honest line, no rows" % names.get(int(f), "?"),
+				note != null and note.text.contains("None of the %d drawn conflicts names this faction" % all_conf.size()),
+				note.text if note != null else "<none>")
+			covered_empty = true
+	_ok("FH7 CONFLICTS the probe covered a faction on no conflict", covered_empty)
+	# The empty-sided conflict is under nobody.
+	var any3 := false
+	for f in ids:
+		_fr.open(int(f), "military")
+		await _frames(4)
+		if _pane("military").find_child("Conflict_%d" % c3, true, false) != null:
+			any3 = true
+	_ok("FH7 CONFLICTS a conflict with no sides appears under no faction", not any3)
+	_fr.open(fa, "military")
+	await _frames(6)
+	var cpa := _pane("military")
+	_ok("FH7 CONFLICTS fa sees C1 and not C2", cpa.find_child("Conflict_%d" % c1, true, false) != null
+		and cpa.find_child("Conflict_%d" % c2, true, false) == null)
+	var row1 := cpa.find_child("Conflict_%d" % c1, true, false) as Button
+	_ok("FH7 CONFLICTS the row names the conflict, its kind and the OTHER side only",
+		row1 != null and row1.text.to_lower().contains("fh7 war of a and b") and row1.text.to_lower().contains("battle")
+		and row1.text.to_lower().contains("against " + String(names.get(fb, "?")).to_lower())
+		and not row1.text.to_lower().contains("against " + String(names.get(fa, "?")).to_lower()),
+		row1.text if row1 != null else "<none>")
+	_ok("FH7 CONFLICTS the filter is the static `_conflicts_of` the tab uses (fixture)",
+		_fr._conflicts_of([{"id": 1, "sides": PackedInt32Array([3, 4])}, {"id": 2, "sides": PackedInt32Array()},
+			{"id": 3, "sides": PackedInt32Array([4])}], 4).size() == 2
+		and _fr._conflicts_of([{"id": 1, "sides": PackedInt32Array([3, 4])}], 5).is_empty())
+
+	# NO-EDIT: no editing control anywhere in the pane; the block's buttons are its rows.
+	var edit_ctl := _count(cpa, func(n): return n is CheckBox or n is OptionButton or n is LineEdit \
+		or n is SpinBox or n is Slider or n is TextEdit)
+	_ok("FH7 NO-EDIT the Military pane has no toggle, picker, field, spinner or slider", edit_ctl == 0,
+		"%d editing controls" % edit_ctl)
+	var cblock := cpa.find_child("ConflictsBlock", true, false)
+	var cbtn := _count(cblock, func(n): return n is Button)
+	_ok("FH7 NO-EDIT the conflicts block's only buttons are its rows", cbtn == _named_like(cblock, "Conflict_").size(),
+		"%d buttons, %d rows" % [cbtn, _named_like(cblock, "Conflict_").size()])
+
+	# A side edited in the dock moves the row on the next open (no stale cache).
+	_ok("FH7 fixture: the dock-side edit (C2 gains fa) was accepted",
+		bool(_bridge.conflict_update(c2, {"sides": PackedInt32Array([fb, fa])}).get("ok", false)))
+	_fr.open(fa, "military")
+	await _frames(6)
+	_ok("FH7 CONFLICTS a side added elsewhere shows on the next open",
+		_pane("military").find_child("Conflict_%d" % c2, true, false) != null)
+	_bridge.conflict_update(c2, {"sides": PackedInt32Array([fb])})
+
+	# A row opens the right dock's Conflict context on that id and closes the hub.
+	_fr.open(fa, "military")
+	await _frames(6)
+	var open_btn := _pane("military").find_child("Conflict_%d" % c1, true, false) as Button
+	_ok("FH7 CONFLICTS the row to open exists", open_btn != null)
+	if open_btn != null:
+		open_btn.pressed.emit()
+		await _frames(6)
+		_ok("FH7 CONFLICTS a row closes the hub", not _fr.visible)
+		_ok("FH7 CONFLICTS ... and opens the right dock's Conflict context on that conflict",
+			_app.right_dock_ctrl._context == "conflict" and _app.right_dock_ctrl._conflict_id == c1,
+			"ctx=%s id=%s want=%d" % [str(_app.right_dock_ctrl._context), str(_app.right_dock_ctrl._conflict_id), c1])
+		await _shot("%s_military_conflict_dock" % ("phone" if _phone else "desktop"))
+
+	# ---------------------------------------------------------------- KEPT / RF-03
+	_fr.open(fa, "military")
+	await _frames(6)
+	var go := _full_breakdown()
+	_ok("FH7 KEPT the Full breakdown navigation is still there", go != null)
+	var n_before := _named_like(_pane("military"), "Garrison_").size()
+	_fr._mark_data_stale()
+	_ok("FH7 RF-03 _mark_data_stale marks the military cache stale", not _fr._military_ready)
+	_fr.refresh_after_edit()
+	await _frames(6)
+	_ok("FH7 RF-03 a stale mark and rebuild leave the same garrison rows",
+		_named_like(_pane("military"), "Garrison_").size() == n_before and _fr._military_ready,
+		"%d vs %d" % [_named_like(_pane("military"), "Garrison_").size(), n_before])
+	_app.select_domain("cartography")
+	await _frames(4)
+	_fr.open(fa, "military")
+	await _frames(6)
+	go = _full_breakdown()
+	if go != null:
+		go.pressed.emit()
+		await _frames(6)
+		await _sheet("left")
+		_ok("FH7 KEPT Full breakdown closes the hub and opens Civilization > Military",
+			not _fr.visible and _count(_app.workspace_panel("civilization"), func(n): return n is Button and (n as Button).is_visible_in_tree() and (n as Button).text.to_lower().contains("fortified")) > 0,
+			"visible=%s" % _fr.visible)
+
+	# ------------------------------------------------------------------ phone
+	if _phone:
+		_fr.open(fa, "military")
+		await _frames(8)
+		var small := _count(_pane("military"), func(n): return n is Button and (n as Button).visible and (n as Button).size.y + 0.5 < DccTheme.PHONE_TAP_MIN)
+		_ok("FH7 PHONE every Military button is at least 44 px tall", small == 0, "short=%d" % small)
+		_ok("FH7 PHONE the Military tab has Garrison and Conflict rows to measure",
+			_named_like(_pane("military"), "Garrison_").size() > 0 and _named_like(_pane("military"), "Conflict_").size() > 0)
+		_ok("FH7 PHONE one scroller and no TabContainer",
+			_count(_fr, func(n): return n is ScrollContainer) == 1 and _count(_fr, func(n): return n is TabContainer) == 0)
+
+	# restore the world
+	for id in seeded:
+		_bridge.conflict_delete(int(id))
+	_fr.hide()
+	await _frames(2)
+	_fh7_done = true
+
+
+## The Military tab's "Full breakdown" navigation button, or null.
+func _full_breakdown() -> Button:
+	var btns: Array = []
+	_collect_of(_pane("military"), btns, Button)
+	for b in btns:
+		if (b as Button).text.to_lower().begins_with("full breakdown"):
+			return b
+	return null

@@ -4152,6 +4152,21 @@ func claim_cells_for_faction(fid: int) -> void:
 			ws.claim_for_faction(fid)
 			return
 
+## Opens conflict `id` in the right dock's Conflict context (where its sides are
+## edited) and selects its stroke on the map: the CIVIL workspace's
+## `select_conflict`, the one handler Civilization > Military > Conflicts rows call
+## -- so the Faction hub's Military tab (FH-7) and that list share one
+## implementation. Found by capability, as `claim_cells_for_faction` finds its
+## workspace, and does nothing when none has it. On a phone it then raises the
+## right sheet, which `show_conflict` does not do itself and which would
+## otherwise leave the selection on a dock nothing on screen draws.
+func open_conflict(id: int) -> void:
+	for ws in _workspaces:
+		if ws.has_method("select_conflict"):
+			ws.select_conflict(id)
+			phone_show_right_sheet()
+			return
+
 ## `lazy-riding-piglet.md` Batch D's Settlement types library (canvas 1f).
 func open_settlement_types() -> void:
 	settlement_types_window.open()
