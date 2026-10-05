@@ -1226,7 +1226,13 @@ pub fn river_entities(
 ///   another drawn run within ONE D8 step, the same reach the trace itself
 ///   links cells across. Never from a coastal mouth (it or a neighbour at or
 ///   below `sea_level`), where the adjacent run is a different river's mouth.
-///   Never to one of the run's own tributaries, which would draw a loop.
+///   Never to one of the run's own tributaries, which would draw a loop, nor
+///   to any run that already drains into this one (so two runs are never
+///   bridged onto each other's mouths), nor -- given receiver data -- to a run
+///   whose water flows downhill into this one without being traced into it:
+///   that bridge would run backwards (seed 24601, a 2-cell fragment bridged
+///   onto the end of the run that drains through it); the upstream run joins
+///   the fragment instead.
 ///   **Where no run is that close the river is continued DOWNHILL** -- see
 ///   [`RiverDrawPlan::extension`]: the channel mask is a D-infinity aspect
 ///   projection and the flow tree a D8 steepest descent, two different trees,
@@ -1277,7 +1283,9 @@ pub struct RiverDrawPlan {
     /// keeps its traced end (the pre-existing, honest, loose end). Hidden
     /// parallel runs stay hidden: [`Self::parallel_of`] is decided before and
     /// untouched, and a walk joins any drawn cell within the same hug reach
-    /// that hides a parallel run, so it never runs alongside a river.
+    /// that hides a parallel run, so it never runs alongside a river. A run
+    /// whose own water flows downhill into this one is no join (it is
+    /// upstream): the walk steps past it.
     pub extension: Vec<Vec<(f64, f64)>>,
 }
 
@@ -1441,6 +1449,75 @@ pub fn river_draw_plan(
         }
     }
 
+    // The run each drawn run drains into (its trunk, or the run a bridge or an
+    // extension joined), so a bridge or a walk never joins a run that already
+    // drains into it -- that would draw a loop, and a two-run loop is the false
+    // confluence this plan must not create. Built here, BEFORE the pit-bridge
+    // pass, and extended by every bridge that pass sets, so that pass cannot
+    // bridge two runs onto each other's mouths either (seed 483920, runs 577
+    // and 583, OUTSTANDING_WORK.md "Residual river loose ends after the
+    // downhill bridge"): the first of the pair bridges onto the second; the
+    // second sees that the first already drains into it and refuses.
+    let mut down: Vec<Option<usize>> = (0..rivers.len())
+        .map(|i| {
+            if plan.parallel_of[i].is_some() {
+                return None;
+            }
+            let m = rivers[i].mouth as usize;
+            if drawn[m] != i {
+                Some(drawn[m]).filter(|&j| j != usize::MAX)
+            } else {
+                None // a bridge or an extension sets it below
+            }
+        })
+        .collect();
+    let drains_into = |down: &[Option<usize>], mut j: usize, i: usize| -> bool {
+        for _ in 0..=down.len() {
+            if j == i {
+                return true;
+            }
+            match down[j] {
+                Some(k) => j = k,
+                None => return false,
+            }
+        }
+        // A cycle among the runs that never reaches `i`: `j` does not drain
+        // into `i`, so a join is no loop. Refusing here (the first version
+        // returned `true`) abandoned every walk that met such a cycle, two of
+        // the seven residual loose ends. Since the pit-bridge pass stopped
+        // creating such cycles (above) this is a safety net, kept so that a
+        // cycle from any other source cannot cancel a walk.
+        false
+    };
+    // Does the water at cell `q` run DOWNHILL into run `i`'s own line? Follows
+    // `next` from `q` for at most [`BRIDGE_WALK_CELLS`] steps and reports
+    // whether it lands on a cell drawn as run `i`. A bridge or a walk must
+    // never join such a cell: the run there is UPSTREAM of `i` (its water
+    // flows into `i`), so joining it draws `i` flowing backwards into its own
+    // source -- seed 24601 (2017, 1119), where a 2-cell fragment bridged onto
+    // the end of the longer run that drains through it, after which that run's
+    // own walk was refused as "drains into this one". Answers `false` with no
+    // receiver data (`next` empty or not `n` long): the plan without downhill
+    // data is the plan it always was, never a guess. A step that is not to an
+    // adjacent cell is the x seam, and ends the chain, as it ends a walk.
+    let flows_into_run = |q: usize, i: usize| -> bool {
+        if next.len() != n {
+            return false;
+        }
+        let mut c = q;
+        for _ in 0..BRIDGE_WALK_CELLS {
+            let Some(nx) = usize::try_from(next[c]).ok().filter(|&c2| c2 < n) else { return false };
+            if (nx % w).abs_diff(c % w) > 1 || (nx / w).abs_diff(c / w) > 1 {
+                return false;
+            }
+            if drawn[nx] == i {
+                return true;
+            }
+            c = nx;
+        }
+        false
+    };
+
     for i in 0..rivers.len() {
         if plan.parallel_of[i].is_some() {
             continue;
@@ -1460,13 +1537,19 @@ pub fn river_draw_plan(
         let r_max = if orphan { wid(i) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS } else { std::f64::consts::SQRT_2 };
         let target = window(m, r_max).into_iter().find(|&(d, q)| {
             let j = drawn[q];
+            // `drains_into` covers the run whose mouth is on `i` (a tributary)
+            // and every longer or cyclic chain onto `i`; `flows_into_run` the
+            // run whose WATER reaches `i` through the receiver tree without
+            // being traced into it (see `flows_into_run`).
             j != usize::MAX
                 && j != i
-                && drawn[rivers[j].mouth as usize] != i
+                && !drains_into(&down, j, i)
                 && (!orphan || d <= reach(i, j))
+                && !flows_into_run(q, i)
         });
         if let Some((_, q)) = target {
             plan.bridge[i] = Some(((q % w) as f64 + 0.5, (q / w) as f64 + 0.5));
+            down[i] = Some(drawn[q]);
         }
     }
     if next.len() != n || water.len() != n {
@@ -1477,10 +1560,8 @@ pub fn river_draw_plan(
     let centre = |c: usize| ((c % w) as f64 + 0.5, (c / w) as f64 + 0.5);
     let wet = |c: usize| water[c] != 0 || fld[c] as f64 <= sea_level;
     let wet_near = |c: usize| wet(c) || neighbours(c).any(wet);
-    // The run each drawn run drains into (its trunk, or the run a bridge or an
-    // extension joined), so a walk never joins a run that already drains into
-    // it -- that would draw a loop, and a two-run loop is the false confluence
-    // this pass must not create.
+    // Cell -> the run whose extension walked over it (`down`, above, says where
+    // each run drains).
     let mut claimed = vec![usize::MAX; n];
     // Cell -> the drawn run a HIDDEN parallel run's cell hugs (`parallel_of`),
     // for the cells no drawn run owns. A hidden run is hidden because at least
@@ -1498,36 +1579,6 @@ pub fn river_draw_plan(
             }
         }
     }
-    let mut down: Vec<Option<usize>> = (0..rivers.len())
-        .map(|i| {
-            if plan.parallel_of[i].is_some() {
-                return None;
-            }
-            let m = rivers[i].mouth as usize;
-            if drawn[m] != i {
-                Some(drawn[m]).filter(|&j| j != usize::MAX)
-            } else {
-                plan.bridge[i].map(|b| drawn[cell_of(b)]).filter(|&j| j != usize::MAX)
-            }
-        })
-        .collect();
-    let drains_into = |down: &[Option<usize>], mut j: usize, i: usize| -> bool {
-        for _ in 0..=down.len() {
-            if j == i {
-                return true;
-            }
-            match down[j] {
-                Some(k) => j = k,
-                None => return false,
-            }
-        }
-        // A cycle among the runs that never reaches `i` (two runs bridged onto
-        // each other's mouths, measured on seed 483920, runs 577 and 583):
-        // `j` does not drain into `i`, so a join is no loop. Refusing here (the
-        // first version returned `true`) abandoned every walk that met such a
-        // cycle, two of the seven residual loose ends.
-        false
-    };
     for &i in &order {
         if plan.parallel_of[i].is_some() || plan.bridge[i].is_some() {
             continue;
@@ -1560,7 +1611,10 @@ pub fn river_draw_plan(
             // run's extension, within the reach that hides a parallel run.
             let target = window(nx, r_max).into_iter().find(|&(d, q)| {
                 let j = if drawn[q] != usize::MAX { drawn[q] } else { claimed[q] };
-                j != usize::MAX && j != i && d <= reach(i, j) && !drains_into(&down, j, i)
+                // `flows_into_run`: a run found within reach can be UPSTREAM of
+                // this one (seed 24601: the fragment's walk met the end of the
+                // run that drains through it); joining it is backwards.
+                j != usize::MAX && j != i && d <= reach(i, j) && !drains_into(&down, j, i) && !flows_into_run(q, i)
             });
             if let Some((_, q)) = target {
                 if q != nx {
@@ -4546,14 +4600,86 @@ mod tests {
         assert_eq!(plan.parallel_of, none.parallel_of, "extension never changes what is hidden");
     }
 
-    /// Protects: the no-false-confluence guard's cycle case. Two runs bridged
-    /// onto each other's mouths (`x` and `y`, a pit-bridge pair measured on
-    /// seed 483920) form a cycle in the drains-into chain that never contains
-    /// a third run `i`; `i`'s walk arrives within reach of `y` and must join
-    /// it. The first version of `drains_into` answered "refuse" for any cycle
-    /// and abandoned the walk, so this fails on that code.
+    /// Protects: a pit-bridge pair is bridged ONE way, never both (the pass-1
+    /// cycle measured on seed 483920, runs 577 and 583). `x` and `y` end on
+    /// each other's mouths -- each is the nearest other run to the other's
+    /// mouth. Run alone (no downhill data, so the extension cannot have a
+    /// hand in it) the pass must bridge `x` onto `y` and leave `y` unbridged
+    /// (it already drains into nothing but `x` drains into it), and the bridge
+    /// graph must have no two runs bridged onto each other. The first version
+    /// bridged both and relied on `drains_into` to tolerate the cycle later.
     #[test]
-    fn extension_joins_a_run_that_sits_in_a_bridge_cycle() {
+    fn pit_bridge_pass_never_bridges_a_pair_onto_each_other() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, _next, _water) = ext_grid(w, h);
+        let x: Vec<(usize, usize)> = (5..10).map(|px| (px, 8)).collect();
+        let y: Vec<(usize, usize)> = (10..16).rev().map(|px| (px, 9)).collect();
+        let rivers = vec![run(&x, w, &mut flow, 50.0), run(&y, w, &mut flow, 40.0)];
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert_eq!(plan.parallel_of, vec![None, None], "the fixture's pair is two drawn runs");
+        assert_eq!(plan.bridge[0], Some((10.5, 9.5)), "the first of the pair bridges onto the second's mouth");
+        assert_eq!(plan.bridge[1], None, "the second must not bridge back onto the run that already drains into it");
+    }
+
+    /// Protects: pass 1 never bridges a run onto one whose water flows INTO it
+    /// (seed 24601, (2017, 1119): a 2-cell fragment bridged BACKWARDS onto the
+    /// end of the longer run that drains through it, so the fragment drew as
+    /// flowing into its own source and that run's walk was refused). `f` is a
+    /// 2-cell fragment ending at (10, 6); `u` ends at (11, 7), one D8 step
+    /// away, and its receiver is `f`'s mouth: `u` is upstream. The bridge goes
+    /// `u` -> `f`, the way the water runs. With no receiver data there is no
+    /// way to tell, and the plan is what it always was (the positive control:
+    /// the old direction).
+    #[test]
+    fn pit_bridge_goes_the_way_the_water_runs() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let f: Vec<(usize, usize)> = vec![(10, 5), (10, 6)];
+        let u: Vec<(usize, usize)> = (11..15).rev().map(|px| (px, if px == 11 { 7 } else { 8 })).collect();
+        let rivers = vec![run(&f, w, &mut flow, 60.0), run(&u, w, &mut flow, 10.0)];
+        ext_chain(&mut next, w, &[(11, 7), (10, 6)]);
+        let blind = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert_eq!(blind.bridge[0], Some((11.5, 7.5)), "no receiver data: the nearest run is joined, as before");
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert_eq!(plan.bridge[0], None, "the fragment must not bridge onto the run whose water flows into it");
+        assert_eq!(plan.bridge[1], Some((10.5, 6.5)), "the upstream run joins the fragment's mouth instead");
+    }
+
+    /// Protects: the downhill walk, like the pit bridge, never joins a run whose
+    /// water flows into the walking run (seed 24601's fragment would have
+    /// joined the same upstream run backwards through this path once the pit
+    /// bridge refused it). `f` ends at (10, 6) and its receiver chain runs down
+    /// to the trunk `t` (row 12); `u`'s end (13, 7) is within the walk's reach
+    /// of the first step (10, 7) but its water runs (12, 7), (11, 7), (10, 6):
+    /// into `f`. The walk steps past it and joins `t` three cells on.
+    #[test]
+    fn extension_walk_skips_a_run_whose_water_flows_into_it() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let f: Vec<(usize, usize)> = vec![(10, 5), (10, 6)];
+        let u: Vec<(usize, usize)> = (13..17).rev().map(|px| (px, 7)).collect();
+        let t: Vec<(usize, usize)> = (5..25).map(|px| (px, 12)).collect();
+        let rivers = vec![run(&f, w, &mut flow, 60.0), run(&u, w, &mut flow, 10.0), run(&t, w, &mut flow, 100.0)];
+        ext_chain(&mut next, w, &[(13, 7), (12, 7), (11, 7), (10, 6)]);
+        ext_chain(&mut next, w, &[(10, 6), (10, 7), (10, 8), (10, 9), (10, 10), (10, 11)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert_eq!(plan.extension[0], vec![(10.5, 7.5), (10.5, 8.5), (10.5, 9.5)], "carried past the upstream run to the trunk's reach");
+        assert_eq!(plan.bridge[0], Some((10.5, 12.5)), "and joined onto the trunk, not onto the run that drains into it");
+    }
+
+    /// Protects: a walk joins a run that is merely PART of a bridged pit pair.
+    /// `x` and `y` (a pit-bridge pair measured on seed 483920) end on each
+    /// other's mouths; `x` bridges onto `y` and `y` stays unbridged (see
+    /// `pit_bridge_pass_never_bridges_a_pair_onto_each_other`), so `y` sits at
+    /// the end of a drains-into chain that never contains a third run `i`;
+    /// `i`'s walk arrives within reach of `y` and must join it. The first
+    /// version of `drains_into` answered "refuse" for any cycle (and the pit
+    /// pass then built a real one here) and abandoned the walk, so the pair
+    /// was a cycle and this failed. The cycle can no longer be built by the
+    /// plan; `drains_into`'s tolerance of one is a safety net no input
+    /// reaches, so what this pins is the join.
+    #[test]
+    fn extension_joins_a_run_that_sits_in_a_bridged_pair() {
         let (w, h) = (40usize, 20usize);
         let (fld, mut flow, mut next, water) = ext_grid(w, h);
         let x: Vec<(usize, usize)> = (5..10).map(|px| (px, 8)).collect();
@@ -4563,12 +4689,12 @@ mod tests {
         ext_chain(&mut next, w, &[(20, 3), (19, 4), (18, 5), (17, 6), (16, 7)]);
         let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
         assert!(
-            plan.bridge[0].is_some() && plan.bridge[1].is_some() && plan.parallel_of[..2] == [None, None],
-            "the fixture's pair is bridged onto each other, both drawn: {:?} {:?}",
+            plan.bridge[0].is_some() && plan.bridge[1].is_none() && plan.parallel_of[..2] == [None, None],
+            "the fixture's pair is bridged one way, both drawn: {:?} {:?}",
             plan.bridge[0],
             plan.bridge[1]
         );
-        assert!(plan.bridge[2].is_some(), "`i` joins a run that is only part of a cycle, not one that drains into it");
+        assert!(plan.bridge[2].is_some(), "`i` joins a run that is only the end of a bridged pair, not one that drains into it");
         assert_eq!(plan.extension[2].last(), Some(&(16.5, 7.5)));
     }
 

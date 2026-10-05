@@ -219,7 +219,7 @@ fn non_monotone_discharge_is_real_not_theoretical() {
 /// `river_draw_plan` on real terrain: it must actually fire (the trace really
 /// does break at land pits and really does run parallel columns -- see its doc
 /// comment), hide only a minority, and bridge every pit that has a drawn,
-/// non-tributary run one D8 step away.
+/// run one D8 step away that does not drain into it.
 #[test]
 fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
     let ws = world(20260902);
@@ -254,6 +254,28 @@ fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
             }
         }
     }
+    // Where a drawn run drains, read off the PLAN (its mouth's owner, else its
+    // bridge's run): the independent form of the plan's own `drains_into`. A
+    // neighbour that drains into the pit's run -- a tributary, or a run bridged
+    // onto it, so a pair is never bridged onto each other's mouths -- is no
+    // bridge target (it would draw a loop).
+    let down_of = |j: usize| -> Option<usize> {
+        let m = rivers[j].mouth as usize;
+        if drawn[m] != j { Some(drawn[m]) } else { plan.bridge[j].map(|b| drawn[cell(b)]) }
+            .filter(|&k| k != usize::MAX)
+    };
+    let drains_into = |mut j: usize, i: usize| -> bool {
+        for _ in 0..=rivers.len() {
+            if j == i {
+                return true;
+            }
+            match down_of(j) {
+                Some(k) => j = k,
+                None => return false,
+            }
+        }
+        false
+    };
     let mut unbridged = 0;
     for (i, r) in rivers.iter().enumerate() {
         let m = r.mouth as usize;
@@ -267,7 +289,7 @@ fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
             })
         };
         let coastal = near(&|c| ws.field[c] as f64 <= ws.sea_level);
-        let other = near(&|c| drawn[c] != usize::MAX && drawn[c] != i && drawn[rivers[drawn[c]].mouth as usize] != i);
+        let other = near(&|c| drawn[c] != usize::MAX && drawn[c] != i && !drains_into(drawn[c], i));
         if !coastal && other {
             unbridged += 1;
         }

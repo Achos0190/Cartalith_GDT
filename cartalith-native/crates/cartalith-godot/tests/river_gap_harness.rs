@@ -1039,7 +1039,15 @@ fn river_gap_measurement() {
 /// `(seed, loose ends more than [`BRIDGE_REACH`] from any continuation)`. They
 /// are frozen here so the bar below is against a recorded number, not against
 /// whatever the current code happens to produce.
-const BASELINE_LOOSE: [(i32, usize); 3] = [(483_920, 145), (24_601, 150), (71_077_345, 111)];
+///
+/// 24 601 is 151, not the 150 recorded at `6af2d722`: the pit-bridge pass no
+/// longer bridges a run onto one that already drains into it, a pair onto each
+/// other's mouths included (the cycle on seed 483920, `OUTSTANDING_WORK.md`
+/// "Residual river loose ends after the downhill bridge"), so on that seed one
+/// end the old pass bridged is left to the extension, which closes it (after: 0). The
+/// no-downhill-data plan is therefore `6af2d722`'s plan with that one pass-1
+/// difference; the other two seeds' counts did not move.
+const BASELINE_LOOSE: [(i32, usize); 3] = [(483_920, 145), (24_601, 151), (71_077_345, 111)];
 /// The owner-task bar: the loose-end count must fall by at least this share.
 const MIN_LOOSE_REDUCTION: f64 = 0.80;
 
