@@ -816,14 +816,17 @@ func _build_political(parent: Control, s: Dictionary) -> void:
 
 # -- Combined timeline strip (SP-3, Ruling AQ) -----------------------------------
 
-## The four lanes, top to bottom, and the title each carries. The leading glyph
-## IS the lane's mark shape (span bar, circle, diamond, triangle), so a lane is
-## identifiable without colour: the title says which shape to look for. Plain
-## typographic symbols, not emoji (`DESIGN_HANDOFF.md` section 6).
-const STRIP_LANES: Array[String] = ["ownership", "population", "events", "journeys"]
+## The five lanes, top to bottom, and the title each carries. The leading glyph
+## IS the lane's mark shape (span bar, circle, diamond, triangle, cross), so a
+## lane is identifiable without colour: the title says which shape to look for.
+## Plain typographic symbols, not emoji (`DESIGN_HANDOFF.md` section 6). The
+## fifth lane, conflicts, is SP-5's (`STORY_PLANNING_SCOPE.md` section 4: "a
+## settlement's strip shows the conflicts that touched it"); a cross is used
+## because no other lane draws one (a ruined year's ring is a circle, not a cross).
+const STRIP_LANES: Array[String] = ["ownership", "population", "events", "journeys", "conflicts"]
 const STRIP_LANE_TITLE := {
 	"ownership": "▬ OWNERSHIP", "population": "● POP · TIER",
-	"events": "◆ EVENTS", "journeys": "▲ JOURNEYS",
+	"events": "◆ EVENTS", "journeys": "▲ JOURNEYS", "conflicts": "✕ CONFLICTS",
 }
 ## Why a lane drew nothing, drawn inside the empty lane in place of a mark
 ## (`MISTAKES.md`: a missing value is dashed with its reason, never encoded as a
@@ -833,6 +836,7 @@ const STRIP_LANE_EMPTY := {
 	"population": "— no recorded years for this place",
 	"events": "— no authored events in its note",
 	"journeys": "— no dated journey passes here",
+	"conflicts": "— no conflict attached here or to its province",
 }
 ## Meta keys a probe (and the click readout) read a mark back by.
 const STRIP_META_LANE := "strip_lane"
@@ -853,27 +857,38 @@ const STRIP_AXIS_H := 16.0
 const STRIP_TICK_MIN_PX := 56.0
 const STRIP_NICE_STEPS: Array[int] = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500,
 	1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
-const STRIP_LABEL_W := 84.0
+## Height of the title band at the top of every lane. The titles used to sit in
+## an 84 px gutter LEFT of the plot, which left a 400 px Place window only ~232
+## px of plot; they are now a band ABOVE each lane's marks, drawn in a sticky
+## overlay (see `_build_timeline_strip`), so the plot takes the full width. 13 px
+## is `FS_MICRO` (9) plus a 2 px margin either side: a labelled judgement.
+const STRIP_TITLE_H := 13.0
 
 ## `OUTSTANDING_WORK.md` "SP-3's combined timeline strip" (Ruling AQ): the
 ## owner's 2026-08-25 fork asked for both tracks on ONE strip, and SP-3 shipped
 ## four separate lists. This is the strip; the lists stay beneath it as the
 ## detail. One horizontal axis over every year this settlement has data for and
-## four labelled lanes -- ownership spans, population/tier per recorded year,
-## authored `chronos` events, dated journey passes -- each mark placed at its
-## own year, so the lanes interleave by date.
+## five labelled lanes -- ownership spans, population/tier per recorded year,
+## authored `chronos` events, dated journey passes, and (SP-5) the conflicts
+## that touched the place -- each mark placed at its own year, so the lanes
+## interleave by date.
 ##
-## **Additive and read-only.** It reads the same four bridge calls the lists
+## **Additive and read-only.** It reads the same five bridge calls the lists
 ## below do (`civ_settlement_ownership_periods`,
 ## `civ_settlement_population_trajectory`, `vault_entity_chronos`,
-## `civ_settlement_journey_passes`) and writes nothing. It never draws a mark
+## `civ_settlement_journey_passes`, `conflicts_touching_settlement`) and writes
+## nothing. A conflict with no `end_year` is ongoing: it is drawn from its start
+## to the right edge of the axis with an arrowhead, never given an invented end
+## year. It never draws a mark
 ## for a year with no data: an empty lane says why instead. A journey pass with
 ## no `year` (an undated plan) has no honest position, so it is counted in a
 ## note and left to the list. Marks that would overlap in a lane are packed onto
 ## extra rows of that lane rather than drawn over one another.
 ##
-## **No colour-only encoding:** lane = shape (bar / circle / diamond / triangle)
-## plus its title; a ruined year is a ring, not a different fill. **Phone:** the
+## **No colour-only encoding:** lane = shape (bar / circle / diamond / triangle /
+## cross) plus its title; a ruined year is a ring, not a different fill.
+## **Width:** lane titles are a sticky overlay band above each lane, not a gutter
+## beside the plot, so the plot's viewport is the whole strip. **Phone:** the
 ## plot sits in its own horizontal `ScrollContainer` (vertical disabled, so only
 ## the height folds into the parent -- `MISTAKES.md`'s scroll trap concerns the
 ## DISABLED axis, which here is the one that should fold), and a mark is a
@@ -896,9 +911,11 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 	for p in passes:
 		if (p as Dictionary).has("year"):
 			dated.append(p)
-	if periods.is_empty() and points.is_empty() and events.is_empty() and dated.is_empty():
-		DccWidgets.note(sec, "Nothing to plot yet: no recorded years, ownership, authored events or "
-			+ "dated journey passes for this place. Add a year on the Timeline tab to start one.")
+	var conflicts: Array = bridge.conflicts_touching_settlement(tid)
+	if periods.is_empty() and points.is_empty() and events.is_empty() and dated.is_empty() \
+			and conflicts.is_empty():
+		DccWidgets.note(sec, "Nothing to plot yet: no recorded years, ownership, authored events, "
+			+ "dated journey passes or conflicts for this place. Add a year on the Timeline tab to start one.")
 		if not passes.is_empty():
 			DccWidgets.note(sec, "%d journey pass%s here ha%s no date and is listed below only."
 				% [passes.size(), "" if passes.size() == 1 else "es", "s" if passes.size() == 1 else "ve"])
@@ -922,6 +939,11 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 			years.append(int(ed.get("end", 0)))
 	for p in dated:
 		years.append(int((p as Dictionary).get("year", 0)))
+	for c in conflicts:
+		var cdy: Dictionary = c
+		years.append(int(cdy.get("start_year", 0)))
+		if cdy.has("end_year"):
+			years.append(int(cdy.get("end_year", 0)))
 	for y in years:
 		lo = mini(lo, int(y))
 		hi = maxi(hi, int(y))
@@ -932,9 +954,11 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 	var x_of := func(year: int) -> float:
 		return STRIP_PAD_X + float(year - lo) * px_per_year
 
-	## Judgement, labelled: a handset gets taller rows and wider hit cells so a
-	## finger can land on a mark; `PHONE_TAP_MIN` (44) is not met because dense
-	## years would then overlap their neighbours' cells.
+	## A handset gets taller rows and a hit cell as wide as `PHONE_TAP_MIN` so a
+	## finger can land on a mark. The cell is only the hit target: the drawn glyph
+	## keeps its own size (`_strip_glyph_r`), and the packer below uses the whole
+	## cell, so two marks' cells never share a pixel in one row -- a tap always
+	## belongs to exactly one mark, with no nearest-mark tie to break.
 	var row_h := _strip_row_h()
 	var hit_w := _strip_hit_w()
 
@@ -1014,6 +1038,22 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 				String(pd.get("name", "")), String(pd.get("party_preset", "")),
 				String(pd.get("departure", ""))],
 		})
+	for c in conflicts:
+		var cd: Dictionary = c
+		var cy0 := int(cd.get("start_year", 0))
+		## No `end_year` = ongoing (`_conflict_years` says "ongoing"): the span runs
+		## to the axis's last year `hi`, and the painter draws an arrowhead there.
+		var ongoing := not cd.has("end_year")
+		var cy1 := hi if ongoing else int(cd.get("end_year", cy0))
+		var ctip := "%s · %s" % [_conflict_years(cd), _conflict_title(cd)]
+		if String(cd.get("via", "")) == "province":
+			ctip += " (%s)" % String(cd.get("anchor_name", "province"))
+		if not String(cd.get("outcome", "")).is_empty():
+			ctip += " · Outcome: %s" % String(cd.get("outcome", ""))
+		(lanes["conflicts"] as Array).append({
+			"x0": x_of.call(cy0), "x1": x_of.call(cy1), "year": cy0, "tip": ctip,
+			"ongoing": ongoing,
+		})
 
 	var lane_h := {}
 	var lane_y := {}
@@ -1037,7 +1077,7 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 			else:
 				rows_end[r] = right
 			it["row"] = r
-		lane_h[ln] = float(maxi(1, rows_end.size())) * row_h
+		lane_h[ln] = STRIP_TITLE_H + float(maxi(1, rows_end.size())) * row_h
 		lane_y[ln] = cursor_y
 		cursor_y += float(lane_h[ln])
 	var lanes_h := cursor_y
@@ -1054,11 +1094,6 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 	while t <= hi:
 		ticks.append(t)
 		t += step
-	var empty_lanes: Array[String] = []
-	for ln in STRIP_LANES:
-		if (lanes[ln] as Array).is_empty():
-			empty_lanes.append(ln)
-
 	var plot := Control.new()
 	plot.custom_minimum_size = Vector2(total_w, total_h)
 	plot.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -1073,16 +1108,12 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fs, DccTheme.c("text_ghost"))
 		for ln in STRIP_LANES:
 			var by: float = float(lane_y[ln]) + float(lane_h[ln])
-			plot.draw_line(Vector2(0, by), Vector2(total_w, by), rule, 1.0)
-		for ln in empty_lanes:
-			plot.draw_string(font, Vector2(STRIP_PAD_X, float(lane_y[ln]) + row_h * 0.5 + fs * 0.4),
-				String(STRIP_LANE_EMPTY[ln]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
-				DccTheme.c("text_faint")))
+			plot.draw_line(Vector2(0, by), Vector2(total_w, by), rule, 1.0))
 	for ln in STRIP_LANES:
 		var items: Array = lanes[ln]
 		for i in items.size():
 			var it: Dictionary = items[i]
-			var cy: float = float(lane_y[ln]) + float(it["row"]) * row_h
+			var cy: float = float(lane_y[ln]) + STRIP_TITLE_H + float(it["row"]) * row_h
 			var cx0: float = float(it["x0"])
 			var cx1: float = float(it["x1"])
 			var rect := Rect2(cx0 - hit_w * 0.5, cy, (cx1 - cx0) + hit_w, row_h)
@@ -1093,37 +1124,59 @@ func _build_timeline_strip(parent: Control, s: Dictionary) -> void:
 			## Room for a tier label beside a tier-change dot: up to the next dot.
 			var room := 0.0
 			if ln == "population" and bool(it.get("tier_change", false)):
-				room = (float(items[i + 1]["x0"]) if i + 1 < items.size() else total_w) - cx0 - hit_w * 0.5 - 4.0
+				## Text runs from this glyph's right edge (+3) to the next glyph's
+				## left edge (-2): the glyph, not the wider hit cell, is what it must clear.
+				var gr := _strip_glyph_r()
+				room = (float(items[i + 1]["x0"]) if i + 1 < items.size() else total_w) - cx0 - 2.0 * gr - 5.0
 			_strip_mark(plot, ln, it, rect, readout, room)
 
-	# -- Layout: sticky lane titles beside a horizontally scrolling plot ---------
-	var strip := HBoxContainer.new()
-	strip.add_theme_constant_override("separation", 6)
-	var titles := VBoxContainer.new()
-	titles.add_theme_constant_override("separation", 0)
-	for ln in STRIP_LANES:
-		var tl := DccTheme.mono_label(String(STRIP_LANE_TITLE[ln]), "text_faint", DccTheme.FS_MICRO, 1)
-		tl.custom_minimum_size = Vector2(STRIP_LABEL_W, float(lane_h[ln]))
-		tl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		titles.add_child(tl)
-	var axis_gap := Control.new()
-	axis_gap.custom_minimum_size = Vector2(STRIP_LABEL_W, STRIP_AXIS_H)
-	titles.add_child(axis_gap)
-	strip.add_child(titles)
+	# -- Layout: a horizontally scrolling plot with sticky lane titles over it ----
+	## The strip is a plain `Control` so the scroller and the title overlay can
+	## share one rect: the plot scrolls, the overlay does not. Vertical scrolling
+	## is disabled, so only the height folds into the parent (`MISTAKES.md`'s
+	## scroll trap is about the DISABLED axis).
+	var strip := Control.new()
+	strip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The horizontal bar overlays the bottom of the scroll rect when it shows;
+	## 10 px keeps it clear of the axis labels.
+	strip.custom_minimum_size = Vector2(0, total_h + 10.0)
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	## The horizontal bar overlays the bottom of the scroll rect when it shows;
-	## 10 px keeps it clear of the axis labels.
-	scroll.custom_minimum_size.y = total_h + 10.0
+	scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	scroll.add_child(plot)
 	strip.add_child(scroll)
+	## Sticky overlay: one title per lane in the band above its marks, and the
+	## reason for an empty lane where its marks would be. `MOUSE_FILTER_IGNORE`
+	## all the way down, so a drag or tap on the strip reaches the plot beneath.
+	var overlay := Control.new()
+	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var title_bg := StyleBoxFlat.new()
+	title_bg.bg_color = Color(DccTheme.c("bg"), 0.85)
+	title_bg.content_margin_left = 3.0
+	title_bg.content_margin_right = 3.0
+	title_bg.content_margin_top = 0.0
+	title_bg.content_margin_bottom = 0.0
+	for ln in STRIP_LANES:
+		var tl := DccTheme.mono_label(String(STRIP_LANE_TITLE[ln]), "text_faint", DccTheme.FS_MICRO, 1)
+		tl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tl.add_theme_stylebox_override("normal", title_bg)
+		tl.position = Vector2(2.0, float(lane_y[ln]) + 1.0)
+		overlay.add_child(tl)
+		if (lanes[ln] as Array).is_empty():
+			## Dashed with its reason, never an empty frame (`MISTAKES.md`).
+			var why := DccTheme.mono_label(String(STRIP_LANE_EMPTY[ln]), "text_faint", DccTheme.FS_MICRO)
+			why.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			why.position = Vector2(STRIP_PAD_X, float(lane_y[ln]) + STRIP_TITLE_H + row_h * 0.5
+				- DccTheme.FS_MICRO)
+			overlay.add_child(why)
+	strip.add_child(overlay)
 	sec.add_child(strip)
 	sec.add_child(readout)
 	DccWidgets.note(sec, "▬ ownership span · ● recorded year (a ring is a ruined year; the label marks a "
-		+ "tier change) · ◆ authored event (a line is a range) · ▲ journey passing. The lists below "
-		+ "carry the same data in full.")
+		+ "tier change) · ◆ authored event (a line is a range) · ▲ journey passing · ✕ conflict "
+		+ "(a line is its span; an arrowhead is ongoing). The lists below carry the same data in full.")
 	var undated := passes.size() - dated.size()
 	if undated > 0:
 		DccWidgets.note(sec, "%d journey pass%s here ha%s no date, so %s not placed on the strip; "
@@ -1154,17 +1207,17 @@ func _strip_mark(plot: Control, lane: String, it: Dictionary, rect: Rect2, reado
 
 
 ## Paints one strip mark. Lane decides the SHAPE (bar, circle, diamond,
-## triangle); ink only adds meaning inside a shape. Colour sources: a faction's
-## own colour (ownership, the same one the stacked bar uses), `accent` for a tier
-## change / journey, `warn` for the ruined ring, the chronos event's own colour
-## or `text_secondary` for an event, `text` for an ordinary recorded year.
+## triangle, cross); ink only adds meaning inside a shape. Colour sources: a
+## faction's own colour (ownership, the same one the stacked bar uses), `accent`
+## for a tier change / journey, `warn` for the ruined ring, the chronos event's
+## own colour or `text_secondary` for an event, `text` for an ordinary recorded
+## year, the map's own conflict ink (`_CONFLICT_INK`) for a conflict.
 func _strip_paint(c: Control, lane: String, it: Dictionary, label_room: float) -> void:
 	var sz := c.size
 	var ctr := Vector2(sz.x * 0.5, sz.y * 0.5)
-	## Glyph radius from the cell: 4.8 px on desktop (16 x 24), 8.4 on a phone
-	## (28 x 36). 0.3 of the smaller side is a labelled judgement that leaves
-	## the glyph a margin inside its cell.
-	var r := minf(_strip_row_h(), _strip_hit_w()) * 0.3
+	## The glyph is sized by `_strip_glyph_r`, NOT by the hit cell: widening the
+	## phone's tap target must not widen what is drawn.
+	var r := _strip_glyph_r()
 	match lane:
 		"ownership":
 			var box := Rect2(0, 4, sz.x, sz.y - 8)
@@ -1213,20 +1266,45 @@ func _strip_paint(c: Control, lane: String, it: Dictionary, label_room: float) -
 			c.draw_colored_polygon(PackedVector2Array([
 				ctr + Vector2(0, -r), ctr + Vector2(r, r * 0.8), ctr + Vector2(-r, r * 0.8)]),
 				DccTheme.c("accent"))
+		"conflicts":
+			## A cross at the start year, a line to the end year, and at the end
+			## either a tick (ended) or an arrowhead (`ongoing`: no end year exists,
+			## so none is drawn). Same cell geometry as the events lane.
+			var w := _strip_hit_w()
+			var end_x := sz.x - w * 0.5
+			var start := Vector2(w * 0.5, ctr.y)
+			if end_x > start.x + 1.0:
+				c.draw_line(start, Vector2(end_x, ctr.y), Color(_CONFLICT_INK, 0.55), 3.0)
+				if bool(it.get("ongoing", false)):
+					c.draw_line(Vector2(end_x - r, ctr.y - r), Vector2(end_x, ctr.y), _CONFLICT_INK, 1.8)
+					c.draw_line(Vector2(end_x - r, ctr.y + r), Vector2(end_x, ctr.y), _CONFLICT_INK, 1.8)
+				else:
+					c.draw_line(Vector2(end_x, ctr.y - r), Vector2(end_x, ctr.y + r), _CONFLICT_INK, 1.5)
+			c.draw_line(start + Vector2(-r, -r), start + Vector2(r, r), _CONFLICT_INK, 2.2)
+			c.draw_line(start + Vector2(-r, r), start + Vector2(r, -r), _CONFLICT_INK, 2.2)
 
 
 ## Strip row height and the width of one point mark's hit cell. A handset gets
-## taller rows and wider cells so a finger can land on a mark. Labelled
-## judgement, not a measurement: `PHONE_TAP_MIN` (44) is NOT met because dense
-## recorded years would then overlap their neighbours' cells; the readout line
-## and the horizontal scroll cover the rest. One place, so the builder, the
-## packer and the painter cannot disagree.
+## taller rows and a cell as wide as `DccTheme.PHONE_TAP_MIN` (44 reference px;
+## the Place window's own `content_scale_factor` turns that into 44 dp) so a
+## finger can land on a mark. The row height (36) is still under it -- a
+## labelled judgement: lanes stack five deep and the readout line plus the
+## horizontal scroll cover the rest. Desktop's 16 x 24 is a pointer's cell.
+## One place, so the builder, the packer and the painter cannot disagree.
 func _strip_row_h() -> float:
 	return 36.0 if _phone else 24.0
 
 
 func _strip_hit_w() -> float:
-	return 28.0 if _phone else 16.0
+	return float(DccTheme.PHONE_TAP_MIN) if _phone else 16.0
+
+
+## Radius of a drawn glyph, independent of the hit cell. 4.8 px on desktop and
+## 8.4 on a phone: these are exactly what the old rule `0.3 * min(row, hit)`
+## gave for the old cells (16 x 24 and 28 x 36), pinned here as literals when
+## the phone's hit cell grew to 44 so the DRAWN mark did not grow with it.
+func _strip_glyph_r() -> float:
+	return 8.4 if _phone else 4.8
 
 
 # -- Journey passes (SP-3's third mark) ---------------------------------------

@@ -1,18 +1,26 @@
 extends Node
 ## SP-3's combined timeline strip (`OUTSTANDING_WORK.md`, Ruling AQ): ONE strip
-## over a settlement's recorded years, four lanes interleaved by date (ownership,
-## population/tier, authored `chronos` events, journey passes), on the Settlement
-## Editor's Political history tab, with the existing lists kept beneath it.
+## over a settlement's recorded years, five lanes interleaved by date (ownership,
+## population/tier, authored `chronos` events, journey passes, and SP-5's
+## conflicts), on the Settlement Editor's Political history tab, with the
+## existing lists kept beneath it.
 ##
 ## Protects: (1) the number of marks in each lane equals what the underlying
-## bridge calls return -- the oracle is read from the same four calls the shell
-## reads, never hard-coded; (2) a settlement whose lane has no data draws NO mark
-## in it (no fake mark for a year with nothing recorded); (3) marks are placed on
-## one shared year axis (x is monotonic in year across all four lanes) and never
-## overlap within a lane; (4) a click on a mark fills the readout line (the phone's
-## stand-in for a hover tooltip); (5) the strip is real pixels (a palette-agnostic
-## distinct-colour count over its rect), and (6) on a phone the page does not
-## overflow horizontally -- the plot scrolls inside its own container instead.
+## bridge calls return -- the oracle is read from the same five calls the shell
+## reads (`conflicts_touching_settlement` for the conflicts lane), never
+## hard-coded; (2) a settlement whose lane has no data draws NO mark in it (no
+## fake mark for a year with nothing recorded) and says why in the lane; (3)
+## marks are placed on one shared year axis (x is monotonic in year across all
+## five lanes) and never overlap within a lane; (4) a click on a mark fills the
+## readout line (the phone's stand-in for a hover tooltip); (5) the strip is real
+## pixels (a palette-agnostic distinct-colour count over its rect), and (6) on a
+## phone the page does not overflow horizontally -- the plot scrolls inside its
+## own container instead; (7) the plot's viewport is not squeezed by a label
+## gutter (the lane titles are an overlay band: the viewport is >= window width
+## minus 80 px, where it used to be 232 px of a 400 px window); (8) on a phone a
+## point mark's hit cell is >= `PHONE_TAP_MIN` (44) wide while the DRAWN glyph
+## radius stays 8.4 px (literal, so widening the cell cannot silently widen the
+## mark), and a tap at the cell's far edge still reaches that mark's readout.
 ##
 ## WINDOWED (reads drawn nodes and the framebuffer; `ImageTexture` is a no-op
 ## headless):
@@ -24,6 +32,9 @@ var _app: Node
 var _bridge
 var _fail := 0
 var _phone_run := false
+## Lane order, top to bottom -- literal on purpose: it is the contract the
+## builder's `STRIP_LANES` must still match (a reordering is a visible change).
+const LANES: Array[String] = ["ownership", "population", "events", "journeys", "conflicts"]
 var _tag := "desktop"
 
 
@@ -66,11 +77,21 @@ func _press_tab(pe: Node, text: String) -> void:
 
 ## Every strip mark under `pe`, as `{lane: [Control, ...]}`.
 func _marks(pe: Node) -> Dictionary:
-	var by := {"ownership": [], "population": [], "events": [], "journeys": []}
+	var by := {"ownership": [], "population": [], "events": [], "journeys": [], "conflicts": []}
 	for n in _walk(pe, []):
 		if n is Control and (n as Control).has_meta("strip_lane"):
 			(by[String((n as Control).get_meta("strip_lane"))] as Array).append(n)
 	return by
+
+
+## True when the Label with `text` has its left edge inside `rect` (an overlay
+## drawn over the plot, not a gutter to its left).
+func _title_labels_inside(pe: Node, text: String, rect: Rect2) -> bool:
+	for n in _walk(pe, []):
+		if n is Label and (n as Label).text == text:
+			var lx := (n as Label).get_global_rect().position.x
+			return lx >= rect.position.x - 0.5 and lx < rect.end.x
+	return false
 
 
 func _pass_for(tid: int, jid: int) -> Dictionary:
@@ -239,11 +260,26 @@ func _ready() -> void:
 	var att: Dictionary = _bridge.vault_attach("settlement", tid, tname, "Settlements/Note.md", "")
 	_check("note attached", bool(att.get("ok", false)), String(att.get("error", "")))
 
-	# -- The oracle: the same four bridge calls the shell reads -----------------------
+	## SP-5 conflicts anchored on this very settlement: one that ended (with an
+	## outcome) and one ongoing (no end year). Added through the bridge, exactly as
+	## CIVIL does; `conflicts_touching_settlement` is then the oracle.
+	var tpos := PackedVector2Array([Vector2(float(towns[idx]["x"]), float(towns[idx]["y"]))])
+	var c_ended: Dictionary = _bridge.conflict_add({"name": "Siege of Probeholm", "kind": "siege",
+		"start_year": 30, "end_year": 45, "outcome": "Relieved", "points": tpos,
+		"anchor_kind": "settlement", "anchor_tid": tid})
+	var c_open: Dictionary = _bridge.conflict_add({"name": "The Long Feud", "kind": "front",
+		"start_year": 90, "ongoing": true,
+		"points": PackedVector2Array([tpos[0], tpos[0] + Vector2(3.0, 3.0)]),
+		"anchor_kind": "settlement", "anchor_tid": tid})
+	_check("fixture: both conflicts were accepted", bool(c_ended.get("ok", false)) and bool(c_open.get("ok", false)),
+		"%s %s" % [c_ended, c_open])
+
+	# -- The oracle: the same five bridge calls the shell reads -----------------------
 	var periods: Array = _bridge.civ_settlement_ownership_periods(tid)
 	var traj: Array = _bridge.civ_settlement_population_trajectory(tid)
 	var evs: Array = _bridge.vault_entity_chronos("settlement", tid).get("events", [])
 	var passes: Array = _bridge.civ_settlement_journey_passes(tid)
+	var cfl: Array = _bridge.conflicts_touching_settlement(tid)
 	var dated := 0
 	for ps in passes:
 		if (ps as Dictionary).has("year"):
@@ -252,8 +288,11 @@ func _ready() -> void:
 	for pt in traj:
 		if bool((pt as Dictionary).get("ruins", false)):
 			ruined += 1
-	_p("%s (tid %d): periods=%d trajectory=%d (ruined years %d) events=%d passes=%d (dated %d)" % [
-		tname, tid, periods.size(), traj.size(), ruined, evs.size(), passes.size(), dated])
+	_p("%s (tid %d): periods=%d trajectory=%d (ruined years %d) events=%d passes=%d (dated %d) conflicts=%d" % [
+		tname, tid, periods.size(), traj.size(), ruined, evs.size(), passes.size(), dated, cfl.size()])
+	_check("fixture: the conflicts lane has data (one ended, one ongoing)",
+		cfl.size() == 2 and cfl.any(func(c): return not c.has("end_year")) and cfl.any(func(c): return c.has("end_year")),
+		str(cfl))
 	_check("fixture: every lane has data on this settlement",
 		periods.size() >= 1 and traj.size() >= 3 and evs.size() == 3 and dated >= 1,
 		"%d/%d/%d/%d" % [periods.size(), traj.size(), evs.size(), dated])
@@ -273,9 +312,28 @@ func _ready() -> void:
 		"%d vs %d" % [(marks["events"] as Array).size(), evs.size()])
 	_check("journey marks == DATED passes the bridge returns", (marks["journeys"] as Array).size() == dated,
 		"%d vs %d" % [(marks["journeys"] as Array).size(), dated])
-	_p("marks drawn: ownership %d, population %d, events %d, journeys %d" % [
+	_check("conflict marks == conflicts the bridge returns", (marks["conflicts"] as Array).size() == cfl.size(),
+		"%d vs %d" % [(marks["conflicts"] as Array).size(), cfl.size()])
+	_p("marks drawn: ownership %d, population %d, events %d, journeys %d, conflicts %d" % [
 		(marks["ownership"] as Array).size(), (marks["population"] as Array).size(),
-		(marks["events"] as Array).size(), (marks["journeys"] as Array).size()])
+		(marks["events"] as Array).size(), (marks["journeys"] as Array).size(),
+		(marks["conflicts"] as Array).size()])
+	## The ongoing conflict has no end year: its tip says "ongoing" and its span
+	## is wider than one hit cell (it runs to the axis's last year, not a dot).
+	var open_mark: Control = null
+	var ended_mark: Control = null
+	for m in marks["conflicts"]:
+		if int((m as Control).get_meta("strip_year")) == 90:
+			open_mark = m
+		elif int((m as Control).get_meta("strip_year")) == 30:
+			ended_mark = m
+	_check("the ongoing conflict's mark says ongoing and spans past one cell",
+		open_mark != null and String(open_mark.get_meta("strip_text")).contains("ongoing")
+		and open_mark.size.x > (44.0 if _phone_run else 16.0), "" if open_mark == null else str(open_mark.size))
+	_check("the ended conflict's mark carries its range and outcome",
+		ended_mark != null and String(ended_mark.get_meta("strip_text")).contains("30 – 45")
+		and String(ended_mark.get_meta("strip_text")).contains("Relieved"),
+		"" if ended_mark == null else String(ended_mark.get_meta("strip_text")))
 
 	# Marks carry the year the data says (read back from meta, not the position).
 	var years_ok := true
@@ -290,20 +348,21 @@ func _ready() -> void:
 	for ln in marks:
 		for m in marks[ln]:
 			var c: Control = m
-			var ax := c.position.x if ln == "ownership" else c.position.x + 8.0 * (3.5 if _phone_run else 1.0) \
-				if false else c.position.x + (14.0 if _phone_run else 8.0)
+			## Anchor = the mark's own year: the left edge of a span bar, or the centre
+			## of a point/span-start hit cell (half of 44 on a phone, half of 16 here).
+			var ax := c.position.x if ln == "ownership" else c.position.x + (22.0 if _phone_run else 8.0)
 			anchors.append([int(c.get_meta("strip_year")), ax])
 	anchors.sort_custom(func(u, v): return u[0] < v[0] or (u[0] == v[0] and u[1] < v[1]))
 	var mono := true
 	for i in range(1, anchors.size()):
 		if int(anchors[i][0]) > int(anchors[i - 1][0]) and float(anchors[i][1]) <= float(anchors[i - 1][1]) + 0.01:
 			mono = false
-	_check("all four lanes share one year axis (x strictly rises with year)", mono and anchors.size() > 4, str(anchors.size()))
+	_check("all five lanes share one year axis (x strictly rises with year)", mono and anchors.size() > 4, str(anchors.size()))
 
 	# No overlap inside a lane; lanes occupy distinct vertical bands in the stated order.
 	var overlap := 0
 	var band: Array = []
-	for ln in ["ownership", "population", "events", "journeys"]:
+	for ln in LANES:
 		var ms: Array = marks[ln]
 		var top := 1e9
 		var bot := -1e9
@@ -320,12 +379,12 @@ func _ready() -> void:
 	for i in range(1, band.size()):
 		if float(band[i][0]) < float(band[i - 1][1]) - 0.01:
 			bands_ok = false
-	_check("lanes are stacked in order, one band each (ownership above population above events above journeys)",
+	_check("lanes are stacked in order, one band each (ownership above population above events above journeys above conflicts)",
 		bands_ok, str(band))
 
 	# Lane titles drawn, distinct shapes named in them.
 	var labs := _labels(pe)
-	for t in ["▬ OWNERSHIP", "● POP · TIER", "◆ EVENTS", "▲ JOURNEYS"]:
+	for t in ["▬ OWNERSHIP", "● POP · TIER", "◆ EVENTS", "▲ JOURNEYS", "✕ CONFLICTS"]:
 		_check("lane title '%s' is drawn" % t, labs.has(t), "")
 
 	# The existing lists are still beneath it.
@@ -341,6 +400,8 @@ func _ready() -> void:
 		labs.any(func(l): return String(l).to_upper().ends_with("POPULATION & TIER TRAJECTORY")), "")
 	_check("the authored-events section is still drawn",
 		labs.any(func(l): return String(l).to_upper().ends_with("AUTHORED EVENTS")), "")
+	_check("the conflicts-here list is still drawn and holds a conflict's range",
+		labs.has("30 – 45") and labs.has("90 – ongoing"), "")
 	_check("the journeys-passing list is still drawn and holds the pass date",
 		labs.has(String(_pass_for(tid, jid).get("date", "#"))) and labs.has("Probe caravan"), "")
 
@@ -381,6 +442,33 @@ func _ready() -> void:
 	_p("strip scroll: viewport %.0f px, content %.0f px, h-scroll max %.0f" % [
 		scroll.size.x, plot.custom_minimum_size.x, sb.max_value])
 
+	# The strip's viewport is not squeezed by a label gutter (Protects 7).
+	## Width is judged against the window's LOGICAL width: on the phone run the OS window is 1080 px
+	## but the shell's content scale lays it out ~2.6x smaller, so `pe.size.x` (pixels) is the wrong
+	## yardstick there (it made this check fail spuriously at 334 vs 1080).
+	var logical_w: float = pe.get_viewport().get_visible_rect().size.x if _phone_run else float(pe.size.x)
+	_check("the plot viewport is >= window width - 80 px (lane titles no longer take a gutter)",
+		scroll.size.x >= logical_w - 80.0, "viewport %.0f vs window %.0f" % [scroll.size.x, logical_w])
+	_check("lane titles sit over the plot, not beside it (every title's left edge is inside the scroll rect)",
+		_title_labels_inside(pe, "▬ OWNERSHIP", gr), "")
+	# Hit cell vs drawn glyph (Protects 8): literals, not the constants they pin.
+	var pm: Control = (marks["population"] as Array)[0]
+	_check("drawn glyph radius is the literal %s px (cell width is %.0f)" % ["8.4" if _phone_run else "4.8", pm.size.x],
+		is_equal_approx(pe._strip_glyph_r(), 8.4 if _phone_run else 4.8), str(pe._strip_glyph_r()))
+	_check("a point mark's hit cell is %s px wide" % ("44" if _phone_run else "16"),
+		is_equal_approx(pm.size.x, 44.0 if _phone_run else 16.0), str(pm.size.x))
+	## A tap in the cell's far corner, well clear of the glyph, still reads out.
+	var tap := InputEventMouseButton.new()
+	tap.button_index = MOUSE_BUTTON_LEFT
+	tap.pressed = true
+	tap.position = Vector2(pm.size.x - 1.5, pm.size.y - 1.5)
+	pm.gui_input.emit(tap)
+	await _frames(2)
+	_check("a tap at the cell's far edge (outside the glyph) fills the readout",
+		_labels(pe).has(String(pm.get_meta("strip_text"))), String(pm.get_meta("strip_text")))
+	if _phone_run:
+		_check("phone: no two point cells of one row overlap (a tap has exactly one owner)", overlap == 0, str(overlap))
+
 	# Phone: the page itself must not overflow; the plot scrolls inside its own container.
 	if _phone_run:
 		var body: Control = pe._body
@@ -405,6 +493,12 @@ func _ready() -> void:
 			(fm["journeys"] as Array).is_empty() and _pass_for(ftid, jid).is_empty(), "")
 		_check("...nor an event mark (its note has no chronos block)", (fm["events"] as Array).is_empty()
 			and _bridge.vault_entity_chronos("settlement", ftid).get("events", []).is_empty(), "")
+		var fcl: Array = _bridge.conflicts_touching_settlement(ftid)
+		_check("...and its conflicts lane has exactly the conflicts the bridge says touch it (none were added here)",
+			(fm["conflicts"] as Array).size() == fcl.size() and fcl.is_empty(), "%d vs %d" % [(fm["conflicts"] as Array).size(), fcl.size()])
+		_check("...an empty lane states its reason instead of a mark",
+			_labels(pe).has("— no conflict attached here or to its province")
+			and _labels(pe).has("— no dated journey passes here"), "")
 		_check("...but still draws its own recorded years",
 			(fm["population"] as Array).size() == _bridge.civ_settlement_population_trajectory(ftid).size()
 			and (fm["population"] as Array).size() > 0, "")
@@ -413,6 +507,8 @@ func _ready() -> void:
 		_p("screenshot (%s sparse): %s" % [_tag, ProjectSettings.globalize_path("user://_sp3strip_%s_sparse.png" % _tag)])
 
 	_bridge.journey_delete(jid)
+	for cr in [c_ended, c_open]:
+		_bridge.conflict_delete(int((cr as Dictionary).get("id", -1)))
 	_bridge.vault_disconnect()
 	_p("DONE %s: %d failure(s) (PROBE-FAIL count %d)" % [_tag, _fail, _fail])
 	if _fail > 0:
