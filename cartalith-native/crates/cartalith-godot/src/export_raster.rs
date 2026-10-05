@@ -2367,7 +2367,7 @@ mod rv5_parity_tests {
 /// post stage on a hand-built one.
 #[cfg(test)]
 mod own_look_tests {
-    use super::rv5_parity_tests::{dims, river, setup, world, GH, GW, SEA};
+    use super::rv5_parity_tests::{dims, river, setup, world, GH, GW, K, SEA};
     use super::*;
     use crate::render::{self, BakeFields};
     use crate::river_stroke::RiverGeometry;
@@ -2536,6 +2536,218 @@ mod own_look_tests {
         assert_eq!(touched, 0, "a stroke look has no post stage");
         assert_eq!(got, without, "a stroke look's crop is the oracle untouched");
         assert_eq!(without, with);
+    }
+
+    /// Protects: **the export style's edit layer carries a look's river gates
+    /// through to the appearance an export renders with** -- the pure half of
+    /// `WorldGen::export_appearance` (`style.apply_edits(appearance_rebased(..))`;
+    /// the `WorldGen` half reads session fields and is a `GodotClass`, so it is
+    /// covered by `_riverzoom_probe.gd --vx`, not here). A painting base
+    /// (the shipped look) stays painted and a stroking base (the reference
+    /// look a preset file would carry) stays stroked after `apply_edits`, with
+    /// an empty style and with a `river_bank` tunable alike; the tunable
+    /// arrives as the literal 0.4, so an edit layer that dropped the tunables,
+    /// or flipped `rivers_as_water` / `smooth_shores`, goes red. The two bases
+    /// have opposite answers, so neither passes by returning a constant.
+    #[test]
+    fn an_export_style_carries_the_look_river_gates_through_its_edits() {
+        use crate::export_options::ExportStyle;
+        // Painted base: the quality tier under the shipped look, as
+        // `appearance_rebased(Some(look), None)` builds it.
+        let painting = TerrainAppearance::for_tier(render::QualityTier::Quality).with_look(render::LOOK_VIBRANT);
+        // Stroking base: the reference look, the way a saved preset can carry it.
+        let stroking = TerrainAppearance::js_reference();
+        assert!(crate::river_field::painted(&painting, GW, GH), "premise: the shipped look paints its rivers");
+        assert!(!crate::river_field::painted(&stroking, GW, GH), "premise: the reference look strokes its rivers");
+        assert_eq!(painting.river_bank, 0.0, "premise: the base carries no bank, so 0.4 below can only come from the edit");
+
+        let empty = ExportStyle::default();
+        let banked = ExportStyle { tunables: vec![("river_bank", 0.4)], ..ExportStyle::default() };
+        for (name, base, paints) in [("painting", &painting, true), ("stroking", &stroking, false)] {
+            let untouched = empty.apply_edits(base.clone());
+            assert_eq!(untouched.rivers_as_water, paints, "{name}: an empty style changed rivers_as_water");
+            assert_eq!(untouched.smooth_shores, base.smooth_shores, "{name}: an empty style changed smooth_shores");
+            assert_eq!(untouched.river_bank, base.river_bank, "{name}: an empty style changed river_bank");
+            let edited = banked.apply_edits(base.clone());
+            assert_eq!(edited.river_bank, 0.4, "{name}: the river_bank tunable did not arrive");
+            assert_eq!(edited.rivers_as_water, paints, "{name}: a river_bank edit flipped rivers_as_water");
+            assert_eq!(edited.smooth_shores, base.smooth_shores, "{name}: a river_bank edit flipped smooth_shores");
+            assert_eq!(crate::river_field::painted(&edited, GW, GH), paints, "{name}: the edited look's painted/stroke answer moved");
+        }
+    }
+
+    /// A look with a non-identity colour grade, over `look`: exposure and
+    /// contrast up, so `grade_is_identity` is false and every pixel it
+    /// touches moves. **Labelled judgement:** 0.5 and 0.4 are arbitrary
+    /// mid-range values of the `-1..=1` axes; only "clearly not at rest"
+    /// matters, and the tests assert it by measurement.
+    fn graded(mut a: TerrainAppearance) -> TerrainAppearance {
+        a.grade_exposure = 0.5;
+        a.grade_contrast = 0.4;
+        a
+    }
+
+    /// Protects: **`bake_crop` applies the colour grade BEFORE the painted
+    /// river's post stage** (floodplain tint and bank line, which the screen
+    /// draws over the graded pixels), and **the grade reads the `appearance`
+    /// argument** `export_snapshot_png` passes. Under a non-identity grade
+    /// the crop equals the oracle grade-then-post and equals neither the
+    /// swapped order (post-then-grade) nor the ungraded crop; the swapped
+    /// oracle is asserted to differ from the right one, so the fixture can
+    /// see an order swap (the earlier `a_snapshot_crop_applies_the_river_post_stage`
+    /// uses an identity grade and cannot). Handing `bake_crop` an identity
+    /// appearance while the context carries the graded one must give the
+    /// ungraded crop, so a grade read from anywhere but the argument goes red.
+    #[test]
+    fn a_snapshot_crop_grades_before_the_river_post_stage() {
+        let w = world();
+        let g = Arc::new(river());
+        let (ow, oh) = dims();
+        let (at, win) = ((30usize, 30usize), (70usize, 65usize));
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let a = graded(look(true, 0.6));
+        assert!(!a.grade_is_identity() && a.grade_influence_is_flat(), "premise: a flat, non-identity grade");
+        let ctx = setup(&w, &a, &wb.classification);
+        let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+        let cell = render::build_grade_influence(&ctx, ctx.gw, ctx.gh);
+        assert!(cell.is_empty(), "premise: a flat grade has no field, so the plain grade is what the oracle applies");
+        let colour = Arc::new(river_stroke::rasterize_colour_field_with(&g, None, &a, GW, GH));
+        let paint = crate::river_field::PaintSource::new(&g, None, GW, GH, &a, colour).expect("a painting look builds a source");
+        let identity = look(true, 0.6);
+        assert!(identity.grade_is_identity(), "premise: the control appearance grades nothing");
+
+        let (got, graded_then_post, post_then_graded, ungraded, wrong_arg) = with_export_rivers(Some(&g), None, Some(&paint), None, |r| {
+            let got = bake_crop(&ctx, &bf, r, &a, (ow, oh), at, win);
+            let wrong_arg = bake_crop(&ctx, &bf, r, &identity, (ow, oh), at, win);
+            let base = render::bake_rect(&ctx, &bf, r.save_flag, ow, oh, at.0, at.1, win.0, win.1);
+            // Right order: paint, grade, then post.
+            let (mut right, mut painted) = (base.clone(), base.clone());
+            let post = render::paint_vector_rivers(&ctx, &bf, r.vector.expect("a vector source"), &mut right, ow, oh, at.0, at.1, win.0, win.1);
+            render::apply_color_grade(&a, &mut right, &cell);
+            let ungraded = {
+                let mut u = base.clone();
+                let post = render::paint_vector_rivers(&ctx, &bf, r.vector.expect("a vector source"), &mut u, ow, oh, at.0, at.1, win.0, win.1);
+                post.apply(&ctx, &bf, &mut u);
+                u
+            };
+            let touched_right = post.apply(&ctx, &bf, &mut right);
+            // Swapped order: paint, post, then grade.
+            let post2 = render::paint_vector_rivers(&ctx, &bf, r.vector.expect("a vector source"), &mut painted, ow, oh, at.0, at.1, win.0, win.1);
+            let touched_swapped = post2.apply(&ctx, &bf, &mut painted);
+            render::apply_color_grade(&a, &mut painted, &cell);
+            assert!(touched_right > 0 && touched_swapped > 0, "positive control: the post stage must touch pixels ({touched_right}, {touched_swapped})");
+            (got, right, painted, ungraded, wrong_arg)
+        });
+        assert_eq!(got.len(), win.0 * win.1 * 3);
+        assert!(got.iter().any(|&b| b != 0), "silent-empty guard: the crop is all zero");
+        assert_ne!(graded_then_post, post_then_graded, "positive control: the fixture must see an order swap");
+        assert_ne!(graded_then_post, ungraded, "positive control: the grade must move pixels of this crop");
+        assert_eq!(got, graded_then_post, "the crop must grade first and apply the river post stage over the graded pixels");
+        assert_ne!(got, post_then_graded, "the crop must not post-then-grade");
+        assert_eq!(wrong_arg, ungraded, "the grade must read the appearance ARGUMENT: an identity argument gives the ungraded crop");
+    }
+
+    /// Protects: **`bake_crop`'s grade influence is sampled over the crop's own
+    /// window** -- the per-cell field map lifted at `(x0 + col, y0 + row)` of
+    /// the virtual image, not spread across the crop as if it covered the map.
+    /// A sub-window crop under a field-weighted grade must equal the same
+    /// rectangle cut out of a whole-image crop, byte for byte, and the weight
+    /// must really matter (the weighted crop differs from the flat-grade one,
+    /// and the field varies inside the window), so a window that dropped its
+    /// offset, or `build_grade_influence(ctx, w, h)` in place of the per-cell
+    /// map, goes red. Stroke look, no vector river: the post stage is not the
+    /// subject here.
+    #[test]
+    fn a_snapshot_crop_samples_the_grade_field_over_its_own_window() {
+        let w = world();
+        let (ow, oh) = dims();
+        let (at, win) = ((30usize, 20usize), (70usize, 65usize));
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let mut a = graded(look(false, 0.6));
+        a.grade_field_elevation = 0.9;
+        assert!(!a.grade_influence_is_flat(), "premise: the grade follows a field");
+        let run = |a: &TerrainAppearance, at: (usize, usize), win: (usize, usize)| -> Vec<u8> {
+            let ctx = setup(&w, a, &wb.classification);
+            let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+            let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+            with_export_rivers(None, None, None, None, |r| bake_crop(&ctx, &bf, r, a, (ow, oh), at, win))
+        };
+        // The field really varies across the window (else any window passes).
+        let ctx = setup(&w, &a, &wb.classification);
+        let cell = render::build_grade_influence(&ctx, ctx.gw, ctx.gh);
+        assert_eq!(cell.len(), GW * GH, "premise: the weighted grade builds a per-cell field");
+        let (lo, hi) = cell.iter().fold((f32::MAX, f32::MIN), |(l, h), &v| (l.min(v), h.max(v)));
+        assert!(hi - lo > 0.05, "premise: the influence varies across the world ({lo}..{hi})");
+
+        let whole = run(&a, (0, 0), (ow, oh));
+        let sub = run(&a, at, win);
+        assert_eq!(sub.len(), win.0 * win.1 * 3);
+        assert!(sub.iter().any(|&b| b != 0), "silent-empty guard: the sub-window is all zero");
+        let mut cut = Vec::with_capacity(sub.len());
+        for row in 0..win.1 {
+            let o = ((at.1 + row) * ow + at.0) * 3;
+            cut.extend_from_slice(&whole[o..o + win.0 * 3]);
+        }
+        assert_eq!(sub, cut, "a sub-window crop must equal the same rectangle of the whole-image crop");
+        let mut flat = a.clone();
+        flat.grade_field_elevation = 0.0;
+        assert_ne!(run(&flat, at, win), sub, "positive control: the field weight must change the crop");
+    }
+
+    /// Protects: **the painted-versus-stroke choice reaches the crop** -- the
+    /// observable of `export_snapshot_png` handing `bake_crop` the painted
+    /// source (`export_render_with` -> `with_export_rivers`). The same world,
+    /// the same geometry and the same crop window, once with a painting look
+    /// and its `PaintSource`, once with a stroking look and none, must
+    /// differ, and they must differ only where the river is: inside the
+    /// export-pixel box of the geometry grown by a margin, never in the far
+    /// terrain. (`export_snapshot_png` itself is a `WorldGen` method, a
+    /// `GodotClass`; its call-site argument is pinned by
+    /// `_riverzoom_probe.gd --vx`'s S1/S2 legs.)
+    #[test]
+    fn a_painted_crop_differs_from_a_stroke_crop_only_along_the_river() {
+        let w = world();
+        let g = Arc::new(river());
+        let (ow, oh) = dims();
+        let (at, win) = ((0usize, 0usize), (ow, oh));
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let crop = |a: &TerrainAppearance, with_paint: bool| -> Vec<u8> {
+            let ctx = setup(&w, a, &wb.classification);
+            let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+            let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+            let colour = Arc::new(river_stroke::rasterize_colour_field_with(&g, None, a, GW, GH));
+            let paint = crate::river_field::PaintSource::new(&g, None, GW, GH, a, colour);
+            assert_eq!(paint.is_some(), with_paint, "premise: the look decides whether a paint source exists");
+            with_export_rivers(Some(&g), None, paint.as_ref(), None, |r| bake_crop(&ctx, &bf, r, a, (ow, oh), at, win))
+        };
+        let painted = crop(&look(true, 0.6), true);
+        let stroked = crop(&look(false, 0.6), false);
+        assert_eq!(painted.len(), ow * oh * 3);
+        assert!(painted.iter().any(|&b| b != 0) && stroked.iter().any(|&b| b != 0), "silent-empty guard");
+        // The river's export-pixel box (grid coordinate x maps to pixel x * K,
+        // river space is the cell centre + 0.5), grown by the widest reach
+        // this fixture's 1.4-cell river can have plus the floodplain.
+        let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+        for p in g.runs.iter().flat_map(|r| r.pts.iter()) {
+            lo = (lo.0.min(p.0), lo.1.min(p.1));
+            hi = (hi.0.max(p.0), hi.1.max(p.1));
+        }
+        let margin = 8.0f32; // labelled judgement: ~4 cells, 2 px per cell
+        let (mut moved, mut outside) = (0usize, 0usize);
+        for (i, (p, q)) in painted.chunks_exact(3).zip(stroked.chunks_exact(3)).enumerate() {
+            if p == q {
+                continue;
+            }
+            moved += 1;
+            let (px, py) = ((i % ow) as f32, (i / ow) as f32);
+            let (rx, ry) = (px / K as f32, py / K as f32);
+            if rx < lo.0 - margin / K as f32 || rx > hi.0 + margin / K as f32 || ry < lo.1 - margin / K as f32 || ry > hi.1 + margin / K as f32 {
+                outside += 1;
+            }
+        }
+        assert!(moved > 50, "painted and stroked crops barely differ ({moved} px): the paint source is not reaching the crop");
+        assert_eq!(outside, 0, "{outside} of {moved} differing pixels lie away from the river");
     }
 
     /// The text between `from` and the first `to` after it in this file's own
