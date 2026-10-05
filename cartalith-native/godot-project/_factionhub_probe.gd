@@ -14,8 +14,9 @@ extends Node
 ##           the phone window keeps exactly one scroller
 ##   BUILD   every tab builds a non-empty pane, exactly one pane is visible, and
 ##           each carries the section(s) it owns (Currency/Tariffs keep their
-##           `Currency_<key>` / `Tariff_<id>` node names); History is an honest
-##           placeholder with no controls at all (Relations is FH-6's, below)
+##           `Currency_<key>` / `Tariff_<id>` node names); History carries its Linked-
+##           notes and Manual-entries sections and no input control (FH-8's own
+##           leg, below, checks its content)
 ##   OPEN    `open(select_faction, tab)`: a tab id is honoured, "" or an unknown
 ##           id means the last tab used, an unknown faction id is ignored
 ##   FR02    a half-typed field commits to the faction it was typed for, both
@@ -86,6 +87,8 @@ var _deftype_done := false  ## set by the last line of `_run_default_type`
 var _territory_done := false  ## set by the last line of `_run_territory_tab`
 var _fh6_done := false  ## set by the last line of `_run_economy_relations`
 var _fh7_done := false  ## set by the last line of `_run_military_tab`
+const FH8_VAULT := "user://_fh8_vault"  ## throwaway vault for the Linked-notes row; removed after use
+var _fh8_done := false  ## set by the last line of `_run_history_tab`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -355,12 +358,13 @@ func _run() -> void:
 	await _press("military")
 	_ok("BUILD military owns the military block", _text_of(_pane("military")).contains("Power:"),
 		_text_of(_pane("military")).left(200))
-	## History is the one remaining placeholder (FH-6 filled Relations).
+	## History (FH-8): a non-empty pane with its two sections, and no input control.
 	await _press("history")
 	var hpane := _pane("history")
-	var hcontrols := _count(hpane, func(n): return n is Button or n is LineEdit or n is OptionButton 		or n is CheckBox or n is ColorPickerButton or n is SpinBox)
-	_ok("BUILD history is a placeholder: says so, carries no control at all",
-		_text_of(hpane).to_lower().contains("not built") and hcontrols == 0, "controls=%d" % hcontrols)
+	var hinputs := _count(hpane, func(n): return n is LineEdit or n is TextEdit or n is OptionButton or n is CheckBox or n is ColorPickerButton or n is SpinBox or n is Range)
+	_ok("BUILD history builds its Linked notes and Manual entries sections and carries no input control",
+		_text_of(hpane).to_lower().contains("linked notes") and _text_of(hpane).to_lower().contains("manual entries")
+		and hpane.find_child("HistoryManualNotBuilt", true, false) != null and hinputs == 0, "inputs=%d" % hinputs)
 	await _press("relations")
 	_ok("BUILD relations builds a non-empty pane naming Relations, Faith and the not-built Diplomacy line",
 		_text_of(_pane("relations")).to_lower().contains("faith") and _text_of(_pane("relations")).contains("Diplomacy: not built"),
@@ -520,13 +524,20 @@ func _run() -> void:
 	await _run_military_tab(ids)
 	_ok("FH7 the military leg ran to its end (a script error inside it aborts it silently)", _fh7_done)
 
+	# -- HISTORY: ownership periods, linked notes, the manual-entries line (FH-8) -------
+	await _run_history_tab(ids)
+	_ok("FH8 the history leg ran to its end (a script error inside it aborts it silently)", _fh8_done)
+
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
 	await _frames(6)
 	await _press("economy")
+	await _press("history")  ## FH-8: fill the history cache while a timeline exists
 	await _press("military")
-	_ok("RF03 precondition: panes built and the selection is not the default",
-		_fr._tab_panes.size() >= 2 and _fr._selected == fb, "%s sel=%d" % [str(_fr._tab_panes.keys()), _fr._selected])
+	_ok("RF03 precondition: panes built, the selection is not the default, the history cache is warm",
+		_fr._tab_panes.size() >= 3 and _fr._selected == fb and _fr._history_ready
+		and not _bridge.get_civ_timeline_years().is_empty(),
+		"%s sel=%d hist=%s" % [str(_fr._tab_panes.keys()), _fr._selected, str(_fr._history_ready)])
 	_bridge.generate({
 		"seed": 71123, "width_km": 1600.0, "grid_w": 256, "grid_h": 192,
 		"archetype": "", "villages": true, "sea_level": 0.45,
@@ -541,6 +552,14 @@ func _run() -> void:
 	_ok("RF03 ... and the rebuilt tab drew the new world's numbers",
 		_text_of(_pane("military")).contains("Power:") and _fr._military_ready)
 	await _shot("%s_after_generate" % ("phone" if _phone else "desktop"))
+	_ok("RF03 ... and the history cache was dropped with the old world's timeline",
+		not _fr._history_ready and _fr._history_rows.is_empty() and _bridge.get_civ_timeline_years().is_empty(),
+		"ready=%s years=%s" % [str(_fr._history_ready), str(_bridge.get_civ_timeline_years())])
+	await _press("history")
+	var hb := _pane("history").find_child("HistoryBody", true, false)
+	_ok("RF03 ... and the History tab then says there is no timeline, not the old world's spans",
+		hb != null and hb.get_child_count() == 1 and _text_of(hb).begins_with("No timeline is recorded"),
+		_text_of(_pane("history")).left(200))
 	_fr.hide()
 
 
@@ -2161,3 +2180,497 @@ func _full_breakdown() -> Button:
 		if (b as Button).text.to_lower().begins_with("full breakdown"):
 			return b
 	return null
+
+
+# -- FH-8: the History tab -----------------------------------------------------
+## Protects: FH-8, the History tab (`FACTION_HUB_DESIGN.md` §3.7). Every readout is
+## compared with something the tab did not compute:
+##   NOTIMELINE  with no timeline recorded the tab says so in ONE line and draws no
+##               table, no row and no year.
+##   AGGREGATE   the "held by year span" rows equal, for three factions, the live
+##               roster's own `settlement_count` read at the moment each year was
+##               recorded (an anchor that never touches the periods call), and the
+##               engine's `civ_settlement_ownership_periods` re-aggregated here by a
+##               separate loop agrees with that anchor.
+##   CHANGES     the ownership-change rows equal the edits the probe itself made
+##               (three places moved A to B, one B to A, one deleted), by name and
+##               direction and window; a faction with no change says so in one line.
+##   STATIC      `_history_rollup` against a hand-built fixture with literal
+##               expected values, covering gaps, current spans, appears/vanishes and
+##               the omitted-key rule -- the faction filter is what a mutation of it breaks.
+##   VAULT       the Linked-notes row equals `vault_entity_summary` for zero links and
+##               for an attached one, and its action opens the Vault.
+##   NO-EDIT     the pane holds no field, picker, toggle, spinner or slider, and its
+##               only buttons are place rows and the vault action; manual entries
+##               are one NOT BUILT line.
+##   CACHE       one fetch per staleness across faction switches; stale after
+##               `refresh_after_edit` and `open`; the scan cap is stated on screen.
+##   PHONE       every History button >= 44 px on both axes, one scroller.
+## Years 10 / 75 / 130 are used on purpose: a result that defaulted a missing year to
+## 0 could not pass for a real one. Prints a TIMING line (median with min..max).
+## What it cannot see: a timeline of thousands of settlements (the cap's reason is the
+## measurement printed here, not a test).
+func _run_history_tab(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var fc: int = ids[2] if ids.size() > 2 else -1
+	var names := _names()
+	var form := "phone" if _phone else "desktop"
+	var no_year_zero := RegEx.create_from_string("\\byears? 0\\b")
+
+	# ------------------------------------------------------------ NOTIMELINE
+	_ok("FH8 precondition: the world has no recorded timeline yet",
+		_bridge.get_civ_timeline_years().is_empty(), str(_bridge.get_civ_timeline_years()))
+	_fr.open(fa, "history")
+	await _frames(8)
+	var hp := _pane("history")
+	_ok("FH8 the History pane is built", hp != null)
+	if hp == null:
+		return
+	var body := hp.find_child("HistoryBody", true, false) as VBoxContainer
+	_ok("FH8 NOTIMELINE the body exists", body != null)
+	if body == null:
+		return
+	_ok("FH8 NOTIMELINE ONE line, and it says no timeline is recorded",
+		body.get_child_count() == 1 and body.get_child(0) is Label
+		and (body.get_child(0) as Label).text.begins_with("No timeline is recorded"),
+		"%d children: %s" % [body.get_child_count(), _text_of(body).left(160)])
+	_ok("FH8 NOTIMELINE no table, row or year is drawn",
+		_named_like(hp, "HistoryRun_").is_empty() and _named_like(hp, "HistoryPlace_").is_empty()
+		and _named_like(hp, "HistoryChange_").is_empty()
+		and no_year_zero.search(_text_of(hp)) == null
+		and not _text_of(body).contains("held"), _text_of(body))
+	_ok("FH8 NOTIMELINE the manual-entries line and the vault row are still there",
+		hp.find_child("HistoryManualNotBuilt", true, false) != null
+		and hp.find_child("HistoryVaultOpen", true, false) != null)
+	_ok("FH8 NO-EDIT (no timeline) no edit control on the pane", _history_violations(hp).is_empty(),
+		str(_history_violations(hp)))
+	await _shot("%s_history_notimeline" % form)
+
+	# ----------------------------------------------------- the manual-entries line
+	var manual := hp.find_child("HistoryManualNotBuilt", true, false) as Label
+	_ok("FH8 MANUAL one honest line: not built, and why (no precedence rule)",
+		manual != null and manual.text.begins_with("Not built") and manual.text.contains("which wins"),
+		manual.text if manual != null else "missing")
+	var msec := hp.find_child("HistoryManual", true, false)
+	_ok("FH8 MANUAL its section holds nothing but that line (no control)",
+		msec != null and _count(msec, func(n): return n is Button or n is LineEdit or n is TextEdit or n is Range) == 0)
+
+	# -------------------------------------------------------------- the fixture
+	var base: Array = _bridge.settlements()
+	var of_a: Array = []
+	var of_b: Array = []
+	for i in base.size():
+		var f := int((base[i] as Dictionary).get("faction", 0))
+		if f == fa:
+			of_a.append(i)
+		elif f == fb:
+			of_b.append(i)
+	_ok("FH8 precondition: faction A holds >= 5 settlements and B >= 1", of_a.size() >= 5 and of_b.size() >= 1,
+		"A=%d B=%d" % [of_a.size(), of_b.size()])
+	if of_a.size() < 5 or of_b.size() < 1:
+		return
+	var moved: Array = []  # [{tid, name}]
+	for k in 3:
+		var s: Dictionary = base[int(of_a[k])]
+		moved.append({"tid": int(s["tid"]), "name": String(s["name"])})
+	var back_s: Dictionary = base[int(of_b[0])]
+	var back := {"tid": int(back_s["tid"]), "name": String(back_s["name"])}
+	var doom_s: Dictionary = base[int(of_a[3])]
+	var doomed := {"tid": int(doom_s["tid"]), "name": String(doom_s["name"])}
+	var all_tids: Array = []
+	for s in base:
+		all_tids.append(int((s as Dictionary)["tid"]))
+
+	_bridge.civ_add_year(10)
+	var cnt10 := _counts()
+	_bridge.civ_add_year(75)
+	var edits_ok := true
+	for m in moved:
+		edits_ok = bool(_bridge.civ_edit_settlement(_index_of(int(m["tid"])), {"faction": fb})) and edits_ok
+	edits_ok = bool(_bridge.civ_edit_settlement(_index_of(int(back["tid"])), {"faction": fa})) and edits_ok
+	edits_ok = bool(_bridge.civ_delete_settlement(_index_of(int(doomed["tid"])))) and edits_ok
+	var cnt75 := _counts()
+	_bridge.civ_add_year(130)
+	_ok("FH8 fixture: every edit was accepted and the years are 10, 75, 130",
+		edits_ok and _bridge.get_civ_timeline_years() == PackedInt64Array([10, 75, 130]),
+		"%s %s" % [str(edits_ok), str(_bridge.get_civ_timeline_years())])
+	_ok("FH8 fixture: the edits moved the live counts as intended (A -3 +1 -1, B +3 -1)",
+		int(cnt75[fa]) == int(cnt10[fa]) - 3, "A %d -> %d" % [int(cnt10[fa]), int(cnt75[fa])])
+
+	# ---------------------------------------------- AGGREGATE vs two independent reads
+	var spans_of := {}
+	for t in all_tids:
+		spans_of[t] = _bridge.civ_settlement_ownership_periods(int(t))
+	var agrees := true
+	var detail := ""
+	var anchors := {10: cnt10, 75: cnt75, 130: cnt75}
+	for f in ids:
+		for y in [10, 75, 130]:
+			var held := 0
+			for t in all_tids:
+				for sp in (spans_of[t] as Array):
+					var e := int(sp["end_year"]) if sp.has("end_year") else 130
+					if int(sp["faction_id"]) == int(f) and int(sp["start_year"]) <= y and y <= e:
+						held += 1
+			if held != int((anchors[y] as Dictionary)[int(f)]):
+				agrees = false
+				detail += " f%d y%d periods=%d roster=%d" % [int(f), y, held, int((anchors[y] as Dictionary)[int(f)])]
+	_ok("FH8 AGGREGATE the engine's periods, re-aggregated here, equal the roster counts at each recorded year",
+		agrees, detail)
+
+	_fr.open(fa, "history")
+	await _frames(8)
+	hp = _pane("history")
+	body = hp.find_child("HistoryBody", true, false) as VBoxContainer
+	_ok("FH8 the body filled on its first show and the cache is warm",
+		_fr._history_ready and body.get_child_count() > 1, "ready=%s kids=%d" % [str(_fr._history_ready), body.get_child_count()])
+	var checked: Array = [fa, fb]
+	if fc > 0:
+		checked.append(fc)
+	for f in checked:
+		_fr.open(int(f), "history")
+		await _frames(6)
+		hp = _pane("history")
+		var want := _expected_runs(cnt10, cnt75, int(f))
+		var got := _run_texts(hp)
+		_ok("FH8 AGGREGATE faction %d: the year-span rows equal the roster anchors" % int(f), got == want,
+			"got %s want %s" % [str(got), str(want)])
+		_ok("FH8 AGGREGATE faction %d: no year 0 anywhere" % int(f), no_year_zero.search(_text_of(hp)) == null)
+
+	# --------------------------------------------------------------- CHANGES
+	var name_a: String = names[fa]
+	var name_b: String = names[fb]
+	var want_a: Array = []
+	for m in moved:
+		want_a.append([int(m["tid"]), "%s: %s → %s (years 10-75)" % [m["name"], name_a, name_b]])
+	want_a.append([int(doomed["tid"]), "%s: %s → not in the records (years 10-75)" % [doomed["name"], name_a]])
+	want_a.append([int(back["tid"]), "%s: %s → %s (years 10-75)" % [back["name"], name_b, name_a]])
+	want_a.sort_custom(func(x, y): return int(x[0]) < int(y[0]))
+	var want_a_txt: Array = []
+	for w in want_a:
+		want_a_txt.append(String(w[1]))
+	_fr.open(fa, "history")
+	await _frames(8)
+	hp = _pane("history")
+	_ok("FH8 CHANGES faction A: its five changes, in order, from the edits the probe made",
+		_change_texts(hp) == _lcs(want_a_txt), "got %s\nwant %s" % [str(_change_texts(hp)), str(want_a_txt)])
+	var live_rows := _named_like(hp, "HistoryPlace_")
+	_ok("FH8 CHANGES a place that still exists is a button; the deleted one is a plain label",
+		live_rows.size() == 4 and _named_like(hp, "HistoryChange_").size() == 1,
+		"%d buttons, %d labels" % [live_rows.size(), _named_like(hp, "HistoryChange_").size()])
+	var want_b: Array = []
+	for m in moved:
+		want_b.append([int(m["tid"]), "%s: %s → %s (years 10-75)" % [m["name"], name_a, name_b]])
+	want_b.append([int(back["tid"]), "%s: %s → %s (years 10-75)" % [back["name"], name_b, name_a]])
+	want_b.sort_custom(func(x, y): return int(x[0]) < int(y[0]))
+	var want_b_txt: Array = []
+	for w in want_b:
+		want_b_txt.append(String(w[1]))
+	_fr.open(fb, "history")
+	await _frames(8)
+	_ok("FH8 CHANGES faction B: three gained and one lost, the same rows seen from the other side",
+		_change_texts(_pane("history")) == _lcs(want_b_txt), "got %s\nwant %s" % [str(_change_texts(_pane("history"))), str(want_b_txt)])
+	if fc > 0:
+		_fr.open(fc, "history")
+		await _frames(8)
+		var cnone := _pane("history").find_child("HistoryChangesNone", true, false) as Label
+		_ok("FH8 CHANGES a faction untouched by the edits says so in one line and lists none",
+			cnone != null and cnone.text == "None between the recorded years."
+			and _change_texts(_pane("history")).is_empty(), cnone.text if cnone != null else "missing")
+
+	_fr.open(fa, "history")
+	await _frames(8)
+	await _shot("%s_history_fa" % form)  ## taken while the hub still shows (the place row below hides it)
+	# A place row opens that place's editor and closes the hub.
+	var prow := _named_like(_pane("history"), "HistoryPlace_")
+	if not prow.is_empty():
+		(prow[0] as Button).pressed.emit()
+		await _frames(6)
+		_ok("FH8 CHANGES a place row closes the hub and opens that place's editor",
+			not _fr.visible and _app.place_editor_window.visible, "hub=%s editor=%s" % [str(_fr.visible), str(_app.place_editor_window.visible)])
+		_app.place_editor_window.hide()
+
+	# ----------------------------------------------------------------- STATIC
+	_check_rollup_fixture()
+
+	# ------------------------------------------------------------------ VAULT
+	_fr.open(fa, "history")
+	await _frames(8)
+	hp = _pane("history")
+	var sum0: Dictionary = _bridge.vault_entity_summary("faction", fa)
+	var vline := hp.find_child("HistoryVaultSummary", true, false) as Label
+	var vbtn := hp.find_child("HistoryVaultOpen", true, false) as Button
+	_ok("FH8 VAULT with no link: the row reads No Markdown notes linked and offers Attach",
+		int(sum0.get("link_count", 0)) == 0 and vline != null and vline.text == "No Markdown notes linked."
+		and vbtn != null and vbtn.text.to_lower() == "attach a markdown note…", "%s | %s" % [str(sum0), vline.text if vline != null else "-"])
+	## A real note in a throwaway vault under user:// (the way _pechronos_probe does it):
+	## attaching needs a connected vault. Removed again below; the settings file is untouched.
+	DirAccess.make_dir_recursive_absolute(FH8_VAULT + "/Factions")
+	var nf := FileAccess.open(FH8_VAULT + "/Factions/FH8.md", FileAccess.WRITE)
+	nf.store_string("# FH8
+
+A faction note.
+")
+	nf.close()
+	var vinfo: Dictionary = _bridge.vault_connect(ProjectSettings.globalize_path(FH8_VAULT), "FH8 probe vault")
+	_ok("FH8 fixture: the throwaway vault connected", bool(vinfo.get("ok", false)), str(vinfo))
+	var att: Dictionary = _bridge.vault_attach("faction", fa, name_a, "Factions/FH8.md", "")
+	_ok("FH8 fixture: a vault link on faction A was accepted", bool(att.get("ok", false)), str(att))
+	_fr.open(fa, "history")
+	await _frames(8)
+	hp = _pane("history")
+	var sum1: Dictionary = _bridge.vault_entity_summary("faction", fa)
+	vline = hp.find_child("HistoryVaultSummary", true, false) as Label
+	vbtn = hp.find_child("HistoryVaultOpen", true, false) as Button
+	var want_line := "%d linked note%s — %s" % [int(sum1.get("link_count", 0)),
+		"" if int(sum1.get("link_count", 0)) == 1 else "s", String({"connected": "✓ Connected", "stale": "● Source changed", "local_changes": "● Local changes", "cached": "● Cached — source unavailable", "missing": "✕ Source missing", "unbound": "● Vault not connected on this device"}.get(String(sum1.get("status", "")), ""))]
+	_ok("FH8 VAULT with a link: the row equals vault_entity_summary and offers Linked notes",
+		int(sum1.get("link_count", 0)) == 1 and vline != null and vline.text == want_line
+		and vbtn != null and vbtn.text.to_lower() == "linked notes…", "%s | %s | want %s" % [str(sum1), vline.text if vline != null else "-", want_line])
+	if vbtn != null:
+		vbtn.pressed.emit()
+		await _frames(6)
+		_ok("FH8 VAULT the action closes the hub and opens the Vault", not _fr.visible and _app.vault_window.visible,
+			"hub=%s vault=%s" % [str(_fr.visible), str(_app.vault_window.visible)])
+		_app.vault_window.hide()
+	var links: Array = _bridge.vault_links_for("faction", fa)
+	for l in links:
+		_bridge.vault_detach(String((l as Dictionary).get("link_id", "")))
+	_ok("FH8 fixture: the vault link was detached again", _bridge.vault_links_for("faction", fa).is_empty())
+	_bridge.vault_disconnect()
+	DirAccess.remove_absolute(FH8_VAULT + "/Factions/FH8.md")
+	DirAccess.remove_absolute(FH8_VAULT + "/Factions")
+	DirAccess.remove_absolute(FH8_VAULT)
+
+	# --------------------------------------------------------------- NO-EDIT
+	_fr.open(fa, "history")
+	await _frames(8)
+	hp = _pane("history")
+	_ok("FH8 NO-EDIT the pane holds no field, picker, toggle, spinner or slider; its only buttons are place rows and the vault action",
+		_history_violations(hp).is_empty(), str(_history_violations(hp)))
+	_ok("FH8 NO-EDIT there is something to be a violation of (place rows and the vault action exist)",
+		_named_like(hp, "HistoryPlace_").size() == 4 and hp.find_child("HistoryVaultOpen", true, false) != null)
+
+	# ----------------------------------------------------------------- CACHE
+	_fr._history_usec = -1
+	_fr.open(fb, "history")  # open() marks stale and refetches
+	await _frames(6)
+	_ok("FH8 CACHE open() refetches (stale mark honoured)", int(_fr._history_usec) >= 0, "usec=%d" % int(_fr._history_usec))
+	_fr._history_usec = -1
+	_fr._selected = fa
+	_fr._drop_panes()
+	_fr._show_active_tab()
+	await _frames(6)
+	_ok("FH8 CACHE a faction switch reuses the cached rows (no second fetch)",
+		int(_fr._history_usec) == -1 and _fr._history_ready, "usec=%d" % int(_fr._history_usec))
+	_fr.refresh_after_edit()
+	await _frames(2)
+	_ok("FH8 RF-03 refresh_after_edit marks the history cache stale and refetches on the visible tab",
+		_fr._history_ready and int(_fr._history_usec) >= 0, "ready=%s usec=%d" % [str(_fr._history_ready), int(_fr._history_usec)])
+	_fr._mark_data_stale()
+	_ok("FH8 RF-03 _mark_data_stale drops flag and payload together",
+		not _fr._history_ready and _fr._history_rows.is_empty() and _fr._history_years.is_empty())
+	# The scan cap is stated on screen and never silent.
+	var total_tids := int((_bridge.civ_year_diff(10) as Dictionary)["present"].size())
+	_fr._history_tid_cap = 3
+	_fr.open(fa, "history")
+	await _frames(8)
+	var capped := _pane("history").find_child("HistoryScanCapped", true, false) as Label
+	_ok("FH8 CACHE a lowered scan cap says how many were read and how many left out",
+		capped != null and capped.text.begins_with("Read 3 of the %d settlements" % total_tids)
+		and capped.text.contains("the other %d are left out" % (total_tids - 3)), capped.text if capped != null else "missing")
+	_fr._history_tid_cap = _fr.HISTORY_TID_CAP
+	_fr.open(fa, "history")
+	await _frames(8)
+	_ok("FH8 CACHE ... and at the real cap nothing is left out, so no such line",
+		_pane("history").find_child("HistoryScanCapped", true, false) == null and _fr._history_scanned == _fr._history_total
+		and _fr._history_total == total_tids, "scanned %d of %d, independent total %d" % [_fr._history_scanned, _fr._history_total, total_tids])
+
+	# ------------------------------------------------------------------ PHONE
+	if _phone:
+		_fr.open(fa, "history")
+		await _frames(8)
+		var hpp := _pane("history")
+		var short := _count(hpp, func(n): return n is Button and (n as Button).is_visible_in_tree() and ((n as Button).size.y + 0.5 < DccTheme.PHONE_TAP_MIN or (n as Button).size.x + 0.5 < DccTheme.PHONE_TAP_MIN))
+		_ok("FH8 PHONE every History button is at least 44 px on both axes", short == 0, "short=%d" % short)
+		_ok("FH8 PHONE there are place rows and the vault action to measure",
+			_named_like(hpp, "HistoryPlace_").size() > 0 and hpp.find_child("HistoryVaultOpen", true, false) != null)
+		_ok("FH8 PHONE one scroller and no TabContainer",
+			_count(_fr, func(n): return n is ScrollContainer) == 1 and _count(_fr, func(n): return n is TabContainer) == 0)
+		await _shot("phone_history_fa_phonecheck")
+
+	# ----------------------------------------------------------------- TIMING
+	var t3 := await _time_history(7)
+	print("FACTIONHUB TIMING history (%s) years=3: median %.1f ms, min %.1f, max %.1f, %d tids scanned" % [
+		form, t3[0], t3[1], t3[2], int(_fr._history_scanned)])
+	for y in range(131, 178):
+		_bridge.civ_add_year(y)
+	var t50 := await _time_history(7)
+	print("FACTIONHUB TIMING history (%s) years=%d: median %.1f ms, min %.1f, max %.1f, %d tids scanned" % [
+		form, _bridge.get_civ_timeline_years().size(), t50[0], t50[1], t50[2], int(_fr._history_scanned)])
+	## The per-faction rollup alone (pure, over the cached rows), on the biggest faction.
+	var big := fa
+	for f in ids:
+		if int(_counts().get(int(f), 0)) > int(_counts().get(big, 0)):
+			big = int(f)
+	var ru: Array = []
+	for k in 7:
+		var t0 := Time.get_ticks_usec()
+		_fr._history_rollup(_fr._history_rows, _fr._history_years, big)
+		ru.append(float(Time.get_ticks_usec() - t0) / 1000.0)
+	ru.sort()
+	print("FACTIONHUB TIMING history rollup (%s) years=%d rows=%d faction=%d: median %.1f ms, min %.1f, max %.1f" % [
+		form, _fr._history_years.size(), _fr._history_rows.size(), big, ru[3], ru[0], ru[6]])
+	_fr.open(fa, "history")
+	await _frames(8)
+	var runs_after := _run_texts(_pane("history"))
+	_ok("FH8 a 50-year timeline still draws a bounded, merged run list",
+		runs_after.size() >= 1 and runs_after.size() <= _fr.HISTORY_ROW_CAP, str(runs_after.size()))
+	_fr.hide()
+	await _frames(2)
+	_fh8_done = true
+
+
+## Median, min and max, in milliseconds, of `n` cold `_ensure_history()` calls (each
+## after `_mark_data_stale()`), read from the window's own `Time.get_ticks_usec()` figure.
+func _time_history(n: int) -> Array:
+	var us: Array = []
+	for k in n:
+		_fr._mark_data_stale()
+		_fr._ensure_history()
+		us.append(float(_fr._history_usec))
+	us.sort()
+	return [us[n / 2] / 1000.0, us[0] / 1000.0, us[n - 1] / 1000.0]
+
+
+## fid -> settlement_count from the live roster: the anchor the periods are checked against.
+func _counts() -> Dictionary:
+	var out := {}
+	for f in _bridge.get_factions():
+		out[int((f as Dictionary).get("id", 0))] = int((f as Dictionary).get("settlement_count", 0))
+	return out
+
+
+## Index in `settlements()` of the settlement with stable id `tid`, or -1.
+func _index_of(tid: int) -> int:
+	var roster: Array = _bridge.settlements()
+	for i in roster.size():
+		if int((roster[i] as Dictionary).get("tid", 0)) == tid:
+			return i
+	return -1
+
+
+## "settlements held" wording, written out here rather than shared with the shell.
+func _held_text(n: int) -> String:
+	if n == 0:
+		return "none held"
+	return "%d settlement%s held" % [n, "" if n == 1 else "s"]
+
+
+## The year-span rows the tab must show for faction `f`, from the roster anchors:
+## years 10, 75, 130 hold `c10`, `c75`, `c75` settlements, merged where equal.
+func _expected_runs(c10: Dictionary, c75: Dictionary, f: int) -> Array:
+	var a := int(c10[f])
+	var b := int(c75[f])
+	if a == b:
+		return ["years 10-130: %s" % _held_text(a)]
+	return ["year 10: %s" % _held_text(a), "years 75-130: %s" % _held_text(b)]
+
+
+## The year-span rows on screen, in order.
+func _run_texts(pane: Node) -> Array:
+	var rows := _named_like(pane, "HistoryRun_")
+	rows.sort_custom(func(x, y): return int(String(x.name).trim_prefix("HistoryRun_")) < int(String(y.name).trim_prefix("HistoryRun_")))
+	var out: Array = []
+	for r in rows:
+		if (r as Label).name.begins_with("HistoryRunsHead") or (r as Label).name.begins_with("HistoryRunsTrunc"):
+			continue
+		out.append((r as Label).text)
+	return out
+
+
+## Lower-cased copies of `texts`: the phone draws button captions in capitals
+## (`DccWidgets.action`), so row text is compared case-insensitively.
+func _lcs(texts: Array) -> Array:
+	var out: Array = []
+	for s in texts:
+		out.append(String(s).to_lower())
+	return out
+
+
+## The change rows on screen (buttons and labels alike), in tree order, lower-cased
+## (see `_lcs`).
+func _change_texts(pane: Node) -> Array:
+	var rows: Array = []
+	rows.append_array(_named_like(pane, "HistoryPlace_"))
+	rows.append_array(_named_like(pane, "HistoryChange_"))
+	rows.sort_custom(func(x, y): return int(String(x.name).get_slice("_", 1)) < int(String(y.name).get_slice("_", 1)))
+	var out: Array = []
+	for r in rows:
+		out.append(((r as Button).text if r is Button else (r as Label).text).to_lower())
+	return out
+
+
+## Everything on `pane` that must not be there: any text field, range or tree, and
+## any button that is not a place row (`HistoryPlace_*`) or the vault action
+## (`HistoryVaultOpen`) or is a Button subclass (picker, toggle, colour button, menu).
+## Empty means the tab is read-only plus navigation.
+func _history_violations(pane: Node) -> Array:
+	var bad: Array = []
+	var stack: Array = [pane]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is LineEdit or n is TextEdit or n is Range or n is ItemList or n is Tree:
+			bad.append("%s (%s)" % [n.name, n.get_class()])
+		elif n is Button:
+			var ok_name := String(n.name).begins_with("HistoryPlace_") or n.name == &"HistoryVaultOpen"
+			if not ok_name or n.get_class() != "Button":
+				bad.append("%s (%s '%s')" % [n.name, n.get_class(), (n as Button).text])
+		for c in n.get_children():
+			stack.append(c)
+	return bad
+
+
+## `_history_rollup` against a hand-built fixture with literal answers. Years 1-4.
+## tid 5: faction 7 in year 1, absent in 2 (a gap), faction 8 from 3 (current).
+## tid 6: 7 in 2, 8 in 3 (an immediate transfer), absent in 4.
+## tid 9: 7 from 2, current (first appears after the first recorded year).
+func _check_rollup_fixture() -> void:
+	var years := [1, 2, 3, 4]
+	var rows := [
+		{"tid": 5, "spans": [
+			{"start_year": 1, "faction_id": 7, "current": false, "end_year": 1},
+			{"start_year": 3, "faction_id": 8, "current": true}]},
+		{"tid": 6, "spans": [
+			{"start_year": 2, "faction_id": 7, "current": false, "end_year": 2},
+			{"start_year": 3, "faction_id": 8, "current": false, "end_year": 3}]},
+		{"tid": 9, "spans": [{"start_year": 2, "faction_id": 7, "current": true}]},
+	]
+	var r7: Dictionary = _fr._history_rollup(rows, years, 7)
+	_ok("FH8 STATIC faction 7 runs: 1, 2, then 1 for years 3-4",
+		r7["runs"] == [{"y0": 1, "y1": 1, "held": 1}, {"y0": 2, "y1": 2, "held": 2}, {"y0": 3, "y1": 4, "held": 1}], str(r7["runs"]))
+	var c7: Array = r7["changes"]
+	_ok("FH8 STATIC faction 7 changes: tid 5 vanishes 1-2, tids 6 and 9 appear at 2 (absent in year 1), tid 6 lost to 8 over 2-3, nothing else",
+		c7.size() == 4
+		and c7[0]["tid"] == 5 and c7[0]["kind"] == "vanishes" and c7[0]["y0"] == 1 and c7[0]["y1"] == 2
+		and c7[1]["tid"] == 6 and c7[1]["kind"] == "appears" and c7[1]["y0"] == 2 and c7[1]["y1"] == 2
+		and c7[2]["tid"] == 9 and c7[2]["kind"] == "appears" and c7[2]["y0"] == 2 and c7[2]["y1"] == 2
+		and c7[3]["tid"] == 6 and c7[3]["kind"] == "lost" and c7[3]["to"] == 8 and c7[3]["y0"] == 2 and c7[3]["y1"] == 3, str(c7))
+	_ok("FH8 STATIC an absent side is an omitted key, never a sentinel faction id",
+		not (c7[0] as Dictionary).has("to") and not (c7[1] as Dictionary).has("from"), str(c7))
+	var r8: Dictionary = _fr._history_rollup(rows, years, 8)
+	_ok("FH8 STATIC faction 8 runs: none for years 1-2, 2 in year 3, 1 in year 4",
+		r8["runs"] == [{"y0": 1, "y1": 2, "held": 0}, {"y0": 3, "y1": 3, "held": 2}, {"y0": 4, "y1": 4, "held": 1}], str(r8["runs"]))
+	var c8: Array = r8["changes"]
+	_ok("FH8 STATIC faction 8 changes: tid 6 gained from 7 over 2-3, tid 5 appears at 3, tid 6 vanishes 3-4",
+		c8.size() == 3
+		and c8[0]["tid"] == 6 and c8[0]["kind"] == "gained" and c8[0]["from"] == 7 and c8[0]["y0"] == 2 and c8[0]["y1"] == 3
+		and c8[1]["tid"] == 5 and c8[1]["kind"] == "appears" and c8[1]["y0"] == 3 and c8[1]["y1"] == 3
+		and c8[2]["tid"] == 6 and c8[2]["kind"] == "vanishes" and c8[2]["y0"] == 3 and c8[2]["y1"] == 4, str(c8))
+	var r9: Dictionary = _fr._history_rollup(rows, years, 99)
+	_ok("FH8 STATIC a faction no span names has zero held in every year and no change",
+		r9["runs"] == [{"y0": 1, "y1": 4, "held": 0}] and (r9["changes"] as Array).is_empty(), str(r9))
+	var none: Dictionary = _fr._history_rollup([], [], 7)
+	_ok("FH8 STATIC no years gives no runs and no changes (no invented year)",
+		(none["runs"] as Array).is_empty() and (none["changes"] as Array).is_empty())

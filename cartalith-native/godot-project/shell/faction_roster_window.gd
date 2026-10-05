@@ -21,10 +21,8 @@ class_name FactionRosterWindow
 ## The inspector used to be one long scroll of eight sections. It is now seven
 ## tabs over the selected faction -- Identity, Territory, Settlements,
 ## Economy, Military, Relations, History (`TAB_IDS`) -- and the sections moved
-## **unchanged**, only to the tab that owns them. History is an honest
-## placeholder: nothing in the engine backs it yet, so it says so in words and
-## carries no control. Economy and Relations were placeholders-in-part until
-## FH-6: Economy now opens on a read-only per-faction readout
+## **unchanged**, only to the tab that owns them. Economy and Relations were
+## placeholders-in-part until FH-6: Economy now opens on a read-only per-faction readout
 ## (`_build_economy_readout`) and Relations lists the faction's derived pairs,
 ## a read-only tariff mention per pair and the Faith group
 ## (`_build_tab_relations`) -- still with no treaty, war or tariff-editing
@@ -33,10 +31,15 @@ class_name FactionRosterWindow
 ## (`_build_garrison_block`, one row per place, capped, opening the Place editor)
 ## and the conflicts it is a side of (`_build_conflicts_block`, rows opening the
 ## right dock's Conflict context -- sides are edited THERE, never here).
+## FH-8 builds History (`_build_tab_history`): ownership periods rolled up across
+## the faction's settlements from the recorded timeline, the faction's linked
+## vault notes, and one line saying hand-written political entries are NOT BUILT.
+## It carries no entry, edit or add control -- navigation buttons only.
 ##
 ## **Lazy by tab.** Only the active tab is built, on its first show, and the two
 ## O(cells) engine passes now run on the tab that reads them
-## (`_ensure_fits()` for Territory, `_ensure_military()` for Military) instead of
+## (`_ensure_fits()` for Territory, `_ensure_military()` for Military,
+## `_ensure_history()` for History) instead of
 ## in `open()`. A hidden tab is a built pane that is merely not visible; any
 ## change that could make it stale (a different faction, a new world, an edit to
 ## culture/government/ag. tech, a roster add/remove) frees every pane but the
@@ -190,6 +193,28 @@ var _economy_ready := false
 ## on the engine side for the same reason, cached and dropped the same way.
 var _relations: Array = []
 var _relations_ready := false
+## The History tab's whole-world ownership rows (FH-8): one
+## `{"tid": int, "spans": Array}` per settlement the timeline ever recorded, each
+## `spans` exactly as `civ_settlement_ownership_periods(tid)` returned it. Fetched
+## by `_ensure_history()` on the tab's first show after a staleness and cached
+## across faction switches (the data is whole-world; only the filter by faction
+## differs), dropped by `_mark_data_stale()` flag and payload together (RF-03).
+## `_history_years` is the recorded years, ascending; `[]` is the honest "no
+## timeline" answer and is told apart from "not fetched" by `_history_ready`.
+var _history_rows: Array = []
+var _history_years: Array = []
+var _history_ready := false
+## How many settlements the timeline recorded (`_history_total`), how many of them
+## `_ensure_history()` read (`_history_scanned`, below `_history_total` only when
+## `HISTORY_TID_CAP` bit) and how long the fetch took in microseconds
+## (`_history_usec`, `Time.get_ticks_usec()`). Kept as members so the on-screen
+## truncation line and `_factionhub_probe.gd`'s timing report read the same numbers.
+var _history_total := 0
+var _history_scanned := 0
+var _history_usec := 0
+## The cap in force; a member only so the probe can lower it to exercise the
+## truncation line on any world. Nothing in the shell writes it.
+var _history_tid_cap := HISTORY_TID_CAP
 ## The other party of the pair the hub was opened on (`open()`'s `pair_with`),
 ## or `-1`. Set only by `open()` when it also landed on a faction, cleared by a
 ## different faction pick and by a new world, so the Relations tab only ever
@@ -1330,15 +1355,356 @@ func _ensure_relations() -> void:
 	_relations_ready = true
 
 
-## The History tab -- a placeholder, on purpose, for the same reason as
-## `_build_tab_relations()`: the engine keeps no per-faction history, so this
-## says so instead of drawing an empty table. Must stay control-free.
+## The most settlements `_ensure_history()` reads ownership periods for. Each is one
+## `civ_settlement_ownership_periods(tid)` call, which walks every recorded year
+## (`O(years x settlements)` in the engine, its own doc), so the cost is
+## `tids x years`. Measured 2026-10-05 on the probe world (`_factionhub_probe.gd`'s FH-8
+## leg prints it, run alone, median of 7): 488 settlements and ways over 3 recorded years
+## 0.9 ms, over 50 years 4.6 to 5.2 ms across runs (min..max), about 10 us per tid; the
+## per-faction rollup is a further 0.2 ms. The brief's bar is about 50 ms for the biggest
+## faction, so 2000 (about 19 ms at 50 years by linear extrapolation) is a labelled
+## judgement with a margin of about 2.5x, not a derived bound; nothing above 488 tids was
+## measured. When the timeline names more settlements than this the
+## tab says how many were read and how many were left out; it never truncates silently.
+const HISTORY_TID_CAP := 2000
+
+## The most year-span rows and change rows the History tab draws. A labelled
+## judgement of what a person scans in one sitting, the same reasoning as
+## `GARRISON_ROW_CAP`: a 2 000-year timeline could otherwise build thousands of
+## nodes. The LATEST are kept (what happened last is what a reader opens this for)
+## and the omitted count is stated on screen.
+const HISTORY_ROW_CAP := 30
+
+
+## The History tab (FH-8, `FACTION_HUB_DESIGN.md` §3.7): the faction's ownership
+## history, rolled up from the per-settlement periods the Place editor's Political
+## history tab already reads, then the faction's linked vault notes, then one line
+## saying what is NOT built.
+##
+## **Read-only, and it must stay so.** There is deliberately no entry, edit, add or
+## delete control on this tab: a hand-written political entry has no precedence rule
+## against a derived period (see `_build_history_manual_note`), so a control for it
+## would be a lie the shell tells. The only buttons are navigation -- a row that opens
+## the Place editor for a place that still exists, and the vault link -- and
+## `_factionhub_probe.gd` asserts that set exactly.
+##
+## Builds only this tab. The ownership body is behind `DccWidgets.fill_when_visible`
+## because `_ensure_history()` loops once per recorded settlement.
 func _build_tab_history(pane: VBoxContainer) -> void:
 	var sec := DccWidgets.section(pane, "History")
+	sec.name = "HistorySection"
+	var body := VBoxContainer.new()
+	body.name = "HistoryBody"
+	body.add_theme_constant_override("separation", 3)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sec.add_child(body)
+	DccWidgets.fill_when_visible(body, _fill_history_body.bind(body))
+	if _selected > 0:
+		_build_history_vault_row(pane)
+	_build_history_manual_note(pane)
+
+
+## Fetches the whole world's ownership periods once per staleness, timing the loop.
+##
+## The settlements to ask about are the union of every recorded year's
+## `civ_year_diff(y).added` -- the only complete list of tids the timeline ever held,
+## including a settlement deleted live after its last snapshot (which `settlements()`
+## no longer lists). `added` also names way tids; `civ_settlement_ownership_periods`
+## answers `[]` for those (it reads settlements only), so they cost a call and add no
+## row. A settlement with no spans is not stored (it was never recorded under anyone).
+## Reads snapshots only: never the live state, never the territory raster.
+## At most `_history_tid_cap` tids are read, oldest tid first; `_history_total` and
+## `_history_scanned` carry what was and was not.
+func _ensure_history() -> void:
+	if _history_ready:
+		return
+	var t0 := Time.get_ticks_usec()
+	_history_years = []
+	for y in bridge.get_civ_timeline_years():
+		_history_years.append(int(y))
+	_history_years.sort()
+	_history_rows = []
+	_history_total = 0
+	_history_scanned = 0
+	if not _history_years.is_empty():
+		var seen := {}
+		for y in _history_years:
+			for t in (bridge.civ_year_diff(y).get("added", PackedInt64Array()) as PackedInt64Array):
+				seen[int(t)] = true
+		var tids: Array = seen.keys()
+		tids.sort()
+		_history_total = tids.size()
+		_history_scanned = mini(_history_total, _history_tid_cap)
+		for i in _history_scanned:
+			var spans := bridge.civ_settlement_ownership_periods(int(tids[i]))
+			if not spans.is_empty():
+				_history_rows.append({"tid": int(tids[i]), "spans": spans})
+	_history_usec = Time.get_ticks_usec() - t0
+	_history_ready = true
+
+
+## Fills `HistoryBody`; self-contained (clears its own body first, as
+## `fill_when_visible` requires) and reads the engine only through `_ensure_history()`
+## plus the live place and faction lists for names.
+##
+## Honest states, each ONE line and never an empty table: no timeline recorded;
+## Unclaimed (holds no recorded history of its own); a single recorded year (no change
+## is derivable from one snapshot). A recorded year is never shown as a "founded" year:
+## a settlement whose first span starts after the first recorded year is said to
+## *appear in the records* then, which is all the snapshots can know.
+func _fill_history_body(body: VBoxContainer) -> void:
+	if not is_instance_valid(body):
+		return
+	_clear(body)
+	if _selected <= 0:
+		DccWidgets.note(body, "Unclaimed has no history of its own: it is the absence of a faction, and a settlement leaving or joining a faction is recorded against that faction.").name = "HistoryNote"
+		return
+	_ensure_history()
+	if _history_years.is_empty():
+		DccWidgets.note(body, "No timeline is recorded, so there is no ownership history to show. Record years under Civilization ▸ Timeline.").name = "HistoryNoTimeline"
+		return
+	var rollup := _history_rollup(_history_rows, _history_years, _selected)
+	var runs: Array = rollup["runs"]
+	var changes: Array = rollup["changes"]
+	DccWidgets.note(body, "Recorded years: %d, %s. Read from the timeline's snapshots only; between two recorded years nothing is known." % [
+		_history_years.size(), _history_span_text(int(_history_years[0]), int(_history_years[-1]))]).name = "HistoryYears"
+	var head := DccWidgets.note(body, "Settlements held, by recorded year span")
+	head.name = "HistoryRunsHead"
+	var first_run := maxi(0, runs.size() - HISTORY_ROW_CAP)
+	for i in range(first_run, runs.size()):
+		var r: Dictionary = runs[i]
+		var n := int(r["held"])
+		var l := DccWidgets.note(body, "%s: %s" % [_history_span_text(int(r["y0"]), int(r["y1"])),
+			"none held" if n == 0 else "%d settlement%s held" % [n, "" if n == 1 else "s"]])
+		l.name = "HistoryRun_%d" % i
+	if first_run > 0:
+		DccWidgets.note(body, "Showing the latest %d of %d year spans; the %d earlier are omitted." % [
+			HISTORY_ROW_CAP, runs.size(), first_run]).name = "HistoryRunsTruncated"
+	var chead := DccWidgets.note(body, "Ownership changes involving this faction")
+	chead.name = "HistoryChangesHead"
+	if _history_years.size() < 2:
+		DccWidgets.note(body, "None can be derived from one recorded year; record another to compare.").name = "HistoryChangesNone"
+	elif changes.is_empty():
+		DccWidgets.note(body, "None between the recorded years.").name = "HistoryChangesNone"
+	else:
+		var names := _history_faction_names()
+		var places := _history_live_places()
+		var removed_names := {}
+		var first_change := maxi(0, changes.size() - HISTORY_ROW_CAP)
+		for i in range(first_change, changes.size()):
+			_history_change_row(body, changes[i], names, places, removed_names, i)
+		if first_change > 0:
+			DccWidgets.note(body, "Showing the latest %d of %d changes; the %d earlier are omitted." % [
+				HISTORY_ROW_CAP, changes.size(), first_change]).name = "HistoryChangesTruncated"
+	if _history_scanned < _history_total:
+		DccWidgets.note(body, "Read %d of the %d settlements the timeline recorded (oldest first); the other %d are left out, so the figures above may undercount." % [
+			_history_scanned, _history_total, _history_total - _history_scanned]).name = "HistoryScanCapped"
+	DccWidgets.note(body, "A change is placed between the last recorded year under the old owner and the first under the new one; the exact year inside that window is not recorded.").name = "HistoryCaveat"
+	if _phone:
+		app.phone_fit(body, 1.0)
+
+
+## One change row. A place that still exists is a button that opens its Place editor
+## (the garrison rows' action, `_open_place`); one that no longer does is a plain
+## label, because opening "whatever now sits at that index" would be wrong. A removed
+## settlement is named from the snapshot it vanished from where the row is a
+## `vanishes`, and otherwise by its stable id, never by a guess.
+func _history_change_row(body: VBoxContainer, c: Dictionary, names: Dictionary,
+		places: Dictionary, removed_names: Dictionary, i: int) -> void:
+	var tid := int(c["tid"])
+	var place: Dictionary = places.get(tid, {})
+	var pname := String(place.get("name", ""))
+	if pname.is_empty() and String(c["kind"]) == "vanishes":
+		## A settlement gone from the live roster still has its name in the snapshot
+		## it vanished from: `civ_year_diff_removed(y1)` reads the PREVIOUS recorded
+		## year's snapshot, which is exactly the one holding it. Fetched per year on
+		## demand, at most one call per distinct row year (rows are capped).
+		var y1 := int(c["y1"])
+		if not removed_names.has(y1):
+			var m := {}
+			for r in bridge.civ_year_diff_removed(y1):
+				m[int((r as Dictionary).get("tid", 0))] = String((r as Dictionary).get("name", ""))
+			removed_names[y1] = m
+		pname = String((removed_names[y1] as Dictionary).get(tid, ""))
+	if pname.is_empty():
+		pname = "a removed settlement (#%d)" % tid
+	var from_txt := "not in the records" if not c.has("from") \
+		else _history_faction_name(int(c["from"]), names)
+	var to_txt := "not in the records" if not c.has("to") \
+		else _history_faction_name(int(c["to"]), names)
+	var txt := "%s: %s → %s (%s)" % [pname, from_txt, to_txt,
+		_history_span_text(int(c["y0"]), int(c["y1"]))]
+	if place.is_empty():
+		DccWidgets.note(body, txt).name = "HistoryChange_%d" % i
+		return
+	var b := DccWidgets.action(body, txt, _open_place.bind(int(place["index"])))
+	b.name = "HistoryPlace_%d" % i
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = "Centres the map on it and opens its editor, where its full ownership history is."
+
+
+## Live places by tid -> `{index, name}`, `index` being the position in
+## `bridge.settlements()` that `_open_place` takes.
+func _history_live_places() -> Dictionary:
+	var out := {}
+	var roster := bridge.settlements()
+	for i in roster.size():
+		var s: Dictionary = roster[i]
+		var tid := int(s.get("tid", 0))
+		if tid != 0:
+			out[tid] = {"index": i, "name": String(s.get("name", ""))}
+	return out
+
+
+## Faction id -> name from the roster. Not cached: the roster is a short list and a
+## cache would be one more thing `_mark_data_stale()` has to remember.
+func _history_faction_names() -> Dictionary:
+	var out := {}
+	for f in bridge.get_factions():
+		out[int((f as Dictionary).get("id", -1))] = String((f as Dictionary).get("name", ""))
+	return out
+
+
+## A faction's name for a history row. Id 0 is Unclaimed; an id the roster no longer
+## holds (a faction removed since the snapshot) is "Faction N", the Place editor's own
+## fallback, never a blank.
+static func _history_faction_name(fid: int, names: Dictionary) -> String:
+	if fid == 0:
+		return "Unclaimed"
+	var n := String(names.get(fid, ""))
+	return n if not n.is_empty() else "Faction %d" % fid
+
+
+## "year A" for one year, "years A-B" for a span. Years are the engine's own integers,
+## printed as they are; this never invents or defaults one (so never year 0 by default).
+static func _history_span_text(y0: int, y1: int) -> String:
+	return "year %d" % y0 if y0 == y1 else "years %d-%d" % [y0, y1]
+
+
+## The History tab's pure aggregation: `rows` are `_history_rows`-shaped
+## (`{"tid", "spans"}`, spans as `civ_settlement_ownership_periods` returns them),
+## `years` the recorded years ascending, `fid` the faction. Returns
+## `{"runs": [{y0, y1, held}], "changes": [{tid, kind, y0, y1, from?, to?}]}`.
+##
+## **runs**: for each recorded year the number of settlements whose span under `fid`
+## covers it (a span covers the recorded years from `start_year` to `end_year`, or to
+## the last recorded year when it carries no `end_year` -- the engine omits the key
+## for a current span), merged into maximal runs of equal count. Done as a difference
+## array over year indexes, so the cost is the number of spans, not years x spans.
+##
+## **changes**: per settlement, walk consecutive spans `a`, `b`. When no recorded year
+## lies strictly between `a.end_year` and `b.start_year` it is an immediate transfer,
+## so the owners differ: `lost` (from `fid`) or `gained` (to `fid`), window
+## `a.end_year`..`b.start_year`. When a recorded year does lie between, the settlement
+## was absent from it: that is `vanishes` (from `fid`, window `a.end_year`..the next
+## recorded year) and/or `appears` (to `fid`, at `b.start_year`). A settlement whose
+## first span under `fid` starts after the first recorded year `appears` there; a last
+## span under `fid` that is not current `vanishes`. A span starting at the first
+## recorded year is the baseline and yields no event -- in particular, nothing here
+## is ever a "founding" year, which the snapshots cannot know. `from`/`to` are OMITTED
+## (not given a sentinel) where the settlement was not in the records.
+## Sorted by `y1`, `y0`, `tid`. Never touches the engine.
+static func _history_rollup(rows: Array, years: Array, fid: int) -> Dictionary:
+	var out := {"runs": [], "changes": []}
+	if years.is_empty():
+		return out
+	var idx := {}
+	for i in years.size():
+		idx[int(years[i])] = i
+	var delta: Array = []
+	delta.resize(years.size() + 1)
+	delta.fill(0)
+	var changes: Array = []
+	for r in rows:
+		var tid := int((r as Dictionary)["tid"])
+		var spans: Array = (r as Dictionary)["spans"]
+		for k in spans.size():
+			var s: Dictionary = spans[k]
+			var s_end := int(s["end_year"]) if s.has("end_year") else int(years[-1])
+			if int(s["faction_id"]) == fid and idx.has(int(s["start_year"])) and idx.has(s_end):
+				delta[idx[int(s["start_year"])]] += 1
+				delta[idx[s_end] + 1] -= 1
+			if k == 0 and int(s["faction_id"]) == fid and int(s["start_year"]) != int(years[0]):
+				changes.append({"tid": tid, "kind": "appears", "to": fid,
+					"y0": int(s["start_year"]), "y1": int(s["start_year"])})
+			if k + 1 < spans.size():
+				var b: Dictionary = spans[k + 1]
+				var gap := idx.has(s_end) and idx.has(int(b["start_year"])) \
+					and int(idx[int(b["start_year"])]) - int(idx[s_end]) > 1
+				if gap:
+					if int(s["faction_id"]) == fid:
+						changes.append({"tid": tid, "kind": "vanishes", "from": fid,
+							"y0": s_end, "y1": int(years[int(idx[s_end]) + 1])})
+					if int(b["faction_id"]) == fid:
+						changes.append({"tid": tid, "kind": "appears", "to": fid,
+							"y0": int(b["start_year"]), "y1": int(b["start_year"])})
+				elif int(s["faction_id"]) == fid:
+					changes.append({"tid": tid, "kind": "lost", "from": fid, "to": int(b["faction_id"]),
+						"y0": s_end, "y1": int(b["start_year"])})
+				elif int(b["faction_id"]) == fid:
+					changes.append({"tid": tid, "kind": "gained", "from": int(s["faction_id"]), "to": fid,
+						"y0": s_end, "y1": int(b["start_year"])})
+			elif s.has("end_year") and int(s["faction_id"]) == fid and idx.has(s_end) \
+					and int(idx[s_end]) + 1 < years.size():
+				changes.append({"tid": tid, "kind": "vanishes", "from": fid,
+					"y0": s_end, "y1": int(years[int(idx[s_end]) + 1])})
+	var runs: Array = []
+	var held := 0
+	for i in years.size():
+		held += int(delta[i])
+		if not runs.is_empty() and int((runs[-1] as Dictionary)["held"]) == held:
+			(runs[-1] as Dictionary)["y1"] = int(years[i])
+		else:
+			runs.append({"y0": int(years[i]), "y1": int(years[i]), "held": held})
+	changes.sort_custom(func(x, y):
+		if int(x["y1"]) != int(y["y1"]):
+			return int(x["y1"]) < int(y["y1"])
+		if int(x["y0"]) != int(y["y0"]):
+			return int(x["y0"]) < int(y["y0"])
+		return int(x["tid"]) < int(y["tid"]))
+	out["runs"] = runs
+	out["changes"] = changes
+	return out
+
+
+## The "Linked notes" row: the faction's vault summary and the one action that opens
+## the Vault scoped to it. Reuses `vault_entity_summary` and `app.open_vault` -- no
+## vault logic is forked here (`place_editor_window.gd::_build_knowledge` is the
+## pattern; `CivilizationWorkspace._knowledge_row` is workspace-private). Read-only
+## plus that open action. Closes this window on the way, like the other hand-offs.
+func _build_history_vault_row(pane: VBoxContainer) -> void:
+	var sec := DccWidgets.section(pane, "Linked notes")
+	sec.name = "HistoryVault"
+	var fid := _selected
+	var fname := String(_faction(fid).get("name", "Faction %d" % fid))
+	var summary := bridge.vault_entity_summary("faction", fid)
+	var n := int(summary.get("link_count", 0))
+	var line: Label
+	if n == 0:
+		line = DccWidgets.note(sec, "No Markdown notes linked.")
+	else:
+		line = DccWidgets.note(sec, "%d linked note%s — %s" % [n, "" if n == 1 else "s",
+			String(VaultWindow.STATUS_TEXT.get(String(summary.get("status", "")), ""))])
+	line.name = "HistoryVaultSummary"
+	var open := DccWidgets.action(sec, "Linked notes…" if n > 0 else "Attach a Markdown note…", func():
+		hide()
+		app.open_vault("faction", fid, fname))
+	open.name = "HistoryVaultOpen"
+	open.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	open.tooltip_text = "Closes this window and opens the Vault on this faction's notes."
+
+
+## The manual-entries line. Hand-written political entries (a founding, a ruler, a war,
+## a collapse typed against a faction) are NOT BUILT, and the reason is a missing
+## rule, not missing effort: there is no precedence between a typed entry and a
+## period derived from the timeline's snapshots, so whichever the tab drew would
+## contradict the other. One line, no control (`FACTION_HUB_DESIGN.md` §3.7).
+func _build_history_manual_note(pane: VBoxContainer) -> void:
+	var sec := DccWidgets.section(pane, "Manual entries")
+	sec.name = "HistoryManual"
 	DccWidgets.note(sec,
-		"Not built. The engine keeps no per-faction history -- no founding, wars, rulers or "
-		+ "collapses are recorded against a faction -- so nothing is drawn here rather than "
-		+ "an empty log. The world-level timeline is under Civilization ▸ Timeline.")
+		"Not built: hand-written political entries. There is no rule for which wins when one "
+		+ "disagrees with a period derived from the recorded timeline, so none can be entered.").name = "HistoryManualNotBuilt"
 
 
 # -- Tabs: strip, chooser, switching -----------------------------------------
@@ -1463,6 +1829,13 @@ func _mark_data_stale() -> void:
 	_economy_rows = []
 	_relations_ready = false
 	_relations = []
+	## FH-8: the History tab's whole-world ownership rows (RF-03: a refresh after a
+	## regenerate or an edit must not draw the previous world's periods).
+	_history_ready = false
+	_history_rows = []
+	_history_years = []
+	_history_total = 0
+	_history_scanned = 0
 
 
 ## Fetches `civ_faction_terrain_fits()` once per staleness. O(cells): it
