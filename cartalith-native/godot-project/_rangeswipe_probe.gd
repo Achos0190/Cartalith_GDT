@@ -220,6 +220,77 @@ func _census(where: String) -> Dictionary:
 	_log("   UNARBITRATED writable Range inside a live vertical scroller: %d" % hazard)
 	return {"total": total, "hazard": hazard}
 
+## **Precondition for the left-dock leg (2026-10-05).** The left sheet's body is
+## a set of workspace accordions: every category (`Workspace.categories`, each
+## entry holding its `button` header and its `body`) starts COLLAPSED, and
+## `_first_slider()` requires `is_visible_in_tree()` -- a swipe needs a
+## laid-out rect -- so at boot it found 0 of 225 `HSlider`s and the leg could
+## not run. This opens the first category whose body holds a slider by
+## pressing its REAL header through `pressed.emit()`, exactly as
+## `Workspace.open_category()` does, so the toggle handler stays in the path
+## and `visible` is never set here. A slider nested under a `DccWidgets.group()`
+## inside the category is then opened the same way (header = the `Button`
+## immediately before the group's padding wrapper). Returns how many headers
+## it pressed. The leg's own `_check` still fails if no slider shows after
+## this -- nothing is weakened, only the starting state is made reachable.
+func _expand_a_slider_section(root: Node) -> int:
+	var opened := 0
+	var cat_heads: Array = []     ## [{body, button}] across every workspace
+	for ws in app._workspace_panels.values():
+		var cats = ws.get("categories")
+		if cats is Array:
+			for e in cats:
+				cat_heads.append(e)
+	for _round in 8:
+		var sl: HSlider = _first_slider(root)
+		if sl != null:
+			return opened
+		var progressed := false
+		for n in _all(root):
+			if not (n is HSlider):
+				continue
+			var s := n as HSlider
+			## Outermost hidden ancestor between the slider and the root.
+			var hidden: Control = null
+			var p: Node = s.get_parent()
+			while p != null and p != root:
+				if p is Control and not (p as Control).visible:
+					hidden = p as Control
+				p = p.get_parent()
+			if hidden == null:
+				continue
+			var head: Button = null
+			for e in cat_heads:
+				if e["body"] == hidden or (e["body"] as Node).is_ancestor_of(hidden):
+					if not (e["body"] as Control).visible:
+						head = e["button"] as Button
+						break
+			if head == null:
+				var pad := hidden.get_parent()
+				if pad != null and pad.get_parent() != null and pad.get_index() >= 1:
+					var h = pad.get_parent().get_child(pad.get_index() - 1)
+					if h is Button:
+						head = h as Button
+			if head == null:
+				continue
+			head.pressed.emit()
+			opened += 1
+			progressed = true
+			await _frames(4)
+			break
+		if not progressed:
+			break
+	return opened
+
+## Absolute equality for the SpinBox legs. **Not `is_equal_approx`**: that is a
+## RELATIVE test (1e-5 of the magnitude), so on a 6-digit seed such as
+## 331088 a step of 1.0 compares "equal" to no step at all, which made the
+## first draft of the tap and wheel assertions pass vacuously (found on the
+## desktop leg, where the wheel "stepped" 661190 -> 661190). Values here are
+## stepped in whole units, so a 1e-4 absolute tolerance is exact in effect.
+func _same(a: float, b: float) -> bool:
+	return absf(a - b) < 0.0001
+
 func _first_slider(root: Node) -> HSlider:
 	for n in _all(root):
 		if n is HSlider and (n as HSlider).is_visible_in_tree():
@@ -435,6 +506,8 @@ func _ready() -> void:
 	## `PgSlider` did not cover before this pass -- so this is the leg that says
 	## whether attaching by `set_script()` from `phone_fit()` actually works.
 	if not _flag("--census-only") and app.is_phone() and app.left_dock != null:
+		var opened := await _expand_a_slider_section(app.left_dock)
+		_log("   (expanded %d collapsed section header(s) so a slider is on screen)" % opened)
 		var sl := _first_slider(app.left_dock)
 		var sc := _scroller_of(sl) if sl != null else null
 		if sl != null and sc != null:
@@ -529,8 +602,335 @@ func _ready() -> void:
 			else:
 				_check(false, "the GENERATE sheet draws a slider")
 
+	## The SpinBox arrow strip, one box from each dialog family -- or, on the
+	## desktop shell, the regression that its stock mouse behaviour is intact.
+	if app.is_phone():
+		await _dialog_family_legs()
+	else:
+		await _desktop_mouse_leg()
+
 	_log("RESULT %s fail=%d  census_hazard_before=%d" % [_tag, _fail, before["hazard"]])
 	get_tree().quit(1 if _fail > 0 else 0)
+
+# -- SpinBox arrow strip: one box from each dialog family (2026-10-05) ----------
+#
+# `DccWidgets.PgSpin` arbitrates the arrow strip of every phone/tablet SpinBox.
+# `_spinbox_leg()` above asks the question on the PLAN sheet; the legs below ask
+# it in the three DIALOG families the lane named, because each is built by a
+# different file and reaches `phone_fit()` by a different route:
+#   * `new_world_dialog.gd`        -- `DccWidgets.number()` rows in the card
+#   * the code-built slicer modal  -- a plain `AcceptDialog` (census: "Window
+#                                     AcceptDialog"), reached through the
+#                                     asset library's `open_slicer`
+#   * `asset_library_window.gd`    -- the inspector's Pan X/Y
+#
+# Per box, the assertions that together say "scroll stays a scroll, a deliberate
+# tap still steps, typing still works":
+#   1. the box carries the seam (a `slop` property, `>= 1.0`)
+#   2. a jittered vertical swipe on the strip, as MOUSE events (the emulated
+#      twin) leaves the value byte-identical and scrolls when there is room
+#   3. the same swipe as real ScreenTouch/ScreenDrag events does the same
+#   4. a tap on the UPPER half of the strip steps the value by exactly `step`
+#   5. a tap on the LOWER half steps it back (so up and down are both pinned)
+#   6. focus the field, type a number, Enter: the typed value is accepted
+# Values are first moved into the middle of the box's range, so a clamp can
+# never make "unchanged" or "stepped" ambiguous.
+
+## `_screen_pt()` of `_gestclass_probe.gd`, restated: a control inside an
+## embedded window is positioned by that window's own transform and offset,
+## which `get_global_transform()` alone omits.
+func _screen_pt(ctl: Control, local: Vector2) -> Vector2:
+	var win := ctl.get_window()
+	var p: Vector2 = ctl.get_global_transform() * local
+	if win != null and win != _vp and win.is_embedded():
+		p = win.get_final_transform() * p + Vector2(win.position)
+	return p
+
+## A point on the SpinBox's arrow strip, `frac_y` of the way down it.
+func _strip_pt(sb: SpinBox, frac_y: float) -> Vector2:
+	var x0 := sb.get_line_edit().get_rect().end.x
+	return _screen_pt(sb, Vector2((x0 + sb.size.x) * 0.5, sb.size.y * frac_y))
+
+## The same gesture as `_push_path()`, but as `InputEventScreenTouch` /
+## `InputEventScreenDrag` -- the touch family `PgSpin` latches to. Pushed into
+## the viewport directly, which does NOT synthesise the emulated mouse twin
+## (that is `Input`'s job), so this exercises the family-1 path on its own.
+func _push_touch_path(from: Vector2, offsets: Array) -> void:
+	var down := InputEventScreenTouch.new()
+	down.index = 0
+	down.pressed = true
+	down.position = from
+	_vp.push_input(down, true)
+	await _frames(1)
+	var prev := from
+	for o in offsets:
+		var at: Vector2 = from + (o as Vector2)
+		var dr := InputEventScreenDrag.new()
+		dr.index = 0
+		dr.position = at
+		dr.relative = at - prev
+		_vp.push_input(dr, true)
+		prev = at
+		await _frames(1)
+	var up := InputEventScreenTouch.new()
+	up.index = 0
+	up.pressed = false
+	up.position = prev
+	_vp.push_input(up, true)
+	await _frames(4)
+
+func _touch_tap(at: Vector2) -> void:
+	await _push_touch_path(at, [])
+
+## Type `text` into the SpinBox's field through real key events, then Enter.
+## The key events go to the box's own viewport, because a control in an
+## embedded window is focused in THAT window.
+func _type_into(sb: SpinBox, text: String) -> void:
+	var le := sb.get_line_edit()
+	le.select_all()
+	var vp: Viewport = sb.get_viewport()
+	for i in text.length():
+		var ch := text.substr(i, 1)
+		for down in [true, false]:
+			var k := InputEventKey.new()
+			k.pressed = down
+			k.unicode = ch.unicode_at(0)
+			k.keycode = (KEY_0 + int(ch)) if ch.is_valid_int() else KEY_MINUS
+			vp.push_input(k, true)
+			await _frames(1)
+	for down in [true, false]:
+		var e := InputEventKey.new()
+		e.pressed = down
+		e.keycode = KEY_ENTER
+		vp.push_input(e, true)
+		await _frames(1)
+	await _frames(3)
+
+## Move the value into the middle of its range so neither direction clamps.
+func _centre_value(sb: SpinBox) -> void:
+	var span := sb.max_value - sb.min_value
+	if span > 40.0 * sb.step:
+		var mid := (sb.min_value + sb.max_value) * 0.5
+		if absf(sb.min_value) > 1.0e5 or absf(sb.max_value) > 1.0e5:
+			mid = clampf(sb.value, sb.min_value + 10.0 * sb.step, sb.max_value - 10.0 * sb.step)
+		sb.value = roundf(mid / sb.step) * sb.step
+	await _frames(2)
+
+## A number to type: different from the current value and inside the range.
+func _typed_target(sb: SpinBox) -> int:
+	var t := int(roundf(sb.value)) + 7
+	if float(t) > sb.max_value:
+		t = int(roundf(sb.value)) - 7
+	return t
+
+func _spin_family_leg(family: String, sb: SpinBox) -> void:
+	_log("-- SpinBox strip, dialog family: %s" % family)
+	_check(sb != null, "%s: found a visible SpinBox inside a live scroller" % family)
+	if sb == null:
+		return
+	var sc := _scroller_of(sb)
+	_check(sc != null, "%s: and its scroller" % family)
+	if sc == null:
+		return
+	_check(sb.get_script() != null and sb.get("slop") != null
+			and float(sb.get("slop")) >= 1.0,
+		"%s: the SpinBox carries the strip seam (slop=%s)" % [family, str(sb.get("slop"))])
+	sc.ensure_control_visible(sb)
+	await _frames(6)
+	await _centre_value(sb)
+	var step := sb.step
+	var bar := sc.get_v_scroll_bar()
+	var strip_w := sb.size.x - sb.get_line_edit().get_rect().end.x
+	_log("   rect %s  strip %.0f px  value %s step %s range %s..%s  scroll %d of %.0f"
+		% [str(sb.get_global_rect()), strip_w, str(sb.value), str(step),
+			str(sb.min_value), str(sb.max_value), sc.scroll_vertical,
+			bar.max_value - bar.page])
+	_check(strip_w > 4.0, "%s: the strip exists (%.0f px)" % [family, strip_w])
+	## Both swipe families, each from the strip's middle.
+	for fam in ["mouse", "touch"]:
+		sc.ensure_control_visible(sb)
+		await _frames(4)
+		var v0 := sb.value
+		var s0 := sc.scroll_vertical
+		var room_up: float = bar.max_value - bar.page - float(s0)
+		var room_down: float = float(s0)
+		var dir := -1.0 if room_up >= room_down else 1.0
+		var room: float = maxf(room_up, room_down)
+		var reach: float = minf(float(_vp.size.y) * 0.20, maxf(120.0, room))
+		var start := _strip_pt(sb, 0.5)
+		if fam == "mouse":
+			await _push_path(start, _jitter(dir, reach))
+		else:
+			await _push_touch_path(start, _jitter(dir, reach))
+		_log("   %s swipe: value %s -> %s   scroll %d -> %d (room %.0f)"
+			% [fam, str(v0), str(sb.value), s0, sc.scroll_vertical, room])
+		_check(sb.value == v0,
+			"%s: a jittered vertical %s swipe on the strip leaves the value byte-identical (%s vs %s)"
+				% [family, fam, str(v0), str(sb.value)])
+		if room > 8.0:
+			_check(sc.scroll_vertical != s0,
+				"%s: and the %s swipe DOES scroll the container (%d -> %d)"
+					% [family, fam, s0, sc.scroll_vertical])
+		else:
+			_log("   (%s: only %.0f px of scroll room, so scrolling is not asserted)"
+				% [family, room])
+	## Deliberate taps, one per half of the strip, via both families.
+	for fam in ["mouse", "touch"]:
+		sc.ensure_control_visible(sb)
+		await _frames(4)
+		var v1 := sb.value
+		if fam == "mouse":
+			await _tap_at(_strip_pt(sb, 0.25))
+		else:
+			await _touch_tap(_strip_pt(sb, 0.25))
+		_check(_same(sb.value, v1 + step),
+			"%s: a %s tap on the UPPER half of the strip steps by %s (%s -> %s)"
+				% [family, fam, str(step), str(v1), str(sb.value)])
+		var v2 := sb.value
+		if fam == "mouse":
+			await _tap_at(_strip_pt(sb, 0.75))
+		else:
+			await _touch_tap(_strip_pt(sb, 0.75))
+		_check(_same(sb.value, v2 - step),
+			"%s: a %s tap on the LOWER half steps back (%s -> %s)"
+				% [family, fam, str(v2), str(sb.value)])
+	## Typing: a tap on the field focuses it (PgField), keys then enter a value.
+	sc.ensure_control_visible(sb)
+	await _frames(4)
+	var le := sb.get_line_edit()
+	await _tap_at(_screen_pt(le, le.size * 0.5))
+	_check(le.has_focus(), "%s: a tap on the text field focuses it" % family)
+	var target := _typed_target(sb)
+	await _type_into(sb, str(target))
+	_check(_same(sb.value, float(target)),
+		"%s: a typed value is accepted (typed %d, value %s)" % [family, target, str(sb.value)])
+	le.release_focus()
+	await _frames(3)
+
+## First visible SpinBox under `root` that sits in a live vertical scroller.
+func _first_spin_in(root: Node) -> SpinBox:
+	for n in _all(root):
+		if n is SpinBox and (n as SpinBox).is_visible_in_tree():
+			var sc := _scroller_of(n)
+			if sc != null and sc.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED:
+				return n as SpinBox
+	return null
+
+func _dialog_family_legs() -> void:
+	## Family 1 -- the New World card.
+	app.open_new_world()
+	await _frames(20)
+	await _spin_family_leg("New World dialog", _first_spin_in(app.new_world_dialog))
+	app.new_world_dialog.hide()
+	await _frames(6)
+	## Family 2 -- the slicer's plain AcceptDialog. Found by SCRIPT-LESS window
+	## so the leg cannot quietly measure a different surface.
+	app.open_asset_library("", true)
+	await _frames(30)
+	var slicer_sb: SpinBox = null
+	for n in _all(_vp):
+		if n is SpinBox and (n as SpinBox).is_visible_in_tree():
+			var w := (n as SpinBox).get_window()
+			if w != null and w != _vp and w.get_script() == null and w is AcceptDialog:
+				var sc := _scroller_of(n)
+				if sc != null and sc.vertical_scroll_mode != ScrollContainer.SCROLL_MODE_DISABLED:
+					slicer_sb = n as SpinBox
+					break
+	await _spin_family_leg("slicer AcceptDialog", slicer_sb)
+	for n in _all(_vp):
+		if n is AcceptDialog and (n as Window).visible and (n as Window).get_script() == null:
+			(n as Window).hide()
+	await _frames(6)
+	## Family 3 -- the asset library window's inspector Pan X. The inspector is
+	## empty (and Pan DISABLED, by design) until a slot holding art is focused;
+	## staging, stated: focus the first slot through the window's own refresh
+	## path, then enable the box -- which exercises the arbitration itself. The
+	## `editable == false` gate is its own assertion below.
+	app.open_asset_library("", false)
+	await _frames(30)
+	var lib: Node = app.asset_library_window
+	if lib._slot_order.size() > 0:
+		lib._focused_uid = String(lib._slot_order[0]["uid"])
+		lib._refresh_inspector()
+		lib._show_phone_pane("slot")
+		await _frames(20)
+	var pan: SpinBox = lib._insp_pan_x
+	_check(not pan.editable,
+		"asset library Pan X: is DISABLED while the slot holds no art (the gate this leg stages past)")
+	if pan.get_script() != null and pan.is_visible_in_tree():
+		var pv := pan.value
+		var psc := _scroller_of(pan)
+		if psc != null:
+			psc.ensure_control_visible(pan)
+			await _frames(4)
+			await _tap_at(_strip_pt(pan, 0.25))
+			_check(pan.value == pv,
+				"asset library Pan X: a tap on a DISABLED box steps nothing (%s -> %s)"
+					% [str(pv), str(pan.value)])
+	pan.editable = true
+	await _spin_family_leg("asset library window", pan if pan.is_visible_in_tree() else null)
+	lib.hide()
+	await _frames(6)
+
+## **Desktop regression: the strip's stock behaviour must be untouched.** On the
+## desktop shell `phone_fit()` never runs, so nothing here may carry the seam.
+## Click on an arrow steps (up half up, lower half down), the wheel steps a
+## FOCUSED box, and typing works. A SpinBox is first moved to mid-range.
+func _desktop_mouse_leg() -> void:
+	_log("-- desktop SpinBox: stock mouse behaviour is unchanged")
+	app.open_new_world()
+	await _frames(20)
+	var sb: SpinBox = null
+	for n in _all(app.new_world_dialog):
+		if n is SpinBox and (n as SpinBox).is_visible_in_tree():
+			sb = n as SpinBox
+			break
+	_check(sb != null, "desktop: the New World dialog shows a SpinBox")
+	if sb == null:
+		return
+	_check(sb.get_script() == null,
+		"desktop: the SpinBox carries NO seam script (it is stock)")
+	_check(sb.get_line_edit().get_script() == null,
+		"desktop: and neither does its field")
+	await _centre_value(sb)
+	var step := sb.step
+	var v0 := sb.value
+	await _tap_at(_strip_pt(sb, 0.25))
+	_check(_same(sb.value, v0 + step),
+		"desktop: a click on the upper arrow steps up by %s (%s -> %s)" % [str(step), str(v0), str(sb.value)])
+	var v1 := sb.value
+	await _tap_at(_strip_pt(sb, 0.75))
+	_check(_same(sb.value, v1 - step),
+		"desktop: a click on the lower arrow steps down (%s -> %s)" % [str(v1), str(sb.value)])
+	## Wheel: stock steps a box whose field is focused.
+	var le := sb.get_line_edit()
+	await _tap_at(_screen_pt(le, le.size * 0.5))
+	_check(le.has_focus(), "desktop: a click on the field focuses it")
+	var v2 := sb.value
+	var wp := _screen_pt(le, le.size * 0.5)
+	for button in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
+		var wv := sb.value
+		for down in [true, false]:
+			var e := InputEventMouseButton.new()
+			e.button_index = button
+			e.pressed = down
+			e.position = wp
+			e.global_position = wp
+			_vp.push_input(e, true)  ## embedded-window coords, like _tap_at
+			await _frames(1)
+		await _frames(3)
+		var expect := wv + step if button == MOUSE_BUTTON_WHEEL_UP else wv - step
+		_check(_same(sb.value, expect),
+			"desktop: the mouse wheel %s steps the focused box (%s -> %s)"
+				% ["up" if button == MOUSE_BUTTON_WHEEL_UP else "down", str(wv), str(sb.value)])
+	_check(_same(sb.value, v2), "desktop: wheel up then down returns to %s" % str(v2))
+	var target := _typed_target(sb)
+	await _type_into(sb, str(target))
+	_check(_same(sb.value, float(target)),
+		"desktop: a typed value is accepted (typed %d, value %s)" % [target, str(sb.value)])
+	le.release_focus()
+	app.new_world_dialog.hide()
+	await _frames(6)
 
 ## The engine parameter key a GENERATE-sheet slider writes, found from the row
 ## label the sheet draws beside it. Empty when it cannot be resolved, in which

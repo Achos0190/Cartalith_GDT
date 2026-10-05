@@ -581,8 +581,26 @@ func _gesture_leg(label: String, ctl: Control, read: Callable,
 	## the gesture never reached at all.
 	if not expect_tap_moves:
 		return
+	## **Precondition, not a weakened assertion (2026-10-05).** The swipe above
+	## has just scrolled the card to its far end (35 -> 73 of 73 on the New
+	## World card), which can carry the control out of the scroller's visible
+	## band -- and a tap recomputed at `_screen_pt()` then lands on whatever is
+	## drawn there instead (the Seed field read `focus=false` before and after
+	## it and "failed" the positive control). The caret leg further down
+	## already does exactly this `ensure_control_visible()` before ITS tap and
+	## passes on the same field, which is what identified this as the probe's
+	## staging and not a product fault. The tap point is now also asserted to
+	## pick the control, so the positive control can never again pass or fail
+	## on a point the control does not own.
+	scroll.ensure_control_visible(ctl)
+	await _frames(6)
+	var tap_at := _screen_pt(ctl, ctl.size * 0.5)
+	var under_tap := await _hovered_under(ctl, tap_at)
+	_check(under_tap.begins_with(ctl.get_class()),
+		"%s: the positive-control tap point picks the control (under=%s)"
+			% [label, under_tap])
 	var v2: Variant = read.call()
-	await _tap_at(_screen_pt(ctl, ctl.size * 0.5))
+	await _tap_at(tap_at)
 	var v3: Variant = read.call()
 	_log("   plain tap at the same point: %s -> %s" % [str(v2), str(v3)])
 	_check(str(v3) != str(v2),

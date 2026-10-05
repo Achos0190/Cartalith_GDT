@@ -2364,6 +2364,175 @@ static func touch_focus_field(le: LineEdit, slop_px: float) -> bool:
 		le.focus_exited.connect(Callable(le, "_relock"))
 	return true
 
+## **A `SpinBox`'s own arrow strip steps its value on touch-DOWN, so a swipe
+## that begins on it edits a number instead of scrolling the dialog.**
+##
+## Measured 2026-10-05 on 4.7.1 (`_rangeswipe_probe.gd::_spinbox_leg`, 1080x2340,
+## `--force-touch`): a tap on the strip took the New World seed `4.0 -> 3.0` and a
+## jittered vertical swipe took it to `1.0`, with the sheet not moving. It is the
+## `PgSlider` defect one class over, and as silent: nothing announces that a
+## number changed.
+##
+## `PgField` already covers the SpinBox's **text field** (`touch_focus_field()` is
+## called on `get_line_edit()`). What it cannot reach is the strip to the
+## field's right, which `SpinBox::gui_input` handles itself -- a press there
+## steps by `custom_arrow_step` (else `step`), up when `y < height/2` and
+## down otherwise (measured 2026-10-05: taps at 15/30 % of the height step
+## up, 50/70/85 % step down, at every x in the strip), grabs the field's focus,
+## auto-repeats while held and drags the value with the pointer. Measured
+## geometry at the 1080-wide phone scale: 80x44 box, 62 px field, ~18 px strip.
+##
+## So this class is `PgSlider`'s shape with a different lever: it **withholds
+## the press**, classifies the gesture after `slop` of travel, drives the
+## ancestor `ScrollContainer` itself on a vertical, and applies **one step at
+## release** only when the gesture never left its slop circle. Everything is
+## decided from the scroll-compensated position (`_track`), for the reason
+## `PgSlider._track` gives.
+##
+## **Costs, stated rather than hidden** (the same shape as `PgSlider`'s lost
+## fling):
+## * **No auto-repeat on hold, no drag-to-adjust, on touch.** A held arrow
+##   steps once, at release. Large changes are made by typing into the field.
+## * **A horizontal verdict is discarded**: a sideways swipe over an 18 px strip
+##   has no meaning, and stepping on it would be the defect again.
+## * **A tap steps without raising the keyboard.** Stock grabs the field's
+##   focus on an arrow press; with `PgField` parking `focus_mode` at NONE that
+##   call only warns, and a stepper tap should not pop an IME anyway.
+## * `Ctrl`/`Shift` step multipliers are not applied -- there is no modifier on
+##   a finger.
+##
+## **Three gates, each handing the event back to stock by returning WITHOUT
+## `accept_event()`**: `editable == false` (a disabled box must not be written),
+## no vertical-scrolling ancestor (nothing to arbitrate against -- a vertical
+## drag keeps its stock meaning), and any non-left mouse button or wheel (stock
+## wheel stepping is a desktop behaviour this must not remove). A press that
+## lands on the text-field half is also left alone, although in practice the
+## field child takes those events first.
+##
+## **Only attached by `DccShell.phone_fit()` / `tablet_arbitrate`**, so on the
+## desktop shell SpinBoxes remain stock (the desktop mouse leg of
+## `_rangeswipe_probe.gd` pins that: click steps, wheel steps, typing works).
+class PgSpin extends SpinBox:
+	## Distance TRAVELLED, in the surface's own pixels, before a gesture counts
+	## as a drag. Required by `touch_spinbox()`; **carries no default on
+	## purpose**, for the reason `PgSlider.slop` states -- `_slop_walk()` in
+	## `_gestclass_probe.gd` asserts every attached `PgSpin` has `slop >= 1.0`.
+	var slop: float
+
+	var _scroller: ScrollContainer
+	var _looked := false
+	var _family := 0            ## 0 idle, 1 touch, 2 mouse. See `PgSlider`.
+	var _verdict := 0           ## 0 undecided, 1 horizontal (discarded), -1 scroller.
+	var _origin := Vector2.ZERO ## Press point, scroll-compensated.
+	var _origin_scroll := 0
+	var _press_up := false      ## The press landed in the upper half -> step up.
+
+	func _gui_input(event: InputEvent) -> void:
+		if not editable or _scroll() == null:
+			return
+		var family := 0
+		var kind := 0           ## 1 press, 2 move, 3 release.
+		var pos := Vector2.ZERO
+		if event is InputEventScreenTouch:
+			family = 1
+			kind = 1 if (event as InputEventScreenTouch).pressed else 3
+			pos = (event as InputEventScreenTouch).position
+		elif event is InputEventScreenDrag:
+			family = 1
+			kind = 2
+			pos = (event as InputEventScreenDrag).position
+		elif event is InputEventMouseButton:
+			var mb := event as InputEventMouseButton
+			if mb.button_index != MOUSE_BUTTON_LEFT:
+				return          ## Wheel and right-click stay stock.
+			family = 2
+			kind = 1 if mb.pressed else 3
+			pos = mb.position
+		elif event is InputEventMouseMotion:
+			var mm := event as InputEventMouseMotion
+			if (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) == 0:
+				return          ## Hover highlight stays stock.
+			family = 2
+			kind = 2
+			pos = mm.position
+		else:
+			return
+		## A press that is not on the strip is not ours to arbitrate (the field
+		## child normally takes it before it gets here).
+		if kind == 1 and _family == 0 and not _on_strip(pos):
+			return
+		if _family == 0 and kind != 1:
+			return              ## A drag or release with no press of ours.
+		accept_event()
+		if _family != 0 and family != _family:
+			return              ## The emulated twin of the gesture in progress.
+		if kind == 1:
+			_family = family
+			_verdict = 0
+			_press_up = pos.y < size.y * 0.5
+			_origin_scroll = _scroll_now()
+			_origin = _track(pos)
+			return
+		var d := _track(pos) - _origin
+		if kind == 2:
+			if _verdict == 0:
+				if maxf(absf(d.x), absf(d.y)) < slop:
+					return
+				_verdict = -1 if absf(d.y) > absf(d.x) else 1
+			if _verdict < 0 and _scroll() != null:
+				_scroller.scroll_vertical = _origin_scroll - int(round(d.y))
+			return
+		## Release. Only a gesture that never left its slop circle is a tap.
+		if _verdict == 0:
+			var amount := custom_arrow_step if custom_arrow_step > 0.0 else step
+			value = value + (amount if _press_up else -amount)
+		_family = 0
+		_verdict = 0
+
+	## Whether `pos` (local) is right of the text field, i.e. on the arrow strip.
+	func _on_strip(pos: Vector2) -> bool:
+		var le := get_line_edit()
+		if le == null:
+			return true
+		return pos.x >= le.get_rect().end.x
+
+	## Identical to `PgSlider._track()`: this control slides as the scroll it
+	## drives advances, so raw local deltas would feed themselves.
+	func _track(pos: Vector2) -> Vector2:
+		var sc := _scroll()
+		if sc == null:
+			return pos
+		return Vector2(pos.x - float(sc.scroll_horizontal),
+			pos.y - float(sc.scroll_vertical))
+
+	func _scroll() -> ScrollContainer:
+		if not _looked:
+			_looked = true
+			_scroller = DccWidgets.vertical_scroller_above(self)
+		return _scroller
+
+	func _scroll_now() -> int:
+		return _scroll().scroll_vertical if _scroll() != null else 0
+
+## Give an already-built `SpinBox` the arbitration above.
+##
+## Returns whether it was attached. Skipped for a box that already carries a
+## script (`set_script()` would replace it) and for one with no vertical
+## scrolling ancestor -- the same attach-time gate `touch_focus_field()` uses,
+## so a box with nothing to arbitrate against stays entirely stock (the
+## lazily-evaluated gate inside `PgSpin` is a second line, for a tree that
+## changes afterwards). `slop_px` is a distance travelled and scales with
+## `phone_fit()`'s `unit`; floored at 1 so `_slop_walk()`'s assertion cannot
+## be satisfied by an unset value.
+static func touch_spinbox(sb: SpinBox, slop_px: float) -> bool:
+	if sb == null or sb.get_script() != null:
+		return false
+	if vertical_scroller_above(sb) == null:
+		return false
+	sb.set_script(PgSpin)
+	sb.set("slop", maxf(1.0, slop_px))
+	return true
+
 ## **Repaint-on-palette-flip**, for the two inputs whose appearance is carried
 ## by something `DccShell`'s recolour walks cannot reach: an `ImageTexture`
 ## (nothing can reach inside one -- `_style_popup_marks()` above carries the

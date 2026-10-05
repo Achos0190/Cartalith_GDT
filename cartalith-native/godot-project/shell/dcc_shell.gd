@@ -2557,6 +2557,13 @@ func _touch_arbitrate(ctl: Control, unit: float) -> void:
 	elif ctl is SpinBox:
 		DccWidgets.touch_focus_field(
 			(ctl as SpinBox).get_line_edit(), 8.0 * unit)
+		## The text field above is only HALF of a SpinBox. Its own arrow
+		## strip steps the value on touch-DOWN and a vertical swipe that
+		## starts there drags it (measured 2026-10-05, 4.0 -> 3.0 on a
+		## tap and -> 1.0 on a swipe), so the strip is arbitrated by
+		## `DccWidgets.PgSpin`. Same slop as the field and slider; stock
+		## wheel/mouse stay untouched (see `PgSpin`'s gates).
+		DccWidgets.touch_spinbox(ctl as SpinBox, 8.0 * unit)
 	## `TextEdit` is deliberately not in that list. It is the other
 	## touch-DOWN text class, but it carries its OWN vertical scroll, so
 	## "give the vertical to the ancestor" is the wrong answer for it
