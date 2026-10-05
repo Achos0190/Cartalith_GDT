@@ -238,6 +238,20 @@ impl FactionRoster {
         self.0.len().saturating_sub(1)
     }
 
+    /// Every faction's ag-tech and government keys, indexed by faction id (so
+    /// index 0 is the "Unclaimed" row and the index IS the id) -- the roster half of a
+    /// year's [`cartalith_civ::timeline::YearRecord`] (`MILITARY_MANPOWER_SCOPE.md`
+    /// §5.7). Keys are copied verbatim, never validated or defaulted here.
+    pub fn institutions_record(&self) -> Vec<cartalith_civ::timeline::YearFactionInstitutions> {
+        self.0
+            .iter()
+            .map(|e| cartalith_civ::timeline::YearFactionInstitutions {
+                ag_tech: e.ag_tech.clone(),
+                government: e.government.clone(),
+            })
+            .collect()
+    }
+
     /// The `culture` column indexed by faction id -- the reference's
     /// `civFactionCulture` -- in the shape settlement naming reads it
     /// (`cartalith_civ::civ_faction_culture`).
@@ -586,6 +600,57 @@ pub struct PlaceExtrasTable(pub HashMap<u64, PlaceExtras>);
 impl PlaceExtrasTable {
     pub fn get(&self, tid: u64) -> PlaceExtras {
         self.0.get(&tid).cloned().unwrap_or_default()
+    }
+
+    /// The place-editor half of a year's [`cartalith_civ::timeline::YearRecord`]: the
+    /// military-relevant overrides ([`PlaceExtras`]' `walls`, `age`, `traits`,
+    /// `specialisation`) of every settlement in `tids` that has any non-default one.
+    /// A settlement with none is left out, and within the recorded map that absence means
+    /// "recorded: no override". Edits to other tids (a settlement not in `tids`) are
+    /// never captured. `MILITARY_MANPOWER_SCOPE.md` §5.7.
+    pub fn override_record(
+        &self,
+        tids: impl IntoIterator<Item = u64>,
+    ) -> std::collections::BTreeMap<u64, cartalith_civ::timeline::YearPlaceOverride> {
+        let mut out = std::collections::BTreeMap::new();
+        for tid in tids {
+            let Some(e) = self.0.get(&tid) else { continue };
+            let rec = cartalith_civ::timeline::YearPlaceOverride {
+                walls: e.walls,
+                age: e.age,
+                traits: e.traits.clone(),
+                specialisation: e.specialisation.clone(),
+            };
+            if rec != cartalith_civ::timeline::YearPlaceOverride::default() {
+                out.insert(tid, rec);
+            }
+        }
+        out
+    }
+
+    /// The overrides `tid` reads in a military reading: the live table's when `recorded` is
+    /// `None` ("not recorded: today's", the pre-record behaviour byte for byte), else the
+    /// recorded map's entry -- and a `tid` absent from a recorded map is the **default**
+    /// (a recorded "no override"), never today's live value. Only the four fields the
+    /// military reading consumes are meaningful in the result; the rest stay default.
+    pub fn resolve_for_reading(
+        &self,
+        recorded: Option<&std::collections::BTreeMap<u64, cartalith_civ::timeline::YearPlaceOverride>>,
+        tid: u64,
+    ) -> PlaceExtras {
+        match recorded {
+            None => self.get(tid),
+            Some(map) => match map.get(&tid) {
+                Some(r) => PlaceExtras {
+                    walls: r.walls,
+                    age: r.age,
+                    traits: r.traits.clone(),
+                    specialisation: r.specialisation.clone(),
+                    ..PlaceExtras::default()
+                },
+                None => PlaceExtras::default(),
+            },
+        }
     }
 
     /// Toggles one trait key on/off, mirroring the reference's own
@@ -1111,5 +1176,55 @@ mod tests {
         assert!(r.set_currency(2, "name", ""));
         assert!(r.set_currency(2, "symbol", ""));
         assert_eq!(r, FactionRoster::seeded(3), "cleared is exactly unset, one encoding");
+    }
+
+    #[test]
+    fn year_record_captures_roster_institutions_verbatim_and_only_non_default_overrides() {
+        // Protects: `institutions_record` copies every faction's two keys by id (index 0
+        // included), and `override_record` keeps only the four military-relevant fields of
+        // settlements in the asked-for list that carry a non-default override -- an
+        // untouched settlement, a history-only edit and an unlisted tid all stay out.
+        let mut r = FactionRoster::seeded(3);
+        r.0[2].government = "empire".to_string();
+        let rec = r.institutions_record();
+        assert_eq!(rec.len(), 4, "seeded(3) is the Unclaimed row plus three factions");
+        assert_eq!(rec[2].government, "empire");
+        assert_eq!(rec[1].government, r.0[1].government);
+        assert_eq!(rec[0].ag_tech, r.0[0].ag_tech);
+
+        let mut t = PlaceExtrasTable::default();
+        t.0.insert(7, PlaceExtras { walls: Some(true), age: Some(400), ..Default::default() });
+        t.0.insert(8, PlaceExtras { history: "only prose".to_string(), ..Default::default() });
+        t.0.insert(9, PlaceExtras { walls: Some(false), ..Default::default() });
+        let o = t.override_record([7, 8, 10]);
+        assert_eq!(o.len(), 1, "8 is history-only, 9 is not asked for, 10 has no edit");
+        assert_eq!(o[&7].walls, Some(true));
+        assert_eq!(o[&7].age, Some(400));
+    }
+
+    #[test]
+    fn resolve_for_reading_uses_today_only_when_the_year_recorded_no_overrides() {
+        // Protects: `None` reads the live table (the pre-record behaviour); a recorded map
+        // wins over a later live edit; and a tid a recorded map omits reads "no override"
+        // (default), not today's -- the difference between "not recorded" and "recorded as
+        // none".
+        let mut live = PlaceExtrasTable::default();
+        live.0.insert(7, PlaceExtras { walls: Some(true), ..Default::default() });
+        live.0.insert(8, PlaceExtras { walls: Some(true), ..Default::default() });
+        assert_eq!(live.resolve_for_reading(None, 7).walls, Some(true));
+
+        // Recorded when 7 was unwalled and 8 had no override at all.
+        let recorded = std::collections::BTreeMap::from([(
+            7,
+            cartalith_civ::timeline::YearPlaceOverride {
+                walls: Some(false),
+                ..Default::default()
+            },
+        )]);
+        assert_eq!(live.resolve_for_reading(Some(&recorded), 7).walls, Some(false));
+        assert_eq!(live.resolve_for_reading(Some(&recorded), 8), PlaceExtras::default());
+        // A recorded, empty map is "recorded: none anywhere", still not today's.
+        let empty = std::collections::BTreeMap::new();
+        assert_eq!(live.resolve_for_reading(Some(&empty), 7).walls, None);
     }
 }

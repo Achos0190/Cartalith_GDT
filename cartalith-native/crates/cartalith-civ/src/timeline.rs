@@ -1871,6 +1871,91 @@ pub struct TimelineSnapshot {
     /// honest degradation, not a false `false`. Persisting it is a `SAVEFILE_COMPAT.md`
     /// §10.1 format change and was deliberately not made here.
     pub collapse_flags: BTreeMap<u64, CollapseFlags>,
+    /// The roster institutions and place-editor overrides in force when THIS year was recorded
+    /// from live state (`MILITARY_MANPOWER_SCOPE.md` §5.7's last gap; see [`YearRecord`]).
+    ///
+    /// **Each member is `None` until a recorder writes it, and `None` means "not recorded --
+    /// read today's", never "no institutions" or "no overrides".** A year written by the
+    /// collapse/recovery run, by a project saved before this field existed, or by anything
+    /// that is not [`civ_snapshot_set_record`] holds the default. [`civ_snapshot_save`] resets
+    /// it on every overwrite, because the record describes the `settlements` list stored
+    /// beside it and an overwrite replaces that list.
+    pub record: YearRecord,
+}
+
+/// One faction's two institution keys as they stood when a year was recorded -- exactly the
+/// two roster fields the military reading consumes (`civ_military_bridge`'s manpower model:
+/// `ag_tech` through `civ_ag_tech_by_key`, `government` straight into the fiscal term).
+///
+/// The strings are the roster's own keys, stored verbatim and **not validated here**: an unknown
+/// key is read exactly as the live roster reads one (`civ_ag_tech_by_key` falls back to its
+/// documented default), so a recorded year can never be stricter than today's. Must never hold
+/// a display label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct YearFactionInstitutions {
+    /// `FactionEntry::ag_tech`.
+    pub ag_tech: String,
+    /// `FactionEntry::government`.
+    pub government: String,
+}
+
+/// One settlement's place-editor overrides as they stood when a year was recorded -- the four
+/// `PlaceExtras` fields the military reading consumes (`civ_military_bridge::defences_of`:
+/// `walls`, `age`, the `"fortified"` trait, `specialisation`). The editor's other fields
+/// (history, culture, rules preset, variant) feed the drawn town, not the military reading, and
+/// are deliberately not recorded here.
+///
+/// `walls`/`age` keep the editor's own tri-state: `None` is "auto", which is a real answer that
+/// differs from `Some(false)` / any age.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YearPlaceOverride {
+    /// `PlaceExtras::walls` (`None` = auto).
+    pub walls: Option<bool>,
+    /// `PlaceExtras::age` (`None` = auto-inferred from population).
+    pub age: Option<u32>,
+    /// `PlaceExtras::traits`, in the editor's own insertion order.
+    pub traits: Vec<String>,
+    /// `PlaceExtras::specialisation`; empty is the reference's `"none"`.
+    pub specialisation: String,
+}
+
+/// What a recorded year remembers about the world's institutions -- the two inputs MM-8's
+/// military reading used to take from today (`MILITARY_MANPOWER_SCOPE.md` §5.7), now optional
+/// per year. Owner-visible effect: a government changed *after* a year was recorded no longer
+/// moves that year's reading.
+///
+/// **Two members, two independent `Option`s, because a record can honestly hold one without the
+/// other** (a hand-edited or second-implementation project file may carry either key). `None`
+/// is "not recorded: read today's" and must never be written as an empty list / empty map,
+/// which would mean "recorded: no factions / no overrides" -- the `MISTAKES.md` rule against
+/// encoding no value as a plausible one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YearRecord {
+    /// Per faction, indexed by faction id (index 0 is the reference's "Unclaimed" row, kept so
+    /// the index IS the id). A faction id at or past the end was added after the record and
+    /// reads today's.
+    pub institutions: Option<Vec<YearFactionInstitutions>>,
+    /// Per settlement `tid`. **Only settlements that carried a non-default override appear**;
+    /// within a `Some` map an absent `tid` is a recorded "no override" (not "unknown").
+    pub place_overrides: Option<BTreeMap<u64, YearPlaceOverride>>,
+}
+
+/// Writes `record` onto the recorded year `year` (the live-state recorder's second step, after
+/// [`civ_snapshot_save`], which resets it). Returns `false` and changes nothing when `year` is
+/// not recorded. Must never be called for a year whose `settlements` were not just taken from
+/// the live state `record` was read beside, or the record describes a different list.
+pub fn civ_snapshot_set_record(
+    timeline: &mut [TimelineSnapshot],
+    year: i64,
+    record: YearRecord,
+) -> bool {
+    match timeline.iter_mut().find(|s| s.year == year) {
+        Some(s) => {
+            s.record = record;
+            true
+        }
+        None => false,
+    }
 }
 
 /// One settlement's collapse/recovery status in one recorded year -- the two
@@ -2308,6 +2393,9 @@ pub fn civ_snapshot_save(
             existing.ways = ways;
             // The flags described the list just replaced; see `TimelineSnapshot::collapse_flags`.
             existing.collapse_flags.clear();
+            // Likewise the institutions record: it described the replaced list. The caller
+            // that recorded from live state re-attaches one via `civ_snapshot_set_record`.
+            existing.record = YearRecord::default();
         }
         None => timeline.push(TimelineSnapshot {
             year,
@@ -2315,6 +2403,7 @@ pub fn civ_snapshot_save(
             settlements,
             ways,
             collapse_flags: BTreeMap::new(),
+            record: Default::default(),
         }),
     }
     timeline.sort_by_key(|s| s.year);
@@ -4302,6 +4391,39 @@ mod tests {
     }
 
     #[test]
+    fn year_record_is_set_per_year_and_reset_when_the_year_is_overwritten() {
+        // Protects: a fresh year holds no record (None = "read today's", not an empty list);
+        // `civ_snapshot_set_record` writes only the named year and reports a missing one;
+        // overwriting a year drops its record along with the settlement list it described.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(&mut timeline, 10, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
+        civ_snapshot_save(&mut timeline, 20, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
+        assert_eq!(timeline[0].record, YearRecord::default());
+        assert!(timeline[0].record.institutions.is_none() && timeline[0].record.place_overrides.is_none());
+
+        let rec = YearRecord {
+            institutions: Some(vec![
+                YearFactionInstitutions { ag_tech: String::new(), government: String::new() },
+                YearFactionInstitutions { ag_tech: "iron_plough".into(), government: "monarchy".into() },
+            ]),
+            place_overrides: Some(BTreeMap::from([(
+                1,
+                YearPlaceOverride { walls: Some(true), ..Default::default() },
+            )])),
+        };
+        assert!(civ_snapshot_set_record(&mut timeline, 10, rec.clone()));
+        assert_eq!(timeline[0].record, rec);
+        assert_eq!(timeline[1].record, YearRecord::default(), "another year is untouched");
+        assert!(!civ_snapshot_set_record(&mut timeline, 15, rec.clone()), "an unrecorded year");
+
+        // A second, unrelated save leaves year 10's record alone; overwriting year 10 drops it.
+        civ_snapshot_save(&mut timeline, 30, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 900)], vec![]);
+        assert_eq!(timeline[0].record, rec);
+        civ_snapshot_save(&mut timeline, 10, vec![], vec![mk_settlement(1, 5, 5, "Riverside", 400)], vec![]);
+        assert_eq!(timeline[0].record, YearRecord::default());
+    }
+
+    #[test]
     fn resync_next_tid_with_timeline_folds_in_snapshot_history_the_milestone_1_version_cannot_see()
     {
         // Protects: the timeline-aware resync also counts tids that exist only in recorded
@@ -4664,6 +4786,7 @@ mod tests {
             settlements: Vec::new(),
             ways: Vec::new(),
             collapse_flags: BTreeMap::new(),
+            record: Default::default(),
         }];
         assert_eq!(
             civ_territory_at(&timeline, 10),
@@ -4684,6 +4807,7 @@ mod tests {
                 settlements: Vec::new(),
                 ways: Vec::new(),
                 collapse_flags: BTreeMap::new(),
+                record: Default::default(),
             },
             TimelineSnapshot {
                 year: 10,
@@ -4694,6 +4818,7 @@ mod tests {
                 settlements: Vec::new(),
                 ways: Vec::new(),
                 collapse_flags: BTreeMap::new(),
+                record: Default::default(),
             },
         ];
         assert_eq!(civ_territory_at(&ragged, 10), None);
@@ -4717,6 +4842,7 @@ mod tests {
                 settlements: Vec::new(),
                 ways: Vec::new(),
                 collapse_flags: BTreeMap::new(),
+                record: Default::default(),
             },
             TimelineSnapshot {
                 year: 10,
@@ -4727,6 +4853,7 @@ mod tests {
                 settlements: Vec::new(),
                 ways: Vec::new(),
                 collapse_flags: BTreeMap::new(),
+                record: Default::default(),
             },
         ];
         assert_eq!(civ_territory_at(&timeline, 10), None);

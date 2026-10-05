@@ -925,6 +925,98 @@ struct TimelineYearDto {
     settlements: Vec<SettlementDto>,
     #[serde(default)]
     ways: Vec<RoadDto>,
+    /// The roster institutions in force when this year was recorded from live state, by
+    /// faction id (`SAVEFILE_COMPAT.md` §10.1, added 2026-10-06). **Absent = not recorded**
+    /// (every earlier archive, a collapse-run year, a year carried forward from an
+    /// unrecorded one): the military reading then takes today's. Never written as `[]`
+    /// for "unknown" -- an empty array would read as "recorded: no factions".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    institutions: Option<Vec<YearInstitutionsDto>>,
+    /// The place-editor overrides in force when this year was recorded, one row per
+    /// settlement that had any. **Absent = not recorded**; present-and-empty = recorded,
+    /// no overrides. Same skip rule as `institutions`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    place_overrides: Option<Vec<YearPlaceOverrideDto>>,
+}
+
+/// One faction's recorded ag-tech and government keys (the array index is the faction id).
+/// Both keys are the roster's own, stored verbatim; see
+/// [`cartalith_civ::timeline::YearFactionInstitutions`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct YearInstitutionsDto {
+    #[serde(default)]
+    ag_tech: String,
+    #[serde(default)]
+    government: String,
+}
+
+/// One settlement's recorded military-relevant place overrides, keyed by its stable `tid`.
+/// `walls` and `age` are absent for "auto" (never a plausible `false` / `0`); `traits` and
+/// `specialisation` follow the place table's own empty-means-none convention.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct YearPlaceOverrideDto {
+    tid: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    walls: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    age: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    traits: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    specialisation: String,
+}
+
+/// Snapshot record -> its two optional DTO members. `None` stays `None` (omitted on write).
+fn year_record_to_dtos(
+    r: &cartalith_civ::timeline::YearRecord,
+) -> (Option<Vec<YearInstitutionsDto>>, Option<Vec<YearPlaceOverrideDto>>) {
+    let inst = r.institutions.as_ref().map(|v| {
+        v.iter()
+            .map(|i| YearInstitutionsDto { ag_tech: i.ag_tech.clone(), government: i.government.clone() })
+            .collect()
+    });
+    let over = r.place_overrides.as_ref().map(|m| {
+        m.iter()
+            .map(|(&tid, o)| YearPlaceOverrideDto {
+                tid,
+                walls: o.walls,
+                age: o.age,
+                traits: o.traits.clone(),
+                specialisation: o.specialisation.clone(),
+            })
+            .collect()
+    });
+    (inst, over)
+}
+
+/// The inverse of [`year_record_to_dtos`]. A duplicate `tid` in a hand-edited file keeps the
+/// last row (`BTreeMap::insert`), which is the only deterministic choice available.
+fn year_record_from_dtos(y: &TimelineYearDto) -> cartalith_civ::timeline::YearRecord {
+    cartalith_civ::timeline::YearRecord {
+        institutions: y.institutions.as_ref().map(|v| {
+            v.iter()
+                .map(|i| cartalith_civ::timeline::YearFactionInstitutions {
+                    ag_tech: i.ag_tech.clone(),
+                    government: i.government.clone(),
+                })
+                .collect()
+        }),
+        place_overrides: y.place_overrides.as_ref().map(|v| {
+            v.iter()
+                .map(|o| {
+                    (
+                        o.tid,
+                        cartalith_civ::timeline::YearPlaceOverride {
+                            walls: o.walls,
+                            age: o.age,
+                            traits: o.traits.clone(),
+                            specialisation: o.specialisation.clone(),
+                        },
+                    )
+                })
+                .collect()
+        }),
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -2057,14 +2149,19 @@ fn civ_documents(civ: &CivData, name_stream: Option<u32>, out: &mut BTreeMap<Str
             years: civ
                 .timeline
                 .iter()
-                .map(|snap| TimelineYearDto {
-                    year: snap.year,
-                    settlements: snap
-                        .settlements
-                        .iter()
-                        .map(|s| settlement_to_dto(s, None, None, false))
-                        .collect(),
-                    ways: snap.ways.iter().map(road_to_dto).collect(),
+                .map(|snap| {
+                    let (institutions, place_overrides) = year_record_to_dtos(&snap.record);
+                    TimelineYearDto {
+                        year: snap.year,
+                        settlements: snap
+                            .settlements
+                            .iter()
+                            .map(|s| settlement_to_dto(s, None, None, false))
+                            .collect(),
+                        ways: snap.ways.iter().map(road_to_dto).collect(),
+                        institutions,
+                        place_overrides,
+                    }
                 })
                 .collect(),
             territory_year: civ.territory_year,
@@ -2474,6 +2571,9 @@ fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut V
             y.settlements.iter().map(dto_to_settlement).collect(),
             y.ways.iter().map(dto_to_road).collect(),
         );
+        // §10.1: the institutions record is optional per year; absent members stay None
+        // ("not recorded: read today's"), which is what civ_snapshot_save just left.
+        cartalith_civ::timeline::civ_snapshot_set_record(&mut timeline, y.year, year_record_from_dtos(y));
     }
 
     // Milestone 4's reseed, at the one place in this port where a recorded
@@ -4788,6 +4888,7 @@ mod tests {
                 settlements: Vec::new(),
                 ways: Vec::new(),
                 collapse_flags: Default::default(),
+                record: Default::default(),
             }],
             year: 120,
             dens: vec![0.5f32; 12],
@@ -5751,6 +5852,7 @@ mod tests {
             settlements: vec![ghost],
             ways: Vec::new(),
             collapse_flags: Default::default(),
+            record: Default::default(),
         });
         civ.next_tid = 501;
 
@@ -7083,6 +7185,92 @@ mod tests {
     }
 
     #[test]
+    fn a_timeline_written_before_year_records_loads_unrecorded_and_re_serialises_byte_identically() {
+        // Protects `SAVEFILE_COMPAT.md` §10.1's backward-compatibility promise for the
+        // per-year `institutions` / `place_overrides` members: a `history/timeline.json` in
+        // the prior format (the literal below is exactly what the writer emitted before the
+        // members existed -- two years, a `territory_year`) parses with both members absent,
+        // re-serialises to the SAME BYTES, and a civ written from a timeline with no records
+        // emits neither key. If an absent member were ever written as `[]` / `null` this
+        // fails, and that is the "no value encoded as a plausible value" mistake.
+        let prior = "{\n  \"year\": 412,\n  \"years\": [\n    {\n      \"year\": 0,\n      \"settlements\": [],\n      \"ways\": []\n    },\n    {\n      \"year\": 120,\n      \"settlements\": [],\n      \"ways\": []\n    }\n  ],\n  \"territory_year\": 120\n}";
+        let doc: TimelineDoc = serde_json::from_str(prior).unwrap();
+        assert!(doc.years.iter().all(|y| y.institutions.is_none() && y.place_overrides.is_none()));
+        for y in &doc.years {
+            assert_eq!(year_record_from_dtos(y), cartalith_civ::timeline::YearRecord::default());
+        }
+        assert_eq!(serde_json::to_string_pretty(&doc).unwrap(), prior);
+
+        // And the production writer, over a timeline that has no record, writes neither key.
+        let civ = sample_civ();
+        assert!(civ.timeline.iter().all(|s| s.record == Default::default()));
+        let mut docs = BTreeMap::new();
+        civ_documents(&civ, None, &mut docs);
+        let text = &docs[SLOT_TIMELINE];
+        assert!(!text.contains("institutions") && !text.contains("place_overrides"), "{text}");
+    }
+
+    #[test]
+    fn a_recorded_years_institutions_and_overrides_survive_an_archive_and_stay_distinct_from_none() {
+        // Protects the row this change closes: a year's recorded ag-tech/government and
+        // place overrides come back from a saved archive as written. Three years separate
+        // the three states that must never collapse into one: recorded with content, recorded
+        // as "no overrides" (an EMPTY map -- not None), and not recorded at all (None). Built
+        // through `civ_add_year`, the production recorder, so the record is the real one.
+        let mut civ = sample_civ();
+        civ.timeline.clear();
+        civ.faction_roster.0[1].government = "monarchy".to_string();
+        civ.place_extras.0.clear();
+        civ.place_extras.0.insert(
+            7,
+            civ_roster_bridge::PlaceExtras {
+                walls: Some(true),
+                age: Some(320),
+                traits: vec!["fortified".into()],
+                specialisation: "port".into(),
+                history: "not part of the record".into(),
+                ..Default::default()
+            },
+        );
+        assert!(civ.settlements.iter().any(|s| s.tid == 7), "the fixture must hold tid 7");
+        civ.civ_add_year(100);
+        let rec100 = civ.timeline[0].record.clone();
+        assert!(rec100.place_overrides.as_ref().unwrap().contains_key(&7), "tid 7's edit is recorded");
+        civ.civ_add_year(200); // cursor 200; carries 100's record forward
+        // Today's overrides vanish; recording the active year 200 (by adding 300) captures
+        // "no overrides" for it -- a recorded fact, an EMPTY map, not None.
+        civ.place_extras.0.clear();
+        civ.civ_add_year(300);
+        // A year the collapse run (or any older writer) produced: no record at all.
+        civ_snapshot_save_for_test(&mut civ, 400);
+
+        let back = round_trip(&civ, 4, 3);
+        let at = |y: i64| back.timeline.iter().find(|s| s.year == y).unwrap().record.clone();
+        assert_eq!(at(100), rec100, "year 100 comes back as recorded");
+        assert_eq!(
+            at(100).institutions.as_ref().unwrap()[1].government,
+            "monarchy",
+            "the recorded government, not whatever the roster says now"
+        );
+        assert_eq!(at(400), cartalith_civ::timeline::YearRecord::default(), "unrecorded stays None");
+        let r200 = at(200);
+        assert!(r200.institutions.is_some());
+        assert_eq!(r200.place_overrides, Some(Default::default()), "recorded-none is not unrecorded");
+    }
+
+    /// Records `year` the way an older writer (or the collapse run) did: a plain snapshot of
+    /// the live lists with the default, unrecorded [`cartalith_civ::timeline::YearRecord`].
+    fn civ_snapshot_save_for_test(civ: &mut CivData, year: i64) {
+        cartalith_civ::timeline::civ_snapshot_save(
+            &mut civ.timeline,
+            year,
+            civ.territory.clone(),
+            civ.settlements.clone(),
+            civ.ways.clone(),
+        );
+    }
+
+    #[test]
     fn the_timeline_comes_back_sorted_and_unique() {
         // §10.1. The year cursor walks this list by index, so a file whose
         // years arrived out of order would scrub backwards.
@@ -7099,6 +7287,7 @@ mod tests {
                 settlements: vec![],
                 ways: vec![],
                 collapse_flags: Default::default(),
+                record: Default::default(),
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 100,
@@ -7106,6 +7295,7 @@ mod tests {
                 settlements: vec![],
                 ways: vec![],
                 collapse_flags: Default::default(),
+                record: Default::default(),
             },
             cartalith_civ::timeline::TimelineSnapshot {
                 year: 200,
@@ -7113,6 +7303,7 @@ mod tests {
                 settlements: vec![],
                 ways: vec![],
                 collapse_flags: Default::default(),
+                record: Default::default(),
             },
         ];
         let back = round_trip(&civ, 4, 3);

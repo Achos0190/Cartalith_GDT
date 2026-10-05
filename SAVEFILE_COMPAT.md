@@ -1539,7 +1539,11 @@ warns once per faction on open.
   "years": [
     { "year": 0,   "settlements": [ /* §9.1 settlement objects */ ],
                    "ways":        [ /* §9.3 road objects */ ] },
-    { "year": 120, "settlements": [], "ways": [] }
+    { "year": 120, "settlements": [], "ways": [],
+      "institutions":    [ { "ag_tech": "", "government": "" },
+                           { "ag_tech": "iron_plough", "government": "monarchy" } ],
+      "place_overrides": [ { "tid": 7, "walls": true, "age": 320,
+                             "traits": ["fortified"], "specialisation": "port" } ] }
   ]
 }
 ```
@@ -1552,9 +1556,20 @@ warns once per faction on open.
 | `years[].settlements` | array | MUST | The settlements as they were, using §9.1's object shape exactly. Ids are the same stable ids, which is what makes "the same settlement, renamed" distinguishable from "a different settlement". |
 | `years[].ways` | array | MUST | The roads as they were, using §9.3's `roads[]` shape. |
 | `territory_year` | integer | MAY | Added 2026-09-24 (owner Ruling AT). The recorded year whose snapshot the live claim grid (`rasters/territory.i32`) last came from; the timeline strip's "territory holds at …" names it. Absent when the grid came from no snapshot — a fresh world, a recompute, a cleared map — and in every earlier archive. A reader MUST ignore a value that names no year in `years`. |
+| `years[].institutions` | array of `{ag_tech, government}` | MAY | Added 2026-10-06 (`OUTSTANDING_WORK.md`'s "record each year's institutions" row). Each faction's ag-tech and government keys as they stood when this year was recorded from live state, **indexed by faction id** (index 0 is the "Unclaimed" row, kept so the index is the id). Both keys are the roster's own, stored verbatim. **Absent means "not recorded": a reader MUST treat the year as taking today's roster**, which is how every earlier archive, and every year the collapse/recovery run writes, reads. A writer MUST omit the member rather than write `[]` for "unknown", because `[]` means "recorded, no factions". A reader MUST read a blank key, or a faction id past the end of the array (added after the year), as today's for that key. |
+| `years[].place_overrides` | array | MAY | Added 2026-10-06. The place editor's overrides as they stood when this year was recorded, one row per settlement that had any: `tid` (MUST; the settlement's stable id), and MAY `walls` (boolean; absent = "auto"), `age` (integer; absent = auto-inferred), `traits` (array of strings; absent = none), `specialisation` (string; absent = none). Only these four fields -- the ones the military reading consumes -- are recorded; history, culture, rules preset and variant are not. **Absent member = not recorded (today's overrides); present = recorded**, and then a settlement with no row had no override, so `[]` is a real answer ("none") and a reader MUST NOT fall back to today's for it. A writer MUST omit the member when the year was not recorded from live state. The two members are independent: a year may carry either, both or neither. |
 
 A snapshot is a **frozen copy**, not a reference: editing a settlement today
 must not rewrite history.
+
+**Byte-identity for old files.** A timeline in which no year carries
+`institutions` or `place_overrides` is written exactly as before they existed,
+and an archive written before them reads back with neither -- the reading of a
+past year then uses today's roster and overrides, as it always did. A year
+created by carrying an earlier year forward inherits that year's two members
+(its settlements are that year's), and overwriting a year from live state
+replaces them with the live state's. A malformed value in either member fails
+the whole `timeline.json` parse, as a malformed `settlements` row does.
 
 Writers SHOULD bound the number of recorded years. This port caps it at 2000;
 the cap is a writer policy, not part of the format, and readers MUST accept any

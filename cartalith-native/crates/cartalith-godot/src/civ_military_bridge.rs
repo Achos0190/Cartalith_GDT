@@ -62,7 +62,9 @@ use cartalith_civ::trade::{NavKind, RoadComponents, place_navigability};
 use cartalith_civ::urban_adapter::UrbanWorld;
 use cartalith_civ::campaign::year_in_force;
 use cartalith_civ::garrison::{Garrison, GarrisonInput, GarrisonPlace, civ_garrisons};
-use cartalith_civ::timeline::civ_territory_at;
+use cartalith_civ::timeline::{
+    YearFactionInstitutions, YearPlaceOverride, YearRecord, civ_territory_at,
+};
 use cartalith_civ::{
     FactionAggregates, FactionAggregatesInput, FactionPlace, NamedSettlement, Way, WayType,
 };
@@ -133,16 +135,23 @@ impl WorldGen {
     /// changes the drawn town as well as this card's wall rung.
     fn defences(&self) -> Vec<Defence> {
         match self.civ.as_ref() {
-            Some(civ) => self.defences_of(&civ.settlements),
+            Some(civ) => self.defences_of(&civ.settlements, None),
             None => Vec::new(),
         }
     }
 
     /// [`Self::defences`] over any settlement list -- the live one, or a
     /// recorded year's (MM-8). The place editor's overrides are read by `tid`
-    /// from the live table either way: they are not recorded per year
-    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7).
-    fn defences_of(&self, settlements: &[NamedSettlement]) -> Vec<Defence> {
+    /// through [`PlaceExtrasTable::resolve_for_reading`]: from the live table when
+    /// `overrides` is `None` (the live world, and any year recorded before
+    /// overrides were kept -- `MILITARY_MANPOWER_SCOPE.md` §5.7), from the year's
+    /// own record when it has one. Must never mix the two for one year: a `tid`
+    /// the record omits is a recorded "no override", not a licence to read today's.
+    fn defences_of(
+        &self,
+        settlements: &[NamedSettlement],
+        overrides: Option<&std::collections::BTreeMap<u64, YearPlaceOverride>>,
+    ) -> Vec<Defence> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
             return Vec::new();
@@ -151,7 +160,7 @@ impl WorldGen {
         settlements
             .iter()
             .map(|s| {
-                let e = civ.place_extras.get(s.tid);
+                let e = civ.place_extras.resolve_for_reading(overrides, s.tid);
                 let r = civ_relative_elevation(
                     &ws.field,
                     gw,
@@ -350,8 +359,9 @@ impl WorldGen {
     /// [`Self::manpower_rows`] over any [`CivView`] -- MM-8 reads a recorded
     /// year through this. Settlements, ways and territory come from the view;
     /// `dens` and the water/terrain fields are live, since no year changes
-    /// them; the roster is live because it is not recorded per year
-    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7).
+    /// them; ag-tech and government come from the view's [`YearRecord`] when
+    /// the year has one and from the live roster otherwise
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7, [`resolve_institutions`]).
     fn manpower_rows_of(&self, view: &CivView, agg: &FactionAggregates) -> Vec<ManpowerRow> {
         let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref())
         else {
@@ -452,11 +462,16 @@ impl WorldGen {
                     0.0
                 };
 
+                let (ag_tech, government) = resolve_institutions(
+                    (&entry.ag_tech, &entry.government),
+                    view.institutions(),
+                    f,
+                );
                 ManpowerInput {
                     nucleated_pop: agg.by_faction.get(f).map_or(0.0, |a| a.pop),
-                    farmers_per_urbanite: civ_ag_tech_by_key(&entry.ag_tech).farmers_per_urbanite,
+                    farmers_per_urbanite: civ_ag_tech_by_key(ag_tech).farmers_per_urbanite,
                     land_capacity: land_capacity[f],
-                    government: &entry.government,
+                    government,
                     capital_road_reach,
                     road_density,
                     navigable_share: share(NavKind::navigable),
@@ -505,12 +520,44 @@ struct CivView<'a> {
     settlements: &'a [NamedSettlement],
     ways: &'a [Way],
     territory: &'a [i32],
+    /// The year's recorded institutions/overrides. `None` for the live world, and a
+    /// recorded year then reads today's (see [`YearRecord`]); its members are
+    /// individually optional.
+    record: Option<&'a YearRecord>,
 }
 
 impl<'a> CivView<'a> {
-    fn live(civ: &'a CivData) -> Self {
-        CivView { settlements: &civ.settlements, ways: &civ.ways, territory: &civ.territory }
+    /// The year's recorded place-editor overrides, or `None` when the view is the live
+    /// world or the year recorded none (both read today's table).
+    fn overrides(&self) -> Option<&'a std::collections::BTreeMap<u64, YearPlaceOverride>> {
+        self.record.and_then(|r| r.place_overrides.as_ref())
     }
+
+    /// The year's recorded faction institutions, or `None` (read today's roster).
+    fn institutions(&self) -> Option<&'a [YearFactionInstitutions]> {
+        self.record.and_then(|r| r.institutions.as_deref())
+    }
+
+    fn live(civ: &'a CivData) -> Self {
+        CivView { settlements: &civ.settlements, ways: &civ.ways, territory: &civ.territory, record: None }
+    }
+}
+
+/// One faction's `(ag_tech, government)` keys for a military reading: the year's recorded pair
+/// when `recorded` holds a **non-empty** key for faction `f`, else `live`'s (today's).
+///
+/// Resolved **per key**, so a hand-edited record with a blank `government` falls back to
+/// today's for that one key rather than reading a blank as a government. A faction id at or
+/// past the end of `recorded` was added after the year and reads today's. Must never be
+/// called with a live entry for a different faction than `f`.
+fn resolve_institutions<'a>(
+    live: (&'a str, &'a str),
+    recorded: Option<&'a [YearFactionInstitutions]>,
+    f: usize,
+) -> (&'a str, &'a str) {
+    let Some(r) = recorded.and_then(|v| v.get(f)) else { return live };
+    let pick = |rec: &'a str, today: &'a str| if rec.is_empty() { today } else { rec };
+    (pick(&r.ag_tech, live.0), pick(&r.government, live.1))
 }
 
 /// What a year-cursor reading is taken from (§5.7, Ruling AT's model).
@@ -587,6 +634,61 @@ mod garrison_is_capital_tests {
     }
 }
 
+#[cfg(test)]
+mod year_record_tests {
+    use super::{resolve_institutions, YearFactionInstitutions};
+    use cartalith_civ::manpower::{civ_military_manpower_world, ManpowerInput};
+    use cartalith_civ::roster::civ_ag_tech_by_key;
+
+    fn inst(ag: &str, gov: &str) -> YearFactionInstitutions {
+        YearFactionInstitutions { ag_tech: ag.to_string(), government: gov.to_string() }
+    }
+
+    #[test]
+    fn resolve_institutions_prefers_the_record_per_key_and_falls_back_to_today() {
+        // Protects: not recorded (`None`) reads today's whole; a recorded faction wins over
+        // today's; a blank recorded key falls back for that key only; a faction added after
+        // the record (id past its end) reads today's.
+        let live = ("farm_a", "gov_a");
+        assert_eq!(resolve_institutions(live, None, 1), live);
+        let rec = [inst("", ""), inst("farm_r", "gov_r"), inst("", "gov_only")];
+        assert_eq!(resolve_institutions(live, Some(&rec), 1), ("farm_r", "gov_r"));
+        assert_eq!(resolve_institutions(live, Some(&rec), 2), ("farm_a", "gov_only"));
+        assert_eq!(resolve_institutions(live, Some(&rec), 3), live, "added after the record");
+    }
+
+    #[test]
+    fn a_changed_government_moves_a_past_years_reading_only_when_that_year_did_not_record_it() {
+        // Protects: the owner-visible point of the row. The same world is read twice after
+        // today's government changes from "monarchy" to "empire": a year that recorded
+        // "monarchy" keeps its original standing army, a year that recorded nothing follows
+        // today's "empire" -- and the two differ, so the test cannot pass by both paths
+        // reading the same value.
+        let today = ("hunter_gatherer", "empire");
+        let recorded = [inst("", ""), inst("hunter_gatherer", "monarchy")];
+        let standing = |gov: &str| {
+            let input = ManpowerInput {
+                nucleated_pop: 450_000.0,
+                farmers_per_urbanite: civ_ag_tech_by_key(today.0).farmers_per_urbanite,
+                land_capacity: 1_050_000.0,
+                government: gov,
+                capital_road_reach: 0.9,
+                road_density: 0.7,
+                navigable_share: 0.6,
+                sea_share: 0.5,
+            };
+            civ_military_manpower_world(&[input])[0].standing_army
+        };
+        let (_, gov_recorded) = resolve_institutions(today, Some(&recorded), 1);
+        let (_, gov_unrecorded) = resolve_institutions(today, None, 1);
+        assert_eq!(gov_recorded, "monarchy");
+        assert_eq!(gov_unrecorded, "empire");
+        assert_ne!(standing(gov_recorded), standing(gov_unrecorded), "government must matter");
+        assert_eq!(standing(gov_unrecorded), standing("empire"));
+        assert_eq!(standing(gov_recorded), standing("monarchy"));
+    }
+}
+
 impl WorldGen {
     /// Which reading `year` gets, plus the recorded year's claims when it is
     /// one. `None` without a civilisation layer.
@@ -620,7 +722,12 @@ impl WorldGen {
             (Reading::Live, _) => Some(f(&CivView::live(civ))),
             (Reading::Recorded(_), Some((i, t))) => {
                 let snap = civ.timeline.get(*i)?;
-                Some(f(&CivView { settlements: &snap.settlements, ways: &snap.ways, territory: t }))
+                Some(f(&CivView {
+                    settlements: &snap.settlements,
+                    ways: &snap.ways,
+                    territory: t,
+                    record: Some(&snap.record),
+                }))
             }
             _ => None,
         }
@@ -676,7 +783,7 @@ impl WorldGen {
         let (reading, recorded) = self.reading_at(year)?;
         let rows = self
             .with_view(reading, &recorded, |view| {
-                let defences = self.defences_of(view.settlements);
+                let defences = self.defences_of(view.settlements, view.overrides());
                 let Some(agg) = self.aggregates_of(view, &defences, false) else {
                     return Vec::new();
                 };
@@ -713,7 +820,7 @@ impl WorldGen {
         view: &CivView,
     ) -> Option<(Array<VarDictionary>, Array<VarDictionary>)> {
         let civ = self.civ.as_ref()?;
-        let defences = self.defences_of(view.settlements);
+        let defences = self.defences_of(view.settlements, view.overrides());
         let agg = self.aggregates_of(view, &defences, true)?;
         // No claim grid (a reopened archive that did not carry one): the
         // manpower model's land capacity and road density, and `overall`'s
@@ -740,6 +847,11 @@ impl WorldGen {
                     .and_then(|i| defences.get(i))
                     .map_or_else(String::new, |d| d.name.clone());
                 let entry = &civ.faction_roster.0[f];
+                let (ag_tech, government) = resolve_institutions(
+                    (&entry.ag_tech, &entry.government),
+                    view.institutions(),
+                    f,
+                );
                 let mut row = vdict! {
                     "faction" => f as i64,
                     "name" => entry.name.as_str(),
@@ -760,8 +872,8 @@ impl WorldGen {
                     // this nesting exists to make hard.
                     "manpower" => &manpower_dict(
                         manpower.get(f - 1),
-                        entry.ag_tech.as_str(),
-                        entry.government.as_str(),
+                        ag_tech,
+                        government,
                     ),
                 };
                 if claims_known {
@@ -1005,19 +1117,28 @@ impl WorldGen {
     /// - `year_in_force` -- present for `recorded`/`unreadable`;
     /// - `earliest_year` -- present for `none_in_force`.
     ///
-    /// Settlements, roads and claims are the record's; the roster (ag-tech,
-    /// government) and the place editor's overrides are today's, because the
-    /// timeline does not record them -- the shell labels the reading so.
+    /// Settlements, roads and claims are the record's. Ag-tech, government and the place
+    /// editor's overrides are the year's own **when the year recorded them**
+    /// (`institutions_recorded` / `overrides_recorded`, both bool, always present on a
+    /// `recorded` reading, `SAVEFILE_COMPAT.md` §10.1) and today's otherwise -- the shell
+    /// says "today's" only for a member whose flag is false.
     #[func]
     fn civ_military_summary_at(&self, year: i64) -> VarDictionary {
         let mut out = VarDictionary::new();
-        let (factions, settlements, reading) = match self.reading_at(year) {
+        // (factions, settlements, reading, institutions_recorded, overrides_recorded)
+        let (factions, settlements, reading, inst, ovr) = match self.reading_at(year) {
             Some((reading, recorded)) => {
+                // One view pass: the summary and the two "is this the year's own" flags
+                // must describe the same view, and a recorded year's claim raster is
+                // not cheap to rebuild twice.
                 let built = self
-                    .with_view(reading, &recorded, |v| self.military_summary_of(v))
-                    .flatten()
+                    .with_view(reading, &recorded, |v| {
+                        (self.military_summary_of(v), v.institutions().is_some(), v.overrides().is_some())
+                    })
                     .unwrap_or_default();
-                (built.0, built.1, Some(reading))
+                let (summary, inst, ovr) = built;
+                let (f, s) = summary.unwrap_or_default();
+                (f, s, Some(reading), inst, ovr)
             }
             None => Default::default(),
         };
@@ -1025,6 +1146,8 @@ impl WorldGen {
         out.set("settlements", &settlements);
         if let Some(r) = reading {
             r.stamp(&mut out);
+            out.set("institutions_recorded", inst);
+            out.set("overrides_recorded", ovr);
         }
         out
     }

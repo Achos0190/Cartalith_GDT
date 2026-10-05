@@ -606,7 +606,7 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 20, territory: TerritoryFrame::Key(vec![7; GW * GH]), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default() }];
+        let mut timeline = vec![TimelineSnapshot { year: 20, territory: TerritoryFrame::Key(vec![7; GW * GH]), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default(), record: Default::default() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 30, step_years: 10, ..CollapseSimRequest::default() };
 
         let outcome = run_collapse_simulation(&mut timeline, 0, &settlements, &[], &[0; GW * GH], &world, &req);
@@ -639,7 +639,7 @@ mod tests {
         // painted territory at the simulation's own start year must survive a run
         // that starts from it, even if the live grid has since been edited further).
         let anchor_territory = vec![9i32; GW * GH];
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(anchor_territory.clone()), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(anchor_territory.clone()), settlements: settlements.clone(), ways: Vec::new(), collapse_flags: Default::default(), record: Default::default() }];
         let live_territory = vec![3i32; GW * GH]; // deliberately different from the anchor
         let req = CollapseSimRequest { severity: 0.0, start_year: 0, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
@@ -665,7 +665,7 @@ mod tests {
         let dens = vec![5.0f32; GW * GH];
         let field = vec![0.6f32; GW * GH];
         let world = world_params(&dens, &field);
-        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(vec![0; GW * GH]), settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new(), collapse_flags: Default::default() }];
+        let mut timeline = vec![TimelineSnapshot { year: 0, territory: TerritoryFrame::Key(vec![0; GW * GH]), settlements: vec![settlement(1, 3, 3, SettlementKind::Village, 111, "Stale")], ways: Vec::new(), collapse_flags: Default::default(), record: Default::default() }];
         let req = CollapseSimRequest { severity: 0.0, start_year: 50, duration: 10, step_years: 10, ..CollapseSimRequest::default() };
 
         // active_year=0 must be re-snapshotted from the LIVE settlements (pop 500,
@@ -810,6 +810,7 @@ mod tests {
             settlements,
             ways,
             collapse_flags: std::collections::BTreeMap::new(),
+            record: Default::default(),
         }
     }
 

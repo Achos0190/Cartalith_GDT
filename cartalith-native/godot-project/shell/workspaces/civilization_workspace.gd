@@ -6593,11 +6593,7 @@ func _fill_military(parent: Control) -> void:
 
 	var strength := DccWidgets.section(parent, "Faction strength")
 	var reading := DccWidgets.note(strength, _military_reading_text(data, cursor))
-	reading.tooltip_text = ("Settlements, roads and claims are the recorded year's. "
-		+ "Ag-tech, government and the place editor's overrides are today's: the "
-		+ "timeline does not record them per year (MILITARY_MANPOWER_SCOPE.md §5.7). "
-		+ "Edits made since a year was recorded are not in its reading until you "
-		+ "record it again.")
+	reading.tooltip_text = _military_basis_text(data)
 	reading.mouse_filter = Control.MOUSE_FILTER_PASS
 	if factions.is_empty():
 		var why := "No factions -- generate a world first."
@@ -6688,7 +6684,7 @@ func _fill_military(parent: Control) -> void:
 		"War campaigns over time are drawn on the map in CARTO ▸ Conflict: siege lines, fronts, and the cells that changed hands since each conflict began, following the year cursor. A siege names its besieged place's garrison. The conflict overlay shows each side's manpower.")
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
-		"Unit movement and battles that resolve themselves: Ruling AW did not ask for them, and nothing here moves a force or decides a fight. Ag-tech and government are not recorded per year, so a past year is read with today's.")
+		"Unit movement and battles that resolve themselves: Ruling AW did not ask for them, and nothing here moves a force or decides a fight. A year recorded before ag-tech, government and place overrides were kept with it is read with today's; the line above says which.")
 
 ## MM-8: the reading this panel was filled from, as a key -- the recorded year
 ## in force at `cursor` and the number of records, so adding or removing a year
@@ -6710,6 +6706,31 @@ func _on_military_cursor() -> void:
 		return
 	_clear_body(_military_body)
 	_fill_military(_military_body)
+
+## The reading line's tooltip: what each input of the reading is taken from.
+## Says "today's" for ag-tech/government and for the place editor's overrides
+## only when the year did not record them (`institutions_recorded` /
+## `overrides_recorded` from `civ_military_summary_at`, SAVEFILE_COMPAT §10.1).
+## An absent flag is read as "not recorded" -- an older engine without the keys
+## really does read today's, so the fallback is the true statement.
+static func _military_basis_text(data: Dictionary) -> String:
+	var text := "Settlements, roads and claims are the recorded year's. "
+	if String(data.get("reading", "")) != "recorded":
+		return text + "Edits made since a year was recorded are not in its reading until you record it again."
+	var inst := bool(data.get("institutions_recorded", false))
+	var ovr := bool(data.get("overrides_recorded", false))
+	if inst and ovr:
+		text += "Ag-tech, government and the place editor's overrides are the recorded year's too. "
+	elif inst:
+		text += ("Ag-tech and government are the recorded year's; the place editor's "
+			+ "overrides are today's (this year did not record them). ")
+	elif ovr:
+		text += ("The place editor's overrides are the recorded year's; ag-tech and "
+			+ "government are today's (this year did not record them). ")
+	else:
+		text += ("Ag-tech, government and the place editor's overrides are today's: "
+			+ "this year was recorded before they were kept with it (MILITARY_MANPOWER_SCOPE.md §5.7). ")
+	return text + "Edits made since a year was recorded are not in its reading until you record it again."
 
 ## The one line that says what year the headcounts below are, per
 ## `civ_military_summary_at`'s `reading`.

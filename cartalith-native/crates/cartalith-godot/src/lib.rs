@@ -2882,6 +2882,26 @@ impl CivData {
         true
     }
 
+    /// The institutions and place overrides in force NOW, as a year's record
+    /// (`MILITARY_MANPOWER_SCOPE.md` §5.7): every faction's ag-tech/government and the
+    /// military-relevant place-editor overrides of the live settlements. Both members are
+    /// `Some` -- a recorder that read the live state knows both, even when no override exists
+    /// (`Some(empty)` is a recorded "none", distinct from `None`'s "not recorded").
+    fn live_year_record(&self) -> cartalith_civ::timeline::YearRecord {
+        cartalith_civ::timeline::YearRecord {
+            institutions: Some(self.faction_roster.institutions_record()),
+            place_overrides: Some(self.place_extras.override_record(self.settlements.iter().map(|s| s.tid))),
+        }
+    }
+
+    /// Attaches [`Self::live_year_record`] to the recorded year `year`, which the caller has
+    /// just written from the live settlements. Must never be called for a year whose settlements
+    /// came from anywhere else (the record would describe another list).
+    fn record_live_context(&mut self, year: i64) {
+        let rec = self.live_year_record();
+        cartalith_civ::timeline::civ_snapshot_set_record(&mut self.timeline, year, rec);
+    }
+
     /// `civAddYear` (reference lines 20618-20634): if the timeline is empty,
     /// seeds the requested `year` with the LIVE state and jumps to it
     /// (reference's own v0.62 fix, its comment lines 20619-20622 -- avoids
@@ -2911,6 +2931,7 @@ impl CivData {
                 self.settlements.clone(),
                 self.ways.clone(),
             );
+            self.record_live_context(year);
             return self.civ_goto_year(year);
         }
         cartalith_civ::timeline::civ_snapshot_save(
@@ -2920,6 +2941,7 @@ impl CivData {
             self.settlements.clone(),
             self.ways.clone(),
         );
+        self.record_live_context(self.year);
         // The live grid was just recorded as the cursor's year, so that is now
         // the year it holds.
         self.territory_year = Some(self.year);
@@ -2949,6 +2971,10 @@ impl CivData {
             ),
             None => (Vec::new(), Vec::new(), Vec::new()),
         };
+        // The carried-forward settlements are the earlier year's, so its record travels with
+        // them: today's institutions would describe a list this year does not hold. A year
+        // with no record (or no earlier year at all) carries "not recorded".
+        let carried = prev.map(|p| p.record.clone()).unwrap_or_default();
         cartalith_civ::timeline::civ_snapshot_save(
             &mut self.timeline,
             year,
@@ -2956,6 +2982,7 @@ impl CivData {
             settlements,
             ways,
         );
+        cartalith_civ::timeline::civ_snapshot_set_record(&mut self.timeline, year, carried);
         self.civ_goto_year(year)
     }
 
@@ -3190,6 +3217,43 @@ mod civ_timeline_tests {
             y500.territory,
             cartalith_civ::timeline::TerritoryFrame::Delta { base_year: 0, cells: Vec::new() }
         );
+    }
+
+    #[test]
+    fn recording_a_year_keeps_its_institutions_and_later_edits_do_not_rewrite_them() {
+        // Protects: `civ_add_year` records the roster's ag-tech/government and the place
+        // overrides with the year (`SAVEFILE_COMPAT.md` §10.1); a government changed after
+        // the year was recorded leaves that year's record alone, while the *next* recording
+        // of the same year takes the new value; a year created by carry-forward inherits
+        // the earlier year's record rather than today's.
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![1, 1, 1]);
+        civ.faction_roster.0[1].government = "monarchy".to_string();
+        civ.place_extras.0.insert(1, civ_roster_bridge::PlaceExtras { walls: Some(true), ..Default::default() });
+        civ.civ_add_year(0);
+        let rec0 = civ.timeline[0].record.clone();
+        let inst0 = rec0.institutions.as_ref().expect("recorded from live state");
+        assert_eq!(inst0[1].government, "monarchy");
+        assert_eq!(rec0.place_overrides.as_ref().unwrap()[&1].walls, Some(true));
+
+        // Today's government changes after year 0 was recorded.
+        civ.faction_roster.0[1].government = "empire".to_string();
+        civ.place_extras.0.clear();
+        civ.civ_add_year(100); // re-snapshots the active year 0 from live state, then creates 100
+        // The re-snapshot of the ACTIVE year is the documented way to refresh a record, so
+        // year 0 now reads "empire"...
+        assert_eq!(civ.timeline[0].record.institutions.as_ref().unwrap()[1].government, "empire");
+        // ...and year 100, carried forward, holds the live value that was just recorded for
+        // year 0, not a value read later.
+        assert_eq!(civ.timeline[1].record, civ.timeline[0].record);
+
+        // Now the cursor sits on year 100. Change today's government again and add year 200:
+        // year 0 (not the active year) must keep "empire", untouched by the new edit.
+        civ.faction_roster.0[1].government = "republic".to_string();
+        civ.civ_add_year(200);
+        assert_eq!(civ.timeline[0].record.institutions.as_ref().unwrap()[1].government, "empire");
+        assert_eq!(civ.timeline[1].record.institutions.as_ref().unwrap()[1].government, "republic");
+        assert_eq!(civ.timeline[2].record, civ.timeline[1].record, "200 carries 100's record");
+        assert_eq!(civ.timeline[2].record.place_overrides, Some(Default::default()), "recorded: none");
     }
 
     #[test]

@@ -1264,6 +1264,8 @@ by year. Input by input, from `civ_military_bridge.rs`' `manpower_rows`:
 | place-editor overrides (walls, age, traits, specialisation) | live, by `tid` | **no** |
 | ag-tech and government (`farmers_per_urbanite`, `government`) | **the roster as it stands today** | **no** |
 
+**Update 2026-10-06:** a year may now record its institutions and place overrides (`TimelineSnapshot.record`, `SAVEFILE_COMPAT.md` 10.1); the text below describes a year that has none, which is every older project.
+
 **The institutions are the gap.** The roster is not recorded per year, so a
 year's reading uses today's ag-tech and government. Storing them would put a
 new field on `TimelineSnapshot` and on the project format's `TimelineYearDto`
