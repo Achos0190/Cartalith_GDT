@@ -224,7 +224,10 @@ fn non_monotone_discharge_is_real_not_theoretical() {
 fn the_draw_plan_fires_on_a_real_world_and_leaves_no_bridgeable_pit() {
     let ws = world(20260902);
     let rivers = rivers_of(&ws, 1);
-    let plan = cartalith_hydrology::river_draw_plan(&rivers, &ws.flow_discharge, &ws.field, ws.sea_level, GW, GH);
+    // No downhill data: this test pins the hug and the one-D8-step bridge, the
+    // plan as it was before `RiverDrawPlan::extension`. The extension is
+    // measured by `river_gap_harness.rs`.
+    let plan = cartalith_hydrology::river_draw_plan(&rivers, &ws.flow_discharge, &ws.field, ws.sea_level, GW, GH, &[], &[]);
     let hidden = plan.parallel_of.iter().filter(|p| p.is_some()).count();
     let bridged = plan.bridge.iter().filter(|b| b.is_some()).count();
     println!("draw plan: {} runs, {hidden} hidden as parallel, {bridged} bridged", rivers.len());

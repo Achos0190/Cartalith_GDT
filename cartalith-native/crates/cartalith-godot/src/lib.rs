@@ -10653,9 +10653,14 @@ impl WorldGen {
     ///   heavier run at that index; the map does not draw it. The run is
     ///   still returned, so indices stay `river_at()`'s.
     ///
-    /// `render_points` of a run that ends on a dry-land pit one D8 step from
-    /// another drawn run continue to that run's cell (same plan), so the drawn
-    /// river does not break where the traced one does. `points` never do.
+    /// `render_points` of a run that ends on dry land continue past the traced
+    /// end (same plan, [`cartalith_hydrology::river_draw_plan`]), so the drawn
+    /// river does not break where the traced one does: onto the cell of another
+    /// drawn run one D8 step away (a land pit), or -- where none is that close --
+    /// DOWNHILL along the water's own receiver path (the channel receiver, then
+    /// the steepest-descent tree) to the next river or to the shore. The
+    /// downhill walk draws only a path that arrives, within
+    /// `BRIDGE_WALK_CELLS`, at the run's own width. `points` never do.
     ///
     /// Here, unlike `river_at()`, `render_points` is also simplified first
     /// (`river_render_polyline`: RDP at `RIVER_RDP_EPS_CELLS`, then the spline),
@@ -10715,7 +10720,6 @@ impl WorldGen {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
         let order = ws.stream_order.as_deref()?;
         let rivers = self.rivers_now(min_order);
-        let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh);
         // The water the map DRAWS (`drawn_water_classification`: 0 land, 1
         // ocean, 2 lake), which is what a stroke must stop at the shore of.
         // A traced chain runs straight across a lake's surface to its outflow
@@ -10723,6 +10727,21 @@ impl WorldGen {
         // called from `drawRiverWays`); `river_stroke::stroke_pieces` makes
         // that cut once per crossing, on the shoreline (RV-2).
         let water = self.drawn_water_classification()?;
+        // Where a run's water goes once the channel mask stops: each cell's
+        // channel receiver, else the steepest-descent one over the routing
+        // surface discharge was accumulated along -- `combined_receivers`, the
+        // tree `trace_branch` walks (Ruling BA). One whole-grid pass per call,
+        // and this is cached by `river_geometry`; `get_rivers` pays it as it
+        // pays the rest of the network. A loaded save has no channels and
+        // returned above.
+        let down = {
+            let (gw, gh) = (f.gw, f.gh);
+            let route = cartalith_hydrology::routing_view(f.field, gw, gh, f.sea_level, self.world, ws.integrated_drainage);
+            let d8 = cartalith_hydrology::flow_receivers(&route, gw, gh, self.world);
+            let chan = ws.channels.as_ref().map(|c| c.recv.as_slice()).unwrap_or(&[]);
+            context_pick_bridge::combined_receivers(chan, &d8)
+        };
+        let plan = cartalith_hydrology::river_draw_plan(&rivers, f.flow_discharge, f.field, f.sea_level, f.gw, f.gh, &down, &water);
         let cell_ix = |p: (f64, f64)| -> usize {
             let cx = (p.0.floor().max(0.0) as usize).min(f.gw - 1);
             let cy = (p.1.floor().max(0.0) as usize).min(f.gh - 1);
@@ -10737,21 +10756,28 @@ impl WorldGen {
             .iter()
             .enumerate()
             .filter(|&(i, _)| plan.parallel_of[i].is_none())
-            .filter_map(|(i, r)| plan.bridge[i].or_else(|| r.pts.last().copied()))
+            .filter_map(|(i, r)| plan.bridge[i].or_else(|| plan.extension[i].last().copied()).or_else(|| r.pts.last().copied()))
             .map(cell)
             .collect();
-        // Each run's drawn points: its traced cells plus any bridge target.
+        // Each run's drawn points: its traced cells, then the downhill
+        // continuation `river_draw_plan` carried it through, then any bridge
+        // target.
         let run_pts: Vec<Vec<(f64, f64)>> = rivers
             .iter()
             .enumerate()
             .map(|(i, r)| {
                 let mut pts = r.pts.clone();
+                pts.extend(plan.extension[i].iter().copied());
                 pts.extend(plan.bridge[i]);
                 pts
             })
             .collect();
         // Cell -> (drawn run, point index), first writer in trace order: the
         // `river_draw_plan` rule, so a tributary's end resolves to its trunk.
+        // The extension cells come after every traced cell (the plan never
+        // lets one overlap a drawn cell, and never two runs' extensions), so a
+        // later run can end ON another's extension at the right point of its
+        // `run_pts` -- the index `settle_join_widths` reads the width at.
         let mut drawn_at: std::collections::HashMap<usize, (usize, usize)> = std::collections::HashMap::new();
         for (i, r) in rivers.iter().enumerate() {
             if plan.parallel_of[i].is_some() {
@@ -10759,6 +10785,14 @@ impl WorldGen {
             }
             for (k, &p) in r.pts.iter().enumerate() {
                 drawn_at.entry(cell_ix(p)).or_insert((i, k));
+            }
+        }
+        for (i, r) in rivers.iter().enumerate() {
+            if plan.parallel_of[i].is_some() {
+                continue;
+            }
+            for (k, &p) in plan.extension[i].iter().enumerate() {
+                drawn_at.entry(cell_ix(p)).or_insert((i, r.pts.len() + k));
             }
         }
         // Where each run's stroke ends on ANOTHER drawn run: that run and the
@@ -10805,8 +10839,17 @@ impl WorldGen {
         // counting it, would give a tributary its trunk's colour.
         let traced_orders: Vec<Vec<i16>> = run_pts
             .iter()
-            .map(|pts| {
-                let mut po: Vec<i16> = pts.iter().map(|&(x, y)| order[y as usize * f.gw + x as usize]).collect();
+            .enumerate()
+            .map(|(i, pts)| {
+                // Past the traced cells (the downhill extension, the bridge
+                // target) the cell is not this run's channel -- its own
+                // `order` is 0 or another river's -- so those points keep the
+                // colour the run ended in: its mouth cell's order.
+                let traced = rivers[i].pts.len();
+                let mouth_order = |p: (f64, f64)| order[p.1 as usize * f.gw + p.0 as usize];
+                let tail = mouth_order(rivers[i].pts[traced - 1]);
+                let mut po: Vec<i16> =
+                    pts.iter().enumerate().map(|(k, &p)| if k < traced { mouth_order(p) } else { tail }).collect();
                 let n = po.len();
                 if n >= 2 {
                     po[n - 1] = po[n - 2];
@@ -10848,7 +10891,11 @@ impl WorldGen {
                 // to the shoreline (RV-2).
                 let mut coasted = false;
                 if joins[i].is_none() && plan.bridge[i].is_none() {
-                    if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, recv, f.gw, f.gh) {
+                    // A run carried downhill ends on a cell the channel tree
+                    // does not route (`recv` is -1 there): the combined tree
+                    // names the water cell it drains to.
+                    let ends_by = if plan.extension[i].is_empty() { recv } else { Some(down.as_slice()) };
+                    if let Some(p) = river_stroke::coast_end(pts, &water, f.field, f.sea_level, ends_by, f.gw, f.gh) {
                         rp.push(p);
                         u.push((pts.len() - 1) as f64);
                         coasted = true;

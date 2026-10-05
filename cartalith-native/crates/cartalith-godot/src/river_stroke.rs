@@ -228,7 +228,9 @@ pub fn coast_end(
 ///   what two equal-width bands meeting looked like before
 ///   (`River::half_width_cells`' own history).
 /// - **`k == 0`, a continuation.** The run ends on the *first* point of `j` --
-///   a `river_draw_plan` bridge from a land pit onto the head of the next run.
+///   a `river_draw_plan` bridge -- from a land pit, or from the end of a
+///   downhill `extension` -- that lands on the head of the next run. (An
+///   extension usually lands mid-run, `k > 0`, and is then a confluence.)
 ///   That is one river carrying on, not a tributary: capping would shrink a
 ///   trunk to a headwater's width. Instead `j` is raised to at least the
 ///   incoming run's end width, so the width keeps growing downstream across

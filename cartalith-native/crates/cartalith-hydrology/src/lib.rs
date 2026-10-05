@@ -1227,6 +1227,12 @@ pub fn river_entities(
 ///   links cells across. Never from a coastal mouth (it or a neighbour at or
 ///   below `sea_level`), where the adjacent run is a different river's mouth.
 ///   Never to one of the run's own tributaries, which would draw a loop.
+///   **Where no run is that close the river is continued DOWNHILL** -- see
+///   [`RiverDrawPlan::extension`]: the channel mask is a D-infinity aspect
+///   projection and the flow tree a D8 steepest descent, two different trees,
+///   so a traced run routinely stops 1.5-12 cells short of where the water
+///   goes (measured: 111-150 of 900-1140 drawn runs per world, median undrawn
+///   path 5 cells; `tests/river_gap_harness.rs`).
 /// * **Parallel.** The channel mask is often more than one cell wide, and
 ///   each column traces as its own run beside the others. Runs are visited
 ///   heaviest first -- weight is the largest `flow` over the run's OWN cells,
@@ -1245,9 +1251,45 @@ pub fn river_entities(
 pub struct RiverDrawPlan {
     /// `Some(j)`: this run hugs the heavier run `j` and is not drawn.
     pub parallel_of: Vec<Option<usize>>,
-    /// A cell centre this run's stroke continues to past its traced end.
+    /// A cell centre this run's stroke continues to past its traced end: the
+    /// cell of another drawn run (or of another run's [`Self::extension`]) it
+    /// joins. After any [`Self::extension`] cells, when the run has some.
     pub bridge: Vec<Option<(f64, f64)>>,
+    /// Land cell centres this run's stroke is carried through, in order, after
+    /// its last traced cell and before [`Self::bridge`] (or before the shore,
+    /// where `bridge` is `None` -- the renderer's `coast_end` carries the last
+    /// one to the water). Empty for almost every run.
+    ///
+    /// **Why** (owner, 2026-09-23, "rivers render as disconnected segments"):
+    /// the traced run ended on land with nothing within a D8 step, so the
+    /// plan had nothing to bridge to. The water does not stop there: the cell's
+    /// channel receiver, then the steepest-descent tree over the depression-
+    /// filled routing surface that discharge was accumulated along
+    /// (`next`, the `combined_receivers` tree `trace_branch` already follows --
+    /// Ruling BA, "branch to its mouth"), leads to the next river or to water.
+    /// That path is drawn, at the run's own width (the renderer's width profile
+    /// carries the last own reading past a run's own points; it is never
+    /// widened), and **only along a path that actually arrives**.
+    ///
+    /// **Never** drawn on a guess: a walk that has no receiver, steps across
+    /// the x seam, loops, runs past [`BRIDGE_WALK_CELLS`], or would join a run
+    /// that drains into this one is abandoned whole -- no partial stub, the run
+    /// keeps its traced end (the pre-existing, honest, loose end). Hidden
+    /// parallel runs stay hidden: [`Self::parallel_of`] is decided before and
+    /// untouched, and a walk joins any drawn cell within the same hug reach
+    /// that hides a parallel run, so it never runs alongside a river.
+    pub extension: Vec<Vec<(f64, f64)>>,
 }
+
+/// Most cells [`RiverDrawPlan::extension`] walks downhill from a run's end
+/// before giving up on it. A labelled judgement from the measured undrawn
+/// path lengths (`tests/river_gap_harness.rs`, 2048x1311 at 800 km, three
+/// seeds): 87-94% of loose ends reach the next river or water within 24 cells
+/// (median 5-6) and the rest are >24 or never reached; a longer cap would draw
+/// invented rivers across plains that the channel mask itself did not call a
+/// river. Mutation-tested: `river_gap_bars` and the plan's unit tests fail
+/// when it is 0 or 1.
+pub const BRIDGE_WALK_CELLS: usize = 24;
 
 /// Fewest own cells alongside another run before a run counts as a parallel
 /// duplicate rather than a tributary meeting it (see [`RiverDrawPlan`]).
@@ -1264,9 +1306,32 @@ pub const PARALLEL_MIN_CELLS: usize = 3;
 pub const PARALLEL_GAP_CELLS: f64 = 2.0;
 
 /// See [`RiverDrawPlan`].
-pub fn river_draw_plan(rivers: &[River], flow: &[f32], fld: &[f32], sea_level: f64, w: usize, h: usize) -> RiverDrawPlan {
+///
+/// `next` is the downhill receiver of every cell (`n` entries, `-1` for none,
+/// the repository's receiver convention): the channel receiver where a cell has
+/// one, the steepest-descent one otherwise (`combined_receivers` in
+/// `cartalith-godot`). `water` is the DRAWN water classification (`0` land,
+/// nonzero ocean or lake, `n` entries). Both feed only
+/// [`RiverDrawPlan::extension`]; a slice that is not `n` long (the empty slice,
+/// say) means "no downhill data" and yields no extension -- never a guessed one
+/// -- which is exactly the plan as it was before the extension existed.
+#[allow(clippy::too_many_arguments)]
+pub fn river_draw_plan(
+    rivers: &[River],
+    flow: &[f32],
+    fld: &[f32],
+    sea_level: f64,
+    w: usize,
+    h: usize,
+    next: &[i32],
+    water: &[u8],
+) -> RiverDrawPlan {
     let n = w * h;
-    let mut plan = RiverDrawPlan { parallel_of: vec![None; rivers.len()], bridge: vec![None; rivers.len()] };
+    let mut plan = RiverDrawPlan {
+        parallel_of: vec![None; rivers.len()],
+        bridge: vec![None; rivers.len()],
+        extension: vec![Vec::new(); rivers.len()],
+    };
     if n == 0 || flow.len() < n || fld.len() < n {
         return plan;
     }
@@ -1393,6 +1458,147 @@ pub fn river_draw_plan(rivers: &[River], flow: &[f32], fld: &[f32], sea_level: f
         });
         if let Some((_, q)) = target {
             plan.bridge[i] = Some(((q % w) as f64 + 0.5, (q / w) as f64 + 0.5));
+        }
+    }
+    if next.len() != n || water.len() != n {
+        return plan;
+    }
+
+    // -- The downstream continuation (`RiverDrawPlan::extension`) ------------
+    let centre = |c: usize| ((c % w) as f64 + 0.5, (c / w) as f64 + 0.5);
+    let wet = |c: usize| water[c] != 0 || fld[c] as f64 <= sea_level;
+    let wet_near = |c: usize| wet(c) || neighbours(c).any(wet);
+    // The run each drawn run drains into (its trunk, or the run a bridge or an
+    // extension joined), so a walk never joins a run that already drains into
+    // it -- that would draw a loop, and a two-run loop is the false confluence
+    // this pass must not create.
+    let mut claimed = vec![usize::MAX; n];
+    // Cell -> the drawn run a HIDDEN parallel run's cell hugs (`parallel_of`),
+    // for the cells no drawn run owns. A hidden run is hidden because at least
+    // half of it lies within the hug reach of a heavier river, but its other
+    // cells can wander off; a walk that steps onto one of the near cells has
+    // reached a band the plan hid on purpose, and must join that river there
+    // rather than draw the stretch the plan decided not to draw.
+    let mut hug = vec![usize::MAX; n];
+    for (h_run, r) in rivers.iter().enumerate() {
+        let Some(j) = plan.parallel_of[h_run] else { continue };
+        for &p in &r.pts {
+            let c = cell_of(p);
+            if drawn[c] == usize::MAX && hug[c] == usize::MAX {
+                hug[c] = j;
+            }
+        }
+    }
+    let mut down: Vec<Option<usize>> = (0..rivers.len())
+        .map(|i| {
+            if plan.parallel_of[i].is_some() {
+                return None;
+            }
+            let m = rivers[i].mouth as usize;
+            if drawn[m] != i {
+                Some(drawn[m]).filter(|&j| j != usize::MAX)
+            } else {
+                plan.bridge[i].map(|b| drawn[cell_of(b)]).filter(|&j| j != usize::MAX)
+            }
+        })
+        .collect();
+    let drains_into = |down: &[Option<usize>], mut j: usize, i: usize| -> bool {
+        for _ in 0..=down.len() {
+            if j == i {
+                return true;
+            }
+            match down[j] {
+                Some(k) => j = k,
+                None => return false,
+            }
+        }
+        true // a cycle among the runs: refuse
+    };
+    for &i in &order {
+        if plan.parallel_of[i].is_some() || plan.bridge[i].is_some() {
+            continue;
+        }
+        let m = rivers[i].mouth as usize;
+        // Only a run's own end (not one that joined a trunk), and never a mouth
+        // beside the sea or a lake: `coast_end` carries those to the shore.
+        if drawn[m] != i || wet_near(m) {
+            continue;
+        }
+        let r_max = wid(i) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS;
+        let mut path: Vec<usize> = Vec::new();
+        let mut join: Option<usize> = None;
+        let mut arrived = false;
+        let mut cur = m;
+        for _ in 0..BRIDGE_WALK_CELLS {
+            let Some(nx) = usize::try_from(next[cur]).ok().filter(|&c| c < n) else { break };
+            // x wraps, y does not, and the runs are cut at the seam: a step
+            // that is not to an adjacent cell is the seam, and this run stops.
+            if (nx % w).abs_diff(cur % w) > 1 || (nx / w).abs_diff(cur / w) > 1 {
+                break;
+            }
+            // A loop, or back onto the run's own water: no arrival. (Mutation-
+            // equivalent: the cap and the arrival test alone give the same plan;
+            // the guard names the case and stops a cycle at once.)
+            if nx == m || drawn[nx] == i || path.contains(&nx) {
+                break;
+            }
+            // Join the nearest cell of another drawn run, or of an earlier
+            // run's extension, within the reach that hides a parallel run.
+            let target = window(nx, r_max).into_iter().find(|&(d, q)| {
+                let j = if drawn[q] != usize::MAX { drawn[q] } else { claimed[q] };
+                j != usize::MAX && j != i && d <= reach(i, j) && !drains_into(&down, j, i)
+            });
+            if let Some((_, q)) = target {
+                if q != nx {
+                    path.push(nx);
+                }
+                join = Some(q);
+                arrived = true;
+                break;
+            }
+            // A hidden parallel run's cell that is within the walk's reach of
+            // the heavier run it hugs: join that run at its nearest cell, or
+            // give up if it drains into this one -- never run along the band
+            // (`PARALLEL_MIN_CELLS`). A hidden cell beyond that reach is no
+            // band at all (the hidden run's own far tail, measured on seeds
+            // 483920/24601/71077345) and is walked like any other land cell.
+            if hug[nx] != usize::MAX {
+                let hj = hug[nx];
+                if hj == i || drains_into(&down, hj, i) {
+                    break;
+                }
+                if let Some((_, q)) = window(nx, r_max).into_iter().find(|&(_, q)| drawn[q] == hj) {
+                    path.push(nx);
+                    join = Some(q);
+                    arrived = true;
+                    break;
+                }
+            }
+            // The cell is another run's, one that drains into this run (a
+            // join would be a loop): no arrival.
+            if drawn[nx] != usize::MAX || claimed[nx] != usize::MAX {
+                break;
+            }
+            path.push(nx);
+            if wet_near(nx) {
+                arrived = true;
+                break;
+            }
+            cur = nx;
+        }
+        if !arrived {
+            continue;
+        }
+        for &c in &path {
+            if drawn[c] == usize::MAX && claimed[c] == usize::MAX {
+                claimed[c] = i;
+            }
+        }
+        plan.extension[i] = path.iter().map(|&c| centre(c)).collect();
+        if let Some(q) = join {
+            plan.bridge[i] = Some(centre(q));
+            let j = if drawn[q] != usize::MAX { drawn[q] } else { claimed[q] };
+            down[i] = Some(j).filter(|&j| j != usize::MAX);
         }
     }
     plan
@@ -2377,7 +2583,10 @@ mod tests {
         rivers[6].half_width_cells = Some(2.0);
         // `beside`'s shared mouth (8,5) carries the trunk's 100: its weight
         // comes from its own cells.
-        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h);
+        // No downhill data: this test pins the hug and the one-D8-step bridge,
+        // exactly the plan as it was before `extension` existed.
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert!(plan.extension.iter().all(|e| e.is_empty()), "no `next` slice, no extension");
         let hidden: Vec<usize> = (0..rivers.len()).filter(|&i| plan.parallel_of[i].is_some()).collect();
         assert_eq!(hidden, vec![1, 11], "`beside` and `stub` hide, nothing else");
         assert_eq!((plan.parallel_of[1], plan.parallel_of[11]), (Some(0), Some(0)), "both behind the trunk");
@@ -4164,5 +4373,181 @@ mod tests {
         let a = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
         let b = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, false);
         assert_eq!((a.chan, a.recv), (b.chan, b.recv));
+    }
+
+    /// A land grid `w x h` at height 0.8 whose bottom row is sea (0.1), with
+    /// the flow raster the runs are drawn into, an all-`-1` receiver table and
+    /// the drawn-water classification (1 where the field is at or below the
+    /// 0.42 sea level). The fixture of the extension tests below.
+    fn ext_grid(w: usize, h: usize) -> (Vec<f32>, Vec<f32>, Vec<i32>, Vec<u8>) {
+        let mut fld = vec![0.8f32; w * h];
+        for x in 0..w {
+            fld[(h - 1) * w + x] = 0.1;
+        }
+        let water: Vec<u8> = fld.iter().map(|&f| u8::from(f as f64 <= 0.42)).collect();
+        (fld, vec![0f32; w * h], vec![-1i32; w * h], water)
+    }
+
+    /// Sets `next[c_k] = c_{k+1}` along `cells` (`(x, y)`), the receiver chain
+    /// a hand-built downhill path stands for.
+    fn ext_chain(next: &mut [i32], w: usize, cells: &[(usize, usize)]) {
+        for pair in cells.windows(2) {
+            next[pair[0].1 * w + pair[0].0] = (pair[1].1 * w + pair[1].0) as i32;
+        }
+    }
+
+    /// Protects: the downstream continuation itself (the owner's "rivers render
+    /// as disconnected segments"): a run that ends on land with no run within a
+    /// D8 step is carried down its receiver path, cell by cell, to the first
+    /// cell within the hug reach of another drawn run and then bridged onto
+    /// that run's cell; and the plan WITHOUT downhill data (the pre-extension
+    /// behaviour) leaves the same run loose, so the test fails on the code that
+    /// has the defect. Also pins that the hug decisions do not move.
+    #[test]
+    fn extension_carries_a_loose_end_down_to_the_next_river() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let trunk: Vec<(usize, usize)> = (5..30).map(|x| (x, 10)).collect();
+        let tributary: Vec<(usize, usize)> = (1..5).map(|y| (20, y)).collect();
+        let rivers = vec![run(&trunk, w, &mut flow, 100.0), run(&tributary, w, &mut flow, 10.0)];
+        // The water's own path: straight down from the tributary's mouth (20,4).
+        ext_chain(&mut next, w, &[(20, 4), (20, 5), (20, 6), (20, 7), (20, 8), (20, 9)]);
+        let before = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert_eq!((before.bridge[1], before.extension[1].len()), (None, 0), "pre-extension: the loose end is left on land");
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        // (20,5) and (20,6) are 5 and 4 cells from the trunk; (20,7) is 3 cells
+        // away: exactly the hug reach of two 1-cell strokes (1 + PARALLEL_GAP_CELLS).
+        assert_eq!(plan.extension[1], vec![(20.5, 5.5), (20.5, 6.5), (20.5, 7.5)], "carried down to the reach, no further");
+        assert_eq!(plan.bridge[1], Some((20.5, 10.5)), "then bridged onto the trunk cell straight below");
+        assert!(plan.extension[0].is_empty() && plan.bridge[0].is_none(), "the trunk's own end has no receiver chain: untouched");
+        assert_eq!(plan.parallel_of, before.parallel_of, "the hug decisions are made before, and untouched");
+    }
+
+    /// Protects: a continuation that reaches water ends beside it with NO
+    /// bridge (the renderer's `coast_end` carries it on to the shore), and a
+    /// mouth already beside water is skipped (it is a river mouth, not a gap).
+    #[test]
+    fn extension_that_reaches_water_stops_beside_it_without_a_bridge() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let c: Vec<(usize, usize)> = (12..15).map(|y| (35, y)).collect();
+        let coastal: Vec<(usize, usize)> = (14..18).map(|y| (5, y)).collect();
+        let rivers = vec![run(&c, w, &mut flow, 10.0), run(&coastal, w, &mut flow, 9.0)];
+        // Row 19 is the sea: (35,18) is the last land cell and has water in its 3x3.
+        ext_chain(&mut next, w, &[(35, 14), (35, 15), (35, 16), (35, 17), (35, 18), (35, 19)]);
+        // The second run's mouth (5,17) is one row above the last land row.
+        ext_chain(&mut next, w, &[(5, 17), (5, 18), (5, 19)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert_eq!(plan.extension[0].last(), Some(&(35.5, 18.5)), "ends on the last land cell, beside the sea");
+        assert_eq!(plan.extension[0].len(), 4);
+        assert_eq!(plan.bridge[0], None, "water is not a bridge target");
+        assert_eq!(plan.extension[1], vec![(5.5, 18.5)], "a mouth one row up still has its one land cell to carry");
+        // A mouth that is itself beside the water gets nothing.
+        let touching: Vec<(usize, usize)> = (15..19).map(|y| (10, y)).collect();
+        let rivers = vec![run(&touching, w, &mut flow, 9.0)];
+        ext_chain(&mut next, w, &[(10, 18), (10, 19)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[0].is_empty() && plan.bridge[0].is_none(), "a coastal mouth is left to `coast_end`");
+    }
+
+    /// Protects: "never invent a river where no channel leads" -- every way a
+    /// walk can fail abandons it WHOLE (no stub): no receiver, a step across
+    /// the x seam (the runs are cut there; the helpers do not wrap x), a loop,
+    /// and one cell past [`BRIDGE_WALK_CELLS`]; while a walk that arrives on
+    /// exactly the last allowed step is kept (the cap's boundary, so a
+    /// mutation of the constant in either direction fails).
+    #[test]
+    fn extension_is_abandoned_whole_when_it_cannot_arrive() {
+        let (w, h) = (60usize, 20usize);
+        let target_x = |steps: usize| 3 + steps + 3; // arrives `steps` cells east of the mouth (3,2)
+        for (steps, kept) in [(super::BRIDGE_WALK_CELLS, true), (super::BRIDGE_WALK_CELLS + 1, false)] {
+            let (fld, mut flow, mut next, water) = ext_grid(w, h);
+            let f: Vec<(usize, usize)> = (1..4).map(|x| (x, 2)).collect();
+            let g: Vec<(usize, usize)> = (0..5).map(|y| (target_x(steps), y)).collect();
+            let rivers = vec![run(&f, w, &mut flow, 5.0), run(&g, w, &mut flow, 50.0)];
+            let chain: Vec<(usize, usize)> = (3..=3 + steps).map(|x| (x, 2)).collect();
+            ext_chain(&mut next, w, &chain);
+            let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+            assert_eq!(plan.extension[0].len(), if kept { steps } else { 0 }, "walk of {steps} cells");
+            assert_eq!(plan.bridge[0].is_some(), kept, "walk of {steps} cells");
+        }
+        // No receiver: the chain stops one cell on.
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let a: Vec<(usize, usize)> = (1..4).map(|x| (x, 2)).collect();
+        let b: Vec<(usize, usize)> = (0..5).map(|y| (9, y)).collect();
+        let rivers = vec![run(&a, w, &mut flow, 5.0), run(&b, w, &mut flow, 50.0)];
+        ext_chain(&mut next, w, &[(3, 2), (4, 2)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[0].is_empty() && plan.bridge[0].is_none(), "a dead end draws nothing");
+        // A seam step: the mouth is on column 0, its receiver on the last column.
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let a: Vec<(usize, usize)> = (3..6).map(|y| (0, y)).collect();
+        let b: Vec<(usize, usize)> = (0..5).map(|y| (w - 3, y + 4)).collect();
+        let rivers = vec![run(&a, w, &mut flow, 5.0), run(&b, w, &mut flow, 50.0)];
+        ext_chain(&mut next, w, &[(0, 5), (w - 1, 5), (w - 2, 5)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[0].is_empty() && plan.bridge[0].is_none(), "x wraps and y does not: the seam step is abandoned");
+        // A loop.
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let a: Vec<(usize, usize)> = (1..4).map(|x| (x + 20, 8)).collect();
+        let rivers = vec![run(&a, w, &mut flow, 5.0)];
+        ext_chain(&mut next, w, &[(23, 8), (24, 9), (25, 9), (24, 9)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[0].is_empty() && plan.bridge[0].is_none(), "a receiver loop never arrives");
+    }
+
+    /// Protects: the no-false-confluence guard. `u` drains into `v` (a one-step
+    /// land-pit bridge); `v`'s own downhill path runs back past `u`. Joining
+    /// `u` would draw a loop and a river flowing into one that flows into it,
+    /// so the walk is abandoned. Also pins that a hidden parallel run stays
+    /// hidden and no extension cell is placed on its cells.
+    #[test]
+    fn extension_never_joins_a_run_that_drains_into_it_and_leaves_hidden_runs_hidden() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let u: Vec<(usize, usize)> = (5..10).map(|x| (x, 3)).collect();
+        let v: Vec<(usize, usize)> = (10..16).map(|x| (x, 4)).collect();
+        // `u`'s mouth (9,3) is diagonal to `v`'s head (10,4): the pit bridge.
+        // A trunk with a hidden run 3 rows below it, far from `u` and `v`.
+        let trunk: Vec<(usize, usize)> = (5..16).map(|x| (x, 12)).collect();
+        let beside: Vec<(usize, usize)> = (5..12).map(|x| (x, 15)).collect();
+        let rivers = vec![
+            run(&u, w, &mut flow, 4.0),
+            run(&v, w, &mut flow, 6.0),
+            run(&trunk, w, &mut flow, 100.0),
+            run(&beside, w, &mut flow, 40.0),
+        ];
+        ext_chain(&mut next, w, &[(15, 4), (14, 3), (13, 3), (12, 3), (11, 3), (10, 3), (9, 3)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert_eq!(plan.bridge[0], Some((10.5, 4.5)), "`u` drains into `v` by the pit bridge");
+        assert!(plan.extension[1].is_empty() && plan.bridge[1].is_none(), "`v` must not be carried back onto `u`");
+        assert_eq!(plan.parallel_of[3], Some(2), "the run beside the trunk stays hidden");
+        let none = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert_eq!(plan.parallel_of, none.parallel_of, "extension never changes what is hidden");
+    }
+
+    /// Protects: later walks join an earlier run's extension instead of drawing
+    /// the same water twice. The heavier run's walk claims its cells; the
+    /// lighter run, whose path is within reach of those, bridges onto one of
+    /// THEM, and the claimed cell is on the heavier run's extension.
+    #[test]
+    fn a_later_walk_joins_an_earlier_extension_instead_of_doubling_it() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let trunk: Vec<(usize, usize)> = (5..30).map(|x| (x, 14)).collect();
+        let heavy: Vec<(usize, usize)> = (1..3).map(|y| (20, y)).collect();
+        let light: Vec<(usize, usize)> = (1..3).map(|y| (26, y)).collect();
+        let rivers = vec![
+            run(&trunk, w, &mut flow, 100.0),
+            run(&heavy, w, &mut flow, 20.0),
+            run(&light, w, &mut flow, 10.0),
+        ];
+        ext_chain(&mut next, w, &[(20, 2), (20, 3), (20, 4), (20, 5), (20, 6), (20, 7), (20, 8), (20, 9), (20, 10), (20, 11)]);
+        ext_chain(&mut next, w, &[(26, 2), (25, 3), (24, 4), (23, 5), (22, 6), (21, 7), (20, 8)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(plan.extension[1].contains(&(20.5, 3.5)), "the heavier run claims its water first");
+        let b = plan.bridge[2].expect("the lighter run arrives");
+        assert!(plan.extension[1].contains(&b) || b.1 > 13.0, "and the lighter run's join is on that extension, not a second line down to the trunk: {b:?}");
+        assert!(plan.extension[2].len() < 7, "it stopped at the first claimed cell within reach");
     }
 }
