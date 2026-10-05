@@ -3238,6 +3238,90 @@ fn claim_grid_known(territory: &[i32], gw: usize, gh: usize) -> bool {
     gw > 0 && gh > 0 && territory.len() == gw * gh
 }
 
+/// `sample_cell`'s `controlling_faction` / `controlling_faction_name` pair for
+/// one cell, or `None` -- which `sample_cell` turns into two OMITTED keys.
+///
+/// `control` is `sample_bridge::CellSample::control`, i.e. the stored claim grid
+/// (`CivData::territory`) read at the cell: `None` without a civilisation layer
+/// or with a claim grid that is not a whole grid, `Some(0)` for unclaimed
+/// ground, `Some(id)` (ids `1..`) for a claimed cell. The claim grid is the
+/// ONLY ownership source -- this never recomputes territory (no second
+/// ownership computation, and none per call), it only decides whether the
+/// stored answer is a faction worth naming.
+///
+/// `None` (key omitted, never `0` or `""`: `0` is the grid's own "unowned"
+/// sentinel and a blank name would read as a real faction called nothing) when:
+/// * there is no claim grid, or the cell is unclaimed (`control` is not `> 0`);
+/// * the cell is drawn as ocean (`live_water == Some(1)`, `sample_water_word`'s
+///   encoding) -- a claim grid can hold a stale owner over cells a later sculpt
+///   or a forced sea turned to ocean, and a context card must not offer "Open
+///   <faction> in roster" over open water. A lake is NOT excluded: lakes are
+///   inside a faction's territory;
+/// * the roster has no entry for the id (an owner id past the roster's end,
+///   which `civ_remove_faction` prevents but this must not trust) -- a row
+///   that opens the roster on a faction the roster does not contain would land
+///   nowhere. Omitted, not named `"Faction N"`.
+///
+/// Introduced for `OUTSTANDING_WORK.md` "CM-2 follow-ups" (the CIVIL territory
+/// row's per-cell faction read): the context card's `Open <faction> in
+/// roster...` / `Claim for <faction>` rows gate on the key being present.
+fn controlling_faction(
+    control: Option<i64>,
+    live_water: Option<u8>,
+    roster: Option<&civ_roster_bridge::FactionRoster>,
+) -> Option<(i64, String)> {
+    let id = control.filter(|&c| c > 0)?;
+    if live_water == Some(1) {
+        return None;
+    }
+    let entry = roster?.0.get(id as usize)?;
+    Some((id, entry.name.clone()))
+}
+
+#[cfg(test)]
+mod controlling_faction_tests {
+    use super::{civ_roster_bridge::FactionRoster, controlling_faction};
+
+    /// Protects: `sample_cell`'s `controlling_faction` pair staying OMITTED
+    /// (`None`) over unclaimed land, ocean, a missing claim grid and an owner
+    /// the roster does not hold, and present -- with the roster's own name, not
+    /// a defaulted one -- over a claimed land or lake cell. Hand-built: a
+    /// `seeded(3)` roster (index 0 = "Unclaimed" plus factions 1..=3, so ids
+    /// 0..=3 exist and 4 does not) with factions 1 and 2 renamed, so a name
+    /// read from the wrong index, or from the id's digits, fails. Encoding under test is `CivData::territory`'s: `0` unowned.
+    #[test]
+    fn controlling_faction_is_omitted_unless_a_claimed_non_ocean_cell() {
+        let mut roster = FactionRoster::seeded(3);
+        assert!(roster.set_field(1, "name", "The Concord"));
+        assert!(roster.set_field(2, "name", "Veldmark"));
+        let r = Some(&roster);
+        const LAND: Option<u8> = Some(0);
+        const OCEAN: Option<u8> = Some(1);
+        const LAKE: Option<u8> = Some(2);
+
+        // Claimed land: the id and the roster's name for THAT id.
+        assert_eq!(controlling_faction(Some(2), LAND, r), Some((2, "Veldmark".to_string())));
+        assert_eq!(controlling_faction(Some(1), LAND, r), Some((1, "The Concord".to_string())));
+        // A claimed lake cell stays inside the faction's territory.
+        assert_eq!(controlling_faction(Some(1), LAKE, r), Some((1, "The Concord".to_string())));
+        // No live water classification (a path with none): the claim alone decides.
+        assert_eq!(controlling_faction(Some(2), None, r), Some((2, "Veldmark".to_string())));
+
+        // Unclaimed land: 0 is "unowned", never a faction.
+        assert_eq!(controlling_faction(Some(0), LAND, r), None);
+        // Ocean, even over a stale owner id in the claim grid.
+        assert_eq!(controlling_faction(Some(1), OCEAN, r), None);
+        assert_eq!(controlling_faction(Some(0), OCEAN, r), None);
+        // No claim grid at all (no civ layer / a grid that is not whole).
+        assert_eq!(controlling_faction(None, LAND, r), None);
+        // An owner id past the roster's end, and a missing roster.
+        assert_eq!(controlling_faction(Some(4), LAND, r), None);
+        assert_eq!(controlling_faction(Some(1), LAND, None), None);
+        // A negative id is not a faction either.
+        assert_eq!(controlling_faction(Some(-1), LAND, r), None);
+    }
+}
+
 #[cfg(test)]
 mod claim_grid_tests {
     use super::{claim_grid_known, faction_claimed_cells};
@@ -18089,6 +18173,13 @@ impl WorldGen {
     ///   the civ copy before, which could lag the map after a sculpt or a
     ///   forced lake where `water` did not (`OUTSTANDING_WORK.md` "Map-data
     ///   residuals", item 2, left by `fd54736`).
+    /// * `controlling_faction` (int id, `1..`) + `controlling_faction_name`
+    ///   (the roster's own name for it) -- the faction owning the cell, from
+    ///   the stored claim grid `control` reads. Omitted over unclaimed land,
+    ///   over ocean, without a civilisation layer and for an owner id the
+    ///   roster does not hold (`controlling_faction`'s own doc). The context
+    ///   card's CIVIL "Open <faction> in roster" / "Claim for <faction>" rows
+    ///   gate on it (`OUTSTANDING_WORK.md` "CM-2 follow-ups").
     #[func]
     fn sample_cell(&self, gx: i32, gy: i32) -> VarDictionary {
         let Some(f) = self.sample_refs() else { return VarDictionary::new() };
@@ -18174,6 +18265,18 @@ impl WorldGen {
         }
         if let Some(c) = s.control {
             d.set("control", c);
+        }
+        // `controlling_faction` (id) + `controlling_faction_name`: the faction
+        // that owns this cell, read from the SAME stored claim grid `control`
+        // above reads (`s.control` = `CivData::territory` at the cell) -- no
+        // second ownership computation and no per-call territory recompute.
+        // Omitted (never 0 / "") over unclaimed land, ocean and without a civ
+        // layer, so a caller gates a faction row on `has()`; the rules live in
+        // `controlling_faction`, which is unit-tested without a `Gd<WorldGen>`.
+        // `live_water` is the drawn classification `water` above already reads.
+        if let Some((id, name)) = controlling_faction(s.control, live_water, self.civ.as_ref().map(|c| &c.faction_roster)) {
+            d.set("controlling_faction", id);
+            d.set("controlling_faction_name", name);
         }
         // GF-1 (`GEOLOGY_FIRST_SCOPE.md` §9 Q3). With a column: `rock`,
         // `rock_strength`, `rock_soluble` (bool), `rock_permeability`,

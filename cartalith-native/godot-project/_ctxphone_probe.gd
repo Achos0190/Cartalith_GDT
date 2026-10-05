@@ -44,6 +44,12 @@ extends Node
 ##   STL   a settlement tap (a short press, not a hold) opens the phone's
 ##        right sheet (`right_dock.gd::_show_on_phone()`), the same way a
 ##        landmark or icon tap already did (`19d3ba8`)
+##   FR    CM-2 follow-ups, the CIVIL per-cell faction rows (`sample_cell`'s
+##         `controlling_faction`): "Open <faction> in roster…" / "Claim for
+##         <faction>" appear on a long-press of a CLAIMED land cell and not on
+##         ocean or unclaimed land (the latter on a regenerated island world);
+##         the Open chip lands the roster on that
+##         faction (see `_leg_faction`)
 ##   PP    CM-2 follow-ups item (2) (`OUTSTANDING_WORK.md`): the phone peek
 ##        sheet pauses timeline playback while open and resumes it on close,
 ##        read off the live `CivilizationWorkspace` `Timer.paused` state --
@@ -51,6 +57,15 @@ extends Node
 ##        `_ctxring_probe.gd`'s own leg T for the desktop ring/card
 
 const SEED := 552017
+
+## FR's second world: SEED's claims every land cell (scratch scan of its whole
+## grid), so the "unclaimed land has no faction rows" side regenerates with a
+## seed that leaves land unreachable by `road_dijkstra` unowned
+## (`cartalith_civ::assign_territory`). Measured at 256x192, sea level 0.42:
+## seed 2 leaves 206 of 12288 sampled cells unclaimed land. A labelled
+## judgement; `_leg_faction` asserts the fixture exists so a generator change
+## fails loudly.
+const ISLAND_SEED := 2
 
 var app: Node
 var _vp: SubViewport
@@ -566,6 +581,199 @@ func _run() -> void:
 	app.select_domain("world")
 	app.arm_tool("inspect")
 	await _frames(2)
+
+	await _leg_faction(ov)
+
+
+## FR: the per-cell faction rows on the phone (`sample_cell`'s
+## `controlling_faction`, `OUTSTANDING_WORK.md` "CM-2 follow-ups"). A long-press
+## on a CLAIMED land cell puts "Open <faction> in roster…" and "Claim for
+## <faction>" into the half-detent row list (and, being OBJECT-section rows,
+## ahead of the PLACE rows in the four-chip peek strip), a long-press on OCEAN or
+## on UNCLAIMED land puts neither, and the Open chip lands the roster window on
+## that faction -- parked on a different one first, so it cannot pass by the
+## window merely still sitting there.
+##
+## Protects: the faction rows staying gated on the key on the PHONE form, where
+## `phone_menu.gd` rebuilds the chips and rows from the broker's own merge and
+## so would silently drop a row shape it did not know; and `open_faction_roster`
+## reaching a phone-presented roster window (`faction_roster_window.gd`'s
+## `phone_present` branch, which skips `popup_centered`).
+func _leg_faction(ov: Control) -> void:
+	app.select_domain("civilization")
+	await _frames(4)
+	var claimed := _find_cell(ov, "land", true)
+	var ocean := _find_cell(ov, "ocean", false)
+	_ok("FR fixture: a claimed land cell exists", not claimed.is_empty(), true)
+	_ok("FR fixture: an ocean cell exists", not ocean.is_empty(), true)
+	if claimed.is_empty():
+		return
+	var cell: Dictionary = claimed["cell"]
+	var fid := int(cell["controlling_faction"])
+	var fname := String(cell["controlling_faction_name"])
+	var open_label := "Open %s in roster…" % fname
+	var claim_label := "Claim for %s" % fname
+	var cpos: Vector2 = claimed["pos"]
+
+	# Half-detent full list over the claimed cell.
+	await _hold_wait(ov, cpos, 0.85)
+	_touch_release(ov, cpos)
+	await _frames(6)
+	_ok("FR claimed: the long-press opened the sheet", _menu().peek_card_is_open(), true)
+	var chips: PackedStringArray = _menu().peek_chip_labels()
+	print("FR claimed chips=%s" % [chips])
+	_shot("fr_peek_claimed")
+	await _grab_drag(_menu(), -900.0)
+	var rows: PackedStringArray = _menu().peek_full_row_labels()
+	print("FR claimed rows=%s" % [rows])
+	_shot("fr_half_claimed")
+	_ok("FR claimed: the full list carries 'Open <faction> in roster…'", rows.has(open_label), true)
+	_ok("FR claimed: the full list carries 'Claim for <faction>'", rows.has(claim_label), true)
+	_menu().go_back()
+	await _frames(6)
+	ov.clear_sample_pin()
+
+	# The Open chip lands the roster on that faction.
+	var other := 2 if fid != 2 else 1
+	app.faction_roster_window.open(other)
+	await _frames(3)
+	app.faction_roster_window.hide()
+	await _frames(2)
+	_ok("FR precondition: the roster window is parked on another faction",
+		int(app.faction_roster_window.get("_selected")), other)
+	await _hold_wait(ov, cpos, 0.85)
+	_touch_release(ov, cpos)
+	await _frames(6)
+	var open_btn: Button = null
+	for c in (_menu().get("_peek_chip_row") as HBoxContainer).get_children():
+		if c is Button and String((c as Button).text) == open_label:
+			open_btn = c
+			break
+	_ok("FR claimed: the Open row is one of the peek chips (an OBJECT row, first four)", open_btn != null, true)
+	if open_btn != null:
+		open_btn.pressed.emit()
+		await _frames(8)
+		_ok("FR the Open chip closed the sheet", _menu().peek_card_is_open(), false)
+		_ok("FR the roster window landed on THAT faction",
+			int(app.faction_roster_window.get("_selected")), fid)
+		_ok("FR ... showing its inspector, not the master list (phone: the pick IS the navigation)",
+			(app.faction_roster_window.get("_phone_list_pane") as Control).visible, false)
+		_shot("fr_roster")
+		app.faction_roster_window.hide()
+		await _frames(2)
+	else:
+		_menu().go_back()
+		await _frames(4)
+	ov.clear_sample_pin()
+	await _frames(2)
+
+	# The absent cases: the half list over ocean, then over unclaimed land.
+	await _leg_faction_absent(ov, "ocean", ocean)
+
+	# Unclaimed land needs a world that has some (SEED's claims every land
+	# cell); FR runs last in this probe, so replacing the world is safe. The
+	# control is a claimed cell of the new world still showing the rows.
+	app.select_domain("civilization")
+	await _regen_island_world()
+	var u_ov: Control = app.viewport.overlay
+	var u_unclaimed := _find_cell(u_ov, "land", false, 8.0, 4.0)
+	var u_claimed := _find_cell(u_ov, "land", true)
+	_ok("FR fixture: the island world has an unclaimed land cell", not u_unclaimed.is_empty(), true)
+	_ok("FR fixture: ... and a claimed one beside it (the control)", not u_claimed.is_empty(), true)
+	if not u_claimed.is_empty():
+		var cp: Vector2 = u_claimed["pos"]
+		await _hold_wait(u_ov, cp, 0.85)
+		_touch_release(u_ov, cp)
+		await _frames(6)
+		var cc: PackedStringArray = _menu().peek_chip_labels()
+		_ok("FR island control: a claimed cell of the new world shows the faction rows",
+			_labels_have_faction_row(cc), true)
+		_menu().go_back()
+		await _frames(6)
+		u_ov.clear_sample_pin()
+		await _frames(2)
+	await _leg_faction_absent(u_ov, "unclaimed land", u_unclaimed)
+	app.select_domain("world")
+	await _frames(2)
+
+
+## FR helper: a long-press at `d["pos"]` (a `_find_cell` result, skipped when
+## empty) must open a sheet whose chips and half-detent list carry neither
+## faction row, while still listing other rows (the control that the sheet is
+## real and the absence is the gate's doing, not an empty list).
+func _leg_faction_absent(ov: Control, what: String, d: Dictionary) -> void:
+	if d.is_empty():
+		return
+	var p: Vector2 = d["pos"]
+	await _hold_wait(ov, p, 0.85)
+	_touch_release(ov, p)
+	await _frames(6)
+	_ok("FR %s: the long-press opened the sheet (the control: a sheet exists)" % what,
+		_menu().peek_card_is_open(), true)
+	var pc: PackedStringArray = _menu().peek_chip_labels()
+	await _grab_drag(_menu(), -900.0)
+	var pr: PackedStringArray = _menu().peek_full_row_labels()
+	print("FR %s chips=%s rows=%s" % [what, pc, pr])
+	_shot("fr_half_%s" % what.replace(" ", "_"))
+	_ok("FR %s: neither faction row, in chips or list" % what,
+		_labels_have_faction_row(pc) or _labels_have_faction_row(pr), false)
+	_ok("FR %s: the list is not empty (the control: other rows are there)" % what, pr.size() > 0, true)
+	_menu().go_back()
+	await _frames(6)
+	ov.clear_sample_pin()
+	await _frames(2)
+
+
+## Whether any label is "Open <faction> in roster…" or "Claim for <faction>".
+func _labels_have_faction_row(labels: PackedStringArray) -> bool:
+	for l in labels:
+		var s := String(l)
+		if (s.begins_with("Open ") and s.contains(" in roster")) or s.begins_with("Claim for "):
+			return true
+	return false
+
+
+## Replaces the loaded world with `ISLAND_SEED`'s (256x192, the same aspect as
+## SEED's 512x384, so the overlay's displayed rect keeps its shape) and waits
+## for the generate to land.
+func _regen_island_world() -> void:
+	var bridge = app.bridge
+	bridge.generate({
+		"seed": ISLAND_SEED, "width_km": 1200.0, "grid_w": 256, "grid_h": 192,
+		"archetype": "", "villages": true, "sea_level": 0.42,
+	})
+	while bridge.generating:
+		await get_tree().create_timer(0.25).timeout
+	await get_tree().create_timer(0.8).timeout
+	if app.open_project_dialog != null:
+		app.open_project_dialog.hide()
+	await _frames(6)
+
+
+## FR: a screen position over a cell with water word `water` whose
+## `sample_cell` does (`claimed`) or does not carry `controlling_faction`, as
+## `{pos, cell}`, or `{}`. 9 px lattice over the map interior, skipping any
+## spot the overlay treats as an object hit so the sheet is the bare-ground one.
+## `inset` (default 60 px) and `step` (default 9 px) bound the lattice; the
+## island sub-leg tightens both because its unclaimed land is a small island.
+func _find_cell(ov: Control, water: String, claimed: bool, inset: float = 60.0, step: float = 9.0) -> Dictionary:
+	var rect: Rect2 = ov._displayed_rect()
+	var inter: Rect2 = ov._interior_rect(rect)
+	var core := inter.grow(-inset)
+	var y := core.position.y
+	while y < core.end.y:
+		var x := core.position.x
+		while x < core.end.x:
+			var c := Vector2(x, y)
+			x += step
+			if ov._hit_test_settlement(c, inter, rect) != -1 or not ov.hits_at(c).is_empty():
+				continue
+			var g: Dictionary = ov._grid_point(c, rect, inter)
+			var cell: Dictionary = app.bridge.sample_cell(int(g["gx"]), int(g["gy"]))
+			if String(cell.get("water", "")) == water and cell.has("controlling_faction") == claimed:
+				return {"pos": c, "cell": cell}
+		y += step
+	return {}
 
 
 func _ready() -> void:

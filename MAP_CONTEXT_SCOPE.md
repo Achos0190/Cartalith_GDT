@@ -223,7 +223,7 @@ new engine work · **—** = excluded, reason in the row.
 | Settlement | Object | Open city layout… | B (`app.open_city_viewer`) |
 | Settlement | Object | Journey from here / Journey to here | S over `jp_default_plan` / `jp_compute` + `app.open_journey_planner` |
 | Settlement | Info | Open vault note / Attach vault note… | B (`vault_links_for("settlement", id)`, `app.open_vault`) |
-| Territory under cell | Object | Open faction in roster · **Claim for this faction** (arms Territory with that faction: the eyedropper) | S over `app.open_faction_roster`; **E-small** for a per-cell faction read. `sample_cell` does not return the controlling faction, and `civ_territory_influence()` needs checking |
+| Territory under cell | Object | Open faction in roster · **Claim for this faction** (arms Territory with that faction: the eyedropper) | S over `app.open_faction_roster`; **E-small** for a per-cell faction read. **Built 2026-10-05:** `sample_cell` now returns `controlling_faction` and `controlling_faction_name` (omitted over unclaimed land and ocean), read from the stored claim grid; the rows are built only when the right-click hits no object |
 | Territory draft | Draft | Commit territory · Discard | B (`civ_territory_commit`, `civ_territory_discard`) |
 | Route under cursor | Object | Open in Journey Planner · Rename · **Delete** | B (`jp_plan_for_route`, `route_set_name`, `route_delete`) + **P** (polyline pick over `route_get(i).points`) |
 | Way under cursor | Object | Inspect way · **Delete** | **P** + **E**. Only `way_begin/append/commit/discard` are bound, and there is no way list or delete |

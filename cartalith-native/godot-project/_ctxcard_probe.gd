@@ -22,7 +22,17 @@ extends Node
 ##      >= 8 px (even one that comes back to where it started)
 ##   A  CIVIL, settlement: CX-01's five rows, same text, order, enabled state
 ##      and sections as before CM-2 (the `ROW` lines are the comparison)
-##   B  CIVIL, empty cell: Drop settlement here · Info here
+##   B  CIVIL, empty (claimed) land cell: the two faction rows of leg F, then
+##      Drop settlement here · Info here
+##   F  CIVIL, the per-cell faction rows (`sample_cell`'s `controlling_faction`,
+##      OUTSTANDING_WORK.md "CM-2 follow-ups"): on a CLAIMED land cell the card
+##      carries "Open <faction> in roster…" and "Claim for <faction>" (named by
+##      the roster's own entry); on OCEAN it carries neither; Open runs
+##      `open_faction_roster(id)` and lands the roster window on THAT faction
+##      (the window was parked on a different one first); Claim arms the
+##      Territory tool with that faction picked
+##   FU the same rows on UNCLAIMED land, run last on a regenerated world
+##      (`ISLAND_SEED`) because SEED's own world has no unclaimed land
 ##   C  CIVIL, PH-02 touch hold: A's rows, and the withheld press placed nothing
 ##   X  each of the five CIVIL rows, clicked, does what CX-01's did
 ##   S  Select ▸ over a settlement + label + icon lists all three; picking the
@@ -40,6 +50,18 @@ extends Node
 ##      palettes, with a ground-only crop as the control that must read ~1:1
 
 const SEED := 483920
+
+## Leg FU's world. SEED's own world claims every land cell (a scratch scan of
+## its whole grid found none unclaimed), so the "unclaimed land carries no
+## faction rows" side needs a world where the claim grid leaves land out --
+## land `road_dijkstra` never reaches stays unowned
+## (`cartalith_civ::assign_territory`). Measured by scanning seeds at 256x192
+## (sea level 0.42, villages on): seed 2 leaves 206 of 12288 sampled cells
+## unclaimed land, seed 42 leaves 108. Seed 2 is a labelled judgement, not a
+## recommendation -- any seed with unclaimed land would do; `_run()` asserts
+## the world still has some, so a generator change fails loudly instead of
+## silently skipping the leg.
+const ISLAND_SEED := 2
 
 var app: Node
 var _vp: SubViewport
@@ -209,6 +231,53 @@ func _empty_pos(ov: Control, free: bool = false) -> Vector2:
 	return Vector2.ZERO
 
 
+## Leg F / B: a screen position over a cell with water word `water` ("land" /
+## "ocean") whose `sample_cell` does (`claimed`) or does not carry
+## `controlling_faction`, as `{pos, cell}` -- or `{}` when none exists. Scans
+## the map interior on a 9 px lattice and skips every spot the overlay would
+## treat as an object hit (a settlement, a label, an icon), so the card the
+## right-click opens is the bare-ground one. The cell is read through the same
+## `_grid_point` -> `sample_cell` path the broker uses. `inset` (default 60 px)
+## and `step` (default 9 px) bound the lattice; FU uses a tighter pair because
+## its unclaimed land is a small island.
+func _find_cell(ov: Control, water: String, claimed: bool, inset: float = 60.0, step: float = 9.0) -> Dictionary:
+	var rect: Rect2 = ov._displayed_rect()
+	var inter: Rect2 = ov._interior_rect(rect)
+	var core := inter.grow(-inset)
+	var y := core.position.y
+	while y < core.end.y:
+		var x := core.position.x
+		while x < core.end.x:
+			var c := Vector2(x, y)
+			x += step
+			if ov._hit_test_settlement(c, inter, rect) != -1 or not ov.hits_at(c).is_empty():
+				continue
+			var g: Dictionary = ov._grid_point(c, rect, inter)
+			var cell: Dictionary = app.bridge.sample_cell(int(g["gx"]), int(g["gy"]))
+			if String(cell.get("water", "")) == water and cell.has("controlling_faction") == claimed:
+				return {"pos": c, "cell": cell}
+		y += step
+	return {}
+
+
+## Whether any of `_civ_rows()`'s entries is one of the two faction rows.
+func _has_faction_rows(rows: Array) -> bool:
+	for t in rows:
+		var s := String(t)
+		if (s.begins_with("Open ") and s.contains(" in roster")) or s.begins_with("Claim for "):
+			return true
+	return false
+
+
+## Diagnostic only, gated on `CTXPHONE_SHOT_DIR` (the phone probe's own env
+## var, so one directory serves both): saves the live viewport as a PNG.
+func _shot(tag: String) -> void:
+	var dir := OS.get_environment("CTXPHONE_SHOT_DIR")
+	if dir == "":
+		return
+	_vp.get_texture().get_image().save_png(dir.path_join("ctxcard_%s.png" % tag))
+
+
 ## The five CIVIL rows as the card drew them: `text` and which band they sit
 ## under, and whether they are enabled (drawn as `action`).
 func _civ_rows() -> Array:
@@ -325,16 +394,100 @@ func _run() -> void:
 	await _close()
 
 	# -- B ------------------------------------------------------------------------
+	## A bare land cell. Every land cell of this probe's world is CLAIMED
+	## (measured with a scratch scan: `sample_cell` over SEED's whole 512x384
+	## grid finds no unclaimed land -- the claim grid reaches everything the
+	## road graph does), so B's list now leads with leg F's two faction rows,
+	## named by `sample_cell`'s `controlling_faction_name` read through the same
+	## `_grid_point` path the broker uses. The unclaimed side has its own leg,
+	## FU, on a world that does leave land unclaimed.
 	var epos := _empty_pos(ov)
 	_ok("B an empty land cell exists", epos != Vector2.ZERO, true)
+	var b_rect: Rect2 = ov._displayed_rect()  ## fresh: the panels have moved since _run began
+	var b_g: Dictionary = ov._grid_point(epos, b_rect, ov._interior_rect(b_rect))
+	var b_cell: Dictionary = bridge.sample_cell(int(b_g["gx"]), int(b_g["gy"]))
+	_ok("B the bare cell is claimed (so the faction rows belong on it)", b_cell.has("controlling_faction"), true)
+	var b_name := String(b_cell.get("controlling_faction_name", ""))
 	await _rmb(ov, epos)
 	_dump("B_civ_empty")
 	_ok("B CIVIL on an empty cell", _civ_rows(),
-		["Drop settlement here [PLACE HERE]", "Start way here [PLACE HERE]",
+		["Open %s in roster… [OBJECT]" % b_name, "Claim for %s [OBJECT]" % b_name,
+			"Drop settlement here [PLACE HERE]", "Start way here [PLACE HERE]",
 			"Start route here [PLACE HERE]", "Info here (settlement & ecology) [INFO]"])
 	var hb: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
 	_ok("B a bare cell's header is 'Here'", String(hb[0]["text"]) if not hb.is_empty() else "", "Here")
 	await _close()
+
+	# -- F: the per-cell faction rows ----------------------------------------------
+	## Protects: the CIVIL card's "Open <faction> in roster…" / "Claim for
+	## <faction>" rows staying gated on `sample_cell`'s `controlling_faction` --
+	## present over a claimed land cell, absent over ocean and unclaimed land --
+	## and Open landing the roster on the SAME faction (not whichever it last
+	## showed). Fixtures come from `sample_cell` itself, and the roster name is
+	## cross-checked against `get_factions()`, a second reader of the roster.
+	var f_claimed := _find_cell(ov, "land", true)
+	var f_ocean := _find_cell(ov, "ocean", false)
+	_ok("F fixture: a claimed land cell exists", not f_claimed.is_empty(), true)
+	_ok("F fixture: an ocean cell exists", not f_ocean.is_empty(), true)
+	if not f_claimed.is_empty():
+		var fcell: Dictionary = f_claimed["cell"]
+		var fid := int(fcell["controlling_faction"])
+		var fname := String(fcell["controlling_faction_name"])
+		var rname := ""
+		for fd in bridge.get_factions():
+			if int((fd as Dictionary).get("id", -1)) == fid:
+				rname = String((fd as Dictionary).get("name", ""))
+		_ok("F the sampled faction name is the roster's own name for that id", fname, rname)
+		_ok("F ... and it is a real, non-empty name", fname != "", true)
+		var open_text := "Open %s in roster… [OBJECT]" % fname
+		var claim_text := "Claim for %s [OBJECT]" % fname
+
+		# Park the roster window on a DIFFERENT faction first, so "lands on
+		# fid" cannot pass by the window merely still sitting there.
+		var other := 2 if fid != 2 else 1
+		app.faction_roster_window.open(other)
+		await _frames(3)
+		app.faction_roster_window.hide()
+		await _frames(2)
+		_ok("F precondition: the roster window is parked on another faction",
+			int(app.faction_roster_window.get("_selected")), other)
+
+		await _rmb(ov, f_claimed["pos"])
+		_dump("F_civ_claimed")
+		_shot("F_card_claimed")
+		var rows_f := _civ_rows()
+		_ok("F a claimed cell carries 'Open <faction> in roster…' (object band)", rows_f.has(open_text), true)
+		_ok("F a claimed cell carries 'Claim for <faction>' (object band)", rows_f.has(claim_text), true)
+		var open_row := _row("Open %s in roster" % fname)
+		_ok("F the Open row is on the card", open_row != null, true)
+		if open_row != null:
+			await _click_row(open_row)
+		_ok("F the click closed the card", _open(), false)
+		_ok("F the roster window is showing", app.faction_roster_window.visible, true)
+		_ok("F ... and it landed on THAT faction", int(app.faction_roster_window.get("_selected")), fid)
+		_shot("F_roster_opened")
+		app.faction_roster_window.hide()
+		await _frames(2)
+
+		await _rmb(ov, f_claimed["pos"])
+		var claim_row := _row("Claim for %s" % fname)
+		_ok("F the Claim row is on the card", claim_row != null, true)
+		if claim_row != null:
+			await _click_row(claim_row)
+		var civ_ws: Node = _ws("civilization_workspace.gd")
+		_ok("F fixture: the civilization workspace is found", civ_ws != null, true)
+		_ok("F Claim armed the Territory tool", app.armed_tool, "territory")
+		_ok("F ... with THAT faction picked", int(civ_ws.get("_territory_faction")) if civ_ws != null else -1, fid)
+		app.arm_tool("inspect")
+		await _frames(2)
+
+	if not f_ocean.is_empty():
+		await _rmb(ov, f_ocean["pos"])
+		_dump("F_civ_ocean")
+		var ocean_rows := _civ_rows()
+		_ok("F ocean carries neither faction row", _has_faction_rows(ocean_rows), false)
+		_ok("F ... on a card that did open (the control: other CIVIL rows are there)", ocean_rows.size() > 0, true)
+		await _close()
 
 	# -- C ------------------------------------------------------------------------
 	app.arm_tool("settlement")
@@ -662,6 +815,49 @@ func _run() -> void:
 		await _close()
 	_ok("P the two palettes draw different grounds (the forcing took)",
 		grounds.get(true, Color.BLACK).get_luminance() < 0.1 and grounds.get(false, Color.BLACK).get_luminance() > 0.85, true)
+
+	# -- FU: unclaimed land carries no faction rows (LAST: regenerates the world) --
+	## Protects: the faction rows' gate on `controlling_faction` over UNCLAIMED
+	## LAND specifically (ocean is F's). Last because it replaces the world; the
+	## positive control is a claimed cell of the SAME new world, which must still
+	## show the rows, so the absence below is not just "the rows are broken".
+	app.select_domain("civilization")
+	await _regen_island_world()
+	var u_ov: Control = app.viewport.overlay
+	var u_cell := _find_cell(u_ov, "land", false, 8.0, 4.0)
+	_ok("FU fixture: the island world has an unclaimed land cell", not u_cell.is_empty(), true)
+	var u_claimed := _find_cell(u_ov, "land", true)
+	_ok("FU fixture: ... and a claimed one beside it (the control)", not u_claimed.is_empty(), true)
+	if not u_claimed.is_empty():
+		await _rmb(u_ov, u_claimed["pos"])
+		_ok("FU control: a claimed cell of the new world carries the faction rows",
+			_has_faction_rows(_civ_rows()), true)
+		await _close()
+	if not u_cell.is_empty():
+		await _rmb(u_ov, u_cell["pos"])
+		_dump("FU_civ_unclaimed")
+		_shot("FU_card_unclaimed")
+		var unclaimed_rows := _civ_rows()
+		_ok("FU unclaimed land carries neither faction row", _has_faction_rows(unclaimed_rows), false)
+		_ok("FU ... on a card that did open (the control: other CIVIL rows are there)", unclaimed_rows.size() > 0, true)
+		await _close()
+
+
+## Replaces the loaded world with `ISLAND_SEED`'s (256x192, the same aspect as
+## the main world so the overlay's displayed rect keeps its shape), waits for
+## the generate to land and dismisses the open-project dialog it can raise.
+func _regen_island_world() -> void:
+	var bridge = app.bridge
+	bridge.generate({
+		"seed": ISLAND_SEED, "width_km": 1200.0, "grid_w": 256, "grid_h": 192,
+		"archetype": "", "villages": true, "sea_level": 0.42,
+	})
+	while bridge.generating:
+		await get_tree().create_timer(0.25).timeout
+	await get_tree().create_timer(0.8).timeout
+	if app.open_project_dialog != null:
+		app.open_project_dialog.hide()
+	await _frames(6)
 
 
 func _only_settlement(ov: Control) -> bool:

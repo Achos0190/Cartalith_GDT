@@ -252,9 +252,22 @@ func _run() -> void:
 
 	# -- B ------------------------------------------------------------------
 	await _hide_popups()
-	await _rmb(ov, _empty_pos(ov))
+	## A bare land cell. This world claims every land cell (measured: a scratch
+	## scan of `sample_cell` over the whole grid found none unclaimed), so the
+	## CIVIL list leads with "Open/Claim for <faction>" (`sample_cell`'s
+	## `controlling_faction`; `_ctxcard_probe.gd` legs F and FU prove the
+	## gating, including the unclaimed side). The name is read from the same
+	## cell through the overlay's own `_grid_point`, not assumed.
+	var b_pos := _empty_pos(ov)
+	var b_rect: Rect2 = ov._displayed_rect()
+	var b_g: Dictionary = ov._grid_point(b_pos, b_rect, ov._interior_rect(b_rect))
+	var b_cell: Dictionary = bridge.sample_cell(int(b_g["gx"]), int(b_g["gy"]))
+	_ok("B the bare cell is claimed (so the faction rows belong on it)", b_cell.has("controlling_faction"), true)
+	var b_name := String(b_cell.get("controlling_faction_name", ""))
+	await _rmb(ov, b_pos)
 	var rows_b := _dump("B_civ_empty")
-	_ok("B row order", rows_b, ["Drop settlement here", "Start way here",
+	_ok("B row order", rows_b, ["Open %s in roster…" % b_name, "Claim for %s" % b_name,
+		"----", "Drop settlement here", "Start way here",
 		"Start route here", "----", "Info here (settlement & ecology)"])
 
 	# -- C ------------------------------------------------------------------

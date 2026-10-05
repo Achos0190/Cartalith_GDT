@@ -413,7 +413,17 @@ func _phone_bar_sub_text(d: Dictionary) -> String:
 	parts.append("%d settlement%s" % [n, "" if n == 1 else "s"])
 	return " · ".join(parts)
 
-func open() -> void:
+## `select_faction`: the faction id to land on, or `-1` (the default) to reopen
+## on whichever faction was last selected, exactly as every caller did before
+## this parameter existed. It exists for the context card's CIVIL "Open <name>
+## in roster" row (`MAP_CONTEXT_SCOPE.md` §4.3, CM-2 follow-ups), which already
+## knows which faction controls the right-clicked cell (`sample_cell`'s
+## `controlling_faction`). An id not in the roster is **ignored, not clamped**:
+## selecting a neighbour would show the wrong faction as if it were the one asked
+## for, so the window just opens where it last was. On the phone a landed-on
+## faction opens its inspector directly -- the pick IS the navigation there, the
+## same rule the list rows' own press follows -- rather than the master list.
+func open(select_faction: int = -1) -> void:
 	## Cached once per open, not per faction row: the underlying pass is
 	## O(cells) and rebuilds a biome raster and an ocean-distance field --
 	## see `civ_faction_terrain_fits`' own Rust doc comment.
@@ -422,11 +432,18 @@ func open() -> void:
 	## the biome/lithology/resource passes `civ_faction_aggregates` needs, and
 	## every faction's row comes out of that one answer.
 	_military = bridge.civ_military_summary()
+	var landed := select_faction > 0 and not _faction(select_faction).is_empty()
+	if landed:
+		## Before `_rebuild()`, so the list highlight and the inspector are
+		## built for the faction asked for, not rebuilt after.
+		_selected = select_faction
 	_rebuild()
 	## Reopens on the master, the way a phone list screen does -- picking up
 	## mid-inspector on a faction chosen in a previous session would hide the
-	## only control that says which faction this is.
-	_set_phone_list_open(true)
+	## only control that says which faction this is. A faction asked for BY ID
+	## (`landed`) is not a previous session's choice: the caller named it, so
+	## the phone shows its inspector.
+	_set_phone_list_open(not landed)
 	if not DccWidgets.phone_present(self, app):
 		popup_centered()
 		## `AcceptDialog` sizes its content child once, at popup, from the

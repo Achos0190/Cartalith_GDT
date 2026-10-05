@@ -4136,9 +4136,11 @@ func open_city_viewer(index: int) -> void:
 func open_place_editor(index: int) -> void:
 	place_editor_window.open_for(index)
 
-## The Faction Roster modal (`civOpenFactionsBtn`).
-func open_faction_roster() -> void:
-	faction_roster_window.open()
+## The Faction Roster modal (`civOpenFactionsBtn`). `faction` is a faction id to
+## land on (the context card's CIVIL "Open <name> in roster" row), or `-1` to
+## reopen on the last-selected faction -- see `FactionRosterWindow.open()`.
+func open_faction_roster(faction: int = -1) -> void:
+	faction_roster_window.open(faction)
 
 ## `GUI_GAP_REGISTER.md` CV-02's Culture profiles window.
 func open_culture_profiles() -> void:

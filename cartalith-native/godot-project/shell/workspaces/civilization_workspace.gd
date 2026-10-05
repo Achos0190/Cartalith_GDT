@@ -787,6 +787,36 @@ func context_actions(req: Dictionary) -> Array:
 					else ("Delete %s" % wtitle),
 				"section": "object", "enabled": true, "danger": true,
 				"callable": _delete_way_ctx.bind(wstore, widx, wtitle, generated)})
+	## CM-2 follow-up (`MAP_CONTEXT_SCOPE.md` §4.3 CIVIL "Territory under cell"
+	## row; `OUTSTANDING_WORK.md` "CM-2 follow-ups", part 1): who controls the
+	## cell, from `sample_cell`'s `controlling_faction` -- the stored claim grid
+	## (`CivData::territory`, what the map's own territory wash paints), read for
+	## ONE cell. No ownership is recomputed here. The key is OMITTED over ocean
+	## and over unclaimed land (and on a world opened without a claim grid), so
+	## `has()` is the right test: the key's only present value is a real
+	## controlling faction id, never a 0 meaning "nobody".
+	##
+	## **Not offered over a settlement pin (`hit < 0`).** That cell's own object
+	## rows already carry the settlement and its place editor (which holds the
+	## faction field), and a second "object" noun beside them would double the
+	## section for a cell whose faction the settlement already names -- the way
+	## row above makes the same call for roads. A judgement, not a measurement;
+	## the faction is still one tap away through the settlement's own rows.
+	if hit < 0:
+		var cf := bridge.sample_cell(floori(gx), floori(gy))
+		if cf.has("controlling_faction"):
+			var cf_id := int(cf["controlling_faction"])
+			var cf_name := String(cf["controlling_faction_name"])
+			rows.append({"id": "civ.faction_open", "label": "Open %s in roster…" % cf_name,
+				"section": "object", "enabled": true,
+				"callable": func() -> void: app.open_faction_roster(cf_id)})
+			## "Claim for this faction" is the Territory tool armed with this
+			## faction pre-picked -- the eyedropper of the scope's own wording --
+			## through the same `_territory_faction` state the options bar's
+			## faction picker writes, so ring, bar and this row agree.
+			rows.append({"id": "civ.faction_claim", "label": "Claim for %s" % cf_name,
+				"section": "object", "enabled": true,
+				"callable": _claim_for_faction.bind(cf_id)})
 	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
 		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
 	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
@@ -837,6 +867,24 @@ func _step_settlement_class(dir: int) -> void:
 	if i < 0:
 		i += KIND_ORDER.size()
 	_settlement_kind = KIND_ORDER[i]
+
+## "Claim for <faction>" (`civ.faction_claim`): arm the Territory tool with
+## `fid` already picked, so the next brush stroke paints that faction. Sets
+## `_territory_faction` BEFORE arming because `_on_civ_tool_armed`'s `"territory"`
+## arm builds the options bar and right-dock companion from it. When Territory
+## is already the armed tool `app.arm_tool()` is a no-op (its own first guard),
+## so the bar and dock are refreshed here by the same two calls that arm would
+## have made -- otherwise the bar would keep showing the previous faction while
+## the brush painted the new one. Never paints anything itself: arming is the
+## whole action, matching how a toolbar click behaves.
+func _claim_for_faction(fid: int) -> void:
+	_territory_faction = fid
+	if app.armed_tool == "territory":
+		_tool_options_territory()
+		if app.right_dock_ctrl.has_method("show_territory"):
+			app.right_dock_ctrl.show_territory(fid)
+	else:
+		app.arm_tool("territory")
 
 ## The honest readout CX-01's own "Info here" row already chose over a second
 ## floating panel: this landmark's kind/class/importance/causal chain, into
