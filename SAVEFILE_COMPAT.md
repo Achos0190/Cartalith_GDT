@@ -1572,7 +1572,7 @@ import (§15), whose reference stores `state.labels` in the frame it draws at
 import before that date carries those labels half a cell up and left, and
 nothing in the document distinguishes them from hand-placed ones, so they are
 not migrated. `angle` is the baseline rotation in
-radians. `arc` bends the baseline; `0` is straight. `size` is the type size.
+degrees (`label_bridge::handle_circles` converts with `angle * PI / 180`; `MapLabel::angle` and the legacy importer carry the value through unchanged). `arc` bends the baseline; `0` is straight. `size` is the type size.
 `font` and `color` are `null` for "use the renderer's default" — a reader MUST
 NOT substitute a concrete default on load, because doing so would freeze
 today's default into the file. `color`, when present, is a CSS colour string.
