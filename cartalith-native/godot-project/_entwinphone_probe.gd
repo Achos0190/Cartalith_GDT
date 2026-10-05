@@ -112,7 +112,9 @@ func _ready() -> void:
 	_check("FR0: the roster is running its phone treatment", fr._phone,
 		"_phone=%s" % fr._phone)
 	_check("FR1: the header subtitle is in §6.6 `_moreTitle()`'s voice",
-		_texts(fr).has("roster · identity · territory · military"),
+		## FH-0 added the Economy tab, so the subtitle gained "economy" (same voice,
+		## same `·` separators); the pinned string follows it.
+		_texts(fr).has("roster · identity · territory · economy · military"),
 		"labels=%s" % [_texts(fr).slice(0, 8)])
 
 	## Fold the list -- the bar only exists on the detail side.

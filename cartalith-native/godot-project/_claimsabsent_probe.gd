@@ -73,10 +73,14 @@ func _texts(node: Node, out: PackedStringArray) -> void:
 		_texts(c, out)
 
 func _roster_text(app: Node) -> String:
-	app.open_faction_roster()
-	await _frames(4)
+	## FH-0: the roster is tabbed and builds only the visible tab, and the claim
+	## dash this probe reads is spread over Territory and Military -- so visit
+	## every tab and join what each one drew.
 	var out := PackedStringArray()
-	_texts(app.faction_roster_window, out)
+	for tab in app.faction_roster_window.TAB_IDS:
+		app.open_faction_roster(-1, tab)
+		await _frames(4)
+		_texts(app.faction_roster_window, out)
 	app.faction_roster_window.hide()
 	return "\n".join(out)
 

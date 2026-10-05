@@ -112,7 +112,9 @@ func _ready() -> void:
 
 	## -- the roster, through its own field ------------------------------------
 	var roster = app.faction_roster_window
-	roster.open()
+	## FH-0: Currency lives on the Economy tab now, which is built lazily --
+	## open straight onto it.
+	roster.open(-1, "economy")
 	await _frames(3)
 	roster._selected = fid
 	roster._rebuild_inspector()

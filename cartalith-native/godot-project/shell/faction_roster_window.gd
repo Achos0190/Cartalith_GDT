@@ -12,8 +12,36 @@ class_name FactionRosterWindow
 ## is no longer true: `CivData::faction_roster` owns one, and this window is
 ## the reference's three-part modal over it -- world overview, faction list,
 ## and the Inspector drawer with its five editable fields, its procedural
-## banner, its Territory-fit verdict and its settlement sublist -- plus, since
+## banner, its Territory-fit verdict and its settlement sublist (each now on its
+## own tab, see above) -- plus, since
 ## 2026-09-27, the faction's currency (Ruling AU; `_build_currency`).
+##
+## ## The Faction hub's tabbed shell (FH-0, `FACTION_HUB_DESIGN.md`)
+##
+## The inspector used to be one long scroll of eight sections. It is now seven
+## tabs over the selected faction -- Identity, Territory, Settlements,
+## Economy, Military, Relations, History (`TAB_IDS`) -- and the sections moved
+## **unchanged**, only to the tab that owns them. Relations and History are
+## honest placeholders: nothing in the engine backs them yet, so they say so in
+## words and carry no control.
+##
+## **Lazy by tab.** Only the active tab is built, on its first show, and the two
+## O(cells) engine passes now run on the tab that reads them
+## (`_ensure_fits()` for Territory, `_ensure_military()` for Military) instead of
+## in `open()`. A hidden tab is a built pane that is merely not visible; any
+## change that could make it stale (a different faction, a new world, an edit to
+## culture/government/ag. tech, a roster add/remove) frees every pane but the
+## visible one (`_drop_panes`) and the next show rebuilds it.
+##
+## **FR-02 holds across tab switches.** `_select_tab()` flushes the focused
+## field *before* the tab changes and every teardown goes through `_clear()` /
+## `_drop_panes()`, both of which raise `_rebuilding` so a dying focused field
+## cannot write its text into whichever faction is current by then.
+##
+## **Phone.** A phone gets a segmented chooser (a 4 + 3 grid of 44 px cells)
+## rather than a `TabContainer` or a scrolling strip: seven labels do not fit
+## one row at 393 dp, a horizontally scrolling strip hides tabs behind a drag,
+## and the window keeps exactly one scroller (below).
 ##
 ## ## What is real, and what is not
 ##
@@ -80,6 +108,30 @@ class_name FactionRosterWindow
 ## sums to; this is what the dash beside each one says.
 const NO_CLAIM_GRID := "Not known: this project was opened without its territory map. Paint territory, or run Recompute civilisation, to rebuild it."
 
+## The hub's tabs, in strip order (`FACTION_HUB_DESIGN.md` FH-0). These ids are
+## the public vocabulary: `open(select_faction, tab)` and
+## `DccApp.open_faction_roster(faction, tab)` take one, and an id not in this
+## list is treated as "no tab asked for", never as an error and never as a
+## blank pane.
+const TAB_IDS: Array[String] = ["identity", "territory", "settlements", "economy",
+		"military", "relations", "history"]
+
+## The strip's captions. Mixed case, because a segmented cell at `FS_MICRO` is
+## narrow and capitals cost a quarter more width; the phone chooser uses the
+## same strings.
+const TAB_LABELS := {
+	"identity": "Identity", "territory": "Territory", "settlements": "Settlements",
+	"economy": "Economy", "military": "Military", "relations": "Relations",
+	"history": "History",
+}
+
+## Smallest strip cell height off a phone. 28 is a labelled judgement: one
+## `FS_SMALL` line plus the button's own padding, level with the roster list's
+## 30 px rows. A tablet takes `DccTheme.role_px("btn_min_h")` instead (44, its
+## finger target) and a phone `DccTheme.PHONE_TAP_MIN` -- see
+## `_build_tab_strip()`.
+const TAB_MIN_H_POINTER := 28
+
 var app                       ## `DccApp`
 var bridge: EngineBridge
 
@@ -87,11 +139,29 @@ var _selected := 1
 var _list_body: VBoxContainer
 var _inspector_body: VBoxContainer
 var _overview: Label
-var _fits: Array = []         ## `civ_faction_terrain_fits()`, cached per open.
-## `civ_military_summary()`, cached per open for the same reason `_fits` is:
-## one call carries `power.military`, the fortification counts and the whole
-## of `cartalith_civ::manpower`'s answer for every faction at once.
+## `civ_faction_terrain_fits()`. Fetched by `_ensure_fits()` the first time the
+## Territory tab is built after an `open()`, a new world or an edit that moves
+## it -- **not** in `open()`, because the pass is O(cells).
+var _fits: Array = []
+var _fits_ready := false
+## `civ_military_summary()`, fetched by `_ensure_military()` on the Military
+## tab's first show for the same reason `_fits` is lazy: one call carries
+## `power.military`, the fortification counts and the whole of
+## `cartalith_civ::manpower`'s answer for every faction at once, and it is O(cells).
 var _military: Dictionary = {}
+var _military_ready := false
+
+## The tab on screen. Deliberately a member that **survives `open()`**: an
+## unknown or empty `tab` argument means "the last tab used this session", so
+## reopening the hub after looking at Economy returns to Economy. The first
+## ever open is Identity.
+var _tab := "identity"
+## tab id -> its built pane (a `VBoxContainer` child of `_inspector_body`).
+## Holds only the tabs built since the last invalidation; the visible one is
+## always present after `_show_active_tab()`.
+var _tab_panes: Dictionary = {}
+## tab id -> its strip/chooser `Button`, named `Tab_<id>` for the probes.
+var _tab_buttons: Dictionary = {}
 
 ## Phone (§13). The window's own treatment is
 ## `DccWidgets.phone_window()`'s; what is specific to *this* window is that
@@ -126,7 +196,7 @@ signal tariff_changed
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
-	title = "Faction roster"
+	title = "Factions"
 	size = Vector2i(880, 620)
 	min_size = Vector2i(620, 420)
 	## No `max_size` (2026-09-24, the vault window's `3736fe7` fix repeated). The
@@ -224,14 +294,27 @@ func setup(a, b: EngineBridge) -> void:
 	if not _phone:
 		split.add_child(DccTheme.rule(true))
 
+	## The detail column: the tab strip over the inspector. On a pointer it is a
+	## plain `VBoxContainer` holding the strip and the one scroller (still the
+	## only `SIZE_EXPAND_FILL` scrolling pane on that side of the split, so the
+	## `AcceptDialog` sizing trap above is not re-opened). On a phone the strip
+	## is simply the next row of the one root scroller.
 	var inspector_host: Control = split
 	if not _phone:
+		var right := VBoxContainer.new()
+		right.add_theme_constant_override("separation", 6)
+		right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		right.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		split.add_child(right)
+		right.add_child(_build_tab_strip())
 		var right_scroll := ScrollContainer.new()
 		right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 		right_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		right_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		split.add_child(right_scroll)
+		right.add_child(right_scroll)
 		inspector_host = right_scroll
+	else:
+		split.add_child(_build_tab_strip())
 	_inspector_body = VBoxContainer.new()
 	_inspector_body.add_theme_constant_override("separation", 4)
 	_inspector_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -242,7 +325,7 @@ func setup(a, b: EngineBridge) -> void:
 		## naming what the screen holds rather than describing it. It read
 		## "world politics", which is a topic; the canvas's own subtitles are
 		## contents lists (`files · autosave · storage`).
-		DccWidgets.phone_head(outer, "Faction roster", "roster · identity · territory · military")
+		DccWidgets.phone_head(outer, "Factions", "roster · identity · territory · economy · military")
 		_set_phone_list_open(true)
 
 	## `GUI_GAP_REGISTER.md` **RF-03**. §23 asked "what re-runs this, and on
@@ -260,8 +343,11 @@ func setup(a, b: EngineBridge) -> void:
 	bridge.world_loaded.connect(func(): if visible: _on_world_changed())
 
 
-## Both cached fields are per-world and cached per `open()`, so both have to be
-## re-taken here rather than only rebuilding the panes over stale numbers.
+## Both O(cells) caches are per-world, so both are marked stale here and
+## re-taken lazily by the tab that reads them -- the rebuild below builds the
+## **active tab only**, so a world change while on Identity runs neither pass,
+## and every other tab is invalidated and rebuilt on its next show rather than
+## showing the previous world's numbers.
 ## `_selected` is reset because it is an id into a roster the new world has
 ## replaced -- the same reason `civilization_workspace._on_world_changed()`
 ## resets its own `_selected_index`.
@@ -270,8 +356,7 @@ func setup(a, b: EngineBridge) -> void:
 ## `_rebuilding` guard is exactly what stops a dying focused field writing its
 ## text into the world that just replaced the one it was typed for (FR-02).
 func _on_world_changed() -> void:
-	_fits = bridge.civ_faction_terrain_fits()
-	_military = bridge.civ_military_summary()
+	_mark_data_stale()
 	_selected = 1
 	_rebuild()
 
@@ -423,20 +508,31 @@ func _phone_bar_sub_text(d: Dictionary) -> String:
 ## for, so the window just opens where it last was. On the phone a landed-on
 ## faction opens its inspector directly -- the pick IS the navigation there, the
 ## same rule the list rows' own press follows -- rather than the master list.
-func open(select_faction: int = -1) -> void:
-	## Cached once per open, not per faction row: the underlying pass is
-	## O(cells) and rebuilds a biome raster and an ocean-distance field --
-	## see `civ_faction_terrain_fits`' own Rust doc comment.
-	_fits = bridge.civ_faction_terrain_fits()
-	## Cached on the same schedule and for the same reason: one call rebuilds
-	## the biome/lithology/resource passes `civ_faction_aggregates` needs, and
-	## every faction's row comes out of that one answer.
-	_military = bridge.civ_military_summary()
+##
+## `tab`: one of `TAB_IDS`, or `""` (the default) for the tab last used this
+## session -- Identity on the very first open. An id that is not a tab is
+## treated exactly like `""`: it falls back rather than leaving the hub on a
+## tab that does not exist. A faction id and a tab id are independent, so
+## either may be given alone.
+##
+## **Nothing O(cells) runs here any more.** Both engine passes used to be
+## fetched on every open, in front of a window that might then be shown on
+## Identity and never read either; they are now marked stale
+## (`_mark_data_stale()`, so a roster that changed while the hub was hidden is
+## re-read) and fetched by the tab that needs them.
+func open(select_faction: int = -1, tab: String = "") -> void:
+	_mark_data_stale()
 	var landed := select_faction > 0 and not _faction(select_faction).is_empty()
 	if landed:
+		## FR-02: flush a half-typed field against the faction it was typed for
+		## before `_selected` moves, in case the hub was already up with a field
+		## focused (the context card can re-open it onto another faction).
+		_commit_focused_field()
 		## Before `_rebuild()`, so the list highlight and the inspector are
 		## built for the faction asked for, not rebuilt after.
 		_selected = select_faction
+	if TAB_IDS.has(tab):
+		_tab = tab
 	_rebuild()
 	## Reopens on the master, the way a phone list screen does -- picking up
 	## mid-inspector on a faction chosen in a previous session would hide the
@@ -603,13 +699,80 @@ func _rebuild_list() -> void:
 
 # -- Inspector (`_civPopulateFactionEditor`) --------------------------------
 
+## Rebuilds the **visible tab** for the current faction and invalidates every
+## other tab. This is the whole teardown, so it runs under `_clear()`'s
+## `_rebuilding` guard (FR-02) and nothing built here is reachable from a
+## previous faction's pane. It is also what a probe or a caller means by "redraw
+## the inspector"; it never builds a tab that is not on screen.
 func _rebuild_inspector() -> void:
 	_clear(_inspector_body)
+	_tab_panes.clear()
+	_show_active_tab()
+
+
+## Makes `_tab`'s pane the visible one, building it first if it has not been
+## built since the last invalidation, and restyles the strip. Hiding a pane is
+## safe against FR-02 because `_select_tab()` has already released any focus
+## inside it; this function must never be the first to do so.
+func _show_active_tab() -> void:
 	var d := _faction(_selected)
 	if d.is_empty():
+		## No world (or an id the roster no longer holds): one note, whatever the
+		## tab. Cleared with the guard so a stale pane cannot commit into it.
+		_clear(_inspector_body)
+		_tab_panes.clear()
 		DccWidgets.note(_inspector_body, "Select a faction.")
+		_style_tab_buttons()
 		return
+	for id in _tab_panes:
+		(_tab_panes[id] as Control).visible = (id == _tab)
+	if not _tab_panes.has(_tab):
+		_tab_panes[_tab] = _build_tab_pane(_tab, d)
+	_style_tab_buttons()
+	## The panes are rebuilt from scratch on a switch, so the touch fit is
+	## re-applied over the window each time; idempotent, per `DccShell.phone_fit`.
+	if _phone:
+		app.phone_fit(self, 1.0)
 
+
+## Builds one tab's pane and adds it to `_inspector_body`. Every tab is
+## guaranteed a non-empty pane: a builder that has nothing to say for this
+## faction (the Military block returns nothing for a faction with no row) gets
+## a plain note instead of a blank tab, because a blank page reads as a broken
+## one. Never builds more than the tab it is asked for.
+func _build_tab_pane(id: String, d: Dictionary) -> VBoxContainer:
+	var pane := VBoxContainer.new()
+	pane.name = "Pane_" + id
+	pane.add_theme_constant_override("separation", 4)
+	pane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_inspector_body.add_child(pane)
+	match id:
+		"identity":
+			_build_tab_identity(pane, d)
+		"territory":
+			_build_terrain_fit(pane)
+			_build_overview_block(pane, d)
+		"settlements":
+			_build_settlement_sublist(pane)
+		"economy":
+			_build_currency(pane)
+			_build_tariffs(pane)
+			_build_gaps(pane)
+		"military":
+			_build_military_block(pane)
+		"relations":
+			_build_tab_relations(pane)
+		"history":
+			_build_tab_history(pane)
+	if pane.get_child_count() == 0:
+		DccWidgets.note(pane, "Nothing to show for this faction on this tab.")
+	return pane
+
+
+## The Identity tab: the faction's banner and name, then the five identity
+## rows. Moved verbatim out of the old single-scroll inspector; the head's name
+## field still commits on `focus_exited` unless `_rebuilding` (FR-02).
+func _build_tab_identity(pane: VBoxContainer, d: Dictionary) -> void:
 	var head := HBoxContainer.new()
 	head.add_theme_constant_override("separation", 8)
 	_head_banner = FactionBanner.new()
@@ -626,30 +789,178 @@ func _rebuild_inspector() -> void:
 			return
 		_set_field("name", name_edit.text))
 	head.add_child(name_edit)
-	_inspector_body.add_child(head)
+	pane.add_child(head)
 
-	var sec := DccWidgets.section(_inspector_body, "Identity")
+	var sec := DccWidgets.section(pane, "Identity")
 	_colour_row(sec, d)
 	_vocab_choice(sec, "Government", bridge.civ_government_vocabulary(),
 		String(d.get("government", "monarchy")), "government",
-		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (Military, below).")
+		"Live since 2026-08-25, and this is its first consumer in either codebase — the reference's own comment says no simulation reads it there. It sets how much of the surplus this faction's state can actually capture, which drives the standing army and half of the mobilization reach (see the Military tab).")
 	_culture_choice(sec, String(d.get("culture", "common")))
 	_vocab_choice(sec, "Religion", bridge.civ_religion_vocabulary(),
 		String(d.get("religion", "none")), "religion")
 	_ag_tech_choice(sec, String(d.get("ag_tech", "traditionalAgrarian")))
-	_build_currency()
-	_build_tariffs()
 
-	_build_terrain_fit()
-	_build_overview_block(d)
-	_build_military_block()
-	_build_settlement_sublist()
-	_build_gaps()
-	## Both panes are rebuilt from scratch here and in `_rebuild_list()`, so the
-	## touch fit is re-applied over the window each time; idempotent, per
-	## `DccShell.phone_fit`.
+
+## The Relations tab -- a placeholder, on purpose. The only relations model is
+## the derived per-pair table under Civilization ▸ Relationships; nothing about
+## a faction's own relations is stored, so there is nothing to edit here. It
+## says what exists and what does not, in words. **It must stay control-free
+## and treaty-free until a model backs it** (`FACTION_HUB_DESIGN.md`): a row
+## for a treaty that cannot be signed is a lie the shell would be telling.
+func _build_tab_relations(pane: VBoxContainer) -> void:
+	var sec := DccWidgets.section(pane, "Relations")
+	DccWidgets.note(sec,
+		"Not built in this window. Relations between factions are under Civilization ▸ "
+		+ "Relationships: a derived value per faction pair, recomputed rather than stored. "
+		+ "What is still absent anywhere is anything that acts -- treaties, vassalage, war "
+		+ "declarations, change over time.")
+
+
+## The History tab -- a placeholder, on purpose, for the same reason as
+## `_build_tab_relations()`: the engine keeps no per-faction history, so this
+## says so instead of drawing an empty table. Must stay control-free.
+func _build_tab_history(pane: VBoxContainer) -> void:
+	var sec := DccWidgets.section(pane, "History")
+	DccWidgets.note(sec,
+		"Not built. The engine keeps no per-faction history -- no founding, wars, rulers or "
+		+ "collapses are recorded against a faction -- so nothing is drawn here rather than "
+		+ "an empty log. The world-level timeline is under Civilization ▸ Timeline.")
+
+
+# -- Tabs: strip, chooser, switching -----------------------------------------
+
+## The strip (pointer and tablet) or the segmented chooser (phone): one
+## `Button` per `TAB_IDS`, in the segmented shape `culture_profiles_window.gd`'s
+## phone switcher already uses -- an accent-wash fill on the active cell, a
+## `FS_MICRO` mono caption, no focus ring (`FOCUS_NONE`, so a tab press never
+## steals the focus FR-02 reasons about).
+##
+## **Phone:** a 4 + 3 `GridContainer` of cells each at least
+## `DccTheme.PHONE_TAP_MIN` (44) tall. Not a `TabContainer`, and not a
+## horizontally scrolling strip: at 393 dp seven captions do not fit one row,
+## and the hub must stay a single vertical scroller. **Elsewhere:** one
+## `HBoxContainer` row whose buttons clip their caption rather than demand its
+## width -- a button's minimum width is its whole label, and seven of them
+## would otherwise push the `AcceptDialog` wider than its window (the
+## disabled-axis trap `DccWidgets.action` documents). A tablet's cell height is
+## `DccTheme.role_px("btn_min_h")`, not a literal.
+func _build_tab_strip() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.name = "TabStrip"
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	var row: Container
 	if _phone:
-		app.phone_fit(self, 1.0)
+		var grid := GridContainer.new()
+		grid.columns = 4
+		grid.add_theme_constant_override("h_separation", 0)
+		grid.add_theme_constant_override("v_separation", 0)
+		row = grid
+	else:
+		var hb := HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 0)
+		row = hb
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	DccWidgets.pad(wrap, 4, 2, 4, 2).add_child(row)
+	var cell_h: int = DccTheme.PHONE_TAP_MIN if _phone \
+		else maxi(DccTheme.role_px("btn_min_h"), TAB_MIN_H_POINTER)
+	for id in TAB_IDS:
+		var key: String = id
+		var b := Button.new()
+		b.name = "Tab_" + key
+		b.text = String(TAB_LABELS[key])
+		b.tooltip_text = String(TAB_LABELS[key])
+		b.focus_mode = Control.FOCUS_NONE
+		b.clip_text = true
+		b.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		b.custom_minimum_size = Vector2(0, cell_h)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_override("font", DccTheme.mono(0))
+		b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+		b.pressed.connect(func(): _select_tab(key))
+		row.add_child(b)
+		_tab_buttons[key] = b
+	return wrap
+
+
+## Restyles every cell: accent-wash fill and accent ink on the active one,
+## nothing and `text_dim` on the rest. Idempotent; called from
+## `_show_active_tab()` so the strip can never disagree with the pane.
+func _style_tab_buttons() -> void:
+	for id in _tab_buttons:
+		var b: Button = _tab_buttons[id]
+		var on: bool = id == _tab
+		var fill: StyleBox = DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty()
+		for sb_name in ["normal", "hover", "pressed"]:
+			b.add_theme_stylebox_override(sb_name, fill)
+		b.add_theme_stylebox_override("focus", DccTheme.empty())
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+		b.add_theme_color_override("font_hover_color",
+			DccTheme.c("accent") if on else DccTheme.c("text"))
+		b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+
+
+## Switch to `id`. **Order matters (FR-02):** the focused field is committed
+## first, against the faction and tab it was typed for; only then does `_tab`
+## change and the old pane get hidden. An unknown id is ignored. Never frees a
+## pane -- panes are only freed by `_drop_panes()` / `_clear()`, which carry the
+## `_rebuilding` guard.
+func _select_tab(id: String) -> void:
+	if not TAB_IDS.has(id):
+		return
+	_commit_focused_field()
+	if id == _tab and _tab_panes.has(id):
+		return
+	_tab = id
+	_show_active_tab()
+
+
+## Frees every built tab pane except `keep` (or all of them when `keep` is
+## empty). The invalidation half of the lazy build: used when something the
+## hidden panes show may have changed. Freed under `_rebuilding` so a pane's
+## dying field cannot commit (FR-02); the kept pane is never touched, so an
+## edit in progress in it survives.
+func _drop_panes(keep: String = "") -> void:
+	var was := _rebuilding
+	_rebuilding = true
+	for id in _tab_panes.keys():
+		if id == keep:
+			continue
+		var pane: Control = _tab_panes[id]
+		if is_instance_valid(pane):
+			_inspector_body.remove_child(pane)
+			pane.queue_free()
+		_tab_panes.erase(id)
+	_rebuilding = was
+
+
+## Marks both O(cells) caches stale so the next tab that reads one re-fetches.
+## Cheap by construction -- it fetches nothing.
+func _mark_data_stale() -> void:
+	_fits_ready = false
+	_military_ready = false
+
+
+## Fetches `civ_faction_terrain_fits()` once per staleness. O(cells): it
+## rebuilds a biome raster and an ocean-distance field (see the Rust doc
+## comment on the call), which is why only the Territory tab asks.
+func _ensure_fits() -> void:
+	if _fits_ready:
+		return
+	_fits = bridge.civ_faction_terrain_fits()
+	_fits_ready = true
+
+
+## Fetches `civ_military_summary()` once per staleness. O(cells): one call
+## rebuilds the biome/lithology/resource passes `civ_faction_aggregates` needs,
+## and every faction's row comes out of that one answer. Only the Military tab
+## asks.
+func _ensure_military() -> void:
+	if _military_ready:
+		return
+	_military = bridge.civ_military_summary()
+	_military_ready = true
 
 
 ## The faction's identity colour — `GUI_GAP_REGISTER.md` **CV-21**, and v3's
@@ -735,7 +1046,7 @@ func _culture_choice(parent: Control, current: String) -> void:
 		labels.append(String(k).capitalize())
 	DccWidgets.choice(parent, "Culture", labels, maxi(0, Array(keys).find(current)),
 		func(i: int): _set_field("culture", String(keys[i])),
-		"Naming culture -- the pool _civSettleName draws this faction's settlement names from. Also what Territory fit below judges the land against.")
+		"Naming culture -- the pool _civSettleName draws this faction's settlement names from. Also what the Territory tab's fit verdict judges the land against.")
 
 
 func _ag_tech_choice(parent: Control, current: String) -> void:
@@ -753,7 +1064,7 @@ func _ag_tech_choice(parent: Control, current: String) -> void:
 			hint = String(d.get("hint", ""))
 	DccWidgets.choice(parent, "Ag. technology", labels, maxi(0, keys.find(current)),
 		func(i: int): _set_field("ag_tech", keys[i]),
-		"Live since 2026-08-25: farmersPerUrbanite is the agricultural labour ratio the manpower model runs on (Military, below), so changing this moves this faction's standing army, field army, emergency levy and war duration. It is deliberately NOT the driver — it enters as one of five variables, and government, roads, water and the land itself move the answer as much.")
+		"Live since 2026-08-25: farmersPerUrbanite is the agricultural labour ratio the manpower model runs on (the Military tab), so changing this moves this faction's standing army, field army, emergency levy and war duration. It is deliberately NOT the driver — it enters as one of five variables, and government, roads, water and the land itself move the answer as much.")
 	if hint != "":
 		DccWidgets.note(parent, hint)
 
@@ -777,8 +1088,8 @@ var _currency_example: Label
 ## The rate is sent as typed text: `civ_set_faction_currency` parses it, so
 ## "abc" is refused rather than read as 0 by `to_float()`, and a refusal
 ## puts the stored value back.
-func _build_currency() -> void:
-	var sec := DccWidgets.section(_inspector_body, "Currency")
+func _build_currency(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Currency")
 	var cur := bridge.civ_faction_currency(_selected)
 	if cur.is_empty():
 		DccWidgets.note(sec, "Unclaimed land issues no currency: trade into it reads in world price-index units.")
@@ -886,8 +1197,8 @@ func _refresh_currency_example() -> void:
 ## `set_tariff`'s own doc: "rate 0.0 removes the row, so 'no tariff' has
 ## exactly one encoding" -- so an empty field is the real absent state, never
 ## a fake zero standing in for one (`MISTAKES.md`).
-func _build_tariffs() -> void:
-	var sec := DccWidgets.section(_inspector_body, "Tariffs")
+func _build_tariffs(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Tariffs")
 	if _selected <= 0:
 		DccWidgets.note(sec, "Unclaimed levies no tariffs: it has no government to levy with.")
 		return
@@ -983,8 +1294,9 @@ static func _tariff_display(rate: float) -> String:
 
 # -- Territory fit (`_civTerrainFitHtml`) -----------------------------------
 
-func _build_terrain_fit() -> void:
-	var sec := DccWidgets.section(_inspector_body, "Territory fit")
+func _build_terrain_fit(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Territory fit")
+	_ensure_fits()
 	var fit := _fit_for(_selected)
 	if fit.is_empty():
 		DccWidgets.note(sec, "Reopen the roster to recompute terrain composition.")
@@ -1037,8 +1349,8 @@ func _build_terrain_fit() -> void:
 
 # -- Overview block ---------------------------------------------------------
 
-func _build_overview_block(d: Dictionary) -> void:
-	var sec := DccWidgets.section(_inspector_body, "Overview")
+func _build_overview_block(parent: Control, d: Dictionary) -> void:
+	var sec := DccWidgets.section(parent, "Overview")
 	var stats := bridge.civ_faction_territory_stats(_selected)
 	var cap := _capital_of(_selected)
 	var cap_name: String = String(cap.get("name", "")) if not cap.is_empty() else "none"
@@ -1078,11 +1390,12 @@ func _military_row(faction_id: int) -> Dictionary:
 			return r
 	return {}
 
-func _build_military_block() -> void:
+func _build_military_block(parent: Control) -> void:
+	_ensure_military()
 	var row := _military_row(_selected)
 	if row.is_empty():
 		return
-	var sec := DccWidgets.section(_inspector_body, "Military")
+	var sec := DccWidgets.section(parent, "Military")
 	DccWidgets.note(sec, "Power: %d/100 relative to the other factions   ·   %d of %d settlements fortified (%d stone, %d palisade, %d ditch)" % [
 		int(round(float(row.get("military", 0.0)))), int(row.get("fortified_count", 0)),
 		int(row.get("settlement_count", 0)), int(row.get("walled_stone", 0)),
@@ -1139,14 +1452,14 @@ func _build_military_block() -> void:
 
 # -- Settlement sublist (`_civRenderFactionSettlementSublist`) --------------
 
-func _build_settlement_sublist() -> void:
+func _build_settlement_sublist(parent: Control) -> void:
 	var all := bridge.settlements()
 	var mine: Array = []
 	for i in all.size():
 		var s: Dictionary = all[i]
 		if int(s.get("faction", 0)) == _selected:
 			mine.append({"index": i, "data": s})
-	var grp := DccWidgets.group(_inspector_body, "Settlements (%d)" % mine.size(), false)
+	var grp := DccWidgets.group(parent, "Settlements (%d)" % mine.size(), false)
 	if mine.is_empty():
 		DccWidgets.note(grp, "No settlements yet. Paint territory or drop one with the Settlement tool.")
 		return
@@ -1165,23 +1478,25 @@ func _build_settlement_sublist() -> void:
 		b.tooltip_text = "Centre the map on it and open its editor -- the reference's own sublist row action."
 
 
-func _build_gaps() -> void:
-	var sec := DccWidgets.section(_inspector_body, "Not built")
-	## Corrected 2026-09-24 (audit B18): it listed food, exports/imports and
-	## strategic resources as unbuilt, but `civilization_workspace.gd::
-	## _fill_faction_economy` draws them (Economy ▸ By faction, off
-	## `civ_faction_economy`). Still undrawn anywhere: `FactionPower`'s four
-	## non-military axes, `tax_income`, trade income, `craft_share` -- all from
-	## `_civFactionAggregates`. Relationships is CV-26.
+## The "Not built" block, now at the foot of the Economy tab because what it
+## lists is economic: the Power breakdown's non-military axes, tax and trade
+## income, craft share. (Its old second paragraph, on relations, moved to the
+## Relations placeholder, where it belongs.)
+##
+## Corrected 2026-09-24 (audit B18): it listed food, exports/imports and
+## strategic resources as unbuilt, but `civilization_workspace.gd::
+## _fill_faction_economy` draws them (Economy ▸ By faction, off
+## `civ_faction_economy`). Still undrawn anywhere: `FactionPower`'s four
+## non-military axes, `tax_income`, trade income, `craft_share` -- all from
+## `_civFactionAggregates`.
+func _build_gaps(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(sec,
 		"Not shown in this window: the Power breakdown's four remaining axes (economic, "
 		+ "political, cultural, religious), tax income, trade income and craft share. The "
-		+ "military axis and the manpower model above are live. A faction's food capacity and "
-		+ "surplus, exports, imports and strategic resources are under Civilization ▸ Economy "
-		+ "▸ By faction.\n"
-		+ "Relations between factions are under Civilization ▸ Relationships: a derived value "
-		+ "per faction pair, recomputed rather than stored. What is still absent there is "
-		+ "anything that acts -- treaties, vassalage, war declarations, change over time.")
+		+ "military axis and the manpower model are live, on the Military tab. A faction's food "
+		+ "capacity and surplus, exports, imports and strategic resources are under Civilization "
+		+ "▸ Economy ▸ By faction.")
 
 
 # -- Roster mutation --------------------------------------------------------
@@ -1192,7 +1507,7 @@ func _add_faction() -> void:
 		app.set_status("hint", "Generate a world before adding a faction.", "accent")
 		return
 	_selected = id
-	_fits = bridge.civ_faction_terrain_fits()
+	_mark_data_stale()
 	_rebuild()
 	app.set_status("hint",
 		"Faction %d added — it owns nothing until you paint territory or reassign a settlement." % id,
@@ -1217,7 +1532,7 @@ func _confirm_remove() -> void:
 		func():
 			if bridge.civ_remove_faction():
 				_selected = mini(_selected, bridge.civ_faction_count())
-				_fits = bridge.civ_faction_terrain_fits()
+				_mark_data_stale()
 				roster_changed.emit()
 				_rebuild())
 
@@ -1226,8 +1541,19 @@ func _set_field(key: String, value: String) -> void:
 	if not bridge.civ_set_faction_field(_selected, key, value):
 		app.set_status("hint", "Rejected — %s is not a value the engine recognises." % value, "accent")
 	if key == "culture":
-		## The verdict is a function of culture; nothing else here changes it.
+		## The Territory verdict is a function of culture, and the manpower model
+		## reads it too, so both caches go stale and every tab is rebuilt on its
+		## next show. The visible pane is rebuilt now, as it always was.
+		_mark_data_stale()
 		_rebuild_inspector()
+	elif key == "government" or key == "ag_tech":
+		## Neither is shown outside Identity, but the Military tab's whole answer
+		## moves with both (they are two of the manpower model's five variables):
+		## it used to keep showing the pre-edit numbers until the hub was reopened.
+		## The visible Identity pane keeps its focused control; only the other,
+		## hidden panes are dropped, to be rebuilt on their next show.
+		_mark_data_stale()
+		_drop_panes(_tab)
 	elif key == "name":
 		_rebuild_list()
 		_rebuild_overview()

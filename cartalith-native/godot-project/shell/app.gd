@@ -4139,8 +4139,13 @@ func open_place_editor(index: int) -> void:
 ## The Faction Roster modal (`civOpenFactionsBtn`). `faction` is a faction id to
 ## land on (the context card's CIVIL "Open <name> in roster" row), or `-1` to
 ## reopen on the last-selected faction -- see `FactionRosterWindow.open()`.
-func open_faction_roster(faction: int = -1) -> void:
-	faction_roster_window.open(faction)
+## `tab` is a hub tab id (`FactionRosterWindow.TAB_IDS`: identity, territory,
+## settlements, economy, military, relations, history); empty or unknown means
+## "the tab last used this session, else identity". It is only passed through
+## here -- the window owns the validation, so a caller can never leave the hub
+## on a tab that does not exist.
+func open_faction_roster(faction: int = -1, tab: String = "") -> void:
+	faction_roster_window.open(faction, tab)
 
 ## `GUI_GAP_REGISTER.md` CV-02's Culture profiles window.
 func open_culture_profiles() -> void:
