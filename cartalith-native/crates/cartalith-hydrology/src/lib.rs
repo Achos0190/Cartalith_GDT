@@ -1285,11 +1285,20 @@ pub struct RiverDrawPlan {
 /// before giving up on it. A labelled judgement from the measured undrawn
 /// path lengths (`tests/river_gap_harness.rs`, 2048x1311 at 800 km, three
 /// seeds): 87-94% of loose ends reach the next river or water within 24 cells
-/// (median 5-6) and the rest are >24 or never reached; a longer cap would draw
-/// invented rivers across plains that the channel mask itself did not call a
-/// river. Mutation-tested: `river_gap_bars` and the plan's unit tests fail
-/// when it is 0 or 1.
-pub const BRIDGE_WALK_CELLS: usize = 24;
+/// (median 5-6), which was the first cap. The ones that did not were
+/// diagnosed one by one (OUTSTANDING_WORK.md "Residual river loose ends after
+/// the downhill bridge"): two ORDER-2 rivers (flows ~16 000 and ~10 000) whose
+/// receiver paths join an order-3 trunk after 32 and 41 cells, a heavy river
+/// continuing into its own trunk rather than an invented river across plains.
+/// 48 closes both. Measured at 24 / 48 / 96 on the three seeds: drawn length
+/// growth +2.65/+2.10/+2.28% -> +2.82/+2.10/+2.48% (bar 10%), loose ends
+/// 2/1/2 -> 0/1/1, new loose ends 0, crossings 0, runs doubled 0, and 96 is
+/// identical to 48 (nothing arrives between 49 and 96 cells, so a longer cap
+/// buys nothing). Cost: on seed 71077345 the longest walk adds 17 uphill
+/// steps against the raw field, max rise 5.6e-4 against the bar's 1e-3.
+/// Mutation-tested: `river_gap_bars` and the plan's unit tests fail when it is
+/// 0 or 1, and the boundary test pins it exactly.
+pub const BRIDGE_WALK_CELLS: usize = 48;
 
 /// Fewest own cells alongside another run before a run counts as a parallel
 /// duplicate rather than a tributary meeting it (see [`RiverDrawPlan`]).
@@ -1512,7 +1521,12 @@ pub fn river_draw_plan(
                 None => return false,
             }
         }
-        true // a cycle among the runs: refuse
+        // A cycle among the runs that never reaches `i` (two runs bridged onto
+        // each other's mouths, measured on seed 483920, runs 577 and 583):
+        // `j` does not drain into `i`, so a join is no loop. Refusing here (the
+        // first version returned `true`) abandoned every walk that met such a
+        // cycle, two of the seven residual loose ends.
+        false
     };
     for &i in &order {
         if plan.parallel_of[i].is_some() || plan.bridge[i].is_some() {
@@ -1562,9 +1576,13 @@ pub fn river_draw_plan(
             // (`PARALLEL_MIN_CELLS`). A hidden cell beyond that reach is no
             // band at all (the hidden run's own far tail, measured on seeds
             // 483920/24601/71077345) and is walked like any other land cell.
-            if hug[nx] != usize::MAX {
+            // A hidden run hugging THIS run's own line is no band to join and no
+            // river that drains into it: it is the run's own hidden twin lying
+            // along its mouth (seed 483920, run 1080), so the walk steps over
+            // it like any land cell instead of giving up beside the join.
+            if hug[nx] != usize::MAX && hug[nx] != i {
                 let hj = hug[nx];
-                if hj == i || drains_into(&down, hj, i) {
+                if drains_into(&down, hj, i) {
                     break;
                 }
                 if let Some((_, q)) = window(nx, r_max).into_iter().find(|&(_, q)| drawn[q] == hj) {
@@ -4453,14 +4471,16 @@ mod tests {
     /// Protects: "never invent a river where no channel leads" -- every way a
     /// walk can fail abandons it WHOLE (no stub): no receiver, a step across
     /// the x seam (the runs are cut there; the helpers do not wrap x), a loop,
-    /// and one cell past [`BRIDGE_WALK_CELLS`]; while a walk that arrives on
+    /// and one cell past [`BRIDGE_WALK_CELLS`] (48); while a walk that arrives on
     /// exactly the last allowed step is kept (the cap's boundary, so a
     /// mutation of the constant in either direction fails).
     #[test]
     fn extension_is_abandoned_whole_when_it_cannot_arrive() {
         let (w, h) = (60usize, 20usize);
         let target_x = |steps: usize| 3 + steps + 3; // arrives `steps` cells east of the mouth (3,2)
-        for (steps, kept) in [(super::BRIDGE_WALK_CELLS, true), (super::BRIDGE_WALK_CELLS + 1, false)] {
+        // The literals are the cap and one past it (48, see the constant's doc), not
+        // the constant itself: a test that reads the constant back cannot fail when it moves.
+        for (steps, kept) in [(48, true), (49, false)] {
             let (fld, mut flow, mut next, water) = ext_grid(w, h);
             let f: Vec<(usize, usize)> = (1..4).map(|x| (x, 2)).collect();
             let g: Vec<(usize, usize)> = (0..5).map(|y| (target_x(steps), y)).collect();
@@ -4524,6 +4544,53 @@ mod tests {
         assert_eq!(plan.parallel_of[3], Some(2), "the run beside the trunk stays hidden");
         let none = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
         assert_eq!(plan.parallel_of, none.parallel_of, "extension never changes what is hidden");
+    }
+
+    /// Protects: the no-false-confluence guard's cycle case. Two runs bridged
+    /// onto each other's mouths (`x` and `y`, a pit-bridge pair measured on
+    /// seed 483920) form a cycle in the drains-into chain that never contains
+    /// a third run `i`; `i`'s walk arrives within reach of `y` and must join
+    /// it. The first version of `drains_into` answered "refuse" for any cycle
+    /// and abandoned the walk, so this fails on that code.
+    #[test]
+    fn extension_joins_a_run_that_sits_in_a_bridge_cycle() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let x: Vec<(usize, usize)> = (5..10).map(|px| (px, 8)).collect();
+        let y: Vec<(usize, usize)> = (10..16).rev().map(|px| (px, 9)).collect();
+        let i: Vec<(usize, usize)> = (1..4).map(|py| (20, py)).collect();
+        let rivers = vec![run(&x, w, &mut flow, 50.0), run(&y, w, &mut flow, 40.0), run(&i, w, &mut flow, 10.0)];
+        ext_chain(&mut next, w, &[(20, 3), (19, 4), (18, 5), (17, 6), (16, 7)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert!(
+            plan.bridge[0].is_some() && plan.bridge[1].is_some() && plan.parallel_of[..2] == [None, None],
+            "the fixture's pair is bridged onto each other, both drawn: {:?} {:?}",
+            plan.bridge[0],
+            plan.bridge[1]
+        );
+        assert!(plan.bridge[2].is_some(), "`i` joins a run that is only part of a cycle, not one that drains into it");
+        assert_eq!(plan.extension[2].last(), Some(&(16.5, 7.5)));
+    }
+
+    /// Protects: a walk steps over the hidden twin of its OWN run. `t` is
+    /// hidden because it lies alongside `i` (the heavier run) for most of its
+    /// length, but its tail reaches past `i`'s mouth, onto the receiver path
+    /// `i` must take. That is neither a band to join nor a run that drains
+    /// into `i`; abandoning there (the first version did, treating a hug of
+    /// `i` as a drain into `i`) left `i` loose beside a trunk 4 cells on.
+    #[test]
+    fn extension_steps_over_the_hidden_twin_of_its_own_run() {
+        let (w, h) = (40usize, 20usize);
+        let (fld, mut flow, mut next, water) = ext_grid(w, h);
+        let i: Vec<(usize, usize)> = (5..15).map(|px| (px, 10)).collect();
+        let t: Vec<(usize, usize)> = (10..17).map(|px| (px, 11)).collect();
+        let z: Vec<(usize, usize)> = (10..17).map(|py| (19, py)).collect();
+        let rivers = vec![run(&i, w, &mut flow, 50.0), run(&t, w, &mut flow, 20.0), run(&z, w, &mut flow, 100.0)];
+        ext_chain(&mut next, w, &[(14, 10), (15, 11), (16, 12), (17, 13)]);
+        let plan = super::river_draw_plan(&rivers, &flow, &fld, 0.42, w, h, &next, &water);
+        assert_eq!(plan.parallel_of, vec![None, Some(0), None], "the fixture's `t` is the hidden twin of `i`");
+        assert_eq!(plan.extension[0], vec![(15.5, 11.5), (16.5, 12.5)], "stepped over `t`'s tail to the trunk");
+        assert_eq!(plan.bridge[0], Some((19.5, 12.5)));
     }
 
     /// Protects: later walks join an earlier run's extension instead of drawing

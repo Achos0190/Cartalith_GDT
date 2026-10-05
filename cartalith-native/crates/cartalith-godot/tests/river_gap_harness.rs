@@ -164,6 +164,15 @@ struct Gaps {
     /// or a teleport), and steps whose routing-surface height rises.
     non_adjacent_steps: usize,
     uphill_steps: usize,
+    /// One line per remaining loose end saying why the downhill walk did not
+    /// arrive (see [`explain_loose`]); report only, never a bar.
+    diag: Vec<String>,
+    /// Runs whose extension ended beside water with no bridge (a new river
+    /// mouth) and that pass the delta-fan eligibility `river_delta::MIN_ORDER`
+    /// (on the run's highest Strahler order, a superset of `own_order`) and
+    /// `MIN_DISCHARGE_FRAC`: `(run, order, discharge, extension cells, mouth cell
+    /// x, y)`. These are where a delta fan can newly appear; report only.
+    new_mouths: Vec<(usize, i16, f32, usize, usize, usize)>,
 }
 
 /// One drawn network's end classification: how each drawn run ends.
@@ -345,6 +354,297 @@ fn water_path(
     (None, None)
 }
 
+/// Replays, at its symbols, the downhill walk `river_draw_plan` made (or would
+/// have made) from loose end `run`, and says in one line why it did not arrive:
+/// the first step at which the walk met no receiver, the x seam, a loop, the
+/// run's own cell, a cell of a run that drains into it, or only arrived beyond
+/// `BRIDGE_WALK_CELLS` -- with the cell, the run it met and that run's order.
+///
+/// Report only. It mirrors the plan's checks in the plan's order (own-cell,
+/// join window, hidden-run hug, other run's cell, wet) over the FINAL plan, so
+/// where it says a join was available at step `k` the plan itself must have
+/// declined it for a reason named here (`drains_into`), and it never changes a
+/// plan. Must never be read as a bar: it is a diagnosis aid.
+#[allow(clippy::too_many_arguments)]
+fn explain_loose(
+    rivers: &[River],
+    plan: &cartalith_hydrology::RiverDrawPlan,
+    water: &[u8],
+    down: &[i32],
+    field: &[f32],
+    sea: f64,
+    gw: usize,
+    gh: usize,
+    run: usize,
+) -> String {
+    let n = gw * gh;
+    let cell_of = |p: (f64, f64)| (p.1 as usize).min(gh - 1) * gw + (p.0 as usize).min(gw - 1);
+    let wid = |i: usize| rivers[i].half_width_cells.map_or(1.0, |hw| 2.0 * hw);
+    let max_w = (0..rivers.len()).map(wid).fold(1.0f64, f64::max);
+    let reach = |i: usize, o: usize| (wid(i) + wid(o)) * 0.5 + PARALLEL_GAP_CELLS;
+    let (mut drawn, mut claimed, mut hug) = (vec![usize::MAX; n], vec![usize::MAX; n], vec![usize::MAX; n]);
+    for (i, r) in rivers.iter().enumerate() {
+        if plan.parallel_of[i].is_none() {
+            for &p in &r.pts {
+                let c = cell_of(p);
+                if drawn[c] == usize::MAX {
+                    drawn[c] = i;
+                }
+            }
+        }
+    }
+    for (i, _) in rivers.iter().enumerate() {
+        for &p in &plan.extension[i] {
+            let c = cell_of(p);
+            if drawn[c] == usize::MAX && claimed[c] == usize::MAX {
+                claimed[c] = i;
+            }
+        }
+    }
+    for (i, r) in rivers.iter().enumerate() {
+        if let Some(j) = plan.parallel_of[i] {
+            for &p in &r.pts {
+                let c = cell_of(p);
+                if drawn[c] == usize::MAX && hug[c] == usize::MAX {
+                    hug[c] = j;
+                }
+            }
+        }
+    }
+    // Where each drawn run drains: the plan's own `down`, rebuilt from the plan.
+    let drains: Vec<Option<usize>> = (0..rivers.len())
+        .map(|i| {
+            if plan.parallel_of[i].is_some() {
+                return None;
+            }
+            let m = rivers[i].mouth as usize;
+            if drawn[m] != i {
+                Some(drawn[m]).filter(|&j| j != usize::MAX)
+            } else {
+                plan.bridge[i]
+                    .map(|b| if drawn[cell_of(b)] != usize::MAX { drawn[cell_of(b)] } else { claimed[cell_of(b)] })
+                    .filter(|&j| j != usize::MAX)
+            }
+        })
+        .collect();
+    let drains_into = |mut j: usize, i: usize| -> bool {
+        for _ in 0..=rivers.len() {
+            if j == i {
+                return true;
+            }
+            match drains[j] {
+                Some(k) => j = k,
+                None => return false,
+            }
+        }
+        // A cycle that never reaches `i` is no drain into `i` (mirrors the plan's
+        // own `drains_into`, which stopped refusing such a join).
+        false
+    };
+    let wet = |c: usize| water[c] != 0 || field[c] as f64 <= sea;
+    let wet_near = |c: usize| {
+        let (x, y) = ((c % gw) as i64, (c / gw) as i64);
+        (-1..=1).any(|dy| {
+            (-1..=1).any(|dx| {
+                let (nx, ny) = (x + dx, y + dy);
+                nx >= 0 && ny >= 0 && (nx as usize) < gw && (ny as usize) < gh && wet(ny as usize * gw + nx as usize)
+            })
+        })
+    };
+    let m = cell_of(*rivers[run].pts.last().unwrap());
+    let r_max = wid(run) * 0.5 + max_w * 0.5 + PARALLEL_GAP_CELLS;
+    let k_win = r_max.floor() as i64;
+    let head = format!(
+        "run {run} (order {}, flow {:.0}, {} traced cells) mouth ({}, {}), mouth is run's own end: {}",
+        rivers[run].order,
+        rivers[run].discharge,
+        rivers[run].pts.len(),
+        m % gw,
+        m / gw,
+        drawn[rivers[run].mouth as usize] == run
+    );
+    // Context for the reader: the nearest cell of any other drawn run within 12
+    // cells of the end, and whether that run drains into this one, plus every
+    // cell of the water's own path that is not free land (step, cell, owner).
+    let (mx, my) = ((m % gw) as i64, (m / gw) as i64);
+    let mut near: Option<(f64, usize, usize)> = None;
+    for dy in -12..=12i64 {
+        for dx in -12..=12i64 {
+            let (qx, qy) = (mx + dx, my + dy);
+            if qx < 0 || qy < 0 || qx as usize >= gw || qy as usize >= gh {
+                continue;
+            }
+            let q = qy as usize * gw + qx as usize;
+            let j = if drawn[q] != usize::MAX { drawn[q] } else { claimed[q] };
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            if j != usize::MAX && j != run && near.is_none_or(|b| d < b.0) {
+                near = Some((d, q, j));
+            }
+        }
+    }
+    let near_s = near.map_or("none within 12".to_string(), |(d, q, j)| {
+        format!("nearest other run {j} (order {}, drains into this one: {}) at ({}, {}) gap {d:.1}", rivers[j].order, drains_into(j, run), q % gw, q / gw)
+    });
+    let mut events = String::new();
+    {
+        let mut c = m;
+        for step in 1..=PATH_LIMIT.min(80) {
+            let nx = down[c];
+            if nx < 0 || nx as usize >= n {
+                break;
+            }
+            let nx = nx as usize;
+            let o = if drawn[nx] != usize::MAX { drawn[nx] } else { claimed[nx] };
+            if o != usize::MAX {
+                events += &format!(" [{step}: ({}, {}) run {o}]", nx % gw, nx / gw);
+            } else if hug[nx] != usize::MAX {
+                events += &format!(" [{step}: ({}, {}) hidden, hugs {}]", nx % gw, nx / gw, hug[nx]);
+            }
+            if wet(nx) {
+                events += &format!(" [{step}: water]");
+                break;
+            }
+            c = nx;
+        }
+    }
+    // How each run the path meets drains, by the plan's own graph (mouth owner,
+    // else bridge target), so a "drains into this one" verdict can be audited.
+    let describe = |j: usize| -> String {
+        let mut chain = vec![j];
+        let mut c = j;
+        for _ in 0..12 {
+            match drains[c] {
+                Some(k) if !chain.contains(&k) => {
+                    chain.push(k);
+                    c = k;
+                }
+                Some(k) => {
+                    chain.push(k);
+                    break;
+                }
+                None => break,
+            }
+        }
+        let (h, mo) = (cell_of(rivers[j].pts[0]), cell_of(*rivers[j].pts.last().unwrap()));
+        format!(
+            "run {j}: head ({}, {}) mouth ({}, {}) {} traced, bridge {:?}, ext {}, drains {:?}",
+            h % gw,
+            h / gw,
+            mo % gw,
+            mo / gw,
+            rivers[j].pts.len(),
+            plan.bridge[j].map(|b| (b.0 as usize, b.1 as usize)),
+            plan.extension[j].len(),
+            chain
+        )
+    };
+    let mut met: Vec<usize> = Vec::new();
+    if let Some((_, _, j)) = near {
+        met.push(j);
+    }
+    {
+        let mut c = m;
+        for _ in 0..PATH_LIMIT.min(80) {
+            let nx = down[c];
+            if nx < 0 || nx as usize >= n {
+                break;
+            }
+            let nx = nx as usize;
+            let o = if drawn[nx] != usize::MAX { drawn[nx] } else { claimed[nx] };
+            let o = if o != usize::MAX { o } else { hug[nx] };
+            if o != usize::MAX && o != run && !met.contains(&o) {
+                met.push(o);
+            }
+            if met.len() >= 4 {
+                break;
+            }
+            c = nx;
+        }
+    }
+    // `RG_DESC=run,run` prints extra runs the diagnosis needs (a debugging aid).
+    if let Ok(v) = std::env::var("RG_DESC") {
+        for j in v.split(',').filter_map(|t| t.trim().parse::<usize>().ok()).filter(|&j| j < rivers.len()) {
+            if !met.contains(&j) {
+                met.push(j);
+            }
+        }
+    }
+    let ctx: Vec<String> = met.iter().map(|&j| describe(j)).collect();
+    let head = format!("{head}; {near_s}; path events:{events}; RUNS MET: {}; THIS {}", ctx.join(" | "), describe(run));
+    let (mut cur, mut path): (usize, Vec<usize>) = (m, Vec::new());
+    for step in 1..=PATH_LIMIT {
+        let nx = down[cur];
+        if nx < 0 || nx as usize >= n {
+            return format!("{head}: NO RECEIVER at step {step} on cell ({}, {}) (land pit, field {:.4})", cur % gw, cur / gw, field[cur]);
+        }
+        let nx = nx as usize;
+        if (nx % gw).abs_diff(cur % gw) > 1 || (nx / gw).abs_diff(cur / gw) > 1 {
+            return format!("{head}: SEAM wrap at step {step} ((x {}) -> (x {}))", cur % gw, nx % gw);
+        }
+        if nx == m || drawn[nx] == run || path.contains(&nx) {
+            return format!("{head}: LOOP / own cell at step {step} on ({}, {})", nx % gw, nx / gw);
+        }
+        let late = if step > cartalith_hydrology::BRIDGE_WALK_CELLS { " [BEYOND the cap]" } else { "" };
+        // The plan's join window around nx.
+        let mut join: Option<(usize, usize, f64, bool)> = None;
+        let (x, y) = ((nx % gw) as i64, (nx / gw) as i64);
+        let mut cands: Vec<(f64, usize)> = Vec::new();
+        for dy in -k_win..=k_win {
+            for dx in -k_win..=k_win {
+                let (qx, qy) = (x + dx, y + dy);
+                if qx < 0 || qy < 0 || qx as usize >= gw || qy as usize >= gh {
+                    continue;
+                }
+                let d = ((dx * dx + dy * dy) as f64).sqrt();
+                if d <= r_max {
+                    cands.push((d, qy as usize * gw + qx as usize));
+                }
+            }
+        }
+        cands.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for &(d, q) in &cands {
+            let j = if drawn[q] != usize::MAX { drawn[q] } else { claimed[q] };
+            if j != usize::MAX && j != run && d <= reach(run, j) {
+                let di = drains_into(j, run);
+                if join.is_none() && !di {
+                    join = Some((q, j, d, di));
+                }
+            }
+        }
+        if let Some((q, j, d, _)) = join {
+            return format!(
+                "{head}: WOULD JOIN run {j} (order {}) cell ({}, {}) at step {step}{late}, gap {d:.1} -- plan walk should have arrived",
+                rivers[j].order,
+                q % gw,
+                q / gw
+            );
+        }
+        // A hug of the run's OWN line is stepped over, as the plan does.
+        if hug[nx] != usize::MAX && hug[nx] != run {
+            let hj = hug[nx];
+            if drains_into(hj, run) {
+                return format!("{head}: HIDDEN-hug cell of run {hj} at step {step} ({}, {}) drains into this run -> abandoned", nx % gw, nx / gw);
+            }
+        }
+        if drawn[nx] != usize::MAX || claimed[nx] != usize::MAX {
+            let j = if drawn[nx] != usize::MAX { drawn[nx] } else { claimed[nx] };
+            return format!(
+                "{head}: step {step} on a cell of run {j} (order {}) at ({}, {}); that run drains into this one: {} -> abandoned",
+                rivers[j].order,
+                nx % gw,
+                nx / gw,
+                drains_into(j, run)
+            );
+        }
+        path.push(nx);
+        if wet_near(nx) {
+            return format!("{head}: reaches WATER at step {step}{late} at ({}, {})", nx % gw, nx / gw);
+        }
+        cur = nx;
+    }
+    format!("{head}: NEVER ARRIVES within {PATH_LIMIT} steps (last cell ({}, {}), field {:.4})", cur % gw, cur / gw, field[cur])
+}
+
 /// Counts every gap on one generated world. See the module doc for the
 /// definitions; `km` is the map width the thresholds scale with.
 fn measure(ws: &WorldState, world: bool, km: f64, gw: usize, gh: usize) -> Gaps {
@@ -420,6 +720,22 @@ fn measure(ws: &WorldState, world: bool, km: f64, gw: usize, gh: usize) -> Gaps 
         g.loose_at.push((ec % gw, ec / gw, gap, path));
         if to_water {
             g.loose_to_water += 1;
+        }
+        g.diag.push(format!(
+            "gap {gap:.1}, water path {path:?}: {}",
+            explain_loose(&rivers, &plan, &water, &down, &ws.field, ws.sea_level, gw, gh, run)
+        ));
+    }
+    // Where a delta fan can newly appear: an extension that ends beside water
+    // with no bridge is a new river mouth. `river_delta`'s gates (MIN_ORDER 3,
+    // MIN_DISCHARGE_FRAC 2e-4 of the grid's cells) live in the cdylib and cannot
+    // be linked from here, so they are repeated as literals; the run's highest
+    // Strahler order is a superset of the fan's `own_order` test.
+    for (i, r) in rivers.iter().enumerate() {
+        if plan.parallel_of[i].is_none() && !plan.extension[i].is_empty() && plan.bridge[i].is_none() {
+            // Every such mouth is listed; `eligible` marks the fan gates.
+            let m = cell_of(*plan.extension[i].last().unwrap());
+            g.new_mouths.push((i, r.order, r.discharge, plan.extension[i].len(), m % gw, m / gw));
         }
     }
 
@@ -698,6 +1014,12 @@ fn river_gap_measurement() {
         );
         for l in &g.loose_at {
             println!("    remaining loose end at cell ({}, {}): gap {:.1}, undrawn water path {:?}", l.0, l.1, l.2, l.3);
+        }
+        for d in &g.diag {
+            println!("    DIAG {d}");
+        }
+        for m in &g.new_mouths {
+            println!("    extension reaches water with no bridge: run {} order {} discharge {:.0} (fan gate: order >= 3 and >= {:.0}) extension {} cells, ends at cell ({}, {})", m.0, m.1, m.2, 2.0e-4 * (gw * gh) as f32, m.3, m.4, m.5);
         }
         let mut paths: Vec<f64> = g.loose_path.iter().map(|p| p.map_or(f64::INFINITY, |s| s as f64)).collect();
         paths.sort_by(|a, b| a.total_cmp(b));
