@@ -609,6 +609,19 @@ func _rebuild() -> void:
 	_rebuild_list()
 	_rebuild_inspector()
 
+## FH-5: an edit made OUTSIDE this window moved what it shows -- the Place
+## editor's Polity picker repaints claims and moves a settlement between
+## factions (`civilization_workspace.gd::_on_polity_moved`). Unlike
+## `_on_world_changed` it keeps `_selected` and the active tab: the roster is
+## the same roster, only its numbers moved. The O(cells) caches are marked
+## stale so the Territory tab re-takes them; any focused field is committed
+## against the faction it was typed for first (FR-02), and `_rebuild()`'s
+## `_clear()` teardown runs under the `_rebuilding` guard as every rebuild does.
+func refresh_after_edit() -> void:
+	_commit_focused_field()
+	_mark_data_stale()
+	_rebuild()
+
 
 # -- World overview (`_civRenderFactionsWorldOverview`) ----------------------
 

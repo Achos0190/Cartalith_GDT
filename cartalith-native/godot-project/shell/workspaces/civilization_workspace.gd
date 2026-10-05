@@ -404,6 +404,7 @@ func _build() -> void:
 	## either window reaching into `viewport` itself.
 	app.place_editor_window.place_changed.connect(_on_civ_edited)
 	app.place_editor_window.place_deleted.connect(_on_civ_edited)
+	app.place_editor_window.polity_moved.connect(_on_polity_moved)
 	app.faction_roster_window.roster_changed.connect(_on_roster_changed)
 	app.faction_roster_window.tariff_changed.connect(_on_tariff_changed)
 
@@ -491,6 +492,22 @@ func _on_roster_changed() -> void:
 	## shows each value in the importer's currency. A redraw of what
 	## `TradeStore` holds, never a re-match -- a rate changes no flow.
 	_infra.refill_flows()
+	_on_civ_edited()
+
+## FH-5 (`FACTION_HUB_DESIGN.md` §5.2): the Place editor's Polity picker moved
+## claim-grid cells (`place_editor_window.gd::_do_polity_move`, emitted after
+## `civ_polity_reassign`). The same refresh a Territory-tool commit makes
+## (`_commit_territory`: the direct texture write, not `ViewportHost.refresh()`
+## and its camera reset), the Political-control field `_on_roster_changed`
+## re-asks for, the Factions hub when it is open (its claims, provinces and
+## settlement lists all moved), then `_on_civ_edited` for the pins, this dock and
+## the right dock -- one handler, so every surface agrees after the move.
+func _on_polity_moved() -> void:
+	app.viewport.territory_view.texture = bridge.territory_texture()
+	if app.viewport.debug_view() == "control":
+		app.viewport.set_debug_layer("control")
+	if app.faction_roster_window.visible:
+		app.faction_roster_window.refresh_after_edit()
 	_on_civ_edited()
 
 ## A tariff edit (Ruling AE, `faction_roster_window.gd::_set_tariff`) changes

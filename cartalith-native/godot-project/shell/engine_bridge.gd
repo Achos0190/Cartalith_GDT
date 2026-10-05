@@ -3106,6 +3106,29 @@ func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
 	mark_world_dirty()
 	return world_gen.civ_edit_settlement(index, fields)
 
+## FH-5 (`FACTION_HUB_DESIGN.md` §5.2 item 1): what moving settlement `index`
+## to polity `to` would repaint, without changing anything. `{}` means the
+## loaded engine has no such binding (an older DLL), which the caller must read
+## as "unknown", never as a refusal. Otherwise `ok` is always present; `reason`
+## and `message` only when `ok` is false. See the Rust doc comment
+## (`WorldGen::civ_polity_reassign_preview`) for every key.
+func civ_polity_reassign_preview(index: int, to: int) -> Dictionary:
+	if not _has("civ_polity_reassign_preview"):
+		return {}
+	return world_gen.civ_polity_reassign_preview(index, to)
+
+## FH-5: the move itself -- the same plan the preview reports, applied as
+## committed Territory paint plus the settlement's new `faction`. The project is
+## marked dirty only when the engine says it applied, and only after the call
+## (`MISTAKES.md`: emit/mark after the engine call).
+func civ_polity_reassign(index: int, to: int) -> Dictionary:
+	if not _has("civ_polity_reassign"):
+		return {}
+	var r: Dictionary = world_gen.civ_polity_reassign(index, to)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
+
 func civ_settlement_toggle_trait(index: int, key: String) -> bool:
 	if not _has("civ_settlement_toggle_trait"):
 		return false

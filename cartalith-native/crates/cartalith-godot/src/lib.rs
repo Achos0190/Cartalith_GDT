@@ -780,6 +780,306 @@ fn civ_commit_territory_paint(tools: &mut civ_tools_bridge::CivTools, civ: &mut 
     true
 }
 
+/// Why [`civ_polity_move_plan`] refused a polity move (`FACTION_HUB_DESIGN.md`
+/// §5.2). Each refusal changes nothing; [`PolityRefusal::key`] is the stable
+/// token the shell branches on, [`PolityRefusal::message`] the sentence it
+/// shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PolityRefusal {
+    /// `index` is not a settlement in the current list.
+    BadIndex,
+    /// The target is not `1..=count()` in the roster -- the same check
+    /// `civ_edit_settlement` makes (`FactionRoster::is_assignable`), §5.2
+    /// item 1. Unclaimed (`0`) is not assignable, which also means the paint
+    /// layer is never asked to paint "nobody", a value it cannot hold (`0` is
+    /// its fall-through, not an owner).
+    Unassignable,
+    /// No whole claim grid to move cells in: a reopened project whose archive
+    /// carried no `rasters/territory.i32` (`civ_from_project`), or a Territory
+    /// tool whose base is not this grid's size. §5.2's "Costs" paragraph: the
+    /// picker falls back to alternative B (§5.3) here and says why.
+    NoClaimGrid,
+    /// The settlement's own cell is outside the grid -- defensive; a placement
+    /// is always on the grid it was placed on.
+    OffGrid,
+    /// §5.2 item 3: `PaintLayer` holds `u8`, so a faction id above 255 cannot
+    /// be painted. Refused, never clamped -- `civ_tools_bridge::paint_value`'s
+    /// own rule (a clamp would paint a different faction).
+    PaintLimit,
+}
+
+impl PolityRefusal {
+    /// The token the shell branches on (`place_editor_window.gd::_change_polity`
+    /// falls back to a label-only edit on `"no_claim_grid"` and on nothing else).
+    fn key(self) -> &'static str {
+        match self {
+            Self::BadIndex => "bad_index",
+            Self::Unassignable => "unassignable",
+            Self::NoClaimGrid => "no_claim_grid",
+            Self::OffGrid => "off_grid",
+            Self::PaintLimit => "paint_limit",
+        }
+    }
+
+    /// The user-facing sentence for the status line.
+    fn message(self) -> &'static str {
+        match self {
+            Self::BadIndex => "no settlement at that index.",
+            Self::Unassignable => "that is not an assignable polity in this world's roster.",
+            Self::NoClaimGrid => {
+                "this project was reopened without its claim grid, so there are no cells to move."
+            }
+            Self::OffGrid => "the settlement's cell is outside the map grid.",
+            Self::PaintLimit => "territory paint holds polity ids 0 to 255, and this id is higher.",
+        }
+    }
+}
+
+/// What a polity move would do -- [`civ_polity_move_plan`]'s answer, which
+/// both the preview and the apply read, so the dialog cannot state a
+/// different move from the one made (`FACTION_HUB_DESIGN.md` §5.2 item 1).
+#[derive(Debug, Clone, PartialEq)]
+struct PolityMove {
+    /// The settlement's polity now (`A`).
+    from: i32,
+    /// The polity it moves to (`B`).
+    to: i32,
+    /// The cells that change owner from `A` to `B`, ascending. Empty when the
+    /// settlement's own cell is not `A`'s (it already stands on someone
+    /// else's land), and when `from == to`.
+    cells: Vec<usize>,
+    /// `Some(province id)` when the settlement seeds a province, so its whole
+    /// connected province moves; `None` when only its own cell does (§5.2
+    /// item 2, §9 Q1's default).
+    seed_province: Option<i32>,
+    /// §5.2 item 5: the settlement is a capital and `A` has no other capital,
+    /// so `A`'s computed territory disappears at the next Recompute (only
+    /// capitals project, `assign_territory`). Reported, never refused (§9 Q2).
+    loses_capital: bool,
+    /// §5.2 item 6: `A` owns cells now and owns none after the move. Allowed;
+    /// a faction with settlements and no land is a state the roster permits.
+    loses_last_cell: bool,
+}
+
+/// Plans moving settlement `index` to polity `to` (`FACTION_HUB_DESIGN.md`
+/// §5.2, owner decision 1). Pure: reads `civ` and the Territory tool's base,
+/// writes nothing, so [`WorldGen::civ_polity_reassign_preview`] can call it on
+/// `&self`.
+///
+/// **Cells (§5.2 item 2).** A 4-neighbour flood fill from the settlement's
+/// own cell over cells whose current owner is `A` and, when the settlement
+/// seeds a province, whose province is that province. Seeds and provinces
+/// come from a **fresh** `civ_generate_provinces` run over the current
+/// settlements and claim grid -- the very call [`civ_reprovince`] makes after
+/// the move -- not from the stored `civ.provinces` / `civ.province_list`:
+/// `civ_delete_settlement` shifts every later settlement index down without
+/// rebuilding provinces, so a stored `capital_settlement_index` can name the
+/// wrong place (or none) until the next Recompute or Territory commit. A seed
+/// is therefore exactly that function's definition: a Metropolis, Capital or
+/// City -- and, for a faction with none of those, its single most-populous
+/// place (its fallback), which a `kind` test would miss. Any other settlement
+/// takes only its own cell -- a labelled judgement (§9 Q1), not a measurement.
+///
+/// Cost: one `civ_generate_provinces` pass (O(cells x same-faction seeds),
+/// parallel) per plan -- the pass every Territory commit already pays.
+///
+/// **A settlement not standing on `A`'s land** moves no cells: the move is
+/// defined as the land `A` owns that belongs to the settlement, and a cell
+/// owned by a third polity (or nobody) is not `A`'s to give. Its `faction`
+/// still changes on apply.
+///
+/// Refuses (changing nothing) for an unknown index, an unassignable target,
+/// a missing claim grid and a target past the paint layer's `u8` (in that
+/// order, so a fallback to a label-only edit is only ever offered for a target
+/// `civ_edit_settlement` would accept).
+fn civ_polity_move_plan(
+    civ: &CivData,
+    tools: Option<&civ_tools_bridge::CivTools>,
+    gw: usize,
+    gh: usize,
+    index: usize,
+    to: i32,
+) -> Result<PolityMove, PolityRefusal> {
+    let s = civ.settlements.get(index).ok_or(PolityRefusal::BadIndex)?;
+    if !civ.faction_roster.is_assignable(to) {
+        return Err(PolityRefusal::Unassignable);
+    }
+    let n = gw * gh;
+    if !tools.is_some_and(|t| n > 0 && civ.territory.len() == n && t.territory_base.len() == n) {
+        return Err(PolityRefusal::NoClaimGrid);
+    }
+    // §5.2 item 3. Refused whenever the target is unpaintable, even for a
+    // move whose every cell would take the fall-through `0`: a polity whose
+    // land cannot be painted is one this rule cannot serve, and refusing it
+    // uniformly is simpler to state than "sometimes".
+    if u8::try_from(to).is_err() {
+        return Err(PolityRefusal::PaintLimit);
+    }
+    let (x, y) = (s.placement.x, s.placement.y);
+    if x >= gw || y >= gh {
+        return Err(PolityRefusal::OffGrid);
+    }
+    let from = s.placement.faction;
+    let own = y * gw + x;
+    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, gw, gh);
+    let seed_province = province_list.iter().find(|p| p.capital_settlement_index == index).map(|p| p.id);
+
+    let mut cells = Vec::new();
+    if from != to && civ.territory[own] == from {
+        // `territory == from` is implied by `provinces == pid` on a fresh
+        // raster (a province is only drawn on its own faction's cells); kept
+        // as the rule's own wording, so a mutation dropping it survives as an
+        // equivalent mutant.
+        let belongs = |c: usize| civ.territory[c] == from && seed_province.is_none_or(|pid| provinces[c] == pid);
+        match seed_province {
+            None => cells.push(own),
+            Some(_) => {
+                // Iterative flood fill (an explicit stack, never recursion: a
+                // province can be most of a 4096-wide map).
+                let mut seen = vec![false; n];
+                let mut stack = vec![own];
+                seen[own] = true;
+                while let Some(c) = stack.pop() {
+                    cells.push(c);
+                    let (cx, cy) = (c % gw, c / gw);
+                    let mut visit = |m: usize| {
+                        if !seen[m] && belongs(m) {
+                            seen[m] = true;
+                            stack.push(m);
+                        }
+                    };
+                    if cx > 0 {
+                        visit(c - 1);
+                    }
+                    if cx + 1 < gw {
+                        visit(c + 1);
+                    }
+                    if cy > 0 {
+                        visit(c - gw);
+                    }
+                    if cy + 1 < gh {
+                        visit(c + gw);
+                    }
+                }
+                cells.sort_unstable();
+            }
+        }
+    }
+
+    let loses_capital = from != to
+        && s.placement.capital
+        && !civ
+            .settlements
+            .iter()
+            .enumerate()
+            .any(|(j, o)| j != index && o.placement.faction == from && o.placement.capital);
+    let loses_last_cell = !cells.is_empty() && civ.territory.iter().filter(|&&t| t == from).count() == cells.len();
+    Ok(PolityMove { from, to, cells, seed_province, loses_capital, loses_last_cell })
+}
+
+/// Applies a [`civ_polity_move_plan`] answer: writes each moved cell into the
+/// Territory tool's committed paint layer, updates the claim grid to match,
+/// sets the settlement's `faction`, then rebuilds the provinces
+/// ([`civ_reprovince`]) -- in that order, because provinces are seeded from
+/// the settlements' factions and the moved place must seed `B`'s province, not
+/// `A`'s.
+///
+/// **Paint value (§5.2 item 4).** Where `B` already owns the cell in the
+/// *computed base*, the value written is `0` -- the fall-through
+/// `CivTools::paint_at`'s subtract writes -- not an explicit `B`, so moving a
+/// settlement back and forth leaves no stack of redundant paint, and a later
+/// Recompute keeps following the base there. Everywhere else it is `B`. This
+/// relies on `territory_base` being the *unpainted* computed answer, which
+/// `CivTools::rebase`'s own doc and `civ_rebase_territory_paint` (the Generate
+/// Roads re-base bug) exist to guarantee; `polity_reassign_tests` drives it
+/// through a real rebuild.
+///
+/// **Why the grid is written cell by cell rather than by
+/// `CivTools::recompose`.** On a consistent model (grid == base merged with
+/// paint) the two are identical -- a test asserts it -- but `recompose`
+/// rebuilds the whole grid, so on an inconsistent one it would also move cells
+/// this move never named. Writing only the planned cells keeps the move's own
+/// footprint the only thing that changes. The pending Territory draft is not
+/// touched (a stroke the user has not committed stays theirs to commit or
+/// discard).
+///
+/// Never refuses: the plan already did.
+fn civ_polity_move_apply(
+    civ: &mut CivData,
+    tools: &mut civ_tools_bridge::CivTools,
+    gw: usize,
+    gh: usize,
+    index: usize,
+    mv: &PolityMove,
+) {
+    let n = gw * gh;
+    let to_u8 = u8::try_from(mv.to).expect("civ_polity_move_plan refuses a target past u8 (PaintLimit)");
+    for &c in &mv.cells {
+        let base_is_to = tools.territory_base[c] == mv.to;
+        let value = if base_is_to { 0 } else { to_u8 };
+        // A `0` into a layer nobody has painted is already what it holds;
+        // allocating one for it would only make `civ_rebase_territory_paint`
+        // rebuild provinces on the next Recompute for no reason.
+        if value != 0 || tools.territory_paint.cells().is_some() {
+            tools.territory_paint.cells_mut(n)[c] = value;
+        }
+        civ.territory[c] = if base_is_to { tools.territory_base[c] } else { mv.to };
+    }
+    civ.settlements[index].placement.faction = mv.to;
+    civ_reprovince(civ, gw, gh);
+}
+
+/// One cell's side in km, `map_width_km / gw` -- the figure
+/// `civ_faction_territory_stats` squares for its `area_km2`, so the polity
+/// move's `km2` and the Territory tab's area are the same unit by
+/// construction. `0` for an empty grid rather than a division by zero.
+fn polity_cell_km(map_width_km: f64, gw: usize) -> f64 {
+    if gw > 0 { map_width_km / gw as f64 } else { 0.0 }
+}
+
+/// The polity calls' answer before any `generate()`: no civ layer at all.
+/// Its own token rather than `no_claim_grid`, because the shell's fallback to
+/// a label-only edit would have no settlement to label either.
+fn polity_no_world() -> VarDictionary {
+    dict! { "ok" => false, "reason" => "no_world", "message" => "generate a world first." }
+}
+
+/// The one dictionary both polity `#[func]`s return
+/// (`WorldGen::civ_polity_reassign_preview` lists its keys). Built from the
+/// plan and the roster only; absent facts are omitted keys, never stand-in
+/// values (`province` exists only for a province seed; a refusal carries no
+/// cell count at all, since none was computed).
+fn polity_move_dict(civ: &CivData, plan: &Result<PolityMove, PolityRefusal>, cell_km: f64) -> VarDictionary {
+    match plan {
+        Err(r) => dict! { "ok" => false, "reason" => r.key(), "message" => r.message() },
+        Ok(mv) => {
+            let name = |f: i32| {
+                usize::try_from(f)
+                    .ok()
+                    .and_then(|f| civ.faction_roster.0.get(f))
+                    .map_or_else(|| format!("Polity {f}"), |e| e.name.clone())
+            };
+            let mut d = dict! {
+                "ok" => true,
+                "changed" => mv.from != mv.to,
+                "from" => mv.from,
+                "to" => mv.to,
+                "from_name" => name(mv.from).as_str(),
+                "to_name" => name(mv.to).as_str(),
+                "cells" => mv.cells.len() as i64,
+                "km2" => mv.cells.len() as f64 * cell_km * cell_km,
+                "loses_capital" => mv.loses_capital,
+                "loses_last_cell" => mv.loses_last_cell,
+                "one_cell_only" => mv.seed_province.is_none(),
+            };
+            if let Some(pid) = mv.seed_province {
+                d.set("province", pid);
+            }
+            d
+        }
+    }
+}
+
 /// Empties the Territory tool's whole model -- the accumulated paint layer,
 /// any uncommitted draft, and the base the two merge over -- by re-basing it
 /// on `civ.territory`, which the caller has just emptied. All three, or the
@@ -901,7 +1201,7 @@ mod civ_merge_tests {
     /// A `CivData` whose every derived field holds exactly `n` entries, so a
     /// merged result says field by field which side it came from. Contents
     /// are irrelevant and deliberately uniform — only the count is read.
-    fn tagged(n: usize) -> CivData {
+    pub(super) fn tagged(n: usize) -> CivData {
         CivData {
             settlements: (0..n)
                 .map(|i| NamedSettlement {
@@ -1372,6 +1672,402 @@ mod civ_merge_tests {
 /// "Four map-data defects", at the plain-function seams a unit test can
 /// reach (`WorldGen` itself is a `GodotClass` and cannot be built here; the
 /// windowed `_mapdata_probe.gd` drives the `#[func]`s).
+/// FH-5 (`FACTION_HUB_DESIGN.md` §5.2): the Polity picker's land move, driven
+/// through the same free functions the two `#[func]`s call
+/// ([`civ_polity_move_plan`], [`civ_polity_move_apply`]) -- the `#[func]`s
+/// themselves build Godot dictionaries and cannot run under `cargo test`
+/// (`landmark_dict_tests` says why).
+///
+/// The fixture is a 7x4 world, cell index `y * 7 + x`:
+///
+/// ```text
+///   x: 0 1 2 3 4 5 6
+/// y0:  1 1 1 0 2 2 2     s0 Capital f1 (0,0)    s3 Capital f2 (6,0)
+/// y1:  1 1 1 0 2 2 2
+/// y2:  1 1 1 0 2 2 2     s2 Village f1 (1,2)
+/// y3:  1 3 1 0 2 2 2     s1 City f1 (2,3)       s4 Village f3 (1,3)
+/// ```
+///
+/// Column 3 is unclaimed, so faction 1's land and faction 2's never touch.
+/// Faction 1's provinces (nearest same-faction seed, ties to the first) are
+/// s0's `1` and s1's `2`; s1's province is `{9, 15, 16, 21, 23}`, of which
+/// `21` (0,3) is cut off from s1 by faction 3's cell `22` and by province 1's
+/// `14` -- the connectivity case. Faction 3 has no Metropolis/Capital/City,
+/// so `civ_generate_provinces` seeds it from its largest place, s4 (province
+/// `4`): the fallback-seed case.
+#[cfg(test)]
+mod polity_reassign_tests {
+    use super::civ_merge_tests::tagged;
+    use super::{
+        CivData, PolityMove, PolityRefusal, civ_polity_move_apply, civ_polity_move_plan, civ_rebase_territory_paint,
+        civ_reprovince, civ_tools_bridge::CivTools,
+    };
+    use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
+
+    const GW: usize = 7;
+    const GH: usize = 4;
+
+    /// One settlement; `capital` follows `kind`, `place_settlements`' own
+    /// invariant (`civ_edit_settlement` keeps it the same way).
+    fn place(tid: u64, x: usize, y: usize, faction: i32, kind: SettlementKind, pop: u32) -> NamedSettlement {
+        NamedSettlement {
+            tid,
+            placement: SettlementPlacement {
+                x,
+                y,
+                suit: 0.5,
+                faction,
+                capital: kind == SettlementKind::Capital,
+                kind,
+                coastal: false,
+            },
+            name: format!("P{tid}"),
+            pop,
+        }
+    }
+
+    /// The computed (unpainted) base drawn in the module doc.
+    fn base() -> Vec<i32> {
+        let mut t = Vec::with_capacity(GW * GH);
+        for y in 0..GH {
+            for x in 0..GW {
+                t.push(match (x, y) {
+                    (1, 3) => 3,
+                    (0..=2, _) => 1,
+                    (3, _) => 0,
+                    _ => 2,
+                });
+            }
+        }
+        t
+    }
+
+    /// The world in the module doc, with provinces built by the real
+    /// `civ_generate_provinces` and a Territory tool based on the same grid.
+    fn world() -> (CivData, CivTools) {
+        let mut civ = tagged(0);
+        civ.settlements = vec![
+            place(1, 0, 0, 1, SettlementKind::Capital, 5000),
+            place(2, 2, 3, 1, SettlementKind::City, 3000),
+            place(3, 1, 2, 1, SettlementKind::Village, 100),
+            place(4, 6, 0, 2, SettlementKind::Capital, 4000),
+            place(5, 1, 3, 3, SettlementKind::Village, 50),
+        ];
+        civ.territory = base();
+        civ_reprovince(&mut civ, GW, GH);
+        assert_eq!(civ.provinces.len(), GW * GH, "fixture: provinces were built");
+        assert_eq!(civ.province_list.len(), 4, "fixture: s0, s1, s3 and s4 seed provinces");
+        let tools = CivTools::new(GW, GH, base(), 1);
+        (civ, tools)
+    }
+
+    fn plan(civ: &CivData, tools: &CivTools, index: usize, to: i32) -> Result<PolityMove, PolityRefusal> {
+        civ_polity_move_plan(civ, Some(tools), GW, GH, index, to)
+    }
+
+    /// Plans then applies, returning the plan. Asserts the plan was accepted.
+    fn apply(civ: &mut CivData, tools: &mut CivTools, index: usize, to: i32) -> PolityMove {
+        let mv = plan(civ, tools, index, to).expect("fixture move is accepted");
+        civ_polity_move_apply(civ, tools, GW, GH, index, &mv);
+        mv
+    }
+
+    /// Indices where two grids differ.
+    fn changed_cells(a: &[i32], b: &[i32]) -> Vec<usize> {
+        assert_eq!(a.len(), GW * GH, "a whole grid");
+        (0..a.len()).filter(|&i| a[i] != b[i]).collect()
+    }
+
+    /// The committed paint layer, all zeros when never allocated.
+    fn paint(tools: &CivTools) -> Vec<u8> {
+        tools.territory_paint.cells().map_or_else(|| vec![0; GW * GH], <[u8]>::to_vec)
+    }
+
+    /// Protects §5.2 item 1, "preview cannot disagree with apply": the cells
+    /// the plan names are exactly the cells whose owner the apply changes, for
+    /// a province move, a one-cell move and a fallback-seed move.
+    #[test]
+    fn the_previewed_cells_are_exactly_the_cells_the_apply_changes() {
+        for (index, to) in [(1usize, 2), (2, 2), (4, 1)] {
+            let (mut civ, mut tools) = world();
+            let before = civ.territory.clone();
+            let preview = plan(&civ, &tools, index, to).unwrap();
+            let applied = apply(&mut civ, &mut tools, index, to);
+            assert_eq!(preview, applied, "s{index}->{to}: the plan does not depend on being previewed first");
+            assert!(!preview.cells.is_empty(), "s{index}->{to}: fixture moves something");
+            assert_eq!(changed_cells(&before, &civ.territory), preview.cells, "s{index}->{to}");
+            assert!(preview.cells.iter().all(|&c| civ.territory[c] == to), "s{index}->{to}: every moved cell is B's");
+        }
+    }
+
+    /// Protects §5.2 item 2: a province seed (s1, a City) takes its whole
+    /// province, but only the 4-connected part reachable through A's land --
+    /// cell 21 is in its province and stays faction 1, and faction 3's cell 22
+    /// is never taken.
+    #[test]
+    fn a_province_seed_moves_its_connected_province_and_nothing_else() {
+        let (mut civ, mut tools) = world();
+        assert_eq!(civ.provinces[21], civ.provinces[23], "premise: cell 21 is in s1's province");
+        let mv = apply(&mut civ, &mut tools, 1, 2);
+        assert_eq!(mv.cells, vec![9, 15, 16, 23]);
+        assert_eq!(mv.seed_province, Some(2));
+        assert_eq!(civ.territory[21], 1, "a disconnected piece of the province stays");
+        assert_eq!(civ.territory[22], 3, "another polity's cell is never taken");
+        assert_eq!(civ.territory[14], 1, "province 1 is not taken");
+        assert_eq!(civ.settlements[1].placement.faction, 2);
+    }
+
+    /// Protects §5.2 item 2 / §9 Q1's default: a place that seeds no province
+    /// (s2, a Village of a faction that has a Capital and a City) takes its
+    /// own cell only, even though it stands inside s1's province.
+    #[test]
+    fn a_non_seed_moves_its_own_cell_only() {
+        let (mut civ, mut tools) = world();
+        let mv = apply(&mut civ, &mut tools, 2, 2);
+        assert_eq!(mv.cells, vec![15]);
+        assert_eq!(mv.seed_province, None);
+        assert_eq!(civ.territory[15], 2);
+        assert_eq!(civ.territory[16], 1, "its neighbour in the same province stays");
+    }
+
+    /// Protects the seed test's source: `civ_generate_provinces`' fallback
+    /// seeds a faction with no Metropolis/Capital/City from its largest place,
+    /// so that place's province moves with it although its kind is Village.
+    #[test]
+    fn a_fallback_seed_is_a_seed_although_it_is_a_village() {
+        let (civ, tools) = world();
+        let mv = plan(&civ, &tools, 4, 1).unwrap();
+        assert_eq!(mv.seed_province, Some(4));
+        assert_eq!(mv.cells, vec![22]);
+    }
+
+    /// Protects the seed test against stale province indices.
+    /// `civ_delete_settlement` removes a place (the reference's `splice`) and
+    /// rebuilds no provinces, so the stored `province_list` still says
+    /// province 2's seed is index 1 -- which, after s0 is removed, is the
+    /// village s2. Read from the stored list, the village would carry a whole
+    /// province; the planner's fresh `civ_generate_provinces` run sees the
+    /// real seeds: the village moves one cell, and the City (now index 0),
+    /// faction 1's only seed, carries all of faction 1's connected land.
+    #[test]
+    fn a_delete_that_shifts_indices_does_not_make_a_village_a_seed() {
+        let (mut civ, tools) = world();
+        civ.settlements.remove(0);
+        assert_eq!(civ.province_list[1].capital_settlement_index, 1, "premise: the stored list is stale");
+        let village = plan(&civ, &tools, 1, 2).unwrap();
+        assert_eq!((village.cells.clone(), village.seed_province), (vec![15], None));
+        let city = plan(&civ, &tools, 0, 2).unwrap();
+        assert_eq!(city.cells, vec![0, 1, 2, 7, 8, 9, 14, 15, 16, 21, 23]);
+    }
+
+    /// Protects §5.2's central claim: the move is hand paint, so a Recompute
+    /// (`civ_rebase_territory_paint` over a freshly computed, unpainted grid --
+    /// here the same computed answer, as `assign_territory` gives for
+    /// unchanged capitals) keeps it, and every other cell follows the base.
+    #[test]
+    fn the_move_survives_a_recompute() {
+        let (mut civ, mut tools) = world();
+        let mv = apply(&mut civ, &mut tools, 1, 2);
+        let moved = civ.territory.clone();
+        civ.territory = base();
+        civ_rebase_territory_paint(&mut tools, &mut civ, GW, GH, true);
+        assert_eq!(civ.territory, moved, "the rebuild keeps the moved cells");
+        assert_eq!(tools.territory_base, base(), "the base stays the unpainted computed answer");
+        assert_eq!(mv.cells.iter().map(|&c| paint(&tools)[c]).collect::<Vec<_>>(), vec![2; 4]);
+    }
+
+    /// Protects §5.2 item 4 (no accumulating paint). Cell 27, (6,3), is
+    /// computed as faction 2 and hand-painted faction 1 with the real
+    /// Territory tool; a faction-1 village stands on it. Moving that village
+    /// to faction 2 must write the fall-through `0` -- what a Territory
+    /// subtract writes (`CivTools::paint_at`) -- not an explicit `2`, and the
+    /// grid it leaves is the grid that subtract leaves. A Recompute then
+    /// follows the base (the `civ_rebase_territory_paint` past bug, a subtract
+    /// restoring paint instead of the computed owner, would show here as 1).
+    #[test]
+    fn where_b_owns_the_base_the_move_writes_the_fall_through_not_paint() {
+        let (mut civ, mut tools) = world();
+        let c = 3 * GW + 6;
+        assert!(tools.paint_at(6.0, 3.0, 1, 0.0, false));
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory[c], 1, "premise: the cell is painted faction 1 over base 2");
+        civ.settlements.push(place(6, 6, 3, 1, SettlementKind::Village, 10));
+        civ_reprovince(&mut civ, GW, GH);
+
+        // What a Territory subtract on the same cell would leave.
+        let mut subtracted_tools = CivTools::new(GW, GH, base(), 1);
+        subtracted_tools.territory_paint = tools.territory_paint.clone();
+        let mut subtracted = civ.territory.clone();
+        assert!(subtracted_tools.paint_at(6.0, 3.0, 0, 0.0, true));
+        assert!(subtracted_tools.commit(&mut subtracted));
+
+        let mv = apply(&mut civ, &mut tools, 5, 2);
+        assert_eq!(mv.cells, vec![c]);
+        assert_eq!(paint(&tools)[c], 0, "the fall-through, not an explicit 2");
+        assert_eq!(civ.territory, subtracted, "the move leaves what a subtract leaves");
+        assert_eq!(paint(&tools), paint(&subtracted_tools));
+
+        civ.territory = base();
+        civ_rebase_territory_paint(&mut tools, &mut civ, GW, GH, true);
+        assert_eq!(civ.territory[c], 2, "after a Recompute the cell follows the base");
+        assert!(paint(&tools).iter().all(|&p| p == 0), "no paint is left anywhere");
+    }
+
+    /// Protects §5.2 item 4's purpose: moving a settlement to B and back to A
+    /// restores the original grid and provinces with no paint left behind --
+    /// for a province seed (s1) and a one-cell move (s2). Holds because A's and
+    /// B's land do not touch here; see
+    /// `moving_back_into_land_that_touches_b_takes_more_than_it_brought`.
+    #[test]
+    fn moving_back_restores_the_original_owner_with_no_leftover_paint() {
+        for index in [1usize, 2] {
+            let (mut civ, mut tools) = world();
+            let (t0, p0, l0) = (civ.territory.clone(), civ.provinces.clone(), civ.province_list.clone());
+            apply(&mut civ, &mut tools, index, 2);
+            assert_ne!(civ.territory, t0, "s{index}: premise, the first move moved something");
+            let back = apply(&mut civ, &mut tools, index, 1);
+            assert!(!back.cells.is_empty(), "s{index}: the move back moved something");
+            assert_eq!(civ.territory, t0, "s{index}");
+            assert_eq!(civ.provinces, p0, "s{index}");
+            assert_eq!(format!("{:?}", civ.province_list), format!("{l0:?}"), "s{index}");
+            assert!(paint(&tools).iter().all(|&p| p == 0), "s{index}: no leftover paint");
+        }
+    }
+
+    /// Documents a consequence of §5.2 item 2 for the owner, not a goal: when
+    /// B's land touches the moved province, the moved place's *new* province
+    /// (nearest B seed) also covers some of B's own nearby cells, so moving it
+    /// back to A carries those too. Built by giving column 3 to faction 2. If
+    /// the rule is changed to make the round trip exact, this is the test to
+    /// rewrite.
+    #[test]
+    fn moving_back_into_land_that_touches_b_takes_more_than_it_brought() {
+        let (mut civ, _) = world();
+        let mut b = base();
+        for y in 0..GH {
+            b[y * GW + 3] = 2;
+        }
+        civ.territory = b.clone();
+        civ_reprovince(&mut civ, GW, GH);
+        let mut tools = CivTools::new(GW, GH, b, 1);
+        let there = apply(&mut civ, &mut tools, 1, 2);
+        let back = apply(&mut civ, &mut tools, 1, 1);
+        assert!(back.cells.len() > there.cells.len(), "{} back vs {} there", back.cells.len(), there.cells.len());
+        assert!(back.cells.contains(&(3 * GW + 3)), "B's own cell (3,3) is carried to A");
+    }
+
+    /// Protects §5.2 item 5 / §9 Q2: moving A's only capital is reported (the
+    /// shell confirms; nothing refuses), and a second capital of A clears it.
+    #[test]
+    fn moving_the_only_capital_is_reported_and_a_second_capital_clears_it() {
+        let (mut civ, tools) = world();
+        assert!(plan(&civ, &tools, 0, 2).unwrap().loses_capital, "s0 is faction 1's only capital");
+        assert!(!plan(&civ, &tools, 1, 2).unwrap().loses_capital, "s1 is not a capital");
+        civ.settlements[1].placement.capital = true;
+        assert!(!plan(&civ, &tools, 0, 2).unwrap().loses_capital, "faction 1 keeps s1 as a capital");
+        civ.settlements[1].placement.faction = 3;
+        assert!(plan(&civ, &tools, 0, 2).unwrap().loses_capital, "another polity's capital does not count");
+    }
+
+    /// Protects §5.2 item 6: a move that takes A's last cell is allowed and
+    /// reported; one that leaves A land is not reported.
+    #[test]
+    fn losing_the_last_cell_is_allowed_and_reported() {
+        let (mut civ, mut tools) = world();
+        let mv = apply(&mut civ, &mut tools, 4, 1);
+        assert!(mv.loses_last_cell, "faction 3 owned only cell 22");
+        assert_eq!(civ.territory.iter().filter(|&&t| t == 3).count(), 0);
+        let (civ, tools) = world();
+        assert!(!plan(&civ, &tools, 1, 2).unwrap().loses_last_cell);
+    }
+
+    /// Protects §5.2 items 1 and 3 and the no-grid fallback's trigger: every
+    /// refusal, by its named reason. 255 is the paint layer's largest value
+    /// and is accepted; 256 is refused, not clamped.
+    #[test]
+    fn refusals_are_named() {
+        let (mut civ, tools) = world();
+        assert_eq!(plan(&civ, &tools, 99, 2), Err(PolityRefusal::BadIndex));
+        assert_eq!(plan(&civ, &tools, 1, 0), Err(PolityRefusal::Unassignable), "Unclaimed");
+        assert_eq!(plan(&civ, &tools, 1, -1), Err(PolityRefusal::Unassignable));
+        let past = civ.faction_roster.0.len() as i32;
+        assert_eq!(plan(&civ, &tools, 1, past), Err(PolityRefusal::Unassignable), "one past the roster");
+
+        while civ.faction_roster.0.len() <= 300 {
+            civ.faction_roster.add();
+        }
+        assert!(plan(&civ, &tools, 1, 255).is_ok(), "255 fits the u8 paint layer");
+        assert_eq!(plan(&civ, &tools, 1, 256), Err(PolityRefusal::PaintLimit));
+
+        assert_eq!(civ_polity_move_plan(&civ, None, GW, GH, 1, 2), Err(PolityRefusal::NoClaimGrid), "no tool");
+        civ.territory = Vec::new();
+        assert_eq!(plan(&civ, &tools, 1, 2), Err(PolityRefusal::NoClaimGrid), "reopened without territory.i32");
+        assert_eq!(PolityRefusal::NoClaimGrid.key(), "no_claim_grid", "the shell's fallback token");
+    }
+
+    /// Protects the edges of the plan: the same polity moves nothing, and a
+    /// place standing on land A does not own moves nothing (its cell is not
+    /// A's to give) while still being a valid move.
+    #[test]
+    fn no_cells_for_the_same_polity_or_for_a_place_off_its_own_land() {
+        let (mut civ, tools) = world();
+        assert!(plan(&civ, &tools, 1, 1).unwrap().cells.is_empty());
+        civ.settlements[2].placement.x = 5; // a faction-1 village on faction 2's land
+        let mv = plan(&civ, &tools, 2, 3).unwrap();
+        assert!(mv.cells.is_empty());
+        assert!(!mv.loses_last_cell, "moving nothing loses nothing");
+    }
+
+    /// Protects "nothing else changes": after a move, only the planned cells,
+    /// the moved settlement's `faction` and the provinces (rebuilt by the real
+    /// `civ_generate_provinces` over the new grid) differ. Routes, trade,
+    /// explanations (by count: `SettlementExplanation` has no `Debug`), roster,
+    /// extras and every other settlement field are identical, the grid equals `CivTools::recompose` (the commit path's own
+    /// tail), and a pending Territory draft is neither committed nor dropped.
+    #[test]
+    fn nothing_else_changes() {
+        let (mut civ, mut tools) = world();
+        assert!(tools.paint_at(5.0, 1.0, 3, 0.0, false), "a pending, uncommitted dab");
+        let snapshot = |c: &CivData| {
+            format!(
+                "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+                c.ways,
+                c.sea_routes,
+                c.road_edges,
+                c.continents,
+                c.trade_balances,
+                c.explanations.len(),
+                c.water_bodies,
+                c.next_tid,
+                c.dens,
+                c.faction_roster,
+                c.place_extras,
+                c.year
+            )
+        };
+        let before = snapshot(&civ);
+        let mut settlements = civ.settlements.clone();
+        let grid = civ.territory.clone();
+
+        let mv = apply(&mut civ, &mut tools, 1, 2);
+        assert_eq!(snapshot(&civ), before);
+        settlements[1].placement.faction = 2;
+        assert_eq!(civ.settlements, settlements, "only s1's faction changed");
+        assert_eq!(changed_cells(&grid, &civ.territory), mv.cells);
+        let (provinces, list) = cartalith_civ::civ_generate_provinces(&civ.settlements, &civ.territory, GW, GH);
+        assert_eq!(civ.provinces, provinces);
+        assert_eq!(format!("{:?}", civ.province_list), format!("{list:?}"), "`Province` has no PartialEq");
+        let mut recomposed = Vec::new();
+        tools.recompose(&mut recomposed);
+        assert_eq!(recomposed, civ.territory, "cell-by-cell write == the commit path's recompose");
+
+        assert!(!tools.territory_draft.is_empty(), "the pending dab is still pending");
+        assert!(tools.commit(&mut civ.territory));
+        assert_eq!(civ.territory[GW + 5], 3, "and commits on top of the move");
+        assert!(mv.cells.iter().all(|&c| civ.territory[c] == 2), "without undoing it");
+    }
+}
+
 #[cfg(test)]
 mod forced_lake_tests {
     use super::{apply_forced_lakes, coarse_ocean_wind_fields, compute_civilisation, sample_biome_word, sample_water_word};
@@ -20554,6 +21250,80 @@ impl WorldGen {
         // roads and trade balances, none of which are re-derived here.
         self.civ_dirty = true;
         true
+    }
+
+    /// FH-5, `FACTION_HUB_DESIGN.md` §5.2 item 1: what moving settlement
+    /// `index` to polity `new_faction` would do, changing nothing. Runs the
+    /// same planner ([`civ_polity_move_plan`]) and the same dictionary builder
+    /// ([`polity_move_dict`]) as [`Self::civ_polity_reassign`], so the confirm
+    /// dialog cannot describe a different move from the one applied.
+    ///
+    /// Keys when `ok` is true: `changed` (`from != to`), `from`, `to`,
+    /// `from_name`, `to_name`, `cells` (cells that change owner), `km2`
+    /// (`cells` times this world's square cell area, `(map_width_km/gw)^2` --
+    /// the area `civ_faction_territory_stats` reports), `loses_capital`,
+    /// `loses_last_cell`, `one_cell_only` (not a province seed), and
+    /// `province` only when it is one. When `ok` is false: `reason` (a stable
+    /// token -- the shell falls back to a label-only edit on `no_claim_grid`
+    /// alone) and `message`. `{ok:false, reason:"no_world"}` before any
+    /// `generate()`.
+    #[func]
+    fn civ_polity_reassign_preview(&self, index: i64, new_faction: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return polity_no_world() };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let i = usize::try_from(index).unwrap_or(usize::MAX);
+        let to = i32::try_from(new_faction).unwrap_or(-1);
+        let plan = civ_polity_move_plan(civ, self.civ_tools.as_ref(), gw, gh, i, to);
+        polity_move_dict(civ, &plan, polity_cell_km(self.map_width_km, gw))
+    }
+
+    /// FH-5, `FACTION_HUB_DESIGN.md` §5.2: changes settlement `index`'s polity
+    /// to `new_faction` **and moves its land with it** -- the planner's cells
+    /// written as committed Territory paint ([`civ_polity_move_apply`]), the
+    /// settlement's `faction` set in the same call, provinces rebuilt. Because
+    /// the cells live in `CivTools::territory_paint`, the move survives a
+    /// Recompute (`civ_rebase_territory_paint`) with no new state and no new
+    /// saved format: `rasters/territory.i32` changes content only (§5.2 item 9).
+    ///
+    /// Returns the preview's dictionary for the move it made. Refusals change
+    /// nothing. `civ_dirty` is set (and so stays true) on any change, as
+    /// `civ_edit_settlement`'s is: routes, trade and the economy also derive
+    /// from faction and are not re-derived here.
+    ///
+    /// **Not undoable** (§5.2 item 8, §9 Q3's default), consistent with the
+    /// Territory commit it reuses: the ledger records it as
+    /// `EntryKind::Recorded`, and the shell's confirm dialog says so. An undo
+    /// needs a sparse (cell -> old paint) snapshot -- FH-5's stated follow-up.
+    ///
+    /// `civ_edit_settlement` is unchanged: a caller that wants the label-only
+    /// edit (alternative B, §5.3) still has it.
+    #[func]
+    fn civ_polity_reassign(&mut self, index: i64, new_faction: i64) -> VarDictionary {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let cell_km = polity_cell_km(self.map_width_km, gw);
+        let Some(civ) = self.civ.as_mut() else { return polity_no_world() };
+        let i = usize::try_from(index).unwrap_or(usize::MAX);
+        let to = i32::try_from(new_faction).unwrap_or(-1);
+        let plan = civ_polity_move_plan(civ, self.civ_tools.as_ref(), gw, gh, i, to);
+        let Ok(mv) = plan.as_ref() else { return polity_move_dict(civ, &plan, cell_km) };
+        if mv.from == mv.to {
+            return polity_move_dict(civ, &plan, cell_km);
+        }
+        // The dictionary describes the move about to be made, so it is built
+        // from the pre-move state (`from_name`, the cell count) before applying.
+        let out = polity_move_dict(civ, &plan, cell_km);
+        let tools = self.civ_tools.as_mut().expect("the planner refuses NoClaimGrid without tools");
+        civ_polity_move_apply(civ, tools, gw, gh, i, mv);
+        self.civ_dirty = true;
+        self.ledger.record(
+            "civ",
+            "Polity move",
+            format!("{}: polity {} to {}, {} cells", civ.settlements[i].name, mv.from, mv.to, mv.cells.len()),
+            undo::EntryKind::Recorded(
+                "the moved cells' previous paint is not retained; repaint with the Territory tool",
+            ),
+        );
+        out
     }
 
     /// One trait pill's click (`_civPopulatePlaceEditor`'s `data-trait`

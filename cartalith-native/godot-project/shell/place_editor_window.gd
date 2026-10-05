@@ -160,6 +160,13 @@ var _phone_title: Label
 ## owns `_refresh_civ_data`).
 signal place_changed
 signal place_deleted
+## FH-5 (`FACTION_HUB_DESIGN.md` §5.2): emitted after a Polity change that
+## moved claim-grid cells, **after** the engine call, so a listener reads the
+## repainted grid. Separate from `place_changed` because the territory raster
+## is an O(cells) rebuild that an ordinary field edit (a rename, a population)
+## must not pay; `civilization_workspace.gd::_on_polity_moved` owns the map,
+## hub and dock refresh, exactly as it owns `place_changed`'s.
+signal polity_moved
 
 const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
 
@@ -1902,9 +1909,13 @@ func _build_class_and_polity(parent: Control, s: Dictionary) -> void:
 		var d: Dictionary = f
 		ids.append(int(d.get("id", 1)))
 		labels.append("%d · %s" % [int(d.get("id", 1)), String(d.get("name", "?"))])
+	## FH-5 (`FACTION_HUB_DESIGN.md` §5.2 item 10): the tooltip used to say a
+	## change "does not repaint the borders by itself; Recalculate territories
+	## re-derives them" -- true of the label-only edit this picker made before
+	## FH-5, false now that it moves land (`_change_polity`).
 	DccWidgets.choice(sec, "Polity", labels, maxi(0, ids.find(int(s.get("faction", 1)))),
-		func(i: int): _apply({"faction": ids[i]}); _rebuild(),
-		"Which polity this settlement belongs to. Changing it does not repaint the borders by itself; Civilization ▸ Territories ▸ Recalculate territories re-derives them from the current settlements.")
+		func(i: int): _change_polity(int(ids[i])),
+		"Which polity this settlement belongs to. Changing it moves the settlement's land too: a Metropolis, Capital or City takes its whole connected province, a smaller place only its own cell. The move is written as committed Territory paint, so it survives Recalculate territories, and it is not undoable -- repaint with the Territory tool. A project reopened without its claim grid changes the label only.")
 	## MM-6/MM-8: a read-only line, because the garrison is derived from the
 	## fields around it (polity, class, population, walls), not set.
 	var cursor := bridge.get_civ_year()
@@ -2472,3 +2483,160 @@ func _apply(fields: Dictionary) -> void:
 		_rebuild()
 		return
 	place_changed.emit()
+
+
+# -- Polity change (FH-5) -----------------------------------------------------
+
+## The Polity picker's handler: `FACTION_HUB_DESIGN.md` §5.2, owner decision 1
+## ("the Place editor's Polity picker also moves the claim grid").
+##
+## Asks the engine's preview first (`civ_polity_reassign_preview`), which runs
+## the very planner the apply runs, so what the dialog states is what happens.
+## Then, by the preview's answer:
+##
+## - **a move beyond the settlement's own cell, or one that costs the old
+##   polity its last capital** -- `DccWidgets.confirm` naming the cell count,
+##   the area, both polities and the consequence (§5.2 items 5 and 7);
+## - **a move of at most its own cell** -- applied directly (item 7);
+## - **`ok = false` with reason `no_claim_grid`** (a project reopened without
+##   `rasters/territory.i32`) -- falls back to §5.3's label-only edit through
+##   `_apply`, with a status line that says the borders did not move;
+## - **any other refusal** (an unassignable id, the paint layer's 255 ceiling)
+##   -- nothing changes and the status line names the engine's reason;
+## - **`{}`** (an engine DLL older than this shell, so no preview binding) --
+##   the pre-FH-5 label-only edit, saying so, rather than refusing the picker.
+##
+## Every path that does not apply ends in `_rebuild()`, so the picker never
+## keeps showing a polity the engine does not hold -- `_apply`'s own rule.
+func _change_polity(to: int) -> void:
+	if _index < 0:
+		return
+	var index := _index
+	var pv := bridge.civ_polity_reassign_preview(index, to)
+	if pv.is_empty():
+		_apply({"faction": to})
+		app.set_status("hint", "Polity changed; borders not moved -- this engine build predates the polity move.", "accent")
+		_rebuild()
+		return
+	if not bool(pv.get("ok", false)):
+		if String(pv.get("reason", "")) == "no_claim_grid":
+			_apply({"faction": to})
+			app.set_status("hint",
+				"Polity changed; borders not moved -- this project was reopened without its claim grid, so there are no cells to move. Recalculate territories rebuilds one.",
+				"accent")
+		else:
+			app.set_status("hint", "Polity not changed -- %s" % String(pv.get("message", "the engine refused it.")), "accent")
+		_rebuild()
+		return
+	if not bool(pv.get("changed", false)):
+		_rebuild()
+		return
+	var cells := int(pv.get("cells", 0))
+	var loses_capital := bool(pv.get("loses_capital", false))
+	if cells <= 1 and not loses_capital:
+		_do_polity_move(index, to)
+		return
+	var dlg := DccWidgets.confirm(app, "Move polity?", _polity_confirm_text(pv), "Move",
+		func(): _do_polity_move(index, to),
+		func(): _rebuild(), POLITY_CONFIRM_W)
+	## Desktop only (the phone form puts the text in a wrapping `modal_prose`
+	## body and leaves `dialog_text` empty): this body is three paragraphs of
+	## prose, and `AcceptDialog`'s own label does not wrap by default, so the
+	## first capture (`_polity_probe.gd`, 2026-10-05) drew it clipped at the
+	## right edge with the last paragraph under the buttons. Wrapping alone
+	## collapsed the body to nothing (second and third captures, with and
+	## without waiting a frame): a wrapping label reports no minimum height of
+	## its own. The label is therefore given the wrapped text's measured
+	## height as its minimum, and the dialog re-sized and re-centred around it.
+	if dlg.dialog_text != "":
+		dlg.dialog_autowrap = true
+		var lbl := dlg.get_label()
+		var font := lbl.get_theme_font("font")
+		var fs := lbl.get_theme_font_size("font_size")
+		var inner := float(POLITY_CONFIRM_W - POLITY_CONFIRM_INSET)
+		var h := font.get_multiline_string_size(dlg.dialog_text, HORIZONTAL_ALIGNMENT_LEFT, inner, fs).y
+		## `get_multiline_string_size` counts bare font lines; the Label adds
+		## its `line_spacing` constant between them (the 2026-10-05 capture
+		## drew 20 px lines against a measured 170 px, one line short).
+		var lines := roundi(h / maxf(1.0, font.get_height(fs)))
+		h += float(lines * lbl.get_theme_constant("line_spacing"))
+		lbl.custom_minimum_size = Vector2(inner, ceilf(h))
+		## Sized from `get_contents_minimum_size()` explicitly, and held there
+		## through `min_size`: `reset_size()` measured `(520, 1)` -- `confirm()`'s
+		## `min_size` is `(w, 0)` and the dialog does not fold its contents into
+		## that on its own -- and a bare `popup_centered(size)` settled at 209
+		## px against a 236 px content minimum, with the last line under the
+		## buttons.
+		var want := Vector2i(POLITY_CONFIRM_W, int(ceilf(dlg.get_contents_minimum_size().y)) + POLITY_CONFIRM_SLACK)
+		dlg.min_size = want
+		dlg.popup_centered(want)
+
+## The polity-move confirm's width on desktop, px. A labelled judgement, not a
+## canvas figure (no design draws this dialog): wide enough that the first
+## sentence ("N cells (X km²) will move from A to B ...") wraps to two lines
+## at the shell's small font rather than five, and narrower than the Place
+## editor it opens over. `DccWidgets.confirm`'s own default is 380.
+const POLITY_CONFIRM_W := 520
+## Horizontal room the dialog's panel takes from that width before its text
+## label, px -- a judgement covering the panel's side margins with slack, so
+## the measured wrap width is never wider than the label really gets (a wider
+## measure would under-count lines and clip the last one).
+const POLITY_CONFIRM_INSET := 40
+## Extra height, px, over the dialog's own content minimum: the embedded window
+## settled 27 px short of `get_contents_minimum_size()` in the 2026-10-05
+## capture (209 against 236), so a whole line of slack. A judgement, measured
+## once at desktop density; a taller dialog only shows more panel.
+const POLITY_CONFIRM_SLACK := 32
+
+## The confirm dialog's body (§5.2 items 5, 7 and 8), built only from the
+## preview's own keys so the numbers shown are the planner's.
+func _polity_confirm_text(pv: Dictionary) -> String:
+	var from_name := String(pv.get("from_name", "?"))
+	var to_name := String(pv.get("to_name", "?"))
+	var t := "%d cells (%s km²) will move from %s to %s" % [
+		int(pv.get("cells", 0)), _km2(float(pv.get("km2", 0.0))), from_name, to_name]
+	if bool(pv.get("one_cell_only", false)):
+		t += " -- only this place's own cell: it is not a province seat."
+	else:
+		t += " -- this place's whole connected province."
+	if bool(pv.get("loses_capital", false)):
+		t += "\n\nThis is %s's only capital. Only capitals project territory, so %s loses its computed borders at the next Recalculate territories; %s gains this capital's zone then." % [from_name, from_name, to_name]
+	if bool(pv.get("loses_last_cell", false)):
+		t += "\n\n%s will own no land after this move." % from_name
+	t += "\n\nNot undoable; use the Territory tool to repaint."
+	return t
+
+## Area to the precision the preview can vouch for: whole km² above 10, one
+## decimal below (a single cell on a small map is a fraction of a km²).
+func _km2(v: float) -> String:
+	return ("%.0f" % v) if v >= 10.0 else ("%.1f" % v)
+
+## Applies the move. `index` is the settlement the preview was taken for, held
+## across the dialog rather than re-read from `_index`, and re-checked: if the
+## editor moved to another place while the dialog was up, the move is dropped,
+## because applying it would repaint land for a settlement nobody confirmed.
+func _do_polity_move(index: int, to: int) -> void:
+	if index != _index:
+		_rebuild()
+		return
+	var r := bridge.civ_polity_reassign(index, to)
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Polity not changed -- %s" % String(r.get("message", "the engine refused it.")), "accent")
+		_rebuild()
+		return
+	polity_moved.emit()
+	var cells := int(r.get("cells", 0))
+	var msg := ""
+	if cells == 0:
+		msg = "Polity changed to %s; no cells moved -- this place stands on land %s does not own." % [
+			String(r.get("to_name", "?")), String(r.get("from_name", "?"))]
+	elif bool(r.get("one_cell_only", false)):
+		msg = "Polity changed to %s; one cell moved -- it is an enclave of %s." % [
+			String(r.get("to_name", "?")), String(r.get("to_name", "?"))]
+	else:
+		msg = "Polity changed to %s; %d cells moved with it. Not undoable -- repaint with the Territory tool." % [
+			String(r.get("to_name", "?")), cells]
+	if bool(r.get("loses_last_cell", false)):
+		msg += " %s now owns no land." % String(r.get("from_name", "?"))
+	app.set_status("hint", msg, "text_ghost")
+	_rebuild()
