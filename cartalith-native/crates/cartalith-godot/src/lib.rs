@@ -9787,12 +9787,10 @@ impl WorldGen {
         let rw = river_stroke::river_width_factor(&appearance);
         // RIM-4: the delta fans, only where the painted path will draw them --
         // the field is wanted, fits its texel budget, and the switch is on.
+        // RIM-7: through the gate the tiles and the export read too
+        // (`delta_fans_for`, `river_delta::fans_drawn`), so the three agree.
         // `None` is the plain field and colour field exactly.
-        let delta_fans = if want_river_field && !self.river_delta_off.get() && river_field::field_scale(gw, gh).is_some() {
-            self.river_delta_fans(rw)
-        } else {
-            None
-        };
+        let delta_fans = if want_river_field { self.delta_fans_for(&appearance) } else { None };
         if want_river_field {
             // The plate frame's width (the field's `A` channel) is the other
             // input: a frame-width change must rebuild it. `dl`: whether the
@@ -10982,6 +10980,21 @@ impl WorldGen {
         let fans = std::sync::Arc::new(fans);
         *self.river_delta_cache.borrow_mut() = Some((key, fans.clone(), st, t0.elapsed().as_secs_f64() * 1000.0));
         Some(fans)
+    }
+
+    /// **RIM-7: the delta fans look `a` draws, or `None`** -- the one gate
+    /// ([`river_delta::fans_drawn`]: the switch, the painted-river look, the
+    /// field's texel budget) in front of [`Self::river_delta_fans`] at `a`'s
+    /// own river width. The painted screen path, the deep-zoom tiles and the
+    /// export all ask here, each with the appearance it draws with, so a fan is
+    /// on all three or on none. `None` also without a world, a network or the
+    /// drawn water (`river_delta_fans`' own `None`).
+    pub(crate) fn delta_fans_for(&self, a: &render::TerrainAppearance) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if !river_delta::fans_drawn(a, self.river_delta_off.get(), gw, gh) {
+            return None;
+        }
+        self.river_delta_fans(river_stroke::river_width_factor(a))
     }
 
     /// [`Self::river_geometry`] whatever the Rivers switch says -- for the
@@ -15952,7 +15965,12 @@ impl WorldGen {
             // `fl`: the forced-lake mask (Ruling BO), applied to every tile's
             // classification (`TileFields::with_forced_lakes`) and moving no
             // stage version, so a press must change the key on its own.
-            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{}",
+            // `dl`: RIM-7's delta switch (`set_river_deltas`). The fans the
+            // tiles stroke (`river_fans`, `delta_fans_for`) are a function of the
+            // network (keyed above as the rivers are), the look's gate and
+            // river width (the appearance fingerprint), the grid (`gw x gh`)
+            // and this switch -- the one input not already in the key.
+            "e{};h{};c{};y{};{}x{};s{};w{};n{};u{};km{};a{:016x};cs{:?};pk{};pt{};gl{};pm{};lr{};gg{};rv{};fl{};dl{}",
             self.world_epoch,
             self.stages.version(PipelineStage::Height.id(), 0),
             self.stages.version(PipelineStage::Climate.id(), 0),
@@ -15974,6 +15992,7 @@ impl WorldGen {
             self.params.planet.g.to_bits(),
             self.rivers_in_map,
             self.forced_lakes_epoch,
+            u8::from(self.river_delta_off.get()),
         )
     }
 
@@ -16109,6 +16128,13 @@ impl WorldGen {
             // The same network `build_color_texture` rasterizes, built once
             // per snapshot and filled into each tile at its own resolution.
             rivers: self.river_geometry(),
+            // RIM-7: the delta fans the screen paints under this look
+            // (`delta_fans_for`, the one gate), stroked before the network in
+            // every tile (`river_stroke::rasterize_with`), so a delta does not
+            // vanish past the deep-zoom switch. Only with the network drawn
+            // (the Rivers switch), and `None` for a fan geometry with no run,
+            // so a world without fans fingerprints exactly as before RIM-7.
+            river_fans: self.river_geometry().and_then(|_| self.delta_fans_for(&self.appearance())).filter(|f| !f.runs.is_empty()),
             // Ruling BO: the forced lakes `drawn_water_bodies` applies to the
             // base map, so a tile draws the same water.
             forced_lakes: self.forced_lake_mask().map(|m| m.to_vec()),

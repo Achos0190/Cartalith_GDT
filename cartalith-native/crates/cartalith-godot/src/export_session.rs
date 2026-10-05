@@ -117,6 +117,10 @@ struct Parts {
     /// rasterized per band at the export's resolution. `None` for a loaded
     /// save (its flag is `ink`) and with the `rivers` content option off.
     rivers: Option<Arc<RiverGeometry>>,
+    /// RIM-7: RIM-4's delta fans for the export's look
+    /// (`WorldGen::export_river_fans`), stroked before `rivers` in every band.
+    /// `None` with no network, the switch off, or a look or world with none.
+    fans: Option<Arc<RiverGeometry>>,
     splat: Option<OwnedSplat>,
     ground_biomes: Vec<Option<GroundTile>>,
     ground_terrains: Vec<Option<GroundTile>>,
@@ -176,7 +180,11 @@ impl ExportSnapshot {
     /// `None` for a degenerate grid or a short height field — the same
     /// conditions `LodSnapshot::build` refuses. `rivers` is the vector
     /// network (RV-5), `None` for none.
-    pub fn build(i: SnapshotInputs, rivers: Option<Arc<RiverGeometry>>) -> Option<ExportSnapshot> {
+    ///
+    /// RIM-7: `fans` are RIM-4's delta fans for the export's look
+    /// (`WorldGen::export_river_fans`), stroked before `rivers` in every band
+    /// (`export_raster::with_export_rivers`); `None` is the pre-RIM-7 export.
+    pub fn build(i: SnapshotInputs, rivers: Option<Arc<RiverGeometry>>, fans: Option<Arc<RiverGeometry>>) -> Option<ExportSnapshot> {
         let (gw, gh) = (i.gw, i.gh);
         if gw < 2 || gh < 2 {
             return None;
@@ -226,6 +234,7 @@ impl ExportSnapshot {
             lakes,
             ink: i.ink,
             rivers,
+            fans,
             splat: i.splat,
             ground_biomes: i.ground_biomes,
             ground_terrains: i.ground_terrains,
@@ -246,7 +255,7 @@ impl ExportSnapshot {
     pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand) -> Option<Vec<u8>> {
         let ctx = self.parts.ctx()?;
         let flag = self.parts.ink.as_deref();
-        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
+        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
     }
 
     pub fn appearance(&self) -> &TerrainAppearance {
@@ -594,6 +603,7 @@ mod tests {
             lapse_rate: 6.5,
             gravity: 1.0,
             rivers: None,
+            river_fans: None,
             forced_lakes: None,
         }
     }
@@ -603,6 +613,11 @@ mod tests {
     /// RV-5: plus the smooth-shore field on the bake and the rivers
     /// (`geom`, rasterized as `export_raster::with_export_rivers` does).
     fn direct<T>(w: &World, geom: Option<&RiverGeometry>, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> T {
+        direct_fans(w, geom, None, run)
+    }
+
+    /// [`direct`] with RIM-7's delta fans handed to `with_export_rivers`.
+    fn direct_fans<T>(w: &World, geom: Option<&RiverGeometry>, fans: Option<&RiverGeometry>, run: impl FnOnce(&RenderCtx<'_>, &BakeFields, ExportRivers<'_>) -> T) -> T {
         let lith = cartalith_civ::build_lithology(&w.field, &w.age, &w.volc, &w.crust, &w.resist, &w.rain, SEA);
         let mut ctx = RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, appearance());
         ctx = ctx.with_lithology(&lith);
@@ -615,7 +630,7 @@ mod tests {
         let shore = render::shore_field_forced(&w.field, &lakes, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
         assert!(bf.has_shore_field(), "the fixture's look draws smooth shores, or the shore half of this proves nothing");
-        crate::export_raster::with_export_rivers(geom, Some(&w.ink), |r| run(&ctx, &bf, r))
+        crate::export_raster::with_export_rivers(geom, fans, Some(&w.ink), |r| run(&ctx, &bf, r))
     }
 
     /// `export_banded`'s bands, in memory.
@@ -625,7 +640,12 @@ mod tests {
 
     /// [`direct_bands`] with vector rivers `geom`.
     fn direct_bands_with(w: &World, geom: Option<&RiverGeometry>, plan: &ExportBandPlan) -> Vec<Vec<u8>> {
-        direct(w, geom, |ctx, bf, rivers| {
+        direct_bands_fans(w, geom, None, plan)
+    }
+
+    /// [`direct_bands_with`] with RIM-7's delta fans.
+    fn direct_bands_fans(w: &World, geom: Option<&RiverGeometry>, fans: Option<&RiverGeometry>, plan: &ExportBandPlan) -> Vec<Vec<u8>> {
+        direct_fans(w, geom, fans, |ctx, bf, rivers| {
             let cells = render::build_grade_influence_cells(ctx);
             plan.bands().map(|b| render::bake_export_band(ctx, bf, rivers, plan, b, &cells)).collect()
         })
@@ -670,7 +690,7 @@ mod tests {
         /// [`ExportSnapshot::build`] with no vector rivers -- the pre-RV-5
         /// fixture every older test here was written against.
         fn build_plain(i: SnapshotInputs) -> Option<ExportSnapshot> {
-            ExportSnapshot::build(i, None)
+            ExportSnapshot::build(i, None, None)
         }
     }
 
@@ -706,18 +726,49 @@ mod tests {
         let g = Arc::new(river());
         let p = plan(150, 7);
         let want = direct_bands_with(&w, Some(&g), &p);
-        let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone())).expect("snapshot");
+        let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone()), None).expect("snapshot");
         let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
         assert_eq!(got, want, "snapshot bands with vector rivers differ from the direct render");
         let diff = |a: &[Vec<u8>], b: &[Vec<u8>]| a.iter().zip(b).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
         let plain = direct_bands(&w, &p);
         let d_river = diff(&want, &plain);
-        let mut dry = ExportSnapshot::build(inputs(&w, KM, true), Some(g)).expect("snapshot");
+        let mut dry = ExportSnapshot::build(inputs(&w, KM, true), Some(g), None).expect("snapshot");
         dry.bake = BakeFields::new(&dry.parts.ctx().expect("ctx"));
         let d_shore = diff(&p.bands().map(|b| dry.render_band(&p, b).expect("band")).collect::<Vec<_>>(), &want);
         eprintln!("bytes moved: vector river {d_river}, smooth shore {d_shore}");
         assert!(d_river > 0, "the vector river must reach the pixels");
         assert!(d_shore > 0, "the smooth shore must reach the pixels");
+    }
+
+    /// Protects RIM-7 in the overlay session's snapshot: the delta fans handed
+    /// to `ExportSnapshot::build` (what `WorldGen::export_snapshot` passes from
+    /// `export_river_fans`) reach every band -- stroked before the network,
+    /// byte for byte as the direct render with the same fans strokes them --
+    /// and move pixels: a snapshot that dropped them would equal a direct
+    /// render that dropped them too, so the fans are also measured against
+    /// their own absence. The fan is hand-built (two short runs off the
+    /// fixture river), as `river()` is: the snapshot only carries what it is
+    /// given.
+    #[test]
+    fn a_snapshot_draws_the_delta_fans_of_the_direct_render() {
+        let w = world();
+        let g = Arc::new(river());
+        let mut fan = river();
+        fan.runs[0].pts = (0..41).map(|k| (30.5 + 12.0 * k as f32 / 40.0, 21.5 - 9.0 * k as f32 / 40.0)).collect();
+        fan.runs[0].widths = vec![0.9; 41];
+        let mut other = river();
+        other.runs[0].pts = (0..41).map(|k| (30.5 + 12.0 * k as f32 / 40.0, 21.5 + 9.0 * k as f32 / 40.0)).collect();
+        other.runs[0].widths = vec![0.9; 41];
+        fan.runs.push(other.runs.remove(0));
+        let fans = Arc::new(fan);
+        let p = plan(150, 7);
+        let want = direct_bands_fans(&w, Some(&g), Some(&fans), &p);
+        let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone()), Some(fans)).expect("snapshot");
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        assert_eq!(got, want, "snapshot bands with delta fans differ from the direct render");
+        let without = direct_bands_with(&w, Some(&g), &p);
+        let moved = want.iter().zip(&without).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
+        assert!(moved > 0, "the fans must reach the pixels");
     }
 
     fn snapshot(w: &World) -> Arc<ExportSnapshot> {

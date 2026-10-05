@@ -11,6 +11,21 @@
 //! (`river_field::build_with`) and its colour field
 //! (`river_stroke::rasterize_colour_field_with`).
 //!
+//! **RIM-7: the same fans on the deep-zoom tiles and in the export** (owner,
+//! 2026-10-04: *"fix the deltas disappearing on zoom"*). Past the deep-zoom
+//! switch (`viewport_host.gd`'s `LOD_AUTO_ZOOM`, camera zoom 2.2) the map is
+//! the tiles, and every export strokes its own rivers; both stroke the network
+//! with `river_stroke::rasterize`, and until RIM-7 neither had the fans, so a
+//! delta drawn at zoom 2.1 vanished at 2.3 (measured: 0 px ON-vs-OFF at z3).
+//! They now stroke these very runs before the network
+//! (`river_stroke::rasterize_with`) -- derived once from the same network and
+//! the same drawn water the painted path reads (the tiles do not re-derive the
+//! network: `WorldGen::lod_snapshot_inputs` hands them the screen's own
+//! `river_geometry`) -- by the same stroke law that draws every river there,
+//! so the fan is the painted one at every zoom
+//! (`tests::the_stroked_fan_covers_what_the_painted_fan_covers`). One gate,
+//! [`fans_drawn`], decides for all three paths whether a look has fans at all.
+//!
 //! **Which mouths** (the data is `OUTSTANDING_WORK.md`'s Part A, measured with
 //! `_riverzoom_probe.gd --rim4-mouths`; the numbers are in this module's
 //! constants' docs). A river is a delta mouth when
@@ -21,10 +36,14 @@
 //!
 //! **What it is not.** Not generation: a pure function of the drawn geometry
 //! and the drawn-water classification, no RNG, nothing a simulation reads and
-//! no golden moves. Not the stroke, the tiles or the export (RIM-7): those draw
-//! the network alone. Not a change to any existing river: the fans are
-//! SEPARATE runs, so with the switch off (`WorldGen::set_river_deltas`) the
-//! field and the colour texture are byte-identical to before this module.
+//! no golden moves. Not the base view's vector stroke (`map_overlay.gd`, the
+//! fallback for a look that keeps the stroke or a grid over the field's texel
+//! budget): [`fans_drawn`] is false for such a look, so no path draws it a
+//! fan -- not the stroke, the tiles or the export. Not a change
+//! to any existing river: the fans are SEPARATE runs, so with the switch off
+//! (`WorldGen::set_river_deltas`) the field, the colour texture, every tile and
+//! every export are byte-identical to before this module (the tiles and export
+//! are handed no fan geometry at all, and the network as before).
 //!
 //! Must never put a fan point on land farther than [`MAX_REACH_OVER_SETBACK`]
 //! times its setback from the apex, never keep a branch that meets no water
@@ -360,6 +379,28 @@ fn march(apex: (f32, f32), theta_c: f32, phi: f32, u_eff: f32, lmax: f32, cap: f
             }
         }
     }
+}
+
+/// **RIM-7: whether a look draws delta fans at all** -- the one gate the
+/// painted screen path (`WorldGen::build_color_texture`), the deep-zoom tiles
+/// (`WorldGen::lod_snapshot_inputs`) and the export
+/// (`WorldGen::export_river_fans`) share, so no zoom and no export can
+/// show a fan the screen does not, or drop one it does.
+///
+/// True when the off switch is clear (`off` is `WorldGen::set_river_deltas`
+/// negated) and the look paints its rivers into the map -- `smooth_shores`
+/// and `rivers_as_water`, the painted path's own condition -- on a grid whose
+/// river field fits its texel budget (`river_field::field_scale`). Each other
+/// case is a base view that draws the vector stroke (`map_overlay.gd`), which
+/// draws no fan, so the tiles and the export of that look must not either:
+/// a fan appearing only past the deep-zoom switch would be the same pop this
+/// gate exists to remove, the other way round.
+///
+/// Must never read anything but its arguments: the three callers pass the
+/// appearance they draw with (an export its own style override), and the
+/// answer must be the same function of it everywhere.
+pub fn fans_drawn(a: &crate::render::TerrainAppearance, off: bool, gw: usize, gh: usize) -> bool {
+    !off && a.smooth_shores && a.rivers_as_water && crate::river_field::field_scale(gw, gh).is_some()
 }
 
 #[cfg(test)]
@@ -731,5 +772,130 @@ mod tests {
         let r = fans.runs.iter().max_by(|p, q| p.pts.last().unwrap().1.partial_cmp(&q.pts.last().unwrap().1).unwrap()).unwrap();
         let mid = r.pts[r.pts.len() / 2];
         assert!(with.at(mid.0 as usize, mid.1 as usize).is_some(), "a branch's own cell has a river colour: {mid:?}");
+    }
+
+    /// Protects: RIM-7's one gate. A fan is drawn (screen, tiles, export) only
+    /// with the switch on AND a look that paints its rivers (`smooth_shores`
+    /// and `rivers_as_water`) AND a grid whose river field fits its texel
+    /// budget; each term alone turns it off. The grids are literals, not
+    /// `MAX_TEXELS` arithmetic: the owner's 2048x1311 and a 4096x2622 map fit,
+    /// an 8192x5240 one does not (`river_field::field_scale`'s `None`) and
+    /// keeps the stroke, which draws no fan. Mutating any term goes red.
+    #[test]
+    fn fans_are_drawn_only_where_the_painted_river_is() {
+        let a = crate::render::TerrainAppearance::default();
+        assert!(a.smooth_shores && a.rivers_as_water, "precondition: the default look paints its rivers");
+        assert!(fans_drawn(&a, false, 2048, 1311), "the owner's world, switch on");
+        assert!(fans_drawn(&a, false, 4096, 2622), "a 4096 map fits the field at one texel a cell");
+        assert!(!fans_drawn(&a, true, 2048, 1311), "the off switch");
+        assert!(!fans_drawn(&a, false, 8192, 5240), "a grid over the field's budget keeps the stroke, which has no fan");
+        let stroke_look = crate::render::TerrainAppearance { rivers_as_water: false, ..a.clone() };
+        assert!(!fans_drawn(&stroke_look, false, 2048, 1311), "a look that keeps the stroke");
+        let cell_coast = crate::render::TerrainAppearance { smooth_shores: false, ..a.clone() };
+        assert!(!fans_drawn(&cell_coast, false, 2048, 1311), "a look with no smooth shore paints no river");
+        assert!(!fans_drawn(&crate::render::TerrainAppearance::js_reference(), false, 2048, 1311), "the reference look has no river layer");
+    }
+
+    /// Protects: the order the tiles and the export stroke in
+    /// (`river_stroke::rasterize_with`) -- the fans FIRST, the network over
+    /// them, so wherever the network is opaque its pixel is exactly the
+    /// network's alone (`rasterize`), whatever colour a fan is; the fan shows
+    /// beside the network, and `None` is `rasterize` bit for bit. The fans are
+    /// recoloured red here so the order is visible: drawn last, a fan's own
+    /// core over the trunk at its apex would turn trunk pixels red, which
+    /// fails the first loop.
+    #[test]
+    fn the_stroke_draws_the_fans_first_and_the_network_over_them() {
+        let a = crate::render::TerrainAppearance::default();
+        let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
+        let (mut fans, st) = delta_fans(&g, GW, GH, 1.0, &east_coast);
+        assert_eq!(st.branches, 4, "positive control: the order-4 mouth fans, {st:?}");
+        for r in &mut fans.runs {
+            for c in &mut r.colors {
+                *c = [1.0, 0.0, 0.0, 1.0];
+            }
+        }
+        let map = crate::river_stroke::RasterMap { scale: (4.0, 4.0), offset: (0.0, 0.0) };
+        let (pw, ph) = (GW * 4, GH * 4);
+        let net = crate::river_stroke::rasterize(&g, &a, pw, ph, map);
+        let none = crate::river_stroke::rasterize_with(&g, None, &a, pw, ph, map);
+        let with = crate::river_stroke::rasterize_with(&g, Some(&fans), &a, pw, ph, map);
+        let (mut opaque, mut fan_only) = (0usize, 0usize);
+        for y in 0..ph {
+            for x in 0..pw {
+                assert_eq!(net.at(x, y).map(|p| p.map(f32::to_bits)), none.at(x, y).map(|p| p.map(f32::to_bits)), "None is rasterize at ({x},{y})");
+                match net.at(x, y) {
+                    Some(p) if p[3] >= 1.0 => {
+                        opaque += 1;
+                        assert_eq!(with.at(x, y), Some(p), "the network's opaque pixel ({x},{y}) is the network's");
+                    }
+                    None if with.at(x, y).is_some() => fan_only += 1,
+                    _ => {}
+                }
+            }
+        }
+        assert!(opaque > 100 && fan_only > 100, "the trunk ({opaque} px) and the fans beside it ({fan_only} px) both drew");
+    }
+
+    /// Protects: **no pop at the deep-zoom switch** (RIM-7). The painted path
+    /// draws the fan from the river field (`river_field::build_with` and the
+    /// shader's [`crate::river_field::coverage`]); the deep-zoom tiles and the
+    /// export stroke it (`river_stroke::rasterize_with`). Over the fan's
+    /// ground on land (from just
+    /// past its apex to the shore -- the tips lie on water, which both paths
+    /// hide under the water's own colour), the two cover the same pixels
+    /// within the antialiasing band at the densities the painted path is shown
+    /// at around the switch (0.5 to 2 px a cell; the owner's world crosses it
+    /// near 1.3). A tile path that dropped the fans, or stroked them at another
+    /// width, fails the total; one that placed them elsewhere fails the
+    /// per-pixel term. The bounds (2 % of the stroke's coverage in total, 3 %
+    /// per pixel) are a labelled judgement over the run of 2026-10-04, which
+    /// measured 0.16-0.97 % in total and 0.65-2.27 % per pixel at 0.5, 1, 1.5
+    /// and 2 (the straight-line case,
+    /// `river_field::tests::the_field_covers_what_the_stroke_covers`, holds
+    /// 2 %). **Not asserted at 3 or 4 px a cell**, where the same run measured
+    /// the field 3.2 % / 4.3 % short of the stroke (5.9 % per pixel): a
+    /// branch under half a cell wide is narrowed there by the field's own
+    /// quarter-cell bilinear error (`river_field`'s module doc, "Resolution
+    /// and memory"), which is the painted path's limit for every thin river,
+    /// not the fans'. On the owner's world that density is reached only past
+    /// the switch, where the tiles stroke the fan instead.
+    #[test]
+    fn the_stroked_fan_covers_what_the_painted_fan_covers() {
+        let a = crate::render::TerrainAppearance::default();
+        let rw = a.river_width as f32;
+        let g = RiverGeometry { runs: vec![run(4, 5000.0, 62.5, true)] };
+        let (fans, st) = delta_fans(&g, GW, GH, rw, &east_coast);
+        assert_eq!(st.branches, 4, "{st:?}");
+        let field = crate::river_field::build_with(&g, Some(&fans), GW, GH, rw, &|_, _| 0.0).expect("a field");
+        let plain = crate::river_field::build(&g, GW, GH, rw, &|_, _| 0.0).expect("a field");
+        // The apex is at x = 35.5 (`the_tuned_constants_are_pinned_by_literals_not_by_themselves`);
+        // the shore at x = 60.
+        let (x_lo, x_hi) = (37.0f32, 59.5f32);
+        for ppc in [0.5f32, 1.0, 1.5, 2.0] {
+            let (pw, ph) = ((GW as f32 * ppc) as usize, (GH as f32 * ppc) as usize);
+            let layer = crate::river_stroke::rasterize_with(&g, Some(&fans), &a, pw, ph, crate::river_stroke::RasterMap { scale: (ppc, ppc), offset: (0.0, 0.0) });
+            let (mut stroke_px, mut field_px, mut diff, mut fan_px) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+            for py in 0..ph {
+                for px in 0..pw {
+                    let (x, y) = (px as f32 / ppc, py as f32 / ppc);
+                    if x < x_lo || x > x_hi {
+                        continue;
+                    }
+                    let s = layer.at(px, py).map_or(0.0, |p| p[3]) as f64;
+                    let (c, am) = crate::river_field::coverage(field.sample(x, y), ppc, rw);
+                    let fv = (c * am) as f64;
+                    let (c0, am0) = crate::river_field::coverage(plain.sample(x, y), ppc, rw);
+                    stroke_px += s;
+                    field_px += fv;
+                    diff += (s - fv).abs();
+                    fan_px += (fv - (c0 * am0) as f64).max(0.0);
+                }
+            }
+            // Positive control: the window holds a real fan, not just the trunk.
+            assert!(fan_px > 0.3 * field_px, "ppc {ppc}: the fan is {fan_px:.1} of {field_px:.1} covered px");
+            let rel = (field_px - stroke_px).abs() / stroke_px;
+            assert!(rel < 0.02 && diff / stroke_px < 0.03, "ppc {ppc}: stroke {stroke_px:.1} painted {field_px:.1} ({:.2}%), per-pixel {:.2}%", rel * 100.0, diff / stroke_px * 100.0);
+        }
     }
 }

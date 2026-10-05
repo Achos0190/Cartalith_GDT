@@ -81,6 +81,30 @@ extends Node
 ##    frames the widest rivers that pass THROUGH a lake at z 2/3/4 and, at
 ##    z 2, the stroke path for contrast. Controls: the fans must move a pixel
 ##    in some ON/OFF pair, and an empty pick or no lake crossing fails.
+##  - RIM-7, deltas (`--rim7`, implies `--rim4-mouths`): the same fans on the
+##    deep-zoom tiles and in the export. Per picked mouth (`_rim4_pick`, up to
+##    `--rim4-n`) and `--rim7-zooms` (default 1.5,2.1,2.3,3,4,8 -- the switch
+##    is `viewport_host.gd`'s `LOD_AUTO_ZOOM` 2.2), the frame with the fans ON
+##    and OFF, floodplain tint off in both (`rim7_*_on.png` is the frame as
+##    the user sees it, tint on; `_off.png` its OFF twin). Measured inside a
+##    disk of `--rim7-radius` cells (default 64) round the mouth, so frames at
+##    different zooms compare the same ground: the fan's footprint in CELLS
+##    (ON-vs-OFF pixels over 8 and over 24 summed levels, divided by pixels
+##    per cell squared), the mean ON colour of the over-24 pixels, and the
+##    colour change per cell. `continuity` pairs the last zoom below the
+##    switch with the first above it, beside the same ratios for the network
+##    round the mouth (`net_*`: fans off, Rivers layer on vs off -- the
+##    yardstick, since the network changes path there too). `--rim7-export` also writes the real
+##    region export (`WorldGen::export_snapshot_png`, the `export_raster_png`
+##    assembly) round each mouth at 8 and 2 px a cell, ON and OFF
+##    (`rim7x_*.png`), and diffs them. `--rim7-cost` adds the pan frame time
+##    and GPU time at z 3 and 4 after the pyramid settles, and the synchronous
+##    tile build (`lod_synthesize_tile`) of the mouth's tile at those zooms'
+##    levels, ON/OFF alternated three rounds. Controls: some ON/OFF pair past
+##    the switch must move a pixel (a build whose tiles draw no fan -- HEAD
+##    before RIM-7 -- reports `PROBE-FAIL`), and a frame grabbed twice must be
+##    identical. Run it on a HEAD DLL too: its OFF frames and exports must
+##    equal this tree's OFF ones pixel for pixel.
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -120,6 +144,11 @@ var _rim4_n := 4
 var _rim4_zooms: Array = [1.5, 2.1, 3.0]
 var _rim4_lakes := false
 var _rim4_cost := false
+var _rim7 := false
+var _rim7_zooms: Array = [1.5, 2.1, 2.3, 3.0, 4.0, 8.0]
+var _rim7_radius := 64.0
+var _rim7_export := false
+var _rim7_cost := false
 var _river_density := 1.0
 var _geology_model := false
 var _metropolis := false
@@ -164,6 +193,14 @@ func _ready() -> void:
 			"--rim4-n": _rim4_n = int(args[i + 1]); i += 1
 			"--rim4-lakes": _rim4_lakes = true
 			"--rim4-cost": _rim4_cost = true
+			"--rim7": _rim7 = true; _rim4_mouths = true
+			"--rim7-export": _rim7_export = true
+			"--rim7-cost": _rim7_cost = true
+			"--rim7-radius": _rim7_radius = float(args[i + 1]); i += 1
+			"--rim7-zooms":
+				_rim7_zooms.clear()
+				for zs in args[i + 1].split(","): _rim7_zooms.append(float(zs))
+				i += 1
 			"--rim4-zooms":
 				_rim4_zooms.clear()
 				for zs in args[i + 1].split(","): _rim4_zooms.append(float(zs))
@@ -325,6 +362,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["rim4"] = await _rim4_run(sr["rim4_mouths"])
 	if _rim4_lakes:
 		sr["rim4_lakes"] = await _rim4_lakes_run(rivers)
+	if _rim7:
+		sr["rim7"] = await _rim7_run(sr["rim4_mouths"])
 	_report[str(seed_v)] = sr
 
 
@@ -1364,13 +1403,18 @@ func _rim4_mouth_stats(rivers: Array) -> Dictionary:
 ## ---- RIM-4 Part B/C: the delta fans on the screen painted path ----------------
 
 ## Switch RIM-4's delta fans (`WorldGen::set_river_deltas`) and repaint so the
-## next capture shows it, as `_set_paint` does for the paint path. A HEAD build
-## has no such method: `--rim4-head` never calls this.
+## next capture shows it, as `_set_paint` does for the paint path. A build
+## before RIM-4 has no such method: `--rim4-head` never calls this. Since RIM-7
+## the deep-zoom tiles stroke the fans too and their key carries the switch
+## (`lod_cache_key`'s `dl`), so the live tiles are dropped and rebuilt after the
+## repaint (which also re-keys the grid raster the tiles read); on a build
+## before RIM-7 that rebuild draws the same tiles again.
 func _set_deltas(on: bool) -> void:
 	_br.world_gen.set_river_deltas(on)
 	_vh.map_view.texture = _br.color_texture()
 	_vh._apply_shore_field()
 	_vh.overlay.queue_redraw()
+	_vh.invalidate_lod_tiles()
 	await _settle(8)
 
 
@@ -1551,3 +1595,275 @@ func _rim4_lakes_run(rivers: Array) -> Dictionary:
 		printerr("PROBE-FAIL: no river passes through a lake on this world; Part C has nothing to image")
 		_report["fail"] = true
 	return {"gaps": cand.size(), "imaged": out}
+
+
+## ---- RIM-7: the delta on the deep-zoom tiles and in the export ----------------
+
+## Pixels per grid cell at camera zoom `z` (the same formula every leg uses).
+func _ppc_at(z: float) -> float:
+	return minf(_vh.size.x / float(_grid.x), _vh.size.y / float(_grid.y)) * z
+
+
+## One view of `c` at camera zoom `z`, settled (pyramid included), grabbed
+## twice: `[tinted, plain]` -- the frame as the user sees it, then the same
+## frame with the painted path's floodplain tint off (no effect on a tile, which
+## has none), so an ON-vs-OFF diff of `plain` frames is the fan's water alone.
+func _rim7_grab(c: Vector2, z: float) -> Array:
+	var tinted := await _rim2_grab(c, z)
+	var mat := _vh.map_view.material as ShaderMaterial
+	mat.set_shader_parameter("floodplain_strength", 0.0)
+	await _settle(4)
+	var plain := await _grab()
+	mat.set_shader_parameter("floodplain_strength", 1.0)
+	await _settle(4)
+	return [tinted, plain]
+
+
+## The fan inside a disk of `_rim7_radius` cells round `c`, from an ON and an
+## OFF frame of the same view at `ppc` pixels per cell centred on `c`: pixel
+## counts over 8 and over 24 summed levels and the same as areas in cells
+## (`fp8_cells`, `fp24_cells` -- pixels / ppc^2, comparable across zooms), the
+## mean ON and OFF colour of the over-24 pixels, the summed colour change per
+## cell (`mass_cells`). `mean_on` is absent (never a plausible black) when no
+## pixel is over 24.
+func _rim7_measure(on: Image, off: Image, ppc: float) -> Dictionary:
+	if on == null or off == null or on.get_size() != off.get_size():
+		return {"px8": -1}
+	var w := on.get_width(); var h := on.get_height()
+	var da := on.get_data(); var db := off.get_data()
+	var cpx := Vector2(w, h) * 0.5
+	var r2 := (_rim7_radius * ppc) * (_rim7_radius * ppc)
+	var n8 := 0; var n24 := 0; var mass := 0
+	var son := Vector3.ZERO; var soff := Vector3.ZERO
+	for y in h:
+		var dy := float(y) + 0.5 - cpx.y
+		for x in w:
+			var dx := float(x) + 0.5 - cpx.x
+			if dx * dx + dy * dy > r2:
+				continue
+			var o := (y * w + x) * 4
+			var dd: int = absi(da[o] - db[o]) + absi(da[o + 1] - db[o + 1]) + absi(da[o + 2] - db[o + 2])
+			mass += dd
+			if dd > 8: n8 += 1
+			if dd > 24:
+				n24 += 1
+				son += Vector3(da[o], da[o + 1], da[o + 2])
+				soff += Vector3(db[o], db[o + 1], db[o + 2])
+	var out := {"px8": n8, "px24": n24, "fp8_cells": n8 / (ppc * ppc), "fp24_cells": n24 / (ppc * ppc), "mass_cells": mass / (ppc * ppc)}
+	if n24 > 0:
+		var a := son / float(n24); var b := soff / float(n24)
+		out["mean_on"] = [snappedf(a.x, 0.1), snappedf(a.y, 0.1), snappedf(a.z, 0.1)]
+		out["mean_off"] = [snappedf(b.x, 0.1), snappedf(b.y, 0.1), snappedf(b.z, 0.1)]
+	return out
+
+
+## The RIM-7 leg (see the header). Returns `{stats, views, continuity, export,
+## cost}`.
+func _rim7_run(m: Dictionary) -> Dictionary:
+	var stats: Dictionary = _br.world_gen.river_delta_stats()
+	if stats.is_empty():
+		_vh.map_view.texture = _br.color_texture()
+		await _settle(8)
+		stats = _br.world_gen.river_delta_stats()
+	if stats.is_empty():
+		printerr("PROBE-FAIL: river_delta_stats is empty with the fans on (nothing was derived)")
+		_report["fail"] = true
+		return {}
+	print("  rim7 engine stats: ", stats)
+	var picks := _rim4_pick(m["rows"], int(stats["min_order"]), float(stats["min_discharge_frac"]), _rim4_n)
+	if picks.is_empty():
+		printerr("PROBE-FAIL: no eligible mouth to look at")
+		_report["fail"] = true
+		return {"stats": stats}
+	var views := []
+	var past_switch_moved := false
+	## Negative control: one frame grabbed twice must be the same frame, or
+	## every ON-vs-OFF count below is noise.
+	var c0 := Vector2(picks[0]["x"], picks[0]["y"])
+	var g1 := await _rim2_grab(c0, 3.0)
+	var g2 := await _grab()
+	var same := _frame_diff(g1, g2)
+	print("  rim7 negative control (z3 grabbed twice): ", same)
+	if int(same["px_any"]) != 0:
+		printerr("PROBE-FAIL: one frame grabbed twice differs (%d px); the ON-vs-OFF counts are noise" % int(same["px_any"]))
+		_report["fail"] = true
+	## The switch pair (the last zoom at or below 2.2, the first above it).
+	var below := -1.0; var above := 99.0
+	for z: float in _rim7_zooms:
+		if z <= 2.2: below = maxf(below, z)
+		else: above = minf(above, z)
+	for pk: Dictionary in picks:
+		var c := Vector2(pk["x"], pk["y"])
+		for z: float in _rim7_zooms:
+			var tag := "rim7_r%d_%s_z%.1f" % [int(pk["river"]), String(pk["water"]), z]
+			await _set_deltas(true)
+			var on: Array = await _rim7_grab(c, z)
+			var lod: bool = _vh.lod_active()
+			await _set_deltas(false)
+			var off: Array = await _rim7_grab(c, z)
+			## The control at the switch pair: the same view with the Rivers
+			## layer off, so the NETWORK's own footprint either side of the
+			## switch (fans off, rivers on vs rivers off) is measured the same
+			## way as the fan's -- the yardstick the fan's continuity is read
+			## against, since the network itself changes path there too.
+			var bare: Array = []
+			if is_equal_approx(z, below) or is_equal_approx(z, above):
+				_vh.set_layer_visible("rivers", false)
+				bare = await _rim7_grab(c, z)
+				_vh.set_layer_visible("rivers", true)
+				await _settle_lod()
+			await _set_deltas(true)
+			(on[0] as Image).save_png(_out.path_join(tag + "_on.png"))
+			(off[0] as Image).save_png(_out.path_join(tag + "_off.png"))
+			var ppc: float = _ppc_at(z)
+			var row := {"river": pk["river"], "water": pk["water"], "own_order": pk["own_order"], "dfrac": pk["dfrac"],
+				"cell": [c.x, c.y], "zoom": z, "lod": lod, "ppc": ppc, "centred": _rim4_centrable(c, z),
+				"diff": _frame_diff(on[1], off[1]), "fan": _rim7_measure(on[1], off[1], ppc)}
+			if not bare.is_empty():
+				row["network"] = _rim7_measure(off[1], bare[1], ppc)
+			if z > 2.2 and int(row["diff"]["px_any"]) > 0:
+				past_switch_moved = true
+			views.append(row)
+			print("    rim7 %s lod=%s ppc %.2f centred=%s  %s  %s" % [tag, str(lod), ppc, str(row["centred"]), JSON.stringify(row["diff"]), JSON.stringify(row["fan"])])
+	if not past_switch_moved:
+		printerr("PROBE-FAIL: past the deep-zoom switch no ON/OFF pair moved a pixel -- the tiles draw no fan")
+		_report["fail"] = true
+	## Continuity across the switch: the last zoom at or below 2.2 against the
+	## first above it, per mouth (footprint ratio in cells, colour shift), and
+	## the same ratio for the network round it (`net_*`, the yardstick).
+	var cont := []
+	for pk: Dictionary in picks:
+		var lo: Dictionary = {}; var hi: Dictionary = {}
+		for v: Dictionary in views:
+			if v["river"] != pk["river"]: continue
+			if is_equal_approx(float(v["zoom"]), below): lo = v
+			if is_equal_approx(float(v["zoom"]), above): hi = v
+		if lo.is_empty() or hi.is_empty(): continue
+		var fl: Dictionary = lo["fan"]; var fh: Dictionary = hi["fan"]
+		var rec := {"river": pk["river"], "water": pk["water"], "below": below, "above": above,
+			"lod_below": lo["lod"], "lod_above": hi["lod"],
+			"fp24_cells": [fl.get("fp24_cells", -1), fh.get("fp24_cells", -1)], "fp8_cells": [fl.get("fp8_cells", -1), fh.get("fp8_cells", -1)],
+			"mass_cells": [fl.get("mass_cells", -1), fh.get("mass_cells", -1)]}
+		if float(fl.get("fp24_cells", 0.0)) > 0.0:
+			rec["fp24_ratio"] = float(fh.get("fp24_cells", 0.0)) / float(fl["fp24_cells"])
+		if float(fl.get("fp8_cells", 0.0)) > 0.0:
+			rec["fp8_ratio"] = float(fh.get("fp8_cells", 0.0)) / float(fl["fp8_cells"])
+		if float(fl.get("mass_cells", 0.0)) > 0.0:
+			rec["mass_ratio"] = float(fh.get("mass_cells", 0.0)) / float(fl["mass_cells"])
+		if lo.has("network") and hi.has("network"):
+			var nl: Dictionary = lo["network"]; var nh: Dictionary = hi["network"]
+			for k in ["fp24_cells", "fp8_cells", "mass_cells"]:
+				if float(nl.get(k, 0.0)) > 0.0:
+					rec["net_" + k.replace("_cells", "") + "_ratio"] = float(nh.get(k, 0.0)) / float(nl[k])
+			if nl.has("mean_on") and nh.has("mean_on"):
+				var na: Array = nl["mean_on"]; var nb: Array = nh["mean_on"]
+				rec["net_colour_shift"] = absf(na[0] - nb[0]) + absf(na[1] - nb[1]) + absf(na[2] - nb[2])
+		if fl.has("mean_on") and fh.has("mean_on"):
+			var a: Array = fl["mean_on"]; var b: Array = fh["mean_on"]
+			rec["mean_on"] = [a, b]
+			rec["colour_shift"] = absf(a[0] - b[0]) + absf(a[1] - b[1]) + absf(a[2] - b[2])
+		cont.append(rec)
+		print("  rim7 continuity: ", JSON.stringify(rec))
+	var res := {"stats": stats, "views": views, "continuity": cont}
+	if _rim7_export:
+		res["export"] = await _rim7_export_run(picks)
+	if _rim7_cost:
+		res["cost"] = await _rim7_cost_run(c0)
+	return res
+
+
+## The real region export (`export_snapshot_png`, which renders through
+## `export_render` -- the `export_raster_png` assembly) round each mouth at
+## 8 px a cell (radius 40 cells, 640 px) and 2 px a cell (radius 120, 480 px),
+## fans ON and OFF; the diff of the decoded pixels per pair.
+func _rim7_export_run(picks: Array) -> Dictionary:
+	var out := {}
+	var dir := ProjectSettings.globalize_path(_out)
+	for pk: Dictionary in picks:
+		var c := Vector2i(int(pk["x"]), int(pk["y"]))
+		for spec in [[40, 640], [120, 480]]:
+			var imgs := {}
+			for st in ["on", "off"]:
+				_br.world_gen.set_river_deltas(st == "on")
+				var path := dir.path_join("rim7x_r%d_%s_r%d_%s.png" % [int(pk["river"]), String(pk["water"]), int(spec[0]), st])
+				var r: Dictionary = _br.world_gen.export_snapshot_png(path, c.x, c.y, int(spec[0]), int(spec[1]))
+				if not bool(r.get("ok", false)):
+					printerr("PROBE-FAIL: export_snapshot_png failed: ", r)
+					_report["fail"] = true
+					continue
+				imgs[st] = Image.load_from_file(path)
+				if imgs[st] != null:
+					(imgs[st] as Image).convert(Image.FORMAT_RGBA8)
+			_br.world_gen.set_river_deltas(true)
+			var key := "r%d_%s_radius%d" % [int(pk["river"]), String(pk["water"]), int(spec[0])]
+			if imgs.has("on") and imgs.has("off"):
+				out[key] = _frame_diff(imgs["on"], imgs["off"])
+				print("    rim7 export %s  %s" % [key, JSON.stringify(out[key])])
+	## Leave the session as it was: fans on, base texture repainted.
+	await _set_deltas(true)
+	return out
+
+
+## Frame time while panning at z 3 and 4 AFTER the pyramid settles (median
+## with min..max, and the GPU render time), and the synchronous build of the
+## mouth's own tile at those zooms' levels (`lod_synthesize_tile`: the first
+## call after a toggle includes the tile context's rebuild, reported apart;
+## then five timed calls), ON and OFF alternated three rounds.
+func _rim7_cost_run(c: Vector2) -> Dictionary:
+	var out := {}
+	for z: float in [3.0, 4.0]:
+		var key := "z%.0f" % z
+		out[key] = {"pan_on": [], "pan_off": [], "tile_on_ms": [], "tile_off_ms": [], "first_on_ms": [], "first_off_ms": []}
+		var lvl: int = _br.world_gen.lod_level_for_zoom(_ppc_at(z))
+		var n: int = _br.world_gen.lod_tiles_per_axis(lvl)
+		var col := int(floor(c.x / (float(_grid.x - 1) / n)))
+		var row := int(floor(c.y / (float(_grid.y - 1) / n)))
+		out[key]["tile"] = [lvl, col, row]
+		for round in 3:
+			for st in ["on", "off"]:
+				await _set_deltas(st == "on")
+				_vh.reset_view()
+				await _settle_lod()
+				var t0 := Time.get_ticks_usec()
+				_br.world_gen.lod_synthesize_tile(lvl, col, row)
+				(out[key]["first_%s_ms" % st] as Array).append((Time.get_ticks_usec() - t0) / 1000.0)
+				for k in 5:
+					t0 = Time.get_ticks_usec()
+					_br.world_gen.lod_synthesize_tile(lvl, col, row)
+					(out[key]["tile_%s_ms" % st] as Array).append((Time.get_ticks_usec() - t0) / 1000.0)
+				_vh.reset_view()
+				await _settle(3)
+				_vh.zoom_step(z / _vh.zoom())
+				_vh.move_view_to(c.x, c.y)
+				await _settle(24)
+				await _settle_lod()
+				(out[key]["pan_%s" % st] as Array).append(await _pan_cost_here(c))
+		for k in ["tile_on_ms", "tile_off_ms", "first_on_ms", "first_off_ms"]:
+			var a: Array = (out[key][k] as Array).duplicate(); a.sort()
+			out[key][k + "_summary"] = {"median": a[a.size() / 2], "min": a[0], "max": a[a.size() - 1], "n": a.size()}
+		print("  rim7 cost %s: %s" % [key, JSON.stringify(out[key])])
+	await _set_deltas(true)
+	return out
+
+
+## `_pan_cost` without its reset: the view is already at the zoom and settled,
+## so the frames measured are panning over built tiles, not building them.
+func _pan_cost_here(centre: Vector2) -> Dictionary:
+	var vp := get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vp, true)
+	var dt := PackedFloat32Array(); var gpu := PackedFloat32Array()
+	var t0 := Time.get_ticks_usec()
+	for f in 90:
+		var a := float(f) * 0.35
+		_vh.move_view_to(centre.x + sin(a) * 6.0, centre.y + cos(a) * 4.0)
+		await RenderingServer.frame_post_draw
+		var t1 := Time.get_ticks_usec()
+		if f >= 10:
+			dt.append((t1 - t0) / 1000.0)
+			gpu.append(RenderingServer.viewport_get_measured_render_time_gpu(vp))
+		t0 = t1
+	RenderingServer.viewport_set_measure_render_time(vp, false)
+	var a2 := Array(dt); a2.sort()
+	var g2 := Array(gpu); g2.sort()
+	return {"median_ms": a2[a2.size() / 2], "min_ms": a2[0], "max_ms": a2[a2.size() - 1],
+		"gpu_median_ms": g2[g2.size() / 2], "gpu_max_ms": g2[g2.size() - 1]}

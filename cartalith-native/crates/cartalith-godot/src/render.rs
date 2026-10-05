@@ -1466,8 +1466,11 @@ pub struct TerrainAppearance {
     /// shader (`map_shore.gdshader`) paints the river from it with the shore's
     /// own antialiased edge and a floodplain tint beside it, the valley shading
     /// is no longer cut along the drawn line (`valley_shade_field`'s `recut`),
-    /// and the base view stops drawing the stroke mesh. Deep-zoom tiles are
-    /// unchanged (RIM-7). When the field cannot be built (a grid over
+    /// and the base view stops drawing the stroke mesh. Deep-zoom tiles and
+    /// exports still stroke the network (`river_stroke::rasterize`; RIM-7's
+    /// field parity is not built), but this flag is one input of the gate that
+    /// gives them RIM-4's delta fans too (`river_delta::fans_drawn`), so a
+    /// delta painted here is stroked there. When the field cannot be built (a grid over
     /// `river_field::MAX_TEXELS`) the stroke stays: the river is never lost.
     ///
     /// A `bool` for the reason `smooth_shores` is one. `true` in `default()`;

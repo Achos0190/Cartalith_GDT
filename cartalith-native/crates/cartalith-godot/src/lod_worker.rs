@@ -306,6 +306,16 @@ pub struct SnapshotInputs {
     /// `Arc` because the geometry is built once per snapshot and read by
     /// every worker tile.
     pub rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
+    /// **RIM-7**: RIM-4's delta fans for this look (`WorldGen::delta_fans_for`,
+    /// gated by `river_delta::fans_drawn`), stroked before [`Self::rivers`] in
+    /// every tile (`river_stroke::rasterize_with`), so the delta the painted
+    /// screen path draws below the deep-zoom switch is still there above it.
+    /// A second `Arc` beside the network rather than runs copied into it, so
+    /// nothing copies the network. `None` -- never an empty geometry -- with
+    /// the switch off, a look that draws no fan, the Rivers layer off, or a
+    /// world with no fan; [`Self::fingerprint`] then reads exactly what it
+    /// read before RIM-7.
+    pub river_fans: Option<Arc<crate::river_stroke::RiverGeometry>>,
     /// Ruling BO: the forced-lake mask (`WorldGen::forced_lake_mask`), drawn
     /// into every tile as lake (`TileFields::with_forced_lakes`) so a tile
     /// shows the water the base map shows. `None` -- the absent state, never
@@ -435,6 +445,7 @@ impl SnapshotInputs {
             lapse_rate,
             gravity,
             rivers,
+            river_fans,
             forced_lakes,
         } = self;
         let mut d = Digest::new();
@@ -477,6 +488,35 @@ impl SnapshotInputs {
         }
         d.tag(rivers.is_some());
         if let Some(g) = rivers {
+            d.word(g.runs.len() as u64);
+            for r in &g.runs {
+                d.f32s(&r.pts.iter().flat_map(|p| [p.0, p.1]).collect::<Vec<f32>>());
+                d.f32s(&r.widths);
+                d.f32s(&r.colors.iter().flat_map(|c| *c).collect::<Vec<f32>>());
+                d.word(r.pieces.len() as u64);
+                for &(a, b) in &r.pieces {
+                    d.word(((a as u64) << 32) | b as u64);
+                }
+                d.word(r.orders.len() as u64);
+                for o in &r.orders {
+                    d.word(*o as u16 as u64);
+                }
+                d.f32s(&r.discharge);
+                d.word(r.own_order as u16 as u64);
+            }
+        }
+        // RIM-7: the delta fans, hashed run by run as the network is. Only
+        // when present (no tag word when absent), so a snapshot with no fans
+        // -- the switch off, or a world without one -- fingerprints exactly as
+        // before RIM-7 and a pyramid stored then still seeds. With fans, the
+        // extra words (every fan run, as the network's are hashed) make the
+        // digest differ, so a stored fan-OFF pyramid never seeds a fan-ON
+        // world or the reverse (`a_snapshot_with_delta_fans_draws_them_and_keys_them`).
+        // The leading `u64::MAX` is a separator between the network's words
+        // and the fans', defence in depth only: no test can tell it from its
+        // absence (the RIM-7 mutation run's one survivor, disclosed).
+        if let Some(g) = river_fans {
+            d.word(u64::MAX);
             d.word(g.runs.len() as u64);
             for r in &g.runs {
                 d.f32s(&r.pts.iter().flat_map(|p| [p.0, p.1]).collect::<Vec<f32>>());
@@ -595,6 +635,8 @@ pub struct LodSnapshot {
     paint_terrain: Option<Vec<u8>>,
     paint_splat: Option<Vec<u8>>,
     rivers: Option<Arc<crate::river_stroke::RiverGeometry>>,
+    /// RIM-7: [`SnapshotInputs::river_fans`], stroked before `rivers`.
+    river_fans: Option<Arc<crate::river_stroke::RiverGeometry>>,
 }
 
 /// The whole safety argument for this module in one line the compiler checks.
@@ -647,6 +689,7 @@ impl LodSnapshot {
             lapse_rate,
             gravity,
             rivers,
+            river_fans,
             forced_lakes,
         } = i;
         if gw < 2 || gh < 2 || field.len() < gw.checked_mul(gh)? {
@@ -726,6 +769,7 @@ impl LodSnapshot {
             paint_terrain,
             paint_splat,
             rivers,
+            river_fans,
         })
     }
 
@@ -783,7 +827,7 @@ impl LodSnapshot {
             tf = tf.with_ink(ink);
         }
         tf = tf.with_color_space(self.color_space);
-        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref())
+        lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref())
     }
 
     /// Every tile of levels `0..=z_max`, as storable masks — owner rulings
@@ -1468,6 +1512,7 @@ mod tests {
             lapse_rate: 6.5,
             gravity: 1.0,
             rivers: None,
+            river_fans: None,
             forced_lakes: None,
             }
     }
@@ -2160,6 +2205,83 @@ mod tests {
             i.fingerprint()
         };
         assert_ne!(at(5), at(6), "the forced cells must move the digest");
+    }
+
+    /// The inputs of a coastal world with one order-4 river due east into the
+    /// sea and its RIM-4 delta fans: land west of x = 64, sea east of it, the
+    /// river along y = 36.5 from x = 10.5 past the shore. Returns the inputs
+    /// with the river and no fans, and the fans.
+    fn delta_inputs(gw: usize, gh: usize) -> (SnapshotInputs, crate::river_stroke::RiverGeometry) {
+        let mut i = inputs(gw, gh);
+        {
+            let f = Arc::make_mut(&mut i.field);
+            for y in 0..gh {
+                for x in 0..gw {
+                    f[y * gw + x] = if x < 64 { 0.5 + 0.002 * (64 - x) as f32 } else { 0.3 };
+                }
+            }
+        }
+        let n = 58usize;
+        let net = crate::river_stroke::RiverGeometry {
+            runs: vec![crate::river_stroke::DrawnRun {
+                pts: (0..n).map(|k| (10.5 + k as f32, 36.5)).collect(),
+                widths: vec![2.0; n],
+                colors: vec![[0.1, 0.2, 0.6, 1.0]; n],
+                orders: vec![4; n],
+                discharge: vec![5000.0; n],
+                pieces: vec![(0, n)],
+                reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
+                own_order: 4,
+            }],
+        };
+        let field = i.field.clone();
+        let wet = move |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && field[y as usize * gw + x as usize] < 0.42;
+        let (fans, st) = crate::river_delta::delta_fans(&net, gw, gh, 1.0, &wet);
+        assert!(st.branches >= 2, "premise: the mouth fans: {st:?}");
+        i.rivers = Some(Arc::new(net));
+        (i, fans)
+    }
+
+    /// Protects: **RIM-7 in the worker path and the stored-pyramid key.** A
+    /// snapshot handed RIM-4's delta fans (`SnapshotInputs::river_fans`, what
+    /// `WorldGen::lod_snapshot_inputs` passes) draws them in its tiles -- the
+    /// tile over the mouth differs from the fan-less one there, and only
+    /// round the mouth -- and fingerprints differently (a pyramid stored with
+    /// the fans off never seeds a fan-on world, or the reverse; a different
+    /// fan set differs too). With `river_fans` `None` the digest is the one
+    /// the fields alone give, so a pyramid stored before RIM-7 still seeds a
+    /// world that draws no fan. A worker that dropped the fans, or a digest
+    /// blind to them, fails here.
+    #[test]
+    fn a_snapshot_with_delta_fans_draws_them_and_keys_them() {
+        let (gw, gh) = (96usize, 72usize);
+        let (plain_in, fans) = delta_inputs(gw, gh);
+        let base = plain_in.fingerprint();
+        let (mut with_in, _) = delta_inputs(gw, gh);
+        with_in.river_fans = Some(Arc::new(fans));
+        assert_ne!(with_in.fingerprint(), base, "the fans must move the digest");
+        let (mut fewer_in, mut fewer) = delta_inputs(gw, gh);
+        fewer.runs.pop();
+        fewer_in.river_fans = Some(Arc::new(fewer));
+        assert_ne!(fewer_in.fingerprint(), with_in.fingerprint(), "which fans must move the digest");
+        let plain = LodSnapshot::build(plain_in).expect("snapshot");
+        let with = LodSnapshot::build(with_in).expect("snapshot");
+        let (a, w, h) = plain.render_tile(0, 0, 0).expect("tile");
+        let (b, _, _) = with.render_tile(0, 0, 0).expect("tile");
+        // Tile (0, 0, 0) spans the grid; pixel (px, py) sits on cell (px * (gw-1)/(w-1), ...).
+        let (cx, cy) = ((gw - 1) as f64 / (w - 1) as f64, (gh - 1) as f64 / (h - 1) as f64);
+        let mut changed = 0usize;
+        for (k, (p, q)) in a.chunks(4).zip(b.chunks(4)).enumerate() {
+            if p == q {
+                continue;
+            }
+            changed += 1;
+            let (x, y) = ((k % w) as f64 * cx, (k / w) as f64 * cy);
+            // The fan reaches from its apex (x 39.5, a setback of 24 upstream of
+            // the last dry point 63.5) to the shore, at most 1.6 setbacks out.
+            assert!(x > 36.0 && x < 72.0 && (y - 36.0).abs() < 40.0, "a change far from the mouth at cell ({x:.1}, {y:.1})");
+        }
+        assert!(changed > w / 2, "the fans changed only {changed} tile pixels");
     }
 
     /// Protects Ruling BO in the worker path: a snapshot built with a forced

@@ -173,7 +173,7 @@ impl Seg {
 /// (`split_river_polylines`' own rule, as `valley_shade::recut_run` has it).
 ///
 /// `geoms` is the network and, after it, RIM-4's delta fans
-/// ([`crate::river_delta`], painted path only) -- every run of every geometry
+/// ([`crate::river_delta`]; this field is the painted path's) -- every run of every geometry
 /// listed is flattened the same way, in the order given, so a fan's segments
 /// follow the network's and a tie still goes to the first segment drawn.
 fn segments(geoms: &[&RiverGeometry], gw: usize, river_width: f32) -> Vec<Seg> {
@@ -266,9 +266,11 @@ pub fn build(geom: &RiverGeometry, gw: usize, gh: usize, river_width: f32, frame
 /// network alone covers (`river_delta::tests::a_fan_only_adds_coverage_and_only_near_its_mouth`). `fans = None` is
 /// [`build`] exactly: the same segments in the same order, hence a
 /// bit-identical field -- the off switch's contract
-/// (`river_delta::tests::the_off_switch_is_the_plain_field`). Must never be handed fans on any
-/// path but the painted one: the vector stroke, the tiles and the export draw
-/// the network alone until RIM-7.
+/// (`river_delta::tests::the_off_switch_is_the_plain_field`). Must never be handed fans the
+/// other paths do not draw: since RIM-7 the deep-zoom tiles and the export
+/// stroke the SAME fans (`river_stroke::rasterize_with`), and one gate
+/// (`river_delta::fans_drawn`) decides for all three, so the caller passes
+/// what `WorldGen::delta_fans_for` returns and nothing else.
 pub fn build_with(
     geom: &RiverGeometry,
     fans: Option<&RiverGeometry>,

@@ -1463,7 +1463,10 @@ fn for_each_span_in(
 /// layer before the Painter styles, the paper and the grade, so a preset
 /// reaches the rivers like any other map content. **The deep-zoom tiles** draw
 /// their rivers this way, each at its own resolution
-/// (`lod_bridge::synthesize_tile_rgba_rivers`).
+/// (`lod_bridge::synthesize_tile_rgba_rivers`), and so does every export
+/// (`export_raster::with_export_rivers`) -- since RIM-7 both through
+/// [`rasterize_with`], with RIM-4's delta fans, so a fan is stroked by exactly
+/// the law that strokes the network.
 ///
 /// The preset's own river treatment is applied here: its width multiplier
 /// (`river_width`, inside [`river_px_width`]) before the floor, its colour and
@@ -1478,9 +1481,42 @@ fn for_each_span_in(
 /// their shared edge sample identically (the same segments, the same world
 /// position).
 ///
-/// Must never be attached to a render the JS goldens or the exports use:
-/// those have no river layer by design (`js_reference()`, `BakeFields::pixel`).
+/// Must never be attached to a render the JS goldens use: those have no river
+/// layer by design (`js_reference()`). The exports DO use it since RV-5, per
+/// export rectangle (`render::paint_vector_rivers`); a golden fixture passes
+/// `render::ExportRivers::default()` and never reaches it. (This sentence
+/// said "or the exports" until RIM-7 found it stale, `render::RiverLayer`'s
+/// own doc having recorded the RV-5 change.)
+#[cfg_attr(not(test), allow(dead_code))] // RIM-7: the tiles and the export call the `_with` form; this is the fans-off identity the tests compare it to.
 pub fn rasterize(geom: &RiverGeometry, a: &render::TerrainAppearance, w: usize, h: usize, map: RasterMap) -> render::RiverLayer {
+    rasterize_with(geom, None, a, w, h, map)
+}
+
+/// **RIM-7: [`rasterize`] with RIM-4's delta fans** (`fans`,
+/// `river_delta::delta_fans`) -- the raster the deep-zoom tiles
+/// (`lod_bridge::synthesize_tile_rgba_rivers`) and every export
+/// (`export_raster::with_export_rivers`) composite, so a delta drawn on the
+/// painted screen path is not lost past the deep-zoom switch or in a file.
+///
+/// The fans' spans are filled **first**, the network's after them, by the
+/// same seam ([`river_px_width`]), style and mesh ([`stroke_mesh`]): each
+/// triangle composites over what came before, so wherever the network is
+/// opaque its pixel is exactly [`rasterize`]'s, and a fan shows only where
+/// the network does not reach -- the stroke's form of the painted path's
+/// rules (`river_field::build_with` gives a tie to the network's segment;
+/// [`rasterize_colour_field_with`] draws the network's own cells last), and
+/// the network's own convention for what joins a trunk ([`draw_ranks`]: the
+/// tributary before the run it joins; a fan's apex lies inside its trunk).
+///
+/// The fans are a second geometry rather than runs copied in front of the
+/// network so that nothing copies the network: measured on the owner's world
+/// (seed 246371, 2048x1311) before this form, the copy was 34.5 MB of point
+/// arrays and 16.8 ms on the main thread (`_riverzoom_probe.gd --rim7`,
+/// 2026-10-05). `fans = None` is [`rasterize`] exactly: the same spans in the
+/// same order. Must never be handed fans the screen does not paint (the gate
+/// is `river_delta::fans_drawn`; callers take them from
+/// `WorldGen::delta_fans_for`).
+pub fn rasterize_with(geom: &RiverGeometry, fans: Option<&RiverGeometry>, a: &render::TerrainAppearance, w: usize, h: usize, map: RasterMap) -> render::RiverLayer {
     let mut layer = render::RiverLayer::new(w, h);
     if w == 0 || h == 0 {
         return layer;
@@ -1491,6 +1527,9 @@ pub fn rasterize(geom: &RiverGeometry, a: &render::TerrainAppearance, w: usize, 
         [c[0], c[1], c[2], c[3] * am]
     };
     let to = |q: (f32, f32)| (map.offset.0 + q.0 * map.scale.0, map.offset.1 + q.1 * map.scale.1);
+    if let Some(f) = fans {
+        for_each_span(f, a, map.px_per_cell(), 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
+    }
     for_each_span(geom, a, map.px_per_cell(), 0.0, to, style, view, |m| layer.fill_triangles(&m.pts, &m.colors, &m.indices));
     layer
 }
@@ -1859,8 +1898,15 @@ impl WorldGen {
     /// field and the colour field are built from the network alone, bit for
     /// bit (`river_delta::tests::the_off_switch_is_the_plain_field`). The next
     /// repaint (`generate`, a look change) applies it; this does not repaint by
-    /// itself. A view setting: never saved, never a world field, and the tiles
-    /// and the export draw the network alone either way (RIM-7).
+    /// itself. A view setting: never saved, never a world field.
+    ///
+    /// RIM-7: the same switch governs the deep-zoom tiles and the export,
+    /// which stroke the fans before the network ([`rasterize_with`]) --
+    /// `false` hands both no fans, exactly their pre-RIM-7 input. The tiles'
+    /// cache key carries it (`lod_cache_key`'s `dl`), so the
+    /// next tile request after a repaint draws the new state; the shell must
+    /// still repaint and drop its live tiles (`invalidate_lod_tiles`) for the
+    /// change to show.
     #[func]
     fn set_river_deltas(&self, on: bool) {
         self.river_delta_off.set(!on);

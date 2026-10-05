@@ -340,6 +340,22 @@ impl WorldGen {
         }
     }
 
+    /// **RIM-7: the delta fans an export under look `a` strokes** before the
+    /// network ([`with_export_rivers`], `river_stroke::rasterize_with`), so a
+    /// file shows the delta the screen paints. `a` is the appearance the
+    /// export renders with -- its style override, not the session's --
+    /// because the fans' gate and river width are a function of the look
+    /// (`river_delta::fans_drawn`, `WorldGen::delta_fans_for`). `None` -- never
+    /// an empty geometry -- for a loaded save, with the switch off, for a
+    /// look that draws no fan and for a world with none: exactly the
+    /// pre-RIM-7 export. The caller asks only when it draws the network.
+    pub(crate) fn export_river_fans(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        match self.source.as_ref()? {
+            WorldSource::Generated(_) => self.delta_fans_for(a).filter(|f| !f.runs.is_empty()),
+            WorldSource::Loaded(_) => None,
+        }
+    }
+
     /// Everything `render::bake_rect` needs, assembled the same way
     /// `build_color_texture` assembles it.
     ///
@@ -429,6 +445,8 @@ impl WorldGen {
             Vec::new()
         };
         let geom = if rivers { self.export_river_geometry() } else { None };
+        // RIM-7: the fans this look draws, only with the network.
+        let fans = if geom.is_some() { self.export_river_fans(&appearance) } else { None };
         let save_flag = if rivers { self.save_river_flag() } else { None };
         // RV-3: water and the sea's colour from the world's own height, as
         // on screen (a no-op when no valley field was built).
@@ -482,7 +500,7 @@ impl WorldGen {
             );
         }
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, shore);
-        Some(with_export_rivers(geom.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
+        Some(with_export_rivers(geom.as_deref(), fans.as_deref(), save_flag, |r| run(&ctx, &bf, r)))
     }
 
     /// The appearance an export with `style` renders under: a new base from
@@ -553,10 +571,15 @@ impl WorldGen {
 ///
 /// Used by every export here and by the overlay session's snapshot
 /// (`export_session.rs`), so there is one way an export gets its rivers.
-pub(crate) fn with_export_rivers<T>(geom: Option<&river_stroke::RiverGeometry>, save_flag: Option<&[u8]>, run: impl FnOnce(ExportRivers<'_>) -> T) -> T {
+///
+/// **RIM-7**: `fans` are RIM-4's delta fans for the export's look
+/// ([`WorldGen::export_river_fans`]), stroked before the network
+/// (`river_stroke::rasterize_with`); `None` is the pre-RIM-7 export exactly,
+/// and fans with no network are never drawn.
+pub(crate) fn with_export_rivers<T>(geom: Option<&river_stroke::RiverGeometry>, fans: Option<&river_stroke::RiverGeometry>, save_flag: Option<&[u8]>, run: impl FnOnce(ExportRivers<'_>) -> T) -> T {
     match geom {
         Some(g) => {
-            let raster = move |a: &TerrainAppearance, r: RasterRect| river_stroke::rasterize(g, a, r.w, r.h, river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy));
+            let raster = move |a: &TerrainAppearance, r: RasterRect| river_stroke::rasterize_with(g, fans, a, r.w, r.h, river_stroke::RasterMap::tile(r.bx, r.by, r.cx, r.cy));
             run(ExportRivers { vector: Some(&raster), save_flag })
         }
         None => run(ExportRivers { vector: None, save_flag }),
@@ -761,7 +784,9 @@ impl WorldGen {
             i.ink = None;
         }
         let geom = if rivers { self.export_river_geometry() } else { None };
-        export_session::ExportSnapshot::build(i, geom)
+        // RIM-7: the fans this export's look draws, only with the network.
+        let fans = if geom.is_some() { self.export_river_fans(&i.appearance) } else { None };
+        export_session::ExportSnapshot::build(i, geom, fans)
     }
 }
 
@@ -1951,13 +1976,18 @@ mod rv5_parity_tests {
     /// The export at `K` pixels per cell: terrain, then the vector rivers.
     /// `shore` false is the pre-RV-5 cell rule (the control).
     fn export(w: &World, a: &TerrainAppearance, geom: Option<&RiverGeometry>, shore: bool) -> Vec<[f64; 3]> {
+        export_with_fans(w, a, geom, None, shore)
+    }
+
+    /// [`export`] with RIM-4's delta fans handed to `with_export_rivers` (RIM-7).
+    fn export_with_fans(w: &World, a: &TerrainAppearance, geom: Option<&RiverGeometry>, fans: Option<&RiverGeometry>, shore: bool) -> Vec<[f64; 3]> {
         let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
         let ctx = setup(w, a, &wb.classification);
         let sf = if shore { render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false) } else { Vec::new() };
         let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
         assert_eq!(bf.has_shore_field(), shore, "the shore field must attach exactly when asked, or the control is not a control");
         let (ow, oh) = dims();
-        let px = super::with_export_rivers(geom, None, |r| {
+        let px = super::with_export_rivers(geom, fans, None, |r| {
             let mut px = render::bake_rect(&ctx, &bf, r.save_flag, ow, oh, 0, 0, ow, oh);
             if let Some(v) = r.vector {
                 render::paint_vector_rivers(&ctx, &bf, v, &mut px, ow, oh, 0, 0, ow, oh);
@@ -2164,4 +2194,53 @@ mod rv5_parity_tests {
     /// about 1.5x the worst measured; added after a scratch-copy mutant that
     /// drew every all-water pixel as land survived the three legs above.
     const OPEN_WATER_BOUND: f64 = 6.0;
+
+    /// Protects: **RIM-7 in the export** -- an export handed the network and
+    /// its delta fans (what `WorldGen::export_river_fans` supplies) paints the
+    /// fans through
+    /// `with_export_rivers` and `paint_vector_rivers`, the path every export
+    /// takes: pixels move, on land only (water is decided first, so a fan's
+    /// tip on the sea moves nothing), and only within the fans' own box; an
+    /// empty fan geometry exports the network's bytes exactly; and fans with
+    /// no network (`content.rivers` off) export nothing. Before RIM-7 an
+    /// export drew no fan at all; a path that drops them fails the count.
+    #[test]
+    fn the_export_paints_the_delta_fans_on_land_only() {
+        let w = world();
+        let a = TerrainAppearance::default();
+        // `river()` reaches the sea at its west end; marked as a mouth so the
+        // fan rule sees it (an order-3 run, discharge 12 cells >> 2e-4 of 3072).
+        let mut net = river();
+        net.runs[0].reach = vec![(None, Some(river_stroke::ShoreReach::default()))];
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let cls = wb.classification.clone();
+        let wet = move |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < GW && (y as usize) < GH && cls[y as usize * GW + x as usize] != 0;
+        let (fans, st) = crate::river_delta::delta_fans(&net, GW, GH, a.river_width as f32, &wet);
+        assert!(st.branches >= 1, "positive control: the mouth fans: {st:?}");
+        let plain = export(&w, &a, Some(&net), true);
+        let with = export_with_fans(&w, &a, Some(&net), Some(&fans), true);
+        let empty = export_with_fans(&w, &a, Some(&net), Some(&RiverGeometry { runs: Vec::new() }), true);
+        assert_eq!(empty, plain, "an empty fan geometry: the network's export, byte for byte");
+        assert_eq!(export_with_fans(&w, &a, None, Some(&fans), true), export(&w, &a, None, true), "fans without the network export nothing");
+        let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+        for p in fans.runs.iter().flat_map(|r| r.pts.iter()) {
+            lo = (lo.0.min(p.0), lo.1.min(p.1));
+            hi = (hi.0.max(p.0), hi.1.max(p.1));
+        }
+        let (ow, _) = dims();
+        let mut moved = 0usize;
+        for (i, (p, q)) in with.iter().zip(&plain).enumerate() {
+            if p == q {
+                continue;
+            }
+            moved += 1;
+            // Export pixel x sits on grid coordinate x / K (`bake_steps`), river space + 0.5.
+            let (gx, gy) = ((i % ow) as f64 / K as f64, (i / ow) as f64 / K as f64);
+            let cell = (gy.round() as usize).min(GH - 1) * GW + (gx.round() as usize).min(GW - 1);
+            assert!((w.field[cell] as f64) >= SEA, "a fan moved a pixel on the water at ({gx}, {gy})");
+            let (rx, ry) = (gx as f32 + 0.5, gy as f32 + 0.5);
+            assert!(rx >= lo.0 - 2.0 && rx <= hi.0 + 2.0 && ry >= lo.1 - 2.0 && ry <= hi.1 + 2.0, "a change outside the fans' box at ({rx}, {ry})");
+        }
+        assert!(moved > 20, "the fans moved only {moved} export pixels");
+    }
 }

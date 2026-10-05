@@ -412,7 +412,7 @@ pub fn synthesize_tile_rgba(
     row: i32,
     seed: i32,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), None, None)
 }
 
 /// [`synthesize_tile_rgba`] with the rivers drawn into the tile: `rivers` is
@@ -421,6 +421,13 @@ pub fn synthesize_tile_rgba(
 /// which `render::render_biome_tile_rgba_rivers` then composites before the
 /// Painter styles, the paper and the grade, exactly as the screen texture
 /// does. `None` is [`synthesize_tile_rgba`].
+///
+/// **RIM-7**: `fans` are RIM-4's delta fans (`lod_worker::SnapshotInputs::river_fans`),
+/// stroked before the network by `river_stroke::rasterize_with`, so the delta
+/// the painted screen path draws below the deep-zoom switch is in the tile
+/// above it. `None` -- and fans with `rivers` `None`, which have no network
+/// to sit on and are never drawn -- is the tile exactly as before RIM-7.
+#[allow(clippy::too_many_arguments)]
 pub fn synthesize_tile_rgba_rivers(
     ctx: &RenderCtx,
     tf: &TileFields,
@@ -429,8 +436,9 @@ pub fn synthesize_tile_rgba_rivers(
     row: i32,
     seed: i32,
     rivers: Option<&crate::river_stroke::RiverGeometry>,
+    fans: Option<&crate::river_stroke::RiverGeometry>,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers)
+    synthesize_tile_rgba_with_z_base(ctx, tf, z, col, row, seed, z_base(), rivers, fans)
 }
 
 /// [`synthesize_tile_rgba`] with `opts.zBase` supplied rather than taken from
@@ -448,6 +456,7 @@ fn synthesize_tile_rgba_with_z_base(
     seed: i32,
     zb: i32,
     rivers: Option<&crate::river_stroke::RiverGeometry>,
+    fans: Option<&crate::river_stroke::RiverGeometry>,
 ) -> Option<(Vec<u8>, usize, usize)> {
     let t = tile_heights(ctx, tf, z, col, row, seed, zb)?;
     // The rivers at this tile's own pixels: pixel `x` sits at sample
@@ -456,7 +465,7 @@ fn synthesize_tile_rgba_with_z_base(
     let layer = rivers.map(|g| {
         let cx = t.tb.w / (t.w.max(2) - 1) as f64;
         let cy = t.tb.h / (t.h.max(2) - 1) as f64;
-        crate::river_stroke::rasterize(g, ctx.appearance(), t.w, t.h, crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy))
+        crate::river_stroke::rasterize_with(g, fans, ctx.appearance(), t.w, t.h, crate::river_stroke::RasterMap::tile(t.tb.x, t.tb.y, cx, cy))
     });
     let rgba = render::render_biome_tile_rgba_water(ctx, &t.tile, t.water.as_deref(), t.w, t.h, t.pad, t.tb, tf, layer.as_ref());
     if rgba.len() != t.w * t.h * 4 {
@@ -1179,7 +1188,7 @@ mod tests {
             }],
         };
         let tf = tw.fields(&ctx);
-        let (with, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g)).unwrap();
+        let (with, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None).unwrap();
         let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
         assert!(without.chunks(4).all(|p| p[3] == 255), "no rivers: opaque everywhere");
         let covered = with.chunks(4).filter(|p| p[3] < 255).count();
@@ -1228,9 +1237,93 @@ mod tests {
             }],
         };
         let tf = tw.fields(&ctx);
-        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g)).unwrap();
+        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 1, 1, 1234, Some(&g), None).unwrap();
         let (without, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 1, 1, 1234).unwrap();
         assert_eq!(with, without, "a river on open water changes no byte of the tile");
+    }
+
+    /// Protects: **RIM-7 on the deep-zoom tiles** -- a tile handed the network
+    /// and its delta fans (`SnapshotInputs::river_fans`, what
+    /// `WorldGen::lod_snapshot_inputs` passes) strokes the fans: more river
+    /// pixels than the network's own tile, a branch's own ground on land
+    /// covered, and every pixel that changed is a river pixel (alpha below
+    /// 255) inside the fans' own box -- no tile-wide change, no fan on the
+    /// water (the land-only river pass hides the tips). Before RIM-7 the
+    /// tiles drew the network alone and a delta vanished past the switch
+    /// (measured 0 px ON-vs-OFF at z3); a tile path that drops the fans fails
+    /// the count. An empty fan geometry draws the network's tile byte for
+    /// byte, and fans with the Rivers layer off (no network) draw nothing.
+    #[test]
+    fn a_tile_strokes_the_delta_fans_of_a_river_mouth() {
+        // Land west of x = 160, sea east of it; one order-4 river due east
+        // along y = 150.5 into the sea, three cells wide, large discharge.
+        let (gw, gh) = (256usize, 256usize);
+        let mut field = vec![0f32; gw * gh];
+        for y in 0..gh {
+            for x in 0..gw {
+                field[y * gw + x] = if x < 160 { 0.5 + 0.0005 * (160 - x) as f32 } else { 0.3 };
+            }
+        }
+        let tw = TestWorld::new(field.clone(), gw, gh);
+        let ctx = tw.ctx();
+        let n = 126usize;
+        let pts: Vec<(f32, f32)> = (0..n).map(|i| (40.5 + i as f32, 150.5)).collect();
+        let g = crate::river_stroke::RiverGeometry {
+            runs: vec![crate::river_stroke::DrawnRun {
+                pts,
+                widths: vec![3.0; n],
+                colors: vec![[0.1, 0.2, 0.6, 1.0]; n],
+                orders: vec![4; n],
+                discharge: vec![5000.0; n],
+                pieces: vec![(0, n)],
+                reach: vec![(None, Some(crate::river_stroke::ShoreReach::default()))],
+                own_order: 4,
+            }],
+        };
+        let wet = |x: i64, y: i64| x >= 0 && y >= 0 && (x as usize) < gw && (y as usize) < gh && (field[y as usize * gw + x as usize] as f64) < TEST_SEA;
+        let (fans, st) = crate::river_delta::delta_fans(&g, gw, gh, 1.0, &wet);
+        assert_eq!(st.branches, 4, "positive control: the mouth fans: {st:?}");
+        let tf = tw.fields(&ctx);
+        // Tile (2, 2, 2) spans cells 127.5..191.25 on both axes: the apex
+        // (x 135.5), the fan and the shore.
+        let (net, w, h) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), None).unwrap();
+        let (with, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&fans)).unwrap();
+        let (none, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, Some(&g), Some(&crate::river_stroke::RiverGeometry { runs: Vec::new() })).unwrap();
+        assert_eq!(none, net, "an empty fan geometry: the network's own tile, byte for byte");
+        // Fans with no network to sit on are never drawn (the Rivers switch off).
+        let (bare, _, _) = synthesize_tile_rgba_rivers(&ctx, &tf, 2, 2, 2, 1234, None, Some(&fans)).unwrap();
+        let (plain, _, _) = synthesize_tile_rgba(&ctx, &tf, 2, 2, 2, 1234).unwrap();
+        assert_eq!(bare, plain, "fans without the network draw nothing");
+        let covered = |t: &[u8]| t.chunks(4).filter(|p| p[3] < 255).count();
+        let (cn, cw) = (covered(&net), covered(&with));
+        assert!(cw > cn + w, "the fans add river pixels: {cn} -> {cw} of {}", w * h);
+        // Where a pixel sits in cells (`RasterMap::tile`: pixel x is sample x = bx + x * cx, river space + 0.5).
+        let b = tile_bounds(gw, gh, 2, 2, 2).unwrap();
+        let (cx, cy) = (b.w / (w - 1) as f64, b.h / (h - 1) as f64);
+        let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+        for p in fans.runs.iter().flat_map(|r| r.pts.iter()) {
+            lo = (lo.0.min(p.0), lo.1.min(p.1));
+            hi = (hi.0.max(p.0), hi.1.max(p.1));
+        }
+        let mut changed = 0usize;
+        for (i, (p, q)) in with.chunks(4).zip(net.chunks(4)).enumerate() {
+            if p == q {
+                continue;
+            }
+            changed += 1;
+            let (gx, gy) = ((b.x + (i % w) as f64 * cx) as f32 + 0.5, (b.y + (i / w) as f64 * cy) as f32 + 0.5);
+            assert!(p[3] < 255, "a changed pixel is a river pixel, at cell ({gx}, {gy})");
+            assert!(gx >= lo.0 - 2.0 && gx <= hi.0 + 2.0 && gy >= lo.1 - 2.0 && gy <= hi.1 + 2.0, "a change outside the fans' box at cell ({gx}, {gy})");
+            assert!(gx < 161.0, "no fan pixel on the sea, at cell ({gx}, {gy})");
+        }
+        assert!(changed > w, "the fan changed only {changed} pixels");
+        // The outer branch's own ground halfway out, on land: river in the fan tile, terrain in the network's.
+        let r = fans.runs.iter().max_by(|p, q| p.pts.last().unwrap().1.partial_cmp(&q.pts.last().unwrap().1).unwrap()).unwrap();
+        let mid = r.pts[r.pts.len() / 3];
+        assert!(mid.0 < 159.0 && (mid.1 - 150.5).abs() > 3.0, "precondition: off the trunk, on land: {mid:?}");
+        let (px, py) = (((mid.0 - 0.5) as f64 - b.x) / cx, ((mid.1 - 0.5) as f64 - b.y) / cy);
+        let k = (py.round() as usize * w + px.round() as usize) * 4;
+        assert!(with[k + 3] < 128 && net[k + 3] == 255, "the branch at {mid:?}: alpha {} with the fans, {} without", with[k + 3], net[k + 3]);
     }
 
     #[test]
@@ -1331,7 +1424,7 @@ mod tests {
         let tf = tw.fields(&ctx);
         let z = z_base() + 3;
         let (with, _, _) = synthesize_tile_rgba(&ctx, &tf, z, 1, 1, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, 1, 1, 1234, z, None, None).unwrap();
         assert_eq!(with, without, "a wholly underwater tile must not move when the zoom octaves are switched off");
     }
 
@@ -1345,7 +1438,7 @@ mod tests {
         let n = 1 << z;
         let (col, row) = (5 * n / 16, 7 * n / 16);
         let (with, w, h) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
-        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None).unwrap();
+        let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None).unwrap();
         let moved = with.chunks(4).zip(without.chunks(4)).filter(|(a, b)| a[..3] != b[..3]).count();
         assert!(moved > w * h / 10, "only {moved} of {} pixels moved when the octaves were switched on", w * h);
     }
@@ -1482,7 +1575,7 @@ mod tests {
             let (with, tw, th) = synthesize_tile_rgba(&ctx, &tf, z, col, row, 1234).unwrap();
             // `zb == z` makes `add_zoom_detail`'s `extra` non-positive, i.e.
             // exactly the pre-2026-08-24 `amplify_region`-only content.
-            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None).unwrap();
+            let (without, _, _) = synthesize_tile_rgba_with_z_base(&ctx, &tf, z, col, row, 1234, z, None, None).unwrap();
             // Pixels per coarse cell, from the tile's own bounds rather than
             // from `2^z` -- the two agree, and reading it off the addressing
             // is what makes this survive a `TILE_PX` change.
