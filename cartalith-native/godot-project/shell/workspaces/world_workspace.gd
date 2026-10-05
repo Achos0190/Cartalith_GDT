@@ -608,7 +608,11 @@ func _on_generation_finished(ok: bool) -> void:
 	_refresh_geo_age_row()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
-	_fill_ecology(_ecology_body)
+	## `ecology_summary()` is one O(grid) pass (~190 ms at 2048 wide, ~790 ms at
+	## 4096) for a collapsed category nobody sees yet, so it waits for the
+	## category to open (`DccWidgets.fill_when_visible`); `_fill_ecology` clears
+	## its own body and reads the engine when it runs, so the content is the same.
+	DccWidgets.fill_when_visible(_ecology_body, _fill_ecology.bind(_ecology_body))
 	_build_crs(_crs_body)
 
 func _on_world_loaded() -> void:
@@ -628,7 +632,11 @@ func _on_world_loaded() -> void:
 	_refresh_geo_age_row()
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
-	_fill_ecology(_ecology_body)
+	## `ecology_summary()` is one O(grid) pass (~190 ms at 2048 wide, ~790 ms at
+	## 4096) for a collapsed category nobody sees yet, so it waits for the
+	## category to open (`DccWidgets.fill_when_visible`); `_fill_ecology` clears
+	## its own body and reads the engine when it runs, so the content is the same.
+	DccWidgets.fill_when_visible(_ecology_body, _fill_ecology.bind(_ecology_body))
 	_build_crs(_crs_body)
 
 ## Ruling L's *"(SCULPT mode only)"* on the TOOLS row's `Biome paint (B)`.
@@ -959,7 +967,8 @@ func _build_ecology(parent: Control) -> void:
 	parent.add_child(_ecology_body)
 	_fill_ecology(_ecology_body)
 
-## Refilled on every generate/load, the same wholesale-rebuild discipline
+## Refilled on every generate/load (when the Ecology category is on screen, else
+## when it next opens -- `DccWidgets.fill_when_visible`), the same wholesale-rebuild discipline
 ## `_build_sculpt`/`_build_paint` use: every number here is this world's.
 func _fill_ecology(parent: Control) -> void:
 	for c in parent.get_children():

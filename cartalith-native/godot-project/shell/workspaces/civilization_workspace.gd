@@ -233,7 +233,7 @@ var _religion_sort := "share"       ## "share" | "faith"
 ## rewrites `btn.text` and `font_color` and touches no child, so the count
 ## survives every sibling's toggle instead of being repainted away by it.
 var _religion_head_count: Label
-## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()`
+## CV-25's and CV-26's category bodies. Both refill on `_rebuild_readouts()` (when their category is on screen: `DccWidgets.fill_when_visible`)
 ## like the four above: their inputs are the settlement roster, the place
 ## editor's overrides and the territory raster, and all three move under a
 ## place edit or a recompute. Both calls are one O(cells) aggregate pass and
@@ -519,8 +519,10 @@ func _on_tariff_changed() -> void:
 ## `_on_civ_edited` too) rewrites the trade balances Economy reads and the
 ## provinces Factions and Territories read.
 ##
-## Cheap on purpose, and checked rather than assumed: every call these four
-## fills make is a pure read of already-computed state -- `get_settlements`/
+## Cheap on purpose for the Populate / Settlements / Population / Culture /
+## Religion / Factions / Territories fills (the O(grid) Economy, Military and
+## Relationships ones wait for their category to open -- see the calls below),
+## and checked rather than assumed: every call those make is a pure read of already-computed state -- `get_settlements`/
 ## `get_provinces`/`get_trade_balances`/`get_factions` copy stored `Vec`s of a
 ## few dozen entries, and the one O(grid) call in the set
 ## (`civ_agrarian_regional_total`) is a single linear pass over the stored
@@ -541,11 +543,14 @@ func _rebuild_readouts() -> void:
 	if _population_body != null and is_instance_valid(_population_body):
 		_clear_body(_population_body)
 		_fill_population(_population_body)
+	## Economy, Military and Relationships each make an O(grid) Rust call
+	## (`civ_faction_economy`, `civ_military_summary_at`, `civ_faction_relations`:
+	## ~230 ms apiece at 2048 wide, ~950 ms at 4096), so they refill when their
+	## category is on screen, not on every generate -- see
+	## `DccWidgets.fill_when_visible`. Same content, same data, drawn the moment
+	## the category opens.
 	if _economy_body != null and is_instance_valid(_economy_body):
-		_clear_body(_economy_body)
-		if _economy_faction_body != null and is_instance_valid(_economy_faction_body):
-			_clear_body(_economy_faction_body)
-		_fill_economy(_economy_body, _economy_faction_body)
+		DccWidgets.fill_when_visible(_economy_body, _refill_economy)
 	if _culture_body != null and is_instance_valid(_culture_body):
 		_clear_body(_culture_body)
 		_fill_culture(_culture_body)
@@ -564,11 +569,33 @@ func _rebuild_readouts() -> void:
 		_clear_body(_territories_body)
 		_fill_territories(_territories_body)
 	if _military_body != null and is_instance_valid(_military_body):
-		_clear_body(_military_body)
-		_fill_military(_military_body)
+		DccWidgets.fill_when_visible(_military_body, _refill_military)
 	if _relations_body != null and is_instance_valid(_relations_body):
-		_clear_body(_relations_body)
-		_fill_relationships(_relations_body)
+		DccWidgets.fill_when_visible(_relations_body, _refill_relations)
+
+## The three self-contained refills `_rebuild_readouts` hands to
+## `DccWidgets.fill_when_visible`: each clears its own body (and Economy's
+## sibling By-faction body) and fills it from the engine as it stands when the
+## refill runs, never from a value captured when it was scheduled.
+func _refill_economy() -> void:
+	if _economy_body == null or not is_instance_valid(_economy_body):
+		return
+	_clear_body(_economy_body)
+	if _economy_faction_body != null and is_instance_valid(_economy_faction_body):
+		_clear_body(_economy_faction_body)
+	_fill_economy(_economy_body, _economy_faction_body)
+
+func _refill_military() -> void:
+	if _military_body == null or not is_instance_valid(_military_body):
+		return
+	_clear_body(_military_body)
+	_fill_military(_military_body)
+
+func _refill_relations() -> void:
+	if _relations_body == null or not is_instance_valid(_relations_body):
+		return
+	_clear_body(_relations_body)
+	_fill_relationships(_relations_body)
 
 ## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
 ## end of the frame, so a child left parented is still in `get_children()`
@@ -6652,6 +6679,11 @@ func _military_key(cursor: int) -> String:
 ## Refill Military when the cursor's reading changes, and only then.
 func _on_military_cursor() -> void:
 	if _military_body == null or not is_instance_valid(_military_body):
+		return
+	## A refill is already waiting for the category to open; it reads the
+	## cursor when it runs, so stepping the cursor now would only compute the
+	## same aggregate twice (and the key below belongs to the old fill).
+	if DccWidgets.has_pending_fill(_military_body):
 		return
 	if _military_key(bridge.get_civ_year()) == _military_reading_key:
 		return

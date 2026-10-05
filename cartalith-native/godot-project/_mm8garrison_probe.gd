@@ -260,6 +260,8 @@ func _ready() -> void:
 	_app.timeline_changed.emit()
 	await _frames(4)
 	var body: Control = ws._military_body
+	## Military refills when its category is on screen (`DccWidgets.fill_when_visible`); read it without opening the category, so run the pending refill first.
+	DccWidgets.flush_pending_fill(body)
 	var t0 := _labels_text(body)
 	_check("Military names year y0 as the reading", t0.contains("Reading: year %d, as recorded." % y0))
 	_check("Military draws a Garrisons section", t0.contains("GARRISONS") or t0.to_lower().contains("garrisons"))

@@ -97,6 +97,76 @@ static func category(parent: Control, title: String, group: Array,
 		_fill_category_count.bind(body, count_label).call_deferred()
 	return body
 
+## Meta keys for `fill_when_visible`: the pending fill, and whether the body's
+## `visibility_changed` is already wired to flush it. Meta rather than a
+## dictionary on a helper object so the state dies with the body -- a freed
+## body takes its pending fill with it, and nothing here keeps it alive.
+const _LAZY_FILL_META := &"dcc_lazy_fill"
+const _LAZY_WIRED_META := &"dcc_lazy_wired"
+
+## Run `fill` now if `body` is on screen, otherwise remember it and run it the
+## moment `body` becomes visible.
+##
+## Why: a CIVIL or WORLD dock category that is collapsed draws nothing, yet its
+## refill used to run in full on every `generation_finished`, and three of them
+## (Economy's By-faction readout, Military, Relationships) and WORLD's Ecology
+## each make one O(grid) Rust call -- about 190-230 ms apiece at 2048 wide and
+## ~800-950 ms at 4096 (`OUTSTANDING_WORK.md` "Every generate freezes the main
+## thread"). Nothing sees the result until the category is opened, so the work
+## waits for that.
+##
+## Contract, which callers rely on:
+## - `fill` must be self-contained -- it clears the body's old children itself
+##   and then fills. Nothing is cleared here, so while a fill is pending the
+##   stale children stay put (hidden, never drawn: the flush runs inside the
+##   same `visible = true` that would have drawn them) and every node a caller
+##   kept a reference into (e.g. a section handle) is still valid.
+## - Calling again before the flush replaces the pending fill; only the latest
+##   runs, once. A fill that runs directly (visible body) discards any pending
+##   one, so a stale fill can never run after a fresher one.
+## - A body outside the tree cannot receive `visibility_changed` reliably, so it
+##   fills at once rather than risk never filling.
+## - Output is identical to an eager fill: `fill` reads the engine when it runs,
+##   which is the same data the eager fill would have read, because every path
+##   that changes it also calls this again.
+static func fill_when_visible(body: Control, fill: Callable) -> void:
+	if not is_instance_valid(body):
+		return
+	if body.is_visible_in_tree() or not body.is_inside_tree():
+		## Direct fill supersedes whatever was pending.
+		if body.has_meta(_LAZY_FILL_META):
+			body.remove_meta(_LAZY_FILL_META)
+		fill.call()
+		return
+	body.set_meta(_LAZY_FILL_META, fill)
+	if not body.has_meta(_LAZY_WIRED_META):
+		body.set_meta(_LAZY_WIRED_META, true)
+		body.visibility_changed.connect(_on_lazy_body_visibility.bind(body))
+
+## True while `body` holds a fill that has not run yet. A caller that would
+## refill the body by another path (a cursor step, say) skips when this is true,
+## because the pending fill reads the same live state when it finally runs.
+static func has_pending_fill(body: Control) -> bool:
+	return is_instance_valid(body) and body.has_meta(_LAZY_FILL_META)
+
+## Run `body`'s pending fill now, if it has one, whether or not it is visible.
+## For a test that reads a body's text without opening its category; the shell
+## itself only flushes through the visibility signal.
+static func flush_pending_fill(body: Control) -> void:
+	if not is_instance_valid(body) or not body.has_meta(_LAZY_FILL_META):
+		return
+	var fill: Callable = body.get_meta(_LAZY_FILL_META)
+	## Removed before the call: the fill itself may re-enter `fill_when_visible`
+	## (a refill that triggers a rebuild) and must not find itself still pending.
+	body.remove_meta(_LAZY_FILL_META)
+	if fill.is_valid():
+		fill.call()
+
+## `visibility_changed` fires on show and on hide; only the show flushes.
+static func _on_lazy_body_visibility(body: Control) -> void:
+	if is_instance_valid(body) and body.is_visible_in_tree():
+		flush_pending_fill(body)
+
 ## How many controls a category holds, for the phone drill row's count column.
 ##
 ## Counts *controls*, not nodes: a `SpinBox` and an `OptionButton` are each one

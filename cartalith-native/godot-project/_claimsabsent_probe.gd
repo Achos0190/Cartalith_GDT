@@ -95,6 +95,11 @@ func _civ_ws(app: Node) -> Node:
 ## `_refresh_world_dependent()`), so this is a plain read of live state.
 func _body_text(ws: Node, field: String) -> String:
 	var body: Control = ws.get(field)
+	## These bodies refill when their category is on screen (`DccWidgets.fill_when_visible`); this probe reads text without opening the category, so run any pending refill first.
+	DccWidgets.flush_pending_fill(body)
+	## Economy's By-faction body shares its pending refill with `_economy_body` (one category, one fill).
+	if field == "_economy_faction_body":
+		DccWidgets.flush_pending_fill(ws._economy_body)
 	if body == null or not is_instance_valid(body):
 		return ""
 	var out := PackedStringArray()
