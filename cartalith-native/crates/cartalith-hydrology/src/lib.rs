@@ -449,6 +449,12 @@ pub fn river_flow_thresh(gw: usize, gh: usize, world_gw: usize, map_width_km: f6
 /// base threshold by slope (steeper ⇒ lower threshold) and by
 /// `riverDensity` (a density≠1 also re-shapes the slope response via
 /// `dexp`, not just a flat rescale).
+///
+/// The reference's law, kept verbatim for the JS-parity path
+/// (`golden_parity_river`). The app's integrated-drainage path does not use
+/// its slope factor away from density 1 — see [`build_channels_routed`]'s
+/// `integrated` section. Must never be edited to carry that divergence: it is
+/// this function's job to stay the reference.
 fn channel_threshold(base_thresh: f64, slope_n: f64, density: f64) -> f64 {
     let density = if density > 0.0 { density } else { 1.0 };
     let dexp = density.ln().abs();
@@ -579,7 +585,7 @@ pub fn build_channels_with_threshold(
     slope_w: usize,
     thresh: f64,
 ) -> ChannelResult {
-    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh)
+    build_channels_core(fld, fld, flow, w, h, sea, world, river_density, slope_w, thresh, true)
 }
 
 /// [`build_channels`] with the receiver tree built over a separate routing
@@ -588,8 +594,10 @@ pub fn build_channels_with_threshold(
 ///
 /// `fld` is the **real** terrain and still decides everything that is a
 /// statement about the ground: the sub-sea skip, and the gradient — so the
-/// slope field and the channel-initiation threshold it feeds are unchanged,
-/// which is §6g's one named exception. `route` (normally
+/// slope field is unchanged, which is §6g's one named exception. The
+/// channel-initiation threshold is unchanged too **except** for the
+/// slope-ease divergence described below, which `integrated` switches on.
+/// `route` (normally
 /// [`build_routing_surface`] of `fld`) decides only which neighbours are
 /// downhill: every `drop` in the receiver search is measured on it. So the
 /// aspect that steers the pick is the real ground's, choosing among neighbours
@@ -614,8 +622,39 @@ pub fn build_channels_with_threshold(
 /// this rule when combined with it) and is not used. The source's own choice
 /// here is not recoverable from §6g; this one is chosen by that measurement.
 ///
-/// With `route == fld` no cell is filled and this is `build_channels`
-/// exactly.
+/// With `route == fld` and `integrated == false` no cell is filled and this
+/// is `build_channels` exactly.
+///
+/// # `integrated`: the slope ease is dropped (deliberate divergence, §7p)
+///
+/// `integrated` is the world's own `WorldState::integrated_drainage` (the
+/// `integrate_drainage` divergence flag: `false` in
+/// `cartalith_engine::WorldParams::defaults()`, `true` in the app's
+/// `cartalith_godot::params::defaults()`). When it is `true` and
+/// `river_density != 1`, a cell channelizes when its discharge exceeds
+/// `thresh / density` — [`channel_threshold`] **without** its
+/// `(1 + 8·slope_n)^(-|ln density|)` factor. When it is `false`, or at
+/// `river_density == 1` (where that factor is exactly `1`), the reference's
+/// [`channel_threshold`] runs unchanged, so the JS-parity path and every
+/// density-1 world are identical by control flow, not by arithmetic.
+///
+/// **Why** (owner, 2026-10-05, "Follow up with 1", after the river-comb
+/// diagnosis): the reference's ease lowers the threshold on steep ground for
+/// *any* density away from 1, in **both** directions, because of the `abs`.
+/// On the owner's world (seed 246371, 2048x1311, 40 075 km, app parameters)
+/// smooth coastal and ridge ramps (median `slope_n` ~22 against a land
+/// median of ~1.1) drain as parallel one-cell strips; with the threshold
+/// eased to ~0.10x at density 1.55 (~0.34x at 0.8) every strip became its own
+/// river, drawn as a hatched comb into every shore. Measured on that world
+/// (drawn runs that are order 1, >= 4 cells, >= 90 % one D8 step and end at
+/// water): 762 / 228 / 518 at density 1.55 / 1.0 / 0.8 with the ease — more
+/// at 0.8 than at 1.0 — and 400 / 228 / 177 without it, monotone in density.
+/// Density still scales the threshold uniformly (`/ density`), so a denser
+/// setting still means more rivers everywhere, just not a comb on every ramp.
+///
+/// Must never: change the threshold when `integrated` is `false` (the
+/// golden-pinned reference path) or when `river_density == 1`; touch the
+/// slope field, which is still written from the real gradient.
 #[allow(clippy::too_many_arguments)]
 pub fn build_channels_routed(
     fld: &[f32],
@@ -627,8 +666,9 @@ pub fn build_channels_routed(
     world: bool,
     river_density: f64,
     map_width_km: f64,
+    integrated: bool,
 ) -> ChannelResult {
-    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km))
+    build_channels_core(fld, route, flow, w, h, sea, world, river_density, w, river_flow_thresh(w, h, w, map_width_km), !integrated)
 }
 
 /// The shared body [`build_channels_with_threshold`] and [`build_channels_routed`]
@@ -639,6 +679,11 @@ pub fn build_channels_routed(
 /// routing surface for [`build_channels_routed`]). Kept private and taking
 /// both a threshold and a slope-normalisation width explicitly, so neither
 /// public entry point can drift from the other by re-deriving either.
+///
+/// `slope_ease`: `true` applies the reference's [`channel_threshold`];
+/// `false` (only [`build_channels_routed`] on the integrated-drainage path)
+/// drops its slope factor away from density 1 — see that function's
+/// `integrated` section. Must never be `false` from a JS-parity caller.
 #[allow(clippy::too_many_arguments)]
 fn build_channels_core(
     fld: &[f32],
@@ -651,6 +696,7 @@ fn build_channels_core(
     river_density: f64,
     slope_w: usize,
     thresh: f64,
+    slope_ease: bool,
 ) -> ChannelResult {
     let wrap = world;
     let n = w * h;
@@ -723,7 +769,12 @@ fn build_channels_core(
                 // caller but a tile (this function's own doc comment).
                 let slope_n = js_hypot(gx, gy) * slope_w as f64;
                 slope_row[x] = slope_n as f32;
-                if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
+                // The reference's slope-eased threshold unless the
+                // integrated path asked for it dropped AND density is not 1:
+                // density 1 takes this same `channel_threshold` call either
+                // way (`build_channels_routed`'s `integrated` section).
+                let t = if slope_ease || density == 1.0 { channel_threshold(thresh, slope_n, density) } else { thresh / density };
+                if flow[i] as f64 <= t {
                     continue;
                 }
                 chan_row[x] = 1;
@@ -4033,7 +4084,7 @@ mod tests {
         let s = super::build_routing_surface(&f, w, h, 0.0, false);
         let flow = super::compute_flow(w, h, &s, None, false, false);
         let d8 = super::flow_receivers(&s, w, h, false);
-        let c = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0);
+        let c = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
         let filled: Vec<usize> = (0..w * h).filter(|&i| c.chan[i] != 0 && s[i] > f[i]).collect();
         assert!(filled.len() > 20, "fixture must route channels through filled cells ({})", filled.len());
         for &i in &filled {
@@ -4053,7 +4104,7 @@ mod tests {
         let f = lcg_field(w, h, 7);
         let flow = super::compute_flow(w, h, &f, None, false, false);
         let a = super::build_channels(&f, &flow, w, h, 0.35, false, 1.0, 800.0);
-        let b = super::build_channels_routed(&f, &f, &flow, w, h, 0.35, false, 1.0, 800.0);
+        let b = super::build_channels_routed(&f, &f, &flow, w, h, 0.35, false, 1.0, 800.0, false);
         assert_eq!(a.recv, b.recv);
         assert_eq!(a.chan, b.chan);
         assert!(a.slope.iter().zip(&b.slope).all(|(x, y)| x.to_bits() == y.to_bits()));
@@ -4070,7 +4121,7 @@ mod tests {
         let s = super::build_routing_surface(&f, w, h, 0.0, false);
         let flow = super::compute_flow(w, h, &s, None, false, false);
         let raw = super::build_channels(&f, &flow, w, h, 0.0, false, 1.0, 800.0);
-        let routed = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0);
+        let routed = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
         // Slope and channel initiation are statements about the ground.
         assert_eq!(raw.chan, routed.chan);
         assert!(raw.slope.iter().zip(&routed.slope).all(|(x, y)| x.to_bits() == y.to_bits()));
@@ -4079,5 +4130,39 @@ mod tests {
         };
         assert!(dead(&raw) > 0, "fixture must have channel cells ending in a raw pit to be a test");
         assert_eq!(dead(&routed), 0);
+    }
+
+    /// The integrated path's channel threshold on a steep planar ramp is the
+    /// plain `thresh / density`: density never lowers it further on steep
+    /// ground, so channel count is monotone in density, while the reference
+    /// path keeps its slope ease.
+    #[test]
+    fn integrated_channels_drop_the_slope_ease_away_from_density_one() {
+        // Protects: build_channels_routed's `integrated` divergence (owner 2026-10-05, the river-comb fix) -- on a steep planar ramp, density 1.55 must not channelize more than thresh/1.55 allows and density 0.8 must not channelize more than density 1.0 (the reference's |ln d| ease did both, drawing a comb of parallel rivers into every shore); the reference path (integrated = false) must still apply the ease.
+        // A 128x128 plane falling 0.3 per row towards y = h-1: every column
+        // drains straight down as its own one-cell strip, `slope_n` = 0.3 *
+        // 128 = 38.4 everywhere inside, the regime the owner's comb lived in.
+        let (w, h) = (128usize, 128usize);
+        let f: Vec<f32> = (0..w * h).map(|i| 0.5 + 0.3 * (h - 1 - i / w) as f32).collect();
+        let s = super::build_routing_surface(&f, w, h, 0.0, false);
+        let flow = super::compute_flow(w, h, &s, None, false, false);
+        let count = |c: &super::ChannelResult| c.chan.iter().filter(|&&v| v != 0).count();
+        let routed = |d: f64, integrated: bool| count(&super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, d, 800.0, integrated));
+        let thresh = super::river_flow_thresh(w, h, w, 800.0);
+        // Independent expectation: every cell whose discharge clears the
+        // un-eased threshold, and no other.
+        let plain = |d: f64| flow.iter().filter(|&&q| q as f64 > thresh / d).count();
+        for d in [0.8, 1.0, 1.55] {
+            assert_eq!(routed(d, true), plain(d), "integrated threshold at density {d} is not thresh/density");
+        }
+        assert!(routed(1.55, true) > routed(1.0, true) && routed(1.0, true) > routed(0.8, true), "integrated channel count must rise with density");
+        // Positive controls: the fixture is steep enough that the reference's
+        // ease moves both densities, the 0.8 one past density 1.0 itself.
+        assert!(routed(1.55, false) > routed(1.55, true), "fixture must be steep enough for the ease to add channels at 1.55");
+        assert!(routed(0.8, false) > routed(1.0, false), "the reference ease must still make 0.8 out-channel 1.0 here");
+        // Density 1 is the same call on both paths.
+        let a = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, true);
+        let b = super::build_channels_routed(&f, &s, &flow, w, h, 0.0, false, 1.0, 800.0, false);
+        assert_eq!((a.chan, a.recv), (b.chan, b.recv));
     }
 }

@@ -2099,3 +2099,11 @@ itself, no longer the current depressions."*
   (folded into RIM-5) and §13's "rivers stay a separate system from the
   terrain colour raster" framing in `TERRAIN_APPEARANCE_SCOPE.md`, both
   noted at their own documents.
+
+## 2026-10-05 — Ruling BV: river density no longer eases the channel threshold on slope, on the integrated path
+
+Owner, on being shown the coastal river combs and three options: *"Follow up with 1"* (option 1 of three; the other two, draw-side comb thinning and both together, are not built).
+
+- On the integrated-drainage path only, channel initiation uses `thresh/density` with no slope factor whenever `river_density != 1`. The reference path and density 1 are unchanged; no golden moves.
+- Reason and numbers: `DECISIONS.md` §7p's 2026-10-05 paragraph and `STATUS.md`.
+- Combs are reduced, not eliminated; draw-side thinning (option 2) stays an open, owner-gated row in `OUTSTANDING_WORK.md`.

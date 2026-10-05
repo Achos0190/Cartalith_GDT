@@ -2342,7 +2342,7 @@ fn tail(p: &WorldParams, pre: &WorldState, mut field: Vec<f32>, rain: Vec<f32>, 
     let integrate = p.integrate_drainage;
     let route = cartalith_hydrology::routing_view(&field, gw, gh, sea, world, integrate);
     let flow_net = cartalith_hydrology::compute_flow(gw, gh, &route, Some(&rain), true, world);
-    let mut ch = cartalith_hydrology::build_channels_routed(&field, &route, &flow_net, gw, gh, sea, world, p.river_density, p.map_width_km);
+    let mut ch = cartalith_hydrology::build_channels_routed(&field, &route, &flow_net, gw, gh, sea, world, p.river_density, p.map_width_km, integrate);
     let lake_surface: Option<Vec<f32>> = match route {
         std::borrow::Cow::Owned(v) => Some(v),
         std::borrow::Cow::Borrowed(_) => None,

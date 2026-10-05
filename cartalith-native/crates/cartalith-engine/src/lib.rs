@@ -738,6 +738,11 @@ pub struct WorldParams {
     /// off (v2.41) and then on (v2.59) while its loader kept defaulting a save
     /// without the key to off — a world generated without integration must
     /// reload as the world it was.
+    ///
+    /// It also switches the channel network off the reference's slope ease
+    /// away from `river_density == 1` (owner, 2026-10-05: steep ramps drew a
+    /// comb of parallel rivers); see `cartalith_hydrology::build_channels_routed`'s
+    /// `integrated` section. At density 1 that changes nothing.
     pub integrate_drainage: bool,
     /// The geology-first lithology model (`GEOLOGY_FIRST_SCOPE.md`, owner
     /// Rulings BH and BJ): run the geology stage and store its column on
@@ -2347,6 +2352,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             world,
             p.river_density,
             p.map_width_km,
+            // The integrated path drops the slope ease away from density 1
+            // (`build_channels_routed`'s `integrated` section, owner
+            // 2026-10-05); off, this is the reference's threshold.
+            integrate,
         );
         // Kept past the channel build for one more reader: the carve below
         // leaves the depressions this surface fills standing as lakes rather

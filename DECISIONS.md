@@ -1378,6 +1378,8 @@ fix that bug while keeping the new pipeline's improvement intact — do not
 treat "it didn't look like this in the old HTML" as evidence the new
 approach itself is the problem.
 
+**2026-10-05 - river-density slope ease (owner, "Follow up with 1").** On the integrated-drainage path (`integrate_drainage`, app-only) channel initiation drops the reference `channelThreshold` slope factor `(1+8*slope_n)^(-|ln d|)` when `river_density != 1`; the threshold is `thresh/density`. The reference path and density 1 are unchanged by control flow, so no JS golden moves. Reason: the reference's `abs` made any density away from 1 *lower* the threshold on steep ramps, drawing combs of parallel rivers; streak runs on seed 246371 went 762 / 228 / 518 -> 400 / 228 / 177 at 1.55 / 1.0 / 0.8. The signed form `(1+8s)^(-ln d)` was rejected: at 1.55 it equals today's threshold. This is §7p applied: the superseded behaviour is scrubbed from the app path, not dual-pathed.
+
 ## 7q. Landmark generation has no parity contract (owner ruling 12, 2026-09-06; recorded here 2026-09-24)
 
 Causally-placed landmarks (`cartalith-civ/src/landmark.rs`,

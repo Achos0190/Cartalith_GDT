@@ -4611,6 +4611,9 @@ pub fn fresh_river_network(
         world,
         river_density,
         map_width_km,
+        // Same rule as `generate_terrain`'s network, so both describe one
+        // set of rivers (`build_channels_routed`'s `integrated` section).
+        integrate,
     );
     let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan);
     // `min_order = 1`, the same argument `generate_terrain`'s carve loop and
