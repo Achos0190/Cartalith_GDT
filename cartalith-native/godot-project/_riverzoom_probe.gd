@@ -131,6 +131,10 @@ extends Node
 ##    tile build at the z3/z4/z8 levels, painted against stroked, three rounds.
 ##    `--rim7r-ident-only` records only the identity frames. Controls: a frame
 ##    grabbed twice must be identical; no target is a failure.
+##  - `--vx` (export own-look gap, `export_raster.rs`'s `own_look_tests`): an export
+##    draws its rivers from its own look whatever the session's is -- see
+##    `_vx_run`. One seed per process. `VX-HASH <name> <sha256>` lines are for a
+##    HEAD-DLL-vs-this-tree diff.
 ##  - RV-1 (`_lake_totals`, grid data): every lake on the map by size, split
 ##    into channel-shaped trenches and basins, and ocean cells on river paths.
 ##
@@ -181,6 +185,7 @@ var _rim7r_radius := 12.0
 var _rim7r_export := false
 var _rim7r_cost := false
 var _rim7r_ident_only := false
+var _vx := false
 var _river_density := 1.0
 var _geology_model := false
 var _metropolis := false
@@ -237,6 +242,7 @@ func _ready() -> void:
 			"--rim7r-export": _rim7r_export = true
 			"--rim7r-cost": _rim7r_cost = true
 			"--rim7r-ident-only": _rim7r_ident_only = true
+			"--vx": _vx = true
 			"--rim7r-radius": _rim7r_radius = float(args[i + 1]); i += 1
 			"--rim7r-zooms":
 				_rim7r_zooms.clear()
@@ -407,6 +413,8 @@ func _run_seed(seed_v: int) -> void:
 		sr["rim7"] = await _rim7_run(sr["rim4_mouths"])
 	if _rim7r:
 		sr["rim7rest"] = await _rim7r_run(rivers)
+	if _vx:
+		sr["vx"] = await _vx_run(rivers)
 	_report[str(seed_v)] = sr
 
 
@@ -2300,3 +2308,168 @@ func _rim7r_cost_run(c: Vector2) -> Dictionary:
 			summary[k] = {"median_ms": a[a.size() / 2], "min_ms": a[0], "max_ms": a[a.size() - 1], "n": a.size()}
 	print("  rim7rest cost: ", JSON.stringify(summary))
 	return summary
+
+
+## `--vx`: an export draws its rivers from ITS OWN look, never the session's
+## (RIM-7 remainder). The end-to-end leg of `export_raster.rs`'s
+## `own_look_tests`, whose fake world cannot see a call site that hands the
+## export the session's look (`WorldGen` is a `GodotClass`, so a unit test
+## cannot build one). Four region exports, two overlay-session exports and two
+## snapshots, hashed:
+##   A  session paints (the default look), export style `{look: Natural Vibrant}`  -> painted
+##   B  session paints,                    export style `{preset: <stroke file>}`   -> stroked
+##   C  session strokes (a loaded stroke preset), export style `{look: Natural Vibrant}` -> painted
+##   D  session strokes,                   export style `{preset: <stroke file>}`   -> stroked
+##   E/F  `export_session_begin` with a fully transparent overlay (the snapshot
+##        path, `export_snapshot`) under A's and B's style, session painting.
+##   S1/S2  `export_snapshot_png` (which DELIBERATELY follows the session look)
+##        with the session painting and stroking.
+## In-process checks (a failure is `PROBE-FAIL`): A == C and B == D byte for byte
+## (an export's output does not depend on the session's look); A != B (positive
+## control: a painted export and a stroked one differ, so "equal" above is not a
+## constant), differing at a counted number of sampled pixels; E == A and
+## F == B (a transparent overlay session is the same picture as the image
+## export under the same style, so the snapshot path cannot have taken the
+## session's look); E != F and S1 != S2 (controls for the snapshot paths).
+## Hashes are printed as `VX-HASH <name> <sha256>` for a script to diff a HEAD
+## DLL against this tree's. The session look is changed in-process, so run ONE
+## seed per process (`--seeds 246371`); the paint look is restored at the end.
+func _vx_run(rivers: Array) -> Dictionary:
+	var out := {}
+	var dir := ProjectSettings.globalize_path(_out)
+	var wg = _br.world_gen
+	var stroke_p := dir.path_join("vx_stroke_look.json")
+	var paint_p := dir.path_join("vx_paint_look.json")
+	## A preset saved while the probe switch is off serialises
+	## `rivers_as_water = false` (`appearance_rebased` forces it last), so the
+	## file IS a stroke look whatever the switch is later; the paint file is
+	## the session's own default look, saved first.
+	var ok1: bool = wg.save_appearance_preset(paint_p, "vx paint")
+	wg.debug_set_river_paint(false)
+	var ok2: bool = wg.save_appearance_preset(stroke_p, "vx stroke")
+	wg.debug_set_river_paint(true)
+	if not (ok1 and ok2):
+		printerr("PROBE-FAIL: vx could not save its look files")
+		_report["fail"] = true
+		return out
+	var paint_style := {"look": "Natural Vibrant"}
+	var stroke_style := {"preset": stroke_p}
+	var hashes := {}
+	hashes["A"] = await _vx_export(wg, dir, "A", paint_style)
+	hashes["B"] = await _vx_export(wg, dir, "B", stroke_style)
+	hashes["E"] = await _vx_session(wg, dir, "E", paint_style)
+	hashes["F"] = await _vx_session(wg, dir, "F", stroke_style)
+	var targets := _rim7r_targets(rivers)
+	var c := Vector2(_grid.x / 2.0, _grid.y / 2.0)
+	if targets.size() > 0:
+		c = targets[0]["p"]
+	hashes["S1"] = _vx_snap(wg, dir, "S1", c)
+	## The session now strokes (a loaded stroke preset: the file is the base).
+	if not wg.load_appearance_preset(stroke_p):
+		printerr("PROBE-FAIL: vx could not load the stroke look")
+		_report["fail"] = true
+		return out
+	await _settle(4)
+	hashes["C"] = await _vx_export(wg, dir, "C", paint_style)
+	hashes["D"] = await _vx_export(wg, dir, "D", stroke_style)
+	hashes["S2"] = _vx_snap(wg, dir, "S2", c)
+	if not wg.load_appearance_preset(paint_p):
+		printerr("PROBE-FAIL: vx could not restore the paint look")
+		_report["fail"] = true
+	var names: Array = hashes.keys()
+	names.sort()
+	for k: String in names:
+		print("VX-HASH %s %s" % [k, hashes[k]["sha"]])
+	out["hashes"] = hashes
+	var fails: Array[String] = []
+	for k: String in names:
+		if not bool(hashes[k].get("ok", false)):
+			fails.append("%s did not export: %s" % [k, str(hashes[k].get("err", ""))])
+	if fails.is_empty():
+		if hashes["A"]["sha"] != hashes["C"]["sha"]:
+			fails.append("A != C: a painting export changed with the session's look")
+		if hashes["B"]["sha"] != hashes["D"]["sha"]:
+			fails.append("B != D: a stroke export changed with the session's look")
+		if hashes["A"]["sha"] == hashes["B"]["sha"]:
+			fails.append("control: painted export A equals stroked export B")
+		## The overlay session with a transparent overlay is the same picture as
+		## the image export under the same style (measured equal on 2026-10-05),
+		## so a session path that took the session's look differs here.
+		if hashes["E"]["sha"] != hashes["A"]["sha"]:
+			fails.append("E != A: the overlay session's painted export differs from export_image's")
+		if hashes["F"]["sha"] != hashes["B"]["sha"]:
+			fails.append("F != B: the overlay session's stroked export differs from export_image's")
+		if hashes["E"]["sha"] == hashes["F"]["sha"]:
+			fails.append("control: session exports E and F (paint / stroke) are identical")
+		if hashes["S1"]["sha"] == hashes["S2"]["sha"]:
+			fails.append("control: snapshots S1 and S2 (session paints / strokes) are identical")
+		var moved := _vx_diff_px(hashes["A"]["path"], hashes["B"]["path"])
+		out["a_vs_b_pixels"] = moved
+		print("  vx: painted vs stroked export differ at %d sampled pixels" % moved)
+		if moved <= 0:
+			fails.append("control: A and B differ in no sampled pixel")
+	for f in fails:
+		printerr("PROBE-FAIL: vx ", f)
+		_report["fail"] = true
+	if fails.is_empty():
+		print("  PROBE-OK: vx -- exports ignore the session's look; controls differ")
+	return out
+
+
+## One region export at 2048 px under `style`; its file hash.
+func _vx_export(wg, dir: String, name: String, style: Dictionary) -> Dictionary:
+	var path := dir.path_join("vx_%s.png" % name)
+	var r: Dictionary = wg.export_image(path, {"width": 2048, "format": "png", "style": style})
+	if not bool(r.get("ok", false)):
+		return {"ok": false, "err": str(r.get("error", r)), "sha": ""}
+	return {"ok": true, "sha": FileAccess.get_sha256(path), "path": path, "bytes": int(r.get("bytes", 0))}
+
+
+## The same export through the overlay session with one fully transparent
+## tile per band: the `export_snapshot` path.
+func _vx_session(wg, dir: String, name: String, style: Dictionary) -> Dictionary:
+	var path := dir.path_join("vx_%s.png" % name)
+	var b: Dictionary = wg.export_session_begin(path, {"width": 2048, "format": "png", "style": style})
+	if not bool(b.get("ok", false)):
+		return {"ok": false, "err": str(b.get("error", b)), "sha": ""}
+	var w := int(b["width"]); var h := int(b["height"]); var rows := int(b["band_rows"])
+	for band in int(b["bands"]):
+		var y0: int = band * rows
+		var n: int = mini(rows, h - y0)
+		var rgba := PackedByteArray(); rgba.resize(w * n * 4)
+		var t: Dictionary = wg.export_session_submit_tile(band, 0, y0, w, n, rgba)
+		if not bool(t.get("ok", false)):
+			return {"ok": false, "err": str(t.get("error", t)), "sha": ""}
+	var f: Dictionary = wg.export_session_finish()
+	if not bool(f.get("ok", false)):
+		return {"ok": false, "err": str(f.get("error", f)), "sha": ""}
+	return {"ok": true, "sha": FileAccess.get_sha256(path), "path": path}
+
+
+## A 512 px region snapshot at `c` (radius 16 cells), under the session look.
+func _vx_snap(wg, dir: String, name: String, c: Vector2) -> Dictionary:
+	var path := dir.path_join("vx_%s.png" % name)
+	var r: Dictionary = wg.export_snapshot_png(path, int(round(c.x)), int(round(c.y)), 16, 512)
+	if not bool(r.get("ok", false)):
+		return {"ok": false, "err": str(r.get("error", r)), "sha": ""}
+	return {"ok": true, "sha": FileAccess.get_sha256(path), "path": path}
+
+
+## How many of every 5th pixel differ between two PNGs (a positive control,
+## not a measurement); -1 when either cannot be read or the sizes differ.
+func _vx_diff_px(pa: String, pb: String) -> int:
+	var a := Image.load_from_file(pa)
+	var b := Image.load_from_file(pb)
+	if a == null or b == null or a.get_size() != b.get_size():
+		return -1
+	a.convert(Image.FORMAT_RGBA8)
+	b.convert(Image.FORMAT_RGBA8)
+	var da := a.get_data()
+	var db := b.get_data()
+	var n := 0
+	var i := 0
+	while i < da.size():
+		if da[i] != db[i] or da[i + 1] != db[i + 1] or da[i + 2] != db[i + 2]:
+			n += 1
+		i += 20
+	return n

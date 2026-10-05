@@ -444,13 +444,12 @@ impl WorldGen {
         } else {
             Vec::new()
         };
-        let geom = if rivers { self.export_river_geometry() } else { None };
-        // RIM-7: the fans this look draws, only with the network.
-        let fans = if geom.is_some() { self.export_river_fans(&appearance) } else { None };
-        // RIM-7, the painted river: for a look that paints its rivers, the
-        // export paints them by the screen's law (`river_field::PaintSource`)
-        // rather than stroking them; `None` strokes, exactly as before.
-        let paint = if geom.is_some() { self.river_paint_source(&appearance) } else { None };
+        // RIM-7: the network, the fans this look draws and the painted river
+        // (`river_field::PaintSource`; `None` strokes, exactly as before),
+        // all asked of the world under the export's OWN look -- the
+        // `appearance` parameter -- by the one decision every export shares
+        // ([`export_river_inputs`], pinned by `own_look_tests`).
+        let ExportRiverInputs { geom, fans, paint } = export_river_inputs(self, &appearance, rivers);
         let save_flag = if rivers { self.save_river_flag() } else { None };
         // RV-3: water and the sea's colour from the world's own height, as
         // on screen (a no-op when no valley field was built).
@@ -563,6 +562,116 @@ impl WorldGen {
         }
         out
     }
+}
+
+/// What a world supplies for an export's rivers, one method per input and the
+/// look as an argument, so [`export_river_inputs`] -- the decision -- can run
+/// against a fake world in a unit test: `WorldGen` is a `GodotClass` and
+/// cannot be built outside Godot. `WorldGen`'s impl below is one delegation
+/// per method and decides nothing.
+pub(crate) trait ExportRiverSource {
+    /// The vector network an export draws ([`WorldGen::export_river_geometry`]).
+    fn network(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>>;
+    /// RIM-4's fans under look `a` ([`WorldGen::export_river_fans`]).
+    fn fans_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<river_stroke::RiverGeometry>>;
+    /// RIM-7's paint source under look `a` ([`WorldGen::river_paint_source`]).
+    fn paint_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<crate::river_field::PaintSource>>;
+}
+
+impl ExportRiverSource for WorldGen {
+    fn network(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        self.export_river_geometry()
+    }
+    fn fans_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
+        self.export_river_fans(a)
+    }
+    fn paint_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<crate::river_field::PaintSource>> {
+        self.river_paint_source(a)
+    }
+}
+
+/// The three river inputs of one export, as [`export_river_inputs`] decides
+/// them: `geom` is what `with_export_rivers` strokes or paints, `fans` the
+/// delta fans stroked before it, `paint` the painted-river source that
+/// replaces the stroke. All `None` is the export with no vector river.
+pub(crate) struct ExportRiverInputs {
+    pub geom: Option<std::sync::Arc<river_stroke::RiverGeometry>>,
+    pub fans: Option<std::sync::Arc<river_stroke::RiverGeometry>>,
+    pub paint: Option<std::sync::Arc<crate::river_field::PaintSource>>,
+}
+
+/// **The one decision every export makes about its rivers** (RIM-7, 2026-10-05;
+/// extracted so a test can pin it). The network is asked for only when the
+/// export draws rivers (`rivers`, its `content.rivers` option); the fans and
+/// the painted-river source are asked for only when there is a network (fans
+/// with no network are never drawn, a source is built from the network) and
+/// **always under `own`: the look the export renders with** (its style
+/// override, composed by `export_appearance`), **never the session's**. The
+/// gates behind both (`river_delta::fans_drawn`, `river_field::painted`) are a
+/// function of the look, so an export of a stroke look from a session that
+/// paints must stroke and the reverse; asking under the session's look moved
+/// no pixel of an export whose look equals the session's, which is why only a
+/// test with two different looks can see it.
+///
+/// Used by `export_render_with` (the whole and banded exports) and
+/// `export_snapshot` (the overlay session). It takes no session look, by
+/// construction: there is nothing here to mistake for `own`. Must never read
+/// the session's look, must never ask for fans or paint without a network.
+pub(crate) fn export_river_inputs(src: &impl ExportRiverSource, own: &TerrainAppearance, rivers: bool) -> ExportRiverInputs {
+    let geom = if rivers { src.network() } else { None };
+    let fans = if geom.is_some() { src.fans_under(own) } else { None };
+    let paint = if geom.is_some() { src.paint_under(own) } else { None };
+    ExportRiverInputs { geom, fans, paint }
+}
+
+/// **One `w x h` window of a virtual `out_w x out_h` export, finished** --
+/// what `WorldGen::export_snapshot_png` renders (extracted from its closure so
+/// a test can pin it): `bake_rect` over the window, the vector river painted
+/// in (`render::paint_vector_rivers`), the colour grade, and **last the
+/// painted river's floodplain tint and bank line** (`render::RiverPost::apply`,
+/// RIM-7), over the graded pixels as the screen draws them. A stroke look has
+/// no post stage (`paint_vector_rivers` returns none) and is untouched by it.
+///
+/// `size` is `(out_w, out_h)`, `at` the window's `(x0, y0)` and `window` its
+/// `(w, h)`, all in export pixels. No local contrast here: a crop has no
+/// whole-raster neighbourhood to measure it on (`export_snapshot_png`'s doc).
+/// `appearance` is the look the grade reads; it is the one `ctx` was built
+/// with. Must never skip the post stage for a source that has one (a bank
+/// line would silently vanish from every region snapshot) and must never
+/// apply it before the grade (the screen draws it after).
+pub(crate) fn bake_crop(ctx: &RenderCtx<'_>, bf: &BakeFields, rivers: ExportRivers<'_>, appearance: &TerrainAppearance, size: (usize, usize), at: (usize, usize), window: (usize, usize)) -> Vec<u8> {
+    let ((out_w, out_h), (x0, y0), (w, h)) = (size, at, window);
+    let mut px = render::bake_rect(ctx, bf, rivers.save_flag, out_w, out_h, x0, y0, w, h);
+    let post = rivers.vector.map(|v| render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h));
+    // The grade's field influence, taken per **grid cell** and then
+    // sampled over this crop's window. `build_grade_influence(ctx, w,
+    // h)` would spread the whole world across the crop -- it resamples
+    // as though `w × h` covered the map -- so the per-cell map is
+    // asked for at `(gw, gh)`, where that function returns it
+    // untouched, and the window arithmetic is done here where the
+    // window is known.
+    let cell = render::build_grade_influence(ctx, ctx.gw, ctx.gh);
+    let inf = if cell.is_empty() {
+        cell
+    } else {
+        let (sx, sy) = ((ctx.gw - 1) as f64 / (out_w.max(2) - 1) as f64, (ctx.gh - 1) as f64 / (out_h.max(2) - 1) as f64);
+        let mut out = vec![1f32; w * h];
+        for row in 0..h {
+            let gy = (((y0 + row) as f64 * sy).round() as usize).min(ctx.gh - 1);
+            for col in 0..w {
+                let gx = (((x0 + col) as f64 * sx).round() as usize).min(ctx.gw - 1);
+                out[row * w + col] = cell[gy * ctx.gw + gx];
+            }
+        }
+        out
+    };
+    render::apply_color_grade(appearance, &mut px, &inf);
+    // RIM-7: the painted river's floodplain and bank line, over the
+    // graded crop as the screen draws them (nothing for a stroke).
+    if let Some(p) = post {
+        p.apply(ctx, bf, &mut px);
+    }
+    px
 }
 
 /// **RV-5: hand `run` the [`ExportRivers`] for a world** -- `geom` rasterized
@@ -809,12 +918,12 @@ impl WorldGen {
         if !rivers {
             i.ink = None;
         }
-        let geom = if rivers { self.export_river_geometry() } else { None };
-        // RIM-7: the fans this export's look draws, only with the network.
-        let fans = if geom.is_some() { self.export_river_fans(&i.appearance) } else { None };
-        // RIM-7, the painted river: under THIS look, never the tiles' (which
-        // `lod_snapshot_inputs` filled in for the session's look).
-        i.river_paint = if geom.is_some() { self.river_paint_source(&i.appearance) } else { None };
+        // RIM-7: the network, the fans and the painted river under THIS
+        // export's look (`i.appearance`, set from `a` above), by the decision
+        // `export_render_with` uses -- never the tiles' look, which
+        // `lod_snapshot_inputs` filled `river_paint` in for.
+        let ExportRiverInputs { geom, fans, paint } = export_river_inputs(self, &i.appearance, rivers);
+        i.river_paint = paint;
         export_session::ExportSnapshot::build(i, geom, fans)
     }
 }
@@ -1368,39 +1477,7 @@ impl WorldGen {
         // (`export_render`): without them the snapshot is a picture of a place
         // with no rivers in it. No local contrast here (see above), so the
         // vector rivers go straight onto the terrain.
-        let Some(bytes) = self.export_render(|ctx, bf, rivers| {
-            let mut px = render::bake_rect(ctx, bf, rivers.save_flag, out_w, out_h, x0, y0, w, h);
-            let post = rivers.vector.map(|v| render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h));
-            // The grade's field influence, taken per **grid cell** and then
-            // sampled over this crop's window. `build_grade_influence(ctx, w,
-            // h)` would spread the whole world across the crop -- it resamples
-            // as though `w × h` covered the map -- so the per-cell map is
-            // asked for at `(gw, gh)`, where that function returns it
-            // untouched, and the window arithmetic is done here where the
-            // window is known.
-            let cell = render::build_grade_influence(ctx, ctx.gw, ctx.gh);
-            let inf = if cell.is_empty() {
-                cell
-            } else {
-                let (sx, sy) = ((ctx.gw - 1) as f64 / (out_w.max(2) - 1) as f64, (ctx.gh - 1) as f64 / (out_h.max(2) - 1) as f64);
-                let mut out = vec![1f32; w * h];
-                for row in 0..h {
-                    let gy = (((y0 + row) as f64 * sy).round() as usize).min(ctx.gh - 1);
-                    for col in 0..w {
-                        let gx = (((x0 + col) as f64 * sx).round() as usize).min(ctx.gw - 1);
-                        out[row * w + col] = cell[gy * ctx.gw + gx];
-                    }
-                }
-                out
-            };
-            render::apply_color_grade(&appearance, &mut px, &inf);
-            // RIM-7: the painted river's floodplain and bank line, over the
-            // graded crop as the screen draws them (nothing for a stroke).
-            if let Some(p) = post {
-                p.apply(ctx, bf, &mut px);
-            }
-            px
-        }) else {
+        let Some(bytes) = self.export_render(|ctx, bf, rivers| bake_crop(ctx, bf, rivers, &appearance, (out_w, out_h), (x0, y0), (w, h))) else {
             return fail("could not assemble the render context");
         };
 
@@ -1931,23 +2008,23 @@ mod rv5_parity_tests {
     use crate::render::{self, BakeFields, RenderCtx, TerrainAppearance};
     use crate::river_stroke::{self, DrawnRun, RasterMap, RiverGeometry};
 
-    const GW: usize = 64;
-    const GH: usize = 48;
-    const SEA: f64 = 0.42;
-    const KM: f64 = 600.0;
+    pub(super) const GW: usize = 64;
+    pub(super) const GH: usize = 48;
+    pub(super) const SEA: f64 = 0.42;
+    pub(super) const KM: f64 = 600.0;
     /// Pixels per cell: 2 is inside the base view's range (below the x2.2
     /// deep-zoom switch), where the screen really is the two shaders
     /// transcribed here.
-    const K: usize = 2;
+    pub(super) const K: usize = 2;
 
-    struct World {
-        field: Vec<f32>,
-        temp: Vec<f32>,
-        rain: Vec<f32>,
-        flow: Vec<f32>,
+    pub(super) struct World {
+        pub(super) field: Vec<f32>,
+        pub(super) temp: Vec<f32>,
+        pub(super) rain: Vec<f32>,
+        pub(super) flow: Vec<f32>,
     }
 
-    fn world() -> World {
+    pub(super) fn world() -> World {
         let n = GW * GH;
         let mut field = vec![0f32; n];
         for y in 0..GH {
@@ -1966,7 +2043,7 @@ mod rv5_parity_tests {
     }
 
     /// One river from the plateau into the sea, well clear of the lake.
-    fn river() -> RiverGeometry {
+    pub(super) fn river() -> RiverGeometry {
         let n = 61;
         let pts: Vec<(f32, f32)> = (0..n)
             .map(|k| {
@@ -1997,11 +2074,11 @@ mod rv5_parity_tests {
         water: Vec<f64>,
     }
 
-    fn dims() -> (usize, usize) {
+    pub(super) fn dims() -> (usize, usize) {
         ((GW - 1) * K + 1, (GH - 1) * K + 1)
     }
 
-    fn setup<'a>(w: &'a World, a: &TerrainAppearance, lakes: &'a [u8]) -> RenderCtx<'a> {
+    pub(super) fn setup<'a>(w: &'a World, a: &TerrainAppearance, lakes: &'a [u8]) -> RenderCtx<'a> {
         RenderCtx::with_appearance(&w.field, &w.temp, &w.rain, Some(&w.flow), GW, GH, SEA, false, 55.0, 5.0, a.clone()).with_lakes(lakes).with_map_scale(KM)
     }
 
@@ -2274,5 +2351,224 @@ mod rv5_parity_tests {
             assert!(rx >= lo.0 - 2.0 && rx <= hi.0 + 2.0 && ry >= lo.1 - 2.0 && ry <= hi.1 + 2.0, "a change outside the fans' box at ({rx}, {ry})");
         }
         assert!(moved > 20, "the fans moved only {moved} export pixels");
+    }
+}
+
+/// **An export draws its rivers from its OWN look, never the session's**
+/// (RIM-7 remainder, 2026-10-05; the gap `export_river_inputs` was extracted
+/// to close). An export's look is its style override (`export_appearance`);
+/// the session's is whatever the Layers and Looks panels hold. The gates
+/// behind the fans and the painted river are a function of the look, and the
+/// two looks are the same in every export a unit test or a probe is likely to
+/// run, so asking the world under the session's look moved no pixel of any of
+/// them. These tests are the only thing that can see the swap: `WorldGen` is
+/// a `GodotClass` and cannot be built here, so the decision is exercised on a
+/// fake world that panics if asked under the session's look, and the crop's
+/// post stage on a hand-built one.
+#[cfg(test)]
+mod own_look_tests {
+    use super::rv5_parity_tests::{dims, river, setup, world, GH, GW, SEA};
+    use super::*;
+    use crate::render::{self, BakeFields};
+    use crate::river_stroke::RiverGeometry;
+    use std::cell::{Cell, RefCell};
+    use std::sync::Arc;
+
+    /// The `river_bank` value each fixture look carries as its identity. A
+    /// look is not comparable, and these values change no gate under test
+    /// (`painted` and `fans_drawn` read `smooth_shores` and `rivers_as_water`
+    /// only), so a look is recognised by its marker. **Labelled judgement:**
+    /// four distinct arbitrary values in `0..=1`, the field's own range.
+    const OWN_PAINT: f64 = 0.37;
+    const OWN_STROKE: f64 = 0.23;
+    const SESSION_PAINT: f64 = 0.58;
+    const SESSION_STROKE: f64 = 0.11;
+
+    /// A look that paints its rivers (`river_field::painted`) or strokes
+    /// them, carrying `marker` as its identity.
+    fn look(paints: bool, marker: f64) -> TerrainAppearance {
+        TerrainAppearance { smooth_shores: true, rivers_as_water: paints, river_bank: marker, ..TerrainAppearance::default() }
+    }
+
+    /// A world that answers as the live one does -- the real gates
+    /// (`river_delta::fans_drawn`, `river_field::painted`), a real
+    /// `PaintSource` -- and records what it was asked. Asked under
+    /// `session_marker` it panics: nothing an export asks may carry the
+    /// session's look.
+    struct FakeWorld {
+        net: Option<Arc<RiverGeometry>>,
+        session_marker: f64,
+        asked: RefCell<Vec<(&'static str, f64)>>,
+        network_asks: Cell<usize>,
+    }
+
+    impl FakeWorld {
+        fn new(net: Option<Arc<RiverGeometry>>, session_marker: f64) -> Self {
+            FakeWorld { net, session_marker, asked: RefCell::new(Vec::new()), network_asks: Cell::new(0) }
+        }
+        fn note(&self, what: &'static str, a: &TerrainAppearance) {
+            assert!(a.river_bank != self.session_marker, "{what} was asked under the SESSION's look");
+            self.asked.borrow_mut().push((what, a.river_bank));
+        }
+    }
+
+    impl ExportRiverSource for FakeWorld {
+        fn network(&self) -> Option<Arc<RiverGeometry>> {
+            self.network_asks.set(self.network_asks.get() + 1);
+            self.net.clone()
+        }
+        fn fans_under(&self, a: &TerrainAppearance) -> Option<Arc<RiverGeometry>> {
+            self.note("fans", a);
+            crate::river_delta::fans_drawn(a, false, GW, GH).then(|| Arc::new(river()))
+        }
+        fn paint_under(&self, a: &TerrainAppearance) -> Option<Arc<crate::river_field::PaintSource>> {
+            self.note("paint", a);
+            let g = self.net.as_ref()?;
+            let colour = Arc::new(river_stroke::rasterize_colour_field_with(g, None, a, GW, GH));
+            crate::river_field::PaintSource::new(g, None, GW, GH, a, colour).map(Arc::new)
+        }
+    }
+
+    /// Protects: **an export asks the world for its fans and its painted
+    /// river under its OWN look**, in both directions -- a painting look
+    /// exported from a session that strokes still paints and fans, and a
+    /// stroke look exported from a session that paints still strokes (no
+    /// source, no fans). The fake panics if asked under the session's look and
+    /// the asks are compared with the own look's literal marker, so an export
+    /// that asked under any other look (the session's, a default) goes red;
+    /// the two cases have opposite answers, so neither can pass by returning a
+    /// constant.
+    #[test]
+    fn an_export_asks_for_fans_and_paint_under_its_own_look() {
+        let net = Arc::new(river());
+        // Premise: the two fixture looks really disagree about painting, or
+        // the cases below would hold for any look.
+        assert!(crate::river_field::painted(&look(true, OWN_PAINT), GW, GH));
+        assert!(!crate::river_field::painted(&look(false, OWN_STROKE), GW, GH));
+
+        let w = FakeWorld::new(Some(net.clone()), SESSION_STROKE);
+        let r = export_river_inputs(&w, &look(true, OWN_PAINT), true);
+        assert!(r.geom.is_some() && r.fans.is_some() && r.paint.is_some(), "a painting look exports its network, fans and paint source");
+        assert_eq!(*w.asked.borrow(), vec![("fans", 0.37), ("paint", 0.37)], "asked under the export's look, once each, fans first");
+
+        let w = FakeWorld::new(Some(net), SESSION_PAINT);
+        let r = export_river_inputs(&w, &look(false, OWN_STROKE), true);
+        assert!(r.geom.is_some(), "a stroke look still draws the network");
+        assert!(r.fans.is_none() && r.paint.is_none(), "a stroke look has no fans and no paint source");
+        assert_eq!(*w.asked.borrow(), vec![("fans", 0.23), ("paint", 0.23)]);
+    }
+
+    /// Protects: **fans and the paint source are asked for only with a
+    /// network** -- with the export's `content.rivers` off, or a world with no
+    /// network (a loaded save), the world is asked for no fans and no paint
+    /// (a source is built from the network, fans with none are never drawn),
+    /// and every input is `None`. A positive control: with rivers on and a
+    /// network the same fake is asked, so "asked nothing" is not the fake's
+    /// silence.
+    #[test]
+    fn an_export_with_no_rivers_or_no_network_asks_for_no_fans_or_paint() {
+        let own = look(true, OWN_PAINT);
+        let w = FakeWorld::new(Some(Arc::new(river())), SESSION_STROKE);
+        let r = export_river_inputs(&w, &own, false);
+        assert!(r.geom.is_none() && r.fans.is_none() && r.paint.is_none());
+        assert_eq!(w.network_asks.get(), 0, "rivers off must not even ask for the network");
+        assert!(w.asked.borrow().is_empty(), "rivers off asked for fans or paint: {:?}", w.asked.borrow());
+
+        let w = FakeWorld::new(None, SESSION_STROKE);
+        let r = export_river_inputs(&w, &own, true);
+        assert!(r.geom.is_none() && r.fans.is_none() && r.paint.is_none());
+        assert_eq!(w.network_asks.get(), 1, "rivers on asks for the network");
+        assert!(w.asked.borrow().is_empty(), "no network asked for fans or paint: {:?}", w.asked.borrow());
+
+        let w = FakeWorld::new(Some(Arc::new(river())), SESSION_STROKE);
+        let _ = export_river_inputs(&w, &own, true);
+        assert_eq!(w.asked.borrow().len(), 2, "control: with a network and rivers on, the world is asked");
+    }
+
+    /// Protects: **the region snapshot's crop runs RIM-7's post stage (the
+    /// floodplain tint and the bank line) after the colour grade**. `bake_crop`
+    /// is compared with an oracle assembled here from the render calls
+    /// (`bake_rect`, `paint_vector_rivers`, `apply_color_grade`, then
+    /// `RiverPost::apply`), and the same oracle WITHOUT the post stage is
+    /// asserted to differ -- the positive control, so "equals the oracle"
+    /// cannot hold for a crop that never applied it. The window is a true
+    /// sub-window of the virtual image; a stroke look must come out as the
+    /// oracle with no post stage at all.
+    #[test]
+    fn a_snapshot_crop_applies_the_river_post_stage() {
+        let w = world();
+        let g = Arc::new(river());
+        let (ow, oh) = dims();
+        let (at, win) = ((30usize, 30usize), (70usize, 65usize));
+        assert!(at.0 + win.0 <= ow && at.1 + win.1 <= oh && win != (ow, oh), "premise: a true sub-window");
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        // Returns (the crop, the oracle without the post stage, the oracle
+        // with it, how many pixels the post stage touched).
+        let crop = |a: &TerrainAppearance, paint: Option<&crate::river_field::PaintSource>| -> (Vec<u8>, Vec<u8>, Vec<u8>, usize) {
+            let ctx = setup(&w, a, &wb.classification);
+            let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+            let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+            let cell = render::build_grade_influence(&ctx, ctx.gw, ctx.gh);
+            assert!(cell.is_empty(), "premise: this look has no grade field, so the crop's grade is the plain one the oracle applies");
+            with_export_rivers(Some(&g), None, paint, None, |r| {
+                let got = bake_crop(&ctx, &bf, r, a, (ow, oh), at, win);
+                let mut px = render::bake_rect(&ctx, &bf, r.save_flag, ow, oh, at.0, at.1, win.0, win.1);
+                let post = r.vector.map(|v| render::paint_vector_rivers(&ctx, &bf, v, &mut px, ow, oh, at.0, at.1, win.0, win.1));
+                render::apply_color_grade(a, &mut px, &cell);
+                let without = px.clone();
+                let touched = post.map_or(0, |p| p.apply(&ctx, &bf, &mut px));
+                (got, without, px, touched)
+            })
+        };
+
+        let a = look(true, 0.6);
+        let colour = Arc::new(river_stroke::rasterize_colour_field_with(&g, None, &a, GW, GH));
+        let paint = crate::river_field::PaintSource::new(&g, None, GW, GH, &a, colour).expect("a painting look builds a source");
+        let (got, without, with, touched) = crop(&a, Some(&paint));
+        assert_eq!(got.len(), win.0 * win.1 * 3);
+        let moved = without.iter().zip(&with).filter(|(u, v)| u != v).count();
+        assert!(touched > 0 && moved > 0, "positive control: the post stage must move pixels of this crop (touched {touched}, bytes {moved})");
+        assert_eq!(got, with, "the crop must equal the oracle with the post stage applied");
+        assert_ne!(got, without, "the crop must not equal the oracle without it");
+
+        let stroke = look(false, 0.6);
+        let (got, without, with, touched) = crop(&stroke, None);
+        assert_eq!(touched, 0, "a stroke look has no post stage");
+        assert_eq!(got, without, "a stroke look's crop is the oracle untouched");
+        assert_eq!(without, with);
+    }
+
+    /// The text between `from` and the first `to` after it in this file's own
+    /// source. Panics if either marker is missing, so a renamed function turns
+    /// the guard below red instead of letting it pass over nothing.
+    fn region(from: &str, to: &str) -> &'static str {
+        const SRC: &str = include_str!("export_raster.rs");
+        let a = SRC.find(from).unwrap_or_else(|| panic!("marker {from:?} not found: update this guard"));
+        let b = a + SRC[a..].find(to).unwrap_or_else(|| panic!("marker {to:?} not found after {from:?}: update this guard"));
+        &SRC[a..b]
+    }
+
+    /// Protects: **a structural guard, not a behavioural test.** The two
+    /// methods that take an export's own look as a parameter
+    /// (`export_render_with`, `export_snapshot`) and the `WorldGen`
+    /// delegation impl of `ExportRiverSource` (which must forward the look it
+    /// is handed) must never re-read the
+    /// session's look inside their bodies: the fake-world tests above cannot
+    /// see a call site that hands the decision the wrong look, because the
+    /// wrong look is the session's, which a unit test cannot construct. It
+    /// reads this file's source, so it fails on the call the swap would need,
+    /// and on a renamed method (the markers must be found). The end-to-end
+    /// leg is `_riverzoom_probe.gd --vx`.
+    #[test]
+    fn the_export_methods_never_reread_the_sessions_look() {
+        let needle = ["self", ".appearance", "()"].concat();
+        for (name, body) in [
+            ("export_render_with", region("fn export_render_with<T>(", "fn export_appearance(")),
+            ("export_snapshot", region("fn export_snapshot(&self", "#[godot_api(secondary)]")),
+            ("the WorldGen ExportRiverSource impl", region("impl ExportRiverSource for WorldGen {", "pub(crate) struct ExportRiverInputs")),
+        ] {
+            assert!(body.len() > 150, "{name}: the region is suspiciously short ({} bytes)", body.len());
+            assert!(!body.contains(&needle), "{name} reads the session's look; it must use the look it was given");
+        }
     }
 }
