@@ -266,7 +266,7 @@ func _run() -> void:
 	var b_name := String(b_cell.get("controlling_faction_name", ""))
 	await _rmb(ov, b_pos)
 	var rows_b := _dump("B_civ_empty")
-	_ok("B row order", rows_b, ["Open %s in roster…" % b_name, "Claim for %s" % b_name,
+	_ok("B row order", rows_b, ["Open %s…" % b_name, "Claim for %s" % b_name,
 		"----", "Drop settlement here", "Start way here",
 		"Start route here", "----", "Info here (settlement & ecology)"])
 

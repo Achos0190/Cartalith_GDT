@@ -674,10 +674,15 @@ func _build_feature_style(parent: Control) -> void:
 			## so the control and the map cannot disagree about what Reset did.
 			(op["slider"] as HSlider).value = bridge.territory_opacity_default())
 	reset.tooltip_text = "Back to this port's own default fill opacity."
-	var colour := DccWidgets.action(tint, "Faction identity colours → Civilization ▸ Factions",
-		func(): app.select_domain_category("civilization", "Factions"))
+	## FH-1 (`FACTION_HUB_DESIGN.md` §4): the identity colour lives in the
+	## Factions window's Identity tab, so this opens it there rather than
+	## selecting the CIVIL ▸ Factions category (which only holds a button to the
+	## same window). `-1` = no faction: it lands on the last-selected one, the
+	## same faction the picker was last used on.
+	var colour := DccWidgets.action(tint, "Faction identity colours → Factions ▸ Identity",
+		func(): app.open_faction_roster(-1, "identity"))
 	colour.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The roster's colour picker writes the identity colour this wash draws in."
+	colour.tooltip_text = "v3's own rule for this category: which colour a faction *is* belongs to CIVIL, how heavily it is painted belongs here. The Factions window's Identity tab holds the colour picker whose colour this wash draws in."
 	var edit := DccWidgets.action(tint, "Edit territories → Civilization ▸ Territories",
 		func(): app.select_domain_category("civilization", "Territories"))
 	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT

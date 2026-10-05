@@ -834,9 +834,15 @@ func context_actions(req: Dictionary) -> Array:
 		if cf.has("controlling_faction"):
 			var cf_id := int(cf["controlling_faction"])
 			var cf_name := String(cf["controlling_faction_name"])
-			rows.append({"id": "civ.faction_open", "label": "Open %s in roster…" % cf_name,
+			## FH-1 (`FACTION_HUB_DESIGN.md` §4): opens the Factions hub on this
+			## faction's **Territory** tab -- the user clicked land, so the
+			## verdict on land is the relevant first view. The label drops "in
+			## roster" because the window is the Factions hub, not a list. Never
+			## open without the faction id: a bare `open_faction_roster()` would
+			## land on the last-selected faction, not the one under the cursor.
+			rows.append({"id": "civ.faction_open", "label": "Open %s…" % cf_name,
 				"section": "object", "enabled": true,
-				"callable": func() -> void: app.open_faction_roster(cf_id)})
+				"callable": func() -> void: app.open_faction_roster(cf_id, "territory")})
 			## "Claim for this faction" is the Territory tool armed with this
 			## faction pre-picked -- the eyedropper of the scope's own wording --
 			## through the same `_territory_faction` state the options bar's
@@ -1925,8 +1931,14 @@ func _build_factions() -> void:
 
 func _fill_factions(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Roster")
-	var roster_btn := DccWidgets.action(sec, "Faction roster…", func(): app.open_faction_roster(), true)
-	roster_btn.tooltip_text = "The reference's Faction Roster modal: world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
+	## FH-1 (`FACTION_HUB_DESIGN.md` §4): the first row of the category is the
+	## one door into the Factions hub, relabelled from "Faction roster…". Same
+	## call, no faction and no tab: it reopens on the last-selected faction and
+	## the tab last used this session. The Culture profiles… and Settlement
+	## types… rows below stay until FH-2/FH-3 give their destinations a home
+	## inside the hub (the design's migration order); never remove them first.
+	var roster_btn := DccWidgets.action(sec, "Open factions…", func(): app.open_faction_roster(), true)
+	roster_btn.tooltip_text = "The Factions window (the reference's Faction Roster, grown into tabs): world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
 
 	## `GUI_GAP_REGISTER.md` CV-02's own window, beside the roster it reads
 	## and writes the same faction field through.
@@ -1980,7 +1992,7 @@ func _fill_factions(parent: Control) -> void:
 		+ "colourblind-safe palette's colour for that index. The picker is the "
 		+ "first row of the roster window's Identity block, beside the banner it "
 		+ "repaints live.")
-	## No second *Faction roster…* button: this category already has one
+	## No second *Open factions…* button: this category already has one
 	## above, and two openers onto one window is the shape this shell keeps
 	## having to undo.
 	var paint_btn := DccWidgets.action(identity, "How heavily it paints → Cartography ▸ Feature style",
@@ -6608,10 +6620,16 @@ func _fill_military(parent: Control) -> void:
 			var b := DccWidgets.action(list, "%s -- %d/100 · %d of %d fortified" % [
 				String(d.get("name", "?")), int(round(float(d.get("military", 0.0)))),
 				int(d.get("fortified_count", 0)), int(d.get("settlement_count", 0))],
-				func(): app.right_dock_ctrl.show_faction(f))
+				## FH-1 (`FACTION_HUB_DESIGN.md` §4): opens the Factions hub on its
+				## Military tab, not the right-dock card -- the card stays reachable
+				## from Settlement ▸ Politics, the Factions category's own rows and
+				## the manpower rows below, and it links on to the hub
+				## (`right_dock.gd` `_build_faction`). Must pass `f`: without it the
+				## hub lands on the last-selected faction, not the row's.
+				func(): app.open_faction_roster(f, "military"))
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = ("Capital %s · overall power %d/100 · walls: %d stone, "
-				+ "%d palisade, %d ditch. Open this faction in the right dock.") % [
+				+ "%d palisade, %d ditch. Opens this faction in Factions, on its Military tab.") % [
 				String(d.get("capital", "—")), int(round(float(d.get("overall", 0.0)))),
 				int(d.get("walled_stone", 0)), int(d.get("walled_palisade", 0)),
 				int(d.get("walled_ditch", 0))]
@@ -7096,6 +7114,13 @@ func _fill_relationships(parent: Control) -> void:
 			## were a press with no visible effect anywhere (5 of 15 rows on a
 			## real six-faction world). `_build_faction_relations` draws the
 			## marked pair.
+			## **Deliberately NOT routed to the hub by FH-1**
+			## (`FACTION_HUB_DESIGN.md` §4 listed it; the coordinator's review
+			## reversed that): the hub takes one faction id and its Relations
+			## tab is a placeholder until FH-6, so a hub route would drop the
+			## pair and send the reader to a tab that points back here. FH-6
+			## re-routes these two callbacks to the hub once that tab carries a
+			## pair list to mark `other` in.
 			var other := int(d.get("b", 0))
 			## `civ_faction_relations`' own doc: with no claim grid the border,
 			## trade and rivalry terms -- and the value/stance built from them --

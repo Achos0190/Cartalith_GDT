@@ -45,7 +45,7 @@ extends Node
 ##        right sheet (`right_dock.gd::_show_on_phone()`), the same way a
 ##        landmark or icon tap already did (`19d3ba8`)
 ##   FR    CM-2 follow-ups, the CIVIL per-cell faction rows (`sample_cell`'s
-##         `controlling_faction`): "Open <faction> in roster…" / "Claim for
+##         `controlling_faction`): "Open <faction>…" / "Claim for
 ##         <faction>" appear on a long-press of a CLAIMED land cell and not on
 ##         ocean or unclaimed land (the latter on a regenerated island world);
 ##         the Open chip lands the roster on that
@@ -587,7 +587,7 @@ func _run() -> void:
 
 ## FR: the per-cell faction rows on the phone (`sample_cell`'s
 ## `controlling_faction`, `OUTSTANDING_WORK.md` "CM-2 follow-ups"). A long-press
-## on a CLAIMED land cell puts "Open <faction> in roster…" and "Claim for
+## on a CLAIMED land cell puts "Open <faction>…" and "Claim for
 ## <faction>" into the half-detent row list (and, being OBJECT-section rows,
 ## ahead of the PLACE rows in the four-chip peek strip), a long-press on OCEAN or
 ## on UNCLAIMED land puts neither, and the Open chip lands the roster window on
@@ -611,7 +611,7 @@ func _leg_faction(ov: Control) -> void:
 	var cell: Dictionary = claimed["cell"]
 	var fid := int(cell["controlling_faction"])
 	var fname := String(cell["controlling_faction_name"])
-	var open_label := "Open %s in roster…" % fname
+	var open_label := "Open %s…" % fname
 	var claim_label := "Claim for %s" % fname
 	var cpos: Vector2 = claimed["pos"]
 
@@ -627,7 +627,7 @@ func _leg_faction(ov: Control) -> void:
 	var rows: PackedStringArray = _menu().peek_full_row_labels()
 	print("FR claimed rows=%s" % [rows])
 	_shot("fr_half_claimed")
-	_ok("FR claimed: the full list carries 'Open <faction> in roster…'", rows.has(open_label), true)
+	_ok("FR claimed: the full list carries 'Open <faction>…'", rows.has(open_label), true)
 	_ok("FR claimed: the full list carries 'Claim for <faction>'", rows.has(claim_label), true)
 	_menu().go_back()
 	await _frames(6)
@@ -656,6 +656,9 @@ func _leg_faction(ov: Control) -> void:
 		_ok("FR the Open chip closed the sheet", _menu().peek_card_is_open(), false)
 		_ok("FR the roster window landed on THAT faction",
 			int(app.faction_roster_window.get("_selected")), fid)
+		## FH-1: the chip opens the hub on the Territory tab (the row is a
+		## *where* row); on the phone that tab must be the live one, too.
+		_ok("FR ... on the Territory tab (FH-1)", String(app.faction_roster_window.get("_tab")), "territory")
 		_ok("FR ... showing its inspector, not the master list (phone: the pick IS the navigation)",
 			(app.faction_roster_window.get("_phone_list_pane") as Control).visible, false)
 		_shot("fr_roster")
@@ -724,11 +727,11 @@ func _leg_faction_absent(ov: Control, what: String, d: Dictionary) -> void:
 	await _frames(2)
 
 
-## Whether any label is "Open <faction> in roster…" or "Claim for <faction>".
+## Whether any label is "Open <faction>…" or "Claim for <faction>".
 func _labels_have_faction_row(labels: PackedStringArray) -> bool:
 	for l in labels:
 		var s := String(l)
-		if (s.begins_with("Open ") and s.contains(" in roster")) or s.begins_with("Claim for "):
+		if (s.begins_with("Open ") and s.ends_with("…")) or s.begins_with("Claim for "):
 			return true
 	return false
 

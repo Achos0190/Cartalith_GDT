@@ -149,6 +149,11 @@ const ID_PREF_CLEAR_CACHES := 59
 ## row rather than sitting open.
 const ID_PREF_HAND_LEFT := 717
 const ID_PREF_HAND_RIGHT := 718
+## `Data ▸ Factions…` (FH-1, `FACTION_HUB_DESIGN.md` §4). 719 is the next id
+## after 717/718 above -- grepped this whole file for 719 before taking it,
+## the same whole-file check every neighbouring block records (an id must be
+## free everywhere, not just in its own popup: `78` was once issued twice).
+const ID_FACTIONS := 719
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -2675,6 +2680,17 @@ func _data(p: PopupMenu) -> void:
 	## the only way in.
 	_live(p, "⧉ Data manager", ID_DATA_MANAGER)
 	_live(p, "World data tables…", ID_WORLD_DATA)
+	## FH-1: the Factions hub is a window over world data (a faction's identity,
+	## land, settlements, economy and military), so it sits beside World data
+	## tables rather than under the vault rows. No accelerator: a shortcut is a
+	## new binding the owner has not asked for, and the phone twin needs no row
+	## of its own -- `phone_menu.gd::_fill_data` draws this popup through
+	## `_rest_of`, so the row appears there by being here. It opens the hub with
+	## no faction and no tab, i.e. on the last-selected faction and tab.
+	_live(p, "Factions…", ID_FACTIONS)
+	p.set_item_tooltip(p.item_count - 1,
+		"Open the Factions window: each faction's identity, territory, "
+		+ "settlements, economy and military in one place.")
 	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
 
 	_data_route_ids.clear()
@@ -2706,6 +2722,7 @@ func _data(p: PopupMenu) -> void:
 		match id:
 			ID_DATA_MANAGER: _host.open_data_manager()
 			ID_WORLD_DATA: _host.open_world_data()
+			ID_FACTIONS: _host.open_faction_roster()
 			ID_TRAVEL_LIBRARY: _host.open_travel_library()
 			ID_VAULT: _host.open_vault_overview()
 			ID_VAULT_BROWSE: _host.open_vault_browse()

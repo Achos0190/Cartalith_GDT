@@ -24,6 +24,15 @@ extends Node
 ##   STALE   an edit that moves another tab's numbers (government) drops the
 ##           hidden panes and marks both caches stale; a new world (RF-03)
 ##           rebuilds only the visible tab and resets the selection
+##   ENTRY   (FH-1, `_run_entry_points`) every shipped way in lands on the
+##           faction and tab `FACTION_HUB_DESIGN.md` §4 gives it: the Factions
+##           category's "Open factions…" and Data ▸ Factions… (bare: last faction
+##           and tab), the dock card's "Open in Factions…" (Identity, or Relations
+##           with `pair_with`), every Military row, and the
+##           Cartography identity-colours jump. The Relationships pair rows are asserted
+##           to keep their RL-01 dock behaviour (dock card on a, b marked, hub not
+##           opened) until FH-6 re-routes them. The context-card row is
+##           `_ctxcard_probe.gd` / `_ctxphone_probe.gd`'s.
 ##
 ## Windowed, never `--headless` (layout and focus are the subject):
 ##   Godot_v4.7.1-stable_win64_console.exe --path . _factionhub_probe.tscn
@@ -42,6 +51,7 @@ var _checks := 0
 var _fails := 0
 var _phone := false
 var _tablet := false
+var _entry_done := false  ## set by the last line of `_run_entry_points`
 
 
 func _ok(name: String, cond: bool, detail: String = "") -> void:
@@ -449,6 +459,10 @@ func _run() -> void:
 	_ok("STALE ... and marks both caches stale", not _fr._fits_ready and not _fr._military_ready)
 	_ok("STALE ... and the engine took the edit", String(_fr._faction(fa).get("government", "")) == gov_key)
 
+	# -- ENTRY: every shipped way in (FH-1) -------------------------------------
+	await _run_entry_points(ids)
+	_ok("FH1 the entry-point leg ran to its end (a script error inside it aborts it silently)", _entry_done)
+
 	# -- RF-03: a new world ----------------------------------------------------------
 	_fr.open(fb, "military")
 	await _frames(6)
@@ -485,3 +499,257 @@ func _collect_of(node: Node, out: Array, cls) -> void:
 		out.append(node)
 	for c in node.get_children():
 		_collect_of(c, out, cls)
+
+
+# -- FH-1: entry points -------------------------------------------------------
+## Protects: FH-1 (`FACTION_HUB_DESIGN.md` §4) -- every shipped way into the
+## Factions hub names the faction and tab the design gives it, and none opens it
+## "somewhere". Each entry is parked-from first (the hub is opened on a DIFFERENT
+## faction and tab, then hidden), so "lands on X" cannot pass by the window
+## merely still sitting there; every faction-id entry also reads the phone detail
+## screen (`_phone_list_pane` hidden) where the form is the phone's.
+## What it cannot see: the context-card row (`_ctxcard` / `_ctxphone` own it,
+## they need a real right-click / long-press) and the placeholder tabs' content
+## beyond "non-empty, no controls" (FH-6 / FH-8 own that).
+func _run_entry_points(ids: Array) -> void:
+	var fa: int = ids[0]
+	var fb: int = ids[1]
+	var park_tab := "economy"
+
+	# 1. Factions category: "Open factions…", Culture/Settlement types kept.
+	await _park(fb, park_tab)
+	## select_domain first: on the phone the CIVIL dock is not built until the
+	## domain is entered (`_civilcensus_probe` enters through MORE first too).
+	_app.select_domain("civilization")
+	await _frames(4)
+	await _sheet("left")
+	_app.select_domain_category("civilization", "Factions")
+	await _frames(4)
+	var cpanel: Control = _app.workspace_panel("civilization")
+	var cbtns: Array = []
+	_collect_buttons(cpanel, cbtns)
+	_ok("FH1 cat: the CIVIL dock drew buttons at all (the control for every absence below)", cbtns.size() > 5, str(cbtns.size()))
+	var open_btns := cbtns.filter(func(b): return _lc(b) == "open factions…")
+	var old_btns := cbtns.filter(func(b): return _lc(b) == "faction roster…")
+	var keep_culture := cbtns.filter(func(b): return _lc(b) == "culture profiles…")
+	var keep_types := cbtns.filter(func(b): return _lc(b) == "settlement types…")
+	_ok("FH1 cat: exactly one 'Open factions…' button", open_btns.size() == 1,
+		"%d; first buttons: %s" % [open_btns.size(), _btn_texts(cbtns, 14)])
+	_ok("FH1 cat: the old 'Faction roster…' label is gone", old_btns.is_empty(), str(old_btns.size()))
+	_ok("FH1 cat: Culture profiles… and Settlement types… are still there (FH-2/FH-3)",
+		keep_culture.size() == 1 and keep_types.size() == 1, "%d/%d" % [keep_culture.size(), keep_types.size()])
+	if open_btns.size() == 1:
+		(open_btns[0] as Button).pressed.emit()
+		await _frames(6)
+		_land("FH1 cat bare open (last faction, last tab)", fb, park_tab, false)
+	_fr.hide()
+	await _frames(2)
+
+	# 2. Data > Factions…
+	await _park(fb, park_tab)
+	var mb := _find_menu_button(_app, "Data")
+	_ok("FH1 data: the Data menu exists", mb != null)
+	if mb != null:
+		var popup: PopupMenu = mb.get_popup()
+		var idx := -1
+		var n_rows := 0
+		for i in popup.item_count:
+			if popup.get_item_id(i) == DccMenus.ID_FACTIONS:
+				idx = i
+				n_rows += 1
+		_ok("FH1 data: exactly one row carries ID_FACTIONS", n_rows == 1, str(n_rows))
+		if idx >= 0:
+			_ok("FH1 data: the row reads 'Factions…'", popup.get_item_text(idx) == "Factions…", popup.get_item_text(idx))
+			popup.id_pressed.emit(DccMenus.ID_FACTIONS)
+			await _frames(6)
+			_land("FH1 data bare open (last faction, last tab)", fb, park_tab, false)
+	_fr.hide()
+	await _frames(2)
+
+	# 3. Right dock Faction card.
+	var dock = _app.right_dock_ctrl  ## a RightDock is a plain Node, not a Control
+	for pair in [-1, fb]:
+		var want_tab := "identity" if int(pair) < 0 else "relations"
+		await _park(fb, park_tab)
+		await _sheet("right")
+		dock.show_faction(fa, int(pair))
+		await _frames(4)
+		var dbtns: Array = []
+		_collect_buttons(_app.right_dock_body, dbtns)
+		var dact := dbtns.filter(func(b): return _lc(b) == "open in factions…")
+		var tag := "FH1 dock pair_with=%d" % int(pair)
+		_ok("%s: exactly one 'Open in Factions…' action" % tag, dact.size() == 1,
+			"%d; buttons: %s" % [dact.size(), _btn_texts(dbtns, 14)])
+		if dact.size() == 1:
+			var db: Button = dact[0]
+			if _phone:
+				_ok("%s: the row is a phone-safe tap target (>= %d px)" % [tag, DccTheme.PHONE_TAP_MIN],
+					db.get_combined_minimum_size().y >= DccTheme.PHONE_TAP_MIN,
+					str(db.get_combined_minimum_size()))
+			if int(pair) < 0:
+				await _shot("%s_dock_faction_card" % ("phone" if _phone else "desktop"))
+			db.pressed.emit()
+			await _frames(6)
+			_land(tag, fa, want_tab, true)
+		_fr.hide()
+		await _frames(2)
+
+	# 4. Military > Faction strength rows -> (f, military).
+	await _sheet("left")
+	_app.select_domain_category("civilization", "Military")
+	await _frames(4)
+	var mbtns: Array = []
+	_collect_buttons(_app.workspace_panel("civilization"), mbtns)
+	var names := _names()
+	var strength_rows := mbtns.filter(func(b): return _lc(b).contains("/100 · ") and _lc(b).contains("fortified"))
+	_ok("FH1 military: one row per faction", strength_rows.size() == names.size() and names.size() > 0,
+		"%d rows, %d factions" % [strength_rows.size(), names.size()])
+	var seen_m := {}
+	for b in strength_rows:
+		var fid := -1
+		for k in names:
+			if _lc(b).begins_with(String(names[k]).to_lower() + " -- "):
+				fid = int(k)
+		_ok("FH1 military: row '%s' names a known faction" % _lc(b).left(30), fid >= 0)
+		if fid < 0:
+			continue
+		seen_m[fid] = true
+		await _park(fb if fid != fb else fa, park_tab)
+		(b as Button).pressed.emit()
+		await _frames(6)
+		_land("FH1 military row f=%d" % fid, fid, "military", true)
+		_fr.hide()
+		await _frames(2)
+	_ok("FH1 military: the rows covered every faction", seen_m.size() == names.size(), str(seen_m.keys()))
+
+	# 5. Relationships > Every pair rows -> the DOCK card on a with b marked
+	# (RL-01), NOT the hub. FH-1 first routed these to the hub's Relations tab;
+	# the coordinator's review reversed that because the tab is a placeholder
+	# until FH-6 and the route lost the second faction. Protects: the pair rows
+	# keep opening the faction card with the named pair marked, and do not open
+	# the hub. FH-6 re-routes them and rewrites this leg.
+	await _sheet("left")
+	_app.select_domain_category("civilization", "Relationships")
+	await _frames(4)
+	var pairs: Array = _bridge.civ_faction_relations()
+	var rbtns: Array = []
+	_collect_buttons(_app.workspace_panel("civilization"), rbtns)
+	var pair_rows := rbtns.filter(func(b): return _lc(b).contains(" ↔ "))
+	_ok("FH1 relations: one row per pair", pair_rows.size() == pairs.size() and pairs.size() > 0,
+		"%d rows, %d pairs" % [pair_rows.size(), pairs.size()])
+	var n_rel := 0
+	for b in pair_rows:
+		if n_rel >= 3:
+			break
+		var want_a := -1
+		for d in pairs:
+			var pd: Dictionary = d
+			if _lc(b).begins_with(("%s ↔ %s -- " % [String(pd.get("a_name", "?")), String(pd.get("b_name", "?"))]).to_lower()):
+				want_a = int(pd.get("a", -1))
+		_ok("FH1 relations: row '%s' matches a pair" % _lc(b).left(30), want_a >= 0)
+		if want_a < 0:
+			continue
+		var want_b := -1
+		var want_b_name := ""
+		for d in pairs:
+			var pd2: Dictionary = d
+			if int(pd2.get("a", -1)) == want_a and _lc(b).begins_with(("%s ↔ %s -- " % [String(pd2.get("a_name", "?")), String(pd2.get("b_name", "?"))]).to_lower()):
+				want_b = int(pd2.get("b", -1))
+				want_b_name = String(pd2.get("b_name", "?"))
+		# Park the hub hidden and the dock on another faction with no pair, so
+		# both "the hub stays shut" and "the press changed the dock" are real.
+		await _park(fb if want_a != fb else fa, park_tab)
+		await _sheet("right")
+		_app.right_dock_ctrl.show_faction(fb if want_a != fb else fa, -1)
+		await _frames(3)
+		await _sheet("left")
+		(b as Button).pressed.emit()
+		await _frames(6)
+		await _sheet("right")
+		await _frames(3)
+		var tag5 := "FH1 relations row a=%d b=%d" % [want_a, want_b]
+		var dk = _app.right_dock_ctrl
+		_ok("%s: the dock shows the faction card" % tag5, dk._context == RightDock.CTX_FACTION, str(dk._context))
+		_ok("%s: the card is headed by a" % tag5, dk._faction_id == want_a, "id=%d" % dk._faction_id)
+		_ok("%s: the card was told b as the pair (RL-01)" % tag5, dk._faction_pair == want_b and want_b >= 0, "pair=%d" % dk._faction_pair)
+		_ok("%s: b is marked among the card's relations ('▸ %s')" % [tag5, want_b_name],
+			_text_of(_app.right_dock_body).to_lower().contains(("▸ " + want_b_name).to_lower()))
+		_ok("%s: the hub was not opened (FH-6 owns that route)" % tag5, not _fr.visible)
+		n_rel += 1
+	_ok("FH1 relations: the loop pressed at least one row", n_rel > 0, str(n_rel))
+
+	# 6. Cartography > Feature style > Territories -> (last faction, identity).
+	await _park(fb, park_tab)
+	_app.select_domain("cartography")
+	await _frames(4)
+	await _sheet("left")
+	_app.select_domain_category("cartography", "Feature style")
+	await _frames(4)
+	var kbtns: Array = []
+	_collect_buttons(_app.workspace_panel("cartography"), kbtns)
+	var colour := kbtns.filter(func(b): return _lc(b).begins_with("faction identity colours"))
+	_ok("FH1 carto: exactly one 'Faction identity colours' jump", colour.size() == 1, str(colour.size()))
+	if colour.size() == 1:
+		(colour[0] as Button).pressed.emit()
+		await _frames(6)
+		_land("FH1 carto jump (last faction, Identity tab)", fb, "identity", false)
+	_fr.hide()
+	await _frames(2)
+	_entry_done = true
+
+
+## On the phone the two docks are sheets, shown one at a time; their bodies are
+## built once but a dock that is not on screen does not fill its categories
+## (`ebdf6fdb`), so the sheet is opened before a button is looked for. A no-op on
+## desktop and tablet, where the docks are docked.
+func _sheet(side: String) -> void:
+	if _phone:
+		_app._set_sheet_open(side, true)
+		await _frames(4)
+
+
+## A button label lower-cased: the phone shell draws button labels in capitals
+## (`OPEN IN FACTIONS…`), so a label is compared case-blind everywhere here.
+func _lc(b) -> String:
+	return (b as Button).text.to_lower()
+
+
+## The first `n` button labels, for a failure message that says what was there.
+func _btn_texts(btns: Array, n: int) -> String:
+	var out := PackedStringArray()
+	for b in btns.slice(0, n):
+		out.append(_lc(b))
+	return str(out)
+
+
+## Parks the hub on (`fid`, `tab`) and hides it, then asserts it is parked.
+func _park(fid: int, tab: String) -> void:
+	_fr.open(fid, tab)
+	await _frames(4)
+	_fr.hide()
+	await _frames(2)
+	_ok("FH1 park precondition (%d, %s)" % [fid, tab],
+		_fr._selected == fid and _fr._tab == tab and not _fr.visible,
+		"sel=%d tab=%s visible=%s" % [_fr._selected, _fr._tab, _fr.visible])
+
+
+## Asserts the hub is showing `fid` on `tab`, with exactly that pane visible; on
+## the phone, with `detail` set, that the inspector (not the master list) shows.
+func _land(tag: String, fid: int, tab: String, detail: bool) -> void:
+	_ok("%s: the hub is showing" % tag, _fr.visible)
+	_ok("%s: landed on faction %d" % [tag, fid], _fr._selected == fid, "sel=%d" % _fr._selected)
+	_ok("%s: landed on tab %s" % [tag, tab], _fr._tab == tab, "tab=%s" % _fr._tab)
+	_ok("%s: exactly that pane is visible" % tag, _visible_panes() == [tab], str(_visible_panes()))
+	if _phone and detail:
+		_ok("%s: the phone shows the inspector, not the master list" % tag,
+			not (_fr._phone_list_pane as Control).visible)
+
+
+func _find_menu_button(n: Node, title: String) -> MenuButton:
+	if n is MenuButton and (n as MenuButton).text == title:
+		return n
+	for c in n.get_children(true):
+		var r := _find_menu_button(c, title)
+		if r != null:
+			return r
+	return null

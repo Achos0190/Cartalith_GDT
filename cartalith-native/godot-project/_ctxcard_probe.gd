@@ -26,7 +26,7 @@ extends Node
 ##      Drop settlement here · Info here
 ##   F  CIVIL, the per-cell faction rows (`sample_cell`'s `controlling_faction`,
 ##      OUTSTANDING_WORK.md "CM-2 follow-ups"): on a CLAIMED land cell the card
-##      carries "Open <faction> in roster…" and "Claim for <faction>" (named by
+##      carries "Open <faction>…" and "Claim for <faction>" (named by
 ##      the roster's own entry); on OCEAN it carries neither; Open runs
 ##      `open_faction_roster(id)` and lands the roster window on THAT faction
 ##      (the window was parked on a different one first); Claim arms the
@@ -264,7 +264,7 @@ func _find_cell(ov: Control, water: String, claimed: bool, inset: float = 60.0, 
 func _has_faction_rows(rows: Array) -> bool:
 	for t in rows:
 		var s := String(t)
-		if (s.begins_with("Open ") and s.contains(" in roster")) or s.begins_with("Claim for "):
+		if (s.begins_with("Open ") and s.ends_with("…")) or s.begins_with("Claim for "):
 			return true
 	return false
 
@@ -411,7 +411,7 @@ func _run() -> void:
 	await _rmb(ov, epos)
 	_dump("B_civ_empty")
 	_ok("B CIVIL on an empty cell", _civ_rows(),
-		["Open %s in roster… [OBJECT]" % b_name, "Claim for %s [OBJECT]" % b_name,
+		["Open %s… [OBJECT]" % b_name, "Claim for %s [OBJECT]" % b_name,
 			"Drop settlement here [PLACE HERE]", "Start way here [PLACE HERE]",
 			"Start route here [PLACE HERE]", "Info here (settlement & ecology) [INFO]"])
 	var hb: Array = _card().drawn_rows().filter(func(r): return r["kind"] == "header")
@@ -419,7 +419,7 @@ func _run() -> void:
 	await _close()
 
 	# -- F: the per-cell faction rows ----------------------------------------------
-	## Protects: the CIVIL card's "Open <faction> in roster…" / "Claim for
+	## Protects: the CIVIL card's "Open <faction>…" / "Claim for
 	## <faction>" rows staying gated on `sample_cell`'s `controlling_faction` --
 	## present over a claimed land cell, absent over ocean and unclaimed land --
 	## and Open landing the roster on the SAME faction (not whichever it last
@@ -439,7 +439,7 @@ func _run() -> void:
 				rname = String((fd as Dictionary).get("name", ""))
 		_ok("F the sampled faction name is the roster's own name for that id", fname, rname)
 		_ok("F ... and it is a real, non-empty name", fname != "", true)
-		var open_text := "Open %s in roster… [OBJECT]" % fname
+		var open_text := "Open %s… [OBJECT]" % fname
 		var claim_text := "Claim for %s [OBJECT]" % fname
 
 		# Park the roster window on a DIFFERENT faction first, so "lands on
@@ -456,15 +456,17 @@ func _run() -> void:
 		_dump("F_civ_claimed")
 		_shot("F_card_claimed")
 		var rows_f := _civ_rows()
-		_ok("F a claimed cell carries 'Open <faction> in roster…' (object band)", rows_f.has(open_text), true)
+		_ok("F a claimed cell carries 'Open <faction>…' (object band)", rows_f.has(open_text), true)
 		_ok("F a claimed cell carries 'Claim for <faction>' (object band)", rows_f.has(claim_text), true)
-		var open_row := _row("Open %s in roster" % fname)
+		var open_row := _row("Open %s…" % fname)
 		_ok("F the Open row is on the card", open_row != null, true)
 		if open_row != null:
 			await _click_row(open_row)
 		_ok("F the click closed the card", _open(), false)
 		_ok("F the roster window is showing", app.faction_roster_window.visible, true)
 		_ok("F ... and it landed on THAT faction", int(app.faction_roster_window.get("_selected")), fid)
+		## FH-1: the row opens the hub on the Territory tab (a *where* row).
+		_ok("F ... on the Territory tab (FH-1)", String(app.faction_roster_window.get("_tab")), "territory")
 		_shot("F_roster_opened")
 		app.faction_roster_window.hide()
 		await _frames(2)

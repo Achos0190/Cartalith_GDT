@@ -140,7 +140,7 @@ const PLACEMENTS: Array = [
 	["Feature style", "WAYS", "", "Button", "Draw and edit ways → Civilization ▸ Routes & ways", 1],
 	["Feature style", "TERRITORIES", "", "Label", "Fill opacity", 1],
 	["Feature style", "TERRITORIES", "", "Button", "Reset to *", 1],
-	["Feature style", "TERRITORIES", "", "Button", "Faction identity colours → Civilization ▸ Factions", 1],
+	["Feature style", "TERRITORIES", "", "Button", "Faction identity colours → Factions ▸ Identity", 1],
 	["Feature style", "TERRITORIES", "", "Button", "Edit territories → Civilization ▸ Territories", 1],
 	["Feature style", "NOT BUILT", "", "Button", "Claim hatching and the influence ramp*", 1],
 	["*", "*", "*", "Label", "Thicken ways by carried volume", 1],
