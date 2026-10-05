@@ -475,11 +475,13 @@ impl LabelBridge {
     /// box shrinks by `1 / max(zoom, 0.35)` ([`shell_label_unit`]), so the
     /// handles sit on the box the shell draws. Note the two zoom clamps differ
     /// on purpose: the handle radius uses `civ_zoom_k`'s `[0.35, 5]`, the box
-    /// the shell's uncapped-above `1 / max(zoom, 0.35)`.
+    /// the shell's uncapped-above `1 / max(zoom, 0.35)`. The handles' radius
+    /// and stem floors follow the same unit ([`shell_handle_circles`]), so a
+    /// `Fixed` label's handles keep their proportion to its box at every zoom.
     pub fn handles(&self, index: usize, px_per_cell: f64, env: &LabelViewEnv) -> Option<LabelHandles> {
         let lb = self.labels.get(index)?;
         let box_ = shell_label_box(lb, px_per_cell, env.zoom_scale);
-        Some(handle_circles(lb, &box_, env))
+        Some(shell_handle_circles(lb, &box_, env))
     }
 
     /// `arc_label_layout` for label `index`'s current text/arc/size, given
@@ -631,31 +633,74 @@ pub fn shell_label_box(lb: &MapLabel, px_per_cell: f64, zoom: f64) -> LabelBox {
 /// The reference draws every label's handles at the same screen-constant
 /// scale regardless of that label's own fixed/zoom size mode; ported as
 /// written, not "fixed" to track each label's mode, since that would be a
-/// behavioural change with no reference basis.
+/// behavioural change with no reference basis. **The shell does not call this
+/// directly:** [`shell_handle_circles`] does, which scales a `Fixed` label's
+/// floors by the label unit so its handles follow its shrinking box (Ruling AP
+/// follow-up, 2026-10-05). This stays the transcription it tests pin.
 pub fn handle_circles(lb: &MapLabel, box_: &LabelBox, env: &LabelViewEnv) -> LabelHandles {
+    let base = f64::max(1.0, env.grid_w as f64 / 512.0) * env.icon_scale;
+    handle_circles_scaled(lb, box_, base * civ_zoom_k(env.zoom_scale), 1.0)
+}
+
+/// [`handle_circles`] as this shell must call it: the handle radii follow the
+/// label's own on-screen unit, so a handle keeps its proportion to the box it
+/// sits on (Ruling AP follow-up, 2026-10-05).
+///
+/// **Why.** Since Ruling AP a `Fixed` label's box shrinks by
+/// [`shell_label_unit`] (`1 / max(zoom, 0.35)`) to hold a constant on-screen
+/// size, but the reference's handle radii do not follow it: their floors
+/// (`4`, `6` and the stem's `10` cells) are constants and their `lsc` term is
+/// clamped at `civ_zoom_k`'s zoom 5. At deep zoom the handles kept their
+/// zoom-1 size around a box that had shrunk to a fraction of it.
+///
+/// **What it does.** For a `Fixed` label every floor is multiplied by `unit`
+/// and `lsc` becomes `base * unit` (the uncapped-above unit: equal to
+/// `civ_zoom_k` for zoom in `[0.35, 5]`, still shrinking beyond). The result
+/// is the zoom-1 handle set scaled uniformly by `unit`, exactly as the box is.
+/// For a `Zoom` label `unit` is `1.0` and `lsc` is `civ_zoom_k`'s, so the
+/// output is bit-identical to [`handle_circles`].
+///
+/// **Never** applies `unit` to a `Zoom` label (it grows with the map and its
+/// handles must not change), and never alters [`handle_circles`] itself: that
+/// stays the reference's transcription.
+pub fn shell_handle_circles(lb: &MapLabel, box_: &LabelBox, env: &LabelViewEnv) -> LabelHandles {
+    match lb.size_mode {
+        // Control flow, not arithmetic, guarantees a `Zoom` label is unchanged.
+        LabelSizeMode::Zoom => handle_circles(lb, box_, env),
+        LabelSizeMode::Fixed => {
+            let unit = shell_label_unit(LabelSizeMode::Fixed, env.zoom_scale);
+            let base = f64::max(1.0, env.grid_w as f64 / 512.0) * env.icon_scale;
+            handle_circles_scaled(lb, box_, base * unit, unit)
+        }
+    }
+}
+
+/// The shared body of [`handle_circles`] and [`shell_handle_circles`]: the
+/// reference's handle formulas with the render-pass constant `lsc` supplied
+/// and a `floor_unit` multiplying every floor (`4`, `6`, the stem's `10`). At
+/// `floor_unit == 1.0` it is the reference's own arithmetic exactly.
+fn handle_circles_scaled(lb: &MapLabel, box_: &LabelBox, lsc: f64, floor_unit: f64) -> LabelHandles {
     let th = lb.angle * std::f64::consts::PI / 180.0;
     let (ca, sa) = (th.cos(), th.sin());
     let rot = |lx: f64, ly: f64| (box_.px + lx * ca - ly * sa, box_.py + lx * sa + ly * ca);
 
-    let base = f64::max(1.0, env.grid_w as f64 / 512.0) * env.icon_scale;
-    let lsc = base * civ_zoom_k(env.zoom_scale);
     let side = box_.side;
 
     // Resize: bottom-right corner of the (rotated) box.
-    let hr = f64::max(4.0, 3.2 * lsc);
+    let hr = f64::max(4.0 * floor_unit, 3.2 * lsc);
     let (hx, hy) = rot(side / 2.0, side / 2.0);
 
     // Rotate: a stem from the top edge's centre, further out.
-    let stem_len = f64::max(10.0, side * 0.25);
-    let rr = f64::max(4.0, 3.2 * lsc);
+    let stem_len = f64::max(10.0 * floor_unit, side * 0.25);
+    let rr = f64::max(4.0 * floor_unit, 3.2 * lsc);
     let (rx, ry) = rot(0.0, -side / 2.0 - stem_len);
 
     // Arc/curve: a diamond offset left of the top edge.
-    let ar = f64::max(4.0, 3.4 * lsc);
+    let ar = f64::max(4.0 * floor_unit, 3.4 * lsc);
     let (ax, ay) = rot(-side * 0.28, -side / 2.0);
 
     // Confirm/cancel: the top two corners, inset by their own radius.
-    let br = f64::max(6.0, 4.2 * lsc);
+    let br = f64::max(6.0 * floor_unit, 4.2 * lsc);
     let (bx0, by0) = rot(-side / 2.0 + br + 2.0 * lsc, -side / 2.0 - br - 2.0 * lsc);
     let (bx1, by1) = rot(side / 2.0 - br - 2.0 * lsc, -side / 2.0 - br - 2.0 * lsc);
 
@@ -1259,6 +1304,77 @@ mod tests {
         let resize = h.resize.expect("resize handle");
         assert!((resize.x - (100.0 - 20.0)).abs() < 1e-9);
         assert!((resize.y - (50.0 + 20.0)).abs() < 1e-9);
+    }
+
+    /// Protects the Ruling AP follow-up (2026-10-05): a `Fixed` label's handle
+    /// set is its zoom-1 set scaled uniformly by `1 / zoom`, so a handle keeps
+    /// its proportion to the box it sits on at every zoom. The literals are the
+    /// zoom-1 geometry worked by hand for a size-16 label at `PX_PER_CELL` 2
+    /// (`side` 26, `lsc` 1 at grid_w 512): resize centre `(+13, +13)` r `6.4`
+    /// (`max(4, 3.2) * 1.6`); rotate centre `(0, -23)` (`-13 - max(10, 6.5)`)
+    /// r `6.0`; arc centre `(-7.28, -13)` r `6.0`; check centre `(-5, -21)`
+    /// r `6.0` (`max(6, 4.2)`). Zoom 8, 30 and 160 sit past `civ_zoom_k`'s cap
+    /// of 5, which is what exposes an `lsc` that is still clamped. Mutants that
+    /// must fail this: dropping `floor_unit` from any floor, passing `1.0` for
+    /// the unit, or taking `lsc` from `civ_zoom_k` for a `Fixed` label.
+    #[test]
+    fn a_fixed_labels_handles_scale_with_its_box_at_every_zoom() {
+        let lb = sized(LabelSizeMode::Fixed);
+        for zoom in [1.0, 4.0, 8.0, 30.0, 160.0] {
+            let env = LabelViewEnv { grid_w: 512, zoom_scale: zoom, icon_scale: 1.0 };
+            let box_ = shell_label_box(&lb, PX_PER_CELL, zoom);
+            let h = shell_handle_circles(&lb, &box_, &env);
+            let near = |got: f64, want: f64, what: &str| {
+                assert!((got * zoom - want).abs() < 1e-9, "zoom {zoom}: {what} {got} * zoom != {want}");
+            };
+            let (resize, rotate, arc, check) = (h.resize.unwrap(), h.rotate.unwrap(), h.arc.unwrap(), h.check.unwrap());
+            near(resize.x - 100.0, 13.0, "resize dx");
+            near(resize.y - 100.0, 13.0, "resize dy");
+            near(resize.r, 6.4, "resize r");
+            near(rotate.y - 100.0, -23.0, "rotate stem dy");
+            near(rotate.r, 6.0, "rotate r");
+            near(arc.x - 100.0, -7.28, "arc dx");
+            near(arc.r, 6.0, "arc r");
+            near(check.x - 100.0, -5.0, "check dx");
+            near(check.y - 100.0, -21.0, "check dy");
+            near(check.r, 6.0, "check r");
+        }
+    }
+
+    /// Protects the unchanged half: a `Zoom` label's handles through the shell
+    /// entry point are bit-identical to the reference transcription
+    /// [`handle_circles`] at every zoom (they grow with the map), and at deep
+    /// zoom carry the literal floor-bound radii (`4 * 1.6 = 6.4` resize,
+    /// `6` check) -- fails if the label unit leaks into the `Zoom` branch.
+    #[test]
+    fn a_zoom_labels_handles_are_unchanged_by_the_label_unit() {
+        let lb = sized(LabelSizeMode::Zoom);
+        for zoom in [0.2, 1.0, 8.0, 30.0, 160.0] {
+            let env = LabelViewEnv { grid_w: 512, zoom_scale: zoom, icon_scale: 1.0 };
+            let box_ = shell_label_box(&lb, PX_PER_CELL, zoom);
+            assert_eq!(shell_handle_circles(&lb, &box_, &env), handle_circles(&lb, &box_, &env), "zoom {zoom}");
+        }
+        let env = LabelViewEnv { grid_w: 512, zoom_scale: 30.0, icon_scale: 1.0 };
+        let h = shell_handle_circles(&lb, &shell_label_box(&lb, PX_PER_CELL, 30.0), &env);
+        assert!((h.resize.unwrap().r - 6.4).abs() < 1e-9);
+        assert!((h.check.unwrap().r - 6.0).abs() < 1e-9);
+    }
+
+    /// Protects the entry point the shell calls: `LabelBridge::handles` must
+    /// route through `shell_handle_circles`, so a fixed label's resize handle
+    /// at zoom 8 sits `13 / 8` from its centre with radius `6.4 / 8`, not the
+    /// zoom-1 `6.4` the plain transcription would give.
+    #[test]
+    fn the_bridges_handles_use_the_scaled_floors() {
+        let mut b = LabelBridge::new();
+        b.create(100.0, 100.0, "Whitfell");
+        b.labels[0].size = 16.0;
+        b.labels[0].size_mode = LabelSizeMode::Fixed;
+        let env = LabelViewEnv { grid_w: 512, zoom_scale: 8.0, icon_scale: 1.0 };
+        let h = b.handles(0, PX_PER_CELL, &env).expect("in range");
+        let resize = h.resize.unwrap();
+        assert!((resize.r - 0.8).abs() < 1e-9, "r {}", resize.r);
+        assert!((resize.x - (100.0 + 13.0 / 8.0)).abs() < 1e-9, "x {}", resize.x);
     }
 
     #[test]

@@ -805,7 +805,9 @@ func _label_font_for(lb: Dictionary) -> Font:
 ## takes the live camera zoom**, because a "fixed" label is drawn at
 ## `_label_font_px * _label_unit()` local px and the box must shrink with it --
 ## `shell_label_box`'s `zoom` parameter and `shell_label_unit` are the engine
-## copy of `_label_unit()`. **The arc-drawing
+## copy of `_label_unit()`. The handles' radius and stem floors follow the same
+## unit (`shell_handle_circles`), so a fixed label's handles keep their
+## proportion to its box at every zoom. **The arc-drawing
 ## question above is separate and still open**: this file still lays out
 ## every glyph itself rather than calling `label_glyph_layout`, for the
 ## reasons already given, and that call still has no live measured width to

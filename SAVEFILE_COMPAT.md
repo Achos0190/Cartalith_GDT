@@ -1533,8 +1533,19 @@ radians. `arc` bends the baseline; `0` is straight. `size` is the type size.
 `font` and `color` are `null` for "use the renderer's default" — a reader MUST
 NOT substitute a concrete default on load, because doing so would freeze
 today's default into the file. `color`, when present, is a CSS colour string.
-`size_mode` is `zoom` (constant on-screen size, the default) or `fixed` (grows
-with the terrain); an unrecognised value reads as `zoom`.
+`size_mode` is `zoom` (the default) or `fixed`; an absent or unrecognised value reads
+as `zoom`. **The meaning is this shell's, which is the REVERSE of the
+reference's spelling** (verified at `project_bridge.rs::label_size_mode_key` /
+`label_size_mode_from`, which write and read exactly these two strings, and at
+`map_overlay.gd::_label_unit`, which gives them their behaviour): `fixed` is a
+label that holds a **constant on-screen size** at every camera zoom, and `zoom`
+is one that **grows with the map** like text printed on the terrain. The
+reference's own `sizeMode` uses the same two words the other way round
+(`'zoom'` constant on-screen, `'fixed'` grows with the terrain; see
+`cartalith_civ::labels::LabelSizeMode`). A reader of this document who knows the
+reference MUST NOT carry its meaning across: the string is the same, the
+behaviour is not. The two words are stored as-is and never translated. §15.5 says what the
+flat-layout import does with the reference's spelling.
 
 Array order is significant — it is draw order.
 
@@ -2341,7 +2352,7 @@ world.
 | `state.places[]` of any other `kind` (the POI tool's `ruin`, `shrine`, …), or with none (the "designate places" tool) | **nothing** | §15.1: not a settlement, and this port has no hand-placed point-of-interest record; reported by kind |
 | `state.civ.factionNames` and its four parallel arrays | the faction roster | a column the archive does not reach is this build's per-index default (reported); **every colour is this build's palette** (§15.3, reported). No `factionNames` → this build's default roster, as the reference does |
 | `state.civ.territory` (sparse pairs) | the claim grid | a pair off the grid, or naming a faction outside the roster, is skipped and reported |
-| `state.labels[]` | the Label tool's list, class `region` | `x`, `y`, `name`, `angle`, `arc`, `size` (absent → 16, the click literal), `font`/`color` carried or left absent, `sizeMode: "fixed"` → fixed, anything else zoom. Class `region` because the reference has one label kind and calls it a region name |
+| `state.labels[]` | the Label tool's list, class `region` | `x`, `y`, `name`, `angle`, `arc`, `size` (absent → 16, the click literal), `font`/`color` carried or left absent, `sizeMode: "fixed"` → fixed, anything else zoom (**the spelling is carried, not the behaviour**: the reference's `fixed` grows with the terrain, this shell's `fixed` holds a constant on-screen size, so an imported reference label changes how it scales; see §11.1, no migration is applied). Class `region` because the reference has one label kind and calls it a region name |
 | `state.mapIcons[]` | the icon layer, `origin` manual | `x`, `y`, `fam` → `family` (outside §11.2's four: dropped, reported), `slot`, `set` for `custom` only, `scale` (absent or ≤ 0 → 1, reported). Manual because the reference had no generated pass writing into `mapIcons` |
 
 Reported and **not** imported, whenever the archive carries any: every member
