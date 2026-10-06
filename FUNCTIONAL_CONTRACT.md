@@ -107,7 +107,15 @@ Strahler order, real-km channel width, v2.07). Deterministic from a seed.
 **This port**: **done**, MVP criterion 1 — every stage golden-verified
 bit-exact/tight-tolerance, including world-structure archetypes and ocean
 currents (`MVP_SCOPE.md` had flagged ocean currents as a stretch goal; it
-shipped). Sea level (`MVP_SCOPE.md` point 9) done as a real user control.
+shipped). Sea level (`MVP_SCOPE.md` point 9) done as a real user control,
+and **live since Ruling AQ** (`WorldGen::set_sea_level_live`,
+`cartalith-godot/src/sea_live_bridge.rs`): over a world, releasing the slider
+moves the coastline, lakes, biomes, map colours and the civilisation's water
+readings without regenerating, and re-stamps the sculpt draft (Ruling 17), as
+the reference's `bind('sea')` does. Rainfall, flow and the stored civ layer
+(roads, borders, siting) go stale for "Recompute"; erosion and the carved
+valleys keep the generation-time coastline. Before Ruling AQ it applied only on
+the next Generate.
 **Qualified 2026-09-24:** "golden-verified" describes the parity baseline,
 `cartalith_engine::WorldParams::defaults`. The shipped app generates with five
 owner-ruled divergences on at `cartalith_godot::params::defaults` — the physical

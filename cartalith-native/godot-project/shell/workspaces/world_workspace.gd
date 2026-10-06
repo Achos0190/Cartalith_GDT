@@ -356,6 +356,9 @@ var _paint_brush := {
 ## a real engine redesign, so every row below regenerates the whole world on
 ## release instead -- the same one call site `_on_generate_pressed` already
 ## used, now fired automatically rather than waiting for a button.
+## **One exception, Ruling AQ (2026-09-24):** the Sea level row over a world is
+## live, as the reference's own `bind('sea')` is -- release re-derives the
+## coastline and what reads it without a regenerate (`_apply_sea_level_live`).
 
 ## Every `STAGES` group name, checked once against the engine's own
 ## `get_param_groups()` before the dock is built.
@@ -2086,6 +2089,8 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 			_wire_row_reset(s, revert)
 	if key == GEO_AGE_KEY:
 		_attach_geo_age_readout(parent, s, row_ref, hint)
+	if key == SEA_LEVEL_KEY:
+		_attach_sea_level_note(parent)
 
 ## GF-7's geological clock row (`GEOLOGY_FIRST_SCOPE.md` §4.12 "The UI"):
 ## `params.rs` puts `geo.age` first in the `erosion` group, so `_build_param_row`
@@ -2242,12 +2247,82 @@ func _refresh_ws_override_rows() -> void:
 ## Writes the value continuously (cheap: `param_set` is an in-memory Rust
 ## write, no recompute) but does not regenerate -- matches `tparam()`'s
 ## `input` handler updating only the label.
+##
+## The Sea level row over a world is the exception (Ruling AQ): it is live, so
+## a drag only remembers the value (`_sea_pending`) and the release applies it
+## through `_apply_sea_level_live`, which writes the parameter too. Writing it
+## here as well would set `params_dirty` ("a dial moved, regenerate") for a
+## dial whose effect lands without one.
 func _on_float_row_input(v: float, key: String, is_int: bool) -> void:
+	if key == SEA_LEVEL_KEY and _sea_live_available():
+		_sea_pending = v
+		return
 	bridge.param_set(key, (int(round(v)) if is_int else v))
 
 func _on_float_row_released(key: String, is_int: bool, stage_index: int) -> void:
+	if key == SEA_LEVEL_KEY and _sea_live_available():
+		_apply_sea_level_live()
+		return
 	_mark_stale_from(stage_index)
 	_regenerate_live()
+
+## Ruling AQ's live Sea level row (`WorldGen.set_sea_level_live`,
+## `sea_live_bridge.rs`). Commit-on-release, not per drag tick: the move
+## itself is a classification over the grid, but the repaint it needs
+## (`color_texture()`, the LOD tiles) is the whole-map render, which a
+## drag must not pay sixty times a second.
+const SEA_LEVEL_KEY := "sea_level"
+## The value the Sea level slider last reported, applied on release. `NAN`
+## when no drag is pending, never a plausible level (`MISTAKES.md`, "no
+## value").
+var _sea_pending := NAN
+
+## Live only over a world, with an engine that has the binding. Without a
+## world there is nothing to re-derive and the row keeps its old meaning (the
+## next Generate's parameter); an older cdylib keeps the old regenerate.
+func _sea_live_available() -> bool:
+	return bridge.has_world and bridge.world_gen != null and bridge.world_gen.has_method("set_sea_level_live")
+
+## Applies the pending level live and repaints what it moved: the base
+## texture (which also rebuilds the shore field and river mask through
+## `color_texture_rebuilt`), the LOD tiles (their key names the level), and
+## the sculpt draft preview when the draft was re-stamped (Ruling 17) -- the
+## same camera-preserving calls `_on_force_lake` makes. The status line says
+## what moved and what is now stale; the row's note says what stays as
+## generated.
+func _apply_sea_level_live() -> void:
+	if is_nan(_sea_pending):
+		return
+	var level := _sea_pending
+	_sea_pending = NAN
+	var r: Dictionary = bridge.sea_level_live(level)
+	if r.is_empty():
+		app.set_status("hint", "Sea level: the engine could not take a live move right now (a generation is running, or this build lacks it).", "accent")
+		return
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", "Sea level: %s" % String(r.get("reason", "refused")), "accent")
+		return
+	if not bool(r.get("changed", false)):
+		return
+	app.viewport.map_view.texture = bridge.color_texture()
+	app.viewport.invalidate_lod_tiles()
+	if int(r.get("restamped", 0)) > 0:
+		app.viewport.set_preview_texture(bridge.build_sculpt_preview_texture())
+	var stale := PackedStringArray(r.get("stale", PackedStringArray()))
+	app.set_status("hint", "Sea level %d%%: %d land, %d ocean, %d lake cells.%s" % [
+		int(round(float(r.get("level", level)) * 100.0)),
+		int(r.get("land_cells", 0)), int(r.get("ocean_cells", 0)), int(r.get("lake_cells", 0)),
+		("" if stale.is_empty() else " Stale until recomputed: %s." % ", ".join(stale))], "text_ghost")
+
+## The Sea level row's disclosure: what a live move does not carry. The text
+## is the engine's (`WorldGen.sea_level_live_note`), so it cannot drift from
+## what the move actually does; an engine without the binding gets no note,
+## because the row then still regenerates.
+func _attach_sea_level_note(parent: Control) -> void:
+	var wg = bridge.world_gen
+	if wg == null or not wg.has_method("sea_level_live_note"):
+		return
+	DccWidgets.note(parent, String(wg.sea_level_live_note()))
 
 ## `Editing any field sets stale from NN` (the Android spec). `stage_index`
 ## is whichever of `STAGES` the edited row lives under -- the earliest one

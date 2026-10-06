@@ -2477,6 +2477,27 @@ func sculpt_commit(reason: String) -> Dictionary:
 	sculpt_draft_changed.emit()
 	return summary
 
+## Ruling AQ (2026-09-24): the Sea level control is LIVE -- it moves the
+## current world's sea level and re-derives the coastline, lakes, biomes and
+## the civilisation's water readings without regenerating, and re-stamps the
+## sculpt draft (Ruling 17). Wraps `WorldGen.set_sea_level_live`
+## (`cartalith-godot/src/sea_live_bridge.rs`), which says what it re-derives,
+## what it only marks stale and what stays as generated.
+##
+## Returns the engine's reply, or `{}` when it could not be asked (an older
+## cdylib without the binding, or a generation in flight -- the same window
+## `param_set` refuses). A real move marks the WORLD dirty (the project now
+## differs from its file) and deliberately not `params_dirty`: the map
+## matches this dial again the moment the call returns, so the "a dial moved,
+## regenerate" state would be false. The caller repaints.
+func sea_level_live(level: float) -> Dictionary:
+	if generating or not _has("set_sea_level_live"):
+		return {}
+	var r: Dictionary = world_gen.set_sea_level_live(level)
+	if bool(r.get("ok", false)) and bool(r.get("changed", false)):
+		mark_world_dirty()
+	return r
+
 func sculpt_discard() -> int:
 	if not _has("sculpt_discard"):
 		return -1

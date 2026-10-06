@@ -495,6 +495,36 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         }
     }
 
+    /// Rewrites every stamp through `f` — the live stack **and** every
+    /// snapshot in the undo history and redo branch — without recording a
+    /// history step. Returns how many live stamps were rewritten.
+    ///
+    /// For a world-level input a stamp is meant to read live rather than
+    /// own: Ruling 17 (`LARGE_ITEM_RULINGS.md`, 2026-09-06) has a sculpt
+    /// stamp follow a later sea-level move, as the reference's stamps read
+    /// `state.seaLevel` at apply time. The snapshots are rewritten too
+    /// because in the reference an undone-then-redone stamp reads the live
+    /// level as well; rewriting only the live stack would let an undo bring
+    /// back a stamp at the old level.
+    ///
+    /// Not a structural edit, so it pushes no history and clears no redo.
+    /// The touched set is rebuilt, since `f` may in principle move a
+    /// footprint. Must never be used for a user edit of one stamp — that is
+    /// a structural edit and must go through history.
+    pub fn rewrite_stamps(&mut self, mut f: impl FnMut(&S) -> S) -> usize {
+        let mut rewrite = |entries: &mut Vec<PassEntry<S>>| {
+            for e in entries.iter_mut() {
+                e.stamp = f(&e.stamp);
+            }
+        };
+        rewrite(&mut self.entries);
+        for snap in self.history.iter_mut().chain(self.redo.iter_mut()) {
+            rewrite(snap);
+        }
+        self.recompute_touched();
+        self.entries.len()
+    }
+
     /// Drops the whole draft. Returns how many stamps were dropped.
     ///
     /// Nothing was ever written to the field, so there is nothing to undo
@@ -1134,6 +1164,29 @@ mod tests {
         assert_eq!(buf.touched_tiles().collect::<Vec<_>>(), vec![0, 3]);
 
         assert_eq!(field, vec![0.0f32; 64], "undo/redo is draft-scoped only");
+    }
+
+    #[test]
+    fn rewrite_stamps_reaches_live_history_and_redo_without_a_history_step() {
+        // Protects: Ruling 17's live re-stamp (`rewrite_stamps`) reaching
+        // every copy of a stamp -- the live stack, an undo snapshot and the
+        // redo branch -- and recording no history of its own, so one undo
+        // after it still reverts the user's last structural edit.
+        let mut buf = buffer();
+        buf.push(stamp(0, 0, 2, 2, 1.0));
+        buf.push(stamp(4, 4, 2, 2, 1.0));
+        buf.push(stamp(0, 4, 2, 2, 1.0));
+        assert!(buf.undo(), "premise: one stamp moves to the redo branch");
+        let n = buf.rewrite_stamps(|s| AddBox { amount: 5.0, ..s.clone() });
+        assert_eq!(n, 2, "two live stamps rewritten");
+        assert!(buf.entries().iter().all(|e| e.stamp.amount == 5.0), "live stack rewritten");
+        assert!(buf.redo(), "the redo branch survived the rewrite");
+        assert_eq!(buf.len(), 3);
+        assert!(buf.entries().iter().all(|e| e.stamp.amount == 5.0), "redo branch rewritten");
+        assert!(buf.undo());
+        assert!(buf.undo());
+        assert_eq!(buf.len(), 1, "the rewrite added no history step");
+        assert_eq!(buf.entries()[0].stamp.amount, 5.0, "undo history rewritten");
     }
 
     #[test]

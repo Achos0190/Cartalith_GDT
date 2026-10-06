@@ -1233,13 +1233,13 @@ pub struct SculptStamp {
     /// [`SculptStamp::with_sea_level`]) when the slider moves — the same
     /// result, an explicit step instead of an implicit global read.
     ///
-    /// *Checked 2026-09-24 (owner ruling 17 asks for the live read):* no such
-    /// move can happen in this port yet. The world's sea level changes only
-    /// when a generated world is absorbed or a save loads, and both replace
-    /// the draft, so this snapshot always equals the live value. It stops
-    /// being equal the day a LIVE sea-level control exists; that control must
-    /// re-stamp the draft through `with_sea_level` (`OUTSTANDING_WORK.md`
-    /// §2.5, "Sea level is not a live control").
+    /// Since Ruling AQ (2026-09-24) the sea level is a live control
+    /// (`WorldGen::set_sea_level_live`, `cartalith-godot/src/sea_live_bridge.rs`),
+    /// and it re-stamps every draft stamp through `with_sea_level`
+    /// (`PassBuffer::rewrite_stamps`, undo/redo snapshots included) as it
+    /// moves -- owner ruling 17's live read. A **committed** stamp is
+    /// already baked into the height field and does not follow a later move:
+    /// there is no stamp left to re-read.
     ///
     /// Only Plateau and Coastline read it.
     pub sea_level: f64,

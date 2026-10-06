@@ -56,6 +56,7 @@ mod river_field;
 mod river_stroke;
 mod sample_bridge;
 mod sculpt_bridge;
+mod sea_live_bridge;
 mod selection;
 mod story_bridge;
 mod substrate;
@@ -4308,8 +4309,11 @@ fn compute_civilisation(
     // SG-02 keep path places nothing.
     let want = opts.want_counts();
     let sea_level = ws.sea_level;
-    let mut wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
-    apply_forced_lakes(&mut wb.classification, forced_lakes);
+    // The one body the drawn map uses too (`WorldGen::drawn_water_bodies`),
+    // so a live sea-level move (`sea_live_bridge`) that refreshes
+    // `CivData::water_bodies` from the drawn classification holds exactly
+    // what this pass would have built at that level.
+    let mut wb = sea_live_bridge::water_bodies_at(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes);
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
@@ -5783,6 +5787,14 @@ struct WorldGen {
     /// `get_map_width_km`/`get_map_height_km` can report the world actually
     /// on screen rather than making the caller remember what it asked for.
     map_width_km: f64,
+    /// The world's *effective* sea level, the one every live consumer reads
+    /// (drawn water, render, civ readouts, saves). Written by `absorb` (the
+    /// value the generation used, which a World-Structure archetype may have
+    /// re-anchored), by `load_save`, and by the live control
+    /// `set_sea_level_live` (Ruling AQ, `sea_live_bridge.rs`), which keeps
+    /// `WorldState::sea_level` equal to it. Must never be written without
+    /// that `WorldState` copy, or a civ recompute would use a different
+    /// coastline from the map.
     sea_level: f64,
     /// **The persistent generation-parameter state** — every field of
     /// `cartalith_engine::WorldParams` except the three `generate()` takes
@@ -5810,8 +5822,9 @@ struct WorldGen {
     /// `world_structure.enabled = true`) makes
     /// `apply_world_structure_sea_level` re-anchor sea level from the
     /// archetype's own land-fraction target instead. The sibling `sea_level`
-    /// field above tracks the *effective* post-generation value the renderer
-    /// needs, not this input.
+    /// field above tracks the *effective* value the renderer needs, not this
+    /// input — set by a generate, a load, and (Ruling AQ) the live control
+    /// `set_sea_level_live`, which writes both.
     params: WorldParams,
     /// `WorldState::gpu_stages_used` from the last generation — which of the
     /// GPU-eligible stages actually ran on GPU (`GPU_LAYER_INTEGRATION_SCOPE.md`
@@ -6896,9 +6909,7 @@ impl WorldGen {
         if gw == 0 || gh == 0 || field.len() < gw * gh {
             return None;
         }
-        let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rainfall));
-        apply_forced_lakes(&mut wb.classification, self.forced_lakes.as_deref());
-        Some(wb)
+        Some(sea_live_bridge::water_bodies_at(field, rainfall, gw, gh, self.sea_level, self.world, self.forced_lakes.as_deref()))
     }
 
     /// Clears [`Self::forced_lakes`] and moves [`Self::forced_lakes_epoch`],
@@ -8192,6 +8203,11 @@ impl WorldGen {
     /// Pure sugar over `set_params({"sea_level": …})`, kept because
     /// `engine_bridge.gd` already drives it; the two write the same field
     /// and clamp identically.
+    ///
+    /// **The next generation's input only** — the world on screen does not
+    /// move. The live control (Ruling AQ) is `set_sea_level_live`
+    /// (`sea_live_bridge.rs`), which writes this same field and also moves
+    /// the current world.
     #[func]
     fn set_sea_level(&mut self, sea_level: f64) {
         self.params.sea_level = sea_level.clamp(0.0, 1.0);
