@@ -53,7 +53,7 @@ extends Node
 
 const PRESETS_ALL := ["Natural Vibrant", "Default", "Antique", "Ink", "Watercolor", "Print",
 	"Village", "Atlas", "Imhof relief", "Blueprint", "Ink wash", "Woodcut",
-	"Vintage atlas", "Nautical", "Night", "Cel / Toon"]
+	"Vintage atlas", "Nautical", "Night", "Cel / Toon", "Tanaka relief"]
 const NO_TREATMENT := ["Natural Vibrant", "Default"]
 const ROAD_TYPES := ["highway", "regional", "road", "track", "ancient"]
 ## `map_overlay.gd`'s pre-change `WAY_STYLE` values (RGB, alpha, width) as

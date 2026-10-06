@@ -122,7 +122,8 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ##
 ## **2026-09-27, Ruling BI** (`LARGE_ITEM_RULINGS.md`, `MAP_STYLE_RESEARCH.md`
 ## §4): eight researched map graphic styles, each following the research
-## document's own knob values. `entry[4]`, present on every one of the eight
+## document's own knob values. "Tanaka relief", appended after them, is the one
+## entry whose numbers are this port's own labelled judgement (see its comment). `entry[4]`, present on every one of the eight
 ## that names a ramp, is the elevation ramp preset name
 ## (`bridge.load_ramp_preset()`'s own list) -- absolute like every other
 ## element: `_apply_preset` loads it (or resets to "Earth" when a preset
@@ -344,7 +345,54 @@ const STYLE_PRESETS := [
 			"biome_sat": 0.45, "bio_blend": 1.0,
 			"river_ink": 0.75, "river_ink_r": 40.0, "river_ink_g": 150.0, "river_ink_b": 235.0,
 			"river_width": 1.15, "river_through": 0.0}],
+	## **Tanaka relief** (Ruling BI's illuminated contours, `Npr.tanaka`, as a
+	## preset; `MAP_STYLE_RESEARCH.md` §2.2 names the style, the numbers below
+	## are this port's labelled judgements -- none is a measurement or a
+	## citation). Chosen by looking at the real renderer: the base map and a z4
+	## deep-zoom tile, on one seeded 1024 x 656 world (seed 20261006), against a
+	## Default-look control. The effect lives in the contour ink -- bright thin
+	## lines on sun-facing slopes, dark thick ones on shadowed slopes -- so the
+	## ground is kept pale and quiet and the hillshade restrained, which is what
+	## lets a white lit line read at all.
+	##
+	## * The ground: the `Atlas` ramp at full strength (a pale sage-to-buff
+	##   physical-atlas ground, already shipped) with `grade_saturation` -0.4 and
+	##   `grade_temperature` +0.15, so the sage lowlands wash toward warm paper
+	##   instead of reading as green. Haze is 0 (it greys the ground the lit ink
+	##   has to stand off).
+	## * The light: `relief_ambient` 0.55 and `relief_gain` 0.7 against the
+	##   tier's own balance -- a softer hillshade than Imhof's 0.22/1.4, since
+	##   Tanaka's relief is carried by the lines, not by heavy shading.
+	## * The line: `contours` 0.8 and `tanaka` 0.9 (a trace of the plain contour
+	##   is left, so a flat-ground line, where the aspect is untrusted, does not
+	##   vanish). `contour_m` 50 is the interval slider's own maximum:
+	##   **the density that is least bad at whole-map zoom while still giving a
+	##   deep-zoom tile many lines**. At 20-25 m the whole map is a dense
+	##   speckle; at 0 (the reference's automatic 1/20 of relief) the whole map
+	##   is clean but a z4 tile holds only a handful of lines.
+	## * **Limit, stated rather than hidden:** at whole-map zoom a contour is
+	##   about one pixel wide, so the lit/shadow tone reads as fine speckle on
+	##   steep ground; the style is a deep-zoom look. The tile's tooltip says so
+	##   (`STYLE_TIPS`).
+	## * Rivers: a muted slate blue (a printed-atlas ink, as Antique's and
+	##   Print's are), a hair narrower than RV-2's own, with the faint
+	##   `river_bank` the inked and atlas styles carry.
+	["Tanaka relief", "Quality tier", {"contours": 0.8, "tanaka": 0.9, "contour_m": 50.0},
+		{"ramp_strength": 1.0, "relief_ambient": 0.55, "relief_gain": 0.7,
+			"haze_strength": 0.0, "grade_saturation": -0.4, "grade_temperature": 0.15,
+			"river_ink": 0.6, "river_ink_r": 62.0, "river_ink_g": 92.0, "river_ink_b": 120.0,
+			"river_width": 0.9,
+			## 0.35: a printed hairline, level with Ink wash's.
+			"river_bank": 0.35}, "Atlas"],
 ]
+
+## One optional sentence appended to a style tile's tooltip, keyed by preset
+## name: what the bundle line cannot say, because it is derived from the keys
+## and a key list has no room for a limit. Today only "Tanaka relief" has one --
+## its effect is a deep-zoom look (see that preset's own comment above).
+const STYLE_TIPS := {
+	"Tanaka relief": "Best zoomed in: at whole-map zoom the lit and shadowed contour lines read as fine speckle.",
+}
 
 ## **The overlay treatment per preset** (owner, 2026-09-27: roads, sea lanes,
 ## borders and labels were *"drawn on top of the style"* in fixed colours, so on
@@ -374,7 +422,8 @@ const STYLE_PRESETS := [
 ## with each preset's own ground and its river ink (`STYLE_PRESETS`' `entry[3]`),
 ## in three families:
 ## * *Dark-ink styles* on a light ground (Antique, Ink, Ink wash, Woodcut,
-##   Vintage atlas, Imhof, Atlas, Village, Print, Watercolor, Nautical, Cel):
+##   Vintage atlas, Imhof, Atlas, Village, Print, Watercolor, Nautical, Cel,
+##   Tanaka relief):
 ##   the label becomes dark ink with a pale halo, the roads and borders take the
 ##   preset's own ink hue, and the width is nudged to the preset's line weight
 ##   (thin for the pen styles, bold for Woodcut and Cel).
@@ -500,6 +549,18 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.08, 0.06, 0.05), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
 		"label_mix": 1.00,
 		"border_ink": Color(0.10, 0.08, 0.08), "border_alpha": 1.0,
+	},
+	## Tanaka relief: a pale warm-paper ground carrying slate-blue rivers
+	## (`STYLE_PRESETS`), so the lines are cool grey-slate -- thin, like the
+	## contour hairlines they sit among, and a touch lighter than Imhof's
+	## brown so they do not compete with the dark shadow-side contours.
+	"Tanaka relief": {
+		"road_under": Color(0.16, 0.17, 0.20), "road_over": Color(0.32, 0.33, 0.37),
+		"road_over_mix": 0.5, "road_w": 0.85,
+		"sea_under": Color(0.14, 0.20, 0.30), "sea_dash": Color(0.30, 0.40, 0.55), "sea_w": 0.85,
+		"label_ink": Color(0.12, 0.13, 0.16), "label_halo": Color(0.97, 0.95, 0.91, 0.95),
+		"label_mix": 0.85, "label_halo_k": 1.5,
+		"border_ink": Color(0.28, 0.29, 0.34), "border_alpha": 0.8,
 	},
 }
 
@@ -1195,6 +1256,9 @@ func _preset_tile(parent: Control, index: int, look_names: Array) -> Dictionary:
 	var btn := Button.new()
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.tooltip_text = "%s -- %s" % [String(entry[0]), _bundle_line(index)]
+	## A limit the key-derived bundle line cannot state (`STYLE_TIPS`).
+	if STYLE_TIPS.has(String(entry[0])):
+		btn.tooltip_text += ". " + String(STYLE_TIPS[String(entry[0])])
 	btn.pressed.connect(_apply_preset.bind(index))
 	card.add_child(btn)
 
@@ -1271,6 +1335,12 @@ func _bundle_line(index: int) -> String:
 		var key := String(entry[0])
 		if over.has(key):
 			parts.append("%s %d%%" % [String(entry[1]), int(round(float(over[key]) * 100.0))])
+	## Ruling BI's lit/shadowed contour mode is a mode of the contour pass, not a
+	## `STYLES` row, so it is named here, ahead of the interval it modifies. Off
+	## and absent are the same state (`STYLE_MANAGED` resets it to 0), so a preset
+	## that does not set it names nothing.
+	if float(over.get("tanaka", 0.0)) > 0.0:
+		parts.append("%s %d%%" % [String(MANAGED_LABEL["tanaka"]), int(round(float(over["tanaka"]) * 100.0))])
 	if over.has("contour_m") and float(over["contour_m"]) > 0.0:
 		parts.append("Contour interval %d m" % int(round(float(over["contour_m"]))))
 	for key in ["waves", "multi_sun", "village"]:

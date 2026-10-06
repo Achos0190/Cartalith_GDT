@@ -1,6 +1,6 @@
 extends Node
 ## Committed probe for **Ruling BI** (`LARGE_ITEM_RULINGS.md`, 2026-09-27):
-## the eight researched map style presets (`MAP_STYLE_RESEARCH.md` §4), built
+## the eight researched map style presets (`MAP_STYLE_RESEARCH.md` §4) plus "Tanaka relief", built
 ## into `render_workspace.gd`'s `STYLE_PRESETS` beside the six shipped tiles
 ## and "Village".
 ##
@@ -374,6 +374,7 @@ func _ready() -> void:
 		_p("saved contact sheet %s (%dx%d, %d cells)" % [sheet_path, sheet.get_width(), sheet.get_height(), shots.size()])
 
 	await _cel_section(tiles)
+	await _tanaka_section(tiles)
 
 	_p("=== SUMMARY: %d failures ===" % _fail)
 	get_tree().quit(1 if _fail > 0 else 0)
@@ -647,3 +648,61 @@ func _cel_section(tiles: Array) -> void:
 		% [float(results["cel"][4]), float(results["default"][4])])
 	## Leave the map as the Cel preset draws it, not the grey measurement.
 	await _press(tiles, ic)
+
+
+## The "Tanaka relief" preset (Ruling BI's illuminated contours as a style).
+##
+## Protects: the preset exists, really turns the Tanaka mode on (`tanaka` > 0
+## AND `contours` > 0 -- Tanaka is a mode of the contour pass and is inert at
+## `contours` 0, so either alone would be a preset that draws nothing new),
+## names it on its tile and states its deep-zoom limit in the tooltip, and
+## selecting it moves the picture. The thresholds are literals (0), not
+## read back from the table, so a preset edited to 0 fails here rather than
+## agreeing with itself.
+##
+## Three renders of the same world, raw colour texture (no UI chrome):
+##   Default; "Tanaka relief"; and "Tanaka relief" with `tanaka` forced to 0.
+## Tanaka relief differs from Default (the preset as a whole moves the map),
+## and from itself with the mode off (the lit/shadow ink, not just the paper
+## and plain contours, is what is on screen) -- the latter is the positive
+## control that the `tanaka` key is wired to a visible effect through the shell.
+func _tanaka_section(tiles: Array) -> void:
+	_p("--- Tanaka relief ---")
+	var it := _preset_index("Tanaka relief")
+	var idf := _preset_index("Default")
+	_ok(it >= 0 and idf >= 0, "STYLE_PRESETS has 'Tanaka relief' (%d) and 'Default' (%d)" % [it, idf])
+	if it < 0 or idf < 0:
+		return
+	var over: Dictionary = RenderWorkspace.STYLE_PRESETS[it][2]
+	_ok(float(over.get("tanaka", 0.0)) > 0.0, "the table sets tanaka > 0 (%s)" % str(over.get("tanaka", "absent")))
+	_ok(float(over.get("contours", 0.0)) > 0.0, "the table sets contours > 0 (%s)" % str(over.get("contours", "absent")))
+	## The tile: the bundle line names Tanaka and the tooltip states the limit.
+	var bundle := String((tiles[it]["bundle"] as Label).text)
+	_ok(bundle.contains("Tanaka lighting"), "tile bundle line names Tanaka lighting: '%s'" % bundle)
+	var tip := String((tiles[it]["button"] as Button).tooltip_text)
+	_ok(tip.contains("Best zoomed in"), "tile tooltip carries the deep-zoom limit: '%s'" % tip)
+	_ok(not String((tiles[idf]["button"] as Button).tooltip_text).contains("Best zoomed in"),
+		"Default's tooltip has no such limit (the tip is per preset)")
+
+	await _press(tiles, idf)
+	var base: Image = bridge.color_texture().get_image()
+	await _press(tiles, it)
+	var live: Dictionary = bridge.npr_settings()
+	_ok(float(live.get("tanaka", 0.0)) > 0.0, "live bridge tanaka > 0 after the press (%s)" % str(live.get("tanaka", "absent")))
+	_ok(float(live.get("contours", 0.0)) > 0.0, "live bridge contours > 0 after the press (%s)" % str(live.get("contours", "absent")))
+	var tan: Image = bridge.color_texture().get_image()
+	tan.save_png("%s/%s_tanaka_texture.png" % [_out, _tag])
+	var vs_default := _pixel_diff_frac(base, tan)
+	_ok(vs_default > 0.05, "Tanaka relief vs Default raw texture: diff fraction %.4f > 0.05" % vs_default)
+
+	## Positive control: the same preset with only the mode switched off.
+	var off: Dictionary = live.duplicate()
+	off["tanaka"] = 0.0
+	bridge.set_npr(off)
+	await _frames(4)
+	await get_tree().create_timer(0.3).timeout
+	var plain: Image = bridge.color_texture().get_image()
+	var vs_plain := _pixel_diff_frac(plain, tan)
+	_ok(vs_plain > 0.002, "Tanaka on vs the same preset with tanaka 0: diff fraction %.4f > 0.002" % vs_plain)
+	## Leave the map as the preset draws it.
+	await _press(tiles, it)

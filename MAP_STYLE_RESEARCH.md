@@ -167,7 +167,7 @@ treatment are conventional. Source:
 [Terrain cartography — Wikipedia](https://en.wikipedia.org/wiki/Terrain_cartography).
 
 **Pointer (Ruling BI, 2026-10-06).** The owner scheduled this technique as a
-mode of the contour pass, not a preset: `Npr::tanaka` (`render.rs`, beside
+mode of the contour pass (a slider, not a preset by itself; a "Tanaka relief" preset that sets it was added 2026-10-06 in `render_workspace.gd`, best zoomed in): `Npr::tanaka` (`render.rs`, beside
 `apply_npr`'s contour block), exposed as the "Tanaka lighting" slider under
 Contour veins. Where this section says the technique needs aspect against the
 sun per contour pixel, that aspect is the existing render-resolution elevation
