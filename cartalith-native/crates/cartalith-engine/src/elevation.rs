@@ -105,7 +105,7 @@
 //! (importance-driven refinement) are separate, later milestones in the same
 //! document and are not started here.
 
-use cartalith_spatial::pyramid::{pyramid_dims, ChunkId};
+use cartalith_spatial::pyramid::{pyramid_dims, pyramid_tile_bounds, ChunkId};
 use cartalith_terrain::amplify::{sample_elevation, z_base_for_tile_size, AmplifyOpts};
 
 use crate::bake::{pyramid_tile, PyramidTile};
@@ -278,6 +278,180 @@ fn world_coarse<'a>(
         return None;
     }
     Some(&state.field)
+}
+
+/// **EF-9.3's morph band**, in texels of the tile being conformed: how far from
+/// a coarser neighbour the finer tile's field is pulled toward that
+/// neighbour's.
+///
+/// A labelled judgement bounded by two measured numbers, not a fitted value
+/// (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.4, EF-9.3). *Lower bound:* a
+/// smoothstep over `B` texels adds at most `1.5 * delta / B` to the per-texel
+/// step, and the shared-edge mismatch `delta` measured on six worlds is up to
+/// `3.2` natural texel steps per edge (mean over an edge, worst edge), so
+/// keeping the added step under half a natural step (`lod_sweep::seam_ratio`'s
+/// 1.5 bar, by the triangle inequality) needs `B >= 3 * 3.2 ~= 9.6`. *Upper
+/// bound:* a wider band discards more of the finest octave next to every
+/// coarse neighbour, and `256 / 16 = 16` texels is a sixteenth of a tile -- the
+/// strip a viewer sees as "slightly smoother beside the coarser tile" rather
+/// than as a missing tile edge. `16` is the smallest power of two above the
+/// lower bound.
+pub const CONFORM_BAND_TEXELS: f64 = 16.0;
+
+/// **EF-9.3's blend weight.** `1.0` on the shared edge (`dist_texels == 0`),
+/// `0.0` at and beyond `band_texels`, the cubic smoothstep between them (zero
+/// slope at both ends, so the pull neither creases at the band's inner edge nor
+/// leaves a ridge at the seam).
+///
+/// Total and NaN-safe in the direction that keeps today's output: a
+/// non-positive or NaN band, a NaN distance, or a distance at or past the band
+/// all return `0.0` (no pull). Exactly `1.0` only at distance `<= 0`, so the
+/// caller's "weight 1 means the coarser field, bit for bit" branch is reachable
+/// only on the edge itself. Never returns outside `[0, 1]`.
+#[must_use]
+pub fn conform_weight(dist_texels: f64, band_texels: f64) -> f64 {
+    // `!(x > 0.0)` rather than `x <= 0.0` so a NaN band falls out as "no pull".
+    if !(band_texels > 0.0) {
+        return 0.0;
+    }
+    let d = dist_texels / band_texels;
+    if !(d < 1.0) {
+        return 0.0;
+    }
+    if d <= 0.0 {
+        return 1.0;
+    }
+    let s = 1.0 - d;
+    s * s * (3.0 - 2.0 * s)
+}
+
+/// Distance, in texels of the tile being conformed, from the point `(cx, cy)`
+/// to the axis-aligned rectangle `r` (zero inside or on it). `sx`/`sy` are that
+/// tile's texels per coarse-coordinate unit on each axis. `sqrt`, not `hypot`:
+/// `sqrt` is correctly rounded everywhere, so two tiles evaluating the same
+/// shared point agree to the bit on every platform.
+fn rect_distance_texels(cx: f64, cy: f64, r: &cartalith_spatial::FloatRegion, sx: f64, sy: f64) -> f64 {
+    let dx = f64::max(f64::max(r.x - cx, cx - (r.x + r.w)), 0.0) * sx;
+    let dy = f64::max(f64::max(r.y - cy, cy - (r.y + r.h)), 0.0) * sy;
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// **EF-9.3 -- a tile that agrees with its coarser neighbours.** The same tile
+/// as [`world_elevation_tile`], except that near every tile in `coarser` its
+/// field is pulled toward the coarser level's own field
+/// (CDLOD-style geomorphing, but by *position*, not by time), so the shared
+/// edge carries the coarser neighbour's texel values bit for bit.
+///
+/// # Why
+///
+/// EF-0's seam holds only between same-level neighbours. A level-`z` tile and a
+/// level-`z - 1` tile run different octave counts, so their shared edge is two
+/// different fields; EF-9.2's selection makes that the normal case (a promoted
+/// tile's four children sit beside plain `z0` tiles). Measured on six worlds
+/// (EF-9.3), the disagreement averages about 1.2 natural texel steps along an
+/// edge, past the half-step bound `lod_sweep::seam_ratio <= 1.5` implies.
+/// LOD-D3's morph cannot repair it: that fade is one scalar per *level*
+/// (`lod_bridge::morph_for_zoom`), a temporal blend of a level over its parent,
+/// and never reconciles two live tiles of different levels side by side.
+///
+/// # The rule
+///
+/// `out(p) = F_z(p) * (1 - m) + F_{z-1}(p) * m` with
+/// `m(p) = max over T in coarser of conform_weight(dist(p, T), band)`. `F_k`
+/// is the level-`k` field ([`sample_elevation`] at level `k`, which EF-0 pins
+/// bit-identical to a tile texel). Consequences, each asserted by a test:
+///
+/// * `m == 0` returns `F_z(p)` untouched, so a texel farther than the band from
+///   every coarser tile is **bit-identical** to [`world_elevation_tile`]'s, and
+///   an empty `coarser` returns that tile outright (identity by control flow).
+/// * `m == 1` returns `F_{z-1}(p)` exactly; on the shared edge this is the
+///   value the coarser tile holds at the coincident texel.
+/// * `m` is a function of the world position alone, never of which edge
+///   brought a coarser tile into the list, so two *same-level* neighbours that
+///   both border the same coarser tile (or its corner) still agree bit for bit
+///   on their own shared edge. Callers must therefore pass **every** coarser
+///   tile within a band of this tile, diagonal neighbours included; passing
+///   more is harmless (a far tile contributes `0`).
+///
+/// # What it deliberately does not do
+///
+/// It does not make the in-between fine texels equal the coarse tile's
+/// *interpolated* edge: the coarse tile has half as many texels, and a
+/// bilinear sampler draws a straight line between them, while this returns
+/// `F_{z-1}` at the half position. The remaining gap is the coarse field's own
+/// curvature over one coarse texel -- measured by EF-9.3's test.
+///
+/// `None` on every refusal [`world_elevation_tile`] has, and also when
+/// `coarser` is non-empty and `id.z == 0`, or any entry is not at level
+/// `id.z - 1` or lies outside that level. An entry that is not actually near
+/// this tile is not an error.
+#[must_use]
+pub fn world_elevation_tile_conformed(
+    state: &WorldState,
+    p: &WorldParams,
+    id: ChunkId,
+    tile_size: usize,
+    coarser: &[ChunkId],
+) -> Option<PyramidTile> {
+    conformed_with_band(state, p, id, tile_size, coarser, CONFORM_BAND_TEXELS)
+}
+
+/// [`world_elevation_tile_conformed`] with an explicit band, so tests can
+/// exercise bands other than the shipped [`CONFORM_BAND_TEXELS`] (a mutant of
+/// the constant is otherwise invisible to a test that only uses the default).
+fn conformed_with_band(
+    state: &WorldState,
+    p: &WorldParams,
+    id: ChunkId,
+    tile_size: usize,
+    coarser: &[ChunkId],
+    band_texels: f64,
+) -> Option<PyramidTile> {
+    let mut tile = world_elevation_tile(state, p, id, tile_size)?;
+    if coarser.is_empty() {
+        return Some(tile);
+    }
+    let zc = id.z.checked_sub(1)?;
+    let dc = pyramid_dims(zc as i32);
+    if coarser.iter().any(|c| c.z != zc || c.col >= dc.cols || c.row >= dc.rows) {
+        return None;
+    }
+    let field = world_coarse(state, p, tile_size)?;
+    let opts = world_amplify_opts(state, p, tile_size);
+    let rects: Vec<cartalith_spatial::FloatRegion> = coarser
+        .iter()
+        .map(|c| pyramid_tile_bounds(p.gw, p.gh, zc as i32, c.col, c.row))
+        .collect();
+    let b = pyramid_tile_bounds(p.gw, p.gh, id.z as i32, id.col, id.row);
+    let (w, h) = (tile.w, tile.h);
+    // Texels per coordinate unit on each axis; `w, h >= 2` (MIN_TILE_PX, and
+    // `tile_dims` floors the derived axis at 2), so no divide by zero.
+    let sx = (w as f64 - 1.0) / b.w;
+    let sy = (h as f64 - 1.0) / b.h;
+    for j in 0..h {
+        // The same coordinate expression `amplify_region` uses, so a texel's
+        // position here is bit-identical to the one its tile was built at.
+        let cy = b.y + (j as f64 / (h as f64 - 1.0)) * b.h;
+        for i in 0..w {
+            let cx = b.x + (i as f64 / (w as f64 - 1.0)) * b.w;
+            let mut dist = f64::INFINITY;
+            for r in &rects {
+                dist = f64::min(dist, rect_distance_texels(cx, cy, r, sx, sy));
+            }
+            let m = conform_weight(dist, band_texels);
+            if m <= 0.0 {
+                continue;
+            }
+            let c = sample_elevation(field, p.gw, p.gh, cx, cy, zc as i32, &opts);
+            let at = j * w + i;
+            tile.data[at] = if m >= 1.0 {
+                c
+            } else {
+                (f64::from(tile.data[at]) * (1.0 - m) + f64::from(c) * m) as f32
+            };
+        }
+    }
+    Some(tile)
 }
 
 /// Sum of squared discrete Laplacians over the interior of a `w x h` patch:
@@ -511,6 +685,331 @@ mod tests {
         let edge: Vec<u32> = (0..l.h).map(|y| l.data[y * l.w + (l.w - 1)].to_bits()).collect();
         let distinct = edge.iter().collect::<std::collections::BTreeSet<_>>().len();
         assert!(distinct > l.h / 2, "shared edge has only {distinct} distinct values of {}", l.h);
+    }
+
+    // -- EF-9.3: mixed-level shared edges -----------------------------------
+
+    /// Tile size at which the octave schedule is live from level 4
+    /// (`z_base_for_tile_size(256) == 4`): the shared `TS = 32` fixture sits at
+    /// `z_base` 7, where levels 2..=6 add no detail at all and a mixed-edge test
+    /// would compare two identical fields.
+    const MIX_TS: usize = 256;
+
+    /// `start + (k / (n - 1)) * span`, the coordinate expression the tile path
+    /// uses, so a position here is bit-identical to the tile's own.
+    fn tcoord(start: f64, k: usize, n: usize, span: f64) -> f64 {
+        start + (k as f64 / (n as f64 - 1.0)) * span
+    }
+
+    /// One edge of `t` as `(world coordinate along the edge, value)` pairs.
+    /// `column == true`: the tile's first (`last == false`) or last column,
+    /// listed by row (the shared line is vertical); otherwise a row, by column.
+    fn edge_values(t: &PyramidTile, column: bool, last: bool) -> Vec<(f64, f32)> {
+        let b = pyramid_tile_bounds(GW, GH, t.id.z as i32, t.id.col, t.id.row);
+        if column {
+            let i = if last { t.w - 1 } else { 0 };
+            (0..t.h).map(|j| (tcoord(b.y, j, t.h, b.h), t.data[j * t.w + i])).collect()
+        } else {
+            let j = if last { t.h - 1 } else { 0 };
+            (0..t.w).map(|i| (tcoord(b.x, i, t.w, b.w), t.data[j * t.w + i])).collect()
+        }
+    }
+
+    /// `(positions present in both edges, of which unequal at f32::to_bits)`.
+    /// Positions are matched by exact `f64` bit pattern: a coarse tile has about
+    /// half the texels of its finer neighbour, so only coincident positions are
+    /// comparable, and EF-0's dyadic bounds make them bit-identical.
+    fn compare_edges(a: &[(f64, f32)], b: &[(f64, f32)]) -> (usize, usize) {
+        let (mut compared, mut unequal) = (0, 0);
+        for (pa, va) in a {
+            if let Some((_, vb)) = b.iter().find(|(pb, _)| pb.to_bits() == pa.to_bits()) {
+                compared += 1;
+                if va.to_bits() != vb.to_bits() {
+                    unequal += 1;
+                }
+            }
+        }
+        (compared, unequal)
+    }
+
+    /// The weight is a cubic smoothstep from 1 on the edge to 0 at the band.
+    #[test]
+    fn the_conform_weight_is_a_smoothstep_from_one_at_the_edge_to_zero_at_the_band() {
+        // Protects: the blend profile's three anchors (1 at distance 0, 1/2 at
+        // mid-band, 0 at the band), its exact interior values (a linear ramp or
+        // a different cubic fails), its monotonicity, and the total/NaN-safe
+        // "no pull" answers for a degenerate band or distance. Expected values
+        // are the closed form x^2 (3 - 2x) at x = 1 - d/B, written out as
+        // literals, not recomputed by the code under test.
+        assert_eq!(conform_weight(0.0, 16.0), 1.0);
+        assert_eq!(conform_weight(-3.0, 16.0), 1.0, "a point on the far side is on the edge");
+        assert_eq!(conform_weight(16.0, 16.0), 0.0);
+        assert_eq!(conform_weight(40.0, 16.0), 0.0);
+        assert_eq!(conform_weight(8.0, 16.0), 0.5);
+        assert_eq!(conform_weight(4.0, 16.0), 0.84375);
+        assert_eq!(conform_weight(12.0, 16.0), 0.15625);
+        let mut prev = 1.0;
+        for k in 1..=160 {
+            let w = conform_weight(f64::from(k) * 0.1, 16.0);
+            assert!((0.0..=1.0).contains(&w) && w <= prev, "not monotone at {k}: {w} after {prev}");
+            prev = w;
+        }
+        for (d, band) in [(1.0, 0.0), (1.0, -4.0), (1.0, f64::NAN), (f64::NAN, 16.0)] {
+            assert_eq!(conform_weight(d, band), 0.0, "d {d}, band {band}");
+        }
+    }
+
+    /// **The EF-9.3 property**: a finer tile conformed to its coarser neighbour
+    /// carries that neighbour's texel values on the shared edge, bit for bit,
+    /// where the plain tiles do not.
+    #[test]
+    fn a_conformed_tile_agrees_bit_for_bit_with_its_coarser_neighbour() {
+        // Protects: the mixed-level seam at three seeds, three coarse levels and
+        // all four sides (both axes, the fine tile after and before the coarse
+        // one), at exact f32::to_bits equality over every coincident texel;
+        // and that the plain tiles really do disagree there, so a regression
+        // that made the two fields equal everywhere (detail off, flat world)
+        // cannot pass this vacuously.
+        let mut cases = 0usize;
+        for seed in [1, 4242, -77_777] {
+            let (ws, p) = seeded(seed);
+            for zc in [4u32, 5, 6] {
+                let s = 1u32 << (zc - 4);
+                let (cc, rc) = (6 * s, 8 * s);
+                let coarse_id = ChunkId::new(zc, cc, rc);
+                let coarse = world_elevation_tile(&ws, &p, coarse_id, MIX_TS).expect("coarse");
+                // (fine tile, shared line is vertical, fine tile is east/south of the coarse one)
+                let sides = [
+                    (ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc), true, true),
+                    (ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc + 1), true, true),
+                    (ChunkId::new(zc + 1, 2 * cc - 1, 2 * rc), true, false),
+                    (ChunkId::new(zc + 1, 2 * cc, 2 * rc + 2), false, true),
+                    (ChunkId::new(zc + 1, 2 * cc + 1, 2 * rc - 1), false, false),
+                ];
+                let (mut plain_unequal, mut conf_unequal, mut compared) = (0, 0, 0);
+                for (fid, column, fine_after) in sides {
+                    let plain = world_elevation_tile(&ws, &p, fid, MIX_TS).expect("plain");
+                    let conf = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[coarse_id])
+                        .expect("conformed");
+                    let ce = edge_values(&coarse, column, fine_after);
+                    let (n, u0) = compare_edges(&edge_values(&plain, column, !fine_after), &ce);
+                    let (m, u1) = compare_edges(&edge_values(&conf, column, !fine_after), &ce);
+                    assert_eq!(n, m);
+                    assert!(n >= 80, "seed {seed} z{zc}: only {n} coincident texels compared");
+                    assert_eq!(u1, 0, "seed {seed} z{zc} {fid:?}: {u1} of {m} conformed texels disagree");
+                    plain_unequal += u0;
+                    conf_unequal += u1;
+                    compared += n;
+                    cases += 1;
+                }
+                assert!(plain_unequal > 0, "seed {seed} z{zc}: plain tiles already agree ({compared} compared), nothing is tested");
+                assert_eq!(conf_unequal, 0);
+            }
+        }
+        assert_eq!(cases, 3 * 3 * 5, "3 seeds x 3 levels x 5 sides");
+    }
+
+    /// Same-level neighbours stay bit-identical even when only one of them
+    /// borders the coarse tile along an edge and the other only at its corner.
+    #[test]
+    fn same_level_neighbours_still_agree_at_a_coarse_corner() {
+        // Protects: the weight being a function of *position*, not of which
+        // edge brought a coarser tile in. A = (z, 2cc+2, 2rc+1) borders the
+        // coarse tile C along its east edge; B = (z, 2cc+2, 2rc+2), directly
+        // below A, touches C only at C's south-east corner. Both are handed [C]
+        // (the contract: every coarser tile within a band, diagonals included)
+        // and must agree on their shared horizontal edge at every texel; B
+        // handed [] must NOT (the contract is real, not decorative); and A's
+        // south row must actually be pulled near the corner, so the corner is
+        // exercised.
+        let mut compared_total = 0usize;
+        for seed in [1, 4242, -77_777] {
+            let (ws, p) = seeded(seed);
+            for zc in [4u32, 5, 6] {
+                let s = 1u32 << (zc - 4);
+                let (cc, rc) = (6 * s, 8 * s);
+                let c = ChunkId::new(zc, cc, rc);
+                let (a_id, b_id) = (
+                    ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc + 1),
+                    ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc + 2),
+                );
+                let a = world_elevation_tile_conformed(&ws, &p, a_id, MIX_TS, &[c]).expect("a");
+                let b = world_elevation_tile_conformed(&ws, &p, b_id, MIX_TS, &[c]).expect("b");
+                let (n, u) = compare_edges(&edge_values(&a, false, true), &edge_values(&b, false, false));
+                assert_eq!(n, a.w, "every texel of a same-level edge is comparable");
+                assert_eq!(u, 0, "seed {seed} z{zc}: {u} of {n} corner-edge texels disagree");
+                compared_total += n;
+                let plain_a = world_elevation_tile(&ws, &p, a_id, MIX_TS).expect("plain a");
+                let moved = edge_values(&a, false, true)
+                    .iter()
+                    .zip(edge_values(&plain_a, false, true))
+                    .filter(|((_, x), (_, y))| x.to_bits() != y.to_bits())
+                    .count();
+                assert!(moved > 0, "seed {seed} z{zc}: the corner texels were not pulled at all");
+                let b_blind = world_elevation_tile_conformed(&ws, &p, b_id, MIX_TS, &[]).expect("b blind");
+                let (_, u_blind) =
+                    compare_edges(&edge_values(&a, false, true), &edge_values(&b_blind, false, false));
+                assert!(u_blind > 0, "seed {seed} z{zc}: leaving the diagonal tile out changed nothing");
+            }
+        }
+        assert!(compared_total >= 9 * 100, "only {compared_total} texels compared");
+    }
+
+    /// With no coarser tile near, the conformed tile *is* the plain tile.
+    #[test]
+    fn a_conformed_tile_is_the_plain_tile_wherever_no_coarser_tile_is_near() {
+        // Protects: identity -- an empty list returns the plain tile outright;
+        // a coarser tile that is far away, or a zero-width band, changes no
+        // bit; and beside a real coarse tile, texels at or past the band are
+        // bit-identical while the band itself is not (so the identity is not
+        // just "the function does nothing").
+        let (ws, p) = seeded(4242);
+        let zc = 5u32;
+        let c = ChunkId::new(zc, 12, 16);
+        let fid = ChunkId::new(zc + 1, 2 * 12 + 2, 2 * 16);
+        let plain = world_elevation_tile(&ws, &p, fid, MIX_TS).expect("plain");
+        let bits = |t: &PyramidTile| t.data.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+
+        let none = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[]).expect("none");
+        assert_eq!(bits(&none), bits(&plain));
+
+        let far = ChunkId::new(zc, 2, 3);
+        let far_only = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[far]).expect("far");
+        assert_eq!(bits(&far_only), bits(&plain), "a coarser tile nowhere near must change nothing");
+
+        let zero_band = conformed_with_band(&ws, &p, fid, MIX_TS, &[c], 0.0).expect("zero band");
+        assert_eq!(bits(&zero_band), bits(&plain), "a zero band pulls nothing");
+
+        let near = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[c, far]).expect("near");
+        let (mut inside, mut beyond) = (0usize, 0usize);
+        for j in 0..plain.h {
+            for i in 0..plain.w {
+                let same = near.data[j * plain.w + i].to_bits() == plain.data[j * plain.w + i].to_bits();
+                if i >= 17 {
+                    assert!(same, "texel ({i}, {j}) lies beyond the band yet changed");
+                    beyond += 1;
+                } else if !same {
+                    inside += 1;
+                }
+            }
+        }
+        assert!(inside > 0, "no texel inside the band moved: the test does not exercise the pull");
+        assert!(beyond > 100);
+    }
+
+    /// Half way across the band the tile is half way to the coarser field.
+    #[test]
+    fn the_pull_is_half_way_at_half_the_band_and_total_on_the_edge() {
+        // Protects: the band's width and the lerp direction against an
+        // independent expectation: at 8 texels from the edge the output is the
+        // mean of the plain value and the coarser level's own value, at 0 texels
+        // it is the coarser value exactly, and at 1 texel it lies strictly
+        // between and nearer the coarser one. A band mutated to 8 or 32, a
+        // weight applied to the wrong operand, or a pull that is all-or-nothing
+        // each fails one of these.
+        let (ws, p) = seeded(1);
+        let zc = 5u32;
+        let (cc, rc) = (12u32, 16u32);
+        let fid = ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc);
+        let plain = world_elevation_tile(&ws, &p, fid, MIX_TS).expect("plain");
+        let conf = world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(zc, cc, rc)])
+            .expect("conf");
+        let opts = world_amplify_opts(&ws, &p, MIX_TS);
+        let b = pyramid_tile_bounds(GW, GH, fid.z as i32, fid.col, fid.row);
+        let mut seen = 0usize;
+        for j in (0..plain.h).step_by(7) {
+            let cy = tcoord(b.y, j, plain.h, b.h);
+            let coarse_at = |i: usize| {
+                sample_elevation(&ws.field, GW, GH, tcoord(b.x, i, plain.w, b.w), cy, zc as i32, &opts)
+            };
+            let f8 = plain.data[j * plain.w + 8];
+            let c8 = coarse_at(8);
+            let got = conf.data[j * plain.w + 8];
+            assert!((got - (f8 + c8) / 2.0).abs() < 1e-6, "row {j}: {got} is not the mean of {f8} and {c8}");
+            assert_eq!(
+                conf.data[j * plain.w].to_bits(),
+                coarse_at(0).to_bits(),
+                "row {j}: the edge is the coarser value"
+            );
+            let (f1, c1, g1) = (plain.data[j * plain.w + 1], coarse_at(1), conf.data[j * plain.w + 1]);
+            if (f1 - c1).abs() > 1e-5 {
+                assert!((g1 - c1).abs() < (g1 - f1).abs(), "row {j}: one texel in should still be mostly coarse");
+                seen += 1;
+            }
+        }
+        assert!(seen > 3, "only {seen} rows had a measurable difference");
+    }
+
+    /// The band is a distance in texels on *each* axis, even when the tile's
+    /// texel grid is not square in world units.
+    #[test]
+    fn the_band_is_eight_texels_half_way_on_both_axes_of_a_rounded_tile() {
+        // Protects: `sx`/`sy` (texels per coordinate unit) and their use on the
+        // matching axis. At the fixture's 48x32 grid a tile is 3:2, and at a
+        // tile size of 20 the short axis rounds 13.33 to 13 texels, so
+        // `sx != sy` by about 5 % -- enough that a distance scaled by the
+        // other axis's factor lands 0.4 texel off and the half-way expectation
+        // below (8 texels in is the mean of the plain and coarser values)
+        // fails. At the default tile size the two factors agree to under 1 %
+        // and no test of the band could tell the axes apart. One tile lies
+        // east of the coarse tile (distance along x) and one south of it
+        // (distance along y).
+        const TS20: usize = 20;
+        let (ws, p) = seeded(1);
+        // deep enough that the two levels differ at this tile size (measured:
+        // at z5/z6 a 20-texel tile's plain and coarser values were identical, so
+        // the half-way expectation would hold vacuously)
+        let zc = 9u32;
+        let (cc, rc) = (192u32, 256u32);
+        let opts = world_amplify_opts(&ws, &p, TS20);
+        let coarse = ChunkId::new(zc, cc, rc);
+        let mut checked = 0usize;
+        for (fid, along_x) in [
+            (ChunkId::new(zc + 1, 2 * cc + 2, 2 * rc), true),
+            (ChunkId::new(zc + 1, 2 * cc, 2 * rc + 2), false),
+        ] {
+            let plain = world_elevation_tile(&ws, &p, fid, TS20).expect("plain");
+            let conf = world_elevation_tile_conformed(&ws, &p, fid, TS20, &[coarse]).expect("conf");
+            assert_ne!((plain.w - 1) as f64 / (plain.h - 1) as f64, 1.5, "the fixture must be rounded for this test");
+            let b = pyramid_tile_bounds(GW, GH, fid.z as i32, fid.col, fid.row);
+            // texels 8 in from the shared edge, along the whole edge
+            let (n_along, at) = if along_x { (plain.h, 8usize) } else { (plain.w, 8usize) };
+            for k in (0..n_along).step_by(2) {
+                let (i, j) = if along_x { (at, k) } else { (k, at) };
+                let (cx, cy) = (tcoord(b.x, i, plain.w, b.w), tcoord(b.y, j, plain.h, b.h));
+                let c = sample_elevation(&ws.field, GW, GH, cx, cy, zc as i32, &opts);
+                let f = plain.data[j * plain.w + i];
+                let got = conf.data[j * plain.w + i];
+                assert!((got - (f + c) / 2.0).abs() < 1e-6, "{fid:?} ({i},{j}): {got} is not the mean of {f} and {c}");
+                if (f - c).abs() > 1e-5 {
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 6, "only {checked} texels had a measurable difference");
+    }
+
+    /// Every caller error is a `None`, not a panic.
+    #[test]
+    fn a_conformed_tile_refuses_a_coarser_list_that_cannot_be_right() {
+        // Protects: the validation of `coarser` -- an entry not exactly one
+        // level above, a level that does not exist, an index outside its level,
+        // and a non-empty list at level 0 each return None (the module's
+        // convention, because the consumer is a viewport that must not panic);
+        // and the plain refusals still apply.
+        let (ws, p) = seeded(4242);
+        let fid = ChunkId::new(5, 12, 8);
+        let ok = ChunkId::new(4, 5, 4);
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ok]).is_some());
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(5, 5, 4)]).is_none(), "same level");
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(3, 2, 2)]).is_none(), "two levels up");
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(6, 5, 4)]).is_none(), "finer level");
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(4, 16, 4)]).is_none(), "column out of range");
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, MIX_TS, &[ChunkId::new(4, 5, 16)]).is_none(), "row out of range");
+        assert!(world_elevation_tile_conformed(&ws, &p, ChunkId::new(0, 0, 0), MIX_TS, &[ok]).is_none(), "level 0 has no coarser level");
+        assert!(world_elevation_tile_conformed(&ws, &p, ChunkId::new(0, 0, 0), MIX_TS, &[]).is_some());
+        assert!(world_elevation_tile_conformed(&ws, &p, ChunkId::new(5, 32, 0), MIX_TS, &[ok]).is_none(), "tile outside its level");
+        assert!(world_elevation_tile_conformed(&ws, &p, fid, 1, &[ok]).is_none(), "tile size below the NaN floor");
     }
 
     // -- determinism --------------------------------------------------------

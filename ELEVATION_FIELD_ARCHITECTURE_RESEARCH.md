@@ -1012,6 +1012,33 @@ Engine-side only; nothing is wired to the viewport (EF-9.4).
   `tiles_per_update`), and whether the z0 parent stays drawn as a fallback under
   promoted children.
 
+**EF-9.3 result (2026-10-06): mixed-level edges disagree measurably; fix (a) built.**
+Command: `cargo test --release -p cartalith-civ --test ef9_mixed_edges -- --ignored --nocapture`
+(about 80 s; the six EF-9.0 worlds, `select_tiles` with the fitted importance, 25 %
+budget, 3x3 windows of 16x16 tiles, z5..z10).
+
+- Control: the same-level shared edge differs by exactly 0.0 at every level (about
+  1e6 samples per cell). Asserted.
+- Mixed edges (a z0+1 tile beside a z0 tile) before the fix: mean |delta| about 1.1
+  to 1.2 natural texel steps per edge (median), worst edge about 3.2 steps;
+  49 to 55 % of edges exceed the derived I4 proxy bar `mean|delta| <= 0.5 x natural
+  step` (which guarantees seam_ratio <= 1.5 by the triangle inequality).
+- Option (b) fails on mechanism: LOD-D3's morph is one scalar per level and the
+  shader mixes parent with tile over time; nothing reconciles two live adjacent
+  tiles of different levels in one frame.
+- Built (a): `cartalith_engine::elevation::world_elevation_tile_conformed`, a
+  position-based geomorph `F_z(p)(1-m) + F_{z-1}(p) m` with `m` a smoothstep of the
+  distance to the nearest coarser tile, 16-texel band (`CONFORM_BAND_TEXELS`, a
+  labelled judgement: the smallest power of two above the derived lower bound of
+  9.6). Empty coarser list returns the plain tile unchanged.
+- After: coincident edge texels bit-equal (9765 compared at z5, 0 differ); the
+  rendered crack against the coarse tile's bilinear edge has median about 0.12
+  natural steps; 1 of about 3 600 sampled edges is at or over 0.5 (0.559, z5). The
+  residual is the coarse field's curvature over one coarse texel, left on purpose.
+- Not wired: the viewport must pass every coarser tile within a band (diagonals
+  included), and conform the parent fallback too or the edge fades back during a
+  morph. The implementation landed in `elevation.rs`, not `bake.rs`/`lod_bridge.rs`.
+
 ### 8.5 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below
