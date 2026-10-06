@@ -21,7 +21,9 @@ extends Node
 ##   R  RMB: nothing on press; the card on release; nothing after a drag of
 ##      >= 8 px (even one that comes back to where it started)
 ##   A  CIVIL, settlement: CX-01's five rows, same text, order, enabled state
-##      and sections as before CM-2 (the `ROW` lines are the comparison)
+##      and sections as before CM-2 (the `ROW` lines are the comparison), plus
+##      the two faction rows of leg F, which a settlement's cell now carries
+##      too (a claimed cell is a claimed cell, pin or no pin)
 ##   B  CIVIL, empty (claimed) land cell: the two faction rows of leg F, then
 ##      Drop settlement here · Info here
 ##   F  CIVIL, the per-cell faction rows (`sample_cell`'s `controlling_faction`,
@@ -347,7 +349,19 @@ func _run() -> void:
 	await _close()
 
 	# -- A ------------------------------------------------------------------------
-	await _rmb(ov, _pos_of(ov, _k))
+	## The faction rows also sit under a settlement now (default taken in
+	## `civilization_workspace.gd::context_actions`; the owner has not ruled),
+	## named by the cell under the click and read through the overlay's own
+	## `_grid_point` as leg B does. SEED's world claims every land cell, so the
+	## rows must be present -- asserted, not presumed.
+	var a_pos := _pos_of(ov, _k)
+	var a_rect: Rect2 = ov._displayed_rect()
+	var a_g: Dictionary = ov._grid_point(a_pos, a_rect, ov._interior_rect(a_rect))
+	var a_cell: Dictionary = bridge.sample_cell(int(a_g["gx"]), int(a_g["gy"]))
+	_ok("A the settlement's own cell is claimed (so the faction rows belong under it)",
+		a_cell.has("controlling_faction"), true)
+	var a_fname := String(a_cell.get("controlling_faction_name", ""))
+	await _rmb(ov, a_pos)
 	_dump("A_civ_settlement")
 	## CX-01's original five rows, plus CM-7's CM-2-residual additions
 	## (`MAP_CONTEXT_SCOPE.md` §11 CM-7): Open city layout… (object, right
@@ -358,10 +372,12 @@ func _run() -> void:
 	## CM-2, not a new one. The CM-2-residuals batch adds a fourth: the
 	## vault-note row (§4.3 CIVIL Info row), right before "Info here" in the
 	## same INFO section -- "Attach…" here since the fixture settlement has
-	## no vault link.
+	## no vault link. The two faction rows come next, ahead of Delete (the card
+	## sorts a danger row last within its band).
 	var want_a := [
 		"Edit %s [OBJECT]" % _sname, "Move viewer to %s [OBJECT]" % _sname,
 		"Open city layout for %s… [OBJECT]" % _sname,
+		"Open %s… [OBJECT]" % a_fname, "Claim for %s [OBJECT]" % a_fname,
 		"Delete %s [OBJECT]" % _sname, "Drop settlement here [PLACE HERE]",
 		"Start way here [PLACE HERE]", "Start route here [PLACE HERE]",
 		"Attach vault note to %s… [INFO]" % _sname,

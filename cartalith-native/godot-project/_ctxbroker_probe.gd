@@ -235,18 +235,34 @@ func _run() -> void:
 	await _hide_popups()
 	app.select_domain("civilization")
 	await _frames(4)
-	await _rmb(ov, _pos_of(ov, k))
+	## The faction rows now sit under a settlement too (the owner has not ruled;
+	## `civilization_workspace.gd::context_actions` documents the default), named
+	## by the cell under the click -- read through the overlay's own
+	## `_grid_point`, as leg B does, never assumed. SEED's world claims every
+	## land cell, so the rows must be there; asserted rather than presumed.
+	var a_pos := _pos_of(ov, k)
+	var a_rect: Rect2 = ov._displayed_rect()
+	var a_g: Dictionary = ov._grid_point(a_pos, a_rect, ov._interior_rect(a_rect))
+	var a_cell: Dictionary = bridge.sample_cell(int(a_g["gx"]), int(a_g["gy"]))
+	_ok("A the settlement's own cell is claimed (so the faction rows belong under it)",
+		a_cell.has("controlling_faction"), true)
+	var a_fname := String(a_cell.get("controlling_faction_name", ""))
+	await _rmb(ov, a_pos)
 	var rows_a := _dump("A_civ_settlement")
 	## CX-01's five rows plus CM-7's CM-2-residual additions (`MAP_CONTEXT_
 	## SCOPE.md` §11 CM-7): Open city layout… (object) and Start way/route
 	## here (place), plus the CM-2-residuals batch's own vault-note row
 	## (§4.3 CIVIL Info row -- "Open vault note / Attach vault note…"), which
 	## reads "Attach…" here because the probe's fixture settlement has no
-	## vault link yet. Eleven rows, three separators.
-	_ok("A eight rows plus two separators", rows_a.size(), 11)
+	## vault link yet, plus the two faction rows the settlement's cell now
+	## offers (before Delete: the card sorts a danger row last in its band).
+	## Eleven rows and two separators: thirteen entries.
+	_ok("A eleven rows plus two separators", rows_a.size(), 13)
 	_ok("A row order", rows_a, [
 		"Edit %s" % sname, "Move viewer to %s" % sname,
-		"Open city layout for %s…" % sname, "Delete %s" % sname, "----",
+		"Open city layout for %s…" % sname,
+		"Open %s…" % a_fname, "Claim for %s" % a_fname,
+		"Delete %s" % sname, "----",
 		"Drop settlement here", "Start way here", "Start route here", "----",
 		"Attach vault note to %s…" % sname, "Info here (settlement & ecology)"])
 

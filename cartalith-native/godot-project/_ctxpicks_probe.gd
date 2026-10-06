@@ -406,17 +406,65 @@ func _run() -> void:
 	if epos4 != Vector2.ZERO:
 		var trrect: Rect2 = ov._displayed_rect()
 		var g: Dictionary = ov._grid_point(epos4, trrect, ov._interior_rect(trrect))
-		bridge.civ_territory_paint_at(float(g["gx"]), float(g["gy"]), 1, 5.0, false)
-		var before_claimed := int(bridge.civ_faction_territory_stats(1).get("claimed_cells", 0))
-		await _rmb(ov, epos4)
-		_dump("TR_territory")
-		_ok_true("TR Commit territory row is drawn", _row("Commit territory") != null)
-		_ok_true("TR Discard territory draft row is drawn", _row("Discard territory draft") != null)
-		await _click_row(_row("Commit territory"))
-		var after_claimed := int(bridge.civ_faction_territory_stats(1).get("claimed_cells", 0))
-		_ok_true("TR Commit territory actually claimed cells", after_claimed > before_claimed)
+		## Fixture, corrected 2026-10-06. This leg used to paint faction 1 at
+		## whatever land cell `_empty_pos` found and assert faction 1's claimed
+		## count grew -- but this world claims EVERY land cell (measured by
+		## `_ctxcard_probe.gd`'s scans, which find no unclaimed land at SEED), and
+		## the cell it picked belonged to faction 1 already (Aurelia: the card
+		## itself read "Open Aurelia…"), so the commit re-claimed cells faction 1
+		## owned and the count could not move: a fixture that could not pass, not
+		## an engine fault. The brush now paints a faction that does NOT own the
+		## cell, so a working commit must move cells from the owner to the
+		## painter. An unclaimed-land fixture (the other way to make a claim
+		## move) needs a regenerated world, which `_ctxcard_probe.gd` leg FU
+		## already builds (`ISLAND_SEED`); stock worlds are not regenerated here.
+		var tr_cell: Dictionary = bridge.sample_cell(int(g["gx"]), int(g["gy"]))
+		_ok_true("TR fixture: the brush cell is claimed by someone (stock worlds claim all land)",
+			tr_cell.has("controlling_faction"))
+		if tr_cell.has("controlling_faction"):
+			var tr_owner := int(tr_cell["controlling_faction"])
+			var tr_painter := 2 if tr_owner != 2 else 1
+			bridge.civ_territory_paint_at(float(g["gx"]), float(g["gy"]), tr_painter, 5.0, false)
+			var before_painter := int(bridge.civ_faction_territory_stats(tr_painter).get("claimed_cells", -1))
+			var before_owner := int(bridge.civ_faction_territory_stats(tr_owner).get("claimed_cells", -1))
+			_ok_true("TR fixture: both factions' claim counts are readable", before_painter >= 0 and before_owner >= 0)
+			await _rmb(ov, epos4)
+			_dump("TR_territory")
+			_ok_true("TR Commit territory row is drawn", _row("Commit territory") != null)
+			_ok_true("TR Discard territory draft row is drawn", _row("Discard territory draft") != null)
+			_faction_rows_match("TR", ov, epos4, true)
+			await _click_row(_row("Commit territory"))
+			var after_painter := int(bridge.civ_faction_territory_stats(tr_painter).get("claimed_cells", -1))
+			var after_owner := int(bridge.civ_faction_territory_stats(tr_owner).get("claimed_cells", -1))
+			_ok_true("TR Commit territory actually claimed cells", after_painter > before_painter)
+			_ok_true("TR ... taking them from the cell's previous owner", after_owner < before_owner)
+			_ok("TR the brushed cell now belongs to the painter",
+				int(bridge.sample_cell(int(g["gx"]), int(g["gy"])).get("controlling_faction", -1)), tr_painter)
 	app.arm_tool("inspect")
 	await _frames(2)
+
+	# -- GATE: the faction rows' gate, over OCEAN (the negative control) ---------
+	## Protects: `civilization_workspace.gd::context_actions`'s gate on
+	## `sample_cell(...).has("controlling_faction")`. TR and REG hold the
+	## positive side (land, and a settlement pin); this is the side that fails
+	## if the gate is removed. Mutation-run 2026-10-06 against the three edits
+	## named in `_faction_rows_match`'s doc comment.
+	var ocean_pos := _ocean_pos(ov, gw, gh)
+	_ok_true("GATE fixture: an ocean cell clear of every pin exists", ocean_pos != Vector2.ZERO)
+	if ocean_pos != Vector2.ZERO:
+		await _rmb(ov, ocean_pos)
+		_dump("GATE_ocean")
+		_ok_true("GATE the card opened over ocean (the control: it is not simply closed)", _open())
+		## The CIVIL rows AFTER the faction block must still be built. With the
+		## gate removed, `cf["controlling_faction"]` is an invalid access on an
+		## ocean cell (the key is omitted there), the provider aborts mid-list,
+		## and the faction rows are absent for the wrong reason -- the absence
+		## check below would pass on a crash. This row is what tells the two
+		## apart (mutation 1 in `_faction_rows_match`'s doc comment).
+		_ok_true("GATE the CIVIL rows after the faction block are still drawn over ocean",
+			_row("Drop settlement here") != null)
+		_faction_rows_match("GATE ocean", ov, ocean_pos, false)
+		await _close()
 
 	# -- REG: CX-01's five rows still land (no regression from this pass) --------
 	## Re-resolved fresh, not reusing CL's `sp2`: `_displayed_rect()` moves as
@@ -440,10 +488,80 @@ func _run() -> void:
 		_ok_true("REG Edit row still lands", _row("Edit ") != null)
 		_ok_true("REG Move viewer to row still lands", _row("Move viewer to ") != null)
 		_ok_true("REG Delete row still lands", _row("Delete ") != null)
+		## The faction rows under a settlement pin: the default taken in
+		## `context_actions` (owner unruled) -- the pin's own cell, in a world
+		## that claims all land, must carry them. This is also the check that
+		## fails if the old `hit < 0` clause is restored.
+		_faction_rows_match("REG settlement", ov, reg_pos, true)
 		await _close()
 
 	await _run_ways(ov)
 	await _run_rivers(ov)
+
+
+## An OCEAN cell inside the plate with no pin, label or way within reach, so a
+## right-click there is a bare-ground card. `Vector2.ZERO` when none is found
+## (the caller asserts that, rather than skipping silently). Never returns a
+## land or lake cell: `sample_cell`'s `water` must read exactly `"ocean"`.
+func _ocean_pos(ov: Control, gw: int, gh: int) -> Vector2:
+	var bridge = app.bridge
+	var rect: Rect2 = ov._displayed_rect()
+	var inter: Rect2 = ov._interior_rect(rect)
+	for yi in range(1, 24):
+		for xi in range(1, 24):
+			var gx := float(gw) * float(xi) / 24.0
+			var gy := float(gh) * float(yi) / 24.0
+			if String(bridge.sample_cell(int(gx), int(gy)).get("water", "")) != "ocean":
+				continue
+			var p: Vector2 = ov._cell_to_screen(Vector2(gx, gy), rect)
+			if inter.grow(-60.0).has_point(p) and ov.hits_at(p).is_empty():
+				return p
+	return Vector2.ZERO
+
+
+## The faction-row gate, asserted from the engine's own reading of the clicked
+## cell. With a card open at screen position `pos`: re-derives the cell through
+## the overlay's `_grid_point` (the broker's own path), reads `sample_cell`, and
+## asserts that "Open <faction>…" and "Claim for <faction>" are drawn exactly
+## when the key `controlling_faction` is present -- and, for the absent side,
+## that NO faction's "Open <name>…" and no "Claim for " row is drawn.
+## `expect_claimed` is the fixture's own expectation, asserted separately so an
+## iff that holds vacuously (a world that stopped claiming the cell) is caught.
+##
+## Protects: `civilization_workspace.gd::context_actions`'s faction rows and
+## their one gate. Verified by mutation 2026-10-06 (each run alone against
+## `context_actions`, restored after; 139/140, 135/140 and 138/140 passed):
+## (1) gate removed (`if true:`) -> only the GATE leg's "CIVIL rows after the
+## faction block are still drawn" fails (the ocean cell's missing key aborts
+## the provider, so the absence checks alone would pass on a crash);
+## (2) gate inverted (`not cf.has(...)`) -> the TR, REG and GATE legs fail;
+## (3) the old `hit < 0` clause restored -> the REG settlement leg fails.
+func _faction_rows_match(tag: String, ov: Control, pos: Vector2, expect_claimed: bool) -> void:
+	var rect: Rect2 = ov._displayed_rect()
+	var g: Dictionary = ov._grid_point(pos, rect, ov._interior_rect(rect))
+	var cell: Dictionary = app.bridge.sample_cell(int(g["gx"]), int(g["gy"]))
+	var claimed: bool = cell.has("controlling_faction")
+	_ok("%s fixture: the engine %s a controlling faction at the clicked cell" % [tag, "reads" if expect_claimed else "reads no"],
+		claimed, expect_claimed)
+	var texts := _texts(["action", "disabled"])
+	if claimed:
+		var fname := String(cell["controlling_faction_name"])
+		_ok_true("%s 'Open <faction>…' is drawn when the engine reads a controlling faction" % tag,
+			texts.has("Open %s…" % fname))
+		_ok_true("%s 'Claim for <faction>' is drawn when the engine reads a controlling faction" % tag,
+			texts.has("Claim for %s" % fname))
+	else:
+		var open_rows := 0
+		for fd in app.bridge.get_factions():
+			var roster_name := String((fd as Dictionary).get("name", ""))
+			if roster_name != "" and texts.has("Open %s…" % roster_name):
+				open_rows += 1
+		var claim_rows := 0
+		for t in texts:
+			if String(t).begins_with("Claim for "):
+				claim_rows += 1
+		_ok("%s no 'Open <faction>…' row where the engine reads no controlling faction" % tag, open_rows, 0)
+		_ok("%s no 'Claim for <faction>' row where the engine reads no controlling faction" % tag, claim_rows, 0)
 
 
 ## Every disabled row on the open card carries a non-empty reason.
@@ -828,13 +946,51 @@ func _run_rivers(ov: Control) -> void:
 	print("RV catchment: %d cells upstream of cell %d" % [n_up, cell])
 	_ok("RV the clicked cell is in its own catchment", mask[cell] if mask.size() > cell else -1, 1)
 	_ok_true("RV the catchment is more than the cell itself", n_up > 1)
-	var img_pre: Image = _vp.get_texture().get_image()
+	## Pre-roll, the confound found 2026-10-06 (`_ctxpicks` failed "RV <= 2% of
+	## unmasked samples moved" at HEAD with 5137 of 5461 moved): the sentence
+	## `_catchment_river_ctx` writes to the status bar's `hint` slot is longer
+	## than the one the trace left there, and the status bar's HBox takes the
+	## SUM of its labels as its minimum width -- at this probe's 1600 px
+	## viewport that is 1709 px, so the whole shell (map rect, right dock, top
+	## bar) reflowed between the baseline frame and the catchment frame and
+	## every pixel of the map moved. Measured by a control (6 idle frames: 0 of
+	## 29 541 samples moved) and by walking the tree for min widths > 1601.
+	## The shading assertions below are about the catchment wash, so the
+	## baseline is taken AFTER the shell has already absorbed that sentence:
+	## show the catchment once, read the sentence back, clear, restore the
+	## sentence, then measure the real Show against a frame laid out the same
+	## way. Nothing is loosened: the thresholds are unchanged, and the reflow
+	## itself is asserted absent below (`RV the shell did not reflow ...`) so a
+	## baseline that drifts again cannot pass silently. The defect itself --
+	## a long hint widens the whole shell past a 1600 px window -- is a shell
+	## layout matter, printed as KNOWN and routed in the report, not worked
+	## around in the shell by this probe.
 	sp = ov._point_to_screen(gp, ov._displayed_rect())
 	await _rmb(ov, sp)
 	_ok_true("RV Clear river highlight is offered once something is drawn", _row("Clear river highlight") != null)
 	await _click_row(_row("Show catchment"))
+	await _frames(3)
+	var long_hint: String = app.status_slot_text("hint")
+	_ok_true("RV the catchment wrote its sentence to the status hint", long_hint.begins_with("Catchment: "))
+	var wide_min: float = app.status_row.get_combined_minimum_size().x
+	if wide_min > float(_vp.size.x):
+		print("KNOWN shell defect: with the catchment sentence the status bar's minimum width is %.0f px, past this %d px viewport (the whole shell reflows)" % [wide_min, _vp.size.x])
+	sp = ov._point_to_screen(gp, ov._displayed_rect())
+	await _rmb(ov, sp)
+	await _click_row(_row("Clear river highlight"))
+	app.set_status("hint", long_hint, "text_ghost")
+	await _frames(3)
+	rect = ov._displayed_rect()
+	xf = ov.get_global_transform_with_canvas()
+	var img_pre: Image = _vp.get_texture().get_image()
+	var min_before: float = app.status_row.get_combined_minimum_size().x
+	sp = ov._point_to_screen(gp, ov._displayed_rect())
+	await _rmb(ov, sp)
+	await _click_row(_row("Show catchment"))
 	_ok_true("RV the overlay holds a catchment", ov.has_river_catchment())
 	await _frames(3)
+	_ok("RV the shell did not reflow between the baseline and the catchment frame (status bar min width)",
+		app.status_row.get_combined_minimum_size().x, min_before)
 	var img2: Image = _vp.get_texture().get_image()
 	## Sample every cell of the grid at its centre, away from the branch line:
 	## a masked cell's pixel must move toward the catchment ink, an unmasked

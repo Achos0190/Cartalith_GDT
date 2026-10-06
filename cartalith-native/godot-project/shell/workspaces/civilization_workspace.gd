@@ -844,33 +844,48 @@ func context_actions(req: Dictionary) -> Array:
 	## `has()` is the right test: the key's only present value is a real
 	## controlling faction id, never a 0 meaning "nobody".
 	##
-	## **Not offered over a settlement pin (`hit < 0`).** That cell's own object
-	## rows already carry the settlement and its place editor (which holds the
-	## faction field), and a second "object" noun beside them would double the
-	## section for a cell whose faction the settlement already names -- the way
-	## row above makes the same call for roads. A judgement, not a measurement;
-	## the faction is still one tap away through the settlement's own rows.
-	if hit < 0:
-		var cf := bridge.sample_cell(floori(gx), floori(gy))
-		if cf.has("controlling_faction"):
-			var cf_id := int(cf["controlling_faction"])
-			var cf_name := String(cf["controlling_faction_name"])
-			## FH-1 (`FACTION_HUB_DESIGN.md` §4): opens the Factions hub on this
-			## faction's **Territory** tab -- the user clicked land, so the
-			## verdict on land is the relevant first view. The label drops "in
-			## roster" because the window is the Factions hub, not a list. Never
-			## open without the faction id: a bare `open_faction_roster()` would
-			## land on the last-selected faction, not the one under the cursor.
-			rows.append({"id": "civ.faction_open", "label": "Open %s…" % cf_name,
-				"section": "object", "enabled": true,
-				"callable": func() -> void: app.open_faction_roster(cf_id, "territory")})
-			## "Claim for this faction" is the Territory tool armed with this
-			## faction pre-picked -- the eyedropper of the scope's own wording --
-			## through the same `_territory_faction` state the options bar's
-			## faction picker writes, so ring, bar and this row agree.
-			rows.append({"id": "civ.faction_claim", "label": "Claim for %s" % cf_name,
-				"section": "object", "enabled": true,
-				"callable": claim_for_faction.bind(cf_id)})
+	## **Offered under a settlement pin too.** Until this pass the rows were built
+	## only with no settlement under the pointer (`hit < 0`): the reasoning was
+	## that the settlement's own object rows already reach its place editor
+	## (which holds the faction field) and a second "object" noun would double
+	## the section. That was a judgement, never an owner ruling, and
+	## `OUTSTANDING_WORK.md` "CM-2 follow-ups" left it as an open question. The
+	## default taken here, until the owner rules otherwise: a settlement sits in
+	## some faction's territory, and "Open <faction>…" / "Claim for <faction>"
+	## are different verbs from Edit/Delete (they act on the claim, not the
+	## place), so they are appended AFTER the settlement's own rows -- the
+	## existing rows keep their text and order. The faction named is the one
+	## controlling the CLICKED cell (the same `sample_cell` read as everywhere
+	## else), not the settlement's own `faction` field: a pin on a border can
+	## sit in one faction's cell while belonging to another, and the card
+	## reports the cell under the cursor. A judgement; revert by restoring
+	## `if hit < 0:` around the block (`_ctxpicks_probe.gd`'s REG leg then
+	## fails, by design -- it is the gate's mutation check).
+	##
+	## **The gate is `has("controlling_faction")` and nothing else.** An ocean
+	## cell (key omitted) offers neither row; `_ctxpicks_probe.gd`'s `_faction_
+	## rows_match` asserts the rows are drawn exactly when the engine reads a
+	## controlling faction, over a settlement, over land and over ocean.
+	var cf := bridge.sample_cell(floori(gx), floori(gy))
+	if cf.has("controlling_faction"):
+		var cf_id := int(cf["controlling_faction"])
+		var cf_name := String(cf["controlling_faction_name"])
+		## FH-1 (`FACTION_HUB_DESIGN.md` §4): opens the Factions hub on this
+		## faction's **Territory** tab -- the user clicked land, so the
+		## verdict on land is the relevant first view. The label drops "in
+		## roster" because the window is the Factions hub, not a list. Never
+		## open without the faction id: a bare `open_faction_roster()` would
+		## land on the last-selected faction, not the one under the cursor.
+		rows.append({"id": "civ.faction_open", "label": "Open %s…" % cf_name,
+			"section": "object", "enabled": true,
+			"callable": func() -> void: app.open_faction_roster(cf_id, "territory")})
+		## "Claim for this faction" is the Territory tool armed with this
+		## faction pre-picked -- the eyedropper of the scope's own wording --
+		## through the same `_territory_faction` state the options bar's
+		## faction picker writes, so ring, bar and this row agree.
+		rows.append({"id": "civ.faction_claim", "label": "Claim for %s" % cf_name,
+			"section": "object", "enabled": true,
+			"callable": claim_for_faction.bind(cf_id)})
 	rows.append({"id": "civ.drop_settlement", "label": "Drop settlement here", "section": "place",
 		"enabled": true, "callable": _run_ctx.bind(3, hit, gx, gy)})
 	## CM-2 residual (§4.3 CIVIL row 12): `way_begin`/`route_begin` fire the
