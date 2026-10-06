@@ -652,7 +652,7 @@ every milestone:
 #### EF-9.0 · What "refines sooner" buys — measurement only, no output change
 
 **What it is.** A re-runnable example:
-`crates/cartalith-civ/examples/ef9_refinement_gain.rs`.
+`crates/cartalith-civ/tests/ef9_refinement_gain.rs` (an `#[ignore]`d test, as built; planned as an example).
 
 - It lives in `cartalith-civ` because that is the lowest crate that can build
   settlements and ways and still reach `cartalith-engine`. The generation
@@ -736,7 +736,7 @@ Every absent input is recorded as absent (§8.1's last column), never as 0.
 
 **Files:**
 
-- `crates/cartalith-civ/examples/ef9_refinement_gain.rs` (new);
+- `crates/cartalith-civ/tests/ef9_refinement_gain.rs` (new, an `#[ignore]`d measurement plus 16 regression tests);
 - `crates/cartalith-engine/src/elevation.rs` (`curvature_energy` becomes
   public; the tests call it unchanged).
 
@@ -915,8 +915,52 @@ level stays EF-0's.
 
 ### 8.4 Findings
 
-Empty until EF-9.0 runs. No number enters this section that was not
-produced by the command printed beside it.
+No number enters this section that was not produced by the command printed
+beside it.
+
+**EF-9.0 result (2026-10-06): GO at Q3's gate, marginal at depth.**
+Command: `cargo test --release -p cartalith-civ --test ef9_refinement_gain -- --ignored --nocapture`
+(about 457 s; knobs `EF9_SEEDS`, `EF9_GRIDS`, `EF9_WINDOW`, `EF9_K`). Six worlds:
+seeds 483920, 24601 and 71077345, each at 2048x1311 and 512x384. Tiles are
+measured as 3x3 windows of 16x16 tiles per level, not every tile (level 10
+alone is about 1M tiles), over levels `z_base..=z_base+6`.
+
+G_scr share captured at the 25 % budget, median over worlds:
+
+| Level | (a) today's centre-distance | (b) oracle | best single input (slope_mean) | (b)/(a) |
+|---|---|---|---|---|
+| z5 | 0.284 | 0.759 | 0.739 | 2.7 |
+| z6 | 0.201 | 0.780 | 0.728 | 4.0 |
+| z7 | 0.228 | 0.709 | 0.664 | 3.4 |
+| z8 | 0.207 | 0.568 | 0.475 | 2.8 |
+| z9 | 0.238 | 0.471 | 0.374 | 1.9 |
+| z10 | 0.259 | 0.432 | 0.353 | 1.6 |
+
+- Today's order is at or below the random baseline (0.25) at z6, z8 and z9.
+- Pooled over (world, level above z_base): median (b)/(a) = **2.74**, so GO at
+  the 1.5 gate. Best single input over (a) = **2.42**, so the gain is reachable
+  without the oracle. The coordinator re-ran seed 483920 at 512x384 alone:
+  pooled 2.24, best single input 2.11, GO.
+- Tiles needed for 80 % of G_scr: oracle 0.27 (z6) rising to 0.625 (z10);
+  today's order about 0.71 to 0.83.
+- Spearman rho against G_scr: slope_max 0.71, land_fraction 0.70, slope_mean
+  0.70, abs_tpi 0.58, abs_curv 0.56, boundary 0.29, volcanic 0.22,
+  stream_order 0.20, way_length 0.11, settlements 0.015.
+- **Q2 evidence:** settlements and ways do not predict gain (rho 0.015, 0.11),
+  so Q2's default stands: they raise synthesis order only, they do not promote
+  a level.
+- Controls: the planted-ridge positive control ranks the ridge first; the
+  `detail_amp = 0` negative control gives G_pt exactly 0. Both pass.
+
+**Caveats.** The oracle is an upper bound. The margin narrows with depth
+(z9 1.9, z10 1.6), and absolute G_pt max falls from about 0.02 at z5 to about
+0.0002 at z10, so at deep levels the gain is real but tiny. The gate's
+aggregation (per level or pooled) is not specified by Q3; both are reported,
+and the pooled form was chosen after a one-world pilot. The gain scalar (RMS)
+and the level range are labelled judgements. **River gain was not measured**
+(it needs a `carve_rivers = false` world; Q4 already keeps rivers out of
+EF-9's first cut). Whether to ratify GO is the owner's call; EF-9.1 onward is
+not started.
 
 ### 8.5 Owner questions — each with the default the plan assumes
 

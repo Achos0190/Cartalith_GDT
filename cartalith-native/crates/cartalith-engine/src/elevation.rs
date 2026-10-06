@@ -101,7 +101,7 @@
 //! a deliberate follow-up. Nothing in this module is called by shipping code
 //! yet, exactly like `geojson` above it.
 //!
-//! EF-1 (tile-bounded hydrology refinement), EF-6 (vector features) and EF-7
+//! EF-1 (tile-bounded hydrology refinement), EF-6 (vector features) and EF-9
 //! (importance-driven refinement) are separate, later milestones in the same
 //! document and are not started here.
 
@@ -278,6 +278,39 @@ fn world_coarse<'a>(
         return None;
     }
     Some(&state.field)
+}
+
+/// Sum of squared discrete Laplacians over the interior of a `w x h` patch:
+/// how much curvature -- high-frequency content -- the patch carries.
+///
+/// Bilinear interpolation is linear along both axes inside one coarse cell,
+/// so an upsample of coarse data scores near zero on it by construction,
+/// which is exactly why it is the right measure for EF-0's "real new
+/// information, not smoothing" bar (the `a_deep_tile_is_not_a_bilinear_upsample_of_the_coarse_tile`
+/// and `a_continuous_zoom_keeps_adding_structure_at_every_depth` tests).
+///
+/// Public since EF-9.0 (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3):
+/// that harness scores refinement gain in A1's own quantity, so it shares
+/// this one definition rather than restating it. The body is the tests'
+/// private helper moved verbatim; no behaviour changed.
+///
+/// Requires `w >= 2` and `h >= 2` and `v.len() >= w * h`; a patch with no
+/// interior (`w < 3` or `h < 3`) sums over nothing and returns `0.0`.
+/// Must never be read as a roughness in absolute terms: it depends on the
+/// tile's pixel size, so only ratios between patches of one size are
+/// meaningful.
+#[must_use]
+pub fn curvature_energy(v: &[f32], w: usize, h: usize) -> f64 {
+    let mut e = 0.0;
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let c = v[y * w + x] as f64;
+            let lx = v[y * w + x - 1] as f64 - 2.0 * c + v[y * w + x + 1] as f64;
+            let ly = v[(y - 1) * w + x] as f64 - 2.0 * c + v[(y + 1) * w + x] as f64;
+            e += lx * lx + ly * ly;
+        }
+    }
+    e
 }
 
 /// Coverage for EF-0: that the world-level wrapper adds nothing of its own
@@ -537,24 +570,6 @@ mod tests {
     }
 
     // -- not an upsample ----------------------------------------------------
-
-    /// Sum of squared discrete Laplacians over the interior: how much
-    /// curvature — high-frequency content — a patch carries. Bilinear
-    /// interpolation is linear along both axes inside one coarse cell, so an
-    /// upsample of coarse data scores near zero on it by construction, which
-    /// is exactly why it is the right measure here.
-    fn curvature_energy(v: &[f32], w: usize, h: usize) -> f64 {
-        let mut e = 0.0;
-        for y in 1..h - 1 {
-            for x in 1..w - 1 {
-                let c = v[y * w + x] as f64;
-                let lx = v[y * w + x - 1] as f64 - 2.0 * c + v[y * w + x + 1] as f64;
-                let ly = v[(y - 1) * w + x] as f64 - 2.0 * c + v[(y + 1) * w + x] as f64;
-                e += lx * lx + ly * ly;
-            }
-        }
-        e
-    }
 
     /// **The "real new information, not smoothing" proof, at tile level.**
     ///
