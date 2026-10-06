@@ -3546,6 +3546,34 @@ mod civ_timeline_tests {
         assert_eq!(dangling.religions.display_name("custom:41"), "Missing religion (custom:41)");
     }
 
+    /// Protects: FH-R1's hover-card half -- `ruler_custom_religion_name` (the
+    /// source of `get_settlements`' `ruler_religion_name`) names a faction's
+    /// custom religion by its OWN name, and answers `None` (so the key is
+    /// omitted) for a built-in, a dangling reference and an out-of-range
+    /// faction. Display only: the engine column is unchanged. Mutation check:
+    /// resolving through `engine_key` (the base name) instead of the custom
+    /// name turns the first assertion red.
+    #[test]
+    fn the_ruler_of_a_settlement_reports_a_custom_religions_own_name() {
+        let mut civ = linked_pair();
+        let id = civ.religions.create("Church of the Dawn", "sun_cult", (200, 150, 40), "").unwrap();
+        let key = cartalith_civ::religion_library::custom_religion_key(id);
+        let CivData { faction_roster, religions, .. } = &mut civ;
+        assert!(faction_roster.set_religion(1, &key, religions));
+        assert_eq!(civ.ruler_custom_religion_name(1), Some("Church of the Dawn"));
+        assert_eq!(
+            civ.faction_roster.engine_religions(&civ.religions)[1],
+            "sun_cult",
+            "behaviour is still the base's"
+        );
+        assert!(civ.faction_roster.set_field(2, "religion", "sun_cult"));
+        assert_eq!(civ.ruler_custom_religion_name(2), None, "a built-in has no custom name");
+        civ.faction_roster.0[1].religion = "custom:41".to_string();
+        assert_eq!(civ.ruler_custom_religion_name(1), None, "a dangling reference is not a name");
+        assert_eq!(civ.ruler_custom_religion_name(-1), None);
+        assert_eq!(civ.ruler_custom_religion_name(999), None);
+    }
+
     /// Protects: a custom religion survives `civ_rebuild`'s two
     /// roster-keeping merges with the roster that points into it -- a
     /// Recompute must not leave a faction holding a dangling `custom:` key.
@@ -11358,6 +11386,14 @@ impl WorldGen {
                     d.set("religion", key);
                     d.set("adherents", &adherents);
                     d.set("religion_shares", &shares);
+                }
+                // FH-R1, display only: the ruling faction's CUSTOM religion
+                // name, so the map hover card's "Ruler's faith" line can name
+                // it as the user did instead of its base. Omitted (not blank)
+                // unless the ruler's stored choice is a resolving `custom:<id>`;
+                // `religion` above and every engine reader stay on the base.
+                if let Some(n) = civ.ruler_custom_religion_name(s.placement.faction) {
+                    d.set("ruler_religion_name", n);
                 }
                 d
             })

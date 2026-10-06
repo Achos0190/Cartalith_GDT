@@ -138,8 +138,8 @@ fn export_geojson_matches_the_reference_document_character_for_character() {
     ];
     let terr = territory();
     let factions = [
-        GeoFaction { fid: 1, name: "Aurelia", religion: "none" },
-        GeoFaction { fid: 2, name: "Veldmark", religion: "none" },
+        GeoFaction { fid: 1, name: "Aurelia", religion: "none", religion_name: None },
+        GeoFaction { fid: 2, name: "Veldmark", religion: "none", religion_name: None },
     ];
     let praster = provinces();
     let provs = [GeoProvince { id: 1, faction: 1, name: "Marches", faction_name: "Aurelia" }];

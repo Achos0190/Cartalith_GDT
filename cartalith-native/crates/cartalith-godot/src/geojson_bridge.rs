@@ -203,14 +203,20 @@ impl WorldGen {
                     .collect::<Vec<_>>();
 
                 factions = (1..civ.faction_roster.0.len())
-                    .map(|fid| GeoFaction {
-                        fid: fid as i32,
-                        name: civ.faction_roster.0[fid].name.as_str(),
-                        // R1: the engine key (a custom religion's base), never
-                        // a project-local `custom:<id>` that means nothing
-                        // outside this project. The custom name is not
-                        // exported: GeoJSON's `religion` is a vocabulary key.
-                        religion: civ.religions.engine_key(&civ.faction_roster.0[fid].religion),
+                    .map(|fid| {
+                        // R1: `religion` is the engine key (a custom religion's
+                        // base), never a project-local `custom:<id>` that means
+                        // nothing outside this project; the custom religion's
+                        // own name rides beside it as `religionName`, only when
+                        // there is one (see `geo_religion_fields`).
+                        let (religion, religion_name) =
+                            geo_religion_fields(&civ.religions, &civ.faction_roster.0[fid].religion);
+                        GeoFaction {
+                            fid: fid as i32,
+                            name: civ.faction_roster.0[fid].name.as_str(),
+                            religion,
+                            religion_name,
+                        }
                     })
                     .collect::<Vec<_>>();
                 provs = civ
@@ -533,4 +539,59 @@ fn faction_name(roster: &crate::civ_roster_bridge::FactionRoster, fid: i32) -> &
 fn bump(counts: &mut VarDictionary, key: &str) {
     let now = counts.get(key).and_then(|v| v.try_to::<i64>().ok()).unwrap_or(0);
     counts.set(key, now + 1);
+}
+
+/// What the GeoJSON territory layer writes for a faction's stored religion:
+/// `(religion, religion_name)`.
+///
+/// `religion` is the **engine key** ([`ReligionLibrary::engine_key`]: a custom
+/// religion's base, `"none"` for a dangling `custom:` reference, a built-in
+/// unchanged) -- the exported vocabulary key stays what it was, because a
+/// project-local `custom:<id>` means nothing outside this project. The second
+/// element is the custom religion's **own name**, present only for a stored
+/// `custom:<id>` that resolves (FH-R1 display half): `None` for a built-in, a
+/// legacy unknown key, or a dangling reference, so the writer emits no
+/// `religionName` and a project with no custom religion exports exactly what it
+/// did before. Display only -- nothing here feeds a simulation input.
+fn geo_religion_fields<'a>(
+    religions: &'a cartalith_civ::religion_library::ReligionLibrary,
+    stored: &'a str,
+) -> (&'a str, Option<&'a str>) {
+    (religions.engine_key(stored), crate::civ_religion_bridge::custom_religion_name(religions, stored))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cartalith_civ::religion_library::{custom_religion_key, ReligionLibrary};
+
+    /// Protects: FH-R1's GeoJSON display half -- a faction holding a custom
+    /// religion exports the custom religion's own name (`religionName`) while
+    /// `religion` stays the base vocabulary key; a built-in, a legacy unknown
+    /// key and a dangling reference export no `religionName`. Mutation check:
+    /// returning `None` for the name (the fall-back-to-the-base behaviour this
+    /// row removes) turns the first assertion red.
+    #[test]
+    fn a_custom_religion_exports_its_own_name_beside_the_base_key() {
+        let mut lib = ReligionLibrary::default();
+        let id = lib.create("Church of the Tide", "sea_lords", (10, 20, 30), "").unwrap();
+        let key = custom_religion_key(id);
+        assert_eq!(geo_religion_fields(&lib, &key), ("sea_lords", Some("Church of the Tide")));
+        assert_eq!(geo_religion_fields(&lib, "sun_cult"), ("sun_cult", None));
+        assert_eq!(geo_religion_fields(&lib, "zen_legacy"), ("zen_legacy", None));
+        assert_eq!(geo_religion_fields(&lib, "custom:99"), ("none", None), "dangling is not a name");
+
+        // End to end through the writer, so the helper's output is what lands
+        // in the document.
+        let terr = [0, 0, 0, 0, 1, 1, 0, 1, 1];
+        let (religion, religion_name) = geo_religion_fields(&lib, &key);
+        let fs = [GeoFaction { fid: 1, name: "Aurelia", religion, religion_name }];
+        let world = GeoJsonWorld {
+            gw: 3, gh: 3, map_width_km: 3.0, version: "t", seed: 1,
+            places: &[], ways: &[], rivers: &[],
+            territory: Some((&terr, &fs)), provinces: None,
+        };
+        let doc = export_geojson(&world);
+        assert!(doc.contains(r#""religion":"sea_lords","religionName":"Church of the Tide""#), "{doc}");
+    }
 }

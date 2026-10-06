@@ -214,3 +214,58 @@ impl WorldGen {
         }
     }
 }
+
+/// The custom religion's own name for a stored religion key, or `None` unless
+/// the key is a `custom:<id>` that resolves in `religions`.
+///
+/// The one definition of "does this faction hold a *named* religion" that the
+/// display surfaces share (the map hover card's `ruler_religion_name`, the
+/// GeoJSON `religionName`): a built-in, a legacy unknown key and a dangling
+/// reference are all `None`, so a surface never prints a base name, an empty
+/// string or `"Missing religion"` as though it were a custom name. Display
+/// only; it must never feed a simulation input (engine readers resolve
+/// through `ReligionLibrary::engine_key`).
+pub(crate) fn custom_religion_name<'a>(
+    religions: &'a cartalith_civ::religion_library::ReligionLibrary,
+    stored: &'a str,
+) -> Option<&'a str> {
+    match religions.choice(stored) {
+        cartalith_civ::religion_library::ReligionChoice::Custom(d) => Some(d.name.as_str()),
+        _ => None,
+    }
+}
+
+impl CivData {
+    /// The custom religion's own name for faction `faction`'s stored religion
+    /// (`FactionRoster` row index), or `None` for a built-in, a dangling
+    /// reference, faction `0` with no custom choice, or an out-of-range index.
+    /// What `get_settlements` reports as `ruler_religion_name` so the hover
+    /// card can name the ruler's faith as the user named it.
+    pub(crate) fn ruler_custom_religion_name(&self, faction: i32) -> Option<&str> {
+        let e = usize::try_from(faction).ok().and_then(|i| self.faction_roster.0.get(i))?;
+        custom_religion_name(&self.religions, e.religion.as_str())
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+    use cartalith_civ::religion_library::ReligionLibrary;
+
+    /// Protects: `custom_religion_name` answers only for a resolving
+    /// `custom:<id>` -- never the base's name, a built-in's label or a
+    /// "Missing religion" string. Mutation check: returning the base key for
+    /// `Custom` (the old fall-back-to-base display) turns the first assertion
+    /// red.
+    #[test]
+    fn only_a_resolving_custom_key_has_a_custom_name() {
+        let mut lib = ReligionLibrary::new();
+        let id = lib.create("Church of the Tide", "sea_lords", (1, 2, 3), "").unwrap();
+        let key = custom_religion_key(id);
+        assert_eq!(custom_religion_name(&lib, &key), Some("Church of the Tide"));
+        assert_eq!(custom_religion_name(&lib, "sea_lords"), None);
+        assert_eq!(custom_religion_name(&lib, "none"), None);
+        assert_eq!(custom_religion_name(&lib, "custom:99"), None);
+        assert_eq!(custom_religion_name(&lib, "custom:x"), None);
+    }
+}

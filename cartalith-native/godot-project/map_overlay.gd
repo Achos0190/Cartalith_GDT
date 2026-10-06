@@ -6049,8 +6049,16 @@ func _faith_lines(s: Dictionary) -> Array:
 	## Which of the two is the faction's religion is `RELIGION_DIFFUSION_
 	## SCOPE.md` section 4's open fork, so neither is called the wrong one.
 	if _faith_diverged(s):
-		out.append("Ruler's faith %s -- this settlement's has moved"
-			% _faith_label(_faction_religions[int(s.get("faction", 0)) - 1]))
+		var ruler_label := _faith_label(_faction_religions[int(s.get("faction", 0)) - 1])
+		## FH-R1 (display only): when the ruler holds a CUSTOM religion,
+		## `get_settlements()` carries `ruler_religion_name` (omitted
+		## otherwise) and the line names it as the user did, with the built-in
+		## it behaves as in brackets -- the base alone would read as a faith
+		## the user never chose. `_faction_religions` stays the engine key, so
+		## the ring's comparison above is untouched.
+		if s.has("ruler_religion_name"):
+			ruler_label = "%s (as %s)" % [String(s["ruler_religion_name"]), ruler_label]
+		out.append("Ruler's faith %s -- this settlement's has moved" % ruler_label)
 	return out
 
 func _faith_label(key: String) -> String:

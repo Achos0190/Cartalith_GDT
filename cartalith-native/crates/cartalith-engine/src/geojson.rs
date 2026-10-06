@@ -173,6 +173,15 @@ pub struct GeoFaction<'a> {
     pub name: &'a str,
     /// `civFactionReligion[fid] || 'none'`, already resolved.
     pub religion: &'a str,
+    /// The faction's **own** religion name when its stored choice is a
+    /// project-local custom religion (FH-R1, `custom:<id>`), `None` for a
+    /// built-in or absent one. Display only: `religion` above stays the engine
+    /// vocabulary key (a custom religion's base), so a consumer that matches
+    /// on it is unaffected; this is the extra, human-readable property
+    /// `religionName`. `None` writes no key at all, so a project with no
+    /// custom religion exports byte-identically to before FH-R1 -- never
+    /// encode "no custom name" as an empty or a base-name string.
+    pub religion_name: Option<&'a str>,
 }
 
 /// One province, for `_geoProvinceFeature`.
@@ -272,15 +281,18 @@ pub fn territory_feature(
     f: &GeoFaction<'_>,
 ) -> Option<Json> {
     let coords = mask_outline_coords(&id_mask(terr, gw, gh, f.fid), gw, gh, k)?;
-    Some(feature(
-        multi_polygon(coords),
-        vec![
-            ("layer".into(), Json::s("territory")),
-            ("faction".into(), Json::Num(f.fid as f64)),
-            ("factionName".into(), Json::s(f.name)),
-            ("religion".into(), Json::s(f.religion)),
-        ],
-    ))
+    let mut props = vec![
+        ("layer".into(), Json::s("territory")),
+        ("faction".into(), Json::Num(f.fid as f64)),
+        ("factionName".into(), Json::s(f.name)),
+        ("religion".into(), Json::s(f.religion)),
+    ];
+    // FH-R1: the custom religion's own name, only when there is one (the key
+    // is omitted otherwise, so the reference-parity output is unchanged).
+    if let Some(n) = f.religion_name {
+        props.push(("religionName".into(), Json::s(n)));
+    }
+    Some(feature(multi_polygon(coords), props))
 }
 
 /// `_geoProvinceFeature(prov)` (reference 12569): one province, traced out of
@@ -535,9 +547,32 @@ mod tests {
         // propagating all the way through -- a faction with zero owned
         // cells must not appear as an empty or degenerate MultiPolygon.
         let terr = vec![0i32; 12 * 9];
-        let fs = [GeoFaction { fid: 1, name: "Aurelia", religion: "none" }];
+        let fs = [GeoFaction { fid: 1, name: "Aurelia", religion: "none", religion_name: None }];
         let s = export_geojson(&GeoJsonWorld { territory: Some((&terr, &fs)), ..empty_world() });
         assert!(!s.contains("territory"));
+    }
+
+    /// A custom religion's own name reaches the territory feature, beside (not
+    /// in place of) the vocabulary key.
+    #[test]
+    fn a_custom_religion_name_is_exported_beside_its_base_key() {
+        // Protects: FH-R1's display half -- `GeoFaction::religion_name` becomes
+        // the territory feature's `religionName` while `religion` keeps the
+        // engine vocabulary key, and a faction with no custom religion gets NO
+        // `religionName` key at all (the reference-parity output is unchanged).
+        let mut terr = vec![0i32; 12 * 9];
+        terr[12 + 1] = 1;
+        terr[12 + 2] = 1;
+        terr[24 + 1] = 1;
+        terr[24 + 2] = 1;
+        let custom = [GeoFaction { fid: 1, name: "Aurelia", religion: "sea_lords",
+                                   religion_name: Some("Church of the Tide") }];
+        let s = export_geojson(&GeoJsonWorld { territory: Some((&terr, &custom)), ..empty_world() });
+        assert!(s.contains(r#""religion":"sea_lords","religionName":"Church of the Tide""#), "{s}");
+        let plain = [GeoFaction { fid: 1, name: "Aurelia", religion: "sea_lords", religion_name: None }];
+        let s = export_geojson(&GeoJsonWorld { territory: Some((&terr, &plain)), ..empty_world() });
+        assert!(s.contains(r#""religion":"sea_lords""#));
+        assert!(!s.contains("religionName"), "a built-in religion writes no religionName key");
     }
 
     /// A province raster whose length doesn't match `gw*gh` is ignored
@@ -571,7 +606,7 @@ mod tests {
             }
             t
         };
-        let fs = [GeoFaction { fid: 1, name: "Aurelia", religion: "none" }];
+        let fs = [GeoFaction { fid: 1, name: "Aurelia", religion: "none", religion_name: None }];
         let pts = [(0.0, 0.0), (1.0, 1.0)];
         let places = [GeoPlace { x: 1.0, y: 1.0, name: "P", kind: "ruin", is_poi: true, pop: 0,
                                  faction: 0, faction_name: "", traits: &[] }];
