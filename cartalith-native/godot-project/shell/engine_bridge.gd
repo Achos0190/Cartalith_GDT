@@ -61,6 +61,10 @@ signal project_saved(path: String) ## A `.zip` was written.
 ## Deliberately not `generation_finished` -- see `landmark_run()` far below
 ## for why a pass that changes no world state must not fire that one.
 signal landmark_finished(result: Dictionary)
+## A viewshed refine finished (Ruling AT), carrying `landmark_refine_status()`
+## read on the main thread afterwards. Its own signal for `landmark_finished`'s
+## reason: it changes no world state, so `generation_finished` is wrong too.
+signal landmark_refine_finished(result: Dictionary)
 ## The raster layer stack was **accepted** -- visibility, opacity, blend mode or
 ## order (`GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10). Two surfaces edit one stack
 ## (CARTO ▸ Layers ▸ Terrain raster, and the right dock's appended Layers
@@ -5912,6 +5916,60 @@ func _finish_landmark() -> void:
 	## Read AFTER `generating` is cleared, on the main thread: this one does
 	## build a Dictionary, so it may not run anywhere but here.
 	landmark_finished.emit(world_gen.landmark_last_run())
+
+## **Ruling AT's manual viewshed refine** -- the higher-fidelity visibility
+## analysis over one cell rectangle (the current view), stored with the project
+## and read by the next landmark pass where it is still fresh. Threaded and
+## `await`ed exactly as `landmark_run()` is, and for the same reason (a large
+## view is seconds of work; the same `generating` flag keeps it off a
+## mutably-borrowed `WorldGen`). Returns `landmark_refine_status()` as it stands
+## after the attempt, plus `ok`/`error` for the attempt itself -- so a refusal
+## (`ok: false`, `error` says why) leaves the previous result and its state
+## visible in the same dictionary.
+##
+## **Every caller must `await` this**; the two refusals return without
+## reaching the `await`, which passes a plain value straight through.
+var _refine_rect := Rect2i()
+func landmark_refine_view(x: int, y: int, w: int, h: int) -> Dictionary:
+	if generating:
+		return {"ok": false, "state": "never", "error": "A world generation is already running."}
+	if not _has("landmark_refine_view") or not _has("landmark_refine_status"):
+		return {"ok": false, "state": "never", "error": "This build's extension has no viewshed refine."}
+	_refine_rect = Rect2i(x, y, w, h)
+	generating = true
+	_thread = Thread.new()
+	_thread.start(_landmark_refine_worker)
+	return await landmark_refine_finished
+
+## Runs off the main thread: primitives in, a bool out, no Godot value built --
+## `_landmark_worker`'s contract. The reply is read on the main thread.
+func _landmark_refine_worker() -> void:
+	world_gen.landmark_refine_view(_refine_rect.position.x, _refine_rect.position.y,
+		_refine_rect.size.x, _refine_rect.size.y)
+	_finish_landmark_refine.call_deferred()
+
+func _finish_landmark_refine() -> void:
+	_thread.wait_to_finish()
+	_thread = null
+	generating = false
+	landmark_refine_finished.emit(world_gen.landmark_refine_status())
+
+## The refined viewshed's state now, judged against the live world by content
+## key: `{state, ok, error[, observers, radius_cells, radius_km, x, y, w, h]}`
+## with `state` one of `never` / `fresh` / `stale_terrain` / `stale_observers` /
+## `stale_both`. The geometry keys are absent for `never`. `{}` while a pass
+## holds the engine or on a build without it -- callers treat that as "unknown",
+## not as "never refined".
+func landmark_refine_status() -> Dictionary:
+	if generating or not _has("landmark_refine_status"):
+		return {}
+	return world_gen.landmark_refine_status()
+
+## Drops the stored refined viewshed (back to the coarse field).
+func landmark_refine_clear() -> void:
+	if generating or not _has("landmark_refine_clear"):
+		return
+	world_gen.landmark_refine_clear()
 
 ## The last `landmark_run()`'s placements: `[{id,kind,class,x,y,elevation,
 ## score,importance,causal:Array}, …]`.

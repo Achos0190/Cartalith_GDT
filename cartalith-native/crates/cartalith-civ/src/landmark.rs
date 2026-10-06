@@ -90,6 +90,11 @@ use cartalith_terrain::analysis;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 
+pub mod refined_view;
+pub use refined_view::{
+    RefineError, RefineStatus, RefinedViewshed, ViewRect, REFINE_MAX_CELLS,
+};
+
 // ===========================================================================
 // §23 — hierarchical landmark classes
 // ===========================================================================
@@ -1051,6 +1056,21 @@ pub struct LandmarkStore {
     /// and by [`invalidate`](LandmarkStore::invalidate) (once `last` is
     /// `None` there is no standing result left to call stale).
     pub icon_placed_since_run: bool,
+    /// **Ruling AT's refined viewshed**: the last result of the manual
+    /// "refine viewshed for the current view" action, or `None` for never
+    /// refined. Persisted in `entities/landmarks.json`
+    /// (`SAVEFILE_COMPAT.md` Â§9.8) as an optional member.
+    ///
+    /// **Deliberately NOT cleared by [`invalidate`](LandmarkStore::invalidate).**
+    /// The ruling says a regenerate or a sculpt marks the result *stale and
+    /// falls back to the coarse one*, not that it is deleted: it must still be
+    /// there to be reported "stale" and saved. What makes it stale is not an
+    /// event but a **content key** over the inputs it was computed from
+    /// ([`RefinedViewshed::status`]), so a stale result can never be consumed
+    /// whichever path changed the world, and no call site has to remember to
+    /// flag it. The shell clears it only when a different project is loaded
+    /// (`load_save`), where the old one has nothing to be stale *of*.
+    pub refined_view: Option<RefinedViewshed>,
 }
 
 impl LandmarkStore {
@@ -1060,8 +1080,17 @@ impl LandmarkStore {
     }
 
     /// Run the pass and retain the result.
+    ///
+    /// The store's own [`refined_view`](Self::refined_view) is lent to the
+    /// pass when it is `Some`, and [`Derived::build`] applies it only if it is
+    /// fresh against `inputs`; otherwise whatever `inputs.refined_view` already
+    /// held (normally `None`) is used.
     pub fn run(&mut self, inputs: &LandmarkInputs<'_>, world_seed: u64) -> &LandmarkResult {
-        let r = generate(inputs, &self.settings, world_seed);
+        let mut lent: LandmarkInputs<'_> = inputs.clone();
+        if let Some(rv) = self.refined_view.as_ref() {
+            lent.refined_view = Some(rv);
+        }
+        let r = generate(&lent, &self.settings, world_seed);
         self.last = Some(r);
         self.icon_placed_since_run = false;
         self.last.as_ref().expect("just assigned")
@@ -1336,6 +1365,15 @@ pub struct LandmarkInputs<'a> {
     /// separate Historic battlefield from this, and that kind's own
     /// `not_built` reason says why it is not drawn.
     pub battles: &'a [BattleMark],
+    /// **Ruling AT's refined viewshed** (2026-09-24), `None` unless the owner ran
+    /// the manual "refine viewshed for the current view" action and the store
+    /// still holds the result. [`Derived::build`] overlays it on the coarse
+    /// field for the cells it covers **only when it is fresh**
+    /// ([`RefinedViewshed::status`] against these very inputs); a stale one is
+    /// ignored and the coarse field stands. `None` is every test and every
+    /// caller predating the ruling, and then nothing moves: the coarse pass is
+    /// byte-identical.
+    pub refined_view: Option<&'a RefinedViewshed>,
 }
 
 /// `RESOURCE_KEYS` entries a Mine is generated from — the metallic and
@@ -1403,6 +1441,7 @@ impl<'a> LandmarkInputs<'a> {
             manual_icons: &[],
             ways: &[],
             battles: &[],
+            refined_view: None,
         }
     }
 
@@ -1629,6 +1668,12 @@ struct Derived {
     /// after both clamps. Stored rather than recomputed, so the number a
     /// causal chain quotes is the number the field was built at.
     r_view: i64,
+    /// Ruling AT: the rectangle and horizon (cells) of a **fresh** refined
+    /// viewshed that was overlaid on [`vis`](Self::vis), or `None` when the
+    /// coarse field stands everywhere. Cells inside the rectangle read the
+    /// refined horizon, everything else [`r_view`](Self::r_view) — see
+    /// [`view_reach_label`](Self::view_reach_label).
+    refined: Option<(refined_view::ViewRect, i64)>,
 }
 
 impl Derived {
@@ -1703,6 +1748,25 @@ impl Derived {
         } else {
             Vec::new()
         };
+        // Ruling AT: lay a **fresh** refined viewshed over the coarse field for
+        // the cells it covers. Three gates, each one a way to get this wrong:
+        //  * `vis` non-empty — with no observers the field is deliberately
+        //    absent (`NoTerrain`), and a refined result must not conjure one;
+        //  * `need.viewshed` — `vis` is only ever built for it;
+        //  * `status == Fresh` against these very inputs — checked here, at the
+        //    one place the overlay is applied, so no caller can feed a stale
+        //    result by forgetting to check. Stale falls back to coarse.
+        let mut vis = vis;
+        let mut refined = None;
+        if let Some(rv) = inp.refined_view {
+            if need.viewshed
+                && !vis.is_empty()
+                && rv.status(inp) == refined_view::RefineStatus::Fresh
+            {
+                rv.overlay_onto(&mut vis, gw);
+                refined = Some((rv.rect, rv.radius_cells));
+            }
+        }
         Derived {
             slope: if need.slope { analysis::slope(inp.field, gw, gh) } else { Vec::new() },
             // §5: curvature is evaluated after a blur, never on the raw field,
@@ -1722,7 +1786,23 @@ impl Derived {
             r_fine,
             r_broad,
             r_view,
+            refined,
         }
+    }
+
+    /// The viewshed horizon a causal chain should quote for cell `i`, as the
+    /// text it prints: `"40 km"` from the coarse field, and `"40 km (refined)"`
+    /// where a fresh refined viewshed (Ruling AT) supplied this cell's value.
+    /// The coarse branch is exactly the old
+    /// `fmt_km(r_view as f64 * cell_km)`, so a world never refined prints what
+    /// it always did.
+    fn view_reach_label(&self, i: usize, gw: usize, cell_km: f64) -> String {
+        if let Some((rect, r)) = self.refined {
+            if gw > 0 && rect.contains(i % gw, i / gw) {
+                return format!("{} (refined)", fmt_km(r as f64 * cell_km));
+            }
+        }
+        fmt_km(self.r_view as f64 * cell_km)
     }
 
     /// Slope at cell `i`; 0.0 where the raster was not built or `i` is out of range.
@@ -1781,16 +1861,44 @@ impl Derived {
 /// are strided to whatever the settlements leave, so a crowded world loses
 /// road detail before it loses towns.
 fn view_observers(inp: &LandmarkInputs<'_>) -> Vec<analysis::ViewObserver> {
+    view_observers_with(inp, VIEW_WAY_SAMPLE_KM, VIEW_WAY_WEIGHT, VIEW_OBSERVER_CAP, None)
+}
+
+/// [`view_observers`] with its three tunables and an optional reach filter
+/// exposed: the one body both the coarse pass and Ruling AT's refined pass
+/// ([`refined_view`]) build their observer sets from, so the refined set is
+/// the coarse set's rules at a finer sample and not a second implementation
+/// that could drift.
+///
+/// `way_sample_km`, `way_weight` and `cap` are [`VIEW_WAY_SAMPLE_KM`],
+/// [`VIEW_WAY_WEIGHT`] and [`VIEW_OBSERVER_CAP`] for the coarse pass. `reach`,
+/// when `Some`, keeps only observers within that Chebyshev distance (cells) of
+/// the given rectangle, the observers that can possibly light one of its
+/// cells, **before** the stride, so the cap is spent on observers that matter
+/// to the view rather than on the whole map. `None` is the coarse pass and
+/// changes nothing; `view_observers` delegating here is what keeps the default
+/// byte-identical.
+fn view_observers_with(
+    inp: &LandmarkInputs<'_>,
+    way_sample_km: f64,
+    way_weight: f32,
+    cap: usize,
+    reach: Option<(&refined_view::ViewRect, i64)>,
+) -> Vec<analysis::ViewObserver> {
     let (gw, gh) = (inp.gw, inp.gh);
     let cell_km = inp.cell_km();
+    let in_reach = |x: usize, y: usize| match reach {
+        None => true,
+        Some((rect, r)) => rect.within_reach(x, y, r, gw, gh, inp.world),
+    };
     let towns: Vec<analysis::ViewObserver> = inp
         .settlements
         .iter()
-        .filter(|s| s.x < gw && s.y < gh)
+        .filter(|s| s.x < gw && s.y < gh && in_reach(s.x, s.y))
         .map(|s| analysis::ViewObserver { x: s.x, y: s.y, weight: 1.0 })
         .collect();
     let mut road: Vec<analysis::ViewObserver> = Vec::new();
-    let step = if cell_km > 0.0 { (VIEW_WAY_SAMPLE_KM / cell_km).max(1.0) } else { 1.0 };
+    let step = if cell_km > 0.0 { (way_sample_km / cell_km).max(1.0) } else { 1.0 };
     for w in inp.ways {
         if w.hidden || w.pts.len() < 2 {
             continue;
@@ -1838,16 +1946,19 @@ fn view_observers(inp: &LandmarkInputs<'_>) -> Vec<analysis::ViewObserver> {
                 } else if x < 0 || x >= gw as i64 {
                     continue;
                 }
+                if !in_reach(x as usize, y.floor() as usize) {
+                    continue;
+                }
                 road.push(analysis::ViewObserver {
                     x: x as usize,
                     y: y.floor() as usize,
-                    weight: VIEW_WAY_WEIGHT,
+                    weight: way_weight,
                 });
             }
         }
     }
-    let mut out = stride_to(towns, VIEW_OBSERVER_CAP);
-    let room = VIEW_OBSERVER_CAP.saturating_sub(out.len());
+    let mut out = stride_to(towns, cap);
+    let room = cap.saturating_sub(out.len());
     out.append(&mut stride_to(road, room));
     out
 }
@@ -3509,7 +3620,6 @@ fn pool_peak(c: &Ctx<'_>) -> Option<Pool> {
     }
     let gw = c.inp.gw;
     let has_view = !c.d.vis.is_empty();
-    let view_km = c.d.r_view as f64 * c.cell_km;
     let mut p = Pool::new();
     let (mut t_p, mut t_e, mut t_t, mut t_v) = (vec![], vec![], vec![], vec![]);
     for i in 0..c.n {
@@ -3539,7 +3649,7 @@ fn pool_peak(c: &Ctx<'_>) -> Option<Pool> {
             let vis = c.d.vis(i);
             facts.push(format!(
                 "overlooks settlements and roads within {}, at observer weight {:.1}",
-                fmt_km(view_km),
+                c.d.view_reach_label(i, gw, c.cell_km),
                 vis
             ));
             t_v.push(vis as f32);
@@ -4310,7 +4420,6 @@ fn pool_military(c: &Ctx<'_>, role: Garrison) -> Option<Pool> {
     }
     let gw = c.inp.gw;
     let reach = c.cells(GARRISON_REACH_KM, GARRISON_REACH_MAX_CELLS);
-    let view_km = c.d.r_view as f64 * c.cell_km;
     let terms: &[(&'static str, f64); 6] = match role {
         Garrison::Fort => &FORT_TERMS,
         Garrison::Watch => &WATCHTOWER_TERMS,
@@ -4395,7 +4504,7 @@ fn pool_military(c: &Ctx<'_>, role: Garrison) -> Option<Pool> {
             format!("stands {} above its surroundings", fmt_m(tpi_m)),
             format!(
                 "in view of settlements and roads within {}, at observer weight {:.1}",
-                fmt_km(view_km),
+                c.d.view_reach_label(i, gw, c.cell_km),
                 vis
             ),
         ];
@@ -4451,7 +4560,6 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
     }
     let gw = c.inp.gw;
     let (vmin, vmax) = sep_min_max(vol, gw, c.inp.gh, c.d.r_fine, c.inp.world);
-    let view_km = c.d.r_view as f64 * c.cell_km;
     let mut p = Pool::new();
     let (mut t_v, mut t_s, mut t_t) = (vec![], vec![], vec![]);
     for i in 0..c.n {
@@ -4484,7 +4592,7 @@ fn pool_volcanic(c: &Ctx<'_>) -> Option<Pool> {
                 format!("stands {} above its surroundings", fmt_m(tpi_m)),
                 format!(
                     "in view of settlements and roads within {}, at observer weight {:.1}",
-                    fmt_km(view_km),
+                    c.d.view_reach_label(i, gw, c.cell_km),
                     vis
                 ),
             ],
@@ -4536,7 +4644,6 @@ fn pool_border_marker(c: &Ctx<'_>) -> Option<Pool> {
     }
     let gw = c.inp.gw;
     let has_settle = !c.inp.settlements.is_empty();
-    let view_km = c.d.r_view as f64 * c.cell_km;
     let mut p = Pool::new();
     let mut t_v: Vec<f32> = Vec::new();
     let mut t_s: Vec<f32> = Vec::new();
@@ -4560,7 +4667,7 @@ fn pool_border_marker(c: &Ctx<'_>) -> Option<Pool> {
             format!("boundary between faction {} and faction {}", owner, territory[j]),
             format!(
                 "in view of settlements and roads within {}, at observer weight {:.1}",
-                fmt_km(view_km),
+                c.d.view_reach_label(i, gw, c.cell_km),
                 vis
             ),
         ];

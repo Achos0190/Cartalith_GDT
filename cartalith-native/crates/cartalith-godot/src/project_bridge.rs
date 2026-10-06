@@ -1361,6 +1361,110 @@ struct LandmarksDoc {
     settings: LandmarkSettingsDto,
     #[serde(skip_serializing_if = "Option::is_none")]
     results: Option<LandmarkRunDto>,
+    /// Ruling AT's refined viewshed, as a loose JSON value so a malformed
+    /// member costs only itself (see [`RefinedViewshedDto`]). **Absent means
+    /// never refined**: `skip_serializing_if` writes nothing for `None`, so a
+    /// project that was never refined, and every document written before this
+    /// member existed, re-serialises byte-identically.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    viewshed_refined: Option<serde_json::Value>,
+}
+
+/// The stored refined viewshed (Ruling AT) as `entities/landmarks.json`'s
+/// optional `viewshed_refined` member carries it. `SAVEFILE_COMPAT.md` §9.8.
+///
+/// * **Keys are 16-digit lowercase hex strings**, not numbers: a 64-bit hash
+///   written as a JSON number would pass `Number.MAX_SAFE_INTEGER` (2^53) and
+///   be silently rounded by any JavaScript reader, which is the bug
+///   `the_landmark_document_writes_no_integer_past_2_53` exists to forbid.
+/// * **`cells` is run-length encoded** as `[run, value]` pairs, row-major over
+///   the rectangle. The field is mostly zero (most cells see no observer) and
+///   a 2048x1024 view would otherwise write two million numbers; a run is
+///   consecutive cells with bit-identical `f32` values. The sum of the runs
+///   must equal `w * h`.
+/// * **Values are the raw accumulated observer weights**, lossless `f32`
+///   (serde_json writes the shortest text that parses back to the same
+///   `f32`), so a saved result re-reads bit-identically.
+/// * **No member of this DTO is defaulted**: it is decoded from a loose
+///   `serde_json::Value` ([`decode_viewshed_refined`]) so that a malformed
+///   member costs only itself, never the settings and placements beside it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RefinedViewshedDto {
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+    radius_cells: i64,
+    observers: usize,
+    terrain_key: String,
+    observer_key: String,
+    cells: Vec<(u32, f32)>,
+}
+
+/// Encode a stored refined viewshed as the document member's JSON value.
+///
+/// Never fails: every field is a plain number or string. The RLE compares
+/// `f32::to_bits` so `0.0` and `-0.0` stay distinct and a restored field is
+/// bit-identical.
+fn encode_viewshed_refined(rv: &cartalith_civ::landmark::RefinedViewshed) -> serde_json::Value {
+    let mut cells: Vec<(u32, f32)> = Vec::new();
+    for &v in &rv.vis {
+        match cells.last_mut() {
+            Some((run, last)) if last.to_bits() == v.to_bits() && *run < u32::MAX => *run += 1,
+            _ => cells.push((1, v)),
+        }
+    }
+    let (terrain_key, observer_key) = rv.keys_hex();
+    serde_json::to_value(RefinedViewshedDto {
+        x: rv.rect.x,
+        y: rv.rect.y,
+        w: rv.rect.w,
+        h: rv.rect.h,
+        radius_cells: rv.radius_cells,
+        observers: rv.observers,
+        terrain_key,
+        observer_key,
+        cells,
+    })
+    .expect("a struct of numbers and strings serialises")
+}
+
+/// Decode the document member back into a [`RefinedViewshed`], or say why
+/// it was refused (`Err`, for the loader's warning). Trusts nothing: wrong
+/// types, a rectangle that does not lie inside this archive's `gw x gh` grid,
+/// a malformed key, a zero run, runs that do not sum to `w * h`, or a
+/// non-finite or negative weight all drop the member and the project opens as
+/// "never refined". A *stale* result is not an error here — staleness is
+/// judged later against the live world by content key.
+fn decode_viewshed_refined(
+    v: &serde_json::Value,
+    gw: usize,
+    gh: usize,
+) -> Result<cartalith_civ::landmark::RefinedViewshed, String> {
+    use cartalith_civ::landmark::{RefinedViewshed, ViewRect, REFINE_MAX_CELLS};
+    let dto: RefinedViewshedDto = serde_json::from_value(v.clone()).map_err(|e| e.to_string())?;
+    let rect = ViewRect { x: dto.x, y: dto.y, w: dto.w, h: dto.h };
+    if !rect.fits(gw, gh) {
+        return Err(format!("rectangle {}x{} at ({},{}) is not inside the {gw}x{gh} grid", dto.w, dto.h, dto.x, dto.y));
+    }
+    if rect.area() > REFINE_MAX_CELLS {
+        return Err("rectangle larger than the refine cap".to_string());
+    }
+    let terrain_key = RefinedViewshed::parse_key(&dto.terrain_key).ok_or("malformed terrain_key")?;
+    let observer_key = RefinedViewshed::parse_key(&dto.observer_key).ok_or("malformed observer_key")?;
+    let mut vis: Vec<f32> = Vec::with_capacity(rect.area());
+    for (run, value) in &dto.cells {
+        if *run == 0 {
+            return Err("a zero-length run".to_string());
+        }
+        // Bound before extending so a hostile run cannot allocate gigabytes.
+        if vis.len() + *run as usize > rect.area() {
+            return Err("runs sum to more than w * h".to_string());
+        }
+        vis.resize(vis.len() + *run as usize, *value);
+    }
+    RefinedViewshed::from_parts(rect, dto.radius_cells, dto.observers, terrain_key, observer_key, vis)
+        .ok_or_else(|| "cells disagree with the rectangle, or hold a non-finite or negative weight".to_string())
 }
 
 /// One `landmark_run()`'s output, as the archive carries it.
@@ -3100,6 +3204,7 @@ impl WorldGen {
             &LandmarksDoc {
                 settings: LandmarkSettingsDto::from(&self.landmark_store.settings),
                 results: self.landmark_store.last.as_ref().map(LandmarkRunDto::from),
+                viewshed_refined: self.landmark_store.refined_view.as_ref().map(encode_viewshed_refined),
             },
         );
 
@@ -3432,6 +3537,21 @@ impl WorldGen {
             // dimensions it has just set. `load_save` reached on its own (a
             // flat reference archive, an HTML-app export) restores nothing
             // here and keeps the cleared store, which is still right for it.
+            // Ruling AT: the refined viewshed rides in the same document but is
+            // its own restore, so a malformed member drops itself only. Whether
+            // it is still *true* of the world is not decided here: the content
+            // keys are compared against the live inputs when it is next read.
+            if let Some(v) = doc.viewshed_refined.as_ref() {
+                match decode_viewshed_refined(v, self.gw.max(0) as usize, self.gh.max(0) as usize) {
+                    Ok(rv) => {
+                        self.landmark_store.refined_view = Some(rv);
+                        restored.push("refined viewshed");
+                    }
+                    Err(why) => restore_warnings.push(format!(
+                        "{SLOT_LANDMARKS}: refined viewshed dropped ({why}); it will read as never refined"
+                    )),
+                }
+            }
             if let Some(run) = doc.results {
                 let rows = run.landmarks.len();
                 let result = run.into_result(
@@ -6747,6 +6867,7 @@ mod tests {
         let doc = LandmarksDoc {
             settings: LandmarkSettingsDto::from(&tuned),
             results: None,
+            viewshed_refined: None,
         };
         let text = serde_json::to_string(&doc).expect("serializes");
         // A store that has never run writes no `results` member at all --
@@ -6774,6 +6895,7 @@ mod tests {
         let doc = LandmarksDoc {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: Some(LandmarkRunDto::from(&r)),
+            viewshed_refined: None,
         };
         let text = serde_json::to_string_pretty(&doc).expect("serializes");
         let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
@@ -6841,6 +6963,7 @@ mod tests {
         let doc = LandmarksDoc {
             settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
             results: Some(LandmarkRunDto::from(&r)),
+            viewshed_refined: None,
         };
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&doc).expect("serializes")).unwrap();
@@ -6902,6 +7025,115 @@ mod tests {
         let again = serde_json::to_string(&back).unwrap();
         assert!(!again.contains("results"), "{again}");
         assert_eq!(back.settings.into_settings(), tuned, "the settings did not survive");
+    }
+
+
+    /// A refined viewshed fixture with the shape that matters to the RLE: long
+    /// zero runs, a run of one, negative-zero's bit pattern kept apart from
+    /// `0.0`, and a fractional value that only a lossless `f32` text keeps.
+    fn sample_refined() -> cartalith_civ::landmark::RefinedViewshed {
+        use cartalith_civ::landmark::{RefinedViewshed, ViewRect};
+        let (w, h) = (7usize, 5usize);
+        let mut vis = vec![0.0f32; w * h];
+        vis[3] = 1.0 / 3.0;
+        vis[4] = 1.0 / 3.0;
+        vis[5] = 2.5;
+        vis[20] = -0.0; // bit-distinct from the 0.0 on both sides of it
+        vis[34] = 0.1;
+        RefinedViewshed::from_parts(
+            ViewRect { x: 11, y: 4, w, h },
+            40,
+            23,
+            0xfedc_ba98_7654_3210,
+            0x0123_4567_89ab_cdef,
+            vis,
+        )
+        .expect("a consistent fixture")
+    }
+
+    /// Protects: Ruling AT's "saved with the project". A stored refined
+    /// viewshed survives encode -> JSON text -> decode **bit-identically** --
+    /// rectangle, horizon, observer count, both content keys (as hex, above
+    /// 2^53) and every cell including the sign of zero -- and the RLE really
+    /// is run-length (a mostly-zero view must not write one entry per cell).
+    #[test]
+    fn a_refined_viewshed_survives_the_document_bit_for_bit() {
+        let rv = sample_refined();
+        let doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: None,
+            viewshed_refined: Some(encode_viewshed_refined(&rv)),
+        };
+        let text = serde_json::to_string_pretty(&doc).expect("serializes");
+        assert!(text.contains("\"fedcba9876543210\"") && text.contains("\"0123456789abcdef\""), "{text}");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        let value = back.viewshed_refined.expect("the member is in the document");
+        let cells = value["cells"].as_array().expect("cells is an array");
+        assert!(cells.len() < rv.vis.len() / 2, "{} entries for {} cells: not run-length", cells.len(), rv.vis.len());
+        let out = decode_viewshed_refined(&value, 64, 64).expect("decodes");
+        assert_eq!(out.rect, rv.rect);
+        assert_eq!((out.radius_cells, out.observers), (rv.radius_cells, rv.observers));
+        assert_eq!((out.terrain_key, out.observer_key), (rv.terrain_key, rv.observer_key));
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&out.vis), bits(&rv.vis), "a cell changed through the document");
+    }
+
+    /// Protects: "absent means never refined; old files re-serialise
+    /// byte-identically". A document with no `viewshed_refined` member --
+    /// every file written before Ruling AT, and every project never refined --
+    /// parses to `None` and writes back **the same bytes**, and a store
+    /// without a result writes no such member.
+    #[test]
+    fn a_document_without_a_refined_viewshed_round_trips_byte_identically() {
+        let doc = LandmarksDoc {
+            settings: LandmarkSettingsDto::from(&cartalith_civ::landmark::LandmarkSettings::default()),
+            results: None,
+            viewshed_refined: None,
+        };
+        let text = serde_json::to_string_pretty(&doc).expect("serializes");
+        assert!(!text.contains("viewshed_refined"), "an absent member was written: {text}");
+        let back: LandmarksDoc = serde_json::from_str(&text).expect("parses");
+        assert!(back.viewshed_refined.is_none());
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), text, "an old document did not re-serialise identically");
+    }
+
+    /// Protects: §6.4a "untrusted input costs the member, not the document".
+    /// Each way a stored member can be wrong -- off the grid, a malformed or
+    /// short key, a run that is zero, runs that do not sum to `w * h`, a
+    /// negative or non-finite weight, a wrong type -- is refused with a
+    /// reason, and the same document's `settings` still parse. The positive
+    /// control (the unmodified fixture decodes) keeps "everything fails"
+    /// from passing as success.
+    #[test]
+    fn a_malformed_refined_viewshed_costs_only_itself() {
+        let good = encode_viewshed_refined(&sample_refined());
+        assert!(decode_viewshed_refined(&good, 64, 64).is_ok(), "the control must decode");
+        let mutate = |f: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = good.clone();
+            f(&mut v);
+            v
+        };
+        let bad: Vec<(&str, serde_json::Value, usize, usize)> = vec![
+            ("off the grid", good.clone(), 12, 64),
+            ("short key", mutate(&|v| v["terrain_key"] = "abc".into()), 64, 64),
+            ("non-hex key", mutate(&|v| v["observer_key"] = "zzzzzzzzzzzzzzzz".into()), 64, 64),
+            ("zero run", mutate(&|v| v["cells"][0][0] = 0.into()), 64, 64),
+            ("runs too long", mutate(&|v| v["cells"][0][0] = 99.into()), 64, 64),
+            ("runs too short", mutate(&|v| v["cells"] = serde_json::json!([[3, 0.0]])), 64, 64),
+            ("negative weight", mutate(&|v| v["cells"][1][1] = (-1.0).into()), 64, 64),
+            ("wrong type", mutate(&|v| v["w"] = "seven".into()), 64, 64),
+            ("not an object", serde_json::json!([1, 2, 3]), 64, 64),
+        ];
+        for (name, v, gw, gh) in &bad {
+            assert!(decode_viewshed_refined(v, *gw, *gh).is_err(), "{name} was accepted");
+        }
+        // The same document with a hostile member still gives its settings back.
+        let doc: LandmarksDoc = serde_json::from_str(
+            r#"{"settings":{},"viewshed_refined":{"x":"nonsense"}}"#,
+        )
+        .expect("a bad refined member must not fail the whole document");
+        assert!(doc.viewshed_refined.is_some());
+        assert!(decode_viewshed_refined(doc.viewshed_refined.as_ref().unwrap(), 64, 64).is_err());
     }
 
     /// The three ways a row can be untrusted, each costing the row and not

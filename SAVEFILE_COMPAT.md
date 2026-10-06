@@ -1484,6 +1484,43 @@ already lets an older reader carry.
 - **Stored twice when the POI icon pass has run**: each landmark it placed as a
   glyph is also a `poi` row with `"origin": "generated"` in
   `annotations/icons.json` (§11.2, §17).
+- **`viewshed_refined` — optional, added 2026-10-06 (Ruling AT).** The result
+  of `Atlas cache ▸ Refine viewshed for the current view`: the landmark pass's
+  visibility analysis re-run at higher fidelity over one rectangle of the grid.
+  **Absent means never refined**, and a document with no such member (every
+  file written before 2026-10-06, and every project that was never refined)
+  re-serialises byte-identically; no `format_version` change. Shape:
+
+  ```json
+  "viewshed_refined": {
+    "x": 96, "y": 72, "w": 192, "h": 144,
+    "radius_cells": 31, "observers": 844,
+    "terrain_key": "9c1d0e5a7b3f2a41", "observer_key": "02b8f4d6c0a79e13",
+    "cells": [[20413, 0.0], [3, 0.4], [1, 0.0]]
+  }
+  ```
+
+  (Values illustrative.) `x,y,w,h` is the half-open grid rectangle;
+  `radius_cells` the horizon the refine ran with; `cells` is the visibility
+  field over that rectangle, **row-major, run-length encoded as `[run, value]`
+  pairs** (runs of bit-identical `f32`, run sum must equal `w*h`; values are the
+  raw accumulated observer weights, lossless). The two **keys are 16-digit
+  lowercase hex strings** (FNV-1a-64), not JSON numbers, because a 64-bit value
+  past 2^53 is silently rounded by a JavaScript reader.
+  **Staleness is a content hash, not a flag**: `terrain_key` hashes the height
+  cells the pass read (the rectangle plus its horizon margin) and `observer_key`
+  the observer set and the physics it ran with; on open and on every pass the
+  engine recomputes both against the live world, and a result whose keys differ
+  is *stale*. Scoring reads a refined result only for the rectangle it covers
+  and only when it is fresh; a stale one is kept (so Refine can be re-run to
+  renew it and the status line can say why) but the coarse result is used.
+  On open, a member that is not a well-formed result for this archive's grid
+  (wrong types, rectangle outside the grid, malformed key, runs that do not
+  sum, a negative or non-finite weight) is dropped with a warning and the
+  project opens as "never refined"; it never costs `settings` or `results`.
+  **Normalisation seam (disclosed):** the scorer normalises per pool, so a
+  refined area's magnitudes and the coarse area's are comparable but not
+  identical at the rectangle's edge.
 
 ### 9.9 `entities/religions.json`
 

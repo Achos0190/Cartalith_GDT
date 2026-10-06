@@ -494,7 +494,15 @@ built** — where each piece stands is `cartalith-native/docs/STATUS.md`'s.
    Ruling AP does not say whether ruling 16's manual refine action still
    stands, and ruling 16 itself left open whether a refined result is
    view-scoped or whole-world and whether it persists (which touches
-   question 1).
+   question 1). **Answered by Ruling AT (2026-09-24):** the refine covers the
+   current view only, sits beside `Refine detail for the current view`, is
+   saved with the project in `entities/landmarks.json` (the optional
+   `viewshed_refined` member, `SAVEFILE_COMPAT.md` §9.8), and falls back to the
+   coarse result when stale. Its fidelity choices (a 40 km horizon clamped to
+   416 cells, roads sampled every 4 km at 4/10 weight, an observer cap of 1024
+   further bounded by a 4e8-step budget, a 2048² rectangle cap) and the content-hash staleness
+   key are documented at `cartalith-civ/src/landmark/refined_view.rs`'s module
+   doc. Status is `STATUS.md`'s.
 6. **How does a generated landmark relate to the existing manual icon tool?**
    A user can already hand-place a `family: "feature"` icon (e.g. `slot:
    "mountain"`) via `annotations/icons.json` (`SAVEFILE_COMPAT.md` §11.2).

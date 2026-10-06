@@ -6440,6 +6440,13 @@ struct WorldGen {
     /// thread. Not saved: it describes one press, not the world.
     landmark_error: String,
 
+    /// Why the last `landmark_refine_view()` refused, empty when it did not.
+    ///
+    /// A plain `String` for `landmark_error`'s reason: the refine runs on the
+    /// shell's worker thread and may not build a Godot value there. Read back
+    /// by `landmark_refine_status()` on the main thread. Not saved.
+    landmark_refine_error: String,
+
     /// Why the last `region_new_world()` refused, empty when it did not.
     ///
     /// A plain `String` for exactly `landmark_error`'s reason, one field up:
@@ -6728,6 +6735,7 @@ impl IRefCounted for WorldGen {
             conflicts: cartalith_civ::conflict::ConflictStore::new(),
             carried_foreign: std::collections::BTreeMap::new(),
             landmark_error: String::new(),
+            landmark_refine_error: String::new(),
             region_error: String::new(),
             // Meaningless before the first world -- `world_key()` returns the
             // empty string while `gw`/`gh` are 0 and never reaches the
@@ -9337,6 +9345,13 @@ impl WorldGen {
         // last world's landmarks over it. Not recomputed: landmark generation
         // is its own synchronous, user-triggered pass (`landmark_run()`).
         self.landmark_store.invalidate();
+        // Ruling AT: a refined viewshed belongs to the *file* it was saved in. A
+        // regenerate (`absorb`) keeps it on purpose -- the content keys mark it
+        // stale and scoring falls back to the coarse field -- but opening a
+        // different project must not carry the previous project's result in,
+        // and `project_open` restores this file's own on top.
+        self.landmark_store.refined_view = None;
+        self.landmark_refine_error.clear();
         // SP-4: this world's conflicts belong to the file being closed;
         // `project_open` restores the archive's own on top.
         self.conflicts = cartalith_civ::conflict::ConflictStore::new();
@@ -23034,6 +23049,29 @@ impl WorldGen {
     /// of an outstanding `self.source` borrow. Not a `#[func]`, and builds
     /// nothing Godot-shaped — see the caller for why that is the rule here.
     fn landmark_run_inner(&mut self) -> Result<(), String> {
+        let seed = self.seed as u64;
+        // The store is moved out for the call so the shared input assembly can
+        // borrow `self` whole (it is `&self`); it is put back either way.
+        // Single-threaded: nothing observes the gap.
+        let mut store =
+            std::mem::replace(&mut self.landmark_store, cartalith_civ::landmark::LandmarkStore::new());
+        let out = self.with_landmark_inputs(|inputs| {
+            store.run(inputs, seed);
+        });
+        self.landmark_store = store;
+        out
+    }
+
+    /// Assembles `LandmarkInputs` from this world exactly as the pass reads
+    /// them and hands them to `f`. Shared by [`Self::landmark_run_inner`] and
+    /// the viewshed refine ([`Self::landmark_refine_view`]) so the two can
+    /// never disagree about what the world is: Ruling AT's refine must see the
+    /// same terrain, observers and way graph the pass does, or its staleness
+    /// key would never match. Not a `#[func]`; builds nothing Godot-shaped.
+    fn with_landmark_inputs<R>(
+        &self,
+        f: impl FnOnce(&cartalith_civ::landmark::LandmarkInputs<'_>) -> R,
+    ) -> Result<R, String> {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
             return Err(format!("Landmark generation needs the full world: {}.", self.full_world_refusal()));
         };
@@ -23147,10 +23185,10 @@ impl WorldGen {
         // condition every other `self.civ` input above degrades on.
         inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
         inputs.battles = &battles;
-
-        let seed = self.seed as u64;
-        self.landmark_store.run(&inputs, seed);
-        Ok(())
+        // The stored refined viewshed (Ruling AT) is deliberately NOT set here:
+        // `LandmarkStore::run` lends it itself, and `compute` must see the
+        // coarse inputs only.
+        Ok(f(&inputs))
     }
 
     /// The reply to the last [`Self::landmark_run`] — `{ok:bool, placed:int,
@@ -23234,6 +23272,129 @@ impl WorldGen {
             "caps_total" => caps_total,
             "room_estimate" => room_estimate,
             "last_placed" => last_placed,
+        }
+    }
+
+    /// The light input assembly the viewshed refine reads (Ruling AT):
+    /// terrain, grid, sea level, wrap, real width, settlements and the way
+    /// graph — and nothing else. The viewshed's keys and field depend on
+    /// exactly those (`refined_view.rs`'s module header), so this avoids
+    /// [`Self::with_landmark_inputs`]'s geology recompute, which would make a
+    /// status check on every menu open cost seconds. **It must set the same
+    /// `sites` and `ways` that function sets**, or a refined result would read
+    /// stale against the pass that consumes it; both go through
+    /// `landmark_bridge::settlement_to_site` and `CivData::ways`.
+    fn with_refine_inputs<R>(
+        &self,
+        f: impl FnOnce(&cartalith_civ::landmark::LandmarkInputs<'_>) -> R,
+    ) -> Result<R, String> {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else {
+            return Err(format!("Viewshed refine needs the full world: {}.", self.full_world_refusal()));
+        };
+        let gwu = self.gw.max(0) as usize;
+        let ghu = self.gh.max(0) as usize;
+        if gwu == 0 || ghu == 0 || ws.field.len() != gwu * ghu {
+            return Err("No world.".to_string());
+        }
+        let sites: Vec<cartalith_civ::landmark::LandmarkSite> = self
+            .civ
+            .as_ref()
+            .map(|civ| civ.settlements.iter().map(landmark_bridge::settlement_to_site).collect())
+            .unwrap_or_default();
+        let mut inputs = cartalith_civ::landmark::LandmarkInputs::new(
+            &ws.field, gwu, ghu, self.sea_level, self.world, self.map_width_km,
+        );
+        if self.params.peak_m > 0.0 {
+            inputs.peak_m = self.params.peak_m;
+        }
+        inputs.settlements = &sites;
+        inputs.ways = self.civ.as_ref().map(|c| c.ways.as_slice()).unwrap_or(&[]);
+        Ok(f(&inputs))
+    }
+
+    /// **Ruling AT's manual "refine viewshed for this view".** Re-runs the
+    /// visibility analysis at higher fidelity over the cell rectangle
+    /// `(x, y, w, h)` only and stores the result as `landmark_store.
+    /// refined_view`, to be saved with the project and read by the next
+    /// `landmark_run()` where fresh. `true` on success; `false` with the reason
+    /// in `landmark_refine_error` (read via [`Self::landmark_refine_status`]),
+    /// leaving any previously stored result untouched.
+    ///
+    /// Primitives in, primitive out, for the reason `landmark_run` documents:
+    /// the shell calls this from a worker thread (`engine_bridge.gd::
+    /// landmark_refine_view`) because a 2048-cell view at the 40 km horizon is
+    /// seconds of work, and no Godot value may be built there.
+    ///
+    /// The rectangle is the shell's `visible_grid_rect()` in cells; it is
+    /// refused rather than clamped when it does not lie inside the grid — the
+    /// shell clamps, and a silent clamp here would store a rectangle the user
+    /// did not look at.
+    #[func]
+    fn landmark_refine_view(&mut self, x: i64, y: i64, w: i64, h: i64) -> bool {
+        use cartalith_civ::landmark::{refined_view, ViewRect};
+        let outcome: Result<refined_view::RefinedViewshed, String> = if x < 0 || y < 0 || w <= 0 || h <= 0 {
+            Err(refined_view::RefineError::BadView.message())
+        } else {
+            let rect = ViewRect { x: x as usize, y: y as usize, w: w as usize, h: h as usize };
+            match self.with_refine_inputs(|inp| refined_view::compute(inp, rect)) {
+                Err(reason) => Err(reason),
+                Ok(Err(e)) => Err(e.message()),
+                Ok(Ok(rv)) => Ok(rv),
+            }
+        };
+        match outcome {
+            Ok(rv) => {
+                self.landmark_store.refined_view = Some(rv);
+                self.landmark_refine_error.clear();
+                true
+            }
+            Err(reason) => {
+                self.landmark_refine_error = reason;
+                false
+            }
+        }
+    }
+
+    /// Drops the stored refined viewshed, returning scoring to the coarse
+    /// field. The "never refined" state again; saved as the member's absence.
+    #[func]
+    fn landmark_refine_clear(&mut self) {
+        self.landmark_store.refined_view = None;
+        self.landmark_refine_error.clear();
+    }
+
+    /// The refined viewshed's state for the status line and the shell's reply
+    /// to [`Self::landmark_refine_view`]: `{state, ok, error, observers,
+    /// radius_cells, radius_km, x, y, w, h}`.
+    ///
+    /// `state` is `"never"` (nothing stored), `"fresh"`, `"stale_terrain"`,
+    /// `"stale_observers"` or `"stale_both"` (`RefineStatus::key`), judged now
+    /// against the live world by content key — so a sculpt, a regenerate or an
+    /// edited settlement shows as stale here without any event having to be
+    /// observed. `ok` is `false` when the last refine refused (`error` says
+    /// why). The geometry keys (`observers`, `radius_*`, `x`, `y`, `w`, `h`)
+    /// are **absent** when `state` is `"never"` — there is no rectangle to
+    /// report, and a `0` would read as one. Main thread only.
+    #[func]
+    fn landmark_refine_status(&self) -> VarDictionary {
+        let ok = self.landmark_refine_error.is_empty();
+        let error = self.landmark_refine_error.as_str();
+        let Some(rv) = self.landmark_store.refined_view.as_ref() else {
+            return dict! { "state" => "never", "ok" => ok, "error" => error };
+        };
+        let state = match self.with_refine_inputs(|inp| rv.status(inp)) {
+            Ok(s) => s.key(),
+            // No world at all (a loaded save with no substrate): what it read is gone.
+            Err(_) => "stale_terrain",
+        };
+        let cell_km = if self.gw > 0 { self.map_width_km / self.gw as f64 } else { 0.0 };
+        dict! {
+            "state" => state, "ok" => ok, "error" => error,
+            "observers" => rv.observers as i64,
+            "radius_cells" => rv.radius_cells,
+            "radius_km" => rv.radius_cells as f64 * cell_km,
+            "x" => rv.rect.x as i64, "y" => rv.rect.y as i64,
+            "w" => rv.rect.w as i64, "h" => rv.rect.h as i64,
         }
     }
 }

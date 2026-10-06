@@ -220,6 +220,12 @@ const ID_LOD_TILE_BORDERS := 80
 const ID_LOD_REFINE_VIEW := 81
 const ID_LOD_EXPORT_ATLAS := 82
 const ID_LOD_IMPORT_ATLAS := 83
+## `Atlas cache ▸ Refine viewshed for the current view` (Ruling AT,
+## 2026-09-24): the manual "recompute and refine" visibility pass over the
+## current view only, saved with the project. `88` by a whole-file grep of
+## `^const ID_[A-Z_]+ := [0-9]+`: `84`-`87` are the Edit clipboard block and
+## nothing between `87` and `121` was taken.
+const ID_LOD_REFINE_VIEWSHED := 88
 
 ## §2.3's `Assets ▸ Landmark types ▸` cascade
 ## (`design/landmark-generation/LANDMARK_UI_DESIGN.md` §6). A fresh 500 block:
@@ -417,6 +423,9 @@ var _light_num_popup: PopupMenu
 var _light_source_idx: int = -1
 var _atlas_popup: PopupMenu
 var _atlas_stats_idx: int = -1
+## The disabled status row under `Refine viewshed for the current view`
+## (Ruling AT): fresh / stale / never refined. `-1` until the submenu is built.
+var _viewshed_status_idx: int = -1
 ## §2.5 Memory: "Working set — read-only, `1.6 GB of 12 GB`." A disabled row
 ## refreshed in `about_to_popup`, tracked by index because it carries no id.
 var _working_set_row := -1
@@ -4429,6 +4438,21 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 	## `EXTRAS` row has been removed rather than left as a silent duplicate.
 	_atlas_popup.add_item("Refine detail for the current view", ID_LOD_REFINE_VIEW)
 	_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1, REFINE_TOOLTIP)
+	## **Ruling AT (2026-09-24): the manual viewshed refine, beside the row it
+	## is named after.** Same vocabulary and same "current view" scope as
+	## `Refine detail for the current view` above, but a different product:
+	## that bakes terrain tiles into the atlas cache, this re-runs the landmark
+	## pass's visibility analysis at higher fidelity over the view and **saves
+	## the result with the project** (`entities/landmarks.json`). It is gated on
+	## the binding, not on a pyramid being up: it needs only a world and a view.
+	if _engine_has("landmark_refine_view") and _engine_has("landmark_refine_status"):
+		_atlas_popup.add_item("Refine viewshed for the current view", ID_LOD_REFINE_VIEWSHED)
+		_atlas_popup.set_item_tooltip(_atlas_popup.item_count - 1, REFINE_VIEWSHED_TOOLTIP)
+		_viewshed_status_idx = _readout(_atlas_popup, "Viewshed: never refined", "")
+	else:
+		## `landmark_refine_view()` / `landmark_refine_status()` missing.
+		_todo(_atlas_popup, "Refine viewshed for the current view",
+			"This version of the app can't do that yet -- an update is needed to add it.")
 	_atlas_popup.add_separator()
 	## **The portable pair, wired 2026-09-01.** `atlas_export_zip(gzip)` and
 	## `atlas_import_zip(bytes)` have been bound, wrapped in
@@ -4468,6 +4492,8 @@ func _build_atlas_cache_menu(p: PopupMenu) -> void:
 			_clear_caches()
 		elif id == ID_LOD_REFINE_VIEW:
 			refine_current_view()
+		elif id == ID_LOD_REFINE_VIEWSHED:
+			refine_viewshed_for_view()
 		elif id == ID_LOD_EXPORT_ATLAS:
 			_export_atlas()
 		elif id == ID_LOD_IMPORT_ATLAS:
@@ -4557,6 +4583,7 @@ func _enforce_atlas_cap() -> int:
 func _refresh_atlas_cache_menu() -> void:
 	if _atlas_stats_idx < 0:
 		return
+	_refresh_viewshed_status()
 	## Enforce first, then read: otherwise this menu would print a size the cap
 	## is about to invalidate, which is the one thing a status readout must not
 	## do. Silent when it frees nothing.
@@ -5838,6 +5865,92 @@ func refine_current_view() -> void:
 		int(r.get("z", 0)), int(res.get("baked", 0)),
 		"" if int(res.get("baked", 0)) == 1 else "s",
 		int(res.get("skipped", 0)), float(Time.get_ticks_msec() - t0) / 1000.0], "text_dim")
+
+## Ruling AT's tooltip. States what the pass reads, where the result lives, what
+## makes it stale and what scoring does then, because the status line below it
+## is only a few words.
+const REFINE_VIEWSHED_TOOLTIP := "Re-runs the landmark pass's visibility analysis at higher fidelity over the part of the map on screen -- a longer, finer horizon and a denser road sample -- and saves the result with the project. The next Run landmark pass reads it for that area only while it is fresh. Sculpting, regenerating, or changing settlements or roads marks it stale and the pass falls back to the coarse result; refine again to renew it. Zoom in first: a view over about four million cells is refused."
+
+## The status line's text for one `landmark_refine_status()` state. Pure, so the
+## probe can read every row without a popup. `st` is the status dictionary;
+## `{}` (a pass is running, or an old build) reads as unknown, never as "never
+## refined".
+static func viewshed_status_text(st: Dictionary) -> String:
+	if st.is_empty():
+		return "Viewshed: unknown"
+	match String(st.get("state", "")):
+		"never":
+			return "Viewshed: never refined"
+		"fresh":
+			return "Viewshed: fresh (%d km horizon, %d × %d cells)" % [
+				int(round(float(st.get("radius_km", 0.0)))), int(st.get("w", 0)), int(st.get("h", 0))]
+		"stale_terrain":
+			return "Viewshed: stale -- terrain changed"
+		"stale_observers":
+			return "Viewshed: stale -- settlements or roads changed"
+		"stale_both":
+			return "Viewshed: stale -- terrain and settlements changed"
+	return "Viewshed: unknown"
+
+func _refresh_viewshed_status() -> void:
+	if _atlas_popup == null or _viewshed_status_idx < 0 or _bridge == null:
+		return
+	var st: Dictionary = _bridge.landmark_refine_status()
+	_atlas_popup.set_item_text(_viewshed_status_idx, viewshed_status_text(st))
+	var why := ""
+	var state := String(st.get("state", ""))
+	if state.begins_with("stale"):
+		why = "Scoring is using the coarse result for this area. Refine again to renew it."
+	elif state == "fresh":
+		why = "Scoring reads this result for the area it covers (%d, %d) to (%d, %d)." % [
+			int(st.get("x", 0)), int(st.get("y", 0)),
+			int(st.get("x", 0)) + int(st.get("w", 0)), int(st.get("y", 0)) + int(st.get("h", 0))]
+	_atlas_popup.set_item_tooltip(_viewshed_status_idx, why)
+
+## `Atlas cache ▸ Refine viewshed for the current view` (Ruling AT). The
+## camera's grid rectangle (`visible_grid_rect()`: floats clamped to the grid)
+## is widened to whole cells and handed to the engine, which refuses -- with a
+## reason -- a view it cannot do honestly (too large, no observers, no world).
+## The status bar says what happened either way, including the refusal.
+##
+## A coroutine: the engine call is threaded and awaited, so the UI keeps
+## drawing during a multi-second pass. A second press while one runs is
+## refused by `generating` inside the bridge, with its own message.
+func refine_viewshed_for_view() -> void:
+	if _host == null or _host.viewport == null or _bridge == null:
+		return
+	if not _host.viewport.has_method("visible_grid_rect"):
+		_host.set_status("hint", "this build has no visible_grid_rect() — refine needs it", "text_dim")
+		return
+	var r: Dictionary = _host.viewport.visible_grid_rect()
+	if not bool(r.get("ok", false)):
+		_host.set_status("hint", "nothing to refine — no world is on screen", "text_dim")
+		return
+	var rect := view_cell_rect(r, _bridge.grid_size())
+	if rect.size.x <= 0 or rect.size.y <= 0:
+		_host.set_status("hint", "nothing to refine — the view holds no cells", "text_dim")
+		return
+	_host.set_status("hint", "refining viewshed for %d × %d cells…" % [rect.size.x, rect.size.y], "text_dim")
+	var t0 := Time.get_ticks_msec()
+	var res: Dictionary = await _bridge.landmark_refine_view(
+		rect.position.x, rect.position.y, rect.size.x, rect.size.y)
+	_refresh_viewshed_status()
+	if not bool(res.get("ok", false)):
+		_host.set_status("hint", "viewshed refine failed — %s" % String(res.get("error", "unknown")), "accent")
+		return
+	_host.set_status("hint", "viewshed refined — %d observers, %.1f s; the next landmark pass reads it" % [
+		int(res.get("observers", 0)), float(Time.get_ticks_msec() - t0) / 1000.0], "text_dim")
+
+## The whole-cell rectangle covering `visible_grid_rect()`'s float view: the
+## lower corner floored and the upper ceiled so no on-screen cell is left out,
+## then clamped to the `grid` (a `Vector2i`). Pure and static so the probe can
+## pin it; an empty rectangle means the view held no cell.
+static func view_cell_rect(r: Dictionary, grid: Vector2i) -> Rect2i:
+	var x0 := clampi(int(floor(float(r.get("x0", 0.0)))), 0, grid.x)
+	var y0 := clampi(int(floor(float(r.get("y0", 0.0)))), 0, grid.y)
+	var x1 := clampi(int(ceil(float(r.get("x1", 0.0)))), 0, grid.x)
+	var y1 := clampi(int(ceil(float(r.get("y1", 0.0)))), 0, grid.y)
+	return Rect2i(x0, y0, maxi(x1 - x0, 0), maxi(y1 - y0, 0))
 
 func _on_lod_debug(id: int) -> void:
 	if _host == null or _host.viewport == null:
