@@ -557,6 +557,7 @@ const TILE_GAP := 4
 ## row it names has to be one vocabulary, not two.
 const MANAGED_LABEL := {
 	"contour_m": "Contour interval",
+	"tanaka": "Tanaka lighting",
 	"waves": "Coastal wave lines",
 	"multi_sun": "Multi-sun lighting",
 	"village": "Village map",
@@ -575,7 +576,7 @@ const TOON_LABEL := {
 ## binds. `contour_m` is 0 = the reference's own automatic interval.
 const STYLE_MANAGED := {
 	"watercolor": 0.0, "contours": 0.0, "contour_m": 0.0, "ink": 0.0,
-	"hachure": 0.0, "cel": 0.0, "crosshatch": 0.0, "stipple": 0.0,
+	"hachure": 0.0, "tanaka": 0.0, "cel": 0.0, "crosshatch": 0.0, "stipple": 0.0,
 	"sepia": 0.0, "risograph": 0.0, "pointillism": 0.0,
 	"waves": false, "multi_sun": false, "village": false,
 }
@@ -2275,6 +2276,14 @@ func _build_npr() -> void:
 
 	for entry in STYLES:
 		_npr_slider(body, entry[1], entry[0], 1.0, 0.01, "", entry[2], npr)
+
+	## Ruling BI: Tanaka's relief contour is a mode of Contour veins, so it
+	## sits beside them and does nothing while they are 0 (the tooltip says so).
+	_npr_slider(body, "Tanaka lighting", "tanaka", 1.0, 0.01, "",
+		"Illuminated contours: the contour lines turn bright and thin on "
+		+ "sun-facing slopes and dark and thick on shadowed ones, after "
+		+ "Tanaka's 1950 relief method. Needs Contour veins above 0; flat "
+		+ "ground keeps the plain line. 0 = off.", npr)
 
 	var adv := DccWidgets.advanced(body, "contour interval")
 	_npr_slider(adv, "Interval", "contour_m", 50.0, 5.0, " m",

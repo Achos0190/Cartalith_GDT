@@ -537,6 +537,35 @@ pub struct Npr {
     /// description was available. [`quantize_flat_palette`]'s own doc records
     /// the band count this port chose and why.
     pub village: bool,
+    /// **Tanaka illuminated contours** (Ruling BI, `MAP_STYLE_RESEARCH.md`
+    /// section 2.2; Kitiro Tanaka, 1950): how far the contour veins
+    /// ([`Self::contours`]) are drawn as a *relief* line rather than a plain
+    /// one, `0..=1`. At `1` each contour segment is light where the ground
+    /// beside it faces the sun and dark where it faces away, and the line is
+    /// drawn thicker on the shadow side and thinner on the lit side
+    /// ([`tanaka_facing`], [`tanaka_width_scale`], [`tanaka_ink`]). `0` (the
+    /// `Default`) draws the plain contour exactly as before.
+    ///
+    /// **A mode of the contour pass, not a pass of its own**: it reads the same
+    /// interval ([`Self::contour_m`]), the same `contours` strength and the
+    /// same index-line rule, so it is inert while `contours` is `0`, and it
+    /// can only ever draw *inside* the plain line's footprint (the lit-side
+    /// width scale is below `1`, the shadow side's is exactly `1`). The aspect
+    /// comes from the gradient the hachure already uses -- no new field.
+    ///
+    /// `skip_serializing_if`: a saved project or look carries the key only
+    /// when it is on, so every document written before this field existed
+    /// re-serialises byte-identically (MISTAKES.md, "Write a
+    /// backward-compatibility test").
+    #[serde(skip_serializing_if = "is_zero_f64")]
+    pub tanaka: f64,
+}
+
+/// `serde`'s `skip_serializing_if` predicate for [`Npr::tanaka`]: a bare `0.0`
+/// is the field's "off" state, and `-0.0` compares equal to it, which is the
+/// intended reading.
+fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
 }
 
 /// One breakpoint of an elevation-keyed colour ramp: a position in
@@ -4581,7 +4610,8 @@ impl<'a> RenderCtx<'a> {
     /// `gradAt` (7586) — ∇field, the hachure's downslope direction. Same
     /// neighbours and same world-wrap asymmetry as `slope_at` (which is this
     /// vector's magnitude); kept separate because the reference computes it
-    /// only when hachure is on, and so does `cell_color`.
+    /// only when hachure is on, and so does `cell_color` (which also computes
+    /// it for Tanaka's contour, [`npr_needs_grad`]).
     fn grad_at(&self, x: usize, y: usize) -> (f64, f64) {
         let (gw, gh) = (self.gw, self.gh);
         let (xl, xr) = if self.world {
@@ -6142,6 +6172,122 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     (l.0 * k, l.1 * k, l.2 * k)
 }
 
+/// Width multiplier of a Tanaka contour on the **lit** side, relative to the
+/// plain contour's half-width. The shadow side is exactly `1.0`, so the Tanaka
+/// line never extends past the plain one. A labelled judgement: Tanaka's
+/// method makes the lit line the thin one, and `0.35` is where it stays
+/// visible as a thin line on the 1024-wide base map and on a z4 deep-zoom
+/// tile, judged by eye on `_tanaka_probe.gd`'s screenshots (2026-10-06), not
+/// derived from the paper. It reads as dashed rather than continuous at the
+/// base map's one-pixel-per-cell scale, where the plain contour already is.
+const TANAKA_LIT_WIDTH: f64 = 0.35;
+
+/// Ink of a Tanaka contour on the shadow side, 0-255. Tanaka drew the
+/// shadow-side lines black; `(12, 12, 16)` is a labelled judgement, the
+/// near-black that still takes the blend's `0.9` cap without going to a
+/// pure `0` that no print uses.
+const TANAKA_SHADOW_INK: Rgb = (12.0, 12.0, 16.0);
+
+/// Ink of a Tanaka contour on the lit side, 0-255. Tanaka drew these white
+/// (the research document's section 2.2); a labelled judgement slightly off
+/// pure white so it reads as paper ink rather than a clipped highlight.
+const TANAKA_LIT_INK: Rgb = (250.0, 250.0, 246.0);
+
+/// How much stronger a Tanaka line is than a plain contour vein of the same
+/// `contours` strength. The plain vein is a `0.55`-scaled darkening meant to
+/// sit under other styles; a *two-tone* line has to read against both a light
+/// and a dark ground, which that weight cannot do. A labelled judgement
+/// (1.6), chosen and then checked on `_tanaka_probe.gd`'s screenshots
+/// (2026-10-06) and left unchanged: lit lines read clearly on a dark-green
+/// slope and shadow lines on a tan one.
+const TANAKA_INK_GAIN: f64 = 1.6;
+
+/// The slope band, in the render's own `|grad|` unit (relative elevation per
+/// cell, the same unit [`apply_npr`]'s hachure gate reads), over which the
+/// local aspect is trusted: below the lower edge the "downslope direction" is
+/// numerical noise on near-flat ground and the contour keeps its plain look;
+/// above the upper edge it is fully Tanaka. The lower edge is `twi`'s own
+/// flat floor (`slope.max(0.002)`); the upper is a labelled judgement.
+const TANAKA_SLOPE_BAND: (f64, f64) = (0.002, 0.006);
+
+/// Half-width, in facing, of the soft split between the lit and the shadow
+/// ink. A hard split at facing `0` would flip a contour's colour in one pixel
+/// wherever it crosses a ridge or a valley axis, which is the "popping" the
+/// row forbids; a labelled judgement.
+const TANAKA_TONE_BLEND: f64 = 0.2;
+
+/// **Slope facing against the light**, `-1..=1`: `+1` where the ground falls
+/// toward the sun, `-1` where it falls away, `0` on a slope running across the
+/// light. It is the horizontal part of the hillshade's own `normal . light`
+/// ([`RenderCtx::shade`]'s `nx * lx + ny * ly`, normalised), so a Tanaka line
+/// agrees with the shading beside it: it is bright exactly where the
+/// hillshade is.
+///
+/// `grad` is `grad_at`'s `nabla h` (screen axes, `y` down); `az_deg` is
+/// [`TerrainAppearance::sun_az_deg`] with the hillshade's convention (the sun
+/// lies toward `(sin az, -cos az)`).
+///
+/// Returns `None` for a zero or non-finite gradient -- there is no aspect on
+/// flat ground, and a made-up `0.0` would read as "across the light" and be
+/// drawn as a mid-grey line (MISTAKES.md: never encode "no value" as a
+/// plausible value). Never wraps, never reads a field: a pure function.
+pub fn tanaka_facing(grad: (f64, f64), az_deg: f64) -> Option<f64> {
+    let m = grad.0.hypot(grad.1);
+    if !(m > 0.0) || !m.is_finite() {
+        return None;
+    }
+    let az = az_deg.to_radians();
+    let (lx, ly) = (az.sin(), -az.cos());
+    // The surface normal's horizontal part is `-grad` (it points downslope),
+    // so facing is `(-grad) . light / |grad|`.
+    Some(((-grad.0) * lx + (-grad.1) * ly) / m)
+}
+
+/// Tanaka's line width as a multiple of the plain contour's half-width:
+/// `1.0` on the shadow side (`facing == -1`), [`TANAKA_LIT_WIDTH`] on the lit
+/// side (`facing == +1`), linear between. Monotone, so a contour thins
+/// continuously as it swings toward the light and never pops.
+pub fn tanaka_width_scale(facing: f64) -> f64 {
+    let f = facing.clamp(-1.0, 1.0);
+    1.0 - (1.0 - TANAKA_LIT_WIDTH) * (0.5 + 0.5 * f)
+}
+
+/// Tanaka's line ink for a given facing: [`TANAKA_SHADOW_INK`] on the shadow
+/// side, [`TANAKA_LIT_INK`] on the lit side, with a smooth
+/// [`TANAKA_TONE_BLEND`]-wide split about `facing == 0`.
+pub fn tanaka_ink(facing: f64) -> Rgb {
+    mix(TANAKA_SHADOW_INK, TANAKA_LIT_INK, smoothstep(-TANAKA_TONE_BLEND, TANAKA_TONE_BLEND, facing))
+}
+
+/// How far to trust the local aspect at this `slope`, `0..=1` -- see
+/// [`TANAKA_SLOPE_BAND`]. Multiplied into [`Npr::tanaka`], so flat ground falls
+/// back to the plain contour rather than to an arbitrary tone.
+pub fn tanaka_confidence(slope: f64) -> f64 {
+    smoothstep(TANAKA_SLOPE_BAND.0, TANAKA_SLOPE_BAND.1, slope)
+}
+
+/// One Tanaka contour pixel: `(line_strength, ink, mix_weight)`. The caller
+/// blends `colour * (1 - line_strength) + ink * line_strength` and then mixes
+/// that toward the plain contour's result by `mix_weight`. `None` only when
+/// there is no aspect to draw from (an exactly flat or non-finite gradient);
+/// a pixel the narrowed line misses returns `line_strength == 0`.
+///
+/// `d` is the pixel's elevation distance to the nearest isoline and `cw` the
+/// plain line's half-width, both as [`apply_npr`] computes them; `idx_line` is
+/// its index-line factor; `strength` is [`Npr::contours`]. The line's footprint
+/// is the plain one narrowed by [`tanaka_width_scale`], so it never exceeds it.
+#[allow(clippy::too_many_arguments)]
+fn tanaka_contour(d: f64, cw: f64, idx_line: f64, strength: f64, tanaka: f64, slope: f64, grad: (f64, f64), az_deg: f64) -> Option<(f64, Rgb, f64)> {
+    let f = tanaka_facing(grad, az_deg)?;
+    let mut t = 1.0 - (d / (cw * tanaka_width_scale(f))).min(1.0);
+    t *= t;
+    // `t == 0` is a pixel the narrowed line does not reach: a `k` of `0`, not
+    // `None`, because the plain line DOES cover it and the mix toward the
+    // plain result must then pull the line OUT (that is what thinning is).
+    let k = (strength * 0.55 * TANAKA_INK_GAIN * t * idx_line).min(0.9);
+    Some((k, tanaka_ink(f), tanaka * tanaka_confidence(slope)))
+}
+
 /// The reference's `state.viz` **"Painter" NPR block** (7903-7962) — ten
 /// opt-in hand-drawn styles, each with its own intensity, applied in the
 /// reference's own order: watercolor wash → contour veins → ink edges →
@@ -6210,7 +6356,7 @@ pub fn apply_npr(
     }
 
     // D-contours: constant-width elevation isolines, every fifth an index
-    // line. `contour_m >= 5` takes the metre-based interval (the reference's
+    // line (two-tone and width-varying when `npr.tanaka` is on, below). `contour_m >= 5` takes the metre-based interval (the reference's
     // R5 addition); anything else takes its legacy `0.05`-of-relief one, and
     // `peak_m == 0` falls back to the reference's own `||4000`.
     if n.contours > 0.0 {
@@ -6237,9 +6383,25 @@ pub fn apply_npr(
                 1.0
             };
             let k = (n.contours * 0.55 * t * idx_line).min(0.9);
+            // Tanaka's relief line (Ruling BI; see [`Npr::tanaka`]), a mode of
+            // THIS pass: it is computed beside the plain line and mixed
+            // toward it, so `tanaka == 0` takes none of these statements and
+            // the plain path below is bit-for-bit what it was. The footprint
+            // test is the plain line's own `t > 0`, which the Tanaka line
+            // (never wider than it) cannot exceed.
+            let tan = if n.tanaka > 0.0 {
+                tanaka_contour(d, cw, idx_line, n.contours, n.tanaka, slope, grad, a.sun_az_deg)
+            } else {
+                None
+            };
+            let base = (l0, l1, l2);
             l0 *= 1.0 - k;
             l1 *= 1.0 - k;
             l2 *= 1.0 - k;
+            if let Some((tk, ink, w)) = tan {
+                let drawn = (base.0 * (1.0 - tk) + ink.0 * tk, base.1 * (1.0 - tk) + ink.1 * tk, base.2 * (1.0 - tk) + ink.2 * tk);
+                (l0, l1, l2) = mix((l0, l1, l2), drawn, w);
+            }
         }
     }
 
@@ -6414,6 +6576,16 @@ fn npr_any(n: &Npr) -> bool {
         || n.risograph > 0.0
         || n.pointillism > 0.0
         || n.village
+}
+
+/// Does any Painter style read `grad`? The hachure always did; Tanaka's contour
+/// (Ruling BI) needs it only while it can draw, i.e. `tanaka > 0` **and**
+/// `contours > 0`, so the default path -- and every preset that does not use it
+/// -- still pays nothing and passes `(0.0, 0.0)` exactly as before. Read at all
+/// three `land_color` call sites (the screen, the export bake and the deep-zoom
+/// tile), which must agree or the PNG is a different picture from the screen.
+fn npr_needs_grad(n: &Npr) -> bool {
+    n.hachure > 0.0 || (n.tanaka > 0.0 && n.contours > 0.0)
 }
 
 /// The v2.70 "Village map" style's shared quantiser (`RC_ENGINE_CHANGES.md`'s
@@ -7689,8 +7861,9 @@ pub fn cell_color_river(ctx: &RenderCtx, x: usize, y: usize, river: Option<[f32;
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
         // `surfaceColor`'s own hachure guard (8160): the gradient is derived
-        // only when hachure is actually on, so the default path pays nothing.
-        let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at(x, y) } else { (0.0, 0.0) };
+        // only when something reads it -- hachure, or Tanaka's contour
+        // ([`npr_needs_grad`]) -- so the default path pays nothing.
+        let grad = if npr_needs_grad(&ctx.appearance.npr) { ctx.grad_at(x, y) } else { (0.0, 0.0) };
         // B4 ecotone widening (8208's `sdfEcoKv(_biomeBD ? _biomeBD[i] : null)`)
         // — the literal `1.0` where the field is empty is the reference's own
         // `ecoK != null ? ecoK : 1`, not a stand-in for a missing distance.
@@ -8173,7 +8346,7 @@ impl BakeFields {
             let twi = (a / beta).ln();
             let asp = ctx.aspect_factor_f(gx, gy);
             let curv = ctx.curvature_at_f(gx, gy);
-            let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at_f(gx, gy) } else { (0.0, 0.0) };
+            let grad = if npr_needs_grad(&ctx.appearance.npr) { ctx.grad_at_f(gx, gy) } else { (0.0, 0.0) };
             let c = land_color(
                 &ctx.appearance,
                 t,
@@ -10652,7 +10825,7 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
                     // (`x cx`) before `sdfEcoKv` sees it, so the ecotone reads
                     // the same width at any zoom (11753).
                     let eco_k = if biome_bd.is_empty() { 1.0 } else { sdf_eco_k(biome_bd[i] as f64 * cx, a.sdf_biomes, gw) };
-                    let grad = if a.npr.hachure > 0.0 { ((r - l) / (2.0 * cx), (d - u) / (2.0 * cy)) } else { (0.0, 0.0) };
+                    let grad = if npr_needs_grad(&a.npr) { ((r - l) / (2.0 * cx), (d - u) / (2.0 * cy)) } else { (0.0, 0.0) };
                     let cc = land_color(
                         a,
                         t,

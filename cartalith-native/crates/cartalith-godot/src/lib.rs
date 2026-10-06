@@ -10617,6 +10617,7 @@ impl WorldGen {
         d.set("multi_sun", n.multi_sun);
         d.set("animate_water", n.animate_water);
         d.set("village", n.village);
+        d.set("tanaka", n.tanaka);
         d
     }
 
@@ -10658,6 +10659,8 @@ impl WorldGen {
             num("sepia", &mut self.npr.sepia, true);
             num("risograph", &mut self.npr.risograph, true);
             num("pointillism", &mut self.npr.pointillism, true);
+            // Ruling BI: Tanaka illuminated contours, a `0..1` mode of the contour veins.
+            num("tanaka", &mut self.npr.tanaka, true);
             // Not `[0,1]`: a contour interval is metres (the reference's own
             // slider is 5-50) and the wave reach is a multiplier (0.25-3.0).
             num("contour_m", &mut self.npr.contour_m, false);

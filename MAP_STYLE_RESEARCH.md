@@ -166,6 +166,18 @@ treatment are conventional. Source:
 [the `tanaka` R package documentation](https://cran.r-project.org/web/packages/tanaka/readme/README.html),
 [Terrain cartography — Wikipedia](https://en.wikipedia.org/wiki/Terrain_cartography).
 
+**Pointer (Ruling BI, 2026-10-06).** The owner scheduled this technique as a
+mode of the contour pass, not a preset: `Npr::tanaka` (`render.rs`, beside
+`apply_npr`'s contour block), exposed as the "Tanaka lighting" slider under
+Contour veins. Where this section says the technique needs aspect against the
+sun per contour pixel, that aspect is the existing render-resolution elevation
+gradient (`grad_at`), with no new field. Its law, constants and limits are
+documented at the symbols (`tanaka_facing`, `tanaka_width_scale`,
+`tanaka_ink`, `tanaka_confidence`); read those, and `tests/tanaka_contours.rs`,
+rather than a description here. One departure from Tanaka's original is
+deliberate: the coordinator's variant makes the shadow side thick and the lit
+side thin, where the 1950 method scales both with the aspect cosine.
+
 ### 2.3 Hachures (Lehmann system)
 
 Short strokes drawn in the direction of steepest descent, in rows
