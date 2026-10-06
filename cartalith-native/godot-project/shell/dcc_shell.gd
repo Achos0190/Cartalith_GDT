@@ -5259,7 +5259,45 @@ var _status_cells: Dictionary = {}  ## slot -> the HBox holding its rule + label
 var _status_rules: Dictionary = {}  ## slot -> that cell's leading 1 px rule
 var _status_dot: Label              ## the autosave state marker
 var _status_wired := false
+var _status_tail: Control           ## the clipped, minimum-0 box holding `mid` + `hint`
 
+## Give the `hint` label an explicit width: its natural text width, capped to the
+## room the tail has left after `mid` and the gap between them. Called whenever
+## either slot's text or visibility changes and whenever the tail is resized.
+##
+## Why a stated width and not the label's own minimum: `clip_text` /
+## ellipsis collapses a `Label`'s minimum width to 1 (`MISTAKES.md`, "Add
+## `clip_text` / ellipsis to a Label", measured), and a non-expanding label of
+## minimum 1 draws 1 px wide, i.e. not at all. `custom_minimum_size.x` here is
+## that missing figure. It can never raise the shell's minimum width: it is
+## capped by the tail's own width, and the tail is a plain `Control` whose
+## minimum is 0, so the cap does not depend on the figure it caps (no feedback
+## loop). With room to spare the figure is the natural width, so the full
+## sentence draws exactly as before (END-aligned in the tail); without it the
+## sentence is ellipsised and the tail's tooltip carries all of it.
+##
+## Must never: read the hint's own `get_minimum_size()` (that is the collapsed 1),
+## or size from the window (the tail's width is the only honest budget).
+func _fit_status_tail() -> void:
+	if _status_tail == null or not _status_labels.has("hint"):
+		return
+	var hint: Label = _status_labels["hint"]
+	var mid: Label = _status_labels["mid"]
+	_status_tail.tooltip_text = hint.text
+	var natural := 0.0
+	if hint.text != "":
+		var font: Font = hint.get_theme_font("font")
+		var fs: int = hint.get_theme_font_size("font_size")
+		natural = ceilf(font.get_string_size(hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x) + 1.0
+	var room := _status_tail.size.x
+	if mid.visible:
+		room -= mid.get_combined_minimum_size().x + float(STATUS_SLOT_GAP)
+	hint.custom_minimum_size.x = clampf(minf(natural, room), 0.0, natural)
+
+## Build the 26 px status bar: one cell per `STATUS_SLOTS` entry, then the
+## `_status_tail` holding `mid` and `hint`. Returns the bar's `PanelContainer`.
+## Must never let any label's text raise `status_row`'s minimum width through
+## the tail -- see `_fit_status_tail()`.
 func _build_status_bar() -> Control:
 	var bar := PanelContainer.new()
 	bar.custom_minimum_size.y = _scaled(DccTheme.H_STATUS)
@@ -5309,19 +5347,52 @@ func _build_status_bar() -> Control:
 		status_row.add_child(cell)
 		_status_cells[slot] = cell
 		cell.visible = false
-	status_row.add_child(DccTheme.spacer())
+	## The tail replaces what used to be a bare `DccTheme.spacer()` followed by
+	## the `mid` and `hint` labels as three more children of `status_row`. That
+	## layout let a long `hint` sentence (the catchment one, 1 703 px bar minimum
+	## at a 1600 px window, `OUTSTANDING_WORK.md`) become part of the HBox's
+	## minimum width and widen the whole shell. The tail is a plain `Control`
+	## (its minimum width is 0 whatever its children want, because a `Control`
+	## does not fold its children's minimums into its own the way a container
+	## does), expanding to the same space the spacer took, clipped, and holds an
+	## END-aligned HBox of `[mid][hint]`. `_fit_status_tail()` then gives `hint`
+	## the one minimum width that cannot go wrong: its natural width, capped to
+	## what is left in the tail. That is the fix `MISTAKES.md`'s `clip_text` row
+	## demands -- `clip_text` alone collapses the label's minimum to 1, and a
+	## non-expanding label with a minimum of 1 is drawn 1 px wide (it vanishes),
+	## so the label's width is stated rather than left to its own minimum.
+	## `status_row` still has exactly one child per slot plus this one, so
+	## `app.gd`'s `move_child(_stale_recompute, 2)` arithmetic is unchanged.
+	_status_tail = Control.new()
+	_status_tail.name = "StatusTail"
+	_status_tail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_status_tail.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_status_tail.clip_contents = true
+	_status_tail.resized.connect(_fit_status_tail)
+	status_row.add_child(_status_tail)
+	var tail_row := HBoxContainer.new()
+	tail_row.name = "StatusTailRow"
+	tail_row.alignment = BoxContainer.ALIGNMENT_END
+	tail_row.add_theme_constant_override("separation", STATUS_SLOT_GAP)
+	tail_row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_status_tail.add_child(tail_row)
 	## `statusMid` (`05-right-dock-and-bars.md` §3.3, `BUILD_ANSWERS.md` §2.2):
-	## `var(--dis)`, between the spacer and the key hints. Composed in
+	## `var(--dis)`, END-aligned in the tail just before the key hints. Composed in
 	## `app.gd::_refresh_status_mid()` -- this file only reserves the slot, the
 	## same as every other one here.
 	var mid := DccTheme.mono_label("", "text_ghost", DccTheme.role_px("fs_status"), 0)
 	_status_labels["mid"] = mid
 	mid.visible = false
-	status_row.add_child(mid)
+	tail_row.add_child(mid)
 	var hint := DccTheme.mono_label("", "text_faint", DccTheme.role_px("fs_status"), 0)
 	_status_labels["hint"] = hint
 	hint.visible = false
-	status_row.add_child(hint)
+	## Ellipsis when the sentence does not fit; the full sentence is the tail's
+	## tooltip (`_fit_status_tail()`). Safe only because that function states
+	## the label's width -- see the comment above on the `clip_text` trap.
+	hint.clip_text = true
+	hint.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	tail_row.add_child(hint)
 	## The bridge is added by `app.gd::_ready()` and does not exist while the
 	## frame is being built, so the `progress` slot's wiring waits a frame --
 	## the same deferral, and for the same reason, as `_relayout_rail_labels()`.
@@ -5393,6 +5464,8 @@ func set_status(slot: String, text: String, token: String = "") -> void:
 		_paint_status_dot(ink)
 	if _status_cells.has(slot) or STATUS_TAIL_SLOTS.has(slot):
 		_apply_status_omission()
+	if STATUS_TAIL_SLOTS.has(slot):
+		_fit_status_tail()
 
 ## The artboard's one structural rule, applied to the whole left group at once:
 ## a slot with no text is not drawn, and a rule is drawn only *between* two

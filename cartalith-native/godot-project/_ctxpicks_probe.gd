@@ -962,9 +962,9 @@ func _run_rivers(ov: Control) -> void:
 	## way. Nothing is loosened: the thresholds are unchanged, and the reflow
 	## itself is asserted absent below (`RV the shell did not reflow ...`) so a
 	## baseline that drifts again cannot pass silently. The defect itself --
-	## a long hint widens the whole shell past a 1600 px window -- is a shell
-	## layout matter, printed as KNOWN and routed in the report, not worked
-	## around in the shell by this probe.
+	## a long hint widens the whole shell past a 1600 px window -- is fixed in
+	## `dcc_shell.gd` (the status bar's `_status_tail`, `_fit_status_tail()`) and
+	## is now a hard assertion just below, not a printed KNOWN line.
 	sp = ov._point_to_screen(gp, ov._displayed_rect())
 	await _rmb(ov, sp)
 	_ok_true("RV Clear river highlight is offered once something is drawn", _row("Clear river highlight") != null)
@@ -973,8 +973,13 @@ func _run_rivers(ov: Control) -> void:
 	var long_hint: String = app.status_slot_text("hint")
 	_ok_true("RV the catchment wrote its sentence to the status hint", long_hint.begins_with("Catchment: "))
 	var wide_min: float = app.status_row.get_combined_minimum_size().x
-	if wide_min > float(_vp.size.x):
-		print("KNOWN shell defect: with the catchment sentence the status bar's minimum width is %.0f px, past this %d px viewport (the whole shell reflows)" % [wide_min, _vp.size.x])
+	_ok_true("Protects: a long status hint never raises the status bar's minimum width past the window (was 1703 px at 1600; measured %.0f px)" % wide_min,
+		wide_min <= float(_vp.size.x))
+	var hint_lbl: Label = app._status_labels["hint"]
+	_ok_true("Protects: the hint label is still drawn (width %.0f px) -- clip_text alone would have collapsed it to nothing" % hint_lbl.size.x,
+		hint_lbl.visible and hint_lbl.size.x > 40.0)
+	_ok("Protects: the full catchment sentence is the status tail's tooltip when it is ellipsised",
+		app._status_tail.tooltip_text, long_hint)
 	sp = ov._point_to_screen(gp, ov._displayed_rect())
 	await _rmb(ov, sp)
 	await _click_row(_row("Clear river highlight"))
