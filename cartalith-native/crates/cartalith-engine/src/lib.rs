@@ -149,6 +149,13 @@ pub mod erode_op;
 /// bridge calls it yet, deliberately.
 pub mod elevation;
 
+/// **EF-9.1** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3) -- per-tile
+/// importance: footprint aggregates of terrain, hydrology and geology inputs,
+/// scored with weights fitted against EF-9.0's measured refinement gain. A
+/// pure addition: it chooses nothing, draws nothing, and no generation or
+/// bridge code calls it yet (EF-9.2 and EF-9.4 are the consumers).
+pub mod importance;
+
 /// The channel atlas — the world's affordance fields packed three to an RGB8
 /// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
 /// 14). Data, not a picture: the export raster it ships alongside is

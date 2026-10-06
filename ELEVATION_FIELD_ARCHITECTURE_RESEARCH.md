@@ -962,6 +962,32 @@ and the level range are labelled judgements. **River gain was not measured**
 EF-9's first cut). Whether to ratify GO is the owner's call; EF-9.1 onward is
 not started.
 
+**EF-9.1 result (2026-10-06): fit accepted by the pre-declared rule, thin margin.**
+Command: `cargo test --release -p cartalith-civ --test ef9_refinement_gain -- --ignored --nocapture ef9_1_importance_fit`
+(309 s fresh). Module: `cartalith-engine/src/importance.rs` (`FITTED_WEIGHTS`,
+`importance()`, `synthesis_order()`; settlement/road policy bias kept
+structurally separate and order-only, Q2). Method: NNLS of eight standardised
+features against ln(G_scr) with a within-(world, level) fixed effect, 400-replicate
+tile bootstrap to drop terms, a window-cluster bootstrap as sensitivity. Tiles with
+G_scr = 0 (at most 1 per fit) are excluded from the fit and counted, never floored.
+
+- Kept: slope_mean 0.473, slope_max 0.401, land_fraction 1.732, boundary_fraction
+  0.089, volcanic_max 0.011 (marginal; the cluster bootstrap would drop it).
+  Dropped: abs_curv_mean, abs_tpi_mean, stream_order_max (NNLS gave exact zeros).
+- Held-out G_scr capture at the 25 % budget, median over (world, level) cells:
+  leave-one-seed-out fit 0.579 vs slope_mean 0.576 vs today's order 0.232 (oracle
+  0.653); leave-one-grid-out fit 0.591 vs 0.576. The rule (fit >= best single
+  input on both fold families) is met.
+- **The margin is +0.003 on the seed folds.** The fit is below slope_mean in 14 of
+  36 seed-fold cells, and on the shipped fold's held-out seed at z5-z7. Most of the
+  weight is on land_fraction, which is a sea/land mask more than a ranking. Shipping
+  slope_mean alone (`slope_only_weights`, tested) is a defensible alternative.
+- Regression: the held-out fixture `tests/fixtures/ef9_importance_heldout.tsv` pins
+  the capture and a fit-score checksum; 16 weight/scale mutations all turn the
+  literal pin and the capture test red (the first version of the capture test let
+  four survive; the checksum was added for that).
+- Nothing in generation or the viewport calls `importance` yet.
+
 ### 8.5 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below

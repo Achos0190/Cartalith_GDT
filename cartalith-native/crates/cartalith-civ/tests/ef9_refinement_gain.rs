@@ -50,10 +50,10 @@ use std::collections::BTreeMap;
 
 use cartalith_engine::bake::{pyramid_tile, PyramidTile};
 use cartalith_engine::elevation::{curvature_energy, world_amplify_opts, world_elevation_tile};
+use cartalith_engine::importance::{footprint_cells, importance, tile_features, FittedTerm, ImportanceWeights, TileImportanceInputs, WorldImportanceField, FEATURE_NAMES, N_FEATURES};
 use cartalith_spatial::pyramid::{pyramid_tile_bounds, ChunkId};
 use cartalith_spatial::FloatRegion;
 use cartalith_terrain::amplify::{sample_elevation, z_base_for_tile_size, AmplifyOpts};
-use cartalith_terrain::analysis;
 use rayon::prelude::*;
 
 /// Shipped tile size in texels: `cartalith_godot::lod_bridge::TILE_PX` (256).
@@ -76,12 +76,6 @@ const BUDGETS: [u32; 3] = [10, 25, 50];
 /// Q3's default gate (§8.5): GO if the oracle captures at least this multiple
 /// of today's order at the 25 % budget, median across worlds.
 const GATE_RATIO: f64 = 1.5;
-/// Landmark fine scale in km: `landmark.rs::SCALE_FINE_KM` (3.0), the radius
-/// the plan names for the `|tpi|` input. Restated (private there).
-const TPI_FINE_KM: f64 = 3.0;
-/// `landmark.rs::SCALE_MIN_CELLS` / `SCALE_MAX_CELLS`: the clamp it applies.
-const TPI_MIN_CELLS: i64 = 2;
-const TPI_MAX_CELLS: i64 = 40;
 /// Bin edge in cells for the way-segment index. Judgement (speed only; the
 /// result is exact, the bins only prune).
 const WAY_BIN: usize = 16;
@@ -295,22 +289,9 @@ fn rms_diff(a: &[f32], b: &[f32]) -> f64 {
     (s / a.len() as f64).sqrt()
 }
 
-/// Inclusive coarse-cell footprint `(x0, x1, y0, y1)` of a tile's bounds.
-/// Cell `i` is the lattice square `[i, i + 1]` of the coarse sample space, so
-/// the footprint is `floor(b.x) ..= ceil(b.x + b.w) - 1`, never empty (a tile
-/// narrower than a cell still sees the cell it sits in) and clamped to the
-/// grid. Judgement: the plan says "aggregated over the footprint" without
-/// fixing the cell convention.
-fn footprint_cells(b: &FloatRegion, gw: usize, gh: usize) -> (usize, usize, usize, usize) {
-    let axis = |lo: f64, len: f64, n: usize| {
-        let a = (lo.floor().max(0.0) as usize).min(n - 1);
-        let hi = ((lo + len).ceil() as i64 - 1).max(a as i64) as usize;
-        (a, hi.min(n - 1))
-    };
-    let (x0, x1) = axis(b.x, b.w, gw);
-    let (y0, y1) = axis(b.y, b.h, gh);
-    (x0, x1, y0, y1)
-}
+// `footprint_cells` and the per-tile aggregation of the first eight inputs live
+// in `cartalith_engine::importance` since EF-9.1, so the harness and the
+// importance scorer share one definition (moved verbatim, not restated).
 
 /// Length of segment `p -> q` inside the axis-aligned box
 /// `[x0, x1] x [y0, y1]` (Liang-Barsky); `0` when outside or degenerate.
@@ -410,18 +391,14 @@ const INPUTS: [&str; 10] = [
 /// never 0.
 type Feat = [f64; INPUTS.len()];
 
-/// Per-world coarse rasters and point sets the tile inputs aggregate.
+/// Per-world coarse rasters and point sets the tile inputs aggregate. The
+/// first eight inputs come from `cartalith_engine::importance` (EF-9.1: one
+/// shared definition); settlements and ways are `cartalith-civ` concepts the
+/// engine cannot name, so their aggregation stays here.
 struct WorldInputs {
     gw: usize,
     gh: usize,
-    sea: f64,
-    field: Vec<f32>,
-    slope: Vec<f32>,
-    abs_curv: Vec<f32>,
-    abs_tpi: Vec<f32>,
-    order: Option<Vec<i16>>,
-    boundary: Option<Vec<u8>>,
-    volcanic: Option<Vec<f32>>,
+    src: WorldImportanceField,
     settlements: Vec<(usize, usize)>,
     segs: Vec<[f64; 4]>,
     bins: Vec<Vec<u32>>,
@@ -431,7 +408,8 @@ struct WorldInputs {
 impl WorldInputs {
     /// Builds the coarse rasters once per world. A zero-length `boundary_type`
     /// or `volcanic_field` (a `Loaded` save) maps to `None`, not to zeros
-    /// (`MISTAKES.md`: never encode "no value" as a plausible value).
+    /// (`MISTAKES.md`: never encode "no value" as a plausible value) -- that
+    /// mapping is `WorldImportanceField::build`'s.
     #[allow(clippy::too_many_arguments)]
     fn build(
         field: &[f32],
@@ -446,10 +424,6 @@ impl WorldInputs {
         settlements: Vec<(usize, usize)>,
         ways: &[Vec<(f64, f64)>],
     ) -> Self {
-        let n = gw * gh;
-        let cell_km = map_km / gw as f64;
-        let r_fine = ((TPI_FINE_KM / cell_km).round() as i64).clamp(TPI_MIN_CELLS, TPI_MAX_CELLS);
-        let abs = |v: Vec<f32>| v.into_iter().map(f32::abs).collect::<Vec<_>>();
         let bw = gw.div_ceil(WAY_BIN);
         let bh = gh.div_ceil(WAY_BIN);
         let mut segs = Vec::new();
@@ -467,65 +441,24 @@ impl WorldInputs {
                 }
             }
         }
-        WorldInputs {
-            gw,
-            gh,
-            sea,
-            field: field.to_vec(),
-            slope: analysis::slope(field, gw, gh),
-            abs_curv: abs(analysis::curvature_at(field, gw, gh, 2, world)),
-            abs_tpi: abs(analysis::tpi(field, gw, gh, r_fine, world)),
-            order: order.filter(|o| o.len() == n).map(|o| o.to_vec()),
-            boundary: (boundary.len() == n).then(|| boundary.to_vec()),
-            volcanic: (volcanic.len() == n).then(|| volcanic.to_vec()),
-            settlements,
-            segs,
-            bins,
-            bw,
-        }
+        WorldInputs { gw, gh, src: WorldImportanceField::build(field, gw, gh, sea, world, map_km, order, boundary, volcanic), settlements, segs, bins, bw }
     }
 
-    /// The tile's inputs over its coarse-cell footprint ([`footprint_cells`]).
+    /// The tile's inputs over its coarse-cell footprint ([`footprint_cells`]):
+    /// the engine's eight (`NaN` = absent) followed by settlement count and
+    /// way length.
     fn features(&self, b: &FloatRegion) -> Feat {
         let (x0, x1, y0, y1) = footprint_cells(b, self.gw, self.gh);
-        let (mut sum_s, mut max_s, mut sum_c, mut sum_t) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-        let (mut land, mut bnd, mut max_o, mut max_v) = (0usize, 0usize, i16::MIN, f32::MIN);
-        let mut cnt = 0usize;
-        for y in y0..=y1 {
-            for x in x0..=x1 {
-                let i = y * self.gw + x;
-                cnt += 1;
-                sum_s += self.slope[i] as f64;
-                max_s = max_s.max(self.slope[i] as f64);
-                sum_c += self.abs_curv[i] as f64;
-                sum_t += self.abs_tpi[i] as f64;
-                land += (self.field[i] as f64 > self.sea) as usize;
-                if let Some(bt) = &self.boundary {
-                    bnd += (bt[i] != 0) as usize;
-                }
-                if let Some(o) = &self.order {
-                    max_o = max_o.max(o[i]);
-                }
-                if let Some(v) = &self.volcanic {
-                    max_v = max_v.max(v[i]);
-                }
-            }
-        }
-        let c = cnt as f64;
+        let eng = tile_features(&self.src, b).as_array();
         let settle = self.settlements.iter().filter(|&&(sx, sy)| sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1).count();
         let way = self.way_length(x0 as f64, (x1 + 1) as f64, y0 as f64, (y1 + 1) as f64);
-        [
-            sum_s / c,
-            max_s,
-            sum_c / c,
-            sum_t / c,
-            if self.order.is_some() { max_o as f64 } else { f64::NAN },
-            land as f64 / c,
-            if self.boundary.is_some() { bnd as f64 / c } else { f64::NAN },
-            if self.volcanic.is_some() { max_v as f64 } else { f64::NAN },
-            settle as f64,
-            way,
-        ]
+        let mut out = [f64::NAN; INPUTS.len()];
+        for (k, v) in eng.iter().enumerate() {
+            out[k] = v.unwrap_or(f64::NAN);
+        }
+        out[8] = settle as f64;
+        out[9] = way;
+        out
     }
 
     /// Total length (cell units) of way segments inside the box, via the bins.
@@ -849,9 +782,9 @@ fn ef9_0_refinement_gain_measurement() {
                 wd.settlements.len(),
                 wd.ways.len(),
                 inp.segs.len(),
-                if inp.order.is_some() { "present" } else { "ABSENT" },
-                if inp.boundary.is_some() { "present" } else { "ABSENT" },
-                if inp.volcanic.is_some() { "present" } else { "ABSENT" },
+                if inp.src.has_stream_order() { "present" } else { "ABSENT" },
+                if inp.src.has_boundary() { "present" } else { "ABSENT" },
+                if inp.src.has_volcanic() { "present" } else { "ABSENT" },
             );
             // Defence: the harness's tile path is world_elevation_tile's own.
             let probe = ChunkId { z: (z_base + 2) as u32, col: 3, row: 2 };
@@ -964,6 +897,811 @@ fn ef9_0_refinement_gain_measurement() {
     match med_c_over_a {
         Some(r) => println!("achievable (best single input vs (a)): {r:.3}  [{} {GATE_RATIO}]", if r >= GATE_RATIO { ">=" } else { "<" }),
         None => println!("achievable: no input measured"),
+    }
+}
+
+// ======================================================================
+// EF-9.1: fitting the importance weights
+// ======================================================================
+//
+// Everything below is the *fitting and held-out scoring* of
+// `cartalith_engine::importance` -- the model itself (feature aggregation,
+// `importance()`, the weight literals) lives in the engine crate. Nothing here
+// changes generation; the measurement is the same G_scr EF-9.0 measured.
+
+/// First tunable of the fit: bootstrap replicates over tiles (the spec's
+/// resampling unit). 400 keeps the 2.5th percentile's own sampling error
+/// small (about 10 draws sit below it) at a cost of seconds.
+const BOOT_TILE: usize = 400;
+/// Window-cluster bootstrap replicates (the sensitivity check; clusters are
+/// few, so more replicates are cheap and steady the percentile).
+const BOOT_CLUSTER: usize = 1000;
+/// A bootstrap weight at or below this is "zero" (coordinate descent returns
+/// exact 0.0 for a clamped coordinate, so this is a guard, not a tolerance
+/// that matters).
+const ZERO_W: f64 = 1e-12;
+/// Two-sided 95 % interval: a term is dropped when its lower 2.5 % point is 0,
+/// i.e. when at least this share of replicates give it weight 0.
+const DROP_ZERO_SHARE: f64 = 0.025;
+/// A feature whose training standard deviation is below this carries no
+/// information in the fit (constant column) and is not fittable.
+const MIN_SCALE: f64 = 1e-12;
+
+/// One tile of the fit set: the gain target and the inputs, with enough
+/// identity (`world`, `z`, `win`, `col`, `row`) to group and to rebuild the
+/// centre-distance order. `feat` carries all ten harness inputs; the fit reads
+/// only the first [`N_FEATURES`] (settlements and ways are policy, not fitted).
+#[derive(Clone, Debug)]
+struct FitRow {
+    world: usize,
+    z: u32,
+    win: u32,
+    col: u32,
+    row: u32,
+    g_scr: f64,
+    feat: Feat,
+}
+
+/// The lean G_scr: exactly the first half of [`tile_gain`] (tile, parent, the
+/// bilinear resample, the RMS difference) without the `z - 1` point sampling
+/// that only G_pt needs -- the fit never reads G_pt, and that sampling is the
+/// bulk of a tile's cost. A test pins it equal to `tile_gain(..).g_scr`.
+fn tile_g_scr(coarse: &[f32], gw: usize, gh: usize, opts: &AmplifyOpts, tile_px: usize, id: ChunkId) -> f64 {
+    assert!(id.z >= 1, "a root tile has no parent to compare against");
+    let tile = pyramid_tile(coarse, gw, gh, id, tile_px, opts);
+    let pid = ChunkId { z: id.z - 1, col: id.col >> 1, row: id.row >> 1 };
+    let parent: PyramidTile = pyramid_tile(coarse, gw, gh, pid, tile_px, opts);
+    let base = resample_parent(&parent.data, tile.w, tile.h, id.col, id.row);
+    rms_diff(&tile.data, &base)
+}
+
+/// Measures every window of every level in `levels` of one world into
+/// [`FitRow`]s (rayon over tiles). Same windows and tiles as EF-9.0's
+/// `measure_window`, with the lean gain.
+fn measure_fit_rows(world: usize, coarse: &[f32], inp: &WorldInputs, opts: &AmplifyOpts, levels: &[u32], wsz: u32, k: u32) -> Vec<FitRow> {
+    let mut out = Vec::new();
+    for &z in levels {
+        let (w, origins) = window_origins(z, wsz, k);
+        for (wi, org) in origins.iter().enumerate() {
+            let ids: Vec<(u32, u32)> = (0..w).flat_map(|r| (0..w).map(move |c| (org.0 + c, org.1 + r))).collect();
+            let rows: Vec<FitRow> = ids
+                .par_iter()
+                .map(|&(col, row)| {
+                    let g = tile_g_scr(coarse, inp.gw, inp.gh, opts, TILE_PX, ChunkId { z, col, row });
+                    FitRow { world, z, win: wi as u32, col, row, g_scr: g, feat: inp.features(&pyramid_tile_bounds(inp.gw, inp.gh, z as i32, col, row)) }
+                })
+                .collect();
+            out.extend(rows);
+        }
+    }
+    out
+}
+
+/// Writes rows as TSV (`f64` `Display` round-trips exactly). A header line
+/// records what produced them so a stale cache is refused, not trusted.
+fn write_rows(path: &std::path::Path, header: &str, rows: &[FitRow]) {
+    let mut s = format!("# {header}\n");
+    for r in rows {
+        s.push_str(&format!("{}\t{}\t{}\t{}\t{}", r.z, r.win, r.col, r.row, r.g_scr));
+        for v in r.feat {
+            s.push_str(&format!("\t{v}"));
+        }
+        s.push('\n');
+    }
+    std::fs::write(path, s).expect("write cache");
+}
+
+/// Reads [`write_rows`]'s output for world index `world`; `None` when the file
+/// is missing or its header differs.
+fn read_rows(path: &std::path::Path, header: &str, world: usize) -> Option<Vec<FitRow>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != format!("# {header}") {
+        return None;
+    }
+    let mut out = Vec::new();
+    for l in lines {
+        let f: Vec<&str> = l.split('\t').collect();
+        if f.len() != 5 + INPUTS.len() {
+            return None;
+        }
+        let mut feat = [f64::NAN; INPUTS.len()];
+        for (k, v) in feat.iter_mut().enumerate() {
+            *v = f[5 + k].parse().ok()?;
+        }
+        out.push(FitRow { world, z: f[0].parse().ok()?, win: f[1].parse().ok()?, col: f[2].parse().ok()?, row: f[3].parse().ok()?, g_scr: f[4].parse().ok()?, feat });
+    }
+    Some(out)
+}
+
+// ------------------------------------------------------------ the regression
+
+/// Normal-equation statistics of a (possibly weighted) least-squares problem:
+/// `g = sum w x x^T`, `b = sum w x y`. Sufficient for NNLS, so a bootstrap
+/// replicate is a re-summation, not a re-read of the data.
+#[derive(Clone, Debug)]
+struct Stats {
+    g: [[f64; N_FEATURES]; N_FEATURES],
+    b: [f64; N_FEATURES],
+}
+
+impl Stats {
+    fn zero() -> Self {
+        Stats { g: [[0.0; N_FEATURES]; N_FEATURES], b: [0.0; N_FEATURES] }
+    }
+    fn add_row(&mut self, x: &[f64; N_FEATURES], y: f64, w: f64) {
+        for i in 0..N_FEATURES {
+            let wx = w * x[i];
+            self.b[i] += wx * y;
+            for j in 0..N_FEATURES {
+                self.g[i][j] += wx * x[j];
+            }
+        }
+    }
+    fn add(&mut self, o: &Stats) {
+        for i in 0..N_FEATURES {
+            self.b[i] += o.b[i];
+            for j in 0..N_FEATURES {
+                self.g[i][j] += o.g[i][j];
+            }
+        }
+    }
+}
+
+/// Non-negative least squares by cyclic coordinate descent on the normal
+/// equations: minimises `1/2 w^T G w - b^T w` over `w >= 0` restricted to the
+/// `active` coordinates (inactive ones stay 0). Each coordinate update is the
+/// exact one-dimensional minimiser `max(0, (b_j - sum_{k != j} G_jk w_k) / G_jj)`;
+/// the problem is convex so the sweep converges to an optimum. A coordinate
+/// with `G_jj <= 0` carries no information and stays 0.
+fn nnls(s: &Stats, active: &[bool; N_FEATURES]) -> [f64; N_FEATURES] {
+    let mut w = [0.0f64; N_FEATURES];
+    for _ in 0..20_000 {
+        let mut max_move = 0.0f64;
+        for j in 0..N_FEATURES {
+            if !active[j] || s.g[j][j] <= 0.0 {
+                continue;
+            }
+            let mut r = s.b[j];
+            for k in 0..N_FEATURES {
+                if k != j {
+                    r -= s.g[j][k] * w[k];
+                }
+            }
+            let nj = (r / s.g[j][j]).max(0.0);
+            max_move = max_move.max((nj - w[j]).abs());
+            w[j] = nj;
+        }
+        if max_move < 1e-13 {
+            break;
+        }
+    }
+    w
+}
+
+/// The training set, standardised and centred, ready to regress.
+struct Prepared {
+    /// Standardised features, centred within the tile's `(world, level)` cell.
+    x: Vec<[f64; N_FEATURES]>,
+    /// `ln(G_scr)`, centred within the same cell.
+    y: Vec<f64>,
+    /// Dense window-cluster id of each row.
+    cluster: Vec<usize>,
+    n_clusters: usize,
+    /// Training mean and (population) standard deviation of each raw feature.
+    mean: [f64; N_FEATURES],
+    scale: [f64; N_FEATURES],
+    /// A feature is fittable iff present on every training tile and not constant.
+    usable: [bool; N_FEATURES],
+    /// Tiles left out of the fit because `G_scr <= 0` (`ln` undefined).
+    n_zero_gain: usize,
+}
+
+/// Builds the training matrices from `rows`.
+///
+/// * **Target** `ln(G_scr)`. A tile with `G_scr <= 0` (or not finite) has no
+///   logarithm and is **excluded from the fit and counted in `n_zero_gain`**;
+///   it is *not* floored to a small positive number, which would invent a
+///   value (`MISTAKES.md`). Those tiles stay in the held-out *capture*
+///   scoring, where a zero gain is perfectly well defined.
+/// * **Standardise** each feature with the training tiles' mean and population
+///   standard deviation, so weights are comparable across terms. A feature
+///   absent (`NaN`) on any training tile is not fittable for this fit.
+/// * **Centre within `(world, level)` cells.** Importance is only ever used to
+///   *rank tiles of one level of one world*; level-to-level and world-to-world
+///   differences in `ln G` (it falls steeply with depth) say nothing about that
+///   ranking and would otherwise leak into the weights. Subtracting each
+///   cell's mean from both `x` and `y` is the fixed-effects fit; it also
+///   absorbs the intercept, so the model has the free intercept the spec asks
+///   for without a column of ones.
+fn prepare(rows: &[&FitRow]) -> Prepared {
+    let kept: Vec<&&FitRow> = rows.iter().filter(|r| r.g_scr.is_finite() && r.g_scr > 0.0).collect();
+    let n_zero_gain = rows.len() - kept.len();
+    let mut usable = [true; N_FEATURES];
+    for r in &kept {
+        for (k, u) in usable.iter_mut().enumerate() {
+            if !r.feat[k].is_finite() {
+                *u = false;
+            }
+        }
+    }
+    let n = kept.len().max(1) as f64;
+    let (mut mean, mut scale) = ([0.0; N_FEATURES], [1.0; N_FEATURES]);
+    for k in 0..N_FEATURES {
+        if !usable[k] {
+            continue;
+        }
+        let m = kept.iter().map(|r| r.feat[k]).sum::<f64>() / n;
+        let var = kept.iter().map(|r| (r.feat[k] - m) * (r.feat[k] - m)).sum::<f64>() / n;
+        if var.sqrt() < MIN_SCALE {
+            usable[k] = false;
+        } else {
+            mean[k] = m;
+            scale[k] = var.sqrt();
+        }
+    }
+    let mut cell_ix: BTreeMap<(usize, u32), usize> = BTreeMap::new();
+    let mut win_ix: BTreeMap<(usize, u32, u32), usize> = BTreeMap::new();
+    let mut cell_of = Vec::with_capacity(kept.len());
+    let mut cluster = Vec::with_capacity(kept.len());
+    for r in &kept {
+        let nc = cell_ix.len();
+        cell_of.push(*cell_ix.entry((r.world, r.z)).or_insert(nc));
+        let nw = win_ix.len();
+        cluster.push(*win_ix.entry((r.world, r.z, r.win)).or_insert(nw));
+    }
+    let nc = cell_ix.len();
+    let mut cnt = vec![0.0f64; nc];
+    let mut sx = vec![[0.0f64; N_FEATURES]; nc];
+    let mut sy = vec![0.0f64; nc];
+    let mut x = Vec::with_capacity(kept.len());
+    let mut y = Vec::with_capacity(kept.len());
+    for (r, &c) in kept.iter().zip(&cell_of) {
+        let mut xr = [0.0; N_FEATURES];
+        for k in 0..N_FEATURES {
+            if usable[k] {
+                xr[k] = (r.feat[k] - mean[k]) / scale[k];
+            }
+        }
+        let yr = r.g_scr.ln();
+        cnt[c] += 1.0;
+        for k in 0..N_FEATURES {
+            sx[c][k] += xr[k];
+        }
+        sy[c] += yr;
+        x.push(xr);
+        y.push(yr);
+    }
+    for (i, &c) in cell_of.iter().enumerate() {
+        for k in 0..N_FEATURES {
+            x[i][k] -= sx[c][k] / cnt[c];
+        }
+        y[i] -= sy[c] / cnt[c];
+    }
+    Prepared { x, y, cluster, n_clusters: win_ix.len(), mean, scale, usable, n_zero_gain }
+}
+
+impl Prepared {
+    fn stats(&self) -> Stats {
+        let mut s = Stats::zero();
+        for (x, &y) in self.x.iter().zip(&self.y) {
+            s.add_row(x, y, 1.0);
+        }
+        s
+    }
+    fn cluster_stats(&self) -> Vec<Stats> {
+        let mut v = vec![Stats::zero(); self.n_clusters];
+        for ((x, &y), &c) in self.x.iter().zip(&self.y).zip(&self.cluster) {
+            v[c].add_row(x, y, 1.0);
+        }
+        v
+    }
+}
+
+/// `n` draws with replacement from `0..n`, as multiplicities (SplitMix64 on
+/// `(seed, replicate, draw)`; deterministic).
+fn multiplicities(n: usize, seed: u64, rep: usize) -> Vec<u32> {
+    let mut c = vec![0u32; n];
+    let base = mix(seed ^ (rep as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93));
+    for d in 0..n {
+        c[(mix(base ^ d as u64) % n as u64) as usize] += 1;
+    }
+    c
+}
+
+/// Bootstrap over **tiles**: replicate weights for each active term.
+fn bootstrap_tiles(p: &Prepared, active: &[bool; N_FEATURES], reps: usize, seed: u64) -> Vec<[f64; N_FEATURES]> {
+    (0..reps)
+        .into_par_iter()
+        .map(|rep| {
+            let c = multiplicities(p.x.len(), seed, rep);
+            let mut s = Stats::zero();
+            for (i, &m) in c.iter().enumerate() {
+                if m > 0 {
+                    s.add_row(&p.x[i], p.y[i], m as f64);
+                }
+            }
+            nnls(&s, active)
+        })
+        .collect()
+}
+
+/// Bootstrap over **windows** (clusters): neighbouring tiles share ground, so
+/// a tile bootstrap understates variance; resampling whole windows is the
+/// sensitivity check on the tile-level interval.
+fn bootstrap_clusters(cs: &[Stats], active: &[bool; N_FEATURES], reps: usize, seed: u64) -> Vec<[f64; N_FEATURES]> {
+    (0..reps)
+        .into_par_iter()
+        .map(|rep| {
+            let c = multiplicities(cs.len(), seed ^ 0xC1u64, rep);
+            let mut s = Stats::zero();
+            for (i, &m) in c.iter().enumerate() {
+                for _ in 0..m {
+                    s.add(&cs[i]);
+                }
+            }
+            nnls(&s, active)
+        })
+        .collect()
+}
+
+/// Per-term share of replicates whose weight is 0, and the 2.5 / 97.5 % points.
+fn summarise_boot(reps: &[[f64; N_FEATURES]]) -> ([f64; N_FEATURES], [(f64, f64); N_FEATURES]) {
+    let mut zs = [0.0; N_FEATURES];
+    let mut ci = [(0.0, 0.0); N_FEATURES];
+    for k in 0..N_FEATURES {
+        let col: Vec<f64> = reps.iter().map(|r| r[k]).collect();
+        zs[k] = col.iter().filter(|&&v| v <= ZERO_W).count() as f64 / col.len().max(1) as f64;
+        ci[k] = (quantile(&col, 0.025).unwrap_or(0.0), quantile(&col, 0.975).unwrap_or(0.0));
+    }
+    (zs, ci)
+}
+
+/// One fitted model and the evidence behind it.
+struct FitModel {
+    weights: ImportanceWeights,
+    /// Point NNLS weight of the kept terms (0 for dropped), standardised units.
+    point: [f64; N_FEATURES],
+    /// Tile-bootstrap 95 % interval of the final fit (kept terms).
+    ci: [(f64, f64); N_FEATURES],
+    /// Share of tile-bootstrap replicates that zero the term, final fit.
+    zero_share: [f64; N_FEATURES],
+    /// Terms the window-cluster bootstrap (final set) would also drop.
+    cluster_would_drop: Vec<&'static str>,
+    /// Human-readable elimination trace.
+    trace: Vec<String>,
+    n_tiles: usize,
+    n_zero_gain: usize,
+}
+
+/// **The fit.** NNLS of standardised features against `ln(G_scr)` with
+/// backward elimination: after each fit the tile bootstrap gives every term's
+/// 95 % interval; a term whose interval includes 0 (>= 2.5 % of replicates
+/// zero it) is dropped -- the one with the largest zero share first -- and the
+/// rest refitted, until every kept term's interval excludes 0. A term whose
+/// *point* weight is already 0 is dropped without bootstrapping. Terms not
+/// fittable on this training set start inactive.
+fn fit_model(rows: &[&FitRow], seed: u64) -> FitModel {
+    let p = prepare(rows);
+    let stats = p.stats();
+    let mut active = p.usable;
+    let mut trace = Vec::new();
+    for (k, u) in p.usable.iter().enumerate() {
+        if !u {
+            trace.push(format!("{}: not fittable on this training set (absent or constant)", FEATURE_NAMES[k]));
+        }
+    }
+    let (mut point, mut zero_share, mut ci);
+    loop {
+        point = nnls(&stats, &active);
+        let zero_pt: Vec<usize> = (0..N_FEATURES).filter(|&k| active[k] && point[k] <= ZERO_W).collect();
+        if !zero_pt.is_empty() {
+            for k in zero_pt {
+                active[k] = false;
+                trace.push(format!("{}: NNLS point weight 0 -> dropped", FEATURE_NAMES[k]));
+            }
+            continue;
+        }
+        if !active.iter().any(|&a| a) {
+            zero_share = [0.0; N_FEATURES];
+            ci = [(0.0, 0.0); N_FEATURES];
+            break;
+        }
+        let reps = bootstrap_tiles(&p, &active, BOOT_TILE, seed);
+        let (zs, c) = summarise_boot(&reps);
+        zero_share = zs;
+        ci = c;
+        let worst = (0..N_FEATURES).filter(|&k| active[k] && zs[k] >= DROP_ZERO_SHARE).max_by(|&a, &b| zs[a].partial_cmp(&zs[b]).unwrap());
+        match worst {
+            Some(k) => {
+                active[k] = false;
+                trace.push(format!("{}: 95% interval includes 0 (zero share {:.3}, point {:.4}) -> dropped", FEATURE_NAMES[k], zs[k], point[k]));
+            }
+            None => break,
+        }
+    }
+    let cluster_would_drop = if active.iter().any(|&a| a) {
+        let reps = bootstrap_clusters(&p.cluster_stats(), &active, BOOT_CLUSTER, seed);
+        let (zs, _) = summarise_boot(&reps);
+        (0..N_FEATURES).filter(|&k| active[k] && zs[k] >= DROP_ZERO_SHARE).map(|k| FEATURE_NAMES[k]).collect()
+    } else {
+        Vec::new()
+    };
+    let mut terms = [FittedTerm { mean: 0.0, scale: 1.0, weight: None }; N_FEATURES];
+    for k in 0..N_FEATURES {
+        terms[k] = FittedTerm { mean: p.mean[k], scale: p.scale[k], weight: active[k].then_some(point[k]) };
+        if !active[k] {
+            point[k] = 0.0;
+        }
+    }
+    FitModel { weights: ImportanceWeights { terms }, point, ci, zero_share, cluster_would_drop, trace, n_tiles: p.x.len(), n_zero_gain: p.n_zero_gain }
+}
+
+/// The "ship the best single input" fallback: `slope_mean` alone with weight 1
+/// and the training standardisation. Used when the fit is rejected.
+fn slope_only_weights(rows: &[&FitRow]) -> ImportanceWeights {
+    let p = prepare(rows);
+    let mut terms = [FittedTerm { mean: 0.0, scale: 1.0, weight: None }; N_FEATURES];
+    terms[0] = FittedTerm { mean: p.mean[0], scale: p.scale[0], weight: Some(1.0) };
+    ImportanceWeights { terms }
+}
+
+// ---------------------------------------------------------- held-out scoring
+
+/// Capture medians (over windows) of one `(world, level)` cell at [`BUDGETS`].
+#[derive(Clone, Debug)]
+struct EvalCell {
+    a: [Option<f64>; 3],
+    oracle: [Option<f64>; 3],
+    fit: [Option<f64>; 3],
+    /// Each fitted-term input alone (descending, absent last), [`FEATURE_NAMES`] order.
+    single: [[Option<f64>; 3]; N_FEATURES],
+}
+
+/// Importance score of one row under `w`, `NaN` when no term was usable.
+fn score_row(r: &FitRow, w: &ImportanceWeights) -> f64 {
+    let a: [Option<f64>; N_FEATURES] = std::array::from_fn(|k| r.feat[k].is_finite().then_some(r.feat[k]));
+    importance(&TileImportanceInputs::from_array(a), w).score.unwrap_or(f64::NAN)
+}
+
+/// One window's capture under (a), the oracle and the fit, then each single input.
+type WindowCaps = ([[Option<f64>; 3]; 3], [[Option<f64>; 3]; N_FEATURES]);
+
+/// Scores one `(world, level)` cell's rows under every order, window by window.
+/// A window with no positive total gain contributes nothing (its capture is
+/// undefined, never 0), exactly as in EF-9.0's `summarise`.
+fn eval_cell(rows: &[&FitRow], w: &ImportanceWeights) -> Option<EvalCell> {
+    let mut by_win: BTreeMap<u32, Vec<&FitRow>> = BTreeMap::new();
+    for r in rows {
+        by_win.entry(r.win).or_default().push(r);
+    }
+    let mut per: Vec<WindowCaps> = Vec::new();
+    for (win, rs) in &by_win {
+        let gain: Vec<f64> = rs.iter().map(|r| r.g_scr).collect();
+        let tiles: Vec<(u32, u32)> = rs.iter().map(|r| (r.col, r.row)).collect();
+        let (c0, c1) = (tiles.iter().map(|t| t.0).min().unwrap() as f64, tiles.iter().map(|t| t.0).max().unwrap() as f64);
+        let (r0, r1) = (tiles.iter().map(|t| t.1).min().unwrap() as f64, tiles.iter().map(|t| t.1).max().unwrap() as f64);
+        let salt = ((rs[0].world as u64) << 24) | ((rs[0].z as u64) << 16) | *win as u64;
+        let cap = |o: &[usize]| BUDGETS.map(|p| capture_share(&gain, o, p));
+        let oracle = cap(&order_desc(&gain, salt));
+        if oracle[0].is_none() {
+            continue;
+        }
+        let a = cap(&centre_distance_order(&tiles, ((c0 + c1) / 2.0, (r0 + r1) / 2.0)));
+        let fit_scores: Vec<f64> = rs.iter().map(|r| score_row(r, w)).collect();
+        let fit = if fit_scores.iter().all(|v| !v.is_finite()) { [None; 3] } else { cap(&order_desc(&fit_scores, salt ^ 0xF17)) };
+        let single = std::array::from_fn(|k| {
+            let s: Vec<f64> = rs.iter().map(|r| r.feat[k]).collect();
+            if s.iter().all(|v| !v.is_finite()) {
+                [None; 3]
+            } else {
+                cap(&order_desc(&s, salt ^ (k as u64 + 1)))
+            }
+        });
+        per.push(([a, oracle, fit], single));
+    }
+    if per.is_empty() {
+        return None;
+    }
+    let med = |f: &dyn Fn(&WindowCaps) -> [Option<f64>; 3]| -> [Option<f64>; 3] { std::array::from_fn(|p| median_opt(&per.iter().map(|e| f(e)[p]).collect::<Vec<_>>())) };
+    Some(EvalCell { a: med(&|e| e.0[0]), oracle: med(&|e| e.0[1]), fit: med(&|e| e.0[2]), single: std::array::from_fn(|k| med(&|e| e.1[k])) })
+}
+
+/// The held-out result of one world at one level.
+struct HeldCell {
+    z: u32,
+    cell: EvalCell,
+}
+
+/// Scores every `(world, level)` cell of `test` rows under `w`.
+fn eval_worlds(test: &[&FitRow], w: &ImportanceWeights) -> Vec<HeldCell> {
+    let mut groups: BTreeMap<(usize, u32), Vec<&FitRow>> = BTreeMap::new();
+    for r in test {
+        groups.entry((r.world, r.z)).or_default().push(r);
+    }
+    groups.into_iter().filter_map(|((_, z), rs)| eval_cell(&rs, w).map(|cell| HeldCell { z, cell })).collect()
+}
+
+/// Index and capture (at budget index `p`) of the best single input of a cell.
+fn best_single(c: &EvalCell, p: usize) -> Option<(usize, f64)> {
+    (0..N_FEATURES).filter_map(|k| c.single[k][p].map(|v| (k, v))).max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+}
+
+/// The held-out `(a, oracle, fit, slope_mean, best_single)` capture at the 25 %
+/// budget (index 1) of every cell -- the numbers the accept rule compares.
+fn headline_cells(cells: &[HeldCell]) -> Vec<(f64, f64, f64, f64, f64)> {
+    cells
+        .iter()
+        .filter_map(|h| {
+            let c = &h.cell;
+            Some((c.a[1]?, c.oracle[1]?, c.fit[1]?, c.single[0][1]?, best_single(c, 1)?.1))
+        })
+        .collect()
+}
+
+/// Prints one fold's per-level table. Medians are over the fold's held-out
+/// worlds (cells), each cell's value itself a median over windows.
+fn print_fold_table(name: &str, cells: &[HeldCell]) {
+    println!("-- held out: {name}");
+    println!("   level | (a) centre | oracle |   fit  10/25/50      | slope_mean 10/25/50  | best single @25 (input)         | fit - slope @25");
+    let mut zs: Vec<u32> = cells.iter().map(|h| h.z).collect();
+    zs.sort_unstable();
+    zs.dedup();
+    for z in zs {
+        let cs: Vec<&EvalCell> = cells.iter().filter(|h| h.z == z).map(|h| &h.cell).collect();
+        let m = |f: &dyn Fn(&EvalCell) -> Option<f64>| median_opt(&cs.iter().map(|c| f(c)).collect::<Vec<_>>());
+        let fit = [m(&|c| c.fit[0]), m(&|c| c.fit[1]), m(&|c| c.fit[2])];
+        let sl = [m(&|c| c.single[0][0]), m(&|c| c.single[0][1]), m(&|c| c.single[0][2])];
+        let bs = median_opt(&cs.iter().map(|c| best_single(c, 1).map(|b| b.1)).collect::<Vec<_>>());
+        let bn = cs.iter().filter_map(|c| best_single(c, 1).map(|b| FEATURE_NAMES[b.0])).collect::<Vec<_>>();
+        let d = match (fit[1], sl[1]) {
+            (Some(a), Some(b)) => format!("{:+.3}", a - b),
+            _ => "n/a".into(),
+        };
+        println!(
+            "   z{z:<4} | {} | {} | {} {} {} | {} {} {} | {} ({:<12}) | {d}",
+            f3(m(&|c| c.a[1])),
+            f3(m(&|c| c.oracle[1])),
+            f3(fit[0]),
+            f3(fit[1]),
+            f3(fit[2]),
+            f3(sl[0]),
+            f3(sl[1]),
+            f3(sl[2]),
+            f3(bs),
+            bn.first().copied().unwrap_or("-")
+        );
+    }
+}
+
+/// Reads every world's rows (measuring, or from the cache) and returns them
+/// with the world labels. Cache files are for iterating on the *statistics*;
+/// the recorded run must be made without `EF9_FIT_CACHE`.
+fn load_fit_worlds(seeds: &[i32], grids: &[(usize, usize)], wsz: u32, k: u32) -> (Vec<String>, Vec<(i32, usize)>, Vec<FitRow>) {
+    let z_base = z_base_for_tile_size(TILE_PX) as u32;
+    let levels: Vec<u32> = (z_base + 1..=z_base + KNEE_OCTAVES as u32).collect();
+    let cache = std::env::var("EF9_FIT_CACHE").ok().map(std::path::PathBuf::from);
+    if let Some(d) = &cache {
+        std::fs::create_dir_all(d).expect("cache dir");
+    }
+    let (mut labels, mut meta, mut rows) = (Vec::new(), Vec::new(), Vec::new());
+    for &(gw, gh) in grids {
+        for &seed in seeds {
+            let wi = labels.len();
+            let label = format!("{gw}x{gh}/s{seed}");
+            let header = format!("ef9fit v1 {label} window {wsz} k {k} levels {levels:?}");
+            let path = cache.as_ref().map(|d| d.join(format!("{gw}x{gh}_s{seed}_w{wsz}_k{k}.tsv")));
+            let cached = path.as_ref().and_then(|p| read_rows(p, &header, wi));
+            let r = match cached {
+                Some(r) => {
+                    println!("world {label}: {} rows from cache", r.len());
+                    r
+                }
+                None => {
+                    let t = std::time::Instant::now();
+                    let wd = build_world(gw, gh, seed);
+                    let opts = world_amplify_opts(&wd.ws, &wd.p, TILE_PX);
+                    let inp = WorldInputs::build(
+                        &wd.ws.field, gw, gh, wd.ws.sea_level, wd.p.world, wd.p.map_width_km, wd.ws.stream_order.as_deref(), &wd.ws.boundary_type, &wd.ws.volcanic_field,
+                        wd.settlements.clone(), &wd.ways,
+                    );
+                    println!(
+                        "world {label}: generated | stream_order {} | boundary_type {} | volcanic_field {}",
+                        if inp.src.has_stream_order() { "present" } else { "ABSENT" },
+                        if inp.src.has_boundary() { "present" } else { "ABSENT" },
+                        if inp.src.has_volcanic() { "present" } else { "ABSENT" },
+                    );
+                    let r = measure_fit_rows(wi, &wd.ws.field, &inp, &opts, &levels, wsz, k);
+                    println!("world {label}: {} tiles measured in {:.1}s", r.len(), t.elapsed().as_secs_f64());
+                    if let Some(p) = &path {
+                        write_rows(p, &header, &r);
+                    }
+                    r
+                }
+            };
+            labels.push(label);
+            meta.push((seed, gw));
+            rows.extend(r);
+        }
+    }
+    (labels, meta, rows)
+}
+
+/// Prints a fitted model: weights, intervals, the elimination trace.
+fn print_model(name: &str, m: &FitModel) {
+    println!("-- fit on {name}: {} tiles ({} tiles with G_scr = 0 excluded from the fit; they stay in held-out capture scoring)", m.n_tiles, m.n_zero_gain);
+    println!("   {:<18} {:>10} {:>10} {:>10}   {:>22}  zero-share", "term", "mean", "scale", "weight", "95% interval (tiles)");
+    for (k, name) in FEATURE_NAMES.iter().enumerate() {
+        let t = &m.weights.terms[k];
+        match t.weight {
+            Some(w) => println!("   {name:<18} {:>10.5} {:>10.5} {w:>10.5}   [{:>9.5}, {:>9.5}]  {:.3}", t.mean, t.scale, m.ci[k].0, m.ci[k].1, m.zero_share[k]),
+            None => println!("   {name:<18} {:>10.5} {:>10.5} {:>10}", t.mean, t.scale, "DROPPED"),
+        }
+    }
+    for l in &m.trace {
+        println!("   trace: {l}");
+    }
+    println!(
+        "   window-cluster bootstrap would additionally drop: {}",
+        if m.cluster_would_drop.is_empty() { "nothing".to_string() } else { m.cluster_would_drop.join(", ") }
+    );
+}
+
+/// Renders a weight set as the Rust literal `importance.rs` carries.
+fn weights_literal(w: &ImportanceWeights) -> String {
+    let mut s = String::from("pub const FITTED_WEIGHTS: ImportanceWeights = ImportanceWeights {\n    terms: [\n");
+    for (k, t) in w.terms.iter().enumerate() {
+        let wt = t.weight.map_or("None".to_string(), |v| format!("Some({v:?})"));
+        s.push_str(&format!("        FittedTerm {{ mean: {:?}, scale: {:?}, weight: {wt} }}, // {}\n", t.mean, t.scale, FEATURE_NAMES[k]));
+    }
+    s.push_str("    ],\n};");
+    s
+}
+
+/// Fixture row selection: the windows the held-out-capture regression test
+/// reads. Window 0 (a corner), 4 (the centre of the 3x3 lattice) and 8 (the
+/// opposite corner) of every level: spread, small, and picked by position, not
+/// by outcome.
+const FIXTURE_WINDOWS: [u32; 3] = [0, 4, 8];
+
+/// Writes the held-out fixture: the chosen windows' rows with the eight fitted
+/// inputs and `G_scr` quantised to `f32` (what the file can hold exactly; the
+/// reading test scores the quantised values, so the pin and the file agree).
+fn write_fixture(path: &std::path::Path, rows: &[&FitRow], world_tag: &str) {
+    let mut s = format!(
+        "# EF-9.1 held-out fixture: world {world_tag}; windows {FIXTURE_WINDOWS:?} of each level z5..z10; columns z win col row g_scr then {FEATURE_NAMES:?} (f32). Written by `ef9_1_importance_fit`; do not edit.\n"
+    );
+    for r in rows.iter().filter(|r| FIXTURE_WINDOWS.contains(&r.win)) {
+        s.push_str(&format!("{}\t{}\t{}\t{}\t{}", r.z, r.win, r.col, r.row, r.g_scr as f32));
+        for k in 0..N_FEATURES {
+            s.push_str(&format!("\t{}", r.feat[k] as f32));
+        }
+        s.push('\n');
+    }
+    std::fs::write(path, s).expect("write fixture");
+}
+
+/// Parses the fixture back into rows (world index 0) with the values as the
+/// `f32`s the file holds, widened to `f64`.
+fn read_fixture(text: &str) -> Vec<FitRow> {
+    text.lines()
+        .filter(|l| !l.starts_with('#') && !l.is_empty())
+        .map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            assert_eq!(f.len(), 5 + N_FEATURES, "fixture row width");
+            let mut feat = [f64::NAN; INPUTS.len()];
+            for k in 0..N_FEATURES {
+                feat[k] = f[5 + k].parse::<f32>().expect("feature") as f64;
+            }
+            FitRow { world: 0, z: f[0].parse().unwrap(), win: f[1].parse().unwrap(), col: f[2].parse().unwrap(), row: f[3].parse().unwrap(), g_scr: f[4].parse::<f32>().expect("g_scr") as f64, feat }
+        })
+        .collect()
+}
+
+/// Per-level `(z, fit@25, slope_mean@25, oracle@25)` medians over the
+/// fixture's windows under `w`. One definition for the fit run's pin printout
+/// and the regression test.
+fn fixture_capture(rows: &[FitRow], w: &ImportanceWeights) -> Vec<(u32, f64, f64, f64)> {
+    let refs: Vec<&FitRow> = rows.iter().collect();
+    eval_worlds(&refs, w).iter().filter_map(|h| Some((h.z, h.cell.fit[1]?, h.cell.single[0][1]?, h.cell.oracle[1]?))).collect()
+}
+
+/// **The EF-9.1 fit.** Ignored: it measures the same worlds EF-9.0 does (about
+/// 8 minutes in release) and then fits and bootstraps.
+///
+/// ```text
+/// cargo test --release -p cartalith-civ --test ef9_refinement_gain -- --ignored --nocapture
+/// EF9_FIT_CACHE=<dir>  # optional: cache measured rows so the statistics can be iterated
+/// ```
+///
+/// (That command runs both ignored measurements; add `ef9_1_importance_fit` to
+/// run only this one.)
+///
+/// Folds: leave-one-seed-out (fit on the other seeds, both grids; score the
+/// held-out seed on both grids) and leave-one-grid-out (fit on one grid, score
+/// the other). The shipped weights are the fit that holds out the **last-listed
+/// seed**, chosen before looking at any result, so its held-out score and the
+/// fixture are genuinely out of sample for the literals that ship.
+#[test]
+#[ignore = "EF-9.1 fit: minutes in release; run with --release --ignored --nocapture ef9_1_importance_fit"]
+fn ef9_1_importance_fit() {
+    let seeds: Vec<i32> = std::env::var("EF9_SEEDS")
+        .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|_| vec![483920, 24601, 71077345]);
+    let grids: Vec<(usize, usize)> = std::env::var("EF9_GRIDS")
+        .map(|s| s.split(',').filter_map(|t| t.split_once('x').and_then(|(a, b)| Some((a.trim().parse().ok()?, b.trim().parse().ok()?)))).collect())
+        .unwrap_or_else(|_| vec![(2048, 1311), (512, 384)]);
+    let (wsz, k) = (env_u32("EF9_WINDOW", DEFAULT_WINDOW), env_u32("EF9_K", DEFAULT_K));
+    assert!(seeds.len() >= 2 && grids.len() >= 2, "folds need at least two seeds and two grid sizes");
+    println!("EF-9.1 fit | tile {TILE_PX}px | windows {k}x{k} of {wsz}x{wsz} tiles | seeds {seeds:?} | grids {grids:?}");
+    let (labels, meta, rows) = load_fit_worlds(&seeds, &grids, wsz, k);
+    let pick = |f: &dyn Fn(usize) -> bool| -> Vec<&FitRow> { rows.iter().filter(|r| f(r.world)).collect() };
+
+    let mut loso: Vec<HeldCell> = Vec::new();
+    let mut grid_cells: Vec<HeldCell> = Vec::new();
+    let mut shipped: Option<(FitModel, usize)> = None;
+    println!("\n== leave-one-seed-out ==");
+    for (si, &s) in seeds.iter().enumerate() {
+        let train = pick(&|w| meta[w].0 != s);
+        let test = pick(&|w| meta[w].0 == s);
+        let m = fit_model(&train, 0xE9_0001 + si as u64);
+        print_model(&format!("seeds != {s}"), &m);
+        let cells = eval_worlds(&test, &m.weights);
+        let held: Vec<&str> = labels.iter().enumerate().filter(|(w, _)| meta[*w].0 == s).map(|(_, l)| l.as_str()).collect();
+        print_fold_table(&format!("seed {s} (worlds {held:?})"), &cells);
+        loso.extend(cells);
+        if si == seeds.len() - 1 {
+            shipped = Some((m, si));
+        }
+    }
+    println!("\n== leave-one-grid-out ==");
+    let mut grid_ws: Vec<usize> = meta.iter().map(|m| m.1).collect();
+    grid_ws.sort_unstable();
+    grid_ws.dedup();
+    for (gi, &g) in grid_ws.iter().enumerate() {
+        let train = pick(&|w| meta[w].1 != g);
+        let test = pick(&|w| meta[w].1 == g);
+        let m = fit_model(&train, 0xE9_1000 + gi as u64);
+        print_model(&format!("grid width != {g}"), &m);
+        let cells = eval_worlds(&test, &m.weights);
+        print_fold_table(&format!("grid width {g}"), &cells);
+        grid_cells.extend(cells);
+    }
+    let all_refs: Vec<&FitRow> = rows.iter().collect();
+    println!("\n== all-data fit (information only: nothing is held out) ==");
+    let all_model = fit_model(&all_refs, 0xE9_2000);
+    print_model("all worlds", &all_model);
+
+    // ---- accept / reject
+    println!("\n== acceptance (held-out, 25 % budget, per (world, level) cell) ==");
+    let mut ok = true;
+    for (name, cells) in [("leave-one-seed-out", &loso), ("leave-one-grid-out", &grid_cells)] {
+        let h = headline_cells(cells);
+        let med = |f: &dyn Fn(&(f64, f64, f64, f64, f64)) -> f64| quantile(&h.iter().map(f).collect::<Vec<_>>(), 0.5).unwrap_or(f64::NAN);
+        let (a, o, fit, sl, bs) = (med(&|x| x.0), med(&|x| x.1), med(&|x| x.2), med(&|x| x.3), med(&|x| x.4));
+        let worse = h.iter().filter(|x| x.2 < x.3).count();
+        println!("{name}: {} cells | (a) {a:.3} | oracle {o:.3} | FIT {fit:.3} | slope_mean {sl:.3} | best single (hindsight) {bs:.3} | cells where fit < slope_mean: {worse}", h.len());
+        println!("   fit / (a) = {:.3}   slope_mean / (a) = {:.3}   oracle / (a) = {:.3}", fit / a, sl / a, o / a);
+        if !(fit >= sl) {
+            ok = false;
+        }
+    }
+    println!("VERDICT: {}", if ok { "ACCEPT the fitted combination (held-out fit >= slope_mean on both fold families)" } else { "REJECT the fit: ship slope_mean alone" });
+
+    // ---- shipped literals and the fixture
+    let (ship_model, si) = shipped.expect("at least one seed");
+    let train_ship = pick(&|w| meta[w].0 != seeds[si]);
+    let ship_w = if ok { ship_model.weights } else { slope_only_weights(&train_ship) };
+    println!("\n== literal to paste into importance.rs (trained on seeds != {}, held out seed {}) ==\n{}", seeds[si], seeds[si], weights_literal(&ship_w));
+    let small = (0..labels.len()).filter(|&w| meta[w].0 == seeds[si]).min_by_key(|&w| meta[w].1).unwrap();
+    let fx_rows: Vec<&FitRow> = rows.iter().filter(|r| r.world == small).collect();
+    let fixture_path = std::env::var("EF9_FIXTURE_OUT").unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ef9_importance_heldout.tsv").to_string());
+    write_fixture(std::path::Path::new(&fixture_path), &fx_rows, &labels[small]);
+    let back = read_fixture(&std::fs::read_to_string(&fixture_path).expect("read fixture back"));
+    println!("fixture {fixture_path}: {} rows from world {}", back.len(), labels[small]);
+    println!("pins for the regression test (fit, slope_mean, oracle at 25 %, per level, fixture windows {FIXTURE_WINDOWS:?}):");
+    for (z, f, s, o) in fixture_capture(&back, &ship_w) {
+        println!("   z{z}: fit {f:.6}  slope_mean {s:.6}  oracle {o:.6}");
     }
 }
 
@@ -1324,5 +2062,320 @@ mod tests {
         // first bin would report 20 instead of 20 + 10.
         let f0 = inp.features(&pyramid_tile_bounds(n, n, 0, 0, 0));
         assert!((f0[9] - 30.0).abs() < 1e-12, "a box spanning bins sums every bin's segments once: {}", f0[9]);
+    }
+    // ------------------------------------------------------ EF-9.1 fit tests
+
+    /// Deterministic uniform `[0, 1)` from `(a, b)`.
+    fn unif(a: u64, b: u64) -> f64 {
+        (mix(a.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ b) >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Protects: `nnls` against a closed form. With a diagonal Gram the
+    /// solution is `max(0, b_j / G_jj)` per coordinate, so a negative `b`
+    /// must clamp to exactly 0 and the rest must be `b / G`; an inactive
+    /// coordinate must stay 0 even when its `b` is large.
+    #[test]
+    fn nnls_matches_the_closed_form_on_a_diagonal_gram() {
+        let mut s = Stats::zero();
+        let diag = [2.0, 4.0, 1.0, 1.0, 5.0, 1.0, 1.0, 8.0];
+        let b = [4.0, -2.0, 3.0, 0.0, 10.0, 0.5, -0.1, 16.0];
+        for j in 0..N_FEATURES {
+            s.g[j][j] = diag[j];
+            s.b[j] = b[j];
+        }
+        let mut active = [true; N_FEATURES];
+        active[4] = false;
+        let w = nnls(&s, &active);
+        let want = [2.0, 0.0, 3.0, 0.0, 0.0, 0.5, 0.0, 2.0];
+        for j in 0..N_FEATURES {
+            assert!((w[j] - want[j]).abs() < 1e-12, "coordinate {j}: {} vs {}", w[j], want[j]);
+        }
+    }
+
+    /// Protects: `nnls` on *correlated* data against the Karush-Kuhn-Tucker
+    /// conditions, which characterise the constrained optimum: `w >= 0`,
+    /// gradient `G w - b >= 0`, and complementary slackness `w_j * grad_j = 0`.
+    /// A coordinate sweep that stopped early or mishandled the off-diagonal
+    /// coupling would break one of the three.
+    #[test]
+    fn nnls_satisfies_the_kkt_conditions_on_correlated_data() {
+        let mut s = Stats::zero();
+        for i in 0..400u64 {
+            let u: Vec<f64> = (0..N_FEATURES as u64).map(|k| unif(i, k) - 0.5).collect();
+            let x: [f64; N_FEATURES] = std::array::from_fn(|k| u[k] + if k > 0 { 0.6 * u[k - 1] } else { 0.0 });
+            let y = 2.0 * x[0] - 1.5 * x[3] + 0.2 * (unif(i, 99) - 0.5);
+            s.add_row(&x, y, 1.0);
+        }
+        let w = nnls(&s, &[true; N_FEATURES]);
+        let grad: Vec<f64> = (0..N_FEATURES).map(|j| (0..N_FEATURES).map(|k| s.g[j][k] * w[k]).sum::<f64>() - s.b[j]).collect();
+        assert!(w.iter().any(|&v| v == 0.0), "the planted -1.5 on x3 must clamp at least one coordinate: {w:?}");
+        for j in 0..N_FEATURES {
+            assert!(w[j] >= 0.0, "w[{j}] = {}", w[j]);
+            assert!(grad[j] >= -1e-8, "gradient[{j}] = {} is negative (not optimal)", grad[j]);
+            assert!((w[j] * grad[j]).abs() < 1e-8, "complementary slackness at {j}: w {} grad {}", w[j], grad[j]);
+        }
+    }
+
+    /// A deterministic fit set: two worlds x two levels x four windows of 64
+    /// tiles. `ln G = 0.6 z0 + 0.3 z3 + 0.05 noise` in *standardised* units
+    /// (uniform `[0,1)` has sd `1/sqrt(12)`), plus a per-cell offset on `ln G`
+    /// and a per-cell shift of the pure-noise feature 1 that is perfectly
+    /// aligned with it -- the confound the within-cell centring must remove.
+    fn planted_rows() -> Vec<FitRow> {
+        let sd = (1.0f64 / 12.0).sqrt();
+        let mut rows = Vec::new();
+        for world in 0..2usize {
+            for (zi, z) in [5u32, 6].into_iter().enumerate() {
+                let cell_shift = 10.0 * (zi as f64 + 2.0 * world as f64);
+                for win in 0..4u32 {
+                    for t in 0..64u32 {
+                        let id = ((world as u64) << 40) | ((z as u64) << 32) | ((win as u64) << 16) | t as u64;
+                        let mut feat = [f64::NAN; INPUTS.len()];
+                        for (k, f) in feat.iter_mut().enumerate().take(N_FEATURES) {
+                            *f = unif(id, k as u64);
+                        }
+                        feat[1] += cell_shift;
+                        let ln_g = 0.6 * feat[0] / sd + 0.3 * feat[3] / sd + 0.05 * (unif(id, 77) - 0.5) + cell_shift;
+                        rows.push(FitRow { world, z, win, col: t % 8, row: t / 8, g_scr: ln_g.exp(), feat });
+                    }
+                }
+            }
+        }
+        rows
+    }
+
+    /// Protects: the whole fit pipeline against a planted truth. The two real
+    /// terms (0 and 3) must be kept with weights near 0.6 and 0.3 and a
+    /// bootstrap interval excluding 0; the cell-aligned shift on noise feature
+    /// 1 -- which an uncentred fit would credit with the cell offset -- must
+    /// not survive; and noise terms must be dropped. The interval rule is a
+    /// one-sided 2.5 % test, so a pure-noise term is by construction kept with
+    /// probability about 2.5 % per term (this deterministic draw keeps one,
+    /// `boundary_fraction`, at a weight of 0.0009); the test therefore requires
+    /// at least four of the six noise terms dropped and any survivor negligible
+    /// (< 0.01, under 2 % of the smallest real weight) rather than all six.
+    #[test]
+    fn the_fit_recovers_a_planted_model_and_drops_noise_terms() {
+        let rows = planted_rows();
+        let refs: Vec<&FitRow> = rows.iter().collect();
+        let m = fit_model(&refs, 1234);
+        let w = |k: usize| m.weights.terms[k].weight;
+        assert!((w(0).expect("term 0 kept") - 0.6).abs() < 0.05, "slope_mean weight {:?}", w(0));
+        assert!((w(3).expect("term 3 kept") - 0.3).abs() < 0.05, "abs_tpi_mean weight {:?}", w(3));
+        assert!(m.ci[0].0 > 0.0 && m.ci[3].0 > 0.0, "kept terms' intervals exclude 0: {:?}", m.ci);
+        let noise = [1usize, 2, 4, 5, 6, 7];
+        let dropped = noise.iter().filter(|&&k| w(k).is_none()).count();
+        assert!(dropped >= 4, "only {dropped} of 6 noise terms dropped: {:?}", m.weights.terms.map(|t| t.weight));
+        for &k in &noise {
+            assert!(w(k).map_or(true, |v| v < 0.01), "kept noise term {} must be negligible: {:?}", FEATURE_NAMES[k], w(k));
+        }
+        assert_eq!(w(1), None, "the cell-aligned shift on feature 1 must not be credited");
+        assert_eq!(m.n_zero_gain, 0);
+        assert!(m.trace.iter().any(|l| l.contains("dropped")), "the elimination trace must say what it dropped: {:?}", m.trace);
+    }
+
+    /// Protects: the non-negativity path of the fit. A term whose *true* effect
+    /// is negative (feature 2 planted at -0.3) cannot be given a negative
+    /// weight, so NNLS must zero it and the elimination must record the
+    /// "point weight 0" drop -- while the real positive terms are still found.
+    #[test]
+    fn a_negatively_planted_term_is_dropped_by_non_negativity() {
+        let sd = (1.0f64 / 12.0).sqrt();
+        let rows: Vec<FitRow> = planted_rows().into_iter().map(|r| FitRow { g_scr: r.g_scr * (-0.3 * r.feat[2] / sd).exp(), ..r }).collect();
+        let refs: Vec<&FitRow> = rows.iter().collect();
+        let m = fit_model(&refs, 99);
+        assert_eq!(m.weights.terms[2].weight, None, "a negative effect has no non-negative weight");
+        assert!(m.trace.iter().any(|l| l.contains("abs_curv_mean") && l.contains("point weight 0")), "{:?}", m.trace);
+        assert!((m.weights.terms[0].weight.expect("slope_mean kept") - 0.6).abs() < 0.05);
+    }
+
+    /// Protects: `prepare` -- cell-centring (each `(world, level)` cell's `x`
+    /// and `y` sum to 0 per cell), the exclusion of `G_scr = 0` tiles (counted,
+    /// not floored), and the unusable-feature rule (a feature absent on any
+    /// training tile, or constant, is not fittable).
+    #[test]
+    fn prepare_centres_within_cells_and_excludes_zero_gain_tiles() {
+        let mut rows = planted_rows();
+        rows[0].g_scr = 0.0;
+        rows[1].g_scr = f64::NAN;
+        rows[2].feat[7] = f64::NAN; // absent on one training tile: feature 7 unusable
+        for r in rows.iter_mut() {
+            r.feat[5] = 1.0; // constant: feature 5 unusable
+        }
+        let refs: Vec<&FitRow> = rows.iter().collect();
+        let p = prepare(&refs);
+        assert_eq!(p.n_zero_gain, 2);
+        assert_eq!(p.x.len(), rows.len() - 2);
+        assert!(!p.usable[7] && !p.usable[5] && p.usable[0] && p.usable[3]);
+        // per-cell sums vanish: sum over the first cell's rows (world 0, z 5)
+        let cell: Vec<usize> = (0..p.x.len()).filter(|&i| i < 256 - 2).collect();
+        let sy: f64 = cell.iter().map(|&i| p.y[i]).sum();
+        let sx0: f64 = cell.iter().map(|&i| p.x[i][0]).sum();
+        assert!(sy.abs() < 1e-8 && sx0.abs() < 1e-8, "{sy} {sx0}");
+        assert_eq!(p.n_clusters, 16, "2 worlds x 2 levels x 4 windows");
+        // the cell shift on feature 1 is removed from the centred column
+        let max1 = p.x.iter().map(|x| x[1].abs()).fold(0.0f64, f64::max);
+        assert!(max1 < 0.2, "centred feature 1 must not carry the 10-per-cell shift: {max1}");
+    }
+
+    /// Protects: the lean `tile_g_scr` against `tile_gain(..).g_scr`, bit for
+    /// bit -- the fit's target must be the number EF-9.0 measured.
+    #[test]
+    fn the_lean_gain_equals_the_full_gain_bit_for_bit() {
+        let n = 33;
+        let coarse: Vec<f32> = (0..n * n)
+            .map(|i| {
+                let (x, y) = ((i % n) as f32, (i / n) as f32);
+                0.55 + 0.25 * (x * 0.31).sin() * (y * 0.47).cos() + 0.004 * x * y / n as f32
+            })
+            .collect();
+        let opts = AmplifyOpts { seed: 7, sea: 0.42, z_base: 2, ..AmplifyOpts::default() };
+        for id in [ChunkId { z: 4, col: 5, row: 3 }, ChunkId { z: 3, col: 0, row: 7 }, ChunkId { z: 5, col: 31, row: 30 }] {
+            let lean = tile_g_scr(&coarse, n, n, &opts, 32, id);
+            let full = tile_gain(&coarse, n, n, &opts, 32, id).g_scr;
+            assert_eq!(lean.to_bits(), full.to_bits(), "{id:?}: {lean} vs {full}");
+            assert!(lean > 0.0, "{id:?} must have gain for the equality to mean anything");
+        }
+    }
+
+    /// Protects: the row cache round trip -- exact `f64`s, and a `NaN`
+    /// (absent) input staying `NaN` rather than becoming a number -- and the
+    /// header check that refuses a cache written by different settings.
+    #[test]
+    fn the_row_cache_round_trips_exactly_and_refuses_a_stale_header() {
+        let mut feat = [0.1f64 + 0.2; INPUTS.len()];
+        feat[4] = f64::NAN;
+        feat[9] = 1.0 / 3.0;
+        let rows = vec![FitRow { world: 0, z: 7, win: 3, col: 12, row: 5, g_scr: 1.234_567_890_123e-4, feat }];
+        let dir = std::env::temp_dir().join(format!("ef9_cache_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("rows.tsv");
+        write_rows(&path, "hdr A", &rows);
+        let back = read_rows(&path, "hdr A", 0).expect("same header reads");
+        assert_eq!(back.len(), 1);
+        assert_eq!((back[0].z, back[0].win, back[0].col, back[0].row), (7, 3, 12, 5));
+        assert_eq!(back[0].g_scr.to_bits(), rows[0].g_scr.to_bits());
+        for k in 0..INPUTS.len() {
+            assert_eq!(back[0].feat[k].to_bits(), rows[0].feat[k].to_bits(), "feature {k}");
+        }
+        assert!(back[0].feat[4].is_nan(), "absent stays absent");
+        assert!(read_rows(&path, "hdr B", 0).is_none(), "a different header must not be trusted");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Protects: bootstrap resampling -- every replicate draws exactly `n`
+    /// tiles, replicates differ from each other, and the same `(seed, rep)`
+    /// reproduces the same draw (a recorded run must be repeatable).
+    #[test]
+    fn bootstrap_multiplicities_sum_to_n_and_are_reproducible() {
+        let a = multiplicities(500, 9, 0);
+        assert_eq!(a.iter().sum::<u32>(), 500);
+        assert_eq!(a, multiplicities(500, 9, 0));
+        assert_ne!(a, multiplicities(500, 9, 1));
+        assert_ne!(a, multiplicities(500, 10, 0));
+        assert!(a.iter().any(|&m| m == 0) && a.iter().any(|&m| m >= 2), "a bootstrap sample has repeats and omissions");
+    }
+
+    /// Protects: `eval_cell`'s capture bookkeeping on a window where the answer
+    /// is known. Gain = feature 0 exactly, so weights putting all mass on
+    /// feature 0 must reproduce the oracle's capture and `slope_mean` alone
+    /// must too, while today's centre-distance order (gain rising away from the
+    /// centre) must capture strictly less; a window with no gain at all must
+    /// yield no cell rather than a zero.
+    #[test]
+    fn eval_cell_scores_fit_oracle_and_centre_distance_on_a_known_window() {
+        let mut rows = Vec::new();
+        for r in 0..4u32 {
+            for c in 0..4u32 {
+                let mut feat = [f64::NAN; INPUTS.len()];
+                // gain grows with distance from the window centre (1.5, 1.5)
+                let d = ((c as f64 - 1.5).powi(2) + (r as f64 - 1.5).powi(2)).sqrt();
+                feat[0] = 1.0 + d;
+                for f in feat.iter_mut().take(N_FEATURES).skip(1) {
+                    *f = 0.0;
+                }
+                rows.push(FitRow { world: 0, z: 5, win: 0, col: c, row: r, g_scr: 1.0 + d, feat });
+            }
+        }
+        let mut w = ImportanceWeights { terms: [FittedTerm { mean: 0.0, scale: 1.0, weight: None }; N_FEATURES] };
+        w.terms[0] = FittedTerm { mean: 2.0, scale: 0.5, weight: Some(1.5) };
+        let refs: Vec<&FitRow> = rows.iter().collect();
+        let c = eval_cell(&refs, &w).expect("a window with gain");
+        for p in 0..3 {
+            assert_eq!(c.fit[p], c.oracle[p], "budget index {p}: a monotone importance equals the oracle");
+            assert_eq!(c.single[0][p], c.oracle[p]);
+            assert!(c.a[p].unwrap() < c.oracle[p].unwrap(), "centre-first loses when the gain is at the edge (budget {p})");
+        }
+        // 25 % of 16 tiles = 4 tiles: the four corners (d = 2.12) of total gain
+        let total: f64 = rows.iter().map(|r| r.g_scr).sum();
+        assert!((c.oracle[1].unwrap() - 4.0 * (1.0 + 4.5f64.sqrt()) / total).abs() < 1e-12);
+        // gain-free window: no cell
+        let dead: Vec<FitRow> = rows.iter().map(|r| FitRow { g_scr: 0.0, ..r.clone() }).collect();
+        let dr: Vec<&FitRow> = dead.iter().collect();
+        assert!(eval_cell(&dr, &w).is_none(), "undefined capture is skipped, never 0");
+    }
+
+    /// Protects: `slope_only_weights` -- the rejected-fit fallback -- ranking
+    /// exactly as `slope_mean` alone (weight 1 on feature 0, nothing else).
+    #[test]
+    fn the_fallback_weights_are_slope_mean_alone() {
+        let rows = planted_rows();
+        let refs: Vec<&FitRow> = rows.iter().collect();
+        let w = slope_only_weights(&refs);
+        assert_eq!(w.terms[0].weight, Some(1.0));
+        assert!(w.terms[1..].iter().all(|t| t.weight.is_none()));
+        let cells = eval_worlds(&refs, &w);
+        assert!(!cells.is_empty());
+        for h in &cells {
+            assert_eq!(h.cell.fit, h.cell.single[0], "the fallback is slope_mean's own order");
+        }
+    }
+
+    /// Protects: the shipped weights' held-out behaviour. The fixture
+    /// (`tests/fixtures/ef9_importance_heldout.tsv`) is the smallest-grid world
+    /// of the held-out seed 71077345 -- windows 0, 4 and 8 of each level z5..z10,
+    /// f32-quantised, written by `ef9_1_importance_fit` -- which the shipped
+    /// [`FITTED_WEIGHTS`] never saw in training. Per level it pins the median
+    /// 25 % capture of the fit, of `slope_mean` alone and of the oracle. Any
+    /// change to a weight, scale, the importance formula or the capture
+    /// bookkeeping moves at least one pin. The pins record the truth, including
+    /// that on this fixture the fit is *below* `slope_mean` at z5 and z8; the
+    /// accept decision rests on the full fold tables, not on this file.
+    /// A fit-score checksum over all 4608 tiles (and the count of tiles with a
+    /// non-zero volcanic input) also pins the weights that capture cannot see:
+    /// the 0.011 volcanic weight and every `mean` move no 25 % cut, but they
+    /// move the checksum (mutation-tested, see the EF-9.1 report).
+    #[test]
+    fn shipped_weights_capture_the_recorded_heldout_share() {
+        let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/ef9_importance_heldout.tsv")).expect("fixture present");
+        let rows = read_fixture(&text);
+        assert_eq!(rows.len(), 4608, "6 levels x 3 windows x 256 tiles");
+        let got = fixture_capture(&rows, &cartalith_engine::importance::FITTED_WEIGHTS);
+        let want: [(u32, f64, f64, f64); 6] = [
+            (5, 0.591708, 0.710031, 0.759798),
+            (6, 0.741845, 0.723889, 0.913827),
+            (7, 0.655348, 0.654042, 0.681380),
+            (8, 0.574102, 0.582741, 0.593472),
+            (9, 0.528397, 0.528397, 0.535640),
+            (10, 0.476356, 0.475543, 0.476546),
+        ];
+        assert_eq!(got.len(), want.len(), "every level yields a cell");
+        for (g, w) in got.iter().zip(&want) {
+            assert_eq!(g.0, w.0);
+            assert!((g.1 - w.1).abs() < 5e-7, "z{} fit capture {} vs pinned {}", g.0, g.1, w.1);
+            assert!((g.2 - w.2).abs() < 5e-7, "z{} slope_mean capture {} vs pinned {}", g.0, g.2, w.2);
+            assert!((g.3 - w.3).abs() < 5e-7, "z{} oracle capture {} vs pinned {}", g.0, g.3, w.3);
+            assert!(g.1 <= g.3 + 1e-12, "no order can beat the oracle (z{})", g.0);
+        }
+        // Capture is rank-based and discrete, so a tiny weight (volcanic_max's
+        // 0.011) can change scores without moving any 25 % cut. A score
+        // checksum closes that gap: the sum of every fixture tile's fit score,
+        // and how many tiles carry a non-zero volcanic input (so the fixture
+        // is known to exercise that term at all).
+        let w = &cartalith_engine::importance::FITTED_WEIGHTS;
+        let score_sum: f64 = rows.iter().map(|r| score_row(r, w)).sum();
+        let volcanic_tiles = rows.iter().filter(|r| r.feat[7] > 0.0).count();
+        assert!((score_sum - (-4119.856778)).abs() < 1e-3, "fit-score checksum {score_sum} vs pinned -4119.856778");
+        assert_eq!(volcanic_tiles, 73, "fixture tiles with volcanic_max > 0");
     }
 }
