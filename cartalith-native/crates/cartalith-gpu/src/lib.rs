@@ -5686,12 +5686,36 @@ mod tests {
     /// four orders of magnitude larger, and correspondingly deeper `f32`
     /// summation chains on the CPU side). Both regimes are tested, because
     /// only the second one really stresses either algorithm.
+    ///
+    /// The result is min-max normalised to `[0, 1]` so every caller's
+    /// height scale (and so every `drop` the kernels compare) is the same
+    /// regardless of `fine_weight`. Deterministic in `(w, h, salt,
+    /// fine_weight)` -- same inputs, same bytes, which the bit-reproducibility
+    /// test relies on. Test-only: it is a fixture, never a stand-in for a
+    /// generated terrain, and the blur used is the real CPU one so the
+    /// fixture does not itself depend on any GPU path under test.
     fn drainage_test_field(w: usize, h: usize, salt: u32, fine_weight: f32) -> Vec<f32> {
+        // Both blurs pass `wrap_x = false`, deliberately: the field is not
+        // periodic in x, so the `world = true` cases in the tests below run
+        // the kernels' wrap indexing over a field with a seam -- harmless,
+        // because direction and accumulation are defined for any field.
+        // sigma 64 cells (labelled judgement): large enough that the broad
+        // layer forms a few basins spanning most of a 512x512 grid -- the
+        // long-chain regime this fixture exists for.
         let broad = cartalith_terrain::gauss_blur(&synthetic_field(w * h, salt), 64.0, w, h, false);
+        // sigma 5 cells (labelled judgement): small-scale relief that, scaled
+        // by `fine_weight`, carves local pits into the broad basins. The
+        // `salt ^ 0x9E37` (low 16 bits of the golden-ratio constant
+        // 0x9E3779B9; a labelled judgement) only has to make this noise
+        // field differ from `broad`'s -- any distinct salt would serve.
         let fine = cartalith_terrain::gauss_blur(&synthetic_field(w * h, salt ^ 0x9E37), 5.0, w, h, false);
         let mut f: Vec<f32> = broad.iter().zip(fine.iter()).map(|(&b, &s)| b + fine_weight * s).collect();
         let mn = f.iter().cloned().fold(f32::INFINITY, f32::min);
         let mx = f.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        // 1e-6 floor (labelled judgement): only guards the divide below
+        // against a perfectly flat field (`mx == mn`); no field built here
+        // comes near it, and a flat field would normalise to all zeros, not
+        // to a fabricated slope.
         let range = (mx - mn).max(1e-6);
         for v in f.iter_mut() {
             *v = (*v - mn) / range;
@@ -5706,7 +5730,18 @@ mod tests {
     /// `f64` arithmetic, same strict `>` first-max-wins tie-break) -- if it
     /// ever drifts from the real one, `gpu_flow_matches_real_cpu_compute_flow`
     /// (which uses the real function, not this) is what catches it.
+    ///
+    /// Returns, per cell, the row-major index of the steepest strictly-lower
+    /// neighbour, or `-1` for a pit/outlet (no neighbour strictly lower).
+    /// `-1` is a real sentinel shared with `GpuFlowResult::recv` and
+    /// `gpu_flow.wgsl`'s `dir_main`, so the comparison in the test is like
+    /// for like; it must never be used as an index. `world` wraps x (the
+    /// CPU function's own `world` argument); rows never wrap.
     fn cpu_receivers(gw: usize, gh: usize, field: &[f32], world: bool) -> Vec<i32> {
+        // Step lengths indexed `(dy+1)*3 + (dx+1)`: 1 for a cardinal step,
+        // sqrt(2) for a diagonal -- the Euclidean D8 distance the height
+        // drop is divided by, as in `compute_flow`. The centre entry (0.0)
+        // is never read (`dx == 0 && dy == 0` is skipped below).
         let mut d8 = [0f64; 9];
         for dy in -1i32..=1 {
             for dx in -1i32..=1 {
@@ -5718,6 +5753,9 @@ mod tests {
                 let x = (i % gw) as i64;
                 let y = (i / gw) as i64;
                 let h = field[i] as f64;
+                // `best_drop` starts at 0.0 and the test is a strict `>`, so a
+                // cell with no strictly lower neighbour keeps `best = -1`
+                // (a pit), and the first of several equal drops wins.
                 let mut best: i64 = -1;
                 let mut best_drop = 0.0f64;
                 for dy in -1i64..=1 {
@@ -5755,6 +5793,12 @@ mod tests {
     /// -- so a receiver flips only when two candidate neighbours' drops are
     /// within `f32` rounding of each other. This test measures how often
     /// that really happens rather than assuming it away.
+    ///
+    /// Protects: `dir_main`'s per-cell D8 receiver against
+    /// [`cpu_receivers`] -- zero differing receivers on a rough (`0.25`) and
+    /// a smooth (`0.02`) fixture, wrapped and unwrapped. It would go red on
+    /// a wrong neighbour order, a dropped wrap modulo or a non-strict
+    /// tie-break; it does not cover accumulation (the next tests do).
     #[test]
     fn gpu_flow_directions_match_cpu_receivers() {
         // Protects: the GPU D8 receiver kernel against drift from
@@ -5765,8 +5809,13 @@ mod tests {
             return;
         };
         let ctx = init_gpu_flow_with(&gpu);
+        // 512x512 (labelled judgement): large enough for the smooth fixture's
+        // long chains, small enough for the per-cell compare to be quick.
         let (gw, gh) = (512usize, 512usize);
 
+        // `fine` 0.25 = rough, many pits; 0.02 = smooth, few outlets (see
+        // `drainage_test_field`). Seed 11 is arbitrary but shared with the
+        // sibling flow tests so they all see the same terrain.
         for &(fine, world) in &[(0.25f32, false), (0.25, true), (0.02, false)] {
             let field = drainage_test_field(gw, gh, 11, fine);
             let out = dispatch_gpu_flow(&ctx, gw, gh, &field, None, false, world);
@@ -5793,6 +5842,13 @@ mod tests {
     /// summing in `u32` fixed point -- so exact equality is not expected;
     /// what is expected, and asserted, is that the two agree to within the
     /// fixed-point quantization the Rust side deliberately chose.
+    ///
+    /// Protects: the tolerances themselves ([`FLOW_TOLERANCE`] on channel
+    /// cells, [`FLOW_ANY_CELL_TOLERANCE`] everywhere) across rain on/off,
+    /// wrapped/unwrapped and rough/smooth fixtures. It would go red on a
+    /// wrong fixed-point scale or a lost doubling round; it must not be
+    /// loosened to make a failure pass -- the constants' own docs say what
+    /// each bound was measured against.
     #[test]
     fn gpu_flow_matches_real_cpu_compute_flow() {
         // Protects: the GPU accumulation against the real, untouched
@@ -5805,9 +5861,11 @@ mod tests {
         };
         let ctx = init_gpu_flow_with(&gpu);
         let (gw, gh) = (512usize, 512usize);
+        // Seed 23 for rain: arbitrary, distinct from the terrain's seed 11.
         let rain = synthetic_field(gw * gh, 23);
 
-        // The third row is the long-chain regime: a nearly pit-free field
+        // Tuples are `(use_rain, world, fine_weight)`. The `fine = 0.02` rows
+        // (the last two) are the long-chain regime: a nearly pit-free field
         // where a single outlet drains most of the grid, so the CPU's own
         // f32 accumulation chain is ~1e5 additions deep. That is where the
         // two algorithms' error behaviour actually differs.
@@ -5830,6 +5888,9 @@ mod tests {
             // flood) actually reads the value; below it, the accumulation is
             // a handful of individually-quantized seeds and nothing in the
             // pipeline distinguishes one from the next.
+            // 1000.0 = the map width in km this test assumes (a labelled
+            // judgement, the same value the downstream-network test uses);
+            // `world_gw == gw` is the non-tiled case.
             let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, 1000.0);
             let mut max_abs = 0.0f64;
             let mut max_rel_any = 0.0f64;
@@ -5872,6 +5933,11 @@ mod tests {
     /// unlike a compare-exchange float-atomic emulation this kernel is
     /// bit-reproducible -- asserted, not assumed, because it is the whole
     /// reason the fixed-point choice was made.
+    ///
+    /// Protects: bit-exact run-to-run equality of both outputs. It would go
+    /// red if the scatter were ever rewritten with a float atomic or any
+    /// other order-dependent accumulation. Both dispatches share one
+    /// context, so it does not cover equality across devices.
     #[test]
     fn gpu_flow_is_bit_reproducible() {
         // Protects: the fixed-point integer accumulation's promised
@@ -5883,6 +5949,9 @@ mod tests {
             return;
         };
         let ctx = init_gpu_flow_with(&gpu);
+        // 256x256, seeds 5/6 and fine 0.05 (labelled judgement): any field
+        // with contended scatter targets would do. Rain is on so the seeds
+        // are non-uniform and the fixed-point rounding path is exercised.
         let (gw, gh) = (256usize, 256usize);
         let field = drainage_test_field(gw, gh, 5, 0.05);
         let rain = synthetic_field(gw * gh, 6);
@@ -5898,6 +5967,12 @@ mod tests {
     /// "does the river network come out the same". Both accumulations are
     /// run through the real `build_channels`/`strahler_from_receivers` and
     /// the resulting channel masks compared cell for cell.
+    ///
+    /// Protects: the river network's size (river-cell count within 2%) and
+    /// its maximum Strahler order (exactly equal) under both fixtures. It
+    /// would go red on a wrong fixed-point scale, a lost round or a changed
+    /// tie-break. It does not demand cell-for-cell identity -- the
+    /// differing-cell counts are only printed.
     #[test]
     fn gpu_flow_downstream_river_network_divergence() {
         // Protects: the downstream river network (channel mask and
@@ -5913,6 +5988,9 @@ mod tests {
         let ctx = init_gpu_flow_with(&gpu);
         let (gw, gh) = (512usize, 512usize);
         let rain = synthetic_field(gw * gh, 23);
+        // sea level 0.35 of the normalised height range, river density 1.0
+        // (neutral) and a 1000 km map width (as above): labelled judgements,
+        // not values taken from a generated world.
         let (sea, density, km) = (0.35f64, 1.0f64, 1000.0f64);
         for &fine in &[0.25f32, 0.02] {
         let field = drainage_test_field(gw, gh, 11, fine);
@@ -5942,20 +6020,26 @@ mod tests {
 
         // A hard ceiling on how far the river network may move, so a future
         // regression (a wrong scale, a lost round, a broken tie-break) fails
-        // here instead of quietly reshaping every map. Set well above the
-        // real measured divergence -- see the milestone entry for the actual
-        // numbers.
+        // here instead of quietly reshaping every map. The 2% ceiling is a
+        // labelled judgement, set well above the real measured divergence --
+        // see the milestone entry for the actual numbers.
         let rel = (n_gpu as f64 - n_cpu as f64).abs() / (n_cpu.max(1) as f64);
         assert!(rel < 0.02, "river-cell count moved by {:.3}% -- far beyond quantization", rel * 100.0);
         assert_eq!(max_gpu, max_cpu, "the river network's maximum Strahler order must not change");
         }
     }
 
-    /// Not a correctness test -- see `gpu_weather_loop_real_timing` above
-    /// for the same discipline applied to the flow kernel: a real
-    /// wall-clock comparison against the real CPU `compute_flow`, at every
-    /// size this port's resolution presets offer, kept as a live NaN/Inf
-    /// sanity check rather than a fixed pass/fail on the ratio.
+    /// Not a correctness test -- the same discipline as
+    /// `gpu_weather_loop_real_timing` above, applied to the flow kernel: a
+    /// real wall-clock comparison against the real CPU `compute_flow`, at
+    /// 128, 512, 1024 and 2048 (not every size the resolution presets offer:
+    /// the 4096 and 8192 presets are not swept here), kept as a live NaN/Inf
+    /// sanity check rather than a fixed pass/fail on the ratio. The printed
+    /// timings are one run each, not a median -- indicative only, never to
+    /// be quoted as a benchmark.
+    ///
+    /// Protects: only that the GPU accumulation stays finite across the
+    /// sweep -- the timing ratio is deliberately not asserted.
     #[test]
     fn gpu_flow_real_timing() {
         // Protects: nothing about the ratio (a timing, not a threshold) --
@@ -5965,6 +6049,8 @@ mod tests {
             return;
         };
         let ctx = init_gpu_flow_with(&gpu);
+        // `fine = 0.02`: the smooth, long-chain fixture, the case the kernel's
+        // doubling rounds are sized for.
         for &size in &[128usize, 512, 1024, 2048] {
             let field = drainage_test_field(size, size, 11, 0.02);
             let rain = synthetic_field(size * size, 23);
@@ -5980,6 +6066,8 @@ mod tests {
             eprintln!(
                 "gpu_flow {size}x{size}: GPU = {:?} ({} doubling rounds), CPU (real) = {:?}, ratio (CPU/GPU) = {:.2}x",
                 gpu_time,
+                // Same bound `dispatch_gpu_flow` uses for its round count
+                // (minus its `.max(1.0)` clamp, irrelevant at these sizes).
                 ((size * size) as f64).log2().ceil() as u32,
                 cpu_time,
                 cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)

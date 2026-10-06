@@ -103,6 +103,9 @@ fn dir_main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 continue;
             }
             let j = ny * w + nx;
+            // D8 step length: 1 for a cardinal neighbour, sqrt(2) for a diagonal. The CPU
+            // side divides by `f64` `hypot(dx, dy)`; this `f32` form is the one place the two
+            // can disagree, and only when two candidates' drops are within `f32` rounding.
             var d: f32 = 1.0;
             if dx != 0 && dy != 0 {
                 d = sqrt(2.0);
@@ -150,6 +153,8 @@ fn merge_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let i = linear_index(gid);
+    // Read-and-zero in one step: `delta` must be empty again before the next round's scatter
+    // (the Rust side clears it once, before round 0, and relies on this for every later round).
     let d = atomicExchange(&delta[i], 0u);
     if d != 0u {
         atomicAdd(&acc[i], d);
