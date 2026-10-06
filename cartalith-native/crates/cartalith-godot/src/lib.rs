@@ -35,6 +35,7 @@ mod export_stream;
 mod geojson_apply;
 mod geojson_bridge;
 mod icon_bridge;
+mod info_tile;
 mod infra_tools_bridge;
 mod journey_bridge;
 mod label_bridge;
@@ -17100,6 +17101,99 @@ impl WorldGen {
     #[func]
     fn lod_release_worker(&self) {
         self.lod_worker.invalidate();
+    }
+
+    // ------------------------------------------------------------------
+    // LOD-D7 (Ruling AV) -- deep-zoom tiles for the info views
+    //
+    // The same snapshot, worker, pool, generation rule and `max_in_flight`
+    // cap as the terrain tiles above; separate request/drain functions only so
+    // terrain behaviour and goldens are untouched. `info_tile.rs` is the
+    // module doc for what a tile is and which views are refined.
+    // ------------------------------------------------------------------
+
+    /// Which info views have a deep-zoom tile, and how each relates to the map
+    /// raster: `{views: {id: "refined" | "interpolated" | "mixed"}, deferred:
+    /// {group: reason}}`. Static -- the disclosure Ruling AV asks for, so the
+    /// shell reports what is NOT refined instead of the owner inferring it.
+    #[func]
+    fn info_tile_views(&self) -> VarDictionary {
+        let mut views = VarDictionary::new();
+        for v in info_tile::TILED_VIEWS {
+            let kind = match v.refinement() {
+                info_tile::Refinement::Refined => "refined",
+                info_tile::Refinement::Interpolated => "interpolated",
+                info_tile::Refinement::Mixed => "mixed",
+            };
+            views.set(v.id(), kind);
+        }
+        let mut deferred = VarDictionary::new();
+        for (group, reason) in info_tile::DEFERRED_VIEWS {
+            deferred.set(group, reason);
+        }
+        dict! { "views" => &views, "deferred" => &deferred, "version" => info_tile::INFO_TILE_VERSION as i64 }
+    }
+
+    /// The cache tag tiles of `view` from the CURRENT snapshot carry
+    /// (`info_tile::cache_tag`: version, view id, producer digest of every tile
+    /// input), or `null` when `view` is not tileable, no snapshot is built yet,
+    /// or its inputs are missing (a loaded save has no flow/age/resistance).
+    /// The shell keys its tile cache on this and drops any tile whose tag
+    /// differs, so a view switch or a world change can never show a stale tile.
+    #[func]
+    fn info_tile_tag(&self, view: GString) -> Variant {
+        let tag = || -> Option<String> {
+            let v = info_tile::InfoView::from_id(&view.to_string())?;
+            let snap = self.lod_worker.snapshot_for(&self.lod_cache_key())?;
+            snap.info_available(v).then(|| snap.info_tag(v))
+        };
+        match tag() {
+            Some(t) => GString::from(t.as_str()).to_variant(),
+            None => Variant::nil(),
+        }
+    }
+
+    /// Queue one info tile of `view` for background synthesis. `false` when it
+    /// was not queued (not tileable, no snapshot, inputs missing, already in
+    /// flight or waiting, or the tier's shared in-flight cap is full) -- the
+    /// caller simply asks again next frame.
+    #[func]
+    fn info_request_tile(&self, view: GString, z: i32, col: i32, row: i32) -> bool {
+        let Some(v) = info_tile::InfoView::from_id(&view.to_string()) else { return false };
+        self.lod_worker.request_info(v, z, col, row, lod_worker::budget_for_tier(self.quality).max_in_flight)
+    }
+
+    /// Collect up to `max` finished info tiles, textures created here on the
+    /// main thread. Each entry is `{view, tag, z, col, row, tex}`; a tile whose
+    /// image cannot be created is dropped, never returned with a null `tex`.
+    #[func]
+    fn info_take_ready_tiles(&self, max: i32) -> Array<VarDictionary> {
+        let mut out: Array<VarDictionary> = Array::new();
+        for t in self.lod_worker.take_ready_info(max.max(0) as usize) {
+            let packed = PackedByteArray::from(t.rgba);
+            let Some(image) = Image::create_from_data(t.w as i32, t.h as i32, false, Format::RGBA8, &packed) else {
+                continue;
+            };
+            let Some(tex) = ImageTexture::create_from_image(&image) else {
+                continue;
+            };
+            out.push(&dict! { "view" => t.view.id(), "tag" => t.tag.as_str(), "z" => t.z, "col" => t.col, "row" => t.row, "tex" => &tex });
+        }
+        out
+    }
+
+    /// Info-tile counters: `{in_flight, waiting, pending, built, dropped}`.
+    /// For the shell's diagnostics and `_infotiles_probe.gd`.
+    #[func]
+    fn info_worker_stats(&self) -> VarDictionary {
+        let (in_flight, waiting, built, dropped) = self.lod_worker.info_stats();
+        dict! {
+            "in_flight" => in_flight as i64,
+            "waiting" => waiting as i64,
+            "pending" => (in_flight + waiting) as i64,
+            "built" => built as i64,
+            "dropped" => dropped as i64,
+        }
     }
 
     /// [`Self::lod_synthesize_tile`] without the Godot half — the seam the

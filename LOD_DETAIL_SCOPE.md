@@ -650,6 +650,16 @@ opacity at deep zoom (reference v0.89/v0.91), with a golden per view family.
 
 **Size:** small to medium. **Only if the owner wants it** (question 6).
 
+**Built as Ruling AV, not as a port of `renderAffordanceTileRGBA`:** the tiles derive
+from the world's fields (bilinear of the field, then the ramp; the amplified height
+for elevation, slope and aspect), not from an upsampled raster. The producer is
+`cartalith-godot/src/info_tile.rs` (`synthesize_info_tile`, with `TILED_VIEWS` and
+`DEFERRED_VIEWS` as the in-code disclosure of which views are refined, interpolated
+or mixed and which are deferred), run through `LodWorker::request_info` on the
+terrain tiles' own worker pool and in-flight cap. The shell side is
+`shell/info_tiles.gd`; the windowed probe is `_infotiles_probe.gd`. Status is
+`STATUS.md`'s.
+
 ---
 
 ## Parked, and out of this document

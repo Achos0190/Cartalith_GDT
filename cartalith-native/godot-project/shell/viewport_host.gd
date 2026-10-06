@@ -71,6 +71,10 @@ const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## (`renderBiomeTileRGBA`'s own output), so the shader draws it; it keeps
 ## `base_tex` bound for LOD-D3's morph and reads it nowhere today.
 const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
+## LOD-D7 (Ruling AV): deep-zoom tiles for the Layers popover's info views. The
+## manager's own header says what it draws and what it must never do; this file
+## only decides WHEN it is active and which tiles are wanted.
+const INFO_TILES_SCRIPT := preload("res://shell/info_tiles.gd")
 
 var map_view: TextureRect
 var territory_view: TextureRect
@@ -82,6 +86,7 @@ var _preview_image: Image = null  ## CPU mirror of `_preview_layer`. See `set_pr
 var _preview_patchable := false   ## Whether `_preview_layer.texture` may seed that mirror.
 var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set_debug_layer()`.
 var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
+var _info = null                  ## LOD-D7's `info_tiles.gd` manager (untyped: no class_name).
 var _paint_orig_layer: TextureRect  ## The armed paint layer's as-generated raster. See `set_paint_original()`.
 
 var _scale_label: Label
@@ -454,6 +459,8 @@ var _export_grid_rows := 4
 
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
+	if _info != null:
+		_info.bind(bridge)
 	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
 	bridge.world_loaded.connect(refresh)
 	## The landmark pass's placements reach the map through here and nowhere
@@ -623,6 +630,10 @@ func _ready() -> void:
 	## picked, and `modulate.a` is what the popover's opacity slider drives.
 	_debug_layer = _raster()
 	_camera.add_child(_debug_layer)
+	## LOD-D7: the info views' deep-zoom tile layer, directly above the raster
+	## it supersedes at depth. The raster stays beneath as the fallback.
+	_info = INFO_TILES_SCRIPT.new()
+	_info.setup(_camera, _debug_layer, _bridge, _lod_tile_rect)
 
 	## One shared draft-preview layer for every tool whose result is a full
 	## raster (`build_sculpt_preview_texture`, `build_paint_preview_texture`)
@@ -2656,6 +2667,7 @@ func set_debug_layer(view: String) -> void:
 		_refresh_vp_field()
 		overlay.set_debug_active(false)
 		_apply_river_paint()
+		_sync_info_tiles()
 		return
 	var tex := _bridge.debug_texture(view)
 	_debug_layer.texture = tex
@@ -2663,6 +2675,7 @@ func set_debug_layer(view: String) -> void:
 	_refresh_vp_field()
 	overlay.set_debug_active(_debug_view != "off")
 	_apply_river_paint()
+	_sync_info_tiles()
 
 ## Ruling BR: show `tex` (the armed paint layer's as-generated raster, owned
 ## and freed by `paint_original.gd`) at opacity `a`, or hide the layer.
@@ -2748,6 +2761,8 @@ func set_viewport_context(text: String, tip: String = "") -> void:
 ## raster over the base map so terrain reads through it.
 func set_debug_opacity(a: float) -> void:
 	_debug_layer.modulate.a = clampf(a, 0.0, 1.0)
+	if _info != null:
+		_info.set_opacity(_debug_layer.modulate.a)
 
 func debug_opacity() -> float:
 	return _debug_layer.modulate.a
@@ -3259,6 +3274,10 @@ func _update_lod() -> void:
 
 	_apply_lod_tiles(wanted, build_keys, g, displayed_origin, displayed_size)
 	_set_lod_active(true)
+	## LOD-D7: the info view's tiles for the DRAWN level only, over the same
+	## tile range. Nearest the centre first, so the middle of the view lands
+	## before its edges.
+	_update_info_tiles(z, c0, c1, r0, r1, g, displayed_origin, displayed_size)
 
 ## `pyramid_tile_bounds`' own step: the *sample* range `[0, gw-1] x [0, gh-1]`
 ## divided `n` ways per axis. Stated once because four call sites need it and
@@ -3590,8 +3609,16 @@ func _install_lod_tile(key: String, idx: Vector3i, tex: Texture2D, g: Vector2i, 
 ## processing the moment the backlog empties, so this costs nothing once
 ## everything wanted is on screen.
 func _process(_delta: float) -> void:
+	## LOD-D7: the info tiles' drain and retry run on the same frame loop and
+	## keep it alive while any are outstanding.
+	var info_busy := false
+	if _info != null and _info.view() != "":
+		if _info.process_frame(_lod_budget):
+			_sync_info_raster()
+		info_busy = _info.busy()
 	if _lod_backlog.is_empty() and _lod_pending.is_empty():
-		set_process(false)
+		if not info_busy:
+			set_process(false)
 		return
 	## **LOD-D6**: collect what the background synthesiser finished, first.
 	## Before asking for more, so a frame's `tiles_per_catchup` is spent on
@@ -3614,7 +3641,7 @@ func _process(_delta: float) -> void:
 	if landed or n > 0:
 		_refresh_lod_blend()
 		_lod_debug_dirty()
-	if _lod_backlog.is_empty() and _lod_pending.is_empty():
+	if _lod_backlog.is_empty() and _lod_pending.is_empty() and not info_busy:
 		set_process(false)
 
 ## **LOD-D6.** Installs every tile the background synthesiser has finished,
@@ -3801,6 +3828,12 @@ func _clear_lod_tiles() -> void:
 	## never installed.
 	_drop_lod_cache()
 	_lod_pending.clear()
+	## LOD-D7: the info tiles and their parked cache belong to the same world
+	## and snapshot as the terrain tiles just freed, so they go with them.
+	if _info != null:
+		_info.clear()
+		_info.drop_cache()
+		_sync_info_raster()
 	## Nothing is live, so no level is drawn and no morph applies. `-1` rather
 	## than a stale level: `_update_lod()` compares against `_lod_child_level`
 	## to decide whether the layer needs re-sorting, and a level that survived
@@ -3841,6 +3874,71 @@ func invalidate_lod_tiles() -> void:
 		return
 	_clear_lod_tiles()
 	_update_lod()
+
+## **LOD-D7.** A view switch (or the view being turned off) reaches here from
+## `set_debug_layer()`. The live info tiles belong to the view just left, so
+## they are freed -- the whole of "a view switch never shows another view's
+## tile" on the live side; parked tiles stay and are keyed on a tag that holds
+## the view id, so they cannot come back as the wrong view either. A same-view
+## call (`refresh()` re-applying the picked view to a new world) is a no-op
+## here: `_clear_lod_tiles()` right after it handles the world change.
+func _sync_info_tiles() -> void:
+	if _info == null:
+		return
+	if _info.view() == _debug_view:
+		_sync_info_raster()
+		return
+	_info.clear()
+	_sync_info_raster()
+	if _lod_active and _debug_view != "off":
+		_update_lod()
+
+## The map-resolution raster is the info tiles' fallback and goes away only
+## once they have covered the wanted set (`info_tiles.gd`'s header says why).
+## Driven from every place that can change that: an update, a landed tile, a
+## clear and a view switch.
+func _sync_info_raster() -> void:
+	var covered: bool = _info != null and _debug_view != "off" and _info.view() == _debug_view and _info.engaged()
+	_debug_layer.visible = not covered
+
+## **LOD-D7.** Hands the info layer this call's wanted set: the DRAWN level's
+## tile range `[c0..c1] x [r0..r1]`, nearest the view centre first. Never the
+## parent level -- the fallback under a missing info tile is the debug raster.
+## A view with no tile form (`_info.update` answers false) leaves the raster
+## alone, which is the pre-D7 behaviour for every deferred view.
+func _update_info_tiles(z: int, c0: int, c1: int, r0: int, r1: int, g: Vector2i, origin: Vector2, disp_size: Vector2) -> void:
+	if _info == null:
+		return
+	if _debug_view == "off" or not _info.available():
+		if _info.view() != "":
+			_info.clear()
+			_sync_info_raster()
+		return
+	var centre := Vector2((c0 + c1) * 0.5, (r0 + r1) * 0.5)
+	var list: Array[Vector3i] = []
+	for row in range(r0, r1 + 1):
+		for col in range(c0, c1 + 1):
+			list.append(Vector3i(z, col, row))
+	list.sort_custom(func(a: Vector3i, b: Vector3i) -> bool:
+		return Vector2(a.y, a.z).distance_squared_to(centre) < Vector2(b.y, b.z).distance_squared_to(centre))
+	var wanted: Dictionary = {}
+	for idx in list:
+		wanted["%d,%d,%d" % [idx.x, idx.y, idx.z]] = idx
+	_info.set_opacity(_debug_layer.modulate.a)
+	_info.update(_debug_view, wanted, z, g, origin, disp_size, _lod_budget)
+	_sync_info_raster()
+	if _info.busy():
+		set_process(true)
+
+## The info layer's counters (live/parked tiles, bytes, stale drops), for
+## probes and the diagnostics. `{}` before the layer exists.
+func info_tile_stats() -> Dictionary:
+	return _info.stats() if _info != null else {}
+
+## The info layer node and the manager, so a probe can read the pixels it
+## actually draws.
+func info_tiles_manager():
+	return _info
 
 ## `_draw_lod_debug()` reads `_lod_tiles` -- which chunks are live, and where
 ## each one's `Sprite2D` sits -- and a `CanvasItem` re-runs `_draw()` only when

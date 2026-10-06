@@ -688,6 +688,22 @@ pub struct LodSnapshot {
     /// RIM-7: [`SnapshotInputs::river_paint`]; when present the tiles paint
     /// the river with it instead of stroking `rivers` and `river_fans`.
     river_paint: Option<Arc<crate::river_field::PaintSource>>,
+    /// LOD-D7: the generation parameters the info tiles' slope scale needs and
+    /// the terrain tile does not keep ([`SnapshotInputs::peak_m`],
+    /// [`SnapshotInputs::map_width_km`]).
+    peak_m: f64,
+    map_width_km: f64,
+    /// LOD-D7: crust age and rock resistance, the two lithology rasters the
+    /// Age and Resistance info views read. `Arc` clones of
+    /// [`SnapshotInputs::litho`]'s, so they add no steady memory; `None` for a
+    /// loaded save, which stores no tectonic substrate (the views are then
+    /// "not available", never a flat colour).
+    age: Option<Arc<Vec<f32>>>,
+    resistance: Option<Arc<Vec<f32>>>,
+    /// LOD-D7: the River-flow view's whole-map normaliser
+    /// (`sample_bridge::flow_log_max`), scanned ONCE here so every tile shares
+    /// one scale and no edge seams. The `1e-6` floor when there is no flow.
+    flow_log_max: f64,
 }
 
 /// The whole safety argument for this module in one line the compiler checks.
@@ -762,6 +778,10 @@ impl LodSnapshot {
         // substrate this needs (`SAVEFILE_COMPAT.md`), which is why its
         // caller hands us no `LithoSource` at all.
         let lithology = litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &rainfall, sea_level));
+        // LOD-D7: the two rasters the info views read, kept as `Arc` clones.
+        let info_age = litho.as_ref().map(|l| Arc::clone(&l.age));
+        let info_resistance = litho.as_ref().map(|l| Arc::clone(&l.resistance));
+        let info_flow_log_max = crate::sample_bridge::flow_log_max(flow.as_ref().map_or(&[][..], |v| v.as_slice()));
         // A throwaway context, only so `TileFields::new` has the `ctx` its
         // signature takes. It borrows everything above, which is why the
         // struct is assembled after this block and not before it.
@@ -823,6 +843,11 @@ impl LodSnapshot {
             rivers,
             river_fans,
             river_paint,
+            peak_m,
+            map_width_km,
+            age: info_age,
+            resistance: info_resistance,
+            flow_log_max: info_flow_log_max,
         })
     }
 
@@ -881,6 +906,45 @@ impl LodSnapshot {
         }
         tf = tf.with_color_space(self.color_space);
         lod_bridge::synthesize_tile_rgba_rivers(&ctx, &tf, z, col, row, self.seed, self.rivers.as_deref(), self.river_fans.as_deref(), self.river_paint.as_deref())
+    }
+
+    /// The borrowed inputs an info tile reads (LOD-D7). One constructor, so the
+    /// availability test and the synthesis can never look at different slices.
+    fn info_source(&self) -> crate::info_tile::InfoSource<'_> {
+        crate::info_tile::InfoSource {
+            gw: self.gw,
+            gh: self.gh,
+            sea: self.sea_level,
+            seed: self.seed,
+            peak_m: self.peak_m,
+            map_width_km: self.map_width_km,
+            field: &self.field,
+            temperature: &self.temperature,
+            rainfall: &self.rainfall,
+            flow: self.flow.as_ref().map(|v| v.as_slice()),
+            age: self.age.as_ref().map(|v| v.as_slice()),
+            resistance: self.resistance.as_ref().map(|v| v.as_slice()),
+            flow_log_max: self.flow_log_max,
+        }
+    }
+
+    /// **The one function that draws a deep-zoom info tile** (LOD-D7, Ruling
+    /// AV), called identically from the main thread and from a worker. Derives
+    /// from this snapshot's fields -- see `info_tile`'s module doc -- and
+    /// never touches the terrain tile path.
+    pub fn render_info_tile(&self, view: crate::info_tile::InfoView, z: i32, col: i32, row: i32) -> Option<(Vec<u8>, usize, usize)> {
+        crate::info_tile::synthesize_info_tile(&self.info_source(), view, z, col, row)
+    }
+
+    /// Whether the inputs `view` reads exist in this snapshot.
+    pub fn info_available(&self, view: crate::info_tile::InfoView) -> bool {
+        self.info_source().available(view)
+    }
+
+    /// The cache tag every tile of `view` from this snapshot carries
+    /// ([`crate::info_tile::cache_tag`] over [`Self::producer_id`]).
+    pub fn info_tag(&self, view: crate::info_tile::InfoView) -> String {
+        crate::info_tile::cache_tag(view, &self.producer)
     }
 
     /// Every tile of levels `0..=z_max`, as storable masks — owner rulings
@@ -1153,6 +1217,19 @@ pub enum PrepareState {
     Ready,
 }
 
+/// A finished info tile (LOD-D7). Carries its view and tag so the shell can
+/// refuse one whose view or inputs have moved since it was requested.
+pub struct ReadyInfoTile {
+    pub view: crate::info_tile::InfoView,
+    pub tag: String,
+    pub z: i32,
+    pub col: i32,
+    pub row: i32,
+    pub w: usize,
+    pub h: usize,
+    pub rgba: Vec<u8>,
+}
+
 #[derive(Default)]
 struct WorkerState {
     /// The key of `snapshot`, or of the build in flight.
@@ -1161,9 +1238,17 @@ struct WorkerState {
     building: bool,
     in_flight: HashSet<(i32, i32, i32)>,
     ready: Vec<ReadyTile>,
+    /// LOD-D7: info tiles in flight / finished, keyed by view as well as
+    /// `(z, col, row)` so two views of one tile never collide. Cleared with
+    /// `in_flight`/`ready` everywhere those are, so the same generation rule
+    /// drops them.
+    info_in_flight: HashSet<(crate::info_tile::InfoView, i32, i32, i32)>,
+    info_ready: Vec<ReadyInfoTile>,
     /// Counters for the shell's diagnostics, never for a decision.
     built: u64,
     dropped: u64,
+    info_built: u64,
+    info_dropped: u64,
 }
 
 /// The main thread's handle on the background synthesis.
@@ -1271,6 +1356,9 @@ impl LodWorker {
             st.in_flight.clear();
             st.dropped += st.ready.len() as u64;
             st.ready.clear();
+            st.info_in_flight.clear();
+            st.info_dropped += st.info_ready.len() as u64;
+            st.info_ready.clear();
         }
         let me = Arc::clone(self);
         pool.spawn(move || {
@@ -1301,6 +1389,9 @@ impl LodWorker {
             st.in_flight.clear();
             st.dropped += st.ready.len() as u64;
             st.ready.clear();
+            st.info_in_flight.clear();
+            st.info_dropped += st.info_ready.len() as u64;
+            st.info_ready.clear();
         }
     }
 
@@ -1360,6 +1451,67 @@ impl LodWorker {
             }
         });
         true
+    }
+
+    /// Queue one info tile of `view` (LOD-D7). Same discipline as
+    /// [`Self::request`]: a dedicated-pool job, the generation check on landing,
+    /// and refusal (never an error) when there is no snapshot, the inputs for
+    /// `view` are missing, the tile is already in flight or waiting, or the
+    /// tier's `max_in_flight` cap is full. **The cap is shared**: terrain and
+    /// info jobs together are counted against it by this call, so an info view
+    /// cannot double the background work a tier was sized for.
+    pub fn request_info(self: &Arc<Self>, view: crate::info_tile::InfoView, z: i32, col: i32, row: i32, max_in_flight: usize) -> bool {
+        let Some(pool) = pool() else { return false };
+        let (snap, generation) = {
+            let Ok(mut st) = self.state.lock() else { return false };
+            let Some(snap) = st.snapshot.clone() else { return false };
+            if !snap.info_available(view) {
+                return false;
+            }
+            let id = (view, z, col, row);
+            if st.info_in_flight.contains(&id) || st.info_ready.iter().any(|t| (t.view, t.z, t.col, t.row) == id) {
+                return false;
+            }
+            if st.in_flight.len() + st.info_in_flight.len() >= max_in_flight.max(1) {
+                return false;
+            }
+            st.info_in_flight.insert(id);
+            (snap, self.generation.load(Ordering::SeqCst))
+        };
+        let me = Arc::clone(self);
+        pool.spawn(move || {
+            let out = snap.render_info_tile(view, z, col, row);
+            let tag = snap.info_tag(view);
+            let Ok(mut st) = me.state.lock() else { return };
+            st.info_in_flight.remove(&(view, z, col, row));
+            if me.generation.load(Ordering::SeqCst) != generation {
+                st.info_dropped += 1;
+                return;
+            }
+            match out {
+                Some((rgba, w, h)) => {
+                    st.info_ready.push(ReadyInfoTile { view, tag, z, col, row, w, h, rgba });
+                    st.info_built += 1;
+                }
+                None => st.info_dropped += 1,
+            }
+        });
+        true
+    }
+
+    /// Take up to `max` finished info tiles. Main thread only, which then
+    /// creates the textures.
+    pub fn take_ready_info(&self, max: usize) -> Vec<ReadyInfoTile> {
+        let Ok(mut st) = self.state.lock() else { return Vec::new() };
+        let n = max.min(st.info_ready.len());
+        st.info_ready.drain(..n).collect()
+    }
+
+    /// `(in_flight, waiting, built, dropped)` for info tiles -- diagnostics and
+    /// probes, never a decision.
+    pub fn info_stats(&self) -> (usize, usize, u64, u64) {
+        let Ok(st) = self.state.lock() else { return (0, 0, 0, 0) };
+        (st.info_in_flight.len(), st.info_ready.len(), st.info_built, st.info_dropped)
     }
 
     /// Hold a stored pyramid for seeding. Replaces any held before.
@@ -1506,6 +1658,9 @@ impl LodWorker {
             st.in_flight.clear();
             st.dropped += st.ready.len() as u64;
             st.ready.clear();
+            st.info_in_flight.clear();
+            st.info_dropped += st.info_ready.len() as u64;
+            st.info_ready.clear();
         }
     }
 }
@@ -1612,6 +1767,183 @@ mod tests {
             assert_eq!((t.w, t.h), (direct[i].1, direct[i].2), "tile {:?} size", asked[i]);
             assert_eq!(t.rgba, direct[i].0, "tile {:?} bytes differ between the worker and the main thread", asked[i]);
         }
+    }
+
+    // -----------------------------------------------------------------
+    // LOD-D7 -- the info-tile half of the worker
+    // -----------------------------------------------------------------
+
+    /// [`inputs`] with the lithology rasters the Age and Resistance views read.
+    fn inputs_with_litho(gw: usize, gh: usize) -> SnapshotInputs {
+        let n = gw * gh;
+        let mut i = inputs(gw, gh);
+        let ramp = |m: usize| -> Arc<Vec<f32>> { Arc::new((0..n).map(|k| (k % m) as f32 / (m - 1) as f32).collect()) };
+        i.litho = Some(LithoSource { age: ramp(17), volcanic: ramp(11), crust: ramp(5), resistance: ramp(7) });
+        i
+    }
+
+    /// Drive `request_info` the way the shell does (ask, drain, ask again) until
+    /// `asked` has all come back or a deadline passes. A deadline, not an
+    /// iteration count: an iteration count is a claim about machine speed.
+    fn drain_info(worker: &Arc<LodWorker>, asked: &[(crate::info_tile::InfoView, i32, i32, i32)], cap: usize) -> Vec<ReadyInfoTile> {
+        let mut got = Vec::new();
+        let mut queued = 0usize;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while std::time::Instant::now() < deadline {
+            while queued < asked.len() {
+                let (v, z, c, r) = asked[queued];
+                if !worker.request_info(v, z, c, r, cap) {
+                    break;
+                }
+                queued += 1;
+            }
+            got.extend(worker.take_ready_info(16));
+            if got.len() == asked.len() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        got
+    }
+
+    /// Protects: an info tile drawn on a worker is byte-identical to the same
+    /// tile drawn on the main thread, for EVERY tiled view -- the determinism
+    /// argument (both call `render_info_tile`) exercised, and each tile carries
+    /// the tag of its own view. Non-empty is asserted so the comparison cannot
+    /// pass vacuously.
+    #[test]
+    fn info_tiles_from_the_worker_equal_the_main_thread_for_every_view() {
+        use crate::info_tile::TILED_VIEWS;
+        let snap = Arc::new(LodSnapshot::build(inputs_with_litho(96, 72)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        let mut asked = Vec::new();
+        for v in TILED_VIEWS {
+            asked.push((v, 2, 1, 1));
+            asked.push((v, 0, 0, 0));
+        }
+        let got = drain_info(&worker, &asked, 8);
+        assert_eq!(got.len(), asked.len(), "every info tile must come back");
+        for t in &got {
+            let direct = snap.render_info_tile(t.view, t.z, t.col, t.row).expect("direct");
+            assert!(!direct.0.is_empty() && direct.1 > 1, "empty tile would make this vacuous");
+            assert_eq!((t.w, t.h), (direct.1, direct.2));
+            assert_eq!(t.rgba, direct.0, "{} differs between worker and main thread", t.view.id());
+            assert_eq!(t.tag, snap.info_tag(t.view));
+        }
+    }
+
+    /// Protects: two views of the SAME tile index never collide in the worker
+    /// and never share bytes or a tag -- the negative control for "a view switch
+    /// never shows another view's tile". Requests Temp and Rain for one tile;
+    /// both must come back, with different tags and different pixels.
+    #[test]
+    fn two_views_of_one_tile_are_distinct_tiles() {
+        use crate::info_tile::InfoView;
+        let snap = Arc::new(LodSnapshot::build(inputs_with_litho(96, 72)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        // Both asked back to back, with no drain between them: a duplicate check
+        // keyed on (z,col,row) alone would refuse the second while the first is
+        // in flight or waiting, and `drain_info`'s retry loop would hide that by
+        // asking again later -- so the acceptance itself is asserted.
+        assert!(worker.request_info(InfoView::Temp, 1, 0, 0, 8), "temp accepted");
+        assert!(worker.request_info(InfoView::Rain, 1, 0, 0, 8), "rain refused: the duplicate check ignores the view");
+        let mut got = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while got.len() < 2 && std::time::Instant::now() < deadline {
+            got.extend(worker.take_ready_info(16));
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(got.len(), 2, "both views must be built, not deduplicated by (z,col,row)");
+        let temp = got.iter().find(|t| t.view == InfoView::Temp).expect("temp");
+        let rain = got.iter().find(|t| t.view == InfoView::Rain).expect("rain");
+        assert_ne!(temp.tag, rain.tag);
+        assert!(temp.tag.contains(";temp;") && rain.tag.contains(";rain;"), "{} / {}", temp.tag, rain.tag);
+        assert_ne!(temp.rgba, rain.rgba, "different views must not paint the same pixels");
+    }
+
+    /// Protects: the info tag moves with every input an info tile reads, and
+    /// only with those -- changed one at a time, each must change the tag, so a
+    /// sculpt, a climate change, a lithology change or a scale change can never
+    /// leave a stale tile looking current. (The view id is covered by
+    /// `two_views_of_one_tile_are_distinct_tiles`.)
+    #[test]
+    fn the_info_tag_moves_with_every_input_an_info_tile_reads() {
+        use crate::info_tile::InfoView;
+        let base = LodSnapshot::build(inputs_with_litho(48, 36)).expect("base").info_tag(InfoView::Flow);
+        let tag = |f: &dyn Fn(&mut SnapshotInputs)| {
+            let mut i = inputs_with_litho(48, 36);
+            f(&mut i);
+            LodSnapshot::build(i).expect("variant").info_tag(InfoView::Flow)
+        };
+        assert_eq!(tag(&|_| {}), base, "an unchanged world must keep its tag");
+        assert_ne!(tag(&|i| i.sea_level = 0.43), base, "sea level");
+        assert_ne!(tag(&|i| i.peak_m = 4100.0), base, "peak_m");
+        assert_ne!(tag(&|i| i.map_width_km = 900.0), base, "map width");
+        assert_ne!(tag(&|i| i.seed = 99), base, "seed");
+        assert_ne!(tag(&|i| i.temperature = Arc::new(vec![1.0; 48 * 36])), base, "temperature");
+        assert_ne!(tag(&|i| i.rainfall = Arc::new(vec![0.9; 48 * 36])), base, "rainfall");
+        assert_ne!(tag(&|i| i.flow = Some(Arc::new(vec![7.0; 48 * 36]))), base, "flow");
+        assert_ne!(tag(&|i| i.field = Arc::new(vec![0.6; 48 * 36])), base, "field");
+        assert_ne!(
+            tag(&|i| {
+                if let Some(l) = i.litho.as_mut() {
+                    l.age = Arc::new(vec![0.9; 48 * 36]);
+                }
+            }),
+            base,
+            "crust age"
+        );
+        assert_ne!(
+            tag(&|i| {
+                if let Some(l) = i.litho.as_mut() {
+                    l.resistance = Arc::new(vec![0.1; 48 * 36]);
+                }
+            }),
+            base,
+            "rock resistance"
+        );
+    }
+
+    /// Protects: the info path obeys the world-version rule -- a tile landing
+    /// after `invalidate` is dropped, never handed to the shell, and the info
+    /// containers are emptied with the terrain ones.
+    #[test]
+    fn an_info_tile_landing_after_an_invalidate_is_dropped() {
+        use crate::info_tile::InfoView;
+        let snap = Arc::new(LodSnapshot::build(inputs_with_litho(64, 48)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        assert!(worker.request_info(InfoView::Slope, 3, 1, 1, 4));
+        worker.invalidate();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while std::time::Instant::now() < deadline && worker.info_stats().0 != 0 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert_eq!(worker.info_stats().0, 0, "the job never finished, so this would pass vacuously");
+        assert!(worker.take_ready_info(16).is_empty(), "a superseded tile reached the shell");
+        let (_, waiting, built, _) = worker.info_stats();
+        assert_eq!((waiting, built), (0, 0));
+    }
+
+    /// Protects: the in-flight cap is SHARED -- terrain jobs count against an
+    /// info request and vice versa, so an info view cannot double a tier's
+    /// background work; and a view whose input is absent is refused, not queued.
+    #[test]
+    fn info_requests_share_the_cap_and_refuse_missing_inputs() {
+        use crate::info_tile::InfoView;
+        let snap = Arc::new(LodSnapshot::build(inputs(160, 128)).expect("snapshot"));
+        let worker = Arc::new(LodWorker::default());
+        worker.install(Arc::clone(&snap));
+        assert!(!worker.request_info(InfoView::Age, 0, 0, 0, 8), "no litho in this snapshot: Age is not available");
+        assert!(worker.request(5, 3, 3, 1), "one terrain job fills a cap of 1");
+        assert!(!worker.request_info(InfoView::Temp, 5, 3, 3, 1), "the cap is shared, so the info request is refused");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+        while std::time::Instant::now() < deadline && worker.stats().2 != 0 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(worker.request_info(InfoView::Temp, 5, 3, 3, 1), "accepted once the terrain job has landed");
     }
 
     /// A result that lands after the world has moved on must be discarded,
@@ -1783,7 +2115,16 @@ mod tests {
         let snap = LodSnapshot::build(i).expect("snapshot");
         let lith = snap.lithology.as_ref().expect("a LithoSource must produce a lithology");
         assert_eq!(lith.len(), n, "one rock class per cell");
-        for (held, name) in [(&age, "age"), (&volcanic, "volcanic"), (&crust, "crust"), (&resistance, "resistance")] {
+        // LOD-D7 (Ruling AV): the Age and Resistance info views read those two
+        // rasters, so the snapshot keeps one SHARED clone of each (the same
+        // allocation, not a copy: no steady memory, `retained_bytes` below stays
+        // 0). `volcanic` and `crust` are only inputs to the lithology and are
+        // still dropped by the build.
+        for (held, kept, name) in [(&age, snap.age.as_ref(), "age"), (&resistance, snap.resistance.as_ref(), "resistance")] {
+            assert!(Arc::ptr_eq(held, kept.expect("the info views' input is kept")), "{name}: the snapshot's copy must be the world's allocation");
+            assert_eq!(Arc::strong_count(held), 2, "{name}: this test plus the snapshot's shared clone, and nothing else");
+        }
+        for (held, name) in [(&volcanic, "volcanic"), (&crust, "crust")] {
             assert_eq!(Arc::strong_count(held), 1, "{name}: the build must drop the LithoSource, leaving only this test holding it");
         }
         assert_eq!(snap.retained_bytes(), 0, "a lithology is built, not copied, so the substrate costs no retained bytes");

@@ -377,6 +377,15 @@ pub(crate) fn slope_at(f: &FieldRefs, x: usize, y: usize) -> f64 {
 /// which is exactly what `aspect_points_downhill` below exists to catch.
 fn aspect_deg(f: &FieldRefs, x: usize, y: usize) -> Option<f64> {
     let (dx, dy) = slope_gradient(f, x, y);
+    aspect_of_gradient(dx, dy)
+}
+
+/// [`aspect_deg`]'s arithmetic on an already-taken gradient, so the deep-zoom
+/// info tile (`info_tile.rs`), which differences an *amplified* height at its
+/// own pixel pitch, bears the cell raster's exact aspect rule rather than a
+/// second copy. `None` on a perfectly flat gradient -- never `0.0`, which
+/// would read as "faces north".
+pub(crate) fn aspect_of_gradient(dx: f64, dy: f64) -> Option<f64> {
     if dx == 0.0 && dy == 0.0 {
         return None;
     }
@@ -924,7 +933,7 @@ pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
     }
 }
 
-type Rgb = (f64, f64, f64);
+pub(crate) type Rgb = (f64, f64, f64);
 
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
@@ -1279,7 +1288,104 @@ fn contested_color(owner: (u8, u8, u8), rival: Option<(u8, u8, u8)>, t: f64, x: 
     (base.0 as f64 * lift, base.1 as f64 * lift, base.2 as f64 * lift)
 }
 
-fn push(out: &mut Vec<u8>, c: Rgb) {
+// ---------------------------------------------------------------------------
+// Per-sample colour for the views the deep-zoom info tiles draw (LOD-D7)
+//
+// Each function below is the body of one `debug_raster_with` arm, lifted out
+// so that the map-resolution raster and `info_tile.rs`'s tile (Ruling AV) call
+// ONE colour function. Two copies of a ramp is how a tile and the raster
+// beneath it would come to disagree about what a value looks like, which is
+// the whole failure a deep-zoom view must not have. `debug_raster_with` is
+// byte-identical to before (its tests, and `info_tile`'s tests, pin that);
+// these take plain numbers so a tile can feed them a value it interpolated or
+// amplified at its own resolution.
+// ---------------------------------------------------------------------------
+
+/// Dark navy a land-only view paints water with: the literal the Rainfall,
+/// Strahler, Soil, NPP and Relief arms all share (`debug_raster_with`).
+/// **Labelled judgement** -- a colour chosen so water never reads as a
+/// data value; not a reference constant.
+pub(crate) const WATER_NAVY: Rgb = (18.0, 34.0, 64.0);
+
+/// The Rainfall view's colour for one sample: [`WATER_NAVY`] on water, else
+/// `rainColor` of the 0-1 rainfall.
+pub(crate) fn rain_px(water: bool, rain: f64) -> Rgb {
+    if water { WATER_NAVY } else { rain_color(rain) }
+}
+
+/// The Crust-age view's colour for one 0-1 age: dark young, light old, a
+/// faint cool cast. The arm's own arithmetic, unchanged.
+pub(crate) fn age_px(age: f64) -> Rgb {
+    let c = 30.0 + age * 205.0;
+    (c * 0.92, c * 0.97, c)
+}
+
+/// The Rock-resistance view's colour for one resistance value (clamped to
+/// 0-1): the Crust-age convention, warmed so the two are not mistaken for
+/// each other. The arm's own arithmetic, unchanged.
+pub(crate) fn resistance_px(resistance: f64) -> Rgb {
+    let u = resistance.clamp(0.0, 1.0);
+    (60.0 + u * 176.0, 62.0 + u * 164.0, 74.0 + u * 122.0)
+}
+
+/// The River-flow view's normaliser: `ln(1 + peak discharge)`, floored at
+/// `1e-6` so an all-zero field divides by something. **One scan of the whole
+/// map**, which is why a deep-zoom tile must receive it rather than recompute
+/// it from the tile alone: a per-tile maximum would give every tile its own
+/// scale and a seam on every edge.
+pub(crate) fn flow_log_max(flow: &[f32]) -> f64 {
+    (1.0 + flow.iter().fold(0.0f32, |a, &b| a.max(b)) as f64).ln().max(1e-6)
+}
+
+/// The River-flow view's colour for one sample: `h` is the height that
+/// decides water (below `sea`) and tints land, `q` the discharge there.
+pub(crate) fn flow_px(h: f64, q: f64, log_max: f64, sea: f64) -> Rgb {
+    if h < sea {
+        let c = hypso(h, sea);
+        (c.0 * 0.7, c.1 * 0.75, c.2)
+    } else {
+        let a = (1.0 + q).ln() / log_max;
+        let land = 60.0 + h * 120.0;
+        let t = (a.powf(1.6) * 2.4).min(1.0);
+        (land * (1.0 - t) + 28.0 * t, land * (1.0 - t) + 96.0 * t, land * (1.0 - t) + 205.0 * t)
+    }
+}
+
+/// Height units per cell -> rise over run: `metersPerUnit / cellMeters`, the
+/// factor the Slope and Aspect views turn a central-difference gradient into
+/// a ground angle with. `0.0` for a world with no cell size.
+pub(crate) fn slope_k(peak_m: f64, sea: f64, cell_m: f64) -> f64 {
+    let denom = if (1.0 - sea) == 0.0 { 1e-6 } else { 1.0 - sea };
+    if cell_m > 0.0 { (peak_m / denom) / cell_m } else { 0.0 }
+}
+
+/// The Slope view's colour for a gradient magnitude `slope` in height units
+/// per CELL (the caller divides a per-pixel difference by its pixel pitch in
+/// cells), through `k` from [`slope_k`].
+pub(crate) fn slope_px(slope: f64, k: f64) -> Rgb {
+    const STOPS: [Rgb; 4] = [(52.0, 74.0, 60.0), (140.0, 158.0, 78.0), (222.0, 196.0, 96.0), (214.0, 78.0, 62.0)];
+    let deg = (slope * k).atan().to_degrees();
+    ramp(&STOPS, deg / 45.0)
+}
+
+/// The Aspect view's colour for a gradient `(dx, dy)` in height units per
+/// CELL: hue = downslope bearing, lightness = steepness; the flat colour
+/// where no bearing exists. Hue-by-direction is the reference's own Wind and
+/// Velocity idiom (line 8514/8528), reusing its `hsl`.
+pub(crate) fn aspect_px(dx: f64, dy: f64, k: f64) -> Rgb {
+    match aspect_of_gradient(dx, dy) {
+        Some(d) => {
+            let steep = ((dx.hypot(dy) * k).atan().to_degrees() / 35.0).min(1.0);
+            hsl(d / 360.0, 0.62, 0.16 + 0.52 * steep)
+        }
+        None => (34.0, 36.0, 42.0),
+    }
+}
+
+/// Appends one colour to an RGBA8 buffer, clamped and truncated -- the single
+/// byte conversion the debug rasters and `info_tile.rs`'s deep-zoom tiles share,
+/// so a tile pixel and a raster pixel of the same colour are the same bytes.
+pub(crate) fn push(out: &mut Vec<u8>, c: Rgb) {
     out.push(c.0.clamp(0.0, 255.0) as u8);
     out.push(c.1.clamp(0.0, 255.0) as u8);
     out.push(c.2.clamp(0.0, 255.0) as u8);
@@ -1296,7 +1402,7 @@ fn u8c(c: (u8, u8, u8)) -> Rgb {
 /// grid (`min(GW,240)` wide) the way the reference's own `wind`/`ocean`
 /// preview objects do, and this is how the reference upsamples that coarse
 /// grid back onto the full `GW*GH` raster.
-fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64 {
+pub(crate) fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64 {
     if ww == 0 || wh == 0 {
         return 0.0;
     }
@@ -1961,11 +2067,7 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
         }
         "rain" => {
             for i in 0..n {
-                if is_water(i) {
-                    push(&mut out, (18.0, 34.0, 64.0));
-                } else {
-                    push(&mut out, rain_color(f.rainfall[i] as f64));
-                }
+                push(&mut out, rain_px(is_water(i), f.rainfall[i] as f64));
             }
         }
         "plates" => {
@@ -2012,8 +2114,7 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
         }
         "age" => {
             for i in 0..n {
-                let c = 30.0 + f.age_field[i] as f64 * 205.0;
-                push(&mut out, (c * 0.92, c * 0.97, c));
+                push(&mut out, age_px(f.age_field[i] as f64));
             }
         }
         "resistance" => {
@@ -2021,22 +2122,13 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
             // convention the reference's own Crust age view uses, warmed so
             // the two are not mistaken for each other at a glance.
             for i in 0..n {
-                let u = (f.resistance_field.get(i).copied().unwrap_or(0.0) as f64).clamp(0.0, 1.0);
-                push(&mut out, (60.0 + u * 176.0, 62.0 + u * 164.0, 74.0 + u * 122.0));
+                push(&mut out, resistance_px(f.resistance_field.get(i).copied().unwrap_or(0.0) as f64));
             }
         }
         "flow" => {
-            let log_max = (1.0 + f.flow_discharge.iter().fold(0.0f32, |a, &b| a.max(b)) as f64).ln().max(1e-6);
+            let log_max = flow_log_max(f.flow_discharge);
             for i in 0..n {
-                if is_water(i) {
-                    let c = hypso(f.field[i] as f64, sea);
-                    push(&mut out, (c.0 * 0.7, c.1 * 0.75, c.2));
-                } else {
-                    let a = (1.0 + f.flow_discharge[i] as f64).ln() / log_max;
-                    let land = 60.0 + f.field[i] as f64 * 120.0;
-                    let t = (a.powf(1.6) * 2.4).min(1.0);
-                    push(&mut out, (land * (1.0 - t) + 28.0 * t, land * (1.0 - t) + 96.0 * t, land * (1.0 - t) + 205.0 * t));
-                }
+                push(&mut out, flow_px(f.field[i] as f64, f.flow_discharge[i] as f64, log_max, sea));
             }
         }
         "strahler" => {
@@ -2123,35 +2215,19 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
             }
         }
         "slope" => {
-            let cell_m = f.cell_m();
-            let denom = if (1.0 - sea) == 0.0 { 1e-6 } else { 1.0 - sea };
-            let k = if cell_m > 0.0 { (f.peak_m / denom) / cell_m } else { 0.0 };
-            const STOPS: [Rgb; 4] =
-                [(52.0, 74.0, 60.0), (140.0, 158.0, 78.0), (222.0, 196.0, 96.0), (214.0, 78.0, 62.0)];
+            let k = slope_k(f.peak_m, sea, f.cell_m());
             for y in 0..f.gh {
                 for x in 0..f.gw {
-                    let deg = (slope_at(f, x, y) * k).atan().to_degrees();
-                    push(&mut out, ramp(&STOPS, deg / 45.0));
+                    push(&mut out, slope_px(slope_at(f, x, y), k));
                 }
             }
         }
         "aspect" => {
-            let cell_m = f.cell_m();
-            let denom = if (1.0 - sea) == 0.0 { 1e-6 } else { 1.0 - sea };
-            let k = if cell_m > 0.0 { (f.peak_m / denom) / cell_m } else { 0.0 };
+            let k = slope_k(f.peak_m, sea, f.cell_m());
             for y in 0..f.gh {
                 for x in 0..f.gw {
-                    match aspect_deg(f, x, y) {
-                        // Hue = bearing, lightness = steepness -- the same
-                        // hue-by-direction idiom the reference's own Wind and
-                        // Velocity views use (line 8514/8528), reusing its
-                        // `hsl` rather than inventing a second convention.
-                        Some(d) => {
-                            let steep = ((slope_at(f, x, y) * k).atan().to_degrees() / 35.0).min(1.0);
-                            push(&mut out, hsl(d / 360.0, 0.62, 0.16 + 0.52 * steep));
-                        }
-                        None => push(&mut out, (34.0, 36.0, 42.0)),
-                    }
+                    let (dx, dy) = slope_gradient(f, x, y);
+                    push(&mut out, aspect_px(dx, dy, k));
                 }
             }
         }
@@ -3362,6 +3438,37 @@ mod tests {
             }
         }
         assert!(!layer_available(&view(&o, true), "no_such_view"));
+    }
+
+    /// Protects: the LOD-D7 refactor that lifted six `debug_raster_with` arms
+    /// (age, resistance, rain, flow, slope, aspect) into the per-sample
+    /// `*_px` functions the deep-zoom info tiles share left the map raster
+    /// byte-identical. The literals are FNV-1a 64 digests of the raster the
+    /// arms produced BEFORE the refactor, recorded by running this same world
+    /// (`owned(24, 18)`, civ layer on) against the original file -- not
+    /// derived from the code under test.
+    #[test]
+    fn lifted_raster_arms_are_byte_identical_to_before_the_refactor() {
+        let o = owned(24, 18);
+        let f = view(&o, true);
+        let golden: [(&str, u64); 6] = [
+            ("age", 0xb3311420c54c595a),
+            ("resistance", 0x417b9526ad830df4),
+            ("rain", 0x06126b6cf94fab1f),
+            ("flow", 0x51a6a6ab81597cab),
+            ("slope", 0x85560f288877fc65),
+            ("aspect", 0x147d5884f1f04345),
+        ];
+        for (id, want) in golden {
+            let r = debug_raster(&f, id).expect(id);
+            assert_eq!(r.len(), 24 * 18 * 4, "{id} raster size");
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in &r {
+                h ^= *b as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+            assert_eq!(h, want, "{id} raster changed");
+        }
     }
 
     /// Views whose one input is missing report nothing rather than an

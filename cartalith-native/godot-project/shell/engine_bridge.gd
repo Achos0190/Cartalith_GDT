@@ -5724,6 +5724,49 @@ func lod_release_worker() -> void:
 		return
 	world_gen.lod_release_worker()
 
+# -- LOD-D7 (Ruling AV) · deep-zoom tiles for the info views -------------------
+# The same snapshot, worker and in-flight cap as the terrain tiles above. Gate on
+# `info_tiles_available()`, which asks the loaded `.dll` (`_has`), not this file.
+
+## Whether the loaded extension can draw info tiles at all.
+func info_tiles_available() -> bool:
+	return _has("info_request_tile") and _has("info_take_ready_tiles") and _has("info_tile_tag")
+
+## `{views: {id: "refined"|"interpolated"|"mixed"}, deferred: {group: reason},
+## version}` -- which info views get a deep-zoom tile and how each relates to
+## the map raster. `{}` against a binary without it.
+func info_tile_views() -> Dictionary:
+	if not _has("info_tile_views"):
+		return {}
+	return world_gen.info_tile_views()
+
+## The cache tag tiles of `view` from the current snapshot carry, or `""` when
+## the view is not tileable, no snapshot is built yet or its inputs are missing.
+## `""` is the ONLY "no value" answer; a real tag is never empty.
+func info_tile_tag(view: String) -> String:
+	if not _has("info_tile_tag"):
+		return ""
+	var t: Variant = world_gen.info_tile_tag(view)
+	return str(t) if t != null else ""
+
+## Queue one info tile; `false` when it was not queued (ask again next frame).
+func info_request_tile(view: String, z: int, col: int, row: int) -> bool:
+	if not _has("info_request_tile"):
+		return false
+	return world_gen.info_request_tile(view, z, col, row)
+
+## Collect up to `max` finished info tiles as `{view, tag, z, col, row, tex}`.
+func info_take_ready_tiles(max: int) -> Array:
+	if not _has("info_take_ready_tiles"):
+		return []
+	return world_gen.info_take_ready_tiles(max)
+
+## `{in_flight, waiting, pending, built, dropped}`; `{}` against an older binary.
+func info_worker_stats() -> Dictionary:
+	if not _has("info_worker_stats"):
+		return {}
+	return world_gen.info_worker_stats()
+
 # -- F13 · the two ops_bridge bindings the shell reaches for -----------------
 
 ## `_civRegionalPopulation` (reference line 23297): the modeled persons/km²
