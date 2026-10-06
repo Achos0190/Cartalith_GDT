@@ -988,6 +988,30 @@ G_scr = 0 (at most 1 per fit) are excluded from the fit and counted, never floor
   four survive; the checksum was added for that).
 - Nothing in generation or the viewport calls `importance` yet.
 
+**EF-9.2 built (2026-10-06): `cartalith_engine::subdivision::select_tiles`.**
+Engine-side only; nothing is wired to the viewport (EF-9.4).
+
+- Promote only, +1 level, never below z0 (Q1 default); promotion needs `z0 < z_cap`.
+- Threshold: a tile is eligible iff its score is strictly above `SCORE_FLOOR`
+  (0.0, a labelled judgement: the fitted score is centred ln G_scr, so 0 means "at
+  the training average", which also stops a pure-sea view from promoting) AND it is
+  within the top `PROMOTE_PERCENT` (25, EF-9.0's working point; not a fitted
+  optimum) of the view's scored tiles; `budget` is the maximum promoted-tile
+  count. Neither constant has been swept at other levels.
+- Absent (`None`), mismatched, all-None or flat importance returns today's
+  selection and order exactly (identity by control flow, asserted against an
+  independently built selection). A tile with no score is never promoted and sorts
+  after the scored ones; it is never read as 0.
+- Policy ranks (Q2) reorder only; a test shows the same tiles and levels with and
+  without ranks.
+- 2:1 balance holds by construction (levels are z0 or z0+1). A balance pass becomes
+  mandatory if Q1 ever allows demotion or +2.
+- `centre_distance_order` and `budget_count` moved into the engine; the EF-9.0
+  harness imports them, so there is one definition.
+- Open for EF-9.4: the viewport's use of `Selection.order` (cut to
+  `tiles_per_update`), and whether the z0 parent stays drawn as a fallback under
+  promoted children.
+
 ### 8.5 Owner questions — each with the default the plan assumes
 
 1. **Q1. Promote only, or promote and demote?** Demoting open plain below

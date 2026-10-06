@@ -156,6 +156,14 @@ pub mod elevation;
 /// bridge code calls it yet (EF-9.2 and EF-9.4 are the consumers).
 pub mod importance;
 
+/// **EF-9.2** (`ELEVATION_FIELD_ARCHITECTURE_RESEARCH.md` §8.3) -- the
+/// subdivision rule: which pyramid tiles of a view to draw (today's zoom-only
+/// level, plus at most one promoted level for the highest-importance tiles
+/// within a budget and a cap) and in what order to synthesise them. A pure
+/// addition: nothing calls it yet (EF-9.4 wires it), and with importance
+/// absent or uniform it returns today's selection and order exactly.
+pub mod subdivision;
+
 /// The channel atlas — the world's affordance fields packed three to an RGB8
 /// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
 /// 14). Data, not a picture: the export raster it ships alongside is

@@ -50,6 +50,7 @@ use std::collections::BTreeMap;
 
 use cartalith_engine::bake::{pyramid_tile, PyramidTile};
 use cartalith_engine::elevation::{curvature_energy, world_amplify_opts, world_elevation_tile};
+use cartalith_engine::subdivision::{budget_count, centre_distance_order};
 use cartalith_engine::importance::{footprint_cells, importance, tile_features, FittedTerm, ImportanceWeights, TileImportanceInputs, WorldImportanceField, FEATURE_NAMES, N_FEATURES};
 use cartalith_spatial::pyramid::{pyramid_tile_bounds, ChunkId};
 use cartalith_spatial::FloatRegion;
@@ -159,25 +160,10 @@ fn order_desc(scores: &[f64], salt: u64) -> Vec<usize> {
     idx
 }
 
-/// Today's order, reproduced from `viewport_host.gd::_nearest_tiles` at a
-/// single level (`group` is constant, `f == 1`): ascending squared distance
-/// from the tile **index** `(col, row)` to the view centre `centre`
-/// (`((c0 + c1) * 0.5, (r0 + r1) * 0.5)`), ties by position in the input.
-fn centre_distance_order(tiles: &[(u32, u32)], centre: (f64, f64)) -> Vec<usize> {
-    let d = |i: usize| {
-        let (dx, dy) = (tiles[i].0 as f64 - centre.0, tiles[i].1 as f64 - centre.1);
-        dx * dx + dy * dy
-    };
-    let mut idx: Vec<usize> = (0..tiles.len()).collect();
-    idx.sort_by(|&a, &b| d(a).partial_cmp(&d(b)).unwrap().then(a.cmp(&b)));
-    idx
-}
-
-/// Number of tiles a `pct` % budget refines out of `n`: `ceil(n * pct / 100)`
-/// in integer arithmetic (a budget never rounds to zero tiles).
-fn budget_count(n: usize, pct: u32) -> usize {
-    (n * pct as usize).div_ceil(100)
-}
+// `centre_distance_order` (today's `_nearest_tiles` order at one level) and
+// `budget_count` (`ceil(n * pct / 100)`) are no longer defined here: EF-9.2
+// moved them to `cartalith_engine::subdivision`, so the harness and the rule
+// it measures share ONE definition rather than a restated copy.
 
 /// Share of the summed `gain` captured by the first `budget_count` tiles of
 /// `order`. `None` when the total gain is not positive (nothing to capture:
