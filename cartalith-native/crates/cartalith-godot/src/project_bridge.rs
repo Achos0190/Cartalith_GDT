@@ -5219,6 +5219,93 @@ mod tests {
         data
     }
 
+    /// Writes a real archive whose `params.json` native block is built from
+    /// `params::save_state` of a world with `integrate_drainage = flag`, then
+    /// lets `edit` alter the native object (to delete the key for an
+    /// old-save fixture), reads it back through `cartalith_io::read_project`
+    /// and returns the `WorldParams` that `params::apply_saved_state` restores
+    /// into a session that starts with `session_value` (so the result shows
+    /// what the load decided, not what the session held). Test-only; Ruling BW
+    /// item 4.
+    fn load_drainage_flag(
+        flag: bool,
+        session_value: bool,
+        edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+    ) -> bool {
+        let (gw, gh) = (4usize, 3usize);
+        let n = gw * gh;
+        let params = cartalith_io::SaveParams {
+            gw, gh, seed: 4242, map_width_km: 800.0, sea_level: 0.42, world: false,
+            origin: None, name: None,
+        };
+        let fields = cartalith_io::SaveFields {
+            heightmap: std::sync::Arc::new(vec![0.5; n]),
+            temperature: std::sync::Arc::new(vec![10.0; n]),
+            rainfall: std::sync::Arc::new(vec![1.0; n]),
+            volcanic_field: vec![0.0; n],
+            impact_field: vec![0.0; n],
+            strahler_order: vec![0; n],
+        };
+        let mut write = ProjectWrite::new(&params, &fields);
+        let mut p = cartalith_engine::WorldParams::defaults(gw, gh, 4242);
+        p.integrate_drainage = flag;
+        let mut state = params::save_state(&p);
+        let mut native = state
+            .as_object_mut()
+            .and_then(|o| o.remove(params::NATIVE_PARAMS_KEY))
+            .expect("save_state writes a native block");
+        edit(native.as_object_mut().expect("native block is an object"));
+        write.cartalith_params = native;
+        let mut buf = Vec::new();
+        project::write_project(std::io::Cursor::new(&mut buf), &write).expect("write_project");
+        let data = cartalith_io::read_project(std::io::Cursor::new(&buf)).expect("read_project");
+        let mut restored = cartalith_engine::WorldParams::defaults(gw, gh, 4242);
+        restored.integrate_drainage = session_value;
+        params::apply_saved_state(&mut restored, &data.save.state);
+        restored.integrate_drainage
+    }
+
+    /// Protects: Ruling BW item 4 (owner, 2026-10-10) -- an archive written
+    /// before `integrate_drainage` existed (the key ABSENT from the native
+    /// block of `params.json`) loads with it ON. Detection is absence of the
+    /// key, never a stored value; the fixture is a real archive with the key
+    /// deleted, loaded into a session that held `false` so the migration is
+    /// what turns it on. Mutate `apply_saved_state`'s default back to false
+    /// and this goes red.
+    #[test]
+    fn old_archive_without_integrate_drainage_loads_with_it_on() {
+        assert!(load_drainage_flag(false, false, |n| {
+            assert!(n.remove("integrate_drainage").is_some(), "the writer must emit the key");
+        }));
+    }
+
+    /// Protects: a new archive saved with `integrate_drainage = true` loads
+    /// true (the migration must not touch a key that is present).
+    #[test]
+    fn new_archive_saved_with_integrate_drainage_true_stays_true() {
+        assert!(load_drainage_flag(true, false, |_| {}));
+    }
+
+    /// Protects: Ruling BW item 4's "never encode no-value as a plausible
+    /// value" rule -- an archive that EXPLICITLY saved `integrate_drainage =
+    /// false` stays false; only an absent key migrates to true.
+    #[test]
+    fn new_archive_saved_with_explicit_false_stays_false() {
+        assert!(!load_drainage_flag(false, true, |_| {}));
+    }
+
+    /// Protects: save-then-load stability of `integrate_drainage` for both
+    /// values and from either session starting value (a second save of the
+    /// loaded params writes what was loaded).
+    #[test]
+    fn integrate_drainage_save_round_trip_is_stable() {
+        for flag in [true, false] {
+            for session in [true, false] {
+                assert_eq!(load_drainage_flag(flag, session, |_| {}), flag);
+            }
+        }
+    }
+
     /// Protects: `civ.garrison_exposure_scale` persisting through `params.json`.
     /// The fold-in's own round trip: `civ.garrison_exposure_scale` is an
     /// ordinary `params::PARAMS` row now, so it is written unconditionally

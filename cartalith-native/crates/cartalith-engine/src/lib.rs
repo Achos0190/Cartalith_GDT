@@ -751,8 +751,10 @@ pub struct WorldParams {
     /// function is the goldens' parity baseline and the v2.10/v2.11 reference
     /// they were captured from has no fill. The source itself shipped the fill
     /// off (v2.41) and then on (v2.59) while its loader kept defaulting a save
-    /// without the key to off — a world generated without integration must
-    /// reload as the world it was.
+    /// without the key to off. This port followed that until Ruling BW item 4
+    /// (owner, 2026-10-10): `params::apply_saved_state` now loads a save whose
+    /// key is ABSENT with it on, accepting that its rivers change; a save that
+    /// carries the key (even an explicit false) is honoured.
     ///
     /// It also switches the channel network off the reference's slope ease
     /// away from `river_density == 1` (owner, 2026-10-05: steep ramps drew a

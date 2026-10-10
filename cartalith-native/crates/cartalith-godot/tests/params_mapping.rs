@@ -485,21 +485,34 @@ fn the_unshimmed_erosion_block_is_not_written_partially() {
     assert!(native.get("passes.diffuse_passes").is_some());
 }
 
-/// Integrated drainage is the one row whose ABSENCE from a save is information:
-/// every archive written before the row existed, and every reference-app
-/// export, was generated without it, and must reload as that world rather than
-/// as today's default (`RC_ENGINE_CHANGES.md` §6k: the source's state literal
-/// defaults it on while its loader defaults a key-less save to off). A save
-/// that carries it round-trips either way.
+/// Protects: Ruling BW item 4 (2026-10-10). A save with the `integrate_drainage`
+/// key ABSENT (written before the row existed, or a reference-app export) now
+/// reloads with it ON (rivers visibly change on load -- accepted by the owner;
+/// previously this test pinned OFF). A key PRESENT -- true or an explicit
+/// false -- is honoured exactly, so "no value" is never confused with false,
+/// and a save then load round trip is stable. Mutate the default line in
+/// `apply_saved_state` back to false and the first assertion goes red; make it
+/// override the key and the explicit-false assertion goes red.
 #[test]
-fn a_save_without_integrated_drainage_reloads_without_it() {
+fn a_save_without_integrated_drainage_reloads_with_it_on() {
     assert!(params::defaults().integrate_drainage, "the shipped app generates with it on");
 
-    // Written by this port before the row existed: a native block without it.
+    // Absent key, starting from a session value of false so the migration (not
+    // the starting value) must be what turns it on.
     let mut p = params::defaults();
+    p.integrate_drainage = false;
     let n = params::apply_saved_state(&mut p, &serde_json::json!({params::NATIVE_PARAMS_KEY: {"tect.plates": 20.0}}));
     assert_eq!(n, 1);
-    assert!(!p.integrate_drainage, "a pre-existing save must not silently gain integrated drainage");
+    assert!(p.integrate_drainage, "an old save (key absent) loads with integrated drainage on");
+
+    // Present and true stays true; present and explicitly false stays false.
+    for on in [true, false] {
+        let state = serde_json::json!({params::NATIVE_PARAMS_KEY: {"integrate_drainage": on}});
+        let mut q = params::defaults();
+        q.integrate_drainage = !on;
+        params::apply_saved_state(&mut q, &state);
+        assert_eq!(q.integrate_drainage, on, "an explicit saved {on} must survive load");
+    }
 
     // Written with it, both ways round.
     for on in [true, false] {
@@ -641,14 +654,15 @@ fn the_glacial_default_carves_a_default_world() {
 fn a_state_this_port_does_not_recognise_is_survivable() {
     let mut p = params::defaults();
     // A real HTML export: no native block at all. It leaves the table at its
-    // defaults -- except integrated drainage, the v2.57 blur and the glacial
+    // defaults -- except the v2.57 blur and the glacial
     // pass, which a world that never recorded them was generated without
     // (`a_save_without_integrated_drainage_reloads_without_it`,
     // `a_save_without_the_v2_57_blur_reloads_without_it`,
     // `a_save_without_the_glacial_key_reloads_without_the_pass`).
     assert_eq!(params::apply_saved_state(&mut p, &serde_json::json!({"tect": {"seed": 1, "plates": 30}})), 0);
     let mut expect = params::defaults();
-    expect.integrate_drainage = false;
+    // integrate_drainage stays at its default (on): Ruling BW item 4 made an
+    // absent key load ON, which equals the default.
     expect.tect.narrow_plate_base_blur = false;
     expect.passes.glacial = false;
     // And the geology model (Ruling BH): a save without the key predates it.

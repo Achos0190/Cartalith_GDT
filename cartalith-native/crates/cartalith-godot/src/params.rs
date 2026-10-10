@@ -209,7 +209,8 @@ pub const PARAMS: &[ParamSpec] = &[
         get_fn: |p| Value::Num(p.river_density), set_fn: |p, v| p.river_density = v },
     // No reference control in v2.10/v2.11: the source added it at v2.41
     // (`state.hydro.integrate`, `RC_ENGINE_CHANGES.md` §6g) after both
-    // snapshots. ON at the app boundary, OFF in `WorldParams::defaults`.
+    // snapshots. ON at the app boundary, OFF in `WorldParams::defaults`. A save
+    // without the key loads ON (Ruling BW item 4, `apply_saved_state`).
     ParamSpec { key: "integrate_drainage", group: "world", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
         label: "Integrated drainage (route over filled depressions)", unit: "", reference_control: "",
         get_fn: |p| Value::Bool(p.integrate_drainage), set_fn: |p, v| p.integrate_drainage = v != 0.0 },
@@ -985,16 +986,19 @@ pub fn world_key_state(p: &WorldParams) -> serde_json::Value {
 /// in a hand-edited (or future-version) save is clamped or rejected on the
 /// same terms as a GUI write, and never panics.
 pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
-    // The three parameters whose *absence* is information. A save that does not
-    // carry `integrate_drainage` -- every archive written before it existed,
-    // and every reference-app export -- was generated without integrated
-    // drainage, so it must reload as that world, not as whatever the session's
-    // default is now. The source's own loader does exactly this for
-    // `state.hydro.integrate` while its state literal defaults it on
-    // (`RC_ENGINE_CHANGES.md` §6k: "the state literal and the loader
-    // deliberately disagree"). A save that carries the key sets it in the loop
-    // below like any other row.
-    p.integrate_drainage = false;
+    // Parameters whose *absence* is information. A save that does not carry
+    // `integrate_drainage` -- every archive written before it existed, and
+    // every reference-app export -- was generated without integrated drainage.
+    // Until 2026-10-10 it reloaded as that world (off), as the source's own
+    // loader does for `state.hydro.integrate` (`RC_ENGINE_CHANGES.md` §6k).
+    // Owner Ruling BW item 4 (2026-10-10) reversed that: such a save now loads
+    // with it ON, accepting that its rivers visibly change on load. Detection
+    // is by ABSENCE of the key in the native block (or of the whole block, for
+    // a reference-app export): a save that carries the key -- true or an
+    // explicit false -- sets it in the loop below like any other row, so a
+    // deliberate false is never overridden. The key is always written by
+    // `save_state`, which is what makes absence mean "old save".
+    p.integrate_drainage = true;
     // Same reasoning, same shape: every save without the key was generated
     // at the pre-v2.57 plate-base blur, so a regenerate from its parameters
     // must reproduce that coastline. (The source has no key to consult -- K
