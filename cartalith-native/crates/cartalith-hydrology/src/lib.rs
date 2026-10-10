@@ -1251,6 +1251,17 @@ pub fn river_entities(
 ///   tributary meets its trunk at an angle and approaches it for only its
 ///   last few cells. A run that ended on a now-hidden run reconnects to what
 ///   is drawn by that same reach.
+/// * **Comb.** (Ruling BW item 3, 2026-10-10.) The hug rule only sees strokes
+///   a couple of cells apart; on steep smooth coastal ramps the flow runs in
+///   parallel one-cell strips a few cells further apart than that and still
+///   reads as a comb into the shore. A coastal order-1 run with no tributary
+///   and a discharge under [`COMB_DISCHARGE_FRAC`] of the grid is hidden when a
+///   heavier kept coastal run runs within [`COMB_SPACING_FACTOR`] x its own
+///   length (at most [`COMB_MAX_SPACING_CELLS`]) of at least half its cells
+///   and of its outlet: about one river per half stream length (Hovius 1996).
+///   Draw-side only: channels, flow and every golden are untouched, and a
+///   thinned run is a `parallel_of` run like any other (so the map, the tiles
+///   and the export, which all go through this plan, thin identically).
 ///
 /// Nothing here moves a run's `pts`, so the entity list, its indices and
 /// `pick_river` are unchanged; the caller decides what to draw.
@@ -1322,16 +1333,53 @@ pub const PARALLEL_MIN_CELLS: usize = 3;
 /// 800 km / 384x288 world, where the channel mask is dense per cell.
 pub const PARALLEL_GAP_CELLS: f64 = 2.0;
 
-/// See [`RiverDrawPlan`].
+/// Comb thinning's spacing, as a fraction of a stream's own length `L`:
+/// two coastal order-1 streams whose lines run within `0.5 * L` of each other
+/// are one comb, and only the heavier is drawn. **Source: Hovius (1996),
+/// "Regular spacing of drainage outlets from linear mountain belts" (Basin
+/// Research 8, 29-44)**, whose outlets along a range front sit at a spacing of
+/// about half the length of the streams between divide and front -- the
+/// owner's stated reference for Ruling BW item 3 (2026-10-10). The `0.5` is
+/// that paper's ratio as the owner gave it, not fitted here.
 ///
-/// `next` is the downhill receiver of every cell (`n` entries, `-1` for none,
-/// the repository's receiver convention): the channel receiver where a cell has
-/// one, the steepest-descent one otherwise (`combined_receivers` in
-/// `cartalith-godot`). `water` is the DRAWN water classification (`0` land,
-/// nonzero ocean or lake, `n` entries). Both feed only
-/// [`RiverDrawPlan::extension`]; a slice that is not `n` long (the empty slice,
-/// say) means "no downhill data" and yields no extension -- never a guessed one
-/// -- which is exactly the plan as it was before the extension existed.
+/// Why it is needed: on steep smooth coastal and ridge ramps the D8 and
+/// D-infinity trees run in parallel one-cell strips (after Ruling BV: 400
+/// streak runs at density 1.55 and 228 at 1.0 on seed 246371), each a
+/// separate river a cell or two from the next, far closer than any real range
+/// front spaces its outlets. See [`COMB_MAX_ORDER`] for what is never thinned.
+pub const COMB_SPACING_FACTOR: f64 = 0.5;
+
+/// Upper bound on the comb spacing, in cells. A **labelled judgement** whose
+/// only job is to bound the neighbour search (a run's `L` can be hundreds of
+/// cells) and to keep one long order-1 trickle from hiding every stream on a
+/// whole coast: 24 cells is ~470 km on the owner's 2048-wide 40 075 km world.
+pub const COMB_MAX_SPACING_CELLS: f64 = 24.0;
+
+/// The highest Strahler order a run can have and still be thinned as a comb
+/// tooth. **A labelled judgement**: a comb is made of order-1 strips (the
+/// measured streak runs are order 1 by definition), and an order-2 run has
+/// absorbed two order-1 streams -- a small but real drainage system whose
+/// parallel neighbour is a genuine second river. Together with
+/// [`COMB_DISCHARGE_FRAC`] and "no tributaries" this is the cap that keeps a
+/// real, lighter parallel river from being hidden: a run with any tributary,
+/// order 2 or more, or a heavy discharge is never a comb tooth.
+pub const COMB_MAX_ORDER: i16 = 1;
+
+/// A run whose discharge reaches this share of the grid's cell count is never
+/// thinned. **A labelled judgement, deliberately the same value as
+/// `cartalith_godot::river_delta::MIN_DISCHARGE_FRAC`** (2e-4: the owner
+/// world's own 90th percentile over all its river mouths; that constant's doc
+/// has the measurement), so every river big enough to get a delta fan is also
+/// too big to thin and thinning can never remove a fan-bearing mouth. It also
+/// protects the largest single-run order-1 outlets, which the order cap alone
+/// would not (the owner world's biggest, 1.5 % of its grid, is order 1).
+pub const COMB_DISCHARGE_FRAC: f32 = 2.0e-4;
+
+/// See [`RiverDrawPlan`], including its comb-thinning paragraph.
+///
+/// The plan the app draws: [`river_draw_plan_unthinned`] plus the comb
+/// thinning (Ruling BW item 3). The map, the deep-zoom tiles and the export
+/// all reach this one call through `WorldGen::river_draws`.
 #[allow(clippy::too_many_arguments)]
 pub fn river_draw_plan(
     rivers: &[River],
@@ -1342,6 +1390,52 @@ pub fn river_draw_plan(
     h: usize,
     next: &[i32],
     water: &[u8],
+) -> RiverDrawPlan {
+    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, true)
+}
+
+/// The plan as it was before comb thinning: only the hug rule
+/// ([`PARALLEL_GAP_CELLS`]). Exists so a measurement can put the two plans of
+/// one world side by side (`cartalith-godot/tests/river_comb_harness.rs`); the
+/// app never calls it.
+#[allow(clippy::too_many_arguments)]
+pub fn river_draw_plan_unthinned(
+    rivers: &[River],
+    flow: &[f32],
+    fld: &[f32],
+    sea_level: f64,
+    w: usize,
+    h: usize,
+    next: &[i32],
+    water: &[u8],
+) -> RiverDrawPlan {
+    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, false)
+}
+
+/// The shared body of the two public plans; `thin_combs` switches the comb
+/// pass on. Everything but that pass is identical, so the two plans differ
+/// only in `parallel_of` entries the pass added (and the bridges and
+/// extensions that follow from them).
+///
+/// `next` is the downhill receiver of every cell (`n` entries, `-1` for none,
+/// the repository's receiver convention): the channel receiver where a cell has
+/// one, the steepest-descent one otherwise (`combined_receivers` in
+/// `cartalith-godot`). `water` is the DRAWN water classification (`0` land,
+/// nonzero ocean or lake, `n` entries). Both feed only
+/// [`RiverDrawPlan::extension`]; a slice that is not `n` long (the empty slice,
+/// say) means "no downhill data" and yields no extension -- never a guessed one
+/// -- which is exactly the plan as it was before the extension existed.
+#[allow(clippy::too_many_arguments)]
+fn draw_plan(
+    rivers: &[River],
+    flow: &[f32],
+    fld: &[f32],
+    sea_level: f64,
+    w: usize,
+    h: usize,
+    next: &[i32],
+    water: &[u8],
+    thin_combs: bool,
 ) -> RiverDrawPlan {
     let n = w * h;
     let mut plan = RiverDrawPlan {
@@ -1403,8 +1497,86 @@ pub fn river_draw_plan(
 
     let mut order: Vec<usize> = (0..rivers.len()).collect();
     order.sort_by(|&a, &b| weight[b].total_cmp(&weight[a]).then(a.cmp(&b)));
-    // Kept cells in WEIGHT order, for the hug test only.
+    // Kept cells in WEIGHT order, for the hug test and the comb test only.
     let mut kept = vec![usize::MAX; n];
+    // The same cells restricted to runs that are actually DRAWN (not
+    // comb-thinned): the comb test's candidate hosts.
+    let mut drawn_kept = vec![usize::MAX; n];
+    // Whether cell `c` or a neighbour is drawn water or at/below sea level:
+    // the shore a comb tooth ends on. `water` is honoured only when it is `n`
+    // long (the empty slice means "no water data", as everywhere in this fn).
+    let shore = |c: usize| {
+        let wet = |q: usize| fld[q] as f64 <= sea_level || (water.len() == n && water[q] != 0);
+        wet(c) || neighbours(c).any(wet)
+    };
+    // Discharge at or above which a run is never a comb tooth.
+    let comb_cap = COMB_DISCHARGE_FRAC * n as f32;
+    // **Comb thinning: the kept run that hides run `i` as a comb tooth, if
+    // any.** `i` is a tooth when ALL of: it is order <= [`COMB_MAX_ORDER`],
+    // has no tributary, carries less than `comb_cap`, owns its outlet cell
+    // (it is not itself a tributary) and that outlet is on a shore -- a comb
+    // is a row of independent streams reaching one coast, never a stream that
+    // joins something. And a heavier KEPT run `j`, which also ends on a shore,
+    // has at least [`PARALLEL_MIN_CELLS`] and at least half of `i`'s own cells
+    // within the spacing `S = COMB_SPACING_FACTOR * L` (capped, see
+    // [`COMB_MAX_SPACING_CELLS`]) of its cells, with `i`'s OWN outlet among
+    // them (so the pair reaches the shore together, rather than `i` merely
+    // passing `j`'s flank). Runs are visited heaviest first, so the heaviest of
+    // a comb is kept and each next tooth survives only once it is `S` clear of
+    // every kept one: about one river per `S`. Inert for a run whose
+    // `length_cells` is under 2 (a hand-built fixture without one). Never
+    // hides a trunk, a long river, a tributary-bearing run or any run big
+    // enough for a delta fan.
+    let comb_host = |i: usize, own: &[usize], kept: &[usize]| -> Option<usize> {
+        let r = &rivers[i];
+        if r.order > COMB_MAX_ORDER
+            || r.tributaries > 0
+            || r.discharge >= comb_cap
+            || owner[r.mouth as usize] != i
+            || !shore(r.mouth as usize)
+        {
+            return None;
+        }
+        let s = (COMB_SPACING_FACTOR * r.length_cells).min(COMB_MAX_SPACING_CELLS);
+        if s < 1.0 {
+            return None;
+        }
+        let k = s.floor() as i64;
+        let mouth_cell = *own.last()?;
+        let mut alongside: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        let mut at_mouth: Vec<usize> = Vec::new();
+        for &c in own {
+            let (x, y) = ((c % w) as i64, (c / w) as i64);
+            let mut seen: Vec<usize> = Vec::new();
+            for dy in -k..=k {
+                let ny = y + dy;
+                if ny < 0 || ny >= h as i64 {
+                    continue;
+                }
+                for dx in -k..=k {
+                    let nx = x + dx;
+                    if nx < 0 || nx >= w as i64 || ((dx * dx + dy * dy) as f64).sqrt() > s {
+                        continue;
+                    }
+                    let o = kept[ny as usize * w + nx as usize];
+                    if o != usize::MAX && o != i && !seen.contains(&o) {
+                        seen.push(o);
+                        *alongside.entry(o).or_insert(0) += 1;
+                        if c == mouth_cell {
+                            at_mouth.push(o);
+                        }
+                    }
+                }
+            }
+        }
+        alongside
+            .iter()
+            .filter(|&(&j, &cnt)| {
+                cnt >= PARALLEL_MIN_CELLS && 2 * cnt >= own.len() && at_mouth.contains(&j) && shore(rivers[j].mouth as usize)
+            })
+            .max_by_key(|&(&j, &cnt)| (cnt, std::cmp::Reverse(j)))
+            .map(|(&j, _)| j)
+    };
     for &i in &order {
         let own = own_cells(i);
         let mut alongside: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
@@ -1424,13 +1596,33 @@ pub fn river_draw_plan(
             .filter(|&(_, &k)| k >= PARALLEL_MIN_CELLS && 2 * k >= own.len())
             .max_by_key(|&(&j, &k)| (k, std::cmp::Reverse(j)));
         if let Some((&j, _)) = hug {
-            plan.parallel_of[i] = Some(j);
+            // `j` can be a comb-thinned run (it stays in `kept`, below): point
+            // at the drawn run that hides IT, so a host is never itself hidden.
+            plan.parallel_of[i] = Some(plan.parallel_of[j].unwrap_or(j));
             continue;
         }
         for &p in &rivers[i].pts {
             let c = cell_of(p);
             if kept[c] == usize::MAX {
                 kept[c] = i;
+            }
+        }
+        // Comb thinning (Ruling BW item 3): a run the hug rule kept can still
+        // be one tooth of a coastal comb -- see `comb_host`. Its cells went
+        // into `kept` ABOVE regardless, so every later hug decision is the one
+        // the unthinned plan makes (a thinned tooth must not let a run it hid
+        // reappear); only `drawn_kept`, the comb test's host cells, leaves it
+        // out.
+        if thin_combs {
+            if let Some(j) = comb_host(i, &own, &drawn_kept) {
+                plan.parallel_of[i] = Some(j);
+                continue;
+            }
+        }
+        for &p in &rivers[i].pts {
+            let c = cell_of(p);
+            if drawn_kept[c] == usize::MAX {
+                drawn_kept[c] = i;
             }
         }
     }
@@ -2670,6 +2862,78 @@ mod tests {
         assert_eq!(plan.bridge[0], None, "the trunk's only neighbour is its own tributary");
         assert_eq!(plan.bridge[2], None, "a tributary already ends on its trunk");
         assert_eq!(plan.bridge[7], None, "`upper_trib` already ends on `upper`");
+    }
+
+    /// Five vertical order-1 strips 5 cells apart (outside the 3-cell hug
+    /// reach), each 24 cells long and ending beside the sea row: a comb. Built
+    /// on a 200x40 grid so the discharge cap (`2e-4 * 8000 = 1.6`) is above the
+    /// strips' 0.5-1.0 and below a "heavy" 2.0. Returns the grid and runs.
+    fn comb_fixture(xs: &[usize], q: &[f32]) -> (usize, usize, Vec<f32>, Vec<f32>, Vec<super::River>) {
+        let (w, h) = (200usize, 40usize);
+        let mut flow = vec![0f32; w * h];
+        let mut fld = vec![0.8f32; w * h];
+        for x in 0..w {
+            fld[(h - 1) * w + x] = 0.1;
+        }
+        let mut rivers: Vec<super::River> = xs
+            .iter()
+            .zip(q)
+            .map(|(&x, &q)| {
+                let cells: Vec<(usize, usize)> = (4..=38).map(|y| (x, y)).collect();
+                let mut r = run(&cells, w, &mut flow, q);
+                r.length_cells = 24.0;
+                r
+            })
+            .collect();
+        // Heaviest first by construction (q descending), so run index = rank.
+        rivers.iter_mut().for_each(|r| r.order = 1);
+        (w, h, flow, fld, rivers)
+    }
+
+    /// The comb pass, each rule once: spacing, the three caps, the shore, the
+    /// host never being hidden, and the unthinned plan staying the old one.
+    #[test]
+    fn comb_thinning_keeps_one_river_per_half_length_and_never_a_capped_one() {
+        // Protects: Ruling BW item 3 -- a coastal comb is thinned to about one river per COMB_SPACING_FACTOR x length, while a heavy run, an order-2 run, a run with a tributary, an inland run and a run farther than the spacing are never hidden, and a hidden run's host is always itself drawn.
+        let xs = [5usize, 10, 15, 20, 25];
+        let q = [1.0f32, 0.9, 0.8, 0.7, 0.6];
+        let (w, h, flow, fld, mut rivers) = comb_fixture(&xs, &q);
+        let plan = |rivers: &[super::River]| super::river_draw_plan(rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        let hidden = |p: &super::RiverDrawPlan| -> Vec<usize> { (0..xs.len()).filter(|&i| p.parallel_of[i].is_some()).collect() };
+
+        let raw = super::river_draw_plan_unthinned(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
+        assert!(hidden(&raw).is_empty(), "5 cells apart is outside the hug reach: the old plan draws all five");
+
+        // S = 0.5 * 24 = 12 cells: x=5 kept; 10 and 15 within 12 of it (hidden);
+        // 20 is 15 away (kept); 25 is 5 from 20 (hidden).
+        let p = plan(&rivers);
+        assert_eq!(hidden(&p), vec![1, 2, 4], "one river per 12 cells");
+        assert_eq!((p.parallel_of[1], p.parallel_of[2], p.parallel_of[4]), (Some(0), Some(0), Some(3)));
+        for i in hidden(&p) {
+            let host = p.parallel_of[i].unwrap();
+            assert!(p.parallel_of[host].is_none(), "run {i}'s host {host} is itself hidden");
+        }
+
+        // Each cap, on the run (index 1) that would otherwise be thinned.
+        rivers[1].discharge = 2.0; // >= 2e-4 of 8000 cells = 1.6
+        assert!(plan(&rivers).parallel_of[1].is_none(), "a heavy run is never thinned");
+        rivers[1].discharge = 0.9;
+        rivers[1].order = 2;
+        assert!(plan(&rivers).parallel_of[1].is_none(), "an order-2 run is never thinned");
+        rivers[1].order = 1;
+        rivers[1].tributaries = 1;
+        assert!(plan(&rivers).parallel_of[1].is_none(), "a run with a tributary is never thinned");
+
+        // Far apart: 30 cells > S, nothing is a comb.
+        let (w2, h2, flow2, fld2, far) = comb_fixture(&[5, 35, 65], &[1.0, 0.9, 0.8]);
+        let pf = super::river_draw_plan(&far, &flow2, &fld2, 0.42, w2, h2, &[], &[]);
+        assert!((0..3).all(|i| pf.parallel_of[i].is_none()), "rivers farther apart than the spacing stay");
+
+        // Inland: the same comb with no sea (every cell high) is not a shore comb.
+        let high = vec![0.8f32; w * h];
+        rivers[1].tributaries = 0;
+        let pi = super::river_draw_plan(&rivers, &flow, &high, 0.42, w, h, &[], &[]);
+        assert!((0..5).all(|i| pi.parallel_of[i].is_none()), "a run that does not end on a shore is never a comb tooth");
     }
 
     /// The two *slope* `Math.hypot` call sites (`build_channels`' `slope_n`

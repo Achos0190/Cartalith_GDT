@@ -413,6 +413,20 @@ mod tests {
     use super::*;
     use crate::river_stroke::ShoreReach;
 
+    /// Protects: Ruling BW item 3's guarantee that comb thinning never hides a
+    /// delta-fan mouth -- the draw plan's never-thin discharge share
+    /// (`cartalith_hydrology::COMB_DISCHARGE_FRAC`) must not exceed the share a
+    /// mouth needs for a fan ([`MIN_DISCHARGE_FRAC`]), and both are pinned to
+    /// the literal. Mutation: raising the hydrology constant above this one
+    /// fails the first assert; changing either value fails the second.
+    #[test]
+    fn comb_thinning_never_hides_a_fan_mouth() {
+        assert!(cartalith_hydrology::COMB_DISCHARGE_FRAC <= MIN_DISCHARGE_FRAC);
+        assert_eq!((cartalith_hydrology::COMB_DISCHARGE_FRAC, MIN_DISCHARGE_FRAC), (2.0e-4, 2.0e-4));
+        // A fan needs order >= MIN_ORDER (> the comb cap's order of 1).
+        assert!(MIN_ORDER > cartalith_hydrology::COMB_MAX_ORDER);
+    }
+
     const GW: usize = 100;
     const GH: usize = 100;
 
