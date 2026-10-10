@@ -1697,7 +1697,7 @@ reference's own `sizeMode` uses the same two words the other way round
 (`'zoom'` constant on-screen, `'fixed'` grows with the terrain; see
 `cartalith_civ::labels::LabelSizeMode`). A reader of this document who knows the
 reference MUST NOT carry its meaning across: the string is the same, the
-behaviour is not. The two words are stored as-is and never translated. §15.5 says what the
+behaviour is not. Native saves store the two words as-is and never translate them; **the legacy importer does migrate** (Ruling BW item 2, 2026-10-10): the reference's `'fixed'` becomes this shell's `zoom` (grows with the map) and the reference's `'zoom'`, an absent value or any other string becomes `fixed` (constant on screen), so an imported label behaves as it did in the reference. §15.5 says what the
 flat-layout import does with the reference's spelling.
 
 Array order is significant — it is draw order.
@@ -2505,7 +2505,7 @@ world.
 | `state.places[]` of any other `kind` (the POI tool's `ruin`, `shrine`, …), or with none (the "designate places" tool) | **nothing** | §15.1: not a settlement, and this port has no hand-placed point-of-interest record; reported by kind |
 | `state.civ.factionNames` and its four parallel arrays | the faction roster | a column the archive does not reach is this build's per-index default (reported); **every colour is this build's palette** (§15.3, reported). No `factionNames` → this build's default roster, as the reference does |
 | `state.civ.territory` (sparse pairs) | the claim grid | a pair off the grid, or naming a faction outside the roster, is skipped and reported |
-| `state.labels[]` | the Label tool's list, class `region` | `x`, `y`, `name`, `angle`, `arc`, `size` (absent → 16, the click literal), `font`/`color` carried or left absent, `sizeMode: "fixed"` → fixed, anything else zoom (**the spelling is carried, not the behaviour**: the reference's `fixed` grows with the terrain, this shell's `fixed` holds a constant on-screen size, so an imported reference label changes how it scales; see §11.1, no migration is applied). Class `region` because the reference has one label kind and calls it a region name |
+| `state.labels[]` | the Label tool's list, class `region` | `x`, `y`, `name`, `angle`, `arc`, `size` (absent → 16, the click literal), `font`/`color` carried or left absent, `sizeMode: "fixed"` → zoom, anything else fixed (**migrated since Ruling BW item 2, 2026-10-10: the behaviour is carried, the spelling is swapped**; before that the spelling was carried and the behaviour inverted: the reference's `fixed` grows with the terrain, this shell's `fixed` holds a constant on-screen size; see §11.1). Class `region` because the reference has one label kind and calls it a region name |
 | `state.mapIcons[]` | the icon layer, `origin` manual | `x`, `y`, `fam` → `family` (outside §11.2's four: dropped, reported), `slot`, `set` for `custom` only, `scale` (absent or ≤ 0 → 1, reported). Manual because the reference had no generated pass writing into `mapIcons` |
 
 Reported and **not** imported, whenever the archive carries any: every member

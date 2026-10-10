@@ -128,10 +128,18 @@ fn the_records_export_imports_every_settlement_label_and_icon() {
     assert_eq!(legacy.labels.len(), 2);
     let l0 = &legacy.labels[0];
     assert_eq!((l0.x, l0.y, l0.name.as_str(), l0.size), (12.4, 30.8, "Vharen Reach", 16.0));
-    assert!(!l0.fixed_size);
+    // Ruling BW item 2: `fixed_size` is the SHELL's constant-on-screen mode,
+    // the reverse of the reference's word; assert against the archive's own value.
+    let shell_fixed = |i: usize| raw["labels"][i]["sizeMode"].as_str() != Some("fixed");
+    assert_eq!(l0.fixed_size, shell_fixed(0));
+    assert_eq!(legacy.labels[1].fixed_size, shell_fixed(1));
     let l1 = &legacy.labels[1];
     assert_eq!((l1.name.as_str(), l1.angle, l1.arc, l1.size), ("The Sundering Sea", -12.0, 0.3, 22.0));
-    assert!(l1.fixed_size);
+    // The capture script's literals: label 0 is the reference's 'zoom' (constant
+    // on screen -> shell fixed), label 1 its 'fixed' (grows -> shell zoom).
+    assert_eq!(raw["labels"][0]["sizeMode"], "zoom");
+    assert_eq!(raw["labels"][1]["sizeMode"], "fixed");
+    assert!(l0.fixed_size && !l1.fixed_size);
     // The label editor fills a concrete font and colour when a label is
     // selected (reference 17297-17298), and they are carried as the archive
     // holds them, not replaced by this build's defaults.

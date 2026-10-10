@@ -272,7 +272,9 @@ mod tests {
         let labels = got.labels.expect("labels");
         assert_eq!(labels.labels.len(), 2);
         assert_eq!(labels.labels[1].name, "The Sundering Sea");
-        assert_eq!(labels.labels[1].size_mode, cartalith_civ::labels::LabelSizeMode::Fixed);
+        // Ruling BW item 2: the reference's `sizeMode:"fixed"` (grows with the terrain) migrates to the shell's
+        // Zoom mode (grows with the map); this fixture's second label is the reference's `fixed`.
+        assert_eq!(labels.labels[1].size_mode, cartalith_civ::labels::LabelSizeMode::Zoom);
         let icons = got.icons.expect("icons");
         assert_eq!(icons.icons.len(), 3);
         assert_eq!(icons.icons[1].family, cartalith_assets::manual::ManualIconFamily::Custom);

@@ -115,7 +115,17 @@ pub struct LegacyLabel {
     /// Absent is the renderer's default, not a concrete font (§11.1).
     pub font: Option<String>,
     pub color: Option<String>,
-    /// `sizeMode: 'fixed'`; anything else is `zoom`, the reference's default.
+    /// The SHELL's label size mode, `true` = the shell's "fixed" (constant
+    /// ON-SCREEN size, `LabelSizeMode::Fixed`), `false` = the shell's "zoom"
+    /// (grows with the map). **This is the reverse of the reference's words**
+    /// (owner Ruling BW item 2, 2026-10-10): the reference's `sizeMode: 'zoom'`
+    /// (also the default, and what an absent or unrecognised value reads as,
+    /// §11.1) multiplies by `_civZoomK()` and so holds a constant on-screen
+    /// size, while its `'fixed'` drops that factor and grows with the terrain
+    /// (`_civLabelBox`, v2.11). So this is `true` for `'zoom'`/absent/anything
+    /// else and `false` only for `'fixed'`, which keeps each imported label's
+    /// on-screen behaviour what its author saw. Must never be set from
+    /// `sizeMode == 'fixed'` directly.
     pub fixed_size: bool,
 }
 
@@ -542,7 +552,11 @@ pub fn read_legacy(state: &Value, gw: usize, gh: usize) -> LegacyProject {
             size: finite(o.get("size")).unwrap_or(16.0),
             font: string(o.get("font")),
             color: string(o.get("color")),
-            fixed_size: o.get("sizeMode").and_then(Value::as_str) == Some("fixed"),
+            // Ruling BW item 2: the vocabularies are opposite. The reference's
+            // only grows-with-terrain value is 'fixed' (the shell's "zoom");
+            // 'zoom', absent and unrecognised hold a constant screen size
+            // (the shell's "fixed"). See the field's doc.
+            fixed_size: o.get("sizeMode").and_then(Value::as_str) != Some("fixed"),
         });
     }
     if bad_labels > 0 {
@@ -663,6 +677,29 @@ mod tests {
         ] {
             assert!(r.contains(needle), "missing {needle:?} in:\n{r}");
         }
+    }
+
+    #[test]
+    fn a_label_size_mode_is_migrated_to_the_shells_opposite_vocabulary() {
+        // Protects: Ruling BW item 2. The reference's `sizeMode: 'fixed'`
+        // grows with the terrain, so it must import as the shell's scaling
+        // mode (`fixed_size == false`); its `'zoom'`, an absent key and an
+        // unrecognised value all hold a constant on-screen size and must
+        // import as the shell's constant-size mode (`fixed_size == true`).
+        let label = |extra: Value| {
+            let mut o = json!({"x": 1, "y": 1, "name": "L"});
+            o.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            o
+        };
+        let state = json!({"labels": [
+            label(json!({"sizeMode": "fixed"})),
+            label(json!({"sizeMode": "zoom"})),
+            label(json!({})),
+            label(json!({"sizeMode": "bogus"})),
+        ]});
+        let got = read_legacy(&state, 4, 4);
+        let modes: Vec<bool> = got.labels.iter().map(|l| l.fixed_size).collect();
+        assert_eq!(modes, vec![false, true, true, true]);
     }
 
     #[test]
