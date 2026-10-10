@@ -182,19 +182,33 @@ use std::collections::BTreeMap;
 // registered in `cartalith-io` and used here, and a typo at one end
 // produces a silently unwritten payload rather than a compile error.
 
+/// The settlement table, with its `next_id` counter and optional `name_stream` position.
 const SLOT_SETTLEMENTS: &str = "entities/settlements.json";
+/// The faction roster, including tariffs, currency and religion choices.
 const SLOT_FACTIONS: &str = "entities/factions.json";
+/// Roads, sea lanes and the router's `road_edges`.
 const SLOT_WAYS: &str = "entities/ways.json";
+/// The province list.
 const SLOT_PROVINCES: &str = "entities/provinces.json";
+/// The continent list.
 const SLOT_CONTINENTS: &str = "entities/continents.json";
+/// The per-year timeline snapshots and the held territory year.
 const SLOT_TIMELINE: &str = "history/timeline.json";
+/// The Label tool's own label list.
 const SLOT_LABELS: &str = "annotations/labels.json";
+/// Manually placed and generated icons.
 const SLOT_ICONS: &str = "annotations/icons.json";
+/// The regions annotation document.
 const SLOT_REGIONS: &str = "annotations/regions.json";
+/// The look, quality, ramp, NPR and `biome_cols` settings.
 const SLOT_APPEARANCE: &str = "appearance.json";
+/// The Markdown Vault store.
 const SLOT_VAULT: &str = "vault.json";
+/// Landmark settings, the last run and the refined viewshed.
 const SLOT_LANDMARKS: &str = "entities/landmarks.json";
+/// The saved Journey entities.
 const SLOT_JOURNEYS: &str = "entities/journeys.json";
+/// The Conflict entities and their `anchor_convention` marker.
 const SLOT_CONFLICTS: &str = "entities/conflicts.json";
 /// `FACTION_HUB_DESIGN.md` §6 R1, `SAVEFILE_COMPAT.md` §9.9: the custom
 /// religion library (`CivData::religions`).
@@ -203,9 +217,13 @@ const SLOT_RELIGIONS: &str = "entities/religions.json";
 // The four caller-owned slots this file builds the *contents* of without
 // owning the slot itself. They stay out of [`ENGINE_OWNED_SLOTS`] below --
 // see "The four documents nothing could produce" in this module's own doc.
+/// The painted-layer draft; caller-owned.
 const SLOT_PAINT: &str = "drafts/paint.json";
+/// The sculpt-stamp draft; caller-owned.
 const SLOT_SCULPT: &str = "drafts/sculpt.json";
+/// The asset-library document; caller-owned.
 const SLOT_ASSETS: &str = "library/assets.json";
+/// The travel-library document of custom entries; caller-owned.
 const SLOT_TRAVEL: &str = "library/travel.json";
 
 /// The slots this file writes and reads itself. A document in one of these
@@ -5095,8 +5113,8 @@ mod tests {
     }
 
     /// Builds a real archive from a `CivData`, reads it back, and returns
-    /// the reconstructed one -- the write -> read -> compare the brief
-    /// requires, through the real container rather than the DTOs alone.
+    /// the reconstructed one -- a write -> read -> compare through the real
+    /// container rather than the DTOs alone.
     fn round_trip(civ: &CivData, gw: usize, gh: usize) -> CivData {
         let n = gw * gh;
         let params = cartalith_io::SaveParams {
@@ -5799,9 +5817,8 @@ mod tests {
     /// anchored siege at cell `(7, 4)` -- the pre-fix build's own
     /// `conflict_bridge::anchor_pos` resolved that to the raw corner `(7, 4)`,
     /// which is what `anchor.at` holds here, and no `anchor_convention`
-    /// member exists at all (the marker did not yet exist). See this task's
-    /// report for the exact `cargo test -- --nocapture` transcript this was
-    /// read off.
+    /// member exists at all (the marker did not yet exist). Provenance is
+    /// recorded in the message of commit `d4b2bd9a`, which added this literal.
     const PRE_FIX_CONFLICTS_JSON: &str = r#"{"conflicts":[{"anchor":{"at":[7,4],"kind":"settlement","tid":9},"end_year":214,"id":3,"kind":"siege","name":"Siege of Kessra","outcome":"Relieved in the third spring","points":[[7,4]],"sides":[2,1],"start_year":212}],"next_id":4}"#;
 
     /// Protects: Ruling AY's migration -- a pre-fix archive with no
@@ -5835,6 +5852,9 @@ mod tests {
         assert_eq!(c.resolved_points(Some((10.5, 6.5))), vec![(10.0, 6.0)]);
     }
 
+    /// Protects: Ruling AY's migration runs once -- a conflicts.json carrying `anchor_convention:
+    /// "centre"` reopens with its centre-convention `anchor_at` unshifted, so re-saving a
+    /// migrated project never shifts it a second time.
     #[test]
     fn a_conflict_saved_by_the_fixed_build_reopens_with_no_double_shift() {
         use cartalith_civ::conflict::{Conflict, ConflictAnchor, ConflictKind};
@@ -5898,6 +5918,9 @@ mod tests {
         assert_eq!(conflicts[0], siege);
     }
 
+    /// Protects: Ruling AY's migration touches only anchored conflicts -- in a pre-fix document
+    /// (no marker) the free front keeps its points and `anchor_at` exactly, while the
+    /// settlement-anchored siege beside it shifts to (7.5, 4.5).
     #[test]
     fn a_free_unanchored_conflict_never_moves_on_migration() {
         use cartalith_civ::conflict::{Conflict, ConflictAnchor, ConflictKind};
@@ -5942,6 +5965,11 @@ mod tests {
         assert_eq!(migrated_anchored.anchor_at, (7.5, 4.5));
     }
 
+    /// Protects: the reader's honest-absence half for `entities/journeys.json` -- an archive
+    /// written without that document reads back with the slot absent, not as an empty array. Weak
+    /// by its own comment: it never writes a journey list or calls `project_save_with_documents`,
+    /// so it would pass whatever the writer's `is_empty()` gate did; the gate itself is not
+    /// covered here.
     #[test]
     fn an_empty_journeys_list_writes_no_document() {
         // `project_save_with_documents`'s own gate (`if !infra.journeys.is_empty()`)
@@ -5976,6 +6004,10 @@ mod tests {
         assert!(data_has_no_slot);
     }
 
+    /// Protects: backward compatibility with pre-SP-1 archives -- a `journeys.json` whose `route`
+    /// is a bare integer does not refuse the archive and fails to parse as `JourneysDoc`, so
+    /// `project_open`'s `Some(Ok(..))` gate skips just that document (SAVEFILE_COMPAT.md 6.4a
+    /// rung 3).
     #[test]
     fn a_pre_sp1_journeys_document_is_skipped_not_fatal() {
         // Backward compatibility: an archive written by the pre-SP-1 shell
@@ -6037,6 +6069,9 @@ mod tests {
         );
     }
 
+    /// Protects: `next_tid` after reopen exceeds a `tid` held only by a timeline snapshot (a
+    /// deleted settlement, 500) when `settlements.json` carries no `next_id`, so a deleted id is
+    /// never reissued and `civ_year_diff` keeps matching by `tid`.
     #[test]
     fn a_restored_counter_clears_every_id_the_timeline_remembers() {
         // The collision `civ_resync_next_tid_with_timeline` exists for: a
@@ -6180,6 +6215,9 @@ mod tests {
             .to_string()
     }
 
+    /// Protects: `drafts/paint.json` crosses a real archive byte for byte (an unpainted layer
+    /// stays an empty list) and its sparse `[index, value]` pairs still decode through
+    /// `PaintLayer::decode_sparse`.
     #[test]
     fn a_paint_draft_survives_a_real_archive_round_trip() {
         // Sparse `[index, value, ...]` on two of the three layers and an
@@ -6212,6 +6250,9 @@ mod tests {
         assert_eq!(layer.cells().expect("allocated")[1], 0);
     }
 
+    /// Protects: painted cells from a live `PaintEditor`, written through the paint document and
+    /// a real archive, come back cell for cell via `restore_layers`, including a gated water hole
+    /// and an unallocated layer.
     /// The round trip that was missing: **painted cells out of a live editor,
     /// through the archive, and back into a live editor.**
     ///
@@ -6228,7 +6269,10 @@ mod tests {
     #[test]
     fn painted_layers_come_back_out_of_a_real_archive() {
         use crate::paint_bridge::{PaintEditor, PaintTarget};
+        /// Grid width of the painted-layers fixture: a labelled judgement, small enough to read
+        /// by eye yet wide enough for a 2-cell brush beside a water cell.
         const GW: usize = 8;
+        /// Grid height of the painted-layers fixture: a labelled judgement, paired with `GW`.
         const GH: usize = 6;
         let n = GW * GH;
 
@@ -6300,6 +6344,9 @@ mod tests {
         assert!(counts.0 > 0 && counts.2 > 0);
     }
 
+    /// Protects: `drafts/sculpt.json` crosses a real archive verbatim and each stamp's feature,
+    /// params, globals and `sub_mode` rebuild into the same sculpt parameters (a renamed control
+    /// or a lost `sub_mode` would show).
     #[test]
     fn a_sculpt_draft_survives_a_real_archive_round_trip() {
         use cartalith_terrain::sculpt::{Feature, FreehandMode};
@@ -6381,6 +6428,9 @@ mod tests {
         }
     }
 
+    /// Protects: `library/assets.json`, built from a real `to_library_json`, crosses a real
+    /// archive verbatim and re-applying it recreates the custom slot by uid (zero items: the
+    /// project format has no channel for item pixels).
     #[test]
     fn an_asset_library_survives_a_real_archive_round_trip() {
         // A real `to_library_json` record, not a hand-written literal: the
@@ -6413,6 +6463,9 @@ mod tests {
         );
     }
 
+    /// Protects: `library/travel.json` carries a custom animal, including the species key
+    /// `animal_apply_pairs` cannot set, verbatim through a real archive and rebuilds its name and
+    /// load capacity.
     #[test]
     fn a_travel_library_survives_a_real_archive_round_trip() {
         use cartalith_civ::travel_library::AnimalDef;
@@ -6476,6 +6529,9 @@ mod tests {
         assert_eq!(rebuilt.species_key, None, "apply_pairs must not have set it");
     }
 
+    /// Protects: `jp_value_to_json` and `json_to_jp_value` are exact inverses for every `JpValue`
+    /// shape, keeping `Int` and `Num` apart so an integral float never comes back as an integer
+    /// (`GUI_GAP_REGISTER.md` KV-04).
     #[test]
     fn every_jp_value_shape_is_an_exact_json_inverse() {
         // The travel field map's whole fidelity rests on this pair, and its
@@ -6507,6 +6563,8 @@ mod tests {
         );
     }
 
+    /// Protects: the paint, sculpt, assets and travel slots stay registered in `cartalith-io` and
+    /// caller-owned, so moving one into `ENGINE_OWNED_SLOTS` is a deliberate, failing change.
     #[test]
     fn the_four_new_slots_are_the_caller_s_and_not_the_engine_s() {
         // The partition assertion above names all six callers; this one
@@ -6525,6 +6583,9 @@ mod tests {
         }
     }
 
+    /// Protects: every persisted `CivData` member of `sample_civ` survives a real archive round
+    /// trip equal to what was written; the one deliberate exception, `explanations`
+    /// (SAVEFILE_COMPAT.md 16.2), comes back empty.
     #[test]
     fn the_civ_layer_survives_a_real_archive_round_trip() {
         let civ = sample_civ();
@@ -6562,7 +6623,7 @@ mod tests {
         assert!(back.explanations.is_empty());
     }
 
-    /// Ruling J's town-plan fields write no key while unset, so a project
+    /// Protects: Ruling J's town-plan fields write no key while unset, so a project
     /// edited only in the pre-existing five fields saves the same bytes.
     #[test]
     fn an_unset_town_plan_writes_no_key() {
@@ -6576,7 +6637,7 @@ mod tests {
         assert!(text.contains("\"culture\":\"venus\"") && text.contains("\"variant\":1"));
     }
 
-    /// IN-13 tariffs (Ruling AE) ride `factions.json`: set rows survive a
+    /// Protects: IN-13 tariffs (Ruling AE) ride `factions.json`: set rows survive a
     /// real archive round trip, an untariffed roster writes no `tariffs`
     /// key at all (so an unedited project's document is unchanged by the
     /// field's existence), and rows `set_tariff` would refuse are dropped
@@ -6714,7 +6775,7 @@ mod tests {
         assert_eq!(ours(&warnings).len(), 1, "{warnings:?}");
     }
 
-    /// Ruling AU's currencies ride `factions.json` (`SAVEFILE_COMPAT.md`
+    /// Protects: Ruling AU's currencies ride `factions.json` (`SAVEFILE_COMPAT.md`
     /// §9.2): set members survive a real archive round trip, an unset
     /// currency writes no key at all, a partly-set one writes only what was
     /// set, and a member `set_currency` would refuse is dropped on read with
@@ -6770,7 +6831,7 @@ mod tests {
         assert_eq!(currency_from_dto(&dto, &mut warnings), civ_roster_bridge::FactionCurrency::default());
     }
 
-    /// The real pre-currency archive (the same fixture the substrate tests
+    /// Protects: The real pre-currency archive (the same fixture the substrate tests
     /// document the provenance of) opens with every faction's currency
     /// unset, says nothing about it, and re-saves its `factions.json` byte
     /// for byte: an absent member is written back absent.
@@ -6795,6 +6856,9 @@ mod tests {
         assert_eq!(docs[SLOT_FACTIONS], old, "factions.json re-serialises byte for byte");
     }
 
+    /// Protects: settlement and way `tid`s (7, 8, 21) survive a round trip unrenumbered and the
+    /// counter clears them, so vault links and journeys naming a `tid` keep pointing at the same
+    /// entity.
     #[test]
     fn a_stable_id_survives_and_that_is_the_whole_point() {
         // `MARKDOWN_VAULT_SCOPE.md` milestone 3 and `STORY_PLANNING_SCOPE.md`
@@ -6812,6 +6876,8 @@ mod tests {
         );
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 9.1 -- a stored `next_id` below the ids beside it is raised
+    /// past them (22 here), so the next hand-placed settlement never reuses an existing id.
     #[test]
     fn a_stored_next_id_lower_than_the_ids_beside_it_is_raised() {
         // §9.1. A counter that trailed its own data would hand the next
@@ -6827,6 +6893,8 @@ mod tests {
         );
     }
 
+    /// Protects: an archive written with no civ documents reopens with no civ layer
+    /// (`civ_from_project` is `None`), not an invented empty one.
     #[test]
     fn a_world_with_no_civ_layer_round_trips_to_no_civ_layer() {
         // Not "an empty civ layer": the distinction between "this project
@@ -6864,6 +6932,8 @@ mod tests {
         assert!(civ_from_project(&data, n, &mut Vec::new()).is_none());
     }
 
+    /// Protects: a civ layer whose entity lists are all emptied still reopens as a civ layer
+    /// (roster and territory intact), distinguishable from a project that never had one.
     #[test]
     fn an_empty_civ_layer_is_distinguishable_from_an_absent_one() {
         let mut civ = sample_civ();
@@ -6886,6 +6956,9 @@ mod tests {
         assert_eq!(back.territory, civ.territory);
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 9.1/9.3 -- an unknown settlement tier or road class from a
+    /// future version keeps its row and id, falling back to `Town` and `Track` rather than
+    /// dropping.
     #[test]
     fn an_unrecognised_vocabulary_value_costs_nothing() {
         // §9.1/§9.3: a tier or a road class from a future version must not
@@ -6909,6 +6982,8 @@ mod tests {
         assert_eq!(road.tid, 4);
     }
 
+    /// Protects: a road break index at or past the end of its polyline (2 and 99 on two points)
+    /// is dropped on read, so a renderer cannot walk off the polyline.
     #[test]
     fn an_out_of_range_break_is_dropped_not_trusted() {
         // A renderer that walked an out-of-range break would run off the
@@ -6921,6 +6996,8 @@ mod tests {
         assert_eq!(road.brks, vec![0, 1]);
     }
 
+    /// Protects: a province whose `capital_settlement_index` names no settlement (99) does not
+    /// survive the round trip; the valid province does.
     #[test]
     fn a_province_pointing_at_no_settlement_is_dropped() {
         let mut civ = sample_civ();
@@ -6939,6 +7016,9 @@ mod tests {
         assert_eq!(back.province_list[0].id, 1);
     }
 
+    /// Protects: tuned `LandmarkSettings` (cap, armed flag, crowding, class radius,
+    /// cross-competition) survive the document round trip, and a store that has never run writes
+    /// no `results` member.
     #[test]
     fn landmark_settings_survive_a_document_round_trip() {
         use cartalith_civ::landmark::LandmarkSettings;
@@ -6970,6 +7050,9 @@ mod tests {
         assert!(back.results.is_none());
     }
 
+    /// Protects: a real landmark run survives the document -- ids, kinds, positions, causal
+    /// chains and seeds exact, floats within one ulp, funnel arithmetic intact and in `kinds()`
+    /// order; `rejects` are deliberately not carried.
     /// A real world's landmark pass, through the document and back.
     ///
     /// Generated rather than hand-built: the members under test are a
@@ -7043,12 +7126,16 @@ mod tests {
         assert_eq!(keys, r.landmarks.iter().map(|l| l.key()).collect());
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 14.1 for `entities/landmarks.json` -- no integer in it
+    /// exceeds 2^53 - 1 and the 64-bit `seed` is never written.
     /// §14.1, over a document with a real world's numbers in it. The existing
     /// `every_id_the_format_writes_is_a_safe_integer` walks `civ_documents`
     /// only, so `entities/landmarks.json` was outside it -- and this document
     /// is the one that had a 64-bit hash in reach.
     #[test]
     fn the_landmark_document_writes_no_integer_past_2_53() {
+        /// 2^53 - 1, JavaScript's `Number.MAX_SAFE_INTEGER`: the largest integer a JS reader
+        /// holds exactly (SAVEFILE_COMPAT.md 14.1).
         const MAX_SAFE: u64 = 9_007_199_254_740_991;
         let (r, _) = sample_landmark_run();
         let doc = LandmarksDoc {
@@ -7058,6 +7145,8 @@ mod tests {
         };
         let v: serde_json::Value =
             serde_json::from_str(&serde_json::to_string(&doc).expect("serializes")).unwrap();
+        /// Records the largest unsigned integer found anywhere in `v` into `worst`, descending
+        /// arrays and objects.
         fn walk(v: &serde_json::Value, worst: &mut u64) {
             match v {
                 serde_json::Value::Number(n) => {
@@ -7080,6 +7169,9 @@ mod tests {
         );
     }
 
+    /// Protects: owner ruling 10's non-destruction -- a `landmarks.json` holding only `settings`
+    /// still parses, keeps its tuned settings, and re-serialises without inventing a `results`
+    /// member.
     /// The non-destruction half of owner ruling 10, and the one this batch
     /// could most easily have broken: a document written **before** the
     /// `results` member existed must still bring its settings back.
@@ -7227,6 +7319,9 @@ mod tests {
         assert!(decode_viewshed_refined(doc.viewshed_refined.as_ref().unwrap(), 64, 64).is_err());
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 6.4a -- an unknown kind or an off-grid coordinate costs its
+    /// own row only; the survivor is renumbered from 1, its seed recomputed, and an empty funnel
+    /// list is rebuilt as `Unrecorded`.
     /// The three ways a row can be untrusted, each costing the row and not
     /// the document (`SAVEFILE_COMPAT.md` §6.4a).
     #[test]
@@ -7260,6 +7355,8 @@ mod tests {
         }
     }
 
+    /// Protects: `serde_json`'s `float_roundtrip` stays enabled -- landmark floats read back bit
+    /// for bit and the document is unchanged by its first read-write cycle.
     /// **An open/save cycle is exact from the first write.** Until 2026-09-24
     /// `serde_json` was built without its `float_roundtrip` feature, so its
     /// parser was the fast one and an `f64` read back could land **one ULP**
@@ -7306,7 +7403,10 @@ mod tests {
         a == b || (a - b).abs() <= a.abs().max(b.abs()) * f64::EPSILON
     }
 
+    /// Landmark fixture width: a labelled judgement, large enough that the default run places
+    /// more than 50 landmarks (asserted by the tests using it).
     const SAMPLE_GW: usize = 192;
+    /// Landmark fixture height, paired with `SAMPLE_GW` (a labelled judgement).
     const SAMPLE_GH: usize = 144;
 
     /// A real terrain pass with a real landmark run over it, and the world
@@ -7314,6 +7414,9 @@ mod tests {
     /// `project_open` does.
     fn sample_landmark_run() -> (cartalith_civ::landmark::LandmarkResult, u64) {
         use cartalith_civ::landmark::{LandmarkInputs, LandmarkSettings};
+        /// Arbitrary fixed world seed for the landmark fixture: a labelled judgement, changed
+        /// only if the fixture's asserted premises (more than 50 placements, some rejects) stop
+        /// holding.
         const WORLD_SEED: u64 = 24601;
         let p = cartalith_engine::WorldParams::defaults(SAMPLE_GW, SAMPLE_GH, WORLD_SEED as i32);
         let ws = cartalith_engine::generate_terrain(&p);
@@ -7335,6 +7438,8 @@ mod tests {
         (r, WORLD_SEED)
     }
 
+    /// Protects: an untrusted landmarks `settings` member cannot add an unknown kind's cap,
+    /// exceed `CROWDING_MAX`, or hold a negative class radius (floored at zero).
     #[test]
     fn a_landmark_document_cannot_smuggle_in_an_unknown_kind() {
         // An archive is untrusted input. `into_settings` rebuilds from
@@ -7356,6 +7461,9 @@ mod tests {
         assert_eq!(settings.class_radius_km[0], 0.0, "a negative radius floors at zero");
     }
 
+    /// Protects: every slot registered in `cartalith-io` is exactly one of engine-owned (refused
+    /// to callers) or caller-owned, and the caller-owned set is exactly the six named, so a
+    /// mis-classified new slot fails here.
     #[test]
     fn the_document_channel_partitions_every_registered_slot() {
         // The partition is the contract, so it is asserted over the whole
@@ -7408,6 +7516,9 @@ mod tests {
         );
     }
 
+    /// Protects: `caller_slot_refusal` gives distinct messages for an unknown slot ("not a slot")
+    /// and an engine-owned one (which points at `get_settlements()`), so a typo is not read as a
+    /// permissions rule.
     #[test]
     fn a_slot_that_is_not_a_slot_is_refused_for_a_different_reason() {
         // Two refusals, not one: "you may not have this" and "this does not
@@ -7421,6 +7532,8 @@ mod tests {
         assert!(!owned.contains("not a slot"), "{owned}");
     }
 
+    /// Protects: `resource_key_static` returns a known `CIV_RESOURCE_KEYS` entry unchanged and
+    /// `None` for an unknown key.
     #[test]
     fn an_unknown_resource_key_is_dropped_rather_than_leaked() {
         assert_eq!(
@@ -7430,6 +7543,8 @@ mod tests {
         assert_eq!(resource_key_static("unobtanium"), None);
     }
 
+    /// Protects: the key/from pairs for way class, manual way kind, route mode and label size
+    /// mode are exact inverses over every variant, so a road never demotes itself on save.
     #[test]
     fn every_vocabulary_mapping_is_an_exact_inverse() {
         // The two halves live twenty lines apart and are the kind of pair
@@ -7461,6 +7576,8 @@ mod tests {
         }
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 13.2 -- an appearance document with no members, or with
+    /// unknown ones, parses; the default writes its fixed members and no `biome_cols` (CA-19).
     #[test]
     fn the_appearance_document_is_optional_in_every_member() {
         // §13.2: a reader must be able to ignore this file entirely, and a
@@ -7494,6 +7611,8 @@ mod tests {
         assert!(v.get("biome_cols").is_none(), "a default table must write no biome_cols: {text}");
     }
 
+    /// Protects: every `ENGINE_OWNED_SLOTS` entry is registered in
+    /// `cartalith_io::DOCUMENT_SLOTS`, since an unregistered slot would write and read nothing.
     #[test]
     fn every_slot_this_file_names_is_registered_in_the_format() {
         // A slot named here and not registered in `cartalith-io` writes
@@ -7507,6 +7626,9 @@ mod tests {
         }
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 10.1 backward compatibility -- a timeline written before
+    /// per-year `institutions`/`place_overrides` parses with both absent, re-serialises to the
+    /// same bytes, and a timeline with no records writes neither key.
     #[test]
     fn a_timeline_written_before_year_records_loads_unrecorded_and_re_serialises_byte_identically() {
         // Protects `SAVEFILE_COMPAT.md` §10.1's backward-compatibility promise for the
@@ -7533,6 +7655,9 @@ mod tests {
         assert!(!text.contains("institutions") && !text.contains("place_overrides"), "{text}");
     }
 
+    /// Protects: a year's recorded institutions and place overrides survive an archive, with
+    /// recorded-with-content, recorded-as-none (an empty map) and unrecorded (`None`) staying
+    /// three distinct states.
     #[test]
     fn a_recorded_years_institutions_and_overrides_survive_an_archive_and_stay_distinct_from_none() {
         // Protects the row this change closes: a year's recorded ag-tech/government and
@@ -7593,6 +7718,9 @@ mod tests {
         );
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 10.1 -- an out-of-order timeline comes back sorted by year
+    /// with each year keeping its own raster. The fixture has no duplicate years, so the "unique"
+    /// half of the name is not exercised here.
     #[test]
     fn the_timeline_comes_back_sorted_and_unique() {
         // §10.1. The year cursor walks this list by index, so a file whose
@@ -7647,6 +7775,9 @@ mod tests {
         );
     }
 
+    /// Protects: `GUI_GAP_REGISTER.md` CV-23 -- a recorded year's territory raster survives an
+    /// archive as it was then, differs from the live grid, and keeps its compact delta encoding
+    /// (owner ruling 27).
     #[test]
     fn a_recorded_year_comes_back_holding_what_was_true_then_not_what_is_live_now() {
         // The claim `GUI_GAP_REGISTER.md`'s CV-23 row is about, end to end: which faction
@@ -7736,6 +7867,9 @@ mod tests {
         );
     }
 
+    /// Protects: the member names and values of the settlements, ways and factions documents
+    /// match what `SAVEFILE_COMPAT.md` publishes, since a second implementation is written from
+    /// those names.
     #[test]
     fn the_documents_are_the_shapes_the_specification_publishes() {
         // The specification is what a second implementation is written
@@ -7771,10 +7905,14 @@ mod tests {
         assert_eq!(f["factions"][1]["color"].as_array().unwrap().len(), 3);
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 14.1 -- no integer in any civ document exceeds 2^53 - 1,
+    /// which a JavaScript reader could not hold.
     #[test]
     fn every_id_the_format_writes_is_a_safe_integer() {
         // §14.1 is a constraint on the *format*, not a warning: a second
         // implementation in JavaScript cannot represent an id past 2^53.
+        /// 2^53 - 1, JavaScript's `Number.MAX_SAFE_INTEGER`: the largest integer a JS reader
+        /// holds exactly (SAVEFILE_COMPAT.md 14.1).
         const MAX_SAFE: u64 = 9_007_199_254_740_991;
         let civ = sample_civ();
         let mut docs = BTreeMap::new();
@@ -7782,6 +7920,8 @@ mod tests {
         for text in docs.values() {
             let v: serde_json::Value = serde_json::from_str(text).unwrap();
             let mut worst: u64 = 0;
+            /// Records the largest unsigned integer found anywhere in `v` into `worst`,
+            /// descending arrays and objects.
             fn walk(v: &serde_json::Value, worst: &mut u64) {
                 match v {
                     serde_json::Value::Number(n) => {
@@ -7868,6 +8008,9 @@ mod icon_document_tests {
   ]
 }"#;
 
+    /// Protects: `ICONS_BEFORE_ORIGIN` is exactly what the current writer emits for those four
+    /// rows, so the migration tests below run against a real writer document and not a hand-built
+    /// lookalike.
     /// The fixture is the writer's output and not a hand-typed lookalike.
     ///
     /// Without this the migration test would be checking a reader against a
@@ -7920,6 +8063,8 @@ mod icon_document_tests {
         assert_eq!(serde_json::to_string_pretty(&doc).expect("serialises"), ICONS_BEFORE_ORIGIN);
     }
 
+    /// Protects: the pre-`origin` icons document opens, resolves and re-serialises
+    /// byte-identically through `icon_from_dto` and `icon_to_dto`.
     /// The whole chain MISTAKES.md's backward-compatibility rule asks for:
     /// the frozen document **opens, resolves, and re-serialises
     /// byte-identically** -- through [`icon_from_dto`] and [`icon_to_dto`],
@@ -7946,6 +8091,9 @@ mod icon_document_tests {
         );
     }
 
+    /// Protects: owner ruling 14's migration rule -- a document with no `origin` member loads
+    /// every icon as `Manual`, while explicit `manual` and `generated` rows still resolve to
+    /// their own variants.
     /// **Owner ruling 14's migration rule, and the assertion that could not
     /// exist before the field did**: a document written before `origin`
     /// loads with every icon `Manual`.
@@ -7984,7 +8132,7 @@ mod icon_document_tests {
         assert_eq!(got, vec![IconOrigin::Manual, IconOrigin::Generated]);
     }
 
-    /// A generated icon survives the round trip **as generated**, and is the
+    /// Protects: A generated icon survives the round trip **as generated**, and is the
     /// only kind that puts an `origin` member on the wire.
     #[test]
     fn a_generated_icon_writes_its_origin_and_reads_back_as_generated() {
@@ -8014,6 +8162,8 @@ mod icon_document_tests {
         assert!(!text.contains("origin"), "a hand-placed row wrote an `origin` member: {text}");
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 6.4a rung 2 -- an `origin` that is not exactly `manual` or
+    /// `generated` (`imported`, `Manual`) costs its row rather than being folded into `Manual`.
     /// §6.4a rung 2 again, for the new member: an `origin` that is neither
     /// known string costs its row and nothing more -- `family`'s answer, not
     /// a silent fold into `Manual`.
@@ -8047,7 +8197,7 @@ mod icon_document_tests {
         assert_eq!(doc.icons.len() - icons.len(), 2, "the warning would understate the loss");
     }
 
-    /// Opening a document written before `origin` existed must not silently
+    /// Protects: Opening a document written before `origin` existed must not silently
     /// rewrite it (`SAVEFILE_COMPAT.md` §6.2, §14.3).
     #[test]
     fn a_document_written_before_origin_reopens_and_re_serialises_byte_identically() {
@@ -8058,6 +8208,9 @@ mod icon_document_tests {
         assert_eq!(again, ICONS_BEFORE_ORIGIN, "opening an old project rewrote it");
     }
 
+    /// Protects: every field of every fixture row (family, position, scale, set, and an
+    /// unresolvable slot kept as written) survives resolution, including SAVEFILE_COMPAT.md
+    /// 11.2's keep-the-row rule.
     /// Every field of every row survives resolution -- the property the
     /// `origin` merge has to keep, asserted before the merge rather than
     /// after.
@@ -8089,6 +8242,8 @@ mod icon_document_tests {
         assert_eq!(icons[3].slot, "a_slot_no_pack_here_defines");
     }
 
+    /// Protects: SAVEFILE_COMPAT.md 6.4a -- an unknown or empty `family` costs the row, an
+    /// unresolvable `slot` does not, and a non-positive `scale` is replaced by 1.0.
     /// §6.4a rung 2: a damaged row costs its element and nothing more.
     ///
     /// The three cases are the three answers `icon_from_dto` can give, and
@@ -8129,7 +8284,7 @@ mod icon_document_tests {
         assert_eq!(icons[3].scale, 1.0, "a negative scale was carried through");
     }
 
-    /// The count `project_open` reports is the document's rows minus the
+    /// Protects: The count `project_open` reports is the document's rows minus the
     /// survivors, which is the number the `warnings` line is built from.
     #[test]
     fn the_reported_drop_count_is_the_rows_that_did_not_survive() {
@@ -8190,6 +8345,9 @@ mod biome_cols_tests {
   }
 }"#;
 
+    /// Protects: a real `appearance.json` written before `biome_cols` opens at the reference
+    /// table (no overrides) and re-serialises byte-identically, without costing its sibling
+    /// members.
     /// MISTAKES.md's backward-compatibility rule, whole: the old document
     /// **opens, resolves, and re-serialises byte-identically**, through the
     /// two seams a real save/open uses -- so opening an old project and
@@ -8214,7 +8372,7 @@ mod biome_cols_tests {
         );
     }
 
-    /// An edited class survives the writer and the reader, and the table on
+    /// Protects: An edited class survives the writer and the reader, and the table on
     /// disk is the literal colours, in class order.
     #[test]
     fn an_edited_biome_colour_survives_the_round_trip() {
@@ -8236,7 +8394,7 @@ mod biome_cols_tests {
         assert_eq!(got.iter().filter(|c| c.is_some()).count(), 1, "only the edited class is an override");
     }
 
-    /// Equal to the default is written as nothing, even when every class
+    /// Protects: Equal to the default is written as nothing, even when every class
     /// carries an explicit override that happens to equal its colour.
     #[test]
     fn a_table_equal_to_the_reference_writes_no_member() {
@@ -8245,7 +8403,7 @@ mod biome_cols_tests {
         assert!(biome_cols_member(&explicit).is_none());
     }
 
-    /// Every malformed shape is refused whole -- never a partial table.
+    /// Protects: Every malformed shape is refused whole -- never a partial table.
     #[test]
     fn a_malformed_table_is_refused_whole() {
         let good: Vec<serde_json::Value> = (0..15).map(|_| serde_json::json!([1, 2, 3])).collect();
@@ -8296,7 +8454,10 @@ mod substrate_tests {
     use crate::substrate::{self, SubstrateManifest};
     use std::io::Cursor;
 
+    /// Substrate fixture width: a labelled judgement, big enough to carve rivers and route road
+    /// edges, whose premises the tests assert.
     const GW: usize = 160;
+    /// Substrate fixture height, paired with `GW` (a labelled judgement).
     const GH: usize = 112;
 
     /// One real world, the shipped parameters, CPU only, rivers carved.
@@ -8336,6 +8497,8 @@ mod substrate_tests {
         }
     }
 
+    /// The `SaveParams` for the fixture world: its own size, seed, width, sea level and `world`
+    /// flag, origin `gen`, no name.
     fn save_params(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> cartalith_io::SaveParams {
         cartalith_io::SaveParams {
             gw: p.gw,
@@ -8378,6 +8541,8 @@ mod substrate_tests {
         (ws, civ, data)
     }
 
+    /// Asserts the fields the archive carries are identical in `a` and `b`, floats compared by
+    /// `to_bits` so a `-0.0` or one-ulp difference fails.
     fn assert_same_world(a: &cartalith_engine::WorldState, b: &cartalith_engine::WorldState) {
         assert_eq!(a.sea_level.to_bits(), b.sea_level.to_bits(), "sea_level");
         let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
@@ -8470,6 +8635,9 @@ mod substrate_tests {
         )
     }
 
+    /// Protects: the journey planner reads the live claim grid's convention (0 = unowned, never
+    /// -1) -- an unowned cell is unclaimed, an owned one claimed, and an open-ocean route has
+    /// `claimed_frac` 0 in every stage.
     /// The live claim grid, not a fixture: a real generated world's
     /// `CivData::territory` uses `0` for unowned (never `-1`), and the Journey
     /// Planner, through the same `JpWorld` construction `jp_compute` uses,
@@ -8505,11 +8673,16 @@ mod substrate_tests {
         assert!(claimed.iter().all(|&f| f == 0.0), "a route on unowned cells claims nothing: {claimed:?}");
     }
 
+    /// `faction_economy_aggregates` over the fixture grid at the world's own sea level and map
+    /// width, for generated-versus-reopened comparison.
     fn economy(ws: &cartalith_engine::WorldState, civ: &CivData) -> cartalith_civ::FactionAggregates {
         let p = &world().0;
         crate::faction_economy_aggregates(ws, civ, GW, GH, ws.sea_level, p.map_width_km)
     }
 
+    /// Protects: Ruling AR -- a generated world saved with its substrate reopens bit for bit, and
+    /// the journey plan, faction economy and way lengths computed over it equal the generated
+    /// world's.
     #[test]
     fn a_saved_world_reopens_as_the_world_that_was_saved() {
         let (_, ws, civ) = world();
@@ -8548,6 +8721,7 @@ mod substrate_tests {
         assert_eq!(plan(&ws2, &civ2), generated, "journey plan: generated vs reopened project");
     }
 
+    /// The road edges as comparable `(a, b, path)` tuples, in stored order.
     fn edge_tuples(c: &CivData) -> Vec<(usize, usize, Vec<usize>)> {
         c.road_edges.iter().map(|e| (e.a, e.b, e.path.clone())).collect()
     }
@@ -8557,6 +8731,8 @@ mod substrate_tests {
         cartalith_civ::jp_road_cells(&civ.ways, &[], edges, GW).into_keys().collect()
     }
 
+    /// Protects: the router's `road_edges` (endpoints and every cell) survive a reopen exactly
+    /// and are stored under SAVEFILE_COMPAT.md 9.3's `from`/`to`/`cells` names.
     #[test]
     fn a_reopened_project_restores_road_edges_exactly() {
         let (_, ws, civ) = world();
@@ -8575,6 +8751,9 @@ mod substrate_tests {
         assert_eq!(stored[0]["cells"].as_array().unwrap().len(), civ.road_edges[0].path.len());
     }
 
+    /// Protects: a journey along a stretch that is road only because of a stored `road_edge`
+    /// plans identically to the generated world after reopening, and differently when the edges
+    /// are cleared.
     /// Whether a road cell can exist that no stored way covers, and what it
     /// does to a plan. It can: the ways are consolidated and smoothed, so the
     /// router's raw cell path leaves their 3x3 footprint. A journey whose two
@@ -8634,6 +8813,8 @@ mod substrate_tests {
         project::read_project(Cursor::new(&archive(ws, civ, true))).expect("read")
     }
 
+    /// Protects: a stored road edge with a cell off the grid is dropped alone on reopen and
+    /// reported in exactly one warning.
     #[test]
     fn a_road_edge_with_a_cell_off_the_grid_is_dropped_and_reported() {
         let (_, ws, civ) = world();
@@ -8647,7 +8828,7 @@ mod substrate_tests {
         assert!(warnings[0].contains(&format!("1 of {} road edges", kept + 1)), "{}", warnings[0]);
     }
 
-    /// Ruling AT's held year survives the round trip, and a stored year that
+    /// Protects: Ruling AT's held year survives the round trip, and a stored year that
     /// names no recorded snapshot is not believed.
     #[test]
     fn the_held_territory_year_round_trips_and_a_dangling_one_is_dropped() {
@@ -8662,6 +8843,10 @@ mod substrate_tests {
         assert_eq!(back.territory_year, None, "301 is not a recorded year");
     }
 
+    /// Protects: backward compatibility with a real pre-substrate archive -- it reads,
+    /// `world_from_project` refuses it as no substrate without taking rasters, its civ layer
+    /// restores with no `road_edges` and no warning, and re-saved ways/timeline documents are
+    /// byte-identical.
     #[test]
     fn a_project_saved_before_the_substrate_opens_and_says_so() {
         // `MISTAKES.md`: a backward-compatibility fixture built from a real
@@ -8705,6 +8890,9 @@ mod substrate_tests {
     /// opens_and_says_so` documents the provenance of.
     const PRE_SUBSTRATE: &[u8] = include_bytes!("../tests/fixtures/project_pre_substrate_2026-09-24.zip");
 
+    /// Protects: a missing `rasters/territory.i32` reopens as no territory (not zeros) with one
+    /// warning, is not written back as zeros, and a later stroke commits onto a whole grid
+    /// claiming only its own cells.
     #[test]
     fn an_archive_without_its_claim_grid_reopens_with_no_territory_and_says_so() {
         // Control: the real archive, whole.
@@ -8745,7 +8933,7 @@ mod substrate_tests {
         assert!(civ.territory.iter().all(|&t| t == 0 || t == 2), "only the stroke is claimed");
     }
 
-    /// `OUTSTANDING_WORK.md` §2.11: the province raster had the defect
+    /// Protects: `OUTSTANDING_WORK.md` §2.11: the province raster had the defect
     /// `an_archive_without_its_claim_grid_...` above fixed for territory -- a
     /// missing `rasters/provinces.i32` came back as a grid of zeros ("no cell
     /// is in any province"), which the next save wrote back as if read.
@@ -8782,6 +8970,9 @@ mod substrate_tests {
         assert!(civ.provinces.iter().any(|&p| p > 0));
     }
 
+    /// Protects: the manual settlement name stream's saved position -- a reopened session
+    /// continues the sequence the saved session would have drawn, an archive without the member
+    /// restarts at the seed, and no stream writes no member.
     #[test]
     fn a_reopened_project_resumes_the_manual_name_stream() {
         use crate::civ_tools_bridge::{manual_settlement_name, manual_settlement_pop, CivTools};
@@ -8840,6 +9031,8 @@ mod substrate_tests {
         out
     }
 
+    /// Protects: an archive missing a promised substrate raster or the core stream-order raster
+    /// is refused whole, with an error naming the entry, and takes no rasters.
     #[test]
     fn a_damaged_substrate_is_refused_whole_and_names_what_is_missing() {
         let (_, ws, civ) = world();
@@ -8859,6 +9052,8 @@ mod substrate_tests {
         }
     }
 
+    /// Protects: a substrate manifest of another version (2) is refused with an error naming that
+    /// version.
     #[test]
     fn a_substrate_member_of_another_version_is_refused() {
         let (_, ws, civ) = world();
@@ -8870,6 +9065,9 @@ mod substrate_tests {
         assert!(err.contains("version 2"), "{err}");
     }
 
+    /// Protects: the substrate manifest records each optional grid as present or absent as it
+    /// was; a world with no carve writes only the nine always-present grids and reopens with
+    /// those grids `None`.
     #[test]
     fn the_manifest_records_each_optional_grid_as_it_was() {
         let (_, ws, _) = world();
@@ -8908,6 +9106,8 @@ mod substrate_tests {
         assert!(back.river_mask.is_none() && back.river_floor.is_none());
     }
 
+    /// Protects: a stream order of 256, which the core u8 raster cannot hold, makes
+    /// `substrate_rasters` refuse (naming 256) rather than truncate.
     #[test]
     fn a_stream_order_the_core_raster_cannot_hold_writes_no_substrate() {
         let (_, ws, _) = world();
@@ -8917,6 +9117,8 @@ mod substrate_tests {
         assert!(err.contains("256"), "{err}");
     }
 
+    /// Copies each `WorldState` field by hand so a test can null out optional grids;
+    /// `gpu_stages_used` starts empty.
     fn clone_ws(ws: &cartalith_engine::WorldState) -> cartalith_engine::WorldState {
         cartalith_engine::WorldState {
             sea_level: ws.sea_level,
