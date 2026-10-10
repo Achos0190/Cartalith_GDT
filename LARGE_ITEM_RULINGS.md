@@ -2125,3 +2125,10 @@ Owner, answering the coordinating session's questions:
 2. **Style presets also restyle** icon glyph inks, journey-marker labels, and pin and faction colours. The coordinator's caution stands as a design constraint, not a refusal: faction colours identify ownership, so a restyle must keep factions distinguishable (a contrast guard), and pins keep their meaning.
 3. **Android build:** made after the running agents land (colour confirm flow, ramp bar, continent-label fade, legacy import), not after the queue.
 4. **Editing tools (the 2026-10-10 PhotoCraft/MapTiler row), scope:** (C) adjustment stacks are PER LAYER (terrain, water, labels/overlays), not one whole-map stack; (D) the brush engine applies to biome/colour paint, height sculpt, and river/road drawing; (E) colour management covers exported PNGs with an embedded profile, a print (CMYK) gamut warning in the picker, wide-gamut/HDR display, and importing images with profiles; (F) a Look control with hue, saturation and brightness sliders plus dark/light/pastel variants of each preset.
+
+## 2026-10-10 — Ruling BY: geology construction alone, and one shared look-undo history
+
+Owner, answering the coordinating session's questions after GF-10 measured NO-GO (0 of 5 seeds on the pre-registered rule; `GEOLOGY_FIRST_SCOPE.md` §5.10):
+
+1. **Ship rock-aware height construction alone (GF-11); do not build the uplift-driven erosion stage (GF-12).** The prototype showed construction makes real scarps and keeps B8 on 4 of 5 seeds, and that the uplift stage is what erases them and adds lakes and cost (B9 2.65x). GF-11 therefore needs its own bars, written before the measurement; GF-12 stays unbuilt. Landslip landforms (Ruling BG) may build on GF-11.
+2. **One shared undo/redo history for look edits** (ramp stops, biome colours, style presets and later adjustment stacks), one entry per gesture, separate from the heightmap undo unless unifying them is trivial. The ramp bar and the colour dialog already produce one `final` callback per gesture.
