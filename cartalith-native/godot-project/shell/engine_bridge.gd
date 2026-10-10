@@ -303,6 +303,8 @@ func _ready() -> void:
 		param_set("use_gpu", true)
 		params_dirty = false
 
+## Joins a still-running worker thread so quitting mid-generate never frees
+## `world_gen` out from under it. Must not return with a started `Thread` unjoined.
 func _exit_tree() -> void:
 	if _thread != null and _thread.is_started():
 		_thread.wait_to_finish()
@@ -519,6 +521,8 @@ func missing_bindings() -> PackedStringArray:
 # never been saved") with no engine-side reason to retain.
 var _last_error: Dictionary = {}
 
+## Records `text` (plus a wall-clock `at` stamp) as the session's last failure,
+## replacing any earlier one. Callers pass a real engine reason, never a blank.
 func note_error(text: String) -> void:
 	_last_error = {"text": text, "at": Time.get_datetime_string_from_system()}
 
@@ -539,20 +543,30 @@ func _read_param_table() -> void:
 	if _params_available:
 		_params_cache = world_gen.get_params()
 
+## True once `_read_param_table()` found a non-empty `get_param_info()` table.
+## False against an older binary; parameter dialogs must then hide, not guess.
 func params_available() -> bool:
 	return _params_available
 
+## The Rust-side metadata dictionary for dotted key `key` (`WorldGen.get_param_info`,
+## read once at `_ready`). `{}` means "no such key / no table", not real metadata.
 func param_info(key: String) -> Dictionary:
 	return _param_info.get(key, {})
 
+## Every dotted parameter key the engine published, in its own order. `[]` when the
+## table is unavailable (`params_available()` false).
 func param_keys() -> Array:
 	return _param_info.keys()
 
+## Forwards to `WorldGen.get_param_groups`: the dialog section names in display
+## order. Empty `PackedStringArray` on a binary without it, not "no groups".
 func param_groups() -> PackedStringArray:
 	if _has("get_param_groups"):
 		return world_gen.get_param_groups()
 	return PackedStringArray()
 
+## The engine default for `key` from `WorldGen.get_param_defaults`, captured once
+## at `_ready`. `null` for an unknown key or no table -- it is never a value.
 func param_default(key: String):
 	return _param_defaults.get(key)
 
@@ -563,6 +577,9 @@ func param_default(key: String):
 ## window, so nothing can change the table while this stands in for it.
 var _params_cache: Dictionary = {}
 
+## Current value of dotted key `key`: `WorldGen.get_params()[key]`, or the snapshot
+## taken before the worker started while `generating` (no `#[func]` is reached
+## then). `null` for an unknown key or no table -- callers must test for it.
 func param_get(key: String):
 	if not _params_available:
 		return null
@@ -601,6 +618,9 @@ func param_set(key: String, value) -> bool:
 		mark_dirty()
 	return ok
 
+## Restores the whole table (`WorldGen.reset_params`) or just `keys` from the
+## defaults captured at `_ready` (unknown keys are skipped), then `mark_dirty()`.
+## Unlike `param_set` it has no `generating` guard: never call it mid-generate.
 func reset_params(keys: Array = []) -> void:
 	if keys.is_empty():
 		world_gen.reset_params()
@@ -612,6 +632,9 @@ func reset_params(keys: Array = []) -> void:
 		world_gen.set_params(restore)
 	mark_dirty()
 
+## Forwards to `WorldGen.apply_archetype`, which writes the archetype's World
+## Structure knobs into the persistent parameters. `false` for an unknown name or a
+## binary without it; only a `true` marks the parameters dirty.
 func apply_archetype(name: String) -> bool:
 	if not _has("apply_archetype"):
 		return false
@@ -620,6 +643,8 @@ func apply_archetype(name: String) -> bool:
 		mark_dirty()
 	return ok
 
+## Archetype names `apply_archetype` and the archetype branch of `generate` accept
+## (`WorldGen.get_archetypes`). Empty on a binary without it.
 func archetypes() -> PackedStringArray:
 	if _has("get_archetypes"):
 		return world_gen.get_archetypes()
@@ -672,6 +697,10 @@ func mark_world_dirty() -> void:
 var last_generate_ms := 0
 var _gen_start_msec := 0
 
+## Starts an asynchronous generate on a worker thread and returns at once; the
+## outcome arrives as `generation_finished(ok)` (and `params_applied` on success).
+## Ignored while one is already running; may refuse on the VRAM policy. Never call
+## a `world_gen` `#[func]` from the main thread until that signal.
 func generate(request: Dictionary) -> void:
 	if generating:
 		return
@@ -742,15 +771,6 @@ func _warm_wanted() -> bool:
 ## warmed one must match byte for byte. Nothing in the shell writes it.
 var prewarm_render := true
 
-## Runs off the main thread. Touches only `world_gen` (plain Rust state), never
-## a node.
-##
-## `generate_sized` and `generate_world_structure_sized` are both full,
-## equally expensive `generate_terrain` calls mutating the same state -- this
-## must be the ONE call site. The archetype branch is load-bearing: a non-empty
-## archetype must reach `generate_world_structure_sized`, or the World shape
-## choice never affects generation at all. Its bool return is the
-## archetype-name check, surfaced as a real failure rather than swallowed.
 ## The two opt-in civ passes the reference gates behind its own auto-populate
 ## controls (`civMetropolisChk`, reference line 1409; `civRecoveryPhase`,
 ## line 1424). Both default OFF/Stable exactly as the reference's do, and
@@ -774,6 +794,15 @@ func _apply_civ_options(request: Dictionary) -> void:
 	set_biome_k_enabled(bool(request.get("biome_k", false)))
 
 
+## Runs off the main thread. Touches only `world_gen` (plain Rust state), never
+## a node.
+##
+## `generate_sized` and `generate_world_structure_sized` are both full,
+## equally expensive `generate_terrain` calls mutating the same state -- this
+## must be the ONE call site. The archetype branch is load-bearing: a non-empty
+## archetype must reach `generate_world_structure_sized`, or the World shape
+## choice never affects generation at all. Its bool return is the
+## archetype-name check, surfaced as a real failure rather than swallowed.
 ##
 ## `warm`: end the run with `warm_render_caches()` (see `_warm_wanted()`), still
 ## on this thread and still before `_finish` hands the engine back -- so the
@@ -795,6 +824,9 @@ func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archety
 		world_gen.warm_render_caches()
 	_finish.call_deferred(seed_value, width_km, ok)
 
+## Main-thread completion of `_worker`: joins the thread, clears `generating`,
+## reads the real extent back from the engine and emits `generation_finished`
+## (`false` with `last_summary` as the reason on failure). Never run off-thread.
 func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 	_thread.wait_to_finish()
 	_thread = null
@@ -867,6 +899,8 @@ func _import_worker(path: String, seed_value: int, width_km: float, grid_w: int,
 		world_gen.warm_render_caches()
 	_finish_import.call_deferred(path, seed_value, ok)
 
+## Main-thread completion of `_import_worker`: same contract as `_finish`, but a
+## success also emits `world_loaded` and the summary names the source file.
 func _finish_import(path: String, seed_value: int, ok: bool) -> void:
 	_thread.wait_to_finish()
 	_thread = null
@@ -910,6 +944,9 @@ func heightmap_grid_size(grid_w: int, image_size: Vector2i) -> Vector2i:
 ## GDExtension callback can take the whole process down.
 var _grid_size_cache := Vector2i.ZERO
 
+## Working grid as `Vector2i(get_width, get_height)`. A zero width means no world
+## yet. While `generating` it answers from `_grid_size_cache` (the last value read)
+## rather than reaching the engine the worker thread owns.
 func grid_size() -> Vector2i:
 	## Guarded here, once, rather than at each of the ~30 callers: this is the
 	## shared chokepoint they all route through. Became reachable when the
@@ -921,6 +958,9 @@ func grid_size() -> Vector2i:
 	_grid_size_cache = Vector2i(world_gen.get_width(), world_gen.get_height())
 	return _grid_size_cache
 
+## Forwards to `WorldGen.reference_grid_height`: the grid height the reference HTML
+## app uses for `grid_w` (`world` true is 2:1). Returns `grid_w` (square) on a
+## binary without the sized API.
 func reference_grid_height(grid_w: int, world: bool) -> int:
 	if sized_api:
 		return world_gen.reference_grid_height(grid_w, world)
@@ -968,6 +1008,9 @@ func lod_synthesize_tile(z: int, col: int, row: int) -> Texture2D:
 		return null
 	return world_gen.lod_synthesize_tile(z, col, row)
 
+## `WorldGen.build_territory_texture`: the per-cell faction wash as a translucent
+## RGBA overlay. May be `null` when the engine has no territory to draw; callers
+## must test.
 func territory_texture() -> Texture2D:
 	return world_gen.build_territory_texture()
 
@@ -980,28 +1023,42 @@ func set_territory_opacity(a: float) -> void:
 	mark_world_dirty()
 	world_gen.set_territory_opacity(a)
 
+## Territory wash alpha, 0..1 (`WorldGen.territory_opacity`). The 82/255 stale-binary
+## fallback is this port's own default (`TERRITORY_ALPHA_DEFAULT` in `lib.rs`).
 func territory_opacity() -> float:
 	if not _has("territory_opacity"):
 		return 82.0 / 255.0
 	return world_gen.territory_opacity()
 
+## The default `territory_opacity` the Reset row returns to
+## (`WorldGen.territory_opacity_default`); same 82/255 fallback on a stale binary.
 func territory_opacity_default() -> float:
 	if not _has("territory_opacity_default"):
 		return 82.0 / 255.0
 	return world_gen.territory_opacity_default()
 
+## `WorldGen.build_province_boundary_texture`: province borders as a translucent RGBA
+## line overlay, transparent elsewhere. May be `null` without a world.
 func province_boundary_texture() -> Texture2D:
 	return world_gen.build_province_boundary_texture()
 
+## `WorldGen.get_settlements`: one dictionary per settlement (x, y, name,
+## population, kind, ...). Indices into this array are the `index` other wrappers take.
 func settlements() -> Array:
 	return world_gen.get_settlements()
 
+## `WorldGen.get_roads`: the generated (and committed manual) ways, one dictionary
+## each with smoothed `points`; sea lanes are in `sea_routes()`.
 func roads() -> Array:
 	return world_gen.get_roads()
 
+## `WorldGen.get_sea_routes`: sea-lane routes, same shape as `roads()` minus the way
+## type.
 func sea_routes() -> Array:
 	return world_gen.get_sea_routes()
 
+## `WorldGen.get_provinces`: one metadata dictionary per province. Cell counts live
+## in `province_cell_counts()`.
 func provinces() -> Array:
 	return world_gen.get_provinces()
 
@@ -1010,6 +1067,8 @@ func provinces() -> Array:
 func province_cell_counts() -> Array:
 	return world_gen.get_province_cell_counts()
 
+## `WorldGen.get_trade_balances`: per-settlement resource trade balance, same order
+## and index as `settlements()`.
 func trade_balances() -> Array:
 	return world_gen.get_trade_balances()
 
@@ -1189,6 +1248,9 @@ func settlement_diagnostics(indices: PackedInt32Array) -> Array:
 		return []
 	return world_gen.settlement_diagnostics(indices)
 
+## `WorldGen.explain_settlement`: the decomposed suitability score of settlement
+## `index` (`score`, signed weighted `terms`, ...). `{}` for an out-of-range index
+## or no world.
 func explain_settlement(index: int) -> Dictionary:
 	return world_gen.explain_settlement(index)
 
@@ -1268,24 +1330,36 @@ func civ_set_town_plan(index: int, fields: Dictionary) -> bool:
 	mark_world_dirty()
 	return world_gen.civ_set_town_plan(index, fields)
 
+## `WorldGen.get_border_inset_frac`: the rendered plate's frame width as a fraction
+## of the texture's width. `0.0` genuinely means "no frame" (or no world).
 func border_inset_frac() -> float:
 	return world_gen.get_border_inset_frac()
 
+## Which GPU-eligible stages ran on the GPU in the last generate
+## (`WorldGen.get_gpu_stages_used`). Empty on a binary without it.
 func gpu_stages_used() -> PackedStringArray:
 	if _has("get_gpu_stages_used"):
 		return world_gen.get_gpu_stages_used()
 	return PackedStringArray()
 
+## Active appearance quality tier name (`WorldGen.get_quality_tier`; `"quality"` on
+## a fresh session). Unguarded: needs a binary with the tier API.
 func quality_tier() -> String:
 	return world_gen.get_quality_tier()
 
+## Forwards to `WorldGen.set_quality_tier`; `false` and no change for an unknown
+## tier name. Marks the world dirty before the call whatever the result.
 func set_quality_tier(name: String) -> bool:
 	mark_world_dirty()
 	return world_gen.set_quality_tier(name)
 
+## Tier names, cheapest first (`WorldGen.list_quality_tiers`), so controls never
+## duplicate the vocabulary.
 func quality_tiers() -> PackedStringArray:
 	return world_gen.list_quality_tiers()
 
+## A suggested tier for this device (`WorldGen.get_recommended_quality_tier`).
+## Nothing applies it; the default policy is an owner decision.
 func recommended_quality_tier() -> String:
 	return world_gen.get_recommended_quality_tier()
 
@@ -1311,11 +1385,15 @@ func looks() -> Array:
 		return []
 	return Array(world_gen.list_looks())
 
+## The named look in force (`WorldGen.get_look`). `""` when `look_api` is false --
+## that is "no look API", not a look name.
 func look() -> String:
 	if not look_api:
 		return ""
 	return world_gen.get_look()
 
+## Selects a named look (`WorldGen.set_look`). `false` for an unknown name or no
+## look API, and nothing changes; marks the world dirty first.
 func set_look(name: String) -> bool:
 	if not look_api:
 		return false
@@ -1330,6 +1408,8 @@ func set_look(name: String) -> bool:
 # missing method. `npr_api` is what the panel reads to decide that.
 var npr_api := false
 
+## The whole NPR block as a dictionary (`WorldGen.get_npr`), keyed as `set_npr` reads
+## it. `{}` when `npr_api` is false.
 func npr_settings() -> Dictionary:
 	if not npr_api:
 		return {}
@@ -1478,6 +1558,8 @@ func set_color_ramp(stops: Array) -> int:
 	mark_world_dirty()
 	return world_gen.set_color_ramp(stops)
 
+## Loads a named colour ramp (`WorldGen.load_ramp_preset`). `false` for an unknown
+## name or no ramp API; marks the world dirty first.
 func load_ramp_preset(name: String) -> bool:
 	if not ramp_api:
 		return false
@@ -1492,11 +1574,15 @@ func load_ramp_preset(name: String) -> bool:
 ## picker rather than fail to draw the stops.
 var ramp_mode_api := false
 
+## Interpolation mode names the engine offers (`WorldGen.list_ramp_modes`, e.g.
+## Linear/Ease/Step). `[]` when `ramp_mode_api` is false.
 func ramp_modes() -> Array:
 	if not ramp_mode_api:
 		return []
 	return Array(world_gen.list_ramp_modes())
 
+## The ramp interpolation mode in force (`WorldGen.get_ramp_mode`). `""` when
+## `ramp_mode_api` is false -- "unavailable", not a mode.
 func ramp_mode() -> String:
 	if not ramp_mode_api:
 		return ""
@@ -1532,6 +1618,8 @@ func color_spaces() -> Array:
 		return []
 	return Array(world_gen.list_color_spaces())
 
+## The ramp colour space in force (`WorldGen.get_color_space`). `""` when
+## `color_space_api` is false -- "unavailable", not a space name.
 func color_space() -> String:
 	if not color_space_api:
 		return ""
@@ -1633,11 +1721,15 @@ func _preset_slug(name: String) -> String:
 		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else "_"
 	return out.strip_edges() if out != "" else "preset"
 
+## Writes the appearance in force as a JSON preset under `user://appearance_presets`
+## (`WorldGen.save_appearance_preset(path, name)`). `false` on failure or no preset API.
 func save_appearance_preset(name: String) -> bool:
 	if not preset_api:
 		return false
 	return world_gen.save_appearance_preset(_preset_path(name), name)
 
+## Reads the preset file for `name` and makes it the look (`WorldGen.load_appearance_preset`).
+## `false`, nothing changed, on any read/parse error or no preset API.
 func load_appearance_preset(name: String) -> bool:
 	if not preset_api:
 		return false
@@ -1717,21 +1809,31 @@ func _gpu_read(key: String, busy_value: Variant, fetch: Callable) -> Variant:
 func gpu_settings_locked() -> bool:
 	return gpu_api and generating
 
+## Physical GPUs the machine exposes, discrete first (`WorldGen.gpu_enumerate_devices`).
+## Served from `_gpu_cache` while generating; `[]` without the GPU API.
 func gpu_devices() -> Array:
 	return _gpu_read("devices", [], func(): return world_gen.gpu_enumerate_devices())
 
+## Device keys dispatch uses (`WorldGen.gpu_selected_devices`); empty means
+## automatic. Cached while generating.
 func gpu_selected_devices() -> PackedStringArray:
 	return _gpu_read("selected", PackedStringArray(), func(): return world_gen.gpu_selected_devices())
 
+## Chooses the dispatch device(s) and persists them in `DccSettings`. Silently
+## refused while `generating` or without the GPU API; takes effect next generate.
 func gpu_set_selected_devices(keys: PackedStringArray) -> void:
 	if gpu_api and not generating:
 		world_gen.gpu_set_selected_devices(keys)
 		_gpu_cache["selected"] = keys
 		DccSettings.set_gpu_devices(keys)
 
+## Multi-GPU mode name (`WorldGen.gpu_multi_mode`); `"single_device"` is also the
+## fallback when the API is absent or nothing is cached yet.
 func gpu_multi_mode() -> String:
 	return _gpu_read("mode", "single_device", func(): return String(world_gen.gpu_multi_mode()))
 
+## Sets the multi-GPU mode and persists it. `false` while `generating`, without the
+## API, or for a mode the engine rejects (unknown, or unimplemented `alternate_frames`).
 func gpu_set_multi_mode(mode: String) -> bool:
 	if not gpu_api or generating:
 		return false
@@ -1741,18 +1843,26 @@ func gpu_set_multi_mode(mode: String) -> bool:
 		DccSettings.set_gpu_mode(mode)
 	return ok
 
+## The VRAM cap in GB (`WorldGen.gpu_vram_budget_gb`). `0.0` means no cap, which is
+## also the fallback with no API.
 func gpu_vram_budget_gb() -> float:
 	return _gpu_read("budget", 0.0, func(): return float(world_gen.gpu_vram_budget_gb()))
 
+## Sets the VRAM cap (`0` removes it) and persists it. A silent no-op while
+## `generating` or without the GPU API.
 func gpu_set_vram_budget_gb(gb: float) -> void:
 	if gpu_api and not generating:
 		world_gen.gpu_set_vram_budget_gb(gb)
 		_gpu_cache["budget"] = gb
 		DccSettings.set_gpu_vram_budget_gb(gb)
 
+## Over-budget fallback name (`WorldGen.gpu_vram_fallback`); `"cpu_tile_pass"` is the
+## engine default and the fallback with no API.
 func gpu_vram_fallback() -> String:
 	return _gpu_read("fallback", "cpu_tile_pass", func(): return String(world_gen.gpu_vram_fallback()))
 
+## Sets the over-budget fallback and persists it. `false` while `generating`, without
+## the API, or for a name the engine rejects (unknown or unimplemented).
 func gpu_set_vram_fallback(name: String) -> bool:
 	if not gpu_api or generating:
 		return false
@@ -1775,6 +1885,8 @@ func gpu_vram_estimate(gw: int = 0, gh: int = 0) -> Dictionary:
 		return {}
 	return world_gen.gpu_vram_estimate(gw, gh)
 
+## Measured per-device GPU memory of the last GPU generate
+## (`WorldGen.gpu_last_device_usage`). `[]` means none recorded, not zero usage.
 func gpu_last_device_usage() -> Array:
 	return _gpu_read("usage", [], func(): return world_gen.gpu_last_device_usage())
 
@@ -2128,18 +2240,23 @@ func close_world() -> void:
 	## handler above sets the flag, and an empty shell has nothing to save.
 	_set_dirty(false)
 
+## The only writer of `world_dirty`: sets it and emits `dirty_changed` on a real
+## change. Callers use `mark_world_dirty()` for edits; this one also clears the flag.
 func _set_dirty(value: bool) -> void:
 	if world_dirty == value:
 		return
 	world_dirty = value
 	dirty_changed.emit(value)
 
+## Forwards to `WorldGen.load_asset_pack(path)`; emits `world_loaded` on success.
+## `false` leaves the world untouched.
 func load_asset_pack(path: String) -> bool:
 	var ok: bool = world_gen.load_asset_pack(path)
 	if ok:
 		world_loaded.emit()
 	return ok
 
+## `WorldGen.has_asset_pack`: whether a real asset pack is currently loaded.
 func has_asset_pack() -> bool:
 	return world_gen.has_asset_pack()
 
@@ -2224,87 +2341,119 @@ func get_sculpt_features() -> Array:
 		return []
 	return world_gen.get_sculpt_features()
 
+## The eight one-click sculpt presets (`WorldGen.get_sculpt_presets`); applying one
+## never paints. `[]` on a binary without the sculpt API.
 func get_sculpt_presets() -> Array:
 	if not _has("get_sculpt_presets"):
 		return []
 	return world_gen.get_sculpt_presets()
 
+## Range/default info for the shared brush/noise globals
+## (`WorldGen.get_sculpt_globals_info`). `[]` without the sculpt API.
 func get_sculpt_globals_info() -> Array:
 	if not _has("get_sculpt_globals_info"):
 		return []
 	return world_gen.get_sculpt_globals_info()
 
+## Freehand's sub-mode keys in registry order (`WorldGen.get_sculpt_freehand_modes`).
+## Empty without the sculpt API.
 func get_sculpt_freehand_modes() -> PackedStringArray:
 	if not _has("get_sculpt_freehand_modes"):
 		return PackedStringArray()
 	return world_gen.get_sculpt_freehand_modes()
 
+## Current values of the shared sculpt globals (`WorldGen.sculpt_get_globals`).
+## `{}` before any world or without the API.
 func sculpt_get_globals() -> Dictionary:
 	if not _has("sculpt_get_globals"):
 		return {}
 	return world_gen.sculpt_get_globals()
 
+## Applies a partial dictionary of globals (`WorldGen.sculpt_set_globals`); the reply
+## is `{rejected, clamped}`, so a key appears only when something went wrong with it.
 func sculpt_set_globals(values: Dictionary) -> Dictionary:
 	if not _has("sculpt_set_globals"):
 		return {}
 	mark_world_dirty()
 	return world_gen.sculpt_set_globals(values)
 
+## Key of the feature the next stroke paints (`WorldGen.sculpt_get_feature`). `""`
+## before any world or without the API.
 func sculpt_get_feature() -> String:
 	if not _has("sculpt_get_feature"):
 		return ""
 	return world_gen.sculpt_get_feature()
 
+## Selects the next stroke's feature and resets its parameters to that feature's
+## defaults (`WorldGen.sculpt_set_feature`). `false` for an unknown key.
 func sculpt_set_feature(feature_key: String) -> bool:
 	if not _has("sculpt_set_feature"):
 		return false
 	mark_world_dirty()
 	return world_gen.sculpt_set_feature(feature_key)
 
+## The current feature's live control values (`WorldGen.sculpt_get_feature_params`).
+## `{}` before any world or without the API.
 func sculpt_get_feature_params() -> Dictionary:
 	if not _has("sculpt_get_feature_params"):
 		return {}
 	return world_gen.sculpt_get_feature_params()
 
+## Applies a partial dictionary of the current feature's controls
+## (`WorldGen.sculpt_set_feature_params`); the reply is `{rejected, clamped}`.
 func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
 	if not _has("sculpt_set_feature_params"):
 		return {}
 	mark_world_dirty()
 	return world_gen.sculpt_set_feature_params(values)
 
+## Seeds the current feature, its parameters and the noise scale from preset `index`
+## (`WorldGen.sculpt_apply_preset`). Never paints; `false` for a bad index.
 func sculpt_apply_preset(index: int) -> bool:
 	if not _has("sculpt_apply_preset"):
 		return false
 	mark_world_dirty()
 	return world_gen.sculpt_apply_preset(index)
 
+## Freehand's current sub-mode key (`WorldGen.sculpt_get_freehand_mode`). `""` when
+## the feature is not Freehand, there is no world, or no API.
 func sculpt_get_freehand_mode() -> String:
 	if not _has("sculpt_get_freehand_mode"):
 		return ""
 	return world_gen.sculpt_get_freehand_mode()
 
+## Sets Freehand's sub-mode (`WorldGen.sculpt_set_freehand_mode`). `false`, nothing
+## changed, if the feature is not Freehand or the key is not one of the modes.
 func sculpt_set_freehand_mode(mode_key: String) -> bool:
 	if not _has("sculpt_set_freehand_mode"):
 		return false
 	mark_world_dirty()
 	return world_gen.sculpt_set_freehand_mode(mode_key)
 
+## The seed the next stroke will capture (`WorldGen.sculpt_get_seed`). `-1` means
+## the binding is missing; the engine itself reports `0` before any world.
 func sculpt_get_seed() -> int:
 	if not _has("sculpt_get_seed"):
 		return -1
 	return world_gen.sculpt_get_seed()
 
+## Sets the seed the next stroke captures (`WorldGen.sculpt_set_seed`). The dice
+## button's random pick belongs to the UI, not the engine.
 func sculpt_set_seed(seed: int) -> void:
 	if not _has("sculpt_set_seed"):
 		return
 	mark_world_dirty()
 	world_gen.sculpt_set_seed(seed)
 
+## Starts capturing a new stroke, discarding any uncommitted in-progress points
+## (`WorldGen.sculpt_begin_stroke`). `false` before any world or without the API.
 func sculpt_begin_stroke() -> bool:
 	if not _has("sculpt_begin_stroke"):
 		return false
 	return world_gen.sculpt_begin_stroke()
 
+## Appends one grid-cell point to the in-progress stroke (`WorldGen.sculpt_add_point`)
+## and returns the new point count; `-1` means the binding is missing.
 func sculpt_add_point(x: float, y: float) -> int:
 	if not _has("sculpt_add_point"):
 		return -1
@@ -2365,11 +2514,16 @@ func sculpt_stroke_point_count() -> int:
 		return -1
 	return world_gen.sculpt_stroke_point_count()
 
+## Drops the in-progress stroke's points without making a stamp
+## (`WorldGen.sculpt_cancel_stroke`). Emits nothing: the draft did not change.
 func sculpt_cancel_stroke() -> void:
 	if not _has("sculpt_cancel_stroke"):
 		return
 	world_gen.sculpt_cancel_stroke()
 
+## Freezes the stroke and tool state into one draft stamp (`WorldGen.sculpt_end_stroke`)
+## and returns its index; `-1` for a zero-point stroke, no world or no binding. A draft
+## push, not a commit; emits `sculpt_draft_changed` after the engine call.
 func sculpt_end_stroke() -> int:
 	if not _has("sculpt_end_stroke"):
 		return -1
@@ -2384,11 +2538,15 @@ func sculpt_end_stroke() -> int:
 	sculpt_draft_changed.emit()
 	return stamp
 
+## Number of stamps on the draft (`WorldGen.sculpt_stamp_count`). `-1` means the
+## binding is missing -- never read it as an empty draft.
 func sculpt_stamp_count() -> int:
 	if not _has("sculpt_stamp_count"):
 		return -1
 	return world_gen.sculpt_stamp_count()
 
+## The draft's stamps newest-first, each carrying its real draft `index`
+## (`WorldGen.sculpt_list_stamps`). `[]` for an empty draft or no API.
 func sculpt_list_stamps() -> Array:
 	if not _has("sculpt_list_stamps"):
 		return []
@@ -2403,11 +2561,15 @@ func sculpt_stamp_points(index: int) -> PackedVector2Array:
 		return PackedVector2Array()
 	return world_gen.sculpt_stamp_points(index)
 
+## The primary selected stamp index (`WorldGen.sculpt_get_selected_stamp`); `-1`
+## means none selected (or no binding).
 func sculpt_get_selected_stamp() -> int:
 	if not _has("sculpt_get_selected_stamp"):
 		return -1
 	return world_gen.sculpt_get_selected_stamp()
 
+## Selects stamp `index` for re-tuning (`WorldGen.sculpt_select_stamp`). `false` for a
+## bad index or no API. Emits nothing; the draft itself did not change.
 func sculpt_select_stamp(index: int) -> bool:
 	if not _has("sculpt_select_stamp"):
 		return false
@@ -2426,6 +2588,8 @@ func sculpt_get_selection() -> PackedInt64Array:
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
 	return world_gen.sculpt_get_selection()
 
+## Replaces the whole stamp selection (`WorldGen.sculpt_select_set`). Out-of-range
+## indices are dropped and reported as `false`; an empty array deselects.
 func sculpt_select_set(indices: PackedInt64Array) -> bool:
 	if not _has("sculpt_select_set"):
 		return false
@@ -2437,12 +2601,16 @@ func sculpt_select_all_stamps() -> int:
 		return 0
 	return world_gen.sculpt_select_all_stamps()
 
+## Hides or shows stamp `index` (`WorldGen.sculpt_set_stamp_hidden`); a hidden stamp
+## is skipped by preview and commit but keeps its slot. `false` for a bad index.
 func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
 	if not _has("sculpt_set_stamp_hidden"):
 		return false
 	mark_world_dirty()
 	return world_gen.sculpt_set_stamp_hidden(index, hidden)
 
+## Moves stamp `index` one place earlier in bake order (`WorldGen.sculpt_move_stamp_up`)
+## and emits `sculpt_draft_changed` after the call. `false` for a no-op move.
 func sculpt_move_stamp_up(index: int) -> bool:
 	if not _has("sculpt_move_stamp_up"):
 		return false
@@ -2451,6 +2619,8 @@ func sculpt_move_stamp_up(index: int) -> bool:
 	sculpt_draft_changed.emit()
 	return ok
 
+## Moves stamp `index` one place later (`WorldGen.sculpt_move_stamp_down`) and emits
+## `sculpt_draft_changed` after the call. `false` for a no-op move.
 func sculpt_move_stamp_down(index: int) -> bool:
 	if not _has("sculpt_move_stamp_down"):
 		return false
@@ -2459,6 +2629,8 @@ func sculpt_move_stamp_down(index: int) -> bool:
 	sculpt_draft_changed.emit()
 	return ok
 
+## Removes stamp `index` from the draft (`WorldGen.sculpt_delete_stamp`) and emits
+## `sculpt_draft_changed` after the call. `false` for a bad index.
 func sculpt_delete_stamp(index: int) -> bool:
 	if not _has("sculpt_delete_stamp"):
 		return false
@@ -2467,16 +2639,20 @@ func sculpt_delete_stamp(index: int) -> bool:
 	sculpt_draft_changed.emit()
 	return ok
 
+## Whether `sculpt_undo` would do anything (`WorldGen.sculpt_can_undo`). Draft-scoped.
 func sculpt_can_undo() -> bool:
 	if not _has("sculpt_can_undo"):
 		return false
 	return world_gen.sculpt_can_undo()
 
+## Whether `sculpt_redo` would do anything (`WorldGen.sculpt_can_redo`). Draft-scoped.
 func sculpt_can_redo() -> bool:
 	if not _has("sculpt_can_redo"):
 		return false
 	return world_gen.sculpt_can_redo()
 
+## Reverts the last structural draft edit (`WorldGen.sculpt_undo`); never touches the
+## real heightfield. Emits `sculpt_draft_changed` after the call; `false` if nothing to undo.
 func sculpt_undo() -> bool:
 	if not _has("sculpt_undo"):
 		return false
@@ -2485,6 +2661,8 @@ func sculpt_undo() -> bool:
 	sculpt_draft_changed.emit()
 	return ok
 
+## Re-applies the undone draft edit (`WorldGen.sculpt_redo`); `false` with nothing to
+## redo. Emits `sculpt_draft_changed` after the call.
 func sculpt_redo() -> bool:
 	if not _has("sculpt_redo"):
 		return false
@@ -2493,11 +2671,16 @@ func sculpt_redo() -> bool:
 	sculpt_draft_changed.emit()
 	return ok
 
+## Live colour-plus-hillshade preview of the current draft
+## (`WorldGen.build_sculpt_preview_texture`). `null` without a world or the API.
 func build_sculpt_preview_texture() -> Texture2D:
 	if not _has("build_sculpt_preview_texture"):
 		return null
 	return world_gen.build_sculpt_preview_texture()
 
+## Bakes the whole draft into the heightfield and re-runs hydrology and climate
+## (`WorldGen.sculpt_commit(reason)`); returns the engine's summary dictionary, `{}`
+## without the API. Emits `sculpt_draft_changed` after the call.
 func sculpt_commit(reason: String) -> Dictionary:
 	if not _has("sculpt_commit"):
 		return {}
@@ -2527,6 +2710,8 @@ func sea_level_live(level: float) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## Drops the whole draft (`WorldGen.sculpt_discard`) and returns how many stamps went;
+## `0` means an empty draft, `-1` that the binding is missing. Emits `sculpt_draft_changed`.
 func sculpt_discard() -> int:
 	if not _has("sculpt_discard"):
 		return -1
@@ -2669,10 +2854,14 @@ func undo_stats() -> Dictionary:
 		return {}
 	return world_gen.undo_stats()
 
+## Re-budgets the engine's undo stack in MB (`WorldGen.set_undo_budget_mb`; the engine
+## floors it at 4 MiB). A no-op on a binary without it.
 func set_undo_budget_mb(mb: int) -> void:
 	if _has("set_undo_budget_mb"):
 		world_gen.set_undo_budget_mb(mb)
 
+## Drops every undo step (`WorldGen.clear_undo`), which is what Preferences > Memory
+## offers to give memory back. A no-op without the binding.
 func clear_undo() -> void:
 	if _has("clear_undo"):
 		world_gen.clear_undo()
@@ -2768,12 +2957,16 @@ func export_heightmap_png(path: String, width: int) -> Dictionary:
 		return {"ok": false, "error": "this build of the engine has no heightmap export"}
 	return world_gen.export_heightmap_png(path, width)
 
+## Is chunk `(z, col, row)`, or any ancestor, baked (`WorldGen.atlas_is_covered`)?
+## `false` also means "no binding". Calls `atlas_ready()` first.
 func atlas_is_covered(z: int, col: int, row: int) -> bool:
 	if not _has("atlas_is_covered"):
 		return false
 	atlas_ready()
 	return bool(world_gen.atlas_is_covered(z, col, row))
 
+## Throws away this world's baked chunks (`WorldGen.atlas_clear`) and returns how many
+## were removed; `0` also covers a missing binding.
 func atlas_clear() -> int:
 	if not _has("atlas_clear"):
 		return 0
@@ -2833,15 +3026,21 @@ func atlas_tile_png(z: int, col: int, row: int) -> PackedByteArray:
 	atlas_ready()
 	return world_gen.atlas_tile_png(z, col, row)
 
+## Pixel size a baked tile is synthesised at (`WorldGen.atlas_tile_size`). The `1024`
+## fallback is the reference's `_lodTile` default, returned only without the binding.
 func atlas_tile_size() -> int:
 	if not _has("atlas_tile_size"):
 		return 1024
 	return int(world_gen.atlas_tile_size())
 
+## Sets the baked tile size in pixels (`WorldGen.atlas_set_tile_size` -- the name
+## differs). A no-op without the binding; it is part of the chunk key.
 func set_atlas_tile_size(px: int) -> void:
 	if _has("atlas_set_tile_size"):
 		world_gen.atlas_set_tile_size(px)
 
+## `WorldGen.is_finalized`: whether the atlas bake has been finalized (the finalize
+## lock `bake.finalized`). `false` also when the binding is missing.
 func is_finalized() -> bool:
 	return _has("is_finalized") and world_gen.is_finalized()
 
@@ -2888,16 +3087,22 @@ func icon_custom_slots() -> Array:
 		return []
 	return world_gen.icon_custom_slots()
 
+## The armed icon chip contents (`WorldGen.icon_armed`). `{}` when nothing is armed
+## (or no API).
 func icon_armed() -> Dictionary:
 	if not _has("icon_armed"):
 		return {}
 	return world_gen.icon_armed()
 
+## Disarms the icon tool (`WorldGen.icon_disarm`): the next `icon_place` does nothing
+## until re-armed.
 func icon_disarm() -> void:
 	if not _has("icon_disarm"):
 		return
 	world_gen.icon_disarm()
 
+## Stamps the armed icon at grid `(gx, gy)` and selects it (`WorldGen.icon_place`),
+## returning its index; `-1` means nothing was placed. Marks the world dirty first.
 func icon_place(gx: float, gy: float) -> int:
 	if not _has("icon_place"):
 		return -1
@@ -2950,6 +3155,8 @@ func icon_get_selected() -> int:
 		return -1
 	return world_gen.icon_get_selected()
 
+## Box hit test at grid `(gx, gy)` over every placed icon (`WorldGen.icon_hit_test`);
+## selects and returns the hit index, `-1` for a miss. Handles are the caller's job.
 func icon_hit_test(gx: float, gy: float) -> int:
 	if not _has("icon_hit_test"):
 		return -1
@@ -2986,6 +3193,8 @@ func icon_get_selection() -> PackedInt64Array:
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
 	return world_gen.icon_get_selection()
 
+## Replaces the icon selection (`WorldGen.icon_select_set`). Out-of-range indices are
+## dropped and reported as `false`; an empty array deselects.
 func icon_select_set(indices: PackedInt64Array) -> bool:
 	if not _has("icon_select_set"):
 		return false
@@ -3005,28 +3214,38 @@ func icon_handles(index: int, zoom: float) -> Dictionary:
 		return {}
 	return world_gen.icon_handles(index, zoom)
 
+## Applies one resize-drag sample to the selected icon (`WorldGen.icon_resize`);
+## `index` must already be selected. `false` if nothing resized. Marks the world dirty.
 func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> bool:
 	if not _has("icon_resize"):
 		return false
 	mark_world_dirty()
 	return world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
 
+## One placed icon's properties (`WorldGen.icon_get`: x, y, family, slot, scale,
+## origin...). `{}` for a bad index or no API.
 func icon_get(index: int) -> Dictionary:
 	if not _has("icon_get"):
 		return {}
 	return world_gen.icon_get(index)
 
+## Removes placed icon `index` (`WorldGen.icon_delete`), fixing up the selection.
+## `false` for a bad index. Marks the world dirty first.
 func icon_delete(index: int) -> bool:
 	if not _has("icon_delete"):
 		return false
 	mark_world_dirty()
 	return world_gen.icon_delete(index)
 
+## Every placed icon in placement order, each `icon_get`'s shape plus `index`,
+## `selected` and `primary` (`WorldGen.icon_list`). `[]` for none or no API.
 func icon_list() -> Array:
 	if not _has("icon_list"):
 		return []
 	return world_gen.icon_list()
 
+## Drops every placed icon (`WorldGen.icon_clear_all`); the armed selection survives.
+## Marks the world dirty first.
 func icon_clear_all() -> void:
 	if not _has("icon_clear_all"):
 		return
@@ -3081,6 +3300,10 @@ func civ_pick_place_at(gx: float, gy: float) -> int:
 		return -1
 	return world_gen.civ_pick_place_at(gx, gy)
 
+## The Settlement tool's click (`WorldGen.civ_drop_settlement`): returns the new, or
+## already-there, settlement's index; `-1` means nothing was placed (bad kind or
+## coordinates, refused click, no world, or no binding).
+## `kind` is a real tier, never `"metropolis"`; a blank `name` is engine-generated.
 func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name: String, snap_to_water: bool) -> int:
 	if not _has("civ_drop_settlement"):
 		return -1
@@ -3128,16 +3351,22 @@ func civ_territory_commit() -> bool:
 		mark_world_dirty()
 	return committed
 
+## Drops the in-progress territory draft, touching nothing committed
+## (`WorldGen.civ_territory_discard`). Does not mark the world dirty.
 func civ_territory_discard() -> void:
 	if not _has("civ_territory_discard"):
 		return
 	world_gen.civ_territory_discard()
 
+## Live territory stats for `faction` (`WorldGen.civ_faction_territory_stats`:
+## `area_km2`, `claimed_cells`, ...). `{}` without the API; test with `has()`.
 func civ_faction_territory_stats(faction: int) -> Dictionary:
 	if not _has("civ_faction_territory_stats"):
 		return {}
 	return world_gen.civ_faction_territory_stats(faction)
 
+## The assignable faction roster (`WorldGen.get_factions`), ids `1..=civ_faction_count()`.
+## `[]` while `generating` (engine owned by the worker) or without a world/API.
 func get_factions() -> Array:
 	if not _has("get_factions"):
 		return []
@@ -3188,18 +3417,24 @@ func civ_polity_reassign(index: int, to: int) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## Toggles trait `key` on settlement `index` (`WorldGen.civ_settlement_toggle_trait`).
+## `false` for a bad index or key, or no API. Marks the world dirty first.
 func civ_settlement_toggle_trait(index: int, key: String) -> bool:
 	if not _has("civ_settlement_toggle_trait"):
 		return false
 	mark_world_dirty()
 	return world_gen.civ_settlement_toggle_trait(index, key)
 
+## Re-rolls settlement `index`'s name from its own faction's culture
+## (`WorldGen.civ_reroll_settlement_name`) and returns it; `""` means no new name.
 func civ_reroll_settlement_name(index: int) -> String:
 	if not _has("civ_reroll_settlement_name"):
 		return ""
 	mark_world_dirty()
 	return world_gen.civ_reroll_settlement_name(index)
 
+## Deletes settlement `index` (`WorldGen.civ_delete_settlement`); the shell owns the
+## confirm prompt. `false` for a bad index. Marks the world dirty first.
 func civ_delete_settlement(index: int) -> bool:
 	if not _has("civ_delete_settlement"):
 		return false
@@ -3254,6 +3489,8 @@ func civ_populate() -> Dictionary:
 	mark_world_dirty()
 	return world_gen.civ_populate()
 
+## Rebuilds the route network alone (`WorldGen.civ_auto_routes`); the reply carries
+## `ok` and, when false, a `reason` (also given for no binding or a running generate).
 func civ_auto_routes() -> Dictionary:
 	if not _has("civ_auto_routes"):
 		return {"ok": false, "reason": "This build's extension has no civ_auto_routes."}
@@ -3262,18 +3499,24 @@ func civ_auto_routes() -> Dictionary:
 	mark_world_dirty()
 	return world_gen.civ_auto_routes()
 
+## Empties settlements and everything indexed by them (`WorldGen.civ_clear_places`).
+## `{}` means this wrapper refused (no binding, or generating).
 func civ_clear_places() -> Dictionary:
 	if not _has("civ_clear_places") or generating:
 		return {}
 	mark_world_dirty()
 	return world_gen.civ_clear_places()
 
+## Empties the generated route network (`WorldGen.civ_clear_ways`). `{}` means
+## this wrapper refused (no binding, or generating).
 func civ_clear_ways() -> Dictionary:
 	if not _has("civ_clear_ways") or generating:
 		return {}
 	mark_world_dirty()
 	return world_gen.civ_clear_ways()
 
+## Empties the claim map (`WorldGen.civ_clear_territory`). `{}` means refused (no
+## binding, or generating).
 func civ_clear_territory() -> Dictionary:
 	if not _has("civ_clear_territory") or generating:
 		return {}
@@ -3298,23 +3541,31 @@ func stale_stages() -> Dictionary:
 		return {}
 	return world_gen.stale_stages()
 
+## How many real, assignable factions exist (`WorldGen.civ_faction_count`);
+## `0` is the engine's "before any generate" and also this stale-binary fallback.
 func civ_faction_count() -> int:
 	if not _has("civ_faction_count"):
 		return 0
 	return world_gen.civ_faction_count()
 
+## Appends one faction with the reference defaults (`WorldGen.civ_add_faction`) and
+## returns its id; `-1` means none was added.
 func civ_add_faction() -> int:
 	if not _has("civ_add_faction"):
 		return -1
 	mark_world_dirty()
 	return world_gen.civ_add_faction()
 
+## Drops the last faction (`WorldGen.civ_remove_faction`), reverting its settlements
+## and territory. `false` if nothing was removed.
 func civ_remove_faction() -> bool:
 	if not _has("civ_remove_faction"):
 		return false
 	mark_world_dirty()
 	return world_gen.civ_remove_faction()
 
+## Writes one editable faction field (`WorldGen.civ_set_faction_field`): `key` is
+## name, culture, religion, government or ag_tech. `false` for a bad faction or value.
 func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
 	if not _has("civ_set_faction_field"):
 		return false
@@ -3412,6 +3663,8 @@ func civ_has_faction_colors() -> bool:
 		return false
 	return world_gen.civ_has_faction_colors()
 
+## Per-faction culture/terrain fit for every faction in one call
+## (`WorldGen.civ_faction_terrain_fits`). `[]` without a world or the API.
 func civ_faction_terrain_fits() -> Array:
 	if not _has("civ_faction_terrain_fits"):
 		return []
@@ -3499,6 +3752,9 @@ func conflict_kinds() -> PackedStringArray:
 		return PackedStringArray()
 	return world_gen.conflict_kinds()
 
+## Adds a conflict from `fields` (`WorldGen.conflict_add`); the reply is
+## `{ok, id, error?}`. Only `ok: true` marks the world dirty; the stale-binary reply
+## is `ok: false`, `id: 0`.
 func conflict_add(fields: Dictionary) -> Dictionary:
 	if not _has("conflict_add"):
 		return {"ok": false, "id": 0, "error": "This build has no conflict_add binding."}
@@ -3507,6 +3763,8 @@ func conflict_add(fields: Dictionary) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## Changes the fields present in `fields` on conflict `id` (`WorldGen.conflict_update`);
+## reply `{ok, id, error?}`. Only `ok: true` marks the world dirty.
 func conflict_update(id: int, fields: Dictionary) -> Dictionary:
 	if not _has("conflict_update"):
 		return {"ok": false, "id": id, "error": "This build has no conflict_update binding."}
@@ -3515,6 +3773,8 @@ func conflict_update(id: int, fields: Dictionary) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## Deletes conflict `id` (`WorldGen.conflict_delete`). `false` for an unknown id;
+## only a `true` marks the world dirty.
 func conflict_delete(id: int) -> bool:
 	if not _has("conflict_delete"):
 		return false
@@ -3523,6 +3783,8 @@ func conflict_delete(id: int) -> bool:
 		mark_world_dirty()
 	return ok
 
+## Every conflict in creation order (`WorldGen.conflict_list`), points already
+## resolved. `[]` for none or no API.
 func conflict_list() -> Array:
 	if not _has("conflict_list"):
 		return []
@@ -3536,11 +3798,15 @@ func conflict_campaigns(year: int) -> Array:
 		return []
 	return world_gen.conflict_campaigns(year)
 
+## One conflict as `conflict_list` describes it (`WorldGen.conflict_get`). `{}` for an
+## unknown id.
 func conflict_get(id: int) -> Dictionary:
 	if not _has("conflict_get"):
 		return {}
 	return world_gen.conflict_get(id)
 
+## Ids of conflicts attached to settlement `tid` (`kind` `"settlement"`) or the
+## province it seeds (`"province"`) (`WorldGen.conflicts_attached_to`). Empty for none.
 func conflicts_attached_to(kind: String, tid: int) -> PackedInt64Array:
 	if not _has("conflicts_attached_to"):
 		return PackedInt64Array()
@@ -3553,6 +3819,8 @@ func conflicts_touching_settlement(tid: int) -> Array:
 		return []
 	return world_gen.conflicts_touching_settlement(tid)
 
+## One manpower row per side of conflict `id` (`WorldGen.conflict_sides_manpower`).
+## Optional keys are omitted when the world has no row, so test with `has()`.
 func conflict_sides_manpower(id: int) -> Array:
 	if not _has("conflict_sides_manpower"):
 		return []
@@ -3566,21 +3834,29 @@ func civ_faction_relations() -> Array:
 		return []
 	return world_gen.civ_faction_relations()
 
+## The "Land sustains ~N" population readout (`WorldGen.civ_agrarian_regional_total`).
+## `{}` without a world or the API.
 func civ_agrarian_regional_total() -> Dictionary:
 	if not _has("civ_agrarian_regional_total"):
 		return {}
 	return world_gen.civ_agrarian_regional_total()
 
+## Settlement trait vocabulary `{key, label, glyph}` (`WorldGen.civ_trait_vocabulary`);
+## order is part of the save format. `[]` without the API.
 func civ_trait_vocabulary() -> Array:
 	if not _has("civ_trait_vocabulary"):
 		return []
 	return world_gen.civ_trait_vocabulary()
 
+## Specialisation `{key, label}` vocabulary (`WorldGen.civ_specialisation_vocabulary`).
+## `[]` without the API.
 func civ_specialisation_vocabulary() -> Array:
 	if not _has("civ_specialisation_vocabulary"):
 		return []
 	return world_gen.civ_specialisation_vocabulary()
 
+## Built-in religion `{key, label}` vocabulary (`WorldGen.civ_religion_vocabulary`).
+## `[]` without the API.
 func civ_religion_vocabulary() -> Array:
 	if not _has("civ_religion_vocabulary"):
 		return []
@@ -3613,6 +3889,8 @@ func civ_add_religion(religion_name: String, base_key: String, c: Color, notes: 
 		mark_world_dirty()
 	return r
 
+## Edits custom religion `id` (`WorldGen.civ_edit_religion`); reply `{ok, error?}`.
+## Only `ok: true` marks the world dirty; no binding gives `ok: false` with a reason.
 func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
 	if not _has("civ_edit_religion"):
 		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
@@ -3621,6 +3899,8 @@ func civ_edit_religion(id: int, fields: Dictionary) -> Dictionary:
 		mark_world_dirty()
 	return r
 
+## Deletes custom religion `id` unless a faction holds it (`WorldGen.civ_delete_religion`);
+## reply `{ok, error?, used_by?}`. Only `ok: true` marks the world dirty.
 func civ_delete_religion(id: int) -> Dictionary:
 	if not _has("civ_delete_religion"):
 		return {"ok": false, "error": "This build's engine has no custom-religion binding."}
@@ -3663,16 +3943,22 @@ func civ_belief_run(years: int) -> Dictionary:
 func has_belief_api() -> bool:
 	return _has("civ_belief_run")
 
+## Government `{key, label}` vocabulary (`WorldGen.civ_government_vocabulary`).
+## `[]` without the API.
 func civ_government_vocabulary() -> Array:
 	if not _has("civ_government_vocabulary"):
 		return []
 	return world_gen.civ_government_vocabulary()
 
+## Agricultural-tech `{key, label, hint, farmers_per_urbanite}` vocabulary
+## (`WorldGen.civ_ag_tech_vocabulary`). `[]` without the API.
 func civ_ag_tech_vocabulary() -> Array:
 	if not _has("civ_ag_tech_vocabulary"):
 		return []
 	return world_gen.civ_ag_tech_vocabulary()
 
+## The naming-culture keys (`WorldGen.civ_culture_vocabulary`); keys only, the
+## reference has no labels. Empty without the API.
 func civ_culture_vocabulary() -> PackedStringArray:
 	if not _has("civ_culture_vocabulary"):
 		return PackedStringArray()
@@ -3696,12 +3982,16 @@ func get_cultures() -> Array:
 	return world_gen.get_cultures()
 
 
+## Turns the biome carrying-capacity residual on/off (`WorldGen.set_biome_k_enabled`);
+## takes effect on the next generate. No-op without the binding; marks the world dirty.
 func set_biome_k_enabled(enabled: bool) -> void:
 	if not _has("set_biome_k_enabled"):
 		return
 	mark_world_dirty()
 	world_gen.set_biome_k_enabled(enabled)
 
+## Whether the biome carrying-capacity residual is on (`WorldGen.get_biome_k_enabled`);
+## `false` is also the stale-binary fallback.
 func get_biome_k_enabled() -> bool:
 	if not _has("get_biome_k_enabled"):
 		return false
@@ -3714,27 +4004,37 @@ func get_paint_layers() -> PackedStringArray:
 		return PackedStringArray()
 	return world_gen.get_paint_layers()
 
+## Legal value range of paint `layer` as 1-based `{index, label}` rows
+## (`WorldGen.get_paint_palette`). `[]` for an unknown layer or no API.
 func get_paint_palette(layer: String) -> Array:
 	if not _has("get_paint_palette"):
 		return []
 	return world_gen.get_paint_palette(layer)
 
+## Switches the layer `paint_stroke_at` writes to (`WorldGen.paint_set_layer`). `false`
+## for an unknown layer name or no API.
 func paint_set_layer(layer: String) -> bool:
 	if not _has("paint_set_layer"):
 		return false
 	return world_gen.paint_set_layer(layer)
 
+## Sets the paint brush (`WorldGen.paint_set_brush`: value, radius, hardness, softness,
+## erase, land_only) and returns the engine's accepted values; `{}` without the API.
 func paint_set_brush(value: int, radius: float, hardness: float, softness: float, erase: bool, land_only: bool) -> Dictionary:
 	if not _has("paint_set_brush"):
 		return {}
 	return world_gen.paint_set_brush(value, radius, hardness, softness, erase, land_only)
 
+## One brush dab at grid `(gx, gy)` onto the active layer's draft
+## (`WorldGen.paint_stroke_at`). Draft only until `paint_commit`; marks the world dirty.
 func paint_stroke_at(gx: float, gy: float) -> void:
 	if not _has("paint_stroke_at"):
 		return
 	mark_world_dirty()
 	world_gen.paint_stroke_at(gx, gy)
 
+## Overlay of the active layer's committed paint plus this session's draft
+## (`WorldGen.build_paint_preview_texture`). `null` without a world or the API.
 func build_paint_preview_texture() -> Texture2D:
 	if not _has("build_paint_preview_texture"):
 		return null
@@ -3760,6 +4060,8 @@ func build_paint_preview_patch() -> Dictionary:
 		return {}
 	return {"texture": tex, "x": 0, "y": 0, "w": tex.get_width(), "h": tex.get_height()}
 
+## Per-class painted-cell counts for the active layer (`WorldGen.paint_painted_counts`).
+## `{}` without the API.
 func paint_painted_counts() -> Dictionary:
 	if not _has("paint_painted_counts"):
 		return {}
@@ -3773,12 +4075,16 @@ func paint_draft_count() -> int:
 		return 0
 	return world_gen.paint_draft_count()
 
+## Bakes every layer's draft into its override array (`WorldGen.paint_commit`); returns
+## the engine's summary, `{}` without the API. Marks the world dirty first.
 func paint_commit() -> Dictionary:
 	if not _has("paint_commit"):
 		return {}
 	mark_world_dirty()
 	return world_gen.paint_commit()
 
+## Drops every layer's pending draft (`WorldGen.paint_discard`) and returns how many
+## dabs went; `0` means none, `-1` that the binding is missing.
 func paint_discard() -> int:
 	if not _has("paint_discard"):
 		return -1
@@ -3792,17 +4098,22 @@ func way_begin(way_type: String) -> bool:
 		return false
 	return world_gen.way_begin(way_type)
 
+## Appends a waypoint, snapped to a nearby place or way, to the armed Way draft
+## (`WorldGen.way_append_point`). `false` if no Way draft is armed.
 func way_append_point(gx: float, gy: float) -> bool:
 	if not _has("way_append_point"):
 		return false
 	return world_gen.way_append_point(gx, gy)
 
+## Commits the Way draft by least-cost routing (`WorldGen.way_commit`); returns the new
+## way's index, `-1` for no draft, under two waypoints or no world. Marks the world dirty.
 func way_commit() -> int:
 	if not _has("way_commit"):
 		return -1
 	mark_world_dirty()
 	return world_gen.way_commit()
 
+## Discards the in-progress way without committing (`WorldGen.way_discard`).
 func way_discard() -> void:
 	if not _has("way_discard"):
 		return
@@ -3815,27 +4126,36 @@ func route_begin(mode: String) -> bool:
 		return false
 	return world_gen.route_begin(mode)
 
+## Appends a stop, snapped to a place or way, to the armed Route draft
+## (`WorldGen.route_append_stop`). `false` if no Route draft is armed.
 func route_append_stop(gx: float, gy: float) -> bool:
 	if not _has("route_append_stop"):
 		return false
 	return world_gen.route_append_stop(gx, gy)
 
+## Commits the Route draft (`WorldGen.route_commit`); returns the new route's index or
+## `-1`, same convention as `way_commit`. Marks the world dirty.
 func route_commit() -> int:
 	if not _has("route_commit"):
 		return -1
 	mark_world_dirty()
 	return world_gen.route_commit()
 
+## Discards the in-progress route without committing (`WorldGen.route_discard`).
 func route_discard() -> void:
 	if not _has("route_discard"):
 		return
 	world_gen.route_discard()
 
+## How many routes were committed this session (`WorldGen.route_count`); `0` also
+## means no world or no binding.
 func route_count() -> int:
 	if not _has("route_count"):
 		return 0
 	return world_gen.route_count()
 
+## One committed route (`WorldGen.route_get`: points, brks, km, mode, name...). `{}`
+## for an out-of-range index or no API.
 func route_get(index: int) -> Dictionary:
 	if not _has("route_get"):
 		return {}
@@ -3905,6 +4225,8 @@ func undo_next_subsystem() -> String:
 		return "height" if can_undo() else ""
 	return String(world_gen.undo_next_subsystem())
 
+## Renames committed route `index` (`WorldGen.route_set_name`). `false` for a bad
+## index or no world. Marks the world dirty first.
 func route_set_name(index: int, name: String) -> bool:
 	if not _has("route_set_name"):
 		return false
@@ -3922,6 +4244,8 @@ func journey_save(name: String, party_preset: String, route_index: int, start_ye
 	mark_world_dirty()
 	return world_gen.journey_save(name, party_preset, route_index, start_year)
 
+## Every saved journey in save order (`WorldGen.journey_list`: id, name, party preset,
+## start year, km, mode). `[]` for none or no API.
 func journey_list() -> Array:
 	if not _has("journey_list"):
 		return []
@@ -3948,11 +4272,15 @@ func journey_set_plan(id: int, request: Dictionary) -> Dictionary:
 	mark_world_dirty()
 	return world_gen.journey_set_plan(id, request)
 
+## One journey's full detail by stable `id` (`WorldGen.journey_get`), including route
+## points. `{}` for an unknown id.
 func journey_get(id: int) -> Dictionary:
 	if not _has("journey_get"):
 		return {}
 	return world_gen.journey_get(id)
 
+## Deletes the journey with stable `id` (`WorldGen.journey_delete`). `false` if no
+## journey has that id. Marks the world dirty first.
 func journey_delete(id: int) -> bool:
 	if not _has("journey_delete"):
 		return false
@@ -3988,6 +4316,8 @@ func get_civ_day_of_year() -> int:
 		return 0
 	return world_gen.get_civ_day_of_year()
 
+## Moves the timeline cursor's day, clamped to 0..=364 (`WorldGen.civ_set_day_of_year`),
+## returning the day actually set. `0` also covers no binding; no-op before a world.
 func civ_set_day_of_year(day_of_year: int) -> int:
 	if not _has("civ_set_day_of_year"):
 		return 0
@@ -4006,16 +4336,20 @@ func measure_begin() -> void:
 		return
 	world_gen.measure_begin()
 
+## Appends one raw point to the Measure chain (`WorldGen.measure_add_point`); no snapping.
 func measure_add_point(gx: float, gy: float) -> void:
 	if not _has("measure_add_point"):
 		return
 	world_gen.measure_add_point(gx, gy)
 
+## The current chain's reading (`WorldGen.measure_result`: per-leg cells, km, bearing).
+## `{}` without the API.
 func measure_result() -> Dictionary:
 	if not _has("measure_result"):
 		return {}
 	return world_gen.measure_result()
 
+## Clears the Measure chain without ending the tool (`WorldGen.measure_clear`).
 func measure_clear() -> void:
 	if not _has("measure_clear"):
 		return
@@ -4031,21 +4365,29 @@ func measure_clear() -> void:
 ## toolbar's Measure modes disabled rather than erroring per click.
 var measure_api := false
 
+## Cross-section profile between two grid points with `samples` samples
+## (`WorldGen.measure_section`). `{}` when `measure_api` is false.
 func measure_section(ax: float, ay: float, bx: float, by: float, samples: int) -> Dictionary:
 	if not measure_api:
 		return {}
 	return world_gen.measure_section(ax, ay, bx, by, samples)
 
+## Area reading over a closed ring of grid points (`WorldGen.measure_area`); under
+## three vertices gives a zeroed reading. `{}` when `measure_api` is false.
 func measure_area(points: PackedVector2Array) -> Dictionary:
 	if not measure_api:
 		return {}
 	return world_gen.measure_area(points)
 
+## Radius reading from centre `(cx, cy)` to rim `(px, py)` (`WorldGen.measure_radius`).
+## `{}` when `measure_api` is false.
 func measure_radius(cx: float, cy: float, px: float, py: float) -> Dictionary:
 	if not measure_api:
 		return {}
 	return world_gen.measure_radius(cx, cy, px, py)
 
+## Vertical-delta and 3D-distance reading for two points (`WorldGen.measure_vertical`).
+## `{}` when `measure_api` is false.
 func measure_vertical(ax: float, ay: float, bx: float, by: float) -> Dictionary:
 	if not measure_api:
 		return {}
@@ -4058,16 +4400,21 @@ func region_set(gx: float, gy: float, gw: float, gh: float) -> void:
 		return
 	world_gen.region_set(gx, gy, gw, gh)
 
+## The current marquee in cells and km (`WorldGen.region_get`). `{}` means no marquee,
+## no world or no API.
 func region_get() -> Dictionary:
 	if not _has("region_get"):
 		return {}
 	return world_gen.region_get()
 
+## Clears the marquee (`WorldGen.region_clear`). Does not mark the world dirty.
 func region_clear() -> void:
 	if not _has("region_clear"):
 		return
 	world_gen.region_clear()
 
+## Exports the marquee as a tile zip (`WorldGen.region_export_tiles(opts)`). An empty
+## `PackedByteArray` means nothing was produced, not an empty archive.
 func region_export_tiles(opts: Dictionary) -> PackedByteArray:
 	if not _has("region_export_tiles"):
 		return PackedByteArray()
@@ -4135,6 +4482,10 @@ func _region_new_world_worker(tile_size: int, ridged: bool,
 	var ok: bool = world_gen.region_new_world(tile_size, ridged, detail_freq, detail_amp)
 	_finish_region_new_world.call_deferred(ok)
 
+## Main-thread completion of the new-world-from-marquee worker. Joins the thread,
+## clears `generating`, and on failure reads `region_new_world_error()` into
+## `last_summary`/`note_error`; success emits `generation_finished(true)`, `params_applied`
+## and `world_loaded`.
 func _finish_region_new_world(ok: bool) -> void:
 	_thread.wait_to_finish()
 	_thread = null
@@ -4264,55 +4615,75 @@ func label_create(gx: float, gy: float, text: String) -> int:
 	mark_world_dirty()
 	return world_gen.label_create(gx, gy, text)
 
+## Sets label `index`'s position directly, unclamped (`WorldGen.label_move`), once per
+## drag sample. `false` for a bad index. Marks the world dirty first.
 func label_move(index: int, gx: float, gy: float) -> bool:
 	if not _has("label_move"):
 		return false
 	mark_world_dirty()
 	return world_gen.label_move(index, gx, gy)
 
+## Selects label `index` and snapshots its style fields (`WorldGen.label_select`).
+## `false` for a bad index.
 func label_select(index: int) -> bool:
 	if not _has("label_select"):
 		return false
 	return world_gen.label_select(index)
 
+## The primary selected label (`WorldGen.label_get_selected`); `-1` means none selected
+## (or no binding).
 func label_get_selected() -> int:
 	if not _has("label_get_selected"):
 		return -1
 	return world_gen.label_get_selected()
 
+## Ends the label edit session keeping edits (`WorldGen.label_confirm_edit`). Marks the
+## world dirty first; no-op with nothing selected.
 func label_confirm_edit() -> void:
 	if not _has("label_confirm_edit"):
 		return
 	mark_world_dirty()
 	world_gen.label_confirm_edit()
 
+## Reverts the selected label's style fields to the session start (`WorldGen.label_cancel_edit`),
+## not its position. `false` if there was no session.
 func label_cancel_edit() -> bool:
 	if not _has("label_cancel_edit"):
 		return false
 	return world_gen.label_cancel_edit()
 
+## One label's full state (`WorldGen.label_get`: x, y, text, angle, arc, size, ...).
+## `{}` for a bad index or no API.
 func label_get(index: int) -> Dictionary:
 	if not _has("label_get"):
 		return {}
 	return world_gen.label_get(index)
 
+## Every hand-placed label in storage order, each `label_get`'s shape plus `index`,
+## `selected`, `primary` (`WorldGen.label_list`). `[]` for none or no API.
 func label_list() -> Array:
 	if not _has("label_list"):
 		return []
 	return world_gen.label_list()
 
+## Applies a partial dictionary of style fields to label `index` (`WorldGen.label_set`);
+## returns the engine's reply, `{}` without the API. Marks the world dirty first.
 func label_set(index: int, values: Dictionary) -> Dictionary:
 	if not _has("label_set"):
 		return {}
 	mark_world_dirty()
 	return world_gen.label_set(index, values)
 
+## Removes label `index` (`WorldGen.label_delete`). `false` for a bad index. Marks the
+## world dirty first.
 func label_delete(index: int) -> bool:
 	if not _has("label_delete"):
 		return false
 	mark_world_dirty()
 	return world_gen.label_delete(index)
 
+## Drops every hand-placed label and ends any edit session (`WorldGen.label_clear_all`).
+## The generated label run survives. Marks the world dirty first.
 func label_clear_all() -> void:
 	if not _has("label_clear_all"):
 		return
@@ -4356,6 +4727,8 @@ func label_get_selection() -> PackedInt64Array:
 		return PackedInt64Array([one]) if one >= 0 else PackedInt64Array()
 	return world_gen.label_get_selection()
 
+## Replaces the label selection (`WorldGen.label_select_set`). Out-of-range indices are
+## dropped and reported as `false`; an empty array deselects.
 func label_select_set(indices: PackedInt64Array) -> bool:
 	if not _has("label_select_set"):
 		return false
@@ -4377,21 +4750,29 @@ func label_handles(index: int, zoom: float, px_per_cell: float) -> Dictionary:
 		return {}
 	return world_gen.label_handles(index, zoom, px_per_cell)
 
+## Per-glyph arc placement for label `index` at `zoom` given measured `char_widths`
+## (`WorldGen.label_glyph_layout`). `[]` means no layout, not zero glyphs positioned.
 func label_glyph_layout(index: int, zoom: float, char_widths: PackedFloat64Array, total_w: float) -> Array:
 	if not _has("label_glyph_layout"):
 		return []
 	return world_gen.label_glyph_layout(index, zoom, char_widths, total_w)
 
+## The resize handle's live label size during a drag (`WorldGen.label_resize_size`);
+## pure math. `0.0` is only the no-binding fallback here.
 func label_resize_size(start_size: float, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> float:
 	if not _has("label_resize_size"):
 		return 0.0
 	return world_gen.label_resize_size(start_size, cx, cy, gx, gy, start_dist)
 
+## The rotate handle's absolute label angle in degrees (`WorldGen.label_rotate_deg`);
+## `0.0` is also the no-binding fallback.
 func label_rotate_deg(cx: float, cy: float, gx: float, gy: float) -> float:
 	if not _has("label_rotate_deg"):
 		return 0.0
 	return world_gen.label_rotate_deg(cx, cy, gx, gy)
 
+## The arc handle's live value during a drag (`WorldGen.label_arc_value`); `0.0` is
+## also the no-binding fallback.
 func label_arc_value(cx: float, cy: float, grab_angle_deg: float, side: float, gx: float, gy: float) -> float:
 	if not _has("label_arc_value"):
 		return 0.0
@@ -4404,6 +4785,8 @@ func jp_options() -> Dictionary:
 		return {}
 	return world_gen.jp_options()
 
+## The reference's default journey plan as flat keys (`WorldGen.jp_default_plan`), to
+## seed a party form. `{}` without the API.
 func jp_default_plan() -> Dictionary:
 	if not _has("jp_default_plan"):
 		return {}
@@ -4420,6 +4803,8 @@ func jp_plan_for_route(route_index: int) -> Dictionary:
 		return {}
 	return world_gen.jp_plan_for_route(route_index)
 
+## Plans one journey (`WorldGen.jp_compute(request)`: plan, verdict, confidence).
+## `{}` without the API; read the reply's own keys for failure.
 func jp_compute(request: Dictionary) -> Dictionary:
 	if not _has("jp_compute"):
 		return {}
@@ -5054,12 +5439,16 @@ func continents() -> Array:
 		return []
 	return world_gen.get_continents()
 
+## Binds `path` as this device's Markdown Vault (`WorldGen.vault_connect`); reply
+## `{ok, error, ...}`. Returns `_VAULT_UNAVAILABLE` without the API. Marks the world dirty.
 func vault_connect(path: String, display_name: String = "") -> Dictionary:
 	if not _has("vault_connect"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
 	return world_gen.vault_connect(path, display_name)
 
+## Drops the device-local vault binding (`WorldGen.vault_disconnect`); links survive.
+## No-op without the API.
 func vault_disconnect() -> void:
 	if _has("vault_disconnect"):
 		mark_world_dirty()
@@ -5079,11 +5468,15 @@ func vault_connect_saf(tree_uri: String, display_name: String, dispatch: Callabl
 	mark_world_dirty()
 	return world_gen.vault_connect_saf(tree_uri, display_name, dispatch)
 
+## `{bound, root, display_name, vault_id, link_count}` (`WorldGen.vault_info`). The
+## no-API fallback reports `bound: false` and `link_count: 0`.
 func vault_info() -> Dictionary:
 	if not _has("vault_info"):
 		return {"bound": false, "root": "", "display_name": "", "vault_id": "", "link_count": 0}
 	return world_gen.vault_info()
 
+## Markdown files in the bound vault, sorted, capped at `limit` (`WorldGen.vault_list_files`).
+## Empty for an unbound vault or no API.
 func vault_list_files(limit: int = 2000) -> PackedStringArray:
 	if not _has("vault_list_files"):
 		return PackedStringArray()
@@ -5132,11 +5525,15 @@ func vault_create_from_template(template_rel: String, rel: String, name: String)
 		return {"ok": false, "error": "this engine build has no note creator"}
 	return world_gen.vault_create_from_template(template_rel, rel, name)
 
+## Headings of file `rel` as `{level, title}` (`WorldGen.vault_file_headings`). `[]`
+## for an unreadable file, which callers read as "whole document only".
 func vault_file_headings(rel: String) -> Array:
 	if not _has("vault_file_headings"):
 		return []
 	return world_gen.vault_file_headings(rel)
 
+## Raw text of vault file `rel` (`WorldGen.vault_read_file`). `""` means unreadable
+## or no API, not necessarily an empty file.
 func vault_read_file(rel: String) -> String:
 	if not _has("vault_read_file"):
 		return ""
@@ -5160,54 +5557,74 @@ func vault_write_file(rel: String, text: String, expect_hash: String) -> Diction
 	mark_world_dirty()
 	return world_gen.vault_write_file(rel, text, expect_hash)
 
+## Attaches an entity to a document or heading (`WorldGen.vault_attach`); reply
+## `{ok, error, ...}`. `_VAULT_UNAVAILABLE` without the API; marks the world dirty.
 func vault_attach(kind: String, entity_id: int, label: String, rel: String, heading: String) -> Dictionary:
 	if not _has("vault_attach"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
 	return world_gen.vault_attach(kind, entity_id, label, rel, heading)
 
+## Removes link `link_id` (`WorldGen.vault_detach`). `false` for an unknown id. Marks
+## the world dirty first.
 func vault_detach(link_id: String) -> bool:
 	if not _has("vault_detach"):
 		return false
 	mark_world_dirty()
 	return world_gen.vault_detach(link_id)
 
+## Every link on one entity, each with live status (`WorldGen.vault_links_for`).
+## `[]` for none or no API.
 func vault_links_for(kind: String, entity_id: int) -> Array:
 	if not _has("vault_links_for"):
 		return []
 	return world_gen.vault_links_for(kind, entity_id)
 
+## Every link in the store for the vault window overview (`WorldGen.vault_all_links`).
+## `[]` for none or no API.
 func vault_all_links() -> Array:
 	if not _has("vault_all_links"):
 		return []
 	return world_gen.vault_all_links()
 
+## `{link_count, status}` for one entity (`WorldGen.vault_entity_summary`); `status`
+## is the worst link status, `""` when none. No-API fallback is `link_count: 0`.
 func vault_entity_summary(kind: String, entity_id: int) -> Dictionary:
 	if not _has("vault_entity_summary"):
 		return {"link_count": 0, "status": ""}
 	return world_gen.vault_entity_summary(kind, entity_id)
 
+## The Cartalith-side working text of link `link_id` (`WorldGen.vault_link_text`).
+## `""` for an unknown link or no API.
 func vault_link_text(link_id: String) -> String:
 	if not _has("vault_link_text"):
 		return ""
 	return world_gen.vault_link_text(link_id)
 
+## Records an edit to link `link_id`'s working copy (`WorldGen.vault_set_link_text`).
+## `false` for an unknown link. Marks the world dirty first.
 func vault_set_link_text(link_id: String, text: String) -> bool:
 	if not _has("vault_set_link_text"):
 		return false
 	mark_world_dirty()
 	return world_gen.vault_set_link_text(link_id, text)
 
+## Re-reads the link's source selection, discarding the local copy
+## (`WorldGen.vault_reload_link`). `_VAULT_UNAVAILABLE` without the API. Not marked dirty.
 func vault_reload_link(link_id: String) -> Dictionary:
 	if not _has("vault_reload_link"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_reload_link(link_id)
 
+## Preview and source `hash` for writing link `link_id` back (`WorldGen.vault_preview_section_write`);
+## hand the hash to `vault_write_section`. Writes nothing.
 func vault_preview_section_write(link_id: String) -> Dictionary:
 	if not _has("vault_preview_section_write"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_section_write(link_id)
 
+## Writes one edited section back to the source file (`WorldGen.vault_write_section`);
+## refused if `expect_hash` no longer matches. Reply `{ok, error, ...}`; marks the world dirty.
 func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_section"):
 		return _VAULT_UNAVAILABLE
@@ -5234,16 +5651,22 @@ func vault_entity_kinds() -> PackedStringArray:
 		return PackedStringArray(["settlement", "province", "continent", "faction", "culture"])
 	return world_gen.vault_entity_kinds()
 
+## Fields offerable for one entity as `{key, group, label}` (`WorldGen.vault_export_fields`),
+## filtered to those with a value. `[]` for none or no API.
 func vault_export_fields(kind: String, entity_id: int) -> Array:
 	if not _has("vault_export_fields"):
 		return []
 	return world_gen.vault_export_fields(kind, entity_id)
 
+## Every value held for one entity keyed by export-field key (`WorldGen.vault_entity_values`).
+## `{}` for none or no API.
 func vault_entity_values(kind: String, entity_id: int) -> Dictionary:
 	if not _has("vault_entity_values"):
 		return {}
 	return world_gen.vault_entity_values(kind, entity_id)
 
+## Markdown body of the Cartalith block for one entity and checkbox selection
+## (`WorldGen.vault_block_body`); pure. `""` also means no API.
 func vault_block_body(kind: String, entity_id: int, selected: PackedStringArray) -> String:
 	if not _has("vault_block_body"):
 		return ""
@@ -5270,22 +5693,30 @@ func vault_snapshot(kind: String, entity_id: int, radius: String, subdir: String
 	mark_world_dirty()
 	return world_gen.vault_snapshot(kind, entity_id, radius, subdir, size)
 
+## Previews inserting or replacing the machine-owned block in file `rel`
+## (`WorldGen.vault_preview_block`): `{ok, error, preview, hash, action, ...}`. Writes nothing.
 func vault_preview_block(rel: String, kind: String, entity_id: int, body: String) -> Dictionary:
 	if not _has("vault_preview_block"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_block(rel, kind, entity_id, body)
 
+## Writes the machine-owned block into file `rel` (`WorldGen.vault_write_block`);
+## refused if `expect_hash` is stale. Reply `{ok, error, ...}`; marks the world dirty.
 func vault_write_block(rel: String, kind: String, entity_id: int, body: String, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_block"):
 		return _VAULT_UNAVAILABLE
 	mark_world_dirty()
 	return world_gen.vault_write_block(rel, kind, entity_id, body, expect_hash)
 
+## Previews filling the author's own template fields (`WorldGen.vault_preview_field_fill`);
+## reply carries per-field outcomes. Writes nothing.
 func vault_preview_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool) -> Dictionary:
 	if not _has("vault_preview_field_fill"):
 		return _VAULT_UNAVAILABLE
 	return world_gen.vault_preview_field_fill(rel, kind, entity_id, overwrite)
 
+## Fills the author's template fields in file `rel` (`WorldGen.vault_write_field_fill`);
+## refused if `expect_hash` is stale. Reply `{ok, error, ...}`; marks the world dirty.
 func vault_write_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool, expect_hash: String) -> Dictionary:
 	if not _has("vault_write_field_fill"):
 		return _VAULT_UNAVAILABLE
@@ -5321,6 +5752,8 @@ func undo_revert_to(seq: int) -> int:
 	return world_gen.undo_revert_to(seq)
 
 
+## Refreshes the backlink index, the only operation that scans the vault
+## (`WorldGen.vault_refresh_backlinks`, capped at `limit`). Reply `{ok, error, ...}`.
 func vault_refresh_backlinks(limit: int = 2000) -> Dictionary:
 	if not _has("vault_refresh_backlinks"):
 		return {"ok": false, "error": "this build predates the backlink index"}
@@ -5385,17 +5818,23 @@ func vault_backlink_index_json() -> String:
 		return ""
 	return world_gen.vault_backlink_index_json()
 
+## Restores a saved backlink index from JSON (`WorldGen.vault_restore_backlink_index`).
+## `false` on malformed JSON, leaving the in-memory index alone.
 func vault_restore_backlink_index(json: String) -> bool:
 	if not _has("vault_restore_backlink_index"):
 		return false
 	return world_gen.vault_restore_backlink_index(json)
 
 
+## The whole vault link store as JSON for the shell to persist (`WorldGen.vault_state_json`).
+## `""` means unavailable, not an empty store.
 func vault_state_json() -> String:
 	if not _has("vault_state_json"):
 		return ""
 	return world_gen.vault_state_json()
 
+## Restores a link store from JSON (`WorldGen.vault_restore_state`), keeping the current
+## binding. `false` on malformed JSON, changing nothing.
 func vault_restore_state(json: String) -> bool:
 	if not _has("vault_restore_state"):
 		return false
@@ -5489,6 +5928,8 @@ func vault_prefs_json() -> String:
 		return ""
 	return world_gen.vault_prefs_json()
 
+## Restores vault preferences from JSON (`WorldGen.vault_restore_prefs`). `false` on
+## malformed JSON, leaving the safe ask-every-time defaults.
 func vault_restore_prefs(json: String) -> bool:
 	if not _has("vault_restore_prefs"):
 		return false
@@ -5613,6 +6054,8 @@ func project_engine_owned_slots() -> PackedStringArray:
 		return PackedStringArray()
 	return world_gen.project_engine_owned_slots()
 
+## The `format_version` this build writes (`WorldGen.project_format_version`). `0`
+## means no binding, never a real version.
 func project_format_version() -> int:
 	if not _has("project_format_version"):
 		return 0
@@ -5629,11 +6072,15 @@ func get_villages_enabled() -> bool:
 		return true
 	return world_gen.get_villages_enabled()
 
+## Whether imperial-seat promotion is on (`WorldGen.get_metropolis_enabled`). The `true`
+## fallback for a stale binary is a guess, not the request default (`false` in `_apply_civ_options`).
 func get_metropolis_enabled() -> bool:
 	if not _has("get_metropolis_enabled"):
 		return true
 	return world_gen.get_metropolis_enabled()
 
+## The recovery phase the next generate applies: 0 Stable .. 4 Mature
+## (`WorldGen.get_recovery_phase`). `0` is also the stale-binary fallback.
 func get_recovery_phase() -> int:
 	if not _has("get_recovery_phase"):
 		return 0
@@ -5869,6 +6316,8 @@ func jp_vessel_matrix() -> Dictionary:
 var _landmark_kinds_cache: Array = []
 var _landmark_settings_cache: Dictionary = {}
 
+## Refreshes `_landmark_kinds_cache` and `_landmark_settings_cache` from the engine
+## (`WorldGen.landmark_kinds`/`landmark_settings`). Main thread, not while a worker owns it.
 func _read_landmark_kinds() -> void:
 	_landmark_kinds_cache = world_gen.landmark_kinds() if _has("landmark_kinds") else []
 	_landmark_settings_cache = world_gen.landmark_settings() if _has("landmark_settings") else {}
@@ -5893,6 +6342,8 @@ func landmark_settings() -> Dictionary:
 	_landmark_settings_cache = world_gen.landmark_settings()
 	return _landmark_settings_cache
 
+## Writes one landmark type's cap (`WorldGen.landmark_set_cap`) and re-reads the cached
+## settings. `false` while `generating`, without the binding, or for an unknown key.
 func landmark_set_cap(key: String, v: int) -> bool:
 	if generating or not _has("landmark_set_cap"):
 		return false
@@ -5901,6 +6352,8 @@ func landmark_set_cap(key: String, v: int) -> bool:
 		_landmark_settings_cache = world_gen.landmark_settings()
 	return ok
 
+## Arms/disarms one landmark type (`WorldGen.landmark_set_armed`), then re-reads the
+## cached settings. `false` while `generating`, without the binding, or for an unknown key.
 func landmark_set_armed(key: String, on: bool) -> bool:
 	if generating or not _has("landmark_set_armed"):
 		return false
@@ -5909,6 +6362,8 @@ func landmark_set_armed(key: String, on: bool) -> bool:
 		_landmark_settings_cache = world_gen.landmark_settings()
 	return ok
 
+## Sets the Crowding dial (`WorldGen.landmark_set_crowding`; the engine clamps rather
+## than rejects), then re-reads the cache. `false` while `generating` or no binding.
 func landmark_set_crowding(v: float) -> bool:
 	if generating or not _has("landmark_set_crowding"):
 		return false
@@ -5926,6 +6381,8 @@ func landmark_set_class_radius(class_key: String, km: float) -> bool:
 		_landmark_settings_cache = world_gen.landmark_settings()
 	return ok
 
+## Toggles "types compete with each other" (`WorldGen.landmark_set_cross_competition`),
+## then re-reads the cache. `false` while `generating` or without the binding.
 func landmark_set_cross_competition(on: bool) -> bool:
 	if generating or not _has("landmark_set_cross_competition"):
 		return false
@@ -5934,6 +6391,8 @@ func landmark_set_cross_competition(on: bool) -> bool:
 		_landmark_settings_cache = world_gen.landmark_settings()
 	return ok
 
+## Restores every landmark setting to the engine default (`WorldGen.landmark_reset_settings`);
+## the last run's placements stay. No-op while `generating`.
 func landmark_reset_settings() -> void:
 	if generating or not _has("landmark_reset_settings"):
 		return
@@ -6002,6 +6461,8 @@ func _landmark_worker() -> void:
 	world_gen.landmark_run()
 	_finish_landmark.call_deferred()
 
+## Main-thread completion of the landmark worker: joins the thread, clears `generating`
+## and emits `landmark_finished` with `WorldGen.landmark_last_run()`.
 func _finish_landmark() -> void:
 	_thread.wait_to_finish()
 	_thread = null
@@ -6023,6 +6484,9 @@ func _finish_landmark() -> void:
 ## **Every caller must `await` this**; the two refusals return without
 ## reaching the `await`, which passes a plain value straight through.
 var _refine_rect := Rect2i()
+## Starts a viewshed refine of the given cell rect on a worker thread and awaits
+## `landmark_refine_finished`, returning its status dictionary. Immediately returns
+## `{ok: false, state: "never", error}` while generating or without the binding.
 func landmark_refine_view(x: int, y: int, w: int, h: int) -> Dictionary:
 	if generating:
 		return {"ok": false, "state": "never", "error": "A world generation is already running."}
@@ -6041,6 +6505,8 @@ func _landmark_refine_worker() -> void:
 		_refine_rect.size.x, _refine_rect.size.y)
 	_finish_landmark_refine.call_deferred()
 
+## Main-thread completion of the viewshed-refine worker: joins the thread, clears
+## `generating`, emits `landmark_refine_finished` with `WorldGen.landmark_refine_status()`.
 func _finish_landmark_refine() -> void:
 	_thread.wait_to_finish()
 	_thread = null
