@@ -2883,6 +2883,9 @@ fn civ_name_stream(data: &cartalith_io::ProjectData) -> Option<u32> {
 
 // ===================== the Godot surface =====================
 
+/// The failure shape every `#[func]` below returns: `{ok: false, error: <text>}`.
+/// GDScript callers must test `ok` before reading any other key, since this
+/// dictionary carries nothing else (no partial result).
 fn err(message: impl std::fmt::Display) -> VarDictionary {
     vdict! { "ok" => false, "error" => message.to_string() }
 }
@@ -4233,6 +4236,10 @@ struct SculptDoc {
     stamps: Vec<SculptStampDto>,
 }
 
+/// One stamp inside `SculptDoc::stamps`: the recipe `PassBuffer` holds for a
+/// single stroke (feature key, its seed and sea level, the stroke points, the
+/// globals and per-feature controls it was captured with, and its hidden flag).
+/// Never a height delta; the stamp is replayed on restore.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SculptStampDto {
     #[serde(default)]
@@ -4276,6 +4283,9 @@ struct TravelDoc {
     presets: Vec<TravelEntryDto>,
 }
 
+/// One custom Travel Library entry as stored in `library/travel.json`: its
+/// stable `id`, the animal-only `species` key, and the flattened `fields` map
+/// (see `travel_pairs_to_fields`). Every member defaults so a partial row loads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TravelEntryDto {
     #[serde(default)]
@@ -4295,6 +4305,9 @@ struct TravelEntryDto {
 
 // ---- the flattening both travel halves share ----
 
+/// Encodes one `JpValue` as JSON for the travel document, keeping the Int/Num
+/// split. A non-finite `Num` becomes `null` (reads back as an absent field),
+/// never `0`.
 fn jp_value_to_json(v: &journey_bridge::JpValue) -> serde_json::Value {
     match v {
         journey_bridge::JpValue::Int(i) => serde_json::Value::from(*i),
@@ -4327,12 +4340,16 @@ fn json_to_jp_value(v: &serde_json::Value) -> Option<journey_bridge::JpValue> {
     }
 }
 
+/// Flattens `travel_bridge`'s `(key, JpValue)` pairs into the document's
+/// `fields` map via [`jp_value_to_json`]. Key order becomes `BTreeMap` order.
 fn travel_pairs_to_fields(
     pairs: Vec<(String, journey_bridge::JpValue)>,
 ) -> BTreeMap<String, serde_json::Value> {
     pairs.into_iter().map(|(k, v)| (k, jp_value_to_json(&v))).collect()
 }
 
+/// Inverse of [`travel_pairs_to_fields`]: a field whose JSON is not a bool,
+/// string or number (null, array, object) is dropped rather than guessed at.
 fn travel_fields_to_pairs(
     fields: &BTreeMap<String, serde_json::Value>,
 ) -> Vec<(String, journey_bridge::JpValue)> {
@@ -4344,6 +4361,8 @@ fn travel_fields_to_pairs(
 
 // ---- the flattening both sculpt halves share ----
 
+/// Reads every global sculpt control into a `key -> value` map for the draft
+/// document, one entry per control `global_controls()` lists.
 fn sculpt_globals_to_map(g: &cartalith_terrain::sculpt::SculptGlobals) -> BTreeMap<String, f64> {
     crate::sculpt_bridge::global_controls()
         .into_iter()
@@ -4363,6 +4382,8 @@ fn sculpt_globals_from_map(m: &BTreeMap<String, f64>) -> cartalith_terrain::scul
     g
 }
 
+/// The numeric per-feature controls of `p` as a `key -> value` map; Freehand's
+/// non-numeric sub-mode is carried separately by [`sculpt_sub_mode_of`].
 fn sculpt_params_to_map(p: &cartalith_terrain::sculpt::FeatureParams) -> BTreeMap<String, f64> {
     crate::sculpt_bridge::feature_param_pairs(p)
         .into_iter()
@@ -4370,6 +4391,8 @@ fn sculpt_params_to_map(p: &cartalith_terrain::sculpt::FeatureParams) -> BTreeMa
         .collect()
 }
 
+/// Freehand's sub-mode key, or `""` for every other feature (the document
+/// reads `""` as "no sub-mode", and [`sculpt_params_from_map`] ignores it then).
 fn sculpt_sub_mode_of(p: &cartalith_terrain::sculpt::FeatureParams) -> String {
     match p {
         cartalith_terrain::sculpt::FeatureParams::Freehand { sub_mode, .. } => {
@@ -4944,10 +4967,16 @@ impl WorldGen {
     }
 }
 
+/// Round-trip tests for the civ-layer, journey and conflict documents, run
+/// through real in-memory `.ctl` archives (no Godot runtime needed).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A hand-built `CivData` fixture touching every persisted civ member:
+    /// two settlements (one with `PlaceExtras`, one a village), a way, a sea
+    /// route, territory/provinces, a continent, trade balances and a
+    /// one-snapshot timeline, on a 4x3 grid (12 cells).
     fn sample_civ() -> CivData {
         let mut place_extras = std::collections::HashMap::new();
         place_extras.insert(
@@ -5172,6 +5201,7 @@ mod tests {
         data
     }
 
+    /// Protects: `civ.garrison_exposure_scale` persisting through `params.json`.
     /// The fold-in's own round trip: `civ.garrison_exposure_scale` is an
     /// ordinary `params::PARAMS` row now, so it is written unconditionally
     /// (like every other row -- `params::save_state`'s own doc comment) and
@@ -5198,6 +5228,8 @@ mod tests {
         }
     }
 
+    /// Protects: the legacy factions.json garrison member never being written
+    /// again, and an absent member reading back as `None` (not `0.0`).
     /// [`FactionsDoc::garrison_exposure_scale`] is read-only compatibility
     /// now: `civ_documents` never writes it (checked against a document a
     /// freshly generated project actually produces, not a hand-built one),
@@ -5221,6 +5253,8 @@ mod tests {
         assert_eq!(doc.garrison_exposure_scale, None);
     }
 
+    /// Protects: archives written by commit 382945a (legacy factions.json
+    /// garrison value, no params.json key) still opening with that value.
     /// **The real backward-compatibility fixture**: bytes actually written by
     /// commit 382945a's own `civ_documents`/`FactionsDoc` -- the format that
     /// first shipped this setting, only as `factions.json`'s
@@ -5257,7 +5291,7 @@ mod tests {
         assert_eq!(resolved, 2.5, "the legacy factions.json member must win when the new key is absent");
     }
 
-    /// Protects Ruling BO's persistence: the forced-lake mask a save writes
+    /// Protects: Ruling BO's persistence: the forced-lake mask a save writes
     /// (`forced_lakes_raster`) comes back byte for byte on open
     /// (`forced_lakes_from_project`) through a real in-memory archive; a world
     /// with nothing forced writes **no** member (absent, not all-zero), and an
@@ -5309,6 +5343,8 @@ mod tests {
         assert!(data.raster(RASTER_FORCED_LAKES).is_none(), "a short mask is not written");
     }
 
+    /// Protects: the params.json garrison value winning over the legacy
+    /// factions.json member when an archive carries both.
     /// The other half of the same precedence: when *both* the new
     /// `params.json` key and the legacy `factions.json` member exist in the
     /// same archive -- which no writer in this codebase produces any more,
@@ -5416,6 +5452,9 @@ mod tests {
         (doc.next_id, doc.journeys.iter().map(dto_to_journey).collect())
     }
 
+    /// Protects: `STORY_PLANNING_SCOPE.md` SP-1's bar that a plan-less journey
+    /// (including its Ruling BS resupply stop) survives save -> load -> reopen
+    /// field for field through a real archive.
     #[test]
     fn a_journey_survives_save_load_reopen() {
         // The scope document's own acceptance bar, verbatim: "a journey
@@ -5552,7 +5591,7 @@ mod tests {
         }
     }
 
-    /// Protects (Ruling AR): a journey's whole planner plan -- every plan
+    /// Protects: (Ruling AR) a journey's whole planner plan -- every plan
     /// field, both stage overrides (all 25 fields of one), the layover and
     /// animal-entry maps, the trim and both auto flags -- survives
     /// `journey_to_dto` -> a real in-memory `.ctl` archive -> `dto_to_journey`
@@ -5583,7 +5622,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&again).unwrap(), once);
     }
 
-    /// Protects (Ruling AR, `SAVEFILE_COMPAT.md` 9.6): a journeys document
+    /// Protects: (Ruling AR, `SAVEFILE_COMPAT.md` 9.6) a journeys document
     /// written by the build just before the ruling -- Ruling BS's shape, with
     /// `resupply_stops` and no `plan` -- opens with **no plan** (`None`, not
     /// a default plan: the planner restores a preset for it) and re-saves to
@@ -5600,7 +5639,7 @@ mod tests {
         assert_eq!(serde_json::to_string(&again).unwrap(), old);
     }
 
-    /// Protects (Ruling AR, `SAVEFILE_COMPAT.md` 9.6 / 14.3): a reader
+    /// Protects: (Ruling AR, `SAVEFILE_COMPAT.md` 9.6 / 14.3) a reader
     /// tolerates a `plan` member from a newer or hand-edited file. Unknown
     /// plan-form keys, wrong-typed values and an unparsable stage index are
     /// dropped without refusing the journey; every missing member takes the
@@ -5628,7 +5667,7 @@ mod tests {
         assert!(serde_json::from_str::<JourneyDto>(&bad).is_err());
     }
 
-    /// Protects (Ruling AR): the wire form names each plan member under the
+    /// Protects: (Ruling AR) the wire form names each plan member under the
     /// key `SAVEFILE_COMPAT.md` 9.6 documents -- an independent assertion on
     /// the JSON text (not a round trip, which would pass with both ends
     /// renamed together).
@@ -5674,6 +5713,8 @@ mod tests {
         assert_eq!(serde_json::to_string(&again).unwrap(), old);
     }
 
+    /// Protects: SP-4's conflict persistence (anchored and unanchored, ended
+    /// and ongoing) and that absent optional members are omitted, not sentinels.
     /// SP-4's "the drawing persists through save/load", through a real
     /// in-memory archive like `journeys_round_trip`. Two conflicts cover
     /// every optional member both ways: an anchored, ended siege and an
@@ -5763,6 +5804,10 @@ mod tests {
     /// read off.
     const PRE_FIX_CONFLICTS_JSON: &str = r#"{"conflicts":[{"anchor":{"at":[7,4],"kind":"settlement","tid":9},"end_year":214,"id":3,"kind":"siege","name":"Siege of Kessra","outcome":"Relieved in the third spring","points":[[7,4]],"sides":[2,1],"start_year":212}],"next_id":4}"#;
 
+    /// Protects: Ruling AY's migration -- a pre-fix archive with no
+    /// `anchor_convention` has its corner-convention `anchor_at` shifted to
+    /// the cell centre on load, leaving `points` untouched, so the drawn
+    /// pixels equal what the pre-fix build drew.
     #[test]
     fn a_pre_fix_archive_migrates_its_stored_anchor_to_the_centre_convention() {
         let doc: ConflictsDoc = serde_json::from_str(PRE_FIX_CONFLICTS_JSON).expect("parses");
