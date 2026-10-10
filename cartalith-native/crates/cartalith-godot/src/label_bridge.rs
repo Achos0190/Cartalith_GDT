@@ -1629,3 +1629,108 @@ mod tests {
         assert_eq!(lb.color_or_default(), cartalith_civ::labels::DEFAULT_LABEL_COLOR);
     }
 }
+
+/// The cull-box versus drawn-box measurement behind the font-clamp fix, and the
+/// pin that keeps this crate's mirror of the clamp equal to `cartalith-civ`'s.
+#[cfg(test)]
+mod cull_vs_drawn_tests {
+    use super::*;
+    use cartalith_civ::labels::{
+        generate_labels, label_candidates, LabelClass, LabelWorld, LABEL_CLASSES, LABEL_FONT_PX_MAX,
+        LABEL_FONT_PX_MIN, LABEL_TYPOGRAPHY_DEFAULTS, LAKE_LABEL_MIN_CELLS,
+    };
+
+    /// Protects: the civ crate's clamp constants (used by the culler) and this
+    /// crate's `SHELL_LABEL_FONT_PX_*` (used by hit boxes) are one pair of
+    /// numbers, and both equal `map_overlay.gd`'s literals 8 and 96. A change to
+    /// one copy without the other is the two-models-over-one-quantity failure.
+    #[test]
+    fn the_culler_and_the_hit_box_clamp_the_same_font() {
+        assert_eq!(SHELL_LABEL_FONT_PX_MIN, 8.0);
+        assert_eq!(SHELL_LABEL_FONT_PX_MAX, 96.0);
+        assert_eq!(LABEL_FONT_PX_MIN, 8.0);
+        assert_eq!(LABEL_FONT_PX_MAX, 96.0);
+        assert_eq!(SHELL_LABEL_ZOOM_BASE_PX_PER_CELL, LabelCullMetrics::default().zoom_base_px_per_cell);
+        // And the two models agree on the font px a label is drawn at, across
+        // the floor, the unclamped middle and the ceiling.
+        for ppc in [0.464, 2.0, 2.5, 4.0, 40.0] {
+            let mut lb = MapLabel::new(0.0, 0.0, "Ashfen");
+            lb.size = 15.0;
+            let drawn = shell_label_box(&lb, ppc, 1.0).fsz;
+            let r = label_cull_rect(&lb, 0.0, &LabelCullMetrics { px_per_cell: Some(ppc), ..Default::default() });
+            assert!((r.h * ppc - drawn * LABEL_BOX_LINE_HEIGHT).abs() < 1e-9, "ppc {ppc}: {} vs {drawn}", r.h * ppc);
+        }
+    }
+
+    /// Drawn screen-space (local px) box of a label: the font `shell_label_box`
+    /// reports, text width from the same advance and tracking, height the 1.3 line.
+    fn drawn_box(lb: &MapLabel, tracking: f64, ppc: f64) -> (f64, f64, f64, f64) {
+        let fsz = shell_label_box(lb, ppc, 1.0).fsz;
+        let n = lb.name.chars().count() as f64;
+        let w = fsz * (n * cartalith_civ::labels::DEFAULT_LABEL_ADVANCE_RATIO + tracking * (n - 1.0).max(0.0));
+        (lb.x * ppc, lb.y * ppc, w, fsz * LABEL_BOX_LINE_HEIGHT)
+    }
+
+    /// Measurement, not an assertion: generated-vs-generated overlapping pairs by
+    /// class pair, and survivors per class, culled the old way (`None`) and the new
+    /// way, over the shell's default world. Run with
+    /// `cargo test -p cartalith-godot --lib cull_vs_drawn -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement: generates a 2048x1311 world"]
+    fn measure_generated_overlap_before_and_after() {
+        let mut p = crate::params::defaults();
+        p.gw = 2048;
+        p.gh = 1311;
+        p.tect.seed = 483920;
+        p.map_width_km = 1200.0;
+        p.sea_level = 0.42;
+        p.use_gpu = false;
+        p.civ.villages = true;
+        let ws = cartalith_engine::generate_terrain(&p);
+        let (o, w) = crate::coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, &p);
+        let civ = crate::compute_civilisation(
+            &ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false,
+            &mut Vec::new(), None,
+        );
+        let world = LabelWorld {
+            continents: civ.continents.as_slice(),
+            provinces: civ.province_list.as_slice(),
+            settlements: civ.settlements.as_slice(),
+            landmarks: &[],
+            water: Some(civ.water_bodies.as_slice()),
+            gw: p.gw,
+            gh: p.gh,
+            lake_min_cells: LAKE_LABEL_MIN_CELLS,
+        };
+        let cands = label_candidates(&world);
+        for ppc in [0.464, 0.928, 1.856] {
+            for (tag, cull) in [
+                ("before(legacy)", LabelCullMetrics::default()),
+                ("after(px/cell)", LabelCullMetrics { px_per_cell: Some(ppc), ..Default::default() }),
+            ] {
+                let s = LabelGenSettings { cull: Some(cull), ..Default::default() };
+                let g = generate_labels(&cands, &s, &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
+                let boxes: Vec<_> = g
+                    .labels
+                    .iter()
+                    .map(|l| (l.class, drawn_box(l, LABEL_TYPOGRAPHY_DEFAULTS[l.class.index()].tracking, ppc)))
+                    .collect();
+                let mut pairs = std::collections::BTreeMap::<String, usize>::new();
+                let mut total = 0;
+                for i in 0..boxes.len() {
+                    for j in i + 1..boxes.len() {
+                        let (a, b) = (boxes[i].1, boxes[j].1);
+                        if (a.0 - b.0).abs() * 2.0 < a.2 + b.2 && (a.1 - b.1).abs() * 2.0 < a.3 + b.3 {
+                            *pairs.entry(format!("{}-{}", boxes[i].0.key(), boxes[j].0.key())).or_default() += 1;
+                            total += 1;
+                        }
+                    }
+                }
+                let kept: Vec<String> =
+                    LABEL_CLASSES.iter().map(|c| format!("{}={}", c.key(), g.counts[c.index()].drawn)).collect();
+                println!("MEAS ppc={ppc} {tag}: overlaps={total} {pairs:?} survivors: {}", kept.join(" "));
+            }
+        }
+        let _ = LabelClass::Water;
+    }
+}

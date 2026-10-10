@@ -864,7 +864,8 @@ pub const fn label_typography_default(class: LabelClass) -> LabelTypography {
 ///
 /// Two things break that invariance and are stated rather than hidden:
 /// `_label_font_px`'s `[LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX]` clamp, which
-/// bites at extreme zoom, and [`LabelSizeMode::Fixed`], whose cell footprint
+/// bites at any small fit (8 px floor at 0.464 px/cell on a 2048 grid) and is
+/// modelled whenever [`LabelCullMetrics::px_per_cell`] is known, and [`LabelSizeMode::Fixed`], whose cell footprint
 /// really does shrink as you zoom in — [`label_cull_rect`] measures a fixed
 /// label at the one zoom where the two modes agree.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -917,6 +918,23 @@ pub struct LabelCullMetrics {
     /// px is `size * ppc / this`, so this is the divisor that survives when
     /// `ppc` cancels; see [`LabelRect`].
     pub zoom_base_px_per_cell: f64,
+    /// The shell's **local** pixels-per-cell at the fit the labels are generated
+    /// for — `map_overlay.gd::label_px_per_cell()` (`displayed_rect().size.x /
+    /// _gw`), never the camera zoom. `Some(p)` makes the box follow the drawn
+    /// font exactly, **including its `[LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX]`
+    /// clamp and truncation** (`_label_font_px`): at a small `p` the drawn font
+    /// sits on the floor while a pure `size * p / base` model keeps shrinking,
+    /// so the culler believed two names fitted that collided on screen
+    /// (measured at 0.464 px/cell, 2048 grid: 5 px boxes against 10 px
+    /// drawn text).
+    ///
+    /// **`None` is "unknown", not a plausible number.** It keeps the legacy
+    /// unclamped model, in which `p` cancels (see [`LabelRect`]); a non-positive
+    /// or non-finite `Some` is treated the same way. The engine default stays
+    /// `None` because only the shell knows its own fit — every caller that is
+    /// not the shell (golden tests, headless callers) is byte-identical to
+    /// before this field existed.
+    pub px_per_cell: Option<f64>,
 }
 
 impl Default for LabelCullMetrics {
@@ -929,9 +947,19 @@ impl Default for LabelCullMetrics {
             advance_ratio: DEFAULT_LABEL_ADVANCE_RATIO,
             line_height: LABEL_BOX_LINE_HEIGHT,
             zoom_base_px_per_cell: 2.0,
+            px_per_cell: None,
         }
     }
 }
+
+/// `map_overlay.gd::LABEL_FONT_PX_MIN`: the floor on a label's NOMINAL font px
+/// (a judgement constant there, kept legible at tiny fits). **That file owns the
+/// value**; `cartalith-godot`'s `SHELL_LABEL_FONT_PX_MIN` mirrors it too and a
+/// test there pins the two copies to each other and to the literal.
+pub const LABEL_FONT_PX_MIN: f64 = 8.0;
+/// `map_overlay.gd::LABEL_FONT_PX_MAX`: the ceiling on the nominal font px (a
+/// judgement constant; that file owns the value). See [`LABEL_FONT_PX_MIN`].
+pub const LABEL_FONT_PX_MAX: f64 = 96.0;
 
 /// One label's estimated footprint, in cells.
 ///
@@ -960,8 +988,27 @@ pub fn label_cull_rect(lb: &MapLabel, tracking: f64, m: &LabelCullMetrics) -> La
         LabelCullMetrics::default().zoom_base_px_per_cell
     };
     let advance = f64::max(0.0, m.advance_ratio);
-    let mut w = size * (n * advance + tracking * f64::max(0.0, n - 1.0)) / base;
-    let mut h = size * m.line_height / base;
+    let (mut w, mut h) = match m.px_per_cell.filter(|p| p.is_finite() && *p > 0.0) {
+        // The drawn font, as `_label_font_px` computes it: nominal size, clamped,
+        // then truncated (`int(clampf(..))`; the floor is positive so `floor`
+        // agrees). A zoom-mode label's nominal size follows the fit; a fixed one
+        // holds `size` px on screen -- measured at camera zoom 1, where its
+        // `_label_unit()` is 1 and the two modes agree (see [`LabelRect`]).
+        Some(ppc) => {
+            let nominal = match lb.size_mode {
+                LabelSizeMode::Fixed => size,
+                LabelSizeMode::Zoom => size * ppc / base,
+            };
+            let fpx = nominal.clamp(LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX).floor();
+            // Pixels over pixels-per-cell is cells, the frame the boxes live in.
+            (fpx * (n * advance + tracking * f64::max(0.0, n - 1.0)) / ppc, fpx * m.line_height / ppc)
+        }
+        // Legacy: unclamped, `ppc` cancelled out.
+        None => (
+            size * (n * advance + tracking * f64::max(0.0, n - 1.0)) / base,
+            size * m.line_height / base,
+        ),
+    };
     // The rotated box's own AABB. Skipped at angle 0 so the common path — every
     // generated label, and every hand-placed one nobody turned — stays exact
     // rather than passing through a sin/cos that returns 1.0 and 0.0 the long
@@ -2372,6 +2419,80 @@ mod tests {
         let lb = MapLabel::new(0.0, 0.0, "Ashfen");
         let bad = LabelCullMetrics { zoom_base_px_per_cell: 0.0, ..Default::default() };
         assert_eq!(label_cull_rect(&lb, 0.06, &bad), label_cull_rect(&lb, 0.06, &LabelCullMetrics::default()));
+    }
+
+    /// A zoom-mode label's box with a known fit, as a literal. Size 15 at 0.464
+    /// px/cell is 3.48 nominal px, which `_label_font_px` lifts to the 8 px floor.
+    fn fitted(ppc: f64) -> LabelCullMetrics {
+        LabelCullMetrics { px_per_cell: Some(ppc), ..Default::default() }
+    }
+
+    #[test]
+    fn the_cull_box_follows_the_drawn_font_clamp() {
+        // Protects: with `px_per_cell` known, the box is the DRAWN label's -- font
+        // clamped to [8, 96] and truncated -- not an unclamped `size*ppc/base`
+        // one. 8 px * 1.3 / 0.464 = 22.41 cells tall where the legacy box is
+        // 15 * 1.3 / 2 = 9.75; ceiling and unclamped regimes are literals too.
+        let mut lb = MapLabel::new(0.0, 0.0, "Lake Valarccastra"); // 17 glyphs
+        lb.size = 15.0;
+        let floor = label_cull_rect(&lb, 0.0, &fitted(0.464));
+        assert!((floor.h - 8.0 * 1.3 / 0.464).abs() < 1e-9, "floor h {floor:?}");
+        assert!((floor.w - 8.0 * 17.0 * 0.5 / 0.464).abs() < 1e-9, "floor w {floor:?}");
+        let legacy = label_cull_rect(&lb, 0.0, &LabelCullMetrics::default());
+        assert!((legacy.h - 9.75).abs() < 1e-9 && (legacy.w - 63.75).abs() < 1e-9, "legacy {legacy:?}");
+        // Unclamped regime: 15 * 4 / 2 = 30 px, truncated 30.
+        let mid = label_cull_rect(&lb, 0.0, &fitted(4.0));
+        assert!((mid.h - 30.0 * 1.3 / 4.0).abs() < 1e-9, "mid {mid:?}");
+        // Ceiling: 15 * 40 / 2 = 300 nominal -> 96.
+        let top = label_cull_rect(&lb, 0.0, &fitted(40.0));
+        assert!((top.h - 96.0 * 1.3 / 40.0).abs() < 1e-9, "top {top:?}");
+        // Truncation, as `int(clampf(..))`: 15 * 2.5 / 2 = 18.75 -> 18.
+        let trunc = label_cull_rect(&lb, 0.0, &fitted(2.5));
+        assert!((trunc.h - 18.0 * 1.3 / 2.5).abs() < 1e-9, "trunc {trunc:?}");
+    }
+
+    #[test]
+    fn a_fixed_label_is_boxed_at_its_own_pixel_size_whatever_the_fit() {
+        // Protects: `LabelSizeMode::Fixed` holds `size` px (`_label_font_px`'s
+        // fixed branch), so its box does not follow the fit's scaling -- 15 px
+        // over 0.464 px/cell, not the 8 px floor a zoom label gets there.
+        let mut lb = MapLabel::new(0.0, 0.0, "Ashfen");
+        lb.size = 15.0;
+        lb.size_mode = LabelSizeMode::Fixed;
+        let r = label_cull_rect(&lb, 0.0, &fitted(0.464));
+        assert!((r.h - 15.0 * 1.3 / 0.464).abs() < 1e-9, "{r:?}");
+        lb.size_mode = LabelSizeMode::Zoom;
+        let z = label_cull_rect(&lb, 0.0, &fitted(0.464));
+        assert!(z.h < r.h, "the zoom label sits on the 8 px floor: {z:?} vs {r:?}");
+    }
+
+    #[test]
+    fn an_unknown_or_degenerate_fit_keeps_the_legacy_box() {
+        // Protects: `None` ("unknown") and a non-positive / non-finite `Some` fall
+        // back to the unclamped model rather than a plausible-looking scale.
+        let mut lb = MapLabel::new(0.0, 0.0, "Ashfen");
+        lb.size = 15.0;
+        let legacy = label_cull_rect(&lb, 0.06, &LabelCullMetrics::default());
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(label_cull_rect(&lb, 0.06, &fitted(bad)), legacy, "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_pair_that_fits_unclamped_is_culled_once_the_drawn_font_is_known() {
+        // Protects: the shipped defect end to end. Two water labels 15 cells
+        // apart: the legacy boxes are 9.75 tall and miss; the drawn labels (8 px
+        // floor at 0.464 px/cell, 22.4 cells tall) collide, so one is culled.
+        let pair = vec![
+            cand(LabelClass::Water, "Lake Valarccastra", 100.0, 100.0, 10.0),
+            cand(LabelClass::Water, "Lake Impvalcastra", 100.0, 115.0, 5.0),
+        ];
+        let mut s = LabelGenSettings { cull: Some(LabelCullMetrics::default()), ..Default::default() };
+        assert_eq!(generate_labels(&pair, &s, &LABEL_TYPOGRAPHY_DEFAULTS, &[]).labels.len(), 2);
+        s.cull = Some(fitted(0.464));
+        let g = generate_labels(&pair, &s, &LABEL_TYPOGRAPHY_DEFAULTS, &[]);
+        assert_eq!(g.labels.len(), 1);
+        assert_eq!(g.counts[LabelClass::Water.index()].suppressed, 1);
     }
 
     #[test]

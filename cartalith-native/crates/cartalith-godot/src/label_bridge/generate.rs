@@ -124,13 +124,28 @@ fn count_dict(c: &cartalith_civ::labels::LabelClassCount) -> VarDictionary {
 ///
 /// Its own function, off the `Dictionary`, for the reason
 /// [`class_multipliers`] gives: it is testable without a Godot runtime.
-fn fold_cull(current: Option<LabelCullMetrics>, on: bool, advance_ratio: Option<f64>) -> Option<LabelCullMetrics> {
+///
+/// `px_per_cell` is the shell's local fit (`ViewportHost::label_px_per_cell()`),
+/// which makes the culler's boxes follow the drawn, **clamped** font
+/// ([`LabelCullMetrics::px_per_cell`]). Like `advance_ratio` an absent value keeps
+/// the one already in force, and a non-positive or non-finite one is refused
+/// rather than stored: it would silently put the culler back on the unclamped
+/// model, which is the defect this field exists to close.
+fn fold_cull(
+    current: Option<LabelCullMetrics>,
+    on: bool,
+    advance_ratio: Option<f64>,
+    px_per_cell: Option<f64>,
+) -> Option<LabelCullMetrics> {
     if !on {
         return None;
     }
     let mut m = current.unwrap_or_default();
     if let Some(r) = advance_ratio.filter(|r| *r > 0.0) {
         m.advance_ratio = r;
+    }
+    if let Some(p) = px_per_cell.filter(|p| p.is_finite() && *p > 0.0) {
+        m.px_per_cell = Some(p);
     }
     Some(m)
 }
@@ -220,6 +235,9 @@ impl WorldGen {
     ///   `advance_ratio` is the caller's own font's mean glyph advance as a
     ///   fraction of the font size, which is the one measurement the engine
     ///   cannot take for itself; see [`fold_cull`] for what an absent key does.
+    ///   `px_per_cell` is the shell's local pixels-per-cell at the fit the labels
+    ///   are generated for (`ViewportHost::label_px_per_cell()`), so a box is the
+    ///   size of the drawn, font-clamped label rather than of an unclamped one.
     ///
     /// **`suppressed` is a real number now, and `0` still has two meanings** —
     /// culling off, or culling on and nothing overlapped. The caller knows
@@ -288,7 +306,12 @@ impl WorldGen {
             }
             if let Some(c) = options.get("cull").and_then(|v| v.try_to::<VarDictionary>().ok()) {
                 let on = c.get("on").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(true);
-                bridge.gen_settings.cull = fold_cull(bridge.gen_settings.cull, on, as_f64(&c, "advance_ratio"));
+                bridge.gen_settings.cull = fold_cull(
+                    bridge.gen_settings.cull,
+                    on,
+                    as_f64(&c, "advance_ratio"),
+                    as_f64(&c, "px_per_cell"),
+                );
             }
         }
 
@@ -455,22 +478,36 @@ mod tests {
     #[test]
     fn folding_the_cull_option_keeps_a_measured_ratio_across_a_toggle() {
         let measured = LabelCullMetrics { advance_ratio: 0.4271, ..Default::default() };
-        let off = fold_cull(Some(measured), false, None);
+        let off = fold_cull(Some(measured), false, None, None);
         assert!(off.is_none());
         // Off, then on with no ratio in the payload: the *last known* metrics
         // are gone with the `None`, so this is the shipped estimate again --
         // which is why the panel sends the ratio on every run, and why this
         // test states the consequence rather than pretending otherwise.
-        assert_eq!(fold_cull(off, true, None).unwrap().advance_ratio, cartalith_civ::labels::DEFAULT_LABEL_ADVANCE_RATIO);
+        assert_eq!(fold_cull(off, true, None, None).unwrap().advance_ratio, cartalith_civ::labels::DEFAULT_LABEL_ADVANCE_RATIO);
         // On, with a ratio: stored.
-        assert_eq!(fold_cull(off, true, Some(0.4271)).unwrap().advance_ratio, 0.4271);
+        assert_eq!(fold_cull(off, true, Some(0.4271), None).unwrap().advance_ratio, 0.4271);
         // On again with no ratio, from a state that already had one: kept.
-        assert_eq!(fold_cull(Some(measured), true, None).unwrap().advance_ratio, 0.4271);
+        assert_eq!(fold_cull(Some(measured), true, None, None).unwrap().advance_ratio, 0.4271);
         // A nonsensical ratio is refused rather than stored: a zero or negative
         // advance makes every box zero-width and culls nothing at all, which
         // would look exactly like the toggle being broken.
-        assert_eq!(fold_cull(Some(measured), true, Some(0.0)).unwrap().advance_ratio, 0.4271);
-        assert_eq!(fold_cull(Some(measured), true, Some(-1.0)).unwrap().advance_ratio, 0.4271);
+        assert_eq!(fold_cull(Some(measured), true, Some(0.0), None).unwrap().advance_ratio, 0.4271);
+        assert_eq!(fold_cull(Some(measured), true, Some(-1.0), None).unwrap().advance_ratio, 0.4271);
+    }
+
+    /// Protects: `fold_cull` stores a valid `px_per_cell`, keeps the stored one
+    /// when none is sent, and refuses a zero, negative or non-finite one (which
+    /// would silently revert the culler to the unclamped box model).
+    #[test]
+    fn folding_the_cull_option_keeps_and_validates_px_per_cell() {
+        let m = fold_cull(None, true, None, Some(0.464)).unwrap();
+        assert_eq!(m.px_per_cell, Some(0.464));
+        assert_eq!(fold_cull(Some(m), true, None, None).unwrap().px_per_cell, Some(0.464), "absent keeps");
+        for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(fold_cull(Some(m), true, None, Some(bad)).unwrap().px_per_cell, Some(0.464), "{bad}");
+        }
+        assert_eq!(fold_cull(None, true, None, None).unwrap().px_per_cell, None, "default stays unknown");
     }
 
     #[test]

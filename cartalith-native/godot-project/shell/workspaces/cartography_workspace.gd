@@ -2936,9 +2936,20 @@ func _regenerate_labels() -> void:
 	## `_label_advance_ratio()` was written, documented three lines above as
 	## "sent with every run", and called from nowhere. Both fixed here, in the
 	## one call that was always meant to carry them.
+	## `px_per_cell` is the drawn font's own input: `map_overlay.gd::_label_font_px`
+	## clamps the nominal size to `[LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX]`, so at a
+	## small fit (0.464 px/cell on a 2048 grid) the drawn text is far larger than
+	## `size * ppc / base` and unclamped cull boxes let labels collide on screen.
+	## The engine now boxes the clamped font from this number. Omitted when the
+	## overlay cannot answer (`0.0` = no viewport yet): the engine then keeps the
+	## last value, or the legacy unclamped boxes, rather than a made-up fit.
+	var cull := {"on": _label_cull, "advance_ratio": _label_advance_ratio()}
+	var ppc: float = app.viewport.label_px_per_cell() if app.viewport != null else 0.0
+	if ppc > 0.0:
+		cull["px_per_cell"] = ppc
 	var res: Dictionary = bridge.labels_generate({
 		"typography": typography,
-		"cull": {"on": _label_cull, "advance_ratio": _label_advance_ratio()},
+		"cull": cull,
 	})
 	_label_class_counts.clear()
 	_label_gen_ran = bool(res.get("ok", false))
