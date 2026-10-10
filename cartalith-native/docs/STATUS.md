@@ -265,6 +265,11 @@ Dated, because this is what a returning session needs and it is exactly what
 went missing from the old file. Commits are from `git log`; each claim below was
 re-checked against the tree rather than copied from the commit message.
 
+### 2026-10-10
+
+- **Ruling BK annotation batches 20-22 — verified by the main loop (comments only).** Batch 20: `cartalith-gpu` `src/lib.rs` tail + `gpu_flow.wgsl` (`dc24bb55`). Batch 21: `cartalith-godot/src/icon_bridge.rs` (`d11d1cfe`, 69 tests unchanged). Batch 22: `travel_bridge.rs` (`47e246b9`, 28 tests unchanged). Each: `git diff -U0` shows no non-comment line, tests identical before/after, `census_v2.py` for the file to 0 undocumented items / 0 unprotected tests. Not re-audited: the rest of the gpu crate, and batches 6-19 still need an independent verifier. `cartalith-godot` has about 1 100 undocumented items left (`project_bridge.rs` 203, `lib.rs` 149, `label_bridge.rs` 97, `render.rs` 72).
+- **Elevation-ramp colour editing from the right dock — fixed, verified windowed.** A paint/colour QA pass (owner report: elevation colours not seen painted, colour confirm not straightforward) confirmed by running: the dock's "Selected stop" picker was freed on its first colour sample (`_on_stop_color_changed` called `_rebuild()`), the map never refreshed after a dock stop edit, and the CARTO ramp swatches drifted from the engine. Now the one swatch/label/bar is repainted in place and `RenderWorkspace.on_ramp_edited_elsewhere()` marks the look Custom, re-renders and syncs the CARTO rows. Added a hint under the ramp rows while Colour relief is 0 (the shipped default, which hides every ramp edit), and the Ramp preset dropdown shows a disabled "Custom" instead of blank. Probe (seed 4242, strength 1.0, cell near the 2 320 m stop): map pixel (8,230,6) to (0,0,249) for blue and (250,0,0) for red; `_biomecol_probe` fail=0. **Not done:** the dock's position/delete/add/reverse/mode edits still call `_rebuild()` without refreshing the map; the stock Godot colour popup has no OK/Cancel (Escape keeps the change); biome swatches repaint the map only when the popup closes (deliberate). The default `ramp_strength` of 0 is untouched: a look decision for the owner.
+
 ### 2026-10-04
 
 - **Rivers painted into the map (`RIVERS_IN_MAP_SCOPE.md` RIM-1, RIM-3, RIM-6, default render path) — built, verified

@@ -1415,7 +1415,13 @@ func _apply_preset(index: int) -> void:
 	## fails on either name -- both are always in `RAMP_PRESETS` -- so the
 	## return value is not checked here, unlike `set_look`'s deliberately
 	## survivable failure.
-	bridge.load_ramp_preset(String(STYLE_PRESETS[index][4]) if STYLE_PRESETS[index].size() > 4 else "Earth")
+	var ramp_name := String(STYLE_PRESETS[index][4]) if STYLE_PRESETS[index].size() > 4 else "Earth"
+	bridge.load_ramp_preset(ramp_name)
+	## Record it for the "Ramp" dropdown (`_sync_ramp_preset_pick`), which cannot
+	## ask the engine which preset is loaded.
+	_ramp_preset_name = ramp_name
+	_ramp_preset_stops = bridge.color_ramp()
+	_sync_ramp()
 	_sync_appearance()
 	_refresh_map()
 	for key in values:
@@ -1557,7 +1563,10 @@ func _appearance_slider(parent: Control, key: String) -> void:
 	var handle := DccWidgets.slider(parent, String(spec["label"]),
 		float(spec["min"]) * scale, float(spec["max"]) * scale, step,
 		value * scale, unit,
-		func(v: float): pending[0] = v / scale,
+		func(v: float):
+			pending[0] = v / scale
+			if key == "ramp_strength":
+				_update_ramp_hint(pending[0]),
 		String(APPEARANCE_HELP.get(key, "")),
 		func():
 			## Read **before** the write, emitted **after** it: `MISTAKES.md`'s
@@ -1604,6 +1613,7 @@ func _sync_appearance() -> void:
 		var row: Dictionary = _app_rows[key]
 		row["pending"][0] = float(live[key])
 		row["handle"]["slider"].value = float(live[key]) * float(row["scale"])
+	_update_ramp_hint()
 
 ## `[key, min, max, label]` for one key, or `{}` if this cdylib has no such
 ## tunable.
@@ -1640,6 +1650,16 @@ var _ramp_gradient: Gradient
 var _ramp_mode := ""
 var _ramp_modes: Array = []
 var _ramp_mode_pick: OptionButton
+## The "Ramp" preset dropdown, its names, and what the engine held right after
+## the last preset load. The engine has no "which preset is this" read, so the
+## dropdown names a preset only while the live stops still equal that snapshot;
+## otherwise the disabled trailing "Custom" item shows (`_sync_ramp_preset_pick`).
+var _ramp_preset_pick: OptionButton
+var _ramp_preset_names: Array = []
+var _ramp_preset_name := ""
+var _ramp_preset_stops: Array = []
+## Shown only while Colour relief is 0, when no ramp colour reaches the map.
+var _ramp_hint: Label
 
 func _build_ramp() -> void:
 	if not bridge.ramp_api:
@@ -1649,8 +1669,13 @@ func _build_ramp() -> void:
 
 	var names: Array = bridge.ramp_presets()
 	if not names.is_empty():
-		DccWidgets.choice(body, "Ramp", names, -1,
-			func(i: int): _on_ramp_preset(String(names[i])),
+		_ramp_preset_names = names
+		var items: Array = names.duplicate()
+		items.append("Custom")
+		_ramp_preset_pick = DccWidgets.choice(body, "Ramp", items, names.size(),
+			func(i: int):
+				if i < names.size():
+					_on_ramp_preset(String(names[i])),
 			"Named elevation ramps. Picking one replaces every stop below; edit "
 			+ "from there and the picker no longer describes what is on screen.")
 
@@ -1680,6 +1705,9 @@ func _build_ramp() -> void:
 	_ramp_host = VBoxContainer.new()
 	_ramp_host.add_theme_constant_override("separation", 2)
 	body.add_child(_ramp_host)
+	_ramp_hint = DccWidgets.note(body,
+		"Colour relief is 0, so ramp colours are not shown. Raise Colour relief to see them.")
+	_update_ramp_hint()
 
 	DccWidgets.action(body, "Add stop", _on_add_stop)
 	DccWidgets.action(body, "Reverse", _on_reverse_ramp)
@@ -1714,6 +1742,55 @@ func _sync_ramp() -> void:
 			_ramp_mode_pick.select(mi)
 	_rebuild_ramp_rows()
 	_update_ramp_bar()
+	_sync_ramp_preset_pick()
+	_update_ramp_hint()
+
+## Called by `right_dock.gd` after it writes a stop colour to the engine ramp:
+## the same three things a CARTO swatch edit does (`_push_ramp`) -- mark the
+## look Custom and re-render the map -- plus a `_sync_ramp` so these swatches
+## show the engine's stops rather than the pre-edit copy. The rows are rebuilt
+## (not these swatches' own pickers in use: the edit came from the dock).
+func on_ramp_edited_elsewhere() -> void:
+	_mark_custom()
+	_refresh_map()
+	_sync_ramp()
+
+## Show the hint iff the engine says Colour relief is exactly 0. `strength` is
+## passed by the live slider callback (before the engine write) so the hint
+## follows the drag; `-1` means "ask the engine". Absent is unknown, never 0
+## (`_relief_is_dark`'s rule): a build that cannot answer shows no hint.
+func _update_ramp_hint(strength: float = -1.0) -> void:
+	if _ramp_hint == null:
+		return
+	if strength >= 0.0:
+		_ramp_hint.visible = strength <= 0.0
+	else:
+		_ramp_hint.visible = _relief_is_dark("colour_relief")
+
+## Select the preset the live stops still equal, else the disabled "Custom"
+## placeholder (the last item). Why a snapshot: the engine exposes no preset
+## stops to compare against, and loading each preset to find out would dirty the
+## world. Before any preset is picked the state is "Custom" even if the shipped
+## default ramp happens to be Earth -- that cannot be known from here.
+func _sync_ramp_preset_pick() -> void:
+	if _ramp_preset_pick == null:
+		return
+	var custom := _ramp_preset_names.size()
+	if _ramp_preset_pick.item_count <= custom:
+		return
+	_ramp_preset_pick.set_item_disabled(custom, true)
+	var sel := custom
+	var live: Array = bridge.color_ramp()
+	if _ramp_preset_name != "" and live.size() == _ramp_preset_stops.size():
+		var same := true
+		for i in live.size():
+			if absf(float(live[i][0]) - float(_ramp_preset_stops[i][0])) > 1e-5 or not (live[i][1] as Color).is_equal_approx(_ramp_preset_stops[i][1] as Color):
+				same = false
+				break
+		if same:
+			var f := _ramp_preset_names.find(_ramp_preset_name)
+			sel = f if f >= 0 else custom
+	_ramp_preset_pick.select(sel)
 
 func _on_ramp_mode(name: String) -> void:
 	if not bridge.set_ramp_mode(name):
@@ -1887,6 +1964,8 @@ func _on_reverse_ramp() -> void:
 
 func _on_ramp_preset(name: String) -> void:
 	if bridge.load_ramp_preset(name):
+		_ramp_preset_name = name
+		_ramp_preset_stops = bridge.color_ramp()
 		_sync_ramp()
 		_mark_custom()
 		_refresh_map()
@@ -1902,6 +1981,8 @@ func _push_ramp(rebuild: bool) -> void:
 	_refresh_map()
 	if rebuild:
 		_sync_ramp()
+	else:
+		_sync_ramp_preset_pick()
 
 
 # -- The raster layer stack (`GUI_GAP_REGISTER.md` CA-03/CA-04) ----------------

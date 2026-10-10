@@ -5712,6 +5712,11 @@ func _build_stops(body: Control) -> void:
 			"No colour-ramp editor: this build's engine has no set_color_ramp() binding.")
 		return
 	var sec := DccWidgets.section(body, "Ramp · stops")
+	## Fresh widgets are about to be built; the previous rebuild's were freed.
+	_stops_bar = null
+	_stops_row_sw.clear()
+	_stops_row_lbl.clear()
+	_stops_head_lbl = null
 	var modes: Array = bridge.ramp_modes()
 	if not modes.is_empty():
 		DccWidgets.choice(sec, "Blend", modes, maxi(0, modes.find(bridge.ramp_mode())),
@@ -5751,6 +5756,21 @@ func _build_stops(body: Control) -> void:
 ## private to a panel built once and this one is rebuilt wholesale on every
 ## `_rebuild()`, the tradeoff every other section in this file already makes.
 func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
+	var tex := _ramp_bar_texture(stops, mode)
+	if tex == null:
+		return
+	var bar := TextureRect.new()
+	bar.texture = tex
+	bar.stretch_mode = TextureRect.STRETCH_SCALE
+	bar.custom_minimum_size.y = 16
+	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(bar)
+	_stops_bar = bar
+
+## The gradient texture `_build_ramp_bar` shows, split out so a colour sample can
+## swap the live bar's texture in place (`_refresh_stops_in_place`) instead of
+## rebuilding the dock. `null` for an empty ramp, which draws no bar.
+func _ramp_bar_texture(stops: Array, mode: String) -> GradientTexture1D:
 	var offsets := PackedFloat32Array()
 	var colors := PackedColorArray()
 	var sorted := stops.duplicate()
@@ -5759,7 +5779,7 @@ func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
 		offsets.append(clampf(float(s[0]), 0.0, 1.0))
 		colors.append(s[1] as Color)
 	if offsets.is_empty():
-		return
+		return null
 	if offsets.size() == 1:
 		offsets.append(1.0)
 		colors.append(colors[0])
@@ -5773,12 +5793,7 @@ func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
 	var tex := GradientTexture1D.new()
 	tex.gradient = grad
 	tex.width = 256
-	var bar := TextureRect.new()
-	bar.texture = tex
-	bar.stretch_mode = TextureRect.STRETCH_SCALE
-	bar.custom_minimum_size.y = 16
-	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	parent.add_child(bar)
+	return tex
 
 func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	var tablet := DccTheme.is_tablet()
@@ -5792,10 +5807,12 @@ func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	sw.custom_minimum_size = Vector2(14, 14)
 	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	row.add_child(sw)
+	_stops_row_sw[idx] = sw
 	var fs := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_SMALL
 	var l := DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "accent" if idx == _stops_selected else "text_dim", fs)
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row.add_child(l)
+	_stops_row_lbl[idx] = l
 	row.add_child(DccTheme.mono_label("%d m" % int(round(_ramp_metres(float(pair[0])))), "text_dim", fs))
 	var sel := Button.new()
 	sel.text = "selected" if idx == _stops_selected else "select"
@@ -5837,7 +5854,8 @@ func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
 	picker.edit_alpha = false
 	picker.color_changed.connect(_on_stop_color_changed.bind(idx))
 	head.add_child(picker)
-	head.add_child(DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "text", DccTheme.FS_SMALL))
+	_stops_head_lbl = DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "text", DccTheme.FS_SMALL)
+	head.add_child(_stops_head_lbl)
 	head.add_child(DccTheme.spacer())
 	head.add_child(DccTheme.mono_label("%d m" % int(round(_ramp_metres(float(pair[0])))), "accent",
 		DccTheme.role_px("fs_readout") if DccTheme.is_tablet() else DccTheme.FS_SMALL))
@@ -5906,6 +5924,21 @@ func _on_stops_mode_changed(i: int, modes: Array) -> void:
 	bridge.set_ramp_mode(String(modes[i]))
 	_rebuild()
 
+## Live widgets of the stops section that show a stop's colour, so a colour
+## sample can repaint them in place. Cleared at the top of `_build_stops` and
+## guarded with `is_instance_valid` at use: a `_rebuild()` frees them.
+var _stops_bar: TextureRect
+var _stops_row_sw: Dictionary = {}
+var _stops_row_lbl: Dictionary = {}
+var _stops_head_lbl: Label
+
+## A colour sample from the selected-stop picker. **Deliberately no
+## `_rebuild()`**: that frees the `ColorPickerButton` and its popup on the very
+## first sample, so a drag could never continue (found by the 2026-10 paint QA).
+## The engine ramp is written, the one swatch/label/bar is repainted in place,
+## and the map and the CARTO ramp editor are told through
+## `RenderWorkspace.on_ramp_edited_elsewhere()`, which is the same refresh a
+## CARTO swatch edit does (`_push_ramp`).
 func _on_stop_color_changed(c: Color, idx: int) -> void:
 	var stops: Array = bridge.color_ramp()
 	if idx < 0 or idx >= stops.size():
@@ -5914,7 +5947,29 @@ func _on_stop_color_changed(c: Color, idx: int) -> void:
 	stops[idx][1] = Color(c.r, c.g, c.b, old.a)
 	if bridge.set_color_ramp(stops) <= 0:
 		return
-	_rebuild()
+	_refresh_stops_in_place(bridge.color_ramp(), idx)
+	for ws in app._workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			ws._render.on_ramp_edited_elsewhere()
+
+## Repaint, without rebuilding, everything the stops section shows of a colour:
+## the row swatch and hex, the selected-stop hex and the gradient bar. `stops`
+## is the engine's own (sorted) list read back after the write, so the dock
+## shows what the engine holds rather than what the picker last said.
+func _refresh_stops_in_place(stops: Array, idx: int) -> void:
+	if idx < 0 or idx >= stops.size():
+		return
+	var col := stops[idx][1] as Color
+	var sw = _stops_row_sw.get(idx)
+	if sw != null and is_instance_valid(sw):
+		sw.color = Color(col.r, col.g, col.b, 1.0)
+	var lbl = _stops_row_lbl.get(idx)
+	if lbl != null and is_instance_valid(lbl):
+		lbl.text = "#%s" % col.to_html(false).to_upper()
+	if _stops_head_lbl != null and is_instance_valid(_stops_head_lbl):
+		_stops_head_lbl.text = "#%s" % col.to_html(false).to_upper()
+	if _stops_bar != null and is_instance_valid(_stops_bar):
+		_stops_bar.texture = _ramp_bar_texture(stops, bridge.ramp_mode())
 
 func _on_stop_position_committed(idx: int, target: float) -> void:
 	var stops: Array = bridge.color_ramp()
