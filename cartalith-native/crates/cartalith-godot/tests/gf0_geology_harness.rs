@@ -74,9 +74,10 @@
 //!
 //! **Since GF-11** (owner Ruling BY item 1, 2026-10-10: ship rock-aware
 //! construction alone, build no uplift-driven stage) the "GF-11" section holds
-//! construction alone's own pre-registered go/no-go rule (`GF11_RULE`,
-//! printed verbatim by every run) and its two ignored runs,
-//! `gf11_construction_alone` and `gf11_b9_cost`.
+//! construction alone's own pre-registered go/no-go rule (`GF11_RULE`, v2
+//! since Ruling BY item 3, printed verbatim by every run) and its two ignored
+//! runs, `gf11_construction_alone` and `gf11_b9_cost`, plus two diagnostics
+//! outside the rule (`gf11_stranded_diag`, `gf11_g3_lake_diag`).
 //!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
@@ -3755,19 +3756,23 @@ fn gf10_b9_cost() {
 //   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_construction_alone
 //   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_b9_cost
 
-/// **GF-11's pre-registered go/no-go rule, verbatim.** Written 2026-10-10,
-/// before any GF-11 run, and printed by [`gf11_construction_alone`] so every
-/// log carries the rule it was judged by. No threshold in it may move after a
-/// result is seen.
+/// **GF-11's pre-registered go/no-go rule, verbatim (v2).** v1 was written
+/// 2026-10-10 before any GF-11 run (sha256 of its snapshot `fba82360...`,
+/// recorded in `STATUS.md`) and judged the first run NO-GO. v2 is Ruling BY
+/// item 3's amendment of G4 alone, written **after** that first run's numbers
+/// were seen (disclosed in its own text), snapshotted before the second run.
+/// Printed by [`gf11_construction_alone`] so every log carries the rule it was
+/// judged by. No threshold in it may move after a result is seen.
 const GF11_RULE: &str = "\
-GF-11 PRE-REGISTERED RULE (construction alone; Ruling BY item 1; written 2026-10-10 before any GF-11 run).
+GF-11 PRE-REGISTERED RULE v2 (construction alone; Ruling BY items 1 and 3). v1 was written 2026-10-10 before any GF-11 run; v2 was written 2026-10-10 AFTER the first run's numbers were seen, and before the second run.
 Disclosure: GF-10 (GEOLOGY_FIRST_SCOPE.md 5.10) already measured this arm once, so this rule is written knowing those numbers. No threshold below is lower than the scope's; every bar dropped is dropped for a reason in the scope's own text, not for its GF-10 result.
+Disclosure (v2): the first GF-11 run, judged by v1, read G1 on 3 of 5 seeds, G2 on 5 of 5, G3 failing on seed 24601 at every tau (lake share 6.75 % at tau 1 against A's 2.23 %), G4 failing on every seed (stranded below-sea cells, all inside depressions of z0), G5 1.194 and 1.195; verdict NO-GO. v2 changes ONLY G4, as Ruling BY item 3 directs (owner, 2026-10-10: existing lakes are exempt from B14), and states the population of the c = 0 identity (non-exempt cells only), which v1's code already used. G1, G2, G3 and G5 and every threshold are v1's, word for word.
 Setting: 800 km, 2048x1311, five seeds (483920, 24601, 71077345, 12345, 314159); D1 by its rule (median input cap thickness); step breach rule; tau = 1 unless stated; arms A (app world), B (construction alone, c = 0), C (construction alone, c = 0.5).
 GO only if ALL of G1-G5 hold. A reading that is not measurable counts as a fail.
  G1  B4, construction's own bar (5.2 revised; 4.14: 'B4 is therefore expected to pass at 800 km'): in arm C, median slope at breach lines / median slope of substrate cells within 5 >= 2.0 AND top-decile share >= 0.40 over input-qualified breach lines, on >= 3 of 5 seeds (GF-10's build-rule seed count, 7 GF-10).
  G2  B4's input-selected twin, replaced: at the cells 4.14's rule PREDICTS from inputs alone to be breach lines at c = 0.5 (two-layer land, not arc-exempt, cap survives B*k_t <= h, with a 4-neighbour two-layer land cell where B*k_t > h), median slope in C / median slope in B over the SAME cells >= 1.2 (5.2's twin relative bar), population >= 100, on >= 3 of 5 seeds.
  G3  B8 (5.2 with its BM extension): for arm C against A, ocean cells on river paths = 0, river cells that are lake <= A + 2 percentage points, 1-3-cell lakes <= 1.25 x A, on ALL five seeds at EVERY tau in {0.5, 1, 2, 4} (tau scales construction's budget, 4.16).
- G4  B14 (GF-11's own bar), on B and C at tau 1 and on C at every tau, all five seeds: contact bit-identical after construction; 0 new closed depressions deeper than 0.004; every land cell now below sea is ocean by build_water_bodies; every cell's regolith rose by exactly its fill raise (within 1e-6 normalised); no cell ends above its structural height (replaces B15's clamp); and on B, the unfilled surface equals z0 - m_to_norm(B) bit for bit on every non-exempt cell (9 Q17's arc exemption applies in both arms).
+ G4  B14 (GF-11's own bar, amended by Ruling BY item 3), on B and C at tau 1 and on C at every tau, all five seeds: contact bit-identical after construction; 0 new closed depressions deeper than 0.004; every land cell now below sea that was NOT in an existing depression of the structural surface is ocean by build_water_bodies (existing depression: flood4(z0) - z0 > 0, the 4-connected priority flood seeded at z0's ocean cells and the map's non-wrapping edges, the same fill construction uses; such an existing lake bed may go below sea as a lake: its cells are counted and reported, not judged); every cell's regolith rose by exactly its fill raise (within 1e-6 normalised); no cell ends above its structural height (replaces B15's clamp); and on B, the unfilled surface equals z0 - m_to_norm(B) bit for bit on every cell except the arc-exempt ones (9 Q17: land whose exposed rock is andesite or tuff has D = 0 by rule, so the identity is judged on non-exempt cells only; 5.2's 'on every cell' is read this way; 9 Q17's exemption applies in both arms).
  G5  B9 (5.2, unchanged at tau 1): projected construction-alone generation <= 1.20 x the app's median, in EACH of two runs made as separate processes, alone.
 Not gated, and why:
  - B13: tests the uplift-driven stage's steady state (5.2: 'GF-12; the positive control through the BM stage'). There is no stage. Dropped.
@@ -3839,10 +3844,32 @@ fn predicted_breach_lines(ctx: &SeedCtx, c: f64, tau: f64) -> Vec<usize> {
     (0..gw * gh).filter(|&i| state[i] == 1 && nb4(i, gw, gh, world).any(|j| state[j] == 2)).collect()
 }
 
+/// Ruling BY item 3's exemption mask: the cells of the structural surface `z0`
+/// that sit in a depression already (`flood4(z0) − z0 > 0`), with the fill
+/// seeded exactly as [`construct`] seeds its own (the structural ocean and
+/// the map's non-wrapping edges), so "existing depression" means the
+/// depression construction itself lets keep its depth (`d_old > 0` there).
+/// Reads only inputs, never an arm's output.
+fn gf11_existing_depression(ctx: &SeedCtx) -> Vec<bool> {
+    let p = &ctx.p;
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let edge = boundary_cells(gw, gh, world);
+    let seed: Vec<bool> = (0..gw * gh).map(|i| ctx.ocean0[i] || edge[i]).collect();
+    let z0: &[f32] = &ctx.pre.field;
+    let f0 = flood4(z0, &seed, gw, gh, world);
+    (0..gw * gh).map(|i| f0[i] > z0[i]).collect()
+}
+
 /// G4 (B14 on a real world) for one construction-alone arm. Returns `(pass,
 /// detail)`. Reads only the construction's own product ([`ArmOut::cons`] and
 /// [`ArmOut::constructed`], i.e. before the hillslope and the tail), because
 /// B14 is a claim about construction, not about the passes after it.
+///
+/// **Ruling BY item 3 (rule v2).** A below-sea, non-ocean land cell that sat
+/// in a depression of the structural surface already (`flood4(z0) − z0 > 0`,
+/// [`gf11_existing_depression`]) is an existing lake bed, which §4.14 lets
+/// keep its depth and the ruling lets go below sea as a lake: it is counted
+/// (`exempt`) and reported, never judged. Only the rest (`stranded`) fail G4.
 fn gf11_b14(ctx: &SeedCtx, o: &ArmOut, c: f64, tau: f64) -> (bool, String) {
     let p = &ctx.p;
     let (gw, gh, world) = (p.gw, p.gh, p.world);
@@ -3855,7 +3882,10 @@ fn gf11_b14(ctx: &SeedCtx, o: &ArmOut, c: f64, tau: f64) -> (bool, String) {
     let bits = |a: &[f32], b: &[f32]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits());
     let contact_ok = bits(&ccol.contact, &col0.contact);
     let class = cartalith_civ::build_water_bodies(cf, gw, gh, sea, world, None).classification;
-    let stranded = (0..n).filter(|&i| z0[i] as f64 > sea && (cf[i] as f64) < sea && class[i] != 1).count();
+    let in_dep = gf11_existing_depression(ctx);
+    let below_not_ocean: Vec<usize> = (0..n).filter(|&i| z0[i] as f64 > sea && (cf[i] as f64) < sea && class[i] != 1).collect();
+    let exempt = below_not_ocean.iter().filter(|&&i| in_dep[i]).count();
+    let stranded = below_not_ocean.len() - exempt;
     let reg_err = (0..n)
         .map(|i| ((ccol.regolith[i] as f64 - col0.regolith[i] as f64) - (cf[i] as f64 - cons.pre_fill[i] as f64)).abs())
         .fold(0f64, f64::max);
@@ -3870,11 +3900,12 @@ fn gf11_b14(ctx: &SeedCtx, o: &ArmOut, c: f64, tau: f64) -> (bool, String) {
     });
     let pass = contact_ok && cons.new_pits == 0 && stranded == 0 && reg_err <= FILL_TOL && above == 0 && c0.unwrap_or(0) == 0;
     let detail = format!(
-        "contact bit-identical {contact_ok}; new pits > 0.004 {}; land now below sea {} ({:.5} of land; old 1 m floor would catch {}), of which not ocean {stranded}; max |regolith - raise| {reg_err:.2e}; cells above z0 {above}; c=0 identity misses {}; fill passes {}, raised cells {}; breached {} of {} two-layer, arc-exempt {}",
+        "contact bit-identical {contact_ok}; new pits > 0.004 {}; land now below sea {} ({:.5} of land; old 1 m floor would catch {}), of which not ocean {}: existing lake bed (exempt, BY item 3) {exempt}, judged and stranded {stranded}; max |regolith - raise| {reg_err:.2e}; cells above z0 {above}; c=0 identity misses {}; fill passes {}, raised cells {}; breached {} of {} two-layer, arc-exempt {}",
         cons.new_pits,
         cons.land_to_sea,
         cons.land_to_sea as f64 / cons.land.max(1) as f64,
         cons.would_floor,
+        below_not_ocean.len(),
         c0.map_or("n/a (c != 0)".to_string(), |k| k.to_string()),
         cons.fill_passes,
         cons.raised_cells,
@@ -4068,6 +4099,78 @@ fn gf11_stranded_diag() {
         }
         let _ = p;
         println!("GF-11 stranded diag seed {seed}: below-sea non-ocean land cells {}: in a z0 depression {in_dep}, not {fresh}; by class {by_class:?}", in_dep + fresh);
+    }
+}
+
+/// **A diagnostic, added before the second GF-11 run and outside the rule**:
+/// what are G3's extra lake cells (seed 24601 read 6.75 % lake on river paths
+/// against A's 2.23 % in the first run)? For arms A and C (τ = 1) it walks
+/// the river paths exactly as [`b8`] does and splits the path cells the
+/// classifier calls lake by: below sea in the arm's final surface (a lake
+/// `build_water_bodies` makes unconditionally from an enclosed below-sea
+/// component) or above it (a rain-gated pooled depression); and whether the
+/// cell sat in a depression of the structural surface already
+/// ([`gf11_existing_depression`], Ruling BY item 3's exempt set), and if so
+/// whether `z0`'s own classification already called it lake. It decides
+/// nothing and redefines no gate.
+#[test]
+#[ignore = "GF-11 diagnostic: G3's lake cells on river paths; run alone in release"]
+fn gf11_g3_lake_diag() {
+    let (gw, gh) = grid();
+    let km = 800.0;
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let ctx = build_ctx_opts(seed, km, gw, gh, false);
+        let (sea, world) = (ctx.pre.sea_level, ctx.p.world);
+        let in_dep = gf11_existing_depression(&ctx);
+        let class0 = cartalith_civ::build_water_bodies(&ctx.pre.field, gw, gh, sea, world, Some(&ctx.pre.rainfall)).classification;
+        let base = ArmCfg { construct: true, stage: false, c: C_TREAT, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
+        let oc = run_arm(&ctx, base);
+        for (arm, ws) in [("A", &ctx.a), ("C", &oc.ws)] {
+            let class = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall)).classification;
+            let (Some(order), Some(ch)) = (ws.stream_order.as_ref(), ws.channels.as_ref()) else {
+                println!("GF-11 G3 diag seed {seed} {arm}: no rivers");
+                continue;
+            };
+            let rivers = cartalith_hydrology::river_entities(
+                order,
+                &ch.recv,
+                &ws.flow_discharge,
+                &ws.field,
+                gw,
+                gh,
+                1,
+                cartalith_hydrology::river_flow_thresh(gw, gh, gw, km),
+                cartalith_hydrology::river_width_scale_k(km),
+                false,
+            );
+            let (mut cells, mut lake, mut below, mut dep, mut dep_lake0, mut dep_below) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+            for r in &rivers {
+                for &(x, y) in r.pts.iter().take(r.pts.len().saturating_sub(1)) {
+                    let i = (y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1);
+                    cells += 1;
+                    if class[i] != 2 {
+                        continue;
+                    }
+                    lake += 1;
+                    let b = (ws.field[i] as f64) < sea;
+                    below += b as usize;
+                    if in_dep[i] {
+                        dep += 1;
+                        dep_lake0 += (class0[i] == 2) as usize;
+                        dep_below += b as usize;
+                    }
+                }
+            }
+            let all_lake = class.iter().filter(|&&c| c == 2).count();
+            let all_lake_below = (0..gw * gh).filter(|&i| class[i] == 2 && (ws.field[i] as f64) < sea).count();
+            let all_lake_dep = (0..gw * gh).filter(|&i| class[i] == 2 && in_dep[i]).count();
+            println!(
+                "GF-11 G3 diag seed {seed} {arm}: path cells {cells}, lake {lake} ({:.3} %): below sea {below}, above {}; in a z0 depression {dep} (of which z0 already lake {dep_lake0}, below sea now {dep_below}), not {} | all lake cells {all_lake}: below sea {all_lake_below}, in a z0 depression {all_lake_dep}",
+                100.0 * lake as f64 / cells.max(1) as f64,
+                lake - below,
+                lake - dep
+            );
+        }
     }
 }
 
