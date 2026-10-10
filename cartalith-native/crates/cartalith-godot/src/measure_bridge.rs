@@ -89,7 +89,9 @@ pub const RIDGE_PROMINENCE_M: f64 = 100.0;
 pub struct SectionSample {
     /// Distance from A along the line, in kilometres.
     pub km: f64,
+    /// Grid column of the sampled cell (after world-mode wrapping).
     pub x: usize,
+    /// Grid row of the sampled cell, clamped into `0..gh`.
     pub y: usize,
     /// Metres above sea level (`FieldRefs::elevation_m`, the same anchoring
     /// the Sample panel's own accent readout uses).
@@ -98,13 +100,17 @@ pub struct SectionSample {
     /// metre — the identical expression `sample_cell` uses, so a cursor
     /// reading and a profile reading at the same cell agree.
     pub slope_deg: f64,
+    /// Temperature at the cell, degrees Celsius, as stored in `FieldRefs::temperature`.
     pub temp_c: f64,
     /// The engine's normalised [0,1] moisture, not millimetres — this port's
     /// climate model never computes millimetres (`right_dock.gd`'s own
     /// Precipitation tooltip says so).
     pub rain: f64,
+    /// Flow discharge at the cell; `0.0` when the raster has no entry (absence, not a measured dry cell).
     pub flow: f64,
+    /// Stream order at the cell; `0` means "not a river cell" (also when no stream-order raster exists).
     pub river_order: i64,
+    /// Rock-type name from `LITH_NAMES`; an em dash if the index is out of range.
     pub lithology: &'static str,
     /// `None` for a world with no civilisation layer, which
     /// is the same condition every other biome reading in this port reports
@@ -117,8 +123,11 @@ pub struct SectionSample {
 /// The canvas's own PROFILE STATISTICS block, field for field.
 #[derive(Debug, Clone, Default)]
 pub struct SectionStats {
+    /// Lowest sampled elevation, metres. `Default` zeros are not a real reading; see [`section_stats`].
     pub min_m: f64,
+    /// Highest sampled elevation, metres.
     pub max_m: f64,
+    /// Arithmetic mean of the sampled elevations, metres.
     pub mean_m: f64,
     /// Σ of the positive sample-to-sample deltas, metres.
     pub ascent_m: f64,
@@ -128,18 +137,24 @@ pub struct SectionStats {
     /// the canvas prints all three and a reader should be able to check them
     /// against each other.
     pub net_m: f64,
+    /// Mean of the per-sample ground angles, degrees.
     pub mean_slope_deg: f64,
+    /// Steepest per-sample ground angle, degrees.
     pub max_slope_deg: f64,
     /// Kilometres of the line standing above 2 000 m, the canvas's own band.
     pub above_2000m_km: f64,
+    /// Count of `"river"` entries in the crossing list (derived from it, never recounted).
     pub river_crossings: usize,
+    /// Count of `"ridge"` entries in the crossing list.
     pub ridge_crossings: usize,
+    /// Count of `"shore"` entries in the crossing list.
     pub shore_crossings: usize,
 }
 
 /// One named place the line crosses something — the canvas's CROSSINGS list.
 #[derive(Debug, Clone)]
 pub struct SectionCrossing {
+    /// Distance from A along the line, kilometres.
     pub km: f64,
     /// `"river"` / `"ridge"` / `"shore"`.
     pub kind: &'static str,
@@ -153,16 +168,24 @@ pub struct SectionCrossing {
     pub elev_m: f64,
 }
 
+/// A whole cross-section: its samples, statistics block, crossing list and
+/// line metrics. Built only by [`section_profile`]; owned, holds no borrow of the
+/// world.
 #[derive(Debug, Clone)]
 pub struct SectionProfile {
+    /// The evenly spaced samples, first on A and last on B.
     pub samples: Vec<SectionSample>,
+    /// The canvas's PROFILE STATISTICS block for these samples.
     pub stats: SectionStats,
+    /// River, shore and ridge crossings, sorted by `km`.
     pub crossings: Vec<SectionCrossing>,
     /// Total line length, kilometres.
     pub length_km: f64,
     /// Straight-line 3D length, following the sampled surface — Σ over
     /// consecutive samples of `hypot(horizontal, Δelevation)`.
     pub length_3d_km: f64,
+    /// Compass bearing A to B, degrees in `[0, 360)`, `0` = north. A zero-length
+    /// line also yields a bearing (a placeholder, not a flagged absence).
     pub bearing_deg: f64,
     /// Metres between consecutive samples along the ground.
     pub spacing_m: f64,
@@ -229,6 +252,10 @@ fn wrap_x(f: &FieldRefs, fx: f64) -> usize {
     }
 }
 
+/// Reads every raster a section needs at one cell and returns a
+/// [`SectionSample`]. Indexes the rasters directly instead of calling
+/// `sample_cell`, whose boundary search is too costly per sample. Must not be
+/// given an `(x, y)` outside the grid: `f.idx` is unchecked.
 fn sample_along(f: &FieldRefs, x: usize, y: usize, km: f64) -> SectionSample {
     let i = f.idx(x, y);
     let sn = sample_bridge::slope_at(f, x, y);
@@ -272,6 +299,9 @@ fn sample_along(f: &FieldRefs, x: usize, y: usize, km: f64) -> SectionSample {
     }
 }
 
+/// Derives the min/max/mean, ascent/descent, slope and above-2000 m figures
+/// from the samples. Empty input returns the all-zero `Default`, which is a
+/// placeholder, not a measurement; the crossing counts are filled by the caller.
 fn section_stats(s: &[SectionSample], length_km: f64) -> SectionStats {
     if s.is_empty() {
         return SectionStats::default();
@@ -301,15 +331,19 @@ fn section_stats(s: &[SectionSample], length_km: f64) -> SectionStats {
         }
     }
     st.net_m = s[s.len() - 1].elev_m - s[0].elev_m;
-    // Each interior sample owns one segment's worth of the line; the two ends
-    // own half a segment each. Simply counting samples over-reports a band
-    // that starts or ends mid-line by one whole segment.
+    // Each sample is credited one full segment (`length_km / (n - 1)`); the
+    // code does not halve the two end samples, so a band touching an end can
+    // be over-stated by up to half a segment. (An earlier comment here claimed
+    // half-segment ends, which the code never did.)
     let seg_km = if s.len() > 1 { length_km / (s.len() - 1) as f64 } else { 0.0 };
     let above = s.iter().filter(|p| p.elev_m > 2000.0).count();
     st.above_2000m_km = above as f64 * seg_km;
     st
 }
 
+/// Finds river runs, land/water transitions and prominent ridges in the samples,
+/// returned sorted by distance. Fewer than three samples returns an empty list.
+/// Never invents a name: labels are descriptions only.
 fn section_crossings(s: &[SectionSample]) -> Vec<SectionCrossing> {
     let mut out = Vec::new();
     if s.len() < 3 {
@@ -388,8 +422,12 @@ fn section_crossings(s: &[SectionSample]) -> Vec<SectionCrossing> {
 
 // ===================== Area (canvas state 3) =====================
 
+/// Result of measuring a closed ring: exact projected area and perimeter, plus
+/// raster-derived figures estimated under a sampling stride. A `Default` (all
+/// zero) value means "not measured", e.g. fewer than three vertices.
 #[derive(Debug, Clone, Default)]
 pub struct AreaMeasure {
+    /// Number of ring vertices supplied.
     pub vertices: usize,
     /// The exact shoelace figure, km² — never an estimate.
     pub projected_km2: f64,
@@ -404,17 +442,25 @@ pub struct AreaMeasure {
     pub centroid: (f64, f64),
     /// `(x, y, w, h)` in grid cells.
     pub bbox: (f64, f64, f64, f64),
+    /// Bounding-box width, kilometres.
     pub bbox_w_km: f64,
+    /// Bounding-box height, kilometres.
     pub bbox_h_km: f64,
     /// Ocean/lake area inside the ring, km². Reported as a positive number;
     /// the dock prints the minus sign.
     pub water_km2: f64,
+    /// Projected area minus `water_km2`, km².
     pub land_km2: f64,
+    /// Mean elevation over the sampled cells inside the ring, metres; `0.0` when
+    /// no cell centre fell inside (indistinguishable from a real sea-level mean).
     pub mean_elev_m: f64,
     /// Cells actually tested, and the stride used to test them. `1` means
     /// every cell inside the bounding box was visited and nothing is an
     /// estimate but the true-surface integral's own discretisation.
+    /// Number of cell centres found inside the ring (not the number visited).
     pub sampled_cells: usize,
+    /// Step in cells between tested columns and rows; `0` only on the early-return
+    /// paths where no walk happened.
     pub stride: usize,
     /// `false` when the civilisation layer is absent, in which case
     /// `water_km2` falls back to "below sea level" rather than reading
@@ -525,11 +571,17 @@ pub fn area_measure(f: &FieldRefs, pts: &[(f64, f64)]) -> AreaMeasure {
 
 // ===================== Radius and vertical (canvas state 3) =====================
 
+/// A circle's four figures from centre and rim; all in km or km². Built only by
+/// [`radius_measure`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RadiusMeasure {
+    /// Ruler distance from centre to rim, kilometres.
     pub radius_km: f64,
+    /// Twice the radius, kilometres.
     pub diameter_km: f64,
+    /// `TAU * r`, kilometres.
     pub circumference_km: f64,
+    /// `PI * r * r`, km².
     pub area_km2: f64,
 }
 
@@ -546,16 +598,24 @@ pub fn radius_measure(f: &FieldRefs, centre: (f64, f64), rim: (f64, f64)) -> Rad
     }
 }
 
+/// The canvas's two-point vertical block: both elevations, the rise, the
+/// horizontal and 3D distances, and the grade. Built only by [`vertical_measure`].
 #[derive(Debug, Clone, Copy, Default)]
 pub struct VerticalMeasure {
+    /// Elevation at the first point, metres (`0.0` if off-grid; see [`elev_at`]).
     pub p1_elev_m: f64,
+    /// Elevation at the second point, metres.
     pub p2_elev_m: f64,
+    /// Second minus first, metres; negative when descending.
     pub delta_m: f64,
+    /// Ruler distance between the points, kilometres.
     pub horizontal_km: f64,
+    /// `hypot(horizontal, rise)`, kilometres; always non-negative.
     pub distance_3d_km: f64,
     /// Rise over run as a percentage. `0.0` when the two points share a cell,
     /// where a grade is undefined rather than infinite.
     pub grade_pct: f64,
+    /// `atan(grade)` in degrees; signed like `grade_pct`, `0.0` for a shared cell.
     pub angle_deg: f64,
 }
 
@@ -616,6 +676,9 @@ pub struct ChainRelief {
     pub sinuosity: f64,
 }
 
+/// Elevation-derived rows for a click chain. Fewer than two points returns zero
+/// relief and `sinuosity` `1.0` (a placeholder meaning "unbent", not a measurement).
+/// Reads the same ruler km and `elev_at` as the other measures.
 pub fn chain_relief(f: &FieldRefs, pts: &[(f64, f64)]) -> ChainRelief {
     if pts.len() < 2 {
         return ChainRelief { sinuosity: 1.0, ..ChainRelief::default() };
@@ -636,6 +699,8 @@ pub fn chain_relief(f: &FieldRefs, pts: &[(f64, f64)]) -> ChainRelief {
     }
 }
 
+/// Unit tests for the section, area, radius, vertical and chain measures,
+/// run over a small synthetic world with a ramp, ridge, river and coast.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,6 +708,8 @@ mod tests {
     /// A tiny synthetic world: a west-to-east ramp with a 2-cell-wide river
     /// down the middle column and a lake at the east end, so every branch of
     /// the crossing detector has something to find.
+    /// Owns every raster `refs` borrows, so a test can mutate a field before
+    /// building its [`FieldRefs`]. Test fixture only.
     struct World {
         field: Vec<f32>,
         temperature: Vec<f32>,
@@ -656,9 +723,13 @@ mod tests {
         params: cartalith_engine::WorldParams,
     }
 
+    /// Fixture grid width in cells (a judgement: wide enough for a ramp, ridge,
+    /// river and coast along one row).
     const GW: usize = 32;
+    /// Fixture grid height in cells (a judgement: enough rows to test off-axis lines).
     const GH: usize = 8;
 
+    /// Builds the fixture world; see the comment above [`World`] for its layout.
     fn world() -> World {
         let n = GW * GH;
         let mut field = vec![0.0f32; n];
@@ -698,6 +769,8 @@ mod tests {
         }
     }
 
+    /// Borrows a [`FieldRefs`] over the fixture: sea level 0.5, 4 000 m peak, 10 km
+    /// per cell, flat (non-wrapping) map.
     fn refs(w: &World) -> FieldRefs<'_> {
         FieldRefs {
             gw: GW,
@@ -743,6 +816,7 @@ mod tests {
         }
     }
 
+    /// Protects: a section returns as many samples as asked, for in-range counts.
     #[test]
     fn a_section_returns_exactly_the_requested_sample_count() {
         let w = world();
@@ -752,6 +826,7 @@ mod tests {
         }
     }
 
+    /// Protects: the sample count is clamped to `2..=MAX_SECTION_SAMPLES`.
     #[test]
     fn a_section_clamps_its_sample_count_at_both_ends() {
         let w = world();
@@ -763,6 +838,7 @@ mod tests {
         );
     }
 
+    /// Protects: the first and last samples land on A and B, with `km` 0 and the line length.
     #[test]
     fn a_sections_first_and_last_sample_sit_on_its_own_endpoints() {
         let w = world();
@@ -775,6 +851,7 @@ mod tests {
         assert!((last.km - p.length_km).abs() < 1e-9);
     }
 
+    /// Protects: section length and bearing equal the ruler's (300 km, due east).
     #[test]
     fn a_sections_length_is_the_rulers_own_length() {
         let w = world();
@@ -785,6 +862,7 @@ mod tests {
         assert!((p.bearing_deg - 90.0).abs() < 1e-9, "due east");
     }
 
+    /// Protects: ascent + descent == net, and min < mean < max on a relief profile.
     #[test]
     fn ascent_descent_and_net_agree_with_each_other() {
         let w = world();
@@ -797,6 +875,7 @@ mod tests {
         assert!(st.mean_m > st.min_m && st.mean_m < st.max_m);
     }
 
+    /// Protects: a flat, dry, riverless line has zero relief, no crossings and equal 2D/3D length.
     #[test]
     fn a_flat_section_has_no_relief_and_no_crossings() {
         let n = GW * GH;
@@ -815,6 +894,7 @@ mod tests {
         assert!((p.length_3d_km - p.length_km).abs() < 1e-9);
     }
 
+    /// Protects: all three crossing kinds are detected, counts match the list, and the list is distance-sorted.
     #[test]
     fn a_section_finds_the_river_the_shore_and_the_ridge() {
         let w = world();
@@ -838,9 +918,11 @@ mod tests {
         }
     }
 
+    /// Protects: a local maximum below `RIDGE_PROMINENCE_M` is not reported as a ridge (negative test: passes if no ridge appears).
     #[test]
     fn the_ridge_prominence_floor_rejects_a_ripple() {
-        // The same ramp with a 1 cm bump: a local maximum with no prominence.
+        // The same ramp with a 1e-5 field-unit bump (centimetres of relief at this
+        // fixture's scale): a local maximum with no prominence.
         let mut w = world();
         for y in 0..GH {
             for x in 0..GW {
@@ -854,6 +936,7 @@ mod tests {
         assert!(p.crossings.iter().all(|c| c.kind != "ridge"), "{:?}", p.crossings);
     }
 
+    /// Protects: 3D length is never below 2D length.
     #[test]
     fn a_3d_length_is_never_shorter_than_the_2d_one() {
         let w = world();
@@ -862,6 +945,7 @@ mod tests {
         assert!(p.length_3d_km >= p.length_km);
     }
 
+    /// Protects: a small rectangle's projected area, perimeter, centroid, bbox and stride 1 are exact.
     #[test]
     fn an_area_reports_the_exact_shoelace_and_never_estimates_it() {
         let w = world();
@@ -878,6 +962,7 @@ mod tests {
         assert_eq!(a.bbox, (4.0, 1.0, 10.0, 4.0));
     }
 
+    /// Protects: clockwise and counter-clockwise rings give the same projected area.
     #[test]
     fn winding_never_changes_a_measured_area() {
         let w = world();
@@ -888,6 +973,7 @@ mod tests {
         assert_eq!(area_measure(&f, &cw).projected_km2, area_measure(&f, &ccw).projected_km2);
     }
 
+    /// Protects: rings under three vertices return zero area instead of failing.
     #[test]
     fn an_area_under_three_vertices_is_zero_not_an_error() {
         let w = world();
@@ -896,6 +982,7 @@ mod tests {
         assert_eq!(area_measure(&f, &[(1.0, 1.0), (2.0, 2.0)]).projected_km2, 0.0);
     }
 
+    /// Protects: a ring wholly over ocean cells reports all of its area as water and none as land.
     #[test]
     fn an_area_over_the_sea_subtracts_all_of_it() {
         let w = world();
@@ -907,6 +994,7 @@ mod tests {
         assert!((a.water_km2 - a.projected_km2).abs() < 1e-9);
     }
 
+    /// Protects: a ring wholly over land reports no water and a positive mean elevation.
     #[test]
     fn an_area_over_dry_land_subtracts_none_of_it() {
         let w = world();
@@ -918,6 +1006,7 @@ mod tests {
         assert!(a.mean_elev_m > 0.0, "the ramp is above the waterline");
     }
 
+    /// Protects: true-surface area exceeds projected on sloped ground and equals it on flat ground.
     #[test]
     fn true_surface_is_never_less_than_projected_and_is_equal_when_flat() {
         let w = world();
@@ -932,6 +1021,7 @@ mod tests {
         assert!((level.true_surface_km2 - level.projected_km2).abs() < 1e-9);
     }
 
+    /// Protects: with no `water_bodies`, water falls back to the below-sea-level test and `water_from_civ` is false.
     #[test]
     fn without_a_civilisation_layer_water_falls_back_to_the_sea_level_test() {
         let w = world();
@@ -942,6 +1032,7 @@ mod tests {
         assert!(a.water_km2 > 0.0, "0.3 is below the 0.5 sea level");
     }
 
+    /// Protects: radius, diameter, circumference and area follow from the ruler's km (5 cells = 50 km).
     #[test]
     fn a_radius_reading_is_plain_circle_arithmetic_over_the_rulers_km() {
         let w = world();
@@ -954,6 +1045,7 @@ mod tests {
         assert!((r.area_km2 - std::f64::consts::PI * 2500.0).abs() < 1e-9);
     }
 
+    /// Protects: a zero-length radius gives all-zero figures without NaN.
     #[test]
     fn a_zero_radius_reads_zero_everywhere_rather_than_dividing_by_it() {
         let w = world();
@@ -962,6 +1054,7 @@ mod tests {
         assert_eq!((r.radius_km, r.diameter_km, r.circumference_km, r.area_km2), (0.0, 0.0, 0.0, 0.0));
     }
 
+    /// Protects: delta, horizontal and 3D distances and positive grade are consistent with the two reported elevations.
     #[test]
     fn a_vertical_reading_matches_the_two_elevations_it_reports() {
         let w = world();
@@ -974,6 +1067,7 @@ mod tests {
         assert!(v.grade_pct > 0.0 && v.angle_deg > 0.0);
     }
 
+    /// Protects: one shared cell yields grade and angle `0.0` (placeholder for undefined, per `grade_pct`'s doc), never infinity or NaN.
     #[test]
     fn a_vertical_reading_on_one_cell_reports_no_grade_rather_than_infinity() {
         let w = world();
@@ -985,6 +1079,7 @@ mod tests {
         assert!(v.grade_pct.is_finite());
     }
 
+    /// Protects: a descent gives negative delta, grade and angle while the 3D distance stays positive.
     #[test]
     fn a_downhill_vertical_reading_is_negative_in_both_units() {
         let w = world();
@@ -996,6 +1091,7 @@ mod tests {
         assert!(v.distance_3d_km > 0.0, "3D distance stays a magnitude");
     }
 
+    /// Protects: a collinear chain has sinuosity 1.
     #[test]
     fn a_straight_chain_has_sinuosity_one() {
         let w = world();
@@ -1004,6 +1100,7 @@ mod tests {
         assert!((r.sinuosity - 1.0).abs() < 1e-9, "{}", r.sinuosity);
     }
 
+    /// Protects: a bent chain has sinuosity above 1.
     #[test]
     fn a_bent_chain_has_sinuosity_above_one() {
         let w = world();
@@ -1012,6 +1109,7 @@ mod tests {
         assert!(r.sinuosity > 1.0, "{}", r.sinuosity);
     }
 
+    /// Protects: a closed loop (0/0 ratio) reports sinuosity 1 and zero elevation delta, not NaN.
     #[test]
     fn a_chain_that_returns_to_its_start_reports_sinuosity_one_not_nan() {
         let w = world();
@@ -1021,6 +1119,7 @@ mod tests {
         assert_eq!(r.elevation_delta_m, 0.0);
     }
 
+    /// Protects: an empty chain returns zero relief and sinuosity 1.
     #[test]
     fn a_chain_under_two_points_is_flat_and_unbent() {
         let w = world();
@@ -1029,6 +1128,7 @@ mod tests {
         assert_eq!((r.elevation_delta_m, r.total_km_3d, r.sinuosity), (0.0, 0.0, 1.0));
     }
 
+    /// Protects: `elev_at` off-grid is `0.0` (not a clamped neighbour), while an on-grid cell is non-zero.
     #[test]
     fn elevation_off_the_grid_reads_zero_rather_than_a_neighbours_value() {
         let w = world();
@@ -1039,6 +1139,7 @@ mod tests {
         assert_ne!(elev_at(&f, (4.0, 4.0)), 0.0);
     }
 
+    /// Protects: in world mode a section crosses the seam the short way (20 km, not 280) and stays in range.
     #[test]
     fn in_world_mode_a_section_takes_the_short_way_round_the_seam() {
         let w = world();
