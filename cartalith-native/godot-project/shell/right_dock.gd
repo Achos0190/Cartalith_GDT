@@ -555,6 +555,9 @@ var _sample_rows: Dictionary = {}
 var _stale_cache: Dictionary = {}
 var _stale_cache_ms := -1000000
 
+## The `stale_stages()` answer, re-read from the bridge at most once a second (see
+## `_stale_cache`). Called per cursor sample by `on_cursor_sampled()`; must never call
+## `bridge.stale_stages()` on every mouse motion.
 func _stale_now() -> Dictionary:
 	var t := Time.get_ticks_msec()
 	if t - _stale_cache_ms >= 1000:
@@ -577,6 +580,8 @@ func _stale_reason(label_text: String, stale: Dictionary) -> String:
 	return ("Stale: the %s stage has not re-run since %s, so the engine's answer " +
 		"for this cell is from before that edit. Recompute (status bar) to settle it.") % [stage, cause]
 
+## A row's base tooltip with its staleness reason appended after a blank line, or the
+## base tip unchanged when `why` is empty. Pure string helper; reads and writes no state.
 func _tip_with(tip: String, why: String) -> String:
 	return tip if why == "" else "%s\n\n%s" % [tip, why]
 
@@ -619,6 +624,11 @@ func _set_row_tip(v: Label, tip: String) -> void:
 	if box != null:
 		box.tooltip_text = tip
 
+## One-time wiring from `app.gd`: stores `app`/`bridge`, connects the engine and shell signals
+## that must repaint or reset the dock (`generation_finished`, `world_loaded`, `landmark_finished`,
+## `sculpt_draft_changed`, `layer_stack_changed`, `project_saved`, `workspace_changed`, `tool_armed`,
+## the viewport's `map_clicked`), then does the first `_rebuild()`. Call once; the per-signal
+## comments below say why each handler drops or keeps selection state.
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -648,9 +658,9 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 		## under the old one's identity. Dropped outright instead, the same
 		## way the river above is and for the same reason.
 		##
-		## Two of the eight non-Sample contexts are reset here now, and the rest
-		## of the gap is named rather than quietly widened: `CTX_ROUTE`,
-		## `CTX_FACTION`, `CTX_MEASURE`,
+		## River, Settlement (and Landmark/Icon, above) are reset on this path; the
+		## rest of the gap is named rather than quietly widened: `CTX_ROUTE`,
+		## `CTX_FACTION`, `CTX_MEASURE`, `CTX_CONFLICT`,
 		## `CTX_REGION`, `CTX_WILDLIFE` and `CTX_HISTORY` all still survive a
 		## world replacement holding an index into a world that is gone. Same
 		## defect, unmeasured, not fixed by this clause.
@@ -887,6 +897,11 @@ func refresh_settlement() -> void:
 		return
 	on_settlement_selected(live, _settlement_index)
 
+## Sample panel's live path, called on every mouse motion over the viewport. Rewrites the
+## coordinate rows, staleness footnote, Nearest, Elevation (also pushed to the collapsed dock via
+## `app.set_dock_readout`) and every `SAMPLE_FIELDS` row **in place** from one `bridge.sample_cell()`
+## read. No-op outside `CTX_SAMPLE`. Must never `_rebuild()` per motion event; the only rebuild is
+## the first call before the Sample widgets exist.
 func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _context != CTX_SAMPLE:
 		return
@@ -998,6 +1013,8 @@ func show_conflict(id: int) -> void:
 	_conflict_id = id
 	_rebuild()
 
+## Pins one `river_at()` entity as the dock's River context and rebuilds. Selection state
+## only; the engine is not written.
 func show_river(entity: Dictionary) -> void:
 	_context = CTX_RIVER
 	_river = entity
@@ -1138,6 +1155,8 @@ func refresh_history() -> void:
 	if _context == CTX_HISTORY:
 		_rebuild()
 
+## Hands the dock the Journey Planner delegate (`journey_planner_view.gd`) and rebuilds so
+## `_append_tool()` can draw its appended results section. Does not claim `_context`.
 func show_journey(view: JourneyPlannerView) -> void:
 	_journey_view = view
 	_rebuild()
@@ -1239,6 +1258,8 @@ func leave_stops_context() -> void:
 func show_anno() -> void:
 	_rebuild()
 
+## Called when the Label/Icon tools disarm: a plain rebuild so the appended Annotation
+## section (derived from `app.armed_tool` by `_tool_section()`) goes away. Holds no state.
 func leave_anno_context() -> void:
 	_rebuild()
 
@@ -1251,6 +1272,8 @@ func show_territory(faction_id: int) -> void:
 	_terr_faction = faction_id
 	_rebuild()
 
+## Called when the Territory tool disarms: a plain rebuild so the appended Territory
+## section goes away. The remembered `_terr_faction` is left alone; the tool section is derived.
 func leave_territory_context() -> void:
 	_rebuild()
 
@@ -1304,6 +1327,12 @@ const CTX_TITLES := {
 	CTX_CONFLICT: "Conflict",
 }
 
+## Tears the dock body down and redraws it: frees every child of `app.right_dock_body`,
+## nulls the Sample live-update handles (`_sample_*`), then `_dispatch` (the selection), `_append_tool`
+## (the armed tool) and `_append_layers`, in that order, and refreshes title and collapsed readout.
+## **Never call it synchronously from a control's own signal handler or from a live colour-sample /
+## drag handler** -- it frees the very widget emitting (picker, bar, slider); use
+## `_rebuild.call_deferred()` or repaint in place (see `_on_stop_color_changed`).
 func _rebuild() -> void:
 	if app == null:
 		return
@@ -1435,6 +1464,10 @@ func _fallback_readout() -> String:
 			return ("%d stamp%s" % [n, "" if n == 1 else "s"]) if bridge.has_world else "no world"
 	return _sample_elev.text if _sample_elev != null else "—"
 
+## The one-line figure shown when the dock is collapsed, by the selection's context
+## (settlement name, route/river length, faction, measure reading, cell/species counts, history
+## depth). Reads the bridge and `_context` fields only; contexts with no figure of their own fall
+## through to `_fallback_readout()`. Never writes state.
 func _dock_readout_text() -> String:
 	match _context:
 		CTX_SETTLEMENT:
@@ -1611,6 +1644,10 @@ func _tool_section() -> String:
 		return TOOL_STAMPS
 	return ""
 
+## Draws the appended tool section for the one id `_tool_section()` answers (Paint, Stops,
+## Annotation, Territory, Sculpt stamps, Way, Journey), below the selection `_dispatch()` drew. Called
+## only from `_rebuild()`. It then appends the draft Commit/Discard controls described below, so
+## an uncommitted draft keeps them whichever tool is armed.
 func _append_tool(body: Control) -> void:
 	var section := _tool_section()
 	match section:
@@ -1903,6 +1940,9 @@ func _layer_row(parent: Control, d: Dictionary, index: int, count: int) -> void:
 	_reorder(row, "Down", fs, tablet, index < count - 1, index, index + 1)
 	parent.add_child(row)
 
+## One Up/Down flat button of a layer row: disabled when `enabled` is false, and when pressed
+## calls `_move_layer(from, to)` to move the layer one place in the stack. `fs`/`tablet` size it;
+## it holds no state and writes the stack only through `_move_layer`.
 func _reorder(parent: Control, text: String, fs: int, tablet: bool,
 		enabled: bool, from: int, to: int) -> void:
 	var b := Button.new()
@@ -2133,6 +2173,9 @@ func _boundary_text(cell: Dictionary) -> String:
 		return "none within 96 cells"
 	return "%s · %.1f cells" % [kind, float(cell["boundary_dist_cells"])]
 
+## Sample row text for `cell["drainage"]` (one decimal), with `· order N` appended when
+## `river_order` is present and positive. Expects `drainage` to exist (indexes it directly), so call
+## it only with a non-empty `sample_cell()` dictionary.
 func _drainage_text(cell: Dictionary) -> String:
 	var flow := "%.1f" % float(cell["drainage"])
 	if not cell.has("river_order"):
@@ -2140,6 +2183,8 @@ func _drainage_text(cell: Dictionary) -> String:
 	var order := int(cell["river_order"])
 	return flow if order <= 0 else "%s · order %d" % [flow, order]
 
+## Sample Elevation text: `"%.0f m"` of `elevation_m` plus ` · ocean`/` · lake`, or a dash
+## when the cell is empty or has no elevation (never a plausible zero). Pure; reads the dictionary only.
 func _elevation_text(cell: Dictionary) -> String:
 	if cell.is_empty() or not cell.has("elevation_m"):
 		return "—"
@@ -2736,6 +2781,8 @@ func _live_settlement(snapshot: Dictionary) -> Dictionary:
 		return live if int(live["tid"]) == int(snapshot["tid"]) else {}
 	return live if String(live.get("name", "")) == String(snapshot.get("name", "")) else {}
 
+## The siting `terms` entry named `key` in a settlement's `why` dictionary, formatted `%.2f`,
+## or `""` when `why` is empty, has no `terms`, or no such key. Empty means "absent", not 0.00.
 func _term_value(why: Dictionary, key: String) -> String:
 	if why.is_empty() or not why.has("terms"):
 		return ""
@@ -2745,6 +2792,9 @@ func _term_value(why: Dictionary, key: String) -> String:
 			return "%.2f" % float(d["value"])
 	return ""
 
+## Maps a 0..1 siting-term value to a word: >= 0.75 strong, >= 0.45 moderate, > 0.05 weak,
+## else negligible. The cut points are this panel's own presentation judgement (no reference or
+## engine source); the value shown beside the word is the real figure.
 func _term_strength(value: float) -> String:
 	if value >= 0.75:
 		return "strong"
@@ -2940,6 +2990,10 @@ func _build_siege_garrison(body: Control, id: int) -> void:
 				false)
 		return
 
+## Writes `fields` to conflict `id` via `bridge.conflict_update()`; a refusal is shown as a
+## status hint, and the map layer and Military list are refreshed via `_conflicts_changed()`. The
+## rebuild is **deferred** because the editing control's own signal is still on the stack and
+## `_rebuild()` frees it. Never rebuild synchronously here.
 func _conflict_set(id: int, fields: Dictionary) -> void:
 	var r := bridge.conflict_update(id, fields)
 	if not r.get("ok", false):
@@ -2955,6 +3009,9 @@ func _conflicts_changed() -> void:
 	if civ != null and civ.has_method("refresh_conflicts"):
 		civ.refresh_conflicts()
 
+## Route context body (a road or sea-route row picked in Infrastructure): name, type, source
+## (hand-drawn vs generated), point count and length from `_route_entry`, plus dashed rows for the
+## fields only a hand-drawn journey carries. Read-only; writes nothing to the engine.
 func _build_route(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Route")
 	var e := _route_entry
@@ -2990,6 +3047,9 @@ func _build_route(body: Control) -> void:
 			"Not available for a road or sea route -- only a hand-drawn journey " +
 			"carries this level of detail.", false)
 
+## Fallback route length for a point list with no engine `km`: summed cell distance scaled
+## by `bridge.last_width_km` over the grid width, else `"N cells"`. Dash under two points. Prefer the
+## engine's own `km` (computed in f64) when it exists.
 func _route_length_text(pts: PackedVector2Array) -> String:
 	if pts.size() < 2:
 		return "—"
@@ -3701,6 +3761,8 @@ func _measure_readout() -> String:
 		_:
 			return DccUnits.format(float(p.get("value", 0.0)), 1)
 
+## Measure context body: dispatches on `_measure_mode` to the per-mode builder, defaulting
+## to distance. Reads `_measure_result`; writes nothing.
 func _build_measure(body: Control) -> void:
 	match _measure_mode:
 		"area": _build_measure_area(body)
@@ -3710,11 +3772,16 @@ func _build_measure(body: Control) -> void:
 		"bearing": _build_measure_bearing(body)
 		_: _build_measure_distance(body)
 
+## Shared empty state for a Measure mode: a titled section holding only the click prompt,
+## returned so callers can append to it. Draws nothing from the engine.
 func _measure_empty(body: Control, title: String, prompt: String) -> VBoxContainer:
 	var sec := DccWidgets.section(body, title)
 	DccWidgets.note(sec, prompt)
 	return sec
 
+## Measure distance body: Total length, per-segment length and bearing (0 deg = north,
+## clockwise, with the reciprocal), then the Derived block and the action row. Empty chain shows the
+## prompt only. Reads `_measure_result`; writes nothing to the world.
 func _build_measure_distance(body: Control) -> void:
 	var segments: Array = _measure_result.get("segments", [])
 	if segments.is_empty():
@@ -3742,6 +3809,8 @@ func _build_measure_distance(body: Control) -> void:
 	_build_measure_derived(body)
 	_build_measure_actions(body)
 
+## Measure bearing body (two points: observer then target): bearing, reciprocal, distance, then
+## Derived and actions. Empty shows the prompt. Reads `_measure_result`; writes nothing.
 func _build_measure_bearing(body: Control) -> void:
 	var segments: Array = _measure_result.get("segments", [])
 	if segments.is_empty():
@@ -3828,6 +3897,9 @@ func _build_saved_measurements(body: Control) -> void:
 		_saved_measurement_row(sec, i)
 	DccWidgets.action(sec, "Clear all", _on_measure_clear_all)
 
+## One row of the Saved measurements list for `_saved_measurements[i]`: `#n mode · value`
+## label plus `recall` and `drop` buttons (bound to `_on_measure_recall`/`_on_measure_drop`). Tablet
+## sizing uses `chip_min_h`/`row_min_h` roles. The value is display-converted; the store stays canonical.
 func _saved_measurement_row(parent: Control, i: int) -> void:
 	var e: Dictionary = _saved_measurements[i]
 	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
@@ -3879,6 +3951,8 @@ func _saved_value_text(e: Dictionary) -> String:
 		"deg": return "%03d°" % int(round(v))
 		_: return "%.2f %s" % [v, unit]
 
+## The display label of Measure mode `id` from `GlobalTools.MEASURE_MODES`, or the id itself
+## when it is unknown (so a saved entry from a newer build still prints something true).
 func _measure_mode_label(id: String) -> String:
 	for m in GlobalTools.MEASURE_MODES:
 		if String((m as Dictionary)["id"]) == id:
@@ -3923,6 +3997,9 @@ func _on_plan_journey() -> void:
 	app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
 	app.open_journey_planner_with_route(idx)
 
+## `Save measurement` button: appends the live reading (mode, points, value, unit) to
+## `_saved_measurements` and rebuilds. Refuses with a hint when there is no reading yet. Saved
+## entries persist in the project file on the next save, not here.
 func _on_measure_save() -> void:
 	var p := _measure_primary()
 	var pts := GlobalTools.measure_points()
@@ -3937,6 +4014,9 @@ func _on_measure_save() -> void:
 			_saved_measurements.size(), _saved_value_text(e)], "accent")
 	_rebuild()
 
+## Saved row's `recall` button: re-arms Measure in that entry's mode with its exact points
+## through `GlobalTools.recall_measurement`, so the reading is recomputed, not replayed. Ignores a
+## stale index.
 func _on_measure_recall(i: int) -> void:
 	if i < 0 or i >= _saved_measurements.size():
 		return
@@ -3944,16 +4024,21 @@ func _on_measure_recall(i: int) -> void:
 	GlobalTools.recall_measurement(app, String(e.get("mode", "distance")),
 		e.get("points", PackedVector2Array()))
 
+## Saved row's `drop` button: removes entry `i` from `_saved_measurements` and rebuilds.
+## Ignores an out-of-range index.
 func _on_measure_drop(i: int) -> void:
 	if i < 0 or i >= _saved_measurements.size():
 		return
 	_saved_measurements.remove_at(i)
 	_rebuild()
 
+## `Clear all` in Saved measurements: `clear_measurements()` then rebuild.
 func _on_measure_clear_all() -> void:
 	clear_measurements()
 	_rebuild()
 
+## `Copy saved as CSV`: puts `measurements_csv()` of the store (canonical units) on the
+## clipboard and says so in the status bar. No-op when nothing is saved.
 func _on_measure_csv() -> void:
 	if _saved_measurements.is_empty():
 		return
@@ -3961,6 +4046,8 @@ func _on_measure_csv() -> void:
 	app.set_status("hint", "%d saved measurement%s copied as CSV, in canonical units" % [
 		_saved_measurements.size(), "" if _saved_measurements.size() == 1 else "s"], "text_ghost")
 
+## `Copy reading`: copies the live `_measure_result`'s scalar fields and one line per
+## segment to the clipboard as tab-separated text. Reads only; arrays and dictionaries are skipped.
 func _on_measure_copy() -> void:
 	var lines: Array[String] = []
 	for key in _measure_result.keys():
@@ -3974,6 +4061,9 @@ func _on_measure_copy() -> void:
 	DisplayServer.clipboard_set("\n".join(lines))
 	app.set_status("hint", "measurement copied to the clipboard", "text_ghost")
 
+## Measure area body: projected (shoelace) area, true surface, perimeter, water subtracted,
+## land area, centroid, bounding box and mean elevation, with a note when sampling was strided
+## (only the projected area is exact then). Empty shows the prompt. Read-only.
 func _build_measure_area(body: Control) -> void:
 	if _measure_result.is_empty():
 		_measure_empty(body, "Measure · area",
@@ -4000,6 +4090,8 @@ func _build_measure_area(body: Control) -> void:
 		("%d cells tested at a stride of %d -- the projected area above is still exact; only the water split, the true surface and the mean elevation are sampled." % [int(r.get("sampled_cells", 0)), stride]))
 	_build_measure_actions(body)
 
+## Measure radius body (centre then a rim point): radius, diameter, circumference and
+## enclosed pi r^2 area on the map plane (not clipped to the coast). Empty shows the prompt. Read-only.
 func _build_measure_radius(body: Control) -> void:
 	if _measure_result.is_empty():
 		_measure_empty(body, "Measure · radius", "Click the centre, then a point on the rim.")
@@ -5022,6 +5114,9 @@ func _reverts_past_committed(seq: int) -> bool:
 	var saved_seq := _saved_boundary(bridge.undo_stats())
 	return saved_seq >= 0 and seq <= saved_seq
 
+## Asks before a History revert that discards more than one step or reverts past the
+## COMMITTED boundary, via `DccWidgets.confirm` (not a hand-built dialog, so the phone shell
+## grades it); the confirm callback runs `_do_revert(seq)`. Never reverts by itself.
 func _confirm_revert(seq: int, steps: int) -> void:
 	## `DccWidgets.confirm()`, not a hand-built `ConfirmationDialog`. This site
 	## was the verifier's known-bad specimen for `phone_protocol_grade()`:
@@ -5043,6 +5138,10 @@ func _confirm_revert(seq: int, steps: int) -> void:
 	DccWidgets.confirm(app, "Revert to this state?", body, "Revert",
 		func(): _do_revert(seq))
 
+## Performs the History revert: `bridge.undo_revert_to(seq)`, then repaints `map_view` directly
+## (not `ViewportHost.refresh()`, which would reset the camera), invalidates LOD tiles and clears the
+## preview, reports the step count in the status bar and rebuilds. A dropped snapshot (<= 0 steps)
+## is reported and rebuilt without touching the map.
 func _do_revert(seq: int) -> void:
 	var done := bridge.undo_revert_to(seq)
 	if done <= 0:
@@ -5070,6 +5169,9 @@ func _do_revert(seq: int) -> void:
 	_rebuild()
 
 
+## Ecoregion context body from `_wildlife_region` (coordinates, hero id, biome, area,
+## neighbours, species roster with a show-all toggle); falls back to Sample when no region is pinned.
+## Read-only: ecoregions have no name, so none is invented.
 func _build_wildlife(body: Control) -> void:
 	if _wildlife_region.is_empty():
 		_build_sample(body)
@@ -5242,6 +5344,9 @@ func _build_wildlife_fauna(sec: Control, rec: Dictionary) -> void:
 		more.add_child(DccTheme.mono_label("smallest populations", "text_ghost",
 			DccTheme.role_px("fs_dock_header") if DccTheme.is_tablet() else DccTheme.FS_MICRO))
 
+## One species row: name, `~population`, and a micro bar of its share of the region's
+## largest population (`top`; no bar fill when `top <= 0`). Display only; values come from the
+## region record, with the derivation named in the bar's tooltip.
 func _wildlife_species_row(parent: Control, e: Dictionary, top: float) -> void:
 	var tablet := DccTheme.is_tablet()
 	var small := DccTheme.role_px("fs_readout") if tablet else DccTheme.FS_TINY
@@ -5373,6 +5478,9 @@ func _build_sculpt(body: Control) -> void:
 	if not lock_msg.is_empty():
 		DccWidgets.note(body, lock_msg)
 
+## One stamp-stack row for stamp dictionary `d`: visibility mark, `#index label (n pt)`
+## and a `select` button bound to `_on_stamp_select` (accent-outlined when `selected`). Display only;
+## stack edits go through the `_on_stamp_*` handlers.
 func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	var idx := int(d.get("index", -1))
 	var hidden := bool(d.get("hidden", false))
@@ -5452,10 +5560,12 @@ func _build_selected_stamp(parent: Control, selected: int, stamps: Array) -> voi
 	DccWidgets.action(actions, "Move down", _on_stamp_move_down.bind(selected))
 	DccWidgets.action(actions, "Delete", _on_stamp_delete.bind(selected))
 
+## Stamp stack Undo button: `bridge.sculpt_undo()` then redraw via `show_sculpt_stack()`.
 func _on_sculpt_stack_undo() -> void:
 	bridge.sculpt_undo()
 	show_sculpt_stack()
 
+## Stamp stack Redo button: `bridge.sculpt_redo()` then redraw via `show_sculpt_stack()`.
 func _on_sculpt_stack_redo() -> void:
 	bridge.sculpt_redo()
 	show_sculpt_stack()
@@ -5474,32 +5584,41 @@ func _on_sculpt_stack_commit() -> void:
 		app.viewport.set_preview_texture(null)
 	show_sculpt_stack()
 
+## Stamp stack `Discard draft`: `bridge.sculpt_discard()`, clears the viewport preview
+## texture, redraws. Never touches the committed heightfield.
 func _on_sculpt_stack_discard() -> void:
 	bridge.sculpt_discard()
 	if app != null and app.viewport != null:
 		app.viewport.set_preview_texture(null)
 	show_sculpt_stack()
 
+## Stamp row `select` button: `bridge.sculpt_select_stamp(index)` then redraw.
 func _on_stamp_select(index: int) -> void:
 	bridge.sculpt_select_stamp(index)
 	show_sculpt_stack()
 
+## Selected-stamp `Deselect` button: `bridge.sculpt_select_stamp(-1)` then redraw.
 func _on_stamp_deselect() -> void:
 	bridge.sculpt_select_stamp(-1)
 	show_sculpt_stack()
 
+## Selected-stamp `Show`/`Hide`: sets the stamp hidden to the opposite of its current
+## `hidden` via `bridge.sculpt_set_stamp_hidden`, then redraws.
 func _on_stamp_toggle_hidden(index: int, hidden: bool) -> void:
 	bridge.sculpt_set_stamp_hidden(index, not hidden)
 	show_sculpt_stack()
 
+## Selected-stamp `Move up`: `bridge.sculpt_move_stamp_up(index)` then redraw.
 func _on_stamp_move_up(index: int) -> void:
 	bridge.sculpt_move_stamp_up(index)
 	show_sculpt_stack()
 
+## Selected-stamp `Move down`: `bridge.sculpt_move_stamp_down(index)` then redraw.
 func _on_stamp_move_down(index: int) -> void:
 	bridge.sculpt_move_stamp_down(index)
 	show_sculpt_stack()
 
+## Selected-stamp `Delete`: `bridge.sculpt_delete_stamp(index)` then redraw.
 func _on_stamp_delete(index: int) -> void:
 	bridge.sculpt_delete_stamp(index)
 	show_sculpt_stack()
@@ -5657,6 +5776,10 @@ func _paint_legend_row(parent: Control, label_text: String, count: int, swatch: 
 func _chip_btn_h(tablet: bool) -> int:
 	return int(DccTheme.role_px("chip_min_h")) if tablet else 20
 
+## Dock Paint `Commit`: `bridge.paint_commit()`, repaints `map_view`, invalidates LOD tiles
+## and clears the preview (same three lines as the other commit paths), reports any stale stages in
+## the status bar and redraws the Paint section. Same engine call as the left-dock and options-bar
+## Commit, so the three cannot disagree.
 func _on_paint_commit_from_dock() -> void:
 	var summary: Dictionary = bridge.paint_commit()
 	if app != null and app.viewport != null:
@@ -5670,6 +5793,8 @@ func _on_paint_commit_from_dock() -> void:
 		app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	show_paint(_paint_ctx_layer, _paint_on_pick)
 
+## Dock Paint `Discard`: `bridge.paint_discard()` and re-installs the paint preview texture
+## (with `true`, keeping the committed layer as the base for the next dab), then redraws the section.
 func _on_paint_discard_from_dock() -> void:
 	bridge.paint_discard()
 	if app != null and app.viewport != null:
@@ -5829,6 +5954,9 @@ func _sync_carto_ramp() -> void:
 		if ws is CartographyWorkspace and ws._render != null:
 			ws._render.on_ramp_edited_elsewhere()
 
+## One row of the ramp's Stops list: colour swatch, hex, metres, and a `select` chip that sets
+## `_stops_selected` and rebuilds (safe: it is a button press, not a live drag). Registers its swatch
+## and label in `_stops_row_sw`/`_stops_row_lbl` so `_refresh_stops_in_place()` can repaint them.
 func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	var tablet := DccTheme.is_tablet()
 	var pair: Array = stops[idx]
@@ -5868,6 +5996,11 @@ func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	row.add_child(sel)
 	parent.add_child(row)
 
+## Selected-stop picker for stop `idx`: a `ColorPickerButton` (live samples go to
+## `_on_stop_color_changed`, OK/Cancel through `DccWidgets.confirmable_color` wrapped in
+## `_look_begin`/`_look_commit`), hex and metres, an Elevation slider (commits on drag end via
+## `_on_stop_position_committed`) and Delete (disabled at <= 1 stop). **Never rebuild from the picker's
+## live colour handler** -- that frees the picker mid-drag (see `_on_stop_color_changed`).
 func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
 	var pair: Array = stops[idx]
 	var col := pair[1] as Color
@@ -5960,6 +6093,9 @@ func _find_stop_near(stops: Array, position: float) -> int:
 			best = i
 	return best
 
+## Blend `choice` handler: wraps `bridge.set_ramp_mode(modes[i])` in a look-history entry
+## (`Ramp blend: ...`), syncs the CARTO editor (`_sync_carto_ramp`) and rebuilds. A discrete pick,
+## so a rebuild is safe here.
 func _on_stops_mode_changed(i: int, modes: Array) -> void:
 	_look_begin()
 	bridge.set_ramp_mode(String(modes[i]))
@@ -6014,6 +6150,10 @@ func _refresh_stops_in_place(stops: Array, idx: int) -> void:
 	if _stops_bar != null and is_instance_valid(_stops_bar):
 		_stops_bar.set_stops(stops, bridge.ramp_mode(), idx)
 
+## Elevation slider `drag_ended` handler: writes the stop's new 0..1 position via
+## `bridge.set_color_ramp`, closes the look entry (opened by the slider's `drag_started` ->
+## `_look_begin`), re-finds the selection by position (the sort order may change), syncs CARTO and
+## rebuilds. Not called on live slider ticks.
 func _on_stop_position_committed(idx: int, target: float) -> void:
 	var stops: Array = bridge.color_ramp()
 	if idx < 0 or idx >= stops.size():
@@ -6026,6 +6166,8 @@ func _on_stop_position_committed(idx: int, target: float) -> void:
 	_sync_carto_ramp()
 	_rebuild()
 
+## Selected-stop `Delete`: removes the stop (refused at <= 1 stops) via
+## `bridge.set_color_ramp` inside a look-history entry, clears the selection, syncs CARTO, rebuilds.
 func _on_stop_delete(idx: int) -> void:
 	var stops: Array = bridge.color_ramp()
 	if stops.size() <= 1 or idx < 0 or idx >= stops.size():
@@ -6129,6 +6271,9 @@ func _build_anno(body: Control) -> void:
 	DccWidgets.note(sec,
 		"Labels and icons are presentation -- they add nothing to and take nothing from the world model.")
 
+## Selected-label editor for label `idx` (`lb` = `label_get`): text `LineEdit` (commits on
+## submit or focus loss) and an Arc slider (-50..50, commits on drag end), plus delete. All writes go
+## through `label_set`/`label_delete` handlers below.
 func _build_anno_selected(body: Control, idx: int, lb: Dictionary) -> void:
 	var sec := DccWidgets.section(body, "Selected label")
 
@@ -6178,18 +6323,24 @@ func _build_anno_selected(body: Control, idx: int, lb: Dictionary) -> void:
 	DccWidgets.note(sec,
 		"Size, size mode, angle, font and colour, plus Confirm/Cancel over this same edit -- Cartography ▸ Labels.")
 
+## Selected-label text field commit: `bridge.label_set(idx, {text})`, refreshes the map's
+## annotations and rebuilds.
 func _on_anno_text_committed(idx: int, text: String) -> void:
 	bridge.label_set(idx, {"text": text})
 	if app != null and app.viewport != null:
 		app.viewport.refresh_annotations()
 	_rebuild()
 
+## Selected-label Arc slider `drag_ended`: stores `pct / 50` clamped to -1..1 (the engine's
+## arc range) via `label_set`, refreshes annotations, rebuilds.
 func _on_anno_arc_committed(idx: int, pct: float) -> void:
 	bridge.label_set(idx, {"arc": clampf(pct / 50.0, -1.0, 1.0)})
 	if app != null and app.viewport != null:
 		app.viewport.refresh_annotations()
 	_rebuild()
 
+## Selected-label delete button: `bridge.label_delete(idx)`, refreshes annotations,
+## hints in the status bar, rebuilds.
 func _on_anno_delete(idx: int) -> void:
 	bridge.label_delete(idx)
 	if app != null and app.viewport != null:
@@ -6198,6 +6349,8 @@ func _on_anno_delete(idx: int) -> void:
 		app.set_status("hint", "label deleted", "text_ghost")
 	_rebuild()
 
+## Annotation `Clear all`: clears every label and icon (`label_clear_all`,
+## `icon_clear_all`), refreshes annotations, hints, rebuilds. Presentation only; no world effect.
 func _on_anno_clear_all() -> void:
 	bridge.label_clear_all()
 	bridge.icon_clear_all()
@@ -6465,6 +6618,8 @@ const STANCE_INK := {
 	"wary": "text_dim", "hostile": "block",
 }
 
+## The canvas's `--ctl` control size for the current density: 24 on desktop, 36 on tablet
+## (`_CTL_PX`). Reads `DccTheme.is_tablet()` only.
 func _ctl_px() -> int:
 	return int(_CTL_PX[1] if DccTheme.is_tablet() else _CTL_PX[0])
 
@@ -7164,6 +7319,9 @@ func _coord_texts(gx: float, gy: float, valid: bool) -> Array:
 	return ["%s · %s %s" % [
 		_coord_pad(fmt % (gx * u), kw), _coord_pad(fmt % (gy * u), kw), DccUnits.suffix()], cell]
 
+## Sample `Nearest` row: the settlement closest to cell (gx, gy) by squared grid distance,
+## `name (N cells)`; a dash when the cursor is off-map or no settlements exist. Reads
+## `bridge.settlements()`; never invents a name.
 func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
 	if not valid:
 		return "—"
