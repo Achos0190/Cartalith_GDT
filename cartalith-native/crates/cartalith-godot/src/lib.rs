@@ -6133,6 +6133,24 @@ struct WorldGen {
     /// `build_color_texture` refreshes it for free, since it builds the same
     /// classification anyway. Must never be read without comparing the key.
     drawn_water_cache: std::cell::RefCell<Option<(String, std::sync::Arc<[u8]>)>>,
+    /// **The prewarmed water flood's `fill_level`** (Ruling BZ item 3,
+    /// 2026-10-10: the generate freeze), under the [`Self::drawn_water_key`]
+    /// it was computed for. Written only by [`Self::warm_render_caches`],
+    /// which the shell calls on the generation worker thread after the world
+    /// is built; **taken** (emptied) by the next `build_color_texture`, which
+    /// uses it only when the key still matches and otherwise floods afresh.
+    ///
+    /// Why a one-shot slot and not a second long-lived cache: the map
+    /// texture has always flooded fresh on every build, so its correctness
+    /// never rested on `drawn_water_key` covering every writer of the field.
+    /// A slot consumed by the first build after a generate confines that
+    /// dependence to the window between the worker's warm and the first
+    /// repaint -- a window in which the worker owns the engine object and
+    /// the shell refuses every edit (`engine_bridge.gd::generating`). Every
+    /// later build floods fresh, exactly as before. Must never be read
+    /// without comparing the key, and never refilled by anything but the
+    /// warm.
+    prewarm_fill: std::cell::RefCell<Option<(String, Vec<f32>)>>,
     /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): per-index
     /// overrides onto `render::CART_BIOME_COLS`, 1-based like the table
     /// itself (`biome_col_overrides[0]` is class 1). `[None; 15]` on a
@@ -6754,6 +6772,7 @@ impl IRefCounted for WorldGen {
             forced_lakes: None,
             forced_lakes_epoch: 0,
             drawn_water_cache: std::cell::RefCell::new(None),
+            prewarm_fill: std::cell::RefCell::new(None),
             biome_col_overrides: [None; 15],
             sculpt: None,
             icons: None,
@@ -10800,13 +10819,31 @@ impl WorldGen {
         // in `STATUS.md`, the repaint row's entry). The flood is
         // deterministic, so the classification is the same bytes whichever
         // call makes it.
-        let bodies = self.drawn_water_bodies()?;
-        let lakes = bodies.classification;
+        //
+        // Ruling BZ item 3 (2026-10-10): the first build after a generate
+        // takes the flood the generation worker already ran
+        // (`warm_render_caches`): its `fill_level` from the one-shot
+        // `prewarm_fill` slot and its classification from `drawn_water_cache`,
+        // both under the key this build would compute. Either missing, or a key
+        // that moved since the warm (the world changed under it), and this
+        // floods afresh as it always did -- a stale flood is dropped, never
+        // drawn. Same inputs, same deterministic flood, so the bytes are the
+        // fresh flood's (`_genasync_probe.gd --mode identity`).
+        let water_key = self.drawn_water_key();
+        let warm_fill = self.prewarm_fill.borrow_mut().take().filter(|(k, _)| *k == water_key).map(|(_, f)| f);
+        let warm_class = self.drawn_water_cache.borrow().as_ref().filter(|(k, _)| *k == water_key).map(|(_, c)| c.clone());
+        let (lakes, fill_level): (std::sync::Arc<[u8]>, Vec<f32>) = match (warm_class, warm_fill) {
+            (Some(c), Some(f)) => (c, f),
+            _ => {
+                let b = self.drawn_water_bodies()?;
+                (std::sync::Arc::from(b.classification), b.fill_level)
+            }
+        };
         // The same classification `drawn_water_classification` answers from
         // its cache -- refreshed here, where it was built anyway, so the valley
         // below and Sample's first motion event after a repaint pay no flood
         // of their own.
-        *self.drawn_water_cache.borrow_mut() = Some((self.drawn_water_key(), std::sync::Arc::from(lakes.as_slice())));
+        *self.drawn_water_cache.borrow_mut() = Some((water_key, lakes.clone()));
         let shade = self.valley_shade_field(&appearance);
         let render_field: &[f32] = shade.as_deref().map_or(field, |v| v.as_slice());
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
@@ -10845,7 +10882,7 @@ impl WorldGen {
         // lake's edge comes from its mask (`render::shore_field_forced`),
         // since the lake rule the field contours never made it water.
         *self.shore_field_tex.borrow_mut() = if appearance.smooth_shores {
-            let fld = render::shore_field_forced(field, &lakes, &bodies.fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
+            let fld = render::shore_field_forced(field, &lakes, &fill_level, rainfall, self.forced_lake_mask(), gw, gh, self.sea_level, self.world);
             if fld.len() == gw * gh {
                 let bytes: Vec<u8> = fld.iter().flat_map(|&v| render::f16_bits(v).to_le_bytes()).collect();
                 Image::create_from_data(gw as i32, gh as i32, false, Format::RH, &PackedByteArray::from(bytes)).and_then(|i| ImageTexture::create_from_image(&i))
@@ -12273,16 +12310,85 @@ impl WorldGen {
         let t1 = std::time::Instant::now();
         let v = std::sync::Arc::new(valley_shade::valley_shade_field(&ws.field, &water, carved, ws.river_floor.as_deref(), &geom.runs, gw, gh, self.sea_level, self.world, recut)?);
         let core_ms = t1.elapsed().as_secs_f64() * 1e3;
-        let os = godot::classes::Os::singleton();
         self.valley_shade_timing.set(Some(ValleyShadeTiming {
             ms: t0.elapsed().as_secs_f64() * 1e3,
             core_ms,
-            main_thread: os.get_thread_caller_id() == os.get_main_thread_id(),
+            // gdext's own thread-id comparison, pure Rust -- NOT
+            // `Os::singleton()`, which this used to read: any engine call off
+            // the main thread panics in gdext's single-threaded binding
+            // ("attempted to access binding from different thread"), and since
+            // Ruling BZ item 3 this runs on the generation worker
+            // (`warm_render_caches`). Measured 2026-10-10: the Os read panicked
+            // there and aborted the whole warm.
+            main_thread: godot::sys::is_main_thread(),
             gw,
             gh,
         }));
         *self.valley_shade_cache.borrow_mut() = Some((key, v.clone()));
         Some(v)
+    }
+
+    /// **Ruling BZ item 3 (2026-10-10): the screen render's world-derived
+    /// inputs, built ahead of the first repaint** -- called by the shell on the
+    /// generation worker thread (`engine_bridge.gd::_worker`), after the world
+    /// is built and before the main thread is handed it back, so the first
+    /// `build_color_texture` finds them ready instead of computing them inside
+    /// one frame. Measured at 2048x1311 with this function absent, these were
+    /// about half of that frame (`_genasync_probe.gd --mode time`).
+    ///
+    /// What it builds, each into the cache the render already reads, under the
+    /// key the render already compares:
+    /// - the drawn water flood ([`Self::drawn_water_bodies`]): the
+    ///   classification into `drawn_water_cache`, the `fill_level` into the
+    ///   one-shot [`Self::prewarm_fill`] slot (see its doc for why one-shot);
+    /// - the drawn river network ([`Self::river_geometry_any`]) and the RV-3
+    ///   shading height ([`Self::valley_shade_field`]) for the current look;
+    /// - RIM-7's river colour field ([`Self::river_colour_field`]) with the
+    ///   delta fans the render would draw for this look
+    ///   (`build_color_texture`'s `want_river_field` gate, less the
+    ///   shore-texture test, which needs a Godot texture: a world where that
+    ///   test differs gets a key miss below, not a wrong field).
+    ///
+    /// **It can never publish a stale result.** Nothing here is read without
+    /// its key being recomputed from the live state at read time, so a sea
+    /// level, sculpt, erode, forced lake or look change between this call and
+    /// the repaint misses the cache and the render rebuilds as it always did.
+    /// The keys are each cache's own (`drawn_water_key`,
+    /// `river_network_key_str`, `river_paint_key`); this function adds none.
+    ///
+    /// Pure Rust: no Godot object is created, so it is safe on the worker that
+    /// holds this object (the same contract `generate_sized` runs under), and
+    /// it must never be called while another thread may hold it. Returns
+    /// whether a world existed to warm; `false` changes nothing.
+    #[func]
+    fn warm_render_caches(&self) -> bool {
+        let Some(bodies) = self.drawn_water_bodies() else { return false };
+        let key = self.drawn_water_key();
+        *self.drawn_water_cache.borrow_mut() = Some((key.clone(), std::sync::Arc::from(bodies.classification)));
+        *self.prewarm_fill.borrow_mut() = Some((key, bodies.fill_level));
+        let a = self.appearance();
+        let _ = self.valley_shade_field(&a);
+        if let Some(geom) = self.river_geometry_any() {
+            let fans = if a.smooth_shores && a.rivers_as_water { self.delta_fans_for(&a) } else { None };
+            let _ = self.river_colour_field(&a, &geom, fans.as_deref());
+        }
+        true
+    }
+
+    /// FNV-1a (64-bit) over the drawn water classification the map was last
+    /// drawn from (`drawn_water_cache`, read through
+    /// [`Self::drawn_water_classification`], so a moved key re-floods first):
+    /// `{fnv1a, cells}`, or `{}` before any world. For a probe comparing the
+    /// warmed and the fresh flood byte for byte (`_genasync_probe.gd`).
+    /// Diagnostic; nothing in the shell reads it. The hash is returned as a
+    /// hex string because a `u64` does not fit a GDScript `int` unsigned.
+    #[func]
+    fn drawn_water_digest(&self) -> VarDictionary {
+        let Some(c) = self.drawn_water_classification() else { return VarDictionary::new() };
+        // FNV-1a 64: offset basis and prime from the published definition
+        // (Fowler/Noll/Vo), the same pair `tests/color_space.rs::fnv1a` uses.
+        let h = c.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3));
+        vdict! { "fnv1a" => format!("{h:016x}"), "cells" => c.len() as i64 }
     }
 
     /// The last uncached [`Self::valley_shade_field`] build's cost, for a

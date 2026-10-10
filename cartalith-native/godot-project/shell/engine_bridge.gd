@@ -722,7 +722,25 @@ func generate(request: Dictionary) -> void:
 		float(request.get("width_km", 1000.0)),
 		int(request.get("grid_w", 2048)),
 		int(request.get("grid_h", 2048)),
-		String(request.get("archetype", ""))))
+		String(request.get("archetype", "")),
+		_warm_wanted()))
+
+## Ruling BZ item 3 (2026-10-10): whether a worker should end its run with
+## `WorldGen.warm_render_caches()` -- building the water flood, the river
+## network, the valley shading and the river colour field there, so the first
+## repaint (`ViewportHost.refresh()`, on the main thread) finds them cached
+## instead of freezing the window to build them. Decided HERE, on the main
+## thread before the worker starts: `_has()` reads the engine object, which
+## the worker is about to own. `false` on an extension without the binding, and
+## whenever `prewarm_render` is off.
+func _warm_wanted() -> bool:
+	return prewarm_render and _has("warm_render_caches")
+
+## The control for `_genasync_probe.gd --mode identity`: `false` makes the
+## next generate skip the warm, so the first repaint computes everything on the
+## main thread as it did before Ruling BZ item 3 -- the synchronous path the
+## warmed one must match byte for byte. Nothing in the shell writes it.
+var prewarm_render := true
 
 ## Runs off the main thread. Touches only `world_gen` (plain Rust state), never
 ## a node.
@@ -756,7 +774,13 @@ func _apply_civ_options(request: Dictionary) -> void:
 	set_biome_k_enabled(bool(request.get("biome_k", false)))
 
 
-func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String) -> void:
+##
+## `warm`: end the run with `warm_render_caches()` (see `_warm_wanted()`), still
+## on this thread and still before `_finish` hands the engine back -- so the
+## warm cannot race an edit (every editing path refuses while `generating`),
+## and a world that changed after it anyway is caught by the render's own cache
+## keys, which drop the warmed result rather than draw it.
+func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String, warm: bool = false) -> void:
 	var ok := true
 	if archetype.is_empty():
 		if sized_api:
@@ -767,6 +791,8 @@ func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archety
 		ok = world_gen.generate_world_structure_sized(seed_value, width_km, grid_w, grid_h, archetype)
 	else:
 		ok = world_gen.generate_world_structure(seed_value, width_km, grid_w, archetype)
+	if ok and warm:
+		world_gen.warm_render_caches()
 	_finish.call_deferred(seed_value, width_km, ok)
 
 func _finish(seed_value: int, width_km: float, ok: bool) -> void:
@@ -830,12 +856,15 @@ func import_heightmap(path: String, request: Dictionary) -> void:
 		path,
 		int(request.get("seed", 0)),
 		float(request.get("width_km", 1000.0)),
-		int(request.get("grid_w", 2048))))
+		int(request.get("grid_w", 2048)),
+		_warm_wanted()))
 
 ## Runs off the main thread. Touches only `world_gen`, never a node -- same
-## contract `_worker` above holds to.
-func _import_worker(path: String, seed_value: int, width_km: float, grid_w: int) -> void:
+## contract `_worker` above holds to, the render warm included (`warm`).
+func _import_worker(path: String, seed_value: int, width_km: float, grid_w: int, warm: bool = false) -> void:
 	var ok: bool = world_gen.import_heightmap(path, seed_value, width_km, grid_w)
+	if ok and warm:
+		world_gen.warm_render_caches()
 	_finish_import.call_deferred(path, seed_value, ok)
 
 func _finish_import(path: String, seed_value: int, ok: bool) -> void:
