@@ -2116,3 +2116,12 @@ Owner, answering four questions put by the coordinating session:
 2. **Legacy HTML import: migrate the label `sizeMode` on import** so an imported label behaves as its author intended (the reference's `fixed` means grows-with-terrain; the shell's Fixed means constant on screen). Native saves are unaffected.
 3. **River combs: build option 2, draw-side thinning** (spacing about L/2 after Hovius 1996, with an order or discharge cap so a real lighter parallel river is not hidden; delta fans re-verified). No change to river density or thresholds (Ruling BV).
 4. **Old saves: turn `integrate_drainage` on when loading a project saved before it existed**, accepting that those worlds' rivers visibly change on load and need a re-baseline of any affected check.
+
+## 2026-10-10 — Ruling BX: hatching fix, preset styling and the editing-tools scope
+
+Owner, answering the coordinating session's questions:
+
+1. **Diamond-lattice / diagonal hatching in the base texture: authorised, candidate (a)** - relax sub-threshold 1-cell grooves after the light stream-power pass, scoped to that pass's output. A re-baseline of generation-path world hashes and cell-colour hashes is authorised (RV-1 pin precedent); parity tests against the JS reference are not to be moved.
+2. **Style presets also restyle** icon glyph inks, journey-marker labels, and pin and faction colours. The coordinator's caution stands as a design constraint, not a refusal: faction colours identify ownership, so a restyle must keep factions distinguishable (a contrast guard), and pins keep their meaning.
+3. **Android build:** made after the running agents land (colour confirm flow, ramp bar, continent-label fade, legacy import), not after the queue.
+4. **Editing tools (the 2026-10-10 PhotoCraft/MapTiler row), scope:** (C) adjustment stacks are PER LAYER (terrain, water, labels/overlays), not one whole-map stack; (D) the brush engine applies to biome/colour paint, height sculpt, and river/road drawing; (E) colour management covers exported PNGs with an embedded profile, a print (CMYK) gamut warning in the picker, wide-gamut/HDR display, and importing images with profiles; (F) a Look control with hue, saturation and brightness sliders plus dark/light/pastel variants of each preset.
