@@ -1515,6 +1515,36 @@ pub struct TerrainAppearance {
     /// `false` in [`Self::js_reference`], which has no river layer at all.
     pub rivers_as_water: bool,
 
+    /// **Hatching candidate (b): curvature and occlusion read a lightly
+    /// low-passed height** (`OUTSTANDING_WORK.md`, "dark diagonal hatching in
+    /// the base texture"; owner Ruling BZ item 2, 2026-10-10). When `true`,
+    /// the two relief terms that are themselves high-pass operators on the
+    /// height -- the Laplacian [`RenderCtx::curvature_at`] (R5 curvature
+    /// shading and `material_weights`' curvature input) and the cavity AO with
+    /// its sky-view and sun-shadow folds ([`build_ao`],
+    /// [`fold_lighting_fields`]) -- read [`relief_lowpass`]'s copy of the
+    /// shaded field instead of the field itself. Both pass the 1-2-cell
+    /// grooves the light stream-power pass leaves (3e-4 to 2.8e-3 deep) at
+    /// full strength, and that is the visible hatch.
+    ///
+    /// **Measured** (`tests/hatch_shade_diag.rs`, seed 483920 at 1024x768,
+    /// ROI x340-500 y620-740, luminance high-pass RMS): 1.586e-2 with this
+    /// off, 6.48e-3 with it on (-59%); seed 4242's same statistic over the
+    /// same window 1.987e-2 to 7.25e-3. The sharpness guard (mean Sobel of
+    /// luminance over the steepest 10% of land, chosen from the world's
+    /// height) falls 3.8% and 6.2%. Switching each term off in turn found
+    /// curvature carries about half the ROI figure (-48% off) and AO about
+    /// 15%; the macro and meso hillshade, slope and aspect carry none of it,
+    /// so they keep the unfiltered field -- real ridges stay as sharp as they
+    /// were.
+    ///
+    /// Classification, slope, hillshade and every water test are unchanged:
+    /// only these two shading inputs move. A `bool` for the reason
+    /// `smooth_shores` is one: a unit of filtering, not a strength. `true` in
+    /// `default()`; `false` in [`Self::js_reference`], whose curvature and
+    /// AO-free render `golden_parity_render.rs` pins.
+    pub relief_lowpass: bool,
+
     // ---- Milestone 2: ambient occlusion ----
     /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
     /// `0.0` disables AO entirely (and skips its precompute); the
@@ -2241,6 +2271,9 @@ impl Default for TerrainAppearance {
             // RIM-1/3/6: the river painted into the map as water, on in the
             // shipped look. `js_reference()` pins `false`.
             rivers_as_water: true,
+            // Hatching candidate (b), Ruling BZ item 2: on in the shipped
+            // look. `js_reference()` pins `false`.
+            relief_lowpass: true,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
@@ -2621,6 +2654,9 @@ impl TerrainAppearance {
             // RIM's painted river is port-only: the reference draws no river
             // layer in its map at all.
             rivers_as_water: false,
+            // The low-passed curvature/occlusion input is port-only: the
+            // reference's `curvatureAt` (7599) reads the raw field.
+            relief_lowpass: false,
             ..TerrainAppearance::default()
         }
     }
@@ -3071,6 +3107,35 @@ fn blur_once(src: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> Vec<f3
     box_h(src, &mut b, gw, gh, rad, world);
     box_v(&b, &mut out, gw, gh, rad);
     out
+}
+
+/// Box radius of each [`relief_lowpass`] pass, in cells. **A labelled
+/// judgement from a measurement** (`tests/hatch_shade_diag.rs`, seed 483920
+/// ROI luminance high-pass RMS, baseline 1.586e-2): radius 1 x 1 pass gave
+/// 9.35e-3 (curvature alone), radius 1 x 2 passes 8.87e-3 (curvature) and
+/// 6.48e-3 (curvature and AO), radius 2 x 1 pass 6.40e-3 and radius 1 x 3
+/// 6.18e-3 -- the last two for a larger fall in the ridge Sobel guard
+/// (-5.5% and -5.2% against -3.8%). Two radius-1 passes are a 5-tap
+/// triangle `[1,2,3,2,1]/9`: wide enough to fill a two-cell groove, no wider.
+pub(crate) const RELIEF_LOWPASS_RADIUS: i64 = 1;
+/// Number of [`RELIEF_LOWPASS_RADIUS`] box passes; see there for the measurement.
+pub(crate) const RELIEF_LOWPASS_PASSES: usize = 2;
+
+/// The lightly low-passed height that [`TerrainAppearance::relief_lowpass`]
+/// feeds to curvature and occlusion: [`RELIEF_LOWPASS_PASSES`] separable box
+/// passes of [`RELIEF_LOWPASS_RADIUS`] through [`blur_once`] (the helper AO
+/// already uses, so there is one box blur in this file). X wraps in world
+/// mode, as everywhere else here.
+///
+/// Must never reach anything that classifies water or reads the world's
+/// height: it is a shading input only, and near a coast it pulls a land cell
+/// toward the sea's depth.
+pub(crate) fn relief_lowpass(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
+    let mut f = field.to_vec();
+    for _ in 0..RELIEF_LOWPASS_PASSES {
+        f = blur_once(&f, gw, gh, RELIEF_LOWPASS_RADIUS, world);
+    }
+    f
 }
 
 /// Ambient occlusion over the heightfield (`TERRAIN_APPEARANCE_RESEARCH.md`
@@ -3919,6 +3984,10 @@ pub struct RenderCtx<'a> {
     /// own contract: the consumer tests the length rather than a flag, so the
     /// two cannot disagree.
     crest: Cow<'a, [f32]>,
+    /// [`GridPrecompute`]'s `relief_h`: empty unless
+    /// [`TerrainAppearance::relief_lowpass`] is on; read only through
+    /// [`Self::curvature_field`].
+    relief_h: Cow<'a, [f32]>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
     /// own doc comment). Settable via `with_appearance` as of milestone 2,
     /// and wired to the shell: `WorldGen::set_appearance` (`lib.rs`) writes
@@ -4029,6 +4098,10 @@ pub struct GridPrecompute {
     lights: Vec<(f64, f64, f64, f64)>,
     coast_d: Vec<f32>,
     crest: Vec<f32>,
+    /// [`relief_lowpass`] of the shaded field when
+    /// [`TerrainAppearance::relief_lowpass`] is on; **empty** when off, and
+    /// empty means curvature reads the field itself.
+    relief_h: Vec<f32>,
     river_thresh: f64,
     /// The grid this was built for, so [`RenderCtx::from_precomputed`] can
     /// refuse a mismatched one rather than index out of bounds — a panic here
@@ -4111,8 +4184,12 @@ impl GridPrecompute {
     ) -> Self {
         let sea_h = smooth_sea_h(water, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, appearance);
-        let mut ao = build_ao(field, gw, gh, sea_level, world, appearance);
-        fold_lighting_fields(&mut ao, field, gw, gh, appearance);
+        // Hatching candidate (b): occlusion and curvature read the low-passed
+        // relief when the look asks for it (`TerrainAppearance::relief_lowpass`).
+        let relief_h = if appearance.relief_lowpass { relief_lowpass(field, gw, gh, world) } else { Vec::new() };
+        let relief: &[f32] = if relief_h.is_empty() { field } else { &relief_h };
+        let mut ao = build_ao(relief, gw, gh, sea_level, world, appearance);
+        fold_lighting_fields(&mut ao, relief, gw, gh, appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, appearance);
         let lights = build_lights(appearance);
         let coast_d = if appearance.npr.waves { coast_distance(water, gw, gh, sea_level) } else { Vec::new() };
@@ -4142,14 +4219,14 @@ impl GridPrecompute {
                 biome_bd = grid_biome_boundary_dist(water, temperature, rainfall, gw, gh, sea_level, world, forced_lakes);
             }
         }
-        GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, river_thresh, gw, gh }
+        GridPrecompute { sea_h, sea_shade, ao, coast_sdf, river_sdf, biome_bd, hydro_wet, lights, coast_d, crest, relief_h, river_thresh, gw, gh }
     }
 
     /// Retained bytes — the figure `LOD_DETAIL_SCOPE.md`'s Android line needs,
     /// counted rather than estimated.
     #[allow(dead_code)]
     pub fn bytes(&self) -> usize {
-        (self.sea_h.len() + self.sea_shade.len() + self.ao.len() + self.coast_sdf.len() + self.river_sdf.len() + self.biome_bd.len() + self.hydro_wet.len() + self.coast_d.len() + self.crest.len()) * 4 + self.lights.len() * 32
+        (self.sea_h.len() + self.sea_shade.len() + self.ao.len() + self.coast_sdf.len() + self.river_sdf.len() + self.biome_bd.len() + self.hydro_wet.len() + self.coast_d.len() + self.crest.len() + self.relief_h.len()) * 4 + self.lights.len() * 32
     }
 }
 
@@ -4218,6 +4295,7 @@ impl<'a> RenderCtx<'a> {
             lights: Cow::Owned(p.lights),
             coast_d: Cow::Owned(p.coast_d),
             crest: Cow::Owned(p.crest),
+            relief_h: Cow::Owned(p.relief_h),
             appearance,
             splat: None,
             lithology: None,
@@ -4290,6 +4368,7 @@ impl<'a> RenderCtx<'a> {
             lights: Cow::Owned(p.lights),
             coast_d: Cow::Owned(p.coast_d),
             crest: Cow::Owned(p.crest),
+            relief_h: Cow::Owned(p.relief_h),
             appearance,
             splat: None,
             lithology: None,
@@ -4357,6 +4436,7 @@ impl<'a> RenderCtx<'a> {
             lights: Cow::Borrowed(&p.lights),
             coast_d: Cow::Borrowed(&p.coast_d),
             crest: Cow::Borrowed(&p.crest),
+            relief_h: Cow::Borrowed(&p.relief_h),
             appearance,
             splat: None,
             lithology: None,
@@ -4689,13 +4769,28 @@ impl<'a> RenderCtx<'a> {
 
     /// `curvatureAt` (7599) — clamps on both axes; unlike `slope_at` this
     /// never wraps even in world mode, matching the reference exactly.
+    ///
+    /// Reads [`Self::curvature_field`]: the low-passed relief when
+    /// [`TerrainAppearance::relief_lowpass`] is on (hatching candidate (b)),
+    /// else the shaded field, which is the reference's own read.
     fn curvature_at(&self, x: usize, y: usize) -> f64 {
         let (gw, gh) = (self.gw, self.gh);
         let xl = if x > 0 { x - 1 } else { x };
         let xr = if x + 1 < gw { x + 1 } else { x };
         let yu = if y > 0 { y - 1 } else { y };
         let yd = if y + 1 < gh { y + 1 } else { y };
-        self.h(xl, y) + self.h(xr, y) + self.h(x, yu) + self.h(x, yd) - 4.0 * self.h(x, y)
+        let f = self.curvature_field();
+        let c = |x: usize, y: usize| f[y * gw + x] as f64;
+        c(xl, y) + c(xr, y) + c(x, yu) + c(x, yd) - 4.0 * c(x, y)
+    }
+
+    /// The height [`Self::curvature_at`] and [`Self::curvature_at_f`] take
+    /// their Laplacian of: the precompute's low-passed relief when it was
+    /// built, else `field`. One accessor, so the screen, the export raster
+    /// and the deep-zoom tiles cannot disagree about which height curvature
+    /// reads.
+    fn curvature_field(&self) -> &[f32] {
+        if self.relief_h.is_empty() { self.field } else { &self.relief_h }
     }
 
     /// `shadeFactor` (8342, "macro") / `shadeFactor2` (7642, "meso") share
@@ -4839,8 +4934,12 @@ impl<'a> RenderCtx<'a> {
 
     /// `curvatureAtF` (reference line 7624). Never wraps, on either axis —
     /// matching [`Self::curvature_at`], and for the same reason it does.
+    /// Reads [`Self::curvature_field`], as [`Self::curvature_at`] does, so
+    /// the two stay bit-identical at every integer cell.
     fn curvature_at_f(&self, x: f64, y: f64) -> f64 {
-        self.h_f(x - 1.0, y) + self.h_f(x + 1.0, y) + self.h_f(x, y - 1.0) + self.h_f(x, y + 1.0) - 4.0 * self.h_f(x, y)
+        let (f, gw, gh) = (self.curvature_field(), self.gw, self.gh);
+        let c = |x: f64, y: f64| sample_arr(f, x, y, gw, gh);
+        c(x - 1.0, y) + c(x + 1.0, y) + c(x, y - 1.0) + c(x, y + 1.0) - 4.0 * c(x, y)
     }
 
     /// [`Self::grad_at`] at a fractional position — the hachure's downslope

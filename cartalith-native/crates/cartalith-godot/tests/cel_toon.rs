@@ -170,11 +170,19 @@ fn toon(k: f64) -> TerrainAppearance {
 #[test]
 fn default_js_reference_and_the_looks_are_bit_identical_to_the_pre_toon_tree() {
     let s = synth();
+    // Re-baselined 2026-10-10 for hatching candidate (b) (Ruling BZ item 2,
+    // `TerrainAppearance::relief_lowpass`: the shipped looks take curvature and
+    // AO from a lightly low-passed height). `js_reference` pins it off and did
+    // not move. Was (grid, bake, tile): default `0xb7d8_fdf5_72a0_07e1`,
+    // `0x6453_156b_c54b_e4c3`, `0x5b5a_5233_a7d7_694f`; Natural Vibrant
+    // `0x3410_c3d0_bdf5_58b3`, `0xbe2d_b6c1_cc3a_bb44`, `0xf095_6a2c_ac79_4eec`;
+    // Antique Parchment `0x50d3_fb83_172e_4d90`, `0x3e74_8951_f1f4_9ed3`,
+    // `0x5e33_2455_552d_1a99`.
     let pinned: [(&str, TerrainAppearance, u64, u64, u64); 4] = [
-        ("default", TerrainAppearance::default(), 0xb7d8_fdf5_72a0_07e1, 0x6453_156b_c54b_e4c3, 0x5b5a_5233_a7d7_694f),
+        ("default", TerrainAppearance::default(), 0x7348_b737_eca8_99d0, 0x6d8f_bf38_494d_371d, 0x535d_0476_94d8_ce78),
         ("js_reference", TerrainAppearance::js_reference(), 0x5599_a657_c30e_4029, 0x6c8d_5b5b_8c05_f0ba, 0x730d_4ccc_05c5_da94),
-        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x3410_c3d0_bdf5_58b3, 0xbe2d_b6c1_cc3a_bb44, 0xf095_6a2c_ac79_4eec),
-        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x50d3_fb83_172e_4d90, 0x3e74_8951_f1f4_9ed3, 0x5e33_2455_552d_1a99),
+        ("Natural Vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x9393_ae22_dc01_0b63, 0x3e87_bd1d_5a74_680d, 0x4ee9_d0af_55cf_9452),
+        ("Antique Parchment", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xc9cc_f427_a9f0_734f, 0xf60f_8061_e3be_d498, 0xea39_d899_30e4_2d54),
     ];
     for (name, a, g, b, t) in pinned {
         assert_eq!(fnv1a(&grid(&s, &a)), g, "{name}: the screen (cell_color) render moved");

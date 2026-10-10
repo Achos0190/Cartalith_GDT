@@ -138,7 +138,11 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// **Re-baselined again 2026-09-24 for Ruling AS** (was `0xbd99_2187_85be_dd95`):
 /// the shipped look turns the ocean lattice fix on (`sea_grain_warp` 0 → 1), so
 /// every sea pixel samples a rotated, warped grain; `js_reference()` pins `0.0`.
-const FINISHED_RENDER_FNV1A: u64 = 0x1aaf_e711_c277_6ed6;
+/// **Re-baselined 2026-10-10 for hatching candidate (b)** (Ruling BZ item 2,
+/// was `0x1aaf_e711_c277_6ed6`): the shipped look takes curvature and AO from a
+/// lightly low-passed height (`TerrainAppearance::relief_lowpass`);
+/// `js_reference()` pins it off.
+const FINISHED_RENDER_FNV1A: u64 = 0x48f3_344c_024f_3af8;
 
 /// Ruling AS: the ocean lattice fix is on in the shipped look and off on the
 /// golden-parity path. Literals, not `default().sea_grain_warp`.
@@ -213,7 +217,11 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
     // Re-measured again 2026-09-24 after Ruling AS turned the ocean lattice fix
     // on in the shipped look (default P3 was 5016, Antique sRGB 5115, Antique P3
     // 9320 with worst move 2, strong grade sRGB 5182).
-    let want = [("default sRGB", 0, 0), ("default P3", 5057, 1), ("Antique sRGB", 5028, 2), ("Antique P3", 9293, 3), ("strong grade sRGB", 5197, 2)];
+    // Re-measured 2026-10-10 after hatching candidate (b), `relief_lowpass`
+    // (Ruling BZ item 2), moved the shipped image (default P3 was 5057,
+    // Antique sRGB 5028, Antique P3 9293, strong grade sRGB 5197; worst moves
+    // unchanged).
+    let want = [("default sRGB", 0, 0), ("default P3", 5077, 1), ("Antique sRGB", 5033, 2), ("Antique P3", 9290, 3), ("strong grade sRGB", 5221, 2)];
     for ((label, a, space), (wl, wpx, wworst)) in cases.into_iter().zip(want) {
         assert_eq!(label, wl);
         let (fused, chained) = (finished_render_in(&a, space), chained_render_in(&a, space));
@@ -242,8 +250,9 @@ fn fusing_the_finishing_passes_is_a_bounded_rounding_change() {
 /// by `chained_render_in` — it is the value the old chain still produces).
 /// Re-baselined 2026-09-24 for Ruling AP's snow aspect term (was
 /// `0xf96d_1e67_6c25_daae`), and again for Ruling AS's ocean lattice fix
-/// (was `0x0647_711d_8f36_5fea`).
-const ANTIQUE_P3_FNV1A: u64 = 0x0318_b14c_5f5a_ccd7;
+/// (was `0x0647_711d_8f36_5fea`), and again 2026-10-10 for hatching candidate
+/// (b), `TerrainAppearance::relief_lowpass` (was `0x0318_b14c_5f5a_ccd7`).
+const ANTIQUE_P3_FNV1A: u64 = 0x85e9_4e45_411f_b03f;
 
 #[test]
 fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
@@ -251,8 +260,9 @@ fn the_graded_wide_gamut_render_is_the_re_baselined_image() {
     assert_eq!(fnv1a(&finished_render_in(&antique, ColorSpace::DisplayP3)), ANTIQUE_P3_FNV1A);
     // The old chain's value moved too with Ruling AP's snow aspect term
     // (2026-09-24; was `0x6c83_b198_b39e_4d68`), and again with Ruling AS's
-    // ocean lattice fix (was `0x3b64_bc1d_2eac_1a1c`).
-    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0x198b_ab94_3143_e5aa);
+    // ocean lattice fix (was `0x3b64_bc1d_2eac_1a1c`), and again 2026-10-10 with
+    // hatching candidate (b), `relief_lowpass` (was `0x198b_ab94_3143_e5aa`).
+    assert_eq!(fnv1a(&chained_render_in(&antique, ColorSpace::DisplayP3)), 0xc024_a352_a972_a921);
 }
 
 /// Mean absolute distance, in levels, between `got` and the **continuous**

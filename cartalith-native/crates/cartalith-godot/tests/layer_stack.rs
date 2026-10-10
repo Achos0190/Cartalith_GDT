@@ -252,10 +252,16 @@ fn the_default_stack_renders_the_pre_change_image() {
         // 0 -> 1), which moves every sea pixel. `js_reference()` pins 0.0 and
         // did not move. Default screen was `0x76c4_8787_85be_dd95`, bake
         // `0xcfaf_7c59_f035_c92a`.
-        ("default", TerrainAppearance::default(), 0x81b0_0811_c277_6ed6u64, 0x1f68_a1f5_72a0_07e1u64),
+        // Default, Vibrant and Antique re-baselined 2026-10-10 for hatching
+        // candidate (b) (Ruling BZ item 2, `TerrainAppearance::relief_lowpass`):
+        // the shipped looks take curvature and AO from a lightly low-passed
+        // height. `js_reference()` pins it off and did not move. Default screen
+        // was `0x81b0_0811_c277_6ed6`, bake `0x1f68_a1f5_72a0_07e1`.
+        ("default", TerrainAppearance::default(), 0xa387_8f4c_024f_3af8u64, 0xa180_8837_eca8_99d0u64),
         // Vibrant re-baselined 2026-09-24, Ruling AP (screen was `0xeb64_802f_ae20_df7b`, bake `0x66cf_b547_b3b7_9dcc`).
         // Ruling AS: screen was `0xfb6a_cace_306d_8beb`, bake `0x9d3f_a5b1_d6a8_e398`.
-        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x3924_8927_030b_3252, 0xdd7f_bad0_bdf5_58b3),
+        // Ruling BZ item 2 (`relief_lowpass`): screen was `0x3924_8927_030b_3252`, bake `0xdd7f_bad0_bdf5_58b3`.
+        ("vibrant", TerrainAppearance::default().with_look(render::LOOK_VIBRANT), 0x9e80_b92c_2456_7059, 0xfb00_4c22_dc01_0b63),
         // Screen re-derived 2026-09-23 for Ruling AN (was `0xae24_83aa_9cb4_63bf`):
         // Antique is the one look here whose grade is not at rest, so it is
         // the one whose local-contrast -> grade hand-off lost its intermediate
@@ -263,7 +269,8 @@ fn the_default_stack_renders_the_pre_change_image() {
         // Antique again 2026-09-24, Ruling AP's snow aspect term (screen was
         // `0x4427_8798_5bad_05ae`, bake `0x5cc8_aa1d_c354_b557`).
         // Ruling AS: screen was `0x6c64_1fa3_e8e9_633c`, bake `0x5468_5194_1b63_1d0d`.
-        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0x64fc_5461_901f_eda2, 0x90aa_6b83_172e_4d90),
+        // Ruling BZ item 2 (`relief_lowpass`): screen was `0x64fc_5461_901f_eda2`, bake `0x90aa_6b83_172e_4d90`.
+        ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE), 0xbe7a_6dd1_b76e_f58b, 0x7fe2_8a27_a9f0_734f),
         ("js_reference", TerrainAppearance::js_reference(), 0x4cba_6557_c30e_4029, 0x4cba_6557_c30e_4029),
     ] {
         assert!(a.layers.is_default(), "{name} did not start on the default stack");
