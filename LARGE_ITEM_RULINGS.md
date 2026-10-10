@@ -2136,3 +2136,12 @@ Owner, answering the coordinating session's questions after GF-10 measured NO-GO
 3. **(2026-10-10, after GF-11's first measurement) Existing lakes are exempt from B14.** `GEOLOGY_FIRST_SCOPE.md` §4.14 (a depression on the structural surface keeps its depth) and B14 (every cell newly below sea is ocean) contradicted each other; the owner ruled that an existing lake bed may go below sea level as a lake, and B14 judges only land that was not already a depression. The GF-11 retry must register its amended rule BEFORE measuring and disclose that it was written after the first result.
 
 4. **(2026-10-10, after the GF-11 retry) The exemption extends to G3.** Lake cells in existing depressions of the structural surface are counted and reported but not judged by G3 (lake share on river paths and the 1-3-cell lake count), consistent with item 3. The rule is amended again BEFORE the next measurement and the amendment is disclosed as made after seeing results. Seed 24601's 6.75 % lake share was above-sea pools in kept depressions, not below-sea lake beds.
+
+## 2026-10-10 — Ruling BZ: editing-tools order, hatching candidate (b), generate freeze, v2.71 file
+
+Owner, answering the coordinating session's questions:
+
+1. **Editing tools build order: D, C, E, F** (brush engine, per-layer adjustment stacks, colour management, Look control with variants).
+2. **Base-texture hatching: try candidate (b)**, shading from a lightly low-passed height (as RV-3's `valley_shade_field` does). One `cell_color` hash re-baseline is authorised (RV-1 pin precedent); `golden_parity_*` tests against the JS reference are not to be moved. Candidate (a) failed and was reverted (STATUS.md, 2026-10-10).
+3. **Generate freeze: move water bodies and valley shading to a worker thread** to cut the main-thread block (about 1.5 s at 2048, about 5.8 s at 4096), after a cache-key audit; the window stays responsive with a progress indicator.
+4. **The v2.71 DCC line file is not available.** The re-freeze (`OUTSTANDING_WORK.md` section 2.8) stays blocked; the port keeps following the DCC line from `RC_ENGINE_CHANGES.md` and the specs as they stand.
