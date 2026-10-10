@@ -2362,10 +2362,16 @@ func refresh_faction_colors() -> void:
 	if _bridge == null or not overlay.has_method("set_faction_colors"):
 		return
 	var out: Array[Color] = []
+	var custom: Array = []
 	for f in _bridge.get_factions():
 		var d: Dictionary = f
 		out.append(Color8(int(d.get("color_r", 128)), int(d.get("color_g", 128)),
 			int(d.get("color_b", 128))))
+		custom.append(bool(d.get("color_custom", false)))
+	## The picked-colour flags first, so the restyle `set_faction_colors()` runs
+	## already knows which swatches the user chose (Ruling BX item 2).
+	if overlay.has_method("set_faction_custom"):
+		overlay.set_faction_custom(custom)
 	overlay.set_faction_colors(out)
 
 ## `STORY_PLANNING_SCOPE.md` SP-2: every saved journey's party at the cursor

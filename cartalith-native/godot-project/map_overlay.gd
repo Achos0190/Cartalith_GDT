@@ -1826,27 +1826,28 @@ func _draw_journey_markers(rect: Rect2) -> void:
 	var k := _crisp_begin()
 	var font := get_theme_default_font()
 	var fs := 12
+	var ji := journey_inks()   ## the preset's marker inks (Ruling BX item 2), else the shipped ones
 	for m: Dictionary in _journey_markers:
 		if not (m.has("x") and m.has("y")):
 			continue
 		var p := _point_to_screen(Vector2(float(m["x"]), float(m["y"])), rect) * k
 		var moving := String(m.get("phase", "")) == "en_route"
-		_cv.draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, JOURNEY_MARKER_RING)
+		_cv.draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, ji["ring"])
 		if moving:
-			_cv.draw_circle(p, JOURNEY_MARKER_RADIUS, JOURNEY_MARKER_FILL)
+			_cv.draw_circle(p, JOURNEY_MARKER_RADIUS, ji["fill"])
 		else:
-			_cv.draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, JOURNEY_MARKER_FILL, 2.0, true)
+			_cv.draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, ji["fill"], 2.0, true)
 		var label := String(m.get("name", ""))
 		var at := p + Vector2(JOURNEY_MARKER_RADIUS + 5.0, float(fs) * 0.35)
-		_cv.draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, LABEL_STROKE_COLOR)
-		_cv.draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, SETTLEMENT_LABEL_FILL)
+		_cv.draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, ji["halo"])
+		_cv.draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ji["ink"])
 		## The supply readout SP-2's "done means" asks for, falling as the
 		## cursor moves, and the arrival it derives -- both the engine's.
 		var sub := _journey_marker_subline(m)
 		if sub != "":
 			var at2 := at + Vector2(0.0, float(fs) + 2.0)
-			_cv.draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, LABEL_STROKE_COLOR)
-			_cv.draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, SETTLEMENT_LABEL_FILL)
+			_cv.draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, ji["halo"])
+			_cv.draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, ji["ink"])
 	_crisp_end()
 
 ## `food 32 of 106 kg left · arrives 412-01-16` en route; `departs …` before,
@@ -2142,6 +2143,7 @@ func set_faction_colors(colors: Array) -> void:
 	for c in colors:
 		out.append(c as Color)
 	_faction_colors = out
+	_refresh_styled_factions()
 	queue_redraw()
 
 ## One faction's swatch. `0` is Unclaimed and has no faction colour at all;
@@ -2152,6 +2154,8 @@ func set_faction_colors(colors: Array) -> void:
 func _faction_color(faction: int) -> Color:
 	if faction <= 0:
 		return Color(0.5, 0.5, 0.5)
+	if faction <= _styled_factions.size():
+		return _styled_factions[faction - 1]   ## the preset's guarded restyle (render-time only)
 	if faction <= _faction_colors.size():
 		return _faction_colors[faction - 1]
 	return FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()]
@@ -2664,11 +2668,21 @@ func way_opacity() -> float:
 ## `ViewportHost`, not here: the province lines are a baked texture on its own
 ## `TextureRect`, not something this node draws.
 ##
+## Ruling BX item 2 (2026-10-10) added three more families, each optional:
+## * icons -- `icon_ink`, `icon_mix`, `icon_outline`, `icon_plate`
+##   (`icon_fill_for()`, `landmark_inks()`);
+## * journey markers -- `journey_ink`, `journey_halo`, `journey_fill`,
+##   `journey_ring` (`journey_inks()`);
+## * pins and faction colours -- `pin_sat`, `pin_val`, `pin_tint`, `pin_tint_mix`
+##   (`restyle_factions()`, guarded: distinct pairwise, readable on the ground,
+##   which is the preset's `label_halo` tone).
+##
 ## Never invents a value: an unknown key is ignored and a non-`Color` value for a
 ## colour key is dropped rather than coerced to a plausible colour.
 func set_style_treatment(t: Dictionary) -> void:
 	_style_treatment = t.duplicate(true)
 	_style_way_cache.clear()
+	_refresh_styled_factions()
 	queue_redraw()
 
 func style_treatment() -> Dictionary:
@@ -2785,6 +2799,349 @@ func settlement_name_inks() -> Array:
 		return [SETTLEMENT_LABEL_FILL, LABEL_STROKE_COLOR]
 	var halo: Color = _style_treatment["label_halo"] if _style_treatment.get("label_halo") is Color else LABEL_STROKE_COLOR
 	return [ink, halo]
+
+
+# -- Ruling BX item 2: icon inks, journey-marker labels, pin and faction colours --
+
+## Minimum CIE76 delta-E between any two faction colours after a restyle. A
+## **labelled judgement**: CIE76 delta-E of about 2.3 is one just-noticeable
+## difference, and the usual "clearly different colours" reading for two
+## separate swatches sits well above 10; 20 is chosen so that two pins at map
+## size and on a textured ground still read as two factions. The six shipped
+## `FACTION_COLORS` (Okabe-Ito) have a minimum pair of about 22 -- measured by
+## `_presetstyle_probe.gd` -- so the bar admits the shipped palette.
+const PIN_MIN_DELTA_E := 20.0
+## Minimum WCAG contrast ratio of a pin's fill against the preset's ground tone.
+## WCAG 2.1 SC 1.4.11 (non-text contrast) sets 3:1 for graphical objects, which
+## is what a pin is. The ground is the preset's `label_halo` RGB -- the halo is
+## by construction the label ink's opposite, i.e. the paper tone (judgement: the
+## real ground under a pin is the biome colour, which varies).
+const PIN_MIN_CONTRAST := 3.0
+## Relative luminance at which black and white contrast equally with a ground
+## (sqrt(1.05 * 0.05) - 0.05 = 0.179, WCAG's own crossover): a lighter ground is
+## met by darkening a pin, a darker one by lightening it.
+const _GROUND_CROSSOVER_LUM := 0.179
+## The two glyph inks a pin's tier glyph may take under a treatment: white (the
+## shipped ink) or this near-black, whichever contrasts more with the fill.
+const PIN_GLYPH_DARK := Color(0.05, 0.04, 0.03)
+
+## The faction swatches after the active preset's pin restyle, index
+## `faction - 1`. **A render-time view only**: `_faction_colors` (the engine's
+## swatches, the user's own picks) is never written; empty = no restyle.
+var _styled_factions: Array[Color] = []
+## Which restyle `restyle_factions()` settled on for the live set (see there).
+var _styled_factions_mode := "none"
+## Per-faction "the user picked this colour" flags (`get_factions()`'
+## `color_custom`), index `faction - 1`. A picked colour is theirs: it is never
+## tinted, only moved in lightness where the ground demands it.
+var _faction_custom: Array = []
+
+## Pushes `get_factions()`' `color_custom` column (`ViewportHost.refresh_faction_colors()`).
+func set_faction_custom(flags: Array) -> void:
+	_faction_custom = flags.duplicate()
+	_refresh_styled_factions()
+	queue_redraw()
+
+
+## `"none"` (no pin keys in the treatment), `"full"`, `"lightness"` or
+## `"original"` -- which restyle the guard accepted. Read by the probe.
+func styled_factions_mode() -> String:
+	return _styled_factions_mode
+
+
+## sRGB channel to linear light (WCAG 2.1 relative-luminance definition).
+static func _lin(v: float) -> float:
+	return v / 12.92 if v <= 0.03928 else pow((v + 0.055) / 1.055, 2.4)
+
+
+## WCAG 2.1 relative luminance of an sRGB colour (alpha ignored).
+static func rel_luminance(c: Color) -> float:
+	return 0.2126 * _lin(c.r) + 0.7152 * _lin(c.g) + 0.0722 * _lin(c.b)
+
+
+## WCAG 2.1 contrast ratio of two colours, 1..21.
+static func contrast_ratio(a: Color, b: Color) -> float:
+	var la := rel_luminance(a)
+	var lb := rel_luminance(b)
+	return (maxf(la, lb) + 0.05) / (minf(la, lb) + 0.05)
+
+
+## sRGB to CIE L*a*b* (D65 white, the standard sRGB matrix), as (L, a, b).
+static func lab_of(c: Color) -> Vector3:
+	var r := _lin(c.r)
+	var g := _lin(c.g)
+	var b := _lin(c.b)
+	var x := (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047
+	var y := 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
+	var z := (0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / 1.08883
+	var f := func(t: float) -> float:
+		return pow(t, 1.0 / 3.0) if t > 0.008856 else 7.787 * t + 16.0 / 116.0
+	var fx: float = f.call(x)
+	var fy: float = f.call(y)
+	var fz: float = f.call(z)
+	return Vector3(116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz))
+
+
+## CIE76 delta-E: the Euclidean distance in L*a*b*.
+static func delta_e76(a: Color, b: Color) -> float:
+	return lab_of(a).distance_to(lab_of(b))
+
+
+## The smallest CIE76 delta-E over every pair of `cols` (`INF` below two colours).
+static func min_pair_delta_e(cols: Array) -> float:
+	var labs: Array[Vector3] = []
+	for c in cols:
+		labs.append(lab_of(c))
+	var m := INF
+	for i in labs.size():
+		for j in range(i + 1, labs.size()):
+			m = minf(m, labs[i].distance_to(labs[j]))
+	return m
+
+
+## The smallest contrast ratio of any of `cols` against `ground`.
+static func min_contrast_against(cols: Array, ground: Color) -> float:
+	var m := INF
+	for c in cols:
+		m = minf(m, contrast_ratio(c, ground))
+	return m
+
+
+## The ground tone a pin is judged against under treatment `t`: its `label_halo`
+## RGB (see `PIN_MIN_CONTRAST`); a near-white when the treatment has none.
+static func pin_ground(t: Dictionary) -> Color:
+	var h = t.get("label_halo")
+	return Color(h.r, h.g, h.b) if h is Color else Color(0.93, 0.93, 0.93)
+
+
+## True when `t` carries any pin key, i.e. pins restyle at all.
+static func has_pin_style(t: Dictionary) -> bool:
+	return t.has("pin_sat") or t.has("pin_val") or t.has("pin_tint")
+
+
+## One colour pushed along HSV value (hue and saturation kept exactly) until it
+## reaches `PIN_MIN_CONTRAST` against `ground`: darker on a light ground, lighter
+## on a dark one. On a dark ground a colour already at full value then loses
+## saturation instead (only then does anything but value move). Alpha kept.
+static func _pin_contrast_fix(c: Color, ground: Color) -> Color:
+	var darken := rel_luminance(ground) > _GROUND_CROSSOVER_LUM
+	var h := c.h
+	var s := c.s
+	var v := c.v
+	var out := c
+	for _i in 100:
+		if contrast_ratio(out, ground) >= PIN_MIN_CONTRAST:
+			break
+		if darken:
+			v = maxf(0.0, v - 0.02)
+		elif v < 1.0:
+			v = minf(1.0, v + 0.02)
+		else:
+			s = maxf(0.0, s - 0.02)
+		out = Color.from_hsv(h, s, v, c.a)
+	return out
+
+
+## The preset's own recolouring of one faction swatch, **before** the guard:
+## saturation and value scaled (`pin_sat`, `pin_val`), then mixed toward `pin_tint`
+## by `pin_tint_mix` (a plain RGB lerp, so a large mix collapses hues together --
+## which is exactly what the guard below exists to catch).
+static func _pin_raw_restyle(c: Color, t: Dictionary) -> Color:
+	var out := Color.from_hsv(c.h, clampf(c.s * float(t.get("pin_sat", 1.0)), 0.0, 1.0),
+		clampf(c.v * float(t.get("pin_val", 1.0)), 0.0, 1.0), c.a)
+	var tint = t.get("pin_tint")
+	var m := clampf(float(t.get("pin_tint_mix", 0.0)), 0.0, 1.0)
+	if tint is Color and m > 0.0:
+		out = Color(lerpf(out.r, tint.r, m), lerpf(out.g, tint.g, m), lerpf(out.b, tint.b, m), c.a)
+	return out
+
+
+## Pushes colliding pairs apart **without leaving the contrast bar**: while the
+## closest pair is nearer than `required` CIE76 delta-E, the member that is
+## already further from the ground in lightness (the darker one on a light
+## ground, the lighter one on a dark ground) moves a further step the same way --
+## which only raises its contrast with the ground, so the 3:1 bar can never be
+## broken by this step. Hue is kept exactly; on a dark ground a member already at
+## full value loses saturation instead. Bounded to `PUSH_MAX_STEPS` 0.03-steps
+## (a labelled judgement: 0.03 of value is ~3 L* units, so 40 steps can move a
+## colour across most of the lightness range) and never below value 0.15, so a
+## pin is not pushed to black. Returns the (possibly unchanged) colours.
+const PUSH_MAX_STEPS := 40
+
+static func _push_apart(cols: Array[Color], ground: Color, required: float) -> Array[Color]:
+	var out: Array[Color] = cols.duplicate()
+	var darken := rel_luminance(ground) > _GROUND_CROSSOVER_LUM
+	for _step in PUSH_MAX_STEPS:
+		var wi := -1
+		var wj := -1
+		var wd := INF
+		for i in out.size():
+			for j in range(i + 1, out.size()):
+				var d := delta_e76(out[i], out[j])
+				if d < wd:
+					wd = d
+					wi = i
+					wj = j
+		if wi < 0 or wd >= required:
+			break
+		var li := lab_of(out[wi]).x
+		var lj := lab_of(out[wj]).x
+		var mover := wi if ((li < lj) == darken) else wj
+		var c := out[mover]
+		var v := c.v
+		var s := c.s
+		if darken:
+			v = maxf(0.15, v - 0.03)
+		elif v < 1.0:
+			v = minf(1.0, v + 0.03)
+		else:
+			s = maxf(0.0, s - 0.03)
+		out[mover] = Color.from_hsv(c.h, s, v, c.a)
+	return out
+
+
+## **The contrast guard.** Restyles the swatches `raw` (the user's own colours,
+## which this never modifies) for treatment `t`, and returns
+## `{colors, mode, min_de, min_contrast, required_de}`. Candidates, in order, the
+## first that passes is used:
+## 1. `"full"` -- every faction the user did **not** pick (`custom[i]` false) takes
+##    `_pin_raw_restyle` (sat / value / tint); picked colours stay as picked. Each
+##    colour is then moved in lightness until it reads against the ground, and
+##    colliding pairs are pushed apart (`_push_apart`).
+## 2. `"lightness"` -- every colour keeps its hue and saturation exactly; only
+##    its value moves, as far as `PIN_MIN_CONTRAST` demands and `_push_apart`
+##    needs.
+## 3. `"original"` -- the user's colours, untouched. Used when even (2) would
+##    make two factions harder to tell apart; its pin contrast is then whatever
+##    the user's colours give (it can be below 3:1: ownership identity outranks
+##    the preset's look, owner Ruling BX item 2).
+## Selection: the first of (1), (2) whose smallest pairwise CIE76 delta-E reaches
+## `PIN_MIN_DELTA_E`; failing both, whichever of the two is further apart provided
+## it is at least `required_de = min(PIN_MIN_DELTA_E, the raw set's own smallest)`
+## -- a restyle may never make factions harder to tell apart than the user's own
+## colours were, and a set the user already made near-identical is not blamed on
+## the preset; failing that, (3). Candidates 1 and 2 satisfy `PIN_MIN_CONTRAST`
+## by construction.
+## Pin meaning (the tier glyph, the capital ring) is drawn elsewhere and is not
+## touched; only ink moves.
+static func restyle_factions(raw: Array, custom: Array, t: Dictionary) -> Dictionary:
+	var ground := pin_ground(t)
+	var required := minf(PIN_MIN_DELTA_E, min_pair_delta_e(raw))
+	var full: Array[Color] = []
+	var light: Array[Color] = []
+	for i in raw.size():
+		var c: Color = raw[i]
+		var picked := i < custom.size() and bool(custom[i])
+		full.append(_pin_contrast_fix(c if picked else _pin_raw_restyle(c, t), ground))
+		light.append(_pin_contrast_fix(c, ground))
+	full = _push_apart(full, ground, PIN_MIN_DELTA_E)
+	light = _push_apart(light, ground, PIN_MIN_DELTA_E)
+	var mode := "original"
+	var chosen: Array = raw
+	## Prefer the first candidate that reaches the full bar; else the one that gets
+	## furthest above `required`; else the user's own colours.
+	var f_de := min_pair_delta_e(full)
+	var l_de := min_pair_delta_e(light)
+	if f_de >= PIN_MIN_DELTA_E - 0.0001:
+		mode = "full"
+		chosen = full
+	elif l_de >= PIN_MIN_DELTA_E - 0.0001:
+		mode = "lightness"
+		chosen = light
+	elif maxf(f_de, l_de) >= required - 0.0001:
+		if f_de >= l_de:
+			mode = "full"
+			chosen = full
+		else:
+			mode = "lightness"
+			chosen = light
+	return {"colors": chosen, "mode": mode, "min_de": min_pair_delta_e(chosen),
+		"min_contrast": min_contrast_against(chosen, ground), "required_de": required,
+		"raw_min_de": min_pair_delta_e(raw), "full_min_de": min_pair_delta_e(full),
+		"light_min_de": min_pair_delta_e(light)}
+
+
+## Recomputes `_styled_factions` from the engine's swatches and the live
+## treatment. Called from every setter that feeds it, never from `_draw`.
+func _refresh_styled_factions() -> void:
+	_styled_factions = []
+	_styled_factions_mode = "none"
+	if _faction_colors.is_empty() or not has_pin_style(_style_treatment):
+		return
+	var r := restyle_factions(_faction_colors, _faction_custom, _style_treatment)
+	var out: Array[Color] = []
+	for c in r["colors"]:
+		out.append(c)
+	_styled_factions = out
+	_styled_factions_mode = String(r["mode"])
+
+
+## The ink of a pin's tier glyph: the shipped white with no pin treatment; with
+## one, white or `PIN_GLYPH_DARK`, whichever contrasts more with the (restyled)
+## fill, so a pin that was darkened or lightened keeps a legible glyph. The glyph
+## **shape** (the tier) is never changed.
+func pin_glyph_ink(fill: Color) -> Color:
+	if not has_pin_style(_style_treatment):
+		return Color.WHITE
+	return Color.WHITE if contrast_ratio(Color.WHITE, fill) >= contrast_ratio(PIN_GLYPH_DARK, fill) else PIN_GLYPH_DARK
+
+
+## A treatment colour key mixed into `base` (`mix` 0..1), keeping `base`'s alpha;
+## `base` unchanged when the key is absent or not a `Color`.
+func _treated_mix(base: Color, key: String, mix_key: String, default_mix: float) -> Color:
+	var ink = _style_treatment.get(key)
+	if not (ink is Color):
+		return base
+	var m := clampf(float(_style_treatment.get(mix_key, default_mix)), 0.0, 1.0)
+	return Color(lerpf(base.r, ink.r, m), lerpf(base.g, ink.g, m), lerpf(base.b, ink.b, m), base.a)
+
+
+## A treatment colour key's RGB with `base`'s alpha; `base` when absent.
+func _treated_rgb(base: Color, key: String) -> Color:
+	var c = _style_treatment.get(key)
+	return Color(c.r, c.g, c.b, base.a) if c is Color else base
+
+
+## A manual icon family's fill under the treatment (`icon_ink` mixed in by
+## `icon_mix`, default 0.6): the shipped `ICON_FAMILY_COLORS` row with none. The
+## mix is below 1 on purpose so the four families keep a trace of their own hue
+## and stay tellable apart. Icons carry no author colour (`icon_dict` has none),
+## so there is no user-set value to leave alone here.
+func icon_fill_for(family: String) -> Color:
+	return _treated_mix(ICON_FAMILY_COLORS.get(family, Color(0.7, 0.7, 0.7)), "icon_ink", "icon_mix", 0.6)
+
+
+## The outline of a manual icon under the treatment (`icon_outline`, shipped alpha).
+func icon_outline_color() -> Color:
+	return _treated_rgb(ICON_OUTLINE, "icon_outline")
+
+
+## A generated landmark's `{col, outline, plate}` under the treatment: the class
+## colour mixed toward `icon_ink`, the ring outline from `icon_outline` and the
+## plate from `icon_plate`, each keeping its shipped alpha. With no icon keys the
+## shipped constants, so `Default` draws as before.
+func landmark_inks(cls: String) -> Dictionary:
+	var base: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+	return {
+		"col": _treated_mix(base, "icon_ink", "icon_mix", 0.6),
+		"outline": _treated_rgb(LANDMARK_OUTLINE, "icon_outline"),
+		"plate": _treated_rgb(LANDMARK_PLATE, "icon_plate"),
+	}
+
+
+## The journey marker's four inks under the treatment, as
+## `{fill, ring, ink, halo}`: the dot (`journey_fill`), its ring (`journey_ring`),
+## the label (`journey_ink`) and the label halo (`journey_halo`). Each key is
+## independent; absent = the shipped `JOURNEY_MARKER_*` / settlement-name pair.
+## A journey carries no colour of its own (`journey_positions()` has none), so the
+## whole marker is the style's.
+func journey_inks() -> Dictionary:
+	return {
+		"fill": _treated_rgb(JOURNEY_MARKER_FILL, "journey_fill"),
+		"ring": _treated_rgb(JOURNEY_MARKER_RING, "journey_ring"),
+		"ink": _treated_rgb(SETTLEMENT_LABEL_FILL, "journey_ink"),
+		"halo": _style_treatment["journey_halo"] if _style_treatment.get("journey_halo") is Color else LABEL_STROKE_COLOR,
+	}
 
 
 ## Whether the LOD ladder is applied at all (`GUI_GAP_REGISTER.md` CA-18).
@@ -4482,7 +4839,7 @@ func _draw_settlement_pin(e: Dictionary, sc: float, k: float, font: Font) -> voi
 	var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
 	var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
 	_cv.draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
-		HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
+		HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, pin_glyph_ink(color))
 	_crisp_end()
 
 	# Trait badges, after the glyph and before the label -- the
@@ -4723,27 +5080,28 @@ func _draw_annotation_marks(rect: Rect2, interior: Rect2) -> void:
 ## `set_civ_data` doc comment. The caller has already resolved visibility and
 ## the interior test; this only draws.
 func _draw_icon_glyph(pos: Vector2, ic: Dictionary) -> void:
-	var color: Color = ICON_FAMILY_COLORS.get(ic["family"], Color(0.7, 0.7, 0.7))
+	var color: Color = icon_fill_for(String(ic["family"]))
+	var outline: Color = icon_outline_color()   ## the preset's ink (Ruling BX item 2) or `ICON_OUTLINE`
 	var r: float = _icon_radius(ic)
 	match ic["family"]:
 		"settlement":
 			var half := r * 0.85
 			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
-			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
+			_cv.draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), outline, false, 1.2)
 		"feature":
 			var pts := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
 			_cv.draw_colored_polygon(pts, color)
-			_cv.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
+			_cv.draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), outline, 1.2, true)
 		"poi":
 			var pts2 := PackedVector2Array([
 				pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
 			_cv.draw_colored_polygon(pts2, color)
-			_cv.draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
+			_cv.draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), outline, 1.2, true)
 		_: ## "custom", or any future family this build doesn't recognise yet.
 			_cv.draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
-			_cv.draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
-			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+			_cv.draw_arc(pos, r, 0, TAU, 20, outline, 1.2, true)
+			_cv.draw_arc(pos, r * 0.4, 0, TAU, 12, outline, 1.0, true)
 
 
 ## The drawn glyph radius in this control's local pixels -- the ONE definition
@@ -4782,13 +5140,14 @@ func _icon_radius(ic: Dictionary) -> float:
 func _draw_landmark_ring(pos: Vector2, lm: Dictionary, glyph_scale: float = 1.0) -> void:
 	var cls := String(lm.get("class", "local")).to_lower()
 	var r := _landmark_radius(lm)
-	var col: Color = LANDMARK_COL_CULTURAL if cls == "cultural" else LANDMARK_COL_PHYSICAL
+	var inks := landmark_inks(cls)   ## the preset's icon inks (Ruling BX item 2), else the constants
+	var col: Color = inks["col"]
 	var glyph := DccIcons.landmark_glyph(String(lm.get("kind", "")))
 	if glyph != "":
-		_cv.draw_circle(pos, r, LANDMARK_PLATE, true, -1.0, true)
+		_cv.draw_circle(pos, r, inks["plate"], true, -1.0, true)
 	## Dark halo first so the ring survives on pale terrain, the same
 	## two-pass trick the settlement labels use for their outline.
-	_cv.draw_arc(pos, r, 0, TAU, 28, LANDMARK_OUTLINE, 2.4, true)
+	_cv.draw_arc(pos, r, 0, TAU, 28, inks["outline"], 2.4, true)
 	_cv.draw_arc(pos, r, 0, TAU, 28, col, 1.3, true)
 	if glyph != "":
 		var side := r * LANDMARK_GLYPH_FRAC

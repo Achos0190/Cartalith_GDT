@@ -435,9 +435,27 @@ const STYLE_TIPS := {
 ## WCAG contrast ratio of at least 4.5 between each preset's label ink and its
 ## halo, and at least 3.0 for every generated class ink after the mix.
 ##
-## **Left unstyled on purpose** (owner decisions, listed in the report):
-## faction colours (pins, territory wash -- they are data, not decoration), pin
-## and landmark glyph inks, and any label colour an author picked.
+## **Ruling BX item 2 (2026-10-10) added three families**, every value a labelled
+## judgement fitted to the preset's palette (dark-ink styles: dark inks over a
+## pale halo/plate; Night and Blueprint: pale inks over a dark one):
+## * icons -- `icon_ink` + `icon_mix` (the four icon families and the landmark
+##   class colours are mixed toward the ink, the mix < 1 so they stay tellable
+##   apart), `icon_outline`, `icon_plate`;
+## * journey markers -- `journey_ink`, `journey_halo` (the label), `journey_fill`,
+##   `journey_ring` (the dot);
+## * pins -- `pin_sat`, `pin_val`, `pin_tint`, `pin_tint_mix`: the faction swatches
+##   are restyled at render time **through `MapOverlay.restyle_factions()`'s
+##   contrast guard** (pairwise CIE76 delta-E >= 20 and >= 3:1 against the
+##   preset's ground, else a hue-kept variant, else the user's own colours).
+##   The saved faction colour is never written; a colour the user picked
+##   (`color_custom`) is never tinted, only moved in lightness where the ground
+##   demands it.
+##
+## **Left unstyled on purpose** (owner decisions): the territory wash (it is baked
+## in Rust by `build_territory_texture` from the saved colours -- a pin restyle
+## keeps each faction's hue, so a pin still reads as its territory), the faction
+## roster's swatches and chips (they show the data), the pin's tier glyph SHAPE,
+## the capital ring, and any label colour an author picked.
 const OVERLAY_TREATMENTS := {
 	"Antique": {
 		"road_under": Color(0.20, 0.13, 0.07), "road_over": Color(0.36, 0.22, 0.12),
@@ -446,6 +464,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.17, 0.11, 0.06), "label_halo": Color(0.93, 0.86, 0.70, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
 		"border_ink": Color(0.30, 0.19, 0.10), "border_alpha": 0.85,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.30, 0.19, 0.10), "icon_mix": 0.55, "icon_outline": Color(0.93, 0.86, 0.70), "icon_plate": Color(0.93, 0.86, 0.70),
+		"journey_ink": Color(0.17, 0.11, 0.06), "journey_halo": Color(0.93, 0.86, 0.70, 0.95), "journey_fill": Color(0.62, 0.16, 0.10), "journey_ring": Color(0.93, 0.86, 0.70, 0.95),
+		"pin_sat": 0.80, "pin_val": 0.90, "pin_tint": Color(0.30, 0.19, 0.10), "pin_tint_mix": 0.25,
 	},
 	"Ink": {
 		"road_under": Color(0.08, 0.09, 0.12), "road_over": Color(0.13, 0.16, 0.23),
@@ -454,6 +476,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.10, 0.12, 0.18), "label_halo": Color(0.97, 0.95, 0.90, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
 		"border_ink": Color(0.13, 0.16, 0.23), "border_alpha": 1.0,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.13, 0.16, 0.23), "icon_mix": 0.70, "icon_outline": Color(0.97, 0.95, 0.90), "icon_plate": Color(0.97, 0.95, 0.90),
+		"journey_ink": Color(0.10, 0.12, 0.18), "journey_halo": Color(0.97, 0.95, 0.90, 0.95), "journey_fill": Color(0.55, 0.10, 0.10), "journey_ring": Color(0.97, 0.95, 0.90, 0.95),
+		"pin_sat": 0.60, "pin_val": 0.80, "pin_tint": Color(0.10, 0.12, 0.18), "pin_tint_mix": 0.35,
 	},
 	"Watercolor": {
 		"road_under": Color(0.30, 0.22, 0.18), "road_over": Color(0.45, 0.30, 0.20),
@@ -462,6 +488,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.18, 0.16, 0.20), "label_halo": Color(0.97, 0.94, 0.88, 0.95),
 		"label_mix": 0.70, "label_halo_k": 1.5,
 		"border_ink": Color(0.35, 0.28, 0.30), "border_alpha": 0.7,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.35, 0.28, 0.30), "icon_mix": 0.45, "icon_outline": Color(0.97, 0.94, 0.88), "icon_plate": Color(0.97, 0.94, 0.88),
+		"journey_ink": Color(0.18, 0.16, 0.20), "journey_halo": Color(0.97, 0.94, 0.88, 0.95), "journey_fill": Color(0.80, 0.25, 0.30), "journey_ring": Color(0.97, 0.94, 0.88, 0.95),
+		"pin_sat": 0.85, "pin_val": 1.00, "pin_tint": Color(0.97, 0.94, 0.88), "pin_tint_mix": 0.12,
 	},
 	"Print": {
 		"road_under": Color(0.08, 0.10, 0.30), "road_over": Color(0.16, 0.22, 0.55),
@@ -470,6 +500,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.12, 0.15, 0.40), "label_halo": Color(0.98, 0.94, 0.84, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
 		"border_ink": Color(0.16, 0.22, 0.55), "border_alpha": 0.9,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.16, 0.22, 0.55), "icon_mix": 0.60, "icon_outline": Color(0.98, 0.94, 0.84), "icon_plate": Color(0.98, 0.94, 0.84),
+		"journey_ink": Color(0.12, 0.15, 0.40), "journey_halo": Color(0.98, 0.94, 0.84, 0.95), "journey_fill": Color(0.80, 0.20, 0.15), "journey_ring": Color(0.98, 0.94, 0.84, 0.95),
+		"pin_sat": 0.90, "pin_val": 0.90, "pin_tint": Color(0.16, 0.22, 0.55), "pin_tint_mix": 0.15,
 	},
 	"Village": {
 		"road_under": Color(0.25, 0.15, 0.08), "road_over": Color(0.55, 0.33, 0.18),
@@ -477,6 +511,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.14, 0.10, 0.06), "label_halo": Color(0.98, 0.95, 0.86, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
 		"border_ink": Color(0.30, 0.18, 0.10), "border_alpha": 0.9,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.30, 0.18, 0.10), "icon_mix": 0.50, "icon_outline": Color(0.98, 0.95, 0.86), "icon_plate": Color(0.98, 0.95, 0.86),
+		"journey_ink": Color(0.14, 0.10, 0.06), "journey_halo": Color(0.98, 0.95, 0.86, 0.95), "journey_fill": Color(0.70, 0.30, 0.10), "journey_ring": Color(0.98, 0.95, 0.86, 0.95),
+		"pin_sat": 0.85, "pin_val": 0.95, "pin_tint": Color(0.30, 0.18, 0.10), "pin_tint_mix": 0.15,
 	},
 	"Atlas": {
 		"road_under": Color(0.25, 0.08, 0.05), "road_over": Color(0.62, 0.20, 0.14),
@@ -485,6 +523,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.12, 0.10, 0.09), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
 		"border_ink": Color(0.45, 0.15, 0.35), "border_alpha": 0.9,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.45, 0.15, 0.35), "icon_mix": 0.45, "icon_outline": Color(1.00, 1.00, 1.00), "icon_plate": Color(1.00, 1.00, 1.00),
+		"journey_ink": Color(0.12, 0.10, 0.09), "journey_halo": Color(1.00, 1.00, 1.00, 0.95), "journey_fill": Color(0.62, 0.20, 0.14), "journey_ring": Color(1.00, 1.00, 1.00, 0.95),
+		"pin_sat": 1.00, "pin_val": 0.95, "pin_tint": Color(0.45, 0.15, 0.35), "pin_tint_mix": 0.00,
 	},
 	"Imhof relief": {
 		"road_under": Color(0.22, 0.15, 0.10), "road_over": Color(0.35, 0.25, 0.18),
@@ -493,6 +535,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.15, 0.14, 0.14), "label_halo": Color(0.95, 0.93, 0.88, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
 		"border_ink": Color(0.30, 0.22, 0.20), "border_alpha": 0.75,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.30, 0.22, 0.20), "icon_mix": 0.50, "icon_outline": Color(0.95, 0.93, 0.88), "icon_plate": Color(0.95, 0.93, 0.88),
+		"journey_ink": Color(0.15, 0.14, 0.14), "journey_halo": Color(0.95, 0.93, 0.88, 0.95), "journey_fill": Color(0.60, 0.25, 0.15), "journey_ring": Color(0.95, 0.93, 0.88, 0.95),
+		"pin_sat": 0.70, "pin_val": 0.95, "pin_tint": Color(0.30, 0.22, 0.20), "pin_tint_mix": 0.20,
 	},
 	"Blueprint": {
 		"road_under": Color(0.03, 0.10, 0.22), "road_over": Color(0.90, 0.95, 1.0),
@@ -501,6 +547,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.92, 0.96, 1.0), "label_halo": Color(0.02, 0.08, 0.20, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
 		"border_ink": Color(0.90, 0.95, 1.0), "border_alpha": 0.9,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.90, 0.95, 1.00), "icon_mix": 0.80, "icon_outline": Color(0.02, 0.08, 0.20), "icon_plate": Color(0.02, 0.08, 0.20),
+		"journey_ink": Color(0.92, 0.96, 1.00), "journey_halo": Color(0.02, 0.08, 0.20, 0.95), "journey_fill": Color(1.00, 1.00, 1.00), "journey_ring": Color(0.02, 0.08, 0.20, 0.95),
+		"pin_sat": 0.45, "pin_val": 1.00, "pin_tint": Color(0.90, 0.95, 1.00), "pin_tint_mix": 0.40,
 	},
 	"Ink wash": {
 		"road_under": Color(0.10, 0.10, 0.10), "road_over": Color(0.25, 0.24, 0.24),
@@ -509,6 +559,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.12, 0.12, 0.12), "label_halo": Color(0.96, 0.95, 0.92, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
 		"border_ink": Color(0.20, 0.20, 0.20), "border_alpha": 0.8,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.20, 0.20, 0.20), "icon_mix": 0.65, "icon_outline": Color(0.96, 0.95, 0.92), "icon_plate": Color(0.96, 0.95, 0.92),
+		"journey_ink": Color(0.12, 0.12, 0.12), "journey_halo": Color(0.96, 0.95, 0.92, 0.95), "journey_fill": Color(0.15, 0.15, 0.15), "journey_ring": Color(0.96, 0.95, 0.92, 0.95),
+		"pin_sat": 0.35, "pin_val": 0.85, "pin_tint": Color(0.20, 0.20, 0.20), "pin_tint_mix": 0.30,
 	},
 	"Woodcut": {
 		"road_under": Color(0.05, 0.04, 0.03), "road_over": Color(0.10, 0.08, 0.06),
@@ -517,6 +571,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.10, 0.07, 0.04), "label_halo": Color(0.93, 0.87, 0.72, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
 		"border_ink": Color(0.10, 0.08, 0.06), "border_alpha": 1.0,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.10, 0.08, 0.06), "icon_mix": 0.80, "icon_outline": Color(0.93, 0.87, 0.72), "icon_plate": Color(0.93, 0.87, 0.72),
+		"journey_ink": Color(0.10, 0.07, 0.04), "journey_halo": Color(0.93, 0.87, 0.72, 0.95), "journey_fill": Color(0.10, 0.08, 0.06), "journey_ring": Color(0.93, 0.87, 0.72, 0.95),
+		"pin_sat": 0.50, "pin_val": 0.70, "pin_tint": Color(0.10, 0.08, 0.06), "pin_tint_mix": 0.40,
 	},
 	"Vintage atlas": {
 		"road_under": Color(0.20, 0.14, 0.09), "road_over": Color(0.36, 0.25, 0.18),
@@ -525,6 +583,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.20, 0.14, 0.09), "label_halo": Color(0.93, 0.87, 0.73, 0.95),
 		"label_mix": 0.80, "label_halo_k": 1.5,
 		"border_ink": Color(0.40, 0.22, 0.16), "border_alpha": 0.85,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.40, 0.22, 0.16), "icon_mix": 0.50, "icon_outline": Color(0.93, 0.87, 0.73), "icon_plate": Color(0.93, 0.87, 0.73),
+		"journey_ink": Color(0.20, 0.14, 0.09), "journey_halo": Color(0.93, 0.87, 0.73, 0.95), "journey_fill": Color(0.60, 0.20, 0.12), "journey_ring": Color(0.93, 0.87, 0.73, 0.95),
+		"pin_sat": 0.70, "pin_val": 0.90, "pin_tint": Color(0.40, 0.22, 0.16), "pin_tint_mix": 0.25,
 	},
 	"Nautical": {
 		"road_under": Color(0.12, 0.12, 0.14), "road_over": Color(0.20, 0.20, 0.22),
@@ -533,6 +595,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.08, 0.08, 0.12), "label_halo": Color(0.95, 0.93, 0.85, 0.95),
 		"label_mix": 0.90, "label_halo_k": 1.5,
 		"border_ink": Color(0.50, 0.10, 0.40), "border_alpha": 0.85,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.50, 0.10, 0.40), "icon_mix": 0.45, "icon_outline": Color(0.95, 0.93, 0.85), "icon_plate": Color(0.95, 0.93, 0.85),
+		"journey_ink": Color(0.08, 0.08, 0.12), "journey_halo": Color(0.95, 0.93, 0.85, 0.95), "journey_fill": Color(0.72, 0.12, 0.50), "journey_ring": Color(0.95, 0.93, 0.85, 0.95),
+		"pin_sat": 0.90, "pin_val": 0.90, "pin_tint": Color(0.08, 0.08, 0.12), "pin_tint_mix": 0.10,
 	},
 	"Night": {
 		"road_under": Color(0.02, 0.02, 0.04), "road_over": Color(0.95, 0.80, 0.45),
@@ -541,6 +607,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.93, 0.93, 0.98), "label_halo": Color(0.02, 0.02, 0.05, 0.95),
 		"label_mix": 0.95, "label_halo_k": 1.5,
 		"border_ink": Color(0.85, 0.75, 0.55), "border_alpha": 0.8,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.85, 0.75, 0.55), "icon_mix": 0.60, "icon_outline": Color(0.02, 0.02, 0.05), "icon_plate": Color(0.02, 0.02, 0.05),
+		"journey_ink": Color(0.93, 0.93, 0.98), "journey_halo": Color(0.02, 0.02, 0.05, 0.95), "journey_fill": Color(0.95, 0.80, 0.45), "journey_ring": Color(0.02, 0.02, 0.05, 0.95),
+		"pin_sat": 0.80, "pin_val": 1.00, "pin_tint": Color(0.85, 0.75, 0.55), "pin_tint_mix": 0.15,
 	},
 	"Cel / Toon": {
 		"road_under": Color(0.05, 0.03, 0.02), "road_over": Color(0.35, 0.20, 0.10),
@@ -549,6 +619,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.08, 0.06, 0.05), "label_halo": Color(1.0, 1.0, 1.0, 0.95),
 		"label_mix": 1.00,
 		"border_ink": Color(0.10, 0.08, 0.08), "border_alpha": 1.0,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.10, 0.08, 0.08), "icon_mix": 0.50, "icon_outline": Color(1.00, 1.00, 1.00), "icon_plate": Color(1.00, 1.00, 1.00),
+		"journey_ink": Color(0.08, 0.06, 0.05), "journey_halo": Color(1.00, 1.00, 1.00, 0.95), "journey_fill": Color(0.95, 0.60, 0.10), "journey_ring": Color(0.08, 0.06, 0.05, 0.95),
+		"pin_sat": 1.00, "pin_val": 1.00, "pin_tint": Color(0.10, 0.08, 0.08), "pin_tint_mix": 0.00,
 	},
 	## Tanaka relief: a pale warm-paper ground carrying slate-blue rivers
 	## (`STYLE_PRESETS`), so the lines are cool grey-slate -- thin, like the
@@ -561,6 +635,10 @@ const OVERLAY_TREATMENTS := {
 		"label_ink": Color(0.12, 0.13, 0.16), "label_halo": Color(0.97, 0.95, 0.91, 0.95),
 		"label_mix": 0.85, "label_halo_k": 1.5,
 		"border_ink": Color(0.28, 0.29, 0.34), "border_alpha": 0.8,
+		## Ruling BX item 2 (all labelled judgements): icons, journey marker, pins.
+		"icon_ink": Color(0.28, 0.29, 0.34), "icon_mix": 0.50, "icon_outline": Color(0.97, 0.95, 0.91), "icon_plate": Color(0.97, 0.95, 0.91),
+		"journey_ink": Color(0.12, 0.13, 0.16), "journey_halo": Color(0.97, 0.95, 0.91, 0.95), "journey_fill": Color(0.55, 0.20, 0.20), "journey_ring": Color(0.97, 0.95, 0.91, 0.95),
+		"pin_sat": 0.60, "pin_val": 0.90, "pin_tint": Color(0.28, 0.29, 0.34), "pin_tint_mix": 0.20,
 	},
 }
 
