@@ -4,8 +4,8 @@
 //!
 //! Deliberately **free of any `godot` dependency**, the same isolation
 //! `journey_bridge.rs`/`timeline_bridge.rs` already establish: this module
-//! owns everything that can be expressed without one, and a later dispatch's
-//! `lib.rs` `#[func]` layer owns the thin `Variant`<->Rust conversion, the
+//! owns everything that can be expressed without one, and `lib.rs`'s
+//! `#[func]` layer (live; see the section below) owns the thin `Variant`<->Rust conversion, the
 //! same way `timeline_bridge.rs` was added cleanly on top of
 //! `cartalith-civ/timeline.rs`'s data model without every consumer being
 //! wired in the same pass.
@@ -54,25 +54,37 @@ use crate::journey_bridge::JpValue;
 /// The common shape [`EntrySet`]'s generic CRUD needs from all four
 /// definition types -- an id, a mutable origin, and the ability to be
 /// cloned into a new custom copy ([`EntrySet::duplicate`]'s own basis).
+/// Never implement this for a type without a stable unique `id`: `EntrySet`
+/// uses it as the only key for lookup, duplicate refusal and deletion.
 pub trait TravelEntry: Clone {
+    /// The entry's unique id within its `EntrySet`; stock ids are fixed, custom ones come from `TravelLibrary::fresh_id`.
     fn id(&self) -> &str;
+    /// Rewrite the id; only `EntrySet::duplicate` calls this, on a fresh clone, so a stored entry's id never changes.
     fn set_id(&mut self, id: String);
+    /// Whether the entry is `Stock` (read-only) or `Custom` (editable/deletable).
     fn origin(&self) -> EntryOrigin;
+    /// Rewrite the origin; `EntrySet` stamps `Custom` on every entry it adds or duplicates, never `Stock`.
     fn set_origin(&mut self, origin: EntryOrigin);
 }
 
+/// Implements [`TravelEntry`] for a definition type with public `id` and `origin`
+/// fields, so the four types share one field-for-field accessor body.
 macro_rules! impl_travel_entry {
     ($t:ty) => {
         impl TravelEntry for $t {
+            /// Read the `id` field.
             fn id(&self) -> &str {
                 &self.id
             }
+            /// Overwrite the `id` field.
             fn set_id(&mut self, id: String) {
                 self.id = id;
             }
+            /// Read the `origin` field.
             fn origin(&self) -> EntryOrigin {
                 self.origin
             }
+            /// Overwrite the `origin` field.
             fn set_origin(&mut self, origin: EntryOrigin) {
                 self.origin = origin;
             }
@@ -97,14 +109,17 @@ pub struct EntrySet<T: TravelEntry> {
 }
 
 impl<T: TravelEntry> EntrySet<T> {
+    /// A set holding exactly `stock`, in bootstrap order, with no custom entries.
     pub fn new(stock: Vec<T>) -> Self {
         EntrySet { items: stock }
     }
 
+    /// Every entry, stock first then custom in add order; read-only.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.items.iter()
     }
 
+    /// Look up any entry (stock or custom) by id; `None` if absent. Read-only, unlike `get_mut`.
     pub fn get(&self, id: &str) -> Option<&T> {
         self.items.iter().find(|e| e.id() == id)
     }
@@ -173,7 +188,9 @@ pub struct TravelLibrary {
     next_id: u64,
 }
 
+/// Same as [`TravelLibrary::new`]: stock-only, no custom entries.
 impl Default for TravelLibrary {
+    /// A default library is a freshly bootstrapped one, never an empty one.
     fn default() -> Self {
         Self::new()
     }
@@ -203,21 +220,29 @@ impl TravelLibrary {
 
     // ---- validation, per-entry (TRAVEL_LIBRARY_SPEC.md §4) ----
 
+    /// Validation state (ok/incomplete/conflicting) of the animal `id`, or `None` if no such entry.
+    /// Falls through to `cartalith_civ::travel_library`; this layer adds no rules of its own.
     pub fn animal_validation(&self, id: &str) -> Option<ValidationState> {
         self.animals
             .get(id)
             .map(cartalith_civ::travel_library::validate_animal)
     }
+    /// Validation state (ok/incomplete/conflicting) of the vehicle `id`, or `None` if no such entry.
+    /// Falls through to `cartalith_civ::travel_library`; this layer adds no rules of its own.
     pub fn vehicle_validation(&self, id: &str) -> Option<ValidationState> {
         self.vehicles
             .get(id)
             .map(cartalith_civ::travel_library::validate_vehicle)
     }
+    /// Validation state (ok/incomplete/conflicting) of the vessel `id`, or `None` if no such entry.
+    /// Falls through to `cartalith_civ::travel_library`; this layer adds no rules of its own.
     pub fn vessel_validation(&self, id: &str) -> Option<ValidationState> {
         self.vessels
             .get(id)
             .map(cartalith_civ::travel_library::validate_vessel)
     }
+    /// Validation state (ok/incomplete/conflicting) of the party preset `id`, or `None` if no such entry.
+    /// Falls through to `cartalith_civ::travel_library`; this layer adds no rules of its own.
     pub fn preset_validation(&self, id: &str) -> Option<ValidationState> {
         self.presets
             .get(id)
@@ -387,6 +412,8 @@ impl TravelLibrary {
     }
 }
 
+/// How many head of built-in species `species_key` the party carries; `0` for any key
+/// that is not one of the four `JpParty` species fields (never a guess).
 fn species_count(party: &cartalith_civ::JpParty, species_key: &str) -> i64 {
     match species_key {
         "donkey" => party.donkey,
@@ -443,6 +470,8 @@ const TERRAIN_SLUGS: [(&str, &str); 10] = [
     ("River Ford", "river_ford"),
 ];
 
+/// Wire slug for a `TL_TERRAIN_KEYS` row. Panics (`expect`) on an unlisted key, which
+/// would mean `TERRAIN_SLUGS` drifted from the key list (checked by a test).
 fn terrain_slug(key: &str) -> &'static str {
     TERRAIN_SLUGS
         .iter()
@@ -451,10 +480,12 @@ fn terrain_slug(key: &str) -> &'static str {
         .expect("every TL_TERRAIN_KEYS row has a slug")
 }
 
+/// Inverse of [`terrain_slug`]; `None` for an unrecognised slug, which callers reject.
 fn terrain_key_from_slug(slug: &str) -> Option<&'static str> {
     TERRAIN_SLUGS.iter().find(|(_, s)| *s == slug).map(|(k, _)| *k)
 }
 
+/// Encode an affinity for the wire: a number (multiplier) or the string `"blocked"`.
 fn affinity_out(a: &TerrainAffinity) -> JpValue {
     match a {
         TerrainAffinity::Multiplier(m) => JpValue::Num(*m),
@@ -472,6 +503,7 @@ fn affinity_in(v: &JpValue) -> Option<TerrainAffinity> {
     }
 }
 
+/// Wire slug for one animal role.
 fn role_slug(r: &AnimalRole) -> &'static str {
     match r {
         AnimalRole::Pack => "pack",
@@ -480,10 +512,13 @@ fn role_slug(r: &AnimalRole) -> &'static str {
     }
 }
 
+/// Comma-joined role slugs (`"pack,mount"`); an empty role list yields an empty string.
 fn roles_out(roles: &[AnimalRole]) -> JpValue {
     JpValue::Str(roles.iter().map(|r| role_slug(r)).collect::<Vec<_>>().join(","))
 }
 
+/// Parse a comma-separated role list; unrecognised tokens are silently dropped
+/// (lenient, unlike the key-level rejection in `animal_apply_pairs`).
 fn roles_in(s: &str) -> Vec<AnimalRole> {
     s.split(',')
         .filter_map(|t| match t.trim() {
@@ -495,6 +530,7 @@ fn roles_in(s: &str) -> Vec<AnimalRole> {
         .collect()
 }
 
+/// Wire string for an optional grazing tolerance; `None` (unset) is `""`, not a value.
 fn grazing_out(g: Option<GrazingTolerance>) -> JpValue {
     JpValue::Str(
         match g {
@@ -507,6 +543,7 @@ fn grazing_out(g: Option<GrazingTolerance>) -> JpValue {
     )
 }
 
+/// Parse a grazing-tolerance string; `""` or anything unknown becomes `None` (unset).
 fn grazing_in(s: &str) -> Option<GrazingTolerance> {
     match s {
         "unrestricted" => Some(GrazingTolerance::Unrestricted),
@@ -516,6 +553,7 @@ fn grazing_in(s: &str) -> Option<GrazingTolerance> {
     }
 }
 
+/// The `"global"`/`"regional"` kind of an optional availability; unset is `""`.
 fn availability_kind_out(a: &Option<Availability>) -> JpValue {
     JpValue::Str(
         match a {
@@ -527,6 +565,7 @@ fn availability_kind_out(a: &Option<Availability>) -> JpValue {
     )
 }
 
+/// The region text of a regional availability, else `""`.
 fn availability_region_out(a: &Option<Availability>) -> JpValue {
     JpValue::Str(match a {
         Some(Availability::Regional(r)) => r.clone(),
@@ -559,6 +598,9 @@ pub fn animal_subtitle(a: &AnimalDef) -> String {
     }
 }
 
+/// Flatten an animal into `(key, value)` pairs for the `#[func]` boundary. Optional
+/// numeric and terrain fields are emitted only when set, so an unset field is an
+/// absent key, never a fabricated `0`.
 pub fn animal_to_pairs(a: &AnimalDef) -> Vec<(String, JpValue)> {
     let mut out = vec![
         ("name".to_string(), JpValue::Str(a.name.clone())),
@@ -671,6 +713,7 @@ pub fn animal_apply_pairs(base: &AnimalDef, pairs: &[(String, JpValue)]) -> (Ani
 
 // ---- 3.2 Vehicles ----
 
+/// List-rail subtitle for a vehicle: its class, or `"—"` while unset.
 pub fn vehicle_subtitle(v: &VehicleDef) -> String {
     match v.class {
         Some(VehicleClass::Wheeled) => "wheeled".to_string(),
@@ -679,6 +722,7 @@ pub fn vehicle_subtitle(v: &VehicleDef) -> String {
     }
 }
 
+/// Wire string for an optional vehicle class; unset is `""`.
 fn class_out(c: Option<VehicleClass>) -> JpValue {
     JpValue::Str(
         match c {
@@ -689,6 +733,7 @@ fn class_out(c: Option<VehicleClass>) -> JpValue {
         .to_string(),
     )
 }
+/// Parse a vehicle-class string; unknown/empty becomes `None` (unset).
 fn class_in(s: &str) -> Option<VehicleClass> {
     match s {
         "wheeled" => Some(VehicleClass::Wheeled),
@@ -696,6 +741,7 @@ fn class_in(s: &str) -> Option<VehicleClass> {
         _ => None,
     }
 }
+/// Wire string for an optional road requirement; unset is `""`.
 fn road_req_out(r: Option<RoadRequirement>) -> JpValue {
     JpValue::Str(
         match r {
@@ -707,6 +753,7 @@ fn road_req_out(r: Option<RoadRequirement>) -> JpValue {
         .to_string(),
     )
 }
+/// Parse a road-requirement string; unknown/empty becomes `None` (unset).
 fn road_req_in(s: &str) -> Option<RoadRequirement> {
     match s {
         "none" => Some(RoadRequirement::None),
@@ -716,6 +763,8 @@ fn road_req_in(s: &str) -> Option<RoadRequirement> {
     }
 }
 
+/// Flatten a vehicle into pairs. Optional fields (load, draft, speed, off-road, ford)
+/// are emitted only when set; a draft requirement becomes `draft_count` + `draft_role`.
 pub fn vehicle_to_pairs(v: &VehicleDef) -> Vec<(String, JpValue)> {
     let mut out = vec![
         ("name".to_string(), JpValue::Str(v.name.clone())),
@@ -742,6 +791,10 @@ pub fn vehicle_to_pairs(v: &VehicleDef) -> Vec<(String, JpValue)> {
     out
 }
 
+/// Apply a partial edit onto a clone of `base`; untouched fields (and `id`/`origin`)
+/// survive. `draft_count`/`draft_role` are merged into one `draft_head_required`
+/// (missing half defaults to `0` / empty) and written only if either key was seen.
+/// Returns the entry plus every unrecognised or wrong-typed key.
 pub fn vehicle_apply_pairs(base: &VehicleDef, pairs: &[(String, JpValue)]) -> (VehicleDef, Vec<String>) {
     let mut v = base.clone();
     let mut rejected = Vec::new();
@@ -774,6 +827,7 @@ pub fn vehicle_apply_pairs(base: &VehicleDef, pairs: &[(String, JpValue)]) -> (V
 
 // ---- 3.3 Vessels ----
 
+/// List-rail subtitle for a vessel: its modes joined by `" · "`, or `"—"` while none are set.
 pub fn vessel_subtitle(v: &VesselDef) -> String {
     if v.modes.is_empty() {
         "—".to_string()
@@ -789,6 +843,7 @@ pub fn vessel_subtitle(v: &VesselDef) -> String {
     }
 }
 
+/// Comma-joined mode slugs (`"river,sea"`); empty list yields `""`.
 fn modes_out(m: &[VesselMode]) -> JpValue {
     JpValue::Str(
         m.iter()
@@ -800,6 +855,7 @@ fn modes_out(m: &[VesselMode]) -> JpValue {
             .join(","),
     )
 }
+/// Parse a comma-separated mode list; unknown tokens are silently dropped.
 fn modes_in(s: &str) -> Vec<VesselMode> {
     s.split(',')
         .filter_map(|t| match t.trim() {
@@ -809,6 +865,7 @@ fn modes_in(s: &str) -> Vec<VesselMode> {
         })
         .collect()
 }
+/// Wire string for an optional water rating; unset is `""`.
 fn water_rating_out(w: Option<WaterRating>) -> JpValue {
     JpValue::Str(
         match w {
@@ -820,6 +877,7 @@ fn water_rating_out(w: Option<WaterRating>) -> JpValue {
         .to_string(),
     )
 }
+/// Parse a water-rating string; unknown/empty becomes `None` (unset).
 fn water_rating_in(s: &str) -> Option<WaterRating> {
     match s {
         "sheltered" => Some(WaterRating::Sheltered),
@@ -828,6 +886,7 @@ fn water_rating_in(s: &str) -> Option<WaterRating> {
         _ => None,
     }
 }
+/// Wire string for an optional sailing window; unset is `""`.
 fn sailing_window_out(w: Option<SailingWindow>) -> JpValue {
     JpValue::Str(
         match w {
@@ -838,6 +897,7 @@ fn sailing_window_out(w: Option<SailingWindow>) -> JpValue {
         .to_string(),
     )
 }
+/// Parse a sailing-window string; unknown/empty becomes `None` (unset).
 fn sailing_window_in(s: &str) -> Option<SailingWindow> {
     match s {
         "daylight" => Some(SailingWindow::Daylight),
@@ -846,6 +906,8 @@ fn sailing_window_in(s: &str) -> Option<SailingWindow> {
     }
 }
 
+/// Flatten a vessel into pairs; `hold_kg`, `crew_required` and `base_speed_kmh` are
+/// emitted only when set (absent key = incomplete, not zero).
 pub fn vessel_to_pairs(v: &VesselDef) -> Vec<(String, JpValue)> {
     let mut out = vec![
         ("name".to_string(), JpValue::Str(v.name.clone())),
@@ -866,6 +928,9 @@ pub fn vessel_to_pairs(v: &VesselDef) -> Vec<(String, JpValue)> {
     out
 }
 
+/// Apply a partial edit onto a clone of `base`; untouched fields (and `id`/`origin`)
+/// survive. Returns the entry plus every unrecognised or wrong-typed key.
+/// `crew_required` is clamped at `0` before the `u32` cast.
 pub fn vessel_apply_pairs(base: &VesselDef, pairs: &[(String, JpValue)]) -> (VesselDef, Vec<String>) {
     let mut v = base.clone();
     let mut rejected = Vec::new();
@@ -890,10 +955,15 @@ pub fn vessel_apply_pairs(base: &VesselDef, pairs: &[(String, JpValue)]) -> (Ves
 
 // ---- 3.4 Party set-ups ----
 
+/// List-rail subtitle for a party set-up: its transport mode string, verbatim.
 pub fn preset_subtitle(p: &PartyPreset) -> String {
     p.transport.clone()
 }
 
+/// The twenty `JpPlan` keys that make up a party set-up (the party form's own
+/// fields); anything else `plan_to_pairs` emits is route-only and is filtered out.
+/// Must stay in step with the arms of [`preset_apply_pairs`].
+///
 /// Reuses `journey_bridge::plan_to_pairs` rather than re-listing the same
 /// twenty field names a third time: [`PartyPreset::apply_to`] already
 /// projects a preset onto a full `JpPlan`, so running that through the
@@ -923,6 +993,8 @@ pub const PRESET_FIELD_KEYS: [&str; 20] = [
     "travois",
 ];
 
+/// Flatten a preset into pairs: its `name` plus the party-form fields of
+/// `PartyPreset::apply_to(JpPlan::default())` (route-only plan fields are dropped).
 pub fn preset_to_pairs(p: &PartyPreset) -> Vec<(String, JpValue)> {
     let plan = p.apply_to(&cartalith_civ::JpPlan::default());
     let mut out = vec![("name".to_string(), JpValue::Str(p.name.clone()))];
@@ -977,11 +1049,14 @@ pub fn preset_apply_pairs(base: &PartyPreset, pairs: &[(String, JpValue)]) -> (P
 }
 
 #[cfg(test)]
+/// Tests for the Travel Library store, its `(key, JpValue)` pair conversions and the
+/// resolver wiring into `jp_plan_ex`.
 mod tests {
     use super::*;
 
     // ---------- CRUD round trips ----------
 
+    /// Protects: a new library bootstraps every stock entry (7 animals, 5 vehicles, 11 vessels, 2 presets) with none custom.
     #[test]
     fn a_fresh_library_has_every_stock_definition_and_no_custom_ones() {
         let lib = TravelLibrary::new();
@@ -992,6 +1067,7 @@ mod tests {
         assert!(lib.animals.iter().all(|a| a.origin == EntryOrigin::Stock));
     }
 
+    /// Protects: stock entries stay read-only: `get_mut` and `delete` both refuse them.
     #[test]
     fn stock_entries_cannot_be_edited_or_deleted() {
         let mut lib = TravelLibrary::new();
@@ -1003,6 +1079,7 @@ mod tests {
         assert!(lib.animals.get("donkey").is_some(), "and is still there");
     }
 
+    /// Protects: duplicating a stock animal gives an editable, deletable Custom copy that keeps `species_key` and every field.
     #[test]
     fn duplicating_a_stock_animal_yields_an_editable_custom_copy() {
         let mut lib = TravelLibrary::new();
@@ -1035,6 +1112,7 @@ mod tests {
         assert!(lib.animals.get(&id).is_none());
     }
 
+    /// Protects: a from-blank animal reports `Incomplete`, never `Ok`, until its fields are filled.
     #[test]
     fn a_blank_definition_starts_incomplete() {
         let mut lib = TravelLibrary::new();
@@ -1046,6 +1124,7 @@ mod tests {
         ));
     }
 
+    /// Protects: duplicating onto an id already taken returns `None` and adds nothing.
     #[test]
     fn duplicate_ids_are_refused() {
         let mut lib = TravelLibrary::new();
@@ -1060,6 +1139,7 @@ mod tests {
         );
     }
 
+    /// Protects: `reset_to_stock` removes all custom entries and keeps the stock ones.
     #[test]
     fn reset_to_stock_drops_every_custom_entry() {
         let mut lib = TravelLibrary::new();
@@ -1073,6 +1153,7 @@ mod tests {
 
     // ---------- validation reachable through the live store ----------
 
+    /// Protects: the `Conflicting` validation state is reachable from a store entry, not only from civ-level fixtures.
     #[test]
     fn conflicting_is_reachable_through_the_live_store_too() {
         let mut lib = TravelLibrary::new();
@@ -1088,6 +1169,7 @@ mod tests {
 
     // ---------- usage tracking ----------
 
+    /// Protects: `animal_usage_in_presets` counts presets whose party count for the species is above 0.
     #[test]
     fn animal_usage_counts_presets_that_reference_its_species() {
         let mut lib = TravelLibrary::new();
@@ -1103,6 +1185,7 @@ mod tests {
         assert_eq!(lib.animal_usage_in_presets("camel"), 1);
     }
 
+    /// Protects: an animal with no `species_key` always reports 0 preset usage (no `JpParty` slot).
     #[test]
     fn a_species_less_custom_animal_never_shows_preset_usage() {
         let mut lib = TravelLibrary::new();
@@ -1111,6 +1194,8 @@ mod tests {
         assert_eq!(lib.animal_usage_in_presets(&id), 0);
     }
 
+    /// Protects: `animal_usage_in_journeys` stays 0 because a Journey references a preset, not an animal;
+    /// if a journey ever names an animal this must be revisited, not silently kept.
     #[test]
     fn journey_usage_is_honestly_always_zero() {
         // Still true after SP-1: a `Journey` names a `PartyPreset`, not an
@@ -1127,6 +1212,7 @@ mod tests {
 
     // ---------- animal_overrides ----------
 
+    /// Protects: `animal_overrides` skips stock and species-less entries; only custom, species-keyed ones override.
     #[test]
     fn animal_overrides_only_includes_custom_species_keyed_entries() {
         let mut lib = TravelLibrary::new();
@@ -1148,6 +1234,7 @@ mod tests {
 
     // ---------- animal_species_slot / animal_overrides_selected ----------
 
+    /// Protects: `animal_species_slot` follows own key, then the `substitutes_for` chain, and terminates on a cycle.
     #[test]
     fn species_slot_is_the_own_key_then_the_substitutes_for_chain() {
         let mut lib = TravelLibrary::new();
@@ -1189,6 +1276,7 @@ mod tests {
         assert_eq!(lib.animal_species_slot(&a), None, "a cycle terminates");
     }
 
+    /// Protects: an empty selection leaves `animal_overrides_selected` equal to `animal_overrides` with nothing rejected.
     #[test]
     fn an_empty_selection_reproduces_animal_overrides_exactly() {
         let mut lib = TravelLibrary::new();
@@ -1200,6 +1288,7 @@ mod tests {
         assert!(selected.contains_key("camel"));
     }
 
+    /// Protects: a named custom entry beats the implicit last-added one, and naming the stock entry drops the override.
     #[test]
     fn selecting_a_stock_entry_means_no_override_and_a_custom_one_means_that_exact_entry() {
         let mut lib = TravelLibrary::new();
@@ -1231,6 +1320,7 @@ mod tests {
         assert!(!out.contains_key("mule"));
     }
 
+    /// Protects: wrong-slot, unknown-id and unknown-species selections are all reported in deterministic order.
     #[test]
     fn a_selection_that_cannot_be_honoured_is_rejected_not_silently_dropped() {
         let mut lib = TravelLibrary::new();
@@ -1248,6 +1338,7 @@ mod tests {
         assert_eq!(rejected, vec!["mule", "horse", "ostrich"]);
     }
 
+    /// Protects: an entry reaching a species via `substitutes_for` may be selected into that slot and brings its own figures.
     #[test]
     fn a_substitutes_for_entry_can_occupy_the_slot_it_substitutes_into() {
         let mut lib = TravelLibrary::new();
@@ -1271,6 +1362,8 @@ mod tests {
 
     // ---------- end to end: the proof this is real, not decorative ----------
 
+    /// Fixture: a 24x16 all-land grid (column 0 water) with uniform temperature and rain;
+    /// small enough that a 14-cell traverse plans quickly. Not a model of any real map.
     fn tiny_land_world() -> (Vec<f32>, Vec<u8>, Vec<f32>, Vec<f32>, usize, usize) {
         let (gw, gh) = (24usize, 16usize);
         let n = gw * gh;
@@ -1281,6 +1374,9 @@ mod tests {
         (field, water_bodies, temp, rain, gw, gh)
     }
 
+    /// Protects: a custom Travel Library animal reaching a computed journey end to end
+    /// (a slower custom donkey must lengthen the journey).
+    ///
     /// The test `TRAVEL_LIBRARY_SPEC.md`'s wiring milestone calls for: a
     /// custom, edited Travel Library animal entry -- slower AND
     /// higher-capacity than any stock entry -- actually changes a computed
@@ -1371,6 +1467,7 @@ mod tests {
         assert!(overridden.avg_km_day < baseline.avg_km_day);
     }
 
+    /// Protects: a custom animal marking the crossed terrain `Blocked` produces a blocked leg; returns early (vacuous) if the world's terrain has no TL mapping.
     #[test]
     fn a_blocked_terrain_override_actually_blocks_the_stage() {
         // Same world, but the whole route sits on one uniform terrain --
@@ -1455,6 +1552,7 @@ mod tests {
 
     // ---------- the #[func] boundary's pairs conversion (this dispatch) ----------
 
+    /// Protects: animal flatten/apply keeps every set field present and a partial edit changes only the sent keys (never `id`/`species_key`).
     #[test]
     fn animal_pairs_round_trip_through_a_partial_edit() {
         let donkey = stock_animals().into_iter().find(|a| a.id == "donkey").unwrap();
@@ -1479,6 +1577,7 @@ mod tests {
         assert_eq!(edited.species_key, donkey.species_key, "species_key is not a recognised key either");
     }
 
+    /// Protects: unknown keys and wrong-typed values come back in `rejected` in input order, not silently ignored.
     #[test]
     fn animal_apply_pairs_reports_unknown_and_wrong_typed_keys_as_rejected() {
         let donkey = stock_animals().into_iter().find(|a| a.id == "donkey").unwrap();
@@ -1490,6 +1589,7 @@ mod tests {
         assert_eq!(rejected, vec!["no_such_field", "load_capacity_kg"]);
     }
 
+    /// Protects: an unset optional field is an absent key, never an emitted zero.
     #[test]
     fn a_blank_animal_emits_no_optional_field_keys_at_all() {
         let blank = AnimalDef::blank("t", "Blank");
@@ -1500,6 +1600,7 @@ mod tests {
         );
     }
 
+    /// Protects: a partial vehicle edit leaves `draft_head_required` untouched when no draft key is sent.
     #[test]
     fn vehicle_pairs_round_trip_and_draft_requirement_survives_a_partial_edit() {
         let cart = stock_vehicles().into_iter().find(|v| v.id == "cart").unwrap();
@@ -1513,6 +1614,7 @@ mod tests {
         );
     }
 
+    /// Protects: vessel flatten/apply emits `modes` and a partial edit changes only the sent field.
     #[test]
     fn vessel_pairs_round_trip() {
         let cog = stock_vessels().into_iter().find(|v| v.id == "cog").unwrap();
@@ -1525,6 +1627,7 @@ mod tests {
         assert_eq!(edited.hold_kg, cog.hold_kg);
     }
 
+    /// Protects: preset pairs hold party-form fields only (no route-only keys) and a partial edit preserves the rest.
     #[test]
     fn preset_pairs_round_trip_and_omit_route_only_fields() {
         let preset = stock_party_presets().into_iter().find(|p| p.id == "heavy_wagon_caravan").unwrap();
@@ -1541,6 +1644,7 @@ mod tests {
         assert_eq!(edited.transport, preset.transport);
     }
 
+    /// Protects: `validation_state_parts` maps Ok, Incomplete and Conflicting to their tag and lists.
     #[test]
     fn validation_state_parts_covers_all_three_states() {
         assert_eq!(validation_state_parts(&ValidationState::Ok), ("ok", vec![], vec![]));
@@ -1556,6 +1660,8 @@ mod tests {
 
     // ---------- the jp_compute wiring regression (this dispatch) ----------
 
+    /// Protects: a stock-only library leaves `jp_compute`'s plan byte-identical to plain `jp_plan`.
+    ///
     /// This dispatch changed `lib.rs`'s `jp_compute` from calling
     /// `cartalith_civ::jp_plan` to building a resolver from the live Travel
     /// Library and calling `jp_plan_ex(..., Some(&resolver))` unconditionally
@@ -1621,6 +1727,7 @@ mod tests {
         assert_eq!(baseline, stock_only, "a stock-only Travel Library must not change jp_compute's output at all");
     }
 
+    /// Protects: `TERRAIN_SLUGS` covers every `TL_TERRAIN_KEYS` row and slug-to-key inverts key-to-slug.
     #[test]
     fn every_terrain_slug_round_trips_to_its_own_key() {
         for &tl_key in &TL_TERRAIN_KEYS {
@@ -1629,6 +1736,9 @@ mod tests {
         }
     }
 
+    /// Protects: `vessel_overrides` never shadows a built-in hull with a stock row, always carries
+    /// custom ones, and leaves incomplete ones for the resolver to decline.
+    ///
     /// IN-06's vessel half. Three properties, one per rule
     /// `vessel_overrides`' own doc comment states.
     #[test]
