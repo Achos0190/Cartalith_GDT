@@ -2107,3 +2107,12 @@ Owner, on being shown the coastal river combs and three options: *"Follow up wit
 - On the integrated-drainage path only, channel initiation uses `thresh/density` with no slope factor whenever `river_density != 1`. The reference path and density 1 are unchanged; no golden moves.
 - Reason and numbers: `DECISIONS.md` §7p's 2026-10-05 paragraph and `STATUS.md`.
 - Combs are reduced, not eliminated; draw-side thinning (option 2) stays an open, owner-gated row in `OUTSTANDING_WORK.md`.
+
+## 2026-10-10 — Ruling BW: four owner calls on labels, import, river combs and old saves
+
+Owner, answering four questions put by the coordinating session:
+
+1. **Region labels: offer both, not one default.** The owner asked that the user can choose between fixed (constant on-screen size) and scaling (grows with the map) for region labels. Shell default stays as shipped (fixed) unless the size-mode control already offers both, which is checked, not assumed.
+2. **Legacy HTML import: migrate the label `sizeMode` on import** so an imported label behaves as its author intended (the reference's `fixed` means grows-with-terrain; the shell's Fixed means constant on screen). Native saves are unaffected.
+3. **River combs: build option 2, draw-side thinning** (spacing about L/2 after Hovius 1996, with an order or discharge cap so a real lighter parallel river is not hidden; delta fans re-verified). No change to river density or thresholds (Ruling BV).
+4. **Old saves: turn `integrate_drainage` on when loading a project saved before it existed**, accepting that those worlds' rivers visibly change on load and need a re-baseline of any affected check.
