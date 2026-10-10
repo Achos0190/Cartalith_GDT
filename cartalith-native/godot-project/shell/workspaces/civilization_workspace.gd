@@ -310,6 +310,9 @@ var _lm_crowding := 1.0
 var _lm_radii: Array = []
 
 
+## Builds the CIVIL dock once at startup: the nested `InfrastructureWorkspace`, the TOOLS row, the thirteen Ruling L categories and the
+## signal wiring (place editor, faction roster, tariff). Everything that needs a world is refilled later by `_rebuild_readouts()`; this must not read engine
+## data that only exists after generation, and must not draw a second copy of any section a category already owns.
 func _build() -> void:
 	_infra = InfrastructureWorkspace.new()
 	_infra._nested = true
@@ -481,6 +484,9 @@ func _on_civ_edited() -> void:
 	_rebuild_readouts()
 	app.right_dock_ctrl.refresh_settlement()
 
+## `faction_roster_window.roster_changed` handler: a roster edit (removed faction, currency or identity-colour edit) repaints the territory
+## texture, re-asks the Political-control field if it is the debug view, and refills the trade-flow labels. Render-time only: it re-reads faction
+## colours from the engine and never writes one back; a rate or colour change must never re-run a trade match (that is `_on_tariff_changed`).
 func _on_roster_changed() -> void:
 	## Removing a faction reverts its settlements AND its territory cells to
 	## Unclaimed, so the territory raster is stale too -- same direct write
@@ -606,23 +612,20 @@ func _refill_economy() -> void:
 		_clear_body(_economy_faction_body)
 	_fill_economy(_economy_body, _economy_faction_body)
 
+## `fill_when_visible` callback for the Military category: tears the body down and redraws it. No-op while the body is freed or null.
 func _refill_military() -> void:
 	if _military_body == null or not is_instance_valid(_military_body):
 		return
 	_clear_body(_military_body)
 	_fill_military(_military_body)
 
+## `fill_when_visible` callback for the Relationships category: tears the body down and redraws it. No-op while the body is freed or null.
 func _refill_relations() -> void:
 	if _relations_body == null or not is_instance_valid(_relations_body):
 		return
 	_clear_body(_relations_body)
 	_fill_relationships(_relations_body)
 
-## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
-## end of the frame, so a child left parented is still in `get_children()`
-## while the refill runs and would draw twice for one frame. Same teardown
-## `_rebuild_timeline` performs inline, factored out here because four
-## categories now need it.
 ## Biggest population first, for CIVIL ▸ Population's per-faction breakdown.
 ## A named function rather than an inline lambda: a lambda body cannot be
 ## wrapped across lines inside a call's argument list, and this comparison
@@ -630,6 +633,11 @@ func _refill_relations() -> void:
 static func _by_population_desc(a: Variant, b: Variant) -> bool:
 	return int((a as Dictionary).get("population", 0)) > int((b as Dictionary).get("population", 0))
 
+## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
+## end of the frame, so a child left parented is still in `get_children()`
+## while the refill runs and would draw twice for one frame. Same teardown
+## `_rebuild_timeline` performs inline, factored out here because four
+## categories now need it.
 static func _clear_body(node: Control) -> void:
 	for c in node.get_children():
 		node.remove_child(c)
@@ -1004,6 +1012,8 @@ func _landmark_why_here(lm: Dictionary) -> void:
 ## (`label_px_per_cell()` returns `0.0` then), so a probe with no viewport
 ## on screen can still exercise this.
 const ROUTE_HIT_PX := 6.0
+## Returns the index of the committed route nearest `(gx, gy)` within `ROUTE_HIT_PX`, or `-1` when none is within tolerance
+## or the world has no routes. `-1` means "no route", never a valid index; callers must test `>= 0`. Reads `route_count()` / `route_get()`; writes nothing.
 func _route_hit(gx: float, gy: float) -> int:
 	var n := bridge.route_count()
 	if n <= 0:
@@ -1032,6 +1042,7 @@ static func way_title(w: Dictionary) -> String:
 		return "%s “%s”" % [kind, String(w["name"])]
 	return "unnamed %s" % kind
 
+## Context-card "Inspect way" row: only writes a status-bar hint (type, name, length, hand-drawn or generated). It must not mutate the way.
 func _inspect_way(w: Dictionary) -> void:
 	var origin := "hand-drawn" if bool(w.get("manual", false)) else \
 		"generated network -- Generate roads rebuilds it"
@@ -1064,6 +1075,8 @@ func on_ways_changed() -> void:
 	if app.viewport != null and app.viewport.overlay != null:
 		app.viewport.overlay.set_trade_load(PackedFloat32Array())
 
+## Context-card "Delete route" row: calls `bridge.route_delete(index)`, then repaints annotations and the Infrastructure manual-route list.
+## A refused delete (stale index) returns silently with no repaint; it never touches settlements or ways.
 func _delete_route_ctx(index: int) -> void:
 	if not bridge.route_delete(index):
 		return
@@ -1079,6 +1092,9 @@ func _run_ctx(id: int, hit: int, gx: float, gy: float) -> void:
 	_ctx_hit = hit
 	_on_ctx_id(id)
 
+## Dispatches a legacy right-click menu id against the state `_run_ctx` restored (`_ctx_hit` = settlement index or -1, `_ctx_gx/_ctx_gy` = cell):
+## 0 edit place, 1 centre view, 2 delete (confirm dialog), 3 drop a settlement with the tool's current kind and faction, 4 pin or explain an empty cell,
+## 5 open the city viewer. Ids 0, 1, 2 and 5 assume `_ctx_hit >= 0`; callers only offer them over a settlement.
 func _on_ctx_id(id: int) -> void:
 	match id:
 		0:
@@ -1132,6 +1148,9 @@ func _on_ctx_id(id: int) -> void:
 ## `design/map-context-2026-09-25/Main.dc.html`'s `DIAG.civil` table.
 const RING_SETTLE_KINDS := ["metropolis", "city", "town", "village", "hamlet"]
 
+## Radial-ring request for the Civilization domain: returns the NW Settle, NE Territory, SE Way and SW slots keyed by diagonal, or `{}` for any other
+## domain. With no world loaded every slot is returned disabled with reason "no world loaded" (empty label, not a hidden slot); a finalized world disables
+## the editing slots. Each slot only arms a tool through a bound callable; it performs no engine write itself.
 func ring_slots(req: Dictionary) -> Dictionary:
 	if String(req.get("domain", "")) != "civilization":
 		return {}
@@ -1168,11 +1187,13 @@ func ring_slots(req: Dictionary) -> Dictionary:
 		out["SW"]["reason"] = "world finalized"
 	return out
 
+## Ring Settle child: remembers the chosen kind for the Settlement tool, arms it and redraws its options row. Writes no settlement; placement is `_settlement_click`.
 func _arm_ring_settlement(kind: String) -> void:
 	_settlement_kind = kind
 	app.arm_tool("settlement")
 	_tool_options_settlement()
 
+## Ring Territory child: sets Add or Subtract for the brush, arms the Territory tool and redraws its options row. Paints nothing by itself.
 func _arm_ring_territory(subtract: bool) -> void:
 	_territory_subtract = subtract
 	app.arm_tool("territory")
@@ -1201,6 +1222,7 @@ func _ring_way_group(armed: String, finalized: bool) -> Dictionary:
 		row["enabled"] = true
 	return row
 
+## Ring Way child: sets the draw type (`road`, `track`, `sea_lane` or `ancient`) on the nested `InfrastructureWorkspace`, arms Way and redraws its options row.
 func _arm_ring_way(key: String) -> void:
 	_infra._set_way_type(key)
 	app.arm_tool("way")
@@ -1362,9 +1384,12 @@ func _on_civ_tool_armed(id: String) -> void:
 
 const CONFLICT_KIND_LABELS := {"front": "Front", "arrow": "Arrow", "siege": "Siege", "battle": "Battle"}
 
+## True for single-point conflicts (siege, battle); false for polylines (front, arrow). Decides the minimum draft size and whether a click replaces the draft.
 func _conflict_is_marker() -> bool:
 	return _conflict_kind == "siege" or _conflict_kind == "battle"
 
+## Map click while the Conflict tool is armed: a marker kind replaces the draft with this cell, a line kind appends a waypoint. Updates the path preview and
+## options row only; nothing reaches the engine until `_commit_conflict`. No-op with no world.
 func _conflict_click(gx: float, gy: float) -> void:
 	if not bridge.has_world:
 		return
@@ -1375,6 +1400,7 @@ func _conflict_click(gx: float, gy: float) -> void:
 	app.viewport.tool_overlay.set_path_preview(_conflict_points)
 	_tool_options_conflict()
 
+## Conflict options-row Kind choice: switches kind, trims a marker draft to its first point so the preview shows what Commit will store, and redraws. Engine untouched.
 func _set_conflict_kind(kind: String) -> void:
 	_conflict_kind = kind
 	## A line drawn as a front is still a fine arrow, but a marker keeps one
@@ -1384,6 +1410,7 @@ func _set_conflict_kind(kind: String) -> void:
 	app.viewport.tool_overlay.set_path_preview(_conflict_points)
 	_tool_options_conflict()
 
+## Fewest draft points `conflict_add` is given a chance with: 1 for a marker, 2 for a front or arrow. Below it Commit is disabled.
 func _conflict_min_points() -> int:
 	return 1 if _conflict_is_marker() else 2
 
@@ -1409,12 +1436,15 @@ func _commit_conflict() -> void:
 	if _active_civ_tool == "conflict":
 		_tool_options_conflict()
 
+## Drops the draft and clears the preview without touching the stored conflict list; the options row is redrawn only while the Conflict tool is armed.
 func _discard_conflict() -> void:
 	_conflict_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_conflict_points)
 	if _active_civ_tool == "conflict":
 		_tool_options_conflict()
 
+## Draws the CIVIL · CONFLICT options row (Kind, point count, Commit, Discard). Kinds come from `bridge.conflict_kinds()`;
+## Commit is disabled under `_conflict_min_points()` and Discard on an empty draft.
 func _tool_options_conflict() -> void:
 	var kinds: Array = Array(bridge.conflict_kinds())
 	app.set_tool_options(func(row: HBoxContainer):
@@ -1457,6 +1487,8 @@ func select_conflict(id: int) -> void:
 	if id >= 0 and app.right_dock_ctrl.has_method("show_conflict"):
 		app.right_dock_ctrl.show_conflict(id)
 
+## Fills Military ▸ Conflicts from `conflict_list()` rows: one button per conflict (● active in the cursor's year, ○ not) that selects it in the right dock.
+## A row without an end year reads "ongoing"; it is never shown as 0. An empty list shows how to draw one.
 func _fill_conflicts(parent: Control, rows: Array) -> void:
 	if rows.is_empty():
 		DccWidgets.note(parent,
@@ -1493,6 +1525,7 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if app.armed_tool == "territory":
 		app.viewport.tool_overlay.set_brush_cursor(valid, gx, gy, _territory_radius)
 
+## Accent mono caption that starts every CIVIL tool-options row (for example "CIVIL · CONFLICT").
 func _tool_options_label(row: HBoxContainer, text: String) -> void:
 	row.add_child(DccTheme.mono_label(text, "accent", DccTheme.FS_SMALL, 2, true))
 
@@ -1806,6 +1839,8 @@ func _territory_drag(gx: float, gy: float) -> void:
 	if not staged and not subtract and (_territory_faction < 0 or _territory_faction > 255):
 		app.set_status("hint", "Faction %d cannot be painted -- territory holds ids 0 to 255. Nothing assigned." % _territory_faction, "accent")
 
+## ✓ Commit of the Territory brush and of the lasso: `civ_territory_commit()`, a direct territory-texture write (no camera reset), then the right dock's
+## Territory section (appended, never replacing a selection). Provinces and trade are not recomputed here; the status line says so.
 func _commit_territory() -> void:
 	bridge.civ_territory_commit()
 	## Same reasoning as `_refresh_civ_data()`'s own doc comment: the direct
@@ -1832,6 +1867,7 @@ func _commit_territory() -> void:
 		"Territory committed -- provinces/trade were computed before this edit.", "text_ghost")
 	_refresh_territory_options()
 
+## Discard of the brush or lasso draft: `civ_territory_discard()` drops uncommitted dabs, then redraws the options row and the right dock's Territory stats. Committed claims are untouched.
 func _discard_territory() -> void:
 	bridge.civ_territory_discard()
 	_refresh_territory_options()
@@ -1841,6 +1877,7 @@ func _discard_territory() -> void:
 	if app.right_dock_ctrl.has_method("show_territory"):
 		app.right_dock_ctrl.show_territory(_territory_faction)
 
+## Redraws whichever territory options row is armed (brush or lasso); does nothing for any other tool.
 func _refresh_territory_options() -> void:
 	match _active_civ_tool:
 		"territory": _tool_options_territory()
@@ -1875,6 +1912,7 @@ func _tool_options_lasso() -> void:
 		DccWidgets.action(row, "Discard", _lasso_discard)
 	)
 
+## Redraws the lasso ring preview (closed once there are three vertices) and its options row. Display only.
 func _lasso_redraw() -> void:
 	var ring := _lasso_points.duplicate()
 	if ring.size() >= 3:
@@ -1882,15 +1920,18 @@ func _lasso_redraw() -> void:
 	app.viewport.tool_overlay.set_path_preview(ring)
 	_tool_options_lasso()
 
+## Map click while the Territory lasso is armed: appends a vertex and redraws. Nothing is staged until `_lasso_commit`.
 func _lasso_click(gx: float, gy: float) -> void:
 	_lasso_points.append(Vector2(gx, gy))
 	_lasso_redraw()
 
+## Options-row Undo: removes the last lasso vertex (no-op when empty) and redraws.
 func _lasso_drop_last() -> void:
 	if not _lasso_points.is_empty():
 		_lasso_points.remove_at(_lasso_points.size() - 1)
 	_lasso_redraw()
 
+## Empties the lasso ring and redraws. Does not touch the staged brush draft.
 func _lasso_clear() -> void:
 	_lasso_points = PackedVector2Array()
 	_lasso_redraw()
@@ -1913,6 +1954,7 @@ func _lasso_commit() -> void:
 		return
 	_commit_territory()
 
+## Options-row Discard: clears the ring, then also calls `_discard_territory()`, so a pending brush draft is dropped with it.
 func _lasso_discard() -> void:
 	_lasso_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_lasso_points)
@@ -1970,6 +2012,8 @@ func _build_factions() -> void:
 	_factions_body = DccWidgets.category(self, "Factions", categories)
 	_fill_factions(_factions_body)
 
+## Fills CIVIL ▸ Factions: the door to the Factions hub (`open_faction_roster`), the Settlement types library door and a by-province-count list whose rows
+## open the hub's Territory tab. Faction colour editing lives in the hub, not here; this must never write or tint a faction colour.
 func _fill_factions(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Roster")
 	## FH-1 (`FACTION_HUB_DESIGN.md` §4): the first row of the category is the
@@ -2039,6 +2083,8 @@ func _build_territories() -> void:
 	_territories_body = DccWidgets.category(self, "Territories", categories)
 	_fill_territories(_territories_body)
 
+## Fills CIVIL ▸ Territories: Recompute (Recalculate and Generate provinces both run `_recompute_civ`; Clear territory confirms first), Borders & influence,
+## province knowledge rows and the Not-built note. Writes only via those buttons; nothing here repaints on its own.
 func _fill_territories(parent: Control) -> void:
 	## **Two of these rows stopped being gaps when SG-02 shipped and nobody
 	## moved them** (found 2026-08-24 by driving the dock rather than reading
@@ -2137,6 +2183,8 @@ func _build_influence(parent: Control) -> void:
 		"Not run yet. The same field draws as a map layer under "
 		+ "Layers ▸ Civilization ▸ Contested borders.")
 
+## "Analyse contested borders" button: calls `civ_territory_influence()` on demand and prints owned and frontier cells and the cost of the call.
+## An empty dictionary means no analysis (no capitals, or a save without its rasters), not zero contested cells; the note says so. Retains nothing.
 func _analyse_influence() -> void:
 	if _influence_body == null or not is_instance_valid(_influence_body):
 		return
@@ -2191,6 +2239,7 @@ func _analyse_influence() -> void:
 	var foot := "Built on demand and dropped: %.1f MB of per-cell working set for this world, at its peak, held for the length of the call and retained nowhere. Four fifths of that is what generating this world's territory already spent."
 	DccWidgets.note(_influence_body, foot % (float(d.get("transient_bytes", 0)) / 1048576.0))
 
+## Builds CIVIL ▸ Settlements: recompute section, the refillable roster body, Population, coastal settlements and the vault block. Built once; `_rebuild_readouts()` refills the roster body only.
 func _build_settlements() -> void:
 	var cat := DccWidgets.category(self, "Settlements", categories)
 	## Outside `_settlements_body` on purpose: this section is not a readout
@@ -2220,6 +2269,8 @@ func _build_settlements() -> void:
 	_infra.build_ports_into(cat)
 	_build_settlement_vault(cat)
 
+## Fills the Settlements roster body: counts by tier (`KIND_ORDER`), population estimate, the largest settlements, and per-place rows that pin the right dock.
+## With no settlements it prints a note instead of a list. Read-only; edits go through the place editor.
 func _fill_settlements(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Roster")
 	var settlements := bridge.settlements()
@@ -2416,6 +2467,8 @@ func _populate_world() -> void:
 		bridge.settlements().is_empty(),
 		func(): _populate_world_now())
 
+## Runs `bridge.civ_populate()` after the confirm: shows "Populating…", yields two frames so the label paints, reports settlements, ways and provinces
+## or the engine's refusal reason, then `_after_civ_layer_replaced()`. Replaces the civ layer; never call it without the confirm.
 func _populate_world_now() -> void:
 	var b := _populate_btn
 	if b != null and is_instance_valid(b):
@@ -2452,6 +2505,7 @@ func _clear_places() -> void:
 		n == 0 and bridge.roads().is_empty(),
 		func(): _clear_places_now())
 
+## Runs `bridge.civ_clear_places()` after the confirm: removes settlements, ways, sea lanes and journeys, reports each count, then `_after_civ_layer_replaced()`. Territory is left alone.
 func _clear_places_now() -> void:
 	var r: Dictionary = bridge.civ_clear_places()
 	var outcome := "Cleared %d settlement(s), %d way(s), %d sea lane(s) and %d journey(s)." % [
@@ -2474,6 +2528,8 @@ func _clear_territory() -> void:
 		bridge.provinces().is_empty() and not bridge.has_world,
 		func(): _clear_territory_now())
 
+## Runs `bridge.civ_clear_territory()` after the confirm. `cleared_cells` is omitted from the result when the claim grid was unknown, and the status
+## then says the count is unknown rather than printing 0.
 func _clear_territory_now() -> void:
 	var r: Dictionary = bridge.civ_clear_territory()
 	## `civ_clear_territory`'s own doc: `cleared_cells` is omitted, not `0`,
@@ -2575,6 +2631,8 @@ func _build_regional_population(parent: Control) -> void:
 		+ "Recomputed fresh on every press; not automatic.")
 	_regional_pop_note = DccWidgets.note(parent, "")
 
+## Button on the population estimate: `civ_regional_population()` fills the note with total people, land area and, when above 0,
+## the share inside painted territory. An empty result is a message (no world, or an older native library), never a figure of 0.
 func _on_compute_regional_population() -> void:
 	if _regional_pop_note == null or not is_instance_valid(_regional_pop_note):
 		return
@@ -2930,6 +2988,8 @@ func _build_settlement_vault(parent: Control) -> void:
 			+ "panel above and a settlement's place editor shows what points at it; "
 			+ "after that a refresh only re-opens the notes that changed.")
 
+## Fills the Population body: totals and largest settlement, By faction (population sums from `get_factions()`, rows open the faction in the right dock),
+## Trade balance and the per-faction economy. Read-only; faction colours and names are shown as stored.
 func _fill_population(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Totals")
 	var settlements := bridge.settlements()
@@ -3129,6 +3189,8 @@ func _fill_faction_economy(parent: Control) -> void:
 		"religious) come out of the same calculation and are not shown anywhere yet. " +
 		"The military score is shown under Military and in the faction roster.")
 
+## Names the largest entry of a `{key: count}` map as "key (N settlements)". Returns the string "none" for an empty map, which is a label, not a key;
+## ties go to the first key iterated.
 func _top_key(counts: Dictionary) -> String:
 	if counts.is_empty():
 		return "none"
@@ -3193,6 +3255,8 @@ func _fill_knowledge(parent: Control, provinces: Array) -> void:
 			"renumber them, so every link also remembers the name it was made against.")
 
 
+## One Knowledge row (province, continent or culture): a button that opens the Markdown vault scoped to the entity, with a linked-notes count from
+## `vault_entity_summary`. Opens a panel only; writes no entity.
 func _knowledge_row(parent: Control, kind: String, entity_id: int, label: String, detail: String = "") -> void:
 	var summary := bridge.vault_entity_summary(kind, entity_id)
 	var n := int(summary.get("link_count", 0))
@@ -3537,6 +3601,7 @@ func _fill_religion(parent: Control) -> void:
 const SEG_TRACK_PAD := 2   ## `ENV:838` `padding:2px` on the segment track.
 const SEG_CHIP_GAP := 0    ## `ENV:838`/`ENV:1087`/`ENV:311` -- chips abut.
 
+## Draws the three-chip segmented control (Adherence, Diffusion, Divergence) and wires each chip to `_religion_set_view`. Lit chip is `_religion_view`.
 func _religion_segments(parent: Control) -> void:
 	var pad := MarginContainer.new()
 	pad.add_theme_constant_override("margin_left", 14)
@@ -3580,6 +3645,7 @@ func _religion_segments(parent: Control) -> void:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		DccWidgets.set_segment_on(b, _religion_view == key)
 
+## Segment chip handler: stores the pane and refills the Religion body. No-op when unchanged; engine untouched.
 func _religion_set_view(view: String) -> void:
 	if _religion_view == view:
 		return
@@ -4084,6 +4150,7 @@ func _religion_sort_head(parent: Control, text: String, key: String, width: int)
 	b.pressed.connect(func(): _religion_set_sort(key))
 	parent.add_child(b)
 
+## Column-head handler: switches the adherence table between SHARE and FAITH order and refills the body. No-op when unchanged.
 func _religion_set_sort(key: String) -> void:
 	if _religion_sort == key:
 		return
@@ -4139,20 +4206,6 @@ func _religion_stranded_layer(parent: Control) -> void:
 		+ "diffusion has run; it appears here only because the layer is armed and that section "
 		+ "is not being drawn.")
 
-## The map half's toggle, the sentence that says what the ring means, and the
-## list of which settlements carry one.
-##
-## Written from `map_overlay.gd`'s `_faith_diverged`, which is the definition:
-## a settlement whose plurality faith differs from its faction's own state
-## religion. Unclaimed settlements cannot diverge (there is no ruler to differ
-## from) and are excluded from the count as well as from the drawing, so the
-## number here and the rings on the map are the same set.
-##
-## Three things this reports, and they are not interchangeable: how many were
-## **compared** (`compared`), how many **diverged** (`diverged.size()`), and
-## **which** ones (`_religion_diverged_rows`). The count alone was what shipped
-## first, and it left the map as the only way to find out where -- one bit per
-## pin, discoverable by hovering all of them.
 ## Settlements the engine gives a population the head-counts can be summed
 ## from. Shared by the two sentences whose denominators differ because of it,
 ## so neither can drift from the other's idea of what "populated" means.
@@ -4163,6 +4216,11 @@ static func _religion_populated(places: Array) -> int:
 			n += 1
 	return n
 
+## Divergence pane body: the sentence and `compared` / diverged counts, the list of diverged settlements and the "Show on map" ring toggle.
+## Definition is `map_overlay.gd::_faith_diverged`: a settlement whose plurality faith differs from its ruling faction's state religion. Unclaimed
+## settlements have no ruler to differ from and are excluded from the count and from the drawing alike, so the number and the rings are the same set.
+## The pane reports how many were compared, how many diverged and which ones (`_religion_diverged_rows`); the count alone left the map as the only
+## way to find out where. Read-only: it toggles an overlay flag and never changes a faith.
 func _religion_divergence(parent: Control, places: Array) -> void:
 	var faiths := _religion_faction_column("religion")
 	## `compared` is carried beside the divergence count for the same reason
@@ -5180,6 +5238,8 @@ func _lm_rebuild() -> void:
 	_clear_body(_landmarks_body)
 	_fill_landmarks(_landmarks_body)
 
+## Fills CIVIL ▸ Landmarks: reads settings, kinds and last-run funnels from the landmark bridge and draws Placement, Types and Last run. With no kinds
+## (older library, or an empty vocabulary) it draws the disclosed not-built state instead of an empty panel. Resets filter, rows, groups and chips first.
 func _fill_landmarks(parent: Control) -> void:
 	_lm_rows.clear()
 	_lm_groups.clear()
@@ -6011,6 +6071,7 @@ func _lm_show_rejects() -> void:
 	if app.viewport.has_method("set_layer_visible"):
 		app.viewport.set_layer_visible("landmark_rejects", true)
 
+## One line of the placement funnel: label, optional "− N" loss, and the surviving count. The binding stage (the one that limited the run) is accent-coloured; others are faint.
 func _lm_funnel_row(box: Control, label_text: String, minus: String, right: String,
 		binding: bool) -> void:
 	var row := HBoxContainer.new()
@@ -6046,6 +6107,7 @@ func _lm_refresh_headroom() -> void:
 		+ "last run placed %d") % [int(h.get("caps_total", _lm_caps_total())),
 		int(h.get("room_estimate", 0)), int(h.get("last_placed", 0))]
 
+## Sum of the caps of every armed type row in `_lm_rows`; unarmed rows count 0. Feeds the headroom note.
 func _lm_caps_total() -> int:
 	var n := 0
 	for key in _lm_rows:
@@ -6054,6 +6116,7 @@ func _lm_caps_total() -> int:
 			n += int(r["cap"])
 	return n
 
+## Updates the Crowding readout ("× 0.00") and the second line stating the quoted class's clear radius, formatted through `DccUnits.format`. Display only; no engine write.
 func _lm_refresh_crowding() -> void:
 	if _lm_crowd_readout != null and is_instance_valid(_lm_crowd_readout):
 		_lm_crowd_readout.text = "× %.2f" % _lm_crowding
@@ -6088,13 +6151,16 @@ func _lm_refresh_crowding() -> void:
 	_lm_crowd_note.text = "a %s landmark keeps %s clear · sparse → dense" % [
 		cname, DccUnits.format(km)]
 
+## Radius in km for landmark class `i` from the mirrored settings. Out-of-range `i` returns 0.0, which is "unknown", never a real radius.
 func _lm_class_radius(i: int) -> float:
 	return float(_lm_radii[i]) if i >= 0 and i < _lm_radii.size() else 0.0
 
+## Crowding slider tick: mirrors the value and refreshes the readout only. The engine write happens when the drag ends.
 func _lm_on_crowding(v: float) -> void:
 	_lm_crowding = v
 	_lm_refresh_crowding()
 
+## Class-radius slider tick: grows the mirrored array if needed, stores the value, and refreshes the Crowding note when it is the quoted class. No engine write.
 func _lm_on_radius(i: int, v: float) -> void:
 	while _lm_radii.size() <= i:
 		_lm_radii.append(0.0)
@@ -6102,6 +6168,7 @@ func _lm_on_radius(i: int, v: float) -> void:
 	if i == LM_QUOTED_CLASS:
 		_lm_refresh_crowding()
 
+## Reset button: `landmark_reset_settings` through `_lm_write`, then a full panel rebuild so every row re-reads the engine's defaults.
 func _lm_reset() -> void:
 	_lm_write("landmark_reset_settings", [])
 	_lm_rebuild()
@@ -6120,6 +6187,7 @@ func _lm_on_cap(key: String, v: float) -> void:
 		r["cap"] = LM_LADDER[rung]
 	_lm_refresh_row(key)
 
+## Slider drag start: records whether the row was off, so `_lm_commit_cap` can resume at the retained cap. Unknown key is ignored.
 func _lm_drag_start(key: String) -> void:
 	var r: Dictionary = _lm_rows.get(key, {})
 	if not r.is_empty():
@@ -6167,6 +6235,8 @@ func _lm_commit_cap(key: String) -> void:
 	_lm_refresh_group(String(r["family"]))
 	_lm_refresh_headroom()
 
+## Family "all on" / "all off": for each buildable row in the family, on restores the retained (else default) cap exactly and arms it, off sets rung 0. Writes
+## `landmark_set_cap` and `landmark_set_armed` per row; non-buildable rows are never touched.
 func _lm_bulk(family: String, on: bool) -> void:
 	for key in _lm_rows:
 		var r: Dictionary = _lm_rows[key]
@@ -6289,6 +6359,7 @@ func _lm_refresh_group(family: String) -> void:
 	btn.text = "%s %s   %d of %d armed · %d placed" % [
 		DccIcons.SYMBOLS["expand"], String(g["title"]).to_upper(), armed, total, placed]
 
+## Class-chip handler: sets the dimming filter ("" = all) and re-applies it. Rows are dimmed, never hidden.
 func _lm_set_filter(cls: String) -> void:
 	_lm_filter = cls
 	_lm_apply_filter()
@@ -6362,16 +6433,19 @@ func _lm_kinds() -> Array:
 		return []
 	return bridge.landmark_kinds()
 
+## Landmark settings dictionary from the bridge, or `{}` when the bridge lacks `landmark_settings` (older library). `{}` means "unavailable", not default settings.
 func _lm_settings() -> Dictionary:
 	if bridge == null or not bridge.has_method("landmark_settings"):
 		return {}
 	return bridge.landmark_settings()
 
+## Landmark headroom estimate from the bridge, or `{}` when it lacks `landmark_headroom` (older library); `{}` means unavailable, not zero headroom.
 func _lm_headroom() -> Dictionary:
 	if bridge == null or not bridge.has_method("landmark_headroom"):
 		return {}
 	return bridge.landmark_headroom()
 
+## Last run's placement funnels keyed by kind, or `{}` when `landmark_funnels` is missing. A kind absent from the map has no recorded funnel.
 func _lm_funnel_map() -> Dictionary:
 	var out := {}
 	if bridge == null or not bridge.has_method("landmark_funnels"):
@@ -6392,6 +6466,7 @@ func _lm_rejects() -> Array:
 		return []
 	return bridge.landmark_rejects()
 
+## The one write path to the landmark bridge: `callv(method, args)` when the bridge has that method, silently nothing otherwise (older library).
 func _lm_write(method: String, args: Array) -> void:
 	if bridge != null and bridge.has_method(method):
 		bridge.callv(method, args)
@@ -6587,12 +6662,16 @@ func _build_military() -> void:
 static func _by_military(x, y) -> bool:
 	return float((x as Dictionary).get("military", 0.0)) > float((y as Dictionary).get("military", 0.0))
 
+## Sort predicate for the fortification list: highest `defensibility` first; a missing value counts as 0.0.
 static func _by_defensibility(x, y) -> bool:
 	return float((x as Dictionary).get("defensibility", 0.0)) > float((y as Dictionary).get("defensibility", 0.0))
 
+## Sort predicate for relationship pairs: highest `value` first; a missing value counts as 0.0.
 static func _by_relation_value(x, y) -> bool:
 	return float((x as Dictionary).get("value", 0.0)) > float((y as Dictionary).get("value", 0.0))
 
+## Fills CIVIL ▸ Military at the Timeline cursor's year: Conflicts, Faction strength, Manpower, Garrisons, Fortifications, Campaigns and the Not-built note.
+## Reads `civ_military_summary_at(cursor)`; a missing reading prints why. Stores `_military_reading_key` so a cursor move can refill it. Read-only.
 func _fill_military(parent: Control) -> void:
 	## SP-4's drawn conflicts. Here, not a fourteenth category: Ruling L fixed
 	## CIVIL's thirteen in the owner's order, and a conflict reads this
@@ -6810,6 +6889,8 @@ static func garrison_row(g: Dictionary, cursor: int) -> Dictionary:
 static func _by_garrison(x, y) -> bool:
 	return int((x as Dictionary).get("garrison", 0)) > int((y as Dictionary).get("garrison", 0))
 
+## Garrisons section: per-faction quartering of the standing army, plus the Border-exposure weight slider, which writes `set_garrison_exposure_scale` (Ruling AZ).
+## Rows pin a settlement in the right dock. Factions empty prints a note and returns.
 func _fill_garrisons(parent: Control, factions: Array, places: Array) -> void:
 	var sec := DccWidgets.section(parent, "Garrisons")
 	if factions.is_empty():
@@ -6936,6 +7017,8 @@ static func _manpower_tooltip(m: Dictionary) -> String:
 		100.0 * float(m.get("era_mobilization_hi", 0.0)),
 		String(m.get("era_mobilization_verdict", "?"))]
 
+## Manpower section: standing, field and emergency figures per faction, how long each can stay out, what drives it and the reference bands, from each
+## faction's `manpower` dictionary (a faction without one is skipped). Rows open the faction in the right dock. Read-only.
 func _fill_manpower(parent: Control, factions: Array) -> void:
 	var sec := DccWidgets.section(parent, "Manpower")
 	if factions.is_empty():
@@ -7125,6 +7208,8 @@ func _build_relationships() -> void:
 	_relations_body = DccWidgets.category(self, "Relationships", categories)
 	_fill_relationships(_relations_body)
 
+## Fills CIVIL ▸ Relationships from `civ_faction_relations()`: every faction pair, strongest first, each opening the hub's Relations tab. The standing is
+## derived on every open and never stored; fewer than two factions prints a note, not an empty list.
 func _fill_relationships(parent: Control) -> void:
 	var pairs: Array = bridge.civ_faction_relations()
 
@@ -7266,6 +7351,7 @@ func _tl_years() -> Array:
 	out.sort()
 	return out
 
+## Nearest recorded year to `target`. Requires a non-empty `years` (reads `years[0]`); the only caller, the scrubber, is built only with years.
 func _tl_nearest_year(years: Array, target: int) -> int:
 	var nearest: int = years[0]
 	for y in years:
@@ -7282,16 +7368,19 @@ func _tl_refresh_territory_view() -> void:
 	if app != null and app.viewport != null and app.viewport.territory_view != null:
 		app.viewport.territory_view.texture = bridge.territory_texture()
 
+## Moves the Timeline cursor: `civ_goto_year`, repaints the territory texture and refreshes civ data (the "Exist only" filter is keyed to the active year).
 func _tl_goto_year(year: int) -> void:
 	bridge.civ_goto_year(year)
 	_tl_refresh_territory_view()
 	_refresh_civ_data()   ## "Exist only" is keyed to the active year -- see `_tl_apply_filters`.
 
+## "Add year" button: `civ_add_year(_tl_add_year)`, then repaints territory and rebuilds the Timeline body.
 func _tl_add_year_action() -> void:
 	bridge.civ_add_year(_tl_add_year)
 	_tl_refresh_territory_view()
 	_rebuild_timeline()
 
+## Pill ✕ handler: `civ_remove_year(year)`, then repaints territory and rebuilds the Timeline body.
 func _tl_remove_year_action(year: int) -> void:
 	bridge.civ_remove_year(year)
 	_tl_refresh_territory_view()
@@ -7331,6 +7420,7 @@ func _build_timeline_years(body: Control) -> void:
 		"existed then. Negative years are BC. Tap a pill to jump to that era, or %s to remove it." %
 			DccIcons.SYMBOLS["cross"])
 
+## Builds one recorded-year pill: a jump button (filled accent when active) and a remove ✕; the jump calls `_tl_goto_year` then rebuilds the body.
 func _tl_year_pill(year: int, active: bool) -> Control:
 	var pill := HBoxContainer.new()
 	pill.add_theme_constant_override("separation", 1)
@@ -7406,6 +7496,7 @@ func _build_timeline_playback(body: Control) -> void:
 	DccWidgets.action(row, "Step", _tl_step)
 	sec.add_child(row)
 
+## Creates the playback Timer on first use (1.2 s, the reference's 1200 ms interval) and parents it here.
 func _tl_ensure_timer() -> void:
 	if _tl_play_timer == null:
 		_tl_play_timer = Timer.new()
@@ -7414,6 +7505,7 @@ func _tl_ensure_timer() -> void:
 		_tl_play_timer.timeout.connect(_tl_on_play_tick)
 		add_child(_tl_play_timer)
 
+## Play: needs two or more recorded years, otherwise does nothing; starts the timer and rebuilds the body.
 func _tl_start_play() -> void:
 	var years := _tl_years()
 	if years.size() < 2:
@@ -7423,6 +7515,7 @@ func _tl_start_play() -> void:
 	_tl_play_timer.start()
 	_rebuild_timeline()
 
+## Stop: clears playing and context-pause flags, stops the timer and rebuilds the body. Safe when no timer exists.
 func _tl_stop_play() -> void:
 	_tl_playing = false
 	_tl_paused_by_context = false
@@ -7455,6 +7548,7 @@ func resume_playback_for_context() -> void:
 		_tl_play_timer.paused = false
 	_tl_paused_by_context = false
 
+## Playback tick: advances the cursor to the next recorded year, stopping on the last (or with fewer than two years). Starts from the first year when the cursor is off the list.
 func _tl_on_play_tick() -> void:
 	var years := _tl_years()
 	if years.size() < 2:
@@ -7472,6 +7566,7 @@ func _tl_on_play_tick() -> void:
 	else:
 		_rebuild_timeline()
 
+## Step button: moves the cursor to the next recorded year; no-op at the last year or with fewer than two years.
 func _tl_step() -> void:
 	var years := _tl_years()
 	if years.size() < 2:
@@ -7589,6 +7684,8 @@ func _build_timeline_sim(body: Control) -> void:
 	if _tl_sim_out != "":
 		DccWidgets.note(grp, _tl_sim_out)
 
+## Runs `civ_run_collapse_simulation` with the form's values. A `needs_confirm` result opens the overwrite confirmation instead; an error or
+## the formatted result goes to `_tl_sim_out`. Overwrites timeline years only when `confirm_overwrite` is true.
 func _tl_run_simulation(confirm_overwrite: bool) -> void:
 	var request := {
 		"mode": _tl_sim_mode,
