@@ -235,9 +235,9 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
     // `STORY_PLANNING_SCOPE.md` SP-1: a `Journey` is real engine state
     // (`InfraTools::journeys`) since this slot's payload became a typed
     // entity rather than shell-only state. Until SP-1 this was one of the
-    // shell's own two caller-built slots (see this file's own module doc,
-    // "the SHELL's two"); that paragraph is now stale for this slot and only
-    // describes `annotations/measurements.json`.
+    // shell's own caller-built slots; the module doc's "The Journey entity"
+    // section describes the move. `annotations/measurements.json` stays
+    // caller-owned.
     SLOT_JOURNEYS,
     // `STORY_PLANNING_SCOPE.md` SP-4: the payload is `WorldGen::conflicts`,
     // which GDScript has no view of -- the landmarks slot's reason.
@@ -256,6 +256,8 @@ const ENGINE_OWNED_SLOTS: &[&str] = &[
 // one, loses only what it actually omitted -- §14.3's unknown-member rule
 // in its constructive direction.
 
+/// `entities/settlements.json` (`SAVEFILE_COMPAT.md` §9.1): the settlement table, the id counter and the manual-name stream position.
+/// Every member is `#[serde(default)]`, so a foreign or older document loses only what it omitted.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SettlementsDoc {
     #[serde(default)]
@@ -282,6 +284,8 @@ struct NameStreamOnly {
     name_stream: Option<u32>,
 }
 
+/// One settlement as §9.1 spells it, flattened from `NamedSettlement`, its placement, trade balance and place extras.
+/// `kind` is the `journey_bridge::settlement_kind_key` spelling; an unrecognised one reads back as `town` (`dto_to_settlement`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SettlementDto {
     #[serde(default)]
@@ -312,6 +316,7 @@ struct SettlementDto {
     extras: Option<ExtrasDto>,
 }
 
+/// A settlement's trade balance as resource-key strings; read back through `resource_key_static`, so an unknown key is dropped.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TradeDto {
     #[serde(default)]
@@ -320,6 +325,7 @@ struct TradeDto {
     imports: Vec<String>,
 }
 
+/// A settlement's place-editor extras (`civ_roster_bridge::PlaceExtras`). `age`/`walls` are `None` for "auto"; `culture`/`rules_preset`/`variant` are Ruling J's town plan and are omitted when unset.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ExtrasDto {
     #[serde(default)]
@@ -342,10 +348,12 @@ struct ExtrasDto {
     variant: u32,
 }
 
+/// `skip_serializing_if` predicate: true for `0`, so a default `variant` writes no member.
 fn is_zero(v: &u32) -> bool {
     *v == 0
 }
 
+/// `entities/factions.json` (§9.2): the faction roster. Its one other member is a read-only legacy value, documented on the field.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct FactionsDoc {
     #[serde(default)]
@@ -373,6 +381,7 @@ struct FactionsDoc {
     garrison_exposure_scale: Option<f64>,
 }
 
+/// One faction roster row. `color` is the roster colour, `user_color` the user's override (`None` = none set); `tariffs` and `currency` are omitted when empty/unset.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct FactionDto {
     #[serde(default)]
@@ -419,6 +428,7 @@ struct CurrencyDto {
     rate: Option<f64>,
 }
 
+/// `entities/ways.json` (§9.3): the single home of every linear route. `civ_documents` writes `roads`, `sea_lanes` and `road_edges`; `manual` and `routes` are merged in by the caller from `InfraTools`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct WaysDoc {
     #[serde(default)]
@@ -451,6 +461,7 @@ struct RoadEdgeDto {
     cells: Vec<usize>,
 }
 
+/// One generated road (`cartalith_civ::Way`): polyline `points` in grid cells, `breaks` as indices into it (range-checked on read by `sane_breaks`), `class` from `way_class_key`, `from`/`to` the endpoint settlement indices.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RoadDto {
     #[serde(default)]
@@ -473,6 +484,7 @@ struct RoadDto {
     hidden: bool,
 }
 
+/// One generated sea route (`cartalith_civ::SeaRoute`): the polyline fields of [`RoadDto`] with no class and no endpoints.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SeaLaneDto {
     #[serde(default)]
@@ -485,6 +497,7 @@ struct SeaLaneDto {
     length_km: f64,
 }
 
+/// One hand-drawn way from `InfraTools` (`cartalith_civ::tools::ManualWay`); `kind` is `manual_way_kind_key`'s spelling.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ManualWayDto {
     #[serde(default)]
@@ -503,6 +516,7 @@ struct ManualWayDto {
     hidden: bool,
 }
 
+/// One committed route from `InfraTools`: polyline, `mode` from `route_mode_key`, and the count of legs the planner could not reach.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RouteDto {
     #[serde(default)]
@@ -519,9 +533,6 @@ struct RouteDto {
     unreachable_legs: usize,
 }
 
-/// `entities/journeys.json`, `SAVEFILE_COMPAT.md` §9.6. `next_id` mirrors
-/// `SettlementsDoc::next_id`'s own convention (§9.1: "raised to `max(id)+1`
-/// if the stored value is lower").
 /// `SAVEFILE_COMPAT.md` §9.7 (SP-4). `end_year` and `anchor` are omitted
 /// when absent -- an ongoing conflict has no end year, an unattached one no
 /// anchor -- rather than written as a sentinel.
@@ -545,6 +556,7 @@ struct ConflictsDoc {
     anchor_convention: String,
 }
 
+/// One `cartalith_civ::conflict::Conflict` row. `kind` is `ConflictKind::key`; a key this build does not know costs the row on read (`dto_to_conflict`). `end_year` `None` = ongoing; `sides` are faction ids.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ConflictDto {
     #[serde(default)]
@@ -569,6 +581,7 @@ struct ConflictDto {
     anchor: Option<ConflictAnchorDto>,
 }
 
+/// A conflict's attachment to a settlement or province: which kind, its `tid`, and where the anchor stood when attached.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ConflictAnchorDto {
     /// `"settlement"` or `"province"`.
@@ -582,6 +595,7 @@ struct ConflictAnchorDto {
     at: [f64; 2],
 }
 
+/// Live `Conflict` to its row; the inverse of [`dto_to_conflict`]. `anchor` is written only when the conflict is attached, with `anchor_at` as stored (cell-centre convention, see [`ConflictsDoc`]).
 fn conflict_to_dto(c: &cartalith_civ::conflict::Conflict) -> ConflictDto {
     ConflictDto {
         id: c.id,
@@ -744,6 +758,9 @@ fn religions_from_data(
     }
 }
 
+/// `entities/journeys.json`, `SAVEFILE_COMPAT.md` §9.6. `next_id` mirrors
+/// `SettlementsDoc::next_id`'s own convention (§9.1: "raised to `max(id)+1`
+/// if the stored value is lower").
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct JourneysDoc {
     #[serde(default)]
@@ -752,6 +769,7 @@ struct JourneysDoc {
     journeys: Vec<JourneyDto>,
 }
 
+/// One `Journey` as §9.6 spells it: a nested route snapshot ([`JourneyRouteDto`]), the party preset key, start year and the optional resupply stops and saved plan. Converted by [`journey_to_dto`]/[`dto_to_journey`].
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct JourneyDto {
     #[serde(default)]
@@ -854,12 +872,14 @@ struct JourneyRouteDto {
     mode: String,
 }
 
+/// `entities/provinces.json`; written only when the province list is non-empty.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ProvincesDoc {
     #[serde(default)]
     provinces: Vec<ProvinceDto>,
 }
 
+/// One province row; `capital_settlement_index` indexes the settlements list, and an index that points nowhere costs the province on read (§9.4).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ProvinceDto {
     #[serde(default)]
@@ -872,12 +892,14 @@ struct ProvinceDto {
     capital_settlement_index: usize,
 }
 
+/// `entities/continents.json`; written only when `CivData::continents` is non-empty.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ContinentsDoc {
     #[serde(default)]
     continents: Vec<ContinentDto>,
 }
 
+/// One `cartalith_civ::Continent`: id, name, cell count, inclusive bounding box, cell-space centroid (`cx`, `cy`) and the faction holding most of it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct ContinentDto {
     #[serde(default)]
@@ -902,6 +924,7 @@ struct ContinentDto {
     faction: i32,
 }
 
+/// `history/timeline.json` (§10.1): the year cursor and one snapshot per recorded year. Each year's territory raster is a separate `history/territory/<year>.i32` (§10.2), not part of this document.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TimelineDoc {
     #[serde(default)]
@@ -917,6 +940,7 @@ struct TimelineDoc {
     territory_year: Option<i64>,
 }
 
+/// One recorded year: its settlements and ways (flattened like the live ones) plus the optional institutions and place-override records. No territory raster -- that is stored separately.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct TimelineYearDto {
     #[serde(default)]
@@ -1019,12 +1043,14 @@ fn year_record_from_dtos(y: &TimelineYearDto) -> cartalith_civ::timeline::YearRe
     }
 }
 
+/// `annotations/labels.json`: every label in the label editor's list.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct LabelsDoc {
     #[serde(default)]
     labels: Vec<LabelDto>,
 }
 
+/// One label row as `label_bridge` stores it: grid position, text, angle, arc, size, optional font/colour, `size_mode` (`label_size_mode_key`) and `class` (`LabelClass::key`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct LabelDto {
     #[serde(default)]
@@ -1110,6 +1136,7 @@ struct IconsDoc {
     icons: Vec<IconDto>,
 }
 
+/// One row of `annotations/icons.json`; see [`IconsDoc`] for the `origin` rule and [`icon_to_dto`]/[`icon_from_dto`] for the conversion.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct IconDto {
     #[serde(default)]
@@ -1219,6 +1246,9 @@ fn icon_from_dto(d: &IconDto) -> Option<cartalith_assets::manual::ManualIcon> {
     })
 }
 
+// No `Debug`: `render::Npr` has none, and deriving one there for a struct
+// nothing ever prints would be a change to the renderer for this file's
+// convenience.
 /// `SAVEFILE_COMPAT.md` §13.2. Every member optional, and a reader may
 /// ignore the whole file and still render the world with its own defaults --
 /// which is what makes this presentation and not state.
@@ -1227,9 +1257,6 @@ fn icon_from_dto(d: &IconDto) -> Option<cartalith_assets::manual::ManualIcon> {
 /// deliberately **not** here: a preset is a complete, separately-saved
 /// description of a look with its own file format, and embedding a copy in
 /// every project would give the same look two homes that could then disagree.
-// No `Debug`: `render::Npr` has none, and deriving one there for a struct
-// nothing ever prints would be a change to the renderer for this file's
-// convenience.
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct AppearanceDoc {
@@ -1579,6 +1606,7 @@ struct LandmarkFunnelDto {
     limit: String,
 }
 
+/// The settings half of `entities/landmarks.json`: per-kind caps and armed flags, the crowding factor, class radii in km (in `LandmarkClass::all()` order) and the cross-type switch. [`Self::into_settings`] re-validates all of it on read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 struct LandmarkSettingsDto {
@@ -1590,12 +1618,14 @@ struct LandmarkSettingsDto {
 }
 
 impl Default for LandmarkSettingsDto {
+    /// Absent `settings` member opens on the engine's own defaults, not on zeros or empty maps.
     fn default() -> Self {
         Self::from(&cartalith_civ::landmark::LandmarkSettings::default())
     }
 }
 
 impl From<&cartalith_civ::landmark::LandmarkSettings> for LandmarkSettingsDto {
+    /// Copies the live settings into their document form; infallible.
     fn from(s: &cartalith_civ::landmark::LandmarkSettings) -> Self {
         Self {
             caps: s.caps.clone(),
@@ -1643,6 +1673,7 @@ impl LandmarkSettingsDto {
 }
 
 impl From<&cartalith_civ::landmark::LandmarkResult> for LandmarkRunDto {
+    /// A run's document form. Rows with a non-finite elevation, score or importance are dropped (inline note), `rejects` is not carried (see [`LandmarkRunDto`]), and a non-finite `seconds` is written as `0.0`.
     fn from(r: &cartalith_civ::landmark::LandmarkResult) -> Self {
         Self {
             landmarks: r
@@ -1801,12 +1832,14 @@ impl LandmarkRunDto {
     }
 }
 
+/// `annotations/regions.json`: the selected region, `None` when nothing is selected.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RegionsDoc {
     #[serde(default)]
     region: Option<RegionDto>,
 }
 
+/// A selected region as a grid rectangle: top-left `x`, `y` and size `w`, `h`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RegionDto {
     #[serde(default)]
@@ -1821,6 +1854,7 @@ struct RegionDto {
 
 // ===================== vocabulary =====================
 
+/// `WayType` to §9.3's `class` spelling; the inverse is [`way_class_from`].
 fn way_class_key(t: cartalith_civ::WayType) -> &'static str {
     match t {
         cartalith_civ::WayType::Highway => "highway",
@@ -1847,6 +1881,7 @@ fn way_class_from(key: &str) -> cartalith_civ::WayType {
     }
 }
 
+/// `ManualWayType` to its archive spelling; the inverse is [`manual_way_kind_from`].
 fn manual_way_kind_key(t: cartalith_civ::tools::ManualWayType) -> &'static str {
     use cartalith_civ::tools::ManualWayType as M;
     match t {
@@ -1857,6 +1892,7 @@ fn manual_way_kind_key(t: cartalith_civ::tools::ManualWayType) -> &'static str {
     }
 }
 
+/// Archive spelling to `ManualWayType`; an unrecognised key reads as `Track` rather than dropping the way.
 fn manual_way_kind_from(key: &str) -> cartalith_civ::tools::ManualWayType {
     use cartalith_civ::tools::ManualWayType as M;
     match key {
@@ -1867,6 +1903,7 @@ fn manual_way_kind_from(key: &str) -> cartalith_civ::tools::ManualWayType {
     }
 }
 
+/// `RouteMode` to its archive spelling (`land`/`water`/`mixed`); the inverse is [`route_mode_from`]. `pub(crate)` because `lib.rs` also spells a journey's mode with it.
 pub(crate) fn route_mode_key(m: cartalith_civ::tools::RouteMode) -> &'static str {
     use cartalith_civ::tools::RouteMode as R;
     match m {
@@ -1876,6 +1913,7 @@ pub(crate) fn route_mode_key(m: cartalith_civ::tools::RouteMode) -> &'static str
     }
 }
 
+/// Archive spelling to `RouteMode`; an unrecognised key reads as `Land`.
 fn route_mode_from(key: &str) -> cartalith_civ::tools::RouteMode {
     use cartalith_civ::tools::RouteMode as R;
     match key {
@@ -1885,6 +1923,7 @@ fn route_mode_from(key: &str) -> cartalith_civ::tools::RouteMode {
     }
 }
 
+/// `LabelSizeMode` to its archive spelling; the inverse is [`label_size_mode_from`].
 fn label_size_mode_key(m: cartalith_civ::labels::LabelSizeMode) -> &'static str {
     match m {
         cartalith_civ::labels::LabelSizeMode::Zoom => "zoom",
@@ -1892,6 +1931,7 @@ fn label_size_mode_key(m: cartalith_civ::labels::LabelSizeMode) -> &'static str 
     }
 }
 
+/// Archive spelling to `LabelSizeMode`; an unrecognised key reads as `Zoom`.
 fn label_size_mode_from(key: &str) -> cartalith_civ::labels::LabelSizeMode {
     match key {
         "fixed" => cartalith_civ::labels::LabelSizeMode::Fixed,
@@ -1913,10 +1953,12 @@ fn resource_key_static(key: &str) -> Option<&'static str> {
         .find(|&k| k == key)
 }
 
+/// Polyline tuples to the archive's `[x, y]` pairs; the inverse is [`dto_to_pts`].
 fn pts_to_dto(pts: &[(f64, f64)]) -> Vec<[f64; 2]> {
     pts.iter().map(|&(x, y)| [x, y]).collect()
 }
 
+/// The archive's `[x, y]` pairs back to polyline tuples; the inverse of [`pts_to_dto`].
 fn dto_to_pts(pts: &[[f64; 2]]) -> Vec<(f64, f64)> {
     pts.iter().map(|p| (p[0], p[1])).collect()
 }
@@ -1930,6 +1972,7 @@ fn sane_breaks(brks: &[usize], n: usize) -> Vec<usize> {
 
 // ===================== CivData <-> documents =====================
 
+/// A settlement plus its optional trade balance, place extras and village flag as a [`SettlementDto`]. Extras equal to their default are omitted, so an unedited place writes no `extras` member.
 fn settlement_to_dto(
     s: &cartalith_civ::NamedSettlement,
     trade: Option<&cartalith_civ::TradeBalance>,
@@ -1967,6 +2010,7 @@ fn settlement_to_dto(
     }
 }
 
+/// A [`SettlementDto`]'s settlement half; trade, extras and the village flag are restored by `civ_from_project`. An unrecognised `kind` reads as `Town` (§9.1).
 fn dto_to_settlement(d: &SettlementDto) -> cartalith_civ::NamedSettlement {
     cartalith_civ::NamedSettlement {
         tid: d.id,
@@ -1987,6 +2031,7 @@ fn dto_to_settlement(d: &SettlementDto) -> cartalith_civ::NamedSettlement {
     }
 }
 
+/// A live `Way` as a [`RoadDto`]; the inverse is [`dto_to_road`].
 fn road_to_dto(w: &cartalith_civ::Way) -> RoadDto {
     RoadDto {
         id: w.tid,
@@ -2001,6 +2046,7 @@ fn road_to_dto(w: &cartalith_civ::Way) -> RoadDto {
     }
 }
 
+/// A [`RoadDto`] back to a `Way`: out-of-range breaks are dropped by `sane_breaks` and an unknown class reads as `track`.
 fn dto_to_road(d: &RoadDto) -> cartalith_civ::Way {
     let pts = dto_to_pts(&d.points);
     let brks = sane_breaks(&d.breaks, pts.len());
@@ -2017,6 +2063,7 @@ fn dto_to_road(d: &RoadDto) -> cartalith_civ::Way {
     }
 }
 
+/// A `Journey` as a [`JourneyDto`]; the inverse is [`dto_to_journey`]. The stored plan, if any, goes through [`journey_plan_to_dto`].
 fn journey_to_dto(j: &cartalith_civ::travel_library::Journey) -> JourneyDto {
     JourneyDto {
         id: j.id,
@@ -2082,6 +2129,7 @@ fn dto_to_journey_plan(d: &JourneyPlanDto) -> cartalith_civ::travel_library::Jou
     }
 }
 
+/// A [`JourneyDto`] back to a `Journey`. Route breaks are range-checked by `sane_breaks`; an unknown mode reads as `Land`; a missing `plan` stays `None` (planned from its preset).
 fn dto_to_journey(d: &JourneyDto) -> cartalith_civ::travel_library::Journey {
     let pts = dto_to_pts(&d.route.points);
     let brks = sane_breaks(&d.route.breaks, pts.len());
@@ -2401,6 +2449,7 @@ fn civ_rasters(civ: &CivData, n: usize, write: &mut ProjectWrite<'_>) {
     }
 }
 
+/// Serialises `value` as pretty JSON into `out[slot]`. A serialisation failure leaves the slot absent rather than panicking (see the inline note); callers must not read absence as "empty document".
 fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, value: &T) {
     // `to_string_pretty` cannot fail for these shapes (no non-string map
     // keys, no non-finite floats reachable from them), and a failure here
@@ -2412,12 +2461,6 @@ fn insert_doc<T: Serialize>(out: &mut BTreeMap<String, String>, slot: &str, valu
     }
 }
 
-/// Rebuilds a [`CivData`] from an opened archive. `None` when the archive
-/// carries no settlement document at all, which is a project saved before
-/// any civilisation layer existed rather than a failure.
-///
-/// Every element it drops is reported into `warnings` (§6.4a's closing
-/// rule: *"every substitution above is reported, never silent"*).
 /// A saved currency, checked by `FactionRoster::set_currency`'s rules on
 /// read: nothing on faction `0` (Unclaimed issues no currency), a blank name
 /// or symbol is unset, and a rate that fails `cartalith_civ::currency::
@@ -2455,6 +2498,9 @@ fn currency_from_dto(f: &FactionDto, warnings: &mut Vec<String>) -> civ_roster_b
     civ_roster_bridge::FactionCurrency { name: text(&c.name), symbol, rate }
 }
 
+/// Rebuilds a [`CivData`] from an opened archive. `None` when the archive carries no settlement document at all -- a project saved before any civilisation layer existed, not a failure -- and also when that document does not parse (no warning is raised for that case here).
+///
+/// Every element it drops is reported into `warnings` (§6.4a's closing rule: *"every substitution above is reported, never silent"*). `n` is the world's `gw * gh`; a raster of any other length is treated as absent.
 fn civ_from_project(data: &cartalith_io::ProjectData, n: usize, warnings: &mut Vec<String>) -> Option<CivData> {
     let settlements_doc: SettlementsDoc = data.parse(SLOT_SETTLEMENTS)?.ok()?;
 
