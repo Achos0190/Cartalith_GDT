@@ -5853,6 +5853,10 @@ func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
 	picker.custom_minimum_size = Vector2(34, 22)
 	picker.edit_alpha = false
 	picker.color_changed.connect(_on_stop_color_changed.bind(idx))
+	## OK / Cancel / was-now. Cancel, Escape and an outside click send the opening
+	## colour back through the SAME handler the live drag uses, so the engine
+	## ramp, the in-place repaint and the CARTO editor all return together.
+	DccWidgets.confirmable_color(picker, func(c: Color): _on_stop_color_changed(c, idx))
 	head.add_child(picker)
 	_stops_head_lbl = DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "text", DccTheme.FS_SMALL)
 	head.add_child(_stops_head_lbl)

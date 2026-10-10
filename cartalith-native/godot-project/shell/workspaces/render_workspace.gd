@@ -1074,6 +1074,10 @@ func _build_biome_colours() -> void:
 		## the picker closes -- a full-map re-render per drag sample is not this
 		## dock's convention.
 		pick.color_changed.connect(func(c: Color): bridge.set_biome_color(index, c))
+		## OK / Cancel / was-now. Connected BEFORE `popup_closed` below so a cancel
+		## writes the opening colour back to the engine first, and the one
+		## re-render `_after_biome_edit` does sees the reverted table.
+		DccWidgets.confirmable_color(pick, func(c: Color): bridge.set_biome_color(index, c))
 		pick.popup_closed.connect(_after_biome_edit)
 		row.add_child(pick)
 		_biome_swatches.append(pick)
@@ -1866,13 +1870,17 @@ func _rebuild_ramp_rows() -> void:
 		swatch.custom_minimum_size = Vector2(30, 18)
 		swatch.focus_mode = Control.FOCUS_NONE
 		swatch.edit_alpha = false
-		swatch.color_changed.connect(func(c: Color):
+		var write_stop := func(c: Color):
 			## `edit_alpha = false` makes the picker emit an **opaque** colour,
 			## so the stop's own alpha has to be carried across by hand -- take
 			## `c` whole and every colour edit silently resets the alpha to 1.
 			_ramp[idx][1] = Color(c.r, c.g, c.b, Color(_ramp[idx][1]).a)
 			_update_ramp_bar()
-			_push_ramp(false))
+			_push_ramp(false)
+		swatch.color_changed.connect(write_stop)
+		## OK / Cancel / was-now: a cancel replays the opening colour through the
+		## same write, so `_ramp`, the bar, the engine and the map all return.
+		DccWidgets.confirmable_color(swatch, write_stop)
 		row.add_child(swatch)
 
 		var pos := HSlider.new()

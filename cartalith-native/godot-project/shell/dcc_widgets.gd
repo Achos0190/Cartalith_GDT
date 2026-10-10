@@ -3209,6 +3209,105 @@ static func phone_color_popup(pick: ColorPickerButton) -> void:
 	pop.content_scale_factor = DccTheme.phone_scale() / maxf(0.0001, already)
 	oversample(pop, pop.content_scale_factor)
 
+const _CONFIRM_META := "_dcc_confirmable_color"
+
+## **Upgrades a `ColorPickerButton` in place into a select-and-confirm picker**
+## (milestone A of the editing-tools plan; modelled on Photoshop's picker).
+##
+## Godot's stock popup has no OK or Cancel: Escape or an outside click closes it
+## but KEEPS the change the live preview already applied, nothing shows what the
+## colour was, and the user cannot back out of a mis-drag. This helper makes the
+## popup remember the colour it OPENED with, shows a "was / now" swatch pair,
+## adds Cancel and OK buttons under the picker, and treats every close that is
+## not OK (Cancel, Escape, outside click) as a cancel.
+##
+## **Live preview is unchanged**: the call site keeps its own `color_changed`
+## wiring and it keeps firing while the user drags. On a cancel the helper sets
+## `pick.color` back to the opening colour AND calls `on_revert.call(old)` --
+## assigning `ColorPickerButton.color` does not emit `color_changed`, so without
+## the explicit callback the engine and the map would stay on the abandoned
+## colour. `on_revert` should therefore be the same write the live handler does
+## (the opening colour passed through it), never a different path.
+##
+## The picker is wrapped in a `VBoxContainer` inside the popup (the popup is a
+## `PopupPanel` whose only child was the `ColorPicker`), so the popup's own
+## minimum size grows to hold the extra rows. `phone_color_popup()` scales the
+## popup `Window` as a whole and so scales these rows with it; buttons keep the
+## 44 px floor on touch.
+##
+## Call it once per picker, right after creating it and BEFORE connecting a
+## `popup_closed` handler that re-renders: this helper's revert must run first
+## so that handler sees the reverted colour. Safe to call twice (meta-guarded).
+static func confirmable_color(pick: ColorPickerButton, on_revert: Callable) -> void:
+	if pick == null or pick.has_meta(_CONFIRM_META):
+		return
+	pick.set_meta(_CONFIRM_META, true)
+	var pop := pick.get_popup()
+	var picker := pick.get_picker()
+	## `old` is the opening colour; `ok` is set by the OK button so the close
+	## that follows it is not mistaken for a cancel; `open` stops a stray second
+	## `popup_closed` from reverting twice.
+	var st := {"old": pick.color, "ok": false, "open": false}
+
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	var par := picker.get_parent()
+	if par != null:
+		par.remove_child(picker)
+	vb.add_child(picker)
+	pop.add_child(vb)
+
+	var cmp := HBoxContainer.new()
+	cmp.add_theme_constant_override("separation", 6)
+	cmp.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(cmp)
+	cmp.add_child(DccTheme.mono_label("was", "text_dim", DccTheme.FS_SMALL))
+	var was := ColorRect.new()
+	was.custom_minimum_size = Vector2(56, 24)
+	cmp.add_child(was)
+	var now := ColorRect.new()
+	now.custom_minimum_size = Vector2(56, 24)
+	cmp.add_child(now)
+	cmp.add_child(DccTheme.mono_label("now", "text_dim", DccTheme.FS_SMALL))
+
+	var btns := HBoxContainer.new()
+	btns.add_theme_constant_override("separation", 8)
+	vb.add_child(btns)
+	var floor_h := 44.0 if DccTheme.is_touch() else 0.0
+	var cancel := action(btns, "Cancel", func(): pop.hide())
+	var okb := action(btns, "OK", func():
+		st["ok"] = true
+		pop.hide(), true)
+	for b in [cancel, okb]:
+		(b as Button).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		(b as Button).custom_minimum_size.y = maxf((b as Button).custom_minimum_size.y, floor_h)
+
+	pop.about_to_popup.connect(func():
+		st["old"] = pick.color
+		st["ok"] = false
+		st["open"] = true
+		was.color = pick.color
+		now.color = pick.color)
+	pick.color_changed.connect(func(c: Color): now.color = c)
+	var cancel_close := func():
+		if not st["open"]:
+			return
+		st["open"] = false
+		var old: Color = st["old"]
+		if st["ok"] or pick.color == old:
+			return
+		pick.color = old
+		now.color = old
+		if on_revert.is_valid():
+			on_revert.call(old)
+	pick.popup_closed.connect(cancel_close)
+	## A click outside the popup that lands on something that rebuilds the owner
+	## (measured: the right dock's `_rebuild()`) frees the picker with its popup
+	## while it is still open, and a freed `PopupPanel` never emits
+	## `popup_closed` -- so the abandoned colour would stay. Reverting on the
+	## way out of the tree closes that hole.
+	pick.tree_exiting.connect(cancel_close)
+
 static func oversample(w: Window, scale: float = 0.0) -> void:
 	if w == null:
 		return
