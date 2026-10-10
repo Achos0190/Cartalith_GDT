@@ -74,8 +74,8 @@
 //!
 //! **Since GF-11** (owner Ruling BY item 1, 2026-10-10: ship rock-aware
 //! construction alone, build no uplift-driven stage) the "GF-11" section holds
-//! construction alone's own pre-registered go/no-go rule (`GF11_RULE`, v2
-//! since Ruling BY item 3, printed verbatim by every run) and its two ignored
+//! construction alone's own pre-registered go/no-go rule (`GF11_RULE`, v3
+//! since Ruling BY items 3 and 4, printed verbatim by every run) and its two ignored
 //! runs, `gf11_construction_alone` and `gf11_b9_cost`, plus two diagnostics
 //! outside the rule (`gf11_stranded_diag`, `gf11_g3_lake_diag`).
 //!
@@ -3756,22 +3756,26 @@ fn gf10_b9_cost() {
 //   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_construction_alone
 //   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_b9_cost
 
-/// **GF-11's pre-registered go/no-go rule, verbatim (v2).** v1 was written
+/// **GF-11's pre-registered go/no-go rule, verbatim (v3).** v1 was written
 /// 2026-10-10 before any GF-11 run (sha256 of its snapshot `fba82360...`,
-/// recorded in `STATUS.md`) and judged the first run NO-GO. v2 is Ruling BY
-/// item 3's amendment of G4 alone, written **after** that first run's numbers
-/// were seen (disclosed in its own text), snapshotted before the second run.
+/// recorded in `STATUS.md`) and judged the first run NO-GO. v2 (`fa0b4de3...`)
+/// is Ruling BY item 3's amendment of G4 alone, written **after** that first
+/// run's numbers were seen, and judged the second run NO-GO on G3. v3 is Ruling
+/// BY item 4's amendment of G3 alone (the same existing-depression exemption,
+/// applied to arms A and C alike), written **after** both runs' numbers were
+/// seen (disclosed in its own text), snapshotted before the third run.
 /// Printed by [`gf11_construction_alone`] so every log carries the rule it was
 /// judged by. No threshold in it may move after a result is seen.
 const GF11_RULE: &str = "\
-GF-11 PRE-REGISTERED RULE v2 (construction alone; Ruling BY items 1 and 3). v1 was written 2026-10-10 before any GF-11 run; v2 was written 2026-10-10 AFTER the first run's numbers were seen, and before the second run.
+GF-11 PRE-REGISTERED RULE v3 (construction alone; Ruling BY items 1, 3 and 4). v1 was written 2026-10-10 before any GF-11 run; v2 was written 2026-10-10 AFTER the first run's numbers were seen, and before the second run; v3 was written 2026-10-10 AFTER the first two runs' numbers were seen, and before the third run.
 Disclosure: GF-10 (GEOLOGY_FIRST_SCOPE.md 5.10) already measured this arm once, so this rule is written knowing those numbers. No threshold below is lower than the scope's; every bar dropped is dropped for a reason in the scope's own text, not for its GF-10 result.
 Disclosure (v2): the first GF-11 run, judged by v1, read G1 on 3 of 5 seeds, G2 on 5 of 5, G3 failing on seed 24601 at every tau (lake share 6.75 % at tau 1 against A's 2.23 %), G4 failing on every seed (stranded below-sea cells, all inside depressions of z0), G5 1.194 and 1.195; verdict NO-GO. v2 changes ONLY G4, as Ruling BY item 3 directs (owner, 2026-10-10: existing lakes are exempt from B14), and states the population of the c = 0 identity (non-exempt cells only), which v1's code already used. G1, G2, G3 and G5 and every threshold are v1's, word for word.
+Disclosure (v3): the second GF-11 run, judged by v2, read G1 on 3 of 5 seeds (fails 12345: top-decile share 0.310; 314159: ratio 1.503), G2 on 5 of 5, G4 passing on every seed, arm and tau, and G3 failing on seed 24601 at every tau (lake share on river paths 6.754 % at tau 1, 6.328 at 0.5, 6.679 at 2, 6.587 at 4, against A's 2.232 %; 1-3-cell lakes 51 against A's 65); G3 passed on the other four seeds at every tau; G5 was not re-run (v1's 1.194 and 1.195 stand as the first run's); verdict NO-GO. A diagnostic outside the rule (gf11_g3_lake_diag) then read, for seed 24601 arm C at tau 1: 2 130 lake cells on river paths, 0 below sea, 1 871 in existing depressions of z0, 259 outside; arm A 700, of which 698 in existing depressions, 2 outside. v3 changes ONLY G3, as Ruling BY item 4 directs (owner, 2026-10-10: the existing-depression exemption extends to G3), and applies the exemption to arms A and C on equal terms. G1, G2, G4 and G5 and every threshold are v2's, word for word.
 Setting: 800 km, 2048x1311, five seeds (483920, 24601, 71077345, 12345, 314159); D1 by its rule (median input cap thickness); step breach rule; tau = 1 unless stated; arms A (app world), B (construction alone, c = 0), C (construction alone, c = 0.5).
 GO only if ALL of G1-G5 hold. A reading that is not measurable counts as a fail.
  G1  B4, construction's own bar (5.2 revised; 4.14: 'B4 is therefore expected to pass at 800 km'): in arm C, median slope at breach lines / median slope of substrate cells within 5 >= 2.0 AND top-decile share >= 0.40 over input-qualified breach lines, on >= 3 of 5 seeds (GF-10's build-rule seed count, 7 GF-10).
  G2  B4's input-selected twin, replaced: at the cells 4.14's rule PREDICTS from inputs alone to be breach lines at c = 0.5 (two-layer land, not arc-exempt, cap survives B*k_t <= h, with a 4-neighbour two-layer land cell where B*k_t > h), median slope in C / median slope in B over the SAME cells >= 1.2 (5.2's twin relative bar), population >= 100, on >= 3 of 5 seeds.
- G3  B8 (5.2 with its BM extension): for arm C against A, ocean cells on river paths = 0, river cells that are lake <= A + 2 percentage points, 1-3-cell lakes <= 1.25 x A, on ALL five seeds at EVERY tau in {0.5, 1, 2, 4} (tau scales construction's budget, 4.16).
+ G3  B8 (5.2 with its BM extension; amended by Ruling BY item 4): for arm C against A, ocean cells on river paths = 0, river cells that are lake <= A + 2 percentage points, 1-3-cell lakes <= 1.25 x A, on ALL five seeds at EVERY tau in {0.5, 1, 2, 4} (tau scales construction's budget, 4.16). Lake cells in an existing depression of the structural surface (the same mask as G4: flood4(z0) - z0 > 0, seeded at z0's ocean cells and the map's non-wrapping edges, computed once per seed from inputs only) are counted and reported, NOT judged, in BOTH arms A and C, by the same mask: (a) lake share = river-path cells that are lake AND outside that mask, divided by ALL river-path cells (the denominator is v2's, unchanged); (b) 1-3-cell lakes = v2's 4-connected lake bodies of 1-3 cells (found on the full classification, unchanged) that have at least one cell outside that mask; a body wholly inside the mask is exempt. Ocean cells on river paths are judged as in v2 (no exemption). v2's unexempted readings are printed beside them, reported, not gated.
  G4  B14 (GF-11's own bar, amended by Ruling BY item 3), on B and C at tau 1 and on C at every tau, all five seeds: contact bit-identical after construction; 0 new closed depressions deeper than 0.004; every land cell now below sea that was NOT in an existing depression of the structural surface is ocean by build_water_bodies (existing depression: flood4(z0) - z0 > 0, the 4-connected priority flood seeded at z0's ocean cells and the map's non-wrapping edges, the same fill construction uses; such an existing lake bed may go below sea as a lake: its cells are counted and reported, not judged); every cell's regolith rose by exactly its fill raise (within 1e-6 normalised); no cell ends above its structural height (replaces B15's clamp); and on B, the unfilled surface equals z0 - m_to_norm(B) bit for bit on every cell except the arc-exempt ones (9 Q17: land whose exposed rock is andesite or tuff has D = 0 by rule, so the identity is judged on non-exempt cells only; 5.2's 'on every cell' is read this way; 9 Q17's exemption applies in both arms).
  G5  B9 (5.2, unchanged at tau 1): projected construction-alone generation <= 1.20 x the app's median, in EACH of two runs made as separate processes, alone.
 Not gated, and why:
@@ -3860,6 +3864,131 @@ fn gf11_existing_depression(ctx: &SeedCtx) -> Vec<bool> {
     (0..gw * gh).map(|i| f0[i] > z0[i]).collect()
 }
 
+/// G3's readings for one arm under rule v3 (Ruling BY item 4). The `raw_*`
+/// fields are v2's unexempted B8 readings (reported, not gated); the others
+/// apply the existing-depression mask `in_dep` ([`gf11_existing_depression`]),
+/// which is computed once per seed from `z0` and passed unchanged for arm A and
+/// arm C, so both arms are judged by the same cells' exemption.
+struct Gf11B8 {
+    /// Ocean cells on river paths (judged; no exemption).
+    ocean: usize,
+    /// River-path cells that are lake AND outside `in_dep`, as % of ALL
+    /// river-path cells (v2's denominator). `None` when no river path exists.
+    lake_pct: Option<f64>,
+    /// 1-3-cell lake bodies with at least one cell outside `in_dep`.
+    small: usize,
+    /// v2's unexempted lake share and 1-3-cell count (reported only).
+    raw_lake_pct: Option<f64>,
+    raw_small: usize,
+    /// River-path lake cells inside `in_dep`, and 1-3-cell bodies wholly
+    /// inside it: counted and reported, never judged.
+    lake_exempt: usize,
+    small_exempt: usize,
+}
+
+/// [`b8`]'s walk and lake-body search, repeated here so the GF-11 section owns
+/// its exemption without changing a function other milestones' rules call.
+/// The raw readings are asserted equal to [`b8`]'s by the caller, which guards
+/// this copy against drifting from the original.
+fn gf11_b8(ws: &WorldState, class: &[u8], in_dep: &[bool], gw: usize, gh: usize, km: f64) -> Gf11B8 {
+    let (mut cells, mut ocean, mut lake, mut lake_judged) = (0usize, 0usize, 0usize, 0usize);
+    if let (Some(order), Some(ch)) = (ws.stream_order.as_ref(), ws.channels.as_ref()) {
+        let rivers = cartalith_hydrology::river_entities(
+            order,
+            &ch.recv,
+            &ws.flow_discharge,
+            &ws.field,
+            gw,
+            gh,
+            1,
+            cartalith_hydrology::river_flow_thresh(gw, gh, gw, km),
+            cartalith_hydrology::river_width_scale_k(km),
+            false,
+        );
+        for r in &rivers {
+            for &(x, y) in r.pts.iter().take(r.pts.len().saturating_sub(1)) {
+                let i = (y as usize).min(gh - 1) * gw + (x as usize).min(gw - 1);
+                cells += 1;
+                match class[i] {
+                    1 => ocean += 1,
+                    2 => {
+                        lake += 1;
+                        lake_judged += (!in_dep[i]) as usize;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    // b8's 4-connected lake bodies (no east-west wrap, exactly as b8 joins them).
+    let (mut seen, mut stack) = (vec![false; gw * gh], Vec::new());
+    let (mut raw_small, mut small) = (0usize, 0usize);
+    for s0 in 0..gw * gh {
+        if class[s0] != 2 || seen[s0] {
+            continue;
+        }
+        seen[s0] = true;
+        stack.push(s0);
+        let (mut k, mut outside) = (0usize, false);
+        while let Some(i) = stack.pop() {
+            k += 1;
+            outside |= !in_dep[i];
+            let (x, y) = (i % gw, i / gw);
+            let nbrs = [(x > 0).then(|| i - 1), (x + 1 < gw).then(|| i + 1), (y > 0).then(|| i - gw), (y + 1 < gh).then(|| i + gw)];
+            for j in nbrs.into_iter().flatten() {
+                if class[j] == 2 && !seen[j] {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        if k <= 3 {
+            raw_small += 1;
+            small += outside as usize;
+        }
+    }
+    let pct = |n: usize| (cells > 0).then(|| 100.0 * n as f64 / cells as f64);
+    Gf11B8 { ocean, lake_pct: pct(lake_judged), small, raw_lake_pct: pct(lake), raw_small, lake_exempt: lake - lake_judged, small_exempt: raw_small - small }
+}
+
+/// G3 under rule v3: arm `c` against arm `a`, both read by [`gf11_b8`] with
+/// the same mask. `None` when either lake share is not measurable (no river
+/// path), which the rule counts as a fail, never a pass.
+fn gf11_g3(c: &Gf11B8, a: &Gf11B8) -> Option<bool> {
+    c.lake_pct.zip(a.lake_pct).map(|(t, la)| c.ocean == 0 && t <= la + 2.0 && (c.small as f64) <= 1.25 * a.small as f64)
+}
+
+/// One G3 line's text: judged readings, then the exempt counts and v2's raw
+/// readings (reported, not gated).
+fn gf11_g3_show(c: &Gf11B8, a: &Gf11B8) -> String {
+    format!(
+        "ocean {}; lake (outside existing depressions) {} % (A {}); 1-3-cell lakes judged {} (A {}) | exempt: path lake cells {} (A {}), small bodies {} (A {}) | v2 raw: lake {} % (A {}), small {} (A {})",
+        c.ocean,
+        fmt_opt(c.lake_pct),
+        fmt_opt(a.lake_pct),
+        c.small,
+        a.small,
+        c.lake_exempt,
+        a.lake_exempt,
+        c.small_exempt,
+        a.small_exempt,
+        fmt_opt(c.raw_lake_pct),
+        fmt_opt(a.raw_lake_pct),
+        c.raw_small,
+        a.raw_small
+    )
+}
+
+/// Reads [`gf11_b8`] and asserts its raw readings equal [`b8`]'s on the same
+/// arm, so the copy cannot drift from the function v1 and v2 were judged by.
+fn gf11_b8_checked(ws: &WorldState, class: &[u8], in_dep: &[bool], gw: usize, gh: usize, km: f64) -> Gf11B8 {
+    let r = gf11_b8(ws, class, in_dep, gw, gh, km);
+    let (o, l, s, _) = b8(ws, class, gw, gh, km);
+    assert_eq!((r.ocean, r.raw_small), (o, s), "gf11_b8's raw ocean/small must equal b8's");
+    assert_eq!(r.raw_lake_pct.map(f64::to_bits), l.map(f64::to_bits), "gf11_b8's raw lake share must equal b8's");
+    r
+}
+
 /// G4 (B14 on a real world) for one construction-alone arm. Returns `(pass,
 /// detail)`. Reads only the construction's own product ([`ArmOut::cons`] and
 /// [`ArmOut::constructed`], i.e. before the hillslope and the tail), because
@@ -3939,8 +4068,10 @@ fn gf11_construction_alone() {
         println!("\n==== GF-11 seed {seed} (cell {:.1} m, sea {sea:.3}, m per unit {:.1}); D1 {:.2} m ====", ctx.cell_m, ctx.mpu, ctx.d1_m);
         let class_a = cartalith_civ::build_water_bodies(&ctx.a.field, gw, gh, sea, world, Some(&ctx.a.rainfall)).classification;
         let b8a = b8(&ctx.a, &class_a, gw, gh, km);
-        let b8a3 = (b8a.0, b8a.1, b8a.2);
         println!("A  B8 ocean on paths {}; lake {} % of {}; 1-3-cell lakes {}", b8a.0, fmt_opt(b8a.1), b8a.3, b8a.2);
+        // Rule v3's G3 mask: one per seed, from z0 only, used for A and C alike.
+        let in_dep = gf11_existing_depression(&ctx);
+        let g3a = gf11_b8_checked(&ctx.a, &class_a, &in_dep, gw, gh, km);
         let base = ArmCfg { construct: true, stage: false, c: 0.0, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
         let ob = run_arm(&ctx, base);
         let oc = run_arm(&ctx, ArmCfg { c: C_TREAT, ..base });
@@ -4004,8 +4135,9 @@ fn gf11_construction_alone() {
         println!("  C G4 [{}] {dc}", verdict(Some(b14c)));
         let mut g4_seed = b14b && b14c;
         // G3 at tau 1, arm C.
-        let (o8, l8, s8, ok8) = b8_vs(&oc.ws, &class_c, b8a3, gw, gh, km);
-        println!("  C G3 tau 1: ocean {o8}; lake {} % (A {}); 1-3-cell lakes {s8} (A {}) [{}]", fmt_opt(l8), fmt_opt(b8a.1), b8a.2, verdict(ok8));
+        let g3c = gf11_b8_checked(&oc.ws, &class_c, &in_dep, gw, gh, km);
+        let ok8 = gf11_g3(&g3c, &g3a);
+        println!("  C G3 tau 1: {} [{}]", gf11_g3_show(&g3c, &g3a), verdict(ok8));
         let mut g3_seed = ok8 == Some(true);
         let mut tau_s = vec![format!("1:{}", verdict(ok8))];
         for tau in GF11_TAUS {
@@ -4014,16 +4146,10 @@ fn gf11_construction_alone() {
             }
             let o = run_arm(&ctx, ArmCfg { c: C_TREAT, tau, ..base });
             let class = cartalith_civ::build_water_bodies(&o.ws.field, gw, gh, sea, world, Some(&o.ws.rainfall)).classification;
-            let (o8, l8, s8, ok8) = b8_vs(&o.ws, &class, b8a3, gw, gh, km);
+            let g3t = gf11_b8_checked(&o.ws, &class, &in_dep, gw, gh, km);
+            let ok8 = gf11_g3(&g3t, &g3a);
             let (b14, d) = gf11_b14(&ctx, &o, C_TREAT, tau);
-            println!(
-                "TAU11 seed={seed} tau={tau} G3: ocean {o8}; lake {} % (A {}); 1-3-cell lakes {s8} (A {}) [{}]  G4 [{}] {d}",
-                fmt_opt(l8),
-                fmt_opt(b8a.1),
-                b8a.2,
-                verdict(ok8),
-                verdict(Some(b14))
-            );
+            println!("TAU11 seed={seed} tau={tau} G3: {} [{}]  G4 [{}] {d}", gf11_g3_show(&g3t, &g3a), verdict(ok8), verdict(Some(b14)));
             g3_seed &= ok8 == Some(true);
             g4_seed &= b14;
             tau_s.push(format!("{tau}:{}", verdict(ok8)));
