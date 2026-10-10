@@ -72,6 +72,12 @@
 //! (`gf10_bm_prototype`, `gf10_small_lake_diag`, `gf10_b9_cost`). See the
 //! "GF-10" section at the end for the commands. It changes no production code.
 //!
+//! **Since GF-11** (owner Ruling BY item 1, 2026-10-10: ship rock-aware
+//! construction alone, build no uplift-driven stage) the "GF-11" section holds
+//! construction alone's own pre-registered go/no-go rule (`GF11_RULE`,
+//! printed verbatim by every run) and its two ignored runs,
+//! `gf11_construction_alone` and `gf11_b9_cost`.
+//!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
 //! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
@@ -3095,10 +3101,12 @@ struct SeedCtx {
     ocean0: Vec<bool>,
     d1_m: f64,
     t1: f64,
-    u0_m: f64,
-    /// `U₀` solve residual (land-mean change, metres) and evaluations.
-    u0_residual_m: f64,
-    u0_evals: usize,
+    /// `(U₀ in metres per unit model time, solve residual in metres,
+    /// evaluations)`. `None` when the context was built for construction alone
+    /// ([`build_ctx_opts`] with `solve_u0 = false`, GF-11): `U₀` is the stage's
+    /// rate and cancels from construction's budget, so it is not solved, and
+    /// an arm that runs the stage panics rather than read a made-up rate.
+    u0: Option<(f64, f64, usize)>,
     mpu: f64,
     cell_m: f64,
     /// Input cap thickness in metres; NaN where single-layer or not land.
@@ -3144,7 +3152,8 @@ fn run_arm(ctx: &SeedCtx, cfg: ArmCfg) -> ArmOut {
     let constructed = cfg.construct.then(|| (field.clone(), col.clone()));
     let rain = if cfg.construct { priming_climate(p, sea, &field).1 } else { ctx.pre.rainfall.to_vec() };
     let stage = cfg.stage.then(|| {
-        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * ctx.u0_m / ctx.mpu).collect();
+        let u0_m = ctx.u0.expect("the stage needs U0: build the context with build_ctx").0;
+        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * u0_m / ctx.mpu).collect();
         bm_stage(p, sea, &mut field, &mut col, &u, &rain, cfg.c, cfg.tau * cfg.t_mult * ctx.t1, N_BM)
     });
     hillslope(p, sea, &mut field, &mut col, &clock);
@@ -3185,7 +3194,17 @@ fn solve_u0(p: &WorldParams, pre: &WorldState, shape: &[f64], ocean0: &[bool], d
     (x1, f1, evals)
 }
 
+/// [`build_ctx_opts`] with `U₀` solved: everything a GF-10 arm needs.
 fn build_ctx(seed: i32, km: f64, gw: usize, gh: usize) -> SeedCtx {
+    build_ctx_opts(seed, km, gw, gh, true)
+}
+
+/// Builds one seed's context: arm A, the pre-erosion world, the uplift shape,
+/// the structural surface's ocean, the input cap thickness, `D₁` and `T₁`,
+/// and (with `solve_u0`) the `U₀` solve. GF-11's construction-alone arms pass
+/// `solve_u0 = false`: the solve runs the stage several times, and
+/// construction never reads `U₀` (it cancels from §4.14's budget).
+fn build_ctx_opts(seed: i32, km: f64, gw: usize, gh: usize, solve_u0_now: bool) -> SeedCtx {
     let p = app_params(seed, km, gw, gh);
     assert!(p.geology_model && !p.geology_processes, "arm A is the app's world");
     let a = generate_terrain(&p);
@@ -3214,8 +3233,8 @@ fn build_ctx(seed: i32, km: f64, gw: usize, gh: usize) -> SeedCtx {
     let a_head = cartalith_hydrology::river_flow_thresh(gw, gh, gw, km) / p.river_density;
     let c_head = p.stream.k * p.planet.g * a_head.sqrt();
     let t1 = T1_EFOLDS / c_head;
-    let (u0_m, u0_residual_m, u0_evals) = solve_u0(&p, &pre, &shape, &ocean0, d1_m, t1, mpu);
-    SeedCtx { p, a, pre, shape, ocean0, d1_m, t1, u0_m, u0_residual_m, u0_evals, mpu, cell_m, h_in }
+    let u0 = solve_u0_now.then(|| solve_u0(&p, &pre, &shape, &ocean0, d1_m, t1, mpu));
+    SeedCtx { p, a, pre, shape, ocean0, d1_m, t1, u0, mpu, cell_m, h_in }
 }
 
 /// B8 of `ws` against arm A's `(ocean, lake %, small lakes)`: `(ocean on
@@ -3326,14 +3345,15 @@ fn gf10_bm_prototype() {
             }
             let (_, rift_src) = uplift_shape(p, &ctx.pre);
             let a_head = cartalith_hydrology::river_flow_thresh(gw, gh, gw, km) / p.river_density;
+            let (u0_m, u0_res, u0_evals) = ctx.u0.expect("build_ctx solves U0");
             println!(
                 "D1 (median cap thickness) {:.2} m; A_head {a_head:.1} cells; T1 {:.3}; U0 {:.5} m per unit time (U_bg {:.5}), solve residual {:.4} m after {} evaluations; rift source cells {rift_src}",
                 ctx.d1_m,
                 ctx.t1,
-                ctx.u0_m,
-                U_BG * ctx.u0_m,
-                ctx.u0_residual_m,
-                ctx.u0_evals
+                u0_m,
+                U_BG * u0_m,
+                u0_res,
+                u0_evals
             );
             let land_shape: Vec<f64> = (0..gw * gh).filter(|&i| ctx.pre.field[i] as f64 > sea).map(|i| ctx.shape[i]).collect();
             println!(
@@ -3672,7 +3692,8 @@ fn gf10_b9_cost() {
         let cc = t.elapsed().as_secs_f64();
         let mut f = c.field.clone();
         let mut col = c.col.clone();
-        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * ctx.u0_m / ctx.mpu).collect();
+        let u0_m = ctx.u0.expect("build_ctx solves U0").0;
+        let u: Vec<f64> = ctx.shape.iter().map(|&s| s * u0_m / ctx.mpu).collect();
         let t = std::time::Instant::now();
         let _ = bm_stage(p, sea, &mut f, &mut col, &u, &ctx.pre.rainfall, C_TREAT, ctx.t1, N_BM);
         let s = t.elapsed().as_secs_f64();
@@ -3705,6 +3726,425 @@ fn gf10_b9_cost() {
     let h = show("threshold hillslope", &th);
     let proj = g - l + c + s + h;
     println!("  projected BM generation = A - light pass + construction + stage + hillslope = {proj:.3} s; ratio to A {:.3} (B9 bar <= 1.20)", proj / g);
+}
+
+// ===========================================================================
+// GF-11: rock-aware construction ALONE (owner Ruling BY item 1, 2026-10-10;
+// `GEOLOGY_FIRST_SCOPE.md` §4.14, §5.2, §5.9, §5.10, §7 GF-11). Harness only.
+// ===========================================================================
+//
+// **Why it exists.** Ruling BY: "Ship rock-aware height construction alone
+// (GF-11); do not build the uplift-driven erosion stage (GF-12) ... GF-11
+// therefore needs its own bars, written before the measurement." This section
+// holds those bars ([`GF11_RULE`], verbatim below) and the measurement that
+// applies them.
+//
+// **The arm measured** is GF-10's `construct-only` setting: [`run_arm`] with
+// `stage: false`, i.e. §4.14's construction at the pre-registered `D₁` (step
+// breach rule, τ-scaled budget), the priming climate on the constructed
+// surface, GF-3's threshold hillslope, then the pipeline's tail ([`tail`]),
+// with the processes on and **no light stream-power pass and no rebound**
+// (§4.16: the BM stage replaces them; GF-12 is not built, so under
+// construction alone nothing replaces them). Arms: **A** = today's app world;
+// **B** = construction alone at `c = 0` (rock-blind, §5.2's revised control);
+// **C** = construction alone at `c = 0.5` ([`C_TREAT`], the app's
+// `tect.resist`).
+//
+// Commands (release, run alone; B9 twice, as separate processes):
+//
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_construction_alone
+//   cargo test --release -p cartalith-godot --test gf0_geology_harness -- --ignored --nocapture --test-threads=1 --exact gf11_b9_cost
+
+/// **GF-11's pre-registered go/no-go rule, verbatim.** Written 2026-10-10,
+/// before any GF-11 run, and printed by [`gf11_construction_alone`] so every
+/// log carries the rule it was judged by. No threshold in it may move after a
+/// result is seen.
+const GF11_RULE: &str = "\
+GF-11 PRE-REGISTERED RULE (construction alone; Ruling BY item 1; written 2026-10-10 before any GF-11 run).
+Disclosure: GF-10 (GEOLOGY_FIRST_SCOPE.md 5.10) already measured this arm once, so this rule is written knowing those numbers. No threshold below is lower than the scope's; every bar dropped is dropped for a reason in the scope's own text, not for its GF-10 result.
+Setting: 800 km, 2048x1311, five seeds (483920, 24601, 71077345, 12345, 314159); D1 by its rule (median input cap thickness); step breach rule; tau = 1 unless stated; arms A (app world), B (construction alone, c = 0), C (construction alone, c = 0.5).
+GO only if ALL of G1-G5 hold. A reading that is not measurable counts as a fail.
+ G1  B4, construction's own bar (5.2 revised; 4.14: 'B4 is therefore expected to pass at 800 km'): in arm C, median slope at breach lines / median slope of substrate cells within 5 >= 2.0 AND top-decile share >= 0.40 over input-qualified breach lines, on >= 3 of 5 seeds (GF-10's build-rule seed count, 7 GF-10).
+ G2  B4's input-selected twin, replaced: at the cells 4.14's rule PREDICTS from inputs alone to be breach lines at c = 0.5 (two-layer land, not arc-exempt, cap survives B*k_t <= h, with a 4-neighbour two-layer land cell where B*k_t > h), median slope in C / median slope in B over the SAME cells >= 1.2 (5.2's twin relative bar), population >= 100, on >= 3 of 5 seeds.
+ G3  B8 (5.2 with its BM extension): for arm C against A, ocean cells on river paths = 0, river cells that are lake <= A + 2 percentage points, 1-3-cell lakes <= 1.25 x A, on ALL five seeds at EVERY tau in {0.5, 1, 2, 4} (tau scales construction's budget, 4.16).
+ G4  B14 (GF-11's own bar), on B and C at tau 1 and on C at every tau, all five seeds: contact bit-identical after construction; 0 new closed depressions deeper than 0.004; every land cell now below sea is ocean by build_water_bodies; every cell's regolith rose by exactly its fill raise (within 1e-6 normalised); no cell ends above its structural height (replaces B15's clamp); and on B, the unfilled surface equals z0 - m_to_norm(B) bit for bit on every non-exempt cell (9 Q17's arc exemption applies in both arms).
+ G5  B9 (5.2, unchanged at tau 1): projected construction-alone generation <= 1.20 x the app's median, in EACH of two runs made as separate processes, alone.
+Not gated, and why:
+ - B13: tests the uplift-driven stage's steady state (5.2: 'GF-12; the positive control through the BM stage'). There is no stage. Dropped.
+ - B15: its clamp count and its U0 balance are the stage's (5.2: '(GF-12)'). Construction only lowers, and its fill raises a cell at most back to z0 (the fill is monotone: z <= z0 gives f(z) <= f(z0)), so G4's headroom check replaces the clamp; U0 cancels from B = tau*D1*clamp(Ubar/mean_land(Ubar)) and is not computed. Dropped.
+ - B1 and B2: reported, not gated. 4.15: 'That is the relation B1 and B2 test, and it needs U > 0'; B2's 'why 1.5 is principled' is the stage's steady state; their uplift banding (5.9) exists to read that steady state. Under construction alone U = 0 after construction. B1 is also blind to a scarp by arithmetic: a step inside a 9 x 9 window gives the cap cells and the substrate cells beside it the same window relief.
+ - B4's scope twin (thin- vs thick-cap quartile): reported, not gated, replaced by G2. Under 4.14 every cell off a breach line is lowered uniformly (a surviving cap by B*k_t, a breached cell by B*k_s), so a quartile's median cell is flat in both arms and the twin cannot see a one-cell scarp (arithmetic from 4.14's table); 5.10 item 3 recorded the quartiles split by geography. G2 keeps the twin's purpose (a population selected by inputs, never by the output) and its relative threshold.
+ - B3: reported (unrevised, 5.9).
+ - B5-B7, B10-B12: other milestones' bars. 80 and 8000 km: not run for this rule (5.2 applies B4 at 800 km).
+Anything else is NO-GO.";
+
+/// G1 and G2's seed count: GF-10's build rule (§7 GF-10, "on at least three
+/// of five seeds"), inherited because this, like GF-10's, is a decision to
+/// build behind an off switch; GF-13's switch-on still needs §5.2's five.
+const GF11_LANDFORM_SEEDS: usize = 3;
+/// G1: §5.2's B4 ratio bar (unrevised by §5.9).
+const GF11_B4_RATIO: f64 = 2.0;
+/// G1: §5.2's B4 top-decile share bar.
+const GF11_B4_SHARE: f64 = 0.40;
+/// G2: §5.2's twin relative bar ("≥ 1.2 × the rock-blind arm's").
+const GF11_TWIN_REL: f64 = 1.2;
+/// G5: §5.2's B9 bar.
+const GF11_B9_RATIO: f64 = 1.20;
+/// G3: §5.2's BM extension of B8, "at every τ in {0.5, 1, 2, 4}".
+const GF11_TAUS: [f64; 4] = [0.5, 1.0, 2.0, 4.0];
+
+/// The 4-neighbours of `i` (east-west wrap on a world map), as `build_water_bodies`
+/// and [`b4_rev`] join cells.
+fn nb4(i: usize, gw: usize, gh: usize, world: bool) -> impl Iterator<Item = usize> {
+    let (x, y) = (i % gw, i / gw);
+    let w = if x > 0 { Some(i - 1) } else if world { Some(i + gw - 1) } else { None };
+    let e = if x + 1 < gw { Some(i + 1) } else if world { Some(i + 1 - gw) } else { None };
+    let n = (y > 0).then(|| i - gw);
+    let s = (y + 1 < gh).then(|| i + gw);
+    [w, e, n, s].into_iter().flatten()
+}
+
+/// G2's population: the cells §4.14's step rule **predicts from its inputs
+/// alone** to be breach lines at contrast `c` -- two-layer land of the
+/// structural surface, not arc-exempt (§9 Q17), whose cap survives the
+/// budget (`B·k_t ≤ h`) and which has a 4-neighbour of the same kind whose
+/// cap does not (`B·k_t > h`). It reads `z0`, the column, the budget and `h`,
+/// never an arm's output, so it cannot be selected by the value under test
+/// (`MISTAKES.md`, "Measure an effect inside a subset of pixels").
+fn predicted_breach_lines(ctx: &SeedCtx, c: f64, tau: f64) -> Vec<usize> {
+    let p = &ctx.p;
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let sea = ctx.pre.sea_level;
+    let col0 = ctx.pre.geology.column().expect("the app world has the GF-1 column");
+    let z0: &[f32] = &ctx.pre.field;
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let budget = budget_m(p, &ctx.pre, &ctx.shape, ctx.d1_m, tau);
+    // 0 = not a two-layer construction cell; 1 = cap survives; 2 = breached.
+    let state: Vec<u8> = (0..gw * gh)
+        .map(|i| {
+            if z0[i] as f64 <= sea || col0.substrate(i).is_none() {
+                return 0;
+            }
+            if matches!(col0.exposed(i, z0[i], r_expose), Some(Rock::Andesite | Rock::Tuff)) {
+                return 0;
+            }
+            let kt = (col0.top(i).expect("top rock").props().kappa as f64).powf(c);
+            if budget[i] * kt > ctx.h_in[i] {
+                2
+            } else {
+                1
+            }
+        })
+        .collect();
+    (0..gw * gh).filter(|&i| state[i] == 1 && nb4(i, gw, gh, world).any(|j| state[j] == 2)).collect()
+}
+
+/// G4 (B14 on a real world) for one construction-alone arm. Returns `(pass,
+/// detail)`. Reads only the construction's own product ([`ArmOut::cons`] and
+/// [`ArmOut::constructed`], i.e. before the hillslope and the tail), because
+/// B14 is a claim about construction, not about the passes after it.
+fn gf11_b14(ctx: &SeedCtx, o: &ArmOut, c: f64, tau: f64) -> (bool, String) {
+    let p = &ctx.p;
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    let n = gw * gh;
+    let sea = ctx.pre.sea_level;
+    let z0: &[f32] = &ctx.pre.field;
+    let col0 = ctx.pre.geology.column().expect("column");
+    let cons = o.cons.as_ref().expect("a construction arm");
+    let (cf, ccol) = o.constructed.as_ref().expect("a construction arm");
+    let bits = |a: &[f32], b: &[f32]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits());
+    let contact_ok = bits(&ccol.contact, &col0.contact);
+    let class = cartalith_civ::build_water_bodies(cf, gw, gh, sea, world, None).classification;
+    let stranded = (0..n).filter(|&i| z0[i] as f64 > sea && (cf[i] as f64) < sea && class[i] != 1).count();
+    let reg_err = (0..n)
+        .map(|i| ((ccol.regolith[i] as f64 - col0.regolith[i] as f64) - (cf[i] as f64 - cons.pre_fill[i] as f64)).abs())
+        .fold(0f64, f64::max);
+    let above = (0..n).filter(|&i| cf[i] > z0[i]).count();
+    let r_expose = cartalith_terrain::geology::m_to_norm(cartalith_terrain::geology::R_EXPOSE_M, sea, p.peak_m) as f32;
+    let c0 = (c == 0.0).then(|| {
+        let budget = budget_m(p, &ctx.pre, &ctx.shape, ctx.d1_m, tau);
+        (0..n)
+            .filter(|&i| !(z0[i] as f64 > sea && matches!(col0.exposed(i, z0[i], r_expose), Some(Rock::Andesite | Rock::Tuff))))
+            .filter(|&i| cons.pre_fill[i].to_bits() != ((z0[i] as f64 - budget[i] / ctx.mpu) as f32).to_bits())
+            .count()
+    });
+    let pass = contact_ok && cons.new_pits == 0 && stranded == 0 && reg_err <= FILL_TOL && above == 0 && c0.unwrap_or(0) == 0;
+    let detail = format!(
+        "contact bit-identical {contact_ok}; new pits > 0.004 {}; land now below sea {} ({:.5} of land; old 1 m floor would catch {}), of which not ocean {stranded}; max |regolith - raise| {reg_err:.2e}; cells above z0 {above}; c=0 identity misses {}; fill passes {}, raised cells {}; breached {} of {} two-layer, arc-exempt {}",
+        cons.new_pits,
+        cons.land_to_sea,
+        cons.land_to_sea as f64 / cons.land.max(1) as f64,
+        cons.would_floor,
+        c0.map_or("n/a (c != 0)".to_string(), |k| k.to_string()),
+        cons.fill_passes,
+        cons.raised_cells,
+        cons.breached,
+        cons.two_layer_land,
+        cons.arc_exempt
+    );
+    (pass, detail)
+}
+
+/// The GF-11 measurement: construction alone (arms A, B, C above), judged by
+/// [`GF11_RULE`]. Prints the rule, one `ROW11` line per seed and `TAU11`
+/// lines for G3/G4 at τ ≠ 1, then the verdict (G5 is [`gf11_b9_cost`]'s, run
+/// separately and alone). It measures; it asserts nothing about the bars, and
+/// "not measurable" prints as `--` and counts as a fail.
+#[test]
+#[ignore = "GF-11 measurement (construction alone): minutes at 2048x1311; run alone in release"]
+fn gf11_construction_alone() {
+    let (gw, gh) = grid();
+    let seeds = env_list("GF0_SEEDS", &SEEDS);
+    let km = 800.0;
+    println!("{GF11_RULE}\n");
+    println!("GF-11 construction alone, grid {gw}x{gh}, {km} km.");
+    let (mut g1, mut g2, mut measured) = (0usize, 0usize, 0usize);
+    let (mut g3_all, mut g4_all) = (true, true);
+    for &seed in &seeds {
+        let t0 = std::time::Instant::now();
+        let ctx = build_ctx_opts(seed, km, gw, gh, false);
+        let (p, sea, world) = (&ctx.p, ctx.pre.sea_level, ctx.p.world);
+        assert!((p.tect.resist - C_TREAT).abs() < 1e-12, "arm C's c is the app's tect.resist (0.5)");
+        println!("\n==== GF-11 seed {seed} (cell {:.1} m, sea {sea:.3}, m per unit {:.1}); D1 {:.2} m ====", ctx.cell_m, ctx.mpu, ctx.d1_m);
+        let class_a = cartalith_civ::build_water_bodies(&ctx.a.field, gw, gh, sea, world, Some(&ctx.a.rainfall)).classification;
+        let b8a = b8(&ctx.a, &class_a, gw, gh, km);
+        let b8a3 = (b8a.0, b8a.1, b8a.2);
+        println!("A  B8 ocean on paths {}; lake {} % of {}; 1-3-cell lakes {}", b8a.0, fmt_opt(b8a.1), b8a.3, b8a.2);
+        let base = ArmCfg { construct: true, stage: false, c: 0.0, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
+        let ob = run_arm(&ctx, base);
+        let oc = run_arm(&ctx, ArmCfg { c: C_TREAT, ..base });
+        let (s_b_field, s_b_col) = ob.constructed.as_ref().expect("construction arm");
+        let s_map = s_of_exposed(s_b_col, s_b_field, sea, p.peak_m);
+        let pre_s = s_of_exposed(ctx.pre.geology.column().unwrap(), &ctx.pre.field, sea, p.peak_m);
+        let class_b = cartalith_civ::build_water_bodies(&ob.ws.field, gw, gh, sea, world, Some(&ob.ws.rainfall)).classification;
+        let class_c = cartalith_civ::build_water_bodies(&oc.ws.field, gw, gh, sea, world, Some(&oc.ws.rainfall)).classification;
+        let ia = interior_land(&class_a, gw, gh, world, COAST_MARGIN);
+        let ib = interior_land(&class_b, gw, gh, world, COAST_MARGIN);
+        let ic = interior_land(&class_c, gw, gh, world, COAST_MARGIN);
+        let vth = cartalith_terrain::geology::V_TH as f32;
+        let pop: Vec<usize> = (0..gw * gh).filter(|&i| ia[i] && ib[i] && ic[i] && ctx.pre.volcanic_field[i] <= vth).collect();
+        let pop_legacy = pop_of(&ia);
+        let edifice: Vec<bool> = ctx.pre.volcanic_field.iter().map(|&v| v > vth).collect();
+        let slope_b = slope_deg(&ob.ws.field, gw, gh, world, ctx.mpu, ctx.cell_m);
+        let slope_c = slope_deg(&oc.ws.field, gw, gh, world, ctx.mpu, ctx.cell_m);
+        let land_b: Vec<f64> = (0..gw * gh).filter(|&i| class_b[i] == 0).map(|i| slope_b[i] as f64).collect();
+        let p90_b = quantile(&land_b, 0.9).unwrap_or(f64::NAN);
+        // Reported, not gated: B1, B2 (revised), B1 legacy, B3.
+        let mut rep = Vec::new();
+        for (arm, o, slope) in [("B", &ob, &slope_b), ("C", &oc, &slope_c)] {
+            let relief = relief_m(&o.ws.field, gw, gh, world, RELIEF_HALF, ctx.mpu);
+            let r1 = b1_rev(&s_map, &relief, &ctx.shape, &pop);
+            let r2 = b2_rev(&s_map, slope, &ctx.shape, &pop);
+            let r1l = b1(&pre_s, &relief, &pop_legacy);
+            let r3 = b3_model(&pre_s, &ctx.pre.field, &o.ws.field, &pop_legacy, ctx.mpu);
+            println!("  {arm} (reported, not gated) B1rev {}; B2rev {}; B1 legacy {}; B3 {}", r1.show(), r2.show(), r1l.show(), r3.show());
+            rep.push((r1.value, r2.value));
+        }
+        // G1 and the scope twin (reported), arm C.
+        let col_c = oc.ws.geology.column().unwrap();
+        let exp_c = exposed_map(col_c, &oc.ws.field, sea, p.peak_m);
+        let land_c: Vec<bool> = class_c.iter().map(|&c| c == 0).collect();
+        let (r4, share, nq, twin, twin_tb, _, _) = b4_rev(col_c, &exp_c, &slope_c, &land_c, &ctx.h_in, &edifice, p90_b, ctx.cell_m, gw, gh, world);
+        let col_b = ob.ws.geology.column().unwrap();
+        let exp_b = exposed_map(col_b, &ob.ws.field, sea, p.peak_m);
+        let land_bm: Vec<bool> = class_b.iter().map(|&c| c == 0).collect();
+        let (_, _, _, twin_b, _, _, _) = b4_rev(col_b, &exp_b, &slope_b, &land_bm, &ctx.h_in, &edifice, p90_b, ctx.cell_m, gw, gh, world);
+        let ok1 = r4.value.zip(share).map(|(r, s)| r >= GF11_B4_RATIO && s >= GF11_B4_SHARE);
+        println!(
+            "  C G1 B4 ratio {}; top-decile share {} of {nq} qualifying (h >= tan(p90_B {p90_b:.3} deg) x cell) [{}]; scope twin (reported) B {} C {}; diagnostic twin {}",
+            r4.show(),
+            fmt_opt(share),
+            verdict(ok1),
+            twin_b.show(),
+            twin.show(),
+            twin_tb.show()
+        );
+        // G2: paired, input-selected.
+        let cells = predicted_breach_lines(&ctx, C_TREAT, 1.0);
+        let sb: Vec<f64> = cells.iter().map(|&i| slope_b[i] as f64).collect();
+        let sc: Vec<f64> = cells.iter().map(|&i| slope_c[i] as f64).collect();
+        let g2r = ratio_reading(&sc, &sb, vec![("predicted breach-line cells", cells.len())], "median slope deg C/B, same cells", false).floored();
+        let ok2 = g2r.value.map(|v| v >= GF11_TWIN_REL);
+        println!("  G2 paired twin {} [{}]", g2r.show(), verdict(ok2));
+        // G4 at tau 1, arms B and C.
+        let (b14b, db) = gf11_b14(&ctx, &ob, 0.0, 1.0);
+        let (b14c, dc) = gf11_b14(&ctx, &oc, C_TREAT, 1.0);
+        println!("  B G4 [{}] {db}", verdict(Some(b14b)));
+        println!("  C G4 [{}] {dc}", verdict(Some(b14c)));
+        let mut g4_seed = b14b && b14c;
+        // G3 at tau 1, arm C.
+        let (o8, l8, s8, ok8) = b8_vs(&oc.ws, &class_c, b8a3, gw, gh, km);
+        println!("  C G3 tau 1: ocean {o8}; lake {} % (A {}); 1-3-cell lakes {s8} (A {}) [{}]", fmt_opt(l8), fmt_opt(b8a.1), b8a.2, verdict(ok8));
+        let mut g3_seed = ok8 == Some(true);
+        let mut tau_s = vec![format!("1:{}", verdict(ok8))];
+        for tau in GF11_TAUS {
+            if tau == 1.0 {
+                continue;
+            }
+            let o = run_arm(&ctx, ArmCfg { c: C_TREAT, tau, ..base });
+            let class = cartalith_civ::build_water_bodies(&o.ws.field, gw, gh, sea, world, Some(&o.ws.rainfall)).classification;
+            let (o8, l8, s8, ok8) = b8_vs(&o.ws, &class, b8a3, gw, gh, km);
+            let (b14, d) = gf11_b14(&ctx, &o, C_TREAT, tau);
+            println!(
+                "TAU11 seed={seed} tau={tau} G3: ocean {o8}; lake {} % (A {}); 1-3-cell lakes {s8} (A {}) [{}]  G4 [{}] {d}",
+                fmt_opt(l8),
+                fmt_opt(b8a.1),
+                b8a.2,
+                verdict(ok8),
+                verdict(Some(b14))
+            );
+            g3_seed &= ok8 == Some(true);
+            g4_seed &= b14;
+            tau_s.push(format!("{tau}:{}", verdict(ok8)));
+        }
+        measured += 1;
+        g1 += (ok1 == Some(true)) as usize;
+        g2 += (ok2 == Some(true)) as usize;
+        g3_all &= g3_seed;
+        g4_all &= g4_seed;
+        println!(
+            "ROW11 seed={seed} B4ratio_C={} share_C={} G1={} G2_C/B={} G2={} G3(tau:verdict)={} G4={} | reported: B1rev B={} C={} B2rev B={} C={} twin B={} C={}  [{:.1} s]",
+            fmt_opt(r4.value),
+            fmt_opt(share),
+            verdict(ok1),
+            fmt_opt(g2r.value),
+            verdict(ok2),
+            tau_s.join(","),
+            verdict(Some(g4_seed)),
+            fmt_opt(rep[0].0),
+            fmt_opt(rep[1].0),
+            fmt_opt(rep[0].1),
+            fmt_opt(rep[1].1),
+            fmt_opt(twin_b.value),
+            fmt_opt(twin.value),
+            t0.elapsed().as_secs_f64()
+        );
+    }
+    let all = measured == 5 && seeds == SEEDS;
+    let text = if !all {
+        "(the rule is defined on the five seeds; this run is a report)"
+    } else if g1 >= GF11_LANDFORM_SEEDS && g2 >= GF11_LANDFORM_SEEDS && g3_all && g4_all {
+        "G1-G4 hold; GO iff G5 (gf11_b9_cost, two separate runs) holds"
+    } else {
+        "NO-GO"
+    };
+    println!("\nGF-11 VERDICT (G1-G4): G1 on {g1} of {measured} seeds (need {GF11_LANDFORM_SEEDS}); G2 on {g2} of {measured} (need {GF11_LANDFORM_SEEDS}); G3 on every seed and tau: {g3_all}; G4 on every arm: {g4_all} => {text}");
+}
+
+/// **A diagnostic, added after the first GF-11 run and outside the rule**:
+/// where G4's "every land cell now below sea is ocean" failed, what are those
+/// cells? For arm C at τ = 1 on each seed, it splits the land cells that end
+/// below sea and are not ocean by `build_water_bodies` into: cells that sat in
+/// a depression of the structural surface already (`flood4(z0) − z0 > 0`, the
+/// depressions §4.14 says "keep their depth", today's lakes among them) and
+/// cells that did not; and by the classifier's class. It decides nothing.
+#[test]
+#[ignore = "GF-11 diagnostic: G4's below-sea non-ocean cells; run alone in release"]
+fn gf11_stranded_diag() {
+    let (gw, gh) = grid();
+    for &seed in &env_list("GF0_SEEDS", &SEEDS) {
+        let ctx = build_ctx_opts(seed, 800.0, gw, gh, false);
+        let (p, sea, world) = (&ctx.p, ctx.pre.sea_level, ctx.p.world);
+        let n = gw * gh;
+        let z0: &[f32] = &ctx.pre.field;
+        let base = ArmCfg { construct: true, stage: false, c: C_TREAT, d_mult: 1.0, t_mult: 1.0, tau: 1.0, rule: Breach::Step };
+        let o = run_arm(&ctx, base);
+        let (cf, _) = o.constructed.as_ref().unwrap();
+        let class = cartalith_civ::build_water_bodies(cf, gw, gh, sea, world, None).classification;
+        let edge = boundary_cells(gw, gh, world);
+        let seed_m: Vec<bool> = (0..n).map(|i| ctx.ocean0[i] || edge[i]).collect();
+        let f0 = flood4(z0, &seed_m, gw, gh, world);
+        let (mut in_dep, mut fresh) = (0usize, 0usize);
+        let mut by_class = std::collections::BTreeMap::new();
+        for i in 0..n {
+            if z0[i] as f64 > sea && (cf[i] as f64) < sea && class[i] != 1 {
+                if f0[i] > z0[i] {
+                    in_dep += 1;
+                } else {
+                    fresh += 1;
+                }
+                *by_class.entry(class[i]).or_insert(0usize) += 1;
+            }
+        }
+        let _ = p;
+        println!("GF-11 stranded diag seed {seed}: below-sea non-ocean land cells {}: in a z0 depression {in_dep}, not {fresh}; by class {by_class:?}", in_dep + fresh);
+    }
+}
+
+/// G5 (B9) for construction alone: per run, the app world (A) and the pieces
+/// of a construction-alone generation, each timed in one process after one
+/// untimed warm-up: the pre-erosion world (structure, column, priming
+/// climate: under §4.16 the priming climate moves after construction, so it
+/// is counted once), construction with all its inputs (uplift shape, the
+/// structural ocean, `D₁`, the budget, the fill), GF-3's hillslope, and the
+/// tail with the column (processes on). Projected = their sum; the bar is the
+/// ratio of medians ≤ [`GF11_B9_RATIO`] in each of two separate processes.
+#[test]
+#[ignore = "GF-11 B9: timing; run ALONE in release"]
+fn gf11_b9_cost() {
+    let (gw, gh) = grid();
+    let seed = env_list("GF0_SEEDS", &SEEDS)[0];
+    let runs: usize = std::env::var("GF10_RUNS").ok().map(|v| v.parse().expect("GF10_RUNS")).unwrap_or(5);
+    let p = app_params(seed, 800.0, gw, gh);
+    let clock = cartalith_engine::geo_clock::GeoClock::new(true, 1.0);
+    let (mut tg, mut tp, mut tc, mut th, mut tt, mut tsum) = (vec![], vec![], vec![], vec![], vec![], vec![]);
+    for k in 0..=runs {
+        let t = std::time::Instant::now();
+        let _ = generate_terrain(&p);
+        let g = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        let pre = pre_erosion(&p);
+        let pr = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        let sea = pre.sea_level;
+        let mpu = p.peak_m / (1.0 - sea);
+        let (shape, _) = uplift_shape(&p, &pre);
+        let ocean0: Vec<bool> = cartalith_civ::build_water_bodies(&pre.field, gw, gh, sea, p.world, None).classification.iter().map(|&c| c == 1).collect();
+        let col = pre.geology.column().unwrap();
+        let hv: Vec<f64> = (0..gw * gh)
+            .filter_map(|i| match col.substrate(i) {
+                Some((_, c)) if pre.field[i] as f64 > sea => Some((pre.field[i] as f64 - c as f64) * mpu),
+                _ => None,
+            })
+            .collect();
+        let d1 = median(&hv).expect("two-layer land");
+        let c = construct(&p, &pre, &shape, &ocean0, d1, 1.0, C_TREAT, Breach::Step);
+        let cc = t.elapsed().as_secs_f64();
+        let mut f = c.field.clone();
+        let mut col = c.col.clone();
+        let t = std::time::Instant::now();
+        hillslope(&p, sea, &mut f, &mut col, &clock);
+        let h = t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        let _ = tail(&p, &pre, f, pre.rainfall.to_vec(), Some(col), &clock);
+        let tl = t.elapsed().as_secs_f64();
+        if k > 0 {
+            tg.push(g);
+            tp.push(pr);
+            tc.push(cc);
+            th.push(h);
+            tt.push(tl);
+            tsum.push(pr + cc + h + tl);
+        }
+    }
+    let stat = |v: &[f64]| {
+        let mut s = v.to_vec();
+        s.sort_by(|a, b| a.total_cmp(b));
+        (s[s.len() / 2], s[0], s[s.len() - 1])
+    };
+    let show = |name: &str, v: &[f64]| {
+        let (m, l, h) = stat(v);
+        println!("  {name:44} median {m:.3} s ({l:.3} .. {h:.3})");
+        m
+    };
+    println!("GF-11 B9 seed {seed} 800 km {gw}x{gh}, {runs} runs each after one warm-up");
+    let g = show("generate_terrain (app, A)", &tg);
+    show("pre-erosion world (incl. priming climate)", &tp);
+    show("construction with its inputs", &tc);
+    show("threshold hillslope", &th);
+    show("tail (processes on)", &tt);
+    let s = show("projected construction-alone generation", &tsum);
+    println!("  G5: ratio of medians {:.3} (bar <= {GF11_B9_RATIO}) [{}]", s / g, verdict(Some(s / g <= GF11_B9_RATIO)));
 }
 
 // ===========================================================================
