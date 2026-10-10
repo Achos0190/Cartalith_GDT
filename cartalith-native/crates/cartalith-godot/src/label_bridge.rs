@@ -137,7 +137,9 @@ pub enum Outcome {
 /// sees one list — [`WorldGen::labels_render_list`] concatenates them — and
 /// nothing else does.
 pub struct LabelBridge {
+    /// The hand-placed labels, in creation order; indices into this list are what the edit session, selection and GDScript callers hold. Never holds generated labels (see `generated`).
     pub labels: Vec<MapLabel>,
+    /// The single-label edit session (revert snapshot) that follows `selection.primary()`; never mutate it directly, go through `sync_session`.
     pub session: LabelEditSession,
     /// Which hand-placed labels are selected — [`crate::selection::
     /// SelectionSet`], step one of the owner's selection-sets ruling.
@@ -497,6 +499,7 @@ impl LabelBridge {
 }
 
 impl Default for LabelBridge {
+    /// Same as [`LabelBridge::new`]; lets the bridge sit in a `Default`-built field.
     fn default() -> Self {
         Self::new()
     }
@@ -510,7 +513,9 @@ impl Default for LabelBridge {
 /// `ARC_SPREAD_DIVISOR` already use for the reverse direction (this crate's
 /// constant mirrored into the shell). See [`shell_label_box`].
 pub const SHELL_LABEL_ZOOM_BASE_PX_PER_CELL: f64 = 2.0;
+/// Mirror of `map_overlay.gd::LABEL_FONT_PX_MIN`: a judgement floor on the nominal label font px so text stays legible; that file owns the value.
 pub const SHELL_LABEL_FONT_PX_MIN: f64 = 8.0;
+/// Mirror of `map_overlay.gd::LABEL_FONT_PX_MAX`: a judgement ceiling on the nominal label font px; that file owns the value.
 pub const SHELL_LABEL_FONT_PX_MAX: f64 = 96.0;
 
 /// The zoom floor of `map_overlay.gd::_civ_zoom_k()` (`1 / max(zoom, 0.35)`) --
@@ -729,6 +734,7 @@ fn handle_circles_scaled(lb: &MapLabel, box_: &LabelBox, lsc: f64, floor_unit: f
 // revertible) and `move_to` above is its own, separate call.
 // ---------------------------------------------------------------------------
 
+/// Stores the label's text verbatim (any string, including empty); always `Applied`. Must not trim or reject: see [`LabelBridge::create`] on empty names.
 pub fn set_text(lb: &mut MapLabel, text: String) -> Outcome {
     lb.name = text;
     Outcome::Applied
@@ -809,10 +815,12 @@ pub fn set_color(lb: &mut MapLabel, color: String) -> Outcome {
     Outcome::Applied
 }
 
+/// Unit tests for the bridge state and geometry; no Godot runtime needed.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A default view: 512-wide grid, zoom 1, icon scale 1 (so `lsc` is 1).
     fn env() -> LabelViewEnv {
         LabelViewEnv { grid_w: 512, zoom_scale: 1.0, icon_scale: 1.0 }
     }
@@ -825,7 +833,7 @@ mod tests {
     /// pass.
     const PX_PER_CELL: f64 = 2.0;
 
-    /// Protects the fix at `shell_label_box`'s own doc comment
+    /// Protects: the fix at `shell_label_box`'s own doc comment
     /// (`OUTSTANDING_WORK.md` "Map-data residuals", item 1, left by
     /// `fd54736`): the box centre is `lb.x`/`lb.y` exactly, matching
     /// `map_overlay.gd::_draw_labels`'s `_point_to_screen(Vector2(lb["x"],
@@ -849,7 +857,7 @@ mod tests {
         lb
     }
 
-    /// Protects Ruling AP (2026-09-23), the engine half: a `Fixed` label holds
+    /// Protects: Ruling AP (2026-09-23), the engine half: a `Fixed` label holds
     /// a constant on-screen size, so `map_overlay.gd` draws it at
     /// `_label_font_px * 1 / max(zoom, 0.35)` local px and its box must shrink
     /// by the same factor -- `side` is `26 / zoom` at zoom 1, 4 and 8 (the
@@ -867,7 +875,7 @@ mod tests {
         }
     }
 
-    /// Protects the low clamp, which is the reference's `_civZoomK` floor and
+    /// Protects: the low clamp, which is the reference's `_civZoomK` floor and
     /// `map_overlay.gd::_civ_zoom_k`'s: below zoom 0.35 the unit stops
     /// growing, so a fixed label shrinks on screen from there (side 26/0.35 at
     /// every zoom below it) rather than inflating without bound. Also pins
@@ -883,7 +891,7 @@ mod tests {
         }
     }
 
-    /// Protects the unchanged half of Ruling AP: a `Zoom` label (grows with
+    /// Protects: the unchanged half of Ruling AP: a `Zoom` label (grows with
     /// the map) has the same box at every camera zoom, 26.0 exactly -- the
     /// bit-identical-to-before guarantee. Fails if the unit leaks into the
     /// `Zoom` branch.
@@ -895,7 +903,7 @@ mod tests {
         }
     }
 
-    /// Protects the unit's safety rail: a NaN, infinite, zero or negative zoom
+    /// Protects: the unit's safety rail: a NaN, infinite, zero or negative zoom
     /// (a view that has not been sized yet) must not produce a NaN / infinite /
     /// negative box that `label_hit_test` would then compare against.
     #[test]
@@ -906,7 +914,7 @@ mod tests {
         }
     }
 
-    /// Protects the hit-test half end to end: at zoom 4 a fixed label at
+    /// Protects: the hit-test half end to end: at zoom 4 a fixed label at
     /// (100, 100) has a 6.5-unit box, so a click 5 units out (inside the zoom-1
     /// box of half-side 13, outside the zoom-4 one of 3.25) misses, a click 2
     /// units out hits, and a `Zoom` label's box answers the 5-unit click at
@@ -934,6 +942,7 @@ mod tests {
 
     // ---- LabelBridge: create / delete / clear_all ----
 
+    /// Protects: `create` appends the label and selects it, so the session follows.
     #[test]
     fn create_pushes_and_selects_the_new_label() {
         let mut b = LabelBridge::new();
@@ -944,6 +953,7 @@ mod tests {
         assert_eq!(b.session.selected(), Some(0));
     }
 
+    /// Protects: `create` stores an empty name rather than gating it (the caller owns the prompt-cancelled check).
     #[test]
     fn create_accepts_an_empty_name() {
         let mut b = LabelBridge::new();
@@ -951,12 +961,14 @@ mod tests {
         assert_eq!(b.labels[0].name, "");
     }
 
+    /// Protects: `delete` returns false for an out-of-range index.
     #[test]
     fn delete_out_of_range_fails_and_changes_nothing() {
         let mut b = LabelBridge::new();
         assert!(!b.delete(0));
     }
 
+    /// Protects: deleting the selected label removes it and ends the session.
     #[test]
     fn delete_the_selected_label_clears_the_session() {
         let mut b = LabelBridge::new();
@@ -966,6 +978,7 @@ mod tests {
         assert_eq!(b.session.selected(), None);
     }
 
+    /// Protects: a delete at or before the selection clears it instead of re-pointing the revert snapshot at a shifted index.
     #[test]
     fn delete_before_the_selection_also_clears_it_rather_than_mis_point() {
         let mut b = LabelBridge::new();
@@ -979,6 +992,7 @@ mod tests {
         assert_eq!(b.session.selected(), None);
     }
 
+    /// Protects: a delete after the selected index leaves the selection intact.
     #[test]
     fn delete_after_the_selection_leaves_it_untouched() {
         let mut b = LabelBridge::new();
@@ -994,6 +1008,7 @@ mod tests {
         assert_eq!(b.labels[0].name, "A");
     }
 
+    /// Protects: `clear_all` empties the list and ends the session.
     #[test]
     fn clear_all_drops_everything_and_the_session() {
         let mut b = LabelBridge::new();
@@ -1005,6 +1020,7 @@ mod tests {
 
     // ---- move_to ----
 
+    /// Protects: `move_to` writes x/y without any selection side effect (mid-drag).
     #[test]
     fn move_to_sets_position_without_touching_selection() {
         let mut b = LabelBridge::new();
@@ -1015,6 +1031,7 @@ mod tests {
         assert_eq!(b.session.selected(), None);
     }
 
+    /// Protects: `move_to` rejects NaN coordinates and bad indices without storing anything.
     #[test]
     fn move_to_rejects_non_finite_and_out_of_range() {
         let mut b = LabelBridge::new();
@@ -1026,6 +1043,7 @@ mod tests {
 
     // ---- hit_test ----
 
+    /// Protects: `hit_test` on a label's box selects it and returns its index.
     #[test]
     fn hit_test_selects_the_hit_label() {
         let mut b = LabelBridge::new();
@@ -1037,6 +1055,7 @@ mod tests {
         assert_eq!(b.selected(), Some(0));
     }
 
+    /// Protects: `pick_all` returns every box under the point topmost first and, unlike `hit_test`, never changes selection or session.
     #[test]
     fn pick_all_lists_every_overlapping_label_topmost_first_and_selects_nothing() {
         let mut b = LabelBridge::new();
@@ -1064,6 +1083,7 @@ mod tests {
         }
     }
 
+    /// Protects: a `hit_test` miss returns `None` (far-away point).
     #[test]
     fn hit_test_a_miss_returns_none_and_selects_nothing() {
         let mut b = LabelBridge::new();
@@ -1073,6 +1093,7 @@ mod tests {
 
     // ---- the selection set (step one of the selection-sets ruling) ----
 
+    /// A bridge with three hand-placed labels `L0..L2` at x = 10, 20, 30 (the last created is selected).
     fn three_labels() -> LabelBridge {
         let mut b = LabelBridge::new();
         for k in 0..3 {
@@ -1081,6 +1102,7 @@ mod tests {
         b
     }
 
+    /// Protects: `session.selected() == selection.primary()` after every public call that can move either.
     /// The invariant [`LabelBridge::selection`]'s own doc comment states, over
     /// every public call that can move either half. Revert any `sync_session`
     /// call and this fails.
@@ -1123,6 +1145,7 @@ mod tests {
         agree!("clear_all");
     }
 
+    /// Protects: re-selecting the primary never retakes the revert snapshot, so `cancel_edit` reverts to the session start.
     /// The reference's own *"re-clicking an ALREADY-selected label does not
     /// retake the snapshot"*, still true now that every selection change goes
     /// through the set. Write `sync_session` as clear-then-select and this
@@ -1140,6 +1163,7 @@ mod tests {
         assert_eq!(b.labels[0].name, "L0", "reverted to the session's start, not the edit");
     }
 
+    /// Protects: a toggle-add makes the new member primary and the edit session follows it (no multi-label session).
     /// A toggle-add makes the new member primary, so the edit session moves
     /// with it — exactly what a plain click on a second label always did. The
     /// previous label's snapshot is gone, and this asserts that rather than
@@ -1159,6 +1183,7 @@ mod tests {
         assert_eq!(b.labels[0].name, "edited", "the round trip restarted 0's session");
     }
 
+    /// Protects: `select` returns false for a bad index and leaves the selection set unchanged.
     #[test]
     fn select_rejects_an_out_of_range_index_and_leaves_the_set_alone() {
         let mut b = three_labels();
@@ -1167,6 +1192,7 @@ mod tests {
         assert_eq!(b.selection.sorted(), vec![0, 1]);
     }
 
+    /// Protects: `select_set` drops out-of-range indices and returns false when any were dropped.
     #[test]
     fn select_set_drops_an_out_of_range_index_and_reports_it() {
         let mut b = three_labels();
@@ -1177,6 +1203,7 @@ mod tests {
         assert_eq!(b.selected(), Some(2));
     }
 
+    /// Protects: `SelectMode::Extend` selects the inclusive range from the anchor to the clicked label.
     #[test]
     fn an_extend_hit_covers_the_range_from_the_anchor() {
         let mut b = three_labels();
@@ -1186,6 +1213,7 @@ mod tests {
         assert_eq!(b.selected(), Some(2));
     }
 
+    /// Protects: a `hit_test` miss never alters a multi-selection, in any mode.
     #[test]
     fn a_hit_test_miss_leaves_a_multi_selection_alone_in_every_mode() {
         for mode in [SelectMode::Replace, SelectMode::Toggle, SelectMode::Extend] {
@@ -1196,6 +1224,7 @@ mod tests {
         }
     }
 
+    /// Protects: deleting at or below the primary's index clears the whole set (the old single-selection rule, extended).
     #[test]
     fn deleting_below_the_primary_clears_the_whole_set_as_the_scalar_rule_did() {
         // `LabelBridge::delete`'s conservative rule, now over a set: the
@@ -1208,6 +1237,7 @@ mod tests {
         assert_eq!(b.session.selected(), None);
     }
 
+    /// Protects: deleting an index above the primary leaves the set and primary intact.
     #[test]
     fn deleting_above_the_primary_keeps_the_rest_of_the_set() {
         let mut b = three_labels();
@@ -1217,6 +1247,7 @@ mod tests {
         assert_eq!(b.selected(), Some(1));
     }
 
+    /// Protects: `confirm_edit`/`cancel_edit` clear the whole selection set, not only the session.
     #[test]
     fn confirm_and_cancel_end_the_whole_selection_not_just_the_session() {
         let mut b = three_labels();
@@ -1232,12 +1263,14 @@ mod tests {
 
     // ---- glyph_layout ----
 
+    /// Protects: `glyph_layout` returns `None` for an out-of-range index.
     #[test]
     fn glyph_layout_out_of_range_is_none() {
         let b = LabelBridge::new();
         assert_eq!(b.glyph_layout(0, &env(), &[10.0], 10.0), None);
     }
 
+    /// Protects: an arc of 0 gives `ArcLayout::Straight`.
     #[test]
     fn glyph_layout_straight_below_the_arc_threshold() {
         let mut b = LabelBridge::new();
@@ -1246,6 +1279,7 @@ mod tests {
         assert_eq!(layout, ArcLayout::Straight);
     }
 
+    /// Protects: an arched label yields one placed glyph per supplied width.
     #[test]
     fn glyph_layout_one_glyph_per_width_when_arched() {
         let mut b = LabelBridge::new();
@@ -1259,6 +1293,7 @@ mod tests {
 
     // ---- handle_circles ----
 
+    /// Protects: `handle_circles` at angle 0 reproduces the reference's handle positions and radii (hand-worked literals at lsc 4).
     #[test]
     fn handle_circles_at_zero_angle_match_the_reference_formulas() {
         let lb = MapLabel::new(0.0, 0.0, "A"); // angle defaults to 0
@@ -1293,6 +1328,7 @@ mod tests {
         assert!((cross.r - 16.8).abs() < 1e-9);
     }
 
+    /// Protects: handle offsets rotate with the label's angle (resize corner at 90 degrees).
     #[test]
     fn handle_circles_rotate_with_the_label_at_ninety_degrees() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1306,7 +1342,7 @@ mod tests {
         assert!((resize.y - (50.0 + 20.0)).abs() < 1e-9);
     }
 
-    /// Protects the Ruling AP follow-up (2026-10-05): a `Fixed` label's handle
+    /// Protects: the Ruling AP follow-up (2026-10-05): a `Fixed` label's handle
     /// set is its zoom-1 set scaled uniformly by `1 / zoom`, so a handle keeps
     /// its proportion to the box it sits on at every zoom. The literals are the
     /// zoom-1 geometry worked by hand for a size-16 label at `PX_PER_CELL` 2
@@ -1341,7 +1377,7 @@ mod tests {
         }
     }
 
-    /// Protects the unchanged half: a `Zoom` label's handles through the shell
+    /// Protects: the unchanged half: a `Zoom` label's handles through the shell
     /// entry point are bit-identical to the reference transcription
     /// [`handle_circles`] at every zoom (they grow with the map), and at deep
     /// zoom carry the literal floor-bound radii (`4 * 1.6 = 6.4` resize,
@@ -1360,7 +1396,7 @@ mod tests {
         assert!((h.check.unwrap().r - 6.0).abs() < 1e-9);
     }
 
-    /// Protects the entry point the shell calls: `LabelBridge::handles` must
+    /// Protects: the entry point the shell calls: `LabelBridge::handles` must
     /// route through `shell_handle_circles`, so a fixed label's resize handle
     /// at zoom 8 sits `13 / 8` from its centre with radius `6.4 / 8`, not the
     /// zoom-1 `6.4` the plain transcription would give.
@@ -1377,6 +1413,7 @@ mod tests {
         assert!((resize.x - (100.0 + 13.0 / 8.0)).abs() < 1e-9, "x {}", resize.x);
     }
 
+    /// Protects: the confirm-button radius floors at 6 when `lsc` is small (extreme zoom input).
     #[test]
     fn handle_circles_never_shrink_below_their_own_floor_at_low_zoom() {
         // grid_w=512, zoom_scale clamped to [0.35,5] by civ_zoom_k -- pushed
@@ -1391,6 +1428,7 @@ mod tests {
 
     // ---- style setters ----
 
+    /// Protects: `set_size` clamps to the size range and reports `Clamped` vs `Applied`.
     #[test]
     fn set_size_clamps_and_reports_it() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1402,6 +1440,7 @@ mod tests {
         assert_eq!(lb.size, 20.0);
     }
 
+    /// Protects: `set_size` rejects NaN and leaves the stored size unchanged.
     #[test]
     fn set_size_rejects_non_finite_and_leaves_the_field_alone() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1410,6 +1449,7 @@ mod tests {
         assert_eq!(lb.size, 20.0);
     }
 
+    /// Protects: `set_arc` clamps to [-1, 1] and reports `Clamped`.
     #[test]
     fn set_arc_clamps_to_unit_range() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1419,6 +1459,7 @@ mod tests {
         assert_eq!(lb.arc, -1.0);
     }
 
+    /// Protects: `set_angle` stores any finite angle unclamped and rejects non-finite.
     #[test]
     fn set_angle_accepts_any_finite_degree_value() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1428,6 +1469,7 @@ mod tests {
         assert_eq!(lb.angle, 720.0);
     }
 
+    /// Protects: `set_size_mode` maps "fixed"/"zoom" and rejects any other key.
     #[test]
     fn set_size_mode_round_trips_both_keys() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
@@ -1440,10 +1482,12 @@ mod tests {
 
     // ---- the generated list beside the hand-placed one ----
 
+    /// A weight-1 generated-pass candidate of `class` at `(x, 0)`.
     fn gen_cand(class: cartalith_civ::labels::LabelClass, name: &str, x: f64) -> cartalith_civ::labels::LabelCandidate {
         cartalith_civ::labels::LabelCandidate { class, name: name.to_string(), x, y: 0.0, weight: 1.0 }
     }
 
+    /// Protects: a new bridge has `generated == None` (panel reads `--`, not `0`), default typography and an empty render order.
     #[test]
     fn a_fresh_bridge_has_not_run_the_pass_and_says_so() {
         let b = LabelBridge::new();
@@ -1452,6 +1496,7 @@ mod tests {
         assert_eq!(b.render_order().count(), 0);
     }
 
+    /// Protects: `place` leaves the hand-placed list, its indices and the edit session untouched.
     #[test]
     fn placing_generated_labels_never_touches_the_hand_placed_list() {
         let mut b = LabelBridge::new();
@@ -1474,6 +1519,7 @@ mod tests {
         assert_eq!(b.session.selected(), Some(0));
     }
 
+    /// Protects: `render_order` yields generated labels first and hand-placed last.
     #[test]
     fn the_render_order_puts_hand_placed_labels_over_generated_ones() {
         let mut b = LabelBridge::new();
@@ -1484,6 +1530,7 @@ mod tests {
         assert_eq!(seq, vec![("Auto".to_string(), true), ("Mine".to_string(), false)]);
     }
 
+    /// Protects: `place` hands hand-placed labels to the pass as reservations: a colliding generated label yields, never the reverse.
     /// The lane's second hard rule, at the boundary that actually supplies the
     /// reservations. The engine-side half is
     /// `labels::tests::a_hand_placed_label_is_never_culled_by_a_generated_one`;
@@ -1507,6 +1554,7 @@ mod tests {
         assert_eq!(g2.counts[cartalith_civ::labels::LabelClass::Settlement.index()].suppressed, 0);
     }
 
+    /// Protects: an unnamed hand-placed label reserves no space (it draws nothing).
     /// An unnamed hand-placed label draws nothing (`_draw_labels` skips an
     /// empty string), so it must not reserve anything either — otherwise a
     /// label the user created and has not typed into yet silently blanks a
@@ -1519,6 +1567,7 @@ mod tests {
         assert_eq!(b.place(&[gen_cand(cartalith_civ::labels::LabelClass::Settlement, "Auto", 5.0)]).labels.len(), 1);
     }
 
+    /// Protects: `reserved_rects` is empty when culling is off.
     /// Measuring boxes for a comparison that will not happen is work nobody
     /// asked for, and the pass ignores the slice anyway.
     #[test]
@@ -1530,6 +1579,7 @@ mod tests {
         assert!(b.reserved_rects().is_empty());
     }
 
+    /// Protects: a second `place` replaces the previous generated run.
     #[test]
     fn re_running_the_pass_replaces_its_output_rather_than_appending() {
         let mut b = LabelBridge::new();
@@ -1540,6 +1590,7 @@ mod tests {
         assert_eq!(g.labels[0].name, "B");
     }
 
+    /// Protects: `invalidate_generated` drops only the generated run.
     #[test]
     fn clearing_the_generated_run_leaves_hand_placed_labels_alone() {
         let mut b = LabelBridge::new();
@@ -1551,6 +1602,7 @@ mod tests {
         assert_eq!(b.render_order().count(), 1);
     }
 
+    /// Protects: a typography-table override changes the next generated run for its class only.
     #[test]
     fn a_typography_override_reaches_the_next_run() {
         let mut b = LabelBridge::new();
@@ -1562,6 +1614,7 @@ mod tests {
         assert_eq!(b.typography[cartalith_civ::labels::LabelClass::Water.index()].size, 15.0);
     }
 
+    /// Protects: an empty font/colour string resets to the default (no override).
     #[test]
     fn set_font_and_color_empty_string_resets_to_the_default() {
         let mut lb = MapLabel::new(0.0, 0.0, "A");
