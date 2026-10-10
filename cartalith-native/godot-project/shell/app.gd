@@ -378,6 +378,21 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		if _backspace_handlers.has(armed_tool):
 			_backspace_handlers[armed_tool].call()
 			get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_Y and event.ctrl_pressed and not (event.shift_pressed \
+			or event.alt_pressed or event.meta_pressed):
+		## Ctrl+Y: the Windows-convention SECOND Redo key. A `PopupMenu` item holds
+		## exactly one accelerator (`Edit ▸ Redo` keeps Ctrl+Shift+Z, which is also
+		## the macOS Cmd+Shift+Z via Godot's Ctrl/Cmd mapping), so the alias lives
+		## here, next to the other keys that are not menu accelerators, and runs
+		## the same `redo_last()` the menu row and the `↷` square run. `KEY_Y` was
+		## unbound everywhere else (grepped across `shell/` 2026-10-10). A focused
+		## text field keeps its own Ctrl+Y (it consumes the key before this runs;
+		## the guard covers platforms where it still arrives).
+		var typing_y := get_viewport().gui_get_focus_owner()
+		if typing_y is LineEdit or typing_y is TextEdit or typing_y is SpinBox:
+			return
+		redo_last()
+		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_DELETE:
 		var focused := get_viewport().gui_get_focus_owner()
 		if focused is LineEdit or focused is TextEdit or focused is SpinBox:
@@ -4407,6 +4422,53 @@ func _browse_root(key: String, readout: Label) -> void:
 ## `current_project_path`'s containing folder in the real OS file manager.
 ## `OS.shell_show_in_file_manager` (Godot 4.4+) is preferred; a version that
 ## predates it falls back to `shell_open` on the folder URI.
+## Whether ANY undo history has a step to take: the look history or the
+## heightmap/way stack. The ONE answer the Edit menu's Undo row and the menu-bar
+## undo square both read (`menus.gd`, `dcc_shell.gd::_refresh_menu_squares`), so
+## the two cannot drift. Which history `undo_last()` then consumes is
+## `undo_target_label()`'s question.
+func can_undo_any() -> bool:
+	return look_history.can_undo() or bridge.can_undo()
+
+## The Redo mirror of `can_undo_any()`. `bridge.redo_available()` already answers
+## false on a cdylib without the binding.
+func can_redo_any() -> bool:
+	return look_history.can_redo() or bridge.redo_available()
+
+## Label of the step `undo_last()` would take right now (look or height), or ""
+## when nothing can be undone. Uses `look_history.wants_undo()`, i.e. exactly the
+## routing `undo_last()` uses.
+func undo_target_label() -> String:
+	if look_history.wants_undo(bridge):
+		return look_history.undo_label()
+	return bridge.undo_label() if bridge.can_undo() else ""
+
+## Label of the step `redo_last()` would take right now, or "" when none; the
+## mirror of `undo_target_label()`.
+func redo_target_label() -> String:
+	if look_history.wants_redo(bridge):
+		return look_history.redo_label()
+	return bridge.redo_label() if bridge.redo_available() else ""
+
+## The single Undo entry point (Edit row, toolbar square, phone chip, Ctrl+Z): runs
+## `_undo_last_impl()` then re-syncs every control that shows undo state, so the
+## keyboard path cannot leave the squares or the Edit rows stale.
+func undo_last() -> void:
+	_undo_last_impl()
+	_refresh_undo_ui()
+
+## The single Redo entry point; mirror of `undo_last()` (also Ctrl+Shift+Z, Ctrl+Y).
+func redo_last() -> void:
+	_redo_last_impl()
+	_refresh_undo_ui()
+
+## Refresh the Edit menu's Undo/Redo rows (a disabled row swallows its accelerator,
+## `menus.gd::refresh_undo_rows`) and the toolbar squares.
+func _refresh_undo_ui() -> void:
+	menus.refresh_undo_rows()
+	if has_method("_refresh_menu_squares"):
+		call("_refresh_menu_squares")
+
 ## `Edit ▸ Undo` / Ctrl+Z — the reference's `undoBtn` (`undoLast`), register
 ## ED-01. Pops one committed height field back off the engine's bounded stack.
 ##
@@ -4419,7 +4481,7 @@ func _browse_root(key: String, readout: Label) -> void:
 ## The engine deliberately does not re-run flow, rivers or climate here -- see
 ## `undo.rs` -- so the status hint says which stages are now behind the height
 ## field rather than leaving that to be discovered.
-func undo_last() -> void:
+func _undo_last_impl() -> void:
 	## Ruling BY item 2: when the most recent edit was a look edit, this press
 	## belongs to the look history (`look_history.wants_undo()` explains how "most
 	## recent" is derived). The heightmap path below is unchanged.
@@ -4523,7 +4585,7 @@ func notify_ways_changed() -> void:
 ## `menus.gd::_redo_last()` is the same operation written a second time, in the
 ## file that owns `Edit ▸ Redo`. It should delegate here so there is one redo
 ## path the way there is one undo path; that file is not this pass's to edit.
-func redo_last() -> void:
+func _redo_last_impl() -> void:
 	## Ruling BY item 2: the mirror of `undo_last()`'s look branch.
 	if look_history.wants_redo(bridge):
 		look_redo()

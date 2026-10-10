@@ -1463,6 +1463,13 @@ func _wire_menu_squares() -> void:
 			return
 		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
 			bridge.connect(sig, func(_a = null): _refresh_menu_squares())
+		## The shared look history (Ruling BY item 2, `DccApp.look_history`) emits
+		## `changed` on every commit, undo, redo and clear, so a look-only edit
+		## lights the squares without polling. A bare `DccShell` has no such
+		## property and skips this.
+		var lh = get("look_history")
+		if lh != null and lh.has_signal("changed"):
+			lh.changed.connect(_refresh_menu_squares)
 		_refresh_menu_squares()
 	).call_deferred()
 
@@ -1487,9 +1494,14 @@ func _refresh_menu_squares() -> void:
 			_paint_menu_square(b, false)
 		return
 
-	var can_undo: bool = bridge.can_undo()
+	## The subclass's routing (`DccApp.can_undo_any()` / `undo_target_label()`),
+	## the same one `Edit > Undo` reads, so a look-only history lights the square;
+	## a bare `DccShell` has neither and falls back to the height stack alone.
+	var routed: bool = has_method("can_undo_any")
+	var can_undo: bool = bool(call("can_undo_any")) if routed else bridge.can_undo()
 	_menu_undo_btn.disabled = not can_undo
-	_menu_undo_btn.tooltip_text = ("Undo %s (Ctrl+Z)" % bridge.undo_label()) if can_undo \
+	var undo_name: String = String(call("undo_target_label")) if routed else bridge.undo_label()
+	_menu_undo_btn.tooltip_text = ("Undo %s (Ctrl+Z)" % undo_name) if can_undo \
 		else ("Nothing to undo. This is the global height undo -- a Sculpt or Paint "
 			+ "commit, a carve, a generate -- not the Sculpt draft's own stamp history, "
 			+ "which has its own Undo in the right dock.")
@@ -1497,15 +1509,17 @@ func _refresh_menu_squares() -> void:
 
 	var bound: bool = bridge.world_gen != null \
 		and bridge.world_gen.has_method("redo_available")
-	var can_redo: bool = bound and bridge.redo_available()
+	var can_redo: bool = (bound or routed) \
+		and (bool(call("can_redo_any")) if routed else bridge.redo_available())
 	_menu_redo_btn.disabled = not can_redo
 	## The disabled-state messages name the missing/false `WorldGen.redo_available()` binding.
-	if not bound:
+	if not bound and not can_redo:
 		_menu_redo_btn.tooltip_text = ("Redo. This build of the app is missing the redo "
 			+ "feature -- almost always because the native library is older than this shell. "
 			+ "Rebuild it.")
 	elif can_redo:
-		_menu_redo_btn.tooltip_text = "Redo %s (Ctrl+Shift+Z)" % bridge.redo_label()
+		var redo_name: String = String(call("redo_target_label")) if routed else bridge.redo_label()
+		_menu_redo_btn.tooltip_text = "Redo %s (Ctrl+Shift+Z or Ctrl+Y)" % redo_name
 	else:
 		_menu_redo_btn.tooltip_text = ("Nothing to redo. "
 			+ "Edit > Undo history... shows what the ledger is holding.")

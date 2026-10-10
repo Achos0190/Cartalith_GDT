@@ -27,7 +27,7 @@ extends Control
 ## shared look history (`shell/look_history.gd`, Ruling BY item 2) is driven by the
 ## HOST: `on_begin` fires once when a gesture starts (BEFORE its first engine
 ## write) so the host can snapshot, and the host pushes the entry from its `final`
-## callback. Never invent a history system in this file.
+## callback. This file must not grow a history of its own.
 
 ## Pixels beyond the bar's vertical extent at which a held handle means "delete".
 ## A labelled judgement, borrowed from PhotoCraft's gradient widget behaviour.

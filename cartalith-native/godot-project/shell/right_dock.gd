@@ -5773,8 +5773,9 @@ func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
 ## **never `_rebuild()` here**: it frees the bar mid-gesture (the confirmed bug
 ## `_on_stop_color_changed` documents). The one `final` call re-syncs the
 ## selection and rebuilds ONCE, deferred, because this runs inside the bar's own
-## input handler. There is no ramp undo in the engine (the global Undo is
-## heightmap-only), so "one step" means this one final call.
+## input handler. The engine has no ramp history of its own (its global Undo is
+## heightmap-only); the shared look history (`look_history.gd`, Ruling BY item 2)
+## records one step per final call, so Edit > Undo / Ctrl+Z reverses it.
 func _on_ramp_bar_edited(_stops_now: Array, selected: int, final: bool) -> void:
 	_stops_selected = selected
 	_sync_carto_ramp()

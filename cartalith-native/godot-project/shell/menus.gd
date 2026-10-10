@@ -312,6 +312,13 @@ const META_SIGNPOST := "signpost"
 var _shell: DccShell
 var _bridge: EngineBridge
 var _host: Node                 ## Where dialogs are parented and callbacks live.
+## Edit ▸ Undo/Redo row refreshers: one closure per built Edit popup (the PC, tablet
+## and phone builds may each make one), each closing over its popup and row
+## indices. Run by `refresh_undo_rows()` and on every popup of that menu.
+var _undo_row_refreshers: Array[Callable] = []
+## True once the look-history and engine signals below are connected, so a second
+## Edit-menu build does not double-connect them.
+var _undo_rows_wired := false
 var _quality_popup: PopupMenu
 var _recent_popup: PopupMenu
 var _autosave_popup: PopupMenu
@@ -1046,39 +1053,64 @@ func _build_undo_redo(p: PopupMenu) -> void:
 	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
 	## "N steps saved · M MB". Rebuilt on every popup because both change
 	## with every commit -- there is no signal to subscribe to.
-	p.about_to_popup.connect(func():
+	var refresh_rows := func():
 		var stats: Dictionary = _bridge.undo_stats()
 		## Ruling BY item 2: the shared look history (ramp / biome colours /
 		## style) answers this row whenever the most recent edit was a look edit
 		## (`look_history.wants_undo`) or the height stack has nothing left.
 		var lh = _host.look_history
 		var look_undo: bool = lh.wants_undo(_bridge)
-		var can: bool = _bridge.can_undo() or lh.can_undo()
+		var can: bool = _host.can_undo_any()
 		p.set_item_disabled(undo_idx, not can)
 		if look_undo:
-			p.set_item_text(undo_idx, "Undo %s" % lh.undo_label())
+			p.set_item_text(undo_idx, "Undo %s" % _host.undo_target_label())
 			p.set_item_tooltip(undo_idx, "Look history: %d step%s. Separate from the height-map undo; "
 				% [lh.cursor, "" if lh.cursor == 1 else "s"] + "Ctrl+Z steps whichever you edited last.")
 		elif can:
-			p.set_item_text(undo_idx, "Undo %s" % _bridge.undo_label())
+			p.set_item_text(undo_idx, "Undo %s" % _host.undo_target_label())
 			p.set_item_tooltip(undo_idx, "%s · %s held" % [
 				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
 		else:
 			p.set_item_text(undo_idx, "Undo")
 			p.set_item_tooltip(undo_idx, _undo_empty_reason())
 		if redo_idx >= 0:
-			var look_redo: bool = lh.wants_redo(_bridge)
-			var can_redo: bool = _bridge.redo_available() or lh.can_redo()
+			var can_redo: bool = _host.can_redo_any()
 			p.set_item_disabled(redo_idx, not can_redo)
 			p.set_item_text(redo_idx,
-				("Redo %s" % (lh.redo_label() if look_redo else _bridge.redo_label())) if can_redo else "Redo")
+				("Redo %s" % _host.redo_target_label()) if can_redo else "Redo")
 			## The empty-state reason says only what was actually checked --
 			## `redo_available()` came back false -- and points at the ledger
 			## rather than describing a stack shape this file has not read.
 			## `WorldGen.redo_available()` is false in the empty-state case.
 			p.set_item_tooltip(redo_idx,
 				"Puts back the step Undo took off. Edit ▸ Undo history… shows the whole ledger." if can_redo
-				else "Nothing to redo. Edit ▸ Undo history… shows what the ledger is holding."))
+				else "Nothing to redo. Edit ▸ Undo history… shows what the ledger is holding.")
+	_undo_row_refreshers.append(refresh_rows)
+	p.about_to_popup.connect(refresh_rows)
+	## An Edit row that is disabled does NOT fire its accelerator, so the rows must
+	## be right BEFORE the menu is ever opened (a user who never opens Edit presses
+	## Ctrl+Z). Found 2026-10-10 by a real key event: the rows were refreshed only
+	## on popup, so after one visit to Edit while empty, Ctrl+Z stayed dead until the
+	## next visit. Re-run on every look-history change and every engine signal that
+	## can move the height stack, plus from `refresh_undo_rows()` (called by the
+	## host after each undo/redo).
+	if not _undo_rows_wired:
+		_undo_rows_wired = true
+		var lh_sig = _host.get("look_history")
+		if lh_sig != null:
+			lh_sig.changed.connect(refresh_undo_rows)
+		for sig in ["generation_finished", "params_applied", "world_loaded", "dirty_changed"]:
+			_bridge.connect(sig, func(_a = null): refresh_undo_rows())
+	refresh_undo_rows()
+
+## Re-evaluate the enabled state, label and tooltip of every built Edit ▸ Undo /
+## Redo row against `DccApp.can_undo_any()` routing. Must be called whenever a
+## history changes (the look history and the engine signals are wired to it in
+## the Edit builder; the host also calls it after each undo/redo), because a
+## disabled row silently swallows its accelerator.
+func refresh_undo_rows() -> void:
+	for r in _undo_row_refreshers:
+		r.call()
 
 ## Cut / Copy / Paste / Delete / Select all / Deselect / Find on map -- what
 ## remains of Edit once Undo/Redo/Undo history promote to the tablet's ☰
@@ -1411,7 +1443,9 @@ func _on_edit(id: int) -> void:
 		ID_FIND_ON_MAP:
 			if _host.has_method("open_find_on_map"):
 				_host.open_find_on_map()
-		ID_REDO: _redo_last()
+		ID_REDO:
+			_redo_last()
+			_host._refresh_undo_ui()
 		ID_EDIT_RESET_PARAMS:
 			if not _bridge.generating and _bridge.params_available():
 				_bridge.reset_params()
