@@ -1822,33 +1822,164 @@ func set_journey_markers(markers: Array) -> void:
 ## Drawn in screen px under `_crisp_begin()`, so the marker is the same size
 ## at every zoom. En route: filled. Not yet departed or arrived: a ring only,
 ## at the route's first or last point -- the party exists but is not moving.
+## Where each name and supply line goes is `journey_label_rects()`'s decision, not
+## this function's: it only draws what that layout placed.
 func _draw_journey_markers(rect: Rect2) -> void:
-	var k := _crisp_begin()
+	_crisp_begin()
 	var font := get_theme_default_font()
-	var fs := 12
+	var fs := JOURNEY_LABEL_FS
 	var ji := journey_inks()   ## the preset's marker inks (Ruling BX item 2), else the shipped ones
-	for m: Dictionary in _journey_markers:
-		if not (m.has("x") and m.has("y")):
-			continue
-		var p := _point_to_screen(Vector2(float(m["x"]), float(m["y"])), rect) * k
-		var moving := String(m.get("phase", "")) == "en_route"
+	for e: Dictionary in journey_label_rects(rect):
+		var p: Vector2 = e["p"]
 		_cv.draw_circle(p, JOURNEY_MARKER_RADIUS + 2.0, ji["ring"])
-		if moving:
+		if e["moving"]:
 			_cv.draw_circle(p, JOURNEY_MARKER_RADIUS, ji["fill"])
 		else:
 			_cv.draw_arc(p, JOURNEY_MARKER_RADIUS - 1.0, 0.0, TAU, 24, ji["fill"], 2.0, true)
-		var label := String(m.get("name", ""))
-		var at := p + Vector2(JOURNEY_MARKER_RADIUS + 5.0, float(fs) * 0.35)
+		var at: Vector2 = e["at"]
+		var label: String = e["text"]
 		_cv.draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 3, ji["halo"])
 		_cv.draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ji["ink"])
 		## The supply readout SP-2's "done means" asks for, falling as the
 		## cursor moves, and the arrival it derives -- both the engine's.
-		var sub := _journey_marker_subline(m)
+		var sub: String = e["sub"]
 		if sub != "":
 			var at2 := at + Vector2(0.0, float(fs) + 2.0)
 			_cv.draw_string_outline(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, 3, ji["halo"])
 			_cv.draw_string(font, at2, sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2, ji["ink"])
 	_crisp_end()
+
+
+## Name font px of a journey marker; its supply line is two px smaller. `12` is
+## the value the marker has always drawn at (SP-2), kept rather than re-derived.
+const JOURNEY_LABEL_FS := 12
+## Gap between a marker's ring and its label block, screen px: the `5.0` the
+## right-hand label has always used (`JOURNEY_MARKER_RADIUS + 5.0`).
+const JOURNEY_LABEL_GAP := 5.0
+## Extra distances, screen px, a label block is pushed above or below its ring
+## when the eight places at the ring are all occupied (`journey_label_rects`).
+const JOURNEY_LABEL_PUSH_STEPS := [8.0, 16.0, 24.0, 32.0, 48.0]
+## Memo of `journey_label_rects()` and the key it was built for. The layout reads
+## every label and icon box, so it is rebuilt only when one of its inputs moved
+## (`_journey_layout_key`), not on every camera move the mid layer redraws for.
+var _jl_memo: Array = []
+var _jl_memo_key: Array = []
+
+
+## Every input `journey_label_rects()` reads, as one comparable key: the markers
+## themselves, the content generation (labels, icons and landmarks only change
+## through setters that queue a redraw, which bumps it), the camera zoom (screen
+## px per local px and the zoom-LOD gates both follow it), the displayed rect and
+## control size, and the cheap inputs a setter changes before its redraw has run.
+func _journey_layout_key(rect: Rect2) -> Array:
+	return [_content_gen, _camera_zoom, rect, size, _journey_markers.hash(),
+		_landmarks_visible, _labels.size(), _manual_icons.size()]
+
+
+## **Where each journey marker's name and supply line sit** -- one placement pass,
+## in the same occupancy vocabulary the settlement names use, so a party's label
+## no longer lands on another party's, on a map label, or on an icon.
+##
+## Per marker, in list order, the eight places a label block (name over supply
+## line) can sit around the ring -- right (the shipped place, tried first), left,
+## above, below, then the four corners -- and the first whose block misses every
+## occupant wins. Occupants are the generated and hand-placed label boxes and the
+## manual icons (`_seed_label_boxes()`, the exact set a settlement name steps
+## around), every marker's ring, and the blocks of the markers placed before it.
+## A block that fits nowhere takes the candidate with the least overlap: a party's
+## name is the user's own content and is never dropped to make room, the same
+## rule a hand-placed label keeps. Hand-placed labels and icons are only ever
+## read here, never moved.
+##
+## Everything returned is in **crisp screen px** (`_crisp_begin()`'s frame: local
+## px times the camera zoom), per marker `{p, at, moving, text, sub, block,
+## name_rect, sub_rect, grp}`: `p` the ring centre, `at` the name's baseline-left,
+## the rects the ink's boxes. A marker with no `x`/`y` (a blocked plan) is
+## skipped. Must never draw, and must never mutate `_labels` or `_manual_icons`.
+func journey_label_rects(rect: Rect2) -> Array:
+	var key := _journey_layout_key(rect)
+	if key == _jl_memo_key:
+		return _jl_memo
+	var k := maxf(_camera_zoom, 0.001)
+	var font := get_theme_default_font()
+	var fs := JOURNEY_LABEL_FS
+	var r := JOURNEY_MARKER_RADIUS
+	var occ: Array[Rect2] = []
+	for b: Rect2 in _seed_label_boxes(rect):
+		occ.append(Rect2(b.position * k, b.size * k))
+	var live: Array = []
+	for m: Dictionary in _journey_markers:
+		if m.has("x") and m.has("y"):
+			live.append(m)
+	var rings: Array[Rect2] = []
+	var centres: Array[Vector2] = []
+	for m2: Dictionary in live:
+		var c := _point_to_screen(Vector2(float(m2["x"]), float(m2["y"])), rect) * k
+		centres.append(c)
+		rings.append(Rect2(c - Vector2(r + 2.0, r + 2.0), Vector2(r + 2.0, r + 2.0) * 2.0))
+	var out: Array = []
+	var asc := font.get_ascent(fs)
+	var nh := asc + font.get_descent(fs)
+	var asc2 := font.get_ascent(fs - 2)
+	var sh := asc2 + font.get_descent(fs - 2)
+	for i in live.size():
+		var m3: Dictionary = live[i]
+		var p: Vector2 = centres[i]
+		var text := String(m3.get("name", ""))
+		var sub := _journey_marker_subline(m3)
+		var nw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		var sw := font.get_string_size(sub, HORIZONTAL_ALIGNMENT_LEFT, -1, fs - 2).x if sub != "" else 0.0
+		var bw := maxf(nw, sw)
+		## Block relative to `at` (the name's baseline-left): the name box, and the
+		## supply line's box `fs + 2` below it.
+		var rel := Rect2(0.0, -asc, nw, nh)
+		if sub != "":
+			rel = rel.merge(Rect2(0.0, float(fs) + 2.0 - asc2, sw, sh))
+		var g := r + JOURNEY_LABEL_GAP
+		var cands: Array[Vector2] = [
+			p + Vector2(g, float(fs) * 0.35),                         # right: the shipped place
+			p + Vector2(-g - bw, float(fs) * 0.35),                   # left
+			Vector2(p.x - bw / 2.0, p.y - g + 1.0 - rel.end.y),       # above
+			Vector2(p.x - bw / 2.0, p.y + g - 1.0 - rel.position.y),  # below
+			Vector2(p.x + r, p.y - r - rel.end.y),                    # upper right
+			Vector2(p.x + r, p.y + r - rel.position.y),               # lower right
+			Vector2(p.x - r - bw, p.y - r - rel.end.y),               # upper left
+			Vector2(p.x - r - bw, p.y + r - rel.position.y)]          # lower left
+		## Pushed further out, above then below, when every place at the ring is taken:
+		## a zoomed region name is taller than the ring-to-label gap, so no near place
+		## clears it. The steps (px) are a labelled judgement: one text line is ~16 px,
+		## and 48 keeps the party's name within a few lines of its ring.
+		for push in JOURNEY_LABEL_PUSH_STEPS:
+			cands.append(Vector2(p.x - bw / 2.0, p.y - g + 1.0 - rel.end.y - push))
+			cands.append(Vector2(p.x - bw / 2.0, p.y + g - 1.0 - rel.position.y + push))
+		var best := 0
+		var best_cost := INF
+		for ci in cands.size():
+			var blk := Rect2(cands[ci] + rel.position, rel.size)
+			var cost := 0.0
+			for o in occ:
+				if o.intersects(blk):
+					cost += o.intersection(blk).get_area()
+			for ri in rings.size():
+				if rings[ri].intersects(blk):
+					cost += rings[ri].intersection(blk).get_area()
+			if cost < best_cost:
+				best_cost = cost
+				best = ci
+			if cost <= 0.0:
+				break
+		var at: Vector2 = cands[best]
+		var block := Rect2(at + rel.position, rel.size)
+		occ.append(block.grow(1.0))
+		var ent := {"p": p, "at": at, "moving": String(m3.get("phase", "")) == "en_route",
+			"text": text, "sub": sub, "block": block, "grp": "J%d" % i,
+			"name_rect": Rect2(at + Vector2(0.0, -asc), Vector2(nw, nh))}
+		if sub != "":
+			ent["sub_rect"] = Rect2(at + Vector2(0.0, float(fs) + 2.0 - asc2), Vector2(sw, sh))
+		out.append(ent)
+	_jl_memo = out
+	_jl_memo_key = key
+	return out
 
 ## `food 32 of 106 kg left · arrives 412-01-16` en route; `departs …` before,
 ## `arrived …` after. Food only: it is the one supply every party carries
@@ -3385,7 +3516,34 @@ func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: flo
 ## collision culler `LARGE_ITEM_RULINGS.md` sequences behind the pass -- this
 ## only ever moves a settlement pin's own name and never suppresses a label,
 ## and generated labels are still never measured against each other.
+##
+## **Journey markers join the set** (2026-10-10, owner: "some labels were
+## overlapping"): the label block of every party marker (`journey_label_rects()`)
+## is appended, so a pin's name steps around a party's name and supply line the
+## way it steps around a hand-placed label. A label's box now also carries its
+## tracking and its angle (`_seed_label_boxes()`): both were inked but not
+## reserved. Both were found by counting overlapping label pairs on the default
+## world (seed 483920, 2048x1311) at zoom ratios 1, 2, 4 and 8, where the old
+## boxes let pin names land inside letter-spaced region and lake names.
 func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
+	var boxes := _seed_label_boxes(rect)
+	## A journey marker's name and supply line are the user's own content, so a
+	## settlement's auto-placed name steps around them like it does a hand-placed
+	## label. Local px (the layout is crisp px, so `/ k`). Only the label blocks, not
+	## the rings: a marker sits on its start town, and reserving the ring would push
+	## that town's own name off every candidate.
+	if not _journey_markers.is_empty():
+		var k := maxf(_camera_zoom, 0.001)
+		for e: Dictionary in journey_label_rects(rect):
+			var blk: Rect2 = e["block"]
+			boxes.append(Rect2(blk.position / k, blk.size / k))
+	return boxes
+
+
+## The label and icon half of `_seed_label_occupancy()`, split out so the journey
+## layout (`journey_label_rects()`) reads the same boxes without asking for its own
+## blocks back. Local px, one box per drawn label and per drawn manual icon.
+func _seed_label_boxes(rect: Rect2) -> Array[Rect2]:
 	var boxes: Array[Rect2] = []
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
@@ -3401,8 +3559,25 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 		var font_px := _label_font_px(lb, rect)
 		## A fixed label is `_label_unit()` of its nominal size in local px (Ruling AP).
 		var lu := _label_unit(lb)
-		var w := lu * font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		## The run's tracking is part of the drawn width (`_draw_labels()` adds
+		## `track_px` between every pair of glyphs); the box left it out, so a
+		## letter-spaced region or lake name reserved ~15-30% less than it inked
+		## and a pin name stepped around the wrong rectangle (measured: "Ithithhollow"
+		## inside "Saesaesilvelrest Province" at ratio 4, `_labeloverlap_probe`).
+		var track_w := float(font_px) * float(lb.get("tracking_em", 0.0)) * maxf(float(text.length()) - 1.0, 0.0)
+		var w := lu * (font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x + track_w)
 		var h := lu * float(font_px) * 1.3
+		## A turned label's footprint is its rotated box's AABB, the same rule
+		## `labels.rs::label_cull_rect` uses; angle 0 (every generated label) is the
+		## exact pre-existing box.
+		var ang := float(lb.get("angle", 0.0))
+		if ang != 0.0:
+			var rad := deg_to_rad(ang)
+			var cs := absf(cos(rad))
+			var sn := absf(sin(rad))
+			var w0 := w
+			w = w0 * cs + h * sn
+			h = w0 * sn + h * cs
 		boxes.append(Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h)))
 	for ic: Dictionary in _manual_icons:
 		## A mark that is not drawn must not push a name around. The only rows
