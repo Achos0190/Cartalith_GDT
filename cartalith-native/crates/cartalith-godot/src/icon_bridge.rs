@@ -165,9 +165,13 @@ const BRUSH_SEED: u32 = 0x_CA12_1C04;
 /// three actually reaches a placed icon.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArmedSelection {
+    /// The family/slot (and custom `set`) the next `place` stamps.
     pub icon: ArmedIcon,
+    /// Arm-time scale, already clamped; the only field here that reaches a placed icon.
     pub scale: f64,
+    /// Stored for the armed chip only; never applied (`ManualIcon` has no rotation).
     pub rotation: f64,
+    /// Stored for the armed chip only; never applied.
     pub jitter: f64,
 }
 
@@ -214,9 +218,13 @@ pub fn resolve_variant(family: ManualIconFamily, variant: i64) -> Option<String>
 /// [`Self::slots`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlacementFamily {
+    /// Settlements.
     Places,
+    /// The `tree_*` slots only; see [`TREE_SLOTS`].
     Trees,
+    /// Seamarks; the only family the coast snap applies to.
     SeaMarks,
+    /// Points of interest.
     Poi,
 }
 
@@ -256,6 +264,8 @@ impl PlacementFamily {
         }
     }
 
+    /// Inverse of [`Self::key`]: exact, case- and space-sensitive match
+    /// (`"SEA MARKS"` yes, `"seamarks"` no); `None` for anything else.
     pub fn from_key(key: &str) -> Option<PlacementFamily> {
         PlacementFamily::ALL.into_iter().find(|f| f.key() == key)
     }
@@ -288,8 +298,11 @@ impl PlacementFamily {
 /// silently placed under the wrong family.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IconCandidate {
+    /// Grid-cell x.
     pub x: f64,
+    /// Grid-cell y.
     pub y: f64,
+    /// Slot name; must be in the plan family's vocabulary or it is counted `unknown_slot`.
     pub slot: String,
 }
 
@@ -301,9 +314,13 @@ pub struct IconCandidate {
 /// pulling a settlement pin onto a beach would be a different rule nobody
 /// asked for.
 pub struct CoastSnap<'a> {
+    /// Row-major height field, `gw * gh` long.
     pub field: &'a [f32],
+    /// Field width in cells.
     pub gw: usize,
+    /// Field height in cells.
     pub gh: usize,
+    /// Sea level separating water from land, as `cartalith_assets::coast` reads it.
     pub sea: f64,
     /// Search radius in cells. A candidate with no coast cell inside it is
     /// **dropped**, not placed inland: a sea mark that did not land on a coast
@@ -324,6 +341,7 @@ pub fn default_snap_radius(gw: usize) -> i64 {
 
 /// One run's dials — the ICONS panel's own two sliders and three rule toggles.
 pub struct IconGenPlan {
+    /// Which placement family this run places.
     pub family: PlacementFamily,
     /// Per-instance scale, clamped exactly as [`IconEditor::arm`] clamps the
     /// hand-placement one.
@@ -342,6 +360,7 @@ pub struct IconGenPlan {
 /// counters are disjoint — a candidate is charged to exactly one of them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct IconGenReport {
+    /// Icons appended to the map this run.
     pub placed: usize,
     /// Dropped for hitting another icon (generated this run, or already on the
     /// map) — the *"enforce min spacing"* rule and the footprint floor under it.
@@ -369,6 +388,7 @@ pub struct IconEditor {
     /// [`ManualIcon::origin`]. [`IconEditor::generate`] is the only producer
     /// that writes [`IconOrigin::Generated`].
     pub icons: Vec<ManualIcon>,
+    /// The armed gallery selection; `None` means `place` does nothing.
     pub armed: Option<ArmedSelection>,
     /// Which placed icons are selected — [`crate::selection::SelectionSet`],
     /// whose `primary()` is what the old `selected: Option<usize>` field was
@@ -851,29 +871,12 @@ impl IconEditor {
 }
 
 impl Default for IconEditor {
+    /// Same as [`IconEditor::new`].
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// The reference's `drawCivLayer` selected-icon resize-handle geometry
-/// (lines 15883-15893 of `reference/Cartalith Gen1 v2.10.html`),
-/// transcribed rather than sliced — exactly `label_bridge::handle_circles`'
-/// own reasoning: this is inline canvas drawing code, not a callable
-/// function, so `manual.rs` never had a home for it (that module's own
-/// `IconEditor::hit_test`/`icon_bridge.rs` doc comments called this out as
-/// the one acknowledged gap — `GUI_GAP_REGISTER.md` CA-05).
-///
-/// One handle only — a manually-placed icon has no rotate/arc field at all
-/// (`manual.rs`'s own module doc), so unlike a label's five circles there
-/// is nothing else to compute here.
-///
-/// `lsc` is `label_bridge::handle_circles`'s own render-pass constant
-/// (`Math.max(1,GW/512)*_civZoomK()*_civIconScale()`) — computed inline
-/// here rather than shared with that function, matching `IconBox`'s own
-/// doc comment on why icon/label geometry stay separate rather than behind
-/// a shared abstraction (`cartalith-assets` has no dependency on
-/// `cartalith-civ` to share one through, either).
 /// One icon's own drawn footprint as a [`LabelRect`] — [`icon_box`]'s centre
 /// and its full `side`, in grid cells.
 ///
@@ -898,6 +901,27 @@ fn spacing_rect(icon: &ManualIcon, env: &IconViewEnv, spacing: f64) -> LabelRect
     r
 }
 
+/// The reference's `drawCivLayer` selected-icon resize-handle geometry
+/// (lines 15883-15893 of `reference/Cartalith Gen1 v2.10.html`),
+/// transcribed rather than sliced — exactly `label_bridge::handle_circles`'
+/// own reasoning: this is inline canvas drawing code, not a callable
+/// function, so `manual.rs` never had a home for it (that module's own
+/// `IconEditor::hit_test`/`icon_bridge.rs` doc comments called this out as
+/// the one acknowledged gap — `GUI_GAP_REGISTER.md` CA-05).
+///
+/// One handle only — a manually-placed icon has no rotate/arc field at all
+/// (`manual.rs`'s own module doc), so unlike a label's five circles there
+/// is nothing else to compute here.
+///
+/// `lsc` is `label_bridge::handle_circles`'s own render-pass constant
+/// (`Math.max(1,GW/512)*_civZoomK()*_civIconScale()`) — computed inline
+/// here rather than shared with that function, matching `IconBox`'s own
+/// doc comment on why icon/label geometry stay separate rather than behind
+/// a shared abstraction (`cartalith-assets` has no dependency on
+/// `cartalith-civ` to share one through, either).
+///
+/// Pure geometry: returns the hit circle only and never mutates the icon or
+/// the selection.
 pub fn icon_handle(box_: &IconBox, env: &IconViewEnv) -> IconHandle {
     let lsc = f64::max(1.0, env.grid_w as f64 / 512.0) * civ_zoom_k(env.zoom_scale) * env.icon_scale;
     let hr = f64::max(4.0, 3.2 * lsc);
@@ -910,16 +934,19 @@ pub fn icon_handle(box_: &IconBox, env: &IconViewEnv) -> IconHandle {
     IconHandle { x: hx, y: hy, r: hr * 1.6 }
 }
 
+/// Unit tests for the Godot-free icon editor state; no Godot runtime needed.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Shared 48-wide view env at default zoom and icon scale.
     fn env() -> IconViewEnv {
         IconViewEnv { grid_w: 48, zoom_scale: 1.0, icon_scale: 1.0 }
     }
 
     // ---- resolve_variant ----
 
+    /// Protects: variant indexes each family's own frozen slot list (mountain, hill, hamlet, ruin).
     #[test]
     fn resolve_variant_indexes_the_familys_own_frozen_slots() {
         assert_eq!(resolve_variant(ManualIconFamily::Feature, 0).as_deref(), Some("mountain"));
@@ -928,12 +955,14 @@ mod tests {
         assert_eq!(resolve_variant(ManualIconFamily::Poi, 0).as_deref(), Some("ruin"));
     }
 
+    /// Protects: an out-of-range or negative variant resolves to `None`, never a wrapped or clamped slot.
     #[test]
     fn resolve_variant_rejects_out_of_range_and_negative() {
         assert_eq!(resolve_variant(ManualIconFamily::Feature, 999), None);
         assert_eq!(resolve_variant(ManualIconFamily::Feature, -1), None);
     }
 
+    /// Protects: `Custom` is never addressable by a single index.
     #[test]
     fn resolve_variant_rejects_custom_entirely() {
         assert_eq!(resolve_variant(ManualIconFamily::Custom, 0), None);
@@ -941,6 +970,7 @@ mod tests {
 
     // ---- arm / disarm ----
 
+    /// Protects: an unknown family key is rejected and leaves nothing armed.
     #[test]
     fn arm_with_an_unknown_family_key_fails_and_changes_nothing() {
         let mut e = IconEditor::new();
@@ -948,12 +978,14 @@ mod tests {
         assert!(e.armed.is_none());
     }
 
+    /// Protects: `arm` refuses the `custom` family key (open vocabulary).
     #[test]
     fn arm_with_custom_fails() {
         let mut e = IconEditor::new();
         assert!(!e.arm("custom", 0, 1.0, 0.0, 0.0));
     }
 
+    /// Protects: a rejected arm call keeps the previous armed selection.
     #[test]
     fn arm_rejects_leave_a_previous_armed_selection_untouched() {
         let mut e = IconEditor::new();
@@ -963,6 +995,7 @@ mod tests {
         assert_eq!(e.armed, before);
     }
 
+    /// Protects: arm-time scale clamps to the resize bounds and NaN or non-positive falls back to 1.0.
     #[test]
     fn arm_clamps_scale_and_defaults_a_bad_one_to_one() {
         let mut e = IconEditor::new();
@@ -974,6 +1007,7 @@ mod tests {
         assert_eq!(e.armed.as_ref().unwrap().scale, 1.0);
     }
 
+    /// Protects: finite rotation and jitter are stored as given.
     #[test]
     fn arm_stores_rotation_and_jitter_verbatim_when_finite() {
         let mut e = IconEditor::new();
@@ -983,6 +1017,7 @@ mod tests {
         assert_eq!(a.jitter, 0.7);
     }
 
+    /// Protects: `disarm` empties the armed slot.
     #[test]
     fn disarm_clears_the_armed_selection() {
         let mut e = IconEditor::new();
@@ -993,6 +1028,7 @@ mod tests {
 
     // ---- place ----
 
+    /// Protects: `place` with nothing armed adds no icon.
     #[test]
     fn place_with_nothing_armed_does_nothing() {
         let mut e = IconEditor::new();
@@ -1000,6 +1036,7 @@ mod tests {
         assert!(e.icons.is_empty());
     }
 
+    /// Protects: `place` stamps the armed slot, selects the new icon and overrides `place_manual_icon`'s 1.0 scale with the armed one.
     #[test]
     fn place_stamps_selects_and_honours_the_armed_scale() {
         let mut e = IconEditor::new();
@@ -1014,6 +1051,7 @@ mod tests {
         assert_eq!(ic.scale, 2.5, "arm-time scale must override place_manual_icon's own 1.0");
     }
 
+    /// Protects: an off-grid click places nothing and keeps the armed selection.
     #[test]
     fn place_off_grid_fails_without_disturbing_the_armed_selection() {
         let mut e = IconEditor::new();
@@ -1025,6 +1063,7 @@ mod tests {
 
     // ---- hit_test ----
 
+    /// Protects: a box hit returns and selects the icon's index.
     #[test]
     fn hit_test_finds_and_selects_a_placed_icon() {
         let mut e = IconEditor::new();
@@ -1035,6 +1074,7 @@ mod tests {
         assert_eq!(e.selected(), Some(0));
     }
 
+    /// Protects: `deselect` drops the selection and the resize baseline together, is idempotent, and deletes no icon.
     #[test]
     fn deselect_clears_the_selection_and_the_resize_baseline() {
         let mut e = IconEditor::new();
@@ -1055,6 +1095,7 @@ mod tests {
         assert_eq!(e.icons.len(), 1);
     }
 
+    /// Protects: `pick_all` is read-only: it lists every box under the point topmost first without touching selection or baseline.
     #[test]
     fn pick_all_lists_every_overlapping_icon_topmost_first_and_selects_nothing() {
         let mut e = IconEditor::new();
@@ -1071,6 +1112,7 @@ mod tests {
         assert_eq!(e.hit_test(5.5, 5.5, &env(), SelectMode::Replace), Some(1));
     }
 
+    /// Protects: a missed hit test leaves the selection as it was.
     #[test]
     fn hit_test_miss_leaves_selection_unchanged() {
         let mut e = IconEditor::new();
@@ -1083,6 +1125,7 @@ mod tests {
 
     // ---- resize ----
 
+    /// Protects: `resize` refuses an icon that is not the selected one and leaves its scale alone.
     #[test]
     fn resize_requires_the_target_to_already_be_selected() {
         let mut e = IconEditor::new();
@@ -1093,6 +1136,7 @@ mod tests {
         assert_eq!(e.icons[0].scale, 1.0);
     }
 
+    /// Protects: repeated drag samples with one `start_dist` scale from the selection-time baseline and do not compound.
     #[test]
     fn resize_scales_from_the_selection_time_snapshot_not_the_live_value() {
         let mut e = IconEditor::new();
@@ -1106,6 +1150,7 @@ mod tests {
         assert_eq!(e.icons[0].scale, after_first, "same inputs must give the same result, not compound");
     }
 
+    /// Protects: `resize` on a missing index returns false.
     #[test]
     fn resize_rejects_an_out_of_range_index() {
         let mut e = IconEditor::new();
@@ -1114,6 +1159,7 @@ mod tests {
 
     // ---- handles / icon_handle ----
 
+    /// Protects: the handle position and hit radius follow the reference's `drawCivLayer` formula (hand-computed literals).
     #[test]
     fn icon_handle_matches_the_reference_formula() {
         let ic = ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
@@ -1126,6 +1172,7 @@ mod tests {
         assert!((h.r - 20.48).abs() < 1e-9, "hr=max(4,3.2*4)=12.8, stored r = hr*1.6");
     }
 
+    /// Protects: the handle moves with the icon's own scale while its radius stays fixed.
     #[test]
     fn icon_handle_follows_the_boxs_own_per_instance_scale() {
         let small = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0, origin: IconOrigin::Manual };
@@ -1142,6 +1189,7 @@ mod tests {
         assert!((h_big.r - h_small.r).abs() < 1e-9);
     }
 
+    /// Protects: the handle radius floors at `hr = 4` (stored 6.4) at extreme zoom.
     #[test]
     fn icon_handle_never_shrinks_below_its_own_floor_at_low_zoom() {
         // zoom_scale pushed far past civ_zoom_k's own [0.35,5] clamp so lsc
@@ -1154,6 +1202,7 @@ mod tests {
         assert!((h.r - 6.4).abs() < 1e-9, "hr floors at 4, stored r = 4*1.6");
     }
 
+    /// Protects: `IconEditor::handles` returns the handle of the icon's own box.
     #[test]
     fn editor_handles_matches_the_selected_icons_box() {
         let mut e = IconEditor::new();
@@ -1165,6 +1214,7 @@ mod tests {
         assert!((h.y - 26.7).abs() < 1e-9);
     }
 
+    /// Protects: `handles` accepts any valid index, not only the selected one.
     #[test]
     fn editor_handles_does_not_require_the_index_to_be_selected() {
         // Mirrors `label_bridge::LabelBridge::handles`' own contract: any
@@ -1177,6 +1227,7 @@ mod tests {
         assert!(e.handles(0, &env()).is_some(), "index 0 is not selected but is still valid");
     }
 
+    /// Protects: `handles` on a missing index is `None`.
     #[test]
     fn editor_handles_out_of_range_is_none() {
         let e = IconEditor::new();
@@ -1185,6 +1236,7 @@ mod tests {
 
     // ---- delete ----
 
+    /// Protects: deleting the selected icon removes it and clears the selection.
     #[test]
     fn delete_removes_and_clears_selection_when_it_pointed_at_the_removed_icon() {
         let mut e = IconEditor::new();
@@ -1195,6 +1247,7 @@ mod tests {
         assert_eq!(e.selected(), None);
     }
 
+    /// Protects: deleting an earlier icon shifts the selection down so it still names the same icon.
     #[test]
     fn delete_shifts_a_selection_pointing_past_the_removed_index() {
         let mut e = IconEditor::new();
@@ -1207,6 +1260,7 @@ mod tests {
         assert_eq!(e.icons.len(), 1);
     }
 
+    /// Protects: `delete` on a missing index returns false.
     #[test]
     fn delete_out_of_range_fails() {
         let mut e = IconEditor::new();
@@ -1225,6 +1279,7 @@ mod tests {
         e
     }
 
+    /// Protects: a Replace-mode hit selects only the hit icon, as before selection sets existed.
     #[test]
     fn a_plain_hit_replaces_the_selection_the_way_it_always_did() {
         let mut e = three_icons();
@@ -1234,6 +1289,7 @@ mod tests {
         assert_eq!(e.selected(), Some(0));
     }
 
+    /// Protects: a Toggle hit adds an icon to the set and makes it primary.
     #[test]
     fn a_toggle_hit_adds_a_second_icon_and_makes_it_primary() {
         let mut e = three_icons();
@@ -1243,6 +1299,7 @@ mod tests {
         assert_eq!(e.selected(), Some(1), "the just-toggled icon owns the handle");
     }
 
+    /// Protects: toggling a selected icon off removes it and promotes the earlier member.
     #[test]
     fn a_toggle_hit_on_a_selected_icon_removes_it_and_promotes_the_one_before() {
         let mut e = three_icons();
@@ -1253,6 +1310,7 @@ mod tests {
         assert_eq!(e.selected(), Some(0));
     }
 
+    /// Protects: an Extend hit selects the range from the anchor.
     #[test]
     fn an_extend_hit_covers_the_range_from_the_anchor() {
         let mut e = three_icons();
@@ -1262,6 +1320,7 @@ mod tests {
         assert_eq!(e.selected(), Some(2));
     }
 
+    /// Protects: a miss never changes a multi-selection in any select mode.
     #[test]
     fn a_miss_leaves_a_multi_selection_alone_in_every_mode() {
         for mode in [SelectMode::Replace, SelectMode::Toggle, SelectMode::Extend] {
@@ -1272,6 +1331,7 @@ mod tests {
         }
     }
 
+    /// Protects: the resize baseline is re-snapshotted from the primary, not the clicked index.
     #[test]
     fn the_resize_baseline_follows_the_primary_not_the_clicked_index() {
         // Toggling the primary back off must not leave the baseline pointing
@@ -1288,6 +1348,7 @@ mod tests {
         assert_eq!(e.resize_base_scale, Some(3.0), "the baseline was re-snapshotted from icon 0");
     }
 
+    /// Protects: `resize` refuses a selected-but-not-primary index.
     #[test]
     fn resize_still_refuses_an_index_that_is_not_the_primary() {
         let mut e = three_icons();
@@ -1296,6 +1357,7 @@ mod tests {
         assert_eq!(e.icons[0].scale, 1.0);
     }
 
+    /// Protects: `select_set` drops out-of-range indices and returns false for them.
     #[test]
     fn select_set_drops_an_out_of_range_index_and_reports_it() {
         let mut e = three_icons();
@@ -1305,6 +1367,7 @@ mod tests {
         assert_eq!(e.selection.sorted(), vec![0, 2]);
     }
 
+    /// Protects: `select_set` snapshots the new primary's scale as the resize baseline.
     #[test]
     fn select_set_snapshots_the_new_primarys_scale() {
         let mut e = three_icons();
@@ -1314,6 +1377,7 @@ mod tests {
         assert_eq!(e.resize_base_scale, Some(4.0));
     }
 
+    /// Protects: deleting one member renumbers the remaining members of a multi-selection.
     #[test]
     fn deleting_a_member_of_a_multi_selection_shifts_the_rest() {
         let mut e = three_icons();
@@ -1323,6 +1387,7 @@ mod tests {
         assert_eq!(e.selected(), Some(1));
     }
 
+    /// Protects: `deselect` and `clear_all` both empty the whole selection set (and the baseline / icon list respectively).
     #[test]
     fn deselect_and_clear_all_empty_the_whole_set() {
         let mut e = three_icons();
@@ -1349,10 +1414,12 @@ mod tests {
         (0..w * h).map(|i| if i % w < land_cols { 1.0 } else { 0.0 }).collect()
     }
 
+    /// Shorthand candidate builder.
     fn cand(x: f64, y: f64, slot: &str) -> IconCandidate {
         IconCandidate { x, y, slot: slot.to_string() }
     }
 
+    /// A plan with spacing enforced only when `min_spacing > 0`, labels not avoided.
     fn plan(family: PlacementFamily, min_spacing: f64) -> IconGenPlan {
         IconGenPlan {
             family,
@@ -1363,6 +1430,7 @@ mod tests {
         }
     }
 
+    /// Protects: the four placement families map onto four distinct, non-empty asset families (the 2026-09-02 ruling) and TREES stays narrower than the `icons` family.
     #[test]
     fn placement_families_are_four_real_families_not_three_and_a_name() {
         // The ruling, as an assertion: every design chip resolves to an asset
@@ -1383,6 +1451,8 @@ mod tests {
         assert_eq!(PlacementFamily::from_key("seamarks"), None);
     }
 
+    /// Protects: every snapped sea mark lands on a coast cell (the ruling's own failure mode).
+    ///
     /// **The rule's own test** — owner ruling 2026-09-02: *"a sea mark that
     /// does not land on a coast is the entire failure mode of this feature."*
     #[test]
@@ -1419,6 +1489,7 @@ mod tests {
         assert_eq!(r.snapped, r.placed);
     }
 
+    /// Protects: a sea mark with no coast in reach is dropped and counted `off_coast`, never placed inland.
     #[test]
     fn a_sea_mark_with_no_coast_in_reach_is_dropped_not_placed_inland() {
         // All land: there is no coast anywhere, so no sea mark may be placed.
@@ -1438,6 +1509,7 @@ mod tests {
         assert!(e.icons.is_empty(), "a sea mark with nowhere to go is dropped, not stranded inland");
     }
 
+    /// Protects: the coast snap moves sea marks only; other families keep their candidate positions.
     #[test]
     fn the_snap_is_only_the_sea_marks_rule() {
         // Same coast data, a different family: settlements are not dragged to
@@ -1458,6 +1530,7 @@ mod tests {
         assert_eq!((e.icons[0].x, e.icons[0].y), (2.0, 3.0));
     }
 
+    /// Protects: a candidate whose slot is outside the plan family's vocabulary is counted `unknown_slot`, not placed.
     #[test]
     fn a_candidate_naming_another_familys_slot_is_counted_not_placed() {
         let mut e = IconEditor::new();
@@ -1472,6 +1545,7 @@ mod tests {
         assert_eq!(e.icons[0].slot, "lighthouse");
     }
 
+    /// Protects: `min_spacing` keeps centres at least that many cells apart.
     #[test]
     fn min_spacing_thins_the_run_to_the_sliders_own_figure() {
         // grid_w 512 -> sc 1, so a scale-1 footprint is side 13 cells. Spacing
@@ -1489,6 +1563,7 @@ mod tests {
         assert_eq!(xs, vec![0.0, 40.0, 80.0]);
     }
 
+    /// Protects: with spacing off, the footprint floor still stops icons stacking on one cell.
     #[test]
     fn with_the_spacing_rule_off_icons_still_do_not_stack_on_one_cell() {
         // The footprint floor under the slider: `enforce_spacing == false` is
@@ -1499,6 +1574,7 @@ mod tests {
         assert_eq!((r.placed, r.culled_spacing), (1, 2));
     }
 
+    /// Protects: the generated pass is idempotent: its own output blocks a re-run.
     #[test]
     fn a_second_run_over_the_same_world_places_nothing() {
         // Why there is no `generated` list: the pass is idempotent because its
@@ -1514,6 +1590,7 @@ mod tests {
         assert_eq!(e.icons.len(), 4, "a re-run adds nothing rather than doubling the map");
     }
 
+    /// Protects: hand-placed icons act as obstacles to generation, and each producer writes its own `IconOrigin` (ruling 14).
     #[test]
     fn hand_placed_icons_are_obstacles_the_pass_respects() {
         let mut e = IconEditor::new();
@@ -1538,6 +1615,8 @@ mod tests {
         assert_eq!(e.icons[1].origin, IconOrigin::Generated, "the generated pass did not mark its row");
     }
 
+    /// Protects: brush darts are `IconOrigin::Manual`, not Generated.
+    ///
     /// The brush is the third producer, and it is a hand path.
     ///
     /// `place` is covered by the two-origin assertion above; this covers
@@ -1553,6 +1632,7 @@ mod tests {
         assert!(e.icons.iter().all(|i| i.origin == IconOrigin::Manual), "{:?}", e.icons);
     }
 
+    /// Protects: `avoid_labels` culls icons overlapping reserved label rects and does nothing when off.
     #[test]
     fn avoid_label_boxes_suppresses_against_the_shipped_culler_and_nothing_else() {
         // `reserved` is measured by the caller with `label_cull_rect`; the pass
@@ -1576,6 +1656,7 @@ mod tests {
         assert_eq!((r2.placed, r2.culled_label), (1, 0));
     }
 
+    /// Protects: reserved label rects are obstacles only; nothing is placed over them or returned from them.
     #[test]
     fn a_reserved_rect_is_never_placed_and_never_returned() {
         // `generate_labels`' own contract for the same argument, asserted here
@@ -1589,6 +1670,7 @@ mod tests {
         assert!(e.icons.is_empty());
     }
 
+    /// Protects: a NaN label rect culls nothing (the culler's NaN rule).
     #[test]
     fn a_non_finite_reservation_suppresses_nothing() {
         // The culler's own NaN rule, inherited rather than re-implemented:
@@ -1601,6 +1683,7 @@ mod tests {
         assert_eq!((r.placed, r.culled_label), (1, 0));
     }
 
+    /// Protects: the generated scale clamps and NaN-defaults exactly like the armed one.
     #[test]
     fn the_generated_scale_is_clamped_like_the_armed_one() {
         let mut e = IconEditor::new();
@@ -1615,6 +1698,7 @@ mod tests {
         assert_eq!(e2.icons[0].scale, 1.0);
     }
 
+    /// Protects: `default_snap_radius` is `max(8, gw/32)` (64, 512, 2048 checked as 8, 16, 64).
     #[test]
     fn default_snap_radius_floors_at_eight_and_scales_with_the_grid() {
         assert_eq!(default_snap_radius(64), 8);
@@ -1622,6 +1706,7 @@ mod tests {
         assert_eq!(default_snap_radius(2048), 64);
     }
 
+    /// Protects: `clear_all` removes icons and selection but keeps the armed selection.
     #[test]
     fn clear_all_drops_placements_and_selection_but_not_the_armed_chip() {
         let mut e = IconEditor::new();
@@ -1644,6 +1729,7 @@ mod tests {
         e
     }
 
+    /// Protects: a new editor's brush is off with the reference's default radius 12 and density 0.6.
     #[test]
     fn a_fresh_editors_brush_is_the_references_own_defaults_and_off() {
         let e = IconEditor::new();
@@ -1652,6 +1738,7 @@ mod tests {
         assert_eq!(e.brush.density, 0.6);
     }
 
+    /// Protects: `set_brush` clamps radius and density into the slider range (bounds themselves are pinned separately).
     #[test]
     fn set_brush_clamps_both_numbers_to_the_reference_sliders_own_range() {
         let mut e = IconEditor::new();
@@ -1663,6 +1750,8 @@ mod tests {
         assert_eq!(e.brush.density, ICON_BRUSH_DENSITY_MIN);
     }
 
+    /// Protects: the four brush bounds equal the reference slider literals, not themselves.
+    ///
     /// Pins the four bounds to the **reference's own slider attributes**.
     ///
     /// The clamp test above cannot: `assert_eq!(e.brush.r, ICON_BRUSH_R_MAX)`
@@ -1692,6 +1781,8 @@ mod tests {
         );
     }
 
+    /// Protects: `BRUSH_SEED` is the pinned literal and the stream advances between strokes.
+    ///
     /// The brush stream is seeded, not clock-driven, and the seed is fixed.
     ///
     /// Two independent editors must throw the **same** first stroke — that is
@@ -1717,6 +1808,7 @@ mod tests {
         );
     }
 
+    /// Protects: a non-finite brush number is rejected without losing the `on` change or the old values.
     #[test]
     fn set_brush_rejects_a_non_finite_number_but_still_applies_on() {
         let mut e = IconEditor::new();
@@ -1727,6 +1819,7 @@ mod tests {
         assert_eq!(e.brush.density, 0.9);
     }
 
+    /// Protects: a stamp on land adds several icons of the armed slot with rule-driven sizes, not the armed scale.
     #[test]
     fn a_brush_stamp_paints_a_stand_of_icons_on_land() {
         let mut e = brushed();
@@ -1745,6 +1838,7 @@ mod tests {
         }
     }
 
+    /// Protects: the brush stream advances between stamps (see the body's note on why the map is cleared between them).
     #[test]
     fn re_stamping_the_same_spot_throws_new_darts_rather_than_repeating_the_first_run() {
         // The reference's own reason for using `Math.random` here, asserted
@@ -1770,6 +1864,7 @@ mod tests {
         assert_ne!(first, second, "the second stamp threw the same darts as the first");
     }
 
+    /// Protects: a brush stamp over water places nothing.
     #[test]
     fn a_stamp_in_open_water_places_nothing() {
         // The gate the click path deliberately does not have.
@@ -1779,6 +1874,7 @@ mod tests {
         assert!(e.icons.is_empty());
     }
 
+    /// Protects: the brush places nothing when switched off or when nothing is armed.
     #[test]
     fn the_brush_places_nothing_while_it_is_switched_off_or_nothing_is_armed() {
         let field = shore(48, 32, 40);
@@ -1791,6 +1887,7 @@ mod tests {
         assert_eq!(unarmed.brush_stamp(&ScatterRule::default(), &field, 48, 32, 0.5, 10.0, 16.0), 0);
     }
 
+    /// Protects: brush stamps only append, leaving the selection and its icon untouched.
     #[test]
     fn a_brush_stamp_appends_and_leaves_an_existing_selection_pointing_at_the_same_icon() {
         let mut e = brushed();
