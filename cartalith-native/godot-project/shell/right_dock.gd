@@ -5751,49 +5751,45 @@ func _build_stops(body: Control) -> void:
 		"Every edit above is already live -- the ramp editor, this panel and the map all " +
 		"use the same ramp, so there is no separate Apply step.")
 
-## A small live gradient preview, mirroring `render_workspace.gd`'s own
-## `_update_ramp_bar` -- duplicated rather than shared because that one is
-## private to a panel built once and this one is rebuilt wholesale on every
-## `_rebuild()`, the tradeoff every other section in this file already makes.
+## The interactive ramp bar (milestone B of the editing-tools plan): a gradient
+## with a draggable handle per stop, built from `shell/ramp_bar.gd` (no
+## `class_name`, so it is loaded by path). Additive: the per-stop rows and
+## buttons below keep working. Drag a handle to move it, drag it off the bar to
+## delete it, click the bar to add one, double-click a handle for its colour;
+## every gesture writes the engine live and ends in ONE `_on_ramp_bar_edited`
+## call with `final = true`. Draws nothing for an empty ramp (nothing to
+## interpolate, and `Add` below is the way back in).
 func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
-	var tex := _ramp_bar_texture(stops, mode)
-	if tex == null:
+	if stops.is_empty():
 		return
-	var bar := TextureRect.new()
-	bar.texture = tex
-	bar.stretch_mode = TextureRect.STRETCH_SCALE
-	bar.custom_minimum_size.y = 16
-	bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var bar: Control = preload("res://shell/ramp_bar.gd").new()
+	bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres)
 	parent.add_child(bar)
+	bar.set_stops(stops, mode, _stops_selected)
 	_stops_bar = bar
 
-## The gradient texture `_build_ramp_bar` shows, split out so a colour sample can
-## swap the live bar's texture in place (`_refresh_stops_in_place`) instead of
-## rebuilding the dock. `null` for an empty ramp, which draws no bar.
-func _ramp_bar_texture(stops: Array, mode: String) -> GradientTexture1D:
-	var offsets := PackedFloat32Array()
-	var colors := PackedColorArray()
-	var sorted := stops.duplicate()
-	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
-	for s in sorted:
-		offsets.append(clampf(float(s[0]), 0.0, 1.0))
-		colors.append(s[1] as Color)
-	if offsets.is_empty():
-		return null
-	if offsets.size() == 1:
-		offsets.append(1.0)
-		colors.append(colors[0])
-	var grad := Gradient.new()
-	match mode:
-		"Step": grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
-		"Ease": grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
-		_: grad.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_LINEAR
-	grad.offsets = offsets
-	grad.colors = colors
-	var tex := GradientTexture1D.new()
-	tex.gradient = grad
-	tex.width = 256
-	return tex
+## The ramp bar's callback. Live ticks (`final == false`) only tell the map and
+## the CARTO editor (`on_ramp_edited_elsewhere`, the hook a colour edit uses) --
+## **never `_rebuild()` here**: it frees the bar mid-gesture (the confirmed bug
+## `_on_stop_color_changed` documents). The one `final` call re-syncs the
+## selection and rebuilds ONCE, deferred, because this runs inside the bar's own
+## input handler. There is no ramp undo in the engine (the global Undo is
+## heightmap-only), so "one step" means this one final call.
+func _on_ramp_bar_edited(_stops_now: Array, selected: int, final: bool) -> void:
+	_stops_selected = selected
+	_sync_carto_ramp()
+	if final:
+		call_deferred("_rebuild")
+
+## Tell the CARTO render workspace that the engine ramp changed from this dock,
+## so it re-renders the map and rebuilds its own ramp rows and bar. Every dock
+## edit that writes `bridge.set_color_ramp` must call this: the row buttons
+## (move, delete, add, reverse, blend mode) used to skip it, which left the CARTO
+## rows at a stale stop count (found by the 2026-10 ramp-bar probe).
+func _sync_carto_ramp() -> void:
+	for ws in app._workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			ws._render.on_ramp_edited_elsewhere()
 
 func _stops_row(parent: Control, idx: int, stops: Array) -> void:
 	var tablet := DccTheme.is_tablet()
@@ -5926,12 +5922,13 @@ func _find_stop_near(stops: Array, position: float) -> int:
 
 func _on_stops_mode_changed(i: int, modes: Array) -> void:
 	bridge.set_ramp_mode(String(modes[i]))
+	_sync_carto_ramp()
 	_rebuild()
 
 ## Live widgets of the stops section that show a stop's colour, so a colour
 ## sample can repaint them in place. Cleared at the top of `_build_stops` and
 ## guarded with `is_instance_valid` at use: a `_rebuild()` frees them.
-var _stops_bar: TextureRect
+var _stops_bar: Control
 var _stops_row_sw: Dictionary = {}
 var _stops_row_lbl: Dictionary = {}
 var _stops_head_lbl: Label
@@ -5973,7 +5970,7 @@ func _refresh_stops_in_place(stops: Array, idx: int) -> void:
 	if _stops_head_lbl != null and is_instance_valid(_stops_head_lbl):
 		_stops_head_lbl.text = "#%s" % col.to_html(false).to_upper()
 	if _stops_bar != null and is_instance_valid(_stops_bar):
-		_stops_bar.texture = _ramp_bar_texture(stops, bridge.ramp_mode())
+		_stops_bar.set_stops(stops, bridge.ramp_mode(), idx)
 
 func _on_stop_position_committed(idx: int, target: float) -> void:
 	var stops: Array = bridge.color_ramp()
@@ -5983,6 +5980,7 @@ func _on_stop_position_committed(idx: int, target: float) -> void:
 	if bridge.set_color_ramp(stops) <= 0:
 		return
 	_stops_selected = _find_stop_near(bridge.color_ramp(), target)
+	_sync_carto_ramp()
 	_rebuild()
 
 func _on_stop_delete(idx: int) -> void:
@@ -5993,6 +5991,7 @@ func _on_stop_delete(idx: int) -> void:
 	if bridge.set_color_ramp(stops) <= 0:
 		return
 	_stops_selected = -1
+	_sync_carto_ramp()
 	_rebuild()
 
 ## New stop in the widest gap, coloured with what the ramp already shows
@@ -6020,6 +6019,7 @@ func _on_stops_add() -> void:
 	if bridge.set_color_ramp(stops) <= 0:
 		return
 	_stops_selected = _find_stop_near(bridge.color_ramp(), at)
+	_sync_carto_ramp()
 	_rebuild()
 
 ## The design's own Reverse: the same colours, top to bottom.
@@ -6034,6 +6034,7 @@ func _on_stops_reverse() -> void:
 		return
 	if target >= 0.0:
 		_stops_selected = _find_stop_near(bridge.color_ramp(), target)
+	_sync_carto_ramp()
 	_rebuild()
 
 # -- Annotation (`rdAnno`, §1.10) --------------------------------------------

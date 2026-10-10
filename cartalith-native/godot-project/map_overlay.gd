@@ -193,6 +193,44 @@ const LABEL_CLASS_LOD := {
 ## this table is new.
 const LABEL_WEIGHT_LOD_SPREAD := 3.0
 
+## The UPPER half of the zoom-LOD schedule (owner, 2026-10-10: *"When zooming
+## in bigger labels for continents etc should fade out, that way they don't
+## block the view"*). `LABEL_CLASS_LOD` above only ever gates a label OFF below
+## a floor; this table fades the big map-wide names back OUT as the camera goes
+## in. Each value is `Vector2(start, end)` in the SAME unit `_label_below_lod`
+## uses, `_camera_zoom / _lod_zoom_base()`: the label is fully opaque at or below
+## `start`, fully gone (skipped before any geometry) at or above `end`, and
+## smoothstepped between (`_label_fade_alpha`). GENERATED rows only -- a
+## hand-placed label is the user's own content and is never faded -- and only the
+## classes listed here: settlement, water and landmark keep their existing
+## behaviour.
+##
+## **The numbers are a labelled judgement, from this measurement** (2026-10-10,
+## `_lfm_probe.gd`, the shell's default world: seed 483920, 1200 km, 2048x1311,
+## villages on, sea 0.42, a 950x858 map pane, `_lod_zoom_base()` 1.411, so the
+## camera zoom is that times the ratio): a generated continental name is a
+## "zoom"-mode label at `font_px` 8, 55-114 local px wide (the longest,
+## "The Garnandhaskdunfell Reach", 114), so on screen it is
+## `114 * 1.411 * ratio` px wide. That is **25 % of the pane width at ratio 1.5
+## and 50 % at 2.95** for the longest name (3.1 / 6.1 for the shortest). Its text
+## HEIGHT reaches 25 % / 50 % of the pane height only at ratio 19 / 38 -- but by
+## then the name is ~3x the pane's width, so height is not the dimension that
+## blocks the view and the schedule is keyed to width instead. `continental`
+## fades over `2.0 -> 6.0`: starting at 2.0 (the longest name ~34 % of the pane
+## wide) and gone at 6.0 (it would otherwise be ~100 % of the pane and a typical
+## 80 px name ~71 %). `region` is `4.0 -> 12.0`, deliberately later: its shipped
+## default is "fixed" size (18 px on screen at every zoom,
+## `_apply_generated_size_mode_override`), which cannot grow into a blocker, so
+## it only needs to drop out once a province is itself wider than the view; a
+## region switched to "zoom" mode would be ~1500 px wide (90 local px x 1.411 x
+## 12, against a 950 px pane) at the point it is gone, i.e. later than ideal for
+## that non-default case -- accepted, since the default cannot reach it. Tunable; there is no reference behaviour
+## (this layer is new).
+const LABEL_CLASS_FADE_OUT := {
+	"continental": Vector2(2.0, 6.0),
+	"region": Vector2(4.0, 12.0),
+}
+
 ## Reference's own low-zoom fallback dot (line 15752-15756):
 ## `dr=(isPoi?1.4:1.9)*lsc` plus a `+0.6*lsc` dark outline ring -- `lsc`
 ## there is this file's own per-frame `sc`.
@@ -1724,7 +1762,8 @@ func _label_weight_bias(klass: String, weight: float) -> float:
 ## generated `settlement`-class row is always gated true (see
 ## `LABEL_CLASS_LOD`'s own doc comment for why the generic layer never draws
 ## one at all: the settlement pin already draws that exact name, at that
-## exact point, with its own `SETTLEMENT_LOD`).
+## exact point, with its own `SETTLEMENT_LOD`). This is the LOWER bound only;
+## `_label_fade_alpha()` is the upper one and `_label_hidden()` combines both.
 func _label_below_lod(lb: Dictionary) -> bool:
 	if not bool(lb.get("generated", false)):
 		return false
@@ -1738,6 +1777,33 @@ func _label_below_lod(lb: Dictionary) -> bool:
 		return false
 	var bias := _label_weight_bias(klass, float(lb.get("weight", 0.0)))
 	return (_camera_zoom / _lod_zoom_base()) < base * bias
+
+## Opacity multiplier `[0, 1]` for the zoom-IN fade of a big generated label
+## (`LABEL_CLASS_FADE_OUT`): `1.0` at or below the class's `start` ratio, `0.0`
+## at or above its `end`, a smoothstep between, so zooming back out returns the
+## label along the same curve. Keyed on `_camera_zoom / _lod_zoom_base()` --
+## the camera, never the label's own font size -- so a "fixed" and a "zoom"
+## label (`_label_unit`, Ruling AP) fade at exactly the same zoom. Hand-placed
+## rows (`generated == false`) and classes without an entry always answer `1.0`.
+## Must never be applied to geometry or layout, only to ink alpha: a label's
+## size and position are the same at every alpha, and a `0.0` answer is a
+## cue to skip the label before any geometry, not to draw it invisibly.
+func _label_fade_alpha(lb: Dictionary) -> float:
+	if not bool(lb.get("generated", false)):
+		return 1.0
+	var klass := String(lb.get("class", ""))
+	if not LABEL_CLASS_FADE_OUT.has(klass):
+		return 1.0
+	var span: Vector2 = LABEL_CLASS_FADE_OUT[klass]
+	var ratio := _camera_zoom / _lod_zoom_base()
+	return 1.0 - smoothstep(span.x, span.y, ratio)
+
+## True when a label draws nothing this frame: below its lower zoom floor
+## (`_label_below_lod`) or fully faded out above its upper one
+## (`_label_fade_alpha() <= 0`). The one test every label pass uses, so a hidden
+## label also reserves no occupancy and costs no geometry or glyph warm-up.
+func _label_hidden(lb: Dictionary) -> bool:
+	return _label_below_lod(lb) or _label_fade_alpha(lb) <= 0.0
 
 ## `STORY_PLANNING_SCOPE.md` SP-2: one party marker per saved journey at the
 ## cursor date, in `journey_positions()`'s own dictionary shape. An entry with
@@ -2971,7 +3037,7 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 		## A label the zoom-LOD gate is hiding this frame must not reserve
 		## occupancy either -- `_draw_labels()`'s own copy of this same test,
 		## and `_settlement_hidden()`'s identical reasoning above.
-		if _label_below_lod(lb):
+		if _label_hidden(lb):
 			continue
 		var font := _label_font_for(lb)
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
@@ -3595,7 +3661,7 @@ func _list_warm_queue() -> Array:
 func _list_label_glyphs(rect: Rect2, jobs: Dictionary) -> void:
 	for lb: Dictionary in _labels:
 		var text: String = lb["text"]
-		if text.is_empty() or _label_below_lod(lb):
+		if text.is_empty() or _label_hidden(lb):
 			continue
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		var font := _label_font_for(lb)
@@ -3992,7 +4058,7 @@ func _label_chunk_bounds(rect: Rect2, parts: int) -> PackedInt32Array:
 		var lb: Dictionary = _labels[i]
 		var text: String = lb["text"]
 		w[i] = 1.0
-		if not text.is_empty() and not _label_below_lod(lb):
+		if not text.is_empty() and not _label_hidden(lb):
 			var font_px := _label_font_px(lb, rect)
 			var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 			var lu := _label_unit(lb)
@@ -4852,7 +4918,7 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 		## first: a hidden label costs nothing and never reserves occupancy a
 		## visible one would then be pushed out of (`_seed_label_occupancy`
 		## applies the identical gate for the same reason).
-		if _label_below_lod(lb):
+		if _label_hidden(lb):
 			continue
 		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
 		if not interior.has_point(pos):
@@ -4918,6 +4984,12 @@ func _draw_labels(rect: Rect2, interior: Rect2, from: int = 0, to: int = -1) -> 
 		var inks := label_inks(lb)
 		var fill: Color = inks[0]
 		var halo_col: Color = inks[1]
+		## Zoom-IN fade (`LABEL_CLASS_FADE_OUT`): ink alpha only, never geometry.
+		## Both the glyph fill and its halo carry it, so a half-faded label does
+		## not leave a solid outline behind a ghost fill.
+		var fade := _label_fade_alpha(lb)
+		fill.a *= fade
+		halo_col.a *= fade
 		## The class type spec, resolved against THIS file's font size rather
 		## than the engine's -- see `LABEL_HALO_EM_FALLBACK` and the long note
 		## on `ARC_*` above for why the two size models differ. `halo_em`/

@@ -1647,8 +1647,7 @@ func _tunable(key: String) -> Dictionary:
 ## "banded" is a statement about the whole plate.
 var _ramp: Array = []
 var _ramp_host: VBoxContainer
-var _ramp_bar: TextureRect
-var _ramp_gradient: Gradient
+var _ramp_bar: Control
 ## The engine's own mode name, cached so `_update_ramp_bar` (which runs on every
 ## drag frame) is not an engine call per frame.
 var _ramp_mode := ""
@@ -1695,15 +1694,11 @@ func _build_ramp() -> void:
 			+ "each stop -- the classic banded hypsometric plate. This belongs "
 			+ "to the ramp rather than to a stop, and survives every stop edit.")
 
-	_ramp_gradient = Gradient.new()
-	var tex := GradientTexture1D.new()
-	tex.gradient = _ramp_gradient
-	tex.width = 256
-	_ramp_bar = TextureRect.new()
-	_ramp_bar.texture = tex
-	_ramp_bar.stretch_mode = TextureRect.STRETCH_SCALE
-	_ramp_bar.custom_minimum_size.y = 16
-	_ramp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The interactive bar (`shell/ramp_bar.gd`, milestone B): drag / add / delete /
+	## double-click-for-colour on the stops, writing the engine ramp live. Above
+	## the rows, which stay (the bar is additive).
+	_ramp_bar = preload("res://shell/ramp_bar.gd").new()
+	_ramp_bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres)
 	body.add_child(_ramp_bar)
 
 	_ramp_host = VBoxContainer.new()
@@ -1804,40 +1799,22 @@ func _on_ramp_mode(name: String) -> void:
 	_mark_custom()
 	_refresh_map()
 
-## The gradient bar, straight from `_ramp` -- redrawn on every value change so
-## dragging a stop shows where it is going, even though the engine is only told
-## on release.
+## Hand the bar the CARTO editor's own stop list, so a swatch/slider/row edit
+## shows on the bar. The blend-mode drawing lives in `shell/ramp_bar.gd`
+## (Step constant; Ease is a cubic approximation of the renderer's smoothstep).
 func _update_ramp_bar() -> void:
-	if _ramp_gradient == null:
-		return
-	var offsets := PackedFloat32Array()
-	var colors := PackedColorArray()
-	var sorted := _ramp.duplicate()
-	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
-	for s in sorted:
-		offsets.append(clampf(float(s[0]), 0.0, 1.0))
-		colors.append(s[1])
-	if offsets.is_empty():
-		return
-	## `Gradient` rejects an empty pair and duplicates confuse its own
-	## interpolation, so a one-stop ramp is drawn as a flat two-stop one.
-	if offsets.size() == 1:
-		offsets.append(1.0)
-		colors.append(colors[0])
-	## Step is exact here; **Ease is an approximation**, and saying so is
-	## cheaper than a hand-baked 256-sample texture. `Gradient` offers cubic,
-	## not smoothstep, so the bar shows an eased join where the renderer's own
-	## `k^2(3-2k)` is a slightly different curve. The bar is a preview of the
-	## ramp, and `render.rs` remains the thing that draws the map.
-	match _ramp_mode:
-		"Step":
-			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
-		"Ease":
-			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
-		_:
-			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_LINEAR
-	_ramp_gradient.offsets = offsets
-	_ramp_gradient.colors = colors
+	if _ramp_bar != null and is_instance_valid(_ramp_bar):
+		_ramp_bar.set_stops(_ramp, _ramp_mode)
+
+## The ramp bar's callback (`shell/ramp_bar.gd`): it has already written the
+## engine ramp. Live ticks re-render the map and mark the look Custom; the one
+## `final` call also re-syncs the rows from the engine (a drag can add, delete or
+## re-select a stop), deferred because it fires inside the bar's input handler.
+func _on_ramp_bar_edited(_stops_now: Array, _selected: int, final: bool) -> void:
+	_mark_custom()
+	_refresh_map()
+	if final:
+		call_deferred("_sync_ramp")
 
 ## Metres above sea level a relative position stands for on *this* world.
 ## `0` before the parameter table is read, which reads as `0 m` on every row --
