@@ -396,6 +396,11 @@ func _assert_stage_groups() -> void:
 				+ "That section would have rendered EMPTY with no other symptom. "
 				+ "The engine's own groups are: %s." % ", ".join(known))
 
+## Builds the whole World dock once per panel instance (setup() calls it): the
+## Tools block, the one `_build_categories()` parameter pass,
+## Sculpt/Paint/Ecology/CRS bodies and Finalize. Never call it twice -- the
+## portrait watcher it registers and the bound slider rows assume one build;
+## rebuilds go through the per-panel `_build_*` functions.
 func _build() -> void:
 	## Before anything reads a group name: see `_assert_stage_groups()` for
 	## why a hardcoded group that params.rs dropped is a silent failure.
@@ -618,6 +623,10 @@ func _on_generation_finished(ok: bool) -> void:
 	DccWidgets.fill_when_visible(_ecology_body, _fill_ecology.bind(_ecology_body))
 	_build_crs(_crs_body)
 
+## Handler for the bridge's world-loaded signal (a save opened, not a
+## generate). Clears stale stage timing and re-gates the three
+## `world_structure`-overridden rows. Never touches other parameter rows: they
+## do not resync from a save.
 func _on_world_loaded() -> void:
 	## A load is not a generate: it never goes through `bridge.generation_stage`
 	## at all, so any timing left over from a previous run is stale and the
@@ -654,6 +663,9 @@ func apply_mode(mode: String) -> void:
 	super.apply_mode(mode)
 	_refresh_paint_tool_row(mode)
 
+## Shows the Biome-paint Tools row only in mode "b" (SCULPT); hides it
+## otherwise. A no-op when the row was not built (off-phone it lives in the top
+## palette bar) or was freed.
 func _refresh_paint_tool_row(mode: String) -> void:
 	if is_instance_valid(_paint_tool_row):
 		_paint_tool_row.visible = mode == "b"
@@ -1177,6 +1189,11 @@ func _pyramid_tiles(depth: int) -> String:
 		out += s[i]
 	return out
 
+## Builds the Finalize section: bake-depth choice (LOD 0-8, tile cost in the
+## label), the Bake ALL button, Un-finalize, Clear atlas and status notes.
+## Serves the reference's finalize flow; buttons call `_on_bake_all`,
+## `bridge.set_finalized(false)` and `bridge.atlas_clear()`, and
+## `_refresh_finalize` keeps them in step.
 func _build_finalize(parent: Control) -> void:
 	var foot := DccWidgets.section(parent, "Finalize")
 	_bake_status = DccWidgets.note(foot, "")
@@ -1227,6 +1244,11 @@ func _build_finalize(parent: Control) -> void:
 
 	_refresh_finalize()
 
+## Bake ALL levels & finalize button: bakes the LOD pyramid to `_bake_depth`
+## via `bridge.bake_estimate` / `bridge.bake_all`, then
+## `bridge.set_finalized(true)`. Returns early (nothing) when already
+## finalized. Synchronous on the main thread -- the one awaited frame only
+## paints the busy label; never re-enter while baking (the button is disabled).
 func _on_bake_all() -> void:
 	if bridge.is_finalized():
 		return
@@ -1271,6 +1293,11 @@ func bake_and_finalize() -> void:
 		return
 	_on_bake_all()
 
+## Re-syncs the Finalize section from `bridge.atlas_status()` and
+## `bridge.bake_estimate()`: bake vs Un-finalize visibility, enabled state (no
+## world = disabled), the shared bake-depth setting, tile-count notes, and the
+## tool bar's bake shortcut. Safe before `_build_finalize` ran (returns when
+## the button is null). Must not start a bake.
 func _refresh_finalize() -> void:
 	if _bake_button == null:
 		return
@@ -1567,6 +1594,11 @@ func _erode_defaults() -> Dictionary:
 		_erode_defaults_cache = d
 	return _erode_defaults_cache
 
+## Builds the droplet-erosion group: the reference's #erodeBtn sliders (ranges
+## transcribed from the reference, not looked up) plus the Erode button. Seeds
+## `_erode_op` from `_erode_defaults()` only on the first build so a post-
+## generate rebuild never discards dialled values. Gated on the `erode_op`
+## binding being present.
 func _build_droplet_erosion(grp: Control) -> void:
 	var live := bridge._has("erode_op")
 	## First build only. Later builds must NOT re-seed: this panel is rebuilt
@@ -1645,9 +1677,16 @@ func _build_droplet_erosion(grp: Control) -> void:
 			+ "droplet erosion is an operation on the finished field, not a generation stage, "
 			+ "so these are transcribed rather than looked up.")
 
+## Slider handler for one droplet-erosion parameter: stores `v` in
+## `_erode_op[key]`, rounded to int for `is_int` rows (droplets, thermal
+## passes). Only edits the pending dict; erosion runs only from `_run_erode`.
 func _on_erode_param(v: float, key: String, is_int: bool) -> void:
 	_erode_op[key] = int(round(v)) if is_int else v
 
+## Erode button: runs `WorldGen.erode_op(_erode_op)` on the finished world,
+## then repaints the map and invalidates LOD tiles without moving the camera.
+## Does nothing with no world or no binding; a failed result is reported
+## through the status line (reason or "unavailable"), never silently.
 func _run_erode() -> void:
 	if not bridge.has_world or not bridge._has("erode_op"):
 		return
@@ -1690,6 +1729,10 @@ func _build_fjord_row(grp: Control) -> void:
 	var fjord := DccWidgets.action(grp, "Carve fjords", _carve_fjords)
 	fjord.tooltip_text = "The reference's #fjordBtn. Cold, steep, competent-rock coast only -- a warm or low-relief world honestly carves nothing."
 
+## Carve fjords button (the reference's #fjordBtn): calls
+## `bridge.carve_fjords()`, then repaints like `_run_erode`. Does nothing with
+## no world. A world that carves nothing is a valid outcome (cells_carved 0
+## warns) -- not an error to retry.
 func _carve_fjords() -> void:
 	if not bridge.has_world:
 		return
@@ -2117,6 +2160,9 @@ var _geo_age_row = null ## `row_ref`'s shape: a Control, or a tablet reflow entr
 var _geo_age_note: Label = null
 var _geo_age_base_hint := ""
 
+## Wires the geological-age note under the age slider `s` (`row_ref` is its
+## row, `base_hint` its tooltip) and refreshes it live on `value_changed`.
+## Read-only against the engine: it never recomputes the world.
 func _attach_geo_age_readout(parent: Control, s: HSlider, row_ref, base_hint: String) -> void:
 	_geo_age_slider = s
 	_geo_age_row = row_ref
@@ -2195,6 +2241,10 @@ func _wire_row_reset(control: Control, revert: Callable, extra: Array = []) -> v
 	for t in targets:
 		(t as Control).gui_input.connect(on_input)
 
+## Toggle handler for a boolean parameter row: `bridge.param_set`, re-gates the
+## overridden rows when `world_structure.enabled` flips, marks stages from
+## `stage_index` stale, then `_regenerate_live()`. The shell refuses edits
+## while generating; never call it to start a generate directly.
 func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
 	bridge.param_set(key, v)
 	if key == "world_structure.enabled":
@@ -2259,6 +2309,10 @@ func _on_float_row_input(v: float, key: String, is_int: bool) -> void:
 		return
 	bridge.param_set(key, (int(round(v)) if is_int else v))
 
+## Slider-release handler for a numeric parameter row (the value itself was
+## already written during the drag). Sea level takes the live path
+## (`_apply_sea_level_live`) when available; every other key marks stages from
+## `stage_index` stale and calls `_regenerate_live()`. Commit-on-release only.
 func _on_float_row_released(key: String, is_int: bool, stage_index: int) -> void:
 	if key == SEA_LEVEL_KEY and _sea_live_available():
 		_apply_sea_level_live()
@@ -2336,6 +2390,9 @@ func _mark_stale_from(stage_index: int) -> void:
 	if _stale_note_label != null:
 		_stale_note_label.text = _stale_note_text()
 
+## Text for the stale-stage note: "Not stale" when `_stale_from_stage` is -1 (a
+## sentinel for none, not a stage index), otherwise the 1-based stage number
+## and name edited since the last Generate.
 func _stale_note_text() -> String:
 	if _stale_from_stage < 0:
 		return "Not stale -- the map matches every dial below."
@@ -2690,6 +2747,9 @@ func _build_feature_picker(parent: Control) -> void:
 	if not hint.is_empty():
 		DccWidgets.note(sec, hint)
 
+## Feature-picker button handler: sets the sculpt feature by KEY via
+## `bridge.sculpt_set_feature`, arms the "sculpt" tool and rebuilds the Sculpt
+## body. Never draws a stroke.
 func _on_feature_button_armed(key: String) -> void:
 	bridge.sculpt_set_feature(key)
 	app.arm_tool("sculpt")
@@ -2708,6 +2768,10 @@ func _on_feature_button_armed(key: String) -> void:
 const RING_UPLIFT_KEYS := ["mountains", "hills", "ridge", "plateau", "cliff", "volcano"]
 const RING_CARVE_KEYS := ["canyon", "valley", "river", "lake", "basin", "coastline"]
 
+## Context-ring provider (MAP_CONTEXT_SCOPE CM-3) for the World domain: returns
+## the four diagonal slots (NW/NE/SE/SW) as label/enabled/reason rows. Returns
+## `{}` (no ring) for any other domain, and disabled "no world loaded" rows
+## with empty labels when there is no world -- not real slots.
 func ring_slots(req: Dictionary) -> Dictionary:
 	if String(req.get("domain", "")) != "world":
 		return {}
@@ -2778,6 +2842,9 @@ func _ring_freehand_group(armed: String, current_feature: String, finalized: boo
 		row["enabled"] = true
 	return row
 
+## Ring action: select Freehand with sub-mode `mode_key` (`sculpt_set_feature`
+## + `sculpt_set_freehand_mode`), arm the sculpt tool, rebuild the Sculpt body
+## if it still exists.
 func _arm_ring_freehand(mode_key: String) -> void:
 	bridge.sculpt_set_feature("freehand")
 	bridge.sculpt_set_freehand_mode(mode_key)
@@ -2806,6 +2873,9 @@ func _ring_paint_group(armed: String, finalized: bool) -> Dictionary:
 		row["enabled"] = true
 	return row
 
+## Ring action: select paint layer `i` of `layers` through
+## `_on_paint_layer_changed` (the same path as the Target-field dropdown) and
+## arm the paint tool.
 func _arm_ring_paint(i: int, layers: PackedStringArray) -> void:
 	_on_paint_layer_changed(i, layers)
 	app.arm_tool("paint")
@@ -2826,6 +2896,9 @@ func _build_presets(parent: Control) -> void:
 		DccWidgets.action(grid, String(d.get("name", "Preset %d" % i)), _on_preset_pressed.bind(i))
 	DccWidgets.note(sec, "A preset seeds the feature and its own parameters -- it never paints; draw the stroke yourself afterward.")
 
+## Preset button handler: `bridge.sculpt_apply_preset(index)`, arms the sculpt
+## tool, rebuilds the Sculpt body. Applies parameters only -- no stroke, no
+## commit.
 func _on_preset_pressed(index: int) -> void:
 	bridge.sculpt_apply_preset(index)
 	app.arm_tool("sculpt")
@@ -2861,6 +2934,9 @@ func _build_feature_params(parent: Control) -> void:
 		var cval := float(live.get(key, cd.get("default", 0.0)))
 		DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, "", _on_feature_param_changed.bind(key))
 
+## Slider handler for one per-feature sculpt control:
+## `bridge.sculpt_set_feature_params({key: v})`. Affects points captured after
+## the change, not stamps already on the draft.
 func _on_feature_param_changed(v: float, key: String) -> void:
 	bridge.sculpt_set_feature_params({key: v})
 
@@ -2882,6 +2958,8 @@ func _build_freehand_modes(parent: Control) -> void:
 	DccWidgets.choice(sec, "Sub-mode", options, selected_index, _on_freehand_mode_changed.bind(modes))
 	DccWidgets.note(sec, "Raise/Lower/Smooth follow the drag; Cliff/Ridge/Canyon follow its direction; Mesa/Volcano stamp once at a tap.")
 
+## Sub-mode dropdown handler: `bridge.sculpt_set_freehand_mode(modes[i])`; `i`
+## indexes the same `modes` array the choice was built from.
 func _on_freehand_mode_changed(i: int, modes: PackedStringArray) -> void:
 	bridge.sculpt_set_freehand_mode(String(modes[i]))
 
@@ -2944,6 +3022,8 @@ func _build_brush_globals(parent: Control) -> void:
 	dice.pressed.connect(_on_sculpt_seed_dice)
 	seed_row.add_child(dice)
 
+## Slider handler for a Brush & noise global: `bridge.sculpt_set_globals({key:
+## v})`, rounded when `is_int`. Does not rebuild the panel or touch the draft.
 func _on_global_changed(v: float, key: String, is_int: bool) -> void:
 	bridge.sculpt_set_globals({key: (round(v) if is_int else v)})
 
@@ -2991,11 +3071,17 @@ func _build_grid_snap(sec: Control) -> void:
 		+ "Applies to points captured after the change, not to the stroke in progress "
 		+ "or to stamps already on the draft.")
 
+## Grid-snap dropdown handler: index 0 is Off and stores 0.0 (the engine's
+## "off"); otherwise `steps[i - 1]` is passed to `bridge.sculpt_set_grid_snap`.
+## Affects points captured afterwards.
 func _on_grid_snap_changed(i: int, steps: PackedFloat64Array) -> void:
 	## Index 0 is Off, so `i - 1` indexes the ladder. A 0.0 step is what the
 	## engine reads as "off"; it is never stored as a snap value.
 	bridge.sculpt_set_grid_snap(0.0 if i <= 0 else float(steps[i - 1]))
 
+## Dice button: gives the sculpt noise a random seed via
+## `bridge.sculpt_set_seed(randi())` and rebuilds the Sculpt body to show it.
+## Non-deterministic by design; this is not the world seed.
 func _on_sculpt_seed_dice() -> void:
 	bridge.sculpt_set_seed(randi())
 	_build_sculpt(_sculpt_body)
@@ -3052,6 +3138,9 @@ var _sculpt_count_note: Label
 var _sculpt_commit_btn: Button
 var _sculpt_discard_btn: Button
 
+## Builds the Draft section: stamp count note and the Commit / Discard actions,
+## both disabled at zero stamps. Keeps handles in `_sculpt_commit_btn` for
+## later refreshes.
 func _build_sculpt_draft(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Draft")
 	var count := bridge.sculpt_stamp_count()
@@ -3120,6 +3209,10 @@ func _build_force_lake_row(parent: Control) -> void:
 	btn.tooltip_text = "Reclassifies painted lake cells over this world's live water-body classification." \
 		if live else "This build of the app is missing the painted-lake binding -- rebuild it to enable this button."
 
+## Painted-lakes button: `world_gen.apply_force_lake()` (Ruling BO)
+## reclassifies painted lake cells, then repaints the map and LOD tiles without
+## moving the camera. Does nothing with no world or no binding; a failure is
+## shown through the status line with its reason.
 func _on_force_lake() -> void:
 	if not bridge.has_world or not bridge._has("apply_force_lake"):
 		return
@@ -3142,6 +3235,9 @@ func _on_force_lake() -> void:
 				% [forced, "" if forced == 1 else "s", int(r.get("lake_cells", 0))]),
 		"text_ghost")
 
+## Commit to map: `bridge.sculpt_commit("sculpt")`, then re-fetches the colour
+## texture, invalidates LOD tiles, clears the preview and rebuilds the panel.
+## Must never reset the camera (hence no `ViewportHost.refresh()`).
 func _on_sculpt_commit() -> void:
 	bridge.sculpt_commit("sculpt")
 	## `build_color_texture()` reads the live (now-baked) field fresh on every
@@ -3163,6 +3259,9 @@ func _on_sculpt_commit() -> void:
 	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
 		app.right_dock_ctrl.show_sculpt_stack()
 
+## Discard draft: `bridge.sculpt_discard()`, clears the preview overlay,
+## rebuilds the Sculpt body and refreshes the right dock's stack. The map is
+## untouched.
 func _on_sculpt_discard() -> void:
 	bridge.sculpt_discard()
 	app.viewport.set_preview_texture(null)
@@ -3198,6 +3297,10 @@ func _sculpt_click(gx: float, gy: float) -> void:
 	_sculpt_stroke_points = PackedVector2Array([bridge.sculpt_snap(gx, gy)])
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
 
+## Stroke motion sample: opens a stroke on the first point
+## (`sculpt_begin_stroke`), adds the point to the engine and the snapped point
+## to the on-screen polyline. The preview texture is deliberately not rebuilt
+## mid-drag.
 func _sculpt_drag(gx: float, gy: float) -> void:
 	if _sculpt_stroke_points.is_empty():
 		bridge.sculpt_begin_stroke()
@@ -3532,6 +3635,8 @@ func _step_paint_radius(dir: int) -> void:
 	_on_paint_radius_changed(clampf(float(_paint_brush["radius"]) + dir, 1.0, 40.0))
 	_rebuild_paint_body()
 
+## Rebuilds the Paint body if it still exists (freed after a project re-open);
+## otherwise a no-op.
 func _rebuild_paint_body() -> void:
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
@@ -3772,6 +3877,10 @@ func _build_paint(parent: Control) -> void:
 		"Splat has no map colour of its own -- it forces a pack ground texture, and shows " +
 		"nothing without a pack loaded.")
 
+## Target-field dropdown handler: selects `layers[i]` via
+## `bridge.paint_set_layer`, resets the brush value to 1 (a real first value,
+## not "none"), then rebuilds the body, right-dock paint and the on-map
+## "original" sync.
 func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 	_paint_layer = String(layers[i])
 	bridge.paint_set_layer(_paint_layer)
@@ -3807,37 +3916,55 @@ func _on_paint_value_picked_from_dock(value_index: int) -> void:
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
 
+## Value dropdown handler: sets the brush value to the palette entry's `index`
+## (fallback 1) and syncs the engine brush.
 func _on_paint_value_changed(i: int, palette: Array) -> void:
 	var pd: Dictionary = palette[i]
 	_paint_brush["value"] = int(pd.get("index", 1))
 	_sync_paint_brush()
 
+## Radius slider handler: stores the brush radius and syncs it to the engine.
 func _on_paint_radius_changed(v: float) -> void:
 	_paint_brush["radius"] = v
 	_sync_paint_brush()
 
+## Hardness slider handler: stores the brush hardness and syncs it to the
+## engine.
 func _on_paint_hardness_changed(v: float) -> void:
 	_paint_brush["hardness"] = v
 	_sync_paint_brush()
 
+## Softness slider handler: stores the brush softness and syncs it to the
+## engine.
 func _on_paint_softness_changed(v: float) -> void:
 	_paint_brush["softness"] = v
 	_sync_paint_brush()
 
+## Erase toggle handler: stores the flag and syncs it to the engine. Erase
+## removes paint; it never edits terrain.
 func _on_paint_erase_changed(v: bool) -> void:
 	_paint_brush["erase"] = v
 	_sync_paint_brush()
 
+## Land-only toggle handler: stores the flag and syncs it so dabs skip water
+## cells.
 func _on_paint_land_only_changed(v: bool) -> void:
 	_paint_brush["land_only"] = v
 	_sync_paint_brush()
 
+## Pushes the whole `_paint_brush` Dictionary (value, radius, hardness,
+## softness, erase, land_only) to `bridge.paint_set_brush`. Every brush edit
+## goes through here so the engine never holds a partial brush.
 func _sync_paint_brush() -> void:
 	bridge.paint_set_brush(
 		int(_paint_brush["value"]), float(_paint_brush["radius"]),
 		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
 		bool(_paint_brush["erase"]), bool(_paint_brush["land_only"]))
 
+## Commit paint: `bridge.paint_commit()` bakes the draft into the paint layers,
+## then re-fetches the colour texture (which composites them), invalidates LOD
+## tiles, clears the draft preview and refreshes the tool bar and right dock.
+## Must not move the camera.
 func _on_paint_commit() -> void:
 	var summary: Dictionary = bridge.paint_commit()
 	## The same pair `_on_sculpt_commit` uses, for the same reason: since
@@ -3859,6 +3986,9 @@ func _on_paint_commit() -> void:
 	_rebuild_tool_bar()
 	_refresh_right_dock_paint()
 
+## Discard paint draft: `bridge.paint_discard()`, repaints the preview from the
+## surviving committed layer (marked as the dab base) and refreshes the body,
+## tool bar and right dock. Committed paint is kept.
 func _on_paint_discard() -> void:
 	bridge.paint_discard()
 	## `true`: the committed layer that survives a discard is exactly the base
@@ -3953,12 +4083,18 @@ func _paint_show_preview() -> void:
 		return
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 
+## Map press with the paint tool: applies the first dab via `_paint_apply_dab`.
 func _paint_click(gx: float, gy: float) -> void:
 	_paint_apply_dab(gx, gy)
 
+## Map motion with the paint tool: applies one dab per sample via
+## `_paint_apply_dab`.
 func _paint_drag(gx: float, gy: float) -> void:
 	_paint_apply_dab(gx, gy)
 
+## End of a paint stroke (arguments unused): rebuilds the body once and
+## refreshes the tool bar, right dock and phone Paint column. UI only; the
+## draft stays uncommitted.
 func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
@@ -4108,9 +4244,13 @@ var _pg_stale_label: Label
 func _pg_px(px: float) -> int:
 	return app._pscale(px) if app != null else int(round(px))
 
+## Phone-generate helper: scales a touch target but never below
+## `DccTheme.PHONE_TAP_MIN`; unscaled floor when `app` is null.
 func _pg_tap(px: float) -> int:
 	return app._ptap(px) if app != null else int(round(maxf(DccTheme.PHONE_TAP_MIN, px)))
 
+## Phone-generate helper: phone font size for `px`, or `px` rounded when `app`
+## is null.
 func _pg_fs(px: float) -> int:
 	return app._pfont(px) if app != null else int(round(px))
 
@@ -4131,6 +4271,8 @@ func _pg_chip() -> Color:
 func _pg_warn() -> Color:
 	return DccTheme.c("warn")
 
+## Phone-generate helper: a rounded `StyleBoxFlat` of `bg`; a border is added
+## only when `border_px > 0`.
 func _pg_box(bg: Color, radius: int, border_col: Color = Color(0, 0, 0, 0),
 		border_px: int = 0) -> StyleBoxFlat:
 	var b := StyleBoxFlat.new()
@@ -4141,6 +4283,8 @@ func _pg_box(bg: Color, radius: int, border_col: Color = Color(0, 0, 0, 0),
 		b.set_border_width_all(border_px)
 	return b
 
+## Phone-generate helper: a mono-font Label for `text` in theme `token`, at the
+## phone-scaled size.
 func _pg_mono(text: String, token: String, px: float, spacing: int = 0,
 		medium: bool = false) -> Label:
 	var l := DccTheme.mono_label(text, token, _pg_fs(px), spacing, medium)
@@ -4166,14 +4310,20 @@ func build_phone_generate(host: VBoxContainer) -> void:
 func refresh_phone_generate() -> void:
 	_pg_rebuild()
 
+## Generate-started handler for the phone column: resets the stage index to 0
+## and rebuilds so the progress view shows.
 func _pg_on_started() -> void:
 	_pg_stage_index = 0
 	_pg_rebuild()
 
+## Stage-progress handler: records the new `index` and repaints the progress
+## bar only (no rebuild). The name and total are unused.
 func _pg_on_stage(index: int, _name: String, _total: int) -> void:
 	_pg_stage_index = index
 	_pg_paint_progress()
 
+## Generate-finished handler: sets the stage index back to -1 (the not-running
+## sentinel) and rebuilds. Same path for success and failure (`_ok` is unused).
 func _pg_on_finished(_ok: bool) -> void:
 	_pg_stage_index = -1
 	_pg_rebuild()
@@ -4679,6 +4829,8 @@ func _pg_group(parent: Control, index: int) -> void:
 	pad.add_child(body)
 	_pg_fill_group(body, index)
 
+## Toggles the open state of pipeline stage group `index` in the phone column
+## (default closed) and rebuilds.
 func _pg_toggle_group(index: int) -> void:
 	_pg_open[index] = not bool(_pg_open.get(index, false))
 	_pg_rebuild()
@@ -5097,6 +5249,10 @@ func _pg_sculpt(parent: Control) -> void:
 		_on_sculpt_commit()
 		_pg_rebuild()))
 
+## Phone-sheet Sculpt slider for one control `spec`
+## (key/label/min/max/step/int): a label plus live readout over a `PgSlider`;
+## on drag end it writes `bridge.sculpt_set_globals({key: value})`. Touch
+## target is floored at 44 dp.
 func _pg_sculpt_slider(parent: Control, spec: Dictionary, value: float) -> void:
 	var key := String(spec.get("key", ""))
 	var wrap := VBoxContainer.new()
