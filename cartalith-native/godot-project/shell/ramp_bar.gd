@@ -23,8 +23,11 @@ extends Control
 ## defer it, since this node is inside its own input handler when that fires).
 ##
 ## Undo: the engine has no ramp history (the global Undo is heightmap-only), so
-## "one commit" here means one `final` callback, not an undo entry. Never invent
-## a history system in this file.
+## "one commit" here means one `final` callback. This file owns no history; the
+## shared look history (`shell/look_history.gd`, Ruling BY item 2) is driven by the
+## HOST: `on_begin` fires once when a gesture starts (BEFORE its first engine
+## write) so the host can snapshot, and the host pushes the entry from its `final`
+## callback. Never invent a history system in this file.
 
 ## Pixels beyond the bar's vertical extent at which a held handle means "delete".
 ## A labelled judgement, borrowed from PhotoCraft's gradient widget behaviour.
@@ -47,6 +50,9 @@ const TOUCH_PX := 44.0
 
 var bridge: Object
 var on_edited: Callable
+## Called once at the start of a gesture (drag press, add-click, colour popup
+## open), before the first engine write. See the Undo paragraph above.
+var on_begin: Callable
 ## `Callable(offset: float) -> float` giving metres for the drag label.
 var metres_fn: Callable
 var selected := -1
@@ -67,10 +73,12 @@ var _drag_off := 0.0     ## offset of the dragged stop, for the label position
 
 ## Configure the bar and give it its first stops. `host_bridge` needs
 ## `color_ramp()`/`set_color_ramp()`. Call once, before adding to the tree.
-func setup(host_bridge: Object, edited: Callable, metres: Callable) -> void:
+## `begin` (optional, no arguments) is the gesture-start hook described above.
+func setup(host_bridge: Object, edited: Callable, metres: Callable, begin: Callable = Callable()) -> void:
 	bridge = host_bridge
 	on_edited = edited
 	metres_fn = metres
+	on_begin = begin
 	_tex.gradient = _grad
 	_tex.width = 256
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -193,6 +201,8 @@ func _gui_input(event: InputEvent) -> void:
 ## Select stop `i` and start dragging it. `_base` is the list at press; every
 ## tick is computed from it so dragging off the bar and back is lossless.
 func _begin_drag(i: int) -> void:
+	if on_begin.is_valid():
+		on_begin.call()   ## before any write: `_add_at` writes only after this returns
 	selected = i
 	_base = _sorted_copy(_stops)
 	_drag = i
@@ -325,6 +335,8 @@ func _open_colour(i: int) -> void:
 		_pick.color_changed.connect(func(c: Color): _set_colour(_edit_idx, c, false))
 		DccWidgets.confirmable_color(_pick, func(c: Color): _set_colour(_edit_idx, c, false))
 		_pick.popup_closed.connect(_on_pick_closed)
+	if on_begin.is_valid():
+		on_begin.call()   ## the colour dialog's live ticks write the engine
 	_edit_idx = i
 	var c: Color = _stops[i][1]
 	_pick.color = Color(c.r, c.g, c.b, 1.0)

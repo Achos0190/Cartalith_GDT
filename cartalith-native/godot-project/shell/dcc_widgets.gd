@@ -3238,7 +3238,17 @@ const _CONFIRM_META := "_dcc_confirmable_color"
 ## Call it once per picker, right after creating it and BEFORE connecting a
 ## `popup_closed` handler that re-renders: this helper's revert must run first
 ## so that handler sees the reverted colour. Safe to call twice (meta-guarded).
-static func confirmable_color(pick: ColorPickerButton, on_revert: Callable) -> void:
+##
+## **Optional undo-history hooks** (Ruling BY item 2, `shell/look_history.gd`):
+## `on_open` (no arguments) runs when the popup opens, BEFORE any live tick, so a
+## caller can snapshot the state the dialog will change; `on_commit` (no
+## arguments) runs once on OK when the colour actually differs from the opening
+## one. Cancel, Escape and an outside click call neither `on_commit` nor push
+## anything -- the revert above already put the state back. The live
+## `color_changed` ticks never reach either hook, so a drag is one entry, not
+## one per tick.
+static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
+		on_open: Callable = Callable(), on_commit: Callable = Callable()) -> void:
 	if pick == null or pick.has_meta(_CONFIRM_META):
 		return
 	pick.set_meta(_CONFIRM_META, true)
@@ -3287,13 +3297,17 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable) -> v
 		st["ok"] = false
 		st["open"] = true
 		was.color = pick.color
-		now.color = pick.color)
+		now.color = pick.color
+		if on_open.is_valid():
+			on_open.call())
 	pick.color_changed.connect(func(c: Color): now.color = c)
 	var cancel_close := func():
 		if not st["open"]:
 			return
 		st["open"] = false
 		var old: Color = st["old"]
+		if st["ok"] and pick.color != old and on_commit.is_valid():
+			on_commit.call()
 		if st["ok"] or pick.color == old:
 			return
 		pick.color = old

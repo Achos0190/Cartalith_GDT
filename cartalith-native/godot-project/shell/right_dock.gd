@@ -5763,7 +5763,7 @@ func _build_ramp_bar(parent: Control, stops: Array, mode: String) -> void:
 	if stops.is_empty():
 		return
 	var bar: Control = preload("res://shell/ramp_bar.gd").new()
-	bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres)
+	bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres, _look_begin)
 	parent.add_child(bar)
 	bar.set_stops(stops, mode, _stops_selected)
 	_stops_bar = bar
@@ -5779,7 +5779,44 @@ func _on_ramp_bar_edited(_stops_now: Array, selected: int, final: bool) -> void:
 	_stops_selected = selected
 	_sync_carto_ramp()
 	if final:
+		## Shared look history (Ruling BY item 2): the bar's `on_begin`
+		## (`_look_begin`) snapshotted at press; this is the one entry per gesture.
+		## A Cancelled colour popup reverted already, so the data-equality check in
+		## `LookHistory.commit` pushes nothing for it.
+		_look_commit("Ramp bar edit")
 		call_deferred("_rebuild")
+
+## The CARTO render workspace, which owns the look snapshot/commit helpers
+## (`RenderWorkspace.look_begin/look_commit`), or null. Same lookup
+## `_sync_carto_ramp()` uses.
+func _look_render() -> RenderWorkspace:
+	for ws in app._workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			return ws._render
+	return null
+
+## Open a look-history gesture for the ramp (snapshot BEFORE the first write).
+func _look_begin() -> void:
+	var rw := _look_render()
+	if rw != null:
+		rw.look_begin(["ramp"])
+
+## Close it with one entry named `label` (nothing is pushed when the ramp ended
+## up equal to what it was).
+func _look_commit(label: String) -> void:
+	var rw := _look_render()
+	if rw != null:
+		rw.look_commit(label, ["ramp"])
+
+## `RenderWorkspace.on_look_restored` is the CARTO half of an undo/redo; this is
+## the dock's own: rebuild the stops section from the engine ramp so the rows, the
+## bar and the selected-stop picker show the restored stops. Called by
+## `DccApp.look_undo/redo` through the workspace broadcast.
+func on_look_restored(snap: Dictionary) -> void:
+	if not (snap.has("ramp") or snap.has("mode")):
+		return   ## a biome-only or style-only step leaves the stops section alone
+	_stops_selected = -1
+	_rebuild()
 
 ## Tell the CARTO render workspace that the engine ramp changed from this dock,
 ## so it re-renders the map and rebuilds its own ramp rows and bar. Every dock
@@ -5852,7 +5889,8 @@ func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
 	## OK / Cancel / was-now. Cancel, Escape and an outside click send the opening
 	## colour back through the SAME handler the live drag uses, so the engine
 	## ramp, the in-place repaint and the CARTO editor all return together.
-	DccWidgets.confirmable_color(picker, func(c: Color): _on_stop_color_changed(c, idx))
+	DccWidgets.confirmable_color(picker, func(c: Color): _on_stop_color_changed(c, idx),
+		_look_begin, func(): _look_commit("Ramp stop colour"))
 	head.add_child(picker)
 	_stops_head_lbl = DccTheme.mono_label("#%s" % col.to_html(false).to_upper(), "text", DccTheme.FS_SMALL)
 	head.add_child(_stops_head_lbl)
@@ -5885,6 +5923,7 @@ func _build_selected_stop(body: Control, idx: int, stops: Array) -> void:
 	pos_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	pos_row.add_child(pos_readout)
 	pos_slider.value_changed.connect(func(v: float): pos_readout.text = "%d m" % int(round(_ramp_metres(v))))
+	pos_slider.drag_started.connect(_look_begin)
 	pos_slider.drag_ended.connect(func(_c: bool): _on_stop_position_committed(idx, pos_slider.value))
 	sec.add_child(pos_row)
 
@@ -5921,7 +5960,9 @@ func _find_stop_near(stops: Array, position: float) -> int:
 	return best
 
 func _on_stops_mode_changed(i: int, modes: Array) -> void:
+	_look_begin()
 	bridge.set_ramp_mode(String(modes[i]))
+	_look_commit("Ramp blend: %s" % String(modes[i]))
 	_sync_carto_ramp()
 	_rebuild()
 
@@ -5979,6 +6020,7 @@ func _on_stop_position_committed(idx: int, target: float) -> void:
 	stops[idx][0] = target
 	if bridge.set_color_ramp(stops) <= 0:
 		return
+	_look_commit("Move ramp stop")
 	_stops_selected = _find_stop_near(bridge.color_ramp(), target)
 	_sync_carto_ramp()
 	_rebuild()
@@ -5987,9 +6029,11 @@ func _on_stop_delete(idx: int) -> void:
 	var stops: Array = bridge.color_ramp()
 	if stops.size() <= 1 or idx < 0 or idx >= stops.size():
 		return
+	_look_begin()
 	stops.remove_at(idx)
 	if bridge.set_color_ramp(stops) <= 0:
 		return
+	_look_commit("Delete ramp stop")
 	_stops_selected = -1
 	_sync_carto_ramp()
 	_rebuild()
@@ -6015,9 +6059,11 @@ func _on_stops_add() -> void:
 	elif sorted.size() == 1:
 		at = clampf(float(sorted[0][0]) + 0.25, 0.0, 1.0)
 		col = sorted[0][1] as Color
+	_look_begin()
 	stops.append([at, col])
 	if bridge.set_color_ramp(stops) <= 0:
 		return
+	_look_commit("Add ramp stop")
 	_stops_selected = _find_stop_near(bridge.color_ramp(), at)
 	_sync_carto_ramp()
 	_rebuild()
@@ -6028,10 +6074,12 @@ func _on_stops_reverse() -> void:
 	var target := -1.0
 	if _stops_selected >= 0 and _stops_selected < stops.size():
 		target = 1.0 - float(stops[_stops_selected][0])
+	_look_begin()
 	for s in stops:
 		s[0] = 1.0 - float(s[0])
 	if bridge.set_color_ramp(stops) <= 0:
 		return
+	_look_commit("Reverse ramp")
 	if target >= 0.0:
 		_stops_selected = _find_stop_near(bridge.color_ramp(), target)
 	_sync_carto_ramp()

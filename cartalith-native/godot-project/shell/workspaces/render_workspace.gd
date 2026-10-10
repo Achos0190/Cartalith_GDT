@@ -1077,7 +1077,11 @@ func _build_biome_colours() -> void:
 		## OK / Cancel / was-now. Connected BEFORE `popup_closed` below so a cancel
 		## writes the opening colour back to the engine first, and the one
 		## re-render `_after_biome_edit` does sees the reverted table.
-		DccWidgets.confirmable_color(pick, func(c: Color): bridge.set_biome_color(index, c))
+		## History hooks (Ruling BY item 2): snapshot the table at popup open, push
+		## ONE entry on OK. The live `color_changed` ticks above push nothing.
+		DccWidgets.confirmable_color(pick, func(c: Color): bridge.set_biome_color(index, c),
+			func(): look_begin(["biomes"]),
+			func(): look_commit("Biome colour", ["biomes"]))
 		pick.popup_closed.connect(_after_biome_edit)
 		row.add_child(pick)
 		_biome_swatches.append(pick)
@@ -1122,6 +1126,7 @@ func _build_map_style() -> void:
 		if String(STYLE_PRESETS[i][1]) == live_look:
 			lit = i
 			break
+	_active_preset = lit
 	for i in STYLE_PRESETS.size():
 		var tile := _preset_tile(row, i, look_names)
 		_set_tile_on(tile, i == lit)
@@ -1388,6 +1393,9 @@ func _set_tile_on(tile: Dictionary, on: bool) -> void:
 		DccTheme.c("text" if on else "text_dim"))
 
 func _apply_preset(index: int) -> void:
+	## One undo entry for the whole bundle (look + Painter + overrides + ramp);
+	## committed at the end of this function. Ruling BY item 2.
+	look_begin(["style", "ramp"])
 	var values: Dictionary = STYLE_MANAGED.duplicate()
 	for key in Dictionary(STYLE_PRESETS[index][2]):
 		values[key] = STYLE_PRESETS[index][2][key]
@@ -1437,6 +1445,7 @@ func _apply_preset(index: int) -> void:
 		elif row.has("check"):
 			row["check"].set_pressed_no_signal(bool(values[key]))
 	_applying = false
+	_active_preset = index
 	for i in _preset_tiles.size():
 		_set_tile_on(_preset_tiles[i], i == index)
 	if _custom_note != null:
@@ -1451,15 +1460,18 @@ func _apply_preset(index: int) -> void:
 		## Absolute like every other element -- a preset with no row pushes `{}`,
 		## which clears the previous preset's treatment rather than leaving it.
 		app.viewport.set_overlay_treatment(overlay_treatment_for(String(STYLE_PRESETS[index][0])))
+	look_commit("Style: %s" % String(STYLE_PRESETS[index][0]), ["style", "ramp"])
 
 ## Pick a base look on its own. Marks Custom, because the tiles above name a
 ## look *and* a Painter bundle and only one half moved.
 func _on_look(name: String) -> void:
+	look_begin(["style"])
 	if not bridge.set_look(name):
 		return
 	_sync_appearance()
 	_refresh_map()
 	_mark_custom()
+	look_commit("Base look: %s" % name, ["style"])
 
 ## Re-select the picker after a Map-style tile changed the look underneath it.
 func _sync_look_pick() -> void:
@@ -1475,12 +1487,95 @@ func _sync_look_pick() -> void:
 func _mark_custom() -> void:
 	if _applying:
 		return
+	_active_preset = -1
 	for tile in _preset_tiles:
 		_set_tile_on(tile, false)
 	if _custom_note != null:
 		_custom_note.visible = true
 	if app != null and app.viewport != null:
 		app.viewport.set_style_readout("Custom")
+
+# -- Shared look undo/redo (Ruling BY item 2; `shell/look_history.gd`) ---------
+#
+# Every look edit that this workspace or the right dock makes brackets its engine
+# writes with `look_begin()` / `look_commit()`; the history object itself lives on
+# `DccApp.look_history` so Edit > Undo/Redo can reach it. Snapshots are plain
+# data read back through the bridge -- nothing is invented that the bridge cannot
+# read.
+
+const _LookHistory := preload("res://shell/look_history.gd")
+
+## Index into `STYLE_PRESETS` of the tile drawn lit, or `-1` after a manual edit
+## ("Custom"). Mirrors `_set_tile_on` calls so a snapshot can restore the gallery.
+var _active_preset := -1
+
+## Snapshot `parts` ("ramp", "biomes", "style") plus the gallery chrome. `{}` when
+## there is no app/history to record into (a probe that builds the workspace alone).
+func look_snapshot(parts: Array) -> Dictionary:
+	if app == null:
+		return {}
+	var s: Dictionary = _LookHistory.snapshot(bridge, parts, _preset_appearance_keys())
+	var chrome := {
+		"active": _active_preset,
+		"custom_note": _custom_note != null and _custom_note.visible,
+	}
+	## Private reads of the viewport's own readout/overlay ink: it has no public
+	## getter and `viewport_host.gd` is outside this change's file list.
+	if app.viewport != null:
+		chrome["readout"] = String(app.viewport._style_readout)
+		chrome["overlay"] = Dictionary(app.viewport._overlay_treatment).duplicate(true)
+	s[_LookHistory.CHROME] = chrome
+	return s
+
+## Open a gesture: snapshot BEFORE the first engine write.
+func look_begin(parts: Array = ["ramp"]) -> void:
+	if app != null and app.look_history != null:
+		app.look_history.begin_gesture(look_snapshot(parts))
+
+## Close the gesture with one entry (skipped when the data did not change).
+func look_commit(label: String, parts: Array = ["ramp"]) -> void:
+	if app != null and app.look_history != null:
+		app.look_history.commit(label, look_snapshot(parts), bridge)
+
+## The inverse of `look_snapshot()` for the widgets only this workspace owns:
+## `DccApp.look_undo/redo` has already written the engine; this pulls every view
+## of it back -- the CARTO rows and bar, the biome swatches, the Base look picker,
+## the Rendering-advanced and Painter rows, the gallery and the viewport readout
+## -- and re-renders once. `_applying` keeps the syncs from marking Custom.
+func on_look_restored(snap: Dictionary) -> void:
+	_applying = true
+	if snap.has("style"):
+		_sync_look_pick()
+		_sync_appearance()
+		var npr: Dictionary = bridge.npr_settings()
+		for key in npr:
+			if not _npr_rows.has(key):
+				continue
+			var row: Dictionary = _npr_rows[key]
+			if row.has("slider"):
+				row["slider"].value = float(npr[key])
+			elif row.has("check"):
+				row["check"].set_pressed_no_signal(bool(npr[key]))
+	if snap.has("ramp") or snap.has("mode"):
+		_sync_ramp()
+	if snap.has("biomes"):
+		_sync_biome_colours()
+	var chrome: Dictionary = snap.get(_LookHistory.CHROME, {})
+	if not chrome.is_empty():
+		_active_preset = int(chrome.get("active", -1))
+		for i in _preset_tiles.size():
+			_set_tile_on(_preset_tiles[i], i == _active_preset)
+		if _custom_note != null:
+			_custom_note.visible = bool(chrome.get("custom_note", false))
+		if app != null and app.viewport != null:
+			app.viewport.set_style_readout(String(chrome.get("readout", "Default")))
+			app.viewport.set_overlay_treatment(Dictionary(chrome.get("overlay", {})))
+	_applying = false
+	_refresh_map()
+	if snap.has("biomes") and app != null:
+		var ws = app._world_workspace()
+		if ws != null:
+			ws.on_biome_colours_changed()
 
 # -- The reference's Rendering-advanced block (reference HTML 1731-1751) -------
 
@@ -1698,7 +1793,7 @@ func _build_ramp() -> void:
 	## double-click-for-colour on the stops, writing the engine ramp live. Above
 	## the rows, which stay (the bar is additive).
 	_ramp_bar = preload("res://shell/ramp_bar.gd").new()
-	_ramp_bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres)
+	_ramp_bar.setup(bridge, _on_ramp_bar_edited, _ramp_metres, func(): look_begin(["ramp"]))
 	body.add_child(_ramp_bar)
 
 	_ramp_host = VBoxContainer.new()
@@ -1792,12 +1887,14 @@ func _sync_ramp_preset_pick() -> void:
 	_ramp_preset_pick.select(sel)
 
 func _on_ramp_mode(name: String) -> void:
+	look_begin(["ramp"])
 	if not bridge.set_ramp_mode(name):
 		return
 	_ramp_mode = name
 	_update_ramp_bar()
 	_mark_custom()
 	_refresh_map()
+	look_commit("Ramp blend: %s" % name, ["ramp"])
 
 ## Hand the bar the CARTO editor's own stop list, so a swatch/slider/row edit
 ## shows on the bar. The blend-mode drawing lives in `shell/ramp_bar.gd`
@@ -1814,6 +1911,9 @@ func _on_ramp_bar_edited(_stops_now: Array, _selected: int, final: bool) -> void
 	_mark_custom()
 	_refresh_map()
 	if final:
+		## The bar's `on_begin` snapshotted at press / popup open; the data-equality
+		## check inside `commit` makes a Cancel (already reverted) push nothing.
+		look_commit("Ramp bar edit", ["ramp"])
 		call_deferred("_sync_ramp")
 
 ## Metres above sea level a relative position stands for on *this* world.
@@ -1857,7 +1957,9 @@ func _rebuild_ramp_rows() -> void:
 		swatch.color_changed.connect(write_stop)
 		## OK / Cancel / was-now: a cancel replays the opening colour through the
 		## same write, so `_ramp`, the bar, the engine and the map all return.
-		DccWidgets.confirmable_color(swatch, write_stop)
+		DccWidgets.confirmable_color(swatch, write_stop,
+			func(): look_begin(["ramp"]),
+			func(): look_commit("Ramp stop colour", ["ramp"]))
 		row.add_child(swatch)
 
 		var pos := HSlider.new()
@@ -1883,7 +1985,10 @@ func _rebuild_ramp_rows() -> void:
 			_update_ramp_bar())
 		## Commit on release, like every other row in this dock: a full-map
 		## re-render is not a per-drag-pixel operation.
-		pos.drag_ended.connect(func(_changed: bool): _push_ramp(true))
+		pos.drag_started.connect(func(): look_begin(["ramp"]))
+		pos.drag_ended.connect(func(_changed: bool):
+			_push_ramp(true)
+			look_commit("Move ramp stop", ["ramp"]))
 
 		var alpha := HSlider.new()
 		alpha.min_value = 0.0
@@ -1905,7 +2010,10 @@ func _rebuild_ramp_rows() -> void:
 			_update_ramp_bar())
 		## `false`: alpha cannot reorder anything, so re-reading the engine
 		## would rebuild these rows out from under the slider being dragged.
-		alpha.drag_ended.connect(func(_changed: bool): _push_ramp(false))
+		alpha.drag_started.connect(func(): look_begin(["ramp"]))
+		alpha.drag_ended.connect(func(_changed: bool):
+			_push_ramp(false)
+			look_commit("Ramp stop alpha", ["ramp"]))
 
 		var del := DccWidgets.text_button(row, "x", func(): _delete_stop(idx))
 		del.tooltip_text = "Delete this stop"
@@ -1916,13 +2024,16 @@ func _rebuild_ramp_rows() -> void:
 func _delete_stop(idx: int) -> void:
 	if _ramp.size() <= 1 or idx < 0 or idx >= _ramp.size():
 		return
+	look_begin(["ramp"])
 	_ramp.remove_at(idx)
 	_push_ramp(true)
+	look_commit("Delete ramp stop", ["ramp"])
 
 ## A new stop in the widest gap, coloured with what the ramp already shows
 ## there -- so adding one changes nothing until it is moved, which is what
 ## makes it an edit rather than a surprise.
 func _on_add_stop() -> void:
+	look_begin(["ramp"])
 	var sorted := _ramp.duplicate()
 	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	var at := 0.5
@@ -1940,20 +2051,25 @@ func _on_add_stop() -> void:
 		col = sorted[0][1]
 	_ramp.append([at, col])
 	_push_ramp(true)
+	look_commit("Add ramp stop", ["ramp"])
 
 ## The design's own Reverse: the same colours, top to bottom.
 func _on_reverse_ramp() -> void:
+	look_begin(["ramp"])
 	for s in _ramp:
 		s[0] = 1.0 - float(s[0])
 	_push_ramp(true)
+	look_commit("Reverse ramp", ["ramp"])
 
 func _on_ramp_preset(name: String) -> void:
+	look_begin(["ramp"])
 	if bridge.load_ramp_preset(name):
 		_ramp_preset_name = name
 		_ramp_preset_stops = bridge.color_ramp()
 		_sync_ramp()
 		_mark_custom()
 		_refresh_map()
+		look_commit("Ramp preset: %s" % name, ["ramp"])
 
 ## Send the whole list; the engine sorts it, so this is add, delete and reorder
 ## in one call. `rebuild` re-reads the engine afterwards, which is what makes a
@@ -2498,12 +2614,16 @@ func _sync_biome_colours() -> void:
 			pick.color = bridge.biome_color(k + 1)
 
 func _reset_biome_colour(index: int) -> void:
+	look_begin(["biomes"])
 	if bridge.reset_biome_color(index):
 		_after_biome_edit()
+		look_commit("Reset biome colour", ["biomes"])
 
 func _reset_biome_colours() -> void:
+	look_begin(["biomes"])
 	if bridge.reset_biome_colors() > 0:
 		_after_biome_edit()
+		look_commit("Reset all biome colours", ["biomes"])
 
 ## After the engine call, never before: the map, the Biomes field (which
 ## `viewport.refresh()` re-reads), the swatches, and -- when Biome paint is

@@ -1048,9 +1048,18 @@ func _build_undo_redo(p: PopupMenu) -> void:
 	## with every commit -- there is no signal to subscribe to.
 	p.about_to_popup.connect(func():
 		var stats: Dictionary = _bridge.undo_stats()
-		var can: bool = _bridge.can_undo()
+		## Ruling BY item 2: the shared look history (ramp / biome colours /
+		## style) answers this row whenever the most recent edit was a look edit
+		## (`look_history.wants_undo`) or the height stack has nothing left.
+		var lh = _host.look_history
+		var look_undo: bool = lh.wants_undo(_bridge)
+		var can: bool = _bridge.can_undo() or lh.can_undo()
 		p.set_item_disabled(undo_idx, not can)
-		if can:
+		if look_undo:
+			p.set_item_text(undo_idx, "Undo %s" % lh.undo_label())
+			p.set_item_tooltip(undo_idx, "Look history: %d step%s. Separate from the height-map undo; "
+				% [lh.cursor, "" if lh.cursor == 1 else "s"] + "Ctrl+Z steps whichever you edited last.")
+		elif can:
 			p.set_item_text(undo_idx, "Undo %s" % _bridge.undo_label())
 			p.set_item_tooltip(undo_idx, "%s · %s held" % [
 				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
@@ -1058,10 +1067,11 @@ func _build_undo_redo(p: PopupMenu) -> void:
 			p.set_item_text(undo_idx, "Undo")
 			p.set_item_tooltip(undo_idx, _undo_empty_reason())
 		if redo_idx >= 0:
-			var can_redo: bool = _bridge.redo_available()
+			var look_redo: bool = lh.wants_redo(_bridge)
+			var can_redo: bool = _bridge.redo_available() or lh.can_redo()
 			p.set_item_disabled(redo_idx, not can_redo)
 			p.set_item_text(redo_idx,
-				("Redo %s" % _bridge.redo_label()) if can_redo else "Redo")
+				("Redo %s" % (lh.redo_label() if look_redo else _bridge.redo_label())) if can_redo else "Redo")
 			## The empty-state reason says only what was actually checked --
 			## `redo_available()` came back false -- and points at the ledger
 			## rather than describing a stack shape this file has not read.
@@ -1250,6 +1260,11 @@ const RESET_BUSY_TIP := "A generation is running. The engine object belongs to t
 ## somebody has to do it. Collapses to one `_host.redo_last()` call the day
 ## that twin exists.
 func _redo_last() -> void:
+	## Ruling BY item 2: a look redo (the shared look history) goes through the
+	## host, which owns the widget refresh; the height path below is unchanged.
+	if _host.look_history.wants_redo(_bridge):
+		_host.look_redo()
+		return
 	if not (_bridge.has_method("redo_last") and _engine_has("redo_last")):
 		return
 	var label := String(_bridge.redo_label())

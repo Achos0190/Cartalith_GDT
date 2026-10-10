@@ -20,6 +20,13 @@ var shortcuts_dialog: ShortcutsDialog
 var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
+## The shared LOOK undo/redo history (ramp stops, biome colours, style presets;
+## Ruling BY item 2, `shell/look_history.gd`). Untyped on purpose: the script has
+## no `class_name` (no `godot --import` pass needed). Separate from the engine's
+## heightmap undo; `undo_last()`/`redo_last()` below pick whichever history the
+## most recent edit belonged to. Session-only, cleared by
+## `_refresh_world_dependent()`.
+var look_history = preload("res://shell/look_history.gd").new()
 ## The cross-section's bottom strip (`design/Cartalith Measurement Toolbar
 ## .dc.html` state 2). A `viewport_content` overlay rather than a shell
 ## region -- see `section_strip.gd`'s own header for why. Hidden unless the
@@ -1479,6 +1486,9 @@ func _refresh_world_dependent() -> void:
 	## here, in the one function that already owns "the world changed
 	## identity", rather than by each of its three readers.
 	TradeStore.clear()
+	## Ruling BY item 2: a different world means the look history's snapshots
+	## describe another project's ramp/biome table -- drop them.
+	look_history.clear()
 	if viewport != null and viewport.overlay != null:
 		viewport.overlay.set_trade_load(PackedFloat32Array())
 	for ws in _workspaces:
@@ -4410,6 +4420,12 @@ func _browse_root(key: String, readout: Label) -> void:
 ## `undo.rs` -- so the status hint says which stages are now behind the height
 ## field rather than leaving that to be discovered.
 func undo_last() -> void:
+	## Ruling BY item 2: when the most recent edit was a look edit, this press
+	## belongs to the look history (`look_history.wants_undo()` explains how "most
+	## recent" is derived). The heightmap path below is unchanged.
+	if look_history.wants_undo(bridge):
+		look_undo()
+		return
 	## Ruling BA: the next step may be a way deleted from the context card
 	## rather than a height snapshot. Asked before the call, since after it the
 	## answer is about the step below.
@@ -4444,6 +4460,43 @@ func undo_last() -> void:
 	if right_dock_ctrl != null:
 		right_dock_ctrl.refresh_history()
 
+## Undo one LOOK step: write the entry's `before` snapshot back through the same
+## bridge setters the editors use, then refresh every view of it (CARTO rows and
+## bar, biome swatches, style gallery, right-dock stops section, the map). The
+## look history is the only thing stepped; the heightmap stack is untouched.
+func look_undo() -> void:
+	var e: Dictionary = look_history.undo(bridge)
+	if e.is_empty():
+		set_status("hint", "Nothing to undo.", "text_ghost")
+		return
+	_restore_look(e["before"])
+	set_status("pass", "undid %s" % String(e["label"]).to_lower(), "text_dim")
+
+## Redo one LOOK step: the mirror of `look_undo()`, applying `after`.
+func look_redo() -> void:
+	var e: Dictionary = look_history.redo(bridge)
+	if e.is_empty():
+		set_status("hint", "Nothing to redo.", "text_ghost")
+		return
+	_restore_look(e["after"])
+	set_status("pass", "redid %s" % String(e["label"]).to_lower(), "text_dim")
+
+## Shared body of `look_undo()`/`look_redo()`. The Rendering-advanced appearance
+## keys a preset moves are the render workspace's (`_preset_appearance_keys()`),
+## so the write goes through it; with no render workspace there is nothing a look
+## edit could have been made from, and this is a no-op.
+func _restore_look(snap: Dictionary) -> void:
+	var rw: RenderWorkspace = null
+	for ws in _workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			rw = ws._render
+	if rw == null:
+		return
+	look_history.apply(bridge, snap, RenderWorkspace._preset_appearance_keys())
+	rw.on_look_restored(snap)
+	if right_dock_ctrl != null:
+		right_dock_ctrl.on_look_restored(snap)
+
 ## A way list changed under the overlay (a way deleted from the context card,
 ## or put back by Undo -- Ruling BA): every workspace that draws or lists ways
 ## re-reads them. `dcc_shell.gd`'s phone Undo chip (`_do_phone_undo()`) used to
@@ -4471,6 +4524,10 @@ func notify_ways_changed() -> void:
 ## file that owns `Edit ▸ Redo`. It should delegate here so there is one redo
 ## path the way there is one undo path; that file is not this pass's to edit.
 func redo_last() -> void:
+	## Ruling BY item 2: the mirror of `undo_last()`'s look branch.
+	if look_history.wants_redo(bridge):
+		look_redo()
+		return
 	if not bridge.redo_available():
 		set_status("hint", "Nothing to redo.", "text_ghost")
 		return
