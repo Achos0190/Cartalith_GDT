@@ -125,6 +125,9 @@ class _Step:
 	var trail: String
 	var level: int
 
+	## Records one navigation step: the popup being re-presented (null for a bespoke screen),
+	## its title and breadcrumb trail, its level, and the screen id plus argument. Besides the
+	## root, exactly one of `popup` / `screen` should be set. Holds data only; draws nothing.
 	func _init(p: PopupMenu, t: String, tr: String, lv: int, scr: String = "",
 			ar: String = "") -> void:
 		popup = p
@@ -134,6 +137,8 @@ class _Step:
 		screen = scr
 		arg = ar
 
+	## True for the 60%-cap sheet presentation (level 4), which only `open_sheet()` pushes
+	## (the map context menu). Every MORE screen uses `SCREEN_LEVEL` and is not a sheet.
 	func is_sheet() -> bool:
 		return level == 4
 
@@ -397,6 +402,8 @@ const _PEEK_CARD_MIN_DRAG_DP := 24.0
 func _ps(px: float) -> int:
 	return maxi(1, int(round(px * _scale)))
 
+## Like `_ps` but never below `DccTheme.PHONE_TAP_MIN`: use it for the height of anything
+## a finger must hit, and `_ps` for everything that is only drawn.
 func _pt(px: float) -> int:
 	return maxi(DccTheme.PHONE_TAP_MIN, _ps(px))
 
@@ -442,6 +449,10 @@ func setup(shell: DccShell) -> void:
 	_peek_panel = _build_peek_panel()
 	add_child(_peek_panel)
 
+## Builds the full-screen MORE panel once: a header (back, title over breadcrumb, the
+## root's right-hand readout, close) above a hairline and a vertical-only scroll area
+## whose body `_render()` refills. Its mouse filter is STOP so a tap cannot fall through
+## to the map. It holds no content of its own.
 func _build_screen() -> PanelContainer:
 	var panel := PanelContainer.new()
 	panel.add_theme_stylebox_override("panel", DccTheme.panel("bg"))
@@ -702,15 +713,20 @@ func peek_card_is_open() -> bool:
 func peek_detent() -> String:
 	return _peek_detent
 
+## Probe seam (read-only): the global rect of the peek/half card, or an empty Rect2 before
+## it is built.
 func peek_panel_rect() -> Rect2:
 	return _peek_panel.get_global_rect() if _peek_panel != null else Rect2()
 
+## Probe seam (read-only): the global rect of the card's grab handle, or an empty Rect2.
 func peek_grab_rect() -> Rect2:
 	return _peek_grab.get_global_rect() if _peek_grab != null else Rect2()
 
+## Probe seam (read-only): the card's title text, or "" before it is built.
 func peek_title_text() -> String:
 	return _peek_title.text if _peek_title != null else ""
 
+## Probe seam (read-only): the labels of the chip buttons shown at the `peek` detent.
 func peek_chip_labels() -> PackedStringArray:
 	var out := PackedStringArray()
 	if _peek_chip_row == null:
@@ -725,6 +741,9 @@ func peek_chip_labels() -> PackedStringArray:
 func peek_in_select() -> bool:
 	return _peek_select_mode
 
+## Probe seam (read-only): the labels of the row buttons in the `half` detent's list (the
+## action rows, or the hit list in select mode). A disabled row's reason line is a Label,
+## not a Button, so it is not included.
 func peek_full_row_labels() -> PackedStringArray:
 	var out := PackedStringArray()
 	if _peek_full_col == null:
@@ -831,6 +850,10 @@ func _rebuild_peek_chip_row(actions: Array) -> void:
 			if cb.is_valid():
 				cb.call())
 
+## Rebuilds the `half` detent's list. In select mode: a Back row, up to
+## `_ContextCard.SELECT_CAP` nearest hits and a disabled "... and N more" row. Otherwise
+## one row per action, with a hairline wherever the action's `section` changes. Clears the
+## old rows first, so it is safe to call whenever the card's content changes.
 func _rebuild_peek_full_rows(actions: Array) -> void:
 	for c in _peek_full_col.get_children():
 		c.queue_free()
@@ -899,16 +922,24 @@ func _build_peek_back_row() -> Control:
 	wrap.add_child(b)
 	return wrap
 
+## Enters the card's hit-list (select) mode and raises it to the `half` detent, which is the
+## only detent that can show the list. Leaves the card open on the same hit.
 func _open_peek_select() -> void:
 	_peek_select_mode = true
 	_rebuild_peek_full_rows(_peek_actions)
 	_set_peek_detent("half")
 
+## A hit-list row was tapped: leave select mode and hand the hit to the broker's reselect
+## callback (which re-resolves the card narrowed to it and re-presents this same sheet).
+## Does not close the card itself; a callback that is not valid is skipped.
 func _reselect_from_peek(h: Dictionary) -> void:
 	_peek_select_mode = false
 	if _peek_reselect.is_valid():
 		_peek_reselect.call(h)
 
+## Whether two hit dictionaries are the same entity (same `kind` and `id`). False when `b`
+## is empty. A missing id defaults to different sentinels on each side, so two hits with no
+## id never compare equal.
 static func _same_peek_hit(a: Dictionary, b: Dictionary) -> bool:
 	return not b.is_empty() and a.get("kind") == b.get("kind") and int(a.get("id", -1)) == int(b.get("id", -2))
 
@@ -959,6 +990,9 @@ func _peek_detent_height(det: String) -> float:
 		return peek
 	return maxf(peek, get_viewport_rect().size.y * _PEEK_CARD_HALF_CAP_FRAC)
 
+## Moves the card to `peek` (chips only) or `half` (scrolling list): swaps which content is
+## visible, kills any running tween, then animates `offset_top` to the detent height
+## (or jumps there when `animate` is false). Never changes the card's content.
 func _set_peek_detent(det: String, animate: bool = true) -> void:
 	_peek_detent = det
 	_peek_chip_wrap.visible = (det == "peek")
@@ -1099,6 +1133,9 @@ func apply_insets(top: float, left: float, bottom: float) -> void:
 func is_open() -> bool:
 	return visible
 
+## Opens the MORE root: resets the navigation stack to the single "more" screen at level 2,
+## shows the overlay and renders. Level 1 is the bottom bar, which this file does not own.
+## Does not close any other overlay; the shell does that before calling.
 func open() -> void:
 	_stack.clear()
 	## L1 is the bottom bar itself, so the first screen this file owns is L2.
@@ -1125,6 +1162,9 @@ func _screen_title(id: String, arg: String = "") -> String:
 	var row: Array = SCREEN_TITLES.get(id, [])
 	return String(row[0]) if row.size() == 2 and String(row[0]) != "" else id
 
+## The breadcrumb/subtitle for a screen id: a live value for the three screens that depend
+## on an argument (asset family, asset slot, travel entry), otherwise the second column of
+## `SCREEN_TITLES`, or "" when the id has none.
 func _screen_sub(id: String, arg: String = "") -> String:
 	match id:
 		"assets-grid":
@@ -1219,6 +1259,9 @@ func open_sheet(popup: PopupMenu, title: String, trail: String) -> void:
 	visible = true
 	_render()
 
+## Hides the overlay and clears the stack. If the peek/half card is up it is also torn down,
+## WITHOUT calling its dismiss callback, because this is the shell swapping one overlay for
+## another rather than the user dismissing the card; the shell is told to resume instead.
 func close() -> void:
 	visible = false
 	_stack.clear()
@@ -1258,9 +1301,13 @@ func go_back() -> bool:
 	_render()
 	return true
 
+## Signal adapter for the header's back button: discards `go_back()`'s result, which only
+## matters to the system-back caller.
 func _go_back_pressed() -> void:
 	go_back()
 
+## A press (mouse or touch) on the sheet scrim goes back one level, like system back.
+## Releases and motion are ignored so one tap is one step.
 func _on_scrim_input(ev: InputEvent) -> void:
 	var tapped: bool = (ev is InputEventMouseButton and ev.pressed) \
 		or (ev is InputEventScreenTouch and ev.pressed)
@@ -1354,11 +1401,17 @@ func _render() -> void:
 		_fill(_sheet_body, top)
 		_sheet_scroll.scroll_vertical = 0
 
+## Removes and frees every child of a screen body. Removed first so a stale row cannot be
+## hit-tested or counted while it waits to be freed.
 func _clear(body: VBoxContainer) -> void:
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
 
+## Refills a screen body for one step: clears it and the per-screen `_refreshed` set, then
+## draws a bespoke screen (`step.screen`) or re-presents a popup's items, or a labelled
+## "no content source" row when the step has neither, and closes the list with a hairline
+## and a padded tail. Must not leave a screen silently empty.
 func _fill(body: VBoxContainer, step: _Step) -> void:
 	_clear(body)
 	_refreshed.clear()
@@ -1392,6 +1445,8 @@ func _fill(body: VBoxContainer, step: _Step) -> void:
 ## budget rather than "once per row" or "never".
 var _refreshed: Dictionary = {}
 
+## The shell's top-level program-menu buttons, or an empty array before the menu bar exists.
+## `_menu_popup` walks these to find real popups; this creates nothing.
 func _menu_buttons() -> Array:
 	var out: Array = []
 	if _shell.menu_bar_row == null:
@@ -1672,6 +1727,9 @@ const CIV_TOOLS: Array = [
 		"sub": "taps draw a front, arrow, siege or battle · commit, then fill it in the dock"},
 ]
 
+## The `civ` screen: one row per civilization tool in `CIV_TOOLS` (badged ARMED when it is
+## the shell's armed tool, otherwise a chevron). Tapping arms the tool through
+## `_arm_civ_tool`, which closes the menu; it does not place anything itself.
 func _fill_civ(body: VBoxContainer) -> void:
 	_info(body, "Arming a tool closes this screen — tap the map to place. "
 		+ "Esc, or arming another tool, disarms.")
@@ -1916,6 +1974,9 @@ func _engine_idle():
 		return null
 	return br
 
+## The reason a count cannot be read right now: no bridge, a generation or landmark pass
+## holding the engine, or the engine answering nothing. Screens draw this instead of a
+## number so a busy engine is never shown as zero.
 func _busy_why() -> String:
 	var br = _engine()
 	if br == null:
@@ -1940,6 +2001,7 @@ func _asset_family(key: String) -> Dictionary:
 			return f
 	return {}
 
+## Display title of an asset family, falling back to the raw key when the family is unknown.
 func _asset_family_title(key: String) -> String:
 	var f := _asset_family(key)
 	return String(f.get("title", key)) if not f.is_empty() else key
@@ -2338,9 +2400,12 @@ func _go_asset_library(family_key: String) -> void:
 ## default is read off that table rather than written here.
 var _travel_kind := ""
 
+## The travel library's kinds, read from `TravelLibraryWindow.KINDS` rather than copied.
 func _travel_kinds() -> Array:
 	return TravelLibraryWindow.KINDS
 
+## The selected travel kind. The first time it is read it defaults to the first entry in
+## `KINDS`, which is stored, so reading has a side effect on `_travel_kind`.
 func _travel_current_kind() -> String:
 	if _travel_kind == "" and not _travel_kinds().is_empty():
 		_travel_kind = String((_travel_kinds()[0] as Dictionary).get("key", ""))
@@ -2395,10 +2460,13 @@ func _fill_travel(body: VBoxContainer) -> void:
 		"Add, duplicate, edit and validate entries — the whole window.",
 		null, _chevron(), func(): _go_travel_library_kind(kind), false))
 
+## Selects a travel kind from the segmented control and redraws the screen.
 func _set_travel_kind(kind: String) -> void:
 	_travel_kind = kind
 	_render()
 
+## Closes this menu and opens the full Travel library window at `kind`, when the shell has
+## `open_travel_library`; otherwise the menu just closes.
 func _go_travel_library_kind(kind: String) -> void:
 	close()
 	if _shell.has_method("open_travel_library"):
@@ -2536,6 +2604,8 @@ func _lm_kinds() -> Array:
 		return []
 	return br.landmark_kinds()
 
+## `landmark_settings()` from the bridge, or `{}` when the bridge or binding is missing.
+## An empty dictionary means "unavailable", not "every cap is zero".
 func _lm_settings() -> Dictionary:
 	var br = _engine()
 	if br == null or not br.has_method("landmark_settings"):
@@ -2561,6 +2631,11 @@ func _lm_families() -> Array:
 			order.append(fam)
 	return order
 
+## The `landmarks` screen: a headroom line (each clause only when it is a real figure, with
+## the reason when it is not), the Crowding slider, the cross-type competition switch, one
+## drill row per engine family, and Run landmark pass (replaced by a reason while the engine
+## is busy). With no landmark kinds it draws a missing-binding row. Writes go through
+## `_lm_write`; it must not run the pass itself.
 func _fill_landmarks(body: VBoxContainer) -> void:
 	var br = _engine()
 	var kinds := _lm_kinds()
@@ -2828,6 +2903,8 @@ func _lm_set_rung(key: String, rung: int) -> void:
 	_lm_write("landmark_set_cap", [key, int(ladder[i])])
 	_lm_write("landmark_set_armed", [key, true], true)
 
+## Arms or disarms every type in a family. Arming skips types the engine reports as not
+## buildable; disarming writes all of them. Redraws once at the end.
 func _lm_bulk(family: String, on: bool) -> void:
 	for k in _lm_kinds():
 		var kd: Dictionary = k
@@ -2956,6 +3033,9 @@ const GESTURES_ABSENT: Array = [
 		+ "swipe this shell reads is Android's back gesture, listed above."],
 ]
 
+## The gestures reference screen: one read-only row per `GESTURES` entry, then the
+## `GESTURES_ABSENT` rows as missing, then a note that each row names the symbol it was
+## checked at. Prose about behaviour, so it can go stale; it triggers nothing.
 func _fill_gestures(body: VBoxContainer) -> void:
 	for g in GESTURES:
 		_add(body, _row(String(g[0]), "%s  ·  %s" % [String(g[1]), String(g[2])],
@@ -2987,6 +3067,8 @@ var _dt_last: Dictionary = {}
 const DT_ZMAX_CHOICES: Array[int] = [1, 2, 3, 4, 5, 6]
 const DT_TILE_SIZES: Array[int] = [256, 512]
 
+## A string identifying the export settings (scheme, tile size, max zoom, retina), used to
+## decide whether `_dt_last`'s measured size/time belong to the settings now selected.
 func _dt_key() -> String:
 	return "%s|%d|%d|%s" % [_dt_scheme, _dt_tile, _dt_zmax, _dt_retina]
 
@@ -2998,6 +3080,8 @@ func _dt_tile_count() -> int:
 		n += 1 << (2 * z)
 	return n * (2 if _dt_retina else 1)
 
+## Sets one export-setting field by name and redraws. `field` must be one of this file's
+## `_dt_*` variables; anything else would set an unrelated property.
 func _dt_set(field: String, value) -> void:
 	set(field, value)
 	_render()
@@ -3065,6 +3149,8 @@ func _fill_data_tiles(body: VBoxContainer) -> void:
 		+ "loads from unpkg.com, so the preview needs a connection). style.json "
 		+ "and attribution are not written: this build has no style model to emit.")
 
+## The export archive's file name for the current settings: scheme, zoom range and an @2x
+## suffix when retina.
 func _dt_file_name() -> String:
 	return "tile-pyramid-%s-z0-%d%s.zip" % [_dt_scheme, _dt_zmax, "@2x" if _dt_retina else ""]
 
@@ -3241,6 +3327,8 @@ func _live_root_sub(screen_id: String) -> String:
 		return "no cursor yet — generate a world first"
 	return "year %d · %s" % [_shell.tl_year(), _shell.tl_state_text()]
 
+## Opens or closes the phone simulation strip. Opening also closes this screen, because the
+## strip draws over the map this screen covers; closing just redraws.
 func _toggle_sim_strip(on: bool) -> void:
 	_shell.set_phone_sim_strip_open(on)
 	## Turning the strip ON and staying on a full-screen overlay would show the
@@ -3253,14 +3341,17 @@ func _toggle_sim_strip(on: bool) -> void:
 	else:
 		_render()
 
+## Play/pause the timeline through the shell, then redraw so the row shows the new state.
 func _toggle_sim_play() -> void:
 	_shell.tl_toggle_play()
 	_render()
 
+## Sets the timeline speed multiplier through the shell and redraws the selection.
 func _set_sim_speed(mult: int) -> void:
 	_shell.tl_set_speed(mult)
 	_render()
 
+## Toggles one timeline overlay layer by id through the shell and redraws.
 func _toggle_sim_layer(id: String) -> void:
 	_shell.tl_toggle_layer(id)
 	_render()
@@ -3277,6 +3368,8 @@ func _add(body: VBoxContainer, ctrl: Control) -> void:
 
 const _META_BAND := "phone_band"
 
+## Appends a section band, tagged so `_add` draws no hairline against it (a band supplies
+## its own leading gap).
 func _head(body: VBoxContainer, title: String) -> void:
 	var b := _band(title)
 	b.set_meta(_META_BAND, true)
@@ -3505,6 +3598,9 @@ func _chips(body: VBoxContainer, label: String, entries: Array) -> void:
 		flow.add_child(_chip(String(e["label"]), bool(e["on"]), e["press"]))
 	_add(body, wrap)
 
+## One option of a segmented row, as a button at least 44 dp tall. The selected chip is
+## marked by Medium weight and the accent ink (Ruling B in `LARGE_ITEM_RULINGS.md`, quoted
+## below), not by a layout change; `on_press` runs on tap. It never changes its own state.
 func _chip(text: String, on: bool, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -3766,6 +3862,9 @@ func _fill_popup(body: VBoxContainer, step: _Step) -> void:
 ## is the one caller left, and `_build_sheet()` exists for it.
 const SCREEN_LEVEL := 3
 
+## Draws popup item `i` as a row: a drill row for an enabled submenu, a disabled row showing
+## the tooltip as its reason, a checkable row with a radio or switch mark that stays open
+## through `_activate`, or a plain action row. Reads the item's state at draw time.
 func _popup_row(p: PopupMenu, i: int) -> Control:
 	var text := _clean(p.get_item_text(i))
 	var disabled := p.is_item_disabled(i)
@@ -3994,6 +4093,9 @@ func _band(title: String) -> Control:
 	wrap.add_child(l)
 	return wrap
 
+## A title with a short value on the right. `_trail_label` neither wraps nor clips, so a
+## long value becomes the screen's minimum width inside a scroll area with horizontal scroll
+## disabled; keep values short and use `_note_row` for prose.
 func _value_row(title: String, value: String) -> Control:
 	return _row(title, "", _trail_label(value), null, Callable(), false)
 
@@ -4015,6 +4117,8 @@ func _value_row(title: String, value: String) -> Control:
 func _note_row(title: String, text: String) -> Control:
 	return _row(title, text, null, null, Callable(), false)
 
+## The right-hand count/value label of a row: dim mono, vertically centred, ignoring the
+## mouse so the row still receives the tap.
 func _trail_label(text: String) -> Label:
 	var l := DccTheme.mono_label(text, "text_dim", _ps(11), 0)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -4031,12 +4135,15 @@ func _badge(text: String, token: String = "accent") -> Label:
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
+## The drill-in marker drawn on the right of a navigation row; ignores the mouse.
 func _chevron() -> Label:
 	var l := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_ghost", _ps(14), 0)
 	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
+## A radio mark: the filled glyph in the accent colour when on, the empty one in a ghost
+## colour when off. A mark only; the row owns the tap.
 func _radio(on: bool) -> Label:
 	var l := DccTheme.mono_label(DccIcons.SYMBOLS["on"] if on else DccIcons.SYMBOLS["off"],
 		"accent" if on else "text_ghost", _ps(13), 0)

@@ -466,6 +466,12 @@ var _workspace_popup: PopupMenu
 var _windows_popup: PopupMenu
 var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
 
+## Entry point, called once by `app.gd` after the shell exists: stores the shell, bridge
+## and host, reads the STORED theme mode, adds the top-level menus (tablet: ☰ / File /
+## World / Data; PC and phone: the seven shipped menus, which the phone drill-down
+## then re-presents as screens), and finally applies the theme.
+## Must not be called twice on one shell (every menu would be added again), and must
+## not run before `app.gd` has set the touch/phone state the tablet branch reads.
 func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	_shell = shell
 	_bridge = bridge
@@ -562,6 +568,10 @@ func _signpost(p: PopupMenu, text: String) -> int:
 func _engine_has(method: String) -> bool:
 	return _bridge != null and _bridge.world_gen != null and _bridge.world_gen.has_method(method)
 
+## Add an ENABLED command row, optionally bound to an accelerator through
+## `_bind_accelerator`. This is the helper for a row that really does something;
+## `_todo` is for a row that cannot yet, `_readout` for a row that only prints a value.
+## Must not be used for a row whose dispatcher arm does not exist.
 func _live(p: PopupMenu, text: String, id: int, accel: Key = KEY_NONE) -> void:
 	p.add_item(text, id)
 	if accel != KEY_NONE:
@@ -622,6 +632,11 @@ const REGION_NEW_WORLD_NO_WORLD := "No world yet. Generate or open one, then sel
 const REGION_NEW_WORLD_NO_REGION := "No region is selected. Arm the Region select tool (R) and drag a marquee on the map -- this resamples that marquee and nothing else."
 const REGION_NEW_WORLD_BUSY := "A generation is running. The engine object belongs to the worker thread until it finishes."
 
+## Builds the File menu: New world / Open project / Recent worlds (a submenu rebuilt
+## on every popup), New world from selection, Save / Save as / Autosave (+ interval
+## submenu), Revert, Close, and the storage rows. Enabled state of the save-related
+## rows is refreshed in this menu's `about_to_popup`, not fixed here; clicks go to
+## `_on_file`. Must not assume a world or a saved path exists when it builds.
 func _file(p: PopupMenu) -> void:
 	_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)
 	_live(p, "Open project…", ID_OPEN_PROJECT, KEY_MASK_CTRL | KEY_O)
@@ -863,6 +878,10 @@ func _autosave_summary() -> String:
 		return "off"
 	return "every %d min" % DccSettings.autosave_minutes()
 
+## Re-ticks the Autosave interval submenu from `DccSettings`: item 0 is "Off" and is
+## checked when autosave is disabled; a minutes rung is checked only while autosave is on.
+## Reads settings only; it must not start or stop the autosave clock (`_on_autosave_interval`
+## does that).
 func _refresh_autosave_menu() -> void:
 	var on := DccSettings.autosave_enabled()
 	var mins := DccSettings.autosave_minutes()
@@ -870,6 +889,10 @@ func _refresh_autosave_menu() -> void:
 	for i in AUTOSAVE_MINUTES.size():
 		_autosave_popup.set_item_checked(i + 1, on and AUTOSAVE_MINUTES[i] == mins)
 
+## Serves File ▸ Autosave ▸ interval. `ID_AUTOSAVE_OFF` disables autosave; a rung stores
+## its minutes AND enables autosave. Always re-arms the clock through
+## `apply_autosave_setting()` so a changed interval takes effect at once. Ignores an id
+## outside the ladder rather than indexing past `AUTOSAVE_MINUTES`.
 func _on_autosave_interval(id: int) -> void:
 	if id == ID_AUTOSAVE_OFF:
 		DccSettings.set_autosave_enabled(false)
@@ -905,6 +928,11 @@ func _terse_age(edited: String) -> String:
 		s = s.substr(7)
 	return s.replace(" days ago", " d ago").replace(" weeks ago", " w ago")
 
+## Rebuilds File ▸ Recent worlds from `DccSettings.recent_projects()` on every popup,
+## because the list changes as projects are opened. A path that no longer exists is
+## labelled "file not found" instead of borrowing a made-up age. Item ids are the list
+## indices, which `_on_recent_world` reads back, so the two must stay index-parallel.
+## An empty list shows a `_readout` row, never a bare disabled item.
 func _refresh_recent_worlds() -> void:
 	_recent_popup.clear()
 	var recents: Array = DccSettings.recent_projects()
@@ -968,11 +996,19 @@ func _refresh_recent_worlds() -> void:
 		_recent_popup.add_item(label, i)
 		_recent_popup.set_item_tooltip(i, path)
 
+## Serves a File ▸ Recent worlds row: the id is an index into the CURRENT
+## `DccSettings.recent_projects()`, and an out-of-range id (the list shrank since the
+## popup was built) is ignored rather than opening a wrong path.
 func _on_recent_world(id: int) -> void:
 	var recents: Array = DccSettings.recent_projects()
 	if id >= 0 and id < recents.size():
 		_host.open_recent_project(String(recents[id]))
 
+## Dispatcher for the File menu's `id_pressed`: each arm calls the matching `_host`
+## method (new/open/save/save-as/autosave toggle/revert/close/storage/show-on-disk).
+## Enabled/disabled state is NOT decided here (the builder's `about_to_popup` does it),
+## so each host method must refuse its own bad states. `New world from selection` is
+## guarded with `has_method` so an older `app.gd` does not crash the dispatch.
 func _on_file(id: int) -> void:
 	match id:
 		ID_NEW_WORLD: _host.open_new_world()
@@ -1284,13 +1320,15 @@ func _edit(p: PopupMenu, full: bool = true) -> void:
 const RESET_ALL_TIP := "Puts every generation parameter back to the app's own default. It does not regenerate: the settings are read once at the start of a run, so this changes what the next Generate builds and leaves the world on screen alone."
 const RESET_BUSY_TIP := "A generation is running. The engine object belongs to the worker thread until it finishes, and a reset landing mid-run could not have affected the world being built anyway."
 
-## §2.2's Redo, and the mirror of `app.gd`'s `undo_last()`.
+## §2.2's Redo, written in the file that owns `Edit ▸ Redo`.
 ##
-## Kept here rather than added there because `app.gd` belongs to another pass:
-## the engine reverts the height field and deliberately does **not** re-run
-## flow, rivers or climate (`undo.rs`), so repainting is the caller's job and
-## somebody has to do it. Collapses to one `_host.redo_last()` call the day
-## that twin exists.
+## `app.gd` now has the twin (`redo_last()` -> `_redo_last_impl()`, which also
+## refreshes every undo control), so this is a SECOND copy of the same operation
+## and the two must be kept in step; it should delegate to `_host.redo_last()`.
+## The engine reverts the height field and deliberately does **not** re-run
+## flow, rivers or climate (`undo.rs`), so repainting is the caller's job.
+## Does NOT refresh the Undo/Redo rows: `_on_edit` calls `_host._refresh_undo_ui()`
+## after it.
 func _redo_last() -> void:
 	## Ruling BY item 2: a look redo (the shared look history) goes through the
 	## host, which owns the widget refresh; the height path below is unchanged.
@@ -1364,6 +1402,10 @@ func _stage_param_keys(stage: Dictionary) -> Array:
 		out.append(key)
 	return out
 
+## Refreshes Edit ▸ Reset one stage on popup: every row is disabled while a generation
+## runs or no parameter set is available, and a stage that exposes no parameter keys is
+## also disabled with that stage's own `gap` prose as the reason. Must not invent a
+## reason of its own, and must not touch the engine while a generation owns it.
 func _refresh_reset_stage_menu() -> void:
 	if _reset_stage_popup == null:
 		return
@@ -1385,6 +1427,10 @@ func _refresh_reset_stage_menu() -> void:
 				"Puts this stage's %d parameter%s back to the engine's default. Takes effect on the next Generate." % [
 					keys.size(), "" if keys.size() == 1 else "s"])
 
+## Serves Edit ▸ Reset one stage: resets only that stage's parameter keys (derived from
+## `WorldWorkspace.STAGES` by `_stage_param_keys`) through `reset_params(keys)`. It does
+## not regenerate; the status line says the change lands on the next Generate. Refuses
+## while generating or when the stage has no keys, even if the row was somehow enabled.
 func _on_reset_stage(id: int) -> void:
 	var i := id - ID_RESET_STAGE_FIRST
 	if i < 0 or i >= WorldWorkspace.STAGES.size():
@@ -1410,6 +1456,9 @@ func _undo_empty_reason() -> String:
 		"(a snapshot of the previous world is the wrong content, and at a different " +
 		"resolution the wrong length). Cost and depth: Preferences ▸ Memory ▸ Undo history.")
 
+## "N step(s) saved" from an `undo_stats()` dictionary's `depth`. A missing key reads as
+## 0 steps, which is true of an empty stack but is also what an absent binding yields,
+## so callers must have checked `stats.is_empty()` first where that distinction matters.
 func _undo_depth_text(stats: Dictionary) -> String:
 	var d := int(stats.get("depth", 0))
 	return "%d step%s saved" % [d, "" if d == 1 else "s"]
@@ -1423,6 +1472,13 @@ func _mb(bytes: int) -> String:
 		return "<1 MB"
 	return "%d MB" % int(round(float(bytes) / 1048576.0))
 
+## Dispatcher for Edit's `id_pressed` (also connected on the tablet ☰ overflow and World
+## menu for the Undo/Redo/Undo-history rows). Undo goes through `_host.undo_last()`, which
+## routes to the look history or the height stack and refreshes the rows itself. Redo calls
+## this file's `_redo_last()` and then `_host._refresh_undo_ui()` by hand, because
+## `_redo_last` does not refresh the rows. Clipboard rows are local; Find on map is
+## `has_method`-guarded. Reset parameters re-checks `generating` / `params_available()`
+## because the row can be stale.
 func _on_edit(id: int) -> void:
 	match id:
 		ID_UNDO: _host.undo_last()
@@ -1649,6 +1705,9 @@ func _repaint_after_entity_change() -> void:
 	_host.viewport.tool_overlay.set_handles([])
 	_host.viewport.refresh_annotations()
 
+## Edit ▸ Copy: snapshots the current label + icon selection into the in-process
+## `_clipboard` (see the clipboard section header). An empty selection leaves the
+## previous clipboard untouched. Never deletes or modifies anything on the map.
 func _copy_selection() -> void:
 	var buf := _carto_snapshot()
 	if buf.is_empty():
@@ -1656,6 +1715,10 @@ func _copy_selection() -> void:
 	_clipboard = buf
 	_host.set_status("pass", "copied %s" % _clip_summary(buf), "text_dim")
 
+## Edit ▸ Cut: copy, then delete the selected labels and icons by index, highest first
+## (`_delete_descending`, so earlier deletes cannot shift later indices). The selections are
+## re-read rather than derived from the snapshot, which holds records, not indices. An
+## empty selection does nothing and must not clear the clipboard.
 func _cut_selection() -> void:
 	var buf := _carto_snapshot()
 	if buf.is_empty():
@@ -1670,6 +1733,11 @@ func _cut_selection() -> void:
 	_repaint_after_entity_change()
 	_host.set_status("pass", "cut %s" % _clip_summary(buf), "text_dim")
 
+## Edit ▸ Paste: re-creates the clipboard's labels (text plus `LABEL_PASTE_FIELDS`) and
+## icons (re-armed per family/variant, then placed) offset into the grid, then selects
+## the new entities and repaints. Needs a world; icons whose family/slot cannot be
+## resolved, or that have no pack, are counted as refused and reported rather than
+## faked. Must set the selection LAST, since `label_create` selects as it goes.
 func _paste_clipboard() -> void:
 	if _clipboard.is_empty() or not _bridge.has_world:
 		return
@@ -2010,6 +2078,8 @@ func _refresh_family_counts(pm: PopupMenu, keys: Array[String]) -> void:
 			"%d of %d slots filled. Opens the Asset library scoped to this family." % [
 				filled, capacity])
 
+## `AssetLibraryWindow.FAMILIES`' row for `key`, or an empty Dictionary. Reads the
+## window's table rather than keeping a copy here, so a family added there needs no edit.
 func _family_by_key(key: String) -> Dictionary:
 	for fam in AssetLibraryWindow.FAMILIES:
 		if String((fam as Dictionary)["key"]) == key:
@@ -2053,6 +2123,11 @@ const LANDMARK_TYPES_NOTE := ("Every landmark family with its armed and placed "
 	+ "slider that arms a type lives in CIVIL ▸ Landmarks and only there. "
 	+ "Picking any row opens that panel at the family.")
 
+## Builds the Landmark types cascade (Assets, and ☰ on tablet): the fixed rows (icons /
+## labels / hand-place) and one submenu per ENGINE family, in the engine's first-seen
+## order out of `landmark_kinds()`. It carries no family or type name of its own; with no
+## kinds (an older cdylib) it says so instead of drawing an empty menu. Dispatch is
+## `_on_landmarks`.
 func _build_landmark_types_menu(p: PopupMenu) -> void:
 	_landmark_popup = PopupMenu.new()
 	_landmark_popup.name = "LandmarkTypes"
@@ -2229,6 +2304,9 @@ func _refresh_landmark_menu() -> void:
 			_landmark_popup.set_item_text(pidx, "%s   %d of %d armed · %d placed" % [
 				String(r["title"]), n_armed, keys.size(), n_placed])
 
+## Dispatcher for the Landmark types rows: icon library (`poi` family), the Labels
+## category, the hand-place dock, or a family row (id offset from `ID_LM_FAMILY_FIRST`
+## into `_landmark_families`). An id past the family list is ignored.
 func _on_landmarks(id: int) -> void:
 	match id:
 		ID_LM_ICONS:
@@ -2281,11 +2359,16 @@ func _landmark_kinds() -> Array:
 		return []
 	return _bridge.landmark_kinds()
 
+## `_bridge.landmark_settings()` or `{}` when the binding is missing (older cdylib).
+## An empty dictionary means "unavailable", not "every cap is zero".
 func _landmark_settings() -> Dictionary:
 	if _bridge == null or not _bridge.has_method("landmark_settings"):
 		return {}
 	return _bridge.landmark_settings()
 
+## Landmark funnel rows keyed by kind (`kind` -> funnel dictionary), or `{}` when the
+## binding is missing. A kind absent from the map has not run, which is not the same as
+## having placed zero.
 func _landmark_funnel_map() -> Dictionary:
 	var out := {}
 	if _bridge == null or not _bridge.has_method("landmark_funnels"):
@@ -2605,6 +2688,10 @@ func _open_pack_metadata() -> void:
 		d.popup_centered()
 	fields[0].grab_focus.call_deferred()
 
+## Dispatcher for the Assets menu's `id_pressed`: pack import, the library / slicer
+## windows, and the library-window actions (apply, clear, validate, export pack, pack
+## metadata). The `asset_library_window` actions are called unguarded, so that window must
+## exist by the time its rows are enabled.
 func _on_assets(id: int) -> void:
 	match id:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
@@ -3097,11 +3184,15 @@ func _build_handedness_submenu(p: PopupMenu) -> void:
 	p.add_child(_hand_popup)
 	p.add_submenu_item("Handedness", "HandChoice")
 
+## Ticks Preferences ▸ Handedness from `DccSettings.dominant_hand()` (item 0 left, item 1
+## right). Reads settings only; storing the hand is `_on_handedness_choice`'s job.
 func _refresh_handedness_menu() -> void:
 	var hand := DccSettings.dominant_hand()
 	_hand_popup.set_item_checked(0, hand == "left")
 	_hand_popup.set_item_checked(1, hand == "right")
 
+## Serves Preferences ▸ Handedness: stores "left" or "right" in `DccSettings` and
+## re-ticks. An unknown id is ignored. It stores a preference only; consumers read it.
 func _on_handedness_choice(id: int) -> void:
 	var hand: String
 	match id:
@@ -3456,6 +3547,10 @@ func _build_gpu_retry_row(p: PopupMenu) -> void:
 	p.set_item_disabled(_gpu_retry_row, true)
 	p.set_item_tooltip(_gpu_retry_row, GPU_RETRY_NONE_TIP)
 
+## Gating for Preferences ▸ Performance ▸ Try the GPU again: enabled only when a GPU
+## readback failure is on record AND no generation holds the engine (the clearer is a
+## `#[func]` that would fail its `bind()` mid-run). The tooltip changes with the state,
+## so each state's reason is true. A row index outside the popup is ignored.
 func _refresh_gpu_retry_row(p: PopupMenu) -> void:
 	if _gpu_retry_row < 0 or _gpu_retry_row >= p.item_count:
 		return
@@ -3511,6 +3606,9 @@ func _build_relief_exag_menu(p: PopupMenu) -> void:
 		"The vertical exaggeration a fresh Generate starts from -- the relief the hillshade is computed from, the reference's own Relief slider. Per world it stays live under CARTO ▸ Relief & light ▸ Map view; this is only where a new world begins. Applied on Generate and never on opening a project, which carries its own stored appearance.")
 	_refresh_relief_exag_menu()
 
+## Ticks Preferences ▸ relief exaggeration default: a rung is checked only when a value
+## was actually stored and equals it, so the engine's off-ladder 3.4 default reports no
+## choice rather than the nearest rung.
 func _refresh_relief_exag_menu() -> void:
 	if _exag_popup == null:
 		return
@@ -3524,6 +3622,9 @@ func _refresh_relief_exag_menu() -> void:
 		_exag_popup.set_item_checked(i,
 			chosen and is_equal_approx(DccSettings.RELIEF_EXAG_CHOICES[i], cur))
 
+## Serves the relief-exaggeration default submenu: `ID_GFX_EXAG_ENGINE` forgets the stored
+## value (engine default again), a rung stores it. Either way it applies on the NEXT
+## Generate; the status line says so and nothing regenerates here.
 func _on_relief_exag(id: int) -> void:
 	if id == ID_GFX_EXAG_ENGINE:
 		DccSettings.clear_relief_exaggeration_default()
@@ -3605,6 +3706,10 @@ func _on_gpu_devices_about_to_popup() -> void:
 		_gpu_devices = _bridge.gpu_devices()
 	_refresh_gpu_devices_menu()
 
+## Rebuilds Preferences ▸ GPU devices on every popup from the cached `_gpu_devices` and
+## the bridge's selection: Automatic, each adapter (software rasterizers disabled, no-compute
+## adapters flagged), the last measured per-device memory, and Rescan. The empty list and the
+## unmeasured memory are `_readout` rows with their reason, not fake values.
 func _refresh_gpu_devices_menu() -> void:
 	var pm := _gpu_devices_popup
 	pm.clear()
@@ -3669,6 +3774,9 @@ func _refresh_gpu_devices_menu() -> void:
 	pm.add_separator()
 	pm.add_item("Rescan devices…", GPU_DEV_RESCAN)
 
+## Serves GPU devices: Rescan re-enumerates; Automatic clears the selection; an adapter
+## row toggles its `key` in the stored selection. Always redraws the submenu, because the
+## popup stays open after a click. An out-of-range id is ignored.
 func _on_gpu_device_choice(id: int) -> void:
 	if id == GPU_DEV_RESCAN:
 		_gpu_devices = _bridge.gpu_devices()
@@ -3721,12 +3829,16 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_track_gpu_pref_row(p, "How work is divided when more than one device is selected. Takes effect on the next generate.")
 	_refresh_gpu_mode_menu()
 
+## Ticks Multi-GPU mode (single_device / split_tiles / alternate_frames) from the
+## bridge. Item 2 is permanently disabled at build time, so only 0 or 1 can really show.
 func _refresh_gpu_mode_menu() -> void:
 	var mode := _bridge.gpu_multi_mode()
 	_gpu_mode_popup.set_item_checked(0, mode == "single_device")
 	_gpu_mode_popup.set_item_checked(1, mode == "split_tiles")
 	_gpu_mode_popup.set_item_checked(2, mode == "alternate_frames")
 
+## Serves Multi-GPU mode: maps the item index to the engine's mode name and only
+## re-ticks if the bridge accepted it. The name list must stay in item order.
 func _on_gpu_mode_choice(id: int) -> void:
 	var names := ["single_device", "split_tiles", "alternate_frames"]
 	if id < 0 or id >= names.size():
@@ -3784,6 +3896,9 @@ func _build_cpu_threads_menu(p: PopupMenu) -> void:
 		"How many Rayon workers the parallel stages spread across. Applied at startup from the stored preference; a change made here reaches the pool only if nothing has used it yet this session, and the submenu says which happened.")
 	_refresh_cpu_threads_menu()
 
+## Ticks the CPU thread-count ladder from `DccSettings.cpu_thread_count()` and rebuilds the
+## measured readout row (running count vs stored preference). While a generation owns the
+## engine the running count is unreadable and says so, rather than reporting "0".
 func _refresh_cpu_threads_menu() -> void:
 	var stored := DccSettings.cpu_thread_count()
 	for i in _cpu_thread_choices.size():
@@ -3815,6 +3930,9 @@ func _refresh_cpu_threads_menu() -> void:
 		"This is measured, not just read from the setting above. The worker pool is built once when the app starts and can't be resized while it's running: a new count is stored and takes effect the next time the app launches. Reads 0, and says so, while a generation is in progress.")
 	_cpu_threads_popup.set_item_id(i2, id)
 
+## Serves the CPU thread-count ladder: stores the chosen count through the bridge and
+## redraws. The worker pool is built once per launch, so a new count applies at next start
+## (the readout row says which). An out-of-range id is ignored.
 func _on_cpu_threads_choice(id: int) -> void:
 	if id < 0 or id >= _cpu_thread_choices.size():
 		return
@@ -3842,6 +3960,9 @@ func _build_gpu_vram_menu(p: PopupMenu) -> void:
 	_track_gpu_pref_row(p, "A cap on the GPU working set this pipeline may allocate for a grid. Takes effect on the next generate.")
 	_refresh_gpu_vram_menu()
 
+## Ticks the GPU VRAM budget ladder from the bridge and rebuilds the estimate row for
+## the CURRENT grid. Before the first generate the grid is 0x0, which is reported as such,
+## not as a measurement.
 func _refresh_gpu_vram_menu() -> void:
 	var cur := _bridge.gpu_vram_budget_gb()
 	for i in GPU_VRAM_CHOICES.size():
@@ -3865,6 +3986,8 @@ func _refresh_gpu_vram_menu() -> void:
 			"An upper bound on what this pipeline's own GPU buffers need, not a measurement of card occupancy: ten f32 grids, the count the heaviest stage (plate assignment) binds plus its staging buffers. Over budget, the fallback below decides what happens.")
 		_gpu_vram_popup.set_item_id(i2, GPU_VRAM_CHOICES.size())
 
+## Serves the GPU VRAM budget ladder: stores the chosen budget (GB) through the bridge
+## and redraws. An out-of-range id is ignored.
 func _on_gpu_vram_choice(id: int) -> void:
 	if id < 0 or id >= GPU_VRAM_CHOICES.size():
 		return
@@ -3900,12 +4023,16 @@ func _build_gpu_fallback_menu(p: PopupMenu) -> void:
 	_track_gpu_pref_row(p, "What happens when a grid is over the budget above. Takes effect on the next generate.")
 	_refresh_gpu_fallback_menu()
 
+## Ticks the VRAM-exceeded fallback choice (cpu_tile_pass / reduce_working_res /
+## fail_with_error) from the bridge. The names must match `_on_gpu_fallback_choice`.
 func _refresh_gpu_fallback_menu() -> void:
 	var cur := _bridge.gpu_vram_fallback()
 	_gpu_fallback_popup.set_item_checked(0, cur == "cpu_tile_pass")
 	_gpu_fallback_popup.set_item_checked(1, cur == "reduce_working_res")
 	_gpu_fallback_popup.set_item_checked(2, cur == "fail_with_error")
 
+## Serves the VRAM fallback choice: maps the item index to the engine's policy name and
+## only re-ticks if the bridge accepted it.
 func _on_gpu_fallback_choice(id: int) -> void:
 	var names := ["cpu_tile_pass", "reduce_working_res", "fail_with_error"]
 	if id < 0 or id >= names.size():
@@ -4046,6 +4173,10 @@ const LIGHT_ALT_STEPS: Array[float] = [15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 75.0]
 const LIGHT_AMB_STEPS: Array[float] = [0.0, 0.15, 0.25, 0.35, 0.5, 0.7]
 const LIGHT_NUM_STEPS: Array[float] = [1.0, 2.0, 4.0, 6.0, 8.0, 12.0]
 
+## Builds Preferences ▸ Lighting rig defaults: a source readout row (how many of the four
+## keys are stored) and four ladders (azimuth, elevation, ambient, multidirectional lights)
+## plus a reset row. Stored rungs are sent on the next Generate; unstored keys send nothing.
+## Refreshed on every popup by `_refresh_lighting_menu`; dispatch is `_on_lighting`.
 func _build_lighting_menu(p: PopupMenu) -> void:
 	_lighting_popup = PopupMenu.new()
 	_lighting_popup.name = "LightingRig"
@@ -4113,6 +4244,10 @@ func _build_lighting_menu(p: PopupMenu) -> void:
 	## safety net to begin with, so it is fixed here too.
 	_refresh_lighting_menu()
 
+## Builds one radio submenu of the lighting rig (`steps` rungs with ids from `first_id`),
+## wires it to `_on_lighting`, hangs it under the lighting popup with `tip` as the parent
+## row's tooltip, and returns it so the caller can keep it. `key` names the engine key the
+## rungs write.
 func _light_ladder(node_name: String, label: String, steps: Array,
 		first_id: int, key: String, tip: String) -> PopupMenu:
 	var sub := PopupMenu.new()
@@ -4126,6 +4261,8 @@ func _light_ladder(node_name: String, label: String, steps: Array,
 	_lighting_popup.set_item_tooltip(_lighting_popup.item_count - 1, tip)
 	return sub
 
+## Display text of one lighting rung: degrees for the two sun angles, a light count for
+## `relief_lights`, otherwise two decimals. Display only; the stored value is the float.
 func _light_rung_text(key: String, v: float) -> String:
 	match key:
 		"sun_az_deg", "sun_alt_deg":
@@ -4168,6 +4305,10 @@ func _effective_lighting() -> Dictionary:
 	out.merge(DccSettings.lighting_defaults(), true)
 	return out
 
+## Refreshes the lighting menu on popup: checks the rung NEAREST the effective value per
+## key (so an old stored value still reads as checked somewhere) and rewrites the source
+## readout to say how many of the four keys are stored here versus following the engine.
+## A checked rung on a key that is not stored is the engine's value, not a choice made here.
 func _refresh_lighting_menu() -> void:
 	if _lighting_popup == null:
 		return
@@ -4212,6 +4353,9 @@ func _refresh_lighting_menu() -> void:
 			"All four rungs are stored here and are sent on the next Generate, overriding the "
 				+ "engine's own values. Use the engine's own rig below forgets them."))
 
+## Serves the lighting ladders: the reset id forgets every stored default; any other id is
+## matched to the ladder that owns it and stores that rung. Applies on the next Generate
+## (the status line says so); nothing regenerates here. Ids outside every ladder are ignored.
 func _on_lighting(id: int) -> void:
 	if id == ID_LIGHT_RESET:
 		DccSettings.reset_lighting_defaults()
@@ -4262,6 +4406,10 @@ func _build_tiled_lod_menu(p: PopupMenu) -> void:
 	p.add_child(_tiled_lod_popup)
 	p.add_submenu_item("Tiled LOD", "TiledLod")
 
+## Refreshes Tiled LOD on popup: ticks Auto/Manual and gates "Enter deep detail now" and
+## "Leave deep detail" with a reason each (already in / not in deep detail; leaving under
+## Auto would be undone by the next camera move). Needs a viewport exposing `lod_auto`;
+## otherwise it leaves the menu untouched.
 func _refresh_tiled_lod_menu() -> void:
 	if _tiled_lod_popup == null or _host == null or _host.viewport == null:
 		return
@@ -4286,6 +4434,9 @@ func _refresh_tiled_lod_menu() -> void:
 		else ("Auto mode would bring it straight back on the next camera move. Switch to Manual first." if auto
 			else "Drops back to the base raster without moving the camera."))
 
+## Serves Tiled LOD: the mode rows store the choice in `DccSettings` AND the viewport;
+## Enter asks the viewport to enter deep detail and reports when the camera is not zoomed
+## in far enough; Leave releases it. Needs a viewport with `set_lod_auto`; redraws the menu.
 func _on_tiled_lod(id: int) -> void:
 	if _host == null or _host.viewport == null:
 		return
@@ -4375,6 +4526,8 @@ func _pyramid_tiles(depth: int) -> String:
 		out += txt[i]
 	return out
 
+## Ticks the bake-depth ladder (LOD 0-8) from `DccSettings.bake_depth()`, the same key
+## the WORLD dock's Finalize foot reads. Settings only; baking is not triggered here.
 func _refresh_lod_levels_menu() -> void:
 	if _lod_levels_popup == null:
 		return
@@ -4382,6 +4535,9 @@ func _refresh_lod_levels_menu() -> void:
 	for d in range(0, 9):
 		_lod_levels_popup.set_item_checked(d, d == cur)
 
+## Serves the bake-depth ladder: stores depth 0-8 in `DccSettings` (the engine's ceiling
+## is higher; the range is the spec's), re-ticks, nudges the atlas dock, and reports the
+## tile count. Does not bake anything. Ids outside 0-8 are ignored.
 func _on_lod_levels(id: int) -> void:
 	var d := id - ID_LOD_LEVEL_FIRST
 	if d < 0 or d > 8:
@@ -4413,6 +4569,8 @@ func _refresh_tile_size_menu() -> void:
 			"%d chunk%s already baked at %d px. Clear the atlas cache below first -- a size change does not rewrite tiles already on disk." % [
 				baked, "" if baked == 1 else "s", cur])
 
+## Serves the atlas tile-size ladder: sets the bridge's tile size, re-ticks and nudges the
+## atlas dock. It applies to the NEXT bake and re-renders nothing already baked.
 func _on_tile_size(id: int) -> void:
 	var i := id - ID_LOD_TILE_FIRST
 	if i < 0 or i >= ATLAS_TILE_SIZES.size():
@@ -4592,6 +4750,7 @@ func _build_atlas_cap_menu(p: PopupMenu) -> void:
 		"A ceiling on the baked tile store. Enforced when the cap is set and whenever this menu is opened -- a cap the app honoured only at the moment it was typed would let the very next bake walk past it. Nothing is lost that cannot be rebuilt: every evicted chunk is re-bakeable from WORLD > Finalize, which is why this trims without asking and Clear atlas cache now (which also releases the finalize lock) asks first.")
 	_refresh_atlas_cap_menu()
 
+## Ticks the atlas disk-cap ladder from `DccSettings.atlas_cap_gb()` (<= 0 means no cap).
 func _refresh_atlas_cap_menu() -> void:
 	if _atlas_cap_popup == null:
 		return
@@ -4600,6 +4759,9 @@ func _refresh_atlas_cap_menu() -> void:
 		_atlas_cap_popup.set_item_checked(i,
 			is_equal_approx(DccSettings.ATLAS_CAP_CHOICES[i], cur))
 
+## Serves the atlas disk-cap ladder: stores the cap, then immediately trims the store to it
+## (`_enforce_atlas_cap`) and says how much was freed, or that the store is already under it.
+## Must refresh the cache menu afterwards since the byte counts changed.
 func _on_atlas_cap(id: int) -> void:
 	var i := id - ID_ATLAS_CAP_FIRST
 	if i < 0 or i >= DccSettings.ATLAS_CAP_CHOICES.size():
@@ -4808,6 +4970,10 @@ func _phone_title(d: AcceptDialog, body: Control) -> void:
 	wrap.add_child(body)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
+## Preferences ▸ Clear cached tiles: refuses with a hint when nothing is baked; otherwise
+## asks first (`DccWidgets.confirm`) naming the chunk count and size it will delete. On
+## confirm it clears the atlas only (never the world, parameters or edits; a finalized
+## world is unlocked by this) and refreshes the atlas status and menus.
 func _clear_caches() -> void:
 	var st: Dictionary = _bridge.atlas_status()
 	var chunks := int(st.get("chunks", 0))
@@ -4846,6 +5012,11 @@ func _clear_caches() -> void:
 			_refresh_atlas_cache_menu()
 			_refresh_tile_size_menu())
 
+## Dispatcher for Preferences' `id_pressed`: storage locations, the editable shortcuts
+## dialog, Try the GPU again, Clear cached tiles, and the GPU acceleration toggle (the
+## fall-through arm: it flips `use_gpu`, and rewrites the row text so the backend readout
+## matches the tick). `p` is the popup whose GPU row is rewritten. The GPU-retry status
+## reports what the call returned, since the row's gating can be one popup stale.
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
@@ -4919,6 +5090,10 @@ func _steps_affordable(s: Dictionary) -> int:
 		return max_steps
 	return maxi(1, mini(max_steps, int(s.get("budget_bytes", 0)) / step))
 
+## Refreshes the undo memory-budget ladder from `undo_stats()`: ticks the current budget,
+## rewrites each rung's text with how many steps it buys at THIS resolution (plain MB when no
+## world), and gates Clear history on `_bridge.can_undo()` with a tooltip that matches the
+## state. This is the height-stack budget only, not the look history.
 func _refresh_undo_budget_menu() -> void:
 	var s: Dictionary = _bridge.undo_stats()
 	var budget_mb := int(s.get("budget_bytes", 0)) / 1048576
@@ -4961,6 +5136,8 @@ func _refresh_undo_budget_menu() -> void:
 			if can_clear else
 			"The undo stack is empty -- nothing has been committed that could be reverted, so there is no history here to drop. It fills again on the next destructive edit. Steps you have already undone sit in the redo tail instead, which Edit > Undo history... lists with its own discard row.")
 
+## Serves the undo-budget submenu: Clear drops the height undo stack; a rung sets the
+## budget (MB) and redraws. Ids outside the ladder are ignored. The look history is not affected.
 func _on_undo_budget(id: int) -> void:
 	if id == ID_PREF_UNDO_CLEAR:
 		_bridge.clear_undo()
@@ -4969,6 +5146,7 @@ func _on_undo_budget(id: int) -> void:
 		_bridge.set_undo_budget_mb(UNDO_BUDGETS_MB[id])
 		_refresh_undo_budget_menu()
 
+## Ticks Preferences ▸ Theme (dark / light / system) from `_theme_mode`, the STORED choice.
 func _refresh_theme_menu() -> void:
 	_theme_popup.set_item_checked(0, _theme_mode == "dark")
 	_theme_popup.set_item_checked(1, _theme_mode == "light")
@@ -5013,6 +5191,7 @@ func _apply_theme_mode(mode: String) -> void:
 	DccTheme.apply_theme(want_dark)
 	_shell.rebuild_theme(was_dark)
 
+## Ticks Preferences ▸ Units (km / mi / nmi) from `DccSettings.units_mode()`.
 func _refresh_units_menu() -> void:
 	var mode := DccSettings.units_mode()
 	_units_popup.set_item_checked(0, mode == "km")
@@ -5066,6 +5245,8 @@ func _on_units_choice(id: int) -> void:
 ## `WorldGen.get_recommended_quality_tier` answering "".
 const QUALITY_TIP_LEAD := "How much of the map's look is rendered: Balanced drops local contrast and the paper's ageing mottle, Performance also drops paper grain, forest stippling and the geology tint, and Ultra adds extra light directions, stronger occlusion and more local contrast."
 
+## Writes the quality-tier parent row's tooltip: the recommendation for this machine and the
+## current tier. An empty recommendation says none is available instead of showing a tier name.
 func _refresh_quality_row(p: PopupMenu) -> void:
 	if _quality_pref_row < 0 or _quality_pref_row >= p.item_count:
 		return
@@ -5079,6 +5260,8 @@ func _refresh_quality_row(p: PopupMenu) -> void:
 	p.set_item_tooltip(_quality_pref_row,
 		"%s Recommended for this machine: %s -- currently %s." % [QUALITY_TIP_LEAD, rec, _bridge.quality_tier()])
 
+## Serves the Quality tier submenu: applies the chosen tier through the bridge and, only on
+## success, moves the radio tick and marks the project dirty. An unknown id is ignored.
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()
 	if id < 0 or id >= tiers.size():
@@ -5202,6 +5385,9 @@ func _build_layouts_menu(p: PopupMenu) -> void:
 		"Named snapshots of the five region toggles above, the active domain and its mode, and the domain rail's expansion -- plus the tool sheet's detent on the phone, which is recorded and restored for real since 2026-09-01. Reset layout is the built-in first entry; Save layout as… adds one and Forget layout… removes one. Generate, Sculpt, Cartography and Journey are seeded once on a first run and are ordinary saved layouts: forget them, or save over them, like any other.")
 	_refresh_layouts_menu()
 
+## Rebuilds Window ▸ Layouts on every popup: Default, each saved layout (id = first + 1 +
+## index into `_layout_names`), Save layout as, and Forget layout (disabled with a reason when
+## none are stored). Index-parallel with `_on_layout`, which reads `_layout_names` back.
 func _refresh_layouts_menu() -> void:
 	if _layouts_popup == null:
 		return
@@ -5346,6 +5532,10 @@ func _capture_layout() -> Dictionary:
 		out["detent"] = String(_shell.phone_detent())
 	return out
 
+## Applies a stored layout dictionary: toggles each region whose shown state differs (on a
+## phone the left/right docks are skipped, since they are sheets), then domain, mode, rail
+## expansion (collapsed when the key is absent) and the phone detent (only when present).
+## `toggle_region` only flips, so each region is compared against the real checked state first.
 func _apply_layout(data: Dictionary) -> void:
 	var regions: Dictionary = data.get("regions", {})
 	if _window_popup != null:
@@ -5378,6 +5568,9 @@ func _apply_layout(data: Dictionary) -> void:
 	if data.has("detent") and _shell.has_method("set_phone_detent"):
 		_shell.set_phone_detent(String(data["detent"]))
 
+## Serves Window ▸ Layouts: Save / Forget open their prompts, index 0 is Default (reset every
+## region), later ids apply a saved layout by name via `_apply_layout`. An id past the name
+## list (the list changed since the popup was built) is ignored.
 func _on_layout(id: int) -> void:
 	if id == ID_WIN_SAVE_LAYOUT:
 		_prompt_save_layout()
@@ -5633,6 +5826,9 @@ const WIN_REGION_LABELS := {
 	ID_WIN_RAIL: "Domain rail",
 }
 
+## Moves Window-menu check marks to match a region toggle without waiting for the next
+## popup: `ID_WIN_RESET` checks every region; a region id flips its own tick; any other id is
+## ignored. Mirrors what a click on the row would have done.
 func _sync_region_checks(p: PopupMenu, id: int) -> void:
 	if id == ID_WIN_RESET:
 		for rid in WIN_REGION_IDS:
@@ -5941,6 +6137,9 @@ static func viewshed_status_text(st: Dictionary) -> String:
 			return "Viewshed: stale -- terrain and settlements changed"
 	return "Viewshed: unknown"
 
+## Rewrites the viewshed status row (text and tooltip) from `landmark_refine_status()`:
+## stale says scoring uses the coarse result, fresh names the covered rectangle. Silent when
+## the atlas popup, row or bridge is missing.
 func _refresh_viewshed_status() -> void:
 	if _atlas_popup == null or _viewshed_status_idx < 0 or _bridge == null:
 		return
@@ -6001,6 +6200,9 @@ static func view_cell_rect(r: Dictionary, grid: Vector2i) -> Rect2i:
 	var y1 := clampi(int(ceil(float(r.get("y1", 0.0)))), 0, grid.y)
 	return Rect2i(x0, y0, maxi(x1 - x0, 0), maxi(y1 - y0, 0))
 
+## Serves the LOD debug submenu: the tile-border row toggles the export tile grid; the other
+## rows toggle one named debug overlay (grid / colors / labels). Redraws the ticks. Needs a
+## viewport; an unknown id is ignored.
 func _on_lod_debug(id: int) -> void:
 	if _host == null or _host.viewport == null:
 		return
@@ -6036,6 +6238,9 @@ static func _docs_dir() -> String:
 			return dir
 	return ""
 
+## Dispatcher for Help's `id_pressed`: documentation folder, credits, shortcuts, generation
+## info, the diagnostic-report review panel (not the write itself), and About. Also connected
+## on the tablet ☰ overflow for Shortcuts and About.
 func _on_help(id: int) -> void:
 	match id:
 		## `file://` rather than the bare path: `OS.shell_open` takes a URI on
@@ -6097,6 +6302,11 @@ func _add_submenu(parent: PopupMenu, title: String, builder: Callable) -> PopupM
 	builder.call(sub)
 	return sub
 
+## Builds the tablet's ☰ overflow: Undo/Redo/Undo history, Asset library, Landmark types,
+## Toggle theme, Units, Shortcuts, About, then the shipped Edit / Assets / Preferences /
+## Window / Help menus nested as submenus (`full=false`, so rows already promoted are not
+## built twice). Four dispatchers share the popup's `id_pressed`; each ignores ids it did not
+## add. PC and phone never call this.
 func _overflow(p: PopupMenu) -> void:
 	_build_undo_redo(p)
 	p.add_separator()
@@ -6156,10 +6366,16 @@ func _overflow(p: PopupMenu) -> void:
 func _on_toggle_theme() -> void:
 	_on_theme_choice(ID_PREF_THEME_LIGHT if DccTheme.is_dark() else ID_PREF_THEME_DARK)
 
+## Dispatcher for the tablet overflow's View row: only `ID_TABLET_TOGGLE_THEME` is handled,
+## via `_on_toggle_theme`. Every other id is ignored (the other dispatchers own them).
 func _on_view(id: int) -> void:
 	if id == ID_TABLET_TOGGLE_THEME:
 		_on_toggle_theme()
 
+## Builds the tablet's World menu from its canvas: Run pipeline (Ctrl+R), Reset generation
+## parameters, the Generation pipeline / Sculpt mode radios (ticked from the shell's active
+## WORLD mode on popup) and Seed & size. `id_pressed` goes to `_on_edit` and `_on_world`,
+## each ignoring ids it does not own. PC and phone have no such menu.
 func _world(p: PopupMenu) -> void:
 	## `world_workspace.gd::_regenerate_live()` -- the guarded path the WORLD
 	## dock's own Generate button already uses (`_on_generate_pressed()`),
@@ -6211,6 +6427,9 @@ func _world(p: PopupMenu) -> void:
 	p.id_pressed.connect(_on_edit)
 	p.id_pressed.connect(_on_world)
 
+## Dispatcher for the tablet World menu: Run pipeline calls the world workspace's guarded
+## `_regenerate_live()` (asks before discarding authored work); the mode rows select the
+## WORLD domain's mode a or b; Seed and size opens New world. Calls are `has_method`-guarded.
 func _on_world(id: int) -> void:
 	match id:
 		ID_WORLD_RUN_PIPELINE:
