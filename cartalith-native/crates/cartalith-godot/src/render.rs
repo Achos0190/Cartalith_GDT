@@ -303,6 +303,8 @@ pub struct PaintOverride {
 }
 
 impl PaintOverride {
+    /// `true` when all three channels are `0` (unpainted), so the cell keeps its generated
+    /// biome, terrain and splat.
     fn is_empty(self) -> bool {
         self.bio == 0 && self.ter == 0 && self.splat == 0
     }
@@ -432,6 +434,11 @@ fn painted_tex(tiles: &[Option<GroundTile>], idx: u8, x: f64, y: f64) -> Option<
     Some((px[0] as f64, px[1] as f64, px[2] as f64))
 }
 
+// `Serialize`/`Deserialize` for `GUI_GAP_REGISTER.md` CA-08: a saved
+// appearance preset carries the whole look, and the Painter block is part of
+// the look. `#[serde(default)]` on the struct so a preset written by an older
+// build (one style short) still loads, gaining that style at its own default
+// rather than failing the whole file.
 /// The reference's `state.viz.*` non-photorealistic block: the ten "Painter"
 /// hand-drawn styles (reference HTML lines 7903-7962), the coastal wave lines
 /// (8442-8443, 8555-8558), the multi-sun light rig (8351-8370) and the
@@ -454,11 +461,6 @@ fn painted_tex(tiles: &[Option<GroundTile>], idx: u8, x: f64, y: f64) -> Option<
 /// separate Godot overlay too (`water_anim_layer.gd`). Keeping the flag here
 /// means the whole NPR vocabulary crosses the gdext boundary through one
 /// `set_npr()` rather than through one method plus an unrelated second one.
-// `Serialize`/`Deserialize` for `GUI_GAP_REGISTER.md` CA-08: a saved
-// appearance preset carries the whole look, and the Painter block is part of
-// the look. `#[serde(default)]` on the struct so a preset written by an older
-// build (one style short) still loads, gaining that style at its own default
-// rather than failing the whole file.
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct Npr {
@@ -632,6 +634,8 @@ pub enum RampMode {
 pub const RAMP_MODES: &[&str] = &["Linear", "Ease", "Step"];
 
 impl RampMode {
+    /// The [`RAMP_MODES`] name of this mode; indexes by discriminant, so the enum's order
+    /// must stay [`RAMP_MODES`]'s.
     #[allow(dead_code)]
     pub fn name(self) -> &'static str {
         RAMP_MODES[self as usize]
@@ -734,15 +738,18 @@ impl ElevationRamp {
         ElevationRamp { stops, mode: RampMode::Linear }
     }
 
+    /// The stops, sorted by position by the constructor that built them.
     pub fn stops(&self) -> &[RampStop] {
         &self.stops
     }
 
+    /// The interpolation mode between stops; `Linear` unless [`Self::set_mode`] changed it.
     #[allow(dead_code)]
     pub fn mode(&self) -> RampMode {
         self.mode
     }
 
+    /// Choose how colour and opacity are interpolated between neighbouring stops.
     #[allow(dead_code)]
     pub fn set_mode(&mut self, mode: RampMode) {
         self.mode = mode;
@@ -1079,6 +1086,9 @@ impl BlendMode {
         })
     }
 
+    // `pub(crate)` only so `tests/layer_stack.rs` — which `#[path]`-includes
+    // this file as a child module of its own crate root — can assert the five
+    // formulas against literal expected values rather than against themselves.
     /// `dst` blended with `src` at `a`, per channel, in 0-255 space.
     ///
     /// The alpha fold is `d + (blended - d) * a`, the same form every other
@@ -1090,9 +1100,6 @@ impl BlendMode {
     /// `Multiply` whose source is above 255 brightens — which is what the
     /// shipped light curve does and what this must not "fix". `cell_color`
     /// clamps once, at the end, exactly as it always has.
-    // `pub(crate)` only so `tests/layer_stack.rs` — which `#[path]`-includes
-    // this file as a child module of its own crate root — can assert the five
-    // formulas against literal expected values rather than against themselves.
     pub(crate) fn apply(self, dst: Rgb, src: Rgb, a: f64) -> Rgb {
         let ch = |d: f64, s: f64| -> f64 {
             let b = match self {
@@ -1245,22 +1252,12 @@ impl LayerStack {
 }
 
 impl Default for LayerStack {
+    /// The unlayered stack, [`LayerStack::DEFAULT`], which renders the shipped image.
     fn default() -> Self {
         LayerStack::DEFAULT
     }
 }
 
-/// The renderer's editable colour data and shading constants — what used to
-/// be 26 free-floating module consts, now one real, owned, inspectable
-/// structure. `Default` reproduces today's exact values (pixel-identical
-/// output). See this module's own doc comment for why the *material* colour
-/// here is a palette table rather than an elevation-breakpoint ramp — and
-/// [`ElevationRamp`] for the separate, opt-in ramp layer (CA-02) that sits on
-/// top of it at `ramp_strength`.
-///
-/// Live through `WorldGen::{get_appearance, set_appearance,
-/// list_appearance_tunables, reset_appearance}` since 2026-08-24; the
-/// "wired to no UI" note this comment used to carry is no longer true.
 // `Clone` so a caller can hold *one* appearance value, hand it to
 // `RenderCtx::with_appearance`, and still measure the plate frame with
 // `border_cover` afterwards — rather than the raster and the overlays each
@@ -1272,6 +1269,17 @@ impl Default for LayerStack {
 // file loads with the new field at its `Default` value instead of failing, and
 // the loader then renders a look that is exactly what the file described plus
 // today's default for what it could not have described.
+/// The renderer's editable colour data and shading constants — what used to
+/// be 26 free-floating module consts, now one real, owned, inspectable
+/// structure. `Default` reproduces today's exact values (pixel-identical
+/// output). See this module's own doc comment for why the *material* colour
+/// here is a palette table rather than an elevation-breakpoint ramp — and
+/// [`ElevationRamp`] for the separate, opt-in ramp layer (CA-02) that sits on
+/// top of it at `ramp_strength`.
+///
+/// Live through `WorldGen::{get_appearance, set_appearance,
+/// list_appearance_tunables, reset_appearance}` since 2026-08-24; the
+/// "wired to no UI" note this comment used to carry is no longer true.
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(default)]
 pub struct TerrainAppearance {
@@ -2157,6 +2165,8 @@ pub struct TerrainAppearance {
 }
 
 impl Default for TerrainAppearance {
+    /// The shipped look: the values the pre-struct module consts held, plus each later
+    /// milestone's own default. [`TerrainAppearance::js_reference`] is the separate parity-path variant.
     fn default() -> Self {
         TerrainAppearance {
             w_abyss: [(8.0, 36.0, 58.0), (10.0, 45.0, 70.0), (18.0, 59.0, 89.0)],
@@ -2338,6 +2348,9 @@ impl Default for TerrainAppearance {
     }
 }
 
+// `golden_parity_render.rs` `#[path]`-includes this file standalone, with no
+// `lib.rs` to construct tiers from -- the same reason `js_reference()` and
+// `border_cover` already carry this attribute, in reverse.
 /// `TERRAIN_APPEARANCE_RESEARCH.md` §29's four quality presets, as a real
 /// mechanism rather than a policy. **Which tier a given device should get is
 /// the owner's decision**, so this type only *provides* the ladder and a
@@ -2358,9 +2371,6 @@ impl Default for TerrainAppearance {
 /// and the whole-raster local-contrast pass -- i.e. exactly the stages whose
 /// cost scales with `gw*gh` and whose absence degrades the image gracefully
 /// instead of breaking it.
-// `golden_parity_render.rs` `#[path]`-includes this file standalone, with no
-// `lib.rs` to construct tiers from -- the same reason `js_reference()` and
-// `border_cover` already carry this attribute, in reverse.
 #[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum QualityTier {
@@ -2505,6 +2515,8 @@ impl TerrainAppearance {
         }
     }
 
+    // Used by `golden_parity_render.rs`, which compiles as its own target,
+    // so the lib target alone sees it as unreachable.
     /// The reference HTML's exact default-settings shading: one sun, no
     /// ambient occlusion, the original light curve. Produces **bit-identical
     /// output to this renderer before milestone 2** — `relief_lights: 1`
@@ -2523,8 +2535,6 @@ impl TerrainAppearance {
     /// tested — this also satisfies `TERRAIN_APPEARANCE_RESEARCH.md` §1.5's
     /// "preserve the current renderer as a fallback/reference
     /// implementation" literally rather than in spirit.
-    // Used by `golden_parity_render.rs`, which compiles as its own target,
-    // so the lib target alone sees it as unreachable.
     #[allow(dead_code)]
     pub fn js_reference() -> Self {
         TerrainAppearance {
@@ -2909,8 +2919,11 @@ tunables! {
 // Same reason `js_reference` and `border_cover` already carry this: the
 // golden-parity targets `#[path]`-include this file with no `lib.rs` to use it.
 #[allow(dead_code)]
+// Range 1..=12 lights: a judgement (the slider's ceiling); the retired CHANGELOG records 6 -> 12
+// moving nothing, as the weighted sum has converged. Raise or lower the 12 to move the top end.
 pub const TUNABLE_LIGHTS: (&str, f64, f64, &str) = ("relief_lights", 1.0, 12.0, "Light directions");
 
+/// Clamp to `[0, 1]`; a NaN stays NaN (`f64::clamp` does not absorb it).
 fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
 }
@@ -2920,10 +2933,12 @@ fn clamp01(x: f64) -> f64 {
 // the reference's `||` is JS truthiness, which is falsy for both.
 use cartalith_jsmath::smoothstep;
 
+/// Linear interpolation `a + (b - a) * t`, unclamped, as the reference's `lerp`.
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
 
+/// Per-channel [`lerp`] between two colours, as the reference's `mix`.
 fn mix(a: Rgb, b: Rgb, t: f64) -> Rgb {
     (lerp(a.0, b.0, t), lerp(a.1, b.1, t), lerp(a.2, b.2, t))
 }
@@ -2957,20 +2972,24 @@ fn temperature_shift(c: Rgb, t: f64) -> Rgb {
     (c.0 * (1.0 + a), c.1 * (1.0 - a * 0.1963), c.2 * (1.0 - a))
 }
 
+/// Sample a three-stop palette at `t` (clamped to `[0, 1]`): `p[0]` to `p[1]` over the
+/// first half, `p[1]` to `p[2]` over the second, as the reference's `ramp3`.
 fn ramp3(p: &[Rgb; 3], t: f64) -> Rgb {
     let t = clamp01(t);
     if t < 0.5 { mix(p[0], p[1], t / 0.5) } else { mix(p[1], p[2], (t - 0.5) / 0.5) }
 }
 
-/// `boxH`/`boxV` (reference HTML lines 2511-2512) — separable box blur,
-/// sliding-window accumulator. `f32` storage throughout (`dst` writes),
-/// matching JS's `Float32Array` truncate-on-every-store semantics
-/// (`cartalith-rust-conventions`).
 // Milestone 6: row-parallel. Each row runs its own independent sliding-window
 // accumulator over its own `w` source values and writes its own `w`
 // destination values, so the split reassociates nothing -- this stays
 // bit-identical, which matters because `smooth_sea_h` (and therefore every
 // ocean pixel on the JS-parity path) goes through here.
+/// `boxH`/`boxV` (reference HTML lines 2511-2512) — separable box blur,
+/// sliding-window accumulator. `f32` storage throughout (`dst` writes),
+/// matching JS's `Float32Array` truncate-on-every-store semantics
+/// (`cartalith-rust-conventions`).
+/// One horizontal box-blur pass of radius `r`: each `dst` cell is the mean of the `2r + 1`
+/// `src` cells centred on it; `wrap` wraps the row (world mode), else the ends clamp.
 fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
     let norm = 1.0 / (2 * r + 1) as f64;
     dst[..w * h].par_chunks_mut(w).enumerate().for_each(|(y, drow)| {
@@ -3002,6 +3021,8 @@ fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
 // alternative (blur-transpose-blur-transpose) would double the memory traffic
 // and touch `smooth_sea_h`, which is on the JS-parity path. Revisit only if a
 // profile says the serial half still dominates.
+/// The vertical pass: same window as [`box_h`], rows clamp at the top and bottom (poles
+/// never wrap), serial -- see the note above.
 fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
     let norm = 1.0 / (2 * r + 1) as f64;
     let clamp_y = |k: i64| -> usize { k.clamp(0, h as i64 - 1) as usize };
@@ -3131,7 +3152,9 @@ pub(crate) fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, worl
 /// cells — the two lighting fields below share it, which is why the divisor is
 /// named once here rather than twice inline.
 const SVF_MAX: f64 = 0.55;
+// Reference `SVF_RELK_DIV` (`buildSVFField`'s `relK = W / 6`); see the doc above.
 const SVF_RELK_DIV: f64 = 6.0;
+// Reference `SHADOW_MAX` (`buildSunShadowField`'s deepest shadow, 0.45); see the doc above.
 const SHADOW_MAX: f64 = 0.45;
 
 /// The sun elevation `buildSunShadowField` is called with, at **both** of the
@@ -3166,6 +3189,7 @@ pub(crate) fn build_svf(field: &[f32], gw: usize, gh: usize, k: f64) -> Vec<f32>
     let n = gw * gh;
     let mut out = vec![1f32; n];
     let rel_k = gw as f64 / SVF_RELK_DIV;
+    // The reference's `DIRS = 8` azimuths in `buildSVFField`, 45 degrees apart.
     const DIRS: usize = 8;
     let mut dcos = [0f64; DIRS];
     let mut dsin = [0f64; DIRS];
@@ -3174,6 +3198,7 @@ pub(crate) fn build_svf(field: &[f32], gw: usize, gh: usize, k: f64) -> Vec<f32>
         dcos[d] = a.cos();
         dsin[d] = a.sin();
     }
+    // The reference's `DIST` for `buildSVFField`: log-spaced horizon samples, in cells, out to 64.
     const DIST: [f64; 6] = [2.0, 4.0, 8.0, 16.0, 32.0, 64.0];
     // Row-parallel on `BakeFields::new`'s own determinism argument: every
     // output cell is a pure function of the immutable field and each row
@@ -3227,6 +3252,7 @@ pub(crate) fn build_sun_shadow(field: &[f32], gw: usize, gh: usize, az_deg: f64,
     let az = az_deg.to_radians();
     let (dx, dy) = (az.sin(), -az.cos());
     let tan_alt = alt_deg.to_radians().tan();
+    // The reference's `DIST` for `buildSunShadowField`: ten log-spaced steps toward the sun, out to 90 cells.
     const DIST: [f64; 10] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 27.0, 40.0, 60.0, 90.0];
     out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         for x in 0..gw {
@@ -3382,12 +3408,10 @@ pub(crate) fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, wo
 /// `build_ao` declines to make only because occlusion is a *relief* statistic,
 /// which really is relative, while drainage area is an absolute one.
 const WET_AREA_LO: f64 = 6.0e-4;
+// CA-11's upper bound (a named river, full wetness); the doc above records that the
+// pair was chosen by measurement, which this edit did not re-run.
 const WET_AREA_HI: f64 = 8.0e-3;
 
-/// The weighted multidirectional light table (`lx, ly, lz, weight`), built
-/// once per render rather than re-deriving six sin/cos pairs per pixel.
-/// Weights are normalized to sum to 1, so the combined shade stays on the
-/// same `[0,1]` scale the single-light path produces.
 /// `CREST_SLOPE_HI` (reference HTML line 8005) — the slope at which the
 /// `G^1.5` crest weight saturates, in coarse-cell units.
 const CREST_SLOPE_HI: f64 = 0.05;
@@ -3661,6 +3685,10 @@ fn apply_crest(c: Rgb, s: f64) -> Rgb {
     (c.0 * (1.0 - k) + 240.0 * k, c.1 * (1.0 - k) + 238.0 * k, c.2 * (1.0 - k) + 232.0 * k)
 }
 
+/// The weighted multidirectional light table (`lx, ly, lz, weight`), built
+/// once per render rather than re-deriving six sin/cos pairs per pixel.
+/// Weights are normalized to sum to 1, so the combined shade stays on the
+/// same `[0,1]` scale the single-light path produces.
 fn build_lights(a: &TerrainAppearance) -> Vec<(f64, f64, f64, f64)> {
     let alt = a.sun_alt_deg.to_radians();
     let n = a.relief_lights.max(1);
@@ -3723,13 +3751,17 @@ pub fn multi_sun_from_normal(a: &TerrainAppearance, nx: f64, ny: f64, nz: f64) -
 /// Built only when `npr.waves` is on; `RenderCtx` holds an empty `Vec`
 /// otherwise, so the whole stage costs nothing at the default settings.
 pub fn coast_distance(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    // Chamfer step for a straight neighbour; the reference's `D1 = 1` (`computeCoastDistance`).
     const D1: f32 = 1.0;
     // The reference's own decimal literal (7399), deliberately not
     // `f32::consts::SQRT_2`: in JS it is an f64 constant that lands in a
     // `Float32Array`, so writing it exactly as the reference writes it is what
     // makes the two provably the same rounding rather than approximately so.
     #[allow(clippy::approx_constant, clippy::excessive_precision)]
+    // The reference's `D2 = Math.SQRT2` literal for a diagonal neighbour (the decimal is deliberate, see above).
     const D2: f32 = 1.4142135623730951;
+    // The reference's `INF = 1e9` "not yet reached" start value for ocean cells. A world with no land
+    // never lowers it, so such cells read 1e9 -- the reference's behaviour, far beyond any wave band.
     const INF: f32 = 1e9;
     let n = gw * gh;
     let mut d: Vec<f32> = field
@@ -4124,6 +4156,8 @@ impl GridPrecompute {
 impl<'a> RenderCtx<'a> {
     // Used by `lib.rs`'s real render path; the test target (which calls
     // `with_appearance` directly) alone sees it as unreachable.
+    /// A context with the default [`TerrainAppearance`]; [`Self::with_appearance`] takes a
+    /// caller's. `lat_n`/`lat_s` are the map's top and bottom latitudes in degrees.
     #[allow(clippy::too_many_arguments, dead_code)]
     pub fn new(
         field: &'a [f32],
@@ -4505,14 +4539,14 @@ impl<'a> RenderCtx<'a> {
         self
     }
 
+    // Used by `lib.rs`'s real render path; the test target (`#[path]`-includes
+    // this file standalone and never calls it) alone sees it as unreachable,
+    // same situation as `js_reference()` in reverse.
     /// Attach real ground-texture channels (milestone 7). A builder method
     /// rather than a `new`/`with_appearance` parameter so every existing
     /// caller — including `golden_parity_render.rs`, which constructs a
     /// `RenderCtx` positionally — keeps compiling unchanged; splat stays
     /// `None` (inert) unless a caller opts in explicitly.
-    // Used by `lib.rs`'s real render path; the test target (`#[path]`-includes
-    // this file standalone and never calls it) alone sees it as unreachable,
-    // same situation as `js_reference()` in reverse.
     #[allow(dead_code)]
     pub fn with_splat(mut self, splat: SplatTextures<'a>) -> Self {
         self.splat = Some(splat);
@@ -4563,6 +4597,7 @@ impl<'a> RenderCtx<'a> {
         PaintOverride { bio: g(self.paint_biome), ter: g(self.paint_terrain), splat: g(self.paint_splat) }
     }
 
+    /// The (shaded) height at cell `(x, y)` from `field`; water tests use [`Self::water_h`] instead.
     fn h(&self, x: usize, y: usize) -> f64 {
         self.field[y * self.gw + x] as f64
     }
@@ -4744,10 +4779,12 @@ impl<'a> RenderCtx<'a> {
         Some(lith[(sy * gw + sx) as usize])
     }
 
+    /// Single-sun hillshade over a one-cell step (`shadeFactor`); the only shade the multi-sun rig replaces.
     fn macro_shade(&self, x: usize, y: usize) -> f64 {
         self.shade(x, y, 1)
     }
 
+    /// Single-sun hillshade over a three-cell step (`shadeFactor2`), the medium-scale relief term.
     fn meso_shade(&self, x: usize, y: usize) -> f64 {
         self.shade(x, y, 3)
     }
@@ -4871,6 +4908,8 @@ fn grass_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64) -> Rgb {
     (c.0 * d, c.1 * d, c.2 * d)
 }
 
+/// Forest ramp at palette position `tt`: boreal below 3 C, tropical above 20 C with moisture
+/// above 0.45, dense above moisture 0.62, else temperate (the reference's `forestCol`).
 fn forest_col(a: &TerrainAppearance, t: f64, m: f64, tt: f64) -> Rgb {
     if t < 3.0 {
         ramp3(&a.wood_boreal, tt)
@@ -4883,10 +4922,13 @@ fn forest_col(a: &TerrainAppearance, t: f64, m: f64, tt: f64) -> Rgb {
     }
 }
 
+/// Sand ramp at `tt`: red above 24 C with moisture below 0.1, else desert (the reference's `sandCol`).
 fn sand_col(a: &TerrainAppearance, t: f64, m: f64, tt: f64) -> Rgb {
     if t > 24.0 && m < 0.1 { ramp3(&a.sand_red, tt) } else { ramp3(&a.sand_desert, tt) }
 }
 
+/// Rock ramp at `tt`: scree above rock exposure 0.82, sandstone above 18 C with moisture below
+/// 0.32, else granite (the reference's `rockCol`; thresholds are its own).
 fn rock_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64) -> Rgb {
     if r > 0.82 {
         ramp3(&a.rock_scree, tt)
@@ -5093,6 +5135,7 @@ pub(crate) fn snow_material_col(a: &TerrainAppearance, t: f64, tt: f64, ice: f64
     )
 }
 
+/// Snow ramp at `tt`: glacier below -12 C, permanent below -4 C, else seasonal (the reference's `snowCol`).
 fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
     if t < -12.0 {
         ramp3(&a.snow_glac, tt)
@@ -5103,6 +5146,7 @@ fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
     }
 }
 
+/// Wetland ramp at `tt`: mangrove if flagged, else tropical above 20 C, else temperate (`wetlandCol`).
 fn wetland_col(a: &TerrainAppearance, t: f64, mangrove: bool, tt: f64) -> Rgb {
     if mangrove { ramp3(&a.mangrove, tt) } else { ramp3(if t > 20.0 { &a.wetland_trop } else { &a.wetland_temp }, tt) }
 }
@@ -5149,6 +5193,9 @@ pub(crate) fn snow_aspect_shift(a: &TerrainAppearance, facing: f64, slope: f64) 
     a.snow_aspect_c * facing.clamp(-1.0, 1.0) * (slope / 0.04).min(1.0)
 }
 
+/// The reference's `materialWeights` plus Ruling AP's `snow_shift_c` (snow holds on shaded
+/// slopes). Returns [`Weights`], summing to 1; `snow_shift_c = 0.0` is the reference's
+/// temperature-only snow, taken by a dedicated branch.
 pub(crate) fn material_weights(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, snow_shift_c: f64) -> Weights {
     let slope_str = (slope / 0.04).min(1.0);
     let asp_dry = clamp01(asp * slope_str * 0.22);
@@ -6447,6 +6494,8 @@ pub fn apply_npr(
     if n.crosshatch > 0.0 {
         let dark = 1.0 - (l0 * 0.3 + l1 * 0.59 + l2 * 0.11) / 255.0;
         if dark > 0.22 {
+            // The reference's `const F = 0.7` hatch frequency in its D-crosshatch block (v0.129,
+            // ported in 65f0f859); all three hatch directions share it, the third scaled by 1.4.
             const F: f64 = 0.7;
             let mut h = ((px + py) * F).sin().max(0.0);
             if dark > 0.42 {
@@ -6627,6 +6676,8 @@ fn npr_needs_grad(n: &Npr) -> bool {
 /// edge after earlier blends, and JS rounds half toward `+∞` where Rust
 /// rounds half away from zero (`cartalith-rust-conventions`).
 fn quantize_flat_palette(c: Rgb) -> Rgb {
+    // 5 bands per channel: a measured judgement -- the doc above records Village at 0.0446
+    // with 3 against the other presets' [0.029, 0.033], and 0.0314 (inside) with 5.
     const BANDS: f64 = 5.0;
     let q = |v: f64| (cartalith_jsmath::js_round((v / 255.0 * BANDS).clamp(0.0, BANDS)) / BANDS * 255.0).clamp(0.0, 255.0);
     (q(c.0), q(c.1), q(c.2))
@@ -6839,6 +6890,8 @@ pub fn border_width_cells(a: &TerrainAppearance, gw: usize, gh: usize) -> f64 {
     if gh < gw { w.min(gh as f64 * 0.25) } else { w }
 }
 
+// Called from `lib.rs`, which the test targets (they compile `render.rs`
+// standalone) don't include — same situation as `js_reference()` in reverse.
 /// How much of this cell the plate frame covers: `0.0` anywhere the frame
 /// has no influence at all, ramping to `1.0` under the bare-paper margin,
 /// using the *same* soft edge `apply_border` composites with (so a caller
@@ -6850,8 +6903,6 @@ pub fn border_width_cells(a: &TerrainAppearance, gw: usize, gh: usize) -> f64 {
 /// `lib.rs`'s river channel tint and its territory/province overlays.
 /// Returns `0.0` everywhere when `border_width_frac == 0.0`, so every
 /// caller is a bit-exact no-op on the `js_reference()` path.
-// Called from `lib.rs`, which the test targets (they compile `render.rs`
-// standalone) don't include — same situation as `js_reference()` in reverse.
 #[allow(dead_code)]
 pub fn border_cover(a: &TerrainAppearance, x: usize, y: usize, gw: usize, gh: usize) -> f64 {
     border_cover_f(a, x as f64, y as f64, gw, gh)
@@ -6925,6 +6976,8 @@ fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: f64, y: f64, gw: us
     out
 }
 
+// Called from `lib.rs` and the A/B harness; the golden test target compiles
+// this file standalone and never calls it — same situation as `border_cover`.
 /// Local contrast (`TERRAIN_APPEARANCE_RESEARCH.md` §18), applied in place
 /// to a finished tightly-packed `RGB8` raster.
 ///
@@ -6959,8 +7012,6 @@ fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: f64, y: f64, gw: us
 /// It also fades out under the plate frame via `border_cover`, so the bare
 /// margin's paper grain is never amplified — the same rule milestone 4's
 /// own follow-up established for every overlay that draws over the raster.
-// Called from `lib.rs` and the A/B harness; the golden test target compiles
-// this file standalone and never calls it — same situation as `border_cover`.
 #[allow(dead_code)]
 pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, world: bool) {
     apply_local_contrast_rows(a, rgb, gw, gh, 0, gh, world);
@@ -7447,6 +7498,7 @@ struct GradeAxes {
 }
 
 impl GradeAxes {
+    /// Resolve every axis at influence `m`: `1.0` is the full grade, `0.0` leaves every axis at rest.
     fn at(a: &TerrainAppearance, m: f64) -> Self {
         let k = a.grade_contrast * m;
         GradeAxes {
@@ -7661,6 +7713,8 @@ fn srgb_oetf(v: f64) -> f64 {
     }
 }
 
+// Used by `lib.rs::build_color_texture`; the `#[path]`-including test targets
+// see it as unreachable.
 /// Re-encode the finished RGB8 raster for one display device, in place.
 ///
 /// **[`ColorSpace::Srgb`] returns immediately.** That is the whole of the
@@ -7713,8 +7767,6 @@ fn srgb_oetf(v: f64) -> f64 {
 ///
 /// `rayon`-parallel per pixel, on [`apply_color_grade`]'s own determinism
 /// argument: each output byte is a pure function of its own three input bytes.
-// Used by `lib.rs::build_color_texture`; the `#[path]`-including test targets
-// see it as unreachable.
 #[allow(dead_code)]
 pub fn apply_color_space(space: ColorSpace, rgb: &mut [u8]) {
     // `finish_rgb` returns before touching a byte when `space` is sRGB. The
@@ -9120,10 +9172,13 @@ impl ExportBandPlan {
         Self::with_rows(a, w, h, fit.saturating_sub(2 * apron))
     }
 
+    /// How many bands cover the raster: `ceil(h / rows_per_band)`.
     pub fn band_count(&self) -> usize {
         self.h.div_ceil(self.rows_per_band)
     }
 
+    /// The bands top to bottom, each with the apron rows it needs above and below (capped at the
+    /// raster's edges) to feed local contrast.
     pub fn bands(&self) -> impl Iterator<Item = ExportBand> + '_ {
         (0..self.band_count()).map(move |i| {
             let y0 = i * self.rows_per_band;
@@ -10106,6 +10161,7 @@ const MESO_STEP_DIV: f64 = 64.0;
 /// cutting water, and the pooled depth below which a lake counts as flat or
 /// brush-painted and keeps its whole cell (reference 11734 and 11737).
 const LAKE_MEMBERSHIP_MIN: f64 = 0.35;
+// Reference 11737's flat-lake pooled-depth epsilon (see the doc above).
 const LAKE_FLAT_EPS: f64 = 0.004;
 
 /// One land pixel of a tile, as `LOD_DETAIL_SCOPE.md`'s **Aletsch comparison
@@ -10361,7 +10417,9 @@ pub fn tile_halo_px(ctx: &RenderCtx, w: usize, h: usize, bounds: TileBounds) -> 
 
 /// [`tile_water_class`]'s answers.
 const TILE_LAND: u8 = 0;
+// Value 1 matches `build_water_bodies`'s classification (1 = sea, 2 = lake).
 const TILE_SEA: u8 = 1;
+// Value 2 matches `build_water_bodies`'s lake class.
 const TILE_LAKE: u8 = 2;
 
 /// **The deep-zoom tile's one water decision** at a pixel whose water-tile
@@ -11564,6 +11622,8 @@ fn is_lake_pixel(tf: &TileFields, ctx: &RenderCtx, wx: f64, wy: f64, ht: f64, fi
 mod shore_tests {
     use super::*;
 
+    // Sea level 0.42 = `WorldParams::defaults().sea_level` (the same fixture value
+    // `cartalith-civ`'s landmark tests cite); a fixture constant, not a tuned one.
     const SL: f64 = 0.42;
 
     /// Bilinear between cell centres at cell-index coordinates `(u, v)`
@@ -11619,7 +11679,7 @@ mod shore_tests {
         0.5 * (a + b)
     }
 
-    /// Protects `shore_margins`' sea branch: the base map's coast is the
+    /// Protects: `shore_margins`' sea branch: the base map's coast is the
     /// height field's own contour at sea level, sub-cell, not a cell edge.
     /// At every sample point the sign of the bilinear field is the side of
     /// the analytic line, and (premise) the nearest cell's class is wrong at
@@ -11653,7 +11713,7 @@ mod shore_tests {
         assert!(nearest_wrong > 200, "premise: the cell coast is off the line somewhere ({nearest_wrong})");
     }
 
-    /// Protects `shore_depth`'s clamp and both of `shore_margins`' lake
+    /// Protects: `shore_depth`'s clamp and both of `shore_margins`' lake
     /// halves: over a real `build_water_bodies` answer (the producer the app
     /// uses), every cell centre keeps its class -- water positive, land
     /// negative -- with a lake that has both a terrain edge and a rain edge.
@@ -11673,7 +11733,7 @@ mod shore_tests {
         }
     }
 
-    /// Protects `shore_margins`' rain half and its depth half on a lake
+    /// Protects: `shore_margins`' rain half and its depth half on a lake
     /// shore: along the bowl's middle row the drawn shoreline crosses where
     /// the ground rises through the lake's surface (`0.8 - LAKE_DEPTH`) and
     /// where the rainfall crosses the gate (x = 18.3) -- sub-cell, where the
@@ -11693,12 +11753,16 @@ mod shore_tests {
         assert!((east - 18.3).abs() < 0.001, "east shore at {east}");
     }
 
+    /// A `RenderCtx` over a bowl/plateau fixture with `smooth_shores` set to `smooth`
+    /// (the RV-4 band on or the reference rule), default appearance otherwise. The
+    /// fixture lat bands 70/-70 are an arbitrary judgement, source not found; lake
+    /// tests never read latitude.
     fn tile_ctx<'a>(field: &'a [f32], rain: &'a [f32], temp: &'a [f32], gw: usize, gh: usize, smooth: bool) -> RenderCtx<'a> {
         let a = TerrainAppearance { smooth_shores: smooth, ..TerrainAppearance::default() };
         RenderCtx::with_appearance(field, temp, rain, None, gw, gh, SL, false, 70.0, -70.0, a)
     }
 
-    /// Protects `is_lake_pixel`'s smooth band against the reference rule it
+    /// Protects: `is_lake_pixel`'s smooth band against the reference rule it
     /// replaces: along the bowl's middle row, with the tile's ground exactly
     /// the bilinear grid (no added detail), the smooth band's shores sit on
     /// the analytic ones (8.0853, 18.3); the reference's `fq > 0.35` cut puts
@@ -11726,7 +11790,7 @@ mod shore_tests {
         }
     }
 
-    /// Protects the smooth band's identity with the base map: at every
+    /// Protects: the smooth band's identity with the base map: at every
     /// sample point around the bowl lake, the tile says lake exactly where the
     /// base map's shore field (`shore_field`, bilinear, the shader's rule) is
     /// positive -- whatever the tile's own ground `ht` does there, 0.05 above
@@ -11789,7 +11853,7 @@ mod shore_tests {
         (field, rain, mask, wb, gw, gh)
     }
 
-    /// Protects Ruling BO's forced-lake edge in the base map's shore field
+    /// Protects: Ruling BO's forced-lake edge in the base map's shore field
     /// (`shore_field_forced`): the forced block is water (positive) at every
     /// cell centre and its shore runs exactly halfway to the land beside it,
     /// x = 9.5 and 14.5 along row 12 -- literal answers from the block's
@@ -11819,7 +11883,7 @@ mod shore_tests {
         assert!(crossing(bare_row, 14.0, 15.0) - 14.0 < 1e-3, "premise: without the mask the lake is a sliver");
     }
 
-    /// Protects `shore_depth_forced`'s two no-op guarantees: `None` is
+    /// Protects: `shore_depth_forced`'s two no-op guarantees: `None` is
     /// `shore_field` bit for bit on a world with a real lake (the bowl), and a
     /// forced block far from that lake moves no cell of the lake's own
     /// shore -- a natural shore keeps its contour.
@@ -11852,7 +11916,7 @@ mod shore_tests {
         assert!(moved >= 4, "premise: the forced block itself changed the field ({moved})");
     }
 
-    /// Protects the tiles' half of Ruling BO (`TileFields::with_forced_lakes`
+    /// Protects: the tiles' half of Ruling BO (`TileFields::with_forced_lakes`
     /// plus `is_lake_pixel`'s forced edge): the tile says lake exactly where
     /// the base map's forced shore field is positive, at 14 400 points over
     /// the block and its surroundings -- one outline from fit zoom to the
@@ -11895,11 +11959,13 @@ mod shore_tests {
         RenderCtx::with_appearance(field, temp, rain, None, gw, gh, SL, false, 70.0, -70.0, a).with_map_scale_forced(800.0, forced)
     }
 
+    /// Raw `f32` bit patterns, so comparisons are bit-for-bit (a plain `==` on floats
+    /// would treat `-0.0` and `0.0` as equal and `NaN` as unequal to itself).
     fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
     }
 
-    /// Protects the no-forced-lake path of the `sdf_biomes` leg
+    /// Protects: the no-forced-lake path of the `sdf_biomes` leg
     /// (`grid_biome_boundary_dist`): on the bowl, which has a natural lake and
     /// so a real band, `with_map_scale`, `with_map_scale_forced(None)`, a
     /// wrong-length mask, and both `GridPrecompute` entry points all give,
@@ -11924,7 +11990,7 @@ mod shore_tests {
         assert_eq!(bits(&pf.biome_bd), bits(&old));
     }
 
-    /// Protects Ruling BO reaching the `sdf_biomes` leg: on the dry plateau,
+    /// Protects: Ruling BO reaching the `sdf_biomes` leg: on the dry plateau,
     /// whose one climate is one biome, the unforced band has no boundary
     /// anywhere; with the 5x5 forced block the block is water and the band
     /// runs round its edge. Distances are literal answers from the block's
@@ -11952,7 +12018,7 @@ mod shore_tests {
         assert_eq!(bits(&pf.biome_bd), bits(&forced.biome_bd));
     }
 
-    /// Protects `shore_depth`'s land clamp: a land cell exactly at sea level
+    /// Protects: `shore_depth`'s land clamp: a land cell exactly at sea level
     /// has a zero margin, and the field must still read it as land (the
     /// classification: below sea level only is water), never as the shoreline
     /// itself.
@@ -11971,7 +12037,7 @@ mod shore_tests {
         assert!(d < 0.0, "the sea-level cell reads {d}");
     }
 
-    /// Protects `shore_margins`' neighbour rule: a land cell between the sea
+    /// Protects: `shore_margins`' neighbour rule: a land cell between the sea
     /// and an above-sea lake is the shore of the HIGHER water -- the lake
     /// (surface `0.8 - LAKE_DEPTH` = 0.796, rain-gated) -- not the sea
     /// (0.42). Literal answers from a hand-made three-cell strip.
@@ -11990,7 +12056,7 @@ mod shore_tests {
         assert_eq!(r2, 1.0, "no rain gate beside the sea");
     }
 
-    /// Protects `f16_bits`: literal IEEE half-float patterns, and the one
+    /// Protects: `f16_bits`: literal IEEE half-float patterns, and the one
     /// property the shader depends on -- a tiny non-zero value keeps its sign.
     #[test]
     fn half_floats_are_exact_and_never_lose_a_sign() {
@@ -12024,8 +12090,13 @@ mod shore_tests {
 mod valley_split_tests {
     use super::*;
 
+    // Sea level 0.42 = `WorldParams::defaults().sea_level` (the same fixture value
+    // `cartalith-civ`'s landmark tests cite); a fixture constant, not a tuned one.
     const SL: f64 = 0.42;
+    // Fixture grid 32 x 24: a judgement (big enough for `smooth_sea_h`'s blur to reach
+    // a pit three cells from the coast, small enough to render every cell), source not found.
     const GW: usize = 32;
+    // See `GW`.
     const GH: usize = 24;
 
     /// A wet 0.8 plateau with sea along its west edge (x < 3) -- no lake --
@@ -12048,6 +12119,8 @@ mod valley_split_tests {
         (truth, shaded, vec![0.9f32; GW * GH], vec![12.0f32; GW * GH])
     }
 
+    /// A default-appearance `RenderCtx` over the module's `GW`x`GH` fixture (lat 50/40: a
+    /// judgement, source not found; nothing under test reads latitude).
     fn ctx<'a>(f: &'a [f32], rain: &'a [f32], temp: &'a [f32]) -> RenderCtx<'a> {
         RenderCtx::with_appearance(f, temp, rain, None, GW, GH, SL, false, 50.0, 40.0, TerrainAppearance::default())
     }
@@ -12146,6 +12219,7 @@ mod valley_split_tests {
         assert!(std::ptr::eq(c.water_height(), shaded.as_slice()));
     }
 
+    /// Raw `f32` bit patterns, so equality is bit-for-bit (see the `shore_tests` twin).
     fn bits(v: &[f32]) -> Vec<u32> {
         v.iter().map(|x| x.to_bits()).collect()
     }

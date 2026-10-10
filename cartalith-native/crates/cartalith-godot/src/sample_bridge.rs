@@ -309,6 +309,8 @@ impl FieldRefs<'_> {
     // so" note below is the precedent for when a duplicate is right, and this
     // is not that case: nothing about a section profile differs from a point
     // sample except how many cells it reads.
+    /// Row-major flat index `y * gw + x` into any `gw`-wide raster of this world.
+    /// Does not bounds-check: the caller must already know `x < gw` and `y < gh`.
     pub(crate) fn idx(&self, x: usize, y: usize) -> usize {
         y * self.gw + x
     }
@@ -358,6 +360,9 @@ fn slope_gradient(f: &FieldRefs, x: usize, y: usize) -> (f64, f64) {
     ((r - l) * 0.5, (d - u) * 0.5)
 }
 
+/// Magnitude of [`slope_gradient`]: the central-difference gradient in height units
+/// per cell (x wraps under `world`; edges use a clamped neighbour). `0.0` on flat ground is a
+/// true reading, not "no data". Does not bounds-check `x`/`y`; indexes `field` directly.
 pub(crate) fn slope_at(f: &FieldRefs, x: usize, y: usize) -> f64 {
     let (dx, dy) = slope_gradient(f, x, y);
     dx.hypot(dy)
@@ -395,6 +400,8 @@ pub(crate) fn aspect_of_gradient(dx: f64, dy: f64) -> Option<f64> {
 
 /// 16-point compass label for a bearing in degrees.
 pub fn compass(deg: f64) -> &'static str {
+    // Sixteen compass points, 22.5 degrees apart (360 / 16), clockwise from north: a definition,
+    // not a measurement.
     const PTS: [&str; 16] = [
         "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
     ];
@@ -935,10 +942,13 @@ pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
 
 pub(crate) type Rgb = (f64, f64, f64);
 
+/// Linear interpolation: `a` at `t = 0`, `b` at `t = 1`. Does not clamp `t`; callers do.
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
 
+/// Piecewise-linear colour through `stops` at `t` (clamped to 0..=1, spread evenly over the
+/// stops). Needs at least two stops: with fewer, `stops.len() - 2` underflows and panics.
 fn ramp(stops: &[Rgb], t: f64) -> Rgb {
     let t = t.clamp(0.0, 1.0) * (stops.len() - 1) as f64;
     let i = (t.floor() as usize).min(stops.len() - 2);
@@ -948,6 +958,8 @@ fn ramp(stops: &[Rgb], t: f64) -> Rgb {
 
 /// `tempColor` (reference HTML line 8296).
 pub fn temp_color(t_c: f64) -> Rgb {
+    // The reference's own `tempColor` stops (line 8296), pinned by
+    // `ported_palettes_match_the_reference`; `t_c` -30..35 C maps onto them via `(t_c + 30) / 65`.
     const STOPS: [Rgb; 5] =
         [(40.0, 60.0, 150.0), (90.0, 170.0, 210.0), (235.0, 235.0, 200.0), (225.0, 150.0, 60.0), (200.0, 60.0, 50.0)];
     ramp(&STOPS, (t_c + 30.0) / 65.0)
@@ -955,6 +967,8 @@ pub fn temp_color(t_c: f64) -> Rgb {
 
 /// `rainColor` (reference HTML line 8299).
 pub fn rain_color(m: f64) -> Rgb {
+    // The reference's own `rainColor` stops (line 8299), pinned by
+    // `ported_palettes_match_the_reference`.
     const STOPS: [Rgb; 5] =
         [(200.0, 180.0, 120.0), (180.0, 190.0, 120.0), (110.0, 180.0, 150.0), (50.0, 140.0, 170.0), (30.0, 90.0, 160.0)];
     ramp(&STOPS, m)
@@ -981,6 +995,8 @@ pub fn div_color(v: f64) -> Rgb {
 /// a real misreading. Bare sand through olive scrub to closed-canopy green,
 /// which is what the number physically means.
 pub fn npp_color(t: f64) -> Rgb {
+    // This port's own ramp, a labelled design judgement with no reference counterpart
+    // (sand to olive scrub to closed-canopy green; see the doc comment above).
     const STOPS: [Rgb; 4] =
         [(198.0, 186.0, 150.0), (176.0, 172.0, 96.0), (96.0, 148.0, 62.0), (14.0, 78.0, 40.0)];
     ramp(&STOPS, t)
@@ -1016,7 +1032,10 @@ pub fn hsl(h: f64, s: f64, l: f64) -> Rgb {
 
 /// `SEA`/`LAND`/`hypso` (reference HTML lines 8332-8337).
 pub fn hypso(v: f64, sea: f64) -> Rgb {
+    // The reference's own `SEA` colours (lines 8332-8337): shallow, mid and deep water.
     const SEA: [Rgb; 3] = [(10.0, 28.0, 46.0), (26.0, 86.0, 140.0), (70.0, 140.0, 196.0)];
+    // The reference's own `LAND` stops (lines 8332-8337): (fraction of land height above sea,
+    // colour), interpolated by the loop below.
     const LAND: [(f64, Rgb); 6] = [
         (0.0, (47.0, 122.0, 68.0)),
         (0.18, (111.0, 154.0, 58.0)),
@@ -1363,6 +1382,8 @@ pub(crate) fn slope_k(peak_m: f64, sea: f64, cell_m: f64) -> f64 {
 /// per CELL (the caller divides a per-pixel difference by its pixel pitch in
 /// cells), through `k` from [`slope_k`].
 pub(crate) fn slope_px(slope: f64, k: f64) -> Rgb {
+    // This port's own Slope ramp (labelled judgement; the reference never drew slope). `deg / 45`
+    // puts the last stop at 45 degrees, matching the legend's "45 deg+" swatch.
     const STOPS: [Rgb; 4] = [(52.0, 74.0, 60.0), (140.0, 158.0, 78.0), (222.0, 196.0, 96.0), (214.0, 78.0, 62.0)];
     let deg = (slope * k).atan().to_degrees();
     ramp(&STOPS, deg / 45.0)
@@ -1392,6 +1413,7 @@ pub(crate) fn push(out: &mut Vec<u8>, c: Rgb) {
     out.push(255);
 }
 
+/// Widens a `(u8, u8, u8)` table entry to the `f64` [`Rgb`] the ramps and rasters use.
 fn u8c(c: (u8, u8, u8)) -> Rgb {
     (c.0 as f64, c.1 as f64, c.2 as f64)
 }
@@ -1694,6 +1716,8 @@ pub fn territory_influence(f: &FieldRefs) -> Option<cartalith_civ::TerritoryInfl
 /// be: this answers "did any of these bytes change since the last call",
 /// against an adversary that is a paint brush.
 const K: u64 = 0x517c_c1b7_2722_0a95;
+/// One FxHash step: `(rotl(h, 5) ^ w) * K`. Order-dependent, so callers must fold words in a
+/// fixed order (see [`wildlife_inputs_fingerprint`]).
 #[inline]
 fn mix(h: u64, w: u64) -> u64 {
     (h.rotate_left(5) ^ w).wrapping_mul(K)
@@ -1757,6 +1781,9 @@ pub(crate) fn hash_bytes(seed: u64, b: &[u8]) -> u64 {
 /// an integer sibling here: a hash reduced in scheduling order is a hash
 /// that changes when the machine does.
 pub fn wildlife_inputs_fingerprint(f: &FieldRefs) -> u64 {
+    /// Hashes an `f32` slice by its raw bytes (native byte order), folded from `seed` via
+    /// [`hash_bytes`]. NaN payloads and `-0.0` therefore hash distinctly. In-process cache key only:
+    /// never persist or compare across machines.
     fn hash_f32(seed: u64, v: &[f32]) -> u64 {
         // `bytemuck` is not a dependency and this is the whole of what it
         // would be used for. `f32` has no padding and no invalid bit
@@ -1908,6 +1935,10 @@ impl WildlifeCache {
     }
 }
 
+/// Builds the ecoregion segmentation behind the reference's `currentWildlife()` from the same
+/// biome, NPP, terrain-ruggedness, water-access and carrying-capacity rasters the other views build.
+/// `None` without a civilisation layer (`water_bodies` absent), where the caller must use the
+/// reference's flat `1.0`, not a region. Note: a zero-width grid passes `0.0` km per cell.
 pub fn wildlife_regions(f: &FieldRefs) -> Option<cartalith_civ::wildlife::Ecoregions> {
     let wb = f.water_bodies?;
     let sea = f.sea_level;
@@ -2246,6 +2277,7 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
             // land-only restriction `tpi_multiscale`'s own RMS makes.
             let hi = (0..n).filter(|&i| !is_water(i)).fold(0.0f32, |a, i| a.max(lr[i]));
             let inv = if hi > 0.0 { 1.0 / hi as f64 } else { 0.0 };
+            // This port's own Local-relief ramp (labelled judgement; no reference counterpart).
             const STOPS: [Rgb; 4] =
                 [(38.0, 44.0, 42.0), (96.0, 110.0, 78.0), (198.0, 178.0, 104.0), (240.0, 236.0, 226.0)];
             for i in 0..n {
@@ -2837,6 +2869,8 @@ pub fn debug_raster_with(f: &FieldRefs, id: &str, biome_cols: &[(u8, u8, u8); 15
     Some(out)
 }
 
+/// Unit tests for this module: the cell sampler, the debug-view rasters and legends, the ported
+/// palettes, and the wildlife forage cache. No Godot runtime is involved.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2909,6 +2943,9 @@ mod tests {
         gh: usize,
     }
 
+    /// Builds the `owned(gw, gh)` fixture world described on [`Owned`]: a diagonal ramp with water
+    /// below `0.42`, every substrate raster varying independently, and two capitals of different
+    /// factions (needs a land cell, so `gw`/`gh` must be large enough to have at least one).
     fn owned(gw: usize, gh: usize) -> Owned {
         let n = gw * gh;
         let field: Vec<f32> = (0..n).map(|i| (((i % gw) + (i / gw)) as f32) / ((gw + gh) as f32)).collect();
@@ -2962,6 +2999,8 @@ mod tests {
         }
     }
 
+    /// Borrows an [`Owned`] fixture as the [`FieldRefs`] the code under test takes. `civ = false`
+    /// drops water bodies, territory and settlements, so civ-gated views report unavailable.
     fn view(o: &Owned, civ: bool) -> FieldRefs<'_> {
         FieldRefs {
             gw: o.gw,
@@ -3016,6 +3055,9 @@ mod tests {
         }
     }
 
+    /// Protects: the one-element-slice lithology and soil calls staying bit-identical to the full-grid
+    /// `build_lithology`/`build_soil_fertility` result at every cell, so no second formula exists.
+    ///
     /// The reason no lithology/soil formula is restated in this file: the
     /// one-element-slice call must equal the full-grid result exactly, at
     /// every cell, or the shortcut is not a shortcut but a second
@@ -3040,6 +3082,9 @@ mod tests {
         assert_eq!(checked, o.gw * o.gh);
     }
 
+    /// Protects: this file's copy of `slopeAt` agreeing with `build_slope_field` (scaled by `gw`) at every
+    /// cell, so the sanctioned duplicate cannot drift.
+    ///
     /// Pins this file's third copy of `slopeAt` against `cartalith-civ`'s
     /// own, so the sanctioned duplicate cannot drift into a different
     /// formula unnoticed.
@@ -3055,6 +3100,8 @@ mod tests {
         }
     }
 
+    /// Protects: `sample_cell` returning `None` for any coordinate outside the grid (negative or `>=` size)
+    /// instead of clamping to an edge cell, while the last in-grid cell still samples.
     #[test]
     fn sample_rejects_out_of_grid_rather_than_clamping() {
         let o = owned(8, 8);
@@ -3066,6 +3113,9 @@ mod tests {
         assert!(sample_cell(&f, 7, 7).is_some());
     }
 
+    /// Protects: biome and control reading `None` (not zero) with no civilisation layer, while
+    /// `WorldState`-sourced readings stay real.
+    ///
     /// Without a civilisation layer the three civ-sourced readings are
     /// absent, not zero -- a loaded save must not report "unclaimed ocean"
     /// as though it had been computed.
@@ -3080,6 +3130,9 @@ mod tests {
         assert_ne!(s.lithology, "—");
     }
 
+    /// Protects: empty stress/resistance/flow rasters reading `None` rather than `0.0` or panicking, with
+    /// lithology and soil still computed.
+    ///
     /// A world whose `stress_field`/`resistance_field`/`flow_discharge` are
     /// genuinely absent (`Vec::new()`, the real shape on some `WorldState`
     /// construction paths -- `elevation.rs`/`erode_op.rs`'s default states)
@@ -3105,6 +3158,8 @@ mod tests {
         assert!(s.elevation > 0.0);
     }
 
+    /// Protects: each of the stress, resistance and drainage absences being independent of the other two.
+    ///
     /// Each of the three can be short independently -- this is not one flag
     /// that clears all three together.
     #[test]
@@ -3131,6 +3186,8 @@ mod tests {
         assert!(s.drainage.is_none());
     }
 
+    /// Protects: full-length stress, resistance and flow rasters never being spuriously reported absent.
+    ///
     /// The mirror of the above: with full-length fields, all three are real
     /// values (never spuriously omitted).
     #[test]
@@ -3142,6 +3199,10 @@ mod tests {
         assert!(s.drainage.is_some());
     }
 
+    /// Protects: the GF-1 rock reading giving a value or a stated reason, never a placeholder: two-layer,
+    /// single-layer, eroded-through and no-column cases. (`assert_eq!(i1, 37)` only checks the fixture's
+    /// own index arithmetic and guards nothing about the code.)
+    ///
     /// GF-1's rock rows: a two-layer cell reads its substrate and contact
     /// depth in metres; a single-layer cell reads a reason; a world with no
     /// column reads its reason and no rock at all.
@@ -3198,6 +3259,8 @@ mod tests {
         assert_eq!(s.rock.err(), Some("test fixture: no rock column"));
     }
 
+    /// Protects: `elevation_m` following `metersPerUnit`'s anchoring (restated in the test) and being negative
+    /// below sea level. It does not assert the exact `0 m` at sea level.
     #[test]
     fn elevation_metres_follow_meters_per_unit() {
         let o = owned(8, 8);
@@ -3205,11 +3268,13 @@ mod tests {
         let s = sample_cell(&f, 7, 7).unwrap();
         let expect = (o.field[7 * 8 + 7] as f64 - 0.42) / (1.0 - 0.42) * 4000.0;
         assert!((s.elevation_m - expect).abs() < 1e-9, "{} vs {}", s.elevation_m, expect);
-        // Sea level itself is exactly 0 m, and below it is negative.
+        // Below sea level the reading is negative (the exact 0 m at sea level is not asserted).
         let below = sample_cell(&f, 0, 0).unwrap();
         assert!(below.elevation_m < 0.0);
     }
 
+    /// Protects: the aspect bearing being the downslope direction, not its 180-degree opposite.
+    ///
     /// The ramp is a real ramp, so the downslope bearing must point away
     /// from the high corner -- north-west, i.e. between W and N.
     #[test]
@@ -3221,6 +3286,8 @@ mod tests {
         assert_eq!(compass(d), "NW");
     }
 
+    /// Protects: a perfectly flat cell reporting aspect `None` (not `0`, which reads as north), slope `0.0`, and
+    /// river order `None` when there is no `stream_order` raster.
     #[test]
     fn flat_ground_has_no_aspect() {
         let n = 8 * 8;
@@ -3276,6 +3343,9 @@ mod tests {
         assert!(s.river_order.is_none(), "no stream_order raster => no order, not order 0");
     }
 
+    /// Protects: the ring search returning the true Euclidean nearest boundary, not the first ring with a hit,
+    /// and exactly `0` on a boundary cell.
+    ///
     /// The ring search must find the true Euclidean nearest, not merely
     /// the first ring that contains any hit (the Chebyshev nearest).
     #[test]
@@ -3340,6 +3410,9 @@ mod tests {
         assert_eq!(boundary_dist_cells(&f, 16, 12), Some(0.0));
     }
 
+    /// Protects: `boundary_dist_cells` returning `None` when no boundary exists, rather than an invented
+    /// distance. On an 8x8 grid every probe past the edge is rejected, so it shows the `None` answer
+    /// but cannot show that the `BOUNDARY_SEARCH_MAX` cap bounds the work.
     #[test]
     fn boundary_distance_gives_up_rather_than_scanning_the_grid() {
         let (gw, gh) = (8usize, 8usize);
@@ -3393,6 +3466,8 @@ mod tests {
         assert!(boundary_dist_cells(&f, 4, 4).is_none());
     }
 
+    /// Protects: every advertised layer drawing a correctly sized, non-flat, fully opaque raster, and
+    /// `off`, the gap layers and unknown ids drawing nothing.
     #[test]
     fn every_advertised_layer_draws_and_only_advertised_ones_do() {
         let o = owned(12, 9);
@@ -3417,6 +3492,9 @@ mod tests {
         assert!(debug_raster(&f, "no_such_view").is_none());
     }
 
+    /// Protects: the cheap `layer_available` answer equalling "did `debug_raster` draw" for every advertised
+    /// view, with and without civ and rivers.
+    ///
     /// The popover's cheap `available` answer must equal the expensive
     /// "did it actually draw?" answer for every advertised view, with and
     /// without a civilisation layer -- otherwise the picker offers rows
@@ -3471,6 +3549,9 @@ mod tests {
         }
     }
 
+    /// Protects: views missing their one input (civ layer, river extraction) returning `None`, not a flat
+    /// raster, while WorldState-only views still draw.
+    ///
     /// Views whose one input is missing report nothing rather than an
     /// all-one-colour raster that would read as real data.
     #[test]
@@ -3489,6 +3570,9 @@ mod tests {
         assert!(debug_raster(&no_rivers, "strahler").is_none());
     }
 
+    /// Protects: the ported palette endpoints and table lengths matching the reference's literals, so a
+    /// mutated constant fails here.
+    ///
     /// Ported palettes, pinned against the reference's own literals. A
     /// mutation to any constant above has to fail here.
     #[test]
@@ -3519,6 +3603,9 @@ mod tests {
         assert_eq!(LITH_COLS[0], (208, 150, 150));
     }
 
+    /// Protects: the Biomes legend and raster following the colour table they are given, and nothing else
+    /// following it; the expected classes come from the inputs, not the frozen output.
+    ///
     /// CA-19 (Ruling P): the Biomes legend and the Biomes raster both follow
     /// the table they are handed, and nothing else does. The expected class
     /// at each cell is derived from the INPUTS (`build_cart_biome` over the
@@ -3560,6 +3647,8 @@ mod tests {
         assert_eq!(&px0[0..4], &[c0.0, c0.1, c0.2, 255]);
     }
 
+    /// Protects: legend lengths and swatches matching the colours each view really draws (class 0 omitted,
+    /// swatches drawn from the raster's own stop tables).
     #[test]
     fn legends_only_name_colours_that_are_really_used() {
         assert_eq!(legend("lith").len(), 7);
@@ -3601,6 +3690,9 @@ mod tests {
         }
     }
 
+    /// Protects: the engine-gap layers never being offered or drawn, and every gap id being a real
+    /// `LAYER_GROUPS` entry so a typo cannot make the test vacuous.
+    ///
     /// The four genuine engine gaps (`GAP_LAYERS`) must never advertise
     /// as available, and must never draw -- with or without a civilisation
     /// layer, with or without river extraction. (Four, not the "eighteen"
@@ -3635,6 +3727,8 @@ mod tests {
         }
     }
 
+    /// Protects: the listed views needing no civilisation layer: available, and a correctly sized raster.
+    ///
     /// Wind/Ocean/Water access/Flood/Resources/Carrying capacity all read
     /// only `WorldState`-sourced fields (`FieldRefs` requires none of them
     /// as `Option`), so they must work on a freshly generated world with no
@@ -3684,6 +3778,8 @@ mod tests {
         o
     }
 
+    /// Protects: the corridor view drawing water in its own colour and drawing the ramp at the freshly computed
+    /// corridor value on a symmetric-valley fixture, with the pass visibly unlike the wall.
     #[test]
     fn corridor_view_reaches_a_real_pass_and_marks_water_distinctly() {
         // Water: `build_route_corridors` leaves a water cell's output at its
@@ -3729,6 +3825,8 @@ mod tests {
         );
     }
 
+    /// Protects: the travel-cost view drawing water as `TRAVEL_COST_WATER` and land normalised over its ramp,
+    /// with the valley floor at the ramp floor and its wall far dearer.
     #[test]
     fn travel_cost_view_spans_its_ramp_and_marks_water_impassable() {
         // Water: `build_travel_cost` writes `f32::INFINITY`, a real value
@@ -3766,6 +3864,9 @@ mod tests {
         assert!(want(flat) != want(steep), "the fixture must actually span the ramp, not collapse to one colour");
     }
 
+    /// Protects: two derivations of the Wind raster being identical (the wind field is recomputed per call).
+    /// It does not check that the raster varies.
+    ///
     /// Wind's hue-by-bearing raster must actually vary with speed/direction
     /// (not paint one flat colour), and must be deterministic across two
     /// derivations of the same world -- `current_wind_field` is recomputed
@@ -3781,6 +3882,9 @@ mod tests {
         assert_eq!(a, b, "current_wind_field must be deterministic, not resampled differently each call");
     }
 
+    /// Protects: land cells in the Ocean view keeping the flat land colour. It does not assert any water
+    /// pixel's colour.
+    ///
     /// Ocean currents only colour ocean cells (the reference's own
     /// `isWater(vw)` gate, line 8516) -- land must stay the flat "land /
     /// calm" grey regardless of the underlying SST anomaly.
@@ -3797,6 +3901,9 @@ mod tests {
         }
     }
 
+    /// Protects: the 12/12/8 packing of `flowfx:wind`/`flowfx:ocean` that `wind_fx_layer.gd` decodes: vectors
+    /// within one quantisation step, a binary ocean mask, and unknown kinds returning nothing.
+    ///
     /// The animated-streak overlay's data channel: `wind_fx_layer.gd`'s
     /// decode is written against exactly this packing, and a silent change
     /// on either side would show up only as streaks drifting the wrong way
@@ -3840,6 +3947,7 @@ mod tests {
         assert!(debug_raster(&f, "flowfx:nope").is_none(), "an unknown flow kind must not fabricate a field");
     }
 
+    /// Protects: `compass` mapping the cardinal and 45-degree bearings correctly and wrapping 359.9 to `N`.
     #[test]
     fn compass_covers_the_circle() {
         assert_eq!(compass(0.0), "N");
@@ -3850,6 +3958,7 @@ mod tests {
         assert_eq!(compass(45.0), "NE");
     }
 
+    /// Protects: `biome_name` indexing `BIOME_KEYS` from 1, with the ocean and lake sentinels named.
     #[test]
     fn biome_naming_matches_biome_keys_indexing() {
         assert_eq!(biome_name(BIOME_OCEAN), "ocean");
@@ -3860,6 +3969,9 @@ mod tests {
 
     // ---------- the Journey Planner's wildlife forage cache (F12) ----------
 
+    /// Protects: `WildlifeCache::forage_mod` equalling the uncached `jp_wildlife_forage_mod` path at every
+    /// cell (F12's first condition), with non-unit values present so an all-`1.0` cache fails.
+    ///
     /// `PARITY_AUDIT.md` §23 F12's own condition: **the cache must be the
     /// uncached path.** Checked at every cell, not at a sample of them, and
     /// against the three functions the reference composes rather than against
@@ -3898,6 +4010,8 @@ mod tests {
         assert!(seen.iter().any(|v| *v < 1.0), "no cell forages worse than the world mean: {seen:?}");
     }
 
+    /// Protects: out-of-grid midpoints clamping to the nearest edge cell instead of panicking or wrapping.
+    ///
     /// Out-of-grid midpoints clamp instead of panicking or reading a
     /// neighbouring row -- the reference's own
     /// `Math.max(0,Math.min(GW-1,Math.round(mx)))`.
@@ -3910,6 +4024,8 @@ mod tests {
         assert_eq!(c.forage_mod(1e9, 1e9), c.forage_mod(95.0, 95.0));
     }
 
+    /// Protects: `WildlifeCache::build` and `wildlife_regions` returning `None` with no civilisation layer.
+    ///
     /// A world with no civilisation layer has no `currentWildlife()`, and the
     /// reference's answer there is a flat `1.0` -- not a fabricated region.
     #[test]
@@ -3919,6 +4035,9 @@ mod tests {
         assert!(wildlife_regions(&view(&o, false)).is_none());
     }
 
+    /// Protects: the wildlife fingerprint changing for every raster and scalar `wildlife_regions` reads, and
+    /// not changing for an untouched world, so the cache neither goes stale nor never hits.
+    ///
     /// **The staleness guard, and the reason the key is a fingerprint rather
     /// than an epoch counter.** Every input `wildlife_regions` reads is
     /// perturbed by one cell (or one scalar) in turn; each must move the
@@ -3983,6 +4102,9 @@ mod tests {
         assert_eq!(wildlife_inputs_fingerprint(&view(&base, true)), key0, "an unchanged world re-fingerprints identically");
     }
 
+    /// Protects: the forage modifier reaching `jp_plan_full`: a richer-than-mean region reduces supplies
+    /// carried and a poorer one increases them (F12's second condition).
+    ///
     /// `PARITY_AUDIT.md` §23 F12's second condition: **a journey over a rich
     /// region and one over a poor region must get different forage answers**,
     /// end to end through `jp_plan_full`, or the wiring could be inert.
@@ -4100,6 +4222,9 @@ mod tests {
 
     // ---------- the vessel matrix's derived shape (F13) ----------
 
+    /// Protects: the vessel-matrix binding's invariants: nine water types, each `best` hull being the fastest
+    /// in its column, no single hull winning everywhere, and `best_water` agreeing with `best_kmday`.
+    ///
     /// `WorldGen::jp_vessel_matrix()` builds two things `cartalith_civ::
     /// jp_vessel_matrix` does not hand back: the ordered water list (read out
     /// of the `best` map's keys, because `RIVER_TERRAINS`/`SEA_TERRAINS` are
@@ -4159,6 +4284,8 @@ mod tests {
         }
     }
 
+    /// Protects: nothing: an `#[ignore]`d manual timing probe for the wildlife fingerprint that asserts no
+    /// behaviour and only prints a mean over five runs.
     #[test]
     #[ignore = "timing probe, not an assertion"]
     fn timing_probe_fingerprint() {
@@ -4175,6 +4302,8 @@ mod tests {
         }
     }
 
+    /// Protects: nothing: an `#[ignore]`d manual timing probe for `JourneyWorld::build` plus `jp_plan_full`
+    /// that asserts no behaviour and only prints timings.
     #[test]
     #[ignore = "timing probe, not an assertion"]
     fn timing_probe_jp_compute_core() {
@@ -4207,6 +4336,8 @@ mod tests {
         }
     }
 
+    /// Protects: nothing: an `#[ignore]`d manual timing probe for `wildlife_regions` that asserts only that a
+    /// civ layer is present, then prints a timing.
     #[test]
     #[ignore = "timing probe, not an assertion"]
     fn timing_probe_wildlife_regions() {
