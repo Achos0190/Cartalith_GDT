@@ -78,7 +78,9 @@ use cartalith_spatial::{measure, tile_dims, Measurement, Region};
 /// it into a real [`ManualWay`] (`DCC_SHELL_SPEC.md` §4.5.4: "Click appends
 /// a waypoint; Esc commits").
 struct WayDraft {
+    /// Fixed at `way_begin`; decides the commit's `RouteMode` and the stored way's type.
     way_type: ManualWayType,
+    /// Clicked waypoints in click order, grid coordinates; not yet routed.
     points: Vec<(f64, f64)>,
 }
 
@@ -87,7 +89,9 @@ struct WayDraft {
 /// type the way `WayDraft`'s is (see the module doc's "no equivalent to
 /// `ManualWayType::SeaLane`" note: a route may be `Mixed`, a way never is).
 struct RouteDraft {
+    /// The cost domain given to `route_begin`; used unchanged at commit.
     mode: RouteMode,
+    /// Clicked stops in click order, grid coordinates; not yet routed.
     points: Vec<(f64, f64)>,
 }
 
@@ -99,10 +103,15 @@ struct RouteDraft {
 /// route without having re-armed the tool that produced it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommittedRoute {
+    /// The joined least-cost polyline, as `civ_join_dijkstra_segs` returned it.
     pub pts: Vec<(f64, f64)>,
+    /// The join's break indices (`brks`) as returned; their meaning belongs to `JoinedPath`.
     pub brks: Vec<usize>,
+    /// Total route length in kilometres, from the join.
     pub km: f64,
+    /// The cost domain the route was committed under.
     pub mode: RouteMode,
+    /// Legs the router could not path and drew straight; `0` means none.
     pub unreachable_legs: usize,
     /// The user's own name for this route, `""` until [`InfraTools::
     /// route_set_name`] is called. Empty is the *reference's* own resting
@@ -124,7 +133,9 @@ pub struct CommittedRoute {
 /// anything to adopt from a fresh generation — they are all user-driven from
 /// the first click.
 pub struct InfraTools {
+    /// `Some` between `way_begin` and the commit/discard that consumes it.
     way_draft: Option<WayDraft>,
+    /// `Some` between `route_begin` and the commit/discard that consumes it.
     route_draft: Option<RouteDraft>,
     /// Committed hand-drawn ways, in commit order — `way_commit`'s returned
     /// index is always `self.ways.len() - 1` at the moment it was pushed.
@@ -149,6 +160,7 @@ pub struct InfraTools {
     /// the old world, but saved journeys are carried and re-snapped onto the
     /// new one (`story_bridge.rs`, `adopt_resnapped` below).
     pub journeys: Vec<cartalith_civ::travel_library::Journey>,
+    /// The id `journey_save` hands out next; starts at 1 and only ever rises.
     next_journey_id: u64,
     /// SP-2 (Ruling AO): what the last regenerate's re-snap did to each
     /// journey the previous world held -- `(journey id, journey name,
@@ -160,12 +172,14 @@ pub struct InfraTools {
 }
 
 impl Default for InfraTools {
+    /// Same as [`InfraTools::new`]: nothing armed, nothing stored.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl InfraTools {
+    /// Empty tool state: no drafts, no committed ways/routes/journeys, no region, journey ids from 1. Never carries anything over from a previous world.
     pub fn new() -> Self {
         Self {
             way_draft: None,
@@ -182,6 +196,7 @@ impl InfraTools {
 
     // ===================== Way =====================
 
+    /// Arms a fresh way draft of `way_type`, silently replacing any draft already in progress (its points are lost).
     pub fn way_begin(&mut self, way_type: ManualWayType) {
         self.way_draft = Some(WayDraft { way_type, points: Vec::new() });
     }
@@ -200,6 +215,7 @@ impl InfraTools {
         }
     }
 
+    /// Drops the way draft, if any, without committing; committed ways are untouched.
     pub fn way_discard(&mut self) {
         self.way_draft = None;
     }
@@ -240,10 +256,12 @@ impl InfraTools {
 
     // ===================== Route =====================
 
+    /// Arms a fresh route draft under `mode`, silently replacing any draft in progress.
     pub fn route_begin(&mut self, mode: RouteMode) {
         self.route_draft = Some(RouteDraft { mode, points: Vec::new() });
     }
 
+    /// Appends a stop to the armed route draft. `false` (and nothing stored) when no draft is armed, as for `way_append_point`.
     pub fn route_append_stop(&mut self, x: f64, y: f64) -> bool {
         match self.route_draft.as_mut() {
             Some(d) => {
@@ -254,6 +272,7 @@ impl InfraTools {
         }
     }
 
+    /// Drops the route draft, if any, without committing; committed routes are untouched.
     pub fn route_discard(&mut self) {
         self.route_draft = None;
     }
@@ -381,6 +400,7 @@ impl InfraTools {
         self.journeys.len() != before
     }
 
+    /// The saved journey with this stable `id`, or `None`. Looked up by id, never by position.
     pub fn journey_get(&self, id: u64) -> Option<&cartalith_civ::travel_library::Journey> {
         self.journeys.iter().find(|j| j.id == id)
     }
@@ -404,6 +424,7 @@ impl InfraTools {
         self.next_journey_id = self.next_journey_id.max(next);
     }
 
+    /// The id the next [`Self::journey_save`] will assign (starts at 1).
     pub fn next_journey_id(&self) -> u64 {
         self.next_journey_id
     }
@@ -439,28 +460,34 @@ impl InfraTools {
 
     // ===================== Measure =====================
 
+    /// Starts a new Measure chain by clearing the points; there is no separate armed flag.
     pub fn measure_begin(&mut self) {
         self.measure_points.clear();
     }
 
+    /// Appends one click to the Measure chain. No validation: bounds are the caller's.
     pub fn measure_add_point(&mut self, x: f64, y: f64) {
         self.measure_points.push((x, y));
     }
 
+    /// Empties the Measure chain.
     pub fn measure_clear(&mut self) {
         self.measure_points.clear();
     }
 
+    /// The Measure chain so far, in click order; empty is a normal state.
     pub fn measure_points(&self) -> &[(f64, f64)] {
         &self.measure_points
     }
 
     // ===================== Region select =====================
 
+    /// Stores `r` as the Region-select marquee, replacing any previous one. No clamping to the grid here.
     pub fn region_set(&mut self, r: Region) {
         self.region = Some(r);
     }
 
+    /// Clears the marquee (`region` becomes `None`).
     pub fn region_clear(&mut self) {
         self.region = None;
     }
@@ -564,8 +591,11 @@ pub fn parse_route_mode(s: &str) -> Option<RouteMode> {
 /// is a no-op when `forced_lakes` is `None` or all-zero, so a world with no
 /// forced lake computes exactly what it did before.
 pub struct RouteInputs {
+    /// Per-cell water classification (`0` land, `1` ocean, `2` lake in this module's fixtures and forced-lake test), forced lakes applied.
     pub water_bodies: Vec<u8>,
+    /// Biome raster; `Some` only for `RouteMode::Mixed`.
     pub biome: Option<Vec<u8>>,
+    /// Fresh river-order raster; `Some` only for `RouteMode::Mixed`.
     pub river_order: Option<Vec<i16>>,
     /// `build_route_corridors`' field — `DECISIONS.md` §7i. Built for every
     /// land-capable mode (`Land` and `Mixed`; `Water` has no slope term for
@@ -578,7 +608,7 @@ impl RouteInputs {
     /// `forced_lakes`: `WorldGen::forced_lakes.as_deref()` — the same mask
     /// `WorldGen::drawn_water_bodies` applies. `None` (no world has ever had
     /// one forced) or all-zero leaves `wb.classification` exactly as
-    /// `build_water_bodies` returned it — see this `impl` block's own doc
+    /// `build_water_bodies` returned it — see [`RouteInputs`]'s own doc
     /// comment.
     #[allow(clippy::too_many_arguments)]
     pub fn build(
@@ -638,10 +668,13 @@ impl RouteInputs {
 /// (`-y`), `90°` = east (`+x`), compass-clockwise.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MeasuredLeg {
+    /// The unmodified `cartalith_spatial::measure` result for this leg.
     pub m: Measurement,
+    /// Compass bearing in degrees within `[0, 360)`; `0` = north, clockwise.
     pub bearing_deg: f64,
 }
 
+/// One leg `a` -> `b`: `cartalith_spatial::measure` plus a compass bearing (north = 0, clockwise, grid `y` down), normalised to `[0, 360)`. A zero-length leg has no meaningful bearing; do not rely on the value.
 pub fn measure_leg(a: (f64, f64), b: (f64, f64), grid_w: usize, map_width_km: f64, world: bool) -> MeasuredLeg {
     let m = measure(a, b, grid_w, map_width_km, world);
     let bearing_deg = m.dx.atan2(-m.dy).to_degrees().rem_euclid(360.0);
@@ -687,6 +720,7 @@ pub fn region_tile_estimate(region: &Region) -> Vec<(&'static str, usize, usize,
         .collect()
 }
 
+/// Godot-free unit tests for the draft state machines, parsers and measure/region helpers above.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,6 +729,7 @@ mod tests {
 
     // ---------- string parsing ----------
 
+    /// Protects: each of the four engine way types parses (case/hyphen-insensitive) and a non-engine label like `bridge` is rejected, not defaulted.
     #[test]
     fn parse_way_type_covers_all_four_reference_entries() {
         assert_eq!(parse_way_type("road"), Some(ManualWayType::Road));
@@ -705,6 +740,7 @@ mod tests {
         assert_eq!(parse_way_type("bridge"), None, "not a real engine way type -- see the module doc");
     }
 
+    /// Protects: `way_type_key` output parses back to the same variant, and `sea_lane` keeps the exact spelling `get_roads()` branches on.
     #[test]
     fn way_type_key_round_trips_through_parse_way_type() {
         for t in [ManualWayType::Road, ManualWayType::Track, ManualWayType::SeaLane, ManualWayType::Ancient] {
@@ -717,6 +753,7 @@ mod tests {
         assert_eq!(way_type_key(ManualWayType::SeaLane), "sea_lane");
     }
 
+    /// Protects: `land`/`water`/`mixed`/`least-cost` map to modes and `freehand`/`snap`/unknown return `None` rather than a silent default.
     #[test]
     fn parse_route_mode_covers_land_water_mixed_and_rejects_the_rest() {
         assert_eq!(parse_route_mode("land"), Some(RouteMode::Land));
@@ -730,7 +767,7 @@ mod tests {
 
     // ---------- way/route draft lifecycle ----------
 
-    /// A tiny two-band world: land on the right, ocean on the left, so both
+    /// Test fixture (not a test): a tiny two-band world: land on the right, ocean on the left, so both
     /// routing domains have something real to refuse -- the same fixture
     /// shape `tools.rs`'s own `route_fixture`/`route_ctx` tests use.
     fn route_fixture() -> (Vec<f32>, Vec<u8>) {
@@ -746,16 +783,19 @@ mod tests {
         (field, wb)
     }
 
+    /// Test fixture: a `RouteContext` over [`route_fixture`]'s 24x16 grid, sea level 0.42, 240 km wide; no places, biome or river data.
     fn route_ctx<'a>(field: &'a [f32], wb: &'a [u8], ways: &'a [WayRef<'a>]) -> RouteContext<'a> {
         RouteContext { field, water_bodies: wb, biome: None, river_order: None, places: &[], ways, gw: 24, gh: 16, sea: 0.42, corridors: None, world: false, map_width_km: 240.0, flow: None, flow_thresh: 0.0 }
     }
 
+    /// Protects: a click with no armed way draft is refused (`false`), not buffered.
     #[test]
     fn way_append_point_is_a_no_op_before_way_begin() {
         let mut t = InfraTools::new();
         assert!(!t.way_append_point(1.0, 1.0));
     }
 
+    /// Protects: discarding a way draft disarms it and commits nothing.
     #[test]
     fn way_discard_clears_the_draft_without_committing() {
         let mut t = InfraTools::new();
@@ -766,6 +806,7 @@ mod tests {
         assert!(t.ways.is_empty());
     }
 
+    /// Protects: a one-waypoint commit returns `None`, stores no way, and still consumes the draft.
     #[test]
     fn way_commit_needs_two_waypoints_and_returns_none_otherwise() {
         let (field, wb) = route_fixture();
@@ -780,6 +821,7 @@ mod tests {
         assert!(t.way_draft_mode().is_none());
     }
 
+    /// Protects: a two-waypoint land commit stores one non-sea way of the drafted type, returns index 0 and zero unreachable legs.
     #[test]
     fn way_commit_pushes_a_real_way_and_returns_its_index() {
         let (field, wb) = route_fixture();
@@ -797,6 +839,7 @@ mod tests {
         assert!(!t.ways[0].sea);
     }
 
+    /// Protects: a sea-lane draft reports `RouteMode::Water` (only sea lanes route by water).
     #[test]
     fn a_sea_lane_way_draft_routes_water_mode() {
         let mut t = InfraTools::new();
@@ -804,6 +847,7 @@ mod tests {
         assert_eq!(t.way_draft_mode(), Some(RouteMode::Water));
     }
 
+    /// Protects: way commit indices follow push order (second way is index 1).
     #[test]
     fn a_second_way_commit_gets_index_one() {
         let (field, wb) = route_fixture();
@@ -821,12 +865,14 @@ mod tests {
         assert_eq!(t.ways.len(), 2);
     }
 
+    /// Protects: a stop with no armed route draft is refused (`false`).
     #[test]
     fn route_append_stop_is_a_no_op_before_route_begin() {
         let mut t = InfraTools::new();
         assert!(!t.route_append_stop(1.0, 1.0));
     }
 
+    /// Protects: a one-stop route commit returns `None` and stores no route.
     #[test]
     fn route_commit_needs_two_stops() {
         let (field, wb) = route_fixture();
@@ -838,6 +884,7 @@ mod tests {
         assert!(t.routes.is_empty());
     }
 
+    /// Protects: a `Mixed` route crossing the strait commits at index 0, keeps its `Mixed` mode, has positive length and no unreachable legs.
     #[test]
     fn route_commit_pushes_a_joined_route_under_its_own_mode() {
         let (field, wb) = route_fixture();
@@ -864,6 +911,7 @@ mod tests {
         }
     }
 
+    /// Protects: deleting route 0 shifts later routes down (a tombstone would fail), matching `civJourneys.splice`.
     #[test]
     fn route_delete_removes_that_route_and_renumbers_the_rest() {
         let (field, wb) = route_fixture();
@@ -878,6 +926,7 @@ mod tests {
         assert_eq!(t.routes[0].name, "Salt road");
     }
 
+    /// Protects: out-of-range deletes return `false` and leave the list intact.
     #[test]
     fn route_delete_refuses_an_out_of_range_index_without_touching_the_list() {
         let (field, wb) = route_fixture();
@@ -890,6 +939,7 @@ mod tests {
         assert!(!InfraTools::new().route_delete(0), "nothing to delete before any commit");
     }
 
+    /// Protects: renaming affects only the target route, an empty name restores the unnamed state, and a bad index returns `false`.
     #[test]
     fn route_set_name_stores_the_name_and_an_empty_string_clears_it() {
         let (field, wb) = route_fixture();
@@ -907,7 +957,7 @@ mod tests {
 
     // ---------- Journey (SP-1) ----------
 
-    /// SP-2's regenerate re-snap as the store applies it: the survivor keeps
+    /// Protects: SP-2's regenerate re-snap as the store applies it: the survivor keeps
     /// its id, the journey whose stop vanished is dropped from `journeys` but
     /// still reported by name, and the id counter is carried so the dropped
     /// id is never reissued.
@@ -957,6 +1007,7 @@ mod tests {
         assert_eq!(t.journey_save("next", "p", 0, 1), Some(9));
     }
 
+    /// Protects: a saved journey copies the named route's geometry and mode and gets distinct, increasing ids.
     #[test]
     fn journey_save_snapshots_the_named_route_and_assigns_increasing_ids() {
         let (field, wb) = route_fixture();
@@ -978,6 +1029,7 @@ mod tests {
         assert_eq!(j.route.mode, RouteMode::Mixed);
     }
 
+    /// Protects: a save naming a missing route returns `None` and pushes no partial journey.
     #[test]
     fn journey_save_refuses_an_out_of_range_route_index() {
         let mut t = InfraTools::new();
@@ -989,6 +1041,7 @@ mod tests {
         assert!(t.journeys.is_empty(), "a refused save must not push a partial entry");
     }
 
+    /// Protects: deletion is keyed on id, repeat deletion returns `false`, and the survivor is untouched.
     #[test]
     fn journey_delete_removes_by_id_not_by_position() {
         let (field, wb) = route_fixture();
@@ -1005,6 +1058,7 @@ mod tests {
         assert!(t.journey_get(id_b).is_some());
     }
 
+    /// Protects: usage counts only journeys with the named preset; unknown presets and the empty store give `0`.
     #[test]
     fn preset_usage_in_journeys_counts_only_the_named_preset() {
         let (field, wb) = route_fixture();
@@ -1020,7 +1074,8 @@ mod tests {
         assert_eq!(t.preset_usage_in_journeys("no_such_preset"), 0);
     }
 
-    /// `WorldGen::absorb`/`load_save` reset this whole tool set by swapping
+    /// Protects: a fresh instance starts empty, which `WorldGen::absorb`/`load_save`
+    /// rely on. They reset this whole tool set by swapping
     /// in a fresh `InfraTools::new()` (`Option<InfraTools>`, matching every
     /// sibling milestone-F binding's own lifecycle -- see the module doc's
     /// "Why one struct for four tools"), so there is no in-module reset
@@ -1041,6 +1096,7 @@ mod tests {
 
     // ---------- snap sanity (reused engine primitive, not re-tested here) ----------
 
+    /// Protects: only that the `NamedSettlement` imports still compile and construct; it has no assertions, so it guards nothing else.
     #[test]
     fn a_named_settlement_constructs_for_context_tests() {
         // Just exercises the import path this module's own doc references
@@ -1058,6 +1114,7 @@ mod tests {
 
     // ---------- measure ----------
 
+    /// Protects: a chain of three points yields two legs with the expected cell lengths.
     #[test]
     fn measure_legs_reports_one_leg_per_pair() {
         let pts = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)];
@@ -1067,12 +1124,14 @@ mod tests {
         assert_eq!(legs[1].m.cells, 10.0);
     }
 
+    /// Protects: fewer than two points yield no legs (a chain under construction is not an error).
     #[test]
     fn measure_legs_is_empty_under_two_points() {
         assert!(measure_legs(&[], 512, 512.0, false).is_empty());
         assert!(measure_legs(&[(1.0, 1.0)], 512, 512.0, false).is_empty());
     }
 
+    /// Protects: bearings follow the grid convention: east 90, south 180, north 0/360, west 270.
     #[test]
     fn bearing_convention_matches_the_grids_own_y_down_axis() {
         // East: +x, no y change.
@@ -1091,6 +1150,7 @@ mod tests {
 
     // ---------- region ----------
 
+    /// Protects: the estimate lists low/medium/high with strictly increasing tile counts and non-zero tile sizes.
     #[test]
     fn region_tile_estimate_reports_three_lods_in_ascending_tile_count() {
         let r = Region::new(0, 0, 256, 160);
@@ -1104,7 +1164,7 @@ mod tests {
         }
     }
 
-    /// Protects `RouteInputs::build`'s forced-lake plumbing
+    /// Protects: `RouteInputs::build`'s forced-lake plumbing
     /// (`OUTSTANDING_WORK.md` "Map-data residuals", item 3): a cell the
     /// caller forces reads `2` (lake) in the returned `water_bodies`, the
     /// same class [`crate::apply_forced_lakes`] gives it in
@@ -1133,6 +1193,7 @@ mod tests {
         );
     }
 
+    /// Protects: NOTHING MEANINGFUL: it builds `RouteInputs` literals and asserts the fields it just set, so it exercises no `RouteInputs::build` logic (the forced-lake test is the only real `build` test).
     #[test]
     fn route_inputs_mixed_mode_flag_gates_biome_and_river_order() {
         // `cartalith_engine::generate_terrain` (used just above, in
