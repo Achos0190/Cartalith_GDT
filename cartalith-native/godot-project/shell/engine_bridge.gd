@@ -262,6 +262,9 @@ func _ready() -> void:
 	preset_api = _has("save_appearance_preset") \
 		and _has("load_appearance_preset") \
 		and _has("peek_appearance_preset")
+	adjust_api = _has("list_adjust_layers") \
+		and _has("appearance_get_adjust") \
+		and _has("appearance_set_adjust")
 	measure_api = _has("measure_section") \
 		and _has("measure_area") \
 		and _has("measure_radius") \
@@ -1595,6 +1598,54 @@ func set_ramp_mode(name: String) -> bool:
 		return false
 	mark_world_dirty()
 	return world_gen.set_ramp_mode(name)
+
+
+# -- The terrain and water adjustment stacks (ET-C2 bindings, ET-C4 panel) ------
+#
+# `EDITING_TOOLS_SCOPE.md` milestone C. A sixth capability flag beside the ramp's
+# for the same reason those are separate: an in-between cdylib has the whole
+# appearance surface and no adjustment stacks, and the panel should lose the two
+# engine layers rather than fail to draw. The labels/overlays stack is NOT here:
+# it is GDScript state (`shell/overlay_adjust.gd`) and never reaches the engine.
+#
+# **Every call here is gated on `generating`.** The worker thread owns
+# `world_gen` for the whole of a generate, and `appearance_get_adjust` /
+# `appearance_set_adjust` take the engine borrow, so a call from the main thread
+# during a run is the `Gd<T>::bind()` panic `stale_stages()` refuses for the same
+# reason. A read answers `{}` (absent, never an empty stack standing in for "I
+# could not look"); a write answers `{ok: false, error}` and changes nothing.
+var adjust_api := false
+
+## The adjustable engine layers in the engine's own spelling (`["terrain",
+## "water"]`), or `[]` without the binding or while generating.
+func adjust_layers() -> Array:
+	if not adjust_api or generating:
+		return []
+	return Array(world_gen.list_adjust_layers())
+
+## `appearance_get_adjust(layer)`: `{ok, layer, stack (JSON text), entries,
+## identity}`, `{ok: false, error}` for an unknown layer, or `{}` when the
+## binding is absent or a generate is running (the caller must treat `{}` as
+## "unknown", not as an empty stack).
+func adjust_get(layer: String) -> Dictionary:
+	if not adjust_api or generating:
+		return {}
+	return world_gen.appearance_get_adjust(layer)
+
+## `appearance_set_adjust(layer, stack_json)`: replaces the layer's whole stack.
+## `{ok: true, ...}` on success (and the project is marked unsaved, because the
+## stacks ride in `appearance.json`); `{ok: false, error}` when the engine
+## refuses (nothing changed) or when a generate is running (the engine was not
+## called). `{"entries":[]}` clears the layer.
+func adjust_set(layer: String, stack_json: String) -> Dictionary:
+	if not adjust_api:
+		return {"ok": false, "error": "this build has no adjustment stacks"}
+	if generating:
+		return {"ok": false, "error": "the world is generating; try again when it finishes"}
+	var r: Dictionary = world_gen.appearance_set_adjust(layer, stack_json)
+	if bool(r.get("ok", false)):
+		mark_world_dirty()
+	return r
 
 
 # -- The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management) ------

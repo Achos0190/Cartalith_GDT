@@ -25,10 +25,11 @@ extends RefCounted
 ## read by all of them, and `revision` is how each instance notices a change and drops its
 ## own caches (`map_overlay.gd::_sync_overlay_adjust`).
 ##
-## ET-C4 will persist this exactly as `AdjustStack`'s saved form: `get_stack_json()` writes
-## `{"entries":[...]}` in the shape serde writes (`kind` externally tagged by a snake_case
-## name, `enabled`, `opacity`), and `set_stack_json()` reads what `appearance_get_adjust`
-## returns, so one document describes a layer whichever side it lives on.
+## ET-C4 persists this exactly as `AdjustStack`'s saved form (`app.gd::overlay_adjust_document()`
+## and `restore_overlay_adjust_document()`, the project slot `appearance_overlay_adjust.json`):
+## `get_stack_json()` writes `{"entries":[...]}` in the shape serde writes (`kind` externally
+## tagged by a snake_case name, `enabled`, `opacity`), and `set_stack_json()` reads what
+## `appearance_get_adjust` returns, so one document describes a layer whichever side it lives on.
 ##
 ## # What it must never do
 ##
@@ -130,8 +131,9 @@ static func entry_count() -> int:
 
 
 ## The stack in `AdjustStack`'s saved form, `{"entries":[...]}`. An empty stack is
-## `{"entries":[]}`: it is ET-C4's job to omit that from a document; this seam reports what
-## it holds.
+## `{"entries":[]}`: this seam reports what it holds, and the PERSISTER omits an empty stack from
+## the project (`app.gd::overlay_adjust_document()` writes nothing when `entry_count()` is 0, so an
+## untouched project's archive is unchanged).
 static func get_stack_json() -> String:
 	return JSON.stringify({"entries": _doc})
 

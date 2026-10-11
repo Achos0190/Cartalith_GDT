@@ -7741,6 +7741,7 @@ mod tests {
                 "library/settlement_types.json",
                 "drafts/paint.json",
                 "drafts/sculpt.json",
+                "appearance_overlay_adjust.json",
             ]
         );
     }

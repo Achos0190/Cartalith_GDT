@@ -499,6 +499,16 @@ pub const CORE_RASTERS: [&str; 6] = [
 /// `ENGINE_OWNED_SLOTS` -- the conflicts slot's arrangement. Additive: written
 /// only once a religion has been created, so older archives and untouched
 /// projects carry no such member.
+///
+/// # `appearance_overlay_adjust.json` is caller-owned
+///
+/// Registered 2026-10-11 (`EDITING_TOOLS_SCOPE.md` ET-C3/ET-C4). The payload
+/// is the labels/overlays adjustment stack in `AdjustStack`'s saved form
+/// (`{"entries":[...]}`), held in GDScript (`shell/overlay_adjust.gd`), which
+/// the engine never reads, so it stays caller-owned like the measurements
+/// slot. Additive: the shell writes it only when the stack has entries, so
+/// older archives and untouched projects carry no such member, and a project
+/// without it opens with no overlay stack.
 pub const DOCUMENT_SLOTS: &[&str] = &[
     "entities/settlements.json",
     "entities/factions.json",
@@ -519,6 +529,7 @@ pub const DOCUMENT_SLOTS: &[&str] = &[
     "library/settlement_types.json",
     "drafts/paint.json",
     "drafts/sculpt.json",
+    "appearance_overlay_adjust.json",
     "appearance.json",
     "vault.json",
 ];

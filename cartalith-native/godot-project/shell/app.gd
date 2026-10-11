@@ -1098,6 +1098,11 @@ func _wire_status() -> void:
 		set_status("pass", ("generated · %.1fs" % (bridge.last_generate_ms / 1000.0)) if ok
 			else "generate failed", "text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
+		## ET-C4: a NEW world is a new project, so the labels/overlays adjustment stack (which
+		## is saved with its project) does not follow it. Only on success: a failed generate
+		## leaves the previous world on screen.
+		if ok:
+			_clear_overlay_adjust()
 		## The first of `UNWIRED_FUNCTIONS.md`'s three phone-invisible failures:
 		## a generate that fails wrote `pass` and `hint`, both of which live in
 		## the hidden `PhoneMenuModel` host on a handset, so the only symptom
@@ -3275,6 +3280,14 @@ func _restore_project_documents() -> PackedStringArray:
 			## common one, and a refusal rather than a scramble), or its shape
 			## is one this build could not read. It is still in the file.
 			notes.append("%s in this archive came from a different grid, or in a shape this build could not read, and were left as they are in the file" % pair[2])
+	## ET-C4: the labels/overlays adjustment stack. Called unconditionally, like the
+	## measurements slot: an ABSENT slot is a genuine "this project has none" and must clear the
+	## outgoing project's stack. Then the adjustment panels re-read every layer, because the
+	## engine's Terrain/Water stacks arrived with `project_open` and the overlay's just now.
+	var oa_note := restore_overlay_adjust_document(String(docs.get(OVERLAY_ADJUST_SLOT, "")))
+	if oa_note != "":
+		notes.append(oa_note)
+	_refresh_adjust_panels()
 	return notes
 
 ## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
@@ -3722,6 +3735,104 @@ func save_project_as(then: Callable = Callable()) -> void:
 				_write_project(path, then, _include_lod_tiles_pref),
 		lod_option)
 
+## ET-C4: the project-archive slot the labels/overlays adjustment stack is saved in. A
+## GDScript-owned (caller-owned) document: the stack is GDScript state (`overlay_adjust.gd`)
+## the engine has no view of. **The slot must be registered by the engine**
+## (`cartalith_io::DOCUMENT_SLOTS`, Rust): `project_save_with_documents` REFUSES THE WHOLE
+## SAVE for a slot it does not know, so `overlay_adjust_document()` writes nothing, and says
+## so, on a build whose `project_document_slots()` lacks this name.
+const OVERLAY_ADJUST_SLOT := "appearance_overlay_adjust.json"
+## `shell/overlay_adjust.gd` (static state); the same preload `look_history.gd` and `map_overlay.gd` use.
+const _OverlayAdjust := preload("res://shell/overlay_adjust.gd")
+## The overlay-stack revision a "cannot be saved by this build" message was last shown for, so
+## an autosave tick does not repeat it every few minutes for the same stack.
+var _overlay_adjust_unsaved_told := -1
+
+## The labels/overlays stack as a project document, or `""` when there is nothing to write:
+## no entries at all (an untouched project keeps its archive byte-identical -- the same
+## omit-when-empty rule as `appearance.json`'s `terrain_adjust` / `water_adjust`; a stack of
+## DISABLED entries is user data and is written) or this build's engine does not register
+## `OVERLAY_ADJUST_SLOT` (then the person is told once per stack revision, because a silent
+## drop is how an edit goes missing). The text is the stack's saved form, `{"entries":[...]}`.
+func overlay_adjust_document() -> String:
+	if _OverlayAdjust.entry_count() == 0:
+		return ""
+	if not overlay_adjust_persists():
+		if _overlay_adjust_unsaved_told != _OverlayAdjust.revision:
+			_overlay_adjust_unsaved_told = _OverlayAdjust.revision
+			_report_failure("Labels & overlays adjustments were not saved: this build of the engine has no slot for them in the project file.")
+		return ""
+	return _OverlayAdjust.get_stack_json()
+
+## Whether this build's project format can store the labels/overlays stack at all, i.e. the engine
+## registers `OVERLAY_ADJUST_SLOT` (`project_document_slots()`): `1` yes, `0` no, `-1` not known
+## yet. `project_document_slots()` is a `&self` engine call, so it must not run while a generate holds
+## the engine (`Gd<T>::bind() failed`, measured: the adjustment panel asked on every rebuild, and
+## the overlay layer rebuilds mid-generate). The registry is a compile-time list that cannot change
+## in a session, so the first answer taken while idle is kept; until then, and while generating,
+## the answer is `-1` and the panel says nothing rather than guessing.
+func overlay_adjust_persists_state() -> int:
+	if _overlay_slot_state < 0 and not bridge.generating:
+		_overlay_slot_state = 1 if bridge.project_document_slots().has(OVERLAY_ADJUST_SLOT) else 0
+	return _overlay_slot_state
+
+## `overlay_adjust_persists_state()` as a bool for the writer: true only for a known `1`.
+## `overlay_adjust_document()` writes nothing when it is false.
+func overlay_adjust_persists() -> bool:
+	return overlay_adjust_persists_state() == 1
+
+## Cached answer of `overlay_adjust_persists_state()`; `-1` until first asked while idle.
+var _overlay_slot_state := -1
+
+## The other end of `overlay_adjust_document()`: replace the overlay stack with the archive's,
+## or CLEAR it when the archive has none (an old project, or one saved with an empty stack,
+## opens with no overlay stack -- the outgoing project's must not follow the reader in).
+## Goes through `ViewportHost.set_overlay_adjust` so the province-border shader follows. Returns
+## a sentence for the open's notes when the archive's stack was refused (nothing is then
+## applied and the overlay opens unadjusted), else `""`.
+func restore_overlay_adjust_document(text: String) -> String:
+	var note := ""
+	var json := "{\"entries\":[]}"
+	if text != "":
+		var probe := JSON.new()
+		if probe.parse(text) == OK and probe.data is Dictionary:
+			json = text
+		else:
+			note = "the labels & overlays adjustments could not be read"
+	if text == "" and _OverlayAdjust.entry_count() == 0:
+		return ""   ## nothing to clear: no needless revision bump, no redraw
+	if viewport != null:
+		var r: Dictionary = viewport.set_overlay_adjust(json)
+		if not bool(r.get("ok", false)):
+			viewport.set_overlay_adjust("{\"entries\":[]}")
+			note = "the labels & overlays adjustments in this archive were refused (%s)" % String(r.get("error", "unknown"))
+	else:
+		var r2: Dictionary = _OverlayAdjust.set_stack_json(json)
+		if not bool(r2.get("ok", false)):
+			_OverlayAdjust.clear()
+			note = "the labels & overlays adjustments in this archive were refused (%s)" % String(r2.get("error", "unknown"))
+	return note
+
+## Empty the overlay stack because a DIFFERENT world is now on screen (a generate or a
+## close): a stack belongs to its project. Not called on `world_loaded`, which also fires for
+## a centring pass, a fjord carve, an applied asset pack -- the same project -- where the
+## stack must survive; a project OPEN clears it through `restore_overlay_adjust_document`.
+func _clear_overlay_adjust() -> void:
+	if _OverlayAdjust.entry_count() == 0:
+		return
+	if viewport != null:
+		viewport.set_overlay_adjust("{\"entries\":[]}")
+	else:
+		_OverlayAdjust.clear()
+	_refresh_adjust_panels()
+
+## Re-read every adjustment panel from its owner (a project open or a new world replaced the
+## stacks under it). A read, never a write.
+func _refresh_adjust_panels() -> void:
+	for ws in _workspaces:
+		if ws is CartographyWorkspace and ws._render != null:
+			ws._render.on_adjust_restored()
+
 ## Every caller-owned document that belongs in the archive, `{slot: json_text}`
 ## over the slots `bridge.project_document_slots()` registers.
 ##
@@ -3760,6 +3871,11 @@ func save_project_as(then: Callable = Callable()) -> void:
 ## and not a precedence question.
 func _project_documents() -> Dictionary:
 	var documents: Dictionary = bridge.project_engine_built_documents()
+	## ET-C4: the labels/overlays adjustment stack, omitted when empty so an
+	## untouched project's archive is byte-identical (see `overlay_adjust_document`).
+	var oa_doc := overlay_adjust_document()
+	if oa_doc != "":
+		documents[OVERLAY_ADJUST_SLOT] = oa_doc
 	if journey_planner_view != null:
 		var doc := journey_planner_view.journeys_document()
 		if doc != "":
@@ -4181,6 +4297,7 @@ func _close_requested() -> void:
 func _close_world() -> void:
 	bridge.close_world()
 	current_project_path = ""
+	_clear_overlay_adjust()   ## ET-C4: the stack belongs to the project just closed
 	set_status("pass", "no world", "text_faint")
 	## Closing a world returns to the same empty state `_ready()` boots into,
 	## so it gets the same composition-aware route -- `DccShell

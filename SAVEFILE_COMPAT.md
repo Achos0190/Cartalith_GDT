@@ -3162,3 +3162,7 @@ The floor adds nothing to the save, but the civ classification it changes is alr
 ## Adjustment stacks in `appearance.json` (2026-10-11, ET-C2)
 
 Optional `terrain_adjust` and `water_adjust` members, each in `AdjustStack`'s saved form: `{"entries":[{"kind":{"levels"|"curves"|"hsl"|"gradient_map":{...}},"enabled":bool(=true),"opacity":0..1(=1)}]}`. Absent means no adjustment, and the writer omits a member whose stack is empty, so every existing save round-trips byte-identically. A refused member produces a warning and that layer opens with no stack; the rest of the look still loads. Saved-look preset files (`cartalith-appearance` v1) carry the same two optional keys inside `appearance`; an invalid stack refuses the whole file.
+
+## `appearance_overlay_adjust.json` (2026-10-11, ET-C3/ET-C4)
+
+A caller-owned document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`) holding the labels/overlays adjustment stack in `AdjustStack`'s saved form, `{"entries":[...]}`, written by `app.gd::overlay_adjust_document()` and read by `restore_overlay_adjust_document()`. The shell writes it only when the stack has entries (a disabled entry counts as data), so older archives and untouched projects carry no such member and a project without it opens with no overlay stack. The Terrain and Water stacks are not in this slot: they are the optional `terrain_adjust` and `water_adjust` members of `appearance.json` (see above).

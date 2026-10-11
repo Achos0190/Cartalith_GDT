@@ -997,6 +997,7 @@ func _build() -> void:
 	## Colours ▸ Biome colours with Ruling L, and this standalone path has to
 	## draw it somewhere or the slider exists only in the nested composition.
 	_build_biome_colours()
+	_build_adjustments()
 	_build_color_management()
 	_build_look_presets()
 	_build_npr()
@@ -1058,7 +1059,10 @@ func build_layer_stack_into(parent: Control) -> void:
 ## Ruling L CARTO ▸ COLOURS (`left_rail_tree_resorted.md` L284-300): the colour
 ## relief ramp (◄ Terrain appearance), the grade and its field weights, the
 ## biome pair (◄ Map view's `bio_blend` and the table link that was under the
-## grade), then colour management.
+## grade), then (ET-C4) the per-layer adjustment stacks, then colour management.
+## The adjustments sit between the two because the pipeline's order is the
+## reading order: the grade, then the adjustments (`finish_rgb` runs them after
+## the grade), then the display transform.
 ##
 ## Colour management sits **after** the grade rather than before it, and the
 ## order is the pipeline's: the grade decides what the picture is, the output
@@ -1070,6 +1074,7 @@ func build_colours_into(parent: Control) -> void:
 	_build_ramp()
 	_build_appearance(APPEARANCE_GROUPS.slice(6), "Colour grade")  # see build_relief_into for why 6
 	_build_biome_colours()
+	_build_adjustments()
 	_build_color_management()
 	_host = null
 
@@ -1668,12 +1673,62 @@ func on_look_restored(snap: Dictionary) -> void:
 		if app != null and app.viewport != null:
 			app.viewport.set_style_readout(String(chrome.get("readout", "Default")))
 			app.viewport.set_overlay_treatment(Dictionary(chrome.get("overlay", {})))
+	## ET-C4: the adjustment stacks. The two engine layers were already written by
+	## `look_history.apply()`; the labels/overlays stack is written HERE because its
+	## setter (`ViewportHost.set_overlay_adjust`, which also re-applies the
+	## province-border shader) needs the viewport that the static `apply()` has no
+	## handle to. Then the panel re-reads its layer from the owners.
+	if snap.has(_LookHistory.ADJUST_OVERLAY_PART) and app != null and app.viewport != null:
+		app.viewport.set_overlay_adjust(String(snap[_LookHistory.ADJUST_OVERLAY_PART]))
+	if _adjust_panel != null and is_instance_valid(_adjust_panel):
+		for part in snap:
+			if String(part).begins_with("adjust_"):
+				_adjust_panel.sync()
+				break
 	_applying = false
 	_refresh_map()
 	if snap.has("biomes") and app != null:
 		var ws = app._world_workspace()
 		if ws != null:
 			ws.on_biome_colours_changed()
+
+# -- The per-layer adjustment stacks (ET-C4; `shell/adjust_panel.gd`) -----------
+
+const _AdjustPanel := preload("res://shell/adjust_panel.gd")
+
+## The panel, or null when it was not built (no engine adjustment API and no
+## viewport are not reasons to skip it: the overlay layer needs neither).
+var _adjust_panel: Control
+
+## CARTO ▸ Colours ▸ Adjustments: a layer picker (Terrain, Water, Labels &
+## overlays) over an ordered list of Levels / Curves / Hue-Sat-Light / Gradient
+## map entries. The panel owns its widgets and talks to the engine only through
+## the bridge's generating-gated `adjust_get/adjust_set`; this file supplies the
+## shared look-history bracket and the map refresh.
+##
+## Never writes on build (an untouched project keeps `None` stacks and a
+## byte-identical `appearance.json`).
+func _build_adjustments() -> void:
+	var body := DccWidgets.section(_h(), "Adjustments")
+	_adjust_panel = _AdjustPanel.new()
+	body.add_child(_adjust_panel)
+	_adjust_panel.setup(app, bridge,
+		func(parts: Array): look_begin(parts),
+		func(label: String, parts: Array): look_commit(label, parts),
+		_on_adjust_edited)
+
+## An ENGINE adjustment stack was written: mark the look Custom (a look tile no
+## longer names the picture) and re-render the map. The overlay layer does not
+## come here (its setter redraws the overlay itself).
+func _on_adjust_edited(_layer: String) -> void:
+	_mark_custom()
+	_refresh_map()
+
+## Re-read the panel's layer from the engine / overlay (a project open restored
+## the overlay stack, a world change replaced the engine's). A read, never a write.
+func on_adjust_restored() -> void:
+	if _adjust_panel != null and is_instance_valid(_adjust_panel):
+		_adjust_panel.sync()
 
 # -- The reference's Rendering-advanced block (reference HTML 1731-1751) -------
 
@@ -1705,6 +1760,11 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 				## the panel happened to hold. Found by a verifier 2026-09-03,
 				## measured as a real divergence rather than reasoned about.
 				_sync_layer_stack()
+				## ET-C4: it also drops the Terrain and Water adjustment stacks
+				## (`appearance_terrain_adjust` / `appearance_water_adjust`), so the
+				## adjustment panel would keep drawing stacks the engine no longer
+				## holds -- the same desync, one control further on.
+				on_adjust_restored()
 				_refresh_map()
 				_mark_custom())
 		DccWidgets.note(body,
@@ -1712,7 +1772,7 @@ func _build_appearance(groups: Array, title: String = "Rendering - advanced") ->
 			+ "as the base look above reshapes them, editable. An edit survives a "
 			+ "later tier or look change; Reset hands every one of them back -- "
 			+ "including the colour grade under Colours, which is the same "
-			+ "appearance record. Reset "
+			+ "appearance record, and the Terrain and Water adjustment stacks. Reset "
 			+ "deliberately leaves the base look alone -- that picker is under Style, "
 			+ "and a button in this section silently moving it is the desync this dock "
 			+ "keeps having to fix. All presentation -- nothing here marks a "
@@ -2641,6 +2701,8 @@ func _on_load_look() -> void:
 	## `_build_look_presets()` for the one case where they do not.
 	if _layer_host != null:
 		_sync_layer_stack()
+	## ET-C4: the loaded look carries the Terrain and Water stacks too.
+	on_adjust_restored()
 	_mark_custom()
 	_refresh_map()
 
@@ -3015,6 +3077,8 @@ func on_world_changed() -> void:
 		_sync_npr()
 	_sync_color_space()
 	_sync_biome_colours()
+	## ET-C4: a different world may carry other Terrain/Water stacks.
+	on_adjust_restored()
 
 ## Re-read the engine's colour space into the picker.
 ##

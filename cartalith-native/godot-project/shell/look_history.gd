@@ -2,7 +2,9 @@ extends RefCounted
 ## One shared undo/redo history for LOOK edits (owner Ruling BY item 2,
 ## 2026-10-10): elevation-ramp stops and blend mode (dock stops section, CARTO
 ## "Colour relief" editor, the interactive ramp bar), the biome colour table,
-## and a Look/Map-style preset or base-look pick. One entry per gesture.
+## a Look/Map-style preset or base-look pick, and (ET-C4, `EDITING_TOOLS_SCOPE.md`
+## section 5) the three per-layer adjustment stacks (Terrain, Water, Labels &
+## overlays). One entry per gesture: a slider drag is one entry.
 ##
 ## No `class_name` on purpose: hosts load it with
 ## `preload("res://shell/look_history.gd")`, so registering it never needs the
@@ -43,6 +45,17 @@ extends RefCounted
 const MAX_ENTRIES := 100
 ## Biome classes the engine's table holds (`engine_bridge.gd`: "index 1..15").
 const BIOME_N := 15
+## The `parts` names of the adjustment stacks (ET-C4) and the snapshot key each one
+## writes: the part `"adjust_terrain"` stores the layer's stack as its saved-form
+## JSON TEXT under the key `"adjust_terrain"`, and so on. Text, not a parsed
+## dictionary, so `_same()` compares two snapshots by value and an undo restores
+## exactly the document the engine (or `overlay_adjust.gd`) reported, never a
+## re-serialisation of it. The first two are engine layers (`adjust_get/set`);
+## `adjust_overlay` is GDScript state (`shell/overlay_adjust.gd`).
+const ADJUST_ENGINE_PARTS := {"adjust_terrain": "terrain", "adjust_water": "water"}
+const ADJUST_OVERLAY_PART := "adjust_overlay"
+## `shell/overlay_adjust.gd`, the labels/overlays stack (static state, no engine).
+const _OA := preload("res://shell/overlay_adjust.gd")
 ## Snapshot key holding presentation chrome (active tile, Custom note, readout,
 ## overlay ink). Restored with the data but excluded from the "did anything
 ## change" comparison, so a Cancel that reverts the data to equal pushes nothing
@@ -161,8 +174,14 @@ static func _same(a: Dictionary, b: Dictionary) -> bool:
 ##   "biomes" -> `biomes`: 15 colours, index 0 = class 1
 ##   "style"  -> `style`: the base look name, the NPR block, and the effective
 ##              values of `appearance_keys` (the keys a preset overrides)
+##   "adjust_terrain" / "adjust_water" -> that engine layer's stack, saved-form
+##              JSON text (ET-C4); omitted while a generate runs (the engine is
+##              the worker's) or when the cdylib has no adjustment stacks
+##   "adjust_overlay" -> the labels/overlays stack, saved-form JSON text (static
+##              GDScript state, readable at any time)
 ## Parts the running cdylib cannot read are omitted, never defaulted (MISTAKES:
-## absent is not a plausible value).
+## absent is not a plausible value) -- in particular a stack that could not be
+## READ is never recorded as the empty stack, which would make an undo CLEAR it.
 static func snapshot(bridge: Object, parts: Array, appearance_keys: PackedStringArray = PackedStringArray()) -> Dictionary:
 	var s := {}
 	if "ramp" in parts and bridge.ramp_api:
@@ -189,11 +208,25 @@ static func snapshot(bridge: Object, parts: Array, appearance_keys: PackedString
 			st["appearance"] = sub
 		if not st.is_empty():
 			s["style"] = st
+	## ET-C4: the adjustment stacks. A failed or absent read leaves the key out.
+	for part in ADJUST_ENGINE_PARTS:
+		if part in parts and bridge.adjust_api and not bridge.generating:
+			var got: Dictionary = bridge.adjust_get(String(ADJUST_ENGINE_PARTS[part]))
+			if bool(got.get("ok", false)) and got.has("stack"):
+				s[part] = String(got["stack"])
+	if ADJUST_OVERLAY_PART in parts:
+		s[ADJUST_OVERLAY_PART] = _OA.get_stack_json()
 	return s
 
 ## Write a snapshot back through the same setters the editors use. Does NOT
 ## refresh any widget -- the caller does (`RenderWorkspace.on_look_restored`).
 ## `appearance_keys` must be the set the snapshot was taken with.
+##
+## The two ENGINE stacks are written here (`adjust_set`, which refuses while a
+## generate runs, so a restore then is skipped rather than panicking). The
+## labels/overlays stack is NOT: its setter that also re-applies the province-border
+## shader is `ViewportHost.set_overlay_adjust`, which this static function has no
+## handle to, so `RenderWorkspace.on_look_restored()` writes `adjust_overlay`.
 static func apply(bridge: Object, snap: Dictionary, appearance_keys: PackedStringArray = PackedStringArray()) -> void:
 	if snap.has("style"):
 		var st: Dictionary = snap["style"]
@@ -213,6 +246,9 @@ static func apply(bridge: Object, snap: Dictionary, appearance_keys: PackedStrin
 					diff[k] = st["appearance"][k]
 			if not diff.is_empty():
 				bridge.set_appearance(diff)
+	for part in ADJUST_ENGINE_PARTS:
+		if snap.has(part):
+			bridge.adjust_set(String(ADJUST_ENGINE_PARTS[part]), String(snap[part]))
 	if snap.has("ramp"):
 		bridge.set_color_ramp(snap["ramp"])
 	if snap.has("mode") and String(snap["mode"]) != "":
