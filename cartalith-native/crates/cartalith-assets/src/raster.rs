@@ -168,8 +168,75 @@ pub fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, ImageError> {
     Ok(out)
 }
 
+/// What colour information [`encode_png_rgb8`] writes into a PNG (ET-E1,
+/// `EDITING_TOOLS_SCOPE.md` section 6; `LARGE_ITEM_RULINGS.md` Ruling CB item 1:
+/// *"tag every exported PNG as sRGB by default ... Display P3 stays an explicit
+/// export option; the heightmap PNG stays untagged"*).
+///
+/// Exactly one of the two colour chunks, or neither, never both: the W3C PNG
+/// specification, third edition, says *"If the iCCP chunk is present, the sRGB
+/// chunk should not be present"* and the reverse, and that both must come
+/// before `PLTE` and `IDAT` (read via a fetched summary of
+/// <https://www.w3.org/TR/png-3/>, 2026-10-11, not the full text). Every caller
+/// names its variant: there is no default here, so a data raster cannot be
+/// tagged by omission and a picture cannot be left untagged by omission.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PngColour<'a> {
+    /// One `sRGB` chunk, rendering intent 0 (perceptual), and no `iCCP`. The
+    /// default for every exported picture (Ruling CB item 1). Perceptual is a
+    /// **labelled judgement** (`EDITING_TOOLS_SCOPE.md` ET-E1 names it one):
+    /// the intent only matters to a consumer converting into a smaller gamut,
+    /// and for a map picture a compressed-but-ordered gamut reads better than
+    /// clipped saturated greens. No `gAMA`/`cHRM` fallback chunks are written;
+    /// the `png` crate's own sRGB writer omits them too unless asked.
+    Srgb,
+    /// One `iCCP` chunk carrying these ICC profile bytes (zlib-deflated by the
+    /// `png` crate, compression method 0, the only one PNG defines), and no
+    /// `sRGB`. The pixels must already be encoded in that profile's space: this
+    /// writes a label, it converts nothing. An empty profile is refused rather
+    /// than written as an untagged file.
+    IccProfile(&'a [u8]),
+    /// No colour chunk at all, for a raster of **data** that is not a colour
+    /// picture (the channel atlas's packed fields, a mask tile): the same
+    /// reason Ruling CB gives for keeping the heightmap untagged. A label
+    /// claiming these bytes are sRGB colours would be false.
+    Data,
+}
+
+/// The complete `sRGB` chunk for rendering intent 0 (perceptual): length
+/// `00 00 00 01`, type `sRGB`, the one data byte `00`, then the CRC-32 (ISO
+/// 3309, as PNG specifies it) over type and data, `AE CE 1C E9`. A constant
+/// because it is one: every byte follows from the PNG specification. Protected
+/// by `the_srgb_chunk_constant_is_the_png_crates_own_bytes_and_crc` (an
+/// independent bitwise CRC) and by the `png` decoder's own CRC check in every
+/// round-trip test.
+const SRGB_CHUNK_PERCEPTUAL: [u8; 13] = [0, 0, 0, 1, b's', b'R', b'G', b'B', 0, 0xAE, 0xCE, 0x1C, 0xE9];
+
+/// Where the first chunk after `IHDR` starts: the 8-byte PNG signature plus
+/// `IHDR`'s 25 bytes (4 length, 4 type, 13 data, 4 CRC). `IHDR` is required to
+/// be first and is always 13 data bytes (PNG specification, IHDR), so this is
+/// fixed; [`encode_png_rgb8`] still checks the bytes before splicing.
+const AFTER_IHDR: usize = 8 + 4 + 4 + 13 + 4;
+
 /// Encode a tightly-packed **RGB8** buffer as a PNG, taking ownership of the
-/// bytes rather than copying them.
+/// bytes rather than copying them, labelled as `colour` says ([`PngColour`]).
+///
+/// # How each label is written, and why it cannot move a pixel
+///
+/// The image data is encoded exactly as before ET-E1: `image`'s
+/// `PngEncoder::new` (its `Fast` compression, adaptive filter), which is what
+/// `DynamicImage::write_to(.., ImageFormat::Png)` used. So `IDAT` is
+/// byte-identical to the untagged encode and only the chunk list grows.
+/// - [`PngColour::Srgb`]: `image` has no API for an `sRGB` chunk, so the
+///   constant [`SRGB_CHUNK_PERCEPTUAL`] is spliced in directly after `IHDR`
+///   (before `PLTE`/`IDAT`, as the specification requires). The splice checks
+///   that `IHDR` really is where the format puts it and refuses otherwise.
+/// - [`PngColour::IccProfile`]: `ImageEncoder::set_icc_profile`, which the
+///   `png` crate writes as one compressed `iCCP` chunk after `IHDR`.
+/// - [`PngColour::Data`]: nothing added; the pre-ET-E1 file exactly.
+///
+/// Must never write both chunks, and must never silently drop a requested
+/// label (an empty profile is an error, not an untagged file).
 ///
 /// [`encode_png`] is the right entry point for anything that already holds a
 /// [`DecodedImage`]; this one exists for the export raster
@@ -181,16 +248,33 @@ pub fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, ImageError> {
 /// allocation on a single 8K export against the 129 MB the pixels actually
 /// occupy. An alpha channel that is `255` everywhere is not worth that, and
 /// the PNG is smaller without it besides.
-pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>) -> Result<Vec<u8>, ImageError> {
+pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>, colour: PngColour<'_>) -> Result<Vec<u8>, ImageError> {
+    use image::ImageEncoder;
     let expected = u64::from(w) * u64::from(h) * 3;
     if rgb.len() as u64 != expected {
         return Err(ImageError::BufferSize { expected, actual: rgb.len() as u64 });
     }
-    let buf = image::RgbImage::from_raw(w, h, rgb).ok_or(ImageError::BufferSize { expected, actual: expected })?;
+    let encode_err = |what: &str| {
+        ImageError::Encode(image::ImageError::Parameter(image::error::ParameterError::from_kind(image::error::ParameterErrorKind::Generic(what.to_string()))))
+    };
     let mut out = Vec::new();
-    image::DynamicImage::ImageRgb8(buf)
-        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
-        .map_err(ImageError::Encode)?;
+    let mut enc = image::codecs::png::PngEncoder::new(&mut out);
+    if let PngColour::IccProfile(profile) = colour {
+        if profile.is_empty() {
+            return Err(encode_err("an empty ICC profile would write an untagged PNG"));
+        }
+        enc.set_icc_profile(profile.to_vec()).map_err(|e| ImageError::Encode(image::ImageError::Unsupported(e)))?;
+    }
+    enc.write_image(&rgb, w, h, image::ExtendedColorType::Rgb8).map_err(ImageError::Encode)?;
+    drop(rgb);
+    if colour == PngColour::Srgb {
+        // `IHDR` must be the first chunk, 13 data bytes long; anything else
+        // is not a file this splice understands, so it refuses.
+        if out.len() < AFTER_IHDR || out[8..16] != [0, 0, 0, 13, b'I', b'H', b'D', b'R'] {
+            return Err(encode_err("the encoder did not put a 13-byte IHDR first"));
+        }
+        out.splice(AFTER_IHDR..AFTER_IHDR, SRGB_CHUNK_PERCEPTUAL);
+    }
     Ok(out)
 }
 
@@ -204,6 +288,12 @@ pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>) -> Result<Vec<u8>, ImageErr
 ///
 /// PNG stores 16-bit samples big-endian, which `image` handles; the caller
 /// passes native-endian `u16`s.
+///
+/// **Untagged, deliberately**: neither `sRGB` nor `iCCP` (`LARGE_ITEM_RULINGS.md`
+/// Ruling CB item 1: *"the heightmap PNG stays untagged"*; ET-E1). A height
+/// field is data, not colour, and a colour label invites a colour-managing
+/// reader to convert it. Must never gain a colour chunk; protected by
+/// `the_heightmap_png_carries_no_colour_chunk`.
 ///
 /// Sibling of [`encode_png_rgb8`] and written the same way and for the same
 /// reason -- it takes ownership rather than copying, because the largest
@@ -529,5 +619,154 @@ mod luma16_tests {
     fn a_wrong_sized_buffer_is_refused_rather_than_panicking() {
         let e = encode_png_luma16(4, 4, vec![0u16; 15]);
         assert!(matches!(e, Err(ImageError::BufferSize { expected: 16, actual: 15 })), "{e:?}");
+    }
+
+    /// Protects: Ruling CB item 1's exception -- the heightmap PNG carries
+    /// neither `sRGB` nor `iCCP` (it is data). Fails if anyone routes the
+    /// 16-bit encoder through a colour label.
+    #[test]
+    fn the_heightmap_png_carries_no_colour_chunk() {
+        let png = encode_png_luma16(9, 5, (0..45u16).map(|i| i * 1000).collect()).expect("encode");
+        let kinds = super::colour_tests::chunk_types(&png);
+        assert_eq!(kinds.first().map(|k| &k[..]), Some(&b"IHDR"[..]));
+        assert!(!kinds.iter().any(|k| k == b"sRGB" || k == b"iCCP" || k == b"gAMA" || k == b"cHRM" || k == b"cICP"), "{kinds:?}");
+    }
+}
+
+/// ET-E1 (`EDITING_TOOLS_SCOPE.md` section 6, Ruling CB item 1): the colour
+/// labels [`encode_png_rgb8`] writes. Chunk lists are read by this module's
+/// own parser (lengths, types, CRCs), not by the encoder that wrote them.
+#[cfg(test)]
+pub(crate) mod colour_tests {
+    use super::*;
+
+    /// CRC-32 (ISO 3309, as PNG specifies it), bit by bit: reflected
+    /// polynomial `0xEDB88320`, initial value and final XOR all ones. Written
+    /// here rather than borrowed so a CRC check cannot share a bug with the
+    /// constant it checks.
+    fn crc32(data: &[u8]) -> u32 {
+        let mut c = 0xFFFF_FFFFu32;
+        for &byte in data {
+            c ^= byte as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+        }
+        !c
+    }
+
+    /// Every chunk type in `png`, in file order, checking the signature, each
+    /// length and each CRC, and that the file ends exactly at `IEND`. Panics
+    /// on a malformed file; asserts the list is non-empty (`MISTAKES.md`:
+    /// a helper returning a collection asserts non-empty).
+    pub(crate) fn chunk_types(png: &[u8]) -> Vec<[u8; 4]> {
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "not a PNG signature");
+        let (mut p, mut out) = (8usize, Vec::new());
+        while p < png.len() {
+            let len = u32::from_be_bytes(png[p..p + 4].try_into().unwrap()) as usize;
+            let body = &png[p + 4..p + 8 + len];
+            let crc = u32::from_be_bytes(png[p + 8 + len..p + 12 + len].try_into().unwrap());
+            assert_eq!(crc32(body), crc, "CRC mismatch in chunk at {p}");
+            out.push(body[..4].try_into().unwrap());
+            p += 12 + len;
+            if &body[..4] == b"IEND" {
+                break;
+            }
+        }
+        assert_eq!(p, png.len(), "bytes after IEND, or no IEND");
+        assert!(!out.is_empty(), "a PNG with no chunks proves nothing");
+        out
+    }
+
+    /// How many chunks of type `kind` the file holds.
+    pub(crate) fn count(png: &[u8], kind: &[u8; 4]) -> usize {
+        chunk_types(png).iter().filter(|k| *k == kind).count()
+    }
+
+    /// A 37 x 23 RGB fixture with every channel varying (an odd size, so no
+    /// row length is a round number); deterministic, generator-free.
+    pub(crate) fn fixture() -> (u32, u32, Vec<u8>) {
+        let (w, h) = (37u32, 23u32);
+        let px = (0..w * h * 3).map(|i| ((i * 7919 + i / 111 * 13) % 251) as u8).collect();
+        (w, h, px)
+    }
+
+    /// FNV-1a 64 (standard offset basis and prime): a change detector only.
+    fn fnv(b: &[u8]) -> u64 {
+        assert!(!b.is_empty(), "an empty buffer hashes to the basis");
+        b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ x as u64).wrapping_mul(0x0000_0100_0000_01b3))
+    }
+
+    /// Protects: the spliced constant really is the PNG `sRGB` chunk for
+    /// intent 0 -- length 1, type, data byte 0, and a CRC this test computes
+    /// independently. A wrong CRC would make strict decoders reject every
+    /// default export.
+    #[test]
+    fn the_srgb_chunk_constant_is_the_png_crates_own_bytes_and_crc() {
+        let c = SRGB_CHUNK_PERCEPTUAL;
+        assert_eq!(&c[..4], &[0, 0, 0, 1], "length");
+        assert_eq!(&c[4..8], b"sRGB", "type");
+        assert_eq!(c[8], 0, "rendering intent 0 = perceptual (PNG specification, sRGB)");
+        assert_eq!(u32::from_be_bytes(c[9..13].try_into().unwrap()), crc32(&c[4..9]), "CRC");
+        assert_eq!(AFTER_IHDR, 33, "signature 8 + IHDR 25");
+    }
+
+    /// Protects: the default label -- exactly one `sRGB`, no `iCCP`, the
+    /// `sRGB` chunk before `IDAT`, the decoded pixels equal to the input, and
+    /// the file otherwise byte-identical to today's untagged encode, whose
+    /// hash was produced by HEAD's own `encode_png_rgb8` (`DynamicImage::
+    /// write_to`) on this fixture, run from a scratch crate before ET-E1
+    /// edited this file (re-baselined 2026-10-11 under Ruling CB item 1: the
+    /// file gains one chunk, its pixels do not move).
+    #[test]
+    fn a_default_png_carries_one_srgb_chunk_and_today_s_pixels() {
+        let (w, h, px) = fixture();
+        let tagged = encode_png_rgb8(w, h, px.clone(), PngColour::Srgb).expect("encode");
+        let kinds = chunk_types(&tagged);
+        assert_eq!(count(&tagged, b"sRGB"), 1, "{kinds:?}");
+        assert_eq!(count(&tagged, b"iCCP"), 0, "{kinds:?}");
+        let srgb_at = kinds.iter().position(|k| k == b"sRGB").unwrap();
+        let idat_at = kinds.iter().position(|k| k == b"IDAT").unwrap();
+        assert!(srgb_at == 1 && srgb_at < idat_at, "sRGB must follow IHDR and precede IDAT: {kinds:?}");
+        assert_eq!(decode_png(&tagged).expect("a strict decoder reads it").rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>(), px, "the decoded pixels moved");
+        // The rest of the file is exactly the untagged encode.
+        let mut stripped = tagged.clone();
+        stripped.drain(AFTER_IHDR..AFTER_IHDR + 13);
+        let data = encode_png_rgb8(w, h, px, PngColour::Data).expect("encode");
+        assert_eq!(stripped, data, "tagging changed something other than the one chunk");
+        assert_eq!(fnv(&data), HEAD_UNTAGGED_FNV, "the untagged encode is no longer HEAD's");
+    }
+
+    /// FNV-1a 64 of HEAD's (`608d4435`) `encode_png_rgb8` output on
+    /// [`fixture`], produced by a scratch crate calling `image` 0.25.10's
+    /// `DynamicImage::write_to(.., Png)` exactly as HEAD did -- never by the
+    /// code under test (it printed `fnv=0x03a45927be6d69eb len=2644`).
+    const HEAD_UNTAGGED_FNV: u64 = 0x03a4_5927_be6d_69eb;
+
+    /// Protects: the Display P3 label -- exactly one `iCCP`, no `sRGB`, the
+    /// profile bytes round-trip through a decoder unchanged, pixels unmoved;
+    /// and an empty profile is refused rather than silently written untagged.
+    /// (The profile's primaries are checked in `cartalith-godot`, which owns
+    /// the real P3 profile; any non-empty bytes exercise the container here.)
+    #[test]
+    fn an_icc_png_carries_one_iccp_and_no_srgb() {
+        use image::ImageDecoder;
+        let (w, h, px) = fixture();
+        let profile: Vec<u8> = (0..300u32).map(|i| (i * 31 % 256) as u8).collect();
+        let tagged = encode_png_rgb8(w, h, px.clone(), PngColour::IccProfile(&profile)).expect("encode");
+        assert_eq!(count(&tagged, b"iCCP"), 1);
+        assert_eq!(count(&tagged, b"sRGB"), 0);
+        let mut dec = image::codecs::png::PngDecoder::new(std::io::Cursor::new(&tagged)).expect("decoder");
+        assert_eq!(dec.icc_profile().expect("icc").as_deref(), Some(&profile[..]), "the profile did not round-trip");
+        assert_eq!(decode_png(&tagged).unwrap().rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect::<Vec<_>>(), px);
+        assert!(encode_png_rgb8(w, h, px, PngColour::IccProfile(&[])).is_err(), "an empty profile must be refused");
+    }
+
+    /// Protects: a data raster stays untagged -- neither chunk.
+    #[test]
+    fn a_data_png_carries_no_colour_chunk() {
+        let (w, h, px) = fixture();
+        let png = encode_png_rgb8(w, h, px, PngColour::Data).expect("encode");
+        assert_eq!((count(&png, b"sRGB"), count(&png, b"iCCP")), (0, 0));
     }
 }

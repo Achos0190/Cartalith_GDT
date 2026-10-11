@@ -25,7 +25,7 @@ use std::sync::Arc;
 use crate::export_stream::{BandSink, StreamFormat};
 use crate::river_stroke::RiverGeometry;
 use crate::lod_worker::{OwnedInk, OwnedSplat, SnapshotInputs};
-use crate::render::{self, BakeFields, ExportBand, ExportBandPlan, GridPrecompute, GroundTile, GroundTiles, RenderCtx, TerrainAppearance};
+use crate::render::{self, BakeFields, ColorSpace, ExportBand, ExportBandPlan, GridPrecompute, GroundTile, GroundTiles, RenderCtx, TerrainAppearance};
 
 // ---------------------------------------------------------------------------
 // Compositing
@@ -77,8 +77,9 @@ pub fn composite_premul_over(rgb: &mut [u8], rgba: &[u8]) {
 /// composed style, and `ink` with the export's own choice (a loaded save's
 /// flag, or none with `rivers` off) -- and `ExportSnapshot::build` takes the
 /// vector network beside it (RV-5). Four fields are tile-only and deliberately unused here:
-/// `color_space` (an export is written in the working space — see
-/// `export_raster.rs`' module doc), `grid_rgb` and the cryosphere constants
+/// `color_space` (the session's **monitor** setting; an export's own colour
+/// space is its ET-E1 export option, handed to [`ExportSessionCore::begin`] —
+/// see `export_raster.rs`' module doc), `grid_rgb` and the cryosphere constants
 /// (`TileFields` inputs; the bake path has no `TileFields`), and `key`/`seed`.
 pub struct ExportSnapshot {
     parts: Parts,
@@ -257,11 +258,12 @@ impl ExportSnapshot {
     }
 
     /// One terrain band of `plan`: `export_banded`'s per-band call, against
-    /// this snapshot instead of the live world.
-    pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand) -> Option<Vec<u8>> {
+    /// this snapshot instead of the live world, encoded in the export's
+    /// colour space `space` (ET-E1; the session's, fixed at `begin`).
+    pub fn render_band(&self, plan: &ExportBandPlan, band: ExportBand, space: ColorSpace) -> Option<Vec<u8>> {
         let ctx = self.parts.ctx()?;
         let flag = self.parts.ink.as_deref();
-        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), self.parts.paint.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells)))
+        Some(crate::export_raster::with_export_rivers(self.parts.rivers.as_deref(), self.parts.fans.as_deref(), self.parts.paint.as_deref(), flag, |r| render::bake_export_band(&ctx, &self.bake, r, plan, band, &self.grade_cells, space)))
     }
 
     /// The terrain look this snapshot was built with (the export's composed style).
@@ -301,6 +303,9 @@ pub struct OpenSession {
     sink: BandSink,
     path: std::path::PathBuf,
     format: StreamFormat,
+    /// The export's colour space (ET-E1): every band is encoded in it and the
+    /// sink labels the file with it, from this one value.
+    space: ColorSpace,
     started: std::time::Instant,
     /// The band tiles are being accepted for; every earlier band is written.
     next_band: usize,
@@ -333,6 +338,8 @@ pub struct SessionDone {
     pub height: usize,
     /// The container written (PNG or BigTIFF).
     pub format: StreamFormat,
+    /// The colour space the file was encoded in and labelled with (ET-E1).
+    pub color_space: ColorSpace,
     /// How many bands the plan cut the image into.
     pub bands: usize,
     /// Wall-clock milliseconds from `begin` to a successful finish (one sample,
@@ -372,21 +379,24 @@ impl ExportSessionCore {
         }
     }
 
-    /// Open `path` and start a session that writes `plan` from `snapshot`.
-    pub fn begin(&mut self, snapshot: Arc<ExportSnapshot>, plan: ExportBandPlan, format: StreamFormat, path: &Path) -> Result<(), String> {
+    /// Open `path` and start a session that writes `plan` from `snapshot`,
+    /// encoded and labelled in `space` (ET-E1). A format that cannot carry
+    /// `space`'s label is refused before any file is opened.
+    pub fn begin(&mut self, snapshot: Arc<ExportSnapshot>, plan: ExportBandPlan, format: StreamFormat, space: ColorSpace, path: &Path) -> Result<(), String> {
         if self.is_open() {
             return Err("an export session is already open -- finish or abort it first".into());
         }
         if plan.w == 0 || plan.h == 0 || plan.rows_per_band == 0 {
             return Err(format!("degenerate export plan {}x{}", plan.w, plan.h));
         }
-        let sink = BandSink::open(path, format, plan.w, plan.h)?;
+        let sink = BandSink::open(path, format, space, plan.w, plan.h)?;
         self.state = SessionState::Open(Box::new(OpenSession {
             snapshot,
             plan,
             sink,
             path: path.to_path_buf(),
             format,
+            space,
             started: std::time::Instant::now(),
             next_band: 0,
             band_rgb: None,
@@ -430,11 +440,11 @@ impl ExportSessionCore {
         let SessionState::Open(s) = std::mem::replace(&mut self.state, SessionState::Aborted) else {
             return Err("no export session is open".into());
         };
-        let OpenSession { plan, sink, path, format, started, .. } = *s;
+        let OpenSession { plan, sink, path, format, space, started, .. } = *s;
         // On `Err` the sink has removed the file and the state stays `Aborted`.
         let bytes = sink.finish()?;
         self.state = SessionState::Finished;
-        Ok(SessionDone { path, bytes, width: plan.w, height: plan.h, format, bands: plan.band_count(), ms: started.elapsed().as_secs_f64() * 1000.0 })
+        Ok(SessionDone { path, bytes, width: plan.w, height: plan.h, format, color_space: space, bands: plan.band_count(), ms: started.elapsed().as_secs_f64() * 1000.0 })
     }
 
     /// Abandon the open session and remove its file.
@@ -500,7 +510,7 @@ fn accept_tile(s: &mut OpenSession, band: i64, x: i64, y: i64, w: i64, h: i64, r
         return Err(format!("tile ({x}, {y}) {w}x{h} overlaps the tile at ({ox}, {oy}) {ow}x{oh} in band {expected}"));
     }
     if s.band_rgb.is_none() {
-        s.band_rgb = Some(s.snapshot.render_band(&s.plan, b).ok_or_else(|| format!("could not render band {expected}"))?);
+        s.band_rgb = Some(s.snapshot.render_band(&s.plan, b, s.space).ok_or_else(|| format!("could not render band {expected}"))?);
     }
     let row = s.plan.w * 3;
     let dst = s.band_rgb.as_mut().ok_or("band buffer missing")?;
@@ -694,7 +704,7 @@ mod tests {
     fn direct_bands_fans(w: &World, geom: Option<&RiverGeometry>, fans: Option<&RiverGeometry>, plan: &ExportBandPlan) -> Vec<Vec<u8>> {
         direct_fans(w, geom, fans, |ctx, bf, rivers| {
             let cells = render::build_grade_influence_cells(ctx);
-            plan.bands().map(|b| render::bake_export_band(ctx, bf, rivers, plan, b, &cells)).collect()
+            plan.bands().map(|b| render::bake_export_band(ctx, bf, rivers, plan, b, &cells, ColorSpace::Srgb)).collect()
         })
     }
 
@@ -776,14 +786,14 @@ mod tests {
         let p = plan(150, 7);
         let want = direct_bands_with(&w, Some(&g), &p);
         let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone()), None).expect("snapshot");
-        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
         assert_eq!(got, want, "snapshot bands with vector rivers differ from the direct render");
         let diff = |a: &[Vec<u8>], b: &[Vec<u8>]| a.iter().zip(b).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
         let plain = direct_bands(&w, &p);
         let d_river = diff(&want, &plain);
         let mut dry = ExportSnapshot::build(inputs(&w, KM, true), Some(g), None).expect("snapshot");
         dry.bake = BakeFields::new(&dry.parts.ctx().expect("ctx"));
-        let d_shore = diff(&p.bands().map(|b| dry.render_band(&p, b).expect("band")).collect::<Vec<_>>(), &want);
+        let d_shore = diff(&p.bands().map(|b| dry.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect::<Vec<_>>(), &want);
         eprintln!("bytes moved: vector river {d_river}, smooth shore {d_shore}");
         assert!(d_river > 0, "the vector river must reach the pixels");
         assert!(d_shore > 0, "the smooth shore must reach the pixels");
@@ -813,7 +823,7 @@ mod tests {
         let p = plan(150, 7);
         let want = direct_bands_fans(&w, Some(&g), Some(&fans), &p);
         let snap = ExportSnapshot::build(inputs(&w, KM, true), Some(g.clone()), Some(fans)).expect("snapshot");
-        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
         assert_eq!(got, want, "snapshot bands with delta fans differ from the direct render");
         let without = direct_bands_with(&w, Some(&g), &p);
         let moved = want.iter().zip(&without).map(|(x, y)| x.iter().zip(y).filter(|(u, v)| u != v).count()).sum::<usize>();
@@ -869,14 +879,14 @@ mod tests {
         assert!(p.band_count() > 2, "premise: several bands");
         let bands: Vec<Vec<u8>> = direct_paint(&w, &a, &g, Some(&paint), |ctx, bf, r| {
             let cells = render::build_grade_influence_cells(ctx);
-            p.bands().map(|b| render::bake_export_band(ctx, bf, r, &p, b, &cells)).collect()
+            p.bands().map(|b| render::bake_export_band(ctx, bf, r, &p, b, &cells, ColorSpace::Srgb)).collect()
         });
         assert_eq!(bands.concat(), whole, "a banded painted export differs from the whole one");
         let mut i = inputs(&w, KM, true);
         i.appearance = a.clone();
         i.river_paint = Some(paint.clone());
         let snap = ExportSnapshot::build(i, Some(g.clone()), None).expect("snapshot");
-        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
         assert_eq!(got, bands, "the snapshot's painted bands differ from the direct render's");
         let diff = |x: &[u8], y: &[u8]| x.iter().zip(y).filter(|(u, v)| u != v).count();
         let stroked = direct_paint(&w, &a, &g, None, |ctx, bf, r| {
@@ -967,7 +977,7 @@ mod tests {
         let snap = snapshot(&w);
         for p in [plan(150, 1000), plan(150, 7), plan(97, 13)] {
             let want = direct_bands(&w, &p);
-            let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+            let got: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
             assert!(want.iter().all(|b| !b.is_empty()), "an empty band would make this vacuous");
             assert_eq!(got, want, "plan {p:?}: snapshot bands differ from export_render_with's");
         }
@@ -980,7 +990,7 @@ mod tests {
         let w = world();
         let p = plan(150, 7);
         let want = direct_bands(&w, &p);
-        let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b).expect("band")).collect() };
+        let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect() };
         let diff = |s: &ExportSnapshot| bands(s).iter().zip(&want).map(|(a, b)| a.iter().zip(b).filter(|(x, y)| x != y).count()).sum::<usize>();
 
         let mut no_lith = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
@@ -1027,7 +1037,7 @@ mod tests {
 
         let p = plan(150, 7);
         let want = direct_bands(&w, &p);
-        let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b).expect("band")).collect() };
+        let bands = |s: &ExportSnapshot| -> Vec<Vec<u8>> { p.bands().map(|b| s.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect() };
         let snap = ExportSnapshot::build_plain(inputs(&w, KM, true)).expect("snapshot");
         assert_eq!(bands(&snap), want, "the snapshot's export must match the direct render, lakes included");
 
@@ -1049,10 +1059,10 @@ mod tests {
         let mut w = world();
         let p = plan(150, 7);
         let snap = snapshot(&w);
-        let before: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        let before: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
         // A sculpt: `Arc::make_mut` copies the grid the snapshot still shares.
         Arc::make_mut(&mut w.field).iter_mut().for_each(|h| *h = (*h + 0.2).min(1.0));
-        let after: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b).expect("band")).collect();
+        let after: Vec<Vec<u8>> = p.bands().map(|b| snap.render_band(&p, b, ColorSpace::Srgb).expect("band")).collect();
         assert_eq!(before, after);
         assert_ne!(direct_bands(&w, &p), before, "the edit must actually move the live render, or this proves nothing");
     }
@@ -1073,9 +1083,9 @@ mod tests {
             assert_eq!(p.h, 106, "the fixture's height, which the band arithmetic above assumes");
             for format in [StreamFormat::Png, StreamFormat::BigTiff] {
                 let (a, b) = (scratch(&format!("banded_{i}_{format:?}")), scratch(&format!("session_{i}_{format:?}")));
-                let want_bytes = direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, format, &a)).expect("export_banded");
+                let want_bytes = direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, format, ColorSpace::Srgb, &a)).expect("export_banded");
                 let mut core = ExportSessionCore::default();
-                core.begin(Arc::clone(&snap), p, format, &b).expect("begin");
+                core.begin(Arc::clone(&snap), p, format, ColorSpace::Srgb, &b).expect("begin");
                 run_session(&mut core, &p, tw, th, &clear).expect("tiles");
                 let done = core.finish().expect("finish");
                 let (fa, fb) = (std::fs::read(&a).expect("read a"), std::fs::read(&b).expect("read b"));
@@ -1086,6 +1096,39 @@ mod tests {
                 assert_eq!(core.state_name(), "finished");
             }
         }
+    }
+
+    /// Protects: ET-E1 through the overlay session -- a Display P3 session fed
+    /// transparent tiles writes exactly `export_banded`'s P3 file (bands
+    /// encoded by the same P3 pass), labelled with one `iCCP` and no `sRGB`,
+    /// and reports its colour space; a P3 BigTIFF session is refused before
+    /// any file exists.
+    #[test]
+    fn a_p3_session_writes_export_banded_s_p3_file() {
+        use crate::export_stream::png_chunks::labels;
+        let w = world();
+        let snap = snapshot(&w);
+        let p = plan(150, 7);
+        let (a, b) = (scratch("p3_banded"), scratch("p3_session"));
+        direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, StreamFormat::Png, ColorSpace::DisplayP3, &a)).expect("export_banded");
+        let mut core = ExportSessionCore::default();
+        core.begin(Arc::clone(&snap), p, StreamFormat::Png, ColorSpace::DisplayP3, &b).expect("begin");
+        run_session(&mut core, &p, 50, 3, &|_, _| [0u8; 4]).expect("tiles");
+        let done = core.finish().expect("finish");
+        let (fa, fb) = (std::fs::read(&a).expect("read a"), std::fs::read(&b).expect("read b"));
+        let _ = (std::fs::remove_file(&a), std::fs::remove_file(&b));
+        assert_eq!(done.color_space, ColorSpace::DisplayP3);
+        assert_eq!(labels(&fb), (0, 1), "a P3 session file must carry one iCCP and no sRGB");
+        assert!(fa == fb, "the P3 session file differs from export_banded's");
+        let srgb = scratch("srgb_banded");
+        direct(&w, None, |ctx, bf, rivers| export_banded(ctx, bf, rivers, &p, StreamFormat::Png, ColorSpace::Srgb, &srgb)).expect("export_banded");
+        let fs = std::fs::read(&srgb).expect("read");
+        let _ = std::fs::remove_file(&srgb);
+        assert_eq!(labels(&fs), (1, 0));
+        assert!(fs != fa, "premise: P3 changed the file");
+        let t = scratch("p3_tiff_session");
+        assert!(ExportSessionCore::default().begin(snap, p, StreamFormat::BigTiff, ColorSpace::DisplayP3, &t).is_err());
+        assert!(!t.exists(), "a refused P3 BigTIFF session opened a file");
     }
 
     /// Protects: the session's own compositing. With a real overlay the file is the direct bands with the overlay
@@ -1115,10 +1158,10 @@ mod tests {
             }
         }
         let mut want = std::io::Cursor::new(Vec::new());
-        write_bands(&mut want, StreamFormat::Png, p.w, p.h, expect).expect("encode");
+        write_bands(&mut want, StreamFormat::Png, ColorSpace::Srgb, p.w, p.h, expect).expect("encode");
         let path = scratch("overlay");
         let mut core = ExportSessionCore::default();
-        core.begin(snap, p, StreamFormat::Png, &path).expect("begin");
+        core.begin(snap, p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin");
         run_session(&mut core, &p, 40, 2, &paint).expect("tiles");
         core.finish().expect("finish");
         let got = std::fs::read(&path).expect("read");
@@ -1134,7 +1177,7 @@ mod tests {
         let p = plan(150, 7);
         let path = scratch(name);
         let mut core = ExportSessionCore::default();
-        core.begin(snapshot(&w), p, StreamFormat::Png, &path).expect("begin");
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin");
         assert!(path.exists(), "begin opens the file");
         let b = p.bands().next().expect("band 0");
         let accepted = core.submit_tile(0, 0, 0, p.w as i64, b.rows as i64, &vec![0u8; p.w * b.rows * 4]).expect("band 0");
@@ -1249,8 +1292,8 @@ mod tests {
         let w = world();
         let p = plan(150, 1000);
         let path = scratch("after_finish");
-        core.begin(snapshot(&w), p, StreamFormat::Png, &path).expect("begin");
-        assert!(core.begin(snapshot(&w), p, StreamFormat::Png, &scratch("second")).is_err(), "a second begin while open");
+        core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &path).expect("begin");
+        assert!(core.begin(snapshot(&w), p, StreamFormat::Png, ColorSpace::Srgb, &scratch("second")).is_err(), "a second begin while open");
         assert!(!scratch("second").exists(), "the refused begin opened no file");
         run_session(&mut core, &p, 150, 200, &|_, _| [0; 4]).expect("tiles");
         core.finish().expect("finish");
@@ -1270,9 +1313,9 @@ mod tests {
         let (w, h) = (5usize, 4usize);
         let bands: Vec<Vec<u8>> = vec![(0..w * 3 * 3).map(|i| i as u8).collect(), (0..w * 3).map(|i| (i * 7) as u8).collect()];
         let mut want = std::io::Cursor::new(Vec::new());
-        write_bands(&mut want, StreamFormat::Png, w, h, bands.clone()).expect("encode");
+        write_bands(&mut want, StreamFormat::Png, ColorSpace::Srgb, w, h, bands.clone()).expect("encode");
         let path = scratch("sink_ok");
-        let mut sink = BandSink::open(&path, StreamFormat::Png, w, h).expect("open");
+        let mut sink = BandSink::open(&path, StreamFormat::Png, ColorSpace::Srgb, w, h).expect("open");
         for b in bands.clone() {
             sink.push(b).expect("push");
         }
@@ -1281,13 +1324,13 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         let short = scratch("sink_short");
-        let mut sink = BandSink::open(&short, StreamFormat::Png, w, h).expect("open");
+        let mut sink = BandSink::open(&short, StreamFormat::Png, ColorSpace::Srgb, w, h).expect("open");
         sink.push(bands[0].clone()).expect("push");
         assert!(sink.finish().is_err(), "three of four rows is not an image");
         assert!(!short.exists(), "a short stream left its file");
 
         let bad = scratch("sink_bad");
-        let mut sink = BandSink::open(&bad, StreamFormat::BigTiff, w, h).expect("open");
+        let mut sink = BandSink::open(&bad, StreamFormat::BigTiff, ColorSpace::Srgb, w, h).expect("open");
         // Not whole rows: the writer refuses it and exits, so a later push or
         // the finish must report that, and the file must go.
         let _ = sink.push(vec![0u8; 7]);

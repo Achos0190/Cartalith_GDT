@@ -20,45 +20,50 @@
 //! single flat image the user takes away. The `bakeTiles` option here is a
 //! *file layout* for that one image, not a pyramid level.
 //!
-//! # Every file here is written in the **working space**, not the display's
+//! # Every file is written in the **export's** colour space, and says so
 //!
-//! **Decided 2026-09-06, after `grep -n 'apply_color_space' export_raster.rs`
-//! returned nothing and the absence turned out to be deliberate-by-accident.**
-//! Nothing in this file calls [`render::apply_color_space`]; the only
-//! production call is at the end of `lib.rs::build_color_texture`. So when a
-//! user picks **Display P3** — and they can, today: `render_workspace.gd`
-//! wires the picker to `set_color_space`, so this is a live behaviour and not
-//! a latent one — the viewport re-encodes its raster for that panel and every
-//! PNG this file writes keeps the sRGB numbers.
+//! **Since ET-E1 (2026-10-11, `LARGE_ITEM_RULINGS.md` Ruling CB item 1) every
+//! exported picture PNG is colour-tagged.** By default it is written in sRGB
+//! and carries one `sRGB` chunk (rendering intent perceptual, a labelled
+//! judgement); its pixels are byte-identical to the untagged files this module
+//! wrote before, only the file gains the chunk. **Display P3 is an explicit
+//! export option** -- `color_space` in `export_image`'s / `export_session_begin`'s
+//! options dictionary, and the optional fourth argument of
+//! `export_raster_png` -- which re-encodes the pixels with the screen's own
+//! [`render::SRGB_TO_P3`] stage (inside the same single [`render::finish_rgb`]
+//! pass the screen runs) and embeds a Display P3 ICC profile (`iCCP`,
+//! `export_stream::display_p3_icc`) instead of the `sRGB` chunk. Never both.
 //!
-//! **That is the right way round, and it is kept on purpose.** Two reasons,
-//! neither of them "it was already like that":
+//! **The export colour space is not the monitor setting**, and the reason for
+//! keeping them apart from 2026-09-06 still holds: `WorldGen::color_space`'s
+//! own doc says that setting *"describes the **monitor in front of this
+//! session**"*, so it is excluded from a saved look and from the project's
+//! `AppearanceDoc` (`GUI_GAP_REGISTER.md`: *"display = app, working space =
+//! document"*). An exported PNG is a document, so nothing here reads the
+//! monitor setting; the user picks the document's encoding as an export
+//! option. Before ET-E1 the files were untagged, and P3 numbers in an untagged
+//! file would have been misread as sRGB by every colour-managing consumer,
+//! which is why no P3 export existed. With the profile embedded a managed
+//! consumer converts correctly, and an unmanaged P3 panel shows the file as
+//! the screen shows the map in P3 mode.
 //!
-//! 1. `WorldGen::color_space`'s own doc says what that setting is: *"it
-//!    describes the **monitor in front of this session**"*, which is why it is
-//!    deliberately excluded from a saved look and from the project's
-//!    `AppearanceDoc` — `GUI_GAP_REGISTER.md`'s rule, quoted there verbatim, is
-//!    *"display = app, working space = document"*. An exported PNG is a
-//!    document. Baking a monitor transform into one is the same category error
-//!    that field refuses to make.
-//! 2. `cartalith_assets::raster::encode_png_rgb8` writes **no ICC profile** —
-//!    it is `image::DynamicImage::write_to(.., ImageFormat::Png)`, and nothing
-//!    passes a profile to it. An untagged PNG is interpreted as sRGB, so P3
-//!    numbers in one would be *misread* by anything that colour-manages, and
-//!    would land right only on the wide-gamut panel that is not managing
-//!    ([`render::apply_color_space`]'s own doc says that is exactly the
-//!    monitor the setting is for). Applying the transform would not make the
-//!    file match the screen; it would make the file wrong for every consumer
-//!    that does the conversion properly, and leave the screen unchanged.
+//! **What stays untagged, deliberately:** the 16-bit heightmap PNG
+//! (`export_heightmap_png`, data, Ruling CB item 1) and the channel atlas
+//! (`export_channel_atlas`, packed fields: `cartalith_engine::channel_atlas`,
+//! `PngColour::Data`). Region snapshots (`export_snapshot_png`) and the layer
+//! previews (`export_layer_previews`) are pictures in sRGB and carry the `sRGB`
+//! chunk; they take no colour-space option.
 //!
-//! So the exports match the viewport **in the working space** — which is what
-//! `_exportraster_probe.gd`'s section 13 asserts byte for byte, and what its
-//! section 15 asserts stays true when the display space moves. The cost is
-//! real and stated rather than hidden: a user on a P3 panel sees a map on
-//! screen whose exported PNG will look slightly different **on that panel**,
-//! and identical everywhere else. Fixing that properly is an ICC-tagged export
-//! (write `sRGB`/`Display P3` chunks and let the consumer convert), which needs
-//! an encoder that takes a profile — not a second call to a display transform.
+//! **Known limits of a P3 export, stated rather than discovered.** Two things
+//! are drawn after the finishing pass and so stay in sRGB numbers inside a
+//! P3-labelled file: the session's Godot-drawn overlay tiles
+//! (`export_session::composite_premul_over`), which the screen likewise does
+//! not transform (`render::apply_color_space`'s doc: the transform reaches the
+//! terrain raster only); and the painted river's floodplain tint and bank line
+//! (`render::RiverPost::apply`, after `finish_rgb` in `bake_and_finish` and
+//! `bake_export_band`). Whether the screen's own river shader matches that was
+//! not checked by ET-E1. A managed viewer shows those inks slightly
+//! oversaturated.
 //!
 //! # Why a new module rather than another `lib.rs` block
 //!
@@ -803,6 +808,12 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
         None => StreamFormat::Png,
         Some(f) => export_options::format_from_name(&f).ok_or_else(|| format!("unknown format {f:?} -- \"png\" or \"bigtiff\""))?,
     };
+    // ET-E1: the export's colour space, refused when unknown like `format`.
+    let color_space = match opt_string(opts, "color_space")? {
+        None => render::ColorSpace::Srgb,
+        Some(c) => export_options::color_space_from_name(&c).ok_or_else(|| format!("unknown color_space {c:?} -- one of {:?}", render::COLOR_SPACES))?,
+    };
+    export_stream::check_format_space(format, color_space)?;
 
     let mut style = ExportStyle::default();
     if let Some(s) = opt_of::<VarDictionary>(opts, "style", "a dictionary")? {
@@ -852,7 +863,7 @@ fn export_options_from(opts: &VarDictionary) -> Result<ExportOptions, String> {
             }
         }
     }
-    Ok(ExportOptions { width, format, style, content })
+    Ok(ExportOptions { width, format, color_space, style, content })
 }
 
 /// An export that passed every check [`WorldGen::export_image`] makes before
@@ -1007,7 +1018,7 @@ impl WorldGen {
 
     /// [`Self::export_raster_estimate`] for a whole options dictionary (see
     /// `export_options::ExportOptions`): the same keys, computed under the
-    /// options' style, plus `ok`, `format`, and `overlays_pending` — the
+    /// options' style, plus `ok`, `format`, `color_space` (ET-E1), and `overlays_pending` — the
     /// requested content only E4's overlay session could draw, present only
     /// when non-empty, since [`Self::export_image`] refuses those. No
     /// `file_bytes` for `bigtiff`: there is no measured model for it.
@@ -1026,6 +1037,7 @@ impl WorldGen {
         }
         out.set("ok", true);
         out.set("format", export_options::format_name(o.format));
+        out.set("color_space", o.color_space.name());
         let pending = o.content.overlays();
         if !pending.is_empty() {
             let names: PackedStringArray = pending.iter().map(|s| GString::from(*s)).collect();
@@ -1049,8 +1061,12 @@ impl WorldGen {
     /// through [`Self::export_session_begin`]), a width off the ladder, and a band peak the device cannot hold.
     /// Synchronous and long, like `export_raster_png`: call it from a thread.
     ///
-    /// Returns `{ok, path, width, height, format, bytes, bands, ms}`, or
-    /// `{ok: false, error}`.
+    /// `color_space` (ET-E1, default `"sRGB"`): `"Display P3"` re-encodes the
+    /// pixels with the screen's own P3 stage and embeds a Display P3 profile;
+    /// PNG only.
+    ///
+    /// Returns `{ok, path, width, height, format, color_space, bytes, bands,
+    /// ms}`, or `{ok: false, error}`.
     #[func]
     fn export_image(&self, path: GString, opts: VarDictionary) -> VarDictionary {
         let started = std::time::Instant::now();
@@ -1058,7 +1074,7 @@ impl WorldGen {
             Ok(p) => p,
             Err(e) => return fail(e),
         };
-        let Some(result) = self.export_render_with(a, o.content.rivers, |ctx, bf, rivers| export_stream::export_banded(ctx, bf, rivers, &plan, o.format, &path)) else {
+        let Some(result) = self.export_render_with(a, o.content.rivers, |ctx, bf, rivers| export_stream::export_banded(ctx, bf, rivers, &plan, o.format, o.color_space, &path)) else {
             return fail("could not assemble the render context");
         };
         match result {
@@ -1068,6 +1084,7 @@ impl WorldGen {
                 "width" => w as i64,
                 "height" => h as i64,
                 "format" => export_options::format_name(o.format),
+                "color_space" => o.color_space.name(),
                 "bytes" => bytes as i64,
                 "bands" => plan.band_count() as i64,
                 "ms" => started.elapsed().as_secs_f64() * 1000.0,
@@ -1087,7 +1104,7 @@ impl WorldGen {
     /// must be covered exactly once. Edits to the world after this call do not
     /// reach the export.
     ///
-    /// Returns `{ok, path, width, height, format, bands, band_rows,
+    /// Returns `{ok, path, width, height, format, color_space, bands, band_rows,
     /// apron_rows}` — band `i` is output rows `i·band_rows ..
     /// min((i+1)·band_rows, height)` — or `{ok: false, error}`, including
     /// when a session is already open.
@@ -1103,7 +1120,7 @@ impl WorldGen {
         let Some(snap) = self.export_snapshot(p.a, p.o.content.rivers) else {
             return fail("could not snapshot the world for export");
         };
-        if let Err(e) = self.export_session.begin(std::sync::Arc::new(snap), p.plan, p.o.format, &p.path) {
+        if let Err(e) = self.export_session.begin(std::sync::Arc::new(snap), p.plan, p.o.format, p.o.color_space, &p.path) {
             return fail(e);
         }
         dict! {
@@ -1112,6 +1129,7 @@ impl WorldGen {
             "width" => p.w as i64,
             "height" => p.h as i64,
             "format" => export_options::format_name(p.o.format),
+            "color_space" => p.o.color_space.name(),
             "bands" => p.plan.band_count() as i64,
             "band_rows" => p.plan.rows_per_band as i64,
             "apron_rows" => p.plan.apron as i64,
@@ -1136,7 +1154,7 @@ impl WorldGen {
 
     /// Close the open session's file. Refused (session aborted, file
     /// removed) if any band is not fully covered. Returns `{ok, path, width,
-    /// height, format, bytes, bands, ms}`, as `export_image` does.
+    /// height, format, color_space, bytes, bands, ms}`, as `export_image` does.
     #[func]
     fn export_session_finish(&mut self) -> VarDictionary {
         match self.export_session.finish() {
@@ -1146,6 +1164,7 @@ impl WorldGen {
                 "width" => d.width as i64,
                 "height" => d.height as i64,
                 "format" => export_options::format_name(d.format),
+                "color_space" => d.color_space.name(),
                 "bytes" => d.bytes as i64,
                 "bands" => d.bands as i64,
                 "ms" => d.ms,
@@ -1323,10 +1342,28 @@ impl WorldGen {
     /// raster is allocated, since an unservable `Vec` aborts the process. Renders
     /// through the same context as the screen (rivers included, local contrast and
     /// grade at the export's own resolution). Returns `{ok, path, width, height,
-    /// files, bytes, ms}` or `{ok: false, error}`.
+    /// color_space, files, bytes, ms}` or `{ok: false, error}`.
+    ///
+    /// `color_space` (ET-E1, optional, default `"sRGB"`; one of
+    /// `list_color_spaces()`, case-insensitive) is the **export's** colour
+    /// space, the same option `export_image` reads from its dictionary -- not
+    /// the monitor setting `set_color_space` holds. `"sRGB"` writes the pixels
+    /// this function always wrote, labelled with one `sRGB` chunk; `"Display
+    /// P3"` re-encodes them with the screen's own [`render::SRGB_TO_P3`] stage
+    /// and embeds a Display P3 profile (`iCCP`) in every file, tiles included.
+    /// Optional so the three-argument calls the shell already makes keep
+    /// working unchanged; an unknown name is refused before anything renders.
     #[func]
-    fn export_raster_png(&self, path: GString, width: i64, tiled: bool) -> VarDictionary {
+    fn export_raster_png(&self, path: GString, width: i64, tiled: bool, #[opt(default = "sRGB")] color_space: GString) -> VarDictionary {
         let started = std::time::Instant::now();
+        let Some(space) = export_options::color_space_from_name(&color_space.to_string()) else {
+            return fail(format!("unknown color_space {:?} -- one of {:?}", color_space.to_string(), render::COLOR_SPACES));
+        };
+        // The label is built before anything renders, so a profile that
+        // cannot be built refuses in microseconds rather than after a render.
+        if let Err(e) = export_stream::png_colour(space) {
+            return fail(e);
+        }
         if !BAKE_WIDTHS.contains(&width) {
             return fail(format!("unsupported export width {width} -- offered: {BAKE_WIDTHS:?}"));
         }
@@ -1373,23 +1410,21 @@ impl WorldGen {
             // exported pictures would disagree wherever a weight is set.
             //
             // Both as the screen's own single pass (Ruling AN), in the
-            // working space -- sRGB, never the display's (module doc). All of
-            // it in `render::bake_and_finish`, which also measures the local
-            // contrast before the rivers go in, as the screen does.
+            // export's colour space -- `color_space`, never the monitor's
+            // (module doc). All of it in `render::bake_and_finish`, which also
+            // measures the local contrast before the rivers go in, as the
+            // screen does.
             let inf = render::build_grade_influence(ctx, w, h);
-            render::bake_and_finish(ctx, bf, rivers, w, h, &inf, render::ColorSpace::Srgb)
+            render::bake_and_finish(ctx, bf, rivers, w, h, &inf, space)
         }) else {
             return fail("could not assemble the render context");
         };
 
         let seed = self.seed as i32;
         let result = if tiled {
-            write_tiles(&path, &mut bytes, w, h, seed, world)
+            write_tiles(&path, &mut bytes, w, h, seed, world, space)
         } else {
-            match cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, std::mem::take(&mut bytes)) {
-                Ok(png) => write_file(&path, &png).map(|()| (vec![path.display().to_string()], png.len() as u64)),
-                Err(e) => Err(format!("PNG encode failed: {e}")),
-            }
+            encode_picture_png(w, h, std::mem::take(&mut bytes), space).and_then(|png| write_file(&path, &png).map(|()| (vec![path.display().to_string()], png.len() as u64)))
         };
 
         match result {
@@ -1400,6 +1435,7 @@ impl WorldGen {
                     "path" => path.display().to_string().as_str(),
                     "width" => w as i64,
                     "height" => h as i64,
+                    "color_space" => space.name(),
                     "files" => &names,
                     "bytes" => written as i64,
                     "ms" => started.elapsed().as_secs_f64() * 1000.0,
@@ -1507,9 +1543,10 @@ impl WorldGen {
             return fail("could not assemble the render context");
         };
 
-        let png = match cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, bytes) {
+        // ET-E1: an sRGB-labelled PNG (Ruling CB item 1); the crop is in sRGB.
+        let png = match encode_picture_png(w, h, bytes, render::ColorSpace::Srgb) {
             Ok(p) => p,
-            Err(e) => return fail(format!("PNG encode failed: {e}")),
+            Err(e) => return fail(e),
         };
         if let Err(e) = write_file(&path, &png) {
             return fail(e);
@@ -1612,9 +1649,12 @@ impl WorldGen {
         let mut files: Vec<String> = Vec::new();
         let mut bytes = 0u64;
         for (name, raster) in [("biome", biome), ("hillshade", hillshade), ("temperature", temperature), ("rainfall", rainfall)] {
-            let png = match cartalith_assets::raster::encode_png_rgb8(gw as u32, gh as u32, raster) {
+            // ET-E1: sRGB-labelled. All four are pictures in sRGB (the
+            // rendered map, the grey relief and two palette views), so the
+            // label is true of each; the data itself ships as `.f32`.
+            let png = match encode_picture_png(gw, gh, raster, render::ColorSpace::Srgb) {
                 Ok(p) => p,
-                Err(e) => return fail(format!("PNG encode failed for layers/{name}.png: {e}")),
+                Err(e) => return fail(format!("layers/{name}.png: {e}")),
             };
             let path = dir.join("layers").join(format!("{name}.png"));
             if let Err(e) = write_file(&path, &png) {
@@ -1724,11 +1764,31 @@ impl WorldGen {
     }
 }
 
+/// **Every picture PNG this module writes goes through here** (ET-E1,
+/// `LARGE_ITEM_RULINGS.md` Ruling CB item 1): `rgb` (`w x h` RGB8, already
+/// encoded in `space`) as a PNG labelled for `space` --
+/// one `sRGB` chunk for [`render::ColorSpace::Srgb`], an embedded Display P3
+/// profile for [`render::ColorSpace::DisplayP3`]
+/// (`export_stream::png_colour`, the same mapping the streaming writer's
+/// label follows). Used by `export_raster_png` (single file and tiles),
+/// `export_snapshot_png` and `export_layer_previews`. The heightmap and the
+/// channel atlas do not come here: they are data and stay untagged. Must
+/// never label pixels with a space they were not encoded in.
+pub(crate) fn encode_picture_png(w: usize, h: usize, rgb: Vec<u8>, space: render::ColorSpace) -> Result<Vec<u8>, String> {
+    let colour = export_stream::png_colour(space)?;
+    cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, rgb, colour).map_err(|e| format!("PNG encode failed: {e}"))
+}
+
 /// Slice one finished raster into `TILE_SIZE` tiles and write them, plus the
 /// manifest. Takes the raster by `&mut` and drops it before encoding starts
 /// is *not* possible (tiles are cut from it), so peak is the raster plus one
 /// tile's PNG — still far below the single-file path's raster-plus-full-PNG.
-fn write_tiles(dir: &Path, rgb: &mut [u8], w: usize, h: usize, seed: i32, world: bool) -> Result<(Vec<String>, u64), String> {
+///
+/// `space` is the colour space `rgb` is encoded in; every tile carries its
+/// label ([`encode_picture_png`], ET-E1), the same as the single-file
+/// layout's, so a tiled export's tiles agree with each other and with the
+/// untiled file.
+pub(crate) fn write_tiles(dir: &Path, rgb: &mut [u8], w: usize, h: usize, seed: i32, world: bool, space: render::ColorSpace) -> Result<(Vec<String>, u64), String> {
     let cols = w.div_ceil(TILE_SIZE);
     let rows = h.div_ceil(TILE_SIZE);
     let mut names = Vec::with_capacity(cols * rows + 1);
@@ -1742,7 +1802,7 @@ fn write_tiles(dir: &Path, rgb: &mut [u8], w: usize, h: usize, seed: i32, world:
                 let src = ((r * TILE_SIZE + ty) * w + c * TILE_SIZE) * 3;
                 tile[ty * tw * 3..(ty + 1) * tw * 3].copy_from_slice(&rgb[src..src + tw * 3]);
             }
-            let png = cartalith_assets::raster::encode_png_rgb8(tw as u32, th as u32, tile).map_err(|e| format!("tile {r}_{c} PNG encode failed: {e}"))?;
+            let png = encode_picture_png(tw, th, tile, space).map_err(|e| format!("tile {r}_{c}: {e}"))?;
             let p = dir.join(format!("tile_{r}_{c}.png"));
             write_file(&p, &png)?;
             written += png.len() as u64;
@@ -2956,7 +3016,7 @@ mod adjust_census_tests {
         let plan = ExportBandPlan::with_rows(a, ow, oh, BAND_ROWS);
         assert!(plan.band_count() > 1, "the banded leg must cut more than one band");
         let cells = render::build_grade_influence_cells(&ctx);
-        let banded: Vec<u8> = super::with_export_rivers(Some(g), None, None, None, |r| plan.bands().flat_map(|b| render::bake_export_band(&ctx, &bf, r, &plan, b, &cells)).collect());
+        let banded: Vec<u8> = super::with_export_rivers(Some(g), None, None, None, |r| plan.bands().flat_map(|b| render::bake_export_band(&ctx, &bf, r, &plan, b, &cells, ColorSpace::Srgb)).collect());
         let crop = super::with_export_rivers(Some(g), None, None, None, |r| super::bake_crop(&ctx, &bf, r, a, (ow, oh), CROP_AT, CROP_WIN));
         let crop2 = super::with_export_rivers(Some(g), None, None, None, |r| super::bake_crop(&ctx, &bf, r, a, (ow, oh), CROP2_AT, CROP2_WIN));
         let tf = TileFields::new(&ctx, Some(&bytes));
@@ -3394,5 +3454,76 @@ mod adjust_census_tests {
             let (med, lo, hi) = time(layers);
             eprintln!("BENCH finish_rgb 2048x1311 {name}: median {med:.1} ms ({lo:.1}..{hi:.1})");
         }
+    }
+}
+
+/// ET-E1 (`EDITING_TOOLS_SCOPE.md` section 6, `LARGE_ITEM_RULINGS.md` Ruling CB
+/// item 1): every picture PNG this module writes is labelled -- `sRGB` by
+/// default, an embedded Display P3 profile in P3, never both -- through
+/// [`encode_picture_png`], which `export_raster_png` (single file and tiles),
+/// `export_snapshot_png` and `export_layer_previews` all call. The `#[func]`s
+/// themselves need a `WorldGen` and are not constructible here; what they hand
+/// the encoder is pinned by these tests on the same functions.
+#[cfg(test)]
+mod ete1_label_tests {
+    use super::{bake_crop, encode_picture_png, with_export_rivers, write_tiles};
+    use super::rv5_parity_tests::{dims, setup, world};
+    use crate::export_stream::png_chunks::{assert_display_p3_profile, iccp_profile, labels};
+    use crate::render::{BakeFields, ColorSpace, TerrainAppearance};
+
+    /// Protects: the single-file and preview encode -- one `sRGB` and no
+    /// `iCCP` for sRGB, one `iCCP` holding the Display P3 profile and no `sRGB`
+    /// for P3, and the pixels decode unchanged in both.
+    #[test]
+    fn the_picture_encoder_labels_each_space_with_exactly_one_chunk() {
+        let (w, h) = (19usize, 11usize);
+        let px: Vec<u8> = (0..w * h * 3).map(|i| (i * 37 % 256) as u8).collect();
+        let s = encode_picture_png(w, h, px.clone(), ColorSpace::Srgb).unwrap();
+        assert_eq!(labels(&s), (1, 0));
+        let p = encode_picture_png(w, h, px.clone(), ColorSpace::DisplayP3).unwrap();
+        assert_eq!(labels(&p), (0, 1));
+        assert_display_p3_profile(&iccp_profile(&p).unwrap());
+        for f in [&s, &p] {
+            let d = cartalith_assets::raster::decode_png(f).unwrap();
+            assert_eq!(d.rgba.chunks_exact(4).flat_map(|q| [q[0], q[1], q[2]]).collect::<Vec<_>>(), px);
+        }
+    }
+
+    /// Protects: the tiled layout -- every tile carries the same label as the
+    /// single file, in both spaces (a tile written untagged, or with the other
+    /// space's label, would disagree with its neighbours).
+    #[test]
+    fn every_tile_of_a_tiled_export_carries_the_export_s_label() {
+        let (w, h) = (super::TILE_SIZE + 37, 61usize);
+        for (space, want) in [(ColorSpace::Srgb, (1, 0)), (ColorSpace::DisplayP3, (0, 1))] {
+            let dir = std::env::temp_dir().join(format!("cartalith_ete1_tiles_{}_{space:?}", std::process::id()));
+            let mut rgb: Vec<u8> = (0..w * h * 3).map(|i| (i % 253) as u8).collect();
+            let (files, _) = write_tiles(&dir, &mut rgb, w, h, 7, false, space).expect("tiles");
+            let pngs: Vec<_> = files.iter().filter(|f| f.ends_with(".png")).collect();
+            assert_eq!(pngs.len(), 2, "premise: two tiles across");
+            for f in pngs {
+                assert_eq!(labels(&std::fs::read(f).unwrap()), want, "{space:?}: {f}");
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// Protects: the region snapshot's path -- `bake_crop`'s pixels, encoded as
+    /// `export_snapshot_png` encodes them, carry one `sRGB` chunk and decode
+    /// to exactly the crop.
+    #[test]
+    fn a_snapshot_crop_is_srgb_labelled_and_unmoved() {
+        let w = world();
+        let a = TerrainAppearance::default();
+        let wb = cartalith_civ::build_water_bodies(&w.field, super::rv5_parity_tests::GW, super::rv5_parity_tests::GH, super::rv5_parity_tests::SEA, false, Some(&w.rain));
+        let ctx = setup(&w, &a, &wb.classification);
+        let bf = BakeFields::new(&ctx);
+        let (ow, oh) = dims();
+        let crop = with_export_rivers(None, None, None, None, |r| bake_crop(&ctx, &bf, r, &a, (ow, oh), (10, 7), (60, 40)));
+        assert_eq!(crop.len(), 60 * 40 * 3);
+        let png = encode_picture_png(60, 40, crop.clone(), ColorSpace::Srgb).unwrap();
+        assert_eq!(labels(&png), (1, 0));
+        let d = cartalith_assets::raster::decode_png(&png).unwrap();
+        assert_eq!(d.rgba.chunks_exact(4).flat_map(|q| [q[0], q[1], q[2]]).collect::<Vec<_>>(), crop);
     }
 }

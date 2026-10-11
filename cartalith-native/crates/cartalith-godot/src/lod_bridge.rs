@@ -2134,7 +2134,9 @@ mod tests {
             for (id, mask) in &tiles {
                 w.start_file(format!("mask/{}/{}/{}.u8", id.z, id.col, id.row), opts).unwrap();
                 w.write_all(mask).unwrap();
-                let png = cartalith_assets::raster::encode_png_rgb8(tw as u32, th as u32, mask.clone()).expect("the tile encodes");
+                // `Data` (ET-E1): a mask tile is data, so it stays untagged and
+                // this size measurement is the pre-ET-E1 one byte for byte.
+                let png = cartalith_assets::raster::encode_png_rgb8(tw as u32, th as u32, mask.clone(), cartalith_assets::raster::PngColour::Data).expect("the tile encodes");
                 w.start_file(format!("png/{}/{}/{}.png", id.z, id.col, id.row), stored).unwrap();
                 w.write_all(&png).unwrap();
             }

@@ -40,7 +40,7 @@ use std::io::Read;
 use std::path::PathBuf;
 
 use export_stream::{StreamFormat, export_banded, write_bands};
-use render::{BakeFields, ExportBandPlan, ExportRivers, RenderCtx, TerrainAppearance};
+use render::{BakeFields, ColorSpace, ExportBandPlan, ExportRivers, RenderCtx, TerrainAppearance};
 
 /// `tests/export_bands.rs`'s fixture: a 61 × 43 closed-form world.
 const GW: usize = 61;
@@ -315,7 +315,7 @@ fn round_trip(format: StreamFormat, width: usize, rows_per_band: &[usize]) {
         let last = plan.bands().last().unwrap();
         short_finals += usize::from(last.rows < plan.rows_per_band);
         let path = scratch(&format!("{format:?}_{width}_{rows}"));
-        let written = export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, &path).unwrap_or_else(|e| panic!("{format:?} {w}x{h} at {rows} rows/band: {e}"));
+        let written = export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, ColorSpace::Srgb, &path).unwrap_or_else(|e| panic!("{format:?} {w}x{h} at {rows} rows/band: {e}"));
         let file = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(written, file.len() as u64, "reported size is not the file's");
@@ -373,7 +373,7 @@ fn the_bigtiff_is_deflated_predicted_and_multi_strip() {
     let (w, h) = render::bake_dims(512, GW, GH);
     let plan = ExportBandPlan::with_rows(&a, w, h, 37);
     let path = scratch("tiff_shape");
-    export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::BigTiff, &path).unwrap();
+    export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::BigTiff, ColorSpace::Srgb, &path).unwrap();
     let file = std::fs::read(&path).unwrap();
     let _ = std::fs::remove_file(&path);
     let (_, _, px, info) = decode_bigtiff(&file).unwrap();
@@ -409,7 +409,7 @@ fn the_streamed_2k_export_is_the_shipped_export_pixel_for_pixel() {
     let ink = ExportRivers { save_flag: Some(&mask), vector: None };
     let (w, h) = render::bake_dims(2048, GW, GH);
     let whole = monolithic(&ctx, &a, ink, w, h);
-    let shipped = cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, whole.clone()).unwrap();
+    let shipped = cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, whole.clone(), cartalith_assets::raster::PngColour::Srgb).unwrap();
     let (_, _, shipped_px) = decode_png(&shipped).expect("the independent decoder cannot read the shipped encoder's PNG");
     assert_eq!(differing(&shipped_px, &whole), 0, "the independent decoder misreads the shipped PNG");
 
@@ -420,7 +420,7 @@ fn the_streamed_2k_export_is_the_shipped_export_pixel_for_pixel() {
     for (label, plan) in [("one band", one), ("banded", banded)] {
         for format in [StreamFormat::Png, StreamFormat::BigTiff] {
             let path = scratch(&format!("2k_{format:?}_{}", plan.band_count()));
-            export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, &path).unwrap();
+            export_banded(&ctx, &BakeFields::new(&ctx), ink, &plan, format, ColorSpace::Srgb, &path).unwrap();
             let file = std::fs::read(&path).unwrap();
             let _ = std::fs::remove_file(&path);
             let (_, _, px) = decode(format, &file).unwrap();
@@ -461,7 +461,7 @@ fn the_independent_decoders_are_not_vacuous() {
 
     // Corruption is caught, not decoded into something plausible.
     let mut stream = std::io::Cursor::new(Vec::new());
-    write_bands(&mut stream, StreamFormat::Png, w, h, [px.clone()]).unwrap();
+    write_bands(&mut stream, StreamFormat::Png, ColorSpace::Srgb, w, h, [px.clone()]).unwrap();
     let mut bad = stream.into_inner();
     assert_eq!(decode_png(&bad).unwrap().2, px);
     let mid = bad.len() / 2;
@@ -469,7 +469,7 @@ fn the_independent_decoders_are_not_vacuous() {
     assert!(decode_png(&bad).is_err(), "a flipped byte in the PNG went unnoticed");
 
     let mut stream = std::io::Cursor::new(Vec::new());
-    write_bands(&mut stream, StreamFormat::BigTiff, w, h, [px.clone()]).unwrap();
+    write_bands(&mut stream, StreamFormat::BigTiff, ColorSpace::Srgb, w, h, [px.clone()]).unwrap();
     let mut bad = stream.into_inner();
     assert_eq!(decode_bigtiff(&bad).unwrap().2, px);
     // Inside the first strip's compressed data, which starts at byte 16.
@@ -487,13 +487,13 @@ fn bands_that_do_not_tile_the_image_are_refused() {
     let row = w * 3;
     for format in [StreamFormat::Png, StreamFormat::BigTiff] {
         let sink = || std::io::Cursor::new(Vec::new());
-        let short = write_bands(sink(), format, w, h, [vec![0u8; 4 * row], vec![0u8; 5 * row]]);
-        let long = write_bands(sink(), format, w, h, [vec![0u8; 6 * row], vec![0u8; 5 * row]]);
-        let ragged = write_bands(sink(), format, w, h, [vec![0u8; 4 * row + 3], vec![0u8; 6 * row - 3]]);
-        let empty = write_bands(sink(), format, 0, h, Vec::<Vec<u8>>::new());
+        let short = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row], vec![0u8; 5 * row]]);
+        let long = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 6 * row], vec![0u8; 5 * row]]);
+        let ragged = write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row + 3], vec![0u8; 6 * row - 3]]);
+        let empty = write_bands(sink(), format, ColorSpace::Srgb, 0, h, Vec::<Vec<u8>>::new());
         println!("{format:?}: short {short:?} / long {long:?} / ragged {ragged:?} / empty {empty:?}");
         assert!(short.is_err() && long.is_err() && ragged.is_err() && empty.is_err());
-        assert!(write_bands(sink(), format, w, h, [vec![0u8; 4 * row], vec![0u8; 6 * row]]).is_ok());
+        assert!(write_bands(sink(), format, ColorSpace::Srgb, w, h, [vec![0u8; 4 * row], vec![0u8; 6 * row]]).is_ok());
     }
     // An unwritable destination: a path *under a file*.
     let blocker = scratch("blocker");
@@ -502,7 +502,7 @@ fn bands_that_do_not_tile_the_image_are_refused() {
     let a = appearance();
     let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
     let plan = ExportBandPlan::with_rows(&a, 64, 45, 16);
-    let err = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::Png, &blocker.join("map.png"));
+    let err = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::Png, ColorSpace::Srgb, &blocker.join("map.png"));
     let _ = std::fs::remove_file(&blocker);
     println!("under a file: {err:?}");
     assert!(err.is_err());
@@ -540,7 +540,7 @@ fn streamed_export_peak_memory_harness() {
     let plan = ExportBandPlan::with_rows(&a, w, h, rows);
     let path = std::env::var("CARTALITH_STREAM_OUT").map(PathBuf::from).unwrap_or_else(|_| scratch("peak"));
     let started = std::time::Instant::now();
-    let bytes = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, format, &path).unwrap();
+    let bytes = export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, format, ColorSpace::Srgb, &path).unwrap();
     println!(
         "PEAK-HARNESS {format:?} {w}x{h}: {} bands of {} rows, apron {}, largest rendered band {} rows = {} px; {} bytes written in {:.1} s",
         plan.band_count(),
@@ -559,4 +559,170 @@ fn streamed_export_peak_memory_harness() {
     if let Ok(raw) = std::env::var("CARTALITH_STREAM_MONO_RAW") {
         std::fs::write(raw, monolithic(&ctx, &a, ExportRivers::default(), w, h)).unwrap();
     }
+}
+
+// ---------------------------------------------------------------------------
+// ET-E1: the colour label (`EDITING_TOOLS_SCOPE.md` section 6, Ruling CB item 1)
+// ---------------------------------------------------------------------------
+
+use export_stream::png_chunks::{assert_display_p3_profile, iccp_profile, labels};
+
+/// The 37 x 23 RGB fixture `cartalith-assets`' colour tests and the HEAD
+/// scratch run use (an odd size, every channel varying).
+fn label_fixture() -> (usize, usize, Vec<u8>) {
+    let (w, h) = (37usize, 23usize);
+    (w, h, (0..(w * h * 3) as u32).map(|i| ((i * 7919 + i / 111 * 13) % 251) as u8).collect())
+}
+
+/// FNV-1a 64 (standard offset basis and prime): a change detector only.
+fn fnv(b: &[u8]) -> u64 {
+    assert!(!b.is_empty(), "an empty buffer hashes to the basis");
+    b.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, &x| (h ^ x as u64).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// FNV-1a 64 of HEAD's (`608d4435`) `write_png` output on [`label_fixture`]
+/// (one band), produced by a scratch crate running HEAD's function verbatim
+/// (`git show HEAD:…/export_stream.rs`) against `png` 0.18.1 -- never by the
+/// code under test. It printed `fnv=0xda7ba4ee9c24a1ba len=3036`. The band
+/// split does not matter: the module doc's own claim, tested above.
+const HEAD_STREAM_FNV: u64 = 0xda7b_a4ee_9c24_a1ba;
+
+/// The `sRGB` chunk for rendering intent 0, every byte from the PNG
+/// specification: length 1, type, intent 0 (perceptual), CRC-32 `AECE1CE9`
+/// (checked independently in `cartalith-assets`' raster tests).
+const SRGB_CHUNK: [u8; 13] = [0, 0, 0, 1, b's', b'R', b'G', b'B', 0, 0xAE, 0xCE, 0x1C, 0xE9];
+
+/// Write `px` through the streaming writer in `space`, in three bands.
+fn stream(w: usize, h: usize, px: &[u8], space: ColorSpace) -> Result<Vec<u8>, String> {
+    let row = w * 3;
+    let mut out = std::io::Cursor::new(Vec::new());
+    let bands = vec![px[..5 * row].to_vec(), px[5 * row..17 * row].to_vec(), px[17 * row..].to_vec()];
+    write_bands(&mut out, StreamFormat::Png, space, w, h, bands)?;
+    Ok(out.into_inner())
+}
+
+/// Protects: the default streamed PNG -- exactly one `sRGB` chunk (intent
+/// perceptual) straight after `IHDR`, no `iCCP`, the same pixels, and
+/// otherwise HEAD's file byte for byte (re-baselined 2026-10-11 under Ruling CB
+/// item 1: the file gains one chunk, its pixels do not move).
+#[test]
+fn a_default_streamed_png_is_head_s_file_plus_one_srgb_chunk() {
+    let (w, h, px) = label_fixture();
+    let file = stream(w, h, &px, ColorSpace::Srgb).unwrap();
+    assert_eq!(labels(&file), (1, 0), "one sRGB, no iCCP");
+    assert_eq!(&file[33..46], &SRGB_CHUNK, "the sRGB chunk must follow IHDR and say perceptual");
+    assert_eq!(decode_png(&file).unwrap().2, px, "the pixels moved");
+    let mut head = file.clone();
+    head.drain(33..46);
+    assert_eq!(fnv(&head), HEAD_STREAM_FNV, "apart from the sRGB chunk the file is no longer HEAD's");
+}
+
+/// Protects: the Display P3 streamed PNG -- exactly one `iCCP`, no `sRGB`; the
+/// embedded profile is `display_p3_icc()` and parses back as Display P3
+/// (primaries, D65 white, sRGB-shaped curve, cicp 12); the pixels are written
+/// as given (the label converts nothing); and two encodes are the same bytes
+/// (the profile's clock-stamped date is pinned).
+#[test]
+fn a_p3_streamed_png_embeds_the_display_p3_profile_and_no_srgb() {
+    let (w, h, px) = label_fixture();
+    let file = stream(w, h, &px, ColorSpace::DisplayP3).unwrap();
+    assert_eq!(labels(&file), (0, 1), "one iCCP, no sRGB");
+    let icc = iccp_profile(&file).expect("an iCCP profile");
+    assert_eq!(icc.as_slice(), export_stream::display_p3_icc().unwrap(), "the embedded profile is not the P3 profile");
+    assert_display_p3_profile(&icc);
+    assert_eq!(decode_png(&file).unwrap().2, px, "the label moved pixels");
+    assert!(stream(w, h, &px, ColorSpace::DisplayP3).unwrap() == file, "two identical P3 exports differ");
+    // The header date is the pinned literal 2026-10-11 00:00:00 (six
+    // big-endian u16s at bytes 24..36), not moxcms' clock: within one process
+    // the profile is cached, so only this literal can see a clock stamp.
+    assert_eq!(&icc[24..36], &[0x07, 0xEA, 0, 10, 0, 11, 0, 0, 0, 0, 0, 0], "the profile date is not pinned");
+}
+
+/// Protects: the assets encoder (`encode_png_rgb8`, behind the whole-file,
+/// tile, crop and preview paths) labels exactly as the streaming writer does:
+/// the same single `sRGB` chunk by default and the same embedded P3 profile in
+/// P3, through the one mapping `export_stream::png_colour`.
+#[test]
+fn the_assets_encoder_labels_like_the_streaming_writer() {
+    let (w, h, px) = label_fixture();
+    let s = cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, px.clone(), export_stream::png_colour(ColorSpace::Srgb).unwrap()).unwrap();
+    assert_eq!(labels(&s), (1, 0));
+    assert_eq!(&s[33..46], &SRGB_CHUNK);
+    let p = cartalith_assets::raster::encode_png_rgb8(w as u32, h as u32, px.clone(), export_stream::png_colour(ColorSpace::DisplayP3).unwrap()).unwrap();
+    assert_eq!(labels(&p), (0, 1));
+    assert_eq!(iccp_profile(&p).unwrap().as_slice(), export_stream::display_p3_icc().unwrap());
+    assert_eq!(decode_png(&p).unwrap().2, px);
+}
+
+/// Protects: a BigTIFF in Display P3 is refused (the TIFF writer embeds no
+/// profile, so P3 numbers would be read as sRGB) by every entry point, and
+/// `export_banded` leaves no file; an sRGB BigTIFF is still accepted.
+#[test]
+fn a_p3_bigtiff_is_refused_everywhere() {
+    let (w, h, px) = label_fixture();
+    let mut out = std::io::Cursor::new(Vec::new());
+    assert!(write_bands(&mut out, StreamFormat::BigTiff, ColorSpace::DisplayP3, w, h, [px.clone()]).is_err());
+    assert!(out.get_ref().is_empty(), "a refused write still wrote bytes");
+    assert!(export_stream::check_format_space(StreamFormat::BigTiff, ColorSpace::DisplayP3).is_err());
+    assert!(export_stream::check_format_space(StreamFormat::BigTiff, ColorSpace::Srgb).is_ok());
+    assert!(export_stream::check_format_space(StreamFormat::Png, ColorSpace::DisplayP3).is_ok());
+    let (field, temp, rain, flow) = fixture(GW, GH);
+    let a = appearance();
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, false, 55.0, 5.0, a.clone());
+    let plan = ExportBandPlan::with_rows(&a, 64, 45, 16);
+    let path = scratch("p3_tiff");
+    assert!(export_banded(&ctx, &BakeFields::new(&ctx), ExportRivers::default(), &plan, StreamFormat::BigTiff, ColorSpace::DisplayP3, &path).is_err());
+    assert!(!path.exists(), "a refused P3 BigTIFF left a file");
+}
+
+/// The screen texture's bytes for the fixture world in `space`:
+/// `build_color_texture`'s quantised `cell_color` raster, then
+/// `render::finish_screen_texture` -- the function the product's screen path
+/// calls (no river colour field, no asset pack).
+fn screen(ctx: &RenderCtx, world: bool, space: ColorSpace) -> Vec<u8> {
+    let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+    let mut bytes = vec![0u8; GW * GH * 3];
+    for i in 0..GW * GH {
+        let c = render::cell_color(ctx, i % GW, i / GW);
+        bytes[i * 3..i * 3 + 3].copy_from_slice(&[q(c.0), q(c.1), q(c.2)]);
+    }
+    let inf = render::build_grade_influence(ctx, GW, GH);
+    render::finish_screen_texture(ctx, &mut bytes, None, GW, GH, world, &inf, space);
+    assert!(!bytes.is_empty());
+    bytes
+}
+
+/// Protects: ET-E1's "a P3 export's pixels equal the screen's in P3 mode,
+/// byte for byte". At the grid's own width the export (`bake_and_finish`, and
+/// the streamed banded file decoded) equals the screen texture in sRGB -- the
+/// control, which must hold or the P3 leg proves nothing -- and in Display P3;
+/// and P3 really moved pixels (a positive control).
+#[test]
+fn the_p3_export_is_the_screen_s_p3_encode_byte_for_byte() {
+    let (field, temp, rain, flow) = fixture(GW, GH);
+    let a = appearance();
+    let world = false;
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, SEA, world, 55.0, 5.0, a.clone());
+    let (w, h) = render::bake_dims(GW, GW, GH);
+    assert_eq!((w, h), (GW, GH), "premise: the export is at the grid's own size");
+    let bf = BakeFields::new(&ctx);
+    let inf = render::build_grade_influence(&ctx, w, h);
+    let mut seen = Vec::new();
+    for space in [ColorSpace::Srgb, ColorSpace::DisplayP3] {
+        let export = render::bake_and_finish(&ctx, &bf, ExportRivers::default(), w, h, &inf, space);
+        let scr = screen(&ctx, world, space);
+        let d = differing(&export, &scr);
+        println!("{space:?}: export vs screen differ in {d} of {} bytes", scr.len());
+        assert_eq!(d, 0, "{space:?}: the export is not the screen");
+        let path = scratch(&format!("p3_screen_{space:?}"));
+        let plan = ExportBandPlan::with_rows(&a, w, h, 9);
+        export_banded(&ctx, &bf, ExportRivers::default(), &plan, StreamFormat::Png, space, &path).unwrap();
+        let file = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(decode_png(&file).unwrap().2, scr, "{space:?}: the streamed, banded file is not the screen");
+        assert_eq!(labels(&file), if space == ColorSpace::Srgb { (1, 0) } else { (0, 1) });
+        seen.push(scr);
+    }
+    let moved = differing(&seen[0], &seen[1]);
+    assert!(moved > 0, "Display P3 moved no byte -- the P3 leg would pass vacuously");
 }

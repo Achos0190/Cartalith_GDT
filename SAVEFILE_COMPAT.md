@@ -3166,3 +3166,7 @@ Optional `terrain_adjust` and `water_adjust` members, each in `AdjustStack`'s sa
 ## `appearance_overlay_adjust.json` (2026-10-11, ET-C3/ET-C4)
 
 A caller-owned document slot (registered in `cartalith-io`'s `DOCUMENT_SLOTS`) holding the labels/overlays adjustment stack in `AdjustStack`'s saved form, `{"entries":[...]}`, written by `app.gd::overlay_adjust_document()` and read by `restore_overlay_adjust_document()`. The shell writes it only when the stack has entries (a disabled entry counts as data), so older archives and untouched projects carry no such member and a project without it opens with no overlay stack. The Terrain and Water stacks are not in this slot: they are the optional `terrain_adjust` and `water_adjust` members of `appearance.json` (see above).
+
+## Exported PNG colour tags (2026-10-11, ET-E1, Ruling CB item 1)
+
+Exported picture PNGs carry exactly one `sRGB` chunk (13 bytes straight after IHDR, rendering intent perceptual) by default, or exactly one `iCCP` (the embedded Display P3 profile, ICC v4.3 with a `cicp` tag) when the `color_space` export option is `Display P3`; never both. Pixels are unchanged. The 16-bit heightmap PNG, the channel atlas PNG and BigTIFF output stay untagged, and BigTIFF in Display P3 is refused. This is an export-file format change, not a save-file change.

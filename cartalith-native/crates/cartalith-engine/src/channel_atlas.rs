@@ -41,7 +41,7 @@
 //! cell, at grid resolution and nothing else. They ride in the same export
 //! and share nothing else.
 
-use cartalith_assets::raster::{ImageError, encode_png_rgb8};
+use cartalith_assets::raster::{ImageError, PngColour, encode_png_rgb8};
 use cartalith_jsmath::js_round;
 
 /// `_chanEnc`/`_chanDec`'s two kinds (reference line 12328).
@@ -286,7 +286,12 @@ pub fn entries(groups: &[ChannelGroup<'_>], gw: usize, gh: usize, version: &str)
             };
             specs[slot] = c.src;
         }
-        let png = encode_png_rgb8(gw as u32, gh as u32, pack_rgb8(&specs, n))?;
+        // Untagged (`PngColour::Data`), deliberately, under ET-E1: these bytes
+        // are packed fields, not sRGB colours, so the `sRGB` label every
+        // exported *picture* carries (Ruling CB item 1) would be false here --
+        // the same reason the ruling keeps the heightmap PNG untagged. Must
+        // never be colour-tagged: a colour-managing reader would convert data.
+        let png = encode_png_rgb8(gw as u32, gh as u32, pack_rgb8(&specs, n), PngColour::Data)?;
         out.push(AtlasEntry { name: grp.file.clone(), data: png });
         kept.push(grp.clone());
     }
@@ -366,6 +371,27 @@ mod tests {
             assert_eq!(got[1][i], b[i] as f64, "index channel must be exact at {i}");
             assert_eq!(got[2][i], 0.0, "an absent channel decodes as zero");
         }
+    }
+
+    /// Protects: ET-E1's decision for the atlas -- every atlas PNG is data and
+    /// carries neither an `sRGB` nor an `iCCP` chunk (the label every exported
+    /// picture gets would be false here). Chunk types read straight off the
+    /// file's chunk headers.
+    #[test]
+    fn atlas_pngs_carry_no_colour_chunk() {
+        let a: Vec<f32> = (0..12).map(|i| i as f32 / 11.0).collect();
+        let groups = [ChannelGroup { file: "atlas/t.png".into(), channels: vec![Channel { ch: "r", key: "k".into(), name: "K".into(), src: Some(ChannelSrc::Unit(&a)), manifest: None }] }];
+        let e = entries(&groups, 4, 3, "test").expect("encode");
+        let png = &e.iter().find(|x| x.name == "atlas/t.png").expect("the png entry").data;
+        let mut p = 8usize;
+        let mut kinds = Vec::new();
+        while p + 8 <= png.len() {
+            let len = u32::from_be_bytes(png[p..p + 4].try_into().unwrap()) as usize;
+            kinds.push(png[p + 4..p + 8].to_vec());
+            p += 12 + len;
+        }
+        assert!(kinds.iter().any(|k| k == b"IDAT"), "the chunk walk found no image data: {kinds:?}");
+        assert!(!kinds.iter().any(|k| k == b"sRGB" || k == b"iCCP"), "{kinds:?}");
     }
 
     /// The v1.31 rule, as a test: the number of resource files follows the

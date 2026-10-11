@@ -101,7 +101,7 @@ fn banded(ctx: &RenderCtx, ink: ExportRivers<'_>, plan: &ExportBandPlan) -> Vec<
     let mut out = Vec::with_capacity(plan.w * plan.h * 3);
     for band in plan.bands() {
         assert_eq!(band.y0 * plan.w * 3, out.len(), "band at y0={} does not start where the last one ended", band.y0);
-        let px = render::bake_export_band(ctx, &bf, ink, plan, band, &cells);
+        let px = render::bake_export_band(ctx, &bf, ink, plan, band, &cells, render::ColorSpace::Srgb);
         assert_eq!(px.len(), band.rows * plan.w * 3, "band at y0={} returned the wrong row count", band.y0);
         out.extend_from_slice(&px);
     }

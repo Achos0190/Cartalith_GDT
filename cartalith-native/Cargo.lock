@@ -244,6 +244,7 @@ dependencies = [
  "flate2",
  "godot",
  "log",
+ "moxcms",
  "png",
  "rayon",
  "serde",

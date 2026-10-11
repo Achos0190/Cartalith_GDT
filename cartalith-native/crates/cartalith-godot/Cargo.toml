@@ -102,6 +102,13 @@ png = "0.18.1"
 # `weezl`, decode-side codecs an export never reads (§6.2). `flate2` and
 # `half` were already in the lockfile. Not `zstd`, which is a C library.
 tiff = { version = "0.11.3", default-features = false, features = ["deflate"] }
+# `EDITING_TOOLS_SCOPE.md` ET-E1 (Ruling CB item 1): the Display P3 ICC profile
+# a P3 export embeds (`export_stream::display_p3_icc`), built by moxcms rather
+# than hand-written so the profile's tags are a maintained library's. Not a new
+# package: 0.8.1 was already resolved in `Cargo.lock` as a dependency of
+# `image` 0.25.10 (with the same default features), so this only makes it
+# direct. BSD-3-Clause OR Apache-2.0, pure Rust. Owner-authorised 2026-10-11.
+moxcms = "0.8.1"
 
 [dev-dependencies]
 # `tests/export_stream.rs`' own PNG and BigTIFF decoders inflate with it;

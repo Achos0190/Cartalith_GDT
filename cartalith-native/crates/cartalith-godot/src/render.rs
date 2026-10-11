@@ -7999,6 +7999,13 @@ pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32
 /// the two display devices, and the working space stays what it measurably is —
 /// 8-bit sRGB, stated as a readout rather than offered as a choice.
 ///
+/// **Since ET-E1 the same two encodings also name an export's colour space**
+/// (the `color_space` export option, `export_options::color_space_from_name`):
+/// a document's encoding, labelled in the file (`sRGB` chunk or an embedded
+/// Display P3 profile). That use is a separate value chosen per export; the
+/// session's monitor setting (`WorldGen::color_space`) never reaches an
+/// export.
+///
 /// The working-space half is not merely unbuilt, it is **unshippable at this
 /// precision**, and Godot's own API documentation says so — read on
 /// `Image::srgb_to_linear`, whose generated `godot` binding carries the
@@ -9652,8 +9659,16 @@ impl ExportBandPlan {
 /// river-free terrain of band + apron, and after the apron is discarded, so
 /// no river pixel is rendered for a row that never reaches the file and the
 /// river layer's memory is bounded by one band, whatever the export width.
+///
+/// `space` is the **export's** colour space (ET-E1's `color_space` export
+/// option, never the session's monitor setting): [`ColorSpace::Srgb`] is the
+/// pre-ET-E1 band byte for byte (an early return inside [`finish_rgb`]);
+/// [`ColorSpace::DisplayP3`] re-encodes with the same [`SRGB_TO_P3`] stage of
+/// the same single pass the screen runs, so the band equals the screen's P3
+/// bytes for the same unfinished pixels. The file is then labelled to match by
+/// `export_stream::write_bands`.
 #[allow(dead_code)]
-pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'_>, plan: &ExportBandPlan, band: ExportBand, grade_cells: &[f32]) -> Vec<u8> {
+pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'_>, plan: &ExportBandPlan, band: ExportBand, grade_cells: &[f32], space: ColorSpace) -> Vec<u8> {
     let (w, h) = (plan.w, plan.h);
     let ay0 = band.y0 - band.top;
     let ah = band.rows + band.top + band.bottom;
@@ -9670,8 +9685,9 @@ pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'
     let post = rivers.vector.map(|v| paint_vector_rivers_weighted(ctx, bf, v, &mut px, w, h, 0, band.y0, w, band.rows, &mut water));
     let inf = grade_influence_rows(grade_cells, ctx.gw, ctx.gh, w, h, band.y0, band.rows);
     let skip = band.top * w;
-    // The working space, never the display's: `export_raster.rs`'s module doc.
-    finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), adjust_layers(&ctx.appearance, &water), ColorSpace::Srgb);
+    // The export's own colour space (ET-E1), never the monitor's:
+    // `export_raster.rs`'s module doc.
+    finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), adjust_layers(&ctx.appearance, &water), space);
     // RIM-7: the painted river's post-finish stages, this band's rows only
     // (the layer was built for them), so a banded export equals a whole one.
     if let Some(p) = post {

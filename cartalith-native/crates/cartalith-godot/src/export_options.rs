@@ -27,7 +27,7 @@
 use std::path::Path;
 
 use crate::export_stream::StreamFormat;
-use crate::render::{self, ElevationRamp, ExportBandPlan, TerrainAppearance};
+use crate::render::{self, ColorSpace, ElevationRamp, ExportBandPlan, TerrainAppearance};
 
 /// The file formats `export_banded` streams, by the names the options
 /// dictionary carries. PNG first: ruling 26's format and the default.
@@ -41,6 +41,18 @@ pub fn format_from_name(name: &str) -> Option<StreamFormat> {
 /// The canonical option name of a format, the inverse of [`format_from_name`]. The `"png"` fallback is unreachable while `FORMAT_NAMES` lists every `StreamFormat`; it exists only so this stays total.
 pub fn format_name(f: StreamFormat) -> &'static str {
     FORMAT_NAMES.iter().find(|(_, g)| *g == f).map_or("png", |(n, _)| n)
+}
+
+/// Parses the `color_space` export option (ET-E1, "Export colour space: sRGB /
+/// Display P3") against `render::COLOR_SPACES`' own names (`"sRGB"`,
+/// `"Display P3"`), case-insensitively like [`format_from_name`]; `None` for
+/// anything else, which the parser turns into a refusal of the whole options
+/// dictionary, never a silent sRGB. This is the **export's** colour space: the
+/// encoding and label of a document. It is deliberately not
+/// `WorldGen::color_space`, which describes the monitor in front of the session
+/// and never reaches an export.
+pub fn color_space_from_name(name: &str) -> Option<ColorSpace> {
+    render::COLOR_SPACES.iter().find(|n| n.eq_ignore_ascii_case(name)).and_then(|n| ColorSpace::from_name(n))
 }
 
 /// How far down the settlement hierarchy an export draws (`EXPORT_SCOPE.md`
@@ -100,6 +112,7 @@ impl SettlementTier {
 /// ```text
 /// { width: 16384,                      # required, a BAKE_WIDTHS rung
 ///   format: "png" | "bigtiff",         # default "png"
+///   color_space: "sRGB" | "Display P3", # default "sRGB" (ET-E1); P3 is PNG only
 ///   style: { look, preset, ramp, tunables: {key: value} },   # all optional
 ///   content: { rivers, settlements, settlement_tier,
 ///              routes, ways, labels, territory, icons } }    # all optional
@@ -111,12 +124,16 @@ impl SettlementTier {
 pub struct ExportOptions {
     pub width: i64,
     pub format: StreamFormat,
+    /// The export's colour space (ET-E1): the pixels' encoding and the PNG's
+    /// label. Default [`ColorSpace::Srgb`]; never read from the session's
+    /// monitor setting.
+    pub color_space: ColorSpace,
     pub style: ExportStyle,
     pub content: ExportContent,
 }
 
 impl ExportOptions {
-    pub const KEYS: [&'static str; 4] = ["width", "format", "style", "content"];
+    pub const KEYS: [&'static str; 5] = ["width", "format", "color_space", "style", "content"];
     pub const STYLE_KEYS: [&'static str; 4] = ["look", "preset", "ramp", "tunables"];
     pub const CONTENT_KEYS: [&'static str; 8] = ["rivers", "settlements", "settlement_tier", "routes", "ways", "labels", "territory", "icons"];
 }

@@ -200,3 +200,23 @@ fn overlays_are_reported_not_dropped() {
     assert!(!c.set_overlay("rivers", true), "rivers is drawable, not an overlay");
     assert_eq!(c.overlays(), ["settlements", "routes", "ways", "labels", "territory", "icons"]);
 }
+
+/// Protects: ET-E1's export option -- `color_space` is a refused-not-defaulted
+/// name like `format`: the two `render::COLOR_SPACES` names, any case, parse to
+/// their spaces; anything else (a near miss, a third space, empty) is `None`,
+/// which `export_raster.rs`'s parser turns into a refusal of the whole options
+/// dictionary. Also pins that the key is in `ExportOptions::KEYS`, which the
+/// parser checks every key against (a key missing there would refuse every
+/// dictionary that sets it).
+#[test]
+fn the_export_colour_space_is_validated_not_defaulted() {
+    use export_options::{ExportOptions, color_space_from_name};
+    use render::ColorSpace;
+    for (n, want) in [("sRGB", ColorSpace::Srgb), ("srgb", ColorSpace::Srgb), ("SRGB", ColorSpace::Srgb), ("Display P3", ColorSpace::DisplayP3), ("display p3", ColorSpace::DisplayP3)] {
+        assert_eq!(color_space_from_name(n), Some(want), "{n}");
+    }
+    for n in ["", "P3", "DisplayP3", "Display-P3", "Adobe RGB", "linear", "sRGB "] {
+        assert_eq!(color_space_from_name(n), None, "{n:?} must be refused");
+    }
+    assert!(ExportOptions::KEYS.contains(&"color_space"));
+}
