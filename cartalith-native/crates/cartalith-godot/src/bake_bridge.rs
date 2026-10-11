@@ -225,7 +225,9 @@ pub struct AtlasStatus {
 /// `updateAtlasStatus()` (reference line 10748).
 pub fn atlas_status(state: &BakeState, world_key: &str) -> AtlasStatus {
     let Some(store) = state.store() else {
-        return AtlasStatus { text: "Atlas: — (no cache directory set)".into(), ..Default::default() };
+        // `deepest_level: -1` is "no atlas", the same value an empty atlas reports below;
+        // the derived `Default` of 0 would read as "baked to LOD 0" in the Atlas menu row.
+        return AtlasStatus { text: "Atlas: — (no cache directory set)".into(), deepest_level: -1, ..Default::default() };
     };
     let keys = store.keys_for_world(world_key).unwrap_or_default();
     let n = keys.len();
@@ -358,6 +360,7 @@ mod tests {
         let s = BakeState::new();
         let st = atlas_status(&s, "abc");
         assert_eq!(st.chunks, 0);
+        assert_eq!(st.deepest_level, -1, "no atlas must not read as LOD 0");
         assert!(st.text.contains("no cache directory"), "{}", st.text);
         assert!(!st.text.contains("empty"));
     }
