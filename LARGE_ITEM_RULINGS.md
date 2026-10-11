@@ -2170,3 +2170,10 @@ Owner, answering the coordinating session's questions (the numbering is `EDITING
 7. **Roads (scope question 6): add freehand (unrouted) roads** as well as least-cost routing (ET-D4 gains a freehand mode, an explicit toggle; the routed mode stays the default).
 8. **FH-R2 (religion expansion S1 to S7 plus the S3 ruling): scheduled after editing-tools milestone F.**
 9. **Paint undo (scope question 4)** was built at its default, one undo step per stroke, and is not contradicted by any answer.
+
+## 2026-10-11 — Ruling CC: lake fix is a basin-area floor that scales with world size
+
+Owner, after seeing the measured comparison of candidate 1 (basin-area floor) and candidate 2 (per-basin water balance) in `LAKE_FILL_RESEARCH.md`:
+
+1. **Build candidate 1, the basin-area floor, at a 4-cell floor** at the reference size (the harness worlds, 2048 x 1311 cells). Candidate 2 (water balance) is parked until single basin ids, a temperature-based evaporation term and river/lake consistency exist.
+2. **The floor must scale properly with world size.** The owner did not answer whether Ruling BY binds a lake fix with either offered option; the answer given was that the floor has to scale to the world. Read as: a fixed cell count is wrong, so the floor is expressed so that it means the same on a small grid and a large one (the coordinating session's reading: 4 cells at 2048 x 1311, scaled by the grid's cell count relative to that, never below 1 cell; a labelled judgement, to be checked against the harness worlds). Ruling BY is read as limiting only the GF-11 bars, not a lake fix; lakes the owner or the paint tool forced (`apply_force_lake`) are never removed.
