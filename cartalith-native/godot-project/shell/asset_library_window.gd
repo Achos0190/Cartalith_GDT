@@ -1977,8 +1977,11 @@ func _on_import_image(replace_first: bool = false) -> void:
 				if replace_first:
 					_bridge.as_remove_item(uid, 0)
 				_dirty = true
-				_host.set_status("hint", "imported %s%s" % [
-					path.get_file(), " → Unassigned imports" if into_unassigned else ""], "accent")
+				var colour_note := colour_note_for(result)
+				_host.set_status("hint", "imported %s%s%s" % [
+					path.get_file(), " → Unassigned imports" if into_unassigned else "",
+					(" · " + colour_note) if colour_note != "" else ""],
+					"warn" if not (result.get("colour", {}) as Dictionary).get("warnings", PackedStringArray()).is_empty() else "accent")
 				_preview_index = 0
 				if into_unassigned:
 					_current_unassigned = true
@@ -3916,6 +3919,21 @@ func _pick_sheet_image() -> void:
 		"one .png; the slicer cuts it into cells, it is not imported as-is",
 		func(path: String): _load_sheet_image(path))
 
+## ET-E2: the one honest line an import's `colour` dictionary earns, or "" when there is nothing to say. Says "converted from <source> to sRGB" only when `converted` is true, appends each warning verbatim, and returns "" for an old binary (no `colour` key), an untagged or sRGB file, or a missing/ill-typed field -- a field the engine omitted is never defaulted into text. Must never invent a colour space or claim a conversion the engine did not report.
+static func colour_note_for(result: Dictionary) -> String:
+	var colour = result.get("colour", null)
+	if not (colour is Dictionary):
+		return ""
+	var parts: Array[String] = []
+	if bool(colour.get("converted", false)) and colour.get("source", null) is String and String(colour["source"]) != "":
+		parts.append("converted from %s to sRGB" % String(colour["source"]))
+	var warnings = colour.get("warnings", null)
+	if warnings is PackedStringArray or warnings is Array:
+		for w in warnings:
+			if String(w) != "":
+				parts.append(String(w))
+	return " · ".join(parts)
+
 ## The image goes to the engine (which owns the slice) *and* to a local
 ## `ImageTexture` (which is only ever drawn). Godot's own decoder is not asked
 ## for anything the engine then trusts -- if `as_load_sheet` refuses the bytes,
@@ -3948,6 +3966,9 @@ func _load_sheet_image(path: String) -> void:
 	_slicer_row_lines = PackedFloat64Array()
 	_sheet_readout.text = "%s · %d × %d" % [
 		path.get_file(), int(result.get("w", 0)), int(result.get("h", 0))]
+	var sheet_note := colour_note_for(result)
+	if sheet_note != "":
+		_sheet_readout.text += " · " + sheet_note
 	_refresh_slicer_summary()
 
 ## Resets slicer state to "no sheet": drops the local image, the preview texture, selection and any dragged lines, then refreshes the summary. Does not clear the engine-side sheet (`_close_slicer` does).

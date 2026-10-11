@@ -216,9 +216,10 @@ const PREVIEW_OCEAN := Color("#2b4d6b")
 ## **The disclaimer Ruling CE makes part of the screen** (owner, 2026-10-12:
 ## *"put the new screen in with a disclaimer that the preview is an
 ## approximation"*): visible on the preview frame at every density, in plain
-## words, never only in a tooltip. Its second sentence is the ruling's own list
-## of what the preview will not show.
-const PREVIEW_DISCLAIMER := "Approximate preview: the plate layout and land/ocean split only, not the finished map. No fine coastline, small islands, lakes or relief."
+## words, never only in a tooltip. The figure is from the owner-side measurement
+## (Classic land/ocean agreement with the finished world ~97-98%; low-land
+## archetypes barely informative), so it is a measured claim, not a judgement.
+const PREVIEW_DISCLAIMER := "Approximate preview: plate layout and land/ocean split only, not the finished map. Classic agrees closely (about 97-98% in measured runs); low-land archetypes (Volcanic, Archipelago) are rough."
 ## The dash reasons. Each names the state the code branches on (`MISTAKES.md`,
 ## "Dash a field with a reason": the reason is a claim). The first is the
 ## proposal's own wording for the missing binding (§8 NWP-3).
