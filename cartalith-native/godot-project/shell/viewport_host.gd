@@ -441,6 +441,19 @@ var _lod_parent_level := -1
 var _lod_parents_due := false
 var _lod_active := false
 
+## Set when something this file would have asked `WorldGen` was skipped because a worker held
+## it (`_generating()`): a camera move's `_update_lod()`, or a Layers pick. Cleared by
+## `_resume_after_engine_busy()`, which replays them. A flag and not "always replay" so a run
+## that skipped nothing costs the viewport nothing.
+var _engine_skipped := false
+## Narrower than `_engine_skipped`: a Layers pick (`_debug_view`) that `set_debug_layer()` could
+## not build yet. Kept apart so a skipped camera move does not re-render a field raster.
+var _debug_pick_deferred := false
+## The last `rivers_in_map()` the engine answered. `layer_visible("rivers")` is asked by the
+## Layers checkboxes at any time and the engine cannot answer mid-run, so it reports this
+## rather than a made-up value; refreshed on every successful read.
+var _rivers_in_map_seen := true
+
 ## **§2.5's "Tiled LOD — `auto on zoom` (default) · `manual`", the reference's
 ## `state.lodAuto` (line 13479).**
 ##
@@ -476,8 +489,18 @@ func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	if _info != null:
 		_info.bind(bridge)
-	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
+	## A good run repaints everything (`refresh()` -> `reset_view()` -> `_update_lod()`); a FAILED
+	## one leaves the old world standing, so it only replays what `_process`, `_update_lod` and
+	## `set_debug_layer` skipped while the worker held the engine (`_resume_after_engine_busy`).
+	bridge.generation_finished.connect(func(ok: bool):
+		if ok:
+			refresh()
+		else:
+			_resume_after_engine_busy())
 	bridge.world_loaded.connect(refresh)
+	## The landmark pass and the viewshed refine set `bridge.generating` too but change no tiles'
+	## world, so the same replay is all they owe the viewport.
+	bridge.landmark_refine_finished.connect(func(_r: Dictionary): _resume_after_engine_busy())
 	## The landmark pass's placements reach the map through here and nowhere
 	## else. Connected in the ONE place that owns `overlay` rather than left to
 	## whoever presses the button: `CivilizationWorkspace._lm_run()` was the
@@ -487,7 +510,9 @@ func setup(bridge: EngineBridge) -> void:
 	## forever, so the rings only ever appeared if the user happened to go to
 	## Cartography afterwards and drag an icon. A caller that forgets is the
 	## bug; a caller that cannot forget is the fix.
-	bridge.landmark_finished.connect(func(_r: Dictionary): refresh_annotations())
+	bridge.landmark_finished.connect(func(_r: Dictionary):
+		refresh_annotations()
+		_resume_after_engine_busy())
 	## RV-4: every repaint (`EngineBridge.color_texture()`, the one door every
 	## `map_view.texture = ...` line goes through) rebuilds the shore field
 	## beside the map texture, so the base map's shoreline follows it here.
@@ -2233,6 +2258,10 @@ func refresh() -> void:
 	## reported no run. Subsumes the `set_manual_routes` call above; that one
 	## stays because its comment is the reasoning for this one.
 	refresh_annotations()
+	## `reset_view()` and `set_debug_layer()` above already replayed everything a busy engine
+	## made this file skip, so a later landmark finish owes nothing.
+	_engine_skipped = false
+	_debug_pick_deferred = false
 
 ## §4.5.5's Icon/Label tools (`UNIFIED_TOOL_PLAN.md` milestone F) -- lighter
 ## than `refresh()`: placing/editing one icon or label shouldn't re-fetch the
@@ -2535,7 +2564,12 @@ func layer_visible(layer: String) -> bool:
 		"territory": return territory_view.visible
 		"provinces": return province_view.visible
 		## Engine state since the rivers moved into the map (2026-09-27).
-		"rivers": return _bridge.rivers_in_map()
+		"rivers":
+			## `rivers_in_map()` is a `#[func]` on `WorldGen`: mid-run, answer with the last
+			## value the engine gave rather than one invented for the moment.
+			if _engine_readable():
+				_rivers_in_map_seen = _bridge.rivers_in_map()
+			return _rivers_in_map_seen
 		_: return overlay.layer_visible(layer)
 
 ## Answers `map_overlay.gd`'s one-batch-at-a-time request for town layouts.
@@ -2718,6 +2752,15 @@ func set_preview_patch(patch: Dictionary) -> bool:
 ## river stroke, which the overlay draws, stays under whichever field view is
 ## actually drawn, on every path through this function.
 func set_debug_layer(view: String) -> void:
+	## A pick made while a worker holds the engine cannot be built now (`debug_texture` is a
+	## `#[func]` on `WorldGen`): remember it as the wanted view and let `refresh()` (good run) or
+	## `_resume_after_engine_busy()` (failed run, landmark pass) apply it. `_debug_view` is the
+	## intent here, which is what `refresh()` re-applies to the new world anyway.
+	if _generating() and _bridge.has_world and view != "off":
+		_debug_view = view
+		_debug_pick_deferred = true
+		_engine_skipped = true
+		return
 	if _bridge == null or view == "off" or not _bridge.has_world:
 		_debug_view = "off"
 		_debug_layer.texture = null
@@ -2781,6 +2824,10 @@ func _refresh_vp_field() -> void:
 	if _debug_view == "off" or _bridge == null:
 		_vp_field = "relief"
 		_update_zoom_readout()
+		return
+	## `debug_layers()` is a `#[func]` on `WorldGen`; the label is refreshed again by the
+	## `set_debug_layer()` replay once the engine is free.
+	if not _engine_readable():
 		return
 	## Lower-cased to match the design's own field names (`elevation field`,
 	## `flow accumulation`) rather than the popover's sentence case.
@@ -3059,6 +3106,10 @@ func _update_lod() -> void:
 	if overlay != null:
 		overlay.view_changed()
 	if not _engine_readable():
+		## A move made while a worker owns the engine is not lost, only late:
+		## `_resume_after_engine_busy()` re-runs this once the engine is free.
+		if _generating():
+			_engine_skipped = true
 		_set_lod_active(false)
 		return
 
@@ -3671,6 +3722,19 @@ func _install_lod_tile(key: String, idx: Vector3i, tex: Texture2D, g: Vector2i, 
 ## processing the moment the backlog empties, so this costs nothing once
 ## everything wanted is on screen.
 func _process(_delta: float) -> void:
+	## **Never reach the engine while a worker holds it.** `_drain_lod_tiles()`,
+	## `_build_lod_tile()` (`lod_request_tile`) and the info tiles' `process_frame()` all end in a
+	## `#[func]` on `WorldGen`. `EngineBridge` sets `generating` BEFORE it emits
+	## `generation_started` and before `Thread.start()`, but the worker only takes its mutable
+	## borrow a moment AFTER that: a frame in that gap that asked the engine anything held a
+	## shared borrow, and `generate_sized` then panicked `cannot borrow mutable while shared
+	## borrow exists` (the world was not regenerated); a frame after it panicked `already bound`.
+	## ~1 000 such calls per run were measured. Process stays ON, so whatever was owed is picked
+	## up on the first frame after `generating` clears; `_resume_after_engine_busy()` also
+	## re-runs `_update_lod()`, which refills the backlog if a regenerate emptied it.
+	## Must never be reordered below the engine calls it guards.
+	if _generating():
+		return
 	## LOD-D7: the info tiles' drain and retry run on the same frame loop and
 	## keep it alive while any are outstanding.
 	var info_busy := false
@@ -3705,6 +3769,26 @@ func _process(_delta: float) -> void:
 		_lod_debug_dirty()
 	if _lod_backlog.is_empty() and _lod_pending.is_empty() and not info_busy:
 		set_process(false)
+
+## Replays what was skipped while a worker held the engine (generate, import, region, landmark
+## or viewshed refine), once `bridge.generating` is false again. Connected to the four finish
+## signals in `setup()`; a good generate reaches the same state through `refresh()` instead.
+##
+## Does: re-applies a Layers pick deferred by `set_debug_layer()`; re-runs `_update_lod()` for
+## any camera move it dropped (which re-queues the tiles `_process` could not request or
+## collect); wakes `_process`; redraws the LOD debug overlay. Must never run while
+## `generating` (it asks the engine) and must never clear tiles (the world did not change).
+func _resume_after_engine_busy() -> void:
+	if not _engine_skipped or not _engine_readable():
+		return
+	_engine_skipped = false
+	if _debug_pick_deferred:
+		_debug_pick_deferred = false
+		set_debug_layer(_debug_view)
+	_update_lod()
+	if not _lod_pending.is_empty() or not _lod_backlog.is_empty():
+		set_process(true)
+	_lod_debug_dirty()
 
 ## **LOD-D6.** Installs every tile the background synthesiser has finished,
 ## up to the tier's per-frame budget. Returns whether anything landed, which
@@ -4358,6 +4442,9 @@ func _draw_lod_debug() -> void:
 	var fs := maxi(9, int(round(float(_lod_debug_layer.size.x) / 110.0)))
 	var lh := float(fs) * 1.25
 	var lw := maxf(1.5, float(_lod_debug_layer.size.x) / 360.0)
+	## The atlas-coverage label asks `WorldGen` (`atlas_is_covered`), so it is omitted while a
+	## worker holds the engine; `_resume_after_engine_busy()` redraws the overlay afterwards.
+	var engine_free := _engine_readable()
 
 	for key in _lod_tiles.keys():
 		var sprite := _lod_tiles[key] as Sprite2D
@@ -4393,7 +4480,7 @@ func _draw_lod_debug() -> void:
 
 		## The reference's own legibility gate: a chunk narrower than about
 		## eight glyphs gets no label rather than an unreadable smear.
-		if _lod_dbg_labels and r.size.x > float(fs) * 7.0:
+		if _lod_dbg_labels and engine_free and r.size.x > float(fs) * 7.0:
 			## Store coverage, not provenance: the tile drawn under this
 			## label was synthesized either way (see the header note).
 			var in_atlas := _bridge.atlas_is_covered(z, col, row)
