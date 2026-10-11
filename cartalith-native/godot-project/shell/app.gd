@@ -148,6 +148,12 @@ var _escape_handlers: Dictionary = {}
 ## key path would be a second place to look when one of them stops working.
 var _backspace_handlers: Dictionary = {}
 
+## Arms tool `id` globally -- the one entry every palette cell, key, menu row and
+## workspace funnels through (`DccWidgets.tool_strip()`, `global_tools.gd`,
+## `journey_planner_view.gd`). No-op when `id` is already armed, so callers that
+## need a side effect on re-arm must not rely on `tool_armed` firing.
+## An id nobody registered a handler for is legal: clicks just stay inert (see
+## `_click_handlers`).
 func arm_tool(id: String) -> void:
 	if armed_tool == id:
 		return
@@ -225,6 +231,9 @@ func _install_tool_palette_bar() -> void:
 	workspace_changed.connect(func(_id: String): _rebuild_tool_strip())
 	_rebuild_tool_strip()
 
+## Registers `domain`'s tool-palette entries (called by each domain's
+## `DccWidgets.tools_block()`). Redraws the bar only when `domain` is the active
+## one; other domains are drawn when `workspace_changed` selects them.
 func set_domain_tools(domain: String, entries: Array) -> void:
 	_domain_tools[domain] = entries
 	if domain == active_domain():
@@ -241,6 +250,9 @@ func _strip_entries() -> Array:
 			entries.append(e)
 	return entries
 
+## Frees and re-draws the palette row for the active domain/mode. Does nothing
+## before `_install_tool_palette_bar()` has run (or on the phone, which has no bar).
+## Not for per-arm use -- `_sync_tool_strip()` relights the lit cell instead.
 func _rebuild_tool_strip() -> void:
 	if _tool_palette_row == null:
 		return
@@ -259,29 +271,43 @@ func _sync_tool_strip(id: String) -> void:
 		if (b as Button).toggle_mode:
 			(b as Button).set_pressed_no_signal(String(b.get_meta(DccWidgets.TOOL_ID_META, "")) == id)
 
+## Registers `handler(gx, gy)` as tool `id`'s map-click action. One handler per
+## id; a later registration replaces the earlier one.
 func register_tool_click_handler(id: String, handler: Callable) -> void:
 	_click_handlers[id] = handler
 
+## Registers `handler(gx, gy)` as tool `id`'s drag-motion action (see `_drag_handlers`).
 func register_tool_drag_handler(id: String, handler: Callable) -> void:
 	_drag_handlers[id] = handler
 
+## Registers `handler()` to run on Escape for tool `id` before the default
+## disarm (see `_escape_handlers` and `_escape_action()`).
 func register_tool_escape_handler(id: String, handler: Callable) -> void:
 	_escape_handlers[id] = handler
 
+## Registers `handler(gx, gy, valid)` for the end of a drag gesture on tool `id`;
+## `valid` is the release's own validity flag as emitted by `viewport.map_released`.
 func register_tool_release_handler(id: String, handler: Callable) -> void:
 	_release_handlers[id] = handler
 
+## Registers `handler()` to run on Backspace while tool `id` is armed
+## (see `_backspace_handlers`).
 func register_tool_backspace_handler(id: String, handler: Callable) -> void:
 	_backspace_handlers[id] = handler
 
+## `viewport.map_clicked` sink: forwards to the armed tool's click handler, if any.
+## Inspect and unregistered ids fall through silently (Inspect is handled by the
+## overlay's own `settlement_selected`, see `_wire_selection()`).
 func _on_map_clicked(gx: float, gy: float) -> void:
 	if _click_handlers.has(armed_tool):
 		_click_handlers[armed_tool].call(gx, gy)
 
+## `viewport.map_dragged` sink: forwards to the armed tool's drag handler, if any.
 func _on_map_dragged(gx: float, gy: float) -> void:
 	if _drag_handlers.has(armed_tool):
 		_drag_handlers[armed_tool].call(gx, gy)
 
+## `viewport.map_released` sink: forwards to the armed tool's release handler, if any.
 func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 	if _release_handlers.has(armed_tool):
 		_release_handlers[armed_tool].call(gx, gy, valid)
@@ -554,6 +580,11 @@ func _open_context_card_from_keyboard() -> void:
 	if not req.is_empty():
 		context_broker.resolve(req)
 
+## Escape (and the phone's back once overlays are exhausted): first lets the armed
+## tool's escape handler commit in-progress geometry; unless `force_disarm`, a
+## registered handler consumes the key and nothing else happens. Otherwise it
+## unpresses the palette cell and arms Inspect. Relights the palette via
+## `_sync_tool_strip()` because `arm_tool()` skips its emit when already on Inspect.
 func _escape_action(force_disarm := false) -> void:
 	if _escape_handlers.has(armed_tool):
 		_escape_handlers[armed_tool].call()
@@ -606,6 +637,9 @@ func _watch_dialog(n: Node) -> void:
 	if n is AcceptDialog:
 		(n as Window).visibility_changed.connect(_fit_dialog.bind(n))
 
+## `_watch_dialog()`'s visibility hook: clamps an over-large dialog to the app
+## window and re-centres it. Skips hidden windows, the phone (it presents windows
+## itself) and orphaned windows; leaves a dialog that already fits untouched.
 func _fit_dialog(w: Window) -> void:
 	if not w.visible or is_phone() or w.get_parent() == null:
 		return
@@ -618,6 +652,11 @@ func _fit_dialog(w: Window) -> void:
 	w.size = w.size.min(avail)
 	w.position = Vector2i((vp.x - w.size.x) / 2, title + (avail.y - w.size.y) / 2)
 
+## Builds the application: calls `DccShell._ready()` first, then creates the
+## bridge, menus, viewport, workspaces and dialogs and wires every signal between
+## them. Order matters throughout (bridge before viewport, workspaces before
+## `_wire_selection()`); each step's own comment gives its reason. Must not be
+## reordered so that a signal is connected before its emitter exists.
 func _ready() -> void:
 	super._ready()
 	get_tree().node_added.connect(_watch_dialog)
@@ -1252,6 +1291,8 @@ var _mid_running_stage := ""   ## The one currently running; not yet resolved.
 var _repaint_ms := -1.0
 var _repaint_t0 := 0   ## usec, non-zero only while a bracketed repaint is open.
 
+## Opens the repaint stopwatch (`_repaint_t0`). Paired with `_repaint_close()`;
+## connected to `world_loaded` and, via `_repaint_open_if`, `generation_finished`.
 func _repaint_open() -> void:
 	_repaint_t0 = Time.get_ticks_usec()
 
@@ -1263,10 +1304,13 @@ func _repaint_open_if(ok: bool) -> void:
 	if ok:
 		_repaint_open()
 
+## Closes the repaint bracket only for a successful generate (see `_repaint_open_if`).
 func _repaint_close_if(ok: bool) -> void:
 	if ok:
 		_repaint_close()
 
+## Closes the repaint bracket: stores the elapsed ms in `_repaint_ms`. Writes
+## nothing if no bracket is open (`_repaint_t0 == 0`).
 func _repaint_close() -> void:
 	## A close with no open is not an error and must not write a figure: it is
 	## what happens if the bracket's first probe is ever disconnected while the
@@ -1291,6 +1335,10 @@ func repaint_map() -> void:
 	_repaint_close()
 	_refresh_status_mid()
 
+## Recomposes the status bar's `mid` slot ("last pass NN Stage · N ms · repaint N
+## ms", or a loading/loaded note). Shows nothing while there is neither a world
+## nor a run in progress. Must never show a duration it cannot attribute to the
+## stage named beside it (see the in-body comment on `last_generate_ms`).
 func _refresh_status_mid() -> void:
 	if not bridge.has_world and not bridge.generating:
 		set_status("mid", "", "text_ghost")
@@ -1364,6 +1412,8 @@ var _stale_timer: Timer
 ## screen is that file's change to make, not this one's.
 var _stale_recompute: Button
 
+## Starts the one-second poll (`_stale_timer`) that calls `refresh_staleness()`.
+## A poll rather than signals, for the reason given on `_stale_timer`.
 func _setup_staleness() -> void:
 	_stale_timer = Timer.new()
 	_stale_timer.name = "StalenessPoll"
@@ -1530,6 +1580,9 @@ func _world_workspace() -> WorldWorkspace:
 ## today, but nothing here should need to know that.
 var _context_surface_depth := 0
 
+## A context card or ring opened: bump `_context_surface_depth` and, on the 0 -> 1
+## transition only, ask each workspace that supports it to pause timeline
+## playback. Must be balanced by `resume_from_context_surface()`.
 func pause_for_context_surface() -> void:
 	_context_surface_depth += 1
 	if _context_surface_depth != 1:
@@ -1538,6 +1591,8 @@ func pause_for_context_surface() -> void:
 		if ws.has_method("pause_playback_for_context"):
 			ws.pause_playback_for_context()
 
+## A context card or ring closed: drop the depth and, only when the LAST surface
+## has closed, resume playback. An unbalanced extra call is ignored, never negative.
 func resume_from_context_surface() -> void:
 	if _context_surface_depth <= 0:
 		return
@@ -1558,6 +1613,9 @@ func set_bake_shortcut(shown: bool, is_disabled: bool, tip: String) -> void:
 	_tool_options_bake.disabled = is_disabled
 	_tool_options_bake.tooltip_text = tip
 
+## Rewrites the status bar's `atlas` cell from `bridge.atlas_status()`: chunk
+## count, deepest LOD, byte size, and a FINALIZED flag. Blank when there is no
+## atlas. Called by `menus.gd` after atlas operations.
 func refresh_atlas_status() -> void:
 	var st: Dictionary = bridge.atlas_status()
 	if st.is_empty() or int(st.get("chunks", 0)) == 0:
@@ -1571,6 +1629,11 @@ func refresh_atlas_status() -> void:
 	else:
 		set_status("atlas", text, "text_dim")
 
+## Connects the viewport's selection and cursor signals (settlement, landmark,
+## icon, cursor sample, Wildlife pick, Layers button, tool clicks, context card and
+## ring) to the workspaces by capability (`has_method`) rather than by type, so a
+## workspace opts in by defining the handler. Call once, after `viewport` and
+## `_workspaces` exist.
 func _wire_selection() -> void:
 	viewport.settlement_selected.connect(func(data, index):
 		for ws in _workspaces:
@@ -1658,6 +1721,10 @@ func _wire_selection() -> void:
 var _last_workspace_domain := ""
 var _last_workspace_mode := ""
 
+## `workspace_changed` sink: rewrites everything that mirrors the active (domain,
+## mode) -- tool-options row, rail foot, left-dock readout -- via `_workspace_panels`.
+## Skips the writes that reflect the active tool when the call changed neither
+## the pair nor the armed tool (`re_entry`); see the in-body comment.
 func _on_workspace_changed(id: String) -> void:
 	## Was `id in ["civilization", "infrastructure"]` -- INFRA merged into
 	## CIVIL 2026-08-20 (`dcc_shell.gd`'s `DOMAINS` doc comment), so the one
@@ -1777,6 +1844,8 @@ func _on_workspace_changed(id: String) -> void:
 	if panel != null and panel.has_method("push_dock_readout"):
 		panel.call("push_dock_readout")
 
+## Appends a small mono context label (e.g. "CIVIL · INSPECT") in colour token
+## `token` to a tool-options `row`.
 func _tool_options_label(row: Control, text: String, token: String) -> void:
 	row.add_child(DccTheme.mono_label(text, token, DccTheme.FS_SMALL, 2, true))
 
@@ -1860,6 +1929,11 @@ var _tl_transport: Array[Control] = []
 var _tl_day_slider: HSlider
 var _tl_date_label: Label
 
+## (Re)builds the timeline strip's contents inside `timeline_row`: clears the row,
+## resets every cached `_tl_*` widget reference (they would otherwise dangle on
+## freed nodes), then builds the phone, expanded or collapsed composition. Does
+## nothing while the strip is hidden. Idempotent; `arm_tool()` also calls it to
+## hand the row back after the Journey tool borrowed it.
 func _fill_timeline_strip() -> void:
 	if timeline_row == null:
 		return
@@ -2480,6 +2554,10 @@ func tl_mark_column(year: int, w: float) -> int:
 	var span := float(TL_YEAR_MAX - TL_YEAR_MIN)
 	return mini(floori(w * float(year - TL_YEAR_MIN) / span), int(w) - 1)
 
+## `draw` handler for the scrub track: one tick per recorded year (columns via
+## `tl_mark_column()`, deduplicated) plus an emphasised mark for the year under the
+## cursor, or the nearest recorded year while scrubbing. Must never draw outside
+## `0..w-1` -- see `tl_mark_column()`.
 func _draw_timeline_marks(track: Control) -> void:
 	var w := track.size.x
 	if w <= 0.0:
@@ -2842,6 +2920,8 @@ func _tool_options_generate() -> void:
 		busy.text = "generating…" if bridge.generating else ""
 	)
 
+## Installs a minimal tool-options row: an accent `context` label, a ghost `note`
+## and a spacer. For contexts with no controls of their own yet.
 func _tool_options_simple(context: String, note: String) -> void:
 	set_tool_options(func(row: HBoxContainer):
 		_tool_options_label(row, context, "accent")
@@ -2918,6 +2998,9 @@ func _center_landmasses() -> void:
 		"labels, map icons, infrastructure and painted layers stay where they"
 		+ " are — they will no longer line up with the terrain")
 
+## The confirmed half of Centre landmasses (`_center_landmasses()`): runs
+## `bridge.center_landmasses()` and reports the outcome on the hint line. Destructive
+## (discards the civ layer and sculpt draft) -- never call it without that prompt.
 func _do_center_landmasses() -> void:
 	var r: Dictionary = bridge.center_landmasses()
 	if not bool(r.get("ok", false)):
@@ -2930,6 +3013,8 @@ func _do_center_landmasses() -> void:
 	set_status("hint", "centred: rotated %d columns, seam feathered at column %d" %
 		[off, int(r.get("seam_column", 0))], "text_ghost")
 
+## The "New seed" action: asks the New-world dialog to randomise its seed, or
+## opens that dialog if it cannot (a dialog without `randomise_seed`).
 func _new_seed() -> void:
 	if new_world_dialog.has_method("randomise_seed"):
 		new_world_dialog.randomise_seed()
@@ -3322,6 +3407,9 @@ var _autosave_timer: Timer
 ## to nothing.)
 var _last_autosave_at := ""
 
+## Creates the autosave `Timer`, wires the dirty/saved signals to
+## `_refresh_save_status()` and starts the clock per the user's setting
+## (`apply_autosave_setting()`). Called once from `_ready()`.
 func _setup_autosave() -> void:
 	_autosave_timer = Timer.new()
 	_autosave_timer.name = "Autosave"
@@ -3521,6 +3609,8 @@ func _report_failure(text: String) -> void:
 ## and are not modelled here. Named as an allowance rather than dressed up as a
 ## measurement.
 const SAVE_BYTES_PER_CELL := 21
+## Flat 4 MiB allowance for the project layer in the pre-save space check; a
+## labelled judgement, not a measurement (rationale in the block above).
 const SAVE_PROJECT_LAYER_ALLOWANCE := 4 * 1024 * 1024
 
 ## `include_lod_tiles` adds the real, exact estimate
@@ -3707,6 +3797,10 @@ func _project_documents() -> Dictionary:
 ## degenerate rect.
 const PREVIEW_THUMBNAIL_MAX_PX := 256
 
+## Grabs the map area of the window as a PNG thumbnail for the project's
+## `preview.png` (<= `PREVIEW_THUMBNAIL_MAX_PX` on the long edge). Returns an
+## empty array, never an error, when nothing sensible can be captured -- the save
+## then simply carries no preview.
 func _capture_preview_png() -> PackedByteArray:
 	if DisplayServer.get_name() == "headless":
 		return PackedByteArray()
@@ -4044,6 +4138,8 @@ var _quit_asked := false
 ## both flags here; Discard quits; Save writes and then quits through the same
 ## continuation. Nothing leaves the flags set with the app still running and
 ## nothing on screen.
+## (The block above documents `_close_requested()`, defined below. This predicate's own doc follows.)
+##
 ## Branches 2 and 3 above, as one predicate, so a test can exercise the real
 ## condition instead of restating it.
 ##
@@ -4059,6 +4155,9 @@ var _quit_asked := false
 func _would_quit_immediately() -> bool:
 	return _quit_asked or not bridge.has_world
 
+## The system close request (title-bar x, Alt+F4). Its full contract -- the four
+## branches and why the app cannot become un-closeable -- is the doc block above
+## `_would_quit_immediately()`, where it was left when that predicate was inserted.
 func _close_requested() -> void:
 	if is_instance_valid(_quit_prompt) and _quit_prompt.visible:
 		_quit_prompt.grab_focus()
@@ -4076,6 +4175,9 @@ func _close_requested() -> void:
 		_quit_prompt = null
 		_quit_asked = false)
 
+## Closes the current world after its confirmation: drops the engine world, clears
+## `current_project_path` and returns the status bar to the empty-world state
+## `_ready()` boots into. Never call without the unsaved-work prompt.
 func _close_world() -> void:
 	bridge.close_world()
 	current_project_path = ""
@@ -4230,6 +4332,7 @@ func open_vault_overview() -> void:
 func open_vault_browse() -> void:
 	vault_window.open_browse()
 
+## `Help ▸ Generation info`: opens the generation-info dialog.
 func open_gen_info() -> void:
 	gen_info_dialog.open()
 
@@ -4238,6 +4341,8 @@ func open_gen_info() -> void:
 func open_shortcuts() -> void:
 	shortcuts_dialog.open()
 
+## Shows or hides the diagnostics HUD (`resource_overlay.gd`); the menu row's
+## checkmark is read back from `resource_overlay.visible`.
 func toggle_resource_overlay() -> void:
 	resource_overlay.toggle()
 
@@ -4616,6 +4721,8 @@ func open_undo_history() -> void:
 	if right_dock_ctrl != null:
 		right_dock_ctrl.show_history()
 
+## `File ▸ Show project on disk`: reveals `current_project_path` in the OS file
+## manager (no-op for an unsaved world or on touch devices; see `reveal_on_disk()`).
 func show_project_on_disk() -> void:
 	reveal_on_disk(current_project_path)
 
@@ -4710,6 +4817,9 @@ func open_journey_planner_with_route(route_index: int) -> void:
 ## forever, and nothing in this file could close either.
 var _credits_dialog: AcceptDialog = null
 
+## `Help ▸ Credits`: builds the credits dialog once (kept in `_credits_dialog`)
+## and presents it; later calls re-present the same dialog. The script must be
+## attached before the node enters the tree -- see the block above `_credits_dialog`.
 func open_credits() -> void:
 	if is_instance_valid(_credits_dialog):
 		_present_credits()
@@ -4754,6 +4864,8 @@ func open_credits() -> void:
 		phone_fit(dlg, 1.0)
 	_present_credits()
 
+## Shows `_credits_dialog` the platform's way: the phone's `phone_present()`, else
+## a centred popup.
 func _present_credits() -> void:
 	if DccWidgets.phone_present(_credits_dialog, self):
 		return
