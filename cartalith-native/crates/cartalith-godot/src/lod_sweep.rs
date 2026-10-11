@@ -146,6 +146,10 @@ pub fn lstar(r: u8, g: u8, b: u8) -> f64 {
     lstar_lut(r, g, b, &linear_lut())
 }
 
+/// [`lstar`] with the linearisation table passed in, so a caller that scores
+/// millions of pixels builds [`linear_lut`] once. Weights `0.2126/0.7152/0.0722`
+/// are the Rec. 709 / sRGB luminance coefficients (IEC 61966-2-1); the branch
+/// is the CIE L\* piecewise definition.
 fn lstar_lut(r: u8, g: u8, b: u8, lut: &[f64; 256]) -> f64 {
     let y = 0.2126 * lut[r as usize] + 0.7152 * lut[g as usize] + 0.0722 * lut[b as usize];
     if y > 216.0 / 24389.0 {
@@ -395,6 +399,8 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// Half-open containment: left and top edges inside, right and bottom edges
+    /// outside, so two abutting rects never both claim the pixel on their shared edge.
     fn covers(&self, px: f64, py: f64) -> bool {
         px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h
     }
@@ -551,11 +557,15 @@ struct LodSweepMetrics {
 
 #[godot_api]
 impl IRefCounted for LodSweepMetrics {
+    /// Godot's constructor hook; the class holds no state beyond its base.
     fn init(base: Base<RefCounted>) -> Self {
         Self { base }
     }
 }
 
+/// The shared absence reply: `{ok: false, reason}`. Every `#[func]` returns this
+/// instead of a zero when it cannot measure (see the module's "Absence is
+/// absent"); it must never carry a numeric field.
 fn fail(reason: &str) -> VarDictionary {
     vdict! { "ok" => false, "reason" => reason }
 }
@@ -694,6 +704,8 @@ impl LodSweepMetrics {
     }
 }
 
+/// Pins the five metric definitions and their thresholds as literals, on
+/// synthetic frames small enough to reason about by hand.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -724,6 +736,7 @@ mod tests {
     /// Literals, not the constants — the two ends of the scale and one interior
     /// point checked against an independent reference (sRGB mid-grey 128 is
     /// L\* ≈ 53.585).
+    /// Protects: L\* is 0 at black, 100 at white, about 53.585 at sRGB 128 (independent reference), and strictly increasing along a grey ramp.
     #[test]
     fn lstar_spans_zero_to_a_hundred() {
         assert!(lstar(0, 0, 0).abs() < 1e-12);
@@ -738,6 +751,7 @@ mod tests {
     /// The linear-segment branch is real, not decoration: below the 0.04045
     /// knee the curve is the straight one, and a build that dropped the branch
     /// would land elsewhere.
+    /// Protects: below the CIE knee `lstar` follows the straight `24389/27 * Y` segment, so dropping that branch would fail.
     #[test]
     fn lstar_uses_the_linear_segment_near_black() {
         let y = 10.0 / 255.0 / 12.92;
@@ -748,6 +762,7 @@ mod tests {
 
     /// A frame against itself with an unchanged camera is exactly zero. The
     /// positive control is beside it: a genuinely different frame is not.
+    /// Protects: an unchanged frame under an unchanged camera scores exactly 0 with samples taken, while a blue-only change and a white frame score above 1 and above 20 L\*.
     #[test]
     fn identical_frames_have_zero_discontinuity() {
         let w = 64;
@@ -774,6 +789,7 @@ mod tests {
     /// discontinuity, and a plain frame difference would call it one. The warp
     /// takes it back to (near) zero; the same pair compared without the warp
     /// scores heavily.
+    /// Protects: the camera warp removes a pure pan (under 0.5 L\*) where the same pair compared unwarped scores over 20, using a shift that is not a whole stripe period.
     #[test]
     fn a_pure_pan_is_not_a_discontinuity() {
         let w = 96;
@@ -804,6 +820,7 @@ mod tests {
 
     /// Absence is absent: two frames whose overlap is empty return `None`, not
     /// a zero that would read as perfect continuity.
+    /// Protects: disjoint frames and a short buffer give `None`, never a zero that would read as perfect continuity.
     #[test]
     fn no_overlap_is_none_not_zero() {
         let w = 32;
@@ -820,6 +837,7 @@ mod tests {
 
     /// Both clauses are load-bearing, asserted against literals so mutating
     /// either constant turns this red.
+    /// Protects: the pop rule fires only when a frame is over both the median multiple and the L\* floor, and reports the first window as unjudged.
     #[test]
     fn the_pop_rule_needs_both_of_its_clauses() {
         // A quiet series with one 30x spike well above 1.0 L*.
@@ -846,6 +864,7 @@ mod tests {
     /// pop and a 3.5× one is — which is what makes the constant load-bearing
     /// rather than merely present. (Mutating it to 2.0 survived every other
     /// test in this module; this is the one that kills it.)
+    /// Protects: `POP_MEDIAN_FACTOR` is 3: a 2.5x spike is not a pop and a 3.5x one is.
     #[test]
     fn the_median_multiple_is_three_not_two_or_four() {
         let mut just_under = vec![1.0f64; 40];
@@ -859,6 +878,7 @@ mod tests {
 
     /// The window is trailing, and its length is exactly [`POP_WINDOW`]: a
     /// spike at index 15 is judged, one at 14 is not.
+    /// Protects: `POP_WINDOW` is 15 and trailing: a spike at index 14 has no full window and is not judged, one at 15 is.
     #[test]
     fn the_window_is_trailing_and_fifteen_long() {
         let mut early = vec![0.3f64; 30];
@@ -870,6 +890,7 @@ mod tests {
         assert_eq!(pops(&edge).0, vec![15]);
     }
 
+    /// Protects: a series shorter than the window yields no pops, zero judged and every frame reported as unjudged rather than clean.
     #[test]
     fn a_series_shorter_than_the_window_judges_nothing() {
         let (hits, judged, unjudged) = pops(&[5.0, 9.0, 1.0]);
@@ -890,6 +911,7 @@ mod tests {
     /// The ratio is 1 when neighbouring columns are statistically alike, which
     /// terrain is and a synthetic comb is not; the same caveat is on
     /// [`seam_ratio`] itself.
+    /// Protects: an evenly textured frame ratios 1 at a boundary and a planted 60-level step exceeds the 1.5 bar.
     #[test]
     fn seam_ratio_is_one_without_a_seam_and_large_with_one() {
         let w = 64;
@@ -916,6 +938,7 @@ mod tests {
 
     /// A boundary with no usable neighbours is dropped, and a frame of nothing
     /// but boundaries reports `None` rather than a comfortable 1.0.
+    /// Protects: boundaries inside the margin, boundaries with no free neighbour, and flat frames (zero neighbour mean) give `None`, not a comfortable ratio.
     #[test]
     fn unscorable_boundaries_are_dropped_not_scored() {
         let w = 64;
@@ -934,6 +957,7 @@ mod tests {
     /// itself, so column 4 is unscorable and column 5 is scorable — and the
     /// same one column in from the right edge. Three a side would move both
     /// answers, and nothing else in this module notices.
+    /// Protects: `SEAM_NEIGHBOURS_PER_SIDE` is 4: column 4 and column w-5 are unscorable, columns 5 and w-6 are scorable.
     #[test]
     fn the_seam_margin_is_four_columns_a_side() {
         let w = 64;
@@ -950,6 +974,7 @@ mod tests {
     /// the two **outermost** keep four free neighbours each; the four inside
     /// have three and are dropped. Relaxing the minimum to one scores all six,
     /// which is what makes this test the one that kills that mutant.
+    /// Protects: `SEAM_MIN_NEIGHBOURS` is 4: in a cluster of six boundaries only the two outermost keep four free neighbours and are scored.
     #[test]
     fn a_starved_boundary_is_dropped_not_scored_on_three_neighbours() {
         let w = 64;
@@ -962,6 +987,7 @@ mod tests {
 
     // ── metric 3 ────────────────────────────────────────────────────────────
 
+    /// Protects: `hole_pixels` counts only map pixels covered by no rect, returns the map-pixel denominator, and ignores ground outside the map rect.
     #[test]
     fn holes_count_only_uncovered_map_pixels() {
         let map = Rect { x: 0.0, y: 0.0, w: 10.0, h: 10.0 };
@@ -979,6 +1005,7 @@ mod tests {
     /// The map rect is clipped to the crop, so a map larger than the screen
     /// reports the screen's worth and not a number that includes off-screen
     /// ground the user cannot see a hole in.
+    /// Protects: a map rect larger than the capture reports only the on-screen pixels as its denominator.
     #[test]
     fn the_map_rect_is_clipped_to_the_crop() {
         let huge = Rect { x: -50.0, y: -50.0, w: 500.0, h: 500.0 };
@@ -990,6 +1017,7 @@ mod tests {
     /// A flat frame has no detail; stripes do; and doubling the stripe period —
     /// exactly what magnifying a fixed source does — halves the statistic. That
     /// last relation is the one the whole milestone is about.
+    /// Protects: a flat frame has zero detail and doubling the stripe period halves `detail_per_pixel`, the relation the milestone measures.
     #[test]
     fn detail_falls_as_a_fixed_source_is_magnified() {
         let w = 200;
@@ -1003,6 +1031,7 @@ mod tests {
     }
 
     /// The box really is the central 30–70 %: detail outside it does not count.
+    /// Protects: noise outside the central 30 to 70 percent box, on either side, does not move `detail_per_pixel`.
     #[test]
     fn detail_reads_only_the_central_box() {
         let w = 100;
@@ -1039,6 +1068,7 @@ mod tests {
     /// only on even rows reads at full strength; any other stride mixes in the
     /// blank odd rows and halves it. `_hf_energy`'s asymmetric stride is a
     /// property of the recorded baseline, so it is pinned rather than tidied.
+    /// Protects: `detail_per_pixel` strides rows by two from an even first row, as `_hf_energy` does, so an even-rows-only texture reads at full strength (1.0).
     #[test]
     fn detail_strides_rows_by_two() {
         let w = 100;
@@ -1061,6 +1091,7 @@ mod tests {
     /// The exact value for a known picture, independently computed: a period-1
     /// black/white stripe steps `(255-0)/255 = 1.0` every column, so the mean is
     /// 1.0 — which also pins the luma weights' normalisation.
+    /// Protects: a black/white period-1 stripe reads exactly 1.0, pinning the luma normalisation.
     #[test]
     fn detail_of_a_full_swing_stripe_is_one() {
         let w = 100;
@@ -1073,6 +1104,7 @@ mod tests {
     /// bar is quoted in the first. Black against white is exactly 1.0 here and
     /// 100 in L\*, so a harness that mixed them would be off by ~60x on a
     /// mid-grey pair with nothing failing.
+    /// Protects: `mean_abs_luma_diff` is in non-linear luma units (black vs white is 1.0, black vs 128 is 128/255), not L\*, and refuses a short buffer.
     #[test]
     fn luma_diff_is_in_mapsharps_units_not_lstar() {
         let w = 40;
@@ -1096,6 +1128,7 @@ mod tests {
 
     // ── metric 5 ────────────────────────────────────────────────────────────
 
+    /// Protects: `stats` returns median, min, max and count, and `stats`/`median` return `None` for an empty series.
     #[test]
     fn stats_are_median_min_max_and_a_count() {
         assert_eq!(stats(&[]), None);

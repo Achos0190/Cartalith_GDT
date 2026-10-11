@@ -41,7 +41,7 @@
 //! the user change must not invalidate the atlas they just paid for, and those
 //! two rules are the same rule seen from either side.
 //!
-//! One row is in that arguably should not be: `river_density`, which the
+//! One row is in although it arguably should not be: `river_density`, which the
 //! reference keeps under `state.viz` (excluded there). Here it feeds
 //! `PipelineStage::Climate` (`params::invalidates`), so it really can move a
 //! baked tile's inputs. Included, because over-invalidating costs a re-bake and
@@ -83,14 +83,22 @@ pub struct BakeState {
 }
 
 impl BakeState {
+    /// The unconfigured state: no atlas root, not finalized,
+    /// [`DEFAULT_TILE_SIZE`]. Derived `Default` is NOT equivalent (it would
+    /// give `tile_size: 0`), so use this.
     pub fn new() -> Self {
         BakeState { root: None, finalized: false, tile_size: DEFAULT_TILE_SIZE }
     }
 
+    /// The [`AtlasStore`] over [`BakeState::root`], or `None` while no root is
+    /// set. Callers must report "no atlas root" on `None`; it must never fall
+    /// back to the working directory.
     pub fn store(&self) -> Option<AtlasStore> {
         self.root.as_ref().map(AtlasStore::new)
     }
 
+    /// The engine's [`FinalizeLock`] view of [`BakeState::finalized`], so the
+    /// gate logic lives in `cartalith_engine::bake`, not here.
     pub fn lock(&self) -> FinalizeLock {
         FinalizeLock { finalized: self.finalized }
     }
@@ -160,7 +168,7 @@ pub fn origin_for_key(origin: Option<&str>) -> &str {
 ///
 /// A JSON array rather than an object so the field *order* is part of the hash
 /// and a reordering cannot silently produce the same key from different
-/// parameters. The trailing element is `params::save_state`'s whole object,
+/// parameters. The trailing element is `params::world_key_state`'s object,
 /// whose own key order is `PARAMS`' static table order — deterministic across
 /// runs and platforms, which is the property the hash needs.
 ///
@@ -198,8 +206,14 @@ pub fn world_key_signature(
 /// does not report).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AtlasStatus {
+    /// Number of baked chunks stored under this world's key.
     pub chunks: usize,
+    /// Bytes those chunks occupy on disk (`AtlasStore::world_bytes`).
     pub bytes: u64,
+    /// Deepest pyramid level baked. `-1` when a configured atlas holds no chunk
+    /// for this world (a "none" sentinel; [`AtlasStatus::text`] says "empty"
+    /// instead), but `0` in the no-root case, which returns `Default` -- so
+    /// never read it as a level without checking `chunks > 0`.
     pub deepest_level: i32,
     /// The reference's own wording, adapted: it distinguishes "no IndexedDB"
     /// from "empty (this world)", and so does this — an unconfigured root is
@@ -232,6 +246,7 @@ pub fn atlas_status(state: &BakeState, world_key: &str) -> AtlasStatus {
 /// Byte count for a status line — binary units, one decimal above KiB, which
 /// is what `dcc_shell.gd`'s other size readouts already use.
 pub fn human_bytes(b: u64) -> String {
+    // 1024: binary units (1 KiB = 2^10 bytes), matching `dcc_shell.gd`'s size readouts.
     const K: f64 = 1024.0;
     let b = b as f64;
     if b < K {
@@ -239,6 +254,7 @@ pub fn human_bytes(b: u64) -> String {
     }
     for (i, unit) in ["KiB", "MiB", "GiB", "TiB"].iter().enumerate() {
         let scale = K.powi(i as i32 + 1);
+        // `i == 3` is TiB, the last unit: anything larger still prints in TiB.
         if b < scale * K || i == 3 {
             return format!("{:.1} {unit}", b / scale);
         }
@@ -249,12 +265,16 @@ pub fn human_bytes(b: u64) -> String {
 /// What a bake would cost, shown *before* the user commits.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BakeEstimate {
+    /// Tile count of the pyramid `0..=max_z` (the reference's own count; see
+    /// [`bake_estimate`]).
     pub tiles: u64,
     /// Bytes the packed heights alone will occupy. **Exact**, not a guess —
     /// see [`bake_estimate`].
     pub height_bytes: u64,
     /// `height_bytes` plus a per-chunk PNG allowance.
     pub total_bytes: u64,
+    /// Crude `tiles * per_tile_ms` estimate; an order of magnitude,
+    /// deliberately not precise.
     pub seconds: f64,
     /// The per-tile pixel size, which is the same at every level (see
     /// [`bake_estimate`]) and is what a user actually chose when they picked
@@ -272,7 +292,7 @@ pub struct BakeEstimate {
 /// `(gw-1)/2^z × (gh-1)/2^z`, whose aspect is `(gw-1)/(gh-1)` regardless of
 /// `z`. So the pyramid's height storage is simply `tiles × tw × th × 4`.
 ///
-/// Measured against a real bake to check the arithmetic rather than trusting
+/// Checked against a real bake (`cartalith-engine/tests/bake_real_world.rs`; the figures here are cited from it, not re-measured) rather than trusting
 /// it: 2048×1311 at 1024 px, depth 3 — 85 chunks, predicted 217.6 MiB of
 /// `rg16`, actual on-disk total 233.7 MiB including the PNGs. Depth 5 at the
 /// same settings would be 1365 chunks and roughly **3.7 GiB**, which is
@@ -318,12 +338,19 @@ pub fn bake_estimate(
 
 /// See [`bake_estimate`]: PNG bytes as a fraction of `rg16` bytes, measured
 /// on a real 2048×1311 bake rather than assumed.
+/// A cited figure (263 KiB of PNG per 2.56 MiB of `rg16` per chunk, from
+/// `cartalith-engine/tests/bake_real_world.rs`), rounded to a flat 10% as a
+/// labelled judgement; not re-measured by this comment.
 pub const PNG_SHARE: f64 = 0.10;
 
+/// Unit tests for the bake bridge. Pure Rust (no Godot runtime), so they run under plain `cargo test -p cartalith-godot`.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: `atlas_status` telling an unconfigured root ("no cache
+    /// directory") apart from an empty atlas, so "nowhere to bake to" never
+    /// reads as "your bake is gone".
     #[test]
     fn no_root_is_reported_as_such_and_never_as_empty() {
         // The distinction that matters: "your bake is gone" and "there is
@@ -335,6 +362,8 @@ mod tests {
         assert!(!st.text.contains("empty"));
     }
 
+    /// Protects: a configured root with no chunks reading exactly "Atlas: empty
+    /// (this world)" (uses a per-process temp directory it removes).
     #[test]
     fn an_empty_configured_atlas_reports_empty() {
         let root = std::env::temp_dir()
@@ -345,6 +374,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Protects: `world_key_signature` being deterministic and moving with sea
+    /// level, seed, the wrap flag and a parameter row, so changing a generation
+    /// dial cannot serve stale baked tiles.
     #[test]
     fn the_signature_changes_with_every_generation_input() {
         let base = |sea: f64| {
@@ -367,6 +399,8 @@ mod tests {
         assert_ne!(a, d, "a parameter row");
     }
 
+    /// Protects: the signature being an ordered array: swapping `gw` and `gh`
+    /// must change the hashed key.
     #[test]
     fn the_signature_order_is_part_of_the_hash() {
         // Two worlds whose gw and gh are swapped must not collide -- an
@@ -380,6 +414,10 @@ mod tests {
         assert_ne!(cartalith_io::world_key(&a), cartalith_io::world_key(&b));
     }
 
+    /// Protects: generated, imported and region-resampled worlds at one
+    /// parameter tuple hashing to three distinct atlas keys (asserted on the
+    /// hashed key, plus the three origin constants staying distinct strings).
+    ///
     /// The defect this element exists for: three ways of arriving at a world
     /// could share one atlas namespace at the same parameter tuple, and one
     /// would then read another's baked tiles.
@@ -418,6 +456,9 @@ mod tests {
         assert_ne!(ORIGIN_IMPORTED, ORIGIN_REGION);
     }
 
+    /// Protects: the literal JSON layout of the signature: origin between the
+    /// wrap flag and the parameter object, the other six elements undisturbed.
+    ///
     /// The other half of the same rule: the origin must be the **only** thing
     /// that changed, so this pins that adding it did not disturb the six
     /// elements already in the array or the object at the tail.
@@ -429,6 +470,10 @@ mod tests {
         assert_eq!(s, r#"[1024,512,42,800.0,0.42,true,"import",{"a":1}]"#);
     }
 
+    /// Protects: a pre-provenance archive (no `origin` member) reopening under
+    /// the literal atlas key `117cb87a` it had before provenance existed, so no
+    /// user's baked atlas is orphaned.
+    ///
     /// A `.zip` written before `world.origin` existed **must keep the atlas
     /// namespace it already had**, and this pins that end to end: a
     /// pre-provenance project archive is built, read back through
@@ -499,6 +544,10 @@ mod tests {
         assert_eq!(key, "117cb87a", "a pre-provenance save changed atlas namespace");
     }
 
+    /// Protects: a saved import or region resample keeping its own atlas
+    /// namespace on reopen, `None` deliberately sharing the generated one, and
+    /// an unknown newer origin keeping its own.
+    ///
     /// The other direction, and the defect the format change exists to close:
     /// a saved import must not come back as a generated world.
     #[test]
@@ -525,6 +574,8 @@ mod tests {
         assert_eq!(origin_for_key(Some("sculpt")), "sculpt");
     }
 
+    /// Protects: `human_bytes` unit boundaries (B, KiB, MiB, GiB) and its one-
+    /// decimal format.
     #[test]
     fn human_bytes_reads_like_a_status_line() {
         assert_eq!(human_bytes(0), "0 B");
@@ -534,6 +585,9 @@ mod tests {
         assert_eq!(human_bytes(3 * 1024 * 1024 * 1024), "3.0 GiB");
     }
 
+    /// Protects: `bake_estimate` tile counts matching the reference (85, 341,
+    /// 1365 for depths 3-5), clamping to `MAX_BAKE_DEPTH`, and the per-tile
+    /// seconds arithmetic.
     #[test]
     fn the_estimate_uses_the_references_own_tile_counts() {
         let e = |z| bake_estimate(z, 2048, 1311, 1024, 0.0);
@@ -545,6 +599,9 @@ mod tests {
         assert!((bake_estimate(3, 2048, 1311, 1024, 100.0).seconds - 8.5).abs() < 1e-9);
     }
 
+    /// Protects: the byte estimate landing within about 12 MiB of the cited
+    /// 233.7 MiB real bake at 2048x1311, tile 1024, depth 3 (85 chunks,
+    /// 1024x655 tiles), and depth 5 exceeding 3 GiB.
     #[test]
     fn the_byte_estimate_matches_a_real_measured_bake() {
         // `bake_real_world.rs` at 2048x1311, tile 1024, depth 3 reported 85
@@ -561,6 +618,8 @@ mod tests {
         assert!(deep.total_bytes > 3 * 1024 * 1024 * 1024, "{}", deep.total_bytes);
     }
 
+    /// Protects: `tile_dims` returning one tile size at every level 0-5, the
+    /// property `bake_estimate`'s exact height-byte arithmetic rests on.
     #[test]
     fn every_level_shares_one_tile_size() {
         // The property the byte arithmetic rests on: `tile_dims` reads the
@@ -579,6 +638,8 @@ mod tests {
         }
     }
 
+    /// Protects: `bake_estimate` with a 0x0 grid returning the tile count and
+    /// zero bytes rather than panicking or dividing by zero.
     #[test]
     fn an_estimate_before_any_world_does_not_divide_by_zero() {
         let e = bake_estimate(3, 0, 0, 1024, 19.0);
@@ -586,6 +647,8 @@ mod tests {
         assert_eq!(e.total_bytes, 0);
     }
 
+    /// Protects: the finalize lock refusing `Generation` and `HeightEdit` once
+    /// finalized while still allowing `Presentation`.
     #[test]
     fn finalize_gates_generation_and_editing_but_not_presentation() {
         let mut s = BakeState::new();

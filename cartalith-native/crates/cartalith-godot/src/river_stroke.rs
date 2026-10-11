@@ -5,7 +5,7 @@
 //!
 //! `_riverzoom_probe.gd` measured three causes in the one drawn river, the
 //! vector stroke drawn from `get_rivers(1)` (then by `map_overlay.gd` over the
-//! finished map; since 2026-09-27 the style reaches it -- tiles rasterize it
+//! finished map; since 2026-09-27 tiles rasterize it
 //! ([`rasterize`]) and the base view textures it ([`rasterize_colour_field`],
 //! `WorldGen::river_view_mesh`) -- so the
 //! style preset reaches it -- owner: *"they're drawn on top of the style"*):
@@ -744,6 +744,19 @@ pub fn reach_limit_cells(width_cells: f64, gw: usize) -> f64 {
     0.5 * full + colour_field_pad_cells(gw) as f64 + EDGE_FRINGE_PX as f64
 }
 
+/// The triangle-list mesh [`stroke_mesh`] builds; its layout, normals and
+/// culling are documented there. Must never be indexed past `pts.len()`: every
+/// index refers to a vertex emitted in the same mesh.
+pub struct StripMesh {
+    /// Vertex positions in raster pixels, four per drawn point.
+    pub pts: Vec<(f32, f32)>,
+    /// Straight RGBA per vertex; the outer fringe vertices carry alpha 0.
+    pub colors: Vec<[f32; 4]>,
+    /// Triangle-list indices into `pts`, three per triangle (`i32`, as Godot's
+    /// index arrays are).
+    pub indices: Vec<i32>,
+}
+
 /// A tapered, antialiased stroke as one indexed triangle list, which
 /// [`rasterize`] fills into a `render::RiverLayer` (it was handed to
 /// `RenderingServer.canvas_item_add_triangle_array` until 2026-09-27).
@@ -764,12 +777,6 @@ pub fn reach_limit_cells(width_cells: f64, gw: usize) -> f64 {
 /// `view` culls: a segment whose box, grown by its width, misses `view` is
 /// not emitted, and the strip restarts on the far side. The index array is
 /// what is culled; vertices are emitted only for points a kept segment uses.
-pub struct StripMesh {
-    pub pts: Vec<(f32, f32)>,
-    pub colors: Vec<[f32; 4]>,
-    pub indices: Vec<i32>,
-}
-
 pub fn stroke_mesh(
     pts: &[(f32, f32)],
     half_w: &[f32],
@@ -1286,6 +1293,8 @@ pub fn carry_orders(end_order: &[Option<i16>], own_order: &[i16], joins: &[Optio
     // Union-find over continuation edges: each group takes its largest
     // (floor-raised) own order.
     let mut parent: Vec<usize> = (0..n).collect();
+    /// Union-find root of `x` in `p`, with path halving; used to group
+    /// continuation runs and must never be given an index outside `p`.
     fn root(p: &mut [usize], mut x: usize) -> usize {
         while p[x] != x {
             p[x] = p[p[x]];
@@ -1973,14 +1982,21 @@ impl WorldGen {
     }
 }
 
+/// Unit tests for the river stroke geometry: pure Rust, no Godot runtime, so
+/// they run under plain `cargo test -p cartalith-godot`.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Test fixture: a traced run of `n` points along row 0.5 at x = 0.5, 1.5,
+    /// ..., one cell apart (cell centres, river space).
     fn line(n: usize) -> Vec<(f64, f64)> {
         (0..n).map(|x| (x as f64 + 0.5, 0.5)).collect()
     }
 
+    /// Protects: `render_params` mapping a render curve onto fractional traced-
+    /// run indices (a quarter-cell step is a quarter index, ends at 0 and n-1,
+    /// never decreasing) and `sample_at`'s linear interpolation and clamp.
     #[test]
     fn render_params_follow_the_traced_run_and_never_go_back() {
         let pts = line(5);
@@ -1994,6 +2010,9 @@ mod tests {
         assert_eq!(sample_at(&[1.0, 3.0, 5.0], 9.0), 5.0);
     }
 
+    /// Protects: `stroke_pieces` cutting only where the TRACED run is wet: lake
+    /// cells touching the curve under a dry trace leave one whole piece.
+    ///
     /// The fragmentation the probe counted: a curve that grazes a lake cell it
     /// does not run through must not be cut at all.
     #[test]
@@ -2007,6 +2026,9 @@ mod tests {
         assert_eq!(s.pieces, vec![(0, rp.len())], "one piece, no cut");
     }
 
+    /// Protects: a wet traced cell the render curve never touches producing no
+    /// gap in `stroke_pieces`.
+    ///
     /// A traced cell classed as lake that the drawn curve never actually
     /// crosses (the spline cut the corner round a one-cell lake) makes no gap:
     /// the stroke is continuous where it looks continuous.
@@ -2020,6 +2042,9 @@ mod tests {
         assert_eq!(s.pieces, vec![(0, rp.len())]);
     }
 
+    /// Protects: `render_params` holding its position (not stepping back) when
+    /// the spline overshoots, so the width interpolated along it never narrows.
+    ///
     /// A render curve that steps back along the run for a moment (a spline
     /// overshoot at a tight bend) still gets a position that never decreases,
     /// so the width interpolated along it never narrows.
@@ -2032,6 +2057,10 @@ mod tests {
         assert!((u[2] - 1.1).abs() < 1e-12 && (u[3] - 1.1).abs() < 1e-12, "held, not stepped back: {u:?}");
     }
 
+    /// Protects: a run through a lake becoming two pieces whose ends sit on the
+    /// lake's edges (x = 4 and 7), with nothing drawn on the water and the
+    /// interpolated `u` at the shoreline points.
+    ///
     /// A river through a lake stops at the inlet shore and resumes at the
     /// outlet shore -- exactly on the lake cells' edges -- in two pieces.
     #[test]
@@ -2078,6 +2107,10 @@ mod tests {
         assert_eq!(s.shore, vec![(true, false)]);
     }
 
+    /// Protects: `stroke_mesh`'s geometry: four vertices per point, solid to
+    /// the half-width with the alpha-0 fringe one pixel outside it, six
+    /// triangles per segment, and view culling emitting only the visible
+    /// segment.
     #[test]
     fn the_mesh_tapers_with_the_width_and_fringes_to_clear() {
         let pts: Vec<(f32, f32)> = (0..4).map(|i| (i as f32 * 10.0, 0.0)).collect();
@@ -2101,6 +2134,11 @@ mod tests {
         assert_eq!(m.pts.len(), 8);
     }
 
+    /// Protects: `coast_end` placing a mouth at the linear sea-level crossing
+    /// toward a sea cell and at the cell edge toward a lake, ignoring water
+    /// only behind the run, preferring `recv` over straight-on, and returning
+    /// `None` with no water beside the mouth.
+    ///
     /// A mouth on land ends on the shore: at the field's sea-level crossing
     /// toward the sea cell it drains into, at the cell edge toward a lake.
     #[test]
@@ -2145,6 +2183,10 @@ mod tests {
         assert_eq!(coast_end(&pts, &vec![0u8; w * h], &fld, 0.4, None, w, h), None);
     }
 
+    /// Protects: `settle_join_widths` capping a tributary at its trunk's width
+    /// down a chain (to a fixed point, whatever the list order), leaving the
+    /// trunk, a `None` profile and a narrower tributary untouched.
+    ///
     /// A tributary is capped at its trunk's width where it joins, and the cap
     /// runs down a chain: C joins B joins A, and A is the narrowest there.
     #[test]
@@ -2167,6 +2209,10 @@ mod tests {
         assert_eq!(p[4], Some(vec![0.2, 0.3]), "a narrower tributary keeps its own width");
     }
 
+    /// Protects: `settle_join_widths` raising the run a continuation (`k == 0`)
+    /// feeds, through a chain, and then capping a raised run by the trunk it
+    /// joins so both meet at one width.
+    ///
     /// A run bridged onto the HEAD of another is one river carrying on: the
     /// next run is widened to it, never the other way round -- and a chain of
     /// two continuations carries the width through both.
@@ -2200,6 +2246,10 @@ mod tests {
         assert_eq!(p[1], Some(vec![1.0, 1.2, 1.2]), "X capped at Y's head");
     }
 
+    /// Protects: `draw_ranks` ordering every tributary before its trunk, ready
+    /// runs later-traced first, a continuation imposing no order, and a cycle
+    /// still giving every run a distinct rank.
+    ///
     /// Every tributary is drawn before the run it joins, whatever the
     /// indices; a continuation imposes no order; ready runs go later-first.
     #[test]
@@ -2220,6 +2270,9 @@ mod tests {
         assert_eq!(s, vec![0, 1]);
     }
 
+    /// Test fixture: a single-run [`RiverGeometry`] with one width, one colour
+    /// and one Strahler order (1 when `o1`, else 3) at every point, no
+    /// discharge reading (NaN) and no shore reach.
     fn one_run(pts: Vec<(f32, f32)>, width: f32, rgb: [f32; 3], o1: bool) -> RiverGeometry {
         let n = pts.len();
         let order = if o1 { 1 } else { 3 };
@@ -2302,6 +2355,9 @@ mod tests {
         assert!(mid.indices.iter().all(|&i| (i as usize) < mid.points.len()), "a chunk's indices are its own, from 0");
     }
 
+    /// Protects: `colour_field_pad_cells` literal values: the 3-cell floor at
+    /// 512 and 800 cells wide, then 6 at 1600 and 30 at 8000.
+    ///
     /// The colour-field pad: three cells, or the width a 1 px stroke and
     /// its two fringes reach at an 800-px fit of the grid, whichever is wider.
     #[test]
@@ -2312,6 +2368,11 @@ mod tests {
         assert_eq!(colour_field_pad_cells(8000), 30.0);
     }
 
+    /// Protects: `rasterize_colour_field` painting the styled colour at the
+    /// preset's opacity over a band `pad` cells wider each side, ignoring the
+    /// order-1 de-emphasis, giving each river's own cells priority over a later
+    /// run's band, and being wider than the drawn stroke.
+    ///
     /// The colour field is the river's styled colour at the preset's opacity
     /// over a band `pad` cells wider each side than the river, and it ignores
     /// the order-1 de-emphasis (a zoom question, not a colour one).
@@ -2348,6 +2409,10 @@ mod tests {
         assert!(r.at(12, 9).is_none());
     }
 
+    /// Protects: `river_px_width`'s present rule: ground width times density
+    /// times the preset multiplier, the 1 px floor, and the order-1 de-emphasis
+    /// by own order (literal expected values).
+    ///
     /// The seam, at today's rule: RV-2's width on the ground, the preset's
     /// multiplier, the 1 px floor, and the order-1 de-emphasis by own order.
     #[test]
@@ -2362,6 +2427,10 @@ mod tests {
         assert_eq!(river_px_width(o1, 1.0, &a), Some((1.1, 0.4)));
     }
 
+    /// Protects: `RiverLayer::fill_triangles` filling every pixel of two
+    /// triangles sharing a diagonal exactly once (alpha 0.5, never 0.75; 64
+    /// pixels by the top-left rule) and leaving untouched pixels `None`.
+    ///
     /// Two triangles sharing a diagonal fill a half-alpha square: every pixel
     /// is filled exactly once -- 0.5, never the 0.75 a double fill gives.
     #[test]
@@ -2387,6 +2456,10 @@ mod tests {
         assert!(l.at(0, 0).is_none() && l.at(10, 10).is_none());
     }
 
+    /// Protects: `rasterize` with `RasterMap::grid()`: a 3-cell stroke solid on
+    /// three rows in the palette colour, a half-alpha fringe one pixel beyond,
+    /// nothing farther out or before the stroke starts.
+    ///
     /// The screen texture's own mapping: a trunk-coloured 3-cell stroke along
     /// cell row 10's centre is solid on rows 9..=11, half-alpha fringe one
     /// pixel beyond, and nothing past that.
@@ -2407,6 +2480,10 @@ mod tests {
         assert!(l.at(1, 10).is_none(), "nothing before the stroke starts");
     }
 
+    /// Protects: each river style key (width, ink, ink strength, opacity)
+    /// changing the rasterized output as a literal expectation says, and the
+    /// default style leaving the palette colour untouched.
+    ///
     /// Every river style key reaches the raster: width grows the covered
     /// area, ink and opacity change the colour and alpha -- each against a
     /// literal expectation, not against the constant itself.
@@ -2434,6 +2511,10 @@ mod tests {
         assert_eq!(render::river_style_color(&a, c), c);
     }
 
+    /// Protects: `o1_deemphasis` values (0.55 width / 0.4 alpha at the opening
+    /// view, full by 8 pixels per cell, linear between) and the rasterizer
+    /// applying it to an order-1 run.
+    ///
     /// The order-1 de-emphasis, as the overlay drew it: 0.55 width / 0.4
     /// alpha at the opening view, gone by 8x, linear between.
     #[test]
@@ -2489,6 +2570,10 @@ mod tests {
         assert_eq!(river_px_width(p, 0.2, &a).map(|(_, al)| al), Some(O1_ALPHA_OPENING));
     }
 
+    /// Protects: `RasterMap::tile` placing a stroke at the tile's SAMPLE
+    /// coordinate (cell centre = integer index) symmetrically on both axes, and
+    /// `px_per_cell` as the geometric mean of the two axes.
+    ///
     /// A tile pixel sits at SAMPLE coordinate `bx + x * cx`, where a cell's
     /// centre is its integer index -- river space puts it at `x + 0.5`. A
     /// vertical stroke on the centre of cell 6 must therefore be centred on
@@ -2517,6 +2602,10 @@ mod tests {
         assert_eq!(RasterMap::grid().px_per_cell(), 1.0);
     }
 
+    /// Protects: two neighbouring deep-zoom tiles filling their shared boundary
+    /// column identically (same coverage and channels), so no seam shows
+    /// between tiles.
+    ///
     /// Two deep-zoom tiles either side of a boundary sample the same world
     /// column there (`TileBounds`: pixel 0 of the right tile IS pixel `w-1`
     /// of the left), so a stroke crossing it must fill that column the same
@@ -2545,6 +2634,10 @@ mod tests {
         assert!(drawn >= 3, "the stroke must actually cross the shared column ({drawn} rows)");
     }
 
+    /// Protects: the owner's RV-2 floor: `river_px_width` never returns under
+    /// `MIN_STROKE_PX`, wide strokes are untouched, and a floored stroke is
+    /// solid to 0.5 px with its fringe outside it.
+    ///
     /// The owner's floor: a stroke narrower than a pixel is drawn at one.
     #[test]
     fn a_sub_pixel_stroke_is_drawn_one_pixel_wide() {

@@ -78,6 +78,8 @@ pub struct SelectionSet {
 }
 
 impl SelectionSet {
+    /// An empty set (nothing selected): `primary()` is `None`, the `-1` the three
+    /// scalar getters answered for "no selection". Must never pre-select anything.
     pub fn new() -> Self {
         Self::default()
     }
@@ -90,6 +92,8 @@ impl SelectionSet {
         self.items.last().copied()
     }
 
+    /// Whether `index` is a member, regardless of recency order. Pure query; it
+    /// never changes the set or the primary.
     pub fn contains(&self, index: usize) -> bool {
         self.items.contains(&index)
     }
@@ -102,6 +106,8 @@ impl SelectionSet {
         v
     }
 
+    /// Empties the set so `primary()` reports `None`. Used by callers whose list
+    /// was wholly replaced; it must not touch the owning list.
     pub fn clear(&mut self) {
         self.items.clear();
     }
@@ -206,10 +212,13 @@ impl SelectionSet {
     }
 }
 
+/// Unit tests for the selection-set semantics. They run under plain `cargo test`
+/// because this module has no `godot` dependency (see the module doc).
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: a fresh set reports no primary and no members, matching the `-1` the three scalar getters returned when nothing was selected.
     #[test]
     fn an_empty_set_answers_the_scalar_getters_the_way_none_did() {
         let s = SelectionSet::new();
@@ -217,6 +226,7 @@ mod tests {
         assert!(s.sorted().is_empty());
     }
 
+    /// Protects: `replace` discards earlier members, leaving exactly the new index as both the only member and the primary.
     #[test]
     fn replace_is_a_single_selection() {
         let mut s = SelectionSet::new();
@@ -226,6 +236,7 @@ mod tests {
         assert_eq!(s.primary(), Some(7));
     }
 
+    /// Protects: `toggle` returns the post-call state, makes the newest add primary, and removing the primary promotes the previous member (recency order).
     #[test]
     fn toggle_adds_then_removes_and_reports_which() {
         let mut s = SelectionSet::new();
@@ -238,6 +249,7 @@ mod tests {
         assert_eq!(s.primary(), Some(2), "removing the primary promotes the one before it");
     }
 
+    /// Protects: toggling the only member off leaves an empty set with no primary rather than a stale index.
     #[test]
     fn toggling_away_the_last_member_empties_the_set() {
         let mut s = SelectionSet::new();
@@ -247,6 +259,7 @@ mod tests {
         assert_eq!(s.primary(), None);
     }
 
+    /// Protects: Shift-click selects the inclusive range from the anchor in either direction, and the clicked end becomes primary (the next anchor).
     #[test]
     fn extend_covers_the_inclusive_range_in_both_directions() {
         let mut s = SelectionSet::new();
@@ -262,6 +275,7 @@ mod tests {
         assert_eq!(back.primary(), Some(2), "the clicked end is the new anchor");
     }
 
+    /// Protects: with no anchor, `extend_to` degrades to `replace` instead of selecting from index 0.
     #[test]
     fn extend_with_nothing_selected_is_a_plain_click() {
         let mut s = SelectionSet::new();
@@ -270,6 +284,7 @@ mod tests {
         assert_eq!(s.primary(), Some(6));
     }
 
+    /// Protects: Shift-click replaces the prior selection rather than unioning, as `asset_library_window.gd` does with its `clear()`-then-fill.
     #[test]
     fn extend_replaces_rather_than_unions_matching_the_shells_own_grid() {
         // `asset_library_window.gd:2177` clears before filling the range.
@@ -280,6 +295,7 @@ mod tests {
         assert_eq!(s.sorted(), vec![9, 10, 11], "0 is gone, not kept");
     }
 
+    /// Protects: `apply` dispatches Replace, Toggle and Extend to the matching operation.
     #[test]
     fn apply_routes_the_three_modes() {
         let mut s = SelectionSet::new();
@@ -290,6 +306,7 @@ mod tests {
         assert_eq!(s.sorted(), vec![4, 5, 6]);
     }
 
+    /// Protects: `SelectMode::from_i64` maps 0/1/2 and sends any other value, including negatives, to Replace.
     #[test]
     fn the_wire_encoding_maps_and_falls_back_to_replace() {
         assert_eq!(SelectMode::from_i64(0), SelectMode::Replace);
@@ -299,6 +316,7 @@ mod tests {
         assert_eq!(SelectMode::from_i64(-1), SelectMode::Replace);
     }
 
+    /// Protects: `set_from` keeps in-range indices sorted, drops those at or past `len`, and returns false when any was dropped.
     #[test]
     fn set_from_drops_out_of_range_and_reports_it() {
         let mut s = SelectionSet::new();
@@ -308,6 +326,7 @@ mod tests {
         assert_eq!(s.sorted(), vec![1]);
     }
 
+    /// Protects: `set_from` removes duplicate indices so the set never holds one twice.
     #[test]
     fn set_from_dedupes() {
         let mut s = SelectionSet::new();
@@ -315,6 +334,7 @@ mod tests {
         assert_eq!(s.sorted(), vec![1, 2]);
     }
 
+    /// Protects: `select_all(n)` selects 0..n ascending and `select_all(0)` selects nothing.
     #[test]
     fn select_all_takes_the_whole_list_and_an_empty_one_selects_nothing() {
         let mut s = SelectionSet::new();
@@ -325,6 +345,7 @@ mod tests {
         assert_eq!(s.primary(), None);
     }
 
+    /// Protects: at one member `retain_after_remove` matches `IconEditor::delete`: the removed index clears, a later one shifts down, an earlier one is untouched.
     #[test]
     fn retain_after_remove_reproduces_the_scalar_rule_at_one_member() {
         // The removed one clears -- `IconEditor::delete`'s `Some(s) if s == index`.
@@ -346,6 +367,7 @@ mod tests {
         assert_eq!(earlier.primary(), Some(1));
     }
 
+    /// Protects: with several members the removed one is dropped and every later one is decremented, so each still names its entity.
     #[test]
     fn retain_after_remove_shifts_every_member_of_a_real_set() {
         let mut s = SelectionSet::new();
@@ -354,6 +376,7 @@ mod tests {
         assert_eq!(s.sorted(), vec![1, 4], "3 is gone, 5 became 4, 1 stayed");
     }
 
+    /// Protects: removal re-points indices without disturbing recency, so the primary stays the most recently added survivor.
     #[test]
     fn retain_after_remove_keeps_recency_order_for_the_survivors() {
         let mut s = SelectionSet::new();

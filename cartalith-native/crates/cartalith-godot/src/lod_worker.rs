@@ -193,6 +193,8 @@ pub struct OwnedSplat {
 }
 
 impl OwnedSplat {
+    /// Borrows the owned channels as the `render::SplatTextures` view the tile
+    /// coloriser takes. Pure re-borrow; it must never copy a channel.
     pub(crate) fn as_textures(&self) -> SplatTextures<'_> {
         SplatTextures {
             grass: self.grass.as_ref(),
@@ -361,6 +363,8 @@ struct Digest {
 }
 
 impl Digest {
+    /// A digest seeded with the 64-bit FNV offset basis `0xcbf29ce484222325`
+    /// (FNV reference constant), with an empty test log under `cfg(test)`.
     fn new() -> Self {
         Digest {
             h: 0xcbf2_9ce4_8422_2325,
@@ -368,11 +372,17 @@ impl Digest {
             log: Vec::new(),
         }
     }
+    /// Folds one 64-bit word into the state: xor, then multiply by the 64-bit
+    /// FNV prime `0x100000001b3` (FNV reference constant). Every other `Digest`
+    /// method reduces to this, so the structure of the stream is a sequence of
+    /// `word` calls.
     fn word(&mut self, w: u64) {
         self.h = (self.h ^ w).wrapping_mul(0x0000_0100_0000_01b3);
         #[cfg(test)]
         self.log.push(w);
     }
+    /// Folds a float by its exact bit pattern, so `-0.0` and `0.0`, or two NaN
+    /// payloads, are distinct inputs; a changed value always changes the digest.
     fn f64(&mut self, v: f64) {
         self.word(v.to_bits());
     }
@@ -401,6 +411,8 @@ impl Digest {
             self.word(x.to_bits() as u64);
         }
     }
+    /// Folds an is-present flag (1 or 0) so an absent optional input and a present
+    /// but empty one cannot hash alike.
     fn tag(&mut self, present: bool) {
         self.word(if present { 1 } else { 0 });
     }
@@ -1230,6 +1242,10 @@ pub struct ReadyInfoTile {
     pub rgba: Vec<u8>,
 }
 
+/// Everything [`LodWorker`] guards behind its one `Mutex`: the live snapshot and
+/// its key, the in-flight sets, the finished-tile queues and the diagnostics
+/// counters. Never held across `make()` or a tile render, so a landing job
+/// is not blocked behind the main thread's clone.
 #[derive(Default)]
 struct WorkerState {
     /// The key of `snapshot`, or of the build in flight.
@@ -1251,11 +1267,6 @@ struct WorkerState {
     info_dropped: u64,
 }
 
-/// The main thread's handle on the background synthesis.
-///
-/// Held by `WorldGen` as an `Arc<LodWorker>`; the `Arc` is what a job captures.
-/// Nothing inside is Godot-aware, which is what makes crossing a thread with it
-/// legal at all.
 /// A pyramid read back from a project archive, held until a snapshot can say
 /// whether it is still this world's (owner rulings 28/29's read half).
 ///
@@ -1273,11 +1284,18 @@ pub struct StoredPyramid {
 /// What `WorldGen::project_open` holds out of `ProjectData::lod_tiles` — one
 /// conversion, so the tests below exercise the open path's own code.
 impl From<cartalith_io::project::LodTiles> for StoredPyramid {
+    /// Field-for-field move; no validation here, because validity is decided later
+    /// by the producer string (see [`LodWorker::seed`]).
     fn from(l: cartalith_io::project::LodTiles) -> Self {
         StoredPyramid { producer: l.producer, tile_w: l.tile_w, tile_h: l.tile_h, tiles: l.tiles }
     }
 }
 
+/// The main thread's handle on the background synthesis.
+///
+/// Held by `WorldGen` as an `Arc<LodWorker>`; the `Arc` is what a job captures.
+/// Nothing inside is Godot-aware, which is what makes crossing a thread with it
+/// legal at all. It must never hold a `Gd` or a `WorldGen` borrow.
 #[derive(Default)]
 pub struct LodWorker {
     /// Bumped whenever the snapshot key changes or [`Self::invalidate`] runs.
@@ -1665,6 +1683,8 @@ impl LodWorker {
     }
 }
 
+/// Tests for the budget table, the snapshot, the worker's generation rule and
+/// the stored-pyramid seed, driven through the real archive writer and reader.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1730,6 +1750,7 @@ mod tests {
     /// that both paths call `render_tile`; this is the argument being
     /// exercised rather than written down, over enough tiles that a
     /// thread-count-dependent seam would have to show.
+    /// Protects: the milestone's determinism claim: tiles produced by the worker pool are byte-for-byte what `render_tile` draws on the calling thread, and none is empty so the comparison cannot pass vacuously.
     #[test]
     fn worker_and_main_thread_tiles_are_byte_identical() {
         let snap = Arc::new(LodSnapshot::build(inputs(96, 72)).expect("snapshot"));
@@ -1949,6 +1970,7 @@ mod tests {
     /// A result that lands after the world has moved on must be discarded,
     /// not installed. Driven through `invalidate`, which is what a world
     /// release does.
+    /// Protects: a job that finishes after `invalidate` bumps the generation is discarded, never handed to `take_ready`, and counts as neither built nor live.
     #[test]
     fn a_tile_landing_after_an_invalidate_is_dropped() {
         let snap = Arc::new(LodSnapshot::build(inputs(64, 48)).expect("snapshot"));
@@ -1977,6 +1999,7 @@ mod tests {
     /// wrong key must miss, or a tile would be coloured with the previous
     /// world's precomputes — the whole-map colour error LOD-D2's cache key
     /// exists to prevent.
+    /// Protects: `snapshot_for` hits only on the exact key: a prefix, the empty key and another world's key all miss.
     #[test]
     fn snapshot_for_matches_on_the_key_and_only_on_the_key() {
         let snap = Arc::new(LodSnapshot::build(inputs(48, 36)).expect("snapshot"));
@@ -1991,6 +2014,7 @@ mod tests {
     /// The in-flight cap is a cap. Asserted by asking for more than it allows
     /// and counting the refusals, because a cap that is never reached is a
     /// number nobody checks.
+    /// Protects: `request` refuses once `max_in_flight` jobs are outstanding, so a viewful of requests cannot queue unbounded work.
     #[test]
     fn the_in_flight_cap_refuses_rather_than_queueing_without_bound() {
         let snap = Arc::new(LodSnapshot::build(inputs(160, 128)).expect("snapshot"));
@@ -2011,6 +2035,7 @@ mod tests {
     /// The budget table, asserted as literals rather than against itself
     /// (`MISTAKES.md`: *"assert a literal, or the independent thing the value
     /// must equal"*), plus the two relationships the shell depends on.
+    /// Protects: the per-tier `LodBudget` literals, `Quality` keeping the pre-D6 shell constants, a monotone ladder, and the 60 MiB memory bar against the pre-`Arc` snapshot size.
     #[test]
     fn the_tier_budgets_are_the_documented_literals() {
         let p = budget_for_tier(QualityTier::Performance);
@@ -2038,7 +2063,11 @@ mod tests {
         // `cartalith_godot.dll`; substituting arithmetic for that run is the
         // exact mistake the paragraph above this test records twice.
         const BAR: usize = 60 * 1024 * 1024;
+        // 53 698 560 B: the snapshot's retained size at 2048x1311, measured by
+        // `_d6async_probe.gd` section 9 on 2026-09-21 and kept as the PRE-`Arc` upper
+        // bound (see the paragraph above).
         const SNAPSHOT_2048X1311: usize = 53_698_560;
+        // One parked tile: 256 x 256 px RGBA8 (`TILE_PX` = 256, 4 bytes per pixel).
         const TILE_BYTES: usize = 256 * 256 * 4;
         for t in QualityTier::ALL {
             let worst = SNAPSHOT_2048X1311 + budget_for_tier(t).cache_tiles * TILE_BYTES;
@@ -2066,6 +2095,7 @@ mod tests {
     /// of it proves the counter is not merely broken: the buffer is asserted
     /// to be the same allocation, and something that IS copied is still
     /// counted.
+    /// Protects: `retained_bytes` is zero for the four shared world grids (same allocation, `Arc::ptr_eq`) and counts a copied one-byte-per-cell ink exactly.
     #[test]
     fn retained_bytes_counts_only_what_the_snapshot_copied() {
         let (gw, gh) = (64usize, 48usize);
@@ -2091,6 +2121,7 @@ mod tests {
     /// per-cell lithology, and — via `strong_count` — that the build drops
     /// the source, which is what makes the cost a peak rather than a
     /// residency.
+    /// Protects: a `LithoSource` is shared not copied, still yields a per-cell lithology, keeps only the age and resistance grids for the info views, and drops volcanic and crust after the build.
     #[test]
     fn a_litho_source_shares_its_grids_and_still_builds_a_lithology() {
         let (gw, gh) = (64usize, 48usize);
@@ -2132,6 +2163,7 @@ mod tests {
 
     /// A degenerate grid must return `None` rather than panic — this runs on
     /// a worker thread, where a panic has no `#[func]` to return through.
+    /// Protects: `LodSnapshot::build` returns `None` (no panic on the worker thread) for a one-column grid or a height field shorter than its grid.
     #[test]
     fn a_degenerate_grid_refuses_to_build() {
         let mut i = inputs(8, 8);
@@ -2144,6 +2176,7 @@ mod tests {
 
     /// An out-of-range tile index comes back as `None` from the worker path
     /// too, and is counted as dropped rather than silently forgotten.
+    /// Protects: a request for a tile outside the level is accepted, finishes with nothing built, and is counted as dropped rather than left in flight.
     #[test]
     fn an_out_of_range_tile_is_dropped_not_hung() {
         let snap = Arc::new(LodSnapshot::build(inputs(48, 36)).expect("snapshot"));
@@ -2174,6 +2207,7 @@ mod tests {
     /// on read, and nothing dropped as stale (the empty `source_key` this
     /// test leaves, like the real save path does, is exactly the "a fresh
     /// producer" contract `LodTiles::source_key`'s own doc names).
+    /// Protects: the pyramid masks are real data, match `pyramid_mask_bytes`'s estimate, and survive a real project write and read byte-exactly with no warnings.
     #[test]
     fn render_pyramid_masks_round_trips_through_the_project_archive() {
         let (gw, gh) = (48usize, 36usize);
@@ -2257,6 +2291,7 @@ mod tests {
     /// save before this feature existed (ruling 28: *"off by default"*).
     /// This is the "structurally identical to today's un-ticked save" half
     /// of the round-trip check.
+    /// Protects: a save with `lod_tiles = None` writes no LOD entries and reads back clean, matching every pre-feature save (ruling 28, off by default).
     #[test]
     fn no_lod_tiles_means_no_cartography_entries_at_all() {
         let (gw, gh) = (8usize, 8usize);
@@ -2302,10 +2337,14 @@ mod tests {
 
     // -- owner rulings 28/29: the stored pyramid, read back and seeded ------
 
+    /// The `SaveParams` of the 1234-seed, 800 km, sea 0.42 test world at `gw` x
+    /// `gh`; the values mirror [`inputs`] so an archive built from it matches.
     fn save_params(gw: usize, gh: usize) -> cartalith_io::SaveParams {
         cartalith_io::SaveParams { gw, gh, seed: 1234, map_width_km: 800.0, sea_level: 0.42, world: false, origin: None, name: None }
     }
 
+    /// A `SaveFields` around `heightmap` with a flat 15.0 temperature and 0.5
+    /// rainfall (arbitrary fillers: the pyramid tests read only the heightmap).
     fn save_fields(heightmap: Vec<f32>) -> cartalith_io::SaveFields {
         let n = heightmap.len();
         cartalith_io::SaveFields {
@@ -2332,6 +2371,8 @@ mod tests {
         cartalith_io::project::read_project(std::io::Cursor::new(&buf)).expect("read succeeds").lod_tiles
     }
 
+    /// Every `(z, col, row)` of levels `0..=z_max`, the walk a full pyramid save
+    /// makes (`1 + 4 + 16 ...` tiles).
     fn every_tile(z_max: i32) -> Vec<(i32, i32, i32)> {
         let mut v = Vec::new();
         for z in 0..=z_max {
@@ -2350,6 +2391,7 @@ mod tests {
     /// inputs is served back **byte-identical to what synthesis draws**, on
     /// both the synchronous path and the worker path, and nothing is
     /// synthesised while it is.
+    /// Protects: a stored pyramid whose producer matches is served byte-identical to synthesis on both the sync and worker paths with nothing synthesised, and a deeper tile is still synthesised.
     #[test]
     fn a_reopened_pyramid_is_served_instead_of_synthesised() {
         let (gw, gh) = (48usize, 36usize);
@@ -2396,6 +2438,7 @@ mod tests {
     /// it was opened with. The negative control is a seed under another
     /// producer, where every tile is synthesised and still comes out the same
     /// -- so the zero above is the reuse, not an empty walk.
+    /// Protects: re-saving after a seeded open reuses all 21 held masks byte-for-byte, and a seed under another producer is held but never reused.
     #[test]
     fn a_re_save_after_a_seeded_open_synthesises_nothing() {
         let (gw, gh) = (48usize, 36usize);
@@ -2443,6 +2486,7 @@ mod tests {
     /// code built it (`project_bridge.rs`'s save path at `5e09ae8`), and it
     /// must never be seeded, because nothing in it says which colour space or
     /// attachments its tiles were drawn under.
+    /// Protects: a pyramid stored under the old digest-less producer id is held yet never served, since it cannot say which colour space or attachments drew it.
     #[test]
     fn a_pyramid_saved_before_the_input_digest_is_never_seeded() {
         let (gw, gh) = (48usize, 36usize);
@@ -2468,6 +2512,7 @@ mod tests {
     /// (`lod_snapshot_inputs`' `Loaded` arm). Each is one change from the
     /// saving snapshot; the negative control at the end shows the same seed
     /// IS served when nothing changed, so the refusals are not vacuous.
+    /// Protects: changing colour space, appearance, flow, ink or paint each moves the producer and refuses the seed, while unchanged inputs are served (the control).
     #[test]
     fn a_seed_drawn_under_other_inputs_is_not_served() {
         let (gw, gh) = (48usize, 36usize);
@@ -2503,6 +2548,7 @@ mod tests {
     /// by another tool that kept the old tiles — reaches `project_open` with
     /// no pyramid at all, so there is nothing to seed. Built by rewriting a
     /// real archive's index, not by constructing a `ProjectData`.
+    /// Protects: an archive whose index `source_key` names another world is dropped at read with a warning, so nothing is seeded and the tile is synthesised.
     #[test]
     fn a_source_key_mismatch_leaves_nothing_to_seed() {
         use std::io::{Read, Write};
@@ -2561,6 +2607,7 @@ mod tests {
 
     /// The digest is derived from the definition, and every field it reads
     /// moves it. One mutation per field class; `key` must NOT move it.
+    /// Protects: `fingerprint` moves with each tile input (including forced lakes and which cells) and not with the session `key`, and ignores `grid_rgb` while local contrast is off.
     #[test]
     fn the_input_fingerprint_moves_with_every_tile_input_and_not_with_the_key() {
         let (gw, gh) = (16usize, 12usize);
@@ -2768,6 +2815,7 @@ mod tests {
     /// plateau is forced, and the tile over it must differ from the unforced
     /// tile there while every pixel away from the block is unchanged -- the
     /// mask reaches `TileFields` through `LodSnapshot::build` and nowhere else.
+    /// Protects: Ruling BO in the worker path: a forced-lake mask changes the tile pixels over the forced block and leaves pixels far from it untouched.
     #[test]
     fn a_snapshot_with_forced_lakes_draws_them_in_its_tiles() {
         let (gw, gh) = (96usize, 72usize);
