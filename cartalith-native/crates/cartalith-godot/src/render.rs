@@ -10101,7 +10101,11 @@ impl<'a> TileFields<'a> {
         // From the world's height (`water_height`), never the shaded field
         // RV-3 hands `ctx.field`: the valley re-cut is not hydrology, and a
         // depression it opened or closed must not become or stop being a lake.
-        let wb = cartalith_civ::build_water_bodies(ctx.water_height(), gw, gh, ctx.sea_level, ctx.world, Some(ctx.rainfall));
+        // Ruling CC: through `water_bodies_floored`, the floor included, so a
+        // pond the base map dropped is not drawn back in the tiles. `None`:
+        // the forced lakes arrive later through `with_forced_lakes`, and the
+        // floor does not read them.
+        let wb = water_bodies_floored(ctx.water_height(), ctx.rainfall, gw, gh, ctx.sea_level, ctx.world, None);
 
         TileFields {
             gw,
@@ -11413,8 +11417,39 @@ pub fn apply_forced_lakes(classification: &mut [u8], forced: Option<&[u8]>) {
     }
 }
 
+/// **The one classification every map path draws and the civ layer reads**:
+/// `build_water_bodies`, then Ruling CC's lake basin-area floor
+/// ([`cartalith_civ::apply_lake_area_floor`] at
+/// [`cartalith_civ::lake_area_floor_cells`] for this grid), then Ruling BO's
+/// forced lakes ([`apply_forced_lakes`]). Floor before force, so a painted
+/// lake is never removed (`cartalith_civ`'s
+/// `lake_area_floor_then_force_keeps_every_forced_cell`).
+///
+/// Every production `build_water_bodies` call in this crate goes through
+/// here (`sea_live_bridge::water_bodies_at` is this function), so the base
+/// map, the LOD tiles, the biome band, exports, the atlas, route inputs and
+/// the civ layer cannot disagree about which ponds the floor removed. A
+/// caller that applies its mask later (`TileFields::with_forced_lakes`)
+/// passes `None` and gets the identical floor, because the floor does not
+/// read the mask. Always on: the classification has no parameter plumbing
+/// (Ruling Q's change to it shipped the same way), so there is no switch.
+///
+/// The floor is 1 cell, so a no-op, on every grid under 1 006 848 cells
+/// (`lake_area_floor_cells`' doc): every small test world here is
+/// byte-identical to the bare `build_water_bodies` + forced-lakes pair it
+/// replaced. Must never be given a `rainfall` other than the one the world
+/// was classified with, or a `field` other than its water height.
+#[allow(clippy::too_many_arguments, dead_code)]
+pub fn water_bodies_floored(field: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea: f64, world: bool, forced: Option<&[u8]>) -> cartalith_civ::WaterBodies {
+    let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, sea, world, Some(rainfall));
+    cartalith_civ::apply_lake_area_floor(&mut wb, field, gw, gh, sea, world, cartalith_civ::lake_area_floor_cells(gw, gh));
+    apply_forced_lakes(&mut wb.classification, forced);
+    wb
+}
+
 /// The grid's B4 biome-boundary distance (`sdf_biomes`): the water-body
-/// classification, Ruling BO's forced lakes applied to it, the biome raster
+/// classification with Ruling CC's floor and Ruling BO's forced lakes applied
+/// ([`water_bodies_floored`]), the biome raster
 /// classified from that, and its distance transform.
 ///
 /// One body for [`GridPrecompute::build_forced`] and
@@ -11435,8 +11470,8 @@ pub fn apply_forced_lakes(classification: &mut [u8], forced: Option<&[u8]>) {
 /// at any lake, natural or forced.
 #[allow(clippy::too_many_arguments)]
 fn grid_biome_boundary_dist(field: &[f32], temperature: &[f32], rainfall: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, forced: Option<&[u8]>) -> Vec<f32> {
-    let mut class = cartalith_civ::build_water_bodies(field, gw, gh, sea_level, world, Some(rainfall)).classification;
-    apply_forced_lakes(&mut class, forced);
+    // Ruling CC's floor and Ruling BO's mask, in `water_bodies_floored`'s order.
+    let class = water_bodies_floored(field, rainfall, gw, gh, sea_level, world, forced).classification;
     let biome = cartalith_civ::build_biome_raster(&class, temperature, rainfall);
     build_biome_boundary_dist(&biome, gw, gh)
 }

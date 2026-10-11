@@ -1805,7 +1805,9 @@ impl AtlasFields {
         let map_width_km = wg.map_width_km;
         let biome_k = wg.params.civ.biome_k;
 
-        let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea, world, Some(&ws.rainfall));
+        // Ruling CC's floor, as `compute_civilisation` applies it
+        // (`render::water_bodies_floored`); no forced-lake mask, as before.
+        let wb = render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, sea, world, None);
         let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
         let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
         let lithology = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, sea);

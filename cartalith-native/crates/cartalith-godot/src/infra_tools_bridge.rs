@@ -608,7 +608,8 @@ impl RouteInputs {
     /// `forced_lakes`: `WorldGen::forced_lakes.as_deref()` — the same mask
     /// `WorldGen::drawn_water_bodies` applies. `None` (no world has ever had
     /// one forced) or all-zero leaves `wb.classification` exactly as
-    /// `build_water_bodies` returned it — see [`RouteInputs`]'s own doc
+    /// `build_water_bodies` and Ruling CC's lake basin-area floor returned it
+    /// (`render::water_bodies_floored`) — see [`RouteInputs`]'s own doc
     /// comment.
     #[allow(clippy::too_many_arguments)]
     pub fn build(
@@ -622,8 +623,9 @@ impl RouteInputs {
         forced_lakes: Option<&[u8]>,
     ) -> Self {
         let sea_level = ws.sea_level;
-        let mut wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
-        crate::apply_forced_lakes(&mut wb.classification, forced_lakes);
+        // Ruling CC's floor, then the forced lakes: the drawn map's water
+        // (`render::water_bodies_floored`).
+        let wb = crate::render::water_bodies_floored(&ws.field, &ws.rainfall, gw, gh, sea_level, world, forced_lakes);
         let (biome, river_order) = if mode == RouteMode::Mixed {
             let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
             let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km, ws.integrated_drainage);

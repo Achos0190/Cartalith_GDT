@@ -3154,3 +3154,7 @@ and that is the one entry it costs anything on.
 The before and after runs were separate invocations minutes apart on the same
 machine, each run alone; they are not interleaved, so the timing columns are a
 direction and a magnitude, not a controlled comparison.
+
+## Lake basin-area floor (2026-10-11, Ruling CC)
+
+The floor adds nothing to the save, but the civ classification it changes is already stored (`rasters/water_bodies.u8`), so projects saved from now on hold floored lakes. Any world regenerated, including from an old save, gets the floor: its ponds below the scaled floor (4 cells at 2048 x 1311, `lake_area_floor_cells`) become land. An old project reopened draws floored water, because `drawn_water_bodies` recomputes it, while its stored civ raster keeps the pre-floor ponds until the civ layer is recomputed. The floor only ever turns lake into land, so no stored settlement can end up in water. Worlds under about 1.0 M cells keep every lake.

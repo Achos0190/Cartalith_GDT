@@ -7175,6 +7175,11 @@ impl WorldGen {
     /// classification thresholds, so the two must come from one call. The
     /// single place either is computed for the drawn map.
     ///
+    /// Then Ruling CC's lake basin-area floor
+    /// (`cartalith_civ::apply_lake_area_floor`, through
+    /// `render::water_bodies_floored`), which turns ponds under the scaled
+    /// floor back into land and leaves `fill_level` as the flood made it.
+    ///
     /// Then the forced-lake post-pass ([`apply_forced_lakes`] over
     /// [`Self::forced_lakes`]) -- the reference's own order: `forceLake` is
     /// the last mutation `buildWaterBodies` makes to its classification
@@ -13819,10 +13824,10 @@ impl WorldGen {
         s.draft.preview_into(&ws.field, &mut scratch);
 
         let appearance = self.appearance();
-        let mut lakes = cartalith_civ::build_water_bodies(&scratch, gw, gh, self.sea_level, self.world, Some(&ws.rainfall)).classification;
-        // Ruling BO: the forced lakes `build_color_texture` draws, so the
-        // preview does not make a forced lake vanish while a stroke is drafted.
-        apply_forced_lakes(&mut lakes, self.forced_lake_mask());
+        // Ruling CC's floor and Ruling BO's forced lakes, the ones
+        // `build_color_texture` draws, so the preview does not make a forced
+        // lake vanish (or a floored pond appear) while a stroke is drafted.
+        let lakes = render::water_bodies_floored(&scratch, &ws.rainfall, gw, gh, self.sea_level, self.world, self.forced_lake_mask()).classification;
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,

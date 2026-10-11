@@ -207,11 +207,12 @@ impl ExportSnapshot {
         // on screen (`RenderCtx::with_map_scale_forced`).
         let pre = GridPrecompute::build_split(shaded, &i.field, &i.temperature, &i.rainfall, flow, gw, gh, i.sea_level, i.world, &i.appearance, Some(i.map_width_km), i.forced_lakes.as_deref());
         let lithology = i.litho.as_ref().map(|l| cartalith_civ::build_lithology(shaded, &l.age, &l.volcanic, &l.crust, &l.resistance, &i.rainfall, i.sea_level));
-        let wb = cartalith_civ::build_water_bodies(&i.field, gw, gh, i.sea_level, i.world, Some(&i.rainfall));
-        let mut lakes = wb.classification;
-        // Ruling BO: the forced lakes the screen draws, carried in the same
-        // snapshot inputs the tiles read, so the export shows them too.
-        crate::apply_forced_lakes(&mut lakes, i.forced_lakes.as_deref());
+        // Ruling CC's floor and Ruling BO's forced lakes (the ones the screen
+        // draws, carried in the same snapshot inputs the tiles read), in the
+        // screen's own order (`render::water_bodies_floored`), so the export
+        // shows exactly the screen's water.
+        let wb = render::water_bodies_floored(&i.field, &i.rainfall, gw, gh, i.sea_level, i.world, i.forced_lakes.as_deref());
+        let lakes = wb.classification;
         // RV-5: the screen's smooth shoreline, from the same classification,
         // fill level and mask (`export_render_with` builds the identical one).
         let shore = if i.appearance.smooth_shores {

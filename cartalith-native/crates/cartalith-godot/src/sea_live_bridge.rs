@@ -61,8 +61,10 @@ pub(crate) const SEA_LIVE_REASON: &str = "sea_level";
 /// module's own Stage-1 list above.
 pub(crate) const SEA_LIVE_NOTE: &str = "Moves the coastline, lakes, biomes, map colours and the civilisation's water readings at once, without regenerating. Erosion and the carved river valleys keep the coastline this world was generated with. Rainfall, river flow, settlements, roads and borders go stale until you recompute them.";
 
-/// `buildWaterBodies` at `sea` over `field`/`rainfall`, with Ruling BO's
-/// forced lakes applied last (the reference's own order).
+/// `buildWaterBodies` at `sea` over `field`/`rainfall`, then Ruling CC's lake
+/// basin-area floor, with Ruling BO's forced lakes applied last (the
+/// reference's own order) -- [`crate::render::water_bodies_floored`], the
+/// body every map path shares.
 ///
 /// The **one** body behind both the drawn map
 /// (`WorldGen::drawn_water_bodies`) and the civ layer
@@ -79,9 +81,7 @@ pub(crate) fn water_bodies_at(
     world: bool,
     forced: Option<&[u8]>,
 ) -> cartalith_civ::WaterBodies {
-    let mut wb = cartalith_civ::build_water_bodies(field, gw, gh, sea, world, Some(rainfall));
-    crate::render::apply_forced_lakes(&mut wb.classification, forced);
-    wb
+    crate::render::water_bodies_floored(field, rainfall, gw, gh, sea, world, forced)
 }
 
 /// Ruling 17: every draft stamp re-stamped at `sea` through
@@ -392,5 +392,38 @@ mod tests {
         // Land next to the ocean column: (1,0) and (1,2). (2,*) is not.
         assert_eq!(coast_cells(&class, 3, 3), 2);
         assert_eq!(coast_cells(&class, 4, 3), 0, "a mismatched grid counts nothing");
+    }
+
+    /// Protects: Ruling CC's floor reaching the drawn map and the civ layer
+    /// (`water_bodies_at` is their one body), in the order that keeps a
+    /// painted lake. On a grid just past the 1-cell threshold (2048 x 656 =
+    /// 1 343 488 cells, scaled floor `2`, checked as a literal), a 1-cell pit
+    /// is a lake in the bare `build_water_bodies` output (the control) and
+    /// land in `water_bodies_at`'s; a 2-cell pit stays; and painting the
+    /// 1-cell pit makes it a lake again (floor, then force).
+    #[test]
+    fn the_drawn_water_drops_a_pond_under_the_scaled_floor_but_keeps_a_painted_one() {
+        let (gw, gh) = (2048usize, 656usize);
+        assert_eq!(cartalith_civ::lake_area_floor_cells(gw, gh), 2);
+        // A dome rising 0.001 per ring from the border: no cell but the pits
+        // is raised by the flood (cartalith-civ's `floor_dome`, same reason).
+        let ring = |x: usize, y: usize| 0.5 + 0.001 * x.min(y).min(gw - 1 - x).min(gh - 1 - y) as f64;
+        let mut field: Vec<f32> = (0..gw * gh).map(|i| ring(i % gw, i / gw) as f32).collect();
+        let one = 200 * gw + 300;
+        let two = [200 * gw + 900, 200 * gw + 901];
+        for &i in std::iter::once(&one).chain(&two) {
+            field[i] = (ring(i % gw, i / gw) - 0.1) as f32;
+        }
+        let rain = vec![0.9f32; gw * gh];
+        let sea = 0.3;
+        let lakes = |c: &[u8]| c.iter().enumerate().filter(|&(_, &k)| k == 2).map(|(i, _)| i).collect::<Vec<_>>();
+        let bare = cartalith_civ::build_water_bodies(&field, gw, gh, sea, false, Some(&rain));
+        assert_eq!(lakes(&bare.classification), vec![one, two[0], two[1]], "control: both pits are lakes before the floor");
+        let drawn = water_bodies_at(&field, &rain, gw, gh, sea, false, None);
+        assert_eq!(lakes(&drawn.classification), two.to_vec(), "the 1-cell pond is under the floor of 2");
+        let mut paint = vec![0u8; gw * gh];
+        paint[one] = 1;
+        let painted = water_bodies_at(&field, &rain, gw, gh, sea, false, Some(&paint));
+        assert_eq!(lakes(&painted.classification), vec![one, two[0], two[1]], "a painted pond is never removed");
     }
 }

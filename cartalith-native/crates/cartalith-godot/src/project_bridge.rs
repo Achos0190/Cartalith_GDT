@@ -4711,7 +4711,8 @@ impl WorldGen {
             // No world: nothing to classify.
             None => return std::sync::Arc::from(vec![0u8; n].as_slice()),
         };
-        let wb = cartalith_civ::build_water_bodies(field, gw, gh, self.sea_level, self.world, Some(rain));
+        // Ruling CC's floor, as the drawn map applies it; no mask, as before.
+        let wb = crate::render::water_bodies_floored(field, rain, gw, gh, self.sea_level, self.world, None);
         std::sync::Arc::from(wb.classification.as_slice())
     }
 

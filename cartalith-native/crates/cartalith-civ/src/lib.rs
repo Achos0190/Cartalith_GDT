@@ -382,9 +382,11 @@ pub fn compute_affordance_fields(
 ///
 /// **`basin` / `basin_outlet` (additive, `LAKE_FILL_RESEARCH.md` Part 3 row
 /// "Return spill point / outlet / basin id", shortlist item 3).** They record
-/// what the priority flood already knew and used to discard. They are read
-/// by nothing yet and change no other field: `classification` and `fill_level`
-/// are byte-identical to what they were before these two existed.
+/// what the priority flood already knew and used to discard. They change no
+/// other field: `classification` and `fill_level` are byte-identical to what
+/// they were before these two existed. `basin` is read by
+/// [`apply_lake_area_floor`] (Ruling CC); `basin_outlet` is read by nothing
+/// yet.
 ///
 /// *Definition.* The flood visits each cell exactly once, from the popped
 /// cell that reached it first (its *releaser*). A cell is a **pool cell** when
@@ -408,7 +410,8 @@ pub fn compute_affordance_fields(
 /// at 2048: 510 of 7 114 raised components hold more than one id), because
 /// `wb_visit` opens a new id for every raised neighbour of a non-raised spill
 /// cell. A consumer must join ids by adjacency before treating an id as a
-/// depression (`tests/lake_candidates_harness.rs` does).
+/// depression (`cartalith-godot`'s `tests/lake_candidates_harness.rs` and
+/// [`apply_lake_area_floor`] do).
 pub struct WaterBodies {
     pub classification: Vec<u8>,
     pub fill_level: Vec<f32>,
@@ -1184,6 +1187,188 @@ pub fn apply_force_lake(classification: &mut [u8], force: &[u8]) {
             *c = 2;
         }
     }
+}
+
+/// Ruling CC's floor at the reference grid, in cells of pool area: `4`. The
+/// owner's number (`LARGE_ITEM_RULINGS.md`, Ruling CC item 1: "a 4-cell floor
+/// at the reference size"), chosen from `LAKE_FILL_RESEARCH.md`'s measured
+/// comparison: just above the 1-3-cell band B8 counts. Read through
+/// [`lake_area_floor_cells`], never directly, so it scales with the grid.
+pub const LAKE_AREA_FLOOR_REF_CELLS: f64 = 4.0;
+
+/// The grid [`LAKE_AREA_FLOOR_REF_CELLS`] is stated at: `2048 x 1311`, the
+/// harness worlds the owner was shown (`tests/lake_candidates_harness.rs` in
+/// `cartalith-godot`, `gh = round(0.64 * gw)`), which is also the app's
+/// default grid.
+pub const LAKE_AREA_FLOOR_REF_GRID: (usize, usize) = (2048, 1311);
+
+/// **Ruling CC: the lake basin-area floor for a `gw x gh` grid, in cells.**
+///
+/// `round(LAKE_AREA_FLOOR_REF_CELLS * (gw * gh) / (2048 * 1311))`, never below
+/// `1`. **A labelled judgement**, the coordinating session's reading of the
+/// owner's "the floor must scale properly with world size": the ruling fixes
+/// 4 cells at the reference grid and says a fixed cell count is wrong; scaling
+/// by the grid's CELL COUNT keeps the floor at the same share of the map (a
+/// pond the same fraction of the world is removed on a coarse grid and a fine
+/// one alike). Scaling by cell count rather than by map width in km is the
+/// reading given in the ruling's own text; it is not sourced beyond that.
+///
+/// Consequence, stated so nobody reads it as a defect: below
+/// `0.375 * 2048 * 1311` = 1 006 848 cells (1253 x 802 is under it, 1254 x
+/// 803 over it) the rounded floor is `1`, and a 1-cell floor removes nothing
+/// ([`apply_lake_area_floor`]'s early return), so small worlds -- 512 x 328
+/// and 384 x 246 among them -- keep every lake.
+pub fn lake_area_floor_cells(gw: usize, gh: usize) -> usize {
+    let (rw, rh) = LAKE_AREA_FLOOR_REF_GRID;
+    let share = (gw as f64 * gh as f64) / (rw as f64 * rh as f64);
+    ((LAKE_AREA_FLOOR_REF_CELLS * share).round() as usize).max(1)
+}
+
+/// What [`apply_lake_area_floor`] did: the floor it applied and how many lake
+/// bodies (4-connected `classification == 2` components) and cells it turned
+/// back into land. Counts, never a sentinel: `0` removed means the pass ran
+/// and found nothing under the floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LakeFloorReport {
+    /// The floor applied, in cells of pool area.
+    pub floor: usize,
+    /// Lake bodies whose every cell went from lake (`2`) to land (`0`).
+    pub lakes_removed: usize,
+    /// Cells that went from lake (`2`) to land (`0`).
+    pub cells_removed: usize,
+}
+
+/// **Ruling CC (owner, 2026-10-11): the lake basin-area floor**, candidate 1
+/// of `LAKE_FILL_RESEARCH.md`'s shortlist. A post-pass on
+/// [`build_water_bodies`]' output; `build_water_bodies` itself, and so every
+/// `golden_parity_*` test against the JS reference, is untouched. This is a
+/// deliberate port-only divergence from the reference (`DECISIONS.md` §7p):
+/// the reference keeps every pooled pit, and 1-3-cell pits are numerical noise
+/// from the erosion and noise stages (`LAKE_FILL_RESEARCH.md` Part 1(f), and
+/// B8's 1-3-cell lake count).
+///
+/// *Unit: a depression.* A 4-connected component of raised cells
+/// (`wb.basin != 0`), x wrapping when `world` -- the classifier's own
+/// adjacency (`wb_visit`). [`WaterBodies::basin`] ids alone are NOT one id per
+/// depression (its doc: one depression can carry several), so ids are joined
+/// by adjacency here exactly as `tests/lake_candidates_harness.rs` (the
+/// prototype the owner ruled on) joins them. Diagonal contact does not join
+/// two depressions, as it does not join two lake bodies in the classifier.
+///
+/// *Area:* the depression's count of above-sea lake cells (`classification ==
+/// 2 && field >= sea`, `build_water_bodies`' own above/below-sea test).
+///
+/// *Rule:* every lake body lying wholly above sea and wholly inside a
+/// depression whose area is below `floor` is set back to land (`0`). Untouched,
+/// always: a body with any cell below sea (a below-sea lake component, Ruling
+/// Q/T's pass, with or without pooled cells joined to it); a body any of whose
+/// cells is outside a depression (cannot arise from `build_water_bodies`, kept
+/// as the conservative answer).
+///
+/// *What a removed lake looks like afterwards:* `classification` `0`, with
+/// `fill_level` and `basin` left as the flood made them. That is exactly the
+/// state `build_water_bodies` already leaves a pooled cell its rain gate kept
+/// dry (`classification` `0`, `fill_level > field`), so no consumer meets a
+/// new kind of cell. Every reader of `fill_level` gates on `classification ==
+/// 2` first (`civ_lake_flooded`; `cartalith_godot::render::shore_margins` and
+/// `is_lake_pixel`), so a removed lake's fill is read by nothing. `basin`
+/// describes the flood, not the lakes, so it does not change either.
+///
+/// *Order, and forced lakes (Ruling BO; Ruling CC item 2: never removed):*
+/// run after `build_water_bodies` and BEFORE [`apply_force_lake`], so every
+/// forced cell is a lake whatever this pass did -- the reference's own order,
+/// `forceLake` being the last write to the classification. The pass takes no
+/// mask on purpose: one LOD path (`cartalith_godot::render::TileFields::new`)
+/// classifies before it is handed the mask, so a mask-aware rule would let
+/// the tiles and the base map disagree. Stated consequence: painting part of
+/// a pool under the floor keeps the painted cells and removes the rest.
+///
+/// Never adds a lake cell, never touches ocean (`1`), `field`, `fill_level` or
+/// `basin`; deterministic (two scans in index order). Writes nothing a save
+/// stores beyond the classification the civ layer already stores. A `floor <=
+/// 1` removes nothing (every depression holding a lake has area >= 1) and
+/// returns at once; so do mismatched lengths (a classification not `gw * gh`
+/// long, or a shorter `field`), which no caller produces.
+pub fn apply_lake_area_floor(
+    wb: &mut WaterBodies,
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    floor: usize,
+) -> LakeFloorReport {
+    let n = gw * gh;
+    let mut rep = LakeFloorReport { floor, lakes_removed: 0, cells_removed: 0 };
+    if floor <= 1 || n == 0 || wb.classification.len() != n || wb.basin.len() != n || field.len() < n {
+        return rep;
+    }
+    // 4-neighbours of `i`, x wrapping when `world`: `wb_visit`'s adjacency.
+    let nb4 = |i: usize| -> [Option<usize>; 4] {
+        let (x, y) = (i % gw, i / gw);
+        let left = if x > 0 { Some(i - 1) } else if world { Some(i + gw - 1) } else { None };
+        let right = if x + 1 < gw { Some(i + 1) } else if world { Some(i + 1 - gw) } else { None };
+        let up = (y > 0).then(|| i - gw);
+        let down = (y + 1 < gh).then(|| i + gw);
+        [left, right, up, down]
+    };
+    // Depressions: raised cells joined by adjacency. `0` = no depression;
+    // ids from 1, so `0` can never be read as one.
+    let mut dep = vec![0u32; n];
+    let mut area: Vec<usize> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    for s in 0..n {
+        if dep[s] != 0 || wb.basin[s] == 0 {
+            continue;
+        }
+        area.push(0);
+        let id = area.len() as u32;
+        dep[s] = id;
+        stack.push(s);
+        while let Some(i) = stack.pop() {
+            if wb.classification[i] == 2 && (field[i] as f64) >= sea {
+                area[id as usize - 1] += 1;
+            }
+            for j in nb4(i).into_iter().flatten() {
+                if dep[j] == 0 && wb.basin[j] != 0 {
+                    dep[j] = id;
+                    stack.push(j);
+                }
+            }
+        }
+    }
+    // Lake bodies (4-connected class 2), each judged whole.
+    let mut seen = vec![false; n];
+    let mut body: Vec<usize> = Vec::new();
+    for s in 0..n {
+        if seen[s] || wb.classification[s] != 2 {
+            continue;
+        }
+        seen[s] = true;
+        body.clear();
+        stack.push(s);
+        while let Some(i) = stack.pop() {
+            body.push(i);
+            for j in nb4(i).into_iter().flatten() {
+                if !seen[j] && wb.classification[j] == 2 {
+                    seen[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        let d = dep[body[0]];
+        let removable = d != 0
+            && body.iter().all(|&i| dep[i] == d && (field[i] as f64) >= sea)
+            && area[d as usize - 1] < floor;
+        if removable {
+            for &i in &body {
+                wb.classification[i] = 0;
+            }
+            rep.lakes_removed += 1;
+            rep.cells_removed += body.len();
+        }
+    }
+    rep
 }
 
 /// `BIOME_KEYS` (reference line 6796) -- frozen, append-only. `BIOME_INDEX`
@@ -17580,6 +17765,262 @@ mod tests {
         let mut c = vec![1u8, 1, 0];
         apply_force_lake(&mut c, &[1, 0, 1]);
         assert_eq!(c, vec![2, 1, 2]);
+    }
+
+    /// A dome for the lake-floor fixtures: `0.5 + 0.01 * d`, `d` the cell's
+    /// Chebyshev distance to the nearest border, so every ring has a lower
+    /// neighbour toward the edge and the priority flood raises NO cell but the
+    /// pits dug into it (a flat fixture would raise its whole plateau by `EPS`
+    /// steps and join every pit into one depression). Each `(x, y)` in `pits`
+    /// is dug to its ring height minus `0.1`; each in `deep` to `0.2`, below
+    /// the fixtures' sea level `0.3`.
+    fn floor_dome(gw: usize, gh: usize, pits: &[(usize, usize)], deep: &[(usize, usize)]) -> Vec<f32> {
+        let ring = |x: usize, y: usize| 0.5 + 0.01 * x.min(y).min(gw - 1 - x).min(gh - 1 - y) as f64;
+        let mut f: Vec<f32> = (0..gw * gh).map(|i| ring(i % gw, i / gw) as f32).collect();
+        for &(x, y) in pits {
+            f[y * gw + x] = (ring(x, y) - 0.1) as f32;
+        }
+        for &(x, y) in deep {
+            f[y * gw + x] = 0.2;
+        }
+        f
+    }
+
+    /// The fixtures' sea level: below every dome cell, above every `deep` pit.
+    const FLOOR_SEA: f64 = 0.3;
+
+    /// Lake cells of a classification, as indices (a test helper; asserts
+    /// nothing so a caller can ask for an empty set).
+    fn lake_cells(c: &[u8]) -> Vec<usize> {
+        c.iter().enumerate().filter(|&(_, &k)| k == 2).map(|(i, _)| i).collect()
+    }
+
+    /// Protects: Ruling CC's scaled floor at literal values, the owner's 4
+    /// cells at the reference 2048 x 1311 grid, x4 at twice the width and
+    /// height, the 1-cell minimum on the two small harness worlds and an empty
+    /// grid, and the rounding boundary on either side of 1.5 cells (hand
+    /// computed: 1253*802 = 1 004 906 -> 1.497; 1254*803 = 1 006 962 -> 1.500).
+    #[test]
+    fn lake_area_floor_cells_scales_with_the_grid_at_literal_values() {
+        assert_eq!(lake_area_floor_cells(2048, 1311), 4);
+        assert_eq!(lake_area_floor_cells(4096, 2622), 16);
+        assert_eq!(lake_area_floor_cells(512, 328), 1);
+        assert_eq!(lake_area_floor_cells(384, 246), 1);
+        assert_eq!(lake_area_floor_cells(0, 0), 1);
+        assert_eq!(lake_area_floor_cells(1253, 802), 1);
+        assert_eq!(lake_area_floor_cells(1254, 803), 2);
+        assert_eq!(lake_area_floor_cells(2048, 2622), 8);
+        // Sensitive to the reference grid itself: 1500*671 = 1 006 500 is
+        // 1.4995 cells against 2048 x 1311 but 1.5007 against 2048 x 1310.
+        assert_eq!(lake_area_floor_cells(1500, 671), 1);
+    }
+
+    /// Protects: the floor's core rule at floor 4 on hand-built pools: a 1-cell
+    /// and a 3-cell pool lose their lake classification, a 5-cell pool keeps
+    /// it, and nothing else moves (ocean, land, `fill_level`, `basin`). The
+    /// removed cells are land (`0`), the class `build_water_bodies` gives a
+    /// pooled cell its rain gate keeps dry. Also that the report counts what
+    /// it did.
+    #[test]
+    fn lake_area_floor_removes_pools_under_the_floor_and_keeps_the_rest() {
+        let (gw, gh) = (24, 12);
+        let one = [(3, 3)];
+        let three = [(8, 3), (9, 3), (10, 3)];
+        let five = [(14, 3), (15, 3), (16, 3), (17, 3), (18, 3)];
+        let pits: Vec<_> = one.iter().chain(&three).chain(&five).copied().collect();
+        let field = floor_dome(gw, gh, &pits, &[]);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let idx = |p: &[(usize, usize)]| p.iter().map(|&(x, y)| y * gw + x).collect::<Vec<_>>();
+        let mut all = idx(&pits);
+        all.sort();
+        assert_eq!(lake_cells(&wb.classification), all, "precondition: exactly the 9 pit cells are lake");
+        let (fill0, basin0) = (wb.fill_level.clone(), wb.basin.clone());
+        let before = wb.classification.clone();
+
+        let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(rep, LakeFloorReport { floor: 4, lakes_removed: 2, cells_removed: 4 });
+        assert_eq!(lake_cells(&wb.classification), idx(&five), "only the 5-cell pool is left");
+        for i in idx(&one).into_iter().chain(idx(&three)) {
+            assert_eq!(wb.classification[i], 0, "a removed pool cell is land");
+        }
+        for i in 0..gw * gh {
+            if before[i] != 2 {
+                assert_eq!(wb.classification[i], before[i], "cell {i}: only lake cells may change");
+            }
+        }
+        assert_eq!(wb.fill_level, fill0, "fill_level is left as the flood made it");
+        assert_eq!(wb.basin, basin0, "basin ids describe the flood, not the lakes");
+    }
+
+    /// Protects: the unit being a DEPRESSION, not a `basin` id. The 5-cell
+    /// row pool is discovered by the flood through five spill cells, so it
+    /// carries several basin ids (checked, so the fixture cannot silently stop
+    /// splitting); judged per id every piece is under 4 and the pool would go.
+    /// Joined by adjacency it is one 5-cell depression and stays.
+    #[test]
+    fn lake_area_floor_joins_a_depression_split_across_basin_ids() {
+        let (gw, gh) = (24, 12);
+        let five = [(14, 3), (15, 3), (16, 3), (17, 3), (18, 3)];
+        let field = floor_dome(gw, gh, &five, &[]);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let ids: std::collections::BTreeSet<u32> = five.iter().map(|&(x, y)| wb.basin[y * gw + x]).collect();
+        assert!(ids.len() > 1 && !ids.contains(&0), "precondition: one pool, several basin ids ({ids:?})");
+        let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(rep.cells_removed, 0);
+        assert_eq!(lake_cells(&wb.classification).len(), 5);
+    }
+
+    /// Protects: 4-connectivity, the classifier's own. Two 2-cell pools that
+    /// touch only diagonally are two depressions of area 2, both under a
+    /// floor of 4 and both removed; joined diagonally they would make one of
+    /// area 4 and stay.
+    #[test]
+    fn lake_area_floor_does_not_join_pools_touching_diagonally() {
+        let (gw, gh) = (24, 16);
+        let pits = [(5, 5), (6, 5), (7, 6), (8, 6)];
+        let field = floor_dome(gw, gh, &pits, &[]);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        assert_eq!(lake_cells(&wb.classification).len(), 4, "precondition: four lake cells");
+        let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(rep, LakeFloorReport { floor: 4, lakes_removed: 2, cells_removed: 4 });
+        assert!(lake_cells(&wb.classification).is_empty());
+    }
+
+    /// Protects: Ruling CC item 2 / Ruling BO: a forced (painted) lake is
+    /// never removed, by ORDER: the floor runs first and `apply_force_lake`
+    /// last (the production order, `water_bodies_floored`). A 2-cell pool
+    /// under the floor with one painted cell ends with the painted cell a
+    /// lake and the unpainted one land -- the stated consequence of the
+    /// pass taking no mask (its doc says why).
+    #[test]
+    fn lake_area_floor_then_force_keeps_every_forced_cell() {
+        let (gw, gh) = (24, 12);
+        let pool = [(9, 3), (10, 3)];
+        let field = floor_dome(gw, gh, &pool, &[]);
+        let (a, b) = (3 * gw + 9, 3 * gw + 10);
+        let mut force = vec![0u8; gw * gh];
+        force[a] = 1;
+        // A forced cell on dry ground outside any pool, too.
+        force[8 * gw + 20] = 1;
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        assert_eq!(lake_cells(&wb.classification), vec![a, b], "precondition");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert!(lake_cells(&wb.classification).is_empty(), "the floor removes the 2-cell pool");
+        apply_force_lake(&mut wb.classification, &force);
+        assert_eq!(lake_cells(&wb.classification), vec![a, 8 * gw + 20], "floor then force: every painted cell is a lake");
+    }
+
+    /// Protects: below-sea lakes are never touched. A 1-cell interior pit dug
+    /// below sea is a lake by Ruling Q's first pass (an edge cell dug below
+    /// sea is the ocean, so the fallback that makes the only below-sea
+    /// component ocean does not fire); at floor 4 it stays, while a 1-cell
+    /// above-sea pool beside it (the positive control) goes.
+    #[test]
+    fn lake_area_floor_leaves_below_sea_lakes_alone() {
+        let (gw, gh) = (24, 12);
+        let field = floor_dome(gw, gh, &[(16, 4)], &[(6, 4), (0, 6)]);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let (deep, pool) = (4 * gw + 6, 4 * gw + 16);
+        assert_eq!(lake_cells(&wb.classification), vec![deep, pool], "precondition");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(lake_cells(&wb.classification), vec![deep]);
+    }
+
+    /// Protects: the area counts only ABOVE-sea lake cells. One depression
+    /// (four raised cells in a row) holds a below-sea lake cell, a pooled cell
+    /// the rain gate keeps dry, and a 2-cell above-sea pool. At floor 3 the
+    /// pool's area is 2 and it goes; counting the below-sea cell would make it
+    /// 3 and keep it. The below-sea cell itself stays a lake.
+    #[test]
+    fn lake_area_floor_counts_only_above_sea_cells() {
+        let (gw, gh) = (24, 12);
+        let field = floor_dome(gw, gh, &[(6, 4), (7, 4), (8, 4)], &[(5, 4), (0, 6)]);
+        let mut rain = vec![0.9f32; gw * gh];
+        rain[4 * gw + 6] = 0.05;
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, Some(&rain));
+        let row: Vec<usize> = (5..=8).map(|x| 4 * gw + x).collect();
+        assert!(row.iter().all(|&i| wb.basin[i] != 0), "precondition: the four cells are raised");
+        assert_eq!(lake_cells(&wb.classification), vec![row[0], row[2], row[3]], "precondition: the dry cell splits the lakes");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 3);
+        assert_eq!(lake_cells(&wb.classification), vec![row[0]]);
+    }
+
+    /// Protects: the conservative guard for a lake cell outside every
+    /// depression (`basin == 0`), which `build_water_bodies` never produces
+    /// but a hand-built `WaterBodies` can: it is kept, not removed, and does
+    /// not index a depression that does not exist.
+    #[test]
+    fn lake_area_floor_keeps_a_lake_outside_every_depression() {
+        let (gw, gh) = (4, 3);
+        let field = vec![0.5f32; gw * gh];
+        let mut classification = vec![0u8; gw * gh];
+        classification[5] = 2;
+        let mut wb = WaterBodies { classification, fill_level: field.clone(), basin: vec![0; gw * gh], basin_outlet: Vec::new() };
+        let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(rep.cells_removed, 0);
+        assert_eq!(wb.classification[5], 2);
+    }
+
+    /// Protects: a 1-cell floor removes nothing (the scaled floor on every
+    /// grid under 1 006 848 cells), and the pass is deterministic: two runs
+    /// on one input give identical bytes and reports.
+    #[test]
+    fn lake_area_floor_of_one_is_a_no_op_and_the_pass_is_deterministic() {
+        let (gw, gh) = (24, 12);
+        let pits = [(3, 3), (8, 3), (9, 3), (14, 6)];
+        let field = floor_dome(gw, gh, &pits, &[]);
+        let wb0 = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let rep = apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 1);
+        assert_eq!(rep.cells_removed, 0);
+        assert_eq!(wb.classification, wb0.classification);
+        let run = || {
+            let mut w = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+            let r = apply_lake_area_floor(&mut w, &field, gw, gh, FLOOR_SEA, false, 4);
+            (w.classification, r)
+        };
+        let (c1, r1) = run();
+        assert!(r1.cells_removed > 0, "positive control: floor 4 removes something here");
+        assert_eq!(run(), (c1, r1));
+    }
+
+    /// Protects: a wrapped world joins a pool across the x seam, as the
+    /// classifier's flood does: a 4-cell pool split 2 + 2 over the seam is
+    /// one depression of area 4 at floor 4 and stays (a bounded map would
+    /// drain those edge cells, so the wrapped map is the only case); floor 5
+    /// is the positive control that removes it.
+    #[test]
+    fn lake_area_floor_joins_a_pool_across_a_wrapped_seam() {
+        let (gw, gh) = (24, 12);
+        // A wrapped map has no x edge, so the dome is by distance to the
+        // nearer pole only: every row still has a lower row toward a pole,
+        // and the flood raises nothing but the pits.
+        let ring = |y: usize| 0.5 + 0.01 * y.min(gh - 1 - y) as f64;
+        let mut field: Vec<f32> = (0..gw * gh).map(|i| ring(i / gw) as f32).collect();
+        for x in [gw - 2, gw - 1, 0, 1] {
+            field[3 * gw + x] = (ring(3) - 0.1) as f32;
+        }
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, true, None);
+        let pool: Vec<usize> = [0usize, 1, gw - 2, gw - 1].iter().map(|&x| 3 * gw + x).collect();
+        assert_eq!(lake_cells(&wb.classification), pool, "precondition: the seam pool is the only lake");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, true, 4);
+        assert_eq!(lake_cells(&wb.classification), pool, "joined across the seam: area 4, kept");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, true, 5);
+        assert!(lake_cells(&wb.classification).is_empty(), "positive control: floor 5 removes it");
+    }
+
+    /// Protects: a removed lake does not strand a settlement: a cell of a
+    /// pool the floor removed is dry land to `civ_snap_land` (the settlement
+    /// placement guard), which snapped AWAY from it while it was a lake.
+    #[test]
+    fn a_removed_pool_is_dry_land_to_settlement_snapping() {
+        let (gw, gh) = (24, 12);
+        let field = floor_dome(gw, gh, &[(9, 3), (10, 3)], &[]);
+        let mut wb = build_water_bodies(&field, gw, gh, FLOOR_SEA, false, None);
+        let before = civ_snap_land(9, 3, 6, &field, &wb.classification, &wb.fill_level, gw, gh, FLOOR_SEA);
+        assert!(before.is_some_and(|p| p != (9, 3)), "control: a lake cell is not dry land ({before:?})");
+        apply_lake_area_floor(&mut wb, &field, gw, gh, FLOOR_SEA, false, 4);
+        assert_eq!(civ_snap_land(9, 3, 6, &field, &wb.classification, &wb.fill_level, gw, gh, FLOOR_SEA), Some((9, 3)));
     }
 
     #[test]
