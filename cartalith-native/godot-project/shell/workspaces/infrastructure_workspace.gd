@@ -247,6 +247,12 @@ func _build() -> void:
 	## this is deliberately not a second one).
 	bridge.generation_finished.connect(func(ok: bool): if ok: rebuild_readouts())
 	bridge.world_loaded.connect(rebuild_readouts)
+	## ET-D4: a world change drops the shell's record of an open road drag. Flags only:
+	## `generation_started` can fire while the generation worker owns `world_gen`, so
+	## the engine is never called from here (`_way_drag_forget`'s doc says how the
+	## engine side is closed afterwards).
+	bridge.generation_started.connect(_way_drag_forget)
+	bridge.world_loaded.connect(_way_drag_forget)
 
 ## Clear-and-refill for the bodies a generate or a loaded save invalidates.
 ## Public because `civilization_workspace.gd` composes this class
@@ -321,7 +327,12 @@ func _build_tools() -> void:
 	## fall through to the default tool-manager disarm"), so Way/Route match
 	## Measure's "stays armed" half while differing on the other: Measure has
 	## nothing to commit, Way/Route do.
-	app.register_tool_escape_handler("way", _commit_way)
+	## ET-D4: Way also takes a drag (`_way_drag`) and its release (`_way_release`). Escape
+	## goes through `_way_escape`, which cancels an open drag and otherwise is
+	## `_commit_way` exactly as before.
+	app.register_tool_drag_handler("way", func(gx, gy): _way_drag(gx, gy))
+	app.register_tool_release_handler("way", func(gx, gy, valid): _way_release(gx, gy, valid))
+	app.register_tool_escape_handler("way", _way_escape)
 	app.register_tool_escape_handler("route", _commit_route)
 	app.tool_armed.connect(_on_infra_tool_armed)
 
@@ -330,6 +341,10 @@ func _build_tools() -> void:
 ## tool`'s own doc for why a local flag, not `app.armed_tool`, is what tells
 ## us whether *we* were the one just disarmed.
 func _on_infra_tool_armed(id: String) -> void:
+	## ET-D4: any tool change closes an open road drag first (cancelled, not committed:
+	## the gesture never finished) and forgets the press that could have started one.
+	_way_drag_cancel()
+	_way_press = {}
 	## Matches `_civSetTool`'s own "switching to any other tool commits
 	## whichever of route/draw_way was active" -- not a discard. Runs before
 	## the new tool arms so a stray in-progress draft from the last one never
@@ -407,13 +422,250 @@ func _push_way_draft() -> void:
 ## engine's way draft and, only if the engine accepted it, mirror it in the local
 ## preview list. The engine is the authority; `_way_points` must never gain a
 ## point the draft did not.
+##
+## **Since ET-D4** a press is also the possible start of a drag-to-draw road, and it cannot
+## know yet: the press appends its waypoint exactly as before (so a plain click, and every
+## caller that calls this directly, is unchanged), and records itself in `_way_press`.
+## If the pointer then travels `WAY_DRAG_SLOP_PX`, `_way_drag` retracts that waypoint and
+## opens the engine drag instead. A press that finds a drag still open (a release that never
+## arrived) CANCELS it: an unreleased gesture is not a finished one.
 func _way_click(gx: float, gy: float) -> void:
-	if not bridge.way_append_point(gx, gy):
+	_way_drag_sync_stale()
+	_way_drag_cancel()
+	var added := bridge.way_append_point(gx, gy)
+	_way_press = {"gx": gx, "gy": gy, "added": added}
+	if not added:
 		return
 	_way_points.append(Vector2(gx, gy))
 	app.viewport.tool_overlay.set_path_preview(_way_points)
 	_tool_options_way()
 	_push_way_draft()
+
+# -- ET-D4: drag-to-draw roads (EDITING_TOOLS_SCOPE.md) ---------------------------------
+
+## Waypoint spacing, in grid CELLS, handed to `way_stroke_begin` unless `_way_drag_options`
+## overrides it. A labelled JUDGEMENT, not a measurement: the engine's own default is "off"
+## (every distinct pointer sample becomes a waypoint, so a 200-sample drag is a 200-leg
+## route), and one waypoint per two cells keeps the leg count a few dozen for a drag across
+## a typical map while staying well inside the guided corridor (`corridor` 3.0 cells). The
+## commit-time measurement ET-D4 asks for before settling this default has NOT been made.
+const WAY_DRAG_SPACING_CELLS := 2.0
+
+## How far, in SCREEN pixels, the pointer must travel from the press before the gesture is
+## a drag rather than a click. A judgement (the touch slop in `map_overlay.gd` is of the
+## same order); it exists so a click that wobbles by a pixel or two stays a click.
+const WAY_DRAG_SLOP_PX := 4.0
+
+## **The seam ET-D5's controls (and a probe) write.** Merged OVER the defaults
+## (`way_type`, `spacing`) when a drag opens, key by key, so `{mode: "freehand", smooth:
+## false}` changes those two and nothing else. Values must have the engine's types (ints
+## where ints are expected, floats where floats are expected) or the engine refuses the
+## whole begin; a `null` value means "the engine default" (for `spacing`, off). `{}` = the
+## shell's defaults: routed, guided, smoothed, `WAY_DRAG_SPACING_CELLS`. No UI writes it yet.
+var _way_drag_options: Dictionary = {}
+
+## `true` between an accepted `way_stroke_begin` and the end/cancel/forget that closes it.
+## Never left `true` past a release, tool change, new press, focus loss, Escape or world
+## change. The engine's own `way_stroke_sample` (-1 = closed) is the authority a probe reads.
+var _way_drag_open := false
+
+## The drag's raw pointer path in grid cells, for the on-canvas sketch only (the engine
+## holds the real waypoints). Cleared whenever the drag closes.
+var _way_drag_points: PackedVector2Array = PackedVector2Array()
+
+## The press that may become a drag: `{gx, gy, added}` (`added`: its click waypoint reached
+## the engine's click draft and `_way_points`). Empty when no press is outstanding.
+var _way_press: Dictionary = {}
+
+## `true` when the shell dropped an open drag WITHOUT being able to tell the engine (a
+## world change, or a generation running). The next safe call (`_way_drag_sync_stale`, run by
+## every press) sends the engine a cancel, so a drag cannot outlive the world it began on.
+var _way_drag_stale := false
+
+## Pixel distance, on screen, between two grid points: cells times the overlay's own
+## pre-camera pixels-per-cell times the camera scale it sits under. `0.0` (so "never a
+## drag") when the overlay has no laid-out map yet. Never used for anything but the slop.
+func _way_px_between(ax: float, ay: float, bx: float, by: float) -> float:
+	var ov = app.viewport.overlay if app != null and app.viewport != null else null
+	if ov == null:
+		return 0.0
+	var ppc: float = float(ov.label_px_per_cell()) * absf(ov.get_global_transform().get_scale().x)
+	return Vector2(ax - bx, ay - by).length() * ppc
+
+## Map motion with the Way tool (`map_dragged`, the same relay ET-D2 uses; no pressure or
+## tilt is read, a way has neither). With a drag open: one engine sample per motion event.
+## Otherwise, if a press is outstanding and the pointer has travelled `WAY_DRAG_SLOP_PX`,
+## the gesture becomes a drag (`_way_drag_start`). Does nothing while a generation runs,
+## without the engine's drag API, or when no press began this gesture (a press off the map
+## emits no click, so its later motion is not a drag of ours). Never touches the click draft
+## except through `_way_drag_start`'s one retraction.
+func _way_drag(gx: float, gy: float) -> void:
+	if bridge.generating:
+		return
+	if _way_drag_open:
+		bridge.way_stroke_sample(gx, gy, Time.get_ticks_msec())
+		_way_drag_points.append(Vector2(gx, gy))
+		app.viewport.tool_overlay.set_path_preview(_way_drag_points)
+		return
+	if _way_press.is_empty() or not bridge.has_way_stroke_api():
+		return
+	if _way_px_between(float(_way_press["gx"]), float(_way_press["gy"]), gx, gy) < WAY_DRAG_SLOP_PX:
+		return
+	_way_drag_start(gx, gy)
+
+## Opens the engine drag for the outstanding press and feeds it the press point then the
+## current point. Order matters: the options are validated by the engine FIRST, and only an
+## accepted begin retracts the press's click waypoint, so a refused drag leaves the click
+## draft exactly as a click would have. On refusal the press is forgotten (no retry on every
+## motion event) and the user is told, in plain words, that the drag was not taken.
+func _way_drag_start(gx: float, gy: float) -> void:
+	var opts := {"way_type": _way_type, "spacing": WAY_DRAG_SPACING_CELLS}
+	opts.merge(_way_drag_options, true)
+	var press := _way_press
+	if not bridge.way_stroke_begin(opts):
+		_way_press = {}
+		app.set_status("hint", "Road drag not started -- the engine refused its options (or there is no world); the press stays a plain waypoint.", "accent")
+		return
+	_way_press = {}
+	_way_drag_open = true
+	_way_drag_stale = false
+	_way_retract_press(press)
+	_way_drag_points = PackedVector2Array([Vector2(float(press["gx"]), float(press["gy"]))])
+	var t := Time.get_ticks_msec()
+	bridge.way_stroke_sample(float(press["gx"]), float(press["gy"]), t)
+	bridge.way_stroke_sample(gx, gy, t)
+	_way_drag_points.append(Vector2(gx, gy))
+	app.viewport.tool_overlay.set_path_preview(_way_drag_points)
+
+## Takes the press's click waypoint back out of the click draft, because the press turned
+## out to be the start of a drag and a drag must not leave a stray waypoint behind. The
+## engine has no per-waypoint undo (`_tool_options_way`'s doc), so the draft is rebuilt:
+## `way_begin` then every earlier raw click again. That reproduces the same draft because the
+## engine snaps each appended point to places and committed ways only (not to draft state)
+## and `_way_points` keeps the RAW clicks. A no-op when the press added nothing.
+func _way_retract_press(press: Dictionary) -> void:
+	if not bool(press.get("added", false)) or _way_points.is_empty():
+		return
+	_way_points.remove_at(_way_points.size() - 1)
+	bridge.way_begin(_way_type)
+	for p in _way_points:
+		bridge.way_append_point(p.x, p.y)
+	_tool_options_way()
+	_push_way_draft()
+
+## End of a drag gesture (`map_released`): closes and commits an open drag, and forgets the
+## press, so a click's release (no drag ever opened) does nothing. Arguments unused: the
+## release point is not a sample (the engine adds the last raw sample as the final waypoint).
+func _way_release(_gx: float, _gy: float, _valid: bool) -> void:
+	_way_press = {}
+	if _way_drag_open:
+		_way_drag_finish()
+
+## Ends the open drag and commits it as one unit, then refreshes the map exactly as
+## `_commit_way` does after a click commit (civ layer repaint, Hand-drawn list, status line,
+## tool options row, right dock; the world's dirty flag is set by the bridge on success).
+## A refusal commits nothing and is told to the user in plain words. While a generation
+## runs the engine is NOT called: the flag closes and `_way_drag_stale` makes the next safe
+## call cancel the engine's drag, so a drag is never committed against a moving world.
+func _way_drag_finish() -> void:
+	if not _way_drag_open:
+		return
+	_way_drag_open = false
+	_way_drag_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_way_points)
+	if bridge.generating:
+		_way_drag_stale = true
+		return
+	var r := bridge.way_stroke_end()
+	if bool(r.get("committed", false)):
+		_refresh_map_ways()
+		_refresh_manual_ways()
+		var first := int(r.get("first", 0))
+		var count := int(r.get("count", 1))
+		var text := "Way #%d committed by drag" % first if count <= 1 \
+			else "%d ways (#%d-#%d) committed by drag" % [count, first, first + count - 1]
+		if int(r.get("unreachable_legs", 0)) > 0:
+			text += ", %d leg(s) crossing terrain this way type avoids" % int(r["unreachable_legs"])
+		app.set_status("hint", text + " -- drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn.", "text_ghost")
+	elif r.has("refusal"):
+		app.set_status("hint", _way_drag_refusal_text(r), "accent")
+	if _active_infra_tool == "way":
+		_tool_options_way()
+	_push_way_draft()
+
+## Plain-words text for a `way_stroke_end` refusal reply (`{committed: false, refusal, ...}`);
+## every refusal key the engine documents has its own sentence, and an unknown key still
+## says the drag was refused rather than staying silent. Each ends by saying nothing was added.
+func _way_drag_refusal_text(r: Dictionary) -> String:
+	match String(r.get("refusal", "")):
+		"water":
+			return "The freehand road crosses water at (%d, %d), %d cell(s) blocked -- nothing was added. Drag around it, or use the routed mode." % [
+				int(r.get("first_x", 0)), int(r.get("first_y", 0)), int(r.get("blocked_cells", 0))]
+		"too_few_waypoints":
+			return "Road drag too short -- drag farther to draw a road; nothing was added."
+		"out_of_grid":
+			return "Part of the mirrored road would fall off the map -- nothing was added."
+		"symmetry":
+			return "The symmetry settings could not be applied to this drag -- nothing was added."
+		"degenerate":
+			return "The drag collapsed to a single point -- nothing was added."
+		"no_world":
+			return "Generate a world first -- Way needs a generated map to route over."
+	return "Road drag refused (%s) -- nothing was added." % String(r.get("refusal", "unknown"))
+
+## Abandons the open drag without committing (tool change, a new press, focus loss, Escape).
+## A no-op when none is open. While a generation runs the engine is not called (the flag
+## still closes and `_way_drag_stale` is set), the same rule as `_way_drag_finish`.
+func _way_drag_cancel() -> void:
+	if not _way_drag_open:
+		return
+	_way_drag_open = false
+	_way_drag_points = PackedVector2Array()
+	if app != null and app.viewport != null:
+		app.viewport.tool_overlay.set_path_preview(_way_points)
+	if bridge.generating:
+		_way_drag_stale = true
+		return
+	bridge.way_stroke_cancel()
+
+## World change (`generation_started`, `world_loaded`): drops the shell's flags and NOTHING
+## ELSE. Never calls the engine: `world_gen` may belong to the generation worker at that
+## moment. An engine drag that survived the change (it is not known to be replaced) is closed
+## by `_way_drag_sync_stale` on the next press.
+func _way_drag_forget() -> void:
+	if _way_drag_open:
+		_way_drag_stale = true
+	_way_drag_open = false
+	_way_drag_points = PackedVector2Array()
+	_way_press = {}
+
+## Sends the engine the cancel `_way_drag_forget`/`_way_drag_finish` could not, once it is safe
+## (not generating). Idempotent; a cancel with no drag open is a no-op in the engine.
+func _way_drag_sync_stale() -> void:
+	if _way_drag_stale and not bridge.generating:
+		_way_drag_stale = false
+		bridge.way_stroke_cancel()
+
+## Escape with the Way tool: cancels an open drag (nothing committed, the click draft
+## untouched, the tool stays armed). With no drag open it is `_commit_way`, the behaviour
+## Escape has always had here (`_build_tools`' doc).
+func _way_escape() -> void:
+	if _way_drag_open:
+		_way_drag_cancel()
+		_way_press = {}
+		if _active_infra_tool == "way":
+			_tool_options_way()
+		_push_way_draft()
+		return
+	_commit_way()
+
+## Focus loss closes an open drag: the button-up may go to another window and never reach the
+## map, which would leave the drag open for good. CANCELLED, not committed, the sculpt
+## precedent (`world_workspace.gd::_notification`): the gesture never finished.
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		_way_drag_cancel()
+		_way_press = {}
 
 ## INFRA ▸ Route tool click at grid cell (`gx`, `gy`): append a stop to the
 ## engine's route draft, mirror it locally on acceptance only, then refresh the

@@ -4201,6 +4201,74 @@ func way_discard() -> void:
 		return
 	world_gen.way_discard()
 
+## ET-D4: true when the loaded extension has the whole drag-to-draw road API
+## (`way_stroke_begin`/`_sample`/`_end`/`_cancel`). Callers fall back to the click path
+## (`way_begin`/`way_append_point`/`way_commit`, which this API never touches) when it is
+## `false`. Checked with `has_method` rather than `_has()` so an older extension is not
+## warned about on every press (the `has_paint_stroke_api` precedent). Never `true` for a
+## partial set: a drag whose end or cancel is missing could not be closed.
+func has_way_stroke_api() -> bool:
+	return world_gen != null and world_gen.has_method("way_stroke_begin") \
+		and world_gen.has_method("way_stroke_sample") and world_gen.has_method("way_stroke_end") \
+		and world_gen.has_method("way_stroke_cancel")
+
+## ET-D4: opens a drag-to-draw road (`WorldGen.way_stroke_begin`). `options` takes the
+## engine's own keys (`way_type` REQUIRED; `mode`, `spacing`, `smoothing`, `symmetry`,
+## `smooth`, `smooth_spacing`, `guide`, `corridor`, `pull` ... all optional); a wrong type, an
+## unknown name or an out-of-range value refuses the WHOLE call, so pass ints where ints are
+## expected and floats where floats are expected. `true` when the drag is open; `false` (and
+## nothing changed, an open drag surviving) without a world, without the API, on a refused
+## option, or while a generation is running. Never marks the world dirty: nothing changes
+## until `way_stroke_end` commits.
+func way_stroke_begin(options: Dictionary) -> bool:
+	if generating or not _has("way_stroke_begin"):
+		return false
+	return world_gen.way_stroke_begin(options)
+
+## ET-D4: feeds one pointer sample, in grid cells, into the open drag
+## (`WorldGen.way_stroke_sample`). Returns the waypoint count so far, or **`-1`** when no drag
+## is open, there is no world, the API is absent, or a generation is running (the engine is
+## not touched then). `-1` is the closed test: a probe's positive control is a count `>= 0`
+## from an open drag. Nothing is committed here and the world is not marked dirty.
+func way_stroke_sample(gx: float, gy: float, t_ms: int) -> int:
+	if generating or not _has("way_stroke_sample"):
+		return -1
+	return world_gen.way_stroke_sample(gx, gy, t_ms)
+
+## ET-D4: ends the drag and commits it as one unit (`WorldGen.way_stroke_end`). Returns the
+## engine's reply untouched: `{}` when no drag was open (or no world, no API, or a
+## generation is running: nothing was consumed); `{committed: true, first, count, mode,
+## unreachable_legs, relaxed_legs}` on success; `{committed: false, refusal: String, ...}`
+## when the drag was consumed but nothing was pushed (`too_few_waypoints`, `out_of_grid`,
+## `symmetry`, `degenerate`, `no_world`, `water`). Marks the world dirty on success only.
+func way_stroke_end() -> Dictionary:
+	if generating or not _has("way_stroke_end"):
+		return {}
+	var reply: Dictionary = world_gen.way_stroke_end()
+	if bool(reply.get("committed", false)):
+		mark_world_dirty()
+	return reply
+
+## ET-D4: abandons the open drag, committing nothing (`WorldGen.way_stroke_cancel`). A no-op
+## with no drag open, without the API, or while a generation is running (the caller then
+## keeps a stale flag and cancels on the next safe call: see `infrastructure_workspace.gd`).
+func way_stroke_cancel() -> void:
+	if generating or not _has("way_stroke_cancel"):
+		return
+	world_gen.way_stroke_cancel()
+
+## ET-D4: takes the last drag commit back as one step (`WorldGen.way_stroke_undo`): returns
+## how many ways were removed, `0` when nothing was touched (nothing to undo, or the manual
+## way list changed since). Single level, and NOT a row in the global Edit > Undo ledger:
+## nothing in the shell calls this yet. Marks the world dirty when it removed something.
+func way_stroke_undo() -> int:
+	if generating or not _has("way_stroke_undo"):
+		return 0
+	var n: int = world_gen.way_stroke_undo()
+	if n > 0:
+		mark_world_dirty()
+	return n
+
 
 # route_bridge.rs
 func route_begin(mode: String) -> bool:
