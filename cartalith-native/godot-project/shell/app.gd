@@ -126,6 +126,12 @@ signal tool_armed(id: String)
 
 var tool_group := ButtonGroup.new()
 var armed_tool := "inspect"
+## True from an `arm_tool` made while the engine was busy until `_flush_deferred_arm`
+## has told the `tool_armed` listeners (see `arm_tool`'s doc comment).
+var _arm_pending := false
+## The tool the `tool_armed` listeners were last told about; `armed_tool` runs ahead of it
+## only while `_arm_pending`.
+var _emitted_tool := "inspect"
 
 ## tool id -> Callable(gx: float, gy: float). Populated by each workspace's
 ## own `setup()`. A click/drag while Inspect (or an unregistered id) is armed
@@ -154,6 +160,22 @@ var _backspace_handlers: Dictionary = {}
 ## need a side effect on re-arm must not rely on `tool_armed` firing.
 ## An id nobody registered a handler for is legal: clicks just stay inert (see
 ## `_click_handlers`).
+##
+## **While a generation or landmark run holds the engine the `tool_armed` emit is
+## DEFERRED, not skipped** (found-bug sweep 2026-10-11: the arming panics batch G left
+## open). Twelve listeners hang off that signal -- the sculpt/paint/measure options bar,
+## the Label/Icon/Way/Route/Territory panels, Measure's and Region's engine begin/clear
+## calls, the right dock's context -- and every one of them reads or writes `world_gen`,
+## which the worker owns for the whole run: each such call is the `Gd<T>::bind() failed`
+## panic (63 over one burst of arms, 1 to 9 per tool). Gating twelve listeners one by one
+## would leave the thirteenth to leak, so the gate sits at the root: `armed_tool` changes
+## at once (the palette lights, the status line says what is pending, Escape and a second
+## arm behave), and the listeners are told ONCE when the engine is free
+## (`_flush_deferred_arm`, on `generation_finished`, `landmark_finished` and
+## `landmark_refine_finished`) with the tool that is armed THEN -- so several arms in one
+## run reach the listeners as one edge from the last tool they saw, and arming back onto
+## that tool is no edge at all. Never emit `tool_armed` from anywhere else, and never call
+## an engine `#[func]` from this function's deferred branch.
 func arm_tool(id: String) -> void:
 	if armed_tool == id:
 		return
@@ -164,6 +186,21 @@ func arm_tool(id: String) -> void:
 	## `_haptic()` (`DccShell`) is itself a no-op off Android/iOS, so nothing
 	## about the desktop path changes.
 	_haptic("tool_arm")
+	if bridge != null and bridge.generating:
+		_arm_pending = true
+		_sync_tool_strip(id)
+		set_status("hint", "%s armed — its controls appear when the world finishes generating" % id.capitalize(), "text_ghost")
+		return
+	_complete_arm(id)
+
+## The listener half of `arm_tool`: tells every `tool_armed` listener, then hands the
+## timeline row back and writes the status hint. Runs at once when the engine is free and
+## from `_flush_deferred_arm` otherwise; it is the only writer of `_arm_pending = false`
+## and of `_emitted_tool`, so the deferral bookkeeping cannot drift. Must never run while
+## `bridge.generating` (the listeners it fires call the engine).
+func _complete_arm(id: String) -> void:
+	_arm_pending = false
+	_emitted_tool = id
 	tool_armed.emit(id)
 	## **The timeline strip's hand-back (JP-13).** `journey_planner_view.gd`
 	## borrows `timeline_row` while the Journey tool is armed and empties it
@@ -182,6 +219,22 @@ func arm_tool(id: String) -> void:
 			and timeline_row.get_child_count() == 0:
 		_fill_timeline_strip()
 	set_status("hint", "" if id == "inspect" else "%s armed — Esc to release" % id.capitalize(), "text_ghost")
+
+## Replays the `tool_armed` emit that `arm_tool` deferred while the engine was busy.
+## Connected (through `call_deferred`, so every synchronous `generation_finished` listener
+## -- the redraft, the bar refresh, the viewport -- has run first) to the three signals
+## that end an engine-owning run; takes one ignored argument so the `bool` signal and the
+## two `Dictionary` ones can share it. Does nothing while a run is still in flight (a
+## replay must never itself be the unguarded call), nothing when no arm was deferred, and
+## nothing when the tool armed now is the one the listeners last saw (A armed and un-armed
+## inside one run is no edge).
+func _flush_deferred_arm(_r: Variant = null) -> void:
+	if not _arm_pending or bridge == null or bridge.generating:
+		return
+	if armed_tool == _emitted_tool:
+		_arm_pending = false
+		return
+	_complete_arm(armed_tool)
 
 ## **The tool palette is its own horizontal bar at the top of the window**
 ## (owner, 2026-09-23: *"the tools should be in a horizontal toolbar that sits
@@ -298,17 +351,40 @@ func register_tool_backspace_handler(id: String, handler: Callable) -> void:
 ## `viewport.map_clicked` sink: forwards to the armed tool's click handler, if any.
 ## Inspect and unregistered ids fall through silently (Inspect is handled by the
 ## overlay's own `settlement_selected`, see `_wire_selection()`).
+##
+## **Dropped while a generation or landmark run holds the engine** (arming-panics sweep
+## 2026-10-11, `_map_input_busy`): every registered handler (sculpt/paint strokes, Measure,
+## Region, Label, Icon, Way, Route, Territory, Settlement ...) reads or writes `world_gen`,
+## and each such call is the `bind() failed` panic -- 1 to 20 per tap. A refused tap says so in
+## the status bar; it is not queued (a replay would land on a different world).
 func _on_map_clicked(gx: float, gy: float) -> void:
+	if _map_input_busy():
+		return
 	if _click_handlers.has(armed_tool):
 		_click_handlers[armed_tool].call(gx, gy)
 
-## `viewport.map_dragged` sink: forwards to the armed tool's drag handler, if any.
+## True (and the status line says why) while `bridge.generating`: the gate `_on_map_clicked`
+## uses. Drag and release drop silently instead -- a drag is dozens of events a second and the
+## click that began the gesture already said so. A null bridge is "not busy".
+func _map_input_busy() -> bool:
+	if bridge == null or not bridge.generating:
+		return false
+	set_status("hint", "Not done: %s on the map -- the world is generating. Try again when it finishes." % armed_tool.capitalize(), "warn")
+	return true
+
+## `viewport.map_dragged` sink: forwards to the armed tool's drag handler, if any (dropped
+## while the engine is busy, see `_on_map_clicked`).
 func _on_map_dragged(gx: float, gy: float) -> void:
+	if bridge != null and bridge.generating:
+		return
 	if _drag_handlers.has(armed_tool):
 		_drag_handlers[armed_tool].call(gx, gy)
 
-## `viewport.map_released` sink: forwards to the armed tool's release handler, if any.
+## `viewport.map_released` sink: forwards to the armed tool's release handler, if any (dropped
+## while the engine is busy, see `_on_map_clicked`).
 func _on_map_released(gx: float, gy: float, valid: bool) -> void:
+	if bridge != null and bridge.generating:
+		return
 	if _release_handlers.has(armed_tool):
 		_release_handlers[armed_tool].call(gx, gy, valid)
 
@@ -688,6 +764,12 @@ func _ready() -> void:
 	## store is empty by the time any reader is asked to redraw. The call in
 	## `_refresh_world_dependent()` stays: it costs nothing and keeps that
 	## function's stated ownership of "the world changed identity" true.
+	## The deferred `tool_armed` emit (`arm_tool`): replayed one idle frame after any run that
+	## owned the engine ends -- a generate/import (`generation_finished`, success or not) or a
+	## landmark pass / viewshed refine -- so every listener sees the new world.
+	bridge.generation_finished.connect(func(_ok: bool): _flush_deferred_arm.call_deferred())
+	bridge.landmark_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
+	bridge.landmark_refine_finished.connect(func(_r: Dictionary): _flush_deferred_arm.call_deferred())
 	bridge.generation_finished.connect(func(ok: bool): if ok: TradeStore.clear())
 	bridge.world_loaded.connect(func(): TradeStore.clear())
 
@@ -4657,6 +4739,15 @@ func can_undo_any() -> bool:
 func can_redo_any() -> bool:
 	return look_history.can_redo() or bridge.redo_available()
 
+## The gate `_undo_last_impl` / `_redo_last_impl` share. Returns `true` (caller must STOP)
+## while `bridge.generating`, after writing a "Not done" status naming `what`; `false`
+## otherwise, and for a null bridge. Never use it for a read.
+func _engine_busy_for_history(what: String) -> bool:
+	if bridge == null or not bridge.generating:
+		return false
+	set_status("hint", "Not done: %s -- the world is generating. Try again when it finishes." % what, "warn")
+	return true
+
 ## Label of the step `undo_last()` would take right now (look or height), or ""
 ## when nothing can be undone. Uses `look_history.wants_undo()`, i.e. exactly the
 ## routing `undo_last()` uses.
@@ -4703,7 +4794,15 @@ func _refresh_undo_ui() -> void:
 ## The engine deliberately does not re-run flow, rivers or climate here -- see
 ## `undo.rs` -- so the status hint says which stages are now behind the height
 ## field rather than leaving that to be discovered.
+##
+## **Refused while a generation or landmark run holds the engine** (arming-panics sweep
+## 2026-10-11): the look branch writes appearance state through the bridge and the height
+## branch calls `undo_last()`, and both are `Gd<WorldGen>::bind() failed` panics with the worker
+## running (a generate clears the stack anyway). Says so in the status bar rather than
+## claiming "Nothing to undo", and pops nothing -- the entry is still there afterwards.
 func _undo_last_impl() -> void:
+	if _engine_busy_for_history("Undo"):
+		return
 	## Ruling BY item 2: when the most recent edit was a look edit, this press
 	## belongs to the look history (`look_history.wants_undo()` explains how "most
 	## recent" is derived). The heightmap path below is unchanged.
@@ -4808,6 +4907,8 @@ func notify_ways_changed() -> void:
 ## file that owns `Edit ▸ Redo`. It should delegate here so there is one redo
 ## path the way there is one undo path; that file is not this pass's to edit.
 func _redo_last_impl() -> void:
+	if _engine_busy_for_history("Redo"):
+		return
 	## Ruling BY item 2: the mirror of `undo_last()`'s look branch.
 	if look_history.wants_redo(bridge):
 		look_redo()

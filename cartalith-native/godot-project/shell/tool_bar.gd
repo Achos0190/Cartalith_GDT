@@ -89,6 +89,10 @@ static func install(a: DccApp, b: EngineBridge) -> DccToolBar:
 	a.tool_armed.connect(bar._on_tool_armed)
 	b.generation_finished.connect(func(_ok: bool): bar.refresh())
 	b.world_loaded.connect(func(): bar.refresh())
+	## A landmark pass or viewshed refine also owns the engine (`bridge.generating`); `rebuild()`
+	## skips while one runs, so the bar is redrawn when it ends (arming-panics sweep 2026-10-11).
+	b.landmark_finished.connect(func(_r: Dictionary): bar.refresh())
+	b.landmark_refine_finished.connect(func(_r: Dictionary): bar.refresh())
 	return bar
 
 static func instance() -> DccToolBar:
@@ -120,8 +124,28 @@ func refresh() -> void:
 	if MODES.has(app.armed_tool):
 		rebuild()
 
+## Draws the bar -- but **not while a generation or landmark run holds the engine**
+## (arming-panics sweep 2026-10-11): `_build` reads `sculpt_get_globals`, `get_paint_layers`,
+## `get_paint_palette`, the stamp and draft counts and more, every one a `bind() failed` panic
+## with the worker running. The skipped draw is not lost: `install` redraws on
+## `generation_finished`, `world_loaded`, `landmark_finished` and `landmark_refine_finished`,
+## and `DccApp.arm_tool` replays a deferred arm (whose `_on_tool_armed` ends here) the same way.
 func rebuild() -> void:
+	if bridge.generating:
+		return
 	app.set_tool_options(_build)
+
+## **The gate for a handler on this bar** (arming-panics sweep 2026-10-11, the sibling of
+## `world_workspace.gd::_engine_busy`): every segment, slider and chip here WRITES the engine
+## (`sculpt_set_feature`, `paint_set_brush`, `sculpt_commit` ...), and the bar's controls stay
+## clickable across a Generate. Returns `true` (the caller must STOP) while `bridge.generating`,
+## after a "Not done" status naming `what`; the click is SKIPPED, not queued, because a replay
+## would apply it to a different world. Never use it for a read.
+func _busy(what: String) -> bool:
+	if not bridge.generating:
+		return false
+	app.set_status("hint", "Not done: %s -- the world is generating. Try again when it finishes." % what, "warn")
+	return true
 
 # -- Composition ---------------------------------------------------------------
 
@@ -337,6 +361,8 @@ func _build_sculpt_tools(row: HBoxContainer) -> void:
 		"The canvas's Flatten, Noise and Mask have no engine mode at all; these eight are `FreehandMode`'s own list, read live. The 13 geological features live in the WORLD dock's Sculpt panel.")
 
 func _on_sculpt_mode(key: String) -> void:
+	if _busy("Freehand · %s" % key.capitalize()):
+		return
 	bridge.sculpt_set_feature("freehand")
 	bridge.sculpt_set_freehand_mode(key)
 	app.arm_tool("sculpt")
@@ -372,11 +398,17 @@ func _build_sculpt_options(row: HBoxContainer) -> void:
 		_fit(DccWidgets.slider(row, String(cd.get("label", key)),
 			float(cd.get("min", 0.0)), float(cd.get("max", 1.0)), float(cd.get("step", 0.01)),
 			float(g.get(key, cd.get("default", 0.0))), " px" if key == "brush_size" else "",
-			func(v: float): bridge.sculpt_set_globals({key: (round(v) if is_int else v)})))
+			func(v: float):
+				if _busy("changing %s" % key):
+					return
+				bridge.sculpt_set_globals({key: (round(v) if is_int else v)})))
 	var params: Dictionary = bridge.sculpt_get_feature_params()
 	if params.has("amount"):
 		_fit(DccWidgets.slider(row, "Amount", -1.0, 1.0, 0.01, float(params["amount"]), "",
-			func(v: float): bridge.sculpt_set_feature_params({"amount": v})))
+			func(v: float):
+				if _busy("changing Amount"):
+					return
+				bridge.sculpt_set_feature_params({"amount": v})))
 	row.add_child(DccTheme.spacer())
 	var count := bridge.sculpt_stamp_count()
 	row.add_child(DccTheme.mono_label("%d stamp%s" % [count, "" if count == 1 else "s"],
@@ -387,6 +419,8 @@ func _build_sculpt_options(row: HBoxContainer) -> void:
 	discard.disabled = count == 0
 
 func _on_sculpt_commit() -> void:
+	if _busy("Commit to map"):
+		return
 	bridge.sculpt_commit("sculpt")
 	app.viewport.map_view.texture = bridge.color_texture()
 	## `world_workspace.gd::_on_sculpt_commit`'s third line, same reason: a
@@ -400,6 +434,8 @@ func _on_sculpt_commit() -> void:
 		app.right_dock_ctrl.show_sculpt_stack()
 
 func _on_sculpt_discard() -> void:
+	if _busy("Discard draft"):
+		return
 	bridge.sculpt_discard()
 	app.viewport.set_preview_texture(null)
 	rebuild()
@@ -420,6 +456,8 @@ func _build_paint_tools(row: HBoxContainer) -> void:
 			"Paint into the %s override layer." % key, _on_paint_layer.bind(key))
 	var st := _paint_state()
 	var erase := DccWidgets.segment(row, "Erase", func():
+		if _busy("Erase"):
+			return
 		st["erase"] = not bool(st.get("erase", false))
 		_sync_paint()
 		rebuild())
@@ -465,6 +503,8 @@ func _sync_paint() -> void:
 		bool(st.get("erase", false)), bool(st.get("land_only", true)))
 
 func _on_paint_layer(key: String) -> void:
+	if _busy("changing the paint layer"):
+		return
 	_write_paint_state("layer", key)
 	_write_paint_state("value", 1)
 	bridge.paint_set_layer(key)
@@ -490,12 +530,16 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		if int(pd.get("index", -1)) == int(st.get("value", 1)):
 			selected = i
 	_narrow(DccWidgets.choice(row, "Class", options, selected, func(i: int):
+		if _busy("changing the paint class"):
+			return
 		var pd: Dictionary = palette[i]
 		_write_paint_state("value", int(pd.get("index", 1)))
 		_sync_paint()))
 	## The canvas's own "size" row -- the same brush radius the WORLD dock's
 	## Biome-paint panel edits, in the engine's own cells.
 	_fit(DccWidgets.slider(row, "Size", 1.0, 40.0, 1.0, float(st.get("radius", 6.0)), " c", func(v: float):
+		if _busy("changing the brush size"):
+			return
 		_write_paint_state("radius", v)
 		_sync_paint()))
 	## `Hardness` (and its `Softness` sibling, which never had a copy here)
@@ -509,6 +553,8 @@ func _build_paint_options(row: HBoxContainer) -> void:
 	## hidden -- matching Sculpt's own tool-bar row, which draws a narrowed
 	## subset of the dock's full parameter set rather than all of it.
 	_narrow(DccWidgets.toggle(row, "Land only", bool(st.get("land_only", true)), func(v: bool):
+		if _busy("changing Land only"):
+			return
 		_write_paint_state("land_only", v)
 		_sync_paint()))
 	row.add_child(DccTheme.spacer())
@@ -539,6 +585,8 @@ func _build_paint_options(row: HBoxContainer) -> void:
 		discard.tooltip_text = why
 
 func _on_paint_commit() -> void:
+	if _busy("Commit paint"):
+		return
 	var summary: Dictionary = bridge.paint_commit()
 	## Exactly what `_on_sculpt_commit` above does, and now for the same
 	## reason: since 2026-08-24 `build_color_texture()` composites the
@@ -585,6 +633,8 @@ func _on_paint_commit() -> void:
 ## It was filed, probed and fixed on 2026-09-05, so the two handlers now match
 ## line for line and the sentence above describes both.
 func _on_paint_discard() -> void:
+	if _busy("Discard paint draft"):
+		return
 	bridge.paint_discard()
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 	rebuild()

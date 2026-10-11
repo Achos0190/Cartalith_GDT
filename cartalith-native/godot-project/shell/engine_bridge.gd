@@ -2872,8 +2872,13 @@ func undo_label() -> String:
 ## Reverts the height field one step. Returns the reverted operation's label,
 ## or "" if nothing happened. The caller repaints -- the engine deliberately
 ## does not re-run flow/climate here (see `undo.rs`).
+##
+## **Refused while `generating`** (arming-panics sweep 2026-10-11, the sibling of `can_undo`'s
+## G6 guard): the worker holds the `WorldGen`, so a real call is the `bind() failed` panic, and a
+## generate clears the stack anyway. Answers `""` (nothing happened) and does NOT mark the world
+## dirty -- nothing changed. `app.gd::_undo_last_impl` says why in the status bar before it gets here.
 func undo_last() -> String:
-	if not _has("undo_last"):
+	if generating or not _has("undo_last"):
 		return ""
 	mark_world_dirty()
 	return String(world_gen.undo_last())
@@ -2915,9 +2920,10 @@ func redo_label() -> String:
 
 ## Re-applies one step. `true` when the field changed; the caller repaints,
 ## exactly as it must after `undo_last()` -- the engine re-runs no flow or
-## climate here either.
+## climate here either. **Refused while `generating`** (same reason and answer as `undo_last`:
+## `false`, world not marked dirty).
 func redo_last() -> bool:
-	if not _has("redo_last"):
+	if generating or not _has("redo_last"):
 		return false
 	mark_world_dirty()
 	return world_gen.redo_last()
@@ -2963,8 +2969,11 @@ func redo_labels() -> PackedStringArray:
 ## field. So marking would put an unsaved-changes star on the title bar over a
 ## change no save can record -- the reason `set_color_space()` further up does
 ## not mark either.
+##
+## **`0` while `generating`** (arming-panics sweep 2026-10-11): the tail lives on the `WorldGen`
+## the worker holds, and a generate drops it anyway.
 func discard_redo_tail() -> int:
-	if not _has("discard_redo_tail"):
+	if generating or not _has("discard_redo_tail"):
 		return 0
 	return int(world_gen.discard_redo_tail())
 
@@ -3000,7 +3009,9 @@ func set_undo_budget_mb(mb: int) -> void:
 ## Drops every undo step (`WorldGen.clear_undo`), which is what Preferences > Memory
 ## offers to give memory back. A no-op without the binding.
 func clear_undo() -> void:
-	if _has("clear_undo"):
+	## Skipped while `generating` (arming-panics sweep 2026-10-11): the worker holds the engine,
+	## and a generate clears the stack itself.
+	if not generating and _has("clear_undo"):
 		world_gen.clear_undo()
 
 
@@ -5990,16 +6001,22 @@ func vault_write_field_fill(rel: String, kind: String, entity_id: int, overwrite
 ## reversible commit: `kind` is `height`/`recorded`/`floor`, `reversible` says
 ## whether a snapshot is *still* held for it, `reason` says why not, and
 ## `steps` is how many undo steps reverting to it would take.
+##
+## **`[]` while `generating`** (arming-panics sweep 2026-10-11): the ledger is on the `WorldGen`
+## the worker holds, so a real read is the `bind() failed` panic; the History panel redraws on
+## the run's finish signals.
 func undo_ledger() -> Array:
-	if not _has("undo_ledger"):
+	if generating or not _has("undo_ledger"):
 		return []
 	return world_gen.undo_ledger()
 
 ## Roll back to a ledger row, popping every height snapshot above it as well.
 ## Returns how many steps were reverted; `0` when the row is gone or was never
 ## reversible, in which case the caller should re-read `undo_ledger()`.
+## **`0` while `generating`** (arming-panics sweep 2026-10-11, the write twin of `undo_ledger`'s
+## guard: nothing was reverted, the world is not marked dirty).
 func undo_revert_to(seq: int) -> int:
-	if not _has("undo_revert_to"):
+	if generating or not _has("undo_revert_to"):
 		return 0
 	return world_gen.undo_revert_to(seq)
 

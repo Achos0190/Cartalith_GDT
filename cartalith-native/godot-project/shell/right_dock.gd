@@ -5084,7 +5084,12 @@ func _history_undone(parent: Control, committed_rows: int, labels: PackedStringA
 ## `redo_available()` can go false mid-walk; the final `app.redo_last()` then
 ## reports "Nothing to redo" and rebuilds, which is the honest end of a walk
 ## that could not finish.
+##
+## Refused while `bridge.generating` (`_engine_busy`, arming-panics sweep 2026-10-11): the
+## History rows stay clickable across a Generate and every call here reaches the engine.
 func _redo_to(steps: int) -> void:
+	if _engine_busy("Redo"):
+		return
 	for _i in range(steps - 1):
 		if not bridge.redo_available() or not bridge.redo_last():
 			break
@@ -5257,8 +5262,12 @@ func _confirm_revert(seq: int, steps: int) -> void:
 ## Performs the History revert: `bridge.undo_revert_to(seq)`, then repaints `map_view` directly
 ## (not `ViewportHost.refresh()`, which would reset the camera), invalidates LOD tiles and clears the
 ## preview, reports the step count in the status bar and rebuilds. A dropped snapshot (<= 0 steps)
-## is reported and rebuilt without touching the map.
+## is reported and rebuilt without touching the map. Refused while `bridge.generating`
+## (`_engine_busy`, arming-panics sweep 2026-10-11): the bridge would answer 0 and this would
+## then wrongly say the snapshot was dropped.
 func _do_revert(seq: int) -> void:
+	if _engine_busy("Revert"):
+		return
 	var done := bridge.undo_revert_to(seq)
 	if done <= 0:
 		app.set_status("hint",
@@ -5676,13 +5685,31 @@ func _build_selected_stamp(parent: Control, selected: int, stamps: Array) -> voi
 	DccWidgets.action(actions, "Move down", _on_stamp_move_down.bind(selected))
 	DccWidgets.action(actions, "Delete", _on_stamp_delete.bind(selected))
 
+## **The gate for a stamp-stack / History handler** (arming-panics sweep 2026-10-11). These
+## buttons stay clickable across a Generate (a draft survives one), and the map context card's
+## stamp rows reach the same handlers from a card built while idle; while a worker holds the
+## `WorldGen` each `bridge.sculpt_*` / undo call below is the `Gd<T>::bind() failed` panic.
+## Returns `true` (the caller must STOP) while `bridge.generating`, after a "Not done" status
+## naming `what`; the write is SKIPPED, not queued -- a replayed click would hit a different
+## world. `false` otherwise. Never use it for a read (reads use the deferred-rebuild gates).
+func _engine_busy(what: String) -> bool:
+	if bridge == null or not bridge.generating:
+		return false
+	if app != null:
+		app.set_status("hint", "Not done: %s -- the world is generating. Try again when it finishes." % what, "warn")
+	return true
+
 ## Stamp stack Undo button: `bridge.sculpt_undo()` then redraw via `show_sculpt_stack()`.
 func _on_sculpt_stack_undo() -> void:
+	if _engine_busy("Undo last stamp"):
+		return
 	bridge.sculpt_undo()
 	show_sculpt_stack()
 
 ## Stamp stack Redo button: `bridge.sculpt_redo()` then redraw via `show_sculpt_stack()`.
 func _on_sculpt_stack_redo() -> void:
+	if _engine_busy("Redo stamp"):
+		return
 	bridge.sculpt_redo()
 	show_sculpt_stack()
 
@@ -5690,6 +5717,8 @@ func _on_sculpt_stack_redo() -> void:
 ## also reset the camera to fit) -- the same reasoning
 ## `world_workspace.gd`'s own `_on_sculpt_commit` uses.
 func _on_sculpt_stack_commit() -> void:
+	if _engine_busy("Commit to map"):
+		return
 	bridge.sculpt_commit("sculpt")
 	if app != null and app.viewport != null:
 		app.viewport.map_view.texture = bridge.color_texture()
@@ -5703,6 +5732,8 @@ func _on_sculpt_stack_commit() -> void:
 ## Stamp stack `Discard draft`: `bridge.sculpt_discard()`, clears the viewport preview
 ## texture, redraws. Never touches the committed heightfield.
 func _on_sculpt_stack_discard() -> void:
+	if _engine_busy("Discard draft"):
+		return
 	bridge.sculpt_discard()
 	if app != null and app.viewport != null:
 		app.viewport.set_preview_texture(null)
@@ -5710,32 +5741,44 @@ func _on_sculpt_stack_discard() -> void:
 
 ## Stamp row `select` button: `bridge.sculpt_select_stamp(index)` then redraw.
 func _on_stamp_select(index: int) -> void:
+	if _engine_busy("Select stamp"):
+		return
 	bridge.sculpt_select_stamp(index)
 	show_sculpt_stack()
 
 ## Selected-stamp `Deselect` button: `bridge.sculpt_select_stamp(-1)` then redraw.
 func _on_stamp_deselect() -> void:
+	if _engine_busy("Deselect stamp"):
+		return
 	bridge.sculpt_select_stamp(-1)
 	show_sculpt_stack()
 
 ## Selected-stamp `Show`/`Hide`: sets the stamp hidden to the opposite of its current
 ## `hidden` via `bridge.sculpt_set_stamp_hidden`, then redraws.
 func _on_stamp_toggle_hidden(index: int, hidden: bool) -> void:
+	if _engine_busy("Show / Hide stamp"):
+		return
 	bridge.sculpt_set_stamp_hidden(index, not hidden)
 	show_sculpt_stack()
 
 ## Selected-stamp `Move up`: `bridge.sculpt_move_stamp_up(index)` then redraw.
 func _on_stamp_move_up(index: int) -> void:
+	if _engine_busy("Move stamp up"):
+		return
 	bridge.sculpt_move_stamp_up(index)
 	show_sculpt_stack()
 
 ## Selected-stamp `Move down`: `bridge.sculpt_move_stamp_down(index)` then redraw.
 func _on_stamp_move_down(index: int) -> void:
+	if _engine_busy("Move stamp down"):
+		return
 	bridge.sculpt_move_stamp_down(index)
 	show_sculpt_stack()
 
 ## Selected-stamp `Delete`: `bridge.sculpt_delete_stamp(index)` then redraw.
 func _on_stamp_delete(index: int) -> void:
+	if _engine_busy("Delete stamp"):
+		return
 	bridge.sculpt_delete_stamp(index)
 	show_sculpt_stack()
 
