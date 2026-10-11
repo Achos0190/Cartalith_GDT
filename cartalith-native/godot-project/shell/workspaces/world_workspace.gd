@@ -613,7 +613,56 @@ func _build() -> void:
 	bridge.generation_stage.connect(_on_generation_stage)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
+	## Replay what the `bridge.generating` gates below skipped. Connected AFTER
+	## `_on_generation_finished` on purpose: that handler's own rebuilds clear most
+	## flags, so this only does what is left. The two landmark signals are the worker
+	## runs that hold the engine WITHOUT emitting `generation_finished`
+	## (`right_dock.gd::setup()` connects its own replay to the same three).
+	bridge.generation_finished.connect(_flush_generating_deferred)
+	bridge.landmark_finished.connect(_flush_generating_deferred)
+	bridge.landmark_refine_finished.connect(_flush_generating_deferred)
 	_paint_stage_rows()
+
+## Work the `bridge.generating` gates skipped, one flag per gated function. While a
+## generation (or a landmark / viewshed-refine run) is in flight a worker holds the
+## engine's `WorldGen` mutably, so ANY main-thread `#[func]` call panics with
+## `Gd<T>::bind() failed, already bound` (~97 per run from `_refresh_sculpt_draft`
+## alone, measured 2026-10-11). Each gated function sets its flag and returns; it
+## clears the flag itself when it next runs for real; `_flush_generating_deferred`
+## replays whatever is still set. Never read the engine from a signal handler
+## without one of these gates.
+var _draft_refresh_deferred := false
+var _sculpt_build_deferred := false
+var _paint_build_deferred := false
+var _ecology_fill_deferred := false
+var _crs_build_deferred := false
+var _finalize_refresh_deferred := false
+var _pg_rebuild_deferred := false
+
+## Replays every gated call that was skipped while the worker owned the engine.
+## Connected in `setup()` to `generation_finished`, `landmark_finished` and
+## `landmark_refine_finished`. Does nothing while still generating (a replay must
+## never itself be the ungated call) and nothing for a flag that is clear. Takes an
+## ignored argument so the three signals (`bool`, `Dictionary`, `Dictionary`) can
+## share it.
+func _flush_generating_deferred(_r: Variant = null) -> void:
+	if bridge == null or bridge.generating:
+		return
+	if _sculpt_build_deferred and is_instance_valid(_sculpt_body):
+		_build_sculpt(_sculpt_body)
+	if _paint_build_deferred and is_instance_valid(_paint_body):
+		_build_paint(_paint_body)
+	if _draft_refresh_deferred:
+		_refresh_sculpt_draft()
+	if _ecology_fill_deferred and is_instance_valid(_ecology_body):
+		_ecology_fill_deferred = false
+		DccWidgets.fill_when_visible(_ecology_body, _fill_ecology.bind(_ecology_body))
+	if _crs_build_deferred and is_instance_valid(_crs_body):
+		_build_crs(_crs_body)
+	if _finalize_refresh_deferred:
+		_refresh_finalize()
+	if _pg_rebuild_deferred:
+		_pg_rebuild()
 
 ## A new/loaded world means a fresh (or absent) `SculptEditor`/`PaintEditor`
 ## on the Rust side -- both panels rebuild from scratch rather than trusting
@@ -1018,6 +1067,14 @@ func _build_ecology(parent: Control) -> void:
 ## when it next opens -- `DccWidgets.fill_when_visible`), the same wholesale-rebuild discipline
 ## `_build_sculpt`/`_build_paint` use: every number here is this world's.
 func _fill_ecology(parent: Control) -> void:
+	## Gated: `ecology_summary()` reads the engine, and this runs from a visibility
+	## signal the user can trigger (opening the category) mid-generation. Never
+	## clears the body while skipping -- the previous world's numbers stay until the
+	## replay (`_flush_generating_deferred`, or `_on_generation_finished`'s own refill).
+	if bridge.generating:
+		_ecology_fill_deferred = true
+		return
+	_ecology_fill_deferred = false
 	for c in parent.get_children():
 		c.queue_free()
 		parent.remove_child(c)
@@ -1135,6 +1192,12 @@ func _build_world_data_foot(parent: Control) -> void:
 ## mode, which is the part worth stating: the climate pipeline runs on real
 ## latitudes either way.
 func _build_crs(parent: Control) -> void:
+	## Gated like `_fill_ecology`: `world_crs()` reads the engine. Skipping keeps the
+	## previous text; the replay rebuilds it.
+	if bridge.generating:
+		_crs_build_deferred = true
+		return
+	_crs_build_deferred = false
 	for c in parent.get_children():
 		c.queue_free()
 		parent.remove_child(c)
@@ -1333,6 +1396,12 @@ func bake_and_finalize() -> void:
 func _refresh_finalize() -> void:
 	if _bake_button == null:
 		return
+	## Gated: `atlas_status()` / `bake_estimate()` read the engine, which the worker
+	## owns mid-run. The section keeps its last text and the replay re-syncs it.
+	if bridge.generating:
+		_finalize_refresh_deferred = true
+		return
+	_finalize_refresh_deferred = false
 	var st: Dictionary = bridge.atlas_status()
 	var finalized := bool(st.get("finalized", false))
 	var has_world: bool = bridge.has_world
@@ -2705,6 +2774,13 @@ func _on_generate_pressed() -> void:
 # controls belong on screen, not just a value within them.
 
 func _build_sculpt(parent: Control) -> void:
+	## Gated: this reads `sculpt_get_globals()` and half a dozen more engine calls.
+	## Skipping leaves the previous panel standing; the replay rebuilds it, so a
+	## mid-run request is never lost (see `_flush_generating_deferred`).
+	if bridge.generating:
+		_sculpt_build_deferred = true
+		return
+	_sculpt_build_deferred = false
 	for child in parent.get_children():
 		parent.remove_child(child)
 		child.queue_free()
@@ -3206,9 +3282,19 @@ func _build_sculpt_draft(parent: Control) -> void:
 
 ## Re-gate the Draft section against the live stack. Cheap enough to run on
 ## every change: three property writes, no rebuild.
+##
+## Connected, undeferred, to `bridge.sculpt_draft_changed`, which can fire while a
+## generation holds the engine; `sculpt_stamp_count()` is a `#[func]`, so it is gated
+## on `bridge.generating` and replayed by `_flush_generating_deferred` (the Draft
+## section then shows the real count, not the stale one). Never read the count
+## before that gate.
 func _refresh_sculpt_draft() -> void:
 	if not is_instance_valid(_sculpt_commit_btn):
 		return
+	if bridge.generating:
+		_draft_refresh_deferred = true
+		return
+	_draft_refresh_deferred = false
 	var count := bridge.sculpt_stamp_count()
 	_sculpt_commit_btn.disabled = count == 0
 	_sculpt_discard_btn.disabled = count == 0
@@ -3603,7 +3689,9 @@ func _follow_tool_to_its_block(id: String) -> void:
 func context_actions(req: Dictionary) -> Array:
 	if String(req.get("domain", "")) != "world":
 		return []
-	if not bridge.has_world:
+	if not bridge.has_world or bridge.generating:
+		## `generating`: the rows below read the engine (`sculpt_stamp_count()` ...),
+		## which the worker owns mid-run; a card with no engine rows is correct then.
 		return []
 	var gx := float(req.get("gx", 0.0))
 	var gy := float(req.get("gy", 0.0))
@@ -3903,6 +3991,11 @@ func _sculpt_brush_radius_cells() -> float:
 # own target table.
 
 func _build_paint(parent: Control) -> void:
+	## Gated like `_build_sculpt` (`get_paint_layers()`, `paint_painted_counts()`...).
+	if bridge.generating:
+		_paint_build_deferred = true
+		return
+	_paint_build_deferred = false
 	for child in parent.get_children():
 		parent.remove_child(child)
 		child.queue_free()
@@ -4553,10 +4646,17 @@ func refresh_phone_generate() -> void:
 	_pg_rebuild()
 
 ## Generate-started handler for the phone column: resets the stage index to 0
-## and rebuilds so the progress view shows.
+## and rebuilds so the progress view shows. Passes `at_start = true`: `EngineBridge`
+## sets `generating` and emits `generation_started` SYNCHRONOUSLY, before it starts the
+## worker thread, so the engine is still free here and the Sculpt / Paint columns may
+## read it. Measured 2026-10-11 (`_etd3_probe` phone leg): skipping this rebuild too
+## removed ~tens of ms of main-thread work between `generate()` and the worker's
+## `generate_sized`, and the worker then lost a race with `viewport_host.gd`'s
+## ungated LOD calls (`generate_sized` panicked "cannot borrow mutable while shared
+## borrow exists", the world was not regenerated, the probe failed 5 of 5).
 func _pg_on_started() -> void:
 	_pg_stage_index = 0
-	_pg_rebuild()
+	_pg_rebuild(true)
 
 ## Stage-progress handler: records the new `index` and repaints the progress
 ## bar only (no rebuild). The name and total are unused.
@@ -4572,9 +4672,20 @@ func _pg_on_finished(_ok: bool) -> void:
 
 # -- The column ---------------------------------------------------------------
 
-func _pg_rebuild() -> void:
+## Rebuilds the phone GENERATE column. `at_start` is true ONLY from `_pg_on_started`
+## (the pre-worker window, see there); every other caller leaves it false and is
+## gated. Never pass `at_start` from anywhere that can run after the worker starts.
+func _pg_rebuild(at_start: bool = false) -> void:
 	if _pg_host == null or not is_instance_valid(_pg_host):
 		return
+	## The Sculpt and Paint columns read the engine (`sculpt_*`, `paint_*`), which the
+	## worker owns while generating; a GENERATE-tab tap or a `world_loaded` landing
+	## mid-run reaches here. The Pipeline column reads only the cached `param_get`, so
+	## it is not gated. Replayed by `_flush_generating_deferred`.
+	if bridge.generating and _pg_mode != "pipe" and not at_start:
+		_pg_rebuild_deferred = true
+		return
+	_pg_rebuild_deferred = false
 	for child in _pg_host.get_children():
 		_pg_host.remove_child(child)
 		child.queue_free()
