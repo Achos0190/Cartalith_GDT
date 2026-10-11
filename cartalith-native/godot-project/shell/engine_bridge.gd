@@ -115,6 +115,13 @@ static func selection_mode_from_input() -> int:
 var world_gen: WorldGen = WorldGen.new()
 
 var generating := false
+## WHICH run set `generating` last: `"generate"`, `"import"`, `"resample"`, `"landmarks"` or
+## `"viewshed"`, written by each of the five entry points immediately before it sets `generating`
+## and never cleared (read it only while `generating` is true). Read by `busy_overlay.gd` so its
+## title and loading lines name the action really running -- the landmark pass and the viewshed
+## refine emit no start signal and import/resample share `generation_started` with a generate, so
+## nothing else tells them apart. A plain field: reading it never touches `world_gen`.
+var busy_kind := ""
 var has_world := false
 var last_summary := ""
 var last_width_km := 0.0
@@ -742,6 +749,7 @@ func generate(request: Dictionary) -> void:
 	## a `#[func]` on the borrowed object.
 	if _params_available:
 		_params_cache = world_gen.get_params()
+	busy_kind = "generate"
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
@@ -886,6 +894,7 @@ func import_heightmap(path: String, request: Dictionary) -> void:
 	## a `#[func]` on the borrowed object.
 	if _params_available:
 		_params_cache = world_gen.get_params()
+	busy_kind = "import"
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
@@ -4731,6 +4740,7 @@ func region_new_world(tile_size: int = 0, ridged: bool = false,
 	## nothing reaches a `#[func]` on the borrowed object.
 	if _params_available:
 		_params_cache = world_gen.get_params()
+	busy_kind = "resample"
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
@@ -6711,6 +6721,7 @@ func landmark_run() -> Dictionary:
 			"ok": false, "placed": 0, "seconds": 0.0,
 			"error": "This build's extension has no landmark_run.", "funnels": [],
 		}
+	busy_kind = "landmarks"
 	generating = true
 	_thread = Thread.new()
 	_thread.start(_landmark_worker)
@@ -6765,6 +6776,7 @@ func landmark_refine_view(x: int, y: int, w: int, h: int) -> Dictionary:
 	if not _has("landmark_refine_view") or not _has("landmark_refine_status"):
 		return {"ok": false, "state": "never", "error": "This build's extension has no viewshed refine."}
 	_refine_rect = Rect2i(x, y, w, h)
+	busy_kind = "viewshed"
 	generating = true
 	_thread = Thread.new()
 	_thread.start(_landmark_refine_worker)

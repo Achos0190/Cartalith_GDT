@@ -1022,6 +1022,9 @@ func _ready() -> void:
 	journey_planner_view.setup(self, bridge)
 
 	_setup_autosave()
+	## The busy overlay (owner, 2026-10-11): mounted after every other child so its `_input`
+	## runs first -- see `_mount_busy_overlay`.
+	_mount_busy_overlay()
 
 	set_status("pass", "no world", "text_faint")
 	## The route differs by shell, so the sentence does -- `DccShell
@@ -1059,6 +1062,31 @@ func _ready() -> void:
 	## for the one-line branch.
 	if not bridge.has_world:
 		_open_welcome_when_drawn()
+
+## **The busy overlay and UI guard** (`busy_overlay.gd`; owner 2026-10-11: loading lines per step
+## over a relief-trace bar, "That way we can block/save guard the UI"). Its own `CanvasLayer`
+## (`BusyOverlay.CANVAS_LAYER`) as this node's LAST child: Godot runs `_input` on the last node in
+## tree order first, so the overlay sees every event before `ViewportHost._input`,
+## `layers_popover.gd`, the GUI, the `MenuBar` accelerators and this file's
+## `_unhandled_key_input`, and swallows all of them while the engine is busy (it re-asserts
+## last-child on every show, since later `add_child` calls land after it). It reads only
+## `bridge.generating`, `bridge.busy_kind` and the bridge's signals -- never `WorldGen`. Every
+## per-handler `generating` guard in the shell stays: this is the outer layer, not a replacement.
+## Never call before `bridge` exists (`setup` connects to its signals).
+const BusyOverlay := preload("res://shell/busy_overlay.gd")
+var busy_overlay: Control
+
+## Creates the overlay's `CanvasLayer` and the overlay, and hands it the bridge. Called once from
+## `_ready`, after every other child is added.
+func _mount_busy_overlay() -> void:
+	var layer := CanvasLayer.new()
+	layer.name = "BusyOverlayLayer"
+	layer.layer = BusyOverlay.CANVAS_LAYER
+	add_child(layer)
+	busy_overlay = BusyOverlay.new()
+	busy_overlay.name = "BusyOverlay"
+	layer.add_child(busy_overlay)
+	busy_overlay.setup(bridge)
 
 ## `call_deferred` was not enough, and the difference is a hard crash rather
 ## than a cosmetic one. It runs at the end of the *current* idle frame, which
