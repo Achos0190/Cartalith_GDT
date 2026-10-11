@@ -1258,7 +1258,10 @@ pub fn river_entities(
 ///   and a discharge under [`COMB_DISCHARGE_FRAC`] of the grid is hidden when a
 ///   heavier kept coastal run runs within [`COMB_SPACING_FACTOR`] x its own
 ///   length (at most [`COMB_MAX_SPACING_CELLS`]) of at least half its cells
-///   and of its outlet: about one river per half stream length (Hovius 1996).
+///   and of its outlet: about one river per two stream lengths (spacing factor `2.0`
+///   since Ruling CA item 4, a labelled judgement; the Ruling BW pass used
+///   `0.5`, the order of the ratio Hovius 1996 reports -- see
+///   [`COMB_SPACING_FACTOR`] for what that citation does and does not support).
 ///   Draw-side only: channels, flow and every golden are untouched, and a
 ///   thinned run is a `parallel_of` run like any other (so the map, the tiles
 ///   and the export, which all go through this plan, thin identically).
@@ -1334,26 +1337,54 @@ pub const PARALLEL_MIN_CELLS: usize = 3;
 pub const PARALLEL_GAP_CELLS: f64 = 2.0;
 
 /// Comb thinning's spacing, as a fraction of a stream's own length `L`:
-/// two coastal order-1 streams whose lines run within `0.5 * L` of each other
-/// are one comb, and only the heavier is drawn. **Source: Hovius (1996),
+/// two coastal order-1 streams whose lines run within `2.0 * L` of each other
+/// are one comb, and only the heavier is drawn.
+///
+/// **What the citation supports, and what it does not.** Hovius (1996),
 /// "Regular spacing of drainage outlets from linear mountain belts" (Basin
-/// Research 8, 29-44)**, whose outlets along a range front sit at a spacing of
-/// about half the length of the streams between divide and front -- the
-/// owner's stated reference for Ruling BW item 3 (2026-10-10). The `0.5` is
-/// that paper's ratio as the owner gave it, not fitted here.
+/// Research 8, 29-44) -- the owner's stated reference for Ruling BW item 3
+/// (2026-10-10) -- gives the ORDER of the ratio: outlets along a range front
+/// sit at a spacing of roughly half the length of the streams between divide
+/// and front. The first value here, `0.5`, was that ratio as the owner gave
+/// it. **`2.0` is NOT in the paper**: it is a **labelled judgement**, chosen
+/// from a measured (factor, cap) grid after the owner asked in Ruling CA item
+/// 4 for combs to be thinned MORE strongly than the `0.5` pass did
+/// (`cartalith-godot/tests/river_comb_harness.rs`, `river_comb_grid`, four
+/// worlds, 2026-10-11). On seed 246371 (512x328, 40 075 km) factor 1.0 -> 2.0
+/// raised the strands removed from 28 to 52 and cut straight order-1 strips
+/// with a parallel neighbour (within 8 cells) from 54 to 39 (unthinned: 78);
+/// factors 4 and 8 removed only 66 and 69 and left the same 39, so 2.0 is the
+/// first-step knee. Connectivity damage (shore rivers lost, tributaries
+/// orphaned, hosts themselves hidden) was 0 at every one of the 16 pairs on
+/// every world, and order >= 3, trunk and fan-mouth length did not move.
+/// Reverting to `0.5` (with cap 24) restores the Ruling BW pass exactly.
+///
+/// **Limit.** The pass cannot reach the interior hatching on that world: its
+/// guards, not this spacing, bind (see [`COMB_DISCHARGE_FRAC`]).
 ///
 /// Why it is needed: on steep smooth coastal and ridge ramps the D8 and
 /// D-infinity trees run in parallel one-cell strips (after Ruling BV: 400
 /// streak runs at density 1.55 and 228 at 1.0 on seed 246371), each a
 /// separate river a cell or two from the next, far closer than any real range
 /// front spaces its outlets. See [`COMB_MAX_ORDER`] for what is never thinned.
-pub const COMB_SPACING_FACTOR: f64 = 0.5;
+pub const COMB_SPACING_FACTOR: f64 = 2.0;
 
 /// Upper bound on the comb spacing, in cells. A **labelled judgement** whose
 /// only job is to bound the neighbour search (a run's `L` can be hundreds of
 /// cells) and to keep one long order-1 trickle from hiding every stream on a
-/// whole coast: 24 cells is ~470 km on the owner's 2048-wide 40 075 km world.
-pub const COMB_MAX_SPACING_CELLS: f64 = 24.0;
+/// whole coast: 32 cells is ~630 km on the owner's 2048-wide 40 075 km world
+/// (it was 24 cells, ~470 km, under Ruling BW; raised in step with
+/// [`COMB_SPACING_FACTOR`], Ruling CA item 4). The grid above found it
+/// non-binding on every harness world (the longest comb strand measured 24 to
+/// 44 cells; raising it to 64, 100 and 200 changed nothing there beyond one
+/// strand on seed 24601). Not from a citation: a labelled judgement.
+pub const COMB_MAX_SPACING_CELLS: f64 = 32.0;
+
+/// The Ruling BW (2026-10-10) comb parameters, `(factor, cap in cells)`,
+/// before Ruling CA item 4 strengthened them. Kept only so
+/// `cartalith-godot/tests/river_comb_harness.rs` can draw the before/after
+/// comparison the owner approves on; the app never uses it.
+pub const COMB_RULING_BW: (f64, f64) = (0.5, 24.0);
 
 /// The highest Strahler order a run can have and still be thinned as a comb
 /// tooth. **A labelled judgement**: a comb is made of order-1 strips (the
@@ -1370,7 +1401,12 @@ pub const COMB_MAX_ORDER: i16 = 1;
 /// `cartalith_godot::river_delta::MIN_DISCHARGE_FRAC`** (2e-4: the owner
 /// world's own 90th percentile over all its river mouths; that constant's doc
 /// has the measurement), so every river big enough to get a delta fan is also
-/// too big to thin and thinning can never remove a fan-bearing mouth. It also
+/// too big to thin and thinning can never remove a fan-bearing mouth. **Known
+/// limit (measured 2026-10-11, seed 246371 at 512x328):** this share is only
+/// ~34 cells of discharge there, so most order-2 runs without tributaries count
+/// as heavy or join another run and are never teeth; the comb pass cannot reach
+/// that world's interior hatching whatever the spacing, and raising this is a
+/// river-threshold change (Ruling BV) needing an owner ruling. It also
 /// protects the largest single-run order-1 outlets, which the order cap alone
 /// would not (the owner world's biggest, 1.5 % of its grid, is order 1).
 pub const COMB_DISCHARGE_FRAC: f32 = 2.0e-4;
@@ -1391,7 +1427,26 @@ pub fn river_draw_plan(
     next: &[i32],
     water: &[u8],
 ) -> RiverDrawPlan {
-    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, true)
+    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, Some((COMB_SPACING_FACTOR, COMB_MAX_SPACING_CELLS)))
+}
+
+/// [`river_draw_plan`] with the comb spacing `(factor, cap in cells)` given
+/// instead of read from [`COMB_SPACING_FACTOR`] / [`COMB_MAX_SPACING_CELLS`].
+/// Exists only so a measurement can compare two strengths on one world
+/// (`cartalith-godot/tests/river_comb_harness.rs`); the app never calls it.
+#[allow(clippy::too_many_arguments)]
+pub fn river_draw_plan_with_comb(
+    rivers: &[River],
+    flow: &[f32],
+    fld: &[f32],
+    sea_level: f64,
+    w: usize,
+    h: usize,
+    next: &[i32],
+    water: &[u8],
+    comb: (f64, f64),
+) -> RiverDrawPlan {
+    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, Some(comb))
 }
 
 /// The plan as it was before comb thinning: only the hug rule
@@ -1409,11 +1464,12 @@ pub fn river_draw_plan_unthinned(
     next: &[i32],
     water: &[u8],
 ) -> RiverDrawPlan {
-    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, false)
+    draw_plan(rivers, flow, fld, sea_level, w, h, next, water, None)
 }
 
-/// The shared body of the two public plans; `thin_combs` switches the comb
-/// pass on. Everything but that pass is identical, so the two plans differ
+/// The shared body of the public plans; `comb` is `Some((spacing factor, cap
+/// in cells))` to switch the comb pass on at that strength, `None` for off.
+/// Everything but that pass is identical, so the two plans differ
 /// only in `parallel_of` entries the pass added (and the bridges and
 /// extensions that follow from them).
 ///
@@ -1435,7 +1491,7 @@ fn draw_plan(
     h: usize,
     next: &[i32],
     water: &[u8],
-    thin_combs: bool,
+    comb: Option<(f64, f64)>,
 ) -> RiverDrawPlan {
     let n = w * h;
     let mut plan = RiverDrawPlan {
@@ -1537,7 +1593,8 @@ fn draw_plan(
         {
             return None;
         }
-        let s = (COMB_SPACING_FACTOR * r.length_cells).min(COMB_MAX_SPACING_CELLS);
+        let (factor, cap) = comb?;
+        let s = (factor * r.length_cells).min(cap);
         if s < 1.0 {
             return None;
         }
@@ -1613,7 +1670,7 @@ fn draw_plan(
         // the unthinned plan makes (a thinned tooth must not let a run it hid
         // reappear); only `drawn_kept`, the comb test's host cells, leaves it
         // out.
-        if thin_combs {
+        if comb.is_some() {
             if let Some(j) = comb_host(i, &own, &drawn_kept) {
                 plan.parallel_of[i] = Some(j);
                 continue;
@@ -2893,8 +2950,8 @@ mod tests {
     /// The comb pass, each rule once: spacing, the three caps, the shore, the
     /// host never being hidden, and the unthinned plan staying the old one.
     #[test]
-    fn comb_thinning_keeps_one_river_per_half_length_and_never_a_capped_one() {
-        // Protects: Ruling BW item 3 -- a coastal comb is thinned to about one river per COMB_SPACING_FACTOR x length, while a heavy run, an order-2 run, a run with a tributary, an inland run and a run farther than the spacing are never hidden, and a hidden run's host is always itself drawn.
+    fn comb_thinning_keeps_one_river_per_length_and_never_a_capped_one() {
+        // Protects: Ruling BW item 3 as strengthened by Ruling CA item 4 -- a coastal comb is thinned to about one river per length (factor 2.0, capped at 32 cells; pinned by literal distances below), while a heavy run, an order-2 run, a run with a tributary, an inland run and a run farther than the spacing are never hidden, and a hidden run's host is always itself drawn.
         let xs = [5usize, 10, 15, 20, 25];
         let q = [1.0f32, 0.9, 0.8, 0.7, 0.6];
         let (w, h, flow, fld, mut rivers) = comb_fixture(&xs, &q);
@@ -2904,15 +2961,33 @@ mod tests {
         let raw = super::river_draw_plan_unthinned(&rivers, &flow, &fld, 0.42, w, h, &[], &[]);
         assert!(hidden(&raw).is_empty(), "5 cells apart is outside the hug reach: the old plan draws all five");
 
-        // S = 0.5 * 24 = 12 cells: x=5 kept; 10 and 15 within 12 of it (hidden);
-        // 20 is 15 away (kept); 25 is 5 from 20 (hidden).
+        // Length 24, factor 2.0: 2.0 * 24 = 48, capped at 32 -> S = 32 cells.
+        // x=5 kept; 10, 15, 20 and 25 are all within 32 of it (hidden, host 0).
         let p = plan(&rivers);
-        assert_eq!(hidden(&p), vec![1, 2, 4], "one river per 12 cells");
-        assert_eq!((p.parallel_of[1], p.parallel_of[2], p.parallel_of[4]), (Some(0), Some(0), Some(3)));
+        assert_eq!(hidden(&p), vec![1, 2, 3, 4], "one river per 32 cells");
+        assert_eq!((p.parallel_of[1], p.parallel_of[2], p.parallel_of[3], p.parallel_of[4]), (Some(0), Some(0), Some(0), Some(0)));
         for i in hidden(&p) {
             let host = p.parallel_of[i].unwrap();
             assert!(p.parallel_of[host].is_none(), "run {i}'s host {host} is itself hidden");
         }
+
+        // The spacing's edge, by literal distances worked out by hand (not
+        // derived from the constants): length 10 -> 2.0 * 10 = 20 (below the
+        // cap, so the FACTOR binds): 20 apart hides, 21 does not. Length 24 and
+        // length 100 -> 48 and 200, both capped at 32 (the CAP binds): 32 apart
+        // hides, 33 does not.
+        let edge = |xs: &[usize], len: f64| -> Vec<usize> {
+            let (w, h, flow, fld, mut rs) = comb_fixture(xs, &[1.0, 0.9]);
+            rs.iter_mut().for_each(|r| r.length_cells = len);
+            let p = super::river_draw_plan(&rs, &flow, &fld, 0.42, w, h, &[], &[]);
+            (0..xs.len()).filter(|&i| p.parallel_of[i].is_some()).collect()
+        };
+        assert_eq!(edge(&[5, 25], 10.0), vec![1], "20 apart at length 10 (factor x length = 20): one comb");
+        assert!(edge(&[5, 26], 10.0).is_empty(), "21 apart at length 10: two rivers");
+        assert_eq!(edge(&[5, 37], 24.0), vec![1], "32 apart at length 24 (capped at 32): one comb");
+        assert!(edge(&[5, 38], 24.0).is_empty(), "33 apart at length 24: two rivers");
+        assert_eq!(edge(&[5, 37], 100.0), vec![1], "32 apart at length 100 (capped at 32): one comb");
+        assert!(edge(&[5, 38], 100.0).is_empty(), "33 apart at length 100: two rivers");
 
         // Each cap, on the run (index 1) that would otherwise be thinned.
         rivers[1].discharge = 2.0; // >= 2e-4 of 8000 cells = 1.6
@@ -2924,8 +2999,8 @@ mod tests {
         rivers[1].tributaries = 1;
         assert!(plan(&rivers).parallel_of[1].is_none(), "a run with a tributary is never thinned");
 
-        // Far apart: 30 cells > S, nothing is a comb.
-        let (w2, h2, flow2, fld2, far) = comb_fixture(&[5, 35, 65], &[1.0, 0.9, 0.8]);
+        // Far apart: 40 cells > S = 32, nothing is a comb.
+        let (w2, h2, flow2, fld2, far) = comb_fixture(&[5, 45, 85], &[1.0, 0.9, 0.8]);
         let pf = super::river_draw_plan(&far, &flow2, &fld2, 0.42, w2, h2, &[], &[]);
         assert!((0..3).all(|i| pf.parallel_of[i].is_none()), "rivers farther apart than the spacing stay");
 
