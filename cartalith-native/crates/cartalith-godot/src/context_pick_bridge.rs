@@ -102,12 +102,18 @@ impl WayStore {
     }
 }
 
-/// One deleted way, whole -- whichever store it came from.
+/// One deleted way, whole -- whichever store it came from -- or, for
+/// [`HeldWay::Drag`], the whole set of hand-drawn ways one committed drag pushed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HeldWay {
     Generated(Way),
     SeaLane(SeaRoute),
     Manual(ManualWay),
+    /// ET-D4: every way one drag commit pushed (one per symmetry copy), in push
+    /// order. They are contiguous in `InfraTools::ways` starting at the
+    /// entry's `index`. Unlike the other variants this is held **after a draw**,
+    /// not after a delete: undoing it removes them and redoing it re-inserts them.
+    Drag(Vec<ManualWay>),
 }
 
 /// Accessors for a held way.
@@ -117,7 +123,7 @@ impl HeldWay {
         match self {
             HeldWay::Generated(_) => WayStore::Generated,
             HeldWay::SeaLane(_) => WayStore::SeaLane,
-            HeldWay::Manual(_) => WayStore::Manual,
+            HeldWay::Manual(_) | HeldWay::Drag(_) => WayStore::Manual,
         }
     }
 }
@@ -173,6 +179,17 @@ pub fn put_way(st: &mut WayStores<'_>, index: usize, way: HeldWay) -> bool {
         HeldWay::Manual(w) => match st.manual.as_deref_mut() {
             Some(v) if index <= v.len() => {
                 v.insert(index, w);
+                true
+            }
+            _ => false,
+        },
+        // Re-inserts the whole drag contiguously at `index`, in push order: the
+        // redo of a drag (`redo_drag_core`). The *undo* of a drag is not this
+        // function's inverse -- `undo_way_core` removes the slice itself, after
+        // checking it still holds exactly these ways.
+        HeldWay::Drag(ws) => match st.manual.as_deref_mut() {
+            Some(v) if index <= v.len() => {
+                v.splice(index..index, ws);
                 true
             }
             _ => false,
@@ -278,10 +295,40 @@ pub struct WayUndoEntry {
 /// [`undo::MAX_LEDGER`] is larger.
 pub const MAX_WAY_UNDO: usize = 64;
 
-/// The held side of every [`undo::EntryKind::WayDelete`] ledger row.
+/// One undone drag, waiting to be redone (ET-D4). Held by [`WayUndo`] on a LIFO
+/// stack; only the **top** can be redone, and only while [`drag_redo_ready`]
+/// says the world is exactly as the undo left it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragRedo {
+    /// Index in `InfraTools::ways` where the drag's first way sat (and sits again).
+    pub index: usize,
+    /// The drag's ways, whole, in push order -- what the redo re-inserts.
+    pub ways: Vec<ManualWay>,
+    /// The manual store's fingerprint as the undo **left** it (= the drag's own
+    /// `fp_before`). The redo is offered only while the store still has it.
+    pub fp_before: u64,
+    /// The store's fingerprint with the drag present, carried for the redone entry.
+    pub fp_after: u64,
+    /// The history label (`Draw road`), reused for the redone ledger row.
+    pub label: String,
+    /// `undo.depth()` when the drag was undone: redo is offered only at the same
+    /// height-stack depth, which is what orders it against the height redo tail
+    /// (see `redo_last`).
+    pub height_depth: usize,
+    /// `HistoryLedger::last_seq()` at the undo, re-stamped by the redos that
+    /// follow it. A commit since moves the ledger past it and kills the offer: a
+    /// new operation truncates redo, as everywhere else in this ledger.
+    pub mark: u64,
+}
+
+/// The held side of every [`undo::EntryKind::WayDelete`] and
+/// [`undo::EntryKind::WayDrag`] ledger row, plus the drag redo stack.
 #[derive(Debug, Default)]
 pub struct WayUndo {
     entries: Vec<WayUndoEntry>,
+    /// Undone drags, newest undo last (the top). Cleared with `entries`, so a
+    /// generate/load/`clear_undo` drops it exactly as it drops the undo side.
+    redo: Vec<DragRedo>,
 }
 
 /// The held-way list and its liveness rule ([`WayUndo::live_seqs`]).
@@ -289,6 +336,52 @@ impl WayUndo {
     /// An empty held-way list.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Pushes one undone drag onto the redo stack, dropping the oldest past
+    /// [`MAX_WAY_UNDO`].
+    pub fn push_redo(&mut self, r: DragRedo) {
+        self.redo.push(r);
+        if self.redo.len() > MAX_WAY_UNDO {
+            self.redo.remove(0);
+        }
+    }
+
+    /// The drag a redo would re-apply next (not yet validated: see [`drag_redo_ready`]).
+    pub fn redo_top(&self) -> Option<&DragRedo> {
+        self.redo.last()
+    }
+
+    /// Takes the top redo entry off the stack.
+    pub fn pop_redo(&mut self) -> Option<DragRedo> {
+        self.redo.pop()
+    }
+
+    /// Forgets every undone drag (a new operation was committed).
+    pub fn clear_redo(&mut self) {
+        self.redo.clear();
+    }
+
+    /// How many undone drags are held (raw occupancy, not availability).
+    #[cfg(test)]
+    pub fn redo_len(&self) -> usize {
+        self.redo.len()
+    }
+
+    /// After a legitimate redo recorded its own ledger row, moves every redo
+    /// entry stamped `old` (the ledger's `last_seq` just before that record) to
+    /// `new`. Entries stamped earlier stay stamped earlier -- a commit happened
+    /// after *their* undo, so they must stay dead.
+    pub fn restamp_redo(&mut self, old: u64, new: u64) {
+        for r in self.redo.iter_mut().filter(|r| r.mark == old) {
+            r.mark = new;
+        }
+    }
+
+    /// The newest live entry of one store, per [`WayUndo::live_seqs`].
+    pub fn newest_live_in(&self, store: WayStore, fp: &dyn Fn(WayStore) -> u64) -> Option<&WayUndoEntry> {
+        let seq = self.live_seqs(fp).into_iter().find(|s| self.entries.iter().any(|e| e.seq == *s && e.way.store() == store))?;
+        self.entries.iter().find(|e| e.seq == seq)
     }
 
     /// Holds one more deleted way, dropping the oldest past [`MAX_WAY_UNDO`].
@@ -299,9 +392,10 @@ impl WayUndo {
         }
     }
 
-    /// Drops every held way. Their ledger rows are the caller's to handle.
+    /// Drops every held way and every undone drag. Their ledger rows are the caller's to handle.
     pub fn clear(&mut self) {
         self.entries.clear();
+        self.redo.clear();
     }
 
     /// How many entries are held (test-only; production asks `live_seqs`).
@@ -384,6 +478,216 @@ pub fn choose_undo(height: Option<(u64, String)>, way: Option<(u64, String)>) ->
             }
         }
     }
+}
+
+// ====================================================== way undo / redo core ==
+//
+// The undo and redo of a way row as **pure functions** over the ledger, the held
+// entries and the stores, so the semantics are unit-testable without a live
+// Godot object (`WorldGen` is a cdylib `GodotClass`; see `MISTAKES.md`'s
+// preflight row on probes). `WorldGen::undo_way_step`, `redo_last` and
+// `way_stroke_end` are thin wrappers that hand these the real fields.
+//
+// ## Semantics of a drag row (ET-D4), decided and stated once
+//
+// * **Record.** A committed drag pushes exactly one [`undo::EntryKind::WayDrag`]
+//   row, labelled `Draw <type>` (`Draw road`, `Draw sea lane`; `Draw road (2
+//   ways)` when symmetry made copies), and holds its ways + start index + the
+//   manual store's fingerprint either side. A refused or empty drag pushes nothing.
+// * **Liveness.** The same fingerprint chain a way delete uses: the row is live
+//   only while the manual store is exactly as the drag left it (or as the live
+//   entries above it leave it). *Any* other change to the manual list -- a way
+//   committed by clicking, a rename, a reload -- ends the chain: the row stays
+//   in the history, drawn not reversible with [`STALE_REASON`], and nothing is
+//   ever removed on its behalf. A way deleted **through the ledger** is not such
+//   a change: its own row sits above the drag's and is undone first, after which
+//   the drag is live again (the chain is walked, not broken).
+// * **Undo** removes exactly the drag's ways (`index..index + n`), first
+//   re-checking that slice equals the held ways value for value (the
+//   fingerprint is a hash of selected fields, not a proof). On any mismatch it
+//   refuses: nothing is touched, the held entry is dropped, the row goes stale.
+// * **Redo** is a **LIFO stack of undone drags**, offered only for the top
+//   entry and only while [`drag_redo_ready`]: nothing recorded since the undo
+//   (ledger stamp), the height stack at the same depth, and the manual store
+//   exactly as the undo left it (fingerprint). It re-inserts the same ways at the
+//   same index, records a **new** row (new `seq`, as `redo_last` does for height)
+//   and re-holds the entry, so the drag is undoable again.
+
+/// The ledger label of a committed drag: `Draw <type>`, with the way count when
+/// symmetry made more than one copy. Never invents a type: an empty list is the
+/// caller's bug and gets the neutral `Draw way`.
+pub fn drag_label(ways: &[ManualWay]) -> String {
+    let Some(first) = ways.first() else { return "Draw way".to_string() };
+    let kind = crate::infra_tools_bridge::way_type_key(first.way_type).replace('_', " ");
+    if ways.len() > 1 { format!("Draw {kind} ({} ways)", ways.len()) } else { format!("Draw {kind}") }
+}
+
+/// The ledger row's detail line for a drag of `n` ways.
+fn drag_detail(n: usize) -> String {
+    if n > 1 { format!("hand-drawn drag, {n} symmetry copies") } else { "hand-drawn drag".to_string() }
+}
+
+/// Records one **committed** drag: the manual store already holds
+/// `manual[first..first + count]`, pushed by `way_drag_commit`. Returns the new
+/// ledger row's `seq`, or `None` -- recording **nothing** -- when `count` is `0`
+/// or the range is not inside the store (a refused drag never reaches this with a
+/// real range).
+///
+/// `fp_before` is the manual store's fingerprint *before* the commit; the
+/// fingerprint after is computed here. A new operation, so the drag redo stack is
+/// dropped; stale held entries are pruned (`fps` = every store's fingerprint now).
+/// The caller also clears the **height** redo tail, which this module cannot reach.
+pub fn record_drag(
+    ledger: &mut undo::HistoryLedger,
+    wu: &mut WayUndo,
+    manual: &[ManualWay],
+    first: usize,
+    count: usize,
+    fp_before: u64,
+    fps: &dyn Fn(WayStore) -> u64,
+) -> Option<u64> {
+    let end = first.checked_add(count)?;
+    if count == 0 || end > manual.len() {
+        return None;
+    }
+    let ways = manual[first..end].to_vec();
+    let label = drag_label(&ways);
+    let seq = ledger.record("civ", label, drag_detail(count), undo::EntryKind::WayDrag);
+    wu.clear_redo();
+    // Prune against the world as it stood BEFORE this commit (the manual store
+    // at `fp_before`): an older entry is stale only if something other than a
+    // ledgered row changed the list under it. Pruning against the post-commit
+    // fingerprints would drop every earlier entry, since this very drag moved the
+    // manual store past what each of them left behind.
+    let pre_commit = |s: WayStore| if s == WayStore::Manual { fp_before } else { fps(s) };
+    wu.prune_stale(&pre_commit);
+    wu.push(WayUndoEntry { seq, index: first, way: HeldWay::Drag(ways), fp_before, fp_after: fp_manual(Some(manual)) });
+    Some(seq)
+}
+
+/// The history label for a held entry: `Delete <title>` for a deleted way, the
+/// drag's own `Draw ...` label for a drag.
+pub fn way_entry_label(e: &WayUndoEntry) -> String {
+    match &e.way {
+        HeldWay::Drag(ways) => drag_label(ways),
+        w => format!("Delete {}", held_way_title(w)),
+    }
+}
+
+/// What one way undo did: the label of the reverted row and whether it was a drag
+/// (so the caller can drop `InfraTools`' own single-level drag record).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WayStep {
+    /// The reverted row's history label.
+    pub label: String,
+    /// `true` when the reverted row was a drag.
+    pub was_drag: bool,
+}
+
+/// Reverts the newest live way row (delete **or** drag). `None` when there is no
+/// live entry or the revert was refused. See [`undo_way_core_at`]. Test-only: the
+/// `WorldGen` wrappers pick the `seq` themselves (`undo_way_step`,
+/// `way_stroke_undo`) and call [`undo_way_core_at`]; this is that same pick-then-call
+/// in one place for the harness.
+#[cfg(test)]
+pub fn undo_way_core(
+    ledger: &mut undo::HistoryLedger,
+    wu: &mut WayUndo,
+    st: &mut WayStores<'_>,
+    fp: &dyn Fn(WayStore) -> u64,
+    height_depth: usize,
+) -> Option<WayStep> {
+    let seq = wu.newest_live(fp)?.seq;
+    undo_way_core_at(ledger, wu, st, seq, height_depth)
+}
+
+/// Reverts the held entry `seq` (the caller has established it is live): a
+/// deleted way is put back at its index; a drag has exactly its ways **removed**
+/// and is pushed onto the redo stack, stamped with `height_depth` and the
+/// ledger's current `last_seq`. The ledger row goes in both cases (the state it
+/// recorded is no longer in effect). A refusal -- store missing, slice no longer
+/// equal to the held ways, index past the end -- writes nothing, drops the held
+/// entry (its row then reads as stale) and returns `None`: never a panic, never a
+/// partial edit.
+pub fn undo_way_core_at(
+    ledger: &mut undo::HistoryLedger,
+    wu: &mut WayUndo,
+    st: &mut WayStores<'_>,
+    seq: u64,
+    height_depth: usize,
+) -> Option<WayStep> {
+    let e = wu.remove(seq)?;
+    let label = way_entry_label(&e);
+    let WayUndoEntry { index, way, fp_before, fp_after, .. } = e;
+    match way {
+        HeldWay::Drag(ways) => {
+            let n = ways.len();
+            let v = st.manual.as_deref_mut()?;
+            let end = index.checked_add(n)?;
+            if n == 0 || v.get(index..end) != Some(&ways[..]) {
+                return None;
+            }
+            v.drain(index..end);
+            ledger.remove_seq(seq);
+            wu.push_redo(DragRedo {
+                index,
+                ways,
+                fp_before,
+                fp_after,
+                label: label.clone(),
+                height_depth,
+                mark: ledger.last_seq(),
+            });
+            Some(WayStep { label, was_drag: true })
+        }
+        other => {
+            let ok = put_way(st, index, other);
+            ledger.remove_seq(seq);
+            ok.then_some(WayStep { label, was_drag: false })
+        }
+    }
+}
+
+/// The drag a redo would re-apply, **only** when the world is exactly as that
+/// drag's undo left it: the top of the redo stack, its ledger stamp equal to the
+/// ledger's `last_seq` (nothing recorded since), the height stack at the depth
+/// it had, and the manual store's fingerprint equal to the one the undo left.
+/// `None` otherwise -- a stale offer is never made.
+pub fn drag_redo_ready<'a>(
+    wu: &'a WayUndo,
+    ledger: &undo::HistoryLedger,
+    manual: Option<&[ManualWay]>,
+    height_depth: usize,
+) -> Option<&'a DragRedo> {
+    let top = wu.redo_top()?;
+    (top.mark == ledger.last_seq() && top.height_depth == height_depth && fp_manual(manual) == top.fp_before).then_some(top)
+}
+
+/// Re-applies the top undone drag if [`drag_redo_ready`]: re-inserts its ways
+/// at the same index, records a **new** `WayDrag` row (so `seq` keeps climbing),
+/// re-holds the entry so the drag is undoable again, and re-stamps the redo
+/// entries that were valid until this record. Returns the label, or `None`
+/// (nothing changed except that an unplaceable top entry is dropped).
+pub fn redo_drag_core(
+    ledger: &mut undo::HistoryLedger,
+    wu: &mut WayUndo,
+    manual: Option<&mut Vec<ManualWay>>,
+    height_depth: usize,
+) -> Option<String> {
+    let v = manual?;
+    let top = drag_redo_ready(wu, ledger, Some(v.as_slice()), height_depth)?.clone();
+    wu.pop_redo();
+    let n = top.ways.len();
+    let mut st = WayStores { generated: None, sea: None, manual: Some(v) };
+    if !put_way(&mut st, top.index, HeldWay::Drag(top.ways.clone())) {
+        return None;
+    }
+    let before = ledger.last_seq();
+    let seq = ledger.record("civ", top.label.clone(), drag_detail(n), undo::EntryKind::WayDrag);
+    let fp_after = fp_manual(st.manual.as_deref().map(|m| m.as_slice()));
+    wu.push(WayUndoEntry { seq, index: top.index, way: HeldWay::Drag(top.ways), fp_before: top.fp_before, fp_after });
+    wu.restamp_redo(before, ledger.last_seq());
+    Some(top.label)
 }
 
 // ============================================================== way pick ==
@@ -636,33 +940,73 @@ impl WorldGen {
         choose_undo(height, way)
     }
 
-    /// The history label for a held way: `Delete <title>`, matching the ledger
-    /// row `way_delete` records.
+    /// The history label for a held entry -- see [`way_entry_label`].
     fn way_undo_label(&self, e: &WayUndoEntry) -> String {
-        format!("Delete {}", held_way_title(&e.way))
+        way_entry_label(e)
     }
 
-    /// Put the newest live deleted way back and drop its ledger row. Returns
-    /// the row's label. `None` when there is no live entry, or when the store
-    /// refuses the index (it cannot, while the entry is live; the refusal is
-    /// the guard, not a path).
+    /// Reverts the newest live way row (a delete **or** a drag) and returns its
+    /// label. `None` when there is no live entry, or when the revert was refused
+    /// (see [`undo_way_core_at`]: the refusal is the guard, not a path).
     pub(crate) fn undo_way_step(&mut self) -> Option<String> {
         let fps: Vec<(WayStore, u64)> = WayStore::ALL.iter().map(|&s| (s, self.way_fp(s))).collect();
         let fp = |s: WayStore| fps.iter().find(|(k, _)| *k == s).map_or(0, |(_, v)| *v);
         let seq = self.way_undo.newest_live(&fp)?.seq;
-        let e = self.way_undo.remove(seq)?;
-        let label = self.way_undo_label(&e);
-        let ok = {
+        self.undo_way_seq(seq).map(|s| s.label)
+    }
+
+    /// Reverts the one held entry `seq` (the caller has established it is live)
+    /// through [`undo_way_core_at`], handing it the real stores, ledger and held
+    /// list. After a drag it also drops `InfraTools`' own single-level drag
+    /// record, so the ledger is the only route that can undo it.
+    pub(crate) fn undo_way_seq(&mut self, seq: u64) -> Option<WayStep> {
+        let depth = self.undo.depth();
+        let step = {
             let (civ, infra) = (self.civ.as_mut(), self.infra.as_mut());
             let (generated, sea) = match civ {
                 Some(c) => (Some(&mut c.ways), Some(&mut c.sea_routes)),
                 None => (None, None),
             };
             let mut st = WayStores { generated, sea, manual: infra.map(|t| &mut t.ways) };
-            put_way(&mut st, e.index, e.way)
+            undo_way_core_at(&mut self.ledger, &mut self.way_undo, &mut st, seq, depth)
         };
-        self.ledger.remove_seq(seq);
-        ok.then_some(label)
+        if step.as_ref().is_some_and(|s| s.was_drag) {
+            if let Some(t) = self.infra.as_mut() {
+                t.way_drag_forget();
+            }
+        }
+        step
+    }
+
+    /// The label of the drag a `redo_last()` would re-apply, or `None` -- see
+    /// [`drag_redo_ready`] for exactly when one is offered.
+    pub(crate) fn drag_redo_label(&self) -> Option<String> {
+        let manual = self.infra.as_ref().map(|t| t.ways.as_slice());
+        drag_redo_ready(&self.way_undo, &self.ledger, manual, self.undo.depth()).map(|r| r.label.clone())
+    }
+
+    /// Re-applies the top undone drag ([`redo_drag_core`]) against the real
+    /// manual store. `None` when none is offered.
+    pub(crate) fn redo_drag_step(&mut self) -> Option<String> {
+        let depth = self.undo.depth();
+        let label = redo_drag_core(&mut self.ledger, &mut self.way_undo, self.infra.as_mut().map(|t| &mut t.ways), depth)?;
+        if let Some(t) = self.infra.as_mut() {
+            t.way_drag_forget();
+        }
+        Some(label)
+    }
+
+    /// Records the drag `way_stroke_end` just committed as one ledger row
+    /// ([`record_drag`]); `fp_before` is the manual store's fingerprint taken
+    /// **before** the commit. Also drops the height redo tail: a new operation.
+    /// Returns the row's `seq`, `None` (and records nothing) for an impossible range.
+    pub(crate) fn record_way_drag(&mut self, first: usize, count: usize, fp_before: u64) -> Option<u64> {
+        let fps: Vec<(WayStore, u64)> = WayStore::ALL.iter().map(|&s| (s, self.way_fp(s))).collect();
+        let fp = |s: WayStore| fps.iter().find(|(k, _)| *k == s).map_or(0, |(_, v)| *v);
+        let manual = self.infra.as_ref().map(|t| t.ways.as_slice()).unwrap_or(&[]);
+        let seq = record_drag(&mut self.ledger, &mut self.way_undo, manual, first, count, fp_before, &fp)?;
+        self.redo.clear();
+        Some(seq)
     }
 }
 
@@ -673,6 +1017,9 @@ fn held_way_title(w: &HeldWay) -> String {
         HeldWay::Generated(w) => (generated_way_type_key(w.way_type), w.name.as_str()),
         HeldWay::SeaLane(w) => ("sea_lane", w.name.as_str()),
         HeldWay::Manual(w) => (crate::infra_tools_bridge::way_type_key(w.way_type), w.name.as_str()),
+        // A drag is titled by its first way's type and is never given a name (the
+        // drag path commits unnamed ways). Real labels come from `drag_label`.
+        HeldWay::Drag(ws) => (ws.first().map_or("way", |w| crate::infra_tools_bridge::way_type_key(w.way_type)), ""),
     };
     let kind = kind.replace('_', " ");
     if name.is_empty() { format!("unnamed {kind}") } else { format!("{kind} “{name}”") }
@@ -799,6 +1146,8 @@ impl WorldGen {
         let Some(way) = held else { return false };
         let fp_after = self.way_fp(store);
         self.redo.clear();
+        // A delete is a new operation: an undone drag can no longer be redone.
+        self.way_undo.clear_redo();
         let title = held_way_title(&way);
         let detail = match store {
             WayStore::Generated => "generated network -- Generate roads rebuilds it",
@@ -1275,5 +1624,381 @@ mod tests {
         assert_eq!(catchment_mask(&recv, 1), vec![1, 1, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(catchment_mask(&recv, 2), vec![0, 0, 1, 0, 0, 0, 0, 0, 0]);
         assert_eq!(catchment_mask(&recv, 99), vec![0; 9]);
+    }
+}
+
+/// Tests for ET-D4's `WayDrag` ledger rows: the pure record / undo / redo cores
+/// ([`record_drag`], [`undo_way_core`], [`drag_redo_ready`], [`redo_drag_core`])
+/// driven through a small harness that wires them exactly as `WorldGen`'s thin
+/// wrappers do (`WorldGen` itself is a cdylib `GodotClass` and cannot be built in a
+/// unit test). Each test names what it protects.
+#[cfg(test)]
+mod drag_ledger_tests {
+    use super::*;
+    use cartalith_civ::tools::ManualWayType;
+    use undo::{EntryKind, HistoryLedger};
+
+    /// A hand-drawn way of `t` with distinct, literal points (judgement: any
+    /// stable points; `km` is derived from `x0` so two ways never compare equal).
+    fn mw(t: ManualWayType, x0: f64) -> ManualWay {
+        ManualWay {
+            pts: vec![(x0, 1.0), (x0 + 1.0, 2.0), (x0 + 2.0, 2.5)],
+            brks: vec![],
+            km: 4.0 + x0,
+            sea: t == ManualWayType::SeaLane,
+            way_type: t,
+            name: String::new(),
+            hidden: false,
+        }
+    }
+
+    /// The pieces `WorldGen` owns, with the same wiring as its wrappers.
+    struct H {
+        generated: Vec<Way>,
+        sea: Vec<SeaRoute>,
+        manual: Vec<ManualWay>,
+        ledger: HistoryLedger,
+        wu: WayUndo,
+        /// Stand-in for `WorldGen::undo.depth()` (height snapshots held).
+        depth: usize,
+    }
+
+    impl H {
+        /// A world with an empty ledger holding one Floor row (seq 1), like a generate.
+        fn new() -> H {
+            let mut ledger = HistoryLedger::new();
+            ledger.record("world", "Generate world", "", EntryKind::Floor);
+            H { generated: vec![], sea: vec![], manual: vec![], ledger, wu: WayUndo::new(), depth: 0 }
+        }
+
+        /// `WorldGen::way_fp` over the harness stores.
+        fn fp(&self) -> impl Fn(WayStore) -> u64 + use<> {
+            let (a, b, c) = (fp_generated(Some(&self.generated)), fp_sea(Some(&self.sea)), fp_manual(Some(&self.manual)));
+            move |s| match s {
+                WayStore::Generated => a,
+                WayStore::SeaLane => b,
+                WayStore::Manual => c,
+            }
+        }
+
+        /// What `way_stroke_end` does on success: push `ways`, then record the drag.
+        fn commit_drag(&mut self, ways: Vec<ManualWay>) -> Option<u64> {
+            let fp_before = fp_manual(Some(&self.manual));
+            let (first, count) = (self.manual.len(), ways.len());
+            self.manual.extend(ways);
+            let fps = self.fp();
+            record_drag(&mut self.ledger, &mut self.wu, &self.manual, first, count, fp_before, &fps)
+        }
+
+        /// A click-committed way: pushed with **no** ledger row, as `way_commit` does.
+        fn click_commit(&mut self, w: ManualWay) {
+            self.manual.push(w);
+        }
+
+        /// What `way_delete` does for a manual way.
+        fn delete_manual(&mut self, i: usize) -> u64 {
+            let fp_before = fp_manual(Some(&self.manual));
+            let way = HeldWay::Manual(self.manual.remove(i));
+            let fp_after = fp_manual(Some(&self.manual));
+            let seq = self.ledger.record("civ", format!("Delete {}", held_way_title(&way)), "hand-drawn", EntryKind::WayDelete);
+            self.wu.clear_redo();
+            self.wu.push(WayUndoEntry { seq, index: i, way, fp_before, fp_after });
+            seq
+        }
+
+        /// `WorldGen::undo_way_step` over the harness.
+        fn undo(&mut self) -> Option<WayStep> {
+            let fps = self.fp();
+            let mut st = WayStores { generated: Some(&mut self.generated), sea: Some(&mut self.sea), manual: Some(&mut self.manual) };
+            undo_way_core(&mut self.ledger, &mut self.wu, &mut st, &fps, self.depth)
+        }
+
+        /// `redo_last()`'s drag branch: the label, or `None` when no drag is offered.
+        fn redo(&mut self) -> Option<String> {
+            redo_drag_core(&mut self.ledger, &mut self.wu, Some(&mut self.manual), self.depth)
+        }
+
+        /// Whether a redo is offered right now (`WorldGen::drag_redo_label`).
+        fn redo_offered(&self) -> Option<String> {
+            drag_redo_ready(&self.wu, &self.ledger, Some(&self.manual), self.depth).map(|r| r.label.clone())
+        }
+
+        /// The ledger's labels, oldest first.
+        fn labels(&self) -> Vec<String> {
+            self.ledger.rows(0).iter().map(|(e, _)| e.label.clone()).collect()
+        }
+
+        /// Whether the row `seq` is currently offered as reversible (`undo_ledger`'s `reversible`).
+        fn reversible(&self, seq: u64) -> bool {
+            let live = self.wu.live_seqs(&self.fp());
+            self.ledger.rows_with(self.depth, &|s| live.contains(&s)).iter().any(|(e, l)| e.seq == seq && *l)
+        }
+    }
+
+    /// Protects: a committed drag is exactly one `WayDrag` ledger row labelled `Draw road (2 ways)` for a mirrored pair, undo removes exactly the drag's ways (a pre-existing way is untouched) and the row, redo re-inserts them value-equal at the same index with a NEW row, and the list equals the pre-undo list.
+    #[test]
+    fn commit_undo_redo_round_trips_the_ways_byte_equal() {
+        let mut h = H::new();
+        h.click_commit(mw(ManualWayType::Track, 50.0));
+        let (a, b) = (mw(ManualWayType::Road, 10.0), mw(ManualWayType::Road, 20.0));
+        let seq = h.commit_drag(vec![a.clone(), b.clone()]).expect("a real drag records");
+        assert_eq!(h.labels(), vec!["Generate world", "Draw road (2 ways)"]);
+        assert!(h.reversible(seq));
+        let after_commit = h.manual.clone();
+        assert_eq!(after_commit.len(), 3);
+
+        let step = h.undo().expect("a live drag undoes");
+        assert_eq!(step, WayStep { label: "Draw road (2 ways)".into(), was_drag: true });
+        assert_eq!(h.manual, vec![mw(ManualWayType::Track, 50.0)], "only the pre-existing way remains");
+        assert_eq!(h.labels(), vec!["Generate world"], "the undone row left the ledger");
+        assert_eq!(h.redo_offered().as_deref(), Some("Draw road (2 ways)"));
+
+        assert_eq!(h.redo().as_deref(), Some("Draw road (2 ways)"));
+        assert_eq!(h.manual, after_commit, "same ways, same indices, value-equal");
+        assert_eq!(h.manual[1], a);
+        assert_eq!(h.manual[2], b);
+        assert_eq!(h.labels(), vec!["Generate world", "Draw road (2 ways)"]);
+        let new_seq = h.ledger.last_seq();
+        assert!(new_seq > seq, "the redone row is a new row: {new_seq} vs {seq}");
+        assert!(h.reversible(new_seq), "and it is undoable again");
+        assert_eq!(h.undo().map(|s| s.was_drag), Some(true));
+        assert_eq!(h.manual.len(), 1);
+    }
+
+    /// Protects: labels follow the file's `Delete <title>` style with `Draw <type>`: road, track, sea lane (underscore turned to a space) and ancient each read literally, a mirrored pair carries its way count, and an empty list gets the neutral label.
+    #[test]
+    fn labels_name_the_way_type() {
+        let mut h = H::new();
+        for (t, want) in [
+            (ManualWayType::Road, "Draw road"),
+            (ManualWayType::Track, "Draw track"),
+            (ManualWayType::SeaLane, "Draw sea lane"),
+            (ManualWayType::Ancient, "Draw ancient"),
+        ] {
+            h.commit_drag(vec![mw(t, 1.0)]).unwrap();
+            assert_eq!(h.labels().last().map(String::as_str), Some(want));
+        }
+        assert_eq!(drag_label(&[mw(ManualWayType::Road, 1.0), mw(ManualWayType::Road, 2.0)]), "Draw road (2 ways)");
+        assert_eq!(drag_label(&[]), "Draw way");
+    }
+
+    /// Protects: a refused or empty drag adds no ledger row and no held entry: a zero count, a range past the store and an overflowing range all record nothing, leave `last_seq` and the rows unchanged, and hold nothing to undo.
+    #[test]
+    fn a_refused_or_empty_drag_records_nothing() {
+        let mut h = H::new();
+        h.click_commit(mw(ManualWayType::Road, 1.0));
+        let (seq0, rows0) = (h.ledger.last_seq(), h.labels());
+        let fps = h.fp();
+        let fpb = fp_manual(Some(&h.manual));
+        assert_eq!(record_drag(&mut h.ledger, &mut h.wu, &h.manual, 1, 0, fpb, &fps), None, "count 0");
+        assert_eq!(record_drag(&mut h.ledger, &mut h.wu, &h.manual, 0, 2, fpb, &fps), None, "range past the end");
+        assert_eq!(record_drag(&mut h.ledger, &mut h.wu, &h.manual, usize::MAX, 2, fpb, &fps), None, "overflowing range, no panic");
+        assert_eq!((h.ledger.last_seq(), h.labels()), (seq0, rows0));
+        assert!(h.undo().is_none(), "nothing was held");
+    }
+
+    /// Protects: undo twice and redo twice are safe: the second undo and the second redo of one drag do nothing and change nothing, with the ledger and list as after the first.
+    #[test]
+    fn repeated_undo_and_redo_are_safe() {
+        let mut h = H::new();
+        h.commit_drag(vec![mw(ManualWayType::Road, 3.0)]).unwrap();
+        assert!(h.undo().is_some());
+        let (rows, manual, seq) = (h.labels(), h.manual.clone(), h.ledger.last_seq());
+        assert!(h.undo().is_none(), "second undo");
+        assert_eq!((h.labels(), h.manual.clone(), h.ledger.last_seq()), (rows, manual, seq));
+        assert!(h.redo().is_some());
+        let (rows, manual, seq) = (h.labels(), h.manual.clone(), h.ledger.last_seq());
+        assert!(h.redo().is_none(), "second redo");
+        assert_eq!((h.labels(), h.manual.clone(), h.ledger.last_seq()), (rows, manual, seq));
+    }
+
+    /// Protects: two drags are a LIFO pair: undo, undo, redo, redo restores both in their original order at their original indices, every `seq` stays strictly increasing, and the redo order is the reverse of the undo order.
+    #[test]
+    fn two_drags_undo_and_redo_in_stack_order() {
+        let mut h = H::new();
+        let s1 = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        let s2 = h.commit_drag(vec![mw(ManualWayType::Track, 9.0)]).unwrap();
+        assert!(s1 < s2);
+        let both = h.manual.clone();
+        assert_eq!(h.undo().unwrap().label, "Draw track", "newest first");
+        assert_eq!(h.undo().unwrap().label, "Draw road");
+        assert!(h.manual.is_empty());
+        assert_eq!(h.wu.redo_len(), 2);
+        assert_eq!(h.redo().as_deref(), Some("Draw road"), "the last undone is redone first");
+        assert_eq!(h.manual, vec![both[0].clone()]);
+        assert_eq!(h.redo().as_deref(), Some("Draw track"));
+        assert_eq!(h.manual, both);
+        let seqs: Vec<u64> = h.ledger.rows(0).iter().map(|(e, _)| e.seq).collect();
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]), "monotone: {seqs:?}");
+        assert!(h.ledger.last_seq() > s2);
+    }
+
+    /// Protects: the manual list changing under a drag makes its row refuse cleanly (a click-committed way, an edited name): undo returns None, nothing is removed, the row is drawn not reversible and no redo is parked; and a LEDGERED delete above the drag does not break it: the delete undoes first and the drag stays live behind it.
+    #[test]
+    fn a_changed_manual_list_makes_the_drag_row_refuse() {
+        // (a) a way committed by clicking after the drag
+        let mut h = H::new();
+        let seq = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.click_commit(mw(ManualWayType::Track, 7.0));
+        assert!(!h.reversible(seq));
+        let before = h.manual.clone();
+        assert!(h.undo().is_none());
+        assert_eq!(h.manual, before, "nothing removed");
+        assert_eq!(h.wu.redo_len(), 0, "a refused undo parks no redo");
+
+        // (b) a way deleted after the drag: the delete is the newest row and
+        // undoes first, and only then is the drag live again (chain walked)
+        let mut h = H::new();
+        h.click_commit(mw(ManualWayType::Track, 7.0));
+        let drag = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        let del = h.delete_manual(0);
+        assert!(h.reversible(del));
+        assert!(h.reversible(drag), "a ledgered delete sits above the drag: the chain is intact, not broken");
+        assert_eq!(h.undo().unwrap().label, "Delete unnamed track", "newest row first");
+        assert!(h.reversible(drag), "once the delete is undone the list is as the drag left it");
+        assert_eq!(h.undo().unwrap().label, "Draw road");
+
+        // (c) the drag's own way renamed: same length, same ends, different name
+        let mut h = H::new();
+        let seq = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.manual[0].name = "renamed".into();
+        assert!(!h.reversible(seq));
+        assert!(h.undo().is_none());
+        assert_eq!(h.manual[0].name, "renamed");
+    }
+
+    /// Protects: the value check behind the fingerprint: an edit the fingerprint does not hash (an interior point, ends and length unchanged) leaves the row live by fingerprint, yet undo refuses without touching the list, drops the held entry and parks no redo.
+    #[test]
+    fn undo_rechecks_the_slice_value_for_value() {
+        let mut h = H::new();
+        let seq = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.manual[0].pts[1] = (2.5, 9.0); // interior vertex: not in the fingerprint
+        assert!(h.reversible(seq), "premise: the fingerprint cannot see an interior edit");
+        let before = h.manual.clone();
+        assert!(h.undo().is_none());
+        assert_eq!(h.manual, before, "no partial edit");
+        assert!(!h.reversible(seq), "the entry was dropped, so the row now reads stale");
+        assert_eq!(h.wu.redo_len(), 0);
+    }
+
+    /// Protects: a new operation after an undo kills the drag redo: a second drag (which also drops the stack), a click-committed way, a delete and any ledger record each leave the undone drag un-redoable.
+    #[test]
+    fn a_new_operation_after_an_undo_ends_the_redo() {
+        let fresh = || {
+            let mut h = H::new();
+            h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+            h.undo().unwrap();
+            assert!(h.redo_offered().is_some(), "premise");
+            h
+        };
+        let mut h = fresh();
+        h.commit_drag(vec![mw(ManualWayType::Track, 5.0)]).unwrap();
+        assert_eq!(h.wu.redo_len(), 0, "a new drag drops the stack");
+        assert_eq!(h.redo(), None);
+
+        let mut h = fresh();
+        h.click_commit(mw(ManualWayType::Track, 5.0));
+        assert_eq!(h.redo_offered(), None, "manual store moved");
+        assert_eq!(h.redo(), None);
+        assert_eq!(h.manual.len(), 1, "and nothing was re-inserted");
+
+        let mut h = fresh();
+        h.click_commit(mw(ManualWayType::Track, 5.0));
+        h.delete_manual(0); // the list is empty again, but a record happened
+        assert_eq!(h.redo_offered(), None, "the delete's record and clear_redo");
+
+        let mut h = fresh();
+        h.ledger.record("civ", "Settlement dropped", "", EntryKind::Recorded("no snapshot"));
+        assert_eq!(h.redo_offered(), None, "any ledger record is an operation, though the manual list is unchanged");
+    }
+
+    /// Protects: the height-depth gate that orders a drag redo against height redos: offered only at the depth the drag was undone at, so a height undo after it hides it until that step is redone.
+    #[test]
+    fn the_drag_redo_waits_for_the_height_depth_it_was_undone_at() {
+        let mut h = H::new();
+        h.depth = 2;
+        h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.undo().unwrap();
+        assert!(h.redo_offered().is_some());
+        h.depth = 1; // a height step was undone after the drag
+        assert_eq!(h.redo_offered(), None);
+        assert_eq!(h.redo(), None);
+        assert!(h.manual.is_empty());
+        h.depth = 2; // ...and redone again
+        assert_eq!(h.redo().as_deref(), Some("Draw road"));
+    }
+
+    /// Protects: `restamp_redo`: a height redo's own ledger record keeps an older undone drag offered (it was a redo, not a commit), while an entry with a commit between its undo and the restamped record stays dead.
+    #[test]
+    fn a_redo_record_restamps_only_the_entries_it_continues() {
+        let mut h = H::new();
+        h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.undo().unwrap();
+        // what `redo_last`'s height branch does around its record
+        let before = h.ledger.last_seq();
+        h.ledger.record("height", "Sculpt commit", "", EntryKind::HeightSnapshot);
+        assert_eq!(h.redo_offered(), None, "without the restamp the record kills the offer");
+        h.wu.restamp_redo(before, h.ledger.last_seq());
+        assert!(h.redo_offered().is_some(), "with it, the offer survives its own height redo");
+        // a genuine commit, then a later redo-style restamp from after it: must not revive
+        h.ledger.record("civ", "Settlement dropped", "", EntryKind::Recorded("x"));
+        let mid = h.ledger.last_seq();
+        h.ledger.record("height", "Sculpt commit", "", EntryKind::HeightSnapshot);
+        h.wu.restamp_redo(mid, h.ledger.last_seq());
+        assert_eq!(h.redo_offered(), None, "a commit sits between the undo and this restamp: it stays dead");
+    }
+
+    /// Protects: a new world clears everything: a Floor record alone kills a parked redo through the ledger stamp and clears the rows, and `WayUndo::clear` (generate/load/clear_undo) drops held entries and the redo stack.
+    #[test]
+    fn a_new_world_clears_the_drag_rows_and_redo() {
+        let mut h = H::new();
+        h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.commit_drag(vec![mw(ManualWayType::Track, 4.0)]).unwrap();
+        h.undo().unwrap();
+        assert!(h.redo_offered().is_some());
+        h.ledger.record("world", "Generate world", "", EntryKind::Floor);
+        assert_eq!(h.redo_offered(), None);
+        assert_eq!(h.labels(), vec!["Generate world"], "the floor cleared every earlier row");
+        h.wu.clear();
+        assert_eq!(h.wu.redo_len(), 0);
+        assert!(h.undo().is_none());
+    }
+
+    /// Protects: replacing the world's way list under a held drag (a reload with different ways) can neither corrupt nor panic: the held entry is not live, undo returns None and the new list is untouched.
+    #[test]
+    fn a_replaced_world_leaves_a_held_drag_inert() {
+        let mut h = H::new();
+        h.commit_drag(vec![mw(ManualWayType::Road, 1.0), mw(ManualWayType::Road, 2.0)]).unwrap();
+        h.manual = vec![mw(ManualWayType::Track, 99.0)]; // shorter, different: even `index..index+n` is out of range
+        let before = h.manual.clone();
+        assert!(h.undo().is_none());
+        assert_eq!(h.manual, before);
+    }
+
+    /// Protects: a drag recorded after an unrelated edit prunes the stale entry below it, and only the newest drag's way is removed by the next undo.
+    #[test]
+    fn stale_entries_are_pruned_and_only_the_newest_drag_undoes() {
+        let mut h = H::new();
+        let d1 = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        h.click_commit(mw(ManualWayType::Track, 8.0)); // d1 is now stale
+        let d2 = h.commit_drag(vec![mw(ManualWayType::Road, 3.0)]).unwrap();
+        assert!(!h.reversible(d1));
+        assert!(h.reversible(d2));
+        assert_eq!(h.undo().unwrap().label, "Draw road");
+        assert_eq!(h.manual.len(), 2, "only d2's way was removed");
+        assert!(h.undo().is_none(), "d1 is stale: the click way breaks its chain");
+    }
+
+    /// Protects: `newest_live_in` (the route `way_stroke_undo` takes) answers per store and per liveness: the newest live manual entry is the drag, another store has none, and a changed manual list yields none.
+    #[test]
+    fn newest_live_in_is_per_store_and_liveness_aware() {
+        let mut h = H::new();
+        let d = h.commit_drag(vec![mw(ManualWayType::Road, 1.0)]).unwrap();
+        let fps = h.fp();
+        assert_eq!(h.wu.newest_live_in(WayStore::Manual, &fps).map(|e| e.seq), Some(d));
+        assert_eq!(h.wu.newest_live_in(WayStore::Generated, &fps).map(|e| e.seq), None);
+        h.click_commit(mw(ManualWayType::Track, 8.0));
+        let fps = h.fp();
+        assert_eq!(h.wu.newest_live_in(WayStore::Manual, &fps).map(|e| e.seq), None);
     }
 }

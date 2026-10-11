@@ -1136,9 +1136,12 @@ impl InfraTools {
     /// back or removing by stale indices would delete a way the drag never made.
     /// Single-level: undoing twice, or a second drag, replaces the record.
     ///
-    /// This is a drag-level primitive; wiring it into the global Edit > Undo ledger
-    /// needs an `undo::EntryKind` (a file outside ET-D4's Rust lane), so the shell
-    /// calls it directly for now.
+    /// This is the **editor-level** primitive. Production no longer calls it:
+    /// the shell's `way_stroke_undo` goes through the global ledger's
+    /// `EntryKind::WayDrag` row (`context_pick_bridge::undo_way_core_at`), which
+    /// removes the same ways and keeps the ledger consistent. It stays for the
+    /// unit tests that pin its staleness guard.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn way_drag_undo(&mut self) -> usize {
         let Some(rec) = self.last_drag.take() else { return 0 };
         let end = rec.first + rec.ways.len();
@@ -1147,6 +1150,14 @@ impl InfraTools {
         }
         self.ways.truncate(rec.first);
         rec.ways.len()
+    }
+
+    /// Drops the single-level drag record without touching any way. Called when
+    /// the global ledger has undone or redone a drag, so the record's `first`/`ways`
+    /// can never be mistaken for the state of a list the ledger has since changed.
+    /// Harmless when there is no record.
+    pub fn way_drag_forget(&mut self) {
+        self.last_drag = None;
     }
 }
 

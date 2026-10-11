@@ -507,6 +507,8 @@ mod tests {
 /// | [`EntryKind::HeightSnapshot`] | A pre-operation height field is held for it. Reverting is real. |
 /// | [`EntryKind::Recorded`] | It happened; no snapshot exists, and the row carries the reason. |
 /// | [`EntryKind::Floor`] | A generate or a load. History starts here; nothing before it survives. |
+/// | [`EntryKind::WayDelete`] | A way deleted from the map context card; the way itself is held elsewhere. |
+/// | [`EntryKind::WayDrag`] | One committed road drag (ET-D4); its ways are held elsewhere. |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     /// A height snapshot was pushed for this entry, in the same call.
@@ -523,6 +525,15 @@ pub enum EntryKind {
     /// a height row asks the height stack's depth. See
     /// [`HistoryLedger::rows_with`].
     WayDelete,
+    /// One committed way **drag** (ET-D4: every symmetry copy of one gesture is
+    /// one row). The ways it pushed, and the index they sit at, are held in
+    /// `context_pick_bridge::WayUndo` under this row's `seq`, with the same
+    /// fingerprint liveness rule as [`EntryKind::WayDelete`] -- so reverting
+    /// is real **while that entry is live**, asked at read time through the
+    /// same `way_live` closure ([`HistoryLedger::rows_with`]). Unlike a delete,
+    /// reverting *removes* the held ways, and the entry then moves to a drag
+    /// **redo** stack that `redo_last` serves.
+    WayDrag,
 }
 
 /// One row of the ledger.
@@ -726,8 +737,9 @@ impl HistoryLedger {
     }
 
     /// [`Self::rows`] with the second reversible kind: an
-    /// [`EntryKind::WayDelete`] row is live exactly when `way_live(seq)`
-    /// says its held way can still be put back. The height half is
+    /// [`EntryKind::WayDelete`] or [`EntryKind::WayDrag`] row is live exactly
+    /// when `way_live(seq)` says its held way(s) can still be put back (delete)
+    /// or taken out again (drag). The height half is
     /// unchanged. Two sources of liveness, each asked at read time, and
     /// still one answer per row.
     pub fn rows_with(&self, height_depth: usize, way_live: &dyn Fn(u64) -> bool) -> Vec<(&LedgerEntry, bool)> {
@@ -735,7 +747,7 @@ impl HistoryLedger {
         let mut flags: Vec<bool> = Vec::with_capacity(self.entries.len());
         for e in self.entries.iter().rev() {
             let live = (e.kind == EntryKind::HeightSnapshot && seen < height_depth)
-                || (e.kind == EntryKind::WayDelete && way_live(e.seq));
+                || (matches!(e.kind, EntryKind::WayDelete | EntryKind::WayDrag) && way_live(e.seq));
             if e.kind == EntryKind::HeightSnapshot {
                 seen += 1;
             }
@@ -770,6 +782,14 @@ impl HistoryLedger {
             return None;
         }
         Some(rows[idx..].iter().filter(|(_, live)| *live).count())
+    }
+
+    /// The highest `seq` ever issued (`0` before any row). Rows are never
+    /// reissued, so this moves exactly when something is [`Self::record`]ed --
+    /// the stamp the drag-redo stack uses to notice that a commit happened since
+    /// its undo (`context_pick_bridge::WayUndo`). Removing a row does not move it.
+    pub fn last_seq(&self) -> u64 {
+        self.next_seq
     }
 
     /// `seq` of the newest [`EntryKind::HeightSnapshot`] row, or `None` when
@@ -1263,6 +1283,28 @@ mod ledger_tests {
         std::fs::remove_file(&path).unwrap();
         assert_eq!(file_written_at_ms(path.to_str().unwrap()), None);
         assert_eq!(file_written_at_ms(""), None);
+    }
+
+    /// Protects: ET-D4's `WayDrag` row is live exactly when `way_live(seq)` says so (same rule as `WayDelete`), is counted by revert-to, is never offered by plain `rows()`, is not a height row, and `last_seq` follows `record` but not `remove_seq`.
+    #[test]
+    fn a_way_drag_row_follows_way_live_like_a_delete_and_last_seq_tracks_record() {
+        let mut l = ledger();
+        assert_eq!(l.last_seq(), 5);
+        let drag = l.record("civ", "Draw road", "hand-drawn drag", EntryKind::WayDrag);
+        assert_eq!((drag, l.last_seq()), (6, 6));
+        let held = |s: u64| s == 6;
+        let live: Vec<bool> = l.rows_with(2, &held).iter().map(|(_, b)| *b).collect();
+        assert_eq!(live, vec![false, false, true, false, true, true]);
+        let gone: Vec<bool> = l.rows_with(2, &|_| false).iter().map(|(_, b)| *b).collect();
+        assert_eq!(gone, vec![false, false, true, false, true, false]);
+        assert!(!l.rows(2)[5].1, "plain rows() never offers a way row");
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &held), Some(1));
+        assert_eq!(l.steps_to_revert_to_with(6, 2, &|_| false), None);
+        assert_eq!(l.steps_to_revert_to_with(3, 2, &held), Some(3));
+        assert_eq!(l.newest_height_seq(), Some(5), "a drag row is not a height row");
+        assert!(l.remove_seq(drag));
+        assert_eq!(l.last_seq(), 6, "removing a row never rewinds the counter: seq stays monotone");
+        assert_eq!(l.record("civ", "Draw track", "", EntryKind::WayDrag), 7);
     }
 
     /// Protects: `seq` is what the shell round-trips, so it never repeats within a session -- including across a floor, which clears the rows but not the counter.

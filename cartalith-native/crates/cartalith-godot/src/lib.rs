@@ -6551,7 +6551,9 @@ struct WorldGen {
     /// `undo::HistoryLedger` for why it records more than `undo` can revert.
     ledger: undo::HistoryLedger,
     /// The held half of every way delete (Ruling BA): the deleted way and its
-    /// index, per [`undo::EntryKind::WayDelete`] ledger row. See
+    /// index, per [`undo::EntryKind::WayDelete`] ledger row -- and, since ET-D4,
+    /// every committed drag's ways per [`undo::EntryKind::WayDrag`] row plus the
+    /// drag redo stack (cleared with it on generate/load). See
     /// `context_pick_bridge.rs` for why a fingerprint, not a clear-on-every-
     /// writer rule, decides which of these can still be put back.
     way_undo: context_pick_bridge::WayUndo,
@@ -15804,9 +15806,17 @@ impl WorldGen {
             flow: Some(&ws.flow_discharge),
             flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
         };
+        // The manual store's fingerprint BEFORE the commit: the ledger row's
+        // liveness chain starts here (`context_pick_bridge::record_drag`).
+        let fp_before = self.way_fp(context_pick_bridge::WayStore::Manual);
         let Some(infra) = self.infra.as_mut() else { return reply };
-        match infra.way_drag_commit(&ctx, drag) {
+        let outcome = infra.way_drag_commit(&ctx, drag);
+        match outcome {
             Ok(c) => {
+                // One committed drag = one global Edit > Undo row (ET-D4;
+                // `undo::EntryKind::WayDrag`). Only this success arm records: a
+                // refused or empty drag pushed no way and so pushes no row.
+                self.record_way_drag(c.first, c.count, fp_before);
                 reply.set("committed", true);
                 reply.set("first", c.first as i64);
                 reply.set("count", c.count as i64);
@@ -15827,14 +15837,32 @@ impl WorldGen {
         }
     }
 
-    /// ET-D4: takes the **last drag commit** back as one step: removes exactly the
+    /// ET-D4: takes the **newest drag commit** back as one step: removes exactly the
     /// ways it pushed (every symmetry copy) and returns how many; `0` when there is
-    /// nothing to undo or the way list has changed since (then nothing is touched).
-    /// Single-level. This is a drag-level primitive, not yet a row in the global
-    /// Edit > Undo ledger (that needs an `undo::EntryKind`, outside this lane).
+    /// no such drag, or the hand-drawn way list has changed since (a way committed,
+    /// deleted or edited after the drag; then nothing is touched).
+    ///
+    /// **This is the same step as the global `undo_last()`** reaching a drag row:
+    /// a committed drag is one `EntryKind::WayDrag` row in `undo_ledger()`, and
+    /// this removes that row and parks the drag on the redo stack (`redo_last()`
+    /// re-inserts it), so the two routes can never leave a dangling row. The
+    /// difference is only that this one acts on the newest *hand-drawn-store*
+    /// entry even when a newer height step exists. Not single-level any more: the
+    /// ledger holds up to `MAX_WAY_UNDO` entries, newest first.
     #[func]
     fn way_stroke_undo(&mut self) -> i64 {
-        self.infra.as_mut().map_or(0, |i| i.way_drag_undo() as i64)
+        let fps: Vec<(context_pick_bridge::WayStore, u64)> =
+            context_pick_bridge::WayStore::ALL.iter().map(|&s| (s, self.way_fp(s))).collect();
+        let fp = |s: context_pick_bridge::WayStore| fps.iter().find(|(k, _)| *k == s).map_or(0, |(_, v)| *v);
+        let target = self
+            .way_undo
+            .newest_live_in(context_pick_bridge::WayStore::Manual, &fp)
+            .and_then(|e| match &e.way {
+                context_pick_bridge::HeldWay::Drag(w) => Some((e.seq, w.len())),
+                _ => None,
+            });
+        let Some((seq, n)) = target else { return 0 };
+        self.undo_way_seq(seq).map_or(0, |_| n as i64)
     }
 
     // ===================== Route (DCC_SHELL_SPEC.md §4.5.4) =====================
@@ -23292,10 +23320,18 @@ impl WorldGen {
     ///
     /// When the newest reversible step is a way deleted from the context card
     /// (Ruling BA), this puts that way back at its index instead and returns
-    /// that row's label; the height field, the staleness graph and the redo
-    /// tail are untouched (a way restore is not redoable -- the tail holds
-    /// height fields only, so the menu offers no redo after it rather than a
-    /// wrong one). `undo_next_subsystem()` says in advance which it will be.
+    /// that row's label; the height field, the staleness graph and the height
+    /// redo tail are untouched (a way *delete* restore is not redoable -- the
+    /// tail holds height fields only, so the menu offers no redo after it rather
+    /// than a wrong one). `undo_next_subsystem()` says in advance which it will be.
+    ///
+    /// **A committed way drag is the third thing it can revert** (ET-D4,
+    /// `EntryKind::WayDrag`, label `Draw road` etc.): the newest live row wins
+    /// whatever its kind, and a drag row **removes exactly the ways that drag
+    /// pushed**, then is redoable (`redo_last()` re-inserts them at the same
+    /// index). It is refused -- returning an empty string, touching nothing -- if
+    /// the hand-drawn way list changed since the drag; the row then reads as not
+    /// reversible in `undo_ledger()`.
     #[func]
     fn undo_last(&mut self) -> GString {
         if let Some(context_pick_bridge::UndoPick::Way { .. }) = self.next_undo_step() {
@@ -23323,15 +23359,24 @@ impl WorldGen {
     /// `false` at the tip (nothing has been undone), `false` again as soon as
     /// a new operation is committed after an undo: see [`RedoTail`] for the
     /// two mechanisms that enforce that.
+    ///
+    /// **Also true for an undone way drag** (ET-D4, `EntryKind::WayDrag`), while
+    /// `context_pick_bridge::drag_redo_ready` says the world is exactly as that
+    /// undo left it. A drag is offered *before* the height tail when both are
+    /// pending at the same height depth, because it was undone more recently.
     #[func]
     fn redo_available(&self) -> bool {
-        self.redo.is_current(self.undo.depth())
+        self.drag_redo_label().is_some() || self.redo.is_current(self.undo.depth())
     }
 
     /// The operation `redo_last()` would re-apply, for a "Redo <operation>"
-    /// row. Empty string when there is nothing to redo.
+    /// row. Empty string when there is nothing to redo. An undone way drag is
+    /// named `Draw <type>` (see [`Self::redo_available`]).
     #[func]
     fn redo_label(&self) -> GString {
+        if let Some(l) = self.drag_redo_label() {
+            return GString::from(&l);
+        }
         GString::from(self.redo.label(self.undo.depth()).unwrap_or_default())
     }
 
@@ -23377,7 +23422,15 @@ impl WorldGen {
     /// which is `RedoTail`'s lifetime stated in the design's own words.
     #[func]
     fn redo_labels(&self) -> PackedStringArray {
-        self.redo.labels(self.undo.depth()).into_iter().map(GString::from).collect()
+        // The offered undone way drag (if any) is element 0, exactly where
+        // `redo_last()` would re-apply it; only the **top** of the drag stack is
+        // listed (deeper ones become offers one redo at a time), so `len()` can
+        // undercount a pile of undone drags but never overstates what a redo does.
+        let drag = self.drag_redo_label();
+        drag.iter()
+            .map(|l| GString::from(l.as_str()))
+            .chain(self.redo.labels(self.undo.depth()).into_iter().map(GString::from))
+            .collect()
     }
 
     /// Throw the redo tail away without committing anything — the artboard's
@@ -23401,7 +23454,11 @@ impl WorldGen {
     /// [`Self::redo_labels`] is empty.
     #[func]
     fn discard_redo_tail(&mut self) -> i64 {
-        discard_tail(&mut self.redo, self.undo.depth()) as i64
+        // An offered undone way drag counts as one discarded step, and the whole
+        // drag redo stack goes with it (nothing deeper is listed, none is kept).
+        let drag = usize::from(self.drag_redo_label().is_some());
+        self.way_undo.clear_redo();
+        (discard_tail(&mut self.redo, self.undo.depth()) + drag) as i64
     }
 
     /// Step the cursor forward: re-apply the state the last `undo_last()` (or
@@ -23421,16 +23478,28 @@ impl WorldGen {
     /// gets its row back, since the operation is in effect again.
     #[func]
     fn redo_last(&mut self) -> bool {
+        // An undone way drag (ET-D4) is redone first when offered: it was undone
+        // more recently than any height step still on the tail (see
+        // `context_pick_bridge::drag_redo_ready`, which also gates on the height
+        // depth being the one the drag was undone at). It re-inserts the same
+        // ways at the same index and records a fresh `WayDrag` row.
+        if self.drag_redo_label().is_some() {
+            return self.redo_drag_step().is_some();
+        }
         let Some(WorldSource::Generated(ws)) = self.source.as_mut() else { return false };
         let Some(label) = redo_one(&mut self.undo, &mut self.redo, std::sync::Arc::make_mut(&mut ws.field).as_mut_slice()) else {
             return false;
         };
+        let seq_before = self.ledger.last_seq();
         self.ledger.record(
             "height",
             label,
             format!("{} x {}", self.gw, self.gh),
             undo::EntryKind::HeightSnapshot,
         );
+        // This record is a redo, not a new operation: undone way drags stamped
+        // at the previous ledger position stay offered behind it.
+        self.way_undo.restamp_redo(seq_before, self.ledger.last_seq());
         let n = self.stages.tile_count();
         self.stages.mark_changed_tiles(PipelineStage::Height.id(), 0..n, "redo");
         true
@@ -23478,8 +23547,8 @@ impl WorldGen {
                     undo::EntryKind::Floor => ("floor", "history starts here"),
                     // Ruling BA: `kind` "way", reversible while the held way
                     // still fits its store.
-                    undo::EntryKind::WayDelete if live => ("way", ""),
-                    undo::EntryKind::WayDelete => ("way", context_pick_bridge::STALE_REASON),
+                    undo::EntryKind::WayDelete | undo::EntryKind::WayDrag if live => ("way", ""),
+                    undo::EntryKind::WayDelete | undo::EntryKind::WayDrag => ("way", context_pick_bridge::STALE_REASON),
                 };
                 dict! {
                     "seq" => e.seq as i64,
