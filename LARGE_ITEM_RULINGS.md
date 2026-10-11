@@ -2190,3 +2190,11 @@ Owner, after `PLANNER_AUDIT_2026-10-11.md`:
 4. **Small port-side fixes the audit found, no ruling needed beyond 7p:** the sea condition must be computed for the vessel a stage actually uses; a hidden generated way must not stay credited through its edges; the Route tool's way list must include `civ.road_edges` so the router and planner see the same network.
 
 **Addendum (2026-10-11, to Ruling CD).** 5. **Track gets its own slower planner row, and the reference-verified planner goldens that move because of it are re-baselined** (owner, answering the coordinating session's question after batch 1: the candidate was `Dirt Track / None / Wild`, which moved the M5/M6/SP-2 plans from 41.318 to 43.203 days). The re-baseline is disclosed as made after seeing the result; every moved value is listed old and new in `STATUS.md`; no other golden moves without its own ruling.
+
+## 2026-10-12 — Ruling CE: the New World seed preview is built, with an approximation disclaimer
+
+Owner, after reading `NEW_WORLD_PREVIEW_PROPOSAL.md` and seeing its mockup: **"Let's put the new screen in with a disclaimer that the preview is an approximation."**
+
+1. **Build milestones NWP-1 to NWP-4** of the proposal: the engine's own early stages at 320 px with the two cell-unit settings rescaled to the target resolution (recommendation (a)), a `preview_land_mask` binding, and the new two-column New World dialog with the grey-on-blue preview, the seed dice and lock, the four-thumbnail history and the plates control.
+2. **A visible disclaimer is part of the screen**, on the preview itself, in plain words: it is an approximation of the plate layout and the land/ocean split, not the finished map (it will not show fine coastline, small islands, lakes or relief).
+3. **The proposal's recommended defaults stand** for its open questions unless the owner says otherwise: Create uses the width-scaled plate count (so the preview shows the plates the world will have; 800 km stays at 14, today's default), "36 for world" means the 40,075 km width, log-linear scaling, the seed lock lasts for the session, four history thumbnails (session only), grey #8f9295 on blue #2b4d6b, and under an archetype the derived plate count is shown read-only.
