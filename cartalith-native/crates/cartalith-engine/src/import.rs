@@ -124,12 +124,23 @@ pub struct ImportedWorld {
 /// reads through a `<canvas>` and therefore cannot see more than 8 bits
 /// either.
 ///
+/// # Colour chunks are ignored
+///
+/// A heightmap is data. A `cICP`, `iCCP`, `sRGB`, `gAMA` or `cHRM` chunk in
+/// the file is never applied: the decode is
+/// `cartalith_assets::raster::decode_png_data` (ET-E2), so a P3-tagged
+/// heightmap imports to the same field as its untagged twin (tested in
+/// `cartalith-godot`'s `colour_import_tests.rs`, which has the real P3
+/// profile).
+///
 /// # Errors
 ///
 /// [`ImportError::Decode`] if the bytes are not a readable PNG;
 /// [`ImportError::Empty`] if it decodes to a zero-area image.
 pub fn decode_heightmap(bytes: &[u8], gw: usize) -> Result<(Vec<f32>, usize), ImportError> {
-    let img = cartalith_assets::raster::decode_png(bytes).map_err(|e| ImportError::Decode(e.to_string()))?;
+    // The DATA decode, never a colour-managed one: a heightmap is elevation,
+    // not colour (`EDITING_TOOLS_SCOPE.md` ET-E2). Same bytes as `decode_png`.
+    let img = cartalith_assets::raster::decode_png_data(bytes).map_err(|e| ImportError::Decode(e.to_string()))?;
     if img.w == 0 || img.h == 0 {
         return Err(ImportError::Empty);
     }
@@ -154,7 +165,9 @@ pub fn decode_heightmap(bytes: &[u8], gw: usize) -> Result<(Vec<f32>, usize), Im
 ///
 /// Propagates [`decode_heightmap`]'s errors unchanged.
 pub fn import_heightmap(bytes: &[u8], base: &WorldParams) -> Result<ImportedWorld, ImportError> {
-    let img = cartalith_assets::raster::decode_png(bytes).map_err(|e| ImportError::Decode(e.to_string()))?;
+    // The DATA decode, never a colour-managed one: a heightmap is elevation,
+    // not colour (`EDITING_TOOLS_SCOPE.md` ET-E2). Same bytes as `decode_png`.
+    let img = cartalith_assets::raster::decode_png_data(bytes).map_err(|e| ImportError::Decode(e.to_string()))?;
     if img.w == 0 || img.h == 0 {
         return Err(ImportError::Empty);
     }

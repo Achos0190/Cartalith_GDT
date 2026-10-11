@@ -154,6 +154,22 @@ pub fn decode_png(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
     Ok(DecodedImage { w, h, rgba: rgba.into_raw() })
 }
 
+/// Decode PNG bytes to RGBA8 **as data**: the numbers in the file, with every
+/// colour chunk (`cICP`, `iCCP`, `sRGB`, `gAMA`, `cHRM`) ignored. The
+/// heightmap import (`cartalith-engine`'s `import.rs`) calls this, because a
+/// heightmap is elevation, not colour, and must never be colour-managed
+/// (`EDITING_TOOLS_SCOPE.md` ET-E2).
+///
+/// Today it is exactly [`decode_png`], which reads no colour chunk either.
+/// It is a separate name so that the colour-managed decode ET-E2 added for
+/// asset images (`cartalith-godot`'s `colour_import::decode_png_managed`,
+/// which lives there because `moxcms` is a dependency of that crate and not
+/// of this one) can never be wired into the heightmap path by a rename. It
+/// must never read a colour chunk.
+pub fn decode_png_data(bytes: &[u8]) -> Result<DecodedImage, ImageError> {
+    decode_png(bytes)
+}
+
 /// Encode RGBA8 as a PNG — the reference's `encodeItemPng`. Used both for the
 /// project persistence path (re-encoding an item's own decoded pixels
 /// verbatim, at its native size, no transform applied — exactly what
@@ -768,5 +784,20 @@ pub(crate) mod colour_tests {
         let (w, h, px) = fixture();
         let png = encode_png_rgb8(w, h, px, PngColour::Data).expect("encode");
         assert_eq!((count(&png, b"sRGB"), count(&png, b"iCCP")), (0, 0));
+    }
+
+    /// Protects: ET-E2's "heightmaps are never converted" at the data
+    /// decode itself -- an sRGB-tagged and an ICC-tagged file decode to the
+    /// same RGBA as their untagged twin.
+    #[test]
+    fn the_data_decode_ignores_colour_chunks() {
+        let (w, h, px) = fixture();
+        let plain = decode_png_data(&encode_png_rgb8(w, h, px.clone(), PngColour::Data).unwrap()).unwrap();
+        assert!(!plain.rgba.is_empty());
+        let profile: Vec<u8> = (0..300u32).map(|i| (i * 31 % 256) as u8).collect();
+        for colour in [PngColour::Srgb, PngColour::IccProfile(&profile)] {
+            let tagged = encode_png_rgb8(w, h, px.clone(), colour).unwrap();
+            assert_eq!(decode_png_data(&tagged).unwrap(), plain);
+        }
     }
 }

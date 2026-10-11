@@ -74,6 +74,11 @@ mod urban_bridge;
 mod valley_shade;
 mod vault_bridge;
 mod vault_saf;
+/// ET-E2's tests for `pack::colour_import`, kept out of that module because
+/// they need `export_stream` and `asset_bridge`, which the `#[path]` test
+/// targets compiling `pack.rs` do not have.
+#[cfg(test)]
+mod colour_import_tests;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
@@ -10004,6 +10009,26 @@ impl WorldGen {
                 false
             }
         }
+    }
+
+    /// ET-E2: the colour reports of the loaded pack's images, one
+    /// `{"path": <archive path>, ...colour_report_dict}` per image that
+    /// carried any colour chunk, in decode order. Empty when no pack is
+    /// loaded or every image was untagged (the common case: this port's own
+    /// pack export writes untagged PNGs). Separate from `load_asset_pack`
+    /// because that `#[func]` returns a bare `bool`, which ET-E2 must not
+    /// change.
+    #[func]
+    fn asset_pack_colour(&self) -> Array<VarDictionary> {
+        let Some(pack) = self.asset_pack.as_ref() else { return Array::new() };
+        pack.colour
+            .iter()
+            .map(|(path, report)| {
+                let mut d = colour_report_dict(report);
+                d.set("path", path.as_str());
+                d
+            })
+            .collect()
     }
 
     /// Whether a real asset pack is currently loaded (`load_asset_pack`) —
@@ -21754,6 +21779,42 @@ fn variant_to_sim_value(v: &Variant) -> Option<timeline_bridge::SimValue> {
     }
 }
 
+/// ET-E2's import `colour` dictionary, from a
+/// [`pack::colour_import::ColourReport`]:
+///
+/// - `source` (String): the colour space the pixels were read as, in words.
+///   Untagged reads `"untagged (treated as sRGB)"` and a file whose chunks
+///   were all unusable `"unusable colour information (treated as sRGB)"`, so
+///   an assumption is never shown as a fact.
+/// - `tagged` (bool): whether the file carried any colour chunk.
+/// - `tag` (String, **omitted** when no chunk decided): `"cICP"`, `"iCCP"`,
+///   `"sRGB"` or `"gAMA+cHRM"`.
+/// - `converted` (bool): whether the pixels were changed.
+/// - `intent` (String, **omitted** unless `converted`): `"relative
+///   colorimetric"`.
+/// - `warnings` (PackedStringArray, possibly empty): what the user should be
+///   told (an ignored chunk and why, a CMYK profile left unconverted, ...).
+///
+/// The two optional keys are omitted rather than defaulted (the project's
+/// "never encode no-value as a plausible value" rule): read them with
+/// `has()`.
+fn colour_report_dict(r: &pack::colour_import::ColourReport) -> VarDictionary {
+    let warnings: PackedStringArray = r.warnings.iter().map(|w| GString::from(w.as_str())).collect();
+    let mut d = vdict! {
+        "source" => r.source.as_str(),
+        "tagged" => r.tagged,
+        "converted" => r.converted,
+        "warnings" => &warnings
+    };
+    if let Some(tag) = r.tag {
+        d.set("tag", tag);
+    }
+    if let Some(intent) = r.intent {
+        d.set("intent", intent);
+    }
+    d
+}
+
 /// A `Dictionary` as the `(key, SimValue)` list `timeline_bridge`'s own parser takes,
 /// plus every key whose value was not a number/string/bool at all. Mirrors
 /// `jp_dict_to_pairs`'s own shape.
@@ -21784,13 +21845,17 @@ fn sim_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, timeline_bridge::SimVal
 #[godot_api(secondary)]
 impl WorldGen {
     /// Decode `bytes` as a PNG and add it as a new item on `uid` --
-    /// `AssetImporter.intake`'s per-file half (AS-01). `{"ok": true}` or
-    /// `{"ok": false, "error": ...}` for an unknown uid or bytes that fail
-    /// to decode as a PNG.
+    /// `AssetImporter.intake`'s per-file half (AS-01). `{"ok": true,
+    /// "colour": {...}}` or `{"ok": false, "error": ...}` for an unknown uid
+    /// or bytes that fail to decode as a PNG.
+    ///
+    /// `colour` (ET-E2, added 2026-10-11; present only when `ok`) is
+    /// [`colour_report_dict`]: what colour information the PNG carried and
+    /// whether its pixels were converted to sRGB on import.
     #[func]
     fn as_import_item(&mut self, uid: GString, name: GString, bytes: PackedByteArray) -> VarDictionary {
-        match self.asset_library.import_item(&uid.to_string(), name.to_string(), bytes.as_slice()) {
-            Ok(()) => vdict! { "ok" => true, "error" => "" },
+        match self.asset_library.import_item_managed(&uid.to_string(), name.to_string(), bytes.as_slice()) {
+            Ok(report) => vdict! { "ok" => true, "error" => "", "colour" => &colour_report_dict(&report) },
             Err(e) => vdict! { "ok" => false, "error" => e },
         }
     }
@@ -22151,10 +22216,18 @@ impl WorldGen {
     /// or `{"ok": false, "error": ...}` for bytes that don't decode as a PNG.
     /// PNG only — `cartalith-assets` compiles `image` with the `png` codec
     /// alone, so this reports the limit rather than pretending otherwise.
+    ///
+    /// On success the dictionary also carries `colour` (ET-E2, added
+    /// 2026-10-11): [`colour_report_dict`] for the sheet, which is converted
+    /// to sRGB once here when it is tagged with another colour space, so
+    /// every sliced cell is sRGB.
     #[func]
     fn as_load_sheet(&mut self, name: GString, bytes: PackedByteArray) -> VarDictionary {
-        match self.asset_library.load_sheet(name.to_string(), bytes.as_slice()) {
-            Ok((w, h)) => vdict! { "ok" => true, "error" => "", "w" => w as i64, "h" => h as i64, "name" => &name },
+        match self.asset_library.load_sheet_managed(name.to_string(), bytes.as_slice()) {
+            Ok((w, h, report)) => vdict! {
+                "ok" => true, "error" => "", "w" => w as i64, "h" => h as i64, "name" => &name,
+                "colour" => &colour_report_dict(&report)
+            },
             Err(e) => vdict! { "ok" => false, "error" => e, "w" => 0, "h" => 0, "name" => "" },
         }
     }

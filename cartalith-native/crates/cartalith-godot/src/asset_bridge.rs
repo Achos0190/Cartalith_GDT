@@ -36,9 +36,15 @@ use std::collections::HashMap;
 use cartalith_assets::{
     AssetDB, Anchor, ChromaKey, DecodedImage, Family, GridRect, ItemTransform, LibraryItem,
     PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, archive, compute_cells, count_cells,
-    decode_png, encode_png, fit_to_bottom, item_hash, library, render_item, sheet_base_name,
+    encode_png, fit_to_bottom, item_hash, library, render_item, sheet_base_name,
     slice_sheet,
 };
+
+use crate::pack::colour_import::{ColourReport, decode_png_managed};
+/// The plain (unmanaged) decode is used only by this file's tests since
+/// ET-E2 moved both import paths to `decode_png_managed`.
+#[cfg(test)]
+use cartalith_assets::decode_png;
 
 /// The sprite-sheet slicer's loaded sheet — the reference's
 /// `SpriteSheetImporter.sheet` (`{img,cv,ctx,w,h,name}`, line 27833), minus
@@ -180,12 +186,31 @@ impl AssetLibrarySession {
     /// applies [`fit_to_bottom`] on intake exactly as the reference does.
     /// `Err` for an unknown `uid` or bytes that don't decode as a PNG —
     /// never a panic across the boundary.
+    ///
+    /// Colour-managed since ET-E2: a thin wrapper over
+    /// [`AssetLibrarySession::import_item_managed`] that drops the report.
+    /// Since ET-E2 the `#[func]` layer calls the managed variant, so outside
+    /// tests nothing calls this wrapper; it keeps the pre-ET-E2 signature
+    /// for this session's existing unit tests.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn import_item(&mut self, uid: &str, name: String, bytes: &[u8]) -> Result<(), String> {
+        self.import_item_managed(uid, name, bytes).map(|_| ())
+    }
+
+    /// [`AssetLibrarySession::import_item`], returning what the colour-managed
+    /// decode found and did (`EDITING_TOOLS_SCOPE.md` ET-E2): a PNG tagged
+    /// with a non-sRGB colour space is converted to sRGB before it is stored,
+    /// hashed or fitted, so every later use (thumbnails, the pack bake, Apply
+    /// to map) sees sRGB numbers. An untagged or sRGB-tagged PNG stores the
+    /// same bytes as before. Colour problems are warnings in the report,
+    /// never an `Err`; `Err` is only an unknown `uid` or an unreadable PNG.
+    pub fn import_item_managed(&mut self, uid: &str, name: String, bytes: &[u8]) -> Result<ColourReport, String> {
         if self.db.get(uid).is_none() {
             return Err(format!("no such slot: {uid}"));
         }
-        let decoded = decode_png(bytes).map_err(|e| e.to_string())?;
-        self.insert_decoded(uid, name, decoded)
+        let (decoded, report) = decode_png_managed(bytes).map_err(|e| e.to_string())?;
+        self.insert_decoded(uid, name, decoded)?;
+        Ok(report)
     }
 
     /// The reference's `mkItem` (line 27793) plus the store write: default
@@ -229,11 +254,23 @@ impl AssetLibrarySession {
     /// `image` with the `png` codec alone (its `Cargo.toml` says why), so this
     /// reports the limit honestly rather than pretending to a decoder that is
     /// not compiled in.
+    ///
+    /// Colour-managed since ET-E2: a thin wrapper over
+    /// [`AssetLibrarySession::load_sheet_managed`] that drops the report.
+    /// Outside tests nothing calls it since ET-E2 (see `import_item`).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn load_sheet(&mut self, name: String, bytes: &[u8]) -> Result<(u32, u32), String> {
-        let image = decode_png(bytes).map_err(|e| e.to_string())?;
+        self.load_sheet_managed(name, bytes).map(|(w, h, _)| (w, h))
+    }
+
+    /// [`AssetLibrarySession::load_sheet`], returning the colour report
+    /// (ET-E2). The sheet is converted to sRGB once, here, so every cell the
+    /// slicer cuts from it is already sRGB.
+    pub fn load_sheet_managed(&mut self, name: String, bytes: &[u8]) -> Result<(u32, u32, ColourReport), String> {
+        let (image, report) = decode_png_managed(bytes).map_err(|e| e.to_string())?;
         let dims = (image.w, image.h);
         self.sheet = Some(LoadedSheet { name, image });
-        Ok(dims)
+        Ok((dims.0, dims.1, report))
     }
 
     /// Drop the loaded sheet (the modal closing, or a fresh pick failing).

@@ -110,12 +110,36 @@ use cartalith_assets::{
     DecodedImage, PACK_BIOME_SLOTS, PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PackEntries, PackManifest,
     PlaceIconsRuledOpts, PlacedIcon,
     ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,
-    decode_png, finalize_pack_texture_inv_mean, icon_slot_for_item, pick_icon_variant,
+    finalize_pack_texture_inv_mean, icon_slot_for_item, pick_icon_variant,
     pick_weighted_variant, place_map_icons_ruled, read_pack, sprite_draw_rect,
     trait_badge_layout, trait_sprite_rect,
 };
 
 use crate::render::{GroundTile, SplatChannel};
+
+/// ET-E2's colour-managed PNG decode (`EDITING_TOOLS_SCOPE.md` §6). Declared
+/// here, by `#[path]`, rather than in `lib.rs` because `pack.rs` is also
+/// compiled standalone by two integration-test targets
+/// (`tests/pack_compositing.rs`, `tests/pack_trait_badges.rs`) and every pack
+/// image decodes through it; `lib.rs` and `asset_bridge.rs` reach it as
+/// `crate::pack::colour_import`.
+#[path = "colour_import.rs"]
+pub mod colour_import;
+
+use colour_import::{ColourReport, decode_png_managed};
+
+/// Decode one pack entry colour-managed (ET-E2) and, when the file carried
+/// any colour chunk, record its report under its archive path in `notes`. An
+/// untagged entry -- every pack this port writes, and all 17 PNGs of
+/// `cartalith-assets/tests/fixtures/reference_pack.zip`, checked 2026-10-11 --
+/// leaves no note and decodes to the same bytes `decode_png` gave.
+fn decode_entry(path: &str, data: &[u8], notes: &mut Vec<(String, ColourReport)>) -> Option<DecodedImage> {
+    let (img, report) = decode_png_managed(data).ok()?;
+    if report.tagged {
+        notes.push((path.to_string(), report));
+    }
+    Some(img)
+}
 
 /// A real, loaded asset pack — the five families this module composites,
 /// decoded to pixels: `icons`, the six splat channels, `biomes`, `terrains`
@@ -175,6 +199,10 @@ pub struct LoadedPack {
     /// carries the same reason per badge so a caller that wants to highlight
     /// one settlement's missing art does not have to re-derive it.
     pub traits: HashMap<String, Vec<DecodedImage>>,
+    /// ET-E2: one colour report per decoded pack image that carried any
+    /// colour chunk, keyed by its archive path, in decode order. Empty for an
+    /// untagged pack. Read by `WorldGen::asset_pack_colour`.
+    pub colour: Vec<(String, ColourReport)>,
 }
 
 /// Decode one painted-ground family into the positional table
@@ -195,11 +223,13 @@ fn decode_ground_family(
     slots: &[&'static str],
     table: &cartalith_assets::OrderedMap<String>,
     entries: &PackEntries,
+    notes: &mut Vec<(String, ColourReport)>,
 ) -> Vec<Option<GroundTile>> {
     slots
         .iter()
         .map(|&slot| {
-            let img = decode_png(entries.get(table.get(slot)?)?).ok()?;
+            let path = table.get(slot)?;
+            let img = decode_entry(path, entries.get(path)?, notes)?;
             Some(GroundTile { w: img.w, h: img.h, rgba: img.rgba })
         })
         .collect()
@@ -214,13 +244,14 @@ fn decode_ground_family(
 /// letting one bad PNG fail the entire pack).
 pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
     let (manifest, entries) = read_pack(Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    let mut colour: Vec<(String, ColourReport)> = Vec::new();
 
     let mut icons: HashMap<String, Vec<DecodedImage>> = HashMap::new();
     for (slot, paths) in manifest.icons.iter() {
         let mut variants = Vec::new();
         for path in paths {
             let Some(data) = entries.get(path) else { continue };
-            if let Ok(img) = decode_png(data) {
+            if let Some(img) = decode_entry(path, data, &mut colour) {
                 variants.push(img);
             }
         }
@@ -233,13 +264,13 @@ pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
     for &slot in PACK_TEX_SLOTS.iter().filter(|&&s| s != "parchment") {
         let Some(path) = manifest.textures.get(slot) else { continue };
         let Some(data) = entries.get(path) else { continue };
-        let Ok(img) = decode_png(data) else { continue };
+        let Some(img) = decode_entry(path, data, &mut colour) else { continue };
         let inv = finalize_pack_texture_inv_mean(img.w, img.h, &img.rgba);
         splat.insert(slot, SplatChannel { w: img.w, h: img.h, rgba: img.rgba, inv });
     }
 
-    let biomes = decode_ground_family(&PACK_BIOME_SLOTS, &manifest.biomes, &entries);
-    let terrains = decode_ground_family(&PACK_TERRAIN_SLOTS, &manifest.terrains, &entries);
+    let biomes = decode_ground_family(&PACK_BIOME_SLOTS, &manifest.biomes, &entries, &mut colour);
+    let terrains = decode_ground_family(&PACK_TERRAIN_SLOTS, &manifest.terrains, &entries, &mut colour);
 
     // `structures.trait`. Same per-variant tolerance as `icons` above, with
     // one deliberate difference: the slot is inserted **even when no variant
@@ -250,14 +281,14 @@ pub fn load_pack_from_bytes(bytes: Vec<u8>) -> Result<LoadedPack, String> {
         let mut variants = Vec::new();
         for path in paths {
             let Some(data) = entries.get(path) else { continue };
-            if let Ok(img) = decode_png(data) {
+            if let Some(img) = decode_entry(path, data, &mut colour) {
                 variants.push(img);
             }
         }
         traits.insert(slot.to_string(), variants);
     }
 
-    Ok(LoadedPack { manifest, icons, splat, biomes, terrains, traits })
+    Ok(LoadedPack { manifest, icons, splat, biomes, terrains, traits, colour })
 }
 
 // ---------------------------------------------------------------------------
