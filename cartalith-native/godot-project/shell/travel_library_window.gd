@@ -91,6 +91,11 @@ const ANIMAL_GROUPS: Array[Dictionary] = [
 	]},
 ]
 
+## Vehicle inspector field groups (`TRAVEL_LIBRARY_SPEC.md` 3), walked by `_build_field()`. Numeric
+## `min`/`max`/`step` are this window's own entry limits -- labelled judgements chosen to bracket
+## the stock values, not engine constants; the engine's `tl_edit` is the validator and may refuse a
+## value inside them. Field keys are the `tl_get` keys, so renaming one here silently stops that
+## field loading.
 const VEHICLE_GROUPS: Array[Dictionary] = [
 	{"title": "Classification", "fields": [
 		{"key": "name", "label": "Name", "type": "text"},
@@ -114,6 +119,11 @@ const VEHICLE_GROUPS: Array[Dictionary] = [
 	]},
 ]
 
+## Vessel inspector field groups (`TRAVEL_LIBRARY_SPEC.md` 3), walked by `_build_field()`. `modes`
+## is a comma-joined `river`/`sea` list. Numeric `min`/`max`/`step` are this window's own entry
+## limits -- labelled judgements chosen to bracket the stock values, not engine constants; the
+## engine's `tl_edit` is the validator and may refuse a value inside them. Field keys are the
+## `tl_get` keys, so renaming one here silently stops that field loading.
 const VESSEL_GROUPS: Array[Dictionary] = [
 	{"title": "Classification", "fields": [
 		{"key": "name", "label": "Name", "type": "text"},
@@ -133,6 +143,11 @@ const VESSEL_GROUPS: Array[Dictionary] = [
 	]},
 ]
 
+## Party set-up inspector field groups (`TRAVEL_LIBRARY_SPEC.md` 3), walked by `_build_field()`.
+## Numeric `min`/`max`/`step` are this window's own entry limits -- labelled judgements chosen to
+## bracket the stock values, not engine constants; the engine's `tl_edit` is the validator and may
+## refuse a value inside them. Field keys are the `tl_get` keys, so renaming one here silently
+## stops that field loading.
 const PRESET_GROUPS: Array[Dictionary] = [
 	{"title": "Transport & pace", "fields": [
 		{"key": "name", "label": "Name", "type": "text"},
@@ -163,6 +178,8 @@ const PRESET_GROUPS: Array[Dictionary] = [
 	]},
 ]
 
+## Definition kind (`KINDS` key) to its field-group table; `_refresh_inspector()` looks the current
+## tab up here, so a new kind needs a row here as well as in `KINDS`.
 const GROUPS_BY_KIND := {
 	"animal": ANIMAL_GROUPS, "vehicle": VEHICLE_GROUPS, "vessel": VESSEL_GROUPS, "preset": PRESET_GROUPS,
 }
@@ -202,13 +219,17 @@ var _head_row: HBoxContainer    ## PH-12: the bar Reset moves into on a phone
 ## Two things beyond the shared three calls. The rail (286 px) beside the
 ## inspector does not fit 393 dp, so they become two panes behind the tab strip
 ## the window already has: picking an entry moves to it, and a Back chip in the
-## inspector's own header returns. And the tab strip is six category buttons
-## plus a Reset action in one row -- ~700 dp of minimum -- so on a phone it
+## inspector's own header returns. And the tab strip is the category buttons (four today, `KINDS`)
+## plus a Reset action in one row -- ~700 dp of minimum when measured, with six
+## tabs; there are four now -- so on a phone it
 ## wraps.
 var _phone := false
 var _phone_showing_entry := false
 var _phone_back_btn: Button
 
+## Configure the dialog (title, size, phone fit), keep the host and bridge, and build the UI. Call
+## once before `open()`. The OK button is hidden: nothing in this window is confirmed by dismissing
+## it; edits commit only through the footer's save button.
 func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_host = host
 	_bridge = bridge
@@ -258,6 +279,8 @@ func _phone_refit() -> void:
 	if _phone and _host != null:
 		_do_phone_refit.call_deferred()
 
+## The deferred half of `_phone_refit()`: re-apply the phone fit to the freshly rebuilt nodes.
+## Guards on `is_instance_valid` because it runs a frame late and the window may have been freed.
 func _do_phone_refit() -> void:
 	if _phone and _host != null and is_instance_valid(self):
 		_host.phone_fit(self, 1.0)
@@ -266,6 +289,9 @@ func _do_phone_refit() -> void:
 # Layout
 # ---------------------------------------------------------------------------
 
+## Build the fixed frame once: head row (Back/Close, title captions), tab strip, status line, then
+## the entries rail beside the inspector (stacked on a phone), and fill both. Must never be re-run
+## -- it appends to `self`.
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -334,8 +360,12 @@ func _build() -> void:
 	_refresh_rail()
 	_refresh_inspector()
 
+## Build the category tab strip (one button per `KINDS` entry, wrapping on a phone) with the `Reset
+## tab to stock...` action, which on a phone moves up to the head row so a destructive control
+## never sits between two tabs. Reset is unconfirmed by design here; its tooltip says it cannot be
+## undone.
 func _build_tab_strip() -> Control:
-	## PH-12: six category tabs plus `Reset tab to stock…` is ~700 dp of
+	## PH-12: the category tabs plus `Reset tab to stock…` were ~700 dp of
 	## minimum width, and a `BoxContainer` handed more minimum than it has
 	## overlaps rather than clipping. An `HFlowContainer` wraps instead, and the
 	## number of rows follows the labels rather than a count fixed here.
@@ -386,6 +416,8 @@ func _build_tab_strip() -> Control:
 	pad.add_child(row)
 	return pad
 
+## Switch to tab `kind`: drop the selection and any staged draft, then repaint tabs, rail and
+## inspector. Discarding the draft silently is deliberate (same as `_select_entry`).
 func _select_kind(kind: String) -> void:
 	_current_kind = kind
 	_current_id = ""
@@ -394,6 +426,8 @@ func _select_kind(kind: String) -> void:
 	_refresh_rail()
 	_refresh_inspector()
 
+## Rewrite every tab's label with its live entry count from `tl_counts()` and restyle the active
+## one. Un-flattens the button, because a flat `Button` draws none of the style overrides set here.
 func _refresh_tab_labels() -> void:
 	var counts: Dictionary = _bridge.tl_counts()
 	for k in KINDS:
@@ -404,7 +438,7 @@ func _refresh_tab_labels() -> void:
 		btn.text = " %s · %d " % [String(kind_info["label"]).to_upper(), int(c.get("total", 0))]
 		var active := key == _current_kind
 		btn.add_theme_color_override("font_color", DccTheme.c("accent") if active else DccTheme.c("text_dim"))
-		## `btn` is built `flat = true` in `_build_kind_tabs()` (never released
+		## `btn` is built `flat = true` in `_build_tab_strip()` (never released
 		## there, since this function -- not the one-time build -- is what
 		## actually knows which tab is active) and a flat `Button` draws no
 		## stylebox at all, so every line below was dead: not just the active
@@ -413,6 +447,9 @@ func _refresh_tab_labels() -> void:
 		btn.add_theme_stylebox_override("normal", DccTheme.active_row(true) if active else DccTheme.empty())
 		btn.add_theme_stylebox_override("hover", DccTheme.active_row(true) if active else DccTheme.flat(DccTheme.c("line_soft")))
 
+## Build the entries rail: header with new/duplicate/import-CSV/delete buttons, the filter box, a
+## scrolling body that `_refresh_rail()` fills, and the read-only footnote. 286 px wide on desktop
+## (a fixed design width), full pane on a phone.
 func _build_rail() -> Control:
 	var wrap := PanelContainer.new()
 	## PH-12: 286 px is 73% of a phone's 393 dp; stacked, it is the whole pane.
@@ -495,6 +532,9 @@ func _build_rail() -> Control:
 
 	return wrap
 
+## Build the empty inspector container (a horizontally non-scrolling scroll pane around
+## `_inspector_body`); `_refresh_inspector()` fills it. Horizontal scroll is disabled so the pane's
+## minimum width does not leak into the window.
 func _build_inspector() -> Control:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -542,6 +582,9 @@ func _refresh_rail() -> void:
 	for row in stock:
 		_rail_body.add_child(_build_rail_row(row))
 
+## One rail row for an entry dict from `tl_list`: name, validation mark (warning for incomplete,
+## double for conflicting), subtitle and an in-use note, coloured by state, with the selected row
+## filled. Pressing it selects the entry.
 func _build_rail_row(row: Dictionary) -> Control:
 	var id := String(row.get("id", ""))
 	var selected := id == _current_id
@@ -600,6 +643,8 @@ func _select_entry(id: String) -> void:
 	## same tap has to move there or it looks like nothing happened.
 	_show_phone_entry(true)
 
+## Rail `+`: ask the engine for a blank definition of the current kind and select it. Does nothing
+## visible when the engine refuses.
 func _on_add_blank() -> void:
 	var kind_label := ""
 	for k in KINDS:
@@ -609,6 +654,8 @@ func _on_add_blank() -> void:
 	if bool(result.get("ok", false)):
 		_select_entry(String(result.get("id", "")))
 
+## Rail import button: open a file dialog for a `.csv` and hand the path to `import_csv()`,
+## reporting the outcome in the status line. The dialog frees itself on pick or cancel.
 func _on_import_csv() -> void:
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -676,6 +723,10 @@ func import_csv(path: String) -> Dictionary:
 			out["refused"].append("line %d: refused %s" % [line, ", ".join(rejected)])
 	return out
 
+## Coerce one CSV cell to the type the stock entry carries for that column (`like` is that stock
+## value, or null): bool, int, float, or a `;`-separated list; with no sample it guesses int, then
+## float, then keeps the string. A cell that does not parse as the sample's type stays a string for
+## the engine to refuse -- never silently coerced.
 func _csv_value(raw: String, like: Variant) -> Variant:
 	match typeof(like):
 		TYPE_BOOL:
@@ -696,6 +747,8 @@ func _csv_value(raw: String, like: Variant) -> Variant:
 		return float(raw)
 	return raw
 
+## Duplicate the selected entry into an editable custom copy and select it -- the only route to
+## edit a stock entry. Shows the engine's error in the status line on failure.
 func _on_duplicate() -> void:
 	if _current_id == "":
 		return
@@ -705,6 +758,8 @@ func _on_duplicate() -> void:
 	else:
 		_status_label.text = String(result.get("error", "duplicate failed"))
 
+## Delete the selected entry, custom ones only (a stock entry is a no-op), then clear selection and
+## draft.
 func _on_delete() -> void:
 	if _current_id == "" or String(_entry.get("origin", "")) != "custom":
 		return
@@ -714,6 +769,9 @@ func _on_delete() -> void:
 	_refresh_rail()
 	_refresh_inspector()
 
+## Commit the staged `_draft` through `tl_edit`; clears it on success and shows the engine's error
+## otherwise (the draft is kept so the user can fix it). Always repaints, so validation reflects
+## the saved state.
 func _on_save() -> void:
 	if _current_id == "" or _draft.is_empty():
 		return
@@ -725,6 +783,7 @@ func _on_save() -> void:
 	_refresh_rail()
 	_refresh_inspector()
 
+## Throw away the staged `_draft` and repaint the inspector from the last saved entry.
 func _on_revert() -> void:
 	_draft.clear()
 	_refresh_inspector()
@@ -742,6 +801,11 @@ func _val(key: String, default):
 		return _entry[key]
 	return default
 
+## Rebuild the whole inspector for the selected entry: header and usage, the read-only or
+## live-effect notes, every field group for the current kind, the animal terrain rows, validation
+## banners and the footer. Reloads `_entry` from `tl_get`; a vanished entry clears the selection.
+## Rebuilds from fresh nodes, so it also steals focus -- `_refresh_footer_state()` exists for
+## edits.
 func _refresh_inspector() -> void:
 	_phone_refit()   ## PH-12: this rebuilds the whole pane from fresh nodes.
 	for c in _inspector_body.get_children():
@@ -828,6 +892,10 @@ func _refresh_inspector() -> void:
 	footer.add_child(DccTheme.spacer())
 	footer.add_child(DccTheme.label("changes apply at next plan", "text_ghost", DccTheme.FS_MICRO))
 
+## Append the validation block: the unsaved-changes note (validation reflects the last save, not
+## the draft), the incomplete or conflicting messages, or for a valid entry whether editing it
+## re-plans anything. The live/not-live test here must stay in step with the notes in
+## `_refresh_inspector()`.
 func _build_validation_banners(parent: Control) -> void:
 	var state := String(_entry.get("validation_state", "ok"))
 	if state == "ok" and _draft.is_empty():
@@ -912,6 +980,11 @@ func _banner(parent: Control, token: String, text: String) -> void:
 	box.add_child(l)
 	parent.add_child(box)
 
+## Build one inspector row from a field-spec dict (`key`, `label`, `type`, ...), dispatching on
+## `type`: text, number, toggle, choice, roles, modes or affinity. Every control writes into
+## `_draft[key]` and calls `_refresh_footer_state()`; nothing reaches the engine until save.
+## Read-only entries get the controls disabled rather than omitted, so the layout matches the
+## editable one.
 func _build_field(parent: Control, f: Dictionary, editable: bool) -> void:
 	var key := String(f["key"])
 	var label := String(f["label"])
@@ -1036,6 +1109,9 @@ func _build_field(parent: Control, f: Dictionary, editable: bool) -> void:
 				_refresh_footer_state())
 			parent.add_child(row)
 
+## One animal terrain-constraint row (`terrain.<slug>`): a 0 to 3 multiplier spin box (a labelled
+## judgement bound, with 0.05 steps) plus a `blocked` check box; blocked is stored as the string
+## `blocked`, which is what the engine reads, not a number.
 func _build_terrain_row(parent: Control, slug: String, label: String, editable: bool) -> void:
 	var key := "terrain.%s" % slug
 	var row := HBoxContainer.new()

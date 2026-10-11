@@ -149,13 +149,19 @@ class_name OpenProjectDialog
 ## lifted off the ground behind it -- where taking its literal `--pan` would
 ## paint the card the same colour as the modal it now sits in.
 
+## Minimum gallery tile cell in px, the 232 x 186 grid cell the 08-23 gallery used (the header's
+## source note applies). `_fit_columns()` divides the usable width by it to pick a column count, on
+## a phone only; the picker card is `PICKER_TILE_W` instead.
 const TILE_MIN := Vector2(232, 186)
+## Gallery column count on a desktop-width window: the canvas's 4-column tile grid.
+## `_fit_columns()` recomputes it from `TILE_MIN`, on a phone only; desktop keeps this value.
 const GRID_COLUMNS := 4
 
 ## The picker card: `width:252px` with a `height:130px` thumbnail. Width only --
 ## the height is whatever the thumbnail plus the two caption lines come to, the
 ## same way the canvas's card is sized by its content.
 const PICKER_TILE_W := 252
+## Picker card thumbnail height in px (the canvas's `height:130px`); see `PICKER_TILE_W` above.
 const PICKER_THUMB_H := 130
 ## `flex-wrap:wrap` over `width:850px` fits three 252 px cards and their two
 ## 16 px gaps (788 px) and no fourth, so the canvas's own row holds three. The
@@ -265,6 +271,8 @@ func setup(host: DccApp) -> void:
 		_apply_phone_toolbar()
 		_host.phone_fit(self, 1.0)
 
+## Show the gallery (`File > Open project...`): clear the selection, leave welcome mode, present
+## and repaint. Never opens the welcome composition; that is `open_welcome()`.
 func open() -> void:
 	_selected = ""
 	_welcome = false
@@ -396,6 +404,9 @@ func _build() -> void:
 	_picker.visible = false
 	outer.add_child(_picker)
 
+## Build the gallery composition: head, search and scope toolbar, a scrolling tile grid (refitted
+## by `_fit_columns()` on a phone) and the foot. Called once from `_build()`; `_refresh()` fills
+## the grid.
 func _build_gallery() -> VBoxContainer:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -427,6 +438,9 @@ func _build_gallery() -> VBoxContainer:
 	outer.add_child(_build_foot())
 	return outer
 
+## Build the gallery's title row: the `Open project` title, the subtitle and the close button,
+## padded to the canvas's 30 px frame. One wording for every mode -- the welcome screen is
+## `_build_picker()`, not this row re-lettered.
 func _build_head() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -497,6 +511,9 @@ func _head_close() -> Button:
 	close.pressed.connect(func(): hide())
 	return close
 
+## Build the search well (filter by name, seed or region as the canvas's placeholder says) and the
+## scope chips. The search box refreshes the gallery on every keystroke. Kept in `_toolbar_row` so
+## a handset can stack it.
 func _build_toolbar() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -528,6 +545,8 @@ func _build_toolbar() -> Control:
 	row.add_child(_build_scopes())
 	return _pad(row, 30, 16, 30, 0)
 
+## Build the `Recent` / `All worlds` / `Shared` chips. `Shared` is drawn disabled with its reason
+## as a tooltip, because the port has no shared or remote-project concept; the others set `_scope`.
 func _build_scopes() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 2)
@@ -556,6 +575,8 @@ func _build_scopes() -> Control:
 		_paint_scope(String(scope["id"]))
 	return row
 
+## Style one scope chip: accent outline and ink when it is the active `_scope`, line outline
+## otherwise. The same box is used for every state, so hover never hides which chip is on.
 func _paint_scope(id: String) -> void:
 	var b: Button = _scope_buttons[id]
 	var on := _scope == id
@@ -571,6 +592,8 @@ func _paint_scope(id: String) -> void:
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 
+## Switch the active scope chip and repaint every chip and the gallery. A no-op when the scope does
+## not change, so a repeat click costs no rebuild.
 func _set_scope(id: String) -> void:
 	if _scope == id:
 		return
@@ -579,6 +602,8 @@ func _set_scope(id: String) -> void:
 		_paint_scope(String(key))
 	_refresh()
 
+## Build the gallery foot: the projects-root / status note (it fills the row; see the `clip_text`
+## note), `Cancel`, and `Open selected`, which starts disabled until a tile is picked.
 func _build_foot() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -896,6 +921,9 @@ func _refresh() -> void:
 	if _phone:
 		_fit_phone_content()
 
+## Fill the gallery grid: the dashed import tile first, then one tile per project path that passes
+## the search query, and the foot note (projects root, a no-match message, or the shared-scope
+## disclosure). Ends by refreshing the Open button.
 func _refresh_gallery() -> void:
 	_grid.add_child(_build_import_tile())
 
@@ -959,6 +987,9 @@ static func _matches(path: String, meta: Dictionary, query: String) -> bool:
 		return true
 	return String(meta.get("seed", "")).to_lower().contains(query)
 
+## Build the dashed import tile that opens the disk browser or accepts a drop. Draws a solid
+## half-alpha accent outline instead of dashes (`StyleBoxFlat` has no dash pattern, and a custom
+## draw for one tile is not worth the second path).
 func _build_import_tile() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.custom_minimum_size = TILE_MIN
@@ -1129,6 +1160,8 @@ func _build_tile(path: String, meta: Dictionary, picker: bool = false) -> Contro
 		_paint_tile(path, true)
 	return wrap
 
+## Mark `path` as the selected tile: repaint the previous and new tiles and refresh the Open
+## button. Selection is only a highlight; nothing opens until `_confirm()` or a picker tile click.
 func _select(path: String) -> void:
 	var previous := _selected
 	_selected = path
@@ -1138,6 +1171,9 @@ func _select(path: String) -> void:
 		_paint_tile(path, true)
 	_refresh_open_button()
 
+## Style one gallery tile: accent outline and bright title when it is selected or is the world
+## already open, raised fill only when selected. Must tolerate `path` being absent from `_tiles`
+## only if the caller checked, as `_select()` does.
 func _paint_tile(path: String, on: bool) -> void:
 	var wrap: PanelContainer = _tiles[path]
 	var current := _host != null and _host.current_project_path == path
@@ -1148,6 +1184,8 @@ func _paint_tile(path: String, on: bool) -> void:
 		title_label.add_theme_color_override("font_color",
 			DccTheme.c("text_bright") if (on or current) else DccTheme.c("text"))
 
+## Enable `Open selected` only when a selected path still exists on disk, and give the disabled
+## button a tooltip stating why (nothing picked, or the file is gone).
 func _refresh_open_button() -> void:
 	_open_btn.disabled = _selected == "" or not FileAccess.file_exists(_selected)
 	## Every disabled control in this shell states its reason on hover -- this
@@ -1192,6 +1230,8 @@ func _pick_path(path: String) -> void:
 	else:
 		_say(_host.last_open_refusal)
 
+## The `Open selected` handler: re-check that the selection still exists, then hand it to
+## `_pick_path()`. Silent when the file vanished; `_refresh_open_button()` already says why.
 func _confirm() -> void:
 	if _selected == "" or not FileAccess.file_exists(_selected):
 		return
@@ -1211,6 +1251,9 @@ func _browse_from_disk() -> void:
 		"Cartalith projects are .ctl saves (.zip still opens)", func(path: String):
 			_pick_path(path))
 
+## Window `files_dropped` handler: open the first dropped `.ctl` or `.zip` while the dialog is
+## showing, else say so in the active note. Ignored when hidden so a drop elsewhere in the app is
+## not hijacked.
 func _on_files_dropped(files: PackedStringArray) -> void:
 	if not visible:
 		return
@@ -1399,6 +1442,7 @@ static func _relative_time(unix: int) -> String:
 ## into the tile rather than letterboxed, which is mildly anamorphic for a
 ## non-4:3 world and is what fills the tile the way the mockup draws it filled.
 const THUMB_W := 96
+## Tile art height in px, paired with `THUMB_W` above (the identicon's own 96 x 72).
 const THUMB_H := 72
 
 ## `cartalith_terrain::tile_render::SEA` (reference 8330), deepest first,
@@ -1415,6 +1459,8 @@ const HYPSO_SEA: Array[Color] = [
 ## halves because GDScript has no tuple: `HYPSO_LAND_AT[i]` is the stop's
 ## normalised height and `HYPSO_LAND_RGB[i]` its colour.
 const HYPSO_LAND_AT: Array[float] = [0.0, 0.18, 0.38, 0.58, 0.78, 1.0]
+## Colours of the land hypsometric stops, in step with `HYPSO_LAND_AT` above, from the same Rust
+## `LAND` table (0-255 values kept visible in the expressions).
 const HYPSO_LAND_RGB: Array[Color] = [
 	Color(47 / 255.0, 122 / 255.0, 68 / 255.0),
 	Color(111 / 255.0, 154 / 255.0, 58 / 255.0),
@@ -1704,6 +1750,8 @@ static func _ignore_mouse(node: Node) -> void:
 			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_ignore_mouse(child)
 
+## Wrap `child` in a `MarginContainer` with the four given margins in px; the frame-padding helper
+## every composition here uses.
 func _pad(child: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", l)

@@ -47,7 +47,11 @@ extends VBoxContainer
 ## transform, write the result back as ONE undoable edit, restore the
 ## selection.
 
+## The Save button was pressed. This file never writes a file; the vault window answers it through
+## `vault_write_file`'s hash guard.
 signal save_requested
+## The Cancel button was pressed. The host decides whether to discard; nothing here reverts the
+## text.
 signal cancel_requested
 ## "Reload from disk", offered after a refused Save: discard and re-read.
 signal reload_requested
@@ -56,7 +60,10 @@ signal edited
 ## Emitted when Write / Preview flips, so a host that rebuilds can keep it.
 signal mode_changed(mode: String)
 
+## Bold face for rendered bold and for the toolbar's `B` glyph (the project's Fira Sans file;
+## `style_rendered()` also uses it for bold-italic, as there is no separate face).
 const FONT_BOLD := preload("res://fonts/FiraSans-Bold.ttf")
+## Italic face for rendered emphasis and the toolbar's `I` glyph.
 const FONT_ITALIC := preload("res://fonts/FiraSans-Italic.ttf")
 
 ## Rendered heading sizes. Not `DccTheme` tokens -- the theme has no heading
@@ -126,10 +133,15 @@ func setup(file_label: String, initial: String, saved: String, phone: bool,
 	_refresh_heading_lights()
 
 
+## Whether the source differs from the text last read or written (`_saved_text`). False before
+## `setup()` builds the source.
 func is_dirty() -> bool:
 	return text_edit != null and text_edit.text != _saved_text
 
 
+## Record `text` as what the file now holds, so `is_dirty()` goes false, and say "Saved.". Call
+## only after the host's write succeeded; calling it early hides unsaved edits from the dirty
+## check.
 func mark_saved(text: String) -> void:
 	_saved_text = text
 	set_status("Saved.", false)
@@ -146,10 +158,15 @@ func set_status(msg: String, refused: bool) -> void:
 	_reload_button.visible = refused
 
 
+## The current mode, `write` or `preview`.
 func mode() -> String:
 	return _mode
 
 
+## Flip Write / Preview (anything but `preview` means write). Re-renders the BBCode when entering
+## Preview, keeps focus on the visible pane only if the editor already had it, lights the matching
+## segment, and disables every formatting button in Preview, where there is no selection to act on.
+## Emits `mode_changed`.
 func set_mode(m: String) -> void:
 	_mode = "preview" if m == "preview" else "write"
 	var writing := _mode == "write"
@@ -204,6 +221,9 @@ func _build_header(file_label: String) -> void:
 	save_button.tooltip_text = "Writes the whole note back to the vault. Refuses, and writes nothing, if the file changed on disk since it was opened here."
 
 
+## Build the formatting toolbar (one scrolling row on a phone, a wrapping flow on desktop) and the
+## two pickers. Every button is registered in `buttons` by key and calls a thin `apply_*`; keep the
+## keys in step with that map's doc, which the probe relies on.
 func _build_toolbar() -> void:
 	var bar: Container
 	if _phone:
@@ -280,6 +300,8 @@ func _build_toolbar() -> void:
 	add_child(_template_popup)
 
 
+## Add one toolbar chip: a segment button with tooltip and a 28 px minimum width (a labelled
+## judgement so one-letter chips stay a tappable target), registered in `buttons` under `key`.
 func _tool(bar: Control, key: String, label_text: String, tip: String, cb: Callable) -> Button:
 	var b := DccWidgets.segment(bar, label_text, cb)
 	b.tooltip_text = tip
@@ -325,12 +347,16 @@ func _style_glyph_chip(b: Button, bbcode: String) -> void:
 	b.add_child(rt)
 
 
+## Add a thin vertical rule between toolbar groups.
 func _sep(bar: Control) -> void:
 	var r := DccTheme.rule(true)
 	r.custom_minimum_size = Vector2(1, 18)
 	bar.add_child(r)
 
 
+## Build the source `TextEdit` (wrapping, shell field styling, caret and shortcut hooks) and the
+## hidden `RichTextLabel` preview sharing its minimum height (360 px phone, 280 desktop -- labelled
+## judgements). Edits emit `edited`; the preview is filled only when entering Preview.
 func _build_body(initial: String) -> void:
 	text_edit = TextEdit.new()
 	text_edit.name = "EditorSource"
@@ -393,6 +419,8 @@ static func style_rendered(r: RichTextLabel) -> void:
 
 # -- Selection plumbing -------------------------------------------------------
 
+## Convert a (line, column) pair in `text_edit` into a flat character offset, counting one newline
+## per line break. The inverse of `_line_col()`.
 func _offset(line: int, col: int) -> int:
 	var o := 0
 	for i in range(line):
@@ -400,6 +428,8 @@ func _offset(line: int, col: int) -> int:
 	return o + col
 
 
+## Convert a flat offset into (line, column), the inverse of `_offset()`. An offset past the end
+## lands on the last line.
 static func _line_col(text: String, offset: int) -> Vector2i:
 	var line := 0
 	var start := 0
@@ -448,36 +478,46 @@ func _commit(r: Dictionary) -> void:
 	text_edit.grab_focus()
 
 
+## Toolbar action: wrap or unwrap the selection in `open`/`close` through `wrap_inline()` as one
+## undoable edit.
 func apply_inline(open: String, close: String) -> void:
 	var s := selection_offsets()
 	_commit(wrap_inline(text_edit.text, s.x, s.y, open, close))
 
 
+## Toolbar action: set the caret line's heading level (0 removes it) through `set_heading()`.
 func apply_heading(level: int) -> void:
 	var s := selection_offsets()
 	_commit(set_heading(text_edit.text, s.x, s.y, level))
 
 
+## Toolbar action: toggle a `bullet`, `number`, `task` or `quote` prefix on every selected line
+## through `prefix_lines()`.
 func apply_lines(kind: String) -> void:
 	var s := selection_offsets()
 	_commit(prefix_lines(text_edit.text, s.x, s.y, kind))
 
 
+## Toolbar action: fence the selected lines as a code block through `code_block()`.
 func apply_code_block() -> void:
 	var s := selection_offsets()
 	_commit(code_block(text_edit.text, s.x, s.y))
 
 
+## Write a `[[note]]` link to the vault file `rel` at the selection through `note_link()`; called
+## by the link picker.
 func insert_note_link(rel: String) -> void:
 	var s := selection_offsets()
 	_commit(note_link(text_edit.text, s.x, s.y, rel))
 
 
+## Toolbar action: wrap the selected lines in an Obsidian callout through `callout()`.
 func apply_callout() -> void:
 	var s := selection_offsets()
 	_commit(callout(text_edit.text, s.x, s.y))
 
 
+## Toolbar action: turn the selection into a `#tag` (spaces hyphenated) through `tag()`.
 func apply_tag() -> void:
 	var s := selection_offsets()
 	_commit(tag(text_edit.text, s.x, s.y))
@@ -507,6 +547,9 @@ func template_choices() -> Array:
 	return _templates_source.call() if _templates_source.is_valid() else []
 
 
+## Fill and show the Insert-template popup from `template_choices()`, with a disabled placeholder
+## row when the vault has none. Remembers the rel paths in `_template_rels` for the id-to-path
+## lookup.
 func _open_template_picker() -> void:
 	var ts := template_choices()
 	_template_popup.clear()
@@ -521,6 +564,8 @@ func _open_template_picker() -> void:
 	DccWidgets.popup_anchored(_template_popup, anchor_rect(buttons["template"]), 320)
 
 
+## Fill and show the note-link popup from `_files_source` (the vault's `.md` paths), with a
+## disabled placeholder when there are none, keeping the list in `_link_files` for the id lookup.
 func _open_link_picker() -> void:
 	_link_files = _files_source.call() if _files_source.is_valid() else PackedStringArray()
 	_link_popup.clear()
@@ -557,6 +602,9 @@ func _on_preview_input(ev: InputEvent) -> void:
 		preview.accept_event()
 
 
+## Keyboard shortcuts in Write mode: Ctrl/Cmd+E flips to Preview, +B bold, +I italic, +U underline;
+## any other key, any Alt or Shift combination, and key repeats fall through untouched. Accepts the
+## event only for the keys it handled.
 func _on_source_input(ev: InputEvent) -> void:
 	var k := ev as InputEventKey
 	if k == null or not k.pressed or k.echo:
@@ -577,6 +625,8 @@ func _on_source_input(ev: InputEvent) -> void:
 	text_edit.accept_event()
 
 
+## Light the Normal/H1/H2/H3 segment matching the heading level at the caret. Safe before the
+## toolbar exists. H4 to H6 light nothing, since the picker has no such size.
 func _refresh_heading_lights() -> void:
 	if text_edit == null or not buttons.has("h0"):
 		return
@@ -597,6 +647,7 @@ static func _run_before(text: String, pos: int, ch: String) -> int:
 	return n
 
 
+## The run of `ch` starting at `pos` (forwards); the mirror of `_run_before()`.
 static func _run_after(text: String, pos: int, ch: String) -> int:
 	var n := 0
 	while pos + n < text.length() and text[pos + n] == ch:
@@ -616,6 +667,8 @@ static func _run_holds(run_a: int, run_b: int, k: int) -> bool:
 	return true
 
 
+## Whether `marker` is one character repeated (`*`, `**`, `~~`), which selects the run-counting
+## toggle in `wrap_inline()` rather than a plain substring test; false for an empty marker.
 static func _is_repeat(marker: String) -> bool:
 	if marker.is_empty():
 		return false
@@ -665,6 +718,7 @@ static func wrap_inline(text: String, from: int, to: int, open: String, close: S
 		"from": from + ol, "to": to + ol}
 
 
+## Offset of the first character of the line holding `pos` (0 for `pos <= 0`).
 static func _line_start(text: String, pos: int) -> int:
 	if pos <= 0:
 		return 0
@@ -672,6 +726,7 @@ static func _line_start(text: String, pos: int) -> int:
 	return i + 1
 
 
+## Offset of the newline ending the line holding `pos`, or the text length on the last line.
 static func _line_end(text: String, pos: int) -> int:
 	var i := text.find("\n", pos)
 	return text.length() if i < 0 else i
@@ -719,6 +774,9 @@ static func set_heading(text: String, from: int, to: int, level: int) -> Diction
 	return {"text": t, "from": nf, "to": nt}
 
 
+## Regexes (as strings, compiled where used) that recognise an existing list or quote prefix, so
+## `prefix_lines()` can toggle or swap it. The leading group keeps indentation. `_TASK_RE` below
+## must be tried before `_BULLET_RE`, since a task also begins with a bullet marker.
 const _BULLET_RE := "^(\\s*)[-*+] "
 const _NUMBER_RE := "^(\\s*)\\d+[.)] "
 const _QUOTE_RE := "^> ?"
@@ -936,6 +994,8 @@ static func strip_frontmatter(text: String) -> String:
 	return text
 
 
+## Escape the one BBCode-significant character, `[`, as `[lb]` so note text can never open a tag in
+## the preview.
 static func _esc(s: String) -> String:
 	return s.replace("[", "[lb]")
 
@@ -1066,6 +1126,11 @@ static func _wiki_shown(target: String, alias: String) -> String:
 	return sub if note == "" else "%s > %s" % [note, sub]
 
 
+## Render one line's inline marks as BBCode: embeds, wikilinks and Markdown links are lifted out
+## into numbered placeholders first (so their inner brackets or marks are not re-read), the rest is
+## escaped, then tags, highlight, bold-italic, bold, italic, strike and underline are substituted,
+## and the links are put back. `accent_hex` colours links, tags and the highlight wash. Order is
+## load-bearing: embeds before wikilinks, tags before emphasis.
 static func _inline_text(s: String, accent_hex: String) -> String:
 	var links: Array = []
 	var embed := RegEx.create_from_string("!\\[\\[([^\\]|]+)(?:\\|([^\\]]+))?\\]\\]")

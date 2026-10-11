@@ -23,12 +23,18 @@ class_name ViewportHost
 ## every frame so a window resize needs no notification.
 
 signal settlement_selected(data: Variant, index: int)
+## `map_overlay.gd`'s settlement hover, re-emitted by `_on_hovered()`; dropped while a generate is
+## running. Never carries a stale index across a world change.
 signal settlement_hovered(data: Variant, index: int)
 ## Ruling AL: `map_overlay.gd`'s landmark twins of the two above, re-emitted.
 signal landmark_selected(data: Variant, index: int)
 signal icon_selected(data: Variant, index: int)   ## `map_overlay.gd`'s own, forwarded.
 signal landmark_hovered(data: Variant, index: int)
+## The cursor's grid cell under the map (`valid` false = off the map), re-emitted by
+## `_on_sampled()` after the coordinates label is written; dropped while generating.
 signal cursor_sampled(gx: float, gy: float, valid: bool)
+## The top-left Layers button was pressed. A signal rather than a direct call so this node stays
+## ignorant of the popover chrome (the same reason `pan_mode_changed` is one).
 signal layers_button_pressed()
 signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
 signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
@@ -65,6 +71,8 @@ signal layer_visibility_changed(layer: String, shown: bool)
 ## connection, to `_announce_pan_mode()` below.
 signal pan_mode_changed(on: bool)
 
+## `map_overlay.gd`, preloaded rather than named by `class_name` so this file does not depend on
+## that script's registration; `_ready()` instantiates it as `overlay`.
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
 ## header. Since `LOD_DETAIL_SCOPE.md` LOD-D2 a tile texture IS map pixels
@@ -457,6 +465,9 @@ var _export_grid_on := false
 var _export_grid_cols := 4
 var _export_grid_rows := 4
 
+## Bind the engine bridge: forward its world-change signals to `refresh()` /
+## `refresh_annotations()` and bind the LOD-D7 info-tile manager. Call once, after `_ready()`. Must
+## never be skipped -- every `_bridge` read below assumes it ran.
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	if _info != null:
@@ -494,6 +505,8 @@ func setup(bridge: EngineBridge) -> void:
 ## look, which builds none) turns it off, and the shader itself ignores a
 ## field whose size is not the texture's.
 const MAP_SHORE := preload("res://shell/map_shore.gdshader")
+## Install or refresh the smooth-shoreline material on `map_view` from the bridge's shore field
+## (RV-4); turns it off when the bridge has none. See the block above for the reasoning.
 func _apply_shore_field() -> void:
 	if map_view == null:
 		return
@@ -540,6 +553,10 @@ func _apply_river_paint() -> void:
 	mat.set_shader_parameter("river_bank_color", params.get("bank_color", Vector3.ZERO))
 	mat.set_shader_parameter("river_on", on)
 
+## Build the whole node stack under `_camera` in draw order (base map, LOD tile layer, territory,
+## provinces, field view, paint/preview rasters, vector overlay, tool overlay, export grid) and
+## then the fixed-size HUD children (scale bar, Layers button, readouts, navpad). Order is
+## load-bearing -- see the per-layer notes. Never add a raster above `overlay`.
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_PASS
@@ -1097,6 +1114,7 @@ func set_pan_mode(on: bool) -> void:
 	## `pan_mode()` inside the emit must see the mode it is being told about.
 	pan_mode_changed.emit(on)
 
+## Whether the Hand (pan) mode latch is on; the getter for `set_pan_mode()`.
 func pan_mode() -> bool:
 	return _pan_mode
 
@@ -1639,6 +1657,9 @@ func _apply_safe_insets() -> void:
 		_navpad.visible = size.y <= 0.0 \
 			or (size.y - t - b) >= (coords_size.y + float(NAVPAD_GAP) + pad.y)
 
+## A full-rect, keep-aspect-centred, NEAREST-filtered, mouse-ignoring `TextureRect` -- the one
+## factory every raster layer uses, so a layer can never differ in letterboxing or filtering from
+## the map under it. Never make it pick input.
 func _raster() -> TextureRect:
 	var t := TextureRect.new()
 	t.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1739,6 +1760,8 @@ const NAVPAD_RULE_INSET := 11
 ## `NAVPAD_SHAPE_META` so `_apply_touch_scale()` can re-derive the radii at the
 ## device's own hit size without knowing which child it is looking at.
 const PILL_FULL := 0
+## Corner-rounding shape ids for `_navpad_button()` (`PILL_FULL` above): round only the left (`-`)
+## or right (`+`) half of the zoom rocker so the two halves read as one pill.
 const PILL_LEFT := 1
 const PILL_RIGHT := 2
 const NAVPAD_SHAPE_META := "dcc_navpad_shape"
@@ -1747,6 +1770,9 @@ const NAVPAD_SHAPE_META := "dcc_navpad_shape"
 ## `_navpad_paint()` for what painting it fully opaque cost.
 const NAVPAD_ALPHA := 0.92
 
+## Build the touch navpad -- a bottom thumb-reach row of the zoom rocker, the Hand latch and
+## recentre. Does nothing on desktop (`_touch` false). See the block above for the design and the
+## reachability call.
 func _build_navpad() -> void:
 	if not _touch:
 		return
@@ -1822,6 +1848,9 @@ func _announce_pan_mode(on: bool) -> void:
 			return
 		n = n.get_parent()
 
+## One navpad button: icon-only, deliberately not `flat` (a flat button would not draw its `normal`
+## override), no focus, with its pill `shape` and glyph stored as meta so `_apply_touch_scale()`
+## can re-derive size and radii later. Must never take focus from the map.
 func _navpad_button(glyph: String, tip: String, on_press: Callable,
 		shape: int = PILL_FULL) -> Button:
 	var b := Button.new()
@@ -1979,7 +2008,10 @@ func _navpad_paint(b: Button, fill: Color, ink: Color, armed: bool = false) -> v
 # forbids deriving from it ("Paint with the token as it stands"). Reported to
 # the owner rather than decided here.
 const HUD_PAD_X := 9
+## Vertical padding (px) of a readout's scrim pill; the design's HUD pill
+## (`05-right-dock-and-bars.md` 5.2/5.3/5.5). Horizontal is `HUD_PAD_X` above.
 const HUD_PAD_Y := 4
+## Corner radius (px) of the readout scrim pill, from the same design pill as the padding.
 const HUD_RADIUS := 6
 ## §5.2's top-left cluster `gap:8px`.
 const VP_CONTEXT_GAP := 8
@@ -2087,6 +2119,9 @@ func set_layers_open(open: bool) -> void:
 		return
 	_layers_btn.add_theme_stylebox_override("normal", _layers_box(open))
 
+## The translucent `hud_scrim` StyleBox the top-left context chip and the top-right and
+## bottom-right readouts sit on. Static and token-driven; must never be given an opaque colour (the
+## map has to show through).
 static func _hud_scrim_box() -> StyleBoxFlat:
 	var sb := DccTheme.flat(DccTheme.c("hud_scrim"), HUD_RADIUS)
 	sb.content_margin_left = HUD_PAD_X
@@ -2358,6 +2393,9 @@ func refresh_settlement_traits() -> void:
 		overlay.set_trait_art_resolver(Callable(_bridge, "civ_trait_badge_row"))
 
 
+## Push the bridge's faction colours, and which of them the user picked by hand (Ruling BX item 2),
+## into the overlay. The custom flags go first so the restyle `set_faction_colors()` runs already
+## knows them. Does nothing without a bridge or on an overlay lacking the setters.
 func refresh_faction_colors() -> void:
 	if _bridge == null or not overlay.has_method("set_faction_colors"):
 		return
@@ -2421,6 +2459,11 @@ func zoom() -> float:
 func label_px_per_cell() -> float:
 	return overlay.label_px_per_cell()
 
+## The single write path for the eight Layers ids (`territory`, `provinces`, `settlements`,
+## `roads`, `sea_routes`, `landmarks`, `landmark_rejects`, urban layouts), reaching either a node's
+## own `.visible` or one of the overlay's setters, then emitting `layer_visibility_changed`. Arms
+## that call newer overlay methods are guarded so a stale overlay cannot break the others; an
+## unknown id is ignored.
 func set_layer_visible(layer: String, shown: bool) -> void:
 	match layer:
 		"territory": territory_view.visible = shown
@@ -2523,6 +2566,8 @@ func forget_all_urban_layouts() -> void:
 func set_settlement_kind_visible(kind: String, shown: bool) -> void:
 	overlay.set_settlement_kind_visible(kind, shown)
 
+## Show or hide one way type (road class) in the overlay. A way-type key, not a layer id, so it is
+## kept out of `set_layer_visible()`'s namespace.
 func set_way_type_visible(way_type: String, shown: bool) -> void:
 	overlay.set_way_type_visible(way_type, shown)
 
@@ -2770,6 +2815,7 @@ func set_debug_opacity(a: float) -> void:
 	if _info != null:
 		_info.set_opacity(_debug_layer.modulate.a)
 
+## The field raster's current opacity (0..1); the getter for `set_debug_opacity()`.
 func debug_opacity() -> float:
 	return _debug_layer.modulate.a
 
@@ -2871,11 +2917,15 @@ func _bar_km() -> float:
 func refresh_scale_bar() -> void:
 	_update_scale_bar()
 
+## Re-emit the overlay's settlement hover as `settlement_hovered`, unless a generate is running
+## (the data would describe a world about to be replaced).
 func _on_hovered(data: Variant, index: int) -> void:
 	if _generating():
 		return
 	settlement_hovered.emit(data, index)
 
+## Write the cursor's coordinate readout (always, so it never freezes) and then re-emit
+## `cursor_sampled` unless a generate is running.
 func _on_sampled(gx: float, gy: float, valid: bool) -> void:
 	_coords_label.text = _coords_text(gx, gy) if valid else ""
 	if _generating():
@@ -4047,6 +4097,7 @@ func set_lod_auto(on: bool) -> void:
 		_lod_manual_request = false
 	_update_lod()
 
+## Whether deep-zoom LOD engages by itself on zoom; the getter for `set_lod_auto()`.
 func lod_auto() -> bool:
 	return _lod_auto
 
@@ -4072,6 +4123,8 @@ func release_lod_entry() -> void:
 	if not _lod_auto:
 		_set_lod_active(false)
 
+## Whether the deep-zoom tile layer is currently up (pyramid built), as opposed to merely allowed
+## by `lod_auto()`.
 func lod_active() -> bool:
 	return _lod_active
 
@@ -4153,6 +4206,9 @@ const LOD_LEVEL_COLS: Array[Color] = [
 ## actually answer for. See the note above on the two that are omitted, and on
 ## what these two now mean: atlas *coverage*, not the drawn tile's provenance.
 const CHUNK_COL_IN_ATLAS := Color8(80, 200, 110)
+## Label colour for a chunk with no atlas coverage (the second of the two states this port can
+## draw); the in-atlas colour is above. Both are the reference's `CHUNK_STATE_COL` hues, not tuned
+## here.
 const CHUNK_COL_NOT_IN_ATLAS := Color8(90, 140, 210)
 
 ## Turn one chunk-debug layer on or off. `which` is `"grid"`, `"colors"` or
@@ -4177,6 +4233,8 @@ func set_lod_debug(which: String, on: bool) -> void:
 	_lod_debug_layer.visible = _lod_dbg_grid or _lod_dbg_colors or _lod_dbg_labels
 	_lod_debug_layer.queue_redraw()
 
+## Whether one chunk-debug layer (`grid`, `colors`, `labels`) is on; unknown names read false. The
+## getter for `set_lod_debug()`.
 func lod_debug_enabled(which: String) -> bool:
 	match which:
 		"grid": return _lod_dbg_grid
@@ -4234,6 +4292,7 @@ func set_export_tile_grid(on: bool, cols: int = -1, rows: int = -1) -> void:
 	_export_grid_layer.visible = on and not _lod_active
 	_export_grid_layer.queue_redraw()
 
+## Whether the export tile-grid preview is switched on (it only draws while the LOD view is down).
 func export_tile_grid_enabled() -> bool:
 	return _export_grid_on
 
@@ -4274,12 +4333,18 @@ func _dashed_line(a: Vector2, b: Vector2, col: Color, width: float, dash: float)
 		_export_grid_layer.draw_line(a + dir * t, a + dir * (t + seg), col, width)
 		t += dash * 2.0
 
+## Draw a dashed rectangle outline on `_export_grid_layer` as four `_dashed_line()` edges.
+## Drawing-only; must be called from that layer's draw callback.
 func _dashed_rect(r: Rect2, col: Color, width: float, dash: float) -> void:
 	_dashed_line(r.position, Vector2(r.end.x, r.position.y), col, width, dash)
 	_dashed_line(Vector2(r.end.x, r.position.y), r.end, col, width, dash)
 	_dashed_line(r.end, Vector2(r.position.x, r.end.y), col, width, dash)
 	_dashed_line(Vector2(r.position.x, r.end.y), r.position, col, width, dash)
 
+## The chunk-debug overlay's draw callback: per live tile, an optional hashed tint (`colors`), grid
+## edge plus faint child-quadrant guides in the level colour (`grid`) and a three-line label of
+## level, parent and atlas coverage (`labels`, skipped when the tile is under about eight glyphs
+## wide). Reads `_lod_tiles` only; must never create or free tiles.
 func _draw_lod_debug() -> void:
 	if _lod_tiles.is_empty():
 		return
