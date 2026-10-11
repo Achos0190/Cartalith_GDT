@@ -633,6 +633,29 @@ var _wd_tiled := false
 ## opt-in on the grounds that nothing reads them back on load.
 var _wd_layers := false
 
+## ET-E1 -- "Export colour space": the colour space the exported map PNG is
+## WRITTEN in and labelled with (`"sRGB"`, the default, or `"Display P3"`). It
+## is a document property, **not the monitor setting**: it is read only by
+## `_run_raster_export()` (passed to `EngineBridge.export_raster_png`) and never
+## written to `EngineBridge.set_color_space`, which is the Render workspace's
+## "Display" control. Session-only, like every other `_wd_*` option here.
+var _wd_space := "sRGB"
+## The file format this route writes. Today every file it writes is a PNG and
+## nothing in this window changes it, so it stays `"png"`; the variable exists
+## so the one rule that depends on it ("a BigTIFF cannot carry a P3 profile",
+## `export_options.rs`) lives in `wd_space_problem()` and is exercised, instead
+## of being a comment waiting for a format picker. Must never be set from
+## anything but a real format choice.
+var _wd_format := "png"
+const WD_SPACE_SRGB := "sRGB"
+const WD_SPACE_P3 := "Display P3"
+## The two lines ET-E1's scope specifies verbatim (`EDITING_TOOLS_SCOPE.md`
+## ET-E1 / its Risks paragraph: third-party viewers differ, so the dialog says so).
+const WD_P3_HINT := "Embeds a Display P3 profile. Colours match a P3 screen; some viewers ignore the tag."
+const WD_SRGB_HINT := "Labels the PNG sRGB. The heightmap and the channel atlas carry no profile: they are data."
+const WD_BIGTIFF_P3 := "BigTIFF cannot carry a P3 profile: use PNG"
+const WD_NO_P3_BINDING := "This build's engine predates the export colour-space option: rebuild cartalith-godot to embed a Display P3 profile."
+
 ## Export ▸ GIS / GeoJSON's destination, held the way `_tx_dest` is held for
 ## Export ▸ Maps.
 ##
@@ -2646,6 +2669,58 @@ func _raster_api() -> bool:
 		and _bridge.world_gen.has_method("export_raster_png")
 		and _bridge.world_gen.has_method("export_channel_atlas"))
 
+## ET-E1: why an export in `space` cannot be written as `format`, or `""` when it
+## can. One rule, one place: the Display P3 segment, the hint line, the footer
+## chip and `_run_raster_export()` all ask this, so they cannot disagree.
+## `engine_takes_space` is `EngineBridge.export_raster_takes_color_space()`.
+## Never returns a message for sRGB (every format and every build can write it),
+## and never reads or writes the monitor colour space.
+static func wd_space_problem(format: String, space: String, engine_takes_space: bool) -> String:
+	if space.to_lower() != WD_SPACE_SRGB.to_lower():
+		if format.to_lower() == "bigtiff":
+			return WD_BIGTIFF_P3
+		if not engine_takes_space:
+			return WD_NO_P3_BINDING
+	return ""
+
+## ET-E1: the "Colour space" row of the MAP RASTER column -- a two-way segmented
+## choice, sRGB (default) / Display P3, then one hint line. Built from the
+## engine's own export list (`EngineBridge.export_color_spaces()`); the P3
+## segment is DISABLED, with its reason as the tooltip, when the engine lacks
+## the option or the format is BigTIFF (the engine refuses that pairing, and the
+## shell says so up front instead of letting the call fail). Segments are
+## floored to the 44 px touch target on BOTH axes here, at the call site,
+## because `tablet_fit()` runs once and this pane is rebuilt on every pick.
+## **Not the monitor control**: picking here never calls `set_color_space`.
+func _build_wd_space_row(col: Control) -> void:
+	if _bridge == null:
+		return
+	var engine_ok: bool = _bridge.export_raster_takes_color_space()
+	var names: Array = _bridge.export_color_spaces()
+	var row := _row(col, "Colour space")
+	row.tooltip_text = "The colour space the exported map PNG is written in. This is the FILE's tag, not your monitor setting (Render ▸ Display)."
+	var spaces: Array = [WD_SPACE_SRGB, WD_SPACE_P3]
+	var items: Array = []
+	for n in spaces:
+		var why := "" if n == WD_SPACE_SRGB else wd_space_problem(_wd_format, String(n), engine_ok)
+		items.append({"text": String(n), "enabled": names.has(n) and why == "", "tip": why})
+	var segs := _segments(row, items, spaces.find(_wd_space), func(i: int):
+		_wd_space = String(spaces[i])
+		_rebuild_world_data())
+	var floor_px := DccTheme.role_px("btn_min_h") if DccTheme.is_touch() else 0
+	for i in segs.size():
+		var b: Button = segs[i]
+		b.name = "wd_space_srgb" if i == 0 else "wd_space_p3"
+		if floor_px > 0:
+			b.custom_minimum_size = Vector2(maxf(b.custom_minimum_size.x, floor_px),
+				maxf(b.custom_minimum_size.y, floor_px))
+	var problem := wd_space_problem(_wd_format, _wd_space, engine_ok)
+	var hint := DccWidgets.note(col, problem if problem != "" \
+		else (WD_P3_HINT if _wd_space == WD_SPACE_P3 else WD_SRGB_HINT))
+	hint.name = "wd_space_hint"
+	if problem != "":
+		hint.add_theme_color_override("font_color", DccTheme.c("warn"))
+
 ## Export > World Data's MAP RASTER column: width ladder (asked of the engine),
 ## the engine's real output size, the tiled-output toggle and the layer-preview
 ## toggle. With `api` false (binding missing) it shows only the rebuild notice;
@@ -2679,6 +2754,8 @@ func _build_wd_raster_column(col: Control, api: bool) -> void:
 	else:
 		_well_label(dim_row, "%d × %d px" % [int(est.get("width", 0)), int(est.get("height", 0))],
 			"WorldGen::export_raster_estimate -> render::bake_dims, the reference's own Math.round(W*GH/GW).")
+
+	_build_wd_space_row(col)
 
 	_check(col, "Write as %d px tiles" % int(est.get("tile_size", 1024)), _wd_tiled, func():
 		_wd_tiled = not _wd_tiled
@@ -2775,6 +2852,7 @@ func _build_wd_footer(api: bool) -> void:
 	var go := DccWidgets.chip(_pane_footer, "Export %dK map…" % int(round(float(_wd_width) / 1024.0)), func():
 		_pick_raster_destination(), true, 16, 6)
 	go.disabled = _bridge == null or not _bridge.has_world
+	go.name = "wd_export_map"
 	go.tooltip_text = ("export_raster_png -> render::bake_rect, written with std::fs. "
 		+ "Synchronous: an 8K export is seconds of work and the window will not repaint while it runs.")
 	## The height field as a 16-bit grayscale PNG. Sits beside the colour
@@ -2861,7 +2939,19 @@ func _rebuild_world_data() -> void:
 ## points. The stock dialog also appended the filter's extension to a name
 ## that lacked one -- measured at 4.7.1, `wrong.txt` came back as
 ## `wrong.txt.png` -- and `_save_path()` does the same thing.
+##
+## ET-E1: refuses BEFORE opening the picker -- with the status-line reason -- when
+## `wd_space_problem()` says the chosen format/colour-space pairing cannot be
+## written or a generation holds the engine, so the user is not asked for a path
+## for an export that will not start. `_run_raster_export()` re-checks (never trust
+## a gate one call away).
 func _pick_raster_destination() -> void:
+	if _bridge != null:
+		var why := wd_space_problem(_wd_format, _wd_space, _bridge.export_raster_takes_color_space())
+		if why != "" or _bridge.generating:
+			_host.set_status("hint", "export not started — " + (why if why != "" \
+				else "a generation is still running"), "warn")
+			return
 	var start := DccSettings.storage_root("exports")
 	if _wd_tiled:
 		## Tiled mode writes a *directory* of tiles plus index.json, so the
@@ -2944,13 +3034,28 @@ func _pick_atlas_destination() -> void:
 ## to be a real OS path -- `globalize_path` is a no-op for one already, and the
 ## difference only shows up for a `user://` root, which `DccSettings` can
 ## legitimately hold.
+##
+## ET-E1: the export colour space (`_wd_space`) is passed through
+## `EngineBridge.export_raster_png`'s 4th argument and read back from the
+## result's own `color_space`, which is what the status line prints -- so the
+## line reports what the file was tagged, not what the shell asked for. Never
+## calls the engine while a generation holds it, nor for a pairing
+## `wd_space_problem()` refuses (a BigTIFF P3): both put a message on the status
+## line instead of a script error.
 func _run_raster_export(path: String) -> void:
 	if not _raster_api():
 		return
+	if _bridge.generating:
+		_host.set_status("hint", "export not started — a generation is still running", "warn")
+		return
+	var problem := wd_space_problem(_wd_format, _wd_space, _bridge.export_raster_takes_color_space())
+	if problem != "":
+		_host.set_status("hint", "export not started — " + problem, "warn")
+		return
 	_status_left.text = "baking %dK…" % int(round(float(_wd_width) / 1024.0))
 	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
-	var r: Dictionary = _bridge.world_gen.export_raster_png(
-		ProjectSettings.globalize_path(path), _wd_width, _wd_tiled)
+	var r: Dictionary = _bridge.export_raster_png(
+		ProjectSettings.globalize_path(path), _wd_width, _wd_tiled, _wd_space)
 	_record_wd_run("map %dK" % int(round(float(_wd_width) / 1024.0)), r)
 	if bool(r.get("ok", false)):
 		var files: PackedStringArray = r.get("files", PackedStringArray())
@@ -2959,11 +3064,12 @@ func _run_raster_export(path: String) -> void:
 		## only for its `.size()`. An export that finishes into silence leaves
 		## the user to go looking for their own file.
 		var shown: bool = _host.reveal_on_disk(path)
-		_host.set_status("hint", "exported %d × %d px%s — %s in %.1f s → %s"
+		_host.set_status("hint", "exported %d × %d px%s — %s in %.1f s → %s (%s)"
 			% [int(r.get("width", 0)), int(r.get("height", 0)),
 				(" as %d tiles" % files.size()) if _wd_tiled else "",
 				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0,
-				(path.get_file() if shown else path)], "accent")
+				(path.get_file() if shown else path),
+				String(r.get("color_space", _wd_space))], "accent")
 	else:
 		_host.set_status("hint", "export failed — %s" % String(r.get("error", "see the Godot log")), "warn")
 	if bool(r.get("ok", false)) and _wd_layers:

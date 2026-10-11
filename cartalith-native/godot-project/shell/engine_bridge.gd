@@ -3114,6 +3114,61 @@ func export_heightmap_png(path: String, width: int) -> Dictionary:
 		return {"ok": false, "error": "this build of the engine has no heightmap export"}
 	return world_gen.export_heightmap_png(path, width)
 
+## ET-E1: does this binary's `WorldGen.export_raster_png` take the optional 4th
+## `color_space` argument? Read off the binding's own method list (`has_method`
+## cannot see arity), so a build from before ET-E1 answers `false` instead of
+## failing with a "too many arguments" script error. Never cached across a
+## reload: it is cheap (one method-list walk per call, and callers are
+## button presses). `false` also covers a missing binding.
+func export_raster_takes_color_space() -> bool:
+	if world_gen == null or not world_gen.has_method("export_raster_png"):
+		return false
+	for m in world_gen.get_method_list():
+		if String(m.get("name", "")) == "export_raster_png":
+			return (m.get("args", []) as Array).size() >= 4
+	return false
+
+## ET-E1: the colour spaces an EXPORT can be written in -- `["sRGB", "Display
+## P3"]` from the engine's own `list_color_spaces()` when the export binding
+## takes the 4th argument, else `["sRGB"]` (a pre-ET-E1 build writes sRGB-
+## equivalent pixels and cannot embed a P3 profile). Deliberately separate from
+## `color_spaces()` above, which is the MONITOR list: the two share a name list
+## in the engine today, but an export is a document and the monitor is a
+## device, and the shell must never route one through the other's setter.
+func export_color_spaces() -> Array:
+	if export_raster_takes_color_space() and _has("list_color_spaces"):
+		return Array(world_gen.list_color_spaces())
+	return ["sRGB"]
+
+## `WorldGen.export_raster_png` for the colour raster, with ET-E1's export
+## `color_space` ("sRGB" default, "Display P3"). **Never touches
+## `set_color_space`**: that is the monitor, session state; this is one file's
+## tag. The 4th argument is passed only when the binding accepts it
+## (`export_raster_takes_color_space`), so the three-argument callers the shell
+## had before ET-E1 keep working on an older binary; on one, a non-sRGB request
+## is refused here with a message rather than silently written as sRGB.
+## Refuses while a generation or landmark pass holds the engine
+## (`generating`): the worker has `world_gen` mutably borrowed and a call from
+## here would be a Rust panic. Returns the engine's `{ok, path, width, height,
+## color_space, files, bytes, ms}` or `{ok: false, error}`; it never throws.
+func export_raster_png(path: String, width: int, tiled: bool, color_space: String = "sRGB") -> Dictionary:
+	if not _has("export_raster_png"):
+		return {"ok": false, "error": "this build of the engine has no raster export"}
+	if generating:
+		return {"ok": false, "error": "a generation is still running -- wait for it to finish, then export"}
+	if export_raster_takes_color_space():
+		## `callv`, not a direct call: GDScript checks a direct call's argument
+		## count against the loaded binary at PARSE time, so a four-argument call
+		## would make this whole script fail to compile on an older binary
+		## (found 2026-10-11 by re-running older probes against stale copies of
+		## the DLL: 'Too many arguments ... Expected at most 3'). `callv` defers
+		## the check to run time, where `export_raster_takes_color_space` has
+		## already said the binding takes four.
+		return world_gen.callv("export_raster_png", [path, width, tiled, color_space])
+	if color_space.to_lower() != "srgb":
+		return {"ok": false, "error": "this build of the engine cannot embed a %s profile -- rebuild cartalith-godot" % color_space}
+	return world_gen.export_raster_png(path, width, tiled)
+
 ## Is chunk `(z, col, row)`, or any ancestor, baked (`WorldGen.atlas_is_covered`)?
 ## `false` also means "no binding". Calls `atlas_ready()` first.
 func atlas_is_covered(z: int, col: int, row: int) -> bool:
