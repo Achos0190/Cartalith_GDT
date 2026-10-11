@@ -47,7 +47,7 @@ pub use measure::{
     cell_km, measure, measure_path, point_in_polygon, polygon_area, polygon_centroid,
     polygon_perimeter_km, Measurement,
 };
-pub use paint::{PaintLayer, PaintStamp};
+pub use paint::{EdgeShape, PaintLayer, PaintStamp};
 pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
 pub use pyramid::{
     baked_cover, chunk_children, chunk_parent, pyramid_dims, pyramid_level_for_zoom,

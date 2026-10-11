@@ -14846,6 +14846,96 @@ impl WorldGen {
         }
     }
 
+    /// ET-D2: opens a **stroke session** on the ET-D1 engine
+    /// (`paint_bridge::PaintEditor::stroke_begin`). Everything from here to
+    /// [`WorldGen::paint_stroke_end`] is one undo step; `paint_stroke_at` stays
+    /// the one-dab path and is what the shell calls when it wants no engine.
+    ///
+    /// `options` is one Dictionary, **every key optional** (an absent key takes
+    /// its default; a key of the wrong type, an unknown `symmetry`/`edge` name or
+    /// an out-of-range value refuses the whole call):
+    ///
+    /// | key | type | default | meaning |
+    /// |---|---|---|---|
+    /// | `"seed"` | int | `0` | RNG seed for scatter; same seed + samples = same dabs |
+    /// | `"spacing_enabled"` | bool | `true` | `false` is **spacing off**: one dab per sample, the `paint_stroke_at` picture |
+    /// | `"spacing"` | float | `0.18` | fraction of the dab diameter (`0.01..=10`); ignored when `spacing_enabled` is false |
+    /// | `"smoothing"` | float | `0.0` | pulled-string length in cells; `0` is off |
+    /// | `"symmetry"` | String | `"none"` | `"none"`, `"vertical"`, `"horizontal"`, `"dual"` or `"radial"` |
+    /// | `"radial_count"` | int | `4` | copies for `"radial"` (`1..=64`) |
+    /// | `"symmetry_center"` | Vector2 | grid centre | symmetry centre in cells (absent key = the grid centre) |
+    /// | `"symmetry_angle"` | float | `0.0` | mirror-axis rotation, radians |
+    /// | `"scatter_count"` | int | `1` | copies per dab (`1..=16`) |
+    /// | `"scatter_amount"` | float | `0.0` | offset range in dab diameters (`0..=10`) |
+    /// | `"scatter_count_jitter"` | float | `0.0` | fraction of the count a draw may remove (`0..=1`) |
+    /// | `"scatter_both_axes"` | bool | `false` | also offset along the travel direction |
+    /// | `"edge"` | String | `"linear"` | edge-band shape: `"linear"`, `"smooth"`, `"sharp"` or `"constant"` |
+    /// | `"pressure_size"` | bool | `true` | whether pen pressure drives dab size (it never drives flow: paint is categorical) |
+    /// | `"pressure_min"` | float | `0.2` | the size multiplier at zero pressure (`0..=1`) |
+    ///
+    /// The brush (`paint_set_brush`) is snapshotted here. Returns `true` when the
+    /// stroke is open; `false` (changing nothing, and leaving any stroke already
+    /// open alone) before any `generate()` call or on a refused option. Never panics.
+    #[func]
+    fn paint_stroke_begin(&mut self, options: VarDictionary) -> bool {
+        let Some(p) = self.paint.as_mut() else { return false };
+        let Some(o) = paint_stroke_options(&options) else { return false };
+        p.stroke_begin(o).is_ok()
+    }
+
+    /// ET-D2: feeds one pointer sample to the open stroke
+    /// (`paint_bridge::PaintEditor::stroke_sample`) and returns the **one**
+    /// preview patch for everything the sample emitted (the scope's risk note:
+    /// the preview is per call, never per dab).
+    ///
+    /// `pressure` is a `float` in `[0, 1]` or **`null`** when the device reported
+    /// none (a mouse); `tilt` is a `Vector2` or **`null`**. Absent is never
+    /// encoded as `1.0`, `0.0` or `Vector2.ZERO`: `null` reaches the engine as
+    /// `None`, and a non-numeric `pressure` or non-`Vector2` `tilt` is treated as
+    /// absent too, since there is no value to read. `t_ms` is the event time in
+    /// milliseconds on any monotonic clock (negative values clamp to `0`).
+    ///
+    /// Returns `{"dabs": int, "texture": ImageTexture, "x": int, "y": int, "w":
+    /// int, "h": int}`: `dabs` is how many dabs the sample pushed, and the other
+    /// five keys are exactly [`WorldGen::build_paint_preview_patch`]'s (blit the
+    /// texture at `(x, y)`; test `has("texture")`). A sample that emits **no** dab
+    /// returns `{"dabs": 0}` alone, with no patch built, so a slow pointer inside
+    /// the spacing step costs nothing. **An empty Dictionary is a refusal** (no
+    /// world, or no open stroke), distinct from `{"dabs": 0}`.
+    #[func]
+    fn paint_stroke_sample(&mut self, gx: f64, gy: f64, pressure: Variant, tilt: Variant, t_ms: i64) -> VarDictionary {
+        let Some(p) = self.paint.as_mut() else { return VarDictionary::new() };
+        if !p.stroke_active() {
+            return VarDictionary::new();
+        }
+        let sample = cartalith_spatial::stroke::Sample {
+            x: gx,
+            y: gy,
+            // `nil` (and anything that is not a number) is ABSENT, never a default reading.
+            pressure: pressure.try_to::<f64>().ok().map(|v| v as f32),
+            tilt: tilt.try_to::<Vector2>().ok().map(|v| (v.x, v.y)),
+            t_ms: t_ms.max(0) as u64,
+        };
+        let dabs = p.stroke_sample(sample);
+        self.paint_stroke_reply(dabs)
+    }
+
+    /// ET-D2: closes the stroke (`paint_bridge::PaintEditor::stroke_end`),
+    /// flushing the smoothing tail so the paint reaches the last pointer
+    /// position, and returns the same shape as [`WorldGen::paint_stroke_sample`]
+    /// for whatever the flush pushed (`{"dabs": 0}` when nothing). The stroke's
+    /// undo group closes with it. **An empty Dictionary** means there was no
+    /// world or no open stroke.
+    #[func]
+    fn paint_stroke_end(&mut self) -> VarDictionary {
+        let Some(p) = self.paint.as_mut() else { return VarDictionary::new() };
+        if !p.stroke_active() {
+            return VarDictionary::new();
+        }
+        let dabs = p.stroke_end();
+        self.paint_stroke_reply(dabs)
+    }
+
     /// A real overlay raster of the *active* layer's current paint state —
     /// already-committed cells composited with this session's own pending
     /// draft (`PassBuffer::preview_into`, never mutating either), full
@@ -15163,6 +15253,122 @@ impl WorldGen {
     fn paint_discard(&mut self) -> i32 {
         self.paint.as_mut().map_or(0, |p| p.discard_all() as i32)
     }
+}
+
+impl WorldGen {
+    /// The reply of [`WorldGen::paint_stroke_sample`] and
+    /// [`WorldGen::paint_stroke_end`]: `{"dabs": n}`, plus the preview patch
+    /// keys when `n > 0`. **One** `build_paint_preview_patch` per call however
+    /// many dabs it pushed (ET-D2's risk note: preview cost is per call, not per
+    /// dab). A patch that fails to build (`build_paint_preview_patch` returned an
+    /// empty Dictionary) leaves just `dabs`, so the caller's `has("texture")`
+    /// check stays the single test for "there is something to blit".
+    fn paint_stroke_reply(&self, dabs: usize) -> VarDictionary {
+        let mut reply = if dabs > 0 { self.build_paint_preview_patch() } else { VarDictionary::new() };
+        reply.set("dabs", dabs as i64);
+        reply
+    }
+}
+
+/// Reads `paint_stroke_begin`'s options Dictionary into a
+/// [`paint_bridge::StrokeOptions`]; `None` refuses the whole call. Every key is
+/// optional: a missing key, or one holding `null`, takes the default
+/// ([`paint_bridge::StrokeOptions::default`]). A key that is present but of the
+/// wrong type, an unknown `symmetry` or `edge` name, a negative `seed`, or a
+/// `symmetry_center` that is not a `Vector2` refuses, because a silently
+/// substituted value would be a brush the user did not ask for. Range checks on
+/// the numbers belong to the engine (`StrokeEngine::new`), not here; the
+/// grid-centre default for the symmetry centre is applied by the editor, which
+/// knows its own size.
+fn paint_stroke_options(d: &VarDictionary) -> Option<paint_bridge::StrokeOptions> {
+    use cartalith_spatial::stroke::{Scatter, Symmetry};
+    // A present, non-nil key; `None` for absent or nil.
+    let get = |k: &str| d.get(k).filter(|v| !v.is_nil());
+    // A number may arrive as a float or an int (GDScript literals `1` and `1.0` differ).
+    let num = |k: &str| -> Result<Option<f64>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<f64>().ok().or_else(|| v.try_to::<i64>().ok().map(|i| i as f64)).map(Some).ok_or(()),
+        }
+    };
+    let flag = |k: &str| -> Result<Option<bool>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<bool>().map(Some).map_err(|_| ()),
+        }
+    };
+    let text = |k: &str| -> Result<Option<String>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<GString>().map(|s| Some(s.to_string())).map_err(|_| ()),
+        }
+    };
+    let mut o = paint_bridge::StrokeOptions::default();
+    let seed = match get("seed") {
+        None => 0u64,
+        Some(v) => u64::try_from(v.try_to::<i64>().ok()?).ok()?,
+    };
+    o.seed = seed;
+    if flag("spacing_enabled").ok()? == Some(false) {
+        o.spacing = None;
+    } else if let Some(s) = num("spacing").ok()? {
+        o.spacing = Some(s);
+    }
+    if let Some(s) = num("smoothing").ok()? {
+        o.smoothing = s;
+    }
+    o.symmetry = match text("symmetry").ok()?.as_deref() {
+        None | Some("none") => Symmetry::None,
+        Some("vertical") => Symmetry::Vertical,
+        Some("horizontal") => Symmetry::Horizontal,
+        Some("dual") => Symmetry::Dual,
+        Some("radial") => {
+            let n = match num("radial_count").ok()? {
+                None => 4.0,
+                Some(n) => n,
+            };
+            // A non-integral or out-of-u32 count is a refusal, not a rounding.
+            if !(n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n)) {
+                return None;
+            }
+            Symmetry::Radial(n as u32)
+        }
+        Some(_) => return None,
+    };
+    if let Some(v) = get("symmetry_center") {
+        let c = v.try_to::<Vector2>().ok()?;
+        o.symmetry_centre = Some((f64::from(c.x), f64::from(c.y)));
+    }
+    if let Some(a) = num("symmetry_angle").ok()? {
+        o.symmetry_angle = a;
+    }
+    let mut sc = Scatter::OFF;
+    if let Some(n) = num("scatter_count").ok()? {
+        if !(n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n)) {
+            return None;
+        }
+        sc.count = n as u32;
+    }
+    if let Some(a) = num("scatter_amount").ok()? {
+        sc.amount = a;
+    }
+    if let Some(j) = num("scatter_count_jitter").ok()? {
+        sc.count_jitter = j;
+    }
+    if let Some(b) = flag("scatter_both_axes").ok()? {
+        sc.both_axes = b;
+    }
+    o.scatter = sc;
+    if let Some(e) = text("edge").ok()? {
+        o.edge_shape = cartalith_spatial::EdgeShape::from_key(&e)?;
+    }
+    if let Some(b) = flag("pressure_size").ok()? {
+        o.pressure_size = b;
+    }
+    if let Some(m) = num("pressure_min").ok()? {
+        o.pressure_min = m;
+    }
+    Some(o)
 }
 
 /// `UNIFIED_TOOL_PLAN.md` milestone F, the INFRA domain's Way/Route tools

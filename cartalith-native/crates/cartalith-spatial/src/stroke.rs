@@ -5,9 +5,9 @@
 //! this module knows nothing of biomes, terrain or layers: a [`Sample`] is a
 //! position, an optional pressure, an optional tilt and a timestamp; a [`Dab`]
 //! is a position, a size multiplier, a flow multiplier and an angle. What a
-//! dab *paints* is the consumer's business. **Nothing consumes this module
-//! yet** — ET-D2 wires it to the paint bridge — so it is built and tested in
-//! isolation, and no existing behaviour changes.
+//! dab *paints* is the consumer's business. ET-D2 wires it to the paint
+//! bridge (`cartalith-godot`'s `paint_bridge.rs` stroke session); the
+//! `per_sample` and `finish` additions are ET-D2's.
 //!
 //! # What it does, in the order it does it
 //!
@@ -256,6 +256,12 @@ pub struct StrokeConfig {
     /// Spacing as a fraction of the current dab diameter,
     /// [`MIN_SPACING`]`..=`[`MAX_SPACING`]; default [`DEFAULT_SPACING`].
     pub spacing: f64,
+    /// Spacing off (ET-D2): when `true`, [`StrokeConfig::spacing`] is ignored and every
+    /// accepted sample yields exactly one source dab at the (smoothed) sample position,
+    /// the first included. This is the "one dab per pointer sample" path the paint tool
+    /// had before the engine existed; it exists so a caller can keep that picture while
+    /// still using the engine's dynamics, scatter and symmetry. Default `false`.
+    pub per_sample: bool,
     /// Pulled-string length in cells; `0` (the default) means smoothing is
     /// off and the stroke follows the raw samples. PhotoCraft's default is
     /// 100 px *(as read via summary)*; here it is cells and off, a judgement.
@@ -301,6 +307,7 @@ impl StrokeConfig {
             seed,
             base_diameter,
             spacing: DEFAULT_SPACING,
+            per_sample: false,
             smoothing: 0.0,
             size: Dynamic::OFF,
             flow: Dynamic::OFF,
@@ -425,6 +432,8 @@ pub struct StrokeEngine {
     /// The pulled-string point, `None` before the first sample or when
     /// smoothing is off.
     string: Option<(f64, f64)>,
+    /// The last raw (unsmoothed) pointer position, for [`StrokeEngine::finish`].
+    last_raw: Option<(f64, f64)>,
 }
 
 /// `true` when the value is finite and within `[lo, hi]`.
@@ -490,6 +499,7 @@ impl StrokeEngine {
             path: 0.0,
             dir: None,
             string: None,
+            last_raw: None,
         })
     }
 
@@ -510,6 +520,7 @@ impl StrokeEngine {
         if !(s.x.is_finite() && s.y.is_finite()) {
             return;
         }
+        self.last_raw = Some((s.x, s.y));
         let (x, y) = self.smooth(s.x, s.y);
         let cur = Pt {
             x,
@@ -528,9 +539,54 @@ impl StrokeEngine {
                 let size_k = self.emit(cur.x, cur.y, r, out);
                 self.until_next = self.step_for(size_k);
             }
+            Some(prev) if self.cfg.per_sample => self.sample_dab(prev, cur, out),
             Some(prev) => self.walk(prev, cur, out),
         }
         self.prev = Some(cur);
+    }
+
+    /// End the stroke: with smoothing on, the pulled-string point stops short of
+    /// the last pointer position, so walk the remaining distance to it (ET-D2;
+    /// ET-D1 had no end-of-stroke hook). Appends the dabs that tail completes.
+    ///
+    /// A no-op when smoothing is off (the string never lags: by control flow, no
+    /// arithmetic), when nothing was fed, and when called twice (the second call
+    /// finds the string already at the pointer). The tail reuses the last
+    /// sample's pressure and tilt and its timestamp, so the `Speed` sensor reads
+    /// absent on it (a zero-length time step) rather than inventing a speed.
+    pub fn finish(&mut self, out: &mut Vec<Dab>) {
+        if self.cfg.smoothing <= 0.0 {
+            return;
+        }
+        let (Some(prev), Some((rx, ry))) = (self.prev, self.last_raw) else {
+            return;
+        };
+        if (prev.x, prev.y) == (rx, ry) {
+            return;
+        }
+        let end = Pt { x: rx, y: ry, ..prev };
+        if self.cfg.per_sample {
+            self.sample_dab(prev, end, out);
+        } else {
+            self.walk(prev, end, out);
+        }
+        self.string = Some((rx, ry));
+        self.prev = Some(end);
+    }
+
+    /// The `per_sample` counterpart of [`walk`](Self::walk): one source dab at
+    /// `cur`, whatever the distance from `prev` (zero included), keeping the
+    /// travel direction and path length that `walk` would.
+    fn sample_dab(&mut self, prev: Pt, cur: Pt, out: &mut Vec<Dab>) {
+        let (dx, dy) = (cur.x - prev.x, cur.y - prev.y);
+        let len = dx.hypot(dy);
+        if len > 0.0 {
+            self.dir = Some((dx / len, dy / len));
+        }
+        let speed = cur.t_ms.checked_sub(prev.t_ms).filter(|dt| *dt > 0).map(|dt| len / dt as f64);
+        self.path += len;
+        let r = Readings { pressure: cur.pressure, tilt: cur.tilt, speed, path: self.path };
+        self.emit(cur.x, cur.y, r, out);
     }
 
     /// The pulled-string point for a raw pointer position.
@@ -1133,5 +1189,50 @@ mod tests {
             .collect();
         let d = run(c, &s);
         assert!(d.len() >= 1000 && d.len() <= 2002, "{}", d.len());
+    }
+
+    /// Protects: `finish` (ET-D2) walking the smoothing tail to the pointer. A string of 5 behind a pointer that jumped 0 to 10 stops at 5 (pinned by the test above); after `finish` the last dab lies on the stroke line past 5 and no further than 10, and the dab spacing is still `spacing x diameter` (1.8) across the join. A second `finish`, a smoothing-off `finish` and a `finish` on an empty engine add nothing.
+    #[test]
+    fn finish_flushes_the_smoothing_tail_once_and_only_with_smoothing() {
+        let s = [at(0.0, 0.0, 0), at(10.0, 0.0, 1)];
+        let mut c = StrokeConfig::new(1, 10.0);
+        c.smoothing = 5.0;
+        let mut e = StrokeEngine::new(c).unwrap();
+        let mut out = Vec::new();
+        e.feed(&s, &mut out);
+        let before = out.len();
+        assert!(out.last().unwrap().x <= 5.0, "premise: the string stops at 5");
+        e.finish(&mut out);
+        assert!(out.len() > before, "the tail adds dabs");
+        let last = out.last().unwrap();
+        assert!(last.x > 5.0 && last.x <= 10.0 && last.y == 0.0, "last dab at x = {}", last.x);
+        // 1.8 spacing is carried across the join: dabs at 0, 1.8, 3.6, ... so the
+        // last dab at or before 10 is 9.0.
+        assert!((last.x - 9.0).abs() < 1e-9, "x = {}", last.x);
+        let n = out.len();
+        e.finish(&mut out);
+        assert_eq!(out.len(), n, "a second finish is a no-op");
+
+        let mut off = StrokeEngine::new(StrokeConfig::new(1, 10.0)).unwrap();
+        let mut o = Vec::new();
+        off.feed(&s, &mut o);
+        let m = o.len();
+        off.finish(&mut o);
+        assert_eq!(o.len(), m, "smoothing off: nothing to flush");
+        let mut empty = StrokeEngine::new(c).unwrap();
+        empty.finish(&mut o);
+        assert_eq!(o.len(), m);
+    }
+
+    /// Protects: `per_sample` (ET-D2): one dab per accepted sample at its own position, spacing ignored, repeated positions included, the first sample included; and exactly `1.0` size for an absent pressure.
+    #[test]
+    fn per_sample_emits_one_dab_per_sample_and_ignores_spacing() {
+        let mut c = StrokeConfig::new(1, 10.0);
+        c.per_sample = true;
+        let s = [at(0.0, 0.0, 0), at(30.0, 0.0, 1), at(30.0, 0.0, 2), at(31.0, 4.0, 3)];
+        let d = run(c, &s);
+        let xs: Vec<(f64, f64)> = d.iter().map(|d| (d.x, d.y)).collect();
+        assert_eq!(xs, vec![(0.0, 0.0), (30.0, 0.0), (30.0, 0.0), (31.0, 4.0)]);
+        assert!(d.iter().all(|d| d.size_k == 1.0), "absent pressure: exactly the base size");
     }
 }

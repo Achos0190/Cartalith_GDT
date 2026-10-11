@@ -131,6 +131,14 @@ pub struct PassBuffer<S> {
     touched: BTreeSet<usize>,
     history: Vec<Vec<PassEntry<S>>>,
     redo: Vec<Vec<PassEntry<S>>>,
+    /// ET-D2 stroke grouping: between [`PassBuffer::begin_group`] and
+    /// [`PassBuffer::end_group`] every [`PassBuffer::push`] shares one undo
+    /// step. Transient interaction state, so it is not serialised.
+    #[serde(skip)]
+    group_open: bool,
+    /// Whether the open group has already recorded its one history snapshot.
+    #[serde(skip)]
+    group_snapshotted: bool,
 }
 
 impl<S: Stamp + Clone> PassBuffer<S> {
@@ -147,7 +155,26 @@ impl<S: Stamp + Clone> PassBuffer<S> {
             touched: BTreeSet::new(),
             history: Vec::new(),
             redo: Vec::new(),
+            group_open: false,
+            group_snapshotted: false,
         }
+    }
+
+    /// Opens an undo group (ET-D2: one brush stroke is one undo step, scope
+    /// question OQ-4). Until [`PassBuffer::end_group`], every [`PassBuffer::push`]
+    /// joins one history entry: the snapshot is taken lazily at the group's
+    /// *first* push, so a stroke that emits no dab leaves no empty undo step.
+    /// Opening while a group is open restarts it.
+    pub fn begin_group(&mut self) {
+        self.group_open = true;
+        self.group_snapshotted = false;
+    }
+
+    /// Closes the undo group; the next structural edit is its own step again.
+    /// Harmless when no group is open.
+    pub fn end_group(&mut self) {
+        self.group_open = false;
+        self.group_snapshotted = false;
     }
 
     /// The field width this buffer was constructed with.
@@ -228,8 +255,16 @@ impl<S: Stamp + Clone> PassBuffer<S> {
     // ---- structural edits (each one records draft-scoped undo) ----
 
     /// Pushes a finished stroke onto the stack. Returns its index.
+    ///
+    /// Inside an undo group ([`PassBuffer::begin_group`]) only the first push
+    /// records history; the rest ride on that step.
     pub fn push(&mut self, stamp: S) -> usize {
-        self.push_history();
+        if !(self.group_open && self.group_snapshotted) {
+            self.push_history();
+        }
+        if self.group_open {
+            self.group_snapshotted = true;
+        }
         let tiles = self.tiles_of(stamp.bounds(self.width, self.height));
         self.touched.extend(tiles);
         self.entries.push(PassEntry {
@@ -295,6 +330,7 @@ impl<S: Stamp + Clone> PassBuffer<S> {
             return false;
         };
         self.redo.push(std::mem::replace(&mut self.entries, prev));
+        self.group_snapshotted = false;
         self.recompute_touched();
         true
     }
@@ -306,6 +342,7 @@ impl<S: Stamp + Clone> PassBuffer<S> {
             return false;
         };
         self.history.push(std::mem::replace(&mut self.entries, next));
+        self.group_snapshotted = false;
         self.recompute_touched();
         true
     }
@@ -545,6 +582,8 @@ impl<S: Stamp + Clone> PassBuffer<S> {
         self.touched.clear();
         self.history.clear();
         self.redo.clear();
+        // A group cannot outlive the history it snapshotted into.
+        self.group_snapshotted = false;
     }
 
     // ---- tile bookkeeping ----
@@ -1249,6 +1288,33 @@ mod tests {
             steps += 1;
         }
         assert_eq!(steps, HISTORY_MAX);
+    }
+
+    #[test]
+    fn a_group_of_pushes_is_one_undo_step() {
+        // Protects: ET-D2's "a stroke is one undo step" at the buffer level:
+        // 40 pushes inside begin_group/end_group undo in a single call (past
+        // HISTORY_MAX, so a per-push history would also have lost the oldest),
+        // a push after end_group is its own step again, and an empty group
+        // leaves no history behind.
+        let mut buf = buffer();
+        buf.begin_group();
+        for _ in 0..40 {
+            buf.push(stamp(0, 0, 1, 1, 1.0));
+        }
+        buf.end_group();
+        assert_eq!(buf.len(), 40);
+        buf.push(stamp(1, 1, 1, 1, 1.0));
+        assert!(buf.undo());
+        assert_eq!(buf.len(), 40, "the push after end_group is its own step");
+        assert!(buf.undo());
+        assert_eq!(buf.len(), 0, "one undo removes the whole 40-stamp group");
+        assert!(!buf.can_undo());
+
+        let mut empty = buffer();
+        empty.begin_group();
+        empty.end_group();
+        assert!(!empty.can_undo(), "a group that pushed nothing records no step");
     }
 
     #[test]

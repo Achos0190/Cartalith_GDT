@@ -129,7 +129,8 @@ use std::sync::Arc;
 
 use cartalith_civ::{CART_BIOMES, CART_TERRAINS};
 use cartalith_assets::SPLAT_PAINT_SLOTS;
-use cartalith_spatial::{js_round, CommitSummary, DirtyTracker, PaintLayer, PaintStamp, PassBuffer, Region};
+use cartalith_spatial::stroke::{Dab, Dynamic, Scatter, Sample, Sensor, StrokeConfig, StrokeEngine, StrokeError, Symmetry};
+use cartalith_spatial::{js_round, CommitSummary, DirtyTracker, EdgeShape, PaintLayer, PaintStamp, PassBuffer, Region};
 
 /// Tile granularity for every paint draft's `PassBuffer`/`DirtyTracker`
 /// pair — the same value `sculpt_bridge::SCULPT_TILE_SIZE` uses and for the
@@ -276,6 +277,75 @@ impl Default for Brush {
     }
 }
 
+/// The pressure-to-size floor a stroke uses when the caller does not name one:
+/// size runs from 20 % of the brush radius at zero pressure to 100 % at full.
+/// **Labelled judgement** (ET-D2): no reference value exists; 20 % keeps a
+/// feather-light touch visible on a grid where a 1-cell radius is the minimum.
+pub const DEFAULT_PRESSURE_MIN: f64 = 0.2;
+
+/// Everything a stroke session needs beyond the brush: the ET-D2 options the
+/// shell passes to `paint_stroke_begin` as one Dictionary. `godot`-free so the
+/// session is testable without a runtime; `lib.rs` only converts the Dictionary.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StrokeOptions {
+    /// The stroke RNG seed (scatter, jitter); the same seed and samples give the same dabs.
+    pub seed: u64,
+    /// Spacing as a fraction of the dab diameter, or `None` for **spacing off**: one
+    /// dab per sample, which is exactly the [`PaintEditor::stroke_at`] picture.
+    /// `Some` is the Paint Toolbar artboard's `0.18` by default ([`StrokeOptions::default`]).
+    pub spacing: Option<f64>,
+    /// Pulled-string length in cells; `0.0` is off (the stroke engine's own default).
+    pub smoothing: f64,
+    /// Symmetry mode (`Symmetry::None` is off).
+    pub symmetry: Symmetry,
+    /// Symmetry centre in cells, or `None` for the grid centre.
+    pub symmetry_centre: Option<(f64, f64)>,
+    /// Mirror-axis rotation in radians (mirror modes only).
+    pub symmetry_angle: f64,
+    /// Scatter settings; `Scatter::OFF` is one copy, no offset.
+    pub scatter: Scatter,
+    /// The edge-band shape for this stroke's dabs (only visible with a soft brush).
+    pub edge_shape: EdgeShape,
+    /// Whether pressure drives dab size. Pressure never drives flow here: paint is
+    /// categorical (`DECISIONS.md` section 7k), so flow has no meaning.
+    pub pressure_size: bool,
+    /// The size multiplier at zero pressure, in `[0, 1]` ([`DEFAULT_PRESSURE_MIN`]).
+    pub pressure_min: f64,
+}
+
+impl Default for StrokeOptions {
+    /// Spacing on at the artboard's `0.18`, everything else off, pressure-size on.
+    fn default() -> Self {
+        Self {
+            seed: 0,
+            spacing: Some(cartalith_spatial::stroke::DEFAULT_SPACING),
+            smoothing: 0.0,
+            symmetry: Symmetry::None,
+            symmetry_centre: None,
+            symmetry_angle: 0.0,
+            scatter: Scatter::OFF,
+            edge_shape: EdgeShape::Linear,
+            pressure_size: true,
+            pressure_min: DEFAULT_PRESSURE_MIN,
+        }
+    }
+}
+
+/// One open stroke: the engine plus a **snapshot** of the brush taken at
+/// [`PaintEditor::stroke_begin`], so a mid-stroke slider move cannot change the
+/// dabs of a stroke already under the pointer, and so every dab of the stroke
+/// lands in one layer's draft whatever `set_layer` does meanwhile.
+struct StrokeSession {
+    engine: StrokeEngine,
+    layer: PaintTarget,
+    value: u8,
+    radius: f64,
+    land_only: bool,
+    hardness: f64,
+    softness: f64,
+    shape: EdgeShape,
+}
+
 /// The live Paint-editor state for one generated world: which layer is
 /// active, the live brush parameters, this world's own cached land-only
 /// gate mask, and the three (draft, committed-layer) pairs — one each for
@@ -301,6 +371,8 @@ pub struct PaintEditor {
     draft_splat: PassBuffer<PaintStamp>,
     /// How many times a **committed** layer has changed — see [`Self::epoch`].
     epoch: u64,
+    /// The open ET-D2 stroke, if any ([`PaintEditor::stroke_begin`] to [`PaintEditor::stroke_end`]).
+    stroke: Option<StrokeSession>,
 }
 
 impl PaintEditor {
@@ -330,6 +402,7 @@ impl PaintEditor {
             draft_terrain,
             draft_splat,
             epoch: 0,
+            stroke: None,
         }
     }
 
@@ -479,6 +552,7 @@ impl PaintEditor {
         terrain: &[u32],
         splat: &[u32],
     ) -> (usize, usize, usize) {
+        self.abort_stroke();
         self.biome = PaintLayer::decode_sparse(biome, n);
         self.terrain = PaintLayer::decode_sparse(terrain, n);
         self.splat = PaintLayer::decode_sparse(splat, n);
@@ -560,6 +634,132 @@ impl PaintEditor {
         self.active_draft_mut().push(stamp);
     }
 
+    // ---- ET-D2: a stroke session on the ET-D1 engine ----
+
+    /// The draft of a **named** layer (the stroke session's, which may differ
+    /// from the active one if `set_layer` is called mid-stroke).
+    fn draft_of_mut(&mut self, target: PaintTarget) -> &mut PassBuffer<PaintStamp> {
+        match target {
+            PaintTarget::Biome => &mut self.draft_biome,
+            PaintTarget::Terrain => &mut self.draft_terrain,
+            PaintTarget::Splat => &mut self.draft_splat,
+        }
+    }
+
+    /// Whether a stroke session is open.
+    pub fn stroke_active(&self) -> bool {
+        self.stroke.is_some()
+    }
+
+    /// Starts a stroke on the active layer with the current brush (ET-D2,
+    /// `EDITING_TOOLS_SCOPE.md`). The brush is **snapshotted** here.
+    ///
+    /// Everything until [`PaintEditor::stroke_end`] is **one undo step** (scope
+    /// question OQ-4, default yes): the layer's draft opens a
+    /// [`PassBuffer::begin_group`]. A stroke already open is ended first, so a
+    /// lost pointer-up cannot leave two strokes merged into one step.
+    ///
+    /// The engine's base diameter is `2 x brush.radius`, so `spacing` is a
+    /// fraction of the brush diameter. Pressure drives **size only**: flow has no
+    /// meaning for a categorical layer (`DECISIONS.md` section 7k), so the engine's
+    /// flow dynamic is left off and `Dab::flow_k` is never read.
+    ///
+    /// Errors are the engine's own [`StrokeError`] naming the offending option
+    /// (never a clamp: a clamped nonsense value is a brush nobody asked for);
+    /// on error nothing changes, including any stroke already open.
+    pub fn stroke_begin(&mut self, o: StrokeOptions) -> Result<(), StrokeError> {
+        let mut cfg = StrokeConfig::new(o.seed, 2.0 * self.brush.radius);
+        match o.spacing {
+            Some(s) => cfg.spacing = s,
+            None => cfg.per_sample = true,
+        }
+        cfg.smoothing = o.smoothing;
+        cfg.symmetry = o.symmetry;
+        let (gw, gh) = (self.draft_biome.width() as f64, self.draft_biome.height() as f64);
+        let (cx, cy) = o.symmetry_centre.unwrap_or((gw / 2.0, gh / 2.0));
+        cfg.symmetry_cx = cx;
+        cfg.symmetry_cy = cy;
+        cfg.symmetry_angle = o.symmetry_angle;
+        cfg.scatter = o.scatter;
+        if o.pressure_size {
+            cfg.size = Dynamic { sensor: Sensor::Pressure, min: o.pressure_min, jitter: 0.0 };
+        }
+        let engine = StrokeEngine::new(cfg)?;
+        self.abort_stroke();
+        let layer = self.layer;
+        self.draft_of_mut(layer).begin_group();
+        self.stroke = Some(StrokeSession {
+            engine,
+            layer,
+            value: if self.brush.erase { 0 } else { self.brush.value },
+            radius: self.brush.radius,
+            land_only: self.brush.land_only,
+            hardness: self.brush.hardness,
+            softness: self.brush.softness,
+            shape: o.edge_shape,
+        });
+        Ok(())
+    }
+
+    /// Feeds one pointer sample to the open stroke and pushes one
+    /// [`PaintStamp`] per dab it emits, returning how many it pushed. `0` with
+    /// no stroke open (never a panic: the caller is GDScript).
+    ///
+    /// Dab radius is `brush.radius x size_k`, clamped to
+    /// [`PAINT_RADIUS_RANGE`]. With pressure absent `size_k` is exactly `1.0`
+    /// (the engine's control flow, not a default), so the radius is the brush's
+    /// own, bit for bit. The sample's `x`/`y` round to a cell exactly as
+    /// [`PaintEditor::stroke_at`] does ([`js_round`]).
+    pub fn stroke_sample(&mut self, s: Sample) -> usize {
+        let Some(mut sess) = self.stroke.take() else { return 0 };
+        let mut dabs = Vec::new();
+        sess.engine.feed_one(s, &mut dabs);
+        let n = self.push_dabs(&sess, &dabs);
+        self.stroke = Some(sess);
+        n
+    }
+
+    /// Ends the open stroke: flushes the smoothing tail
+    /// ([`StrokeEngine::finish`]) so the paint reaches the last pointer
+    /// position, pushes those dabs, and closes the undo group. Returns the
+    /// number of dabs the flush pushed; `0` with no stroke open.
+    pub fn stroke_end(&mut self) -> usize {
+        let Some(mut sess) = self.stroke.take() else { return 0 };
+        let mut dabs = Vec::new();
+        sess.engine.finish(&mut dabs);
+        let n = self.push_dabs(&sess, &dabs);
+        self.draft_of_mut(sess.layer).end_group();
+        n
+    }
+
+    /// Drops an open stroke without flushing it, closing its undo group; what
+    /// was already pushed stays in the draft. Used by every operation that
+    /// replaces or empties the drafts under a stroke (commit, discard, restore),
+    /// so a group can never outlive the stroke that opened it.
+    fn abort_stroke(&mut self) {
+        if let Some(sess) = self.stroke.take() {
+            self.draft_of_mut(sess.layer).end_group();
+        }
+    }
+
+    /// Turns dabs into stamps on the session's layer: the single place a dab
+    /// becomes paint, shared by `stroke_sample` and `stroke_end`.
+    fn push_dabs(&mut self, sess: &StrokeSession, dabs: &[Dab]) -> usize {
+        for d in dabs {
+            let radius = (sess.radius * d.size_k).clamp(PAINT_RADIUS_RANGE.0, PAINT_RADIUS_RANGE.1);
+            let (cx, cy) = (js_round(d.x) as i64, js_round(d.y) as i64);
+            let stamp = if sess.land_only {
+                PaintStamp::new(cx, cy, radius, sess.value, Arc::clone(&self.water_mask))
+            } else {
+                PaintStamp::ungated(cx, cy, radius, sess.value)
+            }
+            .with_falloff(sess.hardness, sess.softness)
+            .with_edge_shape(sess.shape);
+            self.draft_of_mut(sess.layer).push(stamp);
+        }
+        dabs.len()
+    }
+
     /// Per-class painted-cell counts for the *active* layer, live: the
     /// already-committed layer composited with its own pending draft
     /// (`PassBuffer::preview_into`, never mutating either) — `DCC_SHELL_
@@ -621,6 +821,7 @@ impl PaintEditor {
     /// `paint_commit` for how the DCC shell's stage-09/10 staleness note
     /// is surfaced from this summary.
     pub fn commit_all(&mut self, n: usize) -> [CommitSummary; 3] {
+        self.abort_stroke();
         /// Bakes one layer's draft into its committed layer and returns the summary.
         /// An empty draft returns a zeroed summary *without* calling
         /// `PaintLayer::cells_mut`, which would allocate the layer's backing array for
@@ -703,6 +904,7 @@ impl PaintEditor {
     /// Drops every layer's pending draft, touching nothing committed.
     /// Returns how many dabs were dropped in total, across all three.
     pub fn discard_all(&mut self) -> usize {
+        self.abort_stroke();
         self.draft_biome.discard() + self.draft_terrain.discard() + self.draft_splat.discard()
     }
 
@@ -1489,5 +1691,302 @@ mod tests {
         e.commit_all(n);
         assert_eq!(e.layer_cells(PaintTarget::Biome).unwrap()[4 * 16 + 4], 2);
         assert!(e.layer_cells(PaintTarget::Splat).is_none(), "an untouched layer stays unallocated");
+    }
+
+    // ---- ET-D2: the stroke session ----
+
+    /// A pressure-free, tilt-free sample at `(x, y)`, time = `i` ms.
+    fn smp(x: f64, y: f64, i: u64) -> Sample {
+        Sample { x, y, pressure: None, tilt: None, t_ms: i }
+    }
+
+    /// An editor over a `w x h` all-land world with an ungated brush of `radius`.
+    fn editor(w: usize, h: usize, radius: f64) -> PaintEditor {
+        let mut e = PaintEditor::new(w, h, land_mask(w * h));
+        e.set_brush(5, radius, 1.0, 0.0, false, false);
+        e
+    }
+
+    /// 4-connected component count of the non-zero cells of a `w`-wide grid: the
+    /// independent oracle for "one connected stroke".
+    fn components(cells: &[u8], w: usize) -> usize {
+        let mut seen = vec![false; cells.len()];
+        let mut n = 0;
+        for start in 0..cells.len() {
+            if cells[start] == 0 || seen[start] {
+                continue;
+            }
+            n += 1;
+            let mut stack = vec![start];
+            seen[start] = true;
+            while let Some(i) = stack.pop() {
+                let (x, y) = (i % w, i / w);
+                let mut nb = Vec::new();
+                if x > 0 { nb.push(i - 1); }
+                if x + 1 < w { nb.push(i + 1); }
+                if y > 0 { nb.push(i - w); }
+                if i + w < cells.len() { nb.push(i + w); }
+                for j in nb {
+                    if cells[j] != 0 && !seen[j] {
+                        seen[j] = true;
+                        stack.push(j);
+                    }
+                }
+            }
+        }
+        n
+    }
+
+    /// The committed biome cells of `e` after baking its draft.
+    fn committed(e: &mut PaintEditor, n: usize) -> Vec<u8> {
+        e.commit_all(n);
+        e.layer_cells(PaintTarget::Biome).expect("something was painted").to_vec()
+    }
+
+    /// Spacing-off, pressure-absent options.
+    fn off() -> StrokeOptions {
+        StrokeOptions { spacing: None, ..StrokeOptions::default() }
+    }
+
+    /// Protects: ET-D2's byte-equality acceptance. With spacing off and pressure
+    /// absent a scripted drag through the stroke session commits exactly the
+    /// layer the one-dab-per-sample `stroke_at` path commits, with a soft brush
+    /// so the edge band (and its hash) is exercised too, and over a non-trivial
+    /// drag that revisits and repeats positions. The painted count is asserted
+    /// non-zero so a silently-empty pair cannot pass.
+    #[test]
+    fn spacing_off_stroke_is_byte_equal_to_the_one_dab_path() {
+        let (w, h) = (96, 64);
+        let drag = [(10.3, 12.0), (14.9, 15.5), (14.9, 15.5), (30.0, 20.2), (28.0, 40.0), (60.7, 33.3), (61.0, 10.0)];
+        let mut a = editor(w, h, 5.0);
+        a.set_brush(5, 5.0, 0.6, 0.1, false, false);
+        for &(x, y) in &drag {
+            a.stroke_at(x, y);
+        }
+        let mut b = editor(w, h, 5.0);
+        b.set_brush(5, 5.0, 0.6, 0.1, false, false);
+        b.stroke_begin(off()).unwrap();
+        for (i, &(x, y)) in drag.iter().enumerate() {
+            assert_eq!(b.stroke_sample(smp(x, y, i as u64)), 1, "one dab per sample, repeats included");
+        }
+        assert_eq!(b.stroke_end(), 0, "no smoothing, so nothing to flush");
+        assert_eq!(a.pending_stamps(), b.pending_stamps());
+        let (ca, cb) = (committed(&mut a, w * h), committed(&mut b, w * h));
+        assert!(ca.iter().filter(|&&c| c != 0).count() > 200, "premise: the drag painted something");
+        assert_eq!(ca, cb);
+    }
+
+    /// Protects: ET-D2's connectivity acceptance. A fast drag (one sample per 3
+    /// radii) leaves a dotted line through `stroke_at` (11 separate discs, the
+    /// pre-change contrast, asserted) and one connected stroke at the artboard's
+    /// 18 % spacing. The literal 11 is the geometry: discs of radius 3, 9 cells apart.
+    #[test]
+    fn eighteen_percent_spacing_joins_a_fast_drag_the_old_path_leaves_dotted() {
+        let (w, h) = (128, 32);
+        let xs: Vec<f64> = (0..11).map(|k| 10.0 + 9.0 * k as f64).collect();
+        let mut old = editor(w, h, 3.0);
+        for &x in &xs {
+            old.stroke_at(x, 16.0);
+        }
+        let old_cells = committed(&mut old, w * h);
+        assert_eq!(components(&old_cells, w), 11, "today: one disc per sample, nothing between");
+
+        let mut new = editor(w, h, 3.0);
+        new.stroke_begin(StrokeOptions::default()).unwrap();
+        for (i, &x) in xs.iter().enumerate() {
+            new.stroke_sample(smp(x, 16.0, i as u64));
+        }
+        new.stroke_end();
+        let cells = committed(&mut new, w * h);
+        assert_eq!(components(&cells, w), 1, "18 % spacing: one connected stroke");
+    }
+
+    /// Protects: ET-D2's one-undo-step acceptance (scope OQ-4's default). A
+    /// stroke of well over 10 dabs empties the draft with ONE undo; the same dabs
+    /// through `stroke_at` need one undo each (the contrast); two strokes are two
+    /// steps; and a stroke that emits nothing leaves no step.
+    #[test]
+    fn a_whole_stroke_is_one_undo_step() {
+        let mut e = editor(128, 32, 3.0);
+        e.stroke_begin(StrokeOptions::default()).unwrap();
+        for (i, x) in (0..6).map(|k| 10.0 + 9.0 * k as f64).enumerate() {
+            e.stroke_sample(smp(x, 16.0, i as u64));
+        }
+        e.stroke_end();
+        assert!(e.pending_stamps() > 10, "premise: more than 10 dabs, got {}", e.pending_stamps());
+        let stroke_dabs = e.pending_stamps();
+        e.stroke_at(100.0, 5.0);
+        e.stroke_at(110.0, 5.0);
+        assert!(e.draft_biome.undo() && e.draft_biome.undo());
+        assert_eq!(e.pending_stamps(), stroke_dabs, "after stroke_end, each stroke_at is its own step again");
+        assert!(e.draft_biome.undo(), "one undo available");
+        assert!(e.draft_biome.is_empty(), "and it empties the whole stroke");
+        assert!(!e.draft_biome.can_undo(), "no second step");
+
+        let mut old = editor(128, 32, 3.0);
+        for k in 0..12 {
+            old.stroke_at(10.0 + k as f64, 16.0);
+        }
+        let mut steps = 0;
+        while old.draft_biome.undo() {
+            steps += 1;
+        }
+        assert_eq!(steps, 12, "contrast: the one-dab path is one step per dab");
+
+        let mut two = editor(128, 32, 3.0);
+        for row in [8.0, 24.0] {
+            two.stroke_begin(StrokeOptions::default()).unwrap();
+            for (i, x) in (0..4).map(|k| 10.0 + 9.0 * k as f64).enumerate() {
+                two.stroke_sample(smp(x, row, i as u64));
+            }
+            two.stroke_end();
+        }
+        assert!(two.draft_biome.undo() && !two.draft_biome.is_empty(), "first undo leaves stroke one");
+        assert!(two.draft_biome.undo() && two.draft_biome.is_empty(), "second undo removes stroke one");
+        assert!(!two.draft_biome.can_undo());
+
+        let mut none = editor(128, 32, 3.0);
+        none.stroke_begin(StrokeOptions::default()).unwrap();
+        none.stroke_end();
+        assert!(!none.draft_biome.can_undo(), "an empty stroke records no undo step");
+    }
+
+    /// Protects: an absent pressure giving exactly the brush radius (never a
+    /// default pressure), a present pressure driving size through the documented
+    /// law `r x (min + (1 - min) x p)`, zero pressure being a real reading
+    /// distinct from absent, and the radius clamp's lower bound. Literals are
+    /// computed by hand: 10 x (0.2 + 0.8 x 0.5) = 6.0; 10 x 0.2 = 2.0.
+    #[test]
+    fn pressure_drives_size_and_absent_pressure_is_exactly_the_base_radius() {
+        let radius_after = |p: Option<f32>, min: f64| {
+            let mut e = editor(64, 64, 10.0);
+            e.stroke_begin(StrokeOptions { spacing: None, pressure_min: min, ..StrokeOptions::default() }).unwrap();
+            e.stroke_sample(Sample { x: 20.0, y: 20.0, pressure: p, tilt: None, t_ms: 0 });
+            e.draft_biome.entries()[0].stamp.radius
+        };
+        assert_eq!(radius_after(None, 0.2), 10.0, "absent: the base radius, exactly");
+        // Within 1e-9, not exact: the law is float arithmetic (6.000000000000001 measured).
+        assert!((radius_after(Some(0.5), 0.2) - 6.0).abs() < 1e-9);
+        assert!((radius_after(Some(0.0), 0.2) - 2.0).abs() < 1e-9, "zero pressure is a reading, not absence");
+        assert!((radius_after(Some(1.0), 0.2) - 10.0).abs() < 1e-9);
+        assert_eq!(radius_after(Some(0.0), 0.0), 1.0, "clamped up to PAINT_RADIUS_RANGE's floor");
+        let mut e = editor(64, 64, 10.0);
+        e.stroke_begin(StrokeOptions { pressure_size: false, spacing: None, ..StrokeOptions::default() }).unwrap();
+        e.stroke_sample(Sample { x: 20.0, y: 20.0, pressure: Some(0.1), tilt: None, t_ms: 0 });
+        assert_eq!(e.draft_biome.entries()[0].stamp.radius, 10.0, "pressure_size off ignores pressure");
+    }
+
+    /// Protects: `stroke_end` flushing the smoothing tail. A 6-cell string behind
+    /// a pointer that ran to x = 60 leaves the last dab at or before x = 54 until
+    /// `stroke_end`; after it the paint reaches within one spacing step (0.18 x
+    /// diameter 8 = 1.44) of the pointer.
+    #[test]
+    fn stroke_end_flushes_the_smoothing_tail_to_the_pointer() {
+        let mut e = editor(128, 32, 4.0);
+        e.stroke_begin(StrokeOptions { smoothing: 6.0, ..StrokeOptions::default() }).unwrap();
+        for (i, x) in [10.0, 25.0, 40.0, 60.0].into_iter().enumerate() {
+            e.stroke_sample(smp(x, 16.0, i as u64));
+        }
+        let last_x = |e: &PaintEditor| e.draft_biome.entries().last().unwrap().stamp.cx;
+        assert!(last_x(&e) <= 54, "before the flush the dab lags: {}", last_x(&e));
+        let flushed = e.stroke_end();
+        assert!(flushed > 0);
+        assert!(last_x(&e) >= 60 - 2 && last_x(&e) <= 60, "after: {}", last_x(&e));
+    }
+
+    /// Protects: every refusal path returning quietly. No session: `stroke_sample`
+    /// and `stroke_end` push nothing; a bad option errors and changes nothing (an
+    /// open stroke survives it); `commit_all` and `discard_all` close an open
+    /// stroke and its undo group, so a later `stroke_at` is its own step.
+    #[test]
+    fn refusals_are_quiet_and_commit_or_discard_close_the_stroke() {
+        let mut e = editor(64, 64, 3.0);
+        assert_eq!(e.stroke_sample(smp(5.0, 5.0, 0)), 0);
+        assert_eq!(e.stroke_end(), 0);
+        assert_eq!(e.pending_stamps(), 0);
+
+        e.stroke_begin(off()).unwrap();
+        e.stroke_sample(smp(5.0, 5.0, 0));
+        assert_eq!(e.stroke_begin(StrokeOptions { spacing: Some(0.0), ..StrokeOptions::default() }), Err(StrokeError::Invalid("spacing")));
+        assert!(e.stroke_active(), "a refused begin leaves the open stroke alone");
+        assert_eq!(e.stroke_sample(smp(9.0, 5.0, 1)), 1);
+
+        e.discard_all();
+        assert!(!e.stroke_active(), "discard closes the stroke");
+        e.stroke_begin(off()).unwrap();
+        e.stroke_sample(smp(5.0, 5.0, 0));
+        e.commit_all(64 * 64);
+        assert!(!e.stroke_active(), "commit closes the stroke");
+        assert_eq!(e.stroke_sample(smp(5.0, 5.0, 1)), 0);
+        e.stroke_at(1.0, 1.0);
+        e.stroke_at(2.0, 2.0);
+        assert!(e.draft_biome.undo());
+        assert_eq!(e.draft_biome.len(), 1, "a stroke_at after the closed group is its own step");
+    }
+
+    /// Protects: a second `stroke_begin` ending the first (two undo steps, not one
+    /// merged group) and the options reaching the dabs: vertical symmetry about
+    /// the grid centre mirrors each dab (x = 10 and 2 x 32 - 10 = 54), the edge
+    /// shape lands on every stamp, and the layer is the one active at begin.
+    #[test]
+    fn options_reach_the_dabs_and_a_second_begin_closes_the_first_group() {
+        let mut e = editor(64, 32, 3.0);
+        e.set_layer(PaintTarget::Terrain);
+        let sym = StrokeOptions { spacing: None, symmetry: Symmetry::Vertical, edge_shape: EdgeShape::Sharp, ..StrokeOptions::default() };
+        e.stroke_begin(sym).unwrap();
+        assert_eq!(e.stroke_sample(smp(10.0, 7.0, 0)), 2, "a dab and its mirror");
+        e.set_layer(PaintTarget::Splat);
+        e.stroke_sample(smp(12.0, 7.0, 1));
+        let stamps: Vec<_> = e.draft_terrain.entries().iter().map(|p| (p.stamp.cx, p.stamp.cy, p.stamp.shape)).collect();
+        assert_eq!(stamps[0], (10, 7, EdgeShape::Sharp));
+        assert_eq!(stamps[1], (54, 7, EdgeShape::Sharp));
+        assert_eq!(e.draft_splat.len(), 0, "the layer was fixed at begin");
+        e.set_layer(PaintTarget::Terrain);
+        e.stroke_begin(off()).unwrap();
+        e.stroke_sample(smp(30.0, 20.0, 2));
+        e.stroke_end();
+        assert!(e.draft_terrain.undo());
+        assert_eq!(e.draft_terrain.len(), 4, "the second stroke was its own step");
+        assert!(e.draft_terrain.undo());
+        assert!(e.draft_terrain.is_empty());
+    }
+
+    /// Protects: the brush's `erase` flag reaching a stroke's dabs (value `0`, the
+    /// eraser) and being snapshotted at begin. A painted block is erased by a
+    /// stroke begun with `erase` on, and a stroke begun with it off then painted
+    /// over a layer does not erase.
+    #[test]
+    fn an_erase_brush_stroke_writes_zero() {
+        let n = 64 * 32;
+        let mut e = editor(64, 32, 4.0);
+        e.stroke_at(20.0, 16.0);
+        e.commit_all(n);
+        assert_eq!(e.layer_cells(PaintTarget::Biome).unwrap()[16 * 64 + 20], 5, "premise: painted");
+        e.set_brush(5, 4.0, 1.0, 0.0, true, false);
+        e.stroke_begin(off()).unwrap();
+        e.set_brush(5, 4.0, 1.0, 0.0, false, false); // a mid-stroke slider move must not matter
+        e.stroke_sample(smp(20.0, 16.0, 0));
+        e.stroke_end();
+        e.commit_all(n);
+        assert_eq!(e.layer_cells(PaintTarget::Biome).unwrap()[16 * 64 + 20], 0, "erased by the snapshotted erase flag");
+    }
+
+    /// Protects: determinism and seed sensitivity at the bridge. The same seed and
+    /// samples give identical stamp lists; a different seed moves scattered dabs.
+    #[test]
+    fn a_stroke_is_deterministic_in_its_seed() {
+        let run = |seed: u64| {
+            let mut e = editor(96, 48, 3.0);
+            let sc = Scatter { count: 3, count_jitter: 0.0, amount: 1.5, both_axes: true };
+            e.stroke_begin(StrokeOptions { seed, scatter: sc, ..StrokeOptions::default() }).unwrap();
+            for (i, x) in [10.0, 30.0, 50.0].into_iter().enumerate() {
+                e.stroke_sample(smp(x, 20.0, i as u64));
+            }
+            e.stroke_end();
+            e.draft_biome.entries().iter().map(|p| (p.stamp.cx, p.stamp.cy)).collect::<Vec<_>>()
+        };
+        assert_eq!(run(7), run(7));
+        assert_ne!(run(7), run(8));
+        assert!(run(7).len() > 30, "scatter 3 over a spaced stroke");
     }
 }

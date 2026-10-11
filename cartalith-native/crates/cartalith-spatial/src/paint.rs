@@ -142,22 +142,96 @@ pub struct PaintStamp {
     /// inverse.
     pub hardness: f64,
     pub softness: f64,
+    /// The shape of the edge band's pass-probability ramp (ET-D2,
+    /// `EDITING_TOOLS_SCOPE.md`). [`EdgeShape::Linear`] is today's ramp and the
+    /// construction default, so a stamp that never calls
+    /// [`PaintStamp::with_edge_shape`] is bit-identical to the pre-ET-D2 one.
+    /// Has no effect when the band is zero-width (`feather_width() == 0.0`).
+    pub shape: EdgeShape,
+}
+
+/// The shape of a [`PaintStamp`]'s soft-edge band: how the probability that a
+/// band cell is painted falls from `1` at the band's inner edge to `0` at the
+/// disc's rim (ET-D2, `EDITING_TOOLS_SCOPE.md`).
+///
+/// Modelled on the sculpt brush's `Falloff` (`cartalith-terrain`'s `sculpt.rs`),
+/// re-declared here because this crate must not depend on `cartalith-terrain`
+/// and the two are different quantities: that one is a *coverage weight*, this
+/// one is a *pass probability* thresholded against `cell_dither`, so no
+/// palette index is ever blended (`DECISIONS.md` section 7k is untouched).
+///
+/// **Never** change [`EdgeShape::Linear`]'s arm: it must return `t` itself, by
+/// control flow and not by an algebraic identity, because that is what keeps
+/// `golden_parity_paint` and the section 7k bit-identity test unmoved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EdgeShape {
+    /// `t`: the original linear ramp, and the default.
+    #[default]
+    Linear,
+    /// `smoothstep(t) = t^2 (3 - 2t)`: dense near the interior, thin at the rim.
+    Smooth,
+    /// `t^3`: the band thins out fast, so the ragged skirt is narrow and sparse.
+    Sharp,
+    /// `1` everywhere in the band: the band paints fully, which is the hard
+    /// disc (the same picture the zero-width band gives), whatever the width.
+    Constant,
+}
+
+impl EdgeShape {
+    /// Every shape, in a stable order.
+    pub const ALL: [EdgeShape; 4] = [EdgeShape::Linear, EdgeShape::Smooth, EdgeShape::Sharp, EdgeShape::Constant];
+
+    /// The key a caller (the shell's options dictionary) names the shape by.
+    pub fn key(self) -> &'static str {
+        match self {
+            EdgeShape::Linear => "linear",
+            EdgeShape::Smooth => "smooth",
+            EdgeShape::Sharp => "sharp",
+            EdgeShape::Constant => "constant",
+        }
+    }
+
+    /// The inverse of [`EdgeShape::key`]; `None` for an unknown key, so a
+    /// mistyped key is refused instead of silently defaulting.
+    pub fn from_key(key: &str) -> Option<EdgeShape> {
+        EdgeShape::ALL.into_iter().find(|s| s.key() == key)
+    }
+
+    /// The pass probability for the ramp coordinate `t = (radius - dist) /
+    /// width`, `0 <= t < 1` inside the band.
+    fn weight(self, t: f64) -> f64 {
+        match self {
+            EdgeShape::Linear => t,
+            EdgeShape::Smooth => t * t * (3.0 - 2.0 * t),
+            EdgeShape::Sharp => t * t * t,
+            EdgeShape::Constant => 1.0,
+        }
+    }
 }
 
 impl PaintStamp {
+    /// Sets the shape of the edge band's pass-probability ramp (ET-D2). Only
+    /// meaningful together with [`PaintStamp::with_falloff`] at a non-hard
+    /// setting; at the hard default the band has no width and the shape is
+    /// never read.
+    pub fn with_edge_shape(mut self, shape: EdgeShape) -> Self {
+        self.shape = shape;
+        self
+    }
+
     /// A gated dab — the Cartography default. `mask` is the water-body
     /// classification (`0` = land). Constructs with `hardness: 1.0,
     /// softness: 0.0` — the historical hard disc; see [`PaintStamp::
     /// with_falloff`] to opt into a soft edge.
     pub fn new(cx: i64, cy: i64, radius: f64, value: u8, mask: Arc<[u8]>) -> Self {
-        Self { cx, cy, radius, value, mask: Some(mask), hardness: 1.0, softness: 0.0 }
+        Self { cx, cy, radius, value, mask: Some(mask), hardness: 1.0, softness: 0.0, shape: EdgeShape::Linear }
     }
 
     /// An ungated dab. See [`PaintStamp::mask`] — this is the new affordance,
     /// not the reference's behaviour. Constructs with `hardness: 1.0,
     /// softness: 0.0`, same as [`PaintStamp::new`].
     pub fn ungated(cx: i64, cy: i64, radius: f64, value: u8) -> Self {
-        Self { cx, cy, radius, value, mask: None, hardness: 1.0, softness: 0.0 }
+        Self { cx, cy, radius, value, mask: None, hardness: 1.0, softness: 0.0, shape: EdgeShape::Linear }
     }
 
     /// True when this dab erases rather than paints.
@@ -216,13 +290,13 @@ impl PaintStamp {
 /// position, not a per-frame random draw, so repainting the same spot with
 /// the same brush settings keeps (or drops) exactly the same cells every
 /// time. The brush stipples the map; it does not flicker.
-fn passes_falloff(x: i64, y: i64, dist: f64, radius: f64, width: f64) -> bool {
+fn passes_falloff(x: i64, y: i64, dist: f64, radius: f64, width: f64, shape: EdgeShape) -> bool {
     let inner = radius - width;
     if dist <= inner {
         return true;
     }
     let t = (radius - dist) / width;
-    cell_dither(x, y) < t
+    cell_dither(x, y) < shape.weight(t)
 }
 
 /// A fast, deterministic `[0, 1)` value from a cell's own absolute grid
@@ -323,7 +397,7 @@ impl Stamp for PaintStamp {
                 // computed) entirely: see `feather_width`'s own doc for why
                 // that keeps this loop bit-for-bit identical to the
                 // pre-falloff code for every caller that never opted in.
-                if feather > 0.0 && !passes_falloff(x, y, dist, self.radius, feather) {
+                if feather > 0.0 && !passes_falloff(x, y, dist, self.radius, feather, self.shape) {
                     continue;
                 }
                 let i = y as usize * width + x as usize;
@@ -737,6 +811,85 @@ mod tests {
         stamp.apply(&mut a, G, G);
         stamp.apply(&mut b, G, G);
         assert_eq!(a, b, "the same stamp applied twice must paint exactly the same cells");
+    }
+
+    /// The ET-D2 band-shape oracle: re-derives, from the band geometry and the
+    /// documented formulas written out literally (not through `EdgeShape::weight`),
+    /// which cells of a disc survive. `weight` is the shape's formula as a closure.
+    fn oracle_disc(g: usize, c: i64, r: f64, hardness: f64, weight: impl Fn(f64) -> f64) -> Vec<u8> {
+        let width = ((1.0 - hardness).clamp(0.0, 1.0)) * r;
+        let mut out = vec![0u8; g * g];
+        for y in 0..g as i64 {
+            for x in 0..g as i64 {
+                let d = ((x - c) as f64).hypot((y - c) as f64);
+                if d > r {
+                    continue;
+                }
+                if d > r - width && cell_dither(x, y) >= weight((r - d) / width) {
+                    continue;
+                }
+                out[y as usize * g + x as usize] = 7;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn each_edge_shape_matches_its_literal_formula() {
+        // Protects: the band shapes being exactly t, t^2(3-2t), t^3 and 1 (ET-D2).
+        // The oracle writes each formula out inline; a changed arm in
+        // `EdgeShape::weight` (or a swapped pair) paints a different cell set.
+        // Radius 20 on a 48 grid keeps hypot-vs-js_hypot rim differences out
+        // (none occur at this radius; the oracle would also fail on that).
+        const G: usize = 48;
+        const C: i64 = 24;
+        const R: f64 = 20.0;
+        let cases: [(EdgeShape, fn(f64) -> f64); 4] = [
+            (EdgeShape::Linear, |t| t),
+            (EdgeShape::Smooth, |t| t * t * (3.0 - 2.0 * t)),
+            (EdgeShape::Sharp, |t| t * t * t),
+            (EdgeShape::Constant, |_| 1.0),
+        ];
+        for (shape, w) in cases {
+            let mut got = vec![0u8; G * G];
+            PaintStamp::ungated(C, C, R, 7).with_falloff(0.4, 0.0).with_edge_shape(shape).apply(&mut got, G, G);
+            assert_eq!(got, oracle_disc(G, C, R, 0.4, w), "{shape:?} must follow its literal formula");
+        }
+    }
+
+    #[test]
+    fn edge_shapes_order_the_band_density_and_constant_is_the_hard_disc() {
+        // Protects: the shapes being genuinely different pictures (so a shape
+        // that silently fell through to Linear is caught) in the expected order
+        // of band density, and `Constant` painting the full hard disc even with
+        // a wide band. Counts are over one 48 x 48 disc, radius 20, hardness 0.4.
+        const G: usize = 48;
+        let count = |shape: EdgeShape| {
+            let mut v = vec![0u8; G * G];
+            PaintStamp::ungated(24, 24, 20.0, 7).with_falloff(0.4, 0.0).with_edge_shape(shape).apply(&mut v, G, G);
+            v.iter().filter(|&&c| c != 0).count()
+        };
+        let mut hard = vec![0u8; G * G];
+        PaintStamp::ungated(24, 24, 20.0, 7).apply(&mut hard, G, G);
+        let hard_n = hard.iter().filter(|&&c| c != 0).count();
+        let (lin, smooth, sharp, constant) =
+            (count(EdgeShape::Linear), count(EdgeShape::Smooth), count(EdgeShape::Sharp), count(EdgeShape::Constant));
+        assert_eq!(constant, hard_n, "Constant fills the band: it is the hard disc");
+        // Smooth sits BELOW Linear in cell count (measured 643 vs 662): its weight is under t for
+        // t < 0.5, and the band's area is concentrated at small t (near the rim).
+        assert!(constant > lin && lin > smooth && smooth > sharp, "{constant} > {lin} > {smooth} > {sharp}");
+    }
+
+    #[test]
+    fn edge_shape_keys_round_trip_and_an_unknown_key_is_refused() {
+        // Protects: `from_key` being the inverse of `key` for every shape, and
+        // refusing a mistyped key rather than defaulting to Linear.
+        for s in EdgeShape::ALL {
+            assert_eq!(EdgeShape::from_key(s.key()), Some(s));
+        }
+        assert_eq!(EdgeShape::from_key("Linear"), None);
+        assert_eq!(EdgeShape::from_key(""), None);
+        assert_eq!(EdgeShape::default(), EdgeShape::Linear);
     }
 
     #[test]
