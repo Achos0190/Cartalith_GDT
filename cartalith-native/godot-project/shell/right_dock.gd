@@ -704,6 +704,10 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 	## The stamp-count backstop -- see `_sculpt_draft_backstop()` for why it is
 	## deferred and gated rather than a plain `_rebuild`.
 	bridge.sculpt_draft_changed.connect(_sculpt_draft_backstop, CONNECT_DEFERRED)
+	## Replay a rebuild skipped during a landmark / viewshed-refine run (they hold
+	## the engine but do not emit `generation_finished`); see `_rebuild()`'s gate.
+	bridge.landmark_finished.connect(_flush_deferred_rebuild)
+	bridge.landmark_refine_finished.connect(_flush_deferred_rebuild)
 	## River selection (`OUTSTANDING_WORK.md` §2.2). Connected here rather than
 	## in `app.gd`'s `_wire_selection()` for the same reason
 	## `asset_library_window.gd` reaches `world_gen` directly: `app.gd` is a
@@ -923,10 +927,18 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _sample_stale_note != null:
 		_sample_stale_note.text = _stale_footnote_text(stale)
 		_sample_stale_note.visible = _sample_stale_note.text != ""
+	## `readable`: false while a worker owns `world_gen` (a generation, landmark or
+	## refine run). `_nearest_settlement_text` (`get_settlements`) and `sample_cell`
+	## would each panic once per mouse-motion event (see `_rebuild()`'s gate), so
+	## both are asked as "not on the map" -- the same dashes the rows show before a
+	## first generate -- and the next motion after the run fills them in. The
+	## coordinate rows above are the cursor's own reading and stay live. Never
+	## widen this to skip the whole function: the rows would keep a stale cell.
+	var readable := valid and not bridge.generating
 	var nearest_why := _stale_reason("Nearest", stale)
-	_sample_nearest.text = "—" if nearest_why != "" else _nearest_settlement_text(gx, gy, valid)
+	_sample_nearest.text = "—" if nearest_why != "" else _nearest_settlement_text(gx, gy, readable)
 	_set_row_tip(_sample_nearest, _tip_with(_NEAREST_TIP, nearest_why))
-	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
+	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if readable else {}
 	## `height` cannot be reported stale (see `SAMPLE_STAGE`), so this branch
 	## never takes today -- written the same way as every other row so that a
 	## stage added upstream of height gates the dock's one big number too,
@@ -1336,6 +1348,20 @@ const CTX_TITLES := {
 func _rebuild() -> void:
 	if app == null:
 		return
+	## **While a worker owns the engine, draw nothing and say so.** `_dispatch`,
+	## `_append_tool` and `_push_dock_readout` below all query `bridge.world_gen`
+	## (`sample_cell`, `sculpt_get_globals`, `sculpt_stamp_count`), and the
+	## generation / landmark worker holds that object mutably for the whole run, so
+	## each query is a `Gd<T>::bind() failed, already bound` panic from the
+	## extension (466 of them in one 100-frame run of the 2026-10-11 dockpanic
+	## probe). `bridge.generating` is the gate every neighbour uses (`app.gd`,
+	## `EngineBridge._gpu_read`). The request is remembered, not dropped:
+	## `_flush_deferred_rebuild()` replays it when the run ends, and
+	## `generation_finished` rebuilds unconditionally anyway.
+	if bridge != null and bridge.generating:
+		_rebuild_deferred = true
+		return
+	_rebuild_deferred = false
 	var body := app.right_dock_body
 	for child in body.get_children():
 		body.remove_child(child)
@@ -1722,9 +1748,37 @@ var _sculpt_drawn_stamps := -1
 func _sculpt_draft_backstop() -> void:
 	if app == null or bridge == null:
 		return
+	## Never ask the engine for the count while a worker owns it (panic, see
+	## `_rebuild()`'s gate). Nothing is lost: a generation replaces the draft with
+	## the new world's, and `generation_finished` rebuilds the dock and re-records
+	## `_sculpt_drawn_stamps`; a landmark pass leaves the draft alone and
+	## `_flush_deferred_rebuild()` re-runs this check when it ends.
+	if bridge.generating:
+		_backstop_deferred = true
+		return
+	_backstop_deferred = false
 	if bridge.sculpt_stamp_count() == _sculpt_drawn_stamps:
 		return
 	_rebuild()
+
+## A `_rebuild()` / `_sculpt_draft_backstop()` that arrived while `bridge.generating`
+## and was skipped. Cleared by the call that finally runs. Read only by
+## `_flush_deferred_rebuild()`.
+var _rebuild_deferred := false
+var _backstop_deferred := false
+
+## Replays what the `bridge.generating` gates skipped, once the worker has let go
+## of the engine. Connected to `landmark_finished` and `landmark_refine_finished`
+## in `setup()` (the two worker runs that do not go through `generation_finished`,
+## whose handler already rebuilds). Does nothing when nothing was skipped or the
+## engine is still owned; never rebuilds unprompted, so a normal run pays nothing.
+func _flush_deferred_rebuild(_r: Variant = null) -> void:
+	if bridge == null or bridge.generating:
+		return
+	if _rebuild_deferred:
+		_rebuild()
+	elif _backstop_deferred:
+		_sculpt_draft_backstop()
 
 ## True while a sculpt draft is uncommitted and reachable -- the condition the
 ## draft clause in `_tool_section()` carries, named once so the two cannot
