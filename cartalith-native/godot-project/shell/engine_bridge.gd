@@ -2452,12 +2452,45 @@ func sculpt_begin_stroke() -> bool:
 		return false
 	return world_gen.sculpt_begin_stroke()
 
+## True when the loaded extension carries both ET-D3 sculpt additions
+## (`sculpt_begin_stroke_with` and `sculpt_add_point_p`). The sculpt handlers fall
+## back to the plain `sculpt_begin_stroke`/`sculpt_add_point` pair when it is
+## `false`. Checked with `has_method`, not `_has()`, so an older extension is not
+## warned about on every press (the `has_paint_stroke_api` precedent). Never
+## assume one of the two without the other: a stroke begun by one and fed by
+## the other would still work, but the handlers' pressure bookkeeping would not.
+func has_sculpt_stroke_api() -> bool:
+	return world_gen != null and world_gen.has_method("sculpt_begin_stroke_with") \
+		and world_gen.has_method("sculpt_add_point_p")
+
+## ET-D3: `sculpt_begin_stroke` with options (`WorldGen.sculpt_begin_stroke_with`):
+## `symmetry` ("none", "vertical", "horizontal", "dual", "radial"), `radial_count`,
+## `symmetry_center` (Vector2), `symmetry_angle` (radians); every key optional, `{}`
+## is "no symmetry". There is NO spacing key: a sculpt stroke is one continuous
+## polyline per stamp. `false` means the call changed nothing (no world, no API, or a
+## refused option) and any stroke already open is still open. Never pass a made-up
+## default for a key the caller did not choose; omit it.
+func sculpt_begin_stroke_with(options: Dictionary = {}) -> bool:
+	if not _has("sculpt_begin_stroke_with"):
+		return false
+	return world_gen.sculpt_begin_stroke_with(options)
+
 ## Appends one grid-cell point to the in-progress stroke (`WorldGen.sculpt_add_point`)
 ## and returns the new point count; `-1` means the binding is missing.
 func sculpt_add_point(x: float, y: float) -> int:
 	if not _has("sculpt_add_point"):
 		return -1
 	return world_gen.sculpt_add_point(x, y)
+
+## ET-D3: `sculpt_add_point` with the pointer's pressure (`WorldGen.sculpt_add_point_p`).
+## `pressure` is a float in 0..1 **or `null` when the device reported none** (a mouse):
+## absent is never encoded as 1.0 or 0.0, and one `null` anywhere in a stroke makes
+## the whole stroke pressure-less (the engine refuses to invent the missing value).
+## Returns the new point count, `-1` with no world or no binding.
+func sculpt_add_point_p(x: float, y: float, pressure: Variant) -> int:
+	if not _has("sculpt_add_point_p"):
+		return -1
+	return world_gen.sculpt_add_point_p(x, y, pressure)
 
 ## The grid-snap ladder in grid cells, in engine order. Empty when the
 ## binding is missing, which reads the same as "this build offers no snap
@@ -2524,6 +2557,10 @@ func sculpt_cancel_stroke() -> void:
 ## Freezes the stroke and tool state into one draft stamp (`WorldGen.sculpt_end_stroke`)
 ## and returns its index; `-1` for a zero-point stroke, no world or no binding. A draft
 ## push, not a commit; emits `sculpt_draft_changed` after the engine call.
+## **ET-D3:** a stroke begun with a symmetry becomes N stamps; the index returned is the
+## SOURCE stamp's, its mirrors follow at index+1..., the source is the selected one, and
+## the whole stroke is ONE undo step (`sculpt_undo`). Callers that assumed one stamp per
+## stroke must read `sculpt_stamp_count()` instead.
 func sculpt_end_stroke() -> int:
 	if not _has("sculpt_end_stroke"):
 		return -1
@@ -2546,7 +2583,9 @@ func sculpt_stamp_count() -> int:
 	return world_gen.sculpt_stamp_count()
 
 ## The draft's stamps newest-first, each carrying its real draft `index`
-## (`WorldGen.sculpt_list_stamps`). `[]` for an empty draft or no API.
+## (`WorldGen.sculpt_list_stamps`). `[]` for an empty draft or no API. ET-D3: an entry
+## carries a `pressure` PackedFloat32Array (one per point) **only when the device
+## reported pressure for every point**; ask `has("pressure")`, never default it.
 func sculpt_list_stamps() -> Array:
 	if not _has("sculpt_list_stamps"):
 		return []

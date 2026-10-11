@@ -327,6 +327,30 @@ var _bake_status: Label
 ## tracks Measure's -- `sculpt_add_point` has no readback of its own, so the
 ## drawn path preview needs a local copy of where the clicks actually landed.
 var _sculpt_stroke_points: PackedVector2Array = PackedVector2Array()
+## ET-D3. `true` while the open stroke was begun through `sculpt_begin_stroke_with`
+## and is fed through `sculpt_add_point_p` (pressure-aware); `false` for the plain
+## `sculpt_begin_stroke`/`sculpt_add_point` fallback (older extension). Meaningful
+## only while `_sculpt_stroke_points` is non-empty; reset on every begin and close.
+var _sculpt_pressure_path := false
+## ET-D3. The press point `[gx, gy]` (full-precision floats, so the engine sees the
+## same f64 the old path did) held back from the engine until the first drag sample
+## arrives, or `[]` when nothing is held. Why: a press event carries NO pressure, and
+## the engine makes the WHOLE stroke pressure-less if any one point has none, so
+## sending the press as `null` would silently discard every pen stroke's pressure.
+## It is sent with the first drag sample's own reading (a real reading, one sample
+## late; a labelled judgement) or, for a mouse or a tap, with `null`. Never `1.0`/`0.0`.
+var _sculpt_press: Array = []
+## ET-D3. Set when focus loss cancelled the stroke mid-gesture: the rest of that
+## drag's samples then draw nothing (they would otherwise start a second, unintended
+## stroke through `_sculpt_drag`'s begin-if-empty guard). Cleared by the next click
+## and by a release.
+var _sculpt_stroke_aborted := false
+## ET-D3. The symmetry options handed to `sculpt_begin_stroke_with` on every press:
+## the engine's own keys (`symmetry`, `radial_count`, `symmetry_center`,
+## `symmetry_angle`). `{}` = no symmetry, today's behaviour. **No shell control binds
+## this yet** (ET-D5 adds it; `EDITING_TOOLS_SCOPE.md`), so nothing writes it in the
+## product; it is the seam that control will write. Omit a key rather than defaulting it.
+var _sculpt_symmetry: Dictionary = {}
 
 ## Biome paint's live brush state, mirrored here because `paint_set_brush`'s
 ## own contract is "apply and echo back what was stored", not "read the
@@ -582,6 +606,10 @@ func _build() -> void:
 	## open stroke with it, so only the shell's own flag needs clearing.
 	bridge.generation_started.connect(_paint_stroke_forget)
 	bridge.world_loaded.connect(_paint_stroke_forget)
+	## ET-D3: the same for sculpt. Clears the shell's flags only, NEVER calls the engine
+	## from `generation_started` (`world_gen` may belong to the worker then).
+	bridge.generation_started.connect(_sculpt_stroke_forget)
+	bridge.world_loaded.connect(_sculpt_stroke_forget)
 	bridge.generation_stage.connect(_on_generation_stage)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
@@ -3295,34 +3323,123 @@ func _on_sculpt_discard() -> void:
 ## engine call for the reason `MISTAKES.md` records, and a preview drawn
 ## from a value read before its own write is that mistake waiting for the
 ## first stateful snap mode.
+##
+## **Since ET-D3 (2026-10-11)** the press and its drag samples go to the engine through
+## `sculpt_begin_stroke_with(_sculpt_symmetry)` / `sculpt_add_point_p` when the extension
+## has them, so a pen's pressure reaches the stamp and a symmetry (once ET-D5 adds the
+## control) makes N stamps in ONE undo step. The press point is held back until the first
+## drag sample (`_sculpt_press`) so a pen stroke is not made pressure-less by the press
+## event's missing reading. A tap (press, release) still makes a one-point stamp, sent
+## with no pressure. Without those two `#[func]`s this is exactly the old path.
+##
+## A click while a stroke is still open (a release that never arrived) DISCARDS the old
+## stroke rather than ending it: an unreleased gesture is not a finished one, and the
+## engine's begin (`sculpt_begin_stroke[_with]`) clears the stale points, so no explicit
+## cancel is needed (a cancel here was a measured no-op: its mutant survived). The held
+## press point needs no reset either: the pressure path overwrites it just below and the
+## fallback path never reads it.
 func _sculpt_click(gx: float, gy: float) -> void:
-	bridge.sculpt_begin_stroke()
-	bridge.sculpt_add_point(gx, gy)
+	_sculpt_stroke_aborted = false
+	_paint_pending_sample = {}
+	_sculpt_begin_engine_stroke()
+	if _sculpt_pressure_path:
+		_sculpt_press = [gx, gy]
+	else:
+		bridge.sculpt_add_point(gx, gy)
 	_sculpt_stroke_points = PackedVector2Array([bridge.sculpt_snap(gx, gy)])
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
 
-## Stroke motion sample: opens a stroke on the first point
-## (`sculpt_begin_stroke`), adds the point to the engine and the snapped point
-## to the on-screen polyline. The preview texture is deliberately not rebuilt
-## mid-drag.
-func _sculpt_drag(gx: float, gy: float) -> void:
-	if _sculpt_stroke_points.is_empty():
+## Opens the engine stroke for this gesture and records which feed path it uses. Tries
+## `sculpt_begin_stroke_with(_sculpt_symmetry)`; if the API is absent or the engine
+## refuses the options it falls back to the plain `sculpt_begin_stroke` (which clears
+## any stale points), so a gesture always gets a stroke -- but then WITHOUT the symmetry
+## the options asked for, which is why no shell control may produce an option the engine
+## refuses. Never leaves `_sculpt_pressure_path` true unless the pressure-aware begin
+## succeeded.
+func _sculpt_begin_engine_stroke() -> void:
+	_sculpt_pressure_path = bridge.has_sculpt_stroke_api() \
+		and bridge.sculpt_begin_stroke_with(_sculpt_symmetry.duplicate())
+	if not _sculpt_pressure_path:
 		bridge.sculpt_begin_stroke()
-	bridge.sculpt_add_point(gx, gy)
+
+## The pressure the current motion event carried, or `null`. `map_stroke_sample` is
+## emitted immediately before `map_dragged` for the same event (`map_overlay.gd`), so
+## the cached sample is matched on position; a mismatch means none arrived and the
+## answer is `null` -- **never** a default of 1.0 or 0.0. `null` also for a mouse
+## (`map_overlay.gd` passes null unless `is_pen`). Consumes the cached sample.
+func _sculpt_take_pressure(gx: float, gy: float) -> Variant:
+	var ps := _paint_pending_sample
+	_paint_pending_sample = {}
+	if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
+		return ps["pressure"]
+	return null
+
+## Stroke motion sample: opens a stroke on the first point (when the press never
+## reached the map, `_sculpt_begin_engine_stroke`), adds the point to the engine with
+## this event's pressure (flushing the held press point first with the same reading) and
+## the snapped point to the on-screen polyline. The preview texture is deliberately not
+## rebuilt mid-drag. Ignored after a focus-loss cancel (`_sculpt_stroke_aborted`).
+func _sculpt_drag(gx: float, gy: float) -> void:
+	if _sculpt_stroke_aborted:
+		return
+	if _sculpt_stroke_points.is_empty():
+		_sculpt_begin_engine_stroke()
+	var pressure: Variant = _sculpt_take_pressure(gx, gy)
+	if _sculpt_pressure_path:
+		if not _sculpt_press.is_empty():
+			bridge.sculpt_add_point_p(float(_sculpt_press[0]), float(_sculpt_press[1]), pressure)
+			_sculpt_press = []
+		bridge.sculpt_add_point_p(gx, gy, pressure)
+	else:
+		bridge.sculpt_add_point(gx, gy)
 	_sculpt_stroke_points.append(bridge.sculpt_snap(gx, gy))
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+
+## Drops every shell-side stroke record and the on-screen polyline WITHOUT touching the
+## engine. The one place the flags are reset, so no path can forget one.
+func _sculpt_clear_stroke_state() -> void:
+	_sculpt_stroke_points = PackedVector2Array()
+	_sculpt_pressure_path = false
+	_sculpt_press = []
+	_paint_pending_sample = {}
+	if app != null and app.viewport != null and app.viewport.tool_overlay != null:
+		app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+
+## Cancels an open stroke on the engine and clears the shell's record of it. A no-op when
+## none is open (the shell's own `_sculpt_stroke_points` is the flag), so every exit path
+## -- new click, tool change, focus loss, Escape -- can call it unconditionally.
+func _sculpt_abandon_stroke() -> void:
+	if _sculpt_stroke_points.is_empty():
+		return
+	bridge.sculpt_cancel_stroke()
+	_sculpt_clear_stroke_state()
+
+## World change (`generation_started`, `world_loaded`): the engine's `SculptEditor` is
+## replaced wholesale, taking any open stroke with it, so only the shell's records are
+## cleared. **Never calls the engine**: `world_gen` may be owned by the generation worker
+## at that moment (the `_paint_stroke_forget` precedent).
+func _sculpt_stroke_forget() -> void:
+	_sculpt_clear_stroke_state()
+	_sculpt_stroke_aborted = false
 
 ## `build_sculpt_preview_texture()` is only called here, on release -- calling
 ## it mid-drag would show nothing new, since the in-progress stroke isn't a
 ## stamp (and so isn't part of the draft the preview composites) until this
 ## point; `set_path_preview`'s teal polyline is what shows live progress
 ## during the drag itself.
+##
+## ET-D3: a still-held press point (a tap, or a stroke whose drag samples all fell
+## off the plate) is sent now with **no pressure** (`null`), then the stroke ends. A
+## symmetric stroke becomes N stamps here, in one undo step; the preview and the
+## stamp stack are rebuilt once, as before.
 func _sculpt_release(_gx: float, _gy: float, _valid: bool) -> void:
+	_sculpt_stroke_aborted = false
 	if _sculpt_stroke_points.is_empty():
 		return
+	if _sculpt_pressure_path and not _sculpt_press.is_empty():
+		bridge.sculpt_add_point_p(float(_sculpt_press[0]), float(_sculpt_press[1]), null)
 	bridge.sculpt_end_stroke()
-	_sculpt_stroke_points = PackedVector2Array()
-	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	_sculpt_clear_stroke_state()
 	app.viewport.set_preview_texture(bridge.build_sculpt_preview_texture())
 	_build_sculpt(_sculpt_body)
 	_refresh_tool_bar()
@@ -3334,9 +3451,10 @@ func _sculpt_release(_gx: float, _gy: float, _valid: bool) -> void:
 ## after cleaning up the in-progress stroke -- the same pattern
 ## `GlobalTools._region_escape` already uses for the same reason.
 func _sculpt_escape() -> void:
+	## Cancels unconditionally (a safe no-op engine-side with no stroke), as before
+	## ET-D3, then clears every shell flag.
 	bridge.sculpt_cancel_stroke()
-	_sculpt_stroke_points = PackedVector2Array()
-	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	_sculpt_clear_stroke_state()
 	var btn: BaseButton = app.tool_group.get_pressed_button()
 	if btn != null:
 		btn.button_pressed = false
@@ -3367,10 +3485,8 @@ func _on_tool_armed(id: String) -> void:
 		_pg_mode = "paint"
 	elif id == "sculpt" and _pg_mode == "paint":
 		_pg_mode = "sculpt"
-	if id != "sculpt" and not _sculpt_stroke_points.is_empty():
-		bridge.sculpt_cancel_stroke()
-		_sculpt_stroke_points = PackedVector2Array()
-		app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	if id != "sculpt":
+		_sculpt_abandon_stroke()
 	if id != "sculpt" and id != "paint":
 		app.viewport.tool_overlay.set_brush_cursor(false, 0.0, 0.0, 0.0)
 	if id == "sculpt" and app.right_dock_ctrl.has_method("show_sculpt_stack"):
@@ -4206,9 +4322,15 @@ func _paint_stroke_forget() -> void:
 ## window and never reach the map, which would leave the stroke open forever. The
 ## remainder of that gesture then paints nothing (`_paint_stroke_aborted`).
 func _notification(what: int) -> void:
-	if (what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT) and _paint_stroke_open:
-		_paint_stroke_finish()
-		_paint_stroke_aborted = true
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT:
+		if _paint_stroke_open:
+			_paint_stroke_finish()
+			_paint_stroke_aborted = true
+		## ET-D3: a sculpt stroke cut off by focus loss is CANCELLED, not ended: the
+		## gesture never finished, so it must not leave a stamp on the draft.
+		if not _sculpt_stroke_points.is_empty():
+			_sculpt_abandon_stroke()
+			_sculpt_stroke_aborted = true
 
 ## End of a paint stroke: closes the engine stroke (flushing its smoothing tail),
 ## then rebuilds the body once and refreshes the tool bar, right dock and phone
