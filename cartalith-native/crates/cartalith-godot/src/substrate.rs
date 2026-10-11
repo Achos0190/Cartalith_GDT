@@ -101,20 +101,35 @@ pub(crate) fn needs_substrate(legacy_zip: bool) -> &'static str {
     if legacy_zip { LEGACY_NEEDS_SUBSTRATE } else { NEEDS_SUBSTRATE }
 }
 
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::flow_discharge`, `f32`.
 const FLOW: &str = "rasters/flow_discharge.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::plate_id`, stored as `i32` because the format has no `u16`.
 const PLATE_ID: &str = "rasters/plate_id.i32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::boundary_mask`, `u8`.
 const BOUNDARY_MASK: &str = "rasters/boundary_mask.u8";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::boundary_type`, `u8`.
 const BOUNDARY_TYPE: &str = "rasters/boundary_type.u8";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::stress_field`, `f32`.
 const STRESS: &str = "rasters/stress_field.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::shear_field`, `f32`.
 const SHEAR: &str = "rasters/shear_field.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::age_field`, `f32`.
 const AGE: &str = "rasters/age_field.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::resistance_field`, `f32`.
 const RESISTANCE: &str = "rasters/resistance_field.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::crust_field`, `f32`.
 const CRUST: &str = "rasters/crust_field.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `channels.recv`, `i32`; present only when the manifest says `channels`.
 const RECV: &str = "rasters/channel_receiver.i32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `channels.chan`, `u8`; present only when the manifest says `channels`.
 const CHAN: &str = "rasters/channel_mask.u8";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `channels.intensity`, `f32`; present only when the manifest says `river_intensity`.
 const INTENSITY: &str = "rasters/river_intensity.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::river_mask`, `u8`; present only when the manifest says `river_mask`.
 const RIVER_MASK: &str = "rasters/river_mask.u8";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `WorldState::river_floor`, `f32`; present only when the manifest says `river_floor`.
 const RIVER_FLOOR: &str = "rasters/river_floor.f32";
+/// Archive member path, a format name (`SAVEFILE_COMPAT.md` §8.3), not a tunable: writer and reader share it, and changing it orphans every archive already saved. `stream_order` is rebuilt from this core raster rather than stored twice (module doc); `u8`, lossless because the writer refuses an order outside `0..=255`.
 const STRAHLER: &str = "rasters/strahler_order.u8";
 
 /// `project.json`'s `substrate` member (`SAVEFILE_COMPAT.md` §8.3).
@@ -225,18 +240,23 @@ fn manifest_of(data: &ProjectData) -> Result<Option<SubstrateManifest>, String> 
     Ok(Some(m))
 }
 
+/// Removes `path` from `data.rasters` as an `f32` raster. A missing member or
+/// one of another element type is the same damage to the reader, so both give
+/// one `Err`; never panics and never returns a zero-filled stand-in.
 fn take_f32(data: &mut ProjectData, path: &str) -> Result<Vec<f32>, String> {
     match data.rasters.remove(path) {
         Some(Raster::F32(v)) => Ok(v),
         _ => Err(format!("{path} is missing or damaged")),
     }
 }
+/// `take_f32` for an `i32` raster; same removal and same refusal.
 fn take_i32(data: &mut ProjectData, path: &str) -> Result<Vec<i32>, String> {
     match data.rasters.remove(path) {
         Some(Raster::I32(v)) => Ok(v),
         _ => Err(format!("{path} is missing or damaged")),
     }
 }
+/// `take_f32` for a `u8` raster; same removal and same refusal.
 fn take_u8(data: &mut ProjectData, path: &str) -> Result<Vec<u8>, String> {
     match data.rasters.remove(path) {
         Some(Raster::U8(v)) => Ok(v),
@@ -334,6 +354,9 @@ pub(crate) fn world_from_project(data: &mut ProjectData, save: &SaveData) -> Res
     Ok(Some(ws))
 }
 
+/// Unit tests for the refusal wording. The raster write/read round trip needs a
+/// whole project archive and is tested in `project_bridge.rs`'s tests and
+/// `tests/project_round_trip.rs`.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +365,10 @@ mod tests {
     /// told to regenerate -- that would discard the settlements, labels and
     /// icons Ruling AU imported -- and a pre-substrate project must be told
     /// what a regenerate costs as well as that it is the fix.
+    ///
+    /// Protects: that the two refusal strings stay distinct and say the right
+    /// thing (the tree text advises a regenerate and its cost, the legacy text
+    /// names what is missing and never advises one).
     #[test]
     fn each_world_without_a_substrate_gets_its_own_refusal() {
         let tree = needs_substrate(false);

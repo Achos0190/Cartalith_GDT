@@ -579,12 +579,18 @@ pub(crate) trait ExportRiverSource {
 }
 
 impl ExportRiverSource for WorldGen {
+    /// The live world's export network: one delegation to
+    /// [`WorldGen::export_river_geometry`], deciding nothing.
     fn network(&self) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
         self.export_river_geometry()
     }
+    /// The live world's delta fans under look `a`: delegates to
+    /// [`WorldGen::export_river_fans`], deciding nothing.
     fn fans_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<river_stroke::RiverGeometry>> {
         self.export_river_fans(a)
     }
+    /// The live world's painted-river source under look `a`: delegates to
+    /// [`WorldGen::river_paint_source`], deciding nothing.
     fn paint_under(&self, a: &TerrainAppearance) -> Option<std::sync::Arc<crate::river_field::PaintSource>> {
         self.river_paint_source(a)
     }
@@ -760,6 +766,9 @@ fn check_keys(d: &VarDictionary, allowed: &[&str], what: &str) -> Result<(), Str
     Ok(())
 }
 
+/// Reads `key` as a `T`: `Ok(None)` when the key is absent, `Ok(Some)` when it
+/// converts, and an `Err` naming the key and the expected type `ty` when it is
+/// present but of the wrong type -- a wrong type is refused, never defaulted.
 fn opt_of<T: FromGodot>(d: &VarDictionary, key: &str, ty: &str) -> Result<Option<T>, String> {
     match d.get(key) {
         None => Ok(None),
@@ -767,6 +776,7 @@ fn opt_of<T: FromGodot>(d: &VarDictionary, key: &str, ty: &str) -> Result<Option
     }
 }
 
+/// [`opt_of`] for a string option.
 fn opt_string(d: &VarDictionary, key: &str) -> Result<Option<String>, String> {
     Ok(opt_of::<GString>(d, key, "a string")?.map(|s| s.to_string()))
 }
@@ -1298,6 +1308,14 @@ impl WorldGen {
         out
     }
 
+    /// The coloured map as a PNG at one of the ladder widths (`BAKE_WIDTHS`), either
+    /// as one file at `path` or, with `tiled`, as a directory of `TILE_SIZE` tiles.
+    /// Refuses an unsupported width, an empty path, a missing world and (Ruling 26)
+    /// an export whose estimated peak memory is unaffordable, all **before** the
+    /// raster is allocated, since an unservable `Vec` aborts the process. Renders
+    /// through the same context as the screen (rivers included, local contrast and
+    /// grade at the export's own resolution). Returns `{ok, path, width, height,
+    /// files, bytes, ms}` or `{ok: false, error}`.
     #[func]
     fn export_raster_png(&self, path: GString, width: i64, tiled: bool) -> VarDictionary {
         let started = std::time::Instant::now();
@@ -1778,6 +1796,9 @@ struct AtlasFields {
 }
 
 impl AtlasFields {
+    /// Recomputes every field the atlas needs from `wg` and `ws` (the struct doc
+    /// says why they are not stored). Same call order and arguments as
+    /// `compute_civilisation`, so the data is what the civ layer scored against.
     fn build(wg: &WorldGen, ws: &cartalith_engine::WorldState) -> Self {
         let (gw, gh) = (wg.gw as usize, wg.gh as usize);
         let (world, sea) = (wg.world, wg.sea_level);
@@ -1869,6 +1890,8 @@ impl AtlasFields {
     }
 }
 
+/// Unit tests for the file-size model and the memory budgets, which are
+/// calibrated against measured exports rather than against themselves.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1889,6 +1912,9 @@ mod tests {
         (32768, 20976, 213_925_342),
     ];
 
+    /// Protects: that the file-size model stays within 5.5 % of all five measured
+    /// exports (`MEASURED`), an independent check rather than the constant
+    /// asserted against itself.
     #[test]
     fn estimate_file_bytes_tracks_the_five_measured_exports() {
         for (w, h, measured) in MEASURED {
@@ -1908,6 +1934,8 @@ mod tests {
     /// red. Both tests are needed -- this one alone would happily pass on a
     /// model that has drifted away from reality together with its literals,
     /// and the one above alone survives a 1 % mutation.
+    /// Protects: the two model constants themselves, by pinning the model's
+    /// bytes-per-pixel at the five measured widths to literals (tolerance 5e-4).
     #[test]
     fn the_two_model_constants_are_pinned() {
         let bpp = |w: usize, h: usize| estimate_file_bytes(w, h, 2048) as f64 / (w as f64 * h as f64);
@@ -1927,6 +1955,9 @@ mod tests {
     /// claim `FILE_BYTES_AT_GRID_WIDTH`'s doc makes and the reason it takes
     /// `gw` at all. Halving the grid under a fixed export width has to make
     /// the picture cheaper per pixel, not leave it alone.
+    /// Protects: the upsample-ratio dependence -- a coarser grid under the same
+    /// export width must give a smaller estimate, by the ratio the fitted exponent
+    /// implies.
     #[test]
     fn a_coarser_grid_makes_the_same_export_smaller() {
         let fine = estimate_file_bytes(8192, 5244, 2048);
@@ -1937,6 +1968,8 @@ mod tests {
         assert!((r - 0.721_966).abs() < 1e-3, "ratio {r:.6}");
     }
 
+    /// Protects: that a zero width, height or grid width gives an estimate of
+    /// zero, never a plausible-looking number.
     #[test]
     fn a_degenerate_estimate_is_zero_rather_than_a_plausible_number() {
         assert_eq!(estimate_file_bytes(0, 5244, 2048), 0);
@@ -1950,6 +1983,10 @@ mod tests {
     /// heightmap. A budget below the measurement would let an export be
     /// attempted that cannot be served; a budget far above it would refuse
     /// exports that fit.
+    /// Protects: that `PEAK_BYTES_PER_PIXEL` and `HEIGHTMAP_PEAK_BYTES_PER_PIXEL`
+    /// are at least the measured 21.7 and 3.6 B/px (so no unservable export is
+    /// attempted) without being far above them, and that the heightmap budget is
+    /// under a quarter of the colour one.
     #[test]
     fn the_peak_budgets_bracket_what_was_measured() {
         assert!(
@@ -1969,6 +2006,8 @@ mod tests {
     /// Every rung the shell will offer, and the two ruling 15 added. Asserted
     /// as literals rather than against the array, so replacing the array with
     /// anything else turns this red.
+    /// Protects: the five-rung `BAKE_WIDTHS` ladder and the `UNGATED_MAX_WIDTH`
+    /// ceiling, as literals, including that the ceiling is itself a rung.
     #[test]
     fn the_ladder_is_the_five_ruled_widths() {
         assert_eq!(BAKE_WIDTHS, [2048, 4096, 8192, 16384, 32768]);
@@ -2065,6 +2104,10 @@ mod rv5_parity_tests {
         }
     }
 
+    /// One screen-side render of the RV-5 fixture: `px` is the per-pixel RGB
+    /// (0..=255) and `stroke` / `water` the selector inputs (screen stroke alpha
+    /// before the water hides it, and the water's coverage) read from the SCREEN
+    /// side, never from the compared values.
     struct Out {
         px: Vec<[f64; 3]>,
         /// Screen stroke alpha before the water hides it, and the water's
@@ -2203,7 +2246,7 @@ mod rv5_parity_tests {
         (0..ow * oh).map(|i| bf.water_cover(&ctx, (i % ow) as f64 * s, (i / ow) as f64 * s, (s, s))).collect()
     }
 
-    /// Protects Ruling AZ at matched scale (`K` pixels per cell, the base
+    /// Protects: Ruling AZ at matched scale (`K` pixels per cell, the base
     /// view's regime), on two presets:
     ///
     /// 1. **River centreline** -- the export's colour is the screen's, within
@@ -2380,8 +2423,11 @@ mod own_look_tests {
     /// only), so a look is recognised by its marker. **Labelled judgement:**
     /// four distinct arbitrary values in `0..=1`, the field's own range.
     const OWN_PAINT: f64 = 0.37;
+    /// Fixture marker for the stroking own look; arbitrary, see above.
     const OWN_STROKE: f64 = 0.23;
+    /// Fixture marker for the session's painting look; arbitrary, see above.
     const SESSION_PAINT: f64 = 0.58;
+    /// Fixture marker for the session's stroking look; arbitrary, see above.
     const SESSION_STROKE: f64 = 0.11;
 
     /// A look that paints its rivers (`river_field::painted`) or strokes
@@ -2403,9 +2449,13 @@ mod own_look_tests {
     }
 
     impl FakeWorld {
+        /// A `FakeWorld` holding `net` as the live network and `session_marker` as
+        /// the look it must never be asked under.
         fn new(net: Option<Arc<RiverGeometry>>, session_marker: f64) -> Self {
             FakeWorld { net, session_marker, asked: RefCell::new(Vec::new()), network_asks: Cell::new(0) }
         }
+        /// Records one ask under look `a`, panicking if it carries the session's
+        /// marker -- the assertion that makes the own-look tests able to fail.
         fn note(&self, what: &'static str, a: &TerrainAppearance) {
             assert!(a.river_bank != self.session_marker, "{what} was asked under the SESSION's look");
             self.asked.borrow_mut().push((what, a.river_bank));
@@ -2413,14 +2463,19 @@ mod own_look_tests {
     }
 
     impl ExportRiverSource for FakeWorld {
+        /// The export network; counts the ask so a test can see how many times it
+        /// was read.
         fn network(&self) -> Option<Arc<RiverGeometry>> {
             self.network_asks.set(self.network_asks.get() + 1);
             self.net.clone()
         }
+        /// Fans under `a`, through the real `fans_drawn` gate, after recording the ask.
         fn fans_under(&self, a: &TerrainAppearance) -> Option<Arc<RiverGeometry>> {
             self.note("fans", a);
             crate::river_delta::fans_drawn(a, false, GW, GH).then(|| Arc::new(river()))
         }
+        /// Paint source under `a`, built for real from the network, after recording
+        /// the ask; `None` with no network.
         fn paint_under(&self, a: &TerrainAppearance) -> Option<Arc<crate::river_field::PaintSource>> {
             self.note("paint", a);
             let g = self.net.as_ref()?;

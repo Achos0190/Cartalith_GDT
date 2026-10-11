@@ -55,12 +55,18 @@ pub(crate) fn anchor_pos(civ: &CivData, a: ConflictAnchor) -> Option<(f64, f64)>
         .map(|s| (s.placement.x as f64 + 0.5, s.placement.y as f64 + 0.5))
 }
 
+/// The province whose seed (capital) settlement carries `seed_tid`, or `None`
+/// when no province is seeded there any more. A province anchor is stored as
+/// its seed's `tid` ([`ConflictAnchor::Province`]), so this is how that name is
+/// resolved against the live list; it never guesses a nearby province.
 fn province_of_seed(civ: &CivData, seed_tid: u64) -> Option<&cartalith_civ::Province> {
     civ.province_list
         .iter()
         .find(|p| civ.settlements.get(p.capital_settlement_index).is_some_and(|s| s.tid == seed_tid))
 }
 
+/// Display name of the place `a` names, or `None` when it no longer resolves
+/// (so the readout omits `anchor_name` rather than showing a stale or empty one).
 fn anchor_name(civ: &CivData, a: ConflictAnchor) -> Option<String> {
     match a {
         ConflictAnchor::Settlement(t) => civ.settlements.iter().find(|s| s.tid == t).map(|s| s.name.clone()),
@@ -98,6 +104,9 @@ fn anchors_touching(
     out
 }
 
+/// The wire form of an anchor: a `(kind, tid)` pair of the strings the
+/// dictionaries and the saved `entities/conflicts.json` use. Inverse of
+/// [`anchor_from_key`]; the two must stay in step.
 pub(crate) fn anchor_key(a: ConflictAnchor) -> (&'static str, u64) {
     match a {
         ConflictAnchor::Settlement(t) => ("settlement", t),
@@ -105,6 +114,9 @@ pub(crate) fn anchor_key(a: ConflictAnchor) -> (&'static str, u64) {
     }
 }
 
+/// Parses [`anchor_key`]'s pair. `None` for an unknown kind or for `tid == 0`:
+/// `tid`s start at 1, so 0 is the "no value" the GDScript side sends and must
+/// never be read as a real anchor.
 pub(crate) fn anchor_from_key(kind: &str, tid: u64) -> Option<ConflictAnchor> {
     match kind {
         "settlement" if tid > 0 => Some(ConflictAnchor::Settlement(tid)),
@@ -113,6 +125,8 @@ pub(crate) fn anchor_from_key(kind: &str, tid: u64) -> Option<ConflictAnchor> {
     }
 }
 
+/// The player-facing sentence for a [`ConflictError`], shown in the dock's
+/// error line. Wording only; carries no behaviour.
 fn error_text(e: &ConflictError) -> String {
     match e {
         ConflictError::TooFewPoints { kind, need, got } => {
@@ -125,6 +139,9 @@ fn error_text(e: &ConflictError) -> String {
     }
 }
 
+/// Builds the `{ok, id, error?}` reply every mutating conflict `#[func]`
+/// returns. `error` is **omitted** when empty (callers use `has("error")`),
+/// never sent as an empty string.
 fn result(ok: bool, id: u64, error: &str) -> VarDictionary {
     let mut d = vdict! { "ok" => ok, "id" => id as i64 };
     if !error.is_empty() {
@@ -180,6 +197,8 @@ fn apply_fields(c: &mut Conflict, fields: &VarDictionary) -> Result<Option<Optio
 }
 
 impl WorldGen {
+    /// Where anchor `a` resolves in the live civ layer, or `None` before any
+    /// `generate()` or when the place is gone. Thin wrapper over [`anchor_pos`].
     fn conflict_anchor_now(&self, a: ConflictAnchor) -> Option<(f64, f64)> {
         self.civ.as_ref().and_then(|civ| anchor_pos(civ, a))
     }
@@ -220,6 +239,11 @@ impl WorldGen {
         Ok(())
     }
 
+    /// One conflict as the dictionary [`Self::conflict_list`] documents. Points
+    /// are the **resolved** ones (translated by however far the anchor moved
+    /// since attachment). `end_year` and the anchor keys are omitted rather than
+    /// given a sentinel; `active` is judged at the Timeline cursor's year, `0`
+    /// before a civ layer exists.
     fn conflict_dict(&self, c: &Conflict) -> VarDictionary {
         let now = c.anchor.and_then(|a| self.conflict_anchor_now(a));
         let pts: PackedVector2Array =
@@ -309,6 +333,8 @@ impl WorldGen {
         }
     }
 
+    /// Deletes conflict `id`; `true` if one was removed, `false` for an unknown
+    /// id (a negative id is floored to 0, which no conflict carries).
     #[func]
     fn conflict_delete(&mut self, id: i64) -> bool {
         self.conflicts.remove(id.max(0) as u64)
@@ -413,6 +439,9 @@ pub(crate) fn detach_all(store: &mut ConflictStore, civ: Option<&CivData>) {
     store.detach_all(|a| civ.and_then(|c| anchor_pos(c, a)));
 }
 
+/// Unit tests for the anchor resolution and touching rules; the `#[func]`
+/// surface needs a live `WorldGen` (a cdylib `GodotClass`) and is not
+/// constructible here.
 #[cfg(test)]
 mod tests {
     use super::{anchor_pos, anchors_touching};
@@ -420,6 +449,8 @@ mod tests {
     use cartalith_civ::conflict::ConflictAnchor::{Province as P, Settlement as S};
     use cartalith_civ::{NamedSettlement, Province, SettlementKind, SettlementPlacement};
 
+    /// A one-cell `y == 0` village `tid` at column `x`; every other field is a
+    /// fixed arbitrary value the tests below do not read.
     fn town(tid: u64, x: usize) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -476,6 +507,9 @@ mod tests {
     /// pin (`_point_to_screen`, which a conflict's points go through, adds
     /// nothing). Old expectation: `(4.0, 0.0)` (the corner); new: `(4.5, 0.5)`
     /// (the centre).
+    ///
+    /// Protects: the half-cell fix -- an unknown `tid` stays unresolved rather
+    /// than being guessed.
     #[test]
     fn a_settlement_anchor_resolves_to_the_cell_centre_not_the_corner() {
         let mut t = town(7, 4);
@@ -488,6 +522,9 @@ mod tests {
 
     /// A province anchor resolves through its seed settlement, the same
     /// cell-centre way.
+    ///
+    /// Protects: that a province anchor resolves only while its seed is still a
+    /// province capital, and then to the seed's cell centre.
     #[test]
     fn a_province_anchor_resolves_through_its_seed_settlements_centre() {
         let world = civ(
@@ -500,6 +537,9 @@ mod tests {
         assert_eq!(anchor_pos(&world2, P(7)), None);
     }
 
+    /// Protects: SP-5's "touching" anchor set -- own settlement, then the
+    /// province the raster puts the cell in, then the province it seeds -- in
+    /// that order, with no duplicate, and nothing for an unknown `tid`.
     #[test]
     fn a_settlement_is_touched_by_itself_and_the_province_it_lies_in() {
         // Four cells in a row; tids 7 and 9 seed provinces 1 and 2, and

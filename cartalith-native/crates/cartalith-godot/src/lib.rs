@@ -72,6 +72,9 @@ use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStam
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
 
+/// Entry type for the `#[gdextension]` library: registers this crate with Godot and owns the
+/// init/deinit hooks below. Carries no state; a hook must never call into Godot from a thread other
+/// than the one Godot runs it on.
 struct CartalithExtension;
 
 #[gdextension]
@@ -168,16 +171,22 @@ struct StderrLogger;
 
 #[cfg(not(target_os = "android"))]
 impl log::Log for StderrLogger {
+    /// `log::Log::enabled`: a record is wanted when its level is at or under the global
+    /// `log::max_level()` set by `install_logger`. No per-target filtering, deliberately (see
+    /// [`log_level_from_env`]).
     fn enabled(&self, meta: &log::Metadata) -> bool {
         meta.level() <= log::max_level()
     }
 
+    /// Writes one `[LEVEL target] message` line to stderr for every enabled record. Must stay
+    /// `eprintln!` only: see [`StderrLogger`]'s doc for why it may never reach Godot.
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
             eprintln!("[{} {}] {}", record.level(), record.target(), record.args());
         }
     }
 
+    /// `log::Log::flush`: nothing to flush, because `eprintln!` is unbuffered.
     fn flush(&self) {}
 }
 
@@ -217,10 +226,13 @@ struct WalkingSkeleton {
 
 #[godot_api]
 impl INode for WalkingSkeleton {
+    /// `INode::init`: builds the placeholder node around its `base`; holds no state.
     fn init(base: Base<Node>) -> Self {
         Self { base }
     }
 
+    /// `INode::ready`: prints one line so a Phase 0 run shows the extension loaded and the class
+    /// registered. Does nothing else.
     fn ready(&mut self) {
         godot_print!("cartalith-godot: WalkingSkeleton ready (Phase 0)");
     }
@@ -1334,7 +1346,13 @@ mod civ_merge_tests {
         }
     }
 
+    // Fixture tag: every derived field of the "fresh" (just recomputed) `CivData` is built with
+    // this many entries (see `tagged`), so a field's length says which pass produced it. A
+    // labelled fixture choice, not an engine value; being different from `OLD` is what makes a
+    // mixed-up merge visible.
     const FRESH: usize = 2;
+    // Fixture tag: the "pre-run" `CivData`'s derived fields hold this many entries. Distinct from
+    // `FRESH` by construction, so a field's length identifies whose data survived `civ_merge`.
     const OLD: usize = 1;
 
     /// The claim itself, driven the whole way through `civ_rebuild`'s tail:
@@ -1379,6 +1397,10 @@ mod civ_merge_tests {
         (merged, rederived)
     }
 
+    /// Protects: `CivRebuild::Routes` keeps every derived field at its pre-run value and takes only
+    /// the route network from the fresh pass, and `civ_merge` reports `rederived == false`, so the
+    /// staleness state never claims the layer was re-derived when only roads were.
+    ///
     /// Generate Roads takes the route network and nothing else, so it may
     /// not claim the layer was re-derived.
     #[test]
@@ -1398,6 +1420,10 @@ mod civ_merge_tests {
         assert_eq!(merged.settlements.len(), OLD);
     }
 
+    /// Protects: `civ_merge`'s `Routes` arm leaves the faction roster bit-identical, so a hand edit
+    /// (religion, government) made before Generate Roads is not overwritten by the fresh pass's
+    /// default roster.
+    ///
     /// `civ_merge`'s `Routes` arm never even names `faction_roster` -- this
     /// pins that down rather than trusting the reading. A hand edit made
     /// before "Generate Roads" must come out bit-identical, not just
@@ -1414,6 +1440,11 @@ mod civ_merge_tests {
         assert_eq!(merged.faction_roster, before, "never overwrites an existing faction");
     }
 
+    /// Protects: after any rebuild mode (`OUTSTANDING_WORK.md` §2.11), a Territory subtract dab
+    /// restores the rebuild's own computed owner (9 under Routes, 5 under Downstream/Replace) and
+    /// never the previously painted faction 3, because `civ_rebase_territory_paint` re-bases the
+    /// tool on the merged grid.
+    ///
     /// `OUTSTANDING_WORK.md` §2.11 "Routes mode re-bases on already-painted
     /// territory". A 2x2 world computed as faction 9 everywhere; cell 3 is
     /// painted faction 3, so its computed and painted owners differ. After a
@@ -1449,6 +1480,10 @@ mod civ_merge_tests {
         }
     }
 
+    /// Protects: after Clear places the Territory tool holds no old computed base, no committed
+    /// paint and no pending draft, so the next commit draws only the new stroke and a GeoJSON-style
+    /// paint write recomposes over an empty base (`civ_clear_places_state`).
+    ///
     /// `OUTSTANDING_WORK.md` §2.11 "Clear places leaves a stale territory
     /// base". A 2x2 world computed as faction 7 everywhere, cell 3 painted
     /// faction 3. After Clear places, a stroke elsewhere must not bring back
@@ -1486,6 +1521,10 @@ mod civ_merge_tests {
         assert_eq!(civ.territory, vec![5, 0, 6, 0]);
     }
 
+    /// Protects: a reopened project with no claim grid (`territory` empty) is treated as "no
+    /// territory" by the province rebuild, the contested count and the tool reset, instead of
+    /// panicking on an index into the empty grid.
+    ///
     /// A reopened project whose archive carried no claim grid holds
     /// `territory` empty (`project_bridge.rs::civ_from_project`). Each path
     /// that reads it as a grid takes that as "no territory" instead of
@@ -1509,6 +1548,10 @@ mod civ_merge_tests {
         assert_eq!(civ.territory, vec![5, 0, 0, 0], "the first stroke makes a whole grid of exactly itself");
     }
 
+    /// Protects: `civ_goto_year` onto a recorded year restores that year's claims into an empty
+    /// (unrestored) grid and names the year in `territory_year`, rather than leaving the grid empty
+    /// while reporting the year as loaded.
+    ///
     /// The same unrestored grid, and a recorded year whose claims *are* known:
     /// going to it restores them. Before, `fill(0)` and a zero-length copy
     /// left the grid empty while reporting the year as loaded.
@@ -1521,6 +1564,10 @@ mod civ_merge_tests {
         assert_eq!(civ.territory_year, Some(0));
     }
 
+    /// Protects: Ruling AT, recorded year: going to a recorded year makes its snapshot the
+    /// Territory tool's base and drops the paint layer and a pending dab, so strokes, subtracts and
+    /// Add year then act on that year and not on year 100's leftovers.
+    ///
     /// Ruling AT, recorded year: a 2x2 world computed as faction 7. Year 0 is
     /// recorded as `[7, 7, 7, 3]` and year 100 as `[5, 7, 7, 3]`, each by a
     /// stroke at that year. Going back to 0 must make `[7, 7, 7, 3]` the base
@@ -1566,6 +1613,11 @@ mod civ_merge_tests {
         assert_eq!(at(300), vec![5, 7, 7, 3], "300 carries its nearest earlier year, 100, forward");
     }
 
+    /// Protects: Ruling AT, unrecorded year: going to a year with no snapshot moves only the
+    /// cursor; territory, base, committed paint and a pending dab are untouched (the reference's
+    /// `terr.fill(0)` is deliberately not reproduced) and `territory_year` keeps naming the year
+    /// the claims came from.
+    ///
     /// Ruling AT, unrecorded year: territory, the base, the committed paint
     /// and a pending dab are all exactly as they were -- the reference's
     /// `terr.fill(0)` is not reproduced. Only the cursor moves, and the year
@@ -1632,6 +1684,11 @@ mod civ_merge_tests {
         (civ, tools)
     }
 
+    /// Protects: `CivRebuild::Downstream` (SG-02's recompute) re-derives all twelve derived fields
+    /// from the fresh pass while carrying across the boundary state that has no terrain input
+    /// (year, timeline, place extras, existing faction roster entries), and its staleness claim
+    /// matches reality.
+    ///
     /// SG-02's recompute rebuilds everything below the settlement list, so
     /// it may.
     #[test]
@@ -1664,6 +1721,11 @@ mod civ_merge_tests {
         assert_claim_matches_reality(CivRebuild::Downstream);
     }
 
+    /// Protects: `CivRebuild::Replace` (Auto-populate) re-derives every derived field, grows the
+    /// kept roster without overwriting any existing faction's name, religion or government, gives
+    /// the new factions real (non-"none") defaults, and drops the `tid`-keyed timeline and place
+    /// extras.
+    ///
     /// Auto-populate replaces the settlement list and everything under it,
     /// so it may too — and drops the `tid`-keyed side tables saying why.
     #[test]
@@ -1707,33 +1769,8 @@ mod civ_merge_tests {
     }
 }
 
-/// Ruling BO ("draw forced lakes") and item 1 of `OUTSTANDING_WORK.md`'s
-/// "Four map-data defects", at the plain-function seams a unit test can
-/// reach (`WorldGen` itself is a `GodotClass` and cannot be built here; the
-/// windowed `_mapdata_probe.gd` drives the `#[func]`s).
-/// FH-5 (`FACTION_HUB_DESIGN.md` §5.2): the Polity picker's land move, driven
-/// through the same free functions the two `#[func]`s call
-/// ([`civ_polity_move_plan`], [`civ_polity_move_apply`]) -- the `#[func]`s
-/// themselves build Godot dictionaries and cannot run under `cargo test`
-/// (`landmark_dict_tests` says why).
-///
-/// The fixture is a 7x4 world, cell index `y * 7 + x`:
-///
-/// ```text
-///   x: 0 1 2 3 4 5 6
-/// y0:  1 1 1 0 2 2 2     s0 Capital f1 (0,0)    s3 Capital f2 (6,0)
-/// y1:  1 1 1 0 2 2 2
-/// y2:  1 1 1 0 2 2 2     s2 Village f1 (1,2)
-/// y3:  1 3 1 0 2 2 2     s1 City f1 (2,3)       s4 Village f3 (1,3)
-/// ```
-///
-/// Column 3 is unclaimed, so faction 1's land and faction 2's never touch.
-/// Faction 1's provinces (nearest same-faction seed, ties to the first) are
-/// s0's `1` and s1's `2`; s1's province is `{9, 15, 16, 21, 23}`, of which
-/// `21` (0,3) is cut off from s1 by faction 3's cell `22` and by province 1's
-/// `14` -- the connectivity case. Faction 3 has no Metropolis/Capital/City,
-/// so `civ_generate_provinces` seeds it from its largest place, s4 (province
-/// `4`): the fallback-seed case.
+/// Tests for [`province_cell_counts`], the Territory tab's per-province cell
+/// count, over plain integer grids.
 #[cfg(test)]
 mod province_cell_count_tests {
     use super::province_cell_counts;
@@ -1750,6 +1787,27 @@ mod province_cell_count_tests {
     }
 }
 
+/// FH-5 (`FACTION_HUB_DESIGN.md` §5.2): the Polity picker's land move, driven through the same free
+/// functions the two `#[func]`s call ([`civ_polity_move_plan`], [`civ_polity_move_apply`]); the
+/// `#[func]`s themselves build Godot dictionaries and cannot run under `cargo test`
+/// (`landmark_dict_tests` says why).
+///
+/// The fixture is a 7x4 world, cell index `y * 7 + x`:
+///
+/// ```text
+///   x: 0 1 2 3 4 5 6
+/// y0:  1 1 1 0 2 2 2     s0 Capital f1 (0,0)    s3 Capital f2 (6,0)
+/// y1:  1 1 1 0 2 2 2
+/// y2:  1 1 1 0 2 2 2     s2 Village f1 (1,2)
+/// y3:  1 3 1 0 2 2 2     s1 City f1 (2,3)       s4 Village f3 (1,3)
+/// ```
+///
+/// Column 3 is unclaimed, so faction 1's land and faction 2's never touch. Faction 1's provinces
+/// (nearest same-faction seed, ties to the first) are s0's `1` and s1's `2`; s1's province is `{9,
+/// 15, 16, 21, 23}`, of which `21` (0,3) is cut off from s1 by faction 3's cell `22` and by
+/// province 1's `14` -- the connectivity case. Faction 3 has no Metropolis/Capital/City, so
+/// `civ_generate_provinces` seeds it from its largest place, s4 (province `4`): the fallback-seed
+/// case.
 #[cfg(test)]
 mod polity_reassign_tests {
     use super::civ_merge_tests::tagged;
@@ -1759,7 +1817,10 @@ mod polity_reassign_tests {
     };
     use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
 
+    // Fixture grid width in cells for the 7x4 world drawn in this module's doc (a hand-built
+    // choice, not an engine value).
     const GW: usize = 7;
+    // Fixture grid height in cells (see `GW`).
     const GH: usize = 4;
 
     /// One settlement; `capital` follows `kind`, `place_settlements`' own
@@ -1816,6 +1877,8 @@ mod polity_reassign_tests {
         (civ, tools)
     }
 
+    /// Dry-run of a polity move over the fixture grid: forwards to [`civ_polity_move_plan`] with
+    /// this module's dimensions. Pure; must never mutate `civ` or `tools`.
     fn plan(civ: &CivData, tools: &CivTools, index: usize, to: i32) -> Result<PolityMove, PolityRefusal> {
         civ_polity_move_plan(civ, Some(tools), GW, GH, index, to)
     }
@@ -1838,7 +1901,7 @@ mod polity_reassign_tests {
         tools.territory_paint.cells().map_or_else(|| vec![0; GW * GH], <[u8]>::to_vec)
     }
 
-    /// Protects §5.2 item 1, "preview cannot disagree with apply": the cells
+    /// Protects: §5.2 item 1, "preview cannot disagree with apply": the cells
     /// the plan names are exactly the cells whose owner the apply changes, for
     /// a province move, a one-cell move and a fallback-seed move.
     #[test]
@@ -1855,7 +1918,7 @@ mod polity_reassign_tests {
         }
     }
 
-    /// Protects §5.2 item 2: a province seed (s1, a City) takes its whole
+    /// Protects: §5.2 item 2: a province seed (s1, a City) takes its whole
     /// province, but only the 4-connected part reachable through A's land --
     /// cell 21 is in its province and stays faction 1, and faction 3's cell 22
     /// is never taken.
@@ -1872,7 +1935,7 @@ mod polity_reassign_tests {
         assert_eq!(civ.settlements[1].placement.faction, 2);
     }
 
-    /// Protects §5.2 item 2 / §9 Q1's default: a place that seeds no province
+    /// Protects: §5.2 item 2 / §9 Q1's default: a place that seeds no province
     /// (s2, a Village of a faction that has a Capital and a City) takes its
     /// own cell only, even though it stands inside s1's province.
     #[test]
@@ -1885,7 +1948,7 @@ mod polity_reassign_tests {
         assert_eq!(civ.territory[16], 1, "its neighbour in the same province stays");
     }
 
-    /// Protects the seed test's source: `civ_generate_provinces`' fallback
+    /// Protects: the seed test's source: `civ_generate_provinces`' fallback
     /// seeds a faction with no Metropolis/Capital/City from its largest place,
     /// so that place's province moves with it although its kind is Village.
     #[test]
@@ -1896,7 +1959,7 @@ mod polity_reassign_tests {
         assert_eq!(mv.cells, vec![22]);
     }
 
-    /// Protects the seed test against stale province indices.
+    /// Protects: the seed test against stale province indices.
     /// `civ_delete_settlement` removes a place (the reference's `splice`) and
     /// rebuilds no provinces, so the stored `province_list` still says
     /// province 2's seed is index 1 -- which, after s0 is removed, is the
@@ -1915,7 +1978,7 @@ mod polity_reassign_tests {
         assert_eq!(city.cells, vec![0, 1, 2, 7, 8, 9, 14, 15, 16, 21, 23]);
     }
 
-    /// Protects §5.2's central claim: the move is hand paint, so a Recompute
+    /// Protects: §5.2's central claim: the move is hand paint, so a Recompute
     /// (`civ_rebase_territory_paint` over a freshly computed, unpainted grid --
     /// here the same computed answer, as `assign_territory` gives for
     /// unchanged capitals) keeps it, and every other cell follows the base.
@@ -1931,7 +1994,7 @@ mod polity_reassign_tests {
         assert_eq!(mv.cells.iter().map(|&c| paint(&tools)[c]).collect::<Vec<_>>(), vec![2; 4]);
     }
 
-    /// Protects §5.2 item 4 (no accumulating paint). Cell 27, (6,3), is
+    /// Protects: §5.2 item 4 (no accumulating paint). Cell 27, (6,3), is
     /// computed as faction 2 and hand-painted faction 1 with the real
     /// Territory tool; a faction-1 village stands on it. Moving that village
     /// to faction 2 must write the fall-through `0` -- what a Territory
@@ -1968,7 +2031,7 @@ mod polity_reassign_tests {
         assert!(paint(&tools).iter().all(|&p| p == 0), "no paint is left anywhere");
     }
 
-    /// Protects §5.2 item 4's purpose: moving a settlement to B and back to A
+    /// Protects: §5.2 item 4's purpose: moving a settlement to B and back to A
     /// restores the original grid and provinces with no paint left behind --
     /// for a province seed (s1) and a one-cell move (s2). Holds because A's and
     /// B's land do not touch here; see
@@ -1989,6 +2052,11 @@ mod polity_reassign_tests {
         }
     }
 
+    /// Protects: the documented, unwanted-but-accepted consequence of §5.2 item 2: when B's land
+    /// touches the moved province, the moved place's new province also covers some of B's own
+    /// cells, so moving it back to A carries more than the first move brought. If the rule is
+    /// changed to make the round trip exact, rewrite this test; do not force it green.
+    ///
     /// Documents a consequence of §5.2 item 2 for the owner, not a goal: when
     /// B's land touches the moved province, the moved place's *new* province
     /// (nearest B seed) also covers some of B's own nearby cells, so moving it
@@ -2011,7 +2079,7 @@ mod polity_reassign_tests {
         assert!(back.cells.contains(&(3 * GW + 3)), "B's own cell (3,3) is carried to A");
     }
 
-    /// Protects §5.2 item 5 / §9 Q2: moving A's only capital is reported (the
+    /// Protects: §5.2 item 5 / §9 Q2: moving A's only capital is reported (the
     /// shell confirms; nothing refuses), and a second capital of A clears it.
     #[test]
     fn moving_the_only_capital_is_reported_and_a_second_capital_clears_it() {
@@ -2024,7 +2092,7 @@ mod polity_reassign_tests {
         assert!(plan(&civ, &tools, 0, 2).unwrap().loses_capital, "another polity's capital does not count");
     }
 
-    /// Protects §5.2 item 6: a move that takes A's last cell is allowed and
+    /// Protects: §5.2 item 6: a move that takes A's last cell is allowed and
     /// reported; one that leaves A land is not reported.
     #[test]
     fn losing_the_last_cell_is_allowed_and_reported() {
@@ -2036,7 +2104,7 @@ mod polity_reassign_tests {
         assert!(!plan(&civ, &tools, 1, 2).unwrap().loses_last_cell);
     }
 
-    /// Protects §5.2 items 1 and 3 and the no-grid fallback's trigger: every
+    /// Protects: §5.2 items 1 and 3 and the no-grid fallback's trigger: every
     /// refusal, by its named reason. 255 is the paint layer's largest value
     /// and is accepted; 256 is refused, not clamped.
     #[test]
@@ -2060,7 +2128,7 @@ mod polity_reassign_tests {
         assert_eq!(PolityRefusal::NoClaimGrid.key(), "no_claim_grid", "the shell's fallback token");
     }
 
-    /// Protects the edges of the plan: the same polity moves nothing, and a
+    /// Protects: the edges of the plan: the same polity moves nothing, and a
     /// place standing on land A does not own moves nothing (its cell is not
     /// A's to give) while still being a valid move.
     #[test]
@@ -2073,7 +2141,7 @@ mod polity_reassign_tests {
         assert!(!mv.loses_last_cell, "moving nothing loses nothing");
     }
 
-    /// Protects "nothing else changes": after a move, only the planned cells,
+    /// Protects: "nothing else changes": after a move, only the planned cells,
     /// the moved settlement's `faction` and the provinces (rebuilt by the real
     /// `civ_generate_provinces` over the new grid) differ. Routes, trade,
     /// explanations (by count: `SettlementExplanation` has no `Debug`), roster,
@@ -2123,11 +2191,14 @@ mod polity_reassign_tests {
     }
 }
 
+/// Ruling BO ("draw forced lakes") and item 1 of `OUTSTANDING_WORK.md`'s "Four map-data defects",
+/// at the plain-function seams a unit test can reach (`WorldGen` itself is a `GodotClass` and
+/// cannot be built here; the windowed `_mapdata_probe.gd` drives the `#[func]`s).
 #[cfg(test)]
 mod forced_lake_tests {
     use super::{apply_forced_lakes, coarse_ocean_wind_fields, compute_civilisation, sample_biome_word, sample_water_word};
 
-    /// Protects `apply_forced_lakes`' three answers: `None` changes nothing
+    /// Protects: `apply_forced_lakes`' three answers: `None` changes nothing
     /// (so a world with no forced lake is byte-identical), a whole-grid mask
     /// makes its cells lake whatever they were (land or ocean -- the
     /// reference's `forceLake` is unconditional), and a mask for another
@@ -2145,7 +2216,7 @@ mod forced_lake_tests {
         assert_eq!(d, base, "a mask of the wrong length forces nothing");
     }
 
-    /// Protects Sample's `water` word for each drawn class (item 1): the
+    /// Protects: Sample's `water` word for each drawn class (item 1): the
     /// three `build_water_bodies` classes by literal, so a swapped arm fails.
     #[test]
     fn the_sample_water_word_names_each_drawn_class() {
@@ -2154,7 +2225,7 @@ mod forced_lake_tests {
         assert_eq!(sample_water_word(2), "lake");
     }
 
-    /// Protects Ruling BO's civ half: a recompute keeps the forced lakes
+    /// Protects: Ruling BO's civ half: a recompute keeps the forced lakes
     /// (`compute_civilisation`'s `forced_lakes`), so the civ layer reads the
     /// water the map draws. The mask covers the 3 x 3 around a settlement
     /// the unforced run placed -- land by construction -- and the forced run
@@ -2195,7 +2266,7 @@ mod forced_lake_tests {
         assert_eq!(run(None).water_bodies, plain.water_bodies, "no mask, no change");
     }
 
-    /// Protects Sample's `biome` word for the map's LIVE water classification
+    /// Protects: Sample's `biome` word for the map's LIVE water classification
     /// (item 2, `OUTSTANDING_WORK.md` "Map-data residuals"): ocean/lake
     /// override climate outright, whatever the temperature/rainfall say --
     /// mirroring `build_biome_raster_water_overrides_climate` (`cartalith-
@@ -2245,6 +2316,9 @@ mod civ_pipeline_tests {
         })
     }
 
+    /// Runs the real `compute_civilisation` over the shared 256x192 fixture world with the given
+    /// faction cultures (`&[]` = default cultures) and no kept layer. Stays CPU-only because
+    /// `world()` sets `use_gpu = false`.
     fn civ(p: &cartalith_engine::WorldParams, cultures: &[&str]) -> CivData {
         let ws = &world().0;
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
@@ -2260,14 +2334,22 @@ mod civ_pipeline_tests {
     /// between a Stable and a recovered run; recovery moves no settlement and
     /// renames none, so cell plus name is the same identity `tid` stands for.
     type Key = (usize, usize, String);
+    /// Reduces a settlement to `(x, y, name)`, the identity that is comparable across pipeline runs
+    /// (see `Key`).
     fn key(s: &NamedSettlement) -> Key {
         (s.placement.x, s.placement.y, s.name.clone())
     }
+    /// The `Key`s of the two settlements at way endpoints `a` and `b`; panics naming the endpoint
+    /// and the list length if one is out of range, so a mis-remapped way fails loudly.
     fn pair(c: &CivData, a: usize, b: usize) -> (Key, Key) {
         let at = |i: usize| key(c.settlements.get(i).unwrap_or_else(|| panic!("endpoint {i} past {} settlements", c.settlements.len())));
         (at(a), at(b))
     }
 
+    /// Protects: A2: a roster at its defaults names settlements exactly as no roster does, and
+    /// editing one faction's culture renames only that faction's settlements (from the new
+    /// culture's name pool) while moving no settlement's position, population or faction.
+    ///
     /// A2. Auto-populate names from the roster's cultures: a roster at its
     /// defaults names exactly as no roster does, and an edited culture
     /// renames that faction's settlements (villages included) and nothing
@@ -2415,7 +2497,7 @@ mod civ_pipeline_tests {
         cartalith_civ::timeline::civ_year_diff(&tl, year)
     }
 
-    /// Protects the fix for `OUTSTANDING_WORK.md` §2.3's row
+    /// Protects: the fix for `OUTSTANDING_WORK.md` §2.3's row
     /// "`recompute_civilisation` re-issues every way's tid", through the real
     /// pipeline on a real world. A recompute that changes nothing must give
     /// every way its old tid back, so the timeline diff across it is empty
@@ -2566,6 +2648,8 @@ mod civ_pipeline_tests {
         out
     }
 
+    /// A minimal road `Way` joining settlement indices `a` and `b`, named `"a-b"`, so the remap
+    /// test can read endpoints and names back.
     fn way(a: usize, b: usize) -> Way {
         Way {
             tid: 0,
@@ -2580,6 +2664,11 @@ mod civ_pipeline_tests {
         }
     }
 
+    /// Protects: `recovery_index_map` plus `remap_after_recovery` on a hand-built case (settlement
+    /// 1 of 4 abandoned): surviving edges and ways are re-pointed to the new indices, everything
+    /// touching the abandoned place is removed, and the network ways are rebuilt from the
+    /// re-pointed topology.
+    ///
     /// The remap itself on a hand-built case: settlement 1 of 4 abandoned.
     #[test]
     fn remap_repoints_survivors_and_removes_what_touched_the_abandoned() {
@@ -2617,10 +2706,17 @@ mod civ_pipeline_tests {
     fn crossings(territory: &[i32], provinces: &[i32], list: &[cartalith_civ::Province]) -> usize {
         territory.iter().zip(provinces).filter(|&(&t, &p)| p > 0 && list[(p - 1) as usize].faction != t).count()
     }
+    /// `crossings` over a whole `CivData`'s own claim grid, province grid and province list.
     fn crossings_of(c: &CivData) -> usize {
         crossings(&c.territory, &c.provinces, &c.province_list)
     }
 
+    /// Protects: A4: after painting a border through one faction's land and committing it, no
+    /// province crosses the painted border (`civ_commit_territory_paint` rebuilds provinces over
+    /// the merged grid), and a recompute that re-anchors the paint keeps the provinces on the
+    /// merged grid. The test first reproduces the defect (merging the paint alone leaves
+    /// crossings).
+    ///
     /// A4. Paint a border through one faction's land and commit it: no
     /// province may cross it. Before the fix a commit merged the paint into
     /// `territory` and left the provinces built on the unpainted grid.
@@ -2661,6 +2757,9 @@ mod civ_pipeline_tests {
         assert_eq!(crossings_of(&fresh), 0, "a recompute put provinces back on the unpainted grid");
     }
 
+    /// Protects: A4's other half: with no paint, a recompute's provinces are exactly what
+    /// `compute_civilisation` built; the paint re-base neither rebuilds nor moves them.
+    ///
     /// A4's other half: with no paint, a recompute's provinces are exactly
     /// what `compute_civilisation` built -- not rebuilt, not moved.
     #[test]
@@ -2678,7 +2777,7 @@ mod civ_pipeline_tests {
 /// `TIMELINE_SCOPE.md` §9's own "Snapshot cap" decision: a generous ceiling
 /// on recorded timeline years, bounding this struct's own memory use rather
 /// than matching the reference's unbounded `civTimeline` growth. Logged here
-/// (and in `cartalith-native/docs/CHANGELOG.md`) as a deliberate deviation,
+/// (and in the retired `cartalith-native/docs/CHANGELOG.md`, history only) as a deliberate deviation,
 /// not a silent one -- `civ_add_year`'s own doc comment is where it's
 /// enforced.
 const TIMELINE_MAX_YEARS: usize = 2000;
@@ -3107,6 +3206,8 @@ mod civ_timeline_tests {
     use super::{CIV_FACTION_COUNT, CivData, civ_roster_bridge};
     use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
 
+    /// A village `NamedSettlement` of faction 1 at `(x, 0)` with the given `tid` and name and a
+    /// population of 100; fixture only.
     fn mk_settlement(tid: u64, x: usize, name: &str) -> NamedSettlement {
         NamedSettlement {
             tid,
@@ -3124,6 +3225,8 @@ mod civ_timeline_tests {
         }
     }
 
+    /// A `CivData` holding only the given settlements and claim grid, with every other layer empty
+    /// and a default-seeded roster, so a timeline test sees nothing it did not put there.
     fn empty_civ(settlements: Vec<NamedSettlement>, territory: Vec<i32>) -> CivData {
         CivData {
             settlements,
@@ -3151,6 +3254,9 @@ mod civ_timeline_tests {
         }
     }
 
+    /// Protects: `civ_add_year` on an empty timeline seeds it with the live settlements and claims
+    /// and moves the cursor to the new year, and the snapshot-load round trip leaves the live claim
+    /// grid unchanged.
     #[test]
     fn add_year_on_an_empty_timeline_seeds_it_with_the_live_state_and_jumps_to_it() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 3, 0]);
@@ -3166,6 +3272,9 @@ mod civ_timeline_tests {
         assert_eq!(civ.territory, vec![0, 3, 0]);
     }
 
+    /// Protects: `TIMELINE_SCOPE.md` §7 criterion 2: adding a year first re-snapshots the active
+    /// year, so a live edit (a new settlement, a repainted cell) made while year 0 was active is in
+    /// year 0's record, and the live arrays are not rewound.
     #[test]
     fn add_year_never_loses_the_currently_active_years_live_edits() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![1, 0, 0]);
@@ -3199,6 +3308,9 @@ mod civ_timeline_tests {
         assert_eq!(civ.settlements.len(), 2);
     }
 
+    /// Protects: a new year with no recorded year at or before it carries the nearest earlier
+    /// recorded year forward, and records its territory as an empty delta from that base (owner
+    /// ruling 27: unchanged years cost no raster copy).
     #[test]
     fn add_year_carries_forward_from_the_nearest_earlier_recorded_year() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![7, 7, 7]);
@@ -3258,6 +3370,8 @@ mod civ_timeline_tests {
         assert_eq!(civ.timeline[2].record.place_overrides, Some(Default::default()), "recorded: none");
     }
 
+    /// Protects: adding a year that is already recorded does not duplicate it and does not move the
+    /// cursor, past re-snapshotting.
     #[test]
     fn add_year_on_an_already_recorded_year_does_not_duplicate_or_move_the_cursor() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
@@ -3272,6 +3386,8 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: `civ_goto_year` restores only the territory from the target snapshot and never the
+    /// live settlements or ways, as the reference's `civGotoYear` does.
     #[test]
     fn goto_year_never_mutates_settlements_or_ways_only_territory() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
@@ -3296,6 +3412,8 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: removing the active year moves the cursor to the earliest remaining year, not the
+    /// next one, as the reference does.
     #[test]
     fn remove_year_falls_back_to_the_earliest_remaining_year() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
@@ -3311,6 +3429,8 @@ mod civ_timeline_tests {
         assert_eq!(civ.timeline.len(), 2);
     }
 
+    /// Protects: removing the only recorded year leaves an empty timeline and a cursor at year 0
+    /// (the reference's `next?next.year:0`).
     #[test]
     fn remove_year_falls_back_to_zero_when_none_remain() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
@@ -3320,6 +3440,8 @@ mod civ_timeline_tests {
         assert!(civ.timeline.is_empty());
     }
 
+    /// Protects: `civ_remove_year` on a year that was never recorded changes neither the timeline
+    /// nor the cursor.
     #[test]
     fn remove_year_on_an_unrecorded_year_is_a_no_op() {
         let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
@@ -3340,6 +3462,8 @@ mod civ_timeline_tests {
     // `#[func]` cannot run under `cargo test` (`civ_merge_tests` states why),
     // so the `CivData` method it wraps is what is driven.
 
+    /// A bare road `Way` between settlement indices `a` and `b` of length `km`, with no geometry:
+    /// the belief model reads only endpoints and length.
     fn way(a: usize, b: usize, km: f64) -> cartalith_civ::Way {
         cartalith_civ::Way {
             tid: 0,
@@ -3364,6 +3488,9 @@ mod civ_timeline_tests {
         civ
     }
 
+    /// Protects: a fresh world has no belief layer, and `belief_current()` reports "no layer"
+    /// rather than an all-secular layer: absence is never encoded as a plausible value
+    /// (`MISTAKES.md`).
     #[test]
     fn belief_is_absent_until_it_is_run_and_never_defaults() {
         let civ = linked_pair();
@@ -3374,6 +3501,10 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: a freshly seeded roster carries real default religions (wired 2026-09-23 via
+    /// `civ_default_religion`), so the first belief run seeds real faith and every settlement's
+    /// plurality starts as faction 1's `earth_mother`.
+    ///
     /// **Re-baselined 2026-09-23**: this used to be named
     /// `the_shipped_roster_makes_a_run_report_no_faith_rather_than_an_empty_result`
     /// and read "untouched roster: `FactionEntry::default_for` gives every
@@ -3403,6 +3534,10 @@ mod civ_timeline_tests {
         }
     }
 
+    /// Protects: with every faction's religion set to "none" a run reports `any_faith == false` and
+    /// yields an all-secular layer that still exists, keeping "no layer" and "the model ran and
+    /// found nothing" distinguishable.
+    ///
     /// The "no layer" vs "the layer ran and found nothing" distinction the
     /// milestone this module's own comment names exists to preserve --
     /// exercised on an explicit all-`"none"` roster now that a freshly
@@ -3429,6 +3564,9 @@ mod civ_timeline_tests {
         }
     }
 
+    /// Protects: a hand-set faction religion reaches the belief model, seeds its own settlement
+    /// wholly, and spreads to a neighbouring faction's town down the road network only; with the
+    /// road removed there is no exposure, proving the graph is the roads and not proximity.
     #[test]
     fn a_hand_set_faction_religion_reaches_the_model_and_spreads_down_a_road() {
         let mut civ = linked_pair();
@@ -3591,6 +3729,9 @@ mod civ_timeline_tests {
         }
     }
 
+    /// Protects: a religion change on a faction after a run forces a re-seed of
+    /// the belief layer (and reverting it, or a rename, does not).
+    ///
     /// The regression `_belief_probe.gd` found, as a test that runs in CI.
     ///
     /// Setting a faction's religion is the **only** way a religion is ever
@@ -3644,6 +3785,9 @@ mod civ_timeline_tests {
         assert_eq!(civ.belief, before, "a rename must not restart the simulation");
     }
 
+    /// Protects: appending a settlement after a run makes `belief_current()` return "no layer" (a
+    /// stale layer is wrong information, not partial information) and the next run re-seeds at the
+    /// new length.
     #[test]
     fn editing_the_settlement_list_invalidates_a_finished_run() {
         let mut civ = linked_pair();
@@ -3668,6 +3812,8 @@ mod civ_timeline_tests {
         assert!(civ.belief_current().is_some());
     }
 
+    /// Protects: two belief runs of 12 then 8 years equal one run of 20 years and the second does
+    /// not re-seed: advancing the world continues the simulation rather than restarting it.
     #[test]
     fn a_second_run_continues_rather_than_restarting() {
         let sun = cartalith_civ::belief::religion_index("sun_cult").unwrap();
@@ -3698,6 +3844,8 @@ mod civ_timeline_tests {
     // builds `VarDictionary`s), so what is tested is the decision it
     // marshals: which religions are emitted, and which are left out.
 
+    /// Builds a `SettlementReligionState` from `(religion key, share)` pairs, panicking on a key
+    /// that is not in the roster; fixture only.
     fn state_of(pairs: &[(&str, f64)]) -> cartalith_civ::belief::SettlementReligionState {
         let mut share = [0.0f64; cartalith_civ::belief::CIV_RELIGION_COUNT];
         for (k, v) in pairs {
@@ -3706,6 +3854,9 @@ mod civ_timeline_tests {
         cartalith_civ::belief::SettlementReligionState { share }
     }
 
+    /// Protects: `religion_shares` emits every religion with a nonzero share in roster order and
+    /// omits exact zeros, while `none` is emitted when held, so an absent key means zero and a
+    /// present one is real data.
     #[test]
     fn religion_shares_omits_a_zero_and_keeps_every_real_one() {
         let s = state_of(&[("sun_cult", 0.7), ("old_gods", 0.3)]);
@@ -3727,6 +3878,7 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: a settlement wholly of one faith emits exactly that one religion at share 1.0.
     #[test]
     fn a_settlement_wholly_of_one_faith_emits_exactly_that_one() {
         let s = cartalith_civ::belief::SettlementReligionState::wholly(
@@ -3735,6 +3887,9 @@ mod civ_timeline_tests {
         assert_eq!(super::religion_shares(&s), vec![("flame_creed", 1.0)]);
     }
 
+    /// Protects: at population 0 `adherents` is all zeros while `religion_shares` still carries the
+    /// real shares, which are population-independent.
+    ///
     /// The row's own case, and the reason the key exists: at population 0
     /// `adherents` is empty for a settlement whose shares are real.
     #[test]
@@ -3751,6 +3906,10 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: a minority too small to be one person (1% of 10) is dropped by `adherents`
+    /// (largest-remainder rounding) yet kept by `religion_shares`, and every religion `adherents`
+    /// counts is also present in the shares.
+    ///
     /// `adherents` rounds; `religion_shares` does not. A minority too small to
     /// be one person is present in exactly one of the two.
     #[test]
@@ -3773,6 +3932,9 @@ mod civ_timeline_tests {
         }
     }
 
+    /// Protects: a population-0 settlement linked to a populated one takes up its neighbour's faith
+    /// as a minority that only `religion_shares` can express; `adherents(0)` is all zeros.
+    ///
     /// The row's premise, built rather than assumed: a population-0
     /// settlement linked to a populated one **does** take up its neighbour's
     /// faith, and that minority is representable in `religion_shares` and in
@@ -3802,6 +3964,9 @@ mod civ_timeline_tests {
         );
     }
 
+    /// Protects: after a real 40-year run the emitted shares of every settlement still sum to 1.0
+    /// (within 1e-12) and are never empty, so the export loses nothing.
+    ///
     /// Not a restatement of `belief_step`'s renormalisation: what is asserted
     /// is that the *export* loses nothing, so a shell reading only the
     /// emitted keys still sees a whole settlement.
@@ -4227,6 +4392,8 @@ fn controlling_faction(
     Some((id, entry.name.clone()))
 }
 
+/// Tests for [`controlling_faction`], the per-cell faction pair `sample_cell` reports, over
+/// hand-built rosters (no engine, no Godot types).
 #[cfg(test)]
 mod controlling_faction_tests {
     use super::{civ_roster_bridge::FactionRoster, controlling_faction};
@@ -4244,8 +4411,13 @@ mod controlling_faction_tests {
         assert!(roster.set_field(1, "name", "The Concord"));
         assert!(roster.set_field(2, "name", "Veldmark"));
         let r = Some(&roster);
+        // The `water_body` class codes the live map draws, as `Option<u8>`: `0` land, `1` ocean,
+        // `2` lake (`build_water_bodies`'s classes; see `sample_water_word`). Spelled as literals
+        // so a swapped arm in `controlling_faction` fails.
         const LAND: Option<u8> = Some(0);
+        // Live water class `1` = ocean (see `LAND`).
         const OCEAN: Option<u8> = Some(1);
+        // Live water class `2` = lake (see `LAND`).
         const LAKE: Option<u8> = Some(2);
 
         // Claimed land: the id and the roster's name for THAT id.
@@ -4271,10 +4443,16 @@ mod controlling_faction_tests {
     }
 }
 
+/// Tests for the claim-grid helpers [`claim_grid_known`] and [`faction_claimed_cells`], which
+/// separate "the grid is unknown" from "the grid is known and the faction owns nothing".
 #[cfg(test)]
 mod claim_grid_tests {
     use super::{claim_grid_known, faction_claimed_cells};
 
+    /// Protects: an unknown claim grid (empty, or the wrong size) counts as `None`, never
+    /// `Some(0)`; a known grid counts per faction, and a faction owning nothing on a known grid is
+    /// a real `Some(0)`.
+    ///
     /// An unknown claim grid is `None`, never `Some(0)`; a known one counts,
     /// and a faction that claims nothing on a known grid is a real `Some(0)`.
     #[test]
@@ -4290,6 +4468,17 @@ mod claim_grid_tests {
     }
 }
 
+/// Runs the whole Phase 2 civilisation pass over a finished world: water bodies, biome, soil, water
+/// access, carrying capacity, resource potentials, settlement suitability and placement, factions
+/// and territory, provinces, roads and sea routes, names, trade balances and explanations, and
+/// returns them as a [`CivData`].
+///
+/// With `keep` ([`KeptCiv`]) it re-derives everything below the existing settlement list without
+/// placing anything (SG-02); without it, it auto-populates. Pure over its inputs apart from
+/// `gpu_stages`, which it appends to when a kernel really ran on the GPU, and it must not touch
+/// Godot types: that is what lets the tests drive it under `cargo test`. `forced_lakes` is Ruling
+/// BO's mask, applied right after `build_water_bodies`, and `None` must reproduce the unforced
+/// result byte for byte.
 fn compute_civilisation(
     ws: &cartalith_engine::WorldState,
     gw: usize,
@@ -5397,6 +5586,9 @@ fn river_dict(f: &sample_bridge::FieldRefs<'_>, r: &cartalith_hydrology::River, 
     d
 }
 
+/// [`way_render_polyline`] repackaged as the `PackedVector2Array` of points and `PackedInt32Array`
+/// of break indices the shell draws. Narrowing to `f32` happens only here, after the densified
+/// polyline is computed in `f64`.
 fn way_render_geometry(
     pts: &[(f64, f64)],
     brks: &[usize],
@@ -5408,10 +5600,16 @@ fn way_render_geometry(
     )
 }
 
+/// Tests for [`way_render_polyline`]: the densified, rounded polyline a way is drawn with,
+/// including breaks, degenerate runs and the NaN case.
 #[cfg(test)]
 mod way_render_tests {
     use super::{WAY_RENDER_STEP_CELLS, way_render_polyline};
 
+    /// Protects: a way is drawn denser than its control points (chords under twice
+    /// `WAY_RENDER_STEP_CELLS`) while its endpoints stay exactly the way's own, so a road still
+    /// meets its settlement pin.
+    ///
     /// The point of the whole change: a way's drawn polyline is denser than
     /// its control points, and its chords are `WAY_RENDER_STEP_CELLS`-scale
     /// rather than the 3 cells `_civSmoothPath` sampled at.
@@ -5433,6 +5631,10 @@ mod way_render_tests {
         assert!((last.0 - 9.0).abs() < 1e-9 && (last.1 - 4.0).abs() < 1e-9, "{last:?}");
     }
 
+    /// Protects: a river's D8 staircase corners are cut by the render curve, while a pinned cell (a
+    /// tributary's stroke end) stays exactly on the curve, so the confluence gap is zero and the
+    /// run endpoints are kept.
+    ///
     /// A river's D8 staircase leaves its corner cells, but a pinned cell -- one
     /// a tributary's stroke ends on -- stays ON the curve, so the confluence
     /// gap is zero.
@@ -5463,6 +5665,9 @@ mod way_render_tests {
         assert_eq!(pinned[pinned.len() - 1], pts[pts.len() - 1]);
     }
 
+    /// Protects: a break in a way survives the resample as exactly one break, each run keeps its
+    /// own endpoints, and nothing is splined across the seam.
+    ///
     /// A break must still separate the two runs it separated before, and the
     /// runs must not be splined across it.
     #[test]
@@ -5482,6 +5687,9 @@ mod way_render_tests {
         assert!((a_end.0 - 6.0).abs() < 1e-9 && a_end.1.abs() < 1e-9, "{a_end:?}");
     }
 
+    /// Protects: empty, one-point and out-of-range or out-of-order break inputs pass through
+    /// without a panic, which would otherwise cross the gdext boundary.
+    ///
     /// Degenerate inputs the engine can legitimately produce must pass
     /// through rather than panic across the gdext boundary.
     #[test]
@@ -5496,6 +5704,9 @@ mod way_render_tests {
         assert!(!out2.is_empty());
     }
 
+    /// Protects: a two-point straight leg (the unreachable-leg fallback of `civ_dijkstra_path`)
+    /// stays dead straight after densifying, every point on the chord within 1e-9.
+    ///
     /// `civ_dijkstra_path`'s unreachable-leg fallback is a two-point
     /// straight line, and committed routes (`route_get`'s `render_points`)
     /// can carry one. Densifying it must leave it dead straight -- a
@@ -5517,6 +5728,9 @@ mod way_render_tests {
         }
     }
 
+    /// Protects: coincident control points in a rounded way (a stalled sample) never produce a NaN
+    /// or infinite coordinate, including across a break seam, and the way's own endpoints survive.
+    ///
     /// The bug the real sea lanes reported as `chord mean -nan`.
     /// `_civSmoothPath` rounds every spline sample to a whole cell, so a
     /// slow-moving stretch of a way emits the same cell twice -- and a
@@ -5556,6 +5770,9 @@ mod way_render_tests {
         assert_eq!(out[out.len() - 1], pts[8]);
     }
 
+    /// Protects: a run that is one repeated cell keeps its points rather than being dropped or
+    /// indexed past the end.
+    ///
     /// A run that is nothing but one repeated cell has no curve to draw.
     /// `civ_catmull_rom_sample` returns nothing for it (as the reference
     /// already did), and the fallback must keep the stroke rather than
@@ -5702,11 +5919,15 @@ fn stamp_points_grid(s: &sculpt_bridge::SculptEditor, index: usize) -> Vec<carta
     s.draft.entries().get(index).map(|e| e.stamp.points.clone()).unwrap_or_default()
 }
 
+/// Tests for [`stamp_points_grid`], the draft-stamp polyline lookup, over a real `SculptEditor` (no
+/// Godot types).
 #[cfg(test)]
 mod stamp_points_grid_tests {
     use super::*;
     use cartalith_terrain::sculpt::{Feature, Point, SculptStamp};
 
+    /// A 64x64 `SculptEditor` whose draft holds one Mountains stamp with the given polyline;
+    /// fixture only.
     fn editor_with_one_stamp(points: Vec<Point>) -> sculpt_bridge::SculptEditor {
         let mut ed = sculpt_bridge::SculptEditor::new(64, 64, None, None, 1);
         let feature = Feature::Mountains;
@@ -5715,6 +5936,9 @@ mod stamp_points_grid_tests {
         ed
     }
 
+    /// Protects: `stamp_points_grid` returns the stamp's own polyline at its draft index, asserted
+    /// against literal coordinates (mutating the field read or the index math turns it red).
+    ///
     /// Built from real geometry -- a three-point stroke -- so the pick
     /// actually has something to hit-test against, and the literal
     /// coordinates are asserted rather than round-tripped through the
@@ -5731,6 +5955,7 @@ mod stamp_points_grid_tests {
         assert_eq!(got[2], Point::new(9.0, 1.0));
     }
 
+    /// Protects: an out-of-range draft index returns an empty list rather than panicking.
     #[test]
     fn out_of_range_index_is_empty_not_a_panic() {
         let ed = editor_with_one_stamp(vec![Point::new(0.0, 0.0)]);
@@ -5738,6 +5963,9 @@ mod stamp_points_grid_tests {
         assert_eq!(stamp_points_grid(&ed, 999), Vec::<Point>::new());
     }
 
+    /// Protects: a one-point tap is a legal stroke and returns one point, distinguishing it from
+    /// the empty out-of-range answer.
+    ///
     /// A tap (one point) is a legal stroke, not a miss -- `sculpt_stamp_
     /// points`'s own doc comment. Distinguishes "empty because out of
     /// range" from "one point because that's what was drawn".
@@ -6718,6 +6946,9 @@ struct LodCtxCache {
 
 #[godot_api]
 impl IRefCounted for WorldGen {
+    /// `IRefCounted::init`: a `WorldGen` with no world (`source: None`, a 0x0 grid), the default
+    /// parameter set from `params::defaults()` and every editor empty. Must not allocate a world;
+    /// `generate()` or an open does that.
     fn init(base: Base<RefCounted>) -> Self {
         Self {
             base,
@@ -7257,29 +7488,6 @@ impl WorldGen {
         self.vault.store.snapshots.clear();
     }
 
-    /// Replaces the `Loaded` world `load_save` just installed with the complete
-    /// `WorldState` a project archive carried (owner Ruling AR, 2026-09-24;
-    /// `SAVEFILE_COMPAT.md` §8.3; `substrate.rs`). Called by `project_open`
-    /// only, after `load_save` has already reset every per-world editor.
-    ///
-    /// **Not `absorb`.** `absorb` is a *generation*: it recomputes the civ
-    /// layer, seeds fresh editors and names the world from its seed, and a
-    /// reopened project restores all of those from the archive instead. What
-    /// this sets is the short list of `WorldGen` state that is derived from
-    /// the source kind and that `load_save` set for a terrain-only world:
-    ///
-    /// - the latitude band, which `load_save` pins to the reference's literal
-    ///   `55`/`5` because a terrain-only save carried none; a project carries
-    ///   its parameter block, which `load_save` has just restored, so the band
-    ///   is the one the world was generated with -- `absorb`'s own source;
-    /// - the staleness graph, sized over this world's tiling exactly as
-    ///   `absorb` sizes it (`SculptEditor`'s `PassBuffer` tile count), with
-    ///   every stage current: the world is the one that was saved;
-    /// - the source itself, with `world_epoch` bumped because every assignment
-    ///   to `source` bumps it.
-    ///
-    /// `gpu_stages_used` stays empty (`load_save` cleared it): nothing ran on
-    /// the GPU for this world in this process.
     /// Why a readout that needs the complete world -- the `WorldState`
     /// substrate and, for the civ readouts, the civilisation layer -- cannot
     /// run on this one. One sentence per real state, so no refusal has to
@@ -7310,6 +7518,29 @@ impl WorldGen {
         }
     }
 
+    /// Replaces the `Loaded` world `load_save` just installed with the complete
+    /// `WorldState` a project archive carried (owner Ruling AR, 2026-09-24;
+    /// `SAVEFILE_COMPAT.md` §8.3; `substrate.rs`). Called by `project_open`
+    /// only, after `load_save` has already reset every per-world editor.
+    ///
+    /// **Not `absorb`.** `absorb` is a *generation*: it recomputes the civ
+    /// layer, seeds fresh editors and names the world from its seed, and a
+    /// reopened project restores all of those from the archive instead. What
+    /// this sets is the short list of `WorldGen` state that is derived from
+    /// the source kind and that `load_save` set for a terrain-only world:
+    ///
+    /// - the latitude band, which `load_save` pins to the reference's literal
+    ///   `55`/`5` because a terrain-only save carried none; a project carries
+    ///   its parameter block, which `load_save` has just restored, so the band
+    ///   is the one the world was generated with -- `absorb`'s own source;
+    /// - the staleness graph, sized over this world's tiling exactly as
+    ///   `absorb` sizes it (`SculptEditor`'s `PassBuffer` tile count), with
+    ///   every stage current: the world is the one that was saved;
+    /// - the source itself, with `world_epoch` bumped because every assignment
+    ///   to `source` bumps it.
+    ///
+    /// `gpu_stages_used` stays empty (`load_save` cleared it): nothing ran on
+    /// the GPU for this world in this process.
     fn install_reopened_world(&mut self, ws: cartalith_engine::WorldState) {
         self.lat_n = self.params.climate.lat_n;
         self.lat_s = self.params.climate.lat_s;
@@ -10742,11 +10973,13 @@ impl WorldGen {
         GString::from(render::recommended_quality_tier().name())
     }
 
+    /// Grid width in cells (`gw`); `0` before any world is generated or loaded.
     #[func]
     fn get_width(&self) -> i32 {
         self.gw
     }
 
+    /// Grid height in cells (`gh`); `0` before any world is generated or loaded.
     #[func]
     fn get_height(&self) -> i32 {
         self.gh
@@ -14906,6 +15139,8 @@ impl WorldGen {
             PackedStringArray::new()
         };
 
+        /// One layer's `CommitSummary` as `{stamps_applied, stamps_skipped}`, the same shape for
+        /// the biome, terrain and splat layers of the paint commit result.
         fn summary_dict(s: &cartalith_spatial::CommitSummary) -> VarDictionary {
             vdict! { "stamps_applied" => s.stamps_applied as i64, "stamps_skipped" => s.stamps_skipped as i64 }
         }
@@ -15901,6 +16136,8 @@ impl WorldGen {
         self.bake.tile_size = px.clamp(64, 4096) as usize;
     }
 
+    /// The pixel size baked tiles are synthesised at, as last set by `atlas_set_tile_size` (clamped
+    /// to 64..=4096 there). Read-only.
     #[func]
     fn atlas_tile_size(&self) -> i64 {
         self.bake.tile_size as i64
@@ -16328,6 +16565,8 @@ impl WorldGen {
         true
     }
 
+    /// Whether Finalize map has been applied to this world (`bake.finalized`), the lock
+    /// `applyFinalizedUI` enforces. Read-only; must never change the flag.
     #[func]
     fn is_finalized(&self) -> bool {
         self.bake.finalized
@@ -18196,6 +18435,8 @@ fn jp_leg_result_dict(r: &cartalith_civ::JpLegResult) -> VarDictionary {
     d
 }
 
+/// One `JpTimelineDay` as `{day, km, terrain, biome, camp}`; `camp` is the empty string (not
+/// omitted) when the day has no camp.
 fn jp_timeline_dict(t: &cartalith_civ::JpTimelineDay) -> VarDictionary {
     vdict! {
         "day" => t.day,
@@ -18206,6 +18447,8 @@ fn jp_timeline_dict(t: &cartalith_civ::JpTimelineDay) -> VarDictionary {
     }
 }
 
+/// One `JpStop` as `{key, name, kind, x, y, layover_days}`: the planned stop's identity, its
+/// position in cells and its layover.
 fn jp_stop_dict(s: &cartalith_civ::JpStop) -> VarDictionary {
     vdict! {
         "key" => s.key.as_str(),
@@ -19016,6 +19259,10 @@ fn jp_merge_stage_override(
     }
 }
 
+/// A `JpAutoTransport` outcome as a `Dictionary` with `ok` and a `reason` token (`no_land_stages`,
+/// `not_a_land_mode`, `walking`, `walking_overloaded`, `mount`, `baggage_train`, ...) plus that
+/// variant's own fields (species, counts, warnings). The reason token is what the shell branches
+/// on, so a new variant needs a new token here.
 fn jp_auto_transport_dict(a: &cartalith_civ::JpAutoTransport) -> VarDictionary {
     use cartalith_civ::JpAutoTransport as A;
     let mut d = match a {
@@ -19067,6 +19314,8 @@ impl WorldGen {
     /// library is real, stock-seeded state from `init()` onward.
     #[func]
     fn tl_counts(&self) -> VarDictionary {
+        /// Counts one definition set as `{total, custom, stock}`; `stock` is `total - custom`,
+        /// never counted independently, so the three cannot disagree.
         fn one<T: travel_bridge::TravelEntry>(set: &travel_bridge::EntrySet<T>) -> VarDictionary {
             let total = set.iter().count();
             let custom = set.iter().filter(|e| e.origin() == cartalith_civ::travel_library::EntryOrigin::Custom).count();
@@ -19474,6 +19723,9 @@ fn tl_animal_slot_keys(
     d.set("usable_as_mount", a.usable_as_mount);
 }
 
+/// The metadata every Travel-library row shares: `id`, `name`, `origin`, `editable` (custom entries
+/// only), `subtitle`, `species_key`, the validation state with its missing/conflict lists, and
+/// usage counts. Callers add the per-kind fields afterwards.
 fn tl_meta_dict(
     id: &str,
     name: &str,
@@ -20157,6 +20409,10 @@ impl WorldGen {
         }
     }
 
+    /// Renders the named debug field view (`view`) as an RGBA8 `ImageTexture` at the world's own
+    /// grid size, or `None` when there is no complete world, the view is unknown or image creation
+    /// fails. The Biomes view is painted from the live appearance's biome colours (CA-19, Ruling P)
+    /// so it matches the map's legend.
     #[func]
     fn build_debug_texture(&self, view: GString) -> Option<Gd<ImageTexture>> {
         let f = self.sample_refs()?;
@@ -20208,6 +20464,9 @@ impl WorldGen {
         Some(fp)
     }
 
+    /// Borrows the generated world's fields as a [`sample_bridge::FieldRefs`], or `None` for no
+    /// world, a loaded (terrain-only) world or a 0x0 grid. Every sampling `#[func]` goes through
+    /// this, so a loaded save answers "absent" rather than a made-up value.
     fn sample_refs(&self) -> Option<sample_bridge::FieldRefs<'_>> {
         let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
         let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
@@ -21554,6 +21813,8 @@ impl WorldGen {
         self.territory_opacity = if a < 0.0 { TERRITORY_ALPHA_DEFAULT } else { a.clamp(0.0, 1.0) };
     }
 
+    /// The territory wash's alpha as last set by `set_territory_opacity` (0..1), initially
+    /// `TERRITORY_ALPHA_DEFAULT`. Read-only.
     #[func]
     fn territory_opacity(&self) -> f64 {
         self.territory_opacity
@@ -22216,6 +22477,9 @@ fn volume_free_bytes(dir: &std::path::Path) -> Option<u64> {
     // needed is cheaper than a dependency and adds nothing to the tree.
     // Signature: `BOOL GetDiskFreeSpaceExW(LPCWSTR, PULARGE_INTEGER x3)`.
     unsafe extern "system" {
+        /// Win32 `GetDiskFreeSpaceExW` from `kernel32`: the bytes available to the calling user on
+        /// the volume holding `directory` (a NUL-terminated UTF-16 path) are written to
+        /// `free_to_caller`; the other two out-pointers may be null. Returns nonzero on success.
         fn GetDiskFreeSpaceExW(
             directory: *const u16,
             free_to_caller: *mut u64,
@@ -22302,6 +22566,8 @@ struct RedoTail {
 }
 
 impl RedoTail {
+    /// An empty tail: no steps and a recorded undo depth of 0, so [`RedoTail::is_current`] is false
+    /// until an undo writes to it.
     fn new() -> Self {
         RedoTail { steps: undo::HeightUndo::new(), at_undo_depth: 0 }
     }
@@ -22311,6 +22577,8 @@ impl RedoTail {
         !self.steps.is_empty() && self.at_undo_depth == undo_depth
     }
 
+    /// The label of the step a redo would re-apply next, or `None` when the tail is not current
+    /// (see [`RedoTail::is_current`]), so a stale tail never names a step.
     fn label(&self, undo_depth: usize) -> Option<&str> {
         if !self.is_current(undo_depth) {
             return None;
@@ -22337,6 +22605,8 @@ impl RedoTail {
         self.steps.labels().collect()
     }
 
+    /// Drops every step and resets the recorded depth. Called by every operation that commits new
+    /// work, which is what truncates the redo tail.
     fn clear(&mut self) {
         self.steps.clear();
         self.at_undo_depth = 0;
@@ -23686,6 +23956,10 @@ mod landmark_dict_tests {
     use cartalith_civ::landmark::{Landmark, LandmarkClass, LandmarkFunnel, LandmarkLimit, LandmarkSettings};
     use std::collections::BTreeMap;
 
+    /// Protects: `landmark_dict` carries every key the GDScript `landmarks()` contract names (with
+    /// the right `id` and `class` values) and omits the internal `seed`. `#[ignore]`d: it needs a
+    /// live Godot engine.
+    ///
     /// The GDScript contract's `landmarks()` row, key-by-key — a rename on
     /// either side fails this rather than the UI silently reading `null`.
     #[test]
@@ -23716,6 +23990,10 @@ mod landmark_dict_tests {
         assert!(!d.contains_key("seed"));
     }
 
+    /// Protects: `landmark_funnel_dict` carries every key of the `landmark_funnels()` contract, and
+    /// its `limit` is the lower-case token (`candidates`). `#[ignore]`d: it needs a live Godot
+    /// engine.
+    ///
     /// The GDScript contract's `landmark_funnels()` (and `landmark_run()`'s
     /// `funnels`) row, key-by-key.
     #[test]
@@ -23746,6 +24024,10 @@ mod landmark_dict_tests {
         );
     }
 
+    /// Protects: `landmark_settings_dict` carries every key of the `landmark_settings()` contract
+    /// and its `caps` is a Dictionary holding the per-kind entries. `#[ignore]`d: it needs a live
+    /// Godot engine.
+    ///
     /// The GDScript contract's `landmark_settings()` row, key-by-key.
     #[test]
     #[ignore = "VarDictionary/GString need a live Godot engine; see this module's own doc comment"]
@@ -23782,6 +24064,7 @@ mod landmark_dict_tests {
 mod global_redo_tests {
     use super::*;
 
+    /// A constant 8-cell height field of value `v`; the smallest buffer these tests snapshot.
     fn field(v: f32) -> Vec<f32> {
         vec![v; 8]
     }
@@ -23794,6 +24077,8 @@ mod global_redo_tests {
         field.iter_mut().for_each(|v| *v = to);
     }
 
+    /// Protects: at the tip there is nothing to redo, a refused redo returns `None`, and it never
+    /// touches the field.
     #[test]
     fn nothing_is_redoable_at_the_tip() {
         let mut undo = undo::HeightUndo::new();
@@ -23809,6 +24094,8 @@ mod global_redo_tests {
         assert_eq!(f, field(1.0), "a refused redo must not touch the field");
     }
 
+    /// Protects: an undo followed by a redo restores the field and the labels, and the redo returns
+    /// the step to the undo stack so the pair is walkable repeatedly.
     #[test]
     fn undo_then_redo_restores_the_state_and_the_labels() {
         let mut undo = undo::HeightUndo::new();
@@ -23831,6 +24118,8 @@ mod global_redo_tests {
         assert_eq!(f, field(0.0));
     }
 
+    /// Protects: the cursor walks three steps back and forth with the field at the right value each
+    /// time, ending with every step on the undo stack and an empty tail.
     #[test]
     fn the_cursor_walks_several_steps_in_both_directions() {
         let mut undo = undo::HeightUndo::new();
@@ -23855,6 +24144,9 @@ mod global_redo_tests {
         assert_eq!(undo.depth(), 3, "every step went back onto the undo stack");
     }
 
+    /// Protects: committing new work after an undo truncates the redo tail, so a redo can never
+    /// overwrite the new work.
+    ///
     /// The invariant the row calls out by name: undoing and then committing
     /// something new truncates the tail. Getting this wrong offers a redo
     /// that would overwrite the new work.
@@ -23876,6 +24168,9 @@ mod global_redo_tests {
         assert_eq!(f, field(3.0), "a truncated redo must not overwrite the new work");
     }
 
+    /// Protects: `RedoTail::labels` names every undone step newest first, with its head equal to
+    /// `label()`, its length equal to the tail depth, and one shorter after each `redo_one`.
+    ///
     /// The tail names every step it holds, not just the next one — what
     /// `redo_labels()` hands the history panel. Newest first, head identical
     /// to `label()`, and one element shorter after each `redo_one`.
@@ -23904,6 +24199,9 @@ mod global_redo_tests {
         assert!(redo.labels(undo.depth()).is_empty(), "the tail is spent at the tip");
     }
 
+    /// Protects: a tail invalidated by a push that did not clear it holds memory (depth and bytes
+    /// still counted) while offering nothing, and is freed lazily by the next cursor move.
+    ///
     /// The memory readout and the redo offer are allowed to disagree, and
     /// this pins the only state where they do. `undo_stats()`'s `redo_depth`
     /// is `redo.steps.depth()` -- raw occupancy, ungated -- so a tail
@@ -23930,6 +24228,9 @@ mod global_redo_tests {
         assert_eq!(redo.steps.bytes(), 0);
     }
 
+    /// Protects: discarding the redo tail clears only the tail (returning the count read before the
+    /// clear) and leaves the field and the undo stack untouched.
+    ///
     /// What `discard_redo_tail()` does, at the level a unit test can reach:
     /// the tail goes, the **undo stack and the field do not**. Discarding a
     /// redo is not an edit, and the count it returns is `labels().len()`
@@ -23958,6 +24259,9 @@ mod global_redo_tests {
         assert_eq!(redo.steps.bytes(), 0);
     }
 
+    /// Protects: both truncation mechanisms (the explicit clear and the depth check alone) empty
+    /// the redo label list, not merely shorten it.
+    ///
     /// **The invalidation property, asserted on the list rather than on the
     /// single label.** A redo list that survived a fresh edit would offer the
     /// user a state that no longer exists; both truncation mechanisms have to
@@ -23992,6 +24296,9 @@ mod global_redo_tests {
         assert_eq!(f, field(7.0));
     }
 
+    /// Protects: the depth check alone invalidates a tail when a pusher (`erode_bridge.rs`) never
+    /// clears it, and the refused redo drops the dead tail.
+    ///
     /// The same truncation, enforced by the depth check alone — what keeps
     /// `erode_bridge.rs`'s `undo.push` (a call site outside this file) from
     /// leaving a live redo offer behind. See [`RedoTail`]'s own doc.
@@ -24017,6 +24324,9 @@ mod global_redo_tests {
         assert_eq!(redo.steps.bytes(), 0);
     }
 
+    /// Protects: the redo tail honours its own byte budget (here 9 MiB over 4 MiB steps keeps two
+    /// steps), like the stack it mirrors.
+    ///
     /// The tail is bounded like the stack it mirrors: it is the same type,
     /// with the same byte budget, for the same reason.
     #[test]
@@ -24037,6 +24347,9 @@ mod global_redo_tests {
         assert!(redo.steps.bytes() <= redo.steps.budget_bytes());
     }
 
+    /// Protects: an undo whose snapshot has the wrong length (a grid resize) is refused without
+    /// writing, and leaves no phantom redo entry.
+    ///
     /// A grid resize leaves snapshots of the wrong length. `undo.rs` refuses
     /// those rather than half-applying them, and the cursor must not leave a
     /// tail entry behind for a step that never happened.

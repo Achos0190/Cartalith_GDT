@@ -124,14 +124,21 @@ pub fn sea_mark_gap(gw: usize) -> usize {
     (gw / 32).max(8)
 }
 
+/// Reads `key` as a finite `f64`; `None` when it is absent, of another type,
+/// or NaN/infinite -- so a bad number from GDScript is treated as "not given"
+/// and never reaches the placement maths.
 fn as_f64(d: &VarDictionary, key: &str) -> Option<f64> {
     d.get(key).and_then(|v| v.try_to::<f64>().ok()).filter(|f| f.is_finite())
 }
 
+/// Reads `key` as a `bool`, or `default` when it is absent or not a bool.
 fn as_bool(d: &VarDictionary, key: &str, default: bool) -> bool {
     d.get(key).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(default)
 }
 
+/// The success reply of an icon-generation run: `ok`, the six report counters
+/// ([`IconGenReport`]) and `elapsed_ms`. Always carries every key, with a real
+/// zero where a counter is zero (a zero here means "none", not "unknown").
 fn report_dict(r: &IconGenReport, elapsed_ms: i64) -> VarDictionary {
     vdict! {
         "ok" => true,
@@ -145,6 +152,9 @@ fn report_dict(r: &IconGenReport, elapsed_ms: i64) -> VarDictionary {
     }
 }
 
+/// The refusal reply: `ok: false`, the human `reason`, and every counter key at
+/// a real `0` so a caller reading the counters never needs `has()`. Nothing was
+/// placed when this is returned.
 fn refused(reason: &str) -> VarDictionary {
     vdict! {
         "ok" => false,
@@ -417,10 +427,15 @@ impl WorldGen {
     }
 }
 
+/// Unit tests for the two hand-written slot mappings and the sweep step; the
+/// pass itself is tested next door in `icon_bridge` without a Godot runtime.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: that every settlement tier maps into the frozen settlement slot
+    /// vocabulary and that Metropolis borrows `capital` (the pack has no sixth
+    /// entry to grow).
     #[test]
     fn settlement_slots_are_the_frozen_vocabulary_and_metropolis_borrows_capitals() {
         for kind in [
@@ -441,6 +456,9 @@ mod tests {
         assert_eq!(settlement_slot(SettlementKind::Hamlet), "hamlet");
     }
 
+    /// Protects: that every landmark kind in the 40-plus vocabulary lands on a
+    /// real POI slot (no panic, none invented), with the three renames and the
+    /// `other` fallback pinned by literal.
     #[test]
     fn every_landmark_kind_resolves_to_a_real_poi_slot() {
         // The 40-plus landmark vocabulary against the frozen eight: no panic,
@@ -457,6 +475,8 @@ mod tests {
         assert_eq!(poi_slot_for_landmark(""), "other");
     }
 
+    /// Protects: that the sea-mark sweep step never exceeds the snap radius at the
+    /// shipped resolutions, which would leave coastline no sample can reach.
     #[test]
     fn the_sweep_step_never_outruns_the_snap_radius() {
         // A sweep coarser than the search radius leaves coastline no sample can
@@ -471,6 +491,8 @@ mod tests {
         }
     }
 
+    /// Protects: that no candidate source emits a slot its own family rejects,
+    /// which the pass would silently count as `unknown_slot` and place nothing.
     #[test]
     fn every_candidate_slot_a_family_can_produce_is_one_that_family_accepts() {
         // The pass counts a foreign slot as `unknown_slot` rather than placing

@@ -71,6 +71,9 @@ fn local_now() -> Option<cartalith_vault::template::DateTime> {
     )
 }
 
+/// The success shape every method here returns, `{"ok": true, "error": ""}`,
+/// the counterpart of [`err`]; a method adds its own keys to it. `pub(crate)`
+/// for the same reason as [`err`]: `vault_saf.rs` returns the identical shape.
 pub(crate) fn ok() -> VarDictionary {
     vdict! { "ok" => true, "error" => "" }
 }
@@ -720,6 +723,8 @@ impl WorldGen {
         }
     }
 
+    /// Removes the link `link_id`; `true` if one was removed, `false` for an id
+    /// no link carries. Touches only the link, never the note file it pointed at.
     #[func]
     fn vault_detach(&mut self, link_id: GString) -> bool {
         self.vault.store.detach(&link_id.to_string())
@@ -1105,6 +1110,13 @@ impl WorldGen {
         }
     }
 
+    /// Writes into note `rel` the field fill that
+    /// [`Self::vault_preview_field_fill`] previewed, for entity `entity_id` of
+    /// `kind`. `expect_hash` is the preview's `hash`: the write is refused if
+    /// the file changed since, so a person's edit between preview and write is
+    /// never overwritten. `overwrite` picks `FieldFill::Overwrite` over
+    /// `OnlyIfEmpty`. Returns `{ok, error, report}` (no `report` on a refusal),
+    /// `report` as [`fill_report`] shapes it.
     #[func]
     fn vault_write_field_fill(&mut self, rel: GString, kind: GString, entity_id: i64, overwrite: bool, expect_hash: GString) -> VarDictionary {
         let Some(k) = kind_of(&kind) else { return err(format!("unknown entity kind \"{kind}\"")) };
@@ -1393,6 +1405,10 @@ impl WorldGen {
     }
 }
 
+/// Sort key for a link's status where the *loudest* state must win: lower is
+/// louder (`Unbound` 0 ... `Connected` 5), so `min_by_key` finds the state a
+/// person most needs to see, and `Connected` is reported only when nothing else
+/// applies. The order is a judgement made for the panel badge, not a lifecycle.
 fn status_rank(s: LinkStatus) -> u8 {
     match s {
         LinkStatus::Unbound => 0,
@@ -1413,6 +1429,10 @@ fn map_of(m: &BTreeMap<String, String>) -> VarDictionary {
     d
 }
 
+/// A fill result as the `report` array the panel lists: one `{field, outcome}`
+/// per field, `outcome` being `written`, `skipped_occupied` (the field already
+/// had a value and the policy was `OnlyIfEmpty`) or `not_found` (the note has no
+/// such field).
 fn fill_report(report: &[(String, FieldOutcome)]) -> Array<VarDictionary> {
     report
         .iter()
@@ -1993,10 +2013,13 @@ fn thousands(n: i64) -> String {
     if neg { format!("-{out}") } else { out }
 }
 
+/// `"Yes"` / `"No"` for a boolean readout; never an empty string.
 fn yes_no(b: bool) -> String {
     if b { "Yes".to_string() } else { "No".to_string() }
 }
 
+/// `s` with its first character upper-cased (Unicode-aware) and the rest
+/// untouched; empty in, empty out.
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -2005,10 +2028,14 @@ fn capitalise(s: &str) -> String {
     }
 }
 
+/// Unit tests for the helpers in this file that need no live Godot runtime;
+/// everything behind a `#[func]` is reached by probe scenes instead.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: `thousands` groups digits in threes from the right, including the
+    /// no-separator edge (100), the first separator (1,000), zero and negatives.
     #[test]
     fn thousands_groups_from_the_right() {
         assert_eq!(thousands(0), "0");
@@ -2019,6 +2046,9 @@ mod tests {
         assert_eq!(thousands(-8420), "-8,420");
     }
 
+    /// Protects: `status_rank` ordering -- `Unbound` first and `Connected` last, so
+    /// a link set's badge shows the loudest state and `Connected` only when nothing
+    /// else applies.
     #[test]
     fn status_rank_puts_the_loudest_state_first() {
         let mut all = [
@@ -2051,6 +2081,9 @@ mod tests {
     /// its counterpart, and
     /// `cartalith_vault::links::tests::a_newer_writers_entity_kind_costs_neither_the_link_nor_the_store`
     /// is the storage proof.
+    ///
+    /// Protects: that an unrecognised or wrongly-cased entity kind string parses to
+    /// `None` rather than a default (and that known kinds still parse).
     #[test]
     fn an_unknown_entity_kind_is_none_not_a_default() {
         assert_eq!(EntityKind::parse("settlement"), Some(EntityKind::Settlement));
@@ -2073,6 +2106,10 @@ mod tests {
     /// `None` on a store with nothing to report is the other half, and it is
     /// the one that keeps the warning meaningful: a message on every open is
     /// a message nobody reads.
+    ///
+    /// Protects: `unresolvable_kind_report`'s exact sentence (count, sorted
+    /// distinct kinds, "Nothing was discarded"), de-duplication of kinds, and
+    /// silence (`None`) for an empty or fully-known store.
     #[test]
     fn a_link_kind_this_build_does_not_know_is_kept_and_reported() {
         let doc = r#"{"version":1,"vaults":[{"id":"v","display_name":"Elaris"}],"links":[
@@ -2145,6 +2182,10 @@ mod tests {
     /// it, two neighbours are gone, three new ones appear, and the list is in
     /// a different order. `key()` — `"peak@40,50"` — is the only thing that
     /// did not move, and the lookup still lands on it.
+    ///
+    /// Protects: that a landmark is found by its stable key even when its `id`,
+    /// order and neighbours all changed, and that a moved landmark is a different
+    /// entity (not silently re-bound).
     #[test]
     fn a_landmark_note_survives_a_rerun_that_moves_the_others() {
         let first = [
@@ -2187,6 +2228,9 @@ mod tests {
     /// which is the state `WorldGen::generate` and `absorb` leave behind
     /// (`LandmarkStore::invalidate`), so it is the *ordinary* one after a
     /// regenerate rather than an edge case.
+    ///
+    /// Protects: that an absent landmark (no pass run, disarmed kind, other cell)
+    /// resolves to `None` and that hostile ids (`i64::MIN`, 0) do not panic.
     #[test]
     fn a_landmark_that_is_no_longer_placed_is_absent_not_an_error() {
         let gone = cartalith_vault::links::landmark_entity_id("waterfall@120,64");
@@ -2204,6 +2248,8 @@ mod tests {
     /// `(x, y)`, in that order, and asymmetric fixtures so a swap cannot
     /// pass. The one thing `WorldGen::entity_cell` adds on top — the
     /// grid-bounds check — stays there and is not reachable from here.
+    /// Protects: the `(x, y)` order of `landmark_cell` (asymmetric fixtures) and
+    /// that an absent landmark has no cell rather than the origin.
     #[test]
     fn a_landmarks_cell_is_x_then_y() {
         let run = [lm(1, "peak", 40, 50), lm(2, "cliff", 7, 3)];
@@ -2228,6 +2274,9 @@ mod tests {
     /// Both reach this branch, and the branch exists because taking the first
     /// match would attach someone's note to the wrong feature silently, while
     /// `None` makes it an unresolved link they can re-bind.
+    ///
+    /// Protects: the ambiguity rule -- two rows claiming one id resolve to
+    /// nothing, while an unambiguous neighbour in the same list still resolves.
     #[test]
     fn an_ambiguous_landmark_id_resolves_to_nothing() {
         let id = cartalith_vault::links::landmark_entity_id("peak@40,50");
@@ -2248,6 +2297,11 @@ mod tests {
     /// length or order every culture link in every user's sidecar silently
     /// re-points at a different culture — the exact failure `entity_label`
     /// exists to make visible and this test exists to make loud first.
+    ///
+    /// Protects: the culture kind's id scheme -- parse/`as_str`/`entity_key`
+    /// round trip and the literal length (7) and order of `CIV_CULTURES`, which
+    /// existing links index into, plus the absence of a terrain verdict for the two
+    /// identity cultures.
     #[test]
     fn a_culture_is_addressed_by_its_compile_time_index() {
         assert_eq!(EntityKind::parse("culture"), Some(EntityKind::Culture));

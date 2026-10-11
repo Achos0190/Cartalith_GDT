@@ -34,6 +34,10 @@ use godot::prelude::*;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{DefaultHasher, Hasher};
 
+/// A saved journey's planned timeline as [`JourneyPlanCache`] stores it:
+/// `None` when the journey has no plannable route at all, otherwise the
+/// planner's answer -- a [`JourneyTimeline`] or the [`NoTimeline`] reason it
+/// could not be built (kept, so a refusal is cached and shown too).
 type Planned = Option<Result<JourneyTimeline, NoTimeline>>;
 
 /// Per saved journey (by id): the key it was planned under and the result.
@@ -92,15 +96,24 @@ pub(crate) struct JourneyPlanCache {
 /// small structs in the key without allocating their text.
 struct HashWriter<'a>(&'a mut DefaultHasher);
 impl std::fmt::Write for HashWriter<'_> {
+    /// Feeds `s`'s bytes to the hasher; never fails. This is what lets
+    /// [`hash_debug`] hash a `Debug` value's text without building the `String`.
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         self.0.write(s.as_bytes());
         Ok(())
     }
 }
+/// Mixes `v`'s `Debug` text (plus a `|` separator, so adjacent values cannot
+/// run together) into `h`. The key is therefore only as exact as the `Debug`
+/// output: any field a `Debug` impl omits is invisible to the cache, and a
+/// `HashMap` must be sorted by the caller first (see [`hash_saved_plan`]).
 fn hash_debug(h: &mut DefaultHasher, v: &dyn std::fmt::Debug) {
     use std::fmt::Write;
     let _ = write!(HashWriter(h), "{v:?}|");
 }
+/// Mixes a route's points into `h` by the exact bit patterns of their
+/// coordinates (so `-0.0` and `0.0`, or two NaNs, are distinguished rather
+/// than compared by value), length first so two routes cannot concatenate alike.
 fn hash_pts(h: &mut DefaultHasher, pts: &[(f64, f64)]) {
     h.write_usize(pts.len());
     for &(x, y) in pts {
@@ -108,6 +121,8 @@ fn hash_pts(h: &mut DefaultHasher, pts: &[(f64, f64)]) {
         h.write_u64(y.to_bits());
     }
 }
+/// Mixes a slice of indices into `h`, length first. Same framing rule as
+/// [`hash_pts`].
 fn hash_usizes(h: &mut DefaultHasher, v: &[usize]) {
     h.write_usize(v.len());
     for &x in v {
@@ -214,6 +229,11 @@ impl WorldGen {
         JpWorldParts { jw, ocean, wind }
     }
 
+    /// Assembles the borrowed `JpWorld` the planner reads from the world's own
+    /// rasters and the owned [`JpWorldParts`]. Pure assembly: no table is computed
+    /// here (that is [`WorldGen::jp_world_parts`]'s job), and nothing is cloned.
+    /// `flow_thresh` is the same `river_flow_thresh` the river drawing uses, so a
+    /// "river" means one thing to the planner and to the map.
     pub(crate) fn jp_world<'a>(
         &self,
         ws: &'a cartalith_engine::WorldState,
@@ -509,6 +529,10 @@ impl WorldGen {
     }
 }
 
+/// The wire form of a re-snap outcome: `{outcome}` is `resnapped`,
+/// `unroutable` (with `unreachable_legs`) or `missing_stop` (with `stop`, the
+/// name that no longer exists). Any reachable leg count of zero is the clean
+/// `resnapped`; an outcome is never reported as a bare empty value.
 fn outcome_dict(o: &ResnapOutcome) -> VarDictionary {
     match o {
         ResnapOutcome::Resnapped { unreachable_legs: 0 } => vdict! { "outcome" => "resnapped" },
@@ -518,6 +542,8 @@ fn outcome_dict(o: &ResnapOutcome) -> VarDictionary {
         ResnapOutcome::MissingStop { name } => vdict! { "outcome" => "missing_stop", "stop" => name.as_str() },
     }
 }
+/// A chronos day number as display text (`chronos::format_date` of the
+/// calendar date it names), for the `departure`/`arrival` readouts.
 
 fn date_text(day_number: i64) -> String {
     let (y, md) = chronos::date_of_day_number(day_number);
@@ -776,10 +802,13 @@ impl WorldGen {
     }
 }
 
+/// Unit tests for the plan-cache key: it must react to every input
+/// `plan_saved_journeys` hands the planner and to nothing else.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_civ::travel_library::PartyPreset;
+/// `Debug`-hashes `v` exactly as the key does, for the map-ordering test.
 
     fn debug_key(v: &dyn std::fmt::Debug) -> u64 {
         let mut h = DefaultHasher::new();
@@ -789,8 +818,8 @@ mod tests {
 
     /// Each of `journey_key`'s four inputs moves it, and equal inputs give
     /// an equal key (the cache's hit condition).
-    // Protects (Ruling BS): accepting or declining a saved journey's
-    // resupply stop re-plans it rather than serving the stale timeline.
+    /// Protects: (Ruling BS) accepting or declining a saved journey's
+    /// resupply stop re-plans it rather than serving the stale timeline.
     #[test]
     fn journey_key_reacts_to_every_input() {
         let p = PartyPreset::blank("p1", "Party");
@@ -830,7 +859,7 @@ mod tests {
         }
     }
 
-    /// Protects (Ruling AR): a saved journey's plan is part of its cache key,
+    /// Protects: (Ruling AR) a saved journey's plan is part of its cache key,
     /// field by field, so editing any of it re-plans instead of serving the
     /// stale timeline; the stage-override `HashMap`'s per-instance iteration
     /// order never leaks into the key; and with a plan the preset is not an
@@ -890,6 +919,9 @@ mod tests {
     /// The overrides are `HashMap`s, whose iteration order is per instance;
     /// sorted through a `BTreeMap` first, equal content must hash equal, or
     /// the cache would miss on every call.
+    ///
+    /// Protects: that the sort-through-`BTreeMap` step makes the key independent
+    /// of `HashMap` insertion order, and that a changed value still moves it.
     #[test]
     fn override_maps_hash_by_content_not_order() {
         let a: HashMap<String, u32> = (0..64).map(|i| (format!("k{i}"), i)).collect();

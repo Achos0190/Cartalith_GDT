@@ -60,6 +60,8 @@ use cartalith_civ::landmark::{kind_spec, LandmarkClass, LandmarkSettings};
 
 /// [`LandmarkSettings::crowding`]'s own documented range.
 pub const CROWDING_MIN: f64 = 0.0;
+/// Upper bound of the same range. `3.0` is `LandmarkSettings::crowding`'s own
+/// documented maximum (`ScatterRule::density`'s range), not a value chosen here.
 pub const CROWDING_MAX: f64 = 3.0;
 
 /// Writes one type's cap. Returns `false`, changing nothing, for a key
@@ -153,10 +155,14 @@ pub fn icon_to_mark(
     }
 }
 
+/// Unit tests for the settings setters and the two pure mappings above; none
+/// needs Godot, which is the point of keeping this module free of it.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Protects: unknown-key rejection -- a typo'd key must not grow `caps` into a
+    /// fiftieth landmark type.
     #[test]
     fn set_cap_rejects_an_unknown_key_without_creating_it() {
         let mut s = LandmarkSettings::default();
@@ -165,6 +171,8 @@ mod tests {
         assert_eq!(s.caps.len(), n, "a rejected key changes nothing, including its own count");
     }
 
+    /// Protects: a known key is written, and a negative cap is floored at zero
+    /// rather than wrapped through the `as u32` cast.
     #[test]
     fn set_cap_writes_a_known_key_and_floors_negative_at_zero() {
         let mut s = LandmarkSettings::default();
@@ -175,6 +183,8 @@ mod tests {
         assert_eq!(s.caps[&key], 0);
     }
 
+    /// Protects: unknown-key rejection for `armed`, and that both `true` and
+    /// `false` round-trip on a known key.
     #[test]
     fn set_armed_rejects_an_unknown_key_and_writes_a_known_one() {
         let mut s = LandmarkSettings::default();
@@ -186,6 +196,9 @@ mod tests {
         assert_eq!(s.armed[&key], true);
     }
 
+    /// Protects: the `[CROWDING_MIN, CROWDING_MAX]` clamp (checked against the
+    /// constants and the in-range value 1.5 untouched) and that NaN falls back to
+    /// the default `1.0` instead of poisoning the field.
     #[test]
     fn crowding_clamps_to_the_documented_range_and_survives_non_finite_input() {
         let mut s = LandmarkSettings::default();
@@ -199,6 +212,8 @@ mod tests {
         assert_eq!(s.crowding, 1.0, "a non-finite write falls back to the field's own default");
     }
 
+    /// Protects: `class_from_key` rejection of an unknown class (state unchanged),
+    /// that the right `class_radius_km` slot is written, and the floor at zero.
     #[test]
     fn class_radius_rejects_an_unknown_class_and_writes_the_right_slot() {
         let mut s = LandmarkSettings::default();
@@ -211,6 +226,8 @@ mod tests {
         assert_eq!(s.class_radius_km[LandmarkClass::Continental.index()], 0.0);
     }
 
+    /// Protects: the "always succeeds" contract of the plain boolean setter, both
+    /// directions.
     #[test]
     fn cross_competition_always_succeeds() {
         let mut s = LandmarkSettings::default();
@@ -220,6 +237,8 @@ mod tests {
         assert!(!s.cross_type_competition);
     }
 
+    /// Protects: the settlement-to-site mapping (grid cell and population as
+    /// `f64`), the only conversion `landmark_run` does for settlements.
     #[test]
     fn settlement_to_site_maps_position_and_population() {
         use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
@@ -243,6 +262,9 @@ mod tests {
         assert_eq!(site.population, 4200.0);
     }
 
+    /// Builds a test icon at (`x`, `y`) with the given origin; every other field
+    /// is an arbitrary fixed value, as the filter under test reads only `origin`
+    /// and the position.
     fn icon_at(x: f64, y: f64, origin: cartalith_assets::manual::IconOrigin)
         -> cartalith_assets::manual::ManualIcon
     {
@@ -260,6 +282,9 @@ mod tests {
     /// The filter owner ruling 14's one-collection choice makes necessary:
     /// only a hand-placed icon is an obstacle, because a generated one is a
     /// landmark's own glyph and the pass would otherwise avoid itself.
+    ///
+    /// Protects: the origin filter itself -- Manual maps (at the exact click
+    /// position), Generated yields `None`.
     #[test]
     fn only_a_manual_icon_becomes_an_obstacle() {
         use cartalith_assets::manual::IconOrigin;
@@ -274,6 +299,9 @@ mod tests {
 
     /// The list is partitioned by origin, not thinned by it — the count that
     /// reaches the pass is exactly the hand-placed count.
+    ///
+    /// Protects: that a mixed collection is partitioned, not thinned (2 of 4,
+    /// order kept).
     #[test]
     fn a_mixed_collection_yields_only_its_manual_half() {
         use cartalith_assets::manual::IconOrigin;
