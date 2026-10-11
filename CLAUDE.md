@@ -195,6 +195,7 @@ got. Status for everything below is in `STATUS.md`.
 | `URBAN_MORPHOLOGY_SCOPE.md` | Phase 5 — settlement layout, milestones 1-17 and their reasoning |
 | `TERRAIN_APPEARANCE_SCOPE.md` | Phase 3's 2D fidelity milestones |
 | `RIVERS_IN_MAP_SCOPE.md` | rivers painted into the map's own colour field as water, not a stroke drawn over a finished raster — RIM-1 through RIM-7, from the owner's 2026-09-28 river proposal (Ruling BU) |
+| `EDITING_TOOLS_SCOPE.md` | the PhotoCraft/MapTiler-inspired editing tools in the owner's order D, C, E, F (Ruling BZ): the brush engine, per-layer adjustment stacks, colour management and the Look control, as milestones ET-D1 to ET-F3 with acceptance and owner questions |
 | `UNIFIED_TOOL_PLAN.md` | the tool system, milestones A-F (**root**, not `docs/`) |
 | `SCULPT_LIVE_SCOPE.md` | live sculpt manipulation, tiers L1-L3 (owner ruling 2026-08-18) — replaces the reference's deliberately cheap draft overlay |
 | `EROSION_GEOLOGICAL_TIME_SCOPE.md` | geological time as a forcing framework for the erosion kernels; partial by its own account, and its §7 names what is missing |
