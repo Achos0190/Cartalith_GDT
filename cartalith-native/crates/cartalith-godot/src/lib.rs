@@ -4613,6 +4613,10 @@ fn compute_civilisation(
     if !seeding_villages {
         suit = Vec::new();
         wb.fill_level = Vec::new();
+        // `basin` (4 bytes a cell) has no reader yet; freed beside `fill_level`
+        // so the new per-basin data adds nothing to the civ pass's peak.
+        wb.basin = Vec::new();
+        wb.basin_outlet = Vec::new();
     }
 
     // Real auto-populate road network, not `build_road_network` (that's

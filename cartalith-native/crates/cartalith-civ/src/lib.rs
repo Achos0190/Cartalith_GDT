@@ -379,9 +379,44 @@ pub fn compute_affordance_fields(
 /// classification (0 land, 1 ocean, 2 lake) plus the pooled fill-level
 /// raster (`fillOut`/`_lakeFill` in the reference) -- not consumed by this
 /// milestone, kept for later milestones' renderers per `PHASE2_SCOPE.md`.
+///
+/// **`basin` / `basin_outlet` (additive, `LAKE_FILL_RESEARCH.md` Part 3 row
+/// "Return spill point / outlet / basin id", shortlist item 3).** They record
+/// what the priority flood already knew and used to discard. They are read
+/// by nothing yet and change no other field: `classification` and `fill_level`
+/// are byte-identical to what they were before these two existed.
+///
+/// *Definition.* The flood visits each cell exactly once, from the popped
+/// cell that reached it first (its *releaser*). A cell is a **pool cell** when
+/// that visit had to **raise** it (`wb_visit`'s `filled <= cur` branch, which
+/// lifts it to `releaser_level + EPS`). Pool cells are exactly the cells where
+/// `fill_level > field`, except for a field value so large that `EPS = 1e-6`
+/// vanishes in `f32` (about 8 and up; this port's fields are normalised to
+/// roughly 0..1). A pool cell joins its releaser's basin when the releaser is
+/// itself a pool cell; otherwise it opens a new basin whose **outlet is the
+/// releaser**, the first not-raised cell the flood popped before spilling
+/// into the depression. Ids are therefore dense from 1, in the order the
+/// flood discovered the basins.
+///
+/// Ocean cells and border cells are flood seeds, never raised, so they are
+/// never in a basin. Below-sea lake components are pools like any other.
+/// Flat ground is raised one `EPS` step at a time, so **micro-pools of depth
+/// of order `EPS` are basins too**: a consumer that wants real lakes must
+/// still apply [`LAKE_DEPTH`] and [`LAKE_RAIN`], as `classification` does.
 pub struct WaterBodies {
     pub classification: Vec<u8>,
     pub fill_level: Vec<f32>,
+    /// Per-cell basin id, `gw * gh` long. **`0` means "no basin"** (the cell
+    /// was not raised by the flood); real ids start at `1`, so `0` can never
+    /// be mistaken for a basin. See the struct doc for the definition.
+    pub basin: Vec<u32>,
+    /// Per-basin outlet cell index, indexed by `basin id - 1`, so
+    /// `basin_outlet.len()` is the number of basins. The outlet is the
+    /// not-raised cell the flood spilled out of into the basin, so
+    /// `fill_level[outlet]` is the basin's spill height; every cell of the
+    /// basin sits at least one `EPS` step above that.
+    /// No basin has "no outlet", so no sentinel value is needed.
+    pub basin_outlet: Vec<usize>,
 }
 
 /// Binary min-heap backing the priority-flood fill below, hand-ported to
@@ -485,17 +520,25 @@ fn wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut MinHeap) {
 /// (the reference's own v1.87 hoist, already the convention this port's
 /// hydrology/terrain flood-style code follows -- an explicit parameter
 /// instead of a closure recreated per neighbour).
+///
+/// `from` is the popped cell this neighbour is reached from (its releaser);
+/// `basin` / `basin_outlet` are the additive [`WaterBodies::basin`] records,
+/// written only when this visit raises the neighbour. They never feed back
+/// into `filled`, `done` or the heap, so the flood's behaviour is unchanged.
 #[allow(clippy::too_many_arguments)]
 fn wb_visit(
     nx: isize,
     ny: isize,
     cur: f64,
+    from: usize,
     gw: isize,
     gh: isize,
     world: bool,
     filled: &mut [f32],
     done: &mut [bool],
     heap: &mut MinHeap,
+    basin: &mut [u32],
+    basin_outlet: &mut Vec<usize>,
 ) {
     let nx = if world {
         ((nx % gw) + gw) % gw
@@ -520,6 +563,14 @@ fn wb_visit(
     const EPS: f64 = 1e-6;
     if (filled[j] as f64) <= cur {
         filled[j] = (cur + EPS) as f32;
+        // Raised: `j` is a pool cell. Join the releaser's basin if it is one;
+        // else `from` is the spill cell and `j` opens a new basin (ids from 1).
+        if basin[from] != 0 {
+            basin[j] = basin[from];
+        } else {
+            basin_outlet.push(from);
+            basin[j] = basin_outlet.len() as u32;
+        }
     }
     heap.push(filled[j], j);
 }
@@ -803,6 +854,9 @@ pub fn build_water_bodies(
     let mut filled: Vec<f32> = field.to_vec();
     let mut done = vec![false; n];
     let mut heap = MinHeap::with_capacity(n);
+    // Additive basin records (see `WaterBodies::basin`); `0` = no basin.
+    let mut basin = vec![0u32; n];
+    let mut basin_outlet: Vec<usize> = Vec::new();
 
     for x in 0..gw {
         wb_seed(x, &filled, &mut done, &mut heap);
@@ -829,45 +883,57 @@ pub fn build_water_bodies(
             x - 1,
             y,
             cur,
+            i,
             gw_i,
             gh_i,
             world,
             &mut filled,
             &mut done,
             &mut heap,
+            &mut basin,
+            &mut basin_outlet,
         );
         wb_visit(
             x + 1,
             y,
             cur,
+            i,
             gw_i,
             gh_i,
             world,
             &mut filled,
             &mut done,
             &mut heap,
+            &mut basin,
+            &mut basin_outlet,
         );
         wb_visit(
             x,
             y - 1,
             cur,
+            i,
             gw_i,
             gh_i,
             world,
             &mut filled,
             &mut done,
             &mut heap,
+            &mut basin,
+            &mut basin_outlet,
         );
         wb_visit(
             x,
             y + 1,
             cur,
+            i,
             gw_i,
             gh_i,
             world,
             &mut filled,
             &mut done,
             &mut heap,
+            &mut basin,
+            &mut basin_outlet,
         );
     }
 
@@ -891,6 +957,8 @@ pub fn build_water_bodies(
     WaterBodies {
         classification: out,
         fill_level: filled,
+        basin,
+        basin_outlet,
     }
 }
 
@@ -17589,6 +17657,8 @@ mod tests {
         let wb = WaterBodies {
             classification,
             fill_level: vec![0.0; 15],
+            basin: vec![0; 15],
+            basin_outlet: Vec::new(),
         };
         let flat = water_body_topology(&wb, 5, 3, false);
         assert!(
@@ -17620,6 +17690,8 @@ mod tests {
         let wb = WaterBodies {
             classification,
             fill_level: vec![0.0; 15],
+            basin: vec![0; 15],
+            basin_outlet: Vec::new(),
         };
         let wrapped = water_body_topology(&wb, 5, 3, true);
         assert_eq!(wrapped.len(), 1);
@@ -17636,8 +17708,170 @@ mod tests {
         let wb = WaterBodies {
             classification: vec![0u8; 9],
             fill_level: vec![0.0; 9],
+            basin: vec![0; 9],
+            basin_outlet: Vec::new(),
         };
         assert!(water_body_topology(&wb, 3, 3, false).is_empty());
+    }
+
+    /// A deterministic pseudo-random field in `0..1` (an LCG, so the fixture
+    /// never changes) with a smoothing pass, giving many real pits of varied
+    /// depth, shared by the basin tests below.
+    fn basin_fixture(gw: usize, gh: usize) -> Vec<f32> {
+        let mut st: u32 = 0x1234_5678;
+        let mut raw = vec![0f32; gw * gh];
+        for v in raw.iter_mut() {
+            st = st.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *v = (st >> 8) as f32 / (1u32 << 24) as f32;
+        }
+        let mut sm = raw.clone();
+        for y in 1..gh - 1 {
+            for x in 1..gw - 1 {
+                let i = y * gw + x;
+                sm[i] = 0.5 * raw[i] + 0.125 * (raw[i - 1] + raw[i + 1] + raw[i - gw] + raw[i + gw]);
+            }
+        }
+        sm
+    }
+
+    #[test]
+    fn water_bodies_basin_hand_fixture_single_pit() {
+        // Protects: the exact basin id, outlet and spill height of one hand-built pit
+        //   whose surroundings are strictly increasing (no EPS-tie plateau), so the
+        //   expected values are literals, not read back from the code under test.
+        let (gw, gh) = (5usize, 5usize);
+        let mut field: Vec<f32> = (0..25).map(|i| 0.6 + 0.01 * i as f32).collect();
+        field[12] = 0.3;
+        let wb = build_water_bodies(&field, gw, gh, 0.05, false, None);
+        let want: Vec<u32> = (0..25).map(|i| if i == 12 { 1 } else { 0 }).collect();
+        assert_eq!(wb.basin, want, "only the pit cell is in a basin; 0 elsewhere");
+        assert_eq!(wb.basin_outlet.len(), 1);
+        // The lowest of the pit's four neighbours (7) is popped first and
+        // releases the pit; its level is the spill height.
+        assert_eq!(wb.basin_outlet[0], 7);
+        assert_eq!(wb.fill_level[7], field[7], "the outlet is not raised");
+        assert_eq!(wb.fill_level[12], (field[7] as f64 + 1e-6) as f32);
+    }
+
+    #[test]
+    fn water_bodies_basin_partitions_pool_cells_and_outlets_hold_spill_height() {
+        // Protects: basin ids cover exactly the cells the flood raised
+        //   (fill_level > field), are dense from 1, and every outlet is a
+        //   non-pool cell adjacent to its basin whose fill_level is the spill height.
+        for &world in &[false, true] {
+            let (gw, gh) = (40usize, 30usize);
+            let field = basin_fixture(gw, gh);
+            let wb = build_water_bodies(&field, gw, gh, 0.2, world, None);
+            let nb = wb.basin_outlet.len();
+            assert!(nb >= 5, "fixture must exercise many basins, got {nb}");
+            let mut min_fill = vec![f32::INFINITY; nb];
+            let mut seen = vec![false; nb];
+            for i in 0..gw * gh {
+                assert_eq!(
+                    wb.basin[i] != 0,
+                    wb.fill_level[i] > field[i],
+                    "cell {i}: basin id <=> raised by the flood"
+                );
+                if wb.basin[i] != 0 {
+                    let b = wb.basin[i] as usize - 1;
+                    assert!(b < nb, "ids are dense from 1");
+                    seen[b] = true;
+                    min_fill[b] = min_fill[b].min(wb.fill_level[i]);
+                }
+            }
+            assert!(seen.iter().all(|&s| s), "every id owns at least one cell");
+            for (b, &o) in wb.basin_outlet.iter().enumerate() {
+                assert_eq!(wb.basin[o], 0, "basin {b}: the outlet is not itself a pool cell");
+                // The first cell released sits exactly one EPS above the spill height.
+                assert_eq!(
+                    min_fill[b],
+                    (wb.fill_level[o] as f64 + 1e-6) as f32,
+                    "basin {b}: outlet fill_level is the spill height"
+                );
+                let (ox, oy) = ((o % gw) as isize, (o / gw) as isize);
+                let adjacent = [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| {
+                    let (mut x, y) = (ox + dx, oy + dy);
+                    if world {
+                        x = (x + gw as isize) % gw as isize;
+                    }
+                    x >= 0
+                        && (x as usize) < gw
+                        && y >= 0
+                        && (y as usize) < gh
+                        && wb.basin[y as usize * gw + x as usize] == b as u32 + 1
+                });
+                assert!(adjacent, "basin {b}: the outlet touches its basin");
+            }
+        }
+    }
+
+    #[test]
+    fn water_bodies_basin_leaves_fill_and_classification_unchanged() {
+        // Protects: the additive basin records change nothing else; fill_level and
+        //   classification equal an independent copy of the flood written without them.
+        let (gw, gh) = (40usize, 30usize);
+        let field = basin_fixture(gw, gh);
+        let rain: Vec<f32> = field.iter().map(|v| 1.0 - v).collect();
+        let sea = 0.2f64;
+        let wb = build_water_bodies(&field, gw, gh, sea, false, Some(&rain));
+
+        // Independent legacy flood: border seeds, then ocean (class 1) seeds,
+        // 4-neighbour, EPS raise; same MinHeap (tie order is part of the output).
+        let n = gw * gh;
+        let mut filled = field.clone();
+        let mut done = vec![false; n];
+        let mut heap = MinHeap::with_capacity(n);
+        let seed = |i: usize, filled: &[f32], done: &mut Vec<bool>, heap: &mut MinHeap| {
+            if !done[i] {
+                done[i] = true;
+                heap.push(filled[i], i);
+            }
+        };
+        for x in 0..gw {
+            seed(x, &filled, &mut done, &mut heap);
+            seed((gh - 1) * gw + x, &filled, &mut done, &mut heap);
+        }
+        for y in 0..gh {
+            seed(y * gw, &filled, &mut done, &mut heap);
+            seed(y * gw + gw - 1, &filled, &mut done, &mut heap);
+        }
+        for i in 0..n {
+            if wb.classification[i] == 1 {
+                seed(i, &filled, &mut done, &mut heap);
+            }
+        }
+        while heap.size() > 0 {
+            let i = heap.pop();
+            let (x, y) = ((i % gw) as isize, (i / gw) as isize);
+            let cur = filled[i] as f64;
+            for (dx, dy) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                    continue;
+                }
+                let j = ny as usize * gw + nx as usize;
+                if done[j] {
+                    continue;
+                }
+                done[j] = true;
+                if (filled[j] as f64) <= cur {
+                    filled[j] = (cur + 1e-6) as f32;
+                }
+                heap.push(filled[j], j);
+            }
+        }
+        assert!(wb.classification.contains(&1) && wb.classification.contains(&2), "fixture has ocean and lake");
+        assert_eq!(
+            wb.fill_level.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            filled.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+            "fill_level is bit-identical to the flood without basin records"
+        );
+        for i in 0..n {
+            if wb.classification[i] != 1 && field[i] as f64 >= sea {
+                let lake = (filled[i] as f64 - field[i] as f64) > LAKE_DEPTH && rain[i] as f64 >= LAKE_RAIN;
+                assert_eq!(wb.classification[i], if lake { 2 } else { 0 }, "cell {i}");
+            }
+        }
     }
 
     #[test]

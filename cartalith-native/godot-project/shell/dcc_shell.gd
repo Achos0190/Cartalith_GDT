@@ -554,6 +554,7 @@ const W_PHONE_LAND_RAIL := 72.0   ## Prototype, landscape branch: `width:72px;
 	## background:var(--pan2);border-right:1px solid var(--hair2)`, and the map
 	## host moves to `left:72px`.
 const W_PHONE_LAND_SHEET_MAX := 440.0  ## `Math.min(440,Math.round(fw*0.46))`.
+## Landscape sheet width as a fraction of the frame width; the prototype's `Math.round(fw*0.46)`, capped by `W_PHONE_LAND_SHEET_MAX`.
 const PHONE_LAND_SHEET_FRAC := 0.46
 
 var _phone_clock_label: Label
@@ -843,6 +844,9 @@ func _build_desktop_shell() -> void:
 		tablet_arbitrate(self)
 		get_tree().node_added.connect(_on_tablet_node_added)
 
+## Scales a fixed desktop pixel height for the current form factor: raw on a pointer
+## build, the `DccTheme.TABLET` table entry (or a 44 px-floored `TOUCH_SCALE` multiple) on
+## touch. Must never be applied to phone-native chrome, which uses `_pscale()`/`_ptap()`.
 func _scaled(px: int) -> int:
 	## §13: tablet scales every fixed height, with a 44 px floor on anything
 	## tappable. Windows is pointer-first and takes the raw value. Phone does
@@ -880,6 +884,10 @@ func _is_tablet_sized(short_side_px: float) -> bool:
 		return false
 	return short_side_px / (dpi / 160.0) >= _TABLET_MIN_DP
 
+## Classifies the viewport as phone, tablet or desktop and sets `_phone`, `_landscape`
+## and `_phone_scale` (plus the narrow-laptop density set, explained below). Needs a
+## non-empty viewport and silently keeps the previous answer otherwise; must never be
+## called with `_touch` unset expecting a phone result.
 func _compute_layout_mode() -> void:
 	var size: Vector2 = get_viewport_rect().size
 	if size.x <= 0.0 or size.y <= 0.0:
@@ -1091,6 +1099,9 @@ func _ptap(px: float) -> int:
 ## called from every label built on the phone.
 var _os_text_scale_cache := -1.0
 
+## The Android system font-scale ratio (screen scale over density), cached after the first
+## call; always `1.0` off Android. The 0.85-1.6 clamp is a labelled judgement bounding a
+## hostile or broken DPI report, not a measured range. Phone type sizes multiply by this.
 func _os_text_scale() -> float:
 	if _os_text_scale_cache >= 0.0:
 		return _os_text_scale_cache
@@ -1445,6 +1456,9 @@ func _menu_bar_undo() -> void:
 		call("undo_last")
 	_refresh_menu_squares()
 
+## Handler for the menu bar's redo square: calls `redo_last()` when the DccApp subclass
+## defines it (looked up reflectively because this base class does not), then refreshes the
+## undo/redo squares. Must never assume the method exists.
 func _menu_bar_redo() -> void:
 	if has_method("redo_last"):
 		call("redo_last")
@@ -1647,6 +1661,7 @@ const _THEME_COLOR_OVERRIDES := [
 	"font_pressed_color", "font_separator_color", "font_uneditable_color",
 	"icon_hover_color", "icon_normal_color", "icon_pressed_color",
 ]
+## Stylebox override names the palette-switch recolour walks (see `_recolor_subtree()`): the ones the shell's widgets author. Add a name when a new widget sets another.
 const _THEME_STYLEBOX_OVERRIDES := [
 	"disabled", "focus", "grabber_area", "grabber_area_highlight", "hover", "normal",
 	"panel", "pressed", "read_only", "separator", "slider",
@@ -1746,6 +1761,8 @@ func _bulk_theme_edit(th: Theme) -> void:
 	th.set_block_signals(false)
 	th.emit_changed()
 
+## True when `old_pal` is the dark palette, i.e. the switch just made is dark to light. Used
+## by the recolour pass to decide which direction `DccTheme.remap()` should read.
 func was_dark_to_light(old_pal: Dictionary) -> bool:
 	return old_pal == DccTheme.DARK
 
@@ -1910,6 +1927,10 @@ func _theme_extras(to_light: bool) -> Dictionary:
 	rev[(DccTheme.LIGHT["accent"] as Color).lightened(0.09).to_html(false)] = accent.lightened(0.09)
 	return rev
 
+## Recursively remaps every colour and `StyleBoxFlat`/`StyleBoxLine` theme override under
+## `node` from `old_pal` to the live palette, so a palette switch reaches already-built
+## controls. Only touches the override names listed in `_THEME_COLOR_OVERRIDES` and
+## `_THEME_STYLEBOX_OVERRIDES`; colours not found in the old palette are left alone.
 func _recolor_subtree(node: Node, old_pal: Dictionary) -> void:
 	if node is Control or node is Window:
 		for name in _THEME_COLOR_OVERRIDES:
@@ -1937,6 +1958,8 @@ func _recolor_subtree(node: Node, old_pal: Dictionary) -> void:
 	for child in node.get_children():
 		_recolor_subtree(child, old_pal)
 
+## Remaps one `StyleBoxFlat`'s background and border colours in place. A colour that is
+## not a token of `old_pal` (`remap()` returns null) is deliberately left unchanged.
 func _recolor_stylebox(sb: StyleBoxFlat, old_pal: Dictionary) -> void:
 	var new_bg = DccTheme.remap(sb.bg_color, old_pal)
 	if new_bg != null:
@@ -2116,6 +2139,7 @@ const PHONE_SCROLL_DEADZONE := 10
 ## third the height of every row above it. Measured on the device; there is no
 ## warning and no visible failure anywhere else.
 const _FONT_SIZE_KEYS: PackedStringArray = ["font_size"]
+## The five per-style font-size theme items a `RichTextLabel` carries; `font_size` alone does nothing there, so the phone font pass must write each.
 const _RICH_FONT_SIZE_KEYS: PackedStringArray = [
 	"normal_font_size", "bold_font_size", "italic_font_size",
 	"bold_italic_font_size", "mono_font_size"]
@@ -2658,6 +2682,8 @@ func tablet_arbitrate(node: Node) -> void:
 ## needs arbitrating, and vice versa.
 const _TOUCH_ARB_META := "_touch_arbitrated"
 
+## Recursive worker for `tablet_arbitrate()`: arbitrates each `Control` under `node`
+## exactly once (guarded by `_TOUCH_ARB_META`). Must never revisit a stamped node.
 func _touch_arbitrate_walk(node: Node, unit: float) -> void:
 	for child in node.get_children():
 		if child is Control and not child.has_meta(_TOUCH_ARB_META):
@@ -2672,6 +2698,9 @@ func _touch_arbitrate_walk(node: Node, unit: float) -> void:
 ## phone's -- one deferred pass per frame however many nodes arrive.
 var _tablet_arb_pending := false
 
+## `node_added` hook (tablet only): when a `Control` arrives anywhere inside either dock,
+## schedules ONE deferred arbitration pass (`_tablet_arb_pending` coalesces a burst of
+## additions). Ignores nodes outside the docks.
 func _on_tablet_node_added(node: Node) -> void:
 	if _tablet_arb_pending or not (node is Control):
 		return
@@ -2683,6 +2712,8 @@ func _on_tablet_node_added(node: Node) -> void:
 			return
 		p = p.get_parent()
 
+## Deferred body of `_on_tablet_node_added()`: clears the pending flag, then arbitrates
+## (and, per the note below, fits) both docks.
 func _run_tablet_dock_arbitrate() -> void:
 	_tablet_arb_pending = false
 	for dock in [left_dock, right_dock]:
@@ -2737,6 +2768,9 @@ func tablet_fit(node: Node) -> void:
 		return
 	_tablet_fit_walk(node)
 
+## Recursive worker for `tablet_fit()`: raises buttons and text fields to the role minimum
+## height and fonts labels to the tablet size pair, once per node (`_TABLET_FIT_META`).
+## Only ever grows a size, never shrinks one.
 func _tablet_fit_walk(node: Node) -> void:
 	for child in node.get_children():
 		if child is Control and not child.has_meta(_TABLET_FIT_META):
@@ -2844,6 +2878,9 @@ func _phone_fit_tool_button(b: Button, unit: float) -> void:
 ## only *touches* the nodes it has not already sized.
 var _phone_fit_pending := false
 
+## `node_added` hook (phone only): schedules ONE deferred `phone_fit()` of both docks when a
+## `Control` is added inside either of them. The ancestor walk is needed because
+## `child_entered_tree` fires for direct children only.
 func _on_phone_node_added(node: Node) -> void:
 	if _phone_fit_pending or not (node is Control):
 		return
@@ -2858,6 +2895,8 @@ func _on_phone_node_added(node: Node) -> void:
 			return
 		p = p.get_parent()
 
+## Deferred body of `_on_phone_node_added()`: clears `_phone_fit_pending` and re-runs
+## `phone_fit()` over both docks at the current `_phone_scale`.
 func _run_phone_dock_fit() -> void:
 	_phone_fit_pending = false
 	for dock in [left_dock, right_dock]:
@@ -2967,6 +3006,8 @@ func dock_fit(node: Node) -> void:
 ## the dock's. Filed separately rather than bundled into a width fix.
 var _dock_fit_pending := false
 
+## `node_added` hook: schedules ONE deferred `dock_fit()` of both docks when a `Control`
+## arrives inside either, so panels attached after boot are width-fitted too.
 func _on_dock_node_added(node: Node) -> void:
 	if _dock_fit_pending or not (node is Control):
 		return
@@ -2978,6 +3019,8 @@ func _on_dock_node_added(node: Node) -> void:
 			return
 		p = p.get_parent()
 
+## Deferred body of `_on_dock_node_added()`: clears `_dock_fit_pending` and runs
+## `dock_fit()` over both docks.
 func _run_dock_fit() -> void:
 	_dock_fit_pending = false
 	for dock in [left_dock, right_dock]:
@@ -2990,6 +3033,8 @@ func _run_dock_fit() -> void:
 func is_phone() -> bool:
 	return _phone
 
+## Read-only accessor for the phone-px to physical-px factor (`_phone_scale`), for callers
+## outside this file; they must not compute their own.
 func phone_scale() -> float:
 	return _phone_scale
 
@@ -3060,9 +3105,12 @@ func rail_region() -> Control:
 ## user can read anywhere else disappears with it.
 var _phone_status_shown := true
 
+## Whether the phone's status region is currently shown (`_phone_status_shown`).
 func is_status_region_shown() -> bool:
 	return _phone_status_shown
 
+## Shows or hides the phone's status region and re-applies the orientation pass so the
+## visibility rule lives in one place.
 func set_status_region_shown(shown: bool) -> void:
 	_phone_status_shown = shown
 	## Routed through the orientation pass rather than written here, so the
@@ -3454,9 +3502,12 @@ func set_rail_expanded(on: bool) -> void:
 		_rail_exp_column.visible = on
 	_paint_rail_chevron()
 
+## Whether the desktop rail is in its expanded (labelled) state (`_rail_expanded`).
 func is_rail_expanded() -> bool:
 	return _rail_expanded
 
+## Rotates the rail's single chevron to 180 degrees when expanded and 0 when collapsed,
+## about its own centre. Safe to call before the chevron exists or after it is freed.
 func _paint_rail_chevron() -> void:
 	if _rail_chevron == null or not is_instance_valid(_rail_chevron):
 		return
@@ -3571,6 +3622,9 @@ func _paint_rail_nodes() -> void:
 ## `L + 2·PAD`, which solves to `y = L + PAD`.
 const RAIL_LABEL_PAD := 12.0
 
+## Positions one rail button's rotated label inside the rail and sizes the button to fit it.
+## `text_size.y` is the horizontal extent after the -90 degree rotation. Needs the label in the
+## tree so its minimum size is measurable; see `_relayout_rail_labels()`.
 func _layout_rail_label(b: Button, vlabel: Control, rail_w: float) -> void:
 	var text_size := vlabel.get_minimum_size()
 	## `text_size.y` is the glyph height, which *after* the -90° rotation is
@@ -3630,6 +3684,9 @@ func set_rail_foot(text: String) -> void:
 	var m := rail_foot.get_minimum_size()
 	rail_foot.position = Vector2(round(w * 0.5 - m.y * 0.5), 12.0 + m.x)
 
+## Makes `id` the active domain: restyles every rail/bar cell (active fill, ink, glyph) and
+## switches the visible workspace. Does not itself handle the re-click-expands-the-rail
+## case; that is the press handler's job.
 func _select_domain(id: String) -> void:
 	_active_domain = id
 	for key in _domain_buttons:
@@ -3892,6 +3949,7 @@ func register_workspace(id: String, panel: Control) -> void:
 	## phone.
 	call_deferred("tablet_fit", panel)
 
+## The id of the currently active domain (`_active_domain`).
 func active_domain() -> String:
 	return _active_domain
 
@@ -3966,6 +4024,7 @@ func set_right_dock_title(text: String) -> void:
 ## with none, and adding one is an owner ruling on which canvas governs the
 ## interior, not a lane's edit.
 const CTL_PX := 24
+## Touch value of `--ctl` (36 px), the same figure on both touch canvases; `CTL_PX` is the pointer value.
 const CTL_PX_TOUCH := 36
 ## The two literal paddings in the dock-header blocks. Literal `px` in the
 ## canvas, not tokens -- only the horizontal `var(--pad)` moves with density --
@@ -4209,6 +4268,8 @@ func _on_dock_drag_input(ev: InputEvent, is_left: bool) -> void:
 				float(DccTheme.W_RIGHT_DOCK_MIN), float(DccTheme.W_RIGHT_DOCK_MAX))
 			right_dock.custom_minimum_size.x = _right_width
 
+## Builds one dock's collapse/expand square (glyph-only, so it carries a tooltip and an
+## accessibility name) and registers it in `_collapse_buttons` under `left`/`right`.
 func _collapse_button(is_left: bool) -> Button:
 	var b := Button.new()
 	b.flat = true
@@ -4364,6 +4425,7 @@ var _mode_switch_row: Control
 var _mode_switch_pill: HBoxContainer        ## the segment row; its children are per-domain
 var _mode_switch_buttons: Dictionary = {}   ## mode -> Button, for `_mode_switch_domain` only
 var _mode_switch_domain := ""               ## which domain those buttons were built for
+## Per-node pill text overrides keyed `domain/mode`, for nodes whose rail label differs from the pill text.
 const _MODE_SWITCH_LABELS: Dictionary = {"world/a": "PIPELINE", "world/b": "SCULPT"}
 
 ## The pill text for one rail node: the `_MODE_SWITCH_LABELS` override where one
@@ -4379,6 +4441,9 @@ static func mode_switch_label(id: String, mode: String) -> String:
 		return String(_MODE_SWITCH_LABELS[key])
 	return String(rail_node(id, mode).get("label", mode)).to_upper()
 
+## Builds the per-domain mode pill (band 2 of the left dock, hidden until a domain with two
+## modes is active) and records its row and pill in `_mode_switch_row`/`_mode_switch_pill`.
+## Only the empty container is built here; segments are filled per domain later.
 func _build_mode_switch() -> Control:
 	var pad := MarginContainer.new()
 	## §2.1 band 2's own box: `padding: 8px var(--pad) 2px`.
@@ -4531,6 +4596,9 @@ func _refresh_mode_switch() -> void:
 func _on_mode_switch_pressed(id: String, mode: String) -> void:
 	select_domain_mode(id, mode)
 
+## Builds the label shown in place of a collapsed dock's body and stores the inner `Label` in
+## `_dock_readouts[side]`; returns the hidden wrapping container. Text arrives via
+## `set_dock_readout()`.
 func _dock_readout(side: String) -> Control:
 	var l := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -4553,6 +4621,7 @@ func set_dock_readout(side: String, text: String) -> void:
 		return
 	(_dock_readouts[side] as Label).text = text
 
+## Whether the dock on `side` (`left`, or anything else meaning right) is collapsed.
 func is_dock_collapsed(side: String) -> bool:
 	return _left_collapsed if side == "left" else _right_collapsed
 
@@ -4881,6 +4950,7 @@ func set_timeline_metrics(pad_y: int, fixed_h: int) -> void:
 ## year -400 ... year 1200 (1600 years)", and `06-phone.md` §6.2's slider is
 ## `min=-400 max=1200 step=1`. The same two numbers, in both canvases.
 const TL_YEAR_MIN := -400
+## Top of the scrub track (see the note above); playback stops here.
 const TL_YEAR_MAX := 1200
 ## `tlSpeeds` is **in** the prototype, at line 1980, and it is this ladder
 ## exactly: `tlSpeeds:['×1','×10','×100'].map(v=>({v,col:s.tlSpeed===v?
@@ -4898,6 +4968,7 @@ const TL_YEAR_MAX := 1200
 ## on 2026-09-05 (`LARGE_ITEM_RULINGS.md` §7) and recorded it as an
 ## interpretation open to reversal; it is not an interpretation.
 const TL_SPEEDS := [1, 10, 100]
+## Playback tick interval in seconds, a labelled judgement; each tick advances the cursor by `tl_speed` years.
 const TL_TICK_SEC := 0.6
 ## §4.3's `tlTog`, in its order, with its defaults. The markup renders the id
 ## as the pill's text, so these strings are the visible labels verbatim.
@@ -4960,6 +5031,8 @@ func tl_set_year(year: int) -> void:
 	bridge.civ_goto_year(clampi(year, TL_YEAR_MIN, TL_YEAR_MAX))
 	timeline_changed.emit()
 
+## Moves the year cursor one step in `direction` (-1 or +1) of `tl_speed` years; `tl_set_year()`
+## clamps and no-ops before a world exists.
 func tl_step(direction: int) -> void:
 	tl_set_year(tl_year() + direction * tl_speed)
 
@@ -4980,6 +5053,8 @@ func tl_day() -> int:
 	var bridge := _find_engine_bridge()
 	return 0 if bridge == null else bridge.get_civ_day_of_year()
 
+## Sets the cursor's day within its year, clamped to the engine's 0-364 (no-leap) calendar,
+## and emits `timeline_changed`. Does nothing before a world is generated.
 func tl_set_day(day_of_year: int) -> void:
 	if not tl_available():
 		return
@@ -5064,6 +5139,8 @@ func tl_nearest_recorded(year: int) -> Dictionary:
 		return {"year": int(n["next"])}
 	return {}
 
+## Selects the playback ladder step; ignores any value not in `TL_SPEEDS`. Updates the running
+## timer's interval and emits `timeline_changed`.
 func tl_set_speed(mult: int) -> void:
 	if not TL_SPEEDS.has(mult):
 		return
@@ -5092,6 +5169,8 @@ func tl_toggle_play() -> void:
 		_tl_timer.stop()
 	timeline_changed.emit()
 
+## Playback timer callback: advances the cursor by `tl_speed` years, or on reaching
+## `TL_YEAR_MAX` snaps to it, stops playback and the timer (no wrap-around).
 func _tl_tick() -> void:
 	var next := tl_year() + tl_speed
 	if next >= TL_YEAR_MAX:
@@ -5132,6 +5211,8 @@ func tl_state_text() -> String:
 		return "end of track"
 	return ("playing ×%d" % tl_speed) if tl_playing else "paused"
 
+## Flips one timeline layer toggle, persists all of them and emits `timeline_changed`.
+## Unknown ids are ignored.
 func tl_toggle_layer(id: String) -> void:
 	if not tl_layers.has(id):
 		return
@@ -5152,6 +5233,8 @@ func _tl_load_layers() -> void:
 	for row in TL_LAYERS:
 		tl_layers[row[0]] = bool(cfg.get_value("timeline", String(row[0]), row[1]))
 
+## Writes every timeline layer toggle into the `timeline` section of the user config file.
+## Loads the file first so unrelated sections are preserved; must never replace the whole file.
 func _tl_save_layers() -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(DccSettings.CONFIG_PATH)
@@ -5463,6 +5546,9 @@ const _STATUS_TOP_PREFIX := "top_"
 static func _status_default_token(slot: String) -> String:
 	return "text_dim" if slot.begins_with(_STATUS_TOP_PREFIX) else "text_faint"
 
+## Writes `text` into a status or menu-bar slot and inks it with `token` (the slot's strip
+## default when empty). An unknown slot logs an error and returns. May re-run the status-bar
+## omission and tail-fit passes; must never be given a colour literal in place of a token name.
 func set_status(slot: String, text: String, token: String = "") -> void:
 	if not _status_labels.has(slot):
 		push_error("DccShell: no status slot '%s'" % slot)
@@ -7247,6 +7333,8 @@ func _phone_map_sheet_content_height() -> float:
 func phone_detent() -> String:
 	return _phone_detent
 
+## Public setter for the phone tool sheet's detent; accepts only `peek`, `half` or `full` and
+## moves there via `_set_phone_detent()`. Anything else is ignored.
 func set_phone_detent(det: String) -> void:
 	if det != "peek" and det != "half" and det != "full":
 		return
@@ -7493,6 +7581,8 @@ func _phone_scrim_tap(ev: InputEvent, on_tap: Callable) -> void:
 	if tapped:
 		on_tap.call()
 
+## Builds a full-rect dimming scrim (black at 0.55 alpha, a labelled judgement) that blocks
+## input to everything beneath and calls `on_tap` when tapped.
 func _phone_overlay_scrim(on_tap: Callable) -> Control:
 	var wrap := Control.new()
 	wrap.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -7504,6 +7594,8 @@ func _phone_overlay_scrim(on_tap: Callable) -> Control:
 	wrap.add_child(dim)
 	return wrap
 
+## Builds the sheet header's close square (a 44 dp target) wired to `on_press`; named and
+## tooltipped for touch accessibility.
 func _sheet_close_button(on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = DccIcons.SYMBOLS["cross"]
@@ -7888,6 +7980,7 @@ func _reset_place_search_cache() -> void:
 ## the part that decides whether a token is a scope at all.
 const SEARCH_HINT := "Start with a scope and a space to narrow: s settlements, f factions, lb labels, r routes, . commands."
 
+## The search prefix table, in display order; each row has `prefix`, `label` and exactly one of `entity`, `commands` or `why` (see the note above).
 const SEARCH_SCOPES: Array = [
 	{"prefix": "s", "label": "settlements", "entity": "settlement"},
 	{"prefix": "f", "label": "factions", "entity": "faction"},
@@ -7918,6 +8011,7 @@ const SEARCH_SCOPES: Array = [
 ## appearing twice -- not a list in a different order from the one `search()`
 ## chose. That is the whole reason the grouping is computed instead of re-sorted.
 const PLACE_BANDS: Array = ["STARTS WITH", "CONTAINS", "MATCHED ON KIND OR SUBTITLE"]
+## Band headers for `CommandIndex` results, in ranker order: title, group, blurb.
 const COMMAND_BANDS: Array = ["MATCHED THE NAME", "MATCHED THE MENU", "MATCHED THE DESCRIPTION"]
 
 static func _place_band(row: Dictionary, needle: String) -> int:
@@ -8184,6 +8278,8 @@ func _set_search_query(text: String) -> void:
 	else:
 		_refresh_desktop_search()
 
+## Re-runs the phone overlay's search against its field text and refills chips, count and
+## result rows. No-op until the overlay's widgets exist.
 func _refresh_phone_search() -> void:
 	if _phone_search_results == null or not is_instance_valid(_phone_search_results):
 		return
@@ -8192,6 +8288,8 @@ func _refresh_phone_search() -> void:
 	_phone_search_count.text = _search_count_text(res)
 	_fill_search_results(_phone_search_results, res, func(): _set_search_open(false))
 
+## Desktop twin of `_refresh_phone_search()`: refills the dialog's chips, count and rows and
+## hides the dialog on pick. No-op until the dialog's widgets exist.
 func _refresh_desktop_search() -> void:
 	if _desktop_search_results == null or not is_instance_valid(_desktop_search_results):
 		return
@@ -8338,6 +8436,8 @@ func _build_phone_search_overlay() -> Control:
 	overlay.visible = false
 	return overlay
 
+## Opens or closes the phone search overlay, closing every other overlay first. On open it
+## clears the field, drops the place-search cache and focuses the field next frame.
 func _set_search_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	if _phone_search_overlay == null:
@@ -8379,6 +8479,8 @@ func _open_desktop_find_on_map() -> void:
 	_desktop_search_dialog.popup_centered(Vector2i(440, 480))
 	_desktop_search_field.grab_focus.call_deferred()
 
+## Builds the desktop `Find on map` dialog (field, chips, count, results) on first use only;
+## later calls return immediately. The 400 x 420 minimum size is a labelled judgement.
 func _ensure_desktop_search_dialog() -> void:
 	if _desktop_search_dialog != null:
 		return
@@ -8536,12 +8638,15 @@ func _wire_phone_undo_chip() -> void:
 		_refresh_phone_undo_chip()
 	).call_deferred()
 
+## Shows the phone undo chip only while the engine reports something to undo.
 func _refresh_phone_undo_chip() -> void:
 	if _phone_undo_chip == null:
 		return
 	var bridge := _find_engine_bridge()
 	_phone_undo_chip.visible = bridge != null and bridge.can_undo()
 
+## Chip press start: arms the hold detector with a one-shot timer of `PHONE_UNDO_HOLD_SEC`,
+## after which `_check_phone_undo_chip_hold()` decides tap versus hold.
 func _on_phone_undo_chip_down() -> void:
 	_undo_chip_down = true
 	_undo_chip_hold_fired = false
@@ -8566,6 +8671,8 @@ func _check_phone_undo_chip_hold() -> void:
 	_haptic("detent")
 	_open_phone_undo_popover()
 
+## Chip release: after a hold does nothing (the popover is already open); a short tap closes
+## an open popover, else undoes one step.
 func _on_phone_undo_chip_up() -> void:
 	var was_hold := _undo_chip_hold_fired
 	_undo_chip_down = false
@@ -8673,6 +8780,8 @@ func _open_phone_undo_popover() -> void:
 	_close_all_phone_overlays()
 	_phone_undo_pop.visible = true
 
+## Builds one row of the edit-history popover from a ledger entry (`label`, `seq`, `steps`,
+## `reversible`); irreversible entries are disabled. Rows roll back via `undo_revert_to()`.
 func _phone_undo_row(index: int, entry: Variant) -> Control:
 	var d: Dictionary = entry
 	var reversible := bool(d.get("reversible", false))
@@ -9021,6 +9130,7 @@ func set_phone_sim_strip_open(open: bool) -> void:
 	if open:
 		_refresh_phone_sim_strip()
 
+## Whether the phone simulation strip exists and is visible.
 func is_phone_sim_strip_open() -> bool:
 	return _phone_sim_strip != null and _phone_sim_strip.visible
 
@@ -9202,6 +9312,8 @@ func _coach_mark_ids() -> Array:
 ## started", which `_show_next_coach_mark()` running is the actual signal of.
 var _coach_marks_wait_for_picker := false
 
+## Starts the first-run coach marks, phone only, deferred one frame so the layout has settled.
+## The deferred callee decides whether to wait for the project picker.
 func _maybe_show_coach_marks() -> void:
 	if not _phone:
 		return
@@ -9316,6 +9428,8 @@ func _coach_mark_seen(id: String) -> bool:
 	cfg.load(DccSettings.CONFIG_PATH)
 	return bool(cfg.get_value("coach_marks", id, false))
 
+## Persists that coach mark `id` has been shown (`coach_marks` section of the user config), so it
+## is never shown again. Preserves other config sections.
 func _set_coach_mark_seen(id: String) -> void:
 	var cfg := ConfigFile.new()
 	cfg.load(DccSettings.CONFIG_PATH)
@@ -9505,6 +9619,8 @@ func phone_show_right_sheet() -> void:
 	if DccTheme.is_phone():
 		_set_sheet_open("right", true)
 
+## Shows or hides the left or right dock as a phone sheet. Opening first closes all other phone
+## overlays, then resets that dock's scroll to the top.
 func _set_sheet_open(side: String, open: bool) -> void:
 	if open:
 		_close_all_phone_overlays()
