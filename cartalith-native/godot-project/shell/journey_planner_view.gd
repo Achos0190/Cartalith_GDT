@@ -313,6 +313,8 @@ var _timeline_view: _TimelineBandView   ## JP-13: lives in `app.timeline_row`, n
 
 # ================================================================= Setup ====
 
+## Binds the view to the shell and engine, builds both panels once (hidden), and wires the visibility signals.
+## `_bound` is the has_method probe for the five bindings the planner cannot run without; when it is false both panels are built as a one-line "rebuild cartalith-godot" note rather than failing, because a stale GDExtension binary must degrade visibly. Must be called exactly once, after `app.left_dock_body` and `app.viewport_content` exist.
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -476,6 +478,8 @@ func open_with_route(route_index: int) -> void:
 	_refresh_route_choice()
 	_compute()
 
+## The single place that decides whether the planner is showing, and routes the change to `_show()`, `_hide()` or `_reassert_shown()`.
+## Driven by `app.tool_armed` and `app.workspace_changed`. Must keep `active_mode("civilization") == "planner"` in the formula: domain plus armed tool alone re-covers other CIVIL destinations (REARM row B, details in the body).
 func _recompute_visibility() -> void:
 	## **REARM row B, narrowed after a refuted fix** (filed 2026-09-07;
 	## `.claude/resume-2026-09-12/rearm_2026-09-12.patch` reverted). Requires
@@ -536,6 +540,8 @@ func _reassert_shown() -> void:
 	_left_panel.visible = true
 	_center_panel.visible = true
 
+## Takes over the civilization region: hides CIVIL's own panel, shows `_left_panel` and `_center_panel`, and runs the full first-show refresh (route list, party form, tool options, right-dock section, compute, phone refit).
+## On phone the live map is deliberately left visible underneath (PH-16, reasoning in the body). Must not be called for a repaint that changed nothing; that is `_reassert_shown()`.
 func _show() -> void:
 	## Hides the WHOLE civilization panel -- which now nests
 	## `InfrastructureWorkspace` too (2026-08-20 domain merge) -- not just an
@@ -609,6 +615,8 @@ func _show() -> void:
 	_compute()
 	_phone_refit()
 
+## Gives the region back: closes the phone dock sheet if `open()` raised it, hides both panels, restores the map and CIVIL's panel, clears the right-dock Journey section and hands `timeline_row` back to `app.gd`.
+## Must not leave Journey's timeline band in `timeline_row`, nor skip `_fill_timeline_strip()`, or the desktop timeline strip stays blank (JP-13 correction in the body).
 func _hide() -> void:
 	## Close the phone's left dock sheet if `open()` was what raised it. Leaving
 	## it up would strand the next domain's dock over the map on a PLAN -> MAP
@@ -664,6 +672,8 @@ func _hide() -> void:
 
 # ============================================================ Left panel ====
 
+## Builds the left-dock column: the Journeys list section and an empty party-form container that `_rebuild_party_form()` fills, and reads `jp_options()` / `jp_default_plan()` once.
+## When `_bound` is false it draws only an explanatory note. Must not wrap the column in its own `ScrollContainer` (it costs the dock 28 px of width; measured, see the body).
 func _build_left_panel() -> void:
 	_left_panel = VBoxContainer.new()
 	_left_panel.add_theme_constant_override("separation", 0)
@@ -711,6 +721,8 @@ func _build_left_panel() -> void:
 	_options = bridge.jp_options()
 	_default_plan = bridge.jp_default_plan()
 
+## Rebuilds the "Journeys" section: first the saved journeys (open and forget buttons), then a `Committed route` choice over the engine's routes.
+## Picking a different route resets every per-route state (stage overrides, layovers, resupply accept/decline, selected/isolated stage, trim) because all of them are keyed to that route's stage indices, then recomputes. Clamps a stale `_route_index` to 0 and sets it to -1 when no route exists.
 func _refresh_route_choice() -> void:
 	if not _bound:
 		return
@@ -783,11 +795,14 @@ func _refresh_route_choice() -> void:
 
 # -- Party form fields (shared field-binding vocabulary, matching journey_planner_window.gd's own convention) --
 
+## Common tail of every party-form edit: rebuild the form first when the edit is structural (it changes which rows exist, e.g. Season, Weather), then recompute.
+## Must not rebuild on a non-structural edit; that would destroy the focused control mid-typing.
 func _plan_value_changed(structural: bool) -> void:
 	if structural:
 		_rebuild_party_form()
 	_compute()
 
+## Party-form number row bound to `_plan_values[key]`. `integer` stores an int (counts, days) rather than a float. Non-structural: it recomputes but does not rebuild the form.
 func _number_field(parent: Control, label_text: String, key: String, minimum: float,
 		maximum: float, step: float, integer: bool, tooltip: String = "") -> void:
 	var v := float(_plan_values.get(key, 0.0))
@@ -797,6 +812,7 @@ func _number_field(parent: Control, label_text: String, key: String, minimum: fl
 			_plan_value_changed(false),
 		tooltip)
 
+## Party-form checkbox row bound to `_plan_values[key]`. `structural` is true when the toggle changes which other rows exist and so forces a form rebuild.
 func _toggle_field(parent: Control, label_text: String, key: String, structural: bool = false, tooltip: String = "") -> void:
 	var v := bool(_plan_values.get(key, false))
 	DccWidgets.toggle(parent, label_text, v,
@@ -805,6 +821,7 @@ func _toggle_field(parent: Control, label_text: String, key: String, structural:
 			_plan_value_changed(structural),
 		tooltip)
 
+## Party-form drop-down bound to `_plan_values[key]`. With `allow_auto`, item 0 is the Auto entry (stored as the empty string, meaning "let the engine pick") labelled by `_auto_label()`, and the OptionButton is registered in `_auto_obs` so the Auto labels can be refreshed after each compute without a rebuild. An unknown stored value falls back to item 0.
 func _choice_field(parent: Control, label_text: String, key: String, opts: PackedStringArray,
 		allow_auto: bool, structural: bool = false, tooltip: String = "") -> void:
 	var labels: Array = []
@@ -827,6 +844,7 @@ func _choice_field(parent: Control, label_text: String, key: String, opts: Packe
 	if allow_auto:
 		_auto_obs[key] = ob
 
+## Like `_choice_field()` but for the route-condition vocabulary, grouped by land / river / sea and shown as `Category: option`. The selection is reported through `on_pick` with the raw option (or "" for Auto) instead of being written to `_plan_values`, because the caller decides whether it is journey-wide or a per-stage override. Registered in `_auto_obs` under `key` like every Auto field.
 func _route_cond_field(parent: Control, label_text: String, key: String, current: String,
 		on_pick: Callable, tooltip: String = "") -> void:
 	var labels: Array = [_auto_label(key)]
@@ -902,6 +920,8 @@ func _refresh_auto_labels() -> void:
 		ob.set_item_text(0, _auto_label(key))
 	_refresh_pack_range_note()
 
+## Tears down and rebuilds the whole left-dock party form from `_plan_values`.
+## The first build of a session seeds `_plan_values` from the route-aware `jp_plan_for_route()` when a route is selected, else the route-blind default plan (the reference's `isNewPlan` gate: a re-entry never overwrites a party the user has edited). Never calls `_compute()`, so it cannot recurse with `_apply_result()`, and clears `_auto_obs` because the OptionButtons it held are freed here.
 func _rebuild_party_form() -> void:
 	if not _bound or _left_party_body == null:
 		return
@@ -1063,6 +1083,8 @@ func _stage_picks_note() -> String:
 				float(d.get("gain_pct", 0.0)), d.get("reason", "")])
 	return "\n".join(lines)
 
+## One explanatory sentence for the Carriage section, chosen by the `reason` the engine's auto-carriage pass returned in `_last_result.auto` (no_land_stages, not_a_land_mode, walking, walking_overloaded, mount, baggage_train).
+## Reads the last compute, so it is generic help text until a route has been computed. Must report the infeasible-fodder case as a floor, not an answer.
 func _auto_carriage_note() -> String:
 	var auto: Dictionary = _last_result.get("auto", {})
 	if auto.is_empty():
@@ -1093,6 +1115,7 @@ func _auto_carriage_note() -> String:
 			return txt
 	return "Auto ran but reported no outcome this build understands (\"%s\")." % reason
 
+## Row with two small spin boxes bound to `key_a` / `key_b`. They are read-only while `_carriage_auto` is on, because auto-carriage then owns those numbers. The 0..2000 range is a judgement ceiling for a UI spinner, not an engine limit.
 func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
@@ -1151,9 +1174,12 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 # counterpart *disabled with the reason on the item*, which is where a user
 # actually hits the limit.
 
+## The four species with a `JpParty` slot, in display order. Fixed by the engine's party struct (no generic animal-count map), so the Travel Library can only substitute into these.
 const _SPECIES := ["donkey", "mule", "camel", "horse"]
+## Display names for `_SPECIES`, keyed by the engine's lower-case species key.
 const _SPECIES_LABEL := {"donkey": "Donkey", "mule": "Mule", "camel": "Camel", "horse": "Horse"}
 
+## Re-reads the Travel Library's animal and vessel lists (the library is edited in its own window and may change while this form is open) and repairs `_animal_entries` so every species points at a live entry, defaulting to its stock entry, which the engine reads as "no override".
 func _refresh_library() -> void:
 	_library_animals = bridge.tl_list("animal") if bridge != null else []
 	_library_vessels = bridge.tl_list("vessel") if bridge != null else []
@@ -1166,12 +1192,14 @@ func _refresh_library() -> void:
 			continue
 		_animal_entries[species] = _stock_entry_id(species)
 
+## Finds the row with `id` in a `tl_list` result; returns an empty Dictionary when absent (callers test `.size() > 0`).
 func _library_row(rows: Array, id: String) -> Dictionary:
 	for r in rows:
 		if String((r as Dictionary).get("id", "")) == id:
 			return r
 	return {}
 
+## Id of the built-in (origin `stock`) animal entry occupying `species`, or "" when the library has none.
 func _stock_entry_id(species: String) -> String:
 	for r in _library_animals:
 		var row: Dictionary = r
@@ -1215,6 +1243,7 @@ func _build_animal_definitions(parent: Control) -> void:
 	if note != "":
 		DccWidgets.note(parent, note)
 
+## One species' Travel Library definition picker, listing `_slot_candidates()`. A custom pick is tinted with the accent colour. Changing it is structural (the form rebuilds and recomputes) because the entry's own capacity, speed and fodder feed the plan.
 func _animal_entry_field(parent: Control, species: String) -> void:
 	var candidates := _slot_candidates(species)
 	var labels: Array = []
@@ -1308,6 +1337,7 @@ func _vessel_names() -> Array:
 			out.append(vessel_name)
 	return out
 
+## Vessel picker: every library vessel plus any engine hull the library lacks. An entry is selectable when the engine knows its name or its library definition is complete (`validation_state == ok`); otherwise it is shown "— incomplete" and disabled, so the limit is visible where the user hits it. Selecting writes the vessel *name* to `plan.vessel`.
 func _vessel_field(parent: Control) -> void:
 	var engine_names: PackedStringArray = _options.get("vessel", PackedStringArray())
 	var labels: Array = []
@@ -1408,6 +1438,8 @@ func _pack_range() -> Dictionary:
 
 # =========================================================== Compute path ====
 
+## Runs the engine for the current route and party and refreshes every view.
+## With no bound bindings or no route it stores an empty result and still calls `_apply_result()`, so each view shows its empty state instead of stale numbers. The request comes from `_plan_request()`.
 func _compute() -> void:
 	if not _bound or _route_index < 0:
 		_last_result = {}
@@ -1470,6 +1502,8 @@ func _sync_auto_carriage() -> bool:
 			_plan_values[key] = picked[key]
 	return bool(auto.get("promoted", false))
 
+## Fans one compute result out to every view: map, profile, stops, inspector, matrix, timeline band, auto labels, phone refit and the right-dock Journey section.
+## Order matters: `_sync_auto_carriage()` runs first and may rebuild the party form (Walking promoted to Baggage Train changes the rows); the form rebuild does not recompute, so this cannot recurse. Clamps `_selected_stage` to the new stage count.
 func _apply_result() -> void:
 	var plan: Dictionary = {}
 	if bool(_last_result.get("ok", false)):
@@ -1675,6 +1709,8 @@ func _tl_px(px: float) -> float:
 		return round(px * app.phone_scale())
 	return px
 
+## Fills `app.timeline_row` with the JP-13 day-band strip and legend while Journey owns that row.
+## Segments are real per-stage `days`, then one combined rest+layover block, then resupply days; "weather hold" is never drawn because the engine reports no discrete weather-hold count. The row's metrics are reset to (8, 0), this band's own box, since the last filler wins.
 func _rebuild_timeline_band(plan: Dictionary) -> void:
 	if not _bound or app == null or app.timeline_row == null:
 		return
@@ -1757,6 +1793,7 @@ func _rebuild_timeline_band(plan: Dictionary) -> void:
 		_timeline_legend_item(legend, "text", "resupply")
 	app.timeline_row.add_child(legend)
 
+## One legend entry for the timeline band: a coloured swatch (colour token `token`) and a caption. Returns the row so callers can attach a tooltip.
 func _timeline_legend_item(parent: Control, token: String, label_text: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
@@ -1850,6 +1887,7 @@ func _phone_refit() -> void:
 	if _phone and _center_panel != null:
 		_do_phone_refit.call_deferred()
 
+## Deferred body of `_phone_refit()`: applies `app.phone_fit()` to the centre panel at the current phone scale. Guarded with `is_instance_valid` because it runs a frame later and the panel may have been freed.
 func _do_phone_refit() -> void:
 	if _phone and is_instance_valid(_center_panel):
 		app.phone_fit(_center_panel, app.phone_scale())
@@ -1883,6 +1921,8 @@ func _ellipsised(l: Label, min_w: int) -> Label:
 	l.custom_minimum_size.x = min_w
 	return l
 
+## Builds the whole centre column once: route map with its layer button, totals, stops strip, terrain profile, stage inspector and stage matrix, each in its own opaque panel row.
+## All heights here are authored desktop pixels; `phone_fit()` scales them once afterwards, so they must not be pre-scaled (PH-16). The map backdrop, LOD sprites and line layer are siblings in tree order rather than using z_index (reason in the body). When `_bound` is false it draws only a note.
 func _build_center_panel() -> void:
 	_phone = app != null and app.has_method("is_phone") and app.is_phone()
 	_center_panel = Control.new()
@@ -2155,12 +2195,15 @@ const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
 ## panel's own `_fit()`, unchanged -- this only changes how much source
 ## detail feeds that downscale.
 const ROUTE_MAP_CAPTURE_PX := 2048.0
+## Route-map backdrop choices, in popup order. The id is also the popup item id, so index == id. "map" is the rendered terrain, "off" the plain panel, the rest are `EngineBridge.debug_texture()` ids.
 const _ROUTE_MAP_LAYER_IDS := ["map", "water", "bclass", "cterrain", "wildlife", "off"]
+## Popup captions for `_ROUTE_MAP_LAYER_IDS`.
 const _ROUTE_MAP_LAYER_LABELS := {
 	"map": "Map", "off": "None", "water": "Water", "bclass": "Biome",
 	"cterrain": "Terrain", "wildlife": "Wildlife",
 }
 
+## Builds the backdrop-layer button (top-right of the route map) and its popup. Icon-only and flat on desktop; on phone it is floored to `PHONE_TAP_MIN` square because it is a finger target (measurement in the body).
 func _build_route_map_layer_button() -> void:
 	_route_map_layer_btn = Button.new()
 	_route_map_layer_btn.flat = true
@@ -2269,6 +2312,7 @@ func _rebuild_route_map_layer_popup() -> void:
 		_route_map_layer_popup.set_item_disabled(idx, not available)
 		_route_map_layer_popup.set_item_tooltip(idx, String(item.get("hint", "")))
 
+## Popup handler: stores the chosen layer id and refetches its texture. Ignores an out-of-range id.
 func _on_route_map_layer_picked(id_index: int) -> void:
 	if id_index < 0 or id_index >= _ROUTE_MAP_LAYER_IDS.size():
 		return
@@ -2300,6 +2344,8 @@ func _refresh_route_map_layer_texture() -> void:
 	## null`, which just changed.
 	_route_line.queue_redraw()
 
+## Pushes the current route, its stage segments, settlement stops and resupply marks into the map views, then rebuilds the totals block (distance, land/water split, ascent, high point, stages, settlements, mean speed).
+## `world_bounds` is set before the no-route early-out because the no-route case is exactly what consumes it. Must always redraw both `_route_map` and `_route_line`.
 func _rebuild_route_map(plan: Dictionary) -> void:
 	for c in _totals_body.get_children():
 		_totals_body.remove_child(c)
@@ -2395,6 +2441,7 @@ func _rebuild_route_map(plan: Dictionary) -> void:
 	## formatter to call for this (see `_rate_text()`).
 	_totals_row(_totals_body, "mean speed", _rate_text(float(plan.get("avg_km_day", 0.0)), 1), "accent")
 
+## One label/value line in the map-side totals block.
 func _totals_row(parent: Control, label_text: String, value_text: String, token: String = "text") -> void:
 	var row := HBoxContainer.new()
 	row.custom_minimum_size.y = 18
@@ -2405,6 +2452,7 @@ func _totals_row(parent: Control, label_text: String, value_text: String, token:
 
 # -- Stops strip ---------------------------------------------------------------
 
+## Rebuilds the stops strip under the map from `plan.stops`: one chip per settlement stop, with a 0..365 day layover spin box (365 is a judgement ceiling; the starting value is the stop's own `layover_days` unless the user set one). Edits live in `_layovers` by stop key and are sent on the next compute. Sets the "No stops" note when there are none.
 func _rebuild_stops(plan: Dictionary) -> void:
 	for c in _stops_row.get_children():
 		_stops_row.remove_child(c)
@@ -2486,6 +2534,7 @@ func _stop_fractions(stops: Array, pts: PackedVector2Array) -> PackedFloat64Arra
 
 # -- Stage selection -------------------------------------------------------------
 
+## Profile-spine click: selects a stage, or toggles isolation when `isolate` (alt-click). Redraws the spine selection and rebuilds the inspector, matrix and right-dock trace, and refreshes the phone sheet header (which reads `_isolated_stage`) at the point the value changes.
 func _on_stage_clicked(idx: int, isolate: bool) -> void:
 	_selected_stage = idx
 	if isolate:
@@ -2529,9 +2578,11 @@ func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
 	_tool_options_journey()
 	_compute()
 
+## The override Dictionary for stage `idx` (field -> value), or an empty one. Do not mutate the result; use `_set_stage_override()`.
 func _stage_override(idx: int) -> Dictionary:
 	return _stage_overrides.get(idx, {})
 
+## Writes one field of stage `idx`'s override. An empty string means "inherit", which erases the field; an empty entry is erased entirely so `overrides: N` counts are honest. Copies the entry before editing.
 func _set_stage_override(idx: int, field: String, value) -> void:
 	var entry: Dictionary = (_stage_overrides.get(idx, {}) as Dictionary).duplicate()
 	var is_blank: bool = (typeof(value) == TYPE_STRING and value == "")
@@ -2594,6 +2645,7 @@ func _rate_text(km_per_day: float, decimals: int) -> String:
 func _rate_suffix(per: String = "d") -> String:
 	return "%s/%s" % [DccUnits.suffix(), per]
 
+## Formats `v` with `decimals` places and a space as the thousands separator (the shell's house style, e.g. `12 345.6`). Handles negatives; does not convert units.
 func _fmt_thousands(v: float, decimals: int) -> String:
 	var s := ("%.*f" % [decimals, v])
 	var neg := s.begins_with("-")
@@ -2613,12 +2665,14 @@ func _fmt_thousands(v: float, decimals: int) -> String:
 
 # ==================================================== Stage inspector (§6) ====
 
+## The transport a stage actually uses: its own override if set, else the party's journey-wide value (default "Walking").
 func _effective_transport(idx: int, ov: Dictionary) -> String:
 	var t := String(ov.get("transport", ""))
 	if t != "":
 		return t
 	return String(_plan_values.get("transport", "Walking"))
 
+## Caption of the blank item in a stage-override choice. A set journey-wide value reads `Inherit (value)`; otherwise it reads `Auto (resolved)` using the stage's / result's resolved value (route condition, infrastructure, mount) so an auto field never hides what it resolved to (JP-15).
 func _inherit_label(field_key: String, stage: Dictionary, results_entry: Dictionary) -> String:
 	var pv := String(_plan_values.get(field_key, ""))
 	if pv != "":
@@ -2635,6 +2689,7 @@ func _inherit_label(field_key: String, stage: Dictionary, results_entry: Diction
 		_:
 			return "Auto"
 
+## Stage-inspector drop-down for one overridable field. Item 0 (`inherit_label`) clears the override. `disabled` greys it with `disabled_reason` as the tooltip.
 func _override_choice_row(parent: Control, idx: int, ov: Dictionary, field: String, label_text: String,
 		opts: PackedStringArray, inherit_label: String, disabled: bool = false, disabled_reason: String = "") -> void:
 	var labels: Array = [inherit_label]
@@ -2651,6 +2706,7 @@ func _override_choice_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 		ob.disabled = true
 		ob.tooltip_text = disabled_reason
 
+## Stage-inspector number row: a checkbox that turns the override on, and a spin box showing the override or, when off, the inherited journey-wide value. Unticking erases the override; editing while ticked writes it.
 func _override_number_row(parent: Control, idx: int, ov: Dictionary, field: String, label_text: String,
 		minimum: float, maximum: float, step: float, integer: bool) -> void:
 	var row := HBoxContainer.new()
@@ -2692,6 +2748,7 @@ func _override_number_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 	row.add_child(sb)
 	parent.add_child(row)
 
+## Stage-inspector boolean row: an override checkbox plus an `on` checkbox that is disabled until the override is enabled. Unticking the override erases it (inherit).
 func _override_toggle_row(parent: Control, idx: int, ov: Dictionary, field: String, label_text: String) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -2723,6 +2780,7 @@ func _override_toggle_row(parent: Control, idx: int, ov: Dictionary, field: Stri
 	row.add_child(vcb)
 	parent.add_child(row)
 
+## Rebuilds the stage inspector for `_selected_stage`: header with terrain/km/gain/biome, a BLOCKED banner when applicable, then one override row per field and the footer stats. Falls back to stage 0 if the selection is out of range, and shows a note when there are no stages.
 func _rebuild_inspector(plan: Dictionary) -> void:
 	for c in _inspector_body.get_children():
 		_inspector_body.remove_child(c)
@@ -2911,6 +2969,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		_footer_stat(footer, "ascent", "%s m" % _fmt_thousands(float(s.get("gain", 0.0)), 0))
 		_footer_stat(footer, "arrive", "~day %.0f (travel only)" % travel_days_so_far)
 
+## One label/value pair in the inspector footer.
 func _footer_stat(parent: Control, label_text: String, value_text: String, token: String = "text_bright") -> void:
 	var box := HBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
@@ -2918,6 +2977,7 @@ func _footer_stat(parent: Control, label_text: String, value_text: String, token
 	box.add_child(DccTheme.mono_label(value_text, token, DccTheme.FS_SMALL))
 	parent.add_child(box)
 
+## Copies stage `idx`'s whole override to every land stage (water stages are skipped), then recomputes. No-op when the source has no override.
 func _copy_override_to_land_stages(idx: int, plan: Dictionary) -> void:
 	var src: Dictionary = _stage_override(idx)
 	if src.is_empty():
@@ -2931,8 +2991,10 @@ func _copy_override_to_land_stages(idx: int, plan: Dictionary) -> void:
 
 # ======================================================== Stage matrix (§7) ====
 
+## Column count of the stage matrix; it must equal the length of the header list passed to `_matrix_header()` and the cells added per row in `_rebuild_matrix()` (stage, mode, pace, hrs, terrain, weather, cargo, supply, rate, days).
 const _MATRIX_COLS := 10
 
+## Adds the matrix's column-header row (micro mono captions over a `_MATRIX_COLS`-wide grid) and a rule under it.
 func _matrix_header(cols: Array) -> void:
 	var grid := GridContainer.new()
 	grid.columns = _MATRIX_COLS
@@ -2949,6 +3011,7 @@ func _matrix_header(cols: Array) -> void:
 	_matrix_body.add_child(pad)
 	_matrix_body.add_child(DccTheme.rule())
 
+## Rebuilds the stage matrix: header, a blocked-stage count, then one row per stage ordered blocked first, then load above 0.9, then route order (ties keep route order). When a stage is isolated only that row shows. A lit cell is an override; a dim cell is computed and read-only.
 func _rebuild_matrix(plan: Dictionary) -> void:
 	for c in _matrix_body.get_children():
 		_matrix_body.remove_child(c)
@@ -3156,6 +3219,7 @@ func _matrix_clear_column() -> void:
 			_stage_overrides[idx] = entry
 	_compute()
 
+## Copies the selected stage's transport / pace / hours overrides onto every later stage, then recomputes. Only those three fields are filled down (the matrix's editable columns); no-op when the selected stage has none.
 func _matrix_fill_down(stages: Array) -> void:
 	var src: Dictionary = _stage_override(_selected_stage)
 	var picked: Dictionary = {}
@@ -3173,6 +3237,7 @@ func _matrix_fill_down(stages: Array) -> void:
 
 # ============================================================== Tool options ====
 
+## Installs the JOURNEY tool's options bar through `app.set_tool_options()`: route chooser, party preset controls, carriage mode, re-route, trim hint, save journey and export table. Called again after any change that affects its labels (route, trim, journey saved). The builder lambda reads `_route_index` and `_trim` when the bar is built.
 func _tool_options_journey() -> void:
 	app.set_tool_options(func(row: HBoxContainer):
 		row.add_child(DccTheme.mono_label("JOURNEY PLANNER", "accent", DccTheme.FS_SMALL, 2, true))
@@ -3208,6 +3273,7 @@ func _tool_options_journey() -> void:
 
 # ================================== Journeys list / save (JP-06, JP-08) ====
 
+## Asks for a name and hands it to `_commit_saved_journey()`, which does the saving. Kept separate so the prompt can be bypassed by probes.
 func _save_journey() -> void:
 	## `DccWidgets.prompt()`, not `confirm()` -- this site has a FIELD, and the
 	## helper carries the label, the initial text, the hint line and the
@@ -3302,6 +3368,7 @@ func _commit_saved_journey(jname: String) -> void:
 		app.viewport.refresh_journey_markers()
 	app.set_status("hint", "Saved journey \"%s\" — save the project to keep it." % jname, "accent")
 
+## Restores a saved journey into the live planner state (copying every container so edits do not write back into the saved entry), then rebuilds the form and recomputes. A journey saved before Ruling AR has no auto flags and keeps the session's current ones.
 func _load_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
 		return
@@ -3328,6 +3395,7 @@ func _load_journey(i: int) -> void:
 	_compute()
 	app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
 
+## Forgets journey `i`, mirroring the delete to the engine's own store, and keeps `_active_journey` pointing at the same entry (cleared if it was the one removed, decremented if it was after it).
 func _delete_journey(i: int) -> void:
 	if i < 0 or i >= _journeys.size():
 		return
@@ -3388,6 +3456,7 @@ func _reroute_journey() -> void:
 # reads: this port's presets are the Travel Library's own stored rows, stock
 # and captured alike, which is the strictly larger thing.
 
+## Adds the "party set-up..." preset picker and the "capture party..." button to the tool options row. Presets are the Travel Library's stored rows, stock and captured alike.
 func _preset_controls(row: HBoxContainer) -> void:
 	var presets: Array = bridge.tl_list("preset") if bridge != null else []
 	var labels: Array = ["party set-up…"]
@@ -3404,6 +3473,7 @@ func _preset_controls(row: HBoxContainer) -> void:
 	DccWidgets.action(row, "capture party…", _capture_preset).tooltip_text = \
 		"Writes the current party form into a new Travel Library party set-up (TRAVEL_LIBRARY_SPEC.md §3.4)."
 
+## Copies a Travel Library party set-up into the form. Only keys the default plan owns are applied (`tl_get` also returns metadata that is not plan data), per-stage overrides are untouched, then rebuilds and recomputes.
 func _apply_preset(id: String) -> void:
 	if id == "":
 		return
@@ -3423,6 +3493,7 @@ func _apply_preset(id: String) -> void:
 	_compute()
 	app.set_status("hint", "Applied party set-up \"%s\" (%d fields)." % [String(entry.get("name", "")), applied], "accent")
 
+## Prompts for a name and stores the current party form as a new Travel Library party set-up.
 func _capture_preset() -> void:
 	## `DccWidgets.prompt()` -- see `_save_journey` above. Same shape, and the
 	## empty-name guard goes with it: the helper only calls back on a non-empty
@@ -3548,6 +3619,7 @@ func readout_text() -> String:
 	var dist := DccUnits.format(km)
 	return ("%.0f d · %s" % [days, dist]) if days >= 0.0 else dist
 
+## Top card of the right dock's Journey section: verdict label (colour by level: severe/blocked, strained, otherwise accent), calendar days, travel vs rest split, the confidence range when present, the engine's verdict text and reasons, and inline fixes for a blocked stage. The level-to-colour mapping must stay in step with the engine's verdict levels.
 func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, confidence: Dictionary) -> void:
 	var level := String(verdict.get("level", ""))
 	var token := "block" if level in ["severe", "blocked"] else ("warn" if level == "strained" else "accent")
@@ -3736,6 +3808,7 @@ func _kv_row(parent: Control, label_text: String, value_text: String, token: Str
 		## with the dock edge exactly where the spacer used to leave it.
 		v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
+## Right-dock "Time" group: travel, rest and layover days, resupply days, mean/best/worst days (when a confidence range exists) and arrival season.
 func _build_time_group(body: Control, plan: Dictionary, confidence: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Time")
 	_kv_row(g, "travel days", "%.1f" % float(plan.get("travel_days", 0.0)))
@@ -3752,6 +3825,7 @@ func _build_time_group(body: Control, plan: Dictionary, confidence: Dictionary) 
 	var arrival := seasons[seasons.size() - 1] if seasons.size() > 0 else String(_plan_values.get("season", "?"))
 	_kv_row(g, "arrival season", arrival, "accent")
 
+## Thin horizontal ratio bar. The fill turns warn at `warn_from` and block at `block_from` (defaults 0.7 and 1.0, matching the Load group's text thresholds; the 0.7 is a judgement for "getting heavy"). The fill width is clamped to 0..1 and the stretch ratios are floored at 0.001 because a zero ratio is ignored by the container.
 func _bar(parent: Control, ratio: float, warn_from: float = 0.7, block_from: float = 1.0) -> void:
 	var track := HBoxContainer.new()
 	track.custom_minimum_size.y = 5
@@ -3769,6 +3843,7 @@ func _bar(parent: Control, ratio: float, warn_from: float = 0.7, block_from: flo
 	track.add_child(empty)
 	parent.add_child(track)
 
+## Right-dock "Load" group: capacity figures for the most heavily loaded land leg (the last leg wins ties), with the load bar, and a note that load slowing is already inside each leg's rate.
 func _build_load_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Load")
 	var results: Array = plan.get("results", [])
@@ -3821,6 +3896,7 @@ func _build_load_group(body: Control, plan: Dictionary) -> void:
 	else:
 		DccWidgets.note(g, "Any slowing from load is already folded into each leg's own %s." % _rate_suffix("day"))
 
+## Right-dock "Supply reach" group: days carried (the shortest capped pack when a leg cannot carry the full `supply_days`, Ruling BS), longest gap, desert distance, stops needed and the reach bar. The resupply accept/decline prompts live in `_build_resupply_group()`, not here.
 func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Supply reach")
 	var reach: Dictionary = plan.get("resupply_reach", {})
@@ -4014,6 +4090,7 @@ func _build_cost_group(body: Control) -> void:
 		DccWidgets.note(g, "No trade cargo -- this is the cost of moving the party itself.")
 	DccWidgets.note(g, "Priced in day-wages (one day of unskilled labour), never a currency: the land/river/sea carriage ratios follow Diocletian's Price Edict, which this engine already uses for food logistics, while the absolute level of money in a world is the owner's to set. Tolls are approximated from territory changes along the route (JpDerivedStage.claimed_frac crossing 0.5), and the reference labels that an approximation itself.")
 
+## Right-dock "Vessels" group: for every water stage, vessel, hold used, crew and sailing window from `results[i].water`, then the vessel reference matrix. Shows a "No water legs" note when the route has none.
 func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Vessels · water legs")
 	var stages: Array = plan.get("stages", [])
@@ -4349,6 +4426,7 @@ func _trace_cell(grid: GridContainer, text: String, token: String, right: bool =
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	grid.add_child(l)
 
+## Right-dock "Calculation trace" for the selected stage: the engine's speed chain, one term per row, with the running value and whether the chain closes on the headline day count. Shows a note instead for a blocked stage or a build that returns no trace.
 func _build_trace_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Calculation trace")
 	var plan: Dictionary = _last_result.get("plan", {})
@@ -4543,6 +4621,7 @@ class _RouteMapView extends Control:
 	## it is where they are going to draw it.
 	var world_bounds := Rect2()
 
+	## Redraws on resize (and re-syncs LOD tiles, whose placement depends on size) and pins linear texture filtering for the magnified crop.
 	func _ready() -> void:
 		resized.connect(func(): _sync_lod(); queue_redraw())
 		## `map_texture` is a `gw x gh` per-cell raster -- one texel per world
@@ -4583,6 +4662,7 @@ class _RouteMapView extends Control:
 		_sync_lod()
 		queue_redraw()
 
+	## Frees every LOD `Sprite2D` and resets `lod_world_bounds`. Must run before any rebuild so tiles from an old route never linger.
 	func _clear_lod_sprites() -> void:
 		for s in _lod_sprites:
 			if is_instance_valid(s):
@@ -4754,6 +4834,7 @@ class _RouteMapView extends Control:
 		maxv += Vector2(margin_x, margin_y)
 		return [minv, maxv]
 
+	## Returns a Callable mapping world grid coordinates inside `[minv, maxv]` to pixel positions in `rect`, uniformly scaled (aspect preserved) and centred, with a 10 px inset per side (a judgement margin so strokes and markers are not clipped).
 	func _fit(rect: Rect2, minv: Vector2, maxv: Vector2) -> Callable:
 		var bw: float = maxf(1e-6, maxv.x - minv.x)
 		var bh: float = maxf(1e-6, maxv.y - minv.y)
@@ -4863,9 +4944,12 @@ class _RouteMapView extends Control:
 	## records and reports rather than quietly darkening: the lever is the
 	## token's alpha, and `hud_scrim`'s own comment forbids deriving from it.
 	const _EMPTY_PAD_X := 9
+	## Vertical padding of the empty-state label's scrim, authored px (judgement); multiplied by `scale_factor` when drawn.
 	const _EMPTY_PAD_Y := 4
+	## Corner radius of the empty-state scrim, authored px (judgement); multiplied by `scale_factor` when drawn.
 	const _EMPTY_RADIUS := 6
 
+	## Draws the "no committed route selected" caption centred on a `hud_scrim` box so it stays legible over a world crop. Scaled by `scale_factor` because raw `_draw()` text is not reached by `phone_fit()`.
 	func _draw_empty_state() -> void:
 		var txt := "no committed route selected"
 		var fs: int = maxi(DccTheme.FS_SMALL, int(round(DccTheme.FS_SMALL * scale_factor)))
@@ -4890,9 +4974,11 @@ class _RouteMapView extends Control:
 class _RouteLineLayer extends Control:
 	var backdrop: _RouteMapView = null
 
+	## Redraws on resize.
 	func _ready() -> void:
 		resized.connect(func(): queue_redraw())
 
+	## Draws, in order, the dim wash over the LOD tile footprint, the route polyline (per-stage colour, with a halo over a cutout), settlement rings and resupply squares, all through `backdrop`'s own `_fit()` so line and terrain stay in registration. Draws nothing without a route (the backdrop shows the placeholder).
 	func _draw() -> void:
 		if backdrop == null or backdrop.pts.size() < 2:
 			return   ## `_RouteMapView._draw()` already shows the placeholder text.
@@ -4993,10 +5079,12 @@ class _ProfileView extends Control:
 	var _drag_from := -1.0   ## >= 0 while a ⇧ drag is live
 	var _drag_to := -1.0
 
+	## Redraws on resize and takes mouse input (the spine is clickable and draggable).
 	func _ready() -> void:
 		resized.connect(func(): queue_redraw())
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
+	## Mouse handling: a shift-press starts a trim drag and release emits `trim_dragged` (a drag under 1% of the axis counts as a click and emits (0, 1) to clear the trim); a plain press on a band emits `stage_clicked`, with `isolate` when alt is held. Mouse motion only moves the live drag end.
 	func _gui_input(event: InputEvent) -> void:
 		if size.x <= 0.0:
 			return
@@ -5031,6 +5119,7 @@ class _ProfileView extends Control:
 			_drag_to = clampf(event.position.x / size.x, 0.0, 1.0)
 			queue_redraw()
 
+	## Draws gridlines, the stage bands (colour by category/blocked, dimmed when another stage is isolated), the elevation sparkline from `profile`, the selection outline, the committed trim as dimmed margins and any live drag range.
 	func _draw() -> void:
 		var w := size.x
 		var h := size.y
@@ -5105,9 +5194,11 @@ class _ProfileView extends Control:
 class _TimelineBandView extends Control:
 	var segments: Array = []   ## [{days: float, token: String}], route order
 
+	## Redraws on resize.
 	func _ready() -> void:
 		resized.connect(func(): queue_redraw())
 
+	## Draws `segments` as consecutive blocks whose widths are proportional to their `days`; an empty or zero-total list draws a plain `line`-coloured bar.
 	func _draw() -> void:
 		var w := size.x
 		var h := size.y
