@@ -30,7 +30,10 @@ mod render;
 
 use render::{BakeFields, RenderCtx, TerrainAppearance, TileBounds, TileFields};
 
+// Grid size copied from `appearance_tiers.rs` (128 x 79, its own constants), so the synthetic world
+// // is the same one that file measures.
 const GW: usize = 128;
+// See `GW`.
 const GH: usize = 79;
 
 /// `appearance_tiers.rs`'s synthetic world, verbatim: real relief, a real
@@ -45,6 +48,9 @@ struct Synth {
     lith: Vec<u8>,
 }
 
+/// Builds the synthetic [`Synth`] world: a ridge-and-fine-noise relief over a bowl (so there is a
+/// coastline), a latitude temperature gradient, a sinusoidal rainfall field, sparse drainage and
+/// lithology bands (`(x/13 + y/9) % 7`). Deterministic; the coefficients are labelled judgements copied from `appearance_tiers.rs`.
 fn synth() -> Synth {
     let n = GW * GH;
     let mut field = vec![0f32; n];

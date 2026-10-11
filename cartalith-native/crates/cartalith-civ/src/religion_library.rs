@@ -118,6 +118,9 @@ pub enum ReligionError {
 }
 
 impl std::fmt::Display for ReligionError {
+    /// Display for [`ReligionError`]: the sentence the UI shows beside a refused
+    /// create/edit/delete. Prose only -- callers match on the variant, never on this
+    /// text.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NameEmpty => write!(f, "A religion needs a name."),
@@ -189,6 +192,8 @@ pub struct ReligionLibrary {
 }
 
 impl Default for ReligionLibrary {
+    /// An empty library with no ids issued: identical to [`ReligionLibrary::new`], so
+    /// `Default` and `new` can never disagree about the starting state.
     fn default() -> Self {
         Self::new()
     }
@@ -334,6 +339,10 @@ impl ReligionLibrary {
         Ok(trimmed.to_string())
     }
 
+    /// Refuses a base religion key that is not one of the built-in `CIV_RELIGIONS`.
+    /// A custom religion is a named *variant* of a built-in (its mechanics come from
+    /// the base), so an unknown base would leave it with no behaviour at all. Must
+    /// never accept a `custom:<id>` key as a base: variants do not nest.
     fn validate_base(base_key: &str) -> Result<(), ReligionError> {
         if has_key(&CIV_RELIGIONS, base_key) {
             Ok(())
@@ -342,6 +351,9 @@ impl ReligionLibrary {
         }
     }
 
+    /// Refuses notes longer than `RELIGION_NOTES_MAX_CHARS` (counted in `char`s, not
+    /// bytes, so the limit means the same thing for every script). Never trims or
+    /// truncates: an over-long note is an error the user sees, not a silent edit.
     fn validate_notes(notes: &str) -> Result<(), ReligionError> {
         if notes.chars().count() > RELIGION_NOTES_MAX_CHARS {
             Err(ReligionError::NotesTooLong)
@@ -440,10 +452,14 @@ impl ReligionLibrary {
     }
 }
 
+/// Unit tests of the custom-religion library: validation, id issue and reuse
+/// refusal, in-use delete protection, and the `custom:<id>` key round trip.
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// Test fixture: a library holding exactly one religion ("Church of the Tide",
+    /// based on `sea_lords`); returns the library and the new religion's id.
     fn lib_with_one() -> (ReligionLibrary, u32) {
         let mut lib = ReligionLibrary::new();
         let id = lib.create("Church of the Tide", "sea_lords", (10, 20, 30), "notes").unwrap();

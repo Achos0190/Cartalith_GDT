@@ -1671,7 +1671,7 @@ mod cull_vs_drawn_tests {
         (lb.x * ppc, lb.y * ppc, w, fsz * LABEL_BOX_LINE_HEIGHT)
     }
 
-    /// Measurement, not an assertion: generated-vs-generated overlapping pairs by
+    /// Protects: nothing by assertion -- it is a measurement of generated-vs-generated overlapping pairs by
     /// class pair, and survivors per class, culled the old way (`None`) and the new
     /// way, over the shell's default world. Run with
     /// `cargo test -p cartalith-godot --lib cull_vs_drawn -- --ignored --nocapture`.

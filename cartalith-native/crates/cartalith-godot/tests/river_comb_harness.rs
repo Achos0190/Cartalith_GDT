@@ -232,7 +232,8 @@ fn thinned_plan_keeps_every_existing_hide() {
     assert_guards("384 d1.0", &rivers, &raw, &thin, &a, &b, gw, gh);
 }
 
-/// The measurement the module doc describes. `#[ignore]`d: ~tens of seconds
+/// Protects: nothing by assertion beyond `assert_guards` -- the comb-thinning measurement the module doc
+/// describes. `#[ignore]`d: ~tens of seconds
 /// to minutes per world at 2048x1311; run alone in release.
 #[test]
 #[ignore = "comb measurement at the owner's 2048x1311 world; run alone in release (see the module doc)"]

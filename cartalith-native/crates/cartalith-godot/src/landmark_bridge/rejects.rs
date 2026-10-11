@@ -169,16 +169,19 @@ impl WorldGen {
     }
 }
 
+/// Tests of the rejected-candidate layer's reason filter and crowding sentinel.
 #[cfg(test)]
 mod tests {
     use super::*;
     use cartalith_civ::landmark::LandmarkRejectReason;
 
+    /// Test fixture: a rejected `peak` at (3, 4), score 0.5, with the given reason and
+    /// `needs_crowding`.
     fn row(reason: LandmarkRejectReason, needs: Option<f64>) -> LandmarkReject {
         LandmarkReject { kind: "peak", x: 3, y: 4, score: 0.5, reason, needs_crowding: needs }
     }
 
-    /// `""` is every row and a misspelling is none — the safe direction, since
+    /// Protects: that `""` is every row and a misspelling is none — the safe direction, since
     /// an empty layer is a visible bug and a wrongly-coloured one is not.
     #[test]
     fn the_reason_filter_passes_everything_on_empty_and_nothing_on_a_typo() {
@@ -190,7 +193,7 @@ mod tests {
         assert!(!reason_matches(&e, "spacnig"));
     }
 
-    /// Every reason the crate can emit must be addressable through this filter.
+    /// Protects: that every reason the crate can emit must be addressable through this filter.
     /// A fourth variant added without a key here would silently become
     /// undrawable, so the coverage is asserted rather than assumed.
     #[test]
@@ -213,7 +216,7 @@ mod tests {
         }
     }
 
-    /// `0.0` is the sentinel, and it can never collide with a real answer:
+    /// Protects: that `0.0` is the sentinel, and it can never collide with a real answer:
     /// `crowding_in_force` clamps at `0.05`, and a spacing reject's figure is
     /// strictly greater than the crowding that produced it.
     #[test]

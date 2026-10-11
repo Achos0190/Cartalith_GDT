@@ -272,6 +272,8 @@ pub(crate) fn coast_cells(class: &[u8], gw: usize, gh: usize) -> usize {
     n
 }
 
+/// Tests of the live sea-level bridge (Ruling AQ): the live classification equals a
+/// full civ pass, re-stamping a draft, staleness marking and the water counters.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -291,12 +293,15 @@ mod tests {
         (p, ws)
     }
 
+    /// Runs the full civilisation pass for `ws` at its current `sea_level`; the
+    /// reference the live path is compared against. Must stay a real `compute_civilisation`
+    /// call, never a stub.
     fn civ_at(p: &cartalith_engine::WorldParams, ws: &cartalith_engine::WorldState) -> crate::CivData {
         let (o, w) = coarse_ocean_wind_fields(&ws.field, p.gw, p.gh, p.world, ws.sea_level, p);
         compute_civilisation(ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, &p.civ, &[], None, (&o, &w), false, &mut Vec::new(), None)
     }
 
-    /// Protects the live refresh's central claim: the classification the
+    /// Protects: the live refresh's central claim: the classification the
     /// live path copies into `CivData::water_bodies` ([`water_bodies_at`]
     /// at the new level) equals what a fresh civ pass at that level builds.
     /// Raising the sea must add water and lowering it must add land (the
@@ -326,7 +331,7 @@ mod tests {
         assert_eq!(at(&ws, base), civ0.water_bodies, "round trip: back at the default level, identical");
     }
 
-    /// Protects Ruling 17: a Coastline stamp drafted at the default level,
+    /// Protects: Ruling 17 -- that a Coastline stamp drafted at the default level,
     /// re-stamped at a higher one, previews exactly like a stamp drafted at
     /// the higher level — and differently from the un-restamped draft
     /// (positive control: Coastline reads the level, so the preview must
@@ -356,7 +361,7 @@ mod tests {
         assert_eq!(preview(&draft), before, "round trip restores the original preview");
     }
 
-    /// Protects the staleness half: a live move leaves height current and
+    /// Protects: the staleness half -- a live move leaves height current and
     /// makes climate and civ stale, with this module's reason, and a graph
     /// that was never marked reports neither (negative control).
     #[test]
@@ -376,7 +381,7 @@ mod tests {
         assert_eq!(why.reason, Some("sea_level"));
     }
 
-    /// Protects the counters the probe and status line read, by literal:
+    /// Protects: the counters the probe and status line read, by literal:
     /// a 3 x 3 grid with one ocean column, one lake cell and an out-of-range
     /// byte that must count nowhere.
     #[test]

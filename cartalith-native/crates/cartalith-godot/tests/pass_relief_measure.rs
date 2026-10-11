@@ -13,10 +13,15 @@
 
 use cartalith_engine::{generate_terrain, WorldParams};
 
+/// Generates the terrain stage only for `seed` at `gw` x `gh` with default parameters.
 fn world(seed: i32, gw: usize, gh: usize) -> cartalith_engine::WorldState {
     generate_terrain(&WorldParams::defaults(gw, gh, seed))
 }
 
+/// Protects: that the saddle/corridor relief term (DECISIONS.md 7i) is neither dead nor broad on
+/// real generated terrain -- mean, strong-share and any-corridor share are bounded loosely around the 2026-08-26
+/// measurement -- and that on four fixed long crossings it never changes whether a route exists but
+/// moves at least one.
 #[test]
 fn the_corridor_relief_is_sparse_and_reaches_real_routes() {
     let ws = world(24_601, 512, 384);

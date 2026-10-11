@@ -731,6 +731,13 @@ fn env_u32(name: &str, default: u32) -> u32 {
     std::env::var(name).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
 }
 
+/// Protects: the EF-9.0 go/no-go -- that the importance-driven tile order
+/// captures materially more of what refinement adds than today's centre-distance
+/// order. It is a measurement, not a regression pin: its only assertions are that
+/// the shipped `z_base` is 4 and that the harness's tile path is bit-identical to
+/// `world_elevation_tile`, so a harness that drifted from the product would fail
+/// rather than measure a different thing.
+///
 /// **The EF-9.0 measurement.** Ignored: it generates six worlds and synthesises
 /// tens of thousands of 256^2 tiles (minutes in release). Prints the tables the
 /// plan's §8.4 records and the gate verdict.
@@ -1012,9 +1019,13 @@ struct Stats {
 }
 
 impl Stats {
+    /// The all-zero statistics: the identity for [`Stats::add`] and the start of every
+    /// summation.
     fn zero() -> Self {
         Stats { g: [[0.0; N_FEATURES]; N_FEATURES], b: [0.0; N_FEATURES] }
     }
+    /// Accumulates one weighted observation `(x, y, w)` into `g = sum w x x^T` and
+    /// `b = sum w x y`.
     fn add_row(&mut self, x: &[f64; N_FEATURES], y: f64, w: f64) {
         for i in 0..N_FEATURES {
             let wx = w * x[i];
@@ -1024,6 +1035,8 @@ impl Stats {
             }
         }
     }
+    /// Adds another set of normal-equation statistics: merging clusters, never a
+    /// re-read of the rows.
     fn add(&mut self, o: &Stats) {
         for i in 0..N_FEATURES {
             self.b[i] += o.b[i];
@@ -1168,6 +1181,7 @@ fn prepare(rows: &[&FitRow]) -> Prepared {
 }
 
 impl Prepared {
+    /// The normal-equation statistics of every prepared row at unit weight.
     fn stats(&self) -> Stats {
         let mut s = Stats::zero();
         for (x, &y) in self.x.iter().zip(&self.y) {
@@ -1175,6 +1189,8 @@ impl Prepared {
         }
         s
     }
+    /// One [`Stats`] per bootstrap cluster (a measured window), so a cluster bootstrap
+    /// re-sums whole windows instead of re-reading rows.
     fn cluster_stats(&self) -> Vec<Stats> {
         let mut v = vec![Stats::zero(); self.n_clusters];
         for ((x, &y), &c) in self.x.iter().zip(&self.y).zip(&self.cluster) {
@@ -1592,6 +1608,11 @@ fn fixture_capture(rows: &[FitRow], w: &ImportanceWeights) -> Vec<(u32, f64, f64
     eval_worlds(&refs, w).iter().filter_map(|h| Some((h.z, h.cell.fit[1]?, h.cell.single[0][1]?, h.cell.oracle[1]?))).collect()
 }
 
+/// Protects: the provenance of the shipped EF-9.1 importance weights -- that they
+/// are reproducible from a fit with an out-of-sample hold-out. Like EF-9.0 it is an
+/// ignored measurement; its only assertion is that the folds have at least two seeds
+/// and two grid sizes, so a degenerate run cannot report a fit.
+///
 /// **The EF-9.1 fit.** Ignored: it measures the same worlds EF-9.0 does (about
 /// 8 minutes in release) and then fits and bootstraps.
 ///
@@ -1693,6 +1714,8 @@ fn ef9_1_importance_fit() {
 
 // --------------------------------------------------------- regression tests
 
+/// Regression tests of the pure EF-9.0/9.1 scoring and fitting functions, beside the
+/// ignored measurements above; they run in the ordinary `cargo test`.
 #[cfg(test)]
 mod tests {
     use super::*;

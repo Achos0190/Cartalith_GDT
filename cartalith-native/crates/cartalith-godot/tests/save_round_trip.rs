@@ -60,6 +60,9 @@ fn a_real_world() -> (WorldParams, WorldState) {
     (p, ws)
 }
 
+/// Protects: the whole save round trip -- a real generated world written with `write_save` and
+/// reopened with `load_save` returns the same parameters, bit-identical fields and a parameter block that
+/// regenerates the same terrain; guarded against silently-empty fields by non-emptiness assertions.
 #[test]
 fn a_generated_world_survives_save_and_reload() {
     let (p, ws) = a_real_world();
@@ -140,6 +143,9 @@ fn a_generated_world_survives_save_and_reload() {
     assert_eq!(generate_terrain(&restored).field, ws.field, "the saved parameters must regenerate the same world");
 }
 
+/// Protects: that a world with `carve_rivers` off (no stream order) still writes a full
+/// `gw * gh` Strahler raster of zeros, not an omitted entry the loader would report missing.
+///
 /// `carve_rivers` off means no `stream_order` at all. The save format has no
 /// "absent" for that raster, so it is written as `gw*gh` zeros -- "no
 /// channels" -- rather than omitted, which the loader would report as a

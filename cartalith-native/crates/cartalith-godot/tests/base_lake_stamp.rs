@@ -10,8 +10,12 @@
 #[path = "../src/render.rs"]
 mod render;
 
+// Fixture grid width: a judgement -- big enough for an 8x8 bowl with a plateau rim, small and fast.
 const GW: usize = 24;
+// Fixture grid height; see `GW`.
 const GH: usize = 24;
+// Sea level: the project's default (0.42). The bowl floor (0.50) and plateau (0.70) sit above it,
+// // which is what makes the pooled water a *lake* rather than sea.
 const SEA: f64 = 0.42;
 
 /// A closed bowl above sea level: a 0.70 plateau with a 0.50 floor in the
@@ -26,6 +30,9 @@ fn bowl() -> Vec<f32> {
     f
 }
 
+/// Protects: the v0.103 base-map lake stamp -- attaching a lake classification via
+/// `with_lakes` changes the pooled cell to water-coloured (blue over red) while a land cell stays
+/// byte-identical. Guarded against vacuity: the fixture is asserted to really contain a lake.
 #[test]
 fn an_above_sea_lake_is_drawn_as_water_and_land_is_not_touched() {
     let field = bowl();
@@ -47,6 +54,9 @@ fn an_above_sea_lake_is_drawn_as_water_and_land_is_not_touched() {
     assert_eq!(render::cell_color(&plain, 2, 2), render::cell_color(&stamped, 2, 2), "land must be byte-identical");
 }
 
+/// Protects: that a lake classification whose length is not `GW * GH` is refused, so a stale
+/// classification from another grid size can never repaint the map; the render is then identical to
+/// the context with no attachment.
 #[test]
 fn a_classification_of_the_wrong_size_is_refused() {
     let field = bowl();

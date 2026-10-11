@@ -18,7 +18,11 @@
 
 use std::io::Cursor;
 
+// Path of the real HTML-app export (seed 24601) the writer is checked against: a fixture the
+// // reference itself produced, not one this crate wrote.
 const ZIP: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/real_export_seed24601.zip");
+// Path of the independent value capture of that export (made outside this crate), so assertions
+// // compare against numbers this code did not produce.
 const CAPTURED: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/real_export_seed24601_captured.json");
 
 /// The `state` object out of the real export's own `params.json` — 200+

@@ -906,6 +906,8 @@ fn histogram(gaps: &[f64]) -> String {
     out
 }
 
+/// Parses a comma-separated environment override `key` into `T` values, or returns `default`.
+/// Panics (test-only) on an unparseable entry rather than silently falling back to the default.
 fn env_list<T: std::str::FromStr + Copy>(key: &str, default: &[T]) -> Vec<T> {
     match std::env::var(key) {
         Ok(v) => v.split(',').map(|s| s.trim().parse::<T>().unwrap_or_else(|_| panic!("{key}: cannot parse `{s}`"))).collect(),
@@ -954,7 +956,8 @@ fn positive_control_the_counters_can_fire() {
     assert_eq!(g.raster_dangling, 1, "its receiver is dry non-channel land: the raster counter must fire");
 }
 
-/// The measurement. See the module doc for the command. Prints, per seed, the
+/// Protects: that the measured world is non-trivial (more than 100 channel cells and 10 runs) --
+/// otherwise nothing by assertion. The measurement. See the module doc for the command. Prints, per seed, the
 /// raster and drawn counts and the loose-end gap histogram; asserts only that
 /// the world is non-trivial, because the point is the number, not a bar.
 #[test]

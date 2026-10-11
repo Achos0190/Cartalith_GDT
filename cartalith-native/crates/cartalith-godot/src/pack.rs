@@ -398,6 +398,9 @@ impl Canvas<'_> {
         }
     }
 
+    /// Fills the triangle `p0 p1 p2` (pixel-centre sampling, either winding, inclusive
+    /// edges) with `rgb` at alpha `a` through [`Canvas::blend_px`]. A degenerate
+    /// triangle (|area x 2| < 1e-9, a numerical-zero judgement) paints nothing.
     fn fill_triangle(&mut self, p0: (f64, f64), p1: (f64, f64), p2: (f64, f64), rgb: (f64, f64, f64), a: f64) {
         let minx = p0.0.min(p1.0).min(p2.0).floor().max(0.0) as i64;
         let maxx = p0.0.max(p1.0).max(p2.0).ceil().min(self.gw as f64) as i64;
@@ -418,6 +421,8 @@ impl Canvas<'_> {
         }
     }
 
+    /// Fills the axis-aligned ellipse centred `(cx, cy)` with radii `rx`, `ry` (pixel-centre
+    /// sample inside `dx^2 + dy^2 <= 1`). A non-positive radius paints nothing.
     fn fill_ellipse(&mut self, cx: f64, cy: f64, rx: f64, ry: f64, rgb: (f64, f64, f64), a: f64) {
         if rx <= 0.0 || ry <= 0.0 {
             return;
@@ -437,6 +442,8 @@ impl Canvas<'_> {
         }
     }
 
+    /// Fills the axis-aligned rectangle `(x, y, w, h)` with `rgb` at alpha `a`; every
+    /// pixel touched by the rectangle is blended, bounds-checked by `blend_px`.
     fn fill_rect(&mut self, x: f64, y: f64, w: f64, h: f64, rgb: (f64, f64, f64), a: f64) {
         let x0 = x.floor().max(0.0) as i64;
         let x1 = (x + w).ceil().min(self.gw as f64) as i64;

@@ -261,6 +261,8 @@ pub enum GeoJsonError {
 }
 
 impl std::fmt::Display for GeoJsonError {
+    /// Display for [`GeoJsonError`]: the sentence shown to the user, naming what was wrong and
+    /// where. Callers match on the variant; this prose is never parsed.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             GeoJsonError::Json(m) => write!(f, "not JSON: {m}"),
@@ -440,6 +442,8 @@ fn read_feature(v: &Value, elevation_ignored: &mut bool) -> Result<GeoFeature, F
 // in this comment, so the refusal is self-contained for a reader with no
 // access to this source.
 const NO_GEOMETRY_MISSING: &str = "is missing. RFC 7946 allows a Feature to carry a null geometry, but a feature with no shape cannot be placed on a map, so this importer refuses it rather than dropping it silently";
+// Refusal wording for a feature whose `geometry` is JSON `null` (companion of `NO_GEOMETRY_MISSING`;
+// // same RFC 7946 reasoning: a feature with no shape cannot be placed, so it is refused, not dropped).
 const NO_GEOMETRY_NULL: &str = "is null. RFC 7946 allows that, but a feature with no shape cannot be placed on a map, so this importer refuses it rather than dropping it silently";
 const NO_GEOMETRY_COLLECTION: &str = "is \"GeometryCollection\", which this importer does not read; split it into one Feature per geometry";
 

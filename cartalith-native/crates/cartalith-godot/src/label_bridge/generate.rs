@@ -100,6 +100,7 @@ fn class_multipliers(t: &LabelTypography) -> (f64, f64) {
     (halo_em, t.tracking)
 }
 
+/// Marshals one class's tally (available, drawn, over cap, suppressed) into the dictionary shape the shell's label panel reads; the keys are a boundary contract and must not be renamed without the GDScript consumer.
 fn count_dict(c: &cartalith_civ::labels::LabelClassCount) -> VarDictionary {
     vdict! {
         "key" => c.class.key(),
@@ -150,6 +151,7 @@ fn fold_cull(
     Some(m)
 }
 
+/// Reads a numeric option as `f64`, returning `None` when the key is absent, not a number, or not finite, so a NaN or infinity from GDScript can never become a plausible option value.
 fn as_f64(d: &VarDictionary, key: &str) -> Option<f64> {
     d.get(key).and_then(|v| v.try_to::<f64>().ok()).filter(|f| f.is_finite())
 }
@@ -431,6 +433,7 @@ impl WorldGen {
     }
 }
 
+/// Unit tests for the Godot-free parts of the label generate bridge (key vocabulary, typography multipliers, cull folding); `Dictionary` construction needs a live runtime and is not attempted here.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,6 +445,7 @@ mod tests {
     /// type-checked against them, so a rename here is a silent break there.
     /// This is the cheapest possible guard against that, and it is the same
     /// reason the class keys themselves are pinned in `cartalith-civ`.
+    /// Protects: the five class keys the shell sends (`continental` .. `landmark`) are exactly the engine's `LabelClass` keys, so a rename on either side of the gdext boundary fails here instead of silently dropping a class.
     #[test]
     fn the_class_keys_the_shell_sends_are_the_ones_the_engine_answers_to() {
         let keys: Vec<&str> = LABEL_CLASSES.into_iter().map(|c| c.key()).collect();
@@ -459,6 +463,7 @@ mod tests {
     /// under test is the pure function both `class_dict` and
     /// `labels_render_list` go through, not the dictionary itself. That is the
     /// same split every other bridge in this crate makes.
+    /// Protects: `class_multipliers` returns halo and tracking in em such that halo_em times the nominal size reproduces each class's design halo, and the continental class is 2.5 px on a 26 px glyph.
     #[test]
     fn the_multipliers_restate_the_design_figures_at_the_nominal_size() {
         for class in LABEL_CLASSES {
@@ -475,6 +480,7 @@ mod tests {
     /// The three states `cull` folds into, and the one that would be easy to
     /// get wrong: turning the toggle back on must not throw away the font
     /// measurement the shell took.
+    /// Protects: `fold_cull` drops metrics when the toggle is off, falls back to the shipped advance ratio when turned on with none, stores a sent ratio, keeps a stored one when none is sent, and refuses a zero or negative ratio that would cull nothing.
     #[test]
     fn folding_the_cull_option_keeps_a_measured_ratio_across_a_toggle() {
         let measured = LabelCullMetrics { advance_ratio: 0.4271, ..Default::default() };
@@ -510,6 +516,7 @@ mod tests {
         assert_eq!(fold_cull(None, true, None, None).unwrap().px_per_cell, None, "default stays unknown");
     }
 
+    /// Protects: a zero font size or zero halo yields a zero halo multiplier, never an infinity or NaN handed to the renderer, so the slider's off end stays off.
     #[test]
     fn a_degenerate_spec_hands_the_renderer_zero_rather_than_an_infinity() {
         let zero_size = LabelTypography { size: 0.0, halo: 2.0, tracking: 0.1, italic: false, ink: "#000000" };

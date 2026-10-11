@@ -509,6 +509,8 @@ fn recut_run(cut: &mut [f32], touched: &mut Vec<usize>, depth: &[f32], run: &Dra
     }
 }
 
+/// Tests of RV-3 valley shading: a river-aligned trench must shade as a valley
+/// and a flat plain must not.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,6 +527,8 @@ mod tests {
         (f, c)
     }
 
+    /// A single-piece [`DrawnRun`] through `pts` at constant `width` (order 1, NaN
+    /// discharge: the shading must not depend on discharge).
     fn run(pts: Vec<(f32, f32)>, width: f32) -> DrawnRun {
         let n = pts.len();
         DrawnRun {

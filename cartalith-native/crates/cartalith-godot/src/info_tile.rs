@@ -264,6 +264,8 @@ pub fn synthesize_info_tile(src: &InfoSource, view: InfoView, z: i32, col: i32, 
     Some((out, w, h))
 }
 
+/// Tests of the info-view deep-zoom tile synthesis against a small synthetic world
+/// (ridge-and-valley height with temperature, rain, flow, age and resistance fields).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,6 +283,10 @@ mod tests {
         res: Vec<f32>,
     }
 
+    /// Builds the synthetic [`World`]: every field is a deterministic function of the cell
+    /// so a test can recompute any pixel independently. The constants (0.30/0.45 height
+    /// band, 30 degC minus a latitude lapse, modulo-based rain/flow/age/resistance) are
+    /// labelled fixture judgements, chosen only so each field varies across the grid.
     fn world(gw: usize, gh: usize) -> World {
         let n = gw * gh;
         let at = |f: &dyn Fn(usize, usize) -> f32| -> Vec<f32> { (0..n).map(|i| f(i % gw, i / gw)).collect() };
@@ -296,6 +302,9 @@ mod tests {
         }
     }
 
+    /// Borrows a [`World`] as the [`InfoSource`] the tile code reads. `sea: 0.42`,
+    /// `seed: 24601`, `peak_m: 4000` and `map_width_km: 800` are fixture judgements (0.42
+    /// and 24601 are this project's usual test sea level and seed).
     fn src(w: &World) -> InfoSource<'_> {
         InfoSource {
             gw: w.gw,
@@ -314,11 +323,14 @@ mod tests {
         }
     }
 
+    /// Reads RGBA pixel `(x, y)` out of a tile tuple `(bytes, width, height)`.
     fn px(t: &(Vec<u8>, usize, usize), x: usize, y: usize) -> [u8; 4] {
         let i = (y * t.1 + x) * 4;
         [t.0[i], t.0[i + 1], t.0[i + 2], t.0[i + 3]]
     }
 
+    /// Encodes an [`Rgb`] through the production `sb::push` into the `[r, g, b, a]` bytes a
+    /// tile pixel holds, so an expectation is built by the same encoder it checks.
     fn rgb(c: Rgb) -> [u8; 4] {
         let mut v = Vec::new();
         sb::push(&mut v, c);

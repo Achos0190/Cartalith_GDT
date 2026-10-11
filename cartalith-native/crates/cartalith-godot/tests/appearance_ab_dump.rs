@@ -23,6 +23,7 @@ use rayon::prelude::*;
 use std::fs;
 use std::io::Write;
 
+/// The standalone renderer under test, included by path because this crate is a cdylib; the dumps below drive its public pixel and post-process functions.
 #[path = "../src/render.rs"]
 mod render;
 
@@ -37,6 +38,7 @@ fn grid_n() -> usize {
     std::env::var("CARTALITH_AB_N").ok().and_then(|v| v.parse().ok()).unwrap_or(512)
 }
 
+/// Renders `ws` once with `appearance` (row-parallel, then the whole-raster local-contrast pass, mirroring `lib.rs`) and writes `target/ab/<name>.raw` as u32 width, u32 height (little-endian) then RGB8 rows. `55.0` and `5.0` are `lat_n`/`lat_s`, fixture judgement values. Must render the same image the app shows, so it must not diverge from `lib.rs`'s pipeline.
 fn dump(name: &str, ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool, appearance: render::TerrainAppearance) {
     let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
     let ctx = render::RenderCtx::with_appearance(
@@ -94,6 +96,7 @@ fn dump(name: &str, ws: &cartalith_engine::WorldState, gw: usize, gh: usize, wor
 ///
 /// Not `#[ignore]`d: it generates nothing and runs in microseconds, so it
 /// belongs in the ordinary `cargo test --workspace` sweep.
+/// Protects: `render::LITHO_PALETTE_ORDER` matches `cartalith_civ::LITH_KEYS` in length and order, so reordering or extending the lithology vocabulary fails here instead of painting the wrong rock colour.
 #[test]
 fn litho_palette_order_matches_civ_vocabulary() {
     assert_eq!(render::LITHO_PALETTE_ORDER.len(), cartalith_civ::LITH_KEYS.len(), "lithology vocabulary grew; render.rs needs a palette for every type");
@@ -199,6 +202,7 @@ fn cost_table(label: &str, ws: &cartalith_engine::WorldState, gw: usize, gh: usi
     }
 }
 
+/// Runs the whole A/B battery for one world: before/after, then each milestone's isolation pairs, the quality tiers, serial-versus-parallel equality and the stage cost table. Forces the CPU path (`use_gpu = false`) so dumps are reproducible (`DECISIONS.md` §7c).
 fn run(label: &str, mut p: WorldParams) {
     let gw = p.gw;
     let gh = p.gh;
@@ -260,6 +264,7 @@ fn run(label: &str, mut p: WorldParams) {
     cost_table(label, &ws, gw, gh, world);
 }
 
+/// Builds the app's own archipelago archetype knobs (low continentality, high fragmentation) as the contrasting terrain `TERRAIN_APPEARANCE_RESEARCH.md` §32 asks for; the knob values mirror `generate_world_structure`'s "archipelago" arm.
 fn archipelago(gw: usize, gh: usize) -> WorldParams {
     // The app's own archetype knobs for that preset (`cartalith-godot`'s
     // `generate_world_structure`, "archipelago" arm) — a genuinely
@@ -275,6 +280,7 @@ fn archipelago(gw: usize, gh: usize) -> WorldParams {
     p
 }
 
+/// Protects: nothing by assertion; it is an `#[ignore]`d dump of classic, archipelago and 2:1 worlds for side-by-side inspection, and `run` inside it asserts only that the parallel render is byte-identical to the serial one.
 #[test]
 #[ignore = "generates real worlds; run explicitly with --ignored"]
 fn dump_ab_classic_and_archipelago() {
@@ -305,6 +311,7 @@ fn dump_ab_classic_and_archipelago() {
 /// Reported per-resolution so a future change that fixes one size and breaks
 /// another cannot pass: the failure mode being guarded is precisely
 /// "tuned at one grid size".
+/// Protects: the Wetness slider stays visible at every real resolution (full strength moves more than 0.5% of pixels and the shipped default more than 0.2%, where a pixel counts as moved above 3 levels of channel difference), the `GUI_GAP_REGISTER.md` CA-11 regression where it vanished at working resolution. The 0.5%, 0.2% and 3-level thresholds are judgements set against the register's measurements, not derived.
 #[test]
 #[ignore = "generates real worlds; run explicitly with --ignored"]
 fn hydro_wetness_visibility_by_resolution() {

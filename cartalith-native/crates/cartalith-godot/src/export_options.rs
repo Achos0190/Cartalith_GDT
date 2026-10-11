@@ -33,10 +33,12 @@ use crate::render::{self, ElevationRamp, ExportBandPlan, TerrainAppearance};
 /// dictionary carries. PNG first: ruling 26's format and the default.
 pub const FORMAT_NAMES: [(&str, StreamFormat); 2] = [("png", StreamFormat::Png), ("bigtiff", StreamFormat::BigTiff)];
 
+/// Parses a file-format name from the options dictionary, case-insensitively; `None` for an unknown name so the caller can refuse it rather than silently default to PNG.
 pub fn format_from_name(name: &str) -> Option<StreamFormat> {
     FORMAT_NAMES.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|&(_, f)| f)
 }
 
+/// The canonical option name of a format, the inverse of [`format_from_name`]. The `"png"` fallback is unreachable while `FORMAT_NAMES` lists every `StreamFormat`; it exists only so this stays total.
 pub fn format_name(f: StreamFormat) -> &'static str {
     FORMAT_NAMES.iter().find(|(_, g)| *g == f).map_or("png", |(n, _)| n)
 }
@@ -72,10 +74,12 @@ impl SettlementTier {
         ("all", SettlementTier::All),
     ];
 
+    /// Parses a tier name (`"metropolis"` .. `"all"`) case-insensitively; `None` for anything else, which the options parser turns into a refusal.
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|&(_, t)| t)
     }
 
+    /// The canonical lowercase name of this tier, the inverse of [`Self::from_name`] (the `"all"` fallback is unreachable while `ALL` lists every variant).
     pub fn name(self) -> &'static str {
         Self::ALL.iter().find(|(_, t)| *t == self).map_or("all", |(n, _)| n)
     }
@@ -156,6 +160,7 @@ impl ExportContent {
         out
     }
 
+    /// Sets one boolean overlay flag by its option key. Returns `false`, changing nothing, for a key that is not one of [`Self::OVERLAY_KEYS`], so the parser can refuse unknown content keys instead of dropping them.
     pub fn set_overlay(&mut self, key: &str, on: bool) -> bool {
         let slot = match key {
             "routes" => &mut self.routes,
@@ -194,6 +199,7 @@ pub struct ExportStyle {
 }
 
 impl ExportStyle {
+    /// True when no override is set, i.e. the export reproduces exactly what is on screen.
     pub fn is_empty(&self) -> bool {
         self.look.is_none() && self.preset.is_none() && self.ramp.is_none() && self.tunables.is_empty()
     }
@@ -223,10 +229,12 @@ impl ExportStyle {
     }
 }
 
+/// Canonicalises a look-preset name (case-insensitive) to the `render::LOOK_PRESETS` entry; `None` if unknown. Returning the static name keeps [`ExportStyle::look`] allocation-free.
 pub fn look_from_name(name: &str) -> Option<&'static str> {
     render::LOOK_PRESETS.iter().copied().find(|n| n.eq_ignore_ascii_case(name))
 }
 
+/// Canonicalises a ramp-preset name to the `render::RAMP_PRESETS` entry. Unlike looks this match is case-sensitive, mirroring `load_ramp_preset`; `None` if unknown.
 pub fn ramp_from_name(name: &str) -> Option<&'static str> {
     render::RAMP_PRESETS.iter().map(|(n, _)| *n).find(|n| *n == name)
 }
@@ -256,6 +264,7 @@ pub fn read_appearance_preset(path: &Path) -> Result<TerrainAppearance, String> 
     parse_appearance_preset(&text)
 }
 
+/// Decodes preset-file text: checks the `"format": "cartalith-appearance"` marker, then deserialises the `appearance` block. Every failure is an `Err` string; it never panics on a malformed or foreign JSON file.
 pub fn parse_appearance_preset(text: &str) -> Result<TerrainAppearance, String> {
     let doc: serde_json::Value = serde_json::from_str(text).map_err(|e| format!("parse failed: {e}"))?;
     if doc.get("format").and_then(|v| v.as_str()) != Some("cartalith-appearance") {

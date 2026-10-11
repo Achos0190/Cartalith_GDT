@@ -49,6 +49,8 @@ pub enum Kind {
 }
 
 impl Kind {
+    /// The name the GUI sees for this kind: `"bool"`, `"int"` or `"float"`. These strings
+    /// are an API contract with the GDScript that picks a control; never rename one.
     pub fn as_str(self) -> &'static str {
         match self {
             Kind::Bool => "bool",

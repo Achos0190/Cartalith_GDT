@@ -32,6 +32,10 @@ use render::{apply_wetness, rock_slope_mix};
 /// decimal — tight enough that a different exponent or knee cannot hide.
 const EPS: f64 = 1e-12;
 
+/// Protects: the slope-rock mix is the reference curve `min(1, slope/0.08)^1.5 * strength` -- exponent,
+/// knee, saturation, linear strength scaling and the flat-ground zero -- with expectations written as
+/// hand-worked literals, not re-derived from the expression under test.
+///
 /// Reference HTML 7789: `Math.pow(Math.min(1, slope/0.08), 1.5) * rsK`.
 #[test]
 fn the_slope_rock_ramp_is_the_reference_curve() {
@@ -65,6 +69,9 @@ fn the_slope_rock_ramp_is_the_reference_curve() {
     assert_eq!(rock_slope_mix(0.0, 1.0), 0.0, "flat ground must take no rock");
 }
 
+/// Protects: the wetness stage's reference constants -- 0.30 darkening, the `(twi+1)/4` calibration,
+/// the 0.95/1.00/1.05 channel tilt, saturation and the `wv > 0` guard -- as independent decimals.
+///
 /// Reference HTML 7797-7798: `wv = clamp01((twi+1)/4)`, `dk = 1 - 0.30·wtK·wv`,
 /// then `c0·dk·0.95`, `c1·dk`, `c2·dk·1.05`.
 #[test]

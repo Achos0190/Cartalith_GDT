@@ -90,6 +90,10 @@ use cartalith_terrain::analysis;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 
+/// Ruling AT's manual "refine viewshed for the current view" action: the same
+/// line-of-sight pass as the coarse whole-map viewshed, re-run at higher
+/// fidelity over the cells in view only. Lives in its own file for its error and
+/// status types; must never alter the coarse viewshed `Derived::build` makes.
 pub mod refined_view;
 pub use refined_view::{
     RefineError, RefineStatus, RefinedViewshed, ViewRect, REFINE_MAX_CELLS,

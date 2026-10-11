@@ -902,6 +902,8 @@ pub fn bank_coverage(texel: [f32; 4], ppc: f32, river_width: f32, bank: f32) -> 
     ring * bank.clamp(0.0, 1.0) * am * texel[3]
 }
 
+/// Tests of the RIM-1 river field: supersampling scale, exact segment distance,
+/// width carry and the painted-water colour field.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -924,6 +926,7 @@ mod tests {
         }
     }
 
+    /// Wraps drawn runs in a [`RiverGeometry`].
     fn geom(runs: Vec<DrawnRun>) -> RiverGeometry {
         RiverGeometry { runs }
     }

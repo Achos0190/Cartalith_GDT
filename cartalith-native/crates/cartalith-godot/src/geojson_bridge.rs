@@ -560,6 +560,8 @@ fn geo_religion_fields<'a>(
     (religions.engine_key(stored), crate::civ_religion_bridge::custom_religion_name(religions, stored))
 }
 
+/// Tests of the GeoJSON bridge's religion handling: a custom religion exports its
+/// own name beside the engine (base) key.
 #[cfg(test)]
 mod tests {
     use super::*;

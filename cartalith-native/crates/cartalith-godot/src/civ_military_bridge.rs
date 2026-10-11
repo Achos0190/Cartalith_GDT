@@ -283,6 +283,7 @@ impl WorldGen {
         self.aggregate_call(view, defences, Some(&resources))
     }
 
+    /// Runs `faction_aggregates` over `view` (live or a recorded year) for the current generated world, with optional `resources`. Returns `None` when there is no civ layer or no generated world, which callers must report as unavailable rather than as zero armies.
     fn aggregate_call(
         &self,
         view: &CivView,
@@ -538,6 +539,7 @@ impl<'a> CivView<'a> {
         self.record.and_then(|r| r.institutions.as_deref())
     }
 
+    /// The live view: today's settlements, ways and territory, with no recorded year, so every `overrides`/`institutions` lookup falls back to today's tables.
     fn live(civ: &'a CivData) -> Self {
         CivView { settlements: &civ.settlements, ways: &civ.ways, territory: &civ.territory, record: None }
     }
@@ -577,6 +579,7 @@ enum Reading {
 }
 
 impl Reading {
+    /// The stable string key for this reading kind, sent to GDScript as `reading`; the shell matches on these strings, so they must not be renamed.
     fn key(self) -> &'static str {
         match self {
             Reading::Live => "live",
@@ -621,10 +624,12 @@ fn garrison_is_capital(faction: i32, seat: bool) -> bool {
     faction > 0 && seat
 }
 
+/// Tests for the Ruling AZ garrison capital predicate, plain Rust because the `#[func]` wrappers need a live gdext runtime.
 #[cfg(test)]
 mod garrison_is_capital_tests {
     use super::garrison_is_capital;
 
+    /// Protects: Ruling AZ's garrison `is_capital` is true only for a claimed place (faction above 0) that is flagged as its faction's seat, never for an unmarked place, an unclaimed one or an invalid faction id.
     #[test]
     fn true_only_for_a_real_seat_of_a_claimed_place() {
         assert!(garrison_is_capital(1, true));
@@ -634,12 +639,14 @@ mod garrison_is_capital_tests {
     }
 }
 
+/// Tests for the year-record helpers that resolve a recorded year's institutions against today's roster.
 #[cfg(test)]
 mod year_record_tests {
     use super::{resolve_institutions, YearFactionInstitutions};
     use cartalith_civ::manpower::{civ_military_manpower_world, ManpowerInput};
     use cartalith_civ::roster::civ_ag_tech_by_key;
 
+    /// Fixture: one faction's recorded `ag_tech` and `government` keys; an empty string stands for a blank recorded key.
     fn inst(ag: &str, gov: &str) -> YearFactionInstitutions {
         YearFactionInstitutions { ag_tech: ag.to_string(), government: gov.to_string() }
     }
@@ -1335,6 +1342,7 @@ impl WorldGen {
         };
     }
 
+    /// Reads back the garrison border-exposure scale from `self.params.civ`; always within the range [`set_garrison_exposure_scale`](Self::set_garrison_exposure_scale) enforces unless a loaded project supplied an out-of-range value that its own resolver already clamped.
     #[func]
     fn get_garrison_exposure_scale(&self) -> f64 {
         self.params.civ.garrison_exposure_scale
@@ -1360,4 +1368,5 @@ impl WorldGen {
 /// `ParamSpec` row rather than imported -- see that row's own comment for why
 /// (`params.rs` is deliberately `godot`-free).
 pub(crate) const GARRISON_EXPOSURE_SCALE_MIN: f64 = 0.0;
+// Upper bound is this port's own judgement, not a reference figure; see the doc above (`MILITARY_MANPOWER_SCOPE.md` §5.6).
 pub(crate) const GARRISON_EXPOSURE_SCALE_MAX: f64 = 5.0;

@@ -245,6 +245,11 @@ pub fn write_bands<W: Write + Seek>(out: W, format: StreamFormat, w: usize, h: u
     Ok(())
 }
 
+/// Streams RGB8 bands into a PNG encoder (`png` crate, `Compression::Fast`,
+/// adaptive filter, `PNG_CHUNK_BYTES` writer chunks) so a 16K/32K export never holds
+/// the whole image. Fast compression is a size-for-speed judgement; the encoder
+/// errors, rather than padding, when fewer than `w x h` pixels arrive. Must never
+/// buffer all bands.
 fn write_png<W: Write>(out: W, w: u32, h: u32, bands: &mut dyn Iterator<Item = Result<Vec<u8>, String>>) -> Result<(), String> {
     let png_err = |e: png::EncodingError| format!("PNG encode failed: {e}");
     let mut enc = png::Encoder::new(out, w, h);

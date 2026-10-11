@@ -54,6 +54,9 @@ const VILLAGE_EXPECTED: [(f64, f64, f64); 6] = [
     (255.0, 0.0, 153.0),
 ];
 
+/// Protects: the Village preset's band count (Ruling AZ) -- `apply_npr` for six inputs returns the
+/// hard-coded literal triples, every channel an exact multiple of the literal 51.0 (six levels), and at
+/// least four cases actually moved (the quantiser is not a pass-through).
 #[test]
 fn village_quantises_to_six_levels_of_51() {
     let a = TerrainAppearance { npr: Npr { village: true, ..Npr::default() }, ..TerrainAppearance::default() };
@@ -83,6 +86,9 @@ fn village_quantises_to_six_levels_of_51() {
     assert!(touched >= 4, "the village quantiser changed almost nothing -- {touched} of {} cases moved", CASES.len());
 }
 
+/// Protects: that no non-Village style reaches the Village band quantiser -- the Antique recipe's
+/// outputs for the six cases are pinned as literals and must not move when the band count changes.
+///
 /// Mutation guard, in prose: this constant is asserted by
 /// `village_quantises_to_six_levels_of_51` above with a **literal** step
 /// (`51.0`), not `255.0 / BANDS` -- so mutating `BANDS` in `render.rs`

@@ -199,6 +199,8 @@ pub enum LoadError {
 }
 
 impl std::fmt::Display for LoadError {
+    /// Display for [`LoadError`]: the sentence shown when a project or save will not open. Callers
+    /// match on the variant; this prose is never parsed.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LoadError::Zip(e) => write!(f, "zip error: {e}"),
@@ -224,12 +226,14 @@ impl std::fmt::Display for LoadError {
 impl std::error::Error for LoadError {}
 
 impl From<zip::result::ZipError> for LoadError {
+    /// Lets `?` lift a zip-container failure into [`LoadError::Zip`] unchanged.
     fn from(e: zip::result::ZipError) -> Self {
         LoadError::Zip(e)
     }
 }
 
 impl From<std::io::Error> for LoadError {
+    /// Lets `?` lift an I/O failure into [`LoadError::Io`] unchanged.
     fn from(e: std::io::Error) -> Self {
         LoadError::Io(e)
     }

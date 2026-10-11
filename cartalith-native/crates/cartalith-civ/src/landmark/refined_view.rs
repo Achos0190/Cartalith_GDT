@@ -290,21 +290,26 @@ pub struct RefinedViewshed {
 struct Fnv(u64);
 
 impl Fnv {
+    /// Starts a digest at the standard FNV-1a 64-bit offset basis `0xcbf29ce484222325` (published FNV constant, not tuned).
     fn new() -> Self {
         Fnv(0xcbf2_9ce4_8422_2325)
     }
+    /// Folds bytes in, one at a time: xor then multiply by the standard FNV 64-bit prime `0x100000001b3` (wrapping). Order-sensitive on purpose; callers must feed fields in a fixed order or two equal states hash differently.
     fn bytes(&mut self, b: &[u8]) {
         for &x in b {
             self.0 ^= x as u64;
             self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
         }
     }
+    /// Folds a `u64` as eight little-endian bytes, so the digest is the same on every platform endianness.
     fn u64(&mut self, v: u64) {
         self.bytes(&v.to_le_bytes());
     }
+    /// Folds an `f64` by its exact bit pattern, not its value: a change of one ulp changes the digest, which is what a terrain-changed check needs (and `-0.0` differs from `0.0`).
     fn f64(&mut self, v: f64) {
         self.u64(v.to_bits());
     }
+    /// Folds an `f32` by its exact little-endian bit pattern; same reasoning as [`Self::f64`].
     fn f32(&mut self, v: f32) {
         self.bytes(&v.to_bits().to_le_bytes());
     }
@@ -329,6 +334,7 @@ struct Crop {
 }
 
 impl Crop {
+    /// Computes the crop window for `rect` grown by `r` cells (the horizon). Flat worlds clamp in x; a wrapping world whose grown window spans a full row takes the whole row as a wrapping sub-grid, otherwise it reads columns modulo `gw` from a possibly negative `x0`. Rows always clamp to `0..gh`. Must never read outside the source grid.
     fn of(rect: &ViewRect, r: i64, gw: usize, gh: usize, world: bool) -> Crop {
         let y0 = (rect.y as i64 - r).max(0) as usize;
         let y1 = ((rect.y + rect.h) as i64 + r).min(gh as i64) as usize;
@@ -591,6 +597,7 @@ impl RefinedViewshed {
     }
 }
 
+/// Tests for the refined viewshed: crop equivalence with the whole-map pass, determinism, and the keys that decide staleness. Fixtures are built here, not read from a world.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,6 +618,7 @@ mod tests {
             .collect()
     }
 
+    /// Fixture: a road/track way through `pts`, with every non-geometric field zeroed or empty so it influences only observer sampling.
     fn way(pts: Vec<(f64, f64)>) -> crate::Way {
         crate::Way {
             tid: 0,
@@ -625,6 +633,7 @@ mod tests {
         }
     }
 
+    /// Fixture: a settlement site at `(x, y)` with a fixed population of 5 000 (an arbitrary mid-size figure; tests depend only on it being a positive, non-trivial weight).
     fn site(x: usize, y: usize) -> LandmarkSite {
         LandmarkSite { x, y, population: 5_000.0 }
     }

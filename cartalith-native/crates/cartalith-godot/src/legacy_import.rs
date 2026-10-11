@@ -62,6 +62,11 @@ fn roster(legacy: &LegacyProject) -> FactionRoster {
     )
 }
 
+/// Translates a flat legacy archive's records (`cartalith_io::legacy::LegacyProject`)
+/// into this crate's settlement, label and icon types for a `gw` x `gh` world
+/// (Ruling AU). Returns `civ: None` when the archive placed no settlement and claimed
+/// no territory, so a terrain-only export opens exactly as before. Must never
+/// recompute anything or invent a record the archive did not carry.
 pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
     let n = gw * gh;
     let civ = (!legacy.settlements.is_empty() || legacy.territory.is_some()).then(|| {
@@ -204,11 +209,13 @@ pub(crate) fn import(legacy: &LegacyProject, gw: usize, gh: usize) -> Imported {
     Imported { civ, labels, icons }
 }
 
+/// Tests of the legacy flat-archive import against the real HTML-export fixtures in
+/// `cartalith-io/tests/fixtures`.
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The fallback roster when an archive carries no `factionNames` is the
+    /// Protects: the fallback roster when an archive carries no `factionNames` is the
     /// reference's own seven rows, which `cartalith_io::legacy` range-checks
     /// settlement factions against. The two numbers are kept apart on
     /// purpose; this is the test that they agree.
@@ -217,7 +224,7 @@ mod tests {
         assert_eq!(FactionRoster::seeded(CIV_FACTION_COUNT as usize).0.len(), cartalith_io::legacy::REFERENCE_DEFAULT_ROSTER_LEN);
     }
 
-    /// Every icon family the reader lets through is one this build places, so
+    /// Protects: that every icon family the reader lets through is one this build places, so
     /// the `filter_map` above can never drop a row silently.
     #[test]
     fn every_legacy_icon_family_resolves() {
@@ -229,12 +236,14 @@ mod tests {
         }
     }
 
+    /// Reads a `cartalith-io` fixture archive by file name; panics (test-only) if it is
+    /// missing or unreadable.
     fn fixture(name: &str) -> cartalith_io::ProjectData {
         let path = format!("{}/../cartalith-io/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
         cartalith_io::read_project(std::fs::File::open(&path).expect("fixture")).expect("read")
     }
 
-    /// The real HTML export, with its records, through to this crate's types
+    /// Protects: the real HTML export, with its records, through to this crate's types
     /// -- values read out of `params.json` here, independently of the reader.
     #[test]
     fn the_real_legacy_export_imports_as_settlements_labels_and_icons() {
@@ -281,8 +290,8 @@ mod tests {
         assert_eq!(icons.icons[1].set.as_deref(), Some("my_set"));
     }
 
-    /// The repository's first real export carries no records at all: it
-    /// imports nothing and the world opens as terrain, exactly as before.
+    /// Protects: that the repository's first real export, which carries no records at all,
+    /// imports nothing, and the world opens as terrain, exactly as before.
     #[test]
     fn an_export_with_no_records_imports_nothing() {
         let data = fixture("real_export_seed24601.zip");

@@ -10,6 +10,7 @@
 
 #[path = "../src/params.rs"]
 mod params;
+/// The renderer under test, compiled into this file by `#[path]` because `cartalith-godot` is a cdylib.
 #[path = "../src/render.rs"]
 mod render;
 
@@ -90,6 +91,8 @@ fn steep_mask(field: &[f32], land: &[bool], gw: usize, gh: usize, frac: f64) -> 
     (0..gw * gh).map(|i| land[i] && s[i] >= cut).collect()
 }
 
+/// Per-cell luminance of the rendered base map (`cell_color`), Rec. 709 weights
+/// (0.2126, 0.7152, 0.0722), as a row-major `gw * gh` vector.
 fn lum(ctx: &render::RenderCtx, gw: usize, gh: usize) -> Vec<f64> {
     let mut v = vec![0.0; gw * gh];
     for y in 0..gh {
@@ -101,6 +104,9 @@ fn lum(ctx: &render::RenderCtx, gw: usize, gh: usize) -> Vec<f64> {
     v
 }
 
+/// Protects: nothing by assertion -- the hatching measurement behind Ruling BZ item 2
+/// (prints the ROI and land luminance high-pass RMS and the steep-land Sobel guard for the
+/// appearance under test).
 /// The pinned view: seed 483920 at 1024x768, ROI x340-500 y620-740, the region
 /// the 2026-10-06 diagnosis captured. Prints ROI and all-land luminance
 /// high-pass RMS and the steep-land Sobel guard for the appearance under test.

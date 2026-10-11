@@ -412,6 +412,9 @@ impl Importance {
         self.names_in(TermState::Used)
     }
 
+    /// The [`FEATURE_NAMES`] whose term state equals `s`, in feature order. Shared by
+    /// [`Importance::missing`] and [`Importance::used`]; must stay in step with
+    /// `terms_used`.
     fn names_in(&self, s: TermState) -> Vec<&'static str> {
         FEATURE_NAMES.iter().zip(&self.terms_used).filter(|&(_, &t)| t == s).map(|(&n, _)| n).collect()
     }
@@ -585,6 +588,8 @@ pub const FITTED_WEIGHTS: ImportanceWeights = ImportanceWeights {
     ],
 };
 
+/// Unit tests of tile features, the score and the shipped fitted weights; the
+/// fixtures are small enough to hand-count.
 #[cfg(test)]
 mod tests {
     use super::*;

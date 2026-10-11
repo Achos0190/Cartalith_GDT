@@ -25,6 +25,8 @@
 use godot::classes::{IRefCounted, RefCounted};
 use godot::prelude::*;
 
+/// The Godot class whose `snapshot()` reads the engine's generation-stage counter.
+/// It carries no state and never borrows `WorldGen` (see the module header for why).
 #[derive(GodotClass)]
 #[class(base=RefCounted)]
 struct GenerationProgress {
@@ -33,6 +35,7 @@ struct GenerationProgress {
 
 #[godot_api]
 impl IRefCounted for GenerationProgress {
+    /// Constructs the stateless class; `Base` is the only field.
     fn init(base: Base<RefCounted>) -> Self {
         Self { base }
     }

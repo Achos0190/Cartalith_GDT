@@ -408,6 +408,9 @@ pub fn fans_drawn(a: &crate::render::TerrainAppearance, off: bool, gw: usize, gh
     !off && crate::river_field::painted(a, gw, gh)
 }
 
+/// Tests of RIM-4 delta fans: the gate that decides which mouths get one, the
+/// fan's shape, the off switch and its bit-identical field. Fixtures are straight
+/// east-heading runs on a 100 x 100 grid whose sea is the east side.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,7 +430,10 @@ mod tests {
         assert!(MIN_ORDER > cartalith_hydrology::COMB_MAX_ORDER);
     }
 
+    // Grid width of every fixture: a judgement -- large enough that a fan (a few cells) and the
+    // // `MIN_DISCHARGE_FRAC` share (2e-4 of cells) are both representable, small enough to be fast.
     const GW: usize = 100;
+    // Grid height of the fixtures; see `GW`.
     const GH: usize = 100;
 
     /// A run heading east along `y = 50.5` from `x = 10.5` to `x_end`, one
@@ -460,10 +466,14 @@ mod tests {
         r
     }
 
+    /// The test coastline: every cell with `x >= 60` is sea, so a run ending east of that
+    /// meets water. Passed as the [`Wet`] predicate.
     fn east_coast(x: i64, _y: i64) -> bool {
         x >= 60
     }
 
+    /// Runs [`delta_fans`] on a single run over the fixture grid (cell scale 1.0) with
+    /// the given wetness predicate; returns the fans and their stats.
     fn fans_of(r: DrawnRun, wet: Wet) -> (RiverGeometry, DeltaStats) {
         delta_fans(&RiverGeometry { runs: vec![r] }, GW, GH, 1.0, wet)
     }
@@ -704,6 +714,8 @@ mod tests {
         assert_eq!(g.runs[0].pts, before);
     }
 
+    /// Builds the painted river field for `g` (optionally with `fans`) over the fixture
+    /// grid at zero elevation; panics if the field is not built.
     fn field_of(g: &RiverGeometry, fans: Option<&RiverGeometry>) -> crate::river_field::RiverField {
         crate::river_field::build_with(g, fans, GW, GH, 1.0, &|_, _| 0.0).expect("a field")
     }

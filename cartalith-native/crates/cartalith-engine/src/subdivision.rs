@@ -486,6 +486,9 @@ pub fn select_with(
     Selection { tiles, order, basis: Basis::Ranked, promoted: n_promoted }
 }
 
+/// Unit tests of the EF-9.2 subdivision rule: the disabled/uniform paths equal
+/// today's selection exactly, promotion is budgeted and capped, and the selection
+/// covers the view once with neighbours within one level.
 #[cfg(test)]
 mod tests {
     use super::*;

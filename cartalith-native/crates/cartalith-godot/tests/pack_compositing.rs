@@ -21,11 +21,13 @@
 
 #[path = "../src/render.rs"]
 mod render;
+/// The sprite-pack loader and compositor under test (`pack.rs`), included by path because this crate is a cdylib.
 #[path = "../src/pack.rs"]
 mod pack;
 
 use std::fs;
 
+/// Reads the milestone-2 reference-exported pack fixture relative to this crate's directory; panics with a message if it is missing, because every test here is meaningless without the real pack.
 fn fixture_bytes() -> Vec<u8> {
     fs::read("../cartalith-assets/tests/fixtures/reference_pack.zip").expect("reference_pack.zip fixture (milestone 2) must exist")
 }
@@ -33,6 +35,7 @@ fn fixture_bytes() -> Vec<u8> {
 /// The two families this file composites. The same fixture's `biomes`/
 /// `terrains` tiles are decoded too and are asserted in `paint_blend.rs`,
 /// beside the blend that consumes them.
+/// Protects: the real fixture pack loads and decodes its icon families (3 mountain and 2 tree_conifer variants, no shrub) and its grass/rock/sand splat textures with no snow, wetland or canopy, which the compositing tests below rely on for the sprite and glyph-fallback branches.
 #[test]
 fn loads_the_real_fixture_pack_and_decodes_its_icon_and_splat_families() {
     let loaded = pack::load_pack_from_bytes(fixture_bytes()).expect("real reference-exported pack must load");
@@ -71,6 +74,7 @@ struct World {
     sea_level: f64,
 }
 
+/// Builds the synthetic 24x24 compositing world described on [`World`]: a 3x3 peak, boreal/conifer elsewhere and a dry-grass corner. Heights, temperatures and rainfalls are fixture values chosen to land in the named presets' biome and elevation ranges (shown inline), not measured data.
 fn build_world() -> World {
     let (gw, gh) = (24usize, 24usize);
     let sea_level = 0.30;
@@ -119,6 +123,7 @@ fn region_changed(bytes: &[u8], gw: usize, x0: usize, x1: usize, y0: usize, y1: 
     false
 }
 
+/// Protects: with a real pack, `composite_map_icons` paints real sprite pixels near the mountain peak and paints the shrub-only corner via the procedural glyph fallback, so neither branch can silently become a no-op.
 #[test]
 fn composites_real_sprites_and_falls_back_to_glyphs_on_a_real_test_pack() {
     let loaded = pack::load_pack_from_bytes(fixture_bytes()).expect("real reference-exported pack must load");
@@ -143,6 +148,7 @@ fn composites_real_sprites_and_falls_back_to_glyphs_on_a_real_test_pack() {
     assert!(region_changed(&bytes, world.gw, world.gw - 5, world.gw, 0, world.gh), "expected the procedural glyph fallback to paint the shrub-only corner");
 }
 
+/// Protects: a pack whose icon slots are all removed places nothing (the buffer stays all white), the pack-less no-op that keeps a render without art bit-identical.
 #[test]
 fn a_pack_with_no_icon_art_at_all_places_nothing() {
     // A pack whose manifest has icons the reference vocabulary doesn't

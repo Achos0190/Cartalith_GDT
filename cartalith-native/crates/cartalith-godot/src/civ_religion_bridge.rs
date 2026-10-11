@@ -247,6 +247,7 @@ impl CivData {
     }
 }
 
+/// Tests of how a custom religion's name reaches the UI (`custom_religion_name`).
 #[cfg(test)]
 mod display_tests {
     use super::*;

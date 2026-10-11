@@ -25,12 +25,14 @@ mod params;
 
 // The world substrate (`SAVEFILE_COMPAT.md` §8.3) -- free of `godot`, so it
 // comes in the same way, and the harness below saves what a real save saves.
+/// The world-substrate writer (`SAVEFILE_COMPAT.md` §8.3), included by path because this crate is a cdylib; used only by the measurement harness below.
 #[path = "../src/substrate.rs"]
 mod substrate;
 
 use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 use cartalith_io::project::{ProjectWrite, Raster};
 
+/// Builds the raster set a save writes from a generated world; the strahler order is clamped into `u8` and zero-filled if the world has none, mirroring the live save path. Must not invent data the world lacks.
 fn fields_of(ws: &WorldState, n: usize) -> cartalith_io::SaveFields {
     cartalith_io::SaveFields {
         heightmap: ws.field.clone(),
@@ -71,6 +73,7 @@ fn split_params(p: &WorldParams) -> (serde_json::Value, serde_json::Value) {
     (cartalith, state)
 }
 
+/// Protects: a real generated non-square world survives write_project and read_project bit-exact (every raster, the extra raster, version 2, no warnings), and the restored parameters equal the originals and regenerate the same heightmap, so a save cannot quietly stop describing its own world. Also guards against all-zero output and checks the two `params.json` views are separate.
 #[test]
 fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
     let (p, ws) = a_real_world();
@@ -160,6 +163,7 @@ fn a_real_world_survives_the_tree_and_regenerates_bit_for_bit() {
     assert!(params_json["reference"].get("cartalith").is_none(), "the two views must not nest");
 }
 
+/// Protects: the archive's entry names, the `.shuffled.` raster naming, the exact raw byte size of each raster (no header) and `project.json` being first are what `SAVEFILE_COMPAT.md` publishes, since a second implementation is written against them.
 #[test]
 fn the_tree_is_the_tree_the_specification_publishes() {
     // The entry names are the contract a second implementation is written
@@ -210,6 +214,7 @@ fn the_tree_is_the_tree_the_specification_publishes() {
     assert_eq!(archive.by_index(0).unwrap().name(), "project.json");
 }
 
+/// Protects: a flat (v2.10-style) archive still opens through the project reader as `Layout::Flat`, with its parameters, heightmap and a restored parameter set intact, and reports no project layer.
 #[test]
 fn a_flat_legacy_export_still_opens_through_the_project_reader() {
     // The owner's ruling: read both layouts, write only the tree. This is
@@ -257,6 +262,7 @@ fn a_flat_legacy_export_still_opens_through_the_project_reader() {
 /// The real fixture, not a synthetic one: `cartalith-io`'s own golden
 /// fixture is a genuine HTML-app export, and the project reader must open
 /// it exactly as `load_save` always has.
+/// Protects: the real HTML-app export fixture (seed 24601) still opens as a flat project with a heightmap of gw*gh cells that has real relief, so reader changes cannot regress against a genuine legacy file.
 #[test]
 fn the_real_html_app_export_opens_as_a_flat_project() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../cartalith-io/tests/fixtures/real_export_seed24601.zip");
@@ -283,6 +289,7 @@ fn the_real_html_app_export_opens_as_a_flat_project() {
 ///
 /// `cargo test -p cartalith-godot --release --test project_round_trip -- --ignored --nocapture measure_a_real_save`
 /// Run it alone: a timing taken under a parallel suite is not a measurement.
+/// Protects: only that the measured archive reopens to a bit-identical heightmap; it is an `#[ignore]`d measurement harness, not a regression test, and its printed sizes and timings are not asserted.
 #[test]
 #[ignore]
 fn measure_a_real_save() {

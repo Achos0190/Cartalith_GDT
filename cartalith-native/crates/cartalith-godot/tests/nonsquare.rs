@@ -25,6 +25,7 @@
 
 #[path = "../src/render.rs"]
 mod render;
+/// The sprite-pack loader and compositor (`pack.rs`), included by path because this crate is a cdylib; exercised only by the non-square compositing test.
 #[path = "../src/pack.rs"]
 mod pack;
 
@@ -36,6 +37,7 @@ use cartalith_engine::{WorldParams, generate_terrain};
 /// and neither divides the other.
 const SHAPES: [(usize, usize); 4] = [(192, 96), (96, 192), (150, 90), (128, 128)];
 
+/// Generates a CPU-only world at `gw` x `gh` (GPU off, `DECISIONS.md` §7c). `world_mode` selects toroidal x wrapping. Must stay CPU so the geometry assertions never depend on a GPU path that is only principled-equivalent.
 fn world(gw: usize, gh: usize, seed: i32, world_mode: bool) -> cartalith_engine::WorldState {
     let mut p = WorldParams::defaults(gw, gh, seed);
     // CPU only: the GPU path is principled-equivalent, not bit-reproducible
@@ -45,6 +47,7 @@ fn world(gw: usize, gh: usize, seed: i32, world_mode: bool) -> cartalith_engine:
     generate_terrain(&p)
 }
 
+/// Builds a render context over a world's own fields. `55.0` and `5.0` are `lat_n` and `lat_s` for `RenderCtx::with_appearance`: fixture judgement values (a plausible temperate band), not measured, and no assertion here depends on their exact value.
 fn ctx<'a>(
     ws: &'a cartalith_engine::WorldState,
     gw: usize,
@@ -70,6 +73,7 @@ fn ctx<'a>(
 /// Every cell of every shape renders, with no panic and no index-out-of-
 /// bounds — the failure mode a `y * gw + x` index whose `y` bound came from
 /// `gw` would produce.
+/// Protects: every cell of every aspect ratio in `SHAPES` renders to an in-range colour without panicking, and the engine allocates `gw*gh` cells, catching a `y * gw + x` index whose bound came from the wrong dimension.
 #[test]
 fn every_cell_of_every_aspect_ratio_renders_in_range() {
     for (gw, gh) in SHAPES {
@@ -94,6 +98,7 @@ fn every_cell_of_every_aspect_ratio_renders_in_range() {
 /// World mode (toroidal X wrap) at 2:1 — the reference's own equirectangular
 /// shape (`gridH(gw)` is `gw*0.5` there), and the case where the X-wrapping
 /// blur/slope paths run against a `gh` that is not `gw`.
+/// Protects: world mode (toroidal x wrap) renders in-range colours at the reference's 2:1 shape, where the wrapping blur/slope paths run against a `gh` different from `gw`.
 #[test]
 fn world_mode_renders_at_the_reference_two_to_one_shape() {
     let (gw, gh) = (192usize, 96usize);
@@ -120,6 +125,7 @@ fn world_mode_renders_at_the_reference_two_to_one_shape() {
 /// Cells at/below 2 °C are excluded: `snow_glac`/`snow_perm` are *also*
 /// blue-dominant, so freezing land would legitimately read as "blue" and
 /// weaken a check that is about geometry, not palette.
+/// Protects: on every shape, rendered water (blue over red) agrees with the height field's below-sea-level cells for more than 95% of non-freezing cells, so a transposed axis, wrong stride or clamped row cannot pass as merely not panicking.
 #[test]
 fn rendered_water_still_lands_where_the_field_says_it_does() {
     for (gw, gh) in SHAPES {
@@ -152,6 +158,7 @@ fn rendered_water_still_lands_where_the_field_says_it_does() {
 /// the same cell width on all four sides, and a map interior that is not
 /// margin. A frame keyed to the wrong dimension shows up here as either a
 /// missing top/bottom margin or a plate that is entirely margin.
+/// Protects: the plate frame is a positive, uniform margin on all four edges of a non-square sheet, absent at the plate centre and never wider than half the height.
 #[test]
 fn the_plate_frame_is_a_uniform_margin_on_a_non_square_sheet() {
     let a = render::TerrainAppearance::default();
@@ -172,6 +179,7 @@ fn the_plate_frame_is_a_uniform_margin_on_a_non_square_sheet() {
 /// The one-sided `gh` guard in `border_width_cells` must be exactly that:
 /// square and tall grids keep the width they had before non-square
 /// generation existed, so no square render can shift by a byte.
+/// Protects: the one-sided `gh` guard in `border_width_cells` never fires on square or tall grids (their border width equals the pre-non-square formula exactly), and does fire on a pathologically wide plate.
 #[test]
 fn the_border_guard_never_fires_on_a_square_or_tall_grid() {
     let a = render::TerrainAppearance::default();
@@ -191,6 +199,7 @@ fn the_border_guard_never_fires_on_a_square_or_tall_grid() {
 /// software rasterizer all index the same `gw*gh` buffer; a `gh`-for-`gw`
 /// substitution here is an out-of-bounds panic or a buffer-length mismatch,
 /// both of which this catches.
+/// Protects: sprite compositing from the reference pack runs on 2:1 and 1:2 buffers without resizing the buffer or panicking, and paints something, so a `gh`-for-`gw` substitution in `pack.rs` is caught.
 #[test]
 fn sprite_compositing_runs_on_a_non_square_buffer() {
     let bytes = std::fs::read("../cartalith-assets/tests/fixtures/reference_pack.zip")
@@ -227,6 +236,7 @@ fn sprite_compositing_runs_on_a_non_square_buffer() {
 /// ```
 ///
 /// Output: `target/nonsquare/<w>x<h>.png`.
+/// Protects: nothing by assertion; it is an `#[ignore]`d eyeball harness that writes real 2:1, 1:2 and square renders to `target/nonsquare/` for visual verification, and only checks the RGBA buffer matches `gw*gh*4` and the PNG encodes.
 #[test]
 #[ignore = "generates real worlds and writes PNGs; run explicitly with --ignored"]
 fn dump_non_square_pngs() {

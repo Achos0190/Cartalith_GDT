@@ -20,11 +20,14 @@
 
 use rayon::prelude::*;
 
+/// The renderer under test, compiled into this file by `#[path]` (`cartalith-godot` is a cdylib).
 #[path = "../src/render.rs"]
 mod render;
 
 use render::{Npr, RenderCtx, TerrainAppearance};
 
+/// Approximate luma of an RGB triple (weights 0.3/0.59/0.11, the classic rounded NTSC
+/// weights: a labelled judgement, only used to compare lit against shadow, never to match a reference).
 fn lum(c: (f64, f64, f64)) -> f64 {
     0.3 * c.0 + 0.59 * c.1 + 0.11 * c.2
 }
@@ -147,6 +150,7 @@ fn appearance(tanaka: f64, contours: f64) -> TerrainAppearance {
     a
 }
 
+// Mid-grey input pixel: a judgement that leaves headroom to brighten and darken equally.
 const BASE: (f64, f64, f64) = (128.0, 128.0, 128.0);
 
 /// `apply_npr` at relative elevation `r`, a slope of `0.01` whose downhill
@@ -258,8 +262,10 @@ fn strength_blends_between_plain_and_tanaka() {
 // ------------------------------------------------------------ the raster
 
 const GW: usize = 128;
+// See `GW`: 128 x 79 are the grid constants of `color_space.rs`'s synthetic world, which this reuses.
 const GH: usize = 79;
 
+/// The synthetic world's four input rasters (height, temperature, rainfall, flow), all `GW * GH`.
 struct Synth {
     field: Vec<f32>,
     temperature: Vec<f32>,

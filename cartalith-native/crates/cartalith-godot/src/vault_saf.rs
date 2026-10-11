@@ -127,6 +127,7 @@ pub struct SafVaultProvider {
 }
 
 impl SafVaultProvider {
+    /// Binds a granted document-tree URI to its GDScript dispatcher. Does not request, persist or validate the grant: it stores both and nothing more, so it never fails and never calls the dispatcher.
     pub fn new(tree_uri: String, dispatch: Callable) -> Self {
         SafVaultProvider { tree_uri, dispatch }
     }
@@ -162,6 +163,7 @@ impl SafVaultProvider {
     }
 }
 
+/// Wraps a message as a [`VaultError::Io`], the one error shape every dispatcher failure collapses into so callers see an ordinary unavailable-vault error. Never panics.
 fn unavailable(msg: impl std::fmt::Display) -> VaultError {
     VaultError::Io(std::io::Error::other(msg.to_string()))
 }
@@ -174,10 +176,12 @@ fn guard(rel: &str) -> Result<(), VaultError> {
 }
 
 impl VaultProvider for SafVaultProvider {
+    /// Asks the dispatcher whether the grant is reachable now. Any failure (invalid callable, malformed reply, `ok: false`, non-bool value) reads as `false`, never an error, because "unavailable" is exactly what such a failure means.
     fn available(&self) -> bool {
         self.call("available", varray![]).ok().and_then(|d| d.get("value")).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
     }
 
+    /// Lists vault-relative Markdown paths through the `"list"` op, at most `limit`. Errors if the reply carries no `value` or it is not a `PackedStringArray`; it must not guess at a partial list.
     fn list_markdown(&self, limit: usize) -> Result<Vec<String>, VaultError> {
         let dict = self.call("list", varray![limit as i64])?;
         let value = dict.get("value").ok_or_else(|| unavailable("\"list\" carried no value"))?;
@@ -185,6 +189,7 @@ impl VaultProvider for SafVaultProvider {
         Ok(arr.to_vec().into_iter().map(|s| s.to_string()).collect())
     }
 
+    /// Reads one note's text through `"read"`. `rel` is checked by [`guard`] first so a traversal path never reaches the handler; a non-string `value` is an error, never empty text.
     fn read(&self, rel: &str) -> Result<String, VaultError> {
         guard(rel)?;
         let dict = self.call("read", varray![rel])?;
@@ -192,6 +197,7 @@ impl VaultProvider for SafVaultProvider {
         value.try_to::<GString>().map(|s| s.to_string()).map_err(|_| unavailable("\"read\" did not return text"))
     }
 
+    /// Returns modified time (Unix seconds) and byte length via `"meta"`. A missing or negative field clamps to `0` (the dispatcher contract says `0` means unknown), so a handler that omits a field degrades to "unknown" rather than failing.
     fn meta(&self, rel: &str) -> Result<FileMeta, VaultError> {
         guard(rel)?;
         let dict = self.call("meta", varray![rel])?;
@@ -200,6 +206,7 @@ impl VaultProvider for SafVaultProvider {
         Ok(FileMeta { modified, len })
     }
 
+    /// Reports whether `rel` exists via `"exists"`. An unsafe path or any dispatcher failure answers `false`; it never reaches the handler with an escaping path.
     fn exists(&self, rel: &str) -> bool {
         if guard(rel).is_err() {
             return false;
@@ -207,12 +214,14 @@ impl VaultProvider for SafVaultProvider {
         self.call("exists", varray![rel]).ok().and_then(|d| d.get("value")).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false)
     }
 
+    /// Writes `text` to `rel` via `"write"`; only the handler's `ok` is consumed. Guarded like every `rel` method, and must not report success when the handler said `ok: false`.
     fn write(&self, rel: &str, text: &str) -> Result<(), VaultError> {
         guard(rel)?;
         self.call("write", varray![rel, text])?;
         Ok(())
     }
 
+    /// Returns the tree URI as the vault's human-readable binding description.
     fn describe(&self) -> String {
         self.tree_uri.clone()
     }
@@ -258,6 +267,7 @@ impl WorldGen {
     }
 }
 
+/// Unit tests for the Godot-free part of this module; the dispatcher round trip is covered by `_vaultsaf_probe.gd`, which needs a live runtime.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +278,7 @@ mod tests {
     /// What plain Rust *can* prove is `guard`'s delegation, since
     /// `is_safe_relative_path` itself is already covered in
     /// `cartalith-vault`.
+    /// Protects: `guard` refuses every path `is_safe_relative_path` refuses (parent escapes, absolute paths, empty) and accepts an ordinary vault-relative note, so the SAF provider cannot be used to escape the granted tree.
     #[test]
     fn guard_rejects_exactly_what_is_safe_relative_path_rejects() {
         assert!(guard("Locations/Nareth.md").is_ok());

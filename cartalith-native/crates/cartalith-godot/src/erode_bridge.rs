@@ -427,6 +427,7 @@ pub(crate) fn geo_clock_readout_parts(p: &cartalith_engine::WorldParams, tau: f6
     (active, parts.join(" \u{b7} "), if active { "" } else { GEO_CLOCK_INERT_REASON })
 }
 
+/// Tests for the geological-clock readout parts, which are plain Rust so no Godot runtime is needed.
 #[cfg(test)]
 mod geo_clock_readout_tests {
     use super::{geo_clock_readout_parts, GEO_CLOCK_INERT_REASON};
@@ -437,6 +438,7 @@ mod geo_clock_readout_tests {
     /// will do, glacial listed because the app runs that pass and coastal not
     /// because it does not, and a floor marked. Literal strings, so a changed
     /// count law or a dropped clause turns this red.
+    /// Protects: the readout's counts string and inert/active flag against literal expected text on the app's real parameters (processes off, then on), including the `(floor)` marker at a small tau, so a change to the geo-clock counts or the inert reason cannot ship unnoticed.
     #[test]
     fn readout_on_the_app_parameters() {
         let mut p = crate::params::defaults();
@@ -454,6 +456,7 @@ mod geo_clock_readout_tests {
     }
 }
 
+/// Tests for the erode op's call path and the force-lake helper; the `#[func]` wrappers need a live Godot runtime and are covered by probes instead.
 #[cfg(test)]
 mod tests {
     use super::{force_lakes, run_erode_with_recompute};
@@ -477,6 +480,7 @@ mod tests {
     /// ever removed, this must fail: the second `erode_op` would then read
     /// the *first* run's own post-erode rainfall instead of a fresh one for
     /// the restored surface.
+    /// Protects: eroding, undoing and eroding again with droplets on gives bit-identical elevation, temperature, rainfall and discharge, i.e. the leading `recompute_stale` in `run_erode_with_recompute` really removes the dependence of the droplet pass on stale rainfall left by history.
     #[test]
     fn erode_undo_erode_with_droplets_on_through_the_real_call_path() {
         let mut p = WorldParams::defaults(64, 40, 1234);
@@ -521,6 +525,7 @@ mod tests {
 
     /// The reference's own `if(force[i]) out[i]=2` — ocean and land alike
     /// become lake, and the count reports only the cells that moved.
+    /// Protects: `force_lakes` turns every masked cell into a lake whatever it was, counts only cells that actually changed, and reports the total lake cells afterwards.
     #[test]
     fn forcing_reclassifies_land_and_ocean_and_counts_only_changes() {
         //            land ocean lake land
@@ -533,6 +538,7 @@ mod tests {
     }
 
     /// Idempotent: pressing the button twice is not two changes.
+    /// Protects: forcing is idempotent: a second call with the same mask changes nothing and reports zero newly forced cells, so a repeated press cannot inflate the status-line count.
     #[test]
     fn a_second_call_forces_nothing_new() {
         let mut cls = [0u8, 0, 1, 1];
@@ -549,6 +555,7 @@ mod tests {
     /// `apply_force_lake`'s own documented tolerance: a mask shorter than the
     /// classification simply does not force the tail, exactly as the
     /// reference's `if(force[i])` on a short `Uint8Array` does not.
+    /// Protects: a mask shorter than the classification forces only the cells it covers and leaves the tail untouched (the underlying `apply_force_lake` zip truncates; the Godot op refuses a length mismatch before calling it).
     #[test]
     fn a_short_mask_leaves_the_tail_alone() {
         let mut cls = [0u8, 0, 0, 0];
@@ -560,6 +567,7 @@ mod tests {
 
     /// An empty mask is the state before the first Lake stamp is committed,
     /// and it must be a clean no-op rather than a panic.
+    /// Protects: an empty mask changes nothing and forces zero cells, while the lake count still reports the existing lake.
     #[test]
     fn an_empty_mask_is_a_no_op() {
         let mut cls = [0u8, 1, 2];
@@ -587,6 +595,7 @@ mod tests {
     /// cannot reach is the *call* in `apply_force_lake` above, which needs a
     /// `Gd<WorldGen>` and therefore a Godot runtime; that line is guarded by
     /// nothing but this comment and the audit harness.
+    /// Protects: after a forced lake, refreshing the Paint editor's water mask makes the land-only brush refuse those cells, while `land_only: false` still paints through, so the refresh in `apply_force_lake` neither goes missing nor hardens the toggle into a gate.
     #[test]
     fn a_forced_lake_reaches_the_paint_gate() {
         use crate::paint_bridge::PaintEditor;

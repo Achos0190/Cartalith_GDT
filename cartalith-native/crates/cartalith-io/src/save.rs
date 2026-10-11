@@ -116,6 +116,8 @@ pub enum SaveError {
 }
 
 impl std::fmt::Display for SaveError {
+    /// Display for [`SaveError`]: the sentence shown when a save cannot be written. Callers match on
+    /// the variant; this prose is never parsed.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SaveError::Zip(e) => write!(f, "zip error: {e}"),
@@ -140,12 +142,14 @@ impl std::fmt::Display for SaveError {
 impl std::error::Error for SaveError {}
 
 impl From<zip::result::ZipError> for SaveError {
+    /// Lets `?` lift a zip-container failure into [`SaveError::Zip`] unchanged.
     fn from(e: zip::result::ZipError) -> Self {
         SaveError::Zip(e)
     }
 }
 
 impl From<std::io::Error> for SaveError {
+    /// Lets `?` lift an I/O failure into [`SaveError::Io`] unchanged.
     fn from(e: std::io::Error) -> Self {
         SaveError::Io(e)
     }
