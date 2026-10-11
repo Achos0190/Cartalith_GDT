@@ -79,6 +79,15 @@
 //! runs, `gf11_construction_alone` and `gf11_b9_cost`, plus two diagnostics
 //! outside the rule (`gf11_stranded_diag`, `gf11_g3_lake_diag`).
 //!
+//! **Since GF-7** (the geological clock, `GEOLOGY_FIRST_SCOPE.md` §4.12) the "GF-7"
+//! section holds `gf7_clock_sweep` (B1-B4, B8, B10 and B12's rise-with-tau clauses at
+//! each tau against the control) and `gf7_b9_cost`, both ignored.
+//!
+//! **Section 5.11** (refreshing the stream-power routing, the small-lake cause) adds
+//! `rr_routing_refresh` and `rr_routing_refresh_cost`, ignored, which put a refreshed
+//! light pass through the test-side replay of the pipeline ([`tail`]). They measure and
+//! assert nothing about the bars.
+//!
 //! Bars that need something only a later milestone provides are printed as
 //! **not measurable, with the reason** -- never as a number: B5 (no
 //! dissolution pass before GF-5). B7 is measured on an extra, labelled arm with
@@ -116,6 +125,9 @@ use cartalith_engine::{generate_terrain, WorldParams, WorldState};
 /// `_riverzoom_probe`'s three seeds (also the RV-1 measurement's), then the
 /// two golden seeds. `GEOLOGY_FIRST_SCOPE.md` §5.1.
 const SEEDS: [i32; 5] = [483_920, 24_601, 71_077_345, 12_345, 314_159];
+/// The map extents in km the bars are measured at: the scope's three scales (80, 800 and
+/// 8 000 km, `GEOLOGY_FIRST_SCOPE.md` §5.1 'Extents'). B4, B7 and B10 read `km == 800.0`
+/// below, so 800 is the one the bars are defined at.
 const EXTENTS_KM: [f64; 3] = [80.0, 800.0, 8000.0];
 /// The app's default grid: `engine_bridge.gd` requests `grid_w` 2048 and the
 /// height `reference_grid_h(2048, false)` = round(2048 x 0.64) = 1311.
@@ -146,9 +158,14 @@ struct Reading {
 }
 
 impl Reading {
+    /// A measured reading: `value` set, no reason, empty `detail`. `pops` lists every population
+    /// the value was built from, so [`Reading::floored`] and the log can judge it.
     fn ok(value: f64, pops: Vec<(&'static str, usize)>) -> Self {
         Reading { value: Some(value), pops, reason: None, detail: String::new() }
     }
+    /// A reading that could not be computed: `value` is `None` and `reason` says why.
+    /// The only way to report "not measurable"; it must never carry a number in its place
+    /// (`MISTAKES.md`: never encode "no value" as a plausible value).
     fn none(reason: impl Into<String>, pops: Vec<(&'static str, usize)>) -> Self {
         Reading { value: None, pops, reason: Some(reason.into()), detail: String::new() }
     }
@@ -161,6 +178,8 @@ impl Reading {
         }
         self
     }
+    /// The log form of a reading: the value to four places with its detail and populations,
+    /// or `--` with the reason. A missing value is never printed as a number.
     fn show(&self) -> String {
         let pops = self.pops.iter().map(|(l, n)| format!("{l}={n}")).collect::<Vec<_>>().join(" ");
         match (self.value, &self.reason) {
@@ -300,10 +319,12 @@ fn quantile(v: &[f64], q: f64) -> Option<f64> {
     Some(s[lo] + (s[hi] - s[lo]) * (pos - lo as f64))
 }
 
+/// Median of an unsorted sample ([`quantile`] at 0.5); `None` when empty.
 fn median(v: &[f64]) -> Option<f64> {
     quantile(v, 0.5)
 }
 
+/// Arithmetic mean; `None` when empty, never NaN or 0.
 fn mean(v: &[f64]) -> Option<f64> {
     if v.is_empty() {
         None
@@ -329,6 +350,8 @@ fn quartile_split(s: &[f32], pop: &[usize]) -> Option<(f64, f64)> {
 /// is reproducible.
 struct Mix(u64);
 impl Mix {
+    /// One splitmix64 step (Steele, Lea and Flood's published constants `0x9E3779B97F4A7C15`,
+    /// `0xBF58476D1CE4E5B9`, `0x94D049BB133111EB`); returns the next 64-bit value.
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
         let mut z = self.0;
@@ -424,8 +447,13 @@ fn b3(s: &[f32], pre: &[f32], post: &[f32], pop: &[usize], m_per_unit: f64) -> R
 /// `s ≤ 0.4` (B2's definition). Fixed thresholds, not quartiles: the model's
 /// `s` takes eleven values, and its quartiles can coincide.
 const S_STRONG: f32 = 0.7;
+/// §5.2's weak side of the same split: `s <= 0.4` (see [`S_STRONG`]).
 const S_WEAK: f32 = 0.4;
 
+/// `median(num) / median(den)` (or the means with `use_mean`) as a [`Reading`], floored by
+/// [`MIN_POP`]. A side that is empty gives "empty population"; a side that is zero or
+/// negative gives "ratio undefined" with the values, because a ratio of non-positive
+/// numbers is a sign, not a contrast. `what` labels the printed detail.
 fn ratio_reading(num: &[f64], den: &[f64], pops: Vec<(&'static str, usize)>, what: &str, use_mean: bool) -> Reading {
     let (a, b) = if use_mean { (mean(num), mean(den)) } else { (median(num), median(den)) };
     match (a, b) {
@@ -730,10 +758,15 @@ fn fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<u8>) {
     (s, pre, post, vec![0u8; gw * gh])
 }
 
+/// The indices of the true cells of `mask`, in order: the population form every bar takes.
 fn pop_of(mask: &[bool]) -> Vec<usize> {
     mask.iter().enumerate().filter(|&(_, &m)| m).map(|(i, _)| i).collect()
 }
 
+/// Protects: the B1/B2/B3 metric code (windowing, ranking, quartile split, units) on a fixture
+/// whose answer is built in: B1 rho > 0.5, the sign flipping when strength is inverted, B2 > 1.5,
+/// and B3 recovering the built ratio 0.034 / 0.013. A harness that cannot see a known effect
+/// proves nothing about a real one.
 #[test]
 fn positive_control_b1_b2_b3_see_a_built_in_effect() {
     let (gw, gh) = (256, 192);
@@ -758,6 +791,9 @@ fn positive_control_b1_b2_b3_see_a_built_in_effect() {
     assert!((r3 - 0.034 / 0.013).abs() < 1e-3, "B3 must recover the built ratio 2.615; got {r3}");
 }
 
+/// Protects: the harness not inventing an effect: with the fixture's rock map shuffled among its
+/// own cells (a permutation, checked to keep the multiset and to move something) B1 reads
+/// |rho| < 0.05 and B3 reads within 0.1 of 1.
 #[test]
 fn negative_control_a_permuted_rock_map_reads_no_effect() {
     let (gw, gh) = (256, 192);
@@ -780,6 +816,10 @@ fn negative_control_a_permuted_rock_map_reads_no_effect() {
     assert!((r3 - 1.0).abs() < 0.1, "a permuted rock map must read B3 near 1; got {r3}");
 }
 
+/// Protects: the metric helpers on inputs checked by hand: Spearman (monotone 1, reversed -1,
+/// ties averaged, no variance undefined), `relief_m` on a single spike, `interior_land` against
+/// an ocean column, `quantile` interpolation, and the population floor turning a value into
+/// "not measurable".
 #[test]
 fn metric_helpers_hold_on_hand_checked_inputs() {
     // Spearman: a monotone transform is 1, a reversed one -1, ties averaged.
@@ -818,6 +858,9 @@ fn metric_helpers_hold_on_hand_checked_inputs() {
 // The measurement (ignored; run alone, in release)
 // ===========================================================================
 
+/// A comma list from environment variable `key`, or `default` when it is unset. An
+/// unparsable element panics rather than falling back, so a typo cannot silently run the
+/// wrong seeds, extents or ages.
 fn env_list<T: std::str::FromStr>(key: &str, default: &[T]) -> Vec<T>
 where
     T: Clone,
@@ -831,6 +874,8 @@ where
     }
 }
 
+/// The grid under test: `GF0_GW` wide (default [`APP_GW`]) with the height derived as the app
+/// derives it (`reference_grid_h`: round(0.64 x width), at least 4).
 fn grid() -> (usize, usize) {
     let gw = match std::env::var("GF0_GW") {
         Ok(v) => v.parse::<usize>().unwrap_or_else(|_| panic!("GF0_GW: cannot parse `{v}`")),
@@ -840,6 +885,8 @@ fn grid() -> (usize, usize) {
     (gw, ((gw as f64 * 0.64).round() as usize).max(4))
 }
 
+/// `params::defaults()` (the app's own world, arm 1) at the given seed, extent and grid.
+/// It never sets a geology switch; callers assert the ones they depend on.
 fn app_params(seed: i32, km: f64, gw: usize, gh: usize) -> WorldParams {
     let mut p = params::defaults();
     p.gw = gw;
@@ -849,10 +896,20 @@ fn app_params(seed: i32, km: f64, gw: usize, gh: usize) -> WorldParams {
     p
 }
 
+/// A metric to three places, or `--` when it is not measurable.
 fn fmt_opt(v: Option<f64>) -> String {
     v.map(|x| format!("{x:.3}")).unwrap_or_else(|| "--".into())
 }
 
+/// The GF-0 baseline: B1-B10 on arm 1 (the app's own world) at every seed and extent, printed
+/// with the stand-in strength, the model's `s`, a permuted negative control and the extra
+/// coastal arm for B7. See the module header for the command.
+///
+/// Protects: only the measurement's own validity, never a bar's value. It panics if the
+/// pre-erosion run diverged before erosion (`age_field`, `plate_id`), if `passes.any()` is true
+/// with glacial off, if kernel + rebound + clamp does not reproduce the generated world bit for
+/// bit, if the permuted negative control reads |B1| >= 0.05, or if the same seed twice is not
+/// byte-identical (fields and the column).
 #[test]
 #[ignore = "GF-0 measurement: minutes at 2048x1311; run alone in release (see the module doc)"]
 fn gf0_bars() {
@@ -1248,7 +1305,7 @@ fn rock_fixture(gw: usize, gh: usize) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>
     (s, pre.clone(), run(0.0), run(0.5))
 }
 
-/// Protects the GF-2 metric chain end to end on a fixture whose answer is
+/// Protects: the GF-2 metric chain end to end on a fixture whose answer is
 /// known: through the rock kernel, weak rock must be lowered more than strong
 /// (B3 ≥ 2.0, and ≥ 1.6 × the uniform-rock control's), and a permuted map must
 /// read no contrast. B1 and B2 are printed, not asserted: see the scope's
@@ -1280,6 +1337,13 @@ fn positive_control_through_the_rock_kernel() {
     assert!((b3p - 1.0).abs() < 0.1, "a permuted rock map must read B3 near 1; got {b3p}");
 }
 
+/// GF-2/GF-3 arm 2: control (the app's world, processes off) against treatment (processes on)
+/// on one shared pre-erosion rock map, printing B1-B4, B8, B10 and the column's evolution with
+/// each bar's PASS/FAIL/not-measurable verdict.
+///
+/// Protects: only the measurement's own validity. It panics if `params::defaults()` does not run
+/// the geology model with processes off, if the pre-erosion run shares no `age_field` or sea
+/// level with the treatment, or (at 800 km) if the treatment is not deterministic.
 #[test]
 #[ignore = "GF-2 measurement: control vs treatment; minutes at 2048x1311; run alone in release"]
 fn gf2_arms() {
@@ -1435,6 +1499,8 @@ fn gf2_arms() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored diagnostic that measures only.
+///
 /// GF-2 diagnostic for B8's small-lake count: where are the 1-3-cell lakes
 /// the treatment has and the control does not? Prints, over those cells, the
 /// exposed rock (pre-erosion input map and the final column), whether the
@@ -1538,6 +1604,9 @@ fn gf2_small_lake_diag() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored timing; the bar (ratio of medians <= 1.20) is
+/// printed, not asserted.
+///
 /// B9 for GF-2: control and treatment timed in the same process, alternating
 /// run by run so drift lands on both, one untimed warm-up each.
 #[test]
@@ -1570,6 +1639,9 @@ fn gf2_b9_cost() {
     println!("  ratio of medians {:.3} (bar <= 1.20)", mt / mc);
 }
 
+/// Protects: only that each run produced a non-empty field; the timing is printed, not asserted.
+///
+/// B9 for GF-0: `generate_terrain` at the app defaults, one untimed warm-up then five timed runs.
 #[test]
 #[ignore = "GF-0 B9: timing; run ALONE in release (see the module doc)"]
 fn gf0_b9_cost() {
@@ -1614,6 +1686,10 @@ fn treated_at(p: &WorldParams, age: f64) -> WorldState {
     generate_terrain(&WorldParams { geology_processes: true, geo_age: age, ..p.clone() })
 }
 
+/// Protects: only its own validity -- the control must be the app's world (geology model on,
+/// processes off, age 1.0) and, at 800 km, every treated tau must be deterministic. The bars are
+/// printed with verdicts, not asserted.
+///
 /// Measures (never asserts a bar): per τ, B1, B2, B3, B4, B8, B10 against
 /// the control, and B12's three rise-with-τ clauses -- mean incision over the
 /// control's channel cells on the generated worlds, and the glacial and
@@ -1804,6 +1880,8 @@ fn gf7_clock_sweep() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored timing; the ratios are printed, not asserted.
+///
 /// B9 for GF-7: the control against the treatment at each τ, alternating in
 /// one process, one untimed warm-up each. Disclosed, not gated, except at
 /// τ = 1, which is B9's own bar (§4.12 "Cost").
@@ -1907,7 +1985,9 @@ use cartalith_terrain::geology::{GeologyColumn, Rock};
 /// step breach rule), **and** B8 holds for arm C there on all five seeds (B8's
 /// own "all five seeds", §5.2). Anything else is NO-GO.
 const GO_B1_DRHO: f64 = 0.075;
+/// Pre-registered B2 margin: `1.125 x` (half of the 0.25 above parity); see [`GO_B1_DRHO`].
 const GO_B2_RATIO: f64 = 1.125;
+/// Pre-registered B4-twin margin: `1.1 x` (half of §5.2's 1.2 x); see [`GO_B1_DRHO`].
 const GO_B4_TWIN_RATIO: f64 = 1.1;
 /// §7 GF-10: "on at least three of five seeds".
 const GO_SEEDS: usize = 3;
@@ -1927,6 +2007,7 @@ const A_RIFT: f64 = 0.5;
 const U_BG: f64 = 0.1;
 /// §4.14: the budget weight's clamp. **Judgements** (scope).
 const W_MIN: f64 = 0.25;
+/// §4.14: the budget weight's upper clamp. **Judgement** (scope); see [`W_MIN`].
 const W_MAX: f64 = 4.0;
 /// §4.15: the stage's implicit step count. **Judgement** (scope: 8).
 const N_BM: usize = 8;
@@ -1957,11 +2038,13 @@ enum Breach {
 struct OrdF32(f32);
 impl Eq for OrdF32 {}
 impl PartialOrd for OrdF32 {
+    /// The total order's `partial_cmp`, so the heap sees a defined order for every bit pattern.
     fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(o))
     }
 }
 impl Ord for OrdF32 {
+    /// `f32::total_cmp`: NaN and signed zeros order deterministically.
     fn cmp(&self, o: &Self) -> std::cmp::Ordering {
         self.0.total_cmp(&o.0)
     }
@@ -2566,7 +2649,7 @@ fn same_world(a: &WorldState, b: &WorldState) -> bool {
         && bits(&ca.contact, &cb.contact)
 }
 
-/// Protects every GF-10 number: **the test-side replay of the pipeline
+/// Protects: every GF-10 number: **the test-side replay of the pipeline
 /// ([`priming_climate`], [`light_pass`], [`tail`]) is `generate_terrain`**, bit
 /// for bit, on the app's own path (processes off) and on the processes-on path
 /// at τ = 1 and τ = 4 (GF-7's clock reaches the light pass, the hillslope and
@@ -2732,7 +2815,7 @@ fn bm_stage(p: &WorldParams, sea: f64, field: &mut Vec<f32>, col: &mut GeologyCo
     }
 }
 
-/// Protects §5.2's B13 on the prototype stage: on a tilted plane under
+/// Protects: §5.2's B13 on the prototype stage: on a tilted plane under
 /// uniform uplift and no rain, a granite block beside a shale block, the stage
 /// reaches the steady state stream power predicts. At matched drainage area
 /// (the same row of each block's interior, which a plane under uniform uplift
@@ -2817,7 +2900,7 @@ fn fixture_world(z0: Vec<f32>, col: GeologyColumn, sea: f64) -> WorldState {
     }
 }
 
-/// Protects §5.2's B14 on [`construct`], on a fixture whose answer is known: a
+/// Protects: §5.2's B14 on [`construct`], on a fixture whose answer is known: a
 /// sandstone-over-shale basin in granite beside an ocean strip (a 20 m cap in
 /// its seaward half that the budget breaches, 400 m in its landward half), and
 /// an inland 10 m-cap patch whose breach would be a pit below sea level. Checks: `contact`
@@ -3127,6 +3210,8 @@ struct ArmCfg {
     rule: Breach,
 }
 
+/// One arm's product: the finished world, the constructed surface and column before
+/// the stage (`None` without construction), and the construction and stage reports.
 struct ArmOut {
     ws: WorldState,
     /// The constructed surface and column before the stage (`None` without
@@ -3280,6 +3365,10 @@ fn write_hillshade(path: &str, field: &[f32], class: &[u8], gw: usize, gh: usize
     enc.write_header().expect("png header").write_image_data(&rgb).expect("png data");
 }
 
+/// Protects: only its own validity (the context builder asserts the app's world has the geology
+/// model on and processes off, and shares `age_field` with the pre-erosion run). The bars and the
+/// GO/NO-GO verdict are printed, not asserted.
+///
 /// The GF-10 measurement (§7 GF-10's readings), per seed and extent: the
 /// cap-thickness distribution and `D₁`, `T₁`, the `U₀` solve, then arms A, B
 /// and C at every setting, each line a revised bar; `ROW` lines are the
@@ -3582,6 +3671,9 @@ fn gf10_bm_prototype() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored diagnostic that measures only (it prints whether
+/// each as-built replay equals `generate_terrain`).
+///
 /// §5.8's τ > 1 small-lake failure, diagnosed (§4.15, B8 item 1). On the GF-7
 /// worlds (processes on), counts 1-3-cell lakes stage by stage -- after the
 /// rock stream-power call, after its rebound, after the hillslope (the
@@ -3665,6 +3757,8 @@ fn gf10_small_lake_diag() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored timing; the projected ratio is printed, not asserted.
+///
 /// B9 for GF-10 (§7: "the prototype stage's time at 2048 × 1311 against the
 /// light pass"): per run, the app world, the light pass (legacy kernel +
 /// rebound), construction, the BM stage and the hillslope, in one process,
@@ -3766,6 +3860,17 @@ fn gf10_b9_cost() {
 /// seen (disclosed in its own text), snapshotted before the third run.
 /// Printed by [`gf11_construction_alone`] so every log carries the rule it was
 /// judged by. No threshold in it may move after a result is seen.
+///
+/// What differs between the versions, read from the rule text itself (the string
+/// is the authority and must not be edited): v1 to v2 changes only G4 (a
+/// below-sea land cell that sat in an existing depression of the structural
+/// surface is counted and reported, not judged, and the c = 0 identity is stated
+/// over non-arc-exempt cells); v2 to v3 changes only G3 (the same
+/// existing-depression exemption on the lake share and the 1-3-cell lake count,
+/// applied to arms A and C alike, with v2's unexempted readings printed beside
+/// them). G1, G2 and G5 and every threshold are v1's, word for word. The
+/// `GF11_*` constants below mirror numbers in the string; nothing asserts that
+/// the two agree, so a change to either must be made to both.
 const GF11_RULE: &str = "\
 GF-11 PRE-REGISTERED RULE v3 (construction alone; Ruling BY items 1, 3 and 4). v1 was written 2026-10-10 before any GF-11 run; v2 was written 2026-10-10 AFTER the first run's numbers were seen, and before the second run; v3 was written 2026-10-10 AFTER the first two runs' numbers were seen, and before the third run.
 Disclosure: GF-10 (GEOLOGY_FIRST_SCOPE.md 5.10) already measured this arm once, so this rule is written knowing those numbers. No threshold below is lower than the scope's; every bar dropped is dropped for a reason in the scope's own text, not for its GF-10 result.
@@ -4045,6 +4150,10 @@ fn gf11_b14(ctx: &SeedCtx, o: &ArmOut, c: f64, tau: f64) -> (bool, String) {
     (pass, detail)
 }
 
+/// Protects: only its own validity -- arm C's contrast must be the app's `tect.resist` (0.5), and
+/// [`gf11_b8_checked`] asserts its copy of B8 reproduces [`b8`]. Gates G1-G4 are printed with
+/// verdicts under [`GF11_RULE`], not asserted.
+///
 /// The GF-11 measurement: construction alone (arms A, B, C above), judged by
 /// [`GF11_RULE`]. Prints the rule, one `ROW11` line per seed and `TAU11`
 /// lines for G3/G4 at τ ≠ 1, then the verdict (G5 is [`gf11_b9_cost`]'s, run
@@ -4188,6 +4297,8 @@ fn gf11_construction_alone() {
     println!("\nGF-11 VERDICT (G1-G4): G1 on {g1} of {measured} seeds (need {GF11_LANDFORM_SEEDS}); G2 on {g2} of {measured} (need {GF11_LANDFORM_SEEDS}); G3 on every seed and tau: {g3_all}; G4 on every arm: {g4_all} => {text}");
 }
 
+/// Protects: nothing by assertion -- an ignored diagnostic outside the rule that decides nothing.
+///
 /// **A diagnostic, added after the first GF-11 run and outside the rule**:
 /// where G4's "every land cell now below sea is ocean" failed, what are those
 /// cells? For arm C at τ = 1 on each seed, it splits the land cells that end
@@ -4228,6 +4339,8 @@ fn gf11_stranded_diag() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored diagnostic outside the rule that decides nothing.
+///
 /// **A diagnostic, added before the second GF-11 run and outside the rule**:
 /// what are G3's extra lake cells (seed 24601 read 6.75 % lake on river paths
 /// against A's 2.23 % in the first run)? For arms A and C (τ = 1) it walks
@@ -4300,6 +4413,8 @@ fn gf11_g3_lake_diag() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored timing; G5's verdict is printed, not asserted.
+///
 /// G5 (B9) for construction alone: per run, the app world (A) and the pieces
 /// of a construction-alone generation, each timed in one process after one
 /// untimed warm-up: the pre-erosion world (structure, column, priming
@@ -4515,6 +4630,9 @@ fn field_delta(p: &WorldParams, a: &WorldState, b: &WorldState) -> String {
     format!("field cells changed {diff} of {} ({:.2} %), max |dz| {maxd:.2} m", a.field.len(), 100.0 * diff as f64 / a.field.len() as f64)
 }
 
+/// Protects: nothing by assertion -- an ignored measurement. It prints whether each replay equals
+/// `generate_terrain` ("REPLICA DIVERGED" otherwise) but does not panic on a divergence.
+///
 /// §5.11's measurement: today's app world against the routing refreshed
 /// every `k` iterations, on every seed at 800 km; then the gated
 /// `geology_processes` path at each τ in `RR_TAUS` (default 4, the
@@ -4559,6 +4677,8 @@ fn rr_routing_refresh() {
     }
 }
 
+/// Protects: nothing by assertion -- an ignored timing.
+///
 /// §5.11's cost: `generate_terrain` on the app path, and the light pass's
 /// stream-power call alone at each refresh interval, one warm-up then
 /// `RR_RUNS` (default 5) runs each, medians with min..max. The projected

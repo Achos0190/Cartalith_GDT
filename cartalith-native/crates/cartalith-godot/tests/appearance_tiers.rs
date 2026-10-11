@@ -16,20 +16,34 @@
 //! 3. **Every constant in the tier table is load-bearing** — the
 //!    mutation-testing convention this project has now used across six
 //!    milestones. A tier entry that changes no pixel is a typo, not a tier.
+//!
+//! The rest of the file, added after milestone 6, applies the same two ideas
+//! (every control must move a pixel; every identity must be byte-exact) to the
+//! by-name tunable table, the named looks, the colour grade, the elevation ramp
+//! (CA-02), look serialisation (CA-08) and the hillshade layer. Everything is
+//! driven through `render.rs` `#[path]`-included, because `cartalith-godot` is
+//! `cdylib`-only (`ARCHITECTURE.md`) and so cannot be linked as a library.
 
 use rayon::prelude::*;
 
+/// The renderer under test, `#[path]`-included (see the file header).
 #[path = "../src/render.rs"]
 mod render;
 
 use render::{ElevationRamp, QualityTier, RampMode, RampStop, RenderCtx, TerrainAppearance};
 
+/// Grid width of the synthetic world: 128 is a judgement, not a measurement.
 /// Non-square on purpose (`GENERATION_PARAMETERS.md`: non-square maps are
 /// real), and big enough that every radius in `render.rs` — AO, hydrology,
 /// stipple spacing, local contrast — resolves to more than its own floor.
 const GW: usize = 128;
+/// Grid height; see [`GW`]. 79 is a judgement (any value not equal to `GW` and
+/// large enough for the radii noted there keeps the non-square property).
 const GH: usize = 79;
 
+/// The synthetic world's channels, one entry per cell (`GW * GH`, row-major):
+/// `field` is height, `temperature` and `rainfall` are the 0..1 climate
+/// inputs, `flow` is accumulated drainage and `lith` the lithology class.
 struct Synth {
     field: Vec<f32>,
     temperature: Vec<f32>,
@@ -67,6 +81,14 @@ fn synth() -> Synth {
     Synth { field, temperature, rainfall, flow, lith }
 }
 
+/// Builds the render context every test here draws through.
+///
+/// The scalar arguments are fixed on purpose: `0.42` is the sea level (every
+/// "land" / "water" split below uses the same literal against `Synth::field`),
+/// `false` is the `world` flag (flat map), and `55.0`/`5.0` are the
+/// north/south latitude bounds, a judgement that gives the temperature
+/// gradient a plausible span. Do not reuse it for a test that needs a
+/// different sea level.
 fn ctx<'a>(s: &'a Synth, a: TerrainAppearance) -> RenderCtx<'a> {
     // `with_map_scale` is the app's own attachment (`lib.rs::
     // build_color_texture`, `export_raster.rs::export_render`), and without it
@@ -125,7 +147,6 @@ fn render_parallel(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
     out
 }
 
-/// Fraction of channel samples that differ by more than `tol` levels.
 /// [`render_serial`] without the finishing pass -- `cell_color` alone, the
 /// stage a `RiverLayer` is composited in.
 fn render_serial_no_finish(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
@@ -143,11 +164,17 @@ fn render_serial_no_finish(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
     out
 }
 
+/// Fraction of channel samples that differ by more than `tol` levels
+/// (`0.0` = identical within `tol`, `1.0` = every sample moved). Every "does
+/// this control change the picture" assertion below is a threshold on it.
 fn moved(a: &[u8], b: &[u8], tol: i32) -> f64 {
     let d = a.iter().zip(b).filter(|(p, q)| (**p as i32 - **q as i32).abs() > tol).count();
     d as f64 / a.len() as f64
 }
 
+/// Protects: `TerrainAppearance::for_tier(Quality)` rendering byte for byte
+/// as `TerrainAppearance::default()`, so introducing the tier ladder never
+/// moved the look milestones 1-5 tuned.
 #[test]
 fn quality_tier_is_exactly_the_default_look() {
     let s = synth();
@@ -158,6 +185,9 @@ fn quality_tier_is_exactly_the_default_look() {
     );
 }
 
+/// Protects: the row-parallel render being bit-identical to the serial one at
+/// every tier.
+///
 /// §27. `rayon` is only safe here because `cell_color` is a pure function of
 /// `(&ctx, x, y)` and each row owns disjoint output bytes; if that ever stops
 /// being true — a cached field mutated mid-render, an accumulator — this fails
@@ -171,6 +201,10 @@ fn render_parallel_matches_serial_bit_for_bit() {
     }
 }
 
+/// Protects: no two quality tiers producing the same picture (more than 0.1%
+/// of channel samples differing by over one level; the 0.001 is a judgement,
+/// an order of magnitude above rounding noise on this fixture).
+///
 /// Every tier must be a visibly different image. Two tiers that render
 /// identically are a copy-paste error in the table, and no timing or pixel
 /// statistic elsewhere would catch it.
@@ -185,6 +219,9 @@ fn every_tier_renders_a_distinct_image() {
     }
 }
 
+/// Protects: each stage a tier toggles actually changing the Quality-tier
+/// image when switched off, so no tier row pays for a dead stage.
+///
 /// **The mutation test.** Every field any tier moves must, on its own,
 /// change the rendered image — otherwise the tier is paying for a
 /// stage that does nothing, or (worse) a stage's own early-return gate is
@@ -217,6 +254,10 @@ fn every_tiered_stage_gate_is_load_bearing() {
     }
 }
 
+/// Protects: each value the Ultra tier raises (the literals mirror
+/// `TerrainAppearance::for_tier(Ultra)` in `render.rs`) changing the default
+/// image. Note the literals are copies, not read from the tier table.
+///
 /// And the `Ultra` end: each knob it raises must matter too.
 #[test]
 fn every_ultra_tier_knob_is_load_bearing() {
@@ -232,6 +273,10 @@ fn every_ultra_tier_knob_is_load_bearing() {
     }
 }
 
+/// Protects: the tier table being a ladder (Performance runs none of the
+/// costly stages, Balanced skips local contrast, every per-pixel strength is
+/// non-decreasing, and no tier drops relief lighting, paper or the frame).
+///
 /// The ladder must actually be a ladder: nothing a cheaper tier spends may
 /// exceed what a dearer one spends. Checked on the table rather than on wall
 /// clock, so it is a real invariant instead of a flaky benchmark.
@@ -292,6 +337,8 @@ fn tier_table_is_monotone_in_cost() {
     }
 }
 
+/// Protects: `QualityTier::name`/`from_name` agreeing in both cases and
+/// refusing unknown or empty names (`None`, not a default tier).
 #[test]
 fn tier_names_round_trip_and_reject_junk() {
     for t in QualityTier::ALL {
@@ -302,6 +349,8 @@ fn tier_names_round_trip_and_reject_junk() {
     assert_eq!(QualityTier::from_name(""), None);
 }
 
+/// Protects: the recommended tier on this machine never being `Ultra`.
+///
 /// A recommendation is an offer, not a policy: it never proposes the tier
 /// that costs more than the default.
 #[test]
@@ -313,6 +362,9 @@ fn recommendation_never_proposes_ultra() {
 // The by-name tunable surface (`WorldGen::{get_appearance, set_appearance}`)
 // ---------------------------------------------------------------------------
 
+/// Protects: every `TerrainAppearance::TUNABLE` key reading back exactly the
+/// midpoint written to it, and unknown keys being refused.
+///
 /// A key that reads back something other than what was written means the
 /// `tunables!` list has a key/field mismatch, and nothing else would catch it:
 /// a wrong field still compiles, still renders, and still returns "1 applied".
@@ -328,6 +380,8 @@ fn every_tunable_round_trips() {
     assert!(!TerrainAppearance::default().set_tunable("potato", 1.0));
 }
 
+/// Protects: writing one tunable moving no other tunable's value.
+///
 /// Two keys pointing at the same field would let one slider silently move
 /// another's row — the realistic failure mode of a copy-pasted macro line.
 #[test]
@@ -352,6 +406,10 @@ fn no_two_tunables_alias_the_same_field() {
     }
 }
 
+/// Protects: every tunable range being non-empty (`lo < hi`), writes clamping
+/// to both ends (by 1000 beyond them; the margin is a judgement), and the
+/// `usize` `relief_lights` staying out of the `f64` table.
+///
 /// The panel builds its sliders from these ranges and `set_tunable` clamps to
 /// them, so a UI built from the table can never send a value the engine will
 /// silently alter. Both halves are asserted, since a `min > max` typo would
@@ -372,13 +430,18 @@ fn tunable_ranges_clamp_and_are_ordered() {
         "relief_lights is a usize and must stay out of the f64 table");
 }
 
+/// Protects: no tunable slider going dead -- each non-exempt key moves more
+/// than 0.1% of samples (by over two levels) when pushed to its far end, and
+/// each exempt key has its own proof at the bottom of this function.
+///
 /// Every tunable has to be able to change the image, or it is a row that
 /// looks live and is not. Run at the *default* appearance, which is what a
 /// user actually starts from, and against the whole render rather than one
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Six exemptions, all real and all stated rather than skipped silently:
+/// Sixteen exemptions (the `EXEMPT` list in the body; the first six were the
+/// original set), all real and all stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
 /// attaches none, exactly as a pack-less session does); `border_width_frac` is
 /// composited by `lib.rs`'s texture loop rather than by `cell_color`, so it is
@@ -398,6 +461,10 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// expensive one that checks it at the three real grid sizes.
 #[test]
 fn every_tunable_is_load_bearing() {
+    /// Controls the pixel sweep in `every_tunable_is_load_bearing` skips, each
+    /// with its replacement proof stated in the comments above it. Sixteen
+    /// entries; the array length is part of the type, so the count cannot drift
+    /// silently.
     // Every exemption here owes a replacement proof at the bottom of this
     // function, because the point of the sweep is that a slider cannot go
     // dead unnoticed.
@@ -654,6 +721,9 @@ fn every_tunable_is_load_bearing() {
 // The named looks (2026-08-24) — the layer that sits on top of the tier
 // ---------------------------------------------------------------------------
 
+/// Protects: the tier look and any unknown look name leaving the image
+/// untouched, and the identity look being the first picker row.
+///
 /// The identity look has to be exactly that. If `with_look` ever grew a
 /// fall-through that touched something, this is the only place it would show.
 #[test]
@@ -665,6 +735,9 @@ fn the_tier_look_is_the_identity() {
     assert_eq!(render::LOOK_PRESETS[0], render::LOOK_TIER, "the identity must be the first row a picker draws");
 }
 
+/// Protects: every named look differing from every other by over 1% of
+/// samples (a judgement; the looks differ by far more).
+///
 /// Every named look must be a different picture from the tier and from each
 /// other — the same mutation rule the tier ladder follows. A look that renders
 /// what the tier renders is a row in a picker that does nothing.
@@ -679,6 +752,10 @@ fn every_look_renders_a_distinct_image() {
     }
 }
 
+/// Protects: the Natural Vibrant look raising mean chroma by over 5% but
+/// under 2x the default (both bounds are judgements of the owner's "richer,
+/// not a rainbow map" goal).
+///
 /// Natural Vibrant has to actually be more colourful, not merely different —
 /// the owner's stated goal is "richer, more dimensional, still physically
 /// grounded". Mean chroma (max channel minus min channel) is the cheapest
@@ -701,6 +778,10 @@ fn natural_vibrant_gains_chroma_without_going_garish() {
     assert!(vib < base * 2.0, "Natural Vibrant doubled the chroma -- that is the rainbow map, not the target: {base:.2} -> {vib:.2}");
 }
 
+/// Protects: each post-tier render stage (crest, texture, ridged, curvature,
+/// biome saturation, relief chroma, haze) moving the default image when set
+/// to the literal given.
+///
 /// Every stage the vibrant look turns on has to be load-bearing on its own,
 /// or the look is paying for a stage whose gate is wrong — the mutation
 /// convention, applied to the new layer rather than to the tier.
@@ -723,6 +804,10 @@ fn every_new_render_stage_is_load_bearing() {
     }
 }
 
+/// Protects: the colour grade being a byte-exact no-op at its defaults,
+/// each of its seven axes clearing the identity gate and changing pixels,
+/// and a field-influence weight alone not clearing the gate.
+///
 /// The grade is a **post-process on the finished raster**, so it must move a
 /// buffer and nothing else. Asserted the way it is used: over an ordinary RGB
 /// buffer, with the identity proved separately from the effect.
@@ -761,6 +846,10 @@ fn the_colour_grade_is_inert_at_rest_and_real_otherwise() {
     }
 }
 
+/// Protects: grade gamma fixing pure black and white, lifting midtones for
+/// positive values and sinking them for negative, and `+k` then `-k`
+/// returning the original within 2 levels (rounding allowance, a judgement).
+///
 /// Gamma is a **symmetric power curve**, not a brightness offset: `+k` and
 /// `-k` must be inverse bends about the same endpoints, and neither may move
 /// pure black or pure white. That is the property that separates it from the
@@ -789,6 +878,10 @@ fn gamma_is_a_symmetric_power_curve_that_pins_both_endpoints() {
     }
 }
 
+/// Protects: the four `grade_field_*` weights changing a graded image,
+/// changing nothing on an ungraded one, and `build_grade_influence` being
+/// empty for a flat grade and a 0..2 per-cell buffer when weighted.
+///
 /// The four field-influence weights, over a grade that is actually doing
 /// something. Three claims, each of which would be a real bug if it failed:
 /// all four weights change the picture; all four at rest leave it **byte for
@@ -835,6 +928,10 @@ fn the_field_influence_weights_move_a_grade_and_only_a_grade() {
     assert!(inf.iter().any(|m| *m != inf[0]), "the elevation weight produced a constant multiplier");
 }
 
+/// Protects: saturation keeping Rec.709 luma within 1.5 levels and
+/// temperature within 6 levels (the 1.5 and 6.0 bounds are judgements sized
+/// to 8-bit rounding and the temperature compensation respectively).
+///
 /// Saturation is exactly luminance-preserving, and the temperature axis is
 /// approximately so. That is the whole claim that separates this grade from a
 /// channel multiply, and it is a property of the maths rather than of the
@@ -859,6 +956,9 @@ fn the_grade_preserves_luminance_where_it_claims_to() {
     }
 }
 
+/// Protects: `TerrainAppearance::js_reference()` keeping every post-reference
+/// stage at zero, so the JS-parity render never enters them.
+///
 /// The pinned JS-parity path must never enter any of it. Cheap, and the guard
 /// that a future look edit cannot reach `js_reference()` through `Default`.
 #[test]
@@ -881,6 +981,7 @@ fn the_js_reference_path_has_none_of_the_new_stages() {
 // The elevation colour ramp (`GUI_GAP_REGISTER.md` CA-02)
 // ---------------------------------------------------------------------------
 
+/// An opaque ramp stop at position `at` with 0-255 colour `(r, g, b)`.
 fn stop(at: f64, r: f64, g: f64, b: f64) -> RampStop {
     RampStop { at, col: (r, g, b), a: 1.0 }
 }
@@ -890,6 +991,9 @@ fn astop(at: f64, r: f64, g: f64, b: f64, a: f64) -> RampStop {
     RampStop { at, col: (r, g, b), a }
 }
 
+/// Protects: `ElevationRamp::normalized` sorting stops by position, clamping
+/// positions into [0,1] and channels to 255.
+///
 /// The invariant every other ramp operation rests on: stops come out sorted
 /// whatever order they went in, which is what makes "drag a stop past its
 /// neighbour" a reorder rather than a corrupted ramp.
@@ -901,6 +1005,9 @@ fn ramp_stops_are_sorted_and_clamped() {
     assert_eq!(r.stops()[0].col.0, 255.0, "a channel past 255 was not clamped");
 }
 
+/// Protects: NaN and infinite stop positions being dropped rather than
+/// panicking in the sort.
+///
 /// `cartalith-rust-conventions` requires a stated NaN policy wherever floats
 /// are ordered. The policy is "a stop with no position is not a stop"; without
 /// it `sort_by(partial_cmp().unwrap())` panics, and a panic in here would cross
@@ -912,6 +1019,8 @@ fn ramp_drops_non_finite_positions_instead_of_panicking() {
     assert_eq!(r.stops()[0].at, 0.5);
 }
 
+/// Protects: a ramp holding the end colours outside its stops, lerping
+/// between them, and returning `None` when empty.
 #[test]
 fn ramp_samples_flat_outside_and_linear_between() {
     let r = ElevationRamp::normalized([stop(0.25, 0.0, 0.0, 0.0), stop(0.75, 100.0, 200.0, 40.0)]);
@@ -922,6 +1031,9 @@ fn ramp_samples_flat_outside_and_linear_between() {
     assert_eq!(ElevationRamp::normalized([]).sample(0.5), None, "an empty ramp must say so rather than returning black");
 }
 
+/// Protects: two stops at one position (a hard band edge) sampling finite
+/// and between their two colours instead of dividing by zero.
+///
 /// Two stops at one position is how a hard band edge is authored, and it is
 /// also the only input that divides by zero.
 #[test]
@@ -931,6 +1043,10 @@ fn ramp_tolerates_coincident_stops() {
     assert!(c.0.is_finite() && c.0 >= 20.0 && c.0 <= 200.0, "coincident stops produced {c:?}");
 }
 
+/// Protects: every `RAMP_PRESETS` row loading by name with at least two
+/// ordered stops, spanning 0.0 to 1.0, an unknown name returning `None`,
+/// and the default ramp being the first preset.
+///
 /// Every named ramp must exist, be non-trivial and be sorted -- a preset table
 /// is exactly the kind of hand-written data where one transposed row goes
 /// unnoticed forever.
@@ -950,8 +1066,11 @@ fn every_ramp_preset_loads_and_is_ordered() {
     assert_eq!(ElevationRamp::default(), ElevationRamp::preset(render::RAMP_PRESETS[0].0).unwrap());
 }
 
-/// Each preset must render a *different* map, or the popover is offering nine
-/// names for fewer than nine looks.
+/// Protects: no two ramp presets rendering the same map (over 1% of samples
+/// differing by over two levels).
+///
+/// Each preset must render a *different* map, or the popover is offering as
+/// many names as the table holds for fewer looks.
 #[test]
 fn every_ramp_preset_renders_a_distinct_image() {
     let s = synth();
@@ -969,6 +1088,9 @@ fn every_ramp_preset_renders_a_distinct_image() {
     }
 }
 
+/// Protects: the ramp changing no byte at `ramp_strength` 0, and both the
+/// default and the JS-reference appearance shipping that strength at 0.
+///
 /// The default is off and must cost nothing: swapping the ramp underneath a
 /// `ramp_strength` of `0.0` may not move one byte, or the "skipped entirely"
 /// claim in `land_color` is false.
@@ -982,6 +1104,9 @@ fn ramp_is_inert_at_zero_strength() {
     assert_eq!(TerrainAppearance::js_reference().ramp_strength, 0.0, "the JS-parity path must never enter the ramp");
 }
 
+/// Protects: the elevation ramp recolouring land and never water (compared
+/// with `local_contrast` off so the whole-raster pass cannot bleed).
+///
 /// Water is a different ramp (`sea_color_core`'s bathymetry) and must not move.
 ///
 /// Measured with `local_contrast` off in **both** renders, and that is not a
@@ -1016,6 +1141,9 @@ fn ramp_touches_land_only() {
 // deliberately-deferred axes)
 // ---------------------------------------------------------------------------
 
+/// Protects: Linear, Ease (`k^2(3-2k)`) and Step sampling a quarter of the
+/// way across an interval as 25, 15.625 and the lower stop, with every mode
+/// holding the end colours outside the stops.
 #[test]
 fn ramp_modes_reshape_the_interval_and_nothing_else() {
     let mut r = ElevationRamp::normalized([stop(0.25, 0.0, 0.0, 0.0), stop(0.75, 100.0, 200.0, 40.0)]);
@@ -1036,6 +1164,9 @@ fn ramp_modes_reshape_the_interval_and_nothing_else() {
     }
 }
 
+/// Protects: Step mode's half-open bands (a sample exactly on a stop takes
+/// that stop's colour; just below a boundary stays in the band below).
+///
 /// The half-open band is the whole claim of `Step`: a sample landing exactly on
 /// a stop takes *that* stop's colour, and everything between it and the next
 /// one is flat. Fixtures sit just below a boundary on purpose.
@@ -1053,6 +1184,10 @@ fn step_mode_draws_flat_bands_with_the_edge_on_the_stop() {
     assert_eq!(r.sample(1.0).unwrap().0, 250.0);
 }
 
+/// Protects: a ramp's mode surviving a stop-list rebuild once re-applied,
+/// `normalized` not guessing a mode, and mode names round-tripping and
+/// refusing unknown names.
+///
 /// Replacing the stops is not a reason to lose the mode -- that is the bug
 /// `WorldGen::set_color_ramp` would have shipped by calling `normalized` alone,
 /// and the panel calls it on every drag.
@@ -1072,6 +1207,8 @@ fn a_mode_survives_a_stop_list_being_rebuilt() {
     assert_eq!(render::RAMP_MODES.len(), 3);
 }
 
+/// Protects: per-stop alpha interpolating with the colour, being clamped
+/// to [0,1], and a NaN alpha becoming opaque rather than hiding the stop.
 #[test]
 fn per_stop_alpha_rides_the_same_curve_as_the_colour() {
     let r = ElevationRamp::normalized([astop(0.0, 0.0, 0.0, 0.0, 0.0), astop(1.0, 100.0, 100.0, 100.0, 1.0)]);
@@ -1085,6 +1222,9 @@ fn per_stop_alpha_rides_the_same_curve_as_the_colour() {
     assert_eq!(odd.stops().iter().map(|s| s.a).collect::<Vec<_>>(), vec![1.0, 0.0, 1.0], "an alpha escaped [0,1], or a NaN alpha hid a stop instead of showing it");
 }
 
+/// Protects: an all-alpha-0 ramp at full strength leaving the default image
+/// byte for byte unchanged.
+///
 /// An all-transparent ramp must be exactly as inert as `ramp_strength = 0`, or
 /// the "skipped entirely" branch in `land_color` is only half true.
 #[test]
@@ -1096,6 +1236,9 @@ fn a_transparent_ramp_renders_nothing_at_full_strength() {
     assert_eq!(base, render_serial(&s, &a), "an alpha-0 ramp still painted at full strength");
 }
 
+/// Protects: a half-alpha ramp differing from both the unramped image and
+/// the opaque ramp, i.e. alpha being a blend and not a toggle.
+///
 /// And a half-opaque one must land between the two, or the alpha is a toggle
 /// wearing a slider's clothes.
 #[test]
@@ -1111,8 +1254,10 @@ fn half_alpha_lands_between_the_material_colour_and_the_full_ramp() {
     assert!(moved(&opaque, &mid, 2) > 0.01, "a half-alpha ramp rendered identically to an opaque one");
 }
 
-/// Three modes must be three pictures, for the same reason nine presets must be
-/// nine: a picker offering names for one look is a dead control.
+/// Protects: Linear, Ease and Step rendering three different maps.
+///
+/// Three modes must be three pictures, for the same reason every preset must be its
+/// own look: a picker offering names for one look is a dead control.
 #[test]
 fn every_ramp_mode_renders_a_distinct_image() {
     let s = synth();
@@ -1131,6 +1276,9 @@ fn every_ramp_mode_renders_a_distinct_image() {
     }
 }
 
+/// Protects: a CA-02-era ramp JSON (no `a`, no mode) still deserialising as
+/// opaque and Linear.
+///
 /// A look saved before 2026-08-24 described an opaque, linearly-sampled ramp.
 /// It must still load, and it must load as *that* -- the field-level serde
 /// defaults are the only thing standing between an older preset and either a
@@ -1147,6 +1295,10 @@ fn a_ca02_era_ramp_json_loads_opaque_and_linear() {
 // Saving a look (`GUI_GAP_REGISTER.md` CA-08)
 // ---------------------------------------------------------------------------
 
+/// Protects: a serialised-then-deserialised `TerrainAppearance` (including
+/// ramp mode and alpha, tunables, NPR and relief lights) rendering the
+/// identical map.
+///
 /// The whole of CA-08 rests on this: a `TerrainAppearance` written out and read
 /// back must render the identical map. Checked through the *render*, not
 /// through field equality, because that is the claim a user makes when they
@@ -1176,6 +1328,9 @@ fn appearance_survives_a_json_round_trip() {
     assert_eq!(render_serial(&s, &a), render_serial(&s, &back), "a saved look reloads as a different image");
 }
 
+/// Protects: `#[serde(default)]` -- a sparse preset loading with absent
+/// fields at their defaults.
+///
 /// `#[serde(default)]` is what lets a preset written before a field existed
 /// still load. Asserted with a deliberately sparse file rather than trusted.
 #[test]
@@ -1190,6 +1345,11 @@ fn a_preset_missing_fields_loads_at_their_defaults() {
 // The hillshade layer preview (2026-08-24) -- `layersPreviewChk`'s second file
 // ---------------------------------------------------------------------------
 
+/// Protects: `hillshade_raster` being grey on land and ordered blue-shifted
+/// on water, bounded by the 0.15 floor and 235 ceiling (literals from
+/// reference line 8535's shade branch), non-flat, and responsive to
+/// exaggeration and sun azimuth but not to colour controls.
+///
 /// `render::hillshade_raster` is `renderNow`'s `mode === 'shade'` branch
 /// (reference line 8535): a **grey** relief image on land, blue-shifted on
 /// water, and nothing else -- no biome colour, no paper, no plate frame.

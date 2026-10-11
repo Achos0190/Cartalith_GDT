@@ -52,17 +52,28 @@
 #[path = "../src/render.rs"]
 mod render;
 
-// For `measure_the_glacial_default` only: the shipped app's own defaults, not
-// a copy of the divergence list. `params.rs` is `godot`-free for exactly this.
+/// For `measure_the_glacial_default` only: the shipped app's own defaults, not
+/// a copy of the divergence list. `params.rs` is `godot`-free for exactly this.
 #[path = "../src/params.rs"]
 #[allow(dead_code)]
 mod params;
 
 use render::{RenderCtx, TerrainAppearance, TileBounds, TileCryo, TileFields};
 
+/// Fixture grid size in cells: a judgement, large enough that `glaciated_world` can assert
+/// populations of over 200 cells at every stage of the glacial gate and small enough for the
+/// ordinary suite. Not the shipped grid (2048 wide).
 const GW: usize = 96;
+/// Fixture grid height; see [`GW`].
 const GH: usize = 96;
+/// Sea level of the fixtures: the shipped default `sea_level` of 0.42 (asserted in
+/// `params_mapping.rs`, `wrong_type_is_rejected_both_directions`), so heights and the lapse
+/// arithmetic are the app's.
 const SEA: f64 = 0.42;
+/// Glacial snowline of the fixtures, as a fraction of land height. A judgement of this fixture,
+/// not the engine's `glacial_snowline` default (0.65, `cartalith-engine` `lib.rs`); the fixture's
+/// heights are built around the resulting `snow_el = 0.739` (see `glaciated_world`).
+/// `measure_the_aletsch_sheet` defaults to the same 0.55.
 const SNOWLINE: f64 = 0.55;
 /// 96 cells over 48 km — 0.5 km per cell, the same order as the shipped
 /// default (about 0.39 km) so the catchment thresholds are exercised at a
@@ -191,10 +202,14 @@ const ICE_TILE: (f64, f64, f64) = (44.0, 12.0, 7.0);
 /// useless fixture, so the ice tests use a relief a real trough floor has.
 const ICE_BUMP: f64 = 0.012;
 
+/// The shipped `TerrainAppearance::default()`, the look LOD-D4 targets; contrast
+/// `TerrainAppearance::js_reference()`, which carries no ice and no snow aspect term.
 fn appearance() -> TerrainAppearance {
     TerrainAppearance::default()
 }
 
+/// The `TileCryo` the fixtures use: the reference's default lapse rate (6.5 C/km) and
+/// gravity (1.0), with `meters_per_unit` from a 4000 m peak at `SEA`.
 fn cryo() -> TileCryo {
     // `peak_m = 4000`, `sea = 0.42` gives `meters_per_unit = 4000 / 0.58 =
     // 6896.55…`, and `lapse_rate`/`g` are the reference's own defaults
@@ -202,6 +217,9 @@ fn cryo() -> TileCryo {
     TileCryo { lapse_rate: 6.5, g: 1.0, meters_per_unit: 4000.0 / (1.0 - SEA) }
 }
 
+/// Protects: `TileCryo::delta_t` being `compute_temperature`'s lapse relation: 0.1 of normalised
+/// height is 4.4827... C (hand arithmetic), zero at zero, odd in the sign, scaled by gravity.
+///
 /// The lapse relation is `compute_temperature`'s, not a new one.
 ///
 /// Asserted against the arithmetic written out by hand rather than against
@@ -221,6 +239,11 @@ fn the_lapse_term_is_the_climate_pass_own_relation() {
     assert!((heavy.delta_t(0.1) - 2.0 * dt).abs() < 1e-9, "g does not scale the lapse term");
 }
 
+/// Protects: `build_glacier_potential` growing ice only where all of `glacial_kernel`'s gate holds
+/// (above the snowline, below freezing, with a catchment): none below the snowline beyond the
+/// one-cell blur, none in a warm world, less when the snowline is raised, none where the
+/// catchment is zero.
+///
 /// LOD-D4 stage 1's gate, each half killed in turn.
 #[test]
 fn the_glacier_gate_is_the_kernel_own_gate() {
@@ -261,6 +284,9 @@ fn the_glacier_gate_is_the_kernel_own_gate() {
     assert!(gd.iter().all(|v| *v == 0.0), "ground with no catchment still grew ice");
 }
 
+/// Protects: `build_glacier_potential` returning an EMPTY field (not zeros) when there is no
+/// flow, the snow-only fallback a loaded save gets.
+///
 /// A loaded save has no flow, so it has no catchment, so it gets the scope's
 /// documented **snow-only fallback** — an absent field, not a plausible one.
 #[test]
@@ -274,6 +300,10 @@ fn no_flow_returns_an_absent_field_rather_than_a_guess() {
     let _ = (&rain, &flow);
 }
 
+/// Protects: the glacier weight reading catchment in km^2, not flow cells (`RC_ENGINE_CHANGES.md`
+/// §6k): a smaller cell gives less potential, and the same km^2 at a different cell size gives
+/// the same potential to within 0.1 %.
+///
 /// The **discharge weight is keyed on catchment km², not on flow cells** —
 /// `RC_ENGINE_CHANGES.md` §6k's ruling, carried into a new consumer.
 ///
@@ -297,6 +327,9 @@ fn the_discharge_weight_is_resolution_free() {
     assert!((ss - cs).abs() < cs * 1e-3, "the same catchment in km² gave {ss} against {cs}");
 }
 
+/// Protects: `apply_ice_cover` keeping the six material fractions summing to 1 and the ice
+/// cover inside 0..=1, across cold and warm, flat and steep, and potential 0 to 1.
+///
 /// Ice cover rebalances the six material fractions and does **not** create
 /// colour out of nothing: Σ stays 1.
 #[test]
@@ -316,6 +349,9 @@ fn the_ice_cover_preserves_the_material_sum() {
     }
 }
 
+/// Protects: ice cover being removed on steep ground by the bare-rock term: full on flat ground,
+/// none at or past the 0.08 slope knee (rock untouched), and 1 - 0.5^1.5 halfway to it.
+///
 /// The scope's third acceptance bar as a *property*, not a sample: ice is
 /// taken off steep ground by `geo_exposure`'s own bare-rock term, so a face
 /// at or past the `0.08` knee keeps every bit of the rock it had.
@@ -358,6 +394,8 @@ fn ice_is_taken_off_steep_ground_by_the_rock_exposure_term() {
 /// carrying exactly `km2` of catchment — so the blur of a constant field is
 /// that constant and the centre cell reads the discharge weight alone.
 fn potential_at_km2(km2: f64) -> f64 {
+    // A 16 x 16 grid: a judgement, big enough that the centre cell is more than two cells from
+    // every edge (the blur test reads rings out to distance 2), small enough to be instant.
     const N: usize = 16;
     let snow_el = SEA + (1.0 - SEA) * SNOWLINE;
     let field = vec![(snow_el + 0.05) as f32; N * N];
@@ -370,6 +408,9 @@ fn potential_at_km2(km2: f64) -> f64 {
     g[(N / 2) * N + N / 2] as f64
 }
 
+/// Protects: `GLACIER_CIRQUE_KM2` (0.5) and `GLACIER_TONGUE_KM2` (8.0): potential is exactly 0
+/// at 0.5 km^2, saturated at 8 km^2, 0.5 at the midpoint 4.25 km^2, and a faint ramp between.
+///
 /// `GLACIER_CIRQUE_KM2` and `GLACIER_TONGUE_KM2`, pinned against the
 /// `smoothstep` identities rather than against themselves.
 ///
@@ -395,6 +436,9 @@ fn the_catchment_thresholds_are_pinned() {
     assert!(low > 0.0 && low < 0.15, "1 km2 should be a faint cirque, got {low}");
 }
 
+/// Protects: `GLACIER_BLUR_CELLS` (1): a single gated cell spreads potential to its neighbours at
+/// distance 1 and not at distance 2.
+///
 /// `GLACIER_BLUR_CELLS`, pinned by **where the field stops**.
 ///
 /// One gated cell in an otherwise ungated grid: a one-cell box blur spreads it
@@ -403,6 +447,8 @@ fn the_catchment_thresholds_are_pinned() {
 /// ring is zero too, which is the mutation this kills.
 #[test]
 fn the_blur_reaches_exactly_one_cell() {
+    // Same 16 x 16 judgement as `potential_at_km2`: a blur ring at distance 2 must still be
+    // inside the grid.
     const N: usize = 16;
     let snow_el = SEA + (1.0 - SEA) * SNOWLINE;
     // Everything below the snowline except one cell.
@@ -423,6 +469,9 @@ fn the_blur_reaches_exactly_one_cell() {
     }
 }
 
+/// Protects: `ICE_SHEEN` (0.6) and the sheen term's linearity in ice cover: a shade difference of
+/// 0.5 at full ice scales the colour by 1.30, at half ice by 1.15, and zero ice ignores shade.
+///
 /// `ICE_SHEEN`, pinned against a ratio computed by hand.
 ///
 /// At full ice the base colour is fully replaced by `snow_glac`, so the only
@@ -480,6 +529,10 @@ fn sub_cell_tile(field: &[f32], x0: f64, y0: f64, span: f64, px: usize, bump: f6
     (tile, TileBounds { x: x0, y: y0, w: span, h: span })
 }
 
+/// Protects: the lapse term making tile snow fraction rise with sub-cell height at a fixed coarse
+/// temperature (the scope's named test), with its negative controls: lapse rate 0 and no
+/// `TileCryo` at all both give a snow fraction that does not move with height.
+///
 /// **The scope's own named test.** *"A test shows tile snow fraction rising
 /// with sub-cell height at a fixed coarse temperature; zeroing the lapse term
 /// turns it red."*
@@ -529,6 +582,9 @@ fn tile_snow_fraction_rises_with_sub_cell_height() {
     assert!((n0 - z0).abs() < 1e-12, "a zeroed lapse rate and no cryo must be the same picture");
 }
 
+/// Protects: the parity path: with `TerrainAppearance::js_reference()` a tile renders
+/// byte-identically whether or not the glacier field is attached.
+///
 /// `js_reference()` is inert: the milestone changes **no byte** on the parity
 /// path, with the glacier field attached and non-empty.
 ///
@@ -551,6 +607,9 @@ fn the_whole_milestone_is_inert_under_js_reference() {
     assert_eq!(plain, iced, "attaching the glacier field moved a pixel under js_reference()");
 }
 
+/// Protects: the previous test not being vacuous: at the shipped appearance attaching the glacier
+/// field moves more than 5 % of the tile's bytes, and `ice_strength = 0` puts it back exactly.
+///
 /// The negative control for the test above — the same two renders at
 /// `default()` must **differ**, or "inert under `js_reference()`" would be a
 /// claim about a stage that does nothing anywhere.
@@ -575,6 +634,9 @@ fn the_milestone_is_not_inert_at_the_shipped_appearance() {
     assert_eq!(a, b, "ice_strength = 0 still drew ice");
 }
 
+/// Protects: `tile_cryo_samples` (the acceptance metrics) agreeing with the renderer: over 99 %
+/// of the pixels it calls more than half ice change colour when the glacier field is attached.
+///
 /// The metrics and the picture are the same function of the same inputs.
 ///
 /// `tile_cryo_samples` repeats two of the render loop's one-liners
@@ -638,6 +700,9 @@ fn the_metrics_agree_with_the_picture() {
     assert!(frac > 0.99, "only {:.1}% of the pixels the metrics call ice actually drew differently", frac * 100.0);
 }
 
+/// Protects: the glacier field's memory budget and its accounting: the 2048 x 1311 field fits
+/// the scope's 10 MB (SI reading, with 0.75 MB slack) and `TileFields::bytes` includes it.
+///
 /// LOD-D4's budget line: *"glacier field <= 10 MiB"*, at the scope's own
 /// reference grid.
 ///
@@ -666,6 +731,9 @@ fn the_glacier_field_stays_inside_its_budget() {
     assert_eq!(with.bytes() - bare.bytes(), GW * GH * 4, "TileFields::bytes does not include the glacier field");
 }
 
+/// Protects: `TileFields::borrowed()` keeping the glacier field, so the shell's cached tiles still
+/// draw ice, and render identically to the original.
+///
 /// A cached `TileFields` re-pointed by `borrowed()` must keep its ice.
 ///
 /// This is the one that a plausible implementation gets wrong in a way no
@@ -717,6 +785,9 @@ fn elev_at_snow(pairs: &mut [(f64, f64)], f: f64) -> Option<f64> {
     pairs.iter().find(|(_, s)| *s >= f).map(|(e, _)| *e)
 }
 
+/// Protects: nothing by assertion -- an ignored measurement that prints the acceptance bars for
+/// the LOD-D4 report; it asserts nothing about their values.
+///
 /// **LOD-D4's four acceptance bars, measured.**
 ///
 /// ```text
@@ -1004,6 +1075,9 @@ seed {seed}: sea {sea:.3}, snow_el {snow_el:.3}; {gated} of {} cells pass the gl
     }
 }
 
+/// Protects: nothing by assertion beyond its own validity (over 2 % of the synthetic cells must
+/// pass the gate, or the timing would be of the early return); it prints the two timing budgets.
+///
 /// LOD-D4's timing budget: *"under 50 ms to build on desktop; per-tile cost up
 /// by at most 10%"*.
 ///
@@ -1081,6 +1155,9 @@ fn measure_the_cost() {
     }
 }
 
+/// Protects: only that its two legs differ and that Ruling AU's default is on; the cost and ice
+/// figures it prints are measurements, not assertions.
+///
 /// Owner Ruling AU turned the glacial pass on in `params::defaults()`, and
 /// asked for two things measured: what it costs a default generation, and
 /// whether a *default* world now carries ice for LOD-D4 to draw. Both at the
@@ -1170,6 +1247,10 @@ fn measure_the_glacial_default() {
     }
 }
 
+/// Protects: Ruling AP's snow aspect term: at equal temperature a shaded slope holds clearly more
+/// snow than a sun-facing one, a flat cell is untouched, and with the term off (`js_reference`)
+/// facing changes nothing.
+///
 /// Ruling AP (2026-09-23): snow gets an aspect term. At the same temperature a
 /// shaded, poleward-facing slope holds more snow than a sun-facing one, a flat
 /// cell is unaffected, and with the term off (`snow_aspect_c = 0.0`, which

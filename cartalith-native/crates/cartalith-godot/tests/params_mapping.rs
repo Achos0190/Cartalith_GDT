@@ -10,11 +10,17 @@
 //! fields only `lib.rs`'s Godot layer reads look unused from in here.
 #![allow(dead_code)]
 
+/// `src/params.rs` compiled straight into this test target (see the module header), so its
+/// godot-free API is testable without an engine process.
 #[path = "../src/params.rs"]
 mod params;
 
 use params::{Kind, Outcome, Value};
 
+/// Protects: the byte-identity promise of the parameter API -- reading every key of
+/// `params::defaults()` and writing it back is `Applied` (never `Clamped`) and leaves
+/// `WorldParams` equal to what it started as.
+///
 /// The headline invariant this whole API is constrained by: a `WorldGen`
 /// nobody sets anything on must generate exactly what it generated before
 /// the parameter API existed. Concretely — the table's starting point *is*
@@ -33,6 +39,9 @@ fn defaults_round_trip_through_every_key() {
     assert_eq!(p, d, "writing every default back must leave WorldParams untouched");
 }
 
+/// Protects: every `ParamSpec` default sitting inside its own `[min, max]` (and int rows
+/// holding an integral default), so "reset to default" never clamps.
+///
 /// A default outside its own advertised range would make a "reset to
 /// default" round trip through `set_params` silently clamp — the exact
 /// failure this reports rather than hides.
@@ -50,6 +59,11 @@ fn every_default_lies_inside_its_own_range() {
     }
 }
 
+/// Protects: the literal default of `CivParams::garrison_exposure_scale` against drift from
+/// `cartalith_civ::garrison::EXPOSURE_SCALE`. The two are independent definitions (the engine
+/// crate sits below the civ crate and cannot import it), so this is not a constant compared
+/// with itself.
+///
 /// `CivParams::garrison_exposure_scale`'s default (`1.0`, a literal --
 /// `cartalith-engine` sits below `cartalith-civ` and cannot import
 /// `cartalith_civ::garrison::EXPOSURE_SCALE`) must not drift from that
@@ -65,6 +79,9 @@ fn garrison_exposure_scale_default_matches_civ_constant() {
     );
 }
 
+/// Protects: `tect.plates`' `max` staying within `u16::MAX` and `set` writing the ceiling, not
+/// the raw request, for an over-range value, so `WorldState::plate_id: Vec<u16>` never truncates.
+///
 /// `WorldState::plate_id` is a `Vec<u16>` (`MEMORY_OPTIMIZATION_SCOPE.md`
 /// R4), and every write to it goes through `assign_plates`, whose ids are
 /// `0..tect.plates`. `set` clamps to this spec, so this `max` is the only
@@ -81,6 +98,8 @@ fn the_plate_count_ceiling_still_fits_the_u16_plate_id_field() {
     assert_eq!(params::get(&p, "tect.plates"), Some(Value::Num(s.max)));
 }
 
+/// Protects: `PARAMS` holding no duplicate key and every group occupying one contiguous run
+/// (table order is dialog order), with `params::groups()` listing the groups in that order.
 #[test]
 fn keys_are_unique_and_grouped() {
     let mut keys: Vec<&str> = params::PARAMS.iter().map(|s| s.key).collect();
@@ -103,6 +122,8 @@ fn keys_are_unique_and_grouped() {
     assert_eq!(seen, groups);
 }
 
+/// Protects: `set` returning `Rejected` for an unknown, empty or group-only key (`tect.platez`,
+/// `""`, `climate`) and writing nothing to `WorldParams`.
 #[test]
 fn unknown_key_is_rejected_and_writes_nothing() {
     let mut p = params::defaults();
@@ -112,6 +133,8 @@ fn unknown_key_is_rejected_and_writes_nothing() {
     assert_eq!(p, params::defaults());
 }
 
+/// Protects: the absence of truthiness coercion in `set`: a number for a checkbox row and a
+/// bool for a numeric row are both `Rejected` and leave the field at its default.
 #[test]
 fn wrong_type_is_rejected_both_directions() {
     let mut p = params::defaults();
@@ -126,6 +149,8 @@ fn wrong_type_is_rejected_both_directions() {
     assert_eq!(p, params::defaults());
 }
 
+/// Protects: NaN and both infinities being `Rejected` (not clamped to a bound) for a float row
+/// (`sea_level`) and an int row (`tect.plates`), leaving `WorldParams` untouched.
 #[test]
 fn non_finite_is_rejected_never_clamped() {
     let mut p = params::defaults();
@@ -137,6 +162,8 @@ fn non_finite_is_rejected_never_clamped() {
     assert!(p.sea_level.is_finite());
 }
 
+/// Protects: `set` clamping an out-of-range value to the row's bounds and reporting `Clamped`
+/// (`sea_level` 0..=1, `tect.plates` 4..=40), while an in-range value is `Applied` verbatim.
 #[test]
 fn out_of_range_clamps_and_reports() {
     let mut p = params::defaults();
@@ -153,6 +180,9 @@ fn out_of_range_clamps_and_reports() {
     assert_eq!(p.tect.plates, 22);
 }
 
+/// Protects: int rows rounding a float that a GDScript slider produces (13.999999 -> 14,
+/// 70.4 -> 70, reported `Clamped`) instead of rejecting it, and an integral in-range value
+/// being `Applied`.
 #[test]
 fn int_parameters_round_rather_than_reject() {
     let mut p = params::defaults();
@@ -165,6 +195,9 @@ fn int_parameters_round_rather_than_reject() {
     assert_eq!(p.crater.count, 150);
 }
 
+/// Protects: a partial update writing only the keys it names; every other parameter keeps its
+/// default.
+///
 /// A partial update is the normal case: a dialog sends only what its user
 /// touched, and every other parameter must survive untouched.
 #[test]
@@ -179,6 +212,9 @@ fn partial_update_touches_only_the_named_keys() {
     assert_eq!(p, expected);
 }
 
+/// Protects: each of the eight `cartalith-engine` parameter structs being reachable through at
+/// least one key that `set` applies and lands in the right field.
+///
 /// Each of the eight `cartalith-engine` parameter structs is genuinely
 /// reachable — the gap this API exists to close, asserted rather than
 /// assumed. Before it, only `sea_level`, four flags and the archetype
@@ -213,6 +249,10 @@ fn every_engine_param_struct_is_reachable() {
 // The civ group (`LARGE_ITEM_RULINGS.md`, owner 2026-08-31)
 // ---------------------------------------------------------------------------
 
+/// Protects: the civ rows' defaults staying the reference's own constants at BOTH the parity
+/// baseline (`WorldParams::defaults`) and the app boundary (`params::defaults`); moving a
+/// literal at either end turns it red.
+///
 /// **The mutation guard for every constant the civ group introduced.**
 ///
 /// Each of these seven defaults is a value read out of the reference, and
@@ -248,6 +288,10 @@ fn the_civ_group_defaults_are_the_references_own_constants() {
     }
 }
 
+/// Protects: the civ group being fourteen contiguous `civ.`-keyed rows that `groups()` lists,
+/// that `set` reaches and types correctly, and that clamp at their floors (factions >= 1,
+/// recovery_phase 0..=4).
+///
 /// The group is reachable, typed as the shell expects, and reported as its
 /// own dialog section — the second half of the ruling, asserted rather than
 /// eyeballed. Fourteen rows: the seven the ruling added (a group of four
@@ -283,6 +327,9 @@ fn the_civ_group_is_a_real_contiguous_group_of_fourteen() {
     assert_eq!(p.civ.recovery_phase, 4);
 }
 
+/// Protects: every civ row (bar `civ.garrison_exposure_scale`) invalidating `Climate`, so a civ
+/// dial makes the civ layer stale and costs no hydrology pass.
+///
 /// Every civ row makes the civ layer stale and costs no climate pass — the
 /// same contract `river_density` has, for the same reason (`Climate`'s only
 /// consumer is `civ`). Without this, moving a civ dial would either promise a
@@ -311,6 +358,10 @@ fn every_civ_row_marks_civ_stale_and_nothing_else() {
     assert!(!g.any_stale(PipelineStage::Hydrology.id()), "and must not cost a hydrology pass");
 }
 
+/// Protects: the baked-atlas world key excluding exactly the civ rows (and including every
+/// other row), with a civ dial moved to its far end leaving the key unchanged while the save
+/// state still changes.
+///
 /// A baked terrain atlas must survive a civ dial moving, and every other row
 /// must still reach the key.
 ///
@@ -352,6 +403,9 @@ fn no_civ_row_reaches_the_world_key_and_every_other_row_does() {
     assert_ne!(params::save_state(&moved), params::save_state(&d), "a civ dial must still be saved");
 }
 
+/// Protects: `use_gpu` and the raw World-Structure and planet knobs staying exposed rows that
+/// `set` can apply (`GUI_FEATURE_PARITY_SCOPE.md` Category 1).
+///
 /// `use_gpu` and the five raw World-Structure knobs are the two items
 /// `GUI_FEATURE_PARITY_SCOPE.md` Category 1 names as real-but-unreachable.
 #[test]
@@ -380,6 +434,9 @@ fn parity_audit_category_one_items_are_reachable() {
 // The save round trip (`SAVEFILE_COMPAT.md`, FI-01)
 // ---------------------------------------------------------------------------
 
+/// Protects: every `PARAMS` row appearing in the save's native block and having a `JS_PATHS`
+/// decision, so a new parameter cannot silently stop being written to a save.
+///
 /// The drift guard `JS_PATHS` needs, since it is a second table rather than
 /// a column on `ParamSpec`: a parameter added to `PARAMS` without a decision
 /// recorded here would silently stop being written to the reference half of
@@ -399,6 +456,9 @@ fn every_param_has_a_reference_path_decision() {
     assert_eq!(native.len(), params::PARAMS.len(), "the native block must be exactly the table");
 }
 
+/// Protects: a save of a table with every row moved off its default restoring to exactly the
+/// same `WorldParams`, with every row applied.
+///
 /// The actual bar for a save file: a non-default world's parameters must
 /// come back byte-identical, not approximately. Every row is moved off its
 /// default first — a table where half the rows never changed would pass a
@@ -425,6 +485,10 @@ fn a_fully_non_default_table_round_trips_exactly() {
     assert_eq!(restored, original, "a saved world's parameters must restore exactly");
 }
 
+/// Protects: the reference half of a save using the HTML app's own names and types (renamed
+/// key `blurR`, JSON integers for int rows, `windMode` as "manual"/"auto") with no port-only
+/// key leaking into it.
+///
 /// The reference half is what makes the file reopenable in the HTML app.
 /// Spot-checks the three shapes that differ from a straight name copy: a
 /// renamed key, the int/float distinction, and the one type-changing
@@ -451,6 +515,9 @@ fn the_reference_half_uses_the_reference_vocabulary() {
     assert_eq!(params::save_state(&p)["climate"]["windMode"], "auto");
 }
 
+/// Protects: the saved `tect` block carrying every key of the reference's own `tect` literal that
+/// `loadZip()` does not backfill, since its shallow merge replaces the block outright.
+///
 /// `loadZip()` merges `state` shallowly, so a nested block written here
 /// replaces the reference's own default block outright. `tect` is the one
 /// block that is both mandatory (the seed lives in it) and unshimmed, so it
@@ -471,6 +538,9 @@ fn the_tect_block_is_complete_enough_for_a_shallow_merge() {
     }
 }
 
+/// Protects: the save omitting `state.erosion` (a partial block would replace the reference's
+/// whole one) while the two erosion values this port owns still round-trip in the native half.
+///
 /// `state.erosion` is the documented omission (see `params.rs`'s own note):
 /// unshimmed by `loadZip()` and only 2/16 keys modelled here, so writing it
 /// partially would be worse than not writing it.
@@ -527,6 +597,9 @@ fn a_save_without_integrated_drainage_reloads_with_it_on() {
     }
 }
 
+/// Protects: a save lacking the v2.57 plate-base blur key reloading with the blur OFF (its
+/// world was generated before the row existed), while a saved true/false round-trips.
+///
 /// The v2.57 plate-base blur (`RC_ENGINE_CHANGES.md` §6i) takes the same
 /// shape: every save written before the row existed, and every reference-app
 /// export, was generated at the old 0.35 blur, so its parameters must
@@ -552,6 +625,9 @@ fn a_save_without_the_v2_57_blur_reloads_without_it() {
     }
 }
 
+/// Protects: a save lacking the `passes.glacial` key reloading with the pass OFF (owner Ruling
+/// AU), while a saved true/false round-trips.
+///
 /// The glacial pass (owner Ruling AU) takes the same shape again: the
 /// reference never runs `glacialKernel` inside generation, and every save this
 /// port wrote since `1f7c295` carries the key, so a save without it is a world
@@ -577,6 +653,9 @@ fn a_save_without_the_glacial_key_reloads_without_the_pass() {
     }
 }
 
+/// Protects: a save lacking `geology_processes` reloading with it OFF even when the session had
+/// it on, while a saved true/false round-trips.
+///
 /// GF-2's switch (`GEOLOGY_FIRST_SCOPE.md` §5.6): a save without the key
 /// reloads with the processes off even when the session had them on -- the
 /// world was generated before they existed -- and a save with it round-trips
@@ -600,6 +679,9 @@ fn a_save_without_the_geology_processes_key_reloads_with_them_off() {
     }
 }
 
+/// Protects: a save lacking `geo.age` reloading at the identity age 1.0 even when the session
+/// held another, a saved age round-tripping, and the row clamping to 0.25..=4.0.
+///
 /// GF-7's clock (`GEOLOGY_FIRST_SCOPE.md` §2.6, §4.12): a save without
 /// `geo.age` reloads at 1.0 even when the session held another age -- the
 /// world was generated before the clock, and 1.0 reproduces its counts -- and
@@ -627,6 +709,9 @@ fn a_save_without_the_geo_age_key_reloads_at_age_one() {
     assert_eq!(q.geo_age, 0.25);
 }
 
+/// Protects: the shipped `passes.glacial` default being live: with it on, the heights of a small
+/// default world differ from the same world with it off, and stay inside 0..=1.
+///
 /// The glacial default is not a dead flag: at the shipped defaults it carves
 /// the world. Same guard as the volcanism test below, for the one divergence
 /// that test leaves on in both worlds.
@@ -648,21 +733,26 @@ fn the_glacial_default_carves_a_default_world() {
     assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "height escaped [0,1]");
 }
 
+/// Protects: `apply_saved_state` never panicking or half-applying on a reference export (no
+/// native block), an unknown key, a wrong-typed value or an out-of-range value, and counting
+/// only what it applied.
+///
 /// A save from a future version, a hand-edited one, or a genuine HTML-app
 /// export must never panic or half-apply — the three shapes that can arrive.
 #[test]
 fn a_state_this_port_does_not_recognise_is_survivable() {
     let mut p = params::defaults();
     // A real HTML export: no native block at all. It leaves the table at its
-    // defaults -- except the v2.57 blur and the glacial
-    // pass, which a world that never recorded them was generated without
-    // (`a_save_without_integrated_drainage_reloads_without_it`,
-    // `a_save_without_the_v2_57_blur_reloads_without_it`,
-    // `a_save_without_the_glacial_key_reloads_without_the_pass`).
+    // defaults -- except the v2.57 blur, the glacial pass and the geology
+    // model and processes, which a world that never recorded them was generated
+    // without (`a_save_without_the_v2_57_blur_reloads_without_it`,
+    // `a_save_without_the_glacial_key_reloads_without_the_pass`,
+    // `a_save_without_the_geology_processes_key_reloads_with_them_off`).
     assert_eq!(params::apply_saved_state(&mut p, &serde_json::json!({"tect": {"seed": 1, "plates": 30}})), 0);
     let mut expect = params::defaults();
     // integrate_drainage stays at its default (on): Ruling BW item 4 made an
-    // absent key load ON, which equals the default.
+    // absent key load ON, which equals the default
+    // (`a_save_without_integrated_drainage_reloads_with_it_on`).
     expect.tect.narrow_plate_base_blur = false;
     expect.passes.glacial = false;
     // And the geology model (Ruling BH): a save without the key predates it.
@@ -693,6 +783,10 @@ fn a_state_this_port_does_not_recognise_is_survivable() {
 use cartalith_engine::staleness::PipelineStage;
 use cartalith_engine::{WorldParams, WorldState};
 
+/// Protects: the set of fields where `params::defaults` differs from the parity baseline
+/// `WorldParams::defaults` being exactly the ruled divergences: each one asserted on, and
+/// neutralising them makes the two equal, so an unruled divergence fails here.
+///
 /// **The divergence roster, enumerated rather than described.**
 ///
 /// `params::defaults` is where `DECISIONS.md`'s rulings turn on, and
@@ -702,13 +796,13 @@ use cartalith_engine::{WorldParams, WorldState};
 /// quietly appeared in `WorldParams::defaults` instead would break sixteen
 /// `cartalith-civ` suites. Listing them here makes either failure loud.
 ///
-/// Six today: `crater.physical_model` (§7l) and the two volcano flags
+/// Seven today: `crater.physical_model` (§7l) and the two volcano flags
 /// (§7l-ii, owner ruling 1), all 2026-09-02; `integrate_drainage`
 /// (owner-authorised 2026-09-22, `RC_ENGINE_CHANGES.md` §6g/§6k);
 /// `tect.narrow_plate_base_blur` (source v2.57, `RC_ENGINE_CHANGES.md` §6i --
 /// registered by `DECISIONS.md` §7n, carried under Ruling AP, 2026-09-24); and
 /// `passes.glacial` (owner Ruling AU, 2026-09-24, `LOD_DETAIL_SCOPE.md`
-/// question 3).
+/// question 3); and `geology_model` (Ruling BH, `GEOLOGY_FIRST_SCOPE.md` §6.1).
 #[test]
 fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     let app = params::defaults();
@@ -749,11 +843,15 @@ fn exactly_the_ruled_divergences_ship_at_the_app_boundary() {
     );
 }
 
-/// Three of the six shipped divergences -- the volcanism/crater ones -- are
+/// Protects: the three volcanism/crater divergences being live (not dead flags) and bounded: a
+/// small world generated with them differs from the parity world, by a mean height shift under
+/// 0.1 and a land fraction within a factor of two.
+///
+/// Three of the seven shipped divergences -- the volcanism/crater ones -- are
 /// not cosmetic: they generate a genuinely different world. Guards against the
 /// exact failure a flag flip has — landing in `params::defaults` while the code
-/// path behind it is dead. The other three, `integrate_drainage`,
-/// `tect.narrow_plate_base_blur` and `passes.glacial`, are left on in both
+/// path behind it is dead. The other four, `integrate_drainage`,
+/// `tect.narrow_plate_base_blur`, `passes.glacial` and `geology_model`, are left on in both
 /// worlds here, so this measures only the three it names. (The blur flag's own
 /// reach is `cartalith-engine`'s
 /// `narrow_plate_base_blur_moves_the_height_field_and_nothing_upstream`; the
@@ -848,6 +946,9 @@ fn refreshed(p: &WorldParams, ws: &WorldState) -> (Vec<f32>, Vec<f32>, Vec<f32>)
     (t, r, q)
 }
 
+/// Protects: `params::invalidates` marking `Hydrology` for exactly the rows whose far-end value
+/// changes `refresh_climate`'s output, so the table cannot promise (or hide) a live recompute.
+///
 /// The drift guard `params::invalidates`' own doc comment promises: the
 /// Hydrology half of the table is **derived**, not asserted.
 ///
@@ -889,6 +990,9 @@ fn every_key_that_moves_refresh_climate_is_marked_and_no_other() {
     }
 }
 
+/// Protects: `river_density` invalidating `Climate` only: civ goes stale, hydrology does not, and
+/// `recompute_stale` runs nothing and leaves temperature, rainfall and discharge unchanged.
+///
 /// The one row that is not about climate. `river_density` reaches the civ
 /// layer through `fresh_river_order`, and nothing else — so it must mark
 /// `Climate`, whose *only* consumer is `civ`, and a recompute must therefore
@@ -910,6 +1014,9 @@ fn river_density_makes_civ_stale_and_costs_no_climate_pass() {
     assert_eq!((ws.temperature.as_ref().clone(), ws.rainfall.as_ref().clone(), ws.flow_discharge.as_ref().clone()), before);
 }
 
+/// Protects: a climate dial marking `Hydrology` making `recompute_stale` run hydrology then
+/// climate, leaving civ outstanding, and actually changing the rainfall.
+///
 /// And the climate half's own behaviour, end to end: marking `Hydrology` is
 /// what makes `recompute_stale`'s gate fire, which is the whole reason the
 /// table names the node *above* the stage that goes stale.
@@ -928,6 +1035,9 @@ fn a_climate_dial_marks_the_node_that_actually_triggers_a_recompute() {
     assert_ne!(*ws.rainfall, rain_before, "the moved dial has to actually apply");
 }
 
+/// Protects: rows with no live-apply path (terrain, tectonics, erosion, `sea_level`, `world`,
+/// `civ.garrison_exposure_scale`) invalidating nothing, and an unknown key invalidating nothing.
+///
 /// A parameter with no live-apply path marks nothing — the half of the table
 /// that is about *not* promising anything. Stated as its own test because it
 /// is the answer for 61 of the 100 rows (2026-09-24), including every
@@ -951,6 +1061,10 @@ fn generation_time_only_parameters_mark_nothing() {
     assert_eq!(params::invalidates("not.a.parameter"), None);
 }
 
+/// Protects: `CivParams::want_counts` being `None` unless `civ.fixed_counts` is on AND the
+/// total is non-zero, returning the five counts in capital -> hamlet order, with the reference
+/// inputs' maxima (50 and 2000) as clamps.
+///
 /// `wantCounts`: the five count rows reach `CivParams::counts` in
 /// capital -> hamlet order, and only the flag plus a non-zero total switches
 /// them on. Off -- the default, and the byte-identity guarantee -- is `None`.

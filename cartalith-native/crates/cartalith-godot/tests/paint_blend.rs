@@ -33,19 +33,30 @@
 //! `#[path]`-includes `render.rs` for the same reason every other renderer
 //! test does: `cartalith-godot` is `cdylib`-only (`ARCHITECTURE.md`), and
 //! `pack.rs` alongside it so the last test can load the real fixture pack.
+// Blanket allow: this test target `#[path]`-includes whole modules and uses
+// only a few of their items, so the rest would warn as dead code.
 #![allow(dead_code)]
 
+/// The renderer under test, `#[path]`-included (see the file header).
 #[path = "../src/render.rs"]
 mod render;
+/// The pack loader, `#[path]`-included so the last test can load the real
+/// fixture pack (see the file header).
 #[path = "../src/pack.rs"]
 mod pack;
 
 use render::{GroundTile, GroundTiles, PaintOverride, RenderCtx, TerrainAppearance, CART_BIOME_COLS, CART_TERRAIN_COLS};
 
+/// Grid width of the fixture: 24 is a judgement (small enough for per-cell
+/// loops over every cell, large enough for the painted cells used below).
 const GW: usize = 24;
+/// Grid height of the fixture; see [`GW`].
 const GH: usize = 24;
+/// Sea level passed to the renderer, a judgement. `world()` keeps every cell
+/// at 0.45 or above so the whole fixture is land.
 const SEA: f64 = 0.30;
 
+/// The fixture's per-cell input channels (`GW * GH`, row-major).
 struct World {
     field: Vec<f32>,
     temperature: Vec<f32>,
@@ -64,6 +75,10 @@ fn world() -> World {
     World { field, temperature: vec![11.0; GW * GH], rainfall: vec![0.45; GW * GH] }
 }
 
+/// A render context over `w` with the JS-reference appearance (the one the
+/// reference's `landColorCore` is ported against) and no paint attached.
+/// `60.0`/`20.0` are the latitude bounds, a judgement (this is not a world
+/// map, so they only feed the temperature mapping).
 fn ctx<'a>(w: &'a World) -> RenderCtx<'a> {
     RenderCtx::with_appearance(
         &w.field,
@@ -80,6 +95,8 @@ fn ctx<'a>(w: &'a World) -> RenderCtx<'a> {
     )
 }
 
+/// A zeroed paint grid (`0` = unpainted) with each `(cell index, value)` in
+/// `painted` written in.
 fn grid(painted: &[(usize, u8)]) -> Vec<u8> {
     let mut g = vec![0u8; GW * GH];
     for &(i, v) in painted {
@@ -106,12 +123,18 @@ fn as255(c: (f64, f64, f64)) -> (f64, f64, f64) {
     (c.0 * 255.0, c.1 * 255.0, c.2 * 255.0)
 }
 
+/// Asserts two 0-255 colours agree on every channel to within `1e-6`, naming
+/// `what` and the channel on failure. The tolerance is a judgement that only
+/// absorbs the one `/255.0` division in `as255`'s input.
 fn assert_close(got: (f64, f64, f64), want: (f64, f64, f64), what: &str) {
     for (g, w, ch) in [(got.0, want.0, 'r'), (got.1, want.1, 'g'), (got.2, want.2, 'b')] {
         assert!((g - w).abs() < 1e-6, "{what}: channel {ch} was {g}, expected {w}");
     }
 }
 
+/// Protects: attaching three all-zero paint grids producing exactly the same
+/// bytes as attaching none, which is what keeps the golden render tests
+/// untouched.
 #[test]
 fn an_unpainted_grid_renders_bit_identically_to_no_paint_grid_at_all() {
     // The property that let `golden_parity_render.rs` pass untouched, made
@@ -128,6 +151,8 @@ fn an_unpainted_grid_renders_bit_identically_to_no_paint_grid_at_all() {
     }
 }
 
+/// Protects: a Biome-painted cell equalling `l + (CART_BIOME_COLS[p-1] - l) *
+/// 0.60` of its own unpainted colour for every painted class 1..=13.
 #[test]
 fn a_painted_biome_cell_is_the_reference_060_blend_of_its_own_unpainted_colour() {
     let w = world();
@@ -144,6 +169,10 @@ fn a_painted_biome_cell_is_the_reference_060_blend_of_its_own_unpainted_colour()
     }
 }
 
+/// Protects: `TerrainAppearance::biome_cols` overrides -- the edited class
+/// blends the override, every other class still blends the default table,
+/// and the default table is byte-identical to `CART_BIOME_COLS`.
+///
 /// CA-19 (`LARGE_ITEM_RULINGS.md`, Ruling P, 2026-09-21): the biome colour
 /// table becomes user-editable. `TerrainAppearance::default()`'s
 /// `biome_cols` stays byte-identical to `CART_BIOME_COLS` (every other test
@@ -174,7 +203,7 @@ fn a_painted_biome_cell_blends_an_overridden_table_entry_and_leaves_the_rest_def
 
     // Every OTHER class, painted under the same overridden appearance, still
     // blends toward `CART_BIOME_COLS` exactly — one edited entry must not
-    // move its 14 siblings.
+    // move its 12 painted siblings (classes 1..=13 less the edited one).
     for v in 1..=13u8 {
         if v == edited {
             continue;
@@ -188,6 +217,8 @@ fn a_painted_biome_cell_blends_an_overridden_table_entry_and_leaves_the_rest_def
     }
 }
 
+/// Protects: a Terrain-painted cell equalling the 0.60 blend toward
+/// `CART_TERRAIN_COLS[p-1]` for every class 1..=13.
 #[test]
 fn a_painted_terrain_cell_is_the_reference_060_blend_of_its_own_unpainted_colour() {
     let w = world();
@@ -201,6 +232,8 @@ fn a_painted_terrain_cell_is_the_reference_060_blend_of_its_own_unpainted_colour
     }
 }
 
+/// Protects: Biome then Terrain being applied sequentially on one cell, in
+/// that order (the fixture is asserted to distinguish the reverse order).
 #[test]
 fn biome_and_terrain_coexist_on_one_cell_and_apply_in_the_references_order() {
     // "Both layers can coexist on one cell, applied sequentially" -- and the
@@ -223,6 +256,7 @@ fn biome_and_terrain_coexist_on_one_cell_and_apply_in_the_references_order() {
     );
 }
 
+/// Protects: painting one cell changing that cell's pixel and no other.
 #[test]
 fn only_the_painted_cell_changes() {
     let w = world();
@@ -238,6 +272,8 @@ fn only_the_painted_cell_changes() {
     }
 }
 
+/// Protects: a paint grid shorter than the field being ignored (render
+/// unchanged), not indexed past its end.
 #[test]
 fn a_paint_grid_shorter_than_the_field_is_dropped_rather_than_indexing_off_the_end() {
     // `cartalith-rust-conventions`: a panic must not cross the gdext
@@ -254,6 +290,8 @@ fn a_paint_grid_shorter_than_the_field_is_dropped_rather_than_indexing_off_the_e
     }
 }
 
+/// Protects: a water cell ignoring a paint value on it (the blend belongs to
+/// the land branch only).
 #[test]
 fn the_water_branch_never_takes_a_paint_blend() {
     // The blend lives in `landColorCore`; `seaColorCore` has no paint
@@ -269,6 +307,8 @@ fn the_water_branch_never_takes_a_paint_blend() {
     assert_eq!(render::cell_color(&plain, 3, 3), render::cell_color(&painted, 3, 3));
 }
 
+/// Protects: terrain-grid values 14, 15, 200 and 255 (past the 13 terrain
+/// classes) leaving the pixel unpainted rather than wrapping or panicking.
 #[test]
 fn an_out_of_range_index_paints_nothing_rather_than_wrapping_or_panicking() {
     let w = world();
@@ -276,9 +316,10 @@ fn an_out_of_range_index_paints_nothing_rather_than_wrapping_or_panicking() {
     for v in [14u8, 15, 200, 255] {
         let i = 10 * GW + 10;
         let g = grid(&[(i, v)]);
-        // 14/15 are legal *CART_BIOME_COLS* rows (Lake/Ocean) but not
-        // paintable ones; they must still resolve to their own colour rather
-        // than to a neighbouring index, so the two tables are checked apart.
+        // Only the terrain grid is painted here: every `v` is past the
+        // 13-entry `CART_TERRAIN_COLS`, so the `continue` below never fires.
+        // (14/15 are legal `CART_BIOME_COLS` rows -- Lake/Ocean -- but the
+        // biome grid is not exercised by this test.)
         let painted = ctx(&w).with_paint(None, Some(&g), None);
         if (v as usize) <= CART_TERRAIN_COLS.len() {
             continue;
@@ -287,6 +328,7 @@ fn an_out_of_range_index_paints_nothing_rather_than_wrapping_or_panicking() {
     }
 }
 
+/// Protects: `PaintOverride::default()` being all zeros (unpainted).
 #[test]
 fn paint_override_default_is_the_unpainted_state() {
     assert_eq!(PaintOverride::default(), PaintOverride { bio: 0, ter: 0, splat: 0 });
@@ -321,14 +363,18 @@ fn table(n: usize, at: usize, t: GroundTile) -> Vec<Option<GroundTile>> {
     v
 }
 
+/// A `GroundTiles` carrying only a biome-family table.
 fn biome_tiles(t: &[Option<GroundTile>]) -> GroundTiles<'_> {
     GroundTiles { biomes: t, terrains: &[] }
 }
 
+/// A `GroundTiles` carrying only a terrain-family table.
 fn terrain_tiles(t: &[Option<GroundTile>]) -> GroundTiles<'_> {
     GroundTiles { biomes: &[], terrains: t }
 }
 
+/// Protects: attaching a pack tile table moving no pixel while no cell is
+/// painted.
 #[test]
 fn attaching_tiles_changes_nothing_until_a_cell_is_actually_painted() {
     // The property the default render depends on: this port ships no pack,
@@ -345,6 +391,8 @@ fn attaching_tiles_changes_nothing_until_a_cell_is_actually_painted() {
     }
 }
 
+/// Protects: `GroundTiles::default()` and an all-`None` table rendering a
+/// painted cell exactly as with no tiles (the flat-swatch fallback).
 #[test]
 fn an_empty_ground_table_is_the_flat_swatch_branch_exactly() {
     // `GroundTiles::default()` (no pack) and an all-`None` table of the real
@@ -362,6 +410,8 @@ fn an_empty_ground_table_is_the_flat_swatch_branch_exactly() {
     }
 }
 
+/// Protects: a pack tile's true colour replacing the swatch in the 0.60
+/// blend (and the fixture colour differing from the swatch).
 #[test]
 fn a_pack_tile_replaces_the_flat_swatch_at_the_same_060_weight() {
     let w = world();
@@ -383,6 +433,9 @@ fn a_pack_tile_replaces_the_flat_swatch_at_the_same_060_weight() {
     );
 }
 
+/// Protects: paint tiles being blended as true colour, not splat-style
+/// `texel * inv_mean`, so two solid tiles of different colour give two
+/// different results.
 #[test]
 fn two_solid_tiles_of_different_colours_blend_differently() {
     // **The `SplatChannel` mistake, pinned.** A splat channel is sampled as
@@ -403,6 +456,8 @@ fn two_solid_tiles_of_different_colours_blend_differently() {
     assert_close(as255(render::cell_color(&b, 10, 10)), blend(base, (220, 210, 200)), "light tile");
 }
 
+/// Protects: the tile sampler's addressing -- one texel per cell, `%` wrap,
+/// the `(sy * tw + sx) * 4` offset and x/y not transposed.
 #[test]
 fn a_tile_is_one_texel_per_cell_wrapped_the_way_the_splat_path_samples() {
     // A 2x2 tile with four distinct texels: pins the `%` wrap, the
@@ -426,6 +481,8 @@ fn a_tile_is_one_texel_per_cell_wrapped_the_way_the_splat_path_samples() {
     }
 }
 
+/// Protects: a tile at table position 5 being read only by painted index 6,
+/// with indices 5 and 7 still taking their flat swatches.
 #[test]
 fn a_ground_table_is_positional_and_only_its_own_painted_index_reads_it() {
     // `PACK_BIOME_SLOTS[n]` is painted index `n + 1`. An off-by-one here
@@ -446,6 +503,8 @@ fn a_ground_table_is_positional_and_only_its_own_painted_index_reads_it() {
     }
 }
 
+/// Protects: the biome and terrain tile tables being independent -- a tile in
+/// one is invisible to the other family's cells.
 #[test]
 fn the_two_families_read_their_own_table_and_never_each_others() {
     // One tile, installed in the biome table only. A terrain cell painted at
@@ -470,6 +529,8 @@ fn the_two_families_read_their_own_table_and_never_each_others() {
     assert_close(as255(render::cell_color(&bio2, 10, 10)), blend(base, CART_BIOME_COLS[5]), "biome must not read the terrain table");
 }
 
+/// Protects: zero-sized or truncated tiles falling back to the flat swatch
+/// instead of panicking (`%` by zero, or indexing past a short buffer).
 #[test]
 fn a_malformed_tile_falls_back_to_the_swatch_rather_than_panicking() {
     // `cartalith-rust-conventions`: `%` by zero panics in Rust where JS
@@ -493,6 +554,9 @@ fn a_malformed_tile_falls_back_to_the_swatch_rather_than_panicking() {
     }
 }
 
+/// Protects: the real `reference_pack.zip` fixture's `jungle` and `paved`
+/// ground tiles decoding at the expected positions, size and colours, and
+/// reaching the rendered map at the 0.60 weight.
 #[test]
 fn the_real_fixture_packs_ground_tiles_are_decoded_and_reach_the_map() {
     // End to end on the real reference-exported pack
