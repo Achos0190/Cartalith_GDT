@@ -4276,6 +4276,60 @@ struct SculptStampDto {
     params: BTreeMap<String, f64>,
     #[serde(default)]
     sub_mode: String,
+    /// ET-D3: the stroke's per-point pointer pressure, one value per `points`
+    /// entry, or **absent** for a stamp whose device reported none.
+    ///
+    /// Omitted from the file when `None` (`skip_serializing_if`), so a draft with
+    /// no pressure -- every draft written before ET-D3 -- re-serialises
+    /// byte-identically (the `biome_cols_member` precedent), and an old file
+    /// without the member deserialises to `None` (`default`). Never `[]` or a
+    /// run of `1.0` for "no pressure".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pressure: Option<Vec<f32>>,
+}
+
+/// One draft stamp as its `drafts/sculpt.json` record: the writer half of
+/// [`sculpt_stamp_from_dto`], shared by `sculpt_document_json` and the tests so
+/// the round trip is exercised through the code the save path really runs.
+fn sculpt_stamp_to_dto(stamp: &cartalith_terrain::sculpt::SculptStamp, hidden: bool) -> SculptStampDto {
+    SculptStampDto {
+        feature: stamp.feature().meta().key.to_string(),
+        seed: stamp.seed,
+        sea_level: stamp.sea_level,
+        hidden,
+        points: stamp.points.iter().map(|p| [p.x, p.y]).collect(),
+        globals: sculpt_globals_to_map(&stamp.globals),
+        params: sculpt_params_to_map(&stamp.params),
+        sub_mode: sculpt_sub_mode_of(&stamp.params),
+        // ET-D3: `None` stays `None` (and is then omitted from the file).
+        pressure: stamp.pressure.clone(),
+    }
+}
+
+/// The reader half: a record back into a stamp, or `None` for a feature key this
+/// build does not have (dropped, not defaulted -- see `sculpt_apply_doc`).
+///
+/// ET-D3: the pressure goes through `SculptStamp::with_pressure`, so a
+/// hand-edited or truncated vector (wrong length, a non-finite value) restores
+/// as **absent**, never repaired or guessed.
+fn sculpt_stamp_from_dto(d: &SculptStampDto) -> Option<cartalith_terrain::sculpt::SculptStamp> {
+    let f = cartalith_terrain::sculpt::Feature::from_key(&d.feature)?;
+    let stamp = cartalith_terrain::sculpt::SculptStamp {
+        seed: d.seed,
+        points: d
+            .points
+            .iter()
+            .map(|p| cartalith_terrain::sculpt::Point::new(p[0], p[1]))
+            .collect(),
+        globals: sculpt_globals_from_map(&d.globals),
+        params: sculpt_params_from_map(f, &d.params, &d.sub_mode),
+        sea_level: d.sea_level,
+        pressure: None,
+    };
+    Some(match &d.pressure {
+        Some(p) => stamp.with_pressure(p.clone()),
+        None => stamp,
+    })
 }
 
 /// `library/travel.json` -- every **custom** Travel Library entry.
@@ -4591,16 +4645,7 @@ impl WorldGen {
                 .draft
                 .entries()
                 .iter()
-                .map(|e| SculptStampDto {
-                    feature: e.stamp.feature().meta().key.to_string(),
-                    seed: e.stamp.seed,
-                    sea_level: e.stamp.sea_level,
-                    hidden: e.hidden,
-                    points: e.stamp.points.iter().map(|p| [p.x, p.y]).collect(),
-                    globals: sculpt_globals_to_map(&e.stamp.globals),
-                    params: sculpt_params_to_map(&e.stamp.params),
-                    sub_mode: sculpt_sub_mode_of(&e.stamp.params),
-                })
+                .map(|e| sculpt_stamp_to_dto(&e.stamp, e.hidden))
                 .collect(),
         };
         serde_json::to_string(&doc).map_or_else(|_| GString::new(), |t| GString::from(&t))
@@ -4705,19 +4750,8 @@ impl WorldGen {
             // A stamp naming a feature this build does not have is dropped,
             // not defaulted: `Mountains` where the file said something else
             // would be a stroke the user never drew.
-            let Some(f) = cartalith_terrain::sculpt::Feature::from_key(&d.feature) else {
+            let Some(stamp) = sculpt_stamp_from_dto(d) else {
                 continue;
-            };
-            let stamp = cartalith_terrain::sculpt::SculptStamp {
-                seed: d.seed,
-                points: d
-                    .points
-                    .iter()
-                    .map(|p| cartalith_terrain::sculpt::Point::new(p[0], p[1]))
-                    .collect(),
-                globals: sculpt_globals_from_map(&d.globals),
-                params: sculpt_params_from_map(f, &d.params, &d.sub_mode),
-                sea_level: d.sea_level,
             };
             let index = s.draft.push(stamp);
             if d.hidden {
@@ -6431,6 +6465,56 @@ mod tests {
         assert!(counts.0 > 0 && counts.2 > 0);
     }
 
+    /// Protects: ET-D3's backward-compatibility promise -- a `drafts/sculpt.json`
+    /// written BEFORE `pressure` existed (this literal is the exact member set
+    /// and order the pre-ET-D3 writer produced) opens, parses to a stamp whose
+    /// pressure is `None`, and re-serialises to the **same bytes**: no `pressure`
+    /// member appears, not even `null`.
+    #[test]
+    fn an_old_sculpt_draft_without_pressure_reserialises_byte_identically() {
+        let old = concat!(
+            r#"{"gw":4,"gh":3,"seed":909,"feature":"mountains","globals":{"brush_size":24.0},"params":{"mtnHeight":0.31},"sub_mode":"","#,
+            r#""stamps":[{"feature":"mountains","seed":11,"sea_level":0.42,"hidden":false,"points":[[1.0,1.0],[2.5,1.5]],"#,
+            r#""globals":{"brush_size":24.0},"params":{"mtnHeight":0.31},"sub_mode":""}]}"#
+        );
+        let doc: SculptDoc = serde_json::from_str(old).expect("a pre-ET-D3 draft parses");
+        assert_eq!(doc.stamps.len(), 1, "fixture: the stamp parsed (not a silently empty doc)");
+        let stamp = sculpt_stamp_from_dto(&doc.stamps[0]).expect("mountains is a feature");
+        assert_eq!(stamp.pressure, None, "an old draft has no pressure");
+        assert_eq!(stamp.points.len(), 2);
+        let again = serde_json::to_string(&doc).expect("SculptDoc serializes");
+        assert_eq!(again, old, "no pressure member may be written for a stamp without pressure");
+        assert!(!again.contains("pressure"));
+    }
+
+    /// Protects: a stamp's pressure surviving the real save/restore code paths
+    /// (`sculpt_stamp_to_dto` -> JSON text -> `sculpt_stamp_from_dto`, the two
+    /// helpers `sculpt_document_json` and `sculpt_apply_doc` call) as an EQUAL
+    /// vector, with literal values that are exact in f32 (`0.25`, `0.75`); and a
+    /// malformed vector (wrong length, or a non-finite value) restoring as ABSENT,
+    /// never repaired.
+    #[test]
+    fn a_stamps_pressure_round_trips_and_a_malformed_vector_restores_as_absent() {
+        use cartalith_terrain::sculpt::{Feature, Point, SculptStamp};
+        let stamp = SculptStamp::new(Feature::River, 5, vec![Point::new(1.0, 1.0), Point::new(2.5, 1.5)], 0.4)
+            .with_pressure(vec![0.25, 0.75]);
+        assert!(stamp.pressure.is_some(), "fixture: valid pressure accepted");
+        let doc = SculptDoc { gw: 4, gh: 3, stamps: vec![sculpt_stamp_to_dto(&stamp, false)], ..SculptDoc::default() };
+        let text = serde_json::to_string(&doc).unwrap();
+        assert!(text.contains(r#""pressure":[0.25,0.75]"#), "the member is written: {text}");
+        let back: SculptDoc = serde_json::from_str(&text).unwrap();
+        let restored = sculpt_stamp_from_dto(&back.stamps[0]).unwrap();
+        assert_eq!(restored.pressure, Some(vec![0.25, 0.75]));
+        assert_eq!(restored, stamp, "the whole stamp, pressure included, is equal after a round trip");
+
+        // A short vector (one value, two points) and a run holding a NaN-as-null.
+        let mut bad = back.stamps[0].clone();
+        bad.pressure = Some(vec![0.25]);
+        assert_eq!(sculpt_stamp_from_dto(&bad).unwrap().pressure, None, "wrong length restores as absent");
+        bad.pressure = Some(vec![0.25, f32::NAN]);
+        assert_eq!(sculpt_stamp_from_dto(&bad).unwrap().pressure, None, "a non-finite value restores as absent");
+    }
+
     /// Protects: `drafts/sculpt.json` crosses a real archive verbatim and each stamp's feature,
     /// params, globals and `sub_mode` rebuild into the same sculpt parameters (a renamed control
     /// or a lost `sub_mode` would show).
@@ -6464,6 +6548,7 @@ mod tests {
                     globals: globals.clone(),
                     params: params.clone(),
                     sub_mode: String::new(),
+                    pressure: None,
                 },
                 SculptStampDto {
                     feature: "freehand".to_string(),
@@ -6474,6 +6559,7 @@ mod tests {
                     globals: BTreeMap::new(),
                     params: free_params,
                     sub_mode: "lower".to_string(),
+                    pressure: None,
                 },
             ],
         };

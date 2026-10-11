@@ -63,6 +63,7 @@
 //! fixtures above keep spreading `..SculptGlobals::default()` unchanged.
 
 use cartalith_engine::sculpt_commit::{commit_sculpt_pass, SculptCommitSummary, WaterState};
+use cartalith_spatial::stroke::{Sample, StrokeConfig, StrokeEngine, StrokeError, Symmetry};
 use cartalith_spatial::{DirtyTracker, PassBuffer};
 use cartalith_terrain::sculpt::{
     Control, Falloff, Feature, FeatureParams, Point, SculptGlobals, SculptStamp,
@@ -165,6 +166,87 @@ pub fn snap_point(p: Point, step: f64) -> Point {
         return p;
     }
     Point::new((p.x / step).round() * step, (p.y / step).round() * step)
+}
+
+/// How a stroke is mirrored when it ends (ET-D3, `EDITING_TOOLS_SCOPE.md`):
+/// the ET-D1 engine's [`Symmetry`] modes, a centre and an axis angle, snapshotted
+/// at `sculpt_begin_stroke_with` so a mid-stroke control change cannot alter a
+/// stroke already under the pointer.
+///
+/// `Symmetry::None` (the default) is the pre-ET-D3 behaviour: one stamp.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StrokeSymmetry {
+    /// Which copies to make (`None`, `Vertical`, `Horizontal`, `Dual`, `Radial(n)`).
+    pub mode: Symmetry,
+    /// The symmetry centre in grid cells, or `None` for the **lattice centre**
+    /// `((gw - 1) / 2, (gh - 1) / 2)`: the one axis that maps cell `x` to cell
+    /// `gw - 1 - x` exactly, so a mirrored sculpt of a noise-free feature is
+    /// cell-for-cell symmetric. (Paint's default is `gw / 2`, half a cell off;
+    /// paint rounds each dab to a cell, sculpt does not.)
+    pub centre: Option<(f64, f64)>,
+    /// Mirror-axis rotation in radians (mirror modes only; a radial pattern ignores it).
+    pub angle: f64,
+}
+
+impl Default for StrokeSymmetry {
+    /// No symmetry, grid-centre axis, unrotated.
+    fn default() -> Self {
+        Self { mode: Symmetry::None, centre: None, angle: 0.0 }
+    }
+}
+
+/// What [`SculptEditor::end_stroke`] pushed: the draft index of the **source**
+/// stamp and how many stamps (source plus mirrors) the stroke became.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StrokeEnd {
+    /// The draft index of the source stamp; mirrors follow at `first + 1 ..`.
+    pub first: usize,
+    /// Stamps pushed: `1` with no symmetry, otherwise the mode's copy count.
+    pub count: usize,
+}
+
+/// The polyline's copies under `sym`, source first, each point exactly the
+/// ET-D1 engine's own mirror of the source point (`StrokeEngine::emit`'s
+/// symmetry step), so a mirrored stamp is the **exact** mirror of its source.
+///
+/// The engine runs with `per_sample` on and scatter and smoothing off, so each
+/// input point yields exactly one dab per copy, in copy order, and copy 0 is the
+/// untouched source. Its dynamics read no pressure here (`Sample::pressure` is
+/// `None`): pressure is carried by the stamp, unchanged by reflection.
+///
+/// Errors are the engine's own ([`StrokeError`]) for a bad mode, count or
+/// centre. A point count that does not divide evenly is reported as
+/// `Invalid("symmetry")` rather than trusted; it cannot happen for a valid config.
+pub fn mirrored_polylines(
+    points: &[Point],
+    sym: &StrokeSymmetry,
+    gw: usize,
+    gh: usize,
+) -> Result<Vec<Vec<Point>>, StrokeError> {
+    // `base_diameter` only scales spacing/scatter, both off here: 1.0 is arbitrary.
+    let mut cfg = StrokeConfig::new(0, 1.0);
+    cfg.per_sample = true;
+    cfg.symmetry = sym.mode;
+    let (cx, cy) = sym
+        .centre
+        .unwrap_or((gw.saturating_sub(1) as f64 / 2.0, gh.saturating_sub(1) as f64 / 2.0));
+    cfg.symmetry_cx = cx;
+    cfg.symmetry_cy = cy;
+    cfg.symmetry_angle = sym.angle;
+    let mut engine = StrokeEngine::new(cfg)?;
+    let mut dabs = Vec::new();
+    for (i, p) in points.iter().enumerate() {
+        engine.feed_one(Sample { x: p.x, y: p.y, pressure: None, tilt: None, t_ms: i as u64 }, &mut dabs);
+    }
+    if points.is_empty() || dabs.is_empty() || dabs.len() % points.len() != 0 {
+        return Err(StrokeError::Invalid("symmetry"));
+    }
+    let copies = dabs.len() / points.len();
+    let mut out = vec![Vec::with_capacity(points.len()); copies];
+    for (i, d) in dabs.iter().enumerate() {
+        out[i % copies].push(Point::new(d.x, d.y));
+    }
+    Ok(out)
 }
 
 /// [`GLOBAL_RANGES`] joined with `SculptGlobals::default()`'s live values —
@@ -483,6 +565,19 @@ pub struct SculptEditor {
     /// lattice. For a tap — which is how every radial feature is actually
     /// used — the centroid is the one snapped point exactly.
     pub grid_snap: Option<f64>,
+    /// ET-D3: the in-progress stroke's pressure, **parallel to
+    /// [`Self::points`]** -- `None` for a point the device gave no pressure for
+    /// (a mouse, `sculpt_add_point`, a non-finite reading). Written only by
+    /// [`Self::add_point`] and cleared with the points.
+    ///
+    /// At [`Self::end_stroke`] the stamp gets a pressure vector **only when
+    /// every point has one**. One missing reading drops the whole stroke's
+    /// pressure to absent: filling the gap with `1.0` or an interpolation would
+    /// invent a value the device never reported (`MISTAKES.md`).
+    pub pressure: Vec<Option<f32>>,
+    /// ET-D3: how the in-progress stroke is mirrored at its end; set by
+    /// [`Self::begin_stroke`], reset to none by every begin/cancel/end.
+    pub stroke_symmetry: StrokeSymmetry,
 }
 
 impl SculptEditor {
@@ -520,7 +615,114 @@ impl SculptEditor {
             points: Vec::new(),
             selection: SelectionSet::new(),
             grid_snap: None,
+            pressure: Vec::new(),
+            stroke_symmetry: StrokeSymmetry::default(),
         }
+    }
+
+    /// Starts a stroke: clears the captured points and pressure and snapshots
+    /// `sym`. `Err` (the engine's own, naming the bad option) **changes
+    /// nothing** -- the stroke already in progress, if any, is left alone -- so
+    /// a refused option cannot silently turn a symmetric stroke into a plain one.
+    ///
+    /// Validation is the engine's: [`mirrored_polylines`] is run on a probe point
+    /// so a bad radial count or non-finite centre is caught here and never at
+    /// [`Self::end_stroke`], where the stroke would already be lost.
+    pub fn begin_stroke(&mut self, sym: StrokeSymmetry) -> Result<(), StrokeError> {
+        mirrored_polylines(&[Point::new(0.0, 0.0)], &sym, self.draft.width(), self.draft.height())?;
+        self.points.clear();
+        self.pressure.clear();
+        self.stroke_symmetry = sym;
+        Ok(())
+    }
+
+    /// Appends one captured point (snapped when snapping is on) with its
+    /// optional pressure, returning the new point count. A non-finite `x`/`y` is
+    /// dropped whole (count unchanged, and no pressure entry either, so the two
+    /// vectors stay parallel). A non-finite pressure is stored as **absent**; a
+    /// finite one is clamped to `[0, 1]` (a pen can overshoot).
+    pub fn add_point(&mut self, p: Point, pressure: Option<f32>) -> usize {
+        if p.x.is_finite() && p.y.is_finite() {
+            self.points.push(self.snapped(p));
+            self.pressure.push(pressure.filter(|v| v.is_finite()).map(|v| v.clamp(0.0, 1.0)));
+        }
+        self.points.len()
+    }
+
+    /// Drops the in-progress stroke: points, pressure and the symmetry snapshot.
+    pub fn cancel_stroke(&mut self) {
+        self.points.clear();
+        self.pressure.clear();
+        self.stroke_symmetry = StrokeSymmetry::default();
+    }
+
+    /// Freezes the current tool state plus the in-progress stroke into stamps and
+    /// pushes them onto the draft -- `sculpt_end_stroke`'s whole body, here so it
+    /// is reachable from a unit test. `None` for a stroke with no points.
+    ///
+    /// **No symmetry:** exactly one stamp, with `seed` and the stroke's points as
+    /// before ET-D3 (plus the optional pressure). **Symmetry:** the source stamp
+    /// is pushed first, then each mirror ([`mirrored_polylines`]) as its own stamp
+    /// with seed `self.seed + k` (wrapping; a labelled judgement, so a noisy
+    /// feature does not repeat the source's noise on its mirror) and the **same**
+    /// pressure vector (a reflection keeps pressure). The stamp stack therefore
+    /// lists N stamps, and the source is selected.
+    ///
+    /// **One undo step** for the whole stroke: the pushes share one
+    /// [`PassBuffer::begin_group`], exactly as an ET-D2 paint stroke does (a
+    /// half-undone symmetric stroke is not a state a user drew). `EDITING_TOOLS_SCOPE.md`
+    /// ET-D3 words this as "undo sees N stamps"; this is the one deliberate
+    /// departure from it (see the lane report).
+    ///
+    /// The pressure vector goes onto a stamp only when **every** captured point
+    /// has a reading ([`Self::pressure`]).
+    pub fn end_stroke(&mut self, sea_level: f64) -> Option<StrokeEnd> {
+        if self.points.is_empty() {
+            return None;
+        }
+        let points = std::mem::take(&mut self.points);
+        let pressure = std::mem::take(&mut self.pressure);
+        let sym = std::mem::take(&mut self.stroke_symmetry);
+        let pressure: Option<Vec<f32>> = if pressure.len() == points.len() {
+            pressure.into_iter().collect::<Option<Vec<f32>>>()
+        } else {
+            None
+        };
+        // The source first (by construction copy 0 of `mirrored_polylines`, but
+        // taken from `points` directly so a plain stroke never touches the engine).
+        let mut lines: Vec<Vec<Point>> = vec![points.clone()];
+        if sym.mode != Symmetry::None {
+            // Validated at begin; an `Err` here would be a programming error, and the
+            // fallback (the source alone) loses a mirror rather than the stroke.
+            if let Ok(copies) = mirrored_polylines(&points, &sym, self.draft.width(), self.draft.height()) {
+                lines = copies;
+            }
+        }
+        let grouped = lines.len() > 1;
+        if grouped {
+            self.draft.begin_group();
+        }
+        let mut first = 0;
+        let count = lines.len();
+        for (k, line) in lines.into_iter().enumerate() {
+            let stamp = SculptStamp {
+                seed: self.seed.wrapping_add(k as u32),
+                points: line,
+                globals: self.globals,
+                params: self.params,
+                sea_level,
+                pressure: pressure.clone(),
+            };
+            let index = self.draft.push(stamp);
+            if k == 0 {
+                first = index;
+            }
+        }
+        if grouped {
+            self.draft.end_group();
+        }
+        self.selection.replace(first);
+        Some(StrokeEnd { first, count })
     }
 
     /// Turns snapping on at `step` cells, or off when `step` is not one of
@@ -1016,5 +1218,309 @@ mod tests {
             assert_eq!(e.set_grid_snap(off), None, "step {off}");
             assert_eq!(e.snapped(Point::new(5.6, 5.6)), Point::new(5.6, 5.6));
         }
+    }
+
+    // ---- ET-D3: stroke pressure, symmetry, one-undo-step ----
+
+    /// Grid edge of the ET-D3 fixtures. **Judgement**: even (so the lattice
+    /// centre `31.5` is a half-integer and mirrors are cell-for-cell) and large
+    /// enough for a 10-cell brush with room to spare.
+    const N: usize = 64;
+
+    /// A [`N`] x [`N`] editor armed with Freehand Raise (amount 0.1, brush 10,
+    /// `edge_noise` 0): a noise-free feature, so a mirrored stamp's height
+    /// delta is a pure function of distance to the stroke and a mirror
+    /// comparison cannot be defeated by position-keyed noise. Seed 7.
+    fn raise_editor() -> SculptEditor {
+        let mut e = SculptEditor::new(N, N, None, None, 7);
+        e.feature = Feature::Freehand;
+        e.params = FeatureParams::Freehand {
+            amount: 0.1,
+            sub_mode: cartalith_terrain::sculpt::FreehandMode::Raise,
+        };
+        e.globals.brush_size = 10.0;
+        e.globals.edge_noise = 0.0;
+        e
+    }
+
+    /// The fixture stroke: three points in the upper-left quadrant, so no mirror
+    /// of it coincides with it, plus its pressures.
+    const STROKE: [(f64, f64); 3] = [(10.0, 20.0), (15.0, 24.0), (20.0, 40.0)];
+    /// Pressure for [`STROKE`]: values exact in `f32`, so a literal compare is fair.
+    const PRESS: [f32; 3] = [0.25, 0.5, 0.75];
+
+    /// Feeds [`STROKE`] with [`PRESS`] into `e`.
+    fn draw(e: &mut SculptEditor) {
+        for (&(x, y), &p) in STROKE.iter().zip(PRESS.iter()) {
+            e.add_point(Point::new(x, y), Some(p));
+        }
+    }
+
+    /// Commits `e`'s draft onto a flat 0.3 field and returns it.
+    fn baked(e: &mut SculptEditor) -> Vec<f32> {
+        let mut f = vec![0.3f32; N * N];
+        e.commit(&mut f, 0.5, "et-d3 test");
+        f
+    }
+
+    /// Protects: a plain stroke -- no pressure, no symmetry -- ending as exactly
+    /// the one stamp it made before ET-D3 (the seed, points, globals, params and
+    /// sea level it was captured with, `pressure: None`), selected, with the
+    /// stroke state cleared. This is the "old callers unchanged" half of ET-D3.
+    #[test]
+    fn a_plain_stroke_ends_as_exactly_the_pre_et_d3_stamp() {
+        let mut e = raise_editor();
+        for &(x, y) in &STROKE {
+            e.add_point(Point::new(x, y), None);
+        }
+        let end = e.end_stroke(0.5).expect("a stroke with points ends");
+        assert_eq!(end, StrokeEnd { first: 0, count: 1 });
+        assert_eq!(e.draft.len(), 1);
+        let want = SculptStamp {
+            seed: 7,
+            points: STROKE.iter().map(|&(x, y)| Point::new(x, y)).collect(),
+            globals: e.globals,
+            params: e.params,
+            sea_level: 0.5,
+            pressure: None,
+        };
+        assert_eq!(e.draft.entries()[0].stamp, want);
+        assert_eq!(e.selected(), Some(0));
+        assert!(e.points.is_empty() && e.pressure.is_empty(), "the stroke state is consumed");
+        assert_eq!(e.end_stroke(0.5), None, "a second end finds no stroke");
+    }
+
+    /// Protects: the all-or-nothing pressure rule and its sanitising: pressure
+    /// rides onto the stamp only when EVERY point has a reading (one `None`, or a
+    /// non-finite reading, makes the whole stroke pressure-less -- never a filled
+    /// gap), finite readings clamp to `[0, 1]`, and a non-finite x/y drops the
+    /// point from both vectors so they stay parallel.
+    #[test]
+    fn pressure_is_kept_only_when_every_point_has_one() {
+        // All present.
+        let mut e = raise_editor();
+        draw(&mut e);
+        e.end_stroke(0.5).unwrap();
+        assert_eq!(e.draft.entries()[0].stamp.pressure, Some(vec![0.25, 0.5, 0.75]));
+
+        // One missing in the middle: the whole stroke is pressure-less.
+        let mut e = raise_editor();
+        e.add_point(Point::new(10.0, 20.0), Some(0.25));
+        e.add_point(Point::new(15.0, 24.0), None);
+        e.add_point(Point::new(20.0, 40.0), Some(0.75));
+        e.end_stroke(0.5).unwrap();
+        assert_eq!(e.draft.entries()[0].stamp.pressure, None, "a gap is not filled with a plausible value");
+
+        // A non-finite reading is absent; an overshoot clamps; a NaN position is dropped whole.
+        let mut e = raise_editor();
+        e.add_point(Point::new(10.0, 20.0), Some(f32::NAN));
+        assert_eq!(e.pressure, vec![None], "NaN pressure is stored as absent");
+        e.cancel_stroke();
+        e.add_point(Point::new(10.0, 20.0), Some(1.7));
+        e.add_point(Point::new(f64::NAN, 24.0), Some(0.5));
+        e.add_point(Point::new(20.0, 40.0), Some(-3.0));
+        assert_eq!((e.points.len(), e.pressure.len()), (2, 2), "the NaN point left both vectors alone");
+        e.end_stroke(0.5).unwrap();
+        assert_eq!(e.draft.entries()[0].stamp.pressure, Some(vec![1.0, 0.0]), "clamped to [0, 1]");
+    }
+
+    /// Protects: a vertical mirror pushing TWO stamps -- the source untouched and
+    /// the mirror's points the lattice reflection `x -> 63 - x` (to the engine's
+    /// own 1e-12 claim; asserted at 1e-9) -- with seeds `7` and `7 + 1` (the
+    /// documented `seed + k`), the SAME pressure vector on both, and the source
+    /// selected. Literals: `2 x 31.5 - 10 = 53`, `48`, `43`.
+    #[test]
+    fn a_vertical_mirror_pushes_the_lattice_reflection_with_seed_plus_k() {
+        let mut e = raise_editor();
+        e.begin_stroke(StrokeSymmetry { mode: Symmetry::Vertical, ..StrokeSymmetry::default() }).unwrap();
+        draw(&mut e);
+        let end = e.end_stroke(0.5).unwrap();
+        assert_eq!(end, StrokeEnd { first: 0, count: 2 });
+        let (src, mir) = (&e.draft.entries()[0].stamp, &e.draft.entries()[1].stamp);
+        assert_eq!(src.points, STROKE.iter().map(|&(x, y)| Point::new(x, y)).collect::<Vec<_>>(), "copy 0 is untouched");
+        for (m, (want_x, want_y)) in mir.points.iter().zip([(53.0, 20.0), (48.0, 24.0), (43.0, 40.0)]) {
+            assert!((m.x - want_x).abs() < 1e-9 && (m.y - want_y).abs() < 1e-9, "{m:?} vs ({want_x}, {want_y})");
+        }
+        assert_eq!((src.seed, mir.seed), (7, 8));
+        assert_eq!(src.pressure, Some(vec![0.25, 0.5, 0.75]));
+        assert_eq!(mir.pressure, src.pressure, "a reflection keeps pressure");
+        assert_eq!(e.selected(), Some(0), "the source stamp is the selected one");
+    }
+
+    /// Protects: the scope's acceptance "a mirror stroke's committed height deltas
+    /// are mirror images to 1e-6" on a SQUARE grid with the default centre axis,
+    /// for every mirror mode: vertical `f(x, y) = f(63 - x, y)`, horizontal
+    /// `f(x, y) = f(x, 63 - y)`, dual both. The strokes carry a pressure ramp, so
+    /// a mirror that dropped or re-derived pressure would break symmetry. Positive
+    /// controls: the field really changed, and the same stroke WITHOUT symmetry is
+    /// visibly asymmetric (so the assertion could fail).
+    #[test]
+    fn mirrored_strokes_commit_height_fields_that_are_exact_mirrors() {
+        let m = N - 1;
+        let worst = |f: &[f32], flip_x: bool, flip_y: bool| -> f64 {
+            let mut w = 0.0f64;
+            for y in 0..N {
+                for x in 0..N {
+                    let (mx, my) = (if flip_x { m - x } else { x }, if flip_y { m - y } else { y });
+                    w = w.max((f64::from(f[y * N + x]) - f64::from(f[my * N + mx])).abs());
+                }
+            }
+            w
+        };
+        // The control: no symmetry, one stamp.
+        let mut plain = raise_editor();
+        draw(&mut plain);
+        plain.end_stroke(0.5).unwrap();
+        let f_plain = baked(&mut plain);
+        assert!(worst(&f_plain, true, false) > 0.05, "positive control: a lone stroke is not symmetric");
+        assert!(f_plain.iter().any(|&v| (v - 0.3).abs() > 0.05), "positive control: the stroke raised terrain");
+
+        for (mode, copies, fx, fy) in [
+            (Symmetry::Vertical, 2, true, false),
+            (Symmetry::Horizontal, 2, false, true),
+            (Symmetry::Dual, 4, true, true),
+        ] {
+            let mut e = raise_editor();
+            e.begin_stroke(StrokeSymmetry { mode, ..StrokeSymmetry::default() }).unwrap();
+            draw(&mut e);
+            assert_eq!(e.end_stroke(0.5).unwrap().count, copies, "{mode:?}");
+            let f = baked(&mut e);
+            assert!(worst(&f, fx, fy) < 1e-6, "{mode:?}: worst mirror error {}", worst(&f, fx, fy));
+            if mode == Symmetry::Dual {
+                assert!(worst(&f, true, true) < 1e-6 && worst(&f, true, false) < 1e-6, "dual is symmetric in both axes");
+            }
+        }
+    }
+
+    /// Protects: the copy counts of every symmetry mode (literals: none 1,
+    /// vertical 2, horizontal 2, dual 4, radial N exactly N), with the radial
+    /// copy `k` seeded `seed + k`.
+    #[test]
+    fn each_symmetry_mode_pushes_its_documented_number_of_stamps() {
+        for (mode, want) in [
+            (Symmetry::None, 1usize),
+            (Symmetry::Vertical, 2),
+            (Symmetry::Horizontal, 2),
+            (Symmetry::Dual, 4),
+            (Symmetry::Radial(1), 1),
+            (Symmetry::Radial(3), 3),
+            (Symmetry::Radial(7), 7),
+        ] {
+            let mut e = raise_editor();
+            e.begin_stroke(StrokeSymmetry { mode, ..StrokeSymmetry::default() }).unwrap();
+            draw(&mut e);
+            let end = e.end_stroke(0.5).unwrap();
+            assert_eq!((end.count, e.draft.len()), (want, want), "{mode:?}");
+            let seeds: Vec<u32> = e.draft.entries().iter().map(|x| x.stamp.seed).collect();
+            assert_eq!(seeds, (7..7 + want as u32).collect::<Vec<_>>(), "{mode:?}: seed + k");
+        }
+    }
+
+    /// Protects: a whole symmetric stroke being ONE undo step (the documented
+    /// departure from the scope's "undo sees N stamps"): one `undo` empties a
+    /// 4-stamp stroke, one `redo` brings all four back. Positive control: two
+    /// separate plain strokes are two steps (one undo leaves one stamp), so the
+    /// grouping is what made the difference.
+    #[test]
+    fn a_symmetric_stroke_is_one_undo_step() {
+        let mut e = raise_editor();
+        e.begin_stroke(StrokeSymmetry { mode: Symmetry::Dual, ..StrokeSymmetry::default() }).unwrap();
+        draw(&mut e);
+        e.end_stroke(0.5).unwrap();
+        assert_eq!(e.draft.len(), 4);
+        assert!(e.draft.undo());
+        assert_eq!(e.draft.len(), 0, "one undo removes the whole symmetric stroke");
+        assert!(e.draft.redo());
+        assert_eq!(e.draft.len(), 4, "one redo restores all of it");
+
+        let mut two = raise_editor();
+        for _ in 0..2 {
+            draw(&mut two);
+            two.end_stroke(0.5).unwrap();
+        }
+        assert!(two.draft.undo());
+        assert_eq!(two.draft.len(), 1, "positive control: separate strokes are separate steps");
+    }
+
+    /// Protects: a refused symmetry leaving the stroke in progress alone -- a bad
+    /// radial count or a non-finite centre is `Err`, and the points, pressure and
+    /// symmetry snapshot already captured are exactly what they were (a refusal
+    /// must not turn a symmetric stroke into a plain one, nor drop it).
+    #[test]
+    fn a_refused_symmetry_changes_nothing() {
+        let mut e = raise_editor();
+        e.begin_stroke(StrokeSymmetry { mode: Symmetry::Vertical, ..StrokeSymmetry::default() }).unwrap();
+        e.add_point(Point::new(10.0, 20.0), Some(0.5));
+        for bad in [
+            StrokeSymmetry { mode: Symmetry::Radial(0), ..StrokeSymmetry::default() },
+            StrokeSymmetry { mode: Symmetry::Radial(65), ..StrokeSymmetry::default() },
+            StrokeSymmetry { mode: Symmetry::Vertical, centre: Some((f64::NAN, 1.0)), angle: 0.0 },
+            StrokeSymmetry { mode: Symmetry::Vertical, centre: None, angle: f64::INFINITY },
+        ] {
+            assert!(e.begin_stroke(bad).is_err(), "{bad:?} must be refused");
+            assert_eq!(e.points.len(), 1, "the stroke in progress survives a refused begin");
+            assert_eq!(e.pressure, vec![Some(0.5)]);
+            assert_eq!(e.stroke_symmetry.mode, Symmetry::Vertical, "the snapshot is untouched");
+        }
+        e.cancel_stroke();
+        assert!(e.points.is_empty() && e.pressure.is_empty());
+        assert_eq!(e.stroke_symmetry, StrokeSymmetry::default(), "cancel resets the snapshot");
+    }
+
+    /// Protects: River inheriting ET-D3 (the scope's "pressure deepens or shallows
+    /// the carved bed through `k`; symmetry pushes mirrors"). On a flat 0.6 field a
+    /// River stamp of uniform pressure 0.5 lowers the centreline by exactly half
+    /// what the unpressured stamp does (River is a `Set`-mode feature, linear in
+    /// `k`: ratio 0.5), a vertical mirror carves its own mirrored bed to the same
+    /// depth, and the full commit (the River water hook included) runs over the
+    /// mirrored, pressured draft and locks channel cells.
+    #[test]
+    fn river_inherits_pressure_and_symmetry() {
+        let stroke: Vec<(f64, f64)> = (0..=40).map(|i| (12.0 + i as f64, 20.0)).collect();
+        let river = |sym: Symmetry, pressure: Option<f32>| {
+            let mut e = SculptEditor::new(N, N, None, None, 3);
+            e.feature = Feature::River;
+            let mut p = Feature::River.default_params();
+            // No meander and no branch noise: both are position/sign dependent
+            // (`sd` flips under reflection, the noise is keyed to position), so a
+            // mirror comparison is only exact without them.
+            if let FeatureParams::River { river_meander, branch_noise, .. } = &mut p {
+                *river_meander = 0.0;
+                *branch_noise = 0.0;
+            }
+            e.params = p;
+            e.globals.edge_noise = 0.0;
+            e.begin_stroke(StrokeSymmetry { mode: sym, ..StrokeSymmetry::default() }).unwrap();
+            for &(x, y) in &stroke {
+                e.add_point(Point::new(x, y), pressure);
+            }
+            e.end_stroke(0.2).unwrap();
+            e
+        };
+        // Stamp `i` alone over a flat 0.6 field, read at `(x, y)`: stamps compose
+        // order-dependently in `Set` mode, so a mirror is compared stamp by stamp.
+        let bed_of = |e: &SculptEditor, i: usize, x: usize, y: usize| -> f64 {
+            let mut f = vec![0.6f32; N * N];
+            e.draft.entries()[i].stamp.apply_into(&mut f, None, N, N, false);
+            f64::from(f[y * N + x])
+        };
+        let bed = |e: &SculptEditor, x: usize, y: usize| bed_of(e, 0, x, y);
+        let none = river(Symmetry::None, None);
+        let half = river(Symmetry::None, Some(0.5));
+        let (drop0, drop_half) = (0.6 - bed(&none, 32, 20), 0.6 - bed(&half, 32, 20));
+        assert!(drop0 > 0.01, "positive control: a river carves the centreline ({drop0})");
+        assert!((drop_half / drop0 - 0.5).abs() < 1e-4, "pressure 0.5 halves the bed: ratio {}", drop_half / drop0);
+
+        let mirrored = river(Symmetry::Vertical, Some(0.5));
+        assert_eq!(mirrored.draft.len(), 2);
+        // Source centreline cell (32, 20) <-> mirror cell (63 - 32, 20) = (31, 20).
+        let (a, b) = (bed_of(&mirrored, 0, 32, 20), bed_of(&mirrored, 1, 31, 20));
+        assert!((a - b).abs() < 1e-6 && 0.6 - a > 0.01, "mirror bed {b} vs source bed {a}");
+
+        let mut e = river(Symmetry::Vertical, Some(0.5));
+        let mut f = vec![0.6f32; N * N];
+        let summary = e.commit(&mut f, 0.2, "river");
+        assert_eq!(summary.rivers_carved, 2, "both the source and its mirror ran the river hook");
+        assert!(summary.cells_locked > 0, "the hook locked channel cells");
     }
 }

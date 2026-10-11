@@ -1243,10 +1243,35 @@ pub struct SculptStamp {
     ///
     /// Only Plateau and Coastline read it.
     pub sea_level: f64,
+    /// **ET-D3 (`EDITING_TOOLS_SCOPE.md`).** Optional pointer pressure, one
+    /// value in `[0, 1]` per entry of [`SculptStamp::points`], in the same order.
+    ///
+    /// **`None` means "the device reported no pressure" and nothing else.** It
+    /// is never `1.0` and never `0.0` (`MISTAKES.md`: never encode no value as a
+    /// plausible value). Where it is `None` the coverage weight is **not
+    /// multiplied at all** (control flow, not `x 1.0`: see [`weigh`]), so every
+    /// stamp built without pressure -- every `golden_parity_sculpt` fixture, every
+    /// pre-ET-D3 save -- evaluates exactly the arithmetic it always did.
+    ///
+    /// Where it is `Some`, the coverage weight `k` becomes
+    /// `cov x intensity x p(s)`, `p(s)` being the pressure interpolated linearly
+    /// along the stroke's arclength at `s` (the arclength
+    /// [`nearest_on_stroke`] reports for the cell). Radial features (Lake,
+    /// Volcano) have no `s`; they use the **mean** of the stroke's pressure
+    /// (a labelled judgement, matching their centroid-of-points centre).
+    ///
+    /// A vector whose length differs from `points` is treated as absent at apply
+    /// time ([`SculptStamp::pressure_table`]) rather than guessed at. Build one
+    /// through [`SculptStamp::with_pressure`], which validates.
+    ///
+    /// Pressure does **not** change the stamp's radius or [`SculptStamp::bbox`]
+    /// (that is the elliptical-tip cost `Falloff`'s doc names; out of ET-D3).
+    pub pressure: Option<Vec<f32>>,
 }
 
 impl SculptStamp {
-    /// A stamp with a feature's default controls and the default globals.
+    /// A stamp with a feature's default controls and the default globals, and
+    /// **no pressure** ([`SculptStamp::pressure`] is `None`).
     pub fn new(feature: Feature, seed: u32, points: Vec<Point>, sea_level: f64) -> Self {
         Self {
             seed,
@@ -1254,7 +1279,48 @@ impl SculptStamp {
             globals: SculptGlobals::default(),
             params: feature.default_params(),
             sea_level,
+            pressure: None,
         }
+    }
+
+    /// This stamp with `pressure` attached -- **only if it is valid**: exactly
+    /// one finite value per point (and at least one point). Each value is
+    /// clamped to `[0, 1]`. An invalid vector leaves the stamp's pressure
+    /// **absent** (`None`), never a repaired or defaulted one: a length that
+    /// does not match the polyline cannot say which point a value belongs to.
+    pub fn with_pressure(mut self, pressure: Vec<f32>) -> Self {
+        let ok = !pressure.is_empty()
+            && pressure.len() == self.points.len()
+            && pressure.iter().all(|p| p.is_finite());
+        self.pressure = ok.then(|| pressure.into_iter().map(|p| p.clamp(0.0, 1.0)).collect());
+        self
+    }
+
+    /// The per-stamp pressure lookup, or `None` when the stamp has no usable
+    /// pressure (absent, empty, or not one value per point).
+    ///
+    /// The cumulative arclength is built with **the same arithmetic as
+    /// [`nearest_on_stroke`]'s `acc`** (including its `1e-9` stand-in for a
+    /// zero-length segment), so the `s` a cell reports lands exactly on this
+    /// table's knots at a vertex.
+    fn pressure_table(&self) -> Option<PressureTable> {
+        let p = self.pressure.as_ref()?;
+        if p.is_empty() || p.len() != self.points.len() {
+            return None;
+        }
+        let mut cum = Vec::with_capacity(p.len());
+        let mut acc = 0.0f64;
+        cum.push(0.0);
+        for w in self.points.windows(2) {
+            let (dx, dy) = (w[1].x - w[0].x, w[1].y - w[0].y);
+            let l2 = dx * dx + dy * dy;
+            let l2 = if l2 == 0.0 || l2.is_nan() { 1e-9 } else { l2 };
+            acc += l2.sqrt();
+            cum.push(acc);
+        }
+        let p: Vec<f64> = p.iter().map(|&v| f64::from(v)).collect();
+        let mean = p.iter().sum::<f64>() / p.len() as f64;
+        Some(PressureTable { cum, p, mean, radial: self.feature().meta().radial })
     }
 
     /// This stamp's feature -- a thin forward to [`FeatureParams::feature`]
@@ -1392,6 +1458,9 @@ impl SculptStamp {
         let g = self.globals;
         let brush_r = g.brush_size;
         let rad = self.radius();
+        // ET-D3: `None` for every stamp without pressure, in which case
+        // `weigh` below returns `k` untouched.
+        let ptab = self.pressure_table();
 
         // Freehand/Smooth is the one feature that bypasses the per-pixel
         // apply() path entirely: a 4-neighbour blur over a stable pre-loop
@@ -1409,7 +1478,7 @@ impl SculptStamp {
             let full = field.to_vec();
             for py in y0..=y1 {
                 for px in x0..=x1 {
-                    let cov = self.smooth_cov(px, py);
+                    let (cov, s_arc) = self.smooth_hit(px, py);
                     if cov <= 0.0 {
                         continue;
                     }
@@ -1418,7 +1487,8 @@ impl SculptStamp {
                     let rt = if px < w - 1 { full[i + 1] } else { full[i] };
                     let u = if py > 0 { full[i - w] } else { full[i] };
                     let dn = if py < h - 1 { full[i + w] } else { full[i] };
-                    let k = cov * g.intensity;
+                    // Coverage site 1 of 2 (ET-D3): `cov x intensity x p(s)`.
+                    let k = weigh(ptab.as_ref(), cov * g.intensity, s_arc);
                     let avg = (l as f64 + rt as f64 + u as f64 + dn as f64) * 0.25;
                     field[i] = clamp01(full[i] as f64 + (avg - full[i] as f64) * k) as f32;
                 }
@@ -1455,7 +1525,9 @@ impl SculptStamp {
                     s: hit.s,
                     r_c: hit.r_c,
                     h0: field[i] as f64,
-                    k: hit.cov * g.intensity,
+                    // Coverage site 2 of 2 (ET-D3): `cov x intensity x p(s)`,
+                    // `s` being the arclength `cover_at` read off `hit`.
+                    k: weigh(ptab.as_ref(), hit.cov * g.intensity, hit.s),
                     sea_level: self.sea_level,
                 };
                 let eff = self.eval(&ctx);
@@ -1479,11 +1551,18 @@ impl SculptStamp {
     /// [`SculptStamp::apply_into`] and [`SculptStamp::footprint`] share it, so
     /// the cells a Smooth stamp reports are by construction the cells it blurs.
     fn smooth_cov(&self, px: usize, py: usize) -> f64 {
+        self.smooth_hit(px, py).0
+    }
+
+    /// [`SculptStamp::smooth_cov`]'s coverage **and** the arclength `s` of the
+    /// nearest stroke point, which ET-D3's pressure lookup needs. The coverage
+    /// expression is the one `smooth_cov` always had, moved here verbatim.
+    fn smooth_hit(&self, px: usize, py: usize) -> (f64, f64) {
         let g = &self.globals;
         let brush_r = g.brush_size;
         let feather = 1.5f64.max(brush_r * (1.0 - g.hardness));
         let hit = nearest_on_stroke(px as f64, py as f64, &self.points);
-        g.falloff.coverage((brush_r - hit.dist) / feather)
+        (g.falloff.coverage((brush_r - hit.dist) / feather), hit.s)
     }
 
     /// The per-stamp constants the per-pixel coverage test needs, computed
@@ -1607,6 +1686,12 @@ impl SculptStamp {
     /// `apply_into` makes, and it never reads the field, so the footprint is
     /// a property of the recipe alone: it can be taken before a commit bakes
     /// the stamp, and it does not depend on what earlier stamps did.
+    ///
+    /// **Pressure-agnostic (ET-D3).** The footprint is decided by coverage and
+    /// intensity alone. A stamp whose [`SculptStamp::pressure`] is `0.0` at some
+    /// point therefore still reports the cells near it although their weight is
+    /// `0`: a deliberate superset (a pressure-0 point is a real touch of the
+    /// pen, and Ruling AS clears paint where the user drew).
     ///
     /// Added for Ruling AS (2026-09-24): a sculpt commit clears the painted
     /// override cells under each committed stamp, and this is "under".
@@ -1878,6 +1963,67 @@ impl SculptStamp {
                 }
             },
         }
+    }
+}
+
+/// The pressure lookup of one stamp ([`SculptStamp::pressure_table`]): the
+/// polyline's cumulative arclength at each vertex and the pressure there.
+struct PressureTable {
+    /// Arclength at each vertex, `cum[0] == 0`, built exactly as
+    /// [`nearest_on_stroke`] accumulates `s`.
+    cum: Vec<f64>,
+    /// Pressure at each vertex, in `[0, 1]`.
+    p: Vec<f64>,
+    /// Mean of `p`: what a radial feature (no `s`) reads. Labelled judgement.
+    mean: f64,
+    /// Whether the stamp's feature is radial (Lake, Volcano).
+    radial: bool,
+}
+
+impl PressureTable {
+    /// `p(s)`: linear interpolation along arclength, held constant beyond the
+    /// ends (a cell whose nearest point is an end cap reads the end's value).
+    /// A radial feature ignores `s` and gets [`PressureTable::mean`].
+    fn at(&self, s: f64) -> f64 {
+        if self.radial {
+            return self.mean;
+        }
+        let last = self.p.len() - 1;
+        // The last vertex whose arclength is <= s.
+        let i = self.cum.partition_point(|&c| c <= s).saturating_sub(1);
+        if i >= last {
+            return self.p[last];
+        }
+        let seg = self.cum[i + 1] - self.cum[i];
+        let t = if seg > 0.0 { ((s - self.cum[i]) / seg).clamp(0.0, 1.0) } else { 0.0 };
+        self.p[i] + (self.p[i + 1] - self.p[i]) * t
+    }
+}
+
+// `SCALE_CALLS`: how many times [`scale`] has run on this thread -- a test-only
+// counter, so a test can assert the **control flow** ("the pressure-absent path
+// never multiplies") that a hash comparison cannot see: `x * 1.0 == x` bit for
+// bit. (A plain comment: rustc rejects a doc comment on `thread_local!`.)
+#[cfg(test)]
+thread_local! {
+    static SCALE_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The one place the coverage weight is multiplied by pressure. Counted under
+/// `cfg(test)` ([`SCALE_CALLS`]).
+fn scale(k: f64, p: f64) -> f64 {
+    #[cfg(test)]
+    SCALE_CALLS.with(|c| c.set(c.get() + 1));
+    k * p
+}
+
+/// The coverage weight with pressure applied: `k` **untouched** (not `k * 1.0`)
+/// when the stamp has no pressure, `k x p(s)` when it does. See
+/// [`SculptStamp::pressure`] for why the absent case must skip by control flow.
+fn weigh(table: Option<&PressureTable>, k: f64, s: f64) -> f64 {
+    match table {
+        None => k,
+        Some(t) => scale(k, t.at(s)),
     }
 }
 
@@ -2962,5 +3108,246 @@ mod tests {
         for f in Falloff::ALL {
             assert_eq!(Falloff::from_index(f.index()), f, "{} round trip", f.key());
         }
+    }
+
+    // ---- ET-D3: per-point pressure ----
+
+    /// Grid edge of the pressure fixtures. **Judgement**: 64 holds a 44-cell
+    /// stroke with a 12-cell brush and its padding without clipping.
+    const PW: usize = 64;
+
+    /// The uniform base height of the pressure fixtures. **Judgement**: low
+    /// enough that no feature's `add` reaches the 1.0 clamp, so a delta is the
+    /// raw `k x val` and pressure scales it linearly.
+    const PBASE: f32 = 0.3;
+
+    /// A horizontal 44-cell stroke `(10,32) -> (54,32)`: arclength `s` equals
+    /// `x - 10`, so a literal pressure at a cell can be worked out by hand.
+    fn pstroke() -> Vec<Point> {
+        vec![Point::new(10.0, 32.0), Point::new(54.0, 32.0)]
+    }
+
+    /// `feature`'s stamp over [`pstroke`] with `edge_noise` 0 (so coverage has
+    /// no domain warp and a mirror or a ratio is exact), brush 12.
+    fn pstamp(feature: Feature) -> SculptStamp {
+        let mut s = SculptStamp::new(feature, 99, pstroke(), 0.5);
+        s.globals.brush_size = 12.0;
+        s.globals.edge_noise = 0.0;
+        s
+    }
+
+    /// `pstamp(Freehand)` in `mode` with `amount` 0.1.
+    fn freehand_p(mode: FreehandMode) -> SculptStamp {
+        let mut s = pstamp(Feature::Freehand);
+        s.params = FeatureParams::Freehand { amount: 0.1, sub_mode: mode };
+        s
+    }
+
+    /// `st` applied to a flat [`PBASE`] field.
+    fn run_flat(st: &SculptStamp) -> Vec<f32> {
+        let mut f = flat(PW, PW, PBASE);
+        st.apply_into(&mut f, None, PW, PW, false);
+        f
+    }
+
+    /// Protects: pressure scaling the delta by exactly `p(s)` at the general
+    /// `Ctx` coverage site, pinned to LITERALS worked by hand: Freehand Raise
+    /// adds `amount x k` on the centreline where coverage is 1, so over a 0.3
+    /// field with amount 0.1, intensity 1 and pressure 1.0 -> 0.2 along 44 cells
+    /// the centre cells read 0.4 (s = 0), 0.38 (s = 11, p = 0.8), 0.36 (s = 22,
+    /// p = 0.6) and 0.32 (s = 44, p = 0.2).
+    #[test]
+    fn pressure_scales_the_delta_by_the_interpolated_value_pinned_literals() {
+        let mut st = freehand_p(FreehandMode::Raise);
+        st = st.with_pressure(vec![1.0, 0.2]);
+        assert!(st.pressure.is_some(), "the fixture's pressure must have been accepted");
+        let f = run_flat(&st);
+        let at = |x: usize, y: usize| f[y * PW + x] as f64;
+        assert!((at(10, 32) - 0.40).abs() < 1e-6, "start: 0.3 + 0.1 x 1.0, got {}", at(10, 32));
+        assert!((at(32, 32) - 0.36).abs() < 1e-6, "middle: 0.3 + 0.1 x 0.6, got {}", at(32, 32));
+        assert!((at(54, 32) - 0.32).abs() < 1e-6, "end: 0.3 + 0.1 x 0.2, got {}", at(54, 32));
+        assert!((at(21, 32) - 0.38).abs() < 1e-6, "quarter: 0.3 + 0.1 x 0.8, got {}", at(21, 32));
+    }
+
+    /// Protects: the scope's bar "a Mountains stroke with pressure ramping 1 ->
+    /// 0.2 commits a delta at the stroke's end <= 0.25 of its start", measured
+    /// against the SAME stroke with pressure absent so the noise cancels (Mountains'
+    /// delta is `k x ridged noise`, which differs cell to cell). The fixture was
+    /// written first, then the bar, then measured (see the bounds below).
+    #[test]
+    fn a_mountains_pressure_ramp_cuts_the_end_delta_to_a_quarter_of_the_start() {
+        let base = pstamp(Feature::Mountains);
+        let ramp = base.clone().with_pressure(vec![1.0, 0.2]);
+        let (f0, fp) = (run_flat(&base), run_flat(&ramp));
+        // Sum of (value - PBASE) over `x0..=x1` on rows 30..=34.
+        let window = |f: &Vec<f32>, x0: usize, x1: usize| -> f64 {
+            let mut t = 0.0;
+            for y in 30..=34 {
+                for x in x0..=x1 {
+                    t += f[y * PW + x] as f64 - PBASE as f64;
+                }
+            }
+            t
+        };
+        let (s0, sp) = (window(&f0, 10, 12), window(&fp, 10, 12));
+        let (e0, ep) = (window(&f0, 52, 54), window(&fp, 52, 54));
+        assert!(s0.abs() > 0.01 && e0.abs() > 0.01, "the baseline windows must carry real signal: {s0} {e0}");
+        let (start, end) = (sp / s0, ep / e0);
+        assert!((0.95..=1.0).contains(&start), "start window keeps ~all of its delta: {start}");
+        assert!((0.19..=0.25).contains(&end), "end window keeps ~0.2 of its delta: {end}");
+        assert!(end <= 0.25 * start, "the scope's bar: end {end} <= 0.25 x start {start}");
+    }
+
+    /// Protects: the Freehand-Smooth branch (the first of the two coverage
+    /// sites) honouring pressure: pressure 0 everywhere leaves the field
+    /// bit-identical to its input, pressure 0.5 moves each cell exactly half as
+    /// far as no pressure, and the unpressured blur genuinely moves something
+    /// (a positive control, so "unchanged" cannot be a no-op fixture).
+    #[test]
+    fn pressure_reaches_the_smooth_blur_site() {
+        let base: Vec<f32> = (0..PW * PW).map(|i| 0.3 + 0.4 * (((i * 7919) % 97) as f32 / 97.0)).collect();
+        let smooth = freehand_p(FreehandMode::Smooth);
+        let run = |st: &SculptStamp| {
+            let mut f = base.clone();
+            st.apply_into(&mut f, None, PW, PW, false);
+            f
+        };
+        let none = run(&smooth);
+        let zero = run(&smooth.clone().with_pressure(vec![0.0, 0.0]));
+        let half = run(&smooth.clone().with_pressure(vec![0.5, 0.5]));
+        assert!(none.iter().zip(&base).any(|(a, b)| a != b), "positive control: the blur moves cells");
+        assert_eq!(zero, base, "pressure 0 means weight 0: nothing moves");
+        let mut compared = 0;
+        for i in 0..PW * PW {
+            let d_none = none[i] as f64 - base[i] as f64;
+            let d_half = half[i] as f64 - base[i] as f64;
+            assert!((d_half - 0.5 * d_none).abs() < 1e-6, "cell {i}: {d_half} vs half of {d_none}");
+            if d_none != 0.0 {
+                compared += 1;
+            }
+        }
+        assert!(compared > 100, "the comparison covered {compared} moved cells");
+    }
+
+    /// Protects: radial features (Lake) reading the MEAN of the stroke's
+    /// pressure, since a radial stamp has no arclength: pressure [0.2, 1.0] has
+    /// mean 0.6, and Lake's `Set` mode is linear in `k`, so the centroid cell
+    /// moves by exactly 0.6 of what it moves with no pressure.
+    #[test]
+    fn a_radial_feature_uses_the_mean_pressure() {
+        let base = pstamp(Feature::Lake);
+        let pressed = base.clone().with_pressure(vec![0.2, 1.0]);
+        let (f0, fp) = (run_flat(&base), run_flat(&pressed));
+        let i = 32 * PW + 32; // the centroid of (10,32),(54,32)
+        let (d0, dp) = (f0[i] as f64 - PBASE as f64, fp[i] as f64 - PBASE as f64);
+        assert!(d0 < -0.01, "positive control: a lake carves the centre ({d0})");
+        assert!((dp / d0 - 0.6).abs() < 1e-5, "ratio {} should be the mean 0.6", dp / d0);
+    }
+
+    /// Protects: the control-flow half of "pressure absent moves nothing" -- the
+    /// multiplication is SKIPPED, not performed with 1.0. A hash comparison
+    /// cannot see the difference (`x * 1.0 == x` bit for bit), so this counts
+    /// calls to [`scale`], the one multiplication site: zero for a stamp with no
+    /// pressure (across a general feature, the Smooth branch and a radial one)
+    /// and non-zero for one with pressure (the positive control).
+    #[test]
+    fn absent_pressure_never_reaches_the_multiplication() {
+        let calls = || SCALE_CALLS.with(|c| c.get());
+        let before = calls();
+        run_flat(&pstamp(Feature::Mountains));
+        run_flat(&freehand_p(FreehandMode::Smooth));
+        run_flat(&pstamp(Feature::Lake));
+        assert_eq!(calls(), before, "no pressure: the multiplication site must never run");
+        run_flat(&pstamp(Feature::Mountains).with_pressure(vec![1.0, 0.5]));
+        assert!(calls() > before, "positive control: pressure does multiply");
+    }
+
+    /// Protects: a stamp with pressure `None`, and one whose pressure vector has
+    /// the wrong length, evaluating bit-identically to the pre-ET-D3 arithmetic
+    /// (the unpressured baseline) -- a malformed vector is ABSENT, never guessed.
+    #[test]
+    fn missing_or_malformed_pressure_is_the_unpressured_result() {
+        let plain = pstamp(Feature::Mountains);
+        let mut short = plain.clone();
+        short.pressure = Some(vec![0.1]); // one value for two points
+        let mut empty = plain.clone();
+        empty.pressure = Some(Vec::new());
+        let base = run_flat(&plain);
+        assert_eq!(run_flat(&short), base, "a short vector is absent");
+        assert_eq!(run_flat(&empty), base, "an empty vector is absent");
+        assert!(base.iter().any(|&v| v != PBASE), "positive control: the stamp changed the field");
+    }
+
+    /// Protects: [`SculptStamp::with_pressure`]'s validation -- a wrong length,
+    /// an empty vector or a non-finite value leaves the pressure ABSENT (never
+    /// repaired), and finite values are clamped to `[0, 1]`.
+    #[test]
+    fn with_pressure_validates_and_clamps() {
+        let s = || pstamp(Feature::Mountains);
+        assert_eq!(s().with_pressure(vec![0.3]).pressure, None, "length 1 for 2 points");
+        assert_eq!(s().with_pressure(vec![]).pressure, None);
+        assert_eq!(s().with_pressure(vec![0.3, f32::NAN]).pressure, None);
+        assert_eq!(s().with_pressure(vec![f32::INFINITY, 0.3]).pressure, None);
+        assert_eq!(s().with_pressure(vec![-0.5, 7.0]).pressure, Some(vec![0.0, 1.0]));
+        assert_eq!(s().with_pressure(vec![0.25, 0.75]).pressure, Some(vec![0.25, 0.75]));
+    }
+
+    /// Protects: [`PressureTable::at`] on its own, with literals: the vertex
+    /// values, a linear interior over a two-segment stroke (arclengths 10 and
+    /// 30), the held end values beyond either end, and a zero-length duplicate
+    /// vertex not dividing by zero.
+    #[test]
+    fn the_pressure_table_interpolates_along_arclength() {
+        let mut s = SculptStamp::new(
+            Feature::Mountains,
+            1,
+            vec![Point::new(0.0, 0.0), Point::new(10.0, 0.0), Point::new(10.0, 20.0)],
+            0.5,
+        );
+        s.pressure = Some(vec![0.0, 1.0, 0.5]);
+        let t = s.pressure_table().expect("a valid pressure builds a table");
+        assert_eq!(t.cum, vec![0.0, 10.0, 30.0]);
+        for (arc, want) in [(0.0, 0.0), (5.0, 0.5), (10.0, 1.0), (20.0, 0.75), (30.0, 0.5), (-3.0, 0.0), (99.0, 0.5)] {
+            assert!((t.at(arc) - want).abs() < 1e-12, "p({arc}) = {} want {want}", t.at(arc));
+        }
+        // A duplicated vertex carries the stroke's own 1e-9 stand-in length.
+        let mut d = SculptStamp::new(Feature::Mountains, 1, vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0), Point::new(4.0, 0.0)], 0.5);
+        d.pressure = Some(vec![0.2, 0.2, 1.0]);
+        let td = d.pressure_table().unwrap();
+        assert!(td.at(2.0).is_finite() && (td.at(2.0) - 0.6).abs() < 1e-4, "p(2) = {}", td.at(2.0));
+
+        // The table's knots must land EXACTLY where `nearest_on_stroke` puts `s`
+        // at a vertex, duplicate vertex included (its 1e-9 stand-in length is
+        // part of the arclength): a query sitting on vertex 2 or 3 reads that
+        // vertex's own pressure to 1e-9. (An arclength that dropped the stand-in
+        // would be off by ~3e-5 cells, i.e. ~2e-6 of pressure -- invisible to the
+        // 1e-4 check above, caught here.)
+        let pts = vec![Point::new(0.0, 0.0), Point::new(0.0, 0.0), Point::new(6.0, 0.0), Point::new(6.0, 8.0)];
+        let mut k = SculptStamp::new(Feature::Mountains, 1, pts.clone(), 0.5);
+        k.pressure = Some(vec![0.1, 0.1, 0.9, 0.3]);
+        let tk = k.pressure_table().unwrap();
+        // (`want` is the f32 the vector actually stores: 0.9f32 is not 0.9.)
+        for (v, want) in [(2usize, f64::from(0.9f32)), (3, f64::from(0.3f32))] {
+            let hit = nearest_on_stroke(pts[v].x, pts[v].y, &pts);
+            assert!((tk.at(hit.s) - want).abs() < 1e-9, "vertex {v}: p(s = {}) = {} want {want}", hit.s, tk.at(hit.s));
+        }
+    }
+
+    /// Protects: the Ruling AQ risk the scope names -- sea-level re-stamping
+    /// (`PassBuffer::rewrite_stamps` with `with_sea_level`) carrying the
+    /// pressure through: the re-stamped stamp has the new sea level AND an equal
+    /// pressure vector, and evaluates like a pressured stamp built fresh at that
+    /// level.
+    #[test]
+    fn restamping_a_draft_at_a_new_sea_level_keeps_its_pressure() {
+        let st = pstamp(Feature::Plateau).with_pressure(vec![0.9, 0.3]);
+        let mut buf: PassBuffer<SculptStamp> = PassBuffer::new(PW, PW, 16);
+        buf.push(st.clone());
+        let n = buf.rewrite_stamps(|s| s.with_sea_level(0.35));
+        assert_eq!(n, 1);
+        let got = &buf.entries()[0].stamp;
+        assert_eq!(got.sea_level, 0.35);
+        assert_eq!(got.pressure, Some(vec![0.9, 0.3]), "pressure survives the re-stamp");
+        assert_eq!(run_flat(got), run_flat(&st.with_sea_level(0.35)));
     }
 }

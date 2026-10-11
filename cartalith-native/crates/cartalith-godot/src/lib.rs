@@ -68,7 +68,7 @@ mod urban_bridge;
 mod valley_shade;
 mod vault_bridge;
 mod vault_saf;
-use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
+use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
 
@@ -13369,6 +13369,12 @@ impl WorldGen {
     // then end_stroke() once on release. cancel_stroke() instead of
     // end_stroke() drops the points without creating a stamp (a drag that
     // leaves the canvas, say).
+    //
+    // ET-D3 (EDITING_TOOLS_SCOPE.md): begin_stroke_with(options) adds symmetry
+    // (each mirror becomes its own stamp at end_stroke, one undo step) and
+    // add_point_p(x, y, pressure) adds per-point pressure; both are optional
+    // and the plain trio above behaves exactly as before. There is no spacing:
+    // a sculpt stroke is one polyline per stamp.
 
     /// Starts capturing a new stroke -- clears any previously in-progress
     /// (uncommitted-to-the-draft) points. `false`, nothing cleared, before
@@ -13376,8 +13382,36 @@ impl WorldGen {
     #[func]
     fn sculpt_begin_stroke(&mut self) -> bool {
         let Some(s) = self.sculpt.as_mut() else { return false };
-        s.points.clear();
-        true
+        // No options: no symmetry. `begin_stroke` cannot refuse the default.
+        s.begin_stroke(sculpt_bridge::StrokeSymmetry::default()).is_ok()
+    }
+
+    /// ET-D3: [`WorldGen::sculpt_begin_stroke`] with **symmetry**. The stroke is
+    /// captured as one polyline as always; when it ends
+    /// ([`WorldGen::sculpt_end_stroke`]) each mirror of that polyline becomes
+    /// its own stamp, so the stamp stack lists N stamps (the whole stroke is still
+    /// **one undo step**). There is no spacing option: a sculpt stroke is one
+    /// continuous polyline per stamp, not a train of dabs.
+    ///
+    /// `options` is one Dictionary, **every key optional** (an absent or `null`
+    /// key takes its default; a key of the wrong type, an unknown `symmetry`
+    /// name or an invalid value refuses the whole call):
+    ///
+    /// | key | type | default | meaning |
+    /// |---|---|---|---|
+    /// | `"symmetry"` | String | `"none"` | `"none"`, `"vertical"`, `"horizontal"`, `"dual"` (4 copies) or `"radial"` |
+    /// | `"radial_count"` | int | `4` | copies for `"radial"` (`1..=64`) |
+    /// | `"symmetry_center"` | Vector2 | lattice centre | centre in grid cells; absent = `((gw-1)/2, (gh-1)/2)`, the axis on which cell `x` mirrors to cell `gw-1-x` exactly |
+    /// | `"symmetry_angle"` | float | `0.0` | mirror-axis rotation in radians (mirror modes only) |
+    ///
+    /// Returns `true` when the stroke is open. Returns `false` -- **changing
+    /// nothing, and leaving any stroke already in progress alone** -- before any
+    /// `generate()` call or on a refused option. Never panics.
+    #[func]
+    fn sculpt_begin_stroke_with(&mut self, options: VarDictionary) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Some(sym) = sculpt_stroke_symmetry(&options) else { return false };
+        s.begin_stroke(sym).is_ok()
     }
 
     /// Appends one point (grid-cell coordinates -- the reference's own
@@ -13395,11 +13429,32 @@ impl WorldGen {
     #[func]
     fn sculpt_add_point(&mut self, x: f64, y: f64) -> i32 {
         let Some(s) = self.sculpt.as_mut() else { return -1 };
-        if x.is_finite() && y.is_finite() {
-            let p = s.snapped(cartalith_terrain::sculpt::Point::new(x, y));
-            s.points.push(p);
-        }
-        s.points.len() as i32
+        s.add_point(cartalith_terrain::sculpt::Point::new(x, y), None) as i32
+    }
+
+    /// ET-D3: [`WorldGen::sculpt_add_point`] with the pointer's **pressure**.
+    /// `pressure` is a `float` in `[0, 1]` (clamped if a pen overshoots) or
+    /// **`null`** when the device reported none (a mouse). Absent is never
+    /// encoded as `1.0` or `0.0`: a `null`, a non-numeric or a non-finite
+    /// `pressure` is stored as absent for this point.
+    ///
+    /// The stroke's stamp carries a pressure vector **only if every point of the
+    /// stroke has a reading**; one `null` makes the whole stroke pressure-less
+    /// (a gap cannot be filled without inventing a value). Pressure scales the
+    /// carved/raised amount along the stroke (`cov x intensity x p`), for River
+    /// too; it never changes the brush radius. Returns the new point count
+    /// (`-1` before any `generate()` call); a non-finite `x`/`y` is dropped
+    /// whole, pressure included.
+    #[func]
+    fn sculpt_add_point_p(&mut self, x: f64, y: f64, pressure: Variant) -> i32 {
+        let Some(s) = self.sculpt.as_mut() else { return -1 };
+        // `nil` (and anything that is not a number) is ABSENT, never a default reading.
+        let p = pressure
+            .try_to::<f64>()
+            .ok()
+            .or_else(|| pressure.try_to::<i64>().ok().map(|i| i as f64))
+            .map(|v| v as f32);
+        s.add_point(cartalith_terrain::sculpt::Point::new(x, y), p) as i32
     }
 
     /// The in-progress stroke's point count. `0` before any `generate()`
@@ -13415,7 +13470,7 @@ impl WorldGen {
     #[func]
     fn sculpt_cancel_stroke(&mut self) {
         if let Some(s) = self.sculpt.as_mut() {
-            s.points.clear();
+            s.cancel_stroke();
         }
     }
 
@@ -13430,23 +13485,18 @@ impl WorldGen {
     /// friends), or `-1` if the stroke had zero points (a one-point stroke
     /// is legal -- it degenerates to a tap, `SCULPT_FUNCTION_CHART.md` §2 --
     /// only zero is rejected) or before any `generate()` call.
+    ///
+    /// **ET-D3.** A stroke begun with `sculpt_begin_stroke_with` and a symmetry
+    /// becomes N stamps (the source, then each mirror with seed `seed + k`);
+    /// the returned index is the **source** stamp's, the mirrors follow it, and
+    /// the whole stroke is one undo step. A stroke whose every point came through
+    /// `sculpt_add_point_p` with a pressure carries that pressure on each stamp.
+    /// A plain `sculpt_begin_stroke` / `sculpt_add_point` stroke is unchanged.
     #[func]
     fn sculpt_end_stroke(&mut self) -> i32 {
         let sea_level = self.sea_level;
         let Some(s) = self.sculpt.as_mut() else { return -1 };
-        if s.points.is_empty() {
-            return -1;
-        }
-        let stamp = SculptStamp {
-            seed: s.seed,
-            points: std::mem::take(&mut s.points),
-            globals: s.globals,
-            params: s.params,
-            sea_level,
-        };
-        let index = s.draft.push(stamp);
-        s.selection.replace(index);
-        index as i32
+        s.end_stroke(sea_level).map_or(-1, |e| e.first as i32)
     }
 
     // ---- Sculpt editor: stamp stack (DCC_SHELL_SPEC.md §6) ----
@@ -13485,7 +13535,7 @@ impl WorldGen {
             .enumerate()
             .rev()
             .map(|(i, e)| {
-                vdict! {
+                let mut d = vdict! {
                     "index" => i as i32,
                     "hidden" => e.hidden,
                     "feature" => e.stamp.feature().meta().key,
@@ -13493,7 +13543,13 @@ impl WorldGen {
                     "point_count" => e.stamp.points.len() as i32,
                     "params" => &feature_params_dict(&e.stamp.params),
                     "globals" => &globals_dict(&e.stamp.globals),
+                };
+                // ET-D3: the key is OMITTED for a stamp with no pressure, so
+                // a caller's `has("pressure")` means "the device reported it".
+                if let Some(p) = &e.stamp.pressure {
+                    d.set("pressure", &p.iter().copied().collect::<PackedFloat32Array>());
                 }
+                d
             })
             .collect()
     }
@@ -15268,6 +15324,53 @@ impl WorldGen {
         reply.set("dabs", dabs as i64);
         reply
     }
+}
+
+/// Reads `sculpt_begin_stroke_with`'s options Dictionary into a
+/// [`sculpt_bridge::StrokeSymmetry`]; `None` refuses the whole call. The same four
+/// symmetry keys, with the same reading rules, as [`paint_stroke_options`]: every
+/// key optional (absent or `null` = default), a present key of the wrong type, an
+/// unknown `symmetry` name, or a non-integral / out-of-range `radial_count`
+/// refuses, because a silently substituted value would be a stroke the user did
+/// not ask for. Range checks beyond that (a count of 0 or above 64, a non-finite
+/// centre) belong to the engine and surface from `SculptEditor::begin_stroke`.
+/// Keys it does not know are ignored, as `paint_stroke_options` ignores them.
+fn sculpt_stroke_symmetry(d: &VarDictionary) -> Option<sculpt_bridge::StrokeSymmetry> {
+    use cartalith_spatial::stroke::Symmetry;
+    let get = |k: &str| d.get(k).filter(|v| !v.is_nil());
+    let num = |k: &str| -> Result<Option<f64>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<f64>().ok().or_else(|| v.try_to::<i64>().ok().map(|i| i as f64)).map(Some).ok_or(()),
+        }
+    };
+    let mut o = sculpt_bridge::StrokeSymmetry::default();
+    let name = match get("symmetry") {
+        None => None,
+        Some(v) => Some(v.try_to::<GString>().ok()?.to_string()),
+    };
+    o.mode = match name.as_deref() {
+        None | Some("none") => Symmetry::None,
+        Some("vertical") => Symmetry::Vertical,
+        Some("horizontal") => Symmetry::Horizontal,
+        Some("dual") => Symmetry::Dual,
+        Some("radial") => {
+            let n = num("radial_count").ok()?.unwrap_or(4.0);
+            if !(n.fract() == 0.0 && (0.0..=f64::from(u32::MAX)).contains(&n)) {
+                return None;
+            }
+            Symmetry::Radial(n as u32)
+        }
+        Some(_) => return None,
+    };
+    if let Some(v) = get("symmetry_center") {
+        let c = v.try_to::<Vector2>().ok()?;
+        o.centre = Some((f64::from(c.x), f64::from(c.y)));
+    }
+    if let Some(a) = num("symmetry_angle").ok()? {
+        o.angle = a;
+    }
+    Some(o)
 }
 
 /// Reads `paint_stroke_begin`'s options Dictionary into a
