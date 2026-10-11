@@ -403,6 +403,12 @@ pub fn compute_affordance_fields(
 /// Flat ground is raised one `EPS` step at a time, so **micro-pools of depth
 /// of order `EPS` are basins too**: a consumer that wants real lakes must
 /// still apply [`LAKE_DEPTH`] and [`LAKE_RAIN`], as `classification` does.
+///
+/// **One depression can carry several ids** (measured 2026-10-11, seed 483920
+/// at 2048: 510 of 7 114 raised components hold more than one id), because
+/// `wb_visit` opens a new id for every raised neighbour of a non-raised spill
+/// cell. A consumer must join ids by adjacency before treating an id as a
+/// depression (`tests/lake_candidates_harness.rs` does).
 pub struct WaterBodies {
     pub classification: Vec<u8>,
     pub fill_level: Vec<f32>,
