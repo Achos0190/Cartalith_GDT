@@ -39,6 +39,7 @@ pub mod pass;
 pub mod pyramid;
 pub mod region;
 pub mod staleness;
+pub mod stroke;
 
 pub use contour::contour_polylines;
 pub use geo::{geo_xy, id_mask, js_to_fixed, mask_outline_coords, point_in_ring, ring_area, trace_mask_rings};

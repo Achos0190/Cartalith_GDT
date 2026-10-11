@@ -379,6 +379,8 @@ nothing here draws.
 
 **Batch.** One lane (Rust).
 
+**Design points settled while building ET-D1 (2026-10-11), kept here because they bind ET-D2.** (a) `Dual` symmetry is the vertical mirror, the horizontal mirror and their composition (point reflection): four copies, not two. (b) The engine has no end-of-stroke hook: with smoothing on, the dab point stops short of the last pointer position, so ET-D2 must add a `finish()` flush if the stroke's tail has to reach the pointer. (c) The first dab of a stroke has no travel direction; scatter uses the world x-axis there (a labelled judgement). (d) An absent sensor reading skips the whole dynamics law including jitter; jitter alone needs `Sensor::Off`. (e) Limits chosen as labelled judgements in `stroke.rs`: `MIN_SPACING` 0.01, `MAX_SPACING` 10, `MIN_STEP` 1e-3 cells, `MAX_RADIAL` 64, default speed reference 1000 cells/s, fade distance 100 cells, tilt range [-1, 1] (Godot's convention, not verified here).
+
 ### ET-D2 — paint on the engine (biome / terrain / splat)
 
 **Design.**
