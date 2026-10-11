@@ -8783,6 +8783,9 @@ mod substrate_tests {
             &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km,
             ws.integrated_drainage,
         );
+        // Ruling CD item 2: the slope field `jp_world_parts` builds, built the
+        // same way, for the same reason.
+        let slope = cartalith_civ::build_raw_slope_field(&ws.field, GW, GH, p.world);
         let jpw = cartalith_civ::JpWorld {
             gw: GW,
             gh: GH,
@@ -8804,6 +8807,7 @@ mod substrate_tests {
             ocean_field: Some(&ocean),
             wind_field: Some(&wind),
             river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
+            slope_field: Some(&slope),
         };
         cartalith_civ::jp_plan_full(
             &jpw,

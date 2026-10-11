@@ -1420,6 +1420,7 @@ mod tests {
             ocean_field: None,
             wind_field: None,
             river_net: None,
+            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
         let plan = cartalith_civ::JpPlan {
@@ -1510,6 +1511,7 @@ mod tests {
             ocean_field: None,
             wind_field: None,
             river_net: None,
+            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
         let plan = cartalith_civ::JpPlan {
@@ -1704,6 +1706,7 @@ mod tests {
             ocean_field: None,
             wind_field: None,
             river_net: None,
+            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
         let plan = cartalith_civ::JpPlan {

@@ -22,7 +22,9 @@
 //! fast costs half as much to the router, and editing one row moves both
 //! consumers together. The scaling rule is a **judgement** (labelled here and
 //! in `doc_notes` for `DECISIONS.md`): the reference has no per-type router
-//! cost at all; the anchor and every planner row are the reference's.
+//! cost at all; the anchor and every planner row but Track's are the
+//! reference's (Track's own row is Ruling CD addendum item 5, see
+//! [`planner_row`]).
 //!
 //! What it must never do. It must never give the plain road a discount other
 //! than exactly `0.25` (every router golden and every route over a plain road
@@ -102,27 +104,36 @@ pub struct WayPlannerRow {
 /// does not credit (the reference's own `_jpRoadCells` guard; see the module
 /// doc for why no row is invented).
 ///
-/// Every row is the reference's `_jpRoadCells` (v2.11 line 18821-18826):
-/// `highway -> ["Paved Road","Maintained"]` pri 3, `regional -> ["Paved
-/// Road","Standard"]` pri 2, `ancient -> ["Dirt Track","Deteriorated"]`, every
-/// other type `["Dirt Track","Standard"]`, pri 1.
+/// Every row but `Track`'s is the reference's `_jpRoadCells` (v2.11 line
+/// 18821-18826): `highway -> ["Paved Road","Maintained"]` pri 3, `regional ->
+/// ["Paved Road","Standard"]` pri 2, `ancient -> ["Dirt Track","Deteriorated"]`,
+/// every other type (road, and in the reference track too)
+/// `["Dirt Track","Standard"]`, pri 1.
 ///
-/// **`Track` still shares the plain road's row.** Ruling CD item 3 asks for a
-/// distinct row per type; the candidate (`"None / Wild"`, `JP_ROUTE.land`'s
-/// only row between Standard 1.00 and Deteriorated 0.75) was tried in this
-/// batch (2026-10-11) and failed ten tests, among them the reference-verified
-/// milestone-5/6 planner goldens: the m5 fixture rides a generated `Track`
-/// for stages 4 and 5, which turned `Standard` into `None / Wild` and the
-/// journey's days from 41.318 (the reference's) to 43.203. Ruling CD does not
-/// authorise re-baselining those. It is held for an owner ruling; until then the
-/// router derives the same discount for `Track` as for `Road`, which is what
-/// keeps the two consumers in step.
+/// **`Track` has its own, slower row: `["Dirt Track","None / Wild"]`, pri 1**
+/// (Ruling CD addendum item 5, owner, 2026-10-11; a deliberate departure from
+/// `_jpRoadCells`, DECISIONS.md 7p). Why this row, of the reference's own
+/// vocabulary (a **judgement**): a track is an unmaintained dirt way, so its
+/// terrain stays `JP_TERRAIN.land["Dirt Track"]` (1.00) and only its condition
+/// drops; `JP_ROUTE.land["None / Wild"]` (0.85) is the only condition strictly
+/// between the road's `Standard` (1.00) and the ancient way's `Deteriorated`
+/// (0.75), so the three way classes stay distinct and ordered road > track >
+/// ancient. (`Deteriorated` would make a track identical to an ancient way;
+/// `Broken`, 0.55, would make it slower.) Its priority stays the reference's 1,
+/// so an overlap of a road and a track still keeps the first writer.
+///
+/// This moves the reference-verified milestone-5/6 planner goldens, whose
+/// fixture rides a generated `Track` for stages 4 and 5 (41.318 to 43.203
+/// days); they were re-baselined under the addendum, disclosed as made after
+/// seeing the result. The router's discount for `Track` moves with it
+/// ([`router_discount`]: 0.25 to `0.25 / 0.85` = 0.2941).
 pub fn planner_row(class: WayClass) -> Option<WayPlannerRow> {
     let row = |terrain, cond, pri| Some(WayPlannerRow { terrain, cond, pri });
     match class {
         WayClass::Highway => row("Paved Road", "Maintained", 3),
         WayClass::Regional => row("Paved Road", "Standard", 2),
-        WayClass::Road | WayClass::Track => row("Dirt Track", "Standard", 1),
+        WayClass::Road => row("Dirt Track", "Standard", 1),
+        WayClass::Track => row("Dirt Track", "None / Wild", 1),
         WayClass::Ancient => row("Dirt Track", "Deteriorated", 1),
         WayClass::SeaLane => None,
     }
@@ -149,9 +160,10 @@ pub fn planner_speed(class: WayClass) -> Option<f64> {
 /// router's preference between two way classes is the planner's speed ratio
 /// between them; see the module doc), and the reference's `0.25` for a sea
 /// lane. Values today, from the rows in [`planner_row`]: highway
-/// `0.25 / 1.80 = 0.1389`, regional `0.25 / 1.50 = 0.1667`, road and track
-/// `0.25`, ancient `0.25 / 0.75 = 0.3333`, sea lane `0.25`. So a faster class
-/// is always cheaper: highway < regional < road = track < ancient.
+/// `0.25 / 1.80 = 0.1389`, regional `0.25 / 1.50 = 0.1667`, road `0.25`,
+/// track `0.25 / 0.85 = 0.2941`, ancient `0.25 / 0.75 = 0.3333`, sea lane
+/// `0.25`. So a faster class is always cheaper: highway < regional < road <
+/// track < ancient.
 ///
 /// Computed in `f64` and narrowed once, so the plain road is `0.25` to the bit
 /// (`0.25 * 1.0 / 1.0`), exactly the constant the router used before.
@@ -177,30 +189,35 @@ mod tests {
 
     /// Protects: the derived router discounts, as literals computed by hand from
     /// the reference's JP_TERRAIN.land/JP_ROUTE.land rows (Paved Road 1.50,
-    /// Dirt Track 1.00; Maintained 1.20, Standard 1.00, Deteriorated 0.75), and
-    /// their ordering: a faster way is always cheaper to the router.
+    /// Dirt Track 1.00; Maintained 1.20, Standard 1.00, None / Wild 0.85,
+    /// Deteriorated 0.75), and their ordering: a faster way is always cheaper
+    /// to the router. Track's 0.25 / 0.85 re-baselined 2026-10-11 under Ruling
+    /// CD (addendum item 5; was 0.25, the road's).
     #[test]
     fn faster_way_classes_are_cheaper_to_the_router() {
         let d = |c| router_discount(c) as f64;
         assert!((d(WayClass::Highway) - 0.25 / 1.8).abs() < 1e-7, "highway {}", d(WayClass::Highway));
         assert!((d(WayClass::Regional) - 0.25 / 1.5).abs() < 1e-7, "regional {}", d(WayClass::Regional));
         assert!((d(WayClass::Ancient) - 0.25 / 0.75).abs() < 1e-7, "ancient {}", d(WayClass::Ancient));
-        assert_eq!(d(WayClass::Track), 0.25, "track shares the road's row until an owner ruling (see planner_row)");
+        assert!((d(WayClass::Track) - 0.294_117_647).abs() < 1e-7, "track {}", d(WayClass::Track));
         assert!(d(WayClass::Highway) < d(WayClass::Regional));
         assert!(d(WayClass::Regional) < d(WayClass::Road));
-        assert!(d(WayClass::Road) < d(WayClass::Ancient));
+        assert!(d(WayClass::Road) < d(WayClass::Track));
+        assert!(d(WayClass::Track) < d(WayClass::Ancient));
     }
 
     /// Protects: the planner rows are the reference's `_jpRoadCells` tuples
-    /// (v2.11 line 18821-18826), written out as literals, and a sea lane has no
-    /// row rather than a made-up one.
+    /// (v2.11 line 18821-18826), written out as literals, except Track's own
+    /// row (Ruling CD addendum item 5; re-baselined 2026-10-11 under Ruling CD,
+    /// was the road's `Dirt Track / Standard`), and a sea lane has no row
+    /// rather than a made-up one.
     #[test]
     fn planner_rows_are_the_references_own_tuples() {
         let r = |c| planner_row(c).map(|r| (r.terrain, r.cond, r.pri));
         assert_eq!(r(WayClass::Highway), Some(("Paved Road", "Maintained", 3)));
         assert_eq!(r(WayClass::Regional), Some(("Paved Road", "Standard", 2)));
         assert_eq!(r(WayClass::Road), Some(("Dirt Track", "Standard", 1)));
-        assert_eq!(r(WayClass::Track), Some(("Dirt Track", "Standard", 1)));
+        assert_eq!(r(WayClass::Track), Some(("Dirt Track", "None / Wild", 1)));
         assert_eq!(r(WayClass::Ancient), Some(("Dirt Track", "Deteriorated", 1)));
         assert_eq!(r(WayClass::SeaLane), None);
     }

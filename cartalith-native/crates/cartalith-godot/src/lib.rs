@@ -17,6 +17,9 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, InitStage, gdextension};
 use godot::prelude::*;
 
+// ET-C1: nothing consumes the adjustment stack until ET-C2 wires it into `finish_rgb`.
+#[allow(dead_code)]
+mod adjust;
 mod asset_bridge;
 mod bake_bridge;
 mod campaign_bridge;
@@ -18956,8 +18959,12 @@ fn jp_water_calc_dict(w: &cartalith_civ::JpWaterCalc) -> VarDictionary {
 
 /// One `_jpDeriveStages` stage: what the route *is*, measured against the
 /// world, before any party is applied to it.
+///
+/// Ruling CD item 2: `slope_grade` (rise over run) and `slope_on_way` are
+/// present only when the stage has slope data; a stage without it omits both
+/// keys rather than reporting a flat `0.0` (callers test `has()`).
 fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
-    vdict! {
+    let mut d = vdict! {
         "cat" => s.cat.as_str(),
         "biome" => s.biome.as_str(),
         "terrain" => s.terrain.as_str(),
@@ -18975,7 +18982,12 @@ fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
         "dry_km" => s.dry_km,
         "mx" => s.mx,
         "my" => s.my,
+    };
+    if let Some(sl) = s.slope {
+        d.set("slope_grade", sl.grade);
+        d.set("slope_on_way", sl.on_way);
     }
+    d
 }
 
 /// One entry of `plan.results`: the stage's own calculation plus the
@@ -19434,6 +19446,7 @@ impl WorldGen {
             // (Ruling CD item 1), so building one here would change nothing.
             // If `jp_ensure_plan` ever guesses River Transport, supply it.
             river_net: None,
+            slope_field: None, // Ruling CD item 2: no slope data, so these plans keep the reference's (slope-free) land time
         };
         let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
         let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));

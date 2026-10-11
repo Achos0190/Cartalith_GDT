@@ -12368,12 +12368,20 @@ pub struct JpStage {
     /// `jp_wildlife_forage_mod`'s output for this stage; 1.0 = no wildlife
     /// data, which is also what an exactly-average region gives.
     pub wildlife_forage_mod: f64,
+    /// Ruling CD item 2: this land stage's measured slope ([`JpSlope`]), which
+    /// [`jp_calc_land_ex`] turns into the `slope` speed term
+    /// ([`jp_slope_mod`]). `None` means **no slope data** -- no slope field was
+    /// supplied, the stage is not land, or it has no measured length -- and
+    /// the calculator then applies no slope term at all, exactly the
+    /// reference's behaviour. It is never a stand-in for flat ground: flat
+    /// ground is `Some` with a grade of `0.0`.
+    pub slope: Option<JpSlope>,
 }
 
 impl Default for JpStage {
     /// A zero-length stage with neutral settings: land, Dirt Track, Standard route condition,
-    /// Stable Settlements, Temperate Forest, no waterless run, and a wildlife modifier
-    /// of 1.0 (no wildlife data).
+    /// Stable Settlements, Temperate Forest, no waterless run, a wildlife modifier
+    /// of 1.0 (no wildlife data), and no slope data.
     fn default() -> Self {
         JpStage {
             km: 0.0,
@@ -12384,8 +12392,67 @@ impl Default for JpStage {
             biome: "Temperate Forest".to_string(),
             dry_km: 0.0,
             wildlife_forage_mod: 1.0,
+            slope: None,
         }
     }
+}
+
+/// Ruling CD item 2 (owner, 2026-10-11): the slope a land stage was measured
+/// to climb, for the planner's `slope` speed term. A deliberate departure from
+/// the reference (DECISIONS.md 7p), which never reads slope into planned time
+/// (`PLANNER_AUDIT_2026-10-11.md` Q2 finding 3: a road over Mountain Trails
+/// planned as a flat dirt road).
+///
+/// What the grade is. The **router's own slope**: `build_raw_slope_field`
+/// (the reference's `currentSlopeField`, the same central-difference gradient
+/// magnitude `build_travel_cost`'s `1 + 50 x sl^2` reads), converted from
+/// normalised height per cell to rise over run as `sl x peak_m / (1 -
+/// sea_level) / (cell_km x 1000)` -- the same metres-above-sea scale
+/// `JpWorld::height_m` uses for gain and loss -- and averaged per stage
+/// weighted by the length of each land step (see [`jp_derive_stages`]). It is
+/// a magnitude: it has no direction, so uphill and downhill read the same.
+///
+/// What it must never be: a placeholder. A stage with no slope data carries
+/// `JpStage::slope == None`, not a `JpSlope` with a zero grade.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpSlope {
+    /// Length-weighted mean grade, rise over run (0.1 = 10 %). Never negative.
+    pub grade: f64,
+    /// `true` when the stage rides a credited way (its points read a
+    /// [`jp_road_cells`] row), which softens the slope term
+    /// ([`JP_WAY_SLOPE_SHARE`]).
+    pub on_way: bool,
+}
+
+/// Tobler's hiking-function exponent: walking speed `W = 6 exp(-3.5 |S +
+/// 0.05|)` km/h at grade `S` (Tobler, W. 1993, *Three presentations on
+/// geographical analysis and modeling*, NCGIA Technical Report 93-1). Cited.
+pub const JP_TOBLER_K: f64 = 3.5;
+
+/// The share of the slope exponent a way keeps: a graded, cleared way eases a
+/// climb but cannot remove it, so a stage on a way pays `exp(-3.5 x 0.5 x
+/// grade)`. A **labelled judgement** (Ruling CD item 2 says a road reduces the
+/// slope penalty, not by how much); the same for every way class.
+pub const JP_WAY_SLOPE_SHARE: f64 = 0.5;
+
+/// Ruling CD item 2: the `slope` speed multiplier for a land stage.
+///
+/// `exp(-JP_TOBLER_K x share x grade)`, `share` = [`JP_WAY_SLOPE_SHARE`] on a
+/// way and 1 off one. This is **Tobler's uphill branch normalised to flat
+/// ground**: for `S >= 0`, `W(S) / W(0) = exp(-3.5 S)` exactly, so flat ground
+/// is exactly `1.0` (no flat-terrain plan moves) and a 10 % grade is
+/// `exp(-0.35)` = 0.705. A **labelled simplification** of Tobler: the grade is
+/// the router's unsigned gradient magnitude, so a descent is charged as a
+/// climb of the same steepness (Tobler would speed a gentle descent up, by up
+/// to `exp(0.175)` = 1.19 at -5 %, and slow a steep one). Conservative, and
+/// symmetric by construction. The reference's terrain rows (`Hills` 0.70,
+/// `Mountain Trails` 0.45) already price rough ground, so on those rows this
+/// term adds to that; the owner's ruling applies slope on and off roads.
+pub fn jp_slope_mod(s: &JpSlope) -> f64 {
+    let share = if s.on_way { JP_WAY_SLOPE_SHARE } else { 1.0 };
+    // `js_exp` (FDLIBM, V8's own `Math.exp`) per CLAUDE.md's libm rule;
+    // `js_exp(-0.0)` is exactly 1.0, which is what keeps flat ground bit-exact.
+    cartalith_jsmath::js_exp(-JP_TOBLER_K * share * s.grade.max(0.0))
 }
 
 /// A stage that cannot be travelled as configured. The reference returns
@@ -12601,6 +12668,11 @@ pub fn jp_calc_land_ex(
         t_mod = 1.0; // runners glide where wheels lock
     }
     let r_mod = jp_route_mod("land", &st.route_cond);
+    // Ruling CD item 2: the slope term. `None` (no slope data) applies no term
+    // and no trace entry -- the reference's chain; `x * 1.0` is exact, so the
+    // `1.0` below changes no bit of an unsloped stage, and flat ground's
+    // `Some` term is exactly 1.0 too (`jp_slope_mod`).
+    let s_mod = st.slope.as_ref().map(jp_slope_mod);
     let p_mod = jp_pace_mod(&plan.pace);
     let i_mod = jp_infra_mod(&st.infra);
     let is_haste = plan.pace == "Haste";
@@ -12741,6 +12813,7 @@ pub fn jp_calc_land_ex(
         * hours
         * t_mod
         * r_mod
+        * s_mod.unwrap_or(1.0)
         * c_mod
         * p_mod
         * i_mod
@@ -12983,11 +13056,18 @@ pub fn jp_calc_land_ex(
     // scope -- nothing here is recomputed, so nothing here can disagree with
     // the number above it.
     let term = |key: &'static str, detail: String, factor: f64| JpTerm { key, detail, factor };
-    let trace = vec![
+    let mut trace = vec![
         term("base", transport_label.clone(), base_speed),
         term("hours", format!("{} h/day", js_fixed(hours, 1)), hours),
         term("terrain", terrain.to_string(), t_mod),
         term("route", st.route_cond.clone(), r_mod),
+    ];
+    // Ruling CD item 2: present exactly when the product above applied it.
+    if let (Some(s), Some(f)) = (st.slope, s_mod) {
+        let way = if s.on_way { " · on a way" } else { "" };
+        trace.push(term("slope", format!("{} % grade{way}", js_fixed(s.grade * 100.0, 1)), f));
+    }
+    trace.extend([
         term("group", cls_label.to_string(), c_mod),
         term("pace", plan.pace.clone(), p_mod),
         term("infra", st.infra.clone(), i_mod),
@@ -13010,7 +13090,7 @@ pub fn jp_calc_land_ex(
             format!("{}% of capacity", js_fixed(load_ratio * 100.0, 0)),
             load_mod_final,
         ),
-    ];
+    ]);
     Ok(JpLandCalc {
         daily_km,
         days,
@@ -14051,8 +14131,9 @@ pub struct JpRoadCell {
 /// walks both slices with each type's own way-type vocabulary. `ancient`
 /// (`ManualWayType::Ancient`, no [`WayType`] equivalent -- a generated way
 /// is never classified `ancient`) gets the reference's own
-/// `'ancient' -> ["Dirt Track","Deteriorated"]` mapping; manual
-/// `Road`/`Track` share the generated network's own `Road`/`Track` tuple;
+/// `'ancient' -> ["Dirt Track","Deteriorated"]` mapping; a manual `Road` or
+/// `Track` reads the same row as a generated way of that type (a track's own
+/// slower row since Ruling CD addendum item 5, see [`way_class::planner_row`]);
 /// `SeaLane` is skipped, matching the reference's own `w.sea||w.type===
 /// 'sea-lane'` guard -- real here, unlike the generated loop below, because
 /// a hand-drawn way (unlike a generated one) really can be a sea lane.
@@ -14073,7 +14154,8 @@ pub struct JpRoadCell {
 /// **Rows come from [`way_class::planner_row`]** (Ruling CD item 3), the one
 /// table the Route tool's router also reads its per-type discount from; this
 /// function no longer keeps its own `match` on way type. The values are the
-/// reference's `_jpRoadCells` tuples, unchanged.
+/// reference's `_jpRoadCells` tuples, except Track's own `Dirt Track / None /
+/// Wild` (Ruling CD addendum item 5, DECISIONS.md 7p).
 ///
 /// **`road_edges` is filtered through [`tools::civ_credited_road_edges`]**
 /// (Ruling CD item 4, `PLANNER_AUDIT_2026-10-11.md` Q1 finding 3): an edge
@@ -14844,6 +14926,10 @@ pub struct JpDerivedStage {
     /// v1.81: the stage midpoint, in grid coordinates.
     pub mx: f64,
     pub my: f64,
+    /// Ruling CD item 2: the stage's measured slope, `Some` only on a land
+    /// stage of a world that supplied [`JpWorld::slope_field`] (see
+    /// [`JpSlope`]); `None` is no slope data, never flat ground.
+    pub slope: Option<JpSlope>,
 }
 
 impl JpDerivedStage {
@@ -14861,6 +14947,7 @@ impl JpDerivedStage {
             biome: self.biome.clone(),
             dry_km: self.dry_km,
             wildlife_forage_mod,
+            slope: self.slope,
         }
     }
 }
@@ -14907,6 +14994,13 @@ pub struct JpWorld<'a> {
     /// zero-flow river. Read only when the plan's transport is River
     /// Transport (see [`jp_derive_stages`]).
     pub river_net: Option<JpRiverNet<'a>>,
+    /// Ruling CD item 2: the router's slope field, [`build_raw_slope_field`]'s
+    /// output over `field` (the reference's `currentSlopeField`), from which
+    /// each land stage's grade is measured ([`JpSlope`]). `None` -- or a slice
+    /// not `gw * gh` long -- means **no slope data**: every stage's `slope` is
+    /// `None` and planned time is the reference's, never a flat-ground
+    /// reading.
+    pub slope_field: Option<&'a [f32]>,
 }
 
 /// The river network [`jp_derive_stages`] reads for River Transport (Ruling CD
@@ -14975,6 +15069,21 @@ impl JpWorld<'_> {
             }
         }
         99
+    }
+
+    /// Ruling CD item 2: the slope field when present and sized to this grid,
+    /// with the factor that turns its normalised-height-per-cell values into a
+    /// grade (rise over run): `peak_m / (1 - sea_level) / (cell_km x 1000)`,
+    /// the metres-above-sea scale [`Self::height_m`] uses. `None` -- no slope
+    /// data -- when the field is absent or mis-sized, or the scale is not a
+    /// positive finite number (a sea level at or above 1 has no land range).
+    fn slope_inputs(&self) -> Option<(&[f32], f64)> {
+        let s = self.slope_field?;
+        if s.len() != self.gw * self.gh {
+            return None;
+        }
+        let to_grade = self.peak_m / (1.0 - self.sea_level) / (self.cell_km() * 1000.0);
+        (to_grade.is_finite() && to_grade > 0.0).then_some((s, to_grade))
     }
 
     /// The river network and discharge, when both are present and sized to
@@ -15136,6 +15245,11 @@ struct JpChunk {
     gain: f64,
     loss: f64,
     in_riv: bool,
+    /// Ruling CD item 2: the sum of `step km x grade` over this chunk's land
+    /// steps, and the km those steps cover (its own denominator: a water gap
+    /// collapsed into a land chunk adds `km` but no measured slope).
+    slope_acc: f64,
+    slope_km: f64,
 }
 
 /// `_jpDeriveStages` (reference line 18491): sample the drawn route against
@@ -15170,6 +15284,14 @@ struct JpChunk {
 /// Lake margins keep the reference's `Calm River` and elevation condition;
 /// every other transport, and a world without a network, derive exactly as
 /// the reference does.
+///
+/// **A second departure (Ruling CD item 2, DECISIONS.md 7p): slope.** When the
+/// world carries the router's slope field ([`JpWorld::slope_field`]), every
+/// land stage records its length-weighted mean grade and whether it rides a
+/// way ([`JpSlope`]), which [`jp_calc_land_ex`] turns into a speed term. A
+/// world without the field derives every stage with `slope: None`, exactly as
+/// the reference (which never reads slope into planned time). Chunking, km,
+/// gain/loss and every other field are unchanged either way.
 pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> Vec<JpDerivedStage> {
     if pts.len() < 2 {
         return Vec::new();
@@ -15188,6 +15310,9 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // transport, and a world with no network, classifies exactly as the
     // reference does.
     let river_inputs = if plan.transport == "River Transport" { world.river_inputs() } else { None };
+    // Ruling CD item 2: the router's slope field, or `None` (no slope data:
+    // every stage derives exactly as the reference does).
+    let slope_inputs = world.slope_inputs();
     for &(px, py) in pts {
         let (x, y) = world.clamp_cell(px, py);
         let i = y * gw + x;
@@ -15305,6 +15430,8 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 gain: 0.0,
                 loss: 0.0,
                 in_riv: false,
+                slope_acc: 0.0,
+                slope_km: 0.0,
             });
         }
         let cur = chunks.last_mut().expect("just pushed or matched");
@@ -15312,7 +15439,18 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
         if k > 0 {
             let adx = (pts[k].0 - pts[k - 1].0).abs();
             let dy = pts[k].1 - pts[k - 1].1;
-            cur.km += adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
+            let step_km = adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
+            cur.km += step_km;
+            // Ruling CD item 2: a land step's grade is the router's slope at
+            // the point it arrives at -- the same point whose classification
+            // put this step's km in this chunk.
+            if f.cat == "land"
+                && let Some((sf, to_grade)) = slope_inputs
+            {
+                let (sx, sy) = world.clamp_cell(pts[k].0, pts[k].1);
+                cur.slope_acc += step_km * sf[sy * gw + sx] as f64 * to_grade;
+                cur.slope_km += step_km;
+            }
             let dh =
                 world.height_m(pts[k].0, pts[k].1) - world.height_m(pts[k - 1].0, pts[k - 1].1);
             if dh > 0.0 {
@@ -15464,6 +15602,14 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             dry_km,
             mx: pts[mid_k].0,
             my: pts[mid_k].1,
+            // Ruling CD item 2: the length-weighted mean grade of the stage's
+            // land steps (a labelled simplification: the mean grade, not the
+            // time-correct harmonic mean of per-step factors). `on_way` is the
+            // chunk's own road condition, set only by a `jp_road_cells` row.
+            // No slope field, a water stage, or no measured land length gives
+            // `None` (no data), never a zero grade.
+            slope: (c.cat == "land" && slope_inputs.is_some() && c.slope_km > 0.0)
+                .then(|| JpSlope { grade: c.slope_acc / c.slope_km, on_way: c.cond.is_some() }),
         };
         st.infra = match plan.infra.as_deref() {
             Some(v) if !v.is_empty() && v != "auto" => v.to_string(),
@@ -15516,15 +15662,19 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
 /// nb.i0=min; nb.i1=max; chunks.splice(i,1)` -- the merge both the sliver
 /// absorb and the 14-stage cap perform.
 fn jp_merge_chunk(chunks: &mut Vec<JpChunk>, i: usize, nb: usize) {
-    let (km, rx, gain, loss, i0, i1) = {
+    let (km, rx, gain, loss, i0, i1, slope_acc, slope_km) = {
         let c = &chunks[i];
-        (c.km, c.rx, c.gain, c.loss, c.i0, c.i1)
+        (c.km, c.rx, c.gain, c.loss, c.i0, c.i1, c.slope_acc, c.slope_km)
     };
     let n = &mut chunks[nb];
     n.km += km;
     n.rx += rx;
     n.gain += gain;
     n.loss += loss;
+    // Ruling CD item 2: the absorbed chunk's measured land steps join the
+    // survivor's slope mean (a water chunk carries none).
+    n.slope_acc += slope_acc;
+    n.slope_km += slope_km;
     n.i0 = n.i0.min(i0);
     n.i1 = n.i1.max(i1);
     chunks.remove(i);
@@ -24152,6 +24302,11 @@ mod tests {
             // derivation (Ruling CD item 1 reads a network only under River
             // Transport, which this fixture's plans do not use).
             river_net: None,
+            // No slope field: the milestone-5/6 goldens stay the reference's
+            // own derivation (Ruling CD item 2 reads slope only when a world
+            // supplies it). `m5_slope_moves_only_the_land_legs` plans this
+            // fixture with the field and pins what it moves.
+            slope_field: None,
         }
     }
 
@@ -24270,14 +24425,14 @@ mod tests {
 
     /// `jp_road_cells`' new `manual_ways` branch: the reference's own
     /// `'ancient' -> ["Dirt Track","Deteriorated"]` mapping (the tuple no
-    /// generated [`WayType`] produces), a manual `Track` sharing the
-    /// generated network's plain tuple, and a `SeaLane` filtered out
+    /// generated [`WayType`] produces), a manual `Track` reading the same
+    /// track row as a generated track, and a `SeaLane` filtered out
     /// exactly like the reference's own `w.sea||w.type==='sea-lane'` guard.
     #[test]
     fn jp_road_cells_reads_hand_drawn_ways_including_ancient() {
         // Protects: hand-drawn ways become road cells: an ancient way gets the
-        //   reference's own distinct deteriorated tuple, a manual track shares the
-        //   generated network's tuple, and sea lanes and hidden ways never become land
+        //   reference's own distinct deteriorated tuple, a manual track reads the
+        //   track row a generated track reads, and sea lanes and hidden ways never become land
         //   road cells.
         let gw = 20usize;
         let manual = vec![
@@ -24325,10 +24480,13 @@ mod tests {
             ("Dirt Track", "Deteriorated", 1),
             "ancient gets the reference's own distinct condition"
         );
+        // Re-baselined 2026-10-11 under Ruling CD (addendum item 5): was
+        // ("Dirt Track", "Standard", 1), the road's tuple; a track now reads
+        // its own slower row, the same one a generated track reads.
         assert_eq!(
             (cells[&(9, 9)].terrain, cells[&(9, 9)].cond, cells[&(9, 9)].pri),
-            ("Dirt Track", "Standard", 1),
-            "manual Track shares the generated network's own tuple"
+            ("Dirt Track", "None / Wild", 1),
+            "manual Track reads the track row"
         );
         assert!(
             !cells.contains_key(&(15, 15)),
@@ -24395,6 +24553,7 @@ mod tests {
             dry_km: 0.0,
             mx: 0.0,
             my: 0.0,
+            slope: None,
         };
         assert_eq!(jp_stage_infra(&base, &ctx), "Sparse Settlements");
         assert_eq!(
@@ -24607,7 +24766,10 @@ mod tests {
                 "land",
                 "Boreal Taiga",
                 "Dirt Track",
-                "Standard",
+                // Re-baselined 2026-10-11 under Ruling CD (addendum item 5):
+                // was "Standard". This stage rides the fixture's generated
+                // Track, which now reads its own `None / Wild` row.
+                "None / Wild",
                 None,
                 "Stable Settlements",
                 99.240_975_743_594_13,
@@ -24626,7 +24788,10 @@ mod tests {
                 "land",
                 "Mountain Highland",
                 "Dirt Track",
-                "Standard",
+                // Re-baselined 2026-10-11 under Ruling CD (addendum item 5):
+                // was "Standard". This stage rides the fixture's generated
+                // Track, which now reads its own `None / Wild` row.
+                "None / Wild",
                 None,
                 "Stable Settlements",
                 132.321_300_991_458_94,
@@ -25033,26 +25198,34 @@ mod tests {
         let p = jp_plan(&world, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         let t = JourneyTimeline::from_plan(&p).expect("not blocked");
         // The golden figures, as literals (not `p.days` against itself).
-        near5(t.travel_days, 41.317_750_030_325_15, "travel days");
-        near5(t.calendar_days, 51.317_750_030_325_15, "travel + 10 rest days");
-        near5(t.legs.iter().map(|l| l.days).sum::<f64>(), 41.317_750_030_325_15, "leg days sum to the plan's");
+        // Days, calendar days, food, fodder and the arrival day were
+        // re-baselined 2026-10-11 under Ruling CD (addendum item 5: the
+        // fixture's generated Track now reads `None / Wild`, slowing legs 4
+        // and 5): travel 41.317_750_030_325_15 -> 43.202_734_060_708_24,
+        // calendar 51.317... -> 53.202..., food 1_027.333_964_414_119_2 ->
+        // 1_059.567_191_333_67, fodder 1_120.619_844_726_639_5 ->
+        // 1_218.639_014_306_559_8, arrival day 52 -> 54. km and water are
+        // unchanged. Pinned after seeing the result; no reference value.
+        near5(t.travel_days, 43.202_734_060_708_24, "travel days");
+        near5(t.calendar_days, 53.202_734_060_708_24, "travel + 10 rest days");
+        near5(t.legs.iter().map(|l| l.days).sum::<f64>(), 43.202_734_060_708_24, "leg days sum to the plan's");
         near5(t.legs.iter().map(|l| l.km).sum::<f64>(), 760.847_480_700_888_6, "km");
-        near5(t.food_kg(), 1_027.333_964_414_119_2, "foodKg");
+        near5(t.food_kg(), 1_059.567_191_333_67, "foodKg");
         near5(t.water_l(), 1_098.037_397_586_816_3, "waterL");
-        near5(t.fodder_kg(), 1_120.619_844_726_639_5, "fodderKg");
-        assert_eq!(t.arrival_offset_days(), 52, "ceil(51.32): under way at the start of day 51, arrived at day 52");
+        near5(t.fodder_kg(), 1_218.639_014_306_559_8, "fodderKg");
+        assert_eq!(t.arrival_offset_days(), 54, "ceil(53.20): under way at the start of day 53, arrived at day 54");
 
         let start = t.at(&pts, 0.0);
         assert_eq!((start.phase, start.point, start.km_done), (Phase::EnRoute, pts[0], 0.0));
-        assert_eq!(t.at(&pts, 51.0).phase, Phase::EnRoute);
-        let end = t.at(&pts, 52.0);
+        assert_eq!(t.at(&pts, 53.0).phase, Phase::EnRoute);
+        let end = t.at(&pts, 54.0);
         assert_eq!((end.phase, end.point), (Phase::Arrived, *pts.last().unwrap()));
         near5(end.km_done, 760.847_480_700_888_6, "all the way");
-        near5(end.food_kg_used, 1_027.333_964_414_119_2, "all of it eaten");
+        near5(end.food_kg_used, 1_059.567_191_333_67, "all of it eaten");
         // Mid-journey: somewhere strictly between, and supply part-used.
         let mid = t.at(&pts, 25.0);
         assert!(mid.km_done > 0.0 && mid.km_done < 760.0, "{}", mid.km_done);
-        assert!(mid.food_kg_used > 0.0 && mid.food_kg_used < 1_027.0);
+        assert!(mid.food_kg_used > 0.0 && mid.food_kg_used < 1_059.0);
         assert_ne!(mid.point, pts[0]);
     }
 
@@ -25069,13 +25242,18 @@ mod tests {
         let p = jp_plan(&world, &pts, &m5_plan(), &layovers, &|_, _| 1.0)
             .expect("a drawn route with derivable stages");
 
+        // Re-baselined 2026-10-11 under Ruling CD (addendum item 5: the
+        // fixture's generated Track, under legs 4 and 5, now reads `Dirt Track
+        // / None / Wild`), pinned after seeing the result -- every moved value
+        // carries its reference figure in a `was` note; every other value
+        // here is still the reference's.
         near5(p.km, 760.847_480_700_888_6, "km");
-        near5(p.days, 41.317_750_030_325_15, "days");
-        near5(p.avg_km_day, 18.414_542_905_711_585, "avgKmDay");
+        near5(p.days, 43.202_734_060_708_24, "days"); // was 41.317_750_030_325_15
+        near5(p.avg_km_day, 17.611_095_622_599_95, "avgKmDay"); // was 18.414_542_905_711_585
         assert_eq!(p.blocked_idx, None);
-        near5(p.food_kg, 1_027.333_964_414_119_2, "foodKg");
+        near5(p.food_kg, 1_059.567_191_333_67, "foodKg"); // was 1_027.333_964_414_119_2
         near5(p.water_l, 1_098.037_397_586_816_3, "waterL");
-        near5(p.fodder_kg, 1_120.619_844_726_639_5, "fodderKg");
+        near5(p.fodder_kg, 1_218.639_014_306_559_8, "fodderKg"); // was 1_120.619_844_726_639_5
         assert_eq!(p.riv_x, 1);
         near5(p.pass_km, 0.0, "passKm");
         near5(p.desert_km, 0.0, "desertKm");
@@ -25092,18 +25270,20 @@ mod tests {
         );
         near5(p.handling_days, 0.5, "handlingDays");
         assert_eq!(p.layover_days, 0);
-        near5(p.travel_days, 41.317_750_030_325_15, "travelDays");
+        near5(p.travel_days, 43.202_734_060_708_24, "travelDays"); // was 41.317_750_030_325_15
         assert_eq!(p.rest_days, 10);
         near5(
             p.total_days.expect("not blocked"),
-            51.317_750_030_325_15,
+            53.202_734_060_708_24, // was 51.317_750_030_325_15
             "totalDays",
         );
         assert_eq!(p.seasons_crossed, vec!["Summer".to_string()]);
-        assert!(!p.season_drift, "a 41-day trip does not cross a season");
+        assert!(!p.season_drift, "a 43-day trip does not cross a season");
         assert!(!p.has_desert);
         assert!(p.has_water && p.has_land);
-        assert_eq!(p.worst_land, Some(6));
+        // Was Some(6): the slower track leg 5 now carries more food, so its
+        // load ratio (0.4586) passes leg 6's (0.4505).
+        assert_eq!(p.worst_land, Some(5));
         assert_eq!(
             p.profile[..4]
                 .iter()
@@ -25121,8 +25301,11 @@ mod tests {
             ("sea", 13.000_819_518_276_71, 12.722_399_999_999_999),
             ("river", 2.223_140_137_625_317_7, 44.64),
             ("land", 2.070_352_678_113_541, 15.978_111_167_999_996),
-            ("land", 4.484_874_955_088_157_5, 22.127_924_800_000_002),
-            ("land", 6.180_626_835_526_246, 21.409_042_24),
+            // Legs 4 and 5 ride the fixture's Track; re-baselined 2026-10-11
+            // under Ruling CD, were (4.484_874_955_088_157_5,
+            // 22.127_924_800_000_002) and (6.180_626_835_526_246, 21.409_042_24).
+            ("land", 5.277_493_525_848_702, 18.804_566_080_000_004),
+            ("land", 7.272_992_295_148_787_5, 18.193_515_904),
             ("land", 6.621_147_609_860_885, 9.992_323_747_2),
         ];
         assert_eq!(p.results.len(), legs.len());
@@ -25150,8 +25333,10 @@ mod tests {
         assert_eq!(rr.stops, 5);
 
         // The daily timeline, and the camp it places at each day boundary.
-        assert_eq!(p.timeline.len(), 41);
-        assert_eq!(p.day_fracs.len(), 41);
+        // Lengths re-baselined 2026-10-11 under Ruling CD: were 41 (one entry
+        // per travel day, 41.3 -> 43.2).
+        assert_eq!(p.timeline.len(), 43);
+        assert_eq!(p.day_fracs.len(), 43);
         near5(
             p.timeline[0].km,
             24.551_999_999_999_996,
@@ -25171,17 +25356,20 @@ mod tests {
             168.750_310_824_401_37,
             "timeline day 7 km",
         );
+        // The last day, re-baselined 2026-10-11 under Ruling CD: was
+        // timeline[40] = day 41 at Dunmarch, 757.672_419_527_196_6 km, and
+        // dayFracs[40] = 0.995_826_941_332_884_3.
         assert_eq!(
-            (p.timeline[40].day, p.timeline[40].camp.as_deref()),
-            (41, Some("Dunmarch"))
+            (p.timeline[42].day, p.timeline[42].camp.as_deref()),
+            (43, Some("Dunmarch"))
         );
         near5(
-            p.timeline[40].km,
-            757.672_419_527_196_6,
-            "timeline day 41 km",
+            p.timeline[42].km,
+            758.821_696_331_707_2,
+            "timeline day 43 km",
         );
         near5(p.day_fracs[0], 0.032_269_279_484_743_55, "dayFracs[0]");
-        near5(p.day_fracs[40], 0.995_826_941_332_884_3, "dayFracs[40]");
+        near5(p.day_fracs[42], 0.997_337_463_262_262_2, "dayFracs[42]");
 
         // The stops list is computed once and keyed by content.
         assert_eq!(p.stops.len(), 5);
@@ -25205,10 +25393,12 @@ mod tests {
             "only stops the route actually threads through count"
         );
         // Travel days are untouched -- that separation is the whole point.
-        near5(p.travel_days, 41.317_750_030_325_15, "travelDays");
+        // Re-baselined 2026-10-11 under Ruling CD (the fixture's Track row):
+        // was 41.317_750_030_325_15.
+        near5(p.travel_days, 43.202_734_060_708_24, "travelDays");
         near5(
             p.total_days.expect("not blocked"),
-            41.317_750_030_325_15 + 5.0 + 10.0,
+            43.202_734_060_708_24 + 5.0 + 10.0,
             "totalDays",
         );
     }
@@ -25343,9 +25533,10 @@ mod tests {
     // one, and invisible until instrumented, because `_jpDeriveStages` catches
     // its own exceptions and returns an empty stage list.
     //
-    // The world, route and party are milestone 5's own fixture, unchanged and
-    // reproducing its values exactly (km 760.847480700888..., 41 days, 7
-    // stages). The m5 route cannot reach every verdict band on its own -- its
+    // The world, route and party are milestone 5's own fixture, unchanged
+    // (km 760.847480700888..., 7 stages; 41 days in the reference, 43.2 since
+    // Track's own row, Ruling CD addendum item 5, re-baselined 2026-10-11 --
+    // the worst land stage moved from leg 6 to leg 5 with it). The m5 route cannot reach every verdict band on its own -- its
     // resupply requirement is genuinely unmet, which alone forces `severe` --
     // so each band probe edits exactly the signals `_jpVerdict` reads on a real
     // plan, and the harness made the identical edits to the identical fields.
@@ -25395,6 +25586,51 @@ mod tests {
         p.total_days = Some(6.0);
     }
 
+    /// Ruling CD item 2 on the milestone-5 world: the same fixture planned
+    /// with the router's slope field (`build_raw_slope_field` over its own
+    /// height field), against the golden plan without one.
+    #[test]
+    fn m5_slope_moves_only_the_land_legs() {
+        // Protects: slope reaches planned time on the real m5 world through the
+        //   live path (`JpWorld::slope_field` -> `JpSlope` -> the `slope` term):
+        //   every land stage carries a grade and its way flag, every land leg is
+        //   slower than the slope-free (reference) plan, and the sea and river
+        //   legs do not move by a bit. Grades and the total are pinned literals
+        //   measured once on this fixture (2026-10-11, after seeing the result).
+        let f = m5_fields();
+        let pts = m5_pts();
+        let slope = build_raw_slope_field(&f.field, M5_GW, M5_GH, false);
+        let with = JpWorld { slope_field: Some(&slope), ..m5_world(&f) };
+        let q = jp_plan(&with, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        let base = jp_plan(&m5_world(&f), &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert_eq!(q.stages.len(), 7, "premise: the golden seven stages");
+        let expect: [Option<(f64, bool)>; 7] = [
+            None,
+            None,
+            None,
+            Some((0.011_227_001_660_856_707, false)),
+            Some((0.011_227_003_202_356_14, true)),
+            Some((0.009_601_686_470_981_3, true)),
+            Some((0.006_068_963_429_023_479, false)),
+        ];
+        for (i, e) in expect.iter().enumerate() {
+            let got = q.stages[i].slope.map(|s| (s.grade, s.on_way));
+            match (got, e) {
+                (None, None) => {
+                    assert_eq!(q.results[i].days().to_bits(), base.results[i].days().to_bits(), "water leg {i} must not move");
+                }
+                (Some((g, w)), Some((eg, ew))) => {
+                    assert!((g - eg).abs() < 1e-12, "stage {i} grade {g}");
+                    assert_eq!(w, *ew, "stage {i} on_way");
+                    assert!(q.results[i].days() > base.results[i].days(), "land leg {i} must be slower");
+                }
+                _ => panic!("stage {i}: slope {got:?}, expected {e:?}"),
+            }
+        }
+        // The golden plan is 43.202_734_060_708_24 days without slope.
+        near5(q.days, 43.656_742_899_635_39, "days with slope");
+    }
+
     #[test]
     fn m6_verdict_reads_the_real_plan_as_the_reference_does() {
         // Protects: the verdict on the real golden plan is Severe with the reference's
@@ -25414,7 +25650,10 @@ mod tests {
         assert_eq!(
             v.reasons,
             vec![
-                "the carried supplies run out before the next settlement — 2 suggested resupply stop(s) not yet accepted, the first at Carrowden (km 629)".to_string(),
+                // Re-baselined 2026-10-11 under Ruling CD (the fixture's Track
+                // row slows the walk, so the carried supplies run out sooner):
+                // was "(km 629)".
+                "the carried supplies run out before the next settlement — 2 suggested resupply stop(s) not yet accepted, the first at Carrowden (km 595)".to_string(),
                 "a multi-week duration, where small failures compound".to_string(),
             ]
         );
@@ -25507,7 +25746,9 @@ mod tests {
                 "45% storm/snow odds for the season chosen",
             ),
             (
-                &|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 0.9,
+                // The worst land stage: leg 5 since the Track row
+                // (re-baselined 2026-10-11 under Ruling CD; was leg 6).
+                &|p: &mut JpJourneyPlan| m6_land_mut(p, 5).load_ratio = 0.9,
                 "heavily loaded (90% of capacity on the worst stage)",
             ),
             (
@@ -25576,12 +25817,14 @@ mod tests {
         let severe_text = "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.";
         for (edit, reason) in [
             (
-                &(|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 1.2)
+                &(|p: &mut JpJourneyPlan| m6_land_mut(p, 5).load_ratio = 1.2)
                     as &dyn Fn(&mut JpJourneyPlan),
                 "overloaded — the worst land stage carries 120% of capacity",
             ),
             (
-                &|p: &mut JpJourneyPlan| m6_land_mut(p, 6).cap.draft_shortfall = 2,
+                // The worst land stage again (was leg 6; re-baselined
+                // 2026-10-11 under Ruling CD).
+                &|p: &mut JpJourneyPlan| m6_land_mut(p, 5).cap.draft_shortfall = 2,
                 "2 draft animal(s) short for the vehicles taken",
             ),
         ] {
@@ -25645,6 +25888,8 @@ mod tests {
         assert!(p.blocked_idx.is_some());
         let v = jp_verdict(&p);
         assert_eq!((v.level, v.label), ("blocked", "Impassable"));
+        // Re-baselined 2026-10-11 under Ruling CD (the fixture's Track row:
+        // the slower stage carries more fodder): 156% -> 157%.
         // RE-WORDED 2026-09-28, Ruling BS: still blocked, at the same 156%,
         // but for the reason that survives the ruling -- 900 kg of cargo
         // against 740 kg of capacity, which no resupply stop lightens. Was:
@@ -25652,7 +25897,7 @@ mod tests {
         // or split the load across a resupply stop."
         assert_eq!(
             v.text,
-            "The cargo already fills this party (900 kg vs 740 kg rated), so even the shortest stretch of supplies pushes the load to 156% of capacity — no party departs in this state, and no resupply stop lightens cargo. Reduce cargo or add pack animals."
+            "The cargo already fills this party (900 kg vs 740 kg rated), so even the shortest stretch of supplies pushes the load to 157% of capacity — no party departs in this state, and no resupply stop lightens cargo. Reduce cargo or add pack animals."
         );
         assert!(v.reasons.is_empty());
         // A blocked journey has no honest band on its day count.

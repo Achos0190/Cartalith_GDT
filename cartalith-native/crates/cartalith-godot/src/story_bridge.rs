@@ -205,6 +205,11 @@ pub(crate) struct JpWorldParts {
     /// the planner's navigable cells are the Route tool's.
     river_order: Vec<i16>,
     river_recv: Vec<i32>,
+    /// Ruling CD item 2: the router's slope field
+    /// (`cartalith_civ::build_raw_slope_field`, the reference's
+    /// `currentSlopeField`) over the world's own height field, from which the
+    /// planner measures each land stage's grade.
+    slope: Vec<f32>,
 }
 
 /// Rust-internal, so outside the `#[godot_api]` block.
@@ -256,7 +261,14 @@ impl WorldGen {
             self.map_width_km,
             ws.integrated_drainage,
         );
-        JpWorldParts { jw, ocean, wind, river_order, river_recv }
+        // Ruling CD item 2: the same slope definition the Route tool's router
+        // prices (`build_travel_cost`'s gradient), wrap-aware on a cylindrical
+        // world, so the planner's slope term and the router agree on what is
+        // steep. A deterministic function of `ws.field` and `self.world`, so
+        // the plan cache's world key already covers it. Its cost is not
+        // measured (one O(gw x gh) pass per planner call).
+        let slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, self.world);
+        JpWorldParts { jw, ocean, wind, river_order, river_recv, slope }
     }
 
     /// Assembles the borrowed `JpWorld` the planner reads from the world's own
@@ -292,6 +304,7 @@ impl WorldGen {
             ocean_field: Some(&parts.ocean),
             wind_field: Some(&parts.wind),
             river_net: Some(cartalith_civ::JpRiverNet { order: &parts.river_order, recv: &parts.river_recv }),
+            slope_field: Some(&parts.slope),
         }
     }
 
