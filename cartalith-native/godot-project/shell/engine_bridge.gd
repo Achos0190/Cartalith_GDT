@@ -668,6 +668,41 @@ func archetypes() -> PackedStringArray:
 		return world_gen.get_archetypes()
 	return PackedStringArray()
 
+# -- New World seed preview (NWP-2 binding, NWP-3 consumer) ---------------------
+
+## Whether the loaded extension exports the static `WorldGen.preview_land_mask`
+## (`NEW_WORLD_PREVIEW_PROPOSAL.md` NWP-2). `false` on an older build, which the
+## New World dialog dashes with its reason rather than drawing anything. Asks
+## `has_method` on the object, which is a class-table lookup, not a `#[func]`
+## call -- but the one caller still tests `generating` first.
+func has_preview_binding() -> bool:
+	return _has("preview_land_mask")
+
+## A copy of the whole live parameter table, every key `get_params()` returns:
+## the base of the preview binding's `params` argument (lane A's `BINDING.md`:
+## every key is required, missing is a failure). Refreshed from the engine when
+## no generation is running; the pre-generation snapshot while one is (no
+## `#[func]` is reached then). `{}` on a build with no parameter table -- never
+## a made-up table.
+func params_snapshot() -> Dictionary:
+	if not _params_available:
+		return {}
+	if not generating:
+		_params_cache = world_gen.get_params()
+	return _params_cache.duplicate()
+
+## Forwards to `WorldGen.preview_land_mask(params, preview_w, target_w)`: the
+## engine's own early tectonic stages at `preview_w` cells wide, rescaled to the
+## `target_w` grid, as a row-major mask of `preview_w * preview_h` bytes
+## (1 = land, 0 = ocean). **An empty array is the failure answer** -- a refused
+## key, a stale binary, or a call while `generating`, which this refuses
+## outright even though the binding is static and takes no `self`: the rule in
+## this file is that no `world_gen` call is made while the worker owns it.
+func preview_land_mask(params: Dictionary, preview_w: int, target_w: int) -> PackedByteArray:
+	if generating or not _has("preview_land_mask"):
+		return PackedByteArray()
+	return world_gen.preview_land_mask(params, preview_w, target_w)
+
 ## Cartalith is a one-shot generator: a moved dial does not recompute a stage,
 ## it marks the world stale until the next full generate. §7's stale marks and
 ## the status bar both hang off this.

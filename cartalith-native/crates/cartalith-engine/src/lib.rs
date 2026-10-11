@@ -176,6 +176,12 @@ pub mod channel_atlas;
 /// and τ ≠ 1; see the module's own doc for what it must never do.
 pub mod geo_clock;
 
+/// **NWP-1** (`NEW_WORLD_PREVIEW_PROPOSAL.md`, Ruling CE): the New World
+/// dialog's seed preview -- a coarse land/ocean mask from the same
+/// [`tectonic_substrate`] generation runs, with two cell-unit corrections.
+/// Wired: `cartalith-godot`'s static `WorldGen::preview_land_mask` calls it.
+pub mod preview;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
@@ -1560,37 +1566,17 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 }
 
 
-/// `generate_terrain`'s body, with one test-only escape hatch:
-/// `force_precarve_flow` restores the reference's own literal call order
-/// (the pre-carve `computeFlow(true)` that the carve path never reads --
-/// see its call site below and `DECISIONS.md` §7f). Nothing but
-/// `precarve_flow_skip_leaves_generation_bit_identical` passes `true`; it
-/// exists so that "the skip changes nothing" is a proof this crate can run
-/// rather than an argument in a comment.
-fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
-    // **Engine init** -- see this module's "CPU worker threads" section
-    // above. Must run before any `par_iter()` this function (or anything it
-    // calls) reaches; a no-op after the first call this process.
-    ensure_thread_pool();
-
-    // `progress.rs`'s own doc comment carries the full banner->stage mapping
-    // every `progress::advance` call below encodes. `begin_run` resets the
-    // counter to stage 0 (Planet); Planet and Extent & scale both tick
-    // through immediately since neither has real computation of its own in
-    // this function (see the module doc for why).
-    crate::progress::begin_run();
-    crate::progress::advance(crate::progress::EXTENT_SCALE);
-
-    let gw = p.gw;
-    let gh = p.gh;
-    let world = p.world;
-
-    // `deriveFromWorldStructure()` (reference HTML lines 2528-2538): once a
-    // World-Structure archetype is active, plates/velocity/volcano count
-    // are ALWAYS the archetype-derived values, not independently
-    // configurable -- these three overrides replace `p.tect.plates`/
-    // `p.tect.vel`/`p.volc.count` wherever WS is enabled, everywhere below.
-    let (tect_plates, tect_vel, volc_count) = if p.world_structure.enabled {
+/// `deriveFromWorldStructure()` (reference HTML lines 2528-2538): once a
+/// World-Structure archetype is active, plates/velocity/volcano count are
+/// ALWAYS the archetype-derived values, not independently configurable --
+/// `(tect_plates, tect_vel, volc_count)`, replacing `p.tect.plates`/
+/// `p.tect.vel`/`p.volc.count` wherever World Structure is enabled.
+///
+/// A function (it was inline in `generate_terrain_inner`) so the New World
+/// preview (`preview::land_mask`) derives the plate count exactly as
+/// generation does. Must stay the one place this derivation is written.
+pub(crate) fn world_structure_derived(p: &WorldParams) -> (usize, f64, i32) {
+    if p.world_structure.enabled {
         let ws = &p.world_structure;
         let plates = (js_round(4.0 + ws.fragmentation * 24.0) as usize).clamp(4, 40);
         let vel = ws.tectonic_energy * 2.0;
@@ -1598,107 +1584,77 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         (plates, vel, volc_count)
     } else {
         (p.tect.plates, p.tect.vel, p.volc.count)
-    };
+    }
+}
 
-    // ---- buildTectonicSubstrate (reference HTML lines 3396-3462) ----
-    // World structure (stage 2): the continentality field is this stage's
-    // own product, and it precedes the real tectonics work below despite
-    // sharing this banner with it (`progress.rs`'s own doc comment).
-    crate::progress::advance(crate::progress::WORLD_STRUCTURE);
-    // generateContinentalityField(): a no-op (`None`) at World-Structure's
-    // default `enabled:false` -- bit-identical to omitting it entirely.
-    let continental_field = if p.world_structure.enabled {
-        Some(generate_continentality_field(
-            gw,
-            gh,
-            world,
-            p.tect.seed,
-            p.world_structure.continentality,
-            p.world_structure.fragmentation,
-        ))
+/// The GPU device set a generation of `p` runs on, or `None` for the CPU path:
+/// `None` unless `p.use_gpu` is on, the VRAM budget allows `p`'s grid
+/// (`gpu_allowed_for_grid`), a device opens, and it supports the grid (the hard
+/// device limit -- see the long comment at this call in `generate_terrain_inner`).
+/// One function so the New World preview (`preview::preview_field`) takes the
+/// path Create takes: the GPU path is a different world for the same seed
+/// (`DECISIONS.md` §7c), so a CPU preview of a GPU world would mispredict it.
+/// `init_gpu_device_set` caches the set process-wide, so only the first caller
+/// pays the device handshake.
+pub(crate) fn open_gpu_set(p: &WorldParams) -> Option<cartalith_gpu::GpuDeviceSet> {
+    if p.use_gpu && cartalith_gpu::gpu_allowed_for_grid(p.gw, p.gh) {
+        cartalith_gpu::init_gpu_device_set().ok().filter(|s| s.supports_grid(p.gw, p.gh))
     } else {
         None
-    };
-    let world_structure_arg = continental_field.as_ref().map(|cf| WorldStructure {
-        ocean_depth: p.world_structure.ocean_depth,
-        continental_field: cf.as_slice(),
-    });
+    }
+}
 
-    // Tectonics (stage 3): plates, stress, flexure, resistance and the
-    // finished height field, through `compute_height`/`normalize_field`
-    // below -- the rest of the "buildTectonicSubstrate" banner once World
-    // structure's own slice (just above) is subtracted from its front.
-    crate::progress::advance(crate::progress::TECTONICS);
+/// What [`tectonic_substrate`] hands on: the products later stages of
+/// `generate_terrain_inner` read (the rest -- warp, flexure, the blurred
+/// base, heterogeneity, orogeny, the raw height -- end inside it).
+pub(crate) struct Substrate {
+    pub(crate) plates: Vec<cartalith_terrain::Plate>,
+    pub(crate) plate_id: Vec<u16>,
+    pub(crate) stress: cartalith_terrain::StressResult,
+    /// `plateCrust()`: the raw, unblurred per-cell plate base.
+    pub(crate) base_raw: Vec<f32>,
+    pub(crate) age_field: Vec<f32>,
+    /// The normalised height field (`normalize_field`), before volcanism.
+    pub(crate) field: Vec<f32>,
+}
 
-    let mut gpu_stages_used: Vec<String> = Vec::new();
-
-    // ---- GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in partial-GPU
-    // substrate path. `p.use_gpu=false` (the default) takes the exact same
-    // code path as before this milestone -- every `if p.use_gpu` branch
-    // below is additive, never altering the `else` arm's behaviour.
-    //
-    // Milestone 8 (context reuse): one `GpuDevice` is requested here, once,
-    // and threaded through every stage below via the `_with` wrappers --
-    // milestone 6 found each of the five GPU dispatches paying its own
-    // ~1.3-1.4s adapter/device handshake independently, the dominant cost
-    // at every size this port ships at by default below 2048x2048. A
-    // `None` here (no adapter, or device-creation failure) makes every
-    // stage below fall through to its existing CPU fallback exactly as it
-    // did before this milestone -- one failure point instead of five
-    // independent (and independently wasteful) retries of a failing
-    // handshake.
-    //
-    // Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): the single
-    // `init_gpu_shared_device()` call became `init_gpu_device_set()`, which
-    // honours the process-wide device selection and multi-GPU mode. With no
-    // preference set -- the default, and what every existing test and every
-    // untouched install has -- the set holds exactly one device, obtained by
-    // the exact same `PowerPreference::HighPerformance` request as before,
-    // so nothing below changes. `gpu_allowed_for_grid` is the VRAM budget
-    // gate and is unconditionally `true` while no budget is set.
-    //
-    // `supports_grid` is the second gate, and it is a *hard device* limit
-    // rather than the user-set budget `gpu_allowed_for_grid` applies: a
-    // whole-grid dispatch binds a `gw*gh*f32` storage buffer, and a device
-    // opened with limits below that does not fail softly -- `create_bind_group`
-    // raises a wgpu validation error, which panics, which takes the Godot
-    // process down (`cartalith-rust-conventions`). Found by measurement, not by
-    // reading: `use_gpu = true` at 8192² (a `RESOLUTION_PRESETS` entry, with the
-    // shell's GPU default of on) died on exactly that during
-    // `PERFORMANCE_BENCHMARKS.md`'s run. `cartalith-gpu` now opens devices at
-    // the adapter's own ceilings, which covers every size this port offers on
-    // real hardware; this check is what makes an adapter that still cannot
-    // reach a size fall back to CPU (`HARDWARE_ACCELERATION.md` §27) instead.
-    let gpu_set = if p.use_gpu && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
-        cartalith_gpu::init_gpu_device_set().ok().filter(|s| s.supports_grid(gw, gh))
-    } else {
-        None
-    };
-    let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
-
-    // What this generation actually opened, for `diagnostic_report.gd` to
-    // report instead of inferring (owner ruling 19, 2026-09-06, deleted the
-    // Performance window this used to be read for; the reading moved to
-    // Diagnostics). Recorded HERE and not beside the
-    // `record_usage` call at the tail of this function: that one is inside an
-    // `if let Some(set)`, so a CPU-only run would leave the last GPU run's
-    // reading standing. Every path through this line has just decided, so
-    // both answers -- a backend, or "no device at all" -- are written on every
-    // call. See `multi::record_opened_backend`.
-    cartalith_gpu::record_opened_backend(gpu_set.as_ref());
-
-    // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
-    // called up to FOUR times below (structural drainage, discharge-weighted
-    // drainage, the river-network pass, and the post-carve recompute), so
-    // its pipeline is built once here rather than per call -- milestone 8's
-    // shared-device lesson applied to shader compilation as well as to the
-    // adapter/device handshake. `None` whenever `use_gpu` is off or the
-    // device handshake failed; every call site below falls back to the real
-    // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
-    let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
-    let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
-        gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
-    };
+/// **The tectonic substrate** (`buildTectonicSubstrate`, reference HTML lines
+/// 3396-3462, from the warp to `normalize_field`): warp, plates, plate
+/// assignment, stress, flexure, the plate-base blur, age, heterogeneity,
+/// World-Structure orogeny, height, normalise.
+///
+/// Extracted from `generate_terrain_inner` by moving its body here unchanged
+/// (`NEW_WORLD_PREVIEW_PROPOSAL.md` NWP-1) so that the New World preview
+/// (`preview::land_mask`) runs the same code generation runs, not a copy that
+/// could drift. Identity by control flow: `generate_terrain_inner` passes what
+/// it used to compute in place; `nwprev_generate_identity`
+/// (`crates/cartalith-godot/tests/nwprev_cost.rs`) hashes whole worlds before
+/// and after, CPU and GPU.
+///
+/// - `tect_plates`/`tect_vel`: [`world_structure_derived`]'s, not `p.tect`'s.
+/// - `world_structure_arg`: the continentality field, when World Structure is on.
+/// - `gpu_set`: the device set generation opened, or `None` (every stage then
+///   runs its CPU function). The GPU branches are additionally gated on
+///   `p.use_gpu`, exactly as they were inline.
+/// - `gpu_stages_used`: each stage that ran on the GPU is appended.
+///
+/// Must never: call `progress::*` or record a GPU backend (a preview drawn
+/// during a generation would move that generation's readout), or read
+/// anything from `p` that the preview's cell-unit corrections
+/// (`preview::preview_params`) do not account for without saying so there.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn tectonic_substrate(
+    p: &WorldParams,
+    tect_plates: usize,
+    tect_vel: f64,
+    world_structure_arg: Option<WorldStructure<'_>>,
+    gpu_set: Option<&cartalith_gpu::GpuDeviceSet>,
+    gpu_stages_used: &mut Vec<String>,
+) -> Substrate {
+    let gw = p.gw;
+    let gh = p.gh;
+    let world = p.world;
+    let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.map(|s| s.primary());
 
     // World-wrap support for warp's GPU kernel (`OUTSTANDING_WORK.md` §2.6,
     // closing GPU_LAYER_INTEGRATION_SCOPE.md milestone 2's own deferral):
@@ -1724,8 +1680,8 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // attempt: both entry points now return `None` when the device
             // cannot complete the dispatch, and a stage that fell back to
             // CPU must not appear in `gpu_stages_used`.
-            let split = gpu_set.as_ref().is_some_and(cartalith_gpu::GpuDeviceSet::is_split);
-            match gpu_set.as_ref().and_then(|set| {
+            let split = gpu_set.is_some_and(cartalith_gpu::GpuDeviceSet::is_split);
+            match gpu_set.and_then(|set| {
                 if split {
                     cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp, world)
                 } else {
@@ -1897,7 +1853,6 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     } else {
         compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y)
     };
-    let mut resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
 
     // resistanceToOrogeny() (reference HTML lines 3433-3444): T2+T3,
     // gated on `state.tect.tectonicGraph`, which JS's own
@@ -1950,7 +1905,157 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         oro.as_deref(),
         &height_params,
     );
-    let mut field = normalize_field(&raw_height);
+    let field = normalize_field(&raw_height);
+
+    Substrate { plates, plate_id, stress, base_raw, age_field, field }
+}
+
+/// `generate_terrain`'s body, with one test-only escape hatch:
+/// `force_precarve_flow` restores the reference's own literal call order
+/// (the pre-carve `computeFlow(true)` that the carve path never reads --
+/// see its call site below and `DECISIONS.md` §7f). Nothing but
+/// `precarve_flow_skip_leaves_generation_bit_identical` passes `true`; it
+/// exists so that "the skip changes nothing" is a proof this crate can run
+/// rather than an argument in a comment.
+fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
+    // **Engine init** -- see this module's "CPU worker threads" section
+    // above. Must run before any `par_iter()` this function (or anything it
+    // calls) reaches; a no-op after the first call this process.
+    ensure_thread_pool();
+
+    // `progress.rs`'s own doc comment carries the full banner->stage mapping
+    // every `progress::advance` call below encodes. `begin_run` resets the
+    // counter to stage 0 (Planet); Planet and Extent & scale both tick
+    // through immediately since neither has real computation of its own in
+    // this function (see the module doc for why).
+    crate::progress::begin_run();
+    crate::progress::advance(crate::progress::EXTENT_SCALE);
+
+    let gw = p.gw;
+    let gh = p.gh;
+    let world = p.world;
+
+    // `deriveFromWorldStructure()` (reference HTML lines 2528-2538): once a
+    // World-Structure archetype is active, plates/velocity/volcano count
+    // are ALWAYS the archetype-derived values, not independently
+    // configurable -- these three overrides replace `p.tect.plates`/
+    // `p.tect.vel`/`p.volc.count` wherever WS is enabled, everywhere below.
+    let (tect_plates, tect_vel, volc_count) = world_structure_derived(p);
+
+    // ---- buildTectonicSubstrate (reference HTML lines 3396-3462) ----
+    // World structure (stage 2): the continentality field is this stage's
+    // own product, and it precedes the real tectonics work below despite
+    // sharing this banner with it (`progress.rs`'s own doc comment).
+    crate::progress::advance(crate::progress::WORLD_STRUCTURE);
+    // generateContinentalityField(): a no-op (`None`) at World-Structure's
+    // default `enabled:false` -- bit-identical to omitting it entirely.
+    let continental_field = if p.world_structure.enabled {
+        Some(generate_continentality_field(
+            gw,
+            gh,
+            world,
+            p.tect.seed,
+            p.world_structure.continentality,
+            p.world_structure.fragmentation,
+        ))
+    } else {
+        None
+    };
+    let world_structure_arg = continental_field.as_ref().map(|cf| WorldStructure {
+        ocean_depth: p.world_structure.ocean_depth,
+        continental_field: cf.as_slice(),
+    });
+
+    // Tectonics (stage 3): plates, stress, flexure, resistance and the
+    // finished height field, through `compute_height`/`normalize_field`
+    // below -- the rest of the "buildTectonicSubstrate" banner once World
+    // structure's own slice (just above) is subtracted from its front.
+    crate::progress::advance(crate::progress::TECTONICS);
+
+    let mut gpu_stages_used: Vec<String> = Vec::new();
+
+    // ---- GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in partial-GPU
+    // substrate path. `p.use_gpu=false` (the default) takes the exact same
+    // code path as before this milestone -- every `if p.use_gpu` branch
+    // below is additive, never altering the `else` arm's behaviour.
+    //
+    // Milestone 8 (context reuse): one `GpuDevice` is requested here, once,
+    // and threaded through every stage below via the `_with` wrappers --
+    // milestone 6 found each of the five GPU dispatches paying its own
+    // ~1.3-1.4s adapter/device handshake independently, the dominant cost
+    // at every size this port ships at by default below 2048x2048. A
+    // `None` here (no adapter, or device-creation failure) makes every
+    // stage below fall through to its existing CPU fallback exactly as it
+    // did before this milestone -- one failure point instead of five
+    // independent (and independently wasteful) retries of a failing
+    // handshake.
+    //
+    // Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): the single
+    // `init_gpu_shared_device()` call became `init_gpu_device_set()`, which
+    // honours the process-wide device selection and multi-GPU mode. With no
+    // preference set -- the default, and what every existing test and every
+    // untouched install has -- the set holds exactly one device, obtained by
+    // the exact same `PowerPreference::HighPerformance` request as before,
+    // so nothing below changes. `gpu_allowed_for_grid` is the VRAM budget
+    // gate and is unconditionally `true` while no budget is set.
+    //
+    // `supports_grid` is the second gate, and it is a *hard device* limit
+    // rather than the user-set budget `gpu_allowed_for_grid` applies: a
+    // whole-grid dispatch binds a `gw*gh*f32` storage buffer, and a device
+    // opened with limits below that does not fail softly -- `create_bind_group`
+    // raises a wgpu validation error, which panics, which takes the Godot
+    // process down (`cartalith-rust-conventions`). Found by measurement, not by
+    // reading: `use_gpu = true` at 8192² (a `RESOLUTION_PRESETS` entry, with the
+    // shell's GPU default of on) died on exactly that during
+    // `PERFORMANCE_BENCHMARKS.md`'s run. `cartalith-gpu` now opens devices at
+    // the adapter's own ceilings, which covers every size this port offers on
+    // real hardware; this check is what makes an adapter that still cannot
+    // reach a size fall back to CPU (`HARDWARE_ACCELERATION.md` §27) instead.
+    let gpu_set = open_gpu_set(p);
+    let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
+
+    // What this generation actually opened, for `diagnostic_report.gd` to
+    // report instead of inferring (owner ruling 19, 2026-09-06, deleted the
+    // Performance window this used to be read for; the reading moved to
+    // Diagnostics). Recorded HERE and not beside the
+    // `record_usage` call at the tail of this function: that one is inside an
+    // `if let Some(set)`, so a CPU-only run would leave the last GPU run's
+    // reading standing. Every path through this line has just decided, so
+    // both answers -- a backend, or "no device at all" -- are written on every
+    // call. See `multi::record_opened_backend`.
+    cartalith_gpu::record_opened_backend(gpu_set.as_ref());
+
+    // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
+    // called up to FOUR times below (structural drainage, discharge-weighted
+    // drainage, the river-network pass, and the post-carve recompute), so
+    // its pipeline is built once here rather than per call -- milestone 8's
+    // shared-device lesson applied to shader compilation as well as to the
+    // adapter/device handshake. `None` whenever `use_gpu` is off or the
+    // device handshake failed; every call site below falls back to the real
+    // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
+    let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
+    let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
+        gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
+    };
+
+    // The tectonic substrate, warp to `normalize_field`: one function shared
+    // with the New World preview (`preview::land_mask`), so the two can never
+    // run different copies of it (`NEW_WORLD_PREVIEW_PROPOSAL.md` §7 risk 2).
+    let Substrate { plates, plate_id, stress, base_raw, age_field, field } = tectonic_substrate(
+        p,
+        tect_plates,
+        tect_vel,
+        world_structure_arg,
+        gpu_set.as_ref(),
+        &mut gpu_stages_used,
+    );
+    let mut field = field;
+    // Was computed between heterogeneity and orogeny, inside what is now the
+    // substrate; moved after it unchanged. A pure function of `plate_id`,
+    // `plates` and `age_field`, all final before it in either position, and
+    // nothing in the substrate reads it -- so the order cannot change a byte
+    // (verified: `nwprev_generate_identity`, NWP-1 acceptance (i)).
+    let mut resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
 
     // ---- volcanism + craters (reference HTML lines 3365-3369) ----
     crate::progress::advance(crate::progress::VOLCANISM);

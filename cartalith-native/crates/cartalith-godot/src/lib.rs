@@ -5815,7 +5815,15 @@ const ARCHETYPES: [(&str, [f64; 5]); 5] = [
 /// `ARCHETYPES` lookup, case-insensitive, as a ready `WorldStructureParams`
 /// with `enabled: true`. `None` for an unknown name.
 fn archetype_knobs(name: &GString) -> Option<WorldStructureParams> {
-    let name = name.to_string().to_lowercase();
+    archetype_knobs_str(&name.to_string())
+}
+
+/// [`archetype_knobs`] over a Rust `&str`, so a path that has no `GString`
+/// (the preview's pure parameter builder, [`preview_world_params`], and its
+/// unit tests, which run without a Godot engine) looks archetypes up through
+/// the same table and the same case folding.
+fn archetype_knobs_str(name: &str) -> Option<WorldStructureParams> {
+    let name = name.to_lowercase();
     ARCHETYPES.iter().find(|(n, _)| *n == name).map(|(_, k)| WorldStructureParams {
         enabled: true,
         continentality: k[0],
@@ -7295,12 +7303,7 @@ impl WorldGen {
     /// `width_km * gh / gw`** — derived, never independently settable. See
     /// `get_map_height_km`.
     fn call_params(&self, seed: i32, width_km: f64, gw: usize, gh: usize) -> WorldParams {
-        let mut p = self.params.clone();
-        p.gw = gw;
-        p.gh = gh;
-        p.tect.seed = seed;
-        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
-        p
+        with_call_args(self.params.clone(), seed, width_km, gw, gh)
     }
 
     /// The `WorldParams` describing the world **currently loaded**, for a
@@ -7823,6 +7826,285 @@ impl WorldGen {
 fn reference_grid_h(gw: usize, world: bool) -> usize {
     let k = if world { 0.5 } else { 0.64 };
     ((gw as f64 * k).round() as usize).max(4)
+}
+
+/// `p` with the four call-argument fields of a generation filled in -- the body
+/// `WorldGen::call_params` always had, lifted out so the New World preview
+/// ([`preview_world_params`]) fills them **the same way** without a `WorldGen`.
+/// `width_km <= 0` becomes 800 km, as it always has for `generate()`; changing
+/// that here changes it for both.
+fn with_call_args(mut p: WorldParams, seed: i32, width_km: f64, gw: usize, gh: usize) -> WorldParams {
+    p.gw = gw;
+    p.gh = gh;
+    p.tect.seed = seed;
+    p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+    p
+}
+
+/// One value of `preview_land_mask`'s parameter `Dictionary`, as Godot typed
+/// it. The `#[func]` converts each `Variant` into this, so the parameter logic
+/// ([`preview_world_params`]) is plain Rust a unit test can drive without a
+/// Godot engine. `Other` carries the Variant type's name for the error text.
+#[derive(Clone, Debug, PartialEq)]
+enum PreviewArg {
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Str(String),
+    Other(String),
+}
+
+/// The keys `preview_land_mask` requires beyond `params.rs`'s `PARAMS`: the
+/// four creation-time values `generate()` takes as call arguments rather than
+/// parameters, named exactly as `new_world_dialog.gd::request()` names them.
+const PREVIEW_CALL_KEYS: [&str; 4] = ["seed", "width_km", "grid_h", "archetype"];
+
+/// The preview width range `preview_land_mask` accepts, in cells. The floor is
+/// `preview::MIN_EDGE`'s reason; the ceiling of 1 024 is a labelled judgement:
+/// at 1 024 the substrate already costs 180-410 ms on the desktop
+/// (`NEW_WORLD_PREVIEW_PROPOSAL.md` §6, early stages at 1024), past any
+/// "redraw on every seed" use.
+const PREVIEW_W_MIN: i64 = 16;
+const PREVIEW_W_MAX: i64 = 1024;
+
+/// Ceiling on the preview's cell count (`preview_w * preview_h`). A labelled
+/// judgement: a square 1 024-wide preview. It exists because `preview_h`
+/// follows the target's aspect, and a 4-wide target with 8 192 rows would ask
+/// a 320-wide preview for 655 360 rows.
+const PREVIEW_MAX_CELLS: usize = 1024 * 1024;
+
+/// The `WorldParams` a `preview_land_mask` call describes, or every reason it
+/// cannot -- the whole of that binding's logic short of the engine call, as
+/// plain Rust.
+///
+/// - **Every `PARAMS` key and every [`PREVIEW_CALL_KEYS`] key is required.** A
+///   missing key is reported by name, never filled from a default: a preview
+///   that silently used the default `sea_level` while Create used the dialog's
+///   would draw a world the user will not get.
+/// - `PARAMS` values go through `params::set` onto `params::defaults()`, the
+///   same writer `set_params` uses, so a value clamps exactly as Create would
+///   store it; a value `set_params` would reject is an error here.
+/// - `seed`, `width_km`, `grid_h`, `target_w` reach the grid exactly as
+///   `generate_sized` sends them ([`with_call_args`], `max(4)` on both edges).
+/// - `archetype`: `""` is Classic (the `world_structure.*` keys as given, the
+///   `generate_sized` path); a name is [`archetype_knobs_str`]'s override (the
+///   `generate_world_structure_sized` path); an unknown name is an error.
+fn preview_world_params(lookup: &dyn Fn(&str) -> Option<PreviewArg>, target_w: i64) -> Result<WorldParams, String> {
+    let mut missing: Vec<&str> = params::PARAMS.iter().map(|s| s.key).filter(|k| lookup(k).is_none()).collect();
+    missing.extend(PREVIEW_CALL_KEYS.iter().copied().filter(|k| lookup(k).is_none()));
+    if !missing.is_empty() {
+        return Err(format!("missing keys: {}", missing.join(", ")));
+    }
+    let mut p = params::defaults();
+    let mut rejected: Vec<String> = Vec::new();
+    for s in params::PARAMS {
+        let value = match lookup(s.key) {
+            Some(PreviewArg::Bool(b)) => Some(params::Value::Bool(b)),
+            Some(PreviewArg::Int(i)) => Some(params::Value::Num(i as f64)),
+            Some(PreviewArg::Float(f)) => Some(params::Value::Num(f)),
+            _ => None,
+        };
+        let outcome = value.map_or(params::Outcome::Rejected, |v| params::set(&mut p, s.key, v));
+        if outcome == params::Outcome::Rejected {
+            rejected.push(format!("{} ({:?})", s.key, lookup(s.key)));
+        }
+    }
+    let seed = match lookup("seed") {
+        Some(PreviewArg::Int(i)) if i32::try_from(i).is_ok() => Some(i as i32),
+        _ => None,
+    };
+    let width_km = match lookup("width_km") {
+        Some(PreviewArg::Float(f)) if f.is_finite() => Some(f),
+        Some(PreviewArg::Int(i)) => Some(i as f64),
+        _ => None,
+    };
+    let grid_h = match lookup("grid_h") {
+        Some(PreviewArg::Int(i)) => Some(i),
+        _ => None,
+    };
+    let archetype = match lookup("archetype") {
+        Some(PreviewArg::Str(s)) if s.is_empty() => Some(None),
+        Some(PreviewArg::Str(s)) => archetype_knobs_str(&s).map(Some),
+        _ => None,
+    };
+    for (key, ok) in [("seed", seed.is_some()), ("width_km", width_km.is_some()), ("grid_h", grid_h.is_some()), ("archetype", archetype.is_some())] {
+        if !ok {
+            rejected.push(format!("{key} ({:?})", lookup(key)));
+        }
+    }
+    if !rejected.is_empty() {
+        return Err(format!("rejected keys: {}", rejected.join(", ")));
+    }
+    // All four are `Some` here: each `None` above pushed a rejection and returned.
+    let (Some(seed), Some(width_km), Some(grid_h), Some(archetype)) = (seed, width_km, grid_h, archetype) else {
+        return Err("internal: a call key passed validation without a value".to_string());
+    };
+    // `generate_sized`'s own `max(4)` on both edges; the i64 -> usize clamp at
+    // `GRID_MAX`-scale values cannot overflow (an i64 above usize::MAX does
+    // not reach a 64-bit target, and the cell cap below bounds the preview).
+    let gw = target_w.max(4) as usize;
+    let gh = grid_h.max(4) as usize;
+    let mut p = with_call_args(p, seed, width_km, gw, gh);
+    if let Some(ws) = archetype {
+        p.world_structure = ws;
+    }
+    Ok(p)
+}
+
+/// `preview_land_mask` minus the `Variant` conversion: the mask, or why there
+/// is none. Never panics on any input `preview_world_params` accepts, and an
+/// engine panic (none is known) is caught here rather than crossing the gdext
+/// boundary (`cartalith-rust-conventions`).
+fn preview_land_mask_inner(lookup: &dyn Fn(&str) -> Option<PreviewArg>, preview_w: i64, target_w: i64) -> Result<Vec<u8>, String> {
+    if !(PREVIEW_W_MIN..=PREVIEW_W_MAX).contains(&preview_w) {
+        return Err(format!("preview_w {preview_w} outside {PREVIEW_W_MIN}..={PREVIEW_W_MAX}"));
+    }
+    let p = preview_world_params(lookup, target_w)?;
+    let pw = preview_w as usize;
+    let ph = cartalith_engine::preview::preview_height(&p, pw).ok_or("grid below the preview's minimum edge")?;
+    if pw * ph > PREVIEW_MAX_CELLS {
+        return Err(format!("{pw} x {ph} preview exceeds {PREVIEW_MAX_CELLS} cells (target aspect too tall)"));
+    }
+    let mask = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cartalith_engine::preview::land_mask(&p, pw)))
+        .map_err(|_| "the engine panicked building the preview".to_string())?;
+    if mask.len() != pw * ph {
+        return Err(format!("engine returned {} cells, expected {}", mask.len(), pw * ph));
+    }
+    Ok(mask)
+}
+
+/// A `Variant` as a [`PreviewArg`]. Only the four types a parameter or call
+/// key can legitimately carry are kept; everything else is `Other` and is
+/// rejected downstream, never coerced (the same policy as `variant_to_value`).
+fn preview_arg(v: &Variant) -> PreviewArg {
+    match v.get_type() {
+        VariantType::BOOL => PreviewArg::Bool(v.to::<bool>()),
+        VariantType::INT => PreviewArg::Int(v.to::<i64>()),
+        VariantType::FLOAT => PreviewArg::Float(v.to::<f64>()),
+        VariantType::STRING => PreviewArg::Str(v.to::<GString>().to_string()),
+        VariantType::STRING_NAME => PreviewArg::Str(v.to::<StringName>().to_string()),
+        other => PreviewArg::Other(format!("{other:?}")),
+    }
+}
+
+#[cfg(test)]
+mod preview_binding_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// The dictionary `preview_land_mask` expects, as GDScript would build it:
+    /// every `PARAMS` key at `params::defaults()` typed as `get_params()`
+    /// types it, plus the four call keys.
+    fn full_dict(seed: i64, width_km: f64, grid_h: i64, archetype: &str) -> HashMap<String, PreviewArg> {
+        let d = params::defaults();
+        let mut m = HashMap::new();
+        for s in params::PARAMS {
+            let v = match (s.kind, params::get(&d, s.key).expect("table key")) {
+                (_, params::Value::Bool(b)) => PreviewArg::Bool(b),
+                (params::Kind::Int, params::Value::Num(n)) => PreviewArg::Int(n as i64),
+                (_, params::Value::Num(n)) => PreviewArg::Float(n),
+            };
+            m.insert(s.key.to_string(), v);
+        }
+        m.insert("seed".into(), PreviewArg::Int(seed));
+        m.insert("width_km".into(), PreviewArg::Float(width_km));
+        m.insert("grid_h".into(), PreviewArg::Int(grid_h));
+        m.insert("archetype".into(), PreviewArg::Str(archetype.into()));
+        m
+    }
+
+    fn run(m: &HashMap<String, PreviewArg>, preview_w: i64, target_w: i64) -> Result<Vec<u8>, String> {
+        preview_land_mask_inner(&|k| m.get(k).cloned(), preview_w, target_w)
+    }
+
+    /// Protects NWP-2's acceptance: the binding's parameter path builds the
+    /// same `WorldParams` `generate_sized`/`generate_world_structure_sized`
+    /// would (`with_call_args` over the stored params), and its mask equals
+    /// `preview::land_mask` for them, byte for byte -- Classic and archetype.
+    #[test]
+    fn the_binding_path_equals_the_engine_preview() {
+        let m = full_dict(51127, 200.0, 655, "");
+        let want = with_call_args(params::defaults(), 51127, 200.0, 1024, 655);
+        let got = preview_world_params(&|k| m.get(k).cloned(), 1024).expect("complete dict");
+        assert_eq!(got, want);
+        let mask = run(&m, 320, 1024).expect("mask");
+        assert_eq!(mask.len(), 320 * 205, "320 * round(320 * 655 / 1024)");
+        assert_eq!(mask, cartalith_engine::preview::land_mask(&want, 320));
+
+        let m = full_dict(42, 800.0, 655, "Archipelago");
+        let mut want = with_call_args(params::defaults(), 42, 800.0, 1024, 655);
+        want.world_structure = archetype_knobs_str("archipelago").expect("known archetype");
+        assert_eq!(preview_world_params(&|k| m.get(k).cloned(), 1024).expect("complete dict"), want);
+        assert_eq!(run(&m, 320, 1024).expect("mask"), cartalith_engine::preview::land_mask(&want, 320));
+    }
+
+    /// Protects: a dictionary value reaches the mask (the binding does not read
+    /// a stored or default value instead). `sea_level` from the dict moves it.
+    #[test]
+    fn a_dictionary_value_reaches_the_mask() {
+        let mut m = full_dict(1234, 200.0, 655, "");
+        let base = run(&m, 128, 1024).expect("mask");
+        m.insert("sea_level".into(), PreviewArg::Float(0.6));
+        let higher = run(&m, 128, 1024).expect("mask");
+        assert_ne!(base, higher);
+        assert!(higher.iter().filter(|&&b| b == 1).count() < base.iter().filter(|&&b| b == 1).count());
+    }
+
+    /// Protects: every failure is an empty result with its reason, never a
+    /// plausible mask -- a missing PARAMS key, a missing call key, a wrong
+    /// type, an unknown archetype, an out-of-range preview width, a target
+    /// aspect too tall for the cell cap.
+    #[test]
+    fn every_failure_is_reported_and_yields_no_mask() {
+        let ok = full_dict(1, 200.0, 655, "");
+        for key in ["sea_level", "tect.plates", "seed", "width_km", "grid_h", "archetype"] {
+            let mut m = ok.clone();
+            m.remove(key);
+            let e = run(&m, 320, 1024).expect_err(key);
+            assert!(e.starts_with("missing keys:") && e.contains(key), "{key}: {e}");
+        }
+        let cases: [(&str, PreviewArg); 5] = [
+            ("sea_level", PreviewArg::Str("0.4".into())),
+            ("tect.ridged", PreviewArg::Other("NIL".into())),
+            ("seed", PreviewArg::Float(3.0)),
+            ("grid_h", PreviewArg::Str("655".into())),
+            ("archetype", PreviewArg::Str("pangaea".into())),
+        ];
+        for (key, v) in cases {
+            let mut m = ok.clone();
+            m.insert(key.into(), v);
+            let e = run(&m, 320, 1024).expect_err(key);
+            assert!(e.starts_with("rejected keys:") && e.contains(key), "{key}: {e}");
+        }
+        assert!(run(&ok, 15, 1024).is_err() && run(&ok, 1025, 1024).is_err(), "preview_w range");
+        assert!(run(&ok, 16, 1024).is_ok(), "16 is inside the range");
+        let mut tall = ok.clone();
+        tall.insert("grid_h".into(), PreviewArg::Int(8192));
+        assert!(run(&tall, 320, 4).expect_err("cell cap").contains("exceeds"));
+    }
+
+    /// Protects: out-of-range values clamp exactly as `set_params` stores them
+    /// (Create's own behaviour), so `tect.plates` 4..=40 is accepted and 99 is
+    /// Create's 40, not an error and not the default 14.
+    #[test]
+    fn plates_clamp_like_set_params() {
+        let mut m = full_dict(7, 40075.0, 512, "");
+        m.insert("world".into(), PreviewArg::Bool(true));
+        for (sent, stored) in [(4, 4usize), (36, 36), (40, 40), (99, 40)] {
+            m.insert("tect.plates".into(), PreviewArg::Int(sent));
+            let p = preview_world_params(&|k| m.get(k).cloned(), 1024).expect("complete dict");
+            assert_eq!(p.tect.plates, stored, "sent {sent}");
+        }
+    }
+
+    /// Protects: `with_call_args` keeps `generate()`'s non-positive-width
+    /// fallback (800 km), which `call_params` now goes through too.
+    #[test]
+    fn with_call_args_keeps_the_800_km_fallback() {
+        let p = with_call_args(params::defaults(), 9, 0.0, 64, 41);
+        assert_eq!((p.gw, p.gh, p.tect.seed, p.map_width_km), (64, 41, 9, 800.0));
+        assert_eq!(with_call_args(params::defaults(), 9, 250.0, 64, 41).map_width_km, 250.0);
+    }
 }
 
 #[godot_api]
@@ -9540,6 +9822,45 @@ impl WorldGen {
     #[func]
     fn reference_grid_height(&self, grid_w: i32, world: bool) -> i32 {
         reference_grid_h(grid_w.max(4) as usize, world) as i32
+    }
+
+    /// **NWP-2** (`NEW_WORLD_PREVIEW_PROPOSAL.md`, Ruling CE): the New World
+    /// dialog's seed preview -- `cartalith_engine::preview::land_mask` for the
+    /// world a Create with these settings would generate.
+    ///
+    /// **Static: no `self`.** It never binds this `WorldGen`, so it cannot hit
+    /// gdext's `bind()` failure while a generate's worker thread owns the
+    /// instance, and it reads none of the instance's stored parameters -- the
+    /// caller passes them. (Calling it during a generation is safe but shares
+    /// Rayon's pool with that generation, so it will run slower.)
+    ///
+    /// `params`: **every** key `get_params()` returns, plus `seed` (int),
+    /// `width_km` (float), `grid_h` (int, the Create grid's rows) and
+    /// `archetype` (String, `""` = Classic), named as
+    /// `new_world_dialog.gd::request()` names them. Nothing is defaulted; see
+    /// [`preview_world_params`] for the exact rules. `preview_w`: the preview
+    /// width in cells, `16..=1024`. `target_w`: the Create grid's width.
+    ///
+    /// Returns `preview_w * preview_h` bytes, row-major, row 0 at the top,
+    /// **`1` = land, `0` = ocean**, where `preview_h = max(4, round(preview_w *
+    /// grid_h / target_w))` -- so `preview_h` is `size() / preview_w`, exactly.
+    /// On any failure returns an **empty** array (never a plausible mask) and
+    /// prints the reason, naming every missing or rejected key.
+    ///
+    /// CPU or GPU as the dictionary's `use_gpu` says, like Create: the GPU path
+    /// is a different world for the same seed (`DECISIONS.md` §7c), so a CPU
+    /// preview of a GPU Create would mispredict it (`preview.rs`'s module doc
+    /// has the measurement). The GPU device is the process-wide cached one.
+    #[func]
+    fn preview_land_mask(params: VarDictionary, preview_w: i64, target_w: i64) -> PackedByteArray {
+        let lookup = |k: &str| params.get(k).map(|v| preview_arg(&v));
+        match preview_land_mask_inner(&lookup, preview_w, target_w) {
+            Ok(mask) => PackedByteArray::from(mask.as_slice()),
+            Err(reason) => {
+                godot_print!("cartalith-godot: preview_land_mask: {reason}");
+                PackedByteArray::new()
+            }
+        }
     }
 
     /// The current world's real map **width** in km (`generate()`'s own
