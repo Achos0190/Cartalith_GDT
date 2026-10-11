@@ -119,6 +119,18 @@ const PHONE_CARD_INSET := 22    ## The scrim's `padding:22px`, both sides.
 const PHONE_CARD_RADIUS := 22
 const PHONE_CARD_MIN_W := 240   ## A floor, so a narrow viewport yields a card rather than a sliver.
 const PHONE_CHIP_RADIUS := 14   ## §6.7's extent chips.
+## **Landscape phone** (a rotated handset; found on an emulator at 3168x1440,
+## where the one-column card was ~200 dp tall and the 4-line disclaimer filled
+## it). §6.7 draws only a portrait card, so these are labelled judgements, not
+## artboard numbers. `PHONE_LAND_MIN_DP`: the content width, in dp, from which
+## the card goes two-column -- 700 dp holds a 316 dp preview column, a 16 dp gap
+## and a right column no narrower than the 328 dp portrait form; a portrait
+## handset is 360-430 dp, so nothing portrait can reach it.
+const PHONE_LAND_MIN_DP := 700
+const PHONE_CARD_MAX_W_LAND := 760   ## 316 + 16 + 396 right column + the card's 32 dp padding.
+const PHONE_LAND_LEFT_W := 316       ## `PREVIEW_DISPLAY_W_PHONE` 296 + the frame's 2x6 margin + an 8 dp scroll bar.
+const PHONE_LAND_STAGE_H := 150      ## Stage height (dp) in landscape: a 234x150 map at the mask's 320:205 shape, so the preview column fits the ~250 dp a rotated card leaves.
+const PHONE_LAND_PAD_V := 8          ## Card padding top and bottom in landscape (portrait: 18 / 16, §6.7).
 
 ## §6.7's action row, read off `design/Cartalith-Android-2026-09-07.dc.html`
 ## (the `modalOpen` block) rather than taken from a summary:
@@ -325,6 +337,18 @@ var _outer_scroll: ScrollContainer
 var _card_scroll: ScrollContainer   ## The card's own scrolling band.
 var _card_form: VBoxContainer       ## What scrolls inside it.
 var _card_actions: VBoxContainer    ## The card's outer column; holds the pinned row.
+## Landscape phone (see `PHONE_LAND_MIN_DP`). `_card_bands` is the HBox that
+## holds `_land_scroll` (left, preview column; hidden in portrait) beside
+## `_card_scroll`. `_grp_preview` is the preview frame's group: the first child
+## of `_card_form` in portrait, the content of `_land_scroll` in landscape.
+var _card_bands: HBoxContainer
+var _land_scroll: ScrollContainer
+var _grp_preview: VBoxContainer
+var _grp_seed: VBoxContainer         ## Seed row + history; stays in `_card_form` in both orientations.
+var _card_pad: MarginContainer
+var _preview_stage: PanelContainer
+var _phone_head_wrap: Control
+var _phone_land := false
 
 # -- Seed preview state (NWP-3) --------------------------------------------------
 
@@ -453,7 +477,7 @@ func setup(b: EngineBridge) -> void:
 	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(margin)
 	if _phone:
-		DccWidgets.phone_head(col, "New world", "creation-time settings")
+		_phone_head_wrap = DccWidgets.phone_head(col, "New world", "creation-time settings").get_parent().get_parent().get_parent() as Control
 
 	## The two advisories (`NOTE_CREATION_ONLY`, `NOTE_APPEARANCE_KEPT`) used to
 	## sit above the scroll here on desktop and tablet. NWP-3 folds them into
@@ -523,6 +547,11 @@ func setup(b: EngineBridge) -> void:
 		## for exactly that reason. Re-measuring on every open covers the same
 		## ground from the one signal this dialog already listens to.
 		about_to_popup.connect(_fit_phone_card)
+		## A rotation while the dialog is open: the host's own "phone layout
+		## moved" signal (the one `phone_window()`'s relay listens to), so the
+		## card re-flows between its forms without waiting for the next open.
+		if get_parent().has_signal("phone_insets_changed"):
+			get_parent().phone_insets_changed.connect(_fit_phone_card)
 		## **The height is not measurable from `about_to_popup`.** That signal
 		## fires from inside `Window.popup()` *before* the new rect is applied
 		## (the paragraph over `_fit_phone_card()` records the same trap for the
@@ -580,7 +609,16 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		rest.visible = false
 		body.add_child(rest)
 		rest.add_child(hidden)
-		left = card
+		## Three groups, plain `VBoxContainer`s at the form's own separation 2, so
+		## portrait lays out exactly as when these were direct children. The
+		## preview group is the one that moves to its own column in landscape.
+		_grp_preview = VBoxContainer.new()
+		_grp_preview.add_theme_constant_override("separation", 2)
+		card.add_child(_grp_preview)
+		_grp_seed = VBoxContainer.new()
+		_grp_seed.add_theme_constant_override("separation", 2)
+		card.add_child(_grp_seed)
+		left = _grp_preview
 	else:
 		body.add_child(hidden)
 		## Created now so the sections below can be built into it; placed in
@@ -592,7 +630,8 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 	## -- The preview, then the seed row and the history (proposal §2.1/§2.2).
 	_build_preview(left)
 
-	var seed_sec := DccWidgets.section(left, "Seed")
+	var seed_parent: VBoxContainer = _grp_seed if _phone else left
+	var seed_sec := DccWidgets.section(seed_parent, "Seed")
 	seed_input = DccWidgets.number(seed_sec, "Seed", 0, SEED_MAX, 1, randi() % 1000000,
 		_on_seed_changed,
 		"Integer seed. The same seed and settings reproduce the same world. Capped at %s, not the full 32-bit range -- see SEED_MAX's own comment." % [SEED_MAX])
@@ -623,7 +662,7 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		var seed_label := seed_input.get_parent().get_child(0) as Control
 		if seed_label != null:
 			seed_label.custom_minimum_size.x = PHONE_SEED_LABEL_W
-	_build_history(left)
+	_build_history(seed_parent)
 
 	## -- Extent. The dropdown is kept (three functions read
 	## `extent_input.selected`) but hidden; the chips are the control.
@@ -804,6 +843,7 @@ func _build(body: VBoxContainer, left: VBoxContainer) -> void:
 		## `_card_actions`, not `card`: `card` is the band that scrolls and the
 		## action row is the band that must not. See `_phone_card()`.
 		_build_phone_actions(_card_actions)
+		_fit_phone_card()
 	else:
 		## Desktop and tablet: the two advisories folded into one line, the
 		## full text on hover (proposal §2.1). `MOUSE_FILTER_PASS` because a
@@ -1026,6 +1066,7 @@ func _build_preview(parent: VBoxContainer) -> void:
 	var stage := PanelContainer.new()
 	stage.name = "nw_preview_stage"
 	stage.add_theme_stylebox_override("panel", DccTheme.flat(DccTheme.c("bg")))
+	_preview_stage = stage
 	stage.custom_minimum_size = Vector2(0.0 if _phone else float(display_w), round(display_w * PREVIEW_REGION_ASPECT))
 	stage.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stage.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -1605,6 +1646,7 @@ func _phone_card(parent: Control) -> VBoxContainer:
 
 	## §6.7's `padding:18px 16px 16px`.
 	var pad := MarginContainer.new()
+	_card_pad = pad
 	pad.add_theme_constant_override("margin_left", 16)
 	pad.add_theme_constant_override("margin_right", 16)
 	pad.add_theme_constant_override("margin_top", 18)
@@ -1631,7 +1673,27 @@ func _phone_card(parent: Control) -> VBoxContainer:
 	col.add_theme_constant_override("separation", 0)
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	pad.add_child(col)
-	_card_actions = col
+
+	## Landscape (`PHONE_LAND_MIN_DP`): `_card_bands` seats the preview column
+	## (`_land_scroll`, hidden in portrait) beside `_card_scroll`. In portrait it
+	## holds only `_card_scroll`, and an HBox with one expanding child lays that
+	## out exactly as the bare scroller was.
+	_card_bands = HBoxContainer.new()
+	_card_bands.add_theme_constant_override("separation", 16)
+	_card_bands.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_child(_card_bands)
+	_land_scroll = ScrollContainer.new()
+	_land_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_land_scroll.custom_minimum_size.x = PHONE_LAND_LEFT_W
+	_land_scroll.visible = false
+	_card_bands.add_child(_land_scroll)
+	## The right-hand column: the form's scroller over the pinned action row. In
+	## portrait it is the whole card body (as `col` was), in landscape it sits
+	## beside the preview column so that column gets the row's height too.
+	_card_actions = VBoxContainer.new()
+	_card_actions.add_theme_constant_override("separation", 0)
+	_card_actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_card_bands.add_child(_card_actions)
 
 	_card_scroll = ScrollContainer.new()
 	## Same reason the outer scroller disables it: the form's width is §6.7's
@@ -1639,7 +1701,7 @@ func _phone_card(parent: Control) -> VBoxContainer:
 	## 360 dp card would be a second way to lose a control off the edge.
 	_card_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_card_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_child(_card_scroll)
+	_card_actions.add_child(_card_scroll)
 
 	_card_form = VBoxContainer.new()
 	_card_form.add_theme_constant_override("separation", 2)
@@ -1677,8 +1739,50 @@ func _fit_phone_card() -> void:
 	if scale <= 0.0:
 		return
 	var dp := int(host.get_viewport_rect().size.x / scale)
+	var dp_h := int(host.get_viewport_rect().size.y / scale)
+	var land := dp >= PHONE_LAND_MIN_DP and dp > dp_h
+	_apply_phone_landscape(land)
 	_card.custom_minimum_size.x = float(
-		clampi(dp - 2 * PHONE_CARD_INSET, PHONE_CARD_MIN_W, PHONE_CARD_MAX_W))
+		clampi(dp - 2 * PHONE_CARD_INSET, PHONE_CARD_MIN_W,
+			PHONE_CARD_MAX_W_LAND if land else PHONE_CARD_MAX_W))
+
+## Moves the card between its portrait form (one scrolling column, preview
+## first) and its landscape form (preview column left, everything else right,
+## each scrolling on its own, the Cancel / Create row still pinned under both).
+## The preview group is the only node that changes parent, so no control is
+## rebuilt and no handler re-bound; a no-op when the orientation is unchanged.
+## It also trims what costs height a rotated card does not have: the card's
+## vertical padding, the preview stage and the "NEW WORLD" header band (the
+## dialog's identity stays in the Create / Cancel row and the preview caption).
+## Must never touch desktop or tablet: `_grp_preview` is null there.
+func _apply_phone_landscape(land: bool) -> void:
+	if _grp_preview == null or _land_scroll == null or land == _phone_land:
+		return
+	_phone_land = land
+	var from := _grp_preview.get_parent()
+	if from != null:
+		from.remove_child(_grp_preview)
+	if land:
+		_land_scroll.add_child(_grp_preview)
+		_grp_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	else:
+		_card_form.add_child(_grp_preview)
+		_card_form.move_child(_grp_preview, 0)
+	_land_scroll.visible = land
+	if _phone_head_wrap != null:
+		_phone_head_wrap.visible = not land
+	if _card_pad != null:
+		_card_pad.add_theme_constant_override("margin_top", PHONE_LAND_PAD_V if land else 18)
+		_card_pad.add_theme_constant_override("margin_bottom", PHONE_LAND_PAD_V if land else 16)
+	if _preview_stage != null:
+		_preview_stage.custom_minimum_size.y = float(PHONE_LAND_STAGE_H) if land \
+			else round(PREVIEW_DISPLAY_W_PHONE * PREVIEW_REGION_ASPECT)
+	## The history thumbnails drop to the 44 dp touch floor in landscape: at
+	## their portrait height they pushed the extent chips under the card's fold.
+	for hb: Button in _history_buttons:
+		hb.custom_minimum_size.y = float(DccTheme.PHONE_TAP_MIN) if land else THUMB_SIZE_PHONE.y
+	_land_scroll.scroll_vertical = 0
+	_fit_phone_card_height.call_deferred()
 
 ## **The card's height, so its action row cannot leave the viewport.**
 ##
@@ -1701,7 +1805,7 @@ func _fit_phone_card() -> void:
 ## already has. The horizontal axis is untouched -- the card's width minimum is
 ## still `_fit_phone_card()`'s clamp above and nothing here contributes to it.
 func _fit_phone_card_height() -> void:
-	if _card == null or _card_scroll == null or _card_form == null:
+	if _card == null or _card_scroll == null or _card_form == null or _card_bands == null:
 		return
 	if _outer_scroll == null:
 		return
@@ -1718,15 +1822,26 @@ func _fit_phone_card_height() -> void:
 	var avail := _outer_scroll.size.y - frame
 	if avail <= 0.0:
 		return
+	## `_card_bands` (not `_card_scroll`) is the band whose height is capped: it
+	## is `_card_scroll` alone in portrait and the taller of the two columns in
+	## landscape, and an HBox's minimum height is its tallest child's.
 	var chrome := _card.get_combined_minimum_size().y \
+		- _card_bands.get_combined_minimum_size().y
+	## The pinned row under the form scroller (the part of `_card_actions` that is
+	## not `_card_scroll`); in landscape the preview column does not carry it.
+	var row_h := _card_actions.get_combined_minimum_size().y \
 		- _card_scroll.get_combined_minimum_size().y
-	var want := _card_form.get_combined_minimum_size().y
-	var capped := minf(want, maxf(0.0, avail - chrome))
+	var capped := minf(_card_form.get_combined_minimum_size().y,
+		maxf(0.0, avail - chrome - row_h))
+	var capped_left := minf(_grp_preview.get_combined_minimum_size().y,
+		maxf(0.0, avail - chrome)) if _phone_land else capped
 	## Guarded so an assignment that changes nothing does not queue a layout
 	## pass -- `custom_minimum_size` notifies unconditionally, and this runs
 	## from `resized`.
 	if absf(_card_scroll.custom_minimum_size.y - capped) > 0.5:
 		_card_scroll.custom_minimum_size.y = capped
+	if absf(_land_scroll.custom_minimum_size.y - capped_left) > 0.5:
+		_land_scroll.custom_minimum_size.y = capped_left
 
 ## §6.7's dice button -- `44 x 42`, radius 12, glyph `⚄` -- drawn with
 ## `DccIcons`' own `dice` mark rather than U+2684. That is `dcc_icons.gd`'s
