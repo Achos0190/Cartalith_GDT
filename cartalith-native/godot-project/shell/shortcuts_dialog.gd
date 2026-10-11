@@ -39,7 +39,8 @@ class_name ShortcutsDialog
 ##   "Restore all to defaults" for the whole table.
 ##
 ## **What editable mode does NOT cover, and why**: `[UNLISTED]` below never
-## grows a rebind control, in either mode. Those four rows are real
+## grows a rebind control, in either mode. Those rows (six at time of writing;
+## the first four are the ones this paragraph names) are real
 ## accelerators, but none of them are `menus.gd` accelerators -- the layer
 ## digits are an `InputMap` action (`layers_popover.gd`), Space is a held
 ## modifier read straight off `Input.is_key_pressed` (`viewport_host.gd`), and
@@ -65,15 +66,25 @@ class_name ShortcutsDialog
 ## same key means different things with a tool armed", is not a bug this
 ## dialog polices.
 
+## The owning `DccApp`, typed `Node` like every sibling window's reference.
+## Used for `.menus` (rebindability, default accelerators) and the phone
+## fit/present calls; never null after [`setup`].
 var _app: Node
+## The scrolled row list. Emptied and refilled by every [`_rebuild`]; nothing
+## else may add to it, or a stale row survives a reopen.
 var _list: VBoxContainer
+## True when `DccWidgets.phone_window()` decided this is the phone shell; raises
+## chip and row heights to `DccTheme.PHONE_TAP_MIN`.
 var _phone := false
 
 ## Toggled by which entry point opened the dialog. Read-only Help traffic
 ## (`open()`) never sets this; `open_editable()` does. `_rebuild()` is the
 ## only place that reads it -- one row builder, one list, two renderings.
 var _editable := false
+## The "Restore all to defaults" strip; visible only in editable mode.
 var _edit_bar: HBoxContainer
+## One-line feedback (conflict list or restore confirmation). Empty means
+## "no conflict", never "not checked" -- see [`_collision_text`].
 var _status: Label
 
 ## Populated fresh by every `_rebuild()`, only for rows `_editable` actually
@@ -83,6 +94,8 @@ var _status: Label
 ## already answers to the chord -- so the message is a list, not one name.
 var _capture_popups: Dictionary = {}
 var _capture_labels: Dictionary = {}
+## `id -> Button`: the rebind chip of each editable row, so a capture can be
+## repainted ([`_begin_capture`], [`_end_capture_visual`]) without a rebuild.
 var _capture_chips: Dictionary = {}
 
 ## The action id currently waiting for a keypress, or `-1`. Set by clicking a
@@ -115,6 +128,10 @@ const UNLISTED: Array = [
 	["Edit", "Ctrl+Y", "Redo (second accelerator beside Ctrl+Shift+Z)", "the main window"],
 ]
 
+## Builds the dialog's fixed chrome once (hint, edit bar, status line, scrolled
+## list) and applies the phone-window protocol; rows are NOT built here but by
+## [`_rebuild`] on every open. Must be called once, before `open*()`; it never
+## reads the menus itself, because they may not exist yet at build time.
 func setup(app: Node) -> void:
 	_app = app
 	title = "Keyboard shortcuts"
@@ -155,8 +172,6 @@ func setup(app: Node) -> void:
 	_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.add_child(_list)
 
-## `Help ▸ Keyboard shortcuts…` -- read-only, exactly as before this file
-## grew an editable mode.
 ## Calls two and three of the phone protocol, in one place because there are two
 ## entry points and they had the same defect.
 ##
@@ -176,6 +191,10 @@ func _present_phone_aware() -> void:
 	if not DccWidgets.phone_present(self, _app):
 		popup_centered()
 
+## `Help ▸ Keyboard shortcuts…` -- read-only, exactly as before this file
+## grew an editable mode. Hides the edit chrome, rebuilds from the live menus,
+## then presents. Must never leave `_editable` true from a previous
+## `open_editable()`, or a read-only sheet would show rebind chips.
 func open() -> void:
 	_editable = false
 	_edit_bar.visible = false
@@ -193,6 +212,10 @@ func open_editable() -> void:
 	_rebuild()
 	_present_phone_aware()
 
+## Clears and regenerates the whole list from the live menus plus [`UNLISTED`],
+## and resets capture state. The single place rows are built, so a rebind, a
+## reset and a reopen all go through the same code. It must never leave the
+## dialog empty without saying so (the `found == 0` branch).
 func _rebuild() -> void:
 	for c in _list.get_children():
 		c.queue_free()
@@ -235,6 +258,9 @@ func _collect_from_menus() -> Array:
 		_walk_popup(popup, last_menu, out)
 	return out
 
+## Appends one record per accelerator-bearing item of `popup`, recursing into
+## submenus (resolved by name as child nodes of `popup`). Items with accelerator
+## `0` are skipped -- which is why `0` must never be committed as a binding.
 func _walk_popup(popup: PopupMenu, menu_name: String, out: Array) -> void:
 	for i in popup.item_count:
 		var accel: int = popup.get_item_accelerator(i)
@@ -253,26 +279,32 @@ func _walk_popup(popup: PopupMenu, menu_name: String, out: Array) -> void:
 ## `MenuButton`s keep their popup as an INTERNAL child, so the default
 ## `get_children()` walk finds none of them -- the trap `_loddbg_probe.gd`
 ## documents paying for. `get_children(true)` is load-bearing here.
+## Returns every `MenuButton` under `n` (despite the name: a list of buttons,
+## not a single `MenuBar` node), in tree order, which is menu order.
 func _find_menu_bar(n: Node) -> Array:
 	var buttons: Array = []
 	_gather_menu_buttons(n, buttons)
 	return buttons
 
+## Depth-first collector behind [`_find_menu_bar`]; appends to `out`.
 func _gather_menu_buttons(n: Node, out: Array) -> void:
 	if n is MenuButton:
 		out.append(n)
 	for c in n.get_children(true):
 		_gather_menu_buttons(c, out)
 
+## Human text for a Godot accelerator code; `"—"` for `0` (no shortcut).
 func _accel_text(accel: int) -> String:
 	return OS.get_keycode_string(accel) if accel != 0 else "—"
 
+## A small upper-cased section heading row (menu-less group titles).
 func _group(text: String) -> void:
 	var l := DccTheme.mono_label(text.to_upper(), "text_dim", DccTheme.FS_SMALL, 1)
 	l.custom_minimum_size.y = 26
 	l.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_list.add_child(l)
 
+## A dim wrapped explanatory line inside the list (used for the empty-walk warning).
 func _note_row(text: String) -> void:
 	var l := DccTheme.label(text, "text_dim", DccTheme.FS_SMALL)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD
@@ -365,6 +397,10 @@ func _set_capturing(id: int) -> void:
 	_capturing_id = id
 	dialog_close_on_escape = (id == -1)
 
+## Arms capture for row `id`: abandons any other row's pending capture first
+## (so only one chip ever reads "Press a key…"), clears stale status, and
+## highlights the chip. The next non-modifier keypress is taken by
+## [`_unhandled_key_input`].
 func _begin_capture(id: int) -> void:
 	if _capturing_id != -1 and _capturing_id != id:
 		_end_capture_visual(_capturing_id)
@@ -424,6 +460,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	get_viewport().set_input_as_handled()
 	_commit_capture(id, accel)
 
+## Writes the captured chord: persists it in `DccSettings`, reapplies it to the
+## live popup item, reports every other row now sharing it (never blocking),
+## and rebuilds. Must never be called with `accel == 0` (see the guard in
+## [`_unhandled_key_input`]).
 func _commit_capture(id: int, accel: int) -> void:
 	_set_capturing(-1)
 	var pi: Dictionary = _capture_popups.get(id, {})
@@ -489,6 +529,8 @@ func _collision_text(others: Array) -> String:
 	var how_many := "both" if total == 2 else ("all three" if total == 3 else "all %d" % total)
 	return "Also bound to %s -- %s will fire until one of them changes." % [joined, how_many]
 
+## Drops row `id`'s override and restores the menu's shipped accelerator on the
+## live item, then rebuilds (the row's "reset" control disappears).
 func _reset_one(id: int) -> void:
 	var pi: Dictionary = _capture_popups.get(id, {})
 	if pi.is_empty():

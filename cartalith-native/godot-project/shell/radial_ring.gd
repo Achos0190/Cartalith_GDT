@@ -86,6 +86,8 @@ var _r_disc_margin := DISC_MARGIN
 var _r_sub_disc_margin := SUB_DISC_MARGIN
 var _r_push_past := PUSH_PAST
 
+## Still-hold threshold in milliseconds (MAP_CONTEXT_SCOPE.md §6, quoted
+## beside it) after which an unmoved RMB press opens ring and card together.
 const HOLD_MS := 300     ## §6: "hold >= 300ms, still" -> ring + card
 ## §6: "the ring appears only if the button is still held after 150ms" --
 ## measured from the moment travel first exceeded the click slop, not from
@@ -93,15 +95,28 @@ const HOLD_MS := 300     ## §6: "hold >= 300ms, still" -> ring + card
 ## as a separate named constant here (not shared code) because the two files
 ## must not import from each other for a single number, but must not drift
 ## either -- if one changes, grep the other's citation of this comment.
+## Delay in milliseconds between first exceeding [`CLICK_SLOP`] and the ring
+## being drawn (§6's no-wait flick: a quick flick selects before it is seen).
 const FLICK_MS := 150
+## Pointer travel in pixels below which a press is still a click, not a drag;
+## same figure as `map_overlay.gd`'s `_RMB_CLICK_SLOP` (see above on why it is
+## duplicated). Judgement carried from the spec, not measured here.
 const CLICK_SLOP := 8.0
 
+## The eight compass directions, clockwise from north; also the key set of the
+## `slots` dictionary a provider hands to [`arm`] and the iteration order of
+## every hover/draw loop. Must stay in step with [`ANGLES`].
 const DIRS := ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+## Screen-space angle in degrees (0 = east, y down, so north is -90) of each
+## [`DIRS`] slot's centre on the ring. Eight slots 45 degrees apart; the hover
+## test picks the nearest of these, so sectors are 45 degrees wide.
 const ANGLES := {
 	"N": -90.0, "NE": -45.0, "E": 0.0, "SE": 45.0,
 	"S": 90.0, "SW": 135.0, "W": 180.0, "NW": -135.0,
 }
 
+## The owning `DccApp` (untyped, like sibling shell nodes). Used only for the
+## context-surface pause/resume pair in [`_set_active`]; null-guarded there.
 var app
 
 ## `_armed`: a press has been recorded and the gesture has not yet declared
@@ -110,18 +125,35 @@ var app
 ## open surface, whether or not it is currently *drawn* (`_visible`).
 var _armed := false
 var _active := false
+## `_visible`: whether the ring is currently drawn (a flick may be `_active`
+## but not yet drawn, see [`FLICK_MS`]). Shadows nothing: Control's own flag is
+## `visible`, which is kept equal to this whenever either is written.
 var _visible := false
+## True once the gesture has ended and the ring stays open awaiting a click
+## (a tap, or a still release); [`release`] reads it to tell first release from
+## a later click.
 var _sticky := false
+## True for the Q-key path: visible at once, no hold/flick timing.
 var _q := false
+## The eight-entry compass the provider built: `dir -> {glyph, label,
+## callable | children, enabled, armed, shortcut, reason}`. Read-only here.
 var _slots: Dictionary = {}
+## Ring centre in this control's space, already clamped on-screen.
 var _centre := Vector2.ZERO
+## Where and when (msec ticks) the press was recorded; the origin of slop and
+## hold measurements.
 var _press_pos := Vector2.ZERO
 var _press_ms := 0
+## Tick at which travel first exceeded [`CLICK_SLOP`], or -1 if it has not.
 var _moved_ms := -1
+## Hovered direction key from [`DIRS`], or `""` for the dead zone / none.
 var _hover := ""
 var _sub: Dictionary = {}   ## {} closed; else {"dir","items","centre","hover"}
 
 
+## One-time wiring: stores the app, makes this node a top-level, input-transparent
+## overlay (it must never take mouse events; `map_overlay.gd` owns them), hides
+## it and computes the touch geometry. Must run before the first [`arm`].
 func setup(app_ref) -> void:
 	app = app_ref
 	## Drawn above the whole shell in its own space, independent of whatever
@@ -171,18 +203,23 @@ func _disc_radius() -> float:
 	return _r_ring + _r_slot * 0.5 + _r_disc_margin
 
 
+## Diameter of one sub-ring slot (live, touch-scaled).
 func _sub_slot_size() -> float:
 	return _r_slot * SUB_SLOT_RATIO
 
 
+## Radius of the sub-ring's backing disc (mockup `SUBR+SSLOT/2+10`).
 func _sub_disc_radius() -> float:
 	return _r_sub_ring + _sub_slot_size() * 0.5 + _r_sub_disc_margin
 
 
+## Diameter of the centre CLOSE/BACK button (live, touch-scaled).
 func _centre_size() -> float:
 	return _r_slot * CENTRE_RATIO
 
 
+## True while the ring is a live gesture or sticky surface, drawn or not.
+## Callers use it to decide whether pointer events are theirs or the ring's.
 func is_open() -> bool:
 	return _active
 
@@ -300,6 +337,10 @@ func pointer(pos: Vector2) -> void:
 		queue_redraw()
 
 
+## Timer driver, enabled only while a gesture is outstanding ([`arm`] turns it
+## on, every settle path turns it off): fires the still-hold ([`HOLD_MS`]) and
+## reveals a flicked ring ([`FLICK_MS`]). Must never run for the Q path or an
+## idle ring -- it switches itself off in both cases.
 func _process(_dt: float) -> void:
 	if _q:
 		set_process(false)
@@ -396,6 +437,9 @@ func click_at(pos: Vector2) -> Callable:
 	return release()
 
 
+## Ends the gesture from any state: resets every flag, drops the sub-ring, hides
+## the node and releases the world-pause via [`_set_active`]. Idempotent; the
+## one exit every cancel and every completed pick goes through.
 func close() -> void:
 	_armed = false
 	_set_active(false)
@@ -407,6 +451,10 @@ func close() -> void:
 	queue_redraw()
 
 
+## Opens `dir`'s sub-ring in place: its centre sits one ring radius out along
+## that direction (clamped on-screen), and it replaces the main ring's hover
+## handling until closed. `items` are leaf rows (`label`, optional `glyph`,
+## `callable`); the sub-ring has no further nesting (§5.2 rule 2).
 func _open_sub(dir: String, items: Array) -> void:
 	var ang := deg_to_rad(ANGLES[dir])
 	var sub_centre: Vector2 = _centre + Vector2(cos(ang), sin(ang)) * _r_ring
@@ -417,6 +465,10 @@ func _open_sub(dir: String, items: Array) -> void:
 	queue_redraw()
 
 
+## Recomputes the hovered main slot from `pos`: dead zone, else the nearest
+## [`ANGLES`] direction by angular distance; dragging past
+## `_r_ring + _r_push_past` over an enabled `▸` slot opens its sub-ring
+## instead. Emits [`hover_entered`] only on a change to a real slot.
 func _update_hover(pos: Vector2) -> void:
 	var prev := _hover
 	var dist := pos.distance_to(_centre)
@@ -453,6 +505,9 @@ func _update_hover(pos: Vector2) -> void:
 		hover_entered.emit()
 
 
+## The sub-ring counterpart of [`_update_hover`]: slots are spread evenly from
+## north (`360/n` apart, matching [`_draw_sub_ring`]), so the nearest-angle
+## rule must use the same layout or hover and drawing disagree.
 func _update_sub_hover(pos: Vector2) -> void:
 	var c: Vector2 = _sub["centre"]
 	var items: Array = _sub["items"]
@@ -494,6 +549,8 @@ func _clamp_centre(pos: Vector2) -> Vector2:
 
 # -- Drawing ------------------------------------------------------------------
 
+## Draws the whole ring in the mockup's DOM order (listed below). Draws nothing
+## unless the gesture is both active and visible; never mutates state.
 func _draw() -> void:
 	if not _active or not _visible:
 		return
@@ -657,6 +714,9 @@ func _draw_ring(centre: Vector2, radius: float, _dead: float, slots: Dictionary,
 		_draw_fitted_slot(pos, _r_slot * 0.5, String(row.get("glyph", "")), String(row.get("label", "")), ink)
 
 
+## Draws the sub-ring's slots (evenly spaced from north, same layout as
+## [`_update_sub_hover`]); the hovered slot is accent-filled. Text-only rows are
+## normal -- see the note inside on glyphs.
 func _draw_sub_ring(centre: Vector2, items: Array, hover_i: int) -> void:
 	var n := items.size()
 	var d := _sub_slot_size()
@@ -768,6 +828,8 @@ static func _split_label(text: String) -> Array:
 	return [l1, l2]
 
 
+## Smallest font size [`_draw_fitted_slot`] will shrink to. Judgement, per the
+## trailing note: Plex Mono is unreadable below it.
 const MIN_LABEL_FS := 7  ## Never shrunk past this -- Plex Mono is unreadable below it.
 
 ## Draws a glyph (optional) and its label inside a circle of `slot_radius`

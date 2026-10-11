@@ -49,9 +49,14 @@ enum PickKind { FOLDERS, FILES, SAVE }
 ## rows than anyone scrolls", not measured.
 const COUNT_ROWS_MAX := 120
 
+## Which of the three pick modes this instance runs; set once by [`setup`].
 var _mode: PickKind = PickKind.FOLDERS
 var _extensions: PackedStringArray = PackedStringArray()  ## lower-case, no dot.
+## Called with the one absolute chosen path, after the dialog hides. Guarded by
+## `is_valid()` at the call so a freed caller cannot crash the confirm.
 var _on_choose := Callable()
+## The folder currently listed: absolute, `simplify_path()`-normalised, always
+## an existing directory ([`navigate`] falls back to [`home_dir`] otherwise).
 var _cwd := ""
 ## The row the user clicked, or "" for "no row -- the current folder itself".
 ## Folder mode confirms `_selected` if set and `_cwd` otherwise, which is what
@@ -60,14 +65,23 @@ var _cwd := ""
 ## selected there is no file to return, so the primary button is disabled.
 var _selected := ""
 
+## The breadcrumb segments' container (inside `_crumb_scroll`); cleared and
+## refilled by [`_refresh_crumbs`], never edited elsewhere.
 var _crumb_row: HBoxContainer
 ## The viewport `_crumb_row` scrolls inside. Held because `_refresh_crumbs()`
 ## has to re-pin it to its tail after every rebuild -- see `_pin_crumbs()`.
 var _crumb_scroll: ScrollContainer
+## The typeable current-folder well; mirrors `_cwd` (or the picked file in
+## FILES mode) and navigates on submit.
 var _path_edit: LineEdit
+## The scrolled row list; rebuilt by [`_refresh_list`].
 var _list: VBoxContainer
+## The foot hint, which doubles as the failure line for New folder (see
+## [`_build_foot`] on why it must be the foot row's expanding child).
 var _foot_note: Label
+## The Open / Use this folder / Save button; enabled by [`_refresh_primary`].
 var _primary: Button
+## Rows currently listed, so selection can repaint without a rebuild.
 var _rows: Dictionary = {}   ## absolute path -> PanelContainer
 ## SAVE mode only: the foot's file-name field and the name it opens with.
 var _name_edit: LineEdit
@@ -387,6 +401,10 @@ static func choose_save_path(host: Node, dialog_title: String, extension: String
 	return _spawn(host, dialog_title, PickKind.SAVE, PackedStringArray([extension]),
 		start_dir, footnote, on_choose, default_name, lod_option_text)
 
+## Builds, parents and shows one dialog: stores the optional fields before
+## [`setup`] (which reads them), arranges self-free on hide, lists `start_dir`
+## and presents (phone-aware). Every public entry point funnels through here,
+## so the lifetime rule (one dialog per invocation, freed on close) lives once.
 static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		extensions: PackedStringArray, start_dir: String, footnote: String,
 		on_choose: Callable, default_name: String = "",
@@ -424,6 +442,9 @@ static func _shell_of(host: Node) -> Node:
 		n = n.get_parent()
 	return n
 
+## Configures a freshly created dialog: mode, normalised extensions, title,
+## window sizing, phone treatment and the built layout. Does not list a folder
+## (that is [`navigate`]'s job, called by [`_spawn`]); must run before it.
 func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 		footnote: String, on_choose: Callable) -> void:
 	_mode = mode
@@ -483,6 +504,8 @@ func _build(dialog_title: String, footnote: String) -> void:
 	outer.add_child(DccTheme.rule())
 	outer.add_child(_build_foot(footnote))
 
+## The title row: modal title left, a flat close glyph right. The mockup's `✕`
+## only hides the dialog; it is not a cancel callback (none is ever invoked).
 func _build_head(dialog_title: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
@@ -656,6 +679,8 @@ func _build_places() -> Control:
 	scroll.add_child(row)
 	return _pad(scroll, 28, 2, 28, 10)
 
+## The typeable path field. It never errors at the user: a bad entry simply
+## restores the current folder text ([`_on_path_submitted`]).
 func _build_path_well() -> Control:
 	_path_edit = LineEdit.new()
 	_path_edit.add_theme_font_override("font", DccTheme.mono())
@@ -856,6 +881,11 @@ static func _places() -> Array:
 		add.call("App storage", OS.get_user_data_dir())
 	return out
 
+## Lists `dir`: normalises it, falls back to [`home_dir`] if it is not an
+## existing directory (so a stale or typed bad path can never leave the dialog
+## with no folder), clears the selection and rebuilds crumbs, rows and the
+## primary button. The one function every jump (crumb, place, row, path well)
+## goes through.
 func navigate(dir: String) -> void:
 	var target := dir.simplify_path()
 	if target == "" or not DirAccess.dir_exists_absolute(target):
@@ -873,6 +903,9 @@ func navigate(dir: String) -> void:
 	if _phone:
 		_shell.phone_fit(self, 1.0)
 
+## Enter in the path well: a directory navigates; in FILES mode a matching
+## existing file navigates to its folder and selects it; anything else (including
+## any path in FOLDERS or SAVE mode that is not a directory) reverts the text.
 func _on_path_submitted(text: String) -> void:
 	var p := text.strip_edges().simplify_path()
 	if DirAccess.dir_exists_absolute(p):
@@ -883,6 +916,10 @@ func _on_path_submitted(text: String) -> void:
 	else:
 		_path_edit.text = _cwd
 
+## Rebuilds the breadcrumb from `_cwd`, one jump button per segment, last one
+## accent. Handles both POSIX roots (leading `/`) and Windows drives (first
+## segment is the drive, jump target gets a trailing `/`). Ends by re-pinning
+## the scroll to the tail.
 func _refresh_crumbs() -> void:
 	## `remove_child` before `queue_free`: freeing alone is deferred to the end
 	## of the frame, so two navigations inside one frame would draw the new
@@ -925,6 +962,10 @@ func _refresh_crumbs() -> void:
 	## viewport is the expanding child now.
 	_pin_crumbs()
 
+## Rebuilds the row list for `_cwd`: folders (always live), then files (live
+## only when the mode takes files and the extension matches), then the New
+## folder row. Reports an unreadable folder in place of rows. Item counts are
+## skipped past [`COUNT_ROWS_MAX`] rows to avoid a directory open per row.
 func _refresh_list() -> void:
 	for c in _list.get_children():
 		_list.remove_child(c)
@@ -1101,6 +1142,9 @@ func _build_new_folder_row() -> Control:
 # Selection
 # ---------------------------------------------------------------------------
 
+## Moves the selection to `path`, repainting both rows. FILES mode echoes the
+## path into the well; SAVE mode copies just the file name into the name field
+## (the overwrite gesture); FOLDERS mode only highlights.
 func _select(path: String) -> void:
 	var previous := _selected
 	_selected = path
@@ -1138,6 +1182,8 @@ func _paint_row(path: String, on: bool) -> void:
 		meta.add_theme_color_override("font_color",
 			DccTheme.c("accent") if on else DccTheme.c("text_ghost"))
 
+## Enables or disables the primary button per mode: FILES needs a selection,
+## SAVE needs a usable name, FOLDERS is always answerable (the current folder).
 func _refresh_primary() -> void:
 	## Folder mode always has an answer -- the current folder, if no child row
 	## is highlighted. File mode needs a file; save mode needs a name.
@@ -1161,6 +1207,11 @@ func _save_path() -> String:
 		name += "." + _extensions[0]
 	return _cwd.path_join(name)
 
+## Primary-button action and double-click-a-file action: resolves the answer
+## per mode (selection or `_cwd`; the typed name in SAVE), refuses silently when
+## there is none, hides, then calls `_on_choose`. Hiding first means the
+## callback runs after the dialog is on its way to being freed, so the callback
+## must not touch this dialog (except `lod_tiles_checked`, read afterwards).
 func _confirm() -> void:
 	var path := _selected if _selected != "" else _cwd
 	if _mode == PickKind.SAVE:
@@ -1177,6 +1228,8 @@ func _confirm() -> void:
 # Helpers
 # ---------------------------------------------------------------------------
 
+## True when `path`'s extension (case-insensitive) is in `_extensions`, or when
+## no filter was given.
 func _extension_ok(path: String) -> bool:
 	if _extensions.is_empty():
 		return true
@@ -1206,6 +1259,8 @@ static func _ignore_mouse(node: Node) -> void:
 			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_ignore_mouse(child)
 
+## The outlined input-well style shared by the path field and the SAVE name
+## field. Margins are the mockup's well padding (judgement, matched by eye).
 func _well() -> StyleBoxFlat:
 	var sb := DccTheme.outline("line")
 	sb.content_margin_left = 12
@@ -1214,6 +1269,8 @@ func _well() -> StyleBoxFlat:
 	sb.content_margin_bottom = 8
 	return sb
 
+## Wraps `child` in a `MarginContainer` with the given left/top/right/bottom
+## margins in pixels; the dialog's only padding mechanism.
 func _pad(child: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", l)

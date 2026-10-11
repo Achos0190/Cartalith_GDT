@@ -19,8 +19,10 @@ class_name DccWidgets
 
 # -- L2 category --------------------------------------------------------------
 
-## A collapsible category. Returns the body VBox; `header_extra` may add a
-## readout to the right of the caret. Categories are accordion siblings --
+## A collapsible category. Returns the body VBox (the caller fills it). There is
+## no `header_extra` parameter (an earlier version of this comment named one);
+## on the phone only, a control-count label is added right of the header.
+## Categories are accordion siblings --
 ## `group` ties them together so opening one closes the rest.
 static func category(parent: Control, title: String, group: Array,
 		open: bool = false) -> VBoxContainer:
@@ -102,6 +104,7 @@ static func category(parent: Control, title: String, group: Array,
 ## dictionary on a helper object so the state dies with the body -- a freed
 ## body takes its pending fill with it, and nothing here keeps it alive.
 const _LAZY_FILL_META := &"dcc_lazy_fill"
+## See the comment above: set once the body's `visibility_changed` is wired.
 const _LAZY_WIRED_META := &"dcc_lazy_wired"
 
 ## Run `fill` now if `body` is on screen, otherwise remember it and run it the
@@ -179,6 +182,9 @@ static func _fill_category_count(body: Node, label: Label) -> void:
 	var n := _count_controls(body)
 	label.text = "%d" % n if n > 0 else ""
 
+## Recursive control counter behind [`_fill_category_count`]: `SpinBox` and
+## `OptionButton` count once and are not descended (their internals are several
+## controls), buttons/ranges/line and text edits count once, containers recurse.
 static func _count_controls(node: Node) -> int:
 	var n := 0
 	for child in node.get_children():
@@ -191,6 +197,10 @@ static func _count_controls(node: Node) -> int:
 		n += _count_controls(child)
 	return n
 
+## Accordion step: opens `entry`'s body if it was closed and closes every
+## sibling in `group`; clicking the open one closes it (so zero may be open).
+## Also swaps the caret glyph and header colour, which must stay in step with
+## the initial state [`category`] writes.
 static func _toggle_category(entry: Dictionary, group: Array) -> void:
 	var opening: bool = not (entry["body"] as Control).visible
 	for e in group:
@@ -661,6 +671,9 @@ static func toggle(parent: Control, label_text: String, value: bool,
 	row.add_child(cb)
 	return cb
 
+## A labelled dropdown row; returns the `OptionButton` (preselected at index
+## `selected`). Styling is the canvas's `--ins` chip -- see the paint notes
+## inside; `on_change` is the caller's callback for a changed selection.
 static func choice(parent: Control, label_text: String, options: Array, selected: int,
 		on_change: Callable, tooltip: String = "") -> OptionButton:
 	var row := _row(parent, label_text, tooltip)
@@ -830,6 +843,10 @@ static func _desktop_window_size(dlg: AcceptDialog) -> void:
 			grip.accept_event())
 
 
+## Applies the shell's menu look to one `PopupMenu`: bordered panel with the
+## canvas shadow, item padding, row pitch via `v_separation` (with a matching
+## hover `expand_margin`), amber hover instead of Godot's blue, and the titled
+## separator band. Safe to call again on a palette flip.
 static func style_popup(popup: PopupMenu) -> void:
 	var touch := DccTheme.is_touch()
 	var panel := DccTheme.panel("panel",
@@ -973,6 +990,9 @@ static func _round_ring(px: int, color: Color) -> ImageTexture:
 				img.set_pixel(x, y, Color(color.r, color.g, color.b, a * color.a))
 	return ImageTexture.create_from_image(img)
 
+## A labelled numeric row: a `SpinBox` over `[minimum, maximum]` with `step`,
+## whose `value_changed` calls `on_change(v)`. Returns the `SpinBox`. Arrow ink
+## is repainted on palette flips (see the paint notes inside).
 static func number(parent: Control, label_text: String, minimum: float, maximum: float,
 		step: float, value: float, on_change: Callable, tooltip: String = "") -> SpinBox:
 	var row := _row(parent, label_text, tooltip)
@@ -1269,8 +1289,13 @@ static func modal_button(parent: Control, text: String, on_press: Callable,
 ## the name back. `TOOL_CAPTION_META` is set by `tools_block()` only; see there
 ## for why the feature picker does not get one.
 const TOOL_GLYPH_META := "dcc_tool_glyph"
+## Meta key: the short caption `tools_block()` draws under a tool glyph, read by
+## `DccShell.phone_fit()`. Absent on buttons that get no caption.
 const TOOL_CAPTION_META := "dcc_tool_caption"
 
+## One square toggle tool button in `group`: calls `on_armed` when it becomes
+## pressed. Stamps [`TOOL_GLYPH_META`] so the phone can re-render the glyph at a
+## larger size. Mutually exclusive arming comes from the shared `ButtonGroup`.
 static func tool_button(parent: Control, glyph: String, label_text: String,
 		group: ButtonGroup, on_armed: Callable) -> Button:
 	var b := Button.new()
@@ -1382,6 +1407,10 @@ static func tool_strip(parent: Control, app, group: ButtonGroup, domain_entries:
 ## `DccApp._sync_tool_strip()` to light the armed one.
 const TOOL_ID_META := "dcc_tool_id"
 
+## Builds one palette entry in the TOOLS block: a legend row if `e` has
+## `legend`, else a [`tool_button`] that arms `e["id"]` through `app.arm_tool`,
+## tagged with [`TOOL_ID_META`] and a caption, plus its letter shortcut if the
+## label advertises one. `app` is untyped (the `DccApp`).
 static func _tool_entry(row: Control, e: Dictionary, app, group: ButtonGroup) -> void:
 	if e.has("legend"):
 		_tool_legend(row, String(e["glyph"]), String(e["label"]), String(e["legend"]))
@@ -1930,6 +1959,12 @@ class PgSlider extends HSlider:
 	var _press_value := 0.0
 	var _started := false       ## Whether `drag_started` has been emitted.
 
+	## Swipe-versus-drag arbitration for a slider inside a vertical scroller:
+	## watches press/move/release (touch and left mouse) and decides after `slop`
+	## pixels whether the gesture is a horizontal slider drag (verdict 1) or a
+	## vertical scroll handed to the scroller (verdict -1); a tap jumps the
+	## value. Events it does not own are returned unaccepted so Godot's stock
+	## `Slider` handling runs. Must never write a disabled slider.
 	func _gui_input(event: InputEvent) -> void:
 		## A disabled slider is not ours to write, and a slider with nothing to
 		## scroll has no second axis to lose the gesture to. Returning WITHOUT
@@ -2072,6 +2107,8 @@ class PgSlider extends HSlider:
 			_scroller = DccWidgets.vertical_scroller_above(self)
 		return _scroller
 
+	## Current vertical scroll offset of the arbitrated scroller, or 0 if there
+	## is none; used to compensate positions in `_track()`.
 	func _scroll_now() -> int:
 		return _scroll().scroll_vertical if _scroll() != null else 0
 
@@ -2299,6 +2336,10 @@ class PgField extends LineEdit:
 	var _origin := Vector2.ZERO
 	var _origin_scroll := 0
 
+	## Same press/slop/verdict arbitration as `PgSlider._gui_input`, for a
+	## `LineEdit`: `focus_mode` is parked at NONE so a swipe scrolls instead of
+	## raising the keyboard, and only a tap (or a horizontal resolve) is replayed
+	## as focus via `_take_focus()`. Keys and IME are never touched.
 	func _gui_input(event: InputEvent) -> void:
 		## Nothing to arbitrate against -> hand the event back untouched. The
 		## attacher refuses this case, so reaching it means the tree changed
@@ -2363,6 +2404,9 @@ class PgField extends LineEdit:
 		_family = 0
 		_verdict = 0
 
+	## Restores the field's real `focus_mode`, focuses it and puts the caret at
+	## the end (unless `select_all_on_focus` already selected). The deferred
+	## half of a tap whose press was withheld.
 	func _take_focus() -> void:
 		if stock_focus == Control.FOCUS_NONE:
 			return              ## Its builder did not want it focusable.
@@ -2390,12 +2434,17 @@ class PgField extends LineEdit:
 		return Vector2(pos.x - float(sc.scroll_horizontal),
 			pos.y - float(sc.scroll_vertical))
 
+	## Lazily finds the nearest vertical `ScrollContainer` above (shared with
+	## the other gesture fixes via `DccWidgets.vertical_scroller_above`) and
+	## caches the answer, including a null one.
 	func _scroll() -> ScrollContainer:
 		if not _looked:
 			_looked = true
 			_scroller = DccWidgets.vertical_scroller_above(self)
 		return _scroller
 
+	## Current vertical scroll offset of the arbitrated scroller, or 0 if there
+	## is none; used to compensate positions in `_track()`.
 	func _scroll_now() -> int:
 		return _scroll().scroll_vertical if _scroll() != null else 0
 
@@ -2497,6 +2546,11 @@ class PgSpin extends SpinBox:
 	var _origin_scroll := 0
 	var _press_up := false      ## The press landed in the upper half -> step up.
 
+	## Arbitration for a `SpinBox` inside a vertical scroller: a swipe that
+	## starts on the arrow strip scrolls the container; only a tap that never
+	## leaves its slop circle steps the value (up in the strip's upper half, down
+	## in the lower, by `custom_arrow_step` or `step`). Presses off the strip and
+	## wheel/right-click are left to stock handling.
 	func _gui_input(event: InputEvent) -> void:
 		if not editable or _scroll() == null:
 			return
@@ -2575,12 +2629,17 @@ class PgSpin extends SpinBox:
 		return Vector2(pos.x - float(sc.scroll_horizontal),
 			pos.y - float(sc.scroll_vertical))
 
+	## Lazily finds the nearest vertical `ScrollContainer` above (shared with
+	## the other gesture fixes via `DccWidgets.vertical_scroller_above`) and
+	## caches the answer, including a null one.
 	func _scroll() -> ScrollContainer:
 		if not _looked:
 			_looked = true
 			_scroller = DccWidgets.vertical_scroller_above(self)
 		return _scroller
 
+	## Current vertical scroll offset of the arbitrated scroller, or 0 if there
+	## is none; used to compensate positions in `_track()`.
 	func _scroll_now() -> int:
 		return _scroll().scroll_vertical if _scroll() != null else 0
 
@@ -2623,6 +2682,9 @@ static func touch_spinbox(sb: SpinBox, slop_px: float) -> bool:
 ## recurse at all.
 const PALETTE_META := "dcc_palette_dark"
 
+## Paints `ctl` now via `painter` and again whenever the palette flips (the
+## `theme_changed` signal fires for every theme edit, so the stored
+## [`PALETTE_META`] guards against re-entry; see the comment above).
 static func _palette_watch(ctl: Control, painter: Callable) -> void:
 	ctl.set_meta(PALETTE_META, DccTheme.is_dark())
 	painter.call()
@@ -2632,6 +2694,9 @@ static func _palette_watch(ctl: Control, painter: Callable) -> void:
 		ctl.set_meta(PALETTE_META, DccTheme.is_dark())
 		painter.call())
 
+## Draws the four switch icons (checked/unchecked, enabled/disabled) onto `cb`
+## at the touch or pointer size and neutralises Godot's icon tint. Called via
+## [`_palette_watch`]; must be idempotent.
 static func _paint_switch(cb: CheckBox) -> void:
 	var touch := DccTheme.is_touch()
 	var w := 40 if touch else 30
@@ -2669,6 +2734,9 @@ static func _paint_switch(cb: CheckBox) -> void:
 	cb.add_theme_color_override("checkbox_checked_color", Color(1, 1, 1))
 	cb.add_theme_color_override("checkbox_unchecked_color", Color(1, 1, 1))
 
+## Colours a `SpinBox`'s four arrow states from palette tokens. The eight
+## `*_icon_modulate` names are not in `DccShell._THEME_COLOR_OVERRIDES`, which is
+## why [`_palette_watch`] has to re-run this on a palette flip.
 static func _paint_spin_arrows(sb: SpinBox) -> void:
 	for side in ["up", "down"]:
 		sb.add_theme_color_override(side + "_icon_modulate",
@@ -3209,6 +3277,8 @@ static func phone_color_popup(pick: ColorPickerButton) -> void:
 	pop.content_scale_factor = DccTheme.phone_scale() / maxf(0.0001, already)
 	oversample(pop, pop.content_scale_factor)
 
+## Meta key marking a `ColorPickerButton` already upgraded by the confirmable
+## picker, so a second call does not double-wire its signals.
 const _CONFIRM_META := "_dcc_confirmable_color"
 
 ## **Upgrades a `ColorPickerButton` in place into a select-and-confirm picker**
@@ -3322,6 +3392,9 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 	## way out of the tree closes that hole.
 	pick.tree_exiting.connect(cancel_close)
 
+## Raises `w`'s `oversampling_override` to `scale` (default: its own content
+## scale factor) so text stays sharp on a content-scaled popup, and keeps it
+## after resizes via [`_reoversample`]. No-op at scale <= 1 or null.
 static func oversample(w: Window, scale: float = 0.0) -> void:
 	if w == null:
 		return
@@ -3334,6 +3407,8 @@ static func oversample(w: Window, scale: float = 0.0) -> void:
 	if not w.size_changed.is_connected(_reoversample):
 		w.size_changed.connect(_reoversample.bind(w))
 
+## `size_changed` handler: re-applies the stored [`_OVERSAMPLE_META`] value
+## after a resize.
 static func _reoversample(w: Window) -> void:
 	if is_instance_valid(w) and w.has_meta(_OVERSAMPLE_META):
 		w.oversampling_override = float(w.get_meta(_OVERSAMPLE_META))
@@ -3382,6 +3457,8 @@ static func phone_head(parent: Control, title: String, subtitle: String) -> Labe
 	parent.move_child(wrap, 0)
 	return t
 
+## Adds an empty `MarginContainer` with the given pixel margins to `parent` and
+## returns it so the caller can add its own child to it.
 static func pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", l)
@@ -3748,6 +3825,7 @@ static func prompt(host: Node, title: String, field_label: String,
 # the tablet answer still comes from `btn_min_h`.
 # ---------------------------------------------------------------------------
 
+## The three modal kinds the artboard draws (confirm / destructive / warnings).
 enum { MODAL_CONFIRM, MODAL_DESTRUCTIVE, MODAL_WARNINGS }
 
 const MODAL_RADIUS := 10        ## The card. `border-radius:10px`.
@@ -3765,6 +3843,7 @@ const MODAL_STAT_H := 19        ## The stat rows' own `min-height:19px`.
 ## which is what `asset_library_window.gd::_build_slicer_modal()` already does
 ## for the one other floating card in this shell.
 const MODAL_SHADOW_COLOR := Color(0, 0, 0, 0.55)
+## Blur radius (34) and offset (0, 14) of `--shadow` above, in pixels.
 const MODAL_SHADOW_SIZE := 34
 const MODAL_SHADOW_OFFSET := Vector2(0, 14)
 
@@ -3901,6 +3980,8 @@ static func modal_inset(parent: Control, tinted: bool = false) -> VBoxContainer:
 	pc.add_child(col)
 	return col
 
+## One key/value row of a modal's stat block: an upper-cased key that expands,
+## `MODAL_STAT_H` tall. Returns the row so the caller adds the value cell.
 static func _modal_stat_row(parent: Control, key: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -4025,10 +4106,16 @@ static func modal_actions(parent: Control) -> HBoxContainer:
 	parent.add_child(row)
 	return row
 
+## Meta key stamped on every modal button: its kind (`quiet`,
+## `destructive_text` ...), so tests can tell the answers apart.
 const MODAL_KIND_META := "dcc_modal_button_kind"
 ## The card's Enter action, stamped on the dialog by `modal_choices()`.
 const MODAL_DEFAULT_META := "dcc_modal_default"
 
+## The one button builder behind every `modal_*` answer: three density heights
+## (desktop `MODAL_BTN_H`, tablet `btn_min_h`, phone `PHONE_TAP_MIN`), mono
+## label, rest and hover boxes from `bg`/`hover_bg`, ink tokens `ink`/`ink_hover`.
+## `kind` is only recorded in [`MODAL_KIND_META`].
 static func _modal_btn(row: Control, text: String, on_press: Callable,
 		kind: String, bg: Color, hover_bg: Color, ink: String,
 		ink_hover: String) -> Button:

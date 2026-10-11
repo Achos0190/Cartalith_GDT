@@ -16,9 +16,13 @@ class_name ToolOverlay
 ## which this file's own data ultimately comes from, one layer up in `DccApp`).
 
 var overlay: Control   ## `map_overlay.gd` instance -- for `displayed_rect()` only.
+## Grid size in cells; every grid-to-screen conversion divides by these. While
+## either is 0 (before [`set_grid`]) [`_draw`] draws nothing, so no divide by 0.
 var _gw := 0
 var _gh := 0
 
+## The measure chain in grid-cell coordinates (not pixels). Set by
+## [`set_measure_points`]; an empty array means no measurement is armed.
 var measure_points: PackedVector2Array = []
 ## `design/Cartalith Measurement Toolbar.dc.html` state 3's Area tool draws
 ## the same point chain as a **closed ring** (`⏎ close · ⌥ subtract hole`),
@@ -34,6 +38,8 @@ var measure_radius_cells := 0.0   ## `> 0` draws a circle at `measure_points[0]`
 ## else on screen -- the strip's "SECTION A → B", the dock's SECTION LINE).
 var measure_end_labels := false
 var region_rect := Rect2()   ## Grid-cell coords; zero size means "none".
+## True while the region marquee is being dragged (set by [`set_region`]); kept
+## for callers and probes, [`_draw`] currently draws both states identically.
 var region_dragging := false
 
 ## §10's "brush ring for paint and sculpt" -- a hollow circle at the cursor,
@@ -63,17 +69,31 @@ var path_preview: PackedVector2Array = []
 ## `bridge.label_handles(...)` values through with no reshaping.
 var handles: Array = []
 
+## Measure ruler, radius ring, point dots and brush ring colour: `DccTheme`'s
+## accent as a literal copy (alpha .95 is judgement); update with the token.
 const MEASURE_COLOR := Color(0.878, 0.639, 0.290, 0.95)   ## DccTheme accent.
+## Screen-pixel radius of a measure-chain point marker (stroke chrome, so it is
+## drawn in screen pixels and never scales with zoom). Judgement, by eye.
 const MEASURE_POINT_RADIUS := 3.0
+## Region marquee outline and wash: the same accent RGB as [`MEASURE_COLOR`]
+## (`DccTheme` accent) at 85% / 10% alpha. Alphas are judgement; the RGB must
+## track the accent token if that token changes (it is a literal copy).
 const REGION_COLOR := Color(0.878, 0.639, 0.290, 0.85)
+## Region marquee interior wash (10% alpha, judgement).
 const REGION_FILL := Color(0.878, 0.639, 0.290, 0.10)
+## Dash length in screen pixels for the region outline. Judgement, by eye.
 const REGION_DASH := 6.0
 ## Distinct from `MEASURE_COLOR` (a query tool's ruler) -- this is a
 ## construction preview, an in-progress edit, so it reads as "not committed
 ## yet" rather than "read-only measurement."
 const PATH_PREVIEW_COLOR := Color(0.427, 0.788, 0.667, 0.9)   ## teal
+## Screen-pixel radius of a path-preview vertex dot; slightly smaller than a
+## measure dot so a committed ruler outranks an in-progress path. Judgement.
 const PATH_PREVIEW_POINT_RADIUS := 2.6
+## Fill of the on-canvas drag handles.
 const HANDLE_COLOR := Color(0.549, 0.816, 1.0, 0.95)   ## `#8fd0ff`, matches the reference's own rotate-handle blue
+## Near-black ring around a handle so it reads on both light and dark terrain.
+## Judgement, not sourced.
 const HANDLE_OUTLINE := Color(0.031, 0.024, 0.016, 0.8)
 
 ## ── Rasterising at screen resolution, not control resolution ────────────────
@@ -128,14 +148,22 @@ func _process(_delta: float) -> void:
 	_camera_zoom = p.scale.x
 	queue_redraw()
 
+## Enters the screen-pixel drawing space (see the section above): applies a
+## `1/zoom` draw transform and returns `k`, the factor that converts local
+## pixels to screen pixels. Must be paired with [`_crisp_end`] on every path out
+## of [`_draw`], or later draws on this item stay scaled. `k` is floored at
+## 0.001 so a zero scale can never divide by zero.
 func _crisp_begin() -> float:
 	var k := maxf(_camera_zoom, 0.001)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
 	return k
 
+## Restores the identity draw transform after [`_crisp_begin`].
 func _crisp_end() -> void:
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
+## Makes the control click-transparent, redraws on resize and seeds the zoom
+## from the parent camera so the first frame is already crisp.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(func(): queue_redraw())
@@ -143,11 +171,14 @@ func _ready() -> void:
 	if p != null:
 		_camera_zoom = p.scale.x
 
+## Sets the grid dimensions the overlay's cell coordinates refer to. Must be
+## called after each generation or resize of the map; nothing draws before it.
 func set_grid(gw: int, gh: int) -> void:
 	_gw = gw
 	_gh = gh
 	queue_redraw()
 
+## Replaces the measure chain (grid-cell coordinates) and redraws.
 func set_measure_points(points: PackedVector2Array) -> void:
 	measure_points = points
 	queue_redraw()
@@ -160,17 +191,24 @@ func set_measure_style(closed: bool, radius_cells: float = 0.0, end_labels: bool
 	measure_end_labels = end_labels
 	queue_redraw()
 
+## Sets the region marquee, in grid-cell coordinates; a zero-size `rect` clears
+## it. `dragging` is recorded in `region_dragging` only.
 func set_region(rect: Rect2, dragging: bool = false) -> void:
 	region_rect = rect
 	region_dragging = dragging
 	queue_redraw()
 
+## Shows or hides the brush ring at grid position `(gx, gy)` with the given
+## radius in grid cells. Cheap to call every cursor sample; a non-positive
+## radius draws nothing.
 func set_brush_cursor(visible_: bool, gx: float = 0.0, gy: float = 0.0, radius_cells: float = 0.0) -> void:
 	brush_visible = visible_
 	brush_center = Vector2(gx, gy)
 	brush_radius_cells = radius_cells
 	queue_redraw()
 
+## Replaces the shared in-progress path (grid-cell coordinates) and redraws; an
+## empty array clears it. Only the one armed click-chain tool may call this.
 func set_path_preview(points: PackedVector2Array) -> void:
 	path_preview = points
 	queue_redraw()
@@ -191,6 +229,11 @@ func set_handles(raw: Array) -> void:
 func _grid_to_screen(p: Vector2, rect: Rect2, k: float = 1.0) -> Vector2:
 	return (rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size) * k
 
+## Draws all tool chrome in this order: region marquee, brush ring, measure
+## chain (ring / radius circle / polyline, then A/B labels, then point dots),
+## path preview, handles. Everything runs inside the `_crisp_begin()` pair, so
+## widths and sizes are screen pixels while positions and map distances are
+## scaled by `k`. Draws nothing without a grid or an `overlay`.
 func _draw() -> void:
 	if _gw <= 0 or _gh <= 0 or overlay == null:
 		return
@@ -305,6 +348,9 @@ func _draw() -> void:
 
 	_crisp_end()
 
+## Outlines `r` with `draw_dashed_line` on its four sides (Godot has no dashed
+## rect primitive). `width` and `dash` are in the current draw space, i.e.
+## screen pixels inside [`_draw`]; dashes restart at each corner.
 func _draw_dashed_rect(r: Rect2, color: Color, width: float, dash: float) -> void:
 	var corners := [r.position, r.position + Vector2(r.size.x, 0), r.position + r.size, r.position + Vector2(0, r.size.y)]
 	for i in 4:

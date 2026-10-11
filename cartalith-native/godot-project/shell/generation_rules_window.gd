@@ -65,21 +65,32 @@ class_name GenerationRulesWindow
 ## caller here; a future per-field editor would use it, not a new bridge
 ## call.
 
+## The owning `DccApp` (untyped, like sibling windows). Reached only for
+## `phone_fit` and `viewport.forget_all_urban_layouts`; both calls are guarded.
 var app                       ## `DccApp`
+## The Rust bridge; every read and write of the active urban rule set goes
+## through it. This window keeps no rule state of its own beyond `_rules`, a
+## cache that must be re-read after every write.
 var bridge: EngineBridge
 
 var _rules: Dictionary = {}   ## last `get_active_urban_rules()` read
 var _defaults: Dictionary = {}
 var _active_preset := ""      ## "" once a slider/table diverges from every preset
 
+## Containers refilled by the `_rebuild_*` functions: preset chips, the three
+## read-only parameter tables (street / parcels / settlement).
 var _presets_row: HBoxContainer
 var _street_body: VBoxContainer
 var _parcels_body: VBoxContainer
 var _settlement_body: VBoxContainer
+## The two slider readout labels, owned by `DccWidgets.slider` but re-synced in
+## [`_rebuild_tables`] from `meta.wildness` / `meta.plot_chaos`.
 var _wild_readout: Label
 var _chaos_readout: Label
+## The footer line saying whether active rules differ from the defaults.
 var _status_label: Label
 
+## True on the phone shell; stacks the two panes and drops the desktop header.
 var _phone := false
 
 ## New, GDScript-only bundles -- see this file's own header. `(wildness,
@@ -97,6 +108,9 @@ const _PRESETS := [
 
 ## label, dotted key, unit -- the canvas's own `ruleStreet` rows, in its own
 ## order.
+## Rows of the street table: label, key into `get_active_urban_rules()`, unit
+## suffix (currently unused by [`_rebuild_tables`]). The keys must exist in the
+## Rust rule dictionary; a missing key silently reads as 0.00.
 const _STREET_ROWS := [
 	["Branch angle jitter (σ rad)", "street.branch_angle_jitter", ""],
 	["Continuation jitter (σ rad)", "street.continuation_jitter", ""],
@@ -113,11 +127,14 @@ const _STREET_ROWS := [
 	["Bridgehead distance (m)", "street.bridgehead_distance", ""],
 	["Bridgehead probability", "street.bridgehead_probability", ""],
 ]
+## Rows of the parcel table; same layout and caveat as [`_STREET_ROWS`].
 const _PARCEL_ROWS := [
 	["Frontage width variance (σ)", "parcels.frontage_width_variance", ""],
 	["Plot depth variance (σ)", "parcels.plot_depth_variance", ""],
 	["Subdivision cap", "parcels.subdivision_cap", ""],
 ]
+## Rows of the read-only wall-generation block: label and key only (no unit
+## column, no "driven" highlight, no default column).
 const _SETTLEMENT_ROWS := [
 	["Wall-generation threshold", "settlement.wall_generation_threshold"],
 	["Min. years between circuits", "settlement.wall_generation_min_age_gap"],
@@ -127,6 +144,8 @@ const _SETTLEMENT_ROWS := [
 ]
 
 
+## Builds the window once (it is never rebuilt, only refilled by [`_rebuild`])
+## and applies the phone-window protocol. Must be called before [`open`].
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -145,18 +164,25 @@ func setup(a, b: EngineBridge) -> void:
 		app.phone_fit(self, 1.0)
 
 
+## Shows the window and re-reads the rule set from the engine, so what appears
+## is the live state even if rules changed elsewhere (the City Viewer's Town
+## plan, a loaded project) since the last open.
 func open() -> void:
 	if not DccWidgets.phone_present(self, app):
 		popup_centered()
 	_rebuild()
 
 
+## Removes and frees every child of `node` (removal first so the container
+## re-lays out this frame rather than after the deferred free).
 func _clear(node: Control) -> void:
 	for c in node.get_children():
 		node.remove_child(c)
 		c.queue_free()
 
 
+## Re-reads defaults and active rules from the bridge and refreshes every
+## dependent view. The single refresh path after any rule write.
 func _rebuild() -> void:
 	_defaults = bridge.get_default_urban_rules()
 	_rules = bridge.get_active_urban_rules()
@@ -170,6 +196,8 @@ func _rebuild() -> void:
 # Layout
 # ---------------------------------------------------------------------------
 
+## Builds the static layout: header, note, preset row, the two panes and the
+## status footer. Creates the containers the `_rebuild_*` functions fill.
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -234,6 +262,9 @@ func _build() -> void:
 	outer.add_child(status_pad)
 
 
+## Applies one [`_PRESETS`] entry: a Rust rule set when it has `rust`, else the
+## two slider formulas in order (wildness then plot chaos). Marks the preset
+## active, drops stale town layouts and refreshes.
 func _apply_preset(p: Dictionary) -> void:
 	_active_preset = String(p.label)
 	if p.has("rust"):
@@ -253,6 +284,8 @@ func _rules_changed() -> void:
 		app.viewport.forget_all_urban_layouts()
 
 
+## Restores `DEFAULT_RULES` in the engine and marks "Organic Medieval" active
+## (its slider pair is `(1.0, 1.0)`, the default baseline).
 func _do_reset() -> void:
 	_active_preset = "Organic Medieval"
 	bridge.reset_active_urban_rules()
@@ -260,6 +293,8 @@ func _do_reset() -> void:
 	_rebuild()
 
 
+## Refills the preset chips (highlighting [`_active_preset`]) plus a trailing
+## Reset chip. Tooltips state the slider pair or what the Rust preset is.
 func _rebuild_presets() -> void:
 	_clear(_presets_row)
 	for p in _PRESETS:
@@ -277,6 +312,11 @@ func _rebuild_presets() -> void:
 
 # -- Left pane: the two convenience sliders ----------------------------------
 
+## Left pane: the Wildness and Plot chaos sliders (domain `[0, 2]`, step 0.05,
+## matching the reference's slider domain). Each tick calls the real Rust
+## formula via the bridge on the *current* rules, so effects accumulate where
+## the formula does (see the dead-end-bias note inside). Never recompute the
+## clamp arithmetic here.
 func _build_sliders_pane() -> Control:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -330,6 +370,9 @@ func _build_sliders_pane() -> Control:
 
 # -- Right pane: the parameter tables -----------------------------------------
 
+## Right pane: three read-only tables inside a scroller. The "14", "3" and "5"
+## in its headings are the lengths of [`_STREET_ROWS`], [`_PARCEL_ROWS`] and
+## [`_SETTLEMENT_ROWS`] and must be updated with them.
 func _build_tables_pane() -> Control:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -389,6 +432,8 @@ func _build_tables_pane() -> Control:
 	return col
 
 
+## One table row: label, current value (accent-coloured when `driven`, i.e.
+## differing from the default) and the default in ghost type, then a rule.
 func _param_row(parent: Control, label_text: String, val: String, def: String, driven: bool) -> void:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 9)
@@ -407,10 +452,14 @@ func _param_row(parent: Control, label_text: String, val: String, def: String, d
 	parent.add_child(DccTheme.rule())
 
 
+## Two-decimal display of a rule value; the precision the canvas shows.
 static func _fmt(v: float) -> String:
 	return "%.2f" % v
 
 
+## Re-reads active rules and refills all three tables, then syncs the two slider
+## readouts. A value differing from its default (`is_equal_approx`) is
+## highlighted; the settlement block is never highlighted (no editor).
 func _rebuild_tables() -> void:
 	_rules = bridge.get_active_urban_rules()
 	_clear(_street_body)
@@ -445,15 +494,17 @@ func _rebuild_tables() -> void:
 		_chaos_readout.text = _fmt(float(_rules.get("meta.plot_chaos", 1.0)))
 
 
+## Deliberately a no-op: sliders own their readouts (`DccWidgets.slider`'s
+## contract) and [`_rebuild_tables`] re-syncs those. NOTE the thumbs are built
+## at 1.0 and never repositioned here, so after a preset or Reset the thumb
+## can disagree with its readout (the previous comment claimed the starting
+## position was read from `_rules`; the code never does that).
 func _rebuild_sliders() -> void:
-	# Sliders own their own readouts (`DccWidgets.slider`'s own contract); this
-	# rebuild only needs to happen once, in `_rebuild()`, since the sliders'
-	# starting position is read straight from `_rules` at build time via
-	# `_rebuild_tables()`'s readout sync above -- no separate slider redraw is
-	# needed on every parameter change, only its readout.
 	pass
 
 
+## Footer text: whether the active rules differ from the defaults (a plain
+## dictionary comparison, so any field difference counts).
 func _rebuild_status() -> void:
 	var edited := not _rules.is_empty() and _rules != _defaults
 	_status_label.text = (
