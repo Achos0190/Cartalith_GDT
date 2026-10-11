@@ -347,10 +347,34 @@ var _sculpt_press: Array = []
 var _sculpt_stroke_aborted := false
 ## ET-D3. The symmetry options handed to `sculpt_begin_stroke_with` on every press:
 ## the engine's own keys (`symmetry`, `radial_count`, `symmetry_center`,
-## `symmetry_angle`). `{}` = no symmetry, today's behaviour. **No shell control binds
-## this yet** (ET-D5 adds it; `EDITING_TOOLS_SCOPE.md`), so nothing writes it in the
-## product; it is the seam that control will write. Omit a key rather than defaulting it.
+## `symmetry_angle`). `{}` = no symmetry, today's behaviour. **Since ET-D5 the Sculpt
+## bar row and the phone Sculpt column write it** (through `DccToolBar`'s writers, which
+## erase a key at its default), and they READ it back to draw -- it is the one source of
+## truth, so a probe that sets it directly still works and the controls show it. Omit a
+## key rather than defaulting it.
 var _sculpt_symmetry: Dictionary = {}
+
+## ET-D5. Whether the pen's pressure reaches the sculpt stamp. `true` = today's
+## behaviour (a pen reports pressure, the engine scales strength by it). `false` = every
+## sample is fed with NO pressure (`null`, never 1.0 or 0.0), so the stroke is
+## pressure-less exactly as a mouse's is. Read by `_sculpt_take_pressure`; written by the
+## Sculpt pressure toggle (bar and phone column) through `set_sculpt_pressure_on`.
+var _sculpt_pressure_on := true
+
+## ET-D5. The Paint stroke options handed to `paint_stroke_begin` on every press -- the
+## engine's own keys (`spacing`, `spacing_enabled`, `symmetry*`, `scatter_*`,
+## `pressure_size`, ...; `WorldGen::paint_stroke_begin`'s table). `{}` = every default
+## (spacing 18 %, no symmetry, no scatter, pressure drives size), which is exactly what
+## `_paint_click` sent before this seam existed. Written by the Paint bar row and the phone
+## Paint column through `DccToolBar`'s writers; a key is erased at its default.
+var _paint_stroke_options: Dictionary = {}
+
+## ET-D5. The options Dictionary the last ACCEPTED `paint_stroke_begin` /
+## `sculpt_begin_stroke_with` was given (a copy; `{}` before any). A read-only diagnostic:
+## it is what the engine was actually handed, which is the one thing a control probe
+## cannot otherwise observe. Never read by the shell's own logic.
+var _last_paint_begin: Dictionary = {}
+var _last_sculpt_begin: Dictionary = {}
 
 ## Biome paint's live brush state, mirrored here because `paint_set_brush`'s
 ## own contract is "apply and echo back what was stored", not "read the
@@ -3412,8 +3436,8 @@ func _on_sculpt_discard() -> void:
 ##
 ## **Since ET-D3 (2026-10-11)** the press and its drag samples go to the engine through
 ## `sculpt_begin_stroke_with(_sculpt_symmetry)` / `sculpt_add_point_p` when the extension
-## has them, so a pen's pressure reaches the stamp and a symmetry (once ET-D5 adds the
-## control) makes N stamps in ONE undo step. The press point is held back until the first
+## has them, so a pen's pressure reaches the stamp and a symmetry (the Sculpt controls
+## of ET-D5 write `_sculpt_symmetry`) makes N stamps in ONE undo step. The press point is held back until the first
 ## drag sample (`_sculpt_press`) so a pen stroke is not made pressure-less by the press
 ## event's missing reading. A tap (press, release) still makes a one-point stamp, sent
 ## with no pressure. Without those two `#[func]`s this is exactly the old path.
@@ -3427,6 +3451,12 @@ func _on_sculpt_discard() -> void:
 func _sculpt_click(gx: float, gy: float) -> void:
 	_sculpt_stroke_aborted = false
 	_paint_pending_sample = {}
+	## ET-D5: a pending "place the symmetry centre" press is consumed, not drawn. The
+	## rest of its gesture is swallowed the way a focus-loss cancel's is (`_sculpt_drag`
+	## and `_sculpt_release` both already return on `_sculpt_stroke_aborted`).
+	if DccToolBar.sym_pick_try(app, "sculpt", gx, gy):
+		_sculpt_stroke_aborted = true
+		return
 	_sculpt_begin_engine_stroke()
 	if _sculpt_pressure_path:
 		_sculpt_press = [gx, gy]
@@ -3443,9 +3473,12 @@ func _sculpt_click(gx: float, gy: float) -> void:
 ## refuses. Never leaves `_sculpt_pressure_path` true unless the pressure-aware begin
 ## succeeded.
 func _sculpt_begin_engine_stroke() -> void:
+	var given := _sculpt_symmetry.duplicate()
 	_sculpt_pressure_path = bridge.has_sculpt_stroke_api() \
-		and bridge.sculpt_begin_stroke_with(_sculpt_symmetry.duplicate())
-	if not _sculpt_pressure_path:
+		and bridge.sculpt_begin_stroke_with(given)
+	if _sculpt_pressure_path:
+		_last_sculpt_begin = given.duplicate()
+	else:
 		bridge.sculpt_begin_stroke()
 
 ## The pressure the current motion event carried, or `null`. `map_stroke_sample` is
@@ -3456,6 +3489,11 @@ func _sculpt_begin_engine_stroke() -> void:
 func _sculpt_take_pressure(gx: float, gy: float) -> Variant:
 	var ps := _paint_pending_sample
 	_paint_pending_sample = {}
+	## ET-D5: the Pressure toggle off = a pressure-less stroke whatever the device
+	## reported. The cached sample was still consumed above, so it cannot leak into the
+	## next sample.
+	if not _sculpt_pressure_on:
+		return null
 	if not ps.is_empty() and is_equal_approx(float(ps["gx"]), gx) and is_equal_approx(float(ps["gy"]), gy):
 		return ps["pressure"]
 	return null
@@ -4242,6 +4280,52 @@ func rebuild_paint_panel() -> void:
 	if _paint_body != null:
 		_build_paint(_paint_body)
 
+# -- ET-D5: brush controls' seam, accessors and surfaces -----------------------
+
+## The LIVE options Dictionary of `tool` (`"paint"` or `"sculpt"`) -- the object
+## `_paint_click` / `_sculpt_begin_engine_stroke` hand the engine, not a copy, so a write
+## to it IS the control taking effect (`DccToolBar.options()` is the caller). `{}`
+## (a throwaway) for any other id. Must never be replaced by a copy: every control writes
+## through the returned reference.
+func brush_options(tool: String) -> Dictionary:
+	match tool:
+		"paint":
+			return _paint_stroke_options
+		"sculpt":
+			return _sculpt_symmetry
+	return {}
+
+## Whether a pen's pressure reaches the sculpt stamp (`_sculpt_pressure_on`).
+func sculpt_pressure_on() -> bool:
+	return _sculpt_pressure_on
+
+func set_sculpt_pressure_on(on: bool) -> void:
+	_sculpt_pressure_on = on
+
+## What the engine was last handed by an accepted stroke begin for `tool` (`"paint"` or
+## `"sculpt"`): a copy of the options Dictionary, `{}` before any stroke. Read-only
+## diagnostic (a control probe's readback); nothing in the shell reads it.
+func last_begin_options(tool: String) -> Dictionary:
+	match tool:
+		"paint":
+			return _last_paint_begin.duplicate()
+		"sculpt":
+			return _last_sculpt_begin.duplicate()
+	return {}
+
+## Re-draws the surfaces over the brush state after a DISCRETE control changed it: the
+## desktop/tablet bar and the phone's Paint / Sculpt column. A no-op while a generation
+## runs -- both surfaces read the engine, which the worker owns then, and the bar
+## re-reads everything when `generation_finished` fires. Never runs a stroke, a commit or
+## a discard, and never rebuilds a column under a finger (only discrete controls call it).
+func brush_surfaces_changed() -> void:
+	if bridge.generating:
+		return
+	_refresh_tool_bar()
+	if (_pg_mode == "paint" or _pg_mode == "sculpt") and _pg_host != null \
+			and is_instance_valid(_pg_host) and _pg_host.is_visible_in_tree():
+		_pg_rebuild()
+
 # -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
 #
 # **Since ET-D2 (2026-10-11) a gesture is an engine STROKE** when the extension
@@ -4358,7 +4442,8 @@ func _paint_show_reply(reply: Dictionary) -> void:
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture(), true)
 
 ## Map press with the paint tool. With the engine's stroke API present it opens a
-## stroke (brush and layer snapshotted, default options: spacing 18 %) and feeds
+## stroke (brush and layer snapshotted; options are `_paint_stroke_options`, which is
+## `{}` -- spacing 18 %, no symmetry, no scatter -- until an ET-D5 control moves) and feeds
 ## the press point as the first sample, pressure and tilt `null` (a press event
 ## carries neither). Without the API, or if the engine refuses the begin, it is
 ## today's one-dab `_paint_apply_dab`.
@@ -4366,9 +4451,17 @@ func _paint_click(gx: float, gy: float) -> void:
 	_paint_stroke_finish()
 	_paint_stroke_aborted = false
 	_paint_pending_sample = {}
+	## ET-D5: a pending "place the symmetry centre" press is consumed, not painted, and
+	## its drag and release paint nothing (`_paint_stroke_aborted`, the focus-loss rule).
+	if DccToolBar.sym_pick_try(app, "paint", gx, gy):
+		_paint_stroke_aborted = true
+		return
 	if bridge.has_paint_stroke_api():
 		_paint_sync_brush_with_shift()
-		if bridge.paint_stroke_begin({}):
+		## ET-D5: the seam, not a literal `{}` -- `{}` while no control has moved.
+		var given := _paint_stroke_options.duplicate()
+		if bridge.paint_stroke_begin(given):
+			_last_paint_begin = given.duplicate()
 			_paint_stroke_open = true
 			_paint_show_reply(bridge.paint_stroke_sample(gx, gy, null, null, Time.get_ticks_msec()))
 			return
@@ -5561,6 +5654,8 @@ func _pg_sculpt(parent: Control) -> void:
 			continue
 		_pg_sculpt_slider(parent, sd, float(globals_now[gkey]))
 
+	_pg_brush_block(parent, "sculpt")
+
 	var arm := Button.new()
 	arm.text = "%s ARM SCULPT · DRAW ON THE MAP" % DccIcons.SYMBOLS["add"]
 	arm.focus_mode = Control.FOCUS_NONE
@@ -5779,6 +5874,8 @@ func _pg_paint(parent: Control) -> void:
 					_pg_paint_mirror()
 					_pg_rebuild()))
 
+	_pg_brush_block(parent, "paint")
+
 	## Same shape as the SCULPT column's ARM button, and for the same reason: the
 	## map is behind this sheet, so arming drops it to its peek detent.
 	var arm := Button.new()
@@ -5823,6 +5920,107 @@ func _pg_paint(parent: Control) -> void:
 	for b in [discard, commit]:
 		(b as Button).add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 
+## ET-D5. **The phone's brush controls**, for the Paint and Sculpt columns -- the second
+## surface over the same seam the desktop bar's third row draws
+## (`DccToolBar.build_brush_controls`). It exists because the bar is not on a phone
+## screen while this column is (the GENERATE tab shows THIS INSTEAD of the tool-options
+## row, `DccShell._refresh_phone_gen_panel`; Ruling BR's lesson). Same state, same
+## writers: every control reads `DccToolBar.options(app, tool)` on the way in and writes it
+## through `DccToolBar`'s `*_write_*` functions on the way out, so nothing is stored here
+## and the two surfaces cannot disagree. Chips and `PgSlider`s at the column's own 44 dp
+## floor (`_pg_chip_button`, `_pg_paint_slider`), grouped like the canvas's other columns.
+## Discrete controls rebuild the column (`DccToolBar.refresh_surfaces`); sliders write
+## while the thumb moves and re-draw only the on-map marker on release, never the column
+## under the finger (the scatter count is the one exception: it re-draws the column on
+## release because the spread slider's enabled state depends on it). A control the engine
+## would ignore is not drawn (the angle of a radial symmetry) or is drawn inert (the
+## spread of one scatter copy). Must never paint, commit, discard or call the engine.
+func _pg_brush_block(parent: Control, tool: String) -> void:
+	var o := DccToolBar.options(app, tool)
+	parent.add_child(_pg_mono("BRUSH · DYNAMICS", "text_dim", 9.5, 2))
+	var chips := HFlowContainer.new()
+	chips.add_theme_constant_override("h_separation", _pg_px(7))
+	chips.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(chips)
+	var nothing := func(): pass
+	if tool == "paint":
+		var spacing_on := DccToolBar.paint_spacing_on(o)
+		var on_spacing := func():
+			var cur := DccToolBar.options(app, "paint")
+			DccToolBar.paint_write_spacing_on(cur, not DccToolBar.paint_spacing_on(cur))
+			DccToolBar.refresh_surfaces(app, "paint")
+		chips.add_child(_pg_chip_button("SPACING %s" % ("ON" if spacing_on else "OFF"), spacing_on, 44, on_spacing))
+		var pressure_on := DccToolBar.paint_pressure_on(o)
+		var on_pressure := func():
+			var cur := DccToolBar.options(app, "paint")
+			DccToolBar.paint_write_pressure(cur, not DccToolBar.paint_pressure_on(cur))
+			DccToolBar.refresh_surfaces(app, "paint")
+		chips.add_child(_pg_chip_button("PRESSURE → SIZE %s" % ("ON" if pressure_on else "OFF"), pressure_on, 44, on_pressure))
+		var on_gap := func(v: float): DccToolBar.paint_write_spacing_pct(DccToolBar.options(app, "paint"), v)
+		_pg_paint_slider(parent, "Gap between dabs", DccToolBar.SPACING_PCT_MIN, DccToolBar.SPACING_PCT_MAX, 1.0,
+			DccToolBar.paint_spacing_pct(o), " %", on_gap, 0, spacing_on, nothing)
+		var count := DccToolBar.paint_scatter_count(o)
+		var on_count := func(v: float): DccToolBar.paint_write_scatter_count(DccToolBar.options(app, "paint"), v)
+		var after_count := func(): DccToolBar.refresh_surfaces(app, "paint")
+		_pg_paint_slider(parent, "Scatter copies", 1.0, float(DccToolBar.SCATTER_COUNT_MAX), 1.0, float(count), "",
+			on_count, 0, true, after_count)
+		var on_spread := func(v: float): DccToolBar.paint_write_scatter_amount(DccToolBar.options(app, "paint"), v)
+		_pg_paint_slider(parent, "Scatter spread", 0.0, DccToolBar.SCATTER_AMOUNT_MAX, 0.1,
+			DccToolBar.paint_scatter_amount(o), " ⌀", on_spread, 1, count > 1, nothing)
+	else:
+		var sculpt_on := _sculpt_pressure_on
+		var on_sculpt_pressure := func():
+			set_sculpt_pressure_on(not _sculpt_pressure_on)
+			DccToolBar.refresh_surfaces(app, "sculpt")
+		chips.add_child(_pg_chip_button("PRESSURE → STRENGTH %s" % ("ON" if sculpt_on else "OFF"), sculpt_on, 44, on_sculpt_pressure))
+
+	parent.add_child(_pg_mono("SYMMETRY", "text_dim", 9.5, 2))
+	var modes := HFlowContainer.new()
+	modes.add_theme_constant_override("h_separation", _pg_px(7))
+	modes.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(modes)
+	var mode := DccToolBar.sym_mode(o)
+	for i in DccToolBar.SYM_MODES.size():
+		var m := String(DccToolBar.SYM_MODES[i])
+		var pick_mode := func():
+			DccToolBar.sym_write_mode(DccToolBar.options(app, tool), m)
+			DccToolBar.refresh_surfaces(app, tool)
+		modes.add_child(_pg_chip_button(String(DccToolBar.SYM_LABELS[i]).to_upper(), m == mode, 44, pick_mode))
+	if mode == "none":
+		return
+	if mode == "radial":
+		var on_copies := func(v: float):
+			DccToolBar.sym_write_count(DccToolBar.options(app, tool), v)
+			DccToolBar.refresh_marker(app)
+		_pg_paint_slider(parent, "Copies", float(DccToolBar.RADIAL_MIN), float(DccToolBar.RADIAL_MAX), 1.0,
+			float(DccToolBar.sym_count(o)), "", on_copies, 0, true, nothing)
+	else:
+		var on_angle := func(v: float):
+			DccToolBar.sym_write_angle_deg(DccToolBar.options(app, tool), v)
+			DccToolBar.refresh_marker(app)
+		_pg_paint_slider(parent, "Mirror angle", -DccToolBar.ANGLE_MAX_DEG, DccToolBar.ANGLE_MAX_DEG, 1.0,
+			DccToolBar.sym_angle_deg(o), "°", on_angle, 0, true, nothing)
+	var centre = DccToolBar.sym_centre(o)
+	parent.add_child(_pg_mono("centre: grid middle" if centre == null
+		else "centre (%.1f, %.1f)" % [(centre as Vector2).x, (centre as Vector2).y], "text_faint", 9.5))
+	var centre_chips := HFlowContainer.new()
+	centre_chips.add_theme_constant_override("h_separation", _pg_px(7))
+	centre_chips.add_theme_constant_override("v_separation", _pg_px(7))
+	parent.add_child(centre_chips)
+	var pending: bool = DccToolBar.sym_pick_tool == tool
+	## The map is behind this sheet: a pick the user cannot reach is no pick, so the sheet
+	## drops to its peek detent exactly as the ARM buttons below do.
+	var begin_pick := func():
+		DccToolBar.sym_pick_begin(app, tool)
+		if DccToolBar.sym_pick_tool == tool and app.has_method("_set_phone_detent"):
+			app._set_phone_detent("peek")
+	centre_chips.add_child(_pg_chip_button("PRESS THE MAP…" if pending else "PICK CENTRE", pending, 44, begin_pick))
+	if centre != null:
+		var reset_centre := func():
+			DccToolBar.sym_write_centre(DccToolBar.options(app, tool), null)
+			DccToolBar.refresh_surfaces(app, tool)
+		centre_chips.add_child(_pg_chip_button("RESET CENTRE", false, 44, reset_centre))
+
 ## Tell the other surfaces over the paint state that this column changed it: the
 ## tool bar's Class / Erase / Land only controls and the dock panel's mirror of
 ## them would otherwise show the old value until something rebuilt them.
@@ -5843,7 +6041,7 @@ func _pg_paint_mirror() -> void:
 ## control writes nothing, so `PaintOriginal.set_percent()` stays the one writer.
 func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: float,
 		step_v: float, value: float, unit: String, on_change: Callable,
-		decimals: int = 0, editable: bool = true) -> void:
+		decimals: int = 0, editable: bool = true, on_release: Callable = Callable()) -> void:
 	var fmt := "%%.%df%%s" % decimals
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", _pg_px(2))
@@ -5871,7 +6069,13 @@ func _pg_paint_slider(parent: Control, label_text: String, min_v: float, max_v: 
 	s.value_changed.connect(func(v: float):
 		readout.text = fmt % [v, unit]
 		on_change.call(v))
-	s.drag_ended.connect(func(_c: bool): _pg_paint_mirror())
+	## ET-D5: a caller whose value is not the paint brush (the brush-dynamics block) supplies
+	## its own release action; every earlier caller gets the paint mirror exactly as before.
+	s.drag_ended.connect(func(_c: bool):
+		if on_release.is_valid():
+			on_release.call()
+		else:
+			_pg_paint_mirror())
 
 ## The canvas's chip: `min-height:<h>px; padding:0 13px; border-radius:<h/2>px;
 ## font:10px mono`, accent-on-wash when selected.

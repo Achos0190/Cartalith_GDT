@@ -38,6 +38,16 @@ class_name DccToolBar
 ## of one engine state cannot disagree — `world_workspace.gd` re-reads the
 ## engine on every rebuild.
 ##
+## ## A third row, since ET-D5
+##
+## Paint and Sculpt gain a **brush row** under the canvas's two (`build_brush_controls`,
+## near the end of this file's ET-D5 section): spacing, pressure, scatter and symmetry,
+## drawn in a wrapping flow so it can never widen the window. The canvas draws spacing /
+## pressure / symmetry inline in its one options row; this bar's row already carries
+## class, size, land-only, Original and Commit/Discard, so they go below instead -- a
+## departure from the canvas for width's sake, not a design decision. The Way tool's own
+## row (`infrastructure_workspace.gd`) calls the same builder.
+##
 ## ## Where the canvas asks for something that does not exist
 ##
 ## Read against the real registries rather than the canvas's labels:
@@ -87,6 +97,12 @@ static func instance() -> DccToolBar:
 const MODES := ["sculpt", "paint", "measure"]
 
 func _on_tool_armed(id: String) -> void:
+	## ET-D5: a pending "click the map to place the symmetry centre" belongs to the tool
+	## it was asked on; arming ANY tool drops it (the Way tool is not one of `MODES`, so
+	## this runs before the early return below), and the on-map marker follows the newly
+	## armed tool's own symmetry (or clears for a tool that has none).
+	sym_pick_tool = ""
+	refresh_marker(app)
 	if not MODES.has(id):
 		## Leaving the three for Inspect (or any domain tool) hands the bar
 		## back to whoever owns it for that context -- `app.gd`'s own
@@ -176,6 +192,25 @@ func _build(row: HBoxContainer) -> void:
 		"paint": _build_paint_options(options)
 		_: _build_measure_options(options)
 
+	## ET-D5: the brush row. A THIRD row under the canvas's two, only for the two modes
+	## that draw with a brush and only when their own options row drew anything (no world,
+	## or no editor for the world, leaves `options` empty and the brush has nothing to
+	## apply to). A `HFlowContainer`, not an `HBoxContainer`: the canvas draws
+	## spacing / pressure / symmetry inline in its one options row, but this bar's row
+	## already carries class, size, land-only, Original and Commit/Discard, and an extra
+	## ~1 200 px of controls in a plain box would raise the whole window's minimum width
+	## (the hazard `_note()` documents). A flow wraps to a second line instead, so the
+	## window keeps its width and the bar only grows taller on a narrow one.
+	if (mode == "paint" or mode == "sculpt") and options.get_child_count() > 0:
+		col.add_child(DccTheme.rule())
+		var brush := HFlowContainer.new()
+		brush.add_theme_constant_override("h_separation", 8)
+		brush.add_theme_constant_override("v_separation", 0)
+		brush.custom_minimum_size.y = BAR_ROW_H
+		brush.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(brush)
+		build_brush_controls(brush, app, mode)
+
 ## The canvas's three left-hand mode buttons. `Cartalith Paint Toolbar.dc.html`
 ## draws the armed one **filled** -- the single filled surface anywhere in the
 ## tool bar, and the one exception to §48 DS-02's "the canvas has no filled
@@ -228,6 +263,8 @@ func _tool_segment(row: HBoxContainer, text: String, on: bool, tip: String, pres
 ## `Brush si` and `Intensity` losing its `y`. The engine's own control labels
 ## are longer than the canvas's `size` / `strength` / `falloff`, so this is the
 ## width those labels need rather than the width the canvas happens to use.
+## (`_fit` and `_narrow` below are `static` since ET-D5 so the brush controls, which
+## the Way row also builds, share them; neither touches instance state.)
 const BAR_LABEL_W := 74
 const BAR_VALUE_W := 38
 ## `width:96px` / `78px` / `70px` on the three tracks in `Cartalith Paint
@@ -237,7 +274,7 @@ const BAR_VALUE_W := 38
 ## bar can afford with four parameters and a commit pair on a 1600 px window.
 const BAR_CONTROL_W := 70
 
-func _fit(parts: Dictionary) -> void:
+static func _fit(parts: Dictionary) -> void:
 	_narrow(parts["row"])
 	if parts.has("readout"):
 		(parts["readout"] as Control).custom_minimum_size.x = BAR_VALUE_W
@@ -245,7 +282,7 @@ func _fit(parts: Dictionary) -> void:
 		(parts["slider"] as Control).custom_minimum_size.x = BAR_CONTROL_W
 
 ## For `choice`/`toggle`, which return the control rather than its parts.
-func _narrow(ctrl: Control) -> Control:
+static func _narrow(ctrl: Control) -> Control:
 	var row: Control = ctrl if ctrl is HBoxContainer else (ctrl.get_parent() as Control)
 	if row != null and row.get_child_count() > 0:
 		var label := row.get_child(0) as Control
@@ -555,6 +592,536 @@ func _on_paint_discard() -> void:
 	if ws != null:
 		ws.rebuild_paint_panel()
 		ws._refresh_right_dock_paint()
+
+# -- ET-D5: the brush controls --------------------------------------------------
+#
+# `EDITING_TOOLS_SCOPE.md` ET-D5. The stroke engine (ET-D1..D4) has been taking
+# options since it landed -- spacing, pressure, symmetry, scatter for Paint;
+# symmetry and pressure for Sculpt; mode, smoothing, corridor, pull and symmetry for
+# the Way drag -- but the shell only ever sent defaults. This section is the
+# controls, and the rules they obey:
+#
+#  * **The tool's own seam is the single source of truth.** Every control READS its
+#    value from, and WRITES its value to, the options Dictionary the tool already
+#    hands the engine on each press (`world_workspace.gd::_paint_stroke_options`,
+#    `::_sculpt_symmetry`, `infrastructure_workspace.gd::_way_drag_options`), reached
+#    through each workspace's `brush_options(tool)` accessor. No control keeps a copy,
+#    so a surface that is rebuilt, a second surface over the same state (the phone's
+#    Paint/Sculpt columns are the second) and a probe that writes the seam directly
+#    all agree by construction -- "two views of one state will disagree" was a
+#    recorded mistake and this is how it is not repeated.
+#  * **A default is the ABSENT key**, never a written default: an untouched tool still
+#    hands the engine exactly `{}` (Paint, Sculpt) or `{}` merged over `{way_type,
+#    spacing}` (Way), which is today's behaviour by control flow. A control moved back
+#    to its default erases its key again.
+#  * **No enabled-and-inert control.** A control the engine would ignore in the current
+#    state (the angle of a radial symmetry, the corridor of a freehand road, the spread
+#    of one scatter copy) is hidden or drawn disabled, never live.
+#  * Pressure's "target" is a fact about the tool, not a choice: the engine offers Paint
+#    `pressure_size` only (flow is meaningless for a categorical layer, `DECISIONS.md`
+#    §7k) and Sculpt's pressure scales the stamp's strength only, so the toggle states
+#    its target as text beside it instead of offering a one-item dropdown. There is no
+#    softness target because the engine has no option for one.
+#  * Nothing here calls the engine or the disk: writes are shell-side dictionary edits,
+#    so none can run into a generation worker that owns `world_gen`.
+#
+# The three surfaces: the bar's third row (`build_brush_controls`, desktop and tablet),
+# `world_workspace.gd`'s phone Paint and Sculpt columns (`_pg_brush_block`, which calls
+# the writers below) and the Way row (`infrastructure_workspace.gd`, which calls
+# `build_brush_controls` too).
+
+## The tools that take brush options -- the ids `options()` and `refresh_marker()` accept.
+const BRUSH_TOOLS := ["paint", "sculpt", "way"]
+## The engine's symmetry names, in the order the control lists them (`lib.rs`'s
+## `sculpt_begin_stroke_with` table), and the words the user reads.
+const SYM_MODES := ["none", "vertical", "horizontal", "dual", "radial"]
+const SYM_LABELS := ["Off", "Vertical", "Horizontal", "Dual", "Radial"]
+## Radial copy count: the engine's own default (4) and its refusal bound (1..64) are
+## `lib.rs`'s; 2..16 is a labelled JUDGEMENT for the control -- 1 copy is "off" and above
+## 16 spokes no longer read as symmetry on a plate this size.
+const RADIAL_DEFAULT := 4
+const RADIAL_MIN := 2
+const RADIAL_MAX := 16
+## Mirror-axis rotation range, degrees (judgement): a mirror axis repeats every 180 deg,
+## so -90..90 reaches every distinct axis once.
+const ANGLE_MAX_DEG := 90.0
+## Paint spacing, percent of the dab diameter. 18 is the Paint Toolbar artboard's own
+## drawn value and the engine default (`ET-D1`); 1 and 100 are control bounds (the engine
+## accepts 0.01..10), a labelled judgement.
+const SPACING_PCT_DEFAULT := 18.0
+const SPACING_PCT_MIN := 1.0
+const SPACING_PCT_MAX := 100.0
+## Scatter bounds. Count 1..16 is the engine's own cap (`ET-D1`, PhotoCraft's), spread in
+## dab diameters 0..3 is a JUDGEMENT (the engine accepts 0..10; beyond ~3 the copies stop
+## reading as one dab).
+const SCATTER_COUNT_MAX := 16
+const SCATTER_AMOUNT_MAX := 3.0
+## Way drag: the two modes and their words; defaults are the engine's (`lib.rs`
+## `way_stroke_begin` table): routed, smooth on, corridor 3.0 cells, pull 2.0. The control
+## ranges are JUDGEMENTS inside the engine's (corridor > 0 and <= 64, pull 0..100).
+const WAY_MODES := ["routed", "freehand"]
+const WAY_MODE_LABELS := ["Routed", "Freehand"]
+## Waypoint spacing of a routed drag, in grid cells: 2.0 is `infrastructure_workspace.gd`'s own
+## `WAY_DRAG_SPACING_CELLS` (a labelled judgement there) and MUST equal it, because an untouched
+## control erases its key and the shell's own default then applies. 1..8 is a JUDGEMENT for the
+## control: below 1 the leg count explodes, and at 12 a short drag no longer makes the engine's
+## minimum of waypoints (measured: nothing committed on a 24-cell drag).
+const WAY_SPACING_DEFAULT := 2.0
+const WAY_SPACING_MIN := 1.0
+const WAY_SPACING_MAX := 8.0
+const WAY_CORRIDOR_DEFAULT := 3.0
+const WAY_CORRIDOR_MIN := 1.0
+const WAY_CORRIDOR_MAX := 16.0
+const WAY_PULL_DEFAULT := 2.0
+const WAY_PULL_MAX := 20.0
+
+## The tool whose NEXT map press sets the symmetry centre instead of drawing, or `""`.
+## Process-wide and never persisted; cleared by arming any tool (`_on_tool_armed`) and
+## by `sym_pick_try`. Static because three files' click handlers read it.
+static var sym_pick_tool := ""
+## Whether the Way row's corridor/pull block is open (UI-only, never persisted).
+static var way_advanced_open := false
+
+## The workspace that owns `tool`'s seam, or `null` (before the workspaces are built).
+static func seam_owner(app: DccApp, tool: String) -> Object:
+	if app == null:
+		return null
+	match tool:
+		"paint", "sculpt":
+			return app._workspace_panels.get("world")
+		"way":
+			var civ = app._workspace_panels.get("civilization")
+			if civ != null and "_infra" in civ:
+				return civ._infra
+	return null
+
+## `tool`'s live options Dictionary -- the very object the tool hands the engine, so a
+## write to it IS the control taking effect. `{}` (a throwaway) when the owner is not
+## there, so a caller never has to null-check and writes to it are simply lost.
+static func options(app: DccApp, tool: String) -> Dictionary:
+	var owner := seam_owner(app, tool)
+	if owner != null and owner.has_method("brush_options"):
+		return owner.call("brush_options", tool)
+	return {}
+
+## Re-draws every surface that shows `tool`'s brush state: the on-map marker, then the
+## tool's own surfaces through its `brush_surfaces_changed()` (the bar and the phone
+## column for Paint/Sculpt, the Way row for Way). Called after every DISCRETE change; a
+## slider calls it only on release, never rebuilding a control under the finger.
+static func refresh_surfaces(app: DccApp, tool: String) -> void:
+	refresh_marker(app)
+	var owner := seam_owner(app, tool)
+	if owner != null and owner.has_method("brush_surfaces_changed"):
+		owner.call("brush_surfaces_changed")
+
+## Points the on-map symmetry marker at the ARMED tool's symmetry (or clears it for a
+## tool with none). Cheap; safe to call while the engine is busy (it reads shell
+## dictionaries only).
+static func refresh_marker(app: DccApp) -> void:
+	if app == null or app.viewport == null or app.viewport.tool_overlay == null:
+		return
+	var ov: ToolOverlay = app.viewport.tool_overlay
+	var tool := String(app.armed_tool)
+	if not BRUSH_TOOLS.has(tool):
+		ov.set_symmetry("none", RADIAL_DEFAULT, null, 0.0)
+		return
+	var o := options(app, tool)
+	ov.set_symmetry(sym_mode(o), sym_count(o), sym_centre(o), float(o.get("symmetry_angle", 0.0)))
+
+# -- Readers and writers over an options Dictionary (pure; no node, no engine) ----
+
+## The seam's symmetry name; an absent or unknown value reads as `"none"`.
+static func sym_mode(o: Dictionary) -> String:
+	var m := String(o.get("symmetry", "none"))
+	return m if SYM_MODES.has(m) else "none"
+
+static func sym_count(o: Dictionary) -> int:
+	return int(o.get("radial_count", RADIAL_DEFAULT))
+
+## The seam's mirror-axis angle in degrees (the seam stores radians, the engine's unit).
+static func sym_angle_deg(o: Dictionary) -> float:
+	return rad_to_deg(float(o.get("symmetry_angle", 0.0)))
+
+## The seam's symmetry centre as a `Vector2` (grid cells), or `null` when absent (= the
+## engine's lattice centre). `null`, never a zero vector: (0, 0) is a real corner cell.
+static func sym_centre(o: Dictionary) -> Variant:
+	var c = o.get("symmetry_center")
+	return c if c is Vector2 else null
+
+## Sets the symmetry mode. `"none"` erases EVERY symmetry key (mode, count, centre, angle), so
+## Off is exactly the untouched seam -- `{}` for the tools whose seam holds nothing else -- which
+## is today's behaviour by construction rather than by the engine ignoring leftovers (the cost: a
+## centre picked earlier is gone when the user turns symmetry off). Switching between the four
+## ON modes keeps the centre and angle. `"radial"` writes an explicit integer `radial_count` so
+## the readback is self-evident and the engine gets the int it requires. An unknown name is ignored.
+static func sym_write_mode(o: Dictionary, mode: String) -> void:
+	if not SYM_MODES.has(mode):
+		return
+	if mode == "none":
+		for k in ["symmetry", "radial_count", "symmetry_center", "symmetry_angle"]:
+			o.erase(k)
+		return
+	o["symmetry"] = mode
+	if mode == "radial" and not o.has("radial_count"):
+		o["radial_count"] = RADIAL_DEFAULT
+
+static func sym_write_count(o: Dictionary, n: float) -> void:
+	o["radial_count"] = clampi(int(round(n)), RADIAL_MIN, RADIAL_MAX)
+
+## Writes the mirror angle from degrees; 0 erases the key. Stored in radians, as the engine
+## reads it.
+static func sym_write_angle_deg(o: Dictionary, deg: float) -> void:
+	var d := clampf(deg, -ANGLE_MAX_DEG, ANGLE_MAX_DEG)
+	if is_zero_approx(d):
+		o.erase("symmetry_angle")
+	else:
+		o["symmetry_angle"] = deg_to_rad(d)
+
+## Writes the centre (a `Vector2` in grid cells) or, for `null`, erases it (back to the
+## engine's lattice centre).
+static func sym_write_centre(o: Dictionary, c: Variant) -> void:
+	if c is Vector2:
+		o["symmetry_center"] = c
+	else:
+		o.erase("symmetry_center")
+
+## Paint spacing. `spacing_enabled` absent/true = spacing ON at `spacing` (default 18 %);
+## false = OFF, the one-dab-per-sample picture. "Off" is its own flag, never a 0 %.
+static func paint_spacing_on(o: Dictionary) -> bool:
+	return bool(o.get("spacing_enabled", true))
+
+static func paint_spacing_pct(o: Dictionary) -> float:
+	return float(o.get("spacing", SPACING_PCT_DEFAULT / 100.0)) * 100.0
+
+static func paint_write_spacing_on(o: Dictionary, on: bool) -> void:
+	if on:
+		o.erase("spacing_enabled")
+	else:
+		o["spacing_enabled"] = false
+
+static func paint_write_spacing_pct(o: Dictionary, pct: float) -> void:
+	var p := clampf(pct, SPACING_PCT_MIN, SPACING_PCT_MAX)
+	if is_equal_approx(p, SPACING_PCT_DEFAULT):
+		o.erase("spacing")
+	else:
+		o["spacing"] = p / 100.0
+
+## Paint pressure-to-size (the engine's `pressure_size`, default true).
+static func paint_pressure_on(o: Dictionary) -> bool:
+	return bool(o.get("pressure_size", true))
+
+static func paint_write_pressure(o: Dictionary, on: bool) -> void:
+	if on:
+		o.erase("pressure_size")
+	else:
+		o["pressure_size"] = false
+
+## Paint scatter: copies per dab (1 = off) and the offset range in dab diameters.
+static func paint_scatter_count(o: Dictionary) -> int:
+	return int(o.get("scatter_count", 1))
+
+static func paint_scatter_amount(o: Dictionary) -> float:
+	return float(o.get("scatter_amount", 0.0))
+
+static func paint_write_scatter_count(o: Dictionary, n: float) -> void:
+	var c := clampi(int(round(n)), 1, SCATTER_COUNT_MAX)
+	if c == 1:
+		o.erase("scatter_count")
+	else:
+		o["scatter_count"] = c
+
+static func paint_write_scatter_amount(o: Dictionary, a: float) -> void:
+	var v := clampf(a, 0.0, SCATTER_AMOUNT_MAX)
+	if is_zero_approx(v):
+		o.erase("scatter_amount")
+	else:
+		o["scatter_amount"] = v
+
+## Way drag mode / smoothing / guide steering. Defaults are the engine's.
+static func way_mode(o: Dictionary) -> String:
+	var m := String(o.get("mode", "routed"))
+	return m if WAY_MODES.has(m) else "routed"
+
+static func way_write_mode(o: Dictionary, mode: String) -> void:
+	if not WAY_MODES.has(mode):
+		return
+	if mode == "routed":
+		o.erase("mode")
+	else:
+		o["mode"] = mode
+
+static func way_smooth_on(o: Dictionary) -> bool:
+	return bool(o.get("smooth", true))
+
+static func way_write_smooth(o: Dictionary, on: bool) -> void:
+	if on:
+		o.erase("smooth")
+	else:
+		o["smooth"] = false
+
+static func way_spacing(o: Dictionary) -> float:
+	return float(o.get("spacing", WAY_SPACING_DEFAULT))
+
+static func way_write_spacing(o: Dictionary, v: float) -> void:
+	var c := clampf(v, WAY_SPACING_MIN, WAY_SPACING_MAX)
+	if is_equal_approx(c, WAY_SPACING_DEFAULT):
+		o.erase("spacing")
+	else:
+		o["spacing"] = c
+
+static func way_corridor(o: Dictionary) -> float:
+	return float(o.get("corridor", WAY_CORRIDOR_DEFAULT))
+
+static func way_pull(o: Dictionary) -> float:
+	return float(o.get("pull", WAY_PULL_DEFAULT))
+
+static func way_write_corridor(o: Dictionary, v: float) -> void:
+	var c := clampf(v, WAY_CORRIDOR_MIN, WAY_CORRIDOR_MAX)
+	if is_equal_approx(c, WAY_CORRIDOR_DEFAULT):
+		o.erase("corridor")
+	else:
+		o["corridor"] = c
+
+static func way_write_pull(o: Dictionary, v: float) -> void:
+	var p := clampf(v, 0.0, WAY_PULL_MAX)
+	if is_equal_approx(p, WAY_PULL_DEFAULT):
+		o.erase("pull")
+	else:
+		o["pull"] = p
+
+# -- Picking the symmetry centre on the map ----------------------------------------
+
+## Starts (or, pressed again, cancels) "the next map press on `tool` sets the centre".
+## Starting ARMS the tool first (a press only reaches a tool's handler while it is armed,
+## and arming any tool drops a pending pick, `_on_tool_armed`, so the pick is set AFTER).
+## The map is hidden behind the phone sheet, so the phone surfaces drop it to `peek` after
+## calling this (`world_workspace.gd::_pg_brush_block`); this function stays surface-neutral.
+static func sym_pick_begin(app: DccApp, tool: String) -> void:
+	if sym_pick_tool == tool:
+		sym_pick_tool = ""
+		app.set_status("hint", "", "text_ghost")
+	else:
+		app.arm_tool(tool)
+		sym_pick_tool = tool
+		app.set_status("hint", "Press the map to place the symmetry centre -- the next press only; it draws nothing.", "accent")
+	refresh_surfaces(app, tool)
+
+## The click hook every brush tool's PRESS handler calls first: if a centre pick is pending
+## for `tool`, consumes the press, stores the centre (clamped onto the grid) in the seam,
+## clears the pick and returns `true` -- the caller must then draw NOTHING for this gesture
+## (and swallow its drag/release). Returns `false` and changes nothing otherwise, so a tool
+## with no pick pending behaves exactly as before. Never calls the engine.
+static func sym_pick_try(app: DccApp, tool: String, gx: float, gy: float) -> bool:
+	if sym_pick_tool == "" or sym_pick_tool != tool:
+		return false
+	sym_pick_tool = ""
+	var cells := Vector2(float(gx), float(gy))
+	if app != null and app.viewport != null and app.viewport.tool_overlay != null:
+		var g: Vector2i = (app.viewport.tool_overlay as ToolOverlay).grid_cells()
+		if g.x > 0 and g.y > 0:
+			cells = Vector2(clampf(cells.x, 0.0, float(g.x - 1)), clampf(cells.y, 0.0, float(g.y - 1)))
+	sym_write_centre(options(app, tool), cells)
+	app.set_status("hint", "Symmetry centre set to (%.1f, %.1f)." % [cells.x, cells.y], "text_ghost")
+	refresh_surfaces(app, tool)
+	return true
+
+# -- The controls (desktop / tablet bar, and the Way row) ---------------------------
+
+## One-line explanation beside a control, mono micro text. NOT `clip_text` (see `_bar_hint`'s
+## sibling hazard in `MISTAKES.md`: a clipped Label collapses to 1 px beside an expanding
+## sibling); the flow rows these sit in have no expanding sibling.
+static func _hint(parent: Control, text: String, detail: String) -> void:
+	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
+	l.tooltip_text = detail
+	l.mouse_filter = Control.MOUSE_FILTER_STOP
+	parent.add_child(l)
+
+## The touch floor, in authored px, on BOTH axes (`MISTAKES.md`: "floor at the call site on both
+## axes" -- `tablet_fit()` floors height only and runs once, and the hazard was a 36 px square and
+## a 7 px chevron where every HEIGHT was 44). 44 is the project's floor (`DccTheme.PHONE_TAP_MIN`,
+## `role_px("btn_min_h")`). Applied to every NEW control of this section at its call site, on
+## tablet and phone only: a pointer density keeps the bar's compact 24-26 px rows, and the
+## existing bar rows (Size, Land only ...) are deliberately not touched.
+const TOUCH_FLOOR := 44.0
+
+## Raises `target` (a `Control`, or a `DccWidgets.slider()` parts Dictionary, whose slider is
+## raised) to `TOUCH_FLOOR` on both axes on a touch density; a no-op for a pointer. Returns
+## `target` so a factory call can be wrapped in it.
+static func _touch_floor(target: Variant) -> Variant:
+	if not (DccTheme.is_tablet() or DccTheme.is_phone()):
+		return target
+	var c: Control = (target["slider"] as Control) if target is Dictionary else (target as Control)
+	if c != null:
+		c.custom_minimum_size = Vector2(maxf(c.custom_minimum_size.x, TOUCH_FLOOR),
+			maxf(c.custom_minimum_size.y, TOUCH_FLOOR))
+	return target
+
+## Draws `tool`'s brush controls into `parent` (an `HFlowContainer`): Paint -- spacing,
+## pressure, scatter, symmetry; Sculpt -- pressure, symmetry; Way -- mode, smooth, the
+## advanced corridor/pull, symmetry. Each control reads its seam on the way in and writes it
+## on the way out through the writers above; the callbacks re-fetch the seam on EVERY
+## call (`options()`), so a seam replaced after the row was built is the one written.
+## Must never call the engine, and must never draw a control the engine would ignore.
+static func build_brush_controls(parent: Control, app: DccApp, tool: String) -> void:
+	var lead := "ROAD DRAG" if tool == "way" else "BRUSH"
+	parent.add_child(DccTheme.mono_label(lead, "accent", DccTheme.FS_SMALL, 2, true))
+	match tool:
+		"paint":
+			_controls_paint(parent, app)
+		"sculpt":
+			_controls_sculpt(parent, app)
+		"way":
+			_controls_way(parent, app)
+	_controls_symmetry(parent, app, tool)
+
+static func _controls_paint(parent: Control, app: DccApp) -> void:
+	var o := options(app, "paint")
+	var spacing_on := paint_spacing_on(o)
+	_touch_floor(_narrow(DccWidgets.toggle(parent, "Spacing", spacing_on, func(v: bool):
+		paint_write_spacing_on(options(app, "paint"), v)
+		refresh_surfaces(app, "paint"),
+		"Dabs are placed along the drag every N % of the brush diameter, so a fast drag stays connected. Off = one dab per pointer sample (gaps on a fast drag). Default 18 %, the Paint Toolbar's own value.")))
+	var gap := DccWidgets.slider(parent, "Gap", SPACING_PCT_MIN, SPACING_PCT_MAX, 1.0,
+		paint_spacing_pct(o), " %",
+		func(v: float): paint_write_spacing_pct(options(app, "paint"), v),
+		"Distance between dabs, percent of the brush diameter.")
+	_fit(gap)
+	_touch_floor(gap)
+	if not spacing_on:
+		_disable_slider(gap, "Spacing is off: one dab per pointer sample.")
+	_touch_floor(_narrow(DccWidgets.toggle(parent, "Pressure", paint_pressure_on(o), func(v: bool):
+		paint_write_pressure(options(app, "paint"), v)
+		refresh_surfaces(app, "paint"),
+		"A pen's pressure scales the dab SIZE (never the class: paint is categorical). A mouse reports no pressure, so this changes nothing for one. There is no softness target: the engine has no option for it.")))
+	_hint(parent, "→ size", "Pressure drives the dab size.")
+	var count := paint_scatter_count(o)
+	var scatter := DccWidgets.slider(parent, "Scatter", 1.0, float(SCATTER_COUNT_MAX), 1.0, float(count), "",
+		func(v: float): paint_write_scatter_count(options(app, "paint"), v),
+		"Copies per dab, each offset across the drag. 1 = off.",
+		func(): refresh_surfaces(app, "paint"))
+	_fit(scatter)
+	_touch_floor(scatter)
+	var spread := DccWidgets.slider(parent, "Spread", 0.0, SCATTER_AMOUNT_MAX, 0.1,
+		paint_scatter_amount(o), " ⌀",
+		func(v: float): paint_write_scatter_amount(options(app, "paint"), v),
+		"How far a scatter copy may land from the stroke, in brush diameters.")
+	_fit(spread)
+	_touch_floor(spread)
+	if count <= 1:
+		_disable_slider(spread, "Needs more than one scatter copy.")
+
+static func _controls_sculpt(parent: Control, app: DccApp) -> void:
+	var owner := seam_owner(app, "sculpt")
+	var on := true
+	if owner != null and owner.has_method("sculpt_pressure_on"):
+		on = bool(owner.call("sculpt_pressure_on"))
+	_touch_floor(_narrow(DccWidgets.toggle(parent, "Pressure", on, func(v: bool):
+		var ws := seam_owner(app, "sculpt")
+		if ws != null and ws.has_method("set_sculpt_pressure_on"):
+			ws.call("set_sculpt_pressure_on", v)
+		refresh_surfaces(app, "sculpt"),
+		"A pen's pressure scales each stamp's STRENGTH along the stroke. A mouse reports no pressure, so this changes nothing for one.")))
+	_hint(parent, "→ strength", "Pressure drives the stamp strength.")
+
+static func _controls_way(parent: Control, app: DccApp) -> void:
+	var o := options(app, "way")
+	var mode := way_mode(o)
+	_touch_floor(_narrow(DccWidgets.choice(parent, "Mode", WAY_MODE_LABELS, WAY_MODES.find(mode), func(i: int):
+		way_write_mode(options(app, "way"), String(WAY_MODES[i]))
+		refresh_surfaces(app, "way"),
+		"Routed: every drawn leg is routed by least cost (the default, as the click path). Freehand: the road is exactly the cells you draw, unrouted; it is refused across water.")))
+	_touch_floor(_narrow(DccWidgets.toggle(parent, "Smooth", way_smooth_on(o), func(v: bool):
+		way_write_smooth(options(app, "way"), v)
+		refresh_surfaces(app, "way"),
+		"Round the drawn path with a Catmull-Rom curve before it becomes waypoints. Off = the raw polyline.")))
+	var adv := DccWidgets.segment(parent, "Advanced ▾" if way_advanced_open else "Advanced ▸", func():
+		way_advanced_open = not way_advanced_open
+		refresh_surfaces(app, "way"))
+	adv.custom_minimum_size.y = 22
+	_touch_floor(adv)
+	adv.tooltip_text = "Corridor and pull steer the ROUTED mode: the corridor is how far the route may stray from your drawn line, the pull how hard it is drawn back to it."
+	DccWidgets.set_segment_on(adv, way_advanced_open and mode == "routed")
+	if mode != "routed":
+		adv.disabled = true
+		adv.tooltip_text = "Corridor and pull steer the routed mode only; freehand follows the drawn cells."
+		return
+	if way_advanced_open:
+		## Waypoint spacing is here because corridor and pull only act BETWEEN waypoints: measured on a
+		## drawn line 3 cells above an existing road, at the shell's 2-cell spacing every leg is 2 cells
+		## long and the road stayed on the line for every corridor (3..15) and pull (0..100); at 6 cells
+		## a pull of 0 let it leave the line by a cell and a strong pull did not. Without this control
+		## the two below would be live and (almost) inert.
+		var waypoints := DccWidgets.slider(parent, "Waypoints", WAY_SPACING_MIN, WAY_SPACING_MAX, 0.5,
+			way_spacing(o), " c",
+			func(v: float): way_write_spacing(options(app, "way"), v),
+			"Distance between the waypoints a drag is turned into, in cells. Corridor and pull steer the road BETWEEN waypoints, so they matter more the farther apart these are.")
+		_fit(waypoints)
+		_touch_floor(waypoints)
+		var corridor := DccWidgets.slider(parent, "Corridor", WAY_CORRIDOR_MIN, WAY_CORRIDOR_MAX, 0.5,
+			way_corridor(o), " c",
+			func(v: float): way_write_corridor(options(app, "way"), v),
+			"How far, in cells, the routed road may stray from the drawn line.")
+		_fit(corridor)
+		_touch_floor(corridor)
+		var pull := DccWidgets.slider(parent, "Pull", 0.0, WAY_PULL_MAX, 0.5, way_pull(o), "",
+			func(v: float): way_write_pull(options(app, "way"), v),
+			"How strongly the route is drawn back toward the drawn line (0 = plain least cost inside the corridor).")
+		_fit(pull)
+		_touch_floor(pull)
+
+static func _controls_symmetry(parent: Control, app: DccApp, tool: String) -> void:
+	var o := options(app, tool)
+	var mode := sym_mode(o)
+	_touch_floor(_narrow(DccWidgets.choice(parent, "Symmetry", SYM_LABELS, SYM_MODES.find(mode), func(i: int):
+		sym_write_mode(options(app, tool), String(SYM_MODES[i]))
+		refresh_surfaces(app, tool),
+		"Mirrors every stroke about a centre: vertical, horizontal, both (dual) or N copies around it (radial). Each copy is committed with the stroke -- one undo step. Off by default.")))
+	if mode == "none":
+		return
+	var amount: Dictionary
+	if mode == "radial":
+		amount = DccWidgets.slider(parent, "Copies", float(RADIAL_MIN), float(RADIAL_MAX), 1.0,
+			float(sym_count(o)), "",
+			func(v: float):
+				sym_write_count(options(app, tool), v)
+				refresh_marker(app),
+			"How many copies are placed around the centre.",
+			func(): refresh_surfaces(app, tool))
+	else:
+		amount = DccWidgets.slider(parent, "Angle", -ANGLE_MAX_DEG, ANGLE_MAX_DEG, 1.0,
+			sym_angle_deg(o), "°",
+			func(v: float):
+				sym_write_angle_deg(options(app, tool), v)
+				refresh_marker(app),
+			"Rotates the mirror axis (or axes) about the centre.",
+			func(): refresh_surfaces(app, tool))
+	_fit(amount)
+	_touch_floor(amount)
+	var c = sym_centre(o)
+	var pending := sym_pick_tool == tool
+	var pick := DccWidgets.chip(parent, "Press the map…" if pending else "Pick centre",
+		func(): sym_pick_begin(app, tool), pending)
+	pick.custom_minimum_size.y = 22
+	_touch_floor(pick)
+	pick.tooltip_text = "Then press the map where the symmetry centre should be. That press places the centre and draws nothing."
+	_hint(parent, "centre: grid middle" if c == null else "centre (%.1f, %.1f)" % [(c as Vector2).x, (c as Vector2).y],
+		"Where the mirror falls. The grid's own middle until you pick one.")
+	if c != null:
+		var reset := DccWidgets.chip(parent, "Reset centre", func():
+			sym_write_centre(options(app, tool), null)
+			refresh_surfaces(app, tool))
+		reset.custom_minimum_size.y = 22
+		_touch_floor(reset)
+		reset.tooltip_text = "Back to the grid's middle."
+
+## Greys one `DccWidgets.slider()` row out and makes it inert, with the reason on hover.
+## `editable = false` is the control's own off state; the row's alpha is the shell's
+## convention for "unavailable, not merely low" (`_pg_paint_slider`'s greyed Original).
+static func _disable_slider(parts: Dictionary, why: String) -> void:
+	(parts["slider"] as HSlider).editable = false
+	var row := parts["row"] as Control
+	row.modulate.a = 0.5
+	row.tooltip_text = why
 
 # -- MEASURE -------------------------------------------------------------------
 

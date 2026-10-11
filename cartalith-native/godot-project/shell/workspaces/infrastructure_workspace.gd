@@ -432,6 +432,12 @@ func _push_way_draft() -> void:
 func _way_click(gx: float, gy: float) -> void:
 	_way_drag_sync_stale()
 	_way_drag_cancel()
+	## ET-D5: a pending "place the symmetry centre" press is consumed, not drawn. No press
+	## is recorded (`_way_press` empty), so its drag cannot open a road drag and its
+	## release does nothing; the click draft is untouched.
+	if DccToolBar.sym_pick_try(app, "way", gx, gy):
+		_way_press = {}
+		return
 	var added := bridge.way_append_point(gx, gy)
 	_way_press = {"gx": gx, "gy": gy, "added": added}
 	if not added:
@@ -461,8 +467,39 @@ const WAY_DRAG_SLOP_PX := 4.0
 ## false}` changes those two and nothing else. Values must have the engine's types (ints
 ## where ints are expected, floats where floats are expected) or the engine refuses the
 ## whole begin; a `null` value means "the engine default" (for `spacing`, off). `{}` = the
-## shell's defaults: routed, guided, smoothed, `WAY_DRAG_SPACING_CELLS`. No UI writes it yet.
+## shell's defaults: routed, guided, smoothed, `WAY_DRAG_SPACING_CELLS`. **Since ET-D5 the Way
+## row's controls write it** (mode, smooth, corridor, pull, symmetry -- through `DccToolBar`'s
+## writers, which erase a key at its default) and READ it back to draw, so it stays the one
+## source of truth: a probe that sets it directly still works and the row shows it.
 var _way_drag_options: Dictionary = {}
+
+## ET-D5. The options Dictionary the last ACCEPTED `way_stroke_begin` was given, defaults
+## included (a copy; `{}` before any). A read-only diagnostic -- what the engine was actually
+## handed -- never read by the shell's own logic.
+var _last_way_begin: Dictionary = {}
+
+## ET-D5. The LIVE options Dictionary of `tool` (`"way"` only; `{}` for any other id): the
+## very object `_way_drag_start` merges over the defaults, not a copy, so a write to it IS the
+## control taking effect (`DccToolBar.options()` is the caller). Returns the CURRENT member, so
+## a probe that replaced `_way_drag_options` wholesale is the dictionary the controls then edit.
+func brush_options(tool: String) -> Dictionary:
+	if tool == "way":
+		return _way_drag_options
+	return {}
+
+## ET-D5. What the engine was last handed by an accepted road-drag begin, `{}` before any.
+## Read-only diagnostic (a control probe's readback); `tool` must be `"way"`.
+func last_begin_options(tool: String) -> Dictionary:
+	if tool == "way":
+		return _last_way_begin.duplicate()
+	return {}
+
+## ET-D5. Re-draws the Way row after a DISCRETE brush control changed the seam; a no-op unless
+## the Way tool is the armed infra tool (the row is the shared bar, which another tool owns
+## otherwise) or while a generation runs. Never runs a drag, a commit or a discard.
+func brush_surfaces_changed() -> void:
+	if _active_infra_tool == "way" and not bridge.generating:
+		_tool_options_way()
 
 ## `true` between an accepted `way_stroke_begin` and the end/cancel/forget that closes it.
 ## Never left `true` past a release, tool change, new press, focus loss, Escape or world
@@ -526,6 +563,7 @@ func _way_drag_start(gx: float, gy: float) -> void:
 		_way_press = {}
 		app.set_status("hint", "Road drag not started -- the engine refused its options (or there is no world); the press stays a plain waypoint.", "accent")
 		return
+	_last_way_begin = opts.duplicate()
 	_way_press = {}
 	_way_drag_open = true
 	_way_drag_stale = false
@@ -578,6 +616,16 @@ func _way_drag_finish() -> void:
 		return
 	var r := bridge.way_stroke_end()
 	if bool(r.get("committed", false)):
+		## ET-D5 (found by driving Ctrl+Z through the real shell, which the Rust lane that added the
+		## ledger row could not do): the drag now has a row in the Edit > Undo ledger, but the Edit
+		## menu's Undo/Redo rows are only re-evaluated on a handful of signals (`menus.gd`: a
+		## look-history change, `generation_finished`, `params_applied`, `world_loaded`,
+		## `dirty_changed`) and a disabled row swallows its accelerator. A drag on an already-dirty
+		## world fires none of them, so Ctrl+Z stayed dead after the very drag it should undo.
+		## Refreshed here, after the engine call (the order `MISTAKES.md` asks for), the way
+		## `DccApp.undo_last()` / `redo_last()` do after theirs.
+		if app.has_method("_refresh_undo_ui"):
+			app.call("_refresh_undo_ui")
 		_refresh_map_ways()
 		_refresh_manual_ways()
 		var first := int(r.get("first", 0))
@@ -790,19 +838,34 @@ func _discard_route() -> void:
 
 ## Add the accent-coloured mono-spaced tool name (for example `INFRA · WAY`) that
 ## leads every INFRA tool-options row, so the three rows read as one family.
-func _tool_options_label(row: HBoxContainer, text: String) -> void:
+func _tool_options_label(row: Control, text: String) -> void:
 	row.add_child(DccTheme.mono_label(text, "accent", DccTheme.FS_SMALL, 2, true))
 
-## §4.5.4's Way options row: `INFRA · WAY` · way type · (no routing-mode
-## dropdown -- `infra_tools_bridge`'s own module doc: "nothing to build a
-## 'freehand' or distinct 'snap' routing mode out of"; snap-to-place/way is
-## real but applied automatically, not a toggle here) · a live point count ·
-## ✓ Commit · Discard. No ↶ ↷: there is no per-waypoint undo in the engine
+## §4.5.4's Way options row: `INFRA · WAY` · way type · a live point count ·
+## ✓ Commit · Discard on the first line, and since ET-D5 a second line of the
+## road drag's brush controls (`DccToolBar.build_brush_controls`: Mode routed /
+## freehand -- Ruling CB item 7 added the freehand mode `infra_tools_bridge`'s
+## module doc once declined -- Smooth, Advanced waypoint spacing / corridor /
+## pull, Symmetry). Snap-to-place/way is real but applied automatically, not a
+## toggle here. No ↶ ↷: there is no per-waypoint undo in the engine
 ## (`InfraTools` only ever discards the whole draft), and building one here
 ## via discard-and-replay would be new, untested interaction invented for
 ## this task alone -- left undone and disclosed, not faked.
 func _tool_options_way() -> void:
-	app.set_tool_options(func(row: HBoxContainer):
+	app.set_tool_options(func(bar: HBoxContainer):
+		## ET-D5: two lines in one bar -- the line this row always was (`line`), then the road
+		## drag's brush controls (`brush`, a wrapping flow so the window's minimum width never
+		## grows). The first line's children are exactly what they were, in the same order.
+		var col := VBoxContainer.new()
+		col.add_theme_constant_override("separation", 0)
+		col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.add_child(col)
+		## On a phone the first line is a wrapping flow too: its Commit / Discard used to sit past
+		## the sheet's right edge (reachable only by a sideways scroll), and a column no wider
+		## than the screen is what keeps the brush line below it inside the screen as well.
+		var row: Container = HFlowContainer.new() if app.is_phone() else HBoxContainer.new()
+		row.add_theme_constant_override("separation" if not app.is_phone() else "h_separation", 14)   ## the bar's own, `DccShell.tool_options_row`
+		col.add_child(row)
 		_tool_options_label(row, "INFRA · WAY")
 		DccWidgets.choice(row, "Type", WAY_DRAW_TYPE_LABELS, WAY_DRAW_TYPES.find(_way_type),
 			func(i: int): _set_way_type(WAY_DRAW_TYPES[i]))
@@ -814,6 +877,12 @@ func _tool_options_way() -> void:
 		commit_btn.disabled = _way_points.size() < 2
 		var discard_btn := DccWidgets.action(row, "Discard", _discard_way)
 		discard_btn.disabled = _way_points.is_empty()
+		var brush := HFlowContainer.new()
+		brush.add_theme_constant_override("h_separation", 8)
+		brush.add_theme_constant_override("v_separation", 0)
+		brush.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		col.add_child(brush)
+		DccToolBar.build_brush_controls(brush, app, "way")
 	)
 
 ## §4.5.4's Route options row, minus the vessel/party reference (Logistics'

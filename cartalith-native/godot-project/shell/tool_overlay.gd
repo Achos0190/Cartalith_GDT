@@ -61,6 +61,22 @@ var brush_radius_cells := 0.0
 ## armed-tool exclusivity already guarantees that).
 var path_preview: PackedVector2Array = []
 
+## ET-D5. The armed brush tool's symmetry, drawn as an axis / centre marker so the
+## user sees where the mirror falls BEFORE drawing. Pure presentation: this node
+## stores what it was told (`set_symmetry`) and the options the engine is given live
+## in the tool's own seam (`world_workspace.gd::_paint_stroke_options` /
+## `_sculpt_symmetry`, `infrastructure_workspace.gd::_way_drag_options`), so the
+## marker can never change what a stroke does. `"none"` draws nothing.
+## `symmetry_mode` is the engine's own name (`none`, `vertical`, `horizontal`, `dual`,
+## `radial`), `symmetry_count` the radial copy count, `symmetry_centre` a `Vector2` in
+## grid cells (the SAME space and meaning as the engine's `symmetry_center`) or `null`
+## for "the engine's default, the grid's lattice centre", and `symmetry_angle` the
+## mirror-axis rotation in radians (mirror modes only, as the engine says).
+var symmetry_mode := "none"
+var symmetry_count := 4
+var symmetry_centre: Variant = null
+var symmetry_angle := 0.0
+
 ## Shared by any tool with on-canvas drag handles beyond Region's own
 ## (hardcoded corner handles, drawn separately below) -- primarily the
 ## Label tool's resize/rotate/arc handles (`label_handles`'s three
@@ -95,6 +111,18 @@ const HANDLE_COLOR := Color(0.549, 0.816, 1.0, 0.95)   ## `#8fd0ff`, matches the
 ## Near-black ring around a handle so it reads on both light and dark terrain.
 ## Judgement, not sourced.
 const HANDLE_OUTLINE := Color(0.031, 0.024, 0.016, 0.8)
+## ET-D5 symmetry marker ink: the handle blue (`HANDLE_COLOR`'s RGB, `#8fd0ff`) at 85 %
+## (alpha is a labelled judgement) -- a third hue, so it reads against the accent
+## ruler/brush ring and the teal path preview it can sit under. A literal copy: update
+## it with `HANDLE_COLOR`.
+const SYMMETRY_COLOR := Color(0.549, 0.816, 1.0, 0.85)
+## Screen-pixel dash and width of a symmetry axis, and the radius of the centre ring and
+## the length of a radial spoke. Stroke chrome, so screen pixels (never scaled by zoom);
+## all four are judgement, by eye.
+const SYMMETRY_DASH := 8.0
+const SYMMETRY_WIDTH := 1.4
+const SYMMETRY_CENTRE_R := 6.0
+const SYMMETRY_SPOKE_LEN := 34.0
 
 ## ── Rasterising at screen resolution, not control resolution ────────────────
 ##
@@ -178,6 +206,11 @@ func set_grid(gw: int, gh: int) -> void:
 	_gh = gh
 	queue_redraw()
 
+## The grid size this overlay was last given (`(0, 0)` before the first `set_grid`).
+## Read-only; ET-D5's symmetry-centre pick clamps onto it.
+func grid_cells() -> Vector2i:
+	return Vector2i(_gw, _gh)
+
 ## Replaces the measure chain (grid-cell coordinates) and redraws.
 func set_measure_points(points: PackedVector2Array) -> void:
 	measure_points = points
@@ -213,6 +246,68 @@ func set_path_preview(points: PackedVector2Array) -> void:
 	path_preview = points
 	queue_redraw()
 
+## ET-D5. Sets the symmetry marker and redraws. `mode` is the engine's symmetry name
+## (an unknown name is stored as `"none"`, drawing nothing, rather than guessed at);
+## `count` the radial copy count; `centre` a `Vector2` in grid cells or `null` (the grid
+## centre, where the engine puts it when the key is absent); `angle` radians. Must
+## never be called with anything the tool has not actually been given, and never talks
+## to the engine.
+func set_symmetry(mode: String, count: int, centre: Variant, angle: float) -> void:
+	symmetry_mode = mode if ["vertical", "horizontal", "dual", "radial"].has(mode) else "none"
+	symmetry_count = maxi(1, count)
+	symmetry_centre = centre if centre is Vector2 else null
+	symmetry_angle = angle
+	queue_redraw()
+
+## ET-D5. The marker's centre in grid cells: the stored centre, else the lattice centre
+## `((gw-1)/2, (gh-1)/2)` that the engine itself uses when `symmetry_center` is absent
+## (`WorldGen::sculpt_begin_stroke_with`'s doc). Read-only; also what a probe compares
+## the drawn marker against.
+func symmetry_centre_cells() -> Vector2:
+	if symmetry_centre is Vector2:
+		return symmetry_centre
+	return Vector2(float(_gw - 1) * 0.5, float(_gh - 1) * 0.5)
+
+## ET-D5. The unit direction (grid space) of each drawn mirror axis for the current
+## mode and angle: the vertical mirror's axis is the grid's y direction rotated by
+## `symmetry_angle`, the horizontal mirror's the x direction rotated the same way,
+## `dual` has both, `radial` and `none` have none (radial's spokes are not axes).
+## Read-only; the probe checks real mirrored strokes against these.
+func symmetry_axes() -> Array:
+	var out: Array = []
+	if symmetry_mode == "vertical" or symmetry_mode == "dual":
+		out.append(Vector2(0.0, 1.0).rotated(symmetry_angle))
+	if symmetry_mode == "horizontal" or symmetry_mode == "dual":
+		out.append(Vector2(1.0, 0.0).rotated(symmetry_angle))
+	return out
+
+## ET-D5. Draws the symmetry marker inside `_draw`'s crisp space: each axis as a dashed
+## line clipped to the plate (`intersect_polyline_with_polygon` keeps the part INSIDE;
+## `clip_polyline_with_polygon` is a difference and returns the part outside, which an
+## earlier draft of this function used and drew nothing with), then the centre ring, then (radial) `symmetry_count`
+## short spokes. `rect` is the overlay's displayed rect (unscaled) and `k` is
+## `_crisp_begin()`'s factor. Draws nothing for `"none"`; never reads the engine.
+func _draw_symmetry(rect: Rect2, k: float) -> void:
+	var centre_px := _grid_to_screen(symmetry_centre_cells(), rect, k)
+	var plate := Rect2(rect.position * k, rect.size * k)
+	var plate_poly := PackedVector2Array([plate.position, plate.position + Vector2(plate.size.x, 0.0),
+		plate.end, plate.position + Vector2(0.0, plate.size.y)])
+	var reach := plate.size.length()
+	for axis in symmetry_axes():
+		var a: Vector2 = centre_px - (axis as Vector2) * reach
+		var b: Vector2 = centre_px + (axis as Vector2) * reach
+		for seg in Geometry2D.intersect_polyline_with_polygon(PackedVector2Array([a, b]), plate_poly):
+			var s: PackedVector2Array = seg
+			if s.size() >= 2:
+				draw_dashed_line(s[0], s[s.size() - 1], SYMMETRY_COLOR, SYMMETRY_WIDTH, SYMMETRY_DASH)
+	if symmetry_mode == "radial":
+		for i in symmetry_count:
+			var ang := TAU * float(i) / float(symmetry_count)
+			draw_line(centre_px, centre_px + Vector2.RIGHT.rotated(ang) * SYMMETRY_SPOKE_LEN,
+				SYMMETRY_COLOR, SYMMETRY_WIDTH, true)
+	draw_arc(centre_px, SYMMETRY_CENTRE_R, 0.0, TAU, 24, SYMMETRY_COLOR, SYMMETRY_WIDTH + 0.4, true)
+	draw_circle(centre_px, 1.8, SYMMETRY_COLOR, true, -1.0, true)
+
 ## `raw` is an `Array` of `{x, y, r}` dicts (grid-cell coords) -- exactly
 ## `handle_circle_dict`'s shape, so `[bridge.label_handles(...).resize,
 ## ...rotate, ...arc]` (each a single dict, not the wrapping dict itself)
@@ -231,7 +326,7 @@ func _grid_to_screen(p: Vector2, rect: Rect2, k: float = 1.0) -> Vector2:
 
 ## Draws all tool chrome in this order: region marquee, brush ring, measure
 ## chain (ring / radius circle / polyline, then A/B labels, then point dots),
-## path preview, handles. Everything runs inside the `_crisp_begin()` pair, so
+## symmetry marker (ET-D5), path preview, handles. Everything runs inside the `_crisp_begin()` pair, so
 ## widths and sizes are screen pixels while positions and map distances are
 ## scaled by `k`. Draws nothing without a grid or an `overlay`.
 func _draw() -> void:
@@ -316,6 +411,11 @@ func _draw() -> void:
 		for sp in screen_pts:
 			draw_circle(sp, MEASURE_POINT_RADIUS, MEASURE_COLOR, true, -1.0, true)
 			draw_circle(sp, MEASURE_POINT_RADIUS, Color(0, 0, 0, 0.6), false, 1.0, true)
+
+	## ET-D5: under the path preview, so a stroke being drawn reads on top of the
+	## axis it is mirrored about.
+	if symmetry_mode != "none":
+		_draw_symmetry(rect, k)
 
 	if path_preview.size() > 0:
 		var pp_screen := PackedVector2Array()
