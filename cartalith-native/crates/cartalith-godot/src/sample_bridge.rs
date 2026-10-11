@@ -4159,6 +4159,7 @@ mod tests {
             road_cells: &jw.road_cells,
             ocean_field: None,
             wind_field: None,
+            river_net: None,
         };
         let plan = cartalith_civ::JpPlan {
             foraging: "Active".to_string(),
@@ -4320,7 +4321,7 @@ mod tests {
                 cart_terrain: &jw.cart_terrain, temp: &o.temp, rain: &o.rain,
                 flow_field: Some(&o.flow), flow_thresh: 300.0, water_bodies: Some(&o.wb),
                 territory: Some(&o.terr), places: &jw.places, road_cells: &jw.road_cells,
-                ocean_field: None, wind_field: None,
+                ocean_field: None, wind_field: None, river_net: None,
             };
             let pts: Vec<(f64, f64)> = (0..40).map(|i| {
                 let f = i as f64 / 39.0;

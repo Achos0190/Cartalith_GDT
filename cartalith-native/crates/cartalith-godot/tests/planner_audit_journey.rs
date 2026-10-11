@@ -115,6 +115,10 @@ impl Fx {
             road_cells: road,
             ocean_field: ocean,
             wind_field: wind,
+            // The audit's own pre-Ruling-CD path: no river network, so its Q3
+            // numbers stay the baseline (`planner_audit_rivers.rs` measures the
+            // network-on path).
+            river_net: None,
         }
     }
 
@@ -508,6 +512,7 @@ impl Lake {
             road_cells: road,
             ocean_field: None,
             wind_field: None,
+            river_net: None,
         }
     }
 }

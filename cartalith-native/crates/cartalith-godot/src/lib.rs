@@ -19429,6 +19429,11 @@ impl WorldGen {
             road_cells: &jw.road_cells,
             ocean_field: Some(&ocean_f),
             wind_field: Some(&wind_f),
+            // No river network: `jp_ensure_plan` derives with Walking or Sea
+            // Faring only, and the network is read only under River Transport
+            // (Ruling CD item 1), so building one here would change nothing.
+            // If `jp_ensure_plan` ever guesses River Transport, supply it.
+            river_net: None,
         };
         let plan = cartalith_civ::jp_ensure_plan(&world, &route.pts, sea_journey);
         let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));

@@ -8777,6 +8777,12 @@ mod substrate_tests {
         );
         jw.road_cells = cartalith_civ::jp_road_cells(&civ.ways, &[], &civ.road_edges, GW);
         let (ocean, wind) = crate::coarse_ocean_wind_fields(&ws.field, GW, GH, p.world, ws.sea_level, p);
+        // Ruling CD item 1: the river network `jp_world_parts` builds, built
+        // the same way, so this mirror stays `jp_compute`'s construction.
+        let (river_order, river_recv) = cartalith_civ::fresh_river_channels(
+            &ws.field, &ws.flow_discharge, GW, GH, ws.sea_level, p.world, p.river_density, p.map_width_km,
+            ws.integrated_drainage,
+        );
         let jpw = cartalith_civ::JpWorld {
             gw: GW,
             gh: GH,
@@ -8797,6 +8803,7 @@ mod substrate_tests {
             road_cells: &jw.road_cells,
             ocean_field: Some(&ocean),
             wind_field: Some(&wind),
+            river_net: Some(cartalith_civ::JpRiverNet { order: &river_order, recv: &river_recv }),
         };
         cartalith_civ::jp_plan_full(
             &jpw,

@@ -73,6 +73,7 @@ impl Sea {
             road_cells: road,
             ocean_field: Some(&self.ocean),
             wind_field: Some(&self.wind),
+            river_net: None,
         }
     }
 }

@@ -1199,6 +1199,7 @@ mod tests {
             road_cells: &jw.road_cells,
             ocean_field: None,
             wind_field: None,
+            river_net: None,
         };
         let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
         let (plan, rejected) = plan_from_pairs(&owned(&[

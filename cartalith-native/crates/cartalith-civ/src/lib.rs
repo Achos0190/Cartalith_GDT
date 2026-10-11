@@ -111,6 +111,10 @@ pub mod travel_library;
 /// See its own module doc for the exact function-by-function boundary and for
 /// why it is not golden-verified.
 pub mod urban_adapter;
+/// Ruling CD item 1: the river-channel classes (navigability gate, current
+/// strength, `JP_TERRAIN.river` row, current band) the Journey Planner and the
+/// mixed-domain router both read. Beside `way_class`; see the module doc.
+pub mod river_class;
 /// Ruling CD item 3: the one way-class table the Route/Way tools' router and
 /// the Journey Planner both read (planner row and router cost discount per way
 /// type), so the two cannot drift. See the module doc.
@@ -4890,6 +4894,48 @@ pub fn fresh_river_network(
     (order, polys)
 }
 
+/// [`fresh_river_order`]'s network with the **receiver tree** of the same pass
+/// alongside the order raster: `(order, recv)`, `recv[i]` the downstream cell
+/// of channel cell `i` or `-1` (`ChannelResult::recv`'s own sentinel).
+///
+/// What it is for (Ruling CD item 1): the Journey Planner costs River
+/// Transport on real channels ([`JpRiverNet`]) and reads its flow direction
+/// from `recv`. It is built with exactly the calls and arguments
+/// [`fresh_river_network`] makes, so the planner's navigable cells are the
+/// cells the Route tool's mixed domain discounts (`RouteInputs::build` reads
+/// [`fresh_river_order`] with the same arguments), on the final field rather
+/// than `WorldState`'s mid-carve channels, which a sculpt edit also leaves
+/// stale. Must never diverge from [`fresh_river_network`]'s pass: the two
+/// would then describe two different river networks.
+#[allow(clippy::too_many_arguments)]
+pub fn fresh_river_channels(
+    field: &[f32],
+    flow: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+    integrate: bool,
+) -> (Vec<i16>, Vec<i32>) {
+    let route = cartalith_hydrology::routing_view(field, gw, gh, sea, world, integrate);
+    let ch = cartalith_hydrology::build_channels_routed(
+        field,
+        &route,
+        flow,
+        gw,
+        gh,
+        sea,
+        world,
+        river_density,
+        map_width_km,
+        integrate,
+    );
+    let order = cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan);
+    (order, ch.recv)
+}
+
 // ===================== Phase 2 milestone 8: settlement placement + faction assignment =====================
 // The pure, non-DOM-coupled core of `_civIterativeAutoWorld` (reference HTML line ~25336) --
 // `PHASE2_SCOPE.md` milestone 8. That function itself reads `document.getElementById(...)` for
@@ -6921,8 +6967,13 @@ fn civ_biome_friction(b: u8) -> f64 {
 /// reference compares against a JS number so a negative "no channel"
 /// sentinel (if `fresh_river_order` ever produces one) is handled the same
 /// as any order < 3: no discount, matching `order>=3` being false.
+///
+/// The gate is [`river_class::NAVIGABLE_ORDER`] (Ruling CD item 1), the same
+/// constant the Journey Planner's river classification reads, so the router
+/// and the planner agree on which cells are navigable. Its value is the
+/// reference's `3`; this function's output is unchanged by sharing it.
 fn civ_navigable_river_discount(order: i16) -> f64 {
-    if order >= 3 {
+    if order >= river_class::NAVIGABLE_ORDER {
         1.0 - 0.35 * (((order - 2) as f64) / 4.0).min(1.0)
     } else {
         1.0
@@ -6939,13 +6990,17 @@ fn civ_navigable_river_discount(order: i16) -> f64 {
 /// not retained one (`DECISIONS.md` §7i's "named as the obvious next step"
 /// note), and a missing field must read as "no data", not "no swamp".
 ///
+/// The two literals live in [`river_class`] ([`river_class::DELTA_LOWLAND_DH`],
+/// [`river_class::DELTA_FLOW_MULT`]) because the Journey Planner's River Delta
+/// test reads the same rule (Ruling CD item 1); their values are unchanged.
+///
 /// `fi` indexes `flow` at *its own* resolution -- full-res for
 /// `civ_enhanced_travel_cost`'s caller, whatever `flow` actually is for
 /// [`tools::civ_land_cost_grid`]/[`tools::civ_mixed_cost_grid`] (both of
 /// which resample it the same way `flow` reaches this cell already).
 fn civ_swamp_penalty(flow: Option<&[f32]>, flow_thresh: f64, d_i: f64, sea: f64, fi: usize) -> f64 {
     let Some(fl) = flow else { return 1.0 };
-    if d_i < sea + 0.06 && (fl[fi] as f64) > flow_thresh * 8.0 {
+    if d_i < sea + river_class::DELTA_LOWLAND_DH && (fl[fi] as f64) > flow_thresh * river_class::DELTA_FLOW_MULT {
         1.8
     } else {
         1.0
@@ -6964,7 +7019,9 @@ fn civ_river_crossing_cost(flow: Option<&[f32]>, flow_thresh: f64, river_order: 
     let flow_fi = fl[fi] as f64;
     if flow_fi > flow_thresh {
         let ord = river_order.map(|ro| ro[fi]).unwrap_or(0);
-        let mag = (((flow_fi / flow_thresh) + 1.0).ln() / 5.0).min(1.0);
+        // The same expression as before, now shared with the Journey
+        // Planner's current strength (Ruling CD item 1, `river_class`).
+        let mag = river_class::magnitude_raw(flow_fi, flow_thresh);
         let ford_k = if ord <= 2 {
             0.35
         } else if ord <= 4 {
@@ -14752,7 +14809,9 @@ pub fn civ_path_water_frac(
 /// true when `wildlife.rs` landed.)
 #[derive(Debug, Clone, PartialEq)]
 pub struct JpDerivedStage {
-    /// `"land"`, `"river"` or `"sea"`.
+    /// `"land"`, `"river"` or `"sea"`. A `river` stage is a lake margin (the
+    /// reference's own) or, under River Transport, a navigable traced channel
+    /// (Ruling CD item 1, see [`jp_derive_stages`]).
     pub cat: String,
     pub biome: String,
     pub terrain: String,
@@ -14841,6 +14900,30 @@ pub struct JpWorld<'a> {
     pub road_cells: &'a std::collections::HashMap<(i64, i64), JpRoadCell>,
     pub ocean_field: Option<&'a JpCoarseField>,
     pub wind_field: Option<&'a JpCoarseField>,
+    /// Ruling CD item 1: the traced river network River Transport navigates
+    /// ([`fresh_river_channels`]' order and receivers). `None` -- no network
+    /// supplied -- means no route point is ever a channel river: the point
+    /// classifies as land exactly as the reference does, never as a
+    /// zero-flow river. Read only when the plan's transport is River
+    /// Transport (see [`jp_derive_stages`]).
+    pub river_net: Option<JpRiverNet<'a>>,
+}
+
+/// The river network [`jp_derive_stages`] reads for River Transport (Ruling CD
+/// item 1): one channel pass's Strahler order and receiver tree, both
+/// `gw * gh` long, from [`fresh_river_channels`]. Discharge is not here: it is
+/// [`JpWorld::flow_field`], the same field the river threshold is measured on.
+///
+/// A network whose slices are not `gw * gh` long is treated as absent (no
+/// channel river anywhere) rather than indexed, so a mis-sized table can never
+/// read as a real river.
+#[derive(Debug, Clone, Copy)]
+pub struct JpRiverNet<'a> {
+    /// Strahler order per cell; `0` (or anything below
+    /// [`river_class::NAVIGABLE_ORDER`]) is not a navigable channel.
+    pub order: &'a [i16],
+    /// Downstream cell index per cell, `-1` where there is none.
+    pub recv: &'a [i32],
 }
 
 impl JpWorld<'_> {
@@ -14893,6 +14976,137 @@ impl JpWorld<'_> {
         }
         99
     }
+
+    /// The river network and discharge, when both are present and sized to
+    /// this grid; `None` otherwise (Ruling CD item 1: no data is no river).
+    fn river_inputs(&self) -> Option<(JpRiverNet<'_>, &[f32])> {
+        let n = self.gw * self.gh;
+        let net = self.river_net?;
+        let flow = self.flow_field?;
+        (net.order.len() == n && net.recv.len() == n && flow.len() == n).then_some((net, flow))
+    }
+
+    /// Ruling CD item 1: the navigable channel cell a route point at cell
+    /// `(x, y)` travels on, or `None`.
+    ///
+    /// Searches the 3x3 neighbourhood, centre first, for a **land** cell
+    /// (`cart_biome` 1-13: a channel inside a lake is the lake's, which keeps
+    /// the reference's lake rule) whose Strahler order is at least
+    /// [`river_class::NAVIGABLE_ORDER`], and takes the highest order, then the
+    /// highest discharge; a full tie keeps the first found. The one-cell
+    /// tolerance is a **judgement** mirroring `jp_road_cells`' 3x3 dilation:
+    /// the planner reads the route's smoothed sample points, which sit up to a
+    /// cell off the path they were smoothed from (`PLANNER_AUDIT_2026-10-11.md`
+    /// Q1 finding 4). X wraps on a cylindrical world.
+    fn channel_at(&self, x: usize, y: usize) -> Option<usize> {
+        let (net, flow) = self.river_inputs()?;
+        let mut best: Option<usize> = None;
+        let offsets = [(0i64, 0i64), (-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+        for (dx, dy) in offsets {
+            let ny = y as i64 + dy;
+            let mut nx = x as i64 + dx;
+            if self.world {
+                nx = nx.rem_euclid(self.gw as i64);
+            }
+            if nx < 0 || nx >= self.gw as i64 || ny < 0 || ny >= self.gh as i64 {
+                continue;
+            }
+            let j = ny as usize * self.gw + nx as usize;
+            if net.order[j] < river_class::NAVIGABLE_ORDER || !(1..=13).contains(&self.cart_biome[j]) {
+                continue;
+            }
+            let better = match best {
+                None => true,
+                Some(b) => net.order[j] > net.order[b] || (net.order[j] == net.order[b] && flow[j] > flow[b]),
+            };
+            if better {
+                best = Some(j);
+            }
+        }
+        best
+    }
+
+    /// The shortest signed x step on this grid: wrap-aware the way the
+    /// chunker's km already is (`adx.min(gw - adx)`), so a segment across the
+    /// seam points the short way.
+    fn wrap_dx(&self, dx: f64) -> f64 {
+        let w = self.gw as f64;
+        if dx > w / 2.0 {
+            dx - w
+        } else if dx < -w / 2.0 {
+            dx + w
+        } else {
+            dx
+        }
+    }
+
+    /// Unit-free flow vector of channel cell `c` (towards its receiver), or
+    /// `None` where the cell has no receiver (`-1`), an out-of-range one, or
+    /// itself. A missing direction is never read as "no current".
+    fn flow_vec(&self, net: &JpRiverNet, c: usize) -> Option<(f64, f64)> {
+        let r = net.recv[c];
+        // `r < 0` is the `-1` sentinel stated outright; the bounds test would
+        // also reject it (`-1 as usize` is `usize::MAX`), so a mutation that
+        // drops it survives as an equivalent mutant (batch 2 report).
+        if r < 0 || r as usize >= self.gw * self.gh || r as usize == c {
+            return None;
+        }
+        let r = r as usize;
+        let dx = self.wrap_dx((r % self.gw) as f64 - (c % self.gw) as f64);
+        let dy = (r / self.gw) as f64 - (c / self.gw) as f64;
+        Some((dx, dy))
+    }
+
+    /// The `JP_TERRAIN.river` row of navigable channel cell `c`
+    /// ([`river_class::channel_terrain`]): its order, the bed drop to its
+    /// receiver in m/km (`None` without a receiver), and the delta test.
+    fn channel_terrain(&self, net: &JpRiverNet, flow: &[f32], c: usize) -> &'static str {
+        let cell = |i: usize| ((i % self.gw) as f64, (i / self.gw) as f64);
+        let grad = self.flow_vec(net, c).map(|(dx, dy)| {
+            let (cx, cy) = cell(c);
+            let r = net.recv[c] as usize;
+            let (rx, ry) = cell(r);
+            (self.height_m(cx, cy) - self.height_m(rx, ry)) / (dx.hypot(dy) * self.cell_km())
+        });
+        let delta = (self.field[c] as f64) < self.sea_level + river_class::DELTA_LOWLAND_DH
+            && (flow[c] as f64) > self.flow_thresh * river_class::DELTA_FLOW_MULT;
+        river_class::channel_terrain(net.order[c], grad, delta)
+    }
+
+    /// Ruling CD item 1: the flow score of the channel points `i0..=i1`, for
+    /// [`river_class::condition_from_score`]. Each channel point contributes
+    /// `cos(travel, flow) x magnitude(discharge)`, weighted by its travel
+    /// step's length; the travel step is the segment leaving the point (the
+    /// one arriving, at the route's last point). `None` when no point in the
+    /// range has a channel with a known direction and strength -- the caller
+    /// then falls back to the reference's elevation condition rather than
+    /// inventing `Neutral`.
+    fn channel_score(&self, pts: &[(f64, f64)], info: &[JpPointInfo], i0: usize, i1: usize) -> Option<f64> {
+        let (net, flow) = self.river_inputs()?;
+        let n = pts.len();
+        let (mut acc, mut wsum) = (0.0f64, 0.0f64);
+        for k in i0..=i1.min(n - 1) {
+            let Some(c) = info[k].chan else { continue };
+            let Some((fx, fy)) = self.flow_vec(&net, c) else { continue };
+            let (a, b) = if k + 1 < n {
+                (k, k + 1)
+            } else if k > 0 {
+                (k - 1, k)
+            } else {
+                continue;
+            };
+            let tx = self.wrap_dx(pts[b].0 - pts[a].0);
+            let ty = pts[b].1 - pts[a].1;
+            let (tl, fl) = (tx.hypot(ty), fx.hypot(fy));
+            if tl <= 0.0 || fl <= 0.0 {
+                continue;
+            }
+            let Some(mag) = river_class::magnitude(flow[c] as f64, self.flow_thresh) else { continue };
+            acc += (tx * fx + ty * fy) / (tl * fl) * mag * tl;
+            wsum += tl;
+        }
+        (wsum > 0.0).then(|| acc / wsum)
+    }
 }
 
 /// The per-point classification `_jpDeriveStages` chunks over.
@@ -14902,6 +15116,10 @@ struct JpPointInfo {
     terrain: String,
     cond: Option<&'static str>,
     riv: bool,
+    /// Ruling CD item 1: the navigable channel cell a River Transport point
+    /// travels on (`JpWorld::channel_at`); `None` for every other point,
+    /// lake rivers included.
+    chan: Option<usize>,
 }
 
 /// A chunk mid-accumulation, before the settlement/infra/condition pass.
@@ -14938,6 +15156,20 @@ struct JpChunk {
 /// wins over the derived value, the reference's own auto-with-override
 /// convention -- except that a water stage only honours a manual route
 /// condition that is legal for its own category.
+///
+/// **One deliberate departure (Ruling CD item 1, DECISIONS.md 7p).** The
+/// reference never navigates a real river: its only `river` points are lake
+/// cells near shore, so River Transport down a traced channel was costed as a
+/// walking portage (`PLANNER_AUDIT_2026-10-11.md` Q3). Here, when the plan's
+/// transport is River Transport and the world carries a river network
+/// ([`JpWorld::river_net`]), a land point within one cell of a navigable
+/// channel ([`river_class::NAVIGABLE_ORDER`]) is a `river` point whose terrain
+/// is the channel's `JP_TERRAIN.river` row ([`river_class::channel_terrain`])
+/// and whose stage condition comes from the flow: travel direction against the
+/// receiver tree, scaled by discharge ([`river_class::condition_from_score`]).
+/// Lake margins keep the reference's `Calm River` and elevation condition;
+/// every other transport, and a world without a network, derive exactly as
+/// the reference does.
 pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> Vec<JpDerivedStage> {
     if pts.len() < 2 {
         return Vec::new();
@@ -14948,6 +15180,14 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // -- per-point classification --
     let mut info: Vec<JpPointInfo> = Vec::with_capacity(pts.len());
     let mut last_land_biome = "Coastal Lowland".to_string();
+    // Ruling CD item 1 (DECISIONS.md 7p, a deliberate departure from
+    // `_jpDeriveStages`): under River Transport a land point on a navigable
+    // traced channel is a river point. The shared plan's transport, not a
+    // per-stage one: stage indices key `stage_overrides`, so classification
+    // cannot depend on an override of a stage it has not cut yet. Every other
+    // transport, and a world with no network, classifies exactly as the
+    // reference does.
+    let river_inputs = if plan.transport == "River Transport" { world.river_inputs() } else { None };
     for &(px, py) in pts {
         let (x, y) = world.clamp_cell(px, py);
         let i = y * gw + x;
@@ -14967,6 +15207,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 terrain: terrain.to_string(),
                 cond: None,
                 riv: false,
+                chan: None,
             });
         } else if b_idx == 14 {
             let d = world.nearest_land_dist(x, y);
@@ -14977,6 +15218,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                     terrain: "Calm River".to_string(),
                     cond: None,
                     riv: false,
+                    chan: None,
                 });
             } else {
                 let terrain = if d <= 8 { "Coastal Waters" } else { "Open Sea" };
@@ -14986,11 +15228,29 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                     terrain: terrain.to_string(),
                     cond: None,
                     riv: false,
+                    chan: None,
                 });
             }
         } else {
             let biome = jp_legacy_biome_of(b_idx, world.temp[i] as f64, world.rain[i] as f64);
             last_land_biome = biome.to_string();
+            // Ruling CD item 1: a navigable channel under River Transport.
+            // The biome is the channel cell's own land biome (it is land),
+            // the terrain its `JP_TERRAIN.river` row; the condition is
+            // measured per stage below, from the flow.
+            if let Some((net, flow)) = river_inputs
+                && let Some(c) = world.channel_at(x, y)
+            {
+                info.push(JpPointInfo {
+                    cat: "river",
+                    biome: biome.to_string(),
+                    terrain: world.channel_terrain(&net, flow, c).to_string(),
+                    cond: None,
+                    riv: false,
+                    chan: Some(c),
+                });
+                continue;
+            }
             let t_idx = world.cart_terrain[i];
             let mut terrain = if t_idx > 0 {
                 CART_TERRAINS[t_idx as usize - 1]
@@ -15011,6 +15271,7 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 terrain: terrain.to_string(),
                 cond,
                 riv,
+                chan: None,
             });
         }
     }
@@ -15018,12 +15279,17 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // -- chunk contiguous runs of identical (cat|biome|terrain|cond) --
     let mut chunks: Vec<JpChunk> = Vec::new();
     for (k, f) in info.iter().enumerate() {
+        // Ruling CD item 1: a channel point's key carries a `|ch` marker so a
+        // channel reach never chunks together with a lake margin (whose
+        // condition stays the reference's elevation one). Every other key is
+        // the reference's own.
         let key = format!(
-            "{}|{}|{}|{}",
+            "{}|{}|{}|{}{}",
             f.cat,
             f.biome,
             f.terrain,
-            f.cond.unwrap_or("")
+            f.cond.unwrap_or(""),
+            if f.chan.is_some() { "|ch" } else { "" }
         );
         if chunks.last().is_none_or(|c| c.key != key) {
             chunks.push(JpChunk {
@@ -15213,7 +15479,14 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
                 .unwrap_or_else(|| c.cond.unwrap_or("None / Wild").to_string());
         } else {
             let auto = if c.cat == "river" {
-                jp_river_condition(c.km, c.gain, c.loss).to_string()
+                // Ruling CD item 1: a stage with channel points takes its
+                // current from the flow (direction x discharge); a lake
+                // margin, or a channel stage with no known flow direction,
+                // keeps the reference's elevation condition.
+                match world.channel_score(pts, &info, c.i0, c.i1) {
+                    Some(score) => river_class::condition_from_score(score).to_string(),
+                    None => jp_river_condition(c.km, c.gain, c.loss).to_string(),
+                }
             } else {
                 jp_sea_condition(
                     pts,
@@ -23875,6 +24148,10 @@ mod tests {
             road_cells: &f.road_cells,
             ocean_field: Some(&f.ocean),
             wind_field: Some(&f.wind),
+            // No river network: the milestone-5 golden is the reference's own
+            // derivation (Ruling CD item 1 reads a network only under River
+            // Transport, which this fixture's plans do not use).
+            river_net: None,
         }
     }
 

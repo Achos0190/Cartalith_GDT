@@ -71,6 +71,12 @@ type Planned = Option<Result<JourneyTimeline, NoTimeline>>;
 ///   scalars `coarse_ocean_wind_fields` reads. Whole rather than those ten,
 ///   so a new reader cannot be missed; a param only changes with a
 ///   regenerate, which moves the fingerprint anyway.
+/// - The river network (Ruling CD item 1, `JpWorldParts::river_order`/
+///   `river_recv`): built from `field`, `flow_discharge`, the world's sea
+///   level, `world` and `map_width_km` (all in the fingerprint), the live
+///   `river_density` (in `self.params`) and `WorldState::integrated_drainage`
+///   (fixed by the generation that made the field, so it moves with the
+///   fingerprint). No new key term is needed.
 /// - The Travel Library: the animal overrides and vessel overrides exactly
 ///   as passed to the resolvers (sorted, since they are `HashMap`s), and per
 ///   journey the resolved `PartyPreset` (`None` for a missing one).
@@ -193,6 +199,12 @@ pub(crate) struct JpWorldParts {
     jw: journey_bridge::JourneyWorld,
     ocean: cartalith_civ::JpCoarseField,
     wind: cartalith_civ::JpCoarseField,
+    /// Ruling CD item 1: the river network River Transport navigates
+    /// (`cartalith_civ::fresh_river_channels`' order and receivers), built
+    /// with the arguments `RouteInputs::build` gives `fresh_river_order` so
+    /// the planner's navigable cells are the Route tool's.
+    river_order: Vec<i16>,
+    river_recv: Vec<i32>,
 }
 
 /// Rust-internal, so outside the `#[godot_api]` block.
@@ -226,7 +238,25 @@ impl WorldGen {
         // The Journey Planner's real current/wind fields, computed fresh
         // exactly as the Wind/Ocean-currents debug views compute theirs.
         let (ocean, wind) = crate::coarse_ocean_wind_fields(&ws.field, gw, gh, self.world, self.sea_level, &self.params);
-        JpWorldParts { jw, ocean, wind }
+        // Ruling CD item 1. The same call shape as `RouteInputs::build`'s
+        // `fresh_river_order` (world sea level, live `river_density`, the
+        // world's own `integrated_drainage`), so a cell the router's mixed
+        // domain discounts as navigable is a cell the planner costs as river.
+        // Built for every plan, though only River Transport reads it: the
+        // world tables are built before the plan's transport is final (auto
+        // carriage can still change it). Its cost is not measured.
+        let (river_order, river_recv) = cartalith_civ::fresh_river_channels(
+            &ws.field,
+            &ws.flow_discharge,
+            gw,
+            gh,
+            ws.sea_level,
+            self.world,
+            self.params.river_density,
+            self.map_width_km,
+            ws.integrated_drainage,
+        );
+        JpWorldParts { jw, ocean, wind, river_order, river_recv }
     }
 
     /// Assembles the borrowed `JpWorld` the planner reads from the world's own
@@ -261,6 +291,7 @@ impl WorldGen {
             road_cells: &parts.jw.road_cells,
             ocean_field: Some(&parts.ocean),
             wind_field: Some(&parts.wind),
+            river_net: Some(cartalith_civ::JpRiverNet { order: &parts.river_order, recv: &parts.river_recv }),
         }
     }
 
