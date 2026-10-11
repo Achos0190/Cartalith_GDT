@@ -1735,6 +1735,21 @@ func set_color_space(name: String) -> bool:
 		return false
 	return world_gen.set_color_space(name)
 
+## ET-E3: the print (CMYK) gamut check for one picker colour
+## (`WorldGen.color_print_gamut`, `EDITING_TOOLS_SCOPE.md` ET-E3). Returns
+## `{delta_e, in_gamut, nearest, source}`, or **`{}`** when the loaded binary has
+## no such binding or the engine has no CMYK profile -- "not checked", never
+## "in gamut". `source` is `"own_icc"`: the engine's own synthetic coated-paper
+## profile, not a press characterisation. `callv` because a GDScript direct call
+## is arg-checked at parse time against the loaded binary, and this shell must
+## still parse against one built before the binding existed. Stateless:
+## presentation only, nothing marked dirty.
+func color_print_gamut(c: Color) -> Dictionary:
+	if world_gen == null or not _has("color_print_gamut"):
+		return {}
+	var d = world_gen.callv("color_print_gamut", [c])
+	return d if d is Dictionary else {}
+
 
 # -- The raster layer stack (`GUI_GAP_REGISTER.md` CA-03/CA-04, RD-10) ---------
 #

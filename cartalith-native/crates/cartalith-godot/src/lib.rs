@@ -55,6 +55,8 @@ mod pack;
 mod ops_bridge;
 mod paint_bridge;
 mod params;
+/// ET-E3's print (CMYK) gamut check behind `color_print_gamut`.
+mod print_gamut;
 mod progress_bridge;
 mod project_bridge;
 mod render;
@@ -11203,6 +11205,40 @@ impl WorldGen {
         };
         self.color_space = space;
         true
+    }
+
+    /// **ET-E3: the print (CMYK) gamut check for one picker colour**
+    /// (`EDITING_TOOLS_SCOPE.md` ET-E3, Ruling CB item 6). Round-trips `c`
+    /// (sRGB, as a `ColorPicker` holds it) through a CMYK ICC profile with
+    /// `moxcms`, relative colorimetric, and returns:
+    ///
+    /// - `delta_e` (float): CIEDE2000 between `c` and its round trip;
+    /// - `in_gamut` (bool): `delta_e <= print_gamut::IN_GAMUT_MAX_DE00` (2.5,
+    ///   measured from the profile's own noise -- see that constant);
+    /// - `nearest` (Color): the round-tripped colour, i.e. the nearest
+    ///   printable colour, with `c`'s alpha;
+    /// - `source` (String): `"own_icc"` -- the profile this project generates
+    ///   (`print_gamut::synthetic_cmyk_icc`), a synthetic coated-paper
+    ///   approximation, **not** a press characterisation.
+    ///
+    /// **Every key is omitted** -- an empty dictionary -- when no CMYK profile
+    /// is available (it failed to build, parse or transform). Never
+    /// `in_gamut: true` for a colour that was not converted. The first call
+    /// in a process builds the profile (~0.3 s release, ~3 s debug, single
+    /// runs); later calls are a pair of transforms. Stateless: reads nothing
+    /// from the world.
+    #[func]
+    fn color_print_gamut(&self, c: Color) -> VarDictionary {
+        let Some(g) = print_gamut::check([c.r as f64, c.g as f64, c.b as f64]) else {
+            return VarDictionary::new();
+        };
+        let [r, gg, b] = g.nearest;
+        vdict! {
+            "delta_e" => g.delta_e,
+            "in_gamut" => g.in_gamut,
+            "nearest" => Color::from_rgba(r as f32, gg as f32, b as f32, c.a),
+            "source" => g.source
+        }
     }
 
     // -- ET-C2: the terrain and water adjustment stacks -----------------------

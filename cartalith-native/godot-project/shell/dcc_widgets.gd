@@ -3317,6 +3317,12 @@ const _CONFIRM_META := "_dcc_confirmable_color"
 ## anything -- the revert above already put the state back. The live
 ## `color_changed` ticks never reach either hook, so a drag is one entry, not
 ## one per tick.
+##
+## **Print-gamut warning** (ET-E3, `_print_gamut_row`): beside "now", a warning
+## glyph and a clickable nearest-printable swatch appear while the colour is
+## outside the engine's CMYK gamut. Shown only when the `EngineBridge` answered
+## `color_print_gamut` with a non-empty dictionary; with no bridge, no binding
+## or no profile nothing is drawn.
 static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 		on_open: Callable = Callable(), on_commit: Callable = Callable()) -> void:
 	if pick == null or pick.has_meta(_CONFIRM_META):
@@ -3349,6 +3355,11 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 	now.custom_minimum_size = Vector2(56, 24)
 	cmp.add_child(now)
 	cmp.add_child(DccTheme.mono_label("now", "text_dim", DccTheme.FS_SMALL))
+	## ET-E3's print-gamut warning: a glyph plus a clickable nearest-printable
+	## swatch, built hidden and shown only by `_print_gamut_refresh` when the
+	## bridge answered (a non-empty dictionary) AND said out of gamut.
+	var gam := _print_gamut_row(pick)
+	cmp.add_child(gam)
 
 	var btns := HBoxContainer.new()
 	btns.add_theme_constant_override("separation", 8)
@@ -3368,9 +3379,13 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 		st["open"] = true
 		was.color = pick.color
 		now.color = pick.color
+		gam.set_meta(_GAMUT_BRIDGE_META, _print_gamut_bridge(pick))
+		_print_gamut_refresh(gam, pick.color)
 		if on_open.is_valid():
 			on_open.call())
-	pick.color_changed.connect(func(c: Color): now.color = c)
+	pick.color_changed.connect(func(c: Color):
+		now.color = c
+		_print_gamut_refresh(gam, c))
 	var cancel_close := func():
 		if not st["open"]:
 			return
@@ -3382,6 +3397,7 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 			return
 		pick.color = old
 		now.color = old
+		_print_gamut_refresh(gam, old)
 		if on_revert.is_valid():
 			on_revert.call(old)
 	pick.popup_closed.connect(cancel_close)
@@ -3391,6 +3407,93 @@ static func confirmable_color(pick: ColorPickerButton, on_revert: Callable,
 	## `popup_closed` -- so the abandoned colour would stay. Reverting on the
 	## way out of the tree closes that hole.
 	pick.tree_exiting.connect(cancel_close)
+
+## Meta on the print-gamut row holding the `EngineBridge` found when the popup
+## opened (or null), so a drag does not walk the tree on every tick.
+const _GAMUT_BRIDGE_META := "_dcc_gamut_bridge"
+## Meta on the print-gamut row holding the last `nearest` colour, read by the
+## swatch's press handler.
+const _GAMUT_NEAREST_META := "_dcc_gamut_nearest"
+
+## The `EngineBridge` that answers `color_print_gamut`, found by the node name
+## `app.gd` gives it (`"EngineBridge"`), or null: outside the app (a probe, a
+## tool scene) or against a bridge without the method. Null means "not
+## checked", and the row stays hidden -- never "in gamut".
+static func _print_gamut_bridge(n: Node) -> Node:
+	if n == null or not n.is_inside_tree():
+		return null
+	var b := n.get_tree().root.find_child("EngineBridge", true, false)
+	return b if b != null and b.has_method("color_print_gamut") else null
+
+## ET-E3's print-gamut row for `confirmable_color`'s was/now line (PhotoCraft's
+## picker pattern, `EDITING_TOOLS_SCOPE.md` ET-E3): a warning glyph plus a
+## swatch of the nearest printable colour. Pressing the swatch sets the picker
+## to that colour and emits `color_changed`, so the call site's live handler
+## applies it exactly as a drag would (assigning `color` alone emits nothing --
+## see `confirmable_color`'s own doc). Built hidden; `_print_gamut_refresh`
+## alone shows it. No CMYK sliders: Godot 4.7's `ColorPicker` has no CMYK mode.
+static func _print_gamut_row(pick: ColorPickerButton) -> HBoxContainer:
+	var gam := HBoxContainer.new()
+	gam.name = "PrintGamut"
+	gam.add_theme_constant_override("separation", 4)
+	gam.visible = false
+	var glyph := DccTheme.label(DccIcons.SYMBOLS["warn_tri"], "warn", DccTheme.FS_SMALL)
+	glyph.name = "PrintGamutGlyph"
+	glyph.mouse_filter = Control.MOUSE_FILTER_PASS  ## so its tooltip shows
+	gam.add_child(glyph)
+	var sw := Button.new()
+	sw.name = "PrintGamutNearest"
+	sw.focus_mode = Control.FOCUS_NONE
+	## 56 x 24 is the was/now swatches' own size; on touch both axes take the
+	## 44 px floor the OK/Cancel buttons above use (a tappable target, not a
+	## readout).
+	var touch := 44.0 if DccTheme.is_touch() else 0.0
+	sw.custom_minimum_size = Vector2(maxf(56.0, touch), maxf(24.0, touch))
+	gam.add_child(sw)
+	sw.pressed.connect(func():
+		if not gam.has_meta(_GAMUT_NEAREST_META):
+			return
+		var c: Color = gam.get_meta(_GAMUT_NEAREST_META)
+		pick.color = c
+		pick.color_changed.emit(c))
+	return gam
+
+## Asks the bridge cached on `gam` about `c` and shows the row only when it
+## answered (a non-empty dictionary carrying `in_gamut`) with `in_gamut ==
+## false`. An empty answer -- no bridge, no binding, no CMYK profile -- hides
+## it: "not checked" is never drawn as a pass or a warning.
+static func _print_gamut_refresh(gam: HBoxContainer, c: Color) -> void:
+	if gam == null or not is_instance_valid(gam):
+		return
+	## `has_meta` first: `set_meta(key, null)` REMOVES the key, and `get_meta`
+	## with a null default still logs "no meta" (measured, this probe's run).
+	var b = gam.get_meta(_GAMUT_BRIDGE_META) if gam.has_meta(_GAMUT_BRIDGE_META) else null
+	var d: Dictionary = {}
+	if b != null and is_instance_valid(b):
+		d = b.color_print_gamut(c)
+	if not d.has("in_gamut") or bool(d["in_gamut"]) or not d.has("nearest") or not d.has("delta_e"):
+		gam.visible = false
+		gam.remove_meta(_GAMUT_NEAREST_META)
+		return
+	var near: Color = d["nearest"]
+	gam.set_meta(_GAMUT_NEAREST_META, near)
+	var sw := gam.get_node("PrintGamutNearest") as Button
+	var box := StyleBoxFlat.new()
+	box.bg_color = near
+	for st in ["normal", "hover", "pressed", "focus"]:
+		sw.add_theme_stylebox_override(st, box)
+	## `source` names what answered; the Rust side documents both values.
+	var src := "the engine's CMYK profile"
+	match String(d.get("source", "")):
+		"own_icc":
+			src = "the engine's own synthetic coated-paper CMYK profile, not a press profile"
+		"generic":
+			src = "a generic analytic CMYK approximation, not a press profile"
+	var tip := "Outside the print gamut (ΔE00 %.1f against %s).\nClick the swatch to use the nearest printable colour." \
+		% [float(d["delta_e"]), src]
+	sw.tooltip_text = tip
+	(gam.get_node("PrintGamutGlyph") as Label).tooltip_text = tip
+	gam.visible = true
 
 ## Raises `w`'s `oversampling_override` to `scale` (default: its own content
 ## scale factor) so text stays sharp on a content-scaled popup, and keeps it
