@@ -727,6 +727,8 @@ const LM_REJECT_COLORS := {
 	"cap": Color(0.878, 0.639, 0.290, 0.45),
 	"score": Color(0.373, 0.392, 0.408, 0.55),
 }
+## Colour for a rejection reason missing from `LM_REJECT_COLORS`; equal to the
+## `score` entry, so an unknown reason draws like the rarest known one.
 const LM_REJECT_FALLBACK := Color(0.373, 0.392, 0.408, 0.55)
 
 ## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
@@ -1014,6 +1016,11 @@ signal sample_pin_dropped(gx: float, gy: float)
 ## wants.
 var _context_pick: Callable = Callable()
 
+## Installs the engine-pick resolver `hits_at()` consults: a `Callable(gx, gy,
+## px_per_cell, zoom) -> Array` of `{kind, id, label?, x, y}`.
+## `context_broker.gd` installs it. A `Callable` rather than a bridge so this
+## control holds no engine reference; an invalid one means those kinds are simply
+## not asked (a bare overlay in a probe).
 func set_context_pick_resolver(cb: Callable) -> void:
 	_context_pick = cb
 
@@ -1061,6 +1068,12 @@ var _ring_touch_open_cb: Callable = Callable()
 ## to read it from.
 var _last_mouse_local := Vector2.ZERO
 
+## Installs the CM-3 ring/card seam described above: `_gui_input` forwards raw
+## RMB press, pointer motion, release and click events to these callables, and
+## `open_check` answers whether the ring is open. `touch_open_cb` is the optional
+## touch twin and defaults to an invalid `Callable`. Every call site checks
+## `is_valid()`, so any may be left unset. Installed once by `app.gd`; the
+## callables must hold no state of this control.
 func set_ring_callbacks(press_cb: Callable, pointer_cb: Callable, release_cb: Callable,
 		click_cb: Callable, open_check: Callable, touch_open_cb: Callable = Callable()) -> void:
 	_ring_press_cb = press_cb
@@ -1070,6 +1083,10 @@ func set_ring_callbacks(press_cb: Callable, pointer_cb: Callable, release_cb: Ca
 	_ring_open_check = open_check
 	_ring_touch_open_cb = touch_open_cb
 
+## The last pointer position seen by `_gui_input`, in this control's local space,
+## whatever the button state. Exists because `app.gd`'s key handler (the Q-aim
+## ring) has no motion event of its own to read. `Vector2.ZERO` until the first
+## motion.
 func last_mouse_pos() -> Vector2:
 	return _last_mouse_local
 
@@ -1302,6 +1319,11 @@ var _border_frac := 0.0
 ## right even in the one frame before the first zoom/reset call ever runs.
 var _camera_zoom := 1.0
 
+## Pushed by `ViewportHost` on every zoom change. Redraws only when the value
+## actually moved (`is_equal_approx`), through `view_changed()` rather than a
+## bare `queue_redraw()` so the layer cache rebuilds in the background; the
+## comment inside says why a redraw is needed at all. Never derive pin sizes from
+## the ancestor's `scale`.
 func set_camera_zoom(z: float) -> void:
 	if is_equal_approx(z, _camera_zoom):
 		return
@@ -1416,6 +1438,9 @@ func _crisp_begin() -> float:
 	return k
 
 
+## Undoes `_crisp_begin()`: resets the `_cv` draw transform to identity so later
+## draws are in plain local units again. Every `_crisp_begin()` must be paired
+## with exactly one `_crisp_end()`, or the rest of the pass is scaled by `1/k`.
 func _crisp_end() -> void:
 	_cv.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -1571,6 +1596,10 @@ var _selected_manual_route := -1
 var _landmarks: Array = []
 var _landmarks_visible := true
 
+## Replaces the landmark list drawn and hit-tested by this overlay (the landmark
+## dictionaries from the engine). Resets `_lm_hover_index` to `-1` because it
+## indexed the array just replaced; a stale index would hover or select the wrong
+## landmark.
 func set_landmarks(items: Array) -> void:
 	_landmarks = items
 	_lm_hover_index = -1   ## an index into the array just replaced
@@ -1593,14 +1622,22 @@ func set_landmarks(items: Array) -> void:
 var _conflicts: Array = []
 var _selected_conflict_id := -1
 
+## Conflict ink (crimson, labelled judgement: a hue no other civil layer uses),
+## the selected-row ink (brighter, opaque) and the dark underlay of the two-pass
+## stroke. All three are judgements, not sourced from the reference.
 const CONFLICT_COLOR := Color(0.80, 0.14, 0.12, 0.95)
 const CONFLICT_SEL_COLOR := Color(1.0, 0.36, 0.26, 1.0)
 const CONFLICT_UNDERLAY := Color(0.07, 0.03, 0.02, 0.75)
 
+## Replaces the conflict rows to draw (SP-4). Rows are `conflict_list()`'s
+## output, already resolved for the Timeline cursor's year; this layer draws only
+## the `active` ones, so do not filter here.
 func set_conflicts(items: Array) -> void:
 	_conflicts = items
 	queue_redraw()
 
+## Sets which conflict (by `id`) draws in `CONFLICT_SEL_COLOR`; `-1` selects
+## none. No-ops, with no redraw, when the id is unchanged.
 func set_selected_conflict(id: int) -> void:
 	if id == _selected_conflict_id:
 		return
@@ -1640,8 +1677,15 @@ var _campaigns: Array = []
 var _campaign_runs: Array = []
 var _show_conflict := true
 
+## Fill of the changed-hands cell washes: the conflict crimson (`CONFLICT_COLOR`'s
+## RGB) at 0.30 alpha, a labelled judgement so terrain still reads through it.
 const CAMPAIGN_WASH := Color(0.80, 0.14, 0.12, 0.30)
 
+## Replaces the campaign rows (the changed-hands cell washes). Precomputes
+## `_campaign_runs`: each row's `changed_cells` collapsed into horizontal one-
+## cell-high `Rect2` runs in grid cells, breaking at row ends (`% _gw`) so a run
+## never wraps a row. Needs `_gw > 0` (otherwise the runs are empty), so push
+## after the civ data.
 func set_campaigns(items: Array) -> void:
 	_campaigns = items
 	_campaign_runs.clear()
@@ -1660,6 +1704,8 @@ func set_campaigns(items: Array) -> void:
 		_campaign_runs.append(runs)
 	queue_redraw()
 
+## The Layers popover's on/off for the conflict and campaign layers
+## (`_show_conflict`, default on). Independent of whether any rows exist.
 func set_show_conflict(shown: bool) -> void:
 	_show_conflict = shown
 	queue_redraw()
@@ -1701,20 +1747,32 @@ var _landmark_rejects: Dictionary = {}
 ## default so the popover and this file cannot disagree.
 var _landmark_rejects_visible := false
 
+## Replaces the landmark-rejection diagnostics, keyed by rejection reason; drawn
+## only while `_landmark_rejects_visible` is on. Diagnostic data; never treat it
+## as placed landmarks.
 func set_landmark_rejects(by_reason: Dictionary) -> void:
 	_landmark_rejects = by_reason
 	queue_redraw()
 
+## Toggles the landmark-rejection diagnostic layer (default off, matching
+## `cartography_workspace.gd::LIVE_LAYERS`). No-ops, with no redraw, when
+## unchanged.
 func set_landmark_rejects_visible(on: bool) -> void:
 	if on == _landmark_rejects_visible:
 		return
 	_landmark_rejects_visible = on
 	queue_redraw()
 
+## Replaces the hand-placed map icons this overlay draws and hit-tests
+## (`_manual_icons`). Always authored, never generated.
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
 	queue_redraw()
 
+## Replaces the label candidates (`labels.rs`'s `LabelCandidate` dictionaries).
+## Order matters: `_apply_generated_size_mode_override` runs on the incoming
+## array first (it may rewrite rows), then the per-class weight range is
+## recomputed, so glyph sizing sees the data it will draw.
 func set_labels(labels: Array) -> void:
 	_apply_generated_size_mode_override(labels)
 	_labels = labels
@@ -1813,8 +1871,12 @@ func _label_hidden(lb: Dictionary) -> bool:
 var _journey_markers: Array = []
 const JOURNEY_MARKER_RADIUS := 6.0   ## screen px
 const JOURNEY_MARKER_FILL := Color(1.0, 0.824, 0.314, 1.0)   ## `MANUAL_ROUTE_SEL_COLOR`, opaque: the party rides its route
+## Outline of the journey marker disc; near-black brown at 0.95 alpha (a labelled
+## judgement, chosen to read on both light land and sea).
 const JOURNEY_MARKER_RING := Color(0.10, 0.08, 0.05, 0.95)
 
+## Replaces the journey markers (one per journey) drawn by
+## `_draw_journey_markers`.
 func set_journey_markers(markers: Array) -> void:
 	_journey_markers = markers
 	queue_redraw()
@@ -1996,6 +2058,8 @@ func _journey_marker_subline(m: Dictionary) -> String:
 			return "arrived %s" % String(m.get("arrival", ""))
 	return ""
 
+## Replaces the hand-authored route list. If the selected route index no longer
+## exists (a deletion), the selection is reset to `-1` rather than left dangling.
 func set_manual_routes(routes: Array) -> void:
 	_manual_routes = routes
 	if _selected_manual_route >= routes.size():
@@ -2013,6 +2077,9 @@ func set_selected_manual_route(index: int) -> void:
 	queue_redraw()
 
 
+## Makes the control a mouse sink (`MOUSE_FILTER_STOP`) so right click, hover and
+## touch-hold reach `_gui_input`, and redraws on every resize, since every
+## position here is derived from `size` through `_displayed_rect()`.
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	resized.connect(func(): queue_redraw())
@@ -2333,6 +2400,10 @@ var _faction_religions := PackedStringArray()
 ## exist -- see `faith_divergence_visible()`.
 var _show_faith_divergence := false
 
+## Pushes the faction-to-state-religion table: `keys[faction - 1]` is that
+## faction's engine religion key, `""` when the roster row was not read. Read
+## only by `_faith_diverged`. Faction `0` (Unclaimed) has no entry, hence the `-
+## 1`.
 func set_faction_religions(keys: PackedStringArray) -> void:
 	_faction_religions = keys
 	queue_redraw()
@@ -2540,10 +2611,15 @@ func _draw_trait_badges(s: Dictionary, pos: Vector2, radius: float, sc: float, k
 			glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, badge_px, TRAIT_BADGE_INK)
 	_crisp_end()
 
+## Turns the faith-divergence ring on or off. See `_show_faith_divergence`'s
+## comment for why the shell calls this directly rather than through the shared
+## layer dispatcher.
 func set_faith_divergence_visible(on: bool) -> void:
 	_show_faith_divergence = on
 	queue_redraw()
 
+## Read-back for the Layers popover: whether the faith-divergence ring is on.
+## Reports the flag only, not whether any settlement diverges.
 func faith_divergence_visible() -> bool:
 	return _show_faith_divergence
 
@@ -2572,16 +2648,20 @@ func _faith_diverged(s: Dictionary) -> bool:
 		return false
 	return String(s["religion"]) != ruler
 
+## Layers popover: shows or hides settlement markers.
 func set_show_settlements(shown: bool) -> void:
 	_show_settlements = shown
 	queue_redraw()
 
 
+## Layers popover: shows or hides land ways (roads). Sea routes have their own
+## switch (`set_show_sea_routes`).
 func set_show_roads(shown: bool) -> void:
 	_show_roads = shown
 	queue_redraw()
 
 
+## Layers popover: shows or hides sea routes.
 func set_show_sea_routes(shown: bool) -> void:
 	_show_sea_routes = shown
 	queue_redraw()
@@ -2606,32 +2686,51 @@ const RIVER_TRACE_CASING := Color(0.08, 0.02, 0.06, 0.85)
 const RIVER_TRACE_W := 3.0
 const RIVER_CATCHMENT_INK := Color(1.0, 0.16, 0.52, 0.34)
 
+## Sets the highlighted river branch: `river_pick`'s `branch`, in grid cell-
+## centre coordinates, drawn by `_draw_river_trace`. Dismiss with
+## `clear_river_highlight()`.
 func set_river_trace(branch: PackedVector2Array) -> void:
 	_river_trace = branch
 	queue_redraw()
 
+## Sets the catchment overlay from an RGBA mask image (`mask_rgba_image()`),
+## uploaded as a texture; `null` removes it. The image must cover the whole grid,
+## since it is stretched over `_displayed_rect()`.
 func set_river_catchment(img: Image) -> void:
 	_river_catchment = ImageTexture.create_from_image(img) if img != null else null
 	queue_redraw()
 
+## Clears both the river trace and the catchment texture. Called by the card's
+## own row and by `viewport_host.gd::refresh()`, because a new river network
+## makes both describe rivers that no longer exist.
 func clear_river_highlight() -> void:
 	_river_trace = PackedVector2Array()
 	_river_catchment = null
 	queue_redraw()
 
+## True while either a river trace or a catchment is set.
 func river_highlight_active() -> bool:
 	return not _river_trace.is_empty() or _river_catchment != null
 
+## The river branch currently traced, in grid cell-centre coordinates; empty when
+## none. Public for probes and the card.
 func river_trace() -> PackedVector2Array:
 	return _river_trace
 
+## True when a catchment texture is set. Public for probes and the card.
 func has_river_catchment() -> bool:
 	return _river_catchment != null
 
+## Draws the catchment texture stretched over the displayed map `rect` (no
+## filtering choice, no tiling). Does nothing when none is set.
 func _draw_river_catchment(rect: Rect2) -> void:
 	if _river_catchment != null:
 		_cv.draw_texture_rect(_river_catchment, rect, false)
 
+## Draws the traced river branch as a casing plus ink polyline (`RIVER_TRACE_*`)
+## in screen space. Splits it wherever consecutive cells jump more than half the
+## grid width (a wrapped world's seam crossing), which drawn straight would
+## streak across the sheet. Needs two points and `_gw > 0`.
 func _draw_river_trace(rect: Rect2) -> void:
 	if _river_trace.size() < 2 or _gw <= 0:
 		return
@@ -2762,6 +2861,8 @@ func set_way_scale(k: float) -> void:
 	_way_scale = clampf(k, 0.2, 2.5)
 	queue_redraw()
 
+## Read-back of the way-width multiplier set by `set_way_scale` (clamped to
+## `0.2..2.5`).
 func way_scale() -> float:
 	return _way_scale
 
@@ -2776,6 +2877,8 @@ func set_way_opacity(a: float) -> void:
 	_way_opacity = clampf(a, 0.0, 1.0)
 	queue_redraw()
 
+## Read-back of the way opacity multiplier set by `set_way_opacity` (clamped to
+## `0..1`).
 func way_opacity() -> float:
 	return _way_opacity
 
@@ -2816,6 +2919,8 @@ func set_style_treatment(t: Dictionary) -> void:
 	_refresh_styled_factions()
 	queue_redraw()
 
+## Read-back of the current overlay treatment (the deep copy made by
+## `set_style_treatment`); `{}` is the identity treatment.
 func style_treatment() -> Dictionary:
 	return _style_treatment
 
@@ -3308,6 +3413,11 @@ func set_way_lod(on: bool) -> void:
 ## pixels -- a working control that could not be reached.
 signal trade_load_changed(available: bool)
 
+## Sets the per-way trade load (`loads[way_index]`, aligned with the way array)
+## and caches the maximum that `_trade_width_k` normalises against. Emits
+## `trade_load_changed` with `has_trade_load()` so the CARTO toggle can enable
+## itself; an empty or all-zero array reports unavailable. Values `<= 0` count as
+## no load.
 func set_trade_load(loads: PackedFloat32Array) -> void:
 	_trade_load = loads
 	_trade_load_max = 0.0
@@ -3317,10 +3427,14 @@ func set_trade_load(loads: PackedFloat32Array) -> void:
 	queue_redraw()
 	trade_load_changed.emit(has_trade_load())
 
+## Turns trade-load width modulation on or off. It only has an effect while
+## `has_trade_load()` is true.
 func set_show_trade_load(on: bool) -> void:
 	_show_trade_load = on
 	queue_redraw()
 
+## Read-back of the trade-load switch (the flag only, not availability; see
+## `has_trade_load`).
 func show_trade_load() -> bool:
 	return _show_trade_load
 
@@ -3341,6 +3455,8 @@ func _trade_width_k(way_index: int) -> float:
 		return 1.0
 	return 1.0 + LOAD_WIDTH_GAIN * (v / _trade_load_max)
 
+## Read-back of whether the way LOD ladder (`WAY_LOD_MIN`) is applied
+## (`set_way_lod`).
 func way_lod() -> bool:
 	return _way_lod
 
@@ -3403,6 +3519,9 @@ func _interior_rect(rect: Rect2) -> Rect2:
 	return rect.grow(-inset)
 
 
+## Maps a grid cell to its screen position inside `rect` at the cell's centre (`+
+## 0.5`), which is what settlement-style markers want. Not for continuous
+## coordinates; use `_point_to_screen` for those.
 func _cell_to_screen(cell: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2((cell.x + 0.5) / _gw, (cell.y + 0.5) / _gh) * rect.size
 
@@ -3812,6 +3931,9 @@ var _sea_boxes: Array = []
 var _sea_boxes_src: Array = []
 
 
+## Points `_cv` (the canvas every `draw_*` here goes to) at the control itself;
+## `_draw_chunk` and `_draw_dyn` repoint it at a layer item while drawing and
+## must restore it.
 func _init() -> void:
 	_cv = self
 
@@ -3824,6 +3946,9 @@ class _LayerItem extends Node2D:
 	var layer: String
 	var slot := -1
 	var idx := 0
+	## Draws this item by handing back to the owning overlay: slot `-1` is a per-
+	## move layer (`_draw_dyn`), any other slot a cached chunk (`_draw_chunk`).
+	## Holds no drawing logic of its own.
 	func _draw() -> void:
 		if slot < 0:
 			ov._draw_dyn(self)
@@ -3836,10 +3961,17 @@ class _LayerItem extends Node2D:
 ## switches processing off whenever no press is outstanding.
 class _BuildPump extends Node:
 	var ov: Control
+	## Advances the background layer builds once per frame via
+	## `ov._pump_builds()`.
 	func _process(_delta: float) -> void:
 		ov._pump_builds()
 
 
+## Returns the empty bookkeeping for one cached layer of `count` chunks: two sets
+## (front/back) of items, keys, plans and textures, build progress (`building`,
+## `next`, `drawn`) and per-chunk cost data (`costs`, `est`, `ratio`; `1.0`
+## initially means the estimate is trusted). Everything starts empty; field
+## meanings are in the body's comment.
 func _new_layer_state(count: int) -> Dictionary:
 	## `items[slot][idx]`: `_LayerItem`s, or raw canvas-item RIDs for rivers.
 	## `keys[slot]`: the key that set was (or is being) built for; `{}` = empty.
@@ -4057,6 +4189,9 @@ func _start_build(name: String, want: Dictionary) -> void:
 	L["drawn"] = {}
 
 
+## Abandons an in-progress background build of layer `name`: clears the back set
+## and drops the `building` flag, leaving the front set (what is on screen)
+## alone. Safe when no build is running.
 func _cancel_build(name: String) -> void:
 	var L: Dictionary = _layers[name]
 	if L["building"]:
@@ -4076,6 +4211,9 @@ func _clear_slot(name: String, slot: int) -> void:
 	L["tex"][slot] = null
 
 
+## Shows or hides every item of one slot of layer `name` through the
+## `RenderingServer` (items are nodes or raw RIDs), which is how front and back
+## sets are swapped without redrawing.
 func _set_slot_visible(name: String, slot: int, on: bool) -> void:
 	for it in _layers[name]["items"][slot]:
 		RenderingServer.canvas_item_set_visible(it if it is RID else (it as CanvasItem).get_canvas_item(), on)
@@ -5727,6 +5865,11 @@ func _label_raster_px(font_px: int, lu: float = 1.0) -> int:
 var _visible_local := Rect2()
 
 
+## The window's visible rectangle in this control's local space, from the inverse
+## of `get_global_transform_with_canvas()`. Falls back to a huge rect (everything
+## visible) for a degenerate transform, because culling is an optimisation and
+## must fail towards drawing; the `1e9` bounds are a judgement, far past any real
+## map.
 func _visible_local_rect() -> Rect2:
 	var xf := get_global_transform_with_canvas()
 	## A degenerate transform (a zero-scaled ancestor, a control not yet in a
@@ -5910,6 +6053,11 @@ func _grid_box_offscreen(gbox: Rect2, rect: Rect2, pad: float) -> bool:
 const CHAIN_PAD_MULT := 2.0
 const CHAIN_PAD_EXTRA_PX := 2.0
 
+## Splits a screen-space polyline into chains `Vector2i(first_point, last_point)`
+## whose segments touch the visible rect, grown by `pad * CHAIN_PAD_MULT +
+## CHAIN_PAD_EXTRA_PX + 1` so a stroke or its antialiased edge is never clipped.
+## `k` scales the local visible rect to screen px. Fewer than two points gives no
+## chains. Must never drop a segment that could be visible.
 func _segment_chains(screen_points: PackedVector2Array, k: float, pad: float) -> Array[Vector2i]:
 	var chains: Array[Vector2i] = []
 	var n := screen_points.size()
@@ -6100,6 +6248,14 @@ func _rivers_painted() -> bool:
 	return _river_source != null and _river_source.has_method("rivers_painted") and bool(_river_source.rivers_painted())
 
 
+## Draws one chunk (`idx` of `count`) of the river set for `slot` as a mesh,
+## sampling the painted colour texture and optional water mask through the shared
+## `_river_material`. Returns without drawing when there is no river source or
+## when any of the key's three `extra` flags (`_lod_up`, `_debug_active`, rivers
+## painted into the map) is set. A source without
+## `river_run_count`/`river_view_mesh_runs` draws the whole stroke in chunk 0
+## only. The textures are held in the layer state so their RIDs stay alive for
+## the life of the set.
 func _draw_rivers_into(ci: RID, key: Dictionary, slot: int, idx: int, count: int) -> void:
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0 or _river_source == null or key["extra"][0] or key["extra"][1] or key["extra"][2]:
@@ -6160,6 +6316,8 @@ func _draw_rivers_into(ci: RID, key: Dictionary, slot: int, idx: int, count: int
 ## The river stroke's shader material, shared by every chunk item
 ## (`_river_item_new`), created with the first of them.
 var _river_material: ShaderMaterial = null
+## The shader the river stroke's `_river_material` uses (the under-water river
+## look); loaded at parse time, so a missing file breaks this script's load.
 const RIVER_UNDER_WATER := preload("res://shell/river_under_water.gdshader")
 
 ## Where the base map's `TextureRect` (`viewport_host.gd::_raster`,
@@ -6532,6 +6690,9 @@ func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: floa
 		_cv.draw_multiline(dashes, color, width, true)
 
 
+## Hover card for a settlement: name and kind, population (`_format_pop`) and the
+## faith lines (`_faith_lines`), laid out by `_draw_card` at the settlement's
+## screen position and clamped to `interior`.
 func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 	var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 	var kind_label: String = String(s["kind"]).capitalize()
@@ -6667,6 +6828,8 @@ func _faith_lines(s: Dictionary) -> Array:
 		out.append("Ruler's faith %s -- this settlement's has moved" % ruler_label)
 	return out
 
+## Display name for an engine religion key: `"none"` becomes "no religion" (the
+## engine's own label reads like a missing value); anything else is capitalised.
 func _faith_label(key: String) -> String:
 	## `CIV_RELIGIONS[0]`'s own label is "None / secular", which reads as a
 	## missing value in a tooltip; this says the thing it means instead.
@@ -6701,6 +6864,8 @@ func _faith_share(adherents: Dictionary, key: String, pop: int) -> String:
 		return " >99%"
 	return " %d%%" % int(round(pct))
 
+## Compact population text: one-decimal thousands (`1.2k`) from 1000 up, the bare
+## integer below. Display only; never parse it back.
 func _format_pop(pop: int) -> String:
 	if pop >= 1000:
 		return "%.1fk" % (pop / 1000.0)
@@ -6959,6 +7124,15 @@ func _grid_point(mouse: Vector2, rect: Rect2, interior: Rect2) -> Dictionary:
 		"gy": (mouse.y - rect.position.y) / rect.size.y * _gh,
 	}
 
+## The control's whole input handler. Motion: records RMB travel and the last
+## position, forwards it to the ring callback, then hover picking
+## (`settlement_hovered`/`landmark_hovered`), `cursor_sampled`, the touch-slop
+## release, sample-pin drag and `map_dragged`. Buttons: RMB press/release decides
+## card versus ring (CM-2/CM-3); LMB press picks marks, withholds the press for
+## the touch hold on touch devices, or else emits the selection signals and
+## `map_clicked`; LMB release emits `map_released`. The comments inside each
+## branch carry the reasons. Several branches depend on running before others
+## (`_touch_*`, `_pin_drag_active`), so do not reorder them.
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and not _rmb_press.is_empty():
 		var rp: Vector2 = _rmb_press["pos"]
@@ -7241,6 +7415,10 @@ func _process(_delta: float) -> void:
 	if not req.is_empty():
 		context_requested.emit(req)
 
+## Frees what the tree cannot: the river chunk canvas items are raw RIDs and are
+## released on `NOTIFICATION_PREDELETE`. On `NOTIFICATION_MOUSE_EXIT` clears the
+## cursor readout and any hover state, emitting the hovered signals with `null`
+## so the shell's tooltips close.
 func _notification(what: int) -> void:
 	## The river chunk items (`_river_item_new`) are raw RIDs, which nothing
 	## else frees. The layer items that are nodes go with the tree.
@@ -7355,6 +7533,8 @@ var _map_width_km := 0.0
 var _urban_revealed: Dictionary = {}
 
 
+## Toggles drawing of urban layouts (town plans; `civUrbanLayoutsChk`,
+## `GUI_GAP_REGISTER.md` UM-01) and redraws.
 func set_show_urban_layouts(shown: bool) -> void:
 	_show_urban_layouts = shown
 	queue_redraw()
