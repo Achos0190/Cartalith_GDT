@@ -39,6 +39,8 @@ won and §6 records the disagreement — those defects in the project record are
 worth more than any single milestone row below, and a reader with ten minutes
 should read §6 before §2.
 
+**Audit of 2026-10-11 (a Sonnet agent, read-only; full tables in `OUTSTANDING_AUDIT_2026-10-11.md`; the coordinator spot-checked four of its claims at their symbols and all held): 124 distinct non-struck items (107 open or sub-items plus 17 section-2.2 bullets already closed in their text; about 65 if each source row counts once). Open and ready 47, blocked on an owner decision 14, blocked on other work 11, blocked on hardware 11, partial 10, unverified 9, done but still listed 22.** Verification depth: about 62 opened at a code symbol, 20 against `STATUS.md`, about 42 (mostly device and owner-call rows) rest on the row's own text and are tagged [R] in the audit. It also lists 12 rows that contradict `STATUS.md` or the code; fix them from the audit before trusting those rows. This is a dated snapshot, not a maintained count.
+
 **The count of outstanding items is not maintained in this file (2026-10-10): the rows are the source, and every dated "N outstanding items" figure below, here and in "The count, honestly", is a historical log that disagrees with the other entries and with the rows; do not quote it as a current count.**
 
 ## Earlier count log, 2026-09-23 (historical, moved under this heading on 2026-10-10)
