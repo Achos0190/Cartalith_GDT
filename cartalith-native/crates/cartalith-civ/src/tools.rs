@@ -729,6 +729,93 @@ pub struct DijkstraPath {
 /// would be a real optimisation and a real divergence (settlement gravity
 /// and the way discount both mutate it), so it is not done here.
 pub fn civ_dijkstra_path(ctx: &RouteContext, sx: f64, sy: f64, ex: f64, ey: f64, mode: RouteMode) -> DijkstraPath {
+    civ_dijkstra_path_guided(ctx, sx, sy, ex, ey, mode, None)
+}
+
+/// A guide polyline for one routed leg (ET-D4, owner requirement 2026-10-11:
+/// "follow the drag but make small deviations based on terrain").
+///
+/// **A port-only addition, not in the reference** (which has no guided router;
+/// recorded for `DECISIONS.md` 7k-adjacent by the ET-D4 report). The leg's
+/// least-cost route is restricted to a corridor round `pts` and its cost is
+/// raised with distance from `pts`, so terrain still decides the route but only
+/// within reach of the guide. Distance is measured at each routing cell's
+/// **drawn** position, `js_round((cell + 0.5) / sc)`, because that is what
+/// `civ_dijkstra_path_guided` emits and `civ_smooth_path` then rounds.
+#[derive(Debug, Clone, Copy)]
+pub struct RouteGuide<'a> {
+    /// The guide polyline in grid coordinates, at least two points.
+    pub pts: &'a [(f64, f64)],
+    /// Corridor half-width in cells (`> 0`, finite): cells whose drawn position
+    /// is farther than this from `pts` are impassable.
+    pub half_width: f64,
+    /// Pull weight (`>= 0`, finite): inside the corridor a cell's cost is
+    /// multiplied by `1 + pull * (d / half_width)^2`, so `0` is "corridor only"
+    /// and the penalty reaches `1 + pull` at the corridor edge.
+    pub pull: f64,
+}
+
+/// Squared distance from point `p` to segment `a`-`b`.
+fn dist2_to_segment(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let l2 = dx * dx + dy * dy;
+    let t = if l2 < 1e-18 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0) };
+    let (qx, qy) = (a.0 + dx * t, a.1 + dy * t);
+    (p.0 - qx) * (p.0 - qx) + (p.1 - qy) * (p.1 - qy)
+}
+
+/// Applies a [`RouteGuide`] to a finished routing cost grid: every cell farther
+/// than the corridor becomes impassable and every cell inside is scaled by the
+/// pull term. Only cells in the bounding box of each guide segment, widened by
+/// the corridor, have their distance computed; the rest are outside by
+/// construction. Never makes a cell cheaper, and leaves an already-impassable
+/// (`INFINITY`) cell impassable.
+fn civ_apply_route_guide(cost: &mut [f32], rw: usize, rh: usize, sc: f64, guide: &RouteGuide) {
+    let hw = guide.half_width;
+    let mut best: std::collections::HashMap<usize, f64> = std::collections::HashMap::new();
+    let drawn = |c: usize| js_round((c as f64 + 0.5) / sc);
+    for w in guide.pts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let lo_x = ((a.0.min(b.0) - hw) * sc).floor() as i64 - 1;
+        let hi_x = ((a.0.max(b.0) + hw) * sc).ceil() as i64 + 1;
+        let lo_y = ((a.1.min(b.1) - hw) * sc).floor() as i64 - 1;
+        let hi_y = ((a.1.max(b.1) + hw) * sc).ceil() as i64 + 1;
+        for ry in lo_y.max(0)..=hi_y.min(rh as i64 - 1) {
+            for rx in lo_x.max(0)..=hi_x.min(rw as i64 - 1) {
+                let p = (drawn(rx as usize), drawn(ry as usize));
+                let d2 = dist2_to_segment(p, a, b);
+                let e = best.entry(ry as usize * rw + rx as usize).or_insert(f64::INFINITY);
+                if d2 < *e {
+                    *e = d2;
+                }
+            }
+        }
+    }
+    for (i, c) in cost.iter_mut().enumerate() {
+        match best.get(&i) {
+            Some(&d2) if d2.sqrt() <= hw => {
+                if c.is_finite() {
+                    let r = d2.sqrt() / hw;
+                    *c *= (1.0 + guide.pull * r * r) as f32;
+                }
+            }
+            _ => *c = f32::INFINITY,
+        }
+    }
+}
+
+/// [`civ_dijkstra_path`] with an optional [`RouteGuide`]. With `guide == None`
+/// this is `civ_dijkstra_path` exactly: the guide step is skipped by control
+/// flow, so every golden that calls the unguided function is untouched.
+pub fn civ_dijkstra_path_guided(
+    ctx: &RouteContext,
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    mode: RouteMode,
+    guide: Option<&RouteGuide>,
+) -> DijkstraPath {
     let grid = match mode {
         RouteMode::Water => civ_water_cost_grid(ctx),
         RouteMode::Mixed => civ_mixed_cost_grid(ctx),
@@ -771,6 +858,13 @@ pub fn civ_dijkstra_path(ctx: &RouteContext, sx: f64, sy: f64, ex: f64, ey: f64,
 
     let placements: Vec<SettlementPlacement> = ctx.places.iter().map(|p| p.placement).collect();
     civ_apply_settlement_gravity(&mut cost, rw, rh, sc, &placements, ctx.world);
+
+    // ET-D4: the drag guide, last, so the corridor restricts the finished grid
+    // (way discounts and gravity included) and its pull multiplies the terrain
+    // cost rather than replacing it.
+    if let Some(g) = guide {
+        civ_apply_route_guide(&mut cost, rw, rh, sc, g);
+    }
 
     // `Math.min(RW-1, Math.round(sx*sc))` has no lower clamp in the
     // reference -- a negative coordinate would index out of bounds there
@@ -852,14 +946,37 @@ pub struct JoinedPath {
 /// (an unreachable leg's fallback), a break is pushed instead -- the
 /// renderer lifts the pen rather than drawing a phantom join.
 pub fn civ_join_dijkstra_segs(ctx: &RouteContext, wps: &[(f64, f64)], mode: RouteMode) -> JoinedPath {
+    civ_join_dijkstra_segs_guided(ctx, wps, mode, None).0
+}
+
+/// [`civ_join_dijkstra_segs`] with an optional guide per leg (`guides[k]` guides
+/// the leg `wps[k] -> wps[k + 1]`; a missing entry means that leg is unguided).
+/// Returns the join and **how many guided legs were unreachable inside their
+/// corridor and so were re-routed unguided** (a detour wider than the corridor,
+/// e.g. a lake larger than the corridor). That fallback is deliberate: the
+/// alternative is a straight line across the obstacle. The count lets the caller
+/// say the road left its drag. With `guides == None` this is the unguided join
+/// exactly, and the count is 0.
+pub fn civ_join_dijkstra_segs_guided(
+    ctx: &RouteContext,
+    wps: &[(f64, f64)],
+    mode: RouteMode,
+    guides: Option<&[RouteGuide]>,
+) -> (JoinedPath, usize) {
     let mut pts: Vec<(f64, f64)> = Vec::new();
     let mut brks: Vec<usize> = Vec::new();
     let mut km = 0.0f64;
     let mut unreachable_legs = 0usize;
+    let mut relaxed = 0usize;
     for k in 0..wps.len().saturating_sub(1) {
         let (sx, sy) = wps[k];
         let (ex, ey) = wps[k + 1];
-        let sm = civ_dijkstra_path(ctx, sx, sy, ex, ey, mode);
+        let guide = guides.and_then(|g| g.get(k));
+        let mut sm = civ_dijkstra_path_guided(ctx, sx, sy, ex, ey, mode, guide);
+        if guide.is_some() && !sm.reachable {
+            relaxed += 1;
+            sm = civ_dijkstra_path_guided(ctx, sx, sy, ex, ey, mode, None);
+        }
         if sm.pts.is_empty() {
             continue;
         }
@@ -884,7 +1001,7 @@ pub fn civ_join_dijkstra_segs(ctx: &RouteContext, wps: &[(f64, f64)], mode: Rout
         pts.extend_from_slice(&seg);
         km += sm.km;
     }
-    JoinedPath { pts, brks, km, unreachable_legs }
+    (JoinedPath { pts, brks, km, unreachable_legs }, relaxed)
 }
 
 /// `_civCommitWay`'s outcome (reference line 26072).
@@ -909,15 +1026,31 @@ pub struct CommitWay {
 /// `civJourneys`, a different list feeding the Journey Planner. Conflating
 /// the two would let a hand-drawn road cut across a bay.
 pub fn civ_commit_way(ctx: &RouteContext, waypoints: &[(f64, f64)], way_type: ManualWayType) -> Option<CommitWay> {
+    civ_commit_way_guided(ctx, waypoints, way_type, None).map(|(c, _)| c)
+}
+
+/// [`civ_commit_way`] with the ET-D4 per-leg guides of
+/// [`civ_join_dijkstra_segs_guided`]; the second element is that function's
+/// count of legs relaxed to unguided routing. With `guides == None` it is
+/// `civ_commit_way` exactly.
+pub fn civ_commit_way_guided(
+    ctx: &RouteContext,
+    waypoints: &[(f64, f64)],
+    way_type: ManualWayType,
+    guides: Option<&[RouteGuide]>,
+) -> Option<(CommitWay, usize)> {
     if waypoints.len() < 2 {
         return None;
     }
     let sea = way_type == ManualWayType::SeaLane;
-    let j = civ_join_dijkstra_segs(ctx, waypoints, if sea { RouteMode::Water } else { RouteMode::Land });
-    Some(CommitWay {
-        way: ManualWay { pts: j.pts, brks: j.brks, km: j.km, sea, way_type, name: String::new(), hidden: false },
-        unreachable_legs: j.unreachable_legs,
-    })
+    let (j, relaxed) = civ_join_dijkstra_segs_guided(ctx, waypoints, if sea { RouteMode::Water } else { RouteMode::Land }, guides);
+    Some((
+        CommitWay {
+            way: ManualWay { pts: j.pts, brks: j.brks, km: j.km, sea, way_type, name: String::new(), hidden: false },
+            unreachable_legs: j.unreachable_legs,
+        },
+        relaxed,
+    ))
 }
 
 // ===================== Village connectors (v1.71/v1.79) =====================

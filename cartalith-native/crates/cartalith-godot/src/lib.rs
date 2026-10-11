@@ -15378,6 +15378,65 @@ fn sculpt_stroke_symmetry(d: &VarDictionary) -> Option<sculpt_bridge::StrokeSymm
     Some(o)
 }
 
+/// Reads `way_stroke_begin`'s options Dictionary into a
+/// [`infra_tools_bridge::WayDragOptions`]; `None` refuses the whole call. Same
+/// reading rules as [`paint_stroke_options`]: every key but `way_type` optional
+/// (absent or `null` = default), a wrong-typed key or unknown name refuses, and a
+/// `null` `spacing` means spacing **off**, never a number. The symmetry keys are
+/// read by [`sculpt_stroke_symmetry`] (one reader, so the two tools cannot
+/// disagree about them). Range checks belong to `InfraTools::way_drag_begin`.
+fn way_stroke_options(d: &VarDictionary) -> Option<infra_tools_bridge::WayDragOptions> {
+    let get = |k: &str| d.get(k).filter(|v| !v.is_nil());
+    let num = |k: &str| -> Result<Option<f64>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<f64>().ok().or_else(|| v.try_to::<i64>().ok().map(|i| i as f64)).map(Some).ok_or(()),
+        }
+    };
+    let flag = |k: &str| -> Result<Option<bool>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<bool>().map(Some).map_err(|_| ()),
+        }
+    };
+    let text = |k: &str| -> Result<Option<String>, ()> {
+        match get(k) {
+            None => Ok(None),
+            Some(v) => v.try_to::<GString>().map(|s| Some(s.to_string())).map_err(|_| ()),
+        }
+    };
+    // No default type: an absent `way_type` is a refusal, not "road".
+    let way_type = infra_tools_bridge::parse_way_type(&text("way_type").ok()??)?;
+    let mut o = infra_tools_bridge::WayDragOptions::new(way_type);
+    if let Some(m) = text("mode").ok()? {
+        o.mode = infra_tools_bridge::WayDragMode::parse(&m)?;
+    }
+    o.spacing = num("spacing").ok()?;
+    if let Some(s) = num("smoothing").ok()? {
+        o.smoothing = s;
+    }
+    if let Some(v) = get("seed") {
+        o.seed = u64::try_from(v.try_to::<i64>().ok()?).ok()?;
+    }
+    o.symmetry = sculpt_stroke_symmetry(d)?;
+    if let Some(b) = flag("smooth").ok()? {
+        o.smooth = b;
+    }
+    if let Some(s) = num("smooth_spacing").ok()? {
+        o.smooth_spacing = s;
+    }
+    let guided = flag("guide").ok()?.unwrap_or(true);
+    let mut g = infra_tools_bridge::GuideOptions::default();
+    if let Some(c) = num("corridor").ok()? {
+        g.corridor = c;
+    }
+    if let Some(p) = num("pull").ok()? {
+        g.pull = p;
+    }
+    o.guide = guided.then_some(g);
+    Some(o)
+}
+
 /// Reads `paint_stroke_begin`'s options Dictionary into a
 /// [`paint_bridge::StrokeOptions`]; `None` refuses the whole call. Every key is
 /// optional: a missing key, or one holding `null`, takes the default
@@ -15619,6 +15678,163 @@ impl WorldGen {
         if let Some(i) = self.infra.as_mut() {
             i.way_discard();
         }
+    }
+
+    // ===================== Way drag-to-draw (ET-D4, EDITING_TOOLS_SCOPE.md) =====================
+    //
+    // `way_stroke_begin` / `way_stroke_sample` / `way_stroke_end` are the drag
+    // gesture; `way_begin` / `way_append_point` / `way_commit` above are the click
+    // gesture and are untouched. The two never share state.
+
+    /// ET-D4: opens a drag-to-draw road. `options` is one Dictionary:
+    ///
+    /// | key | type | default | meaning |
+    /// |---|---|---|---|
+    /// | `"way_type"` | String | **required** | `"road"`, `"track"`, `"sea_lane"` or `"ancient"` (a missing key refuses: there is no default type) |
+    /// | `"mode"` | String | `"routed"` | `"routed"` (least-cost between waypoints, the default) or `"freehand"` (the drag, cell by cell, no routing) |
+    /// | `"spacing"` | float | absent = **off** | waypoint spacing in cells (`0.01..=10`); off makes every distinct pointer sample a waypoint |
+    /// | `"smoothing"` | float | `0.0` | pulled-string pointer smoothing in cells, `0` = off |
+    /// | `"seed"` | int | `0` | engine seed (currently inert: roads draw nothing random) |
+    /// | `"symmetry"`, `"radial_count"`, `"symmetry_center"`, `"symmetry_angle"` | as `sculpt_begin_stroke_with` | none | mirrors the whole drag; each copy is its own way |
+    /// | `"smooth"` | bool | `true` | centripetal Catmull-Rom smoothing of the drag before use; `false` = the raw polyline |
+    /// | `"smooth_spacing"` | float | `1.0` | spline sampling step in cells (`0.25..=8`) |
+    /// | `"guide"` | bool | `true` | routed only: route inside a corridor round the smoothed drag; `false` = plain least-cost routing between the waypoints, exactly the click path's result |
+    /// | `"corridor"` | float | `3.0` | corridor half-width in cells (`> 0`, `<= 64`) |
+    /// | `"pull"` | float | `2.0` | pull-to-guide weight (`0..=100`) |
+    ///
+    /// Every key but `way_type` is optional (absent or `null` takes the default);
+    /// a key of the wrong type, an unknown `mode`/`symmetry` name or an out-of-range
+    /// value refuses the whole call. Returns `true` when the drag is open; `false`
+    /// -- changing nothing and leaving any drag already open alone -- before any
+    /// `generate()` or on a refused option. Never panics.
+    #[func]
+    fn way_stroke_begin(&mut self, options: VarDictionary) -> bool {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let Some(opts) = way_stroke_options(&options) else { return false };
+        let Some(infra) = self.infra.as_mut() else { return false };
+        infra.way_drag_begin(opts, gw, gh).is_ok()
+    }
+
+    /// ET-D4: feeds one pointer sample (grid cells; `t_ms` is any monotonic
+    /// clock, negative clamps to 0). Returns the number of waypoints the drag has
+    /// so far, or **`-1`** when no drag is open (or no world). A non-finite
+    /// position is ignored and the count is unchanged. Nothing is committed here.
+    #[func]
+    fn way_stroke_sample(&mut self, gx: f64, gy: f64, t_ms: i64) -> i64 {
+        self.infra
+            .as_mut()
+            .and_then(|i| i.way_drag_sample(gx, gy, t_ms.max(0) as u64))
+            .map_or(-1, |n| n as i64)
+    }
+
+    /// ET-D4: ends the drag and commits it as **one unit** (all symmetry copies
+    /// pushed, or none). Returns:
+    ///
+    /// * **an empty Dictionary** when no drag was open (or no world): nothing was
+    ///   consumed;
+    /// * `{"committed": true, "first": int, "count": int, "mode": String,
+    ///   "unreachable_legs": int, "relaxed_legs": int}` on success: the new ways
+    ///   are `first .. first + count` in the committed-way list (the same index
+    ///   space `way_commit` returns), `unreachable_legs` is `way_commit`'s own
+    ///   straight-line-fallback count summed over the drag, `relaxed_legs` the
+    ///   guided legs that left their corridor to get round an obstacle;
+    /// * `{"committed": false, "refusal": String, ...}` when the drag was consumed
+    ///   but nothing was pushed. `refusal` is `"too_few_waypoints"` (key
+    ///   `"waypoints"`), `"out_of_grid"` (keys `"copy"`, `"index"`: a control
+    ///   point, usually of a mirror, is off the map), `"symmetry"`,
+    ///   `"degenerate"` (key `"copy"`), `"no_world"` (no civilisation layer yet) or `"water"` (freehand only; keys
+    ///   `"copy"`, `"blocked_cells"` and the first blocked cell as
+    ///   `"first_x"`/`"first_y"`).
+    ///
+    /// The routed endpoints are snapped to a nearby place or way (as clicks are);
+    /// only the first and last point of the drag, never the ones between, and not
+    /// in freehand mode. See `infra_tools_bridge`'s ET-D4 section for the water rule.
+    #[func]
+    fn way_stroke_end(&mut self) -> VarDictionary {
+        let mut reply = VarDictionary::new();
+        let Some(mut drag) = self.infra.as_mut().and_then(|i| i.way_drag_finish()) else { return reply };
+        let mode = drag.opts.mode;
+        let refuse = |reply: &mut VarDictionary, why: &infra_tools_bridge::WayDragRefusal| {
+            use infra_tools_bridge::WayDragRefusal as R;
+            reply.set("committed", false);
+            reply.set("refusal", why.key());
+            match *why {
+                R::TooFewWaypoints(n) => reply.set("waypoints", n as i64),
+                R::OutOfGrid { copy, index } => {
+                    reply.set("copy", copy as i64);
+                    reply.set("index", index as i64);
+                }
+                R::Degenerate { copy } => reply.set("copy", copy as i64),
+                R::Water { copy, blocked_cells, first } => {
+                    reply.set("copy", copy as i64);
+                    reply.set("blocked_cells", blocked_cells as i64);
+                    reply.set("first_x", first.0 as i64);
+                    reply.set("first_y", first.1 as i64);
+                }
+                R::Symmetry => {}
+            }
+        };
+        let route_mode = drag.opts.route_mode();
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            reply.set("committed", false);
+            reply.set("refusal", "no_world");
+            return reply;
+        };
+        drag.snap_endpoints(&|x, y| self.snap_point(x, y));
+        let inputs = infra_tools_bridge::RouteInputs::build(
+            ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, route_mode,
+            self.forced_lakes.as_deref(),
+        );
+        let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
+        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        let ctx = cartalith_civ::tools::RouteContext {
+            field: &ws.field,
+            water_bodies: &inputs.water_bodies,
+            biome: inputs.biome.as_deref(),
+            river_order: inputs.river_order.as_deref(),
+            places: &civ.settlements,
+            ways: &way_refs,
+            gw: self.gw as usize,
+            gh: self.gh as usize,
+            sea: self.sea_level,
+            world: self.world,
+            map_width_km: self.map_width_km,
+            corridors: inputs.corridors.as_deref(),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(self.gw as usize, self.gh as usize, self.gw as usize, self.map_width_km),
+        };
+        let Some(infra) = self.infra.as_mut() else { return reply };
+        match infra.way_drag_commit(&ctx, drag) {
+            Ok(c) => {
+                reply.set("committed", true);
+                reply.set("first", c.first as i64);
+                reply.set("count", c.count as i64);
+                reply.set("mode", mode.key());
+                reply.set("unreachable_legs", c.unreachable_legs as i64);
+                reply.set("relaxed_legs", c.relaxed_legs as i64);
+            }
+            Err(why) => refuse(&mut reply, &why),
+        }
+        reply
+    }
+
+    /// ET-D4: abandons the open drag without committing anything (Esc).
+    #[func]
+    fn way_stroke_cancel(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.way_drag_cancel();
+        }
+    }
+
+    /// ET-D4: takes the **last drag commit** back as one step: removes exactly the
+    /// ways it pushed (every symmetry copy) and returns how many; `0` when there is
+    /// nothing to undo or the way list has changed since (then nothing is touched).
+    /// Single-level. This is a drag-level primitive, not yet a row in the global
+    /// Edit > Undo ledger (that needs an `undo::EntryKind`, outside this lane).
+    #[func]
+    fn way_stroke_undo(&mut self) -> i64 {
+        self.infra.as_mut().map_or(0, |i| i.way_drag_undo() as i64)
     }
 
     // ===================== Route (DCC_SHELL_SPEC.md §4.5.4) =====================

@@ -49,7 +49,15 @@
 //! named helper), so this module is the first place that assembly exists in
 //! Rust.
 //!
-//! ## No freehand way mode
+//! ## No freehand way mode -- for the click path (ET-D4 adds one for the drag)
+//!
+//! **ET-D4 (Ruling CB item 7) supersedes this section for the drag-to-draw
+//! gesture only:** [`WayDragMode::Freehand`] commits the resampled drag as a
+//! cell-by-cell line with no routing, behind an explicit toggle whose default is
+//! the routed mode. The click path (`way_begin` / `way_append_point` /
+//! `way_commit`) is untouched and still has no freehand mode; the prose below
+//! describes why, and stays true of it. See the ET-D4 section further down for
+//! the drag lifecycle and what freehand does at water.
 //!
 //! §4.5.4's Way options row lists a routing-mode dropdown ("freehand / snap
 //! / least-cost"). Only one of those three has a real algorithm behind it:
@@ -69,8 +77,14 @@
 //! since all three are genuine, tested cost domains a journey may want, not
 //! UI-only labels.
 
-use cartalith_civ::tools::{civ_commit_way, civ_join_dijkstra_segs, ManualWay, ManualWayType, RouteContext, RouteMode};
-use cartalith_spatial::{measure, tile_dims, Measurement, Region};
+use cartalith_civ::tools::{
+    civ_commit_way, civ_commit_way_guided, civ_join_dijkstra_segs, ManualWay, ManualWayType, RouteContext, RouteGuide, RouteMode,
+};
+use cartalith_spatial::stroke::{Sample, StrokeConfig, StrokeEngine, StrokeError};
+use cartalith_spatial::{js_round, measure, tile_dims, Measurement, Region};
+use cartalith_terrain::sculpt::Point;
+
+use crate::sculpt_bridge::{mirrored_polylines, StrokeSymmetry};
 
 // ===================== Way/Route drafts =====================
 
@@ -169,6 +183,14 @@ pub struct InfraTools {
     /// would otherwise vanish without a word. Empty on a world no journey was
     /// carried into; not persisted (a report on one regenerate, not state).
     pub resnap_report: Vec<(u64, String, cartalith_civ::journey_progress::ResnapOutcome)>,
+    /// ET-D4: the drag-to-draw gesture in progress, `Some` between
+    /// `way_drag_begin` and the `way_drag_finish`/`way_drag_cancel` that
+    /// consumes it. Independent of `way_draft`: a click draft and a drag never
+    /// share state, so clicks keep working exactly as before.
+    way_drag: Option<WayDrag>,
+    /// ET-D4: the ways the most recent drag commit pushed, held so one
+    /// [`InfraTools::way_drag_undo`] can take the whole drag back. Not persisted.
+    last_drag: Option<DragRecord>,
 }
 
 impl Default for InfraTools {
@@ -191,6 +213,8 @@ impl InfraTools {
             journeys: Vec::new(),
             next_journey_id: 1,
             resnap_report: Vec::new(),
+            way_drag: None,
+            last_drag: None,
         }
     }
 
@@ -557,6 +581,572 @@ pub fn parse_route_mode(s: &str) -> Option<RouteMode> {
         "water" => Some(RouteMode::Water),
         "mixed" | "least_cost" => Some(RouteMode::Mixed),
         _ => None,
+    }
+}
+
+// ===================== ET-D4: drag-to-draw ways =====================
+//
+// `EDITING_TOOLS_SCOPE.md` ET-D4, Ruling CB item 7. Lifecycle, all on
+// `InfraTools`: `way_drag_begin` (options validated, nothing else touched) ->
+// `way_drag_sample` per pointer event -> `way_drag_finish` (flushes the engine's
+// smoothing tail, returns a `FinishedDrag`) -> the caller optionally snaps its
+// ends (`FinishedDrag::snap_endpoints`, which needs `WorldGen`'s places) ->
+// `way_drag_commit` (mirrors, validates, routes or rasterises, pushes ALL the
+// drag's ways, or refuses and pushes none) -> at most one `way_drag_undo`.
+
+/// Largest distance, in cells, at which the drag's final pointer position counts
+/// as already being the last waypoint. **Labelled judgement**: the engine walks
+/// a segment in `f64`, so a waypoint meant to land on the pointer can miss it by
+/// float noise (~1e-12 cells); 1e-9 is the same tolerance ET-D1's spacing test
+/// holds (`EDITING_TOOLS_SCOPE.md`), far below any real pointer movement.
+const TAIL_EPS: f64 = 1e-9;
+
+/// What a drag's waypoints become. `Routed` is the default everywhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WayDragMode {
+    /// Every consecutive waypoint pair is routed by least-cost Dijkstra
+    /// (`civ_commit_way`), exactly as a click-drawn way is.
+    Routed,
+    /// No routing: the way is the waypoints stepped cell by cell with a
+    /// deterministic line rasteriser ([`rasterise_cells`]), terrain cost ignored.
+    Freehand,
+}
+
+impl WayDragMode {
+    /// `"routed"` / `"freehand"` (exactly, lower case); anything else is `None`,
+    /// never a default, so a typo cannot silently pick a mode.
+    pub fn parse(s: &str) -> Option<WayDragMode> {
+        match s {
+            "routed" => Some(WayDragMode::Routed),
+            "freehand" => Some(WayDragMode::Freehand),
+            _ => None,
+        }
+    }
+
+    /// The wire key; the exact inverse of [`WayDragMode::parse`].
+    pub fn key(self) -> &'static str {
+        match self {
+            WayDragMode::Routed => "routed",
+            WayDragMode::Freehand => "freehand",
+        }
+    }
+}
+
+/// Everything a drag is configured with, snapshotted at `way_drag_begin` so a
+/// mid-drag control change cannot alter a drag already under the pointer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WayDragOptions {
+    /// The type every way of this drag is committed as.
+    pub way_type: ManualWayType,
+    /// Routed (default) or freehand.
+    pub mode: WayDragMode,
+    /// Waypoint spacing in **cells** (a road has no tip diameter), `0.01..=10`
+    /// (the ET-D1 engine's `MIN_SPACING..=MAX_SPACING` applied to a 1-cell base
+    /// diameter). `None` is spacing **off**: every distinct pointer sample is a
+    /// waypoint, the click path's one-point-per-sample picture.
+    pub spacing: Option<f64>,
+    /// Pulled-string smoothing length in cells; `0.0` is off.
+    pub smoothing: f64,
+    /// The engine's RNG seed. **Inert today**: roads use no scatter, jitter or
+    /// dynamics, so nothing draws from it; carried so the option set matches
+    /// paint's and a later randomised mode needs no signature change.
+    pub seed: u64,
+    /// Mirroring, applied to the finished (snapped) source waypoints, i.e. to the
+    /// **control points, before** smoothing and routing: a mirrored way is the
+    /// smoothed/routed reflection of the source drag, not a reflection of its output.
+    pub symmetry: StrokeSymmetry,
+    /// Smooth the control points with a centripetal Catmull-Rom spline before
+    /// they are used (owner requirement 2026-10-11). `false` keeps the raw
+    /// polyline through the control points: the exact drag, in freehand mode.
+    pub smooth: bool,
+    /// The spline's sampling step in cells, [`MIN_SMOOTH_SPACING`]`..=`[`MAX_SMOOTH_SPACING`].
+    pub smooth_spacing: f64,
+    /// Routed mode only: `Some` routes each leg inside a corridor round the
+    /// (smoothed) drag with a pull towards it; `None` is the **explicit off**:
+    /// plain least-cost routing between the waypoints, exactly today's click
+    /// result. An absent option in the shell is NOT `None`; it is
+    /// `Some(GuideOptions::default())` (see [`WayDragOptions::new`]).
+    pub guide: Option<GuideOptions>,
+}
+
+/// The routed-mode guide: how far the road may leave the drag and how hard it is pulled back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GuideOptions {
+    /// Corridor half-width in cells, `> 0` and at most [`MAX_CORRIDOR`].
+    pub corridor: f64,
+    /// Pull weight, `0..=`[`MAX_PULL`]: the cost multiplier is `1 + pull * (d / corridor)^2`.
+    pub pull: f64,
+}
+
+/// Default corridor half-width, cells. **Labelled judgement**: wide enough
+/// (3 cells) to step round a 3-cell lake or a steep cell on a 24-cell map, small
+/// enough that the road is still visibly the drag; measured only on the unit
+/// fixtures below, not on a generated world.
+pub const DEFAULT_CORRIDOR: f64 = 3.0;
+/// Default pull weight. **Labelled judgement**: 2 makes a corridor-edge cell
+/// cost 3x, so terrain must be a clear gain to justify leaving the line.
+pub const DEFAULT_PULL: f64 = 2.0;
+/// Upper bound of [`GuideOptions::corridor`]. **Labelled judgement**: a 64-cell
+/// corridor already stops being a guide.
+pub const MAX_CORRIDOR: f64 = 64.0;
+/// Upper bound of [`GuideOptions::pull`]. **Labelled judgement**: above 100 is
+/// indistinguishable from "on the line" while risking `f32` cost overflow on a
+/// steep cell.
+pub const MAX_PULL: f64 = 100.0;
+/// Default spline sampling step, cells. **Labelled judgement**: one cell, so a
+/// rasterised spline step never skips a cell the curve crosses and the guide is
+/// finer than the routing grid.
+pub const DEFAULT_SMOOTH_SPACING: f64 = 1.0;
+/// Smallest accepted spline step, cells. **Labelled judgement**: below 0.25 only
+/// multiplies guide segments.
+pub const MIN_SMOOTH_SPACING: f64 = 0.25;
+/// Largest accepted spline step, cells. **Labelled judgement**: above 8 a curve
+/// is a polygon.
+pub const MAX_SMOOTH_SPACING: f64 = 8.0;
+
+impl Default for GuideOptions {
+    /// [`DEFAULT_CORRIDOR`] and [`DEFAULT_PULL`].
+    fn default() -> Self {
+        GuideOptions { corridor: DEFAULT_CORRIDOR, pull: DEFAULT_PULL }
+    }
+}
+
+impl WayDragOptions {
+    /// The defaults for `way_type`: routed, spacing off, no pointer smoothing, no
+    /// symmetry, spline smoothing on at [`DEFAULT_SMOOTH_SPACING`], guided routing
+    /// on at [`GuideOptions::default`].
+    pub fn new(way_type: ManualWayType) -> Self {
+        WayDragOptions {
+            way_type,
+            mode: WayDragMode::Routed,
+            spacing: None,
+            smoothing: 0.0,
+            seed: 0,
+            symmetry: StrokeSymmetry::default(),
+            smooth: true,
+            smooth_spacing: DEFAULT_SMOOTH_SPACING,
+            guide: Some(GuideOptions::default()),
+        }
+    }
+
+    /// Range-checks the spline and guide options (the engine checks the rest).
+    fn validate(&self) -> Result<(), StrokeError> {
+        let ok = |v: f64, lo: f64, hi: f64| v.is_finite() && v >= lo && v <= hi;
+        if !ok(self.smooth_spacing, MIN_SMOOTH_SPACING, MAX_SMOOTH_SPACING) {
+            return Err(StrokeError::Invalid("smooth_spacing"));
+        }
+        if let Some(g) = self.guide {
+            if !(g.corridor.is_finite() && g.corridor > 0.0 && g.corridor <= MAX_CORRIDOR) {
+                return Err(StrokeError::Invalid("corridor"));
+            }
+            if !ok(g.pull, 0.0, MAX_PULL) {
+                return Err(StrokeError::Invalid("pull"));
+            }
+        }
+        Ok(())
+    }
+
+    /// The routing domain this drag's ways are routed (or, freehand, validated)
+    /// under: `Water` for a sea lane, `Land` otherwise, as `way_draft_mode` says
+    /// for a click draft.
+    pub fn route_mode(&self) -> RouteMode {
+        if self.way_type == ManualWayType::SeaLane { RouteMode::Water } else { RouteMode::Land }
+    }
+}
+
+/// A drag in progress: the engine resampling the pointer path into waypoints.
+struct WayDrag {
+    /// Snapshot of the options this drag began with.
+    opts: WayDragOptions,
+    /// The ET-D1 engine, run with scatter, dynamics and symmetry all off (its
+    /// symmetry would mirror BEFORE the endpoint snap; see [`FinishedDrag::copies`]).
+    engine: StrokeEngine,
+    /// Source waypoints so far, consecutive exact duplicates dropped.
+    waypoints: Vec<(f64, f64)>,
+    /// The latest finite pointer position, so the drag's end can be a waypoint.
+    last_raw: Option<(f64, f64)>,
+}
+
+impl WayDrag {
+    /// Appends the engine's dabs as waypoints, skipping a dab that sits exactly
+    /// on the previous waypoint (a pointer held still repeats a sample; routing a
+    /// zero-length leg would only cost a Dijkstra).
+    fn push_dabs(&mut self, dabs: &[cartalith_spatial::stroke::Dab]) {
+        for d in dabs {
+            let p = (d.x, d.y);
+            if self.waypoints.last() != Some(&p) {
+                self.waypoints.push(p);
+            }
+        }
+    }
+}
+
+/// The ways the last drag commit pushed, for [`InfraTools::way_drag_undo`].
+struct DragRecord {
+    /// Index in `InfraTools::ways` of the drag's first way.
+    first: usize,
+    /// The pushed ways, whole, in push order.
+    ways: Vec<ManualWay>,
+}
+
+/// A drag whose pointer has lifted: the resampled source waypoints, ready to be
+/// snapped, mirrored and committed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FinishedDrag {
+    /// The options the drag began with.
+    pub opts: WayDragOptions,
+    /// Source waypoints in drag order, grid coordinates.
+    pub waypoints: Vec<(f64, f64)>,
+}
+
+impl FinishedDrag {
+    /// Snaps the **first and last** waypoint only, through `snap` (the shell's
+    /// snap-to-place/way). Judgement from the scope's risk note: snapping every
+    /// dense waypoint zig-zags a road between nearby places. Does nothing for a
+    /// freehand drag (freehand is the literal drag; its ends are not moved) or
+    /// for fewer than two waypoints. Call before [`InfraTools::way_drag_commit`]
+    /// so each mirror is the reflection of the snapped source.
+    pub fn snap_endpoints(&mut self, snap: &dyn Fn(f64, f64) -> (f64, f64)) {
+        if self.opts.mode != WayDragMode::Routed || self.waypoints.len() < 2 {
+            return;
+        }
+        let last = self.waypoints.len() - 1;
+        self.waypoints[0] = snap(self.waypoints[0].0, self.waypoints[0].1);
+        self.waypoints[last] = snap(self.waypoints[last].0, self.waypoints[last].1);
+    }
+
+    /// The source waypoints and each symmetry copy of them, source first. With
+    /// no symmetry that is exactly the source (no engine round trip), so a
+    /// symmetry-off drag is byte-identical to the unmirrored waypoints.
+    pub fn copies(&self, gw: usize, gh: usize) -> Result<Vec<Vec<(f64, f64)>>, WayDragRefusal> {
+        if self.opts.symmetry.mode == cartalith_spatial::stroke::Symmetry::None {
+            return Ok(vec![self.waypoints.clone()]);
+        }
+        let pts: Vec<Point> = self.waypoints.iter().map(|p| Point::new(p.0, p.1)).collect();
+        let copies = mirrored_polylines(&pts, &self.opts.symmetry, gw, gh).map_err(|_| WayDragRefusal::Symmetry)?;
+        Ok(copies.into_iter().map(|c| c.into_iter().map(|p| (p.x, p.y)).collect()).collect())
+    }
+}
+
+/// Why a drag commit pushed nothing. Every variant is all-or-nothing: no way of
+/// the drag was kept, and the drag itself is consumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WayDragRefusal {
+    /// Fewer than two waypoints (a click, not a drag); the count is carried.
+    TooFewWaypoints(usize),
+    /// A waypoint of `copy` (0 = source) at index `index` lies outside the grid
+    /// `[0, gw) x [0, gh)`. A mirrored drag can leave the map; clamping it onto
+    /// the edge would be a road nobody drew.
+    OutOfGrid { copy: usize, index: usize },
+    /// The symmetry configuration failed the engine's own validation.
+    Symmetry,
+    /// Freehand only: `copy` rasterised to fewer than two distinct cells.
+    Degenerate { copy: usize },
+    /// Freehand only: `blocked_cells` cells of `copy` are terrain this way type
+    /// may not cross (water for a land way, land for a sea lane); `first` is the
+    /// first such cell in drag order. See [`freehand_cell_blocked`].
+    Water { copy: usize, blocked_cells: usize, first: (usize, usize) },
+}
+
+impl WayDragRefusal {
+    /// The wire key the `#[func]` reply carries under `"refusal"`.
+    pub fn key(&self) -> &'static str {
+        match self {
+            WayDragRefusal::TooFewWaypoints(_) => "too_few_waypoints",
+            WayDragRefusal::OutOfGrid { .. } => "out_of_grid",
+            WayDragRefusal::Symmetry => "symmetry",
+            WayDragRefusal::Degenerate { .. } => "degenerate",
+            WayDragRefusal::Water { .. } => "water",
+        }
+    }
+}
+
+/// What a successful drag commit pushed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DragCommit {
+    /// Index in `InfraTools::ways` of the source way; mirrors follow at `first + 1 ..`.
+    pub first: usize,
+    /// Ways pushed: 1 with no symmetry, otherwise the mode's copy count.
+    pub count: usize,
+    /// Routed legs, summed over every way, that fell back to a straight line
+    /// (`civ_commit_way`'s v1.99 count); always 0 for a freehand drag.
+    pub unreachable_legs: usize,
+    /// Guided legs that could not be routed inside their corridor and were
+    /// re-routed unguided (a detour wider than the corridor); the road left its
+    /// drag there by more than the corridor. 0 for freehand or unguided drags.
+    pub relaxed_legs: usize,
+}
+
+/// Whether a freehand way of this kind may not occupy a cell of water class
+/// `wb` (`RouteContext::water_bodies`: 0 land, 1 ocean, 2 lake).
+///
+/// **The water decision for freehand (ET-D4).** A routed land way avoids ocean
+/// and lake cells (and, when it must cross, is flagged `unreachable_legs`); a
+/// routed sea lane avoids land. Freehand has no router to avoid anything, so it
+/// holds the same line by **refusing the whole drag** if any cell of any copy is
+/// blocked: never a silently-allowed crossing, never a half-drawn way. Rivers are
+/// not in `water_bodies` and routed ways cross them (ford or bridge cost), so a
+/// freehand way crosses them too, unflagged. Deliberately **no ferry exemption**:
+/// the router lets a land way follow an existing sea lane over water, a freehand
+/// way never does. The test is per cell, so a diagonal step can still cut the
+/// corner of a water cell between two land cells, the same corner-only defect
+/// `RC_ENGINE_CHANGES.md` section 6s.4 records for the routed validity test.
+pub fn freehand_cell_blocked(wb: u8, sea_lane: bool) -> bool {
+    if sea_lane { wb == 0 } else { wb != 0 }
+}
+
+/// Splits the spline `line` into one guide polyline per leg of `controls`.
+/// `line` passes through every control point, so leg `k` is the stretch of `line`
+/// from the first point equal (to 1e-9) to `controls[k]` to the one equal to
+/// `controls[k + 1]`, searching forward only so a curve that loops back near an
+/// earlier control cannot be matched to it. If no point matches, the nearest
+/// point at or after the previous match is used; a leg whose slice is shorter
+/// than two points falls back to the straight chord. Deterministic.
+fn leg_sections(line: &[(f64, f64)], controls: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
+    let mut idx: Vec<usize> = Vec::with_capacity(controls.len());
+    let mut from = 0usize;
+    for c in controls {
+        let mut best = (f64::INFINITY, from);
+        for (i, p) in line.iter().enumerate().skip(from) {
+            let d = (p.0 - c.0).hypot(p.1 - c.1);
+            if d < best.0 {
+                best = (d, i);
+            }
+            if d < 1e-9 {
+                break;
+            }
+        }
+        idx.push(best.1);
+        from = best.1;
+    }
+    (0..controls.len().saturating_sub(1))
+        .map(|k| {
+            let sec: Vec<(f64, f64)> = line[idx[k]..=idx[k + 1]].to_vec();
+            if sec.len() >= 2 { sec } else { vec![controls[k], controls[k + 1]] }
+        })
+        .collect()
+}
+
+
+/// The grid cell a point lies in for the way system: `js_round` clamped to the
+/// grid, exactly `TerrainValid::check`'s rule (`cartalith-civ`), so a freehand
+/// way's cells and the router's validity test agree on what "this cell" means.
+fn way_cell(p: (f64, f64), gw: usize, gh: usize) -> (i64, i64) {
+    ((js_round(p.0) as i64).clamp(0, gw as i64 - 1), (js_round(p.1) as i64).clamp(0, gh as i64 - 1))
+}
+
+/// Appends the cells of the Bresenham line `a -> b` to `out`, skipping a first
+/// cell equal to `out`'s last so consecutive segments share their junction once.
+/// The all-octant integer form (error term `dx + dy`, step x when `2 err >= dy`
+/// and y when `2 err <= dx`): the same two inputs always give the same cells, and
+/// the tie rule is that `>=` / `<=` pair, pinned by the tests' literals.
+fn bresenham(a: (i64, i64), b: (i64, i64), out: &mut Vec<(i64, i64)>) {
+    let (mut x, mut y) = a;
+    let dx = (b.0 - a.0).abs();
+    let dy = -(b.1 - a.1).abs();
+    let sx = if a.0 < b.0 { 1 } else { -1 };
+    let sy = if a.1 < b.1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    loop {
+        if out.last() != Some(&(x, y)) {
+            out.push((x, y));
+        }
+        if (x, y) == b {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+/// The cells a polyline passes through, one per step, no consecutive repeats:
+/// each point is placed in its cell ([`way_cell`]) and consecutive cells are
+/// joined by [`bresenham`]. Deterministic and independent of terrain.
+pub fn rasterise_cells(pts: &[(f64, f64)], gw: usize, gh: usize) -> Vec<(usize, usize)> {
+    let mut cells: Vec<(i64, i64)> = Vec::new();
+    let mut prev: Option<(i64, i64)> = None;
+    for &p in pts {
+        let c = way_cell(p, gw, gh);
+        match prev {
+            None => cells.push(c),
+            Some(q) => bresenham(q, c, &mut cells),
+        }
+        prev = Some(c);
+    }
+    cells.into_iter().map(|(x, y)| (x as usize, y as usize)).collect()
+}
+
+impl InfraTools {
+    /// Opens a drag. Validates every option **first** (the ET-D1 engine's own
+    /// range checks for spacing, smoothing and seed-independent config, and the
+    /// symmetry probe `begin_stroke` uses) and, on `Err`, changes nothing --
+    /// a drag already open is left alone. A successful begin replaces an open drag.
+    pub fn way_drag_begin(&mut self, opts: WayDragOptions, gw: usize, gh: usize) -> Result<(), StrokeError> {
+        // Base diameter 1.0 so spacing, a fraction of the diameter, is in cells.
+        opts.validate()?;
+        let mut cfg = StrokeConfig::new(opts.seed, 1.0);
+        match opts.spacing {
+            Some(s) => cfg.spacing = s,
+            None => cfg.per_sample = true,
+        }
+        cfg.smoothing = opts.smoothing;
+        let engine = StrokeEngine::new(cfg)?;
+        mirrored_polylines(&[Point::new(0.0, 0.0)], &opts.symmetry, gw, gh)?;
+        self.way_drag = Some(WayDrag { opts, engine, waypoints: Vec::new(), last_raw: None });
+        Ok(())
+    }
+
+    /// Feeds one pointer sample (grid cells, `t_ms` on any monotonic clock).
+    /// Returns the source waypoint count so far, or `None` with no open drag. A
+    /// non-finite position is ignored whole (the count is unchanged).
+    pub fn way_drag_sample(&mut self, x: f64, y: f64, t_ms: u64) -> Option<usize> {
+        let d = self.way_drag.as_mut()?;
+        if !(x.is_finite() && y.is_finite()) {
+            return Some(d.waypoints.len());
+        }
+        d.last_raw = Some((x, y));
+        let mut dabs = Vec::new();
+        d.engine.feed_one(Sample { x, y, pressure: None, tilt: None, t_ms }, &mut dabs);
+        d.push_dabs(&dabs);
+        Some(d.waypoints.len())
+    }
+
+    /// Drops the open drag without committing anything.
+    pub fn way_drag_cancel(&mut self) {
+        self.way_drag = None;
+    }
+
+    /// Closes the drag: flushes the engine's smoothing tail and makes the last
+    /// pointer position a waypoint if the engine's spacing walk stopped short of
+    /// it (a road must end where the drag ended; the added leg is at most one
+    /// spacing long). `None` with no open drag. The drag is consumed.
+    pub fn way_drag_finish(&mut self) -> Option<FinishedDrag> {
+        let mut d = self.way_drag.take()?;
+        let mut dabs = Vec::new();
+        d.engine.finish(&mut dabs);
+        d.push_dabs(&dabs);
+        if let Some(raw) = d.last_raw {
+            let at_end = d.waypoints.last().is_some_and(|l| (l.0 - raw.0).hypot(l.1 - raw.1) < TAIL_EPS);
+            if !at_end {
+                d.waypoints.push(raw);
+            }
+        }
+        Some(FinishedDrag { opts: d.opts, waypoints: d.waypoints })
+    }
+
+    /// Commits a finished drag as **one unit**: every symmetry copy becomes its
+    /// own [`ManualWay`], all routed (or rasterised) against the same `ctx`, so a
+    /// mirror is not routed over its own source's discount; and either every way
+    /// is pushed or none is. Returns what was pushed, or why nothing was.
+    ///
+    /// Each copy's control points are first smoothed (`opts.smooth`) into a
+    /// centripetal Catmull-Rom guide line, `cartalith_civ::civ_catmull_rom_sample`
+    /// (Barry-Goldman evaluation with knot spacing `chord^0.5`, i.e. alpha 0.5; the
+    /// function the way renderer already uses, reused rather than duplicated).
+    ///
+    /// Routed with `opts.guide == None` is the **explicit off**: each copy goes
+    /// through `civ_commit_way`, the click path's own call, on the raw control
+    /// points, so with spacing, spline and symmetry off the result is byte-identical
+    /// to the same waypoints clicked one by one (pinned by
+    /// `a_plain_routed_drag_is_byte_identical_to_the_click_path`). Routed with
+    /// `Some(guide)` routes each leg through `civ_commit_way_guided`, restricted to
+    /// a corridor round that leg's slice of the guide line with a pull towards it.
+    /// Freehand: see [`freehand_cell_blocked`]
+    /// and [`rasterise_cells`], run over the guide line; the way's points are the cells themselves
+    /// (integer coordinates, the convention `TerrainValid::check` reads back), it
+    /// has no breaks, and its `km` is the sum of the step lengths at
+    /// `ctx.map_width_km / ctx.gw` (no world wrap: a freehand step is one cell).
+    pub fn way_drag_commit(&mut self, ctx: &RouteContext, drag: FinishedDrag) -> Result<DragCommit, WayDragRefusal> {
+        let n = drag.waypoints.len();
+        if n < 2 {
+            return Err(WayDragRefusal::TooFewWaypoints(n));
+        }
+        let copies = drag.copies(ctx.gw, ctx.gh)?;
+        for (ci, c) in copies.iter().enumerate() {
+            for (pi, p) in c.iter().enumerate() {
+                if !(p.0.is_finite() && p.1.is_finite() && p.0 >= 0.0 && p.1 >= 0.0 && p.0 < ctx.gw as f64 && p.1 < ctx.gh as f64) {
+                    return Err(WayDragRefusal::OutOfGrid { copy: ci, index: pi });
+                }
+            }
+        }
+        let sea = drag.opts.way_type == ManualWayType::SeaLane;
+        let mut built: Vec<ManualWay> = Vec::with_capacity(copies.len());
+        let mut unreachable = 0usize;
+        let mut relaxed_total = 0usize;
+        for (ci, c) in copies.iter().enumerate() {
+            // The guide line: the centripetal spline through this copy's control
+            // points, or the raw polyline when smoothing is off. Built from the
+            // already-mirrored control points: symmetry is before smoothing.
+            let line: Vec<(f64, f64)> =
+                if drag.opts.smooth { cartalith_civ::civ_catmull_rom_sample(c, drag.opts.smooth_spacing) } else { c.clone() };
+            if line.len() < 2 {
+                return Err(WayDragRefusal::Degenerate { copy: ci });
+            }
+            match drag.opts.mode {
+                WayDragMode::Routed => {
+                    let (commit, relaxed) = match drag.opts.guide {
+                        None => (civ_commit_way(ctx, c, drag.opts.way_type).ok_or(WayDragRefusal::TooFewWaypoints(c.len()))?, 0),
+                        Some(g) => {
+                            let sections = leg_sections(&line, c);
+                            let guides: Vec<RouteGuide> =
+                                sections.iter().map(|s| RouteGuide { pts: s, half_width: g.corridor, pull: g.pull }).collect();
+                            civ_commit_way_guided(ctx, c, drag.opts.way_type, Some(&guides))
+                                .ok_or(WayDragRefusal::TooFewWaypoints(c.len()))?
+                        }
+                    };
+                    unreachable += commit.unreachable_legs;
+                    relaxed_total += relaxed;
+                    built.push(commit.way);
+                }
+                WayDragMode::Freehand => {
+                    let cells = rasterise_cells(&line, ctx.gw, ctx.gh);
+                    if cells.len() < 2 {
+                        return Err(WayDragRefusal::Degenerate { copy: ci });
+                    }
+                    let blocked: Vec<&(usize, usize)> =
+                        cells.iter().filter(|&&(x, y)| freehand_cell_blocked(ctx.water_bodies[y * ctx.gw + x], sea)).collect();
+                    if let Some(&&first) = blocked.first() {
+                        return Err(WayDragRefusal::Water { copy: ci, blocked_cells: blocked.len(), first });
+                    }
+                    let pts: Vec<(f64, f64)> = cells.iter().map(|&(x, y)| (x as f64, y as f64)).collect();
+                    let cell_km = ctx.map_width_km / ctx.gw as f64;
+                    let km: f64 = pts.windows(2).map(|w| cartalith_jsmath::js_hypot(w[1].0 - w[0].0, w[1].1 - w[0].1) * cell_km).sum();
+                    built.push(ManualWay { pts, brks: Vec::new(), km, sea, way_type: drag.opts.way_type, name: String::new(), hidden: false });
+                }
+            }
+        }
+        let first = self.ways.len();
+        let count = built.len();
+        self.last_drag = Some(DragRecord { first, ways: built.clone() });
+        self.ways.extend(built);
+        Ok(DragCommit { first, count, unreachable_legs: unreachable, relaxed_legs: relaxed_total })
+    }
+
+    /// Takes the most recent drag commit back as **one step**: removes exactly the
+    /// ways it pushed and returns how many. `0` (and nothing changed) when there
+    /// is no drag to undo or the way list has moved since (a way added, deleted or
+    /// edited after the drag): the held record is then dropped, because putting
+    /// back or removing by stale indices would delete a way the drag never made.
+    /// Single-level: undoing twice, or a second drag, replaces the record.
+    ///
+    /// This is a drag-level primitive; wiring it into the global Edit > Undo ledger
+    /// needs an `undo::EntryKind` (a file outside ET-D4's Rust lane), so the shell
+    /// calls it directly for now.
+    pub fn way_drag_undo(&mut self) -> usize {
+        let Some(rec) = self.last_drag.take() else { return 0 };
+        let end = rec.first + rec.ways.len();
+        if self.ways.len() != end || self.ways[rec.first..] != rec.ways[..] {
+            return 0;
+        }
+        self.ways.truncate(rec.first);
+        rec.ways.len()
     }
 }
 
@@ -1211,5 +1801,505 @@ mod tests {
         // needs it too (DECISIONS.md 7i), and only `Water` and a world under
         // 128 cells wide suppress it.
         assert!(inputs_mixed.corridors.is_some());
+    }
+
+    // ---------- ET-D4: drag-to-draw ways ----------
+
+    /// Test fixture: [`route_fixture`] plus a 3x3 lake (`water_bodies == 2`, field below sea level) at x 15..=17, y 7..=9: an obstacle a land road must step round.
+    fn lake_fixture() -> (Vec<f32>, Vec<u8>) {
+        let (mut field, mut wb) = route_fixture();
+        for y in 7..=9 {
+            for x in 15..=17 {
+                field[y * 24 + x] = 0.30;
+                wb[y * 24 + x] = 2;
+            }
+        }
+        (field, wb)
+    }
+
+    /// Test fixture: the options of a drag configured as **today's click path**: routed, no spacing, no spline, no guide. Everything the ET-D4 owner requirement added is explicitly off.
+    fn plain_opts(t: ManualWayType) -> WayDragOptions {
+        WayDragOptions { smooth: false, guide: None, ..WayDragOptions::new(t) }
+    }
+
+    /// Test helper: runs a whole drag (begin, one sample per point, finish, commit) on `t` against a 24x16 grid and returns the commit result.
+    fn run_drag(t: &mut InfraTools, opts: WayDragOptions, pts: &[(f64, f64)], ctx: &RouteContext) -> Result<DragCommit, WayDragRefusal> {
+        t.way_drag_begin(opts, 24, 16).expect("valid options");
+        for (i, p) in pts.iter().enumerate() {
+            assert!(t.way_drag_sample(p.0, p.1, i as u64 * 16).is_some());
+        }
+        let fin = t.way_drag_finish().expect("a drag was open");
+        t.way_drag_commit(ctx, fin)
+    }
+
+    /// Test helper: the largest distance from any of `pts` to the polyline `line`.
+    fn max_dev(pts: &[(f64, f64)], line: &[(f64, f64)]) -> f64 {
+        pts.iter()
+            .map(|&p| line.windows(2).map(|w| ((p.0 - w[0].0).hypot(p.1 - w[0].1)).min(seg_dist(p, w[0], w[1]))).fold(f64::INFINITY, f64::min))
+            .fold(0.0, f64::max)
+    }
+
+    /// Test helper: distance from `p` to segment `a`-`b`.
+    fn seg_dist(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 < 1e-18 { 0.0 } else { (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0) };
+        (p.0 - (a.0 + dx * t)).hypot(p.1 - (a.1 + dy * t))
+    }
+
+    /// Protects: the rasteriser's literal cells, including its tie rule: a shallow line, the same line reversed, a steep line, and a two-segment chain whose shared junction cell appears once. A changed tie comparison moves the diagonal step and fails here.
+    #[test]
+    fn rasterise_cells_is_pinned_to_literals() {
+        assert_eq!(rasterise_cells(&[(0.0, 0.0), (3.0, 1.0)], 24, 16), vec![(0, 0), (1, 0), (2, 1), (3, 1)]);
+        assert_eq!(rasterise_cells(&[(3.0, 1.0), (0.0, 0.0)], 24, 16), vec![(3, 1), (2, 1), (1, 0), (0, 0)]);
+        assert_eq!(rasterise_cells(&[(0.0, 0.0), (1.0, 3.0)], 24, 16), vec![(0, 0), (0, 1), (1, 2), (1, 3)]);
+        assert_eq!(
+            rasterise_cells(&[(0.0, 0.0), (3.0, 1.0), (3.0, 3.0)], 24, 16),
+            vec![(0, 0), (1, 0), (2, 1), (3, 1), (3, 2), (3, 3)]
+        );
+        // The two exact ties (2 err == dx, 2 err == dy): a changed comparison moves the diagonal step.
+        assert_eq!(rasterise_cells(&[(0.0, 0.0), (2.0, 1.0)], 24, 16), vec![(0, 0), (1, 1), (2, 1)]);
+        assert_eq!(rasterise_cells(&[(0.0, 0.0), (1.0, 2.0)], 24, 16), vec![(0, 0), (1, 1), (1, 2)]);
+        // A point past the right edge is the edge cell (`way_cell`'s clamp), never an index off the grid.
+        assert_eq!(rasterise_cells(&[(22.0, 2.0), (23.9, 2.0)], 24, 16), vec![(22, 2), (23, 2)]);
+    }
+
+    /// Protects: the waypoint spacing contract in cells: a straight drag fed as three far-apart samples yields waypoints exactly 4 cells apart, first sample included, and the last pointer position is the final waypoint even when the spacing walk stops short of it.
+    #[test]
+    fn spacing_is_in_cells_and_the_drag_ends_on_the_pointer() {
+        let mut t = InfraTools::new();
+        t.way_drag_begin(WayDragOptions { spacing: Some(4.0), ..plain_opts(ManualWayType::Road) }, 24, 16).unwrap();
+        for (i, x) in [1.0, 11.0, 21.0].iter().enumerate() {
+            t.way_drag_sample(*x, 2.0, i as u64).unwrap();
+        }
+        let fin = t.way_drag_finish().unwrap();
+        let xs: Vec<f64> = fin.waypoints.iter().map(|p| p.0).collect();
+        assert_eq!(xs.len(), 6, "{xs:?}");
+        for (got, want) in xs.iter().zip([1.0, 5.0, 9.0, 13.0, 17.0, 21.0]) {
+            assert!((got - want).abs() < 1e-9, "{xs:?}");
+        }
+        assert!(fin.waypoints.iter().all(|p| p.1 == 2.0));
+        // Ten cells is not a multiple of 4: the walk stops at 9, the drag ended at 11.
+        t.way_drag_begin(WayDragOptions { spacing: Some(4.0), ..plain_opts(ManualWayType::Road) }, 24, 16).unwrap();
+        t.way_drag_sample(1.0, 2.0, 0).unwrap();
+        t.way_drag_sample(11.0, 2.0, 1).unwrap();
+        let fin = t.way_drag_finish().unwrap();
+        let xs: Vec<f64> = fin.waypoints.iter().map(|p| p.0).collect();
+        assert_eq!(xs.len(), 4, "{xs:?}");
+        assert!((xs[2] - 9.0).abs() < 1e-9 && xs[3] == 11.0, "{xs:?}");
+        // Pre-change contrast: spacing off is one waypoint per sample, gaps of 10 cells.
+        t.way_drag_begin(plain_opts(ManualWayType::Road), 24, 16).unwrap();
+        for (i, x) in [1.0, 11.0, 21.0].iter().enumerate() {
+            t.way_drag_sample(*x, 2.0, i as u64).unwrap();
+        }
+        assert_eq!(t.way_drag_finish().unwrap().waypoints.len(), 3);
+    }
+
+    /// Protects: a pointer held still (a repeated identical sample) adds no waypoint, a non-finite sample is ignored whole, and sampling with no drag open reports that (`None`) rather than inventing a count.
+    #[test]
+    fn repeated_and_non_finite_samples_add_no_waypoint() {
+        let mut t = InfraTools::new();
+        assert_eq!(t.way_drag_sample(1.0, 1.0, 0), None, "no drag open");
+        t.way_drag_begin(plain_opts(ManualWayType::Road), 24, 16).unwrap();
+        assert_eq!(t.way_drag_sample(5.0, 5.0, 0), Some(1));
+        assert_eq!(t.way_drag_sample(5.0, 5.0, 1), Some(1));
+        assert_eq!(t.way_drag_sample(f64::NAN, 5.0, 2), Some(1));
+        assert_eq!(t.way_drag_sample(6.0, 5.0, 3), Some(2));
+    }
+
+    /// Protects: the byte-identity acceptance: with spacing, spline, guide and symmetry all off, a routed drag commits exactly the `ManualWay` (points, breaks, km) and unreachable count a click-by-click way over the same waypoints does.
+    #[test]
+    fn a_plain_routed_drag_is_byte_identical_to_the_click_path() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let wps = [(12.0, 2.0), (18.0, 8.0), (22.0, 13.0)];
+        let mut clicked = InfraTools::new();
+        clicked.way_begin(ManualWayType::Road);
+        for p in wps {
+            clicked.way_append_point(p.0, p.1);
+        }
+        let (_, click_unreachable) = clicked.way_commit(&ctx).unwrap();
+        let mut dragged = InfraTools::new();
+        let c = run_drag(&mut dragged, plain_opts(ManualWayType::Road), &wps, &ctx).unwrap();
+        assert_eq!((c.first, c.count, c.unreachable_legs, c.relaxed_legs), (0, 1, click_unreachable, 0));
+        assert_eq!(dragged.ways, clicked.ways, "same pts, brks, km, type, name");
+        assert!(dragged.ways[0].pts.len() > 3, "premise: the way was routed, not the three points");
+    }
+
+    /// Protects: freehand commits exactly the rasterised path, never a routed one: the literal cells and km, no breaks, and a route over the same waypoints is a different polyline.
+    #[test]
+    fn freehand_commits_exactly_the_rasterised_drag() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        let opts = WayDragOptions { mode: WayDragMode::Freehand, ..plain_opts(ManualWayType::Road) };
+        let c = run_drag(&mut t, opts, &[(12.0, 2.0), (15.0, 3.0)], &ctx).unwrap();
+        assert_eq!((c.first, c.count, c.unreachable_legs), (0, 1, 0));
+        let w = &t.ways[0];
+        assert_eq!(w.pts, vec![(12.0, 2.0), (13.0, 2.0), (14.0, 3.0), (15.0, 3.0)]);
+        assert!(w.brks.is_empty() && !w.sea && w.way_type == ManualWayType::Road);
+        // 1 + sqrt(2) + 1 cells at 240 km / 24 cells = 10 km per cell.
+        assert!((w.km - 34.142_135_623_730_95).abs() < 1e-9, "{}", w.km);
+        let mut routed = InfraTools::new();
+        run_drag(&mut routed, plain_opts(ManualWayType::Road), &[(12.0, 2.0), (15.0, 3.0)], &ctx).unwrap();
+        assert_ne!(routed.ways[0].pts, w.pts, "premise: routing smooths this leg, freehand does not");
+    }
+
+    /// Protects: freehand's water rule: a land way over ocean cells is refused whole with the blocked count and first cell, a lake counts as water too, a sea lane may not cross land, a sea lane over water is accepted and flagged `sea`, and a refusal pushes nothing.
+    #[test]
+    fn freehand_refuses_water_for_land_ways_and_land_for_sea_lanes() {
+        let (field, wb) = lake_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let free = |wt| WayDragOptions { mode: WayDragMode::Freehand, ..plain_opts(wt) };
+        let mut t = InfraTools::new();
+        // Ocean is x < 10: cells 9 and 8 of (12,2)..(8,2) are water.
+        let r = run_drag(&mut t, free(ManualWayType::Road), &[(12.0, 2.0), (8.0, 2.0)], &ctx);
+        assert_eq!(r, Err(WayDragRefusal::Water { copy: 0, blocked_cells: 2, first: (9, 2) }));
+        // The lake (wb == 2) is water: a straight run along y = 8 crosses x 15..=17.
+        let r = run_drag(&mut t, free(ManualWayType::Track), &[(12.0, 8.0), (20.0, 8.0)], &ctx);
+        assert_eq!(r, Err(WayDragRefusal::Water { copy: 0, blocked_cells: 3, first: (15, 8) }));
+        assert!(t.ways.is_empty(), "a refusal pushes nothing");
+        // A sea lane must stay on water: land cells x >= 10 of (2,2)..(12,2) are blocked (10, 11, 12).
+        let r = run_drag(&mut t, free(ManualWayType::SeaLane), &[(2.0, 2.0), (12.0, 2.0)], &ctx);
+        assert_eq!(r, Err(WayDragRefusal::Water { copy: 0, blocked_cells: 3, first: (10, 2) }));
+        let c = run_drag(&mut t, free(ManualWayType::SeaLane), &[(2.0, 2.0), (8.0, 2.0)], &ctx).unwrap();
+        assert_eq!(c.count, 1);
+        assert!(t.ways[0].sea && t.ways[0].way_type == ManualWayType::SeaLane);
+    }
+
+    /// Protects: `freehand_cell_blocked`'s truth table, so each water class and each way kind keeps its rule: land (0) blocks only sea lanes; ocean (1) and lake (2) block only land ways.
+    #[test]
+    fn freehand_cell_blocked_truth_table() {
+        assert!(!freehand_cell_blocked(0, false) && freehand_cell_blocked(0, true));
+        assert!(freehand_cell_blocked(1, false) && !freehand_cell_blocked(1, true));
+        assert!(freehand_cell_blocked(2, false) && !freehand_cell_blocked(2, true));
+    }
+
+    /// Protects: the degenerate and range refusals: one control point (a click), two points in one cell, and a waypoint off the map each refuse with their own reason and push nothing; a refused drag is consumed.
+    #[test]
+    fn too_few_degenerate_and_out_of_grid_drags_are_refused() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        assert_eq!(run_drag(&mut t, plain_opts(ManualWayType::Road), &[(12.0, 2.0)], &ctx), Err(WayDragRefusal::TooFewWaypoints(1)));
+        let free = WayDragOptions { mode: WayDragMode::Freehand, ..plain_opts(ManualWayType::Road) };
+        assert_eq!(run_drag(&mut t, free, &[(12.1, 2.1), (12.2, 2.2)], &ctx), Err(WayDragRefusal::Degenerate { copy: 0 }));
+        assert_eq!(
+            run_drag(&mut t, plain_opts(ManualWayType::Road), &[(12.0, 2.0), (24.0, 2.0)], &ctx),
+            Err(WayDragRefusal::OutOfGrid { copy: 0, index: 1 })
+        );
+        assert!(t.ways.is_empty());
+        assert!(t.way_drag_finish().is_none(), "every refused drag was consumed");
+    }
+
+    /// Protects: symmetry mirrors the control points exactly: literal reflections for a vertical mirror about x = 16 and for dual (the vertical mirror, the horizontal mirror about y = 8, and their composition), source first.
+    #[test]
+    fn symmetry_mirrors_waypoints_to_literal_reflections() {
+        let sym = |mode| StrokeSymmetry { mode, centre: Some((16.0, 8.0)), angle: 0.0 };
+        let fin = |mode| FinishedDrag {
+            opts: WayDragOptions { symmetry: sym(mode), ..plain_opts(ManualWayType::Road) },
+            waypoints: vec![(12.0, 2.0), (15.0, 3.0)],
+        };
+        let v = fin(cartalith_spatial::stroke::Symmetry::Vertical).copies(24, 16).unwrap();
+        assert_eq!(v, vec![vec![(12.0, 2.0), (15.0, 3.0)], vec![(20.0, 2.0), (17.0, 3.0)]]);
+        let d = fin(cartalith_spatial::stroke::Symmetry::Dual).copies(24, 16).unwrap();
+        assert_eq!(d.len(), 4);
+        assert_eq!(d[0], vec![(12.0, 2.0), (15.0, 3.0)]);
+        for want in [vec![(20.0, 2.0), (17.0, 3.0)], vec![(12.0, 14.0), (15.0, 13.0)], vec![(20.0, 14.0), (17.0, 13.0)]] {
+            assert!(d.contains(&want), "missing {want:?} in {d:?}");
+        }
+        let none = fin(cartalith_spatial::stroke::Symmetry::None).copies(24, 16).unwrap();
+        assert_eq!(none, vec![vec![(12.0, 2.0), (15.0, 3.0)]]);
+    }
+
+    /// Protects: a mirrored drag is one commit and one undo: two freehand ways at literal cells (the second the x = 16 reflection), one `way_drag_undo` removes both, a second undo removes nothing, and a drag whose mirror leaves the map is refused whole (no half-drawn symmetric pair).
+    #[test]
+    fn a_mirrored_drag_commits_two_ways_and_one_undo_removes_both() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        let opts = WayDragOptions {
+            mode: WayDragMode::Freehand,
+            symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Vertical, centre: Some((16.0, 8.0)), angle: 0.0 },
+            ..plain_opts(ManualWayType::Road)
+        };
+        let c = run_drag(&mut t, opts, &[(12.0, 2.0), (15.0, 3.0)], &ctx).unwrap();
+        assert_eq!((c.first, c.count), (0, 2));
+        assert_eq!(t.ways[0].pts, vec![(12.0, 2.0), (13.0, 2.0), (14.0, 3.0), (15.0, 3.0)]);
+        assert_eq!(t.ways[1].pts, vec![(20.0, 2.0), (19.0, 2.0), (18.0, 3.0), (17.0, 3.0)]);
+        assert_eq!(t.way_drag_undo(), 2);
+        assert!(t.ways.is_empty());
+        assert_eq!(t.way_drag_undo(), 0, "single level");
+        // Centre x = 2 reflects x = 12 to x = -8: off the map, so nothing is committed.
+        let off = WayDragOptions {
+            symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Vertical, centre: Some((2.0, 8.0)), angle: 0.0 },
+            ..opts
+        };
+        assert_eq!(run_drag(&mut t, off, &[(12.0, 2.0), (15.0, 3.0)], &ctx), Err(WayDragRefusal::OutOfGrid { copy: 1, index: 0 }));
+        assert!(t.ways.is_empty());
+    }
+
+    /// Protects: undo's staleness guard: after the drag, any change to the way list (here one more committed way) makes `way_drag_undo` do nothing, so it cannot delete a way the drag never made.
+    #[test]
+    fn drag_undo_refuses_when_the_way_list_has_moved() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        let free = WayDragOptions { mode: WayDragMode::Freehand, ..plain_opts(ManualWayType::Road) };
+        run_drag(&mut t, free, &[(12.0, 2.0), (15.0, 3.0)], &ctx).unwrap();
+        t.way_begin(ManualWayType::Track);
+        t.way_append_point(12.0, 6.0);
+        t.way_append_point(20.0, 6.0);
+        t.way_commit(&ctx).unwrap();
+        assert_eq!(t.way_drag_undo(), 0);
+        assert_eq!(t.ways.len(), 2, "nothing was removed");
+        // Same length, different content (a way renamed since): still refused. The length check alone would let this through.
+        let mut r = InfraTools::new();
+        run_drag(&mut r, WayDragOptions { mode: WayDragMode::Freehand, ..plain_opts(ManualWayType::Road) }, &[(12.0, 2.0), (15.0, 3.0)], &ctx).unwrap();
+        r.ways[0].name = "renamed".to_string();
+        assert_eq!(r.way_drag_undo(), 0);
+        assert_eq!(r.ways.len(), 1);
+    }
+
+    /// Protects: determinism: the same options and samples give equal ways on two independent editors, for a smoothed, guided, mirrored routed drag (every ET-D4 stage on).
+    #[test]
+    fn a_drag_is_deterministic() {
+        let (field, wb) = lake_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let opts = WayDragOptions {
+            seed: 7,
+            spacing: Some(3.0),
+            symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Vertical, centre: Some((16.0, 8.0)), angle: 0.0 },
+            ..WayDragOptions::new(ManualWayType::Road)
+        };
+        let pts = [(11.0, 4.0), (14.0, 6.0), (18.0, 5.0), (21.0, 3.0)];
+        let (mut a, mut b) = (InfraTools::new(), InfraTools::new());
+        let ca = run_drag(&mut a, opts, &pts, &ctx).unwrap();
+        let cb = run_drag(&mut b, opts, &pts, &ctx).unwrap();
+        assert_eq!(ca, cb);
+        assert_eq!(a.ways, b.ways);
+        assert_eq!(a.ways.len(), 2);
+    }
+
+    /// Protects: only the first and last waypoint are snapped (and only in routed mode): a snap that shifts every point by one cell moves exactly those two, and freehand moves none.
+    #[test]
+    fn snap_endpoints_moves_only_the_ends_and_only_when_routed() {
+        let mk = |mode| FinishedDrag {
+            opts: WayDragOptions { mode, ..plain_opts(ManualWayType::Road) },
+            waypoints: vec![(1.0, 1.0), (2.0, 1.0), (3.0, 1.0), (4.0, 1.0)],
+        };
+        let mut d = mk(WayDragMode::Routed);
+        d.snap_endpoints(&|x, y| (x + 10.0, y));
+        assert_eq!(d.waypoints, vec![(11.0, 1.0), (2.0, 1.0), (3.0, 1.0), (14.0, 1.0)]);
+        let mut f = mk(WayDragMode::Freehand);
+        f.snap_endpoints(&|x, y| (x + 10.0, y));
+        assert_eq!(f.waypoints, mk(WayDragMode::Freehand).waypoints);
+    }
+
+    /// Protects: option validation and its all-or-nothing rule: every out-of-range option refuses, and a refused begin leaves a drag already open alone.
+    #[test]
+    fn begin_refuses_bad_options_and_leaves_an_open_drag_alone() {
+        let mut t = InfraTools::new();
+        t.way_drag_begin(plain_opts(ManualWayType::Road), 24, 16).unwrap();
+        t.way_drag_sample(3.0, 3.0, 0).unwrap();
+        let base = plain_opts(ManualWayType::Road);
+        let bad = [
+            WayDragOptions { spacing: Some(0.0), ..base },
+            WayDragOptions { spacing: Some(11.0), ..base },
+            WayDragOptions { spacing: Some(f64::NAN), ..base },
+            WayDragOptions { smoothing: -1.0, ..base },
+            WayDragOptions { smooth_spacing: 0.1, ..base },
+            WayDragOptions { smooth_spacing: 9.0, ..base },
+            WayDragOptions { guide: Some(GuideOptions { corridor: 0.0, pull: 1.0 }), ..base },
+            WayDragOptions { guide: Some(GuideOptions { corridor: 65.0, pull: 1.0 }), ..base },
+            WayDragOptions { guide: Some(GuideOptions { corridor: 3.0, pull: -1.0 }), ..base },
+            WayDragOptions { guide: Some(GuideOptions { corridor: 3.0, pull: f64::INFINITY }), ..base },
+            WayDragOptions { symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Radial(0), ..base.symmetry }, ..base },
+            WayDragOptions { symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Radial(65), ..base.symmetry }, ..base },
+            WayDragOptions { symmetry: StrokeSymmetry { centre: Some((f64::NAN, 1.0)), ..base.symmetry }, ..base },
+        ];
+        for b in bad {
+            assert!(t.way_drag_begin(b, 24, 16).is_err(), "{b:?}");
+        }
+        assert_eq!(t.way_drag_sample(4.0, 3.0, 1), Some(2), "the open drag survived every refused begin");
+        assert_eq!(WayDragMode::parse("routed"), Some(WayDragMode::Routed));
+        assert_eq!(WayDragMode::parse("freehand"), Some(WayDragMode::Freehand));
+        assert_eq!(WayDragMode::parse("Freehand"), None);
+        assert_eq!(WayDragMode::parse(WayDragMode::Freehand.key()), Some(WayDragMode::Freehand));
+    }
+
+    /// Protects: the spline passes through every control point to 1e-9 (the owner's "passing through every control point"), and a spline on two points is the straight chord.
+    #[test]
+    fn the_spline_passes_through_every_control_point() {
+        let ctrl = [(1.0, 1.0), (6.0, 4.0), (7.0, 9.0), (15.0, 8.0), (20.0, 2.0)];
+        let line = cartalith_civ::civ_catmull_rom_sample(&ctrl, 0.5);
+        for c in ctrl {
+            assert!(line.iter().any(|p| (p.0 - c.0).hypot(p.1 - c.1) < 1e-9), "{c:?} missing");
+        }
+        assert_eq!(line[0], ctrl[0]);
+        let two = cartalith_civ::civ_catmull_rom_sample(&[(1.0, 1.0), (9.0, 5.0)], 1.0);
+        assert!(max_dev(&two, &[(1.0, 1.0), (9.0, 5.0)]) < 1e-9);
+    }
+
+    /// Test helper: the textbook UNIFORM Catmull-Rom (Hermite form, tangent `(p[i+1] - p[i-1]) / 2`, phantom ends by reflection) sampled `n` times per segment; the contrast `the_centripetal_spline_does_not_overshoot...` measures against.
+    fn uniform_catmull_rom(p: &[(f64, f64)], n: usize) -> Vec<(f64, f64)> {
+        let mut q = vec![(2.0 * p[0].0 - p[1].0, 2.0 * p[0].1 - p[1].1)];
+        q.extend_from_slice(p);
+        let l = p.len();
+        q.push((2.0 * p[l - 1].0 - p[l - 2].0, 2.0 * p[l - 1].1 - p[l - 2].1));
+        let mut out = Vec::new();
+        for s in 0..l - 1 {
+            let (p0, p1, p2, p3) = (q[s], q[s + 1], q[s + 2], q[s + 3]);
+            for i in 0..=n {
+                let t = i as f64 / n as f64;
+                let (t2, t3) = (t * t, t * t * t);
+                let f = |a: f64, b: f64, c: f64, d: f64| 0.5 * ((2.0 * b) + (-a + c) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (-a + 3.0 * b - 3.0 * c + d) * t3);
+                out.push((f(p0.0, p1.0, p2.0, p3.0), f(p0.1, p1.1, p2.1, p3.1)));
+            }
+        }
+        out
+    }
+
+    /// Protects: why the spline is centripetal (alpha 0.5): on an unevenly spaced drag (a 1-cell hop between two 10-cell strides) the uniform form swings more than a quarter cell past the short segment's far end, and the centripetal curve stays within a tenth of a cell of it. Asserting BOTH is what makes it fail if the parameterisation changes to uniform (alpha 0).
+    #[test]
+    fn the_centripetal_spline_does_not_overshoot_where_the_uniform_one_does() {
+        let ctrl = [(0.0, 0.0), (10.0, 0.0), (10.2, 1.0), (20.0, 1.0)];
+        // The short segment is control 1 -> control 2; its x never legitimately exceeds 10.2.
+        let uniform_max_x = uniform_catmull_rom(&ctrl, 200)[201..402].iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        assert!(uniform_max_x > 10.2 + 0.25, "premise: the uniform form overshoots; got {uniform_max_x}");
+        let cr = cartalith_civ::civ_catmull_rom_sample(&ctrl, 0.05);
+        let i1 = cr.iter().position(|p| *p == ctrl[1]).unwrap();
+        let i2 = cr.iter().position(|p| *p == ctrl[2]).unwrap();
+        let centripetal_max_x = cr[i1..=i2].iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        assert!(centripetal_max_x < 10.2 + 0.1, "centripetal max x {centripetal_max_x}");
+    }
+
+    /// Protects: smoothed freehand: the spline's cells are a connected 8-neighbour chain that visits every control point's cell, differ from the raw polygon's cells, and the raw path is still available with `smooth: false` (literal pin of the raw cells).
+    #[test]
+    fn smoothed_freehand_is_connected_through_the_controls_and_raw_is_still_available() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let ctrl = [(12.0, 2.0), (16.0, 7.0), (20.0, 3.0), (22.0, 12.0)];
+        let mut smooth = InfraTools::new();
+        let so = WayDragOptions { mode: WayDragMode::Freehand, smooth: true, ..plain_opts(ManualWayType::Road) };
+        run_drag(&mut smooth, so, &ctrl, &ctx).unwrap();
+        let sp = &smooth.ways[0].pts;
+        for w in sp.windows(2) {
+            assert!((w[1].0 - w[0].0).abs() <= 1.0 && (w[1].1 - w[0].1).abs() <= 1.0 && w[0] != w[1], "{w:?}");
+        }
+        for c in ctrl {
+            assert!(sp.contains(&c), "control cell {c:?} not visited");
+        }
+        let mut raw = InfraTools::new();
+        let ro = WayDragOptions { mode: WayDragMode::Freehand, smooth: false, ..plain_opts(ManualWayType::Road) };
+        run_drag(&mut raw, ro, &ctrl, &ctx).unwrap();
+        assert_eq!(raw.ways[0].pts, rasterise_cells(&ctrl, 24, 16).iter().map(|&(x, y)| (x as f64, y as f64)).collect::<Vec<_>>());
+        assert_ne!(raw.ways[0].pts, *sp, "premise: smoothing changes the path");
+    }
+
+    /// Protects: symmetry is applied to the control points BEFORE smoothing: with a smoothed freehand vertical mirror about x = 16 the mirrored way is the cell-for-cell reflection of the source (every source cell (x, y) has (32 - x, y) in the copy).
+    #[test]
+    fn a_smoothed_mirror_is_the_reflection_of_the_smoothed_source() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        let opts = WayDragOptions {
+            mode: WayDragMode::Freehand,
+            smooth: true,
+            symmetry: StrokeSymmetry { mode: cartalith_spatial::stroke::Symmetry::Vertical, centre: Some((16.0, 8.0)), angle: 0.0 },
+            ..plain_opts(ManualWayType::Road)
+        };
+        run_drag(&mut t, opts, &[(11.0, 2.0), (14.0, 6.0), (13.0, 11.0)], &ctx).unwrap();
+        let (a, b) = (&t.ways[0].pts, &t.ways[1].pts);
+        assert_eq!(a.len(), b.len());
+        for p in a {
+            assert!(b.contains(&(32.0 - p.0, p.1)), "mirror of {p:?} missing");
+        }
+    }
+
+    /// Protects: guided routing on open flat ground follows the smoothed drag: the committed road stays within one cell of the spline everywhere (the owner's "follows the drag closely"), and ends on the exact waypoints.
+    #[test]
+    fn a_guided_route_on_flat_ground_stays_within_a_cell_of_the_spline() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let ctrl = [(11.0, 3.0), (15.0, 6.0), (19.0, 6.0), (22.0, 11.0)];
+        let mut t = InfraTools::new();
+        let c = run_drag(&mut t, WayDragOptions::new(ManualWayType::Road), &ctrl, &ctx).unwrap();
+        assert_eq!((c.unreachable_legs, c.relaxed_legs), (0, 0));
+        let pts = &t.ways[0].pts;
+        let spline = cartalith_civ::civ_catmull_rom_sample(&ctrl, DEFAULT_SMOOTH_SPACING);
+        let dev = max_dev(pts, &spline);
+        assert!(dev <= 1.0 + 1e-9, "max deviation {dev}");
+        assert_eq!((pts[0], pts[pts.len() - 1]), (ctrl[0], ctrl[3]));
+    }
+
+    /// Protects: the small-deviation acceptance: a 3x3 lake sits on the drag; the guided road leaves the spline by at most the corridor half-width plus the one-cell drawn-position rounding, really does go round (more than 1.5 cells off at its widest), never enters the lake, and rejoins the spline near the far end.
+    #[test]
+    fn a_guided_route_goes_round_an_obstacle_and_rejoins() {
+        let (field, wb) = lake_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let ctrl = [(11.0, 8.0), (22.0, 8.0)];
+        let g = GuideOptions::default();
+        let mut t = InfraTools::new();
+        let c = run_drag(&mut t, WayDragOptions::new(ManualWayType::Road), &ctrl, &ctx).unwrap();
+        assert_eq!((c.unreachable_legs, c.relaxed_legs), (0, 0), "the corridor was wide enough");
+        let pts = &t.ways[0].pts;
+        let spline = cartalith_civ::civ_catmull_rom_sample(&ctrl, DEFAULT_SMOOTH_SPACING);
+        let dev = max_dev(pts, &spline);
+        assert!(dev <= g.corridor + 1.0 + 1e-9, "left the spline by {dev}");
+        assert!(dev > 1.5, "premise: it went round the lake; deviation only {dev}");
+        for p in pts {
+            let (cx, cy) = (p.0.round() as usize, p.1.round() as usize);
+            assert_eq!(wb[cy * 24 + cx], 0, "{p:?} is on water");
+        }
+        let tail: Vec<_> = pts.iter().filter(|p| p.0 >= 20.0).collect();
+        assert!(!tail.is_empty() && tail.iter().all(|p| (p.1 - 8.0).abs() <= 1.0), "did not rejoin: {tail:?}");
+    }
+
+    /// Protects: the corridor really restricts the route: a lake taller than the corridor allows cannot be rounded inside it, so the leg is re-routed unguided and REPORTED (`relaxed_legs`), and the way is still valid land (not a straight line over water).
+    #[test]
+    fn an_obstacle_wider_than_the_corridor_relaxes_the_leg_and_says_so() {
+        let (field, mut wb) = route_fixture();
+        // A wall of lake across the whole drag column x 15..=17, y 1..=14: the only way round is far outside a 3-cell corridor.
+        let mut field = field;
+        for y in 1..=14 {
+            for x in 15..=17 {
+                field[y * 24 + x] = 0.30;
+                wb[y * 24 + x] = 2;
+            }
+        }
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        let c = run_drag(&mut t, WayDragOptions::new(ManualWayType::Road), &[(11.0, 8.0), (22.0, 8.0)], &ctx).unwrap();
+        assert!(c.relaxed_legs >= 1, "{c:?}");
+        let dev = max_dev(&t.ways[0].pts, &cartalith_civ::civ_catmull_rom_sample(&[(11.0, 8.0), (22.0, 8.0)], 1.0));
+        assert!(dev > DEFAULT_CORRIDOR + 1.0, "premise: the relaxed road left the corridor ({dev})");
+        for p in &t.ways[0].pts {
+            // `civ_smooth_path` can round a point onto the row/column just off the grid; clamp as its own validity test does.
+            let (cx, cy) = ((p.0.round() as usize).min(23), (p.1.round() as usize).min(15));
+            assert_eq!(wb[cy * 24 + cx], 0, "{p:?} is on water");
+        }
+    }
+
+    /// Protects: the pull weight: an existing road (x0.25 cost) runs 3 cells below the drag. With pull 0 the guided route abandons the drag to ride it (more than 2 cells off); with pull 100 it stays within a cell of the drag. Without any guide it rides the road too, which is what the pull is for.
+    #[test]
+    fn the_pull_weight_keeps_the_road_on_the_drag() {
+        let (field, wb) = route_fixture();
+        let road_pts: Vec<(f64, f64)> = (11..=22).map(|x| (x as f64, 11.0)).collect();
+        let road = [WayRef { pts: &road_pts, brks: &[], sea: false, hidden: false }];
+        let ctx = route_ctx(&field, &wb, &road);
+        let ctrl = [(11.0, 8.0), (22.0, 8.0)];
+        let spline = cartalith_civ::civ_catmull_rom_sample(&ctrl, 1.0);
+        let dev_for = |guide: Option<GuideOptions>| {
+            let mut t = InfraTools::new();
+            run_drag(&mut t, WayDragOptions { guide, ..WayDragOptions::new(ManualWayType::Road) }, &ctrl, &ctx).unwrap();
+            max_dev(&t.ways[0].pts, &spline)
+        };
+        let off = dev_for(None);
+        let loose = dev_for(Some(GuideOptions { corridor: 5.0, pull: 0.0 }));
+        let tight = dev_for(Some(GuideOptions { corridor: 5.0, pull: 100.0 }));
+        assert!(off > 2.0, "premise: an unguided route rides the road; {off}");
+        assert!(loose > 2.0, "pull 0 should still ride the road; {loose}");
+        assert!(tight <= 1.0 + 1e-9, "pull 100 should hold the drag; {tight}");
     }
 }
