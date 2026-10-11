@@ -13,8 +13,13 @@
 //!
 //! # What it must never do
 //!
-//! * **Wire into rendering.** This is ET-C1: nothing calls it yet. ET-C2 puts
-//!   it inside `finish_rgb`, after the grade and before the display matrix.
+//! * **Know where it runs.** This module is the maths only. ET-C2 (2026-10-11)
+//!   runs a terrain and a water stack inside `render::finish_rgb`, after the
+//!   grade and before the display matrix, mixed per pixel by each consumer's
+//!   own water decision; the stacks live on `render::TerrainAppearance`
+//!   (`terrain_adjust`, `water_adjust`). It is declared as `render::adjust`
+//!   (by `#[path]` from `render.rs`) so `render.rs`'s standalone test targets
+//!   compile it; see that declaration.
 //! * **Quantise or clamp to bytes.** Levels clips its *input* range (that is
 //!   the operator) and Curves is flat beyond its end points, but no stage rounds
 //!   and the HSL stage leaves out-of-gamut results unclipped for the final
@@ -48,7 +53,10 @@
 //! * **Gradient map:** `render::ElevationRamp::sample`, reused (scope: "reusing
 //!   `ElevationRamp::sample`").
 
-use crate::render::ElevationRamp;
+// `super`, not `crate::render`: this file is `render::adjust`, and a test
+// target that `#[path]`-includes `render.rs` under another name would not have
+// a `crate::render`.
+use super::ElevationRamp;
 use serde::{Deserialize, Serialize};
 
 /// A colour as three continuous channels on the 0..255 scale. Same shape as
@@ -616,7 +624,7 @@ mod tests {
     //! inverse, its own Fritsch-Carlson, Levels and ramp code), never by the code
     //! under test.
     use super::*;
-    use crate::render::RampStop;
+    use super::super::RampStop;
 
     /// Assert two colours agree within `tol` per channel.
     fn close(got: Rgb, want: Rgb, tol: f64) {

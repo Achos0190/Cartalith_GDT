@@ -271,7 +271,13 @@ pub fn parse_appearance_preset(text: &str) -> Result<TerrainAppearance, String> 
         return Err("not a Cartalith appearance preset".into());
     }
     let body = doc.get("appearance").ok_or("no appearance block")?;
-    serde_json::from_value::<TerrainAppearance>(body.clone()).map_err(|e| format!("decode failed: {e}"))
+    let a = serde_json::from_value::<TerrainAppearance>(body.clone()).map_err(|e| format!("decode failed: {e}"))?;
+    // ET-C2: a preset's adjustment stacks go straight onto the look, so they
+    // are validated here, the one reader of the format: a file carrying an
+    // out-of-range parameter is refused whole, never loaded clamped.
+    a.terrain_adjust.validate().map_err(|e| format!("terrain_adjust refused: {e}"))?;
+    a.water_adjust.validate().map_err(|e| format!("water_adjust refused: {e}"))?;
+    Ok(a)
 }
 
 /// The band budget, in output pixels, for a banded export.

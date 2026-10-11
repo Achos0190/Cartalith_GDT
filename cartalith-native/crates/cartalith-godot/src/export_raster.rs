@@ -633,7 +633,8 @@ pub(crate) fn export_river_inputs(src: &impl ExportRiverSource, own: &TerrainApp
 /// **One `w x h` window of a virtual `out_w x out_h` export, finished** --
 /// what `WorldGen::export_snapshot_png` renders (extracted from its closure so
 /// a test can pin it): `bake_rect` over the window, the vector river painted
-/// in (`render::paint_vector_rivers`), the colour grade, and **last the
+/// in (`render::paint_vector_rivers_weighted`), the colour grade and ET-C2's
+/// adjustment stacks (one `render::finish_rgb` pass), and **last the
 /// painted river's floodplain tint and bank line** (`render::RiverPost::apply`,
 /// RIM-7), over the graded pixels as the screen draws them. A stroke look has
 /// no post stage (`paint_vector_rivers` returns none) and is untouched by it.
@@ -648,7 +649,11 @@ pub(crate) fn export_river_inputs(src: &impl ExportRiverSource, own: &TerrainApp
 pub(crate) fn bake_crop(ctx: &RenderCtx<'_>, bf: &BakeFields, rivers: ExportRivers<'_>, appearance: &TerrainAppearance, size: (usize, usize), at: (usize, usize), window: (usize, usize)) -> Vec<u8> {
     let ((out_w, out_h), (x0, y0), (w, h)) = (size, at, window);
     let mut px = render::bake_rect(ctx, bf, rivers.save_flag, out_w, out_h, x0, y0, w, h);
-    let post = rivers.vector.map(|v| render::paint_vector_rivers(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h));
+    // ET-C2: this window's water weight -- the bake's own water decision and
+    // the painted river's coverage, as `render::bake_and_finish` builds it --
+    // so a crop adjusts exactly the pixels the whole export does.
+    let mut water = render::bake_water_weight(appearance, ctx, bf, out_w, out_h, x0, y0, w, h);
+    let post = rivers.vector.map(|v| render::paint_vector_rivers_weighted(ctx, bf, v, &mut px, out_w, out_h, x0, y0, w, h, &mut water));
     // The grade's field influence, taken per **grid cell** and then
     // sampled over this crop's window. `build_grade_influence(ctx, w,
     // h)` would spread the whole world across the crop -- it resamples
@@ -671,7 +676,10 @@ pub(crate) fn bake_crop(ctx: &RenderCtx<'_>, bf: &BakeFields, rivers: ExportRive
         }
         out
     };
-    render::apply_color_grade(appearance, &mut px, &inf);
+    // `apply_color_grade` exactly (no local contrast, the working space)
+    // plus ET-C2's adjustment stacks, which that single-stage helper does not
+    // carry; with no stack `adjust_layers` is `None` and this is the same call.
+    render::finish_rgb(&mut px, None::<fn(usize) -> f64>, Some((appearance, &inf)), render::adjust_layers(appearance, &water), render::ColorSpace::Srgb);
     // RIM-7: the painted river's floodplain and bank line, over the
     // graded crop as the screen draws them (nothing for a stroke).
     if let Some(p) = post {
@@ -2838,6 +2846,553 @@ mod own_look_tests {
         ] {
             assert!(body.len() > 150, "{name}: the region is suspiciously short ({} bytes)", body.len());
             assert!(!body.contains(&needle), "{name} reads the session's look; it must use the look it was given");
+        }
+    }
+}
+
+/// **ET-C2's byte census** (`EDITING_TOOLS_SCOPE.md` ET-C2 acceptance, risk 1):
+/// every consumer of `render::finish_rgb` that the product finishes a picture
+/// through -- the screen texture (`render::finish_screen_texture`, which
+/// `WorldGen::build_color_texture` calls), the river colour texture, the whole
+/// export (`render::bake_and_finish`), the banded export
+/// (`render::bake_export_band`), the snapshot crop (`bake_crop`) and the
+/// deep-zoom tile (`render::render_biome_tile_rgba_rivers`) -- on the RV-5
+/// fixture world (a sea with a wavy coast, a plateau, an above-sea lake and one
+/// river), checked two ways:
+///
+/// 1. **With no stack, byte-identical to HEAD.** Each consumer's bytes are
+///    hashed (FNV-1a 64) and compared with a literal produced by the same
+///    renders at commit `373f9f8b`, run from a scratch copy of that commit
+///    (`git archive`) with the pre-ET-C2 `finish_rgb` signature -- never by the
+///    code under test. Four looks: the shipped default, a graded one (grade on,
+///    field-weighted), Antique Parchment and `js_reference()`; sRGB and
+///    Display P3 for the screen.
+/// 2. **With a stack, only the expected pixels move.** A water-only stack moves
+///    no pixel of deep land and some of deep water, and some of the land a
+///    river is painted over; a terrain-only stack the reverse. Pixels are
+///    selected by the world's INPUTS (the height, the lake classification, the
+///    river colour field's footprint), never by the bytes compared
+///    (`MISTAKES.md`, "Measure an effect inside a subset of pixels"). A
+///    consumer that moves nothing in water is the `with_lakes` defect again.
+#[cfg(test)]
+mod adjust_census_tests {
+    use super::rv5_parity_tests::{dims, river, setup, world, World, GH, GW, K, SEA};
+    use crate::render::adjust::{AdjustKind, AdjustStack, Adjustment};
+    use crate::render::{self, BakeFields, ColorSpace, ExportBandPlan, TerrainAppearance, TileBounds, TileFields};
+    use crate::river_stroke::{self, RasterMap, RiverGeometry};
+
+    /// FNV-1a 64 (the standard published offset basis and prime), as
+    /// `lod_bridge::appearance_fingerprint` uses it; a change detector only.
+    fn fnv(b: &[u8]) -> u64 {
+        assert!(!b.is_empty(), "an empty render hashes to the basis and would match any other empty render");
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        for x in b {
+            h ^= *x as u64;
+            h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        h
+    }
+
+    /// The crop window the HEAD census used (export pixels): origin, size.
+    const CROP_AT: (usize, usize) = (10, 7);
+    /// See [`CROP_AT`].
+    const CROP_WIN: (usize, usize) = (60, 40);
+    /// A second crop for the movement legs, chosen to hold sea, land and the
+    /// river (cells x 10..45, y 25..45); the HEAD one holds no river.
+    const CROP2_AT: (usize, usize) = (20, 50);
+    /// See [`CROP2_AT`].
+    const CROP2_WIN: (usize, usize) = (70, 40);
+    /// Rows per band for the banded export: small enough for several bands on
+    /// the fixture (a labelled judgement; any value below `oh` would do).
+    const BAND_ROWS: usize = 17;
+
+    /// Every consumer's bytes under one look.
+    struct Census {
+        screen: Vec<u8>,
+        river: Vec<u8>,
+        screen_p3: Vec<u8>,
+        river_p3: Vec<u8>,
+        export: Vec<u8>,
+        banded: Vec<u8>,
+        crop: Vec<u8>,
+        crop2: Vec<u8>,
+        tile: Vec<u8>,
+    }
+
+    /// Render every consumer on the fixture under look `a`, through the
+    /// functions the product calls.
+    fn render_all(w: &World, g: &RiverGeometry, a: &TerrainAppearance) -> Census {
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let ctx = setup(w, a, &wb.classification);
+        let q = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+        // `build_color_texture`'s two buffers: the terrain, and the river
+        // colour texture laid from the colour field.
+        let mut bytes = vec![0u8; GW * GH * 3];
+        for i in 0..GW * GH {
+            let c = render::cell_color(&ctx, i % GW, i / GW);
+            bytes[i * 3..i * 3 + 3].copy_from_slice(&[q(c.0), q(c.1), q(c.2)]);
+        }
+        let layer = river_stroke::rasterize_colour_field_with(g, None, a, GW, GH);
+        let mut rb = bytes.clone();
+        for i in 0..GW * GH {
+            if let Some(p) = layer.at(i % GW, i / GW) {
+                let c = render::cell_color_river(&ctx, i % GW, i / GW, Some(p));
+                rb[i * 3..i * 3 + 3].copy_from_slice(&[q(c.0), q(c.1), q(c.2)]);
+            }
+        }
+        let inf = render::build_grade_influence(&ctx, GW, GH);
+        let finish = |space: ColorSpace| {
+            let (mut b, mut r) = (bytes.clone(), rb.clone());
+            render::finish_screen_texture(&ctx, &mut b, Some((&mut r, &layer)), GW, GH, false, &inf, space);
+            (b, r)
+        };
+        let (screen, river) = finish(ColorSpace::Srgb);
+        let (screen_p3, river_p3) = finish(ColorSpace::DisplayP3);
+        let sf = render::shore_field_forced(&w.field, &wb.classification, &wb.fill_level, &w.rain, None, GW, GH, SEA, false);
+        let bf = BakeFields::new(&ctx).with_shore_field(&ctx, sf);
+        let (ow, oh) = dims();
+        let infx = render::build_grade_influence(&ctx, ow, oh);
+        let export = super::with_export_rivers(Some(g), None, None, None, |r| render::bake_and_finish(&ctx, &bf, r, ow, oh, &infx, ColorSpace::Srgb));
+        let plan = ExportBandPlan::with_rows(a, ow, oh, BAND_ROWS);
+        assert!(plan.band_count() > 1, "the banded leg must cut more than one band");
+        let cells = render::build_grade_influence_cells(&ctx);
+        let banded: Vec<u8> = super::with_export_rivers(Some(g), None, None, None, |r| plan.bands().flat_map(|b| render::bake_export_band(&ctx, &bf, r, &plan, b, &cells)).collect());
+        let crop = super::with_export_rivers(Some(g), None, None, None, |r| super::bake_crop(&ctx, &bf, r, a, (ow, oh), CROP_AT, CROP_WIN));
+        let crop2 = super::with_export_rivers(Some(g), None, None, None, |r| super::bake_crop(&ctx, &bf, r, a, (ow, oh), CROP2_AT, CROP2_WIN));
+        let tf = TileFields::new(&ctx, Some(&bytes));
+        let tl = river_stroke::rasterize(g, a, GW, GH, RasterMap::tile(0.0, 0.0, 1.0, 1.0));
+        let tile = render::render_biome_tile_rgba_rivers(&ctx, &w.field, GW, GH, 0, TileBounds { x: 0.0, y: 0.0, w: (GW - 1) as f64, h: (GH - 1) as f64 }, &tf, Some(&tl));
+        let c = Census { screen, river, screen_p3, river_p3, export, banded, crop, crop2, tile };
+        for (n, v) in [("screen", &c.screen), ("river", &c.river), ("export", &c.export), ("banded", &c.banded), ("crop", &c.crop), ("crop2", &c.crop2), ("tile", &c.tile)] {
+            assert!(!v.is_empty(), "{n}: an empty render proves nothing");
+        }
+        c
+    }
+
+    /// The census looks: the shipped default, a graded look (grade on and
+    /// field-weighted, so the weighted grade path runs beside the stacks),
+    /// Antique Parchment, and the reference look.
+    fn looks() -> Vec<(&'static str, TerrainAppearance)> {
+        let graded = TerrainAppearance { grade_exposure: 0.3, grade_saturation: 0.4, grade_field_biome: 0.5, ..TerrainAppearance::default() };
+        vec![
+            ("default", TerrainAppearance::default()),
+            ("graded", graded),
+            ("antique", TerrainAppearance::default().with_look(render::LOOK_ANTIQUE)),
+            ("js_reference", TerrainAppearance::js_reference()),
+        ]
+    }
+
+    /// HEAD (`373f9f8b`) hashes, per look in [`looks`] order: screen sRGB,
+    /// river sRGB, screen P3, river P3, export, banded, crop, tile, and the
+    /// look's serde fingerprint. Produced by the scratch-copy run described in
+    /// the module doc (its `CENSUS` lines), pasted here as literals.
+    const HEAD: [(&str, [u64; 9]); 4] = [
+        (
+            "default",
+            [0xa3d12df5e0e726cd, 0xe1c6867c1f35d71f, 0x4f3245d15687bd75, 0xeefe6a4e9d5f1c4f, 0xe909cb087849684d, 0xe909cb087849684d, 0xd9e0a589f252b630, 0x1529424941caaa58, 0xea8691108a897fa0],
+        ),
+        (
+            "graded",
+            [0x8ea4fd42575c918c, 0x370b8d5ca0dd36ae, 0x30e6a46775a72de5, 0x82e42e1defe70a94, 0xda8203896589efdd, 0xda8203896589efdd, 0x5c125e1f51dd61ce, 0x3ec6dd185af837d1, 0xcfc5d3f4dc66e810],
+        ),
+        (
+            "antique",
+            [0x6e52ce623837583d, 0x2886ed234fd1e12a, 0x08bb3a954427c2da, 0x8e8b2ff792ee83a3, 0x1fe1e88c276a680b, 0x1fe1e88c276a680b, 0x329fe2a3c648b742, 0xf6dccf528d383567, 0x1d6fa0edc379f9d7],
+        ),
+        (
+            "js_reference",
+            [0xbe78b292ee1c914e, 0x434e89a3c34878f8, 0x3378a07304dc895d, 0xad519d7cdd82285c, 0x3640905f92e03300, 0x3640905f92e03300, 0x640d38b111d38781, 0xd86f0117aa492764, 0xfb1b2e64b074ba0f],
+        ),
+    ];
+
+    /// Protects: with no adjustment stack, every consumer's bytes -- and the
+    /// look's fingerprint, which keys the tile cache and the river colour
+    /// field -- are HEAD's exactly (Ruling AN, DECISIONS 7p: ET-C2 moves no
+    /// default pixel), on four looks and both colour spaces.
+    #[test]
+    fn empty_stacks_render_every_consumer_byte_identical_to_head() {
+        let w = world();
+        let g = river();
+        for ((name, a), (hname, want)) in looks().into_iter().zip(HEAD) {
+            assert_eq!(name, hname);
+            assert!(a.terrain_adjust.is_empty() && a.water_adjust.is_empty(), "{name}: a census look must carry no stack");
+            let c = render_all(&w, &g, &a);
+            let got = [
+                fnv(&c.screen),
+                fnv(&c.river),
+                fnv(&c.screen_p3),
+                fnv(&c.river_p3),
+                fnv(&c.export),
+                fnv(&c.banded),
+                fnv(&c.crop),
+                fnv(&c.tile),
+                crate::lod_bridge::appearance_fingerprint(&a),
+            ];
+            let labels = ["screen", "river", "screen_p3", "river_p3", "export", "banded", "crop", "tile", "fingerprint"];
+            for k in 0..9 {
+                assert_eq!(got[k], want[k], "{name} {}: {:016x} is not HEAD's {:016x}", labels[k], got[k], want[k]);
+            }
+        }
+    }
+
+    /// One stack of `kinds`, each enabled at full opacity, validated.
+    fn stack(kinds: Vec<AdjustKind>) -> AdjustStack {
+        let s = AdjustStack { entries: kinds.into_iter().map(Adjustment::new).collect() };
+        s.validate().expect("a census stack must be valid");
+        s
+    }
+
+    /// A strong water-side adjustment: a hue rotation and a tonal squeeze.
+    fn water_stack() -> AdjustStack {
+        stack(vec![
+            AdjustKind::Hsl { hue_deg: 120.0, saturation: 0.3, lightness: 0.0 },
+            AdjustKind::Levels { in_black: 0.0, in_white: 255.0, gamma: 1.0, out_black: 40.0, out_white: 210.0 },
+        ])
+    }
+
+    /// A strong terrain-side adjustment: a midtone lift and a hue rotation.
+    fn terrain_stack() -> AdjustStack {
+        stack(vec![
+            AdjustKind::Levels { in_black: 0.0, in_white: 255.0, gamma: 1.8, out_black: 0.0, out_white: 255.0 },
+            AdjustKind::Hsl { hue_deg: -90.0, saturation: 0.0, lightness: 0.0 },
+        ])
+    }
+
+    /// The world's per-cell classes, from INPUTS only: `wet` is the screen's
+    /// own water test (`render::cell_color`'s branch: height below sea level,
+    /// or an above-sea lake in the classification), and `river` the river
+    /// colour field's footprint (a band wider than any stroke, so a
+    /// conservative exclusion).
+    struct Classes {
+        wet: Vec<bool>,
+        river: Vec<bool>,
+    }
+
+    /// [`Classes`] for the fixture world under look `a`.
+    fn classes(w: &World, g: &RiverGeometry, a: &TerrainAppearance) -> Classes {
+        let wb = cartalith_civ::build_water_bodies(&w.field, GW, GH, SEA, false, Some(&w.rain));
+        let wet = (0..GW * GH).map(|i| (w.field[i] as f64) < SEA || wb.classification[i] == 2).collect();
+        let layer = river_stroke::rasterize_colour_field_with(g, None, a, GW, GH);
+        let river = (0..GW * GH).map(|i| layer.at(i % GW, i / GW).is_some()).collect();
+        Classes { wet, river }
+    }
+
+    /// What a pixel at grid position `(gx, gy)` is, for the census: `Some(true)`
+    /// deep water, `Some(false)` deep land (every cell within two of it the
+    /// same class and none under the river band), `None` anything else (the
+    /// shore band, or near a river). The second value is "river land": the
+    /// pixel's own cell under the river band with no water within two cells.
+    fn deep(c: &Classes, gx: f64, gy: f64) -> (Option<bool>, bool) {
+        let (cx, cy) = (gx.floor() as i64, gy.floor() as i64);
+        let mut any_wet = false;
+        let mut all_wet = true;
+        let mut near_river = false;
+        for y in cy - 2..=cy + 3 {
+            for x in cx - 2..=cx + 3 {
+                let (xx, yy) = (x.clamp(0, GW as i64 - 1) as usize, y.clamp(0, GH as i64 - 1) as usize);
+                let i = yy * GW + xx;
+                any_wet |= c.wet[i];
+                all_wet &= c.wet[i];
+                near_river |= c.river[i];
+            }
+        }
+        let class = if all_wet {
+            Some(true)
+        } else if !any_wet && !near_river {
+            Some(false)
+        } else {
+            None
+        };
+        let i = (cy.clamp(0, GH as i64 - 1) as usize) * GW + cx.clamp(0, GW as i64 - 1) as usize;
+        (class, !any_wet && c.river[i])
+    }
+
+    /// Moved pixels of a `ch`-channel buffer `w` pixels wide, split by class:
+    /// `[deep land, deep water, river land]`, each `(moved, total)`. `at` maps
+    /// a pixel to its grid position.
+    fn moved(base: &[u8], adj: &[u8], ch: usize, w: usize, c: &Classes, at: impl Fn(usize, usize) -> (f64, f64)) -> [(usize, usize); 3] {
+        assert_eq!(base.len(), adj.len());
+        let mut out = [(0, 0); 3];
+        for p in 0..base.len() / ch {
+            let (gx, gy) = at(p % w, p / w);
+            let m = base[p * ch..p * ch + ch] != adj[p * ch..p * ch + ch];
+            let (class, river_land) = deep(c, gx, gy);
+            let k = match class {
+                Some(false) => Some(0),
+                Some(true) => Some(1),
+                None if river_land => Some(2),
+                None => None,
+            };
+            if let Some(k) = k {
+                out[k].1 += 1;
+                out[k].0 += m as usize;
+            }
+        }
+        out
+    }
+
+    /// Every consumer's moved-pixel split for `adj` against `base`.
+    fn census_moves(base: &Census, adj: &Census, c: &Classes) -> Vec<(&'static str, [(usize, usize); 3])> {
+        let grid = |x: usize, y: usize| (x as f64, y as f64);
+        let k = 1.0 / K as f64;
+        let (ow, _) = dims();
+        let px = move |x: usize, y: usize| (x as f64 * k, y as f64 * k);
+        vec![
+            ("screen", moved(&base.screen, &adj.screen, 3, GW, c, grid)),
+            ("river texture", moved(&base.river, &adj.river, 3, GW, c, grid)),
+            ("screen p3", moved(&base.screen_p3, &adj.screen_p3, 3, GW, c, grid)),
+            ("river texture p3", moved(&base.river_p3, &adj.river_p3, 3, GW, c, grid)),
+            ("export", moved(&base.export, &adj.export, 3, ow, c, px)),
+            ("banded", moved(&base.banded, &adj.banded, 3, ow, c, px)),
+            ("crop", moved(&base.crop2, &adj.crop2, 3, CROP2_WIN.0, c, move |x, y| ((x + CROP2_AT.0) as f64 * k, (y + CROP2_AT.1) as f64 * k))),
+            ("tile", moved(&base.tile, &adj.tile, 4, GW, c, grid)),
+        ]
+    }
+
+    /// Protects: a **water-only** stack moves no deep-land pixel and the deep
+    /// water on every consumer, and moves the land a river is painted over on
+    /// every consumer that paints rivers into its own pixels (the river colour
+    /// texture, the exports, the crop, the tile -- not the screen's terrain
+    /// texture, which holds no river); and the banded export still equals the
+    /// whole one under a stack.
+    #[test]
+    fn a_water_only_stack_moves_only_water_and_river_pixels_on_every_consumer() {
+        let w = world();
+        let g = river();
+        let base_look = TerrainAppearance::default();
+        let look = TerrainAppearance { water_adjust: water_stack(), ..base_look.clone() };
+        assert!(render::adjust_needs_water_weight(&look));
+        let (base, adj) = (render_all(&w, &g, &base_look), render_all(&w, &g, &look));
+        assert_eq!(adj.banded, adj.export, "a banded export must equal the whole one under a stack");
+        let c = classes(&w, &g, &look);
+        for (name, [land, water, river_land]) in census_moves(&base, &adj, &c) {
+            eprintln!("water-only {name}: deep land {}/{} moved, deep water {}/{}, river land {}/{}", land.0, land.1, water.0, water.1, river_land.0, river_land.1);
+            assert!(land.1 > 100 && water.1 > 100, "{name}: the fixture must hold deep land and deep water ({} / {})", land.1, water.1);
+            assert_eq!(land.0, 0, "{name}: a water-only stack moved {} deep-land pixels", land.0);
+            assert!(water.0 * 10 >= water.1 * 9, "{name}: a water-only stack moved only {}/{} deep-water pixels", water.0, water.1);
+            if name.starts_with("screen") {
+                assert_eq!(river_land.0, 0, "{name}: the terrain texture holds no river, so its river land is land");
+            } else {
+                assert!(river_land.1 > 0 && river_land.0 > 0, "{name}: no river-land pixel moved ({}/{})", river_land.0, river_land.1);
+            }
+        }
+    }
+
+    /// Protects: a **terrain-only** stack moves no deep-water pixel and the
+    /// deep land on every consumer -- the weight's other side.
+    #[test]
+    fn a_terrain_only_stack_moves_only_land_pixels_on_every_consumer() {
+        let w = world();
+        let g = river();
+        let base_look = TerrainAppearance::default();
+        let look = TerrainAppearance { terrain_adjust: terrain_stack(), ..base_look.clone() };
+        let (base, adj) = (render_all(&w, &g, &base_look), render_all(&w, &g, &look));
+        assert_eq!(adj.banded, adj.export);
+        let c = classes(&w, &g, &look);
+        for (name, [land, water, _]) in census_moves(&base, &adj, &c) {
+            eprintln!("terrain-only {name}: deep land {}/{} moved, deep water {}/{}", land.0, land.1, water.0, water.1);
+            assert_eq!(water.0, 0, "{name}: a terrain-only stack moved {} deep-water pixels", water.0);
+            assert!(land.0 * 10 >= land.1 * 9, "{name}: a terrain-only stack moved only {}/{} deep-land pixels", land.0, land.1);
+        }
+    }
+
+    /// Protects: two **equal** stacks need no weight and adjust land and water
+    /// alike on every consumer -- the uniform path.
+    #[test]
+    fn equal_stacks_adjust_land_and_water_alike() {
+        let w = world();
+        let g = river();
+        let base_look = TerrainAppearance::default();
+        let look = TerrainAppearance { terrain_adjust: water_stack(), water_adjust: water_stack(), ..base_look.clone() };
+        assert!(!render::adjust_needs_water_weight(&look), "equal stacks must not ask for a weight");
+        let (base, adj) = (render_all(&w, &g, &base_look), render_all(&w, &g, &look));
+        let c = classes(&w, &g, &look);
+        for (name, [land, water, _]) in census_moves(&base, &adj, &c) {
+            assert!(land.0 * 10 >= land.1 * 9 && water.0 * 10 >= water.1 * 9, "{name}: equal stacks moved {}/{} land and {}/{} water", land.0, land.1, water.0, water.1);
+        }
+    }
+
+    /// Protects: a stack changes the look's fingerprint, so `lod_cache_key`
+    /// and `river_paint_key` (both built on it) drop a stale tile or colour
+    /// field after a stack edit; an empty stack does not, so a look with none
+    /// keys as before. A stack of only disabled entries changes it too: it is
+    /// saved user data, even though it moves no pixel.
+    #[test]
+    fn the_fingerprint_moves_with_a_stack_and_only_then() {
+        let fp = crate::lod_bridge::appearance_fingerprint;
+        let base = TerrainAppearance::default();
+        let empty = TerrainAppearance { terrain_adjust: AdjustStack::default(), water_adjust: AdjustStack::default(), ..base.clone() };
+        assert_eq!(fp(&base), fp(&empty));
+        let t = TerrainAppearance { terrain_adjust: terrain_stack(), ..base.clone() };
+        let wt = TerrainAppearance { water_adjust: terrain_stack(), ..base.clone() };
+        assert_ne!(fp(&base), fp(&t));
+        assert_ne!(fp(&t), fp(&wt), "the same stack on the other layer is a different look");
+        let mut off = terrain_stack();
+        off.entries.iter_mut().for_each(|e| e.enabled = false);
+        assert!(off.is_identity());
+        assert_ne!(fp(&base), fp(&TerrainAppearance { water_adjust: off, ..base.clone() }));
+    }
+
+    /// Protects: the saved look omits empty stacks (an untouched look
+    /// serialises as before ET-C2), the reference look has none, a stack
+    /// round-trips through the preset reader, and the reader refuses a preset
+    /// whose stack is out of range rather than loading it.
+    #[test]
+    fn presets_omit_empty_stacks_and_refuse_bad_ones() {
+        let v = serde_json::to_value(TerrainAppearance::default()).unwrap();
+        assert!(v.get("terrain_adjust").is_none() && v.get("water_adjust").is_none(), "an empty stack must not be written");
+        let r = TerrainAppearance::js_reference();
+        assert!(r.terrain_adjust.is_empty() && r.water_adjust.is_empty(), "the reference look carries no stack");
+        let a = TerrainAppearance { water_adjust: water_stack(), ..TerrainAppearance::default() };
+        let doc = serde_json::json!({ "format": "cartalith-appearance", "v": 1, "name": "t", "appearance": a });
+        let back = crate::export_options::parse_appearance_preset(&doc.to_string()).expect("a valid stack loads");
+        assert_eq!(back.water_adjust, water_stack());
+        assert!(back.terrain_adjust.is_empty());
+        let mut bad = doc.clone();
+        bad["appearance"]["water_adjust"]["entries"][0]["kind"]["hsl"]["hue_deg"] = serde_json::json!(999.0);
+        let e = crate::export_options::parse_appearance_preset(&bad.to_string()).err().expect("an out-of-range stack must be refused");
+        assert!(e.contains("water_adjust") && e.contains("hue_deg"), "{e}");
+    }
+
+    /// Protects: `finish_rgb`'s per-pixel mix -- weight `0` runs the terrain
+    /// stack alone, `255` the water stack alone (an identity side leaves the
+    /// colour), anything between is `mix(terrain(c), water(c), w / 255)`, then
+    /// the one truncating quantiser. Literal bytes from an independent Python
+    /// transcription of the Levels formula and the mix (2026-10-11).
+    #[test]
+    fn finish_rgb_mixes_the_two_stacks_by_the_weight() {
+        let lv = |ob: f64, ow: f64| AdjustKind::Levels { in_black: 0.0, in_white: 255.0, gamma: 1.0, out_black: ob, out_white: ow };
+        let invert = stack(vec![lv(255.0, 0.0)]);
+        let half = stack(vec![lv(0.0, 128.0)]);
+        let px: Vec<u8> = vec![10, 20, 30, 10, 20, 30, 10, 20, 30, 200, 100, 0];
+        let weight = [0u8, 255, 128, 64];
+        let run = |t: &AdjustStack, w: &AdjustStack| {
+            let mut b = px.clone();
+            render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((t, w, &weight[..])), ColorSpace::Srgb);
+            b
+        };
+        assert_eq!(run(&invert, &AdjustStack::default()), vec![245, 235, 225, 10, 20, 30, 127, 127, 127, 91, 141, 191]);
+        assert_eq!(run(&invert, &half), vec![245, 235, 225, 5, 10, 15, 124, 122, 119, 66, 128, 191]);
+        // A weight of the wrong length switches the stage off rather than
+        // guessing a split; equal stacks need no weight at all.
+        let mut b = px.clone();
+        render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((&invert, &half, &weight[..3])), ColorSpace::Srgb);
+        assert_eq!(b, px);
+        let mut b = px.clone();
+        render::finish_rgb(&mut b, None::<fn(usize) -> f64>, None, Some((&invert, &invert, &[][..])), ColorSpace::Srgb);
+        assert_eq!(b, vec![245, 235, 225, 245, 235, 225, 245, 235, 225, 55, 155, 255]);
+    }
+
+    /// Protects: [`render::adjust_needs_water_weight`]'s rule -- a weight is
+    /// asked for only when the stacks differ and one is live.
+    #[test]
+    fn a_weight_is_needed_only_for_two_different_live_stacks() {
+        let base = TerrainAppearance::default();
+        let mut off = water_stack();
+        off.entries[0].enabled = false;
+        off.entries[1].opacity = 0.0;
+        let with = |t: AdjustStack, w: AdjustStack| render::adjust_needs_water_weight(&TerrainAppearance { terrain_adjust: t, water_adjust: w, ..base.clone() });
+        assert!(!with(AdjustStack::default(), AdjustStack::default()));
+        assert!(!with(off.clone(), AdjustStack::default()), "two identity stacks run nothing");
+        assert!(!with(water_stack(), water_stack()));
+        assert!(with(water_stack(), AdjustStack::default()));
+        assert!(with(AdjustStack::default(), water_stack()));
+        assert!(with(water_stack(), terrain_stack()));
+        assert!(render::adjust_layers(&base, &[]).is_none(), "no stack: finish_rgb's pre-ET-C2 path");
+    }
+
+    /// Protects: a river's coverage becomes a weight byte by **rounding**
+    /// (`render::cover_byte`, the tile alpha's own conversion) and is the
+    /// maximum with the cell's water: a half-covered pixel weighs 128 (127.5
+    /// rounded half away from zero; a truncation would give 127), a water cell
+    /// stays 255, and a base of the wrong size yields no weight at all.
+    #[test]
+    fn river_coverage_is_a_rounded_weight_maximised_with_water() {
+        let mut layer = render::RiverLayer::new(4, 4);
+        // Two triangles over the whole 4 x 4 layer at straight alpha 0.5, so
+        // every pixel's premultiplied alpha is exactly 0.5.
+        layer.fill_triangles(&[(-1.0, -1.0), (5.0, -1.0), (5.0, 5.0), (-1.0, 5.0)], &[[0.2, 0.4, 0.8, 0.5]; 4], &[0, 1, 2, 0, 2, 3]);
+        assert_eq!((0..16).filter(|&i| layer.at(i % 4, i / 4).map(|p| p[3]) == Some(0.5)).count(), 16, "the fixture must cover every pixel at exactly 0.5");
+        let mut base = vec![0u8; 16];
+        base[5] = 255;
+        let w = render::river_texture_water_weight(&base, &layer, 4, 4);
+        let mut want = vec![128u8; 16];
+        want[5] = 255;
+        assert_eq!(w, want);
+        assert!(render::river_texture_water_weight(&base[..15], &layer, 4, 4).is_empty());
+        assert!(render::river_texture_water_weight(&[], &layer, 4, 4).is_empty(), "no stack, no weight");
+    }
+
+    /// Protects: the adjustment stage **clamps to 0..=255 before the display
+    /// matrix** (`finish_px`), like every other stage: an OkLCh saturation
+    /// boost drives a saturated red out of gamut, and the Display P3 encode
+    /// must see the clamped colour. Checked against `finish_pixel_continuous`
+    /// (the shipped matrix stage alone) fed the stack's output clamped by
+    /// hand, with a guard that the unclamped colour would encode differently,
+    /// so the comparison can see a missing clamp.
+    #[test]
+    fn the_stack_output_is_clamped_before_the_display_matrix() {
+        let boost = stack(vec![AdjustKind::Hsl { hue_deg: 0.0, saturation: 1.0, lightness: 0.0 }]);
+        let c = (250.0, 10.0, 10.0);
+        let raw = boost.apply(c);
+        assert!(raw.0 > 255.0 || raw.1 < 0.0 || raw.2 < 0.0, "the fixture must leave the gamut: {raw:?}");
+        let clamp = |v: f64| v.clamp(0.0, 255.0);
+        let q = |x: (f64, f64, f64)| [x.0, x.1, x.2].map(|v| v.round().clamp(0.0, 255.0) as u8);
+        let want = q(render::finish_pixel_continuous((clamp(raw.0), clamp(raw.1), clamp(raw.2)), 0.0, None, ColorSpace::DisplayP3));
+        let unclamped = q(render::finish_pixel_continuous(raw, 0.0, None, ColorSpace::DisplayP3));
+        assert_ne!(want, unclamped, "the guard: an unclamped colour must encode differently here");
+        let mut px = vec![250u8, 10, 10];
+        render::finish_rgb(&mut px, None::<fn(usize) -> f64>, None, Some((&boost, &boost, &[][..])), ColorSpace::DisplayP3);
+        assert_eq!(px, want.to_vec());
+    }
+
+    /// Not a test: the ET-C2 cost measurement (scope risk "Cost: measure the
+    /// stack pass at 2048² against `finish_rgb` at rest"). `finish_rgb` over a
+    /// 2048 x 1311 buffer (the app's grid) with a local-contrast correction on
+    /// (so the at-rest pass is the real per-pixel loop, not the early return),
+    /// the grade at rest, sRGB: no stack; a four-adjustment water stack
+    /// (Levels, five-point Curves, OkLCh HSL, gradient map) over a half-water
+    /// weight; and the same stack on both layers (every pixel adjusted). Five
+    /// runs each, median and min..max printed. Run alone, in release:
+    /// `cargo test -p cartalith-godot --release --lib bench_finish_rgb_stack_cost -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn bench_finish_rgb_stack_cost() {
+        let (w, h) = (2048usize, 1311usize);
+        let n = w * h;
+        let src: Vec<u8> = (0..n * 3).map(|i| ((i as u64).wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        let weight: Vec<u8> = (0..n).map(|i| if (i % w) < w / 2 { 255 } else { 0 }).collect();
+        let a = TerrainAppearance::default();
+        assert!(a.grade_is_identity());
+        let four = stack(vec![
+            AdjustKind::Levels { in_black: 8.0, in_white: 240.0, gamma: 1.3, out_black: 4.0, out_white: 250.0 },
+            AdjustKind::Curves { points: vec![(0.0, 0.0), (64.0, 50.0), (128.0, 140.0), (192.0, 205.0), (255.0, 255.0)] },
+            AdjustKind::Hsl { hue_deg: 25.0, saturation: 0.2, lightness: -0.1 },
+            AdjustKind::GradientMap { ramp: render::ElevationRamp::normalized([(0.0, (20.0, 30.0, 90.0), 0.5), (1.0, (240.0, 230.0, 200.0), 0.5)].map(|(at, col, a)| render::RampStop { at, col, a })) },
+        ]);
+        let empty = AdjustStack::default();
+        let delta = |i: usize| ((i % 7) as f64 - 3.0) * 0.5;
+        let time = |layers: render::AdjustLayers<'_>| {
+            let mut ms: Vec<f64> = (0..5)
+                .map(|_| {
+                    let mut b = src.clone();
+                    let t0 = std::time::Instant::now();
+                    render::finish_rgb(&mut b, Some(delta), Some((&a, &[][..])), layers, ColorSpace::Srgb);
+                    let e = t0.elapsed().as_secs_f64() * 1e3;
+                    std::hint::black_box(&b);
+                    e
+                })
+                .collect();
+            ms.sort_by(|x, y| x.total_cmp(y));
+            (ms[2], ms[0], ms[4])
+        };
+        for (name, layers) in [
+            ("no stack", None),
+            ("4-entry water stack, half-water weight", Some((&empty, &four, &weight[..]))),
+            ("4-entry stack on both layers (uniform)", Some((&four, &four, &[][..]))),
+        ] {
+            let (med, lo, hi) = time(layers);
+            eprintln!("BENCH finish_rgb 2048x1311 {name}: median {med:.1} ms ({lo:.1}..{hi:.1})");
         }
     }
 }

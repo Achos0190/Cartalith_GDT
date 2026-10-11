@@ -17,9 +17,9 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, InitStage, gdextension};
 use godot::prelude::*;
 
-// ET-C1: nothing consumes the adjustment stack until ET-C2 wires it into `finish_rgb`.
-#[allow(dead_code)]
-mod adjust;
+// The adjustment stacks (ET-C1/C2) are `render::adjust`, declared inside
+// `render.rs` so that file's standalone `#[path]` test targets compile them
+// too; see that declaration's doc.
 mod asset_bridge;
 mod bake_bridge;
 mod campaign_bridge;
@@ -6214,6 +6214,19 @@ struct WorldGen {
     /// byte-identical path in `render.rs`, and a caller who has never touched a
     /// layer should not be able to reach it through a stored value at all.
     appearance_layers: Option<render::LayerStack>,
+    /// **ET-C2: the caller's own terrain adjustment stack**
+    /// (`appearance_set_adjust("terrain", ...)`), or `None` for whatever the
+    /// base -- the tier and look (always empty) or a loaded preset -- carries.
+    ///
+    /// A fifth authority, on `appearance_ramp`'s exact terms: applied over the
+    /// base in `appearance_rebased` with the user's other edits, cleared by
+    /// `reset_appearance` and by `load_appearance_preset` (a preset file is a
+    /// base and carries its own stacks), and saved in the project's
+    /// `appearance.json` (`project_bridge.rs`, omitted while empty). Only ever
+    /// holds a stack that passed `AdjustStack::validate`.
+    appearance_terrain_adjust: Option<render::adjust::AdjustStack>,
+    /// ET-C2: the water layer's stack; see [`Self::appearance_terrain_adjust`].
+    appearance_water_adjust: Option<render::adjust::AdjustStack>,
     /// A loaded appearance preset (`GUI_GAP_REGISTER.md` CA-08), replacing the
     /// **quality tier** as the base layer that `appearance_over` and
     /// `appearance_ramp` sit on top of. `None` = the tier, which is what every
@@ -6990,6 +7003,8 @@ impl IRefCounted for WorldGen {
             appearance_over: std::collections::HashMap::new(),
             appearance_ramp: None,
             appearance_layers: None,
+            appearance_terrain_adjust: None,
+            appearance_water_adjust: None,
             appearance_preset: None,
             color_space: render::ColorSpace::Srgb,
             rivers_in_map: true,
@@ -7060,6 +7075,12 @@ impl IRefCounted for WorldGen {
             export_session: export_session::ExportSessionCore::default(),
         }
     }
+}
+
+/// `{ok: false, error: msg}` -- the one refusal shape of the ET-C2 adjustment
+/// bindings (`appearance_get_adjust`, `appearance_set_adjust`).
+fn adjust_refusal(msg: String) -> VarDictionary {
+    dict! { "ok" => false, "error" => msg.as_str() }
 }
 
 /// The NPR block a fresh session starts with: multi-sun on, everything else
@@ -9667,7 +9688,8 @@ impl WorldGen {
         // The project-owned half of the look: exactly the members
         // `project_open` replaces *wholesale* from `appearance.json`
         // (`project_bridge.rs`) -- the scalar overrides, the ramp, the NPR
-        // block and CA-19's biome colour table. A tree archive always carries
+        // block, CA-19's biome colour table and ET-C2's two adjustment
+        // stacks. A tree archive always carries
         // that document, so it always overwrote them; a flat or legacy archive
         // carries none, so until 2026-09-24 it silently inherited whatever the
         // previous session had edited, and the next save wrote those edits
@@ -9689,6 +9711,11 @@ impl WorldGen {
         // and resetting to it would switch multi-sun off on every legacy open.
         self.npr = session_npr();
         self.biome_col_overrides = [None; 15];
+        // ET-C2's adjustment stacks are project state too (`appearance.json`'s
+        // optional `terrain_adjust`/`water_adjust`), so they get the same reset:
+        // an archive without them opens with none.
+        self.appearance_terrain_adjust = None;
+        self.appearance_water_adjust = None;
         // The *settings* half, which `invalidate()` deliberately leaves alone
         // and which `absorb()` deliberately does not touch either: a cap
         // table describes what the user wants placed, so it rightly survives
@@ -10246,8 +10273,9 @@ impl WorldGen {
     /// cannot.
     ///
     /// - `preset`: what `load_appearance_preset` would produce — the file is
-    ///   the base, and the override map and ramp override are *not* applied
-    ///   (that call clears both); the layer stack and biome colours are,
+    ///   the base, and the override map, ramp override and ET-C2 adjustment
+    ///   stacks are *not* applied (that call clears all three); the layer
+    ///   stack and biome colours are,
     ///   because it keeps both.
     /// - `look`: what `set_look` would produce, **except that a loaded session
     ///   preset is set aside** — under a preset `set_look` changes nothing
@@ -10286,6 +10314,18 @@ impl WorldGen {
         // byte-identical path).
         if let Some(layers) = self.appearance_layers.as_ref() {
             a.layers = layers.clone();
+        }
+        // ET-C2's adjustment stacks, on the ramp's terms: a user edit over the
+        // tier, the look or a session preset, and NOT over an export style's
+        // preset file (`edits` false), which carries its own stacks exactly as
+        // `load_appearance_preset` would load them.
+        if edits {
+            if let Some(s) = self.appearance_terrain_adjust.as_ref() {
+                a.terrain_adjust = s.clone();
+            }
+            if let Some(s) = self.appearance_water_adjust.as_ref() {
+                a.water_adjust = s.clone();
+            }
         }
         for (key, value) in self.appearance_over.iter().filter(|_| edits) {
             if key == render::TUNABLE_LIGHTS.0 {
@@ -10414,7 +10454,8 @@ impl WorldGen {
         keys.as_slice().iter().filter(|k| self.appearance_over.remove(&k.to_string()).is_some()).count() as i32
     }
 
-    /// Drop the caller's overrides, ramp, layer stack and loaded preset, and
+    /// Drop the caller's overrides, ramp, layer stack, adjustment stacks
+    /// (ET-C2) and loaded preset, and
     /// hand every appearance value back to the active quality tier. Returns how
     /// many things were dropped, so a "Reset" button can stay quiet when there
     /// was nothing to reset.
@@ -10434,9 +10475,15 @@ impl WorldGen {
         let n = self.appearance_over.len() as i32
             + self.appearance_ramp.is_some() as i32
             + self.appearance_layers.is_some() as i32
+            + self.appearance_terrain_adjust.is_some() as i32
+            + self.appearance_water_adjust.is_some() as i32
             + self.appearance_preset.is_some() as i32;
         self.appearance_over.clear();
         self.appearance_ramp = None;
+        // ET-C2: an adjustment stack is a user edit to the look like the
+        // ramp, so "reset" drops both layers' stacks.
+        self.appearance_terrain_adjust = None;
+        self.appearance_water_adjust = None;
         // The layer stack is one of the things "reset" means, for the reason
         // the preset is: a reordered or blended stack is the loudest possible
         // state to leave behind a button that says it restored the tier.
@@ -10801,6 +10848,86 @@ impl WorldGen {
         true
     }
 
+    // -- ET-C2: the terrain and water adjustment stacks -----------------------
+    //
+    // `EDITING_TOOLS_SCOPE.md` milestone C. The maths is `render::adjust`
+    // (ET-C1); `render::finish_rgb` runs both stacks on every consumer, each
+    // weighted by that consumer's own water decision. These three calls are the
+    // whole binding; the panel is ET-C4's.
+
+    /// The layers an adjustment stack can be set on, in the engine's own
+    /// spelling -- `["terrain", "water"]` ([`render::ADJUST_LAYERS`]). The
+    /// panel's layer selector is this list, not a second copy in GDScript.
+    #[func]
+    fn list_adjust_layers(&self) -> PackedStringArray {
+        render::ADJUST_LAYERS.iter().map(|n| GString::from(*n)).collect()
+    }
+
+    /// The stack `layer` (`"terrain"` or `"water"`) renders with now -- the
+    /// **merged** value (`appearance()`: a loaded preset's own stack unless the
+    /// session set one), not the session override. Returns
+    /// `{ok: true, layer, stack, entries, identity}`: `stack` is the saved form
+    /// (`{"entries":[...]}`, `AdjustStack`'s serde shape, which
+    /// `appearance_set_adjust` reads back), `entries` its length and `identity`
+    /// whether it currently changes no pixel (empty, or every entry disabled,
+    /// at opacity 0 or neutral). `{ok: false, error}` for any other layer name,
+    /// never an empty stack standing in for an unknown layer.
+    #[func]
+    fn appearance_get_adjust(&self, layer: GString) -> VarDictionary {
+        let a = self.appearance();
+        let name = layer.to_string();
+        let stack = match name.as_str() {
+            "terrain" => &a.terrain_adjust,
+            "water" => &a.water_adjust,
+            _ => return adjust_refusal(format!("unknown adjustment layer {name:?}; see list_adjust_layers()")),
+        };
+        match serde_json::to_string(stack) {
+            Ok(json) => dict! {
+                "ok" => true,
+                "layer" => name.as_str(),
+                "stack" => json.as_str(),
+                "entries" => stack.entries.len() as i64,
+                "identity" => stack.is_identity(),
+            },
+            Err(e) => adjust_refusal(format!("encode failed: {e}")),
+        }
+    }
+
+    /// Replace layer `layer`'s whole stack (`"terrain"` or `"water"`) from
+    /// `stack_json`, `appearance_get_adjust`'s `stack` shape. The stack is
+    /// parsed and **validated** (`AdjustStack::from_json`, which runs
+    /// `AdjustStack::validate`): an unknown layer, a document that does not
+    /// parse, an unknown adjustment kind or any out-of-range or non-finite
+    /// parameter returns `{ok: false, error}` and **changes nothing** -- no
+    /// clamped or partial stack is ever stored. On success returns
+    /// `{ok: true, layer, entries, identity}`. `{"entries":[]}` clears the
+    /// layer's stack (an empty stack, skipped by control flow).
+    ///
+    /// Presentation only, on `set_appearance`'s exact terms: nothing here
+    /// touches the heightmap, climate, hydrology, biomes, settlements, routes
+    /// or the seed -- call `build_color_texture()` again to see it. The stacks
+    /// are part of the look's fingerprint, so the deep-zoom tile cache and the
+    /// river colour field rebuild on their own (`lod_cache_key`,
+    /// `river_paint_key`).
+    #[func]
+    fn appearance_set_adjust(&mut self, layer: GString, stack_json: GString) -> VarDictionary {
+        let name = layer.to_string();
+        if !render::ADJUST_LAYERS.contains(&name.as_str()) {
+            return adjust_refusal(format!("unknown adjustment layer {name:?}; see list_adjust_layers()"));
+        }
+        let stack = match render::adjust::AdjustStack::from_json(&stack_json.to_string()) {
+            Ok(s) => s,
+            Err(e) => return adjust_refusal(e.to_string()),
+        };
+        let (entries, identity) = (stack.entries.len() as i64, stack.is_identity());
+        if name == "terrain" {
+            self.appearance_terrain_adjust = Some(stack);
+        } else {
+            self.appearance_water_adjust = Some(stack);
+        }
+        dict! { "ok" => true, "layer" => name.as_str(), "entries" => entries, "identity" => identity }
+    }
+
     // -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) --------------------------
 
     /// Write the appearance currently in force to `path` as a small JSON
@@ -10846,7 +10973,8 @@ impl WorldGen {
     /// the look. Returns `false` (and changes nothing) on any read, parse or
     /// format error.
     ///
-    /// **Clears the override map and the ramp override.** Those are edits
+    /// **Clears the override map, the ramp override and the two ET-C2
+    /// adjustment stacks.** Those are edits
     /// layered over a base, and the file *is* a base: keeping them would mean
     /// loading a saved look reproduced something other than the saved look,
     /// which is the one thing this call has to guarantee. `appearance()` after
@@ -10863,6 +10991,10 @@ impl WorldGen {
             Ok(a) => {
                 self.appearance_over.clear();
                 self.appearance_ramp = None;
+                // ET-C2: the file carries its own stacks (empty when it never
+                // used one), so a session stack must not survive the load.
+                self.appearance_terrain_adjust = None;
+                self.appearance_water_adjust = None;
                 self.appearance_preset = Some(a);
                 true
             }
@@ -11428,13 +11560,22 @@ impl WorldGen {
         let grade_influence = render::build_grade_influence(&ctx, gw, gh);
         let icons = self.asset_pack.is_some();
         let space = if icons { render::ColorSpace::Srgb } else { self.color_space };
-        // `finish_raster` exactly, split so the river colour field is finished
-        // with the SAME local-contrast correction, measured from the terrain.
-        let lc = render::local_contrast_rows(&appearance, &bytes, gw, gh, 0, gh, self.world);
-        if let Some(t) = river_bytes.as_mut() {
-            render::finish_rgb(t, lc.as_ref().map(|l| |i| l.delta(i)), Some((&appearance, &grade_influence)), space);
-        }
-        render::finish_rgb(&mut bytes, lc.as_ref().map(|l| |i| l.delta(i)), Some((&appearance, &grade_influence)), space);
+        // Local contrast measured on the terrain and applied to both buffers,
+        // the grade, ET-C2's terrain/water adjustment stacks (each buffer
+        // weighted by its own water decision: the cells `cell_color` drew as
+        // water, and for the river colour texture also the coverage its field
+        // laid each river in at) and the space -- one pass, one quantiser.
+        // In `render` so a test runs these exact bytes.
+        render::finish_screen_texture(
+            &ctx,
+            &mut bytes,
+            river_bytes.as_mut().zip(field_layer.as_deref()).map(|(t, l)| (t.as_mut_slice(), l)),
+            gw,
+            gh,
+            self.world,
+            &grade_influence,
+            space,
+        );
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate
@@ -11459,7 +11600,7 @@ impl WorldGen {
         //
         // A no-op at the default, by early return rather than by arithmetic --
         // see `render::apply_color_space`. Only reached with a pack loaded;
-        // otherwise `finish_raster` above already encoded the buffer. That
+        // otherwise `finish_screen_texture` above already encoded the buffer. That
         // path keeps one extra byte quantisation between the grade and the
         // encode, which is the icon composite's own (it draws into bytes).
         if icons {
@@ -18221,9 +18362,11 @@ impl WorldGen {
     ///   input from the height field and moves without it (`set_sea_level`).
     /// - **The world flags** — `world`, `lat_n`, `lat_s`, `map_width_km`.
     /// - **The look** — the appearance's own serde fingerprint, which covers
-    ///   the tier, the named look, a loaded preset, the ramp, the layer stack
-    ///   and every tunable override, because `appearance()` merges all six
-    ///   into the value fingerprinted. The colour space is separate (it is not
+    ///   the tier, the named look, a loaded preset, the ramp, the layer stack,
+    ///   every tunable override and ET-C2's two adjustment stacks (a tile is
+    ///   finished with them), because `appearance()` merges all of them into
+    ///   the value fingerprinted. An empty stack is omitted from that
+    ///   serialisation, so a look with none keys exactly as before ET-C2. The colour space is separate (it is not
     ///   part of `TerrainAppearance`) and is included by name.
     /// - **The pack and the paint** — a pack changes `land_color`'s splat and
     ///   ground-tile branches and the paint grids override cells outright.

@@ -3158,3 +3158,7 @@ direction and a magnitude, not a controlled comparison.
 ## Lake basin-area floor (2026-10-11, Ruling CC)
 
 The floor adds nothing to the save, but the civ classification it changes is already stored (`rasters/water_bodies.u8`), so projects saved from now on hold floored lakes. Any world regenerated, including from an old save, gets the floor: its ponds below the scaled floor (4 cells at 2048 x 1311, `lake_area_floor_cells`) become land. An old project reopened draws floored water, because `drawn_water_bodies` recomputes it, while its stored civ raster keeps the pre-floor ponds until the civ layer is recomputed. The floor only ever turns lake into land, so no stored settlement can end up in water. Worlds under about 1.0 M cells keep every lake.
+
+## Adjustment stacks in `appearance.json` (2026-10-11, ET-C2)
+
+Optional `terrain_adjust` and `water_adjust` members, each in `AdjustStack`'s saved form: `{"entries":[{"kind":{"levels"|"curves"|"hsl"|"gradient_map":{...}},"enabled":bool(=true),"opacity":0..1(=1)}]}`. Absent means no adjustment, and the writer omits a member whose stack is empty, so every existing save round-trips byte-identically. A refused member produces a warning and that layer opens with no stack; the rest of the look still loads. Saved-look preset files (`cartalith-appearance` v1) carry the same two optional keys inside `appearance`; an invalid stack refuses the whole file.

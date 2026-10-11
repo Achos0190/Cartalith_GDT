@@ -200,7 +200,8 @@ const SLOT_LABELS: &str = "annotations/labels.json";
 const SLOT_ICONS: &str = "annotations/icons.json";
 /// The regions annotation document.
 const SLOT_REGIONS: &str = "annotations/regions.json";
-/// The look, quality, ramp, NPR and `biome_cols` settings.
+/// The look, quality, ramp, NPR, `biome_cols` and (ET-C2, optional)
+/// `terrain_adjust` / `water_adjust` settings.
 const SLOT_APPEARANCE: &str = "appearance.json";
 /// The Markdown Vault store.
 const SLOT_VAULT: &str = "vault.json";
@@ -1306,6 +1307,44 @@ struct AppearanceDoc {
     /// validates it on its own and `project_open` reports a refusal.
     #[serde(skip_serializing_if = "Option::is_none")]
     biome_cols: Option<serde_json::Value>,
+    /// ET-C2 (`EDITING_TOOLS_SCOPE.md` milestone C): the session's own terrain
+    /// adjustment stack (`WorldGen::appearance_terrain_adjust`), in
+    /// `AdjustStack`'s saved form (`{"entries": [...]}`).
+    ///
+    /// **Absent means no stack**, and the writer omits the member when the
+    /// session set none or set an empty one ([`adjust_member`]), so a project
+    /// that never used a stack is byte-identical to one written before the
+    /// member existed. A raw `Value` for `biome_cols`'s reason: a stack this
+    /// build refuses ([`adjust_from_member`]: unparsable, or out of range by
+    /// `AdjustStack::validate`) costs itself only, with a warning, never the
+    /// rest of the look.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    terrain_adjust: Option<serde_json::Value>,
+    /// ET-C2: the water stack; see [`Self::terrain_adjust`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    water_adjust: Option<serde_json::Value>,
+}
+
+/// `AppearanceDoc::terrain_adjust` / `water_adjust` as the writer spells them:
+/// the stack's saved form, or `None` -- **no member** -- when the session has
+/// no stack for the layer or an empty one. Empty is written as nothing for
+/// `biome_cols_member`'s reason: absent already means "no adjustment", and a
+/// second spelling of that state would make an untouched project differ from
+/// the one the previous writer produced. A stack of disabled entries is not
+/// empty and IS written (it is the user's data).
+fn adjust_member(stack: Option<&crate::render::adjust::AdjustStack>) -> Option<serde_json::Value> {
+    stack.filter(|s| !s.is_empty()).and_then(|s| serde_json::to_value(s).ok())
+}
+
+/// The inverse of [`adjust_member`]: `Ok(None)` for an absent member, the
+/// stack for a member that parses **and validates**, and the reason for any
+/// other. All or nothing, `biome_overrides_from_member`'s rule: a stack with
+/// one bad entry is refused whole rather than loaded without it.
+fn adjust_from_member(member: Option<&serde_json::Value>) -> Result<Option<crate::render::adjust::AdjustStack>, String> {
+    let Some(v) = member else { return Ok(None) };
+    let stack: crate::render::adjust::AdjustStack = serde_json::from_value(v.clone()).map_err(|e| format!("is not an adjustment stack ({e})"))?;
+    stack.validate().map_err(|e| format!("is refused: {e}"))?;
+    Ok(Some(stack))
 }
 
 /// `AppearanceDoc::biome_cols` as the writer spells it: the reference table
@@ -3249,6 +3288,8 @@ impl WorldGen {
                 ramp: self.appearance_ramp.clone(),
                 npr: self.npr.clone(),
                 biome_cols: biome_cols_member(&self.biome_col_overrides),
+                terrain_adjust: adjust_member(self.appearance_terrain_adjust.as_ref()),
+                water_adjust: adjust_member(self.appearance_water_adjust.as_ref()),
             },
         );
 
@@ -3844,6 +3885,20 @@ impl WorldGen {
                     [None; 15]
                 }
             };
+            // ET-C2's stacks, replaced wholesale on the same rule: absent is no
+            // stack, and a member this build refuses costs itself only.
+            for (key, member, slot) in [
+                ("terrain_adjust", doc.terrain_adjust.as_ref(), &mut self.appearance_terrain_adjust),
+                ("water_adjust", doc.water_adjust.as_ref(), &mut self.appearance_water_adjust),
+            ] {
+                *slot = match adjust_from_member(member) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        restore_warnings.push(format!("{SLOT_APPEARANCE}: {key} {e}; that layer opens with no adjustment"));
+                        None
+                    }
+                };
+            }
             restored.push("appearance");
         }
 
@@ -8614,6 +8669,105 @@ mod biome_cols_tests {
             serde_json::from_str(r#"{"look":"vibrant","biome_cols":[[1,2]]}"#).expect("the document still parses");
         assert_eq!(doc.look, "vibrant");
         assert!(biome_overrides_from_member(doc.biome_cols.as_ref()).is_err());
+    }
+}
+
+/// ET-C2: `appearance.json`'s optional `terrain_adjust` / `water_adjust`
+/// members (`SAVEFILE_COMPAT.md` §13.2's appearance document).
+#[cfg(test)]
+mod adjust_member_tests {
+    use super::*;
+    use crate::render::adjust::{AdjustKind, AdjustStack, Adjustment};
+
+    /// The real HEAD-written `appearance.json` `biome_cols_tests` pins (its
+    /// provenance is documented there: `_biomesave_probe.gd -- --capture`,
+    /// 2026-09-24), repeated verbatim because that module's copy is private.
+    /// Written long before ET-C2, so it carries neither stack member.
+    const APPEARANCE_BEFORE_ADJUST: &str = r#"{
+  "quality": "quality",
+  "look": "Natural Vibrant",
+  "territory_opacity": 0.3215686274509804,
+  "overrides": {
+    "bio_blend": 0.625,
+    "sun_az_deg": 300.0
+  },
+  "ramp": null,
+  "npr": {
+    "contours": 0.0,
+    "contour_m": 0.0,
+    "peak_m": 0.0,
+    "ink": 0.0,
+    "hachure": 0.0,
+    "watercolor": 0.0,
+    "cel": 0.0,
+    "crosshatch": 0.0,
+    "stipple": 0.0,
+    "sepia": 0.0,
+    "risograph": 0.0,
+    "pointillism": 0.0,
+    "waves": false,
+    "wave_dist": 0.0,
+    "multi_sun": true,
+    "animate_water": false,
+    "village": false
+  }
+}"#;
+
+    /// A valid two-entry stack.
+    fn stack() -> AdjustStack {
+        AdjustStack {
+            entries: vec![
+                Adjustment::new(AdjustKind::Hsl { hue_deg: 30.0, saturation: -0.25, lightness: 0.0 }),
+                Adjustment { kind: AdjustKind::Levels { in_black: 5.0, in_white: 250.0, gamma: 1.2, out_black: 0.0, out_white: 255.0 }, enabled: false, opacity: 0.5 },
+            ],
+        }
+    }
+
+    /// Protects: a project written before the members existed (the real
+    /// HEAD-written `appearance.json` `biome_cols_tests` already pins) opens
+    /// with no stack on either layer and re-serialises byte-identically, so
+    /// opening and saving an old project does not grow a member it never had.
+    #[test]
+    fn a_project_saved_before_the_stacks_opens_with_none_and_writes_back_unchanged() {
+        let doc: AppearanceDoc = serde_json::from_str(APPEARANCE_BEFORE_ADJUST).expect("the HEAD-written document parses");
+        assert!(doc.terrain_adjust.is_none() && doc.water_adjust.is_none());
+        assert_eq!(adjust_from_member(doc.terrain_adjust.as_ref()), Ok(None));
+        let back = AppearanceDoc { terrain_adjust: adjust_member(None), water_adjust: adjust_member(Some(&AdjustStack::default())), ..doc };
+        assert_eq!(serde_json::to_string_pretty(&back).unwrap(), APPEARANCE_BEFORE_ADJUST, "an empty or absent stack must write no member");
+    }
+
+    /// Protects: a stack survives the writer and the reader exactly (a
+    /// disabled, half-opacity entry included: user data, saved), on its own
+    /// layer only.
+    #[test]
+    fn a_stack_survives_the_round_trip_on_its_own_layer() {
+        let doc = AppearanceDoc { water_adjust: adjust_member(Some(&stack())), ..AppearanceDoc::default() };
+        let text = serde_json::to_string_pretty(&doc).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(v.get("terrain_adjust").is_none(), "the untouched layer writes nothing: {text}");
+        assert_eq!(v["water_adjust"]["entries"].as_array().map(Vec::len), Some(2));
+        let back: AppearanceDoc = serde_json::from_str(&text).unwrap();
+        assert_eq!(adjust_from_member(back.water_adjust.as_ref()), Ok(Some(stack())));
+        assert_eq!(adjust_from_member(back.terrain_adjust.as_ref()), Ok(None));
+    }
+
+    /// Protects: a member that does not parse, names an unknown kind, or
+    /// carries an out-of-range parameter is refused whole with a reason --
+    /// never loaded clamped or without its bad entry -- and does not fail
+    /// the document it sits in.
+    #[test]
+    fn a_bad_stack_is_refused_whole_and_costs_only_itself() {
+        for (name, v) in [
+            ("out of range", serde_json::json!({"entries": [{"kind": {"hsl": {"hue_deg": 400.0, "saturation": 0.0, "lightness": 0.0}}}]})),
+            ("unknown kind", serde_json::json!({"entries": [{"kind": {"sepia": {}}}]})),
+            ("not a stack", serde_json::json!([1, 2, 3])),
+            ("bad opacity", serde_json::json!({"entries": [{"kind": {"hsl": {"hue_deg": 10.0, "saturation": 0.0, "lightness": 0.0}}, "opacity": 2.0}]})),
+        ] {
+            assert!(adjust_from_member(Some(&v)).is_err(), "{name} was accepted");
+        }
+        let doc: AppearanceDoc = serde_json::from_str(r#"{"look":"vibrant","water_adjust":{"entries":[{"kind":{"hsl":{"hue_deg":400.0,"saturation":0.0,"lightness":0.0}}}]}}"#).expect("the document still parses");
+        assert_eq!(doc.look, "vibrant");
+        assert!(adjust_from_member(doc.water_adjust.as_ref()).unwrap_err().contains("hue_deg"));
     }
 }
 

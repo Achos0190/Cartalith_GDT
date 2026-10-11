@@ -220,6 +220,28 @@ use cartalith_noise::{fbm, vnoise};
 // renderer was the last O(gw*gh) loop in the workspace still on one core.
 use rayon::prelude::*;
 
+/// ET-C1's adjustment stacks (`EDITING_TOOLS_SCOPE.md` milestone C), a child
+/// of this module rather than a sibling at the crate root (ET-C2, 2026-10-11).
+///
+/// **Why here.** ET-C2 puts two stacks on [`TerrainAppearance`] and runs them
+/// inside [`finish_rgb`], so this file has to name the type -- and this file
+/// is `#[path]`-included standalone by some thirty integration targets
+/// (`tests/color_space.rs`, `tests/layer_stack.rs`, every `golden_parity_*`),
+/// none of which declares a crate-root `adjust`. Declaring it here, by
+/// `#[path]` relative to this file's own directory, compiles the one source
+/// file in every one of those targets with no change to any of them.
+/// The cost is stated rather than hidden: `adjust.rs`'s own `#[cfg(test)]`
+/// suite now runs once per such target, as `shore_tests` and
+/// `valley_split_tests` below already do.
+///
+/// `allow(dead_code)`: a `#[path]` target that never touches a stack would
+/// otherwise warn on every item of the module (the reason most `pub fn`s in
+/// this file carry the same attribute).
+#[allow(dead_code)]
+#[path = "adjust.rs"]
+pub mod adjust;
+use self::adjust::AdjustStack;
+
 type Rgb = (f64, f64, f64);
 
 /// A colour and how much of it there is: `0-255` per channel like [`Rgb`], plus
@@ -2192,6 +2214,35 @@ pub struct TerrainAppearance {
     /// on-screen texture and every export through the one `RenderCtx` both
     /// already build, and so a saved look (CA-08) carries its own stack.
     pub layers: LayerStack,
+
+    /// **ET-C2: the terrain layer's adjustment stack** (`EDITING_TOOLS_SCOPE.md`
+    /// milestone C, Ruling BX item 4) -- Levels, Curves, OkLCh HSL and gradient
+    /// maps ([`adjust::AdjustStack`]) run by [`finish_rgb`] after the grade and
+    /// before the display matrix, on the share of each pixel that is not water
+    /// (the water weight, see [`adjust_needs_water_weight`]).
+    ///
+    /// On the appearance, like [`Self::layers`], for the same reason: one value
+    /// reaches the screen, every export and every deep-zoom tile through the
+    /// `RenderCtx` each already builds, and the look's serde fingerprint
+    /// (`lod_bridge::appearance_fingerprint`, which keys the tile cache and the
+    /// river colour field) moves when a stack does.
+    ///
+    /// **Empty by default and omitted from the saved form while empty**
+    /// (`skip_serializing_if`), so a look or preset that never used a stack
+    /// serialises -- and fingerprints -- exactly as before this field existed.
+    /// An empty or all-skipped stack is identity by control flow
+    /// ([`AdjustStack::is_identity`]), never a multiply by a neutral value.
+    /// Must hold only a stack that passed [`AdjustStack::validate`]: the
+    /// setter (`WorldGen::appearance_set_adjust`) and the preset reader
+    /// (`export_options::parse_appearance_preset`) refuse anything else.
+    #[serde(default, skip_serializing_if = "AdjustStack::is_empty")]
+    pub terrain_adjust: AdjustStack,
+    /// **ET-C2: the water layer's adjustment stack** -- [`Self::terrain_adjust`]
+    /// for the share of each pixel that is water (sea, lake or painted river),
+    /// as each consumer's own water decision says. Same default, same omission
+    /// when empty, same validation rule.
+    #[serde(default, skip_serializing_if = "AdjustStack::is_empty")]
+    pub water_adjust: AdjustStack,
 }
 
 impl Default for TerrainAppearance {
@@ -2377,6 +2428,10 @@ impl Default for TerrainAppearance {
             grade_field_geology: 0.0,
             npr: Npr::default(),
             layers: LayerStack::DEFAULT,
+            // ET-C2: no adjustment by default -- empty stacks, skipped by
+            // control flow in `finish_rgb` and omitted from the saved form.
+            terrain_adjust: AdjustStack::default(),
+            water_adjust: AdjustStack::default(),
         }
     }
 }
@@ -2657,6 +2712,12 @@ impl TerrainAppearance {
             // The low-passed curvature/occlusion input is port-only: the
             // reference's `curvatureAt` (7599) reads the raw field.
             relief_lowpass: false,
+            // ET-C2's adjustment stacks are port-only (the reference has no
+            // adjustment layer): pinned empty here explicitly rather than
+            // inherited, the toon keys' rule, so a future non-empty default
+            // cannot reach the parity path.
+            terrain_adjust: AdjustStack::default(),
+            water_adjust: AdjustStack::default(),
             ..TerrainAppearance::default()
         }
     }
@@ -7142,7 +7203,7 @@ fn local_contrast_radius(a: &TerrainAppearance, gw: usize, gh: usize) -> i64 {
 pub fn apply_local_contrast_rows(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, y0: usize, rows: usize, world: bool) {
     if let Some(lc) = local_contrast_rows(a, rgb, gw, gh, y0, rows, world) {
         let n = gw * rows;
-        finish_rgb(&mut rgb[..n * 3], Some(|i| lc.delta(i)), None, ColorSpace::Srgb);
+        finish_rgb(&mut rgb[..n * 3], Some(|i| lc.delta(i)), None, None, ColorSpace::Srgb);
     }
 }
 
@@ -7247,16 +7308,146 @@ pub fn local_contrast_rows<'a>(a: &'a TerrainAppearance, rgb: &[u8], gw: usize, 
 
 /// The whole finishing chain — local contrast, the colour grade, the output
 /// colour space — over a finished `gw × gh` raster, quantised **once**.
-/// What `build_color_texture` and every whole-raster export run.
+///
+/// **Not what the product calls any more** (the doc used to say it was):
+/// `build_color_texture` finishes through [`finish_screen_texture`] and the
+/// exports through [`bake_and_finish`] / [`bake_export_band`], each of which
+/// also runs ET-C2's adjustment stacks. This one has no water decision to
+/// weight them by, so it runs **no adjustment stack** (`layers` `None`) and
+/// is the pre-ET-C2 chain exactly -- which is what the test targets that pin
+/// digests through it (`tests/color_space.rs`, `tests/layer_stack.rs`) need.
 #[allow(dead_code)]
 pub fn finish_raster(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, world: bool, influence: &[f32], space: ColorSpace) {
     let lc = local_contrast_rows(a, rgb, gw, gh, 0, gh, world);
-    finish_rgb(rgb, lc.as_ref().map(|l| |i| l.delta(i)), Some((a, influence)), space);
+    finish_rgb(rgb, lc.as_ref().map(|l| |i| l.delta(i)), Some((a, influence)), None, space);
+}
+
+/// The layer names the ET-C2 bindings take (`WorldGen::appearance_set_adjust`,
+/// `list_adjust_layers`), in the order the scope lists them: `terrain` is
+/// [`TerrainAppearance::terrain_adjust`], `water` is
+/// [`TerrainAppearance::water_adjust`]. The labels/overlays stack is ET-C3's
+/// and lives in GDScript, so it is not a name here. `allow(dead_code)`: only
+/// `lib.rs` reads it, so every `#[path]` test target would warn.
+#[allow(dead_code)]
+pub const ADJUST_LAYERS: [&str; 2] = ["terrain", "water"];
+
+/// [`finish_rgb`]'s `layers` argument: the terrain stack, the water stack, and
+/// the per-pixel water weight (`0` all terrain .. `255` all water), or `None`.
+pub type AdjustLayers<'a> = Option<(&'a AdjustStack, &'a AdjustStack, &'a [u8])>;
+
+/// **ET-C2: whether `a`'s two adjustment stacks need a per-pixel water
+/// weight** -- false when both are identity (nothing runs) or when the two are
+/// equal (one stack runs on every pixel, whatever is water). A consumer builds
+/// its weight buffer only when this is true and passes an **empty** one
+/// otherwise, so a look with no stack allocates and reads nothing: the rule
+/// [`build_grade_influence`] follows for the grade's field weights.
+pub fn adjust_needs_water_weight(a: &TerrainAppearance) -> bool {
+    let (t, w) = (&a.terrain_adjust, &a.water_adjust);
+    !(t.is_identity() && w.is_identity()) && t != w
+}
+
+/// **ET-C2: [`finish_rgb`]'s `layers` for look `a` and weight buffer
+/// `water`** -- `None` when both stacks are identity, which is every look that
+/// never touched a stack, so `finish_rgb` takes its pre-ET-C2 path by control
+/// flow. `water` is the consumer's own buffer ([`grid_water_weight`],
+/// [`bake_water_weight`], the tile's own), empty when
+/// [`adjust_needs_water_weight`] is false.
+pub fn adjust_layers<'a>(a: &'a TerrainAppearance, water: &'a [u8]) -> AdjustLayers<'a> {
+    if a.terrain_adjust.is_identity() && a.water_adjust.is_identity() {
+        return None;
+    }
+    Some((&a.terrain_adjust, &a.water_adjust, water))
+}
+
+/// A coverage in `0..=1` as a water-weight byte: `round(c * 255)`, clamped,
+/// NaN to `0`. The same conversion the deep-zoom tile already uses for its
+/// river alpha (`render_biome_tile_rgba_water`'s `255 - coverage` pass), so a
+/// weight and the alpha the shader reads cannot round apart.
+#[inline]
+fn cover_byte(c: f64) -> u8 {
+    (c.clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+/// **ET-C2: the screen's water weight** -- `255` on every cell
+/// [`cell_color`] draws as water, `0` elsewhere, from **the same test**
+/// ([`toon_water_cell`]: the world's height below sea level, or an above-sea
+/// lake in the context's own classification), so the stacks split a cell
+/// exactly where the texture's sea/lake branch did. Whole cells, no fraction:
+/// the screen's antialiased coast is `map_shore.gdshader` blending two texels
+/// that were each already adjusted by their own stack.
+///
+/// **Empty** (no allocation) unless [`adjust_needs_water_weight`] -- the
+/// default look's path never builds it. Must never classify anything: it
+/// reads the decision the colour pass made.
+pub fn grid_water_weight(ctx: &RenderCtx) -> Vec<u8> {
+    if !adjust_needs_water_weight(&ctx.appearance) {
+        return Vec::new();
+    }
+    let gw = ctx.gw;
+    let mut w = vec![0u8; gw * ctx.gh];
+    w.par_chunks_mut(gw.max(1)).enumerate().for_each(|(y, row)| {
+        for (x, v) in row.iter_mut().enumerate() {
+            if toon_water_cell(ctx, x as i64, y as i64) {
+                *v = 255;
+            }
+        }
+    });
+    w
+}
+
+/// **ET-C2: the river colour texture's water weight** -- `base` (the screen's
+/// [`grid_water_weight`]) maximised with the coverage `layer` paints each
+/// pixel with (its premultiplied alpha, [`RiverLayer::at`]), because that
+/// texture is the map with every river laid in at that coverage. The maximum
+/// rather than `cov + (1 - cov) * a` is a **labelled judgement**: the scope's
+/// own rule ("maximised with cell water"), and on a water cell the texture's
+/// colour is the water whatever the layer holds, so the two only differ where
+/// neither is the whole pixel. Empty when `base` is (no stack needs it), or
+/// when `layer` is not `gw x gh`.
+pub fn river_texture_water_weight(base: &[u8], layer: &RiverLayer, gw: usize, gh: usize) -> Vec<u8> {
+    if base.is_empty() || base.len() != gw * gh || layer.width() != gw || layer.height() != gh {
+        return Vec::new();
+    }
+    let mut w = base.to_vec();
+    w.par_chunks_mut(gw.max(1)).enumerate().for_each(|(y, row)| {
+        for (x, v) in row.iter_mut().enumerate() {
+            if let Some(p) = layer.at(x, y) {
+                *v = (*v).max(cover_byte(p[3] as f64));
+            }
+        }
+    });
+    w
+}
+
+/// **The screen texture's finishing pass** (`WorldGen::build_color_texture`),
+/// extracted so a test runs the bytes the product runs (ET-C2): local
+/// contrast measured on the river-free terrain `bytes`, then [`finish_rgb`]
+/// over the river colour texture (`river`: its bytes and the colour field
+/// they were laid from) and over `bytes`, both with the same correction,
+/// grade (`influence`, [`build_grade_influence`]), adjustment stacks and
+/// `space`. Each buffer is weighted by its own water decision:
+/// [`grid_water_weight`] for `bytes`, [`river_texture_water_weight`] for the
+/// river texture. With no stack this is the pre-ET-C2 sequence exactly
+/// (`layers` `None` for both). Must never measure local contrast on the river
+/// texture (it would ring every river, `cell_color_river`'s doc).
+#[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
+pub fn finish_screen_texture(ctx: &RenderCtx, bytes: &mut [u8], river: Option<(&mut [u8], &RiverLayer)>, gw: usize, gh: usize, world: bool, influence: &[f32], space: ColorSpace) {
+    let a = &ctx.appearance;
+    let lc = local_contrast_rows(a, bytes, gw, gh, 0, gh, world);
+    let water = grid_water_weight(ctx);
+    if let Some((t, layer)) = river {
+        let rw = river_texture_water_weight(&water, layer, gw, gh);
+        finish_rgb(t, lc.as_ref().map(|l| |i| l.delta(i)), Some((a, influence)), adjust_layers(a, &rw), space);
+    }
+    finish_rgb(bytes, lc.as_ref().map(|l| |i| l.delta(i)), Some((a, influence)), adjust_layers(a, &water), space);
 }
 
 /// The three whole-raster correction stages fused into **one** pass with one
 /// quantisation (owner ruling, 2026-09-23, `LARGE_ITEM_RULINGS.md` Ruling AN —
-/// build toward HDR/wide-gamut output, staged).
+/// build toward HDR/wide-gamut output, staged), and since ET-C2 a fourth
+/// between the grade and the colour space: the terrain/water adjustment stacks
+/// (`layers`, below).
 ///
 /// Until that ruling each stage was its own `u8 → u8` pass, so a pixel was
 /// truncated to a byte after local contrast, read back and truncated again
@@ -7284,20 +7475,41 @@ pub fn finish_raster(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize
 /// reason. So a chain that runs only one stage — the default render, where
 /// the grade is at rest and the space is sRGB — is **byte-identical** to the
 /// old pass by construction, and the three `apply_*` functions are this
-/// function with two stages switched off.
+/// function with every stage but their own switched off (none of them runs
+/// an adjustment stack).
 ///
 /// `delta` is the per-pixel local-contrast correction (`None` = off); `grade`
 /// is the appearance and [`build_grade_influence`]'s buffer (`None` = off).
 /// `rayon`-parallel per pixel: each output byte is a pure function of its own
 /// three input bytes and its own index.
+///
+/// **`layers` -- ET-C2's adjustment stacks** (`EDITING_TOOLS_SCOPE.md` ET-C2):
+/// `(terrain, water, weight)`, built by [`adjust_layers`]. They run **after
+/// the grade and before the display matrix**, so the display transform stays
+/// last and there is still one quantiser: `c' = mix(terrain(c), water(c),
+/// weight / 255)`, clamped to `0..=255` like every other stage (range, not
+/// precision; the HSL stage may leave the gamut and the matrix's EOTF is not
+/// defined below zero). Why here and not inside `land_color`/`sea_color_core`:
+/// `cell_color` quantises before this pass, so adjusting there would add a
+/// second quantisation (Ruling AN), and it would run before the hillshade, so
+/// a Levels move would be reshaped by the light.
+///
+/// Identity is **control flow** at every level (`MISTAKES.md`, "Change
+/// generated output"): `None`, or both stacks identity, takes the pre-ET-C2
+/// path including its early return; an equal pair runs one stack on every
+/// pixel with no weight read; otherwise a pixel whose weight selects an
+/// identity stack is not touched by this stage at all. The weight must be one
+/// byte per pixel: any other length (a caller bug) **switches the stage off**
+/// rather than adjusting with a guessed split, the rule `influence` follows.
 #[allow(dead_code)]
-pub fn finish_rgb<F: Fn(usize) -> f64 + Sync>(rgb: &mut [u8], delta: Option<F>, grade: Option<(&TerrainAppearance, &[f32])>, space: ColorSpace) {
+pub fn finish_rgb<F: Fn(usize) -> f64 + Sync>(rgb: &mut [u8], delta: Option<F>, grade: Option<(&TerrainAppearance, &[f32])>, layers: AdjustLayers<'_>, space: ColorSpace) {
     let grade = grade.filter(|(a, _)| !a.grade_is_identity());
     let matrix = match space {
         ColorSpace::Srgb => None,
         ColorSpace::DisplayP3 => Some(&SRGB_TO_P3),
     };
-    if delta.is_none() && grade.is_none() && matrix.is_none() {
+    let adjust = AdjustPass::resolve(layers, rgb.len() / 3);
+    if delta.is_none() && grade.is_none() && matrix.is_none() && adjust.is_none() {
         return;
     }
     let weighted = grade.is_some_and(|(_, inf)| !inf.is_empty() && inf.len() == rgb.len() / 3);
@@ -7313,7 +7525,8 @@ pub fn finish_rgb<F: Fn(usize) -> f64 + Sync>(rgb: &mut [u8], delta: Option<F>, 
             (Some((a, inf)), Some(flat)) => Some(if weighted { GradeAxes::at(a, inf[i] as f64) } else { flat }),
             _ => None,
         };
-        let c = finish_px((px[0] as f64, px[1] as f64, px[2] as f64), d, g.as_ref(), matrix);
+        let adj = adjust.as_ref().map_or(PxAdjust::Off, |p| p.at(i));
+        let c = finish_px((px[0] as f64, px[1] as f64, px[2] as f64), d, g.as_ref(), adj, matrix);
         // The one quantiser (see the doc above for why it truncates unless the
         // space re-encoded).
         let q = |v: f64| if matrix.is_some() { v.round().clamp(0.0, 255.0) as u8 } else { v as u8 };
@@ -7323,14 +7536,87 @@ pub fn finish_rgb<F: Fn(usize) -> f64 + Sync>(rgb: &mut [u8], delta: Option<F>, 
     });
 }
 
-/// One pixel through [`finish_rgb`]'s three stages, **before** its quantiser:
+/// [`finish_rgb`]'s resolved adjustment stage for a whole buffer (ET-C2):
+/// what [`AdjustLayers`] means once identity and equality are decided, so the
+/// per-pixel loop does no stack comparison.
+enum AdjustPass<'s> {
+    /// The two stacks are equal (and not identity): run it on every pixel,
+    /// whatever the weight says -- the weight buffer is not read (it is empty).
+    Uniform(&'s AdjustStack),
+    /// Different stacks: each pixel picks by its own weight byte. `None` for a
+    /// stack that is identity, so a pixel selecting it is not touched.
+    Weighted { terrain: Option<&'s AdjustStack>, water: Option<&'s AdjustStack>, weight: &'s [u8] },
+}
+
+impl<'s> AdjustPass<'s> {
+    /// Decide the stage for a buffer of `n` pixels; `None` = the stage is off.
+    /// Off when `layers` is `None`, when both stacks are identity, or when the
+    /// stacks differ and `weight` is not exactly `n` bytes (see
+    /// [`finish_rgb`]'s doc for why a wrong length is off, not guessed).
+    fn resolve(layers: AdjustLayers<'s>, n: usize) -> Option<Self> {
+        let (t, w, weight) = layers?;
+        let (t_on, w_on) = (!t.is_identity(), !w.is_identity());
+        if !t_on && !w_on {
+            return None;
+        }
+        if t == w {
+            return Some(AdjustPass::Uniform(t));
+        }
+        if weight.len() != n {
+            return None;
+        }
+        Some(AdjustPass::Weighted { terrain: t_on.then_some(t), water: w_on.then_some(w), weight })
+    }
+
+    /// Pixel `i`'s share of the stage: weight `0` is the terrain stack alone,
+    /// `255` the water stack alone, anything between a mix of the two.
+    #[inline]
+    fn at(&self, i: usize) -> PxAdjust<'s> {
+        match *self {
+            AdjustPass::Uniform(s) => PxAdjust::One(s),
+            AdjustPass::Weighted { terrain, water, weight } => match weight[i] {
+                0 => terrain.map_or(PxAdjust::Off, PxAdjust::One),
+                255 => water.map_or(PxAdjust::Off, PxAdjust::One),
+                k => PxAdjust::Mix(terrain, water, k as f64 / 255.0),
+            },
+        }
+    }
+}
+
+/// One pixel's adjustment stage (ET-C2), as [`finish_px`] runs it.
+#[derive(Clone, Copy)]
+enum PxAdjust<'s> {
+    /// Nothing runs; the pixel is not touched by this stage.
+    Off,
+    /// One stack over the whole pixel.
+    One(&'s AdjustStack),
+    /// `mix(terrain(c), water(c), k)`, `k` the water share in `(0, 1)`; a
+    /// `None` side is the colour itself (that layer's stack is identity).
+    Mix(Option<&'s AdjustStack>, Option<&'s AdjustStack>, f64),
+}
+
+/// One pixel through [`finish_rgb`]'s four stages, **before** its quantiser:
 /// `0..=255`-scale and continuous.
-fn finish_px(mut c: Rgb, d: f64, g: Option<&GradeAxes>, m: Option<&[[f64; 3]; 3]>) -> Rgb {
+fn finish_px(mut c: Rgb, d: f64, g: Option<&GradeAxes>, adj: PxAdjust<'_>, m: Option<&[[f64; 3]; 3]>) -> Rgb {
     if d != 0.0 {
         c = ((c.0 + d).clamp(0.0, 255.0), (c.1 + d).clamp(0.0, 255.0), (c.2 + d).clamp(0.0, 255.0));
     }
     if let Some(g) = g {
         let o = grade_pixel(g, c);
+        c = (o.0.clamp(0.0, 255.0), o.1.clamp(0.0, 255.0), o.2.clamp(0.0, 255.0));
+    }
+    // ET-C2: the adjustment stacks, after the grade and before the display
+    // matrix (see `finish_rgb`'s doc). `Off` is a branch, not an identity.
+    let o = match adj {
+        PxAdjust::Off => None,
+        PxAdjust::One(s) => Some(s.apply(c)),
+        PxAdjust::Mix(t, w, k) => {
+            let a = t.map_or(c, |s| s.apply(c));
+            let b = w.map_or(c, |s| s.apply(c));
+            Some(mix(a, b, k))
+        }
+    };
+    if let Some(o) = o {
         c = (o.0.clamp(0.0, 255.0), o.1.clamp(0.0, 255.0), o.2.clamp(0.0, 255.0));
     }
     if let Some(m) = m {
@@ -7346,6 +7632,8 @@ fn finish_px(mut c: Rgb, d: f64, g: Option<&GradeAxes>, m: Option<&[[f64; 3]; 3]
 /// influence multiplier `m` (`1.0` = the flat grade). `pub` for
 /// `tests/color_space.rs`, which measures both quantised pipelines against it
 /// — the continuous value is the only honest answer to "which is closer".
+/// Runs no adjustment stack (ET-C2): it has no water weight, and its one
+/// caller measures the grade and the colour space.
 #[allow(dead_code)]
 pub fn finish_pixel_continuous(c: Rgb, delta: f64, grade: Option<(&TerrainAppearance, f64)>, space: ColorSpace) -> Rgb {
     let g = grade.filter(|(a, _)| !a.grade_is_identity()).map(|(a, m)| GradeAxes::at(a, m));
@@ -7353,7 +7641,7 @@ pub fn finish_pixel_continuous(c: Rgb, delta: f64, grade: Option<(&TerrainAppear
         ColorSpace::Srgb => None,
         ColorSpace::DisplayP3 => Some(&SRGB_TO_P3),
     };
-    finish_px(c, delta, g.as_ref(), m)
+    finish_px(c, delta, g.as_ref(), PxAdjust::Off, m)
 }
 
 // ===========================================================================
@@ -7683,7 +7971,7 @@ fn grade_pixel(g: &GradeAxes, mut c: Rgb) -> Rgb {
 /// argument: each output byte is a pure function of its own three input bytes.
 #[allow(dead_code)]
 pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32]) {
-    finish_rgb(rgb, None::<fn(usize) -> f64>, Some((a, influence)), ColorSpace::Srgb);
+    finish_rgb(rgb, None::<fn(usize) -> f64>, Some((a, influence)), None, ColorSpace::Srgb);
 }
 
 // ---- The output colour space (`LARGE_ITEM_RULINGS.md`, Colour management) ----
@@ -7871,7 +8159,7 @@ pub fn apply_color_space(space: ColorSpace, rgb: &mut [u8]) {
     // `finish_rgb` returns before touching a byte when `space` is sRGB. The
     // decode is no longer a 256-entry table: since Ruling AN its input is a
     // continuous value whenever an earlier stage ran in the same pass.
-    finish_rgb(rgb, None::<fn(usize) -> f64>, None, space);
+    finish_rgb(rgb, None::<fn(usize) -> f64>, None, None, space);
 }
 
 /// `state.mode === 'shade'` (reference `renderNow` line 8535, repeated
@@ -9069,11 +9357,20 @@ pub fn bake_rect(ctx: &RenderCtx, bf: &BakeFields, save_flag: Option<&[u8]>, out
 /// With no vector rivers this is exactly the pre-RV-5 `bake_rect` +
 /// [`finish_raster`] pair (the measurement reads the same bytes it always
 /// read), which is what keeps every monolithic golden where it was.
+///
+/// ET-C2: the adjustment stacks run inside that one finishing pass, weighted
+/// by the bake's own water decision ([`bake_water_weight`]) raised by the
+/// painted river's coverage ([`paint_vector_rivers_weighted`]). The weight is
+/// built **after** local contrast's measurement has returned, so its one byte
+/// per pixel (only with a stack that needs it) never coincides with that
+/// stage's blur buffers, which are what `export_raster.rs`'s
+/// `PEAK_BYTES_PER_PIXEL` budgets.
 pub fn bake_and_finish(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'_>, w: usize, h: usize, influence: &[f32], space: ColorSpace) -> Vec<u8> {
     let mut px = bake_rect(ctx, bf, rivers.save_flag, w, h, 0, 0, w, h);
     let lc = local_contrast_rows(&ctx.appearance, &px, w, h, 0, h, ctx.world);
-    let post = rivers.vector.map(|v| paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, 0, w, h));
-    finish_rgb(&mut px, lc.as_ref().map(|l| |i| l.delta(i)), Some((&ctx.appearance, influence)), space);
+    let mut water = bake_water_weight(&ctx.appearance, ctx, bf, w, h, 0, 0, w, h);
+    let post = rivers.vector.map(|v| paint_vector_rivers_weighted(ctx, bf, v, &mut px, w, h, 0, 0, w, h, &mut water));
+    finish_rgb(&mut px, lc.as_ref().map(|l| |i| l.delta(i)), Some((&ctx.appearance, influence)), adjust_layers(&ctx.appearance, &water), space);
     // RIM-7: the painted river's floodplain and bank line, over the finished
     // raster as the screen's shader draws them (nothing for a stroked river).
     if let Some(p) = post {
@@ -9118,8 +9415,51 @@ fn bake_steps(gw: usize, gh: usize, out_w: usize, out_h: usize) -> (f64, f64) {
 /// floodplain tint and bank line the caller applies with [`RiverPost::apply`]
 /// AFTER its finishing pass, where the screen's shader draws them. A stroked
 /// layer has no plane; it is dropped here as before and `apply` does nothing.
+// `allow(dead_code)`: since ET-C2 the shipped callers take
+// `paint_vector_rivers_weighted`; this is kept for the tests that call it.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn paint_vector_rivers(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRivers<'_>, px: &mut [u8], out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> RiverPost {
+    paint_vector_rivers_weighted(ctx, bf, vector, px, out_w, out_h, x0, y0, w, h, &mut [])
+}
+
+/// **ET-C2: the bake's water weight** for the `w x h` rectangle at `(x0, y0)`
+/// of an `out_w x out_h` export -- [`BakeFields::water_cover`] at each pixel's
+/// own grid position and step, which is **the decision [`BakeFields::pixel_at`]
+/// branches on** (the smooth shore's coverage with a shore field, the sea /
+/// `bake_lake_at` cell rule without), as a byte ([`cover_byte`]). A shore
+/// pixel's colour is a mix of land and water by that same coverage, so its
+/// stacks are mixed by it too. The painted river's share is added after the
+/// river pass ([`paint_vector_rivers_weighted`]).
+///
+/// **Empty** unless [`adjust_needs_water_weight`]`(a)` -- `a` is the look the
+/// caller finishes with (`ctx.appearance`, or `bake_crop`'s `appearance`).
+/// Memory: one byte per pixel of the rectangle, a band's for a banded export.
+/// Must never classify: it reads the bake's own decision.
+#[allow(clippy::too_many_arguments)]
+pub fn bake_water_weight(a: &TerrainAppearance, ctx: &RenderCtx, bf: &BakeFields, out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize) -> Vec<u8> {
+    if !adjust_needs_water_weight(a) || w == 0 || h == 0 || out_w == 0 || out_h == 0 || ctx.gw == 0 || ctx.gh == 0 {
+        return Vec::new();
+    }
+    let (sx, sy) = bake_steps(ctx.gw, ctx.gh, out_w, out_h);
+    let mut out = vec![0u8; w * h];
+    out.par_chunks_mut(w).enumerate().for_each(|(row, o)| {
+        let gy = (y0 + row) as f64 * sy;
+        for (col, v) in o.iter_mut().enumerate() {
+            *v = cover_byte(bf.water_cover(ctx, (x0 + col) as f64 * sx, gy, (sx, sy)));
+        }
+    });
+    out
+}
+
+/// [`paint_vector_rivers`], also raising `weight` -- the rectangle's ET-C2
+/// water weight ([`bake_water_weight`]), one byte per pixel -- to the river's
+/// coverage at every pixel the river reached (its alpha, [`cover_byte`]), the
+/// maximum of the two (the labelled judgement [`river_texture_water_weight`]
+/// states). An empty `weight`, or one of any other length, is left alone and
+/// the pixels are painted exactly as [`paint_vector_rivers`] paints them.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_vector_rivers_weighted(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRivers<'_>, px: &mut [u8], out_w: usize, out_h: usize, x0: usize, y0: usize, w: usize, h: usize, weight: &mut [u8]) -> RiverPost {
     let none = RiverPost { repainted: 0, layer: None, x0, y0, step: (0.0, 0.0) };
     if w == 0 || h == 0 || out_w == 0 || out_h == 0 || px.len() < w * h * 3 {
         return none;
@@ -9147,6 +9487,17 @@ pub fn paint_vector_rivers(ctx: &RenderCtx, bf: &BakeFields, vector: VectorRiver
             n
         })
         .sum();
+    // ET-C2: the river's coverage into the water weight (see the doc). Only
+    // when the caller built one for this rectangle.
+    if weight.len() == w * h {
+        weight.par_chunks_mut(w).enumerate().for_each(|(row, wr)| {
+            for (col, v) in wr.iter_mut().enumerate() {
+                if let Some(rv) = layer.at(col, row) {
+                    *v = (*v).max(cover_byte(rv[3] as f64));
+                }
+            }
+        });
+    }
     RiverPost { repainted, layer: layer.has_post().then_some(layer), x0, y0, step: (sx, sy) }
 }
 
@@ -9313,11 +9664,14 @@ pub fn bake_export_band(ctx: &RenderCtx, bf: &BakeFields, rivers: ExportRivers<'
     let lc = local_contrast_rows(&ctx.appearance, &px, w, h, ay0, ah, ctx.world);
     px.drain(..band.top * w * 3);
     px.truncate(band.rows * w * 3);
-    let post = rivers.vector.map(|v| paint_vector_rivers(ctx, bf, v, &mut px, w, h, 0, band.y0, w, band.rows));
+    // ET-C2: the band's own water weight (its rows only, never the apron's),
+    // built after the measurement for `bake_and_finish`'s memory reason.
+    let mut water = bake_water_weight(&ctx.appearance, ctx, bf, w, h, 0, band.y0, w, band.rows);
+    let post = rivers.vector.map(|v| paint_vector_rivers_weighted(ctx, bf, v, &mut px, w, h, 0, band.y0, w, band.rows, &mut water));
     let inf = grade_influence_rows(grade_cells, ctx.gw, ctx.gh, w, h, band.y0, band.rows);
     let skip = band.top * w;
     // The working space, never the display's: `export_raster.rs`'s module doc.
-    finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), ColorSpace::Srgb);
+    finish_rgb(&mut px, lc.as_ref().map(|l| move |i| l.delta(i + skip)), Some((&ctx.appearance, &inf)), adjust_layers(&ctx.appearance, &water), ColorSpace::Srgb);
     // RIM-7: the painted river's post-finish stages, this band's rows only
     // (the layer was built for them), so a banded export equals a whole one.
     if let Some(p) = post {
@@ -11147,7 +11501,30 @@ pub fn render_biome_tile_rgba_water(ctx: &RenderCtx, tile: &[f32], water: Option
         }
         delta
     };
-    finish_rgb(&mut rgb, contrast_on.then_some(lc_delta), Some((a, &influence)), tf.color_space);
+    // ET-C2: the tile's water weight, from **this tile's own water decision**
+    // ([`tile_water_class`] at the same water height and world position stage
+    // 3 branched on): `255` on sea or lake, else the river's coverage where
+    // the tile's layer composited one (land only, as stage 3 drew it), else
+    // `0`. Built only for a look whose stacks need it, so every other tile
+    // allocates nothing and reads nothing here.
+    let water: Vec<u8> = if adjust_needs_water_weight(a) {
+        let mut v = vec![0u8; w * h];
+        v.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            let wy = bounds.y + y as f64 * cy;
+            for (x, o) in row.iter_mut().enumerate() {
+                let hw = wt[(y + pad) * pw + x + pad] as f64;
+                *o = if tile_water_class(ctx, tf, hw, bounds.x + x as f64 * cx, wy) != TILE_LAND {
+                    255
+                } else {
+                    rivers.and_then(|l| l.at(x, y)).map_or(0, |p| cover_byte(p[3] as f64))
+                };
+            }
+        });
+        v
+    } else {
+        Vec::new()
+    };
+    finish_rgb(&mut rgb, contrast_on.then_some(lc_delta), Some((a, &influence)), adjust_layers(a, &water), tf.color_space);
 
     // RGB8 -> RGBA8. The buffer is RGB up to here so the finishing pass above
     // could be the shipped function rather than a tile-local copy of it.
