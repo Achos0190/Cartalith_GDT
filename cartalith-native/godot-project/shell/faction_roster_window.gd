@@ -1975,6 +1975,14 @@ func _colour_row(parent: Control, d: Dictionary) -> void:
 		if bridge.civ_set_faction_color(_selected, c):
 			_repaint_banners(c)
 			roster_changed.emit())
+	## OK / Cancel / was-now (`DccWidgets.confirmable_color`). Cancel, Escape, an
+	## outside click or the picker leaving the tree sends the opening colour back
+	## through `_revert_faction_colour`, the same engine write the live drag uses.
+	## `fid` and `was_custom` are captured at build so a revert that fires during
+	## a rebuild (selection already moved on) still restores THIS faction.
+	var fid := _selected
+	var was_custom := bool(d.get("color_custom", false))
+	DccWidgets.confirmable_color(picker, func(c: Color): _revert_faction_colour(fid, c, was_custom))
 	row.add_child(picker)
 
 	var reset := DccWidgets.text_button(row, "Reset", func():
@@ -1985,6 +1993,25 @@ func _colour_row(parent: Control, d: Dictionary) -> void:
 	reset.tooltip_text = ("Back to the palette colour for faction %d." % _selected) if not reset.disabled \
 		else "Already on the palette colour — nothing to reset."
 	parent.add_child(row)
+
+
+## **Cancel path of the faction colour picker.** Puts faction `fid` back on the
+## colour it had when the popup opened, through the same `civ_set_faction_color`
+## write the live drag uses. If the faction had NO override before (`was_custom`
+## false) the override is cleared instead, so a cancelled preview does not leave
+## a palette-coloured faction silently pinned as "custom". Never rebuilds the
+## inspector (that would free the picker mid-close); banners are repainted in
+## place and the map is told via `roster_changed`, except while `_rebuilding`
+## (the picker is being torn down by one, which emits its own refresh).
+func _revert_faction_colour(fid: int, c: Color, was_custom: bool) -> void:
+	var ok: bool = bridge.civ_set_faction_color(fid, c) if was_custom \
+		else bridge.civ_clear_faction_color(fid)
+	if not ok:
+		return
+	if fid == _selected:
+		_repaint_banners(c)
+	if not _rebuilding:
+		roster_changed.emit()
 
 
 ## The two banners on screen for the selected faction (the inspector head and,
@@ -2241,6 +2268,10 @@ func _religion_editor(parent: Control, r: Dictionary) -> void:
 	pick.custom_minimum_size = Vector2(64, 20)
 	pick.color = Color8(int(r.get("color_r", 200)), int(r.get("color_g", 150)), int(r.get("color_b", 60)))
 	pick.tooltip_text = "The swatch this religion is listed with. Display only: nothing in the engine reads it."
+	## OK / Cancel / was-now. This swatch writes nothing live (it is read at Save),
+	## so the revert callback has nothing to undo: `confirmable_color` itself puts
+	## `pick.color` back to the opening colour on any non-OK close.
+	DccWidgets.confirmable_color(pick, func(_c: Color): pass)
 	crow.add_child(pick)
 	ed.add_child(crow)
 

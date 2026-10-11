@@ -3712,6 +3712,10 @@ func _build_slicer_modal() -> void:
 		_slicer_chroma_color.add_theme_stylebox_override(cp_state,
 			_box("line", "", 2, 2))
 	_slicer_chroma_color.color_changed.connect(func(_c: Color): _refresh_slicer_summary())
+	## OK / Cancel / was-now. A non-OK close restores the opening key colour (the
+	## helper sets `.color` itself) and the summary, which reads that colour, is
+	## refreshed through the same call the live change makes.
+	DccWidgets.confirmable_color(_slicer_chroma_color, func(_c: Color): _refresh_slicer_summary())
 	chroma_row.add_child(_slicer_chroma_color)
 	_slicer_chroma_tol = SpinBox.new()
 	_slicer_chroma_tol.min_value = 0

@@ -3575,6 +3575,11 @@ func _rebuild_label_edit_form() -> void:
 	var pick_tap := float(DccTheme.role_px("btn_min_h")) if DccTheme.is_tablet() else 0.0
 	picker.custom_minimum_size = Vector2(maxf(60.0, pick_tap), maxf(20.0, pick_tap))
 	picker.color_changed.connect(func(c: Color): _apply_label_field(idx, "color", "#%s" % c.to_html(false)))
+	## OK / Cancel / was-now. A non-OK close sends the opening colour back through
+	## the SAME `_apply_label_field` write the live drag uses. The label panel is
+	## not rebuilt from the live handler (that would free the picker mid-drag).
+	DccWidgets.confirmable_color(picker,
+		func(c: Color): _apply_label_field(idx, "color", "#%s" % c.to_html(false)))
 	color_row.add_child(picker)
 	_label_edit_body.add_child(color_row)
 
