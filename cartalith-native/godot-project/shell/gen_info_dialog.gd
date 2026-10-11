@@ -20,8 +20,13 @@ class_name GenInfoDialog
 ## and lets `get_params()` cover the rest, same spirit as the reference's
 ## own "don't hand-pick, dump everything" reasoning.
 
+## The engine bridge, set by `setup()`; read for grid, seed, quality tier, format
+## version, missing bindings and the parameter dump.
 var _bridge: EngineBridge
+## The shell, set by `setup()`; used for the phone fit, presenting the window
+## and the status-bar confirmation after Copy.
 var _app: Node
+## The read-only dump box, refilled on every `open()`.
 var _text: TextEdit
 
 ## Phone (§13) -- PH-12. One column of text, so nothing stacks; what was missing
@@ -30,6 +35,10 @@ var _text: TextEdit
 ## than `AcceptDialog`'s stock 29 dp OK button.
 var _phone := false
 
+## Builds the window: a Parameters section holding a hint, the expanding read-only
+## dump box and a Copy to clipboard action. Fills nothing until `open()`. The box
+## must keep `SIZE_EXPAND_FILL` and no minimum height, or the dialog overflows
+## at some densities (measured; see the comment in the body).
 func setup(app: Node, bridge: EngineBridge) -> void:
 	_app = app
 	_bridge = bridge
@@ -151,12 +160,16 @@ func setup(app: Node, bridge: EngineBridge) -> void:
 	if _phone:
 		_app.phone_fit(self, 1.0)
 
+## Regenerates the dump text from the live world and presents the dialog (a
+## full-screen sheet on phone, centred otherwise). Never caches: the text must
+## reflect the world as it is now.
 func open() -> void:
 	_text.text = _dump_text()
 	if DccWidgets.phone_present(self, _app):
 		return
 	popup_centered()
 
+## Copies the dump to the system clipboard and confirms in the status bar.
 func _on_copy() -> void:
 	DisplayServer.clipboard_set(_text.text)
 	if _app != null and _app.has_method("set_status"):
@@ -192,8 +205,12 @@ func _dump_text(include_seed_and_params: bool = true) -> String:
 ## is nothing to dump, held once so the report's review panel can recognise it
 ## rather than pattern-match a sentence that might be reworded here.
 const NO_WORLD := "No world generated yet."
+## The line that introduces the parameter dump; shared with the diagnostic report
+## so its review panel can recognise and drop the block.
 const PARAMS_HEADING := "Full generation parameters (for reproducing this exact world):"
 
+## The grid size and world extent line. Reads only the bridge's last known
+## extent, so it is meaningful only once a world exists (`_dump_text` checks).
 static func grid_text(bridge: EngineBridge) -> String:
 	var g := bridge.grid_size()
 	return "Grid %d x %d  ·  %.0f x %.0f km" % [g.x, g.y, bridge.last_width_km, bridge.last_height_km]
@@ -205,6 +222,7 @@ static func seed_text(bridge: EngineBridge) -> String:
 		return ""
 	return "Seed %d" % int(bridge.world_gen.get_seed())
 
+## Two lines: the quality tier and whether GPU compute is on.
 static func quality_text(bridge: EngineBridge) -> String:
 	return "Quality tier: %s\nGPU: %s" % [bridge.quality_tier(),
 		"on" if bool(bridge.param_get("use_gpu")) else "off"]
@@ -225,6 +243,8 @@ static func bindings_text(bridge: EngineBridge) -> String:
 	var missing := bridge.missing_bindings()
 	return "Bindings missing: %s" % ("none" if missing.is_empty() else ", ".join(missing))
 
+## Every generation parameter as sorted `key: json` lines, or an explanatory
+## line when the binary has no `get_params()`. Sorted so two reports diff cleanly.
 static func params_text(bridge: EngineBridge) -> String:
 	if bridge == null or bridge.world_gen == null or not bridge.world_gen.has_method("get_params"):
 		return "(get_params() unavailable -- built against an older binary.)"

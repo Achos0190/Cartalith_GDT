@@ -78,53 +78,77 @@ class_name WindFxLayer
 ## running animation over the wrong map.
 
 ## The reference's `WINDFX_N_WIND` / `WINDFX_N_CUR` (line 2131).
+## Wind particle count; the reference's `WINDFX_N_WIND`.
 const N_WIND := 260
+## Ocean-current particle count; the reference's `WINDFX_N_CUR`.
 const N_CUR := 200
 
 ## The reference's per-tick advection scale (line 2199).
+## Advection per tick, in grid cells per unit of flow; reference line 2199.
 const ADVECT := 0.315
 
 ## Per-frame trail decay, and how many segments stay worth drawing at it.
 ## `0.86` is `1 - 0.14`, the reference's own `destination-out` alpha (line
 ## 2190); `0.86 ** 12 == 0.16`, at which point a streak's tail has faded into
 ## the map and further segments buy nothing.
+## Per-segment alpha multiplier at each trail depth (`FADE ** k`).
 const FADE := 0.86
+## Trail segments kept and drawn per particle; see `FADE` for why 12.
 const TRAIL := 12
 
 ## `ctx.strokeStyle` for each kind (line 2193), alpha included.
+## Wind stroke colour and alpha, reference line 2193.
 const WIND_COLOR := Color(238.0 / 255.0, 244.0 / 255.0, 250.0 / 255.0, 0.55)
+## Ocean-current stroke colour and alpha, reference line 2193.
 const CUR_COLOR := Color(127.0 / 255.0, 232.0 / 255.0, 255.0 / 255.0, 0.8)
 
 ## Must match `FLOWFX_SCALE` in `sample_bridge.rs` -- the half-range its
 ## 12-bit packing encodes each flow component against.
+## Half-range of the 12-bit flow packing. Must equal `FLOWFX_SCALE` in
+## `sample_bridge.rs`; the Rust round-trip test pins the encode side.
 const FLOWFX_SCALE := 8.0
 
 ## Spawn margin around the visible slice, as a fraction of its larger side, so
 ## streaks drift in and out of frame instead of popping at the window edge.
 ## The margin scales with the slice, so on-screen density is unaffected by it.
+## Spawn margin around the visible slice (fraction of its larger side).
+## Labelled judgement: wide enough that streaks drift in rather than pop.
 const VIS_MARGIN := 0.08
 
 ## Arrowhead at the head of every live trail, in *screen* pixels -- divided
 ## back out by the camera scale below so it is the same visual weight at every
 ## zoom, the same treatment the streak width gets.
+## Arrowhead length in screen px, divided by the camera zoom when drawn.
+## Labelled judgement.
 const HEAD_LEN := 7.0
+## Arrowhead base width in screen px, divided by the camera zoom when drawn.
+## Labelled judgement.
 const HEAD_WIDE := 4.5
 
+## The engine bridge; its `debug_texture("flowfx:<kind>")` is the only data source.
 var _bridge: EngineBridge
+## The viewport host; polled each frame for `debug_view()` and used for its
+## on-screen rect.
 var _host: ViewportHost
 
 var _kind := ""                  ## "wind", "ocean", or "" when idle.
 var _refused := ""               ## A kind whose field this world could not answer; retried only after a regenerate.
 var _data: PackedByteArray       ## The packed flow field, `flowfx:` raster, 4 bytes per grid cell.
+## Flow raster width in cells (0 when idle).
 var _fw := 0
+## Flow raster height in cells (0 when idle).
 var _fh := 0
 
 ## Particle state, parallel arrays rather than an array of dictionaries: this
 ## is touched 260 times a frame and a `Dictionary` per particle would allocate
 ## on every field read.
+## Particle x positions, in grid cells.
 var _px := PackedFloat32Array()
+## Particle y positions, in grid cells.
 var _py := PackedFloat32Array()
+## Ticks each particle has lived.
 var _age := PackedInt32Array()
+## Each particle's lifetime in ticks; it respawns when `_age` exceeds it.
 var _life := PackedInt32Array()
 var _hist := PackedVector2Array()   ## `TRAIL + 1` slots per particle, used as a ring.
 var _hlen := PackedInt32Array()     ## Valid trailing segments, reset to 0 on respawn so a streak never jumps the map.
@@ -136,8 +160,13 @@ var _rect := Rect2()   ## The map's displayed rect, in this control's own unscal
 var _zoom := 1.0       ## `ViewportHost._zoom`, read off the accumulated canvas transform.
 var _vis := Rect2()    ## The slice of the grid actually on screen, in cells, plus [constant VIS_MARGIN].
 
+## Source of spawn positions and lifetimes. Unseeded on purpose: the layer is
+## decoration and must never feed anything that is saved or compared.
 var _rng := RandomNumberGenerator.new()
 
+## Wires the layer to the bridge and host, makes it a click-through full-rect
+## child that starts hidden, and drops its state when a world is generated or
+## loaded. Never reads the field here: derivation waits for a visible view.
 func setup(b: EngineBridge, h: ViewportHost) -> void:
 	_bridge = b
 	_host = h
@@ -152,10 +181,16 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 	b.generation_finished.connect(func(_ok: bool): _reset())
 	b.world_loaded.connect(_reset)
 
+## Drops the field and particles and forgets any refusal, so the next frame
+## re-derives if a flow view is still up.
 func _reset() -> void:
 	_stop()
 	_refused = ""
 
+## Per-frame driver: starts or stops the layer to follow the host's debug view
+## (`wind` / `ocean`), then steps and redraws. A kind the world could not answer
+## is remembered in `_refused` so it is not retried every frame. Costs one
+## `debug_view()` read when idle.
 func _process(_delta: float) -> void:
 	var view: String = _host.debug_view()
 	var kind := view if (view == "wind" or view == "ocean") else ""
@@ -223,6 +258,8 @@ func _update_view() -> bool:
 		_vis = grid
 	return true
 
+## Releases the field and particle buffers and hides the layer. Keeps the small
+## arrays (`_age`, `_life`, `_hlen`); `_start` resizes them on the next use.
 func _stop() -> void:
 	_kind = ""
 	_data = PackedByteArray()
@@ -339,6 +376,10 @@ func _sample(x: float, y: float, c: int) -> float:
 	var e := _decode(x1, y1, c)
 	return (a * (1.0 - tx) + b * tx) * (1.0 - ty) + (d * (1.0 - tx) + e * tx) * ty
 
+## Decodes one flow component at integer cell (`x`, `y`): channel 0 is the 12-bit
+## u in bytes 0-1, channel 1 the 12-bit v in bytes 1-2, scaled from `[0, 4095]` to
+## `[-FLOWFX_SCALE, FLOWFX_SCALE]`. The alpha byte (3) is the ocean mask, read
+## by `_wet_at`. Must mirror `flow_fx_raster`'s packing exactly.
 func _decode(x: int, y: int, c: int) -> float:
 	var o := (y * _fw + x) * 4
 	var raw := 0

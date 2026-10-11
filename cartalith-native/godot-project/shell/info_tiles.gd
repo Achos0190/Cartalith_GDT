@@ -38,9 +38,14 @@ extends RefCounted
 ## keeps the worst case at 1.5x.
 const PARK_DIVISOR := 2
 
+## The host's camera node, parent of `_layer`; set by `setup()`.
 var _camera: Node
+## The engine bridge (untyped: bound late via `bind`); source of tiles, tags and
+## worker stats. Null until bound, which `available()` reports as false.
 var _bridge
 var _rect_fn: Callable          ## host `_lod_tile_rect(idx, tex, g, origin, size)`
+## The full-rect `Control` that parents every live tile sprite; hidden whenever
+## no view is drawn. Inserted just above the debug raster in `setup()`.
 var _layer: Control
 var _view := ""                 ## the view being drawn; "" = none
 var _tag := ""                  ## the snapshot's tag for `_view`, re-read each update
@@ -51,13 +56,24 @@ var _pending: Dictionary = {}   ## "z,col,row" -> Vector3i (asked of the worker)
 var _backlog: Dictionary = {}   ## "z,col,row" -> Vector3i (refused or over budget; retried)
 var _wanted: Dictionary = {}    ## "z,col,row" -> Vector3i
 var _cache: Dictionary = {}     ## "tag|z,col,row" -> Sprite2D (parked, insertion = LRU order)
+## Parked-tile cap for this update: the tier's `cache_tiles / PARK_DIVISOR`.
+## 0 turns parking off (`_park` frees instead).
 var _cache_cap := 0
+## Map grid size in cells, from the last `update()`; passed to `_rect_fn`.
 var _geom_grid := Vector2i.ZERO
+## Displayed map rect origin from the last `update()`; passed to `_rect_fn`.
 var _geom_origin := Vector2.ZERO
+## Displayed map rect size from the last `update()`; passed to `_rect_fn`.
 var _geom_size := Vector2.ZERO
+## Layer opacity in `[0, 1]`, mirroring the debug raster's slider.
 var _opacity := 1.0
+## Tiles installed since construction; a diagnostic for `stats()` only.
 var _installed_total := 0
+## Arrivals discarded for a view or tag mismatch; a diagnostic for `stats()`.
+## A non-zero value is normal after a quick view switch, not a fault.
 var _dropped_stale := 0
+## RGBA8 bytes held by live tiles (`_sprite_bytes`); kept in step by install,
+## restore, park and clear.
 var _bytes_live := 0
 
 ## Wire up the manager. Call once after the camera exists.
@@ -245,6 +261,9 @@ func tile_at(key: String) -> Sprite2D:
 
 # -- internals ---------------------------------------------------------------
 
+## Requests one tile from the shared worker. A refusal (cap full, snapshot
+## still building) parks the request in `_backlog` for a later frame; it is
+## never treated as an error or a drop.
 func _ask(key: String, idx: Vector3i) -> void:
 	if _bridge.info_request_tile(_view, idx.x, idx.y, idx.z):
 		_pending[key] = idx
@@ -253,6 +272,9 @@ func _ask(key: String, idx: Vector3i) -> void:
 		# Not an error, not a drop -- asked again next frame.
 		_backlog[key] = idx
 
+## Positions and scales a tile sprite into the displayed map rect through the
+## host's `_rect_fn`. Leaves the sprite untouched when the host returns null
+## (tile off the map).
 func _place(s: Sprite2D, idx: Vector3i) -> void:
 	var rect = _rect_fn.call(idx, s.texture, _geom_grid, _geom_origin, _geom_size)
 	if rect == null:
@@ -261,6 +283,9 @@ func _place(s: Sprite2D, idx: Vector3i) -> void:
 	s.position = rect.position
 	s.scale = rect.size / Vector2(maxf(ts.x, 1.0), maxf(ts.y, 1.0))
 
+## Turns a delivered texture into a live sprite: linear-filtered, tagged with
+## the current view tag, placed, and sent behind finer levels when coarser than
+## the drawn one. Ignores a missing or sub-2-texel texture.
 func _install(key: String, idx: Vector3i, tex: Texture2D) -> void:
 	if tex == null or tex.get_width() < 2 or tex.get_height() < 2:
 		return
@@ -281,6 +306,7 @@ func _install(key: String, idx: Vector3i, tex: Texture2D) -> void:
 	_bytes_live += _sprite_bytes(s)
 	_installed_total += 1
 
+## RGBA8 size of a sprite's texture (4 bytes a texel); 0 without a texture.
 func _sprite_bytes(s: Sprite2D) -> int:
 	return s.texture.get_width() * s.texture.get_height() * 4 if s.texture != null else 0
 
@@ -317,6 +343,8 @@ func _park(key: String, s: Sprite2D) -> void:
 		_free_tile(_cache[oldest])
 		_cache.erase(oldest)
 
+## Detaches and frees a tile sprite. Never leaves it parented, so a freed tile
+## cannot draw for another frame.
 func _free_tile(s: Sprite2D) -> void:
 	if s.get_parent() != null:
 		s.get_parent().remove_child(s)
@@ -341,6 +369,8 @@ func _retire_unneeded() -> void:
 		_tiles.erase(key)
 		_park(key, s)
 
+## Latches `_engaged` once every wanted tile is live. One-way until `clear()`,
+## so the host does not flicker between raster and tiles.
 func _update_engaged() -> void:
 	if _engaged or _wanted.is_empty():
 		return

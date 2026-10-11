@@ -96,6 +96,8 @@ class_name PlaceSearch
 ## appears in the subtitle or kind. A row lands in the first band it
 ## qualifies for.
 
+## The index: one dictionary per entity (`name`, `kind`, `subtitle`, `x`, `y`,
+## `entity`, `id`). Rebuilt wholesale by `build()`; callers get copies.
 var _rows: Array = []
 
 ## (Re)builds the whole index from the live world. Safe to call with no
@@ -123,9 +125,11 @@ func build(bridge) -> void:
 	_add_roads(roads)
 	_add_sea_routes(sea_routes)
 
+## Number of indexed rows.
 func size() -> int:
 	return _rows.size()
 
+## A copy of every row in build order, so a caller cannot mutate the index.
 func all() -> Array:
 	return _rows.duplicate()
 

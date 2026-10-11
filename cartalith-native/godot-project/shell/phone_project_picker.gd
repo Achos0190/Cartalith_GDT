@@ -98,14 +98,24 @@ class_name PhoneProjectPicker
 ## project…, `data_manager_window.gd`'s Import ▸ World Data footer) now
 ## branches on `is_phone()` before choosing which of the two dialogs to open.
 
+## The shell, set by `setup()`; used for the phone fit, opening a recent project
+## or the new-world flow, and the last refusal text.
 var _host: DccApp
+## The scrolling column of world cards and actions, rebuilt by `_refresh`.
 var _list: VBoxContainer
+## True when the phone treatment applies (set in `setup()`); gates `phone_fit`.
 var _phone := false
 
 ## Lane GATE part B, 2026-09-13 -- see `_show_error()`/`_pick_world()` below.
+## The inline warning box above the list (see `_build`); hidden until a refused
+## open has a sentence to show.
 var _error_wrap: PanelContainer
+## The text inside `_error_wrap`; empty whenever the box is hidden.
 var _error_label: Label
 
+## Builds the dialog once, hides the stock OK button, hides the screen when a
+## world loads or generates successfully, and reports its own visibility to the
+## shell for the coach-mark sequence. Nothing here re-opens it.
 func setup(host: DccApp) -> void:
 	_host = host
 	## Explicit rather than the engine's default class-derived name, so a
@@ -155,6 +165,8 @@ func setup(host: DccApp) -> void:
 		if host.has_method("_on_phone_entry_screen_visibility"):
 			host.call("_on_phone_entry_screen_visibility", visible))
 
+## Refreshes the list and presents the screen full-screen. Refuses (does
+## nothing) off phone, as a second guard behind `app.gd`'s own check.
 func open() -> void:
 	## The cheap second guard this file's header describes -- `app.gd` never
 	## calls this except behind its own `is_phone()` check, but a dialog that
@@ -171,6 +183,10 @@ func open() -> void:
 # Layout
 # ---------------------------------------------------------------------------
 
+## Builds the static layout once: phone header, the inline error box (a fixed
+## sibling above the scroll so it stays on screen) and the scrolling list.
+## The expand flag on the padding container is load-bearing (see the comment
+## in the body); never drop it.
 func _build() -> void:
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
@@ -281,6 +297,9 @@ func _short_root() -> String:
 		return root
 	return "…/%s/%s" % [parts[parts.size() - 2], parts[parts.size() - 1]]
 
+## Rebuilds the list from `DccSettings.recent_projects()`, keeping only paths
+## still on disk, then the New world and Open actions and the build footer. An
+## empty store shows an honest empty-state note, never invented worlds.
 func _refresh() -> void:
 	for c in _list.get_children():
 		_list.remove_child(c)
@@ -428,6 +447,7 @@ func _show_error(text: String) -> void:
 	_error_label.text = text
 	_error_wrap.visible = true
 
+## Hides the inline warning box and empties its text. Called on every `open()`.
 func _clear_error() -> void:
 	_error_wrap.visible = false
 	_error_label.text = ""

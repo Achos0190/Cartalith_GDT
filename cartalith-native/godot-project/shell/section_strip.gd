@@ -41,22 +41,43 @@ class_name SectionStrip
 ## so it is the panel that grows, and the value window always auto-fits the
 ## profile's own min..max. Nothing ever clips.
 const H_STRIP := 168
+## Upper clamp on the vertical exaggeration the options bar may request.
+## Labelled judgement; the panel height is further capped by
+## `MAX_VIEWPORT_FRACTION`, so this is the slider's range, not the layout's.
 const EXAG_MAX := 6.0
+## Left padding of the plot, in px: room for the metre labels (`"-3177 m"` at 9 px
+## mono). Labelled judgement.
 const PAD_L := 54
+## Right padding of the plot, in px, so the `km` axis label is not clipped.
 const PAD_R := 16
+## Top padding of the plot, in px, between the header band and the highest gridline.
 const PAD_T := 26
+## Height reserved under the plot for the channel band, in px (the band itself
+## is drawn `H_BAND - 4` tall). Zero is reserved on the Elevation channel.
 const H_BAND := 18
+## Height reserved for the distance axis labels, in px.
 const H_AXIS := 16
 ## Fraction of the viewport the strip may not exceed however far the
 ## exaggeration slider is pushed -- past this it stops being a strip under the
 ## map and starts being the map's replacement.
 const MAX_VIEWPORT_FRACTION := 0.42
 
+## The shell, set by `setup()`; used to reach the map's tool overlay (for the
+## scrub marker) and the viewport size (for the height cap). Null-checked at
+## every use so the strip stays usable in a bare harness.
 var app: DccApp
 
+## The last `bridge.measure_section()` result, kept for its `stats`,
+## `length_km` and `crossings`. `{}` when nothing is shown.
 var _profile: Dictionary = {}
+## The band channel the CROSS-SECTION row selected (`terrain`, `geology`,
+## `climate`, `hydrology`, or `elevation` for none).
 var _channel := "elevation"
+## Vertical exaggeration, clamped to `[1, EXAG_MAX]`; it scales the panel's
+## height, never the value window (`_apply_height`).
 var _exaggeration := 4.0
+## The profile's sample dictionaries, evenly spaced along the line; empty hides
+## the strip.
 var _samples: Array = []
 var _cursor := -1          ## Index into `_samples`, `-1` for "not scrubbing".
 ## The continuous channels' own maximum over THIS section, for the band's
@@ -67,10 +88,16 @@ var _cursor := -1          ## Index into `_samples`, `-1` for "not scrubbing".
 ## field's own range along the line it is drawn under.
 var _band_max := {"flow": 1.0, "rain": 1.0}
 
+## The header's readout: section length, exaggeration and channel.
 var _title: Label
+## The header's scrub readout (km, metres, slope, and the channel's own value).
 var _cursor_label: Label
+## The drawing and scrubbing surface; `_draw_plot` paints it.
 var _plot: Control
 
+## Builds the strip (hidden, bottom-anchored, header with title, cursor readout
+## and close button, then the plot) and wires scrubbing. Must not show anything
+## until `show_profile` is called. Leaving the plot clears the map marker.
 func setup(a: DccApp) -> void:
 	app = a
 	name = "SectionStrip"
@@ -132,6 +159,8 @@ func show_profile(result: Dictionary, channel: String, exaggeration: float) -> v
 	_cursor_label.text = ""
 	_plot.queue_redraw()
 
+## Hides the strip, forgets the profile and removes the scrub marker from the
+## map. Safe to call when already hidden.
 func clear() -> void:
 	_profile = {}
 	_samples = []
@@ -140,6 +169,8 @@ func clear() -> void:
 	if app != null:
 		app.viewport.tool_overlay.set_handles([])
 
+## Display name of the current channel from `GlobalTools.SECTION_CHANNELS`;
+## "Elevation" when the id is unknown, so the title never reads blank.
 func _channel_label() -> String:
 	for c in GlobalTools.SECTION_CHANNELS:
 		var d: Dictionary = c
@@ -149,6 +180,9 @@ func _channel_label() -> String:
 
 # -- Scrubbing ------------------------------------------------------------------
 
+## Scrub handler: maps the pointer's x to the nearest sample, updates the
+## readout and puts a handle on the map at that sample's own cell. Ignores
+## everything but mouse motion, and does nothing without samples.
 func _on_plot_input(event: InputEvent) -> void:
 	if not (event is InputEventMouseMotion) or _samples.is_empty():
 		return
@@ -172,6 +206,9 @@ func _on_plot_input(event: InputEvent) -> void:
 			{"x": float(s.get("x", 0)), "y": float(s.get("y", 0)), "r": 4.0}])
 	_plot.queue_redraw()
 
+## The channel-specific tail of the cursor readout for sample `s` (biome,
+## lithology, temperature and rain, or flow and river order). Falls back to the
+## elevation text for an unknown channel.
 func _sample_channel_text(s: Dictionary) -> String:
 	match _channel:
 		"terrain":
@@ -200,10 +237,17 @@ func _apply_height() -> void:
 	custom_minimum_size.y = h
 	offset_top = -h
 
+## The data rectangle inside the plot after padding, with the band's height
+## taken out on non-elevation channels. Width and height are floored at 1 so
+## no caller divides by zero.
 func _plot_rect() -> Rect2:
 	var h: float = _plot.size.y - PAD_T - H_AXIS - (H_BAND if _channel != "elevation" else 0.0)
 	return Rect2(Vector2(PAD_L, PAD_T), Vector2(maxf(1.0, _plot.size.x - PAD_L - PAD_R), maxf(1.0, h)))
 
+## Paints the strip: auto-fitted gridlines, the channel band, the filled
+## elevation line, sea level when in window, crossing ticks, the km axis and
+## the scrub cursor. The value window is the profile's own min..max plus 4 %
+## headroom; exaggeration deliberately never enters it (`_apply_height`).
 func _draw_plot() -> void:
 	if _samples.is_empty():
 		return
@@ -285,6 +329,8 @@ func _draw_plot() -> void:
 ## One coloured run per contiguous stretch of the same value. Continuous
 ## channels (rainfall, flow) are quantised to eight steps first -- a
 ## per-sample gradient would be 1 024 one-pixel rectangles and read as noise.
+## Draws the band as run-length rectangles, one per contiguous stretch with the
+## same `_band_key`.
 func _draw_band(r: Rect2) -> void:
 	var y := r.end.y + 2.0
 	var n := _samples.size()
@@ -301,9 +347,14 @@ func _draw_band(r: Rect2) -> void:
 
 ## Eight buckets over `[0, top]`, so a band always shows this section's own
 ## spread rather than an absolute scale most sections never reach.
+## Maps `v` in `[0, top]` to one of eight buckets (0..7); clamps, so an
+## out-of-range value lands in the nearest end bucket.
 func _bucket(v: float, top: float) -> int:
 	return clampi(int(clampf(v / maxf(1e-9, top), 0.0, 1.0) * 7.0), 0, 7)
 
+## The class key for one sample under the current channel: biome name,
+## lithology, a rain bucket, or a log-scaled flow bucket. Empty for the
+## elevation channel, which draws no band.
 func _band_key(s: Variant) -> String:
 	var d: Dictionary = s
 	match _channel:
@@ -328,6 +379,10 @@ func _band_key(s: Variant) -> String:
 ## each class is lives in the right dock's SAMPLED FIELDS list beside it. A
 ## hand-written palette here would be a fourth copy of a colour table
 ## (`sample_bridge.rs` already owns three) that nothing pins against.
+## Band colour for `key`, derived from its hash. 0.35 saturation, 0.55 value and
+## 0.9 alpha are labelled judgements chosen to sit quietly on the panel. The
+## same key gives the same colour; `String.hash` is not promised stable across
+## Godot versions, so never persist the result.
 func _band_color(key: String) -> Color:
 	if key == "":
 		return DccTheme.c("line_soft")

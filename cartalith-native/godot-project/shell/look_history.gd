@@ -49,8 +49,12 @@ const BIOME_N := 15
 ## even though the live ticks already flipped the readout to "Custom".
 const CHROME := "chrome"
 
+## Emitted whenever the entries or cursor change (push, undo, redo, clear), so
+## an Edit menu or toolbar can refresh its enabled state.
 signal changed
 
+## The recorded gestures, oldest first; see the header for the entry shape.
+## Treat as read-only outside this file.
 var entries: Array = []
 ## Entries `[0, cursor)` are applied; `[cursor, size)` is the redo tail.
 var cursor := 0
@@ -67,15 +71,19 @@ func clear() -> void:
 	_open = {}
 	changed.emit()
 
+## Whether an applied entry exists to step back over.
 func can_undo() -> bool:
 	return cursor > 0
 
+## Whether a redo tail exists.
 func can_redo() -> bool:
 	return cursor < entries.size()
 
+## Label of the entry `undo` would step over, or `""` when there is none.
 func undo_label() -> String:
 	return String(entries[cursor - 1]["label"]) if can_undo() else ""
 
+## Label of the entry `redo` would re-apply, or `""` when there is none.
 func redo_label() -> String:
 	return String(entries[cursor]["label"]) if can_redo() else ""
 

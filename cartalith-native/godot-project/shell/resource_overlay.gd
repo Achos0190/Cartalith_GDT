@@ -38,10 +38,18 @@ class_name ResourceOverlay
 ## pipeline callback this port doesn't have) plus on generate/load. Add a
 ## real render-completion signal if 0.5s latency ever matters.
 
+## The engine bridge, set by `setup()`; read for grid size, GPU stage use,
+## quality tier and the params shown.
 var _bridge: EngineBridge
+## The single mono text block; `_refresh` rewrites it whole.
 var _label: Label
+## The 0.5 s refresh timer, running only while the overlay is visible.
 var _timer: Timer
 
+## Builds the translucent, click-through, clipped box with its label and refresh
+## timer, and refreshes on generate/load while visible. Starts hidden. The
+## background colour and 0.55 alpha are labelled judgements for legibility over
+## any map colour.
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -67,9 +75,13 @@ func setup(bridge: EngineBridge) -> void:
 	visibility_changed.connect(_on_visibility_changed)
 	visible = false
 
+## Shift+D handler: flips visibility; the visibility signal starts or stops the
+## timer.
 func toggle() -> void:
 	visible = not visible
 
+## Refreshes immediately and starts the timer on show; stops it on hide so a
+## hidden overlay costs nothing.
 func _on_visibility_changed() -> void:
 	if visible:
 		_refresh()
@@ -77,6 +89,11 @@ func _on_visibility_changed() -> void:
 	else:
 		_timer.stop()
 
+## Rewrites the diagnostics text: grid size and megapixels, working-set memory,
+## GPU use, quality tier and a hand-picked set of active feature flags. Reads
+## only; says "No world generated yet." rather than showing zeros when there is
+## no world. The memory figure is Godot's static memory, not the Rust engine's,
+## so it understates the total.
 func _refresh() -> void:
 	if _bridge == null or not _bridge.has_world:
 		_label.text = "No world generated yet."

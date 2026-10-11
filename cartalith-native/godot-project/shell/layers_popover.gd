@@ -41,6 +41,8 @@ class_name LayersPopover
 ## would make comparing two views needlessly tedious. Click outside or press
 ## Escape to dismiss.
 
+## The animated wind/current overlay's script, preloaded (not by class name) so a
+## fresh clone parses; instantiated once by `_attach_flow_fx`.
 const FLOW_FX_SCRIPT := preload("res://shell/wind_fx_layer.gd")
 
 ## `sample_bridge.rs`'s `GAP_LAYERS` (`sample_bridge.rs:741 const GAP_LAYERS`),
@@ -114,12 +116,19 @@ const GAP_LAYERS := {
 		"and they draw on their own rows: Flood and Slope.",
 }
 
+## The engine bridge, set by `setup()`: the source of `debug_layers()` and the
+## field-availability answers.
 var bridge: EngineBridge
+## The viewport host, set by `setup()`: owns the debug view, its opacity and the
+## vector-layer visibility switches this popover drives. This popover keeps no
+## copy of any of that state.
 var host: ViewportHost
 
+## The scrolling list that `rebuild()` empties and refills.
 var _list: VBoxContainer
 ## The list's scroll, so `open()` can cap its 420 px floor on a short window.
 var _scroll: ScrollContainer
+## The foot's colour legend for the active field view (`_refresh_legend`).
 var _legend: VBoxContainer
 ## view id -> its Button, for the rows **currently drawn**. Since CA-09's
 ## filter that is a subset of the overlay list, not the whole of it, so it is
@@ -163,7 +172,11 @@ var _rows: Dictionary = {}
 ## silently no-opped from then on. Skipping unavailable rows keeps all
 ## eight digits live, and keeps them stable
 ## against a future row landing in the middle of a group.
+## Number of digit hotkeys (1-8); see the block above for why only available
+## rows take one.
 const HOTKEY_COUNT := 8
+## InputMap action names for digits 1-8, registered at runtime by
+## `_register_hotkeys`; index `i` is bound to `KEY_1 + i`.
 const HOTKEY_ACTIONS: Array[String] = [
 	"layers_hotkey_1", "layers_hotkey_2", "layers_hotkey_3", "layers_hotkey_4",
 	"layers_hotkey_5", "layers_hotkey_6", "layers_hotkey_7", "layers_hotkey_8",
@@ -224,7 +237,12 @@ const SEARCH_HINT := "Filters both lists at once. Matches a layer's name or its 
 ## for. `preload()` is deliberately NOT used -- `app.gd` names `LayersPopover`
 ## statically and `Workspace.app` is a `DccApp`, so a preload edge from here
 ## would close a cycle that the class-name cache resolves fine today.
+## The Visible layers band's rows, aliased from `CartographyWorkspace.LIVE_LAYERS`
+## so there is one enumeration of what the shell can toggle.
 const _LIVE: Array = CartographyWorkspace.LIVE_LAYERS
+## The two political rows of the Visible layers band, aliased from
+## `CartographyWorkspace.POLITICAL_LAYERS`; used only to name the matching
+## Cartography section in each row's tooltip.
 const _POLITICAL: Array = CartographyWorkspace.POLITICAL_LAYERS
 
 ## Matched over the **label and the id**. The id is not printed on a row today
@@ -238,8 +256,13 @@ static func _matches(needle: String, label: String, id: String) -> bool:
 		or label.to_lower().find(needle) >= 0 \
 		or id.to_lower().find(needle) >= 0
 
+## The CA-09 filter field above the scroll; its focus suspends the digit
+## hotkeys (`_input`). Null until `setup()`.
 var _field: LineEdit
+## The right-aligned "N of M layers" readout under the field.
 var _count: Label
+## The current filter text, as typed; cleared on every `open()`. `rebuild()`
+## lower-cases and strips it.
 var _query := ""
 
 ## Phone (§13) -- PH-12, and this one had to be checked before it was built:
@@ -264,8 +287,14 @@ var _query := ""
 ## `phone_head()` with an explicit Close, because a sheet that covers the
 ## screen has no "outside" left to tap.
 var _phone := false
+## The phone sheet's explicit Close button, since a full-screen sheet has no
+## "outside" to tap. Null on desktop and tablet.
 var _close_row: Control
 
+## Builds the popover (field, scrolling list, foot with legend, opacity slider
+## and notes; a Close button on phone), registers the digit hotkeys, subscribes
+## to world changes and attaches the wind/current layer. Call once, after the
+## node is parented to the shell. Must not call `rebuild()`; `open()` does.
 func setup(b: EngineBridge, h: ViewportHost) -> void:
 	bridge = b
 	host = h
@@ -560,6 +589,10 @@ func _live_row(parent: Control, layer: Dictionary) -> CheckBox:
 		"A vector overlay drawn from world data: this shows and hides it, it "
 		+ "does not replace the field view below. Same switch as %s." % home)
 
+## Empties and refills the list from `host` and the engine: the Visible layers
+## band, then the Data overlays groups, filtered by `_query`. Digits 1-8 are
+## assigned over the unfiltered order so filtering never rebinds a key. Also
+## updates the count and legend. Safe to call while hidden.
 func rebuild() -> void:
 	for child in _list.get_children():
 		_list.remove_child(child)
@@ -851,6 +884,9 @@ func _input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 
+## Selects field view `id` (row click or digit hotkey), then rebuilds so the lit
+## row reflects what `debug_view()` actually reports; the host may refuse and
+## fall back to "off".
 func _on_pick(id: String) -> void:
 	host.set_debug_layer(id)
 	## Rebuilt rather than re-styled in place: `set_debug_layer` is allowed
@@ -859,6 +895,8 @@ func _on_pick(id: String) -> void:
 	## should be lit.
 	rebuild()
 
+## The legend entries of the item whose id is `view`, or `[]` when none matches
+## (for instance the base map).
 func _legend_for(view: String, groups: Array) -> Array:
 	for g in groups:
 		var group: Dictionary = g
@@ -868,6 +906,8 @@ func _legend_for(view: String, groups: Array) -> Array:
 				return item["legend"]
 	return []
 
+## Replaces the foot's legend with one swatch-and-label row per entry; each
+## entry's `r`/`g`/`b` are 0-255 ints from the engine.
 func _refresh_legend(entries: Array) -> void:
 	for child in _legend.get_children():
 		_legend.remove_child(child)

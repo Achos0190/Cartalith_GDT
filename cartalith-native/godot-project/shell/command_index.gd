@@ -139,10 +139,21 @@ const EXTRAS: Array = [
 	{"title": "Theme", "blurb": "Dark, Light or Follow system. Preferences ▸ Theme -- ☰ ▸ Preferences ▸ Theme on tablet, which also has a one-tap dark/light flip at ☰ ▸ Toggle theme", "group": "Preferences"},
 ]
 
+## The index: one dictionary per entry (`title`, `blurb`, `group`, `kind`, `key`,
+## `available`, `why`). Rebuilt from scratch by every `build()`; never edited
+## in place by callers (`all()` hands out a copy).
 var _rows: Array = []
+## The engine bridge, kept from `build()`; read only for the parameter table.
+## Untyped so a harness can pass a stub.
 var _bridge
+## The shell, kept from `build()`; its live `MenuButton`s are walked for the menu
+## commands. Null yields an index of parameters and extras only.
 var _app
 
+## (Re)builds the whole index: generation parameters, then every live menu row,
+## then `EXTRAS`. Clears first, so calling it again never duplicates rows. Must
+## not emit `about_to_popup` on any menu (see the header: those handlers evict
+## baked chunks and enumerate GPU adapters).
 func build(app, bridge) -> void:
 	_app = app
 	_bridge = bridge
@@ -206,6 +217,11 @@ func _add_menu_commands() -> void:
 		if popup != null:
 			_walk_popup(popup, String((mb as MenuButton).text))
 
+## Appends one row per leaf item of `popup`, recursing into submenus under the same
+## `menu_name`. Skips separators, blank items, marked signposts and silent disabled
+## rows (chrome); keeps marked readouts as `kind: "readout"` and unavailable
+## commands as `available: false` with their tooltip as `why`. Reads the state the
+## menu was BUILT in, not a state an `about_to_popup` handler would give it.
 func _walk_popup(popup: PopupMenu, menu_name: String) -> void:
 	for i in popup.item_count:
 		var text := popup.get_item_text(i)
@@ -286,9 +302,11 @@ func _gather_menu_buttons(n: Node, out: Array) -> void:
 	for c in n.get_children(true):
 		_gather_menu_buttons(c, out)
 
+## Number of indexed rows.
 func size() -> int:
 	return _rows.size()
 
+## A copy of every row in build order, so a caller cannot mutate the index.
 func all() -> Array:
 	return _rows.duplicate()
 

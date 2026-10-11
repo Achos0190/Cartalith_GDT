@@ -11,7 +11,6 @@ class_name SettlementTypesWindow
 ## established free-floating-window vocabulary
 ## (`place_editor_window.gd`/`faction_roster_window.gd`/
 ## the now-retired `culture_profiles_window.gd` (FH-2)), and this window follows
-## the now-retired `culture_profiles_window.gd` (FH-2)), and this window follows
 ## the now-retired `culture_profiles_window.gd` (FH-2)'s pane shape: a library
 ## list on the left and a selected item's editable detail in the centre. A third,
 ## per-faction column used to sit on the right; **FH-3 moved it into the Factions
@@ -39,20 +38,34 @@ class_name SettlementTypesWindow
 ## the now-retired `culture_profiles_window.gd` (FH-2)'s own phone switcher hides its panes -- a
 ## type's detail is short enough to read under the list on a scroll.
 
+## The owning `DccApp` (untyped: `app.gd` has no `class_name`). Used for the phone
+## fit, presenting the window and opening the Factions hub.
 var app                       ## `DccApp`
+## The engine bridge, set by `setup()`; the source of the specialisation and
+## trait vocabularies. Library data itself lives in `SettlementTypeStore`.
 var bridge: EngineBridge
 
+## The window's content column, emptied and refilled by `_rebuild`.
 var _body: VBoxContainer
+## True when the phone sheet treatment applies (set once in `setup()`).
 var _phone := false
+## The phone sheet's header label; null off phone.
 var _phone_title: Label
+## True while `_clear` tears the body down, so a field's `focus_exited` commit
+## cannot write the stale text of a control about to be discarded.
 var _rebuilding := false
 
 ## Selected library entry's id, `""` when the library is empty.
 var _selected_id := ""
 
+## The six base settlement kinds, in display order; aliased from the store so the
+## dropdown and the store cannot disagree.
 const KIND_ORDER := SettlementTypeStore.KIND_ORDER
 
 
+## Builds the empty window shell (scrolling padded body, phone header) and
+## subscribes to world changes. Draws nothing until `open()`. Call after the
+## window is parented to the shell.
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -98,6 +111,9 @@ func setup(a, b: EngineBridge) -> void:
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
 
 
+## Selects a valid library entry (the previous one if it still exists, else the
+## first), rebuilds and shows the window as a sheet on phone or centred on
+## desktop.
 func open() -> void:
 	var types := SettlementTypeStore.types()
 	if _selected_id == "" or SettlementTypeStore.get_type(_selected_id).is_empty():
@@ -107,6 +123,8 @@ func open() -> void:
 		popup_centered()
 
 
+## Frees the body's children, with `_rebuilding` set so no field commits during
+## the teardown.
 func _clear() -> void:
 	_rebuilding = true
 	for c in _body.get_children():
@@ -115,6 +133,9 @@ func _clear() -> void:
 	_rebuilding = false
 
 
+## Rebuilds the whole window from `SettlementTypeStore`: library list and detail
+## (side by side on desktop, stacked on phone) and the Factions link. Reselects a
+## valid entry first. Every edit calls this, so the store is the only state.
 func _rebuild() -> void:
 	_clear()
 	var types := SettlementTypeStore.types()
@@ -153,6 +174,9 @@ func _rebuild() -> void:
 
 # -- Library list -------------------------------------------------------------
 
+## The library section: one chip per type (name, base kind, specialisation and
+## how many settlements use it), a New type action and a note. Picking a chip
+## only changes `_selected_id`.
 func _build_list(parent: Control, types: Array) -> void:
 	var sec := DccWidgets.section(parent, "Library · %d" % types.size())
 	if types.is_empty():
@@ -177,6 +201,10 @@ func _build_list(parent: Control, types: Array) -> void:
 
 # -- Detail ---------------------------------------------------------------------
 
+## The selected type's editor: name, duplicate/delete, base kind, specialisation,
+## traits, walls, age policy and the two dashed rows (name pool, placement
+## rules) that have no generation hook. Every control writes through
+## `SettlementTypeStore.set_field` and rebuilds; nothing is cached here.
 func _build_detail(parent: Control) -> void:
 	var id := _selected_id
 	var t := SettlementTypeStore.get_type(id)

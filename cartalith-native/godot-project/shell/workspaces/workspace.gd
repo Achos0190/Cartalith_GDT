@@ -11,7 +11,11 @@ class_name Workspace
 ## Subclasses override `_build`. `setup` is called once, after the panel is in
 ## the tree, so `_build` may safely add children.
 
+## The shell, set by `setup()`; null in a probe that builds a workspace bare, so
+## every use here is guarded.
 var app: DccApp
+## The engine bridge, set by `setup()`. Workspaces read world state through it
+## and never hold a `WorldGen`.
 var bridge: EngineBridge
 
 ## L2 categories are accordion siblings; this array ties them together so
@@ -28,6 +32,9 @@ var categories: Array = []
 ## screen*, and each of the three is off screen two thirds of the time.
 var domain_id := ""
 
+## Records which domain's dock this panel is. Called once by
+## `DccShell.register_workspace()`; until then `apply_mode()` and the floor logic
+## are no-ops.
 func bind_domain(id: String) -> void:
 	domain_id = id
 
@@ -189,6 +196,9 @@ static func point_to_polyline_distance(p: Vector2, pts: PackedVector2Array) -> f
 		best = minf(best, Geometry2D.get_closest_point_to_segment(p, pts[i], pts[i + 1]).distance_to(p))
 	return best
 
+## Stores the shell and bridge, calls the subclass's `_build()` and, for a domain
+## that gates in some mode, wires every category header to the open-floor rule
+## (see the comment in the body). Call once, after the panel is in the tree.
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -233,6 +243,7 @@ func setup(a: DccApp, b: EngineBridge) -> void:
 			if cat_btn != null and is_instance_valid(cat_btn):
 				cat_btn.pressed.connect(_enforce_open_floor)
 
+## Subclass hook: add this domain's categories. The base does nothing.
 func _build() -> void:
 	pass
 

@@ -26,11 +26,18 @@ class_name FactionBanner
 ## drawn with `draw_colored_polygon`/`draw_circle` exactly as the
 ## reference's `fill()` does.
 
+## Faction id; its value modulo 6 picks the glyph. Clamped to >= 0 by `configure`.
 var _fid := 0
+## The shield fill (the faction's colour). The grey default is only a placeholder
+## before `configure` runs and is never a real faction colour.
 var _color := Color(0.6, 0.6, 0.6)
+## Side of the square banner in px; every proportion in `_draw` scales from it.
 var _px := 48.0
 
 
+## Sets the faction id, fill colour and pixel size, fixes the control's minimum
+## size to that square, centres it in its container and redraws. Call again
+## whenever any of the three change.
 func configure(fid: int, col: Color, px: int) -> void:
 	_fid = maxi(0, fid)
 	_color = col
@@ -41,6 +48,10 @@ func configure(fid: int, col: Color, px: int) -> void:
 	queue_redraw()
 
 
+## Draws the shield (fill, then a 45 % black outline) and the glyph for
+## `_fid % 6` in 85 % white. All proportions are the reference's literals (see
+## the header); do not round them to tidier numbers or the banner stops matching
+## the reference's.
 func _draw() -> void:
 	var s := _px
 	var cx := s / 2.0
@@ -105,6 +116,10 @@ func _shield_points(cx: float, top: float, bot: float, w: float, shoulder: float
 	return pts
 
 
+## Tessellates a quadratic curve `p0 -> p2` with control `q` as the equivalent
+## cubic, dropping the first sample because it repeats the previous segment's
+## endpoint. Tolerance 4 is Godot's own tessellation stage count, a labelled
+## judgement (smooth at banner sizes).
 func _quad(p0: Vector2, q: Vector2, p2: Vector2) -> PackedVector2Array:
 	var c := Curve2D.new()
 	c.add_point(p0, Vector2.ZERO, (q - p0) * (2.0 / 3.0))

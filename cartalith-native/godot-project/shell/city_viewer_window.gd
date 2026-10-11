@@ -65,16 +65,32 @@ class_name CityViewerWindow
 ## and `layers_popover.gd`'s `FLOW_FX_SCRIPT` are here for the same reason.
 const DRAW := preload("res://shell/urban_layout_draw.gd")
 
+## The engine bridge, set by `setup()`. Source of the settlement list and the
+## per-settlement layouts; this window never mutates the world except through
+## the Town plan setters (`_set_plan`, `_set_walls`).
 var bridge: EngineBridge
 
+## The plan canvas. Draws via `_draw_canvas`, takes wheel/drag/pinch via
+## `_on_canvas_input`. Built in `setup()`; never null afterwards.
 var _canvas: Control
+## The companion column's information sections, cleared and refilled by
+## `_rebuild_side`.
 var _info: VBoxContainer
+## The companion column's legend rows, cleared and refilled by `_rebuild_side`.
 var _legend: VBoxContainer
+## The settlement name above the canvas (hidden on phone, where the picker and
+## the sheet header already say it).
 var _title_label: Label
+## The settlement dropdown; item ids are indices into `bridge.settlements()`.
 var _picker: OptionButton
 
+## Index of the shown settlement in `bridge.settlements()`; -1 means none.
 var _index := -1
+## The engine's `urban_layouts` result for `_index`; `{}` when the engine
+## refused one (see `_no_layout_reason`). Drawing and the side column both
+## return early on empty.
 var _layout: Dictionary = {}
+## The settlement's own row from `bridge.settlements()`; `{}` when none.
 var _settlement: Dictionary = {}
 
 ## Canvas view state — `_zoom` multiplies the fit scale, `_pan` is a screen
@@ -83,8 +99,15 @@ var _zoom := 1.0
 var _pan := Vector2.ZERO
 var _dragging := false
 
+## Zoom clamp floor, a multiple of the fit scale. Labelled judgement: low enough
+## to see the whole 1.7 x 1.25 km box inside a large frame, no lower.
 const ZOOM_MIN := 0.25
+## Zoom clamp ceiling, a multiple of the fit scale. Labelled judgement: enough to
+## read a single building footprint, no higher.
 const ZOOM_MAX := 12.0
+## Zoom factor per wheel notch or per phone +/- button press. Labelled judgement
+## (about 18 percent), a labelled judgement; `ViewportHost.ZOOM_WHEEL_STEP` is a
+## separate 1.15, so the two canvases deliberately do not share a constant.
 const ZOOM_STEP := 1.18
 
 ## The info panel's key column. Deliberately the same number as
@@ -266,6 +289,8 @@ func open(index: int) -> void:
 		popup_centered()
 
 
+## Rebuilds the dropdown from `bridge.settlements()` and selects `_index`.
+## Called only from `open()`; item ids are list indices, never settlement ids.
 func _refill_picker() -> void:
 	_picker.clear()
 	var places := bridge.settlements()
@@ -276,11 +301,16 @@ func _refill_picker() -> void:
 			_picker.select(_picker.item_count - 1)
 
 
+## Dropdown handler: switches to the picked settlement and reloads. `item` is a
+## row position, converted to the stored index through the item id.
 func _on_pick(item: int) -> void:
 	_index = _picker.get_item_id(item)
 	_reload()
 
 
+## Re-asks the engine for this settlement's layout, resets the camera and rebuilds
+## the column. Also run when a generation finishes or a world loads while the
+## window is open, so it can never show a layout from a replaced world.
 func _reload() -> void:
 	_layout = {}
 	_settlement = {}
@@ -295,6 +325,7 @@ func _reload() -> void:
 	_rebuild_side()
 
 
+## The Fit button: zoom back to 1x of the fit scale and clear the pan.
 func _reset_view() -> void:
 	_zoom = 1.0
 	_pan = Vector2.ZERO
@@ -344,6 +375,10 @@ func _fit_box() -> Rect2:
 	return Rect2(lo - pad, (hi - lo) + pad * 2.0)
 
 
+## Draws the plan: panel, ground, then `DRAW.draw_layout` through a model-metre
+## to screen transform fitted to `_fit_box()` with a 16 px margin, then `_zoom`
+## and `_pan`. Draws nothing but the panel when there is no layout. Must not
+## read the engine; it only paints `_layout`.
 func _draw_canvas() -> void:
 	var rect := Rect2(Vector2.ZERO, _canvas.size)
 	_canvas.draw_rect(rect, DccTheme.c("panel"))
@@ -367,6 +402,9 @@ func _draw_canvas() -> void:
 	DRAW.draw_layout(_canvas, _layout, to_screen, view_scale, 1.0, 1.0, true)
 
 
+## Canvas input: wheel zoom about the cursor, left/middle drag pan, and the
+## Android pinch. Every handled event is accepted so the enclosing scroll
+## container does not also act on it.
 func _on_canvas_input(event: InputEvent) -> void:
 	## Wheel zoom centred on the cursor, and middle/left drag to pan — the
 	## reference's `_cvZoomAt` and its pointer-drag handler.
@@ -403,6 +441,10 @@ func _on_canvas_input(event: InputEvent) -> void:
 
 # -- legend and info panel ----------------------------------------------------
 
+## Rebuilds the legend and the info column from `_layout`. Swatches appear only
+## for things this town has (plaza, wall), and every figure is read from the
+## layout, never recomputed, so it cannot drift from what ran. With no layout it
+## shows the reason from `_no_layout_reason` alone.
 func _rebuild_side() -> void:
 	for n in _legend.get_children():
 		_legend.remove_child(n)
@@ -668,11 +710,15 @@ func _fit_column(ob: OptionButton) -> void:
 	key.size_flags_horizontal = Control.SIZE_FILL
 
 
+## Applies Town plan fields (culture, rule set, variant) to this settlement and,
+## if the engine accepted them, regenerates it on the next idle frame.
 func _set_plan(fields: Dictionary) -> void:
 	if bridge.civ_set_town_plan(_index, fields):
 		_regenerate.call_deferred()
 
 
+## Writes the wall override (-1 auto, 0 none, 1 fortified) through the same
+## stored field the place editor edits, then regenerates if accepted.
 func _set_walls(w: int) -> void:
 	if bridge.civ_edit_settlement(_index, {"walls": w}):
 		_regenerate.call_deferred()
@@ -690,6 +736,8 @@ func _regenerate() -> void:
 	_rebuild_side()
 
 
+## The sentence the info column shows when there is no layout: no world, no
+## selection, or the engine's open-water refusal. Always a reason, never blank.
 func _no_layout_reason() -> String:
 	if not bridge.has_world:
 		return "No world yet — generate one first."

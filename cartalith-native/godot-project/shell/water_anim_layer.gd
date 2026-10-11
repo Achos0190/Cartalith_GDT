@@ -35,13 +35,21 @@ class_name WaterAnimLayer
 ## the same "derive when picked, keep nothing after" rule `sample_bridge.rs`'s
 ## own rasters and `wind_fx_layer.gd` both follow.
 
+## The flow-map shimmer shader; the constants it uses are the reference's (see
+## the header), the noise hash is not.
 const SHADER := preload("res://shell/water_anim.gdshader")
 
+## The engine bridge; its `debug_texture("waterfx")` is the only data source.
 var _bridge: EngineBridge
+## Seconds of animation clock fed to the shader; advanced only while visible.
 var _time := 0.0
+## Flow raster size in cells; `Vector2i.ZERO` means no field is held.
 var _grid := Vector2i.ZERO
 var _refused := false    ## This world could not answer the field; retried only after a regenerate.
 
+## Makes the layer a hidden, click-through, processing-disabled rect with the
+## shimmer material, and drops its field when a world is generated or loaded.
+## Fetches nothing until enabled.
 func setup(b: EngineBridge) -> void:
 	_bridge = b
 	name = "WaterAnimLayer"
@@ -57,6 +65,8 @@ func setup(b: EngineBridge) -> void:
 	b.generation_finished.connect(func(_ok: bool): _drop())
 	b.world_loaded.connect(_drop)
 
+## Forgets the held flow field and any refusal, so the next enable refetches
+## from the (possibly different) world.
 func _drop() -> void:
 	_grid = Vector2i.ZERO
 	_refused = false
@@ -80,9 +90,13 @@ func set_enabled(on: bool) -> bool:
 	set_process(true)
 	return true
 
+## Whether the shimmer is currently showing.
 func is_enabled() -> bool:
 	return visible
 
+## Fetches the `waterfx` raster and hands it and its grid size to the shader.
+## Returns false when there is no bridge or this world cannot answer (a loaded
+## save carries none of the substrate); never leaves a half-set material.
 func _fetch() -> bool:
 	if _bridge == null:
 		return false
@@ -99,6 +113,8 @@ func _fetch() -> bool:
 ## as `wind_fx_layer.gd` does and for the same reason: the parent
 ## (`map_overlay.gd`) already publishes the fit, so pan and zoom need no code
 ## here at all.
+## Advances the clock and tracks the map's displayed rect (see the comment
+## above). Hides itself while the parent reports no usable rect.
 func _process(delta: float) -> void:
 	_time += delta
 	(material as ShaderMaterial).set_shader_parameter("anim_time", _time)

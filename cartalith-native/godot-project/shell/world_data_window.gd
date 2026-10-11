@@ -85,12 +85,19 @@ class_name WorldDataWindow
 ## this file: no such table exists. The real reason is that nothing has asked
 ## for one.*
 
+## The engine bridge, set by `setup()`; the only data source (settlements,
+## provinces, trade balances, roster). Read-only here: this window edits nothing.
 var bridge: EngineBridge
 
+## The three-tab container (Settlements, Provinces, Economy), built in `setup()`.
 var _tabs: TabContainer
+## Lower-cased name filter shared by all three tabs; empty means no filter.
 var _filter := ""
+## The Settlements tab's row container, refilled by `_rebuild_settlements`.
 var _settlements_body: VBoxContainer
+## The Provinces tab's row container, refilled by `_rebuild_provinces`.
 var _provinces_body: VBoxContainer
+## The Economy tab's row container, refilled by `_rebuild_trade`.
 var _trade_body: VBoxContainer
 var _sort_by_pop := true   ## Settlements tab only.
 
@@ -115,7 +122,12 @@ var _sort_by_pop := true   ## Settlements tab only.
 ## silently truncating. The filter field above it is the real answer for a
 ## specific settlement, and the note says so.
 var _phone := false
+## Rows built per page on a phone. Labelled judgement from the 2026-08-25 phone
+## sweep quoted above (240 rows was 1 470 Labels); small enough to scroll
+## comfortably, large enough that most filtered lists fit on one page.
 const PHONE_ROW_CAP := 50
+## How many rows the phone builds now; starts at `PHONE_ROW_CAP`, grows by one
+## page per "Show more", reset by `open()`. Ignored off phone (`_capped`).
 var _row_cap := PHONE_ROW_CAP
 
 ## Returns true when this row must not be built. Call once per row that has
@@ -140,6 +152,9 @@ func _cap_note(body: VBoxContainer, built: int, total: int) -> void:
 			_rebuild())
 	more.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
+## Builds the window: filter field, rule, and the three tabs, then subscribes to
+## `generation_finished` / `world_loaded` so an open window never shows a replaced
+## world. Must be called after `add_child()` (phone detection reads the parent).
 func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "World data"
@@ -211,6 +226,9 @@ func setup(b: EngineBridge) -> void:
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _rebuild())
 	bridge.world_loaded.connect(func(): if visible: _rebuild())
 
+## Adds one scrolling tab named `label_text` and returns the `VBoxContainer`
+## that `_rebuild_*` fills. The side padding is expand-fill on purpose: without
+## it the table stops at about half width (measured, see the inline note).
 func _build_tab(label_text: String) -> VBoxContainer:
 	var scroll := ScrollContainer.new()
 	scroll.name = label_text
@@ -243,6 +261,8 @@ static func _thousands(n: int) -> String:
 		out += s[i]
 	return ("-" if n < 0 else "") + out
 
+## Removes and frees every child of `body` before a rebuild. Removal precedes
+## `queue_free` so a rebuilt row never coexists with its predecessor in layout.
 func _clear(body: VBoxContainer) -> void:
 	for c in body.get_children():
 		body.remove_child(c)
@@ -350,6 +370,9 @@ func _phone_row(body: VBoxContainer, primary: String, subtitle: String,
 	pad.add_child(stack)
 	body.add_child(pad)
 
+## Adds one data row. On phone it is the two-line `_phone_row` (name over a
+## `subtitle`, falling back to the remaining columns joined by dots); on desktop
+## it is the column row from `_cells`. `tooltip` is attached to the whole row.
 func _row(body: VBoxContainer, cols: Array, tooltip: String = "",
 		subtitle: String = "") -> void:
 	if _phone:
@@ -404,6 +427,9 @@ func _faction_label(id: int, names: Dictionary) -> String:
 func _faction_tip(id: int) -> String:
 	return "Faction id %d" % id
 
+## Rebuilds all three tabs from the engine, then re-applies the phone touch fit
+## to the fresh nodes. Runs on every filter keystroke, "Show more", `open()` and
+## a finished generate; cheap enough because the tables are plain Labels.
 func _rebuild() -> void:
 	_rebuild_settlements()
 	_rebuild_provinces()
@@ -414,6 +440,10 @@ func _rebuild() -> void:
 	if _phone and get_parent() != null and get_parent().has_method("phone_fit"):
 		get_parent().phone_fit(self, 1.0)
 
+## Fills the Settlements tab: filtered by name substring, sorted by population
+## descending when `_sort_by_pop`, capped on phone. Shows a reason (no world, or
+## no match) instead of an empty table. Faction names come from the roster, never
+## invented.
 func _rebuild_settlements() -> void:
 	var body := _settlements_body
 	_clear(body)
@@ -470,6 +500,10 @@ func _rebuild_settlements() -> void:
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\"." % _filter if _filter != "" else "No settlements.")
 
+## Fills the Provinces tab: name, faction and capital settlement (read
+## positionally from `settlements()` by `capital_settlement_index`; `—` when the
+## index is absent or out of range). Same filter, cap and empty-state rules as
+## the Settlements tab.
 func _rebuild_provinces() -> void:
 	var body := _provinces_body
 	_clear(body)

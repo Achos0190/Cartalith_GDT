@@ -26,11 +26,18 @@ extends AcceptDialog
 ## wording below carries `PROVENANCE.md`'s framing, and claims nothing about
 ## AGPL-3.0 beyond naming it.
 
+## Relabels the OK button "Close" and fills the `%CreditsText` rich-text node.
+## The node must exist in the owning scene (`main.tscn`).
 func _ready() -> void:
 	get_ok_button().text = "Close"
 	%CreditsText.text = _bbcode()
 
 
+## The credits body as BBCode: reference attribution, the academic principles
+## the engine implements, and the crate licence audit. Prose only; the figures
+## (219 packages, ~194 of 203 permissive) come from the 2026-09-02 `cargo license`
+## run named in the text and go stale when `Cargo.lock` changes. Must keep the
+## Nortantis disclosure (see the header and `PROVENANCE.md` section 1).
 func _bbcode() -> String:
 	var s := ""
 	s += "[b]Cartalith Terrain Generator[/b] is a native Rust/Godot port of [i]Cartalith Gen1[/i], a single self-contained HTML/Canvas/WebGL procedural world generator. The original app has zero runtime dependencies -- every solver, renderer and UI control is original code. The algorithms below were [b]studied, not copied[/b]: each is an independent implementation of a published method, and this port carries that same standing forward. Full inline attribution lives in the reference source and in its docs/research/.\n\n"

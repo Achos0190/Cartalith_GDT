@@ -81,9 +81,15 @@ extends RefCounted
 
 ## §4.1's sections after the header, in their fixed order.
 const SECTIONS: Array = ["draft", "tool", "object", "place", "go", "info"]
+## The desktop/tablet presenter's script, preloaded so `card` can be typed.
+## Must stay a preload: `context_card.gd` declares no `class_name` (project rule).
 const ContextCard := preload("res://shell/context_card.gd")
+## CM-3's ring script, preloaded for the same reason as `ContextCard`.
 const RadialRing := preload("res://shell/radial_ring.gd")
 
+## The owning `app.gd` (untyped: it is a Control script with no `class_name`).
+## Set once by `_init`; every provider, bridge and viewport read goes through it.
+## Never null after construction.
 var app
 ## The phone presenter's popup, rebuilt per request (its rows depend on what
 ## was hit and what it is called, so a cached list would be stale). Null until
@@ -94,12 +100,17 @@ var card: ContextCard
 ## CM-3's ring, desktop only. Null until the first RMB-drag, RMB-hold or Q
 ## press -- see the "The ring (CM-3)" section below for its whole driver.
 var ring: RadialRing
+## The last ring-opening gesture's position in `map_overlay.gd`'s local space.
+## Kept so `_on_ring_hold_fired` can build the pick-driven request at the
+## same point the press happened, not wherever the pointer has drifted to.
 var _ring_press_local: Vector2 = Vector2.ZERO
 ## What the last `resolve()` asked and got -- read by `_on_id`, and by probes.
 var last_request: Dictionary = {}
 var last_actions: Array = []
 
 
+## Stores the owning `app`. Does no work: presenters are built lazily on first
+## use (`present`, `_ensure_ring`) so a shell that never right-clicks pays nothing.
 func _init(p_app) -> void:
 	app = p_app
 
@@ -160,6 +171,8 @@ func engine_picks(gx: float, gy: float, px_per_cell: float, zoom: float = 1.0) -
 ## pixel-per-cell ratio from, a fixed 1.5 cells, the same fallback.
 const PICK_LINE_PX := 6.0
 const PICK_LINE_FALLBACK_CELLS := 1.5
+## Preloaded only for its static `way_title()`, so a way hit is titled exactly as
+## the CIVIL workspace titles it. Never instantiated here.
 const CivilizationWorkspaceScript := preload("res://shell/workspaces/civilization_workspace.gd")
 ## A way's hit `id` must be unique across its three stores (the Select ▸ list
 ## and `context_card.gd::_same_hit` compare by kind and id), so each store gets
@@ -186,6 +199,9 @@ static func river_title(r: Dictionary) -> String:
 	return "River (order %d, %s)" % [int(r.get("order", 0)), where]
 
 
+## Turns the overlay's raw gesture dictionary into the provider request:
+## copies it and adds `domain`, `armed_tool` and `form`. Never mutates `raw`, and
+## never adds `selection`/`draft`/`finalized` (see the header: absent, not defaulted).
 func build_request(raw: Dictionary) -> Dictionary:
 	var req := raw.duplicate()
 	req["domain"] = app.active_domain()
@@ -220,6 +236,10 @@ static func merge(rows: Array) -> Array:
 	return out
 
 
+## Entry point for a context gesture: build the request, collect every
+## provider's rows and present them. Remembers both in `last_request` /
+## `last_actions`. An empty gesture opens nothing; an empty merge opens nothing
+## (`present`).
 func resolve(raw: Dictionary) -> void:
 	if raw.is_empty():
 		return
@@ -247,6 +267,10 @@ func reselect(hit: Dictionary) -> void:
 	present(req, last_actions)
 
 
+## Shows `actions` for `req`: the card on desktop/tablet, the phone sheet on a
+## phone. Returns without opening anything when there are no rows (a WORLD
+## right-click with no verbs must stay silent). Never filters rows itself on the
+## card path; the phone path drops `children`/`param` rows (`_present_phone`).
 func present(req: Dictionary, actions: Array) -> void:
 	if actions.is_empty():
 		return
@@ -309,6 +333,11 @@ func present(req: Dictionary, actions: Array) -> void:
 	_present_phone(req, actions)
 
 
+## Phone presentation: drops card-only rows (`children`, `param`), tries the
+## CM-5 peek sheet via `app.phone_present_peek_card`, and only falls back to a
+## styled `PopupMenu` when the shell has no phone chrome (probe harnesses).
+## Disabled rows keep their `reason` as the tooltip (§4.2). Must keep
+## `last_actions` equal to what is displayed, because `_on_id` indexes it.
 func _present_phone(req: Dictionary, all_actions: Array) -> void:
 	var actions: Array = all_actions.filter(func(a): return not (a.has("children") or a.has("param")))
 	last_actions = actions
@@ -359,6 +388,8 @@ func _present_phone(req: Dictionary, all_actions: Array) -> void:
 	popup.popup()
 
 
+## `PopupMenu` fallback handler: runs the chosen row's callable. Ignores an
+## out-of-range id and any disabled row, so a disabled item can never fire.
 func _on_id(id: int) -> void:
 	if id < 0 or id >= last_actions.size():
 		return
@@ -421,6 +452,8 @@ func _sync_card_ring_clear() -> void:
 	card.set_ring_clear(float(cc["ring_clear"]), float(cc["sub_x"]), float(cc["sub_clear"]))
 
 
+## Lazily builds the ring node and wires `hold_fired` and `hover_entered`;
+## returns the existing one afterwards. The ring is parented to `app`, never to the overlay.
 func _ensure_ring() -> RadialRing:
 	if ring == null:
 		ring = RadialRing.new()
@@ -509,6 +542,8 @@ func ring_click(local_pos: Vector2) -> bool:
 		cb.call()
 	return true
 
+## Whether a ring is currently showing; `map_overlay.gd` asks this before
+## deciding whether a click belongs to the ring or the armed tool.
 func ring_is_open() -> bool:
 	return ring != null and ring.is_open()
 
@@ -574,5 +609,6 @@ func ring_touch_open(local_pos: Vector2) -> void:
 	if not req.is_empty():
 		resolve(req)
 
+## Haptic pulse (`tool_arm`) on every ring hover change; see `_ensure_ring`.
 func _on_ring_hover_entered() -> void:
 	app._haptic("tool_arm")
