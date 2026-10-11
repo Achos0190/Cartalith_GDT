@@ -183,10 +183,14 @@ class_name DataManagerWindow
 const W_RAIL := 252         ## the canvas's `width:252px` routes rail
 const H_BAR := 34           ## window bar
 const H_BAND := 28          ## ROUTES band, route-pane header band
+## The 26 px status line along the window's bottom edge, off the canvas like the
+## sizes around it; a phone doubles it (`_build_status_line()`).
 const H_STATUS := 26
 const W_ROW_LABEL := 120    ## the pane's `width:120px` row label column
 const PANE_PAD_X := 18      ## `padding:6px 18px 18px` on the pane body
 const COL_GAP := 34         ## `gap:0 34px` between the two pane columns
+## Horizontal padding of the routes rail, off the canvas's rail block; the
+## extra indent of a route row is `RAIL_INDENT`.
 const RAIL_PAD_X := 14
 const RAIL_INDENT := 24     ## `padding:5px 14px 5px 24px` on a route row
 
@@ -538,6 +542,10 @@ const ZOOM_CHOICES: Array[int] = [4, 6, 8]
 ## a moved exports root silently strand `_tx_dest` in the old folder.
 const TX_DEFAULT_NAME := "region-tiles.zip"
 const GIS_DEFAULT_NAME := "world.geojson"
+## Tile edge lengths (px) the Tile size segment offers, for both the marquee grid
+## and the pyramid; `_tx_tile` must always be one of them. 256/512/1024 is the
+## usual slippy-tile ladder (256 and 512 are the web-map norms); a labelled
+## judgement rather than an engine limit.
 const TILE_SIZES: Array[int] = [256, 512, 1024]
 
 # ---------------------------------------------------------------------------
@@ -835,6 +843,10 @@ func _build_phone_switcher() -> Control:
 		_phone_pane_buttons[key] = b
 	return wrap
 
+## PH-12. Shows one of the phone's two panes ("routes" rail or "route" body) and
+## restyles the two switcher chips to match. No-op off a phone. Must never leave
+## a chip in Godot's stock hover/pressed look: see the `GUI_GAP_REGISTER.md` §50
+## note inside; every state a `Button` can land in is overridden.
 func _show_phone_pane(pane: String) -> void:
 	if not _phone:
 		return
@@ -869,6 +881,10 @@ func _phone_refit() -> void:
 	if _phone and _host != null:
 		_do_phone_refit.call_deferred()
 
+## The deferred half of `_phone_refit()`: runs `phone_fit()` over this window
+## once the triggering rebuild has finished. Re-checks `_phone`, `_host` and
+## `is_instance_valid(self)` because it runs a frame late and the window may have
+## closed meanwhile.
 func _do_phone_refit() -> void:
 	if _phone and _host != null and is_instance_valid(self):
 		_host.phone_fit(self, 1.0)
@@ -1143,6 +1159,10 @@ func _build_pane() -> Control:
 
 	return wrap
 
+## The bottom status band: left readout (`_status_left`, idle or the running
+## pass), middle readout (`_status_mid`, per-route counts) and the `Esc` hint on
+## a pointer. Built once by `setup()`; `_refresh_status()` rewrites its text.
+## Never holds state of its own.
 func _build_status_line() -> Control:
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
@@ -1348,6 +1368,13 @@ func _route_by_id(id: String) -> Dictionary:
 			return r
 	return {}
 
+## Makes `id` the current route: highlights its rail row, rewrites the header
+## band's breadcrumb and sub-descriptor, **clears and rebuilds** the body and
+## footer through the route's builder (`export_maps`, `export_world` and
+## `val_defs` are bespoke, every other route uses `_build_pattern_pane()`), then
+## refreshes the status line and, on a phone, re-fits and switches to the route
+## pane. An unknown `id` is ignored. Every `_rebuild_*()` helper funnels through
+## here.
 func _select_route(id: String) -> void:
 	var route := _route_by_id(id)
 	if route.is_empty():
@@ -1525,6 +1552,11 @@ func _seg_box(fill: Color) -> StyleBoxFlat:
 	sb.content_margin_bottom = PATTERN_SEG_PAD_Y
 	return sb
 
+## Skins one FORMAT segment button for `_pattern_segments()`: lit is the
+## `accent_wash_2` pill with accent ink, unlit is transparent with a soft hover
+## wash. `normal`, `pressed` and `disabled` all take the same box so a tap cannot
+## flash a stock style; the `font_disabled_color` override keeps a lit-but-disabled
+## segment readable (Godot resolves `disabled` ahead of `normal`).
 func _style_pattern_segment(b: Button, on: bool) -> void:
 	var rest := _seg_box(DccTheme.c("accent_wash_2") if on else Color(0, 0, 0, 0))
 	for n in ["normal", "pressed", "disabled"]:
@@ -1922,6 +1954,11 @@ func _pattern_receipt(col: Control, route: Dictionary) -> void:
 		n.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		body.add_child(n)
 
+## The reason line a route's receipt block shows when it has no run to report,
+## chosen by what the route is: a gap, a hand-off route, an `import_*` route
+## (result goes to the app status line) or an export that has not run yet this
+## session. Always returns text, never an empty string: the receipt must say
+## **why** it is empty rather than draw a bare blank.
 func _receipt_absent_reason(route: Dictionary) -> String:
 	var kind := String(route.get("kind", "gap"))
 	if kind == "gap":
@@ -2150,6 +2187,9 @@ const CHECKS_COLS: Array[String] = ["STATE", "KIND", "NAME", "FIELDS",
 ## own full text as a tooltip, so clipping loses nothing.
 const CHECKS_STRETCH: Array[float] = [0.8, 0.9, 1.3, 1.8, 3.9, 2.3]
 
+## Fixed pixel width of the LOCATE column (header and button), the one column
+## that is not stretch-ratio sized. A labelled judgement, sized so the disabled
+## `Locate` button does not clip; it is not read off a canvas.
 const CHECKS_LOCATE_W := 74
 
 ## Why `LOCATE` is drawn and disabled on every row, shown as its tooltip.
@@ -2272,6 +2312,11 @@ func _checks_tab_label(kind: String) -> String:
 			return String((k as Dictionary)["label"])
 	return kind
 
+## Validation > Definitions body (DM-10): summary, FINDINGS (table or all-clear),
+## COVERAGE and the geometry group. When the build lacks the validator bindings
+## it draws no findings at all (never an all-clear) and clears `_checks_last` so
+## the status line cannot report a stale count. Stores the scan in `_checks_last`
+## so `_refresh_status()` reuses the drawn numbers.
 func _build_checks_pane() -> void:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
@@ -2350,6 +2395,9 @@ func _checks_table(col: Control, rows: Array) -> void:
 	for r in rows:
 		_checks_row(col, r as Dictionary)
 
+## The table's tracked mono header band: `CHECKS_COLS` labels sized by
+## `CHECKS_STRETCH`, with the last (LOCATE) pinned to `CHECKS_LOCATE_W` to match
+## the data rows. Not used on a phone, where rows stack.
 func _checks_header_row() -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -2390,6 +2438,10 @@ func _checks_cell(row: Control, text: String, i: int, token: String,
 func _checks_state_token(state: String) -> String:
 	return "block" if state == "conflicting" else "warn"
 
+## One finding as a six-cell row plus the disabled LOCATE button (a phone gets
+## the stacked `_checks_phone_row()` instead). A cell whose value is absent
+## becomes a dash carrying its `*_reason` key from `r` as the tooltip; it must
+## never be filled with a guess.
 func _checks_row(col: Control, r: Dictionary) -> void:
 	if _phone:
 		_checks_phone_row(col, r)
@@ -2585,14 +2637,20 @@ func _build_world_data_pane() -> void:
 	_build_wd_output_column(right, api)
 	_build_wd_footer(api)
 
-## True when this build's GDExtension carries the bindings **and** there is a
-## world to export. Both halves matter and they fail differently, so the two
-## messages below are separate.
+## True when this build's GDExtension carries both export bindings
+## (`export_raster_png`, `export_channel_atlas`). It does **not** test for a
+## world: callers check `_bridge.has_world` separately, because the two fail
+## differently and carry separate messages.
 func _raster_api() -> bool:
 	return (_bridge != null and _bridge.world_gen != null
 		and _bridge.world_gen.has_method("export_raster_png")
 		and _bridge.world_gen.has_method("export_channel_atlas"))
 
+## Export > World Data's MAP RASTER column: width ladder (asked of the engine),
+## the engine's real output size, the tiled-output toggle and the layer-preview
+## toggle. With `api` false (binding missing) it shows only the rebuild notice;
+## the layer-preview rows are likewise dropped when that second binding is
+## absent.
 func _build_wd_raster_column(col: Control, api: bool) -> void:
 	_col_header(col, "MAP RASTER", WD_RASTER_NOTE)
 
@@ -2648,6 +2706,9 @@ func _build_wd_raster_column(col: Control, api: bool) -> void:
 	if not gen and layers_row != null:
 		layers_row.tooltip_text = ("Generate a world first.\n\n" + WD_LAYERS_NOTE)
 
+## Export > World Data's CHANNEL ATLAS column: one fixed, non-optional group row
+## (an atlas missing a documented channel is worse than none) and, with no world
+## generated in this session, the reason the atlas is unavailable.
 func _build_wd_atlas_column(col: Control, api: bool) -> void:
 	_col_header(col, "CHANNEL ATLAS", WD_ATLAS_NOTE)
 	if not api:
@@ -2664,6 +2725,10 @@ func _build_wd_atlas_column(col: Control, api: bool) -> void:
 		DccWidgets.note(col,
 			"A world opened from a file -- a .zip save or a reopened project -- carries none of the tectonic fields these are derived from, so the atlas needs a world generated in this session.")
 
+## Export > World Data's OUTPUT column: the exports folder (changeable via
+## `_pick_exports_root()`), the engine's peak-memory and pixel estimates when the
+## binding is present, the disclosure of what this route does not write, and the
+## RECENT RUNS block.
 func _build_wd_output_column(col: Control, api: bool) -> void:
 	_col_header(col, "OUTPUT")
 	var dest_row := _row(col, "Folder")
@@ -2692,6 +2757,10 @@ func _build_wd_output_column(col: Control, api: bool) -> void:
 
 	_build_recent_runs(col)
 
+## Export > World Data's action row in `_pane_footer`: destination note plus the
+## atlas, map-raster and heightmap chips. The chips are disabled with a stated
+## reason when no world exists; with `api` false only a note is drawn, so no chip
+## can promise a binding this build lacks.
 func _build_wd_footer(api: bool) -> void:
 	var gen := _bridge != null and _bridge.has_world
 	if not api:
@@ -2758,11 +2827,17 @@ func _reroot_defaults(old_root: String, new_root: String) -> void:
 	if _gis_dest == old_root.path_join(GIS_DEFAULT_NAME):
 		_gis_dest = new_root.path_join(GIS_DEFAULT_NAME)
 
+## The engine's own size/peak-memory estimate for the selected width
+## (`export_raster_estimate`), or `{}` when the binding is missing. Callers test
+## `is_empty()`; a missing estimate must never be shown as zeroes.
 func _wd_estimate() -> Dictionary:
 	if not _raster_api():
 		return {}
 	return _bridge.world_gen.export_raster_estimate(_wd_width)
 
+## Re-runs the Export > World Data builder so every control, estimate and footer
+## chip reflects a changed option. Cheap on purpose (see `_rebuild_tile_export()`);
+## does nothing unless that route is selected.
 func _rebuild_world_data() -> void:
 	if _selected_id == "export_world":
 		_select_route("export_world")
@@ -2829,6 +2904,11 @@ func _overwrite_guard(path: String, then: Callable) -> void:
 	_host._confirm("Overwrite %s?" % path.get_file(),
 		"That file already exists. Exporting replaces it.", "Overwrite", then)
 
+## Writes the committed height field as a 16-bit grayscale PNG at `_wd_width`
+## through `EngineBridge.export_heightmap_png`, records the run and reports the
+## result on the app status line. Synchronous. Returns quietly with no world, and
+## must never include an uncommitted Sculpt draft (the engine exports committed
+## heights only).
 func _run_heightmap_export(path: String) -> void:
 	if _bridge == null or not _bridge.has_world:
 		return
@@ -2910,6 +2990,10 @@ func _run_layer_previews(path: String) -> void:
 	else:
 		_host.set_status("hint", "layer previews failed — %s" % String(r.get("error", "see the Godot log")), "warn")
 
+## Writes the channel atlas into folder `dir` (`export_channel_atlas`), records
+## the run (`_record_wd_run`), reports file count, bytes and time on the app
+## status line, and refreshes the pane, rail footer and status line. Does nothing
+## when the raster binding is missing.
 func _run_atlas_export(dir: String) -> void:
 	if not _raster_api():
 		return
@@ -3017,6 +3101,11 @@ func _build_tile_export_pane() -> void:
 
 	_build_tile_export_footer(region)
 
+## Export > Maps' TILES column: the scheme row (grid + index.json, XYZ, TMS,
+## WMTS) and then either the pyramid rows or, for the marquee grid, grid size,
+## tile size, format and the visual / gzip / ridged / skip-ocean toggles. Every
+## toggle drives a `_tx_*` field and calls `_rebuild_tile_export()`; "Skip
+## all-ocean tiles" is drawn disabled because the engine has no such option.
 func _build_tiles_column(col: Control) -> void:
 	_col_header(col, "TILES")
 
@@ -3079,6 +3168,8 @@ func _build_tiles_column(col: Control) -> void:
 	_check(col, "Skip all-ocean tiles", false, func(): pass, "", false,
 		"No tile is skipped: export_region_tiles writes every cell of the cols × rows grid unconditionally. Detecting an all-ocean tile would need a per-tile sea test before the amplify pass, which the export path does not do.")
 
+## True when the scheme segment selects a whole-world slippy pyramid (XYZ, TMS or
+## WMTS, index 1-3) rather than the Region-select marquee grid (index 0).
 func _tx_pyramid() -> bool:
 	return _tx_scheme > 0
 
@@ -3126,6 +3217,10 @@ func _build_pyramid_rows(col: Control) -> void:
 	_check(col, "Skip all-ocean tiles", false, func(): pass, "", false,
 		"No tile is skipped: slippy_export_tiles writes every tile of every level. A client asking for a missing ocean tile would get a 404 rather than sea, so skipping also needs a fallback the manifest does not describe yet.")
 
+## Export > Maps' PROJECTION column: the CRS row (only the world's own cell grid
+## is live), the bounds row (whole world, no marquee, or the live marquee with
+## its cell size and km extent) and the dead world-file toggle. `region` is the
+## `region_get()` dictionary, `{}` when no marquee is set.
 func _build_projection_column(col: Control, region: Dictionary) -> void:
 	_col_header(col, "PROJECTION", CRS_NOTE)
 
@@ -3154,6 +3249,10 @@ func _build_projection_column(col: Control, region: Dictionary) -> void:
 
 	_check(col, "Write world file (.wld + .prj)", false, func(): pass, "", false, CRS_NOTE)
 
+## Export > Maps' LAYERS INCLUDED column. The pyramid draws colour PNGs only; the
+## grid scheme adds the elevation and visual rows. Political tint, labels/icons
+## and rivers are always drawn off, each citing `LAYER_NOTE` for why they are not
+## raster stages the tile writer can include.
 func _build_layers_column(col: Control) -> void:
 	_col_header(col, "LAYERS INCLUDED", LAYER_NOTE)
 	if _tx_pyramid():
@@ -3167,6 +3266,9 @@ func _build_layers_column(col: Control) -> void:
 	_check(col, "Labels & icons", false, func(): pass, "raster", false, LAYER_NOTE)
 	_check(col, "Rivers & coastlines", false, func(): pass, "", false, LAYER_NOTE)
 
+## The two layer rows specific to the marquee grid: elevation (always written,
+## not optional) and relief + hillshade, which is the same `_tx_visual` flag as
+## the TILES column's toggle, so both rows drive one field.
 func _build_grid_layer_rows(col: Control) -> void:
 	_check(col, "Elevation (RG16)", true, func(): pass, "always", false,
 		"Every export writes the height tiles; there is no option to omit them.")
@@ -3175,6 +3277,10 @@ func _build_grid_layer_rows(col: Control) -> void:
 		_rebuild_tile_export(), "", true,
 		"The same `visual` option as the TILES column above -- the canvas lists it in both places, so both are drawn and both drive the one flag.")
 
+## Export > Maps' OUTPUT column: the destination well with `Choose…`, the
+## packaging row (only the stored .zip is live) and the always-on / unbuilt
+## manifest, viewer-page and style.json rows, which differ between the pyramid
+## and the grid.
 func _build_output_column(col: Control) -> void:
 	_col_header(col, "OUTPUT")
 
@@ -3199,6 +3305,10 @@ func _build_output_column(col: Control) -> void:
 		"always" if _tx_pyramid() else "", false, PREVIEW_NOTE)
 	_check(col, "Emit style.json + attribution", false, func(): pass, "", false, STYLE_NOTE)
 
+## Export > Maps' ESTIMATE block: tile and file counts and tile size computed
+## from the current options, source description from `region`, and size / render
+## time taken from the last successful run (`_last_run()`), else "measured by Dry
+## run". Never models size or time; the canvas's figures were mockup data.
 func _build_estimate_block(col: Control, region: Dictionary) -> void:
 	_col_header(col, "ESTIMATE")
 	var block := _block(col)
@@ -3372,6 +3482,8 @@ func _build_vault_block(col: Control) -> void:
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 
+## The RECENT RUNS block (`_runs`, newest first, at most three, session-only
+## per DM-12). Empty shows a disclosure rather than invented history.
 func _build_recent_runs(col: Control) -> void:
 	_col_header(col, "RECENT RUNS")
 	var body := VBoxContainer.new()
@@ -3388,6 +3500,10 @@ func _build_recent_runs(col: Control) -> void:
 				DccIcons.SYMBOLS["tick"] if bool(run.get("ok", false)) else DccIcons.SYMBOLS["cross"]],
 			"text_dim" if bool(run.get("ok", false)) else "accent")
 
+## Export > Maps' action row: destination note, the disabled Save-as-preset chip
+## (`PRESET_NOTE`), Dry run and Export N tiles. The last two are disabled
+## unless the pyramid is selected or a Region-select marquee exists, with the
+## reason as tooltip.
 func _build_tile_export_footer(region: Dictionary) -> void:
 	## The pyramid needs no marquee. With no world at all the binding returns
 	## no bytes and `_run_export` reports that as a failed run.
@@ -3411,9 +3527,6 @@ func _build_tile_export_footer(region: Dictionary) -> void:
 	go.tooltip_text = (how
 		if ready else "No region marquee is set. Arm the Region select tool (R) and drag one on the map.")
 
-## The pane is small enough that rebuilding it on a toggle is cheaper than
-## threading a refresh through every control, and it keeps the estimate, the
-## footer's tile count and the Format well in one consistent state.
 ## Hands a vault mutation made here to the one place that persists vault
 ## state: `VaultWindow.store_changed`, whose handler in `app.gd` writes
 ## `VaultStore.PATH` and marks the project dirty. Emitting that signal rather
@@ -3423,6 +3536,9 @@ func _vault_store_changed() -> void:
 	if _host != null and _host.vault_window != null:
 		_host.vault_window.store_changed.emit()
 
+## The pane is small enough that rebuilding it on a toggle is cheaper than
+## threading a refresh through every control, and it keeps the estimate, the
+## footer's tile count and the Format well in one consistent state.
 func _rebuild_tile_export() -> void:
 	if _selected_id == "export_maps":
 		_select_route("export_maps")
@@ -3486,6 +3602,11 @@ func _run_geojson_export_here() -> void:
 		return
 	_run_geojson_export(_gis_dest)
 
+## Writes `export_geojson()`'s document to `path`, then measures the per-layer
+## counts of what was **actually written** into `_gis_doc_layers` and records a
+## run. An empty document (no world, or a build predating the binding) or an
+## unopenable path is a failed run with its own status message and clears
+## `_gis_doc_layers`. Always rebuilds the pane and refreshes the footer/status.
 func _run_geojson_export(path: String) -> void:
 	if _bridge == null:
 		return
@@ -3520,6 +3641,8 @@ func _run_geojson_export(path: String) -> void:
 	_refresh_foot()
 	_refresh_status()
 
+## Re-runs the Export > GIS / GeoJSON pane builder after a destination or
+## receipt change; does nothing unless that route is selected.
 func _rebuild_gis() -> void:
 	if _selected_id == "export_gis":
 		_select_route("export_gis")
@@ -3542,6 +3665,11 @@ func _pick_geojson_import() -> void:
 		"reads a FeatureCollection and places what it can into the current world",
 		func(path: String): _run_geojson_import(path))
 
+## Reads the chosen GeoJSON file and applies it through
+## `EngineBridge.apply_geojson_document` (Ruling V), with no preview step.
+## Returns silently with no world; a read or apply failure and the success summary
+## (`_geojson_import_summary()`) all land on the app status line, not in a
+## receipt.
 func _run_geojson_import(path: String) -> void:
 	if _bridge == null or not _bridge.has_world:
 		return
@@ -3785,6 +3913,9 @@ func _run_export(dry: bool) -> void:
 	_refresh_foot()
 	_refresh_status()
 
+## Pushes an Export > Maps run (real or `dry`) onto `_runs`, capped at three
+## newest-first. The label names the scheme or grid so the RECENT RUNS block can
+## tell runs apart; `msec` is monotonic for `_ago()`, `stamp` is wall-clock.
 func _record_run(dry: bool, bytes: int, secs: float, ok: bool) -> void:
 	var t := Time.get_time_dict_from_system()
 	_runs.push_front({
@@ -3800,12 +3931,16 @@ func _record_run(dry: bool, bytes: int, secs: float, ok: bool) -> void:
 	while _runs.size() > 3:
 		_runs.pop_back()
 
+## The newest **successful** run in `_runs` (any route), or `{}`. Failed runs are
+## skipped so the size/time estimate and rail footer never quote a failure.
 func _last_run() -> Dictionary:
 	for r in _runs:
 		if bool((r as Dictionary).get("ok", false)):
 			return r
 	return {}
 
+## Human size for a byte count: `—` for zero or negative (no value, never "0 B"),
+## then B, kB (1024) and MB (1 048 576) with one decimal.
 func _fmt_bytes(n: int) -> String:
 	if n <= 0:
 		return "—"
@@ -3819,6 +3954,9 @@ func _fmt_bytes(n: int) -> String:
 # Rail footer + status line
 # ---------------------------------------------------------------------------
 
+## Rewrites the rail footer: the exports root shortened to its last two
+## segments (full path in the tooltip) and the newest successful run. Guarded
+## by `is_instance_valid` because it can run after the window is freed.
 func _refresh_foot() -> void:
 	if not is_instance_valid(_foot_dest):
 		return
@@ -3837,6 +3975,10 @@ func _refresh_foot() -> void:
 		else "last run %s · %s" % [String(last.get("stamp", "")),
 			_fmt_bytes(int(last.get("bytes", 0)))])
 
+## Rewrites the status line: left readout back to idle, middle readout per route
+## (Validation counts from `_checks_last`, or the Export > Maps tile queue or
+## marquee prompt; empty elsewhere). Counts are read, never recomputed, so the
+## line and the pane cannot disagree.
 func _refresh_status() -> void:
 	if not is_instance_valid(_status_left):
 		return
