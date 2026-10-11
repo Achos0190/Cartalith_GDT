@@ -39,9 +39,9 @@ extends PopupPanel
 ## ## Keyboard (§4.2)
 ##
 ## Up / Down move the highlight over the rows that can act; Enter runs it
-## (or opens its submenu); Right opens a submenu, Left / Backspace-on-an-empty-
-## filter goes back from one; Left / Right step a param row; any printable
-## character filters the rows by label (a submenu row also matches on its
+## (or opens its submenu); Right opens a submenu; Left goes back from one
+## (also clearing the filter), as does Backspace on an empty filter; Left /
+## Right step a param row; any printable character filters the rows by label (a submenu row also matches on its
 ## children's labels); Backspace edits the filter; Esc closes (the `Popup`'s
 ## own `ui_cancel`). Handled on `window_input`, the event path an embedded
 ## popup actually receives.
@@ -73,6 +73,9 @@ extends PopupPanel
 ## §9.1's cap on the Select ▸ list: "nearest first, capped at 8".
 const SELECT_CAP := 8
 
+## Band title for each broker section id (§4.1's order is the broker's, not this
+## table's). An unknown id falls back to its upper-cased name in
+## `_section_title()`; the TOOL and CARTO PLACE variants are applied there.
 const SECTION_TITLES := {
 	"draft": "DRAFT", "tool": "TOOL", "object": "OBJECT",
 	"place": "PLACE HERE", "go": "GO / MEASURE", "info": "INFO",
@@ -115,6 +118,11 @@ var _body: VBoxContainer
 var _scroll: ScrollContainer
 
 
+## One-time construction: names the popup, builds the scroll + body container the
+## card is drawn into, and hooks the pause/resume of the world to the popup's own
+## show/hide signals (§9.4). The scroll's `panel` box is emptied on purpose, or
+## the shell theme paints over the card's ground. Must be called once, before
+## `open()`; `app` is required (the signal handlers dereference it).
 func setup(p_app) -> void:
 	app = p_app
 	name = "ContextCard"
@@ -155,6 +163,8 @@ static func _accent_ink() -> String:
 	return "accent" if DccTheme.is_dark() else "accent_hover"
 
 
+## Whether the tablet/touch density applies (`DccTheme.is_tablet()`); selects
+## the per-density figures in `_m()`.
 func _touch() -> bool:
 	return DccTheme.is_tablet()
 
@@ -244,16 +254,26 @@ func drawn_rows() -> Array:
 	return out
 
 
+## Probe seam: the highlighted row's node, or null when nothing is focused.
+## Read-only.
 func focused_row() -> Control:
 	return _nav[_focus]["node"] if _focus >= 0 and _focus < _nav.size() else null
 
 
+## Probe seam: whether the card is showing a submenu (or the Select list)
+## instead of the sections. Read-only.
 func in_submenu() -> bool:
 	return not _sub.is_empty()
 
 
 # -- Build --------------------------------------------------------------------
 
+## Throws away the drawn rows and rebuilds the whole card from `_actions`,
+## `_sub` and `_filter`: panel box (`raised` ground, `text_ghost` border,
+## palette read fresh so a theme switch shows on the next open), header, filter
+## line, then the sections or the submenu, then focus on the first reachable row.
+## Cheap enough to call on every keystroke. Never changes the placement; callers
+## follow it with `_place()` because the size may have changed.
 func _rebuild() -> void:
 	for c in _body.get_children():
 		_body.remove_child(c)
@@ -286,6 +306,10 @@ func _rebuild() -> void:
 		_set_focus(0)
 
 
+## Draws the header: the object title and the `_readout()` lines. The subtitle
+## is one label per line, not one long line, because the cell + two distances
+## measured 452 px wide and set the card's width (canvas: 286). Margins 10/8 and
+## separation 4 are layout judgements taken from the canvas's header block.
 func _build_header() -> void:
 	var head := _header()
 	var box := MarginContainer.new()
@@ -311,6 +335,11 @@ func _build_header() -> void:
 	_body.add_child(box)
 
 
+## Draws the top-level body: the Select entry when two or more objects are under
+## the pointer (hidden while filtering), then each section that has at least one
+## row matching the filter, with `danger` rows moved after the others behind a
+## soft rule (§3: they sort last, stably). Section order is the order the
+## broker's rows first mention each section.
 func _build_main() -> void:
 	if _all_hits.size() >= 2 and _filter.is_empty():
 		_rule()
@@ -347,6 +376,9 @@ func _build_main() -> void:
 				_row_for(a)
 
 
+## Draws the open submenu: the `BACK` band (always the first reachable row) and
+## the submenu's rows, indented, filtered by `_matches()`. One level only
+## (§4.2, no sixth level).
 func _build_sub() -> void:
 	_rule()
 	var back := _action_row("‹ BACK  ·  %s" % String(_sub["title"]), "", _accent_ink(), true, true)
@@ -357,6 +389,9 @@ func _build_sub() -> void:
 			_row_for(a, true)
 
 
+## The band text for a section id. TOOL carries the armed tool's name; in the
+## CARTO domain the `place` band reads `PLACE & SHOW` because there "place"
+## means "show" (the canvas's own CARTO band).
 func _section_title(sec: String) -> String:
 	var t := String(SECTION_TITLES.get(sec, sec.to_upper()))
 	if sec == "tool":
@@ -368,6 +403,9 @@ func _section_title(sec: String) -> String:
 	return t
 
 
+## Whether an action survives the type-to-filter: its label contains the filter
+## (case-insensitive), or, for a submenu row, any child's label does. An empty
+## filter matches everything.
 func _matches(a: Dictionary) -> bool:
 	if _filter.is_empty():
 		return true
@@ -380,6 +418,10 @@ func _matches(a: Dictionary) -> bool:
 	return false
 
 
+## Draws one action in the form its data calls for: a `param` row, a disabled
+## row with its reason, or a plain action (hint is its `shortcut`, or the submenu
+## glyph when it has `children`; `danger` uses the `block` ink). Plain actions
+## join `_nav`, the keyboard's reachable list; disabled rows never do.
 func _row_for(a: Dictionary, indent: bool = false) -> void:
 	var label := String(a.get("label", ""))
 	if a.has("param"):
@@ -398,6 +440,8 @@ func _row_for(a: Dictionary, indent: bool = false) -> void:
 	_nav.append({"node": row, "kind": "action", "action": a})
 
 
+## Adds a 1 px divider line; `soft` uses the dimmer `line_soft` (used between a
+## section's safe and danger rows).
 func _rule(soft: bool = false) -> void:
 	var r := ColorRect.new()
 	r.color = DccTheme.c("line_soft" if soft else "line")
@@ -407,6 +451,8 @@ func _rule(soft: bool = false) -> void:
 	_body.add_child(r)
 
 
+## Adds a section band: a small spaced-out upper-case mono title (margins 6/3
+## are canvas-derived layout judgements).
 func _band(text: String) -> void:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", _m("pad"))
@@ -418,6 +464,9 @@ func _band(text: String) -> void:
 	_body.add_child(m)
 
 
+## Adds a plain one-line text row (used for the filter readout) and returns its
+## container so the caller can tag it. `_kind` is unused; it only documents the
+## call site.
 func _text_row(_kind: String, text: String, token: String, fs: int, mono: bool) -> Control:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", _m("pad"))
@@ -473,6 +522,11 @@ func _action_row(text: String, hint: String, ink: String, mono: bool,
 	return row
 
 
+## Draws a disabled action: label in `text_dim`, its reason on its own wrapped
+## line in `accent_hover`, always visible (§4.2: never tooltip-only; the tooltip
+## repeats it). A missing reason is a provider bug and is drawn as one
+## ("(no reason given -- provider bug)") rather than hidden. Not added to
+## `_nav`: there is nothing to run.
 func _disabled_row(a: Dictionary) -> void:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", _m("pad"))
@@ -500,6 +554,11 @@ func _disabled_row(a: Dictionary) -> void:
 	_body.add_child(m)
 
 
+## Draws an inline parameter row: label, `-`, value, `+` (§4.1's Tool section).
+## The row's `param` supplies `value` (Callable returning the text) and `step`
+## (Callable taking -1/+1). Added to `_nav` so Left/Right step it from the
+## keyboard. The 64 px value width is a layout judgement wide enough for the
+## longest current value.
 func _param_row(a: Dictionary) -> void:
 	var row := PanelContainer.new()
 	row.custom_minimum_size.y = _m("param_row")
@@ -537,6 +596,9 @@ func _param_row(a: Dictionary) -> void:
 	_refresh_param(entry)
 
 
+## Builds one `-`/`+` button: not focusable (the card owns keyboard focus),
+## sized by density (`step_btn`), outlined in `border` and in `accent` while
+## hovered or pressed.
 func _step_button(glyph: String, tip: String) -> Button:
 	var b := Button.new()
 	b.text = glyph
@@ -556,6 +618,8 @@ func _step_button(glyph: String, tip: String) -> Button:
 	return b
 
 
+## Re-reads a param row's value text and updates both the label and the probe
+## metadata. Must run after anything that can change the value.
 func _refresh_param(entry: Dictionary) -> void:
 	var p: Dictionary = entry["action"]["param"]
 	var text := String((p["value"] as Callable).call())
@@ -565,6 +629,8 @@ func _refresh_param(entry: Dictionary) -> void:
 		"id": String(entry["action"].get("id", ""))})
 
 
+## Steps a param row by `dir` (-1 or +1) through the action's own `step`
+## callable, then refreshes the displayed value. Never writes the value itself.
 func _step(entry: Dictionary, dir: int) -> void:
 	((entry["action"]["param"] as Dictionary)["step"] as Callable).call(dir)
 	_refresh_param(entry)
@@ -601,6 +667,9 @@ func _header() -> Dictionary:
 	return {"title": title, "subtitle": _readout()}
 
 
+## The kind word shown after a hit's name: a settlement's own class (town, city,
+## ...) looked up from the bridge, otherwise the hit's `kind`. Falls back to
+## `kind` when the bridge or the entry is missing.
 func _kind_text(h: Dictionary) -> String:
 	var kind := String(h.get("kind", ""))
 	if kind == "settlement" and app != null and app.bridge != null:
@@ -638,6 +707,8 @@ func _readout() -> Array:
 
 # -- Interaction --------------------------------------------------------------
 
+## Moves the keyboard highlight to the hovered row (mouse and keyboard share one
+## focus). A node not in `_nav` (a disabled row) is ignored.
 func _hover(row: Control) -> void:
 	for i in _nav.size():
 		if _nav[i]["node"] == row:
@@ -645,6 +716,9 @@ func _hover(row: Control) -> void:
 			return
 
 
+## Highlights `_nav[i]` (restoring the previous row's resting box first) and
+## scrolls it into view; an out-of-range `i` just clears the highlight. The
+## `is_instance_valid` guard covers a row freed by a rebuild.
 func _set_focus(i: int) -> void:
 	if _focus >= 0 and _focus < _nav.size():
 		var old: Control = _nav[_focus]["node"]
@@ -659,6 +733,13 @@ func _set_focus(i: int) -> void:
 		_scroll.ensure_control_visible(n)
 
 
+## Runs the highlighted row. Select opens the "Objects here" list (the nearest
+## `SELECT_CAP`, with a disabled "... and N more" row past it and the primary
+## hit marked); BACK returns to the sections and clears the filter; a param row
+## does nothing (it is stepped, not run); a submenu row opens its children; a
+## Select entry hands its hit to `_on_select`; any other enabled row hides the
+## card FIRST and then calls its `callable`, so an action that opens another
+## surface is not racing this popup.
 func _activate_focused() -> void:
 	if _focus < 0 or _focus >= _nav.size():
 		return
@@ -699,15 +780,21 @@ func _activate_focused() -> void:
 			(a["callable"] as Callable).call()
 
 
+## The request's first hit (the nearest), or `{}` when there is none.
 func _primary_hit() -> Dictionary:
 	var hits: Array = _req.get("hits", [])
 	return hits[0] if not hits.is_empty() else {}
 
 
+## Whether two hits are the same object (same `kind` and `id`). The missing-id
+## defaults differ (-1 vs -2) so two hits that both lack an id never compare
+## equal; an empty `b` is never equal.
 static func _same_hit(a: Dictionary, b: Dictionary) -> bool:
 	return not b.is_empty() and a.get("kind") == b.get("kind") and int(a.get("id", -1)) == int(b.get("id", -2))
 
 
+## Switches to a submenu (`title`, `rows`): clears the filter, rebuilds and
+## re-places, since the size usually changes.
 func _open_sub(title: String, rows: Array) -> void:
 	_sub = {"title": title, "rows": rows}
 	_filter = ""
@@ -715,6 +802,9 @@ func _open_sub(title: String, rows: Array) -> void:
 	_place()
 
 
+## The card's keyboard entry: key presses on the popup window are passed to
+## `_key()` and marked handled when it used them. `window_input` is the path an
+## embedded popup actually receives; releases and non-key events are ignored.
 func _on_window_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if k == null or not k.pressed:
@@ -802,6 +892,8 @@ func _place() -> void:
 	_reclamp.call_deferred()
 
 
+## The visible rect of the viewport the card pops into (the host's, not the
+## popup's own), in the space `_anchor` uses.
 func _bounds() -> Rect2:
 	var host_vp: Viewport = app.get_viewport() if app != null else get_viewport()
 	return host_vp.get_visible_rect()
@@ -874,6 +966,11 @@ func panel_rect() -> Rect2:
 	return Rect2(Vector2(position) + r.position - Vector2.ONE, r.size + Vector2(2, 2))
 
 
+## Moves the already-shown window so the DRAWN panel (`panel_rect()`, not the
+## window, which the shadow margin enlarges) lands on `_target_rect()`. A pure
+## translate, never a rebuild; a no-op when hidden or already in place. Called
+## twice from `_place()` (now, and deferred once layout has settled) and from
+## `set_ring_clear()`.
 func _reclamp() -> void:
 	if not visible or not is_instance_valid(_scroll):
 		return

@@ -188,6 +188,10 @@ const ICON_FAMILIES: Array = [
 ## other 30 could not be hidden at all. The reference lists all five and has
 ## since `CIV_WAY_TYPES` existed.
 const SETTLEMENT_KINDS: Array = ["metropolis", "capital", "city", "town", "village", "hamlet"]
+## The five way-type switches shown under Layers, as `{key, label}` rows. `key`
+## is the `way_type` string `get_roads()` emits (`cartalith_civ::WayType`), which
+## `map_overlay.gd` tests at draw time. Order is the reference's `CIV_WAY_TYPES`,
+## trunk tier first. Never add a `sea-lane` row: it has its own layer switch.
 const WAY_TYPES: Array = [
 	{"key": "highway", "label": "Trade highways"},
 	{"key": "regional", "label": "Regional roads"},
@@ -316,6 +320,12 @@ var _layer_checks: Dictionary = {}
 var _render: RenderWorkspace
 
 
+## Builds the CARTO dock: the Icon/Label tool block, the nested RENDER panel
+## (`_render`, set up first because the Style/Relief/Colours categories draw
+## into it), Ruling L's seven categories in tree order, then the signal wiring
+## that keeps the dock in step with the world (generation, load, sculpt commit,
+## layer visibility changes from elsewhere). Called once by the workspace base
+## class; every builder here is called with a different parent, never duplicated.
 func _build() -> void:
 	_render = RenderWorkspace.new()
 	_render._nested = true
@@ -430,9 +440,9 @@ func _build() -> void:
 	## 6 -- LABELS. The rail's `labels` node lands here (`RAIL_NODES`).
 	##
 	## Two panels, in the order the design draws them: the ENV prototype's
-	## per-class typography block first (`ENV:698`-`721`, engine-blocked, drawn
-	## disclosed -- see `_build_label_classes()`), then this shell's own
-	## hand-placed region-label list, which is live.
+	## per-class typography block first (`ENV:698`-`721`; now bound to the
+	## engine's own class table -- see `_build_label_classes()`), then this
+	## shell's own hand-placed region-label list, which is live.
 	var labels_cat := DccWidgets.category(self, "Labels", categories)
 	_build_label_classes(labels_cat)
 	_build_label_panel(labels_cat)
@@ -1247,6 +1257,11 @@ func _refresh_trade_load_row(available: bool) -> void:
 			+ "draws; it is computed on demand and held nowhere, so a generate clears it.")
 
 
+## Resets everything that described the previous world: forwards the event to the
+## nested RENDER panel (which `app.gd` cannot reach), re-reads the layer checks,
+## clears handles and any in-flight icon or label drag, rebuilds both list
+## panels, re-reads the icon pack's filled-slot counts, and re-runs the labelling
+## pass. Must run on both `generation_finished` and `world_loaded`.
 func _on_world_changed() -> void:
 	## RENDER first: it is nested in this workspace (`_render`), so
 	## `app.gd`'s own `on_world_changed` broadcast never reaches it -- that
@@ -1533,6 +1548,11 @@ func _begin_icon_handle_drag(index: int, gx: float, gy: float) -> void:
 		Vector2(gx + 0.5, gy + 0.5).distance_to(Vector2(_icon_drag_cx, _icon_drag_cy)))
 
 
+## Handles pointer movement while the Icon tool is armed: with the density brush
+## on, stamps under the pointer and refreshes only if something was placed; with
+## a resize handle grabbed, rescales that icon about its centre. Deliberately does
+## not rebuild the list panel per sample (frame drops); `_on_icon_release` does it
+## once.
 func _on_icon_drag(gx: float, gy: float) -> void:
 	## The brush's own `pointermove` (reference line 9719), which redraws only
 	## when a stamp actually placed something -- `if(_carIconBrushStamp(gx,gy))
@@ -1551,6 +1571,9 @@ func _on_icon_drag(gx: float, gy: float) -> void:
 	_update_icon_handles_overlay()
 
 
+## Ends an icon drag or brush stroke: refreshes the map once and rebuilds the
+## list panel once so its `x scale` readouts show the final values. The release
+## position and validity are unused. Never leave a drag mode set after this.
 func _on_icon_release(_gx: float, _gy: float, _valid: bool) -> void:
 	## Reference line 9739: the stroke ends and the map gets one full render,
 	## "so the finished stand composites like any other icon edit".
@@ -1565,6 +1588,9 @@ func _on_icon_release(_gx: float, _gy: float, _valid: bool) -> void:
 		_rebuild_icon_panel()   ## Syncs the list row's own `×scale` readout to the drag's final value.
 
 
+## Builds the "Placed icons" section: the list body that `_rebuild_icon_panel`
+## fills, the Clear-all button, and the usage note. Builds the container only;
+## the rows are drawn by `_rebuild_icon_panel`.
 func _build_icon_panel(parent: Control) -> void:
 	## `#carIconList` (`DCC_SHELL_SPEC.md` §4.5.5): "Both keep their list
 	## panels ... with counts and Clear-all."
@@ -1608,6 +1634,9 @@ static func _set_clear_state(btn: Button, noun: String, n: int, why: String) -> 
 	btn.tooltip_text = why if n == 0 else "Removes all %d placed %s. Not undoable." % [n, noun]
 
 
+## Redraws the placed-icon rows from `bridge.icon_list()` and updates the
+## Clear-all button's count and enabled state. A no-op before the panel is built.
+## Call after anything that adds, removes or rescales an icon.
 func _rebuild_icon_panel() -> void:
 	if _icon_list_body == null:
 		return
@@ -1789,6 +1818,10 @@ func _label_side_from_handles(index: int) -> float:
 	return Vector2(resize_h["x"], resize_h["y"]).distance_to(centre) * sqrt(2.0)
 
 
+## Applies one pointer-move sample of a Label-tool drag in the mode `map_clicked`
+## set (move, resize, rotate or arc), each through the bridge's own geometry
+## helper so the maths lives in the engine, then refreshes the map and the handle
+## overlay. Does nothing when no label is grabbed.
 func _on_label_drag(gx: float, gy: float) -> void:
 	if _label_drag_index < 0:
 		return
@@ -1812,6 +1845,8 @@ func _on_label_drag(gx: float, gy: float) -> void:
 	_update_label_handles_overlay()
 
 
+## Ends a Label-tool drag: clears the drag mode and rebuilds the label panel once
+## so its field readouts show the final values. Position and validity unused.
 func _on_label_release(_gx: float, _gy: float, _valid: bool) -> void:
 	if _label_drag_mode != DragMode.NONE:
 		_label_drag_mode = DragMode.NONE
@@ -1819,6 +1854,8 @@ func _on_label_release(_gx: float, _gy: float, _valid: bool) -> void:
 		_rebuild_label_panel()   ## Syncs the dock's own field readouts to the drag's final values.
 
 
+## Writes one field (`key`) of label `idx` through `label_set` and refreshes the
+## map and handles. Ignores a negative index (no label selected).
 func _apply_label_field(idx: int, key: String, value) -> void:
 	if idx < 0:
 		return
@@ -1827,6 +1864,8 @@ func _apply_label_field(idx: int, key: String, value) -> void:
 	_update_label_handles_overlay()
 
 
+## Commits the label edit session in the engine, refreshes the map, redraws the
+## tool-options row and the label panel. Counterpart of `_cancel_label_edit`.
 func _confirm_label_edit() -> void:
 	bridge.label_confirm_edit()
 	app.viewport.refresh_annotations()
@@ -1834,6 +1873,8 @@ func _confirm_label_edit() -> void:
 	_rebuild_label_panel()
 
 
+## Abandons the label edit session in the engine (the label returns to its
+## pre-edit state), then refreshes exactly as `_confirm_label_edit` does.
 func _cancel_label_edit() -> void:
 	bridge.label_cancel_edit()
 	app.viewport.refresh_annotations()
@@ -2289,6 +2330,9 @@ func _label_range(table: Dictionary, key: String, fallback: Vector2) -> Vector2:
 		return fallback
 	return Vector2(float(r[0]), float(r[1]))
 
+## The engine's per-class typography row whose `key` is `key`, or `{}` when none
+## matches. Returns the live entry from `_label_class_specs`, not a copy: the
+## class dials write through it.
 func _label_class_spec(key: String) -> Dictionary:
 	for entry in _label_class_specs:
 		var d: Dictionary = entry
@@ -2297,6 +2341,10 @@ func _label_class_spec(key: String) -> Dictionary:
 	return {}
 
 
+## Builds the "Label classes" section: one pressable row per generated-label
+## class with its two counts, the class picker, the size/halo/tracking dials,
+## the collision-culling switch and the role-default controls. Specs come from the engine (`_label_class_specs_from_engine`), not from the
+## design's static table, so what is shown is what the generated pass uses.
 func _build_label_classes(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Label classes")
 	_label_class_specs = _label_class_specs_from_engine()
@@ -2616,6 +2664,11 @@ func _build_label_classes(parent: Control) -> void:
 const LABEL_ADVANCE_PROBE := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 var _label_advance_ratio_cache := 0.0
 
+## Average glyph advance per pixel of font size for the theme's default font,
+## measured once from `LABEL_ADVANCE_PROBE` at 64 px (large to keep per-glyph
+## rounding negligible) and cached. Returns 0.0 when there is no font yet, which
+## callers send as "no estimate" so the engine uses its own shipped one. Never
+## cache a failed measurement.
 func _label_advance_ratio() -> float:
 	if _label_advance_ratio_cache > 0.0:
 		return _label_advance_ratio_cache
@@ -2651,12 +2704,17 @@ func _label_class_dial(parent: Control, label_text: String, field: String,
 		_regenerate_labels)
 
 
+## Position of class `id` in `_label_class_specs`; falls back to 2 (settlement,
+## the prototype's `CL[2]`) for an unknown id so the picker always has a valid
+## selection.
 func _label_class_index(id: String) -> int:
 	for i in _label_class_specs.size():
 		if String((_label_class_specs[i] as Dictionary).get("key", "")) == id:
 			return i
 	return 2   ## `parts.js:378`'s own fallback -- `CL[2]`, settlement.
 
+## Selects class `id` for the three dials and re-seats the UI on it. Only changes
+## the dock's selection; it writes nothing to the engine.
 func _set_label_class(id: String) -> void:
 	_label_class = id
 	_sync_label_class()
@@ -3054,6 +3112,11 @@ var _icon_gen_avoid_labels := true
 var _icon_gen_enforce_spacing := true
 var _icon_gen_snap_coast := false
 
+## Builds the "Automatic placement" section: the family chips, the slot-coverage
+## line, the scale and spacing sliders, the avoid-labels / enforce-spacing /
+## snap-to-coast switches and the Run button. When the cdylib lacks
+## `icon_placement_families` the controls are drawn inert and say why, instead of
+## falling back to design figures nobody can check.
 func _build_icon_placement(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Automatic placement")
 	_icon_placement_rows = bridge.icon_placement_families()
@@ -3160,6 +3223,8 @@ func _refresh_icon_placement_rows() -> void:
 	_icon_placement_rows = rows
 	_sync_icon_placement()
 
+## Selects the placement family `id` (PLACES, TREES, SEA MARKS, POI) and
+## refreshes the chip highlight and slot line. Changes only the dock's state.
 func _set_icon_placement_family(id: String) -> void:
 	_icon_placement_family = id
 	_sync_icon_placement()
@@ -3193,6 +3258,9 @@ func _run_icon_placement() -> void:
 	_rebuild_icon_panel()
 	app.viewport.refresh_annotations()
 
+## Re-seats the family chips' highlight and rewrites the slot line from the
+## engine's `filled` and `slots` counts for the selected family. Never invents a
+## count: with no pack art loaded it says every slot draws its procedural glyph.
 func _sync_icon_placement() -> void:
 	for id in _icon_family_chips:
 		DccWidgets.set_segment_on(_icon_family_chips[id], id == _icon_placement_family)
@@ -3253,6 +3321,10 @@ func _dead_slider(parent: Control, label_text: String, range_: Vector2, step: fl
 	_mark_inert(d["row"])
 	return d
 
+## Builds the "Region labels" section (`#carLabelList`): the placed-label list
+## body, the Clear-all button and the edit-session body. Rows are drawn by
+## `_rebuild_label_panel`. Named "Region labels" after the reference's own
+## vocabulary (GUI_GAP_REGISTER CA-13).
 func _build_label_panel(parent: Control) -> void:
 	## `#carLabelList` (`DCC_SHELL_SPEC.md` §4.5.5).
 	##
@@ -3281,6 +3353,10 @@ func _build_label_panel(parent: Control) -> void:
 	sec.add_child(_label_edit_body)
 
 
+## Redraws the placed-label rows from `bridge.label_list()` with each row's
+## selection, role and base state, and updates the Clear-all button's count and
+## enabled state. A no-op before the panel is built. Call after anything that
+## adds, removes, edits or selects a label.
 func _rebuild_label_panel() -> void:
 	if _label_list_body == null:
 		return

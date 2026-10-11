@@ -241,6 +241,11 @@ var _phone_title: Label
 signal store_changed
 
 
+## Wires the window to its host (`app`) and the engine bridge (`b`), loads the
+## write-confirmation preferences once, and builds the empty frame (title, size,
+## scroll body); `_rebuild()` fills the body on every open. Call it once, before
+## the window is shown. It must never touch the disk itself: persistence goes out
+## through `store_changed`.
 func setup(a, b: EngineBridge) -> void:
 	app = a
 	bridge = b
@@ -326,6 +331,9 @@ func open_for(kind: String, entity_id: int, label: String) -> void:
 const TWO_PANE_MIN_W := 640
 
 
+## True when the window should use the single-column (fold) layout: always on a
+## phone, otherwise whenever the window is narrower than `TWO_PANE_MIN_W`.
+## Read-only; `_on_size_changed()` rebuilds when this flips.
 func _one_pane() -> bool:
 	return _phone or size.x < TWO_PANE_MIN_W
 
@@ -398,6 +406,10 @@ func open_browse() -> void:
 		popup_centered()
 
 
+## Frees the body's children and nulls every cached reference into them (editors,
+## search box, tree column) so a callback that outlives a rebuild finds `null`
+## and bails instead of writing into a freed node. Must never be skipped before a
+## rebuild.
 func _clear() -> void:
 	for c in _body.get_children():
 		_body.remove_child(c)
@@ -415,6 +427,11 @@ func _clear() -> void:
 	_browse_tree_col = null
 
 
+## Rebuilds the whole body from the bridge's current state: the title, the
+## connection block, then the unified browser (Ruling BE: a bound vault with a
+## scope entity or browse-only), the unbound scoped form, or the overview. Safe
+## to call after any state change; it is the window's only redraw path and frees
+## the focused field, so never call it per keystroke (see `_build_search`).
 func _rebuild() -> void:
 	_clear()
 	var scoped := _kind != ""
@@ -556,6 +573,10 @@ func _build_connection_header(info: Dictionary) -> void:
 	row.add_child(DccTheme.mono_label(hint, "text_ghost", DccTheme.FS_MICRO, 1))
 
 
+## Opens the folder picker and binds the chosen folder as the vault. A refused
+## connect is reported on the status line with the engine's reason; success emits
+## `store_changed` so the host persists. Rebuilds either way. Never writes to the
+## chosen folder: connecting only reads.
 func _browse_vault() -> void:
 	DccBrowseDialog.choose_folder(app, "Select markdown vault folder", "",
 		"Cartalith reads .md files from this folder and writes only where you tell it to.",
@@ -618,6 +639,10 @@ func _build_search() -> void:
 	_fill_search_results()
 
 
+## Runs the search for `_search_query` (names, plus note text once the content
+## index exists) and refills only the results box. An empty query clears the
+## result. Called by Enter or the Search button, never per keystroke (§31: do not
+## walk the vault casually).
 func _run_search() -> void:
 	var q := _search_query.strip_edges()
 	_search_open_rel = ""
@@ -628,6 +653,10 @@ func _run_search() -> void:
 	_fill_search_results()
 
 
+## Redraws `_search_box` from `_search_result`: the hits plus the numbers
+## (`indexed`, `scanned`, `truncated`) that say whether an empty answer means
+## "absent" or "not looked at". Returns at once if a rebuild has freed the box.
+## Must never present a capped or names-only search as complete.
 func _fill_search_results() -> void:
 	if _search_box == null or not is_instance_valid(_search_box):
 		return
@@ -1054,6 +1083,10 @@ func _guard_dirty(then: Callable, on_keep: Callable = Callable()) -> void:
 			then.call(), on_keep)
 
 
+## Discards the in-memory editor session (path, text, saved copy, hash) and
+## returns the editor to its default Write mode. Writes nothing and does not
+## rebuild; the caller redraws. Callers have either saved or have the user's
+## consent to discard (`_guard_dirty`, `_warn_unsaved`).
 func _close_editor() -> void:
 	_browse_path = ""
 	_browse_text = ""
@@ -1202,6 +1235,10 @@ func _entity_line(kind: String, ent: Dictionary) -> String:
 	return " · ".join(PackedStringArray(parts))
 
 
+## Adds the "Show on map" button for an entity. Enabled only when the entity
+## resolved with an `x` position; otherwise it is disabled with a tooltip giving
+## the reason for this `kind` (absent from the world, a kind this window does not
+## look up, or no readable capital). Never moves the view to a made-up point.
 func _build_show_on_map(parent: Control, kind: String, ent: Dictionary) -> void:
 	var b := DccWidgets.action(parent, "Show on map", func():
 		app.viewport.move_view_to(float(ent.get("x", 0.0)), float(ent.get("y", 0.0))))
@@ -1217,6 +1254,10 @@ func _build_show_on_map(parent: Control, kind: String, ent: Dictionary) -> void:
 		b.tooltip_text = "This %s has no position this window can read (a province needs a capital settlement, a faction a capital)." % kind
 
 
+## Adds the "Section" choice for an attach: the whole document or one heading of
+## `_pick_file` (§11's priority order), stored in `_pick_heading`. Arbitrary byte
+## ranges are deliberately not offered; an offset goes stale as soon as the author
+## edits above it.
 func _build_section_choice(parent: Control) -> void:
 	## §11's own priority order: whole document first, then a heading section.
 	var headings := bridge.vault_file_headings(_pick_file)
@@ -1319,6 +1360,10 @@ func _fill_attach_list() -> void:
 		app.phone_fit(_attach_list, 1.0)
 
 
+## Attaches the picked note (`_pick_file`, `_pick_heading`) to the entity
+## `kind`/`eid`, labelled `label`. On success it opens the new link in the reader
+## and emits `store_changed`; a refusal is reported on the status line. Closes the
+## attach picker and rebuilds either way.
 func _attach_entity(kind: String, eid: int, label: String) -> void:
 	var r := bridge.vault_attach(kind, eid, label, _pick_file, _pick_heading)
 	if not bool(r.get("ok", false)):
@@ -1331,6 +1376,8 @@ func _attach_entity(kind: String, eid: int, label: String) -> void:
 	_rebuild()
 
 
+## Every link in the store whose file is `rel` (any entity's), or an empty array
+## for an empty path. Scans `vault_all_links()`; read-only.
 func _links_for_file(rel: String) -> Array:
 	var out: Array = []
 	if rel == "":
@@ -1462,6 +1509,12 @@ func _open_editor() -> void:
 	_rebuild()
 
 
+## Builds the Markdown editor (`MdEditor`) for the open note into `parent` and
+## wires its signals: edits mirror into `_browse_text`, Save goes to `_save_note`,
+## Cancel discards, Reload re-reads from disk. The note-link picker lists every
+## other note in the vault; the template inserter writes nothing itself, its
+## result waits in the editor for Save's hash-guarded write. Shows "Unsaved
+## edits." if the session is already dirty.
 func _build_editor_pane(parent: Control) -> void:
 	var ed = MdEditor.new()
 	ed.name = "VaultMarkdownEditor"
@@ -1529,6 +1582,11 @@ func _on_visibility_changed() -> void:
 	_warn_unsaved.call_deferred()
 
 
+## Deferred half of `_on_visibility_changed`: if the window was hidden while
+## holding unsaved edits, brings it back (unless a phone sheet is present) and
+## asks whether to discard them. Discard drops the edits and hides; Cancel leaves
+## the window open with the edits intact. Deferred so it runs after the hide that
+## triggered it has finished.
 func _warn_unsaved() -> void:
 	if visible or not _is_dirty():
 		return
@@ -2036,6 +2094,11 @@ const STATUS_TEXT := {
 }
 
 
+## The scoped form's "Knowledge" section: one group per note attached to the
+## scope entity (`_kind`/`_entity_id`), with its `STATUS_TEXT` line and the
+## Open/Close, Reload and compare actions for a stale link. Notes show their
+## cached text even when the vault is unbound (§27), so this never needs a live
+## connection to draw.
 func _build_links() -> void:
 	var sec := DccWidgets.section(_body, "Knowledge")
 	var links := bridge.vault_links_for(_kind, _entity_id)
@@ -2537,6 +2600,10 @@ func _build_snapshots(parent: Control) -> void:
 		b.tooltip_text = tip
 
 
+## Writes a map snapshot of the scope entity at `radius` into `subdir` of the
+## vault and files its path on the link store. A refusal is reported and nothing
+## changes. Success emits `store_changed` (the path rides `vault.json` into the
+## project archive) and rebuilds. Image size is fixed at `SNAPSHOT_PX`.
 func _generate_snapshot(radius: String, subdir: String) -> void:
 	var r := bridge.vault_snapshot(_lk, _lid, radius, subdir, SNAPSHOT_PX)
 	if not bool(r.get("ok", false)):
@@ -2550,6 +2617,10 @@ func _generate_snapshot(radius: String, subdir: String) -> void:
 	_rebuild()
 
 
+## The "Cartalith feedback" section: the field checkboxes for the entity's
+## exportable values (all ticked by default) and the preview-and-write, field-fill
+## and remove-block buttons. Map snapshots live in `_build_snapshots`. Says so, rather than drawing an empty form, when the
+## entity exports nothing. Every write here is behind a hash-guarded preview.
 func _build_feedback(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Cartalith feedback")
 	var fields := bridge.vault_export_fields(_lk, _lid)
@@ -2592,6 +2663,9 @@ func _build_feedback(parent: Control) -> void:
 	remove.tooltip_text = "Takes the block back out of the note, leaving every other byte alone. Previewed and confirmed like a write, because it is one — and it is the only act here that never learns to stop asking."
 
 
+## The export field keys currently ticked in `_selected_fields`, in the
+## dictionary's order. Passed to `vault_block_body` so the block holds only what
+## the user chose.
 func _selected_keys() -> PackedStringArray:
 	var out := PackedStringArray()
 	for k in _selected_fields:
@@ -2606,6 +2680,11 @@ func _link_path() -> String:
 	return _link_rel(_reader_link)
 
 
+## Previews, then (on confirm) writes the entity's Cartalith block into the
+## active link's note. Shows the engine's preview with a note on whether the block
+## is inserted or replaced; the preview's hash goes back with the write so a note
+## edited in between is refused, not overwritten. Does nothing without an active
+## link file. Honours the "confirm always" preference via `_preview_dialog`.
 func _confirm_block_write() -> void:
 	var rel := _link_path()
 	if rel == "":
@@ -2629,6 +2708,11 @@ func _confirm_block_write() -> void:
 		"block")
 
 
+## Previews, then (on confirm) fills the note's own template fields with the
+## entity's values. Lists each field's outcome; if the note has none Cartalith can
+## fill it says so on the status line instead of opening an empty dialog. A field
+## the user already filled is skipped, never overwritten. Hash-guarded like every
+## write here.
 func _confirm_field_fill() -> void:
 	var rel := _link_path()
 	if rel == "":
@@ -2892,6 +2976,9 @@ func _load_prefs_once() -> void:
 	VaultStore.load_prefs_into(bridge)
 
 
+## Persists the write-confirmation preferences through `VaultStore`. Call after
+## every `vault_set_write_pref` so a preference survives a restart; preferences
+## are per device and do not ride the project archive.
 func _save_prefs() -> void:
 	VaultStore.save_prefs_from(bridge)
 
@@ -3050,6 +3137,11 @@ func _build_index(parent: Control) -> void:
 	if bool(st.get("built", false)):
 		_build_index_report(parent)
 
+## Refreshes the backlink index (stats every note, re-reads only changed ones),
+## saves it through `VaultStore`, records a one-line outcome in `_index_feedback`
+## (or the engine's error), and rebuilds the window. Reads at most 2000 notes (a
+## cap chosen here to match the 2000 passed to `vault_list_files`; a labelled
+## judgement, not an engine limit) and never writes to the vault.
 func _refresh_index() -> void:
 	var r := bridge.vault_refresh_backlinks(2000)
 	if bool(r.get("ok", false)):
@@ -3087,6 +3179,10 @@ func _build_index_report(parent: Control) -> void:
 		+ "that Cartalith never rewrites a note's body.")
 
 
+## The overview's footer note: what the vault window deliberately does not do
+## (two-way sync, an Obsidian plugin) and where links are persisted. Prose only;
+## keep it in step with `VaultStore` and the snapshot and compare features it
+## names.
 func _build_footer() -> void:
 	DccWidgets.note(_body,
 		"Not built here, each for a stated reason: two-way sync and an Obsidian plugin — an "

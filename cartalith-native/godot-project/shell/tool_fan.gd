@@ -42,9 +42,9 @@ extends Node
 ##
 ## The canvas's `onUp()` tests `if(fan.hover)`, which in JS is falsy for
 ## index `0` -- the FIRST sub-fan item could never be picked by a drag-release
-## in that demo. This file tests `hover_index >= -1` the way `RadialRing.
-## release()` already does for its own sub-ring (`if hi >= 0`), which is
-## correct rather than a bug carried forward on purpose.
+## in that demo. This file tests the nearest-slot index with `>= 0` (`_hit_test()`'s `best >= 0`) the way
+## `RadialRing.release()` already does for its own sub-ring (`if hi >= 0`),
+## which is correct rather than a bug carried forward on purpose.
 ##
 ## ## Trigger gesture and why it cannot collide
 ##
@@ -98,6 +98,10 @@ var _sub: Dictionary = {}        ## {} closed; else {"dir","items","hover":int}
 var _prev_tool := ""             ## for the tap-toggle's "return to" memory
 
 
+## Wires the fan to the shell: builds the pill and the overlay, parents this node
+## (its `_process()` timer needs the tree) and the top-level overlay, and
+## refreshes the pill whenever a tool is armed. Call once, before `mount()`.
+## Must never be called twice: it adds children to `app` each time.
 func setup(app_ref) -> void:
 	app = app_ref
 	_pill = _Pill.new(self)
@@ -121,6 +125,8 @@ func mount(parent: Control) -> void:
 	parent.add_child(_pill)
 
 
+## Repaints the pill so its armed-tool label follows `app.armed_tool`. Safe
+## before the pill exists (null guard); never changes any state.
 func _refresh_pill_text() -> void:
 	if _pill != null:
 		_pill.queue_redraw()
@@ -144,6 +150,10 @@ func _process(_dt: float) -> void:
 		_update_hover_from_pos(_last_pos)
 
 
+## True while the phone's MORE menu or CM-5 peek card covers the screen, which is
+## when the pill (and any open fan) must hide. Duck-typed (`has_method`) because
+## `PhoneMenu` is not a declared type here; a missing menu means not blocked.
+## Read-only.
 func _blocked_by_menu() -> bool:
 	if app == null:
 		return false
@@ -159,18 +169,25 @@ func _blocked_by_menu() -> bool:
 
 # -- Probe-facing introspection (`_ctxfan_probe.gd`) --------------------------
 
+## Probe seam (`_ctxfan_probe.gd`): whether the fan is currently drawn. Read-only.
 func is_open() -> bool:
 	return _open
 
 
+## Probe seam: whether the fan has gone sticky (first release with no hover, or a
+## sub-fan opened), i.e. the overlay now takes taps. Read-only.
 func is_sticky() -> bool:
 	return _sticky
 
 
+## Probe seam: whether a sub-fan (a leaf with `children`) is showing. Read-only.
 func sub_open() -> bool:
 	return not _sub.is_empty()
 
 
+## Probe seam: a snapshot of the gesture state (`open`, `sticky`, top-level
+## `hover`, and the sub-fan's dir, hover index and item count) for the probe to
+## assert on. Read-only; never feed it back into logic.
 func debug_state() -> Dictionary:
 	return {
 		"open": _open, "sticky": _sticky, "hover": _hover,
@@ -179,6 +196,8 @@ func debug_state() -> Dictionary:
 	}
 
 
+## Probe seam: the pill's global rect, or an empty `Rect2` before it exists.
+## Read-only.
 func pill_global_rect() -> Rect2:
 	return _pill.get_global_rect() if _pill != null else Rect2()
 
@@ -204,6 +223,10 @@ func fan_bounds_rect() -> Rect2:
 # whose transform through a small, offset `Control` would otherwise have to
 # be reverse-engineered by the probe.
 
+## Gesture entry: the finger went down on the pill. Resets every fan flag and
+## records the press position and time so `_process()` can open the fan after
+## `FAN_HOLD_MS` or `pointer()` after `FAN_SLOP` of travel. Does not open
+## anything itself; a press-release with no opening is a tap.
 func press(gpos: Vector2) -> void:
 	_pressed = true
 	_open = false
@@ -215,6 +238,10 @@ func press(gpos: Vector2) -> void:
 	_press_ms = Time.get_ticks_msec()
 
 
+## Gesture entry: the finger moved while pressed (global position). Before the
+## fan opens, travel beyond `FAN_SLOP` (scaled by `phone_scale()`, so it is the
+## canvas's 12 dp) opens it early; once open, it only retargets the hover.
+## Ignored when no press is active.
 func pointer(gpos: Vector2) -> void:
 	if not _pressed:
 		return
@@ -272,6 +299,10 @@ func click_at(gpos: Vector2) -> void:
 	release_at(gpos)
 
 
+## A tap on the pill: arm Inspect and remember the tool it replaced, or, if
+## Inspect is already armed, re-arm that remembered tool. Goes through
+## `app.arm_tool` (the dock controls' own path) and never arms by any other
+## route. Does nothing when Inspect is armed and nothing is remembered.
 func _toggle_pill_tap() -> void:
 	if app.armed_tool != "inspect":
 		_prev_tool = app.armed_tool
@@ -280,6 +311,11 @@ func _toggle_pill_tap() -> void:
 		app.arm_tool(_prev_tool)
 
 
+## Opens the half-fan: collects the 8 compass slots from the broker for the
+## active domain (`ring_collect(ring_domain_req())`, shared with the desktop
+## ring rather than re-derived), captures the pill's centre as the fan origin,
+## fits the overlay to the viewport and shows it. The overlay ignores the mouse
+## until the fan goes sticky, since the pill still owns the drag.
 func _open_fan() -> void:
 	_slots = app.context_broker.ring_collect(app.context_broker.ring_domain_req())
 	_fan_center = _pill.get_global_rect().get_center()
@@ -294,6 +330,9 @@ func _open_fan() -> void:
 	_overlay.queue_redraw()
 
 
+## Replaces the top-level fan with a sub-fan of `items` (a slot's `children`).
+## Forces sticky and makes the overlay take taps, because a sub-fan is only
+## ever picked by a later tap, never by the drag that opened the parent.
 func _open_sub(dir: String, items: Array) -> void:
 	_sub = {"dir": dir, "items": items, "hover": -1}
 	_sticky = true
@@ -301,6 +340,11 @@ func _open_sub(dir: String, items: Array) -> void:
 	_overlay.queue_redraw()
 
 
+## Resolves a top-level slot pick. A missing or disabled slot just closes the
+## fan. A slot with `children` opens its sub-fan instead of closing. Otherwise
+## the fan is closed FIRST and then the provider's `callable` runs, so the
+## action never executes under a still-open overlay. Must not build its own
+## arming logic: the callable is the dock control's own function.
 func _run_leaf(dir: String) -> void:
 	var row: Dictionary = _slots.get(dir, {})
 	if row.is_empty() or not bool(row.get("enabled", true)):
@@ -315,6 +359,9 @@ func _run_leaf(dir: String) -> void:
 		cb.call()
 
 
+## Resolves a sub-fan pick by index. Out-of-range or disabled closes the fan;
+## otherwise closes first and then calls the item's `callable` (same ordering
+## and same no-second-implementation rule as `_run_leaf()`).
 func _run_sub_leaf(i: int) -> void:
 	var items: Array = _sub.get("items", [])
 	if i < 0 or i >= items.size():
@@ -330,6 +377,10 @@ func _run_sub_leaf(i: int) -> void:
 		cb.call()
 
 
+## Tears the fan down completely: every gesture flag, the slot cache and the
+## sub-fan are reset, and the overlay is hidden and made click-through. Safe to
+## call when already closed. It also clears `_pressed`, so a close during a drag
+## ends that drag.
 func _close() -> void:
 	_open = false
 	_sticky = false
@@ -342,12 +393,22 @@ func _close() -> void:
 	_overlay.queue_redraw()
 
 
+## Sizes the top-level overlay to the whole visible viewport so its scrim and
+## sticky-tap surface cover everything. Must run on every open (the window may
+## have resized).
 func _fit_overlay() -> void:
 	var r: Rect2 = app.get_viewport().get_visible_rect()
 	_overlay.position = Vector2.ZERO
 	_overlay.size = r.size
 
 
+## Maps a global position to what it picked: `{kind: "back"}` (inside the dead
+## zone of a sub-fan), `{kind: "sub_leaf", i}`, `{kind: "leaf_dir", dir}` or
+## `{kind: "none"}`. A slot wins only if its centre is within `HIT_MAX` (scaled)
+## of the finger, nearest wins; the dead zone around the fan origin picks
+## nothing at top level. Sub-fan items are spread over the 180-degree arc at
+## `OUTER_R`; a single item sits at 90 degrees (the `n > 1` guard avoids a
+## divide by zero). Pure: reads state, changes none.
 func _hit_test(gpos: Vector2) -> Dictionary:
 	var scale: float = app.phone_scale()
 	if not _sub.is_empty():
@@ -384,6 +445,9 @@ func _hit_test(gpos: Vector2) -> Dictionary:
 	return {"kind": "none"}
 
 
+## Re-runs `_hit_test()` for a finger position and updates the hover (the
+## top-level direction, or the sub-fan's index), redrawing the overlay only when
+## the hover actually changed.
 func _update_hover_from_pos(gpos: Vector2) -> void:
 	var hit := _hit_test(gpos)
 	if not _sub.is_empty():
@@ -405,17 +469,27 @@ class _Pill:
 
 	var fan  ## ToolFan
 
+	## Takes the owning `ToolFan` and makes the pill consume every event on it
+	## (`MOUSE_FILTER_STOP`, no focus), which is why the map's own gesture
+	## classifier never sees a press on the pill.
 	func _init(fan_ref) -> void:
 		fan = fan_ref
 		mouse_filter = Control.MOUSE_FILTER_STOP
 		focus_mode = Control.FOCUS_NONE
 
+	## Scales a dp figure by `phone_scale()` and floors it at `PHONE_TAP_MIN`, for
+	## sizes that must stay tappable (the pill's height).
 	func _pt(px: float) -> int:
 		return maxi(DccTheme.PHONE_TAP_MIN, int(round(px * fan.app.phone_scale())))
 
+	## Scales a dp figure by `phone_scale()` with a 1 px floor, for sizes that need
+	## no tap-target minimum (width, margins, corner padding).
 	func _ps(px: float) -> int:
 		return maxi(1, int(round(px * fan.app.phone_scale())))
 
+	## Sizes and anchors the pill: 188 x 44 dp (canvas figures), bottom-centre of its
+	## parent, 10 dp above the parent's bottom edge (a labelled judgement). Layout
+	## only; must stay anchored to the parent so it clears the nav and tool sheet.
 	func _ready() -> void:
 		## Canvas: 188 x 44 dp, bottom-centre, `top:668` of a 728-tall canvas --
 		## i.e. clear of the bottom nav below it. Anchored the same way
@@ -434,6 +508,9 @@ class _Pill:
 		offset_bottom = -_ps(10)
 		custom_minimum_size = Vector2(w, h)
 
+	## Paints the pill as a capsule (filled when a non-Inspect tool is armed) with
+	## the armed-tool name centred in mono. Reads `armed_visual()` and
+	## `pill_label()`; holds no state of its own.
 	func _draw() -> void:
 		var sb := DccTheme.pill(false, int(size.y * 0.5), _ps(8), _ps(4))
 		if fan.armed_visual():
@@ -447,6 +524,10 @@ class _Pill:
 		draw_string(font, Vector2((size.x - ts.x) * 0.5, size.y * 0.5 + ts.y * 0.32), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 
+	## Routes left-button, touch and motion/drag events into the fan's gesture entry
+	## points (`press`, `pointer`, `release`) in GLOBAL coordinates (the fan's
+	## geometry is global). Every handled event is accepted so nothing falls
+	## through to the map. Right/other buttons are ignored.
 	func _gui_input(event: InputEvent) -> void:
 		if event is InputEventMouseButton:
 			var mb := event as InputEventMouseButton
@@ -487,12 +568,17 @@ class _Overlay:
 
 	var fan  ## ToolFan
 
+	## Takes the owning `ToolFan`; top-level so it draws above the tree regardless
+	## of the parent's transform, hidden and click-through until the fan opens.
 	func _init(fan_ref) -> void:
 		fan = fan_ref
 		top_level = true
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
 		visible = false
 
+	## Handles only the sticky-state tap: a button/touch RELEASE is forwarded to
+	## `fan.click_at()`. Presses are ignored so the same tap is not counted twice.
+	## Reached only once `release_at()` has set this control to `MOUSE_FILTER_STOP`.
 	func _gui_input(event: InputEvent) -> void:
 		## Only reached once `fan.release_at()` has flipped this control to
 		## `STOP` (sticky) -- see that function's own comment. A tap that hits
@@ -512,6 +598,9 @@ class _Overlay:
 			accept_event()
 			return
 
+	## Draws the dim scrim, then the top-level slots or the open sub-fan, then the
+	## caption. Draws nothing when the fan is closed. Reads fan state; never
+	## mutates it.
 	func _draw() -> void:
 		if not fan._open:
 			return
@@ -526,6 +615,9 @@ class _Overlay:
 			_draw_sub(fan._sub)
 		_draw_caption()
 
+	## Draws the 8 top-level slots at their `FAN` angle and radius (scaled),
+	## highlighting `hover_dir`. Positions mirror `ToolFan._hit_test()`, which must
+	## change in step.
 	func _draw_top(slots: Dictionary, hover_dir: String) -> void:
 		var scale: float = fan.app.phone_scale()
 		for f in fan.FAN:
@@ -535,6 +627,10 @@ class _Overlay:
 			var pos: Vector2 = fan._fan_center + Vector2(cos(ang), -sin(ang)) * float(f[2]) * scale
 			_draw_slot(pos, row, dir == hover_dir, scale)
 
+	## Draws the sub-fan's items on the outer arc (same spread as `_hit_test()`),
+	## then the accent BACK button at the fan origin. Colour literals are the
+	## canvas's own (`rgba(224,163,74,.25)` glow). Must stay consistent with
+	## `_hit_test()`'s `back` zone.
 	func _draw_sub(sub: Dictionary) -> void:
 		var scale: float = fan.app.phone_scale()
 		var items: Array = sub.get("items", [])
@@ -566,6 +662,10 @@ class _Overlay:
 		draw_string(font, fan._fan_center + Vector2(-lts.x * 0.5, r * 0.58), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, lfs, DccTheme.c("accent_ink"))
 
+	## Draws one slot circle: sunken ground (accent when armed), warm wash when
+	## hovered, border, then glyph and label via `_draw_fitted_slot()`. An absent
+	## slot (`row` empty) draws only the faint empty circle; a disabled one is
+	## drawn at 0.35 alpha (a labelled judgement).
 	func _draw_slot(pos: Vector2, row: Dictionary, hovered: bool, scale: float) -> void:
 		var present := not row.is_empty()
 		var enabled := present and bool(row.get("enabled", true))
@@ -595,12 +695,17 @@ class _Overlay:
 		## "the two files' geometry does not overlap enough to factor out").
 		_draw_fitted_slot(pos, d, String(row.get("glyph", "")), String(row.get("label", "")), ink)
 
+	## Half the width of a circle's chord at vertical offset `dy` from its centre,
+	## 0 at or beyond the rim. Used to decide whether a text line fits inside a
+	## slot circle.
 	static func _chord_half_width(radius: float, dy: float) -> float:
 		var dd := absf(dy)
 		if dd >= radius:
 			return 0.0
 		return sqrt(radius * radius - dd * dd)
 
+	## Splits a label into two lines at the space or `/` nearest its middle, or
+	## returns `[]` if there is none or either half would be empty.
 	static func _split_label(text: String) -> Array:
 		var best := -1
 		var best_dist := 1.0e9
@@ -619,10 +724,18 @@ class _Overlay:
 			return []
 		return [l1, l2]
 
+	## Smallest font size `_draw_fitted_slot()` will shrink a label to
+	## (a legibility floor; labelled judgement).
 	const MIN_LABEL_FS := 7
 
 	## `radial_ring.gd::_draw_fitted_slot()`'s own algorithm -- see that
 	## copy's header for the wrap/shrink/margin reasoning.
+	## Draws the glyph above the label inside the circle. Shrinks the font one
+	## pixel at a time (down to `MIN_LABEL_FS`) and tries a two-line split until
+	## every line fits the circle's chord with a 6 px margin; at the floor it
+	## settles for the split (or the single line) even if it still overflows.
+	## The fractions (0.32, 0.62, 0.10, 0.30, 1.15 line height) are layout
+	## judgements copied from that function; keep the two in step.
 	func _draw_fitted_slot(centre: Vector2, slot_radius: float, glyph_name: String,
 			label_text: String, ink: Color) -> void:
 		var glyph_present := not glyph_name.is_empty()
@@ -663,6 +776,9 @@ class _Overlay:
 			draw_string(font, centre + Vector2(-ts.x * 0.5, dy + ts.y * 0.32), line,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, fs, ink)
 
+	## Draws a slot glyph: `sym:<name>` looks up a text symbol in
+	## `DccIcons.SYMBOLS` (`?` if unknown); anything else is a `DccIcons` texture
+	## tinted by `color`. Draws nothing for an empty name or a missing icon.
 	func _draw_glyph(name: String, centre: Vector2, px: float, color: Color) -> void:
 		if name.is_empty():
 			return
@@ -679,6 +795,10 @@ class _Overlay:
 			return
 		draw_texture_rect(tex, Rect2(centre - Vector2(px, px) * 0.5, Vector2(px, px)), false, color)
 
+	## Draws the hint band above the fan: the gesture instruction by default, the
+	## hovered slot's direction and label, the sub-fan's parent and hovered item,
+	## or the sticky-state tap hint. The 40 dp rise above `OUTER_R` and the
+	## `9 x 5` padding are layout judgements, not canvas figures.
 	func _draw_caption() -> void:
 		var text := "slide to a slot, lift to pick"
 		if not fan._sub.is_empty():
@@ -707,10 +827,14 @@ class _Overlay:
 
 # -- Pill content, read by `_Pill._draw()` -------------------------------------
 
+## Whether the pill should draw filled: true whenever any tool other than
+## Inspect is armed. Read by `_Pill._draw()`.
 func armed_visual() -> bool:
 	return app != null and String(app.armed_tool) != "inspect"
 
 
+## The pill's text: the armed tool id upper-cased (`INSPECT` before `app`
+## exists). Read by `_Pill._draw()`.
 func pill_label() -> String:
 	if app == null:
 		return "INSPECT"
